@@ -109,8 +109,22 @@ if (!installed.disclosure) fail("the install returned no disclosure");
 else ok("and returned what it will put in front of the model");
 
 const listed = await call("nest.plugins.list");
-if (!listed.plugins.some((p) => p.name === "demo-rows")) fail("it is not listed as installed");
+const entry = listed.plugins.find((p) => p.name === "demo-rows");
+if (!entry) fail("it is not listed as installed");
 else ok("it is listed as installed");
+
+// The engine's own fault report, passed through untouched. The settings page
+// draws a line per entry, and the case it exists for is the silent one: a
+// package that is listed, enabled, and contributing nothing because its
+// component never loaded. Assert the arrays are *there* rather than what is
+// in them — this package loads, so both are empty, and a build where the
+// field went missing would leave that row permanently blank with no test
+// noticing.
+if (!Array.isArray(entry?.script_faults) || !Array.isArray(entry?.component_faults)) {
+  fail("plugin.list carries no fault arrays; the settings page has nothing to draw");
+} else if (entry.script_faults.length || entry.component_faults.length) {
+  fail(`a package that loads reported faults: ${[...entry.script_faults, ...entry.component_faults].join("; ")}`);
+} else ok("the engine reports no load faults against it");
 
 const contributes = listed.contributes.find((c) => c.plugin === "demo-rows");
 if (!contributes) fail("Nest read no contribution out of it");

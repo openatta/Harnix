@@ -652,13 +652,24 @@ HTTP 暴露**，只能通过授权过的方法读取折算后的视图；删除�
 **Nest 一侧永远不做的事**：实现或复制任何引擎逻辑；绕过引擎直接操作 transcript；
 在引擎之外维护第二份会话状态（中枢维护的是**观看状态**与队列，不是会话本身）。
 
-**已经拿到的**（AttaCore 0.2.4）：
+**已经拿到的**（AttaCore 0.2.5）：
 
 - **包方案与载体解耦**——`plugin-packages` 独立成 feature、默认开、与任何东西都不互斥，
   出厂构建装得了包（§4.5）。manifest 也能带 QuickJS 脚本（`[[script]]`），且单个包的绑定
   失败不再拖垮整批，失败明细在 `plugin.list` 的 `script_faults` 里。
 - **`plugin.list` 的条目带包的根目录**——`root`。宿主不再拼引擎的磁盘布局，
   `crates/builtin/src/packages.rs` 只读它给的路径。
+- **装不上的包不会假装装上了**——`plugin.install` 现在把刚解包的东西按发现路径回读一遍，
+  读不回来就卸掉并报错；`plugin.list` 的条目另带 `component_faults`，说哪个 `[[wasm]]`
+  组件没能加载、为什么。这比 `script_faults` 更要紧：一个只有组件的包如果组件加载不了，
+  它照样列着、照样 `enabled`、什么也不贡献，而其他每个能问的问题都答"没事"。
+  两份都在设置页的插件行上原样列出（`ui/shell/settings.js`）。
+- **工具"跑完了但没成"和"根本没跑起来"分开了**——前者只是让模型收到的结果带
+  `is_error: true`，不再连坐取消同一批里并发的其他调用。界面早就按 `is_error` 画，
+  所以这条不改代码就变准了。
+- **Anthropic 那条路的 `input_tokens` 不再恒为 0**——之前适配器只读 `message_delta`，
+  而输入计数只出现在 `message_start`，于是每次调用都报"什么也没读"。头部那颗 token
+  药丸此前显示的实际上只有输出。
 - `script_host::bindings::engine()`——把载体的引擎交出来。**Nest 有意不用**，见 §2.2.2。
 
 **还需要 Core 提供的**（按对本设计的重要性排）：
@@ -670,6 +681,12 @@ HTTP 暴露**，只能通过授权过的方法读取折算后的视图；删除�
 5. manifest 的已知段列表里给宿主留一段。今天 `[[ui]]` 会被当作"这个构建不读的段"告警成
    "它什么也不贡献"——那句话对这一段恰好是假的，而它是唯一读得到的信号，所以现在每装一个
    带界面贡献的包都会打一条误导人的 WARN。
+6. `turn_complete` 事件里的 usage 补齐缓存计数。0.2.5 让 `base::Usage` 长出了
+   `cache_creation_input_tokens` / `cache_read_input_tokens`，引擎自己的计价也按这两项分开
+   算，录像里存的又是整个 `Usage`、四个字段都在——只有 `session_pool.rs` 里那段手写的
+   `json!` 投影仍是两个字段，于是**线上**拿不到，落盘的拿得到。所以这是投影与它所投影的
+   类型漂开了，不是宿主没处拿：Nest 已经在读录像（`crates/builtin/src/recordings.rs`），
+   缺的是turn 结算那一刻就能显示的那条路，而录像只覆盖会话的当前一次运行。
 
 这些以 issue/PR 的形式提给 Core，**不在 Nest 侧绕过去**。绕过去的代价是两份真相。
 

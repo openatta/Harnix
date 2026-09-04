@@ -372,6 +372,16 @@ function renderPlugins(page) {
         for (const note of contributes?.notes ?? []) {
           host.appendChild(row(t("settings.pluginNote"), el("span", "value", ""), note));
         }
+        // The engine's own report, not Nest's. `inert` above is this side
+        // reading `[[ui]]`; these are the bindings and components AttaCore
+        // could not load, and they are the sharper case: a package whose only
+        // component will not load is still listed, still enabled, and
+        // contributing nothing, while every other answer on this row says it
+        // is fine. Shown last because a package with no faults has no lines
+        // here at all.
+        for (const fault of [...(plugin.script_faults ?? []), ...(plugin.component_faults ?? [])]) {
+          host.appendChild(row(t("settings.pluginFault"), el("span", "value", ""), fault));
+        }
       }
     });
 }

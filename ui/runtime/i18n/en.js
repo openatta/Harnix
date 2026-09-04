@@ -348,4 +348,5 @@ export default {
   "settings.pluginContributes": "Contributes",
   "settings.pluginInert": "Will not take",
   "settings.pluginNote": "Note",
+  "settings.pluginFault": "Did not load",
 };
