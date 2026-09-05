@@ -31,6 +31,10 @@ export default {
   "app.theme": "Switch theme",
   "app.addProject": "Add project",
   "app.collapseSidebar": "Collapse sidebar (⌘\\)",
+  // The turn's four usage figures, totalled. `header.cached` names the part
+  // of that total the cache accounted for; it is not added to it.
+  "header.tokens": "{count} tokens",
+  "header.cached": "{count} cached",
 
   // ── sidebar ───────────────────────────────────────────────────────────
   "sidebar.newSession": "New session",

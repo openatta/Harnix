@@ -545,15 +545,26 @@ await sleep(30);
 if (!all(".queue-item").length) fail("queued send not rendered");
 else ok(`queue row: "${text(all(".queue-item")[0])}"`);
 
-ev({ kind: "turn_complete", stop_reason: "end_turn", api_calls: 3, tool_calls: 2, usage: { input_tokens: 1200, output_tokens: 340 } });
+/* A cache-heavy turn, which is the shape the header used to get wrong: the
+   engine's four figures do not overlap, so the 30720 read back from the cache
+   is input this turn made use of and `input_tokens` is only the increment.
+   Reading the first two alone would put 1540 in the pill for a turn that
+   moved 34308. */
+const USAGE = {
+  input_tokens: 1200, output_tokens: 340,
+  cache_creation_input_tokens: 2048, cache_read_input_tokens: 30720,
+};
+ev({ kind: "turn_complete", stop_reason: "end_turn", api_calls: 3, tool_calls: 2, usage: USAGE });
 socket.push("nest.turn_settled", {
   session_id: SID,
   turn_id: "t-1",
-  result: { stop_reason: "end_turn", name: "改权限层", usage: { input_tokens: 1200, output_tokens: 340 } },
+  result: { stop_reason: "end_turn", name: "改权限层", usage: USAGE },
 });
 await sleep(40);
-if (!text($("head")).includes("1540 tokens")) fail(`header usage reads "${text($("head"))}"`);
-else ok("usage after settle: 1540 tokens");
+if (!text($("head")).includes(T("header.tokens", { count: 34308 }))) fail(`header usage reads "${text($("head"))}"`);
+else ok("usage after settle: all four figures, 34308 tokens");
+if (!text($("head")).includes(T("header.cached", { count: 32768 }))) fail(`no cache pill in "${text($("head"))}"`);
+else ok("cache pill names the 32768 of that total the cache covered");
 if (all(".blk.a")[0].classList.contains("streaming")) fail("caret still showing after settle");
 else ok("streaming caret cleared on settle");
 

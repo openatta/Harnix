@@ -103,7 +103,15 @@ export default {
       // The total for the turn, not the last call of it. A turn that made
       // several calls and reported only the last would under-count, and a
       // host budgeting on it would be wrong by however many steps it took.
-      assert(typeof usage.input_tokens === "number", "no input token count");
+      // All four, by name. The engine has reported cache reads and writes
+      // apart from ordinary input since 0.2.5, and they do not overlap: on a
+      // caching provider `input_tokens` is the increment and the bulk of what
+      // the turn read is under `cache_read_input_tokens`. A host shown two of
+      // the four sees a fraction of a cache-heavy turn and cannot tell.
+      for (const field of ["input_tokens", "output_tokens",
+        "cache_creation_input_tokens", "cache_read_input_tokens"]) {
+        assert(typeof usage[field] === "number", `usage carries no ${field}`);
+      }
       assert(complete[0].api_calls >= 1, "no api_calls count");
       await finish(client, session);
     },

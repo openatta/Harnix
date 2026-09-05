@@ -30,6 +30,9 @@ export default {
   "app.theme": "切换主题",
   "app.addProject": "添加项目",
   "app.collapseSidebar": "折叠侧栏（⌘\\）",
+  // 一轮四项用量的合计。`header.cached` 说的是这个合计里缓存占了多少，不是再加上去的。
+  "header.tokens": "{count} tokens",
+  "header.cached": "缓存 {count}",
 
   // ── 侧栏 ─────────────────────────────────────────────────────────────
   "sidebar.newSession": "新会话",

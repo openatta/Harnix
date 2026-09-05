@@ -123,6 +123,25 @@ function heroBlock() {
 
 /* ── header ───────────────────────────────────────────────────────────── */
 
+/* What the turn spent. The engine reports four figures and they do not
+ * overlap: on a provider with prompt caching, a turn that hits the cache puts
+ * the bulk of its input under `cache_read` and leaves `input_tokens` holding
+ * the increment. Summing the first two — all this pill could do while the
+ * other two were off the wire — reads a cache-heavy turn as a small fraction
+ * of itself, so the total is all four. The cache pill only appears when
+ * there is cache traffic to explain, and what it names is part of the
+ * total beside it, not a further figure added on. */
+function usagePills(usage) {
+  if (!usage) return [];
+  const n = (field) => usage[field] || 0;
+  const cached = n("cache_read_input_tokens") + n("cache_creation_input_tokens");
+  const count = n("input_tokens") + n("output_tokens") + cached;
+  return [
+    el("span", "pill", t("header.tokens", { count })),
+    cached ? el("span", "pill", t("header.cached", { count: cached })) : null,
+  ];
+}
+
 function renderHeader() {
   const head = $("head");
   head.innerHTML = "";
@@ -133,9 +152,7 @@ function renderHeader() {
     head.appendChild(el("div", "title truncate", session.name || t("sidebar.untitled")));
     const meta = el("div", "meta", [
       session.scene ? el("span", "pill", session.scene) : null,
-      state.usage
-        ? el("span", "pill", `${(state.usage.input_tokens || 0) + (state.usage.output_tokens || 0)} tokens`)
-        : null,
+      ...usagePills(state.usage),
     ]);
     head.appendChild(meta);
   }

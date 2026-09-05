@@ -56,16 +56,33 @@ export function hasModel(env) {
 /* ── the backend ──────────────────────────────────────────────────────── */
 
 /**
+ * The binary under test, current as of this process.
+ *
+ * Once per run, not once per backend, and asked every run rather than only
+ * when the file is missing: cargo is the only thing here that can tell
+ * whether there is anything to rebuild. Building on absence alone tests a
+ * stale binary in silence — after a `core/` bump the suites went green
+ * against yesterday's engine, which is the one case where a green run is
+ * worse than no run at all.
+ */
+let built = null;
+function build() {
+  const binary = join(ROOT, "target", "release", "nest");
+  if (built) return built;
+  execFileSync("cargo", ["build", "--release", "-p", "nest"],
+    { cwd: ROOT, stdio: existsSync(binary) ? ["ignore", "ignore", "inherit"] : "inherit" });
+  built = binary;
+  return built;
+}
+
+/**
  * Start one, on a throwaway engine directory.
  *
  * A fresh `--atta-dir` every run, because a suite that inherits yesterday's
  * sessions is a suite whose failures depend on what somebody did yesterday.
  */
 export async function startBackend({ port, env = {}, args = [], seed } = {}) {
-  const binary = join(ROOT, "target", "release", "nest");
-  if (!existsSync(binary)) {
-    execFileSync("cargo", ["build", "--release", "-p", "nest"], { cwd: ROOT, stdio: "inherit" });
-  }
+  const binary = build();
   const scratch = mkdtempSync(join(tmpdir(), "nest-api-"));
   // A hook for state that has to exist *before* the engine reads it. Some
   // behaviour is only reachable at startup — an MCP server that fails to
