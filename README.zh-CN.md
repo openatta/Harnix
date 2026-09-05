@@ -68,7 +68,7 @@ key 即可 —— 它写进 `settings.json`，不进浏览器也不进日志。�
 ## 界面
 
 三栏，形态参照 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)：左侧会话列表
-（按项目分组），中间对话流（流式 markdown、工具卡片、权限卡片、压缩标记、子 Agent），右侧详情栏
+（按项目分组），中间对话流（流式 markdown、工具卡片、权限卡片、子 Agent），右侧详情栏
 （一次调用的完整输入与输出）。
 
 - Enter 发送，Shift+Enter 换行；`/` 唤起命令补全（来自引擎的实时命令表）；`@` 引用项目文件

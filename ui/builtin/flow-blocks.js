@@ -58,20 +58,6 @@ export function flowBlocks(host) {
         body: [labelled(t("flow.injectedBody"), block.text)],
       })),
 
-    kind("compact", (block) =>
-      row(block, {
-        icon: ICON.compact,
-        name: t("flow.compacted"),
-        summary: t("flow.compactedSummary", {
-          before: block.info.messages_before,
-          after: block.info.messages_after,
-        }),
-        tail: block.info.tokens_saved
-          ? t("flow.compactedSaved", { tokens: block.info.tokens_saved })
-          : "",
-        body: [labelled(t("flow.compactedStrategy"), String(block.info.strategy || "auto"))],
-      })),
-
     kind("image", (block) => {
       const img = el("img");
       img.src = block.src;

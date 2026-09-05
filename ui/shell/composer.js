@@ -120,7 +120,10 @@ function buildCard() {
 }
 
 function running() {
-  return !!state.turn && state.turn.state !== "complete" && state.turn.state !== "interrupted";
+  // `state.turn` is set when a turn starts and nulled when it settles, and
+  // that is the whole of it. The two states this used to also exclude came
+  // from a `turn_state` frame the engine does not send.
+  return !!state.turn;
 }
 
 function renderStatus() {

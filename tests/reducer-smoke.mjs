@@ -192,6 +192,11 @@ function answer(method, params) {
       return { items: [] };
     case "session.interrupt":
       return { session_id: SID, interrupted: true };
+    // Re-read after `skills_changed`. A different catalog from the one
+    // `nest.hello` gave, or the test cannot tell a refresh from the answer
+    // that was already on screen.
+    case "commands.list":
+      return { commands: [{ name: "review", description: "review the diff", source: "skill" }] };
     default:
       return {};
   }
@@ -524,20 +529,30 @@ else {
   else ok("a re-recorded session contributes its new envelope, not a duplicate");
 }
 
-/* ── sub-agent, compaction ──────────────────────────────────────────────── */
-ev({ kind: "subagent_progress", agent_id: "ag-1", agent_label: "explore", agent_type: "Explore", event: { kind: "tool_use", id: "x", name: "Grep", input: {} } });
-ev({ kind: "subagent_progress", agent_id: "ag-1", agent_label: "explore", agent_type: "Explore", event: { kind: "text_delta", text: "found 3 call sites" } });
-ev({ kind: "agent_state", agent_id: "ag-1", label: "explore", state: "complete", prev: "running" });
-ev({ kind: "compact", strategy: "auto", messages_before: 48, messages_after: 12, tokens_saved: 31000 });
+/* ── sub-agents ─────────────────────────────────────────────────────────
+   Two of them, on the frame the engine actually sends: `agent_session_id`
+   is the only identity in it, and there is no `agent_state` — a sub-agent
+   finishes by way of the `turn_complete` nested in its own stream. Keying
+   on an `agent_id` that is not there put every sub-agent of a turn into one
+   row, and nothing said so, because both faults are invisible with one. */
+const sub = (sid, label, event) =>
+  ev({ kind: "subagent_progress", agent_session_id: sid, agent_label: label,
+       agent_type: "Explore", parent_turn: "t-1", event });
+sub("s-ag-1", "explore", { kind: "tool_use", id: "x", name: "Grep", input: {} });
+sub("s-ag-2", "review", { kind: "tool_use", id: "y", name: "Read", input: {} });
+sub("s-ag-1", "explore", { kind: "text_delta", text: "found 3 call sites" });
+sub("s-ag-1", "explore", { kind: "turn_complete", stop_reason: "end_turn", usage: {} });
 await sleep(30);
 
-const agent = all(".agent")[0];
-if (!agent) fail("no sub-agent block rendered");
-else ok(`sub-agent: "${text(agent.querySelectorAll(".lines")[0]).slice(0, 40)}" · ${text(agent.querySelectorAll(".pill")[0])}`);
-
-const compaction = rows(T("flow.compacted"))[0];
-if (!compaction) fail("compaction produced no row");
-else ok(`compaction row: ${text(compaction.querySelectorAll(".summary")[0])} · ${text(compaction.querySelectorAll(".tail")[0])}`);
+const agents = all(".agent");
+if (agents.length !== 2) fail(`two sub-agents rendered ${agents.length} row(s)`);
+else ok("two sub-agents, two rows — kept apart by agent_session_id");
+if (text(agents[0].querySelectorAll(".pill")[0]) !== "complete") {
+  fail(`the finished sub-agent reads "${text(agents[0].querySelectorAll(".pill")[0])}"`);
+} else ok("a sub-agent's own turn_complete finishes its row");
+if (text(agents[1].querySelectorAll(".pill")[0]) !== "running") {
+  fail(`the unfinished sub-agent reads "${text(agents[1].querySelectorAll(".pill")[0])}"`);
+} else ok("the one still working still reads running");
 
 /* ── queue, settle, banner ──────────────────────────────────────────────── */
 socket.push("nest.queue", { session_id: SID, items: [{ item_id: "q-1", message: "再顺手把测试补上" }] });
@@ -568,6 +583,27 @@ else ok("cache pill names the 32768 of that total the cache covered");
 if (all(".blk.a")[0].classList.contains("streaming")) fail("caret still showing after settle");
 else ok("streaming caret cleared on settle");
 
+/* An interrupt this client asked for. The engine reports no such state — a
+   cancelled turn writes no terminal marker, by design — so the note is owed
+   to the request, and the settlement that follows must not also be read as a
+   failure. Before this, the note hung off a `turn_state` frame that never
+   arrives, so it had never once been drawn. */
+$("input").value = "写一篇很长的东西";
+$("send").click();
+await sleep(30);
+$("send").click();
+await sleep(30);
+socket.push("nest.turn_settled", {
+  session_id: SID, turn_id: "t-1",
+  error: { code: -32001, message: "turn cancelled" },
+});
+await sleep(40);
+const notes = all(".blk.note").map((n) => text(n));
+if (!notes.some((n) => n.includes(T("flow.interrupted")))) fail(`no interrupt note in ${JSON.stringify(notes)}`);
+else ok("an interrupt this client asked for says so");
+if (notes.some((n) => n.includes("turn cancelled"))) fail("the interrupt was also reported as a failure");
+else ok("and is not also drawn as a failed turn");
+
 /* Host events. AttaCore emits exactly three kinds and its protocol says so,
    so this drives the one that has something to say and then checks that a
    kind it does not send raises nothing — a banner with no source would be the
@@ -596,6 +632,20 @@ else {
   if ($("input").value !== "/compact ") fail(`choosing a command wrote "${$("input").value}"`);
   else ok("choosing a command fills the composer");
 }
+
+/* The catalog is answered once, by `nest.hello`, so without this frame the
+   menu is stale for the life of the connection — which is the reason the
+   engine sends it. */
+$("input").value = "";
+$("input").dispatch("input");
+ev({ kind: "skills_changed", added: ["review"], removed: ["compact"] });
+await sleep(30);
+$("input").value = "/re";
+$("input").dispatch("input");
+await sleep(20);
+const afterReload = $("menu").querySelectorAll(".item").map((i) => text(i.querySelectorAll(".cmd")[0]));
+if (!afterReload.includes("/review")) fail(`skills_changed left the menu at ${afterReload.join(" ") || "empty"}`);
+else ok("skills_changed re-reads commands.list: /review");
 
 /* ── history rendering ──────────────────────────────────────────────────── */
 historyMessages = [

@@ -28,7 +28,6 @@ export const ICON = {
   globe: wrap(`<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18"/>`),
   agent: wrap(`<rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V4M9 14h.01M15 14h.01"/>`),
   shield: wrap(`<path d="M12 3l8 3v6c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V6z"/>`),
-  compact: wrap(`<path d="M4 9h16M4 15h16M9 4l3 3 3-3M9 20l3-3 3 3"/>`),
   context: wrap(`<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/>`),
   envelope: wrap(`<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 6 8.5-6"/>`),
   sun: wrap(`<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>`),

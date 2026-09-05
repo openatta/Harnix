@@ -75,7 +75,7 @@ says so.
 
 Three panes, in the shape of [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness):
 sessions on the left grouped by project, the conversation in the middle (streaming markdown, tool
-cards, permission cards, compaction marks, sub-agents), details on the right (the full input and
+cards, permission cards, sub-agents), details on the right (the full input and
 output of one call).
 
 - Enter sends, Shift+Enter breaks a line; `/` opens command completion, fed by the engine's live

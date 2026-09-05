@@ -41,7 +41,7 @@ const running = () => $("send").classList.contains("stop");
  * tool row was still last and on a slow one the envelope was, and the test
  * expanded that instead and reported "no input". Picking the last row is only
  * safe once the list holds one kind of thing. */
-const NOT_A_TOOL = [T("flow.injectedContext"), T("flow.compacted"), T("request.title")];
+const NOT_A_TOOL = [T("flow.injectedContext"), T("request.title")];
 const toolRows = () =>
   all(".row-item").filter((r) => !NOT_A_TOOL.includes(text(r.querySelectorAll(".name")[0])));
 

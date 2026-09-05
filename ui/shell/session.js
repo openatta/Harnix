@@ -69,10 +69,10 @@ export async function openSession(sessionId) {
 
   for (const frame of attached.replay || []) {
     if (frame.seq > state.seq) state.seq = frame.seq;
-    applyEvent(frame.event, frame.turn_id, { silent: true });
+    applyEvent(frame.event, { silent: true });
   }
   for (const prompt of attached.pending_prompts || []) {
-    applyEvent(prompt, state.turn ? state.turn.turnId : "", { silent: true });
+    applyEvent(prompt, { silent: true });
   }
   emit("flow", "session", "turn", "queue");
 
@@ -176,7 +176,7 @@ function imageSource(source) {
 
 /* ── the reducer ──────────────────────────────────────────────────────── */
 
-export function applyEvent(event, turnId, options = {}) {
+export function applyEvent(event, options = {}) {
   const silent = options.silent === true;
   const kind = event && event.kind;
 
@@ -236,18 +236,16 @@ export function applyEvent(event, turnId, options = {}) {
       break;
     }
 
-    case "turn_state":
-      state.turn = { turnId, state: event.state };
-      if (event.state === "complete" || event.state === "interrupted") endStream();
-      if (event.state === "interrupted") push({ kind: "note", text: t("flow.interrupted") }, { silent });
-      emit("turn");
-      break;
-
-    case "compact":
-      endStream();
-      push({ kind: "compact", info: event }, { silent });
-      break;
-
+    // No `turn_state`, `compact` or `agent_state` case. The engine's frame
+    // whitelist has none of the three (AttaCore's daemon_rpc_protocol §7 says
+    // so outright), and this file used to carry a branch for each — so a
+    // sub-agent row stayed "running" for the life of the session, a
+    // compaction row could never be drawn, and the interrupt note never
+    // fired. What survives of them is derived from frames that do arrive:
+    // the turn's lifecycle from `nest.turn_settled`, a sub-agent's from the
+    // `turn_complete` nested in its own `subagent_progress`. Compaction has
+    // no such substitute and is now an ask on Core (§9) rather than a
+    // renderer waiting for an event that is not coming.
     case "turn_complete":
       endStream();
       state.usage = event.usage || state.usage;
@@ -265,12 +263,13 @@ export function applyEvent(event, turnId, options = {}) {
       subagentEvent(event, silent);
       break;
 
-    case "agent_state": {
-      const group = agentGroup(event.agent_id, event.label || event.kind_of, silent);
-      group.state = event.state;
-      if (!silent) touch(group);
+    // The skill catalog changed on disk under this session. `state.commands`
+    // came from the one `nest.hello` at startup, so without this the slash
+    // menu is stale for the rest of the session — which is what the engine
+    // sends this frame to prevent.
+    case "skills_changed":
+      if (!silent) refreshCommands();
       break;
-    }
 
     default:
       break;
@@ -360,7 +359,10 @@ function envelopeSignature(header) {
 }
 
 function subagentEvent(event, silent) {
-  const group = agentGroup(event.agent_id, event.agent_label || event.agent_type, silent);
+  // Keyed by `agent_session_id`, which is the only identity the frame
+  // carries — it named no `agent_id`, so keying on one put every sub-agent
+  // of a turn into a single row.
+  const group = agentGroup(event.agent_session_id, event.agent_label || event.agent_type, silent);
   const inner = event.event || {};
   if (inner.kind === "text_delta") {
     const last = group.lines[group.lines.length - 1];
@@ -371,10 +373,27 @@ function subagentEvent(event, silent) {
   } else if (inner.kind === "tool_result") {
     group.lines.push({ text: `← ${inner.name}${inner.is_error ? ` ${t("flow.toolFailed")}` : ""}` });
   } else if (inner.kind === "turn_complete") {
+    // A sub-agent's stream is the same event table as the parent's, so its
+    // own `turn_complete` is the finish. The engine has `AgentCompleted`
+    // internally and does not forward it; this needs no such frame.
+    group.state = "complete";
     group.lines.push({ text: t("flow.done") });
   }
   if (group.lines.length > 200) group.lines.splice(0, group.lines.length - 200);
   if (!silent) touch(group);
+}
+
+/** Re-read the slash catalog. Cheap, and the only way back to a true one:
+ *  `nest.hello` is answered once per connection. */
+async function refreshCommands() {
+  try {
+    const result = await call("commands.list", {});
+    state.commands = result.commands || [];
+    emit("commands");
+  } catch {
+    // A stale menu is worse than no menu only if it lies about what it is,
+    // and it does not — the next reconnect re-reads it either way.
+  }
 }
 
 function agentGroup(id, label, silent) {
@@ -399,12 +418,22 @@ function endStream() {
 
 /* ── actions ──────────────────────────────────────────────────────────── */
 
+/** Sessions this client asked to interrupt, waiting for their settlement.
+ *  Being interrupted is not a state the engine reports — a cancelled turn
+ *  writes no terminal marker, by design — so the only thing that knows the
+ *  turn was cut short rather than finished is whoever cut it. */
+const interrupting = new Set();
+
 export async function send(text) {
   const message = text.trim();
   if (!message || !state.sessionId) return;
   const attachments = state.attachments.map((a) => a.attachment);
   state.attachments = [];
   emit("attachments");
+  // A pending interrupt belongs to the turn that was running when it was
+  // asked for. If that turn never settled — the connection dropped — the
+  // next one must not inherit the note.
+  interrupting.delete(state.sessionId);
   try {
     const result = await call("nest.send", {
       session_id: state.sessionId,
@@ -426,8 +455,10 @@ export async function send(text) {
 
 export async function interrupt() {
   if (!state.sessionId) return;
+  const sessionId = state.sessionId;
   try {
-    await call("session.interrupt", { session_id: state.sessionId });
+    await call("session.interrupt", { session_id: sessionId });
+    interrupting.add(sessionId);
   } catch (e) {
     banner(t("composer.interruptFailed", { error: errorText(e) }));
   }
@@ -523,18 +554,25 @@ export function handleNotification(method, params) {
     }
     if (params.seq <= state.seq) return;
     state.seq = params.seq;
-    applyEvent(params.event, params.turn_id);
+    applyEvent(params.event);
     return;
   }
 
   if (method === "nest.turn_settled") {
     state.running.delete(params.session_id);
     emit("sessions");
+    const wasInterrupted = interrupting.delete(params.session_id);
     if (params.session_id !== state.sessionId) return;
     endStream();
     state.turn = null;
+    // An interrupt we asked for is not a failure, so it says so in its own
+    // words and the error note stays out of the way. The result, if the
+    // engine still produced one, is read either way.
+    if (wasInterrupted) push({ kind: "note", text: t("flow.interrupted") });
     if (params.error) {
-      push({ kind: "note", text: t("flow.turnFailed", { error: errorText(params.error) }), error: true });
+      if (!wasInterrupted) {
+        push({ kind: "note", text: t("flow.turnFailed", { error: errorText(params.error) }), error: true });
+      }
     } else if (params.result) {
       if (params.result.usage) state.usage = params.result.usage;
       if (params.result.name && state.session) state.session.name = params.result.name;
