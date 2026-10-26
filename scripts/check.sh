@@ -100,7 +100,7 @@ run_clippy()  { cargo clippy "${CRATES[@]}" --all-targets --no-deps -- -D warnin
 run_offline() {
   # No backend, no model, no browser: the checks that should never be the
   # slow ones.
-  for t in style-lint contrib-smoke reducer-smoke i18n-smoke readme-pairing; do
+  for t in crate-metadata style-lint contrib-smoke reducer-smoke i18n-smoke readme-pairing; do
     echo "── $t ──"
     node "tests/$t.mjs" || return 1
   done

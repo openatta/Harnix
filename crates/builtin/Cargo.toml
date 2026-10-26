@@ -1,9 +1,9 @@
 [package]
 name = "harnix-builtin"
-version      = { workspace = true }
-edition      = { workspace = true }
-rust-version = { workspace = true }
-license      = { workspace = true }
+version      = "0.3.1-2026102501"
+edition      = "2021"
+rust-version = "1.87"
+license      = "Apache-2.0"
 publish      = false
 description  = "Harnix's own contributions, through the same points a plugin uses"
 
