@@ -1,0 +1,34 @@
+# The desktop shell's configuration. Copy it to `desktop.toml` and put it
+# either next to the executable (what the app ships) or in the user's config
+# directory under the app's identifier (what a user writes for themselves),
+# e.g. `~/Library/Application Support/dev.harnix.desktop/desktop.toml` on macOS.
+# `HARNIX_DESKTOP_CONFIG=<file>` names one explicitly.
+#
+# Each setting can be overridden by an environment variable:
+# HARNIX_DESKTOP_MODE, _PROGRAM, _PROFILE, _PORT, _URL.
+# Relative paths here are relative to this file.
+
+# "local": start the app as a child process and show it.
+# "remote": show a Harnix that runs somewhere else.
+mode = "local"
+
+[local]
+# The app binary. Left out, the shell looks for the sidecar bundled next to
+# its own executable (`bundle.externalBin` in tauri.conf.json).
+# program = "../../target/release/myapp"
+
+# Passed as `--profile`.
+# profile = "profiles/myapp.toml"
+
+# Passed through to the app after the shell's own flags. The shell already
+# sets --host 127.0.0.1, --port and --launch-link; do not repeat them here.
+# args = ["--data-dir", "/path/to/projects"]
+
+# A fixed loopback port. Left out, a free one is picked at every start, so a
+# second copy of the app never collides with the first.
+# port = 7878
+
+[remote]
+# Where the other Harnix serves, over TLS. The first visit pairs this device
+# through the web interface's own flow.
+# url = "https://build-box.local:7878/"

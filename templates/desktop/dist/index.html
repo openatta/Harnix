@@ -1,0 +1,22 @@
+<!doctype html>
+<!--
+  The only page the shell carries: "starting" and "cannot connect".
+  The app's interface is never here — it is served by the app itself, so it is
+  always the build that matches the server (design §12). No inline script and
+  no inline style, so the CSP in tauri.conf.json can stay at 'self'.
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Harnix</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="status.js" defer></script>
+</head>
+<body>
+  <main>
+    <h1 id="title">正在启动…</h1>
+    <p id="detail">正在等待服务就绪。</p>
+  </main>
+</body>
+</html>

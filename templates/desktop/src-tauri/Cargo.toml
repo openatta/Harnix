@@ -1,0 +1,41 @@
+# The desktop shell: a window around a Harnix app (design §12).
+#
+# Its own workspace, on purpose. The shell links Tauri and the platform's
+# webview, the app links Agix; neither needs the other's dependency tree, and
+# an app that puts this directory under its own tree should not find Tauri
+# resolved against its workspace table (or Agix against this one).
+[workspace]
+
+[package]
+name = "harnix-desktop"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.87"
+license = "Apache-2.0"
+publish = false
+description = "A Tauri 2 window around a Harnix app: local (child process) or remote"
+
+[build-dependencies]
+tauri-build = { version = "=2.7.4", features = [] }
+
+[dependencies]
+# No plugins. The design allows tray, window, notification, updater,
+# single-instance and log (§12) — add them when the app wants them, Rust side
+# only; none of them carries the app's traffic.
+tauri = { version = "=2.12.5", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+dirs = "7"
+
+[target.'cfg(unix)'.dependencies]
+# SIGINT for the child: the signal a Harnix process shuts down cleanly on.
+libc = "0.2"
+# The shell's own SIGINT/SIGTERM/SIGHUP, turned into an orderly exit that
+# takes the child with it.
+signal-hook = "0.4"
+
+[profile.release]
+strip = "symbols"
+lto = "thin"
+codegen-units = 1
