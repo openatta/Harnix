@@ -5,6 +5,10 @@
  * The greeter's tab also shows the channels for what a call and a topic do not fit: a long job and
  * its progress topic, whose result lands in the conversation as a card (an entry, drawn by the
  * `flow.block` below), and the module's own link — an HTTP route and a WebSocket.
+ *
+ * And an approval card (docs/harnix-sdk.md §10.1): the ticket is an entry in the conversation, its
+ * state comes from the `app.greeter.approvals` topic, and the buttons call `app.greeter.approve`,
+ * which only a person may.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -25,6 +29,24 @@ export function register(r: Registry, _host: NestHost): void {
   );
   r.register("space", { id: "notes", icon: "file", order: 30, title: () => "Notes", center: "chat" }, "hello-app");
   r.register("home.card", { id: "greeter.count", order: 10, title: () => "Greeter", render: () => <GreetedCard /> }, "hello-app");
+  r.register(
+    "flow.block",
+    {
+      id: "greeter.approval",
+      match: (block: Shape) => entryOf(block, "approval") !== null,
+      render: (block: Shape) => <ApprovalCard entry={entryOf(block, "approval")!} />,
+    },
+    "hello-app",
+  );
+  r.register(
+    "flow.block",
+    {
+      id: "greeter.approval_decided",
+      match: (block: Shape) => entryOf(block, "approval_decided") !== null,
+      render: (block: Shape) => <DecisionLine entry={entryOf(block, "approval_decided")!} />,
+    },
+    "hello-app",
+  );
   r.register(
     "flow.block",
     {
@@ -60,6 +82,61 @@ function JobDoneCard({ entry }: { entry: GreeterEntry }) {
   );
 }
 
+interface Ticket {
+  id: string;
+  instance: string;
+  session_id: string;
+  title: string;
+  state: "pending" | "approved" | "rejected";
+  by: string | null;
+}
+
+/** The ticket as written, kept current by the session's approvals topic. */
+function ApprovalCard({ entry }: { entry: GreeterEntry }) {
+  const nest = useNest();
+  const written = entry.payload as unknown as Ticket;
+  const [ticket, setTicket] = useState<Ticket>(written);
+  const [refused, setRefused] = useState<string | null>(null);
+  useEffect(
+    () =>
+      nest.subscribe("app.greeter.approvals", { instance: written.instance, session_id: written.session_id }, (v) => {
+        const now = (v as { tickets?: Ticket[] } | null)?.tickets?.find((t) => t.id === written.id);
+        if (now) setTicket(now);
+      }),
+    [nest, written.id, written.instance, written.session_id],
+  );
+  const answer = (decision: "approve" | "reject") =>
+    nest.call("app.greeter.approve", { ticket: written.id, decision }).catch((e: Error) => setRefused(e.message));
+  return (
+    <div className="hx-blk" data-testid="approval-card" data-ticket={written.id} data-state={ticket.state}>
+      <div>Approval: {ticket.title}</div>
+      {ticket.state === "pending" ? (
+        <div>
+          <button type="button" className="btn sm outline" data-testid="approval-approve" onClick={() => void answer("approve")}>
+            Approve
+          </button>
+          <button type="button" className="btn sm outline" data-testid="approval-reject" onClick={() => void answer("reject")}>
+            Reject
+          </button>
+        </div>
+      ) : (
+        <div data-testid="approval-outcome">
+          {ticket.state} by {ticket.by}
+        </div>
+      )}
+      {refused ? <div data-testid="approval-refused">{refused}</div> : null}
+    </div>
+  );
+}
+
+function DecisionLine({ entry }: { entry: GreeterEntry }) {
+  return (
+    <div className="hx-blk" data-testid="approval-decided" data-ticket={String(entry.payload.ticket)}>
+      {String(entry.payload.ticket)} {String(entry.payload.state)} by {String(entry.payload.by)}
+    </div>
+  );
+}
+
 function GreetTab() {
   const nest = useNest();
   const [name, setName] = useState("world");
@@ -86,6 +163,7 @@ function GreetTab() {
       </button>
       <Job />
       <OwnLink />
+      <RequestApproval />
     </div>
   );
 }
@@ -116,6 +194,25 @@ function Job() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** Ask, in the open conversation, for a person's approval. */
+function RequestApproval() {
+  const nest = useNest();
+  const ask = () => {
+    const session = nest.session.current();
+    if (!session) return;
+    void nest.call("app.greeter.request_approval", {
+      instance: session.instance,
+      session_id: session.sessionId,
+      title: "Greet everyone at once",
+    });
+  };
+  return (
+    <button type="button" className="btn sm outline" data-testid="approval-request" onClick={ask}>
+      Ask for approval
+    </button>
   );
 }
 

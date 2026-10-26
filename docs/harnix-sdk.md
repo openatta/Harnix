@@ -528,16 +528,22 @@ space 记自己的当前会话，`session.current()` 拿到的永远是前台 sp
 
 ### 10.1 批准卡：这个动作必须由人点头（M7 起）
 
-引擎的权限管「这个工具能不能跑」；「这个业务动作要不要人确认」归你。用公开契约就能做：
+引擎的权限管「这个工具能不能跑」；「这个业务动作要不要人确认」归你。用公开契约就能做，
+`examples/hello-app` 的 greeter 是一份能跑的范例（没有改 Harnix 的任何 crate）：
 
-1. **请求**：你的代码要下单时，建一张票（id、会话、标题、摘要、选项、截止时间），存在你的模块里。
-2. **推送**：带参数的主题 `app.trade.pending { instance, session }`，推这个会话的待批票。
-3. **记录**：`append_entry(session, Entry::new("trade.approval", 票))`，卡片进时间线。
-4. **回答**：方法 `app.trade.approve { ticket, option }`，**主体只许 `Device`**。票的状态只能从
-   「待批」转一次（先答者生效），之后的回答拒绝。
-5. **超时**：到截止时间还没答，按拒绝处理。
-6. **审计**：决定再写一条扩展条目：谁、什么时候、哪台设备、选了哪项（`CallContext` 里有设备信息）。
-7. **画卡**：`r.flowBlock({ kind: 'trade.approval', component })`，按钮调 `app.trade.approve`。
+1. **请求**：你的代码要做那件事时，建一张票（id、会话、标题、状态、截止时间），存在你的模块里。
+   范例里是 `app.greeter.request_approval`。
+2. **记录**：`append_entry(&session, Entry::new("approval", json!(票)))`，卡片进时间线（§7.2）。
+3. **推送**：带参数的主题 `app.<id>.approvals { instance, session_id }`，推这个会话所有票的当前状态。
+   卡片订阅它，所以几台设备看到的是同一个状态。
+4. **回答**：方法 `app.<id>.approve { ticket, decision }`，**主体只许 `Principal::Device`**——引擎、
+   别的模块、连你自己的模块都调不了（范例的 `answer_for_a_person` 演示了这个拒绝）。票的状态只从
+   「待批」转一次，先答者生效，之后的回答拒绝。
+5. **超时**：建票时起一个任务，到截止时间还是「待批」就按拒绝处理，`by` 记成 `timeout`。
+6. **审计**：每个决定再写一条扩展条目 `approval_decided`：哪张票、结果、谁（`CallContext::device()`）。
+7. **画卡**：`flow.block` 认领 `ns === "app.<id>"` 且 `event === "approval"` 的条目，按钮调 `approve`。
+
+票存在内存里，进程重启就没了；要跨重启，把票写进你模块的数据目录（`ModuleContext::data_dir()`）。
 
 **要知道它防不住什么**：「只许 `Device`」挡得住引擎、模块、内核替人回答，挡不住装进来的第三方界面
 模块（它和页面同级）。交易类产品请在 profile 里设 `[ui] runtime_modules = false`。

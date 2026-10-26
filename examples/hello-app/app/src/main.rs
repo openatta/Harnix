@@ -9,15 +9,22 @@
 //! (docs/harnix-sdk.md §9): a long job whose progress is a topic with a parameter
 //! (`count_to`, `app.greeter.job { job_id }`), and the module's own link under
 //! `/apps/greeter/` — an HTTP route and a WebSocket.
+//!
+//! And an approval (docs/harnix-sdk.md §10.1), built on the public contract alone: a ticket
+//! written into the conversation as an entry, the session's pending tickets on a topic, an answer
+//! only a person can give (`approve` is for `Device`), the first answer winning, silence past the
+//! deadline counting as no, and every decision written down as another entry.
 
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use harnix::axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use harnix::axum::routing::get;
 use harnix::prelude::*;
-use serde::Deserialize;
-use serde_json::json;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 fn main() -> anyhow::Result<()> {
     harnix::App::builder()
@@ -29,8 +36,9 @@ fn main() -> anyhow::Result<()> {
 
 #[derive(Default)]
 struct Greeter {
-    greeted: std::sync::Arc<AtomicU64>,
-    jobs: std::sync::Arc<AtomicU64>,
+    greeted: Arc<AtomicU64>,
+    jobs: Arc<AtomicU64>,
+    approvals: Arc<Approvals>,
 }
 
 #[derive(Deserialize)]
@@ -120,11 +128,67 @@ impl Module for Greeter {
                     Ok(json!({"job_id": job_id}))
                 }
             });
+
+        let approvals = self.approvals.clone();
+        m.method("request_approval", Principal::Device)
+            .describe("asks a person to approve something, in a conversation; no answer by the deadline is a no")
+            .schema(json!({"type": "object", "required": ["instance", "session_id", "title"], "properties": {
+                "instance": {"type": "string"}, "session_id": {"type": "string"}, "title": {"type": "string"},
+                "timeout_ms": {"type": "integer", "minimum": 100}}}))
+            .handler(move |cx: CallContext, p: RequestApproval| {
+                let approvals = approvals.clone();
+                async move {
+                    let module = cx.module().clone();
+                    let ticket = approvals.open(&p);
+                    let session = ticket.session();
+                    module
+                        .sessions()
+                        .append_entry(&session, Entry::new("approval", json!(ticket)))
+                        .await?;
+                    approvals.publish(&module, &session).await?;
+                    let (id, wait) = (ticket.id.clone(), Duration::from_millis(p.timeout_ms));
+                    tokio::spawn(async move {
+                        tokio::time::sleep(wait).await;
+                        // Already answered is the usual case, not an error.
+                        let _ = settle(&module, &approvals, &id, Decision::Reject, "timeout").await;
+                    });
+                    Ok(json!(ticket))
+                }
+            });
+
+        // A person's answer: `Device` only, so neither the Agent nor a module — this one included —
+        // can give it for them.
+        let approvals = self.approvals.clone();
+        m.method("approve", Principal::Device)
+            .describe("a person's answer to an approval; the first answer stands")
+            .schema(json!({"type": "object", "required": ["ticket", "decision"], "properties": {
+                "ticket": {"type": "string"}, "decision": {"enum": ["approve", "reject"]}}}))
+            .handler(move |cx: CallContext, p: Answer| {
+                let approvals = approvals.clone();
+                async move {
+                    let by = cx.device().unwrap_or("?").to_string();
+                    settle(cx.module(), &approvals, &p.ticket, p.decision, &by).await
+                }
+            });
+
+        m.method("answer_for_a_person", Principal::Device)
+            .describe("tries to approve as this module, and reports the refusal it gets")
+            .handler(|cx: CallContext, p: Value| async move {
+                let tried = cx
+                    .module()
+                    .call("app.greeter.approve", json!({"ticket": p["ticket"], "decision": "approve"}))
+                    .await;
+                Ok(match tried {
+                    Ok(answer) => json!({"answered": answer}),
+                    Err(e) => json!({"refused": {"code": e.code, "message": e.message}}),
+                })
+            });
     }
 
     fn events(&self, e: &mut EventRegistry) {
         e.topic("greeted");
         e.topic("job").param("job_id");
+        e.topic("approvals").param("instance").param("session_id");
     }
 
     fn routes(&self, r: &mut RouteRegistry) {
@@ -149,4 +213,125 @@ async fn echo(mut socket: WebSocket) {
             }
         }
     }
+}
+
+/* ── approvals ─────────────────────────────────────────────────────────── */
+
+#[derive(Deserialize)]
+struct RequestApproval {
+    instance: String,
+    session_id: String,
+    title: String,
+    #[serde(default = "a_minute")]
+    timeout_ms: u64,
+}
+
+fn a_minute() -> u64 {
+    60_000
+}
+
+#[derive(Deserialize, Clone, Copy, PartialEq)]
+#[serde(rename_all = "lowercase")]
+enum Decision {
+    Approve,
+    Reject,
+}
+
+#[derive(Deserialize)]
+struct Answer {
+    ticket: String,
+    decision: Decision,
+}
+
+#[derive(Serialize, Clone)]
+struct Ticket {
+    id: String,
+    instance: String,
+    session_id: String,
+    title: String,
+    /// `pending`, then `approved` or `rejected`, once.
+    state: &'static str,
+    /// Who decided: a device, or `timeout`.
+    by: Option<String>,
+    deadline_ms: u64,
+}
+
+impl Ticket {
+    fn session(&self) -> SessionRef {
+        SessionRef {
+            instance: self.instance.clone(),
+            session_id: self.session_id.clone(),
+        }
+    }
+}
+
+#[derive(Default)]
+struct Approvals {
+    tickets: Mutex<BTreeMap<String, Ticket>>,
+    next: AtomicU64,
+}
+
+impl Approvals {
+    fn open(&self, p: &RequestApproval) -> Ticket {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+        let ticket = Ticket {
+            id: format!("approval-{}", self.next.fetch_add(1, Ordering::SeqCst) + 1),
+            instance: p.instance.clone(),
+            session_id: p.session_id.clone(),
+            title: p.title.clone(),
+            state: "pending",
+            by: None,
+            deadline_ms: now + p.timeout_ms,
+        };
+        self.tickets.lock().unwrap().insert(ticket.id.clone(), ticket.clone());
+        ticket
+    }
+
+    /// The one transition out of `pending`. Everything after the first answer is refused.
+    fn decide(&self, id: &str, decision: Decision, by: &str) -> Result<Ticket, RpcError> {
+        let mut tickets = self.tickets.lock().unwrap();
+        let ticket = tickets
+            .get_mut(id)
+            .ok_or_else(|| RpcError::new(harnix::codes::INVALID_PARAMS, format!("no approval `{id}`")))?;
+        if ticket.state != "pending" {
+            return Err(RpcError::new(
+                harnix::codes::REFUSED,
+                format!("`{id}` was already {} by {}", ticket.state, ticket.by.as_deref().unwrap_or("?")),
+            ));
+        }
+        ticket.state = if decision == Decision::Approve { "approved" } else { "rejected" };
+        ticket.by = Some(by.to_string());
+        Ok(ticket.clone())
+    }
+
+    async fn publish(&self, module: &ModuleContext, session: &SessionRef) -> Result<(), RpcError> {
+        let tickets: Vec<Ticket> = self
+            .tickets
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|t| t.instance == session.instance && t.session_id == session.session_id)
+            .cloned()
+            .collect();
+        module
+            .events()
+            .publish(
+                "approvals",
+                json!({"instance": session.instance, "session_id": session.session_id}),
+                json!({"tickets": tickets}),
+            )
+            .await
+    }
+}
+
+/// Decide, write the decision into the conversation, and tell whoever is watching.
+async fn settle(module: &ModuleContext, approvals: &Approvals, id: &str, decision: Decision, by: &str) -> Result<Value, RpcError> {
+    let ticket = approvals.decide(id, decision, by)?;
+    let session = ticket.session();
+    module
+        .sessions()
+        .append_entry(&session, Entry::new("approval_decided", json!({"ticket": ticket.id, "state": ticket.state, "by": by})))
+        .await?;
+    approvals.publish(module, &session).await?;
+    Ok(json!(ticket))
 }

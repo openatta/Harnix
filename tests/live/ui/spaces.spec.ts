@@ -227,3 +227,82 @@ test("a module's own link: its route and its socket, with the host's credential"
   });
   expect(escaped).toContain("not a path of module greeter");
 });
+
+const APPROVAL = { tag: ["@feature:entries", "@layer:ui"] };
+
+/** Ask for approval in the greeter's open session, as its tab does, and return the ticket. */
+async function askApproval(page: Page, timeoutMs?: number): Promise<{ id: string }> {
+  return page.evaluate(async (timeout_ms) => {
+    const { app } = (window as any).harnix;
+    const current = app.snapshot.currentBySpace.greeter;
+    return app.call("app.greeter.request_approval", {
+      instance: current.instance,
+      session_id: current.sessionId,
+      title: "Greet everyone at once",
+      ...(timeout_ms ? { timeout_ms } : {}),
+    });
+  }, timeoutMs);
+}
+
+test("an approval: two people see one card, and the first answer stands", APPROVAL, async ({ page, context }) => {
+  await open(page, backend.url);
+  await inSpace(page, "greeter");
+  const key = await startReplaying(page);
+  const other = await context.newPage();
+  await open(other, backend.url);
+  await inSpace(other, "greeter");
+  await other.evaluate((key) => (window as any).harnix.app.open(key), key);
+
+  await page.getByTestId("details-toggle").click();
+  await page.locator('#details .tabs [data-tab="greet"]').click();
+  await page.getByTestId("approval-request").click();
+  const mine = page.getByTestId("approval-card");
+  const theirs = other.getByTestId("approval-card");
+  await expect(mine).toHaveAttribute("data-state", "pending");
+  await expect(theirs).toHaveAttribute("data-state", "pending");
+
+  await theirs.getByTestId("approval-approve").click();
+  await expect(mine).toHaveAttribute("data-state", "approved");
+  await expect(theirs).toHaveAttribute("data-state", "approved");
+  // The decision is written down once, where both can see it.
+  await expect(page.getByTestId("approval-decided")).toHaveCount(1);
+  await expect(other.getByTestId("approval-decided")).toHaveCount(1);
+
+  // Answering again is refused, and nothing changes.
+  const ticket = await mine.getAttribute("data-ticket");
+  const late = await page.evaluate(async (ticket) => {
+    try {
+      await (window as any).harnix.app.call("app.greeter.approve", { ticket, decision: "reject" });
+      return null;
+    } catch (e: any) {
+      return e.message;
+    }
+  }, ticket);
+  expect(late).toContain("already approved");
+  await expect(mine).toHaveAttribute("data-state", "approved");
+  await other.close();
+});
+
+test("an approval nobody answers is a no, and a module cannot answer for a person", APPROVAL, async ({ page }) => {
+  await open(page, backend.url);
+  await inSpace(page, "greeter");
+  await startReplaying(page);
+  const pending = await askApproval(page);
+  const byModule = await page.evaluate(
+    (ticket) => (window as any).harnix.app.call("app.greeter.answer_for_a_person", { ticket }),
+    pending.id,
+  );
+  expect(byModule.refused, JSON.stringify(byModule)).toBeTruthy();
+  await expect(page.locator(`[data-testid="approval-card"][data-ticket="${pending.id}"]`)).toHaveAttribute("data-state", "pending");
+
+  const quick = await askApproval(page, 300);
+  const card = page.locator(`[data-testid="approval-card"][data-ticket="${quick.id}"]`);
+  await expect(card).toHaveAttribute("data-state", "rejected", { timeout: 10_000 });
+  await expect(card.getByTestId("approval-outcome")).toHaveText("rejected by timeout");
+
+  // Still there, decided, after a refresh: the card and its decision are in the session's log.
+  await page.reload();
+  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator(`[data-testid="approval-card"][data-ticket="${quick.id}"]`)).toHaveAttribute("data-state", "rejected");
+  await expect(page.locator(`[data-testid="approval-decided"][data-ticket="${quick.id}"]`)).toHaveCount(1);
+});
