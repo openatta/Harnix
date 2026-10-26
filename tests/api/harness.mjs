@@ -20,7 +20,7 @@
 // were called, and here are the five that were not" is a number.
 
 import { spawn, execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,6 +54,25 @@ export function hasModel(env) {
 }
 
 /* ── the backend ──────────────────────────────────────────────────────── */
+
+/**
+ * The project a test's sessions run in: a directory of its own, never this
+ * repository.
+ *
+ * The engine keeps per-project state inside the project — memories under
+ * `.agix/memory`, telemetry under `.agix/telemetry` — so running the tests
+ * against the checkout made them depend on whatever a developer's own
+ * sessions had left there, and left their own traces behind in turn. A
+ * remembered fact was enough to put a memory-recall call in front of every
+ * turn, and every recorded fixture played back one call out of step (N-003).
+ */
+export function makeProject(scratch) {
+  const project = join(scratch, "project");
+  mkdirSync(project, { recursive: true });
+  writeFileSync(join(project, "Cargo.toml"), '[package]\nname = "fixture"\nversion = "0.1.0"\n');
+  writeFileSync(join(project, "README.md"), "A project for the tests to run in.\n");
+  return project;
+}
 
 /**
  * The binary under test, current as of this process.
@@ -90,12 +109,13 @@ export async function startBackend({ port, env = {}, args = [], seed } = {}) {
   // can provoke one — so a suite that needs it seeds the directory and gets
   // its own backend.
   if (seed) seed(scratch);
+  const project = makeProject(scratch);
   const child = spawn(
     binary,
     ["--port", String(port), "--ui-dir", join(ROOT, "ui"),
-     "--agix-dir", join(scratch, "atta"), "--data-dir", join(scratch, "projects"), ...args],
+     "--agix-dir", join(scratch, "agix"), "--data-dir", join(scratch, "projects"), ...args],
     {
-      cwd: ROOT,
+      cwd: project,
       env: { ...process.env, ...env, RUST_LOG: process.env.HARNIX_TEST_LOG || "warn" },
       stdio: ["ignore", "pipe", "pipe"],
     },
@@ -122,6 +142,7 @@ export async function startBackend({ port, env = {}, args = [], seed } = {}) {
     port,
     token,
     scratch,
+    project,
     log: () => log,
     stop() {
       try { child.kill(); } catch { /* already gone */ }
@@ -300,6 +321,8 @@ function deliver(events, waiters, frame) {
 function client({ topology, handshake, call, events, waiters, close, backend }) {
   return {
     topology,
+    /** The project this backend's sessions run in — see `makeProject`. */
+    project: backend.project,
     handshake,
     events,
     call,

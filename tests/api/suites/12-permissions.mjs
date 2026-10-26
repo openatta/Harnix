@@ -31,7 +31,7 @@ export default {
     "a tool that needs permission asks every watcher": async ({ backend, client }) => {
       const created = await client.call("session.create", {
         scene: "coding",
-        project_root: process.cwd(),
+        project_root: client.project,
         options: { permission_mode: "default" },
       }).catch(() => null);
       if (!created) inconclusive("no coding scene in this build, so no tool to ask about");
@@ -92,7 +92,7 @@ export default {
     "an unanswered ask is handed to a client that arrives late": async ({ backend, client }) => {
       const created = await client.call("session.create", {
         scene: "coding",
-        project_root: process.cwd(),
+        project_root: client.project,
         options: { permission_mode: "default" },
       }).catch(() => null);
       if (!created) inconclusive("no coding scene in this build, so no tool to ask about");

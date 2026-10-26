@@ -15,6 +15,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
+import { makeProject } from "./api/harness.mjs";
 import { dirname, join } from "node:path";
 import { PROTOCOL_VERSION, CONTRIB_API_VERSION } from "../ui/runtime/protocol.js";
 
@@ -156,8 +157,8 @@ async function measureLive(root) {
   const child = spawn(
     bin,
     ["--port", String(port), "--headless",
-     "--agix-dir", join(scratch, "atta"), "--data-dir", join(scratch, "projects")],
-    { cwd: root, env: { ...process.env, ANTHROPIC_API_KEY: "budget-test", RUST_LOG: "error" },
+     "--agix-dir", join(scratch, "agix"), "--data-dir", join(scratch, "projects")],
+    { cwd: makeProject(scratch), env: { ...process.env, ANTHROPIC_API_KEY: "budget-test", RUST_LOG: "error" },
       stdio: "ignore" },
   );
 

@@ -681,26 +681,21 @@ HTTP 暴露**，只能通过授权过的方法读取折算后的视图；删除�
   §9 头一句在起作用：不实现引擎逻辑的一侧，引擎改自己的类型就不该有代价。
 - `script_host::bindings::engine()`——把载体的引擎交出来。**Harnix 有意不用**，见 §2.2.2。
 
-**还需要 Agix 提供的**（按对本设计的重要性排，编号即 Agix 仓库上的 issue 号）：
+**提给 Agix 的六条，到 0.2.7 都已落地**（编号即 Agix 仓库上的 issue 号）：
 
-1. 引擎装配的一个函数入口，使宿主不必复制装配代码——否则每个宿主都带一份会漂移的复制。
-2. 会话列表条目补齐场景与项目根，否则每个宿主都要自己记一份。
-3. 会话重命名、运行中切换模型。**后者没有变通办法**：现在只能改配置层再建会话。
-4. 对冷会话的订阅自动恢复，否则每个客户端都要自己实现一段回退。
-5. manifest 的已知段列表里给宿主留一段。今天 `[[ui]]` 会被当作"这个构建不读的段"告警成
-   "它什么也不贡献"——那句话对这一段恰好是假的，而它是唯一读得到的信号，所以现在每装一个
-   带界面贡献的包都会打一条误导人的 WARN。
-6. 把压缩放进 `session.event` 的白名单。引擎自己有 `CompactAction`（`strategy` /
-   `messages_before` / `messages_after` / `estimated_tokens_saved`），历史里有
-   `LogEntry::Compact`，`SessionSummary` 里连 `compact_count` 都算好了——三样都没有一样
-   到得了线上。这和上面 usage 补齐缓存计数是同一个形状：引擎知道，客户端问不到。而且
-   比那件更值得说，因为上下文被压掉是使用者看得见结果、看不见原因的一件事（"它怎么把
-   前面的忘了"），所以它得在发生的那一刻说。**在拿到之前 Harnix 不画压缩行**：此前那一行
-   挂在一个引擎从不发送的 `compact` 事件上，一次也没画出来过，README 里"压缩标记"那半句
-   因此是假的，现已删去。
+1. 引擎装配的函数入口 —— `daemon::assemble::pool`。`crates/assembly/src/engine.rs` 已经改调它，
+   只自己构造两样：允许没有凭据也能启动的模型客户端，以及中枢要持有句柄的 transcript 存储。
+2. 会话列表条目带场景与项目根 —— `session.list` / `session.get` 都带。中枢原来自记的那一份已删除。
+3. 会话重命名、运行中切换模型 —— `session.rename`、`session.setModel`。
+4. 订阅冷会话 —— `session.subscribe {resume: true}`。中枢仍然先 `session.resume` 再订阅，因为它
+   恢复时要带上录像选项，而 `subscribe` 的 `resume` 不接 `options`。
+5. manifest 里给宿主留的段 —— Agix 不认识的段，名字以 `x-` 开头就不告警。Harnix 读的段还叫
+   `[[ui]]`，改成 `x-` 前缀的段在 0.4 的 M8 做（[roadmap](roadmap.md)）。
+6. 压缩进 `session.event` —— `kind:"compact"`（Agix 协议 §7.1）。界面画压缩行随 0.4 的新界面做。
 
-六条都已提给 Agix（[issues 1–6](https://github.com/openatta/agix/issues)），
-**不在 Harnix 侧绕过去**。绕过去的代价是两份真相。
+**Harnix 0.4 要的另外四条，也在 0.2.7 落地**：一个进程里几台会话池互不可见；会话与轮的生命周期
+进 `daemon.event`；会话的任务可以列出、停止；会话的上下文可以查看、去掉或改写消息。见
+[0.4 设计](harnix-0.4-design-and-plan.md) §17。
 
 ---
 

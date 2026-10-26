@@ -14,10 +14,10 @@ const assert = (cond, message) => { if (!cond) throw new Error(message); };
 
 export default {
   tests: {
-    "workspaces can be created, renamed, reordered and removed": async ({ client }) => {
+    "workspaces can be created, renamed, reordered and removed": async ({ backend, client }) => {
       const before = (await client.call("harnix.workspaces.list")).workspaces.length;
 
-      const created = await client.call("harnix.workspaces.create", { path: process.cwd() });
+      const created = await client.call("harnix.workspaces.create", { path: client.project });
       assert(created.workspace?.id, "no workspace returned");
       const id = created.workspace.id;
 
@@ -41,7 +41,7 @@ export default {
         // it means anything.
         // Three distinct directories: a workspace is identified by its path,
         // and creating a second one on a path that already has one hands back
-        // the existing row. Three creates on `process.cwd()` make one
+        // the existing row. Three creates on the same path make one
         // workspace, which is a list too short to reorder.
         const ids = [];
         const dirs = [];

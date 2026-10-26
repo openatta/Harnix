@@ -41,9 +41,9 @@ export default {
       assert(listing.entries.some((e) => e.name === name), "the new project is not listed");
     },
 
-    "file mentions resolve inside a project": async ({ client }) => {
+    "file mentions resolve inside a project": async ({ backend, client }) => {
       const result = await client.call("harnix.files",
-        { project_root: process.cwd(), query: "Cargo" });
+        { project_root: client.project, query: "Cargo" });
       assert(Array.isArray(result.files), "no file list");
       assert(result.files.some((f) => f.path.includes("Cargo")), "Cargo.toml was not found");
     },

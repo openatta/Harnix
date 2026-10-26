@@ -28,9 +28,9 @@ const SERVER = "a-server-that-cannot-start";
 /** Settings the engine reads at startup, naming an MCP server whose command
  *  does not exist. Connecting it fails, and failing emits the event. */
 function seedFailingMcp(scratch) {
-  const atta = join(scratch, "atta");
-  mkdirSync(atta, { recursive: true });
-  writeFileSync(join(atta, "settings.json"), JSON.stringify({
+  const agix = join(scratch, "agix");
+  mkdirSync(agix, { recursive: true });
+  writeFileSync(join(agix, "settings.json"), JSON.stringify({
     mcp_servers: {
       // Valid configuration, unreachable binary. A *malformed* entry is
       // skipped with a log line and no event at all, which is a different

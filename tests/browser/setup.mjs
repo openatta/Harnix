@@ -10,6 +10,7 @@ import { mkdtempSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { makeProject } from "../api/harness.mjs";
 
 const root = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const PORT = 4287;
@@ -28,10 +29,10 @@ export default async function setup() {
   const child = spawn(
     binary,
     ["--port", String(PORT), "--ui-dir", join(root, "ui"),
-     "--agix-dir", join(scratch, "atta"), "--data-dir", join(scratch, "projects"),
+     "--agix-dir", join(scratch, "agix"), "--data-dir", join(scratch, "projects"),
      "--replay-dir", join(root, "tests", "api", "fixtures", "recordings")],
     {
-      cwd: root,
+      cwd: makeProject(scratch),
       env: { ...process.env, ANTHROPIC_API_KEY: "browser-test", RUST_LOG: "warn" },
       stdio: ["ignore", "pipe", "pipe"],
     },

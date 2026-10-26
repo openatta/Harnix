@@ -29,7 +29,7 @@ const NS = "harnix.audit";
 
 /** Every entry in every transcript this backend has written. */
 function entries(backend) {
-  const root = join(backend.scratch, "atta", "projects");
+  const root = join(backend.scratch, "agix", "projects");
   const out = [];
   let projects = [];
   try { projects = readdirSync(root); } catch { return out; }

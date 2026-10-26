@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { loadEnv, hasModel, sleep } from "./harness.mjs";
+import { loadEnv, hasModel, makeProject, sleep } from "./harness.mjs";
 import { PROTOCOL_VERSION, CONTRIB_API_VERSION } from "../../ui/runtime/protocol.js";
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -32,8 +32,8 @@ const scratch = mkdtempSync(join(tmpdir(), "harnix-record-"));
 const child = spawn(
   join(ROOT, "target", "release", "harnix"),
   ["--port", String(port), "--headless",
-   "--agix-dir", join(scratch, "atta"), "--data-dir", join(scratch, "projects")],
-  { cwd: ROOT, env: { ...process.env, ...env, RUST_LOG: "warn" }, stdio: "inherit" },
+   "--agix-dir", join(scratch, "agix"), "--data-dir", join(scratch, "projects")],
+  { cwd: makeProject(scratch), env: { ...process.env, ...env, RUST_LOG: "warn" }, stdio: "inherit" },
 );
 
 for (let i = 0; i < 120 && !existsSync(join(scratch, "projects", ".harnix", "token")); i += 1) {

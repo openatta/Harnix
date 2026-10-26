@@ -19,7 +19,7 @@ const assert = (cond, message) => { if (!cond) throw new Error(message); };
 async function replaying(client, fixture, message) {
   const created = await client.call("session.create", {
     scene: "coding",
-    project_root: process.cwd(),
+    project_root: client.project,
     options: { recorder: { name: fixture } },
   });
   await client.call("harnix.attach", { session_id: created.session_id });
