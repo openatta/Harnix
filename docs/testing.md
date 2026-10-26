@@ -25,7 +25,12 @@ pnpm live --live                       # 连 .env 里的真模型
 pnpm live --no-model                   # 不碰模型：要模型的套件跳过（只给没有录像的机器用）
 pnpm live api/hub.spec.ts              # 一个文件；其余参数原样交给 playwright test
 scripts/check.sh                       # 所有层，从便宜到贵
+scripts/prune.sh                       # 清构建缓存：增量缓存全删，超过 25G 的 target 整个清掉
 ```
+
+一次从零开始的全量检查要编几十 G。`check.sh` 开头看一眼剩余空间，不到 15G（`HARNIX_CHECK_NEED_GB`）就
+拒跑并说明，免得跑到一半在某一层报出一个看不出原因的错。cargo 只增不删，每个里程碑、每次发布之后跑一次
+`scripts/prune.sh`。
 
 `ui` project 从磁盘读构建好的界面（`--ui-dir ui/dist`），所以改了前端只要
 `pnpm --filter @harnix/shell build`，不用重编后端。

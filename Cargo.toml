@@ -109,3 +109,9 @@ ts-rs = { version = "12", default-features = false, features = ["serde-compat"] 
 strip = "symbols"
 lto = "thin"
 codegen-units = 1
+
+# Debug builds keep line tables only: a backtrace still has files and lines, but every test
+# binary — each one links all of Agix — is a fraction of the size full debuginfo made it.
+# `scripts/check.sh` sets the same for the application template it builds.
+[profile.dev]
+debug = "line-tables-only"

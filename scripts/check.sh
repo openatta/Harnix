@@ -39,6 +39,18 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# A full run from clean builds a few tens of gigabytes. Running out halfway fails some layer
+# with a message about something else entirely, so say it here instead. `scripts/prune.sh`
+# makes room.
+NEED_GB="${HARNIX_CHECK_NEED_GB:-15}"
+free_gb=$(( $(df -Pk "$root" | awk 'NR==2 {print $4}') / 1048576 ))
+if [ "$free_gb" -lt "$NEED_GB" ]; then
+  echo "only ${free_gb} GB free here; a run needs about ${NEED_GB} GB — scripts/prune.sh makes room" >&2
+  exit 1
+fi
+# The template is built as a fresh application, outside this workspace's profiles.
+export CARGO_PROFILE_DEV_DEBUG=line-tables-only
+
 # Ports chosen above everything the suites use themselves (4269–4291).
 PORT_UI=4360
 PORT_TLS=4361
