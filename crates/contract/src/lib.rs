@@ -20,6 +20,10 @@ pub use handshake::{
 };
 pub use subject::Subject;
 
+/// The instance every process has: the engine built from the profile's
+/// `[engine]` (design §2).
+pub const SYSTEM_INSTANCE: &str = "system";
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -96,6 +100,13 @@ pub mod codes {
     pub const REFUSED: i32 = -31000;
     /// The handshake did not agree — version, contribution API, or topology.
     pub const HANDSHAKE_REFUSED: i32 = -31001;
+    /// The call named an instance this process does not have.
+    pub const INSTANCE_NOT_FOUND: i32 = -31002;
+    /// The session does not belong to the space (or instance) the caller
+    /// claimed. A guard against a client's bug sending into the wrong
+    /// product surface — not a security boundary: the claim is the caller's
+    /// own (design §8.5, §14).
+    pub const SPACE_MISMATCH: i32 = -31003;
 }
 
 /// The process's single admission point.

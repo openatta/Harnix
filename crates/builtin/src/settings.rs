@@ -82,7 +82,7 @@ impl Builtin {
             .get("scene")
             .and_then(Value::as_str)
             .map(str::to_string)
-            .or_else(|| self.hub.engine().active_scenes.first().cloned());
+            .or_else(|| self.system().active_scenes.first().cloned());
         let project_root = params
             .get("project_root")
             .and_then(Value::as_str)
@@ -103,7 +103,7 @@ impl Builtin {
             // flattened into the same answer. The two used to be
             // indistinguishable, which is how a page of nulls looked like an
             // empty configuration instead of a broken request.
-            let settings = match self.hub.engine_call("config.get", request).await {
+            let settings = match self.call("settings", "config.get", request).await {
                 Ok(value) => value.get("settings").cloned().unwrap_or(Value::Null),
                 Err(e) => {
                     tracing::warn!(tier, error = %e.message, "settings tier could not be read");
@@ -121,9 +121,7 @@ impl Builtin {
         if let Some(root) = &project_root {
             effective_request["project_root"] = json!(root);
         }
-        let effective = self
-            .hub
-            .engine_call("config.get", effective_request)
+        let effective = self.call("settings", "config.get", effective_request)
             .await
             .ok()
             .and_then(|value| value.get("settings").cloned())
@@ -178,9 +176,7 @@ impl Builtin {
             })
             .collect();
 
-        let providers = self
-            .hub
-            .engine_call("config.getProvider", json!({}))
+        let providers = self.call("settings", "config.getProvider", json!({}))
             .await
             .unwrap_or(json!({}));
 
@@ -214,7 +210,7 @@ impl Builtin {
         // The same default as `describe`, for the same reason: a write with
         // no scene would otherwise resolve no tier path and be refused for a
         // reason that has nothing to do with what was asked.
-        let default_scene = self.hub.engine().active_scenes.first().cloned();
+        let default_scene = self.system().active_scenes.first().cloned();
         let scene = params
             .get("scene")
             .and_then(Value::as_str)
@@ -263,9 +259,7 @@ impl Builtin {
             .and_then(|()| std::fs::rename(&temp, &path))
             .map_err(io_error)?;
 
-        let reloaded = self
-            .hub
-            .engine_call("config.reload", json!({}))
+        let reloaded = self.call("settings", "config.reload", json!({}))
             .await
             .is_ok();
         let mut describe = self.settings_describe(params.clone()).await?;
@@ -289,10 +283,8 @@ impl Builtin {
                 request[key] = value.clone();
             }
         }
-        let result = self.hub.engine_call("config.setProvider", request).await?;
-        let providers = self
-            .hub
-            .engine_call("config.getProvider", json!({}))
+        let result = self.call("settings", "config.setProvider", request).await?;
+        let providers = self.call("settings", "config.getProvider", json!({}))
             .await
             .unwrap_or(json!({}));
         Ok(json!({"result": result, "providers": providers}))
@@ -305,7 +297,7 @@ impl Builtin {
         scene: Option<&str>,
         project_root: Option<&str>,
     ) -> Option<PathBuf> {
-        let root = &self.hub.engine().data_root;
+        let root = self.system().data_root;
         match tier {
             "global" => Some(root.join("settings.json")),
             "scene" => scene.map(|scene| root.join("scenes").join(scene).join("settings.json")),

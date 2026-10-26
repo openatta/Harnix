@@ -178,19 +178,23 @@ under the project directory.
 ## Layout
 
 The kernel is four things — assembly, hub, transport, authorization — and the dependency direction
-between them is one-way. `crates/app/tests/layering.rs` asserts it rather than describing it.
+between them is one-way. `crates/harnix/tests/layering.rs` asserts it rather than describing it.
 
 ```
-crates/app        the `harnix` binary: profile, wiring, the authorization table
-crates/transport  channel semantics over a chosen topology: frames, handshake, static face, bulk
-crates/authz      the one admission point: subject x method, default deny, audited
-crates/hub        the session hub: subscription, replay, seq, turn ownership, queue
+crates/harnix     the crate an application depends on, and the `harnix` binary (the empty application)
+crates/app        App::builder(): profile, start order, module lifecycle, diagnostics
+crates/module     the compile-time module contract: Module, its registries, ModuleContext
+crates/transport  channel semantics over a chosen topology: frames, handshake, static face, bulk, /apps/<id>/
+crates/authz      the one admission point: subject x method/route/topic, default deny, audited
+crates/hub        the session hub: subscription, replay, seq, turn ownership, queue, host topics
 crates/assembly   builds the Agix engine in-process from a profile
-crates/contrib    the interface's seams: the generated catalog and the registry
-crates/builtin    Harnix's own methods and interface parts, through that registry
+crates/builtin    Harnix's own features, as modules written against the public contract
 crates/contract   the types those layers hand each other, and nothing else
+crates/testapp    an application for the tests: modules that work and modules that fail on purpose
 
 ui/               the interface, compiled into the binary: runtime/, builtin/, shell/, styles/
+ui/packages/      the 0.4 front-end packages (pnpm): @harnix/core, @harnix/testkit
+tests/live/       the LIVE suites: Playwright Test against the real binary (docs/testing.md)
 agix/             Agix (submodule)
 ```
 
@@ -223,13 +227,13 @@ Or by hand:
 
 ```sh
 # `--no-deps` so the submodule's lints are not this repository's to answer for.
-cargo clippy -p harnix -p harnix-hub -p harnix-transport -p harnix-authz \
-             -p harnix-assembly -p harnix-contrib -p harnix-builtin -p harnix-contract \
-             --all-targets --no-deps -- -D warnings
+cargo clippy -p harnix -p harnix-app -p harnix-module -p harnix-hub -p harnix-transport \
+             -p harnix-authz -p harnix-assembly -p harnix-builtin -p harnix-contract \
+             -p harnix-testapp --all-targets --no-deps -- -D warnings
 # Ours only. Agix's own tests assume it is its own workspace root.
-cargo test -p harnix -p harnix-hub -p harnix-transport -p harnix-authz \
-           -p harnix-assembly -p harnix-contrib \
-           -p harnix-builtin -p harnix-contract
+cargo test -p harnix -p harnix-app -p harnix-module -p harnix-hub -p harnix-transport \
+           -p harnix-authz -p harnix-assembly -p harnix-builtin -p harnix-contract \
+           -p harnix-testapp
 
 node tests/style-lint.mjs                        # static style checks: icon sizing, tokens, ids
 node tests/contrib-smoke.mjs                     # the contribution points, and a refused handshake

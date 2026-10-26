@@ -84,7 +84,7 @@ A6 之前可以在本地指针上开发，但不发布：指针必须指向上�
 
 | 任务 | 内容 |
 |---|---|
-| M1-1 | pnpm workspace 起在 `ui/`，新包放 `ui/packages/`；旧的原生 `ui/` 模块原地不动，M4 再删 |
+| M1-1 | pnpm workspace 起在仓库根（成员是 `ui/packages/*` 与 `tests/live`），新包放 `ui/packages/`；旧的原生 `ui/` 模块原地不动，M4 再删 |
 | M1-2 | `harnix-contract` 加 `ts` feature 与 `ts-rs` derive；生成到 `@harnix/core/protocol`；检查脚本比对生成物 |
 | M1-3 | `@harnix/core/client`：回流 IPDrun 的 `nest-client`（握手、拓扑与回退、call / notify / answer、seq 追赶），Vitest |
 | M1-4 | `@harnix/testkit`：launcher（独立 HOME、数据根、引擎根、端口、拓扑、录像目录）、api、fixtures |

@@ -1059,18 +1059,36 @@ version = "0.3.1-2026102501"
 dependencies = [
  "anyhow",
  "async-trait",
+ "axum",
+ "harnix-app",
+ "harnix-authz",
+ "harnix-contract",
+ "harnix-module",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "harnix-app"
+version = "0.3.1-2026102501"
+dependencies = [
+ "anyhow",
+ "async-trait",
  "base",
  "clap",
+ "daemon",
  "harnix-assembly",
  "harnix-authz",
  "harnix-builtin",
  "harnix-contract",
- "harnix-contrib",
  "harnix-hub",
+ "harnix-module",
  "harnix-transport",
  "history",
+ "serde",
  "serde_json",
  "tokio",
+ "toml",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -1088,6 +1106,7 @@ dependencies = [
  "history",
  "model",
  "reqwest 0.12.28",
+ "runtime",
  "scene",
  "serde",
  "serde_json",
@@ -1119,8 +1138,7 @@ dependencies = [
  "async-trait",
  "base",
  "harnix-contract",
- "harnix-contrib",
- "harnix-hub",
+ "harnix-module",
  "harnix-transport",
  "history",
  "ignore",
@@ -1145,15 +1163,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "harnix-contrib"
-version = "0.3.1-2026102501"
-dependencies = [
- "async-trait",
- "harnix-contract",
- "serde_json",
-]
-
-[[package]]
 name = "harnix-hub"
 version = "0.3.1-2026102501"
 dependencies = [
@@ -1162,12 +1171,38 @@ dependencies = [
  "daemon",
  "harnix-assembly",
  "harnix-contract",
- "harnix-contrib",
  "serde_json",
  "tempfile",
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "harnix-module"
+version = "0.3.1-2026102501"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "base",
+ "harnix-assembly",
+ "harnix-authz",
+ "harnix-contract",
+ "history",
+ "serde",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
+name = "harnix-testapp"
+version = "0.3.1-2026102501"
+dependencies = [
+ "anyhow",
+ "harnix",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

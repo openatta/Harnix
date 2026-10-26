@@ -210,8 +210,7 @@ impl Builtin {
     /// they live in is never cleaned. A mistyped id left a title behind that
     /// joined to nothing, forever, and the caller was told it worked.
     async fn session_must_exist(&self, session_id: &str) -> Result<(), RpcError> {
-        self.hub
-            .engine_call("session.get", json!({"session_id": session_id}))
+        self.call("sessions", "session.get", json!({"session_id": session_id}))
             .await
             .map(|_| ())
     }
@@ -238,14 +237,14 @@ impl Builtin {
     /// this does not page `session.history`.
     pub(crate) async fn search(&self, params: Value) -> Result<Value, RpcError> {
         let query = require_str(&params, "query")?;
-        let Some(store) = self.hub.engine().history.as_ref() else {
+        let Some(store) = self.system().history else {
             return Err(RpcError::new(
                 codes::INTERNAL_ERROR,
                 "this engine has no transcript store",
             ));
         };
 
-        let listed = self.hub.engine_call("session.list", json!({})).await?;
+        let listed = self.call("sessions", "session.list", json!({})).await?;
         let sessions: Vec<String> = listed
             .get("sessions")
             .and_then(Value::as_array)

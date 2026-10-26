@@ -79,7 +79,7 @@ manifest、一次安装、一次披露**。Harnix 只是多读一段引擎不关
 
 > **Harnix 不执行包里的任何东西。**
 
-由 `crates/app/tests/layering.rs` 盯着：manifest 读取结构体只许有 `ui` 一个字段，整个
+由 `crates/harnix/tests/layering.rs` 盯着：manifest 读取结构体只许有 `ui` 一个字段，整个
 crate 树里不许出现任何解释器。
 
 #### 2.2.2 这一节反复过两次，原因写在这里
@@ -95,7 +95,7 @@ Harnix 另起一套；Agix 0.2.4 已经这么做了（§4.5），出厂构建装
 
 顺带记一笔：Agix 现在也把载体的脚本引擎交出来了（`script_host::bindings::engine()`），
 宿主可以把自己的扩展点绑到同一个载体上。**Harnix 不用它**，理由就是这一节整节的理由——
-用了就是第二个"扩展能做什么"的答案。`crates/app/tests/layering.rs` 里那条
+用了就是第二个"扩展能做什么"的答案。`crates/harnix/tests/layering.rs` 里那条
 "Harnix 不构造解释器"的断言就是这个决定的执行方式。
 
 写下来是因为 §2.5：一份没人检查的承诺会变成谎话，而一份反复改过又没说为什么的设计，

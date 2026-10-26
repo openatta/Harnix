@@ -4,10 +4,15 @@
 //! and a name that is not in it is refused by falling off the end rather than
 //! by anyone remembering to write a rule.
 //!
-//! Two kinds of subject, judged differently (concept_and_architecture.md
-//! §3.4). A device is a person, and in a single-user process the answer to
-//! "may this person do it" is nearly always yes. A plugin is code acting on
-//! that person's behalf, and that is the question this layer is really for.
+//! Three kinds of subject, judged differently (concept_and_architecture.md
+//! §3.4, design D27). A device is a person, and in a single-user process the
+//! answer to "may this person do it" is nearly always yes. A module is code
+//! the application author linked in: trusted like the kernel, and still a
+//! subject of its own, so the table says what each one may call and the
+//! audit says which one did. The kernel is this binary.
+//!
+//! Module routes (`/apps/<id>/`) and host topics are decided here too, as
+//! entries in the same table — one admission point for every surface.
 //!
 //! Authorization happens at the method, not at the connection. A multi-channel
 //! topology gives one subject several connections; hanging the decision on a
@@ -23,9 +28,11 @@ mod table;
 pub use audit::{Audit, AuditEntry, AuditSink, Decision};
 pub use devices::challenge as devices_challenge;
 pub use devices::{Device, Devices, PairError, PAIRING_TTL};
-pub use table::{MethodTable, Reach, ENGINE_REFUSALS};
+pub use table::{
+    route, topic, MethodTable, Principal, Reach, Rule, TableError, ENGINE_REFUSALS, HUB_OWNED,
+};
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use harnix_contract::{Gate, RpcError, Subject};
 use serde_json::Value;
@@ -33,7 +40,9 @@ use serde_json::Value;
 /// Wraps the thing that actually answers, and lets nothing past that the
 /// table did not name.
 pub struct Authorizer {
-    table: MethodTable,
+    /// Written during assembly — modules declare, and a module that fails to
+    /// migrate or start has its entries retracted — and read on every call.
+    table: RwLock<MethodTable>,
     inner: Arc<dyn Gate>,
     audit: Arc<Audit>,
 }
@@ -41,7 +50,7 @@ pub struct Authorizer {
 impl Authorizer {
     pub fn new(table: MethodTable, inner: Arc<dyn Gate>, audit: Arc<Audit>) -> Self {
         Self {
-            table,
+            table: RwLock::new(table),
             inner,
             audit,
         }
@@ -51,14 +60,50 @@ impl Authorizer {
         &self.audit
     }
 
-    pub fn table(&self) -> &MethodTable {
-        &self.table
+    pub fn table(&self) -> RwLockReadGuard<'_, MethodTable> {
+        self.table.read().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn table_mut(&self) -> RwLockWriteGuard<'_, MethodTable> {
+        self.table.write().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Methods this subject may call, for a client that wants to grey out
     /// what it cannot use rather than discover it by being refused.
-    pub fn reachable(&self, subject: &Subject) -> Vec<&'static str> {
-        self.table.reachable(subject)
+    pub fn reachable(&self, subject: &Subject) -> Vec<String> {
+        self.table()
+            .reachable(subject)
+            .into_iter()
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// Decide a module route, `/apps/<module>/…`, and record it. The
+    /// transport asks; it does not know what a module is.
+    pub fn decide_route(&self, subject: &Subject, module: &str, path: &str) -> Result<(), RpcError> {
+        let name = route(module);
+        let decision = self.table().decide(subject, &name);
+        self.audit.record(subject, &format!("{name}{path}"), decision, refusal(decision), None);
+        match decision {
+            Decision::Allow => Ok(()),
+            Decision::Refuse(reason) => Err(RpcError::refused(reason)),
+            Decision::Unknown => Err(RpcError::not_found(format!("no module `{module}` serves routes here"))),
+        }
+    }
+
+    /// Subscribing to a host topic is decided as `topic:<name>`.
+    fn decide_topic(&self, subject: &Subject, params: &Value) -> Decision {
+        let Some(name) = params.get("topic").and_then(Value::as_str) else {
+            return Decision::Allow; // the hub answers a missing topic itself
+        };
+        self.table().decide(subject, &topic(name))
+    }
+}
+
+fn refusal(decision: Decision) -> Option<&'static str> {
+    match decision {
+        Decision::Refuse(reason) => Some(reason),
+        _ => None,
     }
 }
 
@@ -70,6 +115,10 @@ impl Authorizer {
 /// by being refused, and a contribution's filtered RPC client is built from
 /// it — so the message is the same whichever side catches the call.
 pub const REACHABLE: &str = "harnix.reachable";
+
+/// The two methods whose decision depends on what they name: a topic is
+/// subscribed to only if the subject reaches `topic:<name>`.
+const SUBSCRIBE: &[&str] = &["harnix.subscribe", "harnix.unsubscribe"];
 
 #[async_trait::async_trait]
 impl Gate for Authorizer {
@@ -89,12 +138,23 @@ impl Gate for Authorizer {
         if method == REACHABLE {
             self.audit
                 .record(subject, method, Decision::Allow, None, session);
+            let topics: Vec<String> = self
+                .table()
+                .reachable_topics(subject)
+                .into_iter()
+                .map(str::to_string)
+                .collect();
             return Ok(serde_json::json!({
                 "subject": subject,
                 "methods": self.reachable(subject),
+                "topics": topics,
             }));
         }
-        match self.table.decide(subject, method) {
+        let mut decision = self.table().decide(subject, method);
+        if decision == Decision::Allow && SUBSCRIBE.contains(&method) {
+            decision = self.decide_topic(subject, &params);
+        }
+        match decision {
             Decision::Allow => {
                 self.audit
                     .record(subject, method, Decision::Allow, None, session);
@@ -115,6 +175,10 @@ impl Gate for Authorizer {
             Decision::Unknown => {
                 self.audit
                     .record(subject, method, Decision::Unknown, None, session);
+                if SUBSCRIBE.contains(&method) {
+                    let name = params.get("topic").and_then(Value::as_str).unwrap_or("");
+                    return Err(RpcError::not_found(format!("there is no topic `{name}`")));
+                }
                 Err(RpcError::not_found(format!(
                     "method `{method}` is not reachable by {}",
                     subject.label()

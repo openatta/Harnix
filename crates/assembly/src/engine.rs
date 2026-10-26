@@ -44,6 +44,9 @@ pub struct EngineConfig {
     /// process's working directory — an embedder should not have to `chdir`
     /// to choose it, any more than to choose the data root.
     pub cwd: Option<PathBuf>,
+    /// What modules contribute natively: scenes, a session customizer, a
+    /// credential source.
+    pub contrib: crate::EngineContrib,
 }
 
 impl Default for EngineConfig {
@@ -61,6 +64,7 @@ impl Default for EngineConfig {
                 .unwrap_or_else(|| PathBuf::from("."))
                 .join(".agix"),
             cwd: None,
+            contrib: crate::EngineContrib::default(),
         }
     }
 }
@@ -95,11 +99,18 @@ impl Engine {
     }
 }
 
-fn resolve_scene(name: &str) -> anyhow::Result<Arc<dyn base::interface::scene::AgentScene>> {
+fn resolve_scene(
+    name: &str,
+    contributed: &[Arc<dyn base::interface::scene::AgentScene>],
+) -> anyhow::Result<Arc<dyn base::interface::scene::AgentScene>> {
+    if let Some(scene) = contributed.iter().find(|s| s.id() == name) {
+        return Ok(scene.clone());
+    }
     let mut registry = scene::scene::SceneRegistry::new();
     registry.register_builtin();
     registry.resolve(name).ok_or_else(|| {
         let mut known = registry.ids();
+        known.extend(contributed.iter().map(|s| s.id().to_string()));
         known.sort();
         anyhow::anyhow!(
             "unsupported scene `{name}` — supported scenes: {}",
@@ -118,10 +129,10 @@ fn active_scenes(scene: &str, scenes: &[String]) -> Vec<String> {
 }
 
 pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
-    let scene = resolve_scene(&config.scene)?;
+    let scene = resolve_scene(&config.scene, &config.contrib.scenes)?;
     let scope = scene.id().to_string();
     for extra in &config.scenes {
-        resolve_scene(extra)?; // fail before any state is touched
+        resolve_scene(extra, &config.contrib.scenes)?; // fail before any state is touched
     }
 
     let cwd = config
@@ -229,15 +240,15 @@ pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
         Assembly {
             cwd: Some(cwd),
             extra_scenes: config.scenes.clone(),
-            scenes: Vec::new(),
+            scenes: config.contrib.scenes.clone(),
             permission_prompt_timeout: std::time::Duration::from_secs(
                 config.permission_prompt_timeout_secs,
             ),
             model_client: Some(client),
-            credentials: None,
+            credentials: config.contrib.credentials.clone(),
             transcripts,
             permission: None,
-            customize_session: None,
+            customize_session: config.contrib.composed(),
             mcp_oauth_resolver: None,
         },
     )

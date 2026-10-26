@@ -1,0 +1,26 @@
+[package]
+name = "harnix"
+version      = "0.3.1-2026102501"
+edition      = "2021"
+rust-version = "1.87"
+license      = "Apache-2.0"
+publish      = false
+description  = "Agix, assembled into a product — the crate an application depends on, and the empty application"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "harnix"
+path = "src/main.rs"
+
+[dependencies]
+harnix-app       = { workspace = true }
+harnix-module    = { workspace = true }
+harnix-contract  = { workspace = true }
+harnix-authz     = { workspace = true }
+async-trait = { workspace = true }
+anyhow      = { workspace = true }
+axum        = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }

@@ -1,18 +1,19 @@
-//! `harnix.devices.*` — pairing, listing, revoking.
+//! `harnix.devices.*` — pairing, listing, revoking: the `devices` built-in
+//! module.
 //!
-//! Registered by the app rather than by `harnix-builtin`, because these are the
-//! authorization layer's data and this is the layer that owns both it and the
-//! transport whose channels a revocation has to end. Putting them in the
-//! built-ins would give that crate a reason to depend on authorization, for
-//! one feature, and dependency edges are cheaper not to add.
+//! Here rather than in `harnix-builtin`, because these are the authorization
+//! layer's data and this is the layer that owns both it and the transport
+//! whose channels a revocation has to end. Putting them in the built-ins
+//! would give that crate a reason to depend on authorization, for one
+//! feature, and dependency edges are cheaper not to add. It registers through
+//! the module contract like every other built-in.
 
 use std::sync::Arc;
 use std::time::SystemTime;
 
 use harnix_authz::{Devices, PairError};
-use harnix_contract::{RpcError, Subject};
-use harnix_contrib::registry::Owner;
-use harnix_contrib::{HostMethod, Registry};
+use harnix_contract::RpcError;
+use harnix_module::{CallContext, Handler, Manifest, MethodRegistry, Module, Principal};
 use serde_json::{json, Value};
 
 pub const METHODS: &[&str] = &[
@@ -30,35 +31,53 @@ pub const METHODS: &[&str] = &[
 const ALPHABET: &[u8] = b"23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 const CODE_LEN: usize = 8;
 
-pub struct DeviceMethods {
+/// The `devices` module.
+pub struct DevicesModule {
     devices: Arc<Devices>,
     /// Ending a revoked device's channels. The authorization layer knows a
     /// credential belongs to a subject; only transport knows there are
     /// connections carrying it.
     disconnect: Arc<dyn Fn(&str) + Send + Sync>,
-    name: &'static str,
 }
 
-pub fn register(
-    registry: &mut Registry,
-    devices: Arc<Devices>,
-    disconnect: Arc<dyn Fn(&str) + Send + Sync>,
-) {
-    for name in METHODS {
-        let entry = Arc::new(DeviceMethods {
-            devices: devices.clone(),
-            disconnect: disconnect.clone(),
-            name,
-        });
-        if let Err(reason) = registry.method(*name, Owner::Builtin, entry) {
-            tracing::error!(method = name, %reason, "device method not registered");
-        }
+impl DevicesModule {
+    pub fn new(devices: Arc<Devices>, disconnect: Arc<dyn Fn(&str) + Send + Sync>) -> Self {
+        Self { devices, disconnect }
     }
 }
 
 #[async_trait::async_trait]
-impl HostMethod for DeviceMethods {
-    async fn call(&self, _subject: &Subject, params: Value) -> Result<Value, RpcError> {
+impl Module for DevicesModule {
+    const API_VERSION: u32 = harnix_module::MODULE_API_VERSION;
+
+    fn manifest(&self) -> Manifest {
+        Manifest::new("devices", env!("CARGO_PKG_VERSION"))
+            .disclosure("配对、列出、吊销设备；吊销时断开它的所有通道")
+    }
+
+    fn methods(&self, registry: &mut MethodRegistry) {
+        for name in METHODS {
+            registry
+                .method(name.strip_prefix("harnix.").unwrap_or(name), Principal::Device)
+                .allow(Principal::Kernel)
+                .with(Arc::new(DeviceMethods {
+                    devices: self.devices.clone(),
+                    disconnect: self.disconnect.clone(),
+                    name,
+                }));
+        }
+    }
+}
+
+struct DeviceMethods {
+    devices: Arc<Devices>,
+    disconnect: Arc<dyn Fn(&str) + Send + Sync>,
+    name: &'static str,
+}
+
+#[async_trait::async_trait]
+impl Handler for DeviceMethods {
+    async fn call(&self, _cx: CallContext, params: Value) -> Result<Value, RpcError> {
         let now = SystemTime::now();
         self.devices.sweep(now);
         match self.name {

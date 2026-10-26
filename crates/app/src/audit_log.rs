@@ -134,7 +134,7 @@ mod tests {
     /// missing — so disabling and uninstalling a package left no trace.
     #[test]
     fn the_whole_extension_lifecycle_is_audited() {
-        for method in harnix_builtin::METHODS {
+        for method in &harnix_builtin::methods() {
             // The lifecycle is exactly the `harnix.plugins.*` calls that change
             // what is installed; `upload` hands over a file and `list` reads.
             if !method.starts_with("harnix.plugins.")

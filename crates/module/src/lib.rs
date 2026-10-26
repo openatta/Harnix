@@ -1,36 +1,161 @@
-//! Contribution points: how the interface is assembled out of named parts.
+//! The compile-time module contract (design §7).
 //!
-//! **These are Harnix's own seams, not an extension surface for third parties.**
-//! Extending the agent is Agix's business — its scripts, its plugins, its
-//! manifest, its capability gate, its disclosure. Harnix neither reads a package
-//! nor runs one. What this crate does is keep the interface from being a pile
-//! of switch statements: every tool row, flow block, panel, sidebar grouping,
-//! command and settings section is a named registration, so the shell asks a
-//! registry instead of knowing every case.
+//! A **module** is source the application author links in: a space's
+//! backend, a product's domain service, one of Harnix's own built-ins. It is
+//! not a plugin — that word belongs to Agix's packages — and it is trusted
+//! like the kernel, because it *is* part of the kernel's binary. What the
+//! contract buys is not a sandbox but a shape: everything a module adds is
+//! declared at registration (methods, topics, routes, native contributions to
+//! the engine), so the authorization table, the diagnostics page and the
+//! generated catalogs can all be read rather than inferred.
 //!
-//! Two rules survive from when this was going to be more, and both are still
-//! worth their keep:
+//! A module never gets the hub's internals or an engine link. Its
+//! [`ModuleContext`] calls through the same admission point a device does,
+//! as `Subject::Module(id)`, so a module cannot go around the hub by accident
+//! (design §14: a structural guard against mistakes).
 //!
-//! 1. **The catalog is generated.** [`catalog::render_markdown`] renders the
-//!    table in `docs/contribution_points.md`, and `crates/app/tests/catalog_doc.rs`
-//!    fails when the file and the code disagree. A stale list of seams is
-//!    worse than none: it gets quoted as fact.
-//! 2. **Frequency is part of the contract.** Every point says the order of
-//!    magnitude it fires at, and nothing here follows the stream: a point
-//!    evaluated per streaming delta would cost a few thousand calls a turn
-//!    where these cost a dozen.
-//!
-//! And one that matters more than either: **the shell must ask.** A point
-//! nothing consults is a seam that exists only in the catalog, and the
-//! product goes on drawing that thing directly — which is exactly what
-//! happened once, to five of the seven points, with every test still green.
-//! `tests/contrib-smoke.mjs` checks for it now.
+//! The interface's contribution points (`catalog`) live here too: the
+//! front-end half of the same contract.
 
 pub mod catalog;
-pub mod registry;
+mod context;
+mod credentials;
+mod events;
+pub mod manifest;
+mod methods;
+mod routes;
 
 pub use catalog::{Frequency, Point, PointKind};
-pub use registry::{HostMethod, Registry};
+pub use context::{CallContext, InstanceHandle, Kernel, MigrateContext, MigrationReport, ModuleContext};
+pub use credentials::{CredentialRef, Credentials, EnvCredentials};
+pub use events::{EventRegistry, Events, TopicDecl};
+pub use manifest::Manifest;
+pub use methods::{Handler, MethodDecl, MethodRegistry};
+pub use routes::{RouteDecl, RouteRegistry};
+
+pub use base::interface::credentials::Secret;
+pub use harnix_assembly::EngineContrib;
+pub use harnix_authz::Principal;
+pub use harnix_contract::{RpcError, Subject};
+
+/// Bumped when the module contract changes in a way a module can observe.
+///
+/// A module states the version it is written against
+/// ([`Module::API_VERSION`]) and the application builder checks it **at
+/// compile time**, so a module written for another contract does not build
+/// rather than misbehaving at runtime:
+///
+/// ```compile_fail
+/// use harnix_module::{assert_api, Manifest, Module};
+///
+/// struct Old;
+///
+/// #[async_trait::async_trait]
+/// impl Module for Old {
+///     const API_VERSION: u32 = 0;
+///     fn manifest(&self) -> Manifest {
+///         Manifest::new("old", "0.1.0")
+///     }
+/// }
+///
+/// assert_api::<Old>();
+/// ```
+pub const MODULE_API_VERSION: u32 = 1;
+
+/// One compile-time module. Every function but `manifest` has a default, so
+/// a module implements only the parts it has.
+///
+/// Order of calls (design §7.3): the registration functions, once each, in
+/// the order modules were added; then `migrate`; then — once the instances
+/// exist — `start`. A module whose registration conflicts, whose `migrate`
+/// fails or whose `start` fails is disabled with its methods, topics and
+/// routes; everything else starts.
+#[async_trait::async_trait]
+pub trait Module: Send + Sync + 'static {
+    /// The [`MODULE_API_VERSION`] this module is written against.
+    const API_VERSION: u32;
+
+    fn manifest(&self) -> Manifest;
+
+    /// Native contributions to the `system` instance: scenes, native tools
+    /// through a session customizer, a credential source.
+    fn engine(&self, _engine: &mut EngineContrib) {}
+
+    /// Methods, named `app.<id>.<name>` (built-ins: `harnix.<name>`).
+    fn methods(&self, _methods: &mut MethodRegistry) {}
+
+    /// Host topics this module publishes whole-value snapshots on.
+    fn events(&self, _events: &mut EventRegistry) {}
+
+    /// HTTP and WebSocket under `/apps/<id>/`.
+    fn routes(&self, _routes: &mut RouteRegistry) {}
+
+    /// Bring this module's own data up to date. Harnix decides when and what
+    /// happens on failure; how is the module's.
+    async fn migrate(&self, _cx: &MigrateContext) -> anyhow::Result<MigrationReport> {
+        Ok(MigrationReport::none())
+    }
+
+    async fn start(&self, _cx: ModuleContext) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn stop(&self) {}
+}
+
+/// The compile-time check behind [`MODULE_API_VERSION`]. The application
+/// builder calls it for every module it is given.
+pub const fn assert_api<M: Module>() {
+    const {
+        assert!(
+            M::API_VERSION == MODULE_API_VERSION,
+            "this module is written against a different MODULE_API_VERSION than the harnix it is built with"
+        )
+    }
+}
+
+/// [`Module`] without the associated constant, so the application can hold
+/// a list of different modules. Implemented for every `Module`.
+#[doc(hidden)]
+#[async_trait::async_trait]
+pub trait ErasedModule: Send + Sync + 'static {
+    fn manifest(&self) -> Manifest;
+    fn engine(&self, engine: &mut EngineContrib);
+    fn methods(&self, methods: &mut MethodRegistry);
+    fn events(&self, events: &mut EventRegistry);
+    fn routes(&self, routes: &mut RouteRegistry);
+    async fn migrate(&self, cx: &MigrateContext) -> anyhow::Result<MigrationReport>;
+    async fn start(&self, cx: ModuleContext) -> anyhow::Result<()>;
+    async fn stop(&self);
+}
+
+#[async_trait::async_trait]
+impl<M: Module> ErasedModule for M {
+    fn manifest(&self) -> Manifest {
+        Module::manifest(self)
+    }
+    fn engine(&self, engine: &mut EngineContrib) {
+        Module::engine(self, engine)
+    }
+    fn methods(&self, methods: &mut MethodRegistry) {
+        Module::methods(self, methods)
+    }
+    fn events(&self, events: &mut EventRegistry) {
+        Module::events(self, events)
+    }
+    fn routes(&self, routes: &mut RouteRegistry) {
+        Module::routes(self, routes)
+    }
+    async fn migrate(&self, cx: &MigrateContext) -> anyhow::Result<MigrationReport> {
+        Module::migrate(self, cx).await
+    }
+    async fn start(&self, cx: ModuleContext) -> anyhow::Result<()> {
+        Module::start(self, cx).await
+    }
+    async fn stop(&self) {
+        Module::stop(self).await
+    }
+}
 
 /// Bumped when a point's contract changes. Negotiated in the handshake
 /// separately from the protocol version: an interface bundle can be current

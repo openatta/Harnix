@@ -202,9 +202,7 @@ impl Builtin {
     /// Projects that already have sessions, most recently active first — the
     /// list a new-session dialog should offer before it offers a file browser.
     pub(crate) async fn recent_projects(&self) -> Result<Value, RpcError> {
-        let listed = self
-            .hub
-            .engine_call("session.list", json!({"status": "all", "limit": 200}))
+        let listed = self.call("sessions", "session.list", json!({"status": "all", "limit": 200}))
             .await?;
         let mut seen: Vec<(String, String)> = Vec::new();
         if let Some(sessions) = listed.get("sessions").and_then(Value::as_array) {

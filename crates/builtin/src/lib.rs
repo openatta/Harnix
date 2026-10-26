@@ -6,12 +6,10 @@
 //! assembly; every one is a judgement about how this product behaves, and
 //! §2.1 draws the line exactly there.
 //!
-//! So they live here and register through the public contribution points —
-//! the same `hub.method` a plugin uses, with the same names in the same
-//! registry. If the built-in features could not be built out of the extension
-//! surface, that surface would not be worth believing (§5.5), and this crate
-//! is what makes the claim checkable: delete it and the kernel still runs,
-//! with fewer methods and no special cases.
+//! So they live here, as compile-time modules registered through the same
+//! contract an application's modules use (design §7). This crate depends on
+//! `harnix-module`'s public API and on nothing inside the hub; a test in the
+//! app holds it to that.
 //!
 //! State lives in Harnix's own directory, never mixed into the engine's root —
 //! see [`store`]. Deleting it loses grouping and titles and nothing else.
@@ -27,12 +25,13 @@ pub mod workspaces;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
-use harnix_contract::{RpcError, Subject};
-use harnix_contrib::registry::Owner;
-use harnix_contrib::{HostMethod, Registry};
-use harnix_hub::Hub;
+use harnix_contract::RpcError;
+use harnix_module::{
+    CallContext, Handler, InstanceHandle, Manifest, MethodRegistry, Module, ModuleContext,
+    Principal,
+};
 use serde_json::Value;
 use tokio::sync::Mutex;
 
@@ -42,9 +41,8 @@ use store::Store;
 /// and the hello payload; this crate only knows when to say so.
 type PackagesChanged = Box<dyn Fn(Vec<packages::Contributions>) + Send + Sync>;
 
-/// Everything Harnix contributes, and the state behind it.
+/// The state behind Harnix's built-in modules, shared by all of them.
 pub struct Builtin {
-    hub: Arc<Hub>,
     store: Mutex<Store>,
     /// One-shot upload grants: token → where the bytes go and the ceiling
     /// the issuing method advertised.
@@ -58,47 +56,98 @@ pub struct Builtin {
     /// Told when the installed set changes, so the static face and the hello
     /// payload can follow without a restart.
     on_packages_changed: Mutex<Option<PackagesChanged>>,
+    /// Each built-in module's context, by id, set when it starts. A call a
+    /// built-in makes goes out as that module, so the audit names it and a
+    /// grant (settings writing a provider) applies to it alone.
+    contexts: RwLock<HashMap<&'static str, ModuleContext>>,
 }
 
-/// Every method this crate contributes. Listed once, so authorization and the
-/// generated catalog can both read it without tracing dispatch.
-pub const METHODS: &[&str] = &[
-    "harnix.workspaces.list",
-    "harnix.workspaces.create",
-    "harnix.workspaces.update",
-    "harnix.workspaces.reorder",
-    "harnix.workspaces.remove",
-    "harnix.sessions.rename",
-    "harnix.sessions.archive",
-    "harnix.prefs.set",
-    "harnix.search",
-    "harnix.requestHeaders",
-    "harnix.settings.describe",
-    "harnix.settings.set",
-    "harnix.settings.setProvider",
-    "harnix.listDirectory",
-    "harnix.recentProjects",
-    "harnix.files",
-    "harnix.projects.create",
-    "harnix.upload.begin",
-    // The one thing Agix's installer cannot do for itself: receive a file.
-    "harnix.plugins.upload",
-    // Lifecycle. The engine does the work; these exist because changing what
-    // is installed changes what this host serves — see `plugins`.
-    "harnix.plugins.install",
-    "harnix.plugins.uninstall",
-    "harnix.plugins.enable",
-    "harnix.plugins.disable",
-    "harnix.plugins.reload",
-    "harnix.plugins.list",
+/// The built-in modules: id, methods (full names), grants, disclosure.
+///
+/// Every one registers through the public module contract, the same one an
+/// application's module uses. If the built-ins could not be built out of it,
+/// the contract would not be worth believing (§5.5); delete this crate and
+/// the kernel still runs, with fewer methods and no special cases.
+const PARTS: &[Part] = &[
+    Part {
+        id: "sessions",
+        disclosure: "工作区、会话标题与归档、视图偏好、跨会话搜索、目录选择、文件引用、上传",
+        methods: &[
+            "harnix.workspaces.list",
+            "harnix.workspaces.create",
+            "harnix.workspaces.update",
+            "harnix.workspaces.reorder",
+            "harnix.workspaces.remove",
+            "harnix.sessions.rename",
+            "harnix.sessions.archive",
+            "harnix.prefs.set",
+            "harnix.search",
+            "harnix.listDirectory",
+            "harnix.recentProjects",
+            "harnix.files",
+            "harnix.projects.create",
+            "harnix.upload.begin",
+        ],
+        grants: &[],
+    },
+    Part {
+        id: "settings",
+        disclosure: "读写引擎的设置三层；写 provider 的凭据与端点",
+        methods: &[
+            "harnix.settings.describe",
+            "harnix.settings.set",
+            "harnix.settings.setProvider",
+        ],
+        grants: &["config.get", "config.setProvider"],
+    },
+    Part {
+        id: "packages",
+        disclosure: "接收插件包文件，经 Agix 安装、卸载、启停；读包里的界面段",
+        methods: &[
+            // The one thing Agix's installer cannot do for itself: receive a file.
+            "harnix.plugins.upload",
+            // Lifecycle. The engine does the work; these exist because
+            // changing what is installed changes what this host serves.
+            "harnix.plugins.install",
+            "harnix.plugins.uninstall",
+            "harnix.plugins.enable",
+            "harnix.plugins.disable",
+            "harnix.plugins.reload",
+            "harnix.plugins.list",
+        ],
+        grants: &[
+            "plugin.list",
+            "plugin.install",
+            "plugin.uninstall",
+            "plugin.enable",
+            "plugin.disable",
+            "plugin.reload",
+        ],
+    },
+    Part {
+        id: "recordings",
+        disclosure: "读本机的模型调用录像（请求信封）",
+        methods: &["harnix.requestHeaders"],
+        grants: &[],
+    },
 ];
 
+/// Every method the built-ins contribute.
+pub fn methods() -> Vec<&'static str> {
+    PARTS.iter().flat_map(|p| p.methods.iter().copied()).collect()
+}
+
+/// Engine methods a built-in calls that no device may: in the table as the
+/// kernel's, and granted to the one module that needs each.
+pub fn engine_methods() -> Vec<&'static str> {
+    let mut all: Vec<&'static str> = PARTS.iter().flat_map(|p| p.grants.iter().copied()).collect();
+    all.sort();
+    all.dedup();
+    all
+}
+
 impl Builtin {
-    pub fn new(
-        hub: Arc<Hub>,
-        state_root: PathBuf,
-        projects_root: PathBuf,
-    ) -> anyhow::Result<Arc<Self>> {
+    pub fn new(state_root: PathBuf, projects_root: PathBuf) -> anyhow::Result<Arc<Self>> {
         let store = Store::open(state_root)?;
         let upload_dir = store
             .root()
@@ -106,14 +155,25 @@ impl Builtin {
             .join(std::process::id().to_string());
         std::fs::create_dir_all(&upload_dir)?;
         Ok(Arc::new(Self {
-            hub,
             store: Mutex::new(store),
             uploads: Mutex::new(HashMap::new()),
             upload_dir,
             projects_root,
             max_upload_bytes: harnix_contract::MAX_UPLOAD_BYTES,
             on_packages_changed: Mutex::new(None),
+            contexts: RwLock::new(HashMap::new()),
         }))
+    }
+
+    /// The built-in modules, in the order they register.
+    pub fn modules(self: &Arc<Self>) -> Vec<BuiltinModule> {
+        PARTS
+            .iter()
+            .map(|part| BuiltinModule {
+                builtin: self.clone(),
+                part,
+            })
+            .collect()
     }
 
     pub fn upload_dir(&self) -> &Path {
@@ -124,10 +184,6 @@ impl Builtin {
         self.max_upload_bytes
     }
 
-    pub fn hub(&self) -> &Arc<Hub> {
-        &self.hub
-    }
-
     pub async fn on_packages_changed(
         &self,
         f: impl Fn(Vec<packages::Contributions>) + Send + Sync + 'static,
@@ -135,9 +191,13 @@ impl Builtin {
         *self.on_packages_changed.lock().await = Some(Box::new(f));
     }
 
-    /// What every installed package contributes to this side.
+    /// What every installed package contributes to this side. Empty until
+    /// the packages module has started.
     pub async fn contributions(&self) -> Vec<packages::Contributions> {
-        packages::discover(&self.hub).await
+        match self.context("packages") {
+            Some(cx) => packages::discover(&cx).await,
+            None => Vec::new(),
+        }
     }
 
     /// Claim an upload grant. `None` means the token was never issued or has
@@ -146,17 +206,33 @@ impl Builtin {
         self.uploads.lock().await.remove(token)
     }
 
-    /// Register every method through the public door.
-    pub async fn register(self: &Arc<Self>, registry: &mut Registry) {
-        for name in METHODS {
-            let entry = Arc::new(Method {
-                owner: self.clone(),
-                name,
-            });
-            if let Err(reason) = registry.method(*name, Owner::Builtin, entry) {
-                tracing::error!(method = name, %reason, "built-in method not registered");
-            }
-        }
+    fn context(&self, id: &str) -> Option<ModuleContext> {
+        self.contexts
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(id)
+            .cloned()
+    }
+
+    /// One call as a built-in module, through the admission point.
+    pub(crate) async fn call(&self, module: &str, method: &str, params: Value) -> Result<Value, RpcError> {
+        let cx = self.context(module).ok_or_else(|| {
+            RpcError::new(
+                harnix_contract::codes::INTERNAL_ERROR,
+                format!("the `{module}` module has not started"),
+            )
+        })?;
+        cx.call(method, params).await
+    }
+
+    /// The `system` instance's facts: where its data is, what it runs.
+    pub(crate) fn system(&self) -> InstanceHandle {
+        self.contexts
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .find_map(|cx| cx.instance(harnix_contract::SYSTEM_INSTANCE))
+            .expect("a built-in method ran before any built-in module started")
     }
 
     async fn dispatch(&self, name: &str, params: Value) -> Result<Value, RpcError> {
@@ -193,8 +269,8 @@ impl Builtin {
     }
 }
 
-/// Uploads are a contribution's business, not the kernel's, so transport
-/// asks through a trait rather than knowing whose they are.
+/// Uploads are a module's business, not the kernel's, so transport asks
+/// through a trait rather than knowing whose they are.
 #[async_trait::async_trait]
 impl harnix_transport::BulkStore for Builtin {
     async fn claim(&self, token: &str) -> Option<(PathBuf, usize)> {
@@ -202,17 +278,67 @@ impl harnix_transport::BulkStore for Builtin {
     }
 }
 
+struct Part {
+    id: &'static str,
+    disclosure: &'static str,
+    methods: &'static [&'static str],
+    grants: &'static [&'static str],
+}
+
+/// One built-in module.
+pub struct BuiltinModule {
+    builtin: Arc<Builtin>,
+    part: &'static Part,
+}
+
+#[async_trait::async_trait]
+impl Module for BuiltinModule {
+    const API_VERSION: u32 = harnix_module::MODULE_API_VERSION;
+
+    fn manifest(&self) -> Manifest {
+        let mut manifest = Manifest::new(self.part.id, env!("CARGO_PKG_VERSION"))
+            .disclosure(self.part.disclosure);
+        for grant in self.part.grants {
+            manifest = manifest.grant(*grant);
+        }
+        manifest
+    }
+
+    fn methods(&self, registry: &mut MethodRegistry) {
+        for name in self.part.methods {
+            let short = name.strip_prefix("harnix.").unwrap_or(name);
+            registry
+                .method(short, Principal::Device)
+                .allow(Principal::AnyModule)
+                .allow(Principal::Kernel)
+                .with(Arc::new(Method {
+                    builtin: self.builtin.clone(),
+                    name,
+                }));
+        }
+    }
+
+    async fn start(&self, cx: ModuleContext) -> anyhow::Result<()> {
+        self.builtin
+            .contexts
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(self.part.id, cx);
+        Ok(())
+    }
+}
+
 /// One registered name. A thin adapter so the registry holds a uniform entry
-/// rather than eighteen closures.
+/// rather than twenty-five closures.
 struct Method {
-    owner: Arc<Builtin>,
+    builtin: Arc<Builtin>,
     name: &'static str,
 }
 
 #[async_trait::async_trait]
-impl HostMethod for Method {
-    async fn call(&self, _subject: &Subject, params: Value) -> Result<Value, RpcError> {
-        self.owner.dispatch(self.name, params).await
+impl Handler for Method {
+    async fn call(&self, _cx: CallContext, params: Value) -> Result<Value, RpcError> {
+        self.builtin.dispatch(self.name, params).await
     }
 }
 

@@ -2,9 +2,9 @@
 
 > 读者：在 Harnix 上做产品的人（Helm、IPDrun，以及以后的应用）。
 >
-> **这份指南写的是 0.4 的目标形态，开发还没开始。** 每节标了从哪个里程碑起可用（里程碑见
-> [roadmap](roadmap.md)，当前进度见 [status](status.md)）。代码示例里的签名是**示意**：写清楚形状，
-> 具体名字以实现为准，实现落地时回来改这份文档。
+> **这份指南写的是 0.4 的目标形态。** 每节标了从哪个里程碑起可用（里程碑见 [roadmap](roadmap.md)，
+> 当前进度见 [status](status.md)）。**已落地的里程碑，示例就是真实的签名**（M2 的模块契约与应用装配
+> 已落地，`crates/testapp` 是一个能编译的完整例子）；还没落地的部分是示意，落地时回来改。
 >
 > 用词照 [术语](glossary.md)。为什么这样设计见 [0.4 设计](harnix-0.4-design-and-plan.md)。
 
@@ -86,8 +86,8 @@ Harnix 进程
 
 Cargo 这边要知道三件事（为什么这样做见设计 §11.2）：
 
-1. 应用的 workspace 把 `harnix/crates/*` 收为**成员**，`exclude = ["core"]`。
-2. 根 `Cargo.toml` 里有一段带标记的区块，由 `harnix/scripts/sync-app-deps` 生成，**不要手改**。它把
+1. 应用的 workspace 把 `harnix/crates/*` 收为**成员**，`exclude = ["agix", "harnix/agix", "harnix/crates/testapp"]`。
+2. 根 `Cargo.toml` 里有一段带标记的区块，由 `harnix/scripts/sync-app-deps.mjs` 生成，**不要手改**。它把
    Harnix 需要的依赖（含 Agix 的入口 crate）指到以应用根为基准的路径。升级 Harnix 之后重新跑一次。
 3. `[profile.release]`、`[patch]` 写在应用根，Harnix 根目录里的那些对你不生效。模板里已经带好了。
 
@@ -116,7 +116,7 @@ ui = true
 
 [modules.watchlist]              # 你的模块的配置段（M2）
 db = "watchlist.sqlite"
-quote_api_key = { credential = "helm/quote-api" }   # 只写引用，值由 CredentialSource 给
+quote_api_key = { credential = "helm/quote-api" }   # 只写引用，值由 Credentials 给（默认读 $HARNIX_CREDENTIAL_HELM_QUOTE_API）
 
 [system_space]
 enabled = false                  # 产品里关掉调试面（M6）
@@ -128,9 +128,9 @@ runtime_modules = false          # 不加载运行期包的界面模块（M8，�
 ## 4. 起步：从模板建一个应用（M2 起）
 
 1. 复制 `harnix/templates/app` 到新仓库；`git submodule add` 加上 `agix/` 和 `harnix/`，钉到 Harnix 当前
-   钉的那个 Agix（`harnix/` 里 `git ls-tree HEAD core` 看得到）。
-2. 跑 `harnix/scripts/sync-app-deps`，再跑 `harnix/scripts/check-pins`。
-3. `scripts/build.sh`，然后 `./target/debug/<app> --profile profiles/<app>.toml`。
+   钉的那个 Agix（`git -C harnix ls-tree HEAD agix` 看得到）。
+2. 跑 `node harnix/scripts/sync-app-deps.mjs .`，再跑 `node harnix/scripts/check-pins.mjs .`。
+3. `scripts/build.sh`，然后 `./target/release/<app> --profile profiles/<app>.toml`。
 4. 打开启动链接，看到空应用（会话 space + 设置）。
 5. 在 `spaces/` 下加第一个 space，在 `app/src/main.rs` 里 `.module(...)` 加上它。
 
@@ -140,12 +140,27 @@ runtime_modules = false          # 不加载运行期包的界面模块（M8，�
 
 ```rust
 use harnix::prelude::*;
+use serde::Deserialize;
 
 #[derive(Default)]
 pub struct Watchlist;
 
-#[async_trait]
+#[derive(Deserialize)]
+struct Config {
+    db: String,
+    quote_api_key: CredentialRef,          // { credential = "helm/quote-api" }
+}
+
+struct State { db: Db, key: harnix::Secret }
+
+#[derive(Deserialize)]
+struct ListParams { filter: Option<String> }
+
+#[harnix::async_trait]
 impl Module for Watchlist {
+    // 写这个模块时对着的模块 API 版本；和构建它的 harnix 不一致就编译失败
+    const API_VERSION: u32 = harnix::MODULE_API_VERSION;
+
     fn manifest(&self) -> Manifest {
         Manifest::new("watchlist", env!("CARGO_PKG_VERSION"))
             .disclosure("读写关注组；提供「关注组」space")
@@ -154,27 +169,29 @@ impl Module for Watchlist {
     fn methods(&self, m: &mut MethodRegistry) {
         // 全名 app.watchlist.list；声明给哪类主体用，没声明的一律拒绝
         m.method("list", Principal::Device)
-            .params::<ListParams>()
-            .result::<Vec<Group>>()
-            .handler(list_groups);
+            .describe("关注组列表")
+            .schema(serde_json::json!({"type": "object"}))   // 可选，进诊断页
+            .handler(list_groups);                           // 参数按类型反序列化，不符返回 INVALID_PARAMS
     }
 
     fn events(&self, e: &mut EventRegistry) {
-        // 全名 app.watchlist.groups；推整值快照
-        e.topic("groups").snapshot::<Vec<Group>>();
+        e.topic("groups");                    // 全名 app.watchlist.groups；推整值快照
+        e.topic("job").param("job_id");       // 带参数：每组参数一个值
     }
 
-    async fn start(&self, ctx: ModuleContext) -> anyhow::Result<()> {
-        let cfg: WatchlistConfig = ctx.config()?;            // [modules.watchlist]
-        let key = ctx.credentials().get(&cfg.quote_api_key).await?;
-        let db = Db::open(ctx.data_dir().join(&cfg.db))?;    // 数据目录是你自己的
-        ctx.provide(State { db, key, events: ctx.events() }); // handler 里用 cx.state::<State>()
+    async fn start(&self, cx: ModuleContext) -> anyhow::Result<()> {
+        let cfg: Config = cx.config()?;                                  // [modules.watchlist]
+        let key = cx.credentials().get(&cfg.quote_api_key.credential)
+            .map_err(anyhow::Error::msg)?;
+        let db = Db::open(cx.data_dir().join(&cfg.db))?;                // 数据目录是你自己的
+        cx.provide(State { db, key });                                   // handler 里用 cx.state::<State>()
+        cx.events().publish("groups", serde_json::json!({}), Vec::<Group>::new()).await?;
         Ok(())
     }
 }
 
-async fn list_groups(cx: CallContext, p: ListParams) -> Result<Vec<Group>, AppError> {
-    cx.state::<State>().db.groups(p.filter)
+async fn list_groups(cx: CallContext, p: ListParams) -> Result<Vec<Group>, RpcError> {
+    cx.state::<State>()?.db.groups(p.filter)
 }
 ```
 
@@ -182,10 +199,11 @@ async fn list_groups(cx: CallContext, p: ListParams) -> Result<Vec<Group>, AppEr
 // app/src/main.rs
 fn main() -> anyhow::Result<()> {
     harnix::App::builder()
-        .profile_from_args()
+        .name("helm", env!("CARGO_PKG_VERSION"))
         .with_builtins()
         .module(watchlist::Watchlist::default())
         .module(trade::Trade::default())
+        // .credentials(MyKeychain)       // 默认读环境变量
         .run()
 }
 ```
@@ -210,17 +228,29 @@ fn main() -> anyhow::Result<()> {
 **失败只影响你自己**：注册冲突、`migrate` 失败、`start` 失败，都只停用这个模块和它的方法、路由、
 space、实例，其余照常启动，原因写在诊断页。所以 `start` 里别吞错误：返回 `Err`，让诊断页说清楚。
 
-**`ModuleContext` 有什么**：`config()`、`data_dir()`、`credentials()`、`events()`、`sessions()`（§7）、
-`instances()`（§6）、`provide()`。**没有**中枢的内部状态，也没有直连实例的 `EngineLink`：所有会话操作
-都经过中枢。
+**`ModuleContext` 有什么**：`id()`、`config()`、`data_dir()`、`credentials()`、`events()`、
+`call(method, params)`（以 `Module(<id>)` 的身份经同一个准入点调任何方法，同样审计）、`instance(id)`
+（只读的实例信息）、`provide()` / `state()`；M3 起还有 `sessions()`（§7）、`instances()`（§6）。
+**没有**中枢的内部状态，也没有直连实例的 `EngineLink`：所有会话操作都经过中枢。
+
+**诊断**：`harnix.diagnostics` 返回各版本号、每个模块的状态（启用 / 在哪一步停用、原因）、披露文本、
+授权、方法（含主体与 schema）、主题、路由、迁移记录，以及 profile 里没有对应模块的 `[modules.<id>]`
+（拼错了的段）。
+
+**要的权限超出设备能调的**：在 manifest 里 `.grant("config.setProvider")` 声明，注册时写进授权表，
+诊断页列出来。中枢独占的方法（`session.run_turn`、`session.subscribe` 等）不能授权给任何模块。
 
 ### 5.3 方法、主题、路由的规矩
 
 - 方法名在 `app.<id>.*` 下，参数与返回带 schema（以后可以投影成 MCP 工具）。
 - 主题推**整值快照**，不推增量。要按对象订阅就带参数：`app.trade.job { job_id }`。
-- 主体：`Device`（一个人的设备）、`Module(id)`（别的模块调你）、`Kernel`。方法默认拒绝。
-- 自有路由挂在 `/apps/<id>/` 下，与界面同源，准入走同一套授权。它**不享受**拓扑无关、`seq` 追赶
-  这些保证，所以只在 Harnix 通道不合适时用（§9）。
+- 主体：`Principal::Device`（一个人的设备）、`Principal::Module("id")`（某个模块调你）、
+  `Principal::AnyModule`、`Principal::Kernel`。方法默认拒绝，`.allow(...)` 加更多主体。
+- 主题默认给设备和模块订阅，`.only(&[...])` 收窄。
+- 自有路由挂在 `/apps/<id>/` 下：`r.serve(&[Principal::Device], axum::Router)`。与界面同源，准入走
+  同一套授权（带握手拿到的 `credential`：`Authorization: Bearer …` 或 `?credential=`；回环上也认
+  进程令牌与启动链接的 cookie）。它**不享受**拓扑无关、`seq` 追赶这些保证，所以只在 Harnix 通道不合适
+  时用（§9）。
 
 ### 5.4 数据与迁移
 
@@ -472,9 +502,9 @@ space 记自己的当前会话，`session.current()` 拿到的永远是前台 sp
 
 - `scripts/build.sh`：`pnpm build` → `cargo build`。没有界面产物直接 `cargo build` 会明确失败；
   `--headless` 可以不要界面。
-- `<app> --version` 打印应用、Harnix、Agix、模块 API、贡献点 API 的版本。
+- `<app> --version` 打印应用、Harnix、Agix、模块 API、贡献点 API、协议的版本。
 - **两个钉**：`harnix/` 钉一个 Harnix 的标签（`Harnix-v<x.y.z>-<日期><序号>`），`agix/` 钉一个 Agix 的提交。
-  `harnix/scripts/check-pins` 管两者的关系：
+  `harnix/scripts/check-pins.mjs` 管两者的关系：
   - `agix/` 和 Harnix 钉的一样：通过。
   - 比 Harnix 钉的新，并且在 Agix 上存在：开发分支告警；发布前要么回到一样，要么先让 Harnix 升到这一版。
   - 只在本地、不在上游：失败。

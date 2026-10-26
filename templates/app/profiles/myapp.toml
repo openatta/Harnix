@@ -1,0 +1,10 @@
+[engine]
+scene = "coding"
+
+[transport]
+topologies = ["single_duplex"]
+host = "127.0.0.1"
+port = 4080
+
+# [modules.my-space]
+# api_key = { credential = "myapp/api-key" }

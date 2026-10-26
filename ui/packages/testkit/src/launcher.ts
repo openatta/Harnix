@@ -11,13 +11,15 @@ import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import type { Topology } from "@harnix/core/protocol";
 
 import { RECORDINGS, ROOT, sleep } from "./env.ts";
 
 export interface LaunchOptions {
+  /** Which binary: `harnix` (the empty application) or another bin of this workspace. */
+  bin?: string;
   /** A fixed port. Without one, a free port is picked. */
   port?: number;
   /** Extra environment for the process (a model credential, a log level). */
@@ -67,7 +69,7 @@ export function makeProject(scratch: string): string {
   return project;
 }
 
-let built: string | null = null;
+const built = new Map<string, string>();
 
 /**
  * The binary under test, current as of this process.
@@ -77,19 +79,24 @@ let built: string | null = null;
  * against yesterday's engine is worse than no run. `HARNIX_BIN` skips the
  * build — for a caller that has just built it.
  */
-export function binary(): string {
-  if (built) return built;
+export function binary(name = "harnix"): string {
+  const known = built.get(name);
+  if (known) return known;
+  const path = join(ROOT, "target", "release", name);
+  // `HARNIX_BIN` names the `harnix` binary a caller has just built; the
+  // other binaries sit next to it.
   if (process.env.HARNIX_BIN) {
-    built = process.env.HARNIX_BIN;
-    return built;
+    const given = name === "harnix" ? process.env.HARNIX_BIN : join(dirname(process.env.HARNIX_BIN), name);
+    built.set(name, given);
+    return given;
   }
-  const path = join(ROOT, "target", "release", "harnix");
-  execFileSync("cargo", ["build", "--release", "-p", "harnix"], {
+  const pkg = name === "harnix" ? "harnix" : name;
+  execFileSync("cargo", ["build", "--release", "-p", pkg], {
     cwd: ROOT,
     stdio: existsSync(path) ? ["ignore", "ignore", "inherit"] : "inherit",
   });
-  built = path;
-  return built;
+  built.set(name, path);
+  return path;
 }
 
 export async function freePort(): Promise<number> {
@@ -106,7 +113,7 @@ export async function freePort(): Promise<number> {
 }
 
 export async function startHarnix(options: LaunchOptions = {}): Promise<Backend> {
-  const bin = binary();
+  const bin = binary(options.bin);
   const port = options.port ?? (await freePort());
   const scratch = mkdtempSync(join(tmpdir(), "harnix-live-"));
   options.seed?.(scratch);

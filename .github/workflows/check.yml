@@ -44,19 +44,21 @@ jobs:
           node-version: 24
 
       - name: Build the shipped binary
-        run: cargo build --release -p harnix
+        run: cargo build --release -p harnix -p harnix-testapp
 
       - name: Unit tests and layering assertions
         run: |
-          cargo test -p harnix -p harnix-assembly -p harnix-authz -p harnix-builtin \
-                     -p harnix-contract -p harnix-contrib -p harnix-hub -p harnix-transport
+          cargo test -p harnix -p harnix-app -p harnix-assembly -p harnix-authz -p harnix-builtin \
+                     -p harnix-contract -p harnix-module -p harnix-hub -p harnix-transport \
+                     -p harnix-testapp
 
       # `--no-deps` so the Agix submodule's own lints are not this
       # repository's to answer for.
       - name: Clippy, zero warnings on Harnix's crates
         run: |
-          cargo clippy -p harnix -p harnix-assembly -p harnix-authz -p harnix-builtin \
-                       -p harnix-contract -p harnix-contrib -p harnix-hub -p harnix-transport \
+          cargo clippy -p harnix -p harnix-app -p harnix-assembly -p harnix-authz -p harnix-builtin \
+                       -p harnix-contract -p harnix-module -p harnix-hub -p harnix-transport \
+                       -p harnix-testapp \
                        --all-targets --no-deps -- -D warnings
 
       - name: Interface checks that need no backend
@@ -66,6 +68,10 @@ jobs:
           node tests/reducer-smoke.mjs
           node tests/i18n-smoke.mjs
           node tests/readme-pairing.mjs
+          node tests/app-scripts.mjs
+
+      - name: The application template, built offline from a clean copy
+        run: node tests/app-template.mjs
 
       - uses: pnpm/action-setup@v4
 

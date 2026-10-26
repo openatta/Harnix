@@ -25,7 +25,7 @@ const text = (node) => (node ? node.textContent : "");
 
 /** The catalogued points, from the generated table.
  *
- * `docs/contribution_points.md` is rendered by `harnix_contrib::catalog` and a
+ * `docs/contribution_points.md` is rendered by `harnix_module::catalog` and a
  * Rust test fails when the two disagree, so reading it here means this file
  * and the backend cannot drift apart either. */
 function catalogPoints() {

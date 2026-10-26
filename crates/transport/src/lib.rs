@@ -18,14 +18,18 @@
 //! serves a static face if there is one, and takes uploads.
 
 mod admission;
+mod apps;
 mod bulk;
 mod handshake;
+mod launch;
 mod session;
 mod split;
 mod statics;
 mod ws;
 
+pub use apps::{AppRoutes, RouteGate};
 pub use bulk::BulkStore;
+pub use launch::{BrowserAdmission, LaunchLinks, LINK_TTL};
 pub use statics::{Face, StaticFace, CSP};
 
 use std::net::SocketAddr;
@@ -63,6 +67,32 @@ pub struct Config {
     /// required as well (§6.3).
     pub admission: Admission,
     pub max_upload_bytes: usize,
+    /// How a browser comes to hold what admits it: the token
+    /// written into the page (the default), or a one-time launch link
+    /// exchanged for a session cookie, with no token in the page (`launch.rs`).
+    pub browser: BrowserAdmission,
+    /// Outstanding launch links and the sessions they opened.
+    /// Held here so the binary can mint the first one it prints at startup.
+    pub links: Arc<LaunchLinks>,
+    /// Origins a browser may connect from besides loopback,
+    /// exactly as a browser serializes them: `https://192.168.1.20:4317`
+    /// (scheme, host, and the port unless it is the scheme's default).
+    ///
+    /// Empty is the default. A deployment that serves its interface on
+    /// a reachable address names that address here — the Origin check is what
+    /// keeps a page from elsewhere out, and it can only do that if it knows
+    /// which page is ours. Matched whole and case-insensitively; no patterns,
+    /// because "any port on this host" would let in whatever else that host
+    /// serves.
+    pub extra_origins: Vec<String>,
+}
+
+/// What the application serves beyond the kernel's own surface: module
+/// routes, and who decides who reaches them.
+#[derive(Default)]
+pub struct Extensions {
+    pub apps: Vec<AppRoutes>,
+    pub route_gate: Option<Arc<dyn RouteGate>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -100,6 +130,7 @@ pub(crate) struct AppState {
     pub sessions: Arc<session::Sessions>,
     pub devices: Arc<harnix_authz::Devices>,
     pub challenges: Arc<admission::Challenges>,
+    pub route_gate: apps::SharedGate,
 }
 
 pub fn router(
@@ -108,6 +139,7 @@ pub fn router(
     bulk: Arc<dyn BulkStore>,
     devices: Arc<harnix_authz::Devices>,
     config: Config,
+    extensions: Extensions,
 ) -> (Router, Arc<StaticFace>) {
     let statics = Arc::new(StaticFace::new(config.face.clone()));
     let topologies = config.topologies.clone();
@@ -120,6 +152,7 @@ pub fn router(
         sessions: Arc::new(session::Sessions::default()),
         devices,
         challenges: Arc::new(admission::Challenges::default()),
+        route_gate: extensions.route_gate,
     };
     // Bulk is registered once and is identical in every topology: it is not a
     // property of any of them, it is what stops one image from filling the
@@ -145,7 +178,12 @@ pub fn router(
         // gives away nothing; redeeming a pairing code is how the first
         // device on a reachable node comes to exist at all.
         .route("/challenge", get(admission::mint))
-        .route("/pair", post(admission::pair));
+        .route("/pair", post(admission::pair))
+        // Minting needs the token; redeeming needs a code that
+        // only a token holder could have minted. Routed in both browser
+        // admission modes — under the page token a cookie is merely redundant.
+        .route("/auth/link", post(launch::create))
+        .route("/auth/{code}", get(launch::redeem));
     if topologies.contains(&Topology::SplitStreams) {
         router = router
             .route("/handshake", post(split::establish))
@@ -160,6 +198,7 @@ pub fn router(
             .route("/events/session", get(split::session_events))
             .route("/events/host", get(split::host_events));
     }
+    router = apps::mount(router, &state, extensions.apps);
     if state.statics.serves_anything() {
         router = router.fallback(get(statics::serve));
     }
@@ -173,18 +212,27 @@ fn over_ceiling() -> axum::extract::DefaultBodyLimit {
     axum::extract::DefaultBodyLimit::max(harnix_contract::MAX_FRAME_BYTES + 1024 * 1024)
 }
 
-/// Origins a browser may connect from: loopback, any port.
+/// Origins a browser may connect from: loopback, any port — and
+/// whatever the deployment named in `extra_origins`.
 ///
 /// Which port the interface is served on is a deployment detail — pinning it
 /// would mean changing the backend to change the interface's port. A missing
 /// `Origin` is not a browser and is left to the token.
-pub(crate) fn origin_allowed(headers: &axum::http::HeaderMap) -> bool {
+pub(crate) fn origin_allowed(headers: &axum::http::HeaderMap, extra: &[String]) -> bool {
     let Some(origin) = headers
         .get(axum::http::header::ORIGIN)
         .and_then(|v| v.to_str().ok())
     else {
         return true;
     };
+    // An origin the deployment named, matched whole.
+    let named = origin.trim_end_matches('/');
+    if extra
+        .iter()
+        .any(|o| o.trim_end_matches('/').eq_ignore_ascii_case(named))
+    {
+        return true;
+    }
     let host = origin
         .split("://")
         .nth(1)
@@ -279,4 +327,43 @@ pub async fn serve(addrs: &[SocketAddr], router: Router, tls: Option<Tls>) -> an
         let _ = server.await;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod origin_tests {
+    use super::origin_allowed;
+    use axum::http::{header, HeaderMap, HeaderValue};
+
+    fn from(origin: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ORIGIN, HeaderValue::from_str(origin).unwrap());
+        headers
+    }
+
+    #[test]
+    fn loopback_any_port_and_no_origin() {
+        assert!(origin_allowed(&HeaderMap::new(), &[]));
+        assert!(origin_allowed(&from("http://127.0.0.1:4317"), &[]));
+        assert!(origin_allowed(&from("http://localhost:9"), &[]));
+        assert!(origin_allowed(&from("http://[::1]:4317"), &[]));
+        assert!(!origin_allowed(&from("https://192.168.1.20:4317"), &[]));
+    }
+
+    /// (N-601)
+    #[test]
+    fn extra_origins_match_whole() {
+        let extra = vec!["https://192.168.1.20:4317".to_string()];
+        assert!(origin_allowed(&from("https://192.168.1.20:4317"), &extra));
+        assert!(origin_allowed(&from("HTTPS://192.168.1.20:4317"), &extra));
+        // Another port, another scheme, another host: not ours.
+        assert!(!origin_allowed(&from("https://192.168.1.20:8080"), &extra));
+        assert!(!origin_allowed(&from("http://192.168.1.20:4317"), &extra));
+        assert!(!origin_allowed(&from("https://192.168.1.21:4317"), &extra));
+        assert!(!origin_allowed(
+            &from("https://192.168.1.20:4317.evil.example"),
+            &extra
+        ));
+        // Loopback is still allowed alongside.
+        assert!(origin_allowed(&from("http://127.0.0.1:4317"), &extra));
+    }
 }

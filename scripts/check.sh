@@ -43,8 +43,9 @@ done
 PORT_UI=4360
 PORT_TLS=4361
 
-CRATES=(-p harnix -p harnix-assembly -p harnix-authz -p harnix-builtin
-        -p harnix-contract -p harnix-contrib -p harnix-hub -p harnix-transport)
+CRATES=(-p harnix -p harnix-app -p harnix-assembly -p harnix-authz -p harnix-builtin
+        -p harnix-contract -p harnix-module -p harnix-hub -p harnix-transport
+        -p harnix-testapp)
 
 scratch="$(mktemp -d)"
 backend_pid=""
@@ -90,7 +91,8 @@ has_model() { [ -f .env ] && grep -qE '^\s*(export\s+)?ANTHROPIC_(API_KEY|AUTH_T
 has_chromium() { [ -d "$HOME/Library/Caches/ms-playwright" -o -d "$HOME/.cache/ms-playwright" ]; }
 
 # ── the layers ────────────────────────────────────────────────────────────
-run_build()   { cargo build --release -p harnix; }
+# The test application is built beside the binary: the module suites run it.
+run_build()   { cargo build --release -p harnix -p harnix-testapp; }
 run_rust()    { cargo test "${CRATES[@]}"; }
 # `--no-deps` matters: without it `-D warnings` is applied to the Agix
 # submodule too, and this script goes red for lints in code this repository
@@ -100,7 +102,7 @@ run_clippy()  { cargo clippy "${CRATES[@]}" --all-targets --no-deps -- -D warnin
 run_offline() {
   # No backend, no model, no browser: the checks that should never be the
   # slow ones.
-  for t in crate-metadata style-lint contrib-smoke reducer-smoke i18n-smoke readme-pairing; do
+  for t in crate-metadata app-scripts style-lint contrib-smoke reducer-smoke i18n-smoke readme-pairing; do
     echo "── $t ──"
     node "tests/$t.mjs" || return 1
   done
@@ -119,6 +121,10 @@ run_frontend() {
     echo "generated protocol types are stale: cargo test -p harnix-contract --features ts"; return 1; }
   echo "── coverage table ──"; node tests/live/coverage.mjs --check || return 1
 }
+
+# `templates/app`, copied out and built offline as a fresh application would
+# be. Its own target directory, kept between runs, so only the first is slow.
+run_template() { HARNIX_TEMPLATE_TARGET="$root/target/template" node tests/app-template.mjs; }
 
 # The LIVE suites (tests/live, Playwright Test). The binary was built by the
 # first layer; `HARNIX_BIN` stops each run from asking cargo again.
@@ -226,14 +232,17 @@ layer frontend run_frontend
 layer api    run_api
 
 if [ "$FAST" = 1 ]; then
+  skip template "--fast"
   skip live "--fast"
   skip browser "--fast"
   skip interface "--fast"
 elif ! has_model; then
+  layer template run_template
   skip live "no ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN in .env"
   skip interface "needs a model — see above"
   if has_chromium; then layer browser run_browser; else skip browser "no chromium — pnpm install:browser"; fi
 else
+  layer template run_template
   layer live run_live
   if has_chromium; then layer browser run_browser; else skip browser "no chromium — pnpm install:browser"; fi
   layer interface run_interface

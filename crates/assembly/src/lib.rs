@@ -7,7 +7,7 @@
 //!
 //! This layer does not know the client-facing protocol exists. It depends on
 //! the engine and on neither transport nor authorization —
-//! `crates/app/tests/layering.rs` states that as a fact about the dependency
+//! `crates/harnix/tests/layering.rs` states that as a fact about the dependency
 //! graph rather than as a paragraph here.
 //!
 //! # Extensions are not assembled here
@@ -19,8 +19,10 @@
 //! `harnix_builtin::plugins`). Anything here that read a manifest would be a
 //! second truth about what an extension may do.
 
+pub mod contrib;
 pub mod engine;
 pub mod profile;
 
+pub use contrib::EngineContrib;
 pub use engine::{build as build_engine, Engine, EngineConfig};
 pub use profile::{EngineProfile, Profile, TransportProfile, UiProfile};

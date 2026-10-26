@@ -79,7 +79,7 @@ impl Builtin {
     /// "what is installed" and "what will appear in my interface" are the
     /// same question asked by the same screen.
     pub(crate) async fn plugins_list(&self, _params: Value) -> Result<Value, RpcError> {
-        match self.hub.engine_call("plugin.list", json!({})).await {
+        match self.call("packages", "plugin.list", json!({})).await {
             Ok(value) => Ok(json!({
                 "plugins": value.get("plugins").cloned().unwrap_or(json!([])),
                 "contributes": packages::read_all(&value),
@@ -116,7 +116,7 @@ impl Builtin {
                 request[key] = value.clone();
             }
         }
-        let result = self.hub.engine_call("plugin.install", request).await?;
+        let result = self.call("packages", "plugin.install", request).await?;
         // The package is on disk now, so what it contributes is knowable now.
         // A package that needed a reload to appear is a package nobody will
         // believe installed.
@@ -138,7 +138,7 @@ impl Builtin {
         method: &'static str,
         params: Value,
     ) -> Result<Value, RpcError> {
-        let result = self.hub.engine_call(method, params).await?;
+        let result = self.call("packages", method, params).await?;
         self.refresh().await;
         Ok(result)
     }
@@ -150,7 +150,7 @@ impl Builtin {
     /// calls back rather than reaching up.
     pub async fn refresh(&self) {
         if let Some(on_change) = self.on_packages_changed.lock().await.as_ref() {
-            on_change(packages::discover(&self.hub).await);
+            on_change(self.contributions().await);
         }
     }
 }

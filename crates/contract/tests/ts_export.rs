@@ -68,6 +68,16 @@ fn export_the_protocol_types() {
             "HANDSHAKE_REFUSED",
             codes::HANDSHAKE_REFUSED,
         ),
+        (
+            "Harnix: the call named an instance this process does not have.",
+            "INSTANCE_NOT_FOUND",
+            codes::INSTANCE_NOT_FOUND,
+        ),
+        (
+            "Harnix: the session does not belong to the space or instance the caller claimed. Guards against a client's bug, not a security boundary.",
+            "SPACE_MISMATCH",
+            codes::SPACE_MISMATCH,
+        ),
     ] {
         out += &constant(docs, name, value);
     }

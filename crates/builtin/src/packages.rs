@@ -26,7 +26,7 @@
 //! and a rule with a carve-out is a rule somebody eventually widens.
 //!
 //! **Harnix executes nothing a package brought.** That version needs no
-//! exception, and `crates/app/tests/layering.rs` holds it.
+//! exception, and `crates/harnix/tests/layering.rs` holds it.
 //!
 //! # Where the package is, is the engine's to say
 //!
@@ -37,7 +37,7 @@
 
 use std::path::{Path, PathBuf};
 
-use harnix_contrib::CONTRIB_API_VERSION;
+use harnix_module::CONTRIB_API_VERSION;
 use serde::{Deserialize, Serialize};
 
 /// What a package contributes to this side.
@@ -198,8 +198,8 @@ pub fn read_all(listed: &serde_json::Value) -> Vec<Contributions> {
 /// refused, disabled or never had is not here either. Asking the engine
 /// rather than scanning the directory is the difference between "installed"
 /// and "some files are lying around".
-pub async fn discover(hub: &harnix_hub::Hub) -> Vec<Contributions> {
-    match hub.engine_call("plugin.list", serde_json::json!({})).await {
+pub async fn discover(cx: &harnix_module::ModuleContext) -> Vec<Contributions> {
+    match cx.call("plugin.list", serde_json::json!({})).await {
         Ok(listed) => read_all(&listed),
         Err(e) => {
             // A build without the package layer answers `PLUGINS_DISABLED`

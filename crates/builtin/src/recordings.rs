@@ -30,7 +30,7 @@ use crate::{require_session_id, Builtin};
 
 impl Builtin {
     fn recording_dir(&self, session_id: &str) -> PathBuf {
-        self.hub.engine().recordings_root.join(session_id)
+        self.system().recordings_root.join(session_id)
     }
 
     /// `harnix.requestHeaders {session_id}` — the envelope timeline of this

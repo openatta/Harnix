@@ -156,19 +156,23 @@ harnix --agix-dir /srv/atta --data-dir /srv/projects
 ## 结构
 
 内核是四件事 —— 装配、中枢、传输、授权 —— 它们之间的依赖是单向的。这条规则不是写在文档里，
-是 `crates/app/tests/layering.rs` 断言出来的。
+是 `crates/harnix/tests/layering.rs` 断言出来的。
 
 ```
-crates/app        bin `harnix`：profile、装配顺序、授权表
-crates/transport  通道语义 + 拓扑：帧、握手、静态面、大负载旁路
-crates/authz      这个进程唯一的准入点：主体 × 方法，默认拒绝，可审计
-crates/hub        会话中枢：订阅、重放、seq、turn 所有权、队列
+crates/harnix     应用依赖的那个 crate，以及 bin `harnix`（空应用）
+crates/app        App::builder()：profile、启动顺序、模块生命周期、诊断
+crates/module     编译期模块契约：Module、各注册表、ModuleContext
+crates/transport  通道语义 + 拓扑：帧、握手、静态面、大负载旁路、/apps/<id>/
+crates/authz      这个进程唯一的准入点：主体 × 方法 / 路由 / 主题，默认拒绝，可审计
+crates/hub        会话中枢：订阅、重放、seq、turn 所有权、队列、宿主主题
 crates/assembly   照 profile 把 Agix 引擎在进程内建起来
-crates/contrib    界面的接缝：由代码生成的目录，与注册表
-crates/builtin    Harnix 自己的方法与界面部件，走的就是那个注册表
+crates/builtin    Harnix 自己的功能，写成只用公开契约的模块
 crates/contract   上面这些层互相递交的类型，仅此而已
+crates/testapp    给测试用的应用：能用的模块，和故意失败的模块
 
 ui/               界面，编译进二进制：runtime/、builtin/、shell/、styles/
+ui/packages/      0.4 的前端包（pnpm）：@harnix/core、@harnix/testkit
+tests/live/       LIVE 套件：Playwright Test，对着真的二进制跑（docs/testing.md）
 agix/             Agix（submodule）
 ```
 
@@ -198,13 +202,13 @@ scripts/check.sh --with-remote  # 加上配对与 TLS —— 会在本机网络�
 
 ```sh
 # `--no-deps`：子模块自己的 lint 不该由这个仓库来答。
-cargo clippy -p harnix -p harnix-hub -p harnix-transport -p harnix-authz \
-             -p harnix-assembly -p harnix-contrib -p harnix-builtin -p harnix-contract \
-             --all-targets --no-deps -- -D warnings
+cargo clippy -p harnix -p harnix-app -p harnix-module -p harnix-hub -p harnix-transport \
+             -p harnix-authz -p harnix-assembly -p harnix-builtin -p harnix-contract \
+             -p harnix-testapp --all-targets --no-deps -- -D warnings
 # 只跑我们的。被吸收进来的 Agix crate 里有测试假定 Agix 自己是 workspace 根。
-cargo test -p harnix -p harnix-hub -p harnix-transport -p harnix-authz \
-           -p harnix-assembly -p harnix-contrib \
-           -p harnix-builtin -p harnix-contract
+cargo test -p harnix -p harnix-app -p harnix-module -p harnix-hub -p harnix-transport \
+           -p harnix-authz -p harnix-assembly -p harnix-builtin -p harnix-contract \
+           -p harnix-testapp
 
 node tests/style-lint.mjs                        # 样式静态检查（图标尺寸、令牌、id）
 node tests/contrib-smoke.mjs                     # 贡献点，以及一次被拒绝的握手

@@ -222,11 +222,12 @@ harnix-app ─→ harnix-transport ─→ harnix-authz ─┐
 | `harnix-authz` | 同名 | 主体 `Kernel / Module(id) / Device`；方法表与路由表；审计 |
 | `harnix-transport` | 同名 | 五种通道语义、三种拓扑、静态面、`/apps/<id>/` 路由、启动链接、Origin 白名单 |
 | `harnix-module` | `harnix-contrib` | `Module` trait、`Manifest`、各注册表、`ModuleContext`、迁移生命周期、`MODULE_API_VERSION` |
-| `harnix-app` | `crates/app` 的 `main.rs` | `App::builder()`、profile、启动顺序、诊断页、`--version`、`harnix daemon` |
+| `harnix-app` | `crates/app` 的 `main.rs` | `App::builder()`、profile、启动顺序、诊断页、`--version`、`harnix daemon`；内建的 `devices` 模块（它要碰授权层的数据） |
 | `harnix-builtin` | 同名 | 内建模块：会话 space、HOME、系统 space、设置、包管理、录像（每个都是一个 `Module`） |
-| `harnix`（bin） | `crates/app` | `App::builder().with_builtins().run()`，就是那个「空应用」 |
+| `harnix`（lib + bin） | `crates/app` | lib 是应用依赖的门面（`harnix::App`、`harnix::prelude`）；bin 是 `App::builder().with_builtins().run()`，就是那个「空应用」 |
+| `harnix-testapp`（bin） | — | 测试用的应用：能用的模块与故意失败的模块，LIVE 的 `modules`、`routes`、`migrations` 套件跑它 |
 
-### 4.2 前端包（pnpm workspace，根在 `ui/`）
+### 4.2 前端包（pnpm workspace；包在 `ui/packages/`）
 
 只分 4 个包。包的边界只画在「谁依赖谁」真正不同的地方，拆分以后随时可以做，合并却难。
 
@@ -818,7 +819,7 @@ Harnix/                                      <app>/
 ├── Cargo.lock                              ├── Cargo.lock
 ├── agix/        子仓 → Agix             ├── agix/             子仓 → Agix（应用自己钉）
 ├── crates/                                 ├── harnix/             子仓 → Harnix（不初始化它的 agix/）
-└── ui/          pnpm workspace              ├── app/              bin crate：App::builder()…
+└── ui/packages/ pnpm 包（workspace 在根）    ├── app/              bin crate：App::builder()…
                                             ├── spaces/<x>/{backend,agent,ui}
                                             ├── pnpm-workspace.yaml   harnix/ui/packages/*、spaces/*/ui
                                             └── profiles/<app>.toml

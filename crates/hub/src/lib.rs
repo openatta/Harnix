@@ -26,6 +26,7 @@
 mod clients;
 mod replay;
 mod session;
+mod topics;
 mod turns;
 
 pub use clients::ClientId;
@@ -38,8 +39,7 @@ use std::sync::Arc;
 use daemon::rpc::{Client, FrameSink as EngineFrameSink, RpcRequest, RpcResponse, Sink};
 use daemon::DaemonServer;
 use harnix_assembly::Engine;
-use harnix_contract::{Frame, FrameSink, Gate, RpcError, Subject};
-use harnix_contrib::Registry;
+use harnix_contract::{codes, Frame, FrameSink, Gate, RpcError, Subject};
 use serde_json::{json, Value};
 use tokio::sync::{Mutex, RwLock};
 use tracing::debug;
@@ -80,13 +80,24 @@ pub const HUB_METHODS: &[&str] = &[
     "harnix.detach",
     "harnix.send",
     "harnix.queue.remove",
-    "harnix.contributions",
+    "harnix.subscribe",
+    "harnix.unsubscribe",
 ];
+
+/// The instance every process has. Until instances arrive (M3) it is the
+/// only one, and a call naming any other is refused rather than quietly sent
+/// here.
+pub use harnix_contract::SYSTEM_INSTANCE as SYSTEM;
+
+/// A session's full name. Two instances may each have a session `s1`; they
+/// are different sessions (design §5.6).
+pub(crate) type SessionKey = (String, String);
 
 #[derive(Default)]
 struct Inner {
     clients: Clients,
-    sessions: HashMap<String, SessionState>,
+    sessions: HashMap<SessionKey, SessionState>,
+    topics: topics::Topics,
 }
 
 pub struct Hub {
@@ -98,8 +109,6 @@ pub struct Hub {
     engine: Engine,
     inner: Arc<Mutex<Inner>>,
     next_client: AtomicU64,
-    /// The `harnix.*` methods the product registered.
-    registry: RwLock<Registry>,
     /// Interface modules from installed packages, told to a client at hello.
     /// Held here rather than resolved per call because it changes when a
     /// package is installed, not when someone asks.
@@ -113,7 +122,6 @@ pub struct Hub {
 impl Hub {
     pub async fn new(
         engine: Engine,
-        registry: Registry,
         replay_from: Option<std::path::PathBuf>,
         limits: harnix_contract::Limits,
     ) -> anyhow::Result<Arc<Self>> {
@@ -129,7 +137,6 @@ impl Hub {
             engine,
             inner,
             next_client: AtomicU64::new(1),
-            registry: RwLock::new(registry),
             ui_contributions: RwLock::new(json!([])),
             limits: serde_json::to_value(limits).unwrap_or(json!({})),
         });
@@ -148,10 +155,6 @@ impl Hub {
         self.replay_from.as_deref()
     }
 
-    pub async fn registry(&self) -> tokio::sync::RwLockReadGuard<'_, Registry> {
-        self.registry.read().await
-    }
-
     /// Replace what a client will be told the packages contribute.
     ///
     /// Called at assembly and again after an install: a package that needed a
@@ -160,13 +163,38 @@ impl Hub {
         *self.ui_contributions.write().await = contributions;
     }
 
-    /// A writable handle, for registration at assembly.
-    ///
-    /// Registration happens once, before anything is served. A contribution
-    /// cannot change what this process is while it runs (§3.1) — enabling a
-    /// package takes effect from the next round of assembly.
-    pub async fn registry_mut(&self) -> tokio::sync::RwLockWriteGuard<'_, Registry> {
-        self.registry.write().await
+    /// Declare a host topic, at assembly. Subscribing to one that was never
+    /// declared is refused.
+    pub async fn declare_topic(&self, name: &str, params: Vec<String>) {
+        self.inner.lock().await.topics.declare(name, params);
+    }
+
+    /// Publish the whole current value of a topic for one parameter set,
+    /// and push it to that set's subscribers.
+    pub async fn publish(&self, topic: &str, params: Value, value: Value) {
+        let mut guard = self.inner.lock().await;
+        let key = match guard.topics.key(topic, &params) {
+            Ok(key) => key,
+            Err(e) => {
+                tracing::warn!(topic, error = %e.message, "not published");
+                return;
+            }
+        };
+        let (to, frame) = guard.topics.publish(key, params, value);
+        guard.clients.send_many(&to, &frame).await;
+    }
+
+    /// Which instance a call means: the one it names, or `system`. An
+    /// instance that does not exist is refused by name.
+    pub(crate) fn instance_of(&self, params: &Value) -> Result<String, RpcError> {
+        match params.get("instance") {
+            None | Some(Value::Null) => Ok(SYSTEM.to_string()),
+            Some(Value::String(name)) if name == SYSTEM => Ok(SYSTEM.to_string()),
+            Some(other) => Err(RpcError::new(
+                codes::INSTANCE_NOT_FOUND,
+                format!("there is no instance {other}"),
+            )),
+        }
     }
 
     /// One JSON-RPC call into the engine, in-process. No socket, no frame, no
@@ -210,6 +238,7 @@ impl Hub {
     pub async fn remove_client(&self, id: ClientId) {
         let mut guard = self.inner.lock().await;
         guard.clients.remove(id);
+        guard.topics.forget(id);
         for state in guard.sessions.values_mut() {
             state.watchers.remove(&id);
         }
@@ -256,27 +285,12 @@ impl Hub {
         }))
     }
 
-    /// What every contribution did, and what did not take. Queryable rather
-    /// than logged: "why is my contribution not working" needs an answer
-    /// (§2.4).
-    async fn contributions(&self) -> Result<Value, RpcError> {
-        let registry = self.registry.read().await;
-        let refusals: Vec<Value> = registry
-            .refusals()
-            .iter()
-            .map(|(who, point, reason)| json!({"who": who, "point": point, "reason": reason}))
-            .collect();
-        Ok(json!({
-            "methods": registry.method_names(),
-            "refused": refusals,
-        }))
-    }
-
     /// Dispatch one already-authorized call.
     ///
-    /// Order is: the hub's own semantics, then contributed methods, then the
-    /// engine. A contribution cannot shadow a hub method — the registry
-    /// refuses a name already taken, and these names are taken at assembly.
+    /// The hub's own semantics first, then the engine. Module methods never
+    /// reach here: the application answers those above the hub, and their
+    /// names cannot collide with these — the authorization table refuses a
+    /// name already taken.
     async fn dispatch(
         self: &Arc<Self>,
         subject: &Subject,
@@ -285,8 +299,9 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         match method {
             "harnix.hello" => return self.hello().await,
-            "harnix.contributions" => return self.contributions().await,
-            "harnix.sessions" => return self.sessions().await,
+            "harnix.subscribe" => return self.subscribe(subject, params).await,
+            "harnix.unsubscribe" => return self.unsubscribe(subject, params).await,
+            "harnix.sessions" => return self.sessions(params).await,
             "harnix.attach" => return self.attach(subject, params).await,
             "harnix.detach" => return self.detach(subject, params).await,
             "harnix.send" => return self.send(subject, params).await,
@@ -298,11 +313,14 @@ impl Hub {
             "session.create" => return self.create(params).await,
             _ => {}
         }
-        if let Some(handler) = self.registry.read().await.lookup(method).cloned() {
-            return handler.call(subject, params).await;
-        }
-        if PASSTHROUGH.contains(&method) {
-            return self.engine_call(method, params).await;
+        // A device reaches the engine only through the passthrough list. A
+        // module or the kernel reaches what the authorizer let through — a
+        // grant (the settings module writing a provider) is decided there,
+        // not re-decided here.
+        let device = matches!(subject, Subject::Device { .. });
+        if PASSTHROUGH.contains(&method) || (!device && is_engine_method(method)) {
+            self.instance_of(&params)?;
+            return self.engine_call(method, without_instance(params)).await;
         }
         Err(RpcError::not_found(format!(
             "`{method}` is not a method of this process"
@@ -349,10 +367,15 @@ impl EngineFrameSink for HubSink {
         match frame.get("method").and_then(Value::as_str) {
             Some("session.event") => {
                 let params = frame.get("params").cloned().unwrap_or(Value::Null);
-                session::route_event(&self.inner, params).await;
+                session::route_event(&self.inner, SYSTEM, params).await;
             }
             Some("daemon.event") => {
-                let params = frame.get("params").cloned().unwrap_or(Value::Null);
+                let mut params = frame.get("params").cloned().unwrap_or(Value::Null);
+                // Which instance said it: a host event about a session is
+                // about `(instance, session)` like every other frame.
+                if let Some(obj) = params.as_object_mut() {
+                    obj.insert("instance".into(), json!(SYSTEM));
+                }
                 let out = Frame::host(notification("harnix.host_event", params));
                 let guard = self.inner.lock().await;
                 guard.clients.broadcast(&out).await;
@@ -362,6 +385,20 @@ impl EngineFrameSink for HubSink {
         }
         true
     }
+}
+
+/// Whether a name is in one of the engine's namespaces, so a module's grant
+/// can reach it. `harnix.*` and `app.*` never are.
+fn is_engine_method(method: &str) -> bool {
+    !method.starts_with("harnix.") && !method.starts_with("app.") && method.contains('.')
+}
+
+/// The engine has no notion of instances; the name is Harnix's.
+pub(crate) fn without_instance(mut params: Value) -> Value {
+    if let Some(obj) = params.as_object_mut() {
+        obj.remove("instance");
+    }
+    params
 }
 
 /// The frame `Hub::barrier` writes behind the engine's own.

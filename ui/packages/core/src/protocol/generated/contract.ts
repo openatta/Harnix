@@ -24,6 +24,10 @@ export const INTERNAL_ERROR = -32603;
 export const REFUSED = -31000;
 /** Harnix: the handshake did not agree — version, contribution API, or topology. */
 export const HANDSHAKE_REFUSED = -31001;
+/** Harnix: the call named an instance this process does not have. */
+export const INSTANCE_NOT_FOUND = -31002;
+/** Harnix: the session does not belong to the space or instance the caller claimed. Guards against a client's bug, not a security boundary. */
+export const SPACE_MISMATCH = -31003;
 
 /**
  * How the five channel semantics are carried.
@@ -44,7 +48,7 @@ export type Limits = { max_frame_bytes: number, max_upload_bytes: number, replay
 /**
  * The caller behind one request.
  */
-export type Subject = { "kind": "kernel" } | { "kind": "device", id: string, };
+export type Subject = { "kind": "kernel" } | { "kind": "device", id: string, } | { "kind": "module", id: string, };
 
 /**
  * What a frame is for. A topology maps these onto connections; the hub and

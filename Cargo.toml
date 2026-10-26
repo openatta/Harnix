@@ -7,8 +7,10 @@ members = [
     "crates/authz",
     "crates/builtin",
     "crates/contract",
-    "crates/contrib",
+    "crates/harnix",
     "crates/hub",
+    "crates/module",
+    "crates/testapp",
     "crates/transport",
 ]
 
@@ -32,11 +34,13 @@ members = [
 #                        └────→ contrib
 # ──────────────────────────────────────────────
 [workspace.dependencies]
+harnix           = { path = "crates/harnix" }
+harnix-app       = { path = "crates/app" }
 harnix-assembly  = { path = "crates/assembly" }
 harnix-authz     = { path = "crates/authz" }
 harnix-builtin   = { path = "crates/builtin" }
 harnix-contract  = { path = "crates/contract" }
-harnix-contrib   = { path = "crates/contrib" }
+harnix-module    = { path = "crates/module" }
 harnix-hub       = { path = "crates/hub" }
 harnix-transport = { path = "crates/transport" }
 
@@ -60,6 +64,7 @@ model     = { path = "agix/crates/model" }
 history   = { path = "agix/crates/history" }
 scene     = { path = "agix/crates/scene" }
 telemetry = { path = "agix/crates/telemetry" }
+runtime   = { path = "agix/crates/runtime" }
 
 # ──────────────────────────────────────────────
 # Third-party — what Harnix's own crates use.
@@ -91,7 +96,7 @@ hex = "0.4"
 base64 = "0.22"
 ignore = "0.4"
 toml = "0.8"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "string"] }
 tempfile = "3"
 # Only under harnix-contract's `ts` feature — see crates/contract/Cargo.toml.
 ts-rs = { version = "12", default-features = false, features = ["serde-compat"] }

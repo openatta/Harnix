@@ -9,9 +9,9 @@
 
 | 项 | 值 |
 |---|---|
-| 阶段 | **M2 模块契约与应用装配**（M0、M1 已完成，本地提交，未发布） |
-| 当前里程碑 | M2 |
-| 当前任务 | M2-1…M2-9 一起做（见「进行中」） |
+| 阶段 | **M3 实例层与服务端会话**（M0–M2 已完成，本地提交，未发布） |
+| 当前里程碑 | M3 |
+| 当前任务 | M3 开始前的设计（见「进行中」） |
 | 下一步 | 见「进行中」。维护者 2026-10-26 下令：A 做完后接着做 M0–M6（系统 space 与界面迁移），M7–M9 不在这一轮 |
 | 最后更新 | 2026-10-26 |
 
@@ -68,8 +68,8 @@
 | 前置 A：Agix 改名与 0.2.7 | Agix 0.2.7 | ✅ | Agix 仓库里本地分包提交，A6 一次推送；推送前维护者要先在 GitHub 上把仓库改名为 `openatta/agix` |
 | M0 引擎基线与构建方式 | 0.3.z | ✅（未发布） | `923f8cd`、`d407316`、`156100e`；`check.sh` 全绿 |
 | M1 LIVE 测试框架 | 0.3.z | ✅（未发布） | 「Run the suites under Playwright Test…」那个提交；`check.sh` 全绿（remote 未跑） |
-| M2 模块契约与应用装配 | **0.4.0** | **进行中** | |
-| M3 实例层与服务端会话 | 0.4.z | 未开始 | M3-3 的完整版、M3-5 的删除依赖 Agix issue 03、04 |
+| M2 模块契约与应用装配 | **0.4.0** | ✅（未发布） | 「Assemble the host from modules…」那个提交；`check.sh` 全绿（remote 未跑）。0.4.0 的推送与标签等维护者点头 |
+| M3 实例层与服务端会话 | 0.4.z | **进行中** | M3-3 的完整版、M3-5 的删除依赖 Agix issue 03、04 |
 | M4 前端底座 | — | 未开始 | 依赖 M1，可与 M2、M3 并行 |
 | M5 Space 模型 | 0.4.z | 未开始 | 依赖 M3、M4 |
 | M6 系统 space | 0.4.z | 未开始 | M6-5 依赖 Agix issue 01、02 |
@@ -119,6 +119,21 @@
 
 M1 顺带修了一处：`include_dir!("ui")` 把 `ui/packages/**/node_modules` 也嵌进了二进制（63.8 MB），改成只嵌界面的几个目录。
 
+### M2 任务
+
+| 任务 | 状态 | 说明 |
+|---|---|---|
+| M2-1 `harnix-module` | ✅ | `crates/module`：`Module`、`Manifest`、方法 / 事件 / 路由注册表、`ModuleContext`、`assert_api`（版本不符编译不过，有 compile_fail doctest） |
+| M2-2 `harnix-app` | ✅ | `crates/app`：`App::builder()`、启动顺序、`harnix.diagnostics`、`--version` 打全版本 |
+| M2-3 二进制走 builder，内建改模块 | ✅ | `crates/harnix`（门面 + 二进制）；`BuiltinModule`；`tests/layering.rs` 守住内建只用公开 API |
+| M2-4 三种主体、`app.<id>.*` | ✅ | `Subject::Module`；授权表按主体，中枢自有的方法不可授予 |
+| M2-5 `/apps/<id>/` | ✅ | `crates/transport/src/apps.rs`；停用模块的路由 404，不落到 SPA |
+| M2-6 失败隔离 | ✅ | 注册冲突、`migrate`、`start` 失败只停该模块；`crates/testapp` 四种故障模块，`modules`、`migrations` 套件 |
+| M2-7 配置段与凭据 | ✅ | `[modules.<id>]`；`EnvCredentials` 读 `HARNIX_CREDENTIAL_*` |
+| M2-8 协议形状带 `instance` | ✅ | 键 `(instance, session)`，缺省 `system`；新错误码 `INSTANCE_NOT_FOUND`、`SPACE_MISMATCH`；`instance-shape` 套件 |
+| M2-9 传输小项 | ✅ | 从 IPDrun 的 vendor 回流 |
+| M2-10 `templates/app` 与脚本 | ✅ | `tests/app-template.mjs` 离线构建过；`check.sh` 新增 template 层 |
+
 后面里程碑的任务表在开始那个里程碑时从 roadmap 抄过来。
 
 ---
@@ -127,6 +142,7 @@ M1 顺带修了一处：`include_dir!("ui")` 把 `ui/packages/**/node_modules` �
 
 | 任务 | 开始 | 改到哪了 | 下一步 |
 |---|---|---|---|
+| M3 设计 | 2026-10-26 | 读完 Agix 0.2.7 的 `daemon.event`、`session.subscribe`（`resume`、`subscription_dropped`）、`session.tasks`、`inspectContext` | 写 `EngineLink`，先做进程内实例与实例注册表 |
 
 格式：
 
@@ -149,6 +165,7 @@ M1 顺带修了一处：`include_dir!("ui")` 把 `ui/packages/**/node_modules` �
 
 | 日期 | 事 |
 |---|---|
+| 2026-10-26 | M2 完成：`harnix-module`、`harnix-app`、内建改模块、三种主体、`/apps/<id>/`、失败隔离、配置段与凭据、协议带 `instance`、传输小项、`templates/app`。`check.sh` 全绿（remote 未跑）。0.4.0 未发布：推送与标签等维护者点头。开始 M3 |
 | 2026-10-26 | M1 完成：pnpm workspace、`@harnix/core`（生成的协议类型 + 客户端）、`@harnix/testkit`、Playwright Test 两个 project、17 个 API 套件和两份浏览器 spec 迁进 `tests/live/`、覆盖表、`docs/testing.md`。`check.sh` 全绿（remote 未跑；browser 层的 package-e2e 与预算层在修完录像路径、内嵌目录后单独复验）。另：改名时把文档里的 `@harnix/core` 误改成了 `@harnix/agix`，改回 |
 | 2026-10-26 | M0 完成：Agix 在自己的 workspace 里构建、各 crate 写明元数据、中枢四项修正、删中枢自记的项目根、`EngineConfig.cwd`、测试在独立项目里跑、三个录像去掉多余的记忆召回、概念 §9 复核。`check.sh` 第一次全绿（remote 未跑）。**Harnix 还没有发布**：0.3.1 及之后的提交都只在本地分支 `rename-agix-harnix` 上，发布要推送并合到 main，等维护者定 |
 | 2026-10-26 | Agix 0.2.7 发布（A2–A6 完成，推送 main 与标签 `Agix-v0.2.7-2026102601`）。Harnix 钉上它、engine.rs 补 `mcp_oauth_resolver`；`check.sh` 与升级前完全一致（只剩 N-003 与 M0-7 绊线）。设计 §2、§5.7、§9.3、§17 与 roadmap M3、M6 改成 0.2.7 的实际情况；`.local` 的四份 issue 标为已落地。**构建写入失败越来越频繁**（A6 的全量测试重试了 19 次）。开始 M0 |

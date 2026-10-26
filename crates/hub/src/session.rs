@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 
 use crate::clients::ClientId;
 use crate::replay::Buffer;
-use crate::{notification, require_session_id, with_recording, Hub, Inner};
+use crate::{notification, require_session_id, with_recording, without_instance, Hub, Inner, SessionKey};
 
 pub(crate) struct QueueItem {
     pub item_id: String,
@@ -64,7 +64,7 @@ impl SessionState {
 /// Sequence assignment, buffering and fan-out happen under one lock, so a
 /// client attaching between two frames either finds a frame in its replay
 /// snapshot or receives it live — never both, never neither.
-pub(crate) async fn route_event(inner: &Arc<Mutex<Inner>>, params: Value) {
+pub(crate) async fn route_event(inner: &Arc<Mutex<Inner>>, instance: &str, params: Value) {
     let Some(session_id) = params.get("session_id").and_then(Value::as_str) else {
         return;
     };
@@ -79,7 +79,10 @@ pub(crate) async fn route_event(inner: &Arc<Mutex<Inner>>, params: Value) {
 
     {
         let mut guard = inner.lock().await;
-        let state = guard.sessions.entry(session_id.clone()).or_default();
+        let state = guard
+            .sessions
+            .entry((instance.to_string(), session_id.clone()))
+            .or_default();
         match kind {
             "prompt" => state.pending_prompts.push(event.clone()),
             // Nothing is waiting on those answers any more.
@@ -94,7 +97,7 @@ pub(crate) async fn route_event(inner: &Arc<Mutex<Inner>>, params: Value) {
             session_id.clone(),
             notification(
                 "harnix.event",
-                json!({"session_id": session_id, "seq": seq, "turn_id": turn_id, "event": event}),
+                json!({"instance": instance, "session_id": session_id, "seq": seq, "turn_id": turn_id, "event": event}),
             ),
         );
         guard.clients.send_many(&watchers, &frame).await;
@@ -116,6 +119,8 @@ impl Hub {
         params: Value,
     ) -> Result<Value, RpcError> {
         let session_id = require_session_id(&params)?;
+        let instance = self.instance_of(&params)?;
+        let key: SessionKey = (instance.clone(), session_id.clone());
         let client = client_of(subject, &params)?;
 
         // `session.get` reads the transcript, so it answers for a cold session
@@ -130,10 +135,7 @@ impl Hub {
 
         let subscribed = {
             let guard = self.inner.lock().await;
-            guard
-                .sessions
-                .get(&session_id)
-                .is_some_and(|s| s.subscribed)
+            guard.sessions.get(&key).is_some_and(|s| s.subscribed)
         };
         if !subscribed {
             let mut resp = self
@@ -162,7 +164,7 @@ impl Hub {
             }
             let resp = resp?;
             let mut guard = self.inner.lock().await;
-            let state = guard.sessions.entry(session_id.clone()).or_default();
+            let state = guard.sessions.entry(key.clone()).or_default();
             state.subscribed = true;
             if let Some(prompts) = resp.get("pending_prompts").and_then(Value::as_array) {
                 state.pending_prompts.extend(prompts.iter().cloned());
@@ -172,7 +174,7 @@ impl Hub {
         let total = self.history_total(&session_id).await;
 
         let mut guard = self.inner.lock().await;
-        let state = guard.sessions.entry(session_id.clone()).or_default();
+        let state = guard.sessions.entry(key).or_default();
         state.watchers.insert(client);
         // What the client draws from history, and what from the buffer, must
         // not overlap. A running turn is written to the transcript step by
@@ -192,6 +194,7 @@ impl Hub {
             Vec::new()
         };
         Ok(json!({
+            "instance": instance,
             "session": info,
             "history_total": history_total,
             "replay": replay,
@@ -209,9 +212,10 @@ impl Hub {
         params: Value,
     ) -> Result<Value, RpcError> {
         let session_id = require_session_id(&params)?;
+        let instance = self.instance_of(&params)?;
         let client = client_of(subject, &params)?;
         let mut guard = self.inner.lock().await;
-        if let Some(state) = guard.sessions.get_mut(&session_id) {
+        if let Some(state) = guard.sessions.get_mut(&(instance, session_id)) {
             state.watchers.remove(&client);
         }
         Ok(json!({"detached": true}))
@@ -219,7 +223,8 @@ impl Hub {
 
     /// The engine's session list — which carries each session's scene and
     /// project root — and whether the hub is running a turn on it.
-    pub(crate) async fn sessions(&self) -> Result<Value, RpcError> {
+    pub(crate) async fn sessions(&self, params: Value) -> Result<Value, RpcError> {
+        let instance = self.instance_of(&params)?;
         let listed = self
             .engine_call("session.list", json!({"limit": 200}))
             .await?;
@@ -237,11 +242,12 @@ impl Hub {
                     .unwrap_or("")
                     .to_string();
                 if let Some(obj) = row.as_object_mut() {
+                    obj.insert("instance".into(), json!(instance));
                     obj.insert(
                         "running".into(),
                         json!(guard
                             .sessions
-                            .get(&sid)
+                            .get(&(instance.clone(), sid))
                             .is_some_and(|s| s.running_turn.is_some())),
                     );
                 }
@@ -253,8 +259,17 @@ impl Hub {
 
     /// Intercepted so the new session records (see `with_recording`).
     pub(crate) async fn create(&self, params: Value) -> Result<Value, RpcError> {
-        self.engine_call("session.create", with_recording(params, self.replay_from()))
-            .await
+        let instance = self.instance_of(&params)?;
+        let mut created = self
+            .engine_call(
+                "session.create",
+                with_recording(without_instance(params), self.replay_from()),
+            )
+            .await?;
+        if let Some(obj) = created.as_object_mut() {
+            obj.insert("instance".into(), json!(instance));
+        }
+        Ok(created)
     }
 
     pub(crate) async fn history_total(&self, session_id: &str) -> u64 {
@@ -279,7 +294,10 @@ impl Hub {
 /// Watching is per-client, and a subject may have several. The transport
 /// stamps the id onto the params; nothing else may set it, which is why a
 /// missing one is an error rather than a default.
-fn client_of(subject: &harnix_contract::Subject, params: &Value) -> Result<ClientId, RpcError> {
+pub(crate) fn client_of(
+    subject: &harnix_contract::Subject,
+    params: &Value,
+) -> Result<ClientId, RpcError> {
     params
         .get("__client")
         .and_then(Value::as_u64)

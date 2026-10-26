@@ -17,7 +17,7 @@ fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
-        .expect("crates/app is two levels below the root")
+        .expect("crates/harnix is two levels below the root")
         .to_path_buf()
 }
 
@@ -64,8 +64,8 @@ fn transport_does_not_know_what_a_session_is() {
         "transport",
         &[
             "harnix-assembly",
-            "harnix-contrib",
-            "harnix-plugin",
+            "harnix-module",
+            "harnix-app",
             "daemon",
             "base",
         ],
@@ -119,6 +119,52 @@ fn assembly_does_not_know_the_client_protocol_exists() {
         &["harnix-transport", "harnix-authz", "harnix-hub", "axum"],
         "it stands up an engine; who talks to it is not its business",
     );
+}
+
+/// A module never gets the hub or an engine link (design §5.3, §14). The
+/// contract it is written against cannot hand it one, because the crate that
+/// defines the contract cannot name either.
+#[test]
+fn the_module_contract_cannot_reach_the_hub() {
+    assert_ignorant_of(
+        "module",
+        &["harnix-hub", "harnix-transport", "harnix-app", "daemon"],
+        "a module calls through the admission point like everyone else",
+    );
+}
+
+/// The built-ins are modules, written against the public module contract and
+/// nothing else (design §3.1, roadmap M2-3). If they could not be built out of
+/// it, the contract would not be worth believing.
+#[test]
+fn the_builtins_use_only_the_public_module_api() {
+    assert_ignorant_of(
+        "builtin",
+        &["harnix-hub", "harnix-authz", "harnix-assembly", "harnix-app", "daemon"],
+        "a built-in is a module, and a module reaches the process only through its context",
+    );
+    // And not through the doors the application itself uses to drive a
+    // module: those are public for the application's sake, hidden from docs,
+    // and a built-in using one would be a built-in with a private channel.
+    let dir = workspace_root().join("crates/builtin/src");
+    let mut offenders = Vec::new();
+    for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+        let text = std::fs::read_to_string(entry.path()).unwrap_or_default();
+        for needle in [
+            "ModuleContext::new",
+            "CallContext::new",
+            "MethodRegistry::new",
+            "EventRegistry::new",
+            "RouteRegistry::new",
+            "ErasedModule",
+            "into_decls",
+        ] {
+            if text.contains(needle) {
+                offenders.push(format!("{} uses `{needle}`", entry.path().display()));
+            }
+        }
+    }
+    assert!(offenders.is_empty(), "{}", offenders.join("\n"));
 }
 
 /// The contract crate is the shared vocabulary. If it grew a dependency on a
@@ -306,14 +352,15 @@ fn every_harnix_dependency_resolves() {
         "authz",
         "builtin",
         "contract",
-        "contrib",
+        "harnix",
         "hub",
+        "module",
         "transport",
     ];
     let known: BTreeSet<String> = crates
         .iter()
         .map(|c| {
-            if *c == "app" {
+            if *c == "harnix" {
                 "harnix".to_string()
             } else {
                 format!("harnix-{c}")

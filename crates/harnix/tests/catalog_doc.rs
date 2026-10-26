@@ -2,19 +2,19 @@
 //!
 //! A list of extension points that can go stale is worse than none: it gets
 //! quoted as fact. So the table in `docs/contribution_points.md` is rendered
-//! from `harnix_contrib::catalog` and this fails when the two disagree —
+//! from `harnix_module::catalog` and this fails when the two disagree —
 //! change the catalog, not the table.
 
 use std::path::{Path, PathBuf};
 
-const BEGIN: &str = "<!-- BEGIN GENERATED TABLE — see harnix_contrib::catalog::render_markdown -->";
+const BEGIN: &str = "<!-- BEGIN GENERATED TABLE — see harnix_module::catalog::render_markdown -->";
 const END: &str = "<!-- END GENERATED TABLE -->";
 
 fn doc_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
-        .expect("crates/app is two levels below the root")
+        .expect("crates/harnix is two levels below the root")
         .join("docs/contribution_points.md")
 }
 
@@ -29,11 +29,11 @@ fn the_documented_table_is_the_generated_one() {
         .find(END)
         .unwrap_or_else(|| panic!("{} has no end marker", path.display()));
     let documented = text[start + BEGIN.len()..end].trim();
-    let generated = harnix_contrib::catalog::render_markdown();
+    let generated = harnix_module::catalog::render_markdown();
     assert_eq!(
         documented,
         generated.trim(),
-        "\n{} is out of date. Regenerate it from harnix_contrib::catalog.\n",
+        "\n{} is out of date. Regenerate it from harnix_module::catalog.\n",
         path.display()
     );
 }

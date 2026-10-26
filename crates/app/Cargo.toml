@@ -1,24 +1,21 @@
 [package]
-name = "harnix"
+name = "harnix-app"
 version      = "0.3.1-2026102501"
 edition      = "2021"
 rust-version = "1.87"
 license      = "Apache-2.0"
 publish      = false
-description  = "Agix, assembled into a product: one binary, one process, one user"
-
-[[bin]]
-name = "harnix"
-path = "src/main.rs"
+description  = "App::builder(): a Harnix process assembled from compile-time modules"
 
 [dependencies]
 harnix-assembly  = { workspace = true }
 harnix-authz     = { workspace = true }
 harnix-builtin   = { workspace = true }
 harnix-contract  = { workspace = true }
-harnix-contrib   = { workspace = true }
+harnix-module    = { workspace = true }
 harnix-hub       = { workspace = true }
 harnix-transport = { workspace = true }
+daemon      = { workspace = true }
 tokio       = { workspace = true }
 async-trait = { workspace = true }
 history     = { workspace = true }
@@ -27,5 +24,7 @@ anyhow      = { workspace = true }
 clap        = { workspace = true }
 tracing     = { workspace = true }
 tracing-subscriber = { workspace = true }
+serde       = { workspace = true }
 serde_json  = { workspace = true }
+toml        = { workspace = true }
 uuid        = { workspace = true }

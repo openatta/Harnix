@@ -61,10 +61,17 @@ fn credential_of(headers: &HeaderMap, query: &Credential) -> Option<String> {
 pub async fn establish(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(body): Json<Value>,
+    Json(mut body): Json<Value>,
 ) -> Response {
-    if !crate::origin_allowed(&headers) {
+    if !crate::origin_allowed(&headers, &state.config.extra_origins) {
         return (StatusCode::FORBIDDEN, "origin not allowed").into_response();
+    }
+    // A launch-link session cookie stands in for the token. The
+    // device half of admission (off loopback) is untouched by it.
+    if state.config.links.admits(&headers) {
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("token".into(), json!(state.config.token));
+        }
     }
     let device = match crate::admission::admit(
         state.config.admission,
@@ -186,7 +193,7 @@ pub async fn rpc(
 ///
 /// A separate endpoint because a download-only stream has no return path.
 /// Treating it as its own semantic is what lets every topology implement it
-/// honestly instead of one of them growing a patch (§3.3.1).
+/// hoharnixly instead of one of them growing a patch (§3.3.1).
 pub async fn respond(
     state: State<AppState>,
     headers: HeaderMap,

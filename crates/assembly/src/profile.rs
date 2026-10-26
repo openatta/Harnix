@@ -12,6 +12,7 @@
 //! Changing shape is a configuration change, not a fork. That is the first of
 //! the three levels of customization (§8) and the one that costs no code.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use harnix_contract::Topology;
@@ -23,6 +24,10 @@ pub struct Profile {
     pub engine: EngineProfile,
     pub transport: TransportProfile,
     pub ui: UiProfile,
+    /// `[modules.<id>]`: each compile-time module's own section, handed to
+    /// it as written. Secrets are references (`{ credential = "…" }`),
+    /// never values (design §7.4).
+    pub modules: BTreeMap<String, toml::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,6 +52,12 @@ pub struct TransportProfile {
     pub topologies: Vec<Topology>,
     pub host: String,
     pub port: u16,
+    /// Keep the token out of the page: a browser is admitted by a one-time
+    /// launch link exchanged for a session cookie (`--launch-link`).
+    pub launch_link: bool,
+    /// Origins a browser may connect from besides loopback, exactly as a
+    /// browser serializes them (`https://192.168.1.20:4317`).
+    pub extra_origins: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -81,6 +92,8 @@ impl Default for TransportProfile {
             topologies: vec![Topology::SingleDuplex],
             host: "127.0.0.1".into(),
             port: 4080,
+            launch_link: false,
+            extra_origins: Vec::new(),
         }
     }
 }

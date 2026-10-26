@@ -20,7 +20,7 @@ Harnix 的界面由六个具名的贡献点拼起来。
 **外壳必须真的去问。** 一个没人问的点，等于只存在于目录里，产品照旧自己直接画——这件事
 真的发生过一次，七个点里的五个，而所有测试都是绿的。`tests/contrib-smoke.mjs` 现在盯着它。
 
-<!-- BEGIN GENERATED TABLE — see harnix_contrib::catalog::render_markdown -->
+<!-- BEGIN GENERATED TABLE — see harnix_module::catalog::render_markdown -->
 
 | 贡献点 | 类型 | 贡献什么 | 求值时机 | 频率 |
 |---|---|---|---|---|
@@ -32,8 +32,8 @@ Harnix 的界面由六个具名的贡献点拼起来。
 | `settings.section` | 呈现 | 设置面板里的一节 | 设置页打开时 | 每次交互(10⁰–10¹ 量级) |
 <!-- END GENERATED TABLE -->
 
-上面这张表由 `harnix_contrib::catalog` 生成，这份文件一旦和它对不上，
-`crates/app/tests/catalog_doc.rs` 就会失败。要改改 catalog，别改表。
+上面这张表由 `harnix_module::catalog` 生成，这份文件一旦和它对不上，
+`crates/harnix/tests/catalog_doc.rs` 就会失败。要改改 catalog，别改表。
 
 ---
 

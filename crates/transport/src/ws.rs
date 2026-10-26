@@ -43,16 +43,39 @@ pub async fn upgrade(
     headers: HeaderMap,
     upgrade: WebSocketUpgrade,
 ) -> Response {
-    if !crate::origin_allowed(&headers) {
+    if !crate::origin_allowed(&headers, &state.config.extra_origins) {
         warn!("refused a WebSocket upgrade from a non-loopback Origin");
         return (StatusCode::FORBIDDEN, "origin not allowed").into_response();
     }
     // The token gates the upgrade; on a reachable listener the device
     // signature is checked in the handshake below, where there is a frame to
     // carry it. A query parameter is all a browser's WebSocket API can send.
-    if query.token.as_deref() != Some(state.config.token.as_str()) {
+    //
+    // Or a launch-link session cookie, which a browser sends on
+    // a same-site upgrade by itself — the page under launch links has no
+    // token to put in the query.
+    let admitted_by = if query.token.as_deref() == Some(state.config.token.as_str()) {
+        "token"
+    } else if state.config.links.admits(&headers) {
+        "cookie"
+    } else {
+        // A refused upgrade is otherwise invisible server-side.
+        tracing::debug!(
+            origin = %header_text(&headers, axum::http::header::ORIGIN),
+            has_cookie = headers.contains_key(axum::http::header::COOKIE),
+            "websocket upgrade refused: neither token nor launch-link session"
+        );
         return (StatusCode::UNAUTHORIZED, "bad token").into_response();
-    }
+    };
+    // Who is connecting, said once per connection: which
+    // admission it passed and what it says it is. A desktop shell's web view
+    // and a script client are otherwise indistinguishable in the log.
+    let peer = Peer {
+        conn: NEXT_CONN.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        admitted_by,
+        origin: header_text(&headers, axum::http::header::ORIGIN),
+        user_agent: header_text(&headers, axum::http::header::USER_AGENT),
+    };
     if !state.config.topologies.contains(&Topology::SingleDuplex) {
         return (
             StatusCode::CONFLICT,
@@ -77,15 +100,60 @@ pub async fn upgrade(
     upgrade
         .max_message_size(harnix_contract::MAX_FRAME_BYTES + 1024 * 1024)
         .max_frame_size(harnix_contract::MAX_FRAME_BYTES + 1024 * 1024)
-        .on_upgrade(move |socket| connection(socket, state))
+        .on_upgrade(move |socket| connection(socket, state, peer))
 }
 
-async fn connection(socket: WebSocket, state: AppState) {
+/// Connection numbers, for the log only.
+static NEXT_CONN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// What the log says about one connection.
+struct Peer {
+    conn: u64,
+    admitted_by: &'static str,
+    origin: String,
+    user_agent: String,
+}
+
+fn header_text(headers: &HeaderMap, name: axum::http::header::HeaderName) -> String {
+    headers
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("-")
+        .to_string()
+}
+
+/// The method of an outbound notification, or `reply` for an
+/// answer. Read only when the frame is going to be logged.
+fn frame_kind(frame: &str) -> &str {
+    frame
+        .split_once(r#""method":""#)
+        .and_then(|(_, rest)| rest.split_once('"'))
+        .map(|(method, _)| method)
+        .unwrap_or("reply")
+}
+
+async fn connection(socket: WebSocket, state: AppState, peer: Peer) {
     let (tx, mut outbound) = mpsc::unbounded_channel::<String>();
     let (mut ws_sink, mut stream) = socket.split();
+    let conn = peer.conn;
+    tracing::debug!(
+        conn,
+        admitted_by = peer.admitted_by,
+        origin = %peer.origin,
+        user_agent = %peer.user_agent,
+        "websocket upgraded"
+    );
 
     let pump = tokio::spawn(async move {
         while let Some(frame) = outbound.recv().await {
+            if tracing::enabled!(tracing::Level::TRACE) {
+                tracing::trace!(
+                    conn,
+                    kind = frame_kind(&frame),
+                    bytes = frame.len(),
+                    "frame out"
+                );
+            }
             if ws_sink.send(Message::Text(frame.into())).await.is_err() {
                 break;
             }
@@ -200,6 +268,17 @@ async fn connection(socket: WebSocket, state: AppState) {
                     let _ = sink;
                     let mut body = handshake::accepted(&negotiated, &state.config.topologies);
                     body["client"] = json!(session.client.0);
+                    // What a module route (`/apps/<id>/`) is presented with:
+                    // the same credential the split topology hands out.
+                    body["credential"] = json!(credential);
+                    tracing::info!(
+                        conn,
+                        client = session.client.0,
+                        admitted_by = peer.admitted_by,
+                        origin = %peer.origin,
+                        user_agent = %peer.user_agent,
+                        "single-duplex channel established"
+                    );
                     established = Some((credential, session));
                     let _ = tx.send(ok_frame(id, body));
                 }
@@ -251,6 +330,7 @@ async fn connection(socket: WebSocket, state: AppState) {
 
     if let Some((credential, _)) = established {
         state.sessions.end(&state.hub, &credential).await;
+        tracing::info!(conn, "single-duplex channel closed");
     }
     pump.abort();
 }

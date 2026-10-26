@@ -199,11 +199,23 @@ fn content_type(path: &str) -> &'static str {
         "svg" => "image/svg+xml",
         "png" => "image/png",
         "woff2" => "font/woff2",
+        "woff" => "font/woff",
+        "map" => "application/json; charset=utf-8",
+        "ico" => "image/x-icon",
+        "webp" => "image/webp",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "txt" => "text/plain; charset=utf-8",
+        "wasm" => "application/wasm",
         _ => "application/octet-stream",
     }
 }
 
-pub async fn serve(State(state): State<AppState>, uri: Uri) -> Response {
+pub async fn serve(
+    State(state): State<AppState>,
+    uri: Uri,
+    headers: axum::http::HeaderMap,
+) -> Response {
     let Some((bytes, mime)) = state.statics.read(uri.path()) else {
         return (StatusCode::NOT_FOUND, "not found").into_response();
     };
@@ -211,7 +223,29 @@ pub async fn serve(State(state): State<AppState>, uri: Uri) -> Response {
     // The page itself does not need one — a cross-origin page cannot read the
     // body — and the token governs connecting, not reading.
     if mime.starts_with("text/html") {
-        let page = String::from_utf8_lossy(&bytes).replace("__HARNIX_TOKEN__", &state.config.token);
+        // Under launch links the page carries no token: the
+        // session cookie stands in for it at connect time, and a request
+        // without one is told how to get one instead of being handed a page
+        // that cannot connect.
+        let injected = match state.config.browser {
+            crate::BrowserAdmission::PageToken => state.config.token.as_str(),
+            crate::BrowserAdmission::LaunchLink => {
+                if !state.config.links.admits(&headers) {
+                    tracing::debug!(
+                        path = uri.path(),
+                        has_cookie = headers.contains_key(axum::http::header::COOKIE),
+                        "page refused: no launch-link session"
+                    );
+                    return crate::launch::refusal(
+                        StatusCode::UNAUTHORIZED,
+                        "Open this interface through a launch link. \
+                         The process that started it can make one.",
+                    );
+                }
+                ""
+            }
+        };
+        let page = String::from_utf8_lossy(&bytes).replace("__HARNIX_TOKEN__", injected);
         return (
             [
                 (header::CONTENT_TYPE, mime),
