@@ -226,6 +226,40 @@ export class HarnixClient {
     this.pending.clear();
   }
 
+  /* ── 模块自有链接 ───────────────────────────────────────────────── */
+
+  /**
+   * 模块 `module` 自己的 HTTP 路由（设计 §7.7）：同源的 `/apps/<module>/<path>`，凭据由这里带上。
+   * `path` 走不出这个模块的前缀——`..`、别的来源一律拒绝，模块代码拼不出别的地址。
+   */
+  async appFetch(module: string, path: string, init: RequestInit = {}): Promise<Response> {
+    if (!this.fetchImpl) throw new Error(this.messages.notConnected);
+    const url = this.appUrl(module, path);
+    const headers = new Headers(init.headers);
+    if (this.token) headers.set("Authorization", `Bearer ${this.token}`);
+    return this.fetchImpl(url.toString(), { ...init, headers, credentials: "same-origin" });
+  }
+
+  /** 模块 `module` 自己的 WebSocket；凭据放在查询串里（浏览器的 WebSocket 设不了头）。 */
+  appSocket(module: string, path: string): WebSocketLike {
+    if (!this.WebSocketImpl) throw new Error(this.messages.notConnected);
+    const url = this.appUrl(module, path);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    if (this.token) url.searchParams.set("token", this.token);
+    return new this.WebSocketImpl(url.toString());
+  }
+
+  private appUrl(module: string, path: string): URL {
+    if (!/^[a-z][a-z0-9_-]*$/.test(module)) throw new Error(`not a module id: ${module}`);
+    const prefix = `/apps/${module}/`;
+    if (/^[a-z][a-z0-9+.-]*:|^[\\/]{2}|\\/.test(path)) throw new Error(`not a path of module ${module}: ${path}`);
+    const relative = path.replace(/^\/+/, "");
+    const base = new URL(this.baseUrl);
+    const url = new URL(prefix + relative, base);
+    if (url.origin !== base.origin || !url.pathname.startsWith(prefix)) throw new Error(`not a path of module ${module}: ${path}`);
+    return url;
+  }
+
   private wsUrl(): string {
     const url = new URL("/ws", this.baseUrl);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";

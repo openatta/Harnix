@@ -177,3 +177,53 @@ test("HOME's ask box starts HOME's own conversation", HOME, async ({ page }) => 
   await page.getByTestId("back-to-overview").click();
   await expect(page.getByTestId("overview")).toBeVisible();
 });
+
+const ENTRIES = { tag: ["@feature:entries", "@layer:ui"] };
+const ROUTES = { tag: ["@feature:routes", "@layer:ui"] };
+
+test("entry-card: a long job's progress arrives on its topic, and its result is a card in the conversation", ENTRIES, async ({ page }) => {
+  await open(page, backend.url);
+  await inSpace(page, "greeter");
+  const key = await startReplaying(page);
+  await page.getByTestId("details-toggle").click();
+  await page.locator('#details .tabs [data-tab="greet"]').click();
+  await page.getByTestId("job-start").click();
+  await expect(page.getByTestId("job-progress")).toHaveAttribute("data-finished", "true", { timeout: 15_000 });
+  await expect(page.getByTestId("job-progress")).toContainText("20/20");
+  const card = page.getByTestId("job-done-card");
+  await expect(card).toContainText("counted to 20");
+
+  // It is in the session's log: a refresh draws it again, once.
+  await page.reload();
+  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator("#main")).toHaveAttribute("data-space", "greeter");
+  await expect(page.getByTestId("job-done-card")).toHaveCount(1);
+
+  // And it is not the model's.
+  const context = await page.evaluate(
+    (key) => (window as any).harnix.app.call("session.history", { instance: key.instance, session_id: key.sessionId, space: "greeter" }),
+    key,
+  );
+  expect(JSON.stringify(context.messages)).not.toContain("counted to");
+});
+
+test("a module's own link: its route and its socket, with the host's credential", ROUTES, async ({ page }) => {
+  await open(page, backend.url);
+  await inSpace(page, "greeter");
+  await page.getByTestId("details-toggle").click();
+  await page.locator('#details .tabs [data-tab="greet"]').click();
+  await page.getByTestId("route-fetch").click();
+  await expect(page.getByTestId("route-said")).toHaveText("200 hello from the greeter's own route");
+  await page.getByTestId("route-echo").click();
+  await expect(page.getByTestId("route-echoed")).toHaveText("echo: ping");
+  // A path cannot leave the module's prefix.
+  const escaped = await page.evaluate(async () => {
+    try {
+      await (window as any).harnix.host.space("greeter").fetch("../../ws");
+      return "fetched";
+    } catch (e: any) {
+      return e.message;
+    }
+  });
+  expect(escaped).toContain("not a path of module greeter");
+});

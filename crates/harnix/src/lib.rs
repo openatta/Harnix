@@ -40,7 +40,7 @@ pub use axum;
 pub use harnix_app::{App, AppBuilder, ModuleStatus, Namespace, HARNIX_VERSION};
 pub use harnix_contract::{codes, RpcError, Subject, SYSTEM_INSTANCE};
 pub use harnix_module::{
-    AttachTo, CallContext, CredentialRef, Credentials, EngineContrib, EngineProfile,
+    AttachTo, CallContext, CredentialRef, Credentials, EngineContrib, EngineProfile, Entry,
     EnvCredentials, EventRegistry, Events, Handler, InstanceHandle, InstanceTemplate,
     InstanceTemplates, Instances, Manifest, MethodRegistry, MigrateContext, MigrationReport,
     Module, ModuleContext, OnBusy, Principal, RouteRegistry, Secret, SessionRef, SessionSpec,
@@ -52,7 +52,8 @@ pub use harnix_module::{
 pub mod prelude {
     pub use crate::async_trait;
     pub use crate::{
-        CallContext, CredentialRef, EngineContrib, EngineProfile, EventRegistry, InstanceTemplate,
+        CallContext, CredentialRef, EngineContrib, EngineProfile, Entry, EventRegistry,
+        InstanceTemplate,
         InstanceTemplates, Manifest, MethodRegistry, MigrateContext, MigrationReport, Module,
         ModuleContext, OnBusy, Principal, RouteRegistry, RpcError, SessionRef, SessionSpec,
         SpaceDecl, SpaceRegistry, TapEvent, TemplateCarrier,

@@ -578,6 +578,13 @@ fn main() -> anyhow::Result<()> {
 - 这类条目**只给人看，不给模型看**。
 - Harnix 不另存一份会话状态（概念 §9「不在引擎之外维护第二份会话状态」）。
 
+**M7 的实际做法**（2026-10-26）：Agix 0.2.7 只在库里开放了这个注册点，daemon 协议里既写不进、
+也读不回，整段分叉还会丢掉最后一条消息之后的条目，所以先补了 Agix（issue 06，0.2.8）：
+`session.appendEntry`、`session.entries`（`at` 是条目前面的消息数）、`extension_entry` 帧。Harnix 这边：
+中枢的 `harnix.entries.append` 只给模块与内核，命名空间由中枢定成 `app.<模块>`；`session.entries`
+直通给设备读，核对 space；界面打开会话时按 `at` 把条目插回消息之间，实时的按 id 去重，都成为
+`custom` / `entry` 块交给 `flow.block`。
+
 ### 7.7 模块自有链接
 
 **有后端模块的 space，它的后端和前端之间可以有自己的链接**，承载 Harnix 通道不适合的东西（例如
@@ -1104,7 +1111,8 @@ IPDrun 在旧架构上的改动**不合并**，作为需求和参考实现，在
 | `agix-issue-02-context-inspection.md` | 会话 | 「下一次调用将要带的上下文」及每块的来源与 tokens；删除、修改单条消息 | **已落地，Agix 0.2.7**（钉住消息、录像 RPC 推后） |
 | `agix-issue-03-instance-isolation.md` | 实例 | 同一进程里多个会话池互不可见，有测试守住 | **已落地，Agix 0.2.7** |
 | `agix-issue-04-instance-observability.md` | 实例 | 会话与轮的生命周期事件；协议版本与能力位；丢订阅通知；spawn 的就绪 | **已落地，Agix 0.2.7** |
-| `agix-issue-05-resume-recorder.md` | 会话 | 恢复的会话拿不回录制器：`recorder` 不落盘，恢复时又忽略调用带的那份 | 不阻塞。补上之前，实例重启后恢复的会话没有录制（回放测试里会去调真实模型）；中枢照旧在恢复时带上，补上后自动生效 |
+| `agix-issue-05-resume-recorder.md` | 会话 | 恢复的会话拿不回录制器：`recorder` 不落盘，恢复时又忽略调用带的那份 | **已落地（Agix 0.2.8）**：恢复会话的那次调用带的 `recorder` 生效；`instances-daemon` 的重启用例改为验证这一轮照常回放 |
+| `agix-issue-06-extension-entries-rpc.md` | 会话 | 扩展条目只在库里能写，协议里写不进、读不回；整段分叉丢尾部条目 | **已落地（Agix 0.2.8）**：`session.appendEntry`、`session.entries`、`extension_entry` 帧（§7.6） |
 
 每份文件开头写了实际做法与原诉求的出入。
 

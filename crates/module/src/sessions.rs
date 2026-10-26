@@ -85,6 +85,23 @@ impl SessionSpec {
     }
 }
 
+/// An entry for [`Sessions::append_entry`]: what happened (`event`, the name the interface's
+/// `flow.block` claims it by) and everything needed to draw it.
+#[derive(Debug, Clone)]
+pub struct Entry {
+    pub event: String,
+    pub payload: Value,
+}
+
+impl Entry {
+    pub fn new(event: impl Into<String>, payload: Value) -> Self {
+        Self {
+            event: event.into(),
+            payload,
+        }
+    }
+}
+
 /// What a send does when the session is already running a turn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OnBusy {
@@ -164,6 +181,30 @@ impl Sessions<'_> {
 
     pub async fn close(&self, session: &SessionRef) -> Result<Value, RpcError> {
         self.cx.call("session.close", key(session)).await
+    }
+
+    /// Write an entry into the session's log: a card, a decision, a job's result — for people, never
+    /// for the model (design §7.6). It is filed under this module's namespace (`app.<id>`), reaches
+    /// whoever is watching the session at once, and stays through a refresh, a replay and a fork.
+    /// The interface draws it with a `flow.block` contribution that claims `{ns, event}`.
+    pub async fn append_entry(&self, session: &SessionRef, entry: Entry) -> Result<Value, RpcError> {
+        let mut params = key(session);
+        params["event"] = json!(entry.event);
+        params["payload"] = entry.payload;
+        self.cx.call("harnix.entries.append", params).await
+    }
+
+    /// This module's entries in the session, oldest first, each with `at`: how many messages come
+    /// before it.
+    pub async fn entries(&self, session: &SessionRef) -> Result<Vec<Value>, RpcError> {
+        let mut params = key(session);
+        params["namespaces"] = json!([format!("app.{}", self.cx.id())]);
+        let listed = self.cx.call("session.entries", params).await?;
+        Ok(listed
+            .get("entries")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default())
     }
 
     /// Watch a session from the server side.

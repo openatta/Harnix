@@ -47,6 +47,15 @@ export interface NestHost {
     /** Put text into the open session's input, at the caret. */
     insert(text: string): void;
   };
+  /**
+   * A module's own link (design §7.7): its routes under `/apps/<module>/`, same-origin, with the
+   * credential put on by the host. Paths cannot leave the module's prefix. These links do not get
+   * the guarantees of `call` and `subscribe` — topology independence, catching up by `seq`.
+   */
+  space(module: string): {
+    fetch(path: string, init?: RequestInit): Promise<Response>;
+    socket(path: string): WebSocket;
+  };
   /** Open something in the details pane: a card in a message reveals what it is about. */
   reveal(item: DetailItem): void;
   t: Translate;

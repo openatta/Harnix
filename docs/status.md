@@ -9,10 +9,10 @@
 
 | 项 | 值 |
 |---|---|
-| 阶段 | **M0–M6 已完成**（本地提交，未推送、未发布） |
-| 当前里程碑 | 无。M7 要维护者说开始 |
-| 当前任务 | 无 |
-| 下一步 | 等维护者定：推送、打 0.4.0 标签、合进 main。维护者 2026-10-26 下令的这一轮（M0–M6）到此做完，M7–M9 不在这一轮 |
+| 阶段 | **M7 模块的对话与链接能力**（M0–M6 已发布为 `Harnix-v0.4.0-2026102601`） |
+| 当前里程碑 | M7（维护者 2026-10-26 说开始） |
+| 当前任务 | 见「进行中」 |
+| 下一步 | 见「进行中」。Agix 缺口卡住的先在 Agix 里解决，不卡的先做 Harnix 再回头做 Agix（维护者 2026-10-26） |
 | 最后更新 | 2026-10-26 |
 
 ## 怎么接上
@@ -66,14 +66,14 @@
 | 里程碑 | 版本 | 状态 | 说明 |
 |---|---|---|---|
 | 前置 A：Agix 改名与 0.2.7 | Agix 0.2.7 | ✅ | Agix 仓库里本地分包提交，A6 一次推送；推送前维护者要先在 GitHub 上把仓库改名为 `openatta/agix` |
-| M0 引擎基线与构建方式 | 0.3.z | ✅（未发布） | `923f8cd`、`d407316`、`156100e`；`check.sh` 全绿 |
-| M1 LIVE 测试框架 | 0.3.z | ✅（未发布） | 「Run the suites under Playwright Test…」那个提交；`check.sh` 全绿（remote 未跑） |
-| M2 模块契约与应用装配 | **0.4.0** | ✅（未发布） | 「Assemble the host from modules…」那个提交；`check.sh` 全绿（remote 未跑）。0.4.0 的推送与标签等维护者点头 |
-| M3 实例层与服务端会话 | 0.4.z | ✅（未发布） | 「Stand instances behind one link…」那个提交；`check.sh` 全绿（remote 未跑） |
-| M4 前端底座 | — | ✅（未发布） | 「Replace the interface with a React shell…」那个提交（带着 M5 的一部分）；M4 自己的各层 `check.sh` 全绿 |
-| M5 Space 模型 | 0.4.z | ✅（未发布） | 「Give sessions a space…」那个提交；`check.sh` 全绿（remote 未跑） |
-| M6 系统 space | 0.4.z | ✅（未发布） | 「Give the system space its tree and inspector」那个提交；`check.sh` 全绿（remote 未跑） |
-| M7 模块的对话与链接能力 | 0.4.z | 未开始 | |
+| M0 引擎基线与构建方式 | 0.3.z | ✅（0.4.0 发布） | `923f8cd`、`d407316`、`156100e`；`check.sh` 全绿 |
+| M1 LIVE 测试框架 | 0.3.z | ✅（0.4.0 发布） | 「Run the suites under Playwright Test…」那个提交；`check.sh` 全绿（remote 未跑） |
+| M2 模块契约与应用装配 | **0.4.0** | ✅（0.4.0 发布） | 「Assemble the host from modules…」那个提交；`check.sh` 全绿（remote 未跑） |
+| M3 实例层与服务端会话 | 0.4.z | ✅（0.4.0 发布） | 「Stand instances behind one link…」那个提交；`check.sh` 全绿（remote 未跑） |
+| M4 前端底座 | — | ✅（0.4.0 发布） | 「Replace the interface with a React shell…」那个提交（带着 M5 的一部分）；M4 自己的各层 `check.sh` 全绿 |
+| M5 Space 模型 | 0.4.z | ✅（0.4.0 发布） | 「Give sessions a space…」那个提交；`check.sh` 全绿（remote 未跑） |
+| M6 系统 space | 0.4.z | ✅（0.4.0 发布） | 「Give the system space its tree and inspector」那个提交；`check.sh` 全绿（remote 未跑） |
+| M7 模块的对话与链接能力 | 0.4.z | **进行中** | 分支 `m7` |
 | M8 运行期界面模块 v2、品牌 | 0.4.z | 未开始 | |
 | M9 桌面壳、文档、消费者落地 | 0.4.z | 未开始 | |
 
@@ -149,7 +149,7 @@ M1 顺带修了一处：`include_dir!("ui")` 把 `ui/packages/**/node_modules` �
 | M3-9 `hello` 带提问超时与各实例协议版本 | ✅ | |
 | M3-10 实测每台进程内实例的内存 | ✅ | 空载约 0.1–0.2 MB/台，写进设计 §10.6；`tests/budget.mjs` 加了一项（≤ 4 MB） |
 
-M3 发现的 Agix 缺口：`.local/agix-issue-05-resume-recorder.md`（恢复的会话拿不回录制器），不阻塞，设计 §17 已登记。
+M3 发现的 Agix 缺口：`.local/agix-issue-05-resume-recorder.md`（恢复的会话拿不回录制器），在 Agix 0.2.8 落地。
 
 ### M4 任务
 
@@ -195,7 +195,7 @@ M3 发现的 Agix 缺口：`.local/agix-issue-05-resume-recorder.md`（恢复的
 
 | 任务 | 开始 | 改到哪了 | 下一步 |
 |---|---|---|---|
-（无）
+| M7-4 批准卡 | 2026-10-26 | M7-1–3 已提交 | hello-app 里只用公开契约做：限 `Device` 的回答、待批主题、扩展条目记决定、超时按拒绝；改二开指南 §10.1 |
 
 格式：
 
@@ -218,6 +218,9 @@ M3 发现的 Agix 缺口：`.local/agix-issue-05-resume-recorder.md`（恢复的
 
 | 日期 | 事 |
 |---|---|
+| 2026-10-26 | Agix 0.2.8 发布（`Agix-v0.2.8-2026102602`，`2742afc`）：issue 06（`session.appendEntry` / `session.entries` / `extension_entry` 帧、整段分叉带尾部条目）与 issue 05（恢复时重新给 `recorder`）。全量测试 2880 过；中途一次 29 个失败是我把 `CARGO_TARGET_DIR` 指到别处、wasm 夹具找不到产物，改成软链后全过。Harnix 钉上它。M7-1（条目）、M7-2（长任务进度的范例）、M7-3（`space(id).fetch/socket`）完成 |
+| 2026-10-26 | 发布 `Harnix-v0.4.0-2026102601`（维护者同意）：推送分支与标签，main 快进到 `ee7d959`。发布前的 `check.sh` 里 browser 层有一条在机器同时编 Agix 时超时，单独重跑这一层通过；remote 未跑。本地的旧标签 `nest-v0.3.1-2026102501` 没推。同一天维护者说开始 M7 |
+| 2026-10-26 | 磁盘一度只剩 152 MiB（`target/` 41G、`agix/target/` 31G 是大头），Agix 检查因此中断；删了我自己 scratchpad 里的两个构建目录腾出空间，Agix 工作树改用 `agix/target` 做缓存 |
 | 2026-10-26 | M6 完成：系统模块与开关、实例重启、系统 space 的实例树与四个页签（会话、调用、上下文、实例）、无头会话在树里可见。新增 API 用例 7 个（`system`）、界面用例 6 个（`system`、`headless`）；覆盖表里 system 与 headless 的 pending 去掉。M0–M6 这一轮做完，推送与 0.4.0 等维护者定 |
 | 2026-10-26 | M5 全量检查：rust 层一个目录测试没放行「每进程」频率、template 层的 build.rs 用了编译期的 `CARGO_MANIFEST_DIR`（共享 target 目录时指向已删的旧目录），两处修好后这两层重跑通过，其余各层一次通过（remote 未跑）。开始 M6 |
 | 2026-10-26 | M5 代码完成：space 账本与核对、默认实例、`@session` 引用、`harnix.audit`、8 个贡献点、每个 space 自己的当前会话、HOME 仪表盘、`examples/hello-app`。维护者要求界面参考 Helm 的 GUI demo，令牌、左栏、顶栏、对话、输入框、HOME 都照它改了 |

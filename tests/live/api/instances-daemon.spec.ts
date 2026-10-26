@@ -123,18 +123,17 @@ test("a killed daemon degrades its instance, comes back, and its sessions resync
   const history = await api.call("session.history", { instance: "ci", session_id: sessionId });
   expect(JSON.stringify(history.messages)).toMatch(/fixture ready/i);
 
-  // And it takes turns again, which the hub settles. Only that: the engine
-  // that came back does not take a recorder for a resumed session (Agix
-  // keeps none across a restart and ignores the one the resume passes), so
-  // in replay this turn calls the model for real, and with the tests' dummy
-  // credential it fails. Settling it is what is the hub's.
+  // And it takes turns again. The resume passes the recorder again — a
+  // recorder is never written to the log, so the call that brings the
+  // session back is where it comes from (Agix 0.2.8) — and the turn replays.
   api.events.length = 0;
   const sent = await api.call("harnix.send", { instance: "ci", session_id: sessionId, message: "Say exactly: fixture ready" });
   expect(sent.turn_id).toBeTruthy();
-  await api.waitFor(
+  const settled = await api.waitFor(
     (f) => f.method === "harnix.turn_settled" && f.params.session_id === sessionId && f.params.turn_id === sent.turn_id,
     { timeout: 60_000, describe: "a turn after the restart to settle" },
   );
+  expect(settled.params.error, "the resumed session replayed rather than called a model").toBeUndefined();
 });
 
 test("a spawned daemon does not outlive Harnix, even one killed outright", TAGS, async () => {

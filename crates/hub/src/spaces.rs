@@ -161,6 +161,8 @@ pub(crate) const CHECKED: &[&str] = &[
     "harnix.sessions.tasks",
     "session.get",
     "session.history",
+    "session.entries",
+    "harnix.entries.append",
     "session.interrupt",
     "session.close",
     "session.delete",

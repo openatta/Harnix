@@ -202,6 +202,26 @@ export function addCustom(state: SessionState, type: string, data: unknown, at?:
   return push(state, { kind: "custom", type, data, at })[0];
 }
 
+/**
+ * An entry the application wrote into the session's log (Agix `session.appendEntry`, design §7.6): for
+ * people, never for the model. `at` is how many messages come before it, in `session.history`'s
+ * coordinates. It becomes a `custom` block of type `entry`, which a `flow.block` contribution draws.
+ */
+export interface SessionEntry {
+  id: string;
+  ts?: string;
+  ns: string;
+  event: string;
+  payload: unknown;
+  at: number;
+}
+
+/** One block per entry, however many ways it arrives (history, replay, live). */
+export function addEntry(state: SessionState, entry: SessionEntry, at?: number): SessionState {
+  const seen = state.blocks.some((b) => b.kind === "custom" && b.type === "entry" && (b.data as SessionEntry | null)?.id === entry.id);
+  return seen ? state : addCustom(state, "entry", entry, at);
+}
+
 export function note(state: SessionState, text: string, tone: NoteTone = "info"): SessionState {
   return push(state, { kind: "note", text, tone })[0];
 }
@@ -483,6 +503,11 @@ export function applyEvent(state: SessionState, event: EngineEvent, options: App
 
     case "subagent_progress":
       return subagentEvent(state, event as never);
+
+    case "extension_entry": {
+      const entry = (event as { entry?: SessionEntry }).entry;
+      return entry?.id ? addEntry(state, entry, now) : state;
+    }
 
     default:
       return state;

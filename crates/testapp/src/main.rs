@@ -100,6 +100,19 @@ impl Module for Probe {
                 }
                 Ok(json!({"n": n}))
             });
+        m.method("note", Principal::Device)
+            .describe("writes an entry into a session's log, and lists this module's")
+            .handler(|cx: CallContext, p: Value| async move {
+                let session = SessionRef {
+                    instance: p["instance"].as_str().unwrap_or(harnix::SYSTEM_INSTANCE).to_string(),
+                    session_id: p["session_id"].as_str().unwrap_or_default().to_string(),
+                };
+                let sessions = cx.module().sessions();
+                let written = sessions
+                    .append_entry(&session, Entry::new(p["event"].as_str().unwrap_or("note"), p["payload"].clone()))
+                    .await?;
+                Ok(json!({"written": written, "mine": sessions.entries(&session).await?}))
+            });
         m.method("call", Principal::Device)
             .describe("calls another method as this module")
             .handler(|cx: CallContext, p: Value| async move {

@@ -31,8 +31,8 @@ export const FEATURES = [
   { id: "settings", name: "设置" },
   { id: "packages", name: "运行期包", ui: { pending: "M8" } },
   { id: "migrations", name: "迁移", ui: { na: "迁移没有自己的界面；结果在诊断页（设置 · 诊断）" } },
-  { id: "routes", name: "模块自有链接", ui: { na: "自有链接由模块自己的界面用，没有 Harnix 的界面" } },
-  { id: "entries", name: "扩展条目", api: { pending: "M7" }, ui: { pending: "M7" } },
+  { id: "routes", name: "模块自有链接" },
+  { id: "entries", name: "扩展条目" },
   { id: "brand", name: "品牌与主题", api: { pending: "M8" }, ui: { pending: "M8" } },
   {
     id: "build",

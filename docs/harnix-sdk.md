@@ -387,11 +387,26 @@ while let Some(item) = tap.next().await {
 ### 7.2 往对话里写卡片：扩展条目（M7 起）
 
 ```rust
-ctx.sessions().append_entry(&s, Entry::new("watchlist.alert", json!({ "symbol": "NVDA" }))).await?;
+ctx.sessions().append_entry(&s, Entry::new("alert", json!({ "symbol": "NVDA" }))).await?;
+let mine = ctx.sessions().entries(&s).await?;   // 本模块写过的，最早的在前
 ```
 
-条目进会话日志，刷新、重放、分叉都看得到；**只给人看，不给模型看**。前端用 `flow.block` 按
-`kind` 画（§8.3）。
+条目进会话日志（Agix 0.2.8 的 `session.appendEntry`），刷新、重放、整段分叉都看得到；**只给人看，
+不给模型看**。命名空间由中枢定成 `app.<你的模块 id>`，模块写不了别人的，设备一条也写不了（人说的话
+走 `harnix.send`）。写的时候正在看这个会话的人立刻收到。
+
+前端里它是一块 `kind: "custom"`、`type: "entry"` 的块，`data` 是 `{ id, ns, event, payload, at }`
+（`at` 是它前面的消息数）。用 `flow.block` 认领自己的：
+
+```tsx
+r.register('flow.block', {
+  id: 'watchlist.alert',
+  match: (b) => b.kind === 'custom' && b.type === 'entry' && b.data?.ns === 'app.watchlist' && b.data.event === 'alert',
+  render: (b) => <AlertCard entry={b.data} />,
+}, 'watchlist');
+```
+
+没人认领的条目不画。
 
 ## 8. 前端
 
@@ -478,7 +493,7 @@ export function QuotesTab() {
 | `instances.*` | `list`、`sessions(instance)`、`tasks(instance, session)`、`create(template, name, params)`、`stop(id)` |
 | `composer.insert(text)` | 往输入框插字（光标处，没有焦点就接在末尾） |
 | `reveal(item)` | 点消息里的卡片，右栏打开它的详情（`item.kind` 由 `details.panel` 认领）。M5 有了右栏页签后加 `panelId` |
-| `space.fetch()` / `space.socket()` | 你模块的自有链接（M7） |
+| `space(id).fetch(path, init?)` / `space(id).socket(path)` | 模块 `id` 的自有链接 `/apps/<id>/<path>`：同源，凭据由宿主带上；`path` 走不出这个前缀（M7） |
 | `t()`、令牌、图标 | i18n 与主题 |
 
 **你拿不到 Harnix 自己的连接**，所以同一份代码在任何拓扑下都能跑。`call` 只放行 `harnix.reachable` 里
@@ -531,6 +546,10 @@ space 记自己的当前会话，`session.current()` 拿到的永远是前台 sp
 
 方法 `app.<id>.start_job` 返回 `job_id`；进度推到 `app.<id>.job { job_id }`，每次推完整状态
 （进度、阶段、结果或错误）。界面订阅这个主题。完成时想在对话里留一张卡，就写一条扩展条目。
+
+**先推一次初始状态再把 `job_id` 交出去**：主题是整值快照，订阅得再晚也先拿到当前值，于是不会漏掉
+开头。`examples/hello-app` 的 `count_to` 就是这样写的：它的进度条订阅 `app.greeter.job`，跑完往
+发起它的那个会话里写一条 `job_done`，由 `flow.block` 画成卡片。
 
 ### 10.3 一个 space 要一台自己的 Agent
 

@@ -46,6 +46,10 @@ export function hostFor(app: App, owner = "page"): NestHost {
     composer: {
       insert: (text) => app.composer?.insert(text),
     },
+    space: (module) => ({
+      fetch: (path, init) => app.client.appFetch(module, path, init),
+      socket: (path) => app.client.appSocket(module, path) as unknown as WebSocket,
+    }),
     reveal: (item) => app.showDetail(item),
     t,
   };

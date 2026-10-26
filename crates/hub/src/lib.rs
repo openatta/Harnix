@@ -64,6 +64,7 @@ pub const PASSTHROUGH: &[&str] = &[
     "session.list",
     "session.get",
     "session.history",
+    "session.entries",
     "session.fork",
     "session.resume",
     "session.respondToPrompt",
@@ -97,6 +98,7 @@ pub const HUB_METHODS: &[&str] = &[
     "harnix.instances.stop",
     "harnix.instances.restart",
     "harnix.sessions.tasks",
+    "harnix.entries.append",
     "harnix.spaces.list",
 ];
 
@@ -427,6 +429,7 @@ impl Hub {
                 let key = self.key_of(&params)?;
                 return self.tasks_view(&key).await;
             }
+            "harnix.entries.append" => return self.append_entry(subject, params).await,
             "harnix.attach" => return self.attach(subject, params).await,
             "harnix.detach" => return self.detach(subject, params).await,
             "harnix.send" => return self.send(subject, params).await,
@@ -465,6 +468,40 @@ impl Hub {
         Err(RpcError::not_found(format!(
             "`{method}` is not a method of this process"
         )))
+    }
+
+    /// `harnix.entries.append {instance, session_id, event, payload}`: an entry in the session's log,
+    /// for people and never for the model (design §7.6). A module writes under its own namespace,
+    /// `app.<id>`, so no module can write another's; the kernel names one. A person's words are
+    /// `harnix.send`, so a device writes none.
+    async fn append_entry(&self, subject: &Subject, params: Value) -> Result<Value, RpcError> {
+        let key = self.key_of(&params)?;
+        let ns = match subject {
+            Subject::Module { id } => format!("app.{id}"),
+            Subject::Kernel => params
+                .get("ns")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .ok_or_else(|| RpcError::invalid_params("the kernel names an entry's ns"))?,
+            Subject::Device { .. } => {
+                return Err(RpcError::new(
+                    codes::REFUSED,
+                    "entries are the application's; a device speaks through harnix.send",
+                ))
+            }
+        };
+        let event = params
+            .get("event")
+            .and_then(Value::as_str)
+            .filter(|e| !e.is_empty())
+            .ok_or_else(|| RpcError::invalid_params("missing event"))?;
+        let payload = params.get("payload").cloned().unwrap_or(Value::Null);
+        self.call(
+            &key.0,
+            "session.appendEntry",
+            json!({"session_id": key.1, "ns": ns, "event": event, "payload": payload}),
+        )
+        .await
     }
 
     /// `(instance, session_id)` from a call's params.

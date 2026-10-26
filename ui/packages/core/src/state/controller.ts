@@ -16,6 +16,7 @@ import { errorText, type HarnixClient } from "../client/index.ts";
 import type { Decision, Notifications } from "../protocol/index.ts";
 import {
   addCustom,
+  addEntry,
   answerAsk,
   applyAttach,
   applyEvent,
@@ -26,6 +27,7 @@ import {
   emptySession,
   note,
   type AskAnswer,
+  type SessionEntry,
   type SessionState,
 } from "./model.ts";
 
@@ -201,8 +203,15 @@ export class SessionController {
 
   private async loadHistory(state: SessionState, total: number, stale: () => boolean, replayed: Set<string>): Promise<SessionState> {
     let next = state;
-    if (!total) return next;
     const start = Math.max(0, total - HISTORY_PAGE * HISTORY_PAGES_AT_OPEN);
+    // The application's entries go back between the messages they were written between; the
+    // ones before the first message shown are as hidden as those messages.
+    const entries = (await this.entries()).filter((e) => e.at >= start);
+    if (stale()) return next;
+    let pending = 0;
+    const placeUpTo = (seq: number) => {
+      while (pending < entries.length && entries[pending]!.at <= seq) next = addEntry(next, entries[pending++]!);
+    };
     if (start > 0) next = note(next, this.strings.olderHidden(start));
     for (let offset = start; offset < total; offset += HISTORY_PAGE) {
       const page = await this.client.call("session.history", {
@@ -214,11 +223,23 @@ export class SessionController {
       });
       if (stale()) return next;
       for (const message of page.messages || []) {
+        placeUpTo(message.seq ?? offset);
         if (message.turn_id && replayed.has(message.turn_id)) continue;
         next = applyHistoryMessage(next, message, { result: this.strings.result, image: this.strings.image });
       }
     }
+    placeUpTo(Number.POSITIVE_INFINITY);
     return next;
+  }
+
+  /** The session's entries, oldest first. An engine without them (before Agix 0.2.8) has none. */
+  private async entries(): Promise<SessionEntry[]> {
+    try {
+      const listed = (await this.client.call("session.entries", { ...this.key(), session_id: this.state.sessionId })) as { entries?: SessionEntry[] };
+      return listed.entries ?? [];
+    } catch {
+      return [];
+    }
   }
 
   private applyOptions() {
