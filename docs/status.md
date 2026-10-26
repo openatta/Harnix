@@ -11,7 +11,7 @@
 |---|---|
 | 阶段 | **前置 A：Agix 改名与 0.2.7**（维护者 2026-10-25 下令开始） |
 | 当前里程碑 | A（见 roadmap「前置 A」） |
-| 当前任务 | A1 实例隔离 |
+| 当前任务 | A2 daemon 客户端的正确性 |
 | 下一步 | 见「进行中」。M0 仍要等维护者明确说开始 |
 | 最后更新 | 2026-10-25 |
 
@@ -83,7 +83,7 @@
 |---|---|---|---|
 | A0-1 Agix 仓库改名 | ✅ | Agix `8468450`（本地，重放在上游 `beb69db` 之上） | 全量测试 2881 过，与改名前一致 |
 | A0-2 本仓库改名 Harnix、跟上 Agix（`core/` → `agix/`） | ✅ | （本次提交，分支 `rename-agix-harnix`） | 连带提前做了 M0-4（维护者同意）；`check.sh` 结果见日志 |
-| A1 实例隔离 | 未开始 | | |
+| A1 实例隔离 | ✅ | Agix 分支 `agix-0.2.7`：`0be92d1`…`e6752bb`（6 个，本地） | 全量测试 2873 过；「录制 / 回放按池子配置」核实后不需要（Harnix 按会话传 `options.recorder`）；Assembly 多了 `mcp_oauth_resolver`，A6 时 Harnix 的 engine.rs 要跟着补 |
 | A2 daemon 客户端的正确性 | 未开始 | | |
 | A3 轮次收口与常驻调度器 | 未开始 | | 风险最高：改 `run_turn` 的核心循环 |
 | A4 会话任务 | 未开始 | | 依赖 A3 |
@@ -134,6 +134,7 @@
 
 | 日期 | 事 |
 |---|---|
+| 2026-10-26 | A1 完成，提交在 Agix 分支 `agix-0.2.7`（还没合进 main，A6 一起合）。A2–A5 继续在这个分支上做；工作树放在 scratchpad 的 `agix-a1`，丢了就 `git -C agix worktree add <路径> agix-0.2.7` 重建。A0 的 check 补跑完：rust、clippy 用重试脚本跑过；除 N-003（api/live 6 个、browser 5 个）与 M0-7 绊线外全过。**本机构建会间歇性报 `Illegal byte sequence (os error 92)` 写入失败**（不是沙箱、没有第三方系统扩展、日志无记录），cargo 用重试绕过 |
 | 2026-10-25 | 维护者定：Harnix 的标签前缀统一成 `Harnix-v`（与 `Agix-v` 一致）；CLAUDE.md、术语、roadmap、二开指南、memory 已改 |
 | 2026-10-25 | Agix 上游多了两个维护者的提交：`dbbd814` 仓库地址、`beb69db` 标签前缀改为 `Agix-v`（大写）。本地改名提交重放到其上，成为 `8468450`（与原 `6a23e31` 只差 CLAUDE.md 的标签前缀，测试结论不变）；A1 工作树跟着挪过去；文档与 memory 的前缀改成 `Agix-v` |
 | 2026-10-25 | 换上有效 key 后重跑 `check.sh`：live 122 过、7 败（与 api 相同的 7 个）；interface 过；browser 5 败，页面收到 `{"selected_memories": []}`，是 N-003 的回放错位（M0-8）；rust 层报 doctest 找不到 crate，查实是 `target/debug` 里的构建缓存内容损坏（文件在、读不出），`cargo clean` 后重跑 |
