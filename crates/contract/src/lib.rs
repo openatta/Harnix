@@ -19,7 +19,7 @@ pub use handshake::{
     Handshake, Limits, Topology, CONTRIB_API_VERSION, MAX_FRAME_BYTES, MAX_UPLOAD_BYTES,
     PROTOCOL_VERSION,
 };
-pub use space::{DefaultInstance, SpaceDecl, HOME_SPACE, SESSIONS_SPACE, SYSTEM_SPACE};
+pub use space::{DefaultInstance, SpaceDecl, PROJECTS_SPACE, SESSIONS_SPACE, SYSTEM_SPACE};
 pub use subject::Subject;
 
 /// The instance every process has: the engine built from the profile's

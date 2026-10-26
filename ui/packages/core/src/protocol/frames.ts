@@ -64,6 +64,17 @@ export interface Hello {
   scenes: Scene[];
   commands: unknown[];
   contributions: unknown[];
+  /** What this product is and keeps (design §10.5): its brand, the built-in spaces it keeps of
+   *  `sessions` / `projects` / `system`, whether packages' interface modules load. */
+  shell?: {
+    spaces?: string[];
+    brand?: { name?: string | null; icon?: string | null; product_id?: string };
+    runtime_modules?: boolean;
+    state_dir?: string;
+    projects_dir?: string;
+    /** Who runs this process, for the avatar. */
+    user?: string;
+  };
   limits?: {
     max_frame_bytes?: number;
     max_upload_bytes?: number;

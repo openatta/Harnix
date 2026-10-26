@@ -18,7 +18,7 @@
 
 use std::path::PathBuf;
 
-use base::interface::model::ToolDef;
+use base::interface::model::{ModelEvent, ToolDef};
 use base::interface::prompt::PromptBlock;
 use harnix_contract::{codes, RpcError};
 use serde_json::{json, Value};
@@ -50,6 +50,225 @@ impl Builtin {
             .unwrap_or(harnix_contract::SYSTEM_INSTANCE);
         envelopes_in(&self.recording_dir(instance, &session_id)?)
     }
+    /// `harnix.system.trace {instance?, session_id}` — every model call of this session's current
+    /// run, oldest first, each with what went in and what came out, and the tool calls it asked
+    /// for with their results (found in the next call's messages). The system space's calls tab.
+    pub(crate) async fn trace(&self, params: Value) -> Result<Value, RpcError> {
+        let session_id = require_session_id(&params)?;
+        let instance = params
+            .get("instance")
+            .and_then(Value::as_str)
+            .unwrap_or(harnix_contract::SYSTEM_INSTANCE);
+        trace_in(&self.recording_dir(instance, &session_id)?)
+    }
+
+    /// `harnix.system.trace.call {instance?, session_id, index}` — one call in full: every system
+    /// block, the tool catalog, the messages as sent, and the whole answer.
+    pub(crate) async fn trace_call(&self, params: Value) -> Result<Value, RpcError> {
+        let session_id = require_session_id(&params)?;
+        let instance = params
+            .get("instance")
+            .and_then(Value::as_str)
+            .unwrap_or(harnix_contract::SYSTEM_INSTANCE);
+        let index = params.get("index").and_then(Value::as_u64).ok_or_else(|| {
+            RpcError::invalid_params("`index` is the call's position in the trace")
+        })?;
+        call_in(&self.recording_dir(instance, &session_id)?, index as usize)
+    }
+}
+
+/// Clip a text for a list row; the call's detail has all of it.
+fn clip(text: &str, chars: usize) -> String {
+    let mut out: String = text.chars().take(chars).collect();
+    if text.chars().count() > chars {
+        out.push('…');
+    }
+    out
+}
+
+/// What a call answered: its text, how much thinking, and the tool calls it asked for.
+fn answer(events: &[ModelEvent]) -> (String, usize, Vec<Value>) {
+    let mut text = String::new();
+    let mut thinking = 0;
+    let mut tools = Vec::new();
+    for event in events {
+        match event {
+            ModelEvent::TextDelta { text: delta } => text.push_str(delta),
+            ModelEvent::ThinkingDelta { text: delta } => thinking += delta.chars().count(),
+            ModelEvent::ToolUse { id, name, input } => {
+                tools.push(json!({"id": id, "name": name, "input": input}))
+            }
+            _ => {}
+        }
+    }
+    (text, thinking, tools)
+}
+
+/// Every `tool_result` in a call's messages, by the tool call it answers.
+fn results(messages: &[Value]) -> std::collections::HashMap<String, (String, bool)> {
+    let mut found = std::collections::HashMap::new();
+    for message in messages {
+        for block in message
+            .get("content")
+            .and_then(Value::as_array)
+            .map_or(&[][..], |v| v)
+        {
+            if block.get("type").and_then(Value::as_str) == Some("tool_result") {
+                let id = block
+                    .get("tool_use_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let content = block
+                    .get("content")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let error = block
+                    .get("is_error")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                found.insert(id.to_string(), (content.to_string(), error));
+            }
+        }
+    }
+    found
+}
+
+fn outcome(call: &reader::RecordedCall) -> Value {
+    match &call.end {
+        None => json!({"status": "unfinished"}),
+        Some(end) => serde_json::to_value(&end.outcome).unwrap_or(json!(null)),
+    }
+}
+
+fn trace_in(dir: &std::path::Path) -> Result<Value, RpcError> {
+    let recording = match reader::load(dir) {
+        Ok(recording) => recording,
+        Err(reader::ReadError::NotFound(_)) => return Ok(json!({"recording": false, "calls": []})),
+        Err(e) => {
+            return Err(RpcError::new(
+                codes::INTERNAL_ERROR,
+                format!("unreadable recording: {e}"),
+            ))
+        }
+    };
+    let blobs = BlobStore::new(dir);
+    let messages: Vec<Vec<Value>> = recording
+        .calls
+        .iter()
+        .map(|call| {
+            call.request
+                .messages
+                .iter()
+                .filter_map(|id| read::<Value>(&blobs, id))
+                .collect()
+        })
+        .collect();
+    let mut calls = Vec::new();
+    for (index, call) in recording.calls.iter().enumerate() {
+        let request = &call.request;
+        let (text, thinking, tool_uses) = answer(&call.response);
+        // A tool call's result is in the next turn call: the engine sends it back.
+        let next = recording.calls[index + 1..]
+            .iter()
+            .position(|c| c.request.purpose.is_none())
+            .map(|offset| results(&messages[index + 1 + offset]))
+            .unwrap_or_default();
+        let tools: Vec<Value> = tool_uses
+            .iter()
+            .map(|tool| {
+                let id = tool["id"].as_str().unwrap_or_default();
+                let result = next.get(id);
+                json!({
+                    "id": id,
+                    "name": tool["name"],
+                    "input": clip(&tool["input"].to_string(), 160),
+                    "result": result.map(|(text, _)| clip(text.lines().next().unwrap_or_default(), 160)),
+                    "result_chars": result.map(|(text, _)| text.chars().count()),
+                    "is_error": result.map(|(_, error)| *error),
+                })
+            })
+            .collect();
+        let system: Vec<Value> = request
+            .system
+            .iter()
+            .map(|id| match read::<PromptBlock>(&blobs, id) {
+                Some(block) => {
+                    json!({"source": block.name, "chars": block.content.chars().count()})
+                }
+                None => json!({"source": null, "chars": 0}),
+            })
+            .collect();
+        let tool_count = read::<Vec<ToolDef>>(&blobs, &request.tools).map_or(0, |t| t.len());
+        let end = call.end.as_ref();
+        calls.push(json!({
+            "index": index,
+            "turn": request.turn,
+            "step": request.step,
+            "purpose": request.purpose,
+            "ts": request.ts,
+            "provider": request.provider,
+            "model": request.params.model,
+            "input": {
+                "system": system,
+                "tools": tool_count,
+                "messages": request.messages.len(),
+            },
+            "output": {
+                "text": clip(&text, 240),
+                "chars": text.chars().count(),
+                "thinking_chars": thinking,
+                "tool_uses": tool_uses.len(),
+            },
+            "tools": tools,
+            "outcome": outcome(call),
+            "stop_reason": end.and_then(|e| e.stop_reason.clone()),
+            "usage": end.and_then(|e| e.usage.as_ref()).and_then(|u| serde_json::to_value(u).ok()),
+            "duration_ms": end.map(|e| e.duration_ms),
+        }));
+    }
+    Ok(json!({"recording": true, "calls": calls, "damaged": recording.damaged}))
+}
+
+fn call_in(dir: &std::path::Path, index: usize) -> Result<Value, RpcError> {
+    let recording =
+        reader::load(dir).map_err(|e| RpcError::not_found(format!("no recording: {e}")))?;
+    let call = recording.calls.get(index).ok_or_else(|| {
+        RpcError::not_found(format!("this run has {} calls", recording.calls.len()))
+    })?;
+    let blobs = BlobStore::new(dir);
+    let request = &call.request;
+    let envelope = envelope(request, "detail", &blobs);
+    let messages: Vec<Value> = request
+        .messages
+        .iter()
+        .filter_map(|id| read::<Value>(&blobs, id))
+        .collect();
+    let (text, thinking, tool_uses) = answer(&call.response);
+    let end = call.end.as_ref();
+    Ok(json!({
+        "index": index,
+        "input": {
+            "system": envelope["system"],
+            "tools": envelope["tools"],
+            "messages": messages,
+            "model": request.params.model,
+            "max_tokens": request.params.max_tokens,
+            "thinking_mode": request.params.thinking_mode,
+            "provider": request.provider,
+            "purpose": request.purpose,
+            "turn": request.turn,
+            "step": request.step,
+        },
+        "output": {
+            "text": text,
+            "thinking_chars": thinking,
+            "tool_uses": tool_uses,
+            "outcome": outcome(call),
+            "stop_reason": end.and_then(|e| e.stop_reason.clone()),
+            "usage": end.and_then(|e| e.usage.as_ref()).and_then(|u| serde_json::to_value(u).ok()),
+            "duration_ms": end.map(|e| e.duration_ms),
+        },
+    }))
 }
 
 /// Fold one recording directory into the changes of its envelope.

@@ -18,7 +18,7 @@ try {
   await page.keyboard.press("Enter");
   await page.waitForTimeout(3000);
   await page.screenshot({ path: `${out}/s-2.png` });
-  await page.locator('#side [data-space="home"]').click();
+  await page.locator('#side [data-space="system"]').click();
   await page.waitForTimeout(800);
   await page.screenshot({ path: `${out}/s-3.png` });
   await page.evaluate(() => (document.documentElement.dataset.theme = "dark"));

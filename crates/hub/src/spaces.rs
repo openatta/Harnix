@@ -60,9 +60,7 @@ impl Spaces {
             Err(e) => return Err(anyhow::anyhow!("{}: {e}", path.display())),
         };
         let mut all = BTreeMap::new();
-        for decl in [SpaceDecl::new(SESSIONS_SPACE), SpaceDecl::new(harnix_contract::HOME_SPACE)]
-            .into_iter()
-            .chain(decls)
+        for decl in [SpaceDecl::new(SESSIONS_SPACE)].into_iter().chain(decls)
         {
             all.insert(decl.id.clone(), decl);
         }

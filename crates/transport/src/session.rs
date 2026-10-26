@@ -149,6 +149,7 @@ impl Sessions {
         subject: Subject,
         topology: Topology,
         single_wire: Option<mpsc::UnboundedSender<String>>,
+        user_agent: &str,
     ) -> (String, Arc<Established>, Arc<Downstream>) {
         let (session_tx, host_tx, session_rx, host_rx, faces) = match single_wire {
             Some(wire) => (
@@ -180,6 +181,25 @@ impl Sessions {
             faces,
         });
         let client = hub.add_client(sink.clone()).await;
+        // What the system space lists as a connected user: the device, how it is connected, what
+        // it says it is, and since when.
+        let device = match &subject {
+            Subject::Device { id } => id.clone(),
+            other => format!("{other:?}"),
+        };
+        let since_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        hub.describe_client(
+            client,
+            serde_json::json!({
+                "device": device,
+                "topology": topology.as_str(),
+                "user_agent": user_agent,
+                "since_ms": since_ms,
+            }),
+        );
         let established = Arc::new(Established {
             subject,
             topology,

@@ -39,6 +39,21 @@ function resolveInitial(): Locale {
   return stored() ?? fromSystem();
 }
 
+/**
+ * A module's language pack (design §10.5): keys it brings for its own text, merged into the
+ * dictionaries. Every key carries the module's namespace — `<owner>.` — so a pack can neither
+ * rewrite the shell's text nor another module's; keys outside it are returned, not added.
+ */
+export function addStrings(locale: Locale, strings: Record<string, string>, owner: string): string[] {
+  const refused: string[] = [];
+  for (const [key, text] of Object.entries(strings)) {
+    if (!key.startsWith(`${owner}.`) || typeof text !== "string") refused.push(key);
+    else DICTIONARIES[locale][key] = text;
+  }
+  notify();
+  return refused;
+}
+
 export function t(key: string, vars?: Record<string, unknown>): string {
   let text = DICTIONARIES[locale][key] ?? DICTIONARIES.en[key];
   if (text === undefined) {
@@ -75,6 +90,14 @@ export function setLocale(choice: LocaleChoice): void {
   if (next === locale) return;
   locale = next;
   if (typeof document !== "undefined") document.documentElement.lang = locale;
+  notify();
+}
+
+/** Bumped whenever what `t` answers may have changed: a language, or a module's pack. */
+let version = 0;
+
+function notify(): void {
+  version += 1;
   for (const fn of [...listeners]) fn();
 }
 
@@ -83,9 +106,9 @@ function subscribe(fn: () => void): () => void {
   return () => listeners.delete(fn);
 }
 
-/** `t`, re-rendering the component when the language changes. */
+/** `t`, re-rendering the component when the language changes or a pack arrives. */
 export function useT(): Translate {
-  useSyncExternalStore(subscribe, currentLocale);
+  useSyncExternalStore(subscribe, () => version);
   return t;
 }
 

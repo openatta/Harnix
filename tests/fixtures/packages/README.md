@@ -1,28 +1,20 @@
 # Package fixtures
 
-`demo-rows/` is a package source; `demo-rows.zip` is it, packed the way the
-engine's installer takes one.
+Two package sources, each packed beside it the way the engine's installer takes one:
 
-It contributes a single interface module: a `tool.row` that claims `Bash` and
-leaves every other tool alone. That is enough to show the whole path — the
-file goes up the bulk channel, the engine installs and discloses it, Harnix
-reads the one section the engine ignores and serves the directory
-same-origin, the browser imports the module, and the row it registers wins
-over the built-in one because it registered later.
+| Package | What it is for |
+|---|---|
+| `demo-rows/` → `demo-rows.zip` | A `tool.row` written against contribution API **1** (a DOM function). The shell does not load it: its entry is listed as "这一条不生效" with the reason, and the rest of the package is untouched (design §10.5, M8-2). |
+| `demo-rows-v2/` → `demo-rows-v2.zip` | The same row against contribution API **2**: a precompiled ES module that imports `react/jsx-runtime` and `@harnix/react` from the page's import map, brings its own language pack, and wins the claim for `Bash` over the built-in row (M8-1). |
+
+`tests/package-e2e.mjs` installs both through the real engine and checks the whole path: the file goes
+up the bulk channel, the engine installs and discloses it, Harnix reads the one section the engine
+ignores and serves the directory same-origin, the browser imports the v2 module, and the CSP admits
+the import map by its hash and nothing else.
 
 Re-pack after editing:
 
 ```sh
-cd tests/fixtures/packages/demo-rows && zip -qr ../demo-rows.zip .
+cd tests/fixtures/packages/demo-rows && zip -qrX ../demo-rows.zip .
+cd ../demo-rows-v2 && zip -qrX ../demo-rows-v2.zip .
 ```
-
-## Why this needs a `plugins` build
-
-The engine carries one extension carrier or none, and the packaging system is
-bundled with the WebAssembly one by a feature flag — so in the build Harnix
-ships, `plugin.*` answers `PLUGINS_DISABLED` and nothing installs. The test
-that uses this fixture builds its own backend with `--features plugin-compile`
-and skips when it cannot.
-
-Splitting packaging from the carrier is filed against Agix; when it lands,
-this works in the ordinary build and the test stops needing its own.

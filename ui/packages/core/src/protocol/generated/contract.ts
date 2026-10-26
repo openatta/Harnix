@@ -4,7 +4,7 @@
 /** Bumped when a method, an event shape or an error code changes in a way a client can observe. */
 export const PROTOCOL_VERSION = 4;
 /** The contribution point API — separate, because a UI bundle can be current on one and stale on the other. */
-export const CONTRIB_API_VERSION = 1;
+export const CONTRIB_API_VERSION = 2;
 /** The largest single RPC frame a client may send. */
 export const MAX_FRAME_BYTES = 16777216;
 /** The largest file the bulk semantic accepts. */

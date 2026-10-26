@@ -1,3 +1,10 @@
+# What the product is called and where its own state lives (~/.hello-app): the shell takes its
+# name and icon from here, its colours and words from the interface module (ui/src/index.tsx).
+[brand]
+name = "Hello"
+icon = "brand.svg"
+product_id = "hello-app"
+
 [engine]
 scene = "coding"
 

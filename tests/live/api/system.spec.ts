@@ -142,7 +142,7 @@ test.describe("off", () => {
   let api: TestClient;
 
   test.beforeAll(async () => {
-    backend = await startTestApp({ profile: "\n[system_space]\nenabled = false\n" });
+    backend = await startTestApp({ profile: "\n[shell]\nspaces = [\"sessions\", \"projects\"]\n" });
   });
   test.afterAll(() => backend?.stop());
   test.beforeEach(async () => {

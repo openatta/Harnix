@@ -18,6 +18,7 @@ import modules from "virtual:harnix-modules";
 import { App } from "./app.ts";
 import { registerBuiltins } from "./builtins.tsx";
 import { hostFor } from "./host.ts";
+import { loadPackages } from "./packages.ts";
 import { Shell } from "./Shell.tsx";
 
 const client = new HarnixClient({ token: tokenFromDocument() });
@@ -42,8 +43,8 @@ document.documentElement.lang = currentLocale();
 (window as unknown as { harnix: unknown }).harnix = { app, client, host };
 
 createRoot(document.getElementById("root")!).render(<Root />);
-// The built-ins first, then the application's modules in its order: a later registration wins a
-// claim, so an application can take over what Harnix draws.
+// The built-ins first, then the application's modules in its order, then installed packages' v2
+// modules: a later registration wins a claim, so an application can take over what Harnix draws.
 app.start((a) => {
   registerBuiltins(a);
   for (const module of modules) {
@@ -53,7 +54,7 @@ app.start((a) => {
       a.registry.note({ point: "module", owner: "application", reason: e instanceof Error ? e.message : String(e) });
     }
   }
-});
+}, loadPackages);
 window.addEventListener("beforeunload", () => {
   const current = app.snapshot.current;
   if (current) client.notify("harnix.detach", { instance: current.instance, session_id: current.sessionId });

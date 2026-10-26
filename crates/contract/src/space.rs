@@ -4,11 +4,11 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The session space: the workspaces and their conversations. Sessions with no recorded space
-/// belong here — every one created before spaces existed.
+/// The session space: the conversations, and the projects they run in. Sessions with no recorded
+/// space belong here — every one created before spaces existed.
 pub const SESSIONS_SPACE: &str = "sessions";
-/// The overview, with its own general session.
-pub const HOME_SPACE: &str = "home";
+/// The projects view: interface only. Its sessions are the session space's, listed by project.
+pub const PROJECTS_SPACE: &str = "projects";
 /// The debugging face: sees and acts on every space's sessions, and every time it reaches across
 /// a space that is audited (D17).
 pub const SYSTEM_SPACE: &str = "system";

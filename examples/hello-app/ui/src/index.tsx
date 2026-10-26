@@ -9,26 +9,34 @@
  * And an approval card (docs/harnix-sdk.md §10.1): the ticket is an entry in the conversation, its
  * state comes from the `app.greeter.approvals` topic, and the buttons call `app.greeter.approve`,
  * which only a person may.
+ *
+ * Its look is its own without a fork of `ui/` (design §10.5): the profile's `[brand]` names the
+ * product, and here the module overrides the accent tokens and brings its words as a language pack
+ * whose keys carry its name.
  */
 
 import { useEffect, useRef, useState } from "react";
 import { useNest, type NestHost, type Registry } from "@harnix/react";
 
-export function register(r: Registry, _host: NestHost): void {
+export function register(r: Registry, host: NestHost): void {
+  // The brand's colour: existing token names only — a module adds no colours of its own.
+  r.tokens({ "--accent": "#2f6fb3", "--accent-soft": "rgba(47, 111, 179, 0.12)", "--accent-line": "rgba(47, 111, 179, 0.4)" }, "hello-app");
+  r.strings("en", { "hello-app.greeter": "Greeter", "hello-app.greet": "Greet", "hello-app.notes": "Notes" }, "hello-app");
+  r.strings("zh-CN", { "hello-app.greeter": "问候", "hello-app.greet": "打招呼", "hello-app.notes": "笔记" }, "hello-app");
   r.register(
     "space",
     {
       id: "greeter",
       icon: "globe",
-      order: 20,
-      title: () => "Greeter",
+      order: 30,
+      title: () => host.t("hello-app.greeter"),
       center: "chat",
-      tabs: [{ id: "greet", title: () => "Greet", render: () => <GreetTab /> }],
+      tabs: [{ id: "greet", title: () => host.t("hello-app.greet"), render: () => <GreetTab /> }],
     },
     "hello-app",
   );
-  r.register("space", { id: "notes", icon: "file", order: 30, title: () => "Notes", center: "chat" }, "hello-app");
-  r.register("home.card", { id: "greeter.count", order: 10, title: () => "Greeter", render: () => <GreetedCard /> }, "hello-app");
+  r.register("space", { id: "notes", icon: "file", order: 40, title: () => host.t("hello-app.notes"), center: "chat" }, "hello-app");
+  r.register("home.card", { id: "greeter.count", order: 10, title: () => host.t("hello-app.greeter"), render: () => <GreetedCard /> }, "hello-app");
   r.register(
     "flow.block",
     {

@@ -78,7 +78,8 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       if (!seen.called.length) return;
       let reachable: string[] = [];
       try {
-        const probe = await connect(harnix);
+        // The topology the backend offers: an interface suite's backend may serve only one.
+        const probe = await connect(harnix, { topology: topology() });
         reachable = (await probe.call("harnix.reachable")).methods;
         probe.close();
       } catch {

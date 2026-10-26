@@ -40,8 +40,8 @@ mod views;
 
 pub use clients::ClientId;
 pub use instances::{Registry, Slot};
-pub use spaces::{AuditHook, Spaces};
 pub use replay::{MAX_BYTES as REPLAY_MAX_BYTES, MAX_FRAMES as REPLAY_MAX_FRAMES};
+pub use spaces::{AuditHook, Spaces};
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::AtomicU64;
@@ -100,6 +100,7 @@ pub const HUB_METHODS: &[&str] = &[
     "harnix.sessions.tasks",
     "harnix.entries.append",
     "harnix.spaces.list",
+    "harnix.process",
 ];
 
 /// The hub's own topics: the instance tree as whole values (design §6.3).
@@ -147,6 +148,15 @@ pub struct Hub {
     /// Held here rather than resolved per call because it changes when a
     /// package is installed, not when someone asks.
     ui_contributions: RwLock<Value>,
+    /// What the shell is told about this product at hello: its brand, which built-in spaces it
+    /// keeps, whether runtime interface modules load. Set once at assembly.
+    shell: StdRwLock<Value>,
+    /// The process's own facts for `harnix.process`: versions, when it started.
+    process: StdRwLock<Value>,
+    started: std::time::Instant,
+    /// What each connected client said about itself (device, topology, user agent, since), for
+    /// `harnix.process`. A tap or another in-process client has none and is not listed.
+    described: StdMutex<BTreeMap<ClientId, Value>>,
     /// The ceilings a client has to respect, assembled once by the layer that
     /// knows all three. Reported rather than restated: `hello` used to build
     /// this object by hand and left `max_upload_bytes` out of it entirely.
@@ -184,6 +194,10 @@ impl Hub {
             next_barrier: AtomicU64::new(1),
             refreshing: StdMutex::new(HashSet::new()),
             ui_contributions: RwLock::new(json!([])),
+            shell: StdRwLock::new(json!({})),
+            process: StdRwLock::new(json!({})),
+            started: std::time::Instant::now(),
+            described: StdMutex::new(BTreeMap::new()),
             limits: serde_json::to_value(config.limits).unwrap_or(json!({})),
             prompt_timeout_secs: config.prompt_timeout_secs,
             spaces: StdMutex::new(config.spaces),
@@ -263,7 +277,12 @@ impl Hub {
     }
 
     /// One JSON-RPC call into an instance.
-    pub async fn call(&self, instance: &str, method: &str, params: Value) -> Result<Value, RpcError> {
+    pub async fn call(
+        &self,
+        instance: &str,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, RpcError> {
         let Some(slot) = self.slot(instance) else {
             return Err(RpcError::new(
                 codes::INSTANCE_NOT_FOUND,
@@ -322,7 +341,58 @@ impl Hub {
         id
     }
 
+    /// What a client is, as the transport saw it at handshake: shown in the system space.
+    pub fn describe_client(&self, id: ClientId, description: Value) {
+        self.described
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id, description);
+    }
+
+    /// The shell's part of hello: brand, built-in spaces, runtime modules.
+    pub fn set_shell(&self, shell: Value) {
+        *self.shell.write().unwrap_or_else(|e| e.into_inner()) = shell;
+    }
+
+    /// The process's own facts for `harnix.process`.
+    pub fn set_process(&self, process: Value) {
+        *self.process.write().unwrap_or_else(|e| e.into_inner()) = process;
+    }
+
+    /// Versions, uptime, memory and who is connected: the system space's strip.
+    fn process(&self) -> Value {
+        let mut out = self
+            .process
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let connections: Vec<Value> = self
+            .described
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(id, d)| {
+                let mut d = d.clone();
+                d["client"] = json!(id.0);
+                d
+            })
+            .collect();
+        if let Some(obj) = out.as_object_mut() {
+            obj.insert(
+                "uptime_secs".into(),
+                json!(self.started.elapsed().as_secs()),
+            );
+            obj.insert("peak_rss_bytes".into(), json!(peak_rss_bytes()));
+            obj.insert("connections".into(), json!(connections));
+        }
+        out
+    }
+
     pub async fn remove_client(&self, id: ClientId) {
+        self.described
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&id);
         let mut guard = self.inner.lock().await;
         guard.clients.remove(id);
         guard.topics.forget(id);
@@ -388,6 +458,7 @@ impl Hub {
             // each one and the module decides what it registers, so grouping
             // by point here would be a shape nothing reads.
             "contributions": self.ui_contributions.read().await.clone(),
+            "shell": self.shell.read().unwrap_or_else(|e| e.into_inner()).clone(),
             "limits": self.limits.clone(),
         }))
     }
@@ -409,6 +480,7 @@ impl Hub {
         }
         match method {
             "harnix.hello" => return self.hello().await,
+            "harnix.process" => return Ok(self.process()),
             "harnix.subscribe" => return self.subscribe(subject, params).await,
             "harnix.unsubscribe" => return self.unsubscribe(subject, params).await,
             "harnix.sessions" if params.get("space").is_some() => {
@@ -441,7 +513,11 @@ impl Hub {
             "session.create" => return self.create(params).await,
             "session.fork" => {
                 let key = self.key_of(&params)?;
-                let space = params.get("space").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| self.space_of(&key));
+                let space = params
+                    .get("space")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| self.space_of(&key));
                 let forked = self.call(&key.0, method, without_instance(params)).await?;
                 if let Some(sid) = forked.get("session_id").and_then(Value::as_str) {
                     self.bind_space(&(key.0.clone(), sid.to_string()), &space);
@@ -458,7 +534,9 @@ impl Hub {
         let device = matches!(subject, Subject::Device { .. });
         if PASSTHROUGH.contains(&method) || (!device && is_engine_method(method)) {
             let instance = self.instance_of(&params)?;
-            let answer = self.call(&instance, method, without_instance(params)).await?;
+            let answer = self
+                .call(&instance, method, without_instance(params))
+                .await?;
             // What the session list shows changed; the engine sends no event for it.
             if RELISTED.contains(&method) {
                 self.refresh("harnix.instances.sessions", json!({"instance": instance}));
@@ -632,4 +710,31 @@ pub(crate) fn new_id(prefix: &str) -> String {
 
 pub(crate) fn is_code(result: &Result<Value, RpcError>, code: i32) -> bool {
     matches!(result, Err(e) if e.code == code)
+}
+
+/// The most memory this process has held, in bytes; `None` where the platform does not say.
+///
+/// The peak rather than the current figure: it is what `getrusage` gives on every Unix without
+/// a dependency, and for "is this process growing" it is the more useful of the two.
+fn peak_rss_bytes() -> Option<u64> {
+    #[cfg(unix)]
+    {
+        let mut usage = std::mem::MaybeUninit::<libc::rusage>::zeroed();
+        // SAFETY: `getrusage` writes the whole struct for RUSAGE_SELF and touches nothing else.
+        let rc = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
+        if rc != 0 {
+            return None;
+        }
+        let max = unsafe { usage.assume_init() }.ru_maxrss.max(0) as u64;
+        // macOS reports bytes, Linux and the BSDs kilobytes.
+        Some(if cfg!(target_os = "macos") {
+            max
+        } else {
+            max * 1024
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        None
+    }
 }

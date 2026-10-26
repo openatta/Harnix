@@ -59,7 +59,9 @@ export {
   type Refusal,
   type SidebarGroup,
   type SpaceContribution,
+  type SpaceTab,
+  tabsOf,
 } from "./contrib";
-export { t, useT, useLocale, setLocale, currentLocale, localeChoice, DICTIONARIES, type Locale, type LocaleChoice, type Translate } from "./i18n/index";
+export { t, useT, useLocale, setLocale, currentLocale, localeChoice, addStrings, DICTIONARIES, type Locale, type LocaleChoice, type Translate } from "./i18n/index";
 export type { FlowBlockContribution } from "./chat/types";
 export { NestProvider, useNest, type NestHost, type SessionRef as HostSessionRef } from "./host";

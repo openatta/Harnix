@@ -112,6 +112,10 @@ pub async fn establish(
             negotiated.subject.clone(),
             negotiated.topology,
             None,
+            headers
+                .get(axum::http::header::USER_AGENT)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or(""),
         )
         .await;
     let mut answer = handshake::accepted(&negotiated, &state.config.topologies);

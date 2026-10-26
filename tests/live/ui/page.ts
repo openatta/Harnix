@@ -63,3 +63,10 @@ export async function say(page: Page, text: string): Promise<void> {
 export function reply(page: Page) {
   return page.locator('[data-testid="conv-group"] [data-testid="conv-message"]').first();
 }
+
+/** Settings: the avatar's menu, then its first item. */
+export async function openSettings(page: Page): Promise<void> {
+  await page.getByTestId("avatar").click();
+  await page.getByTestId("open-settings").click();
+  await expect(page.locator(".settings-nav")).toBeVisible();
+}

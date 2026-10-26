@@ -19,7 +19,7 @@ test("a module's migration runs before it starts, and only once per step", TAGS,
     const api = await connect(backend);
     const probe = await moduleStatus(api, "probe");
     expect(probe.migrations).toEqual(["001-create", "002-index"]);
-    const marker = join(backend.scratch, "projects", ".harnix", "modules", "probe", "schema");
+    const marker = join(backend.state, "modules", "probe", "schema");
     expect(existsSync(marker)).toBe(true);
     expect(readFileSync(marker, "utf8").split("\n")).toEqual(["001-create", "002-index"]);
     api.close();

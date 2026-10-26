@@ -50,6 +50,18 @@ export interface Modal {
 
 export type ThemeChoice = "system" | "light" | "dark";
 
+/** The two side columns' widths, as the reader dragged them. */
+export interface Widths {
+  side: number;
+  details: number;
+}
+
+export const WIDTHS: { side: [number, number, number]; details: [number, number, number] } = {
+  // min, default, max
+  side: [200, 260, 360],
+  details: [320, 360, 480],
+};
+
 export interface ShellState {
   /** The space in front. */
   space: string;
@@ -73,11 +85,18 @@ export interface ShellState {
   showArchived: boolean;
   expanded: Record<string, boolean>;
   theme: ThemeChoice;
+  /** The project open in the projects space: one at a time. */
+  project: string | null;
+  widths: Widths;
+  /** The avatar's menu. */
+  menu: boolean;
 }
 
 const THEME_KEY = "harnix.theme";
 const SPACE_KEY = "harnix.space";
 const CURRENT_KEY = "harnix.space.current";
+const PROJECT_KEY = "harnix.project";
+const WIDTHS_KEY = "harnix.widths";
 
 function stored<T>(key: string, fallback: T): T {
   try {
@@ -117,6 +136,7 @@ export class App {
   controller: SessionController | null = null;
   composer: ComposerApi | null = null;
   private builtins: ((app: App) => void) | null = null;
+  private packages: ((app: App, hello: Hello) => Promise<void>) | null = null;
 
   constructor(client: HarnixClient, registry: Registry) {
     this.client = client;
@@ -142,6 +162,9 @@ export class App {
       showArchived: false,
       expanded: {},
       theme: storedTheme(),
+      project: stored<string | null>(PROJECT_KEY, null),
+      widths: { side: WIDTHS.side[1], details: WIDTHS.details[1], ...stored<Partial<Widths>>(WIDTHS_KEY, {}) },
+      menu: false,
     };
   }
 
@@ -168,8 +191,9 @@ export class App {
   /* ── 启动 ─────────────────────────────────────────────────────────── */
 
   /** 连上就跑一遍：hello、可调方法、内建贡献（一页一次）、会话列表。重连后再跑一遍。 */
-  start(registerBuiltins: (app: App) => void): void {
+  start(registerBuiltins: (app: App) => void, loadPackages?: (app: App, hello: Hello) => Promise<void>): void {
     this.builtins = registerBuiltins;
+    this.packages = loadPackages ?? null;
     this.client.onStatus((status, detail) => {
       this.set({ connection: status });
       if (status === "open") void this.boot();
@@ -190,7 +214,8 @@ export class App {
         };
         this.set({ reachable: reachable.methods ?? [] });
         this.builtins?.(this);
-        this.notePackages(hello);
+        this.landOnASpace();
+        await this.packages?.(this, hello);
       }
       await this.client
         .call("harnix.subscribe", { topic: "harnix.sessions.status" })
@@ -202,21 +227,17 @@ export class App {
     }
   }
 
-  /**
-   * 运行期包的界面模块：这个外壳认的是贡献点 API 2（React 组件），照 v1 写的模块（DOM 函数）在 M8 之前
-   * 一律不加载，诊断页逐条写明，包的其余部分照常（概念 §5.1.1，设计 §10.5）。
-   */
-  private notePackages(hello: Hello): void {
-    const entries = Array.isArray(hello.contributions) ? hello.contributions : [];
-    for (const raw of entries) {
-      const entry = raw as { plugin?: string; point?: string; module?: string };
-      this.registry.note({
-        point: entry.point ?? "?",
-        owner: entry.plugin ?? "?",
-        id: entry.module,
-        reason: t("contrib.v1Inert"),
-      });
-    }
+  /** The stored front space, if this product still has it; else the first one it does have. */
+  private landOnASpace(): void {
+    const ids = this.registry.at("space").map((c) => c.id);
+    if (ids.includes(this.state.space) || !ids.length) return;
+    const space = [...this.registry.at("space")].sort((a, b) => (a.order ?? 100) - (b.order ?? 100))[0]!.id;
+    this.set({ space });
+  }
+
+  /** The backend space a front space's sessions belong to (`SpaceContribution.sessions`). */
+  claim(space = this.state.space): string {
+    return this.registry.at("space").find((c) => c.id === space)?.sessions ?? space;
   }
 
   /* ── 服务端通知 ───────────────────────────────────────────────────── */
@@ -300,11 +321,11 @@ export class App {
    */
   async switchSpace(space: string): Promise<void> {
     remember(SPACE_KEY, space);
-    this.set({ space, detail: null });
+    this.set({ space, detail: null, menu: false });
     const key = this.state.currentBySpace[space];
     if (!key) return;
     try {
-      await this.client.call("session.get", { space, instance: key.instance, session_id: key.sessionId });
+      await this.client.call("session.get", { space: this.claim(space), instance: key.instance, session_id: key.sessionId });
     } catch {
       if (this.state.currentBySpace[space] === key) this.open(null, space);
     }
@@ -323,7 +344,12 @@ export class App {
   /** New sessions belong to the front space and land on its default instance unless one is named. */
   async create(params: { scene?: string; project_root?: string | null; options?: Record<string, unknown>; instance?: string }): Promise<SessionKey> {
     const space = this.state.space;
-    const created = (await this.client.call("session.create", { ...params, space })) as { session_id: string; instance?: string };
+    // In the projects space a new conversation runs in the open project.
+    if (space === "projects" && params.project_root === undefined && this.state.project) {
+      const workspace = this.state.workspaces.find((w) => w.id === this.state.project);
+      if (workspace) params = { ...params, project_root: workspace.path };
+    }
+    const created = (await this.client.call("session.create", { ...params, space: this.claim(space) })) as { session_id: string; instance?: string };
     const key = { instance: created.instance ?? SYSTEM_INSTANCE, sessionId: created.session_id };
     await this.refreshSessions();
     this.open(key, space);
@@ -332,7 +358,7 @@ export class App {
 
   /** A call about one session, claiming the front space. */
   async sessionCall<T = unknown>(method: string, key: { instance: string; session_id: string }, params: Record<string, unknown> = {}): Promise<T> {
-    return this.call<T>(method, { ...params, ...key, space: this.state.space });
+    return this.call<T>(method, { ...params, ...key, space: this.claim() });
   }
 
   showDetail(item: DetailItem): void {
@@ -341,6 +367,24 @@ export class App {
 
   toggleDetails(open?: boolean): void {
     this.set({ detailsOpen: open ?? !this.state.detailsOpen });
+  }
+
+  /** Open one project in the projects space; the one open before closes. */
+  openProject(id: string | null): void {
+    remember(PROJECT_KEY, id);
+    this.set({ project: id });
+  }
+
+  /** A side column's width, kept within its bounds and remembered. */
+  setWidth(column: keyof Widths, width: number | null): void {
+    const [min, fallback, max] = WIDTHS[column];
+    const widths = { ...this.state.widths, [column]: width === null ? fallback : Math.round(Math.min(max, Math.max(min, width))) };
+    remember(WIDTHS_KEY, widths);
+    this.set({ widths });
+  }
+
+  toggleMenu(open?: boolean): void {
+    this.set({ menu: open ?? !this.state.menu });
   }
 
   toggleSidebar(): void {

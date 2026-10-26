@@ -23,7 +23,7 @@ use harnix_builtin::Builtin;
 use harnix_contract::{Gate, Topology};
 use harnix_hub::{Hub, HubConfig, HubGate, Registry};
 use harnix_instance::link::{now_ms, DownLink, EngineLink};
-use harnix_instance::{Built, EngineConfig, Facts, Factory, InProcessLink, Ledger, Owner};
+use harnix_instance::{Built, EngineConfig, Factory, Facts, InProcessLink, Ledger, Owner};
 use harnix_module::{Credentials, EnvCredentials, ModuleContext};
 use serde_json::json;
 
@@ -69,6 +69,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     let roots = Roots::resolve(&RootArgs {
         agix_dir: cli.agix_dir.clone(),
         data_dir: cli.data_dir.clone(),
+        product_id: profile.brand.product_id.clone(),
     });
     tracing::info!(
         engine = %roots.engine.display(),
@@ -82,7 +83,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     let mut entries = Vec::new();
     let builtin = if app.builtins {
         let builtin = Builtin::new(roots.state.clone(), roots.projects.clone())?;
-        for module in builtin.modules(profile.system_space.enabled) {
+        for module in builtin.modules(profile.shell.keeps(harnix_contract::SYSTEM_SPACE)) {
             entries.push(Entry {
                 module: Box::new(module),
                 namespace: Namespace::Kernel,
@@ -194,14 +195,18 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     let mut fixed = Vec::new();
     for decl in &profile.instances {
         if decl.id == harnix_hub::SYSTEM {
-            anyhow::bail!("[[instances]] cannot be called `system`: that is the profile's [engine]");
+            anyhow::bail!(
+                "[[instances]] cannot be called `system`: that is the profile's [engine]"
+            );
         }
         harnix_instance::templates::check_value("[[instances]] id", &decl.id)
             .map_err(anyhow::Error::msg)?;
         let root = instances_dir.join(decl.data_root.clone().unwrap_or_else(|| decl.id.clone()));
         let built = match decl.carrier() {
             Ok(carrier) => {
-                registry.fixed.insert(decl.id.clone(), (carrier.clone(), root.clone()));
+                registry
+                    .fixed
+                    .insert(decl.id.clone(), (carrier.clone(), root.clone()));
                 match registry.factory.build(&decl.id, &carrier, root).await {
                     Ok(built) => built,
                     Err(e) => down(carrier.carrier(), format!("{e:#}")),
@@ -227,7 +232,11 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     let mut declared: Vec<harnix_module::SpaceDecl> = Vec::new();
     for record in records.iter().filter(|r| r.is_enabled()) {
         for space in &record.spaces {
-            let reserved = [harnix_contract::SESSIONS_SPACE, harnix_contract::HOME_SPACE, harnix_contract::SYSTEM_SPACE];
+            let reserved = [
+                harnix_contract::SESSIONS_SPACE,
+                harnix_contract::PROJECTS_SPACE,
+                harnix_contract::SYSTEM_SPACE,
+            ];
             if reserved.contains(&space.id.as_str()) || declared.iter().any(|d| d.id == space.id) {
                 tracing::warn!(module = %record.manifest.id, space = %space.id, "a space with this id already exists; ignored");
                 continue;
@@ -235,7 +244,11 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
             declared.push(space.clone());
         }
     }
-    let spaces = harnix_hub::Spaces::load(roots.state.join("spaces.json"), declared, profile.system_space.enabled)?;
+    let spaces = harnix_hub::Spaces::load(
+        roots.state.join("spaces.json"),
+        declared,
+        profile.shell.keeps(harnix_contract::SYSTEM_SPACE),
+    )?;
     let hub = Hub::new(HubConfig {
         replay_from: cli.replay_dir.clone(),
         limits,
@@ -243,6 +256,35 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         registry,
         spaces,
     });
+    // What the shell is told at hello: the brand, which built-in spaces this product keeps, and
+    // whether installed packages' interface modules load (design §10.5).
+    let brand_icon = profile.brand.icon.as_ref().map(|icon| match &cli.profile {
+        Some(path) => path
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join(icon),
+        None => icon.clone(),
+    });
+    hub.set_shell(json!({
+        "spaces": profile.shell.spaces,
+        "brand": {
+            "name": profile.brand.name,
+            "icon": brand_icon.as_ref().map(|_| harnix_transport::BRAND_ICON_PATH),
+            "product_id": profile.brand.product_id.as_deref().unwrap_or("harnix"),
+        },
+        "runtime_modules": profile.ui.runtime_modules,
+        "state_dir": roots.state.display().to_string(),
+        "projects_dir": roots.projects.display().to_string(),
+        // Whose process this is: the avatar's name. One process, one person (design §2).
+        "user": std::env::var("USER").or_else(|_| std::env::var("USERNAME")).ok(),
+    }));
+    let agix = daemon::discovery::identity();
+    hub.set_process(json!({
+        "app": { "name": app.name, "version": app.version },
+        "harnix": crate::HARNIX_VERSION,
+        "agix": agix.get("version").cloned().unwrap_or(json!(null)),
+        "started_ms": now_ms(),
+    }));
     let started = now_ms();
     hub.add_instance(
         harnix_hub::SYSTEM,
@@ -307,7 +349,11 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
             .cloned()
             .collect(),
     });
-    let app_gate = Arc::new(AppGate::new(Arc::new(HubGate(hub.clone())), diagnostics.clone(), audit.clone()));
+    let app_gate = Arc::new(AppGate::new(
+        Arc::new(HubGate(hub.clone())),
+        diagnostics.clone(),
+        audit.clone(),
+    ));
     let authorizer = Arc::new(Authorizer::new(table, app_gate.clone(), audit.clone()));
     let gate: Arc<dyn Gate> = authorizer.clone();
     let kernel = Arc::new(ProcessKernel {
@@ -351,8 +397,10 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
             }
         }
     }
-    *diagnostics.modules.write().unwrap_or_else(|e| e.into_inner()) =
-        records.iter().map(|r| r.status.clone()).collect();
+    *diagnostics
+        .modules
+        .write()
+        .unwrap_or_else(|e| e.into_inner()) = records.iter().map(|r| r.status.clone()).collect();
 
     // ── 6. Serve ────────────────────────────────────────────────────────
     let token = uuid::Uuid::new_v4().simple().to_string();
@@ -400,6 +448,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         .as_ref()
         .map(|b| b.max_upload_bytes())
         .unwrap_or(harnix_contract::MAX_UPLOAD_BYTES);
+    let runtime_modules = profile.ui.runtime_modules;
     let (router, statics) = harnix_transport::router(
         gate,
         hub.clone(),
@@ -429,6 +478,8 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         },
     );
 
+    statics.set_brand_icon(brand_icon);
+
     // Both loopback families, or exactly what was asked for. `localhost`
     // resolves to `::1` first in every current browser, so a v4-only listener
     // is a page that will not open.
@@ -445,12 +496,17 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         // before anything is served. A package installed later refreshes
         // this — one that needed a restart to appear is one nobody will
         // believe installed.
-        apply_packages(&hub, &statics, builtin.contributions().await);
+        apply_packages(
+            &hub,
+            &statics,
+            builtin.contributions().await,
+            runtime_modules,
+        );
         let hub = hub.clone();
         let statics = statics.clone();
         builtin
             .on_packages_changed(move |contributions| {
-                apply_packages(&hub, &statics, contributions);
+                apply_packages(&hub, &statics, contributions, runtime_modules);
             })
             .await;
     }
@@ -462,7 +518,11 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
 
     let server = tokio::spawn(async move { harnix_transport::serve(&addrs, router, tls).await });
 
-    let scheme = if cli.tls_cert.is_some() { "https" } else { "http" };
+    let scheme = if cli.tls_cert.is_some() {
+        "https"
+    } else {
+        "http"
+    };
     println!(
         "\n  {} → {scheme}://{addr}/\n  token → {}\n  topology → {}\n",
         app.name,
@@ -493,9 +553,26 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         );
     }
 
+    // The parent's end of stdin closing is the parent gone (`--exit-with-stdin`). Read on a thread
+    // of its own: tokio's stdin is a blocking task, and a runtime does not finish shutting down
+    // while one is still blocked on a read.
+    let orphaned = async {
+        if !cli.exit_with_stdin {
+            return std::future::pending::<()>().await;
+        }
+        let (gone, parent) = tokio::sync::oneshot::channel::<()>();
+        std::thread::spawn(move || {
+            use std::io::Read;
+            let mut buf = [0u8; 64];
+            while matches!(std::io::stdin().read(&mut buf), Ok(n) if n > 0) {}
+            let _ = gone.send(());
+        });
+        let _ = parent.await;
+    };
     tokio::select! {
         result = server => { result??; }
         _ = tokio::signal::ctrl_c() => println!("shutting down…"),
+        _ = orphaned => println!("stdin closed; the parent is gone — shutting down…"),
     }
 
     // Modules stop in reverse: a later module may depend on an earlier one.
@@ -559,11 +636,25 @@ impl harnix_transport::BulkStore for NoUploads {
 /// Spawned rather than awaited, because this is called from a callback that
 /// cannot be async — the alternative was making the whole notification path
 /// async for the sake of two assignments.
+///
+/// With `[ui] runtime_modules = false` nothing is served and nothing is told: a package is then
+/// the engine's alone, and its interface modules are not even reachable over HTTP.
 fn apply_packages(
     hub: &Arc<Hub>,
     statics: &Arc<harnix_transport::StaticFace>,
     contributions: Vec<harnix_builtin::packages::Contributions>,
+    runtime_modules: bool,
 ) {
+    let contributions = if runtime_modules {
+        contributions
+    } else {
+        if contributions.iter().any(|c| !c.ui.is_empty()) {
+            tracing::info!(
+                "[ui] runtime_modules = false: packages' interface modules are not loaded"
+            );
+        }
+        Vec::new()
+    };
     if !contributions.is_empty() {
         tracing::info!(
             packages = contributions.len(),
@@ -586,6 +677,7 @@ fn apply_packages(
                 json!({
                     "plugin": c.plugin,
                     "point": entry.point,
+                    "api_version": entry.api_version,
                     "module": format!("/plugins/{}/ui/{}", c.plugin, entry.module),
                 })
             })

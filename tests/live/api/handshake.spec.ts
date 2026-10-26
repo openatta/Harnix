@@ -15,7 +15,7 @@ defineSuite("handshake", { feature: "connection" }, {
     "the handshake reports what was agreed": async ({ client }) => {
       const { protocol_version, contrib_api_version, topology, channels } = client.handshake;
       assert(protocol_version === PROTOCOL_VERSION, `protocol ${protocol_version}, expected ${PROTOCOL_VERSION}`);
-      assert(contrib_api_version === 1, `contrib api ${contrib_api_version}`);
+      assert(contrib_api_version === CONTRIB_API_VERSION, `contrib api ${contrib_api_version}`);
       assert(topology === client.topology, `got ${topology}, asked for ${client.topology}`);
       // Five semantics, named, whatever carries them.
       assert(channels.length === 5, `${channels.length} channels`);

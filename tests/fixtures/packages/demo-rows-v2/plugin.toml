@@ -1,0 +1,13 @@
+# A package whose interface module is written against contribution API 2: a precompiled ES module
+# that brings no React of its own. `react/jsx-runtime` and `@harnix/react` resolve through the
+# page's import map to the copies the shell runs on (design §10.5).
+[plugin]
+name = "demo-rows-v2"
+version = "1.0.0"
+api_version = "0.1"
+description = "Replaces the tool row for Bash, through contribution API 2."
+
+[[ui]]
+point = "tool.row"
+module = "rows.js"
+api_version = 2

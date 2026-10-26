@@ -126,6 +126,9 @@ run_offline() {
     echo "── $t ──"
     node "tests/$t.mjs" || return 1
   done
+  # The desktop shell template carries no IPC: business traffic is the page's own HTTP/WS.
+  echo "── desktop-no-ipc ──"
+  node templates/desktop/check-no-ipc.mjs || return 1
 }
 
 # The front-end packages, without a backend: types, unit tests, the protocol
@@ -174,7 +177,6 @@ run_browser() {
     echo "── interface · $topology ──"
     live --project ui --topology "$topology" || return 1
   done
-  node tests/package-e2e.mjs || return 1
 }
 
 # A backend for the test that needs an external one: both topologies, so the
@@ -187,7 +189,7 @@ host = "127.0.0.1"
 port = $PORT_UI
 EOF
   set -a; . ./.env; set +a
-  target/release/harnix --profile "$scratch/profile.toml" --scenes chat \
+  HARNIX_STATE_DIR="$scratch/state" target/release/harnix --profile "$scratch/profile.toml" --scenes chat \
     --ui-dir ui/dist --agix-dir "$scratch/atta" --data-dir "$scratch/projects" \
     > "$scratch/backend.log" 2>&1 &
   backend_pid=$!
@@ -200,7 +202,7 @@ EOF
 
 run_interface() {
   start_backend || return 1
-  local token; token="$(cat "$scratch/projects/.harnix/token")"
+  local token; token="$(cat "$scratch/state/token")"
   echo "── topology-parity ──"; node tests/topology-parity.mjs "$PORT_UI" "$token" || return 1
   kill "$backend_pid" 2>/dev/null; backend_pid=""
 }
@@ -219,7 +221,7 @@ host = "0.0.0.0"
 port = $PORT_TLS
 EOF
   set -a; . ./.env; set +a
-  target/release/harnix --profile "$scratch/remote.toml" \
+  HARNIX_STATE_DIR="$scratch/remote-state" target/release/harnix --profile "$scratch/remote.toml" \
     --tls-cert "$scratch/cert.pem" --tls-key "$scratch/key.pem" \
     --ui-dir ui/dist --agix-dir "$scratch/remote-atta" --data-dir "$scratch/remote-projects" \
     > "$scratch/remote.log" 2>&1 &
@@ -233,7 +235,7 @@ EOF
   # admission".
   local code token
   code="$(grep -oE 'pairing code → [A-Z0-9]+' "$scratch/remote.log" | sed 's/.*→ //')"
-  token="$(cat "$scratch/remote-projects/.harnix/token")"
+  token="$(cat "$scratch/remote-state/token")"
   [ -n "$code" ] || { echo "no pairing code was printed"; cat "$scratch/remote.log"; return 1; }
   NODE_TLS_REJECT_UNAUTHORIZED=0 node tests/remote-smoke.mjs "$PORT_TLS" "$token" "$code" || return 1
   kill "$backend_pid" 2>/dev/null; backend_pid=""

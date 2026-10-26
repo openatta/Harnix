@@ -32,9 +32,11 @@ test("a module's headless sessions are in the instance tree, and open like any o
   }, backend.project);
   expect(started).toHaveLength(2);
 
-  await page.locator('#side .spaces [data-space="system"]').click();
+  await page.locator('#side [data-space="system"]').click();
   await page.locator('#side .system-tree .inst[data-instance="system"]').click();
-  for (const sid of started) await expect(page.locator(`#side .inst-sessions [data-sid="${sid}"]`)).toBeVisible({ timeout: 30_000 });
-  await page.locator(`#side .inst-sessions [data-sid="${started[0]}"]`).click();
+  const listed = (sid: string) => page.locator(`[data-testid="system-instance"] .inst-sessions [data-sid="${sid}"]`);
+  for (const sid of started) await expect(listed(sid)).toBeVisible({ timeout: 30_000 });
+  await listed(started[0]!).click();
+  await page.getByTestId("open-in-space").click();
   await expect(reply(page)).toContainText(/fixture ready/i, { timeout: 30_000 });
 });

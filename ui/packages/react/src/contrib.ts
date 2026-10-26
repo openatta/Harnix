@@ -21,6 +21,7 @@
 import { createElement, Component, useSyncExternalStore, type ErrorInfo, type ReactNode } from "react";
 import type { Block, BlockOf } from "@harnix/core/state";
 import type { SessionRow } from "@harnix/core";
+import { addStrings, type Locale } from "./i18n/index";
 
 export const POINTS = [
   "space",
@@ -57,6 +58,18 @@ export interface CommandCandidate {
   source?: string;
 }
 
+export interface SpaceTab {
+  id: string;
+  title(): string;
+  render(): ReactNode;
+}
+
+/** A space's right-column tabs, whichever way it gave them. */
+export function tabsOf(space: SpaceContribution | undefined): SpaceTab[] {
+  const tabs = space?.tabs;
+  return typeof tabs === "function" ? tabs() : (tabs ?? []);
+}
+
 /** A space as the interface draws it (design §8.1). Where its sessions land is the backend's. */
 export interface SpaceContribution {
   id: string;
@@ -71,8 +84,13 @@ export interface SpaceContribution {
   sidebar?(): ReactNode;
   /** The centre when it is not the conversation. */
   overview?(): ReactNode;
-  /** Right-column tabs, beside the details drawer. */
-  tabs?: { id: string; title(): string; render(): ReactNode }[];
+  /** Right-column tabs, beside the details drawer. A function when they depend on what is
+   *  selected, read at every draw. */
+  tabs?: SpaceTab[] | (() => SpaceTab[]);
+  /** The backend space whose sessions this one lists and creates; its own id when absent. Two
+   *  views of the same sessions — the session space by time, the projects space by project —
+   *  are two interface spaces over one backend space. */
+  sessions?: string;
   /** A line under the title: what this space is for. */
   subtitle?(): string;
   /** What a new conversation here might start with, offered under the composer. */
@@ -115,7 +133,12 @@ type Entry<P extends Point> = Contributions[P] & { owner: string };
 
 export class Registry {
   private readonly entries = new Map<Point, Entry<Point>[]>(POINTS.map((p) => [p, []]));
+  private readonly overrides = new Map<string, { value: string; owner: string }>();
   private readonly refused: Refusal[] = [];
+  /** The token names a module may override: the ones the page's stylesheets declare on `:root`.
+   *  Set by the shell once its styles are in; until then every override waits. */
+  private known: Set<string> | null = null;
+  private pending: { tokens: Record<string, string>; owner: string }[] = [];
   private readonly listeners = new Set<() => void>();
   private version = 0;
 
@@ -135,6 +158,51 @@ export class Registry {
     list.push({ ...(c as object), owner } as Entry<Point>);
     this.changed();
     return true;
+  }
+
+  /**
+   * Token overrides (design §10.5): a module's colours for names the theme already has. A name the
+   * theme does not declare is refused with the reason — a module adds no colours of its own — and
+   * so is a value that reaches outside the page (`url(`). Not a contribution point: it draws
+   * nothing. A later override of the same name wins, as a later registration does.
+   */
+  tokens(overrides: Record<string, string>, owner: string): void {
+    if (!this.known) {
+      this.pending.push({ tokens: overrides, owner });
+      return;
+    }
+    for (const [name, value] of Object.entries(overrides)) {
+      if (!this.known.has(name)) {
+        this.refuse({ point: "tokens", owner, id: name, reason: `\`${name}\` is not a token of this theme` });
+      } else if (typeof value !== "string" || /url\(|expression|[;{}]/i.test(value)) {
+        this.refuse({ point: "tokens", owner, id: name, reason: "a token's value is a colour or a length, nothing more" });
+      } else {
+        this.overrides.set(name, { value, owner });
+      }
+    }
+    this.changed();
+  }
+
+  /** The theme's token names, once the page knows them; overrides waiting for them are applied. */
+  knowTokens(names: Iterable<string>): void {
+    this.known = new Set(names);
+    const waiting = this.pending;
+    this.pending = [];
+    for (const { tokens, owner } of waiting) this.tokens(tokens, owner);
+    this.changed();
+  }
+
+  /** The overrides in force, by token name. */
+  tokenOverrides(): Record<string, string> {
+    return Object.fromEntries([...this.overrides].map(([name, o]) => [name, o.value]));
+  }
+
+  /** A module's language pack; keys outside `<owner>.` are refused (design §10.5). */
+  strings(locale: Locale, dictionary: Record<string, string>, owner: string): void {
+    for (const key of addStrings(locale, dictionary, owner)) {
+      this.refuse({ point: "strings", owner, id: key, reason: `a key of ${owner}'s pack is \`${owner}.…\`` });
+    }
+    this.changed();
   }
 
   /** Every registration of a point, in order. */

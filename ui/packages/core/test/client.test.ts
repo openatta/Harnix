@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { HarnixClient, PROTOCOL_VERSION, tokenFromDocument, type ConnectionStatus } from "../src/index.ts";
+import { CONTRIB_API_VERSION, HarnixClient, PROTOCOL_VERSION, tokenFromDocument, type ConnectionStatus } from "../src/index.ts";
 import { FakeServer, FakeSplit, RpcFailure, settle } from "./fakes.ts";
 
 const BASE = "http://127.0.0.1:4287";
@@ -33,7 +33,7 @@ describe("单双向流", () => {
     expect(server.last.url).toBe("ws://127.0.0.1:4287/ws?token=tok+en");
     expect(server.sent[0]).toMatchObject({
       method: "harnix.handshake",
-      params: { protocol_version: PROTOCOL_VERSION, contrib_api_version: 1, topology: "single_duplex" },
+      params: { protocol_version: PROTOCOL_VERSION, contrib_api_version: CONTRIB_API_VERSION, topology: "single_duplex" },
     });
     expect(negotiated.topology).toBe("single_duplex");
     expect(client.topology).toBe("single_duplex");
@@ -53,7 +53,7 @@ describe("单双向流", () => {
   it("call 按 id 配对应答；错误以 {code, message} reject", async () => {
     const server = new FakeServer();
     server.answer = (method, params) => {
-      if (method === "harnix.handshake") return { topology: "single_duplex", protocol_version: 4, contrib_api_version: 1 };
+      if (method === "harnix.handshake") return { topology: "single_duplex", protocol_version: 4, contrib_api_version: CONTRIB_API_VERSION };
       if (method === "harnix.attach") return { session: { session_id: params.session_id }, seq: 7 };
       if (method === "harnix.send") return new RpcFailure({ code: -32602, message: "empty message" });
       return {};

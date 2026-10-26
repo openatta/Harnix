@@ -263,6 +263,7 @@ async fn connection(socket: WebSocket, state: AppState, peer: Peer) {
                             negotiated.subject.clone(),
                             negotiated.topology,
                             Some(tx.clone()),
+                            &peer.user_agent,
                         )
                         .await;
                     let _ = sink;

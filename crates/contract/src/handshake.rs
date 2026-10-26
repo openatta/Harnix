@@ -23,7 +23,12 @@ pub const PROTOCOL_VERSION: u32 = 4;
 /// The contribution point API. Bumped when a contribution point's contract
 /// changes — separately from the protocol, because a UI bundle can be current
 /// on one and stale on the other.
-pub const CONTRIB_API_VERSION: u32 = 1;
+///
+/// 2: a contribution is a precompiled ES module that imports `react`, `react-dom`,
+/// `react/jsx-runtime` and `@harnix/react` from the page's import map rather than bringing its
+/// own. React's major version is therefore part of this contract: a new React major is a new
+/// version here (design §10.5).
+pub const CONTRIB_API_VERSION: u32 = 2;
 
 /// How the five channel semantics are carried.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

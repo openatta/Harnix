@@ -30,8 +30,11 @@ pub struct Profile {
     /// instances from. Spawn or attach only — a profile has no native
     /// contributions to give an in-process one.
     pub instance_templates: Vec<TemplateDecl>,
-    /// `[system_space]`: the debugging face, which a product can turn off.
-    pub system_space: SystemSpaceProfile,
+    /// `[shell]`: which of the built-in spaces this product keeps.
+    pub shell: ShellProfile,
+    /// `[brand]`: what the product is called, its icon, and the id its own
+    /// directory is named after.
+    pub brand: BrandProfile,
     /// `[modules.<id>]`: each compile-time module's own section, handed to
     /// it as written. Secrets are references (`{ credential = "…" }`),
     /// never values (design §7.4).
@@ -68,25 +71,62 @@ pub struct TransportProfile {
     pub extra_origins: Vec<String>,
 }
 
+/// The built-in spaces, all optional: a product keeps the ones it wants as they are.
+pub const BUILTIN_SPACES: &[&str] = &["sessions", "projects", "system"];
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct SystemSpaceProfile {
-    /// Off, no client can claim the system space, and none can act across spaces.
-    pub enabled: bool,
+pub struct ShellProfile {
+    /// Which built-in spaces to keep, of `sessions`, `projects`, `system`. All three when absent.
+    /// Without `system`, its methods go too: no client can claim the system space, and none can act
+    /// across spaces.
+    pub spaces: Vec<String>,
 }
 
-impl Default for SystemSpaceProfile {
+impl Default for ShellProfile {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            spaces: BUILTIN_SPACES.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+}
+
+impl ShellProfile {
+    pub fn keeps(&self, space: &str) -> bool {
+        self.spaces.iter().any(|s| s == space)
     }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+pub struct BrandProfile {
+    /// The product's name: the page title, the left column's top.
+    pub name: Option<String>,
+    /// An SVG file, relative to the profile, shown beside the name.
+    pub icon: Option<PathBuf>,
+    /// Names the product's own directory, `~/.<product_id>`: lowercase letters, digits and `-`,
+    /// starting with a letter. `harnix` when absent.
+    pub product_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct UiProfile {
     /// Where the built interface is. `None` serves no static face at all —
     /// the `--headless` shape, for a pure RPC node (§3.3.4, §5.1).
     pub dir: Option<PathBuf>,
+    /// Whether installed packages' `[[ui]]` modules load. Off, none does: a package is then
+    /// the engine's alone (design §10.5).
+    pub runtime_modules: bool,
+}
+
+impl Default for UiProfile {
+    fn default() -> Self {
+        Self {
+            dir: None,
+            runtime_modules: true,
+        }
+    }
 }
 
 /// How a profile's instance or template is carried.
@@ -176,8 +216,14 @@ fn carrier_of(
 
 impl InstanceDecl {
     pub fn carrier(&self) -> anyhow::Result<crate::templates::TemplateCarrier> {
-        carrier_of(self.carrier, &self.engine, &self.program, &self.args, &self.attach)
-            .map_err(|e| anyhow::anyhow!("[[instances]] `{}`: {e}", self.id))
+        carrier_of(
+            self.carrier,
+            &self.engine,
+            &self.program,
+            &self.args,
+            &self.attach,
+        )
+        .map_err(|e| anyhow::anyhow!("[[instances]] `{}`: {e}", self.id))
     }
 }
 
@@ -190,8 +236,14 @@ impl TemplateDecl {
                 self.id
             );
         }
-        let carrier = carrier_of(self.carrier, &self.engine, &self.program, &self.args, &self.attach)
-            .map_err(|e| anyhow::anyhow!("[[instance_templates]] `{}`: {e}", self.id))?;
+        let carrier = carrier_of(
+            self.carrier,
+            &self.engine,
+            &self.program,
+            &self.args,
+            &self.attach,
+        )
+        .map_err(|e| anyhow::anyhow!("[[instance_templates]] `{}`: {e}", self.id))?;
         Ok(crate::templates::InstanceTemplate {
             id: self.id.clone(),
             carrier,
@@ -235,7 +287,26 @@ impl Default for TransportProfile {
 
 impl Profile {
     pub fn parse(text: &str) -> anyhow::Result<Self> {
-        Ok(toml::from_str(text)?)
+        let profile: Self = toml::from_str(text)?;
+        for space in &profile.shell.spaces {
+            if !BUILTIN_SPACES.contains(&space.as_str()) {
+                anyhow::bail!(
+                    "[shell] spaces: `{space}` is not a built-in space (they are {})",
+                    BUILTIN_SPACES.join(", ")
+                );
+            }
+        }
+        if let Some(id) = &profile.brand.product_id {
+            let mut chars = id.chars();
+            let valid = chars.next().is_some_and(|c| c.is_ascii_lowercase())
+                && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+            if !valid {
+                anyhow::bail!(
+                    "[brand] product_id `{id}`: lowercase letters, digits and `-`, starting with a letter"
+                );
+            }
+        }
+        Ok(profile)
     }
 
     pub fn load(path: &std::path::Path) -> anyhow::Result<Self> {
@@ -256,6 +327,33 @@ mod tests {
     fn an_unknown_key_is_refused() {
         let err = Profile::parse("[engine]\nscenee = \"chat\"\n").unwrap_err();
         assert!(err.to_string().contains("scenee"), "{err}");
+    }
+
+    #[test]
+    fn the_shell_keeps_every_built_in_space_unless_told() {
+        let profile = Profile::parse("").unwrap();
+        assert!(
+            profile.shell.keeps("sessions")
+                && profile.shell.keeps("projects")
+                && profile.shell.keeps("system")
+        );
+        assert!(profile.ui.runtime_modules);
+        let profile = Profile::parse("[shell]\nspaces = [\"sessions\"]\n").unwrap();
+        assert!(!profile.shell.keeps("system"));
+        let err = Profile::parse("[shell]\nspaces = [\"home\"]\n").unwrap_err();
+        assert!(err.to_string().contains("home"), "{err}");
+    }
+
+    #[test]
+    fn a_product_id_names_a_directory() {
+        let profile = Profile::parse("[brand]\nname = \"Helm\"\nproduct_id = \"helm\"\n").unwrap();
+        assert_eq!(profile.brand.product_id.as_deref(), Some("helm"));
+        for bad in ["Helm", "../x", "1helm", ""] {
+            assert!(
+                Profile::parse(&format!("[brand]\nproduct_id = \"{bad}\"\n")).is_err(),
+                "{bad}"
+            );
+        }
     }
 
     #[test]
@@ -285,10 +383,9 @@ mod tests {
 
     #[test]
     fn a_profile_template_cannot_be_in_process() {
-        let profile = Profile::parse(
-            "[[instance_templates]]\nid = \"t\"\ncarrier = \"in_process\"\n",
-        )
-        .unwrap();
+        let profile =
+            Profile::parse("[[instance_templates]]\nid = \"t\"\ncarrier = \"in_process\"\n")
+                .unwrap();
         assert!(profile.instance_templates[0].template().is_err());
     }
 

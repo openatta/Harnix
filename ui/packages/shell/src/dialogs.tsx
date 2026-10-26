@@ -495,3 +495,90 @@ export function workspaceMenu(app: App, workspace: Workspace): void {
     ),
   });
 }
+
+/* ── the connection ───────────────────────────────────────────────────── */
+
+/** One connection to this process, as `harnix.process` lists it. */
+export interface Connection {
+  client: number;
+  device: string;
+  topology: string;
+  user_agent?: string;
+  since_ms?: number;
+}
+
+/** What kind of client a user agent is, roughly: a desktop shell, a phone, a browser. */
+export function clientKind(agent: string | undefined): "desktop" | "mobile" | "browser" | "script" {
+  const ua = agent ?? "";
+  if (!ua) return "script";
+  if (/Tauri|Electron|harnix-desktop/i.test(ua)) return "desktop";
+  if (/Mobile|Android|iPhone|iPad/i.test(ua)) return "mobile";
+  if (/Mozilla|WebKit|Chrome|Safari|Firefox/i.test(ua)) return "browser";
+  return "script";
+}
+
+/** The users connected right now: device, kind, how, since when. */
+export function Connections({ connections }: { connections: Connection[] }) {
+  const t = useT();
+  if (!connections.length) return <div className="hint">{t("process.noConnections")}</div>;
+  return (
+    <div className="connections" data-testid="connections">
+      {connections.map((c) => (
+        <div key={c.client} className="conn-row" data-device={c.device}>
+          <span className="dev">{c.device}</span>
+          <span className="kind">{t(`process.kind.${clientKind(c.user_agent)}`)}</span>
+          <span className="topo">{c.topology}</span>
+          <span className="since">{c.since_ms ? since(c.since_ms) : ""}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function since(ms: number): string {
+  const secs = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  if (secs < 60) return `${secs}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m`;
+  return `${Math.floor(secs / 3600)}h${String(Math.floor((secs % 3600) / 60)).padStart(2, "0")}m`;
+}
+
+/** This page's connection, and everyone else's. */
+export function connectionDialog(app: App): void {
+  info(app, t("avatar.connection"), <ConnectionBody app={app} />);
+}
+
+function ConnectionBody({ app }: { app: App }) {
+  const t = useT();
+  const s = app.snapshot;
+  const [connections, setConnections] = useState<Connection[] | null>(null);
+  useEffect(() => {
+    void app
+      .call<{ connections?: Connection[] }>("harnix.process", {})
+      .then((r) => setConnections(r.connections ?? []))
+      .catch(() => setConnections([]));
+  }, [app]);
+  return (
+    <div className="connection" data-testid="connection-details">
+      <dl className="facts">
+        <div className="fact">
+          <dt>{t("avatar.state")}</dt>
+          <dd>{s.connection}</dd>
+        </div>
+        <div className="fact">
+          <dt>{t("avatar.topology")}</dt>
+          <dd>{app.client.topology ?? ""}</dd>
+        </div>
+        <div className="fact">
+          <dt>{t("avatar.address")}</dt>
+          <dd>{location.host}</dd>
+        </div>
+        <div className="fact">
+          <dt>{t("avatar.protocol")}</dt>
+          <dd>v{s.hello?.protocol_version ?? "?"}</dd>
+        </div>
+      </dl>
+      <div className="label">{t("process.users")}</div>
+      {connections ? <Connections connections={connections} /> : null}
+    </div>
+  );
+}

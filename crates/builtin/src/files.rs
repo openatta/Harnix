@@ -91,9 +91,14 @@ impl Builtin {
     pub(crate) async fn list_directory(&self, params: Value) -> Result<Value, RpcError> {
         let home =
             home_dir().ok_or_else(|| RpcError::new(codes::INTERNAL_ERROR, "no home directory"))?;
+        // Compared with canonical paths below, so canonical itself (`/var` is `/private/var`).
+        let home = home.canonicalize().unwrap_or(home);
         let target = match params.get("path").and_then(Value::as_str) {
             Some(p) if !p.is_empty() => PathBuf::from(p),
-            _ => self.projects_root.clone(),
+            // The projects directory until it exists — nothing creates it before the first project
+            // does — and the home directory meanwhile.
+            _ if self.projects_root.is_dir() => self.projects_root.clone(),
+            _ => home.clone(),
         };
         let target = target.canonicalize().unwrap_or(target);
         let projects = self
@@ -202,7 +207,12 @@ impl Builtin {
     /// Projects that already have sessions, most recently active first — the
     /// list a new-session dialog should offer before it offers a file browser.
     pub(crate) async fn recent_projects(&self) -> Result<Value, RpcError> {
-        let listed = self.call("sessions", "session.list", json!({"status": "all", "limit": 200}))
+        let listed = self
+            .call(
+                "sessions",
+                "session.list",
+                json!({"status": "all", "limit": 200}),
+            )
             .await?;
         let mut seen: Vec<(String, String)> = Vec::new();
         if let Some(sessions) = listed.get("sessions").and_then(Value::as_array) {

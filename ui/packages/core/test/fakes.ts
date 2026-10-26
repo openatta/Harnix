@@ -3,7 +3,7 @@
  * 思路同 Harnix tests/reducer-smoke.mjs 的 ScriptedSocket。
  */
 
-import type { EventSourceLike, WebSocketLike } from "../src/index.ts";
+import { CONTRIB_API_VERSION, type EventSourceLike, type WebSocketLike } from "../src/index.ts";
 
 export interface SentFrame {
   jsonrpc: string;
@@ -101,7 +101,7 @@ export class RpcFailure {
 export function handshakeOk(topology = "single_duplex") {
   return {
     protocol_version: 4,
-    contrib_api_version: 1,
+    contrib_api_version: CONTRIB_API_VERSION,
     topology,
     topologies: ["single_duplex", "split_streams"],
     subject: { kind: "device", id: "local" },

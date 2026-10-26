@@ -154,6 +154,11 @@ pub(crate) struct Cli {
     /// startup; the token holder mints more at `POST /auth/link`.
     #[arg(long)]
     pub launch_link: bool,
+
+    /// Stop when stdin closes: how a desktop shell that started this process takes it along
+    /// when it goes, even when it is killed outright and cannot say so.
+    #[arg(long, hide = true)]
+    pub exit_with_stdin: bool,
 }
 
 /// What `--version` prints: every version a bug report needs.

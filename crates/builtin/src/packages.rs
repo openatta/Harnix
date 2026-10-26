@@ -11,6 +11,7 @@
 //! [[ui]]                    # a same-origin ES module the browser imports
 //! point  = "tool.row"
 //! module = "rows.js"        # under the package's ui/
+//! api_version = 2           # precompiled, imports `react` and `@harnix/react` from the page
 //! ```
 //!
 //! The engine's manifest parser ignores sections it does not know, so this
@@ -70,10 +71,9 @@ pub struct UiEntry {
     /// A package can be current on one and stale on the other, so they are
     /// two versions and are checked by the two sides that own them.
     ///
-    /// Absent means "written before this was declared". Accepted, because
-    /// refusing every package that predates the field would be a version
-    /// check that mostly rejects working things — but reported, so an author
-    /// is told rather than left to find out when a panel does not appear.
+    /// Absent means "written before this was declared": a v1 module, a function over the DOM,
+    /// which the React shell no longer runs. Reported as not taking, with the reason, like any
+    /// other version that is not this build's.
     #[serde(default)]
     pub api_version: Option<u32>,
     /// Relative to the package's `ui/` directory, and only ever resolved
@@ -102,7 +102,7 @@ pub fn read(root: &Path, name: &str, version: &str, enabled: bool) -> Option<Con
     }
 
     let mut inert = Vec::new();
-    let mut notes = Vec::new();
+    let notes = Vec::new();
     let ui: Vec<UiEntry> =
         sections
             .ui
@@ -113,23 +113,17 @@ pub fn read(root: &Path, name: &str, version: &str, enabled: bool) -> Option<Con
                 // fail inside `activate()`. The second way produces a panel that
                 // silently does not appear, which is the failure mode with no
                 // symptom (§2.4).
-                match entry.api_version {
-                    Some(declared) if declared != CONTRIB_API_VERSION => {
-                        inert.push(format!(
-                        "{} 是照贡献点 API v{declared} 写的，这个构建是 v{CONTRIB_API_VERSION}；\
+                let declared = entry.api_version.unwrap_or(1);
+                if declared != CONTRIB_API_VERSION {
+                    inert.push(format!(
+                        "{} → ui/{}：这一条不生效。它是照贡献点 API v{declared} 写的{}，这个构建是 v{CONTRIB_API_VERSION}；\
                          {} 的那一边旧了",
                         entry.point,
+                        entry.module,
+                        if entry.api_version.is_none() { "（没有声明 api_version）" } else { "" },
                         if declared < CONTRIB_API_VERSION { "包" } else { "Harnix" },
                     ));
-                        return false;
-                    }
-                    // Loads. Said anyway, because the alternative is an author
-                    // finding out when a panel stops appearing.
-                    None => notes.push(format!(
-                        "{} 没有声明 api_version；贡献点契约改动之后它会安静地失效",
-                        entry.point,
-                    )),
-                    _ => {}
+                    return false;
                 }
                 // A module has to be inside the package. Anything with `..` in it
                 // is refused here rather than resolved — the unpacker already
@@ -268,6 +262,7 @@ mod tests {
             [[ui]]
             point = "tool.row"
             module = "rows.js"
+            api_version = 2
             "#,
         );
         let read = read(dir.path(), "p", "1.0.0", true).expect("contributes");
@@ -359,12 +354,10 @@ mod tests {
         );
     }
 
-    /// A package that predates the field still loads. Refusing every one of
-    /// them would be a version check that mostly rejects working things —
-    /// but the author is told, rather than finding out when a panel does not
-    /// appear.
+    /// A module that predates the field is a v1 one: it does not take, and the reason says so —
+    /// the rest of the package is untouched.
     #[test]
-    fn an_undeclared_contribution_api_loads_and_is_mentioned() {
+    fn an_undeclared_contribution_api_is_a_v1_module_and_does_not_take() {
         let dir = package(
             r#"
             [plugin]
@@ -377,12 +370,12 @@ mod tests {
             module = "rows.js"
             "#,
         );
-        let read = read(dir.path(), "p", "1.0.0", true).expect("contributes");
-        assert_eq!(read.ui.len(), 1, "an undeclared version was refused");
-        assert!(read.inert.is_empty(), "an advisory was filed as a refusal");
+        let read = read(dir.path(), "p", "1.0.0", true).expect("declares something");
+        assert!(read.ui.is_empty(), "a v1 module was going to be loaded");
         assert!(
-            read.notes[0].contains("api_version"),
-            "the author was not told"
+            read.inert[0].contains("这一条不生效") && read.inert[0].contains("api_version"),
+            "{:?}",
+            read.inert
         );
     }
 
@@ -402,7 +395,7 @@ mod tests {
             [[ui]]
             point = "tool.row"
             module = "rows.js"
-            api_version = 1
+            api_version = 2
             "#,
         );
         let listed = serde_json::json!({"plugins": [
@@ -428,6 +421,7 @@ mod tests {
             [[ui]]
             point = "tool.row"
             module = "host/fold.js"
+            api_version = 2
             "#,
         );
         let read = read(dir.path(), "p", "1.0.0", true).expect("declares something");
@@ -449,6 +443,7 @@ mod tests {
             [[ui]]
             point = "tool.row"
             module = "../../../etc/passwd"
+            api_version = 2
             "#,
         );
         let read = read(dir.path(), "p", "1.0.0", true).expect("declares something");
@@ -472,6 +467,7 @@ mod tests {
             [[ui]]
             point = "tool.row"
             module = "gone.js"
+            api_version = 2
             "#,
         );
         let read = read(dir.path(), "p", "1.0.0", true).expect("declares something");

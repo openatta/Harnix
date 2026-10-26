@@ -141,6 +141,8 @@ const SYSTEM: Part = Part {
     methods: &[
         "harnix.system.context",
         "harnix.system.calls",
+        "harnix.system.trace",
+        "harnix.system.trace.call",
         "harnix.system.tasks.stop",
         "harnix.system.messages.drop",
         "harnix.system.messages.edit",
@@ -253,7 +255,12 @@ impl Builtin {
     }
 
     /// One call as a built-in module, through the admission point.
-    pub(crate) async fn call(&self, module: &str, method: &str, params: Value) -> Result<Value, RpcError> {
+    pub(crate) async fn call(
+        &self,
+        module: &str,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, RpcError> {
         let cx = self.context(module).ok_or_else(|| {
             RpcError::new(
                 harnix_contract::codes::INTERNAL_ERROR,
@@ -344,8 +351,8 @@ impl Module for BuiltinModule {
     const API_VERSION: u32 = harnix_module::MODULE_API_VERSION;
 
     fn manifest(&self) -> Manifest {
-        let mut manifest = Manifest::new(self.part.id, env!("CARGO_PKG_VERSION"))
-            .disclosure(self.part.disclosure);
+        let mut manifest =
+            Manifest::new(self.part.id, env!("CARGO_PKG_VERSION")).disclosure(self.part.disclosure);
         for grant in self.part.grants {
             manifest = manifest.grant(*grant);
         }

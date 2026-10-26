@@ -38,10 +38,10 @@ const child = spawn(
   { cwd: project, env: { ...process.env, ...env, HOME: scratch, RUST_LOG: "warn" }, stdio: "inherit" },
 );
 
-for (let i = 0; i < 120 && !existsSync(join(scratch, "projects", ".harnix", "token")); i += 1) {
+for (let i = 0; i < 120 && !existsSync(join(scratch, ".harnix", "token")); i += 1) {
   await sleep(250);
 }
-const token = readFileSync(join(scratch, "projects", ".harnix", "token"), "utf8").trim();
+const token = readFileSync(join(scratch, ".harnix", "token"), "utf8").trim();
 
 const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${token}`);
 let id = 1;

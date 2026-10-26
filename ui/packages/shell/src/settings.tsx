@@ -23,7 +23,8 @@ const Reload = createContext<{ version: number; reload: () => void }>({ version:
 
 let active = "general";
 
-export function openSettings(app: App): void {
+export function openSettings(app: App, section?: string): void {
+  if (section) active = section;
   app.openModal({ title: t("settings.title"), wide: true, content: <Settings app={app} /> });
 }
 
@@ -664,7 +665,7 @@ function Devices({ app }: { app: App }) {
   );
 }
 
-function Diagnostics({ app }: { app: App }) {
+export function Diagnostics({ app }: { app: App }) {
   const t = useT();
   const registry = useRegistry(app.registry);
   const [report, setReport] = useState<{ running: true } | { error: string } | { ok?: boolean; checks?: { scope: string; name: string; ok: boolean; detail?: string }[] } | null>(null);
@@ -689,6 +690,7 @@ function Diagnostics({ app }: { app: App }) {
           </>
         )}
       </Section>
+      <RuntimeModules app={app} />
       <h3>{t("settings.contributions")}</h3>
       {!refused.length ? (
         <div className="hint">{t("contrib.noneRefused")}</div>
@@ -730,14 +732,85 @@ function Diagnostics({ app }: { app: App }) {
   );
 }
 
+/**
+ * How installed packages reach the interface (design §10.5): the contribution API this shell
+ * speaks, whether runtime modules load at all, the import map they resolve `react` and
+ * `@harnix/react` through and the CSP line that admits it, and what each package entry became.
+ */
+function RuntimeModules({ app }: { app: App }) {
+  const t = useT();
+  const hello = app.snapshot.hello;
+  const on = hello?.shell?.runtime_modules !== false;
+  const map = document.querySelector('script[type="importmap"]')?.textContent ?? "";
+  let imports: Record<string, string> = {};
+  try {
+    imports = (JSON.parse(map) as { imports?: Record<string, string> }).imports ?? {};
+  } catch {
+    /* no import map: a page built without one */
+  }
+  const [csp, setCsp] = useState<string | null>(null);
+  useEffect(() => {
+    void fetch(location.pathname, { credentials: "same-origin" })
+      .then((r) => setCsp(r.headers.get("content-security-policy")))
+      .catch(() => setCsp(null));
+  }, []);
+  return (
+    <>
+      <h3>{t("diag.runtimeModules")}</h3>
+      <Row label={t("diag.contribApi")} hint={t("diag.contribApiHint")}>
+        <Value>{`v${hello?.contrib_api_version ?? "?"}`}</Value>
+      </Row>
+      <Row label="[ui] runtime_modules" hint={t("diag.runtimeHint")}>
+        <Value tone={on ? "ok" : undefined}>{on ? "true" : "false"}</Value>
+      </Row>
+      <Row label={t("diag.importMap")} hint={t("diag.importMapHint")} />
+      <div className="kv-table" data-testid="import-map">
+        {Object.entries(imports).map(([name, path]) => (
+          <div key={name} className="kv-row">
+            <code>{name}</code>
+            <span className="muted">{path}</span>
+          </div>
+        ))}
+      </div>
+      <Row label="Content-Security-Policy" hint={t("diag.cspHint")} />
+      {csp ? <pre className="hx-pre" data-testid="csp">{csp}</pre> : null}
+      <Section title={t("diag.packageEntries")} load={() => app.call<PluginList>("harnix.plugins.list", {})}>
+        {(data) => {
+          const rows = (data.contributes ?? []).flatMap((c) => [
+            ...(c.ui ?? []).map((entry) => ({ plugin: c.plugin, what: `${entry.point} → ${entry.module}`, state: on ? "on" : "off" })),
+            ...(c.inert ?? []).map((reason) => ({ plugin: c.plugin, what: reason, state: "inert" })),
+          ]);
+          if (!rows.length) return <div className="hint">{t("diag.noEntries")}</div>;
+          return (
+            <>
+              {rows.map((row, i) => (
+                <Row key={i} label={row.plugin} hint={row.what}>
+                  <Value tone={row.state === "on" ? "ok" : row.state === "inert" ? "err" : undefined}>{t(`diag.entry.${row.state}`)}</Value>
+                </Row>
+              ))}
+            </>
+          );
+        }}
+      </Section>
+    </>
+  );
+}
+
 function About({ app }: { app: App }) {
   const t = useT();
+  const shell = app.snapshot.hello?.shell;
   const hello = (app.snapshot.hello ?? {}) as Record<string, unknown> & { limits?: Record<string, number>; engine?: Record<string, unknown> };
   const limits = hello.limits ?? {};
   const mb = (n: number | undefined) => t("settings.megabytes", { size: Math.round((n ?? 0) / 1048576) });
   return (
     <>
       <h3>{t("settings.about")}</h3>
+      <Row label={t("about.product")}>
+        <Value>{shell?.brand?.name || t("app.title")}</Value>
+      </Row>
+      <Row label="product_id" hint={t("about.productIdHint")}>
+        <Value>{shell?.brand?.product_id ?? "harnix"}</Value>
+      </Row>
       <Row label={t("settings.protocolVersion")}>
         <Value>{String(hello.protocol_version ?? "—")}</Value>
       </Row>
@@ -748,10 +821,10 @@ function About({ app }: { app: App }) {
         <Value>{String(hello.engine?.data_root ?? t("common.none"))}</Value>
       </Row>
       <Row label={t("settings.projectsDir")} hint={t("settings.projectsDirHint")}>
-        <Value>{String(hello.projects_root ?? t("common.none"))}</Value>
+        <Value>{String(shell?.projects_dir ?? t("common.none"))}</Value>
       </Row>
       <Row label={t("settings.stateDir")} hint={t("settings.stateDirHint")}>
-        <Value>{String(hello.state_dir ?? t("common.none"))}</Value>
+        <Value>{String(shell?.state_dir ?? t("common.none"))}</Value>
       </Row>
       <Row label={t("settings.frameLimit")}>
         <Value>{mb(limits.max_frame_bytes)}</Value>

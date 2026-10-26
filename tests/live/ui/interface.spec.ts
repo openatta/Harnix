@@ -4,9 +4,9 @@
  * the conversation: the sidebar, search, the settings panel, the theme, the language.
  */
 
-import { expect, test } from "@harnix/testkit";
+import { expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
-import { newSession, open, say, watchConsole } from "./page";
+import { newSession, open, openSettings, say, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:session-space", "@layer:ui"] };
 const SETTINGS = { tag: ["@feature:settings", "@layer:ui"] };
@@ -68,8 +68,7 @@ test("icons are sized by a class, not left to fill the row", TAGS, async ({ page
 test("the settings panel opens and every section draws", SETTINGS, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, URL);
-  await page.locator("#side .foot button").first().click();
-  await expect(page.locator(".settings-nav")).toBeVisible();
+  await openSettings(page);
   const items = page.locator(".settings-nav .nav-item");
   expect(await items.count()).toBeGreaterThan(4);
   for (let i = 0; i < (await items.count()); i += 1) {
@@ -85,7 +84,7 @@ test("the settings panel opens and every section draws", SETTINGS, async ({ page
 
 test("the language switches everything at once, and comes back", SETTINGS, async ({ page }) => {
   await open(page, URL);
-  await page.locator("#side .foot button").first().click();
+  await openSettings(page);
   const language = page.locator(".settings-page select").nth(1);
   await language.selectOption("en");
   await expect(page.locator("#new")).toContainText("New session");
@@ -106,15 +105,13 @@ test("the sidebar collapses to a rail and back", TAGS, async ({ page }) => {
   await expect(page.locator("#frame")).toHaveAttribute("data-sidebar", "collapsed");
 });
 
-test("a new session from the dialog opens and is listed", TAGS, async ({ page }) => {
+test("a new conversation starts empty, and its first message makes it and lists it", TAGS, async ({ page }) => {
   await open(page, URL);
   await page.locator("#new").click();
-  await expect(page.locator("#veil")).toHaveClass(/on/);
-  await expect(page.getByTestId("new-scene")).toBeVisible();
-  await expect(page.getByTestId("new-mode")).toBeVisible();
-  await page.getByTestId("new-create").click();
-  await expect(page.locator("#veil")).not.toHaveClass(/on/);
-  await expect(page.getByTestId("conv-input")).toBeEnabled();
+  await expect(page.locator("#main")).toHaveClass(/empty/);
+  await page.getByTestId("conv-input").fill("Say exactly: fixture ready");
+  await page.getByTestId("conv-input").press("Enter");
+  await expect(page.locator("#main")).not.toHaveClass(/empty/);
   await expect(page.locator("#side .srow.on")).toBeVisible();
 });
 
@@ -148,9 +145,60 @@ test("a session renamed from its menu is renamed in the list", TAGS, async ({ pa
 
 test("a device is paired from settings with a code shown once, counting down", { tag: ["@feature:authz", "@layer:ui"] }, async ({ page }) => {
   await open(page, URL);
-  await page.locator("#side .foot button").first().click();
+  await openSettings(page);
   await page.locator(".settings-nav .nav-item").nth(5).click();
   await page.locator(".settings-page button", { hasText: /pair|配对/i }).last().click();
   await expect(page.locator(".pairing-code")).toHaveText(/\S{4,}/);
   await expect(page.locator(".settings-page")).toContainText(/\d+:\d{2}/);
+});
+
+const SHELL = { tag: ["@feature:shell", "@layer:ui"] };
+
+test("the side columns are dragged wider, remember it, and a double-click puts them back", SHELL, async ({ page }) => {
+  await open(page, URL);
+  const side = page.locator("#side");
+  const before = (await side.boundingBox())!.width;
+  const edge = page.getByTestId("resize-side");
+  const box = (await edge.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 60, box.y + 200, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => (await side.boundingBox())!.width).toBeGreaterThan(before + 40);
+  await page.reload();
+  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
+  await expect.poll(async () => (await side.boundingBox())!.width).toBeGreaterThan(before + 40);
+  await page.getByTestId("resize-side").dblclick();
+  await expect.poll(async () => Math.round((await side.boundingBox())!.width)).toBe(Math.round(before));
+});
+
+test("the avatar is the settings: its ring says the connection, its menu opens settings and switches", SHELL, async ({ page }) => {
+  await open(page, URL);
+  const avatar = page.getByTestId("avatar");
+  await expect(avatar).toHaveAttribute("data-conn", "ok");
+  await avatar.click();
+  await expect(page.getByTestId("avatar-menu")).toBeVisible();
+  await page.getByTestId("menu-connection").click();
+  await expect(page.getByTestId("connection-details")).toContainText(/single_duplex|split_streams/);
+  await page.keyboard.press("Escape");
+  await avatar.click();
+  await page.getByTestId("open-settings").click();
+  await expect(page.locator(".settings-nav")).toBeVisible();
+  await page.keyboard.press("Escape");
+  // Gone, and the ring says so.
+  await page.evaluate(() => (window as any).harnix.client.close());
+  await expect(avatar).not.toHaveAttribute("data-conn", "ok");
+});
+
+test("with every built-in space removed, the frame is the chrome alone and says so", SHELL, async ({ page }) => {
+  const bare = await startHarnix(launchFor("replay", { profile: "\n[shell]\nspaces = []\n" }));
+  try {
+    await open(page, bare.url);
+    await expect(page.getByTestId("no-spaces")).toBeVisible();
+    await expect(page.locator("#side .spaces")).toHaveCount(0);
+    await expect(page.locator('#side [data-space="system"]')).toHaveCount(0);
+    await expect(page.getByTestId("avatar")).toBeVisible();
+  } finally {
+    bare.stop();
+  }
 });

@@ -171,11 +171,11 @@ async function measureInstances(root) {
       bin,
       ["--profile", profile, "--port", String(port), "--headless",
        "--agix-dir", join(scratch, "agix"), "--data-dir", join(scratch, "projects")],
-      { cwd: makeProject(scratch), env: { ...process.env, ANTHROPIC_API_KEY: "budget-test", RUST_LOG: "error" },
+      { cwd: makeProject(scratch), env: { ...process.env, ANTHROPIC_API_KEY: "budget-test", HARNIX_STATE_DIR: join(scratch, "state"), RUST_LOG: "error" },
         stdio: "ignore" },
     );
     try {
-      await waitForToken(join(scratch, "projects", ".harnix", "token"), port);
+      await waitForToken(join(scratch, "state", "token"), port);
       await new Promise((r) => setTimeout(r, 3000));
       const readings = [];
       for (let i = 0; i < 3; i += 1) {
@@ -213,7 +213,7 @@ async function measureLive(root) {
     bin,
     ["--port", String(port), "--headless",
      "--agix-dir", join(scratch, "agix"), "--data-dir", join(scratch, "projects")],
-    { cwd: makeProject(scratch), env: { ...process.env, ANTHROPIC_API_KEY: "budget-test", RUST_LOG: "error" },
+    { cwd: makeProject(scratch), env: { ...process.env, ANTHROPIC_API_KEY: "budget-test", HARNIX_STATE_DIR: join(scratch, "state"), RUST_LOG: "error" },
       stdio: "ignore" },
   );
 
@@ -229,7 +229,7 @@ async function measureLive(root) {
   };
 
   try {
-    const token = await waitForToken(join(scratch, "projects", ".harnix", "token"), port);
+    const token = await waitForToken(join(scratch, "state", "token"), port);
 
     // Settle: the janitor, the skill scan and the MCP background connects all
     // happen after the port opens, and measuring through them would measure

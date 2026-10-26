@@ -38,6 +38,12 @@ impl Builtin {
         if name == "harnix.system.calls" {
             return self.request_headers(params).await;
         }
+        if name == "harnix.system.trace" {
+            return self.trace(params).await;
+        }
+        if name == "harnix.system.trace.call" {
+            return self.trace_call(params).await;
+        }
         let Some((_, method, keys)) = ENGINE.iter().find(|(n, _, _)| *n == name) else {
             return Err(RpcError::not_found(format!(
                 "`{name}` is not a system method"

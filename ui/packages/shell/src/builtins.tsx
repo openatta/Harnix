@@ -11,30 +11,57 @@
 import type { Block, BlockOf } from "@harnix/core/state";
 import { Disclosure, STATUS_GLYPH, ToolDetails, t, toolArgs, toolDisplayName, TOOL_NAMES, type DetailItem, type SidebarGroup } from "@harnix/react";
 
-import type { App, ShellSession, Workspace } from "./app.ts";
+import type { App, ShellSession } from "./app.ts";
 import { Labelled, RequestPanel, RequestRow, type RequestBlock } from "./envelope.tsx";
 import { Glyph } from "./glyph.tsx";
-import { RecentSessions } from "./home.tsx";
+import { ProjectsSidebar } from "./projects.tsx";
+import { SessionsSidebar } from "./sessions.tsx";
 import { builtinSections } from "./settings.tsx";
 import { registerSystem } from "./system.tsx";
 
 const OWNER = "builtin";
 
+/**
+ * The three built-in spaces — conversations by time, conversations by project, the system — are
+ * examples an application keeps or drops (`[shell] spaces`). Whatever it drops is not registered at
+ * all, so the frame is the fixed chrome plus whichever spaces are left.
+ */
 export function registerBuiltins(app: App): void {
   const r = app.registry;
+  const keeps = (space: string) => app.snapshot.hello?.shell?.spaces?.includes(space) ?? true;
 
-  r.register(
-    "space",
-    { id: "home", icon: "home", order: 0, title: () => t("space.home"), subtitle: () => t("space.home.subtitle"), center: "minimized", placeholder: () => t("home.ask") },
-    OWNER,
-  );
-  r.register(
-    "space",
-    { id: "sessions", icon: "chat", order: 10, title: () => t("space.sessions"), subtitle: () => t("space.sessions.subtitle"), center: "chat" },
-    OWNER,
-  );
-  registerSystem(app);
-  r.register("home.card", { id: "builtin.recent", order: 0, title: () => t("home.recent.title"), render: () => <RecentSessions app={app} /> }, OWNER);
+  if (keeps("sessions")) {
+    r.register(
+      "space",
+      {
+        id: "sessions",
+        icon: "chat",
+        order: 10,
+        title: () => t("space.sessions"),
+        subtitle: () => t("space.sessions.subtitle"),
+        center: "chat",
+        sidebar: () => <SessionsSidebar app={app} />,
+      },
+      OWNER,
+    );
+  }
+  if (keeps("projects")) {
+    r.register(
+      "space",
+      {
+        id: "projects",
+        icon: "folder",
+        order: 20,
+        title: () => t("space.projects"),
+        subtitle: () => t("space.projects.subtitle"),
+        center: "chat",
+        sessions: "sessions",
+        sidebar: () => <ProjectsSidebar app={app} />,
+      },
+      OWNER,
+    );
+  }
+  if (keeps("system")) registerSystem(app);
 
   r.register("tool.row", { id: "builtin.tool", match: () => true, render: (block) => <ToolRow app={app} block={block} /> }, OWNER);
 
@@ -69,7 +96,7 @@ export function registerBuiltins(app: App): void {
     OWNER,
   );
 
-  r.register("sidebar.group", { id: "builtin.workspace", label: () => t("sidebar.byWorkspace"), group: (sessions) => byWorkspace(app, sessions as ShellSession[]) }, OWNER);
+  r.register("sidebar.group", { id: "builtin.time", label: () => t("sidebar.byTime"), group: (sessions) => byTime(sessions as ShellSession[]) }, OWNER);
 
   r.register(
     "command",
@@ -146,40 +173,22 @@ function ToolPanel({ block }: { block: BlockOf<"tool"> }) {
 
 /* ── grouping ─────────────────────────────────────────────────────────── */
 
-/* Registered workspaces first, in their stored order; then sessions with no project, then those
- * Harnix has never opened — `session.list` carries no project root for those, so they get a group
- * of their own rather than a guess, and move out the moment they are opened. */
-function byWorkspace(app: App, sessions: ShellSession[]): SidebarGroup[] {
-  const workspaces: Workspace[] = app.snapshot.workspaces;
-  const groups = workspaces.map((workspace) => ({
-    key: workspace.id,
-    workspace,
-    title: workspace.title ?? workspace.path,
-    hint: workspace.path,
-    rows: [] as ShellSession[],
-  }));
-  const byId = new Map(groups.map((g) => [g.key, g]));
-  const loose = { key: "loose", title: t("sidebar.groupLoose"), rows: [] as ShellSession[] };
-  const unknown = { key: "unknown", title: t("sidebar.groupUnknown"), rows: [] as ShellSession[] };
-  for (const session of sessions) {
-    const group = session.workspace_id ? byId.get(session.workspace_id) : undefined;
-    if (group) group.rows.push(session);
-    else if (session.scene) loose.rows.push(session);
-    else unknown.rows.push(session);
+/* The session space lists everything by when it was last active: today, the last seven days,
+ * earlier. Projects have a space of their own; an application that wants another grouping
+ * registers its own `sidebar.group`, and the last registration wins. */
+function byTime(sessions: ShellSession[]): SidebarGroup[] {
+  const now = Date.now();
+  const startOfToday = new Date(new Date().toDateString()).getTime();
+  const groups = [
+    { key: "today", title: t("time.today"), rows: [] as ShellSession[] },
+    { key: "week", title: t("time.week"), rows: [] as ShellSession[] },
+    { key: "earlier", title: t("time.earlier"), rows: [] as ShellSession[] },
+  ];
+  const sorted = [...sessions].sort((a, b) => String(b.last_active ?? "").localeCompare(String(a.last_active ?? "")));
+  for (const session of sorted) {
+    const at = Date.parse(session.last_active ?? "");
+    const group = Number.isNaN(at) ? groups[2]! : at >= startOfToday ? groups[0]! : now - at < 7 * 86_400_000 ? groups[1]! : groups[2]!;
+    group.rows.push(session);
   }
-  const sort = (rows: ShellSession[], manual?: string[]) => {
-    const order = manual?.length ? manual : null;
-    rows.sort((a, b) => {
-      if (order) {
-        const ia = order.indexOf(a.session_id);
-        const ib = order.indexOf(b.session_id);
-        if (ia !== -1 || ib !== -1) return (ia === -1 ? 1e9 : ia) - (ib === -1 ? 1e9 : ib);
-      }
-      return String(b.last_active ?? "").localeCompare(String(a.last_active ?? ""));
-    });
-  };
-  for (const group of groups) sort(group.rows, group.workspace.session_order);
-  sort(loose.rows);
-  sort(unknown.rows);
-  return [...groups, loose, unknown].filter((g) => g.rows.length);
+  return groups.filter((g) => g.rows.length);
 }

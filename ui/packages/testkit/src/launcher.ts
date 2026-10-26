@@ -54,6 +54,8 @@ export interface Backend {
   token: string;
   /** Everything this process owns; removed by `stop`. */
   scratch: string;
+  /** The program's own directory, `$HOME/.<product_id>`: token, ledgers, modules' data. */
+  state: string;
   /** The project its sessions run in — see `makeProject`. */
   project: string;
   /** The process id, for a test that kills it. */
@@ -177,7 +179,10 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
   child.on("exit", (code) => (exited = code ?? -1));
 
   const url = `http://127.0.0.1:${port}/`;
-  const tokenFile = join(scratch, "projects", ".harnix", "token");
+  // `~/.<product_id>`: `[brand] product_id` in the profile names it, `harnix` otherwise.
+  const product = /product_id\s*=\s*"([a-z][a-z0-9-]*)"/.exec(options.profile ?? "")?.[1] ?? "harnix";
+  const state = join(home, `.${product}`);
+  const tokenFile = join(state, "token");
   // A restart finds the last run's token; it is rewritten before serving.
   if (reused) rmSync(tokenFile, { force: true });
   const deadline = Date.now() + 60_000;
@@ -215,6 +220,7 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
     url,
     token,
     scratch,
+    state,
     project,
     pid: child.pid ?? 0,
     log: () => log,

@@ -1,8 +1,8 @@
 /**
- * Spaces and HOME in the browser (design §8), against `examples/hello-app` — an application built
- * the way applications are, with two spaces of its own:
+ * Spaces in the browser (design §8), against `examples/hello-app` — an application built the way
+ * applications are, with two spaces of its own beside Harnix's built-in ones:
  *
- *   greeter  a tab and a HOME card, a backend module, its own in-process instance
+ *   greeter  a tab and a home card, a backend module, its own in-process instance
  *   notes    interface and Agent only, on `system`
  *
  * The invariant under test is the correspondence of §8.5: whatever space is in front, the centre,
@@ -18,7 +18,8 @@ import { type Backend, ROOT, expect, launchFor, startHarnix, test } from "@harni
 import { open, reply, say, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:spaces", "@layer:ui"] };
-const HOME = { tag: ["@feature:home", "@layer:ui"] };
+const PROJECTS = { tag: ["@feature:projects", "@layer:ui"] };
+const BRAND = { tag: ["@feature:brand", "@layer:ui"] };
 const MODULE = { tag: ["@feature:modules", "@layer:ui"] };
 
 const APP = join(ROOT, "examples", "hello-app");
@@ -52,7 +53,9 @@ test("the application's spaces are listed, each with its own title", TAGS, async
   const errors = watchConsole(page);
   await open(page, backend.url);
   const ids = await page.locator("#side .spaces .space").evaluateAll((nodes) => nodes.map((n) => (n as HTMLElement).dataset.space));
-  expect(ids).toEqual(["home", "sessions", "greeter", "notes", "system"]);
+  expect(ids).toEqual(["sessions", "projects", "greeter", "notes"]);
+  // The system space is entered from the bottom, beside the avatar.
+  await expect(page.locator('#side .l-bottom [data-space="system"]')).toBeVisible();
   await inSpace(page, "greeter");
   await expect(page.getByTestId("space-pill")).toContainText("Greeter");
   expect(errors).toEqual([]);
@@ -148,34 +151,77 @@ test("two tabs in two spaces do not cross", TAGS, async ({ page, context }) => {
   await other.close();
 });
 
-test("a space's tab calls its module, and HOME's card shows what it published", MODULE, async ({ page }) => {
+test("a space's tab calls its module, and the home cards under a new conversation show what it published", MODULE, async ({ page }) => {
   await open(page, backend.url);
   await inSpace(page, "greeter");
   await page.getByTestId("details-toggle").click();
   await page.locator('#details .tabs [data-tab="greet"]').click();
   await page.getByTestId("greet").click();
   await expect(page.getByTestId("greeting")).toContainText(/hello, world \(\d+\)/);
-  await inSpace(page, "home");
+  await inSpace(page, "sessions");
+  await page.locator("#new").click();
+  await expect(page.getByTestId("home-cards")).toBeVisible();
   await expect(page.getByTestId("greeted-count")).toContainText(/[1-9]\d* greeted/);
 });
 
-test("HOME's ask box starts HOME's own conversation", HOME, async ({ page }) => {
+test("the projects space lists the session space's conversations by project, one project open at a time", PROJECTS, async ({ page }) => {
   await open(page, backend.url);
-  await inSpace(page, "home");
-  await expect(page.getByTestId("overview")).toBeVisible();
-  await expect(page.locator(".home-card")).not.toHaveCount(0);
-  await page.getByTestId("ask").locator("textarea").fill("Say exactly: fixture ready");
-  await page.getByTestId("ask").locator("textarea").press("Enter");
-  await expect(page.getByTestId("back-to-overview")).toBeVisible();
-  const space = await page.evaluate(async () => {
+  const roots = await page.evaluate(async () => {
     const { app } = (window as any).harnix;
-    const current = app.snapshot.currentBySpace.home;
-    const { sessions } = await app.call("harnix.sessions", { space: "home" });
-    return sessions.some((s: any) => s.session_id === current.sessionId) ? "home" : "elsewhere";
+    const made: string[] = [];
+    for (const name of [`alpha-${Date.now()}`, `beta-${Date.now()}`]) made.push((await app.call("harnix.projects.create", { name })).path);
+    await app.refreshSessions();
+    return made;
   });
-  expect(space).toBe("home");
-  await page.getByTestId("back-to-overview").click();
-  await expect(page.getByTestId("overview")).toBeVisible();
+  await inSpace(page, "projects");
+  const projects = page.getByTestId("projects");
+  const alpha = projects.locator(".project", { hasText: "alpha-" });
+  const beta = projects.locator(".project", { hasText: "beta-" });
+  await alpha.locator(".prj").click();
+  await expect(alpha).toHaveAttribute("data-open", "true");
+  // A conversation started here runs in the open project, and is listed under it.
+  await page.getByTestId("conv-input").fill("Say exactly: fixture ready");
+  await page.getByTestId("conv-input").press("Enter");
+  await expect(alpha.locator(".pgroup .srow")).toHaveCount(1, { timeout: 15_000 });
+  const root = await page.evaluate(() => {
+    const { app } = (window as any).harnix;
+    const key = app.snapshot.current;
+    return app.snapshot.sessions.find((s: any) => s.session_id === key.sessionId)?.project_root;
+  });
+  expect(roots).toContain(root);
+  // Opening the other closes this one.
+  await beta.locator(".prj").click();
+  await expect(alpha).toHaveAttribute("data-open", "false");
+  await expect(alpha.locator(".pgroup")).toHaveCount(0);
+});
+
+test("brand: the product's name, icon, colours and words, without a fork of ui/", BRAND, async ({ page }) => {
+  const branded = await startHarnix(
+    launchFor("replay", {
+      bin: BIN,
+      uiDir: UI,
+      profile: `\n[brand]\nname = "Hello"\nproduct_id = "hello-app"\nicon = "${join(APP, "profiles", "brand.svg")}"\n`,
+    }),
+  );
+  try {
+    const errors = watchConsole(page);
+    await open(page, branded.url);
+    await expect(page).toHaveTitle("Hello");
+    await expect(page.getByTestId("brand-name")).toHaveText("Hello");
+    await expect(page.locator("#side .brand img.brand-icon")).toHaveAttribute("src", "/brand/icon.svg");
+    const accent = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim());
+    expect(accent.toLowerCase()).toBe("#2f6fb3");
+    await expect(page.locator('#side .spaces [data-space="greeter"]')).toContainText("Greeter");
+    // The module's language pack follows the language.
+    await page.getByTestId("avatar").click();
+    await page.getByTestId("menu-language").click();
+    const zh = await page.evaluate(() => document.documentElement.lang);
+    await expect(page.locator('#side .spaces [data-space="greeter"]')).toContainText(zh === "en" ? "Greeter" : "问候");
+    expect(branded.state.endsWith("/.hello-app")).toBe(true);
+    expect(errors).toEqual([]);
+  } finally {
+    branded.stop();
+  }
 });
 
 const ENTRIES = { tag: ["@feature:entries", "@layer:ui"] };

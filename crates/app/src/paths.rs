@@ -12,12 +12,14 @@
 //!   starting point, not a fence — an existing project anywhere under `$HOME`
 //!   can still be opened.
 //!
-//! Harnix's own bookkeeping (workspaces, session titles, view preferences,
-//! token, uploads) is data too — the program's own — so it lives inside the
-//! data directory as `<data-dir>/.harnix`, and moving `--data-dir` moves it
-//! along with the projects it describes. It gets no flag of its own because
-//! nobody chooses it independently; `HARNIX_STATE_DIR` is there for the case
-//! that proves otherwise.
+//! The program's own configuration and state (token, devices, workspaces,
+//! session titles, the space and instance ledgers, instance data roots, each
+//! module's data) lives in `~/.<product_id>` — `~/.harnix` unless the profile's
+//! `[brand]` names the product — so two products on one machine never share a
+//! token or a ledger, and Documents holds only projects, with nothing hidden in
+//! it. A project's own data goes in `<project>/.agix/`, beside the engine's.
+//! `HARNIX_STATE_DIR` moves it for the case that needs to. An older
+//! `~/Documents/.harnix` is not read (maintainer, 2026-10-26).
 //!
 //! The install artifact is the binary — the web app is compiled into it, so
 //! nothing is read from an install directory at runtime (`--assets-dir` is the
@@ -45,6 +47,8 @@ pub struct Roots {
 pub struct RootArgs {
     pub agix_dir: Option<PathBuf>,
     pub data_dir: Option<PathBuf>,
+    /// `[brand] product_id`; `harnix` when absent.
+    pub product_id: Option<String>,
 }
 
 impl Roots {
@@ -76,9 +80,10 @@ impl Roots {
             .or_else(|| env("HARNIX_DATA_DIR").map(PathBuf::from))
             .unwrap_or_else(|| home.join("Documents"));
 
+        let product = args.product_id.as_deref().unwrap_or("harnix");
         let state = env("HARNIX_STATE_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|| projects.join(".harnix"));
+            .unwrap_or_else(|| home.join(format!(".{product}")));
 
         Self {
             engine,
@@ -107,7 +112,20 @@ mod tests {
         let roots = Roots::resolve_with(&RootArgs::default(), &env(&[("HOME", "/home/x")]));
         assert_eq!(roots.engine, PathBuf::from("/home/x/.agix"));
         assert_eq!(roots.projects, PathBuf::from("/home/x/Documents"));
-        assert_eq!(roots.state, PathBuf::from("/home/x/Documents/.harnix"));
+        assert_eq!(roots.state, PathBuf::from("/home/x/.harnix"));
+    }
+
+    #[test]
+    fn a_product_keeps_its_own_state() {
+        let roots = Roots::resolve_with(
+            &RootArgs {
+                product_id: Some("helm".into()),
+                ..RootArgs::default()
+            },
+            &env(&[("HOME", "/home/x")]),
+        );
+        assert_eq!(roots.state, PathBuf::from("/home/x/.helm"));
+        assert_eq!(roots.projects, PathBuf::from("/home/x/Documents"));
     }
 
     #[test]
@@ -116,13 +134,14 @@ mod tests {
             &RootArgs {
                 agix_dir: Some(PathBuf::from("/srv/agix")),
                 data_dir: Some(PathBuf::from("/srv/projects")),
+                product_id: None,
             },
             &env(&[("HOME", "/home/x")]),
         );
         assert_eq!(roots.engine, PathBuf::from("/srv/agix"));
         assert_eq!(roots.projects, PathBuf::from("/srv/projects"));
-        // Harnix's own data rides along with the projects it describes.
-        assert_eq!(roots.state, PathBuf::from("/srv/projects/.harnix"));
+        // The program's state stays in the home directory, not with the projects.
+        assert_eq!(roots.state, PathBuf::from("/home/x/.harnix"));
     }
 
     #[test]
@@ -137,7 +156,7 @@ mod tests {
         );
         assert_eq!(roots.engine, PathBuf::from("/env/agix"));
         assert_eq!(roots.projects, PathBuf::from("/env/projects"));
-        assert_eq!(roots.state, PathBuf::from("/env/projects/.harnix"));
+        assert_eq!(roots.state, PathBuf::from("/home/x/.harnix"));
     }
 
     #[test]
@@ -145,7 +164,7 @@ mod tests {
         let roots = Roots::resolve_with(
             &RootArgs {
                 agix_dir: Some(PathBuf::from("/flag/agix")),
-                data_dir: None,
+                ..RootArgs::default()
             },
             &env(&[("HOME", "/home/x"), ("AGIX_CONFIG_HOME", "/env/agix")]),
         );

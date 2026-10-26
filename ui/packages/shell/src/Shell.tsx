@@ -1,37 +1,80 @@
 /**
- * The frame: banner, three columns (sessions · conversation · details) and the modal host.
+ * The frame: banner, three columns and the modal host. A space is the three columns together —
+ * its own left column, a centre that is the conversation unless it says otherwise, and its right
+ * tabs — inside the chrome that stays: the brand and the avatar. Both side columns are dragged
+ * wider or narrower, and remember it.
  *
- * The column ids, `#frame`'s data attributes and the class names are the old interface's, so the
- * layout stylesheet carried over unchanged and a reader of either finds the same landmarks. What is
- * inside the conversation column is `ChatPanel`, the conversation trunk shared with IPDrun (D21).
+ * What is inside the conversation column is `ChatPanel`, the conversation trunk shared with
+ * IPDrun (D21).
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { errorText } from "@harnix/core";
 import type { SessionController, SessionState } from "@harnix/core/state";
-import { ChatPanel, Contributed, useRegistry, useT, type Attached, type ChatCommand, type ComposerApi, type MentionItem, type SpaceContribution } from "@harnix/react";
+import { ChatPanel, Contributed, tabsOf, useRegistry, useT, type Attached, type ChatCommand, type ComposerApi, type MentionItem, type SpaceContribution } from "@harnix/react";
 
-import { keyOf, type App, type ShellState } from "./app.ts";
+import { keyOf, type App, type ShellState, type Widths } from "./app.ts";
+import { useBrand } from "./brand.ts";
 import { followEnvelopes } from "./envelope.tsx";
 import { Glyph } from "./glyph.tsx";
-import { newSessionDialog } from "./dialogs.tsx";
-import { HomeOverview } from "./home.tsx";
 import { Sidebar, spacesOf } from "./Sidebar.tsx";
 
 export function Shell({ app }: { app: App }) {
   const s = useSyncExternalStore(app.subscribe, app.getSnapshot);
   useTheme(s.theme);
   useShortcuts(app);
+  useBrand(app);
+  const space = spacesOf(app).find((c) => c.id === s.space);
   return (
     <>
       <Banner app={app} s={s} />
-      <div id="frame" data-sidebar={s.sidebar} data-details={s.detailsOpen ? "open" : "closed"}>
+      <div
+        id="frame"
+        data-sidebar={s.sidebar}
+        data-details={s.detailsOpen ? "open" : "closed"}
+        data-space={s.space}
+        style={{ "--sidebar-width": `${s.widths.side}px`, "--details-width": `${s.widths.details}px` } as CSSProperties}
+      >
         <Sidebar app={app} s={s} />
+        <Resizer app={app} column="side" />
         <Main app={app} s={s} />
-        <Details app={app} s={s} />
+        {space || s.detail ? <Details app={app} s={s} /> : <aside id="details" aria-hidden />}
       </div>
       <ModalHost app={app} s={s} />
     </>
+  );
+}
+
+/**
+ * The edge between a side column and the centre: drag it, and the column follows within its
+ * bounds; double-click, and it goes back to its own width.
+ */
+function Resizer({ app, column }: { app: App; column: keyof Widths }) {
+  const t = useT();
+  const start = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const from = event.clientX;
+    const width = app.snapshot.widths[column];
+    const move = (e: PointerEvent) => app.setWidth(column, column === "side" ? width + (e.clientX - from) : width - (e.clientX - from));
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      document.documentElement.classList.remove("resizing");
+    };
+    document.documentElement.classList.add("resizing");
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  return (
+    <div
+      className={`resizer ${column}`}
+      role="separator"
+      aria-orientation="vertical"
+      title={t("app.resize")}
+      data-testid={`resize-${column}`}
+      onPointerDown={start}
+      onDoubleClick={() => app.setWidth(column, null)}
+    />
   );
 }
 
@@ -70,7 +113,7 @@ function useShortcuts(app: App) {
         app.closeModal();
       } else if (mod && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        void newSessionDialog(app);
+        document.querySelector<HTMLButtonElement>("#new")?.click();
       } else if (mod && event.key === "\\") {
         event.preventDefault();
         app.toggleSidebar();
@@ -106,6 +149,7 @@ function Banner({ app, s }: { app: App; s: ShellState }) {
 /* ── the conversation column ──────────────────────────────────────────── */
 
 function Main({ app, s }: { app: App; s: ShellState }) {
+  const t = useT();
   const [controller, setController] = useState<SessionController | null>(null);
   const session = useControllerState(controller);
   const space = spacesOf(app).find((c) => c.id === s.space);
@@ -114,7 +158,18 @@ function Main({ app, s }: { app: App; s: ShellState }) {
   // reader goes back to it.
   const [talking, setTalking] = useState(false);
   useEffect(() => setTalking(false), [s.space]);
-  if (center !== "chat" && space && !(talking && s.current)) {
+  if (!space) {
+    return (
+      <section id="main" className="overview" data-space="">
+        <div id="overview" data-testid="overview">
+          <div className="empty no-spaces" data-testid="no-spaces">
+            {t("shell.noSpaces")}
+          </div>
+        </div>
+      </section>
+    );
+  }
+  if (center !== "chat" && !(talking && s.current)) {
     return (
       <section id="main" className="overview" data-space={s.space}>
         <Header app={app} s={s} session={null} onBack={null} onTalk={s.current && center !== "hidden" ? () => setTalking(true) : null} />
@@ -142,15 +197,9 @@ function Overview({ app, space, onAsked }: { app: App; space: SpaceContribution 
   const registry = useRegistry(app.registry);
   return (
     <Contributed registry={registry} point="space" contribution={space}>
-      <div className="dash-in">
-        {space.id === "home" ? (
-          <HomeOverview app={app} ask={<FirstMessage app={app} variant="ask" onSent={onAsked} placeholder={space.placeholder?.()} />} />
-        ) : (
-          <>
-            {space.overview?.() ?? null}
-            {space.center !== "hidden" ? <FirstMessage app={app} variant="ask" onSent={onAsked} placeholder={space.placeholder?.()} /> : null}
-          </>
-        )}
+      <div className={`dash-in${space.center === "hidden" ? " full" : ""}`}>
+        {space.overview?.() ?? null}
+        {space.center !== "hidden" ? <FirstMessage app={app} variant="ask" onSent={onAsked} placeholder={space.placeholder?.()} /> : null}
       </div>
     </Contributed>
   );
@@ -270,6 +319,27 @@ function Hero({ app }: { app: App }) {
         </div>
       ) : null}
       {space?.notice ? <div className="disc">{space.notice()}</div> : null}
+      <HomeCards app={app} />
+    </div>
+  );
+}
+
+/** The `home.card` registrations, under a new conversation's composer: what the product wants in
+ *  front of someone about to start something. */
+function HomeCards({ app }: { app: App }) {
+  const registry = useRegistry(app.registry);
+  const cards = [...registry.at("home.card")].sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
+  if (!cards.length) return null;
+  return (
+    <div className="dgrid home-cards" data-testid="home-cards">
+      {cards.map((card) => (
+        <section key={card.id} className="dcard home-card" data-card={card.id}>
+          {card.title ? <div className="dt">{card.title()}</div> : null}
+          <Contributed registry={registry} point="home.card" contribution={card}>
+            {card.render()}
+          </Contributed>
+        </section>
+      ))}
     </div>
   );
 }
@@ -426,7 +496,7 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
     <ChatPanel
       sessionId={current.sessionId}
       instance={current.instance}
-      space={s.space}
+      space={app.claim(s.space)}
       sendExtras={referencesIn}
       onController={bind}
       header={false}
@@ -522,7 +592,7 @@ function Details({ app, s }: { app: App; s: ShellState }) {
   const t = useT();
   const registry = useRegistry(app.registry);
   const space = spacesOf(app).find((c) => c.id === s.space);
-  const tabs = space?.tabs ?? [];
+  const tabs = tabsOf(space);
   const [tab, setTab] = useState<string>("details");
   // A detail revealed from the flow is what the reader wants to see now.
   useEffect(() => {
@@ -534,10 +604,13 @@ function Details({ app, s }: { app: App; s: ShellState }) {
   }, [s.space]);
   const item = s.detail;
   const panel = item ? registry.claim("details.panel", item) : null;
-  const shown = tabs.find((x) => x.id === tab);
+  // A space's tabs can change with what is selected: a tab that went falls back to the first.
+  const shown = tabs.find((x) => x.id === tab) ?? (tab !== "details" || !item ? tabs[0] : undefined);
+  const current = shown?.id ?? "details";
   const title = shown ? shown.title() : item ? (panel?.title?.(item) ?? item.name ?? t("details.title")) : t("details.title");
   return (
     <aside id="details" aria-hidden={!s.detailsOpen}>
+      <Resizer app={app} column="details" />
       <div className="head">
         <span className="title truncate">{title}</span>
         <button type="button" className="icon-btn close" title={t("common.close")} onClick={() => app.toggleDetails(false)}>
@@ -547,13 +620,15 @@ function Details({ app, s }: { app: App; s: ShellState }) {
       {tabs.length ? (
         <div className="tabs" role="tablist">
           {tabs.map((x) => (
-            <button type="button" role="tab" key={x.id} data-tab={x.id} aria-selected={tab === x.id} className={tab === x.id ? "on" : ""} onClick={() => setTab(x.id)}>
+            <button type="button" role="tab" key={x.id} data-tab={x.id} aria-selected={current === x.id} className={current === x.id ? "on" : ""} onClick={() => setTab(x.id)}>
               {x.title()}
             </button>
           ))}
-          <button type="button" role="tab" data-tab="details" aria-selected={tab === "details"} className={tab === "details" ? "on" : ""} onClick={() => setTab("details")}>
-            {t("details.title")}
-          </button>
+          {item ? (
+            <button type="button" role="tab" data-tab="details" aria-selected={current === "details"} className={current === "details" ? "on" : ""} onClick={() => setTab("details")}>
+              {t("details.title")}
+            </button>
+          ) : null}
         </div>
       ) : null}
       <div className="body">
