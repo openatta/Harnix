@@ -59,19 +59,6 @@ impl SessionState {
     }
 }
 
-/// What `session.list` does not report.
-///
-/// `SessionInfo` carries no scene and no project root; `session.get` adds the
-/// scene, and `session.create`'s reply is the last place a project root is
-/// visible. So the hub writes down what it saw. A session it has never opened
-/// reports null rather than a guess — honest, and self-correcting the moment
-/// it is opened.
-#[derive(Default, Clone)]
-pub struct SessionFacts {
-    pub scene: Option<String>,
-    pub project_root: Option<String>,
-}
-
 /// Assign a seq, buffer for catch-up, fold the projections, fan out.
 ///
 /// Sequence assignment, buffering and fan-out happen under one lock, so a
@@ -160,8 +147,8 @@ impl Hub {
                 if let Some(scene) = &scene {
                     resume["scene"] = json!(scene);
                 }
-                if let Some(root) = self.known_project_root(&session_id).await {
-                    resume["project_root"] = json!(root);
+                if let Some(root) = info.get("project_root").filter(|r| !r.is_null()) {
+                    resume["project_root"] = root.clone();
                 }
                 // A resumed session records too, or its next turn would be
                 // the one turn with no envelope. Nothing is written until it
@@ -182,15 +169,23 @@ impl Hub {
             }
         }
 
-        self.remember(&session_id, scene, None).await;
         let total = self.history_total(&session_id).await;
 
         let mut guard = self.inner.lock().await;
         let state = guard.sessions.entry(session_id.clone()).or_default();
         state.watchers.insert(client);
-        // A settled turn already in the transcript would otherwise render
-        // twice — history holds it, and so does the buffer.
-        let serve_replay = state.running_turn.is_some() || total <= state.history_total_before_turn;
+        // What the client draws from history, and what from the buffer, must
+        // not overlap. A running turn is written to the transcript step by
+        // step, so part of it is already in history — history is therefore
+        // cut at where the turn began and the whole turn comes from the
+        // buffer. A settled turn already in the transcript comes from history
+        // alone; one settled but not yet written comes from the buffer.
+        let running = state.running_turn.is_some();
+        let (history_total, serve_replay) = if running {
+            (state.history_total_before_turn, true)
+        } else {
+            (total, total <= state.history_total_before_turn)
+        };
         let replay = if serve_replay {
             state.replay.snapshot()
         } else {
@@ -198,7 +193,7 @@ impl Hub {
         };
         Ok(json!({
             "session": info,
-            "history_total": total,
+            "history_total": history_total,
             "replay": replay,
             "truncated": state.replay.truncated,
             "pending_prompts": state.pending_prompts,
@@ -222,8 +217,8 @@ impl Hub {
         Ok(json!({"detached": true}))
     }
 
-    /// The session list with the facts `session.list` does not carry folded
-    /// back in.
+    /// The engine's session list — which carries each session's scene and
+    /// project root — and whether the hub is running a turn on it.
     pub(crate) async fn sessions(&self) -> Result<Value, RpcError> {
         let listed = self
             .engine_call("session.list", json!({"limit": 200}))
@@ -241,10 +236,7 @@ impl Hub {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string();
-                let facts = guard.facts.get(&sid).cloned().unwrap_or_default();
                 if let Some(obj) = row.as_object_mut() {
-                    obj.insert("scene".into(), json!(facts.scene));
-                    obj.insert("project_root".into(), json!(facts.project_root));
                     obj.insert(
                         "running".into(),
                         json!(guard
@@ -259,57 +251,10 @@ impl Hub {
         Ok(json!({"sessions": rows}))
     }
 
-    /// Intercepted because the reply is the last place a session's project
-    /// root is visible — nothing later reports it.
+    /// Intercepted so the new session records (see `with_recording`).
     pub(crate) async fn create(&self, params: Value) -> Result<Value, RpcError> {
-        let requested = params
-            .get("project_root")
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        let result = self
-            .engine_call("session.create", with_recording(params, self.replay_from()))
-            .await?;
-        if let Some(sid) = result.get("session_id").and_then(Value::as_str) {
-            self.remember(
-                sid,
-                result
-                    .get("scene")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
-                result
-                    .get("project_root")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-                    .or(requested),
-            )
-            .await;
-        }
-        Ok(result)
-    }
-
-    pub(crate) async fn remember(
-        &self,
-        session_id: &str,
-        scene: Option<String>,
-        project_root: Option<String>,
-    ) {
-        let mut guard = self.inner.lock().await;
-        let facts = guard.facts.entry(session_id.to_string()).or_default();
-        if scene.is_some() {
-            facts.scene = scene;
-        }
-        if project_root.is_some() {
-            facts.project_root = project_root;
-        }
-    }
-
-    pub async fn known_project_root(&self, session_id: &str) -> Option<String> {
-        self.inner
-            .lock()
+        self.engine_call("session.create", with_recording(params, self.replay_from()))
             .await
-            .facts
-            .get(session_id)
-            .and_then(|f| f.project_root.clone())
     }
 
     pub(crate) async fn history_total(&self, session_id: &str) -> u64 {

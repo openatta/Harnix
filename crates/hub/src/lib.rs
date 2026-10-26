@@ -30,7 +30,6 @@ mod turns;
 
 pub use clients::ClientId;
 pub use replay::{MAX_BYTES as REPLAY_MAX_BYTES, MAX_FRAMES as REPLAY_MAX_FRAMES};
-pub use session::SessionFacts;
 
 use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
@@ -88,7 +87,6 @@ pub const HUB_METHODS: &[&str] = &[
 struct Inner {
     clients: Clients,
     sessions: HashMap<String, SessionState>,
-    facts: HashMap<String, SessionFacts>,
 }
 
 pub struct Hub {
@@ -182,6 +180,21 @@ impl Hub {
         let resp = self.server.dispatch_public(req, self.client.clone()).await;
         debug!(method, ok = resp.error.is_none(), "engine call ←");
         split(resp)
+    }
+
+    /// Return once every frame the engine queued for the hub before this call
+    /// has been routed.
+    ///
+    /// `run_turn`'s reply comes straight back from dispatch, but the turn's
+    /// events travel through the connection's queue — so without this, a
+    /// turn could be settled while its last events (`turn_complete` among
+    /// them) were still in that queue, and watchers would see the settlement
+    /// first. The queue is first in, first out, and a write that waits for
+    /// its own delivery waits for everything ahead of it.
+    pub(crate) async fn barrier(&self) {
+        let marker = serde_json::to_string(&json!({"jsonrpc": "2.0", "method": BARRIER}))
+            .unwrap_or_default();
+        let _ = self.client.send_json(marker).await;
     }
 
     /// Register a client and get the id its frames are addressed by.
@@ -344,11 +357,15 @@ impl EngineFrameSink for HubSink {
                 let guard = self.inner.lock().await;
                 guard.clients.broadcast(&out).await;
             }
+            Some(BARRIER) => {}
             other => debug!(method = ?other, "unrouted engine frame"),
         }
         true
     }
 }
+
+/// The frame `Hub::barrier` writes behind the engine's own.
+const BARRIER: &str = "harnix.barrier";
 
 pub(crate) fn notification(method: &str, params: Value) -> String {
     serde_json::to_string(&json!({"jsonrpc": "2.0", "method": method, "params": params}))

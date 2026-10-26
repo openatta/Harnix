@@ -128,6 +128,7 @@ impl Hub {
                         }),
                     )
                     .await;
+                hub.barrier().await;
                 match hub.settle_turn(&session_id, &turn_id, outcome).await {
                     Some(next) => {
                         let next_id = hub.open_turn(&session_id, &next).await;

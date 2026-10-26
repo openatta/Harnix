@@ -176,21 +176,24 @@ export default {
       await finish(client, created.session_id);
     },
 
-    "the engine's own session list is reachable, and the hub's adds to it":
+    "the hub's session list is the engine's, with whether a turn is running":
       async ({ client }) => {
         const created = await client.call("session.create", {});
-        // The engine's list is what the hub folds facts into. Both are
-        // callable, and the difference between them is the point: `scene` and
-        // `project_root` are on one and not the other.
+        // The engine's list carries each session's scene and project root
+        // (N-002). The hub used to write those down itself because the engine
+        // did not; now it must pass the engine's through, not keep a second
+        // copy that could disagree.
         const engine = await client.call("session.list", {});
         const raw = engine.sessions.find((s) => s.session_id === created.session_id);
         assert(raw, "the engine does not list the session it just created");
-        assert(!("project_root" in raw), "the engine's list grew a project root");
+        assert("project_root" in raw && "scene" in raw, "the engine's list lost scene or project root");
 
         await client.call("harnix.attach", { session_id: created.session_id });
         const { sessions } = await client.call("harnix.sessions");
-        const folded = sessions.find((s) => s.session_id === created.session_id);
-        assert("project_root" in folded, "the hub did not fold the project root back in");
+        const listed = sessions.find((s) => s.session_id === created.session_id);
+        assert(listed.project_root === raw.project_root, "the hub's project root differs from the engine's");
+        assert(listed.scene === raw.scene, "the hub's scene differs from the engine's");
+        assert(listed.running === false, "a session with no turn is listed as running");
         await finish(client, created.session_id);
       },
 

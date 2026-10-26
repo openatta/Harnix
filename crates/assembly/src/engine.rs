@@ -40,6 +40,10 @@ pub struct EngineConfig {
     /// The engine's data root — settings tiers, transcripts, memory, skills.
     /// What `AGIX_CONFIG_HOME` names, resolved by the app and handed in.
     pub data_root: PathBuf,
+    /// The project a session belongs to when it names none. `None` is this
+    /// process's working directory — an embedder should not have to `chdir`
+    /// to choose it, any more than to choose the data root.
+    pub cwd: Option<PathBuf>,
 }
 
 impl Default for EngineConfig {
@@ -56,6 +60,7 @@ impl Default for EngineConfig {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("."))
                 .join(".agix"),
+            cwd: None,
         }
     }
 }
@@ -119,13 +124,16 @@ pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
         resolve_scene(extra)?; // fail before any state is touched
     }
 
+    let cwd = config
+        .cwd
+        .clone()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+
     // `{data_root}/scenes/<scope>/` over `{data_root}/` — the same layout
     // `DefaultDaemonPaths::from_env` derives, with the root handed in.
-    let paths = StaticDaemonPaths::with_project(
-        config.data_root.join("scenes").join(&scope),
-        std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-    )
-    .with_global(config.data_root.clone());
+    let paths =
+        StaticDaemonPaths::with_project(config.data_root.join("scenes").join(&scope), cwd.clone())
+            .with_global(config.data_root.clone());
     let mut daemon_config = load_daemon_config(
         &config.model,
         config.max_tokens,
@@ -193,7 +201,6 @@ pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
 
     // Built here rather than left to the assembly because the hub keeps a
     // handle on it (`Engine::history`).
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let history_roots = history::path::HistoryRoots::under(&global_dir);
     let migration = history::migrate::migrate_layout(&global_dir);
     if !migration.did_nothing() {

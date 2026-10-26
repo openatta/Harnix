@@ -172,6 +172,7 @@ async fn main() -> anyhow::Result<()> {
         session_idle_timeout_secs: profile.engine.session_idle_timeout_secs,
         permission_prompt_timeout_secs: profile.engine.permission_prompt_timeout_secs,
         data_root: roots.engine.clone(),
+        cwd: None,
     })
     .await?;
     tracing::info!(
