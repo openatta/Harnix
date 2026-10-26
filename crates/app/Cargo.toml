@@ -8,7 +8,7 @@ publish      = false
 description  = "App::builder(): a Harnix process assembled from compile-time modules"
 
 [dependencies]
-harnix-assembly  = { workspace = true }
+harnix-instance  = { workspace = true }
 harnix-authz     = { workspace = true }
 harnix-builtin   = { workspace = true }
 harnix-contract  = { workspace = true }

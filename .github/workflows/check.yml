@@ -48,7 +48,7 @@ jobs:
 
       - name: Unit tests and layering assertions
         run: |
-          cargo test -p harnix -p harnix-app -p harnix-assembly -p harnix-authz -p harnix-builtin \
+          cargo test -p harnix -p harnix-app -p harnix-instance -p harnix-authz -p harnix-builtin \
                      -p harnix-contract -p harnix-module -p harnix-hub -p harnix-transport \
                      -p harnix-testapp
 
@@ -56,7 +56,7 @@ jobs:
       # repository's to answer for.
       - name: Clippy, zero warnings on Harnix's crates
         run: |
-          cargo clippy -p harnix -p harnix-app -p harnix-assembly -p harnix-authz -p harnix-builtin \
+          cargo clippy -p harnix -p harnix-app -p harnix-instance -p harnix-authz -p harnix-builtin \
                        -p harnix-contract -p harnix-module -p harnix-hub -p harnix-transport \
                        -p harnix-testapp \
                        --all-targets --no-deps -- -D warnings

@@ -14,12 +14,13 @@ cannot ask for replay, and outside replay the fixture name means nothing.
 | `says-ready` | The plain path: one turn, text out, no tools |
 | `calls-a-tool` | A `Bash` tool call — the tool row, its result, the details pane |
 | `asks-permission` | A `Bash` call that needs permission — the ask, the broadcast, the answer |
+| `spawns-agent` | An `Agent` call: a sub-agent that is a task of its session, not a session in the list |
 
 ## Re-recording one
 
 ```sh
 # with a model configured in .env
-node tests/api/record-fixture.mjs <name> "<the prompt>"
+node tests/live/record-fixture.mjs <name> "<the prompt>"
 ```
 
 ## Two things they cannot be

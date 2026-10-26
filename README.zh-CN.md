@@ -164,8 +164,8 @@ crates/app        App::builder()：profile、启动顺序、模块生命周期�
 crates/module     编译期模块契约：Module、各注册表、ModuleContext
 crates/transport  通道语义 + 拓扑：帧、握手、静态面、大负载旁路、/apps/<id>/
 crates/authz      这个进程唯一的准入点：主体 × 方法 / 路由 / 主题，默认拒绝，可审计
-crates/hub        会话中枢：订阅、重放、seq、turn 所有权、队列、宿主主题
-crates/assembly   照 profile 把 Agix 引擎在进程内建起来
+crates/hub        会话中枢：实例表、订阅、重放、seq、turn 所有权、队列、宿主主题
+crates/instance   Agix 实例：进程内，或 daemon（spawn 或 attach），都经一条链接
 crates/builtin    Harnix 自己的功能，写成只用公开契约的模块
 crates/contract   上面这些层互相递交的类型，仅此而已
 crates/testapp    给测试用的应用：能用的模块，和故意失败的模块
@@ -203,11 +203,11 @@ scripts/check.sh --with-remote  # 加上配对与 TLS —— 会在本机网络�
 ```sh
 # `--no-deps`：子模块自己的 lint 不该由这个仓库来答。
 cargo clippy -p harnix -p harnix-app -p harnix-module -p harnix-hub -p harnix-transport \
-             -p harnix-authz -p harnix-assembly -p harnix-builtin -p harnix-contract \
+             -p harnix-authz -p harnix-instance -p harnix-builtin -p harnix-contract \
              -p harnix-testapp --all-targets --no-deps -- -D warnings
 # 只跑我们的。被吸收进来的 Agix crate 里有测试假定 Agix 自己是 workspace 根。
 cargo test -p harnix -p harnix-app -p harnix-module -p harnix-hub -p harnix-transport \
-           -p harnix-authz -p harnix-assembly -p harnix-builtin -p harnix-contract \
+           -p harnix-authz -p harnix-instance -p harnix-builtin -p harnix-contract \
            -p harnix-testapp
 
 node tests/style-lint.mjs                        # 样式静态检查（图标尺寸、令牌、id）

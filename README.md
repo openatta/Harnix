@@ -186,8 +186,8 @@ crates/app        App::builder(): profile, start order, module lifecycle, diagno
 crates/module     the compile-time module contract: Module, its registries, ModuleContext
 crates/transport  channel semantics over a chosen topology: frames, handshake, static face, bulk, /apps/<id>/
 crates/authz      the one admission point: subject x method/route/topic, default deny, audited
-crates/hub        the session hub: subscription, replay, seq, turn ownership, queue, host topics
-crates/assembly   builds the Agix engine in-process from a profile
+crates/hub        the session hub: instances, subscription, replay, seq, turn ownership, queue, host topics
+crates/instance   Agix instances: in-process or a daemon (spawned or attached), behind one link
 crates/builtin    Harnix's own features, as modules written against the public contract
 crates/contract   the types those layers hand each other, and nothing else
 crates/testapp    an application for the tests: modules that work and modules that fail on purpose
@@ -228,11 +228,11 @@ Or by hand:
 ```sh
 # `--no-deps` so the submodule's lints are not this repository's to answer for.
 cargo clippy -p harnix -p harnix-app -p harnix-module -p harnix-hub -p harnix-transport \
-             -p harnix-authz -p harnix-assembly -p harnix-builtin -p harnix-contract \
+             -p harnix-authz -p harnix-instance -p harnix-builtin -p harnix-contract \
              -p harnix-testapp --all-targets --no-deps -- -D warnings
 # Ours only. Agix's own tests assume it is its own workspace root.
 cargo test -p harnix -p harnix-app -p harnix-module -p harnix-hub -p harnix-transport \
-           -p harnix-authz -p harnix-assembly -p harnix-builtin -p harnix-contract \
+           -p harnix-authz -p harnix-instance -p harnix-builtin -p harnix-contract \
            -p harnix-testapp
 
 node tests/style-lint.mjs                        # static style checks: icon sizing, tokens, ids

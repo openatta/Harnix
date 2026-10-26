@@ -107,6 +107,10 @@ pub mod codes {
     /// product surface — not a security boundary: the claim is the caller's
     /// own (design §8.5, §14).
     pub const SPACE_MISMATCH: i32 = -31003;
+    /// The instance exists and cannot be reached right now: a daemon that is
+    /// restarting, or one that refused this Harnix (protocol version). The
+    /// instance's status in `harnix.instances` says which.
+    pub const INSTANCE_UNAVAILABLE: i32 = -31004;
 }
 
 /// The process's single admission point.

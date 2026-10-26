@@ -9,8 +9,8 @@
 | 握手与连接 | `connection` | 30 | 0 · M4 |
 | 授权与设备 | `authz` | 17 | 0 · M4 |
 | 会话与轮次 | `sessions` | 55 | 5 |
-| 无头会话 | `headless` | 0 · M3 | 0 · M3 |
-| 实例层 | `instances` | 0 · M3 | — 实例层没有自己的界面；界面上看实例是系统 space 的事（system） |
+| 无头会话 | `headless` | 4 | 0 · M5 |
+| 实例层 | `instances` | 10 | — 实例层没有自己的界面；界面上看实例是系统 space 的事（system） |
 | 模块契约 | `modules` | 12 | 0 · M5 |
 | space 与会话绑定 | `spaces` | 0 · M5 | 0 · M5 |
 | 会话 space | `session-space` | 16 | 5 |
@@ -24,4 +24,4 @@
 | 品牌与主题 | `brand` | 0 · M8 | 0 · M8 |
 | 应用构建 | `build` | — 在脚本层检查（check-pins、check-lock、sync-app-deps），不经协议 | — 构建没有界面 |
 | 桌面壳 | `desktop` | — 桌面壳不加协议面：webview 加载的就是服务端的页面 | 0 · M9 |
-| **合计** | | **152** | **10** |
+| **合计** | | **166** | **10** |

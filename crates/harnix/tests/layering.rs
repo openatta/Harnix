@@ -63,7 +63,7 @@ fn transport_does_not_know_what_a_session_is() {
     assert_ignorant_of(
         "transport",
         &[
-            "harnix-assembly",
+            "harnix-instance",
             "harnix-module",
             "harnix-app",
             "daemon",
@@ -85,7 +85,7 @@ fn authorization_does_not_know_what_a_frame_looks_like() {
             "axum",
             "harnix-transport",
             "harnix-hub",
-            "harnix-assembly",
+            "harnix-instance",
             "daemon",
         ],
         "it sees an authenticated subject and a method name, and nothing else",
@@ -110,12 +110,12 @@ fn the_hub_does_not_know_about_connections() {
     );
 }
 
-/// Assembly builds the engine. It does not know the client-facing protocol
-/// exists.
+/// The instance layer builds engines and links to them. It does not know
+/// the client-facing protocol exists.
 #[test]
-fn assembly_does_not_know_the_client_protocol_exists() {
+fn the_instance_layer_does_not_know_the_client_protocol_exists() {
     assert_ignorant_of(
-        "assembly",
+        "instance",
         &["harnix-transport", "harnix-authz", "harnix-hub", "axum"],
         "it stands up an engine; who talks to it is not its business",
     );
@@ -131,6 +131,21 @@ fn the_module_contract_cannot_reach_the_hub() {
         &["harnix-hub", "harnix-transport", "harnix-app", "daemon"],
         "a module calls through the admission point like everyone else",
     );
+    // It does depend on the instance layer, for templates and native
+    // contributions — and that crate also holds the links. The contract may
+    // name the first and never the second: a module holding a link could run
+    // a turn the hub never subscribed to (design §5.3).
+    let dir = workspace_root().join("crates/module/src");
+    let mut offenders = Vec::new();
+    for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+        let text = std::fs::read_to_string(entry.path()).unwrap_or_default();
+        for needle in ["EngineLink", "InProcessLink", "DaemonLink", "DownLink", "Factory", "build_engine"] {
+            if text.contains(needle) {
+                offenders.push(format!("{} names `{needle}`", entry.path().display()));
+            }
+        }
+    }
+    assert!(offenders.is_empty(), "{}", offenders.join("\n"));
 }
 
 /// The built-ins are modules, written against the public module contract and
@@ -140,7 +155,7 @@ fn the_module_contract_cannot_reach_the_hub() {
 fn the_builtins_use_only_the_public_module_api() {
     assert_ignorant_of(
         "builtin",
-        &["harnix-hub", "harnix-authz", "harnix-assembly", "harnix-app", "daemon"],
+        &["harnix-hub", "harnix-authz", "harnix-instance", "harnix-app", "daemon"],
         "a built-in is a module, and a module reaches the process only through its context",
     );
     // And not through the doors the application itself uses to drive a
@@ -158,6 +173,9 @@ fn the_builtins_use_only_the_public_module_api() {
             "RouteRegistry::new",
             "ErasedModule",
             "into_decls",
+            "Tap::new",
+            "Tap::channel",
+            "TapParts",
         ] {
             if text.contains(needle) {
                 offenders.push(format!("{} uses `{needle}`", entry.path().display()));
@@ -348,7 +366,7 @@ fn harnix_reads_only_its_own_manifest_section() {
 fn every_harnix_dependency_resolves() {
     let crates = [
         "app",
-        "assembly",
+        "instance",
         "authz",
         "builtin",
         "contract",

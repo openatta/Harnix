@@ -13,11 +13,10 @@ export const FEATURES = [
   { id: "connection", name: "握手与连接", ui: { pending: "M4" } },
   { id: "authz", name: "授权与设备", ui: { pending: "M4" } },
   { id: "sessions", name: "会话与轮次" },
-  { id: "headless", name: "无头会话", api: { pending: "M3" }, ui: { pending: "M3" } },
+  { id: "headless", name: "无头会话", ui: { pending: "M5" } },
   {
     id: "instances",
     name: "实例层",
-    api: { pending: "M3" },
     ui: { na: "实例层没有自己的界面；界面上看实例是系统 space 的事（system）" },
   },
   { id: "modules", name: "模块契约", ui: { pending: "M5" } },

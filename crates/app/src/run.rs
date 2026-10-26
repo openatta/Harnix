@@ -4,7 +4,8 @@
 //! 2. **Register** every module, in order: its manifest and what it declares.
 //! 3. **Migrate** every module, in order.
 //! 4. **Build the instances**: `system`, with the native contributions of the
-//!    modules still enabled.
+//!    modules still enabled; the profile's `[[instances]]`; and what the
+//!    ledger says was built from templates.
 //! 5. **Start** every module, in order.
 //! 6. Serve.
 //!
@@ -15,12 +16,15 @@
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, OnceLock, RwLock};
 
-use harnix_assembly::EngineConfig;
+use std::collections::BTreeMap;
+
 use harnix_authz::{Audit, Authorizer, Devices};
 use harnix_builtin::Builtin;
 use harnix_contract::{Gate, Topology};
-use harnix_hub::{Hub, HubGate};
-use harnix_module::{EnvCredentials, InstanceHandle, ModuleContext};
+use harnix_hub::{Hub, HubConfig, HubGate, Registry};
+use harnix_instance::link::{now_ms, DownLink, EngineLink};
+use harnix_instance::{Built, EngineConfig, Facts, Factory, InProcessLink, Ledger, Owner};
+use harnix_module::{Credentials, EnvCredentials, ModuleContext};
 use serde_json::json;
 
 use crate::cli::{self, Command, UiCommand};
@@ -38,10 +42,14 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         .try_init();
 
     let cli = cli::parse(&app.name, &app.version, app.args.clone());
-    if let Some(Command::Ui(UiCommand::Export { dir })) = &cli.command {
-        let count = harnix_transport::StaticFace::export(dir)?;
-        println!("\n  {count} files → {}\n", dir.display());
-        return Ok(());
+    match &cli.command {
+        Some(Command::Ui(UiCommand::Export { dir })) => {
+            let count = harnix_transport::StaticFace::export(dir)?;
+            println!("\n  {count} files → {}\n", dir.display());
+            return Ok(());
+        }
+        Some(Command::Daemon(daemon)) => return harnix_instance::serve_daemon(daemon.args()).await,
+        None => {}
     }
 
     // ── 1. Profile ──────────────────────────────────────────────────────
@@ -107,7 +115,50 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     modules::migrate(&mut records, &mut table).await;
 
     // ── 4. Instances ────────────────────────────────────────────────────
-    let engine = harnix_assembly::build_engine(EngineConfig {
+    let credentials: Arc<dyn Credentials> = app
+        .credentials
+        .clone()
+        .unwrap_or_else(|| Arc::new(EnvCredentials));
+    let resolve = {
+        let credentials = credentials.clone();
+        Arc::new(move |name: &str| credentials.get(name).ok().map(|s| s.expose().to_string()))
+    };
+    let factory = Factory::new(resolve)?;
+    let instances_dir = roots.state.join("instances");
+    let mut registry = Registry {
+        templates: BTreeMap::new(),
+        ledger: Ledger::load(roots.state.join("instances.json"))?,
+        factory,
+        instances_dir: instances_dir.clone(),
+        disabled: records
+            .iter()
+            .filter(|r| !r.is_enabled())
+            .map(|r| r.manifest.id.clone())
+            .collect(),
+    };
+    for decl in &profile.instance_templates {
+        let template = decl.template()?;
+        registry
+            .add_template(template, Owner::Kernel)
+            .map_err(anyhow::Error::msg)?;
+    }
+    // A disabled module's templates are registered too, so what was built
+    // from them is listed as down because of that module rather than as
+    // built from a template that does not exist.
+    for record in records.iter_mut() {
+        for template in record.templates.clone() {
+            if let Err(reason) =
+                registry.add_template(template, Owner::Module(record.manifest.id.clone()))
+            {
+                if record.is_enabled() {
+                    record.disable("registration", reason, &mut table);
+                }
+                break;
+            }
+        }
+    }
+
+    let engine = harnix_instance::build_engine(EngineConfig {
         scene: profile.engine.scene.clone(),
         scenes: profile.engine.scenes.clone(),
         model: profile.engine.model.clone(),
@@ -125,15 +176,37 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         model = %engine.model,
         "engine ready (in-process)"
     );
-    let system = InstanceHandle {
-        id: harnix_hub::SYSTEM.to_string(),
+    let system_facts = Facts {
         data_root: engine.data_root.clone(),
-        recordings_root: engine.recordings_root.clone(),
+        recordings_root: Some(engine.recordings_root.clone()),
         history: engine.history.clone(),
         active_scenes: engine.active_scenes.clone(),
-        model: engine.model.clone(),
+        model: Some(engine.model.clone()),
+        has_credentials: engine.has_credentials,
     };
     let history = engine.history.clone();
+    let system_link: Arc<dyn EngineLink> = InProcessLink::start(engine).await;
+
+    // The profile's other instances. One that cannot be built is listed
+    // down with the reason, and the rest start: an instance is not the
+    // process.
+    let mut fixed = Vec::new();
+    for decl in &profile.instances {
+        if decl.id == harnix_hub::SYSTEM {
+            anyhow::bail!("[[instances]] cannot be called `system`: that is the profile's [engine]");
+        }
+        harnix_instance::templates::check_value("[[instances]] id", &decl.id)
+            .map_err(anyhow::Error::msg)?;
+        let root = instances_dir.join(decl.data_root.clone().unwrap_or_else(|| decl.id.clone()));
+        let built = match decl.carrier() {
+            Ok(carrier) => match registry.factory.build(&decl.id, &carrier, root).await {
+                Ok(built) => built,
+                Err(e) => down(carrier.carrier(), format!("{e:#}")),
+            },
+            Err(e) => down(harnix_instance::Carrier::InProcess, format!("{e:#}")),
+        };
+        fixed.push((decl.id.clone(), built));
+    }
 
     if let Some(dir) = &cli.replay_dir {
         tracing::warn!(dir = %dir.display(), "replaying recordings; no model will be called");
@@ -146,7 +219,30 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         max_upload_bytes: harnix_contract::MAX_UPLOAD_BYTES,
         replay_max_frames: harnix_hub::REPLAY_MAX_FRAMES,
     };
-    let hub = Hub::new(engine, cli.replay_dir.clone(), limits).await?;
+    let hub = Hub::new(HubConfig {
+        replay_from: cli.replay_dir.clone(),
+        limits,
+        prompt_timeout_secs: profile.engine.permission_prompt_timeout_secs,
+        registry,
+    });
+    let started = now_ms();
+    hub.add_instance(
+        harnix_hub::SYSTEM,
+        Built {
+            link: system_link,
+            facts: system_facts,
+        },
+        None,
+        BTreeMap::new(),
+        Owner::Kernel,
+        started,
+    )
+    .await;
+    for (id, built) in fixed {
+        hub.add_instance(&id, built, None, BTreeMap::new(), Owner::Kernel, started)
+            .await;
+    }
+    hub.restore().await;
     for record in records.iter().filter(|r| r.is_enabled()) {
         for topic in &record.topics {
             hub.declare_topic(&topic.name, topic.params.clone()).await;
@@ -188,15 +284,10 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     let kernel = Arc::new(ProcessKernel {
         gate: OnceLock::new(),
         hub: hub.clone(),
-        system,
     });
     let _ = kernel.gate.set(gate.clone());
 
     // ── 5. Start ────────────────────────────────────────────────────────
-    let credentials = app
-        .credentials
-        .clone()
-        .unwrap_or_else(|| Arc::new(EnvCredentials));
     for record in records.iter_mut() {
         if !record.is_enabled() {
             continue;
@@ -220,6 +311,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
             Err(e) => {
                 app_gate.unbind(&record.declared);
                 record.disable("start", format!("{e:#}"), &mut authorizer.table_mut());
+                hub.module_disabled(&record.manifest.id).await;
                 if !record.status.scenes.is_empty() {
                     record.status.note = Some(format!(
                         "its scenes ({}) stay in the system instance until the next start; \
@@ -391,6 +483,14 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
             .join(std::process::id().to_string()),
     );
     Ok(())
+}
+
+fn down(carrier: harnix_instance::Carrier, reason: String) -> Built {
+    tracing::error!(%reason, "instance not built");
+    Built {
+        link: DownLink::new(carrier, reason),
+        facts: Facts::default(),
+    }
 }
 
 /// Write the token readable by its owner only (IPDrun N-302).

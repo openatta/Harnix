@@ -104,15 +104,24 @@ scene = "default"
 [[instances]]                    # 固定的实例（M3）
 id = "ci-runner"
 carrier = "spawn"                # spawn | attach | in_process
+[instances.engine]               # 与 [engine] 同形：scene、scenes、model……
 scene = "ci"
 
-[[instance_templates]]           # 界面可以按它建实例（M3）
+[[instances]]
+id = "shared"
+carrier = "attach"               # 别人起的 daemon，只给这个 Harnix 用
+[instances.attach]
+socket = "/run/agix/shared.sock" # 或 tcp = "127.0.0.1:7878" 加 token = "<凭据名>"
+
+[[instance_templates]]           # 界面可以按它建实例（M3）；profile 里的模板只能 spawn 或 attach
 id = "sandbox"
 carrier = "spawn"
-scene = "general"
-data_root = "instances/sandbox/{name}"
-params = ["name"]
+data_root = "sandbox/{team}/{name}"   # 在 .harnix/instances/ 下；{name} 是实例名
+params = ["team"]                # 除了 name 之外放开给调用方填的参数
 ui = true
+max = 4
+[instance_templates.engine]
+scene = "general"
 
 [modules.watchlist]              # 你的模块的配置段（M2）
 db = "watchlist.sqlite"
@@ -265,7 +274,7 @@ Harnix 只管什么时候迁、失败了怎么办，不管用什么迁。数据�
 ```rust
 fn engine(&self, e: &mut EngineContrib) {
     e.scene(research_scene());
-    e.customize_session(|b| b.native_tool(QuoteTool::default()));
+    e.customize_session(|b, _cx| b.native_tool(QuoteTool::default()));
 }
 ```
 
@@ -279,25 +288,40 @@ fn engine(&self, e: &mut EngineContrib) {
 ```rust
 fn templates(&self, t: &mut InstanceTemplates) {
     // 进程内：能带原生贡献。适合「这个 space 要一台带交易工具的引擎」
-    t.in_process("research")
-        .scene(research_scene())
-        .customize_session(|b| b.native_tool(OrderTool::default()))
-        .data_root("instances/research");
+    let mut contrib = EngineContrib::new();
+    contrib.scene(research_scene());
+    contrib.customize_session(|b, _cx| b.native_tool(OrderTool::default()));
+    t.add(InstanceTemplate::new("research", TemplateCarrier::InProcess {
+        engine: EngineProfile { scene: "research".into(), ..EngineProfile::default() },
+        contrib,
+    }));
 
-    // daemon：配置完全独立（不同的 MCP、凭据），崩溃与资源也隔离；不能带原生贡献
-    t.spawn("sandbox")
-        .scene("general")
-        .data_root("instances/sandbox/{name}")
-        .param("name")
-        .ui(true);                       // 允许界面按它建
+    // daemon：崩溃与资源也隔离；不能带原生贡献
+    t.add(
+        InstanceTemplate::new("sandbox", TemplateCarrier::Spawn {
+            engine: EngineProfile { scene: "general".into(), ..EngineProfile::default() },
+            program: None,               // None = 本二进制的 `daemon` 子命令，版本天然一致
+            args: vec![],
+        })
+        .data_root("sandbox/{name}")
+        .ui()                            // 允许界面按它建
+        .max(4),
+    );
 }
 
 async fn start(&self, ctx: ModuleContext) -> anyhow::Result<()> {
-    // 幂等：账本里有就复用，没有就建
-    let research = ctx.instances().ensure("research", "research", Params::none()).await?;
+    // 模板的全名带模块 id 前缀：`<模块>.<模板>`。幂等：这个名字已经按这个模板建过就直接返回
+    ctx.instances().ensure("helm.research", "helm-research", BTreeMap::new()).await?;
     ...
 }
 ```
+
+- 实例的 id 就是建它时给的 `name`，全进程唯一；数据根在 `.harnix/instances/` 下，按模板的
+  `data_root` 填。名字和参数只能是字母、数字、`-`、`_`、`.`，不能以 `.` 开头。
+- 模块能按**自己的**模板和 profile 的模板建；界面只能按 `ui` 模板建，只能填模板放开的参数，多填
+  一个就拒绝。`ctx.instances().stop(id)` 停掉并从账本删掉（数据根留着）。
+- 建过的实例记在 `.harnix/instances.json`，重启后统一重建；模板没了或模块停用了，它显示为
+  `down` 并写明原因。
 
 让一个 space 默认用它：space 声明里写 `instance = "template:research"`（第一次在这个 space 里建会话
 时按模板建，之后复用），或者写一台固定实例的 id。
@@ -307,10 +331,12 @@ async fn start(&self, ctx: ModuleContext) -> anyhow::Result<()> {
 | 要什么 | 用 |
 |---|---|
 | 原生 Rust 工具、`SessionCustomizer` | 进程内 |
-| 和 `system` 不同的 MCP、凭据、插件 | daemon（进程内实例要等 Agix issue 03 修好才能配置不同） |
+| 和 `system` 不同的 MCP、凭据、插件 | 两种都行（Agix 0.2.7 起进程内的几台互相隔离） |
 | 崩溃、内存与 Harnix 隔开 | daemon |
 
-一台 daemon 只服务一个 Harnix；不要让别的客户端也连它。
+一台 daemon 只服务一个 Harnix；不要让别的客户端也连它。spawn 的 daemon 由 Harnix 看护：挂了就重新拉起，
+实例在这期间是 `degraded`，正在看的会话在它回来后 resync；Harnix 退出（哪怕被 `kill -9`）它也跟着退出。
+attach 的 daemon 握手时比对协议版本，不一致就 `down`，原因里写明两边的版本。
 
 ### 6.3 运行期 Agix 插件包
 
@@ -326,13 +352,12 @@ Agent 侧的第三方扩展照旧装到 Agix（WASM / QuickJS），能力门控�
 
 ```rust
 let s = ctx.sessions().create(SessionSpec {
-    instance: research.id(),
-    space: "watchlist".into(),
+    instance: Some("helm-research".into()),   // 省略就是 system
     scene: Some("research".into()),
     project_root: Some(root),
     provider: Some("anthropic".into()),
     model: Some(model),
-    permission_mode: PermissionMode::Default,
+    permission_mode: Some("default".into()),
     output_schema: None,
     ..Default::default()
 }).await?;
@@ -342,15 +367,21 @@ ctx.sessions().send(&s, "总结今天的异动", OnBusy::Queue).await?;
 let mut tap = ctx.sessions().tap(&s).await?;
 while let Some(item) = tap.next().await {
     match item {
-        TapItem::Event(ev) => handle(ev),
-        TapItem::Lagged { last_seq } => tap.catch_up(last_seq).await?, // 你读慢了，补齐
+        TapEvent::Frame(frame) => handle(frame),          // 和客户端收到的帧一样：{method, params}
+        TapEvent::Lagged { last_seq } => {                // 你读慢了
+            let attached = tap.catch_up().await?;         // 缓冲里还有的补回来
+            // 已经落进 transcript 的那部分按 attached["history_total"] 用 session.history 读
+        }
     }
 }
 ```
 
-- `OnBusy`：`Queue`（排队，默认）、`Reject`、`Interrupt`（插队首并中断本轮）、`Steer`（在步骤边界
-  送进运行中的一轮）。
-- **tap 会落后**：它是有界通道，中枢不会为了等你而卡住会话。读慢了就收到 `Lagged`，按它补齐。
+- `OnBusy`：`Queue`（排队，默认）、`Reject`、`Interrupt`（中断本轮、丢掉排着的，然后跑这条）、`Steer`
+  （在下一个步骤边界送进运行中的一轮；带附件的照样排队）。
+- **tap 会落后**：它是有界通道（默认 512 帧，`tap_with_capacity` 可调），中枢不会为了等你而卡住会话。
+  落后了就先收到 `Lagged`，再 `catch_up()`：和刷新页面的客户端走同一条路。
+- `open(instance, session_id)` 拿一个已有的会话（内存里的或只在磁盘上的）；`interrupt`、`close` 同名。
+- 实例重连期间的发送进队列，实例回来、会话 resync 之后照常跑。
 - 会话的全名是 `(instance, session)`，任何地方都带着实例。
 
 ### 7.2 往对话里写卡片：扩展条目（M7 起）

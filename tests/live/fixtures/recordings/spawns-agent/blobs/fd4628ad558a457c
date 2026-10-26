@@ -1,0 +1,1 @@
+{"role":"user","content":[{"type":"text","text":"Use the Agent tool exactly once to launch a general-purpose sub-agent with the description 'list files' and the prompt 'Run ls in the current directory and reply with the file names only.' When it returns, reply with one line: 'sub-agent found:' followed by the names."}]}

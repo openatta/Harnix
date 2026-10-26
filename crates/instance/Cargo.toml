@@ -1,11 +1,11 @@
 [package]
-name = "harnix-assembly"
+name = "harnix-instance"
 version      = "0.3.1-2026102501"
 edition      = "2021"
 rust-version = "1.87"
 license      = "Apache-2.0"
 publish      = false
-description  = "Builds the Agix engine in-process from a declarative profile"
+description  = "Agix instances: built in-process or reached as a daemon, behind one link"
 
 [dependencies]
 harnix-contract = { workspace = true }
@@ -15,6 +15,7 @@ model       = { workspace = true }
 scene       = { workspace = true }
 history     = { workspace = true }
 runtime     = { workspace = true }
+tokio       = { workspace = true }
 tokio-util  = { workspace = true }
 anyhow      = { workspace = true }
 tracing     = { workspace = true }

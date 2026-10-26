@@ -24,6 +24,7 @@ mod events;
 pub mod manifest;
 mod methods;
 mod routes;
+mod sessions;
 
 pub use catalog::{Frequency, Point, PointKind};
 pub use context::{CallContext, InstanceHandle, Kernel, MigrateContext, MigrationReport, ModuleContext};
@@ -32,9 +33,14 @@ pub use events::{EventRegistry, Events, TopicDecl};
 pub use manifest::Manifest;
 pub use methods::{Handler, MethodDecl, MethodRegistry};
 pub use routes::{RouteDecl, RouteRegistry};
+pub use sessions::{
+    Instances, OnBusy, SessionRef, SessionSpec, Sessions, Tap, TapEvent, TapParts, TAP_CAPACITY,
+};
 
 pub use base::interface::credentials::Secret;
-pub use harnix_assembly::EngineContrib;
+pub use harnix_instance::profile::EngineProfile;
+pub use harnix_instance::templates::{AttachTo, InstanceTemplate, InstanceTemplates, TemplateCarrier};
+pub use harnix_instance::EngineContrib;
 pub use harnix_authz::Principal;
 pub use harnix_contract::{RpcError, Subject};
 
@@ -81,6 +87,11 @@ pub trait Module: Send + Sync + 'static {
     /// through a session customizer, a credential source.
     fn engine(&self, _engine: &mut EngineContrib) {}
 
+    /// Templates this module builds its own instances from (design §5.2).
+    /// Ids get the module's id as a prefix (`<id>.<template>`); an
+    /// in-process template may carry native contributions of its own.
+    fn templates(&self, _templates: &mut InstanceTemplates) {}
+
     /// Methods, named `app.<id>.<name>` (built-ins: `harnix.<name>`).
     fn methods(&self, _methods: &mut MethodRegistry) {}
 
@@ -121,6 +132,7 @@ pub const fn assert_api<M: Module>() {
 pub trait ErasedModule: Send + Sync + 'static {
     fn manifest(&self) -> Manifest;
     fn engine(&self, engine: &mut EngineContrib);
+    fn templates(&self, templates: &mut InstanceTemplates);
     fn methods(&self, methods: &mut MethodRegistry);
     fn events(&self, events: &mut EventRegistry);
     fn routes(&self, routes: &mut RouteRegistry);
@@ -136,6 +148,9 @@ impl<M: Module> ErasedModule for M {
     }
     fn engine(&self, engine: &mut EngineContrib) {
         Module::engine(self, engine)
+    }
+    fn templates(&self, templates: &mut InstanceTemplates) {
+        Module::templates(self, templates)
     }
     fn methods(&self, methods: &mut MethodRegistry) {
         Module::methods(self, methods)

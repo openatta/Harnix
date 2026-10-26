@@ -138,6 +138,61 @@ if (live) {
   }
 }
 
+/* ── each in-process instance (design §10.6) ──────────────────────────── */
+//
+// The same process idle twice: with `system` only, and with four more
+// in-process instances declared in its profile. The difference over four is
+// what one instance costs before anyone opens a session in it.
+
+const perInstance = await measureInstances(root).catch((e) => {
+  console.log(`SKIP: per-instance memory — ${e.message}`);
+  return null;
+});
+if (perInstance !== null) {
+  const limit = 4;
+  const within = perInstance <= limit;
+  console.log(`${within ? "ok —" : "FAIL:"} resident memory per idle in-process instance: ${perInstance.toFixed(2)} MB (limit ${limit} MB)`);
+  if (!within) failures += 1;
+}
+
+async function measureInstances(root) {
+  const { spawn, execFileSync: exec } = await import("node:child_process");
+  const { mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const bin = join(root, "target", "release", "harnix");
+  statSync(bin);
+  const EXTRA = 4;
+  const idle = async (extra, port) => {
+    const scratch = mkdtempSync(join(tmpdir(), "harnix-budget-i-"));
+    const profile = join(scratch, "profile.toml");
+    writeFileSync(profile, Array.from({ length: extra },
+      (_, i) => `[[instances]]\nid = "i${i}"\ncarrier = "in_process"\n`).join("\n"));
+    const child = spawn(
+      bin,
+      ["--profile", profile, "--port", String(port), "--headless",
+       "--agix-dir", join(scratch, "agix"), "--data-dir", join(scratch, "projects")],
+      { cwd: makeProject(scratch), env: { ...process.env, ANTHROPIC_API_KEY: "budget-test", RUST_LOG: "error" },
+        stdio: "ignore" },
+    );
+    try {
+      await waitForToken(join(scratch, "projects", ".harnix", "token"), port);
+      await new Promise((r) => setTimeout(r, 3000));
+      const readings = [];
+      for (let i = 0; i < 3; i += 1) {
+        readings.push(Number(exec("ps", ["-o", "rss=", "-p", String(child.pid)], { encoding: "utf8" }).trim()) / 1024);
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      return readings.sort((a, b) => a - b)[1];
+    } finally {
+      try { child.kill(); } catch { /* already gone */ }
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  };
+  const base = await idle(0, 4292);
+  const more = await idle(EXTRA, 4293);
+  return Math.max(0, more - base) / EXTRA;
+}
+
 /**
  * Start a backend, measure it, stop it.
  *

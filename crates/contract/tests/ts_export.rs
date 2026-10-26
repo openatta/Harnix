@@ -78,6 +78,11 @@ fn export_the_protocol_types() {
             "SPACE_MISMATCH",
             codes::SPACE_MISMATCH,
         ),
+        (
+            "Harnix: the instance exists and cannot be reached right now; its status in `harnix.instances` says why.",
+            "INSTANCE_UNAVAILABLE",
+            codes::INSTANCE_UNAVAILABLE,
+        ),
     ] {
         out += &constant(docs, name, value);
     }

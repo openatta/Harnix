@@ -12,6 +12,17 @@ use harnix_authz::{MethodTable, Reach, ENGINE_REFUSALS, HUB_OWNED};
 /// What the application layer answers itself, above the hub.
 pub const APP_METHODS: &[&str] = &["harnix.contributions", "harnix.diagnostics"];
 
+/// Looking into a session and changing its context: the kernel's, and a
+/// module's by grant. A device reaches them through the system space's own
+/// methods, which say what they are doing (design §9.3).
+pub const INSPECTION: &[&str] = &[
+    "session.tasks",
+    "session.stopTask",
+    "session.inspectContext",
+    "session.dropMessages",
+    "session.editMessage",
+];
+
 pub fn table() -> MethodTable {
     let mut table = MethodTable::new()
         // Engine methods a built-in module calls on a person's behalf and no
@@ -34,11 +45,18 @@ pub fn table() -> MethodTable {
             &["session.interrupt", "session.close", "session.delete"],
             Reach::Device,
         )
-        .allow_all(APP_METHODS, Reach::Device);
+        .allow_all(APP_METHODS, Reach::Device)
+        .allow_all(INSPECTION, Reach::Kernel);
 
     // Answered by the authorizer itself, and reachable by anyone that got
     // this far: a subject may always ask what it may do.
     table = table.allow(harnix_authz::REACHABLE, Reach::Device);
+
+    // The instance tree, as whole values. Reading it is a device's: it is
+    // what the system space draws (design §6.3, §9).
+    for (name, _) in harnix_hub::HUB_TOPICS {
+        table = table.allow(&harnix_authz::topic(name), Reach::Device);
+    }
 
     // Methods that exist and are refused, with the reason in the error.
     // Refused explicitly rather than by omission: "unknown method" would read

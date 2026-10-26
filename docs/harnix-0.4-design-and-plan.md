@@ -331,24 +331,33 @@ InstanceTemplate {
 /// 一台实例的连接。中枢看到的就是这些，看不到载体。
 #[async_trait]
 pub trait EngineLink: Send + Sync + 'static {
-    /// 一次 JSON-RPC 调用。流式方法（run_turn、compact、clear）的事件走 `events`，
-    /// 这里只返回最终应答。
-    async fn call(&self, method: &str, params: Value) -> Result<Value, EngineError>;
+    /// 一次 JSON-RPC 调用。流式方法（run_turn、compact、clear）的事件走事件流，
+    /// 这里只返回最终应答。链接不可用时立刻返回 INSTANCE_UNAVAILABLE。
+    async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError>;
 
-    /// 这条链接上全部的异步帧：session.event 与 daemon.event。实例就绪时中枢订阅一次；
-    /// 重连由载体在内部完成，接收端不换。
-    fn events(&self) -> EventReceiver;
+    /// 这条链接上全部的异步帧：session.event、daemon.event，以及链接自己的两种——
+    /// 屏障标记和「重连上了」。只有一个接收端，第一个调用者拿走；重连由载体在内部完成，
+    /// 接收端不换。
+    fn take_events(&self) -> Option<EventReceiver>;
 
-    /// 屏障：之前发出的帧都已经交给 `events` 才返回。中枢结算一轮之前要等它，否则
-    /// `turn_settled` 会超车本轮最后的事件（IPDrun N-105 实测丢过 `turn_complete`）。
-    async fn barrier(&self) -> Result<(), EngineError>;
+    /// 在调用时已经收到的所有帧后面放一个带 id 的屏障标记。中枢结算一轮前写一个，等它从
+    /// 事件流里出来——等的是「已经路由」，不只是「已经收到」，否则 `turn_settled` 会超车
+    /// 本轮最后的事件（IPDrun N-105 实测丢过 `turn_complete`）。
+    async fn mark(&self, id: u64);
 
-    /// 链接状态：Starting / Ready / Degraded { since } / Down { reason }。
+    /// 链接状态：Starting / Ready / Degraded { since_ms, reason } / Down { reason }。
     fn status(&self) -> watch::Receiver<LinkStatus>;
 
+    fn identity(&self) -> Value;           // {version, protocol_version, capabilities}
+    fn carrier(&self) -> Carrier;          // 只给实例列表看，中枢不按它分支
+    fn pid(&self) -> Option<u32> { None }  // spawn 的子进程
     async fn shutdown(&self);
 }
 ```
+
+三种实现：`InProcessLink`（标记走引擎给这条连接的出站队列，先进先出）、`DaemonLink`（读线程先把
+事件交出去再交后面的应答，所以应答到手时它前面的事件已经在流里，标记直接放进流）、`DownLink`
+（建不起来的实例：账本里模板没了、拥有者停用了、载体起不来，列出来是 `down` 加原因）。
 
 **`EngineLink` 是 Harnix 内核里的接口，不对模块开放。** 模块拿到的是 `ctx.instances` 返回的
 `InstanceHandle`，所有调用仍然经过中枢和授权。模块不能绕过中枢直接对一台实例发
@@ -359,7 +368,10 @@ pub trait EngineLink: Send + Sync + 'static {
 `harnix-instance` 持有一张表：`instance → { 载体, 模板, 参数, 拥有者, 所属 space, 数据根, 链接状态,
 版本与协议版本, 能力位, 创建时间 }`。它是 Harnix 自己的状态，不在任何一台引擎里。
 
-账本（`.harnix/`）记按模板建的实例：`instance → (模板, 参数, 拥有者, 所属 space)`。**重启后由 Harnix
+账本（`.harnix/instances.json`）记按模板建的实例：`instance → (模板, 参数, 拥有者, 所属 space)`。
+登记表的活的那一半（每台的链接与路由任务）在中枢里（`harnix_hub::Slot`），模板、账本与怎么建
+（`Factory`）在 `harnix_hub::Registry`；类型都来自 `harnix-instance`。实例的 id 就是建它时给的名字，
+全进程唯一。M5 之前没有 space，界面建的实例拥有者记作 `ui`。**重启后由 Harnix
 统一重建（D20）**：模板还在、拥有者模块启用着，就照账本重建；模板没了或模块停用了，这台实例在
 系统 space 里显示为 `Down`，写明原因，数据根不动。
 
@@ -450,11 +462,16 @@ daemon 对一条通过认证的连接**完全信任**，并且没有逐方法授
 |---|---|---|
 | `harnix.instances` | — | 实例登记表：每台的载体、模板、拥有者、所属 space、链接状态、版本、会话数 |
 | `harnix.instances.sessions` | `instance` | 这台实例的顶层会话：状态（空闲 / 运行 / 排队）、场景、项目根、所属 space、任务数 |
-| `harnix.sessions.tasks` | `instance`、`session` | 这个会话的任务（Agix `session.tasks`）：种类、状态、开始与结束时间、细节；随 `task_started` / `task_finished` 更新 |
+| `harnix.sessions.tasks` | `instance`、`session_id` | 这个会话的任务（Agix `session.tasks`）：种类、状态、开始与结束时间、细节；随 `task_started` / `task_finished` 更新 |
 | `harnix.sessions.status` | — | 所有会话的运行状态（IPDrun R-11），给会话列表用 |
 
 对应的一问一答方法 `harnix.instances.list`、`harnix.instances.sessions`、`harnix.sessions.tasks` 返回同样
-的形状。
+的形状。建、停实例是 `harnix.instances.templates`（调用方能用的模板）、`.create`、`.ensure`、`.stop`，
+谁能用哪个模板、停哪台由调用方的主体决定（§5.2、§5.5）。
+
+值在有人订阅时才算：订阅时现算一次，之后在它读到的东西变了时重算，短时间内的多次变化合成一次。
+订阅一个会话的任务会让中枢订阅这个会话（只限在内存里的会话，不为了看任务把冷会话恢复）——任务事件
+走的是会话自己的事件流。
 
 ### 6.4 其余
 
@@ -804,7 +821,7 @@ React 19 + TypeScript + Vite + Zustand。markdown 与代码高亮沿用 IPDrun �
 | 界面产物（gzip） | ≤ 300 KB | ≤ 300 KB 不变（React + ReactDOM + zustand 约 50 KB） |
 | 后端二进制 | ≤ 48 MB | ≤ 48 MB 不变（`harnix daemon` 不增加依赖；`ts-rs` 只在 `ts` feature 下） |
 | 空载常驻内存 | ≤ 80 MB | ≤ 80 MB，只算 `system` 一台实例 |
-| 每多一台进程内实例 | — | **新增一项，M3 实测后写进表里** |
+| 每多一台进程内实例 | — | ≤ 4 MB（空载）。M3 实测（2026-10-26，release，macOS）：只有 `system` 时 14.5 MB，多 8 台空载的进程内实例 15.5 MB，每台约 0.1 MB，8 台一共多 6 个线程；实例里的会话照「每个空闲会话」那一项另算 |
 
 ---
 
@@ -1029,6 +1046,7 @@ IPDrun 在旧架构上的改动**不合并**，作为需求和参考实现，在
 | `agix-issue-02-context-inspection.md` | 会话 | 「下一次调用将要带的上下文」及每块的来源与 tokens；删除、修改单条消息 | **已落地，Agix 0.2.7**（钉住消息、录像 RPC 推后） |
 | `agix-issue-03-instance-isolation.md` | 实例 | 同一进程里多个会话池互不可见，有测试守住 | **已落地，Agix 0.2.7** |
 | `agix-issue-04-instance-observability.md` | 实例 | 会话与轮的生命周期事件；协议版本与能力位；丢订阅通知；spawn 的就绪 | **已落地，Agix 0.2.7** |
+| `agix-issue-05-resume-recorder.md` | 会话 | 恢复的会话拿不回录制器：`recorder` 不落盘，恢复时又忽略调用带的那份 | 不阻塞。补上之前，实例重启后恢复的会话没有录制（回放测试里会去调真实模型）；中枢照旧在恢复时带上，补上后自动生效 |
 
 每份文件开头写了实际做法与原诉求的出入。
 

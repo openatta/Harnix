@@ -65,6 +65,10 @@ impl Topics {
         }
     }
 
+    pub fn has_subscribers(&self, key: &(String, String)) -> bool {
+        self.subscribers.get(key).is_some_and(|s| !s.is_empty())
+    }
+
     pub fn forget(&mut self, client: ClientId) {
         for set in self.subscribers.values_mut() {
             set.remove(&client);
@@ -90,6 +94,9 @@ impl Topics {
 impl crate::Hub {
     /// `harnix.subscribe { topic, params? }` → `{ value }`: the current value
     /// now, every later one as `harnix.topic`.
+    ///
+    /// The hub's own topics are computed now rather than taken from the last
+    /// published value: nothing recomputes them while nobody watches.
     pub(crate) async fn subscribe(
         &self,
         subject: &harnix_contract::Subject,
@@ -97,10 +104,49 @@ impl crate::Hub {
     ) -> Result<Value, RpcError> {
         let client = crate::session::client_of(subject, &params)?;
         let (topic, args) = topic_params(&params)?;
+        let key = self.inner.lock().await.topics.key(&topic, &args)?;
+        if crate::HUB_TOPICS.iter().any(|(name, _)| *name == topic) {
+            if topic == "harnix.sessions.tasks" {
+                self.watch_tasks(&args).await;
+            }
+            let value = self.compute(&topic, &args).await?;
+            let mut guard = self.inner.lock().await;
+            guard.topics.publish(key.clone(), args, value);
+            let value = guard.topics.subscribe(client, key);
+            return Ok(json!({"topic": topic, "value": value}));
+        }
         let mut guard = self.inner.lock().await;
-        let key = guard.topics.key(&topic, &args)?;
         let value = guard.topics.subscribe(client, key);
         Ok(json!({"topic": topic, "value": value}))
+    }
+
+    /// Task events travel on the session's own stream, so watching a
+    /// session's tasks needs the hub subscribed to it — if it is in memory.
+    /// A cold session runs no tasks, and is not resumed just to be watched.
+    async fn watch_tasks(&self, args: &Value) {
+        let Ok(key) = self.key_of(args) else {
+            return;
+        };
+        let subscribed = {
+            let guard = self.inner.lock().await;
+            guard.sessions.get(&key).is_some_and(|s| s.subscribed)
+        };
+        if subscribed {
+            return;
+        }
+        if let Ok(resp) = self
+            .call(&key.0, "session.subscribe", json!({"session_id": key.1}))
+            .await
+        {
+            let mut guard = self.inner.lock().await;
+            let state = guard.sessions.entry(key).or_default();
+            state.subscribed = true;
+            state.pending_prompts = resp
+                .get("pending_prompts")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+        }
     }
 
     pub(crate) async fn unsubscribe(

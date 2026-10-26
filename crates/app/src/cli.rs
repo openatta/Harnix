@@ -5,13 +5,64 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 
 use clap::{CommandFactory, FromArgMatches, Parser};
-use harnix_assembly::Profile;
+use harnix_instance::Profile;
 
 #[derive(clap::Subcommand, Debug)]
 pub(crate) enum Command {
     /// Work with the interface this binary carries.
     #[command(subcommand)]
     Ui(UiCommand),
+    /// Serve one Agix engine on a unix socket, as a daemon instance.
+    ///
+    /// What a `spawn` instance runs: this binary links Agix already, so the
+    /// daemon is the same build and speaks the same protocol. Not for
+    /// starting by hand, though nothing stops it.
+    #[command(hide = true)]
+    Daemon(DaemonCommand),
+}
+
+#[derive(clap::Args, Debug)]
+pub(crate) struct DaemonCommand {
+    #[arg(long)]
+    pub data_root: PathBuf,
+    #[arg(long)]
+    pub socket: PathBuf,
+    #[arg(long, default_value = "coding")]
+    pub scene: String,
+    #[arg(long, value_delimiter = ',')]
+    pub scenes: Vec<String>,
+    #[arg(long, default_value = "claude-sonnet-4-6")]
+    pub model: String,
+    #[arg(long, default_value = "2000")]
+    pub max_tokens: u32,
+    #[arg(long, default_value = "32")]
+    pub session_cap: usize,
+    #[arg(long, default_value = "3600")]
+    pub session_idle_timeout: u64,
+    #[arg(long, default_value = "300")]
+    pub permission_prompt_timeout: u64,
+    /// Exit when stdin closes: how a spawned daemon follows its parent out.
+    #[arg(long)]
+    pub exit_with_stdin: bool,
+}
+
+impl DaemonCommand {
+    pub fn args(&self) -> harnix_instance::DaemonArgs {
+        harnix_instance::DaemonArgs {
+            data_root: self.data_root.clone(),
+            socket: self.socket.clone(),
+            engine: harnix_instance::EngineProfile {
+                scene: self.scene.clone(),
+                scenes: self.scenes.clone(),
+                model: self.model.clone(),
+                max_tokens: self.max_tokens,
+                session_cap: self.session_cap,
+                session_idle_timeout_secs: self.session_idle_timeout,
+                permission_prompt_timeout_secs: self.permission_prompt_timeout,
+            },
+            exit_with_stdin: self.exit_with_stdin,
+        }
+    }
 }
 
 #[derive(clap::Subcommand, Debug)]

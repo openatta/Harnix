@@ -19,30 +19,35 @@
 //!    unchanged, so a send during a turn is queued here and sent when the
 //!    turn settles.
 //!
+//! A session is `(instance, session)`, and the hub reaches each instance
+//! through an [`EngineLink`] without knowing which carrier is behind it
+//! (design §5.3). Its callers are of two kinds with one set of semantics:
+//! clients, and the server side — the kernel and modules (design §6.1).
+//!
 //! This layer knows nothing about HTTP, TLS, connections or topology. It
 //! speaks to `dyn FrameSink`, which is "a downstream that can take frames",
 //! and that is all it ever learns about the other side.
 
 mod clients;
+mod instances;
+mod lifecycle;
 mod replay;
 mod session;
 mod topics;
 mod turns;
+mod views;
 
 pub use clients::ClientId;
+pub use instances::{Registry, Slot};
 pub use replay::{MAX_BYTES as REPLAY_MAX_BYTES, MAX_FRAMES as REPLAY_MAX_FRAMES};
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::AtomicU64;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock};
 
-use daemon::rpc::{Client, FrameSink as EngineFrameSink, RpcRequest, RpcResponse, Sink};
-use daemon::DaemonServer;
-use harnix_assembly::Engine;
-use harnix_contract::{codes, Frame, FrameSink, Gate, RpcError, Subject};
+use harnix_contract::{codes, FrameSink, Gate, RpcError, Subject};
 use serde_json::{json, Value};
-use tokio::sync::{Mutex, RwLock};
-use tracing::debug;
+use tokio::sync::{oneshot, Mutex, RwLock};
 
 use clients::Clients;
 use session::SessionState;
@@ -82,11 +87,25 @@ pub const HUB_METHODS: &[&str] = &[
     "harnix.queue.remove",
     "harnix.subscribe",
     "harnix.unsubscribe",
+    "harnix.instances.list",
+    "harnix.instances.templates",
+    "harnix.instances.sessions",
+    "harnix.instances.create",
+    "harnix.instances.ensure",
+    "harnix.instances.stop",
+    "harnix.sessions.tasks",
 ];
 
-/// The instance every process has. Until instances arrive (M3) it is the
-/// only one, and a call naming any other is refused rather than quietly sent
-/// here.
+/// The hub's own topics: the instance tree as whole values (design §6.3).
+/// Each with the parameters it is subscribed by.
+pub const HUB_TOPICS: &[(&str, &[&str])] = &[
+    ("harnix.instances", &[]),
+    ("harnix.instances.sessions", &["instance"]),
+    ("harnix.sessions.tasks", &["instance", "session_id"]),
+    ("harnix.sessions.status", &[]),
+];
+
+/// The instance every process has: the profile's `[engine]`.
 pub use harnix_contract::SYSTEM_INSTANCE as SYSTEM;
 
 /// A session's full name. Two instances may each have a session `s1`; they
@@ -98,17 +117,26 @@ struct Inner {
     clients: Clients,
     sessions: HashMap<SessionKey, SessionState>,
     topics: topics::Topics,
+    /// In replay, which recording each session was created to play. The
+    /// engine keeps none across a restart of its own (Agix: `recorder` is not
+    /// persisted), so a session resumed in a daemon that came back would
+    /// otherwise call the model for real.
+    recordings: HashMap<SessionKey, String>,
 }
 
 pub struct Hub {
     /// Where recordings are played back from, when this process was started
     /// in replay. `None` is the ordinary case: record, never play.
     replay_from: Option<std::path::PathBuf>,
-    server: Arc<DaemonServer>,
-    client: Arc<Client>,
-    engine: Engine,
+    instances: StdRwLock<BTreeMap<String, Arc<Slot>>>,
+    registry: Mutex<Registry>,
     inner: Arc<Mutex<Inner>>,
     next_client: AtomicU64,
+    barriers: StdMutex<HashMap<u64, oneshot::Sender<()>>>,
+    next_barrier: AtomicU64,
+    /// Topic values waiting to be recomputed, so a burst of changes costs one
+    /// computation rather than one each.
+    refreshing: StdMutex<HashSet<(String, String)>>,
     /// Interface modules from installed packages, told to a client at hello.
     /// Held here rather than resolved per call because it changes when a
     /// package is installed, not when someone asks.
@@ -117,38 +145,39 @@ pub struct Hub {
     /// knows all three. Reported rather than restated: `hello` used to build
     /// this object by hand and left `max_upload_bytes` out of it entirely.
     limits: Value,
+    /// How long a permission ask waits for an answer before it is denied
+    /// (R-12): a client shows the countdown.
+    prompt_timeout_secs: u64,
+}
+
+pub struct HubConfig {
+    pub replay_from: Option<std::path::PathBuf>,
+    pub limits: harnix_contract::Limits,
+    pub prompt_timeout_secs: u64,
+    pub registry: Registry,
 }
 
 impl Hub {
-    pub async fn new(
-        engine: Engine,
-        replay_from: Option<std::path::PathBuf>,
-        limits: harnix_contract::Limits,
-    ) -> anyhow::Result<Arc<Self>> {
-        let inner = Arc::new(Mutex::new(Inner::default()));
-        let sink: Sink = Arc::new(HubSink {
-            inner: inner.clone(),
-        });
-        let client = engine.server.accept_connection(sink);
-        let hub = Arc::new(Self {
-            replay_from,
-            server: engine.server.clone(),
-            client,
-            engine,
-            inner,
+    pub fn new(config: HubConfig) -> Arc<Self> {
+        let mut inner = Inner::default();
+        for (name, params) in HUB_TOPICS {
+            inner
+                .topics
+                .declare(name, params.iter().map(|p| p.to_string()).collect());
+        }
+        Arc::new(Self {
+            replay_from: config.replay_from,
+            instances: StdRwLock::new(BTreeMap::new()),
+            registry: Mutex::new(config.registry),
+            inner: Arc::new(Mutex::new(inner)),
             next_client: AtomicU64::new(1),
+            barriers: StdMutex::new(HashMap::new()),
+            next_barrier: AtomicU64::new(1),
+            refreshing: StdMutex::new(HashSet::new()),
             ui_contributions: RwLock::new(json!([])),
-            limits: serde_json::to_value(limits).unwrap_or(json!({})),
-        });
-        // Host-level notifications go to every client.
-        hub.engine_call("daemon.subscribeEvents", json!({}))
-            .await
-            .ok();
-        Ok(hub)
-    }
-
-    pub fn engine(&self) -> &Engine {
-        &self.engine
+            limits: serde_json::to_value(config.limits).unwrap_or(json!({})),
+            prompt_timeout_secs: config.prompt_timeout_secs,
+        })
     }
 
     pub(crate) fn replay_from(&self) -> Option<&std::path::Path> {
@@ -184,45 +213,92 @@ impl Hub {
         guard.clients.send_many(&to, &frame).await;
     }
 
-    /// Which instance a call means: the one it names, or `system`. An
-    /// instance that does not exist is refused by name.
+    pub(crate) fn slot(&self, instance: &str) -> Option<Arc<Slot>> {
+        self.instances
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(instance)
+            .cloned()
+    }
+
+    pub(crate) fn slots(&self) -> Vec<Arc<Slot>> {
+        self.instances
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .cloned()
+            .collect()
+    }
+
+    /// Which instance a call means: the one it names, or `system`. One that
+    /// does not exist is refused by name.
     pub(crate) fn instance_of(&self, params: &Value) -> Result<String, RpcError> {
-        match params.get("instance") {
-            None | Some(Value::Null) => Ok(SYSTEM.to_string()),
-            Some(Value::String(name)) if name == SYSTEM => Ok(SYSTEM.to_string()),
-            Some(other) => Err(RpcError::new(
+        let name = match params.get("instance") {
+            None | Some(Value::Null) => SYSTEM,
+            Some(Value::String(name)) => name.as_str(),
+            Some(other) => {
+                return Err(RpcError::invalid_params(format!(
+                    "`instance` is a name, not {other}"
+                )))
+            }
+        };
+        if self.slot(name).is_none() {
+            return Err(RpcError::new(
                 codes::INSTANCE_NOT_FOUND,
-                format!("there is no instance {other}"),
-            )),
+                format!("there is no instance `{name}`"),
+            ));
         }
+        Ok(name.to_string())
     }
 
-    /// One JSON-RPC call into the engine, in-process. No socket, no frame, no
-    /// id mapping: dispatch returns the response.
-    pub async fn engine_call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
-        let req: RpcRequest = serde_json::from_value(json!({
-            "jsonrpc": "2.0", "method": method, "params": params, "id": 0,
-        }))
-        .map_err(|e| RpcError::invalid_params(e.to_string()))?;
-        debug!(method, "engine call →");
-        let resp = self.server.dispatch_public(req, self.client.clone()).await;
-        debug!(method, ok = resp.error.is_none(), "engine call ←");
-        split(resp)
+    /// One JSON-RPC call into an instance.
+    pub async fn call(&self, instance: &str, method: &str, params: Value) -> Result<Value, RpcError> {
+        let Some(slot) = self.slot(instance) else {
+            return Err(RpcError::new(
+                codes::INSTANCE_NOT_FOUND,
+                format!("there is no instance `{instance}`"),
+            ));
+        };
+        slot.link.call(method, params).await
     }
 
-    /// Return once every frame the engine queued for the hub before this call
-    /// has been routed.
+    /// Return once every frame the instance sent before this call has been
+    /// routed — not merely received.
     ///
-    /// `run_turn`'s reply comes straight back from dispatch, but the turn's
-    /// events travel through the connection's queue — so without this, a
-    /// turn could be settled while its last events (`turn_complete` among
-    /// them) were still in that queue, and watchers would see the settlement
-    /// first. The queue is first in, first out, and a write that waits for
-    /// its own delivery waits for everything ahead of it.
-    pub(crate) async fn barrier(&self) {
-        let marker = serde_json::to_string(&json!({"jsonrpc": "2.0", "method": BARRIER}))
-            .unwrap_or_default();
-        let _ = self.client.send_json(marker).await;
+    /// `run_turn`'s reply can overtake the turn's last events, so without
+    /// this a turn could be settled while `turn_complete` was still on its
+    /// way, and watchers would see the settlement first (IPDrun N-105).
+    pub(crate) async fn barrier(&self, instance: &str) {
+        let Some(slot) = self.slot(instance) else {
+            return;
+        };
+        let id = self
+            .next_barrier
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let (tx, rx) = oneshot::channel();
+        self.barriers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id, tx);
+        slot.link.mark(id).await;
+        // Bounded, because a link that went down between the reply and the
+        // mark will never route it; settling late beats never settling.
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(10), rx).await;
+        self.barriers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&id);
+    }
+
+    pub(crate) fn barrier_reached(&self, id: u64) {
+        if let Some(tx) = self
+            .barriers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&id)
+        {
+            let _ = tx.send(());
+        }
     }
 
     /// Register a client and get the id its frames are addressed by.
@@ -245,35 +321,55 @@ impl Hub {
     }
 
     pub async fn shutdown(&self) {
-        self.server.drop_connection(self.client.id()).await;
-        self.engine.shutdown().await;
+        for slot in self.slots() {
+            slot.stop().await;
+        }
     }
 
-    /// What a client is told once, after the handshake: what this engine is,
-    /// what scenes and commands exist, and what the ceilings are.
+    /// What a client is told once, after the handshake: what the `system`
+    /// engine is, what scenes and commands exist there, every instance and
+    /// the protocol it speaks, and the ceilings.
     async fn hello(&self) -> Result<Value, RpcError> {
         let status = self
-            .engine_call("daemon.status", json!({}))
+            .call(SYSTEM, "daemon.status", json!({}))
             .await
             .unwrap_or(json!({}));
         let scenes = self
-            .engine_call("scene.list", json!({}))
+            .call(SYSTEM, "scene.list", json!({}))
             .await
             .unwrap_or(json!({}));
         let commands = self
-            .engine_call("commands.list", json!({}))
+            .call(SYSTEM, "commands.list", json!({}))
             .await
             .unwrap_or(json!({}));
+        let system = self.slot(SYSTEM);
+        let facts = system.as_ref().map(|s| s.facts.clone()).unwrap_or_default();
+        let instances: Vec<Value> = self
+            .slots()
+            .iter()
+            .map(|slot| {
+                let identity = slot.link.identity();
+                json!({
+                    "id": slot.id,
+                    "carrier": slot.link.carrier(),
+                    "status": *slot.link.status().borrow(),
+                    "version": identity.get("version"),
+                    "protocol_version": identity.get("protocol_version"),
+                })
+            })
+            .collect();
         Ok(json!({
             "protocol_version": harnix_contract::PROTOCOL_VERSION,
             "contrib_api_version": harnix_contract::CONTRIB_API_VERSION,
             "engine": {
-                "model": self.engine.model,
-                "active_scenes": self.engine.active_scenes,
-                "data_root": self.engine.data_root.display().to_string(),
-                "has_credentials": self.engine.has_credentials,
+                "model": facts.model,
+                "active_scenes": facts.active_scenes,
+                "data_root": facts.data_root.display().to_string(),
+                "has_credentials": facts.has_credentials,
                 "status": status,
             },
+            "instances": instances,
+            "permission_prompt_timeout_secs": self.prompt_timeout_secs,
             "scenes": scenes.get("scenes").cloned().unwrap_or(json!([])),
             "commands": commands.get("commands").cloned().unwrap_or(json!([])),
             // Interface modules the installed packages contribute, flat and
@@ -301,7 +397,19 @@ impl Hub {
             "harnix.hello" => return self.hello().await,
             "harnix.subscribe" => return self.subscribe(subject, params).await,
             "harnix.unsubscribe" => return self.unsubscribe(subject, params).await,
-            "harnix.sessions" => return self.sessions(params).await,
+            "harnix.sessions" | "harnix.instances.sessions" => {
+                let instance = self.instance_of(&params)?;
+                return self.sessions_view(&instance).await;
+            }
+            "harnix.instances.list" => return Ok(self.instances_view()),
+            "harnix.instances.templates" => return Ok(self.templates_view(subject).await),
+            "harnix.instances.create" => return self.create_instance(subject, params, false).await,
+            "harnix.instances.ensure" => return self.create_instance(subject, params, true).await,
+            "harnix.instances.stop" => return self.stop_instance(subject, params).await,
+            "harnix.sessions.tasks" => {
+                let key = self.key_of(&params)?;
+                return self.tasks_view(&key).await;
+            }
             "harnix.attach" => return self.attach(subject, params).await,
             "harnix.detach" => return self.detach(subject, params).await,
             "harnix.send" => return self.send(subject, params).await,
@@ -319,12 +427,17 @@ impl Hub {
         // not re-decided here.
         let device = matches!(subject, Subject::Device { .. });
         if PASSTHROUGH.contains(&method) || (!device && is_engine_method(method)) {
-            self.instance_of(&params)?;
-            return self.engine_call(method, without_instance(params)).await;
+            let instance = self.instance_of(&params)?;
+            return self.call(&instance, method, without_instance(params)).await;
         }
         Err(RpcError::not_found(format!(
             "`{method}` is not a method of this process"
         )))
+    }
+
+    /// `(instance, session_id)` from a call's params.
+    pub(crate) fn key_of(&self, params: &Value) -> Result<SessionKey, RpcError> {
+        Ok((self.instance_of(params)?, require_session_id(params)?))
     }
 }
 
@@ -347,46 +460,6 @@ impl Gate for HubGate {
     }
 }
 
-/// The hub's own end of the engine connection: every `session.event` and
-/// `daemon.event` the engine emits arrives here.
-struct HubSink {
-    inner: Arc<Mutex<Inner>>,
-}
-
-#[async_trait::async_trait]
-impl EngineFrameSink for HubSink {
-    async fn send_json(&self, json: String) -> bool {
-        let Ok(frame) = serde_json::from_str::<Value>(&json) else {
-            return true;
-        };
-        // Replies to the hub's own calls come back from `dispatch_public`
-        // directly; anything carrying an id here is not ours to route.
-        if frame.get("id").is_some() {
-            return true;
-        }
-        match frame.get("method").and_then(Value::as_str) {
-            Some("session.event") => {
-                let params = frame.get("params").cloned().unwrap_or(Value::Null);
-                session::route_event(&self.inner, SYSTEM, params).await;
-            }
-            Some("daemon.event") => {
-                let mut params = frame.get("params").cloned().unwrap_or(Value::Null);
-                // Which instance said it: a host event about a session is
-                // about `(instance, session)` like every other frame.
-                if let Some(obj) = params.as_object_mut() {
-                    obj.insert("instance".into(), json!(SYSTEM));
-                }
-                let out = Frame::host(notification("harnix.host_event", params));
-                let guard = self.inner.lock().await;
-                guard.clients.broadcast(&out).await;
-            }
-            Some(BARRIER) => {}
-            other => debug!(method = ?other, "unrouted engine frame"),
-        }
-        true
-    }
-}
-
 /// Whether a name is in one of the engine's namespaces, so a module's grant
 /// can reach it. `harnix.*` and `app.*` never are.
 fn is_engine_method(method: &str) -> bool {
@@ -401,23 +474,9 @@ pub(crate) fn without_instance(mut params: Value) -> Value {
     params
 }
 
-/// The frame `Hub::barrier` writes behind the engine's own.
-const BARRIER: &str = "harnix.barrier";
-
 pub(crate) fn notification(method: &str, params: Value) -> String {
     serde_json::to_string(&json!({"jsonrpc": "2.0", "method": method, "params": params}))
         .unwrap_or_else(|_| String::from("{}"))
-}
-
-fn split(resp: RpcResponse) -> Result<Value, RpcError> {
-    if let Some(error) = resp.error {
-        return Err(RpcError {
-            code: error.code,
-            message: error.message,
-            data: error.data,
-        });
-    }
-    Ok(resp.result.unwrap_or(Value::Null))
 }
 
 pub(crate) fn require_session_id(params: &Value) -> Result<String, RpcError> {

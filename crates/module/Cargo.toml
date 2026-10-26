@@ -10,7 +10,7 @@ description  = "The compile-time module contract: Module, its registries, Module
 [dependencies]
 harnix-contract = { workspace = true }
 harnix-authz    = { workspace = true }
-harnix-assembly = { workspace = true }
+harnix-instance = { workspace = true }
 base        = { workspace = true }
 history     = { workspace = true }
 async-trait = { workspace = true }
@@ -18,4 +18,5 @@ anyhow      = { workspace = true }
 axum        = { workspace = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }
+tokio       = { workspace = true }
 toml        = { workspace = true }

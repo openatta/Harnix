@@ -15,13 +15,15 @@ key = { credential = "probe/key" }
 anything = 1
 `;
 
-export function startTestApp(extra: { seed?: (scratch: string) => void } = {}): Promise<Backend> {
+export function startTestApp(
+  extra: { seed?: (scratch: string) => void; profile?: string } = {},
+): Promise<Backend> {
   return startHarnix(
     launchFor("replay", {
       bin: "harnix-testapp",
-      profile: PROBE_PROFILE,
       env: { HARNIX_CREDENTIAL_PROBE_KEY: "s3cret-value" },
       ...extra,
+      profile: PROBE_PROFILE + (extra.profile ?? ""),
     }),
   );
 }

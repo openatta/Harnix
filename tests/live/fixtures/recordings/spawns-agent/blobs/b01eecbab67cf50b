@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"text","text":"I'll launch the sub-agent once as specified."},{"type":"tool_use","id":"call_00_ET_C6qilTVIgteBU51P6Y996726","name":"Agent","input":{"description":"list files","prompt":"Run ls in the current directory and reply with the file names only.","subagent_type":"general-purpose"}}]}

@@ -10,13 +10,18 @@
 //! | `fails-start` | a failed `start` disables only that module |
 //! | `fails-migrate` | a failed `migrate` disables only that module |
 //! | `probe` (again) | a second module with a taken id is refused at registration |
+//! | `fleet` | its own in-process instance, headless sessions, a tap left unread |
 
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use harnix::axum::routing::get;
 use harnix::prelude::*;
+use harnix::Tap;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tokio::sync::Mutex;
 
 fn main() -> anyhow::Result<()> {
     harnix::App::builder()
@@ -27,6 +32,7 @@ fn main() -> anyhow::Result<()> {
         .module(FailsStart)
         .module(FailsMigrate)
         .module(Duplicate)
+        .module(Fleet)
         .run()
 }
 
@@ -231,4 +237,231 @@ impl Module for Duplicate {
         m.method("echo", Principal::Device)
             .handler(|_cx: CallContext, _p: Value| async move { Ok(json!("the second probe")) });
     }
+}
+
+/* ── fleet ─────────────────────────────────────────────────────────────── */
+
+/// Instances and sessions from the server side (design §5.2, §6.1).
+///
+/// At start it makes sure its own in-process instance exists — a different
+/// scene from `system`, which is enough to tell the two apart — and opens
+/// again every headless session it started in an earlier run.
+struct Fleet;
+
+/// The instance `fleet` builds for itself at start.
+const FLEET_INSTANCE: &str = "fleet-side";
+
+struct FleetState {
+    sessions: Mutex<Vec<SessionRef>>,
+    tap: Mutex<Option<Tap>>,
+}
+
+#[derive(Deserialize)]
+struct HeadlessParams {
+    count: usize,
+    #[serde(default)]
+    instance: Option<String>,
+    project_root: Option<String>,
+    recording: Option<String>,
+    /// Sent to each at once; none leaves them idle.
+    message: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct TapParams {
+    instance: String,
+    session_id: String,
+    #[serde(default = "default_capacity")]
+    capacity: usize,
+}
+
+fn default_capacity() -> usize {
+    harnix::TAP_CAPACITY
+}
+
+#[derive(Deserialize)]
+struct DrainParams {
+    #[serde(default)]
+    catch_up: bool,
+}
+
+impl Fleet {
+    fn ledger(cx: &ModuleContext) -> std::path::PathBuf {
+        cx.data_dir().join("sessions.json")
+    }
+
+    async fn save(cx: &ModuleContext, sessions: &[SessionRef]) -> Result<(), RpcError> {
+        let rows: Vec<Value> = sessions
+            .iter()
+            .map(|s| json!({"instance": s.instance, "session_id": s.session_id}))
+            .collect();
+        std::fs::write(Self::ledger(cx), serde_json::to_vec(&rows).unwrap_or_default())
+            .map_err(|e| RpcError::new(harnix::codes::INTERNAL_ERROR, e.to_string()))
+    }
+}
+
+#[harnix::async_trait]
+impl Module for Fleet {
+    const API_VERSION: u32 = harnix::MODULE_API_VERSION;
+
+    fn manifest(&self) -> Manifest {
+        Manifest::new("fleet", "0.0.1")
+            .disclosure("builds an instance of its own and runs headless sessions")
+            .grant("session.inspectContext")
+    }
+
+    fn templates(&self, t: &mut InstanceTemplates) {
+        t.add(InstanceTemplate::new(
+            "side",
+            TemplateCarrier::InProcess {
+                engine: EngineProfile {
+                    scene: "chat".into(),
+                    ..EngineProfile::default()
+                },
+                contrib: EngineContrib::new(),
+            },
+        ));
+    }
+
+    fn methods(&self, m: &mut MethodRegistry) {
+        m.method("headless", Principal::Device)
+            .describe("starts `count` sessions with a model each, and sends each the message if there is one")
+            .handler(|cx: CallContext, p: HeadlessParams| async move {
+                let module = cx.module().clone();
+                let state = cx.state::<FleetState>()?;
+                let mut started = Vec::new();
+                for i in 0..p.count {
+                    let session = module
+                        .sessions()
+                        .create(SessionSpec {
+                            instance: p.instance.clone(),
+                            scene: Some("coding".into()),
+                            project_root: p.project_root.clone().map(Into::into),
+                            model: Some(format!("headless-model-{i}")),
+                            recording: p.recording.clone(),
+                            ..SessionSpec::default()
+                        })
+                        .await?;
+                    let sent = match &p.message {
+                        Some(message) => module.sessions().send(&session, message, OnBusy::Queue).await?,
+                        None => Value::Null,
+                    };
+                    started.push(json!({
+                        "instance": session.instance,
+                        "session_id": session.session_id,
+                        "sent": sent,
+                    }));
+                    state.sessions.lock().await.push(session);
+                }
+                Fleet::save(&module, &state.sessions.lock().await).await?;
+                Ok(json!({"started": started}))
+            });
+        m.method("sessions", Principal::Device)
+            .describe("the headless sessions this module started, in any run")
+            .handler(|cx: CallContext, _p: Value| async move {
+                let state = cx.state::<FleetState>()?;
+                let rows: Vec<Value> = state
+                    .sessions
+                    .lock()
+                    .await
+                    .iter()
+                    .map(|s| json!({"instance": s.instance, "session_id": s.session_id}))
+                    .collect();
+                Ok(json!({"sessions": rows}))
+            });
+        m.method("model", Principal::Device)
+            .describe("which model a session runs, as the engine says")
+            .handler(|cx: CallContext, p: Value| async move {
+                let context = cx
+                    .module()
+                    .call(
+                        "session.inspectContext",
+                        json!({"instance": p["instance"], "session_id": p["session_id"]}),
+                    )
+                    .await?;
+                Ok(json!({"model": context.get("model")}))
+            });
+        m.method("tap", Principal::Device)
+            .describe("opens a tap on a session and does not read it")
+            .handler(|cx: CallContext, p: TapParams| async move {
+                let state = cx.state::<FleetState>()?;
+                let session = SessionRef {
+                    instance: p.instance,
+                    session_id: p.session_id,
+                };
+                let tap = cx
+                    .module()
+                    .sessions()
+                    .tap_with_capacity(&session, p.capacity)
+                    .await?;
+                *state.tap.lock().await = Some(tap);
+                Ok(json!({"open": true}))
+            });
+        m.method("drain", Principal::Device)
+            .describe("reads the tap until it has been quiet for a moment")
+            .handler(|cx: CallContext, p: DrainParams| async move {
+                let state = cx.state::<FleetState>()?;
+                let mut guard = state.tap.lock().await;
+                let Some(tap) = guard.as_mut() else {
+                    return Err(RpcError::invalid_params("no tap is open"));
+                };
+                let mut frames = Vec::new();
+                let mut lagged = Vec::new();
+                let mut history_total = None;
+                loop {
+                    let next = tokio::time::timeout(Duration::from_millis(500), tap.next()).await;
+                    match next {
+                        Ok(Some(TapEvent::Frame(frame))) => frames.push(json!({
+                            "method": frame.get("method"),
+                            "seq": frame.get("params").and_then(|p| p.get("seq")),
+                        })),
+                        Ok(Some(TapEvent::Lagged { last_seq })) => {
+                            lagged.push(last_seq);
+                            if p.catch_up {
+                                let attached = tap.catch_up().await?;
+                                history_total = attached.get("history_total").cloned();
+                            }
+                        }
+                        Ok(None) | Err(_) => break,
+                    }
+                }
+                Ok(json!({
+                    "frames": frames,
+                    "lagged": lagged,
+                    "last_seq": tap.last_seq(),
+                    "history_total": history_total,
+                }))
+            });
+    }
+
+    async fn start(&self, cx: ModuleContext) -> anyhow::Result<()> {
+        cx.instances()
+            .ensure("fleet.side", FLEET_INSTANCE, BTreeMap::new())
+            .await
+            .map_err(|e| anyhow::anyhow!("{}", e.message))?;
+        let mut sessions = Vec::new();
+        if let Ok(text) = std::fs::read_to_string(Fleet::ledger(&cx)) {
+            let rows: Vec<Value> = serde_json::from_str(&text).unwrap_or_default();
+            for row in rows {
+                let (Some(instance), Some(session_id)) =
+                    (row["instance"].as_str(), row["session_id"].as_str())
+                else {
+                    continue;
+                };
+                match cx.sessions().open(instance, session_id).await {
+                    Ok(session) => sessions.push(session),
+                    Err(e) => tracing_warn(&format!("{session_id}: {}", e.message)),
+                }
+            }
+        }
+        cx.provide(FleetState {
+            sessions: Mutex::new(sessions),
+            tap: Mutex::new(None),
+        });
+        Ok(())
+    }
+}
+
+fn tracing_warn(message: &str) {
+    eprintln!("fleet: a headless session did not reopen: {message}");
 }

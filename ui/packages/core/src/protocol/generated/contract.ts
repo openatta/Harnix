@@ -28,6 +28,8 @@ export const HANDSHAKE_REFUSED = -31001;
 export const INSTANCE_NOT_FOUND = -31002;
 /** Harnix: the session does not belong to the space or instance the caller claimed. Guards against a client's bug, not a security boundary. */
 export const SPACE_MISMATCH = -31003;
+/** Harnix: the instance exists and cannot be reached right now; its status in `harnix.instances` says why. */
+export const INSTANCE_UNAVAILABLE = -31004;
 
 /**
  * How the five channel semantics are carried.

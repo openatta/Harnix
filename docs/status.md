@@ -9,9 +9,9 @@
 
 | 项 | 值 |
 |---|---|
-| 阶段 | **M3 实例层与服务端会话**（M0–M2 已完成，本地提交，未发布） |
-| 当前里程碑 | M3 |
-| 当前任务 | M3 开始前的设计（见「进行中」） |
+| 阶段 | **M4 前端底座**（M0–M3 已完成，本地提交，未发布） |
+| 当前里程碑 | M4 |
+| 当前任务 | M4 前端底座（见「进行中」） |
 | 下一步 | 见「进行中」。维护者 2026-10-26 下令：A 做完后接着做 M0–M6（系统 space 与界面迁移），M7–M9 不在这一轮 |
 | 最后更新 | 2026-10-26 |
 
@@ -69,8 +69,8 @@
 | M0 引擎基线与构建方式 | 0.3.z | ✅（未发布） | `923f8cd`、`d407316`、`156100e`；`check.sh` 全绿 |
 | M1 LIVE 测试框架 | 0.3.z | ✅（未发布） | 「Run the suites under Playwright Test…」那个提交；`check.sh` 全绿（remote 未跑） |
 | M2 模块契约与应用装配 | **0.4.0** | ✅（未发布） | 「Assemble the host from modules…」那个提交；`check.sh` 全绿（remote 未跑）。0.4.0 的推送与标签等维护者点头 |
-| M3 实例层与服务端会话 | 0.4.z | **进行中** | M3-3 的完整版、M3-5 的删除依赖 Agix issue 03、04 |
-| M4 前端底座 | — | 未开始 | 依赖 M1，可与 M2、M3 并行 |
+| M3 实例层与服务端会话 | 0.4.z | ✅（未发布） | 「Stand instances behind one link…」那个提交；`check.sh` 全绿（remote 未跑） |
+| M4 前端底座 | — | **进行中** | |
 | M5 Space 模型 | 0.4.z | 未开始 | 依赖 M3、M4 |
 | M6 系统 space | 0.4.z | 未开始 | M6-5 依赖 Agix issue 01、02 |
 | M7 模块的对话与链接能力 | 0.4.z | 未开始 | |
@@ -134,6 +134,23 @@ M1 顺带修了一处：`include_dir!("ui")` 把 `ui/packages/**/node_modules` �
 | M2-9 传输小项 | ✅ | 从 IPDrun 的 vendor 回流 |
 | M2-10 `templates/app` 与脚本 | ✅ | `tests/app-template.mjs` 离线构建过；`check.sh` 新增 template 层 |
 
+### M3 任务
+
+| 任务 | 状态 | 说明 |
+|---|---|---|
+| M3-1 `harnix-instance`、`EngineLink`、进程内载体 | ✅ | `crates/instance`（由 assembly 改名）：`link.rs`（trait、`LinkStatus`、`DownLink`）、`inproc.rs` |
+| M3-2 登记表、账本、模板、`ctx.instances` | ✅ | 中枢的 `Slot` / `Registry`，`.harnix/instances.json`；模板来自 profile 与模块的 `templates()`；`harnix.instances.create / ensure / stop / templates` |
+| M3-3 第二台进程内实例配置不同也隔离 | ✅ | `instances` 套件：场景不同、会话互不可见、数据根各自一份。MCP 与原生工具的不同靠 Agix 的 `two_pools_one_process` 守着，Harnix 侧没有单测 |
+| M3-4 daemon 载体 | ✅ | `daemon_link.rs`：unix socket / TCP+token、协议版本比对、spawn 与看护（stdin 断了子进程退出）、`harnix daemon` 子命令（隐藏） |
+| M3-5 resync、`subscription_dropped`、`daemon.event` | ✅ | `crates/hub/src/lifecycle.rs`；不是中枢发起的轮记为 external，`turn_completed` 或 resync 结算 |
+| M3-6 `ctx.sessions` | ✅ | `crates/module/src/sessions.rs`：`SessionSpec`（provider、model、`output_schema`……）、`OnBusy` 四种 |
+| M3-7 tap | ✅ | 有界（默认 512），满了丢帧记落后，`Lagged` 先于后来的帧报出，`catch_up` 按 seq 补 |
+| M3-8 实例树主题与方法 | ✅ | `harnix.instances`、`.instances.sessions`、`.sessions.tasks`、`.sessions.status`；订阅时现算，变化时合并重算 |
+| M3-9 `hello` 带提问超时与各实例协议版本 | ✅ | |
+| M3-10 实测每台进程内实例的内存 | ✅ | 空载约 0.1–0.2 MB/台，写进设计 §10.6；`tests/budget.mjs` 加了一项（≤ 4 MB） |
+
+M3 发现的 Agix 缺口：`.local/agix-issue-05-resume-recorder.md`（恢复的会话拿不回录制器），不阻塞，设计 §17 已登记。
+
 后面里程碑的任务表在开始那个里程碑时从 roadmap 抄过来。
 
 ---
@@ -165,6 +182,8 @@ M1 顺带修了一处：`include_dir!("ui")` 把 `ui/packages/**/node_modules` �
 
 | 日期 | 事 |
 |---|---|
+| 2026-10-26 | M3 完成，`check.sh` 全绿（remote 未跑）。开始 M4 |
+| 2026-10-26 | M3 代码完成：实例层（进程内 / spawn / attach 三种载体一条 `EngineLink`）、模板与账本、断线 resync、外部发起的轮、`ctx.sessions` 与 tap、实例树主题。新增 LIVE 套件 4 个（17 个用例）、录像 `spawns-agent`、测试启动器的 `restart` / `halt`。发现 Agix 缺口 05（恢复的会话拿不回录制器）。每台空载进程内实例约 0.1–0.2 MB |
 | 2026-10-26 | M2 完成：`harnix-module`、`harnix-app`、内建改模块、三种主体、`/apps/<id>/`、失败隔离、配置段与凭据、协议带 `instance`、传输小项、`templates/app`。`check.sh` 全绿（remote 未跑）。0.4.0 未发布：推送与标签等维护者点头。开始 M3 |
 | 2026-10-26 | M1 完成：pnpm workspace、`@harnix/core`（生成的协议类型 + 客户端）、`@harnix/testkit`、Playwright Test 两个 project、17 个 API 套件和两份浏览器 spec 迁进 `tests/live/`、覆盖表、`docs/testing.md`。`check.sh` 全绿（remote 未跑；browser 层的 package-e2e 与预算层在修完录像路径、内嵌目录后单独复验）。另：改名时把文档里的 `@harnix/core` 误改成了 `@harnix/agix`，改回 |
 | 2026-10-26 | M0 完成：Agix 在自己的 workspace 里构建、各 crate 写明元数据、中枢四项修正、删中枢自记的项目根、`EngineConfig.cwd`、测试在独立项目里跑、三个录像去掉多余的记忆召回、概念 §9 复核。`check.sh` 第一次全绿（remote 未跑）。**Harnix 还没有发布**：0.3.1 及之后的提交都只在本地分支 `rename-agix-harnix` 上，发布要推送并合到 main，等维护者定 |

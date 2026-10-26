@@ -28,6 +28,13 @@ pub trait Kernel: Send + Sync {
     async fn publish(&self, topic: &str, params: Value, value: Value);
     /// Facts about one instance.
     fn instance(&self, id: &str) -> Option<InstanceHandle>;
+    /// Watch a session from the server side, as `subject`.
+    async fn tap(
+        &self,
+        subject: &Subject,
+        session: &crate::SessionRef,
+        capacity: usize,
+    ) -> Result<crate::Tap, RpcError>;
 }
 
 /// Read-only facts about one instance: where its data is, what it runs. Not
@@ -129,10 +136,27 @@ impl ModuleContext {
     /// Call any method this module may reach, as `Subject::Module(id)`. The
     /// same admission point a device goes through, and the same audit.
     pub async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
-        let subject = Subject::Module {
+        self.shared.kernel.call(&self.subject(), method, params).await
+    }
+
+    /// Drive sessions: create, send, interrupt, close, tap (design §6.1).
+    pub fn sessions(&self) -> crate::Sessions<'_> {
+        crate::Sessions { cx: self }
+    }
+
+    /// Build, ensure and stop instances from templates (design §5.2).
+    pub fn instances(&self) -> crate::Instances<'_> {
+        crate::Instances { cx: self }
+    }
+
+    pub(crate) fn subject(&self) -> Subject {
+        Subject::Module {
             id: self.shared.id.clone(),
-        };
-        self.shared.kernel.call(&subject, method, params).await
+        }
+    }
+
+    pub(crate) fn kernel(&self) -> &Arc<dyn Kernel> {
+        &self.shared.kernel
     }
 
     pub fn instance(&self, id: &str) -> Option<InstanceHandle> {

@@ -15,8 +15,9 @@ use std::sync::Arc;
 use harnix_authz::{route, topic, MethodTable, Principal, Rule};
 use harnix_module::manifest::check_id;
 use harnix_module::{
-    EngineContrib, ErasedModule, EventRegistry, Manifest, MethodDecl, MethodRegistry,
-    MigrateContext, ModuleContext, RouteDecl, RouteRegistry, TopicDecl,
+    EngineContrib, ErasedModule, EventRegistry, InstanceTemplate, InstanceTemplates, Manifest,
+    MethodDecl, MethodRegistry, MigrateContext, ModuleContext, RouteDecl, RouteRegistry,
+    TopicDecl,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -54,6 +55,8 @@ pub struct ModuleStatus {
     pub topics: Vec<String>,
     pub routes: bool,
     pub scenes: Vec<String>,
+    /// Instance templates, by their full ids.
+    pub templates: Vec<String>,
     pub migrations: Vec<String>,
     /// After a start failure: what stays until the next start, because the
     /// instance was already built with it.
@@ -81,6 +84,7 @@ pub(crate) struct Record {
     pub topics: Vec<TopicDecl>,
     pub route: Option<RouteDecl>,
     pub contrib: EngineContrib,
+    pub templates: Vec<InstanceTemplate>,
     pub enabled: Arc<AtomicBool>,
     /// Every name this module put in the authorization table.
     pub declared: Vec<String>,
@@ -126,6 +130,16 @@ pub(crate) fn register(
         let mut events = EventRegistry::new(prefix.clone());
         let mut routes = RouteRegistry::new();
         let mut contrib = EngineContrib::new();
+        let mut templates = InstanceTemplates::default();
+        entry.module.templates(&mut templates);
+        let templates: Vec<InstanceTemplate> = templates
+            .into_list()
+            .into_iter()
+            .map(|mut t| {
+                t.id = format!("{id}.{}", t.id);
+                t
+            })
+            .collect();
         entry.module.methods(&mut methods);
         entry.module.events(&mut events);
         entry.module.routes(&mut routes);
@@ -160,6 +174,7 @@ pub(crate) fn register(
             topics: topics.iter().map(|t| t.name.clone()).collect(),
             routes: route.is_some(),
             scenes: contrib.scene_ids(),
+            templates: templates.iter().map(|t| t.id.clone()).collect(),
             migrations: Vec::new(),
             note: None,
         };
@@ -171,6 +186,7 @@ pub(crate) fn register(
             topics,
             route,
             contrib: contrib.gated(enabled.clone()),
+            templates,
             enabled,
             declared: Vec::new(),
             config,

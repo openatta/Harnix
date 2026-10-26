@@ -3,7 +3,7 @@ resolver = "2"
 exclude = ["agix"]
 members = [
     "crates/app",
-    "crates/assembly",
+    "crates/instance",
     "crates/authz",
     "crates/builtin",
     "crates/contract",
@@ -30,13 +30,13 @@ members = [
 #
 #   app ─→ transport ─→ authz ─┐
 #     └───→ builtin ──→ hub ────┴─→ contract        (pure types, no deps)
-#                        └────→ assembly → Agix
-#                        └────→ contrib
+#                        └────→ instance → Agix
+#   module ─→ instance, authz, contract
 # ──────────────────────────────────────────────
 [workspace.dependencies]
 harnix           = { path = "crates/harnix" }
 harnix-app       = { path = "crates/app" }
-harnix-assembly  = { path = "crates/assembly" }
+harnix-instance  = { path = "crates/instance" }
 harnix-authz     = { path = "crates/authz" }
 harnix-builtin   = { path = "crates/builtin" }
 harnix-contract  = { path = "crates/contract" }

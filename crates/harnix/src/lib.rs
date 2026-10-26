@@ -40,17 +40,21 @@ pub use axum;
 pub use harnix_app::{App, AppBuilder, ModuleStatus, Namespace, HARNIX_VERSION};
 pub use harnix_contract::{codes, RpcError, Subject, SYSTEM_INSTANCE};
 pub use harnix_module::{
-    CallContext, CredentialRef, Credentials, EngineContrib, EnvCredentials, EventRegistry, Events,
-    Handler, InstanceHandle, Manifest, MethodRegistry, MigrateContext, MigrationReport, Module,
-    ModuleContext, Principal, RouteRegistry, Secret, CONTRIB_API_VERSION, MODULE_API_VERSION,
+    AttachTo, CallContext, CredentialRef, Credentials, EngineContrib, EngineProfile,
+    EnvCredentials, EventRegistry, Events, Handler, InstanceHandle, InstanceTemplate,
+    InstanceTemplates, Instances, Manifest, MethodRegistry, MigrateContext, MigrationReport,
+    Module, ModuleContext, OnBusy, Principal, RouteRegistry, Secret, SessionRef, SessionSpec,
+    Sessions, Tap, TapEvent, TemplateCarrier, CONTRIB_API_VERSION, MODULE_API_VERSION,
+    TAP_CAPACITY,
 };
 
 /// Everything a module's source usually needs.
 pub mod prelude {
     pub use crate::async_trait;
     pub use crate::{
-        CallContext, CredentialRef, EngineContrib, EventRegistry, Manifest, MethodRegistry,
-        MigrateContext, MigrationReport, Module, ModuleContext, Principal, RouteRegistry,
-        RpcError,
+        CallContext, CredentialRef, EngineContrib, EngineProfile, EventRegistry, InstanceTemplate,
+        InstanceTemplates, Manifest, MethodRegistry, MigrateContext, MigrationReport, Module,
+        ModuleContext, OnBusy, Principal, RouteRegistry, RpcError, SessionRef, SessionSpec,
+        TapEvent, TemplateCarrier,
     };
 }

@@ -683,7 +683,7 @@ HTTP 暴露**，只能通过授权过的方法读取折算后的视图；删除�
 
 **提给 Agix 的六条，到 0.2.7 都已落地**（编号即 Agix 仓库上的 issue 号）：
 
-1. 引擎装配的函数入口 —— `daemon::assemble::pool`。`crates/assembly/src/engine.rs` 已经改调它，
+1. 引擎装配的函数入口 —— `daemon::assemble::pool`。`crates/instance/src/engine.rs` 已经改调它，
    只自己构造两样：允许没有凭据也能启动的模型客户端，以及中枢要持有句柄的 transcript 存储。
 2. 会话列表条目带场景与项目根 —— `session.list` / `session.get` 都带。中枢原来自记的那一份已删除。
 3. 会话重命名、运行中切换模型 —— `session.rename`、`session.setModel`。

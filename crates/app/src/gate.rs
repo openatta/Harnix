@@ -15,7 +15,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 use harnix_authz::Authorizer;
 use harnix_contract::{Gate, RpcError, Subject};
 use harnix_hub::Hub;
-use harnix_module::{CallContext, Handler, InstanceHandle, Kernel, ModuleContext};
+use harnix_module::{CallContext, Handler, InstanceHandle, Kernel, ModuleContext, SessionRef, Tap};
 use serde_json::{json, Value};
 
 use crate::modules::ModuleStatus;
@@ -84,19 +84,23 @@ impl Gate for AppGate {
 pub(crate) struct ProcessKernel {
     pub gate: OnceLock<Arc<dyn Gate>>,
     pub hub: Arc<Hub>,
-    pub system: InstanceHandle,
+}
+
+impl ProcessKernel {
+    fn gate(&self) -> Result<Arc<dyn Gate>, RpcError> {
+        self.gate.get().cloned().ok_or_else(|| {
+            RpcError::new(
+                harnix_contract::codes::INTERNAL_ERROR,
+                "the admission point is not up yet",
+            )
+        })
+    }
 }
 
 #[async_trait::async_trait]
 impl Kernel for ProcessKernel {
     async fn call(&self, subject: &Subject, method: &str, params: Value) -> Result<Value, RpcError> {
-        let Some(gate) = self.gate.get() else {
-            return Err(RpcError::new(
-                harnix_contract::codes::INTERNAL_ERROR,
-                "the admission point is not up yet",
-            ));
-        };
-        gate.call(subject, method, params).await
+        self.gate()?.call(subject, method, params).await
     }
 
     async fn publish(&self, topic: &str, params: Value, value: Value) {
@@ -104,7 +108,55 @@ impl Kernel for ProcessKernel {
     }
 
     fn instance(&self, id: &str) -> Option<InstanceHandle> {
-        (id == self.system.id).then(|| self.system.clone())
+        let facts = self.hub.facts(id)?;
+        Some(InstanceHandle {
+            id: id.to_string(),
+            recordings_root: facts
+                .recordings_root
+                .clone()
+                .unwrap_or_else(|| facts.data_root.join("recordings")),
+            data_root: facts.data_root,
+            history: facts.history,
+            active_scenes: facts.active_scenes,
+            model: facts.model.unwrap_or_default(),
+        })
+    }
+
+    /// A tap is a client of the hub like any other, registered as a watcher
+    /// by the same `harnix.attach` — through the admission point, as the
+    /// module, so the same table decides whether it may.
+    async fn tap(&self, subject: &Subject, session: &SessionRef, capacity: usize) -> Result<Tap, RpcError> {
+        let gate = self.gate()?;
+        let (sink, parts) = Tap::channel(session.clone(), capacity);
+        let client = self.hub.add_client(sink).await;
+        let attach_params = json!({
+            "instance": session.instance,
+            "session_id": session.session_id,
+            "__client": client.0,
+        });
+        let attached = match gate.call(subject, "harnix.attach", attach_params.clone()).await {
+            Ok(v) => v,
+            Err(e) => {
+                self.hub.remove_client(client).await;
+                return Err(e);
+            }
+        };
+        let reattach = {
+            let gate = gate.clone();
+            let subject = subject.clone();
+            Arc::new(move || {
+                let gate = gate.clone();
+                let subject = subject.clone();
+                let params = attach_params.clone();
+                Box::pin(async move { gate.call(&subject, "harnix.attach", params).await })
+                    as std::pin::Pin<Box<dyn std::future::Future<Output = _> + Send>>
+            })
+        };
+        let hub = self.hub.clone();
+        let on_drop = Box::new(move || {
+            tokio::spawn(async move { hub.remove_client(client).await });
+        });
+        Ok(Tap::new(parts, attached, reattach, on_drop))
     }
 }
 

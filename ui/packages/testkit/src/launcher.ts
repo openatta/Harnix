@@ -40,6 +40,11 @@ export interface LaunchOptions {
   seed?: (scratch: string) => void;
   /** Serve the interface from this directory instead of the embedded one. */
   uiDir?: string;
+  /**
+   * Run in this directory, a previous backend's `scratch`: its sessions,
+   * ledger and data are still there. What `Backend.restart` passes.
+   */
+  scratch?: string;
 }
 
 export interface Backend {
@@ -50,8 +55,15 @@ export interface Backend {
   scratch: string;
   /** The project its sessions run in — see `makeProject`. */
   project: string;
+  /** The process id, for a test that kills it. */
+  pid: number;
   log(): string;
+  /** End the process and remove everything it owned. */
   stop(): void;
+  /** End the process, keep its directory, and wait until it is gone. */
+  halt(signal?: NodeJS.Signals): Promise<void>;
+  /** End it and start another on the same directory and port. */
+  restart(): Promise<Backend>;
 }
 
 /**
@@ -115,8 +127,9 @@ export async function freePort(): Promise<number> {
 export async function startHarnix(options: LaunchOptions = {}): Promise<Backend> {
   const bin = binary(options.bin);
   const port = options.port ?? (await freePort());
-  const scratch = mkdtempSync(join(tmpdir(), "harnix-live-"));
-  options.seed?.(scratch);
+  const reused = options.scratch !== undefined;
+  const scratch = options.scratch ?? mkdtempSync(join(tmpdir(), "harnix-live-"));
+  if (!reused) options.seed?.(scratch);
   const project = makeProject(scratch);
   const home = join(scratch, "home");
   mkdirSync(home, { recursive: true });
@@ -162,10 +175,12 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
 
   const url = `http://127.0.0.1:${port}/`;
   const tokenFile = join(scratch, "projects", ".harnix", "token");
+  // A restart finds the last run's token; it is rewritten before serving.
+  if (reused) rmSync(tokenFile, { force: true });
   const deadline = Date.now() + 60_000;
   for (;;) {
     if (exited !== null) {
-      rmSync(scratch, { recursive: true, force: true });
+      if (!reused) rmSync(scratch, { recursive: true, force: true });
       throw new Error(`harnix exited (${exited}) before it was up:\n${log}`);
     }
     try {
@@ -182,12 +197,23 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
   }
   const token = readFileSync(tokenFile, "utf8").trim();
 
+  const halt = async (signal: NodeJS.Signals = "SIGTERM") => {
+    if (exited !== null) return;
+    const gone = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    try {
+      child.kill(signal);
+    } catch {
+      return;
+    }
+    await gone;
+  };
   return {
     port,
     url,
     token,
     scratch,
     project,
+    pid: child.pid ?? 0,
     log: () => log,
     stop() {
       try {
@@ -196,6 +222,11 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
         /* already gone */
       }
       rmSync(scratch, { recursive: true, force: true });
+    },
+    halt,
+    async restart() {
+      await halt();
+      return startHarnix({ ...options, scratch, port });
     },
   };
 }
