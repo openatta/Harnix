@@ -2,246 +2,162 @@
 
 [English](README.md) | 简体中文
 
-**[Agix](https://github.com/openatta/agix) 在浏览器里。** 一个 Rust 二进制：引擎、Web
-服务器和界面是同一个进程 —— 没有子进程、没有 socket。
+**[Agix](https://github.com/openatta/agix) 应用的公共底座。** 做在 Harnix 上的应用是一个 Rust 二进制：Agent
+引擎、Web 服务、应用自己的模块和界面编在一起。产品需要、又不该各自去做的东西由 Harnix 提供——会话由服务端
+持有（不靠哪个浏览器标签页）、实例、授权、传输、外壳、space、系统视图——而 Harnix 本身做薄，产品是应用的。
 
 ![Harnix](docs/images/harnix.png)
 
-`daemon` 是个 lib，所以 `harnix` 把引擎链进来，用函数调用而不是 socket 跟它说话。这一下省掉的
-是一整类要运维的东西：引擎不用占端口、不用握手、不用健康检查、不用重启守护、不用 discovery
-文件。界面构建一次（React，用 pnpm 和 Vite），编译进二进制，所以装的仍然只是一个文件。
-
 ## 状态
 
-早期。底下的引擎是实打实的东西，UI 也已经够日常用，但这个仓库还年轻，浏览器与中枢之间的协议
-是我们自己的、随时会动。会有破坏性变更；要依赖它就先钉住一个 commit。
+0.4。两个产品正在迁上来（Helm、IPDrun，迁移说明见下）。0.4.z 内模块 API 与协议只做加法；依赖它就钉一个
+标签（`Harnix-v<x.y.z>-<日期><序号>`）。
 
 ## 跑起来
 
 ```sh
-git clone --recurse-submodules https://github.com/openatta/harnix.git
+git clone --recurse-submodules https://github.com/openatta/Harnix.git
 cd Harnix
+pnpm install && pnpm --filter @harnix/shell build   # 界面；二进制把它编进去
 cargo build --release
-./target/release/harnix                      # → http://127.0.0.1:4080/
+./target/release/harnix                              # → http://127.0.0.1:4080/
 ```
 
-Rust 1.80 以上。不需要 Node，不需要包管理器，别的也不需要。`--recurse-submodules` 是要紧的：
-Agix 在 `agix/`，编译要用它。
+Rust 1.87 或更新，界面要 Node 和 pnpm。`--recurse-submodules` 不能少：Agix 在 `agix/`。跑起来的是空应用：
+Harnix 自带的三个 space，别的什么也没有。
 
-不需要任何环境变量。没有凭据时打开**设置 → 模型与凭据 → 添加 provider**，填 base URL 与 API
-key 即可 —— 它写进 `settings.json`，不进浏览器也不进日志。习惯用环境变量就设
-`ANTHROPIC_AUTH_TOKEN`（外加可选的 `ANTHROPIC_BASE_URL`）。两者都没有时启动会失败并明确说
-明这件事。
+不需要任何环境变量。没配凭据时点头像 → **设置 → 模型与凭据 → 添加 provider**；写进 `settings.json`，
+不进浏览器，也不进日志。也可以用 `ANTHROPIC_AUTH_TOKEN`（加上可选的 `ANTHROPIC_BASE_URL`）。
 
-## 有意思的地方
+## 应用能得到什么
 
-- **一个 turn 属于服务端，不属于你这个 tab。** 跑到一半关掉 tab、刷新、换一个 tab 回来 ——
-  中枢**在任何浏览器开口之前**就已经订阅了这个会话，所以你错过的帧本来就在缓冲里，追上即可。
-  整个设计压在这条不变量上，也正是刷新丢不掉半截回答的原因。
+- **一轮属于服务端，不属于某个标签页。** 中枢在任何客户端之前订阅每个会话，所以刷新、换一台设备、断线
+  重连，都按 `seq` 从缓冲的帧里追上。客户端和应用自己的模块用同一套语义驱动会话：排队、中断、引导、
+  无头会话和 tap。
+- **编译期模块。** `harnix::Module` 声明它的方法（`app.<id>.*`）、主题、路由、原生工具与场景、实例模板和
+  space；它拿到的是上下文，不是中枢的内部。迁移或启动失败的模块单独停用，原因写在诊断页。
+- **实例。** 一条链接后面好几台 Agix 引擎——进程内的，或者起起来并看护的 daemon、连上去的 daemon——按模板建，
+  互相隔离，账本记着，重启后重建。
+- **space。** 一个 space 是三栏合起来：它自己的左栏、默认是对话的中区（它说不要就不要）、它自己的右栏页签。
+  Harnix 自带的三个——会话（按时间）、项目（树）、系统——都是用例，产品自己决定留哪些。
+- **调试用的系统 space。** 一个控制台，看此刻在跑的东西——实例、它们正在跑的会话、正在跑的任务；选中哪一项，
+  右栏看它每一次模型调用到底送进去了什么、出来了什么，下一次调用要带的上下文，任务，以及实时的帧。
+- **对话里的卡片。** 模块往会话的日志里写扩展条目：刷新、重放、分叉都在，模型看不到。批准卡就是这样做的。
+- **不 fork 就有自己的样子。** `[brand]` 给产品名和图标；模块覆盖主题令牌、带自己的语言包。程序自己的状态
+  在 `~/.<product_id>`。
+- **装上的包也能画界面。** Agix 包里的界面模块是预编译的 ES 模块，从页面的 import map 拿 React——在其余都
+  严格的 CSP 里按 hash 放行——每个产品可以整个关掉。
+- **桌面壳。** `templates/desktop` 用 Tauri 2 包住一个应用，本机或连远端 Harnix，不加 IPC：业务流量全是
+  页面自己的 HTTP/WS。
+- **对着真二进制的测试。** `@harnix/testkit` 起应用、用录像回放模型调用，驱动 API 和界面（Playwright）。
 
-- **发给模型的东西，你能原样读到。** 不是摘要 —— 装配好的 system 块、完整工具表、调用配置，
-  而且每一块、每一个工具都说得出自己出自哪个装配阶段（`identity`、`skills`、`memory`、
-  `mcp:<server>`、`plugin:<id>`）。见下。
+## 做一个应用
 
-- **安装物是一个文件，界面照样能换。** 界面编译在里面，所以页面和后端不可能对不上。
-  `--ui-dir` 整套替换掉它，什么都不用重编译；`--headless` 一张都不发；`harnix ui export`
-  把它写出来交给 CDN。
+复制 `templates/app`，把 `agix/` 和 `harnix/` 加成平级的子仓，照 [二开指南](docs/harnix-sdk.md) 做；每个
+接口都在 [SDK 参考](docs/harnix-sdk-reference.md) 里。`examples/hello-app` 是一个完整的应用：两个 space、
+一台自己的实例、一个有结果卡片的长任务、自己的 HTTP 路由和 WebSocket、一张批准卡和一套品牌。
 
-- **界面由六个具名接缝拼起来。** 工具行、详情面板、侧栏分组都是注册，不是 switch 分支——
-  换一个产品是换一批注册，不是 fork，装上的包也走同样这几个点。
-
-- **界面是一份构建产物，从二进制里发出去。** `pnpm --filter @harnix/shell build` 写出 `ui/dist`，
-  二进制嵌进它；`harnix --ui-dir ui/dist` 从磁盘读一份新构建，不用重编后端。产物自包含：不用
-  CDN，没有内联脚本和样式。
-
-- **它和终端共用状态。** 引擎目录就是 `agixd` 与 AttaCode 用的那个 `~/.agix`，所以在 TUI
-  里跑过的会话在这里能直接打开，反过来也一样。
-
-- **发送会排队，而不是失败。** 有 turn 在跑时发送会进队列，上一轮结束自动发出。按停止会连队列
-  一起清掉。
-
-- **只在本机，而且是真的按住了。** 只绑回环（`127.0.0.1` 与 `[::1]` 都绑，因为浏览器把
-  `localhost` 先解析成 `::1`）、一个进程一个 token、Origin 校验，以及一份不留内联、不留外部源
-  的 CSP。
-
-- **中英双语**，运行时可切。
-
-## 界面
-
-三栏，形态参照 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)：左侧会话列表
-（按项目分组），中间对话流（流式 markdown、工具卡片、权限卡片、子 Agent），右侧详情栏
-（一次调用的完整输入与输出）。
-
-- Enter 发送，Shift+Enter 换行；`/` 唤起命令补全（来自引擎的实时命令表）；`@` 引用项目文件
-  （走 `.gitignore`）
-- ⌘K / Ctrl+K 新建会话；右键会话行 → 关闭 / 分叉 / 删除
-- 左侧按项目分组：可折叠、每组默认 5 条、拖拽排序、重命名、归档。输入框内过滤标题，回车转为
-  内容搜索
-- 图片可粘贴或拖放进输入框，附件是 64px 缩略图
-- 设置涵盖外观、语言、引擎设置（模型、单轮 token、权限模式 —— 每项可选择写进全局／场景／项目
-  哪一层）、provider 与凭据、场景、MCP、插件、诊断
-
-## 请求信封
-
-![请求信封](docs/images/request-envelope.png)
-
-每一次模型调用都带着一个信封 —— 装配好的系统提示词、每一个工具定义、调用配置 —— 而通常你是
-看不到它的。Agix 会把每次调用录下来，Harnix 把这些录像折成信封**发生变化**的那些点：对话里
-一次变化一行，详情栏给全文。
-
-因为它是从录像里读的、不是当事件收的，所以它留得住：刷新页面、明天重开这个会话、重启进程 ——
-信封都还在。录像放在 `<agix-dir>/recordings/<session-id>/`，随会话一起删除。
-
-录像里也就是模型看到的一切，明文，不做脱敏。请按它对应的 transcript 同等对待。
-
-## 参数
-
-```
-harnix --port 4080 --scene coding --scenes chat,research --model claude-sonnet-5
+```rust
+fn main() -> anyhow::Result<()> {
+    harnix::App::builder()
+        .name("hello-app", env!("CARGO_PKG_VERSION"))
+        .with_builtins()
+        .module(Greeter::default())
+        .run()
+}
 ```
 
-| 参数 | 说明 |
+## profile 与开关
+
+profile 说这个进程是什么；命令行开关覆盖它。
+
+```toml
+[brand]
+name = "Hello"
+icon = "brand.svg"
+product_id = "hello-app"         # 状态在 ~/.hello-app
+
+[shell]
+spaces = ["sessions", "projects"]   # 留哪些内建 space（不写就是三个都留）
+
+[ui]
+runtime_modules = true           # 装上的包的界面模块
+
+[modules.greeter]                # 每个模块自己的段
+```
+
+| 开关 | 含义 |
 |---|---|
-| `--port` / `--host` | 默认 `4080` / `127.0.0.1`。`--host` 只接受回环地址；给的是 IPv4 回环时会**同时监听 `[::1]`** |
-| `--scene` / `--scenes` | 默认场景，以及一并激活的场景（`coding` `chat` `research` `demo`） |
-| `--agix-dir` | 引擎目录：配置、transcript、记忆、技能、录像。默认 `$AGIX_CONFIG_HOME`，再默认 `~/.agix` |
-| `--data-dir` | 项目目录：选择器从这里开始，新建项目也建在这里。默认 `$HARNIX_DATA_DIR`，再默认 `~/Documents` |
-
-<details>
-<summary>不那么常用的参数</summary>
-
-| 参数 | 说明 |
-|---|---|
-| `--model` / `--max-tokens` | 给新会话用。settings 三层仍然优先于它，与 `agixd` 一致 |
-| `--session-cap` / `--session-idle-timeout` | 活跃会话上限与空闲回收 |
-| `--permission-prompt-timeout` | 权限提问多久没人答就按拒绝处理（默认 300 秒，UI 上是倒计时） |
-| `--ui-dir` | 从这个目录发界面，替换掉编译进去的那份 |
-| `--headless` | 一张界面都不发 —— 纯 RPC 节点 |
-| `--profile` | 一份 profile：场景、provider、界面、传输拓扑。命令行参数覆盖它 |
-
-</details>
-
-## 插件
-
-插件整件事都是 Agix 的——manifest、能力门控、沙箱、披露、生命周期。给 Harnix 写插件就是
-给 Agix 写插件，Harnix 既不读一个包，也不跑一个包。这一侧再实现一遍，同一件事就有两处
-真相，而两处里只有一处真的拦得住。
-
-Harnix 补的是引擎有意不做的那一步：`plugin.install` 自己去取 URL，没有上传通道——包已经在
-跑引擎那台机器上时够用，在你笔记本上时就没有路。所以设置面板收一个 `.zip`，走大负载旁路
-送上去，再把落盘路径交给引擎。其余全部转手：列举、启停、卸载，以及引擎装完回的那份披露；
-只多做一步——Harnix 在服务每个包的 `ui/` 目录，所以改变"装了什么"的调用之后要重读一遍。
-
-**出厂的那个二进制就能装包。** 包方案——manifest、下载、校验、解包、披露、生命周期——不与
-任何载体互斥，默认就在构建里；花二十兆的是 WebAssembly 载体，插件构建拿脚本载体去换的
-也是它。一个不带包方案的构建会回 `PLUGINS_DISABLED`，界面就如实这么说，而不是显示成一个
-空列表——"这个构建没有插件子系统"和"一个都没装"是两件不同的事。
+| `--profile` | 上面那份 profile；每一段都拒绝不认识的键 |
+| `--port` / `--host` | 默认 `4080` / `127.0.0.1`；绑非回环要 TLS 和配对过的设备 |
+| `--agix-dir` | 引擎目录，默认 `$AGIX_CONFIG_HOME`，再默认 `~/.agix`（和 `agixd` 共用） |
+| `--data-dir` | 项目在哪，默认 `$HARNIX_DATA_DIR`，再默认 `~/Documents` |
+| `--ui-dir` / `--headless` | 从目录出界面 / 不出界面 |
+| `--launch-link` | 令牌不进页面：浏览器凭一次性链接进来 |
 
 ## 目录
 
-两个，只有两个：
-
-- **引擎目录** `--agix-dir`（默认 `~/.agix`）—— 配置、transcript、记忆、技能、录像。与
-  `agixd` / AttaCode 共用。
-- **项目目录** `--data-dir`（默认 `~/Documents`）—— 选择器从这里开始，「新建项目」也建在这里。
-  是默认位置不是围栏：`$HOME` 下别处的项目照样能打开。
-
-```sh
-harnix --agix-dir /srv/atta --data-dir /srv/projects
-```
-
-安装物是这一个二进制，加上可选的界面产物目录。运行时不从安装目录读任何东西，所以升级就是换掉
-那个文件。Harnix 自己的账本（工作区、标题、视图偏好、token、上传）也是数据，放在项目目录里的
-`.harnix/`。
+| 路径 | 是什么 |
+|---|---|
+| `~/.agix/` | 引擎：设置分层、transcript、记忆、技能、录像 |
+| `~/.<product_id>/` | 程序自己的配置与状态：令牌、设备、工作区、账本、实例的数据、各模块的数据（默认 `~/.harnix`；`HARNIX_STATE_DIR` 能挪） |
+| `~/Documents/` | 只放项目——里面没有隐藏目录 |
+| `<项目>/.agix/` | 项目自己的数据与设置 |
 
 ## 结构
 
-内核是四件事 —— 装配、中枢、传输、授权 —— 它们之间的依赖是单向的。这条规则不是写在文档里，
-是 `crates/harnix/tests/layering.rs` 断言出来的。
-
 ```
-crates/harnix     应用依赖的那个 crate，以及 bin `harnix`（空应用）
+crates/harnix     应用依赖的那个 crate，以及 `harnix` 二进制（空应用）
 crates/app        App::builder()：profile、启动顺序、模块生命周期、诊断
-crates/module     编译期模块契约：Module、各注册表、ModuleContext
-crates/transport  通道语义 + 拓扑：帧、握手、静态面、大负载旁路、/apps/<id>/
-crates/authz      这个进程唯一的准入点：主体 × 方法 / 路由 / 主题，默认拒绝，可审计
-crates/hub        会话中枢：实例表、订阅、重放、seq、turn 所有权、队列、宿主主题
-crates/instance   Agix 实例：进程内，或 daemon（spawn 或 attach），都经一条链接
-crates/builtin    Harnix 自己的功能，写成只用公开契约的模块
-crates/contract   上面这些层互相递交的类型，仅此而已
-crates/testapp    给测试用的应用：能用的模块，和故意失败的模块
+crates/module     编译期模块契约：Module、它的注册表、ModuleContext
+crates/hub        会话中枢：实例、订阅、重放、seq、轮次归属、队列、主题
+crates/instance   Agix 实例：进程内或 daemon（起的或连的），在一条链接后面
+crates/transport  通道语义落在选定的拓扑上：帧、握手、静态页面、大负载、/apps/<id>/
+crates/authz      唯一的准入点：主体 × 方法/路由/主题，默认拒绝，记审计
+crates/builtin    Harnix 自己的功能，照公开契约写成的模块
+crates/contract   这些层之间传递的类型
+crates/testapp    给测试用的应用：好的模块，和故意坏的模块
 
-ui/packages/      前端（pnpm）：@harnix/core（协议、客户端、会话状态）、@harnix/react（对话组件、
-                  贡献注册表、i18n、令牌）、@harnix/shell（界面本身）、@harnix/testkit
-ui/dist/          构建好的界面，编译进二进制（不进 git）
-tests/live/       LIVE 套件：Playwright Test，对着真的二进制跑（docs/testing.md）
-agix/             Agix（submodule）
+ui/packages/      @harnix/core（协议、客户端、会话状态）、@harnix/react（对话、贡献注册表、i18n、令牌）、
+                  @harnix/shell（界面）、@harnix/testkit
+templates/app     一个新应用
+templates/desktop 桌面壳（Tauri 2）
+examples/hello-app  照应用的做法做出来的应用
+tests/live/       LIVE 测试：Playwright Test 对着真二进制
+agix/             Agix（子仓）
 ```
 
 ## 文档
 
-[docs/concept_and_architecture.md](docs/concept_and_architecture.md) 是设计 —— Harnix 是什么、
-内核是哪四件事、为什么它们一件都不可插拔、五种通道语义与它们映射到的三种拓扑、插件模型，
-以及明确不做的事。
+| 文档 | 用途 |
+|---|---|
+| [docs/harnix-sdk.md](docs/harnix-sdk.md) | 做应用：指南 |
+| [docs/harnix-sdk-reference.md](docs/harnix-sdk-reference.md) | 每个类型、方法、profile 键、开关、目录、贡献点 |
+| [docs/migration-helm.md](docs/migration-helm.md)、[docs/migration-ipdrun.md](docs/migration-ipdrun.md) | Helm、IPDrun 迁到 0.4 |
+| [docs/concept_and_architecture.md](docs/concept_and_architecture.md) | Harnix 是什么，为什么是这个形状 |
+| [docs/contribution_points.md](docs/contribution_points.md) | 界面的贡献点，从代码生成 |
+| [docs/testing.md](docs/testing.md) | 测试分层、LIVE 测试、录像、覆盖表 |
+| [docs/glossary.md](docs/glossary.md) | 用词，一个词一个意思 |
 
-[docs/contribution_points.md](docs/contribution_points.md) 是贡献点目录 —— 九个点，各自给什么、
-什么时候求值。它那张表由代码生成，对不上就有测试失败。
+*文档用中文写。*
 
 ## 测试
 
-每一层，按从便宜到贵的顺序跑一遍；跑不了的会明说，而不是悄悄跳过：
+所有层，便宜的在前；跑不了的说出来，不当作通过：
 
 ```sh
-scripts/check.sh              # 这台机器能跑的全部
-scripts/check.sh --fast       # 不要模型和浏览器那两层
-scripts/check.sh --only api   # 只跑一层
-scripts/check.sh --with-remote  # 加上配对与 TLS —— 会在本机网络上开一个监听
+scripts/check.sh                # 这台机器能跑的全部
+scripts/check.sh --fast         # 不要模型、不开浏览器
+scripts/check.sh --only api     # 一层
+scripts/check.sh --with-remote  # 加上 TLS 配对——会在这个网络上开监听
+scripts/prune.sh                # 构建缓存：删增量缓存，超过 25 GB 的 target 整个清掉
 ```
 
-`.github/workflows/check.yml` 跑的是既不需要模型、也不需要可达网络的那些层，也就是大部分。
+LIVE 测试（`tests/live`，见 [docs/testing.md](docs/testing.md)）跑真二进制：`api` 用它自己的协议驱动后端，
+`ui` 在 chromium 里驱动界面，模型调用除非 `--live` 都从录像回放。
 
-或者手动来：
-
-```sh
-# `--no-deps`：子模块自己的 lint 不该由这个仓库来答。
-cargo clippy -p harnix -p harnix-app -p harnix-module -p harnix-hub -p harnix-transport \
-             -p harnix-authz -p harnix-instance -p harnix-builtin -p harnix-contract \
-             -p harnix-testapp --all-targets --no-deps -- -D warnings
-# 只跑我们的。被吸收进来的 Agix crate 里有测试假定 Agix 自己是 workspace 根。
-cargo test -p harnix -p harnix-app -p harnix-module -p harnix-hub -p harnix-transport \
-           -p harnix-authz -p harnix-instance -p harnix-builtin -p harnix-contract \
-           -p harnix-testapp
-
-# 先构建界面：二进制嵌进 ui/dist，没有它就编译不过。
-pnpm install && pnpm --filter @harnix/shell build
-pnpm -r run test                                 # 前端各包：会话状态、组件、注册表、i18n
-node tests/style-lint.mjs                        # 样式静态检查（图标尺寸、只用令牌）
-node tests/budget.mjs                            # 性能预算，对着 release 构建
-node tests/readme-pairing.mjs                    # 两份 README 是一起改的
-# 下面两个要 profile 里两种拓扑都列上，remote-smoke 还要非回环监听 + TLS。
-# 前提不对时它们各自会说一句 —— 见 docs/testing.md。
-
-node tests/topology-parity.mjs <port> <token>     # 两种拓扑，同样的答案
-node tests/remote-smoke.mjs <port> <token> <code> # 配对、连接、吊销，走 TLS
-
-# LIVE 套件（docs/testing.md）：Playwright Test，对着真的二进制跑。`api` 经协议驱动后端，
-# `ui` 在 chromium 里驱动界面。模型调用默认从录像回放，加 --live 才连真模型。
-pnpm install && pnpm install:browser
-pnpm live                                         # 两个 project 都跑
-pnpm live --project api --topology split_streams  # API 套件走另一种拓扑
-pnpm live --live                                  # …改成对着 .env 里的真模型跑
-# 一个插件包，端到端 —— 从磁盘上的 zip 到界面怎么对待它，跑的就是出厂那个二进制。
-node tests/package-e2e.mjs
-
-# 对着真模型重录一份重放 fixture（需要 .env）。
-node tests/live/record-fixture.mjs <name> "<提示词>"
-```
-
-`<token>` 从 `harnix` 启动时打印的 token 文件里读（`<data-dir>/.harnix/token`）。
-
-**不要用 `cargo test --workspace`**：它会连带跑被吸收进来的 Agix crate，而 Agix 有两条测试
-假定自己是 workspace 根（从测试二进制往上找 `bridges/`），在我们这里必然失败。Agix 的测试在
-Agix 里跑：`cd agix && cargo test --workspace`。
+**不要跑 `cargo test --workspace`**：它会把收进来的 Agix crate 也跑一遍，其中两个假定自己是 workspace 根。
+Agix 的测试在 Agix 里跑。
 
 ## 许可
 

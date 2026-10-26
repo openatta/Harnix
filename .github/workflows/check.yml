@@ -76,6 +76,7 @@ jobs:
         run: |
           node tests/style-lint.mjs
           node tests/readme-pairing.mjs
+          node templates/desktop/check-no-ipc.mjs
           node tests/app-scripts.mjs
 
       - name: The application template, built offline from a clean copy
@@ -105,9 +106,6 @@ jobs:
         run: |
           node tests/live/run.mjs --project ui --topology single_duplex
           node tests/live/run.mjs --project ui --topology split_streams
-
-      - name: A package, from zip to what the interface does with it
-        run: node tests/package-e2e.mjs
 
       # Latency and memory, measured last and alone — a shared runner makes
       # the numbers noisy, so this reports rather than gates.

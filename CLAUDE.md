@@ -22,8 +22,11 @@ crate 自己的 `Cargo.toml` 里，不从 workspace 继承（应用把这些 cra
 
 改名为 Harnix 之前的标签（`v0.3.0` 及更早、`nest-v0.3.1-2026102501`）保留原样，不改名。
 
-## 0.4 开发
+## 开发
 
-- 进度记在 `docs/status.md`：接手前先读它，停下前更新它。计划在 `docs/roadmap.md`，架构在
-  `docs/harnix-0.4-design-and-plan.md`，用词照 `docs/glossary.md`。
+- 进度记在 `docs/status.md`：接手前先读它，停下前更新它。架构与理由在 `docs/concept_and_architecture.md`，
+  用词照 `docs/glossary.md`，二开接口在 `docs/harnix-sdk.md`、`docs/harnix-sdk-reference.md`。
+  `docs/harnix-0.4-design-and-plan.md` 是 0.4 的设计记录，已冻结（代码注释里的「设计 §x」指它）。
 - 开始一个新的里程碑，要维护者明确说开始。
+- 界面照 `../Helm/docs/design/11-gui-workbench-v0.1.md` 的工作台框架；Harnix 本身做薄，产品面是应用的 space。
+- 构建缓存及时清：里程碑或发布之后跑 `scripts/prune.sh`。

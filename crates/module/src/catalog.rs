@@ -56,7 +56,7 @@ pub struct Point {
     pub frequency: Frequency,
 }
 
-/// The six points the interface is built out of.
+/// The eight points the interface is built out of.
 ///
 /// The number is part of the design (§5.2): a seventh is an argument to be
 /// made, not a commit to be pushed. Every one of them is drawn by a built-in
@@ -74,8 +74,8 @@ pub const POINTS: &[Point] = &[
     Point {
         id: "home.card",
         kind: PointKind::Render,
-        what: "总览页上的一张卡",
-        when: "总览页打开时",
+        what: "新对话输入框下面的一张卡",
+        when: "新对话的空白页打开时",
         frequency: Frequency::PerInteraction,
     },
     Point {

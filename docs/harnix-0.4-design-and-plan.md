@@ -1,6 +1,11 @@
 # Harnix 0.4 —— 架构设计
 
-> 状态：设计已定，待实施｜目标版本：Harnix `0.4.0`｜日期：2026-10-25（同日第二轮修订）
+> **已冻结（2026-10-26）。** 0.4 已按本文在 M0–M9 落地；现行的架构与理由见
+> [概念与架构](concept_and_architecture.md)，二开接口见 [SDK 指南](harnix-sdk.md) 与
+> [SDK 参考](harnix-sdk-reference.md)。本文保留为设计记录——代码注释里的「设计 §x」指的是它——不再更新；
+> 与代码不一致时以代码为准。
+>
+> 状态：已实施｜目标版本：Harnix `0.4.0`｜日期：2026-10-25（同日第二轮修订），2026-10-26 冻结
 >
 > 配套文档：
 >
@@ -890,6 +895,21 @@ React 19 + TypeScript + Vite + Zustand。markdown 与代码高亮沿用 IPDrun �
    v2 包都能用；不算贡献点，贡献点还是 8 个。
 4. **CSP 的 hash**：服务端启动时从要出的 `index.html` 算 import map 的 `sha256`，而不是构建时写死，
    这样 `--ui-dir` 出的界面也对。
+
+**M8 的实际做法（2026-10-26）**：
+
+- **M8-0 外壳框架**（维护者看 demo 时定，不在原计划里）：一个 space 就是左栏（`sidebar()`）+ 中区（默认
+  对话，`center`）+ 右栏（`tabs`，可以是随选中项变的函数）；固定部分只有顶部的标识、新建对话、搜索和底部
+  的头像（设置入口，外圈表示连接）；左右栏可拖宽。内建 space 三个——会话（按时间）、项目（树，一次展开
+  一个，`SpaceContribution.sessions` 让它列会话 space 的会话）、系统——都由 `[shell] spaces` 决定留不留，
+  它取代 `[system_space]`。HOME 去掉，`home.card` 画在新对话的输入框下面。系统 space 的中区是控制台
+  （`harnix.process` 的统计条、只列运行中的实例 → 会话 → 任务、诊断），右栏看选中项：概况、调用
+  （`harnix.system.trace`：每次模型调用的输入与输出，读录像）、上下文、任务、原始帧。§9.2 的「中区是选中
+  会话的对话」作废。
+- **M8-1–M8-3**：构建在同一次 Vite 构建里给共享模块各出一个入口外观（facade），import map 写进
+  `index.html`；服务端出页面时 `page_csp` 按 map 的 hash 放行。没写 `api_version` 的条目按 v1 算，报不生效。
+- **M8-4**：状态目录 `Roots::state` = `HARNIX_STATE_DIR` 或 `~/.<product_id>`；`[brand] icon` 服务在
+  `/brand/icon.svg`；令牌覆盖在页面上经 CSSOM 设到 `<html>`，允许的名字是样式表 `:root` 上声明过的。
 
 ### 10.6 预算
 

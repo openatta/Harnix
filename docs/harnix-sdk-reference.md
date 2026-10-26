@@ -2,9 +2,9 @@
 
 > 读者：在 Harnix 上做应用的人，以及在 Helm、IPDrun 里做迁移分析的人（包括 Agent）。
 >
-> **这份参考写的是已经落地的接口**，对照的是 `Harnix-v0.4.0-2026102602`（M0–M7，Agix 钉在
-> `Agix-v0.2.8-2026102602`）。标「计划（M8）」「计划（M9）」的是还没有的东西，形状已经定了，落地时
-> 回来改。怎么用、为什么这样用见 [二开指南](harnix-sdk.md)；用词照 [术语](glossary.md)。
+> **这份参考写的是已经落地的接口**，对照的是 0.4 的全部里程碑（M0–M9，Agix 钉在
+> `Agix-v0.2.8-2026102602`）。怎么用、为什么这样用见 [二开指南](harnix-sdk.md)；Helm、IPDrun 怎么迁过来见
+> [迁移说明](migration-helm.md)、[IPDrun](migration-ipdrun.md)；用词照 [术语](glossary.md)。
 >
 > 写法：签名照抄代码；默认值照抄代码。代码和这里对不上时以代码为准，并且这里是错的，要改。
 
@@ -16,7 +16,7 @@
 |---|---|---|---|
 | Harnix 版本 | `0.4.0-2026102602` | 各 crate 的 `Cargo.toml`；`harnix::HARNIX_VERSION` | 每次发布 |
 | 模块 API | `1` | `harnix::MODULE_API_VERSION` | 模块契约有模块看得见的变化。**编译期**检查：`Module::API_VERSION` 不等就编译不过 |
-| 贡献点 API | `1` | `harnix::CONTRIB_API_VERSION`；`harnix.hello` 里也有 | 计划（M8）升到 `2`：运行期包的界面模块 v2；React 大版本从此是它的一部分 |
+| 贡献点 API | `2` | `harnix::CONTRIB_API_VERSION`；`harnix.hello` 里也有 | 贡献点的契约变了。2：运行期包的界面模块是预编译的 ES 模块，从页面的 import map 拿 React；**React 的大版本是它的一部分** |
 | 协议 | `4` | `harnix_contract::PROTOCOL_VERSION` | 握手比对，不一致拒绝（`HANDSHAKE_REFUSED`） |
 
 `<app> --version` 打印上面全部，加上 Agix 的版本。0.4.z 内协议与模块 API 只做加法。
@@ -44,7 +44,7 @@ harnix::{App, AppBuilder, ModuleStatus, Namespace, HARNIX_VERSION,
 
 | 方法 | 说明 |
 |---|---|
-| `.name(name, version)` | 应用名与版本：`--version`、`--help` 用它。计划（M8）：产品名与产品 id 改由 profile 的 `[brand]` 给 |
+| `.name(name, version)` | 应用名与版本：`--version`、`--help` 用它。界面上的产品名、图标、产品 id 由 profile 的 `[brand]` 给 |
 | `.with_builtins()` | 加上 Harnix 自带的模块（工作区、文件、搜索、设置、插件包、系统 space、设备……）。一般都要 |
 | `.module(m)` | 加一个模块；**顺序就是注册、`migrate`、`start` 的顺序**，也是 customizer 的组合顺序 |
 | `.credentials(source)` | 换掉凭据源（默认 `EnvCredentials`：`helm/quote-api` → `$HARNIX_CREDENTIAL_HELM_QUOTE_API`） |
@@ -153,8 +153,7 @@ Agix 自己的错误码原样透传（例如会话不存在是 -32000）。
 
 ## 2. profile（TOML）
 
-**每一段都是 `deny_unknown_fields`**：写了不认识的键，进程拒绝启动并说哪一行。所以 M8 之前**不要**
-写 `[brand]`、`[ui] runtime_modules`。
+**每一段都是 `deny_unknown_fields`**：写了不认识的键，进程拒绝启动并说哪一行。
 
 ```toml
 [engine]                       # system 实例；字段同 EngineProfile（§1.3）
@@ -173,12 +172,18 @@ port = 4090
 launch_link = false            # true：令牌不进页面，浏览器凭一次性启动链接换 cookie
 extra_origins = []             # 回环之外允许的浏览器 Origin，例如 "https://192.168.1.20:4317"
 
+[brand]
+name = "Helm"                  # 页面标题、左栏产品名；不写是 Harnix
+icon = "brand/helm.svg"        # 品牌图标（SVG），相对 profile 所在目录；服务在 /brand/icon.svg
+product_id = "helm"            # 程序自己的目录 ~/.helm（§4）；小写字母、数字、`-`，字母开头；不写是 harnix
+
+[shell]
+spaces = ["sessions", "projects", "system"]   # 留哪些内建 space；不写是三个都留，[] 是一个不留
+                               # 去掉 system 时它的方法一起撤：谁也声称不了系统 space，也不能跨 space 操作
+
 [ui]
 dir = "…"                      # 从这个目录出界面（同 --ui-dir）；不写用编进二进制的
-# runtime_modules = false      # 计划（M8）
-
-[system_space]
-enabled = true                 # false：系统 space 及其方法一起撤
+runtime_modules = true         # false：运行期包的 [[ui]] 一律不提供、不服务；交易类产品要关
 
 [[instances]]                  # 固定实例
 id = "ci"
@@ -206,19 +211,6 @@ db = "watchlist.sqlite"
 quote_api_key = { credential = "helm/quote-api" }
 ```
 
-计划（M8）新增：
-
-```toml
-[brand]
-name = "Helm"                  # 页面标题、左栏产品名
-icon = "brand/helm.svg"        # 品牌图标（SVG）
-product_id = "helm"            # 程序自己的目录 ~/.helm（§4）
-                               # 令牌覆盖、语言包不在 profile 里，由模块的界面代码贡献（§6.4）
-
-[ui]
-runtime_modules = false        # 运行期包的 [[ui]] 一律不加载；交易类产品要关
-```
-
 ---
 
 ## 3. 命令行与环境变量
@@ -234,6 +226,7 @@ runtime_modules = false        # 运行期包的 [[ui]] 一律不加载；交易
 | `--agix-dir` | 引擎目录，默认 `$AGIX_CONFIG_HOME`，再默认 `~/.agix` |
 | `--data-dir` | 项目目录，默认 `$HARNIX_DATA_DIR`，再默认 `~/Documents` |
 | `--launch-link` | 同 `[transport] launch_link` |
+| `--exit-with-stdin`（隐藏） | stdin 关了就退出：桌面壳带走它的子进程 |
 | `ui export <dir>` | 把编进去的界面写出来，给 CDN / 反代 |
 | `daemon …`（隐藏） | spawn 的实例跑的就是它 |
 
@@ -241,7 +234,7 @@ runtime_modules = false        # 运行期包的 [[ui]] 一律不加载；交易
 |---|---|
 | `AGIX_CONFIG_HOME` | 引擎目录 |
 | `HARNIX_DATA_DIR` | 项目目录 |
-| `HARNIX_STATE_DIR` | Harnix 自己的状态目录，单独挪（§4） |
+| `HARNIX_STATE_DIR` | 程序自己的目录，单独挪（§4） |
 | `HARNIX_CREDENTIAL_<名字>` | 默认凭据源读这里；名字是引用转大写、非字母数字转 `_` |
 | `HARNIX_UI_MODULES`、`HARNIX_UI_OUT` | 界面构建：应用的界面入口（逗号分隔绝对路径）、输出目录（§6.5） |
 | `HARNIX_UI_DIST` | `cargo build` 时嵌进二进制的界面目录 |
@@ -250,26 +243,15 @@ runtime_modules = false        # 运行期包的 [[ui]] 一律不加载；交易
 
 ## 4. 目录
 
-### 4.1 现在（0.4.0-2026102602）
-
 | 路径 | 是什么 |
 |---|---|
 | `~/.agix/` | 引擎：设置分层、transcript、记忆、技能、录像。和 `agixd` 共用 |
-| `~/Documents/` | 项目目录：选项目从这里开始，新建项目建在这里 |
-| `<项目>/.agix/settings.json` | 项目层设置（Agix 的） |
-| `~/Documents/.harnix/` | Harnix 的状态目录（`HARNIX_STATE_DIR` 可挪）：`token`、`state.json`（工作区、会话标题、偏好、设备）、`spaces.json`、`instances.json`、`instances/<data_root>/`（按模板建的实例的数据根）、`modules/<id>/`（`ctx.data_dir()`）、`uploads/<pid>/` |
+| `~/.<product_id>/`（不配 `[brand]` 就是 `~/.harnix/`；`HARNIX_STATE_DIR` 可挪） | 程序自己的配置与状态：`token`、`state.json`（工作区、会话标题、偏好、设备）、`spaces.json`、`instances.json`、`instances/<data_root>/`（按模板建的实例的数据根）、`modules/<id>/`（`ctx.data_dir()`）、`uploads/<pid>/` |
+| `~/Documents/` | 只放项目：选项目从这里开始，新建项目建在这里。Documents 里不放隐藏目录 |
+| `<项目>/.agix/` | 项目自己的数据与配置**一律**放这里（Agix 的项目层设置也在这），不开 `<项目>/.<产品>/` |
+| `~/Documents/.harnix/`（0.4.0-2026102602 及以前） | **不迁移、不读**。升级后旧的令牌、工作区分组、实例账本都从空开始 |
 
-### 4.2 计划（M8，维护者 2026-10-26 定）
-
-| 路径 | 是什么 |
-|---|---|
-| `~/.<product_id>/`（不配 `[brand]` 就是 `~/.harnix/`） | 程序自己的配置与状态：上表 `.harnix/` 里的全部。`HARNIX_STATE_DIR` 照旧能挪 |
-| `~/Documents/` | 只放项目。Documents 里不再有隐藏目录 |
-| `<项目>/.agix/` | 项目自己的数据与配置**一律**放这里，不开 `<项目>/.harnix/` 之类 |
-| `~/Documents/.harnix/` | **不迁移、不读**。升级后旧的令牌、工作区分组、实例账本都从空开始 |
-
-应用要据此规划：模块的数据（`ctx.data_dir()`）随产品 id 走；同一台机器上装 Helm 和 IPDrun 不会抢令牌
-和账本。
+模块的数据（`ctx.data_dir()`）随产品 id 走；同一台机器上装 Helm 和 IPDrun 不会抢令牌和账本。
 
 ---
 
@@ -284,7 +266,8 @@ runtime_modules = false        # 运行期包的 [[ui]] 一律不加载；交易
 | `/rpc`、`/events/session`、`/events/host`、`/respond` | `split_streams` / `request_only` |
 | `/pair`、`/challenge` | 设备配对 |
 | `/auth/link`、`/auth/{code}` | 启动链接 |
-| `/plugins/<包>/ui/<模块>` | 运行期包的界面模块文件 |
+| `/plugins/<包>/ui/<模块>` | 运行期包的界面模块文件（`[ui] runtime_modules = false` 时不服务） |
+| `/brand/icon.svg` | `[brand] icon` |
 | `/apps/<模块 id>/…` | 模块的自有路由 |
 
 握手拿到的 `credential`：`Authorization: Bearer …` 或 `?credential=`；回环上也认进程令牌和启动链接的
@@ -297,13 +280,14 @@ schema、来自哪个模块）。下表是分组索引。
 
 | 组 | 方法 | 谁 |
 |---|---|---|
-| 握手与会话驱动（中枢） | `harnix.hello`、`harnix.sessions`、`harnix.attach`、`harnix.detach`、`harnix.send`、`harnix.queue.remove`、`harnix.subscribe`、`harnix.unsubscribe` | 设备 |
+| 握手与会话驱动（中枢） | `harnix.hello`（含 `shell`：品牌、留下的内建 space、`runtime_modules`、目录）、`harnix.sessions`、`harnix.attach`、`harnix.detach`、`harnix.send`、`harnix.queue.remove`、`harnix.subscribe`、`harnix.unsubscribe` | 设备 |
+| 进程（中枢） | `harnix.process`：版本、运行时长、峰值内存、已连接用户（设备、连接方式、User-Agent、连上的时间） | 设备 |
 | 实例（中枢） | `harnix.instances.list / templates / sessions / create / ensure / stop / restart`、`harnix.sessions.tasks` | 设备（`create` 只认 `ui` 模板） |
 | space、条目（中枢） | `harnix.spaces.list`、`harnix.entries.append`（只许模块与内核） | — |
 | 引擎直通 | `session.create / list / get / history / entries / fork / resume / respondToPrompt`、`session.interrupt / close / delete`、`scene.list / describe / activate`、`commands.list`、`mcp.status`、`plugin.list`、`daemon.status / ping / doctor` | 设备 |
 | 应用层 | `harnix.contributions`、`harnix.diagnostics`、`harnix.audit`、`harnix.reachable` | 设备 |
 | 自带模块（`with_builtins`） | `harnix.workspaces.*`、`harnix.prefs.set`、`harnix.projects.create`、`harnix.recentProjects`、`harnix.listDirectory`、`harnix.files`、`harnix.search`、`harnix.upload.begin`、`harnix.sessions.rename / archive`、`harnix.settings.*`、`harnix.plugins.*`、`harnix.devices.*` | 设备 |
-| 系统 space（`[system_space] enabled`） | `harnix.system.context / messages.drop / messages.edit / tasks.stop / compact / clear / rename / model / calls` | 设备 |
+| 系统 space（`[shell] spaces` 留着 `system` 时） | `harnix.system.context / messages.drop / messages.edit / tasks.stop / compact / clear / rename / model / calls`；`harnix.system.trace`（这一次运行里每次模型调用的输入与输出、它要的工具调用和结果）、`harnix.system.trace.call {index}`（一次调用的全文） | 设备 |
 | 检视（内核，模块可 grant） | `session.tasks`、`session.stopTask`、`session.inspectContext`、`session.dropMessages`、`session.editMessage` | 内核 |
 | 你的模块 | `app.<id>.*` | 你声明的 |
 
@@ -352,8 +336,8 @@ export function register(r: Registry, host: NestHost): void
 
 | 点 | 形状（必需的加粗） |
 |---|---|
-| `space` | **`id`**、**`icon`**、**`title()`**、`order`、`center: "chat" \| "minimized" \| "hidden"`、`sidebar()`、`overview()`、`tabs: [{ id, title(), render() }]`、`subtitle()`、`suggestions()`、`notice()`、`placeholder()` |
-| `home.card` | **`id`**、**`render()`**、`title()`、`order` |
+| `space` | **`id`**、**`icon`**、**`title()`**、`order`、`center: "chat" \| "minimized" \| "hidden"`（默认 chat）、`sidebar()`（左栏中段）、`overview()`（中区不是对话时）、`tabs: [{ id, title(), render() }]` 或返回它的函数（随选中项变）、`sessions`（列哪个后端 space 的会话，默认自己的 id）、`subtitle()`、`suggestions()`、`notice()`、`placeholder()` |
+| `home.card` | **`id`**、**`render()`**、`title()`、`order`：画在新对话的输入框下面 |
 | `tool.row` | **`id`**、**`match(toolBlock)`**、**`render(toolBlock)`** |
 | `details.panel` | **`id`**、**`match(item)`**、**`render(item)`**、`title(item)`；`item = { kind, name?, … }`，由 `host.reveal(item)` 打开 |
 | `flow.block` | **`id`**、**`match(block)`**、**`render(block)`**：对话流里的块，先于内建的匹配 |
@@ -377,8 +361,24 @@ export function register(r: Registry, host: NestHost): void
 | `reveal(item)` | 右栏打开详情 |
 | `t(key, …)` | 文案 |
 
-拿不到 Harnix 自己的连接。计划（M8）：注册表加 `r.tokens({...})`（只许覆盖已有令牌名）与
-`r.strings(locale, {...})`（key 带模块命名空间），编进来的模块和运行期 v2 包都能用；不算贡献点。
+拿不到 Harnix 自己的连接。
+
+### 6.4.1 外观：令牌覆盖与语言包
+
+| 调用 | 说明 |
+|---|---|
+| `r.tokens({ "--accent": "#2f6fb3", … }, owner)` | 只许覆盖主题已有的令牌名（`:root` 上声明过的）；新名字、`url(` 之类的值被拒并记进诊断。后注册的赢 |
+| `r.strings("zh-CN" \| "en", { "<owner>.key": "…" }, owner)` | 语言包；key 必须以 `<owner>.` 开头，别的被拒。之后 `host.t("<owner>.key")` |
+
+两者不是贡献点（贡献点还是 8 个）。编进来的模块和运行期 v2 包都能用；运行期包拿到的注册表把 `owner`
+钉成包名。页面标题、左栏产品名与图标来自 profile 的 `[brand]`。
+
+### 6.4.2 外壳的框架
+
+一个 space 就是三栏：左栏中段是它的 `sidebar()`，中区默认是对话（`center`），右栏是它的 `tabs`。不随
+space 变的只有：顶部的标识、新建对话、搜索；底部的头像（就是设置入口，外圈颜色表示连接状态；点开是
+设置、主题、语言、关于、连接详情）。两边的栏都能拖宽度。内建三个 space——会话（按时间）、项目（树，
+一次展开一个）、系统（入口在底部）——都是用例，`[shell] spaces` 决定留哪些。
 
 ### 6.5 构建
 
@@ -397,12 +397,23 @@ HARNIX_UI_DIST=<同一目录> cargo build --release -p <app>
 
 ### 6.6 运行期包的界面模块
 
-现在：包里 `[[ui]]` 段 `api_version = 1` 的模块一律报「这一条不生效」（M4 换掉旧外壳之后就这样），
-包的其余部分照常。
+```toml
+[[ui]]
+point = "tool.row"
+module = "rows.js"     # 包的 ui/ 下
+api_version = 2
+```
 
-计划（M8）：`api_version = 2`，预编译好的 ES 模块，不带 React；页面的内联 import map 暴露
-`react`、`react-dom`、`react/jsx-runtime`、`@harnix/react`，它的 `sha256` 由服务端在启动时算出写进 CSP；
-`[ui] runtime_modules = false` 一律不加载。运行期包仍然**不能**新增 space。
+- 模块是**预编译好的 ES 模块**，不带 React：`import { jsx } from "react/jsx-runtime"`、
+  `import { useNest } from "@harnix/react"`。页面的内联 import map 把 `react`、`react-dom`、
+  `react-dom/client`、`react/jsx-runtime`、`@harnix/react` 指到外壳自己用的那几份，页面上只有一个 React。
+- 导出 `register(registry, host)`；`registry.register(point, c)`、`registry.tokens(t)`、
+  `registry.strings(locale, d)`，`owner` 一律是包名。
+- import map 是页面里唯一的内联脚本，服务端出页面时按它的 `sha256` 写进 CSP；没有 `unsafe-inline`、
+  `unsafe-eval`。
+- `api_version` 不是 2（或没写，按 v1 算）：这一条报「这一条不生效」并写明原因，包的其余部分照常。
+- `[ui] runtime_modules = false`：一条都不提供、不服务。
+- 运行期包仍然**不能**新增 space。范例：`tests/fixtures/packages/demo-rows-v2/`。
 
 ---
 
@@ -411,7 +422,7 @@ HARNIX_UI_DIST=<同一目录> cargo build --release -p <app>
 | 导出 | 说明 |
 |---|---|
 | `startHarnix(opts) → Backend` | 起一个进程，自己的 HOME、数据根、端口。`opts.bin` 写应用二进制的绝对路径；`profile`（追加的 TOML）、`env`、`args`、`replay`、`seed`、`uiDir`、`scratch` |
-| `Backend` | `url`、`port`、`token`、`scratch`、`project`、`pid`、`log()`、`stop()`、`halt()`、`restart()` |
+| `Backend` | `url`、`port`、`token`、`scratch`、`state`（`$HOME/.<product_id>`）、`project`、`pid`、`log()`、`stop()`、`halt()`、`restart()` |
 | `connect(backend) → TestClient` | `call`、`refused`（期望被拒，返回错误）、`waitFor(pred, { timeout, describe })`、`events`、`eventsOfKind`、`text`、`close` |
 | `test`、`expect` | Playwright Test，带 `api` 夹具 |
 | `inconclusive(reason)` | 环境不满足时标成「没结论」而不是通过 |
@@ -439,11 +450,21 @@ HARNIX_UI_DIST=<同一目录> cargo build --release -p <app>
 
 | 缺口 | 影响 | 什么时候补 |
 |---|---|---|
-| 运行期包的界面模块不加载 | 第三方包只能给 Agent 侧加东西 | M8 |
-| `[brand]`、`[ui] runtime_modules`、令牌覆盖、语言包 | 产品名、图标、配色还改不了；写进 profile 会拒绝启动 | M8 |
-| 状态目录还在 `~/Documents/.harnix` | 两个产品装在一台机器上会共用令牌与账本 | M8（改成 `~/.<product_id>`，不迁移旧的） |
-| `templates/app/scripts/build.sh` 没接 `HARNIX_UI_MODULES` | 从模板起步的应用，space 的界面编不进去；照 hello-app 的 `build.sh` 改 | 下一次发布修模板 |
-| 应用自己的 pnpm workspace 怎么摆没有测过 | hello-app 的界面包在 Harnix 的 workspace 里；外部应用靠 Vite 去重解析 `react`、`@harnix/react`，类型检查与别的依赖要应用自己装 | M9（消费者落地时定下来） |
 | 没有 MCP 服务端、角色令牌 | 外部 Agent 要连：模块 `start()` 里自己起监听 | 0.4 之后 |
-| 没有桌面壳模板 | Tauri 壳先留在应用里 | M9 |
 | 批准原语 | 不进 Harnix：照指南 §10.1 用条目 + 主题 + 只许设备的方法自己做 | 不做 |
+| 运行期包新增 space | 第三方包只能贡献 8 个点里除 `space` 之外的 | 0.4 之后（D28） |
+| 后台 Shell 的输出、子 Agent 的进度 | 系统 space 的任务页只有任务的事实，没有输出尾巴 | Agix（`.local/agix-issue-07`） |
+| 应用自己的 pnpm workspace 怎么摆 | 外部应用靠 Vite 去重解析 `react`、`@harnix/react`；类型检查与别的依赖要应用自己装（见迁移说明） | 消费者落地时定 |
+| 桌面壳在 Windows 上没有干净的停止 | 关窗口 5 秒后直接结束子进程，模块的 `stop` 不跑 | 有需要再做 |
+
+## 10. 桌面壳：`templates/desktop`
+
+Tauri 2，两种模式：
+
+- **本机**：壳起应用（`--host 127.0.0.1 --port <空闲> --launch-link --exit-with-stdin`），读
+  `~/.<product_id>/token`，`POST /auth/link` 换一条一次性链接给窗口；关窗口时 SIGINT 停应用，壳被强杀时
+  应用读到 stdin 断开自己退出。
+- **远程**：窗口开一个配置好的 `https://` Harnix，配对走网页自己的流程。
+
+业务流量全是页面自己的 HTTP/WS：没有 command、没有 invoke handler、没有全局 Tauri 对象，
+`check-no-ipc.mjs` 在 offline 层查。`--smoke` 不开窗口走一遍起、准入、停。详见它的 README。

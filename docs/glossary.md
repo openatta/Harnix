@@ -18,7 +18,9 @@
 | **二开** | — | 在 Harnix 上做应用，不 fork Harnix |
 | **骨架** | — | 传输、授权、中枢、装配四件事。写死，不可插拔 |
 | **profile** | `profiles/*.toml` | 一份声明式配置：场景、provider、界面、拓扑、实例、模块配置段 |
-| **账本** | `.harnix/` | Harnix 自己的持久状态：设备、工作区、会话与 space 的绑定、按模板建的实例。不是会话内容 |
+| **账本** | `~/.<product_id>/` | 程序自己的持久状态：设备、工作区、会话与 space 的绑定、按模板建的实例。不是会话内容。默认 `~/.harnix/` |
+| **产品 id** | `[brand] product_id` | 决定程序自己的目录 `~/.<product_id>`；同一台机器上的两个产品不共用令牌和账本 |
+| **品牌** | `[brand]` | 产品名、图标、产品 id；配色和文案由模块的令牌覆盖与语言包给 |
 
 ## 2. 运行时四层
 
@@ -72,13 +74,16 @@
 | **模块** | `Module` | 编译期链接进来的 Rust 代码，实现 `Module` trait。内核级信任。内建功能也是模块（**内建模块**） |
 | **插件** | plugin | **只**指 Agix 的包（WASM / QuickJS / manifest）。Harnix 没有自己的插件体系 |
 | **运行期包** | package | 安装时进来的 Agix 插件包。可以带 Agent 段（引擎读）和 `[[ui]]` 段（Harnix 读） |
-| **界面模块** | `[[ui]]` | 运行期包里给浏览器加载的预编译 ES 模块。页面级信任 |
-| **space** | `space` | 「左栏应用 + 右栏应用」的一对，原子注册。会话按 space 绑定 |
+| **界面模块** | `[[ui]]` | 运行期包里给浏览器加载的预编译 ES 模块（贡献点 API 2：从页面的 import map 拿 React）。页面级信任；`[ui] runtime_modules = false` 时一律不加载 |
+| **space** | `space` | 左栏（`sidebar()`）+ 中区（默认是对话，`center`）+ 右栏（`tabs`）合起来，原子注册。会话按 space 绑定 |
 | **部分** | — | 一个 space 的三个组成：**前端部分**（React）、**后端部分**（一个模块）、**Agent 部分**（原生 Rust 贡献或运行期包）。任意组合 |
-| **条目** | entry | space 左栏里用户新建的东西，例如会话 space 的工作区、Helm 的关注组。存在账本里 |
+| **条目** | entry | space 左栏里用户新建的东西，例如项目 space 的项目（工作区）、Helm 的关注组。存在账本里 |
 | **前台 space** | — | 当前显示的 space。中区、输入框、右栏只操作它自己的会话 |
 | **默认实例** | `instance = …` | space 里新建会话默认落在哪台实例 |
-| **内建 space** | — | 会话 space、HOME、系统 space |
+| **内建 space** | `[shell] spaces` | 会话 space（按时间）、项目 space（按项目，列的是会话 space 的会话）、系统 space。都是用例，产品决定留哪些 |
+| **固定部分** | — | 外壳里不随 space 变的东西：顶部的标识、新建对话、搜索，底部的头像（设置入口，外圈表示连接）。其余都是 space 的 |
+| **令牌覆盖** | `r.tokens` | 模块改主题已有令牌的值；不能新增令牌名 |
+| **语言包** | `r.strings` | 模块带的文案；key 以模块 id 开头 |
 | **系统 space** | — | 调试面：按实例 → 会话 → 任务看一切、能操作。可以观看与操作任何 space 的会话 |
 | **贡献点** | contribution point | 前端的接缝。v2 共 8 个：`space`、`home.card`、`tool.row`、`flow.block`、`details.panel`、`sidebar.group`、`command`、`settings.section` |
 | **宿主 API** | `useNest()` | 前端代码拿到的全部能力。拿不到 Harnix 自己的连接 |

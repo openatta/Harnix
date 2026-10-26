@@ -5,9 +5,13 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 node harnix/scripts/sync-app-deps.mjs . --check
 node harnix/scripts/check-pins.mjs . "$@"
-# The interface: the binary embeds Harnix's built `ui/dist` and will not build
-# without it. (From M5 an application's spaces join this build.)
+# The interface, with every space's interface entry compiled in
+# (`spaces/<x>/ui/src/index.tsx`, in name order), into `target/ui`, which the
+# binary then embeds. It will not build without one.
+app="$PWD"
+modules="$(ls "$app"/spaces/*/ui/src/index.tsx 2>/dev/null | paste -sd, - || true)"
 pnpm --dir harnix install --frozen-lockfile
-pnpm --dir harnix --filter @harnix/shell build
-cargo build --release -p myapp
+HARNIX_UI_MODULES="$modules" HARNIX_UI_OUT="$app/target/ui" \
+  pnpm --dir harnix --filter @harnix/shell build
+HARNIX_UI_DIST="$app/target/ui" cargo build --release -p myapp
 node harnix/scripts/check-lock.mjs .
