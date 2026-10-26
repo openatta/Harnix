@@ -231,6 +231,7 @@ pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
             transcripts,
             permission: None,
             customize_session: None,
+            mcp_oauth_resolver: None,
         },
     )
     .await?;

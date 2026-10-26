@@ -106,7 +106,7 @@ Harnix 进程
  │   ├─ 会话 a            ← 一条轮次循环；同一时刻至多一轮
  │   │   ├─ 任务：子 Agent "explore"     ← 属于会话，跟着会话的权限、项目根、生命周期
  │   │   ├─ 任务：后台 Bash `npm run dev`
- │   │   └─ 任务：定时唤醒 */10
+ │   │   └─ 任务：定时任务 0 9 * * *
  │   └─ 会话 b
  ├─ 实例 helm-l1          （进程内，Helm 模块按自己的模板建的）
  │   └─ …
@@ -119,7 +119,7 @@ Harnix 进程
 | **Harnix 进程** | 一个二进制，一个用户 | 中枢、授权、传输、实例登记表、`.harnix/` 账本 | — | 运维 | — |
 | **实例** | 一台 Agix 引擎，一个会话池 | 数据根（设置三层、transcript、记忆、技能、录像）、provider 路由与凭据、MCP 连接、插件、场景、原生扩展 | **彼此完全隔离**：一台实例里的任何配置、状态、会话都不会出现在另一台里。daemon 载体还隔离了崩溃和资源 | profile 声明；模块、界面按模板建（D24） | `instance` |
 | **会话** | 实例里的一条轮次循环 | transcript、场景（创建时定，决定工具集）、项目根、模型、权限规则 | 共享所属实例的配置；彼此的上下文互不可见 | 客户端、模块（无头）、模型（子 Agent 的侧链） | `(instance, session)` |
-| **任务** | 属于某个会话、在会话之外继续跑的工作 | 子 Agent（侧链 transcript）、团队成员、后台 Shell、定时任务与唤醒、监视器、dream | 跟着所属会话：同一套权限、项目根；会话删了，任务一起没 | 会话里的模型（经工具） | `(instance, session, task)` |
+| **任务** | 属于某个会话、在会话之外继续跑的工作 | 子 Agent（侧链 transcript）、团队成员、执行中的 Shell 与监视器、定时任务 | 跟着所属会话：同一套权限、项目根；会话删了，任务一起没 | 会话里的模型（经工具） | `(instance, session, task)` |
 
 几条由这张表直接推出来的规则：
 
@@ -129,13 +129,12 @@ Harnix 进程
   在 Harnix 里它是父会话的任务，不出现在会话列表的顶层。任务不进中枢的键，不进账本。
 - **会话不跨实例，也不跨 space**。要跨就用 `@session` 引用或分叉。前台 space 只看到、只操作
   自己的会话（§8.3）。
-- **轮不一定由 Harnix 发起。** 定时任务、唤醒可以让一个会话自己开始一轮。中枢不能假定「我没发起
-  的轮就不存在」，要靠实例报出会话的生命周期事件（issue 04）。
+- **轮不一定由 Harnix 发起。** 定时任务（Agix 的调度器，`schedule.*`）会让一个会话自己开始一轮。
+  中枢不能假定「我没发起的轮就不存在」：实例在 `daemon.event` 上报出每一轮的开始与结束
+  （`turn_started` / `turn_completed`，带 `initiator`），中枢据此知道（Agix 0.2.7）。
 
-**进程内实例的隔离要 Agix 配合。** Agix 的路径设计支持一个进程里建几个会话池（根显式传入），
-但代码里有几处进程级的全局状态，会让两台配置不同的实例互相覆盖（issue 03）。在 Agix 修好并加上
-测试之前，Harnix 对进程内实例只承诺「MCP 配置与 `system` 一致时隔离成立」，不一致就启动失败并说清
-原因；要配置不同，就用 daemon 载体。
+**进程内实例的隔离由 Agix 承诺。** Agix 0.2.7 起，同一进程里的几台会话池互不可见，有守护测试
+`two_pools_one_process`，新增进程级状态要登记理由。唯一共享的是 OTel 导出器（以第一台为准）。
 
 ---
 
@@ -286,7 +285,7 @@ harnix-app ─→ harnix-transport ─→ harnix-authz ─┐
 | 是什么 | `daemon::assemble::pool(...)` 建在本进程里，调 `dispatch_public` | 本机另一个 Agix daemon 进程，经 JSON-RPC 连接（unix socket 优先，其次回环 ws） |
 | 怎么来 | Harnix 建 | **spawn**：Harnix 起子进程并做最小看护（D16），默认起 `harnix daemon`；**attach**：连一个配置好地址的、只给这个 Harnix 用的 daemon（D25） |
 | 能带原生 Rust 贡献吗 | 能：场景、原生工具、`SessionCustomizer`、凭据源经 `Assembly` 交进去 | 不能，只有那个 daemon 自己的配置与插件 |
-| 隔离 | 状态隔离（依赖 issue 03）；崩溃与资源共用进程（轮次级隔离照旧） | 状态、崩溃、资源都隔离；断了是「实例降级」，不是 Harnix 挂掉 |
+| 隔离 | 状态隔离（Agix 0.2.7 起）；崩溃与资源共用进程（轮次级隔离照旧） | 状态、崩溃、资源都隔离；断了是「实例降级」，不是 Harnix 挂掉 |
 | 版本 | 必然是这次构建链接的那版 Agix | 握手时比对协议版本，不匹配就拒绝并说清楚，不静默降级 |
 | 代价 | 每台的常驻内存记进预算（§10.6） | 另一个进程；不计入 Harnix 的内存预算 |
 
@@ -295,8 +294,7 @@ harnix-app ─→ harnix-transport ─→ harnix-authz ─┐
 默认起的就是它自己，版本**按构造就对得上**，也不用另外分发一个 `agixd`。
 
 **什么时候用哪种**：space 要一台带原生工具的实例（例如 Helm 带交易工具），用进程内；space 要
-配置完全不同（不同的 MCP、凭据）或者要隔离崩溃与资源，用 daemon。issue 03 修好之前，「配置不同」
-只能用 daemon。
+隔离崩溃与资源，或者想把它放到另一个进程里看护，用 daemon。
 
 ### 5.2 模板
 
@@ -396,12 +394,11 @@ daemon 对一条通过认证的连接**完全信任**，并且没有逐方法授
   会话按「先 subscribe 拿 `last_seq`，再读 history，再接实时帧」重建缓冲，然后向客户端推
   `harnix.session_resync`，客户端照刷新那条路重新 attach。这期间的发送进中枢的队列，不拒绝。
   这是中枢本来就有的恢复路径，不是新语义。
-- **丢帧**：daemon 的出站队列满了会静默丢帧（Agix §5.4），收的一方不知道。在 Agix 补上丢帧
-  信号（issue 04）之前，中枢对 daemon 实例的会话在每轮结算时比对 history 的水位，对不上就走上面
-  那条 resync。**这不是在 Harnix 侧补引擎能力**：Harnix 不重建丢掉的帧，只检测「缓冲和引擎对不上」，
-  然后走已有的刷新路径。Agix 给出信号后删掉这段对账，路线里有对应任务。
-- **不是 Harnix 发起的轮**：会话被定时任务、唤醒自己叫起来，中枢只有在订阅了那个会话时才知道。
-  两种载体都需要实例报出会话的生命周期（issue 04）。在那之前，系统 space 把运行状态标成「可能不全」。
+- **丢订阅**：daemon 的出站队列满了，这条连接对该会话的订阅被取消，并收到一帧
+  `subscription_dropped`（Agix §5.4）。中枢收到它就对这个会话走上面那条 resync。
+- **不是 Harnix 发起的轮**：会话被定时任务叫起来，`daemon.event` 的 `turn_started` /
+  `turn_completed`（`initiator:"schedule"`）告诉中枢；中枢订阅 `daemon.event`，两种载体一样。
+  落后时收到 `events_lagged`，用 `session.list` 对账。
 
 ---
 
@@ -452,7 +449,7 @@ daemon 对一条通过认证的连接**完全信任**，并且没有逐方法授
 |---|---|---|
 | `harnix.instances` | — | 实例登记表：每台的载体、模板、拥有者、所属 space、链接状态、版本、会话数 |
 | `harnix.instances.sessions` | `instance` | 这台实例的顶层会话：状态（空闲 / 运行 / 排队）、场景、项目根、所属 space、任务数 |
-| `harnix.sessions.tasks` | `instance`、`session` | 这个会话的任务：种类、状态、开始时间、用量（子 Agent 今天就有；其余种类见 issue 01） |
+| `harnix.sessions.tasks` | `instance`、`session` | 这个会话的任务（Agix `session.tasks`）：种类、状态、开始与结束时间、细节；随 `task_started` / `task_finished` 更新 |
 | `harnix.sessions.status` | — | 所有会话的运行状态（IPDrun R-11），给会话列表用 |
 
 对应的一问一答方法 `harnix.instances.list`、`harnix.instances.sessions`、`harnix.sessions.tasks` 返回同样
@@ -704,7 +701,7 @@ space 的声明里写 `instance = "system"`（默认）、一台固定实例的 
 │ ● system   │ 会话 a 的对话                 │ 任务                             │
 │   进程内    │（与会话 space 同一个          │  ▸ 子 Agent explore   运行 1m12s │
 │   12 会话   │   ChatPanel，可以发送、中断）   │  ▸ 后台 Bash npm run dev  运行   │
-│ ● helm-l1  │                             │  ▸ 定时唤醒 */10      等待        │
+│ ● helm-l1  │                             │  ▸ 定时任务 0 9 * * *  等待        │
 │   进程内    │                             │ 调用                             │
 │ ◐ ci-runner│                             │  #12 step 3  12.4k tok  1.8s    │
 │   daemon   │                             │   ├ 系统块 7（来源、tokens）       │
@@ -728,10 +725,9 @@ space 的声明里写 `instance = "system"`（默认）、一台固定实例的 
 |---|---|---|---|---|
 | 实例 | 载体、模板、拥有者、所属 space、版本与协议版本、运行时长、会话数、自检、provider 路由解析、MCP 连接 | `harnix.instances`；`daemon.status`、`daemon.doctor`、`mcp.status` | 按模板新建、停止、重启、重新 attach | ✅（操作是 Harnix 自己的） |
 | 会话 | 顶层会话，内存里的和冷的；状态、场景、项目根、压缩次数 | `harnix.instances.sessions`（底下是 `session.list`）、Harnix 账本 | 压缩、清空、从第 N 条分叉（相当于回退）、换模型、中断、改名、关闭、删除 | ✅ |
-| 任务 · 子 Agent | 侧链会话，挂在父会话下 | `session.list {parent_session_id}`、`session.history` | 看它的时间线 | ✅（事后视图） |
-| 任务 · 其余 | 运行中的子 Agent、团队成员、后台 Shell、定时任务与唤醒、监视器、dream；运行状态、输出位置 | — | 停止 | ❌ → issue 01 |
+| 任务 | 子 Agent（前台、后台）、团队成员、执行中的 Shell 与监视器、定时任务；状态、时长、细节 | `session.tasks`、`task_started` / `task_finished` 帧 | 停止（`session.stopTask`）；子 Agent 能点进去看侧链（`session.list {parent_session_id}`、`session.history`） | ✅（0.2.7） |
 | 调用 | 选中会话每次模型调用发出去的系统块、工具目录、消息区间、配置、用量与耗时；相邻两次的差异 | Harnix 读录像（请求信封）、`session.history`、`step_start` / `step_end` 帧 | — | ✅（本机，D15） |
-| 上下文 | 下一次调用**将要**带的上下文：每个块来自哪个扩展点、各占多少 tokens | — | 删除、修改、钉住单条消息 | ❌ → issue 02 |
+| 上下文 | 下一次调用**将要**带的上下文：每块的块名、来源、tokens 与正文，工具表，消息数，合计与压缩阈值 | `session.inspectContext` | 删除用户消息或工具结果、改写用户消息（`session.dropMessages` / `editMessage`） | ✅（0.2.7）；钉住消息没有 |
 
 **Agix 没给的，不画假的。** 页签或按钮在 Agix 补上之前不出现，而不是做成灰的或者在 Harnix 侧
 模拟。这是概念 §9「不在 Harnix 侧绕过去」的同一条规矩。
@@ -1028,10 +1024,12 @@ IPDrun 在旧架构上的改动**不合并**，作为需求和参考实现，在
 
 | 文件 | 层 | 内容 | 阻塞 |
 |---|---|---|---|
-| `agix-issue-01-session-tasks.md` | 任务 | 按会话列出、停止它的任务（子 Agent、团队成员、后台 Shell、定时任务与唤醒、监视器、dream），任务的生命周期事件进会话事件流 | M6 的其余任务种类 |
-| `agix-issue-02-context-inspection.md` | 会话 | 「下一次调用将要带的上下文」及每块的来源与 tokens；删除、修改、钉住单条消息；按 RPC 读录像 | M6 的上下文页签 |
-| `agix-issue-03-instance-isolation.md` | 实例 | 同一进程里多个会话池时，进程级全局状态的清单与修法，加一条守住它的测试；顺带确认同一实例里会话之间的 todo 是否隔离 | M3 里配置不同的第二台进程内实例 |
-| `agix-issue-04-instance-observability.md` | 实例 | 实例报出会话的生命周期（含不是宿主发起的轮）；宿主作为 daemon 客户端需要的协议版本、丢帧信号、spawn 的就绪与 token | M3 的运行状态完整性；丢帧对账的删除（有退路，见 §5.7） |
+| `agix-issue-01-session-tasks.md` | 任务 | 按会话列出、停止它的任务，任务的生命周期进会话事件流 | **已落地，Agix 0.2.7** |
+| `agix-issue-02-context-inspection.md` | 会话 | 「下一次调用将要带的上下文」及每块的来源与 tokens；删除、修改单条消息 | **已落地，Agix 0.2.7**（钉住消息、录像 RPC 推后） |
+| `agix-issue-03-instance-isolation.md` | 实例 | 同一进程里多个会话池互不可见，有测试守住 | **已落地，Agix 0.2.7** |
+| `agix-issue-04-instance-observability.md` | 实例 | 会话与轮的生命周期事件；协议版本与能力位；丢订阅通知；spawn 的就绪 | **已落地，Agix 0.2.7** |
+
+每份文件开头写了实际做法与原诉求的出入。
 
 ---
 

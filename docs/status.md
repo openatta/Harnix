@@ -9,9 +9,9 @@
 
 | 项 | 值 |
 |---|---|
-| 阶段 | **前置 A：Agix 改名与 0.2.7**（维护者 2026-10-25 下令开始） |
-| 当前里程碑 | A（见 roadmap「前置 A」） |
-| 当前任务 | A5 上下文查看与修改 |
+| 阶段 | **M0 引擎基线与构建方式**（前置 A 已完成） |
+| 当前里程碑 | M0 |
+| 当前任务 | M0-2 |
 | 下一步 | 见「进行中」。维护者 2026-10-26 下令：A 做完后接着做 M0–M6（系统 space 与界面迁移），M7–M9 不在这一轮 |
 | 最后更新 | 2026-10-25 |
 
@@ -41,13 +41,13 @@
 | 项 | 值 |
 |---|---|
 | 本仓库分支 | `rename-agix-harnix`，从 `upgrade-attacore-0.2.5`（HEAD `b1cfd7e`，0.3.1-2026102501）分出；两条都**没有推送** |
-| `agix/` 钉的 | `8468450`（Agix 改名提交，只在本地 Agix 仓库里，基于上游 `beb69db`）。A6 推送之前，这个钉在别的机器上取不到 |
+| `agix/` 钉的 | `802c9f6`（Agix 0.2.7，已推送，标签 `Agix-v0.2.7-2026102601`） |
 | 远程地址 | GitHub 已改名（2026-10-25）：本仓库 origin 是 `openatta/harnix`，`.gitmodules` 与 `agix/` 的 remote 是 `openatta/agix`，`git ls-remote` 都通 |
 | 不进 git 的输入文档 | `docs/helm-issue-01-nest-0.4-architecture.md`、`iprun-issue-01-sync.md`（Helm、IPDrun 的原文，不改名不改内容） |
 | Agix issue | `.local/agix-issue-01…04-*.md`（0.4 用到的），都还没在 Agix 落地 |
 | 本机目录 | 仍是 `Workspace/Nest`。改名的话，Claude 的 memory 目录要跟着挪 |
 
-注意：CLAUDE.md 的发布步骤要求 `agix/` 检出到钉的那个提交，并且钉要在上游存在。A6 之前不要发布本仓库。
+
 
 ---|---|
 | 分支 | `upgrade-agix-0.2.5`，比 `main`（`079086c`）多 6 个提交，**没有设上游，还没推** |
@@ -65,8 +65,8 @@
 
 | 里程碑 | 版本 | 状态 | 说明 |
 |---|---|---|---|
-| 前置 A：Agix 改名与 0.2.7 | Agix 0.2.7 | **进行中** | Agix 仓库里本地分包提交，A6 一次推送；推送前维护者要先在 GitHub 上把仓库改名为 `openatta/agix` |
-| M0 引擎基线与构建方式 | 0.3.z | 未开始 | |
+| 前置 A：Agix 改名与 0.2.7 | Agix 0.2.7 | ✅ | Agix 仓库里本地分包提交，A6 一次推送；推送前维护者要先在 GitHub 上把仓库改名为 `openatta/agix` |
+| M0 引擎基线与构建方式 | 0.3.z | **进行中** | |
 | M1 LIVE 测试框架 | 0.3.z | 未开始 | |
 | M2 模块契约与应用装配 | **0.4.0** | 未开始 | |
 | M3 实例层与服务端会话 | 0.4.z | 未开始 | M3-3 的完整版、M3-5 的删除依赖 Agix issue 03、04 |
@@ -87,8 +87,8 @@
 | A2 daemon 客户端的正确性 | ✅ | `5cb82a9` | 协议版本 3；`subscription_dropped`；监听器 bind 后才写 instances.d |
 | A3 轮次收口与常驻调度器 | ✅ | `b0e3eb7` | 改成池子级调度器走 `run_turn`，串轮从源头消失，不必重构核心循环；`schedule.*`；生命周期进 `daemon.event`；顺带修整点任务只触发一次、非持久任务被写盘 |
 | A4 会话任务 | ✅ | `78f3b2e` | `session.tasks` / `stopTask`；修好模型的 `TaskStop`；任务事件进 `session.event` |
-| A5 上下文查看与修改 | 进行中 | | 维护者要「能改会话上下文」：drop 之外把 edit（用户纯文本）也做进来 |
-| A6 发布 Agix 0.2.7 | 未开始 | | 需要维护者先改 GitHub 仓库名 |
+| A5 上下文查看与修改 | ✅ | `38876ee` | `inspectContext`、`dropMessages`、`editMessage`；钉住与录像 RPC 推后 |
+| A6 发布 Agix 0.2.7 | ✅ | Agix `802c9f6`，标签 `Agix-v0.2.7-2026102601`（已推送） | 全量测试 2874 过；Harnix 钉上后 `check.sh` 与升级前一致 |
 
 ### M0 任务
 
@@ -134,6 +134,7 @@
 
 | 日期 | 事 |
 |---|---|
+| 2026-10-26 | Agix 0.2.7 发布（A2–A6 完成，推送 main 与标签 `Agix-v0.2.7-2026102601`）。Harnix 钉上它、engine.rs 补 `mcp_oauth_resolver`；`check.sh` 与升级前完全一致（只剩 N-003 与 M0-7 绊线）。设计 §2、§5.7、§9.3、§17 与 roadmap M3、M6 改成 0.2.7 的实际情况；`.local` 的四份 issue 标为已落地。**构建写入失败越来越频繁**（A6 的全量测试重试了 19 次）。开始 M0 |
 | 2026-10-26 | 维护者下令：Agix 0.2.7（A2–A6）之后，接着做 Harnix M0–M6——系统 space（看实例、会话、任务，改会话上下文）与界面迁到 React 外壳和 space 模型。M7–M9 不在这一轮 |
 | 2026-10-26 | A1 完成，提交在 Agix 分支 `agix-0.2.7`（还没合进 main，A6 一起合）。A2–A5 继续在这个分支上做；工作树放在 scratchpad 的 `agix-a1`，丢了就 `git -C agix worktree add <路径> agix-0.2.7` 重建。A0 的 check 补跑完：rust、clippy 用重试脚本跑过；除 N-003（api/live 6 个、browser 5 个）与 M0-7 绊线外全过。**本机构建会间歇性报 `Illegal byte sequence (os error 92)` 写入失败**（不是沙箱、没有第三方系统扩展、日志无记录），cargo 用重试绕过 |
 | 2026-10-25 | 维护者定：Harnix 的标签前缀统一成 `Harnix-v`（与 `Agix-v` 一致）；CLAUDE.md、术语、roadmap、二开指南、memory 已改 |

@@ -51,9 +51,8 @@ M0 不等 A 全部完成；M3 开始前必须完成 A6。
 **验收**：每个 issue 文件里的验收项（按核实后的前提改过）各有测试覆盖，不需要真模型；Agix 的
 fmt、clippy、`cargo test --workspace` 全过；Harnix 在钉上 0.2.7 之后 `scripts/check.sh` 通过。
 
-**A 之后 Harnix 侧要跟着改的**（进对应里程碑）：设计 §5.7 的 history 水位对账不再需要（M3-5 只剩
-resync）；系统 space 的任务种类照实改成子 Agent、团队成员、Shell、监视器、定时任务；`[[ui]]` 改成
-`x-` 前缀的段（Agix 0.2.6 起宿主段用 `x-` 前缀）。
+**A 之后 Harnix 侧要跟着改的**：设计 §5.7、§9.3 已改成 0.2.7 的实际情况；包里的 `[[ui]]` 段改成 `x-`
+前缀的段（Agix 0.2.6 起宿主段用 `x-` 前缀），进 M8。
 
 ---
 
@@ -131,9 +130,9 @@ A6 之前可以在本地指针上开发，但不发布：指针必须指向上�
 |---|---|
 | M3-1 | `harnix-instance`（由 `harnix-assembly` 改来）：`EngineLink`；进程内载体 |
 | M3-2 | 实例登记表、账本、模板（profile 的与模块的）；`ctx.instances`（`create`、`ensure`、`stop`）；Harnix 按账本统一重建 |
-| M3-3 | 第二台进程内实例：MCP 配置与 `system` 不一致时启动失败并说清原因（issue 03 之前） |
+| M3-3 | 第二台进程内实例配置不同（不同的 MCP、场景、原生工具）也照常隔离——Agix 0.2.7 起成立，这里补 Harnix 侧的测试 |
 | M3-4 | daemon 载体：RPC 客户端、协议版本比对、attach、spawn 与最小看护、`harnix daemon` 子命令；token 经环境变量交给子进程 |
-| M3-5 | 断线 resync；结算时的 history 水位对账（临时，issue 04 之后删） |
+| M3-5 | 断线 resync；收到 `subscription_dropped` 时对该会话 resync；订阅 `daemon.event`，把不是 Harnix 发起的轮（`initiator:"schedule"`）反映进运行状态 |
 | M3-6 | 服务端调用方 `ctx.sessions`：`create / open / send / interrupt / close`、`SessionSpec`（含 provider、`output_schema`，N-107）、`OnBusy` 含 steer |
 | M3-7 | tap：有界、按 `seq`、落后收 `Lagged` 再追赶，不在锁里等待 |
 | M3-8 | 带参数的宿主主题；`harnix.instances`、`harnix.instances.sessions`、`harnix.sessions.tasks`、`harnix.sessions.status` 与对应方法；`harnix.instances.create`（只认 `ui = true` 的模板） |
@@ -209,7 +208,7 @@ A6 之前可以在本地指针上开发，但不发布：指针必须指向上�
 | M6-2 | 实例 → 会话 → 任务的树（实例是左栏条目） |
 | M6-3 | 会话检查器：概况、调用页签（录像信封、相邻两次的差异） |
 | M6-4 | 设计 §9.3 里 Agix 已有的操作：压缩、清空、分叉、换模型、中断、改名、关闭、删除；实例的新建、停止、重启、重新 attach；全部写审计 |
-| M6-5 | Agix 补上 issue 01、02 之后：其余任务种类、上下文页签、消息级操作（没补上就留到 0.4 之后，不画假的） |
+| M6-5 | 任务（`session.tasks`、停止）与上下文页签（`session.inspectContext`，删除 / 改写消息），Agix 0.2.7 都有了 |
 
 **验收**：API 的 `system`：关掉开关后方法从授权表撤掉；操作写进审计。Playwright 的 `system-tree`、
 `system-calls`、`system-ops`：看得到 M3 的三台实例和各自的会话、任务；选一个会话能看到每次调用的信封
