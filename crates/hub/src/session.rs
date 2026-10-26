@@ -243,7 +243,8 @@ impl Hub {
     }
 
     /// Intercepted so the new session records (see `with_recording`).
-    pub(crate) async fn create(&self, params: Value) -> Result<Value, RpcError> {
+    pub(crate) async fn create(self: &std::sync::Arc<Self>, mut params: Value) -> Result<Value, RpcError> {
+        let space = self.place(&mut params).await?;
         let instance = self.instance_of(&params)?;
         let named = params
             .get("options")
@@ -269,8 +270,12 @@ impl Hub {
                 .recordings
                 .insert((instance.clone(), sid.to_string()), name);
         }
+        if let Some(sid) = created.get("session_id").and_then(Value::as_str) {
+            self.bind_space(&(instance.clone(), sid.to_string()), &space);
+        }
         if let Some(obj) = created.as_object_mut() {
             obj.insert("instance".into(), json!(instance));
+            obj.insert("space".into(), json!(if space == harnix_contract::SYSTEM_SPACE { harnix_contract::SESSIONS_SPACE } else { space.as_str() }));
         }
         Ok(created)
     }

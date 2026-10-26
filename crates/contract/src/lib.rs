@@ -11,6 +11,7 @@
 
 pub mod frame;
 pub mod handshake;
+pub mod space;
 pub mod subject;
 
 pub use frame::{Channel, Frame, FrameSink};
@@ -18,6 +19,7 @@ pub use handshake::{
     Handshake, Limits, Topology, CONTRIB_API_VERSION, MAX_FRAME_BYTES, MAX_UPLOAD_BYTES,
     PROTOCOL_VERSION,
 };
+pub use space::{DefaultInstance, SpaceDecl, HOME_SPACE, SESSIONS_SPACE, SYSTEM_SPACE};
 pub use subject::Subject;
 
 /// The instance every process has: the engine built from the profile's

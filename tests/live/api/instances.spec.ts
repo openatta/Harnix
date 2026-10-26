@@ -95,7 +95,7 @@ test("the interface builds only from a template opened to it", TAGS, async () =>
   expect(error?.code).toBe(INVALID_PARAMS);
 
   const built = await api.call("harnix.instances.create", { template: "worker", name: "w1", params: { team: "a" } });
-  expect(built).toMatchObject({ id: "w1", owner: "ui", template: "worker", carrier: "spawn" });
+  expect(built).toMatchObject({ id: "w1", owner: "space:sessions", template: "worker", carrier: "spawn" });
   expect(built.data_root).toMatch(/workers\/a\/w1$/);
   await api.call("harnix.instances.create", { template: "worker", name: "w2", params: { team: "b" } });
   error = await api.refused("harnix.instances.create", { template: "worker", name: "w3", params: { team: "c" } });
@@ -152,8 +152,8 @@ test("a restart builds again what the ledger records", TAGS, async () => {
   backend = await backend.restart();
   api = await connect(backend);
   const all = await instances(api);
-  expect(all.w1).toMatchObject({ owner: "ui", template: "worker", params: { team: "a" } });
-  expect(all.w2).toMatchObject({ owner: "ui", template: "worker", params: { team: "b" } });
+  expect(all.w1).toMatchObject({ owner: "space:sessions", template: "worker", params: { team: "a" } });
+  expect(all.w2).toMatchObject({ owner: "space:sessions", template: "worker", params: { team: "b" } });
   expect(all["fleet-side"]).toMatchObject({ owner: "module:fleet" });
   await until(api, "w1", "ready");
   // Sessions are in the instance's data root, so they are still there.

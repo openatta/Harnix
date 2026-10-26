@@ -65,6 +65,20 @@ pub struct Point {
 /// There was a seventh for a while, and it was exactly that.
 pub const POINTS: &[Point] = &[
     Point {
+        id: "space",
+        kind: PointKind::Register,
+        what: "一个 space:左栏入口与条目、右栏页签、中区模式、新会话的默认值",
+        when: "界面启动时",
+        frequency: Frequency::PerProcess,
+    },
+    Point {
+        id: "home.card",
+        kind: PointKind::Render,
+        what: "总览页上的一张卡",
+        when: "总览页打开时",
+        frequency: Frequency::PerInteraction,
+    },
+    Point {
         id: "tool.row",
         kind: PointKind::Render,
         what: "一次工具调用在流里的那一行:图标、标题、摘要",
@@ -143,8 +157,8 @@ mod tests {
 
     /// Six, and adding one is a decision (§5.2).
     #[test]
-    fn the_interface_has_six_points() {
-        assert_eq!(POINTS.len(), 6);
+    fn the_interface_has_eight_points() {
+        assert_eq!(POINTS.len(), 8);
     }
 
     /// Nothing here may fire per streaming delta — the whole reason frequency

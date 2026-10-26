@@ -130,6 +130,7 @@ export interface ReplayFrame {
 }
 
 export interface AttachResult {
+  instance: string;
   session: SessionInfo;
   /**
    * 读历史读到这里为止，其后由 `replay` 接上（IPDrun N-120）。一轮在跑时是这一轮开始前的消息数：引擎每一步开始前
@@ -349,38 +350,90 @@ export type EngineEvent =
 
 /* ── 方法表 ───────────────────────────────────────────────────────────── */
 
+/** 一个会话的地址：`instance` 省略即 `system`（设计 §5.6）。 */
+export interface SessionKey {
+  instance?: string;
+  session_id: string;
+  /** 调用方声称的 space；中枢对着账本核对（`SPACE_MISMATCH`）。 */
+  space?: string;
+}
+
+/** 一台实例，`harnix.instances` 里的一行。 */
+export interface InstanceRow {
+  id: string;
+  carrier: "in_process" | "spawn" | "attach";
+  template: string | null;
+  params: Record<string, string>;
+  owner: string;
+  status: { state: "starting" | "ready" } | { state: "degraded"; since_ms: number; reason: string } | { state: "down"; reason: string };
+  version?: string | null;
+  protocol_version?: number | null;
+  data_root: string;
+  scenes: string[];
+  pid?: number | null;
+  created_ms: number;
+}
+
+/** 一件任务（Agix `session.tasks`）。 */
+export interface TaskRow {
+  task_id: string;
+  kind: "agent" | "teammate" | "shell" | "monitor" | "cron";
+  status: "running" | "done" | "failed" | "stopped" | "waiting";
+  started_ms: number;
+  ended_ms: number | null;
+  detail: Record<string, unknown>;
+  error?: string;
+}
+
 export interface Methods {
   "harnix.handshake": { params: HandshakeParams; result: Negotiated };
   "harnix.hello": { params: Record<string, never>; result: Hello };
-  "harnix.sessions": { params: Record<string, never>; result: { sessions: SessionRow[] } };
-  "harnix.attach": { params: { session_id: string }; result: AttachResult };
-  "harnix.detach": { params: { session_id: string }; result: { detached: boolean } };
+  "harnix.sessions": { params: { instance?: string; space?: string }; result: { sessions: SessionRow[] } };
+  "harnix.spaces.list": {
+    params: Record<string, never>;
+    result: { spaces: { id: string; instance: string | null; built: string | null; scene: string | null }[] };
+  };
+  "harnix.attach": { params: SessionKey; result: AttachResult };
+  "harnix.detach": { params: SessionKey; result: { detached: boolean } };
   "harnix.send": {
-    params: {
-      session_id: string;
+    params: SessionKey & {
       message: string;
       attachments?: unknown[];
-      /** queue：排队到本轮结束；reject：忙就拒绝；interrupt：插到队首并中断本轮（中枢 N-103）；steer：当前步骤结束后送进正在跑的这一轮（N-108）。 */
+      /** queue：排队到本轮结束；reject：忙就拒绝；interrupt：中断本轮、丢掉排着的再跑这条；steer：当前步骤结束后送进正在跑的这一轮（N-108）。 */
       on_busy?: "queue" | "reject" | "interrupt" | "steer";
+      /** `@session` 引用：中枢把每个会话说过的话作为一段文本附上。 */
+      references?: { instance?: string; session_id: string }[];
     };
     result: SendResult;
   };
-  "harnix.queue.remove": { params: { session_id: string; item_id: string }; result: { items: QueueItem[] } };
+  "harnix.queue.remove": { params: SessionKey & { item_id: string }; result: { items: QueueItem[] } };
+  "harnix.subscribe": { params: { topic: string; params?: Record<string, unknown> }; result: { topic: string; value: unknown } };
+  "harnix.unsubscribe": { params: { topic: string; params?: Record<string, unknown> }; result: { unsubscribed: boolean } };
+  "harnix.instances.list": { params: Record<string, never>; result: { instances: InstanceRow[] } };
+  "harnix.instances.sessions": { params: { instance: string }; result: { instance: string; sessions: SessionRow[] } };
+  "harnix.instances.templates": {
+    params: Record<string, never>;
+    result: { templates: { id: string; carrier: string; params: string[]; ui: boolean; max: number | null }[] };
+  };
+  "harnix.instances.create": { params: { template: string; name: string; params?: Record<string, string> }; result: InstanceRow };
+  "harnix.instances.stop": { params: { instance: string }; result: { stopped: string } };
+  "harnix.sessions.tasks": { params: SessionKey; result: { active: boolean; tasks: TaskRow[] } };
   "session.create": {
     params: {
+      instance?: string;
       scene?: string;
       project_root?: string | null;
       options?: Record<string, unknown>;
     };
-    result: { session_id: string; scene?: string; project_root?: string | null; [key: string]: unknown };
+    result: { instance: string; session_id: string; scene?: string; project_root?: string | null; [key: string]: unknown };
   };
   "session.history": {
-    params: { session_id: string; offset?: number; limit?: number };
+    params: SessionKey & { offset?: number; limit?: number };
     result: HistoryPage;
   };
-  "session.interrupt": { params: { session_id: string }; result: unknown };
+  "session.interrupt": { params: SessionKey; result: unknown };
   "session.respondToPrompt": {
-    params: { session_id: string; prompt_id: string; decision: Decision };
+    params: SessionKey & { prompt_id: string; decision: Decision };
     result: { prompt_id: string };
   };
 }
@@ -393,18 +446,23 @@ export type ResultOf<M extends MethodName> = Methods[M]["result"];
 
 export interface Notifications {
   /** 会话事件：中枢分配的 seq，追赶以它为锚。 */
-  "harnix.event": { session_id: string; seq: number; turn_id: string; event: EngineEvent };
+  "harnix.event": { instance: string; session_id: string; seq: number; turn_id: string; event: EngineEvent };
   /** 一轮结束（成功、失败或被中断）。 */
   "harnix.turn_settled": {
+    instance: string;
     session_id: string;
     turn_id: string;
     result?: { name?: string | null; usage?: Usage; [key: string]: unknown };
     error?: CallError;
   };
   /** 队列的整值快照。 */
-  "harnix.queue": { session_id: string; items: QueueItem[] };
+  "harnix.queue": { instance: string; session_id: string; items: QueueItem[] };
+  /** 中枢重建了这个会话的缓冲（实例重连、订阅被引擎丢掉）：重新 attach。 */
+  "harnix.session_resync": { instance: string; session_id: string };
   /** 宿主事件：与具体会话无关。 */
-  "harnix.host_event": { kind: string; [key: string]: unknown };
+  "harnix.host_event": { kind: string; instance?: string; [key: string]: unknown };
+  /** 宿主主题的整值快照。 */
+  "harnix.topic": { topic: string; params: Record<string, unknown>; value: unknown };
 }
 
 export type NotificationName = keyof Notifications;

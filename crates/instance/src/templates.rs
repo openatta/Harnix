@@ -26,9 +26,9 @@ pub enum Owner {
     /// The profile's.
     Kernel,
     Module(String),
-    /// Built from the interface. Becomes the space it was built from once
-    /// spaces exist (M5).
-    Ui,
+    /// Built from the interface, by the space that was in front; or a space's
+    /// default instance built from its template.
+    Space(String),
 }
 
 impl From<Owner> for String {
@@ -36,7 +36,7 @@ impl From<Owner> for String {
         match owner {
             Owner::Kernel => "kernel".into(),
             Owner::Module(id) => format!("module:{id}"),
-            Owner::Ui => "ui".into(),
+            Owner::Space(id) => format!("space:{id}"),
         }
     }
 }
@@ -46,11 +46,18 @@ impl TryFrom<String> for Owner {
     fn try_from(s: String) -> Result<Self, String> {
         match s.as_str() {
             "kernel" => Ok(Owner::Kernel),
-            "ui" => Ok(Owner::Ui),
-            _ => s
-                .strip_prefix("module:")
-                .map(|id| Owner::Module(id.to_string()))
-                .ok_or_else(|| format!("unknown owner `{s}`")),
+            // Before spaces, the interface's instances were recorded as `ui`;
+            // they were all the session space's.
+            "ui" => Ok(Owner::Space(harnix_contract::SESSIONS_SPACE.to_string())),
+            _ => {
+                if let Some(id) = s.strip_prefix("module:") {
+                    Ok(Owner::Module(id.to_string()))
+                } else if let Some(id) = s.strip_prefix("space:") {
+                    Ok(Owner::Space(id.to_string()))
+                } else {
+                    Err(format!("unknown owner `{s}`"))
+                }
+            }
         }
     }
 }
@@ -331,7 +338,7 @@ mod tests {
 
     #[test]
     fn owners_read_back() {
-        for owner in [Owner::Kernel, Owner::Ui, Owner::Module("m".into())] {
+        for owner in [Owner::Kernel, Owner::Space("s".into()), Owner::Module("m".into())] {
             let s: String = owner.clone().into();
             assert_eq!(Owner::try_from(s).unwrap(), owner);
         }

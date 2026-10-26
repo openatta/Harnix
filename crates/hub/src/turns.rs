@@ -63,10 +63,18 @@ impl Hub {
         if message.trim().is_empty() {
             return Err(RpcError::invalid_params("empty message"));
         }
+        // `@session` references: a copy of what was said in each, as text the turn can read.
+        let mut attachments = match params.get("attachments") {
+            Some(Value::Array(list)) => list.clone(),
+            _ => Vec::new(),
+        };
+        for reference in params.get("references").and_then(Value::as_array).into_iter().flatten() {
+            attachments.push(self.reference(reference).await?);
+        }
         let item = QueueItem {
             item_id: new_id("q"),
             message,
-            attachments: params.get("attachments").cloned().unwrap_or(json!([])),
+            attachments: json!(attachments),
         };
         // Sending implies watching. A client that skipped `harnix.attach` would
         // otherwise get neither the turn's events nor its settlement — frames
@@ -364,8 +372,15 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let key = self.key_of(&params)?;
         let session_id = key.1.clone();
-        let result = self.call(&key.0, method, without_instance(params)).await?;
+        let result = self.call(&key.0, method, without_instance(params.clone())).await?;
+        // A dry run only asks what would go.
+        if params.get("dry_run").and_then(Value::as_bool) == Some(true) {
+            return Ok(result);
+        }
         self.inner.lock().await.sessions.remove(&key);
+        if method == "session.delete" {
+            self.unbind_space(&key);
+        }
         // The recorder keeps no retention policy and says so — a recording is
         // a self-contained directory for whoever owns the session to remove,
         // and deleting the session is that moment. Closing is not: the

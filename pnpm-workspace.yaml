@@ -3,12 +3,14 @@
 #
 #   ui/packages/*  @harnix/core, @harnix/react, @harnix/shell, @harnix/testkit
 #   tests/live     the LIVE suites: Playwright Test, against the real binary
+#   examples/hello-app/ui  the example application's interface modules
 #
 # An application's own workspace lists `harnix/ui/packages/*` beside its
 # spaces (§11.1); nothing here assumes it is the root.
 packages:
   - ui/packages/*
   - tests/live
+  - examples/hello-app/ui
 
 # Nothing in the tree needs an install script to run.
 allowBuilds:

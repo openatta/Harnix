@@ -19,11 +19,16 @@ pnpm install && pnpm install:browser   # 第一次
 pnpm live                              # api 和 ui 两个 project，模型调用回放
 pnpm live --project api                # 只跑 API
 pnpm live --project api --topology split_streams   # API 套件走分离流
+pnpm live --project ui --topology split_streams    # 界面：后端只给分离流，页面得自己回退过去
+pnpm -r run test                       # 前端各包的 Vitest（会话状态、组件、注册表、i18n、外壳）
 pnpm live --live                       # 连 .env 里的真模型
 pnpm live --no-model                   # 不碰模型：要模型的套件跳过（只给没有录像的机器用）
 pnpm live api/hub.spec.ts              # 一个文件；其余参数原样交给 playwright test
 scripts/check.sh                       # 所有层，从便宜到贵
 ```
+
+`ui` project 从磁盘读构建好的界面（`--ui-dir ui/dist`），所以改了前端只要
+`pnpm --filter @harnix/shell build`，不用重编后端。
 
 `pnpm live` 每次都问一遍 cargo 要不要重建（cargo 是唯一知道要不要重建的东西；对着昨天的二进制跑出的
 绿比不跑更糟）。刚构建过可以设 `HARNIX_BIN=target/release/harnix` 跳过。
@@ -45,7 +50,9 @@ scripts/check.sh                       # 所有层，从便宜到贵
 ## 3. 结构
 
 ```text
-ui/packages/core/            @harnix/core：协议类型（生成）、协议客户端；Vitest
+ui/packages/core/            @harnix/core：协议类型（生成）、协议客户端、会话状态；Vitest
+ui/packages/react/           @harnix/react：对话组件、贡献注册表、i18n、令牌；Vitest（jsdom）
+ui/packages/shell/           @harnix/shell：界面本身；Vitest，构建到 ui/dist
 ui/packages/testkit/         @harnix/testkit
   src/launcher.ts            startHarnix：独立的 HOME、数据根、引擎根、项目、端口、拓扑、回放目录
   src/api.ts                 connect：基于 @harnix/core/client 的测试客户端；finish、inconclusive；覆盖计数
@@ -54,7 +61,7 @@ ui/packages/testkit/         @harnix/testkit
 tests/live/
   playwright.config.ts       两个 project：api、ui
   api/<名字>.spec.ts          API 套件
-  ui/<名字>.spec.ts           界面套件
+  ui/<名字>.spec.ts           界面套件（ui/page.ts：开页面、按录像建会话、打字）
   fixtures/recordings/       模型录像
   features.mjs               功能模块的行，以及每一层为什么可以是零
   coverage.mjs → coverage.md 覆盖表（生成）

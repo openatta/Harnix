@@ -57,6 +57,8 @@ pub struct ModuleStatus {
     pub scenes: Vec<String>,
     /// Instance templates, by their full ids.
     pub templates: Vec<String>,
+    /// Spaces this module is the backend of.
+    pub spaces: Vec<String>,
     pub migrations: Vec<String>,
     /// After a start failure: what stays until the next start, because the
     /// instance was already built with it.
@@ -85,6 +87,7 @@ pub(crate) struct Record {
     pub route: Option<RouteDecl>,
     pub contrib: EngineContrib,
     pub templates: Vec<InstanceTemplate>,
+    pub spaces: Vec<harnix_module::SpaceDecl>,
     pub enabled: Arc<AtomicBool>,
     /// Every name this module put in the authorization table.
     pub declared: Vec<String>,
@@ -140,6 +143,9 @@ pub(crate) fn register(
                 t
             })
             .collect();
+        let mut spaces = harnix_module::SpaceRegistry::default();
+        entry.module.spaces(&mut spaces);
+        let spaces = spaces.into_list();
         entry.module.methods(&mut methods);
         entry.module.events(&mut events);
         entry.module.routes(&mut routes);
@@ -175,6 +181,7 @@ pub(crate) fn register(
             routes: route.is_some(),
             scenes: contrib.scene_ids(),
             templates: templates.iter().map(|t| t.id.clone()).collect(),
+            spaces: spaces.iter().map(|s| s.id.clone()).collect(),
             migrations: Vec::new(),
             note: None,
         };
@@ -187,6 +194,7 @@ pub(crate) fn register(
             route,
             contrib: contrib.gated(enabled.clone()),
             templates,
+            spaces,
             enabled,
             declared: Vec::new(),
             config,

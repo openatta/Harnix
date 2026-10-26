@@ -4,9 +4,14 @@
 //
 // The whole path, once, with nothing stubbed: upload the file, let the engine
 // install and disclose it, let Harnix read the one section the engine ignores
-// and serve the directory, let the browser import the module, and check that
-// the row it registered **replaced** the built-in one for the tool it claims
-// and left the others alone.
+// and serve the directory — and then, in the browser, the interface's answer.
+//
+// The package is written against contribution API 1 (a DOM function). The
+// React interface loads API 2 modules, which arrive in M8; until then a v1
+// module is not imported, it is listed with the reason, and the tool it
+// claims is drawn by the built-in row (design §10.5, concept §5.1.1). The
+// serving half is unchanged: the file is there for the interface that can
+// use it.
 //
 // The shipped binary, not a special one. The package layer is exclusive with
 // no carrier upstream and is in the default build, so this is the same
@@ -19,7 +24,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { makeProject } from "../ui/packages/testkit/src/launcher.ts";
-import { PROTOCOL_VERSION, CONTRIB_API_VERSION } from "../ui/runtime/protocol.js";
+import { PROTOCOL_VERSION, CONTRIB_API_VERSION } from "../ui/packages/core/src/protocol/generated/contract.ts";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const PORT = 4288;
@@ -40,7 +45,7 @@ if (!existsSync(binary)) {
 const scratch = mkdtempSync(join(tmpdir(), "harnix-pkg-e2e-"));
 const child = spawn(
   binary,
-  ["--port", String(PORT), "--ui-dir", join(ROOT, "ui"),
+  ["--port", String(PORT), "--ui-dir", join(ROOT, "ui", "dist"),
    "--agix-dir", join(scratch, "agix"), "--data-dir", join(scratch, "projects"),
    "--replay-dir", join(ROOT, "tests", "live", "fixtures", "recordings")],
   { cwd: makeProject(scratch), env: { ...process.env, ANTHROPIC_API_KEY: "package-e2e", RUST_LOG: "warn" },
@@ -162,59 +167,34 @@ page.on("pageerror", (e) => errors.push(String(e)));
 await page.goto(`http://127.0.0.1:${PORT}/`);
 await page.locator("#conn.on").waitFor({ timeout: 20_000 });
 
-// Polled, because the connection dot is not the signal.
-//
-// `#conn.on` appears when the handshake settles; the built-ins register and
-// the packages load *after* that. Probing straight away reads a registry with
-// only the built-ins in it — which is what this check did on its first run,
-// and it was the check that was wrong, not the loading.
+// Polled: the packages are read after the handshake settles.
 const deadline = Date.now() + 15_000;
-let owners = [];
+let refused = [];
 do {
-  owners = await page.evaluate(async () => {
-    const { at } = await import("/runtime/contrib.js");
-    return at("tool.row").map((c) => c.owner);
-  });
-  if (owners.includes("demo-rows")) break;
+  refused = await page.evaluate(() => window.harnix.app.registry.refusals());
+  if (refused.some((r) => r.owner === "demo-rows")) break;
   await sleep(200);
 } while (Date.now() < deadline);
+const mine = refused.find((r) => r.owner === "demo-rows");
+if (!mine) fail(`the v1 module is not reported: ${JSON.stringify(refused)}`);
+else ok(`the interface reports its v1 module as not loaded: ${mine.reason}`);
 
-if (!owners.includes("demo-rows")) fail(`tool.row owners are ${owners.join(", ")}`);
-else ok("the browser imported it and it registered");
+const owners = await page.evaluate(() => window.harnix.app.registry.at("tool.row").map((c) => c.owner));
+if (owners.includes("demo-rows")) fail("a v1 module registered anyway");
+else ok("and nothing of it registered");
 
-// Later registration wins the claim — for the tool it named, and no other.
-const claims = await page.evaluate(async () => {
-  const { claim } = await import("/runtime/contrib.js");
-  return {
-    bash: claim("tool.row", { kind: "tool", name: "Bash" })?.owner,
-    read: claim("tool.row", { kind: "tool", name: "Read" })?.owner,
-  };
-});
-if (claims.bash !== "demo-rows") fail(`Bash is drawn by ${claims.bash}`);
-else ok("it took over the row it claimed");
-if (claims.read !== "builtin") fail(`Read is drawn by ${claims.read}`);
-else ok("and left the others to the built-in one");
-
-// And it actually paints.
-await page.evaluate(async () => {
-  const { call } = await import("/runtime/client.js");
-  const { openSession } = await import("/shell/session.js");
-  const created = await call("session.create",
-    { scene: "coding", project_root: null, options: { recorder: { name: "calls-a-tool" } } })
-    .catch(() => call("session.create", { options: { recorder: { name: "calls-a-tool" } } }));
-  await openSession(created.session_id);
-});
-await page.locator("#input").fill(
+// The tool it claims still draws, with the built-in row.
+await page.evaluate(() =>
+  window.harnix.app.create({ scene: "coding", options: { recorder: { name: "calls-a-tool" } } }));
+await page.getByTestId("conv-input").fill(
   "Use the Bash tool right now to run exactly: echo harnix-fixture. "
   + "Call the tool. Do not answer in prose.");
-await page.locator("#input").press("Enter");
-
+await page.getByTestId("conv-input").press("Enter");
 try {
-  await page.locator(".blk.row-item .name", { hasText: "demo-rows" })
-    .first().waitFor({ timeout: 30_000 });
-  ok("and the row it drew is the one on screen");
+  await page.locator('[data-testid="conv-tool"]', { hasText: /bash/i }).first().waitFor({ timeout: 30_000 });
+  ok("and the tool it claimed is drawn by the built-in row");
 } catch {
-  fail("the contributed row never appeared in the flow");
+  fail("the tool row never appeared in the flow");
 }
 if (errors.length) fail(`the page threw: ${errors.join("; ")}`);
 else ok("with nothing thrown");

@@ -20,7 +20,7 @@
 //   node tests/remote-smoke.mjs <port> <token> <pairing-code>
 
 import { generateKeyPairSync, sign as nodeSign } from "node:crypto";
-import { PROTOCOL_VERSION, CONTRIB_API_VERSION } from "../ui/runtime/protocol.js";
+import { PROTOCOL_VERSION, CONTRIB_API_VERSION } from "../ui/packages/core/src/protocol/generated/contract.ts";
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"; // the test's cert is self-signed
 

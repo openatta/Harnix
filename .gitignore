@@ -8,3 +8,7 @@ node_modules/
 /test-results
 /playwright-report
 tests/browser/.running.json
+
+# The built interface (pnpm --filter @harnix/shell build); the binary embeds it.
+/ui/dist/
+/examples/hello-app/target/

@@ -30,6 +30,8 @@ pub struct Profile {
     /// instances from. Spawn or attach only — a profile has no native
     /// contributions to give an in-process one.
     pub instance_templates: Vec<TemplateDecl>,
+    /// `[system_space]`: the debugging face, which a product can turn off.
+    pub system_space: SystemSpaceProfile,
     /// `[modules.<id>]`: each compile-time module's own section, handed to
     /// it as written. Secrets are references (`{ credential = "…" }`),
     /// never values (design §7.4).
@@ -64,6 +66,19 @@ pub struct TransportProfile {
     /// Origins a browser may connect from besides loopback, exactly as a
     /// browser serializes them (`https://192.168.1.20:4317`).
     pub extra_origins: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SystemSpaceProfile {
+    /// Off, no client can claim the system space, and none can act across spaces.
+    pub enabled: bool,
+}
+
+impl Default for SystemSpaceProfile {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

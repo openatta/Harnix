@@ -663,7 +663,7 @@ HTTP 暴露**，只能通过授权过的方法读取折算后的视图；删除�
   读不回来就卸掉并报错；`plugin.list` 的条目另带 `component_faults`，说哪个 `[[wasm]]`
   组件没能加载、为什么。这比 `script_faults` 更要紧：一个只有组件的包如果组件加载不了，
   它照样列着、照样 `enabled`、什么也不贡献，而其他每个能问的问题都答"没事"。
-  两份都在设置页的插件行上原样列出（`ui/shell/settings.js`）。
+  两份都在设置页的插件行上原样列出（`ui/packages/shell/src/settings.tsx`）。
 - **工具"跑完了但没成"和"根本没跑起来"分开了**——前者只是让模型收到的结果带
   `is_error: true`，不再连坐取消同一批里并发的其他调用。界面早就按 `is_error` 画，
   所以这条不改代码就变准了。
@@ -675,7 +675,7 @@ HTTP 暴露**，只能通过授权过的方法读取折算后的视图；删除�
   四项**互不重叠**：开了提示缓存的 provider 上，命中之后绝大部分输入记在
   `cache_read_input_tokens`，`input_tokens` 只剩增量——所以上一条修好之后，那颗药丸
   仍然把一轮缓存命中读成了它自己的一个零头。现在四项相加，另有一颗药丸说这个合计里
-  缓存占了多少（`ui/shell/conversation.js`）。
+  缓存占了多少（`ui/packages/shell/src/Shell.tsx`）。
 - **`BudgetPolicy::on_usage` 的 `Spend` 换了形状**，仓库外的每个实现都会编译不过——
   Harnix 一个都没有，所以这一笔一行不改。这和 `ToolOutcome` / `Usage` 那两次一样，是
   §9 头一句在起作用：不实现引擎逻辑的一侧，引擎改自己的类型就不该有代价。

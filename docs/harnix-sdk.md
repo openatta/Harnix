@@ -462,13 +462,14 @@ export function QuotesTab() {
 | `call(method, params)` | 包括 `app.<id>.*` |
 | `subscribe(topic, params?, onValue)` | 宿主主题，可带参数；返回取消函数 |
 | `session.*` | `current`、`context`、`list`（本 space）、`open`、`create`。会话都是 `(instance, session)` |
-| `instances.*` | `list`、`sessions`、`tasks`、`create(template, params)`、`stop` |
-| `composer.insert(text)` | 往输入框插字 |
-| `reveal(panelId, subject)` | 点消息里的卡片，右栏切到对应页签并打开详情 |
+| `instances.*` | `list`、`sessions(instance)`、`tasks(instance, session)`、`create(template, name, params)`、`stop(id)` |
+| `composer.insert(text)` | 往输入框插字（光标处，没有焦点就接在末尾） |
+| `reveal(item)` | 点消息里的卡片，右栏打开它的详情（`item.kind` 由 `details.panel` 认领）。M5 有了右栏页签后加 `panelId` |
 | `space.fetch()` / `space.socket()` | 你模块的自有链接（M7） |
 | `t()`、令牌、图标 | i18n 与主题 |
 
-**你拿不到 Harnix 自己的连接**，所以同一份代码在任何拓扑下都能跑。**没有全局的「当前会话」**：每个
+**你拿不到 Harnix 自己的连接**，所以同一份代码在任何拓扑下都能跑。`call` 只放行 `harnix.reachable` 里
+列出的方法，界面上的人调不了的，你的组件也调不了。**没有全局的「当前会话」**：每个
 space 记自己的当前会话，`session.current()` 拿到的永远是前台 space 的。
 
 ### 8.4 对话组件

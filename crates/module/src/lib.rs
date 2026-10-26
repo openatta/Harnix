@@ -42,7 +42,25 @@ pub use harnix_instance::profile::EngineProfile;
 pub use harnix_instance::templates::{AttachTo, InstanceTemplate, InstanceTemplates, TemplateCarrier};
 pub use harnix_instance::EngineContrib;
 pub use harnix_authz::Principal;
-pub use harnix_contract::{RpcError, Subject};
+pub use harnix_contract::{DefaultInstance, RpcError, SpaceDecl, Subject};
+
+/// What a module declares in `spaces()`.
+#[derive(Default)]
+pub struct SpaceRegistry {
+    list: Vec<SpaceDecl>,
+}
+
+impl SpaceRegistry {
+    pub fn add(&mut self, space: SpaceDecl) -> &mut Self {
+        self.list.push(space);
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn into_list(self) -> Vec<SpaceDecl> {
+        self.list
+    }
+}
 
 /// Bumped when the module contract changes in a way a module can observe.
 ///
@@ -92,6 +110,10 @@ pub trait Module: Send + Sync + 'static {
     /// in-process template may carry native contributions of its own.
     fn templates(&self, _templates: &mut InstanceTemplates) {}
 
+    /// The spaces this module is the backend of (design §8): where their new sessions land and in
+    /// what scene. What they look like is the interface's.
+    fn spaces(&self, _spaces: &mut SpaceRegistry) {}
+
     /// Methods, named `app.<id>.<name>` (built-ins: `harnix.<name>`).
     fn methods(&self, _methods: &mut MethodRegistry) {}
 
@@ -133,6 +155,7 @@ pub trait ErasedModule: Send + Sync + 'static {
     fn manifest(&self) -> Manifest;
     fn engine(&self, engine: &mut EngineContrib);
     fn templates(&self, templates: &mut InstanceTemplates);
+    fn spaces(&self, spaces: &mut SpaceRegistry);
     fn methods(&self, methods: &mut MethodRegistry);
     fn events(&self, events: &mut EventRegistry);
     fn routes(&self, routes: &mut RouteRegistry);
@@ -151,6 +174,9 @@ impl<M: Module> ErasedModule for M {
     }
     fn templates(&self, templates: &mut InstanceTemplates) {
         Module::templates(self, templates)
+    }
+    fn spaces(&self, spaces: &mut SpaceRegistry) {
+        Module::spaces(self, spaces)
     }
     fn methods(&self, methods: &mut MethodRegistry) {
         Module::methods(self, methods)

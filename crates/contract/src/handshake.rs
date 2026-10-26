@@ -14,10 +14,10 @@ use serde::{Deserialize, Serialize};
 /// The client-facing protocol. Bumped when a method, an event shape or an
 /// error code changes in a way a client can observe.
 ///
-/// Stated once, in `ui/runtime/protocol.js`, and checked against this by
-/// `crates/contract/tests/protocol_version.rs` — a version written down twice
-/// eventually disagrees with itself, and the symptom is a refused handshake
-/// nobody changed.
+/// Stated once, here. The interface's copy is generated from it
+/// (`ui/packages/core/src/protocol/generated/contract.ts`, checked for drift by
+/// `scripts/check.sh`) — a version written down twice by hand eventually
+/// disagrees with itself, and the symptom is a refused handshake nobody changed.
 pub const PROTOCOL_VERSION: u32 = 4;
 
 /// The contribution point API. Bumped when a contribution point's contract

@@ -771,6 +771,22 @@ React 19 + TypeScript + Vite + Zustand。markdown 与代码高亮沿用 IPDrun �
 的几项（按会话保留草稿、断线禁发并保留草稿、steer 送达的显示、被中断工具的标记、`data-testid`
 约定）。全部通过的那一次提交里删掉旧的 `ui/` 原生模块。
 
+**M4 的实际做法**（2026-10-26）：
+
+- 对话主干是 IPDrun nest-ui 的 `ChatPanel`，外壳不再画流；外壳加的东西走同一套贡献点：工具行上的
+  「在详情里打开」（`tool.row`）、请求信封的变化（引擎不产生、界面自己放进流的 `custom` 块，由
+  `flow.block` 认领）、两种详情页（`details.panel`）、工作区分组（`sidebar.group`）、引擎的命令
+  （`command`）、八个设置页（`settings.section`）。
+- 附件真的能传：输入框的 ＋、粘贴、拖放经 `harnix.upload.begin` 上传；图片预览用 `data:`（CSP 不放
+  `blob:`）。
+- 贡献点 API 2 的模块加载在 M8；在那之前运行期包里照 v1 写的界面模块不导入，诊断页逐条写明理由，
+  包里的其余东西照常（`tests/package-e2e.mjs` 守着）。
+- `window.harnix = { app, client, host }`：给控制台和从页面里驱动的测试。同源脚本本来就拿得到令牌，
+  这里不多给任何能力。
+- 对等用例在 `tests/live/ui/`，两种拓扑各跑一遍（后端只给被测的那一种，页面自己回退过去）；旧的
+  node 冒烟换成各包的 Vitest：会话状态（core）、组件、注册表与词典（react）、信封与「每个点都被读」
+  （shell）。
+
 ### 10.3 贡献点 v2
 
 | 贡献点 | 状态 | 贡献什么 |

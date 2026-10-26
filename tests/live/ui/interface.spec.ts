@@ -1,127 +1,157 @@
-// What the fake DOM cannot check.
-//
-// `tests/dom.mjs` runs the real modules against a document that renders
-// nothing and lays nothing out. It is fast, it is free, and it catches a
-// mistyped element id or a reducer that drops an event kind. It cannot catch
-// a panel that is four pixels wide, a theme whose text is the same colour as
-// its background, or an icon that fills the row because a class lost its
-// width.
-//
-// So this file only asserts things that need pixels or a real engine. Every
-// behaviour that can be checked without a browser is checked without one.
+/**
+ * The frame, in a real browser against a real backend: what a fake DOM cannot see — a panel four
+ * pixels wide, text the colour of its background, an icon filling its row — and the chrome around
+ * the conversation: the sidebar, search, the settings panel, the theme, the language.
+ */
 
 import { expect, test } from "@harnix/testkit";
 
-const TAGS = { tag: ["@feature:session-space", "@layer:ui"] };
+import { newSession, open, say, watchConsole } from "./page";
 
-/** The page of this worker's backend. */
+const TAGS = { tag: ["@feature:session-space", "@layer:ui"] };
+const SETTINGS = { tag: ["@feature:settings", "@layer:ui"] };
+const CONNECTION = { tag: ["@feature:connection", "@layer:ui"] };
+
 let URL = "";
 test.beforeEach(({ harnix }) => {
   URL = harnix.url;
 });
 
-/** Console errors are failures. A page that throws while still looking right
- *  is the failure mode a screenshot cannot show. */
-async function watchConsole(page) {
-  const errors = [];
-  page.on("pageerror", (e) => errors.push(String(e)));
-  page.on("console", (m) => {
-    if (m.type() === "error") errors.push(m.text());
-  });
-  return errors;
-}
-
-test("the page loads, connects, and lays out its columns", TAGS, async ({ page }) => {
-  const errors = await watchConsole(page);
-  await page.goto(URL);
-
-  // The handshake has to settle before anything is drawn — the shell draws by
-  // asking the registry, and the registry is filled after `harnix.hello`.
-  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
-
-  // The sidebar and the conversation both have real width. A collapsed or
-  // zero-width column renders "fine" in a fake DOM and is unusable here.
-  const side = await page.locator("#side").boundingBox();
-  const main = await page.locator("#main").boundingBox();
-  expect(side.width).toBeGreaterThan(120);
-  expect(main.width).toBeGreaterThan(320);
-
-  // The details column starts closed — closed is a zero-width grid column,
-  // not a hidden element.
+test("the page loads, connects, and lays out its columns", CONNECTION, async ({ page }) => {
+  const errors = watchConsole(page);
+  await open(page, URL);
+  expect((await page.locator("#side").boundingBox())!.width).toBeGreaterThan(120);
+  expect((await page.locator("#main").boundingBox())!.width).toBeGreaterThan(320);
   expect((await page.locator("#details").boundingBox())?.width ?? 0).toBeLessThan(2);
-
-  await page.evaluate(() => { document.getElementById("frame").dataset.details = "open"; });
-  // The column is animated, so measuring straight after the attribute change
-  // measures the first frame of the transition — 1px — not the result. This
-  // is the whole reason a browser test is worth having and also the whole
-  // reason it is easy to write a flaky one.
-  await expect
-    .poll(async () => (await page.locator("#details").boundingBox())?.width ?? 0, { timeout: 3_000 })
-    .toBeGreaterThan(200);
-
-  expect(errors, errors.join("\n")).toEqual([]);
+  await page.getByTestId("details-toggle").click();
+  await expect.poll(async () => (await page.locator("#details").boundingBox())?.width ?? 0).toBeGreaterThan(200);
+  await expect(page.locator("#hero")).toBeVisible();
+  expect(errors).toEqual([]);
 });
 
 test("nothing scrolls the page sideways", TAGS, async ({ page }) => {
-  await page.goto(URL);
-  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
+  await open(page, URL);
   for (const width of [1440, 1024, 720]) {
-    await page.setViewportSize({ width, height: 900 });
-    const overflow = await page.evaluate(() =>
-      document.documentElement.scrollWidth - document.documentElement.clientWidth);
-    expect(overflow, `horizontal overflow at ${width}px`).toBeLessThanOrEqual(1);
+    await page.setViewportSize({ width, height: 800 });
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, `at ${width}px`).toBeLessThanOrEqual(0);
   }
 });
 
-test("text is readable in both themes", TAGS, async ({ page }) => {
-  await page.goto(URL);
-  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
-
-  // Contrast, crudely but usefully: the two colours must not be the same one.
-  // A token that resolves to the wrong value in one theme usually lands
-  // exactly here, and it is invisible to every test that does not paint.
+test("text is readable in both themes, and the theme button switches between them", TAGS, async ({ page }) => {
+  await open(page, URL);
   for (const theme of ["light", "dark"]) {
-    await page.evaluate((t) => document.documentElement.setAttribute("data-theme", t), theme);
-    const { fg, bg } = await page.evaluate(() => {
+    await page.evaluate((t) => (document.documentElement.dataset.theme = t), theme);
+    const { color, background } = await page.evaluate(() => {
       const style = getComputedStyle(document.body);
-      return { fg: style.color, bg: style.backgroundColor };
+      return { color: style.color, background: style.backgroundColor };
     });
-    expect(fg, `${theme}: text and background are the same colour`).not.toBe(bg);
-    expect(bg, `${theme}: body has no background`).not.toBe("rgba(0, 0, 0, 0)");
+    expect(color, theme).not.toBe(background);
+    expect(background, theme).not.toBe("rgba(0, 0, 0, 0)");
   }
+  await page.reload();
+  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
+  const before = await page.evaluate(() => document.documentElement.dataset.theme);
+  await page.locator("#side .foot button").nth(1).click();
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).not.toBe(before);
 });
 
 test("icons are sized by a class, not left to fill the row", TAGS, async ({ page }) => {
-  await page.goto(URL);
-  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
-  // This has actually happened: an `icon()` call with no sizing class, and
-  // the SVG grew to the height of its row. `tests/style-lint.mjs` checks that
-  // every call site names a class; only a browser can check the result.
-  const oversized = await page.evaluate(() =>
-    [...document.querySelectorAll("svg")]
-      .map((s) => s.getBoundingClientRect())
-      .filter((r) => r.height > 64 || r.width > 64).length);
-  expect(oversized, "an SVG grew past 64px").toBe(0);
+  await open(page, URL);
+  await newSession(page, "says-ready");
+  const largest = await page.evaluate(() =>
+    Math.max(0, ...[...document.querySelectorAll("svg")].map((s) => Math.max(s.getBoundingClientRect().width, s.getBoundingClientRect().height))),
+  );
+  expect(largest).toBeLessThanOrEqual(64);
 });
 
-test("the settings panel opens and every section draws", TAGS, async ({ page }) => {
-  const errors = await watchConsole(page);
-  await page.goto(URL);
-  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
-
-  // The gear in the footer, clicked — not a module reached into. What is
-  // under test includes the button existing and being clickable.
+test("the settings panel opens and every section draws", SETTINGS, async ({ page }) => {
+  const errors = watchConsole(page);
+  await open(page, URL);
   await page.locator("#side .foot button").first().click();
   await expect(page.locator(".settings-nav")).toBeVisible();
-
-  // Every section is a registration at `settings.section`; clicking each one
-  // is how "registered but throws when drawn" is caught.
   const items = page.locator(".settings-nav .nav-item");
-  const count = await items.count();
-  expect(count, "no settings sections registered").toBeGreaterThan(4);
-  for (let i = 0; i < count; i += 1) {
+  expect(await items.count()).toBeGreaterThan(4);
+  for (let i = 0; i < (await items.count()); i += 1) {
     await items.nth(i).click();
+    await expect(items.nth(i)).toHaveClass(/on/);
     await expect(page.locator(".settings-page")).toBeVisible();
+    await expect(page.locator(".settings-page .hint.err")).toHaveCount(0);
   }
-  expect(errors, errors.join("\n")).toEqual([]);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#veil")).not.toHaveClass(/on/);
+  expect(errors).toEqual([]);
+});
+
+test("the language switches everything at once, and comes back", SETTINGS, async ({ page }) => {
+  await open(page, URL);
+  await page.locator("#side .foot button").first().click();
+  const language = page.locator(".settings-page select").nth(1);
+  await language.selectOption("en");
+  await expect(page.locator("#new")).toContainText("New session");
+  await expect(page.locator(".settings-nav .nav-item").first()).toHaveText("General");
+  await language.selectOption("zh-CN");
+  await expect(page.locator("#new")).toContainText("新会话");
+  await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
+  await language.selectOption("system");
+});
+
+test("the sidebar collapses to a rail and back", TAGS, async ({ page }) => {
+  await open(page, URL);
+  await page.locator("#side .collapse").click();
+  await expect(page.locator("#frame")).toHaveAttribute("data-sidebar", "collapsed");
+  await page.locator("#side .collapse").click();
+  await expect(page.locator("#frame")).toHaveAttribute("data-sidebar", "expanded");
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+\\" : "Control+\\");
+  await expect(page.locator("#frame")).toHaveAttribute("data-sidebar", "collapsed");
+});
+
+test("a new session from the dialog opens and is listed", TAGS, async ({ page }) => {
+  await open(page, URL);
+  await page.locator("#new").click();
+  await expect(page.locator("#veil")).toHaveClass(/on/);
+  await expect(page.getByTestId("new-scene")).toBeVisible();
+  await expect(page.getByTestId("new-mode")).toBeVisible();
+  await page.getByTestId("new-create").click();
+  await expect(page.locator("#veil")).not.toHaveClass(/on/);
+  await expect(page.getByTestId("conv-input")).toBeEnabled();
+  await expect(page.locator("#side .srow.on")).toBeVisible();
+});
+
+test("search filters the list by name, and Enter searches the transcripts", TAGS, async ({ page }) => {
+  await open(page, URL);
+  const id = await newSession(page, "says-ready");
+  await say(page, "Say exactly: fixture ready");
+  await expect(page.locator(`#side .srow[data-sid="${id}"]`)).toBeVisible();
+  await page.locator(".section-head .icon-btn").first().click();
+  await expect(page.locator(".section-head")).toHaveClass(/searching/);
+  await page.locator("#search").fill("no session is called this");
+  await expect(page.locator(`#side .srow[data-sid="${id}"]`)).toHaveCount(0);
+  await page.locator("#search").fill("fixture");
+  await page.locator("#search").press("Enter");
+  await expect(page.locator("#side .srow.hit").first()).toBeVisible({ timeout: 10_000 });
+  await page.locator("#search").press("Escape");
+  await expect(page.locator(".section-head")).not.toHaveClass(/searching/);
+});
+
+test("a session renamed from its menu is renamed in the list", TAGS, async ({ page }) => {
+  await open(page, URL);
+  const id = await newSession(page, "says-ready");
+  const row = page.locator(`#side .srow[data-sid="${id}"]`);
+  await row.click({ button: "right" });
+  await page.locator("#modal .menu-list button").nth(1).click();
+  const input = page.locator("#modal input");
+  await input.fill("renamed in the test");
+  await input.press("Enter");
+  await expect(row.locator(".name")).toHaveText("renamed in the test");
+  await expect(page.locator("#head .title")).toHaveText("renamed in the test");
+});
+
+test("a device is paired from settings with a code shown once, counting down", { tag: ["@feature:authz", "@layer:ui"] }, async ({ page }) => {
+  await open(page, URL);
+  await page.locator("#side .foot button").first().click();
+  await page.locator(".settings-nav .nav-item").nth(5).click();
+  await page.locator(".settings-page button", { hasText: /pair|配对/i }).last().click();
+  await expect(page.locator(".pairing-code")).toHaveText(/\S{4,}/);
+  await expect(page.locator(".settings-page")).toContainText(/\d+:\d{2}/);
 });

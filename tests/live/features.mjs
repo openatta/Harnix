@@ -10,8 +10,8 @@
 // that is already done.
 
 export const FEATURES = [
-  { id: "connection", name: "握手与连接", ui: { pending: "M4" } },
-  { id: "authz", name: "授权与设备", ui: { pending: "M4" } },
+  { id: "connection", name: "握手与连接" },
+  { id: "authz", name: "授权与设备" },
   { id: "sessions", name: "会话与轮次" },
   { id: "headless", name: "无头会话", ui: { pending: "M5" } },
   {
@@ -24,7 +24,7 @@ export const FEATURES = [
   { id: "session-space", name: "会话 space" },
   { id: "home", name: "HOME", api: { pending: "M5" }, ui: { pending: "M5" } },
   { id: "system", name: "系统 space", api: { pending: "M6" }, ui: { pending: "M6" } },
-  { id: "settings", name: "设置", ui: { pending: "M4" } },
+  { id: "settings", name: "设置" },
   { id: "packages", name: "运行期包", ui: { pending: "M8" } },
   { id: "migrations", name: "迁移", ui: { pending: "M5" } },
   { id: "routes", name: "模块自有链接", ui: { na: "自有链接由模块自己的界面用，没有 Harnix 的界面" } },

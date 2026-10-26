@@ -34,8 +34,9 @@ export function launchFor(mode: ModelMode, extra: LaunchOptions = {}): LaunchOpt
   const model = mode === "live" && hasModel(env);
   return {
     replay: mode === "replay",
-    // The interface the backend serves. The old one until M4 replaces it.
-    uiDir: join(ROOT, "ui"),
+    // The interface as built (`pnpm --filter @harnix/shell build`), from disk rather than the copy
+    // compiled in, so a front-end change is tested without rebuilding the binary.
+    uiDir: join(ROOT, "ui", "dist"),
     ...extra,
     env: { ...(model ? env : { ANTHROPIC_API_KEY: "live-tests-no-model" }), ...extra.env },
   };
@@ -56,8 +57,12 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   mode: [modelMode(), { scope: "worker", option: true }],
 
   harnix: [
-    async ({ mode }, use) => {
-      const backend = await startHarnix(launchFor(mode));
+    async ({ mode }, use, workerInfo) => {
+      // The interface picks its own topology, so the backend offers only the one under test: a page
+      // told to prefer one duplex connection has to fall back to split streams when that is all
+      // there is.
+      const only = workerInfo.project.name === "ui" && process.env.HARNIX_TOPOLOGY ? [topology()] : undefined;
+      const backend = await startHarnix(launchFor(mode, only ? { topologies: only } : {}));
       await use(backend);
       backend.stop();
     },

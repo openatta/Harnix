@@ -1150,6 +1150,7 @@ dependencies = [
  "daemon",
  "harnix-contract",
  "harnix-instance",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",

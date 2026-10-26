@@ -1,0 +1,236 @@
+/* What the React shell adds to the frame: the conversation trunk filling its
+ * column at the reading width, attachments, and the modal's wide variant. */
+
+#main > .hx-chat {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  background: var(--bg-base);
+}
+
+#main > .hx-chat .hx-msgs,
+#main > .hx-chat .hx-cmp {
+  width: 100%;
+  max-width: calc(var(--chat-width) + 2 * var(--chat-clearance));
+  margin: 0 auto;
+}
+
+#main.empty > .hx-chat {
+  justify-content: center;
+}
+
+#main.empty > .hx-chat .hx-msgs {
+  flex: 0 0 auto;
+}
+
+.hx-cmp-box.dropping {
+  border-color: var(--hx-accent);
+}
+
+.hx-cmp-atts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hx-att {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 3px 4px 3px 8px;
+  border: 1px solid var(--hx-line);
+  border-radius: var(--radius-sm);
+  background: var(--hx-bg-soft);
+  font-size: 12px;
+}
+
+.hx-att svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.hx-att.thumb img {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.hx-att.busy {
+  color: var(--hx-fg-faint);
+}
+
+.hx-att-x {
+  border: 0;
+  background: none;
+  color: var(--hx-fg-soft);
+  padding: 0 4px;
+}
+
+.field.optional {
+  opacity: 0.65;
+}
+
+#modal.wide {
+  width: min(960px, calc(100vw - 32px));
+}
+
+#banner[data-tone="error"] {
+  background: var(--state-error-soft);
+  color: var(--state-error);
+}
+
+#side .srow .icon-btn.more {
+  display: inline-flex;
+}
+
+#modal > .head .title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+#modal > .head .close {
+  margin-left: auto;
+}
+
+/* ── spaces ─────────────────────────────────────────────────────────────── */
+
+#side .spaces {
+  display: flex;
+  gap: 4px;
+  padding: 0 12px 8px;
+  flex-wrap: wrap;
+}
+
+#side .spaces .space {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--label-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+#side .spaces .space:hover {
+  background: var(--interactive-hover);
+}
+
+#side .spaces .space.on {
+  background: var(--bg-layer-1);
+  border-color: var(--border-l2);
+  color: var(--label-primary);
+}
+
+#frame[data-sidebar="collapsed"] #side .spaces {
+  flex-direction: column;
+  padding: 0 8px 8px;
+}
+
+#frame[data-sidebar="collapsed"] #side .spaces .label {
+  display: none;
+}
+
+/* ── overview and the conversation bar ─────────────────────────────────── */
+
+#main.overview {
+  display: flex;
+  flex-direction: column;
+}
+
+#overview {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 32px var(--chat-clearance);
+}
+
+#main.overview .chat-bar {
+  flex: 0 0 auto;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border-l1);
+  max-height: 120px;
+  transition: max-height var(--dur-slow) var(--ease);
+}
+
+#main.overview.expanded .chat-bar {
+  max-height: 70%;
+  flex: 1 1 60%;
+}
+
+#main.overview .chat-bar > .hx-chat {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+
+#main.overview:not(.expanded) .chat-bar .hx-msgs {
+  display: none;
+}
+
+#main.overview .chat-bar .bar-toggle {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  z-index: 1;
+}
+
+.home {
+  max-width: var(--chat-width);
+  margin: 0 auto;
+}
+
+.home-title {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0 0 20px;
+}
+
+.home-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.home-card {
+  border: 1px solid var(--border-l2);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  background: var(--bg-layer-1);
+}
+
+.home-card h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+
+/* ── right-column tabs ─────────────────────────────────────────────────── */
+
+#details .tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border-l1);
+}
+
+#details .tabs button {
+  border: 0;
+  background: none;
+  padding: 8px 10px;
+  color: var(--label-secondary);
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+
+#details .tabs button.on {
+  color: var(--label-primary);
+  border-bottom-color: var(--state-info);
+}

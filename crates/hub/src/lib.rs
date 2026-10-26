@@ -33,12 +33,14 @@ mod instances;
 mod lifecycle;
 mod replay;
 mod session;
+mod spaces;
 mod topics;
 mod turns;
 mod views;
 
 pub use clients::ClientId;
 pub use instances::{Registry, Slot};
+pub use spaces::{AuditHook, Spaces};
 pub use replay::{MAX_BYTES as REPLAY_MAX_BYTES, MAX_FRAMES as REPLAY_MAX_FRAMES};
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -94,6 +96,7 @@ pub const HUB_METHODS: &[&str] = &[
     "harnix.instances.ensure",
     "harnix.instances.stop",
     "harnix.sessions.tasks",
+    "harnix.spaces.list",
 ];
 
 /// The hub's own topics: the instance tree as whole values (design §6.3).
@@ -148,6 +151,8 @@ pub struct Hub {
     /// How long a permission ask waits for an answer before it is denied
     /// (R-12): a client shows the countdown.
     prompt_timeout_secs: u64,
+    spaces: StdMutex<Spaces>,
+    audit: StdRwLock<Option<AuditHook>>,
 }
 
 pub struct HubConfig {
@@ -155,6 +160,7 @@ pub struct HubConfig {
     pub limits: harnix_contract::Limits,
     pub prompt_timeout_secs: u64,
     pub registry: Registry,
+    pub spaces: Spaces,
 }
 
 impl Hub {
@@ -177,6 +183,8 @@ impl Hub {
             ui_contributions: RwLock::new(json!([])),
             limits: serde_json::to_value(config.limits).unwrap_or(json!({})),
             prompt_timeout_secs: config.prompt_timeout_secs,
+            spaces: StdMutex::new(config.spaces),
+            audit: StdRwLock::new(None),
         })
     }
 
@@ -393,14 +401,21 @@ impl Hub {
         method: &str,
         params: Value,
     ) -> Result<Value, RpcError> {
+        if spaces::CHECKED.contains(&method) {
+            self.check_space(subject, method, &params)?;
+        }
         match method {
             "harnix.hello" => return self.hello().await,
             "harnix.subscribe" => return self.subscribe(subject, params).await,
             "harnix.unsubscribe" => return self.unsubscribe(subject, params).await,
+            "harnix.sessions" if params.get("space").is_some() => {
+                return self.space_sessions(&instances::claimed_space(&params)).await;
+            }
             "harnix.sessions" | "harnix.instances.sessions" => {
                 let instance = self.instance_of(&params)?;
                 return self.sessions_view(&instance).await;
             }
+            "harnix.spaces.list" => return Ok(self.spaces_view()),
             "harnix.instances.list" => return Ok(self.instances_view()),
             "harnix.instances.templates" => return Ok(self.templates_view(subject).await),
             "harnix.instances.create" => return self.create_instance(subject, params, false).await,
@@ -419,6 +434,15 @@ impl Hub {
                 return self.close_or_delete(method, params).await
             }
             "session.create" => return self.create(params).await,
+            "session.fork" => {
+                let key = self.key_of(&params)?;
+                let space = params.get("space").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| self.space_of(&key));
+                let forked = self.call(&key.0, method, without_instance(params)).await?;
+                if let Some(sid) = forked.get("session_id").and_then(Value::as_str) {
+                    self.bind_space(&(key.0.clone(), sid.to_string()), &space);
+                }
+                return Ok(forked);
+            }
             _ => {}
         }
         // A device reaches the engine only through the passthrough list. A
@@ -466,10 +490,11 @@ fn is_engine_method(method: &str) -> bool {
     !method.starts_with("harnix.") && !method.starts_with("app.") && method.contains('.')
 }
 
-/// The engine has no notion of instances; the name is Harnix's.
+/// The engine has no notion of instances or spaces; the names are Harnix's.
 pub(crate) fn without_instance(mut params: Value) -> Value {
     if let Some(obj) = params.as_object_mut() {
         obj.remove("instance");
+        obj.remove("space");
     }
     params
 }

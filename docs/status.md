@@ -9,9 +9,9 @@
 
 | 项 | 值 |
 |---|---|
-| 阶段 | **M4 前端底座**（M0–M3 已完成，本地提交，未发布） |
-| 当前里程碑 | M4 |
-| 当前任务 | M4 前端底座（见「进行中」） |
+| 阶段 | **M5 Space 模型**（M0–M4 已完成，本地提交，未发布） |
+| 当前里程碑 | M5 |
+| 当前任务 | M5（见「进行中」） |
 | 下一步 | 见「进行中」。维护者 2026-10-26 下令：A 做完后接着做 M0–M6（系统 space 与界面迁移），M7–M9 不在这一轮 |
 | 最后更新 | 2026-10-26 |
 
@@ -70,8 +70,8 @@
 | M1 LIVE 测试框架 | 0.3.z | ✅（未发布） | 「Run the suites under Playwright Test…」那个提交；`check.sh` 全绿（remote 未跑） |
 | M2 模块契约与应用装配 | **0.4.0** | ✅（未发布） | 「Assemble the host from modules…」那个提交；`check.sh` 全绿（remote 未跑）。0.4.0 的推送与标签等维护者点头 |
 | M3 实例层与服务端会话 | 0.4.z | ✅（未发布） | 「Stand instances behind one link…」那个提交；`check.sh` 全绿（remote 未跑） |
-| M4 前端底座 | — | **进行中** | |
-| M5 Space 模型 | 0.4.z | 未开始 | 依赖 M3、M4 |
+| M4 前端底座 | — | ✅（未发布） | 「Replace the interface with a React shell…」那个提交（带着 M5 的一部分）；M4 自己的各层 `check.sh` 全绿 |
+| M5 Space 模型 | 0.4.z | **进行中** | |
 | M6 系统 space | 0.4.z | 未开始 | M6-5 依赖 Agix issue 01、02 |
 | M7 模块的对话与链接能力 | 0.4.z | 未开始 | |
 | M8 运行期界面模块 v2、品牌 | 0.4.z | 未开始 | |
@@ -151,6 +151,18 @@ M1 顺带修了一处：`include_dir!("ui")` 把 `ui/packages/**/node_modules` �
 
 M3 发现的 Agix 缺口：`.local/agix-issue-05-resume-recorder.md`（恢复的会话拿不回录制器），不阻塞，设计 §17 已登记。
 
+### M4 任务
+
+| 任务 | 状态 | 说明 |
+|---|---|---|
+| M4-1 `@harnix/core/state` | ✅ | IPDrun nest-ui 的会话模型与控制器，键 `(instance, session)`，`harnix.session_resync` 时重新 attach；`custom` 块；Vitest 36 个 |
+| M4-2 `@harnix/react` | ✅ | 贡献注册表（v1 的 6 个点）、`useNest()`（`NestProvider`）、i18n（两本词典由旧界面搬来）、令牌（`tokens.css`，组件变量也在这里）、图标 |
+| M4-3 对话组件 | ✅ | nest-ui 的 `ChatPanel` 等，加了真的附件上传、`flow.block` 渲染钩子、输入框句柄；Vitest |
+| M4-4 `@harnix/shell` | ✅ | 三栏、侧栏（分组、搜索、拖动、归档）、详情、设置八页、各对话框、横幅、快捷键、主题 |
+| M4-5 静态检查、CSP、嵌入 | ✅ | `style-lint` 改成查新树；词典检查进 Vitest；CSP 不变；`ui/dist` 嵌进二进制（`build.rs` 没产物就停下并说怎么办）；`--ui-dir`、`ui export` 照旧 |
+| M4-6 旧冒烟换掉 | ✅ | `reducer/contrib/i18n/ui/tool-smoke`、`dom.mjs` 删除，换成各包 Vitest 与 `tests/live/ui/` |
+| M4-7 对等用例、删旧 `ui/` | ✅ | `tests/live/ui/` 23 个，两种拓扑都过；旧 `ui/` 原生模块删除 |
+
 后面里程碑的任务表在开始那个里程碑时从 roadmap 抄过来。
 
 ---
@@ -182,6 +194,8 @@ M3 发现的 Agix 缺口：`.local/agix-issue-05-resume-recorder.md`（恢复的
 
 | 日期 | 事 |
 |---|---|
+| 2026-10-26 | M4 的全量检查：M4 各层全绿；跑的过程中我改了 M5 的代码，导致 api/live/template 三层对着旧二进制失败（`owner` 从 `ui` 改成 `space:sessions`、模板编到半截的源码）。代码交错在同一批文件里，所以 M4 与 M5 的前半部分一起提交；当前树的 API 151、界面 23、模板、clippy 都过 |
+| 2026-10-26 | M4 代码完成：React 外壳替换旧界面（对话主干来自 IPDrun nest-ui），`ui/dist` 嵌进二进制，旧 `ui/` 与 node 冒烟删除；界面用例 23 个、前端 Vitest 90 个。运行期包的 v1 界面模块在 M8 之前不加载（诊断页写明） |
 | 2026-10-26 | M3 完成，`check.sh` 全绿（remote 未跑）。开始 M4 |
 | 2026-10-26 | M3 代码完成：实例层（进程内 / spawn / attach 三种载体一条 `EngineLink`）、模板与账本、断线 resync、外部发起的轮、`ctx.sessions` 与 tap、实例树主题。新增 LIVE 套件 4 个（17 个用例）、录像 `spawns-agent`、测试启动器的 `restart` / `halt`。发现 Agix 缺口 05（恢复的会话拿不回录制器）。每台空载进程内实例约 0.1–0.2 MB |
 | 2026-10-26 | M2 完成：`harnix-module`、`harnix-app`、内建改模块、三种主体、`/apps/<id>/`、失败隔离、配置段与凭据、协议带 `instance`、传输小项、`templates/app`。`check.sh` 全绿（remote 未跑）。0.4.0 未发布：推送与标签等维护者点头。开始 M3 |

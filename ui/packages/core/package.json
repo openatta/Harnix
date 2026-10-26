@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./protocol": "./src/protocol/index.ts",
-    "./client": "./src/client/index.ts"
+    "./client": "./src/client/index.ts",
+    "./state": "./src/state/index.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

@@ -96,11 +96,13 @@ impl Hub {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string();
-                let state = guard.sessions.get(&(instance.to_string(), sid));
+                let state = guard.sessions.get(&(instance.to_string(), sid.clone()));
                 let running = state.is_some_and(|s| s.running_turn.is_some());
                 let queued = state.map(|s| s.queue.len()).unwrap_or(0);
+                let space = self.space_of(&(instance.to_string(), sid.clone()));
                 if let Some(obj) = row.as_object_mut() {
                     obj.insert("instance".into(), json!(instance));
+                    obj.insert("space".into(), json!(space));
                     obj.insert("running".into(), json!(running));
                     obj.insert("queued".into(), json!(queued));
                     obj.insert(

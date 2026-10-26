@@ -68,8 +68,9 @@ impl Registry {
     }
 }
 
-/// Who a caller builds as, and whether it may use this template.
-fn builder_of(subject: &Subject, template: &InstanceTemplate, declared_by: &Owner) -> Result<Owner, RpcError> {
+/// Who a caller builds as, and whether it may use this template. The interface builds as the space
+/// it claims.
+fn builder_of(subject: &Subject, space: &str, template: &InstanceTemplate, declared_by: &Owner) -> Result<Owner, RpcError> {
     match subject {
         Subject::Kernel => Ok(Owner::Kernel),
         // A module builds from its own templates and the profile's.
@@ -83,7 +84,7 @@ fn builder_of(subject: &Subject, template: &InstanceTemplate, declared_by: &Owne
         // The interface builds only from what is opened to it (D18).
         Subject::Device { .. } => {
             if template.ui {
-                Ok(Owner::Ui)
+                Ok(Owner::Space(space.to_string()))
             } else {
                 Err(refused(format!(
                     "template `{}` is not one the interface may build from",
@@ -92,6 +93,15 @@ fn builder_of(subject: &Subject, template: &InstanceTemplate, declared_by: &Owne
             }
         }
     }
+}
+
+/// The space a call says it comes from; the session space when it says none.
+pub(crate) fn claimed_space(params: &Value) -> String {
+    params
+        .get("space")
+        .and_then(Value::as_str)
+        .unwrap_or(harnix_contract::SESSIONS_SPACE)
+        .to_string()
 }
 
 fn refused(message: String) -> RpcError {
@@ -220,20 +230,53 @@ impl Hub {
             })?,
         };
 
+        let space = claimed_space(&params);
+        let (template, declared_by) = {
+            let registry = self.registry.lock().await;
+            registry
+                .templates
+                .get(&template_id)
+                .cloned()
+                .ok_or_else(|| RpcError::not_found(format!("there is no template `{template_id}`")))?
+        };
+        let owner = builder_of(subject, &space, &template, &declared_by)?;
+        if let Some(existing) = self.slot(&name) {
+            if ensure && existing.template.as_deref() == Some(template_id.as_str()) {
+                return Ok(self.instance_view(&existing));
+            }
+        }
+        self.build(&template_id, &name, filled, owner).await
+    }
+
+    /// Build an instance from a template for its owner — a space's default instance, here.
+    pub(crate) async fn build_owned(self: &Arc<Self>, template: &str, name: &str, owner: Owner) -> Result<Value, RpcError> {
+        if let Some(existing) = self.slot(name) {
+            if existing.template.as_deref() == Some(template) {
+                return Ok(self.instance_view(&existing));
+            }
+        }
+        self.build(template, name, BTreeMap::new(), owner).await
+    }
+
+    async fn build(
+        self: &Arc<Self>,
+        template_id: &str,
+        name: &str,
+        filled: BTreeMap<String, String>,
+        owner: Owner,
+    ) -> Result<Value, RpcError> {
+        let template_id = template_id.to_string();
+        let name = name.to_string();
         let mut registry = self.registry.lock().await;
         let Some((template, declared_by)) = registry.templates.get(&template_id).cloned() else {
             return Err(RpcError::not_found(format!("there is no template `{template_id}`")));
         };
-        let owner = builder_of(subject, &template, &declared_by)?;
         if let Owner::Module(id) = &declared_by {
             if registry.disabled.contains(id) {
                 return Err(refused(format!("module `{id}` is disabled")));
             }
         }
-        if let Some(existing) = self.slot(&name) {
-            if ensure && existing.template.as_deref() == Some(template_id.as_str()) {
-                return Ok(self.instance_view(&existing));
-            }
+        if self.slot(&name).is_some() {
             return Err(RpcError::invalid_params(format!(
                 "there is already an instance `{name}`"
             )));
@@ -286,11 +329,13 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let instance = self.instance_of(&params)?;
         let slot = self.slot(&instance).expect("checked");
+        let space = claimed_space(&params);
         let allowed = match (subject, &slot.owner) {
             _ if instance == SYSTEM || slot.owner == Owner::Kernel => false,
             (Subject::Kernel, _) => true,
             (Subject::Module { id }, Owner::Module(owner)) => id == owner,
-            (Subject::Device { .. }, Owner::Ui) => true,
+            (Subject::Device { .. }, _) if space == harnix_contract::SYSTEM_SPACE => true,
+            (Subject::Device { .. }, Owner::Space(owner)) => *owner == space,
             _ => false,
         };
         if !allowed {
@@ -393,7 +438,7 @@ impl Hub {
         let list: Vec<Value> = registry
             .templates
             .values()
-            .filter(|(t, by)| builder_of(subject, t, by).is_ok())
+            .filter(|(t, by)| builder_of(subject, harnix_contract::SESSIONS_SPACE, t, by).is_ok())
             .map(|(t, by)| {
                 json!({
                     "id": t.id,

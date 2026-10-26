@@ -1,7 +1,7 @@
 # The layers that need nothing this runner cannot have.
 #
-# No model, no `.env`, no reachable network: so no `--live`, no interface
-# smokes, and no `remote-smoke`. Those three are the ones `scripts/check.sh`
+# No model, no `.env`, no reachable network: so no `--live`, no topology
+# parity, and no `remote-smoke`. Those three are the ones `scripts/check.sh`
 # reports as skipped on a machine without them, and the same honesty applies
 # here — a green tick on this workflow means the deterministic layers passed,
 # not that everything did.
@@ -43,6 +43,14 @@ jobs:
         with:
           node-version: 24
 
+      - uses: pnpm/action-setup@v4
+
+      # The binary embeds the built interface and will not build without it.
+      - name: Build the interface
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter @harnix/shell build
+
       - name: Build the shipped binary
         run: cargo build --release -p harnix -p harnix-testapp
 
@@ -64,20 +72,14 @@ jobs:
       - name: Interface checks that need no backend
         run: |
           node tests/style-lint.mjs
-          node tests/contrib-smoke.mjs
-          node tests/reducer-smoke.mjs
-          node tests/i18n-smoke.mjs
           node tests/readme-pairing.mjs
           node tests/app-scripts.mjs
 
       - name: The application template, built offline from a clean copy
         run: node tests/app-template.mjs
 
-      - uses: pnpm/action-setup@v4
-
       - name: Front-end packages, protocol types, coverage table
         run: |
-          pnpm install --frozen-lockfile
           pnpm -r --if-present run typecheck
           pnpm -r --if-present run test
           HARNIX_TS_OUT="$RUNNER_TEMP/ts" cargo test -q -p harnix-contract --features ts --test ts_export
@@ -94,12 +96,14 @@ jobs:
       - name: Install chromium
         run: pnpm --filter @harnix/live-tests exec playwright install --with-deps chromium
 
-      - name: The browser layer
+      - name: The interface, both topologies
         env:
           HARNIX_BIN: ${{ github.workspace }}/target/release/harnix
-        run: node tests/live/run.mjs --project ui
+        run: |
+          node tests/live/run.mjs --project ui --topology single_duplex
+          node tests/live/run.mjs --project ui --topology split_streams
 
-      - name: A package, from zip to a row on screen
+      - name: A package, from zip to what the interface does with it
         run: node tests/package-e2e.mjs
 
       # Latency and memory, measured last and alone — a shared runner makes

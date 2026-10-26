@@ -91,8 +91,13 @@ has_model() { [ -f .env ] && grep -qE '^\s*(export\s+)?ANTHROPIC_(API_KEY|AUTH_T
 has_chromium() { [ -d "$HOME/Library/Caches/ms-playwright" -o -d "$HOME/.cache/ms-playwright" ]; }
 
 # ── the layers ────────────────────────────────────────────────────────────
-# The test application is built beside the binary: the module suites run it.
-run_build()   { cargo build --release -p harnix -p harnix-testapp; }
+# The interface first: the binary embeds `ui/dist` and will not build without
+# it. The test application is built beside the binary: the module suites run it.
+run_build() {
+  pnpm install --frozen-lockfile || return 1
+  pnpm --filter @harnix/shell build || return 1
+  cargo build --release -p harnix -p harnix-testapp
+}
 run_rust()    { cargo test "${CRATES[@]}"; }
 # `--no-deps` matters: without it `-D warnings` is applied to the Agix
 # submodule too, and this script goes red for lints in code this repository
@@ -102,7 +107,7 @@ run_clippy()  { cargo clippy "${CRATES[@]}" --all-targets --no-deps -- -D warnin
 run_offline() {
   # No backend, no model, no browser: the checks that should never be the
   # slow ones.
-  for t in crate-metadata app-scripts style-lint contrib-smoke reducer-smoke i18n-smoke readme-pairing; do
+  for t in crate-metadata app-scripts style-lint readme-pairing; do
     echo "── $t ──"
     node "tests/$t.mjs" || return 1
   done
@@ -147,13 +152,18 @@ run_live() {
   done
 }
 
+# The interface in chromium, once per topology: the backend offers only the
+# one under test, so the page has to get there by itself.
 run_browser() {
-  live --project ui || return 1
+  for topology in single_duplex split_streams; do
+    echo "── interface · $topology ──"
+    live --project ui --topology "$topology" || return 1
+  done
   node tests/package-e2e.mjs || return 1
 }
 
-# One backend, configured for all three of the tests that need an external
-# one: `--scenes chat` for the interface smokes, both topologies for parity.
+# A backend for the test that needs an external one: both topologies, so the
+# two can be compared answer for answer.
 start_backend() {
   cat > "$scratch/profile.toml" <<EOF
 [transport]
@@ -163,7 +173,7 @@ port = $PORT_UI
 EOF
   set -a; . ./.env; set +a
   target/release/harnix --profile "$scratch/profile.toml" --scenes chat \
-    --ui-dir ui --agix-dir "$scratch/atta" --data-dir "$scratch/projects" \
+    --ui-dir ui/dist --agix-dir "$scratch/atta" --data-dir "$scratch/projects" \
     > "$scratch/backend.log" 2>&1 &
   backend_pid=$!
   for _ in $(seq 200); do
@@ -177,8 +187,6 @@ run_interface() {
   start_backend || return 1
   local token; token="$(cat "$scratch/projects/.harnix/token")"
   echo "── topology-parity ──"; node tests/topology-parity.mjs "$PORT_UI" "$token" || return 1
-  echo "── tool-smoke ──";      node tests/tool-smoke.mjs "$PORT_UI" "$token" || return 1
-  echo "── ui-smoke ──";        node tests/ui-smoke.mjs "$PORT_UI" "$token" || return 1
   kill "$backend_pid" 2>/dev/null; backend_pid=""
 }
 
@@ -198,7 +206,7 @@ EOF
   set -a; . ./.env; set +a
   target/release/harnix --profile "$scratch/remote.toml" \
     --tls-cert "$scratch/cert.pem" --tls-key "$scratch/key.pem" \
-    --ui-dir ui --agix-dir "$scratch/remote-atta" --data-dir "$scratch/remote-projects" \
+    --ui-dir ui/dist --agix-dir "$scratch/remote-atta" --data-dir "$scratch/remote-projects" \
     > "$scratch/remote.log" 2>&1 &
   backend_pid=$!
   for _ in $(seq 200); do

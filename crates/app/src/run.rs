@@ -219,11 +219,25 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         max_upload_bytes: harnix_contract::MAX_UPLOAD_BYTES,
         replay_max_frames: harnix_hub::REPLAY_MAX_FRAMES,
     };
+    // The spaces the enabled modules are the backend of. A space id taken twice keeps the first.
+    let mut declared: Vec<harnix_module::SpaceDecl> = Vec::new();
+    for record in records.iter().filter(|r| r.is_enabled()) {
+        for space in &record.spaces {
+            let reserved = [harnix_contract::SESSIONS_SPACE, harnix_contract::HOME_SPACE, harnix_contract::SYSTEM_SPACE];
+            if reserved.contains(&space.id.as_str()) || declared.iter().any(|d| d.id == space.id) {
+                tracing::warn!(module = %record.manifest.id, space = %space.id, "a space with this id already exists; ignored");
+                continue;
+            }
+            declared.push(space.clone());
+        }
+    }
+    let spaces = harnix_hub::Spaces::load(roots.state.join("spaces.json"), declared, profile.system_space.enabled)?;
     let hub = Hub::new(HubConfig {
         replay_from: cli.replay_dir.clone(),
         limits,
         prompt_timeout_secs: profile.engine.permission_prompt_timeout_secs,
         registry,
+        spaces,
     });
     let started = now_ms();
     hub.add_instance(
@@ -251,6 +265,17 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
 
     // ── Admission ───────────────────────────────────────────────────────
     let audit = Arc::new(Audit::default());
+    {
+        // The system space reaching across spaces: allowed, and on the record (D17).
+        let audit = audit.clone();
+        hub.set_audit(Arc::new(move |subject, method, session, owner| {
+            tracing::info!(subject = %subject.label(), method, session, owner, "the system space acted on another space's session");
+            // The durable sink files an entry in the session's own transcript, which is the
+            // `system` instance's store; a session elsewhere is kept in the ring only.
+            let filed = session.strip_prefix("system/").map(str::to_string);
+            audit.record(subject, method, harnix_authz::Decision::Allow, Some("cross-space, from the system space"), filed);
+        }));
+    }
     // Decisions worth going back for land in the session timeline, as engine
     // extension entries — in order with everything else, and skippable by
     // anything that does not know what they are (§6.5). The ring stays for

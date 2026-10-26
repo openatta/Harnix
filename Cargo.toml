@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-exclude = ["agix"]
+exclude = ["agix", "examples"]
 members = [
     "crates/app",
     "crates/instance",

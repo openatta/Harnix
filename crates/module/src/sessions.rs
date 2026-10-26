@@ -35,7 +35,10 @@ pub struct SessionRef {
 /// falls back to the instance's defaults.
 #[derive(Debug, Clone, Default)]
 pub struct SessionSpec {
-    /// `system` when absent.
+    /// The space the session belongs to, for good: the session space when absent. Its default
+    /// instance and scene apply to whatever this leaves out.
+    pub space: Option<String>,
+    /// The space's default instance when absent.
     pub instance: Option<String>,
     pub scene: Option<String>,
     pub project_root: Option<std::path::PathBuf>,
@@ -66,6 +69,9 @@ impl SessionSpec {
         put("output_schema", self.output_schema.clone());
         put("recorder", self.recording.clone().map(|name| json!({"name": name})));
         let mut params = json!({"options": options});
+        if let Some(space) = &self.space {
+            params["space"] = json!(space);
+        }
         if let Some(instance) = &self.instance {
             params["instance"] = json!(instance);
         }

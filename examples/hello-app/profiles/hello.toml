@@ -1,0 +1,7 @@
+[engine]
+scene = "coding"
+
+[transport]
+topologies = ["single_duplex", "split_streams"]
+host = "127.0.0.1"
+port = 4090

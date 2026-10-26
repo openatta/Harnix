@@ -44,8 +44,8 @@ pub use harnix_module::{
     EnvCredentials, EventRegistry, Events, Handler, InstanceHandle, InstanceTemplate,
     InstanceTemplates, Instances, Manifest, MethodRegistry, MigrateContext, MigrationReport,
     Module, ModuleContext, OnBusy, Principal, RouteRegistry, Secret, SessionRef, SessionSpec,
-    Sessions, Tap, TapEvent, TemplateCarrier, CONTRIB_API_VERSION, MODULE_API_VERSION,
-    TAP_CAPACITY,
+    Sessions, SpaceDecl, SpaceRegistry, Tap, TapEvent, TemplateCarrier, CONTRIB_API_VERSION,
+    MODULE_API_VERSION, TAP_CAPACITY,
 };
 
 /// Everything a module's source usually needs.
@@ -55,6 +55,6 @@ pub mod prelude {
         CallContext, CredentialRef, EngineContrib, EngineProfile, EventRegistry, InstanceTemplate,
         InstanceTemplates, Manifest, MethodRegistry, MigrateContext, MigrationReport, Module,
         ModuleContext, OnBusy, Principal, RouteRegistry, RpcError, SessionRef, SessionSpec,
-        TapEvent, TemplateCarrier,
+        SpaceDecl, SpaceRegistry, TapEvent, TemplateCarrier,
     };
 }

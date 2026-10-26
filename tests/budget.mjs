@@ -17,7 +17,7 @@ import { gzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { makeProject } from "../ui/packages/testkit/src/launcher.ts";
 import { dirname, join } from "node:path";
-import { PROTOCOL_VERSION, CONTRIB_API_VERSION } from "../ui/runtime/protocol.js";
+import { PROTOCOL_VERSION, CONTRIB_API_VERSION } from "../ui/packages/core/src/protocol/generated/contract.ts";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -39,7 +39,7 @@ const BUDGET = [
     name: "interface (gzipped, as embedded)",
     limit: 300 * KB,
     unit: (n) => `${(n / KB).toFixed(0)} KB`,
-    // Measured from `ui/`, which is what `include_dir!` compiles in — the
+    // Measured from `ui/dist`, which is what `include_dir!` compiles in — the
     // same bytes, so this is the embedded size and not an estimate of it.
     // It is self-contained (no CDN, nothing fetched at run time), which is
     // what lets the interface open with no network at all, and it is also
@@ -55,7 +55,7 @@ const BUDGET = [
           }
         }
       };
-      walk(join(root, "ui"));
+      walk(join(root, "ui", "dist"));
       return total;
     },
   },

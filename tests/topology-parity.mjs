@@ -18,7 +18,7 @@
 //
 //   node tests/topology-parity.mjs <port> <token>
 
-import { PROTOCOL_VERSION, CONTRIB_API_VERSION } from "../ui/runtime/protocol.js";
+import { PROTOCOL_VERSION, CONTRIB_API_VERSION } from "../ui/packages/core/src/protocol/generated/contract.ts";
 
 const [port, token] = process.argv.slice(2);
 if (!port || !token) {

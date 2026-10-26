@@ -24,27 +24,12 @@ use include_dir::{include_dir, Dir};
 
 use crate::AppState;
 
-/// The interface, as built. Compiled in from `ui/`, directory by directory:
-/// `ui/` also holds the front-end packages and their `node_modules`, which
-/// are sources, not the interface, and must not end up in the binary.
-static INTERFACE: &[(&str, Dir<'_>)] = &[
-    ("builtin", include_dir!("$CARGO_MANIFEST_DIR/../../ui/builtin")),
-    ("runtime", include_dir!("$CARGO_MANIFEST_DIR/../../ui/runtime")),
-    ("shell", include_dir!("$CARGO_MANIFEST_DIR/../../ui/shell")),
-    ("styles", include_dir!("$CARGO_MANIFEST_DIR/../../ui/styles")),
-];
-static INTERFACE_ROOT: &[(&str, &[u8])] = &[
-    ("index.html", include_bytes!("../../../ui/index.html")),
-    ("main.js", include_bytes!("../../../ui/main.js")),
-];
+/// The interface, as built (`ui/dist`, or the application's own build; see `build.rs`). Compiled in whole;
+/// `build.rs` refuses to build without it rather than embed an empty interface.
+static INTERFACE: Dir<'_> = include_dir!("$HARNIX_UI_DIST");
 
 fn embedded(path: &str) -> Option<&'static [u8]> {
-    if let Some((_, bytes)) = INTERFACE_ROOT.iter().find(|(name, _)| *name == path) {
-        return Some(bytes);
-    }
-    let (top, rest) = path.split_once('/')?;
-    let (_, dir) = INTERFACE.iter().find(|(name, _)| *name == top)?;
-    dir.get_file(rest).map(|f| f.contents())
+    INTERFACE.get_file(path).map(|f| f.contents())
 }
 
 /// No external sources and no inline anything.
@@ -129,13 +114,7 @@ impl StaticFace {
         }
         let mut count = 0;
         std::fs::create_dir_all(to)?;
-        for (name, bytes) in INTERFACE_ROOT {
-            std::fs::write(to.join(name), bytes)?;
-            count += 1;
-        }
-        for (name, dir) in INTERFACE {
-            write(dir, &to.join(name), &mut count)?;
-        }
+        write(&INTERFACE, to, &mut count)?;
         Ok(count)
     }
 

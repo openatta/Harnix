@@ -3,14 +3,13 @@
 [English](README.md) | 简体中文
 
 **[Agix](https://github.com/openatta/agix) 在浏览器里。** 一个 Rust 二进制：引擎、Web
-服务器和前端是同一个进程 —— 没有子进程、没有 socket、没有 npm。
+服务器和界面是同一个进程 —— 没有子进程、没有 socket。
 
 ![Harnix](docs/images/harnix.png)
 
 `daemon` 是个 lib，所以 `harnix` 把引擎链进来，用函数调用而不是 socket 跟它说话。这一下省掉的
 是一整类要运维的东西：引擎不用占端口、不用握手、不用健康检查、不用重启守护、不用 discovery
-文件。前端则是原生 ES 模块，直接从二进制里发出去 —— 没有打包器、没有 `node_modules`，改一个
-文件到刷新页面之间没有构建这一步。
+文件。界面构建一次（React，用 pnpm 和 Vite），编译进二进制，所以装的仍然只是一个文件。
 
 ## 状态
 
@@ -51,7 +50,9 @@ key 即可 —— 它写进 `settings.json`，不进浏览器也不进日志。�
 - **界面由六个具名接缝拼起来。** 工具行、详情面板、侧栏分组都是注册，不是 switch 分支——
   换一个产品是换一批注册，不是 fork，装上的包也走同样这几个点。
 
-- **前端没有构建步骤。** 原生 ES 模块加 CSS，`harnix --ui-dir ./ui` 从磁盘读：改完刷新就行。
+- **界面是一份构建产物，从二进制里发出去。** `pnpm --filter @harnix/shell build` 写出 `ui/dist`，
+  二进制嵌进它；`harnix --ui-dir ui/dist` 从磁盘读一份新构建，不用重编后端。产物自包含：不用
+  CDN，没有内联脚本和样式。
 
 - **它和终端共用状态。** 引擎目录就是 `agixd` 与 AttaCode 用的那个 `~/.agix`，所以在 TUI
   里跑过的会话在这里能直接打开，反过来也一样。
@@ -170,8 +171,9 @@ crates/builtin    Harnix 自己的功能，写成只用公开契约的模块
 crates/contract   上面这些层互相递交的类型，仅此而已
 crates/testapp    给测试用的应用：能用的模块，和故意失败的模块
 
-ui/               界面，编译进二进制：runtime/、builtin/、shell/、styles/
-ui/packages/      0.4 的前端包（pnpm）：@harnix/core、@harnix/testkit
+ui/packages/      前端（pnpm）：@harnix/core（协议、客户端、会话状态）、@harnix/react（对话组件、
+                  贡献注册表、i18n、令牌）、@harnix/shell（界面本身）、@harnix/testkit
+ui/dist/          构建好的界面，编译进二进制（不进 git）
 tests/live/       LIVE 套件：Playwright Test，对着真的二进制跑（docs/testing.md）
 agix/             Agix（submodule）
 ```
@@ -210,16 +212,14 @@ cargo test -p harnix -p harnix-app -p harnix-module -p harnix-hub -p harnix-tran
            -p harnix-authz -p harnix-instance -p harnix-builtin -p harnix-contract \
            -p harnix-testapp
 
-node tests/style-lint.mjs                        # 样式静态检查（图标尺寸、令牌、id）
-node tests/contrib-smoke.mjs                     # 贡献点，以及一次被拒绝的握手
+# 先构建界面：二进制嵌进 ui/dist，没有它就编译不过。
+pnpm install && pnpm --filter @harnix/shell build
+pnpm -r run test                                 # 前端各包：会话状态、组件、注册表、i18n
+node tests/style-lint.mjs                        # 样式静态检查（图标尺寸、只用令牌）
 node tests/budget.mjs                            # 性能预算，对着 release 构建
-node tests/reducer-smoke.mjs                     # 前端逻辑，离线，最快
-node tests/i18n-smoke.mjs                        # 语言包体检
 node tests/readme-pairing.mjs                    # 两份 README 是一起改的
-node tests/ui-smoke.mjs   <port> <token>         # 真引擎 + 真模型
-node tests/tool-smoke.mjs <port> <token>         # 真工具调用
-# 上面两个要后端带 `--scenes chat` 起；下面两个要 profile 里两种拓扑都列上，
-# remote-smoke 还要非回环监听 + TLS。前提不对时它们各自会说一句 —— 见 docs/testing.md。
+# 下面两个要 profile 里两种拓扑都列上，remote-smoke 还要非回环监听 + TLS。
+# 前提不对时它们各自会说一句 —— 见 docs/testing.md。
 
 node tests/topology-parity.mjs <port> <token>     # 两种拓扑，同样的答案
 node tests/remote-smoke.mjs <port> <token> <code> # 配对、连接、吊销，走 TLS
@@ -230,7 +230,7 @@ pnpm install && pnpm install:browser
 pnpm live                                         # 两个 project 都跑
 pnpm live --project api --topology split_streams  # API 套件走另一种拓扑
 pnpm live --live                                  # …改成对着 .env 里的真模型跑
-# 一个插件包，端到端 —— 从磁盘上的 zip 到屏幕上的一行，跑的就是出厂那个二进制。
+# 一个插件包，端到端 —— 从磁盘上的 zip 到界面怎么对待它，跑的就是出厂那个二进制。
 node tests/package-e2e.mjs
 
 # 对着真模型重录一份重放 fixture（需要 .env）。

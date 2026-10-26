@@ -3,15 +3,14 @@
 English | [简体中文](README.zh-CN.md)
 
 **[Agix](https://github.com/openatta/agix) in a browser.** One Rust binary: the engine, the
-web server and the frontend are the same process — no subprocess, no socket, no npm.
+web server and the interface are the same process — no subprocess, no socket.
 
 ![Harnix](docs/images/harnix.png)
 
 `daemon` is a library, so `harnix` links the engine in and talks to it through a function call rather
 than a socket. That removes a whole category of things to operate: no port for the engine, no
-handshake, no health check, no restart supervisor, no discovery file. And the frontend is native ES
-modules served straight out of the binary, so there is no bundler, no `node_modules`, and no build
-step between editing a file and reloading the page.
+handshake, no health check, no restart supervisor, no discovery file. The interface is built once
+(React, with pnpm and Vite) and compiled into the binary, so what is installed is still one file.
 
 ## Status
 
@@ -56,8 +55,9 @@ says so.
   groups are registrations, not a switch statement — so a different product is a different set of
   registrations, not a fork, and an installed package registers through the same ones.
 
-- **No build step for the frontend.** Plain ES modules and CSS. `harnix --ui-dir ./ui` serves them
-  from disk: edit, reload, done.
+- **The interface is one build, served from the binary.** `pnpm --filter @harnix/shell build`
+  writes `ui/dist`, the binary embeds it, and `harnix --ui-dir ui/dist` serves a fresh build from
+  disk without recompiling the backend. Self-contained: no CDN, no inline script or style.
 
 - **It shares state with the terminal.** The engine directory is the same `~/.agix` that
   `agixd` and AttaCode use, so a session you ran in the TUI opens here, and vice versa.
@@ -192,8 +192,10 @@ crates/builtin    Harnix's own features, as modules written against the public c
 crates/contract   the types those layers hand each other, and nothing else
 crates/testapp    an application for the tests: modules that work and modules that fail on purpose
 
-ui/               the interface, compiled into the binary: runtime/, builtin/, shell/, styles/
-ui/packages/      the 0.4 front-end packages (pnpm): @harnix/core, @harnix/testkit
+ui/packages/      the front end (pnpm): @harnix/core (protocol, client, session state), @harnix/react
+                  (conversation components, contribution registry, i18n, tokens), @harnix/shell
+                  (the interface), @harnix/testkit
+ui/dist/          the built interface, compiled into the binary (not in git)
 tests/live/       the LIVE suites: Playwright Test against the real binary (docs/testing.md)
 agix/             Agix (submodule)
 ```
@@ -235,17 +237,14 @@ cargo test -p harnix -p harnix-app -p harnix-module -p harnix-hub -p harnix-tran
            -p harnix-authz -p harnix-instance -p harnix-builtin -p harnix-contract \
            -p harnix-testapp
 
-node tests/style-lint.mjs                        # static style checks: icon sizing, tokens, ids
-node tests/contrib-smoke.mjs                     # the contribution points, and a refused handshake
+# The interface first: the binary embeds ui/dist and will not build without it.
+pnpm install && pnpm --filter @harnix/shell build
+pnpm -r run test                                 # the front-end packages: state, components, registry, i18n
+node tests/style-lint.mjs                        # static style checks: glyph sizing, tokens only
 node tests/budget.mjs                            # the performance budget, against a release build
-node tests/reducer-smoke.mjs                     # frontend logic, offline, fastest
-node tests/i18n-smoke.mjs                        # language-pack health
 node tests/readme-pairing.mjs                    # the two READMEs moved together
-node tests/ui-smoke.mjs   <port> <token>         # real engine + real model
-node tests/tool-smoke.mjs <port> <token>         # real tool calls
-# The two above want a backend started with `--scenes chat`; the two below want
-# a profile listing both topologies, and `remote-smoke` a non-loopback bind
-# with TLS. Each says so when it is not — see docs/testing.md.
+# The two below want a profile listing both topologies, and `remote-smoke` a
+# non-loopback bind with TLS. Each says so when it is not — see docs/testing.md.
 
 node tests/topology-parity.mjs <port> <token>     # both topologies, same answers
 node tests/remote-smoke.mjs <port> <token> <code> # pair, connect, revoke, over TLS
@@ -257,7 +256,7 @@ pnpm install && pnpm install:browser
 pnpm live                                         # both projects
 pnpm live --project api --topology split_streams  # the API suites over the other topology
 pnpm live --live                                  # …against the model in .env instead
-# A package, end to end — zip on disk to a row on screen, on the shipped binary.
+# A package, end to end — zip on disk to what the interface does with it, on the shipped binary.
 node tests/package-e2e.mjs
 
 # Re-record a replay fixture against a real model (needs .env).
