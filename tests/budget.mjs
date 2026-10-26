@@ -32,7 +32,7 @@ const BUDGET = [
     // The script carrier costs about a megabyte; the WebAssembly one costs
     // about twenty, and the two are mutually exclusive upstream. This number
     // is for the build that carries scripts.
-    measure: () => statSync(join(root, "target", "release", "nest")).size,
+    measure: () => statSync(join(root, "target", "release", "harnix")).size,
   },
   {
     name: "interface (gzipped, as embedded)",
@@ -82,7 +82,7 @@ for (const item of BUDGET) {
 // version — enough to load the process image, which is what the number is
 // really about.
 try {
-  const bin = join(root, "target", "release", "nest");
+  const bin = join(root, "target", "release", "harnix");
   statSync(bin);
   const runs = [];
   for (let i = 0; i < 5; i += 1) {
@@ -149,14 +149,14 @@ async function measureLive(root) {
   const { mkdtempSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
 
-  const bin = join(root, "target", "release", "nest");
+  const bin = join(root, "target", "release", "harnix");
   statSync(bin);
-  const scratch = mkdtempSync(join(tmpdir(), "nest-budget-"));
+  const scratch = mkdtempSync(join(tmpdir(), "harnix-budget-"));
   const port = 4291;
   const child = spawn(
     bin,
     ["--port", String(port), "--headless",
-     "--atta-dir", join(scratch, "atta"), "--data-dir", join(scratch, "projects")],
+     "--agix-dir", join(scratch, "atta"), "--data-dir", join(scratch, "projects")],
     { cwd: root, env: { ...process.env, ANTHROPIC_API_KEY: "budget-test", RUST_LOG: "error" },
       stdio: "ignore" },
   );
@@ -173,7 +173,7 @@ async function measureLive(root) {
   };
 
   try {
-    const token = await waitForToken(join(scratch, "projects", ".nest", "token"), port);
+    const token = await waitForToken(join(scratch, "projects", ".harnix", "token"), port);
 
     // Settle: the janitor, the skill scan and the MCP background connects all
     // happen after the port opens, and measuring through them would measure
@@ -281,7 +281,7 @@ async function connect(port, token) {
     pending.set(i, { res, rej });
     ws.send(JSON.stringify({ jsonrpc: "2.0", method, params: params || {}, id: i }));
   });
-  await call("nest.handshake", {
+  await call("harnix.handshake", {
     protocol_version: PROTOCOL_VERSION, contrib_api_version: CONTRIB_API_VERSION, topology: "single_duplex",
   });
   return { call, close: () => ws.close() };

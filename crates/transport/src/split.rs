@@ -33,7 +33,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use futures::Stream;
-use nest_contract::{codes, RpcError, Subject, Topology};
+use harnix_contract::{codes, RpcError, Subject, Topology};
 use serde_json::{json, Value};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::StreamExt;
@@ -100,7 +100,12 @@ pub async fn establish(
     // possible at all.
     let (credential, established, _) = state
         .sessions
-        .establish(&state.hub, negotiated.subject.clone(), negotiated.topology, None)
+        .establish(
+            &state.hub,
+            negotiated.subject.clone(),
+            negotiated.topology,
+            None,
+        )
         .await;
     let mut answer = handshake::accepted(&negotiated, &state.config.topologies);
     answer["credential"] = json!(credential);
@@ -122,13 +127,13 @@ pub async fn rpc(
     // topology answers a JSON-RPC error naming the ceiling. One semantic, two
     // topologies: a limit that reads differently depending on which one is
     // carrying it is the semantics leaking into the choice (§3.3).
-    if raw.len() > nest_contract::MAX_FRAME_BYTES {
+    if raw.len() > harnix_contract::MAX_FRAME_BYTES {
         return rpc_error(RpcError::new(
             codes::INVALID_REQUEST,
             format!(
                 "frame is {} bytes; the ceiling is {} — use the bulk channel",
                 raw.len(),
-                nest_contract::MAX_FRAME_BYTES
+                harnix_contract::MAX_FRAME_BYTES
             ),
         ))
         .into_response();
@@ -146,7 +151,11 @@ pub async fn rpc(
         ))
         .into_response();
     };
-    let Some(method) = body.get("method").and_then(Value::as_str).map(str::to_string) else {
+    let Some(method) = body
+        .get("method")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+    else {
         return rpc_error(RpcError::new(codes::INVALID_REQUEST, "missing method")).into_response();
     };
     let id = body.get("id").cloned().unwrap_or(Value::Null);
@@ -156,7 +165,7 @@ pub async fn rpc(
         .unwrap_or_else(|| json!({}));
 
     // Which client this is, from the **credential** — not from this
-    // connection. `nest.attach` arrives here while the frames it registers a
+    // connection. `harnix.attach` arrives here while the frames it registers a
     // watcher for go out on a different socket entirely, so connection
     // identity would be the wrong answer, and quietly (§3.3.3, item 2).
     if let Some(obj) = params.as_object_mut() {
@@ -226,7 +235,11 @@ async fn stream_for(
     // client says which face it wants.
     let is_session = matches!(face, Face::Session);
     state.sessions.subscribe(&credential, is_session).await;
-    let slot = if is_session { &established.session_events } else { &established.host_events };
+    let slot = if is_session {
+        &established.session_events
+    } else {
+        &established.host_events
+    };
 
     // One reader per face. A second is refused rather than silently splitting
     // the frames between two readers, which would lose half of them to each.
@@ -245,9 +258,13 @@ where
     // A comment every 15s: an idle proxy that times out a quiet connection is
     // the ordinary way a download-only stream dies without either end
     // noticing.
-    Sse::new(stream).keep_alive(KeepAlive::default()).into_response()
+    Sse::new(stream)
+        .keep_alive(KeepAlive::default())
+        .into_response()
 }
 
 fn rpc_error(e: RpcError) -> Json<Value> {
-    Json(json!({"jsonrpc": "2.0", "id": Value::Null, "error": {"code": e.code, "message": e.message}}))
+    Json(
+        json!({"jsonrpc": "2.0", "id": Value::Null, "error": {"code": e.code, "message": e.message}}),
+    )
 }

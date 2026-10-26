@@ -1,6 +1,6 @@
-//! `nest.devices.*` — pairing, listing, revoking.
+//! `harnix.devices.*` — pairing, listing, revoking.
 //!
-//! Registered by the app rather than by `nest-builtin`, because these are the
+//! Registered by the app rather than by `harnix-builtin`, because these are the
 //! authorization layer's data and this is the layer that owns both it and the
 //! transport whose channels a revocation has to end. Putting them in the
 //! built-ins would give that crate a reason to depend on authorization, for
@@ -9,17 +9,17 @@
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use nest_authz::{Devices, PairError};
-use nest_contract::{RpcError, Subject};
-use nest_contrib::registry::Owner;
-use nest_contrib::{HostMethod, Registry};
+use harnix_authz::{Devices, PairError};
+use harnix_contract::{RpcError, Subject};
+use harnix_contrib::registry::Owner;
+use harnix_contrib::{HostMethod, Registry};
 use serde_json::{json, Value};
 
 pub const METHODS: &[&str] = &[
-    "nest.devices.list",
-    "nest.devices.pair.begin",
-    "nest.devices.pair.complete",
-    "nest.devices.revoke",
+    "harnix.devices.list",
+    "harnix.devices.pair.begin",
+    "harnix.devices.pair.complete",
+    "harnix.devices.revoke",
 ];
 
 /// Characters a pairing code is drawn from.
@@ -62,9 +62,9 @@ impl HostMethod for DeviceMethods {
         let now = SystemTime::now();
         self.devices.sweep(now);
         match self.name {
-            "nest.devices.list" => Ok(json!({"devices": self.devices.list()})),
+            "harnix.devices.list" => Ok(json!({"devices": self.devices.list()})),
 
-            "nest.devices.pair.begin" => {
+            "harnix.devices.pair.begin" => {
                 let label = params
                     .get("label")
                     .and_then(Value::as_str)
@@ -77,15 +77,18 @@ impl HostMethod for DeviceMethods {
                 Ok(json!({
                     "handle": handle,
                     "code": code,
-                    "expires_in_secs": nest_authz::PAIRING_TTL.as_secs(),
+                    "expires_in_secs": harnix_authz::PAIRING_TTL.as_secs(),
                 }))
             }
 
-            "nest.devices.pair.complete" => {
+            "harnix.devices.pair.complete" => {
                 let code = require(&params, "code")?;
                 let public_key = require(&params, "public_key")?;
                 let stamp = stamp(now);
-                match self.devices.complete_pairing(&code, &public_key, now, &stamp) {
+                match self
+                    .devices
+                    .complete_pairing(&code, &public_key, now, &stamp)
+                {
                     Ok(device) => Ok(json!({"device": device})),
                     // One error for "no such code", "expired" and "already
                     // used": telling them apart tells a guesser which guesses
@@ -96,7 +99,7 @@ impl HostMethod for DeviceMethods {
                 }
             }
 
-            "nest.devices.revoke" => {
+            "harnix.devices.revoke" => {
                 let id = require(&params, "device_id")?;
                 let removed = self.devices.revoke(&id);
                 // Immediately, and all of its channels — a credential belongs
@@ -108,7 +111,9 @@ impl HostMethod for DeviceMethods {
                 Ok(json!({"revoked": removed}))
             }
 
-            other => Err(RpcError::not_found(format!("`{other}` is not a device method"))),
+            other => Err(RpcError::not_found(format!(
+                "`{other}` is not a device method"
+            ))),
         }
     }
 }
@@ -139,7 +144,7 @@ pub fn bootstrap(devices: &Devices, reachable: bool) {
     let code = pairing_code();
     let now = SystemTime::now();
     devices.begin_pairing(&code, "first device", now);
-    let minutes = nest_authz::PAIRING_TTL.as_secs() / 60;
+    let minutes = harnix_authz::PAIRING_TTL.as_secs() / 60;
     println!(
         "  no device is paired yet, and this listener is reachable.\n\
          \n\
@@ -176,7 +181,10 @@ mod tests {
             let code = pairing_code();
             assert_eq!(code.len(), CODE_LEN);
             for c in code.chars() {
-                assert!(!"01OIl".contains(c), "`{code}` contains an ambiguous character");
+                assert!(
+                    !"01OIl".contains(c),
+                    "`{code}` contains an ambiguous character"
+                );
             }
         }
     }

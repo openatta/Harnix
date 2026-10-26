@@ -4,7 +4,7 @@
  * stream.
  *
  * Engine commands need no code here beyond listing them: `/compact`, `/help`,
- * `/skills` and MCP prompts are intercepted by AttaCore inside the turn loop,
+ * `/skills` and MCP prompts are intercepted by Agix inside the turn loop,
  * so sending the text as an ordinary message *is* the implementation. What
  * the point is really for is a command the interface answers itself, and a
  * command a plugin brings. */

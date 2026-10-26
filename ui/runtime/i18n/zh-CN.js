@@ -21,7 +21,7 @@ export default {
   "common.retry": "重试",
 
   // ── 应用外壳 ──────────────────────────────────────────────────────────
-  "app.title": "Nest",
+  "app.title": "Harnix",
   "conn.connecting": "连接中…",
   "conn.open": "已连接",
   "conn.closed": "已断开",
@@ -66,7 +66,7 @@ export default {
   "time.days": "{count} 天前",
 
   // ── 对话流 ───────────────────────────────────────────────────────────
-  "hero.title": "AttaCore，在浏览器里",
+  "hero.title": "Agix，在浏览器里",
   "hero.body": "引擎跑在这个进程里，不经过 socket。新建一个会话开始，或从左侧打开一段历史对话。",
   "flow.tool": "工具",
   "flow.toolRunning": "运行中",
@@ -279,11 +279,11 @@ export default {
   "settings.protocolVersion": "协议版本",
   "settings.cwd": "工作目录",
   "settings.attaDir": "引擎目录",
-  "settings.attaDirHint": "--atta-dir：配置、transcript、记忆、技能；与 attacored / AttaCode 共用",
+  "settings.attaDirHint": "--agix-dir：配置、transcript、记忆、技能；与 agixd / AttaCode 共用",
   "settings.projectsDir": "项目目录",
   "settings.projectsDirHint": "--data-dir：选择器从这里开始，新建项目也建在这里",
-  "settings.stateDir": "Nest 状态目录",
-  "settings.stateDirHint": "工作区分组、会话标题、视图偏好、上传都在这里；引擎配置在 ~/.atta，两边不混",
+  "settings.stateDir": "Harnix 状态目录",
+  "settings.stateDirHint": "工作区分组、会话标题、视图偏好、上传都在这里；引擎配置在 ~/.agix，两边不混",
   "settings.frameLimit": "单帧上限",
   "settings.uploadLimit": "上传上限",
   "settings.megabytes": "{size} MiB",
@@ -323,7 +323,7 @@ export default {
   "contrib.reason": "原因",
   "details.noPanel": "没有贡献认领这一项",
   "settings.pluginInstall": "安装插件…",
-  "settings.pluginInstallHint": "选一个 AttaCore 插件包（.zip）。引擎负责校验、解包与编译；Nest 只把文件送过去。",
+  "settings.pluginInstallHint": "选一个 Agix 插件包（.zip）。引擎负责校验、解包与编译；Harnix 只把文件送过去。",
   "settings.pluginUploading": "正在上传 {name}…",
   "settings.pluginInstalling": "引擎正在安装…",
   "settings.pluginInstalled": "已安装",

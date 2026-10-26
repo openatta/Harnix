@@ -288,7 +288,7 @@ async function openFileMenu(trigger) {
   if (!projectRoot) return closeMenu();
   const mine = ++fileRequest;
   try {
-    const result = await call("nest.files", { project_root: projectRoot, query: trigger.query });
+    const result = await call("harnix.files", { project_root: projectRoot, query: trigger.query });
     if (mine !== fileRequest) return; // a later keystroke already asked
     const current = currentTrigger();
     if (!current || current.kind !== "@") return closeMenu();
@@ -367,7 +367,7 @@ async function uploadAll(files) {
       continue;
     }
     try {
-      const grant = await call("nest.upload.begin", { name: file.name, bytes: file.size });
+      const grant = await call("harnix.upload.begin", { name: file.name, bytes: file.size });
       const response = await fetch(grant.url, { method: "POST", body: file });
       if (!response.ok) throw { message: await response.text() };
       const { path } = await response.json();

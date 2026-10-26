@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use nest_contract::{codes, RpcError};
+use harnix_contract::{codes, RpcError};
 use serde_json::{json, Value};
 
 use crate::store::{new_workspace_id, Workspace};
@@ -43,7 +43,11 @@ impl Builtin {
         let files = tokio::task::spawn_blocking(move || {
             let mut out: Vec<(String, u64)> = Vec::new();
             let mut visited = 0usize;
-            for entry in ignore::WalkBuilder::new(&root).hidden(true).build().flatten() {
+            for entry in ignore::WalkBuilder::new(&root)
+                .hidden(true)
+                .build()
+                .flatten()
+            {
                 visited += 1;
                 if visited > MAX_VISITED || out.len() >= limit {
                     break;
@@ -51,7 +55,9 @@ impl Builtin {
                 if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
                     continue;
                 }
-                let Ok(relative) = entry.path().strip_prefix(&root) else { continue };
+                let Ok(relative) = entry.path().strip_prefix(&root) else {
+                    continue;
+                };
                 let path = relative.to_string_lossy().to_string();
                 if !query.is_empty() && !path.to_lowercase().contains(&query) {
                     continue;
@@ -83,9 +89,8 @@ impl Builtin {
     /// keeping projects on another volume is the ordinary case). Anything
     /// else is refused: a browser asking for `/` is what the fence is for.
     pub(crate) async fn list_directory(&self, params: Value) -> Result<Value, RpcError> {
-        let home = home_dir().ok_or_else(
-            || RpcError::new(codes::INTERNAL_ERROR, "no home directory"),
-        )?;
+        let home =
+            home_dir().ok_or_else(|| RpcError::new(codes::INTERNAL_ERROR, "no home directory"))?;
         let target = match params.get("path").and_then(Value::as_str) {
             Some(p) if !p.is_empty() => PathBuf::from(p),
             _ => self.projects_root.clone(),
@@ -96,12 +101,14 @@ impl Builtin {
             .canonicalize()
             .unwrap_or_else(|_| self.projects_root.clone());
         if !target.starts_with(&home) && !target.starts_with(&projects) {
-            return Err(RpcError::new(codes::INVALID_PARAMS, "path is outside the home and projects directories"));
+            return Err(RpcError::new(
+                codes::INVALID_PARAMS,
+                "path is outside the home and projects directories",
+            ));
         }
         let mut entries: Vec<Value> = Vec::new();
-        let read = std::fs::read_dir(&target).map_err(|e| {
-            RpcError::new(codes::INVALID_PARAMS, format!("unreadable: {e}"))
-        })?;
+        let read = std::fs::read_dir(&target)
+            .map_err(|e| RpcError::new(codes::INVALID_PARAMS, format!("unreadable: {e}")))?;
         for entry in read.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
             let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
@@ -162,15 +169,20 @@ impl Builtin {
             || name == ".."
             || name.len() > 128;
         if invalid {
-            return Err(RpcError::new(codes::INVALID_PARAMS, "a project name is one path segment, not a path"));
+            return Err(RpcError::new(
+                codes::INVALID_PARAMS,
+                "a project name is one path segment, not a path",
+            ));
         }
         let path = self.projects_root.join(&name);
         if path.exists() {
-            return Err(RpcError::new(codes::INVALID_PARAMS, format!("already exists: {}", path.display())));
+            return Err(RpcError::new(
+                codes::INVALID_PARAMS,
+                format!("already exists: {}", path.display()),
+            ));
         }
-        std::fs::create_dir_all(&path).map_err(|e| {
-            RpcError::new(codes::INTERNAL_ERROR, format!("could not create: {e}"))
-        })?;
+        std::fs::create_dir_all(&path)
+            .map_err(|e| RpcError::new(codes::INTERNAL_ERROR, format!("could not create: {e}")))?;
 
         let display = path.display().to_string();
         let mut store = self.store.lock().await;
@@ -191,7 +203,8 @@ impl Builtin {
     /// list a new-session dialog should offer before it offers a file browser.
     pub(crate) async fn recent_projects(&self) -> Result<Value, RpcError> {
         let listed = self
-            .hub.engine_call("session.list", json!({"status": "all", "limit": 200}))
+            .hub
+            .engine_call("session.list", json!({"status": "all", "limit": 200}))
             .await?;
         let mut seen: Vec<(String, String)> = Vec::new();
         if let Some(sessions) = listed.get("sessions").and_then(Value::as_array) {
@@ -234,15 +247,27 @@ impl Builtin {
             .unwrap_or("upload.bin");
         let bytes = params.get("bytes").and_then(Value::as_u64).unwrap_or(0) as usize;
         if bytes > self.max_upload_bytes {
-            return Err(RpcError::new(codes::INVALID_PARAMS, format!("file exceeds {} bytes", self.max_upload_bytes)));
+            return Err(RpcError::new(
+                codes::INVALID_PARAMS,
+                format!("file exceeds {} bytes", self.max_upload_bytes),
+            ));
         }
         let token = new_id("u");
         let safe: String = name
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         let path = self.upload_dir.join(format!("{token}-{safe}"));
-        self.uploads.lock().await.insert(token.clone(), (path.clone(), self.max_upload_bytes));
+        self.uploads
+            .lock()
+            .await
+            .insert(token.clone(), (path.clone(), self.max_upload_bytes));
         Ok(json!({
             "token": token,
             "url": format!("/upload?token={token}"),
@@ -252,5 +277,4 @@ impl Builtin {
             "max_bytes": self.max_upload_bytes,
         }))
     }
-
 }

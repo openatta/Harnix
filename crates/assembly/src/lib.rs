@@ -12,11 +12,11 @@
 //!
 //! # Extensions are not assembled here
 //!
-//! Nest has no extension subsystem. Scripts and plugins are AttaCore's:
+//! Harnix has no extension subsystem. Scripts and plugins are Agix's:
 //! their manifest, their disclosure, their capability gate, their carrier,
-//! their lifecycle. Nest neither reads a package nor runs one — it hands
-//! AttaCore a file and calls AttaCore's own install (see
-//! `nest_builtin::plugins`). Anything here that read a manifest would be a
+//! their lifecycle. Harnix neither reads a package nor runs one — it hands
+//! Agix a file and calls Agix's own install (see
+//! `harnix_builtin::plugins`). Anything here that read a manifest would be a
 //! second truth about what an extension may do.
 
 pub mod engine;

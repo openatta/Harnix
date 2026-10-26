@@ -4,7 +4,7 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 
 use daemon::rpc::codes as engine_codes;
-use nest_contract::{Frame, RpcError};
+use harnix_contract::{Frame, RpcError};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
@@ -82,7 +82,11 @@ pub(crate) async fn route_event(inner: &Arc<Mutex<Inner>>, params: Value) {
         return;
     };
     let session_id = session_id.to_string();
-    let turn_id = params.get("turn_id").and_then(Value::as_str).unwrap_or("").to_string();
+    let turn_id = params
+        .get("turn_id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     let event = params.get("event").cloned().unwrap_or(Value::Null);
     let kind = event.get("kind").and_then(Value::as_str).unwrap_or("");
 
@@ -102,7 +106,7 @@ pub(crate) async fn route_event(inner: &Arc<Mutex<Inner>>, params: Value) {
         let frame = Frame::session(
             session_id.clone(),
             notification(
-                "nest.event",
+                "harnix.event",
                 json!({"session_id": session_id, "seq": seq, "turn_id": turn_id, "event": event}),
             ),
         );
@@ -119,18 +123,30 @@ impl Hub {
     /// The order of those three is not interchangeable. Subscribing before
     /// reading is what closes the seam between what history holds and what the
     /// buffer holds.
-    pub(crate) async fn attach(&self, subject: &nest_contract::Subject, params: Value) -> Result<Value, RpcError> {
+    pub(crate) async fn attach(
+        &self,
+        subject: &harnix_contract::Subject,
+        params: Value,
+    ) -> Result<Value, RpcError> {
         let session_id = require_session_id(&params)?;
         let client = client_of(subject, &params)?;
 
         // `session.get` reads the transcript, so it answers for a cold session
         // too — and it is where the scene comes from, which a resume needs.
-        let info = self.engine_call("session.get", json!({"session_id": session_id})).await?;
-        let scene = info.get("scene").and_then(Value::as_str).map(str::to_string);
+        let info = self
+            .engine_call("session.get", json!({"session_id": session_id}))
+            .await?;
+        let scene = info
+            .get("scene")
+            .and_then(Value::as_str)
+            .map(str::to_string);
 
         let subscribed = {
             let guard = self.inner.lock().await;
-            guard.sessions.get(&session_id).is_some_and(|s| s.subscribed)
+            guard
+                .sessions
+                .get(&session_id)
+                .is_some_and(|s| s.subscribed)
         };
         if !subscribed {
             let mut resp = self
@@ -151,7 +167,8 @@ impl Hub {
                 // the one turn with no envelope. Nothing is written until it
                 // makes a call, so reopening a conversation just to read it
                 // leaves the previous run's recording intact.
-                self.engine_call("session.resume", with_recording(resume, self.replay_from())).await?;
+                self.engine_call("session.resume", with_recording(resume, self.replay_from()))
+                    .await?;
                 resp = self
                     .engine_call("session.subscribe", json!({"session_id": session_id}))
                     .await;
@@ -174,7 +191,11 @@ impl Hub {
         // A settled turn already in the transcript would otherwise render
         // twice — history holds it, and so does the buffer.
         let serve_replay = state.running_turn.is_some() || total <= state.history_total_before_turn;
-        let replay = if serve_replay { state.replay.snapshot() } else { Vec::new() };
+        let replay = if serve_replay {
+            state.replay.snapshot()
+        } else {
+            Vec::new()
+        };
         Ok(json!({
             "session": info,
             "history_total": total,
@@ -187,7 +208,11 @@ impl Hub {
         }))
     }
 
-    pub(crate) async fn detach(&self, subject: &nest_contract::Subject, params: Value) -> Result<Value, RpcError> {
+    pub(crate) async fn detach(
+        &self,
+        subject: &harnix_contract::Subject,
+        params: Value,
+    ) -> Result<Value, RpcError> {
         let session_id = require_session_id(&params)?;
         let client = client_of(subject, &params)?;
         let mut guard = self.inner.lock().await;
@@ -200,7 +225,9 @@ impl Hub {
     /// The session list with the facts `session.list` does not carry folded
     /// back in.
     pub(crate) async fn sessions(&self) -> Result<Value, RpcError> {
-        let listed = self.engine_call("session.list", json!({"limit": 200})).await?;
+        let listed = self
+            .engine_call("session.list", json!({"limit": 200}))
+            .await?;
         let guard = self.inner.lock().await;
         let rows: Vec<Value> = listed
             .get("sessions")
@@ -209,14 +236,21 @@ impl Hub {
             .unwrap_or_default()
             .into_iter()
             .map(|mut row| {
-                let sid = row.get("session_id").and_then(Value::as_str).unwrap_or("").to_string();
+                let sid = row
+                    .get("session_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
                 let facts = guard.facts.get(&sid).cloned().unwrap_or_default();
                 if let Some(obj) = row.as_object_mut() {
                     obj.insert("scene".into(), json!(facts.scene));
                     obj.insert("project_root".into(), json!(facts.project_root));
                     obj.insert(
                         "running".into(),
-                        json!(guard.sessions.get(&sid).is_some_and(|s| s.running_turn.is_some())),
+                        json!(guard
+                            .sessions
+                            .get(&sid)
+                            .is_some_and(|s| s.running_turn.is_some())),
                     );
                 }
                 row
@@ -228,14 +262,20 @@ impl Hub {
     /// Intercepted because the reply is the last place a session's project
     /// root is visible — nothing later reports it.
     pub(crate) async fn create(&self, params: Value) -> Result<Value, RpcError> {
-        let requested = params.get("project_root").and_then(Value::as_str).map(str::to_string);
+        let requested = params
+            .get("project_root")
+            .and_then(Value::as_str)
+            .map(str::to_string);
         let result = self
             .engine_call("session.create", with_recording(params, self.replay_from()))
             .await?;
         if let Some(sid) = result.get("session_id").and_then(Value::as_str) {
             self.remember(
                 sid,
-                result.get("scene").and_then(Value::as_str).map(str::to_string),
+                result
+                    .get("scene")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
                 result
                     .get("project_root")
                     .and_then(Value::as_str)
@@ -247,7 +287,12 @@ impl Hub {
         Ok(result)
     }
 
-    pub(crate) async fn remember(&self, session_id: &str, scene: Option<String>, project_root: Option<String>) {
+    pub(crate) async fn remember(
+        &self,
+        session_id: &str,
+        scene: Option<String>,
+        project_root: Option<String>,
+    ) {
         let mut guard = self.inner.lock().await;
         let facts = guard.facts.entry(session_id.to_string()).or_default();
         if scene.is_some() {
@@ -259,15 +304,23 @@ impl Hub {
     }
 
     pub async fn known_project_root(&self, session_id: &str) -> Option<String> {
-        self.inner.lock().await.facts.get(session_id).and_then(|f| f.project_root.clone())
+        self.inner
+            .lock()
+            .await
+            .facts
+            .get(session_id)
+            .and_then(|f| f.project_root.clone())
     }
 
     pub(crate) async fn history_total(&self, session_id: &str) -> u64 {
-        self.engine_call("session.history", json!({"session_id": session_id, "limit": 0}))
-            .await
-            .ok()
-            .and_then(|v| v.get("total").and_then(Value::as_u64))
-            .unwrap_or(0)
+        self.engine_call(
+            "session.history",
+            json!({"session_id": session_id, "limit": 0}),
+        )
+        .await
+        .ok()
+        .and_then(|v| v.get("total").and_then(Value::as_u64))
+        .unwrap_or(0)
     }
 
     pub(crate) async fn fan_out(&self, watchers: &[ClientId], frame: Frame) {
@@ -281,7 +334,7 @@ impl Hub {
 /// Watching is per-client, and a subject may have several. The transport
 /// stamps the id onto the params; nothing else may set it, which is why a
 /// missing one is an error rather than a default.
-fn client_of(subject: &nest_contract::Subject, params: &Value) -> Result<ClientId, RpcError> {
+fn client_of(subject: &harnix_contract::Subject, params: &Value) -> Result<ClientId, RpcError> {
     params
         .get("__client")
         .and_then(Value::as_u64)

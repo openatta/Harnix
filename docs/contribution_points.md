@@ -1,9 +1,9 @@
 # 界面贡献点
 
-Nest 的界面由六个具名的贡献点拼起来。
+Harnix 的界面由六个具名的贡献点拼起来。
 
-**这不是给第三方代码用的扩展面。** 扩展 agent 是 AttaCore 的事——脚本、插件、manifest、
-能力门控、沙箱、披露，全在那边；Nest 既不读一个包，也不跑一个包，运行期不从这份产物之外
+**这不是给第三方代码用的扩展面。** 扩展 agent 是 Agix 的事——脚本、插件、manifest、
+能力门控、沙箱、披露，全在那边；Harnix 既不读一个包，也不跑一个包，运行期不从这份产物之外
 加载任何东西。这些点存在的理由是别的：让界面不是一堆 switch。工具行、流块、详情面板、
 侧栏分组、命令、设置节，每一样都是一次具名注册，外壳问注册表而不是自己认识每一种情况。
 换一整套界面因此是换一批注册，不是改一堆分支。
@@ -20,7 +20,7 @@ Nest 的界面由六个具名的贡献点拼起来。
 **外壳必须真的去问。** 一个没人问的点，等于只存在于目录里，产品照旧自己直接画——这件事
 真的发生过一次，七个点里的五个，而所有测试都是绿的。`tests/contrib-smoke.mjs` 现在盯着它。
 
-<!-- BEGIN GENERATED TABLE — see nest_contrib::catalog::render_markdown -->
+<!-- BEGIN GENERATED TABLE — see harnix_contrib::catalog::render_markdown -->
 
 | 贡献点 | 类型 | 贡献什么 | 求值时机 | 频率 |
 |---|---|---|---|---|
@@ -32,7 +32,7 @@ Nest 的界面由六个具名的贡献点拼起来。
 | `settings.section` | 呈现 | 设置面板里的一节 | 设置页打开时 | 每次交互(10⁰–10¹ 量级) |
 <!-- END GENERATED TABLE -->
 
-上面这张表由 `nest_contrib::catalog` 生成，这份文件一旦和它对不上，
+上面这张表由 `harnix_contrib::catalog` 生成，这份文件一旦和它对不上，
 `crates/app/tests/catalog_doc.rs` 就会失败。要改改 catalog，别改表。
 
 ---
@@ -66,7 +66,7 @@ Nest 的界面由六个具名的贡献点拼起来。
 
 ## 装插件
 
-插件是 AttaCore 的，不出现在这份目录里，也不出现在界面上。Nest 在这件事上只做一件
-AttaCore 有意不做的事：**收文件**——`plugin.install` 自己去取 URL，没有上传通道，而一个人
-的包在自己笔记本上、后端在另一台机器上时就没有路可走。`nest.plugins.upload` /
-`nest.plugins.install` 就是那条路，别的全部转手给引擎，包括它装完之后回的那份披露。
+插件是 Agix 的，不出现在这份目录里，也不出现在界面上。Harnix 在这件事上只做一件
+Agix 有意不做的事：**收文件**——`plugin.install` 自己去取 URL，没有上传通道，而一个人
+的包在自己笔记本上、后端在另一台机器上时就没有路可走。`harnix.plugins.upload` /
+`harnix.plugins.install` 就是那条路，别的全部转手给引擎，包括它装完之后回的那份披露。

@@ -9,7 +9,7 @@ const assert = (cond, message) => { if (!cond) throw new Error(message); };
 export default {
   tests: {
     "the picker lists a directory with breadcrumbs": async ({ client }) => {
-      const listing = await client.call("nest.listDirectory", {});
+      const listing = await client.call("harnix.listDirectory", {});
       assert(listing.path, "no path");
       assert(Array.isArray(listing.entries), "no entries");
       assert(Array.isArray(listing.breadcrumbs), "no breadcrumbs");
@@ -19,37 +19,37 @@ export default {
     },
 
     "the picker cannot be walked out of": async ({ client }) => {
-      const e = await client.refused("nest.listDirectory", { path: "/etc" });
+      const e = await client.refused("harnix.listDirectory", { path: "/etc" });
       // Either refused, or answered with something still inside the fence —
       // both are correct, silently listing /etc is not.
       if (!e) {
-        const listing = await client.call("nest.listDirectory", { path: "/etc" });
+        const listing = await client.call("harnix.listDirectory", { path: "/etc" });
         assert(!listing.path.startsWith("/etc"), `walked out to ${listing.path}`);
       }
     },
 
     "recent projects are derived from the sessions that exist": async ({ client }) => {
-      const recent = await client.call("nest.recentProjects");
+      const recent = await client.call("harnix.recentProjects");
       assert(Array.isArray(recent.projects ?? recent.roots ?? []), "no project list");
     },
 
     "a project can be created and then listed": async ({ client }) => {
       const name = `api-test-${Date.now()}`;
-      const created = await client.call("nest.projects.create", { name });
+      const created = await client.call("harnix.projects.create", { name });
       assert(created.path?.endsWith(name), `created ${created.path}`);
-      const listing = await client.call("nest.listDirectory", {});
+      const listing = await client.call("harnix.listDirectory", {});
       assert(listing.entries.some((e) => e.name === name), "the new project is not listed");
     },
 
     "file mentions resolve inside a project": async ({ client }) => {
-      const result = await client.call("nest.files",
+      const result = await client.call("harnix.files",
         { project_root: process.cwd(), query: "Cargo" });
       assert(Array.isArray(result.files), "no file list");
       assert(result.files.some((f) => f.path.includes("Cargo")), "Cargo.toml was not found");
     },
 
     "an upload grant is one-shot and the payload lands on disk": async ({ client, backend }) => {
-      const grant = await client.call("nest.upload.begin", { name: "note.txt", bytes: 11 });
+      const grant = await client.call("harnix.upload.begin", { name: "note.txt", bytes: 11 });
       assert(grant.url.includes("token="), `url is ${grant.url}`);
 
       const body = "hello there";

@@ -14,7 +14,7 @@
 //! connection would give several answers to one question.
 //!
 //! This layer does not know what a frame looks like or which channel carried
-//! it — it depends on `nest-contract` and nothing else.
+//! it — it depends on `harnix-contract` and nothing else.
 
 mod audit;
 mod devices;
@@ -27,7 +27,7 @@ pub use table::{MethodTable, Reach, ENGINE_REFUSALS};
 
 use std::sync::Arc;
 
-use nest_contract::{Gate, RpcError, Subject};
+use harnix_contract::{Gate, RpcError, Subject};
 use serde_json::Value;
 
 /// Wraps the thing that actually answers, and lets nothing past that the
@@ -40,7 +40,11 @@ pub struct Authorizer {
 
 impl Authorizer {
     pub fn new(table: MethodTable, inner: Arc<dyn Gate>, audit: Arc<Audit>) -> Self {
-        Self { table, inner, audit }
+        Self {
+            table,
+            inner,
+            audit,
+        }
     }
 
     pub fn audit(&self) -> &Arc<Audit> {
@@ -65,11 +69,16 @@ impl Authorizer {
 /// client uses it to grey out what it cannot reach instead of discovering it
 /// by being refused, and a contribution's filtered RPC client is built from
 /// it — so the message is the same whichever side catches the call.
-pub const REACHABLE: &str = "nest.reachable";
+pub const REACHABLE: &str = "harnix.reachable";
 
 #[async_trait::async_trait]
 impl Gate for Authorizer {
-    async fn call(&self, subject: &Subject, method: &str, params: Value) -> Result<Value, RpcError> {
+    async fn call(
+        &self,
+        subject: &Subject,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, RpcError> {
         // Read out of the call, not known by this layer. A durable sink needs
         // somewhere to file an entry; deciding whether to allow the call does
         // not.
@@ -78,7 +87,8 @@ impl Gate for Authorizer {
             .and_then(Value::as_str)
             .map(str::to_string);
         if method == REACHABLE {
-            self.audit.record(subject, method, Decision::Allow, None, session);
+            self.audit
+                .record(subject, method, Decision::Allow, None, session);
             return Ok(serde_json::json!({
                 "subject": subject,
                 "methods": self.reachable(subject),
@@ -86,17 +96,25 @@ impl Gate for Authorizer {
         }
         match self.table.decide(subject, method) {
             Decision::Allow => {
-                self.audit.record(subject, method, Decision::Allow, None, session);
+                self.audit
+                    .record(subject, method, Decision::Allow, None, session);
                 self.inner.call(subject, method, params).await
             }
             // Refused on purpose, with the reason in the error. Silence here
-            // would read as a Nest bug to whoever hit it.
+            // would read as a Harnix bug to whoever hit it.
             Decision::Refuse(reason) => {
-                self.audit.record(subject, method, Decision::Refuse(reason), Some(reason), session);
+                self.audit.record(
+                    subject,
+                    method,
+                    Decision::Refuse(reason),
+                    Some(reason),
+                    session,
+                );
                 Err(RpcError::refused(reason))
             }
             Decision::Unknown => {
-                self.audit.record(subject, method, Decision::Unknown, None, session);
+                self.audit
+                    .record(subject, method, Decision::Unknown, None, session);
                 Err(RpcError::not_found(format!(
                     "method `{method}` is not reachable by {}",
                     subject.label()

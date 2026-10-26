@@ -1,5 +1,5 @@
 [package]
-name = "nest-transport"
+name = "harnix-transport"
 version      = { workspace = true }
 edition      = { workspace = true }
 rust-version = { workspace = true }
@@ -8,9 +8,9 @@ publish      = false
 description  = "Channel semantics over a chosen topology: frames, handshake, static face, bulk"
 
 [dependencies]
-nest-contract = { workspace = true }
-nest-authz    = { workspace = true }
-nest-hub      = { workspace = true }
+harnix-contract = { workspace = true }
+harnix-authz    = { workspace = true }
+harnix-hub      = { workspace = true }
 async-trait   = { workspace = true }
 axum        = { workspace = true }
 include_dir = { workspace = true }

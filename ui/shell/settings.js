@@ -5,8 +5,8 @@
  * table because there are no plugins to register more of them.
  *
  * Sections that only read are complete. The ones that write engine settings
- * land with `nest.settings.*` — the engine exposes `config.get`/`reload` but
- * no generic write, so Nest writes the tier's settings.json itself and asks
+ * land with `harnix.settings.*` — the engine exposes `config.get`/`reload` but
+ * no generic write, so Harnix writes the tier's settings.json itself and asks
  * the engine to reload (docs/architecture.md §11). Until then those rows say
  * so rather than pretending. */
 
@@ -125,7 +125,7 @@ async function renderEngineSettings(page, only) {
   const projectRoot = (state.session && state.session.project_root) || null;
   const request = { scene, project_root: projectRoot };
 
-  await section(page, t("settings.engineDefaults"), () => call("nest.settings.describe", request),
+  await section(page, t("settings.engineDefaults"), () => call("harnix.settings.describe", request),
     (host, data) => {
       const tier = state.settingsTier || "global";
       const paths = data.paths || {};
@@ -145,7 +145,7 @@ async function renderEngineSettings(page, only) {
         if (only && !only.includes(field.key)) continue;
         const own = field.tiers[tier];
         const inherited = own === null || own === undefined;
-        const write = (value) => call("nest.settings.set", { ...request, tier, key: field.key, value })
+        const write = (value) => call("harnix.settings.set", { ...request, tier, key: field.key, value })
           .then(() => { banner(t("settings.written", { path: paths[tier] })); setTimeout(() => banner(null), 2500); openSettings(); })
           .catch((e) => banner(t("settings.writeFailed", { error: errorText(e) })));
 
@@ -237,7 +237,7 @@ function renderModels(page) {
   const projectRoot = (state.session && state.session.project_root) || null;
 
   section(page, t("settings.providers"),
-    () => call("nest.settings.describe", { scene, project_root: projectRoot }),
+    () => call("harnix.settings.describe", { scene, project_root: projectRoot }),
     (host, data) => {
       const providers = (data.providers && data.providers.providers) || {};
       const names = Object.keys(providers);
@@ -280,7 +280,7 @@ function providerDialog(id, provider, scene, projectRoot) {
     if (id) {
       foot.appendChild(button("btn outline danger", t("common.delete"), async () => {
         try {
-          await call("nest.settings.setProvider", { provider_id: id, delete: true });
+          await call("harnix.settings.setProvider", { provider_id: id, delete: true });
           closeModal();
           openSettings();
         } catch (e) { banner(errorText(e)); }
@@ -296,7 +296,7 @@ function providerDialog(id, provider, scene, projectRoot) {
       };
       if (fields.api_key.value) config.api_key = fields.api_key.value;
       try {
-        await call("nest.settings.setProvider", { provider_id: providerId, config });
+        await call("harnix.settings.setProvider", { provider_id: providerId, config });
         closeModal();
         openSettings();
       } catch (e) { banner(t("settings.writeFailed", { error: errorText(e) })); }
@@ -320,20 +320,20 @@ function renderMcp(page) {
   });
 }
 
-/** Plugins are AttaCore's. This page installs one and lists what is there.
+/** Plugins are Agix's. This page installs one and lists what is there.
  *
  * Two failures are shown differently on purpose. **`PLUGINS_DISABLED` means
- * this build carries no plugin subsystem at all** — AttaCore carries one
+ * this build carries no plugin subsystem at all** — Agix carries one
  * extension carrier or none, and the script carrier and the plugin carrier
  * are mutually exclusive, so the build that has scripts has no plugins. That
  * is a different fact from "nothing is installed", and showing it as an empty
  * list would send the reader looking for a package that could never load. */
 function renderPlugins(page) {
-  // `nest.plugins.list`, not the engine's own — it answers with what is
+  // `harnix.plugins.list`, not the engine's own — it answers with what is
   // installed *and* what of it reaches this side, and it turns
   // PLUGINS_DISABLED into a fact the page can state instead of an error it
   // has to interpret.
-  section(page, t("settings.plugins"), () => call("nest.plugins.list"),
+  section(page, t("settings.plugins"), () => call("harnix.plugins.list"),
     (host, data) => {
       if (data.available === false) {
         host.appendChild(el("div", "hint", data.reason || t("settings.pluginsUnavailable")));
@@ -348,12 +348,12 @@ function renderPlugins(page) {
           el("div", "control", [
             button("btn sm outline", plugin.enabled ? t("settings.pluginDisable") : t("settings.pluginEnable"),
               async () => {
-                await call(plugin.enabled ? "nest.plugins.disable" : "nest.plugins.enable", { name: plugin.name });
+                await call(plugin.enabled ? "harnix.plugins.disable" : "harnix.plugins.enable", { name: plugin.name });
                 openSettings();
               }),
             button("btn sm danger", t("common.remove"), async () => {
               if (!confirm(t("settings.pluginRemoveConfirm", { name: plugin.name }))) return;
-              await call("nest.plugins.uninstall", { name: plugin.name });
+              await call("harnix.plugins.uninstall", { name: plugin.name });
               openSettings();
             }),
           ]),
@@ -372,8 +372,8 @@ function renderPlugins(page) {
         for (const note of contributes?.notes ?? []) {
           host.appendChild(row(t("settings.pluginNote"), el("span", "value", ""), note));
         }
-        // The engine's own report, not Nest's. `inert` above is this side
-        // reading `[[ui]]`; these are the bindings and components AttaCore
+        // The engine's own report, not Harnix's. `inert` above is this side
+        // reading `[[ui]]`; these are the bindings and components Agix
         // could not load, and they are the sharper case: a package whose only
         // component will not load is still listed, still enabled, and
         // contributing nothing, while every other answer on this row says it
@@ -389,7 +389,7 @@ function renderPlugins(page) {
 /** Pick a `.zip`, send it up the bulk channel, then ask the engine to install
  *  it from where it landed.
  *
- * AttaCore fetches packages itself and has no upload channel, which is fine
+ * Agix fetches packages itself and has no upload channel, which is fine
  * when the package is already on the machine running the engine and useless
  * when it is on the reader's laptop. This is that one step, and nothing more:
  * the file is not opened on this side. */
@@ -403,11 +403,11 @@ function installer() {
     if (!file) return;
     status.textContent = t("settings.pluginUploading", { name: file.name });
     try {
-      const grant = await call("nest.plugins.upload", { name: file.name });
+      const grant = await call("harnix.plugins.upload", { name: file.name });
       const response = await fetch(grant.url, { method: "POST", body: file });
       if (!response.ok) throw { message: await response.text() };
       status.textContent = t("settings.pluginInstalling");
-      const result = await call("nest.plugins.install", { path: grant.path, name: file.name });
+      const result = await call("harnix.plugins.install", { path: grant.path, name: file.name });
       // The engine installs and *then* says what the package will put in
       // front of the model. That order is the engine's, so it is the order
       // shown: installed, here is what it will say, keep it or remove it.
@@ -438,7 +438,7 @@ function installer() {
  * Revoking is immediate and total: a credential belongs to the device, not to
  * a connection, so there is no such thing as revoking one of its channels. */
 function renderDevices(page) {
-  section(page, t("settings.devices"), () => call("nest.devices.list"), (host, data) => {
+  section(page, t("settings.devices"), () => call("harnix.devices.list"), (host, data) => {
     host.appendChild(el("div", "hint", t("settings.devicesHint")));
 
     const devices = data.devices || [];
@@ -448,7 +448,7 @@ function renderDevices(page) {
         device.label || device.id,
         button("btn sm danger", t("settings.deviceRevoke"), async () => {
           if (!confirm(t("settings.deviceRevokeConfirm", { name: device.label || device.id }))) return;
-          await call("nest.devices.revoke", { device_id: device.id });
+          await call("harnix.devices.revoke", { device_id: device.id });
           openSettings();
         }),
         device.id,
@@ -459,7 +459,7 @@ function renderDevices(page) {
     host.appendChild(button("btn sm outline", t("settings.devicePair"), async () => {
       shown.innerHTML = "";
       try {
-        const grant = await call("nest.devices.pair.begin", { label: t("settings.deviceNew") });
+        const grant = await call("harnix.devices.pair.begin", { label: t("settings.deviceNew") });
         const left = el("span", "hint", "");
         shown.appendChild(el("div", "pairing-code", grant.code));
         shown.appendChild(el("div", "hint", t("settings.devicePairHint")));

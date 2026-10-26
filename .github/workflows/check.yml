@@ -7,7 +7,7 @@
 # not that everything did.
 #
 # What is covered: the dependency-graph assertions, every unit test, clippy at
-# zero warnings on Nest's own crates, the offline interface checks, the whole
+# zero warnings on Harnix's own crates, the offline interface checks, the whole
 # API surface over both topologies against recorded fixtures, the browser
 # layer, and a package installed end to end on the shipped binary.
 
@@ -29,7 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # AttaCore is a submodule and the whole product is assembled from
+          # Agix is a submodule and the whole product is assembled from
           # it — without this there is nothing to build.
           submodules: recursive
 
@@ -44,19 +44,19 @@ jobs:
           node-version: 22
 
       - name: Build the shipped binary
-        run: cargo build --release -p nest
+        run: cargo build --release -p harnix
 
       - name: Unit tests and layering assertions
         run: |
-          cargo test -p nest -p nest-assembly -p nest-authz -p nest-builtin \
-                     -p nest-contract -p nest-contrib -p nest-hub -p nest-transport
+          cargo test -p harnix -p harnix-assembly -p harnix-authz -p harnix-builtin \
+                     -p harnix-contract -p harnix-contrib -p harnix-hub -p harnix-transport
 
-      # `--no-deps` so the AttaCore submodule's own lints are not this
+      # `--no-deps` so the Agix submodule's own lints are not this
       # repository's to answer for.
-      - name: Clippy, zero warnings on Nest's crates
+      - name: Clippy, zero warnings on Harnix's crates
         run: |
-          cargo clippy -p nest -p nest-assembly -p nest-authz -p nest-builtin \
-                       -p nest-contract -p nest-contrib -p nest-hub -p nest-transport \
+          cargo clippy -p harnix -p harnix-assembly -p harnix-authz -p harnix-builtin \
+                       -p harnix-contract -p harnix-contrib -p harnix-hub -p harnix-transport \
                        --all-targets --no-deps -- -D warnings
 
       - name: Interface checks that need no backend

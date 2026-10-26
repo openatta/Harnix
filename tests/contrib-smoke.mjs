@@ -3,8 +3,8 @@
 // 1. **The interface is assembled out of its seams.** Tool rows, flow blocks
 //    and panels are registered parts, not a switch statement, and a later
 //    registration takes one over — which is what "replace the interface"
-//    means in practice. These are Nest's own seams: extending the *agent* is
-//    AttaCore's, and nothing is loaded from outside this bundle.
+//    means in practice. These are Harnix's own seams: extending the *agent* is
+//    Agix's, and nothing is loaded from outside this bundle.
 //
 // 2. **The handshake refuses rather than downgrades.** A version mismatch
 //    stops the boot and says which side is stale. A half-compatible interface
@@ -17,7 +17,7 @@ import { readFileSync } from "node:fs";
 import { loadApp } from "./dom.mjs";
 import { PROTOCOL_VERSION } from "../ui/runtime/protocol.js";
 
-/** Nest's own, outside the band the engine's codes live in. */
+/** Harnix's own, outside the band the engine's codes live in. */
 const HANDSHAKE_REFUSED = -31001;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -25,7 +25,7 @@ const text = (node) => (node ? node.textContent : "");
 
 /** The catalogued points, from the generated table.
  *
- * `docs/contribution_points.md` is rendered by `nest_contrib::catalog` and a
+ * `docs/contribution_points.md` is rendered by `harnix_contrib::catalog` and a
  * Rust test fails when the two disagree, so reading it here means this file
  * and the backend cannot drift apart either. */
 function catalogPoints() {
@@ -65,7 +65,7 @@ function socketThat(reply, seen) {
 {
   await loadApp({
     WebSocket: socketThat((method, params) => {
-      if (method === "nest.handshake") {
+      if (method === "harnix.handshake") {
         return {
           protocol_version: PROTOCOL_VERSION,
           contrib_api_version: 1,
@@ -74,11 +74,11 @@ function socketThat(reply, seen) {
           subject: { kind: "device", id: "test" },
         };
       }
-      if (method === "nest.reachable") return { methods: [] };
-      if (method === "nest.hello") {
+      if (method === "harnix.reachable") return { methods: [] };
+      if (method === "harnix.hello") {
         return { protocol_version: PROTOCOL_VERSION, contributions: {}, engine: {}, scenes: [], commands: [], limits: {} };
       }
-      if (method === "nest.sessions") return { sessions: [] };
+      if (method === "harnix.sessions") return { sessions: [] };
       return {};
     }),
   });
@@ -141,7 +141,7 @@ function socketThat(reply, seen) {
   const asked = [];
   const app = await loadApp({
     WebSocket: socketThat(
-      (m) => (m === "nest.handshake" ? { __error: { code: HANDSHAKE_REFUSED, message: reason } } : {}),
+      (m) => (m === "harnix.handshake" ? { __error: { code: HANDSHAKE_REFUSED, message: reason } } : {}),
       asked,
     ),
   });
@@ -155,7 +155,7 @@ function socketThat(reply, seen) {
   else ok("the connection is marked incompatible rather than retried forever");
   // The store outlives one boot, so what proves the refusal stopped the boot
   // is what was asked for on the wire, not what is in the store.
-  if (asked.some((m) => m !== "nest.handshake")) fail(`boot continued: asked ${asked.join(", ")}`);
+  if (asked.some((m) => m !== "harnix.handshake")) fail(`boot continued: asked ${asked.join(", ")}`);
   else ok("nothing was asked for past the refusal");
 
   if (contrib.at("flow.block").length !== before) fail("a refused handshake still registered contributions");

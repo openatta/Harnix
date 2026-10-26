@@ -15,7 +15,7 @@
 // around the API is itself the finding: something written for people to go
 // back to should be reachable by the thing those people are using.
 //
-// If a `nest.audit` method is ever added, this suite should stop reading
+// If a `harnix.audit` method is ever added, this suite should stop reading
 // files and call it.
 
 import { readFileSync, readdirSync } from "node:fs";
@@ -25,7 +25,7 @@ import { finish, sleep } from "../harness.mjs";
 
 const assert = (cond, message) => { if (!cond) throw new Error(message); };
 
-const NS = "nest.audit";
+const NS = "harnix.audit";
 
 /** Every entry in every transcript this backend has written. */
 function entries(backend) {

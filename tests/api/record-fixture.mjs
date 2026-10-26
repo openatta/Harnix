@@ -28,18 +28,18 @@ if (!hasModel(env)) {
 }
 
 const port = 4269;
-const scratch = mkdtempSync(join(tmpdir(), "nest-record-"));
+const scratch = mkdtempSync(join(tmpdir(), "harnix-record-"));
 const child = spawn(
-  join(ROOT, "target", "release", "nest"),
+  join(ROOT, "target", "release", "harnix"),
   ["--port", String(port), "--headless",
-   "--atta-dir", join(scratch, "atta"), "--data-dir", join(scratch, "projects")],
+   "--agix-dir", join(scratch, "atta"), "--data-dir", join(scratch, "projects")],
   { cwd: ROOT, env: { ...process.env, ...env, RUST_LOG: "warn" }, stdio: "inherit" },
 );
 
-for (let i = 0; i < 120 && !existsSync(join(scratch, "projects", ".nest", "token")); i += 1) {
+for (let i = 0; i < 120 && !existsSync(join(scratch, "projects", ".harnix", "token")); i += 1) {
   await sleep(250);
 }
-const token = readFileSync(join(scratch, "projects", ".nest", "token"), "utf8").trim();
+const token = readFileSync(join(scratch, "projects", ".harnix", "token"), "utf8").trim();
 
 const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${token}`);
 let id = 1;
@@ -61,18 +61,18 @@ ws.onmessage = (e) => {
   if (frame.method) events.push(frame);
 };
 await new Promise((r) => { ws.onopen = r; });
-await call("nest.handshake", { protocol_version: PROTOCOL_VERSION, contrib_api_version: CONTRIB_API_VERSION, topology: "single_duplex" });
+await call("harnix.handshake", { protocol_version: PROTOCOL_VERSION, contrib_api_version: CONTRIB_API_VERSION, topology: "single_duplex" });
 
 const session = await call("session.create", { scene: "coding", project_root: ROOT });
-await call("nest.attach", { session_id: session.session_id });
-await call("nest.send", { session_id: session.session_id, message: prompt });
+await call("harnix.attach", { session_id: session.session_id });
+await call("harnix.send", { session_id: session.session_id, message: prompt });
 
 // Answer every ask, or a recording of a tool call stops at the question.
 const answered = new Set();
 const deadline = Date.now() + 180_000;
 while (Date.now() < deadline) {
   for (const frame of events) {
-    if (frame.method === "nest.event" && frame.params.event.kind === "prompt") {
+    if (frame.method === "harnix.event" && frame.params.event.kind === "prompt") {
       const promptId = frame.params.event.prompt_id;
       if (!answered.has(promptId)) {
         answered.add(promptId);
@@ -82,14 +82,14 @@ while (Date.now() < deadline) {
       }
     }
   }
-  if (events.some((f) => f.method === "nest.turn_settled")) break;
+  if (events.some((f) => f.method === "harnix.turn_settled")) break;
   await sleep(200);
 }
 
 const kinds = (kind) => events.filter(
-  (f) => f.method === "nest.event" && f.params.event.kind === kind).length;
+  (f) => f.method === "harnix.event" && f.params.event.kind === kind).length;
 console.log(`  tool_use=${kinds("tool_use")}  prompts=${kinds("prompt")}  settled=${
-  events.some((f) => f.method === "nest.turn_settled")}`);
+  events.some((f) => f.method === "harnix.turn_settled")}`);
 
 ws.close();
 child.kill();

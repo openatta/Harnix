@@ -10,7 +10,7 @@
 //   1. **Parity.** Method names, params, error codes and event shapes are
 //      identical. Switching topology is not switching protocol.
 //   2. **The seam that only the second topology exposes.** In split streams
-//      `nest.attach` arrives on a POST while the frames it registers a watcher
+//      `harnix.attach` arrives on a POST while the frames it registers a watcher
 //      for leave on a separate stream. If client identity came from the
 //      connection, the attach would register the wrong one and the events
 //      would go nowhere — silently, because nothing errors. That is why
@@ -55,7 +55,7 @@ async function singleDuplex() {
     pending.set(i, { res, rej });
     ws.send(JSON.stringify({ jsonrpc: "2.0", method, params: params || {}, id: i }));
   });
-  await call("nest.handshake", { protocol_version: PROTOCOL_VERSION, contrib_api_version: CONTRIB_API_VERSION, topology: "single_duplex" });
+  await call("harnix.handshake", { protocol_version: PROTOCOL_VERSION, contrib_api_version: CONTRIB_API_VERSION, topology: "single_duplex" });
   return { name: "single_duplex", call, events, close: () => ws.close() };
 }
 
@@ -127,12 +127,12 @@ async function splitStreams() {
 
 async function drive(client) {
   const out = {};
-  const hello = await client.call("nest.hello");
+  const hello = await client.call("harnix.hello");
   out.protocol = hello.protocol_version;
   out.contribApi = hello.contrib_api_version;
   out.scenes = (hello.scenes || []).map((s) => s.scene).sort();
 
-  out.reachable = (await client.call("nest.reachable")).methods.length;
+  out.reachable = (await client.call("harnix.reachable")).methods.length;
 
   // A refusal has to be the same refusal, with the same code and words.
   try {
@@ -143,7 +143,7 @@ async function drive(client) {
   }
   // And so does an unknown method.
   try {
-    await client.call("nest.noSuchMethod", {});
+    await client.call("harnix.noSuchMethod", {});
     out.unknown = "ALLOWED";
   } catch (e) {
     out.unknown = `${e.code}:${e.message}`;
@@ -155,15 +155,15 @@ async function drive(client) {
   const created = await client.call("session.create", { project_root: null, scene: "chat" })
     .catch(() => client.call("session.create", {}));
   out.created = typeof created.session_id === "string";
-  const attached = await client.call("nest.attach", { session_id: created.session_id });
+  const attached = await client.call("harnix.attach", { session_id: created.session_id });
   out.attachShape = Object.keys(attached).sort().join(",");
 
-  await client.call("nest.send", { session_id: created.session_id, message: "hello" })
+  await client.call("harnix.send", { session_id: created.session_id, message: "hello" })
     .catch(() => {});
   // Long enough for the user_message frame the hub synthesises to arrive.
   await sleep(600);
   out.sawOwnMessage = client.events.some((f) =>
-    f.method === "nest.event" && f.params?.event?.kind === "user_message");
+    f.method === "harnix.event" && f.params?.event?.kind === "user_message");
 
   await client.call("session.delete", { session_id: created.session_id }).catch(() => {});
   return out;
@@ -187,7 +187,7 @@ for (const key of Object.keys(first)) {
 // The one that only the second topology can fail. Stated separately because
 // it is not parity — it is the seam that made the experiment worth running.
 if (!second.sawOwnMessage) {
-  fail("split streams: nest.attach over POST did not register the event stream as a watcher");
+  fail("split streams: harnix.attach over POST did not register the event stream as a watcher");
 } else {
   ok("split streams: a watcher registered over POST receives frames on its own stream");
 }

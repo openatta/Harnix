@@ -23,7 +23,7 @@ pub use subject::Subject;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// A JSON-RPC error, in the shape AttaCore uses. Nest adds no codes of its
+/// A JSON-RPC error, in the shape Agix uses. Harnix adds no codes of its
 /// own below the engine's range; see [`codes`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcError {
@@ -35,7 +35,11 @@ pub struct RpcError {
 
 impl RpcError {
     pub fn new(code: i32, message: impl Into<String>) -> Self {
-        Self { code, message: message.into(), data: None }
+        Self {
+            code,
+            message: message.into(),
+            data: None,
+        }
     }
 
     pub fn invalid_params(message: impl Into<String>) -> Self {
@@ -59,7 +63,7 @@ impl std::fmt::Display for RpcError {
 
 impl std::error::Error for RpcError {}
 
-/// The codes Nest itself returns.
+/// The codes Harnix itself returns.
 ///
 /// # Two bands, and why they do not overlap
 ///
@@ -67,12 +71,12 @@ impl std::error::Error for RpcError {}
 /// thing whichever layer produced them — "your params are wrong" needs no
 /// attribution — so both sides using them is correct rather than a clash.
 ///
-/// Everything else is different. AttaCore's codes live in JSON-RPC's reserved
-/// implementation band (`-32000` … `-32099`); **Nest's live outside it**, at
+/// Everything else is different. Agix's codes live in JSON-RPC's reserved
+/// implementation band (`-32000` … `-32099`); **Harnix's live outside it**, at
 /// `-31000`, which the specification leaves to applications. The boundary is
 /// therefore a rule of the protocol rather than an agreement about who grows
 /// which way, and that matters because the two collided once: `REFUSED` was
-/// `-32000`, which is also AttaCore's `SESSION_NOT_FOUND`, so "you may not
+/// `-32000`, which is also Agix's `SESSION_NOT_FOUND`, so "you may not
 /// call this" and "there is no such session" arrived as the same number — and
 /// the API tests used that number as their only way to tell the host's
 /// refusal from the engine's answer.
@@ -98,5 +102,6 @@ pub mod codes {
 /// Authorization implements it by deciding, then delegating to the hub.
 #[async_trait::async_trait]
 pub trait Gate: Send + Sync {
-    async fn call(&self, subject: &Subject, method: &str, params: Value) -> Result<Value, RpcError>;
+    async fn call(&self, subject: &Subject, method: &str, params: Value)
+        -> Result<Value, RpcError>;
 }

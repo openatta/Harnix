@@ -5,37 +5,40 @@
 //! allow-list, so a new method is unreachable until someone writes it down
 //! (§3.4).
 
-use nest_authz::{MethodTable, Reach, ENGINE_REFUSALS};
+use harnix_authz::{MethodTable, Reach, ENGINE_REFUSALS};
 
 pub fn table() -> MethodTable {
     let mut table = MethodTable::new()
         // The hub's own semantics. A device drives its sessions; a plugin
         // that wants any of these has to have declared it.
-        .allow_all(nest_hub::HUB_METHODS, Reach::Device)
+        .allow_all(harnix_hub::HUB_METHODS, Reach::Device)
         // Engine methods that pass through untouched.
-        .allow_all(nest_hub::PASSTHROUGH, Reach::Device)
+        .allow_all(harnix_hub::PASSTHROUGH, Reach::Device)
         // Interrupting, closing and deleting are intercepted by the hub but
         // are still the device's to ask for.
-        .allow_all(&["session.interrupt", "session.close", "session.delete"], Reach::Device)
-        // Nest's own methods, registered through the same registry the
+        .allow_all(
+            &["session.interrupt", "session.close", "session.delete"],
+            Reach::Device,
+        )
+        // Harnix's own methods, registered through the same registry the
         // interface's parts use. Extension management lives in here, as
-        // `nest.plugins.*`: reaching AttaCore's own `plugin.install` and
+        // `harnix.plugins.*`: reaching Agix's own `plugin.install` and
         // friends is not opened, because changing what is installed changes
         // what this host serves, and going around the host would leave a
         // disabled package's interface module still being served with
         // nothing to notice it.
-        .allow_all(nest_builtin::METHODS, Reach::Device)
+        .allow_all(harnix_builtin::METHODS, Reach::Device)
         // Pairing another device, and revoking one. This person's own
         // machines are this person's to manage.
         .allow_all(crate::devices::METHODS, Reach::Device);
 
     // Answered by the authorizer itself, and reachable by anyone that got
     // this far: a subject may always ask what it may do.
-    table = table.allow(nest_authz::REACHABLE, Reach::Device);
+    table = table.allow(harnix_authz::REACHABLE, Reach::Device);
 
     // Methods that exist and are refused, with the reason in the error.
     // Refused explicitly rather than by omission: "unknown method" would read
-    // as a bug in Nest to whoever hit it, and these are deliberate.
+    // as a bug in Harnix to whoever hit it, and these are deliberate.
     for (method, reason) in ENGINE_REFUSALS {
         table = table.allow(method, Reach::Refused(reason));
     }
@@ -44,7 +47,7 @@ pub fn table() -> MethodTable {
 
 #[cfg(test)]
 mod tests {
-    use nest_contract::Subject;
+    use harnix_contract::Subject;
 
     use super::*;
 
@@ -79,15 +82,27 @@ mod tests {
     #[test]
     fn extension_management_is_reachable_but_mcp_is_not() {
         let reachable = table().reachable(&device());
-        for method in ["nest.plugins.install", "nest.plugins.uninstall",
-                       "nest.plugins.enable", "nest.plugins.disable"] {
+        for method in [
+            "harnix.plugins.install",
+            "harnix.plugins.uninstall",
+            "harnix.plugins.enable",
+            "harnix.plugins.disable",
+        ] {
             assert!(reachable.contains(&method), "{method} unreachable");
         }
         // The engine's own names are not, because reaching them would skip
         // the re-read that keeps what is served in step with what is
         // installed.
-        for method in ["plugin.install", "plugin.uninstall", "plugin.enable", "plugin.disable"] {
-            assert!(!reachable.contains(&method), "{method} reachable around the host");
+        for method in [
+            "plugin.install",
+            "plugin.uninstall",
+            "plugin.enable",
+            "plugin.disable",
+        ] {
+            assert!(
+                !reachable.contains(&method),
+                "{method} reachable around the host"
+            );
         }
         // Configures a subprocess-spawning tool with no manifest, no
         // capability declaration and no disclosure at all — a different

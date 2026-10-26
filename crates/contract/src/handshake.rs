@@ -90,7 +90,11 @@ pub fn refuse(client: &Handshake, supported: &[Topology]) -> Option<String> {
             "protocol version {} is not {}; the {} is out of date",
             client.protocol_version,
             PROTOCOL_VERSION,
-            if client.protocol_version < PROTOCOL_VERSION { "client" } else { "server" }
+            if client.protocol_version < PROTOCOL_VERSION {
+                "client"
+            } else {
+                "server"
+            }
         ));
     }
     if client.contrib_api_version != CONTRIB_API_VERSION {
@@ -98,14 +102,22 @@ pub fn refuse(client: &Handshake, supported: &[Topology]) -> Option<String> {
             "contribution API version {} is not {}; the {} is out of date",
             client.contrib_api_version,
             CONTRIB_API_VERSION,
-            if client.contrib_api_version < CONTRIB_API_VERSION { "client" } else { "server" }
+            if client.contrib_api_version < CONTRIB_API_VERSION {
+                "client"
+            } else {
+                "server"
+            }
         ));
     }
     if !supported.contains(&client.topology) {
         return Some(format!(
             "topology `{}` is not served here; this build offers {}",
             client.topology.as_str(),
-            supported.iter().map(|t| t.as_str()).collect::<Vec<_>>().join(", ")
+            supported
+                .iter()
+                .map(|t| t.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
     None

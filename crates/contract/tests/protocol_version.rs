@@ -28,34 +28,40 @@ fn read(name: &str) -> i64 {
 fn the_interface_and_the_backend_agree_on_the_protocol_version() {
     assert_eq!(
         read("PROTOCOL_VERSION"),
-        i64::from(nest_contract::PROTOCOL_VERSION),
-        "ui/runtime/protocol.js and nest_contract disagree; every handshake would be refused"
+        i64::from(harnix_contract::PROTOCOL_VERSION),
+        "ui/runtime/protocol.js and harnix_contract disagree; every handshake would be refused"
     );
 }
 
 #[test]
 fn the_interface_and_the_backend_agree_on_the_contribution_api() {
-    assert_eq!(read("CONTRIB_API_VERSION"), i64::from(nest_contract::CONTRIB_API_VERSION));
+    assert_eq!(
+        read("CONTRIB_API_VERSION"),
+        i64::from(harnix_contract::CONTRIB_API_VERSION)
+    );
 }
 
 /// The codes a client branches on, stated on both sides.
 #[test]
 fn the_interface_and_the_backend_agree_on_the_codes() {
-    assert_eq!(read("REFUSED"), i64::from(nest_contract::codes::REFUSED));
+    assert_eq!(read("REFUSED"), i64::from(harnix_contract::codes::REFUSED));
     assert_eq!(
         read("HANDSHAKE_REFUSED"),
-        i64::from(nest_contract::codes::HANDSHAKE_REFUSED)
+        i64::from(harnix_contract::codes::HANDSHAKE_REFUSED)
     );
 }
 
-/// Nest's own codes stay out of the band JSON-RPC reserves for the
-/// implementation, which is where AttaCore's live. `REFUSED` was `-32000`
+/// Harnix's own codes stay out of the band JSON-RPC reserves for the
+/// implementation, which is where Agix's live. `REFUSED` was `-32000`
 /// once — the same number as the engine's `SESSION_NOT_FOUND`.
 #[test]
 fn nests_codes_cannot_collide_with_the_engines() {
     for (name, code) in [
-        ("REFUSED", nest_contract::codes::REFUSED),
-        ("HANDSHAKE_REFUSED", nest_contract::codes::HANDSHAKE_REFUSED),
+        ("REFUSED", harnix_contract::codes::REFUSED),
+        (
+            "HANDSHAKE_REFUSED",
+            harnix_contract::codes::HANDSHAKE_REFUSED,
+        ),
     ] {
         assert!(
             code > -32000,

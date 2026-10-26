@@ -60,7 +60,7 @@ let contributionsReady = false;
 
 async function boot() {
   try {
-    state.hello = await call("nest.hello");
+    state.hello = await call("harnix.hello");
     state.commands = state.hello.commands || [];
     state.scenes = state.hello.scenes || [];
     state.negotiated = session();
@@ -71,7 +71,7 @@ async function boot() {
       // What this subject may call, from the layer that decides it. A
       // contribution's RPC client is filtered by this, so a plugin author
       // sees the same refusal whether the client or the server catches it.
-      const reachable = await call("nest.reachable").then((r) => r.methods).catch(() => []);
+      const reachable = await call("harnix.reachable").then((r) => r.methods).catch(() => []);
       const host = registerBuiltins(reachable);
       // What the installed packages contribute, after the built-ins — later
       // registrations win a claim, which is what lets a package take over a
@@ -124,6 +124,6 @@ function bindKeys() {
   });
 
   window.addEventListener("beforeunload", () => {
-    if (state.sessionId) notify("nest.detach", { session_id: state.sessionId });
+    if (state.sessionId) notify("harnix.detach", { session_id: state.sessionId });
   });
 }

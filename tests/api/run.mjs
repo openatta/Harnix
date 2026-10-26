@@ -67,7 +67,7 @@ const failures = [];
 // runner picks which one they speak; serving only one would mean the other's
 // endpoints are absent rather than answering, and "absent" is not the
 // behaviour anything is trying to check.
-const profile = join(tmpdir(), `nest-api-profile-${process.pid}.toml`);
+const profile = join(tmpdir(), `harnix-api-profile-${process.pid}.toml`);
 writeFileSync(profile, [
   "[transport]",
   'topologies = ["single_duplex", "split_streams"]',
@@ -105,7 +105,7 @@ console.log(
  * in a full run and never alone, which is the shape of a flake nobody finds.
  */
 async function replayingBackend(port) {
-  const path = join(tmpdir(), `nest-api-replay-${process.pid}.toml`);
+  const path = join(tmpdir(), `harnix-api-replay-${process.pid}.toml`);
   writeFileSync(path, [
     "[transport]",
     'topologies = ["single_duplex", "split_streams"]',
@@ -182,7 +182,7 @@ try {
   // by hand — a hand-kept list drifts the moment a method is added, and it
   // drifts in the direction that makes coverage look better.
   const probe = await connect(backend, { topology });
-  const reachable = (await probe.call("nest.reachable")).methods;
+  const reachable = (await probe.call("harnix.reachable")).methods;
   probe.close();
 
   const called = new Set(exercisedMethods());

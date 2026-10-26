@@ -22,7 +22,7 @@ export default {
   "common.retry": "Retry",
 
   // ── shell ─────────────────────────────────────────────────────────────
-  "app.title": "Nest",
+  "app.title": "Harnix",
   "conn.connecting": "Connecting…",
   "conn.open": "Connected",
   "conn.closed": "Disconnected",
@@ -68,7 +68,7 @@ export default {
   "time.days": "{count} d ago",
 
   // ── conversation ──────────────────────────────────────────────────────
-  "hero.title": "AttaCore, in a browser tab",
+  "hero.title": "Agix, in a browser tab",
   "hero.body": "The engine runs in this process, not over a socket. Start a session, or open a past one from the left.",
   "flow.tool": "tool",
   "flow.toolRunning": "running",
@@ -281,11 +281,11 @@ export default {
   "settings.protocolVersion": "Protocol version",
   "settings.cwd": "Working directory",
   "settings.attaDir": "Engine directory",
-  "settings.attaDirHint": "--atta-dir: settings, transcripts, memory, skills; shared with attacored / AttaCode",
+  "settings.attaDirHint": "--agix-dir: settings, transcripts, memory, skills; shared with agixd / AttaCode",
   "settings.projectsDir": "Projects directory",
   "settings.projectsDirHint": "--data-dir: where the picker starts and new projects are created",
-  "settings.stateDir": "Nest state directory",
-  "settings.stateDirHint": "Workspace grouping, session titles, view preferences and uploads live here; engine config stays in ~/.atta and the two never mix",
+  "settings.stateDir": "Harnix state directory",
+  "settings.stateDirHint": "Workspace grouping, session titles, view preferences and uploads live here; engine config stays in ~/.agix and the two never mix",
   "settings.frameLimit": "Frame limit",
   "settings.uploadLimit": "Upload limit",
   "settings.megabytes": "{size} MiB",
@@ -325,7 +325,7 @@ export default {
   "contrib.reason": "reason",
   "details.noPanel": "nothing claims this item",
   "settings.pluginInstall": "Install a plugin…",
-  "settings.pluginInstallHint": "Pick an AttaCore plugin package (.zip). The engine verifies, unpacks and compiles it; Nest only carries the file across.",
+  "settings.pluginInstallHint": "Pick an Agix plugin package (.zip). The engine verifies, unpacks and compiles it; Harnix only carries the file across.",
   "settings.pluginUploading": "Uploading {name}…",
   "settings.pluginInstalling": "The engine is installing…",
   "settings.pluginInstalled": "Installed",

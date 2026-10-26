@@ -1,13 +1,13 @@
-# AttaNest
+# Harnix
 
 [English](README.md) | 简体中文
 
-**[AttaCore](https://github.com/openatta/AttaCore) 在浏览器里。** 一个 Rust 二进制：引擎、Web
+**[Agix](https://github.com/openatta/agix) 在浏览器里。** 一个 Rust 二进制：引擎、Web
 服务器和前端是同一个进程 —— 没有子进程、没有 socket、没有 npm。
 
-![AttaNest](docs/images/nest.png)
+![Harnix](docs/images/harnix.png)
 
-`daemon` 是个 lib，所以 `nest` 把引擎链进来，用函数调用而不是 socket 跟它说话。这一下省掉的
+`daemon` 是个 lib，所以 `harnix` 把引擎链进来，用函数调用而不是 socket 跟它说话。这一下省掉的
 是一整类要运维的东西：引擎不用占端口、不用握手、不用健康检查、不用重启守护、不用 discovery
 文件。前端则是原生 ES 模块，直接从二进制里发出去 —— 没有打包器、没有 `node_modules`，改一个
 文件到刷新页面之间没有构建这一步。
@@ -20,14 +20,14 @@
 ## 跑起来
 
 ```sh
-git clone --recurse-submodules https://github.com/openatta/AttaNest.git
-cd AttaNest
+git clone --recurse-submodules https://github.com/openatta/harnix.git
+cd Harnix
 cargo build --release
-./target/release/nest                      # → http://127.0.0.1:4080/
+./target/release/harnix                      # → http://127.0.0.1:4080/
 ```
 
 Rust 1.80 以上。不需要 Node，不需要包管理器，别的也不需要。`--recurse-submodules` 是要紧的：
-AttaCore 在 `core/`，编译要用它。
+Agix 在 `agix/`，编译要用它。
 
 不需要任何环境变量。没有凭据时打开**设置 → 模型与凭据 → 添加 provider**，填 base URL 与 API
 key 即可 —— 它写进 `settings.json`，不进浏览器也不进日志。习惯用环境变量就设
@@ -45,15 +45,15 @@ key 即可 —— 它写进 `settings.json`，不进浏览器也不进日志。�
   `mcp:<server>`、`plugin:<id>`）。见下。
 
 - **安装物是一个文件，界面照样能换。** 界面编译在里面，所以页面和后端不可能对不上。
-  `--ui-dir` 整套替换掉它，什么都不用重编译；`--headless` 一张都不发；`nest ui export`
+  `--ui-dir` 整套替换掉它，什么都不用重编译；`--headless` 一张都不发；`harnix ui export`
   把它写出来交给 CDN。
 
 - **界面由六个具名接缝拼起来。** 工具行、详情面板、侧栏分组都是注册，不是 switch 分支——
   换一个产品是换一批注册，不是 fork，装上的包也走同样这几个点。
 
-- **前端没有构建步骤。** 原生 ES 模块加 CSS，`nest --ui-dir ./ui` 从磁盘读：改完刷新就行。
+- **前端没有构建步骤。** 原生 ES 模块加 CSS，`harnix --ui-dir ./ui` 从磁盘读：改完刷新就行。
 
-- **它和终端共用状态。** 引擎目录就是 `attacored` 与 AttaCode 用的那个 `~/.atta`，所以在 TUI
+- **它和终端共用状态。** 引擎目录就是 `agixd` 与 AttaCode 用的那个 `~/.agix`，所以在 TUI
   里跑过的会话在这里能直接打开，反过来也一样。
 
 - **发送会排队，而不是失败。** 有 turn 在跑时发送会进队列，上一轮结束自动发出。按停止会连队列
@@ -85,33 +85,33 @@ key 即可 —— 它写进 `settings.json`，不进浏览器也不进日志。�
 ![请求信封](docs/images/request-envelope.png)
 
 每一次模型调用都带着一个信封 —— 装配好的系统提示词、每一个工具定义、调用配置 —— 而通常你是
-看不到它的。AttaCore 会把每次调用录下来，Nest 把这些录像折成信封**发生变化**的那些点：对话里
+看不到它的。Agix 会把每次调用录下来，Harnix 把这些录像折成信封**发生变化**的那些点：对话里
 一次变化一行，详情栏给全文。
 
 因为它是从录像里读的、不是当事件收的，所以它留得住：刷新页面、明天重开这个会话、重启进程 ——
-信封都还在。录像放在 `<atta-dir>/recordings/<session-id>/`，随会话一起删除。
+信封都还在。录像放在 `<agix-dir>/recordings/<session-id>/`，随会话一起删除。
 
 录像里也就是模型看到的一切，明文，不做脱敏。请按它对应的 transcript 同等对待。
 
 ## 参数
 
 ```
-nest --port 4080 --scene coding --scenes chat,research --model claude-sonnet-5
+harnix --port 4080 --scene coding --scenes chat,research --model claude-sonnet-5
 ```
 
 | 参数 | 说明 |
 |---|---|
 | `--port` / `--host` | 默认 `4080` / `127.0.0.1`。`--host` 只接受回环地址；给的是 IPv4 回环时会**同时监听 `[::1]`** |
 | `--scene` / `--scenes` | 默认场景，以及一并激活的场景（`coding` `chat` `research` `demo`） |
-| `--atta-dir` | 引擎目录：配置、transcript、记忆、技能、录像。默认 `$ATTA_CONFIG_HOME`，再默认 `~/.atta` |
-| `--data-dir` | 项目目录：选择器从这里开始，新建项目也建在这里。默认 `$NEST_DATA_DIR`，再默认 `~/Documents` |
+| `--agix-dir` | 引擎目录：配置、transcript、记忆、技能、录像。默认 `$AGIX_CONFIG_HOME`，再默认 `~/.agix` |
+| `--data-dir` | 项目目录：选择器从这里开始，新建项目也建在这里。默认 `$HARNIX_DATA_DIR`，再默认 `~/Documents` |
 
 <details>
 <summary>不那么常用的参数</summary>
 
 | 参数 | 说明 |
 |---|---|
-| `--model` / `--max-tokens` | 给新会话用。settings 三层仍然优先于它，与 `attacored` 一致 |
+| `--model` / `--max-tokens` | 给新会话用。settings 三层仍然优先于它，与 `agixd` 一致 |
 | `--session-cap` / `--session-idle-timeout` | 活跃会话上限与空闲回收 |
 | `--permission-prompt-timeout` | 权限提问多久没人答就按拒绝处理（默认 300 秒，UI 上是倒计时） |
 | `--ui-dir` | 从这个目录发界面，替换掉编译进去的那份 |
@@ -122,14 +122,14 @@ nest --port 4080 --scene coding --scenes chat,research --model claude-sonnet-5
 
 ## 插件
 
-插件整件事都是 AttaCore 的——manifest、能力门控、沙箱、披露、生命周期。给 Nest 写插件就是
-给 AttaCore 写插件，Nest 既不读一个包，也不跑一个包。这一侧再实现一遍，同一件事就有两处
+插件整件事都是 Agix 的——manifest、能力门控、沙箱、披露、生命周期。给 Harnix 写插件就是
+给 Agix 写插件，Harnix 既不读一个包，也不跑一个包。这一侧再实现一遍，同一件事就有两处
 真相，而两处里只有一处真的拦得住。
 
-Nest 补的是引擎有意不做的那一步：`plugin.install` 自己去取 URL，没有上传通道——包已经在
+Harnix 补的是引擎有意不做的那一步：`plugin.install` 自己去取 URL，没有上传通道——包已经在
 跑引擎那台机器上时够用，在你笔记本上时就没有路。所以设置面板收一个 `.zip`，走大负载旁路
 送上去，再把落盘路径交给引擎。其余全部转手：列举、启停、卸载，以及引擎装完回的那份披露；
-只多做一步——Nest 在服务每个包的 `ui/` 目录，所以改变"装了什么"的调用之后要重读一遍。
+只多做一步——Harnix 在服务每个包的 `ui/` 目录，所以改变"装了什么"的调用之后要重读一遍。
 
 **出厂的那个二进制就能装包。** 包方案——manifest、下载、校验、解包、披露、生命周期——不与
 任何载体互斥，默认就在构建里；花二十兆的是 WebAssembly 载体，插件构建拿脚本载体去换的
@@ -140,18 +140,18 @@ Nest 补的是引擎有意不做的那一步：`plugin.install` 自己去取 URL
 
 两个，只有两个：
 
-- **引擎目录** `--atta-dir`（默认 `~/.atta`）—— 配置、transcript、记忆、技能、录像。与
-  `attacored` / AttaCode 共用。
+- **引擎目录** `--agix-dir`（默认 `~/.agix`）—— 配置、transcript、记忆、技能、录像。与
+  `agixd` / AttaCode 共用。
 - **项目目录** `--data-dir`（默认 `~/Documents`）—— 选择器从这里开始，「新建项目」也建在这里。
   是默认位置不是围栏：`$HOME` 下别处的项目照样能打开。
 
 ```sh
-nest --atta-dir /srv/atta --data-dir /srv/projects
+harnix --agix-dir /srv/atta --data-dir /srv/projects
 ```
 
 安装物是这一个二进制，加上可选的界面产物目录。运行时不从安装目录读任何东西，所以升级就是换掉
-那个文件。Nest 自己的账本（工作区、标题、视图偏好、token、上传）也是数据，放在项目目录里的
-`.nest/`。
+那个文件。Harnix 自己的账本（工作区、标题、视图偏好、token、上传）也是数据，放在项目目录里的
+`.harnix/`。
 
 ## 结构
 
@@ -159,22 +159,22 @@ nest --atta-dir /srv/atta --data-dir /srv/projects
 是 `crates/app/tests/layering.rs` 断言出来的。
 
 ```
-crates/app        bin `nest`：profile、装配顺序、授权表
+crates/app        bin `harnix`：profile、装配顺序、授权表
 crates/transport  通道语义 + 拓扑：帧、握手、静态面、大负载旁路
 crates/authz      这个进程唯一的准入点：主体 × 方法，默认拒绝，可审计
 crates/hub        会话中枢：订阅、重放、seq、turn 所有权、队列
-crates/assembly   照 profile 把 AttaCore 引擎在进程内建起来
+crates/assembly   照 profile 把 Agix 引擎在进程内建起来
 crates/contrib    界面的接缝：由代码生成的目录，与注册表
-crates/builtin    Nest 自己的方法与界面部件，走的就是那个注册表
+crates/builtin    Harnix 自己的方法与界面部件，走的就是那个注册表
 crates/contract   上面这些层互相递交的类型，仅此而已
 
 ui/               界面，编译进二进制：runtime/、builtin/、shell/、styles/
-core/             AttaCore（submodule）
+agix/             Agix（submodule）
 ```
 
 ## 文档
 
-[docs/concept_and_architecture.md](docs/concept_and_architecture.md) 是设计 —— Nest 是什么、
+[docs/concept_and_architecture.md](docs/concept_and_architecture.md) 是设计 —— Harnix 是什么、
 内核是哪四件事、为什么它们一件都不可插拔、五种通道语义与它们映射到的三种拓扑、插件模型，
 以及明确不做的事。
 
@@ -198,13 +198,13 @@ scripts/check.sh --with-remote  # 加上配对与 TLS —— 会在本机网络�
 
 ```sh
 # `--no-deps`：子模块自己的 lint 不该由这个仓库来答。
-cargo clippy -p nest -p nest-hub -p nest-transport -p nest-authz \
-             -p nest-assembly -p nest-contrib -p nest-builtin -p nest-contract \
+cargo clippy -p harnix -p harnix-hub -p harnix-transport -p harnix-authz \
+             -p harnix-assembly -p harnix-contrib -p harnix-builtin -p harnix-contract \
              --all-targets --no-deps -- -D warnings
-# 只跑我们的。被吸收进来的 AttaCore crate 里有测试假定 Core 自己是 workspace 根。
-cargo test -p nest -p nest-hub -p nest-transport -p nest-authz \
-           -p nest-assembly -p nest-contrib \
-           -p nest-builtin -p nest-contract
+# 只跑我们的。被吸收进来的 Agix crate 里有测试假定 Agix 自己是 workspace 根。
+cargo test -p harnix -p harnix-hub -p harnix-transport -p harnix-authz \
+           -p harnix-assembly -p harnix-contrib \
+           -p harnix-builtin -p harnix-contract
 
 node tests/style-lint.mjs                        # 样式静态检查（图标尺寸、令牌、id）
 node tests/contrib-smoke.mjs                     # 贡献点，以及一次被拒绝的握手
@@ -234,11 +234,11 @@ node tests/package-e2e.mjs
 node tests/api/record-fixture.mjs <name> "<提示词>"
 ```
 
-`<token>` 从 `nest` 启动时打印的 token 文件里读（`<data-dir>/.nest/token`）。
+`<token>` 从 `harnix` 启动时打印的 token 文件里读（`<data-dir>/.harnix/token`）。
 
-**不要用 `cargo test --workspace`**：它会连带跑被吸收进来的 AttaCore crate，而 Core 有两条测试
-假定自己是 workspace 根（从测试二进制往上找 `bridges/`），在我们这里必然失败。Core 的测试在
-Core 里跑：`cd core && cargo test --workspace`。
+**不要用 `cargo test --workspace`**：它会连带跑被吸收进来的 Agix crate，而 Agix 有两条测试
+假定自己是 workspace 根（从测试二进制往上找 `bridges/`），在我们这里必然失败。Agix 的测试在
+Agix 里跑：`cd core && cargo test --workspace`。
 
 ## 许可
 

@@ -9,7 +9,7 @@
 //!
 //! This is the piece the second topology forced into the open. Client
 //! identity used to be "which connection is this", which works exactly as
-//! long as there is one — and then `nest.attach` arrives on a POST while the
+//! long as there is one — and then `harnix.attach` arrives on a POST while the
 //! frames have to reach an event stream that is a different socket entirely.
 //! Tying identity to the credential fixes that, and it is also what makes
 //! revoking a device able to cut all of its channels at once.
@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use nest_contract::{Channel, Frame, FrameSink, Subject, Topology};
+use harnix_contract::{Channel, Frame, FrameSink, Subject, Topology};
 use tokio::sync::{mpsc, Mutex};
 
 /// One established handshake.
@@ -31,7 +31,7 @@ pub struct Established {
     pub topology: Topology,
     /// The hub's handle for this client. Frames addressed to it arrive on the
     /// queues below whichever connection is currently draining them.
-    pub client: nest_hub::ClientId,
+    pub client: harnix_hub::ClientId,
     /// Server-initiated frames, split by subscription face.
     ///
     /// Two queues, because they are two subscription faces: a client watching
@@ -145,7 +145,7 @@ impl Sessions {
     /// their own queues for the streams that will drain them.
     pub async fn establish(
         &self,
-        hub: &nest_hub::Hub,
+        hub: &harnix_hub::Hub,
         subject: Subject,
         topology: Topology,
         single_wire: Option<mpsc::UnboundedSender<String>>,
@@ -174,7 +174,11 @@ impl Sessions {
                 )
             }
         };
-        let sink = Arc::new(Downstream { session_tx, host_tx, faces });
+        let sink = Arc::new(Downstream {
+            session_tx,
+            host_tx,
+            faces,
+        });
         let client = hub.add_client(sink.clone()).await;
         let established = Arc::new(Established {
             subject,
@@ -193,7 +197,10 @@ impl Sessions {
             .lock()
             .await
             .insert(credential.clone(), established.clone());
-        self.sinks.lock().await.insert(credential.clone(), sink.clone());
+        self.sinks
+            .lock()
+            .await
+            .insert(credential.clone(), sink.clone());
         (credential, established, sink)
     }
 
@@ -218,7 +225,7 @@ impl Sessions {
 
     /// Drop one, and everything it was watching with it. Revoking a device is
     /// this, for each credential it holds.
-    pub async fn end(&self, hub: &nest_hub::Hub, credential: &str) {
+    pub async fn end(&self, hub: &harnix_hub::Hub, credential: &str) {
         self.sinks.lock().await.remove(credential);
         if let Some(established) = self.by_credential.lock().await.remove(credential) {
             hub.remove_client(established.client).await;

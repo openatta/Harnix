@@ -1,4 +1,4 @@
-//! `nest` — AttaCore, assembled into a product.
+//! `harnix` — Agix, assembled into a product.
 //!
 //! One binary, one process, one user, many sessions. The engine is linked in
 //! and called in-process: no subprocess, no socket, no port allocation, no
@@ -15,12 +15,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Parser;
-use nest_assembly::{EngineConfig, Profile};
-use nest_authz::{Audit, Authorizer, Devices, MethodTable, Reach, ENGINE_REFUSALS};
-use nest_builtin::Builtin;
-use nest_contract::{Gate, Topology};
-use nest_contrib::Registry;
-use nest_hub::{Hub, HubGate};
+use harnix_assembly::{EngineConfig, Profile};
+use harnix_authz::{Audit, Authorizer, Devices, MethodTable, Reach, ENGINE_REFUSALS};
+use harnix_builtin::Builtin;
+use harnix_contract::{Gate, Topology};
+use harnix_contrib::Registry;
+use harnix_hub::{Hub, HubGate};
 
 mod audit_log;
 mod devices;
@@ -50,7 +50,7 @@ enum UiCommand {
 }
 
 #[derive(Parser, Debug)]
-#[command(version, about = "AttaCore, assembled into a product")]
+#[command(version, about = "Agix, assembled into a product")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -110,12 +110,12 @@ struct Cli {
     tls_key: Option<PathBuf>,
 
     /// The engine's directory: settings tiers, transcripts, memory, skills,
-    /// recordings. Defaults to `$ATTA_CONFIG_HOME`, else `~/.atta`.
+    /// recordings. Defaults to `$AGIX_CONFIG_HOME`, else `~/.agix`.
     #[arg(long)]
-    atta_dir: Option<PathBuf>,
+    agix_dir: Option<PathBuf>,
 
     /// The projects directory: where the picker starts and where a new project
-    /// is created. Defaults to `$NEST_DATA_DIR`, else `~/Documents`. A
+    /// is created. Defaults to `$HARNIX_DATA_DIR`, else `~/Documents`. A
     /// starting point, not a fence.
     #[arg(long)]
     data_dir: Option<PathBuf>,
@@ -126,24 +126,24 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,nest=debug")),
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,harnix=debug")),
         )
         .init();
 
     let cli = Cli::parse();
     if let Some(Command::Ui(UiCommand::Export { dir })) = &cli.command {
-        let count = nest_transport::StaticFace::export(dir)?;
+        let count = harnix_transport::StaticFace::export(dir)?;
         println!("\n  {count} files → {}\n", dir.display());
         return Ok(());
     }
     let profile = resolve_profile(&cli)?;
 
     let host: IpAddr = profile.transport.host.parse()?;
-    // A non-loopback bind needs TLS, and `nest_transport::serve` refuses it
+    // A non-loopback bind needs TLS, and `harnix_transport::serve` refuses it
     // without. Refused at the point of binding rather than here, so every
     // caller of that function inherits the rule instead of remembering it.
     let tls = match (&cli.tls_cert, &cli.tls_key) {
-        (Some(cert), Some(key)) => Some(nest_transport::Tls {
+        (Some(cert), Some(key)) => Some(harnix_transport::Tls {
             cert: cert.clone(),
             key: key.clone(),
         }),
@@ -152,7 +152,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let roots = Roots::resolve(&RootArgs {
-        atta_dir: cli.atta_dir.clone(),
+        agix_dir: cli.agix_dir.clone(),
         data_dir: cli.data_dir.clone(),
     });
     tracing::info!(
@@ -163,7 +163,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // ── Assembly ────────────────────────────────────────────────────────
-    let engine = nest_assembly::build_engine(EngineConfig {
+    let engine = harnix_assembly::build_engine(EngineConfig {
         scene: profile.engine.scene.clone(),
         scenes: profile.engine.scenes.clone(),
         model: profile.engine.model.clone(),
@@ -191,10 +191,10 @@ async fn main() -> anyhow::Result<()> {
     // The three ceilings, assembled where all three are known. The hub
     // reports them at hello and the transport enforces the frame one; both
     // read this rather than restating a number.
-    let limits = nest_contract::Limits {
-        max_frame_bytes: nest_contract::MAX_FRAME_BYTES,
-        max_upload_bytes: nest_contract::MAX_UPLOAD_BYTES,
-        replay_max_frames: nest_hub::REPLAY_MAX_FRAMES,
+    let limits = harnix_contract::Limits {
+        max_frame_bytes: harnix_contract::MAX_FRAME_BYTES,
+        max_upload_bytes: harnix_contract::MAX_UPLOAD_BYTES,
+        replay_max_frames: harnix_hub::REPLAY_MAX_FRAMES,
     };
     let hub = Hub::new(engine, registry, cli.replay_dir.clone(), limits).await?;
 
@@ -250,24 +250,24 @@ async fn main() -> anyhow::Result<()> {
     // Which interface, said once and logged, because "I edited a file and
     // nothing changed" is the failure this choice produces when it is silent.
     let face = match (cli.headless, profile.ui.dir.clone()) {
-        (true, _) => nest_transport::Face::Headless,
-        (false, Some(dir)) => nest_transport::Face::Directory(dir),
-        (false, None) => nest_transport::Face::Embedded,
+        (true, _) => harnix_transport::Face::Headless,
+        (false, Some(dir)) => harnix_transport::Face::Directory(dir),
+        (false, None) => harnix_transport::Face::Embedded,
     };
     match &face {
-        nest_transport::Face::Embedded => tracing::info!("serving the interface compiled in"),
-        nest_transport::Face::Directory(dir) => {
+        harnix_transport::Face::Embedded => tracing::info!("serving the interface compiled in"),
+        harnix_transport::Face::Directory(dir) => {
             tracing::info!(dir = %dir.display(), "serving the interface from disk, not the one compiled in")
         }
-        nest_transport::Face::Headless => tracing::info!("headless: no interface, RPC only"),
+        harnix_transport::Face::Headless => tracing::info!("headless: no interface, RPC only"),
     }
 
-    let (router, statics) = nest_transport::router(
+    let (router, statics) = harnix_transport::router(
         gate,
         hub.clone(),
         builtin.clone(),
         paired.clone(),
-        nest_transport::Config {
+        harnix_transport::Config {
             topologies: profile.transport.topologies.clone(),
             token: token.clone(),
             face: face.clone(),
@@ -276,9 +276,9 @@ async fn main() -> anyhow::Result<()> {
             // listener needs a paired device; loopback does not have one to
             // ask for yet, and does not need one (§6.3).
             admission: if host.is_loopback() {
-                nest_transport::Admission::Token
+                harnix_transport::Admission::Token
             } else {
-                nest_transport::Admission::PairedDevice
+                harnix_transport::Admission::PairedDevice
             },
             max_upload_bytes: builtin.max_upload_bytes(),
         },
@@ -317,11 +317,15 @@ async fn main() -> anyhow::Result<()> {
     // admission. This is where that circle is broken.
     devices::bootstrap(&paired, !host.is_loopback());
 
-    let server = tokio::spawn(async move { nest_transport::serve(&addrs, router, tls).await });
+    let server = tokio::spawn(async move { harnix_transport::serve(&addrs, router, tls).await });
 
-    let scheme = if cli.tls_cert.is_some() { "https" } else { "http" };
+    let scheme = if cli.tls_cert.is_some() {
+        "https"
+    } else {
+        "http"
+    };
     println!(
-        "\n  nest → {scheme}://{addr}/\n  token → {}\n  topology → {}\n",
+        "\n  harnix → {scheme}://{addr}/\n  token → {}\n  topology → {}\n",
         token_file.display(),
         profile
             .transport
@@ -340,12 +344,17 @@ async fn main() -> anyhow::Result<()> {
     hub.shutdown().await;
     // Uploads are this process's scratch; the rest of the state root outlives
     // it.
-    let _ = std::fs::remove_dir_all(roots.state.join("uploads").join(std::process::id().to_string()));
+    let _ = std::fs::remove_dir_all(
+        roots
+            .state
+            .join("uploads")
+            .join(std::process::id().to_string()),
+    );
     Ok(())
 }
 
 /// Point the static face at what is installed now.
-async fn refresh_packages(builtin: &Arc<Builtin>, statics: &Arc<nest_transport::StaticFace>) {
+async fn refresh_packages(builtin: &Arc<Builtin>, statics: &Arc<harnix_transport::StaticFace>) {
     apply_packages(builtin.hub(), statics, builtin.contributions().await);
 }
 
@@ -356,8 +365,8 @@ async fn refresh_packages(builtin: &Arc<Builtin>, statics: &Arc<nest_transport::
 /// async for the sake of two assignments.
 fn apply_packages(
     hub: &Arc<Hub>,
-    statics: &Arc<nest_transport::StaticFace>,
-    contributions: Vec<nest_builtin::packages::Contributions>,
+    statics: &Arc<harnix_transport::StaticFace>,
+    contributions: Vec<harnix_builtin::packages::Contributions>,
 ) {
     if !contributions.is_empty() {
         tracing::info!(

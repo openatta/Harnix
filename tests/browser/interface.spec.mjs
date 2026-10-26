@@ -35,7 +35,7 @@ test("the page loads, connects, and lays out its columns", async ({ page }) => {
   await page.goto(URL);
 
   // The handshake has to settle before anything is drawn — the shell draws by
-  // asking the registry, and the registry is filled after `nest.hello`.
+  // asking the registry, and the registry is filled after `harnix.hello`.
   await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
 
   // The sidebar and the conversation both have real width. A collapsed or

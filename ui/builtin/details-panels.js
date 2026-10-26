@@ -4,7 +4,7 @@
  *
  * These are the real panels the product ships. The shell asks the registry
  * who claims the selected item and draws the answer, so a plugin adding a
- * panel for its own kind of row is the same operation Nest performs here —
+ * panel for its own kind of row is the same operation Harnix performs here —
  * and a plugin replacing one of these is a later registration, not a fork. */
 
 import { toolIcon } from "./tool-rows.js";

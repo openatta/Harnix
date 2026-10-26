@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
 
 use base64::Engine as _;
-use nest_authz::{devices_challenge as challenge, Devices};
+use harnix_authz::{devices_challenge as challenge, Devices};
 use tokio::sync::Mutex;
 
 /// How long an unanswered challenge is worth keeping. A round trip, not a
@@ -83,7 +83,12 @@ pub async fn pair(
     axum::Json(body): axum::Json<serde_json::Value>,
 ) -> axum::response::Response {
     use axum::response::IntoResponse as _;
-    let get = |key: &str| body.get(key).and_then(|v| v.as_str()).unwrap_or_default().to_string();
+    let get = |key: &str| {
+        body.get(key)
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string()
+    };
     if get("token") != state.config.token {
         return (axum::http::StatusCode::UNAUTHORIZED, "bad token").into_response();
     }
@@ -140,5 +145,7 @@ pub async fn admit(
     if !challenge::verify(&device.public_key, &bytes, &signature) {
         return Verdict::Refuse("signature does not match the paired key");
     }
-    Verdict::Admit { device: Some(device_id) }
+    Verdict::Admit {
+        device: Some(device_id),
+    }
 }

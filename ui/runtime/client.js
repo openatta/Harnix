@@ -17,7 +17,7 @@ import { connectSplit } from "./topology.js";
 export { PROTOCOL_VERSION, CONTRIB_API_VERSION } from "./protocol.js";
 import { PROTOCOL_VERSION, CONTRIB_API_VERSION } from "./protocol.js";
 
-const token = document.querySelector('meta[name="nest-token"]')?.content || "";
+const token = document.querySelector('meta[name="harnix-token"]')?.content || "";
 
 /** The topologies this bundle can speak, best first.
  *
@@ -101,7 +101,7 @@ function connectDuplex() {
   socket.onopen = async () => {
     attempt = 0;
     try {
-      negotiated = await call("nest.handshake", {
+      negotiated = await call("harnix.handshake", {
         protocol_version: PROTOCOL_VERSION,
         contrib_api_version: CONTRIB_API_VERSION,
         topology: SPEAKS[0],

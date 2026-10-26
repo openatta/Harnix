@@ -1,24 +1,24 @@
 [package]
-name = "nest"
+name = "harnix"
 version      = { workspace = true }
 edition      = { workspace = true }
 rust-version = { workspace = true }
 license      = { workspace = true }
 publish      = false
-description  = "AttaCore, assembled into a product: one binary, one process, one user"
+description  = "Agix, assembled into a product: one binary, one process, one user"
 
 [[bin]]
-name = "nest"
+name = "harnix"
 path = "src/main.rs"
 
 [dependencies]
-nest-assembly  = { workspace = true }
-nest-authz     = { workspace = true }
-nest-builtin   = { workspace = true }
-nest-contract  = { workspace = true }
-nest-contrib   = { workspace = true }
-nest-hub       = { workspace = true }
-nest-transport = { workspace = true }
+harnix-assembly  = { workspace = true }
+harnix-authz     = { workspace = true }
+harnix-builtin   = { workspace = true }
+harnix-contract  = { workspace = true }
+harnix-contrib   = { workspace = true }
+harnix-hub       = { workspace = true }
+harnix-transport = { workspace = true }
 tokio       = { workspace = true }
 async-trait = { workspace = true }
 history     = { workspace = true }

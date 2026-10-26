@@ -7,8 +7,8 @@
 //!
 //! It also asserts the thing §3.3.3's fifth invariant rests on — the hub and
 //! the authorizer cannot name a topology, a connection or an HTTP type — and
-//! the constraint that keeps Nest a thin layer: no interpreter is linked
-//! here, because extension execution is AttaCore's.
+//! the constraint that keeps Harnix a thin layer: no interpreter is linked
+//! here, because extension execution is Agix's.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -21,9 +21,12 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
-/// Direct dependencies of one Nest crate, by name.
+/// Direct dependencies of one Harnix crate, by name.
 fn dependencies(crate_dir: &str) -> BTreeSet<String> {
-    let manifest = workspace_root().join("crates").join(crate_dir).join("Cargo.toml");
+    let manifest = workspace_root()
+        .join("crates")
+        .join(crate_dir)
+        .join("Cargo.toml");
     let text = std::fs::read_to_string(&manifest)
         .unwrap_or_else(|e| panic!("{}: {e}", manifest.display()));
     let mut names = BTreeSet::new();
@@ -59,7 +62,13 @@ fn assert_ignorant_of(crate_dir: &str, forbidden: &[&str], because: &str) {
 fn transport_does_not_know_what_a_session_is() {
     assert_ignorant_of(
         "transport",
-        &["nest-assembly", "nest-contrib", "nest-plugin", "daemon", "base"],
+        &[
+            "harnix-assembly",
+            "harnix-contrib",
+            "harnix-plugin",
+            "daemon",
+            "base",
+        ],
         "it carries channel semantics and nothing about what they contain",
     );
 }
@@ -72,7 +81,13 @@ fn transport_does_not_know_what_a_session_is() {
 fn authorization_does_not_know_what_a_frame_looks_like() {
     assert_ignorant_of(
         "authz",
-        &["axum", "nest-transport", "nest-hub", "nest-assembly", "daemon"],
+        &[
+            "axum",
+            "harnix-transport",
+            "harnix-hub",
+            "harnix-assembly",
+            "daemon",
+        ],
         "it sees an authenticated subject and a method name, and nothing else",
     );
 }
@@ -84,7 +99,13 @@ fn authorization_does_not_know_what_a_frame_looks_like() {
 fn the_hub_does_not_know_about_connections() {
     assert_ignorant_of(
         "hub",
-        &["axum", "nest-transport", "nest-authz", "bytes", "futures"],
+        &[
+            "axum",
+            "harnix-transport",
+            "harnix-authz",
+            "bytes",
+            "futures",
+        ],
         "it speaks to `dyn FrameSink`, which is all it may learn about a downstream",
     );
 }
@@ -95,7 +116,7 @@ fn the_hub_does_not_know_about_connections() {
 fn assembly_does_not_know_the_client_protocol_exists() {
     assert_ignorant_of(
         "assembly",
-        &["nest-transport", "nest-authz", "nest-hub", "axum"],
+        &["harnix-transport", "harnix-authz", "harnix-hub", "axum"],
         "it stands up an engine; who talks to it is not its business",
     );
 }
@@ -108,7 +129,7 @@ fn the_contract_depends_on_no_layer() {
     let deps = dependencies("contract");
     for name in &deps {
         assert!(
-            !name.starts_with("nest-"),
+            !name.starts_with("harnix-"),
             "`contract` depends on `{name}`; it is the waist of the hourglass and must stay empty"
         );
     }
@@ -130,9 +151,20 @@ fn the_contract_depends_on_no_layer() {
 #[test]
 fn neither_the_hub_nor_the_authorizer_names_a_topology() {
     let forbidden = [
-        "single_duplex", "split_streams", "request_only", "SingleDuplex",
-        "SplitStreams", "RequestOnly", "Topology", "WebSocket", "websocket",
-        "/events/", "/rpc", "Sse", "http", "HTTP",
+        "single_duplex",
+        "split_streams",
+        "request_only",
+        "SingleDuplex",
+        "SplitStreams",
+        "RequestOnly",
+        "Topology",
+        "WebSocket",
+        "websocket",
+        "/events/",
+        "/rpc",
+        "Sse",
+        "http",
+        "HTTP",
     ];
     let mut offenders = Vec::new();
     for layer in ["hub", "authz"] {
@@ -165,15 +197,15 @@ fn neither_the_hub_nor_the_authorizer_names_a_topology() {
     );
 }
 
-/// Nest links no interpreter.
+/// Harnix links no interpreter.
 ///
-/// Extending the agent is AttaCore's: the carrier, the sandbox, the
-/// capability gate. Nest may read a manifest — it reads one section of one,
+/// Extending the agent is Agix's: the carrier, the sandbox, the
+/// capability gate. Harnix may read a manifest — it reads one section of one,
 /// deliberately (§4.6) — but it must never be able to *run* what a package
 /// brought, because that is where a second answer to "what may an extension
 /// do" would come from.
 #[test]
-fn nest_constructs_no_interpreter() {
+fn harnix_constructs_no_interpreter() {
     let root = workspace_root().join("crates");
     let mut offenders = Vec::new();
     let mut stack = vec![root];
@@ -199,26 +231,32 @@ fn nest_constructs_no_interpreter() {
             }
         }
     }
-    assert!(offenders.is_empty(), "Nest must link no interpreter:\n{}", offenders.join("\n"));
+    assert!(
+        offenders.is_empty(),
+        "Harnix must link no interpreter:\n{}",
+        offenders.join("\n")
+    );
 }
 
-/// Nest reads exactly one section of a package manifest.
+/// Harnix reads exactly one section of a package manifest.
 ///
-/// This is §2.2 in the only form that survives a rewrite. "Nest has no plugin
+/// This is §2.2 in the only form that survives a rewrite. "Harnix has no plugin
 /// system" is a sentence; what makes it true is that nothing here parses the
 /// engine's half of a manifest — no payloads, no capabilities, no scene, no
 /// agent types — and nothing runs what a package brought.
 ///
-/// It was two sections for a while, the second being a projection Nest would
+/// It was two sections for a while, the second being a projection Harnix would
 /// execute. A projection has no capabilities, so it introduced no second
 /// answer to "what may an extension do" — but it made the rule need a
 /// carve-out, and a rule with a carve-out is a rule somebody widens. One
 /// section needs no exception.
 #[test]
-fn nest_reads_only_its_own_manifest_section() {
+fn harnix_reads_only_its_own_manifest_section() {
     let path = workspace_root().join("crates/builtin/src/packages.rs");
     let text = std::fs::read_to_string(&path).expect("packages.rs");
-    let start = text.find("struct Sections {").expect("the manifest reader's struct");
+    let start = text
+        .find("struct Sections {")
+        .expect("the manifest reader's struct");
     let body = &text[start..start + text[start..].find('}').expect("a closing brace")];
 
     let fields: BTreeSet<&str> = body
@@ -243,7 +281,13 @@ fn nest_reads_only_its_own_manifest_section() {
         .filter(|line| !line.trim_start().starts_with("//"))
         .collect::<Vec<_>>()
         .join("\n");
-    for needle in ["WasmPayload", "McpPayload", "SceneSection", "AgentDef", "capabilities"] {
+    for needle in [
+        "WasmPayload",
+        "McpPayload",
+        "SceneSection",
+        "AgentDef",
+        "capabilities",
+    ] {
         assert!(
             !code.contains(needle),
             "packages.rs names `{needle}`, which is the engine's half of the manifest"
@@ -251,21 +295,39 @@ fn nest_reads_only_its_own_manifest_section() {
     }
 }
 
-/// Every crate that depends on a Nest crate depends on one that exists, and
+/// Every crate that depends on a Harnix crate depends on one that exists, and
 /// nothing depends on itself. Cheap, and it catches a rename that only half
 /// happened.
 #[test]
-fn every_nest_dependency_resolves() {
-    let crates = ["app", "assembly", "authz", "builtin", "contract", "contrib", "hub", "transport"];
+fn every_harnix_dependency_resolves() {
+    let crates = [
+        "app",
+        "assembly",
+        "authz",
+        "builtin",
+        "contract",
+        "contrib",
+        "hub",
+        "transport",
+    ];
     let known: BTreeSet<String> = crates
         .iter()
-        .map(|c| if *c == "app" { "nest".to_string() } else { format!("nest-{c}") })
+        .map(|c| {
+            if *c == "app" {
+                "harnix".to_string()
+            } else {
+                format!("harnix-{c}")
+            }
+        })
         .collect();
     for dir in crates {
         for dep in dependencies(dir) {
-            if dep.starts_with("nest-") {
-                assert!(known.contains(&dep), "`{dir}` depends on unknown crate `{dep}`");
-                assert_ne!(dep, format!("nest-{dir}"), "`{dir}` depends on itself");
+            if dep.starts_with("harnix-") {
+                assert!(
+                    known.contains(&dep),
+                    "`{dir}` depends on unknown crate `{dep}`"
+                );
+                assert_ne!(dep, format!("harnix-{dir}"), "`{dir}` depends on itself");
             }
         }
     }

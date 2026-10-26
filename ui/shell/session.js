@@ -1,7 +1,7 @@
 /** Session actions and the reducer that turns the wire into flow blocks.
  *
  * Two sources produce the same block list: `session.history` (the transcript,
- * authoritative up to its own depth) and `nest.event` frames (the live turn,
+ * authoritative up to its own depth) and `harnix.event` frames (the live turn,
  * plus whatever the hub replayed on attach). The catch-up order is history
  * first, replay second — never the other way round; see
  * docs/architecture.md §5.
@@ -40,7 +40,7 @@ export function banner(text, tone) {
 
 export async function openSession(sessionId) {
   if (state.sessionId && state.sessionId !== sessionId) {
-    notify("nest.detach", { session_id: state.sessionId });
+    notify("harnix.detach", { session_id: state.sessionId });
   }
   resetSession(sessionId);
   banner(null);
@@ -48,7 +48,7 @@ export async function openSession(sessionId) {
 
   let attached;
   try {
-    attached = await call("nest.attach", { session_id: sessionId });
+    attached = await call("harnix.attach", { session_id: sessionId });
   } catch (e) {
     push({ kind: "note", text: t("flow.openFailed", { error: errorText(e) }), error: true });
     return;
@@ -237,14 +237,14 @@ export function applyEvent(event, options = {}) {
     }
 
     // No `turn_state`, `compact` or `agent_state` case. The engine's frame
-    // whitelist has none of the three (AttaCore's daemon_rpc_protocol §7 says
+    // whitelist has none of the three (Agix's daemon_rpc_protocol §7 says
     // so outright), and this file used to carry a branch for each — so a
     // sub-agent row stayed "running" for the life of the session, a
     // compaction row could never be drawn, and the interrupt note never
     // fired. What survives of them is derived from frames that do arrive:
-    // the turn's lifecycle from `nest.turn_settled`, a sub-agent's from the
+    // the turn's lifecycle from `harnix.turn_settled`, a sub-agent's from the
     // `turn_complete` nested in its own `subagent_progress`. Compaction has
-    // no such substitute and is now an ask on Core (§9) rather than a
+    // no such substitute and is now an ask on Agix (§9) rather than a
     // renderer waiting for an event that is not coming.
     case "turn_complete":
       endStream();
@@ -264,7 +264,7 @@ export function applyEvent(event, options = {}) {
       break;
 
     // The skill catalog changed on disk under this session. `state.commands`
-    // came from the one `nest.hello` at startup, so without this the slash
+    // came from the one `harnix.hello` at startup, so without this the slash
     // menu is stale for the rest of the session — which is what the engine
     // sends this frame to prevent.
     case "skills_changed":
@@ -278,8 +278,8 @@ export function applyEvent(event, options = {}) {
 
 /* ── the request envelope ─────────────────────────────────────────────────
  *
- * What the model was sent minus the messages. AttaCore does not stream it;
- * it writes every call to a recording and `nest.requestHeaders` folds that
+ * What the model was sent minus the messages. Agix does not stream it;
+ * it writes every call to a recording and `harnix.requestHeaders` folds that
  * into the changes (see crates/hub/src/recordings.rs). So this is pulled at
  * the two moments it can have moved — opening a session, and finishing a
  * turn — rather than pushed.
@@ -293,7 +293,7 @@ export async function refreshRequestHeaders(sessionId) {
   if (!sessionId) return;
   let answer;
   try {
-    answer = await call("nest.requestHeaders", { session_id: sessionId });
+    answer = await call("harnix.requestHeaders", { session_id: sessionId });
   } catch (e) {
     // A diagnostic that cannot be read is not a reason to disturb a
     // conversation that is otherwise working.
@@ -384,7 +384,7 @@ function subagentEvent(event, silent) {
 }
 
 /** Re-read the slash catalog. Cheap, and the only way back to a true one:
- *  `nest.hello` is answered once per connection. */
+ *  `harnix.hello` is answered once per connection. */
 async function refreshCommands() {
   try {
     const result = await call("commands.list", {});
@@ -435,7 +435,7 @@ export async function send(text) {
   // next one must not inherit the note.
   interrupting.delete(state.sessionId);
   try {
-    const result = await call("nest.send", {
+    const result = await call("harnix.send", {
       session_id: state.sessionId,
       message,
       attachments,
@@ -480,7 +480,7 @@ export async function answerPrompt(block, decision, label) {
 
 export async function removeQueued(itemId) {
   try {
-    const result = await call("nest.queue.remove", {
+    const result = await call("harnix.queue.remove", {
       session_id: state.sessionId,
       item_id: itemId,
     });
@@ -506,8 +506,8 @@ export async function removeQueued(itemId) {
 export async function refreshSessions() {
   try {
     const [listed, notes] = await Promise.all([
-      call("nest.sessions"),
-      call("nest.workspaces.list").catch(() => ({})),
+      call("harnix.sessions"),
+      call("harnix.workspaces.list").catch(() => ({})),
     ]);
 
     state.workspaces = notes.workspaces || [];
@@ -546,7 +546,7 @@ export async function refreshSessions() {
 /* ── server notifications ─────────────────────────────────────────────── */
 
 export function handleNotification(method, params) {
-  if (method === "nest.event") {
+  if (method === "harnix.event") {
     if (params.session_id !== state.sessionId) {
       state.running.add(params.session_id);
       emit("sessions");
@@ -558,7 +558,7 @@ export function handleNotification(method, params) {
     return;
   }
 
-  if (method === "nest.turn_settled") {
+  if (method === "harnix.turn_settled") {
     state.running.delete(params.session_id);
     emit("sessions");
     const wasInterrupted = interrupting.delete(params.session_id);
@@ -582,19 +582,19 @@ export function handleNotification(method, params) {
     return;
   }
 
-  if (method === "nest.queue") {
+  if (method === "harnix.queue") {
     if (params.session_id !== state.sessionId) return;
     state.queue = params.items || [];
     emit("queue");
     return;
   }
 
-  if (method === "nest.host_event") hostEvent(params);
+  if (method === "harnix.host_event") hostEvent(params);
 }
 
 /** Host events: not tied to any session.
  *
- * AttaCore emits exactly three kinds, and its protocol says so in as many
+ * Agix emits exactly three kinds, and its protocol says so in as many
  * words. Handling kinds it does not send would be dead code that reads like
  * a feature — anyone looking would conclude the interface reports evictions
  * and config reloads, and it cannot, because nothing tells it. */

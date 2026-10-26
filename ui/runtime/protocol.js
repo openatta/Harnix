@@ -9,23 +9,23 @@
  */
 
 /** Bumped when a method, an event shape or an error code changes in a way a
- *  client can observe. See `nest_contract::PROTOCOL_VERSION`. */
+ *  client can observe. See `harnix_contract::PROTOCOL_VERSION`. */
 export const PROTOCOL_VERSION = 4;
 
 /** The contribution point API — separate, because a UI bundle can be current
  *  on one and stale on the other. */
 export const CONTRIB_API_VERSION = 1;
 
-/** The codes Nest itself returns, as distinct from the ones that come from
+/** The codes Harnix itself returns, as distinct from the ones that come from
  *  the engine untouched.
  *
  * These sit outside JSON-RPC's reserved implementation band (`-32000` …
- * `-32099`), which is where AttaCore's live. That separation is what makes
+ * `-32099`), which is where Agix's live. That separation is what makes
  * "the host refused you" tellable from "the engine has no such session" —
  * the two were the same number once, and the API tests used that number as
  * their only way to tell the layers apart.
  *
- * Kept in step with `nest_contract::codes` by
+ * Kept in step with `harnix_contract::codes` by
  * `crates/contract/tests/protocol_version.rs`. */
 export const REFUSED = -31000;
 export const HANDSHAKE_REFUSED = -31001;

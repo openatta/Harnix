@@ -13,7 +13,7 @@ import zhCN from "./zh-CN.js";
 import en from "./en.js";
 
 const DICTIONARIES = { "zh-CN": zhCN, en };
-const KEY = "nest.locale";
+const KEY = "harnix.locale";
 
 let locale = resolveInitial();
 const listeners = [];

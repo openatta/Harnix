@@ -49,7 +49,7 @@ class QuietSocket {
   send(raw) {
     const request = JSON.parse(raw);
     if (request.id == null) return;
-    const result = request.method === "nest.hello"
+    const result = request.method === "harnix.hello"
       ? { protocol_version: 2, engine: { model: "m", active_scenes: [] }, scenes: [], commands: [], limits: {} }
       : { sessions: [], workspaces: [], prefs: {} };
     this.onmessage({ data: JSON.stringify({ jsonrpc: "2.0", id: request.id, result }) });

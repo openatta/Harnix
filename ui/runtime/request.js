@@ -3,7 +3,7 @@
  *
  * The envelope is what the model was sent minus the messages: the assembled
  * system blocks, the whole tool catalog, and the call configuration. It comes
- * from `nest.requestHeaders`, which folds the engine's recording down to the
+ * from `harnix.requestHeaders`, which folds the engine's recording down to the
  * points where it changed. Both surfaces present the same facts at different
  * depths, so the wording of a fact lives here rather than twice. */
 

@@ -5,7 +5,7 @@ that went to the model and the responses that came back — and replaying one
 makes an agent's behaviour deterministic and free: no provider, no network, no
 waiting, and the same tool calls every time.
 
-Recorded with `nest` in its ordinary mode (recording is always on — §6.4);
+Recorded with `harnix` in its ordinary mode (recording is always on — §6.4);
 played back with `--replay-dir`, which is an **operator's** flag. A client
 cannot ask for replay, and outside replay the fixture name means nothing.
 

@@ -1,15 +1,15 @@
 //! Standing the engine up, in this process.
 //!
 //! The engine is linked as a library and called in-process: no socket, no
-//! handshake, no subprocess to supervise (§9). This does what `attacored`'s
+//! handshake, no subprocess to supervise (§9). This does what `agixd`'s
 //! `main.rs` does — resolve scenes, load the settings tiers, build the model
 //! client and the `SessionPool` — and stops before the part that binds
 //! listeners. What it hands back is a `DaemonServer` whose `dispatch_public`
 //! the hub calls directly.
 //!
-//! It mirrors an assembly that lives upstream, and the only reason it is a
-//! mirror is that upstream exposes no bootstrap entry point. When AttaCore
-//! grows one, this file becomes a call to it.
+//! The assembly itself is Agix's (`daemon::assemble::pool`); this file only
+//! decides what Harnix hands it: the root, the scenes, a client that may start
+//! without credentials, and a transcript store the hub keeps a handle on.
 //!
 //! The engine root is **passed in**, never read from this process's
 //! environment: otherwise one process could not serve two roots, and the
@@ -18,7 +18,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use base::interface::permission::PermissionOutcome;
+use daemon::assemble::{Assembly, Transcripts};
 use daemon::config::{load_daemon_config, StaticDaemonPaths};
 use daemon::{DaemonServer, SessionPool};
 use model::client::{AnthropicClient, AuthMode, HttpAnthropicClient};
@@ -28,7 +28,7 @@ use tracing::info;
 #[derive(Debug, Clone)]
 pub struct EngineConfig {
     /// Default scene for `session.create` and the state root under
-    /// `~/.atta/scenes/<scene>/`.
+    /// `~/.agix/scenes/<scene>/`.
     pub scene: String,
     /// Scenes activated on top of `scene`.
     pub scenes: Vec<String>,
@@ -38,7 +38,7 @@ pub struct EngineConfig {
     pub session_idle_timeout_secs: u64,
     pub permission_prompt_timeout_secs: u64,
     /// The engine's data root — settings tiers, transcripts, memory, skills.
-    /// What `ATTA_CONFIG_HOME` names, resolved by the app and handed in.
+    /// What `AGIX_CONFIG_HOME` names, resolved by the app and handed in.
     pub data_root: PathBuf,
 }
 
@@ -55,7 +55,7 @@ impl Default for EngineConfig {
             data_root: std::env::var_os("HOME")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("."))
-                .join(".atta"),
+                .join(".agix"),
         }
     }
 }
@@ -87,25 +87,6 @@ impl Engine {
     pub async fn shutdown(&self) {
         self.pool.shutdown_all().await;
         self.cancel.cancel();
-    }
-}
-
-/// Allow-everything permission — handed only to sessions whose effective
-/// `permission_mode` is `bypassPermissions`. Everything else gets a real
-/// `RuleSetPermission` built by the pool, which is what raises the
-/// `session.event{kind:"prompt"}` frames the browser answers.
-struct AllowAllPermission;
-
-#[async_trait::async_trait]
-impl base::interface::permission::Permission for AllowAllPermission {
-    async fn check(
-        &self,
-        _tool: &str,
-        _input: &serde_json::Value,
-        _cwd: &std::path::Path,
-        _session_id: &str,
-    ) -> PermissionOutcome {
-        PermissionOutcome::Permit
     }
 }
 
@@ -158,42 +139,15 @@ pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
     daemon_config.session_idle_timeout_secs = config.session_idle_timeout_secs;
     daemon_config.settings.session_dir = Some(daemon_config.settings.paths.local_data_dir.clone());
 
-
-    let task_router: Option<Arc<base::provider::TaskRouter>> =
-        if daemon_config.settings.providers.is_empty() {
-            None
-        } else {
-            let (resolved, warnings) = base::provider::resolve_task_models(
-                &daemon_config.settings.providers,
-                daemon_config.settings.default_provider.as_deref(),
-                &daemon_config.settings.task_models,
-            )
-            .map_err(|e| anyhow::anyhow!("invalid multi-provider LLM config: {e}"))?;
-            for w in &warnings {
-                tracing::warn!("model routing: {w}");
-            }
-            let default_provider = daemon_config
-                .settings
-                .default_provider
-                .as_deref()
-                .expect("resolve_task_models validated default_provider is set");
-            let router = daemon::model_router::build_task_router(
-                &daemon_config.settings.providers,
-                default_provider,
-                resolved,
-            )
-            .map_err(|e| anyhow::anyhow!("failed to build model router: {e}"))?;
-            Some(Arc::new(router))
-        };
-
     // A configured provider is a complete answer on its own: the router serves
     // `main` and the client built here is never asked for anything. Requiring
     // an environment variable anyway would mean a fresh install could not be
     // set up from its own settings page.
+    let has_router = !daemon_config.settings.providers.is_empty();
     let api_key = std::env::var("ANTHROPIC_AUTH_TOKEN")
         .or_else(|_| std::env::var("ANTHROPIC_API_KEY"))
         .ok();
-    if api_key.is_none() && task_router.is_none() {
+    if api_key.is_none() && !has_router {
         anyhow::bail!(
             "no model credentials: set ANTHROPIC_AUTH_TOKEN (or ANTHROPIC_API_KEY), \
              or configure a provider in settings.json"
@@ -214,8 +168,7 @@ pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
     };
 
     let global_dir = daemon_config.settings.paths.global_data_dir.clone();
-    let local_dir = daemon_config.settings.paths.local_data_dir.clone();
-    let settings = Arc::new(daemon_config.settings.clone());
+    let settings = &daemon_config.settings;
     // What a turn will actually use: with a provider router in play, `main`
     // routes to that provider's model, and reporting the CLI default instead
     // would name a model no request ever reaches.
@@ -227,7 +180,7 @@ pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
         .unwrap_or_else(|| settings.model.model_name.clone());
 
     // Mirrors `daemon::session_pool::recordings_root` with no `dir` override,
-    // which is how the hub asks for recording (see `nest_hub::recordings`).
+    // which is how the hub asks for recording (see `harnix_hub::recordings`).
     // The two must agree: the daemon decides where a recording is written and
     // this decides where it is read from.
     let recordings_root = settings
@@ -238,14 +191,9 @@ pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
             base::paths::ConfigPaths::from_settings(&settings.paths).global_recordings_dir()
         });
 
-    let memory_store = Arc::new(base::interface::memory::MemoryStore::new(
-        global_dir.join("memory"),
-        local_dir.join("memory"),
-    ));
-
+    // Built here rather than left to the assembly because the hub keeps a
+    // handle on it (`Engine::history`).
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let permission: Arc<dyn base::interface::permission::Permission> = Arc::new(AllowAllPermission);
-
     let history_roots = history::path::HistoryRoots::under(&global_dir);
     let migration = history::migrate::migrate_layout(&global_dir);
     if !migration.did_nothing() {
@@ -263,47 +211,29 @@ pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
                 None
             }
         };
-    let history_store_handle = history_store.clone();
+    let transcripts = match history_store.clone() {
+        Some(store) => Transcripts::In(store),
+        None => Transcripts::Nowhere,
+    };
 
-    let mcp_servers = daemon_config.settings.mcp_servers.clone();
-
-    let pool = Arc::new(
-        SessionPool::new(
-            daemon_config.session_cap,
-            daemon_config.session_idle_timeout_secs,
-            client,
-            settings,
-            scene,
-            permission,
-            memory_store,
-            cwd,
-            history_store,
-            daemon_config.paths.clone(),
-            task_router,
-        )
-        .with_permission_prompt_timeout(std::time::Duration::from_secs(
-            config.permission_prompt_timeout_secs,
-        )),
-    );
-
-    for extra in &config.scenes {
-        if extra == &config.scene {
-            continue;
-        }
-        pool.activate_scene(extra)
-            .await
-            .map_err(|(_, message)| anyhow::anyhow!("scene `{extra}`: {message}"))?;
-    }
-
-    // Plugin components load before any session can be created: a session
-    // built while this is still running is missing every plugin tool with
-    // nothing to indicate why. With the plugin feature compiled out this is a
-    // no-op.
-    pool.load_plugin_components().await;
-    let mut mcp_servers = mcp_servers;
-    mcp_servers.extend(pool.plugin_mcp_servers().await);
-    pool.connect_mcp_servers_in_background(mcp_servers);
-    pool.start_janitor();
+    let pool = daemon::assemble::pool(
+        &daemon_config,
+        scene,
+        Assembly {
+            cwd: Some(cwd),
+            extra_scenes: config.scenes.clone(),
+            scenes: Vec::new(),
+            permission_prompt_timeout: std::time::Duration::from_secs(
+                config.permission_prompt_timeout_secs,
+            ),
+            model_client: Some(client),
+            credentials: None,
+            transcripts,
+            permission: None,
+            customize_session: None,
+        },
+    )
+    .await?;
 
     let cancel = CancellationToken::new();
     let server = Arc::new(DaemonServer::new(pool.clone(), cancel.clone()));
@@ -311,7 +241,7 @@ pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
     Ok(Engine {
         server,
         data_root: config.data_root.clone(),
-        history: history_store_handle,
+        history: history_store,
         recordings_root,
         pool,
         cancel,

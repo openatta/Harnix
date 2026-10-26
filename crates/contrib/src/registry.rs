@@ -2,16 +2,16 @@
 //!
 //! Registration happens once, at assembly, before anything is served. This is
 //! how the interface's parts are named and found, not a door for third-party
-//! code: extending the agent is AttaCore's, and nothing here loads anything
+//! code: extending the agent is Agix's, and nothing here loads anything
 //! from outside the binary.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use nest_contract::{RpcError, Subject};
+use harnix_contract::{RpcError, Subject};
 use serde_json::Value;
 
-/// One `nest.*` method someone contributed.
+/// One `harnix.*` method someone contributed.
 #[async_trait::async_trait]
 pub trait HostMethod: Send + Sync {
     async fn call(&self, subject: &Subject, params: Value) -> Result<Value, RpcError>;
@@ -35,7 +35,7 @@ pub struct MethodEntry {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Owner {
-    /// Nest itself. The only owner there is — kept as a named type rather
+    /// Harnix itself. The only owner there is — kept as a named type rather
     /// than dropped, because "who registered this" is what the diagnostics
     /// section reports and a bare string would drift.
     Builtin,
@@ -62,7 +62,7 @@ impl Registry {
         Self::default()
     }
 
-    /// Register a `nest.*` method. Refuses a name already taken: two owners
+    /// Register a `harnix.*` method. Refuses a name already taken: two owners
     /// of one method is a question with no right answer, and the second one
     /// silently winning is the worst of them.
     pub fn method(
@@ -77,7 +77,8 @@ impl Registry {
                 "`{name}` is already contributed by {}",
                 existing.owner.label()
             );
-            self.refused.push((owner.label(), "hub.method".into(), reason.clone()));
+            self.refused
+                .push((owner.label(), "hub.method".into(), reason.clone()));
             return Err(reason);
         }
         self.methods.insert(name, MethodEntry { owner, handler });
@@ -97,5 +98,4 @@ impl Registry {
     pub fn refusals(&self) -> &[(String, String, String)] {
         &self.refused
     }
-
 }

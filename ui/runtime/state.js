@@ -38,7 +38,7 @@ export const state = {
   attachments: [],
   detail: null,
   banner: null,
-  /// The request envelope in force: the newest one `nest.requestHeaders`
+  /// The request envelope in force: the newest one `harnix.requestHeaders`
   /// reported. The hub folds a recording down to its changes, so this is what
   /// every call since then carried.
   request: null,

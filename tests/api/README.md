@@ -53,7 +53,7 @@ replaying session does not do.
 ```
 
 The first is measured against what the backend says a client may call
-(`nest.reachable`), not a list kept by hand — a hand-kept list drifts the
+(`harnix.reachable`), not a list kept by hand — a hand-kept list drifts the
 moment a method is added, and it drifts in the direction that flatters.
 
 The second exists because the first was satisfying. Every method had been
@@ -68,7 +68,7 @@ ceiling nothing enforced, and an upload limit the web framework's untouched
 default had quietly cut to a sixteenth of what was advertised.
 
 **The second number will not reach 100%, and should not be pushed there.**
-Seventeen of these methods take no arguments — `nest.hello`, `daemon.ping`,
+Seventeen of these methods take no arguments — `harnix.hello`, `daemon.ping`,
 every `*.list` — and have no failure mode to reach. What the number is for is
 the other kind: a method with arguments and preconditions that has never once
 been told no. When it drops after a method is added, that is the signal.
@@ -100,7 +100,7 @@ port = 4310
 ```
 
 ```
-nest --profile profile.toml --scenes chat --tls-cert cert.pem --tls-key key.pem
+harnix --profile profile.toml --scenes chat --tls-cert cert.pem --tls-key key.pem
 ```
 
 The reducer tests are the server, so every event kind can be produced on
@@ -109,7 +109,7 @@ These are the other half.
 
 ## Coverage is measured, not claimed
 
-The backend answers `nest.reachable` with every method a client may call. The
+The backend answers `harnix.reachable` with every method a client may call. The
 harness records every method the suites call and reports the difference:
 
 ```

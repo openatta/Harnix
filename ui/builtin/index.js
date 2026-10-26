@@ -1,4 +1,4 @@
-/** Nest's interface, assembled out of named registrations.
+/** Harnix's interface, assembled out of named registrations.
  *
  * Every tool row, flow block, details panel, sidebar grouping, command and
  * settings section arrives through the registry. Nothing has a private

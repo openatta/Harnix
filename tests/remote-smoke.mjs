@@ -16,7 +16,7 @@
 // vacuously false there; that case is detected and said, rather than printed
 // as four failures about revoked devices being admitted.
 //
-//   nest --profile <both topologies, host = "0.0.0.0"> --tls-cert … --tls-key …
+//   harnix --profile <both topologies, host = "0.0.0.0"> --tls-cert … --tls-key …
 //   node tests/remote-smoke.mjs <port> <token> <pairing-code>
 
 import { generateKeyPairSync, sign as nodeSign } from "node:crypto";
@@ -152,11 +152,11 @@ let credential = null;
 
 /* ── revoking is immediate ────────────────────────────────────────────── */
 {
-  const listed = await rpc(credential, "nest.devices.list");
+  const listed = await rpc(credential, "harnix.devices.list");
   if (!listed.devices.some((d) => d.id === deviceId)) fail("the paired device is not listed");
   else ok(`listed: ${listed.devices.length} device(s)`);
 
-  await rpc(credential, "nest.devices.revoke", { device_id: deviceId });
+  await rpc(credential, "harnix.devices.revoke", { device_id: deviceId });
   const { challenge_id, challenge: bytes } = await challenge();
   const signature = signB64(Buffer.from(bytes, "base64"));
   const { status } = await handshake({ device_id: deviceId, challenge_id, signature });

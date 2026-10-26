@@ -6,8 +6,8 @@
  * registrations instead of editing switch statements.
  *
  * **An installed package can register here too.** Not through a second plugin
- * system: the package is AttaCore's, installed by AttaCore, and this reads
- * one section of it that AttaCore ignores. One package, one manifest, one
+ * system: the package is Agix's, installed by Agix, and this reads
+ * one section of it that Agix ignores. One package, one manifest, one
  * install, one disclosure.
  *
  * The trust level is the page's, and saying so plainly is the point. A

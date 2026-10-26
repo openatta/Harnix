@@ -14,7 +14,7 @@
 //
 // # Coverage is measured, not claimed
 //
-// The backend answers `nest.reachable` with every method a client may call.
+// The backend answers `harnix.reachable` with every method a client may call.
 // The harness asks for that list, records every method the suites call, and
 // reports the difference. "We tested the API" is a claim; "51 of 56 methods
 // were called, and here are the five that were not" is a number.
@@ -61,15 +61,15 @@ export function hasModel(env) {
  * Once per run, not once per backend, and asked every run rather than only
  * when the file is missing: cargo is the only thing here that can tell
  * whether there is anything to rebuild. Building on absence alone tests a
- * stale binary in silence — after a `core/` bump the suites went green
+ * stale binary in silence — after an `agix/` bump the suites went green
  * against yesterday's engine, which is the one case where a green run is
  * worse than no run at all.
  */
 let built = null;
 function build() {
-  const binary = join(ROOT, "target", "release", "nest");
+  const binary = join(ROOT, "target", "release", "harnix");
   if (built) return built;
-  execFileSync("cargo", ["build", "--release", "-p", "nest"],
+  execFileSync("cargo", ["build", "--release", "-p", "harnix"],
     { cwd: ROOT, stdio: existsSync(binary) ? ["ignore", "ignore", "inherit"] : "inherit" });
   built = binary;
   return built;
@@ -78,12 +78,12 @@ function build() {
 /**
  * Start one, on a throwaway engine directory.
  *
- * A fresh `--atta-dir` every run, because a suite that inherits yesterday's
+ * A fresh `--agix-dir` every run, because a suite that inherits yesterday's
  * sessions is a suite whose failures depend on what somebody did yesterday.
  */
 export async function startBackend({ port, env = {}, args = [], seed } = {}) {
   const binary = build();
-  const scratch = mkdtempSync(join(tmpdir(), "nest-api-"));
+  const scratch = mkdtempSync(join(tmpdir(), "harnix-api-"));
   // A hook for state that has to exist *before* the engine reads it. Some
   // behaviour is only reachable at startup — an MCP server that fails to
   // connect emits the only host events this build produces, and no method
@@ -93,10 +93,10 @@ export async function startBackend({ port, env = {}, args = [], seed } = {}) {
   const child = spawn(
     binary,
     ["--port", String(port), "--ui-dir", join(ROOT, "ui"),
-     "--atta-dir", join(scratch, "atta"), "--data-dir", join(scratch, "projects"), ...args],
+     "--agix-dir", join(scratch, "atta"), "--data-dir", join(scratch, "projects"), ...args],
     {
       cwd: ROOT,
-      env: { ...process.env, ...env, RUST_LOG: process.env.NEST_TEST_LOG || "warn" },
+      env: { ...process.env, ...env, RUST_LOG: process.env.HARNIX_TEST_LOG || "warn" },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
@@ -116,7 +116,7 @@ export async function startBackend({ port, env = {}, args = [], seed } = {}) {
     }
     await sleep(200);
   }
-  const token = readFileSync(join(scratch, "projects", ".nest", "token"), "utf8").trim();
+  const token = readFileSync(join(scratch, "projects", ".harnix", "token"), "utf8").trim();
 
   return {
     port,
@@ -214,7 +214,7 @@ async function connectDuplex(backend) {
       ws.send(JSON.stringify({ jsonrpc: "2.0", method, params: params || {}, id: i }));
     });
   };
-  const handshake = await call("nest.handshake", {
+  const handshake = await call("harnix.handshake", {
     protocol_version: PROTOCOL_VERSION, contrib_api_version: CONTRIB_API_VERSION, topology: "single_duplex",
   });
   return client({ topology: "single_duplex", handshake, call, events, waiters,
@@ -223,7 +223,7 @@ async function connectDuplex(backend) {
 
 async function connectSplit(backend) {
   const base = `http://127.0.0.1:${backend.port}`;
-  exercised.add("nest.handshake");
+  exercised.add("harnix.handshake");
   const handshake = await fetch(`${base}/handshake`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -339,7 +339,7 @@ function client({ topology, handshake, call, events, waiters, close, backend }) 
     /** Session events of one kind, in arrival order. */
     eventsOfKind(kind, sessionId) {
       return events
-        .filter((f) => f.method === "nest.event")
+        .filter((f) => f.method === "harnix.event")
         .filter((f) => !sessionId || f.params.session_id === sessionId)
         .filter((f) => f.params.event?.kind === kind)
         .map((f) => f.params.event);
@@ -374,7 +374,7 @@ export async function finish(client, sessionId) {
     if (running) {
       await client.call("session.interrupt", { session_id: sessionId }).catch(() => {});
       await client.waitFor(
-        (f) => f.method === "nest.turn_settled" && f.params.session_id === sessionId,
+        (f) => f.method === "harnix.turn_settled" && f.params.session_id === sessionId,
         { timeout: 20_000, describe: "the interrupted turn to settle during cleanup" },
       ).catch(() => {});
     }

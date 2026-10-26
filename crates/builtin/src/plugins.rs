@@ -1,26 +1,26 @@
-//! Uploading a package, and asking AttaCore to install it.
+//! Uploading a package, and asking Agix to install it.
 //!
-//! **Nest has no plugin system.** Writing a plugin for Nest is writing a
-//! plugin for AttaCore: its manifest, its capability gate, its sandbox, its
-//! disclosure, its lifecycle. Nest neither reads a package nor runs one, and
+//! **Harnix has no plugin system.** Writing a plugin for Harnix is writing a
+//! plugin for Agix: its manifest, its capability gate, its sandbox, its
+//! disclosure, its lifecycle. Harnix neither reads a package nor runs one, and
 //! never sees what is inside — anything here that parsed a manifest would be
 //! a second truth about what an extension may do, and the two would diverge.
 //!
-//! What is left for a host to do is the one thing AttaCore deliberately does
+//! What is left for a host to do is the one thing Agix deliberately does
 //! not: **receive a file.** `plugin.install` fetches from a URL it is given
 //! and has no upload channel, so a person with a `.zip` on their laptop and a
 //! backend on another machine has no way across. That gap is this file.
 //!
 //! ```text
-//!   browser --- POST /upload ------> nest            the bulk semantic
-//!   browser --- nest.plugins.install --> nest
-//!                                    nest --- plugin.install{download_url:
-//!                                             "file:///…"} ---> AttaCore
+//!   browser --- POST /upload ------> harnix            the bulk semantic
+//!   browser --- harnix.plugins.install --> harnix
+//!                                    harnix --- plugin.install{download_url:
+//!                                             "file:///…"} ---> Agix
 //! ```
 //!
 //! # Disclosure comes back, not first
 //!
-//! AttaCore installs and *then* returns what the package will put in front of
+//! Agix installs and *then* returns what the package will put in front of
 //! the model. That is the opposite order from disclose-then-decide, and it is
 //! the engine's order, so it is the one the interface shows: installed, here
 //! is what it will say to the model, keep it or remove it. Inventing a
@@ -37,7 +37,7 @@
 //! and "no plugins are installed" are different facts, and a client that
 //! cannot tell them apart shows the wrong screen.
 
-use nest_contract::RpcError;
+use harnix_contract::RpcError;
 use serde_json::{json, Value};
 
 use crate::{new_id, packages, require_str, Builtin};
@@ -52,10 +52,19 @@ impl Builtin {
         let token = new_id("pkg");
         let safe: String = name
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         let path = self.upload_dir().join(format!("{token}-{safe}"));
-        self.uploads.lock().await.insert(token.clone(), (path.clone(), MAX_PACKAGE_BYTES));
+        self.uploads
+            .lock()
+            .await
+            .insert(token.clone(), (path.clone(), MAX_PACKAGE_BYTES));
         Ok(json!({
             "token": token,
             "url": format!("/upload?token={token}"),
@@ -89,9 +98,9 @@ impl Builtin {
         }
     }
 
-    /// Hand AttaCore a local path and let it do the rest.
+    /// Hand Agix a local path and let it do the rest.
     ///
-    /// The `checksum` is passed through when given. AttaCore requires one for
+    /// The `checksum` is passed through when given. Agix requires one for
     /// `http(s)` sources and allows it to be omitted for `file://`, and that
     /// rule is the engine's to enforce — repeating it here would be a second
     /// copy of a policy that can change.

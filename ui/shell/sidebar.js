@@ -1,6 +1,6 @@
 /** Sidebar: brand, new session, search, workspace-grouped sessions, footer.
  *
- * Workspaces are Nest's own grouping over the engine's `project_root` (the
+ * Workspaces are Harnix's own grouping over the engine's `project_root` (the
  * engine has no such concept — see crates/hub/src/store.rs). A group shows
  * five sessions and offers the rest behind one control, the way DSH's
  * workspace browser does; ordering and collapse are remembered server-side so
@@ -140,7 +140,7 @@ function searchInput() {
     state.searchHits = "pending";
     emit("search");
     try {
-      const result = await call("nest.search", { query: input.value.trim() });
+      const result = await call("harnix.search", { query: input.value.trim() });
       state.searchHits = result.hits || [];
       state.searchTruncated = !!result.truncated;
     } catch (e) {
@@ -186,7 +186,7 @@ function renderGroups(list) {
       // Remembered, because it is a view preference and the store has a place
       // for one. Read without ever being written, `prefs` was a value nobody
       // set — which reads as a working feature and is not one.
-      call("nest.prefs.set", { key: "showArchived", value: state.showArchived }).catch(() => {});
+      call("harnix.prefs.set", { key: "showArchived", value: state.showArchived }).catch(() => {});
       emit("sessions");
     }));
   }
@@ -249,7 +249,7 @@ function groupNode(group) {
       const moved = event.dataTransfer.getData("text/plain");
       if (!moved || moved === workspace.id) return;
       try {
-        const result = await call("nest.workspaces.reorder", { id: moved, before_id: workspace.id });
+        const result = await call("harnix.workspaces.reorder", { id: moved, before_id: workspace.id });
         state.workspaces = result.workspaces || state.workspaces;
         emit("sessions");
       } catch (e) {
@@ -281,7 +281,7 @@ async function setCollapsed(workspace, collapsed) {
   workspace.collapsed = collapsed; // optimistic: the list redraws immediately
   emit("sessions");
   try {
-    await call("nest.workspaces.update", { id: workspace.id, collapsed });
+    await call("harnix.workspaces.update", { id: workspace.id, collapsed });
   } catch (e) {
     banner(errorText(e));
   }
@@ -354,13 +354,13 @@ function workspaceMenu(workspace) {
     }));
     menu.appendChild(button("", [icon(ICON.edit, "glyph"), t("common.rename")], () => {
       renameDialog(t("dialog.renameProject"), workspace.title, (title) =>
-        call("nest.workspaces.update", { id: workspace.id, title }));
+        call("harnix.workspaces.update", { id: workspace.id, title }));
     }));
     menu.appendChild(button("danger", [icon(ICON.trash, "glyph"), el("span", "", [
       t("dialog.removeGroup"),
       el("span", "sub", t("dialog.removeGroupHint")),
     ])], async () => {
-      await call("nest.workspaces.remove", { id: workspace.id });
+      await call("harnix.workspaces.remove", { id: workspace.id });
       closeModal();
       refreshSessions();
     }));

@@ -25,10 +25,10 @@
 
 .blk {
   min-width: 0;
-  animation: nest-in var(--dur) var(--ease);
+  animation: harnix-in var(--dur) var(--ease);
 }
 
-@keyframes nest-in {
+@keyframes harnix-in {
   from {
     opacity: 0;
     transform: translateY(2px);
@@ -70,10 +70,10 @@
   vertical-align: -2px;
   border-radius: 2px;
   background: var(--label-caption);
-  animation: nest-caret 1s steps(2) infinite;
+  animation: harnix-caret 1s steps(2) infinite;
 }
 
-@keyframes nest-caret {
+@keyframes harnix-caret {
   50% {
     opacity: 0;
   }
@@ -162,11 +162,11 @@
     color-mix(in srgb, var(--bg-base) 65%, transparent) 55%,
     transparent 100%
   );
-  animation: nest-sweep 2.6s ease-out infinite;
+  animation: harnix-sweep 2.6s ease-out infinite;
   pointer-events: none;
 }
 
-@keyframes nest-sweep {
+@keyframes harnix-sweep {
   0% {
     left: -240px;
   }

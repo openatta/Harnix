@@ -4,7 +4,7 @@
 //! from it, and a test compares the two — see the module docs.
 //!
 //! Engine and host extension points are *not* here, and not because they were
-//! forgotten: extending the agent is AttaCore's, and a copy of its catalog
+//! forgotten: extending the agent is Agix's, and a copy of its catalog
 //! kept on this side would be a second copy to drift.
 
 use std::fmt::Write as _;
@@ -127,7 +127,11 @@ pub fn render_markdown() -> String {
         let _ = writeln!(
             out,
             "| `{}` | {} | {} | {} | {} |",
-            p.id, kind, p.what, p.when, p.frequency.as_str()
+            p.id,
+            kind,
+            p.what,
+            p.when,
+            p.frequency.as_str()
         );
     }
     out

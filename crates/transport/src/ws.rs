@@ -16,7 +16,7 @@ use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use futures::{SinkExt, StreamExt};
-use nest_contract::{codes, RpcError, Subject, Topology};
+use harnix_contract::{codes, RpcError, Subject, Topology};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use tracing::warn;
@@ -69,14 +69,14 @@ pub async fn upgrade(
         )
             .into_response();
     }
-    // Above Nest's own ceiling on purpose. The WebSocket library's default
+    // Above Harnix's own ceiling on purpose. The WebSocket library's default
     // frame cap is 16 MiB — the same size — so a frame one byte over the
     // published limit was killed at the protocol layer and the connection
     // simply died: no error, no reason, and a client left to guess which
     // frame did it. Raised so the check below is the one that answers.
     upgrade
-        .max_message_size(nest_contract::MAX_FRAME_BYTES + 1024 * 1024)
-        .max_frame_size(nest_contract::MAX_FRAME_BYTES + 1024 * 1024)
+        .max_message_size(harnix_contract::MAX_FRAME_BYTES + 1024 * 1024)
+        .max_frame_size(harnix_contract::MAX_FRAME_BYTES + 1024 * 1024)
         .on_upgrade(move |socket| connection(socket, state))
 }
 
@@ -111,7 +111,7 @@ async fn connection(socket: WebSocket, state: AppState) {
         // open. Letting it through would mean `hello` publishes a limit that
         // nothing checks; dropping the connection instead would leave the
         // client guessing at which frame did it.
-        if text.len() > nest_contract::MAX_FRAME_BYTES {
+        if text.len() > harnix_contract::MAX_FRAME_BYTES {
             let id = serde_json::from_str::<Value>(&text)
                 .ok()
                 .and_then(|v| v.get("id").cloned())
@@ -122,7 +122,7 @@ async fn connection(socket: WebSocket, state: AppState) {
                 format!(
                     "frame is {} bytes; the ceiling is {} — use the bulk channel",
                     text.len(),
-                    nest_contract::MAX_FRAME_BYTES
+                    harnix_contract::MAX_FRAME_BYTES
                 ),
             ));
             continue;
@@ -133,13 +133,17 @@ async fn connection(socket: WebSocket, state: AppState) {
         };
         let id = value.get("id").cloned().unwrap_or(Value::Null);
         let is_notification = value.get("id").is_none();
-        let Some(method) = value.get("method").and_then(Value::as_str).map(str::to_string) else {
+        let Some(method) = value
+            .get("method")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+        else {
             let _ = tx.send(error_frame(id, codes::INVALID_REQUEST, "missing method"));
             continue;
         };
         let mut params = value.get("params").cloned().unwrap_or(json!({}));
 
-        if method == "nest.handshake" {
+        if method == "harnix.handshake" {
             if established.is_some() {
                 let _ = tx.send(error_frame(
                     id,
@@ -209,7 +213,11 @@ async fn connection(socket: WebSocket, state: AppState) {
         // Nothing before the handshake. Version and topology have to be
         // settled before a call can mean anything.
         let Some((_, session)) = established.as_ref() else {
-            let _ = tx.send(error_frame(id, codes::HANDSHAKE_REFUSED, "call nest.handshake first"));
+            let _ = tx.send(error_frame(
+                id,
+                codes::HANDSHAKE_REFUSED,
+                "call harnix.handshake first",
+            ));
             continue;
         };
         let subject = session.subject.clone();

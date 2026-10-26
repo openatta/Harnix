@@ -40,26 +40,35 @@ pub struct Grant {
     token: Option<String>,
 }
 
-pub async fn upload(State(state): State<AppState>, Query(grant): Query<Grant>, body: Bytes) -> Response {
+pub async fn upload(
+    State(state): State<AppState>,
+    Query(grant): Query<Grant>,
+    body: Bytes,
+) -> Response {
     let Some(token) = grant.token else {
         return (StatusCode::BAD_REQUEST, "missing token").into_response();
     };
     let Some((path, ceiling)) = state.bulk.claim(&token).await else {
         return (StatusCode::FORBIDDEN, "unknown or spent upload token").into_response();
     };
-    // Said in Nest's own words, with the number the grant was issued under.
+    // Said in Harnix's own words, with the number the grant was issued under.
     // Without the route limit raised above this, the body never arrives and
     // the caller gets the framework's "failed to buffer the request body"
     // instead — which names neither the ceiling nor the channel.
     if body.len() > ceiling {
         return (
             StatusCode::PAYLOAD_TOO_LARGE,
-            format!("{} bytes; this grant was issued for at most {ceiling}", body.len()),
+            format!(
+                "{} bytes; this grant was issued for at most {ceiling}",
+                body.len()
+            ),
         )
             .into_response();
     }
     match tokio::fs::write(&path, &body).await {
-        Ok(()) => axum::Json(serde_json::json!({"path": path.display().to_string()})).into_response(),
+        Ok(()) => {
+            axum::Json(serde_json::json!({"path": path.display().to_string()})).into_response()
+        }
         Err(e) => {
             warn!(error = %e, "upload write failed");
             (StatusCode::INTERNAL_SERVER_ERROR, "write failed").into_response()

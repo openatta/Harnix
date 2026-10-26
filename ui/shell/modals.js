@@ -40,7 +40,7 @@ export function directoryPicker(onPick) {
 
   const open = async (path) => {
     try {
-      const result = await call("nest.listDirectory", path ? { path } : {});
+      const result = await call("harnix.listDirectory", path ? { path } : {});
       crumbs.innerHTML = "";
       result.breadcrumbs.forEach((crumb, index) => {
         crumbs.appendChild(button("", crumb.name, () => open(crumb.path)));
@@ -92,8 +92,8 @@ export function addWorkspaceDialog() {
     const create = async () => {
       const name = nameInput.value.trim();
       try {
-        if (name) await call("nest.projects.create", { name });
-        else if (chosen) await call("nest.workspaces.create", { path: chosen });
+        if (name) await call("harnix.projects.create", { name });
+        else if (chosen) await call("harnix.workspaces.create", { path: chosen });
         else return banner(t("dialog.pickDirectoryFirst"));
         closeModal();
         refreshSessions();
@@ -148,7 +148,7 @@ export async function newSessionDialog(preselectPath) {
 
   let recents = { projects: [], cwd: null };
   try {
-    recents = await call("nest.recentProjects");
+    recents = await call("harnix.recentProjects");
   } catch {
     /* the picker still works without recents */
   }
@@ -269,14 +269,14 @@ export function sessionMenu(session) {
 
     list.appendChild(button("", [icon(ICON.edit, "glyph"), t("common.rename")], () => {
       renameDialog(t("dialog.renameSession"), session.name, (title) =>
-        call("nest.sessions.rename", { session_id: session.session_id, title }));
+        call("harnix.sessions.rename", { session_id: session.session_id, title }));
     }));
 
     list.appendChild(button("", [icon(ICON.archive, "glyph"), el("span", "", [
       session.archived ? t("dialog.unarchive") : t("dialog.archive"),
       el("span", "sub", t("dialog.archiveHint")),
     ])], async () => {
-      await call("nest.sessions.archive", {
+      await call("harnix.sessions.archive", {
         session_id: session.session_id,
         archived: !session.archived,
       });

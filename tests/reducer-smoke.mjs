@@ -85,7 +85,7 @@ function answer(method, params) {
     // Nothing happens before this. Version and topology are settled once, and
     // a mismatch is refused rather than downgraded — see the handshake case
     // at the end of this file.
-    case "nest.handshake":
+    case "harnix.handshake":
       return {
         protocol_version: PROTOCOL_VERSION,
         contrib_api_version: 1,
@@ -95,9 +95,9 @@ function answer(method, params) {
       };
     // What this subject may call, answered by the authorization layer. A
     // contribution's RPC client is filtered by it.
-    case "nest.reachable":
+    case "harnix.reachable":
       return { methods: [] };
-    case "nest.hello":
+    case "harnix.hello":
       return {
         protocol_version: PROTOCOL_VERSION,
         contrib_api_version: 1,
@@ -123,9 +123,9 @@ function answer(method, params) {
     // this file passed against them while the real product quietly lost
     // renaming, archiving, grouping and view preferences. A fake that is more
     // generous than the thing it stands in for tests nothing.
-    case "nest.sessions":
+    case "harnix.sessions":
       return { sessions: sessionRows() };
-    case "nest.workspaces.list":
+    case "harnix.workspaces.list":
       return {
         workspaces,
         prefs: {},
@@ -134,29 +134,29 @@ function answer(method, params) {
         sessions: Object.fromEntries(
           sessionRows().map((s) => [s.session_id, { title: null, archived: s.session_id === "S-7" }])),
       };
-    case "nest.workspaces.update": {
+    case "harnix.workspaces.update": {
       const workspace = workspaces.find((w) => w.id === params.id);
       if (params.collapsed !== undefined) workspace.collapsed = params.collapsed;
       if (params.title !== undefined) workspace.title = params.title;
       return { workspace };
     }
-    case "nest.workspaces.reorder":
+    case "harnix.workspaces.reorder":
       return { workspaces };
-    case "nest.workspaces.create":
+    case "harnix.workspaces.create":
       return { workspace: workspaces[0], existed: true };
-    case "nest.workspaces.remove":
+    case "harnix.workspaces.remove":
       return { workspaces: [] };
-    case "nest.sessions.rename":
+    case "harnix.sessions.rename":
       return { session_id: params.session_id, title: params.title };
-    case "nest.sessions.archive":
+    case "harnix.sessions.archive":
       return { session_id: params.session_id, archived: params.archived };
-    case "nest.search":
+    case "harnix.search":
       return {
         hits: [{ session_id: SID, name: "测试会话", role: "assistant", snippet: "…命中的那一段文字…", ts: null }],
         scanned: 7,
         truncated: false,
       };
-    case "nest.attach":
+    case "harnix.attach":
       return {
         session: { session_id: SID, scene: "coding", name: "测试会话", turn_state: "idle" },
         history_total: historyMessages.length,
@@ -176,7 +176,7 @@ function answer(method, params) {
         ),
         total: historyMessages.length,
       };
-    case "nest.requestHeaders":
+    case "harnix.requestHeaders":
       return {
         recording: recordedHeaders.length > 0,
         headers: recordedHeaders,
@@ -184,16 +184,16 @@ function answer(method, params) {
         auxiliary: 0,
         damaged: 0,
       };
-    case "nest.send":
+    case "harnix.send":
       return { turn_id: "t-1" };
     case "session.respondToPrompt":
       return { session_id: SID, prompt_id: params.prompt_id };
-    case "nest.queue.remove":
+    case "harnix.queue.remove":
       return { items: [] };
     case "session.interrupt":
       return { session_id: SID, interrupted: true };
     // Re-read after `skills_changed`. A different catalog from the one
-    // `nest.hello` gave, or the test cannot tell a refresh from the answer
+    // `harnix.hello` gave, or the test cannot tell a refresh from the answer
     // that was already on screen.
     case "commands.list":
       return { commands: [{ name: "review", description: "review the diff", source: "skill" }] };
@@ -212,7 +212,7 @@ const text = (node) => (node ? node.textContent.replace(/\s+/g, " ").trim() : ""
 const rows = (name) => all(".row-item").filter((r) => text(r.querySelectorAll(".name")[0]) === name);
 
 const ev = (event, turn = "t-1") =>
-  socket.push("nest.event", { session_id: SID, seq: ++ev.seq, turn_id: turn, event });
+  socket.push("harnix.event", { session_id: SID, seq: ++ev.seq, turn_id: turn, event });
 ev.seq = 0;
 
 await sleep(60);
@@ -264,9 +264,9 @@ else {
 
   all(".group")[0].querySelectorAll(".chev")[0].click();
   await sleep(30);
-  const collapse = sent.filter((r) => r.method === "nest.workspaces.update").pop();
+  const collapse = sent.filter((r) => r.method === "harnix.workspaces.update").pop();
   if (!collapse || collapse.params.collapsed !== true) fail("collapsing a group sent no update");
-  else ok("collapsing a group persists through nest.workspaces.update");
+  else ok("collapsing a group persists through harnix.workspaces.update");
   if (all(".group")[0].querySelectorAll(".srow").length !== 0) fail("a collapsed group still shows rows");
   all(".group")[0].querySelectorAll(".chev")[0].click();
   await sleep(30);
@@ -555,7 +555,7 @@ if (text(agents[1].querySelectorAll(".pill")[0]) !== "running") {
 } else ok("the one still working still reads running");
 
 /* ── queue, settle, banner ──────────────────────────────────────────────── */
-socket.push("nest.queue", { session_id: SID, items: [{ item_id: "q-1", message: "再顺手把测试补上" }] });
+socket.push("harnix.queue", { session_id: SID, items: [{ item_id: "q-1", message: "再顺手把测试补上" }] });
 await sleep(30);
 if (!all(".queue-item").length) fail("queued send not rendered");
 else ok(`queue row: "${text(all(".queue-item")[0])}"`);
@@ -570,7 +570,7 @@ const USAGE = {
   cache_creation_input_tokens: 2048, cache_read_input_tokens: 30720,
 };
 ev({ kind: "turn_complete", stop_reason: "end_turn", api_calls: 3, tool_calls: 2, usage: USAGE });
-socket.push("nest.turn_settled", {
+socket.push("harnix.turn_settled", {
   session_id: SID,
   turn_id: "t-1",
   result: { stop_reason: "end_turn", name: "改权限层", usage: USAGE },
@@ -593,7 +593,7 @@ $("send").click();
 await sleep(30);
 $("send").click();
 await sleep(30);
-socket.push("nest.turn_settled", {
+socket.push("harnix.turn_settled", {
   session_id: SID, turn_id: "t-1",
   error: { code: -32001, message: "turn cancelled" },
 });
@@ -604,20 +604,20 @@ else ok("an interrupt this client asked for says so");
 if (notes.some((n) => n.includes("turn cancelled"))) fail("the interrupt was also reported as a failure");
 else ok("and is not also drawn as a failed turn");
 
-/* Host events. AttaCore emits exactly three kinds and its protocol says so,
+/* Host events. Agix emits exactly three kinds and its protocol says so,
    so this drives the one that has something to say and then checks that a
    kind it does not send raises nothing — a banner with no source would be the
    interface lying about what it can observe. */
-socket.push("nest.host_event", { kind: "mcp_connect_failed", server: "files", error: "spawn failed" });
+socket.push("harnix.host_event", { kind: "mcp_connect_failed", server: "files", error: "spawn failed" });
 await sleep(30);
 if (!$("banner").classList.contains("on")) fail("mcp_connect_failed produced no banner");
 else ok(`banner: "${text($("banner")).slice(0, 36)}"`);
 
 const bannerBefore = text($("banner"));
-socket.push("nest.host_event", { kind: "session_evicted", session_id: SID, reason: "idle_timeout" });
+socket.push("harnix.host_event", { kind: "session_evicted", session_id: SID, reason: "idle_timeout" });
 await sleep(30);
 if (text($("banner")) !== bannerBefore) fail("a kind the engine never sends changed the banner");
-else ok("no banner for a kind AttaCore does not emit");
+else ok("no banner for a kind Agix does not emit");
 
 /* ── slash completion ───────────────────────────────────────────────────── */
 $("input").value = "/co";
@@ -633,7 +633,7 @@ else {
   else ok("choosing a command fills the composer");
 }
 
-/* The catalog is answered once, by `nest.hello`, so without this frame the
+/* The catalog is answered once, by `harnix.hello`, so without this frame the
    menu is stale for the life of the connection — which is the reason the
    engine sends it. */
 $("input").value = "";

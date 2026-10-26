@@ -83,7 +83,7 @@ test("a tool call draws a row that expands into its input and result", async ({ 
   const errors = await watchConsole(page);
   await newSession(page, "calls-a-tool");
 
-  await say(page, "Use the Bash tool right now to run exactly: echo nest-fixture. "
+  await say(page, "Use the Bash tool right now to run exactly: echo harnix-fixture. "
     + "Call the tool. Do not answer in prose.");
 
   // By what it is, not by where it is.
@@ -105,14 +105,14 @@ test("a tool call draws a row that expands into its input and result", async ({ 
   await expect
     .poll(async () => (await row.boundingBox()).height, { timeout: 3_000 })
     .toBeGreaterThan(closed.height);
-  await expect(row).toContainText(/echo nest-fixture/);
+  await expect(row).toContainText(/echo harnix-fixture/);
 
   expect(errors, errors.join("\n")).toEqual([]);
 });
 
 test("opening a tool row in the details pane shows it in full", async ({ page }) => {
   await newSession(page, "calls-a-tool");
-  await say(page, "Use the Bash tool right now to run exactly: echo nest-fixture. "
+  await say(page, "Use the Bash tool right now to run exactly: echo harnix-fixture. "
     + "Call the tool. Do not answer in prose.");
 
   const row = page.locator(".blk.row-item")
@@ -132,7 +132,7 @@ test("a permission ask is answerable from the flow", async ({ page }) => {
   const errors = await watchConsole(page);
   await newSession(page, "asks-permission");
 
-  await say(page, "Use the Bash tool right now to run exactly: rm -f /tmp/nest-fixture-probe. "
+  await say(page, "Use the Bash tool right now to run exactly: rm -f /tmp/harnix-fixture-probe. "
     + "Call the tool. Do not answer in prose.");
 
   // The card, with its four answers and a countdown. The countdown is not

@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use nest_contract::Subject;
+use harnix_contract::Subject;
 
 use crate::audit::Decision;
 
@@ -27,7 +27,9 @@ pub struct MethodTable {
 
 impl MethodTable {
     pub fn new() -> Self {
-        Self { entries: BTreeMap::new() }
+        Self {
+            entries: BTreeMap::new(),
+        }
     }
 
     pub fn allow(mut self, method: &'static str, reach: Reach) -> Self {
@@ -101,15 +103,48 @@ impl Default for MethodTable {
 /// configures a subprocess-spawning tool with no manifest, no capability
 /// declaration and no disclosure at all.
 pub const ENGINE_REFUSALS: &[(&str, &str)] = &[
-    ("config.setProvider", "changing provider credentials or base_url would point model traffic elsewhere"),
-    ("config.set", "changing provider credentials or base_url would point model traffic elsewhere"),
-    ("config.update", "changing provider credentials or base_url would point model traffic elsewhere"),
-    ("mcp.addServer", "adding an MCP server is equivalent to installing a tool that runs subprocesses"),
-    ("import.run", "config import runs outside the disclosure this layer is for"),
-    ("import.list", "config import runs outside the disclosure this layer is for"),
-    ("daemon.shutdown", "the process is stopped by whoever started it, not over its own protocol"),
-    ("session.run_turn", "use nest.send — the hub owns turns, so closing a tab cannot lose one"),
-    ("session.subscribe", "use nest.attach — the hub subscribes before any client does"),
-    ("session.unsubscribe", "use nest.detach — the hub owns subscriptions"),
-    ("daemon.subscribeEvents", "host events are the hub's to fan out"),
+    (
+        "config.setProvider",
+        "changing provider credentials or base_url would point model traffic elsewhere",
+    ),
+    (
+        "config.set",
+        "changing provider credentials or base_url would point model traffic elsewhere",
+    ),
+    (
+        "config.update",
+        "changing provider credentials or base_url would point model traffic elsewhere",
+    ),
+    (
+        "mcp.addServer",
+        "adding an MCP server is equivalent to installing a tool that runs subprocesses",
+    ),
+    (
+        "import.run",
+        "config import runs outside the disclosure this layer is for",
+    ),
+    (
+        "import.list",
+        "config import runs outside the disclosure this layer is for",
+    ),
+    (
+        "daemon.shutdown",
+        "the process is stopped by whoever started it, not over its own protocol",
+    ),
+    (
+        "session.run_turn",
+        "use harnix.send — the hub owns turns, so closing a tab cannot lose one",
+    ),
+    (
+        "session.subscribe",
+        "use harnix.attach — the hub subscribes before any client does",
+    ),
+    (
+        "session.unsubscribe",
+        "use harnix.detach — the hub owns subscriptions",
+    ),
+    (
+        "daemon.subscribeEvents",
+        "host events are the hub's to fan out",
+    ),
 ];

@@ -33,7 +33,7 @@ use std::sync::Arc;
 
 use axum::routing::{get, post};
 use axum::Router;
-use nest_contract::{Gate, Topology};
+use harnix_contract::{Gate, Topology};
 
 #[derive(Clone)]
 pub struct Config {
@@ -90,7 +90,7 @@ pub struct Tls {
 #[derive(Clone)]
 pub(crate) struct AppState {
     pub gate: Arc<dyn Gate>,
-    pub hub: Arc<nest_hub::Hub>,
+    pub hub: Arc<harnix_hub::Hub>,
     pub bulk: Arc<dyn BulkStore>,
     pub config: Arc<Config>,
     pub statics: Arc<StaticFace>,
@@ -98,15 +98,15 @@ pub(crate) struct AppState {
     /// because a credential belongs to the subject rather than to whichever
     /// connection happens to carry it.
     pub sessions: Arc<session::Sessions>,
-    pub devices: Arc<nest_authz::Devices>,
+    pub devices: Arc<harnix_authz::Devices>,
     pub challenges: Arc<admission::Challenges>,
 }
 
 pub fn router(
     gate: Arc<dyn Gate>,
-    hub: Arc<nest_hub::Hub>,
+    hub: Arc<harnix_hub::Hub>,
     bulk: Arc<dyn BulkStore>,
-    devices: Arc<nest_authz::Devices>,
+    devices: Arc<harnix_authz::Devices>,
     config: Config,
 ) -> (Router, Arc<StaticFace>) {
     let statics = Arc::new(StaticFace::new(config.face.clone()));
@@ -132,9 +132,9 @@ pub fn router(
     let mut router = Router::new()
         // The framework's own default is 2 MB, which silently became the real
         // ceiling for every route: a 3 MB upload was refused by axum with
-        // "failed to buffer the request body" while `nest.upload.begin` was
-        // handing out grants for 32 MB and `nest.plugins.upload` advertising
-        // 64. Raised here so the check that names Nest's own number is the
+        // "failed to buffer the request body" while `harnix.upload.begin` was
+        // handing out grants for 32 MB and `harnix.plugins.upload` advertising
+        // 64. Raised here so the check that names Harnix's own number is the
         // one that fires.
         .route(
             "/upload",
@@ -167,10 +167,10 @@ pub fn router(
     (router.with_state(state), face)
 }
 
-/// A body limit high enough that Nest's own frame check is the one that
+/// A body limit high enough that Harnix's own frame check is the one that
 /// answers, rather than the framework's.
 fn over_ceiling() -> axum::extract::DefaultBodyLimit {
-    axum::extract::DefaultBodyLimit::max(nest_contract::MAX_FRAME_BYTES + 1024 * 1024)
+    axum::extract::DefaultBodyLimit::max(harnix_contract::MAX_FRAME_BYTES + 1024 * 1024)
 }
 
 /// Origins a browser may connect from: loopback, any port.
@@ -185,7 +185,13 @@ pub(crate) fn origin_allowed(headers: &axum::http::HeaderMap) -> bool {
     else {
         return true;
     };
-    let host = origin.split("://").nth(1).unwrap_or("").split('/').next().unwrap_or("");
+    let host = origin
+        .split("://")
+        .nth(1)
+        .unwrap_or("")
+        .split('/')
+        .next()
+        .unwrap_or("");
     let host = host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host);
     matches!(host, "localhost" | "127.0.0.1" | "[::1]" | "::1")
 }

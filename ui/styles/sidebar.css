@@ -37,10 +37,10 @@ html[data-theme="dark"] #side {
 }
 
 #side.rail-in > * {
-  animation: nest-rail-in 150ms var(--ease) backwards;
+  animation: harnix-rail-in 150ms var(--ease) backwards;
 }
 
-@keyframes nest-rail-in {
+@keyframes harnix-rail-in {
   from {
     opacity: 0;
     transform: translateX(49px);
@@ -323,10 +323,10 @@ html[data-theme="dark"] #side {
   border-radius: 8px;
   text-align: left;
   color: var(--label-primary);
-  animation: nest-row-in 150ms var(--ease);
+  animation: harnix-row-in 150ms var(--ease);
 }
 
-@keyframes nest-row-in {
+@keyframes harnix-row-in {
   from {
     opacity: 0;
   }
@@ -344,10 +344,10 @@ html[data-theme="dark"] #side {
   margin-right: 6px;
   border-radius: 50%;
   background: var(--state-success);
-  animation: nest-pulse 1.6s var(--ease) infinite;
+  animation: harnix-pulse 1.6s var(--ease) infinite;
 }
 
-@keyframes nest-pulse {
+@keyframes harnix-pulse {
   50% {
     opacity: 0.25;
   }

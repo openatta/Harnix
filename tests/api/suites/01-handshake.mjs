@@ -41,16 +41,16 @@ export default {
       await new Promise((r) => { ws.onopen = r; });
       const answer = await new Promise((resolve) => {
         ws.onmessage = (e) => resolve(JSON.parse(e.data));
-        ws.send(JSON.stringify({ jsonrpc: "2.0", method: "nest.hello", params: {}, id: 1 }));
+        ws.send(JSON.stringify({ jsonrpc: "2.0", method: "harnix.hello", params: {}, id: 1 }));
       });
       ws.close();
-      assert(answer.error, "nest.hello answered before the handshake");
+      assert(answer.error, "harnix.hello answered before the handshake");
       assert(/handshake/.test(answer.error.message), `unhelpful: ${answer.error.message}`);
     },
 
     "a second handshake on one connection is refused": async ({ client }) => {
       if (client.topology !== "single_duplex") return;
-      const again = await client.refused("nest.handshake", {
+      const again = await client.refused("harnix.handshake", {
         protocol_version: PROTOCOL_VERSION, contrib_api_version: CONTRIB_API_VERSION, topology: "single_duplex",
       });
       assert(again, "a second handshake was accepted");
@@ -90,7 +90,7 @@ async function rawHandshake(backend, overrides) {
   await new Promise((r) => { ws.onopen = r; });
   const answer = await new Promise((resolve) => {
     ws.onmessage = (e) => resolve(JSON.parse(e.data));
-    ws.send(JSON.stringify({ jsonrpc: "2.0", method: "nest.handshake", params: body, id: 1 }));
+    ws.send(JSON.stringify({ jsonrpc: "2.0", method: "harnix.handshake", params: body, id: 1 }));
   });
   ws.close();
   return answer;

@@ -204,7 +204,7 @@ export async function loadApp({ token = "T", port = "0", WebSocket: socket, loca
   const { byId, body, head } = buildDocument(html);
 
   const meta = new El("meta");
-  meta.attributes.name = "nest-token";
+  meta.attributes.name = "harnix-token";
   meta.content = token;
   head.appendChild(meta);
 
@@ -235,7 +235,7 @@ export async function loadApp({ token = "T", port = "0", WebSocket: socket, loca
       return node;
     },
     addEventListener: (type, fn) => body.addEventListener(type, fn),
-    querySelector: (sel) => (sel === 'meta[name="nest-token"]' ? meta : body.querySelector(sel)),
+    querySelector: (sel) => (sel === 'meta[name="harnix-token"]' ? meta : body.querySelector(sel)),
     querySelectorAll: (sel) => body.querySelectorAll(sel),
   };
 
@@ -250,7 +250,7 @@ export async function loadApp({ token = "T", port = "0", WebSocket: socket, loca
   // stored choice the app would resolve English and every assertion would be
   // testing the fallback rather than the requested locale.
   globalThis.localStorage = {
-    store: new Map(locale ? [["nest.locale", locale]] : []),
+    store: new Map(locale ? [["harnix.locale", locale]] : []),
     getItem(k) { return this.store.get(k) ?? null; },
     setItem(k, v) { this.store.set(k, v); },
     removeItem(k) { this.store.delete(k); },

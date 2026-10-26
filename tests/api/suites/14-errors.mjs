@@ -8,8 +8,8 @@
 //
 // Two rules hold everything here together:
 //
-//   1. **Which layer said it is readable from the code.** Nest's own codes sit
-//      outside JSON-RPC's reserved band, AttaCore's sit inside it. That was
+//   1. **Which layer said it is readable from the code.** Harnix's own codes sit
+//      outside JSON-RPC's reserved band, Agix's sit inside it. That was
 //      not true once — `REFUSED` and the engine's `SESSION_NOT_FOUND` were
 //      both `-32000`, so "you may not" and "no such session" arrived
 //      indistinguishable, and the tests used that number to tell the layers
@@ -23,7 +23,7 @@ import { finish } from "../harness.mjs";
 
 const assert = (cond, message) => { if (!cond) throw new Error(message); };
 
-/** Nest's band is everything above the reserved one. */
+/** Harnix's band is everything above the reserved one. */
 const isHostCode = (code) => code > -32000;
 
 export default {
@@ -33,15 +33,15 @@ export default {
       // that the answer names the argument — an "invalid params" with no
       // subject sends whoever hit it reading source.
       const cases = [
-        ["nest.workspaces.update", {}, "id"],
-        ["nest.workspaces.remove", {}, "id"],
-        ["nest.workspaces.reorder", {}, "id"],
-        ["nest.plugins.upload", {}, "name"],
-        ["nest.plugins.install", {}, "path"],
-        ["nest.search", {}, "query"],
-        ["nest.settings.set", {}, "tier"],
-        ["nest.settings.setProvider", {}, "provider_id"],
-        ["nest.projects.create", {}, "name"],
+        ["harnix.workspaces.update", {}, "id"],
+        ["harnix.workspaces.remove", {}, "id"],
+        ["harnix.workspaces.reorder", {}, "id"],
+        ["harnix.plugins.upload", {}, "name"],
+        ["harnix.plugins.install", {}, "path"],
+        ["harnix.search", {}, "query"],
+        ["harnix.settings.set", {}, "tier"],
+        ["harnix.settings.setProvider", {}, "provider_id"],
+        ["harnix.projects.create", {}, "name"],
       ];
       for (const [method, params, argument] of cases) {
         const e = await client.refused(method, params);
@@ -56,7 +56,7 @@ export default {
     "a session that does not exist is said so, by the layer that looked":
       async ({ client }) => {
         const missing = "nope-no-such-session";
-        for (const method of ["session.get", "nest.attach"]) {
+        for (const method of ["session.get", "harnix.attach"]) {
           const e = await client.refused(method, { session_id: missing });
           assert(e, `${method} answered for a session that does not exist`);
           // Not the host's refusal band: the host has nothing to refuse here,
@@ -73,11 +73,11 @@ export default {
       // reconnects and tidies up should not have to know what it still holds,
       // and an error here would push that bookkeeping onto every client.
       // Same rule as revoking a device that was never paired (09-devices).
-      const detached = await client.call("nest.detach", { session_id: "never-attached" });
+      const detached = await client.call("harnix.detach", { session_id: "never-attached" });
       assert(detached.detached === true, `detach answered ${JSON.stringify(detached)}`);
 
       const created = await client.call("session.create", {});
-      const removed = await client.call("nest.queue.remove",
+      const removed = await client.call("harnix.queue.remove",
         { session_id: created.session_id, item_id: "nothing-is-queued" });
       assert(removed, "removing a queue item that does not exist answered nothing");
       await finish(client, created.session_id);
@@ -87,14 +87,14 @@ export default {
       // `name` is what the file is called on disk, and a missing one is not
       // ambiguous — it is unnamed. Refusing would make the caller invent a
       // name it does not have, so the host does it instead.
-      const grant = await client.call("nest.upload.begin", {});
+      const grant = await client.call("harnix.upload.begin", {});
       assert(grant.token && grant.url.includes(grant.token), `grant is ${JSON.stringify(grant)}`);
       assert(grant.path.endsWith(".bin"), `unnamed upload landed at ${grant.path}`);
 
       // A size the host will not accept is refused *before* a grant exists,
       // so nothing has to be cleaned up after.
-      const { limits } = await client.call("nest.hello");
-      const tooBig = await client.refused("nest.upload.begin",
+      const { limits } = await client.call("harnix.hello");
+      const tooBig = await client.refused("harnix.upload.begin",
         { name: "big.bin", bytes: limits.max_upload_bytes + 1 });
       assert(tooBig && tooBig.code === INVALID_PARAMS, `code ${tooBig?.code}`);
       assert(/\d/.test(tooBig.message), `does not say the ceiling: "${tooBig.message}"`);
@@ -110,15 +110,15 @@ export default {
         const missing = "AAAAAAAAAAAAAAAAAAAAAA";
         const refusals = [];
         // `session.close` and `session.delete` are left out on purpose: like
-        // `nest.detach`, they undo something, and undoing what was never done
+        // `harnix.detach`, they undo something, and undoing what was never done
         // is not an error (see the test above). The rest either read a
         // session or write something keyed by it, and both have to be told
         // when it is not there.
         for (const method of ["session.fork", "session.interrupt", "session.resume",
-                              "nest.sessions.rename", "nest.sessions.archive"]) {
+                              "harnix.sessions.rename", "harnix.sessions.archive"]) {
           const params = { session_id: missing };
-          if (method === "nest.sessions.rename") params.name = "x";
-          if (method === "nest.sessions.archive") params.archived = true;
+          if (method === "harnix.sessions.rename") params.name = "x";
+          if (method === "harnix.sessions.archive") params.archived = true;
           if (method === "session.resume") params.scene = "coding";
           const e = await client.refused(method, params);
           refusals.push([method, e]);
@@ -133,15 +133,15 @@ export default {
 
     "a file query outside any project is refused rather than answered":
       async ({ client }) => {
-        // `nest.files` resolves mentions inside a project. Pointed at
+        // `harnix.files` resolves mentions inside a project. Pointed at
         // somewhere that is not one, it must not fall back to answering from
         // wherever the process happens to be standing.
-        const e = await client.refused("nest.files",
+        const e = await client.refused("harnix.files",
           { project_root: "/definitely/not/a/project", query: "x" });
         if (e) {
           assert(e.message.length > 5, `bare message "${e.message}"`);
         } else {
-          const result = await client.call("nest.files",
+          const result = await client.call("harnix.files",
             { project_root: "/definitely/not/a/project", query: "x" });
           assert(Array.isArray(result.files) && result.files.length === 0,
             `answered with ${result.files?.length} files from a path that is not a project`);
@@ -149,7 +149,7 @@ export default {
       },
 
     "an unknown method and a refused one are different answers": async ({ client }) => {
-      const absent = await client.refused("nest.thereIsNoSuchMethod");
+      const absent = await client.refused("harnix.thereIsNoSuchMethod");
       assert(absent.code === METHOD_NOT_FOUND, `absent: code ${absent.code}`);
 
       const refused = await client.refused("config.set", { key: "x", value: 1 });
@@ -205,7 +205,7 @@ export default {
 
     "an empty message is refused before a turn is opened": async ({ client }) => {
       const created = await client.call("session.create", {});
-      const e = await client.refused("nest.send",
+      const e = await client.refused("harnix.send",
         { session_id: created.session_id, message: "" });
       assert(e && e.code === INVALID_PARAMS, `code ${e?.code}`);
       // And the session is untouched — a refused send must not leave a turn
@@ -228,7 +228,7 @@ export default {
 
     "an upload token is one-shot and an unknown one is refused":
       async ({ backend, client }) => {
-        const grant = await client.call("nest.upload.begin", { name: "e.txt", bytes: 3 });
+        const grant = await client.call("harnix.upload.begin", { name: "e.txt", bytes: 3 });
         const url = `http://127.0.0.1:${backend.port}${grant.url}`;
         const first = await fetch(url, { method: "POST", body: "abc" });
         assert(first.ok, `first upload: ${first.status}`);
@@ -246,11 +246,11 @@ export default {
 
     "settings refuse the tier, the key and the shape separately":
       async ({ client }) => {
-        const tier = await client.refused("nest.settings.set",
+        const tier = await client.refused("harnix.settings.set",
           { tier: "no-such-tier", key: "ui.theme", value: "dark" });
         assert(tier, "an unknown tier was accepted");
 
-        const key = await client.refused("nest.settings.set",
+        const key = await client.refused("harnix.settings.set",
           { tier: "global", key: "not.a.real.setting", value: 1 });
         assert(key && key.message.includes("not.a.real.setting"),
           `the key is not named: "${key?.message}"`);

@@ -1,8 +1,8 @@
 //! Contribution points: how the interface is assembled out of named parts.
 //!
-//! **These are Nest's own seams, not an extension surface for third parties.**
-//! Extending the agent is AttaCore's business — its scripts, its plugins, its
-//! manifest, its capability gate, its disclosure. Nest neither reads a package
+//! **These are Harnix's own seams, not an extension surface for third parties.**
+//! Extending the agent is Agix's business — its scripts, its plugins, its
+//! manifest, its capability gate, its disclosure. Harnix neither reads a package
 //! nor runs one. What this crate does is keep the interface from being a pile
 //! of switch statements: every tool row, flow block, panel, sidebar grouping,
 //! command and settings section is a named registration, so the shell asks a
@@ -35,4 +35,4 @@ pub use registry::{HostMethod, Registry};
 /// Bumped when a point's contract changes. Negotiated in the handshake
 /// separately from the protocol version: an interface bundle can be current
 /// on one and stale on the other.
-pub use nest_contract::handshake::CONTRIB_API_VERSION;
+pub use harnix_contract::handshake::CONTRIB_API_VERSION;

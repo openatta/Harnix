@@ -1,10 +1,10 @@
 //! The settings plane: read the three tiers, write one field into one tier.
 //!
-//! AttaCore exposes `config.get` (read, per tier, redacted) and
+//! Agix exposes `config.get` (read, per tier, redacted) and
 //! `config.reload`, but no generic write — the supported way to change a
 //! setting is to edit the tier's `settings.json`, which is exactly what
 //! `config.reload` exists for and what the engine's `WatchHub` already
-//! watches. So Nest writes the file and asks the engine to re-read it.
+//! watches. So Harnix writes the file and asks the engine to re-read it.
 //!
 //! Two rules make that safe to expose to a browser:
 //!
@@ -17,13 +17,13 @@
 //!   file is re-read immediately before each change, and replaced atomically.
 //!
 //! Credentials keep going through `config.setProvider`: it is the only code
-//! that knows how to validate a provider and rebuild the router. Nest holds
+//! that knows how to validate a provider and rebuild the router. Harnix holds
 //! it behind this surface rather than passing the method through, so the
 //! allow-list stays the single authorization point.
 
 use std::path::PathBuf;
 
-use nest_contract::{codes, RpcError};
+use harnix_contract::{codes, RpcError};
 use serde_json::{json, Map, Value};
 
 use crate::{require_str, Builtin};
@@ -46,14 +46,26 @@ pub(crate) struct Field {
 /// The settings a person changes from a UI. Deliberately short: every entry
 /// here is a promise that writing it does something predictable.
 pub(crate) const FIELDS: &[Field] = &[
-    Field { key: "model.model_name", kind: Kind::Text },
-    Field { key: "model.max_tokens", kind: Kind::Count },
+    Field {
+        key: "model.model_name",
+        kind: Kind::Text,
+    },
+    Field {
+        key: "model.max_tokens",
+        kind: Kind::Count,
+    },
     Field {
         key: "permission_mode",
         kind: Kind::Choice(&["default", "acceptEdits", "plan", "bypassPermissions"]),
     },
-    Field { key: "memory_enabled", kind: Kind::Flag },
-    Field { key: "allow_client_permission_override", kind: Kind::Flag },
+    Field {
+        key: "memory_enabled",
+        kind: Kind::Flag,
+    },
+    Field {
+        key: "allow_client_permission_override",
+        kind: Kind::Flag,
+    },
 ];
 
 const TIERS: &[&str] = &["global", "scene", "project"];
@@ -110,7 +122,8 @@ impl Builtin {
             effective_request["project_root"] = json!(root);
         }
         let effective = self
-            .hub.engine_call("config.get", effective_request)
+            .hub
+            .engine_call("config.get", effective_request)
             .await
             .ok()
             .and_then(|value| value.get("settings").cloned())
@@ -166,7 +179,8 @@ impl Builtin {
             .collect();
 
         let providers = self
-            .hub.engine_call("config.getProvider", json!({}))
+            .hub
+            .engine_call("config.getProvider", json!({}))
             .await
             .unwrap_or(json!({}));
 
@@ -208,20 +222,32 @@ impl Builtin {
         let project_root = params.get("project_root").and_then(Value::as_str);
 
         let Some(field) = FIELDS.iter().find(|f| f.key == key) else {
-            return Err(RpcError::new(codes::INVALID_PARAMS, format!("`{key}` is not an editable setting")));
+            return Err(RpcError::new(
+                codes::INVALID_PARAMS,
+                format!("`{key}` is not an editable setting"),
+            ));
         };
         if !value.is_null() && !accepts(field.kind, &value) {
-            return Err(RpcError::new(codes::INVALID_PARAMS, format!("`{key}` does not accept that value")));
+            return Err(RpcError::new(
+                codes::INVALID_PARAMS,
+                format!("`{key}` does not accept that value"),
+            ));
         }
         let Some(path) = self.tier_path(&tier, scene, project_root) else {
-            return Err(RpcError::new(codes::INVALID_PARAMS, format!("no `{tier}` tier for this session")));
+            return Err(RpcError::new(
+                codes::INVALID_PARAMS,
+                format!("no `{tier}` tier for this session"),
+            ));
         };
 
         // Read-modify-write the whole file: a hand edit or an engine write
         // (`config.setProvider` owns the project tier) must survive this.
         let mut document: Value = match std::fs::read(&path) {
             Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| {
-                RpcError::new(codes::INTERNAL_ERROR, format!("{} is not valid JSON: {e}", path.display()))
+                RpcError::new(
+                    codes::INTERNAL_ERROR,
+                    format!("{} is not valid JSON: {e}", path.display()),
+                )
             })?,
             Err(_) => json!({}),
         };
@@ -231,14 +257,17 @@ impl Builtin {
             std::fs::create_dir_all(parent).map_err(io_error)?;
         }
         let temp = path.with_extension("json.tmp");
-        let body = serde_json::to_vec_pretty(&document).map_err(|e| {
-            RpcError::new(codes::INTERNAL_ERROR, e.to_string())
-        })?;
+        let body = serde_json::to_vec_pretty(&document)
+            .map_err(|e| RpcError::new(codes::INTERNAL_ERROR, e.to_string()))?;
         std::fs::write(&temp, &body)
             .and_then(|()| std::fs::rename(&temp, &path))
             .map_err(io_error)?;
 
-        let reloaded = self.hub.engine_call("config.reload", json!({})).await.is_ok();
+        let reloaded = self
+            .hub
+            .engine_call("config.reload", json!({}))
+            .await
+            .is_ok();
         let mut describe = self.settings_describe(params.clone()).await?;
         if let Some(object) = describe.as_object_mut() {
             object.insert("written".into(), json!(path.display().to_string()));
@@ -251,7 +280,7 @@ impl Builtin {
     ///
     /// Held here rather than passed through: `config.setProvider` trusts its
     /// caller completely (it can point every later model request at another
-    /// host), so it stays behind Nest's allow-list with one deliberate entry.
+    /// host), so it stays behind Harnix's allow-list with one deliberate entry.
     pub(crate) async fn settings_set_provider(&self, params: Value) -> Result<Value, RpcError> {
         let provider_id = require_str(&params, "provider_id")?;
         let mut request = json!({"provider_id": provider_id});
@@ -262,7 +291,8 @@ impl Builtin {
         }
         let result = self.hub.engine_call("config.setProvider", request).await?;
         let providers = self
-            .hub.engine_call("config.getProvider", json!({}))
+            .hub
+            .engine_call("config.getProvider", json!({}))
             .await
             .unwrap_or(json!({}));
         Ok(json!({"result": result, "providers": providers}))
@@ -279,7 +309,7 @@ impl Builtin {
         match tier {
             "global" => Some(root.join("settings.json")),
             "scene" => scene.map(|scene| root.join("scenes").join(scene).join("settings.json")),
-            "project" => project_root.map(|p| PathBuf::from(p).join(".atta").join("settings.json")),
+            "project" => project_root.map(|p| PathBuf::from(p).join(".agix").join("settings.json")),
             _ => None,
         }
     }

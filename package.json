@@ -1,5 +1,5 @@
 {
-  "name": "nest-ui-tests",
+  "name": "harnix-ui-tests",
   "private": true,
   "description": "Browser tests for the interface. Everything else runs on node alone.",
   "scripts": {

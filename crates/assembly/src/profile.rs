@@ -5,8 +5,8 @@
 //! nothing can rewrite it while the process runs — whatever could rewrite
 //! this would be deciding what this process is (§3.1, §10).
 //!
-//! Extensions are not named here. Scripts are configured in AttaCore's own
-//! settings tiers and plugins are installed through AttaCore's own
+//! Extensions are not named here. Scripts are configured in Agix's own
+//! settings tiers and plugins are installed through Agix's own
 //! installer; a second place to declare them would be a second truth.
 //!
 //! Changing shape is a configuration change, not a fork. That is the first of
@@ -14,7 +14,7 @@
 
 use std::path::PathBuf;
 
-use nest_contract::Topology;
+use harnix_contract::Topology;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -112,6 +112,9 @@ mod tests {
 
     #[test]
     fn the_edge_default_is_one_connection() {
-        assert_eq!(Profile::default().transport.topologies, vec![Topology::SingleDuplex]);
+        assert_eq!(
+            Profile::default().transport.topologies,
+            vec![Topology::SingleDuplex]
+        );
     }
 }

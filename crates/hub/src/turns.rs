@@ -13,14 +13,18 @@
 use std::sync::Arc;
 
 use daemon::rpc::codes as engine_codes;
-use nest_contract::{Frame, RpcError, Subject};
+use harnix_contract::{Frame, RpcError, Subject};
 use serde_json::{json, Value};
 
 use crate::session::QueueItem;
 use crate::{new_id, notification, require_session_id, Hub};
 
 impl Hub {
-    pub(crate) async fn send(self: &Arc<Self>, subject: &Subject, params: Value) -> Result<Value, RpcError> {
+    pub(crate) async fn send(
+        self: &Arc<Self>,
+        subject: &Subject,
+        params: Value,
+    ) -> Result<Value, RpcError> {
         let session_id = require_session_id(&params)?;
         // The session has to exist before a turn is opened on it.
         //
@@ -34,16 +38,29 @@ impl Hub {
         // makes to read the transcript depth.
         self.engine_call("session.get", json!({"session_id": &session_id}))
             .await?;
-        // Sending implies watching. A client that skipped `nest.attach` would
+        // Sending implies watching. A client that skipped `harnix.attach` would
         // otherwise get neither the turn's events nor its settlement — frames
         // go to watchers, and it would not be one.
-        if let Some(client) = params.get("__client").and_then(Value::as_u64).map(crate::ClientId) {
+        if let Some(client) = params
+            .get("__client")
+            .and_then(Value::as_u64)
+            .map(crate::ClientId)
+        {
             let mut guard = self.inner.lock().await;
-            guard.sessions.entry(session_id.clone()).or_default().watchers.insert(client);
+            guard
+                .sessions
+                .entry(session_id.clone())
+                .or_default()
+                .watchers
+                .insert(client);
         }
         let _ = subject;
 
-        let message = params.get("message").and_then(Value::as_str).unwrap_or("").to_string();
+        let message = params
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
         if message.trim().is_empty() {
             return Err(RpcError::invalid_params("empty message"));
         }
@@ -56,7 +73,10 @@ impl Hub {
 
         let busy = {
             let guard = self.inner.lock().await;
-            guard.sessions.get(&session_id).is_some_and(|s| s.running_turn.is_some())
+            guard
+                .sessions
+                .get(&session_id)
+                .is_some_and(|s| s.running_turn.is_some())
         };
         if busy {
             if !queue_if_busy {
@@ -77,7 +97,7 @@ impl Hub {
         Ok(json!({"turn_id": turn_id}))
     }
 
-    /// Begin a turn and hand it to a task, so `nest.send` returns at once and
+    /// Begin a turn and hand it to a task, so `harnix.send` returns at once and
     /// the turn outlives the client that asked for it.
     ///
     /// The task is a **loop**, not a chain of recursive calls: a settled turn
@@ -145,7 +165,7 @@ impl Hub {
             Frame::session(
                 session_id,
                 notification(
-                    "nest.event",
+                    "harnix.event",
                     json!({"session_id": session_id, "seq": seq, "turn_id": turn_id, "event": event}),
                 ),
             ),
@@ -186,14 +206,18 @@ impl Hub {
         };
         self.fan_out(
             &watchers,
-            Frame::session(session_id, notification("nest.turn_settled", params)),
+            Frame::session(session_id, notification("harnix.turn_settled", params)),
         )
         .await;
 
         if next.is_some() {
             let snapshot = {
                 let guard = self.inner.lock().await;
-                guard.sessions.get(session_id).map(|s| s.queue_view()).unwrap_or_default()
+                guard
+                    .sessions
+                    .get(session_id)
+                    .map(|s| s.queue_view())
+                    .unwrap_or_default()
             };
             self.push_queue(session_id, &watchers, snapshot).await;
         }
@@ -218,7 +242,11 @@ impl Hub {
         Ok(result)
     }
 
-    pub(crate) async fn close_or_delete(&self, method: &str, params: Value) -> Result<Value, RpcError> {
+    pub(crate) async fn close_or_delete(
+        &self,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, RpcError> {
         let session_id = require_session_id(&params)?;
         let result = self.engine_call(method, params).await?;
         self.inner.lock().await.sessions.remove(&session_id);
@@ -240,14 +268,19 @@ impl Hub {
 
     pub(crate) async fn queue_remove(self: &Arc<Self>, params: Value) -> Result<Value, RpcError> {
         let session_id = require_session_id(&params)?;
-        let item_id = params.get("item_id").and_then(Value::as_str).unwrap_or("").to_string();
+        let item_id = params
+            .get("item_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
         let (watchers, snapshot) = {
             let mut guard = self.inner.lock().await;
             let state = guard.sessions.entry(session_id.clone()).or_default();
             state.queue.retain(|i| i.item_id != item_id);
             (state.watchers(), state.queue_view())
         };
-        self.push_queue(&session_id, &watchers, snapshot.clone()).await;
+        self.push_queue(&session_id, &watchers, snapshot.clone())
+            .await;
         Ok(json!({"items": snapshot}))
     }
 
@@ -259,7 +292,10 @@ impl Hub {
             watchers,
             Frame::session(
                 session_id,
-                notification("nest.queue", json!({"session_id": session_id, "items": items})),
+                notification(
+                    "harnix.queue",
+                    json!({"session_id": session_id, "items": items}),
+                ),
             ),
         )
         .await;

@@ -104,10 +104,10 @@
   border-radius: 18px;
   background: var(--bg-layer-1);
   box-shadow: var(--shadow-float);
-  animation: nest-modal var(--dur) var(--ease);
+  animation: harnix-modal var(--dur) var(--ease);
 }
 
-@keyframes nest-modal {
+@keyframes harnix-modal {
   from {
     opacity: 0;
     transform: translateY(6px) scale(0.99);

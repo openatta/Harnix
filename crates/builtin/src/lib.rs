@@ -1,4 +1,4 @@
-//! Nest's own contributions.
+//! Harnix's own contributions.
 //!
 //! Workspaces, session titles, view preferences, cross-session search, the
 //! directory picker, uploads, the settings page and the request envelope are
@@ -13,7 +13,7 @@
 //! is what makes the claim checkable: delete it and the kernel still runs,
 //! with fewer methods and no special cases.
 //!
-//! State lives in Nest's own directory, never mixed into the engine's root —
+//! State lives in Harnix's own directory, never mixed into the engine's root —
 //! see [`store`]. Deleting it loses grouping and titles and nothing else.
 
 pub mod files;
@@ -29,10 +29,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use nest_contract::{RpcError, Subject};
-use nest_contrib::registry::Owner;
-use nest_contrib::{HostMethod, Registry};
-use nest_hub::Hub;
+use harnix_contract::{RpcError, Subject};
+use harnix_contrib::registry::Owner;
+use harnix_contrib::{HostMethod, Registry};
+use harnix_hub::Hub;
 use serde_json::Value;
 use tokio::sync::Mutex;
 
@@ -42,7 +42,7 @@ use store::Store;
 /// and the hello payload; this crate only knows when to say so.
 type PackagesChanged = Box<dyn Fn(Vec<packages::Contributions>) + Send + Sync>;
 
-/// Everything Nest contributes, and the state behind it.
+/// Everything Harnix contributes, and the state behind it.
 pub struct Builtin {
     hub: Arc<Hub>,
     store: Mutex<Store>,
@@ -63,34 +63,34 @@ pub struct Builtin {
 /// Every method this crate contributes. Listed once, so authorization and the
 /// generated catalog can both read it without tracing dispatch.
 pub const METHODS: &[&str] = &[
-    "nest.workspaces.list",
-    "nest.workspaces.create",
-    "nest.workspaces.update",
-    "nest.workspaces.reorder",
-    "nest.workspaces.remove",
-    "nest.sessions.rename",
-    "nest.sessions.archive",
-    "nest.prefs.set",
-    "nest.search",
-    "nest.requestHeaders",
-    "nest.settings.describe",
-    "nest.settings.set",
-    "nest.settings.setProvider",
-    "nest.listDirectory",
-    "nest.recentProjects",
-    "nest.files",
-    "nest.projects.create",
-    "nest.upload.begin",
-    // The one thing AttaCore's installer cannot do for itself: receive a file.
-    "nest.plugins.upload",
+    "harnix.workspaces.list",
+    "harnix.workspaces.create",
+    "harnix.workspaces.update",
+    "harnix.workspaces.reorder",
+    "harnix.workspaces.remove",
+    "harnix.sessions.rename",
+    "harnix.sessions.archive",
+    "harnix.prefs.set",
+    "harnix.search",
+    "harnix.requestHeaders",
+    "harnix.settings.describe",
+    "harnix.settings.set",
+    "harnix.settings.setProvider",
+    "harnix.listDirectory",
+    "harnix.recentProjects",
+    "harnix.files",
+    "harnix.projects.create",
+    "harnix.upload.begin",
+    // The one thing Agix's installer cannot do for itself: receive a file.
+    "harnix.plugins.upload",
     // Lifecycle. The engine does the work; these exist because changing what
     // is installed changes what this host serves — see `plugins`.
-    "nest.plugins.install",
-    "nest.plugins.uninstall",
-    "nest.plugins.enable",
-    "nest.plugins.disable",
-    "nest.plugins.reload",
-    "nest.plugins.list",
+    "harnix.plugins.install",
+    "harnix.plugins.uninstall",
+    "harnix.plugins.enable",
+    "harnix.plugins.disable",
+    "harnix.plugins.reload",
+    "harnix.plugins.list",
 ];
 
 impl Builtin {
@@ -100,7 +100,10 @@ impl Builtin {
         projects_root: PathBuf,
     ) -> anyhow::Result<Arc<Self>> {
         let store = Store::open(state_root)?;
-        let upload_dir = store.root().join("uploads").join(std::process::id().to_string());
+        let upload_dir = store
+            .root()
+            .join("uploads")
+            .join(std::process::id().to_string());
         std::fs::create_dir_all(&upload_dir)?;
         Ok(Arc::new(Self {
             hub,
@@ -108,7 +111,7 @@ impl Builtin {
             uploads: Mutex::new(HashMap::new()),
             upload_dir,
             projects_root,
-            max_upload_bytes: nest_contract::MAX_UPLOAD_BYTES,
+            max_upload_bytes: harnix_contract::MAX_UPLOAD_BYTES,
             on_packages_changed: Mutex::new(None),
         }))
     }
@@ -146,7 +149,10 @@ impl Builtin {
     /// Register every method through the public door.
     pub async fn register(self: &Arc<Self>, registry: &mut Registry) {
         for name in METHODS {
-            let entry = Arc::new(Method { owner: self.clone(), name });
+            let entry = Arc::new(Method {
+                owner: self.clone(),
+                name,
+            });
             if let Err(reason) = registry.method(*name, Owner::Builtin, entry) {
                 tracing::error!(method = name, %reason, "built-in method not registered");
             }
@@ -155,32 +161,34 @@ impl Builtin {
 
     async fn dispatch(&self, name: &str, params: Value) -> Result<Value, RpcError> {
         match name {
-            "nest.workspaces.list" => self.workspaces_list().await,
-            "nest.workspaces.create" => self.workspaces_create(params).await,
-            "nest.workspaces.update" => self.workspaces_update(params).await,
-            "nest.workspaces.reorder" => self.workspaces_reorder(params).await,
-            "nest.workspaces.remove" => self.workspaces_remove(params).await,
-            "nest.sessions.rename" => self.session_rename(params).await,
-            "nest.sessions.archive" => self.session_archive(params).await,
-            "nest.prefs.set" => self.prefs_set(params).await,
-            "nest.search" => self.search(params).await,
-            "nest.requestHeaders" => self.request_headers(params).await,
-            "nest.settings.describe" => self.settings_describe(params).await,
-            "nest.settings.set" => self.settings_set(params).await,
-            "nest.settings.setProvider" => self.settings_set_provider(params).await,
-            "nest.listDirectory" => self.list_directory(params).await,
-            "nest.recentProjects" => self.recent_projects().await,
-            "nest.files" => self.files(params).await,
-            "nest.projects.create" => self.projects_create(params).await,
-            "nest.upload.begin" => self.upload_begin(params).await,
-            "nest.plugins.upload" => self.plugins_upload(params).await,
-            "nest.plugins.install" => self.plugins_install(params).await,
-            "nest.plugins.uninstall" => self.plugins_manage("plugin.uninstall", params).await,
-            "nest.plugins.enable" => self.plugins_manage("plugin.enable", params).await,
-            "nest.plugins.disable" => self.plugins_manage("plugin.disable", params).await,
-            "nest.plugins.reload" => self.plugins_manage("plugin.reload", params).await,
-            "nest.plugins.list" => self.plugins_list(params).await,
-            other => Err(RpcError::not_found(format!("`{other}` is not a built-in method"))),
+            "harnix.workspaces.list" => self.workspaces_list().await,
+            "harnix.workspaces.create" => self.workspaces_create(params).await,
+            "harnix.workspaces.update" => self.workspaces_update(params).await,
+            "harnix.workspaces.reorder" => self.workspaces_reorder(params).await,
+            "harnix.workspaces.remove" => self.workspaces_remove(params).await,
+            "harnix.sessions.rename" => self.session_rename(params).await,
+            "harnix.sessions.archive" => self.session_archive(params).await,
+            "harnix.prefs.set" => self.prefs_set(params).await,
+            "harnix.search" => self.search(params).await,
+            "harnix.requestHeaders" => self.request_headers(params).await,
+            "harnix.settings.describe" => self.settings_describe(params).await,
+            "harnix.settings.set" => self.settings_set(params).await,
+            "harnix.settings.setProvider" => self.settings_set_provider(params).await,
+            "harnix.listDirectory" => self.list_directory(params).await,
+            "harnix.recentProjects" => self.recent_projects().await,
+            "harnix.files" => self.files(params).await,
+            "harnix.projects.create" => self.projects_create(params).await,
+            "harnix.upload.begin" => self.upload_begin(params).await,
+            "harnix.plugins.upload" => self.plugins_upload(params).await,
+            "harnix.plugins.install" => self.plugins_install(params).await,
+            "harnix.plugins.uninstall" => self.plugins_manage("plugin.uninstall", params).await,
+            "harnix.plugins.enable" => self.plugins_manage("plugin.enable", params).await,
+            "harnix.plugins.disable" => self.plugins_manage("plugin.disable", params).await,
+            "harnix.plugins.reload" => self.plugins_manage("plugin.reload", params).await,
+            "harnix.plugins.list" => self.plugins_list(params).await,
+            other => Err(RpcError::not_found(format!(
+                "`{other}` is not a built-in method"
+            ))),
         }
     }
 }
@@ -188,7 +196,7 @@ impl Builtin {
 /// Uploads are a contribution's business, not the kernel's, so transport
 /// asks through a trait rather than knowing whose they are.
 #[async_trait::async_trait]
-impl nest_transport::BulkStore for Builtin {
+impl harnix_transport::BulkStore for Builtin {
     async fn claim(&self, token: &str) -> Option<(PathBuf, usize)> {
         self.claim_upload(token).await
     }
@@ -241,4 +249,3 @@ pub(crate) fn default_title(path: Option<&str>) -> String {
         None => "无项目".to_string(),
     }
 }
-

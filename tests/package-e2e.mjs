@@ -3,7 +3,7 @@
 //   node tests/package-e2e.mjs
 //
 // The whole path, once, with nothing stubbed: upload the file, let the engine
-// install and disclose it, let Nest read the one section the engine ignores
+// install and disclose it, let Harnix read the one section the engine ignores
 // and serve the directory, let the browser import the module, and check that
 // the row it registered **replaced** the built-in one for the tool it claims
 // and left the others alone.
@@ -31,16 +31,16 @@ const skip = (m) => { console.log("SKIP:", m); process.exit(0); };
 
 /* ── the backend ──────────────────────────────────────────────────────── */
 
-const binary = process.env.NEST_BINARY ?? join(ROOT, "target", "release", "nest");
+const binary = process.env.HARNIX_BINARY ?? join(ROOT, "target", "release", "harnix");
 if (!existsSync(binary)) {
-  skip(`no backend at ${binary} — build one with \`cargo build --release -p nest\``);
+  skip(`no backend at ${binary} — build one with \`cargo build --release -p harnix\``);
 }
 
-const scratch = mkdtempSync(join(tmpdir(), "nest-pkg-e2e-"));
+const scratch = mkdtempSync(join(tmpdir(), "harnix-pkg-e2e-"));
 const child = spawn(
   binary,
   ["--port", String(PORT), "--ui-dir", join(ROOT, "ui"),
-   "--atta-dir", join(scratch, "atta"), "--data-dir", join(scratch, "projects"),
+   "--agix-dir", join(scratch, "atta"), "--data-dir", join(scratch, "projects"),
    "--replay-dir", join(ROOT, "tests", "api", "fixtures", "recordings")],
   { cwd: ROOT, env: { ...process.env, ANTHROPIC_API_KEY: "package-e2e", RUST_LOG: "warn" },
     stdio: ["ignore", "pipe", "pipe"] },
@@ -62,7 +62,7 @@ for (let i = 0; i < 200; i += 1) {
   await sleep(200);
   if (i === 199) { console.log(log); fail("the backend did not start"); process.exit(1); }
 }
-const token = readFileSync(join(scratch, "projects", ".nest", "token"), "utf8").trim();
+const token = readFileSync(join(scratch, "projects", ".harnix", "token"), "utf8").trim();
 
 /* ── a client ─────────────────────────────────────────────────────────── */
 
@@ -80,21 +80,21 @@ const call = (method, params) => new Promise((res, rej) => {
   pending.set(i, { res, rej });
   ws.send(JSON.stringify({ jsonrpc: "2.0", method, params: params || {}, id: i }));
 });
-await call("nest.handshake", { protocol_version: PROTOCOL_VERSION, contrib_api_version: CONTRIB_API_VERSION, topology: "single_duplex" });
+await call("harnix.handshake", { protocol_version: PROTOCOL_VERSION, contrib_api_version: CONTRIB_API_VERSION, topology: "single_duplex" });
 
 /* ── install it ───────────────────────────────────────────────────────── */
 
 const zip = readFileSync(join(ROOT, "tests", "fixtures", "packages", "demo-rows.zip"));
 const checksum = createHash("sha256").update(zip).digest("hex");
 
-const grant = await call("nest.plugins.upload", { name: "demo-rows.zip" });
+const grant = await call("harnix.plugins.upload", { name: "demo-rows.zip" });
 const uploaded = await fetch(`http://127.0.0.1:${PORT}${grant.url}`, { method: "POST", body: zip });
 if (!uploaded.ok) fail(`upload refused: ${uploaded.status}`);
 else ok("the package went up the bulk channel");
 
 let installed;
 try {
-  installed = await call("nest.plugins.install", {
+  installed = await call("harnix.plugins.install", {
     path: grant.path, name: "demo-rows", version: "1.0.0", checksum,
   });
   ok("the engine installed it");
@@ -108,7 +108,7 @@ try {
 if (!installed.disclosure) fail("the install returned no disclosure");
 else ok("and returned what it will put in front of the model");
 
-const listed = await call("nest.plugins.list");
+const listed = await call("harnix.plugins.list");
 const entry = listed.plugins.find((p) => p.name === "demo-rows");
 if (!entry) fail("it is not listed as installed");
 else ok("it is listed as installed");
@@ -127,10 +127,10 @@ if (!Array.isArray(entry?.script_faults) || !Array.isArray(entry?.component_faul
 } else ok("the engine reports no load faults against it");
 
 const contributes = listed.contributes.find((c) => c.plugin === "demo-rows");
-if (!contributes) fail("Nest read no contribution out of it");
+if (!contributes) fail("Harnix read no contribution out of it");
 else if (contributes.inert.length) fail(`declared but inert: ${contributes.inert.join("; ")}`);
 else if (contributes.ui.length !== 1) fail(`${contributes.ui.length} interface contributions`);
-else ok(`Nest read its ${contributes.ui[0].point} contribution`);
+else ok(`Harnix read its ${contributes.ui[0].point} contribution`);
 
 // Same-origin, and only under ui/.
 const module = await fetch(`http://127.0.0.1:${PORT}/plugins/demo-rows/ui/rows.js`);
@@ -204,7 +204,7 @@ await page.evaluate(async () => {
   await openSession(created.session_id);
 });
 await page.locator("#input").fill(
-  "Use the Bash tool right now to run exactly: echo nest-fixture. "
+  "Use the Bash tool right now to run exactly: echo harnix-fixture. "
   + "Call the tool. Do not answer in prose.");
 await page.locator("#input").press("Enter");
 

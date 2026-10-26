@@ -7,7 +7,7 @@
  * registrations rather than forks.
  *
  * The workspace grouping below is the product's own answer, and it holds the
- * one fact worth stating: a session Nest has never opened has no project root
+ * one fact worth stating: a session Harnix has never opened has no project root
  * to group by, because `session.list` does not carry one. It gets its own
  * group rather than a guess, and it moves out the moment it is opened. */
 

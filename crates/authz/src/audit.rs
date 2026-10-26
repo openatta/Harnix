@@ -12,7 +12,7 @@
 
 use std::sync::Mutex;
 
-use nest_contract::Subject;
+use harnix_contract::Subject;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

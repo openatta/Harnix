@@ -4,7 +4,7 @@
 // panel that is 4px wide or a theme that is unreadable.
 //
 //   npm install && npx playwright install chromium
-//   node tests/browser/serve.mjs &        # or run `nest` yourself
+//   node tests/browser/serve.mjs &        # or run `harnix` yourself
 //   npx playwright test
 
 import { defineConfig, devices } from "@playwright/test";

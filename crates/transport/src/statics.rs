@@ -69,7 +69,10 @@ pub struct StaticFace {
 
 impl StaticFace {
     pub fn new(face: Face) -> Self {
-        Self { face, packages: RwLock::new(BTreeMap::new()) }
+        Self {
+            face,
+            packages: RwLock::new(BTreeMap::new()),
+        }
     }
 
     /// Replace what is being served. Called at assembly and again after an
@@ -121,7 +124,9 @@ impl StaticFace {
         }
         let clean = path.trim_start_matches('/');
         if clean.is_empty() || clean.contains("..") {
-            return self.interface("index.html").map(|b| (b, "text/html; charset=utf-8"));
+            return self
+                .interface("index.html")
+                .map(|b| (b, "text/html; charset=utf-8"));
         }
 
         // `/plugins/<name>/ui/<file>` — always from disk. A package is
@@ -139,7 +144,9 @@ impl StaticFace {
         match self.interface(clean) {
             Some(bytes) => Some((bytes, content_type(clean))),
             // Client-side routing: an unknown path is a route, not a 404.
-            None => self.interface("index.html").map(|b| (b, "text/html; charset=utf-8")),
+            None => self
+                .interface("index.html")
+                .map(|b| (b, "text/html; charset=utf-8")),
         }
     }
 
@@ -178,7 +185,7 @@ pub async fn serve(State(state): State<AppState>, uri: Uri) -> Response {
     // The page itself does not need one — a cross-origin page cannot read the
     // body — and the token governs connecting, not reading.
     if mime.starts_with("text/html") {
-        let page = String::from_utf8_lossy(&bytes).replace("__NEST_TOKEN__", &state.config.token);
+        let page = String::from_utf8_lossy(&bytes).replace("__HARNIX_TOKEN__", &state.config.token);
         return (
             [
                 (header::CONTENT_TYPE, mime),

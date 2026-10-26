@@ -2,7 +2,7 @@
 /.local
 .DS_Store
 .env
-/.atta
+/.agix
 /3rds
 /node_modules
 /test-results

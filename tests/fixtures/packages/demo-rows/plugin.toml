@@ -1,8 +1,8 @@
 # A package that contributes one interface module and nothing else.
 #
-# `[[ui]]` is the section the engine ignores and Nest reads. Everything about
+# `[[ui]]` is the section the engine ignores and Harnix reads. Everything about
 # installing this — the format, the checksum, the unpack, the disclosure — is
-# the engine's; Nest only carries the file across and serves one directory.
+# the engine's; Harnix only carries the file across and serves one directory.
 [plugin]
 name = "demo-rows"
 version = "1.0.0"

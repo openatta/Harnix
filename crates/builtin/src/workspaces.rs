@@ -5,24 +5,24 @@
 
 use std::collections::HashMap;
 
-use nest_contract::{codes, RpcError};
+use harnix_contract::{codes, RpcError};
 use serde_json::{json, Value};
 
 use crate::store::{new_workspace_id, Workspace};
 use crate::{default_title, require_session_id, require_str, Builtin};
 
 impl Builtin {
-    /// Workspaces are Nest's own idea. The engine knows a session's
+    /// Workspaces are Harnix's own idea. The engine knows a session's
     /// `project_root` and nothing else, so grouping, ordering, collapse and
     /// archival live in `store` and are joined onto the session list here.
     /// The groups, the view preferences, and **the per-session overlay**.
     ///
-    /// The overlay is here rather than folded into `nest.sessions` because
+    /// The overlay is here rather than folded into `harnix.sessions` because
     /// the hub does not know what a workspace is and must not learn: it holds
     /// sessions, and a title someone typed is not a property of a session,
     /// it is a note this product keeps about one.
     ///
-    /// It was briefly nowhere at all. `nest.sessions` used to fold it in;
+    /// It was briefly nowhere at all. `harnix.sessions` used to fold it in;
     /// splitting the layers moved the store out of the hub and the fold went
     /// with it, so renaming a session wrote to disk and nothing ever read it
     /// back — along with archiving, grouping and every view preference. The
@@ -67,7 +67,10 @@ impl Builtin {
             .map(str::to_string);
         if let Some(path) = &path {
             if !std::path::Path::new(path).is_dir() {
-                return Err(RpcError::new(codes::INVALID_PARAMS, format!("not a directory: {path}")));
+                return Err(RpcError::new(
+                    codes::INVALID_PARAMS,
+                    format!("not a directory: {path}"),
+                ));
             }
         }
         let title = params
@@ -160,7 +163,7 @@ impl Builtin {
     }
 
     /// A title the user typed. The engine has no `session.rename`, so this is
-    /// an overlay: `nest.sessions` prefers it over the engine's generated name
+    /// an overlay: `harnix.sessions` prefers it over the engine's generated name
     /// and nothing else in the system sees it.
     pub(crate) async fn session_rename(&self, params: Value) -> Result<Value, RpcError> {
         let session_id = require_session_id(&params)?;
@@ -174,9 +177,15 @@ impl Builtin {
         let mut store = self.store.lock().await;
         store.update(|state| {
             let meta = state.sessions.entry(session_id.clone()).or_default();
-            meta.title = if title.is_empty() { None } else { Some(title.clone()) };
+            meta.title = if title.is_empty() {
+                None
+            } else {
+                Some(title.clone())
+            };
         });
-        Ok(json!({"session_id": session_id, "title": if title.is_empty() { Value::Null } else { json!(title) }}))
+        Ok(
+            json!({"session_id": session_id, "title": if title.is_empty() { Value::Null } else { json!(title) }}),
+        )
     }
 
     pub(crate) async fn session_archive(&self, params: Value) -> Result<Value, RpcError> {
@@ -225,12 +234,15 @@ impl Builtin {
     /// Content search across sessions.
     ///
     /// Ordering comes from `session.list` (most recent first); the scan itself
-    /// reads the transcript store directly — see `nest_engine::search` for why
+    /// reads the transcript store directly — see `harnix_engine::search` for why
     /// this does not page `session.history`.
     pub(crate) async fn search(&self, params: Value) -> Result<Value, RpcError> {
         let query = require_str(&params, "query")?;
         let Some(store) = self.hub.engine().history.as_ref() else {
-            return Err(RpcError::new(codes::INTERNAL_ERROR, "this engine has no transcript store"));
+            return Err(RpcError::new(
+                codes::INTERNAL_ERROR,
+                "this engine has no transcript store",
+            ));
         };
 
         let listed = self.hub.engine_call("session.list", json!({})).await?;
@@ -280,5 +292,4 @@ impl Builtin {
             "truncated": outcome.truncated,
         }))
     }
-
 }

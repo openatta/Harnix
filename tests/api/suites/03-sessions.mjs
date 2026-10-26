@@ -11,7 +11,7 @@ const assert = (cond, message) => { if (!cond) throw new Error(message); };
 export default {
   tests: {
     "hello describes the engine and the ceilings": async ({ client }) => {
-      const hello = await client.call("nest.hello");
+      const hello = await client.call("harnix.hello");
       assert(hello.engine.model, "no model reported");
       assert(Array.isArray(hello.engine.active_scenes) && hello.engine.active_scenes.length,
         "no active scenes");
@@ -25,21 +25,21 @@ export default {
       assert(created.session_id, "no session id");
       assert(created.scene, "the create response carries no scene");
 
-      const attached = await client.call("nest.attach", { session_id: created.session_id });
+      const attached = await client.call("harnix.attach", { session_id: created.session_id });
       for (const key of ["session", "history_total", "replay", "truncated",
                          "pending_prompts", "running_turn", "queue", "seq"]) {
         assert(key in attached, `attach did not return ${key}`);
       }
       assert(attached.history_total === 0, `a new session has ${attached.history_total} messages`);
 
-      await client.call("nest.detach", { session_id: created.session_id });
+      await client.call("harnix.detach", { session_id: created.session_id });
       await client.call("session.close", { session_id: created.session_id });
     },
 
     "the session list carries the scene and project root the engine drops": async ({ client }) => {
       const created = await client.call("session.create", {});
-      await client.call("nest.attach", { session_id: created.session_id });
-      const { sessions } = await client.call("nest.sessions");
+      await client.call("harnix.attach", { session_id: created.session_id });
+      const { sessions } = await client.call("harnix.sessions");
       const row = sessions.find((s) => s.session_id === created.session_id);
       assert(row, "the created session is not listed");
       // `SessionInfo` upstream carries neither; the hub writes down what it
@@ -51,7 +51,7 @@ export default {
     },
 
     "a session the hub never opened reports null rather than a guess": async ({ client }) => {
-      const { sessions } = await client.call("nest.sessions");
+      const { sessions } = await client.call("harnix.sessions");
       for (const row of sessions) {
         assert(row.scene === null || typeof row.scene === "string",
           `scene is ${JSON.stringify(row.scene)}`);
@@ -166,12 +166,12 @@ export default {
 
     "a cold session can be reopened": async ({ client }) => {
       const created = await client.call("session.create", {});
-      await client.call("nest.attach", { session_id: created.session_id });
+      await client.call("harnix.attach", { session_id: created.session_id });
       await client.call("session.close", { session_id: created.session_id });
       // Only live sessions have subscribers upstream, so reopening one that
       // is only on disk has to resume it first. That fallback is the hub's,
       // and this is the call that exercises it.
-      const again = await client.call("nest.attach", { session_id: created.session_id });
+      const again = await client.call("harnix.attach", { session_id: created.session_id });
       assert(again.session, "reopening a closed session returned nothing");
       await finish(client, created.session_id);
     },
@@ -187,8 +187,8 @@ export default {
         assert(raw, "the engine does not list the session it just created");
         assert(!("project_root" in raw), "the engine's list grew a project root");
 
-        await client.call("nest.attach", { session_id: created.session_id });
-        const { sessions } = await client.call("nest.sessions");
+        await client.call("harnix.attach", { session_id: created.session_id });
+        const { sessions } = await client.call("harnix.sessions");
         const folded = sessions.find((s) => s.session_id === created.session_id);
         assert("project_root" in folded, "the hub did not fold the project root back in");
         await finish(client, created.session_id);
@@ -196,7 +196,7 @@ export default {
 
     "a closed session can be resumed explicitly": async ({ client }) => {
       const created = await client.call("session.create", {});
-      await client.call("nest.attach", { session_id: created.session_id });
+      await client.call("harnix.attach", { session_id: created.session_id });
       const scene = (await client.call("session.get",
         { session_id: created.session_id })).scene;
       await client.call("session.close", { session_id: created.session_id });

@@ -57,7 +57,11 @@ pub struct Frame {
 
 impl Frame {
     pub fn host(payload: String) -> Self {
-        Self { channel: Channel::HostEvents, session_id: None, payload }
+        Self {
+            channel: Channel::HostEvents,
+            session_id: None,
+            payload,
+        }
     }
 
     pub fn session(session_id: impl Into<String>, payload: String) -> Self {

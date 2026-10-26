@@ -1,9 +1,9 @@
-//! Nest's own state, in Nest's own directory.
+//! Harnix's own state, in Harnix's own directory.
 //!
-//! Everything this file holds is something AttaCore does not have a concept of
+//! Everything this file holds is something Agix does not have a concept of
 //! — workspaces, session titles, archived rows, view preferences. It lives
 //! under the state root the caller resolved (`crates/app/src/paths.rs`),
-//! never mixed into the engine's root: that tree belongs to AttaCore and to
+//! never mixed into the engine's root: that tree belongs to Agix and to
 //! whoever hand-edits it, and a front end's bookkeeping has no business
 //! there. Deleting our root loses grouping and titles and nothing else.
 //!
@@ -40,7 +40,7 @@ pub struct Workspace {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SessionMeta {
-    /// Title the user typed. AttaCore has no `session.rename`, so a rename
+    /// Title the user typed. Agix has no `session.rename`, so a rename
     /// lives here until it does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -49,7 +49,7 @@ pub struct SessionMeta {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NestState {
+pub struct HarnixState {
     pub version: u32,
     #[serde(default)]
     pub workspaces: Vec<Workspace>,
@@ -61,7 +61,7 @@ pub struct NestState {
     pub prefs: Map<String, Value>,
 }
 
-impl Default for NestState {
+impl Default for HarnixState {
     fn default() -> Self {
         Self {
             version: STATE_VERSION,
@@ -76,7 +76,7 @@ impl Default for NestState {
 pub struct Store {
     root: PathBuf,
     file: PathBuf,
-    state: NestState,
+    state: HarnixState,
 }
 
 impl Store {
@@ -88,16 +88,16 @@ impl Store {
         std::fs::create_dir_all(&root)?;
         let file = root.join("state.json");
         let state = match std::fs::read(&file) {
-            Ok(bytes) => match serde_json::from_slice::<NestState>(&bytes) {
+            Ok(bytes) => match serde_json::from_slice::<HarnixState>(&bytes) {
                 Ok(state) => state,
                 Err(e) => {
                     let backup = file.with_extension("json.broken");
                     warn!(error = %e, backup = %backup.display(), "unreadable state file; starting fresh");
                     let _ = std::fs::rename(&file, &backup);
-                    NestState::default()
+                    HarnixState::default()
                 }
             },
-            Err(_) => NestState::default(),
+            Err(_) => HarnixState::default(),
         };
         Ok(Self { root, file, state })
     }
@@ -106,13 +106,13 @@ impl Store {
         &self.root
     }
 
-    pub fn state(&self) -> &NestState {
+    pub fn state(&self) -> &HarnixState {
         &self.state
     }
 
     /// Mutate and persist. The closure's return value is handed back, so a
     /// caller can build its response from the state it just wrote.
-    pub fn update<T>(&mut self, f: impl FnOnce(&mut NestState) -> T) -> T {
+    pub fn update<T>(&mut self, f: impl FnOnce(&mut HarnixState) -> T) -> T {
         let out = f(&mut self.state);
         self.persist();
         out
@@ -123,14 +123,18 @@ impl Store {
             return;
         };
         let temp = self.file.with_extension("json.tmp");
-        if let Err(e) = std::fs::write(&temp, &json).and_then(|()| std::fs::rename(&temp, &self.file))
+        if let Err(e) =
+            std::fs::write(&temp, &json).and_then(|()| std::fs::rename(&temp, &self.file))
         {
-            warn!(error = %e, "could not write the Nest state file");
+            warn!(error = %e, "could not write the Harnix state file");
         }
     }
 
     pub fn title_of(&self, session_id: &str) -> Option<String> {
-        self.state.sessions.get(session_id).and_then(|m| m.title.clone())
+        self.state
+            .sessions
+            .get(session_id)
+            .and_then(|m| m.title.clone())
     }
 
     /// The workspace a project root belongs to, if one is registered.

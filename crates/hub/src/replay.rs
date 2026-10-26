@@ -7,7 +7,7 @@
 //! replaying anything (it does not) or on the transcript being current
 //! (mid-turn, it is not).
 //!
-//! Three facts about AttaCore make this layer necessary rather than tidy:
+//! Three facts about Agix make this layer necessary rather than tidy:
 //! `session.history` reads the on-disk log and the log is written once per
 //! turn, so a running turn is invisible in history; reconnecting re-sends
 //! nothing; and a dropped connection loses only its subscription while the
@@ -54,7 +54,9 @@ impl Buffer {
         });
         self.bytes += bytes;
         while self.frames.len() > MAX_FRAMES || self.bytes > MAX_BYTES {
-            let Some(dropped) = self.frames.pop_front() else { break };
+            let Some(dropped) = self.frames.pop_front() else {
+                break;
+            };
             self.bytes = self.bytes.saturating_sub(dropped.event.to_string().len());
             self.truncated = true;
         }
@@ -64,7 +66,9 @@ impl Buffer {
         if event.get("kind").and_then(Value::as_str) != Some("text_delta") {
             return false;
         }
-        let Some(last) = self.frames.back_mut() else { return false };
+        let Some(last) = self.frames.back_mut() else {
+            return false;
+        };
         let mergeable = last.turn_id == turn_id
             && last.event.get("kind").and_then(Value::as_str) == Some("text_delta")
             && last
@@ -96,7 +100,6 @@ impl Buffer {
             .map(|f| serde_json::json!({"seq": f.seq, "turn_id": f.turn_id, "event": f.event}))
             .collect()
     }
-
 }
 
 #[cfg(test)]

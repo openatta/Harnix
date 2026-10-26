@@ -10,14 +10,14 @@ const assert = (cond, message) => { if (!cond) throw new Error(message); };
 export default {
   tests: {
     "a subject can ask what it may call": async ({ client }) => {
-      const { methods, subject } = await client.call("nest.reachable");
+      const { methods, subject } = await client.call("harnix.reachable");
       assert(Array.isArray(methods) && methods.length > 20, `${methods?.length} methods`);
       assert(subject.kind === "device", `subject is ${subject.kind}`);
-      assert(methods.includes("nest.send"), "nest.send is not reachable");
+      assert(methods.includes("harnix.send"), "harnix.send is not reachable");
     },
 
     "an unlisted method is not found": async ({ client }) => {
-      const e = await client.refused("nest.noSuchThing");
+      const e = await client.refused("harnix.noSuchThing");
       assert(e, "an unlisted method answered");
       assert(e.code === METHOD_NOT_FOUND, `code ${e.code}`);
     },
@@ -34,9 +34,9 @@ export default {
 
     "the hub's own semantics are not reachable around it": async ({ client }) => {
       for (const [method, expect] of [
-        ["session.run_turn", /nest\.send/],
-        ["session.subscribe", /nest\.attach/],
-        ["session.unsubscribe", /nest\.detach/],
+        ["session.run_turn", /harnix\.send/],
+        ["session.subscribe", /harnix\.attach/],
+        ["session.unsubscribe", /harnix\.detach/],
         ["daemon.subscribeEvents", /host events/i],
       ]) {
         const e = await client.refused(method, {});
@@ -53,14 +53,14 @@ export default {
       const mcp = await client.refused("mcp.addServer", {});
       assert(mcp && mcp.code === REFUSED, "mcp.addServer is not refused");
 
-      const { methods } = await client.call("nest.reachable");
-      for (const method of ["nest.plugins.install", "nest.plugins.list"]) {
+      const { methods } = await client.call("harnix.reachable");
+      for (const method of ["harnix.plugins.install", "harnix.plugins.list"]) {
         assert(methods.includes(method), `${method} is not reachable`);
       }
     },
 
     "what did not take is queryable": async ({ client }) => {
-      const { methods, refused } = await client.call("nest.contributions");
+      const { methods, refused } = await client.call("harnix.contributions");
       assert(methods.length > 15, `${methods.length} registered`);
       assert(Array.isArray(refused), "no refusal list");
     },

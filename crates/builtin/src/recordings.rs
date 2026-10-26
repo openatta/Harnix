@@ -1,9 +1,9 @@
 //! The request envelope, read back out of the engine's recording.
 //!
 //! What the model was sent, minus the messages: the assembled system blocks,
-//! the whole tool catalog, and the call configuration. AttaCore does not send
+//! the whole tool catalog, and the call configuration. Agix does not send
 //! this over the wire — it writes every call to a recording
-//! (`core/docs/recorder_design.md`), and this crate reads that directory.
+//! (`agix/docs/recorder_design.md`), and this crate reads that directory.
 //!
 //! Reading files rather than receiving frames is what makes the envelope
 //! survive a reload: the browser can ask for it at any point, including for a
@@ -20,7 +20,7 @@ use std::path::PathBuf;
 
 use base::interface::model::ToolDef;
 use base::interface::prompt::PromptBlock;
-use nest_contract::{codes, RpcError};
+use harnix_contract::{codes, RpcError};
 use serde_json::{json, Value};
 use telemetry::recorder::blob::{BlobId, BlobStore};
 use telemetry::recorder::format::{CallRecord, RecordedParams};
@@ -33,13 +33,12 @@ impl Builtin {
         self.hub.engine().recordings_root.join(session_id)
     }
 
-    /// `nest.requestHeaders {session_id}` — the envelope timeline of this
+    /// `harnix.requestHeaders {session_id}` — the envelope timeline of this
     /// session's current run, oldest first, one entry per change.
     pub(crate) async fn request_headers(&self, params: Value) -> Result<Value, RpcError> {
         let session_id = require_session_id(&params)?;
         envelopes_in(&self.recording_dir(&session_id))
     }
-
 }
 
 /// Fold one recording directory into the changes of its envelope.
@@ -57,7 +56,10 @@ fn envelopes_in(dir: &std::path::Path) -> Result<Value, RpcError> {
             }))
         }
         Err(e) => {
-            return Err(RpcError::new(codes::INTERNAL_ERROR, format!("unreadable recording: {e}")))
+            return Err(RpcError::new(
+                codes::INTERNAL_ERROR,
+                format!("unreadable recording: {e}"),
+            ))
         }
     };
 
@@ -78,7 +80,11 @@ fn envelopes_in(dir: &std::path::Path) -> Result<Value, RpcError> {
         if previous.as_ref() == Some(&fingerprint) {
             continue;
         }
-        let reason = if previous.is_none() { "initial" } else { "changed" };
+        let reason = if previous.is_none() {
+            "initial"
+        } else {
+            "changed"
+        };
         previous = Some(fingerprint);
         headers.push(envelope(request, reason, &blobs));
     }
@@ -128,7 +134,7 @@ fn envelope(request: &CallRecord, reason: &str, blobs: &BlobStore) -> Value {
             Some(block) => json!({
                 "role": block.role,
                 "cache": block.cache_strategy,
-                // Two answers, not one. AttaCore splits what used to be a
+                // Two answers, not one. Agix splits what used to be a
                 // single `source` into `name` — which block this is
                 // (`skills.catalog`, `memory.session`), stable enough for an
                 // extension to address — and `origin`, who put it there. The
@@ -180,8 +186,8 @@ fn read<T: serde::de::DeserializeOwned>(blobs: &BlobStore, id: &BlobId) -> Optio
 }
 
 /// Written against real recordings produced by the recorder's own writer,
-/// rather than against hand-written JSON: the format belongs to AttaCore, and
-/// a fixture we typed ourselves would keep passing after Core changed it.
+/// rather than against hand-written JSON: the format belongs to Agix, and
+/// a fixture we typed ourselves would keep passing after Agix changed it.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,7 +244,14 @@ mod tests {
             self.root.path().join("S-1")
         }
 
-        fn call(&self, turn: u32, model: &str, system: &[PromptBlock], tools: &[ToolDef], purpose: Option<&str>) {
+        fn call(
+            &self,
+            turn: u32,
+            model: &str,
+            system: &[PromptBlock],
+            tools: &[ToolDef],
+            purpose: Option<&str>,
+        ) {
             let blobs = self.writer.blobs();
             let record = CallRecord {
                 seq: self.writer.next_seq(),
@@ -297,7 +310,13 @@ mod tests {
     fn a_changed_catalog_is_a_new_envelope_and_carries_its_sources() {
         let fixture = Fixture::new();
         let system = [block("you are a coding agent", "scene")];
-        fixture.call(1, "claude-sonnet-5", &system, &[tool("Bash", "builtin")], None);
+        fixture.call(
+            1,
+            "claude-sonnet-5",
+            &system,
+            &[tool("Bash", "builtin")],
+            None,
+        );
         fixture.call(
             2,
             "claude-sonnet-5",
@@ -312,7 +331,10 @@ mod tests {
         assert_eq!(headers[1]["reason"], json!("changed"));
         // The blobs were hydrated, not just referenced: the pane renders text
         // and provenance, and neither survives as a blob id.
-        assert_eq!(headers[1]["system"][0]["text"], json!("you are a coding agent"));
+        assert_eq!(
+            headers[1]["system"][0]["text"],
+            json!("you are a coding agent")
+        );
         assert_eq!(headers[1]["system"][0]["source"], json!("scene"));
         assert_eq!(headers[1]["system"][0]["cache"], json!("ephemeral"));
         assert_eq!(headers[1]["tools"][1]["source"], json!("mcp:files"));
@@ -328,7 +350,13 @@ mod tests {
         let system = [block("you are a coding agent", "scene")];
         let tools = [tool("Bash", "builtin")];
         fixture.call(1, "claude-sonnet-5", &system, &tools, None);
-        fixture.call(0, "claude-haiku-4-5", &[block("summarize", "compact")], &[], Some("compact"));
+        fixture.call(
+            0,
+            "claude-haiku-4-5",
+            &[block("summarize", "compact")],
+            &[],
+            Some("compact"),
+        );
         fixture.call(2, "claude-sonnet-5", &system, &tools, None);
 
         let answer = envelopes_in(&fixture.dir()).expect("ok");

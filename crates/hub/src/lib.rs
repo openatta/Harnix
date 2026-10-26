@@ -38,9 +38,9 @@ use std::sync::Arc;
 
 use daemon::rpc::{Client, FrameSink as EngineFrameSink, RpcRequest, RpcResponse, Sink};
 use daemon::DaemonServer;
-use nest_assembly::Engine;
-use nest_contract::{Frame, FrameSink, Gate, RpcError, Subject};
-use nest_contrib::Registry;
+use harnix_assembly::Engine;
+use harnix_contract::{Frame, FrameSink, Gate, RpcError, Subject};
+use harnix_contrib::Registry;
 use serde_json::{json, Value};
 use tokio::sync::{Mutex, RwLock};
 use tracing::debug;
@@ -52,7 +52,7 @@ use session::SessionState;
 ///
 /// An allow-list, not a deny-list: the engine trusts whoever reaches its
 /// dispatch, and in this build that is the hub. What is not named here is not
-/// reachable — see `nest_authz`, which is where the decision is actually made.
+/// reachable — see `harnix_authz`, which is where the decision is actually made.
 pub const PASSTHROUGH: &[&str] = &[
     "session.create",
     "session.list",
@@ -72,16 +72,16 @@ pub const PASSTHROUGH: &[&str] = &[
     "daemon.doctor",
 ];
 
-/// The hub's own methods. Named here so `nest_authz` can open them and the
+/// The hub's own methods. Named here so `harnix_authz` can open them and the
 /// generated method catalog can list them without tracing dispatch.
 pub const HUB_METHODS: &[&str] = &[
-    "nest.hello",
-    "nest.sessions",
-    "nest.attach",
-    "nest.detach",
-    "nest.send",
-    "nest.queue.remove",
-    "nest.contributions",
+    "harnix.hello",
+    "harnix.sessions",
+    "harnix.attach",
+    "harnix.detach",
+    "harnix.send",
+    "harnix.queue.remove",
+    "harnix.contributions",
 ];
 
 #[derive(Default)]
@@ -100,7 +100,7 @@ pub struct Hub {
     engine: Engine,
     inner: Arc<Mutex<Inner>>,
     next_client: AtomicU64,
-    /// The `nest.*` methods the product registered.
+    /// The `harnix.*` methods the product registered.
     registry: RwLock<Registry>,
     /// Interface modules from installed packages, told to a client at hello.
     /// Held here rather than resolved per call because it changes when a
@@ -117,10 +117,12 @@ impl Hub {
         engine: Engine,
         registry: Registry,
         replay_from: Option<std::path::PathBuf>,
-        limits: nest_contract::Limits,
+        limits: harnix_contract::Limits,
     ) -> anyhow::Result<Arc<Self>> {
         let inner = Arc::new(Mutex::new(Inner::default()));
-        let sink: Sink = Arc::new(HubSink { inner: inner.clone() });
+        let sink: Sink = Arc::new(HubSink {
+            inner: inner.clone(),
+        });
         let client = engine.server.accept_connection(sink);
         let hub = Arc::new(Self {
             replay_from,
@@ -134,7 +136,9 @@ impl Hub {
             limits: serde_json::to_value(limits).unwrap_or(json!({})),
         });
         // Host-level notifications go to every client.
-        hub.engine_call("daemon.subscribeEvents", json!({})).await.ok();
+        hub.engine_call("daemon.subscribeEvents", json!({}))
+            .await
+            .ok();
         Ok(hub)
     }
 
@@ -182,7 +186,10 @@ impl Hub {
 
     /// Register a client and get the id its frames are addressed by.
     pub async fn add_client(&self, sink: Arc<dyn FrameSink>) -> ClientId {
-        let id = ClientId(self.next_client.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+        let id = ClientId(
+            self.next_client
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        );
         self.inner.lock().await.clients.insert(id, sink);
         id
     }
@@ -203,12 +210,21 @@ impl Hub {
     /// What a client is told once, after the handshake: what this engine is,
     /// what scenes and commands exist, and what the ceilings are.
     async fn hello(&self) -> Result<Value, RpcError> {
-        let status = self.engine_call("daemon.status", json!({})).await.unwrap_or(json!({}));
-        let scenes = self.engine_call("scene.list", json!({})).await.unwrap_or(json!({}));
-        let commands = self.engine_call("commands.list", json!({})).await.unwrap_or(json!({}));
+        let status = self
+            .engine_call("daemon.status", json!({}))
+            .await
+            .unwrap_or(json!({}));
+        let scenes = self
+            .engine_call("scene.list", json!({}))
+            .await
+            .unwrap_or(json!({}));
+        let commands = self
+            .engine_call("commands.list", json!({}))
+            .await
+            .unwrap_or(json!({}));
         Ok(json!({
-            "protocol_version": nest_contract::PROTOCOL_VERSION,
-            "contrib_api_version": nest_contract::CONTRIB_API_VERSION,
+            "protocol_version": harnix_contract::PROTOCOL_VERSION,
+            "contrib_api_version": harnix_contract::CONTRIB_API_VERSION,
             "engine": {
                 "model": self.engine.model,
                 "active_scenes": self.engine.active_scenes,
@@ -248,17 +264,24 @@ impl Hub {
     /// Order is: the hub's own semantics, then contributed methods, then the
     /// engine. A contribution cannot shadow a hub method — the registry
     /// refuses a name already taken, and these names are taken at assembly.
-    async fn dispatch(self: &Arc<Self>, subject: &Subject, method: &str, params: Value) -> Result<Value, RpcError> {
+    async fn dispatch(
+        self: &Arc<Self>,
+        subject: &Subject,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, RpcError> {
         match method {
-            "nest.hello" => return self.hello().await,
-            "nest.contributions" => return self.contributions().await,
-            "nest.sessions" => return self.sessions().await,
-            "nest.attach" => return self.attach(subject, params).await,
-            "nest.detach" => return self.detach(subject, params).await,
-            "nest.send" => return self.send(subject, params).await,
-            "nest.queue.remove" => return self.queue_remove(params).await,
+            "harnix.hello" => return self.hello().await,
+            "harnix.contributions" => return self.contributions().await,
+            "harnix.sessions" => return self.sessions().await,
+            "harnix.attach" => return self.attach(subject, params).await,
+            "harnix.detach" => return self.detach(subject, params).await,
+            "harnix.send" => return self.send(subject, params).await,
+            "harnix.queue.remove" => return self.queue_remove(params).await,
             "session.interrupt" => return self.interrupt(params).await,
-            "session.close" | "session.delete" => return self.close_or_delete(method, params).await,
+            "session.close" | "session.delete" => {
+                return self.close_or_delete(method, params).await
+            }
             "session.create" => return self.create(params).await,
             _ => {}
         }
@@ -268,7 +291,9 @@ impl Hub {
         if PASSTHROUGH.contains(&method) {
             return self.engine_call(method, params).await;
         }
-        Err(RpcError::not_found(format!("`{method}` is not a method of this process")))
+        Err(RpcError::not_found(format!(
+            "`{method}` is not a method of this process"
+        )))
     }
 }
 
@@ -281,7 +306,12 @@ pub struct HubGate(pub Arc<Hub>);
 
 #[async_trait::async_trait]
 impl Gate for HubGate {
-    async fn call(&self, subject: &Subject, method: &str, params: Value) -> Result<Value, RpcError> {
+    async fn call(
+        &self,
+        subject: &Subject,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, RpcError> {
         self.0.dispatch(subject, method, params).await
     }
 }
@@ -310,7 +340,7 @@ impl EngineFrameSink for HubSink {
             }
             Some("daemon.event") => {
                 let params = frame.get("params").cloned().unwrap_or(Value::Null);
-                let out = Frame::host(notification("nest.host_event", params));
+                let out = Frame::host(notification("harnix.host_event", params));
                 let guard = self.inner.lock().await;
                 guard.clients.broadcast(&out).await;
             }
@@ -411,4 +441,3 @@ pub(crate) fn new_id(prefix: &str) -> String {
 pub(crate) fn is_code(result: &Result<Value, RpcError>, code: i32) -> bool {
     matches!(result, Err(e) if e.code == code)
 }
-

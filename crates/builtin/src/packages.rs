@@ -1,8 +1,8 @@
 //! Reading the one section of an installed package that the engine ignores.
 //!
-//! **Nest does not install anything, and does not run anything.** The package
+//! **Harnix does not install anything, and does not run anything.** The package
 //! format, the fetch, the checksum, the unpack, the cache layout, the
-//! disclosure and the lifecycle are AttaCore's — one package, one manifest,
+//! disclosure and the lifecycle are Agix's — one package, one manifest,
 //! one install, one disclosure (§2.2). What is here is a reader: given what
 //! the engine says is installed, find its unpacked directory and pick out the
 //! one section the engine has no opinion about.
@@ -19,25 +19,25 @@
 //! # One section, not two
 //!
 //! There was briefly a `[[host]]` section here — a projection, a pure fold
-//! over the event stream, run by Nest. It was removed on purpose. A fold has
+//! over the event stream, run by Harnix. It was removed on purpose. A fold has
 //! no capabilities, so it did not introduce a second answer to "what may an
 //! extension do" — but keeping it meant the rule had to be stated as
-//! "Nest executes package code, but only the kind that cannot do anything",
+//! "Harnix executes package code, but only the kind that cannot do anything",
 //! and a rule with a carve-out is a rule somebody eventually widens.
 //!
-//! **Nest executes nothing a package brought.** That version needs no
+//! **Harnix executes nothing a package brought.** That version needs no
 //! exception, and `crates/app/tests/layering.rs` holds it.
 //!
 //! # Where the package is, is the engine's to say
 //!
-//! `plugin.list` carries each package's unpacked `root`. Nest reads it and
+//! `plugin.list` carries each package's unpacked `root`. Harnix reads it and
 //! never composes a path of its own, so the engine's cache layout stays the
 //! engine's: it can move packages, version the directory name, or split the
 //! tiers differently, and nothing here has to be told.
 
 use std::path::{Path, PathBuf};
 
-use nest_contrib::CONTRIB_API_VERSION;
+use harnix_contrib::CONTRIB_API_VERSION;
 use serde::{Deserialize, Serialize};
 
 /// What a package contributes to this side.
@@ -103,45 +103,49 @@ pub fn read(root: &Path, name: &str, version: &str, enabled: bool) -> Option<Con
 
     let mut inert = Vec::new();
     let mut notes = Vec::new();
-    let ui: Vec<UiEntry> = sections
-        .ui
-        .into_iter()
-        .filter(|entry| {
-            // A module written against a different contribution API is
-            // refused **here**, at install, rather than imported and left to
-            // fail inside `activate()`. The second way produces a panel that
-            // silently does not appear, which is the failure mode with no
-            // symptom (§2.4).
-            match entry.api_version {
-                Some(declared) if declared != CONTRIB_API_VERSION => {
-                    inert.push(format!(
+    let ui: Vec<UiEntry> =
+        sections
+            .ui
+            .into_iter()
+            .filter(|entry| {
+                // A module written against a different contribution API is
+                // refused **here**, at install, rather than imported and left to
+                // fail inside `activate()`. The second way produces a panel that
+                // silently does not appear, which is the failure mode with no
+                // symptom (§2.4).
+                match entry.api_version {
+                    Some(declared) if declared != CONTRIB_API_VERSION => {
+                        inert.push(format!(
                         "{} 是照贡献点 API v{declared} 写的，这个构建是 v{CONTRIB_API_VERSION}；\
                          {} 的那一边旧了",
                         entry.point,
-                        if declared < CONTRIB_API_VERSION { "包" } else { "Nest" },
+                        if declared < CONTRIB_API_VERSION { "包" } else { "Harnix" },
                     ));
-                    return false;
+                        return false;
+                    }
+                    // Loads. Said anyway, because the alternative is an author
+                    // finding out when a panel stops appearing.
+                    None => notes.push(format!(
+                        "{} 没有声明 api_version；贡献点契约改动之后它会安静地失效",
+                        entry.point,
+                    )),
+                    _ => {}
                 }
-                // Loads. Said anyway, because the alternative is an author
-                // finding out when a panel stops appearing.
-                None => notes.push(format!(
-                    "{} 没有声明 api_version；贡献点契约改动之后它会安静地失效",
-                    entry.point,
-                )),
-                _ => {}
-            }
-            // A module has to be inside the package. Anything with `..` in it
-            // is refused here rather than resolved — the unpacker already
-            // rejects such entries, and this is the second place that would
-            // have to be wrong for one to escape.
-            let ok = !entry.module.contains("..") && root.join("ui").join(&entry.module).is_file();
-            if !ok {
-                inert.push(format!("{} → ui/{} 不在这个包里", entry.point, entry.module));
-            }
-            ok
-        })
-        .collect();
-
+                // A module has to be inside the package. Anything with `..` in it
+                // is refused here rather than resolved — the unpacker already
+                // rejects such entries, and this is the second place that would
+                // have to be wrong for one to escape.
+                let ok =
+                    !entry.module.contains("..") && root.join("ui").join(&entry.module).is_file();
+                if !ok {
+                    inert.push(format!(
+                        "{} → ui/{} 不在这个包里",
+                        entry.point, entry.module
+                    ));
+                }
+                ok
+            })
+            .collect();
 
     Some(Contributions {
         plugin: name.to_string(),
@@ -157,17 +161,24 @@ pub fn read(root: &Path, name: &str, version: &str, enabled: bool) -> Option<Con
 /// Everything that contributes to this side, in a `plugin.list` answer.
 ///
 /// Separate from [`discover`] so a caller that already asked the engine —
-/// `nest.plugins.list` does, to show the engine's own list beside this one —
+/// `harnix.plugins.list` does, to show the engine's own list beside this one —
 /// reads the answer it has rather than asking a second time.
 pub fn read_all(listed: &serde_json::Value) -> Vec<Contributions> {
     let mut found = Vec::new();
-    for entry in listed.get("plugins").and_then(|v| v.as_array()).map_or(&[][..], |v| v) {
+    for entry in listed
+        .get("plugins")
+        .and_then(|v| v.as_array())
+        .map_or(&[][..], |v| v)
+    {
         let get = |key: &str| entry.get(key).and_then(|v| v.as_str()).unwrap_or_default();
         let (name, version, root) = (get("name"), get("version"), get("root"));
         if name.is_empty() || version.is_empty() || root.is_empty() {
             continue;
         }
-        let enabled = entry.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+        let enabled = entry
+            .get("enabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
         if let Some(contributions) = read(Path::new(root), name, version, enabled) {
             for reason in &contributions.inert {
                 tracing::warn!(plugin = %name, %reason, "a declared contribution will not take");
@@ -187,7 +198,7 @@ pub fn read_all(listed: &serde_json::Value) -> Vec<Contributions> {
 /// refused, disabled or never had is not here either. Asking the engine
 /// rather than scanning the directory is the difference between "installed"
 /// and "some files are lying around".
-pub async fn discover(hub: &nest_hub::Hub) -> Vec<Contributions> {
+pub async fn discover(hub: &harnix_hub::Hub) -> Vec<Contributions> {
     match hub.engine_call("plugin.list", serde_json::json!({})).await {
         Ok(listed) => read_all(&listed),
         Err(e) => {
@@ -209,7 +220,11 @@ mod tests {
         std::fs::write(dir.path().join("plugin.toml"), body).unwrap();
         std::fs::create_dir_all(dir.path().join("ui")).unwrap();
         std::fs::create_dir_all(dir.path().join("host")).unwrap();
-        std::fs::write(dir.path().join("ui/rows.js"), "export function activate(){}").unwrap();
+        std::fs::write(
+            dir.path().join("ui/rows.js"),
+            "export function activate(){}",
+        )
+        .unwrap();
         std::fs::write(dir.path().join("host/fold.js"), "function project(){}").unwrap();
         dir
     }
@@ -260,7 +275,7 @@ mod tests {
         assert!(read.inert.is_empty());
     }
 
-    /// A package can carry code for the engine to run, and Nest reads none
+    /// A package can carry code for the engine to run, and Harnix reads none
     /// of it. What is checked here is that a `[[host]]` section — the one
     /// that briefly existed and was removed — contributes nothing now, rather
     /// than being quietly half-supported.
@@ -305,8 +320,14 @@ mod tests {
             CONTRIB_API_VERSION + 1,
         ));
         let read = read(dir.path(), "p", "1.0.0", true).expect("declares something");
-        assert!(read.ui.is_empty(), "a mismatched module was going to be loaded");
-        assert!(read.inert[0].contains("Nest"), "does not say which side is stale");
+        assert!(
+            read.ui.is_empty(),
+            "a mismatched module was going to be loaded"
+        );
+        assert!(
+            read.inert[0].contains("Harnix"),
+            "does not say which side is stale"
+        );
     }
 
     #[test]
@@ -326,8 +347,16 @@ mod tests {
         ));
         let read = read(dir.path(), "p", "1.0.0", true).expect("contributes");
         assert_eq!(read.ui.len(), 1);
-        assert!(read.inert.is_empty(), "a matching version was refused: {:?}", read.inert);
-        assert!(read.notes.is_empty(), "a matching version was commented on: {:?}", read.notes);
+        assert!(
+            read.inert.is_empty(),
+            "a matching version was refused: {:?}",
+            read.inert
+        );
+        assert!(
+            read.notes.is_empty(),
+            "a matching version was commented on: {:?}",
+            read.notes
+        );
     }
 
     /// A package that predates the field still loads. Refusing every one of
@@ -351,10 +380,13 @@ mod tests {
         let read = read(dir.path(), "p", "1.0.0", true).expect("contributes");
         assert_eq!(read.ui.len(), 1, "an undeclared version was refused");
         assert!(read.inert.is_empty(), "an advisory was filed as a refusal");
-        assert!(read.notes[0].contains("api_version"), "the author was not told");
+        assert!(
+            read.notes[0].contains("api_version"),
+            "the author was not told"
+        );
     }
 
-    /// The unpacked directory comes from the engine's answer. Nest composes
+    /// The unpacked directory comes from the engine's answer. Harnix composes
     /// no path of its own, so a package the engine put somewhere unexpected
     /// is still found, and one the engine did not locate is skipped rather
     /// than guessed at.
@@ -399,7 +431,10 @@ mod tests {
             "#,
         );
         let read = read(dir.path(), "p", "1.0.0", true).expect("declares something");
-        assert!(read.ui.is_empty(), "a file outside ui/ was going to be served");
+        assert!(
+            read.ui.is_empty(),
+            "a file outside ui/ was going to be served"
+        );
     }
 
     #[test]
@@ -417,7 +452,10 @@ mod tests {
             "#,
         );
         let read = read(dir.path(), "p", "1.0.0", true).expect("declares something");
-        assert!(read.ui.is_empty(), "a module outside the package was served");
+        assert!(
+            read.ui.is_empty(),
+            "a module outside the package was served"
+        );
         assert_eq!(read.inert.len(), 1);
     }
 

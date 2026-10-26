@@ -152,7 +152,11 @@ impl Devices {
                 exhausted |= entry.attempts >= MAX_ATTEMPTS;
             }
             pending.retain(|_, p| p.attempts < MAX_ATTEMPTS);
-            return Err(if exhausted { PairError::TooManyAttempts } else { PairError::Refused });
+            return Err(if exhausted {
+                PairError::TooManyAttempts
+            } else {
+                PairError::Refused
+            });
         };
         pending.remove(&handle);
         drop(pending);
@@ -164,7 +168,10 @@ impl Devices {
             paired_at: stamp.to_string(),
             last_seen: None,
         };
-        self.paired.lock().unwrap().insert(device.id.clone(), device.clone());
+        self.paired
+            .lock()
+            .unwrap()
+            .insert(device.id.clone(), device.clone());
         Ok(device)
     }
 
@@ -233,7 +240,9 @@ mod tests {
     fn a_code_pairs_once_and_then_is_spent() {
         let devices = Devices::default();
         devices.begin_pairing("ABC123", "laptop", now());
-        let device = devices.complete_pairing("ABC123", "pk", now(), "t0").expect("pairs");
+        let device = devices
+            .complete_pairing("ABC123", "pk", now(), "t0")
+            .expect("pairs");
         assert!(devices.is_paired(&device.id));
         // Spent. A code that could be redeemed twice would be a code worth
         // stealing off a screen after it had already been used.
@@ -264,10 +273,14 @@ mod tests {
         let devices = Devices::default();
         devices.begin_pairing("ABC123", "laptop", now());
         for _ in 0..MAX_ATTEMPTS {
-            assert!(devices.complete_pairing("WRONG!", "pk", now(), "t").is_err());
+            assert!(devices
+                .complete_pairing("WRONG!", "pk", now(), "t")
+                .is_err());
         }
         // Burned — even the right code no longer works.
-        assert!(devices.complete_pairing("ABC123", "pk", now(), "t").is_err());
+        assert!(devices
+            .complete_pairing("ABC123", "pk", now(), "t")
+            .is_err());
     }
 
     /// And the refusal never says how close a guess was: no such code, an
@@ -288,7 +301,9 @@ mod tests {
     fn revoking_forgets_the_device() {
         let devices = Devices::default();
         devices.begin_pairing("ABC123", "laptop", now());
-        let device = devices.complete_pairing("ABC123", "pk", now(), "t0").unwrap();
+        let device = devices
+            .complete_pairing("ABC123", "pk", now(), "t0")
+            .unwrap();
         assert!(devices.revoke(&device.id));
         assert!(!devices.is_paired(&device.id));
         assert!(!devices.revoke(&device.id));
@@ -314,7 +329,8 @@ pub mod challenge {
     /// to the question actually being asked.
     pub fn verify(public_key_b64: &str, challenge: &[u8], signature_b64: &str) -> bool {
         let engine = base64::engine::general_purpose::STANDARD;
-        let (Ok(key), Ok(signature)) = (engine.decode(public_key_b64), engine.decode(signature_b64))
+        let (Ok(key), Ok(signature)) =
+            (engine.decode(public_key_b64), engine.decode(signature_b64))
         else {
             return false;
         };

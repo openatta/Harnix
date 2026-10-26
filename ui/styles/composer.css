@@ -35,10 +35,10 @@
   border: 2px solid var(--border-l2);
   border-top-color: var(--state-info);
   border-radius: 50%;
-  animation: nest-spin 0.8s linear infinite;
+  animation: harnix-spin 0.8s linear infinite;
 }
 
-@keyframes nest-spin {
+@keyframes harnix-spin {
   to {
     transform: rotate(360deg);
   }

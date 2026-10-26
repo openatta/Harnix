@@ -1,17 +1,17 @@
 [package]
-name = "nest-builtin"
+name = "harnix-builtin"
 version      = { workspace = true }
 edition      = { workspace = true }
 rust-version = { workspace = true }
 license      = { workspace = true }
 publish      = false
-description  = "Nest's own contributions, through the same points a plugin uses"
+description  = "Harnix's own contributions, through the same points a plugin uses"
 
 [dependencies]
-nest-contract = { workspace = true }
-nest-contrib  = { workspace = true }
-nest-hub      = { workspace = true }
-nest-transport = { workspace = true }
+harnix-contract = { workspace = true }
+harnix-contrib  = { workspace = true }
+harnix-hub      = { workspace = true }
+harnix-transport = { workspace = true }
 base        = { workspace = true }
 history     = { workspace = true }
 telemetry   = { workspace = true }

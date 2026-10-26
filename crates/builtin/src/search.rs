@@ -60,7 +60,11 @@ pub async fn search(
 ) -> Outcome {
     let needle = query.trim().to_lowercase();
     if needle.is_empty() {
-        return Outcome { hits: Vec::new(), scanned: 0, truncated: false };
+        return Outcome {
+            hits: Vec::new(),
+            scanned: 0,
+            truncated: false,
+        };
     }
 
     let started = Instant::now();
@@ -77,8 +81,12 @@ pub async fn search(
             truncated = true;
             break;
         }
-        let Ok(id) = base::session::SessionId::parse(session_id) else { continue };
-        let Ok(entries) = store.load(id).await else { continue };
+        let Ok(id) = base::session::SessionId::parse(session_id) else {
+            continue;
+        };
+        let Ok(entries) = store.load(id).await else {
+            continue;
+        };
         scanned += 1;
 
         for entry in &entries {
@@ -91,7 +99,9 @@ pub async fn search(
             if text.starts_with("<system-reminder>") {
                 continue;
             }
-            let Some(at) = text.to_lowercase().find(&needle) else { continue };
+            let Some(at) = text.to_lowercase().find(&needle) else {
+                continue;
+            };
             hits.push(Hit {
                 session_id: session_id.clone(),
                 role,
@@ -102,7 +112,11 @@ pub async fn search(
         }
     }
 
-    Outcome { hits, scanned, truncated }
+    Outcome {
+        hits,
+        scanned,
+        truncated,
+    }
 }
 
 fn blocks_text(blocks: &[ContentBlock]) -> String {
@@ -143,7 +157,10 @@ mod tests {
         let at = text.find("lazy").unwrap();
         let snippet = snippet_around(text, at, 20);
         assert!(snippet.contains("lazy"), "{snippet}");
-        assert!(snippet.starts_with('…') && snippet.ends_with('…'), "{snippet}");
+        assert!(
+            snippet.starts_with('…') && snippet.ends_with('…'),
+            "{snippet}"
+        );
     }
 
     #[test]

@@ -24,10 +24,10 @@ const assert = (cond, message) => { if (!cond) throw new Error(message); };
  * green would be worse.
  */
 async function turn(client, sessionId, message, timeout = 180_000) {
-  await client.call("nest.send", { session_id: sessionId, message });
+  await client.call("harnix.send", { session_id: sessionId, message });
   try {
     return await client.waitFor(
-      (f) => f.method === "nest.turn_settled" && f.params.session_id === sessionId,
+      (f) => f.method === "harnix.turn_settled" && f.params.session_id === sessionId,
       { timeout, describe: `the turn "${message}" to settle` },
     );
   } catch {
@@ -56,7 +56,7 @@ export default {
   tests: {
     "a turn streams and settles": async ({ client }) => {
       const created = await client.call("session.create", {});
-      await client.call("nest.attach", { session_id: created.session_id });
+      await client.call("harnix.attach", { session_id: created.session_id });
 
       const settled = await turn(client, created.session_id,
         "Reply with exactly the word: ready. Nothing else.");
@@ -77,7 +77,7 @@ export default {
 
     "the transcript holds what was said": async ({ client }) => {
       const created = await client.call("session.create", {});
-      await client.call("nest.attach", { session_id: created.session_id });
+      await client.call("harnix.attach", { session_id: created.session_id });
       await turn(client, created.session_id, "Say the word: persisted.");
 
       // Polled, and that is not a workaround for a flake — it is the
@@ -109,20 +109,20 @@ export default {
       // Started by a client that then goes away entirely. `run_turn` belongs
       // to the hub, so this is a tab being closed, not a turn being cancelled.
       const starter = await connect(backend, { topology: client.topology });
-      await starter.call("nest.attach", { session_id: created.session_id });
-      await starter.call("nest.send",
+      await starter.call("harnix.attach", { session_id: created.session_id });
+      await starter.call("harnix.send",
         { session_id: created.session_id, message: "Count slowly to three, one word per line." });
-      await starter.waitFor((f) => f.method === "nest.event"
+      await starter.waitFor((f) => f.method === "harnix.event"
         && f.params.event.kind === "user_message", { describe: "the turn to start" });
       starter.close();
 
       // A different client, arriving after the tab closed, sees it finish.
       const watcher = await connect(backend, { topology: client.topology });
-      const attached = await watcher.call("nest.attach", { session_id: created.session_id });
+      const attached = await watcher.call("harnix.attach", { session_id: created.session_id });
       assert(attached.running_turn || attached.replay.length > 0,
         "the turn did not survive its client");
       await watcher.waitFor(
-        (f) => f.method === "nest.turn_settled" && f.params.session_id === created.session_id,
+        (f) => f.method === "harnix.turn_settled" && f.params.session_id === created.session_id,
         { timeout: 180_000, describe: "the orphaned turn to settle for a new watcher" },
       ).catch(() => inconclusive("the upstream never settled the orphaned turn"));
       watcher.close();
@@ -131,14 +131,14 @@ export default {
 
     "a second client catches up mid-turn and sees the same ending": async ({ backend, client }) => {
       const created = await client.call("session.create", {});
-      await client.call("nest.attach", { session_id: created.session_id });
-      await client.call("nest.send",
+      await client.call("harnix.attach", { session_id: created.session_id });
+      await client.call("harnix.send",
         { session_id: created.session_id, message: "Write three short sentences about rain." });
-      await client.waitFor((f) => f.method === "nest.event"
+      await client.waitFor((f) => f.method === "harnix.event"
         && f.params.event.kind === "text_delta", { timeout: 120_000, describe: "the model to start" });
 
       const late = await connect(backend, { topology: client.topology });
-      const attached = await late.call("nest.attach", { session_id: created.session_id });
+      const attached = await late.call("harnix.attach", { session_id: created.session_id });
       // Catching up happens entirely inside the hub's buffer. The engine
       // re-sends nothing, and mid-turn the transcript does not have it yet.
       if (!attached.replay.length) {
@@ -149,7 +149,7 @@ export default {
         // the turn being short, not the buffer being empty, so it is asked
         // rather than assumed.
         const over = client.events.some(
-          (f) => f.method === "nest.turn_settled" && f.params.session_id === created.session_id,
+          (f) => f.method === "harnix.turn_settled" && f.params.session_id === created.session_id,
         );
         if (over) {
           late.close();
@@ -160,7 +160,7 @@ export default {
       }
 
       await late.waitFor(
-        (f) => f.method === "nest.turn_settled" && f.params.session_id === created.session_id,
+        (f) => f.method === "harnix.turn_settled" && f.params.session_id === created.session_id,
         { timeout: 180_000, describe: "the late client to see the turn settle" })
         .catch(() => inconclusive("the upstream never settled the turn"));
       late.close();
@@ -172,29 +172,29 @@ export default {
       // file can reach a turn, and nothing checked that the second half of
       // that journey — grant, upload, then name it on the send — arrives.
       const created = await client.call("session.create", {});
-      await client.call("nest.attach", { session_id: created.session_id });
+      await client.call("harnix.attach", { session_id: created.session_id });
 
-      const grant = await client.call("nest.upload.begin",
+      const grant = await client.call("harnix.upload.begin",
         { name: "note.txt", bytes: 11 });
       const put = await fetch(`http://127.0.0.1:${client.backend.port}${grant.url}`,
-        { method: "POST", body: "nest-attach" });
+        { method: "POST", body: "harnix-attach" });
       assert(put.ok, `the upload was refused: ${put.status}`);
 
       const attachments = [{ kind: "file", path: grant.path, name: "note.txt" }];
-      await client.call("nest.send",
+      await client.call("harnix.send",
         { session_id: created.session_id, message: "What is in the attached file?", attachments });
 
       // The hub puts the user's own message into the stream — the engine
       // emits none — so what a second client sees is what the hub recorded.
       // If attachments were dropped on the way in, they are absent here.
       const own = await client.waitFor(
-        (f) => f.method === "nest.event"
+        (f) => f.method === "harnix.event"
           && f.params.session_id === created.session_id
           && f.params.event.kind === "user_message",
         { timeout: 30_000, describe: "the hub to echo the message" });
       assert(own.params.event.text.includes("attached file"), "the wrong message came back");
 
-      const queued = await client.call("nest.send", {
+      const queued = await client.call("harnix.send", {
         session_id: created.session_id,
         message: "and again",
         attachments,
@@ -214,26 +214,26 @@ export default {
 
     "a client that dies mid-turn does not take the turn with it":
       async ({ backend, client }) => {
-        // `nest.detach` is the polite exit and is covered. This is the other
+        // `harnix.detach` is the polite exit and is covered. This is the other
         // one: a tab closed, a laptop shut, a socket that simply stops. The
         // hub owns the turn, so it has to keep running and stay watchable by
         // whoever is still there.
         const created = await client.call("session.create", {});
-        await client.call("nest.attach", { session_id: created.session_id });
+        await client.call("harnix.attach", { session_id: created.session_id });
 
         const doomed = await connect(backend, { topology: client.topology });
-        await doomed.call("nest.attach", { session_id: created.session_id });
+        await doomed.call("harnix.attach", { session_id: created.session_id });
 
-        await client.call("nest.send",
+        await client.call("harnix.send",
           { session_id: created.session_id, message: "Write two sentences about tide pools." });
-        await client.waitFor((f) => f.method === "nest.event"
+        await client.waitFor((f) => f.method === "harnix.event"
           && f.params.event.kind === "text_delta",
           { timeout: 120_000, describe: "the model to start" });
 
         doomed.close();
 
         const settled = await client.waitFor(
-          (f) => f.method === "nest.turn_settled" && f.params.session_id === created.session_id,
+          (f) => f.method === "harnix.turn_settled" && f.params.session_id === created.session_id,
           { timeout: 180_000, describe: "the turn to settle after a watcher vanished" })
           .catch(() => null);
         if (!settled) inconclusive("the upstream never settled the turn");
@@ -248,10 +248,10 @@ export default {
 
     "a queued send runs after the one in front of it": async ({ client }) => {
       const created = await client.call("session.create", {});
-      await client.call("nest.attach", { session_id: created.session_id });
-      await client.call("nest.send",
+      await client.call("harnix.attach", { session_id: created.session_id });
+      await client.call("harnix.send",
         { session_id: created.session_id, message: "Say: first." });
-      const queued = await client.call("nest.send",
+      const queued = await client.call("harnix.send",
         { session_id: created.session_id, message: "Say: second.", on_busy: "queue" });
 
       if (queued.queued) {
@@ -260,7 +260,7 @@ export default {
         // — counting every settlement the client ever saw is how this test
         // used to pass on a count another test had already run up.
         const settled = () => client.events.filter(
-          (f) => f.method === "nest.turn_settled" && f.params.session_id === created.session_id,
+          (f) => f.method === "harnix.turn_settled" && f.params.session_id === created.session_id,
         ).length;
         for (let want = 1; want <= 2; want += 1) {
           try {
@@ -294,15 +294,15 @@ export default {
 
     "interrupting stops a running turn": async ({ client }) => {
       const created = await client.call("session.create", {});
-      await client.call("nest.attach", { session_id: created.session_id });
-      await client.call("nest.send",
+      await client.call("harnix.attach", { session_id: created.session_id });
+      await client.call("harnix.send",
         { session_id: created.session_id, message: "Write a long essay about the sea." });
-      await client.waitFor((f) => f.method === "nest.event"
+      await client.waitFor((f) => f.method === "harnix.event"
         && f.params.event.kind === "text_delta", { timeout: 120_000, describe: "the model to start" });
 
       await client.call("session.interrupt", { session_id: created.session_id });
       await client.waitFor(
-        (f) => f.method === "nest.turn_settled" && f.params.session_id === created.session_id,
+        (f) => f.method === "harnix.turn_settled" && f.params.session_id === created.session_id,
         { timeout: 120_000, describe: "the interrupted turn to settle" });
 
       // A cancelled turn writes no terminal marker — being interrupted is not
@@ -314,12 +314,12 @@ export default {
 
     "reopening a settled session reads it back from the transcript": async ({ backend, client }) => {
       const created = await client.call("session.create", {});
-      await client.call("nest.attach", { session_id: created.session_id });
+      await client.call("harnix.attach", { session_id: created.session_id });
       await turn(client, created.session_id, "Say the word: remembered.");
       await client.call("session.close", { session_id: created.session_id });
 
       const fresh = await connect(backend, { topology: client.topology });
-      const attached = await fresh.call("nest.attach", { session_id: created.session_id });
+      const attached = await fresh.call("harnix.attach", { session_id: created.session_id });
       assert(attached.history_total >= 2, `history_total is ${attached.history_total}`);
       // History holds it, so the buffer must not also — a settled turn that
       // is in both is a turn rendered twice.

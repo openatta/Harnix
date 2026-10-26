@@ -20,70 +20,71 @@ edition = "2021"
 rust-version = "1.87"
 license = "Apache-2.0"
 publish = false
-authors = ["Nest contributors"]
+authors = ["Harnix contributors"]
 
 # ──────────────────────────────────────────────
-# Nest's own crates
+# Harnix's own crates
 #
 # The dependency direction is one-way and each layer is ignorant of the one
 # above it; `tests/layering.rs` asserts it rather than leaving it to review.
 #
 #   app ─→ transport ─→ authz ─┐
 #     └───→ builtin ──→ hub ────┴─→ contract        (pure types, no deps)
-#                        └────→ assembly → AttaCore
+#                        └────→ assembly → Agix
 #                        └────→ contrib ← plugin
 # ──────────────────────────────────────────────
 [workspace.dependencies]
-nest-assembly  = { path = "crates/assembly" }
-nest-authz     = { path = "crates/authz" }
-nest-builtin   = { path = "crates/builtin" }
-nest-contract  = { path = "crates/contract" }
-nest-contrib   = { path = "crates/contrib" }
-nest-hub       = { path = "crates/hub" }
-nest-transport = { path = "crates/transport" }
+harnix-assembly  = { path = "crates/assembly" }
+harnix-authz     = { path = "crates/authz" }
+harnix-builtin   = { path = "crates/builtin" }
+harnix-contract  = { path = "crates/contract" }
+harnix-contrib   = { path = "crates/contrib" }
+harnix-hub       = { path = "crates/hub" }
+harnix-transport = { path = "crates/transport" }
 
 # ──────────────────────────────────────────────
-# AttaCore (submodule at core/)
+# Agix (submodule at agix/)
 #
 # The engine is linked in-process, so its crates are absorbed as members of
 # *this* workspace and their `xxx = { workspace = true }` resolves against the
-# table below — which therefore mirrors AttaCore's own. AttaCore adding a
+# table below — which therefore mirrors Agix's own. Agix adding a
 # dependency means adding it here too.
 #
 # `daemon` keeps its default features: the default is the QuickJS script
 # carrier (~1 MB), and the plugin carrier (wasmtime, ~20 MB) is deliberately
 # not built. The two are mutually exclusive upstream — `daemon/src/lib.rs`
 # refuses a build carrying both — so this is a choice, not an omission.
-# Extension execution is AttaCore's; Nest links no interpreter of its own.
+# Extension execution is Agix's; Harnix links no interpreter of its own.
 # ──────────────────────────────────────────────
-daemon      = { path = "core/daemon" }
-base        = { path = "core/crates/core" }
-model       = { path = "core/crates/model" }
-auth        = { path = "core/crates/auth" }
-hooks       = { path = "core/crates/hooks" }
-plugin      = { path = "core/crates/plugin" }
-plugin-host = { path = "core/crates/plugin-host", default-features = false }
-wasm-host   = { path = "core/crates/wasm-host", default-features = false }
-script-host = { path = "core/crates/script-host" }
-telemetry   = { path = "core/crates/telemetry" }
-history     = { path = "core/crates/history" }
-permissions = { path = "core/crates/permissions" }
-mcp         = { path = "core/crates/mcp" }
-tools       = { path = "core/crates/tools" }
-skills      = { path = "core/crates/skills" }
-runtime     = { path = "core/crates/runtime" }
-compaction  = { path = "core/crates/compaction" }
-session     = { path = "core/crates/session" }
-scene       = { path = "core/crates/scene" }
-team        = { path = "core/crates/team" }
-task        = { path = "core/crates/task" }
+daemon      = { path = "agix/daemon" }
+base        = { path = "agix/crates/core" }
+model       = { path = "agix/crates/model" }
+auth        = { path = "agix/crates/auth" }
+hooks       = { path = "agix/crates/hooks" }
+plugin      = { path = "agix/crates/plugin" }
+plugin-host = { path = "agix/crates/plugin-host", default-features = false }
+wasm-host   = { path = "agix/crates/wasm-host", default-features = false }
+script-host = { path = "agix/crates/script-host" }
+telemetry   = { path = "agix/crates/telemetry" }
+history     = { path = "agix/crates/history" }
+permissions = { path = "agix/crates/permissions" }
+mcp         = { path = "agix/crates/mcp" }
+tools       = { path = "agix/crates/tools" }
+skills      = { path = "agix/crates/skills" }
+runtime     = { path = "agix/crates/runtime" }
+compaction  = { path = "agix/crates/compaction" }
+session     = { path = "agix/crates/session" }
+scene       = { path = "agix/crates/scene" }
+team        = { path = "agix/crates/team" }
+task        = { path = "agix/crates/task" }
 
 # ──────────────────────────────────────────────
-# Third-party — mirrors AttaCore's table (see above).
+# Third-party — mirrors Agix's table (see above).
 # ──────────────────────────────────────────────
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["full"] }
+process-wrap = { version = "9", default-features = false, features = ["tokio1", "process-group", "kill-on-drop"] }
 tokio-stream = "0.1"
 futures = "0.3"
 async-trait = "0.1"
@@ -152,7 +153,7 @@ clap = { version = "4", features = ["derive"] }
 tempfile = "3"
 notify = "6"
 
-# Mirrors AttaCore's release profile — see its Cargo.toml for why `panic`
+# Mirrors Agix's release profile — see its Cargo.toml for why `panic`
 # stays `unwind` and `lto` stays `thin`. The binary-size budget in
 # docs/concept_and_architecture.md §7.2 is measured against this profile.
 [profile.release]

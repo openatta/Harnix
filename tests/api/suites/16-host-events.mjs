@@ -47,9 +47,9 @@ function seedFailingMcp(scratch) {
 /** Host events already delivered, plus any that arrive within `timeout`. */
 async function hostEvents(client, match, timeout = 20_000) {
   const seen = () => client.events.filter(
-    (f) => f.method === "nest.host_event" && (!match || match(f)));
+    (f) => f.method === "harnix.host_event" && (!match || match(f)));
   if (seen().length) return seen();
-  await client.waitFor((f) => f.method === "nest.host_event" && (!match || match(f)),
+  await client.waitFor((f) => f.method === "harnix.host_event" && (!match || match(f)),
     { timeout, describe: "a host event" }).catch(() => {});
   return seen();
 }
@@ -123,10 +123,10 @@ export default {
           const client = await connect(backend, { topology });
           const found = await hostEvents(client, (f) => f.params?.kind === "mcp_connect_failed");
           assert(found.length, "no host event arrived on split streams");
-          // `nest.event` is the session face's method. A host event wearing
+          // `harnix.event` is the session face's method. A host event wearing
           // that method would have come down the wrong stream.
           const misrouted = client.events.filter(
-            (f) => f.method === "nest.event" && f.params?.kind === "mcp_connect_failed");
+            (f) => f.method === "harnix.event" && f.params?.kind === "mcp_connect_failed");
           assert(!misrouted.length, "a host event arrived as a session event");
           client.close();
         } finally {
@@ -146,7 +146,7 @@ export default {
         // process-level facts, and the engine's own status call is where one
         // would naturally live.
         //
-        // Filed against AttaCore. When `mcp.status` reports servers that
+        // Filed against Agix. When `mcp.status` reports servers that
         // failed, this test should assert the row rather than its absence.
         const backend = await startBackend({
           port: PORT + 3,
@@ -164,7 +164,7 @@ export default {
           const { servers } = await late.call("mcp.status");
           assert(!servers.some((s) => s.name === SERVER),
             "mcp.status now reports the failed server — good; assert the row instead of this");
-          const missed = late.events.filter((f) => f.method === "nest.host_event");
+          const missed = late.events.filter((f) => f.method === "harnix.host_event");
           assert(!missed.length, "host events are replayed to late clients — assert that instead");
           witness.close();
           late.close();

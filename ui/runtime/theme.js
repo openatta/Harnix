@@ -1,7 +1,7 @@
 /** Light/dark: stored preference first, OS second, and a `<meta
  *  name="theme-color">` so the browser chrome follows the page. */
 
-const KEY = "nest.theme";
+const KEY = "harnix.theme";
 
 export function initTheme() {
   apply(stored() || (prefersDark() ? "dark" : "light"));

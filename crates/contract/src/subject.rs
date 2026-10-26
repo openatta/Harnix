@@ -1,7 +1,7 @@
 //! Who is calling.
 //!
 //! Two subjects, and only two. Installed code is **not** one of them: an
-//! extension runs inside AttaCore, under AttaCore's capability gate, and
+//! extension runs inside Agix, under Agix's capability gate, and
 //! never reaches this process's method surface. A `Plugin` variant here would
 //! be a second place deciding what an extension may do (§4.1).
 
@@ -26,4 +26,3 @@ impl Subject {
         }
     }
 }
-

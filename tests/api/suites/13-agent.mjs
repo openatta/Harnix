@@ -22,13 +22,13 @@ async function replaying(client, fixture, message) {
     project_root: process.cwd(),
     options: { recorder: { name: fixture } },
   });
-  await client.call("nest.attach", { session_id: created.session_id });
-  await client.call("nest.send", { session_id: created.session_id, message });
+  await client.call("harnix.attach", { session_id: created.session_id });
+  await client.call("harnix.send", { session_id: created.session_id, message });
   return created.session_id;
 }
 
 const settled = (client, sessionId) => client.waitFor(
-  (f) => f.method === "nest.turn_settled" && f.params.session_id === sessionId,
+  (f) => f.method === "harnix.turn_settled" && f.params.session_id === sessionId,
   { timeout: 60_000, describe: "the replayed turn to settle" },
 );
 
@@ -58,7 +58,7 @@ export default {
     "a tool call arrives as a tool_use with its input": async ({ client }) => {
       const session = await replaying(
         client, "calls-a-tool",
-        "Use the Bash tool right now to run exactly: echo nest-fixture. "
+        "Use the Bash tool right now to run exactly: echo harnix-fixture. "
         + "Call the tool. Do not answer in prose.");
       await settled(client, session);
 
@@ -74,7 +74,7 @@ export default {
     "every tool_result pairs to a tool_use by id": async ({ client }) => {
       const session = await replaying(
         client, "calls-a-tool",
-        "Use the Bash tool right now to run exactly: echo nest-fixture. "
+        "Use the Bash tool right now to run exactly: echo harnix-fixture. "
         + "Call the tool. Do not answer in prose.");
       await settled(client, session);
 
@@ -93,7 +93,7 @@ export default {
     "the turn reports what it spent": async ({ client }) => {
       const session = await replaying(
         client, "calls-a-tool",
-        "Use the Bash tool right now to run exactly: echo nest-fixture. "
+        "Use the Bash tool right now to run exactly: echo harnix-fixture. "
         + "Call the tool. Do not answer in prose.");
       await settled(client, session);
       const complete = client.eventsOfKind("turn_complete", session);
@@ -121,12 +121,12 @@ export default {
         const second = await connect(backend, { topology: client.topology });
         const session = await replaying(
           client, "asks-permission",
-          "Use the Bash tool right now to run exactly: rm -f /tmp/nest-fixture-probe. "
+          "Use the Bash tool right now to run exactly: rm -f /tmp/harnix-fixture-probe. "
           + "Call the tool. Do not answer in prose.");
-        await second.call("nest.attach", { session_id: session });
+        await second.call("harnix.attach", { session_id: session });
 
         const ask = await client.waitFor(
-          (f) => f.method === "nest.event" && f.params.session_id === session
+          (f) => f.method === "harnix.event" && f.params.session_id === session
             && f.params.event.kind === "prompt",
           { timeout: 60_000, describe: "the recorded permission ask" });
 
@@ -137,7 +137,7 @@ export default {
 
         // Broadcast: the second client was asked too, without asking for it.
         await second.waitFor(
-          (f) => f.method === "nest.event" && f.params.event.kind === "prompt"
+          (f) => f.method === "harnix.event" && f.params.event.kind === "prompt"
             && f.params.event.prompt_id === prompt.prompt_id,
           { timeout: 15_000, describe: "the second client to be asked as well" });
 
@@ -159,16 +159,16 @@ export default {
     "a client arriving mid-ask is told what is waiting": async ({ backend, client }) => {
       const session = await replaying(
         client, "asks-permission",
-        "Use the Bash tool right now to run exactly: rm -f /tmp/nest-fixture-probe. "
+        "Use the Bash tool right now to run exactly: rm -f /tmp/harnix-fixture-probe. "
         + "Call the tool. Do not answer in prose.");
       const ask = await client.waitFor(
-        (f) => f.method === "nest.event" && f.params.event.kind === "prompt",
+        (f) => f.method === "harnix.event" && f.params.event.kind === "prompt",
         { timeout: 60_000, describe: "the recorded permission ask" });
 
       // Without this a session looks stuck while it walks towards a silent
       // refusal — the engine denies an unanswered ask after its timeout.
       const late = await connect(backend, { topology: client.topology });
-      const attached = await late.call("nest.attach", { session_id: session });
+      const attached = await late.call("harnix.attach", { session_id: session });
       assert(attached.pending_prompts.length >= 1, "a late client was not told what is waiting");
       assert(
         attached.pending_prompts.some((p) => p.prompt_id === ask.params.event.prompt_id),
@@ -187,10 +187,10 @@ export default {
     "denying is answered and the turn still ends": async ({ client }) => {
       const session = await replaying(
         client, "asks-permission",
-        "Use the Bash tool right now to run exactly: rm -f /tmp/nest-fixture-probe. "
+        "Use the Bash tool right now to run exactly: rm -f /tmp/harnix-fixture-probe. "
         + "Call the tool. Do not answer in prose.");
       const ask = await client.waitFor(
-        (f) => f.method === "nest.event" && f.params.event.kind === "prompt",
+        (f) => f.method === "harnix.event" && f.params.event.kind === "prompt",
         { timeout: 60_000, describe: "the recorded permission ask" });
       await client.call("session.respondToPrompt", {
         session_id: session,
@@ -217,10 +217,10 @@ export default {
         if (!replay) inconclusive("live model: covered by 11-recordings instead");
         const session = await replaying(
           client, "calls-a-tool",
-          "Use the Bash tool right now to run exactly: echo nest-fixture. "
+          "Use the Bash tool right now to run exactly: echo harnix-fixture. "
           + "Call the tool. Do not answer in prose.");
         await settled(client, session);
-        const result = await client.call("nest.requestHeaders", { session_id: session });
+        const result = await client.call("harnix.requestHeaders", { session_id: session });
         const headers = result.headers ?? [];
         assert(headers.length === 0, `a replaying session produced ${headers.length} envelopes`);
         await finish(client, session);

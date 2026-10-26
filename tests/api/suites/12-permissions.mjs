@@ -37,10 +37,10 @@ export default {
       if (!created) inconclusive("no coding scene in this build, so no tool to ask about");
 
       const second = await connect(backend, { topology: client.topology });
-      await client.call("nest.attach", { session_id: created.session_id });
-      await second.call("nest.attach", { session_id: created.session_id });
+      await client.call("harnix.attach", { session_id: created.session_id });
+      await second.call("harnix.attach", { session_id: created.session_id });
 
-      await client.call("nest.send", {
+      await client.call("harnix.send", {
         session_id: created.session_id,
         // Direct, and asking for the tool by name. A model that answers in
         // prose instead is not a failure of the permission path, and the
@@ -52,7 +52,7 @@ export default {
       let ask = null;
       try {
         ask = await client.waitFor(
-          (f) => f.method === "nest.event"
+          (f) => f.method === "harnix.event"
             && f.params.session_id === created.session_id
             && f.params.event.kind === "prompt",
           { timeout: 90_000, describe: "a permission ask" });
@@ -71,7 +71,7 @@ export default {
 
       // Broadcast: the other client saw it too, without asking for it.
       await second.waitFor(
-        (f) => f.method === "nest.event" && f.params.event.kind === "prompt"
+        (f) => f.method === "harnix.event" && f.params.event.kind === "prompt"
           && f.params.event.prompt_id === prompt.prompt_id,
         { timeout: 10_000, describe: "the second client to be asked as well" });
 
@@ -97,8 +97,8 @@ export default {
       }).catch(() => null);
       if (!created) inconclusive("no coding scene in this build, so no tool to ask about");
 
-      await client.call("nest.attach", { session_id: created.session_id });
-      await client.call("nest.send", {
+      await client.call("harnix.attach", { session_id: created.session_id });
+      await client.call("harnix.send", {
         session_id: created.session_id,
         message: "Use the Bash tool to run: echo late-watcher\n"
           + "Do this now. Do not describe it, do not ask, just call the tool.",
@@ -107,7 +107,7 @@ export default {
       let ask = null;
       try {
         ask = await client.waitFor(
-          (f) => f.method === "nest.event" && f.params.event.kind === "prompt",
+          (f) => f.method === "harnix.event" && f.params.event.kind === "prompt",
           { timeout: 90_000, describe: "a permission ask" });
       } catch {
         await finish(client, created.session_id);
@@ -117,7 +117,7 @@ export default {
       // A client opening the session now has to be told what is waiting, or
       // the session looks stuck while it walks towards a silent refusal.
       const late = await connect(backend, { topology: client.topology });
-      const attached = await late.call("nest.attach", { session_id: created.session_id });
+      const attached = await late.call("harnix.attach", { session_id: created.session_id });
       assert(attached.pending_prompts.length >= 1,
         "a late client was not told about the unanswered ask");
       assert(attached.pending_prompts.some((p) => p.prompt_id === ask.params.event.prompt_id),

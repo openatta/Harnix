@@ -43,8 +43,8 @@ done
 PORT_UI=4360
 PORT_TLS=4361
 
-CRATES=(-p nest -p nest-assembly -p nest-authz -p nest-builtin
-        -p nest-contract -p nest-contrib -p nest-hub -p nest-transport)
+CRATES=(-p harnix -p harnix-assembly -p harnix-authz -p harnix-builtin
+        -p harnix-contract -p harnix-contrib -p harnix-hub -p harnix-transport)
 
 scratch="$(mktemp -d)"
 backend_pid=""
@@ -90,11 +90,11 @@ has_model() { [ -f .env ] && grep -qE '^\s*(export\s+)?ANTHROPIC_(API_KEY|AUTH_T
 has_chromium() { npx playwright --version >/dev/null 2>&1 && [ -d "$HOME/Library/Caches/ms-playwright" -o -d "$HOME/.cache/ms-playwright" ]; }
 
 # ── the layers ────────────────────────────────────────────────────────────
-run_build()   { cargo build --release -p nest; }
+run_build()   { cargo build --release -p harnix; }
 run_rust()    { cargo test "${CRATES[@]}"; }
-# `--no-deps` matters: without it `-D warnings` is applied to the AttaCore
+# `--no-deps` matters: without it `-D warnings` is applied to the Agix
 # submodule too, and this script goes red for lints in code this repository
-# does not own. Nest's own crates are held to zero warnings.
+# does not own. Harnix's own crates are held to zero warnings.
 run_clippy()  { cargo clippy "${CRATES[@]}" --all-targets --no-deps -- -D warnings; }
 
 run_offline() {
@@ -138,8 +138,8 @@ host = "127.0.0.1"
 port = $PORT_UI
 EOF
   set -a; . ./.env; set +a
-  target/release/nest --profile "$scratch/profile.toml" --scenes chat \
-    --ui-dir ui --atta-dir "$scratch/atta" --data-dir "$scratch/projects" \
+  target/release/harnix --profile "$scratch/profile.toml" --scenes chat \
+    --ui-dir ui --agix-dir "$scratch/atta" --data-dir "$scratch/projects" \
     > "$scratch/backend.log" 2>&1 &
   backend_pid=$!
   for _ in $(seq 200); do
@@ -151,7 +151,7 @@ EOF
 
 run_interface() {
   start_backend || return 1
-  local token; token="$(cat "$scratch/projects/.nest/token")"
+  local token; token="$(cat "$scratch/projects/.harnix/token")"
   echo "── topology-parity ──"; node tests/topology-parity.mjs "$PORT_UI" "$token" || return 1
   echo "── tool-smoke ──";      node tests/tool-smoke.mjs "$PORT_UI" "$token" || return 1
   echo "── ui-smoke ──";        node tests/ui-smoke.mjs "$PORT_UI" "$token" || return 1
@@ -172,9 +172,9 @@ host = "0.0.0.0"
 port = $PORT_TLS
 EOF
   set -a; . ./.env; set +a
-  target/release/nest --profile "$scratch/remote.toml" \
+  target/release/harnix --profile "$scratch/remote.toml" \
     --tls-cert "$scratch/cert.pem" --tls-key "$scratch/key.pem" \
-    --ui-dir ui --atta-dir "$scratch/remote-atta" --data-dir "$scratch/remote-projects" \
+    --ui-dir ui --agix-dir "$scratch/remote-atta" --data-dir "$scratch/remote-projects" \
     > "$scratch/remote.log" 2>&1 &
   backend_pid=$!
   for _ in $(seq 200); do
@@ -186,7 +186,7 @@ EOF
   # admission".
   local code token
   code="$(grep -oE 'pairing code → [A-Z0-9]+' "$scratch/remote.log" | sed 's/.*→ //')"
-  token="$(cat "$scratch/remote-projects/.nest/token")"
+  token="$(cat "$scratch/remote-projects/.harnix/token")"
   [ -n "$code" ] || { echo "no pairing code was printed"; cat "$scratch/remote.log"; return 1; }
   NODE_TLS_REJECT_UNAUTHORIZED=0 node tests/remote-smoke.mjs "$PORT_TLS" "$token" "$code" || return 1
   kill "$backend_pid" 2>/dev/null; backend_pid=""
@@ -197,7 +197,7 @@ EOF
 run_budget() { node tests/budget.mjs; }
 
 # ── run ───────────────────────────────────────────────────────────────────
-bold "Nest — every layer"
+bold "Harnix — every layer"
 echo
 
 layer build  run_build

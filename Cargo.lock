@@ -1383,6 +1383,146 @@ dependencies = [
 ]
 
 [[package]]
+name = "harnix"
+version = "0.3.1-2026102501"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base",
+ "clap",
+ "harnix-assembly",
+ "harnix-authz",
+ "harnix-builtin",
+ "harnix-contract",
+ "harnix-contrib",
+ "harnix-hub",
+ "harnix-transport",
+ "history",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "harnix-assembly"
+version = "0.3.1-2026102501"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base",
+ "daemon",
+ "harnix-contract",
+ "history",
+ "model",
+ "reqwest 0.12.28",
+ "scene",
+ "serde",
+ "serde_json",
+ "tokio-util",
+ "toml",
+ "tracing",
+]
+
+[[package]]
+name = "harnix-authz"
+version = "0.3.1-2026102501"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "harnix-contract",
+ "hex",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tracing",
+]
+
+[[package]]
+name = "harnix-builtin"
+version = "0.3.1-2026102501"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base",
+ "harnix-contract",
+ "harnix-contrib",
+ "harnix-hub",
+ "harnix-transport",
+ "history",
+ "ignore",
+ "serde",
+ "serde_json",
+ "telemetry",
+ "tempfile",
+ "tokio",
+ "toml",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "harnix-contract"
+version = "0.3.1-2026102501"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "harnix-contrib"
+version = "0.3.1-2026102501"
+dependencies = [
+ "async-trait",
+ "harnix-contract",
+ "serde_json",
+]
+
+[[package]]
+name = "harnix-hub"
+version = "0.3.1-2026102501"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "daemon",
+ "harnix-assembly",
+ "harnix-contract",
+ "harnix-contrib",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "harnix-transport"
+version = "0.3.1-2026102501"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum 0.8.9",
+ "axum-server",
+ "base64 0.22.1",
+ "bytes",
+ "futures",
+ "harnix-authz",
+ "harnix-contract",
+ "harnix-hub",
+ "include_dir",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1450,11 +1590,13 @@ dependencies = [
  "base",
  "futures",
  "globset",
+ "libc",
  "notify",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
  "tokio",
+ "tokio-util",
  "tracing",
 ]
 
@@ -2079,6 +2221,7 @@ dependencies = [
  "base",
  "futures",
  "globset",
+ "process-wrap",
  "reqwest 0.12.28",
  "rmcp",
  "schemars",
@@ -2179,146 +2322,6 @@ dependencies = [
  "tokio-util",
  "tracing",
  "url",
- "uuid",
-]
-
-[[package]]
-name = "nest"
-version = "0.3.1-2026102501"
-dependencies = [
- "anyhow",
- "async-trait",
- "base",
- "clap",
- "history",
- "nest-assembly",
- "nest-authz",
- "nest-builtin",
- "nest-contract",
- "nest-contrib",
- "nest-hub",
- "nest-transport",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "nest-assembly"
-version = "0.3.1-2026102501"
-dependencies = [
- "anyhow",
- "async-trait",
- "base",
- "daemon",
- "history",
- "model",
- "nest-contract",
- "reqwest 0.12.28",
- "scene",
- "serde",
- "serde_json",
- "tokio-util",
- "toml",
- "tracing",
-]
-
-[[package]]
-name = "nest-authz"
-version = "0.3.1-2026102501"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "hex",
- "nest-contract",
- "ring",
- "serde",
- "serde_json",
- "sha2",
- "tracing",
-]
-
-[[package]]
-name = "nest-builtin"
-version = "0.3.1-2026102501"
-dependencies = [
- "anyhow",
- "async-trait",
- "base",
- "history",
- "ignore",
- "nest-contract",
- "nest-contrib",
- "nest-hub",
- "nest-transport",
- "serde",
- "serde_json",
- "telemetry",
- "tempfile",
- "tokio",
- "toml",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "nest-contract"
-version = "0.3.1-2026102501"
-dependencies = [
- "async-trait",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "nest-contrib"
-version = "0.3.1-2026102501"
-dependencies = [
- "async-trait",
- "nest-contract",
- "serde_json",
-]
-
-[[package]]
-name = "nest-hub"
-version = "0.3.1-2026102501"
-dependencies = [
- "anyhow",
- "async-trait",
- "daemon",
- "nest-assembly",
- "nest-contract",
- "nest-contrib",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "nest-transport"
-version = "0.3.1-2026102501"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum 0.8.9",
- "axum-server",
- "base64 0.22.1",
- "bytes",
- "futures",
- "include_dir",
- "nest-authz",
- "nest-contract",
- "nest-hub",
- "rustls",
- "serde",
- "serde_json",
- "tokio",
- "tokio-stream",
- "tracing",
  "uuid",
 ]
 
@@ -4212,6 +4215,8 @@ dependencies = [
  "globset",
  "html2text",
  "ignore",
+ "jsonschema",
+ "libc",
  "mcp",
  "model",
  "permissions",

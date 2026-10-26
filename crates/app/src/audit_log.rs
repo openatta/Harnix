@@ -1,11 +1,11 @@
 //! Where an audit entry ends up.
 //!
-//! `nest_authz::Audit` keeps a bounded ring so the diagnostics page can show
+//! `harnix_authz::Audit` keeps a bounded ring so the diagnostics page can show
 //! recent decisions, and a ring dies with the process. §6.5 asks for
 //! something else: decisions written into the **session timeline**, in order
 //! with every other entry, surviving load, fork and resume.
 //!
-//! AttaCore already has exactly that seam, and reusing it rather than
+//! Agix already has exactly that seam, and reusing it rather than
 //! building a second log buys one specific thing: **an unknown namespace is
 //! inert, never an error.** The kernel never parses an extension entry's
 //! payload, so a session whose log contains entries from something that is no
@@ -23,14 +23,14 @@
 
 use std::sync::Arc;
 
+use harnix_authz::{AuditEntry, AuditSink};
 use history::entry::LogEntry;
 use history::store::HistoryStore;
-use nest_authz::{AuditEntry, AuditSink};
 
 /// The namespace these entries are filed under. One key, opaque to the
 /// engine, and the thing that makes them skippable by anything that does not
 /// know what they are.
-const NS: &str = "nest.audit";
+const NS: &str = "harnix.audit";
 
 pub struct TimelineAudit {
     store: Arc<dyn HistoryStore>,
@@ -48,7 +48,10 @@ pub struct TimelineAudit {
 
 impl TimelineAudit {
     pub fn new(store: Arc<dyn HistoryStore>) -> Self {
-        Self { store, handle: tokio::runtime::Handle::current() }
+        Self {
+            store,
+            handle: tokio::runtime::Handle::current(),
+        }
     }
 }
 
@@ -61,7 +64,10 @@ impl AuditSink for TimelineAudit {
         // A session id that does not parse is one that was never real — a
         // typo in a call that was refused, most likely. There is nowhere to
         // file that, and inventing somewhere would be worse than the ring.
-        let Some(session) = entry.session.as_deref().and_then(|s| base::session::SessionId::parse(s).ok())
+        let Some(session) = entry
+            .session
+            .as_deref()
+            .and_then(|s| base::session::SessionId::parse(s).ok())
         else {
             return;
         };
@@ -90,18 +96,18 @@ impl AuditSink for TimelineAudit {
 fn is_consequential(method: &str) -> bool {
     matches!(
         method,
-        "nest.plugins.install"
-            | "nest.plugins.uninstall"
-            | "nest.plugins.enable"
-            | "nest.plugins.disable"
+        "harnix.plugins.install"
+            | "harnix.plugins.uninstall"
+            | "harnix.plugins.enable"
+            | "harnix.plugins.disable"
             // Picks up whatever is in the directory now, including a package
             // put there by hand — so it can change the active set without any
             // other call having been made.
-            | "nest.plugins.reload"
-            | "nest.devices.pair.complete"
-            | "nest.devices.revoke"
-            | "nest.settings.set"
-            | "nest.settings.setProvider"
+            | "harnix.plugins.reload"
+            | "harnix.devices.pair.complete"
+            | "harnix.devices.revoke"
+            | "harnix.settings.set"
+            | "harnix.settings.setProvider"
             | "session.delete"
     )
 }
@@ -114,9 +120,9 @@ mod tests {
     /// line, a routine allow never is.
     #[test]
     fn only_consequential_allows_are_written() {
-        assert!(is_consequential("nest.devices.revoke"));
-        assert!(is_consequential("nest.plugins.install"));
-        assert!(!is_consequential("nest.sessions"));
+        assert!(is_consequential("harnix.devices.revoke"));
+        assert!(is_consequential("harnix.plugins.install"));
+        assert!(!is_consequential("harnix.sessions"));
         assert!(!is_consequential("session.history"));
     }
 
@@ -124,24 +130,35 @@ mod tests {
     ///
     /// This list had drifted the other way: it still named the engine's
     /// `plugin.*`, which stopped being reachable when the lifecycle moved
-    /// behind `nest.plugins.*`, and three of the four replacements were
+    /// behind `harnix.plugins.*`, and three of the four replacements were
     /// missing — so disabling and uninstalling a package left no trace.
     #[test]
     fn the_whole_extension_lifecycle_is_audited() {
-        for method in nest_builtin::METHODS {
-            // The lifecycle is exactly the `nest.plugins.*` calls that change
+        for method in harnix_builtin::METHODS {
+            // The lifecycle is exactly the `harnix.plugins.*` calls that change
             // what is installed; `upload` hands over a file and `list` reads.
-            if !method.starts_with("nest.plugins.")
-                || matches!(*method, "nest.plugins.upload" | "nest.plugins.list")
+            if !method.starts_with("harnix.plugins.")
+                || matches!(*method, "harnix.plugins.upload" | "harnix.plugins.list")
             {
                 continue;
             }
-            assert!(is_consequential(method), "{method} changes what is installed and is not audited");
+            assert!(
+                is_consequential(method),
+                "{method} changes what is installed and is not audited"
+            );
         }
         // And nothing in the list is a name a client can no longer reach:
         // an audit rule for an unreachable method is a rule that never fires.
-        for stale in ["plugin.install", "plugin.uninstall", "plugin.enable", "plugin.disable"] {
-            assert!(!is_consequential(stale), "{stale} is audited but not reachable");
+        for stale in [
+            "plugin.install",
+            "plugin.uninstall",
+            "plugin.enable",
+            "plugin.disable",
+        ] {
+            assert!(
+                !is_consequential(stale),
+                "{stale} is audited but not reachable"
+            );
         }
     }
 }

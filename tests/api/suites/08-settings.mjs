@@ -2,7 +2,7 @@
 //
 // The engine memoizes resolved settings per (project, scene) and only
 // refreshes its own pair on reload, so the effective value it reports can lag
-// a write. Nest computes the tiers itself and hands back the engine's answer
+// a write. Harnix computes the tiers itself and hands back the engine's answer
 // alongside — so when they disagree, the interface can say so instead of
 // showing one of them and being wrong half the time.
 
@@ -12,7 +12,7 @@ const assert = (cond, message) => { if (!cond) throw new Error(message); };
 export default {
   tests: {
     "settings describe their tiers": async ({ client }) => {
-      const described = await client.call("nest.settings.describe", {});
+      const described = await client.call("harnix.settings.describe", {});
       assert(described, "nothing described");
       const asJson = JSON.stringify(described);
       assert(/global|local|project|effective/.test(asJson), "no tiers in the description");
@@ -20,17 +20,17 @@ export default {
 
     "a write lands in the tier it was aimed at": async ({ client }) => {
       const key = "model.max_tokens";
-      const before = await client.call("nest.settings.describe", {});
-      await client.call("nest.settings.set", { tier: "global", key, value: 4321 });
-      const after = await client.call("nest.settings.describe", {});
+      const before = await client.call("harnix.settings.describe", {});
+      await client.call("harnix.settings.set", { tier: "global", key, value: 4321 });
+      const after = await client.call("harnix.settings.describe", {});
       assert(JSON.stringify(after) !== JSON.stringify(before), "the write changed nothing");
       // Null gives a setting back to the tier below it, rather than pinning a
       // default that then cannot be un-pinned.
-      await client.call("nest.settings.set", { tier: "global", key, value: null });
+      await client.call("harnix.settings.set", { tier: "global", key, value: null });
     },
 
     "an unknown tier is refused rather than guessed": async ({ client }) => {
-      const e = await client.refused("nest.settings.set",
+      const e = await client.refused("harnix.settings.set",
         { tier: "nonsense", key: "model.model_name", value: "x" });
       assert(e, "an unknown tier was accepted");
     },
@@ -39,20 +39,20 @@ export default {
       // The editable set is a list, not "anything in the file": a settings
       // page that could write arbitrary keys is a JSON editor with extra
       // steps, and a typo would silently create a setting nothing reads.
-      const e = await client.refused("nest.settings.set",
+      const e = await client.refused("harnix.settings.set",
         { tier: "global", key: "make.believe", value: 1 });
       assert(e, "an unknown key was written");
       assert(/editable/.test(e.message), `says "${e.message}"`);
     },
 
     "a value of the wrong shape is refused": async ({ client }) => {
-      const e = await client.refused("nest.settings.set",
+      const e = await client.refused("harnix.settings.set",
         { tier: "global", key: "model.max_tokens", value: "not a number" });
       assert(e, "a count accepted a string");
     },
 
     "providers can be read back": async ({ client }) => {
-      const described = await client.call("nest.settings.describe", { section: "providers" })
+      const described = await client.call("harnix.settings.describe", { section: "providers" })
         .catch(() => null);
       assert(described !== undefined, "providers could not be described");
     },
@@ -63,7 +63,7 @@ export default {
       // where it is a deliberate, audited method rather than a passthrough.
       const direct = await client.refused("config.setProvider", {});
       assert(direct && direct.code === REFUSED, "config.setProvider is not refused");
-      const e = await client.refused("nest.settings.setProvider", {});
+      const e = await client.refused("harnix.settings.setProvider", {});
       // Refused for want of arguments, not for want of permission.
       if (e) assert(e.code !== REFUSED, `refused as unauthorized: ${e.message}`);
     },

@@ -1,4 +1,4 @@
-[submodule "core"]
-	path = core
-	url = https://github.com/openatta/AttaCore.git
+[submodule "agix"]
+	path = agix
+	url = https://github.com/openatta/agix.git
 	branch = main

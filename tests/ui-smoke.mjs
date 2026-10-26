@@ -11,7 +11,7 @@
 // creating in an inactive scene is refused, and every assertion after the
 // create then fails for a reason that has nothing to do with what broke.
 //
-//   nest --scenes chat …
+//   harnix --scenes chat …
 //   node tests/ui-smoke.mjs <port> <token>
 
 import { loadApp } from "./dom.mjs";

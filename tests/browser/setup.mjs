@@ -15,12 +15,12 @@ const root = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const PORT = 4287;
 
 export default async function setup() {
-  const binary = join(root, "target", "release", "nest");
+  const binary = join(root, "target", "release", "harnix");
   if (!existsSync(binary)) {
-    execFileSync("cargo", ["build", "--release", "-p", "nest"], { cwd: root, stdio: "inherit" });
+    execFileSync("cargo", ["build", "--release", "-p", "harnix"], { cwd: root, stdio: "inherit" });
   }
 
-  const scratch = mkdtempSync(join(tmpdir(), "nest-browser-"));
+  const scratch = mkdtempSync(join(tmpdir(), "harnix-browser-"));
   // Replaying, so a turn driven from the browser is deterministic and costs
   // nothing. Without it these tests would need a provider to be reachable and
   // in a good mood, and a layout test that fails because a model was slow is
@@ -28,7 +28,7 @@ export default async function setup() {
   const child = spawn(
     binary,
     ["--port", String(PORT), "--ui-dir", join(root, "ui"),
-     "--atta-dir", join(scratch, "atta"), "--data-dir", join(scratch, "projects"),
+     "--agix-dir", join(scratch, "atta"), "--data-dir", join(scratch, "projects"),
      "--replay-dir", join(root, "tests", "api", "fixtures", "recordings")],
     {
       cwd: root,
@@ -48,7 +48,7 @@ export default async function setup() {
       if (response.ok) break;
     } catch { /* not up yet */ }
     if (Date.now() > deadline) {
-      throw new Error(`nest did not start in 30s:\n${log}`);
+      throw new Error(`harnix did not start in 30s:\n${log}`);
     }
     await new Promise((r) => setTimeout(r, 250));
   }
@@ -57,7 +57,7 @@ export default async function setup() {
     join(root, "tests", "browser", ".running.json"),
     JSON.stringify({ pid: child.pid, port: PORT, scratch }),
   );
-  process.env.NEST_URL = `http://127.0.0.1:${PORT}/`;
+  process.env.HARNIX_URL = `http://127.0.0.1:${PORT}/`;
   child.unref();
   return () => {};
 }

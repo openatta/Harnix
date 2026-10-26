@@ -1,13 +1,13 @@
-# AttaNest
+# Harnix
 
 English | [简体中文](README.zh-CN.md)
 
-**[AttaCore](https://github.com/openatta/AttaCore) in a browser.** One Rust binary: the engine, the
+**[Agix](https://github.com/openatta/agix) in a browser.** One Rust binary: the engine, the
 web server and the frontend are the same process — no subprocess, no socket, no npm.
 
-![AttaNest](docs/images/nest.png)
+![Harnix](docs/images/harnix.png)
 
-`daemon` is a library, so `nest` links the engine in and talks to it through a function call rather
+`daemon` is a library, so `harnix` links the engine in and talks to it through a function call rather
 than a socket. That removes a whole category of things to operate: no port for the engine, no
 handshake, no health check, no restart supervisor, no discovery file. And the frontend is native ES
 modules served straight out of the binary, so there is no bundler, no `node_modules`, and no build
@@ -22,14 +22,14 @@ breaking changes; pin a commit if you depend on one.
 ## Run it
 
 ```sh
-git clone --recurse-submodules https://github.com/openatta/AttaNest.git
-cd AttaNest
+git clone --recurse-submodules https://github.com/openatta/harnix.git
+cd Harnix
 cargo build --release
-./target/release/nest                      # → http://127.0.0.1:4080/
+./target/release/harnix                      # → http://127.0.0.1:4080/
 ```
 
 Rust 1.80 or newer. No Node, no package manager, nothing else. The `--recurse-submodules` matters:
-AttaCore lives at `core/` and the build needs it.
+Agix lives at `agix/` and the build needs it.
 
 No environment variable is required. With no credentials configured, open **Settings → Models &
 credentials → Add provider** and fill in a base URL and an API key — it is written to
@@ -50,17 +50,17 @@ says so.
 
 - **One file to install, and the interface is still replaceable.** It is compiled in, so a page
   and a backend cannot be out of step. `--ui-dir` replaces it whole without recompiling anything,
-  `--headless` serves none, and `nest ui export` writes it out for a CDN to serve.
+  `--headless` serves none, and `harnix ui export` writes it out for a CDN to serve.
 
 - **The interface is assembled out of six named seams.** The tool rows, the panels, the sidebar
   groups are registrations, not a switch statement — so a different product is a different set of
   registrations, not a fork, and an installed package registers through the same ones.
 
-- **No build step for the frontend.** Plain ES modules and CSS. `nest --ui-dir ./ui` serves them
+- **No build step for the frontend.** Plain ES modules and CSS. `harnix --ui-dir ./ui` serves them
   from disk: edit, reload, done.
 
-- **It shares state with the terminal.** The engine directory is the same `~/.atta` that
-  `attacored` and AttaCode use, so a session you ran in the TUI opens here, and vice versa.
+- **It shares state with the terminal.** The engine directory is the same `~/.agix` that
+  `agixd` and AttaCode use, so a session you ran in the TUI opens here, and vice versa.
 
 - **Sends queue instead of failing.** Send while a turn is running and it goes in a queue that
   drains when the turn ends. Stopping clears the queue too.
@@ -93,13 +93,13 @@ output of one call).
 ![The request envelope](docs/images/request-envelope.png)
 
 Every model call carries an envelope — the system prompt as assembled, every tool definition, the
-call configuration — and normally you never see it. AttaCore records each call, and Nest folds
+call configuration — and normally you never see it. Agix records each call, and Harnix folds
 those recordings into the points where the envelope *changed*, so the conversation shows one row
 per change and the details pane shows the full text.
 
 Because it is read from a recording rather than received as an event, it survives: reload the page,
 reopen the conversation tomorrow, restart the process — the envelope is still there. Recordings
-live in `<atta-dir>/recordings/<session-id>/` and are deleted with the session.
+live in `<agix-dir>/recordings/<session-id>/` and are deleted with the session.
 
 They also contain everything the model saw, in plain text, with no redaction. Treat a recording as
 you would the transcript it belongs to.
@@ -107,22 +107,22 @@ you would the transcript it belongs to.
 ## Options
 
 ```
-nest --port 4080 --scene coding --scenes chat,research --model claude-sonnet-5
+harnix --port 4080 --scene coding --scenes chat,research --model claude-sonnet-5
 ```
 
 | Option | Meaning |
 |---|---|
 | `--port` / `--host` | Defaults `4080` / `127.0.0.1`. Loopback addresses only; given IPv4 loopback it **also listens on `[::1]`** |
 | `--scene` / `--scenes` | Default scene, and scenes activated alongside it (`coding` `chat` `research` `demo`) |
-| `--atta-dir` | Engine directory: config, transcripts, memory, skills, recordings. Defaults to `$ATTA_CONFIG_HOME`, then `~/.atta` |
-| `--data-dir` | Project directory: where the picker opens and new projects are created. Defaults to `$NEST_DATA_DIR`, then `~/Documents` |
+| `--agix-dir` | Engine directory: config, transcripts, memory, skills, recordings. Defaults to `$AGIX_CONFIG_HOME`, then `~/.agix` |
+| `--data-dir` | Project directory: where the picker opens and new projects are created. Defaults to `$HARNIX_DATA_DIR`, then `~/Documents` |
 
 <details>
 <summary>Less common options</summary>
 
 | Option | Meaning |
 |---|---|
-| `--model` / `--max-tokens` | For new sessions. The three settings tiers still outrank them, as in `attacored` |
+| `--model` / `--max-tokens` | For new sessions. The three settings tiers still outrank them, as in `agixd` |
 | `--session-cap` / `--session-idle-timeout` | Ceiling on live sessions, and idle reclamation |
 | `--permission-prompt-timeout` | How long an unanswered permission prompt waits before counting as a refusal (default 300s; the UI counts down) |
 | `--ui-dir` | Serve the interface from a directory instead of the one compiled in |
@@ -133,20 +133,20 @@ nest --port 4080 --scene coding --scenes chat,research --model claude-sonnet-5
 
 ## Plugins
 
-Plugins are AttaCore's, end to end — the manifest, the capability gate, the
-sandbox, the disclosure, the lifecycle. Writing a plugin for Nest is writing a
-plugin for AttaCore, and Nest neither reads a package nor runs one. A second
+Plugins are Agix's, end to end — the manifest, the capability gate, the
+sandbox, the disclosure, the lifecycle. Writing a plugin for Harnix is writing a
+plugin for Agix, and Harnix neither reads a package nor runs one. A second
 implementation on this side would be a second truth about what an extension
 may do, and only one of the two would actually stop anything.
 
-What Nest adds is the one step the engine deliberately does not take:
+What Harnix adds is the one step the engine deliberately does not take:
 `plugin.install` fetches a package from a URL it is given and has no upload
 channel, which is fine when the package is already on the machine running the
 engine and useless when it is on your laptop. So the settings panel takes a
 `.zip`, sends it up the bulk channel, and hands the engine the path it landed
 at. Everything else — list, enable, disable, uninstall, and the disclosure the
 engine returns from the install — passes through, with one step added after:
-Nest serves each package's `ui/` directory, so a call that changes what is
+Harnix serves each package's `ui/` directory, so a call that changes what is
 installed is followed by re-reading what is.
 
 **The shipped binary installs packages.** The package layer — manifest, fetch,
@@ -161,18 +161,18 @@ rather than showing an empty list — "this build has no plugin subsystem" and
 
 Two, and only two:
 
-- **Engine directory** `--atta-dir` (default `~/.atta`) — config, transcripts, memory, skills,
-  recordings. Shared with `attacored` and AttaCode.
+- **Engine directory** `--agix-dir` (default `~/.agix`) — config, transcripts, memory, skills,
+  recordings. Shared with `agixd` and AttaCode.
 - **Project directory** `--data-dir` (default `~/Documents`) — where the picker starts and where
   "new project" creates. A default, not a fence: projects elsewhere under `$HOME` open fine.
 
 ```sh
-nest --atta-dir /srv/atta --data-dir /srv/projects
+harnix --agix-dir /srv/atta --data-dir /srv/projects
 ```
 
 What you install is one binary plus, optionally, the interface directory. Nothing is read from the
-install directory at runtime, so upgrading is replacing the file. Nest's own bookkeeping —
-workspaces, titles, view preferences, the token, uploads — is data too, and lives in `.nest/`
+install directory at runtime, so upgrading is replacing the file. Harnix's own bookkeeping —
+workspaces, titles, view preferences, the token, uploads — is data too, and lives in `.harnix/`
 under the project directory.
 
 ## Layout
@@ -181,22 +181,22 @@ The kernel is four things — assembly, hub, transport, authorization — and th
 between them is one-way. `crates/app/tests/layering.rs` asserts it rather than describing it.
 
 ```
-crates/app        the `nest` binary: profile, wiring, the authorization table
+crates/app        the `harnix` binary: profile, wiring, the authorization table
 crates/transport  channel semantics over a chosen topology: frames, handshake, static face, bulk
 crates/authz      the one admission point: subject x method, default deny, audited
 crates/hub        the session hub: subscription, replay, seq, turn ownership, queue
-crates/assembly   builds the AttaCore engine in-process from a profile
+crates/assembly   builds the Agix engine in-process from a profile
 crates/contrib    the interface's seams: the generated catalog and the registry
-crates/builtin    Nest's own methods and interface parts, through that registry
+crates/builtin    Harnix's own methods and interface parts, through that registry
 crates/contract   the types those layers hand each other, and nothing else
 
 ui/               the interface, compiled into the binary: runtime/, builtin/, shell/, styles/
-core/             AttaCore (submodule)
+agix/             Agix (submodule)
 ```
 
 ## Documentation
 
-[docs/concept_and_architecture.md](docs/concept_and_architecture.md) is the design: what Nest is,
+[docs/concept_and_architecture.md](docs/concept_and_architecture.md) is the design: what Harnix is,
 which four things the kernel is and why none of them is pluggable, the five channel semantics and
 the three topologies they map onto, the plugin model, and what is deliberately not being built.
 
@@ -223,13 +223,13 @@ Or by hand:
 
 ```sh
 # `--no-deps` so the submodule's lints are not this repository's to answer for.
-cargo clippy -p nest -p nest-hub -p nest-transport -p nest-authz \
-             -p nest-assembly -p nest-contrib -p nest-builtin -p nest-contract \
+cargo clippy -p harnix -p harnix-hub -p harnix-transport -p harnix-authz \
+             -p harnix-assembly -p harnix-contrib -p harnix-builtin -p harnix-contract \
              --all-targets --no-deps -- -D warnings
-# Ours only. AttaCore's own tests assume it is its own workspace root.
-cargo test -p nest -p nest-hub -p nest-transport -p nest-authz \
-           -p nest-assembly -p nest-contrib \
-           -p nest-builtin -p nest-contract
+# Ours only. Agix's own tests assume it is its own workspace root.
+cargo test -p harnix -p harnix-hub -p harnix-transport -p harnix-authz \
+           -p harnix-assembly -p harnix-contrib \
+           -p harnix-builtin -p harnix-contract
 
 node tests/style-lint.mjs                        # static style checks: icon sizing, tokens, ids
 node tests/contrib-smoke.mjs                     # the contribution points, and a refused handshake
@@ -260,11 +260,11 @@ node tests/package-e2e.mjs
 node tests/api/record-fixture.mjs <name> "<the prompt>"
 ```
 
-`<token>` comes from the token file `nest` prints at startup (`<data-dir>/.nest/token`).
+`<token>` comes from the token file `harnix` prints at startup (`<data-dir>/.harnix/token`).
 
-**Do not run `cargo test --workspace`.** It would also run the absorbed AttaCore crates, and two of
-Core's tests assume they are at the workspace root (they walk upward looking for `bridges/`), which
-cannot hold here. Run Core's tests in Core: `cd core && cargo test --workspace`.
+**Do not run `cargo test --workspace`.** It would also run the absorbed Agix crates, and two of
+Agix's tests assume they are at the workspace root (they walk upward looking for `bridges/`), which
+cannot hold here. Run Agix's tests in Agix: `cd core && cargo test --workspace`.
 
 ## License
 
