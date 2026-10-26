@@ -11,7 +11,7 @@
 |---|---|
 | 阶段 | **前置 A：Agix 改名与 0.2.7**（维护者 2026-10-25 下令开始） |
 | 当前里程碑 | A（见 roadmap「前置 A」） |
-| 当前任务 | A2 daemon 客户端的正确性 |
+| 当前任务 | A5 上下文查看与修改 |
 | 下一步 | 见「进行中」。维护者 2026-10-26 下令：A 做完后接着做 M0–M6（系统 space 与界面迁移），M7–M9 不在这一轮 |
 | 最后更新 | 2026-10-25 |
 
@@ -84,10 +84,10 @@
 | A0-1 Agix 仓库改名 | ✅ | Agix `8468450`（本地，重放在上游 `beb69db` 之上） | 全量测试 2881 过，与改名前一致 |
 | A0-2 本仓库改名 Harnix、跟上 Agix（`core/` → `agix/`） | ✅ | （本次提交，分支 `rename-agix-harnix`） | 连带提前做了 M0-4（维护者同意）；`check.sh` 结果见日志 |
 | A1 实例隔离 | ✅ | Agix 分支 `agix-0.2.7`：`0be92d1`…`e6752bb`（6 个，本地） | 全量测试 2873 过；「录制 / 回放按池子配置」核实后不需要（Harnix 按会话传 `options.recorder`）；Assembly 多了 `mcp_oauth_resolver`，A6 时 Harnix 的 engine.rs 要跟着补 |
-| A2 daemon 客户端的正确性 | 未开始 | | |
-| A3 轮次收口与常驻调度器 | 未开始 | | 风险最高：改 `run_turn` 的核心循环 |
-| A4 会话任务 | 未开始 | | 依赖 A3 |
-| A5 上下文查看 | 未开始 | | |
+| A2 daemon 客户端的正确性 | ✅ | `5cb82a9` | 协议版本 3；`subscription_dropped`；监听器 bind 后才写 instances.d |
+| A3 轮次收口与常驻调度器 | ✅ | `b0e3eb7` | 改成池子级调度器走 `run_turn`，串轮从源头消失，不必重构核心循环；`schedule.*`；生命周期进 `daemon.event`；顺带修整点任务只触发一次、非持久任务被写盘 |
+| A4 会话任务 | ✅ | `78f3b2e` | `session.tasks` / `stopTask`；修好模型的 `TaskStop`；任务事件进 `session.event` |
+| A5 上下文查看与修改 | 进行中 | | 维护者要「能改会话上下文」：drop 之外把 edit（用户纯文本）也做进来 |
 | A6 发布 Agix 0.2.7 | 未开始 | | 需要维护者先改 GitHub 仓库名 |
 
 ### M0 任务
