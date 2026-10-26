@@ -24,14 +24,16 @@ type Bound = (Arc<dyn Handler>, ModuleContext);
 
 pub(crate) struct AppGate {
     hub: Arc<dyn Gate>,
+    audit: Arc<harnix_authz::Audit>,
     methods: RwLock<HashMap<String, Bound>>,
     pub(crate) diagnostics: Arc<Diagnostics>,
 }
 
 impl AppGate {
-    pub fn new(hub: Arc<dyn Gate>, diagnostics: Arc<Diagnostics>) -> Self {
+    pub fn new(hub: Arc<dyn Gate>, diagnostics: Arc<Diagnostics>, audit: Arc<harnix_authz::Audit>) -> Self {
         Self {
             hub,
+            audit,
             methods: RwLock::new(HashMap::new()),
             diagnostics,
         }
@@ -66,6 +68,12 @@ impl Gate for AppGate {
         match method {
             "harnix.contributions" => return Ok(self.diagnostics.contributions()),
             "harnix.diagnostics" => return Ok(self.diagnostics.report()),
+            // The decisions the authorizer recorded, newest first: what the system space shows as
+            // its audit, and what a test reads instead of transcript files.
+            "harnix.audit" => {
+                let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(200).min(2048) as usize;
+                return Ok(json!({"entries": self.audit.recent(limit)}));
+            }
             _ => {}
         }
         if let Some((handler, cx)) = self.bound(method) {

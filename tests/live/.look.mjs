@@ -1,0 +1,31 @@
+import { chromium } from "@playwright/test";
+import { startHarnix } from "../../ui/packages/testkit/src/launcher.ts";
+import { ROOT } from "../../ui/packages/testkit/src/env.ts";
+import { join } from "node:path";
+const out = process.argv[2];
+const backend = await startHarnix({ replay: true, uiDir: join(ROOT, "ui", "dist"), env: { ANTHROPIC_API_KEY: "x" } });
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+const errors = [];
+page.on("pageerror", (e) => errors.push(e.message));
+page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+try {
+  await page.goto(backend.url);
+  await page.waitForSelector("#conn.on", { timeout: 15000 });
+  await page.screenshot({ path: `${out}/s-1.png` });
+  await page.evaluate(() => window.harnix.app.create({ scene: "coding", options: { recorder: { name: "calls-a-tool" } } }));
+  await page.getByTestId("conv-input").fill("Use the Bash tool to run exactly: echo harnix-fixture");
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(3000);
+  await page.screenshot({ path: `${out}/s-2.png` });
+  await page.locator('#side [data-space="home"]').click();
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: `${out}/s-3.png` });
+  await page.evaluate(() => (document.documentElement.dataset.theme = "dark"));
+  await page.locator('#side [data-space="sessions"]').click();
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: `${out}/s-4.png` });
+} catch (e) { errors.push("script: " + e.message); await page.screenshot({ path: `${out}/s-x.png` }); }
+console.log(errors.join("\n") || "no errors");
+await browser.close();
+backend.stop();

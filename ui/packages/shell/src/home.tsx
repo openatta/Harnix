@@ -1,26 +1,32 @@
 /**
- * HOME: an overview of `home.card` registrations — usually one summary card per space — with its
- * own general session as a bar under it (design §8.6).
+ * HOME (design §8.6): a dashboard in Helm's shape — a serif greeting and the date, an ask box that
+ * opens HOME's own conversation, and the `home.card` registrations as a grid.
  */
 
-import { useEffect, useState } from "react";
-import { Contributed, useRegistry, useT } from "@harnix/react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Contributed, currentLocale, useRegistry, useT } from "@harnix/react";
 
 import type { App, ShellSession } from "./app.ts";
 import { Glyph } from "./glyph.tsx";
+import { greeting } from "./Shell.tsx";
 
-export function HomeOverview({ app }: { app: App }) {
+export function HomeOverview({ app, ask }: { app: App; ask: ReactNode }) {
   const t = useT();
   const registry = useRegistry(app.registry);
   const cards = [...registry.at("home.card")].sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
+  const today = new Date().toLocaleDateString(currentLocale(), { month: "long", day: "numeric", weekday: "short" });
   return (
     <div className="home">
-      <h1 className="home-title">{t("home.title")}</h1>
+      <div className="dash-hd">
+        <h2 className="home-title">{t("home.greeting", { greeting: greeting(t) })}</h2>
+        <span className="date">{today}</span>
+      </div>
+      {ask}
       {cards.length ? (
-        <div className="home-cards">
+        <div className="dgrid home-cards">
           {cards.map((card) => (
-            <section key={card.id} className="home-card" data-card={card.id}>
-              {card.title ? <h3>{card.title()}</h3> : null}
+            <section key={card.id} className="dcard home-card" data-card={card.id}>
+              {card.title ? <div className="dt">{card.title()}</div> : null}
               <Contributed registry={registry} point="home.card" contribution={card}>
                 {card.render()}
               </Contributed>
@@ -52,14 +58,15 @@ export function RecentSessions({ app }: { app: App }) {
       alive = false;
     };
   }, [app]);
-  if (!rows) return <div className="hint">{t("common.loading")}</div>;
-  if (!rows.length) return <div className="hint">{t("home.recent.empty")}</div>;
+  if (!rows) return <div className="muted">{t("common.loading")}</div>;
+  if (!rows.length) return <div className="muted">{t("home.recent.empty")}</div>;
   return (
-    <div className="menu-list">
+    <div className="list">
       {rows.map((row) => (
         <button
           type="button"
           key={row.session_id}
+          className="li"
           data-sid={row.session_id}
           onClick={async () => {
             await app.switchSpace("sessions");
@@ -67,7 +74,7 @@ export function RecentSessions({ app }: { app: App }) {
           }}
         >
           <Glyph name="chat" className="glyph" />
-          <span className="truncate">{row.name || t("sidebar.untitled")}</span>
+          <span className="tx truncate">{row.name || t("sidebar.untitled")}</span>
         </button>
       ))}
     </div>

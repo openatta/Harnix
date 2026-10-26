@@ -303,7 +303,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
             .cloned()
             .collect(),
     });
-    let app_gate = Arc::new(AppGate::new(Arc::new(HubGate(hub.clone())), diagnostics.clone()));
+    let app_gate = Arc::new(AppGate::new(Arc::new(HubGate(hub.clone())), diagnostics.clone(), audit.clone()));
     let authorizer = Arc::new(Authorizer::new(table, app_gate.clone(), audit.clone()));
     let gate: Arc<dyn Gate> = authorizer.clone();
     let kernel = Arc::new(ProcessKernel {

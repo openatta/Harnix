@@ -9,7 +9,9 @@ fn main() {
     println!("cargo:rerun-if-env-changed=HARNIX_UI_DIST");
     let dist = match std::env::var_os("HARNIX_UI_DIST") {
         Some(path) => PathBuf::from(path),
-        None => Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/dist"),
+        // Read when the script runs, not when it was compiled: a build script is reused across
+        // checkouts sharing a target directory, and the one it was compiled in may be gone.
+        None => Path::new(&std::env::var_os("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR")).join("../../ui/dist"),
     };
     let dist = dist.canonicalize().unwrap_or(dist);
     println!("cargo:rerun-if-changed={}", dist.display());

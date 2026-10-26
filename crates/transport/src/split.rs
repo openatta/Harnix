@@ -181,11 +181,7 @@ pub async fn rpc(
 
     match state.gate.call(&established.subject, &method, params).await {
         Ok(result) => Json(json!({"jsonrpc": "2.0", "id": id, "result": result})).into_response(),
-        Err(e) => Json(json!({
-            "jsonrpc": "2.0", "id": id,
-            "error": {"code": e.code, "message": e.message},
-        }))
-        .into_response(),
+        Err(e) => Json(json!({"jsonrpc": "2.0", "id": id, "error": e})).into_response(),
     }
 }
 

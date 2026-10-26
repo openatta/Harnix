@@ -52,7 +52,7 @@ test("text is readable in both themes, and the theme button switches between the
   await page.reload();
   await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
   const before = await page.evaluate(() => document.documentElement.dataset.theme);
-  await page.locator("#side .foot button").nth(1).click();
+  await page.getByTestId("theme-toggle").click();
   await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).not.toBe(before);
 });
 
@@ -123,9 +123,8 @@ test("search filters the list by name, and Enter searches the transcripts", TAGS
   const id = await newSession(page, "says-ready");
   await say(page, "Say exactly: fixture ready");
   await expect(page.locator(`#side .srow[data-sid="${id}"]`)).toBeVisible();
-  await page.locator(".section-head .icon-btn").first().click();
-  await expect(page.locator(".section-head")).toHaveClass(/searching/);
   await page.locator("#search").fill("no session is called this");
+  await expect(page.locator(".section-head")).toHaveClass(/searching/);
   await expect(page.locator(`#side .srow[data-sid="${id}"]`)).toHaveCount(0);
   await page.locator("#search").fill("fixture");
   await page.locator("#search").press("Enter");

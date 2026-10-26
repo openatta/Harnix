@@ -10,7 +10,7 @@
 //! | `fails-start` | a failed `start` disables only that module |
 //! | `fails-migrate` | a failed `migrate` disables only that module |
 //! | `probe` (again) | a second module with a taken id is refused at registration |
-//! | `fleet` | its own in-process instance, headless sessions, a tap left unread |
+//! | `fleet` | its own in-process instance and a space on it, headless sessions, a tap left unread |
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -321,6 +321,11 @@ impl Module for Fleet {
                 contrib: EngineContrib::new(),
             },
         ));
+    }
+
+    /// A space whose sessions land on this module's own instance.
+    fn spaces(&self, s: &mut SpaceRegistry) {
+        s.add(SpaceDecl::new("fleet").instance(FLEET_INSTANCE).scene("chat"));
     }
 
     fn methods(&self, m: &mut MethodRegistry) {

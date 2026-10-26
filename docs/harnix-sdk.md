@@ -409,29 +409,42 @@ ctx.sessions().append_entry(&s, Entry::new("watchlist.alert", json!({ "symbol": 
 ### 8.2 注册一个 space（M5 起）
 
 ```tsx
-// spaces/watchlist/ui/src/index.tsx
-import type { Registry } from '@harnix/react';
+// ui/src/index.tsx —— 构建时由 virtual:harnix-modules 接进外壳（examples/hello-app 是完整的例子）
+import type { NestHost, Registry } from '@harnix/react';
 import { QuotesTab } from './QuotesTab';
-import { AlertCard } from './AlertCard';
 import { Summary } from './Summary';
 
-export function register(r: Registry) {
-  r.space({
+export function register(r: Registry, host: NestHost) {
+  r.register('space', {
     id: 'watchlist',
-    icon: 'list',
-    title: 'watchlist.title',              // i18n key，不写死文案
-    center: 'chat',                        // chat | minimized | hidden
-    entries: { source: 'app.watchlist.groups', create: 'app.watchlist.create' },
-    tabs: [{ id: 'quotes', title: 'watchlist.tab.quotes', component: QuotesTab }],
-    session: { scene: 'research', instance: 'template:research' },
-  });
-  r.homeCard({ id: 'watchlist.summary', component: Summary });
-  r.flowBlock({ kind: 'watchlist.alert', component: AlertCard });
+    icon: 'globe',                              // 外壳图标集里的名字
+    title: () => host.t('watchlist.title'),     // 文案走 i18n，不写死
+    subtitle: () => host.t('watchlist.subtitle'),
+    order: 20,
+    center: 'chat',                             // chat | minimized（总览 + 问一句）| hidden（只有总览）
+    tabs: [{ id: 'quotes', title: () => host.t('watchlist.tab.quotes'), render: () => <QuotesTab /> }],
+    suggestions: () => ['今天的异动', '给我一份周报'],
+    notice: () => 'Agent 只提案，下单要人点头',
+  }, 'watchlist');
+  r.register('home.card', { id: 'watchlist.summary', title: () => 'Watchlist', render: () => <Summary /> }, 'watchlist');
 }
 ```
 
-构建脚本按 `main.rs` 里的模块顺序生成 `virtual:harnix-modules`，把每个 space 的 `register` 接进外壳，
-Vite 一次打包，产物嵌进二进制。
+后端在模块里声明同一个 space 的会话策略（不声明就是默认：`system` 实例、实例的默认场景）：
+
+```rust
+fn spaces(&self, s: &mut SpaceRegistry) {
+    s.add(SpaceDecl::new("watchlist").instance("template:helm.research").scene("research"));
+}
+```
+
+会话在哪个 space 里建，就永远属于它（`.harnix/spaces.json`）。外壳每个会话调用都带上前台 space，
+中枢核对，不符就 `SPACE_MISMATCH`。要用别的 space 的会话，在输入框里 `@session:` 选它：发出去的是
+它说过的话的一份副本。
+
+构建：`HARNIX_UI_MODULES=<你的 index.tsx，逗号分隔> HARNIX_UI_OUT=<目录> pnpm --dir harnix --filter
+@harnix/shell build`，然后 `HARNIX_UI_DIST=<同一目录> cargo build`。模板与 hello-app 的
+`scripts/build.sh` 就是这么做的。
 
 贡献点 v2 共 8 个：`space`、`home.card`、`tool.row`、`flow.block`、`details.panel`、`sidebar.group`、
 `command`、`settings.section`。

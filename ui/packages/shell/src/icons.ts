@@ -7,10 +7,8 @@ const wrap = (body: string) =>
         aria-hidden="true">${body}</svg>`;
 
 export const ICON: Record<string, string> = {
-  brand: `<svg viewBox="0 0 32 32" width="100%" height="100%" aria-hidden="true">
-    <rect width="32" height="32" rx="9" fill="currentColor" opacity="0.16"/>
-    <path d="M10 22V10l12 12V10" stroke="currentColor" stroke-width="2.4" fill="none"
-          stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  brand: wrap(`<path d="M12 2.5 20.5 7.25v9.5L12 21.5 3.5 16.75v-9.5Z"/><path d="M9 8.5v7M15 8.5v7M9 12h6"/>`),
+  home: wrap(`<path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1Z"/>`),
   plus: wrap(`<path d="M12 5v14M5 12h14"/>`),
   send: wrap(`<path d="M12 19V5M5 12l7-7 7 7"/>`),
   stop: wrap(`<rect x="7" y="7" width="10" height="10" rx="2"/>`),

@@ -694,6 +694,25 @@ space 的声明里写 `instance = "system"`（默认）、一台固定实例的 
 
 ---
 
+### 8.7 M5 的实际做法（2026-10-26）
+
+- **账本**：`.harnix/spaces.json` 记 `instance/session → space`（会话 space 不记，没有记录就是它）和
+  `space → 按模板建的实例`。实例拥有者多了 `space:<id>`：界面建的实例归发起时的前台 space，模板默认
+  实例归它的 space；旧账本里的 `ui` 读作 `space:sessions`。
+- **核对**：带 `space` 的会话调用（attach、send、history、delete、fork……）对着账本核，`SPACE_MISMATCH`
+  的 `data` 里写着它属于哪个 space；错误帧现在原样带 `data`。不带 `space` 的调用不核（API 客户端、
+  不知道 space 的模块）。只有界面与 Agent 的 space 不用在后端声明，取默认。`[system_space]
+  enabled = false` 时没人能声称系统 space。
+- **审计**：系统 space 跨 space 的每次操作记一条（`harnix.audit` 能读到；会话在 `system` 实例上的也
+  写进它的 transcript）。
+- **`@session`**：Agix 没有会话引用；`harnix.send` 的 `references` 由中枢把被引用会话说过的话作为
+  `text` 附件交给这一轮。复制的是话，不是会话。
+- **界面风格**：照 Helm 的 GUI demo（`docs/design/11-gui-demo`）：纸色中性色、赭红强调色、读的东西
+  用衬线；左栏是新对话、space 列表、前台 space 的会话（搜索、排序），底部是设置与连接；空会话是
+  衬线问候加居中的输入框与建议；总览 space（HOME）是仪表盘：问候、问一句、卡片网格。
+- **应用的界面模块**：`virtual:harnix-modules` 由 `HARNIX_UI_MODULES` 生成，`HARNIX_UI_OUT` 放产物，
+  `HARNIX_UI_DIST` 让二进制嵌进它。`examples/hello-app` 按这个流程构建，界面套件对着它跑。
+
 ## 9. 系统 space
 
 ### 9.1 用途与边界

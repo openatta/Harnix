@@ -9,9 +9,9 @@
 
 | 项 | 值 |
 |---|---|
-| 阶段 | **M5 Space 模型**（M0–M4 已完成，本地提交，未发布） |
-| 当前里程碑 | M5 |
-| 当前任务 | M5（见「进行中」） |
+| 阶段 | **M6 系统 space**（M0–M5 已完成，本地提交，未发布） |
+| 当前里程碑 | M6 |
+| 当前任务 | M6（见「进行中」） |
 | 下一步 | 见「进行中」。维护者 2026-10-26 下令：A 做完后接着做 M0–M6（系统 space 与界面迁移），M7–M9 不在这一轮 |
 | 最后更新 | 2026-10-26 |
 
@@ -71,8 +71,8 @@
 | M2 模块契约与应用装配 | **0.4.0** | ✅（未发布） | 「Assemble the host from modules…」那个提交；`check.sh` 全绿（remote 未跑）。0.4.0 的推送与标签等维护者点头 |
 | M3 实例层与服务端会话 | 0.4.z | ✅（未发布） | 「Stand instances behind one link…」那个提交；`check.sh` 全绿（remote 未跑） |
 | M4 前端底座 | — | ✅（未发布） | 「Replace the interface with a React shell…」那个提交（带着 M5 的一部分）；M4 自己的各层 `check.sh` 全绿 |
-| M5 Space 模型 | 0.4.z | **进行中** | |
-| M6 系统 space | 0.4.z | 未开始 | M6-5 依赖 Agix issue 01、02 |
+| M5 Space 模型 | 0.4.z | ✅（未发布） | 「Give sessions a space…」那个提交；`check.sh` 全绿（remote 未跑） |
+| M6 系统 space | 0.4.z | **进行中** | |
 | M7 模块的对话与链接能力 | 0.4.z | 未开始 | |
 | M8 运行期界面模块 v2、品牌 | 0.4.z | 未开始 | |
 | M9 桌面壳、文档、消费者落地 | 0.4.z | 未开始 | |
@@ -163,6 +163,20 @@ M3 发现的 Agix 缺口：`.local/agix-issue-05-resume-recorder.md`（恢复的
 | M4-6 旧冒烟换掉 | ✅ | `reducer/contrib/i18n/ui/tool-smoke`、`dom.mjs` 删除，换成各包 Vitest 与 `tests/live/ui/` |
 | M4-7 对等用例、删旧 `ui/` | ✅ | `tests/live/ui/` 23 个，两种拓扑都过；旧 `ui/` 原生模块删除 |
 
+### M5 任务
+
+| 任务 | 状态 | 说明 |
+|---|---|---|
+| M5-1 贡献点 v2 | ✅ | 8 个点（`space`、`home.card`），目录由 `harnix_module::catalog` 生成 |
+| M5-2 宿主 API v2 | ✅ | `useNest()`：`call`（按 reachable 过滤）、`subscribe`、`session.*`、`instances.*`、`composer.insert`、`reveal` |
+| M5-3 space 账本、`SPACE_MISMATCH`、系统 space 审计 | ✅ | `crates/hub/src/spaces.rs`；`harnix.audit` |
+| M5-4 默认实例、切换时恢复 | ✅ | `template:<id>` 第一次用时建、归 space；每个 space 自己的当前会话，切回恢复，删了退到本 space 的列表 |
+| M5-5 会话 space 的条目是工作区 | ✅ | 沿用工作区分组 |
+| M5-6 HOME 与 `home.card` | ✅ | 仪表盘：问候、问一句（开 HOME 自己的会话）、卡片网格；内建「最近的会话」卡 |
+| M5-7 `examples/hello-app` | ✅ | greeter（三部分齐全、自己的实例）、notes（界面 + Agent）；`check.sh` 与 CI 都构建它 |
+
+界面风格按维护者 2026-10-26 的要求改成 Helm GUI demo 的样子（设计 §8.7）。
+
 后面里程碑的任务表在开始那个里程碑时从 roadmap 抄过来。
 
 ---
@@ -194,6 +208,8 @@ M3 发现的 Agix 缺口：`.local/agix-issue-05-resume-recorder.md`（恢复的
 
 | 日期 | 事 |
 |---|---|
+| 2026-10-26 | M5 全量检查：rust 层一个目录测试没放行「每进程」频率、template 层的 build.rs 用了编译期的 `CARGO_MANIFEST_DIR`（共享 target 目录时指向已删的旧目录），两处修好后这两层重跑通过，其余各层一次通过（remote 未跑）。开始 M6 |
+| 2026-10-26 | M5 代码完成：space 账本与核对、默认实例、`@session` 引用、`harnix.audit`、8 个贡献点、每个 space 自己的当前会话、HOME 仪表盘、`examples/hello-app`。维护者要求界面参考 Helm 的 GUI demo，令牌、左栏、顶栏、对话、输入框、HOME 都照它改了 |
 | 2026-10-26 | M4 的全量检查：M4 各层全绿；跑的过程中我改了 M5 的代码，导致 api/live/template 三层对着旧二进制失败（`owner` 从 `ui` 改成 `space:sessions`、模板编到半截的源码）。代码交错在同一批文件里，所以 M4 与 M5 的前半部分一起提交；当前树的 API 151、界面 23、模板、clippy 都过 |
 | 2026-10-26 | M4 代码完成：React 外壳替换旧界面（对话主干来自 IPDrun nest-ui），`ui/dist` 嵌进二进制，旧 `ui/` 与 node 冒烟删除；界面用例 23 个、前端 Vitest 90 个。运行期包的 v1 界面模块在 M8 之前不加载（诊断页写明） |
 | 2026-10-26 | M3 完成，`check.sh` 全绿（remote 未跑）。开始 M4 |

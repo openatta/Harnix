@@ -10,7 +10,7 @@
 use harnix_authz::{MethodTable, Reach, ENGINE_REFUSALS, HUB_OWNED};
 
 /// What the application layer answers itself, above the hub.
-pub const APP_METHODS: &[&str] = &["harnix.contributions", "harnix.diagnostics"];
+pub const APP_METHODS: &[&str] = &["harnix.contributions", "harnix.diagnostics", "harnix.audit"];
 
 /// Looking into a session and changing its context: the kernel's, and a
 /// module's by grant. A device reaches them through the system space's own

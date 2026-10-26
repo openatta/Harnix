@@ -54,6 +54,9 @@ jobs:
       - name: Build the shipped binary
         run: cargo build --release -p harnix -p harnix-testapp
 
+      - name: Build the example application, as an application is built
+        run: examples/hello-app/scripts/build.sh --offline
+
       - name: Unit tests and layering assertions
         run: |
           cargo test -p harnix -p harnix-app -p harnix-instance -p harnix-authz -p harnix-builtin \

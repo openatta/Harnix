@@ -321,7 +321,7 @@ async fn connection(socket: WebSocket, state: AppState, peer: Peer) {
             if !is_notification {
                 let _ = reply.send(match outcome {
                     Ok(result) => ok_frame(id, result),
-                    Err(RpcError { code, message, .. }) => error_frame(id, code, message),
+                    Err(e) => rpc_error_frame(id, &e),
                 });
             }
             drop(permit);
@@ -338,6 +338,12 @@ async fn connection(socket: WebSocket, state: AppState, peer: Peer) {
 fn ok_frame(id: Value, result: Value) -> String {
     serde_json::to_string(&json!({"jsonrpc": "2.0", "id": id, "result": result}))
         .unwrap_or_default()
+}
+
+/// An error from behind the gate, whole: `data` says what a client can act on (the space a
+/// session belongs to, the turn that is busy).
+fn rpc_error_frame(id: Value, error: &RpcError) -> String {
+    serde_json::to_string(&json!({"jsonrpc": "2.0", "id": id, "error": error})).unwrap_or_default()
 }
 
 fn error_frame(id: Value, code: i32, message: impl Into<String>) -> String {

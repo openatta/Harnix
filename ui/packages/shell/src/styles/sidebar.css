@@ -1,464 +1,517 @@
-/* Sidebar: brand, new session, the session section, the list, the footer.
- *
- * Geometry is DSH's (`ui-sidebar/SidebarRoot.module.css` and
- * `ui-workspace/rows/Rows.module.css`): 6/12 column padding, a 38px outlined
- * new-session card, 28px circular icon controls, 34px project rows and 32px
- * session rows on a 22px indent step, and a 56px rail of 36px controls. */
+/* The left column, after Helm's (docs/design/11-gui-demo): brand, the actions, the spaces, the
+ * front space's sessions, and settings and the connection at the bottom. Rows are 8px-rounded
+ * hover fills; the one that is open is a filled row with the accent on its icon. */
 
 #side {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  padding: 6px 12px;
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border-l1);
-  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 8px;
+  min-width: 0;
   overflow: hidden;
-  /* The sidebar sits above the conversation surface, so its scrollbar uses the
-     heavier pair — and goes transparent when the pointer is elsewhere. */
-  --scrollbar-thumb: var(--n-300);
-}
-
-html[data-theme="dark"] #side {
-  --scrollbar-thumb: var(--n-750);
-}
-
-#side.quiet {
-  --scrollbar-thumb: transparent;
-  --scrollbar-thumb-hover: transparent;
-}
-
-/* Collapse in three phases: the expanded content fades in place (150ms), the
-   rail layout is applied, then the controls enter from the old right edge
-   (150ms) while the column track finishes sliding (300ms). */
-#side.fading > * {
-  opacity: 0;
+  font-size: 14px;
   transition: opacity 150ms var(--ease);
 }
 
-#side.rail-in > * {
-  animation: harnix-rail-in 150ms var(--ease) backwards;
+#side.fading {
+  opacity: 0;
 }
 
-@keyframes harnix-rail-in {
-  from {
-    opacity: 0;
-    transform: translateX(49px);
-  }
+#side .glyph {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
 }
 
-#frame[data-sidebar="collapsed"] #side {
-  padding: 18px 10px 6px;
-  align-items: center;
+#side .ib {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--label-secondary);
+  border: 0;
+  background: none;
+  cursor: pointer;
+  flex: none;
 }
 
-#frame[data-sidebar="collapsed"] #side .icon-btn {
-  width: 36px;
-  height: 36px;
+#side .ib.sm {
+  width: 26px;
+  height: 26px;
+}
+
+#side .ib.sm .glyph {
+  width: 15px;
+  height: 15px;
+}
+
+#side .ib:hover {
+  background: var(--interactive-hover);
   color: var(--label-primary);
 }
 
-/* ── brand ───────────────────────────────────────────────────────────── */
+#side .l-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 10px;
+}
+
 #side .brand {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: none;
-  height: 36px;
-  padding: 0 4px;
-  font-size: 15px;
-  font-weight: 550;
-  letter-spacing: 0.2px;
-}
-
-#side .brand .mark {
-  display: inline-flex;
-  width: 24px;
-  height: 24px;
-  flex: none;
-  color: var(--state-info);
-}
-
-#side .brand .collapse {
-  margin-left: auto;
-}
-
-#frame[data-sidebar="collapsed"] #side .brand {
-  flex-direction: column;
-  height: auto;
-  gap: 12px;
-  padding: 0;
-}
-
-#frame[data-sidebar="collapsed"] #side .brand .name {
-  display: none;
-}
-
-/* ── new session ─────────────────────────────────────────────────────── */
-/* An elevated outlined card, not a brand-filled pill: the accent belongs to
-   the send control, and a sidebar that shouts at the top makes the list below
-   it read as secondary. */
-#new {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  flex: none;
-  height: 38px;
-  margin: 0 2px 8px;
-  padding: 8px 16px;
-  border: 1px solid var(--border-l2);
-  border-radius: 12px;
-  background: var(--bg-layer-1);
-  color: var(--label-primary);
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 22px;
-  overflow: hidden;
-  transition: background var(--dur-fast) var(--ease);
-}
-
-#new:hover {
-  background: var(--interactive-hover-solid);
-}
-
-#frame[data-sidebar="collapsed"] #new {
-  align-self: flex-start;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  margin: 12px 0;
-  border-radius: 12px;
-}
-
-#frame[data-sidebar="collapsed"] #new .label,
-#frame[data-sidebar="collapsed"] #side .section-head,
-#frame[data-sidebar="collapsed"] #sessions,
-#frame[data-sidebar="collapsed"] #side .foot .text {
-  display: none;
-}
-
-/* ── section header: label, expanding search, add-project ────────────── */
-.section-head {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
-  flex: none;
-  height: 36px;
-  margin: 2px -4px 4px 0;
-  padding-left: 4px;
-  border-radius: 12px;
-  overflow: hidden;
-  color: var(--label-tertiary);
-}
-
-.section-head .section-label {
-  flex: none;
-  max-width: 45%;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  font-size: 13px;
-  line-height: 20px;
-  transition:
-    max-width 180ms var(--ease),
-    opacity 120ms var(--ease),
-    transform 180ms var(--ease);
-}
-
-.section-head.searching .section-label {
-  max-width: 0;
-  opacity: 0;
-  transform: translateX(-4px);
-}
-
-.search-slot {
-  display: flex;
-  align-items: center;
   flex: 1;
   min-width: 0;
-  max-width: 28px;
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--label-primary);
+}
+
+#side .logo {
+  width: 24px;
+  height: 24px;
+  color: var(--accent);
+  flex: none;
+}
+
+#side .nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--label-secondary);
+  text-align: left;
+  white-space: nowrap;
+  position: relative;
+  cursor: pointer;
+  font: inherit;
+}
+
+#side .nav:hover {
+  background: var(--interactive-hover);
+  color: var(--label-primary);
+}
+
+#side .nav.on {
+  background: var(--interactive-hover);
+  color: var(--label-primary);
+  font-weight: 500;
+}
+
+#side .nav.on .glyph {
+  color: var(--accent);
+}
+
+#side .nav.new {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+#side .nav kbd {
   margin-left: auto;
-  transition: max-width 180ms var(--ease);
+  font: 11px/1.4 var(--font-code);
+  border: 1px solid var(--border-l2);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 5px;
+  background: var(--bg-base);
+  color: var(--label-caption);
 }
 
-.section-head.searching .search-slot {
-  max-width: 100%;
+#side .nav .end {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+  align-items: center;
 }
 
-.search-box {
+#side .nav .bn {
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 11px;
+  font-weight: 600;
+  display: grid;
+  place-items: center;
+  padding: 0 5px;
+}
+
+#side .sep {
+  height: 1px;
+  background: var(--border-l1);
+  margin: 6px 8px;
+}
+
+#side .spaces {
+  display: flex;
+  flex-direction: column;
+}
+
+#side .sec {
+  font-size: 12px;
+  color: var(--label-caption);
+  padding: 12px 10px 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+#side .sec .add {
+  margin-left: auto;
+}
+
+#side .s-tools {
+  display: flex;
+  gap: 6px;
+  margin: 2px 2px 6px;
+  align-items: center;
+}
+
+#side .s-search {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  display: block;
+}
+
+#side .s-search .glyph {
+  position: absolute;
+  left: 9px;
+  top: 8px;
+  width: 14px;
+  height: 14px;
+  color: var(--label-caption);
+}
+
+#side .s-search input {
+  width: 100%;
+  border: 1px solid var(--border-l2);
+  background: var(--bg-base);
+  border-radius: 8px;
+  padding: 5px 8px 5px 28px;
+  font: 12.5px var(--font-sans);
+  color: var(--label-primary);
+  outline: 0;
+}
+
+#side .s-search input:focus {
+  border-color: var(--label-caption);
+}
+
+#side .sortbtn {
   display: flex;
   align-items: center;
   gap: 4px;
-  width: 100%;
   height: 28px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 14px;
-  overflow: hidden;
-}
-
-.section-head.searching .search-box {
-  padding: 0 4px 0 8px;
-  border-color: var(--border-l2);
+  padding: 0 8px;
+  border: 1px solid var(--border-l2);
+  border-radius: 8px;
   background: var(--bg-base);
+  font-size: 12px;
+  color: var(--label-secondary);
+  white-space: nowrap;
 }
 
-#search {
-  flex: 1 1 auto;
+#side .sortbtn .glyph {
+  width: 13px;
+  height: 13px;
+}
+
+#side .chats {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+
+#side .grp {
+  font-size: 11.5px;
+  color: var(--label-caption);
+  padding: 8px 4px 2px 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   min-width: 0;
-  width: 0;
-  border: none;
-  outline: none;
-  background: none;
-  font-size: 13px;
-  color: var(--label-primary);
-  opacity: 0;
-  transition: opacity 120ms var(--ease);
+  cursor: default;
 }
 
-.section-head.searching #search {
-  width: auto;
+#side .grp[draggable="true"] {
+  cursor: pointer;
+}
+
+#side .grp .label {
+  flex: 1;
+  min-width: 0;
+}
+
+#side .grp .chev {
+  border: 0;
+  background: none;
+  color: inherit;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+#side .grp .chev .glyph {
+  width: 13px;
+  height: 13px;
+}
+
+#side .grp .count {
+  font-size: 11px;
+}
+
+#side .grp .more {
+  opacity: 0;
+}
+
+#side .grp:hover .more {
   opacity: 1;
 }
 
-/* ── the list ────────────────────────────────────────────────────────── */
-#sessions {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  margin: 0 -6px;
-  padding: 0 6px 12px;
-  scrollbar-gutter: stable;
+#side .group.drop {
+  background: var(--interactive-hover);
+  border-radius: 8px;
 }
 
-.group + .group {
-  margin-top: 6px;
+#side .group.dragging {
+  opacity: 0.5;
 }
 
-/* Project row: 34px, folder glyph that becomes a chevron under the pointer,
-   trailing count that becomes the actions. */
-.group > .title {
+#side .srow {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 34px;
-  padding: 0 8px;
+  width: 100%;
+  border: 0;
   border-radius: 8px;
-  color: var(--label-primary);
+  padding: 6px 6px 6px 10px;
+  background: none;
+  color: var(--label-secondary);
+  font: 13px var(--font-sans);
+  text-align: left;
   cursor: pointer;
-  user-select: none;
 }
 
-.group > .title:hover {
+#side .srow:hover {
   background: var(--interactive-hover);
+  color: var(--label-primary);
 }
 
-.group > .title .chev {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 16px;
-  height: 20px;
-  color: var(--label-tertiary);
+#side .srow.on {
+  background: var(--interactive-hover);
+  color: var(--label-primary);
+  font-weight: 500;
 }
 
-.group > .title .chev .glyph {
-  width: 14px;
-  height: 14px;
-}
-
-.group > .title .chev .arrow {
-  display: none;
-}
-
-.group > .title:hover .chev .folder {
-  display: none;
-}
-
-.group > .title:hover .chev .arrow {
-  display: inline-flex;
-}
-
-.group > .title .label {
-  flex: 1 1 auto;
+#side .srow .tt {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 14px;
-  line-height: 20px;
 }
 
-.group > .title .count {
+#side .srow .meta {
+  font-size: 11px;
+  color: var(--label-caption);
+  white-space: nowrap;
   flex: none;
-  color: var(--label-tertiary);
-  font-size: 12px;
-  line-height: 20px;
 }
 
-.group > .title .more {
+#side .srow:hover .meta,
+#side .srow.on .meta {
   display: none;
 }
 
-.group > .title:hover .count {
+#side .srow .more {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
   display: none;
+  place-items: center;
+  color: var(--label-caption);
+  flex: none;
 }
 
-.group > .title:hover .more {
-  display: inline-flex;
+#side .srow .more .glyph {
+  width: 15px;
+  height: 15px;
 }
 
-/* Session row: 32px single line on the 22px indent step, with the timestamp
-   giving way to the row actions under the pointer. */
-.srow {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  width: 100%;
-  height: 32px;
-  padding: 0 8px 0 30px;
-  border-radius: 8px;
-  text-align: left;
-  color: var(--label-primary);
-  animation: harnix-row-in 150ms var(--ease);
+#side .srow:hover .more,
+#side .srow.on .more {
+  display: grid;
 }
 
-@keyframes harnix-row-in {
-  from {
-    opacity: 0;
-  }
-}
-
-.srow:hover,
-.srow.on {
+#side .srow .more:hover {
   background: var(--interactive-hover);
+  color: var(--label-primary);
 }
 
-.srow .live {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  margin-right: 6px;
+#side .srow .live {
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: var(--state-success);
-  animation: harnix-pulse 1.6s var(--ease) infinite;
+  background: var(--accent);
+  flex: none;
+  animation: hx-live 1s infinite;
 }
 
-@keyframes harnix-pulse {
+@keyframes hx-live {
   50% {
     opacity: 0.25;
   }
 }
 
-.srow .name {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 14px;
-  line-height: 20px;
+#side .srow.hit {
+  align-items: flex-start;
 }
 
-.srow .time {
-  flex: none;
-  margin-left: 6px;
-  color: var(--label-tertiary);
-  font-size: 12px;
-  line-height: 20px;
+#side .srow.hit .tt {
+  white-space: normal;
 }
 
-.srow .more {
-  display: none;
-  margin-left: 6px;
+#side .srow.hit .name,
+#side .srow.hit .snippet {
+  display: block;
 }
 
-.srow:hover .time {
-  display: none;
+#side .srow.hit .snippet {
+  font-size: 11.5px;
+  color: var(--label-caption);
+  font-weight: 400;
 }
 
-.srow:hover .more {
-  display: inline-flex;
-}
-
-/* Search results carry two lines, so they are their own row shape. */
-.srow.hit {
-  height: auto;
-  min-height: 48px;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 2px;
-  padding: 4px 8px;
-}
-
-.srow.hit .snippet {
-  color: var(--label-tertiary);
-  font-size: 12px;
-  line-height: 17px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.more-rows {
-  width: 100%;
-  height: 28px;
-  padding: 0 12px 0 30px;
-  border-radius: 8px;
-  text-align: left;
-  color: var(--label-tertiary);
-  font-size: 12px;
-}
-
-.more-rows:hover {
-  color: var(--label-secondary);
-}
-
-.archive-toggle {
+#side .more-rows,
+#side .archive-toggle {
   display: flex;
   align-items: center;
   gap: 6px;
-  width: 100%;
-  height: 28px;
-  margin-top: 6px;
-  padding: 0 8px;
-  border-radius: 8px;
-  color: var(--label-tertiary);
+  border: 0;
+  background: none;
+  color: var(--label-caption);
   font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
 }
 
-.archive-toggle:hover {
-  background: var(--interactive-hover);
+#side .archive-toggle .glyph {
+  width: 14px;
+  height: 14px;
+}
+
+#side .more-rows:hover,
+#side .archive-toggle:hover {
   color: var(--label-primary);
 }
 
 #side .empty {
-  padding: 16px 12px;
-  color: var(--label-tertiary);
-  font-size: 13px;
+  font-size: 12.5px;
+  color: var(--label-caption);
+  padding: 8px 10px;
 }
 
-/* ── footer ──────────────────────────────────────────────────────────── */
-#side .foot {
+#side .l-bottom {
+  border-top: 1px solid var(--border-l1);
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+#side .conn {
   display: flex;
   align-items: center;
-  gap: 4px;
-  flex: none;
-  padding: 6px 2px 2px;
-  border-top: 1px solid var(--border-l1);
+  gap: 8px;
+  padding: 4px 10px 6px;
+  font-size: 11.5px;
   color: var(--label-caption);
-  font-size: 11px;
-}
-
-#side .foot .text {
-  margin-left: 4px;
+  white-space: nowrap;
   min-width: 0;
 }
 
-#frame[data-sidebar="collapsed"] #side .foot {
+#side .conn .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--label-caption);
+  flex: none;
+}
+
+#side .conn.on .dot {
+  background: var(--state-success);
+}
+
+#side .conn.off .dot {
+  background: var(--state-error);
+}
+
+/* The rail: icons only. */
+#frame[data-sidebar="collapsed"] #side .lbl,
+#frame[data-sidebar="collapsed"] #side .sec,
+#frame[data-sidebar="collapsed"] #side .chats,
+#frame[data-sidebar="collapsed"] #side .s-tools,
+#frame[data-sidebar="collapsed"] #side .nav kbd {
+  display: none;
+}
+
+#frame[data-sidebar="collapsed"] #side .l-top {
   flex-direction: column;
-  border-top: none;
+}
+
+#frame[data-sidebar="collapsed"] #side .nav,
+#frame[data-sidebar="collapsed"] #side .conn {
+  justify-content: center;
+  padding: 8px 0;
+}
+
+#frame[data-sidebar="collapsed"] #side .nav .end {
+  position: absolute;
+  top: 3px;
+  right: 6px;
+}
+
+#frame[data-sidebar="collapsed"] #side .nav .bn {
+  min-width: 8px;
+  height: 8px;
+  padding: 0;
+  font-size: 0;
+}
+
+#side.rail-in .nav,
+#side.rail-in .ib {
+  animation: hx-rail-in 150ms var(--ease);
+}
+
+@keyframes hx-rail-in {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #side,
+  #side .srow .live,
+  #side.rail-in .nav,
+  #side.rail-in .ib {
+    transition: none;
+    animation: none;
+  }
 }

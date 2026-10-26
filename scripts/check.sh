@@ -96,7 +96,10 @@ has_chromium() { [ -d "$HOME/Library/Caches/ms-playwright" -o -d "$HOME/.cache/m
 run_build() {
   pnpm install --frozen-lockfile || return 1
   pnpm --filter @harnix/shell build || return 1
-  cargo build --release -p harnix -p harnix-testapp
+  cargo build --release -p harnix -p harnix-testapp || return 1
+  # The example application, built as an application is — its own workspace,
+  # its spaces' interface compiled in. The spaces suites run it.
+  examples/hello-app/scripts/build.sh --offline
 }
 run_rust()    { cargo test "${CRATES[@]}"; }
 # `--no-deps` matters: without it `-D warnings` is applied to the Agix

@@ -146,7 +146,7 @@ test("a draft is kept per session, and kept through a disconnect", TAGS, async (
   await expect(page.getByTestId("conv-input")).toHaveValue("half a thought");
   // Offline: nothing can be sent, and nothing typed is lost.
   await page.evaluate(() => (window as unknown as { harnix: { client: { close(): void } } }).harnix.client.close());
-  await expect(page.locator("#conn")).not.toHaveClass(/on/);
+  await expect(page.locator("#conn")).not.toHaveAttribute("data-state", "open");
   await expect(page.getByTestId("conv-input")).toBeDisabled();
   await expect(page.getByTestId("conv-input")).toHaveValue("half a thought");
 });

@@ -9,12 +9,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { errorText } from "@harnix/core";
 import type { SessionController, SessionState } from "@harnix/core/state";
-import { ChatPanel, Contributed, t, useRegistry, useT, type Attached, type ChatCommand, type ComposerApi, type MentionItem } from "@harnix/react";
+import { ChatPanel, Contributed, useRegistry, useT, type Attached, type ChatCommand, type ComposerApi, type MentionItem, type SpaceContribution } from "@harnix/react";
 
 import { keyOf, type App, type ShellState } from "./app.ts";
 import { followEnvelopes } from "./envelope.tsx";
 import { Glyph } from "./glyph.tsx";
 import { newSessionDialog } from "./dialogs.tsx";
+import { HomeOverview } from "./home.tsx";
 import { Sidebar, spacesOf } from "./Sidebar.tsx";
 
 export function Shell({ app }: { app: App }) {
@@ -105,81 +106,119 @@ function Banner({ app, s }: { app: App; s: ShellState }) {
 /* ── the conversation column ──────────────────────────────────────────── */
 
 function Main({ app, s }: { app: App; s: ShellState }) {
-  const registry = useRegistry(app.registry);
   const [controller, setController] = useState<SessionController | null>(null);
   const session = useControllerState(controller);
   const space = spacesOf(app).find((c) => c.id === s.space);
   const center = space?.center ?? "chat";
-  const [expanded, setExpanded] = useState(false);
-  if (center !== "chat" && space) {
+  // An overview space shows its conversation on demand: after something is asked, or when the
+  // reader goes back to it.
+  const [talking, setTalking] = useState(false);
+  useEffect(() => setTalking(false), [s.space]);
+  if (center !== "chat" && space && !(talking && s.current)) {
     return (
-      <section id="main" className={`overview${expanded ? " expanded" : ""}`} data-space={s.space}>
+      <section id="main" className="overview" data-space={s.space}>
+        <Header app={app} s={s} session={null} onBack={null} onTalk={s.current && center !== "hidden" ? () => setTalking(true) : null} />
         <div id="overview" data-testid="overview">
-          <Contributed registry={registry} point="space" contribution={space}>
-            {space.overview?.() ?? null}
-          </Contributed>
+          <Overview app={app} space={space} onAsked={() => setTalking(true)} />
         </div>
-        {center === "minimized" ? (
-          <div className="chat-bar" data-testid="chat-bar" data-state={expanded ? "open" : "closed"}>
-            <button type="button" className="icon-btn bar-toggle" data-testid="chat-bar-toggle" title={t("app.details")} onClick={() => setExpanded((v) => !v)}>
-              <Glyph name={expanded ? "chevronDown" : "chevronRight"} className="glyph" />
-            </button>
-            {s.current ? (
-              <Conversation key={keyOf(s.current.instance, s.current.sessionId)} app={app} s={s} onController={setController} />
-            ) : (
-              <FirstMessage app={app} onSent={() => setExpanded(true)} />
-            )}
-          </div>
-        ) : null}
       </section>
     );
   }
-  const empty = !s.current || !session || (!session.loading && session.blocks.length === 0);
+  const empty = !s.current;
   return (
     <section id="main" className={empty ? "empty" : ""} data-space={s.space}>
-      <Header app={app} s={s} session={session} />
+      <Header app={app} s={s} session={session} onBack={center !== "chat" ? () => setTalking(false) : null} onTalk={null} />
       {s.current ? (
         <Conversation key={keyOf(s.current.instance, s.current.sessionId)} app={app} s={s} onController={setController} />
       ) : (
-        <Hero />
+        <Hero app={app} />
       )}
     </section>
   );
 }
 
-/** A space's bar with no session yet: the first message starts one, in this space. */
-function FirstMessage({ app, onSent }: { app: App; onSent: () => void }) {
+/** An overview space's centre: what it registered, with an ask box over it if it has a conversation. */
+function Overview({ app, space, onAsked }: { app: App; space: SpaceContribution & { owner: string }; onAsked: () => void }) {
+  const registry = useRegistry(app.registry);
+  return (
+    <Contributed registry={registry} point="space" contribution={space}>
+      <div className="dash-in">
+        {space.id === "home" ? (
+          <HomeOverview app={app} ask={<FirstMessage app={app} variant="ask" onSent={onAsked} placeholder={space.placeholder?.()} />} />
+        ) : (
+          <>
+            {space.overview?.() ?? null}
+            {space.center !== "hidden" ? <FirstMessage app={app} variant="ask" onSent={onAsked} placeholder={space.placeholder?.()} /> : null}
+          </>
+        )}
+      </div>
+    </Contributed>
+  );
+}
+
+/** "Good morning" by the clock. */
+export function greeting(t: (k: string) => string): string {
+  const hour = new Date().getHours();
+  return hour < 12 ? t("greet.morning") : hour < 18 ? t("greet.afternoon") : t("greet.evening");
+}
+
+/** The first message of a session in this space: it creates the session, then sends. */
+function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app: App; onSent?: () => void; variant?: "composer" | "ask"; placeholder?: string }) {
   const t = useT();
   const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
   const send = async () => {
     const message = text.trim();
-    if (!message) return;
+    if (!message || sending) return;
+    setSending(true);
     try {
       const key = await app.create({});
       await app.sessionCall("harnix.send", { instance: key.instance, session_id: key.sessionId }, { message });
       setText("");
-      onSent();
+      onSent?.();
     } catch (e) {
       app.notice(errorText(e), "error");
+    } finally {
+      setSending(false);
     }
   };
+  const input = (
+    <textarea
+      className="hx-cmp-ta"
+      data-testid="conv-input"
+      rows={1}
+      value={text}
+      readOnly={sending}
+      placeholder={placeholder ?? t("composer.placeholder")}
+      onChange={(e) => setText(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+          e.preventDefault();
+          void send();
+        }
+      }}
+    />
+  );
+  if (variant === "ask") {
+    return (
+      <div className="ask" data-testid="ask">
+        <Glyph name="brand" className="logo" />
+        {input}
+        <button type="button" className="send" data-testid="conv-send" disabled={!text.trim() || sending} aria-label={t("composer.send")} onClick={() => void send()}>
+          <Glyph name="send" className="glyph" />
+        </button>
+      </div>
+    );
+  }
   return (
-    <div className="hx-cmp first-message">
-      <div className="hx-cmp-box">
-        <textarea
-          className="hx-cmp-ta"
-          data-testid="conv-input"
-          rows={1}
-          value={text}
-          placeholder={t("composer.placeholder")}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-        />
+    <div className="composer first-message">
+      {input}
+      <div className="c-row">
+        <span className="c-hint">{t("composer.hint")}</span>
+        <span className="sp" />
+        <button type="button" className="send" data-testid="conv-send" disabled={!text.trim() || sending} aria-label={t("composer.send")} onClick={() => void send()}>
+          <Glyph name="send" className="glyph" />
+        </button>
       </div>
     </div>
   );
@@ -192,17 +231,45 @@ function useControllerState(controller: SessionController | null): SessionState 
   return useSyncExternalStore(subscribe, () => (controller ? controller.getSnapshot() : null));
 }
 
-function Hero() {
+/** A space with no session open: the greeting, the composer that starts one, suggestions. */
+function Hero({ app }: { app: App }) {
   const t = useT();
+  const space = spacesOf(app).find((c) => c.id === app.snapshot.space);
+  const suggestions = space?.suggestions?.() ?? [];
+  const [seed, setSeed] = useState(0);
   return (
-    <div id="scroll">
-      <div id="flow">
-        <div id="hero">
-          <Glyph name="brand" className="mark" />
-          <h1>{t("hero.title")}</h1>
-          <p>{t("hero.body")}</p>
+    <div id="scroll" className="hero-wrap">
+      <div id="hero" className="hero">
+        <div className="greet">
+          <Glyph name="brand" className="logo" />
+          <span>{t("hero.greeting", { greeting: greeting(t) })}</span>
         </div>
+        <div className="hero-sub">{space?.subtitle?.() ?? space?.title() ?? t("hero.body")}</div>
       </div>
+      <FirstMessage key={seed} app={app} placeholder={space?.placeholder?.()} />
+      {suggestions.length ? (
+        <div className="chips">
+          {suggestions.map((text) => (
+            <button
+              type="button"
+              key={text}
+              className="chip"
+              onClick={async () => {
+                try {
+                  const key = await app.create({});
+                  await app.sessionCall("harnix.send", { instance: key.instance, session_id: key.sessionId }, { message: text });
+                  setSeed((n) => n + 1);
+                } catch (e) {
+                  app.notice(errorText(e), "error");
+                }
+              }}
+            >
+              {text}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {space?.notice ? <div className="disc">{space.notice()}</div> : null}
     </div>
   );
 }
@@ -222,35 +289,55 @@ function usagePills(t: (k: string, v?: Record<string, unknown>) => string, usage
   );
 }
 
-function Header({ app, s, session }: { app: App; s: ShellState; session: SessionState | null }) {
+function Header({
+  app,
+  s,
+  session,
+  onBack,
+  onTalk,
+}: {
+  app: App;
+  s: ShellState;
+  session: SessionState | null;
+  onBack: (() => void) | null;
+  onTalk: (() => void) | null;
+}) {
   const t = useT();
+  const space = spacesOf(app).find((c) => c.id === s.space);
   const row = s.current ? s.sessions.find((r) => r.session_id === s.current!.sessionId && r.instance === s.current!.instance) : null;
   const name = row?.name ?? session?.session?.name ?? null;
   const scene = session?.session?.scene ?? row?.scene;
-  const conn = s.connection === "open" ? "on" : s.connection === "connecting" || s.connection === "degraded" ? "" : "off";
-  const label =
-    s.connection === "open"
-      ? t("conn.open")
-      : s.connection === "connecting" || s.connection === "degraded"
-        ? t("conn.connecting")
-        : s.connection === "incompatible"
-          ? t("conn.incompatible")
-          : t("conn.closed");
+  const overview = space?.center && space.center !== "chat" && !onBack;
   return (
-    <header id="head">
-      <div className="title truncate">{s.current ? name || t("sidebar.untitled") : t("app.title")}</div>
-      {s.current ? (
-        <div className="meta">
-          {scene ? <span className="pill">{scene}</span> : null}
-          {usagePills(t, session?.usage ?? null)}
-        </div>
+    <header id="head" className="topbar">
+      {onBack ? (
+        <button type="button" className="ib back" data-testid="back-to-overview" title={space?.title()} onClick={onBack}>
+          <Glyph name="chevronRight" className="glyph flip" />
+        </button>
       ) : null}
-      <div className="spacer" />
-      <div id="conn" className={conn} data-state={s.connection}>
-        <span className="dot" />
-        <span className="label">{label}</span>
+      <div className="title truncate">
+        {overview ? space?.title() : s.current ? name || t("sidebar.untitled") : t("sidebar.newSession")}
       </div>
-      <button type="button" className="icon-btn" data-testid="details-toggle" title={t("app.details")} onClick={() => app.toggleDetails()}>
+      <div className="meta">
+        {space ? (
+          <span className="pill acc" data-testid="space-pill">
+            {space.subtitle ? `${space.title()} · ${space.subtitle()}` : space.title()}
+          </span>
+        ) : null}
+        {!overview && scene ? <span className="pill">{scene}</span> : null}
+        {!overview ? usagePills(t, session?.usage ?? null) : null}
+      </div>
+      <div className="spacer" />
+      {onTalk ? (
+        <button type="button" className="tpill" data-testid="to-conversation" onClick={onTalk}>
+          <Glyph name="chat" className="glyph" />
+          {t("home.continue")}
+        </button>
+      ) : null}
+      <button type="button" className="ib" data-testid="theme-toggle" title={t("app.theme")} onClick={() => app.setTheme(isDark() ? "light" : "dark")}>
+        <Glyph name={isDark() ? "sun" : "moon"} className="glyph" />
+      </button>
+      <button type="button" className="ib" data-testid="details-toggle" title={t("app.details")} onClick={() => app.toggleDetails()}>
         <Glyph name="details" className="glyph" />
       </button>
     </header>
@@ -343,7 +430,7 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
       sendExtras={referencesIn}
       onController={bind}
       header={false}
-      placeholder={t("composer.placeholder")}
+      placeholder={spacesOf(app).find((c) => c.id === s.space)?.placeholder?.() ?? t("composer.placeholder")}
       hint={t("composer.hint")}
       disabled={s.connection !== "open" && s.connection !== "degraded"}
       draftKey={keyOf(current.instance, current.sessionId)}

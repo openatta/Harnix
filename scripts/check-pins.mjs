@@ -16,6 +16,7 @@
 // long-lived patches in an application (§11.5).
 
 import { execFileSync } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -67,7 +68,7 @@ export function judge(appRoot, { release = false } = {}) {
   return { problems, warnings };
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url))) {
   const args = process.argv.slice(2);
   const appRoot = resolve(args.find((a) => !a.startsWith("--")) ?? join(harnixRoot, ".."));
   const { problems, warnings } = judge(appRoot, { release: args.includes("--release") });

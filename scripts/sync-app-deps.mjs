@@ -13,7 +13,7 @@
 // stays `agix/…` because there `agix/` sits beside `harnix/`. Generated and
 // checked, never hand-copied.
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -54,7 +54,7 @@ export function rewrite(appToml, generated) {
   return appToml.slice(0, after) + generated + "\n" + appToml.slice(after);
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url))) {
   const args = process.argv.slice(2);
   const check = args.includes("--check");
   const appRoot = resolve(args.find((a) => !a.startsWith("--")) ?? join(harnixRoot, ".."));

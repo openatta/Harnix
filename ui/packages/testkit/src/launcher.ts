@@ -18,7 +18,8 @@ import type { Topology } from "@harnix/core/protocol";
 import { RECORDINGS, ROOT, sleep } from "./env.ts";
 
 export interface LaunchOptions {
-  /** Which binary: `harnix` (the empty application) or another bin of this workspace. */
+  /** Which binary: `harnix` (the empty application), another bin of this workspace, or an absolute
+   *  path to an application built on its own. */
   bin?: string;
   /** A fixed port. Without one, a free port is picked. */
   port?: number;
@@ -92,6 +93,8 @@ const built = new Map<string, string>();
  * build — for a caller that has just built it.
  */
 export function binary(name = "harnix"): string {
+  // An application built elsewhere (examples/hello-app): used as it is.
+  if (name.startsWith("/")) return name;
   const known = built.get(name);
   if (known) return known;
   const path = join(ROOT, "target", "release", name);

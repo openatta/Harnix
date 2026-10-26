@@ -7,7 +7,7 @@
 // both lock files name, at a version the application's does not share, is
 // a combination nobody has run — reported, and the exit status says so.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -41,7 +41,7 @@ export function drift(appLock, harnixLock) {
   return out;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url))) {
   const appRoot = resolve(process.argv.slice(2).find((a) => !a.startsWith("--")) ?? join(harnixRoot, ".."));
   const found = drift(
     readFileSync(join(appRoot, "Cargo.lock"), "utf8"),

@@ -73,6 +73,13 @@ export interface SpaceContribution {
   overview?(): ReactNode;
   /** Right-column tabs, beside the details drawer. */
   tabs?: { id: string; title(): string; render(): ReactNode }[];
+  /** A line under the title: what this space is for. */
+  subtitle?(): string;
+  /** What a new conversation here might start with, offered under the composer. */
+  suggestions?(): string[];
+  /** One line under the composer (what the Agent may and may not do here). */
+  notice?(): string;
+  placeholder?(): string;
 }
 
 export interface Contributions {

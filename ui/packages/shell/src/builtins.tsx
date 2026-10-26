@@ -14,7 +14,7 @@ import { Disclosure, STATUS_GLYPH, ToolDetails, t, toolArgs, toolDisplayName, TO
 import type { App, ShellSession, Workspace } from "./app.ts";
 import { Labelled, RequestPanel, RequestRow, type RequestBlock } from "./envelope.tsx";
 import { Glyph } from "./glyph.tsx";
-import { HomeOverview, RecentSessions } from "./home.tsx";
+import { RecentSessions } from "./home.tsx";
 import { builtinSections } from "./settings.tsx";
 
 const OWNER = "builtin";
@@ -22,8 +22,16 @@ const OWNER = "builtin";
 export function registerBuiltins(app: App): void {
   const r = app.registry;
 
-  r.register("space", { id: "home", icon: "brand", order: 0, title: () => t("space.home"), center: "minimized", overview: () => <HomeOverview app={app} /> }, OWNER);
-  r.register("space", { id: "sessions", icon: "chat", order: 10, title: () => t("space.sessions"), center: "chat" }, OWNER);
+  r.register(
+    "space",
+    { id: "home", icon: "home", order: 0, title: () => t("space.home"), subtitle: () => t("space.home.subtitle"), center: "minimized", placeholder: () => t("home.ask") },
+    OWNER,
+  );
+  r.register(
+    "space",
+    { id: "sessions", icon: "chat", order: 10, title: () => t("space.sessions"), subtitle: () => t("space.sessions.subtitle"), center: "chat" },
+    OWNER,
+  );
   r.register("home.card", { id: "builtin.recent", order: 0, title: () => t("home.recent.title"), render: () => <RecentSessions app={app} /> }, OWNER);
 
   r.register("tool.row", { id: "builtin.tool", match: () => true, render: (block) => <ToolRow app={app} block={block} /> }, OWNER);

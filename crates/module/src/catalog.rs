@@ -155,7 +155,7 @@ pub fn render_markdown() -> String {
 mod tests {
     use super::*;
 
-    /// Six, and adding one is a decision (§5.2).
+    /// Eight, and adding one is a decision (§5.2).
     #[test]
     fn the_interface_has_eight_points() {
         assert_eq!(POINTS.len(), 8);
@@ -169,7 +169,11 @@ mod tests {
             assert!(
                 matches!(
                     p.frequency,
-                    Frequency::PerBlockChange | Frequency::PerInteraction | Frequency::PerTurn
+                    Frequency::PerProcess
+                        | Frequency::PerSession
+                        | Frequency::PerBlockChange
+                        | Frequency::PerInteraction
+                        | Frequency::PerTurn
                 ),
                 "{} fires too often to be contributable",
                 p.id
