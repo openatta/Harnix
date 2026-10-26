@@ -23,7 +23,7 @@ A ─→ M0 ─→ M1 ─→ M2 ─→ M3 ─┬─→ M5 ─→ M6 ─→ M7 �
            └───── M4 ──────┘
 ```
 
-M4 依赖 M1（`@harnix/agix/client` 与 testkit），不依赖 M2、M3。
+M4 依赖 M1（`@harnix/core/client` 与 testkit），不依赖 M2、M3。
 
 ---
 
@@ -85,8 +85,8 @@ A6 之前可以在本地指针上开发，但不发布：指针必须指向上�
 | 任务 | 内容 |
 |---|---|
 | M1-1 | pnpm workspace 起在 `ui/`，新包放 `ui/packages/`；旧的原生 `ui/` 模块原地不动，M4 再删 |
-| M1-2 | `harnix-contract` 加 `ts` feature 与 `ts-rs` derive；生成到 `@harnix/agix/protocol`；检查脚本比对生成物 |
-| M1-3 | `@harnix/agix/client`：回流 IPDrun 的 `harnix-client`（握手、拓扑与回退、call / notify / answer、seq 追赶），Vitest |
+| M1-2 | `harnix-contract` 加 `ts` feature 与 `ts-rs` derive；生成到 `@harnix/core/protocol`；检查脚本比对生成物 |
+| M1-3 | `@harnix/core/client`：回流 IPDrun 的 `nest-client`（握手、拓扑与回退、call / notify / answer、seq 追赶），Vitest |
 | M1-4 | `@harnix/testkit`：launcher（独立 HOME、数据根、引擎根、端口、拓扑、录像目录）、api、fixtures |
 | M1-5 | Playwright Test 两个 project（api、chromium）；`--live` 模式 |
 | M1-6 | 把 `tests/api` 的 17 个套件和 `tests/browser` 的两份 spec 迁进 `tests/live/`（行为不变，只换框架） |
@@ -158,7 +158,7 @@ A6 之前可以在本地指针上开发，但不发布：指针必须指向上�
 
 | 任务 | 内容 |
 |---|---|
-| M4-1 | `@harnix/agix/state`：会话事件归约、队列、每个 space 的当前会话（键 `(instance, session)`），Vitest |
+| M4-1 | `@harnix/core/state`：会话事件归约、队列、每个 space 的当前会话（键 `(instance, session)`），Vitest |
 | M4-2 | `@harnix/react`：贡献注册表（先是 v1 的 6 个点）、`useNest()`、i18n、令牌、图标 |
 | M4-3 | `@harnix/react` 的对话组件：回流 IPDrun 对话主干（D21），按 `data-testid` 约定 |
 | M4-4 | `@harnix/shell`：三栏布局、设置页、模态框、断点 |

@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 /// What a frame is for. A topology maps these onto connections; the hub and
 /// the authorizer only ever name them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum Channel {
     /// One request, one reply. Client-initiated.

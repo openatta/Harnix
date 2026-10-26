@@ -11,3 +11,10 @@ description  = "The types the kernel's four parts pass across each other's bound
 async-trait = { workspace = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }
+ts-rs       = { workspace = true, optional = true }
+
+[features]
+# TypeScript declarations for `@harnix/core/protocol`. Off in every build that
+# ships: only `tests/ts_export.rs` turns it on, so ts-rs is never linked into
+# the binary and costs the size budget nothing (design §4.2, §10.6).
+ts = ["dep:ts-rs"]

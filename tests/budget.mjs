@@ -15,7 +15,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
-import { makeProject } from "./api/harness.mjs";
+import { makeProject } from "../ui/packages/testkit/src/launcher.ts";
 import { dirname, join } from "node:path";
 import { PROTOCOL_VERSION, CONTRIB_API_VERSION } from "../ui/runtime/protocol.js";
 

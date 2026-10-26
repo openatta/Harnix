@@ -41,7 +41,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Build the shipped binary
         run: cargo build --release -p harnix
@@ -67,16 +67,31 @@ jobs:
           node tests/i18n-smoke.mjs
           node tests/readme-pairing.mjs
 
-      - name: The API, both topologies, against recorded fixtures
+      - uses: pnpm/action-setup@v4
+
+      - name: Front-end packages, protocol types, coverage table
         run: |
-          node tests/api/run.mjs --topology single_duplex
-          node tests/api/run.mjs --topology split_streams
+          pnpm install --frozen-lockfile
+          pnpm -r --if-present run typecheck
+          pnpm -r --if-present run test
+          HARNIX_TS_OUT="$RUNNER_TEMP/ts" cargo test -q -p harnix-contract --features ts --test ts_export
+          diff -u ui/packages/core/src/protocol/generated/contract.ts "$RUNNER_TEMP/ts/contract.ts"
+          node tests/live/coverage.mjs --check
+
+      - name: The API, both topologies, against recorded fixtures
+        env:
+          HARNIX_BIN: ${{ github.workspace }}/target/release/harnix
+        run: |
+          node tests/live/run.mjs --project api --topology single_duplex
+          node tests/live/run.mjs --project api --topology split_streams
 
       - name: Install chromium
-        run: npm install && npx playwright install --with-deps chromium
+        run: pnpm --filter @harnix/live-tests exec playwright install --with-deps chromium
 
       - name: The browser layer
-        run: npx playwright test
+        env:
+          HARNIX_BIN: ${{ github.workspace }}/target/release/harnix
+        run: node tests/live/run.mjs --project ui
 
       - name: A package, from zip to a row on screen
         run: node tests/package-e2e.mjs

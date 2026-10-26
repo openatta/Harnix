@@ -1,0 +1,21 @@
+{
+  "name": "@harnix/core",
+  "version": "0.3.1",
+  "private": true,
+  "description": "Harnix's framework-free layer: generated protocol types, the protocol client, session state.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./protocol": "./src/protocol/index.ts",
+    "./client": "./src/client/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vitest": "5.0.5"
+  }
+}

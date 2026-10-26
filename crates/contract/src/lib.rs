@@ -26,10 +26,12 @@ use serde_json::Value;
 /// A JSON-RPC error, in the shape Agix uses. Harnix adds no codes of its
 /// own below the engine's range; see [`codes`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct RpcError {
     pub code: i32,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional, type = "unknown"))]
     pub data: Option<Value>,
 }
 

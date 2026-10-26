@@ -1,0 +1,25 @@
+{
+  "name": "@harnix/testkit",
+  "version": "0.3.1",
+  "private": true,
+  "description": "LIVE tests for Harnix: start the real binary, talk to it through @harnix/core, drive it from Playwright.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@harnix/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "@playwright/test": "^1.62.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "@types/node": "24.19.2",
+    "typescript": "5.9.3"
+  }
+}

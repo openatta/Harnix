@@ -339,7 +339,7 @@ ctx.sessions().append_entry(&s, Entry::new("watchlist.alert", json!({ "symbol": 
 | 包 | 你用不用 |
 |---|---|
 | `@harnix/react` | **用**。贡献注册、`useNest()`、i18n、令牌、图标、对话组件 |
-| `@harnix/agix` | 一般不直接用；要写不依赖 React 的逻辑时用它的 `/state`、`/client` |
+| `@harnix/core` | 一般不直接用；要写不依赖 React 的逻辑时用它的 `/state`、`/client` |
 | `@harnix/shell` | 不 import。它是应用入口，构建脚本把你的 `register()` 接进去 |
 | `@harnix/testkit` | 写测试时用 |
 
@@ -553,8 +553,8 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 | `/api/op`、`/api/ws` | `app.ipdrun.*` 方法与主题；确实要自己协议的放 `/apps/ipdrun/` | 领域操作挪进 `methods()` / `events()` |
 | R-01 应用注册宿主方法 | `methods()` | — |
 | R-04、R-05 角色令牌、`ipdrun-mcp` | 0.4 不提供 | 在模块 `start()` 里起自己的监听（§10.4），等 Harnix 0.4 之后接管 |
-| R-06 `packages/harnix-client` | `@harnix/agix/client` | 删掉自己的，改依赖 |
-| R-06 `packages/harnix-ui`（ChatPanel） | `@harnix/react` 的对话主干 | 删掉主干；语音、上下文环、快捷回复这类产品面在 IPDrun 里包一层 |
+| R-06 `packages/nest-client` | `@harnix/core/client` | 删掉自己的，改依赖 |
+| R-06 `packages/nest-ui`（ChatPanel） | `@harnix/react` 的对话主干 | 删掉主干；语音、上下文环、快捷回复这类产品面在 IPDrun 里包一层 |
 | R-07 `apps/tauri` | `harnix-desktop` 模板（M9） | M9 之前先留着 |
 | R-08、R-09 录像回放、`data-testid` | `@harnix/testkit`、组件对象约定 | 测试换框架 |
 | R-11、R-12 会话运行状态、hello 超时 | `harnix.sessions.status`、`harnix.hello` | 改订阅 |

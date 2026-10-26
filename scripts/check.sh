@@ -87,7 +87,7 @@ skip() {
 }
 
 has_model() { [ -f .env ] && grep -qE '^\s*(export\s+)?ANTHROPIC_(API_KEY|AUTH_TOKEN)=' .env; }
-has_chromium() { npx playwright --version >/dev/null 2>&1 && [ -d "$HOME/Library/Caches/ms-playwright" -o -d "$HOME/.cache/ms-playwright" ]; }
+has_chromium() { [ -d "$HOME/Library/Caches/ms-playwright" -o -d "$HOME/.cache/ms-playwright" ]; }
 
 # ── the layers ────────────────────────────────────────────────────────────
 run_build()   { cargo build --release -p harnix; }
@@ -106,25 +106,43 @@ run_offline() {
   done
 }
 
+# The front-end packages, without a backend: types, unit tests, the protocol
+# declarations against the Rust they are generated from, and the coverage
+# table against the tests' own tags.
+run_frontend() {
+  [ -d node_modules ] || pnpm install --frozen-lockfile || return 1
+  echo "── typecheck ──"; pnpm -r --if-present run typecheck || return 1
+  echo "── unit ──";      pnpm -r --if-present run test || return 1
+  echo "── protocol types ──"
+  HARNIX_TS_OUT="$scratch/ts" cargo test -q -p harnix-contract --features ts --test ts_export || return 1
+  diff -u ui/packages/core/src/protocol/generated/contract.ts "$scratch/ts/contract.ts" || {
+    echo "generated protocol types are stale: cargo test -p harnix-contract --features ts"; return 1; }
+  echo "── coverage table ──"; node tests/live/coverage.mjs --check || return 1
+}
+
+# The LIVE suites (tests/live, Playwright Test). The binary was built by the
+# first layer; `HARNIX_BIN` stops each run from asking cargo again.
+live() { HARNIX_BIN="$root/target/release/harnix" node tests/live/run.mjs "$@"; }
+
 # No flag is the replayed mode. `--no-model` is a third thing — neither a
 # provider nor a fixture — under which four suites skip themselves, so a run
 # that used it looked like the deterministic one and covered a good deal less.
 run_api() {
   for topology in single_duplex split_streams; do
     echo "── replayed · $topology ──"
-    node tests/api/run.mjs --topology "$topology" || return 1
+    live --project api --topology "$topology" || return 1
   done
 }
 
 run_live() {
   for topology in single_duplex split_streams; do
     echo "── live · $topology ──"
-    node tests/api/run.mjs --live --topology "$topology" || return 1
+    live --project api --live --topology "$topology" || return 1
   done
 }
 
 run_browser() {
-  npx playwright test || return 1
+  live --project ui || return 1
   node tests/package-e2e.mjs || return 1
 }
 
@@ -204,6 +222,7 @@ layer build  run_build
 layer rust   run_rust
 layer clippy run_clippy
 layer offline run_offline
+layer frontend run_frontend
 layer api    run_api
 
 if [ "$FAST" = 1 ]; then
@@ -213,10 +232,10 @@ if [ "$FAST" = 1 ]; then
 elif ! has_model; then
   skip live "no ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN in .env"
   skip interface "needs a model — see above"
-  if has_chromium; then layer browser run_browser; else skip browser "no chromium — npx playwright install chromium"; fi
+  if has_chromium; then layer browser run_browser; else skip browser "no chromium — pnpm install:browser"; fi
 else
   layer live run_live
-  if has_chromium; then layer browser run_browser; else skip browser "no chromium — npx playwright install chromium"; fi
+  if has_chromium; then layer browser run_browser; else skip browser "no chromium — pnpm install:browser"; fi
   layer interface run_interface
 fi
 

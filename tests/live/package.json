@@ -1,0 +1,19 @@
+{
+  "name": "@harnix/live-tests",
+  "private": true,
+  "description": "The LIVE suites (design §13): API and interface, under Playwright Test, against the real binary.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "live": "node run.mjs",
+    "coverage": "node coverage.mjs",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@harnix/core": "workspace:*",
+    "@harnix/testkit": "workspace:*",
+    "@playwright/test": "1.62.1",
+    "@types/node": "24.19.2",
+    "typescript": "5.9.3"
+  }
+}

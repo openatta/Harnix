@@ -241,30 +241,30 @@ node tests/ui-smoke.mjs   <port> <token>         # real engine + real model
 node tests/tool-smoke.mjs <port> <token>         # real tool calls
 # The two above want a backend started with `--scenes chat`; the two below want
 # a profile listing both topologies, and `remote-smoke` a non-loopback bind
-# with TLS. Each says so when it is not — see tests/api/README.md.
+# with TLS. Each says so when it is not — see docs/testing.md.
 
-node tests/api/run.mjs                            # the backend, through its own API
-node tests/api/run.mjs --live                     # …against a real model instead
-node tests/api/run.mjs --topology split_streams   # the same suites over the other topology
 node tests/topology-parity.mjs <port> <token>     # both topologies, same answers
 node tests/remote-smoke.mjs <port> <token> <code> # pair, connect, revoke, over TLS
 
-# The browser. Everything above runs on node alone; this is what a fake DOM
-# cannot do — layout, themes, and whether anything actually renders.
-npm install && npx playwright install chromium
-npx playwright test
+# The LIVE suites (docs/testing.md): Playwright Test against the real binary.
+# `api` drives the backend through its own protocol; `ui` drives the interface
+# in chromium. Model calls are replayed from recordings unless --live.
+pnpm install && pnpm install:browser
+pnpm live                                         # both projects
+pnpm live --project api --topology split_streams  # the API suites over the other topology
+pnpm live --live                                  # …against the model in .env instead
 # A package, end to end — zip on disk to a row on screen, on the shipped binary.
 node tests/package-e2e.mjs
 
 # Re-record a replay fixture against a real model (needs .env).
-node tests/api/record-fixture.mjs <name> "<the prompt>"
+node tests/live/record-fixture.mjs <name> "<the prompt>"
 ```
 
 `<token>` comes from the token file `harnix` prints at startup (`<data-dir>/.harnix/token`).
 
 **Do not run `cargo test --workspace`.** It would also run the absorbed Agix crates, and two of
 Agix's tests assume they are at the workspace root (they walk upward looking for `bridges/`), which
-cannot hold here. Run Agix's tests in Agix: `cd core && cargo test --workspace`.
+cannot hold here. Run Agix's tests in Agix: `cd agix && cargo test --workspace`.
 
 ## License
 

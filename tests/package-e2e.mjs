@@ -18,7 +18,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { makeProject } from "./api/harness.mjs";
+import { makeProject } from "../ui/packages/testkit/src/launcher.ts";
 import { PROTOCOL_VERSION, CONTRIB_API_VERSION } from "../ui/runtime/protocol.js";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -42,7 +42,7 @@ const child = spawn(
   binary,
   ["--port", String(PORT), "--ui-dir", join(ROOT, "ui"),
    "--agix-dir", join(scratch, "agix"), "--data-dir", join(scratch, "projects"),
-   "--replay-dir", join(ROOT, "tests", "api", "fixtures", "recordings")],
+   "--replay-dir", join(ROOT, "tests", "live", "fixtures", "recordings")],
   { cwd: makeProject(scratch), env: { ...process.env, ANTHROPIC_API_KEY: "package-e2e", RUST_LOG: "warn" },
     stdio: ["ignore", "pipe", "pipe"] },
 );

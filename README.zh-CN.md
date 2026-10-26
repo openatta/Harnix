@@ -215,30 +215,29 @@ node tests/readme-pairing.mjs                    # 两份 README 是一起改的
 node tests/ui-smoke.mjs   <port> <token>         # 真引擎 + 真模型
 node tests/tool-smoke.mjs <port> <token>         # 真工具调用
 # 上面两个要后端带 `--scenes chat` 起；下面两个要 profile 里两种拓扑都列上，
-# remote-smoke 还要非回环监听 + TLS。前提不对时它们各自会说一句 —— 见 tests/api/README.md。
+# remote-smoke 还要非回环监听 + TLS。前提不对时它们各自会说一句 —— 见 docs/testing.md。
 
-node tests/api/run.mjs                            # 后端，走它自己的 API
-node tests/api/run.mjs --live                     # …改成对着真模型跑
-node tests/api/run.mjs --topology split_streams   # 同一批用例走另一种拓扑
 node tests/topology-parity.mjs <port> <token>     # 两种拓扑，同样的答案
 node tests/remote-smoke.mjs <port> <token> <code> # 配对、连接、吊销，走 TLS
 
-# 真浏览器。上面那些只要 node；这一层做的是假 DOM 做不到的事 —— 布局、主题，
-# 以及到底有没有渲染出来。
-npm install && npx playwright install chromium
-npx playwright test
+# LIVE 套件（docs/testing.md）：Playwright Test，对着真的二进制跑。`api` 经协议驱动后端，
+# `ui` 在 chromium 里驱动界面。模型调用默认从录像回放，加 --live 才连真模型。
+pnpm install && pnpm install:browser
+pnpm live                                         # 两个 project 都跑
+pnpm live --project api --topology split_streams  # API 套件走另一种拓扑
+pnpm live --live                                  # …改成对着 .env 里的真模型跑
 # 一个插件包，端到端 —— 从磁盘上的 zip 到屏幕上的一行，跑的就是出厂那个二进制。
 node tests/package-e2e.mjs
 
 # 对着真模型重录一份重放 fixture（需要 .env）。
-node tests/api/record-fixture.mjs <name> "<提示词>"
+node tests/live/record-fixture.mjs <name> "<提示词>"
 ```
 
 `<token>` 从 `harnix` 启动时打印的 token 文件里读（`<data-dir>/.harnix/token`）。
 
 **不要用 `cargo test --workspace`**：它会连带跑被吸收进来的 Agix crate，而 Agix 有两条测试
 假定自己是 workspace 根（从测试二进制往上找 `bridges/`），在我们这里必然失败。Agix 的测试在
-Agix 里跑：`cd core && cargo test --workspace`。
+Agix 里跑：`cd agix && cargo test --workspace`。
 
 ## 许可
 

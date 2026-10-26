@@ -76,7 +76,7 @@ Helm、IPDrun 的需求是**输入**，不是必须满足的清单。
 | D18 | 界面（包括运行期包）只能按模板建实例，并且只能用标了 `ui = true` 的模板 | 维护者 |
 | D19 | 版本节奏：M0、M1 按 0.3.z 发；M2 合进 main 时发 0.4.0，之后每个里程碑只升 z。**协议形状在 M2 定下**（`instance` 字段、会话键），0.4.z 里协议与模块 API 只做加法 | 维护者；第二轮补 |
 | D20 | **所有实例都由 Harnix 按账本重建**（第二轮改：原来模块建的由模块自己重建） | 第二轮 |
-| D21 | IPDrun 的 `harnix-client` 收进 `@harnix/agix`；`harnix-ui` 只收对话主干（对话、工具行、权限卡、markdown、diff、队列、草稿），语音、上下文环、快捷回复这类产品面留在 IPDrun | 第二轮改 |
+| D21 | IPDrun 的 `nest-client` 收进 `@harnix/core`；`nest-ui` 只收对话主干（对话、工具行、权限卡、markdown、diff、队列、草稿），语音、上下文环、快捷回复这类产品面留在 IPDrun | 第二轮改 |
 | D22 | 一个 space 的会话可以分布在多台实例上；space 有默认实例 | 维护者 |
 | D23 | 进 Harnix 的判据是 §0.2 | 第二轮 |
 | D24 | **实例只从声明来**：profile 声明的固定实例，或者按模板建的。模块和界面都只能按模板建；模板是装配的一部分（§3.2） | 第二轮 |
@@ -146,7 +146,7 @@ Harnix 进程
  │ @harnix/shell  ── 外壳：布局、space 切换、设置；内建 space（会话 / HOME / 系统）│
  │ 应用的 space ── 应用自己的 React 组件，只依赖 @harnix/react               │
  │ @harnix/react  ── 贡献注册表、useNest()、i18n、令牌；对话组件 ChatPanel 等  │
- │ @harnix/agix   ── 不依赖框架：协议类型（生成）、协议客户端、状态（zustand vanilla）│
+ │ @harnix/core   ── 不依赖框架：协议类型（生成）、协议客户端、状态（zustand vanilla）│
  └─────────────────────────────┬─────────────────────────────────────┘
                                │ 五种通道语义（拓扑可选）· /apps/<id>/ 自有链接
  ┌─────────────────────────────▼─────────────────────────────────────┐
@@ -216,7 +216,7 @@ harnix-app ─→ harnix-transport ─→ harnix-authz ─┐
 
 | crate | 0.3 里的前身 | 职责 |
 |---|---|---|
-| `harnix-contract` | 同名 | 帧、握手、主体、错误码，纯类型。经 `ts-rs` **生成** `@harnix/agix` 的协议类型 |
+| `harnix-contract` | 同名 | 帧、握手、主体、错误码，纯类型。经 `ts-rs` **生成** `@harnix/core` 的协议类型 |
 | `harnix-instance` | `harnix-assembly` | `EngineLink` 接口；进程内载体（调 `daemon::assemble::pool`）；daemon 载体（RPC 客户端、spawn、attach）；模板；实例登记表 |
 | `harnix-hub` | 同名 | 会话持有，键是 `(instance, session)`；服务端调用方（无头会话、tap、`OnBusy`）；带参数的宿主主题；实例 → 会话 → 任务的整值快照 |
 | `harnix-authz` | 同名 | 主体 `Kernel / Module(id) / Device`；方法表与路由表；审计 |
@@ -232,17 +232,17 @@ harnix-app ─→ harnix-transport ─→ harnix-authz ─┐
 
 | 包 | 前身 | 依赖框架吗 | 职责 | 谁用 |
 |---|---|---|---|---|
-| `@harnix/agix` | IPDrun `packages/harnix-client`、`ui/runtime/{client,topology,protocol,state}.js` | 否 | 子路径导出三层：`/protocol`（`ts-rs` 生成的类型与常量）、`/client`（握手、拓扑与回退、call / notify / answer、seq 追赶、连接状态）、`/state`（会话事件归约、实例树、队列、每个 space 的当前会话；zustand vanilla） | 一切 |
-| `@harnix/react` | `ui/runtime/{host,contrib}.js`、IPDrun `packages/harnix-ui` 的对话主干、`ui/shell/conversation.js`、`composer.js` | React | 贡献注册表（8 个点）、`useNest()`、i18n、令牌、图标；ChatPanel、工具行、权限卡、子 Agent、markdown、diff | **应用写 space 界面只依赖它** |
+| `@harnix/core` | IPDrun `packages/nest-client`、`ui/runtime/{client,topology,protocol,state}.js` | 否 | 子路径导出三层：`/protocol`（`ts-rs` 生成的类型与常量）、`/client`（握手、拓扑与回退、call / notify / answer、seq 追赶、连接状态）、`/state`（会话事件归约、实例树、队列、每个 space 的当前会话；zustand vanilla） | 一切 |
+| `@harnix/react` | `ui/runtime/{host,contrib}.js`、IPDrun `packages/nest-ui` 的对话主干、`ui/shell/conversation.js`、`composer.js` | React | 贡献注册表（8 个点）、`useNest()`、i18n、令牌、图标；ChatPanel、工具行、权限卡、子 Agent、markdown、diff | **应用写 space 界面只依赖它** |
 | `@harnix/shell` | `ui/shell/*`、`ui/main.js`、`ui/builtin/*` | React | 三栏布局、space 切换与恢复、设置页、模态框、断点；内建 space（会话、HOME、系统）放在 `src/spaces/` 下 | 应用的入口 |
 | `@harnix/testkit` | `tests/api/harness.mjs`、`tests/browser/setup.mjs` | 否 | LIVE 测试的启动器、API 客户端、Playwright 夹具与组件对象（§13） | 测试 |
 
-**分层的用意**：框架只出现在 `@harnix/react` 及以上。`@harnix/agix` 是纯 TS，用 Vitest 测，
+**分层的用意**：框架只出现在 `@harnix/react` 及以上。`@harnix/core` 是纯 TS，用 Vitest 测，
 换框架也不动它，并且和后端一一对应：`/protocol` ↔ `harnix-contract`，`/client` ↔ `harnix-transport`，
 `/state` ↔ `harnix-hub` 推出的事件与整值快照。
 
 **内建 space 只用公开 API**：`@harnix/shell/src/spaces/` 下的代码只许 import `@harnix/react`、
-`@harnix/agix` 的公开导出，由检查脚本守住。这和后端「内建模块只用公开模块 API」是同一条。
+`@harnix/core` 的公开导出，由检查脚本守住。这和后端「内建模块只用公开模块 API」是同一条。
 
 **协议类型怎么生成**：`harnix-contract` 的类型在 `ts` feature 下 derive `ts_rs::TS`（release
 构建不开，不进二进制预算）；`cargo test -p harnix-contract --features ts` 导出到
@@ -255,11 +255,11 @@ harnix-app ─→ harnix-transport ─→ harnix-authz ─┐
 
 | 功能模块 | 后端 | 前端 | API 套件 | Playwright |
 |---|---|---|---|---|
-| 握手与连接 | transport、contract | agix/client | `handshake`、`topology` | `connection` |
+| 握手与连接 | transport、contract | core/client | `handshake`、`topology` | `connection` |
 | 授权与设备 | authz、`devices` | shell（设置·设备） | `authz`、`devices` | `pairing` |
-| 会话与轮次 | hub | agix/state、react | `sessions`、`turns`、`hub`、`permissions` | `conversation`、`permission` |
+| 会话与轮次 | hub | core/state、react | `sessions`、`turns`、`hub`、`permissions` | `conversation`、`permission` |
 | 无头会话 | hub（服务端调用方） | — | `headless` | `watch-headless`（界面旁观） |
-| 实例层 | instance、hub | agix/state（实例树） | `instances`、`instances-daemon` | — |
+| 实例层 | instance、hub | core/state（实例树） | `instances`、`instances-daemon` | — |
 | 模块契约 | module、app | react（注册表） | `modules` | `module-panel` |
 | space 与会话绑定 | builtin（账本）、hub | shell、react | `spaces` | `spaces` |
 | 会话 space | builtin（工作区、标题、搜索、文件、上传） | shell/spaces/sessions | `workspaces`、`files` | `sidebar`、`composer` |
@@ -650,7 +650,7 @@ space 的声明里写 `instance = "system"`（默认）、一台固定实例的 
 右栏看到和操作的就只能是这个 space 自己的会话。** 这件事错一次就是把消息发进了别的产品面、
 别的实例、别的工具集，所以它是不变量，不是界面上的约定：
 
-1. **前端没有全局的「当前会话 id」。** `@harnix/agix/state` 里记的是「每个 space 的当前会话」：
+1. **前端没有全局的「当前会话 id」。** `@harnix/core/state` 里记的是「每个 space 的当前会话」：
    `space → (instance, session)`。中区、输入框、右栏都从「前台 space」取它自己的那一项；切换 space
    就是切换取哪一项，不会把上一个 space 的会话带过来。
 2. **会话总是带着实例一起出现。** 草稿、滚动位置、权限卡、队列这些按会话保存的状态，键都是
@@ -913,7 +913,7 @@ Agix，不用先改 Harnix、再让 Harnix 升 Agix、再升 Harnix。这是 D3 
 - 后端走 API（协议层直接调方法、订阅事件），前端走 Playwright（真浏览器）。
 - **只用一个运行器：Playwright Test**。API 套件是不开浏览器的 project，界面套件是 chromium project，
   同一份报告、同一套夹具。
-- `@harnix/agix` 用 Vitest 做单元测试；它们是单元测试，**不算功能覆盖**。
+- `@harnix/core` 用 Vitest 做单元测试；它们是单元测试，**不算功能覆盖**。
 
 ### 13.2 结构
 
@@ -921,7 +921,7 @@ Agix，不用先改 Harnix、再让 Harnix 升 Agix、再升 Harnix。这是 D3 
 ui/packages/testkit/          @harnix/testkit
   launcher.ts                 起一个 harnix：独立的 HOME、数据根、引擎根、端口、拓扑、录像目录；
                               可选再起几台 `harnix daemon`
-  api.ts                      基于 @harnix/agix/client 的测试客户端（被测的客户端本身就在用）
+  api.ts                      基于 @harnix/core/client 的测试客户端（被测的客户端本身就在用）
   fixtures.ts                 Playwright 夹具：harnix 进程、已连接的 api、page
   components/                 组件对象（照 data-testid 约定）
 tests/live/
@@ -1008,7 +1008,7 @@ IPDrun 在旧架构上的改动**不合并**，作为需求和参考实现，在
 | R-02、R-03 | 无头会话、会话规格 | M3 |
 | R-04 | 角色令牌 | **0.4 之后**，和 MCP 一起（D27） |
 | R-05 | MCP 服务端 | 0.4 之后（D10）；在那之前 IPDrun 在自己的模块里起自己的监听（§7.8） |
-| R-06 | React 界面 | M1（`@harnix/agix/client`）、M4（对话主干，D21）、M5 |
+| R-06 | React 界面 | M1（`@harnix/core/client`）、M4（对话主干，D21）、M5 |
 | R-07 | Tauri 外壳 | M9 |
 | R-09 | 可测性约定 | M1（testkit 的组件对象）、M4 |
 | R-10 | 装配库化 | M2（`App::builder()`） |

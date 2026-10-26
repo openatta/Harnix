@@ -27,6 +27,7 @@ pub const CONTRIB_API_VERSION: u32 = 1;
 
 /// How the five channel semantics are carried.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum Topology {
     /// One bidirectional connection carries all five (bulk still goes around
@@ -54,6 +55,7 @@ impl Topology {
 
 /// What the client asks for, and what the server answers with.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Handshake {
     pub protocol_version: u32,
     pub contrib_api_version: u32,
@@ -63,6 +65,7 @@ pub struct Handshake {
 /// Ceilings a client has to respect, told to it once rather than discovered
 /// by hitting them.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Limits {
     pub max_frame_bytes: usize,
     pub max_upload_bytes: usize,

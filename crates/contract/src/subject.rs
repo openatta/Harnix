@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 /// The caller behind one request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Subject {
     /// This binary, calling itself. Assembly and the hub's own turn loop.

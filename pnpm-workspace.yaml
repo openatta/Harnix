@@ -1,0 +1,20 @@
+# The front end and the live tests, as one pnpm workspace
+# (docs/harnix-0.4-design-and-plan.md §4.2, §13).
+#
+#   ui/packages/*  @harnix/core, @harnix/react, @harnix/shell, @harnix/testkit
+#   tests/live     the LIVE suites: Playwright Test, against the real binary
+#
+# An application's own workspace lists `harnix/ui/packages/*` beside its
+# spaces (§11.1); nothing here assumes it is the root.
+packages:
+  - ui/packages/*
+  - tests/live
+
+# Nothing in the tree needs an install script to run.
+allowBuilds:
+  esbuild: false
+
+# Permissive licences only. vite 8 depends on lightningcss (MPL-2.0), so vite
+# stays on 7 (esbuild + rollup, both MIT); vitest's peer resolves to it too.
+overrides:
+  vite: 7.3.7

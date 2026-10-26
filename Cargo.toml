@@ -93,6 +93,8 @@ ignore = "0.4"
 toml = "0.8"
 clap = { version = "4", features = ["derive"] }
 tempfile = "3"
+# Only under harnix-contract's `ts` feature — see crates/contract/Cargo.toml.
+ts-rs = { version = "12", default-features = false, features = ["serde-compat"] }
 
 # Agix's release profile — see its Cargo.toml for why `panic` stays
 # `unwind` and `lto` stays `thin`. A profile only applies at the workspace

@@ -1,12 +1,20 @@
 {
-  "name": "harnix-ui-tests",
+  "name": "harnix-workspace",
   "private": true,
-  "description": "Browser tests for the interface. Everything else runs on node alone.",
+  "type": "module",
+  "description": "Harnix's front-end packages and LIVE tests (pnpm workspace). The Rust side is Cargo.toml.",
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
-    "test:browser": "playwright test",
-    "install:browser": "playwright install chromium"
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "test:unit": "pnpm -r --if-present run test",
+    "live": "pnpm --filter @harnix/live-tests run live",
+    "install:browser": "pnpm --filter @harnix/live-tests exec playwright install chromium"
   },
   "devDependencies": {
-    "@playwright/test": "^1.49.0"
+    "@playwright/test": "1.62.1"
   }
 }
