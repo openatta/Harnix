@@ -2,9 +2,13 @@
 
 > 读者：在 Harnix 上做产品的人（Helm、IPDrun，以及以后的应用）。
 >
-> **这份指南写的是 0.4 的目标形态。** 每节标了从哪个里程碑起可用（里程碑见 [roadmap](roadmap.md)，
-> 当前进度见 [status](status.md)）。**已落地的里程碑，示例就是真实的签名**（M2 的模块契约与应用装配
-> 已落地，`crates/testapp` 是一个能编译的完整例子）；还没落地的部分是示意，落地时回来改。
+> **对照的版本：`Harnix-v0.4.0-2026102602`**（M0–M7 已落地，Agix 钉在 0.2.8）。每节标了从哪个里程碑
+> 起可用（里程碑见 [roadmap](roadmap.md)，当前进度见 [status](status.md)）。M7 及之前的示例就是真实的
+> 签名（`crates/testapp`、`examples/hello-app` 是能编译、有测试的完整例子）；标 M8、M9 的是定了形状、
+> 还没有的东西。
+>
+> **接口清单在 [SDK 参考](harnix-sdk-reference.md)**：每个类型、方法、profile 键、命令行开关、目录、
+> 线上方法与主题、贡献点的形状，以及迁移时要知道的缺口。本指南讲怎么用、为什么。
 >
 > 用词照 [术语](glossary.md)。为什么这样设计见 [0.4 设计](harnix-0.4-design-and-plan.md)。
 
@@ -91,12 +95,12 @@ Cargo 这边要知道三件事（为什么这样做见设计 §11.2）：
    Harnix 需要的依赖（含 Agix 的入口 crate）指到以应用根为基准的路径。升级 Harnix 之后重新跑一次。
 3. `[profile.release]`、`[patch]` 写在应用根，Harnix 根目录里的那些对你不生效。模板里已经带好了。
 
-一份 profile 的样子（0.4 目标形态）：
+一份 profile 的样子（标 M8 的两段现在还不认：profile 每段都拒绝不认识的键，M8 之前写了进程起不来）：
 
 ```toml
 [brand]                          # M8
 name = "Helm"
-product_id = "helm"              # 决定 .harnix/ 账本命名空间与 token 文件位置
+product_id = "helm"              # 程序自己的配置与状态放 ~/.helm（不配就是 ~/.harnix），见 §5.4
 
 [engine]                         # system 实例
 scene = "default"
@@ -142,6 +146,8 @@ runtime_modules = false          # 不加载运行期包的界面模块（M8，�
 3. `scripts/build.sh`，然后 `./target/release/<app> --profile profiles/<app>.toml`。
 4. 打开启动链接，看到空应用（会话 space + 设置）。
 5. 在 `spaces/` 下加第一个 space，在 `app/src/main.rs` 里 `.module(...)` 加上它。
+6. 模板的 `scripts/build.sh` 还没有把 space 的界面接进构建（`HARNIX_UI_MODULES`），照
+   `examples/hello-app/scripts/build.sh` 改（§8.2）。
 
 ## 5. 后端：写一个模块（M2 起）
 
@@ -264,8 +270,16 @@ space、实例，其余照常启动，原因写在诊断页。所以 `start` 里
 ### 5.4 数据与迁移
 
 Harnix 只管什么时候迁、失败了怎么办，不管用什么迁。数据库、迁移工具、连接池你自己选。你的数据放在
-`ctx.data_dir()` 里，和 Harnix 的 `.harnix/` 账本分开。0.4 没有 `--dry-run` 和备份钩子，要的话在你的
+`ctx.data_dir()` 里，和 Harnix 的账本分开。0.4 没有 `--dry-run` 和备份钩子，要的话在你的
 `migrate` 里自己做。
+
+**目录的规矩**（维护者 2026-10-26 定，M8 落地）：
+
+- 程序自己的配置与状态（令牌、设备、工作区、`spaces.json`、`instances.json`、实例数据根、各模块的
+  `data_dir`）放 `~/.<product_id>`，不配 `[brand]` 就是 `~/.harnix`。现在（M8 之前）还在
+  `~/Documents/.harnix`；M8 不迁移它，升级后从空开始。
+- Documents 里只放项目，不放隐藏目录。
+- 项目里，项目自己的数据与配置一律放 `<项目>/.agix/`，不另开 `<项目>/.<你的产品>/`。
 
 ## 6. Agent 侧
 
@@ -613,7 +627,32 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 
 ## 14. 迁移现有代码
 
-通用的顺序：
+### 14.0 迁移分析怎么做
+
+在 Helm / IPDrun 的仓库里做分析时，输入是这三份：本指南、[SDK 参考](harnix-sdk-reference.md)（尤其
+§9 的缺口表）、能跑的范例 `examples/hello-app`。下面 §14.1、§14.2 的「现在」一列是照两边当时提的
+issue（Helm Issue 01、IPDrun Issue 01）写的，**以你仓库里现在的代码为准**，对不上就按代码改表。
+
+逐项过一遍，每项落成「保留 / 改写 / 删掉 / 等 Harnix」：
+
+1. **后端**：每个领域服务 → 一个 `Module`；HTTP/WS 接口 → `methods()` / `events()`，确实要自己协议的
+   → `routes()`；后台任务 → `start()` 里起，状态用主题推；配置 → `[modules.<id>]`，密钥 → `CredentialRef`。
+2. **Agent 侧**：原生工具、场景 → `engine()` 或进程内模板；要隔离的 → spawn 模板；无头会话、tap、
+   `OnBusy` → `ctx.sessions()`（tap 要处理 `Lagged`）。
+3. **界面**：每个产品面 → 一个 space（`register()`）；页面里的卡片 → 条目 + `flow.block`；
+   工具结果的特殊画法 → `tool.row`；详情 → `details.panel`；设置页 → `settings.section`。Vue / 自写
+   组件全部重写成 React，状态用组件内 state 或 zustand（自己依赖）。
+4. **数据与目录**：现有数据在哪、M8 之后放哪（§5.4）；要不要写 `migrate`。
+5. **测试**：换成 `@harnix/testkit`（API 层 + Playwright 层），用例打 `@feature` / `@layer` 标签；
+   录像放在应用自己的目录。
+6. **缺口**：用到的能力在 SDK 参考 §9 里的，标出等哪个里程碑，或者先在应用里怎么顶着。
+7. **回推 Harnix 的候选**：两个应用都写了、形状一样、在公开契约之上做不出来的，列出来（§2）。
+
+建议的顺序：先换布局和后端（M7 已经够用），再换界面（M7 够用；品牌等 M8），最后测试与清理。
+产品名、图标、配色和独立的状态目录等 M8；桌面壳等 M9。
+
+### 14.0.1 通用步骤
+
 
 1. 把 Agix 升到 Harnix 钉的那一版。
 2. 换布局：`harnix/`、`agix/` 平级的子仓；workspace 收 `harnix/crates/*`；`sync-app-deps`、`check-pins`。
@@ -670,5 +709,7 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 | space、`home.card`、贡献点 v2、宿主 API v2、`examples/hello-app` | M5 |
 | 系统 space | M6 |
 | 扩展条目、`space.fetch/socket`、批准卡范例 | M7 |
-| 运行期界面模块 v2、`[ui] runtime_modules`、`[brand]`、令牌覆盖与语言包 | M8 |
-| 桌面壳模板 | M9 |
+| 运行期界面模块 v2、`[ui] runtime_modules`、`[brand]`、`~/.<product_id>`、令牌覆盖与语言包 | M8（未开始） |
+| 桌面壳模板 | M9（未开始） |
+
+M2–M7 已发布，最新是 `Harnix-v0.4.0-2026102602`。

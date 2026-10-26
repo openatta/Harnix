@@ -9,10 +9,10 @@
 
 | 项 | 值 |
 |---|---|
-| 阶段 | **M7 已完成**（分支 `m7`，本地提交，未推送）；M0–M6 已发布为 `Harnix-v0.4.0-2026102601` |
+| 阶段 | **M7 已发布**为 `Harnix-v0.4.0-2026102602`（`45ddce9`，分支 `m7` 与标签已推送；`main` 还停在 0.4.0-2026102601） |
 | 当前里程碑 | 无。M8 要维护者说开始 |
 | 当前任务 | 无 |
-| 下一步 | 等维护者定：推送 `m7`、发下一个版本、开始 M8。Agix 缺口卡住的先在 Agix 里解决，不卡的先做 Harnix 再回头做 Agix（维护者 2026-10-26） |
+| 下一步 | M8 的四个决定已定（设计 §10.5 末尾），等维护者说开始；`main` 要不要快进到 `m7` 等维护者定。Agix 缺口卡住的先在 Agix 里解决，不卡的先做 Harnix 再回头做 Agix（维护者 2026-10-26） |
 | 最后更新 | 2026-10-26 |
 
 ## 怎么接上
@@ -73,7 +73,7 @@
 | M4 前端底座 | — | ✅（0.4.0 发布） | 「Replace the interface with a React shell…」那个提交（带着 M5 的一部分）；M4 自己的各层 `check.sh` 全绿 |
 | M5 Space 模型 | 0.4.z | ✅（0.4.0 发布） | 「Give sessions a space…」那个提交；`check.sh` 全绿（remote 未跑） |
 | M6 系统 space | 0.4.z | ✅（0.4.0 发布） | 「Give the system space its tree and inspector」那个提交；`check.sh` 全绿（remote 未跑） |
-| M7 模块的对话与链接能力 | 0.4.z | ✅（未发布） | `002c407`（M7-1–3，Agix 0.2.8）、`06f28f1`（M7-4 批准卡，只改 `examples/`）；`check.sh` 全绿（remote 未跑） |
+| M7 模块的对话与链接能力 | 0.4.z | ✅（0.4.0-2026102602 发布） | `002c407`（M7-1–3，Agix 0.2.8）、`06f28f1`（M7-4 批准卡，只改 `examples/`）；`check.sh` 全绿（remote 未跑） |
 | M8 运行期界面模块 v2、品牌 | 0.4.z | 未开始 | |
 | M9 桌面壳、文档、消费者落地 | 0.4.z | 未开始 | |
 
@@ -218,6 +218,9 @@ M3 发现的 Agix 缺口：`.local/agix-issue-05-resume-recorder.md`（恢复的
 
 | 日期 | 事 |
 |---|---|
+| 2026-10-26 | 二开 SDK：新增 [SDK 参考](harnix-sdk-reference.md)（照代码列出全部接口、profile 键、目录、方法与主题、贡献点、迁移缺口）；指南对齐到 0.4.0-2026102602，加 §14.0「迁移分析怎么做」，给 Helm、IPDrun 做迁移分析用。查出 `templates/app/scripts/build.sh` 没接 `HARNIX_UI_MODULES`，记在参考 §9 |
+| 2026-10-26 | 维护者定 M8 的四个决定（设计 §10.5 末尾）：程序状态放 `~/.<product_id>`、旧的 `~/Documents/.harnix` 不管；import map 只放 React 三件与 `@harnix/react`；`r.tokens` / `r.strings`；CSP hash 由服务端启动时算。M8 还没开始 |
+| 2026-10-26 | 发布 `Harnix-v0.4.0-2026102602`（M7）：`check.sh` 跑了的 11 层全过，remote 没跑；分支 `m7` 与标签已推送。GitHub 提示仓库已改名为 `openatta/Harnix`（旧地址会转）。发布后 `prune.sh` |
 | 2026-10-26 | M7 完成：全量 `check.sh` 11 层全过（remote 未跑）。跑之前磁盘只剩 1.3G，删了 `agix/target/debug/incremental`（19G，这一轮 Agix 工作产生的增量缓存） |
 | 2026-10-26 | Agix 0.2.8 发布（`Agix-v0.2.8-2026102602`，`2742afc`）：issue 06（`session.appendEntry` / `session.entries` / `extension_entry` 帧、整段分叉带尾部条目）与 issue 05（恢复时重新给 `recorder`）。全量测试 2880 过；中途一次 29 个失败是我把 `CARGO_TARGET_DIR` 指到别处、wasm 夹具找不到产物，改成软链后全过。Harnix 钉上它。M7-1（条目）、M7-2（长任务进度的范例）、M7-3（`space(id).fetch/socket`）完成 |
 | 2026-10-26 | 发布 `Harnix-v0.4.0-2026102601`（维护者同意）：推送分支与标签，main 快进到 `ee7d959`。发布前的 `check.sh` 里 browser 层有一条在机器同时编 Agix 时超时，单独重跑这一层通过；remote 未跑。本地的旧标签 `nest-v0.3.1-2026102501` 没推。同一天维护者说开始 M7 |

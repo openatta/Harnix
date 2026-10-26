@@ -879,6 +879,18 @@ React 19 + TypeScript + Vite + Zustand。markdown 与代码高亮沿用 IPDrun �
   模块可以贡献令牌覆盖（只许覆盖已有令牌名）和语言包（key 带模块命名空间）。应用不 fork `ui/` 就能
   拥有自己的外观。
 
+**M8 开工前定下的（维护者 2026-10-26）**：
+
+1. **目录**：程序自己的配置与状态（现在 `<data-dir>/.harnix` 里的全部）挪到 `~/.<product_id>`，不配
+   `[brand]` 就是 `~/.harnix`；`HARNIX_STATE_DIR` 照旧能挪。Documents 里只放项目，不放隐藏目录。旧的
+   `~/Documents/.harnix` 不迁移、不读。项目里，项目自己的数据与配置一律放 `<项目>/.agix/`。
+2. **import map 只暴露** `react`、`react-dom`、`react/jsx-runtime`、`@harnix/react`；`zustand` 不放（外壳
+   不用它，要的包自己打进去）。外壳自己也用这几份，页面上只有一个 React。
+3. **令牌覆盖与语言包**：注册表上的 `r.tokens({...})`、`r.strings(locale, {...})`，编进来的模块和运行期
+   v2 包都能用；不算贡献点，贡献点还是 8 个。
+4. **CSP 的 hash**：服务端启动时从要出的 `index.html` 算 import map 的 `sha256`，而不是构建时写死，
+   这样 `--ui-dir` 出的界面也对。
+
 ### 10.6 预算
 
 | 指标 | 0.3 | 0.4 |
