@@ -145,7 +145,7 @@ function SectionHead({ app, s }: { app: App; s: ShellState }) {
     <>
       <div className="sec">
         <span className="truncate">
-          {space?.title() ?? s.space} · {t("sidebar.sessions")}
+          {space?.sidebar ? space.title() : `${space?.title() ?? s.space} · ${t("sidebar.sessions")}`}
         </span>
         {count !== null ? <span className="cnt">{count}</span> : null}
         {s.space === "sessions" ? (

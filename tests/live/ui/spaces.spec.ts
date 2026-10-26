@@ -52,7 +52,7 @@ test("the application's spaces are listed, each with its own title", TAGS, async
   const errors = watchConsole(page);
   await open(page, backend.url);
   const ids = await page.locator("#side .spaces .space").evaluateAll((nodes) => nodes.map((n) => (n as HTMLElement).dataset.space));
-  expect(ids).toEqual(["home", "sessions", "greeter", "notes"]);
+  expect(ids).toEqual(["home", "sessions", "greeter", "notes", "system"]);
   await inSpace(page, "greeter");
   await expect(page.getByTestId("space-pill")).toContainText("Greeter");
   expect(errors).toEqual([]);

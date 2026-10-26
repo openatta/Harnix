@@ -82,7 +82,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     let mut entries = Vec::new();
     let builtin = if app.builtins {
         let builtin = Builtin::new(roots.state.clone(), roots.projects.clone())?;
-        for module in builtin.modules() {
+        for module in builtin.modules(profile.system_space.enabled) {
             entries.push(Entry {
                 module: Box::new(module),
                 namespace: Namespace::Kernel,
@@ -135,6 +135,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
             .filter(|r| !r.is_enabled())
             .map(|r| r.manifest.id.clone())
             .collect(),
+        fixed: BTreeMap::new(),
     };
     for decl in &profile.instance_templates {
         let template = decl.template()?;
@@ -199,10 +200,13 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
             .map_err(anyhow::Error::msg)?;
         let root = instances_dir.join(decl.data_root.clone().unwrap_or_else(|| decl.id.clone()));
         let built = match decl.carrier() {
-            Ok(carrier) => match registry.factory.build(&decl.id, &carrier, root).await {
-                Ok(built) => built,
-                Err(e) => down(carrier.carrier(), format!("{e:#}")),
-            },
+            Ok(carrier) => {
+                registry.fixed.insert(decl.id.clone(), (carrier.clone(), root.clone()));
+                match registry.factory.build(&decl.id, &carrier, root).await {
+                    Ok(built) => built,
+                    Err(e) => down(carrier.carrier(), format!("{e:#}")),
+                }
+            }
             Err(e) => down(harnix_instance::Carrier::InProcess, format!("{e:#}")),
         };
         fixed.push((decl.id.clone(), built));

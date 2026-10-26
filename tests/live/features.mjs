@@ -13,7 +13,7 @@ export const FEATURES = [
   { id: "connection", name: "握手与连接" },
   { id: "authz", name: "授权与设备" },
   { id: "sessions", name: "会话与轮次" },
-  { id: "headless", name: "无头会话", ui: { pending: "M6" } },
+  { id: "headless", name: "无头会话" },
   {
     id: "instances",
     name: "实例层",
@@ -27,7 +27,7 @@ export const FEATURES = [
     name: "HOME",
     api: { na: "HOME 是界面的一页；它的会话是 home space 的会话，API 面由 spaces 覆盖" },
   },
-  { id: "system", name: "系统 space", api: { pending: "M6" }, ui: { pending: "M6" } },
+  { id: "system", name: "系统 space" },
   { id: "settings", name: "设置" },
   { id: "packages", name: "运行期包", ui: { pending: "M8" } },
   { id: "migrations", name: "迁移", ui: { na: "迁移没有自己的界面；结果在诊断页（设置 · 诊断）" } },

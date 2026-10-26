@@ -428,3 +428,165 @@
   text-align: center;
   user-select: all;
 }
+
+/* ── the system space's inspector ───────────────────────────────────── */
+#details .facts {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+}
+
+#details .fact {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+#details .fact dt {
+  color: var(--label-caption);
+}
+
+#details .fact dd {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-code);
+  font-size: 12px;
+}
+
+#details .btn.wide {
+  width: 100%;
+  margin-top: 10px;
+}
+
+#details .ops {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+#details .ops .op {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+#details .ops .op .glyph,
+#details .messages .glyph {
+  width: 14px;
+  height: 14px;
+}
+
+#details .ops .op.danger {
+  color: var(--state-error);
+}
+
+#details .tasks,
+#details .messages {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+#details .task,
+#details .message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 0;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--border-l1);
+}
+
+#details .task .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--label-caption);
+}
+
+#details .task .dot.running {
+  background: var(--accent);
+}
+
+#details .task .dot.failed {
+  background: var(--state-error);
+}
+
+#details .task .dot.done {
+  background: var(--state-success);
+}
+
+#details .task .kind,
+#details .message .origin {
+  flex: none;
+  color: var(--label-secondary);
+}
+
+#details .task .what,
+#details .message .text {
+  flex: 1;
+  min-width: 0;
+}
+
+#details .task .when,
+#details .message .seq {
+  flex: none;
+  color: var(--label-caption);
+  font-family: var(--font-code);
+  font-size: 11px;
+}
+
+#details .diff {
+  margin: 6px 0;
+  font-family: var(--font-code);
+  font-size: 12px;
+}
+
+#details .diff .line.add {
+  color: var(--hx-diff-a-fg);
+  background: var(--hx-diff-a);
+}
+
+#details .diff .line.del {
+  color: var(--hx-diff-d-fg);
+  background: var(--hx-diff-d);
+}
+
+#details .diff .sign {
+  display: inline-block;
+  width: 14px;
+}
+
+#details .diff.none {
+  color: var(--label-caption);
+}
+
+#details .new-instance {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#details .new-instance .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+#details .new-instance input,
+#details .new-instance select {
+  border: 1px solid var(--border-l2);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  color: var(--label-primary);
+  padding: 5px 8px;
+  font: 12.5px var(--font-sans);
+}

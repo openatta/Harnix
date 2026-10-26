@@ -16,6 +16,7 @@ import { Labelled, RequestPanel, RequestRow, type RequestBlock } from "./envelop
 import { Glyph } from "./glyph.tsx";
 import { RecentSessions } from "./home.tsx";
 import { builtinSections } from "./settings.tsx";
+import { registerSystem } from "./system.tsx";
 
 const OWNER = "builtin";
 
@@ -32,6 +33,7 @@ export function registerBuiltins(app: App): void {
     { id: "sessions", icon: "chat", order: 10, title: () => t("space.sessions"), subtitle: () => t("space.sessions.subtitle"), center: "chat" },
     OWNER,
   );
+  registerSystem(app);
   r.register("home.card", { id: "builtin.recent", order: 0, title: () => t("home.recent.title"), render: () => <RecentSessions app={app} /> }, OWNER);
 
   r.register("tool.row", { id: "builtin.tool", match: () => true, render: (block) => <ToolRow app={app} block={block} /> }, OWNER);

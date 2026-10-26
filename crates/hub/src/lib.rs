@@ -95,6 +95,7 @@ pub const HUB_METHODS: &[&str] = &[
     "harnix.instances.create",
     "harnix.instances.ensure",
     "harnix.instances.stop",
+    "harnix.instances.restart",
     "harnix.sessions.tasks",
     "harnix.spaces.list",
 ];
@@ -409,7 +410,7 @@ impl Hub {
             "harnix.subscribe" => return self.subscribe(subject, params).await,
             "harnix.unsubscribe" => return self.unsubscribe(subject, params).await,
             "harnix.sessions" if params.get("space").is_some() => {
-                return self.space_sessions(&instances::claimed_space(&params)).await;
+                return self.space_sessions(&self.claimed(&params)?).await;
             }
             "harnix.sessions" | "harnix.instances.sessions" => {
                 let instance = self.instance_of(&params)?;
@@ -417,10 +418,11 @@ impl Hub {
             }
             "harnix.spaces.list" => return Ok(self.spaces_view()),
             "harnix.instances.list" => return Ok(self.instances_view()),
-            "harnix.instances.templates" => return Ok(self.templates_view(subject).await),
+            "harnix.instances.templates" => return Ok(self.templates_view(subject, &params).await),
             "harnix.instances.create" => return self.create_instance(subject, params, false).await,
             "harnix.instances.ensure" => return self.create_instance(subject, params, true).await,
             "harnix.instances.stop" => return self.stop_instance(subject, params).await,
+            "harnix.instances.restart" => return self.restart_instance(subject, params).await,
             "harnix.sessions.tasks" => {
                 let key = self.key_of(&params)?;
                 return self.tasks_view(&key).await;
@@ -441,6 +443,7 @@ impl Hub {
                 if let Some(sid) = forked.get("session_id").and_then(Value::as_str) {
                     self.bind_space(&(key.0.clone(), sid.to_string()), &space);
                 }
+                self.refresh("harnix.instances.sessions", json!({"instance": key.0}));
                 return Ok(forked);
             }
             _ => {}
@@ -452,7 +455,12 @@ impl Hub {
         let device = matches!(subject, Subject::Device { .. });
         if PASSTHROUGH.contains(&method) || (!device && is_engine_method(method)) {
             let instance = self.instance_of(&params)?;
-            return self.call(&instance, method, without_instance(params)).await;
+            let answer = self.call(&instance, method, without_instance(params)).await?;
+            // What the session list shows changed; the engine sends no event for it.
+            if RELISTED.contains(&method) {
+                self.refresh("harnix.instances.sessions", json!({"instance": instance}));
+            }
+            return Ok(answer);
         }
         Err(RpcError::not_found(format!(
             "`{method}` is not a method of this process"
@@ -483,6 +491,15 @@ impl Gate for HubGate {
         self.0.dispatch(subject, method, params).await
     }
 }
+
+/// Engine methods after which an instance's session list reads differently.
+const RELISTED: &[&str] = &[
+    "session.rename",
+    "session.clear",
+    "session.compact",
+    "session.dropMessages",
+    "session.editMessage",
+];
 
 /// Whether a name is in one of the engine's namespaces, so a module's grant
 /// can reach it. `harnix.*` and `app.*` never are.

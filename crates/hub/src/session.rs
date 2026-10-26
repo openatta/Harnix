@@ -275,7 +275,7 @@ impl Hub {
         }
         if let Some(obj) = created.as_object_mut() {
             obj.insert("instance".into(), json!(instance));
-            obj.insert("space".into(), json!(if space == harnix_contract::SYSTEM_SPACE { harnix_contract::SESSIONS_SPACE } else { space.as_str() }));
+            obj.insert("space".into(), json!(space));
         }
         Ok(created)
     }

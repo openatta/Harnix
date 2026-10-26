@@ -769,6 +769,29 @@ space 的声明里写 `instance = "system"`（默认）、一台固定实例的 
 **Agix 没给的，不画假的。** 页签或按钮在 Agix 补上之前不出现，而不是做成灰的或者在 Harnix 侧
 模拟。这是概念 §9「不在 Harnix 侧绕过去」的同一条规矩。
 
+### 9.4 M6 的实际做法（2026-10-26）
+
+- **后端分两半。** 设备本来调不到的引擎方法（`inspectContext`、`dropMessages`、`editMessage`、
+  `stopTask`、`compact`、`clear`、`setModel`、`rename`）和读录像，包成内建模块 `system` 的
+  `harnix.system.*`：设备调它，它以 `system` 模块的身份经授权调引擎，两次判定都进审计。其余
+  （`session.history`、`fork`、`interrupt`、`close`、`delete`，`harnix.instances.*`）设备直接调，
+  带上 `space: "system"`：中枢的 space 核对放行并记一笔跨 space 审计；实例的新建、停止、重启
+  列为必记的审计项。
+- **开关。** `[system_space] enabled = false` 时 `system` 模块不注册（方法连同它的授权一起没有），
+  `system` space 不存在：`harnix.sessions`、`harnix.attach`、`harnix.instances.*` 声称来自它的
+  一律 `SPACE_MISMATCH`。
+- **重启**（`harnix.instances.restart`）：模板建的按账本那一条重建，profile 声明的按声明重建，
+  attach 的就是重新连上（「重新 attach」不另设方法）；`system` 实例是这个进程本身，不能重启。
+  重建之后照断线重连那样 resync 订阅了它的会话。
+- **系统 space 里可以按任何模板建实例**（设备在别的 space 只能用 `ui = true` 的），建出来的归
+  `space:system`。它自己新建的会话绑在 `system` 上，不进会话 space 的列表。
+- **会话列表的刷新**：引擎改名、压缩、清空、改写或去掉消息时不发事件，中枢在这几个方法成功之后
+  重发那台实例的 `harnix.instances.sessions`；分叉同样。
+- **界面**：左栏是实例树（选中一台展开它的会话，标出所属 space），中区是选中会话的对话，右栏四个
+  页签——会话（事实、到所属 space 打开、操作、任务）、调用（信封变化的那几次与相邻差异）、上下文
+  （下一次调用的系统块、工具、合计；最近 50 条消息的改写与去掉）、实例（事实、重启、停止、按模板
+  新建）。只有 `harnix.reachable` 里有 `harnix.system.context` 时才注册这个 space。
+
 ---
 
 ## 10. 前端

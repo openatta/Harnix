@@ -29,15 +29,26 @@ use telemetry::recorder::reader;
 use crate::{require_session_id, Builtin};
 
 impl Builtin {
-    fn recording_dir(&self, session_id: &str) -> PathBuf {
-        self.system().recordings_root.join(session_id)
+    /// Where an instance writes a session's recording.
+    fn recording_dir(&self, instance: &str, session_id: &str) -> Result<PathBuf, RpcError> {
+        let handle = self.instance(instance).ok_or_else(|| {
+            RpcError::new(
+                codes::INSTANCE_NOT_FOUND,
+                format!("there is no instance `{instance}`"),
+            )
+        })?;
+        Ok(handle.recordings_root.join(session_id))
     }
 
-    /// `harnix.requestHeaders {session_id}` — the envelope timeline of this
+    /// `harnix.requestHeaders {instance?, session_id}` — the envelope timeline of this
     /// session's current run, oldest first, one entry per change.
     pub(crate) async fn request_headers(&self, params: Value) -> Result<Value, RpcError> {
         let session_id = require_session_id(&params)?;
-        envelopes_in(&self.recording_dir(&session_id))
+        let instance = params
+            .get("instance")
+            .and_then(Value::as_str)
+            .unwrap_or(harnix_contract::SYSTEM_INSTANCE);
+        envelopes_in(&self.recording_dir(instance, &session_id)?)
     }
 }
 

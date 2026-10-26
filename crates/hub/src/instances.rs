@@ -56,6 +56,8 @@ pub struct Registry {
     /// Modules that are disabled: their templates build nothing and their
     /// instances are down.
     pub disabled: HashSet<String>,
+    /// The profile's own instances and where their data is, so one can be restarted.
+    pub fixed: BTreeMap<String, (harnix_instance::TemplateCarrier, PathBuf)>,
 }
 
 impl Registry {
@@ -81,7 +83,11 @@ fn builder_of(subject: &Subject, space: &str, template: &InstanceTemplate, decla
             ))),
             _ => Ok(Owner::Module(id.clone())),
         },
-        // The interface builds only from what is opened to it (D18).
+        // The interface builds only from what is opened to it (D18); the system space, the
+        // debugging face, from any template.
+        Subject::Device { .. } if space == harnix_contract::SYSTEM_SPACE => {
+            Ok(Owner::Space(space.to_string()))
+        }
         Subject::Device { .. } => {
             if template.ui {
                 Ok(Owner::Space(space.to_string()))
@@ -230,7 +236,7 @@ impl Hub {
             })?,
         };
 
-        let space = claimed_space(&params);
+        let space = self.claimed(&params)?;
         let (template, declared_by) = {
             let registry = self.registry.lock().await;
             registry
@@ -329,7 +335,7 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let instance = self.instance_of(&params)?;
         let slot = self.slot(&instance).expect("checked");
-        let space = claimed_space(&params);
+        let space = self.claimed(&params)?;
         let allowed = match (subject, &slot.owner) {
             _ if instance == SYSTEM || slot.owner == Owner::Kernel => false,
             (Subject::Kernel, _) => true,
@@ -347,6 +353,80 @@ impl Hub {
         }
         self.remove_instance(&instance).await;
         Ok(json!({"stopped": instance}))
+    }
+
+    /// `harnix.instances.restart { instance }`: build it again — a template-built instance from its
+    /// ledger entry, a profile one from its declaration, a daemon by connecting (and spawning)
+    /// afresh — and resync whoever was watching its sessions.
+    pub(crate) async fn restart_instance(
+        self: &Arc<Self>,
+        subject: &Subject,
+        params: Value,
+    ) -> Result<Value, RpcError> {
+        let instance = self.instance_of(&params)?;
+        if instance == SYSTEM {
+            return Err(refused(
+                "the system instance is this process; restart Harnix to restart it".into(),
+            ));
+        }
+        let slot = self.slot(&instance).expect("checked");
+        let space = self.claimed(&params)?;
+        let allowed = match (subject, &slot.owner) {
+            (Subject::Kernel, _) => true,
+            (Subject::Module { id }, _) if id == "system" => true,
+            (Subject::Module { id }, Owner::Module(owner)) => id == owner,
+            (Subject::Device { .. }, _) if space == harnix_contract::SYSTEM_SPACE => true,
+            (Subject::Device { .. }, Owner::Space(owner)) => *owner == space,
+            _ => false,
+        };
+        if !allowed {
+            return Err(refused(format!(
+                "instance `{instance}` belongs to {}, which is not {}",
+                slot.owner,
+                subject.label()
+            )));
+        }
+        let built = if let Some(template) = slot.template.clone() {
+            let entry = LedgerEntry {
+                id: instance.clone(),
+                template,
+                params: slot.params.clone(),
+                owner: slot.owner.clone(),
+                created_ms: slot.created_ms,
+            };
+            slot.stop().await;
+            self.build_entry(&entry).await
+        } else {
+            let fixed = self.registry.lock().await.fixed.get(&instance).cloned();
+            let Some((carrier, root)) = fixed else {
+                return Err(refused(format!(
+                    "instance `{instance}` has nothing to be built again from"
+                )));
+            };
+            slot.stop().await;
+            let registry = self.registry.lock().await;
+            match registry.factory.build(&instance, &carrier, root).await {
+                Ok(built) => built,
+                Err(e) => Built {
+                    link: DownLink::new(carrier.carrier(), format!("{e:#}")) as Arc<dyn EngineLink>,
+                    facts: Facts::default(),
+                },
+            }
+        };
+        self.add_instance(
+            &instance,
+            built,
+            slot.template.clone(),
+            slot.params.clone(),
+            slot.owner.clone(),
+            slot.created_ms,
+        )
+        .await;
+        // Every subscription belonged to the old link.
+        tokio::spawn(self.clone().resync_instance(instance.clone()));
+        tracing::info!(instance, "instance restarted");
+        let slot = self.slot(&instance).expect("just added");
+        Ok(self.instance_view(&slot))
     }
 
     async fn remove_instance(self: &Arc<Self>, instance: &str) {
@@ -433,12 +513,15 @@ impl Hub {
 
     /// `harnix.instances.templates`: the templates this caller may build
     /// from, with the parameters each opens.
-    pub(crate) async fn templates_view(&self, subject: &Subject) -> Value {
+    pub(crate) async fn templates_view(&self, subject: &Subject, params: &Value) -> Value {
+        let space = self
+            .claimed(params)
+            .unwrap_or_else(|_| harnix_contract::SESSIONS_SPACE.to_string());
         let registry = self.registry.lock().await;
         let list: Vec<Value> = registry
             .templates
             .values()
-            .filter(|(t, by)| builder_of(subject, harnix_contract::SESSIONS_SPACE, t, by).is_ok())
+            .filter(|(t, by)| builder_of(subject, &space, t, by).is_ok())
             .map(|(t, by)| {
                 json!({
                     "id": t.id,

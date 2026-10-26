@@ -515,3 +515,48 @@
     animation: none;
   }
 }
+
+/* The system space's instance tree: an instance per row, its sessions indented under the open one. */
+#side .system-tree .inst .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--label-caption);
+}
+
+#side .system-tree .inst .dot.ready {
+  background: var(--state-success);
+}
+
+#side .system-tree .inst .dot.degraded,
+#side .system-tree .inst .dot.starting {
+  background: var(--state-warn);
+}
+
+#side .system-tree .inst .dot.down {
+  background: var(--state-error);
+}
+
+#side .system-tree .inst .meta {
+  display: inline;
+}
+
+#side .system-tree .inst-sessions {
+  margin: 0 0 4px 14px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border-l1);
+}
+
+#side .system-tree .srow.sub .space-tag {
+  font-size: 10.5px;
+  color: var(--label-caption);
+  border: 1px solid var(--border-l2);
+  border-radius: var(--radius-pill);
+  padding: 0 6px;
+  flex: none;
+}
+
+#side .system-tree .inst-empty {
+  padding-left: 24px;
+}

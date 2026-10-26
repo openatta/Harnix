@@ -9,10 +9,10 @@
 
 | 项 | 值 |
 |---|---|
-| 阶段 | **M6 系统 space**（M0–M5 已完成，本地提交，未发布） |
-| 当前里程碑 | M6 |
-| 当前任务 | M6（见「进行中」） |
-| 下一步 | 见「进行中」。维护者 2026-10-26 下令：A 做完后接着做 M0–M6（系统 space 与界面迁移），M7–M9 不在这一轮 |
+| 阶段 | **M0–M6 已完成**（本地提交，未推送、未发布） |
+| 当前里程碑 | 无。M7 要维护者说开始 |
+| 当前任务 | 无 |
+| 下一步 | 等维护者定：推送、打 0.4.0 标签、合进 main。维护者 2026-10-26 下令的这一轮（M0–M6）到此做完，M7–M9 不在这一轮 |
 | 最后更新 | 2026-10-26 |
 
 ## 怎么接上
@@ -72,7 +72,7 @@
 | M3 实例层与服务端会话 | 0.4.z | ✅（未发布） | 「Stand instances behind one link…」那个提交；`check.sh` 全绿（remote 未跑） |
 | M4 前端底座 | — | ✅（未发布） | 「Replace the interface with a React shell…」那个提交（带着 M5 的一部分）；M4 自己的各层 `check.sh` 全绿 |
 | M5 Space 模型 | 0.4.z | ✅（未发布） | 「Give sessions a space…」那个提交；`check.sh` 全绿（remote 未跑） |
-| M6 系统 space | 0.4.z | **进行中** | |
+| M6 系统 space | 0.4.z | ✅（未发布） | 「Give the system space its tree and inspector」那个提交；`check.sh` 全绿（remote 未跑） |
 | M7 模块的对话与链接能力 | 0.4.z | 未开始 | |
 | M8 运行期界面模块 v2、品牌 | 0.4.z | 未开始 | |
 | M9 桌面壳、文档、消费者落地 | 0.4.z | 未开始 | |
@@ -177,6 +177,16 @@ M3 发现的 Agix 缺口：`.local/agix-issue-05-resume-recorder.md`（恢复的
 
 界面风格按维护者 2026-10-26 的要求改成 Helm GUI demo 的样子（设计 §8.7）。
 
+### M6 任务
+
+| 任务 | 状态 | 说明 |
+|---|---|---|
+| M6-1 系统模块（后端） | ✅ | `crates/builtin/src/system.rs`：`harnix.system.*` 九个方法，以 `system` 模块的身份调引擎；profile 关掉时整个部分不注册、`system` space 不存在，借它的名义调实例方法回 `SPACE_MISMATCH` |
+| M6-2 实例 → 会话 → 任务的树 | ✅ | 左栏是实例（状态点、载体），展开是它的会话（标出所属 space）；`harnix.instances`、`harnix.instances.sessions` 主题推送 |
+| M6-3 会话检查器、调用页签 | ✅ | 每次信封变化的调用一行，展开看与前一次的差异（系统块、工具、模型、上限），可在详情里看全文 |
+| M6-4 操作与审计 | ✅ | 压缩、清空、分叉、换模型、中断、改名、关闭、删除；实例按模板新建、停止、重启（新的 `harnix.instances.restart`）；全部写审计。「重新 attach」就是重启一台 attach 的实例 |
+| M6-5 任务与上下文页签 | ✅ | `harnix.sessions.tasks` 主题与停止；`inspectContext` 的系统块、工具、合计，最近 50 条消息可改写、可去掉 |
+
 后面里程碑的任务表在开始那个里程碑时从 roadmap 抄过来。
 
 ---
@@ -185,7 +195,7 @@ M3 发现的 Agix 缺口：`.local/agix-issue-05-resume-recorder.md`（恢复的
 
 | 任务 | 开始 | 改到哪了 | 下一步 |
 |---|---|---|---|
-| M3 设计 | 2026-10-26 | 读完 Agix 0.2.7 的 `daemon.event`、`session.subscribe`（`resume`、`subscription_dropped`）、`session.tasks`、`inspectContext` | 写 `EngineLink`，先做进程内实例与实例注册表 |
+（无）
 
 格式：
 
@@ -208,6 +218,7 @@ M3 发现的 Agix 缺口：`.local/agix-issue-05-resume-recorder.md`（恢复的
 
 | 日期 | 事 |
 |---|---|
+| 2026-10-26 | M6 完成：系统模块与开关、实例重启、系统 space 的实例树与四个页签（会话、调用、上下文、实例）、无头会话在树里可见。新增 API 用例 7 个（`system`）、界面用例 6 个（`system`、`headless`）；覆盖表里 system 与 headless 的 pending 去掉。M0–M6 这一轮做完，推送与 0.4.0 等维护者定 |
 | 2026-10-26 | M5 全量检查：rust 层一个目录测试没放行「每进程」频率、template 层的 build.rs 用了编译期的 `CARGO_MANIFEST_DIR`（共享 target 目录时指向已删的旧目录），两处修好后这两层重跑通过，其余各层一次通过（remote 未跑）。开始 M6 |
 | 2026-10-26 | M5 代码完成：space 账本与核对、默认实例、`@session` 引用、`harnix.audit`、8 个贡献点、每个 space 自己的当前会话、HOME 仪表盘、`examples/hello-app`。维护者要求界面参考 Helm 的 GUI demo，令牌、左栏、顶栏、对话、输入框、HOME 都照它改了 |
 | 2026-10-26 | M4 的全量检查：M4 各层全绿；跑的过程中我改了 M5 的代码，导致 api/live/template 三层对着旧二进制失败（`owner` 从 `ui` 改成 `space:sessions`、模板编到半截的源码）。代码交错在同一批文件里，所以 M4 与 M5 的前半部分一起提交；当前树的 API 151、界面 23、模板、clippy 都过 |

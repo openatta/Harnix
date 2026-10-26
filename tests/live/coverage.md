@@ -9,13 +9,13 @@
 | 握手与连接 | `connection` | 30 | 1 |
 | 授权与设备 | `authz` | 17 | 1 |
 | 会话与轮次 | `sessions` | 55 | 12 |
-| 无头会话 | `headless` | 4 | 0 · M6 |
+| 无头会话 | `headless` | 4 | 1 |
 | 实例层 | `instances` | 10 | — 实例层没有自己的界面；界面上看实例是系统 space 的事（system） |
 | 模块契约 | `modules` | 12 | 1 |
 | space 与会话绑定 | `spaces` | 7 | 6 |
 | 会话 space | `session-space` | 16 | 7 |
 | HOME | `home` | — HOME 是界面的一页；它的会话是 home space 的会话，API 面由 spaces 覆盖 | 1 |
-| 系统 space | `system` | 0 · M6 | 0 · M6 |
+| 系统 space | `system` | 7 | 5 |
 | 设置 | `settings` | 7 | 2 |
 | 运行期包 | `packages` | 8 | 0 · M8 |
 | 迁移 | `migrations` | 2 | — 迁移没有自己的界面；结果在诊断页（设置 · 诊断） |
@@ -24,4 +24,4 @@
 | 品牌与主题 | `brand` | 0 · M8 | 0 · M8 |
 | 应用构建 | `build` | — 在脚本层检查（check-pins、check-lock、sync-app-deps），不经协议 | — 构建没有界面 |
 | 桌面壳 | `desktop` | — 桌面壳不加协议面：webview 加载的就是服务端的页面 | 0 · M9 |
-| **合计** | | **173** | **31** |
+| **合计** | | **180** | **37** |

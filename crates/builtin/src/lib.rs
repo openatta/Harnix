@@ -21,6 +21,7 @@ pub mod recordings;
 pub mod search;
 pub mod settings;
 pub mod store;
+mod system;
 pub mod workspaces;
 
 use std::collections::HashMap;
@@ -132,15 +133,51 @@ const PARTS: &[Part] = &[
     },
 ];
 
-/// Every method the built-ins contribute.
+/// The system space's backend: registered only when the profile keeps it on, so turning it off
+/// takes its methods out of the authorization table rather than only out of sight (design §9.1).
+const SYSTEM: Part = Part {
+    id: "system",
+    disclosure: "系统 space：看任何实例的会话与任务、读调用信封与上下文；压缩、清空、换模型、改名、改写或删除消息、停止任务。每次操作写审计",
+    methods: &[
+        "harnix.system.context",
+        "harnix.system.calls",
+        "harnix.system.tasks.stop",
+        "harnix.system.messages.drop",
+        "harnix.system.messages.edit",
+        "harnix.system.compact",
+        "harnix.system.clear",
+        "harnix.system.model",
+        "harnix.system.rename",
+    ],
+    grants: &[
+        "session.inspectContext",
+        "session.stopTask",
+        "session.dropMessages",
+        "session.editMessage",
+        "session.compact",
+        "session.clear",
+        "session.setModel",
+        "session.rename",
+    ],
+};
+
+/// Every method the built-ins contribute, the system space's included.
 pub fn methods() -> Vec<&'static str> {
-    PARTS.iter().flat_map(|p| p.methods.iter().copied()).collect()
+    PARTS
+        .iter()
+        .chain([&SYSTEM])
+        .flat_map(|p| p.methods.iter().copied())
+        .collect()
 }
 
 /// Engine methods a built-in calls that no device may: in the table as the
 /// kernel's, and granted to the one module that needs each.
 pub fn engine_methods() -> Vec<&'static str> {
-    let mut all: Vec<&'static str> = PARTS.iter().flat_map(|p| p.grants.iter().copied()).collect();
+    let mut all: Vec<&'static str> = PARTS
+        .iter()
+        .chain([&SYSTEM])
+        .flat_map(|p| p.grants.iter().copied())
+        .collect();
     all.sort();
     all.dedup();
     all
@@ -165,10 +202,11 @@ impl Builtin {
         }))
     }
 
-    /// The built-in modules, in the order they register.
-    pub fn modules(self: &Arc<Self>) -> Vec<BuiltinModule> {
+    /// The built-in modules, in the order they register; the system space's last, when it is on.
+    pub fn modules(self: &Arc<Self>, system_space: bool) -> Vec<BuiltinModule> {
         PARTS
             .iter()
+            .chain(system_space.then_some(&SYSTEM))
             .map(|part| BuiltinModule {
                 builtin: self.clone(),
                 part,
@@ -225,6 +263,15 @@ impl Builtin {
         cx.call(method, params).await
     }
 
+    /// One instance's facts.
+    pub(crate) fn instance(&self, id: &str) -> Option<InstanceHandle> {
+        self.contexts
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .find_map(|cx| cx.instance(id))
+    }
+
     /// The `system` instance's facts: where its data is, what it runs.
     pub(crate) fn system(&self) -> InstanceHandle {
         self.contexts
@@ -262,6 +309,7 @@ impl Builtin {
             "harnix.plugins.disable" => self.plugins_manage("plugin.disable", params).await,
             "harnix.plugins.reload" => self.plugins_manage("plugin.reload", params).await,
             "harnix.plugins.list" => self.plugins_list(params).await,
+            name if name.starts_with("harnix.system.") => self.system_call(name, params).await,
             other => Err(RpcError::not_found(format!(
                 "`{other}` is not a built-in method"
             ))),

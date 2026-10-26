@@ -174,6 +174,24 @@ impl Hub {
         *self.audit.write().unwrap_or_else(|e| e.into_inner()) = Some(hook);
     }
 
+    /// The space a call claims, which must be one this application has — the system space only
+    /// while the profile keeps it (design §9.1).
+    pub(crate) fn claimed(&self, params: &Value) -> Result<String, RpcError> {
+        let space = claimed_space(params);
+        if !self
+            .spaces
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .exists(&space)
+        {
+            return Err(RpcError::new(
+                codes::SPACE_MISMATCH,
+                format!("there is no space `{space}` in this application"),
+            ));
+        }
+        Ok(space)
+    }
+
     /// Check a session call's claimed space against the ledger.
     pub(crate) fn check_space(&self, subject: &Subject, method: &str, params: &Value) -> Result<(), RpcError> {
         let Some(claimed) = params.get("space").and_then(Value::as_str) else {
@@ -258,11 +276,8 @@ impl Hub {
         Ok(space)
     }
 
+    /// What the system space creates is its own (design §9.1).
     pub(crate) fn bind_space(&self, key: &SessionKey, space: &str) {
-        if space == SYSTEM_SPACE {
-            // The system space watches; what it creates is the session space's.
-            return;
-        }
         self.spaces.lock().unwrap_or_else(|e| e.into_inner()).bind(key, space);
     }
 
