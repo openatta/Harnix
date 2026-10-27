@@ -169,12 +169,15 @@ cd src-tauri && cargo tauri build      # .app / .dmg / .msi / .deb / AppImage，
 
 ## 无标题栏（macOS）
 
-窗口用 `TitleBarStyle::Overlay` + `hidden_title`：没有独立的标题栏，红绿灯浮在页面左上角，放在 52px 的顶栏
-带里（`traffic_light_position(18, 19)`，和页面顶栏的高度一起改）。
+窗口用 `TitleBarStyle::Overlay` + `hidden_title`：没有独立的标题栏，红绿灯浮在页面左上角，中心在 52px 顶栏带
+的正中（26px），和页面里收起左栏的按钮、顶栏文字在一条水平线上。红绿灯的大小随 macOS 版本变（macOS 26 是
+14×14），而 Tauri 只在建窗口时放一次，所以壳先用一个不显示的探测窗口量出按钮的位置再算（`main.rs` 的
+`traffic_lights`）；改页面顶栏高度时一起改 `TOP_BAND`。
 
 - **页面怎么知道。** Tauri 往它打开的每个页面里放 `__TAURI_INTERNALS__`，Harnix 的界面看到它、又是 Mac，就在
-  `<html>` 上标 `data-chrome="overlay"`：左栏顶行给红绿灯让出位置，收起左栏的按钮固定在红绿灯右边（展开、收成
-  窄栏都在同一处），左栏收起时主区顶栏让开它；横幅浮到顶栏带下面。壳不往页面里送任何东西。
+  `<html>` 上标 `data-chrome="overlay"`：左栏顶行给红绿灯让出位置，收起左栏的按钮放在左栏外、固定在红绿灯右边
+  （展开、收成窄栏都在同一处，收起的淡出动画也不带它），左栏收起时主区顶栏让开它；横幅浮到顶栏带下面。壳不往
+  页面里送任何东西。
 - **怎么拖。** 页面把各栏顶栏标成 `data-tauri-drag-region="deep"`：按在空白处拖窗口、双击最大化；按钮、页签
   这些可点的照常点。Tauri 注入的脚本据此请求窗口开始拖动——这是页面对壳唯一能发的请求，`window-drag.json`
   只给它这两条。网页没有办法自己挪动原生窗口，所以这条口子省不掉；它只动窗口，不碰应用的数据。

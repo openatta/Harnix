@@ -100,7 +100,7 @@
  * stays just right of the lights whether the sidebar is open or a rail, so it is never under them
  * and never moves under the pointer; whatever starts that band leaves it the room. */
 :root[data-chrome="overlay"] {
-  --tl-gutter: 78px;
+  --tl-gutter: 88px;
   --tl-clear: calc(var(--tl-gutter) + 40px);
 }
 
@@ -122,11 +122,13 @@
   padding: 0 12px 0 var(--tl-clear);
 }
 
-:root[data-chrome="overlay"] #side .l-top .collapse {
+/* The toggle, beside the lights (the shell centres them at 26px, as this is). */
+#tl-tools {
   position: fixed;
   top: 10px;
   left: var(--tl-gutter);
   z-index: 30;
+  display: flex;
 }
 
 :root[data-chrome="overlay"] #frame[data-sidebar="collapsed"] #side .l-top .brand {

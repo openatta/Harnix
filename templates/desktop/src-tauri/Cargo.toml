@@ -28,6 +28,14 @@ serde_json = "1"
 toml = "1"
 dirs = "7"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# Measuring the system's traffic lights before the window is made (main.rs):
+# Tauri places them only at creation, and their size differs between macOS
+# versions. The same versions Tauri already links.
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSResponder", "NSView", "NSControl", "NSButton", "NSWindow", "NSGraphics"] }
+
 [target.'cfg(unix)'.dependencies]
 # SIGINT for the child: the signal a Harnix process shuts down cleanly on.
 libc = "0.2"

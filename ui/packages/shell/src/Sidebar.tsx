@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Contributed, setLocale, currentLocale, useRegistry, useT } from "@harnix/react";
 
 import { keyOf, type App, type ShellSession, type ShellState } from "./app.ts";
@@ -63,6 +64,14 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
     app.open(null);
   };
   const icon = s.hello?.shell?.brand?.icon;
+  const collapse = (
+    <button type="button" className="ib collapse" title={t("app.collapseSidebar")} onClick={toggle}>
+      <Glyph name="panel" className="glyph" />
+    </button>
+  );
+  // Without a title bar (the desktop shell) the toggle lives beside the traffic lights, outside the
+  // column: it stays put and visible while the column fades and lands as a rail.
+  const overlay = document.documentElement.dataset.chrome === "overlay";
 
   return (
     <aside id="side" className={phase}>
@@ -73,9 +82,7 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
             {brandName(app, t)}
           </span>
         </div>
-        <button type="button" className="ib collapse" title={t("app.collapseSidebar")} onClick={toggle}>
-          <Glyph name="panel" className="glyph" />
-        </button>
+        {overlay ? createPortal(<div id="tl-tools">{collapse}</div>, document.body) : collapse}
       </div>
       <button type="button" id="new" className="nav new" title={t("sidebar.newSessionHint")} onClick={() => void startNew()}>
         <Glyph name="edit" className="glyph" />

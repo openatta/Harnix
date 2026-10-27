@@ -209,13 +209,13 @@ test("in the desktop shell on macOS the top bars leave the traffic lights room a
   for (const bar of ["#head", "#side .l-top", "#details .strip"]) {
     await expect(page.locator(bar)).toHaveAttribute("data-tauri-drag-region", "deep");
   }
-  // The lights take the first 78px of the 52px band; the toggle is right of them, open or rail.
-  const toggle = page.locator("#side .l-top .collapse");
+  // The lights end 80px in, centred in the 52px band; the toggle is right of them, open or rail.
+  const toggle = page.locator("#tl-tools .collapse");
   const at = async () => (await toggle.boundingBox())!;
-  expect((await at()).x).toBeGreaterThanOrEqual(78);
+  expect((await at()).x).toBeGreaterThanOrEqual(88);
   await toggle.click();
   await expect(page.locator("#frame")).toHaveAttribute("data-sidebar", "collapsed");
-  await expect.poll(async () => (await at()).x).toBeGreaterThanOrEqual(78);
+  await expect.poll(async () => (await at()).x).toBeGreaterThanOrEqual(88);
   const toggleEnd = (await at()).x + (await at()).width;
   expect((await page.locator("#head .title").boundingBox())!.x).toBeGreaterThanOrEqual(toggleEnd);
   await toggle.click();

@@ -63,7 +63,7 @@ fn main() {
                 let builder = builder
                     .title_bar_style(tauri::TitleBarStyle::Overlay)
                     .hidden_title(true)
-                    .traffic_light_position(tauri::LogicalPosition::new(18.0, 19.0));
+                    .traffic_light_position(traffic_lights(TOP_BAND / 2.0));
                 let window = builder.build()?;
                 std::thread::spawn(move || connect(&window, config, &child));
                 exit_on_signal(app.handle().clone());
@@ -82,6 +82,53 @@ fn main() {
             }
         }
     });
+}
+
+/// The height of the page's top bars, which the traffic lights are centred in.
+#[cfg(target_os = "macos")]
+const TOP_BAND: f64 = 52.0;
+
+/// Where the traffic lights go so that their centre is `centre` points from the
+/// top of the window, 20 points from its left edge.
+///
+/// Measured rather than written down: the lights are 14x14 nine points up from
+/// the bottom of a 32-point title bar on macOS 26, a different size and place
+/// before it. Tauri sets the title bar to the button's height plus `y` and the
+/// button keeps its distance from the bottom, so its centre lands at
+/// `y - origin.y + height / 2`. The probe is a window that is never shown.
+#[cfg(target_os = "macos")]
+fn traffic_lights(centre: f64) -> tauri::LogicalPosition<f64> {
+    use objc2::{MainThreadMarker, MainThreadOnly as _};
+    use objc2_app_kit::{NSBackingStoreType, NSWindow, NSWindowButton, NSWindowStyleMask};
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
+
+    const LEFT: f64 = 20.0;
+    // macOS 26's numbers, for when there is nothing to measure.
+    let fallback = tauri::LogicalPosition::new(LEFT, centre + 2.0);
+    let Some(mtm) = MainThreadMarker::new() else {
+        return fallback;
+    };
+    let style = NSWindowStyleMask::Titled
+        | NSWindowStyleMask::Closable
+        | NSWindowStyleMask::Miniaturizable
+        | NSWindowStyleMask::Resizable
+        | NSWindowStyleMask::FullSizeContentView;
+    let rect = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(400.0, 300.0));
+    let probe = unsafe {
+        NSWindow::initWithContentRect_styleMask_backing_defer(
+            NSWindow::alloc(mtm),
+            rect,
+            style,
+            NSBackingStoreType::Buffered,
+            true,
+        )
+    };
+    unsafe { probe.setReleasedWhenClosed(false) };
+    let Some(close) = probe.standardWindowButton(NSWindowButton::CloseButton) else {
+        return fallback;
+    };
+    let frame = close.frame();
+    tauri::LogicalPosition::new(LEFT, centre + frame.origin.y - frame.size.height / 2.0)
 }
 
 /// Point the window at the server, or at the error page saying why not.
