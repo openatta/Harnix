@@ -18,6 +18,7 @@ pub const APP_METHODS: &[&str] = &["harnix.contributions", "harnix.diagnostics",
 pub const INSPECTION: &[&str] = &[
     "session.tasks",
     "session.stopTask",
+    "session.taskOutput",
     "session.inspectContext",
     "session.dropMessages",
     "session.editMessage",

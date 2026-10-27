@@ -3,7 +3,7 @@
 > 读者：在 Harnix 上做应用的人，以及在 Helm、IPDrun 里做迁移分析的人（包括 Agent）。
 >
 > **这份参考写的是已经落地的接口**，对照的是 0.4 的全部里程碑（M0–M9，Agix 钉在
-> `Agix-v0.2.8-2026102602`）。怎么用、为什么这样用见 [二开指南](harnix-sdk.md)；Helm、IPDrun 怎么迁过来见
+> `Agix-v0.2.9-2026102603`）。怎么用、为什么这样用见 [二开指南](harnix-sdk.md)；Helm、IPDrun 怎么迁过来见
 > [迁移说明](migration-helm.md)、[IPDrun](migration-ipdrun.md)；用词照 [术语](glossary.md)。
 >
 > 写法：签名照抄代码；默认值照抄代码。代码和这里对不上时以代码为准，并且这里是错的，要改。
@@ -287,8 +287,8 @@ schema、来自哪个模块）。下表是分组索引。
 | 引擎直通 | `session.create / list / get / history / entries / fork / resume / respondToPrompt`、`session.interrupt / close / delete`、`scene.list / describe / activate`、`commands.list`、`mcp.status`、`plugin.list`、`daemon.status / ping / doctor` | 设备 |
 | 应用层 | `harnix.contributions`、`harnix.diagnostics`、`harnix.audit`、`harnix.reachable` | 设备 |
 | 自带模块（`with_builtins`） | `harnix.workspaces.*`、`harnix.prefs.set`、`harnix.projects.create`、`harnix.recentProjects`、`harnix.listDirectory`、`harnix.files`、`harnix.search`、`harnix.upload.begin`、`harnix.sessions.rename / archive`、`harnix.settings.*`、`harnix.plugins.*`、`harnix.devices.*` | 设备 |
-| 系统 space（`[shell] spaces` 留着 `system` 时） | `harnix.system.context / messages.drop / messages.edit / tasks.stop / compact / clear / rename / model / calls`；`harnix.system.trace`（这一次运行里每次模型调用的输入与输出、它要的工具调用和结果）、`harnix.system.trace.call {index}`（一次调用的全文） | 设备 |
-| 检视（内核，模块可 grant） | `session.tasks`、`session.stopTask`、`session.inspectContext`、`session.dropMessages`、`session.editMessage` | 内核 |
+| 系统 space（`[shell] spaces` 留着 `system` 时） | `harnix.system.context / messages.drop / messages.edit / tasks.stop / tasks.output / compact / clear / rename / model / calls`（`tasks.output {task_id, tail_bytes?}` 是任务到目前的输出，默认最后 8 KiB）；`harnix.system.trace`（这一次运行里每次模型调用的输入与输出、它要的工具调用和结果）、`harnix.system.trace.call {index}`（一次调用的全文） | 设备 |
+| 检视（内核，模块可 grant） | `session.tasks`、`session.taskOutput`、`session.stopTask`、`session.inspectContext`、`session.dropMessages`、`session.editMessage` | 内核 |
 | 你的模块 | `app.<id>.*` | 你声明的 |
 
 明确拒绝并说明原因的（不是「没有这个方法」）：引擎里交凭据、开端点的方法；`session.run_turn`、
@@ -453,7 +453,7 @@ api_version = 2
 | 没有 MCP 服务端、角色令牌 | 外部 Agent 要连：模块 `start()` 里自己起监听 | 0.4 之后 |
 | 批准原语 | 不进 Harnix：照指南 §10.1 用条目 + 主题 + 只许设备的方法自己做 | 不做 |
 | 运行期包新增 space | 第三方包只能贡献 8 个点里除 `space` 之外的 | 0.4 之后（D28） |
-| 后台 Shell 的输出、子 Agent 的进度 | 系统 space 的任务页只有任务的事实，没有输出尾巴 | Agix（`.local/agix-issue-07`） |
+| 子 Agent 的进度 | 任务页能读 Shell / 监视器边跑边出的输出、子 Agent 的回答，但看不到子 Agent 正在第几步；要看过程走它的侧链会话 | Agix，有需要再提 |
 | 应用自己的 pnpm workspace 怎么摆 | 外部应用靠 Vite 去重解析 `react`、`@harnix/react`；类型检查与别的依赖要应用自己装（见迁移说明） | 消费者落地时定 |
 | 桌面壳在 Windows 上没有干净的停止 | 关窗口 5 秒后直接结束子进程，模块的 `stop` 不跑 | 有需要再做 |
 

@@ -14,6 +14,11 @@ const ENGINE: &[(&str, &str, &[&str])] = &[
     ("harnix.system.context", "session.inspectContext", &[]),
     ("harnix.system.tasks.stop", "session.stopTask", &["task_id"]),
     (
+        "harnix.system.tasks.output",
+        "session.taskOutput",
+        &["task_id", "tail_bytes"],
+    ),
+    (
         "harnix.system.messages.drop",
         "session.dropMessages",
         &["at", "total"],

@@ -20,6 +20,7 @@ const SYSTEM_METHODS = [
   "harnix.system.context",
   "harnix.system.calls",
   "harnix.system.tasks.stop",
+  "harnix.system.tasks.output",
   "harnix.system.messages.drop",
   "harnix.system.messages.edit",
   "harnix.system.compact",
@@ -95,6 +96,8 @@ test.describe("on", () => {
     expect(row.name).toBe("renamed from system");
 
     expect(await api.call("harnix.system.tasks.stop", { ...s, task_id: "no-such-task" })).toEqual({ stopped: false });
+    const unknown = await api.refused("harnix.system.tasks.output", { ...s, task_id: "no-such-task" });
+    expect(unknown?.code, String(unknown)).toBe(-32018);
     await api.call("harnix.system.compact", s).catch(() => undefined);
     await api.call("harnix.system.clear", s);
     const context = await api.call("harnix.system.context", s);

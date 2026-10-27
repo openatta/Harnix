@@ -2,7 +2,7 @@
 
 > 读者：在 Harnix 上做产品的人（Helm、IPDrun，以及以后的应用）。
 >
-> **对照的是 0.4 的全部里程碑**（M0–M9，Agix 钉在 0.2.8）。示例就是真实的签名：`crates/testapp`、
+> **对照的是 0.4 的全部里程碑**（M0–M9，Agix 钉在 0.2.9）。示例就是真实的签名：`crates/testapp`、
 > `examples/hello-app` 是能编译、有测试的完整例子，`templates/app`、`templates/desktop` 是起步用的模板。
 >
 > **接口清单在 [SDK 参考](harnix-sdk-reference.md)**：每个类型、方法、profile 键、命令行开关、目录、

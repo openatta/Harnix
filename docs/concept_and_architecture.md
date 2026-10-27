@@ -681,7 +681,7 @@ space 自己的会话。这件事错一次就是把消息发进了别的产品�
 会话的操作（压缩、清空、分叉、换模型、中断、改名、关闭、删除）与实例的操作（新建、停止、重启——重启一台
 attach 的实例就是重新连上）**全部写审计**。
 
-**设备够不着的引擎方法包在系统模块后面。** `inspectContext`、`dropMessages`、`editMessage`、`stopTask`、
+**设备够不着的引擎方法包在系统模块后面。** `inspectContext`、`dropMessages`、`editMessage`、`stopTask`、`taskOutput`、
 `compact` 这些引擎方法不在设备的透传白名单里；系统模块把它们包成 `harnix.system.*`：设备调它，它以 `system`
 模块的身份经授权调引擎，两次判定都进审计。其余（`session.history`、`fork`、`interrupt`……）设备直接调，带上
 `space: "system"`。

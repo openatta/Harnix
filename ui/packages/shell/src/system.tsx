@@ -1259,10 +1259,46 @@ function TasksTab({ app, view, session }: { app: App; view: View; session: Sessi
             <>
               {task.error ? <div className="hint err">{task.error}</div> : null}
               <pre className="hx-pre">{JSON.stringify(task.detail ?? {}, null, 2)}</pre>
+              {task.kind === "cron" ? null : <TaskOutput app={app} params={params} task={task} />}
             </>
           ) : null}
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * What a task has produced so far (Agix `session.taskOutput`): a shell command's or a monitor's
+ * lines as they come, a sub-agent's answer once it has one. Read again every second while the
+ * task runs; a task the engine has forgotten shows nothing.
+ */
+function TaskOutput({ app, params, task }: { app: App; params: { instance: string; session_id: string }; task: Task }) {
+  const tr = useT();
+  const [out, setOut] = useState<{ output: string; truncated: boolean } | null>(null);
+  const live = LIVE.has(task.status);
+  useEffect(() => {
+    let stopped = false;
+    const read = () =>
+      app
+        .call("harnix.system.tasks.output", { ...params, task_id: task.task_id })
+        .then((r) => !stopped && setOut(r as { output: string; truncated: boolean }))
+        .catch(() => !stopped && setOut(null));
+    void read();
+    const timer = live ? setInterval(read, 1000) : undefined;
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [app, params, task.task_id, live]);
+  if (!out) return null;
+  return (
+    <div className="task-output" data-testid="task-output">
+      <div className="label">
+        {tr("system.taskOutput")}
+        {out.truncated ? <span className="hint">{tr("system.outputTruncated")}</span> : null}
+      </div>
+      <pre className="hx-pre">{out.output || tr("system.noOutput")}</pre>
     </div>
   );
 }

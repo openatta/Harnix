@@ -49,6 +49,15 @@ test("a sub-agent is a task of its session, not a session in the list", TAGS, as
     expect(agents[0].status).toBe("done");
     expect(agents[0].detail.description).toBe("list files");
 
+    // What it produced, read as the system module (Agix `session.taskOutput`): the answer its
+    // parent got back. A replay records only the parent's calls, so the sub-agent may have had no
+    // answer to give — then there is nothing, and the parent was told it failed.
+    const out = await api.call("harnix.system.tasks.output", { ...s, task_id: agents[0].task_id });
+    expect(out.status).toBe("done");
+    const returned = api.eventsOfKind("tool_result", s.session_id).find((e) => e.id === agents[0].detail.tool_use_id);
+    expect(returned, "the Agent call's result").toBeDefined();
+    expect(out.output, JSON.stringify({ out, returned })).toBe(returned.is_error ? "" : textOf(returned.content));
+
     // The topic said so too, without being asked.
     await api.waitFor(
       (f) => f.method === "harnix.topic" && f.params.topic === "harnix.sessions.tasks"
@@ -63,3 +72,8 @@ test("a sub-agent is a task of its session, not a session in the list", TAGS, as
     api.close();
   }
 });
+
+function textOf(content: unknown): string {
+  if (typeof content === "string") return content;
+  return Array.isArray(content) ? content.map((b: { text?: string }) => b.text ?? "").join("") : "";
+}

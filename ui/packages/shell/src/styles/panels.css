@@ -543,6 +543,19 @@
   font-size: 11px;
 }
 
+#details .task-output .label {
+  display: flex;
+  gap: 8px;
+  margin: 6px 0 2px;
+  color: var(--label-secondary);
+  font-size: 12px;
+}
+
+#details .task-output pre {
+  max-height: 240px;
+  overflow: auto;
+}
+
 #details .diff {
   margin: 6px 0;
   font-family: var(--font-code);
