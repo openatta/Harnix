@@ -10,7 +10,7 @@
 
 | 项 | 值 |
 |---|---|
-| 阶段 | **0.4 的 M0–M9 全部完成并发布**；最新发布 `Harnix-v0.4.0-2026102607`（桌面壳红绿灯对齐），`main` 与 `m7` 同步 |
+| 阶段 | **0.4 的 M0–M9 全部完成并发布**；最新发布 `Harnix-v0.4.0-2026102701`（外壳：底部 space、右栏按 space 记忆、页签靠右），`main` 与 `m7` 同步 |
 | 当前里程碑 | 无。下一个里程碑要维护者说开始 |
 | 当前任务 | 无 |
 | 下一步 | 无。等维护者说开始下一个里程碑 |
@@ -39,7 +39,7 @@
 
 | 项 | 值 |
 |---|---|
-| 分支 | `m7`，`main` 快进到同一处（已推送到 0.4.0-2026102607） |
+| 分支 | `m7`，`main` 快进到同一处（已推送到 0.4.0-2026102701） |
 | `agix/` 钉的 | `e8a1dd8`（`Agix-v0.2.9-2026102603`） |
 | 远程 | `openatta/Harnix`（GitHub 从 `openatta/harnix` 改名，旧地址会转）、`openatta/agix` |
 | 不进 git 的输入文档 | `docs/helm-issue-01-nest-0.4-architecture.md`、`iprun-issue-01-sync.md`（Helm、IPDrun 的原文） |
@@ -89,7 +89,7 @@
 
 | 日期 | 事 |
 |---|---|
-| 2026-10-27 | 外壳按 Helm 设计 11 补三处（Helm 维护者提）：space 可 `place: "bottom"`（左栏底部、系统之上，给全局入口）；右栏开合按 space 各记各的（`harnix.details`，未记时用 space 的 `details` 默认值，原来全局一个）；页签可 `align: "end"` 排到条的右端。类型检查过；Helm 的 testkit 界面用例覆盖，Harnix 自己的 interface 层未跑 |
+| 2026-10-27 | 发布 `Harnix-v0.4.0-2026102701`（Helm 维护者同意；版本号不变、只换日期与序号）：外壳按 Helm 设计 11 补三处：space 可 `place: "bottom"`（左栏底部、系统之上，给全局入口）；右栏开合按 space 各记各的（`harnix.details`，未记时用 space 的 `details` 默认值，原来全局一个）；页签可 `align: "end"` 排到条的右端。`check.sh` 只跑了 offline、frontend 两层（本机磁盘 14 GB，不够 15 GB），build、browser、interface 未跑；Helm 的 testkit 界面用例（经同一外壳）覆盖新行为。分支 `main`、`m7` 与标签推送 |
 | 2026-10-26 | 发布 `Harnix-v0.4.0-2026102607`：桌面壳红绿灯对齐。用 Swift 量出 macOS 26 的窗口按钮是 14×14、在 32pt 标题栏底上 9pt，原先 (18, 19) 让红绿灯中心落在 17pt，而页面顶栏带中心是 26pt；壳改为建窗口前用不显示的探测窗口量按钮再算位置（`traffic_lights`）。收起按钮移出左栏（`#tl-tools`，88px），展开、收起同一处，不随淡出闪。按维护者要求只跑了受影响的：类型检查、样式检查、`check-no-ipc`、壳的 fmt / clippy、界面用例 52 个全过；`check.sh` 没跑 |
 | 2026-10-26 | 发布 `Harnix-v0.4.0-2026102606`：维护者说这种小改动不必跑全量，`check.sh` 跑到 live 层时停下；已过的层 build、rust、clippy、offline、frontend、api、template，另有界面用例 52 个全过、桌面壳 `--smoke` 过。live、browser、interface、budget 这次没跑完 |
 | 2026-10-26 | 桌面壳无标题栏（维护者定：网页自己挪不动原生窗口，只能开一个窄口子）：macOS 上窗口 `TitleBarStyle::Overlay`，红绿灯在 52px 顶栏带里；`capabilities/window-drag.json` 只给主窗口、只给回环页面「开始拖动」「双击最大化」两条，`check-no-ipc.mjs` 改为按 JSON 读 capability、其余权限一律失败。界面看到 `__TAURI_INTERNALS__` 且是 Mac 就标 `data-chrome="overlay"`：左栏顶行让出红绿灯，收起按钮固定在红绿灯右边，收起时主区顶栏让开；各栏顶栏 `data-tauri-drag-region`。顶栏照 Claude desktop：会话名加下拉箭头、点开是会话菜单，旁边的标签去掉描边。新增界面用例 2 个；真实窗口里的拖动要人眼确认（这台机器的终端没有录屏权限） |
