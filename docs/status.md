@@ -10,10 +10,10 @@
 
 | 项 | 值 |
 |---|---|
-| 阶段 | **0.4 的 M0–M9 全部完成并发布**（`Harnix-v0.4.0-2026102603`，`main` 与 `m7` 同步）；之后补了任务输出（Agix issue 07） |
+| 阶段 | **0.4 的 M0–M9 全部完成并发布**；最新发布 `Harnix-v0.4.0-2026102604`（任务输出，Agix 0.2.9），`main` 与 `m7` 同步 |
 | 当前里程碑 | 无。下一个里程碑要维护者说开始 |
 | 当前任务 | 无 |
-| 下一步 | Agix 0.2.9 与带任务输出的 Harnix 发布等维护者同意推送；之后等维护者说开始下一个里程碑 |
+| 下一步 | 无。等维护者说开始下一个里程碑 |
 | 最后更新 | 2026-10-26 |
 
 ## 怎么接上
@@ -39,7 +39,7 @@
 
 | 项 | 值 |
 |---|---|
-| 分支 | `m7`，`main` 快进到同一处（已推送到 0.4.0-2026102603） |
+| 分支 | `m7`，`main` 快进到同一处（已推送到 0.4.0-2026102604） |
 | `agix/` 钉的 | `e8a1dd8`（`Agix-v0.2.9-2026102603`） |
 | 远程 | `openatta/Harnix`（GitHub 从 `openatta/harnix` 改名，旧地址会转）、`openatta/agix` |
 | 不进 git 的输入文档 | `docs/helm-issue-01-nest-0.4-architecture.md`、`iprun-issue-01-sync.md`（Helm、IPDrun 的原文） |
@@ -89,6 +89,7 @@
 
 | 日期 | 事 |
 |---|---|
+| 2026-10-26 | 发布 `Agix-v0.2.9-2026102603` 与 `Harnix-v0.4.0-2026102604`（维护者同意）：Agix `main`、Harnix `m7` / `main` 与两个标签推送。发布前 Harnix `check.sh` 11 层全过（remote 未跑），改版本号后 `--fast` 过；`prune.sh` 后 79G |
 | 2026-10-26 | Agix issue 07 落地（Agix 0.2.9，`aabd028`）：`session.taskOutput`、Shell / 监视器的输出边跑边记进任务、`TASK_NOT_FOUND`、能力位 `task_output`；Agix 全量测试过。Harnix 钉上它：系统模块加 `harnix.system.tasks.output`（授权里加 `session.taskOutput`），任务页显示任务的输出，跑着时每秒读一次。`task_progress` 推送帧没做 |
 | 2026-10-26 | 发布 `Harnix-v0.4.0-2026102603`（M8、M9，维护者同意）：分支 `m7` 与标签推送，`main` 快进到 `088fd52`；本地 remote 改成 `openatta/Harnix` |
 | 2026-10-26 | M9 完成：桌面壳模板 `templates/desktop`（Tauri 2，本机 / 远程，不加 IPC；`--smoke` 过，`check-no-ipc.mjs` 进 offline 层）、主进程 `--exit-with-stdin`；概念文档照设计 §18 重写，设计文档冻结；SDK 指南与参考对齐到 M8/M9；README 双语重写；Helm、IPDrun 迁移说明（维护者：不动那两个仓库）；`templates/app/scripts/build.sh` 接上 space 的界面。Agix 缺口 issue 07（任务输出）记进 `.local`，不卡 Harnix |
