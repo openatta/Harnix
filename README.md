@@ -29,9 +29,11 @@ cargo build --release
 Rust 1.87 or newer, Node with pnpm for the interface. `--recurse-submodules` matters: Agix lives at
 `agix/`. What runs is the empty application: Harnix's three built-in spaces and nothing else.
 
-No environment variable is required. With no credentials configured, open the avatar → **Settings →
-Models & credentials → Add provider**; it is written to `settings.json` and never reaches the
-browser or the logs. `ANTHROPIC_AUTH_TOKEN` (plus an optional `ANTHROPIC_BASE_URL`) works too.
+No environment variable is required. With no model configured it still starts, and the page says
+so: **Set up a model** (or the avatar → **Settings → Models & credentials**) adds providers — as many
+as you like, each an Anthropic or OpenAI-compatible API, one of them the default. They go to the
+global `~/.agix/settings.json`, take effect without a restart, and never reach the browser or the
+logs. `ANTHROPIC_AUTH_TOKEN` (plus an optional `ANTHROPIC_BASE_URL`) works too.
 
 ## What an application gets
 

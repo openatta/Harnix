@@ -1,8 +1,8 @@
 /**
- * The left column, in Helm's shape. Fixed in every space: the brand, a new conversation and
- * search at the top; the system entry and the avatar at the bottom. Between them, the spaces this
- * product keeps and — below them — the front space's own column (`sidebar()`), or its sessions
- * when it has none.
+ * The left column, in Helm's shape. Fixed in every space: the brand and a new conversation at
+ * the top; the system entry and the avatar at the bottom. Between them, the spaces this product
+ * keeps and — below them — the front space's own column (`sidebar()`, where the sessions space
+ * has its search), or its sessions when it has none.
  *
  * The avatar is the settings: its ring says how this page is connected, hovering says to what,
  * and a click opens the menu. The system space, when kept, is entered from the bottom rather than
@@ -62,11 +62,6 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
     }
     app.open(null);
   };
-  const searchable = spacesOf(app).some((c) => c.id === "sessions");
-  const search = async () => {
-    await app.switchSpace("sessions");
-    requestAnimationFrame(() => document.querySelector<HTMLInputElement>("#search")?.focus());
-  };
   const icon = s.hello?.shell?.brand?.icon;
 
   return (
@@ -87,12 +82,6 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
         <span className="lbl">{t("sidebar.newSession")}</span>
         <kbd className="lbl">⌘K</kbd>
       </button>
-      {searchable ? (
-        <button type="button" className="nav" data-testid="open-search" title={t("sidebar.search")} onClick={() => void search()}>
-          <Glyph name="search" className="glyph" />
-          <span className="lbl">{t("sidebar.searchNav")}</span>
-        </button>
-      ) : null}
       <div className="sep" />
       <SpaceList app={app} s={s} />
       <div id="sessions" className="chats" data-space={s.space}>

@@ -20,7 +20,7 @@ import { usageTotals, type Block, type SessionState } from "@harnix/core/state";
 import type { SessionController } from "@harnix/core/state";
 import { Agent, AskCard, ContextRow, ImageBlock } from "../components/blocks";
 import { ConnectionBadge } from "../components/ConnectionBadge";
-import { ChatComposer, type Attached, type ComposerApi, type ContextRingConfig } from "./ChatComposer";
+import { ChatComposer, type Attached, type ComposerApi, type ContextRingConfig, type ModelOption } from "./ChatComposer";
 import { TOOL_NAMES } from "./format";
 import { Icon } from "./icons";
 import {
@@ -120,6 +120,10 @@ export interface ChatPanelProps {
   sendMode?: "stop" | "separate";
   /** 底栏的模型（原型 .cmp-model）；缺省取 harnix.hello 的 engine.model */
   model?: string;
+  /** 模型菜单里可选的模型（见 ChatComposer 的 `models`） */
+  models?: readonly ModelOption[];
+  /** 换模型；给了模型菜单才可选 */
+  onModel?: (model: ModelOption) => Promise<void> | void;
   /** 底栏右侧、模型前面的额外控件（例如工位的"立即送达"） */
   composerTools?: ReactNode;
   features?: ChatFeatures;
@@ -369,6 +373,8 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
             attachments={features.attachments !== false}
             voice={features.voice !== false}
             model={model}
+            models={props.models}
+            onModel={props.onModel}
             tools={props.composerTools}
           />
         )}

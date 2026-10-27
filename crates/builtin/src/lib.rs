@@ -99,7 +99,7 @@ const PARTS: &[Part] = &[
             "harnix.settings.set",
             "harnix.settings.setProvider",
         ],
-        grants: &["config.get", "config.setProvider"],
+        grants: &["config.get", "config.getProvider", "config.reload"],
     },
     Part {
         id: "packages",

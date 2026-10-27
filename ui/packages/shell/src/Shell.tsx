@@ -11,12 +11,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { errorText } from "@harnix/core";
 import type { SessionController, SessionState } from "@harnix/core/state";
-import { ChatPanel, Contributed, tabsOf, useRegistry, useT, type Attached, type ChatCommand, type ComposerApi, type MentionItem, type SpaceContribution } from "@harnix/react";
+import {
+  ChatComposer,
+  ChatPanel,
+  Contributed,
+  tabsOf,
+  useRegistry,
+  useT,
+  type Attached,
+  type ChatCommand,
+  type ComposerApi,
+  type MentionItem,
+  type ModelOption,
+  type SpaceContribution,
+} from "@harnix/react";
 
 import { keyOf, type App, type ShellState, type Widths } from "./app.ts";
 import { useBrand } from "./brand.ts";
 import { followEnvelopes } from "./envelope.tsx";
 import { Glyph } from "./glyph.tsx";
+import { openSettings } from "./settings.tsx";
 import { Sidebar, spacesOf } from "./Sidebar.tsx";
 
 export function Shell({ app }: { app: App }) {
@@ -32,6 +46,7 @@ export function Shell({ app }: { app: App }) {
         id="frame"
         data-sidebar={s.sidebar}
         data-details={s.detailsOpen ? "open" : "closed"}
+        data-details-max={s.detailsOpen && s.detailsMax ? "" : undefined}
         data-space={s.space}
         style={{ "--sidebar-width": `${s.widths.side}px`, "--details-width": `${s.widths.details}px` } as CSSProperties}
       >
@@ -211,65 +226,137 @@ export function greeting(t: (k: string) => string): string {
   return hour < 12 ? t("greet.morning") : hour < 18 ? t("greet.afternoon") : t("greet.evening");
 }
 
-/** The first message of a session in this space: it creates the session, then sends. */
+/**
+ * The first message of a session in this space: it creates the session, then sends. The composer is
+ * the conversation's own, with no session behind it yet: the model picked here is the new
+ * session's, set before the first turn.
+ */
 function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app: App; onSent?: () => void; variant?: "composer" | "ask"; placeholder?: string }) {
   const t = useT();
-  const [text, setText] = useState("");
-  const [sending, setSending] = useState(false);
-  const send = async () => {
-    const message = text.trim();
-    if (!message || sending) return;
-    setSending(true);
+  const commands = useCommands(app);
+  const models = useModels(app);
+  const engineModel = useSyncExternalStore(app.subscribe, () => app.defaultModel());
+  const ready = useSyncExternalStore(app.subscribe, () => app.modelReady());
+  const switchable = useSyncExternalStore(app.subscribe, () => app.snapshot.reachable.includes(SET_MODEL));
+  const connection = useSyncExternalStore(app.subscribe, () => app.snapshot.connection);
+  const space = useSyncExternalStore(app.subscribe, () => app.snapshot.space);
+  const [picked, setPicked] = useState<ModelOption | null>(null);
+  const upload = useUpload(app);
+  const mention = useMemo(() => (query: string) => (query.startsWith("session:") ? sessionMentions(app, query.slice("session:".length)) : []), [app]);
+  const send = async (message: string, attachments: unknown[]): Promise<boolean> => {
+    if (!app.modelReady()) {
+      openSettings(app, "models");
+      return false;
+    }
     try {
       const key = await app.create({});
-      await app.sessionCall("harnix.send", { instance: key.instance, session_id: key.sessionId }, { message });
-      setText("");
+      const target = { instance: key.instance, session_id: key.sessionId };
+      if (picked && picked.id !== engineModel) {
+        await app.call(SET_MODEL, { ...target, ...modelParams(picked) });
+        chosenModels.set(keyOf(key.instance, key.sessionId), picked.id);
+      }
+      await app.sessionCall("harnix.send", target, { message, attachments, ...referencesIn(message) });
       onSent?.();
+      return true;
     } catch (e) {
       app.notice(errorText(e), "error");
-    } finally {
-      setSending(false);
+      return false;
     }
   };
-  const input = (
-    <textarea
-      className="hx-cmp-ta"
-      data-testid="conv-input"
-      rows={1}
-      value={text}
-      readOnly={sending}
-      placeholder={placeholder ?? t("composer.placeholder")}
-      onChange={(e) => setText(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-          e.preventDefault();
-          void send();
-        }
-      }}
-    />
-  );
-  if (variant === "ask") {
-    return (
-      <div className="ask" data-testid="ask">
-        <Glyph name="brand" className="logo" />
-        {input}
-        <button type="button" className="send" data-testid="conv-send" disabled={!text.trim() || sending} aria-label={t("composer.send")} onClick={() => void send()}>
-          <Glyph name="send" className="glyph" />
-        </button>
-      </div>
-    );
-  }
   return (
-    <div className="composer first-message">
-      {input}
-      <div className="c-row">
-        <span className="c-hint">{t("composer.hint")}</span>
-        <span className="sp" />
-        <button type="button" className="send" data-testid="conv-send" disabled={!text.trim() || sending} aria-label={t("composer.send")} onClick={() => void send()}>
-          <Glyph name="send" className="glyph" />
-        </button>
-      </div>
+    <div className={`hx-chat ${variant === "ask" ? "ask" : "first-message"}`} data-testid={variant === "ask" ? "ask" : "first-message"}>
+      <ChatComposer
+        state={null}
+        send={send}
+        upload={upload}
+        interrupt={() => undefined}
+        sendMode="stop"
+        disabled={connection !== "open" && connection !== "degraded"}
+        placeholder={placeholder ?? t("composer.placeholder")}
+        quickReplies={NO_REPLIES}
+        notice={ready ? undefined : <ModelSetupNote app={app} />}
+        hint={variant === "ask" ? undefined : t("composer.hint")}
+        commands={commands}
+        mention={mention}
+        contextRing={null}
+        options={null}
+        attachments
+        voice={false}
+        model={picked?.id ?? engineModel}
+        models={models}
+        onModel={switchable ? setPicked : undefined}
+        draftKey={`new:${space}:${variant}`}
+      />
     </div>
+  );
+}
+
+const NO_REPLIES: never[] = [];
+
+/** The engine method a session's model is changed by — the system space's, so only when it is kept. */
+const SET_MODEL = "harnix.system.model";
+
+/** The model each session was switched to here, by session key: the session's own record does not
+ *  say which model it runs on. */
+const chosenModels = new Map<string, string>();
+
+function modelParams(option: ModelOption): Record<string, string> {
+  return option.provider ? { model: option.id, provider: option.provider } : { model: option.id };
+}
+
+/** What the model menu offers: the default model first, then each provider's default and allowed models. */
+function useModels(app: App): ModelOption[] {
+  const providers = useSyncExternalStore(app.subscribe, () => app.snapshot.providers);
+  const hello = useSyncExternalStore(app.subscribe, () => app.snapshot.hello);
+  return useMemo(() => {
+    const out: ModelOption[] = [];
+    const seen = new Set<string>();
+    const add = (id: string | null | undefined, provider?: string) => {
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      out.push(provider ? { id, provider } : { id });
+    };
+    const entries = Object.entries(providers?.providers ?? {});
+    const first = providers?.default_provider;
+    entries.sort(([a], [b]) => (a === first ? -1 : b === first ? 1 : 0));
+    for (const [provider, config] of entries) {
+      add(config.default_model, provider);
+      for (const id of config.models ?? []) add(id, provider);
+    }
+    if (!entries.length) add(typeof hello?.engine?.model === "string" ? hello.engine.model : null);
+    return out;
+  }, [providers, hello]);
+}
+
+/** Over the composer while no model is configured: what is missing, and the way to it. */
+function ModelSetupNote({ app }: { app: App }) {
+  const t = useT();
+  return (
+    <div className="hx-cmp-note hx-cmp-note-warn model-setup" data-testid="model-setup">
+      <Glyph name="key" className="glyph" />
+      <span className="text">{t("model.setupNeeded")}</span>
+      <button type="button" className="btn sm primary" data-testid="model-setup-open" onClick={() => openSettings(app, "models")}>
+        {t("model.setupAction")}
+      </button>
+    </div>
+  );
+}
+
+/** Upload a file for the next message; a failure is said, then rethrown so the composer drops it. */
+function useUpload(app: App): (file: File) => Promise<Attached> {
+  const t = useT();
+  return useCallback(
+    async (file: File): Promise<Attached> => {
+      try {
+        const path = await app.upload(file);
+        const preview = file.type.startsWith("image/") && file.size < 2_000_000 ? await dataUrl(file) : undefined;
+        return { label: file.name, preview, attachment: { kind: "file", path } };
+      } catch (e) {
+        app.notice(t("composer.uploadFailed", { error: errorText(e) }), "error");
+        throw e;
+      }
+    },
+    [app, t],
   );
 }
 
@@ -432,6 +519,27 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
   }, [app]);
   useEffect(() => (controller ? followEnvelopes(app, controller) : undefined), [app, controller]);
 
+  const sessionKey = keyOf(current.instance, current.sessionId);
+  const sessionState = useControllerState(controller);
+  const models = useModels(app);
+  const switchable = s.reachable.includes(SET_MODEL);
+  const [chosen, setChosen] = useState(() => chosenModels.get(sessionKey) ?? null);
+  const recorded = sessionState?.session?.model;
+  const model = chosen ?? (typeof recorded === "string" ? recorded : null) ?? app.defaultModel() ?? undefined;
+  const onModel = useCallback(
+    async (option: ModelOption) => {
+      try {
+        await app.call(SET_MODEL, { instance: current.instance, session_id: current.sessionId, ...modelParams(option) });
+        chosenModels.set(sessionKey, option.id);
+        setChosen(option.id);
+      } catch (e) {
+        app.notice(errorText(e), "error");
+        throw e;
+      }
+    },
+    [app, current.instance, current.sessionId, sessionKey],
+  );
+
   const commands = useCommands(app);
   const projectRoot = s.sessions.find((r) => r.session_id === current.sessionId)?.project_root ?? null;
   const filesAsked = useRef(0);
@@ -459,19 +567,7 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
     };
   }, [app, projectRoot]);
 
-  const upload = useCallback(
-    async (file: File): Promise<Attached> => {
-      try {
-        const path = await app.upload(file);
-        const preview = file.type.startsWith("image/") && file.size < 2_000_000 ? await dataUrl(file) : undefined;
-        return { label: file.name, preview, attachment: { kind: "file", path } };
-      } catch (e) {
-        app.notice(t("composer.uploadFailed", { error: errorText(e) }), "error");
-        throw e;
-      }
-    },
-    [app, t],
-  );
+  const upload = useUpload(app);
 
   const flowBlocks = registry.at("flow.block").map((c) => ({
     id: c.id,
@@ -508,7 +604,11 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
       mention={mention}
       upload={upload}
       composer={bindComposer}
-      features={{ voice: false, modelPicker: false, contextRing: false, options: false }}
+      notice={app.modelReady() ? undefined : <ModelSetupNote app={app} />}
+      model={model}
+      models={models}
+      onModel={switchable ? onModel : undefined}
+      features={{ voice: false, contextRing: true, options: false }}
       renderers={{ flowBlocks, toolRows }}
     />
   );
@@ -607,30 +707,38 @@ function Details({ app, s }: { app: App; s: ShellState }) {
   // A space's tabs can change with what is selected: a tab that went falls back to the first.
   const shown = tabs.find((x) => x.id === tab) ?? (tab !== "details" || !item ? tabs[0] : undefined);
   const current = shown?.id ?? "details";
-  const title = shown ? shown.title() : item ? (panel?.title?.(item) ?? item.name ?? t("details.title")) : t("details.title");
   return (
     <aside id="details" aria-hidden={!s.detailsOpen}>
       <Resizer app={app} column="details" />
-      <div className="head">
-        <span className="title truncate">{title}</span>
-        <button type="button" className="icon-btn close" title={t("common.close")} onClick={() => app.toggleDetails(false)}>
-          <Glyph name="close" className="glyph" />
-        </button>
-      </div>
-      {tabs.length ? (
+      <div className="strip">
         <div className="tabs" role="tablist">
           {tabs.map((x) => (
             <button type="button" role="tab" key={x.id} data-tab={x.id} aria-selected={current === x.id} className={current === x.id ? "on" : ""} onClick={() => setTab(x.id)}>
               {x.title()}
             </button>
           ))}
-          {item ? (
+          {item || !tabs.length ? (
             <button type="button" role="tab" data-tab="details" aria-selected={current === "details"} className={current === "details" ? "on" : ""} onClick={() => setTab("details")}>
-              {t("details.title")}
+              {item && !tabs.length ? (panel?.title?.(item) ?? item.name ?? t("details.title")) : t("details.title")}
             </button>
           ) : null}
         </div>
-      ) : null}
+        <div className="win">
+          <button
+            type="button"
+            className="icon-btn"
+            data-testid="details-max"
+            title={s.detailsMax ? t("details.restore") : t("details.maximize")}
+            aria-pressed={s.detailsMax}
+            onClick={() => app.toggleDetailsMax()}
+          >
+            <Glyph name={s.detailsMax ? "restore" : "maximize"} className="glyph" />
+          </button>
+          <button type="button" className="icon-btn close" data-testid="details-close" title={t("common.close")} onClick={() => app.toggleDetails(false)}>
+            <Glyph name="close" className="glyph" />
+          </button>
+        </div>
+      </div>
       <div className="body">
         {shown && space ? (
           <Contributed registry={registry} point="space" contribution={space}>

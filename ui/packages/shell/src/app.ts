@@ -50,6 +50,21 @@ export interface Modal {
 
 export type ThemeChoice = "system" | "light" | "dark";
 
+/** One configured model provider, as `harnix.settings.describe` reads it (the key redacted). */
+export interface Provider {
+  api_type?: string | null;
+  base_url?: string | null;
+  api_key?: string | null;
+  default_model?: string | null;
+  models?: string[];
+}
+
+/** The engine's providers: which there are, and which one a turn goes to. */
+export interface Providers {
+  providers: Record<string, Provider>;
+  default_provider?: string | null;
+}
+
 /** The two side columns' widths, as the reader dragged them. */
 export interface Widths {
   side: number;
@@ -78,6 +93,8 @@ export interface ShellState {
   current: SessionKey | null;
   detail: DetailItem | null;
   detailsOpen: boolean;
+  /** The right column takes the centre's place too (it closes back to its own width). */
+  detailsMax: boolean;
   sidebar: "expanded" | "collapsed";
   banner: { text: string; tone?: "info" | "error" } | null;
   modal: Modal | null;
@@ -90,6 +107,8 @@ export interface ShellState {
   widths: Widths;
   /** The avatar's menu. */
   menu: boolean;
+  /** The model providers; null until read (or when this page may not read them). */
+  providers: Providers | null;
 }
 
 const THEME_KEY = "harnix.theme";
@@ -155,6 +174,7 @@ export class App {
       current: currentBySpace[space] ?? null,
       detail: null,
       detailsOpen: false,
+      detailsMax: false,
       sidebar: "expanded",
       banner: null,
       modal: null,
@@ -165,6 +185,7 @@ export class App {
       project: stored<string | null>(PROJECT_KEY, null),
       widths: { side: WIDTHS.side[1], details: WIDTHS.details[1], ...stored<Partial<Widths>>(WIDTHS_KEY, {}) },
       menu: false,
+      providers: null,
     };
   }
 
@@ -213,6 +234,7 @@ export class App {
           methods?: string[];
         };
         this.set({ reachable: reachable.methods ?? [] });
+        void this.refreshProviders();
         this.builtins?.(this);
         this.landOnASpace();
         await this.packages?.(this, hello);
@@ -225,6 +247,34 @@ export class App {
     } catch (e) {
       this.notice(errorText(e), "error");
     }
+  }
+
+  /** Read the model providers again: at connect, and after the settings page changes one. */
+  async refreshProviders(): Promise<void> {
+    if (!this.state.reachable.includes("harnix.settings.describe")) return;
+    const scene = this.state.hello?.engine?.active_scenes?.[0];
+    const described = await this.client
+      .call("harnix.settings.describe", { scene, project_root: null })
+      .catch(() => null);
+    const providers = (described as { providers?: Partial<Providers> } | null)?.providers;
+    if (providers) this.set({ providers: { providers: providers.providers ?? {}, default_provider: providers.default_provider ?? null } });
+  }
+
+  /**
+   * Whether a turn has a model to go to: a provider, or the `ANTHROPIC_*` key the engine started
+   * with. Unknown (providers not read) counts as yes, so the page does not cry wolf.
+   */
+  modelReady(): boolean {
+    const { providers, hello } = this.state;
+    if (!providers) return true;
+    return Object.keys(providers.providers).length > 0 || hello?.engine?.has_credentials === true;
+  }
+
+  /** The model a new session runs on: the default provider's, else the engine's. */
+  defaultModel(): string | null {
+    const { providers, hello } = this.state;
+    const chosen = providers?.default_provider ? providers.providers[providers.default_provider] : undefined;
+    return chosen?.default_model || (typeof hello?.engine?.model === "string" ? hello.engine.model : null);
   }
 
   /** The stored front space, if this product still has it; else the first one it does have. */
@@ -366,7 +416,12 @@ export class App {
   }
 
   toggleDetails(open?: boolean): void {
-    this.set({ detailsOpen: open ?? !this.state.detailsOpen });
+    const detailsOpen = open ?? !this.state.detailsOpen;
+    this.set({ detailsOpen, detailsMax: detailsOpen && this.state.detailsMax });
+  }
+
+  toggleDetailsMax(max?: boolean): void {
+    this.set({ detailsOpen: true, detailsMax: max ?? !this.state.detailsMax });
   }
 
   /** Open one project in the projects space; the one open before closes. */

@@ -58,6 +58,36 @@ defineSuite("settings", { feature: "settings" }, {
       assert(described !== undefined, "providers could not be described");
     },
 
+    "a provider is added, read back with its key redacted, and removed": async ({ client }) => {
+      // Written to the global tier and reloaded, so the very next read sees
+      // it — not the working directory's project tier, which depends on where
+      // the process was started.
+      const id = "test-openai";
+      const added = await client.call("harnix.settings.setProvider", {
+        provider_id: id,
+        config: { api_type: "openai_compatible", base_url: "https://example.invalid/v1", api_key: "sk-secret-value", default_model: "m-1", models: ["m-2"] },
+      });
+      assert(added.reloaded === true, "the engine was not asked to reload");
+      assert(/settings\.json$/.test(added.written) && !added.written.includes("/.agix/.agix"), `written to ${added.written}`);
+      const described = await client.call("harnix.settings.describe", {});
+      const provider = described.providers?.providers?.[id];
+      assert(provider, "the provider is not read back");
+      assert(provider.default_model === "m-1" && provider.models?.[0] === "m-2", JSON.stringify(provider));
+      assert(provider.api_key && provider.api_key !== "sk-secret-value", "the key came back in the clear");
+      // An edit that leaves the key out keeps it.
+      await client.call("harnix.settings.setProvider", { provider_id: id, config: { api_type: "openai_compatible", default_model: "m-3" } });
+      const edited = (await client.call("harnix.settings.describe", {})).providers.providers[id];
+      assert(edited.default_model === "m-3" && edited.api_key, JSON.stringify(edited));
+      await client.call("harnix.settings.setProvider", { provider_id: id, delete: true });
+      const after = await client.call("harnix.settings.describe", {});
+      assert(!after.providers?.providers?.[id], "the provider was not removed");
+    },
+
+    "a provider of an unknown API type is refused": async ({ client }) => {
+      const e = await client.refused("harnix.settings.setProvider", { provider_id: "x", config: { api_type: "gemini" } });
+      assert(e && /api_type/.test(e.message), `says ${e?.message}`);
+    },
+
     "setting a provider is reachable here and refused on the engine": async ({ client }) => {
       // The engine's own `config.setProvider` is refused to every client —
       // it repoints model traffic. The same intent goes through this layer,

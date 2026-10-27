@@ -12,14 +12,17 @@
 //!   written, each with a declared kind that the value is checked against. A
 //!   settings file is a program's behaviour; "set any key to any JSON" is not
 //!   a feature, it is a remote configuration channel.
-//! - **Read, modify, write the whole file.** Hand edits and engine writes
-//!   (`config.setProvider` writes the project tier) are preserved because the
-//!   file is re-read immediately before each change, and replaced atomically.
+//! - **Read, modify, write the whole file.** Hand edits are preserved because
+//!   the file is re-read immediately before each change, and replaced
+//!   atomically.
 //!
-//! Credentials keep going through `config.setProvider`: it is the only code
-//! that knows how to validate a provider and rebuild the router. Harnix holds
-//! it behind this surface rather than passing the method through, so the
-//! allow-list stays the single authorization point.
+//! Providers are written the same way, into the global tier, and checked
+//! against the engine's own `ProviderConfig` first. Not through
+//! `config.setProvider`: that writes the project tier of the engine's working
+//! directory, which is wherever the process happened to be started — a
+//! provider added from the settings page would be gone the next time it was
+//! started from somewhere else, and a desktop app has no working directory
+//! worth writing to. `config.reload` then rebuilds the router.
 
 use std::path::PathBuf;
 
@@ -236,28 +239,9 @@ impl Builtin {
             ));
         };
 
-        // Read-modify-write the whole file: a hand edit or an engine write
-        // (`config.setProvider` owns the project tier) must survive this.
-        let mut document: Value = match std::fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| {
-                RpcError::new(
-                    codes::INTERNAL_ERROR,
-                    format!("{} is not valid JSON: {e}", path.display()),
-                )
-            })?,
-            Err(_) => json!({}),
-        };
+        let mut document = read_document(&path)?;
         set_path(&mut document, &key, value);
-
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(io_error)?;
-        }
-        let temp = path.with_extension("json.tmp");
-        let body = serde_json::to_vec_pretty(&document)
-            .map_err(|e| RpcError::new(codes::INTERNAL_ERROR, e.to_string()))?;
-        std::fs::write(&temp, &body)
-            .and_then(|()| std::fs::rename(&temp, &path))
-            .map_err(io_error)?;
+        write_document(&path, &document)?;
 
         let reloaded = self.call("settings", "config.reload", json!({}))
             .await
@@ -270,24 +254,42 @@ impl Builtin {
         Ok(describe)
     }
 
-    /// Add, edit or remove a provider — credentials included.
+    /// Add, edit or remove a provider — credentials included — in the global
+    /// tier, then make the engine re-read.
     ///
-    /// Held here rather than passed through: `config.setProvider` trusts its
-    /// caller completely (it can point every later model request at another
-    /// host), so it stays behind Harnix's allow-list with one deliberate entry.
+    /// `config` is a patch: a key that is absent keeps its value (which is how
+    /// an edit leaves the stored API key alone), `null` or blank removes it. With no
+    /// default left, the first provider becomes the default: a router with
+    /// providers and no default has nothing to send a turn to.
     pub(crate) async fn settings_set_provider(&self, params: Value) -> Result<Value, RpcError> {
         let provider_id = require_str(&params, "provider_id")?;
-        let mut request = json!({"provider_id": provider_id});
-        for key in ["config", "default_provider", "task_models", "delete"] {
-            if let Some(value) = params.get(key) {
-                request[key] = value.clone();
-            }
+        if !valid_provider_id(&provider_id) {
+            return Err(RpcError::invalid_params(
+                "provider_id: letters, digits, `-`, `_` and `.`",
+            ));
         }
-        let result = self.call("settings", "config.setProvider", request).await?;
+        let Some(path) = self.tier_path("global", None, None) else {
+            return Err(RpcError::new(codes::INTERNAL_ERROR, "no global tier"));
+        };
+        let mut document = read_document(&path)?;
+        patch_providers(
+            &mut document,
+            &provider_id,
+            params.get("delete").and_then(Value::as_bool).unwrap_or(false),
+            params.get("config"),
+            params.get("default_provider").and_then(Value::as_str),
+        )?;
+        write_document(&path, &document)?;
+
+        let reloaded = self.call("settings", "config.reload", json!({})).await;
         let providers = self.call("settings", "config.getProvider", json!({}))
             .await
             .unwrap_or(json!({}));
-        Ok(json!({"result": result, "providers": providers}))
+        Ok(json!({
+            "written": path.display().to_string(),
+            "reloaded": reloaded.is_ok(),
+            "providers": providers,
+        }))
     }
 
     /// The settings.json a tier writes to, if that tier exists here.
@@ -359,6 +361,131 @@ fn set_path(document: &mut Value, key: &str, value: Value) {
     }
 }
 
+const PROVIDER_KEYS: &[&str] = &[
+    "api_type",
+    "base_url",
+    "api_key",
+    "api_key_env",
+    "default_model",
+    "models",
+];
+
+fn valid_provider_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
+
+/// Apply one provider change to a settings document, refusing what the engine
+/// would not load.
+fn patch_providers(
+    document: &mut Value,
+    provider_id: &str,
+    delete: bool,
+    config: Option<&Value>,
+    default_provider: Option<&str>,
+) -> Result<(), RpcError> {
+    if !document.is_object() {
+        *document = json!({});
+    }
+    if !document.get("providers").is_some_and(Value::is_object) {
+        document["providers"] = json!({});
+    }
+    let providers = document["providers"].as_object_mut().expect("just made an object");
+    if delete {
+        providers.remove(provider_id);
+    } else if let Some(config) = config {
+        let Some(patch) = config.as_object() else {
+            return Err(RpcError::invalid_params("config must be an object"));
+        };
+        let mut entry = providers
+            .get(provider_id)
+            .cloned()
+            .filter(Value::is_object)
+            .unwrap_or_else(|| json!({}));
+        for (key, value) in patch {
+            if !PROVIDER_KEYS.contains(&key.as_str()) {
+                return Err(RpcError::invalid_params(format!(
+                    "config.{key} is not a provider setting"
+                )));
+            }
+            let blank = value.is_null() || value.as_str().is_some_and(|s| s.trim().is_empty());
+            let object = entry.as_object_mut().expect("an object");
+            if blank {
+                object.remove(key);
+            } else {
+                object.insert(key.clone(), value.clone());
+            }
+        }
+        match entry.get("api_type").and_then(Value::as_str) {
+            Some("anthropic" | "openai_compatible") => {}
+            _ => {
+                return Err(RpcError::invalid_params(
+                    "config.api_type: `anthropic` or `openai_compatible`",
+                ))
+            }
+        }
+        serde_json::from_value::<base::provider::ProviderConfig>(entry.clone())
+            .map_err(|e| RpcError::invalid_params(format!("invalid provider config: {e}")))?;
+        providers.insert(provider_id.to_string(), entry);
+    }
+
+    let first = providers.keys().next().cloned();
+    let current = document
+        .get("default_provider")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let wanted = default_provider.map(str::to_string).or(current);
+    let providers = document["providers"].as_object().expect("an object");
+    let default = match wanted {
+        Some(id) if providers.contains_key(&id) => Some(id),
+        Some(id) if default_provider.is_some() => {
+            return Err(RpcError::invalid_params(format!(
+                "default_provider `{id}` is not configured"
+            )))
+        }
+        _ => first,
+    };
+    let object = document.as_object_mut().expect("an object");
+    match default {
+        Some(id) => {
+            object.insert("default_provider".into(), json!(id));
+        }
+        None => {
+            object.remove("default_provider");
+        }
+    }
+    Ok(())
+}
+
+/// A tier's settings.json, or an empty document when the file is not there.
+fn read_document(path: &std::path::Path) -> Result<Value, RpcError> {
+    match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| {
+            RpcError::new(
+                codes::INTERNAL_ERROR,
+                format!("{} is not valid JSON: {e}", path.display()),
+            )
+        }),
+        Err(_) => Ok(json!({})),
+    }
+}
+
+/// Replace a tier's settings.json atomically.
+fn write_document(path: &std::path::Path, document: &Value) -> Result<(), RpcError> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(io_error)?;
+    }
+    let temp = path.with_extension("json.tmp");
+    let body = serde_json::to_vec_pretty(document)
+        .map_err(|e| RpcError::new(codes::INTERNAL_ERROR, e.to_string()))?;
+    std::fs::write(&temp, &body)
+        .and_then(|()| std::fs::rename(&temp, path))
+        .map_err(io_error)
+}
+
 fn io_error(e: std::io::Error) -> RpcError {
     RpcError::new(codes::INTERNAL_ERROR, format!("could not write: {e}"))
 }
@@ -381,6 +508,42 @@ mod tests {
         let mut document = json!({"permission_mode": "plan"});
         set_path(&mut document, "permission_mode", Value::Null);
         assert!(document.get("permission_mode").is_none());
+    }
+
+    #[test]
+    fn a_provider_edit_keeps_what_it_leaves_out_and_the_first_is_the_default() {
+        let mut document = json!({"memory_enabled": true});
+        let config = json!({"api_type": "anthropic", "api_key": "k1", "default_model": "m1"});
+        patch_providers(&mut document, "a", false, Some(&config), None).unwrap();
+        assert_eq!(document["default_provider"], json!("a"));
+        let edit = json!({"api_type": "anthropic", "base_url": "", "default_model": "m2"});
+        patch_providers(&mut document, "a", false, Some(&edit), None).unwrap();
+        assert_eq!(document["providers"]["a"]["api_key"], json!("k1"));
+        assert_eq!(document["providers"]["a"]["default_model"], json!("m2"));
+        assert_eq!(document["memory_enabled"], json!(true));
+    }
+
+    #[test]
+    fn deleting_the_default_hands_it_to_another_provider() {
+        let mut document = json!({});
+        let anthropic = json!({"api_type": "anthropic"});
+        let openai = json!({"api_type": "openai_compatible", "base_url": "https://api.openai.com/v1"});
+        patch_providers(&mut document, "a", false, Some(&anthropic), None).unwrap();
+        patch_providers(&mut document, "b", false, Some(&openai), Some("b")).unwrap();
+        assert_eq!(document["default_provider"], json!("b"));
+        patch_providers(&mut document, "b", true, None, None).unwrap();
+        assert_eq!(document["default_provider"], json!("a"));
+        patch_providers(&mut document, "a", true, None, None).unwrap();
+        assert!(document.get("default_provider").is_none());
+    }
+
+    #[test]
+    fn a_provider_the_engine_would_not_load_is_refused() {
+        let mut document = json!({});
+        assert!(patch_providers(&mut document, "a", false, Some(&json!({"api_type": "gemini"})), None).is_err());
+        assert!(patch_providers(&mut document, "a", false, Some(&json!({"api_type": "anthropic", "shell": "x"})), None).is_err());
+        assert!(patch_providers(&mut document, "a", false, Some(&json!({"api_type": "anthropic"})), Some("zz")).is_err());
+        assert!(!valid_provider_id("a b"));
     }
 
     #[test]

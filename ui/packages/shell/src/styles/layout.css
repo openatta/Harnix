@@ -68,6 +68,23 @@
   }
 }
 
+/* Maximized, the right column takes the centre's place; the centre stays mounted, out of sight. */
+#frame[data-details="open"][data-details-max] {
+  grid-template-columns: var(--sidebar-width) 0 minmax(0, 1fr);
+}
+
+#frame[data-sidebar="collapsed"][data-details="open"][data-details-max] {
+  grid-template-columns: var(--rail-width) 0 minmax(0, 1fr);
+}
+
+#frame[data-details-max] #main {
+  visibility: hidden;
+}
+
+#frame[data-details-max] #details .resizer.details {
+  display: none;
+}
+
 #main {
   display: flex;
   flex-direction: column;

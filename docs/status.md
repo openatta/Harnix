@@ -89,6 +89,7 @@
 
 | 日期 | 事 |
 |---|---|
+| 2026-10-26 | 界面与模型配置（维护者提的六条）：配色换成蓝色系企业风（`tokens.css`，衬线改无衬线）；输入框做成标准件——新会话首页、概览的提问框与会话里都用 `ChatComposer`，＋ 里有文件、图片、截图（不可用）、`@` 引用、`/` 命令，模型菜单可换（`models` / `onModel`，经 `harnix.system.model`）；左栏去掉「搜索」；右栏去掉标题栏，页签条右端是最大化 / 还原与关闭；设置面板固定大小（880×640，页内滚动）；没凭据也能启动，页面提示「配置模型」，模型服务可配多个（Anthropic / OpenAI 兼容），`harnix.settings.setProvider` 改为写全局层 `~/.agix/settings.json` 再 `config.reload`（原来经 `config.setProvider` 写进进程工作目录的项目层，换个目录启动就丢）。顺带修了一个旧缺口：设置模块没被授予 `config.reload`、`config.getProvider`，写设置后引擎从不重读、provider 列表永远读不到。新增界面用例 2 个、API 用例 2 个、Rust 单测 3 个 |
 | 2026-10-26 | 发布 `Agix-v0.2.9-2026102603` 与 `Harnix-v0.4.0-2026102604`（维护者同意）：Agix `main`、Harnix `m7` / `main` 与两个标签推送。发布前 Harnix `check.sh` 11 层全过（remote 未跑），改版本号后 `--fast` 过；`prune.sh` 后 79G |
 | 2026-10-26 | Agix issue 07 落地（Agix 0.2.9，`aabd028`）：`session.taskOutput`、Shell / 监视器的输出边跑边记进任务、`TASK_NOT_FOUND`、能力位 `task_output`；Agix 全量测试过。Harnix 钉上它：系统模块加 `harnix.system.tasks.output`（授权里加 `session.taskOutput`），任务页显示任务的输出，跑着时每秒读一次。`task_progress` 推送帧没做 |
 | 2026-10-26 | 发布 `Harnix-v0.4.0-2026102603`（M8、M9，维护者同意）：分支 `m7` 与标签推送，`main` 快进到 `088fd52`；本地 remote 改成 `openatta/Harnix` |

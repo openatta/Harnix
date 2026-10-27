@@ -8,9 +8,13 @@
  *       .cmp-bar  ＋ 添加 · ⚙ 选项 · [上下文环] · ── · [应用的控件] · 模型 · 🎤 · 发送 / 停止
  *     .cmp-hint   一行小字
  *
+ * 这是所有输入的标准件：会话里的、新会话首页的、应用自己的，都用它。没有会话时 `state` 给 null。
+ *
  * 发送只有一条路：打字发送、快捷回复、选中的命令都经 `send`（应用给的，或 controller.send）。
  * 运行中且没有输入时发送键变成停止（工位里是"中断当前步骤"，Esc 同效）。
- * 后端还不支持的（上传、截图、语音、换模型）照原型画出来，但不可用，弹层里写明原因。
+ * ＋ 里是这条消息能带的东西：文件、图片（给了 `upload`）、截图、`@` 引用、`/` 命令。
+ * 模型：给了 `onModel` 就能换（列表来自 `models`，也能输入名字），否则只显示当前的。
+ * 后端还不支持的（截图、语音）照原型画出来，但不可用，弹层里写明原因。
  */
 
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
@@ -79,6 +83,18 @@ export interface Attached {
   attachment: unknown;
 }
 
+/** 模型菜单里的一项。 */
+export interface ModelOption {
+  /** 发给后端的模型名 */
+  id: string;
+  /** 显示的名字；缺省用 id */
+  label?: string;
+  /** 哪个 provider 的 */
+  provider?: string;
+  /** 名字下面的一行小字 */
+  detail?: string;
+}
+
 /** 从外面够得着的输入框。 */
 export interface ComposerApi {
   /** 在光标处插入文字（没有焦点时接在末尾），并把焦点给输入框。 */
@@ -115,6 +131,10 @@ export interface ChatComposerProps {
   attachments: boolean;
   voice: boolean;
   model: string | null;
+  /** 模型菜单里可选的模型 */
+  models?: readonly ModelOption[];
+  /** 换模型；给了菜单才可选（列表里的，或输入的名字）。reject ⇒ 没换（调用方自己报错） */
+  onModel?: (model: ModelOption) => Promise<void> | void;
   /** 底栏右侧、模型前面的额外控件 */
   tools?: ReactNode;
   /** 草稿的键：同一个键的输入框共用未发送的内容（卸载再挂上仍在，见 drafts.ts）；不给 ⇒ 不保留 */
@@ -133,6 +153,8 @@ export function ChatComposer(props: ChatComposerProps) {
   const [attached, setAttached] = useState<Attached[]>([]);
   const [uploading, setUploading] = useState(0);
   const [dropping, setDropping] = useState(false);
+  const [switching, setSwitching] = useState(false);
+  const [customModel, setCustomModel] = useState("");
   const mentionRequest = useRef(0);
   const running = props.running ?? state?.turn != null;
   const elsewhere = props.elsewhere ?? (!running && state?.session?.turn_state === "running");
@@ -260,6 +282,47 @@ export function ChatComposer(props: ChatComposerProps) {
       node.setSelectionRange(caret, caret);
       autoGrow(node);
     });
+  };
+
+  /** ＋ 弹层的"命令"：开头换成 `/`，弹出命令菜单 */
+  const insertSlash = () => {
+    setPop(null);
+    const next = text.startsWith("/") ? text : `/${text}`;
+    setText(next);
+    requestAnimationFrame(() => {
+      const node = input.current;
+      if (!node) return;
+      node.focus();
+      node.setSelectionRange(1, 1);
+      autoGrow(node);
+    });
+    refreshMenu(next, 1);
+  };
+
+  /** 选文件：`accept` 只管这一次（图片 / 任意文件） */
+  const pickFiles = (accept: string) => {
+    setPop(null);
+    const node = fileInput.current;
+    if (!node) return;
+    node.accept = accept;
+    node.click();
+  };
+
+  const chooseModel = (option: ModelOption) => {
+    const change = props.onModel;
+    if (!change || switching) return;
+    if (option.id === props.model) {
+      setPop(null);
+      return;
+    }
+    setSwitching(true);
+    Promise.resolve(change(option))
+      .then(() => {
+        setPop(null);
+        setCustomModel("");
+      })
+      .catch(() => undefined)
+      .finally(() => setSwitching(false));
   };
 
   /** ＋ 弹层的"引用条目"：在光标处插一个 @，弹出条目菜单（原型 atInsert） */
@@ -448,12 +511,18 @@ export function ChatComposer(props: ChatComposerProps) {
               detail={props.upload ? undefined : strings.needsBackend}
               disabled={!props.upload || props.disabled}
               testId="conv-attach-file"
-              onClick={() => {
-                setPop(null);
-                fileInput.current?.click();
-              }}
+              onClick={() => pickFiles("")}
+            />
+            <PopRow
+              icon={<Icon.image />}
+              title={strings.uploadImage}
+              detail={props.upload ? undefined : strings.needsBackend}
+              disabled={!props.upload || props.disabled}
+              testId="conv-attach-image"
+              onClick={() => pickFiles("image/*")}
             />
             <PopRow icon={<Icon.shot />} title={strings.screenshot} detail={strings.needsBackend} disabled />
+            <div className="hx-pop-sep" />
             <PopRow
               icon={<Icon.at />}
               title={strings.mentionItem}
@@ -462,17 +531,54 @@ export function ChatComposer(props: ChatComposerProps) {
               testId="conv-attach-mention"
               onClick={insertAt}
             />
-            <div className="hx-pop-f">{strings.attachFoot}</div>
+            <PopRow
+              icon={<Icon.slash />}
+              title={strings.insertCommand}
+              detail={props.commands?.length ? strings.insertCommandHint : strings.noCommands}
+              disabled={!props.commands?.length || props.disabled}
+              testId="conv-attach-command"
+              onClick={insertSlash}
+            />
+            <div className="hx-pop-f">{props.upload ? strings.attachFootReady : strings.attachFoot}</div>
           </div>
         ) : pop === "tools" && props.options ? (
           <div className="hx-pop" role="menu" data-testid="conv-options-menu">
             {props.options}
           </div>
         ) : pop === "model" && props.model ? (
-          <div className="hx-pop right" role="menu" data-testid="conv-model-menu">
+          <div className="hx-pop right hx-models" role="menu" data-testid="conv-model-menu" aria-busy={switching}>
             <div className="hx-pop-h">{strings.model}</div>
-            <PopRow title={props.model} on disabled />
-            <div className="hx-pop-f">{strings.modelFoot}</div>
+            {modelChoices(props.model, props.models).map((option) => (
+              <PopRow
+                key={`${option.provider ?? ""}/${option.id}`}
+                title={option.label ?? option.id}
+                detail={[option.provider, option.detail].filter(Boolean).join(" · ") || undefined}
+                on={option.id === props.model}
+                disabled={!props.onModel || switching}
+                testId="conv-model-option"
+                onClick={() => chooseModel(option)}
+              />
+            ))}
+            {props.onModel ? (
+              <form
+                className="hx-pop-input"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const id = customModel.trim();
+                  if (id) chooseModel({ id });
+                }}
+              >
+                <input
+                  data-testid="conv-model-custom"
+                  value={customModel}
+                  disabled={switching}
+                  placeholder={strings.modelCustom}
+                  aria-label={strings.modelCustom}
+                  onChange={(event) => setCustomModel(event.target.value)}
+                />
+              </form>
+            ) : null}
+            <div className="hx-pop-f">{props.onModel ? strings.modelFootSwitch : strings.modelFoot}</div>
           </div>
         ) : pop === "ctx" && ring ? (
           <div className="hx-pop" role="menu" data-testid="conv-context-menu">
@@ -574,7 +680,8 @@ export function ChatComposer(props: ChatComposerProps) {
               aria-expanded={pop === "model"}
               onClick={() => toggle("model")}
             >
-              <span>{props.model}</span>
+              <Icon.cube />
+              <span>{modelChoices(props.model, props.models).find((m) => m.id === props.model)?.label ?? props.model}</span>
               <Icon.down />
             </button>
           ) : null}
@@ -617,6 +724,12 @@ export function ChatComposer(props: ChatComposerProps) {
       {props.hint ? <div className="hx-cmp-hint">{props.hint}</div> : null}
     </div>
   );
+}
+
+/** 模型菜单的行：给的列表，当前模型不在里面就放在最前 */
+function modelChoices(current: string, models: readonly ModelOption[] | undefined): readonly ModelOption[] {
+  const list = models ?? [];
+  return list.some((m) => m.id === current) ? list : [{ id: current }, ...list];
 }
 
 /** 弹层的一行（原型 popRow）：图标 · 标题 / 说明 · 勾 */

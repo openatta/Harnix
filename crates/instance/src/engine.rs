@@ -86,8 +86,9 @@ pub struct Engine {
     pub active_scenes: Vec<String>,
     /// The model name sessions get with nothing overriding it.
     pub model: String,
-    /// Whether a usable credential was found at startup. False means the UI
-    /// should send the user to the settings page before a first turn.
+    /// Whether an `ANTHROPIC_*` key was found at startup. False, with no
+    /// provider configured, means the UI should send the user to the settings
+    /// page before a first turn.
     pub has_credentials: bool,
 }
 
@@ -158,19 +159,18 @@ pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
     daemon_config.session_idle_timeout_secs = config.session_idle_timeout_secs;
     daemon_config.settings.session_dir = Some(daemon_config.settings.paths.local_data_dir.clone());
 
-    // A configured provider is a complete answer on its own: the router serves
-    // `main` and the client built here is never asked for anything. Requiring
-    // an environment variable anyway would mean a fresh install could not be
-    // set up from its own settings page.
+    // Starting with no credentials at all is allowed: a fresh install is set
+    // up from its own settings page, and a provider added there rebuilds the
+    // router (which then serves `main`; the client built here is never asked).
+    // Until then a turn fails with the model's own auth error, and the page —
+    // from `has_credentials` and the providers it reads — says what to
+    // configure.
     let has_router = !daemon_config.settings.providers.is_empty();
     let api_key = std::env::var("ANTHROPIC_AUTH_TOKEN")
         .or_else(|_| std::env::var("ANTHROPIC_API_KEY"))
         .ok();
     if api_key.is_none() && !has_router {
-        anyhow::bail!(
-            "no model credentials: set ANTHROPIC_AUTH_TOKEN (or ANTHROPIC_API_KEY), \
-             or configure a provider in settings.json"
-        );
+        tracing::warn!("no model credentials yet: add a provider from the settings page");
     }
     let has_credentials = api_key.is_some();
     let auth = AuthMode::ApiKey(api_key.unwrap_or_default());

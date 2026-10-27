@@ -15,7 +15,7 @@ import { errorText } from "@harnix/core";
 import { Contributed, localeChoice, setLocale, t, useRegistry, useT, type LocaleChoice } from "@harnix/react";
 
 import type { App, ThemeChoice } from "./app.ts";
-import { Body, CloseFoot, Foot } from "./dialogs.tsx";
+import { Body, CloseFoot } from "./dialogs.tsx";
 import { Glyph } from "./glyph.tsx";
 
 /** Bumped after a write, so every section reads again. */
@@ -147,7 +147,10 @@ interface Field {
 interface Described {
   paths?: Record<string, string>;
   fields?: Field[];
-  providers?: { providers?: Record<string, { api_type?: string; base_url?: string; api_key?: unknown; default_model?: string }> };
+  providers?: {
+    providers?: Record<string, { api_type?: string | null; base_url?: string | null; api_key?: unknown; default_model?: string | null; models?: string[] }>;
+    default_provider?: string | null;
+  };
 }
 
 let tier = "global";
@@ -340,67 +343,175 @@ function Scenes({ app }: { app: App }) {
   );
 }
 
+/**
+ * The model providers: as many as wanted, each an Anthropic or OpenAI-compatible API, one of them the
+ * default. Added and edited in place, so the panel stays the panel; written to the global tier.
+ */
 function Models({ app }: { app: App }) {
   const t = useT();
   const { reload } = useContext(Reload);
+  const [editing, setEditing] = useState<string | null>(null);
   const request = where(app);
+  const saved = async () => {
+    setEditing(null);
+    await app.refreshProviders();
+    reload();
+  };
   return (
     <>
-      <EngineSettings app={app} only={["model.model_name", "model.max_tokens"]} />
       <Section title={t("settings.providers")} load={() => app.call<Described>("harnix.settings.describe", request)}>
         {(data) => {
           const providers = data.providers?.providers ?? {};
+          const fallback = data.providers?.default_provider ?? null;
           const names = Object.keys(providers);
           return (
-            <>
-              {!names.length ? <div className="hint">{t("settings.providersNone")}</div> : null}
-              {names.map((id) => {
-                const provider = providers[id]!;
-                return (
-                  <Row key={id} label={id} hint={[provider.api_type, provider.base_url, provider.default_model].filter(Boolean).join(" · ")}>
-                    <Value tone={provider.api_key ? "ok" : "err"}>{provider.api_key ? t("settings.keySet") : t("settings.keyMissing")}</Value>
-                    <button type="button" className="btn sm outline" onClick={() => providerDialog(app, id, provider, reload)}>
-                      {t("common.edit")}
-                    </button>
-                  </Row>
-                );
-              })}
-              <button type="button" className="btn sm outline" onClick={() => providerDialog(app, "", {}, reload)}>
-                <Glyph name="key" className="glyph" />
-                {t("settings.providerAdd")}
-              </button>
+            <div className="providers" data-testid="providers">
+              {!names.length ? (
+                <div className={`callout${app.modelReady() ? "" : " warn"}`} data-testid="providers-none">
+                  <Glyph name="key" className="glyph" />
+                  <span>{t("settings.providersNone")}</span>
+                </div>
+              ) : null}
+              {names.map((id) =>
+                editing === id ? (
+                  <ProviderForm key={id} app={app} id={id} provider={providers[id]!} isDefault={fallback === id} path={data.paths?.global} onDone={saved} onCancel={() => setEditing(null)} />
+                ) : (
+                  <ProviderCard key={id} app={app} id={id} provider={providers[id]!} isDefault={fallback === id} onEdit={() => setEditing(id)} onChanged={saved} />
+                ),
+              )}
+              {editing === "" ? (
+                <ProviderForm app={app} id="" provider={{}} isDefault={!names.length} path={data.paths?.global} onDone={saved} onCancel={() => setEditing(null)} />
+              ) : (
+                <button type="button" className="btn sm outline add-provider" data-testid="provider-add" onClick={() => setEditing("")}>
+                  <Glyph name="plus" className="glyph" />
+                  {t("settings.providerAdd")}
+                </button>
+              )}
               <div className="hint">{t("settings.providerHint")}</div>
-            </>
+            </div>
           );
         }}
       </Section>
+      <EngineSettings app={app} only={["model.model_name", "model.max_tokens"]} />
     </>
   );
 }
 
-/** Add or edit one provider — the only path credentials take from the interface. It opens over the
- *  settings panel and goes back to it. */
-function providerDialog(app: App, id: string, provider: { api_type?: string; base_url?: string; default_model?: string }, _reload: () => void) {
-  app.openModal({
-    title: id ? t("settings.providerEdit", { id }) : t("settings.providerAdd"),
-    content: <ProviderForm app={app} id={id} provider={provider} />,
-  });
+type ProviderEntry = NonNullable<NonNullable<Described["providers"]>["providers"]>[string];
+
+const API_TYPES = [
+  { id: "anthropic", label: "settings.apiTypeAnthropic", url: "https://api.anthropic.com", model: "claude-sonnet-4-6" },
+  { id: "openai_compatible", label: "settings.apiTypeOpenai", url: "https://api.openai.com/v1", model: "gpt-4.1" },
+] as const;
+
+function apiTypeOf(provider: ProviderEntry) {
+  return API_TYPES.find((x) => x.id === provider.api_type) ?? API_TYPES[0];
 }
 
-function ProviderForm({ app, id, provider }: { app: App; id: string; provider: { api_type?: string; base_url?: string; default_model?: string } }) {
+function ProviderCard({
+  app,
+  id,
+  provider,
+  isDefault,
+  onEdit,
+  onChanged,
+}: {
+  app: App;
+  id: string;
+  provider: ProviderEntry;
+  isDefault: boolean;
+  onEdit: () => void;
+  onChanged: () => void;
+}) {
+  const t = useT();
+  const [confirming, setConfirming] = useState(false);
+  const change = (params: Record<string, unknown>) =>
+    app
+      .call("harnix.settings.setProvider", { provider_id: id, ...params })
+      .then(onChanged)
+      .catch((e: unknown) => app.notice(t("settings.writeFailed", { error: errorText(e) }), "error"));
+  const models = [provider.default_model, ...(provider.models ?? [])].filter((m, i, all): m is string => Boolean(m) && all.indexOf(m) === i);
+  return (
+    <div className={`provider-card${isDefault ? " default" : ""}`} data-provider={id}>
+      <div className="pc-head">
+        <span className="pc-name">{id}</span>
+        <span className="pill">{t(apiTypeOf(provider).label)}</span>
+        {isDefault ? <span className="pill acc">{t("settings.providerDefault")}</span> : null}
+        <span className="sp" />
+        <Value tone={provider.api_key ? "ok" : "err"}>{provider.api_key ? t("settings.keySet") : t("settings.keyMissing")}</Value>
+      </div>
+      <div className="pc-meta">
+        <span className="mono truncate">{provider.base_url || apiTypeOf(provider).url}</span>
+        {models.length ? <span className="truncate">{models.join(" · ")}</span> : null}
+      </div>
+      <div className="pc-actions">
+        {!isDefault ? (
+          <button type="button" className="btn sm ghost" data-testid="provider-default" onClick={() => void change({ default_provider: id })}>
+            {t("settings.providerMakeDefault")}
+          </button>
+        ) : null}
+        <button type="button" className="btn sm ghost" data-testid="provider-edit" onClick={onEdit}>
+          {t("common.edit")}
+        </button>
+        <button
+          type="button"
+          className={`btn sm ${confirming ? "outline danger" : "ghost"}`}
+          data-testid="provider-delete"
+          title={confirming ? t("settings.providerDeleteConfirm", { id }) : undefined}
+          onBlur={() => setConfirming(false)}
+          onClick={() => (confirming ? void change({ delete: true }) : setConfirming(true))}
+        >
+          {confirming ? t("settings.providerDeleteConfirm", { id }) : t("common.delete")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Add (no id yet) or edit one provider — the only path credentials take from the interface. */
+function ProviderForm({
+  app,
+  id,
+  provider,
+  isDefault,
+  path,
+  onDone,
+  onCancel,
+}: {
+  app: App;
+  id: string;
+  provider: ProviderEntry;
+  isDefault: boolean;
+  path?: string;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
   const t = useT();
   const [fields, setFields] = useState({
     provider_id: "",
-    api_type: provider.api_type ?? "anthropic",
+    api_type: apiTypeOf(provider).id as string,
     base_url: provider.base_url ?? "",
     api_key: "",
     default_model: provider.default_model ?? "",
+    models: (provider.models ?? []).join(", "),
+    make_default: isDefault,
   });
-  const back = () => openSettings(app);
-  const field = (key: keyof typeof fields, label: string, type = "text") => (
+  const [saving, setSaving] = useState(false);
+  const type = API_TYPES.find((x) => x.id === fields.api_type) ?? API_TYPES[0];
+  const set = (key: keyof typeof fields, value: string | boolean) => setFields({ ...fields, [key]: value });
+  const text = (key: "provider_id" | "base_url" | "api_key" | "default_model" | "models", label: string, placeholder?: string, hint?: string) => (
     <div className="field" key={key}>
       <label>{label}</label>
-      <input type={type} value={fields[key]} onChange={(e) => setFields({ ...fields, [key]: e.target.value })} />
+      <input
+        type={key === "api_key" ? "password" : "text"}
+        data-testid={`provider-${key}`}
+        value={fields[key]}
+        placeholder={placeholder}
+        autoComplete="off"
+        spellCheck={false}
+        onChange={(e) => set(key, e.target.value)}
+      />
+      {hint ? <div className="hint">{hint}</div> : null}
     </div>
   );
   const save = async () => {
@@ -409,52 +520,73 @@ function ProviderForm({ app, id, provider }: { app: App; id: string; provider: {
       app.notice(t("settings.providerIdRequired"));
       return;
     }
-    const config: Record<string, string> = {
-      api_type: fields.api_type.trim(),
+    const models = fields.models.split(/[,，\s]+/).map((m) => m.trim()).filter(Boolean);
+    const config: Record<string, unknown> = {
+      api_type: fields.api_type,
       base_url: fields.base_url.trim(),
       default_model: fields.default_model.trim(),
+      models: models.length ? models : null,
     };
     if (fields.api_key) config.api_key = fields.api_key;
+    setSaving(true);
     try {
-      await app.call("harnix.settings.setProvider", { provider_id: providerId, config });
-      back();
+      await app.call("harnix.settings.setProvider", {
+        provider_id: providerId,
+        config,
+        ...(fields.make_default ? { default_provider: providerId } : {}),
+      });
+      onDone();
     } catch (e) {
       app.notice(t("settings.writeFailed", { error: errorText(e) }), "error");
+      setSaving(false);
     }
   };
   return (
-    <>
-      <Body>
-        {!id ? field("provider_id", t("settings.providerId")) : null}
-        {field("api_type", t("settings.apiType"))}
-        {field("base_url", t("settings.baseUrl"))}
-        {field("api_key", t("settings.apiKey"), "password")}
-        {field("default_model", t("settings.defaultModel"))}
-        <div className="hint">{t("settings.apiKeyHint")}</div>
-      </Body>
-      <Foot>
-        <button type="button" className="btn outline" onClick={back}>
+    <form
+      className="provider-form"
+      data-testid="provider-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+    >
+      <div className="pf-title">{id ? t("settings.providerEdit", { id }) : t("settings.providerAdd")}</div>
+      {!id ? text("provider_id", t("settings.providerId"), type.id === "anthropic" ? "anthropic" : "openai") : null}
+      <div className="field">
+        <label>{t("settings.apiType")}</label>
+        <div className="seg" role="radiogroup">
+          {API_TYPES.map((x) => (
+            <button
+              type="button"
+              role="radio"
+              key={x.id}
+              data-testid={`provider-type-${x.id}`}
+              aria-checked={fields.api_type === x.id}
+              className={fields.api_type === x.id ? "on" : ""}
+              onClick={() => set("api_type", x.id)}
+            >
+              {t(x.label)}
+            </button>
+          ))}
+        </div>
+      </div>
+      {text("base_url", t("settings.baseUrl"), type.url)}
+      {text("api_key", t("settings.apiKey"), id && provider.api_key ? t("settings.apiKeyKeep") : "sk-…", t("settings.apiKeyHint", { path: path ?? "~/.agix/settings.json" }))}
+      {text("default_model", t("settings.defaultModel"), type.model)}
+      {text("models", t("settings.models"), undefined, t("settings.modelsHint"))}
+      <label className="check">
+        <input type="checkbox" data-testid="provider-make-default" checked={fields.make_default} onChange={(e) => set("make_default", e.target.checked)} />
+        {t("settings.providerAsDefault")}
+      </label>
+      <div className="pf-actions">
+        <button type="button" className="btn sm outline" onClick={onCancel}>
           {t("common.cancel")}
         </button>
-        {id ? (
-          <button
-            type="button"
-            className="btn outline danger"
-            onClick={() =>
-              app
-                .call("harnix.settings.setProvider", { provider_id: id, delete: true })
-                .then(back)
-                .catch((e: unknown) => app.notice(errorText(e), "error"))
-            }
-          >
-            {t("common.delete")}
-          </button>
-        ) : null}
-        <button type="button" className="btn primary" onClick={() => void save()}>
+        <button type="submit" className="btn sm primary" data-testid="provider-save" disabled={saving}>
           {t("common.save")}
         </button>
-      </Foot>
-    </>
+      </div>
+    </form>
   );
 }
 

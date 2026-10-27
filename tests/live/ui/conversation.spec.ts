@@ -193,3 +193,14 @@ test("the host API inserts into the composer, reveals in details, and refuses wh
   });
   expect(tasks).toHaveProperty("tasks");
 });
+
+test("the composer's model menu switches the session's model", TAGS, async ({ page }) => {
+  await open(page, URL);
+  await newSession(page, "says-ready");
+  await page.getByTestId("conv-model").click();
+  await expect(page.getByTestId("conv-model-option").first()).toBeVisible();
+  await page.getByTestId("conv-model-custom").fill("claude-switched-model");
+  await page.getByTestId("conv-model-custom").press("Enter");
+  await expect(page.getByTestId("conv-model")).toContainText("claude-switched-model");
+  await expect(page.getByTestId("conv-model-menu")).toHaveCount(0);
+});

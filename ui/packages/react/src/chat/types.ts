@@ -91,11 +91,11 @@ export interface ChatFeatures {
   contextRing?: boolean | { max?: number; ratio?: number; menu?: ReactNode; testId?: string; note?: ReactNode };
   /** ⚙ 选项：转录里"收起所有 diff"（纯前端，真能用），其余项要后端、不可用。缺省开 */
   options?: boolean;
-  /** ＋ 添加：引用条目（给了 mention 才可用）；上传、截图要后端，不可用。缺省开 */
+  /** ＋ 添加：文件与图片（给了 upload）、引用条目（给了 mention）、命令；截图要后端，不可用。缺省开 */
   attachments?: boolean;
   /** 语音输入：要后端（转写），画成不可用的按钮。缺省开 */
   voice?: boolean;
-  /** 模型（底栏右侧）：显示当前模型；换模型要后端，弹层里写明不可用。缺省开 */
+  /** 模型（底栏右侧）：显示当前模型；给了 onModel 才能换。缺省开 */
   modelPicker?: boolean;
 }
 

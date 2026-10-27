@@ -102,6 +102,12 @@ export interface HarnixUiStrings {
   retry: string;
   plusMenu: string;
   uploadFile: string;
+  uploadImage: string;
+  insertCommand: string;
+  insertCommandHint: string;
+  attachFootReady: string;
+  modelCustom: string;
+  modelFootSwitch: string;
   screenshot: string;
   mentionItem: string;
   mentionItemHint: string;
@@ -215,7 +221,13 @@ export const zhCN: HarnixUiStrings = {
     max ? `上下文 ${tokens.toLocaleString()} / ${max.toLocaleString()} tokens（${Math.round((tokens / max) * 100)}%）` : `上下文 ${tokens.toLocaleString()} tokens`,
   retry: "重新生成（后端还不支持）",
   plusMenu: "添加到这条消息",
-  uploadFile: "上传文件或图片",
+  uploadFile: "上传文件",
+  uploadImage: "添加图片",
+  insertCommand: "命令",
+  insertCommandHint: "输入 / 也可以",
+  attachFootReady: "也可以把文件拖进来，或直接粘贴",
+  modelCustom: "其他模型名，回车切换",
+  modelFootSwitch: "只对这个会话生效",
   screenshot: "截取屏幕",
   mentionItem: "引用条目",
   mentionItemHint: "输入 @ 也可以",
@@ -328,7 +340,13 @@ export const en: HarnixUiStrings = {
     max ? `Context ${tokens.toLocaleString()} / ${max.toLocaleString()} tokens (${Math.round((tokens / max) * 100)}%)` : `Context ${tokens.toLocaleString()} tokens`,
   retry: "Regenerate (not supported by the backend yet)",
   plusMenu: "Add to this message",
-  uploadFile: "Upload a file or image",
+  uploadFile: "Upload a file",
+  uploadImage: "Add an image",
+  insertCommand: "Command",
+  insertCommandHint: "or type /",
+  attachFootReady: "You can also drop or paste files here",
+  modelCustom: "Another model name, Enter to switch",
+  modelFootSwitch: "Applies to this conversation only",
   screenshot: "Capture the screen",
   mentionItem: "Reference an item",
   mentionItemHint: "or type @",

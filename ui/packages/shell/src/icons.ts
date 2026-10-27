@@ -16,6 +16,8 @@ export const ICON: Record<string, string> = {
   panel: wrap(`<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>`),
   details: wrap(`<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>`),
   close: wrap(`<path d="M6 6l12 12M18 6L6 18"/>`),
+  maximize: wrap(`<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>`),
+  restore: wrap(`<path d="M20 10h-6V4M4 14h6v6M14 10l7-7M10 14l-7 7"/>`),
   more: wrap(`<circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/>`),
   folder: wrap(`<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>`),
   info: wrap(`<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>`),

@@ -26,8 +26,10 @@ cargo build --release
 Rust 1.87 或更新，界面要 Node 和 pnpm。`--recurse-submodules` 不能少：Agix 在 `agix/`。跑起来的是空应用：
 Harnix 自带的三个 space，别的什么也没有。
 
-不需要任何环境变量。没配凭据时点头像 → **设置 → 模型与凭据 → 添加 provider**；写进 `settings.json`，
-不进浏览器，也不进日志。也可以用 `ANTHROPIC_AUTH_TOKEN`（加上可选的 `ANTHROPIC_BASE_URL`）。
+不需要任何环境变量。没配模型也能启动，页面会提示：点 **配置模型**（或头像 → **设置 → 模型与凭据**）添加
+模型服务，可以配多个，每个是 Anthropic 或 OpenAI 兼容的 API，其中一个是默认。写进全局的
+`~/.agix/settings.json`，不用重启就生效，不进浏览器，也不进日志。也可以用 `ANTHROPIC_AUTH_TOKEN`（加上可选的
+`ANTHROPIC_BASE_URL`）。
 
 ## 应用能得到什么
 

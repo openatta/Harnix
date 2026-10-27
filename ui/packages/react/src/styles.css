@@ -328,6 +328,13 @@
 .hx-pop-pt { display: flex; flex-direction: column; min-width: 0; font-size: 13px; line-height: 1.4; }
 .hx-pop-pt b { font-weight: 500; }
 .hx-pop-pt small { color: var(--hx-fg-faint); font-size: 12px; }
+.hx-pop-sep { height: 1px; background: var(--hx-line); margin: 4px 6px; flex: none; }
+.hx-pop-input { padding: 4px 4px 2px; }
+.hx-pop-input input { width: 100%; font: inherit; font-size: 12.5px; color: var(--hx-fg); background: var(--hx-bg-soft); border: 1px solid var(--hx-line); border-radius: 8px; padding: 6px 9px; outline: none; }
+.hx-pop-input input:focus { border-color: var(--hx-accent); }
+.hx-models { width: min(300px, calc(100% - 12px)); }
+.hx-models[aria-busy="true"] { opacity: 0.7; }
+.hx-cmp-model svg:first-child { flex: none; opacity: 0.8; }
 .hx-pop-f { font-size: 11.5px; color: var(--hx-fg-faint); padding: 7px 8px 4px; border-top: 1px solid var(--hx-line); margin-top: 4px; }
 .hx-sw { width: 30px; height: 18px; border-radius: 999px; background: var(--hx-line); position: relative; flex: none; transition: background 0.15s; display: inline-block; }
 .hx-sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--hx-bg); transition: left 0.15s; }

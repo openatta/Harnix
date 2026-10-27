@@ -65,17 +65,25 @@ test("icons are sized by a class, not left to fill the row", TAGS, async ({ page
   expect(largest).toBeLessThanOrEqual(64);
 });
 
-test("the settings panel opens and every section draws", SETTINGS, async ({ page }) => {
+test("the settings panel opens, every section draws, and the panel keeps one size", SETTINGS, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, URL);
   await openSettings(page);
   const items = page.locator(".settings-nav .nav-item");
   expect(await items.count()).toBeGreaterThan(4);
+  const size = async () => {
+    const box = (await page.locator("#modal").boundingBox())!;
+    return `${Math.round(box.width)}x${Math.round(box.height)}`;
+  };
+  // Measured after the opening animation, which scales the panel in.
+  await page.locator("#modal").evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+  const first = await size();
   for (let i = 0; i < (await items.count()); i += 1) {
     await items.nth(i).click();
     await expect(items.nth(i)).toHaveClass(/on/);
     await expect(page.locator(".settings-page")).toBeVisible();
     await expect(page.locator(".settings-page .hint.err")).toHaveCount(0);
+    expect(await size(), `section ${i}`).toBe(first);
   }
   await page.keyboard.press("Escape");
   await expect(page.locator("#veil")).not.toHaveClass(/on/);
@@ -170,6 +178,24 @@ test("the side columns are dragged wider, remember it, and a double-click puts t
   await expect.poll(async () => (await side.boundingBox())!.width).toBeGreaterThan(before + 40);
   await page.getByTestId("resize-side").dblclick();
   await expect.poll(async () => Math.round((await side.boundingBox())!.width)).toBe(Math.round(before));
+});
+
+test("the right column is a tab strip with no title bar: it maximizes over the centre, restores, and closes", SHELL, async ({ page }) => {
+  await open(page, URL);
+  await page.getByTestId("details-toggle").click();
+  const details = page.locator("#details");
+  await expect(details.locator(".strip .tabs [role=tab]").first()).toBeVisible();
+  await expect(details.locator(".head")).toHaveCount(0);
+  await expect.poll(async () => (await details.boundingBox())?.width ?? 0).toBeGreaterThan(300);
+  const normal = (await details.boundingBox())!.width;
+  await page.getByTestId("details-max").click();
+  await expect.poll(async () => (await details.boundingBox())!.width).toBeGreaterThan(normal + 300);
+  await expect(page.locator("#main")).toBeHidden();
+  await page.getByTestId("details-max").click();
+  await expect.poll(async () => Math.round((await details.boundingBox())!.width)).toBe(Math.round(normal));
+  await expect(page.locator("#main")).toBeVisible();
+  await page.getByTestId("details-close").click();
+  await expect.poll(async () => (await details.boundingBox())?.width ?? 0).toBeLessThan(2);
 });
 
 test("the avatar is the settings: its ring says the connection, its menu opens settings and switches", SHELL, async ({ page }) => {

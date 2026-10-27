@@ -1,27 +1,27 @@
 /* Design tokens — the only file with colours in it.
  *
- * The palette is Helm's (Helm docs/design/11-gui-demo): warm paper neutrals, one terracotta
- * accent, serif for what is read and headings, sans for everything that is operated. Feature
- * styles consume the aliases below — never a raw colour — so a theme stays one file, and an
+ * An enterprise palette: cool slate neutrals, one blue accent, sans throughout (`--font-serif` is
+ * kept as a name so feature styles and application brands keep working, but it is the sans stack).
+ * Feature styles consume the aliases below — never a raw colour — so a theme stays one file, and an
  * application's brand overrides these names and no others.
  *
  * Dark is `data-theme="dark"` on <html>, set from the stored preference or the system. */
 
 :root {
   /* ── palette ───────────────────────────────────────────────────────── */
-  --paper: #faf9f5;
-  --paper-side: #f5f4ed;
+  --paper: #f7f8fa;
+  --paper-side: #f0f2f5;
   --paper-surface: #ffffff;
-  --paper-bubble: #f0eee6;
-  --paper-line: #e8e6dc;
-  --ink: #141413;
-  --ink-2: #5e5d59;
-  --ink-3: #87867f;
-  --terracotta: #c96442;
-  --green: #3d8b5a;
-  --ochre: #b7791f;
-  --brick: #c0392b;
-  --blue: #2f6fb3;
+  --paper-bubble: #eaf1fd;
+  --paper-line: #e3e7ee;
+  --ink: #1d2330;
+  --ink-2: #4e5969;
+  --ink-3: #86909c;
+  --brand-blue: #2563eb;
+  --green: #1f9d55;
+  --ochre: #d97706;
+  --brick: #d93026;
+  --blue: #0b7bd6;
 
   /* ── semantic aliases ──────────────────────────────────────────────── */
   --bg-base: var(--paper);
@@ -30,14 +30,14 @@
   --bg-layer-3: var(--paper-surface);
   --bg-sidebar: var(--paper-side);
   --bg-module: var(--paper-bubble);
-  --bg-mask: rgba(20, 20, 19, 0.24);
+  --bg-mask: rgba(15, 23, 42, 0.32);
   --bg-bubble: var(--paper-bubble);
   --surface: var(--paper-surface);
 
   --border-l1: var(--paper-line);
   --border-l2: var(--paper-line);
   --border-thin: var(--paper-line);
-  --border-l3: #dcd9cc;
+  --border-l3: #d4dae3;
 
   --label-primary: var(--ink);
   --label-secondary: var(--ink-2);
@@ -45,41 +45,41 @@
   --label-caption: var(--ink-3);
   --label-inverted: var(--paper);
 
-  --accent: var(--terracotta);
+  --accent: var(--brand-blue);
   --accent-fg: #ffffff;
-  --accent-soft: rgba(201, 100, 66, 0.12);
-  --accent-line: rgba(201, 100, 66, 0.4);
+  --accent-soft: rgba(37, 99, 235, 0.1);
+  --accent-line: rgba(37, 99, 235, 0.4);
 
-  --interactive-hover: rgba(20, 20, 19, 0.05);
-  --interactive-active: rgba(20, 20, 19, 0.09);
-  --interactive-hover-solid: #efede5;
-  --interactive-hover-danger: rgba(192, 57, 43, 0.06);
+  --interactive-hover: rgba(15, 23, 42, 0.05);
+  --interactive-active: rgba(15, 23, 42, 0.08);
+  --interactive-hover-solid: #e9edf3;
+  --interactive-hover-danger: rgba(217, 48, 38, 0.06);
 
-  --button-primary-fill: var(--ink);
-  --button-primary-hover: #2b2b29;
-  --button-primary-label: var(--paper);
+  --button-primary-fill: var(--brand-blue);
+  --button-primary-hover: #1d4ed8;
+  --button-primary-label: #ffffff;
 
-  --code-inline: rgba(20, 20, 19, 0.05);
+  --code-inline: rgba(15, 23, 42, 0.05);
   --code-block: var(--paper);
 
   --state-info: var(--blue);
-  --state-info-soft: rgba(47, 111, 179, 0.1);
+  --state-info-soft: rgba(11, 123, 214, 0.1);
   --state-success: var(--green);
   --state-warn: var(--ochre);
-  --state-warn-label: #8f5d14;
-  --state-warn-soft: rgba(183, 121, 31, 0.1);
+  --state-warn-label: #9a5205;
+  --state-warn-soft: rgba(217, 119, 6, 0.1);
   --state-error: var(--brick);
-  --state-error-soft: rgba(192, 57, 43, 0.08);
+  --state-error-soft: rgba(217, 48, 38, 0.08);
 
-  --scrollbar-thumb: #d9d6ca;
-  --scrollbar-thumb-hover: #c6c3b6;
-  --shadow-float: 0 4px 20px rgba(20, 20, 19, 0.06), 0 1px 2px rgba(20, 20, 19, 0.06);
-  --shadow-card: 0 4px 20px rgba(20, 20, 19, 0.06), 0 1px 2px rgba(20, 20, 19, 0.06);
+  --scrollbar-thumb: #d0d6df;
+  --scrollbar-thumb-hover: #b8c0cc;
+  --shadow-float: 0 6px 24px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-card: 0 2px 12px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.05);
 
   /* ── type, motion, geometry ────────────────────────────────────────── */
   --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Segoe UI",
     "Microsoft YaHei", sans-serif;
-  --font-serif: Georgia, "Noto Serif SC", "Songti SC", "STSong", serif;
+  --font-serif: var(--font-sans);
   --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
   --dur-fast: 0.1s;
@@ -91,9 +91,9 @@
   --rail-width: 56px;
   --sidebar-width: 248px;
   --details-width: 360px;
-  --radius-card: 14px;
+  --radius-card: 10px;
   --radius-pill: 999px;
-  --radius-sm: 8px;
+  --radius-sm: 6px;
 
   /* ── conversation components (@harnix/react) ───────────────────────── */
   --hx-font: var(--font-sans);
@@ -110,7 +110,7 @@
   --hx-accent-fg: var(--accent-fg);
   --hx-accent-soft: var(--accent-soft);
   --hx-ok: var(--state-success);
-  --hx-ok-soft: rgba(61, 139, 90, 0.1);
+  --hx-ok-soft: rgba(31, 157, 85, 0.1);
   --hx-warn: var(--state-warn);
   --hx-warn-soft: var(--state-warn-soft);
   --hx-danger: var(--state-error);
@@ -118,52 +118,52 @@
   --hx-bubble: var(--bg-bubble);
   --hx-ask-bg: var(--surface);
   --hx-ask-line: var(--border-l2);
-  --hx-radius: 12px;
+  --hx-radius: 10px;
   --hx-term: var(--bg-base);
-  --hx-av: var(--ink-2);
-  --hx-on-av: var(--paper);
-  --hx-diff-a: #e4f1e7;
-  --hx-diff-d: #f8e6e2;
-  --hx-diff-a-fg: #2f6e47;
-  --hx-diff-d-fg: #9b3326;
+  --hx-av: var(--brand-blue);
+  --hx-on-av: #ffffff;
+  --hx-diff-a: #e6f4ea;
+  --hx-diff-d: #fdecea;
+  --hx-diff-a-fg: #18794e;
+  --hx-diff-d-fg: #b42318;
   --hx-shadow: var(--shadow-float);
   --hx-cmp-shadow: var(--shadow-card);
 }
 
 :root[data-theme="dark"] {
-  --paper: #262624;
-  --paper-side: #1f1e1d;
-  --paper-surface: #30302e;
-  --paper-bubble: #141413;
-  --paper-line: #3e3e38;
-  --ink: #faf9f5;
-  --ink-2: #c2c0b6;
-  --ink-3: #9c9a92;
-  --terracotta: #d97757;
-  --green: #6bbf8a;
-  --ochre: #e0a84b;
-  --brick: #e57368;
-  --blue: #7faee3;
+  --paper: #161a21;
+  --paper-side: #11141a;
+  --paper-surface: #1e232c;
+  --paper-bubble: #1f2b40;
+  --paper-line: #2b323d;
+  --ink: #e6eaf0;
+  --ink-2: #aab3bf;
+  --ink-3: #7c8794;
+  --brand-blue: #4f8cff;
+  --green: #3fb950;
+  --ochre: #d29922;
+  --brick: #f26b62;
+  --blue: #58a6ff;
 
-  --bg-mask: rgba(0, 0, 0, 0.5);
-  --border-l3: #4a4a43;
-  --accent-fg: #1f1e1d;
-  --accent-soft: rgba(217, 119, 87, 0.16);
-  --accent-line: rgba(217, 119, 87, 0.45);
-  --interactive-hover: rgba(250, 249, 245, 0.06);
-  --interactive-active: rgba(250, 249, 245, 0.1);
-  --interactive-hover-solid: #383835;
-  --interactive-hover-danger: rgba(229, 115, 104, 0.1);
-  --button-primary-hover: #e9e7df;
-  --code-inline: rgba(250, 249, 245, 0.07);
+  --bg-mask: rgba(0, 0, 0, 0.55);
+  --border-l3: #38404c;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(79, 140, 255, 0.16);
+  --accent-line: rgba(79, 140, 255, 0.45);
+  --interactive-hover: rgba(230, 234, 240, 0.06);
+  --interactive-active: rgba(230, 234, 240, 0.1);
+  --interactive-hover-solid: #262c36;
+  --interactive-hover-danger: rgba(242, 107, 98, 0.1);
+  --button-primary-hover: #3b7bf5;
+  --code-inline: rgba(230, 234, 240, 0.07);
   --state-warn-label: var(--ochre);
-  --scrollbar-thumb: #4a4a43;
-  --scrollbar-thumb-hover: #5a5a52;
-  --shadow-float: 0 4px 20px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.3);
-  --hx-ok-soft: rgba(107, 191, 138, 0.14);
-  --hx-diff-a: #1e3326;
-  --hx-diff-d: #3a221f;
-  --hx-diff-a-fg: #8fd3a8;
-  --hx-diff-d-fg: #f0a197;
+  --scrollbar-thumb: #38404c;
+  --scrollbar-thumb-hover: #4a5361;
+  --shadow-float: 0 6px 24px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --hx-ok-soft: rgba(63, 185, 80, 0.14);
+  --hx-diff-a: #16301f;
+  --hx-diff-d: #3a1d1b;
+  --hx-diff-a-fg: #7ee2a0;
+  --hx-diff-d-fg: #ffa198;
 }

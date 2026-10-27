@@ -8,7 +8,7 @@
 
 export { HarnixUiProvider, useConnection, useHello, useHarnixClient, useSession, useStrings, type HarnixUiProviderProps } from "./context";
 export { ChatPanel, type ChatPanelProps } from "./chat/ChatPanel";
-export { ChatComposer, type Attached, type ChatComposerProps, type ComposerApi } from "./chat/ChatComposer";
+export { ChatComposer, type Attached, type ChatComposerProps, type ComposerApi, type ModelOption } from "./chat/ChatComposer";
 export { TranscriptList, type TranscriptListProps } from "./chat/TranscriptList";
 export { readDraft, writeDraft } from "./chat/drafts";
 export { Avatar, ComposerNote, DiffView, QueuedBubble, SegmentRow, TranscriptToolRow } from "./chat/messages";
