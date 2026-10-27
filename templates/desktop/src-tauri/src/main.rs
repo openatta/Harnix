@@ -8,6 +8,12 @@
 //! one appears. That is what keeps the desktop app and the browser the same
 //! product: one interface, one admission path, one set of tests.
 //!
+//! One exception, and it is the window's, not the app's: on macOS the window
+//! has no title bar (the traffic lights sit over the page), so the page's top
+//! bars are where it is dragged. Tauri's drag regions ask the window to start
+//! dragging, and `capabilities/window-drag.json` lets a loopback page ask for
+//! exactly that and a double-click maximize — nothing else.
+//!
 //! Two modes (`desktop.toml`, see `config.rs`):
 //!
 //! - **local** — start the app on a loopback port, wait for it, open a
@@ -46,12 +52,19 @@ fn main() {
             move |app| {
                 // Made here rather than in tauri.conf.json so it can start on
                 // the bundled page: the server's address is not known yet.
-                let window =
+                let builder =
                     WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                         .title(app.package_info().name.clone())
                         .inner_size(1280.0, 820.0)
-                        .min_inner_size(640.0, 480.0)
-                        .build()?;
+                        .min_inner_size(640.0, 480.0);
+                // The page's top bars are 52px; the lights are centred in them,
+                // and the page leaves them room (it knows it is in this shell).
+                #[cfg(target_os = "macos")]
+                let builder = builder
+                    .title_bar_style(tauri::TitleBarStyle::Overlay)
+                    .hidden_title(true)
+                    .traffic_light_position(tauri::LogicalPosition::new(18.0, 19.0));
+                let window = builder.build()?;
                 std::thread::spawn(move || connect(&window, config, &child));
                 exit_on_signal(app.handle().clone());
                 Ok(())

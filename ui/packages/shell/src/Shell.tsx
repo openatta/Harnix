@@ -30,6 +30,7 @@ import { keyOf, type App, type ShellState, type Widths } from "./app.ts";
 import { useBrand } from "./brand.ts";
 import { followEnvelopes } from "./envelope.tsx";
 import { Glyph } from "./glyph.tsx";
+import { sessionMenu } from "./dialogs.tsx";
 import { openSettings } from "./settings.tsx";
 import { Sidebar, spacesOf } from "./Sidebar.tsx";
 
@@ -466,15 +467,20 @@ function Header({
   const scene = session?.session?.scene ?? row?.scene;
   const overview = space?.center && space.center !== "chat" && !onBack;
   return (
-    <header id="head" className="topbar">
+    <header id="head" className="topbar" data-tauri-drag-region="deep">
       {onBack ? (
         <button type="button" className="ib back" data-testid="back-to-overview" title={space?.title()} onClick={onBack}>
           <Glyph name="chevronRight" className="glyph flip" />
         </button>
       ) : null}
-      <div className="title truncate">
-        {overview ? space?.title() : s.current ? name || t("sidebar.untitled") : t("sidebar.newSession")}
-      </div>
+      {row && !overview ? (
+        <button type="button" className="title-btn" data-testid="head-title" title={t("sidebar.sessionActions")} onClick={() => sessionMenu(app, row)}>
+          <span className="title truncate">{name || t("sidebar.untitled")}</span>
+          <Glyph name="chevronDown" className="glyph" />
+        </button>
+      ) : (
+        <div className="title truncate">{overview ? space?.title() : s.current ? name || t("sidebar.untitled") : t("sidebar.newSession")}</div>
+      )}
       <div className="meta">
         {space ? (
           <span className="pill acc" data-testid="space-pill">
@@ -710,7 +716,7 @@ function Details({ app, s }: { app: App; s: ShellState }) {
   return (
     <aside id="details" aria-hidden={!s.detailsOpen}>
       <Resizer app={app} column="details" />
-      <div className="strip">
+      <div className="strip" data-tauri-drag-region="deep">
         <div className="tabs" role="tablist">
           {tabs.map((x) => (
             <button type="button" role="tab" key={x.id} data-tab={x.id} aria-selected={current === x.id} className={current === x.id ? "on" : ""} onClick={() => setTab(x.id)}>

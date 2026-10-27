@@ -92,3 +92,72 @@
   min-height: 0;
   background: var(--bg-base);
 }
+
+/* ── the desktop shell's chrome: no title bar ──────────────────────────────
+ * In templates/desktop on macOS (main.tsx sets data-chrome="overlay") the window has no title bar.
+ * Its traffic lights sit over the top-left, centred in the 52px band every column's top bar shares,
+ * and those bars are where the window is dragged (data-tauri-drag-region). The sidebar's toggle
+ * stays just right of the lights whether the sidebar is open or a rail, so it is never under them
+ * and never moves under the pointer; whatever starts that band leaves it the room. */
+:root[data-chrome="overlay"] {
+  --tl-gutter: 78px;
+  --tl-clear: calc(var(--tl-gutter) + 40px);
+}
+
+:root[data-chrome="overlay"] #head,
+:root[data-chrome="overlay"] #side .l-top,
+:root[data-chrome="overlay"] #details .strip {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+:root[data-chrome="overlay"] #side {
+  padding-top: 0;
+}
+
+:root[data-chrome="overlay"] #side .l-top {
+  flex-direction: row;
+  height: 52px;
+  margin: 0 -8px 6px;
+  padding: 0 12px 0 var(--tl-clear);
+}
+
+:root[data-chrome="overlay"] #side .l-top .collapse {
+  position: fixed;
+  top: 10px;
+  left: var(--tl-gutter);
+  z-index: 30;
+}
+
+:root[data-chrome="overlay"] #frame[data-sidebar="collapsed"] #side .l-top .brand {
+  display: none;
+}
+
+:root[data-chrome="overlay"] #frame[data-sidebar="collapsed"] #head,
+:root[data-chrome="overlay"] #frame[data-sidebar="collapsed"][data-details-max] #details .strip {
+  padding-left: calc(var(--tl-clear) - var(--rail-width));
+}
+
+@media (max-width: 960px) {
+  :root[data-chrome="overlay"] #frame #head,
+  :root[data-chrome="overlay"] #frame[data-details-max] #details .strip {
+    padding-left: calc(var(--tl-clear) - var(--rail-width));
+  }
+
+  :root[data-chrome="overlay"] #side .l-top .brand {
+    display: none;
+  }
+}
+
+/* A banner would push the band down from under the lights; it floats below it instead. */
+:root[data-chrome="overlay"] #banner.on {
+  position: fixed;
+  top: 58px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  max-width: min(720px, calc(100vw - 32px));
+  border: 1px solid var(--border-l2);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-float);
+}

@@ -99,6 +99,52 @@
   margin-right: 6px;
 }
 
+/* A session's name, after Claude desktop: the name and a chevron, and its actions on a click. */
+#head .title-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 45%;
+  height: 32px;
+  margin: 0 6px 0 -8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+}
+
+#head .title-btn .title {
+  max-width: none;
+  margin: 0;
+  color: var(--label-primary);
+  font-weight: 500;
+}
+
+#head .title-btn .glyph {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--label-tertiary);
+}
+
+#head .title-btn:hover {
+  background: var(--interactive-hover);
+}
+
+/* The facts beside the name are quiet: no outlines, the space in the accent's tint. */
+#head .meta .pill {
+  border-color: transparent;
+  background: var(--interactive-hover);
+  color: var(--label-tertiary);
+}
+
+#head .meta .pill.acc {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 #head .meta {
   display: flex;
   align-items: center;

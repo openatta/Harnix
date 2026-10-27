@@ -642,7 +642,8 @@ r.strings('zh-CN', { 'hello-app.greeter': '问候' }, 'hello-app');
   不许有长期补丁：子仓指针只能指向上游存在的提交。
 - **桌面版**（M9 起）：复制 `harnix/templates/desktop`，改名字、图标，把你的二进制打成 sidecar。本机模式
   壳起你的应用、用启动链接让窗口进来、关窗口时停掉它；远程模式窗口开一个 `https://` 的 Harnix。业务流量
-  全是页面自己的 HTTP/WS，壳不加 IPC（`check-no-ipc.mjs` 查）。详见它的 README。
+  全是页面自己的 HTTP/WS，壳不加 IPC（`check-no-ipc.mjs` 查）；唯一的例外是 macOS 无标题栏时页面请求拖动窗口。
+  详见它的 README。
 
 ## 12. 测试（M1 起）
 

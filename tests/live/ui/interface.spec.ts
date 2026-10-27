@@ -198,6 +198,36 @@ test("the right column is a tab strip with no title bar: it maximizes over the c
   await expect.poll(async () => (await details.boundingBox())?.width ?? 0).toBeLessThan(2);
 });
 
+test("in the desktop shell on macOS the top bars leave the traffic lights room and are where the window is dragged", SHELL, async ({ page }) => {
+  // What the shell (templates/desktop) looks like from inside the page: Tauri's internals, a Mac.
+  await page.addInitScript(() => {
+    (window as any).__TAURI_INTERNALS__ = {};
+    Object.defineProperty(navigator, "userAgent", { get: () => "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)" });
+  });
+  await open(page, URL);
+  await expect(page.locator("html")).toHaveAttribute("data-chrome", "overlay");
+  for (const bar of ["#head", "#side .l-top", "#details .strip"]) {
+    await expect(page.locator(bar)).toHaveAttribute("data-tauri-drag-region", "deep");
+  }
+  // The lights take the first 78px of the 52px band; the toggle is right of them, open or rail.
+  const toggle = page.locator("#side .l-top .collapse");
+  const at = async () => (await toggle.boundingBox())!;
+  expect((await at()).x).toBeGreaterThanOrEqual(78);
+  await toggle.click();
+  await expect(page.locator("#frame")).toHaveAttribute("data-sidebar", "collapsed");
+  await expect.poll(async () => (await at()).x).toBeGreaterThanOrEqual(78);
+  const toggleEnd = (await at()).x + (await at()).width;
+  expect((await page.locator("#head .title").boundingBox())!.x).toBeGreaterThanOrEqual(toggleEnd);
+  await toggle.click();
+  await expect(page.locator("#frame")).toHaveAttribute("data-sidebar", "expanded");
+});
+
+test("outside the desktop shell there is no window chrome to make room for", SHELL, async ({ page }) => {
+  await open(page, URL);
+  await expect(page.locator("html")).not.toHaveAttribute("data-chrome", "overlay");
+  expect((await page.locator("#side .l-top .collapse").boundingBox())!.y).toBeLessThan(40);
+});
+
 test("the avatar is the settings: its ring says the connection, its menu opens settings and switches", SHELL, async ({ page }) => {
   await open(page, URL);
   const avatar = page.getByTestId("avatar");

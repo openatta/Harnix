@@ -28,6 +28,13 @@ body {
   font: 15px/1.6 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
+/* No title bar on macOS: the band the traffic lights sit in is where the window is dragged. */
+.drag {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 52px;
+}
+
 main {
   max-width: 32rem;
   padding: 0 1.5rem;

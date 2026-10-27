@@ -66,7 +66,7 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
 
   return (
     <aside id="side" className={phase}>
-      <div className="l-top">
+      <div className="l-top" data-tauri-drag-region="deep">
         <div className="brand" data-testid="brand">
           {icon ? <img className="logo brand-icon" src={icon} alt="" /> : <Glyph name="brand" className="logo" />}
           <span className="lbl" data-testid="brand-name">

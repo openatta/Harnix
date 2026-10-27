@@ -49,8 +49,8 @@ Harnix 自带的三个 space，别的什么也没有。
   在 `~/.<product_id>`。
 - **装上的包也能画界面。** Agix 包里的界面模块是预编译的 ES 模块，从页面的 import map 拿 React——在其余都
   严格的 CSP 里按 hash 放行——每个产品可以整个关掉。
-- **桌面壳。** `templates/desktop` 用 Tauri 2 包住一个应用，本机或连远端 Harnix，不加 IPC：业务流量全是
-  页面自己的 HTTP/WS。
+- **桌面壳。** `templates/desktop` 用 Tauri 2 包住一个应用，本机或连远端 Harnix，不加业务 IPC：业务流量全是
+  页面自己的 HTTP/WS。macOS 上窗口没有标题栏，页面的顶栏就是拖窗口的地方——这是页面唯一能对壳请求的事。
 - **对着真二进制的测试。** `@harnix/testkit` 起应用、用录像回放模型调用，驱动 API 和界面（Playwright）。
 
 ## 做一个应用

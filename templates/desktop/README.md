@@ -167,16 +167,34 @@ cd src-tauri && cargo tauri build      # .app / .dmg / .msi / .deb / AppImage，
 **可以加的。** 设计允许的 Tauri 能力只有托盘、窗口、通知、更新、单实例、日志，都只在 Rust 这边用。加了
 插件也不要往 `capabilities/` 里给页面开权限。
 
+## 无标题栏（macOS）
+
+窗口用 `TitleBarStyle::Overlay` + `hidden_title`：没有独立的标题栏，红绿灯浮在页面左上角，放在 52px 的顶栏
+带里（`traffic_light_position(18, 19)`，和页面顶栏的高度一起改）。
+
+- **页面怎么知道。** Tauri 往它打开的每个页面里放 `__TAURI_INTERNALS__`，Harnix 的界面看到它、又是 Mac，就在
+  `<html>` 上标 `data-chrome="overlay"`：左栏顶行给红绿灯让出位置，收起左栏的按钮固定在红绿灯右边（展开、收成
+  窄栏都在同一处），左栏收起时主区顶栏让开它；横幅浮到顶栏带下面。壳不往页面里送任何东西。
+- **怎么拖。** 页面把各栏顶栏标成 `data-tauri-drag-region="deep"`：按在空白处拖窗口、双击最大化；按钮、页签
+  这些可点的照常点。Tauri 注入的脚本据此请求窗口开始拖动——这是页面对壳唯一能发的请求，`window-drag.json`
+  只给它这两条。网页没有办法自己挪动原生窗口，所以这条口子省不掉；它只动窗口，不碰应用的数据。
+- **远程模式**下页面在 `https://` 的另一台机器上，不在 `remote.urls` 里，拖不动：要拖就把那个地址加进
+  `window-drag.json`（`check-no-ipc.mjs` 只认回环，你的应用里那份要相应放宽并说明）。
+- Windows、Linux 照旧用系统标题栏。
+
 ## 业务流量的规则
 
 **页面里的一切都走它自己的 HTTP/WS。** 具体是：
 
 - 没有 `#[tauri::command]`，不调 `invoke_handler`，`withGlobalTauri` 保持 `false`；
 - 不注册自定义协议来发界面，不用本地 socket；
-- `capabilities/default.json` 什么权限都不给。远程页面不在任何 capability 的 `remote.urls` 里，本地页面
-  也拿不到任何命令。
+- `capabilities/default.json` 什么权限都不给。
+- **唯一的例外是窗口本身的**：`capabilities/window-drag.json` 让主窗口里的页面（壳自带的页，和回环上的
+  `http://127.0.0.1:*`、`http://localhost:*`）能请求「开始拖动窗口」和「双击最大化」，别的都不行。见下面
+  「无标题栏」。
 
-`check-no-ipc.mjs` 查这些，出现就失败（字面匹配，注释也算；`*.md` 不查）：
+`check-no-ipc.mjs` 查这些，出现就失败（字面匹配，注释也算；`*.md` 不查）；capability 按 JSON 读，除了那两条
+窗口权限，任何权限都算失败，`remote.urls` 只能是回环地址，窗口只能是 `main`：
 
 ```sh
 node templates/desktop/check-no-ipc.mjs          # 本模板

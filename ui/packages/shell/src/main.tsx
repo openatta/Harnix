@@ -21,6 +21,16 @@ import { hostFor } from "./host.ts";
 import { loadPackages } from "./packages.ts";
 import { Shell } from "./Shell.tsx";
 
+/**
+ * "overlay" in the desktop shell on macOS (templates/desktop): the window has no title bar, its
+ * traffic lights sit over the page's top-left, and the top bars are where it is dragged. The shell
+ * is known by the internals Tauri puts in every page it opens; nothing is asked of it.
+ */
+function chrome(): string {
+  const tauri = "__TAURI_INTERNALS__" in window;
+  return tauri && /Mac OS X|Macintosh/.test(navigator.userAgent) ? "overlay" : "";
+}
+
 const client = new HarnixClient({ token: tokenFromDocument() });
 const app = new App(client, new Registry());
 const host = hostFor(app);
@@ -38,6 +48,7 @@ function Root() {
 }
 
 document.documentElement.lang = currentLocale();
+document.documentElement.dataset.chrome = chrome();
 // The app and its client, for the console and for tests that drive the page from inside it. Nothing
 // a same-origin script could not already reach: the token is in the page.
 (window as unknown as { harnix: unknown }).harnix = { app, client, host };

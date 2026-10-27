@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "window-drag",
+  "description": "The one thing a page may ask of the shell: to drag the window by its top bars, and to maximize it on a double-click there (macOS, where the window has no title bar). Window chrome, not app traffic — that stays HTTP/WS. Only the main window, only the shell's own page and the app on loopback; check-no-ipc.mjs fails on any other permission.",
+  "windows": ["main"],
+  "local": true,
+  "remote": {
+    "urls": ["http://127.0.0.1:*", "http://localhost:*"]
+  },
+  "permissions": ["core:window:allow-start-dragging", "core:window:allow-internal-toggle-maximize"]
+}

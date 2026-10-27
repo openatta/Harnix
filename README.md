@@ -60,7 +60,8 @@ logs. `ANTHROPIC_AUTH_TOKEN` (plus an optional `ANTHROPIC_BASE_URL`) works too.
   takes React from the page's import map — admitted by its hash in an otherwise strict CSP, and
   switchable off per product.
 - **A desktop shell.** `templates/desktop` wraps an application in Tauri 2, locally or against a
-  remote Harnix, with no IPC: all business traffic is the page's own HTTP/WS.
+  remote Harnix, with no business IPC: all of it is the page's own HTTP/WS. On macOS the window has
+  no title bar; the page's top bars are where it is dragged, the one thing it may ask of the shell.
 - **Tests against the real binary.** `@harnix/testkit` starts the application, replays model calls
   from recordings, and drives the API and the interface (Playwright).
 
