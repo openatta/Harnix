@@ -92,7 +92,8 @@ export interface ShellState {
   /** The front space's current session: `currentBySpace[space]`, kept in step by `set`. */
   current: SessionKey | null;
   detail: DetailItem | null;
-  detailsOpen: boolean;
+  /** The right column, open or not, per space: each space keeps its own (unset → its default). */
+  detailsBySpace: Record<string, boolean>;
   /** The right column takes the centre's place too (it closes back to its own width). */
   detailsMax: boolean;
   sidebar: "expanded" | "collapsed";
@@ -116,6 +117,7 @@ const SPACE_KEY = "harnix.space";
 const CURRENT_KEY = "harnix.space.current";
 const PROJECT_KEY = "harnix.project";
 const WIDTHS_KEY = "harnix.widths";
+const DETAILS_KEY = "harnix.details";
 
 function stored<T>(key: string, fallback: T): T {
   try {
@@ -173,7 +175,7 @@ export class App {
       running: {},
       current: currentBySpace[space] ?? null,
       detail: null,
-      detailsOpen: false,
+      detailsBySpace: stored<Record<string, boolean>>(DETAILS_KEY, {}),
       detailsMax: false,
       sidebar: "expanded",
       banner: null,
@@ -411,17 +413,31 @@ export class App {
     return this.call<T>(method, { ...params, ...key, space: this.claim() });
   }
 
+  /** Whether the front space shows its right column: what it was left at, else its default. */
+  detailsOpen(state: ShellState = this.state): boolean {
+    const kept = state.detailsBySpace[state.space];
+    if (kept !== undefined) return kept;
+    const space = [...this.registry.at("space")].find((c) => c.id === state.space);
+    return space?.details === "open";
+  }
+
+  private keepDetails(open: boolean): Record<string, boolean> {
+    const detailsBySpace = { ...this.state.detailsBySpace, [this.state.space]: open };
+    remember(DETAILS_KEY, detailsBySpace);
+    return detailsBySpace;
+  }
+
   showDetail(item: DetailItem): void {
-    this.set({ detail: item, detailsOpen: true });
+    this.set({ detail: item, detailsBySpace: this.keepDetails(true) });
   }
 
   toggleDetails(open?: boolean): void {
-    const detailsOpen = open ?? !this.state.detailsOpen;
-    this.set({ detailsOpen, detailsMax: detailsOpen && this.state.detailsMax });
+    const detailsOpen = open ?? !this.detailsOpen();
+    this.set({ detailsBySpace: this.keepDetails(detailsOpen), detailsMax: detailsOpen && this.state.detailsMax });
   }
 
   toggleDetailsMax(max?: boolean): void {
-    this.set({ detailsOpen: true, detailsMax: max ?? !this.state.detailsMax });
+    this.set({ detailsBySpace: this.keepDetails(true), detailsMax: max ?? !this.state.detailsMax });
   }
 
   /** Open one project in the projects space; the one open before closes. */

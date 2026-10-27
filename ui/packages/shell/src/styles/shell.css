@@ -562,6 +562,10 @@
   scrollbar-width: none;
 }
 
+#details .tabs button[data-align="end"] {
+  margin-left: auto;
+}
+
 #details .tabs button {
   position: relative;
   display: flex;

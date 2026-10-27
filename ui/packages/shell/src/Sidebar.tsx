@@ -6,7 +6,8 @@
  *
  * The avatar is the settings: its ring says how this page is connected, hovering says to what,
  * and a click opens the menu. The system space, when kept, is entered from the bottom rather than
- * listed with the others: it is about the process, not one of the product's surfaces.
+ * listed with the others: it is about the process, not one of the product's surfaces. A space
+ * that says `place: "bottom"` (something global, not a surface) sits there too, above it.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -107,7 +108,7 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
 
 function SpaceList({ app, s }: { app: App; s: ShellState }) {
   useRegistry(app.registry);
-  const spaces = spacesOf(app).filter((c) => c.id !== SYSTEM);
+  const spaces = spacesOf(app).filter((c) => c.id !== SYSTEM && c.place !== "bottom");
   if (!spaces.length) return null;
   return (
     <nav className="spaces" aria-label="spaces">
@@ -167,9 +168,24 @@ function Bottom({ app, s }: { app: App; s: ShellState }) {
   const t = useT();
   useRegistry(app.registry);
   const system = spacesOf(app).find((c) => c.id === SYSTEM);
+  const below = spacesOf(app).filter((c) => c.id !== SYSTEM && c.place === "bottom");
   const running = Object.keys(s.running).length;
   return (
     <div className="l-bottom foot">
+      {below.map((space) => (
+        <button
+          type="button"
+          key={space.id}
+          className={`nav space${s.space === space.id ? " on" : ""}`}
+          data-space={space.id}
+          title={space.title()}
+          aria-pressed={s.space === space.id}
+          onClick={() => void app.switchSpace(space.id)}
+        >
+          <Glyph name={space.icon} className="glyph" />
+          <span className="lbl truncate">{space.title()}</span>
+        </button>
+      ))}
       {system ? (
         <button
           type="button"

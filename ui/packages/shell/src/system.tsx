@@ -147,7 +147,8 @@ class View {
     this.picked = selection;
     for (const fn of [...this.listeners]) fn();
     // The right column is where a selection is shown; redraw it with the new tabs.
-    this.app.set({ detail: null, detailsOpen: true });
+    this.app.set({ detail: null });
+    this.app.toggleDetails(true);
   }
 
   watch(topic: string, params: Record<string, unknown> | undefined, fn: () => void): () => void {

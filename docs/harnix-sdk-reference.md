@@ -336,7 +336,7 @@ export function register(r: Registry, host: NestHost): void
 
 | 点 | 形状（必需的加粗） |
 |---|---|
-| `space` | **`id`**、**`icon`**、**`title()`**、`order`、`center: "chat" \| "minimized" \| "hidden"`（默认 chat）、`sidebar()`（左栏中段）、`overview()`（中区不是对话时）、`tabs: [{ id, title(), render() }]` 或返回它的函数（随选中项变）、`sessions`（列哪个后端 space 的会话，默认自己的 id）、`subtitle()`、`suggestions()`、`notice()`、`placeholder()` |
+| `space` | **`id`**、**`icon`**、**`title()`**、`order`、`place: "top" \| "bottom"`（默认 top；bottom 列在左栏底部、系统之上，给全局而非业务面的入口）、`details: "open" \| "closed"`（首次进入时右栏开合，默认 closed；之后每个 space 各记各的）、`center: "chat" \| "minimized" \| "hidden"`（默认 chat）、`sidebar()`（左栏中段）、`overview()`（中区不是对话时）、`tabs: [{ id, title(), render(), align? }]` 或返回它的函数（随选中项变；`align: "end"` 的页签排在条的右端，给不常用的）、`sessions`（列哪个后端 space 的会话，默认自己的 id）、`subtitle()`、`suggestions()`、`notice()`、`placeholder()` |
 | `home.card` | **`id`**、**`render()`**、`title()`、`order`：画在新对话的输入框下面 |
 | `tool.row` | **`id`**、**`match(toolBlock)`**、**`render(toolBlock)`** |
 | `details.panel` | **`id`**、**`match(item)`**、**`render(item)`**、`title(item)`；`item = { kind, name?, … }`，由 `host.reveal(item)` 打开 |

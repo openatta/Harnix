@@ -5,7 +5,7 @@
  *
  * | 点 | 形状 | 怎么用 |
  * |---|---|---|
- * | `space` | `id`、`icon`、`title()`、`center`、`sidebar?()`、`overview?()`、`tabs?` | 全部，按 `order` 再按注册顺序 |
+ * | `space` | `id`、`icon`、`title()`、`place?`、`details?`、`center`、`sidebar?()`、`overview?()`、`tabs?` | 全部，按 `order` 再按注册顺序 |
  * | `home.card` | `id`、`render()`、`title?()` | 全部，按 `order` 再按注册顺序 |
  * | `tool.row` | `match(tool块)`、`render(tool块)` | 后注册的先认领 |
  * | `details.panel` | `match(item)`、`render(item)`、`title?(item)` | 后注册的先认领 |
@@ -62,6 +62,8 @@ export interface SpaceTab {
   id: string;
   title(): string;
   render(): ReactNode;
+  /** `end`: drawn after the others, at the far end of the strip — for tabs used less often. */
+  align?: "start" | "end";
 }
 
 /** A space's right-column tabs, whichever way it gave them. */
@@ -77,6 +79,11 @@ export interface SpaceContribution {
   icon: string;
   title(): string;
   order?: number;
+  /** Where the left column lists it: with the product's spaces (`top`, the default) or at the
+   *  bottom, above the system entry — for what is global rather than one of the surfaces. */
+  place?: "top" | "bottom";
+  /** The right column when this space is first entered; afterwards each space keeps its own. */
+  details?: "open" | "closed";
   /** What the centre shows: the conversation, the overview with the conversation as a bar under
    *  it, or the overview alone. */
   center?: "chat" | "minimized" | "hidden";

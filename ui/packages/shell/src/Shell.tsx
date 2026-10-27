@@ -46,8 +46,8 @@ export function Shell({ app }: { app: App }) {
       <div
         id="frame"
         data-sidebar={s.sidebar}
-        data-details={s.detailsOpen ? "open" : "closed"}
-        data-details-max={s.detailsOpen && s.detailsMax ? "" : undefined}
+        data-details={app.detailsOpen(s) ? "open" : "closed"}
+        data-details-max={app.detailsOpen(s) && s.detailsMax ? "" : undefined}
         data-space={s.space}
         style={{ "--sidebar-width": `${s.widths.side}px`, "--details-width": `${s.widths.details}px` } as CSSProperties}
       >
@@ -698,7 +698,9 @@ function Details({ app, s }: { app: App; s: ShellState }) {
   const t = useT();
   const registry = useRegistry(app.registry);
   const space = spacesOf(app).find((c) => c.id === s.space);
-  const tabs = tabsOf(space);
+  const given = tabsOf(space);
+  const tabs = [...given.filter((x) => x.align !== "end"), ...given.filter((x) => x.align === "end")];
+  const firstEnd = tabs.find((x) => x.align === "end")?.id;
   const [tab, setTab] = useState<string>("details");
   // A detail revealed from the flow is what the reader wants to see now.
   useEffect(() => {
@@ -714,12 +716,21 @@ function Details({ app, s }: { app: App; s: ShellState }) {
   const shown = tabs.find((x) => x.id === tab) ?? (tab !== "details" || !item ? tabs[0] : undefined);
   const current = shown?.id ?? "details";
   return (
-    <aside id="details" aria-hidden={!s.detailsOpen}>
+    <aside id="details" aria-hidden={!app.detailsOpen(s)}>
       <Resizer app={app} column="details" />
       <div className="strip" data-tauri-drag-region="deep">
         <div className="tabs" role="tablist">
           {tabs.map((x) => (
-            <button type="button" role="tab" key={x.id} data-tab={x.id} aria-selected={current === x.id} className={current === x.id ? "on" : ""} onClick={() => setTab(x.id)}>
+            <button
+              type="button"
+              role="tab"
+              key={x.id}
+              data-tab={x.id}
+              data-align={x.id === firstEnd ? "end" : undefined}
+              aria-selected={current === x.id}
+              className={current === x.id ? "on" : ""}
+              onClick={() => setTab(x.id)}
+            >
               {x.title()}
             </button>
           ))}
