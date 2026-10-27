@@ -105,7 +105,7 @@ test("the diagnostics page says what is there and what is not", TAGS, async () =
   expect(report.unknown_config_sections).toEqual(["nobody"]);
   const settings = report.modules.find((m: any) => m.id === "settings");
   expect(settings.namespace).toBe("kernel");
-  expect(settings.grants).toContain("config.setProvider");
+  expect(settings.grants).toContain("config.reload");
   const probe = await moduleStatus(api, "probe");
   const echo = probe.methods.find((m: any) => m.name === "app.probe.echo");
   expect(echo.principals).toEqual(["device"]);
