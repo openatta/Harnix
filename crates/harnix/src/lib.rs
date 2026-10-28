@@ -45,7 +45,7 @@ pub use harnix_module::{
     InstanceTemplates, Instances, Listen, Manifest, MethodRegistry, MigrateContext,
     MigrationReport, Module, ModuleContext, OnBusy, Principal, RouteRegistry, Secret, SessionRef, SessionSpec,
     Sessions, SpaceDecl, SpaceRegistry, Tap, TapEvent, TemplateCarrier, CONTRIB_API_VERSION,
-    MODULE_API_VERSION, TAP_CAPACITY,
+    MODULE_API_VERSION, SETTLED_HELD, TAP_CAPACITY,
 };
 
 /// Everything a module's source usually needs.

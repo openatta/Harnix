@@ -419,6 +419,37 @@ impl Module for Fleet {
                     .collect();
                 Ok(json!({"answers": rows}))
             });
+        m.method("settle_behind", Principal::Device)
+            .describe("one turn watched by two taps, one too small and unread until the turn settled: how each says it ended")
+            .handler(|cx: CallContext, p: Value| async move {
+                let module = cx.module().clone();
+                let sessions = module.sessions();
+                let session = sessions
+                    .create(SessionSpec {
+                        scene: Some("coding".into()),
+                        project_root: p["project_root"].as_str().map(Into::into),
+                        recording: p["recording"].as_str().map(str::to_string),
+                        ..SessionSpec::default()
+                    })
+                    .await?;
+                let mut small = sessions.tap_with_capacity(&session, 1).await?;
+                let mut wide = sessions.tap(&session).await?;
+                sessions
+                    .send(&session, p["message"].as_str().unwrap_or("hello"), OnBusy::Queue)
+                    .await?;
+                let late = |what: &str| RpcError::new(harnix::codes::INTERNAL_ERROR, format!("{what} never settled"));
+                let wide = tokio::time::timeout(Duration::from_secs(60), wide.next_settled())
+                    .await
+                    .map_err(|_| late("the wide tap"))?;
+                let narrow = tokio::time::timeout(Duration::from_secs(5), small.next_settled())
+                    .await
+                    .map_err(|_| late("the small tap"))?;
+                let lagged = matches!(
+                    tokio::time::timeout(Duration::from_millis(500), small.next()).await,
+                    Ok(Some(TapEvent::Lagged { .. }))
+                );
+                Ok(json!({"wide": wide, "narrow": narrow, "lagged": lagged}))
+            });
         m.method("providers", Principal::Device)
             .describe("the providers an instance's engine has, as it says")
             .handler(|cx: CallContext, p: Value| async move {

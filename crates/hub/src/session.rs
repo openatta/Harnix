@@ -51,6 +51,9 @@ pub(crate) struct SessionState {
     /// it (a schedule), or the link that was running it went away. Its end
     /// arrives as `turn_completed` or is found by a resync.
     pub external: bool,
+    /// The running turn's `turn_complete` event, once the engine has sent it: what settling
+    /// reports as the turn's `outcome` (ipdrun-17).
+    pub last_complete: Option<Value>,
 }
 
 impl SessionState {
@@ -90,7 +93,10 @@ pub(crate) async fn route_event(inner: &Arc<Mutex<Inner>>, instance: &str, param
         match kind {
             "prompt" => state.pending_prompts.push(event.clone()),
             // Nothing is waiting on those answers any more.
-            "turn_complete" => state.pending_prompts.clear(),
+            "turn_complete" => {
+                state.pending_prompts.clear();
+                state.last_complete = Some(event.clone());
+            }
             _ => {}
         }
         state.seq += 1;

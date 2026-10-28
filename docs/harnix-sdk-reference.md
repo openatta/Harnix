@@ -36,7 +36,7 @@ harnix::{App, AppBuilder, ModuleStatus, Namespace, HARNIX_VERSION, SHUTDOWN_GRAC
          InstanceTemplates, Instances, Listen, Manifest, MethodRegistry, MigrateContext, MigrationReport,
          Module, ModuleContext, OnBusy, Principal, RouteRegistry, Secret, SessionRef, SessionSpec,
          Sessions, SpaceDecl, SpaceRegistry, Tap, TapEvent, TemplateCarrier,
-         CONTRIB_API_VERSION, MODULE_API_VERSION, TAP_CAPACITY,
+         CONTRIB_API_VERSION, MODULE_API_VERSION, SETTLED_HELD, TAP_CAPACITY,
          async_trait, axum}
 ```
 
@@ -134,7 +134,7 @@ pub trait Module: Send + Sync + 'static {
 | `interrupt(&s)` / `close(&s)` | — |
 | `append_entry(&s, Entry::new(event, payload))` | 扩展条目（M7）：命名空间由中枢定为 `app.<模块 id>`；只给人看 |
 | `entries(&s) -> Vec<Value>` | 本模块写过的条目，最早的在前 |
-| `tap(&s)` / `tap_with_capacity(&s, n)` | 帧流，默认容量 `TAP_CAPACITY = 512`。`tap.next()` → `TapEvent::Frame(json)` 或 `TapEvent::Lagged { last_seq }`；落后了 `tap.catch_up()` |
+| `tap(&s)` / `tap_with_capacity(&s, n)` | 帧流，默认容量 `TAP_CAPACITY = 512`。`tap.next()` → `TapEvent::Frame(json)` 或 `TapEvent::Lagged { last_seq }`；落后了 `tap.catch_up()`。`tap.next_settled() -> Option<Value>`：跳过别的帧，只等下一个 `harnix.turn_settled` 的 params；满了时结算帧另存（最多 `SETTLED_HELD = 64`），落后也不丢 |
 
 `SessionRef { instance, session_id }`：会话的全名永远带实例。
 
@@ -316,6 +316,10 @@ schema、来自哪个模块）。下表是分组索引。
 
 会话事件不是主题：`harnix.attach` 之后经 `harnix.event` 帧来，带 `seq`，断线按 `seq` 追赶。M7 起
 条目以 `harnix.event { event: { kind: "extension_entry", entry } }` 推给正在看的人。
+
+一轮结束时中枢发 `harnix.turn_settled { instance, session_id, turn_id, result | error, outcome? }`。`outcome` 是这一轮
+`turn_complete` 的要点：`stop_reason`、`usage`，有才有的 `structured_output`、`message`（例如 hook 截停的理由）；中枢没看到
+`turn_complete` 时没有这个字段。回答的全文不在里面，读 `session.history`。
 
 ---
 

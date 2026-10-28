@@ -264,6 +264,7 @@ impl Hub {
             let state = guard.sessions.entry(key.clone()).or_default();
             state.running_turn = Some(turn_id.clone());
             state.external = false;
+            state.last_complete = None;
             state.history_total_before_turn = total;
             state.replay.clear();
             state.seq += 1;
@@ -299,7 +300,7 @@ impl Hub {
     ) -> Option<QueueItem> {
         let (instance, session_id) = (&key.0, key.1.as_str());
         let total_after = self.history_total(key).await;
-        let (watchers, next) = {
+        let (watchers, next, complete) = {
             let mut guard = self.inner.lock().await;
             let state = guard.sessions.entry(key.clone()).or_default();
             if state.running_turn.as_deref() != Some(turn_id) {
@@ -315,16 +316,21 @@ impl Hub {
             if total_after > state.history_total_before_turn {
                 state.replay.clear();
             }
-            (state.watchers(), state.queue.pop_front())
+            (state.watchers(), state.queue.pop_front(), state.last_complete.take())
         };
 
-        let params = match &outcome {
+        let mut params = match &outcome {
             Ok(result) => json!({"instance": instance, "session_id": session_id, "turn_id": turn_id, "result": result}),
             Err(error) => json!({
                 "instance": instance, "session_id": session_id, "turn_id": turn_id,
                 "error": {"code": error.code, "message": error.message},
             }),
         };
+        // How the turn ended, as the engine said in its `turn_complete`: here too, so a watcher
+        // that missed that frame (a tap that fell behind) still has it (ipdrun-17).
+        if let Some(complete) = complete {
+            params["outcome"] = outcome_of(&complete);
+        }
         self.fan_out(
             &watchers,
             Frame::session(session_id, notification("harnix.turn_settled", params)),
@@ -432,5 +438,45 @@ impl Hub {
             ),
         )
         .await;
+    }
+}
+
+/// What `harnix.turn_settled` carries as `outcome`: the points of the engine's `turn_complete` a
+/// caller acts on. The answer's text is not among them; it is in `session.history`.
+fn outcome_of(complete: &Value) -> Value {
+    let mut outcome = json!({
+        "stop_reason": complete.get("stop_reason").cloned().unwrap_or(Value::Null),
+        "usage": complete.get("usage").cloned().unwrap_or(Value::Null),
+    });
+    for key in ["structured_output", "message"] {
+        if let Some(value) = complete.get(key).filter(|v| !v.is_null()) {
+            outcome[key] = value.clone();
+        }
+    }
+    outcome
+}
+
+#[cfg(test)]
+mod outcome_tests {
+    use super::*;
+
+    #[test]
+    fn the_outcome_is_the_points_of_turn_complete() {
+        let complete = json!({
+            "kind": "turn_complete", "stop_reason": "stopped_by_hook", "api_calls": 2,
+            "usage": {"input_tokens": 10, "output_tokens": 3},
+            "structured_output": {"ok": true}, "message": "the hook said no", "context": {"x": 1},
+        });
+        assert_eq!(
+            outcome_of(&complete),
+            json!({
+                "stop_reason": "stopped_by_hook",
+                "usage": {"input_tokens": 10, "output_tokens": 3},
+                "structured_output": {"ok": true},
+                "message": "the hook said no",
+            })
+        );
+        let plain = outcome_of(&json!({"kind": "turn_complete", "stop_reason": "end_turn", "usage": {}}));
+        assert!(plain.get("structured_output").is_none() && plain.get("message").is_none());
     }
 }

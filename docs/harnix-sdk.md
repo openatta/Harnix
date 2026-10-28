@@ -413,6 +413,9 @@ while let Some(item) = tap.next().await {
   （在下一个步骤边界送进运行中的一轮；带附件的照样排队）。
 - **tap 会落后**：它是有界通道（默认 512 帧，`tap_with_capacity` 可调），中枢不会为了等你而卡住会话。
   落后了就先收到 `Lagged`，再 `catch_up()`：和刷新页面的客户端走同一条路。
+- **只要一轮怎么结束的**：`tap.next_settled().await` 只等 `harnix.turn_settled`，返回它的 params：`turn_id`、`result` 或 `error`，
+  以及 `outcome`（`stop_reason`、`usage`，有才有的 `structured_output` 和 hook 截停时的 `message`，取自这一轮的 `turn_complete`）。
+  tap 满了时结算帧另存（最多 `SETTLED_HELD` 个），落后也拿得到，不必 `catch_up`。回答的全文不在里面，读 `session.history`。
 - `open(instance, session_id)` 拿一个已有的会话（内存里的或只在磁盘上的）；`interrupt`、`close` 同名。
 - 实例重连期间的发送进队列，实例回来、会话 resync 之后照常跑。
 - 会话的全名是 `(instance, session)`，任何地方都带着实例。

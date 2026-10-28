@@ -324,6 +324,9 @@ pub struct Tap {
     pub session: SessionRef,
     rx: mpsc::Receiver<Value>,
     lagged: Arc<AtomicBool>,
+    /// Settlement frames that arrived while the tap was full: kept apart, so a tap that fell
+    /// behind still learns how each turn ended ([`Tap::next_settled`]).
+    settled: Settled,
     last_seq: u64,
     pending: VecDeque<Value>,
     reattach: Reattach,
@@ -337,12 +340,14 @@ impl Tap {
     pub fn channel(session: SessionRef, capacity: usize) -> (Arc<dyn FrameSink>, TapParts) {
         let (tx, rx) = mpsc::channel(capacity);
         let lagged = Arc::new(AtomicBool::new(false));
+        let settled = Settled::default();
         let sink = Arc::new(TapSink {
             tx,
             lagged: lagged.clone(),
             session_id: session.session_id.clone(),
+            settled: settled.clone(),
         });
-        (sink, TapParts { session, rx, lagged })
+        (sink, TapParts { session, rx, lagged, settled })
     }
 
     /// Finish a tap from its parts and the attach that registered it.
@@ -357,6 +362,7 @@ impl Tap {
             session: parts.session,
             rx: parts.rx,
             lagged: parts.lagged,
+            settled: parts.settled,
             last_seq: 0,
             pending: VecDeque::new(),
             reattach,
@@ -414,6 +420,40 @@ impl Tap {
         self.last_seq
     }
 
+    /// The next `harnix.turn_settled`, skipping every other frame: its params — `turn_id`, then
+    /// `result` or `error`, and `outcome` (stop reason, usage, structured output, a hook's message)
+    /// when the engine said how the turn ended. `None` when the session is gone from the hub.
+    ///
+    /// A tap that fell behind still has its settlements: they are held apart while the tap is
+    /// full (up to [`SETTLED_HELD`]), so a caller that only wants how each turn ended needs no
+    /// [`Tap::catch_up`]. The frames it skips are gone from this tap, as if read.
+    pub async fn next_settled(&mut self) -> Option<Value> {
+        loop {
+            // What is queued is older than anything held apart: read it first.
+            while let Some(frame) = self.pending.pop_front() {
+                if let Some(settled) = self.settled_params(&frame) {
+                    return Some(settled);
+                }
+            }
+            while let Ok(frame) = self.rx.try_recv() {
+                if let Some(settled) = self.settled_params(&frame) {
+                    return Some(settled);
+                }
+            }
+            if let Some(frame) = self.settled.pop() {
+                return self.settled_params(&frame);
+            }
+            let frame = self.rx.recv().await?;
+            self.pending.push_back(frame);
+        }
+    }
+
+    fn settled_params(&mut self, frame: &Value) -> Option<Value> {
+        self.fresh(frame);
+        (frame.get("method").and_then(Value::as_str) == Some("harnix.turn_settled"))
+            .then(|| frame.get("params").cloned().unwrap_or(Value::Null))
+    }
+
     fn take_replay(&mut self, attached: &Value) {
         let instance = self.session.instance.clone();
         let session_id = self.session.session_id.clone();
@@ -464,6 +504,27 @@ pub struct TapParts {
     session: SessionRef,
     rx: mpsc::Receiver<Value>,
     lagged: Arc<AtomicBool>,
+    settled: Settled,
+}
+
+/// How many settlement frames a full tap holds apart before it drops those too.
+pub const SETTLED_HELD: usize = 64;
+
+/// Settlement frames a full tap could not queue.
+#[derive(Clone, Default)]
+struct Settled(Arc<std::sync::Mutex<VecDeque<Value>>>);
+
+impl Settled {
+    fn hold(&self, frame: Value) {
+        let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if held.len() < SETTLED_HELD {
+            held.push_back(frame);
+        }
+    }
+
+    fn pop(&self) -> Option<Value> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).pop_front()
+    }
 }
 
 /// The hub's side of a tap. It never waits: a full channel marks the tap
@@ -472,6 +533,7 @@ struct TapSink {
     tx: mpsc::Sender<Value>,
     lagged: Arc<AtomicBool>,
     session_id: String,
+    settled: Settled,
 }
 
 #[async_trait::async_trait]
@@ -485,8 +547,11 @@ impl FrameSink for TapSink {
         };
         match self.tx.try_send(value) {
             Ok(()) => true,
-            Err(mpsc::error::TrySendError::Full(_)) => {
+            Err(mpsc::error::TrySendError::Full(value)) => {
                 self.lagged.store(true, Ordering::Release);
+                if value.get("method").and_then(Value::as_str) == Some("harnix.turn_settled") {
+                    self.settled.hold(value);
+                }
                 true
             }
             Err(mpsc::error::TrySendError::Closed(_)) => false,

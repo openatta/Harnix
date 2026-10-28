@@ -57,3 +57,17 @@ tap 是有界的（`TAP_CAPACITY = 512`，`crates/module/src/sessions.rs:284`）
 ## 来源
 
 IPDrun 的宿主在 tap 落后后按转录补每一轮的结果（`crates/agent/src/events.rs` 的 `absorb_history`、`host.rs` 的 `reconcile`），想改成只看结算帧。
+
+## 实现记录
+
+- 中枢：`SessionState.last_complete` 在 `route_event` 收到 `turn_complete` 时记下（开新一轮时清空）；`settle_turn` 取出它，`harnix.turn_settled`
+  多一个可选的 `outcome { stop_reason, usage, structured_output?, message? }`（`crates/hub/src/turns.rs` 的 `outcome_of`）。`result` 不变。
+  维护者裁定项「回答文本带不带」：不带，SDK 写明读 `session.history`。
+- 模块侧：`Tap::next_settled() -> Option<Value>`（返回 `turn_settled` 的 params，跳过别的帧）。为让落后的 tap 也拿得到，`TapSink` 在通道满时
+  把结算帧另存（`SETTLED_HELD = 64` 个），`next_settled` 先读已排队的、再读另存的；`next()` 的行为不变。
+- 测试：Rust `turns::outcome_tests::the_outcome_is_the_points_of_turn_complete`（含 `structured_output`、`message`、`stopped_by_hook`）；
+  `tests/live/api/turn-outcome.spec.ts` 的「a settled turn says how it ended, as its turn_complete did」（`stop_reason == "end_turn"`，`usage` 与
+  `turn_complete` 帧一致）、「a tap that fell behind still has the settlement, with its outcome」（testapp `app.fleet.settle_behind`：容量 1、
+  不读的 tap 确实 `Lagged`，`next_settled` 仍拿到与正常 tap 相同的 `outcome`）。
+- 偏离：带结构化输出、被 hook 截停的两条 live 用例没写：现有录像里没有这两种轮次（要真模型录新录像），由 Rust 单测覆盖字段的提取；
+  用例放在新文件 `turn-outcome.spec.ts`（`turns.spec.ts` 要真模型）。
