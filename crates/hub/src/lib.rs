@@ -44,7 +44,7 @@ pub use instances::{Registry, Slot};
 pub use replay::{MAX_BYTES as REPLAY_MAX_BYTES, MAX_FRAMES as REPLAY_MAX_FRAMES};
 pub use spaces::{AuditHook, Spaces};
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock};
 
@@ -80,6 +80,9 @@ pub const PASSTHROUGH: &[&str] = &[
     "daemon.doctor",
 ];
 
+/// How many answered permission prompts the hub keeps for `harnix.prompts.answerer`.
+const ANSWERERS_KEPT: usize = 1024;
+
 /// The hub's own methods. Named here so `harnix_authz` can open them and the
 /// generated method catalog can list them without tracing dispatch.
 pub const HUB_METHODS: &[&str] = &[
@@ -101,6 +104,7 @@ pub const HUB_METHODS: &[&str] = &[
     "harnix.instances.wait",
     "harnix.sessions.tasks",
     "harnix.entries.append",
+    "harnix.prompts.answerer",
     "harnix.spaces.list",
     "harnix.process",
 ];
@@ -153,6 +157,11 @@ pub struct Hub {
     /// What the shell is told about this product at hello: its brand, which built-in spaces it
     /// keeps, whether runtime interface modules load. Set once at assembly.
     shell: StdRwLock<Value>,
+    /// Who answered a permission prompt, by `(session, tool_use_id)`, until a
+    /// module reads it (`harnix.prompts.answerer`) or [`ANSWERERS_KEPT`] newer
+    /// answers push it out: what the tool's own audit names as the person who
+    /// confirmed.
+    answerers: StdMutex<VecDeque<((String, String), String)>>,
     /// The process's own facts for `harnix.process`: versions, when it started.
     process: StdRwLock<Value>,
     started: std::time::Instant,
@@ -197,6 +206,7 @@ impl Hub {
             refreshing: StdMutex::new(HashSet::new()),
             ui_contributions: RwLock::new(json!([])),
             shell: StdRwLock::new(json!({})),
+            answerers: StdMutex::new(VecDeque::new()),
             process: StdRwLock::new(json!({})),
             started: std::time::Instant::now(),
             described: StdMutex::new(BTreeMap::new()),
@@ -506,6 +516,7 @@ impl Hub {
                 return self.tasks_view(&key).await;
             }
             "harnix.entries.append" => return self.append_entry(subject, params).await,
+            "harnix.prompts.answerer" => return self.answerer(subject, &params),
             "harnix.attach" => return self.attach(subject, params).await,
             "harnix.detach" => return self.detach(subject, params).await,
             "harnix.send" => return self.send(subject, params).await,
@@ -536,6 +547,20 @@ impl Hub {
         // grant (the settings module writing a provider) is decided there,
         // not re-decided here.
         let device = matches!(subject, Subject::Device { .. });
+        let mut params = params;
+        if method == "session.respondToPrompt" {
+            // The engine does not take who answered; the hub keeps it for the tool's audit.
+            let tool_use = params.as_object_mut().and_then(|o| o.remove("tool_use_id"));
+            if let (Subject::Device { id }, Some(Value::String(tool_use)), Some(session)) =
+                (subject, tool_use, params.get("session_id").and_then(Value::as_str))
+            {
+                let mut kept = self.answerers.lock().unwrap_or_else(|e| e.into_inner());
+                if kept.len() == ANSWERERS_KEPT {
+                    kept.pop_front();
+                }
+                kept.push_back(((session.to_string(), tool_use), format!("device:{id}")));
+            }
+        }
         if PASSTHROUGH.contains(&method) || (!device && is_engine_method(method)) {
             let instance = self.instance_of(&params)?;
             let answer = self
@@ -550,6 +575,31 @@ impl Hub {
         Err(RpcError::not_found(format!(
             "`{method}` is not a method of this process"
         )))
+    }
+
+    /// `harnix.prompts.answerer {session_id, tool_use_id}`: the device that answered that tool's
+    /// permission prompt, once (it is forgotten on reading); `null` when no device answered it
+    /// (the session's permission mode let it run) or the answer was pushed out. For the
+    /// application's audit; a device cannot ask (helm-01).
+    fn answerer(&self, subject: &Subject, params: &Value) -> Result<Value, RpcError> {
+        if matches!(subject, Subject::Device { .. }) {
+            return Err(RpcError::new(codes::REFUSED, "answerers are for the application's audit"));
+        }
+        let field = |k: &str| {
+            params
+                .get(k)
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .ok_or_else(|| RpcError::invalid_params(format!("missing {k}")))
+        };
+        let key = (field("session_id")?, field("tool_use_id")?);
+        let mut kept = self.answerers.lock().unwrap_or_else(|e| e.into_inner());
+        let who = kept
+            .iter()
+            .position(|(k, _)| *k == key)
+            .and_then(|i| kept.remove(i))
+            .map(|(_, who)| who);
+        Ok(json!({ "answerer": who }))
     }
 
     /// `harnix.entries.append {instance, session_id, event, payload}`: an entry in the session's log,

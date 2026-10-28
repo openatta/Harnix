@@ -294,6 +294,7 @@ schema、来自哪个模块）。下表是分组索引。
 | 进程（中枢） | `harnix.process`：版本、运行时长、峰值内存、已连接用户（设备、连接方式、User-Agent、连上的时间） | 设备 |
 | 实例（中枢） | `harnix.instances.list / templates / sessions / create / ensure / stop / restart / wait`、`harnix.sessions.tasks`。`create` / `ensure` 可带 `wait: "ready"`、`timeout_ms`（缺省 60000）：等这台变成 `ready` 再答，变成 `down` 立即以 `-31004` 报错（带理由），超时同样；`wait {instance, timeout_ms?}` 是对已有实例的同一种等。并发 `ensure` 同名同模板都拿到同一台 | 设备（`create` 只认 `ui` 模板） |
 | space、条目（中枢） | `harnix.spaces.list`、`harnix.entries.append`（只许模块与内核） | — |
+| 确认人（中枢） | `harnix.prompts.answerer {session_id, tool_use_id}`：回答该工具权限卡的设备（`device:<id>`），没有设备回答时是 `null`；读一次即忘，最多留最近 1024 条（helm-01）。外壳回答权限卡时带 `tool_use_id`，中枢记下回答者、转给引擎前去掉 | 模块、内核 |
 | 引擎直通 | `session.create / list / get / history / entries / fork / resume / respondToPrompt`、`session.interrupt / close / delete`、`scene.list / describe / activate`、`commands.list`、`mcp.status`、`plugin.list`、`daemon.status / ping / doctor` | 设备 |
 | 应用层 | `harnix.contributions`、`harnix.diagnostics`、`harnix.audit`、`harnix.reachable` | 设备 |
 | 自带模块（`with_builtins`） | `harnix.workspaces.*`、`harnix.prefs.set`、`harnix.projects.create`、`harnix.recentProjects`、`harnix.listDirectory`、`harnix.files`、`harnix.search`、`harnix.upload.begin`、`harnix.sessions.rename / archive`、`harnix.settings.*`（`setProvider` 的返回多一个 `reloaded_instances`：这次推到了哪些继承 provider 的实例）、`harnix.plugins.*`、`harnix.devices.*` | 设备 |

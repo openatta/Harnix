@@ -457,7 +457,7 @@ export interface Methods {
   };
   "session.interrupt": { params: SessionKey; result: unknown };
   "session.respondToPrompt": {
-    params: SessionKey & { prompt_id: string; decision: Decision };
+    params: SessionKey & { prompt_id: string; decision: Decision; tool_use_id?: string };
     result: { prompt_id: string };
   };
 }

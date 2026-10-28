@@ -64,3 +64,11 @@
 |---|---|---|---|---|
 | [ipdrun-31](ipdrun-31-desktop-product-id.md) | 桌面模板在没有 profile 时把状态目录写死成 `~/.harnix` | 缺陷 | 中 | — |
 | [ipdrun-32](ipdrun-32-app-pnpm-workspace-notes.md) | 外部应用的两个 pnpm workspace：模板少一行，文档少两句 | 文档 | 低 | — |
+
+## Helm
+
+提出于 2026-10-27，代码位置对照 `c9dc17e`（`Harnix-v0.4.0-2026102703`）。
+
+| 编号 | 标题 | 类型 | 优先级 | 依赖 |
+|---|---|---|---|---|
+| [helm-01](helm-01-prompt-answerer.md) | 模块不知道是哪台设备回答了某个工具的权限卡（`harnix.prompts.answerer`） | 新能力 | 中 | — |

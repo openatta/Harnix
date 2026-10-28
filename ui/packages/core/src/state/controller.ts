@@ -377,6 +377,8 @@ export class SessionController {
       await this.client.answer("session.respondToPrompt", {
         ...this.key(),
         prompt_id: block.prompt.prompt_id,
+        // Who answered is kept by the hub for the tool's audit; the engine never sees it.
+        ...(block.prompt.tool_use_id ? { tool_use_id: block.prompt.tool_use_id } : {}),
         decision,
       });
     } catch (e) {
