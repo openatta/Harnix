@@ -12,9 +12,9 @@
 |---|---|
 | 阶段 | **0.4 的 M0–M9 全部完成并发布**；最新发布 `Harnix-v0.4.0-2026102701`（外壳：底部 space、右栏按 space 记忆、页签靠右），`main` 与 `m7` 同步 |
 | 当前里程碑 | 无。下一个里程碑要维护者说开始 |
-| 当前任务 | 无 |
-| 下一步 | 无。等维护者说开始下一个里程碑 |
-| 最后更新 | 2026-10-26 |
+| 当前任务 | IPDrun 提的需求（`docs/issues/`）：后端不依赖新 Agix 的一批已落地，见「进行中」 |
+| 下一步 | 外壳批次（`ui/`）与依赖新 Agix 的 07、10、13；做完统一升 Agix 钉、发版 |
+| 最后更新 | 2026-10-27 |
 
 ## 怎么接上
 
@@ -71,7 +71,7 @@
 
 | 任务 | 开始 | 改到哪了 | 下一步 |
 |---|---|---|---|
-（无）
+| IPDrun 需求 · 后端（不依赖新 Agix） | 2026-10-27 | 01、02+03、04+05、08、09、11、12（后端）、14、15（后端无改动，加契约用例）、16（只记录）、17、31、32 已提交，各 issue 末尾有实现记录；未打标签、未推送 | 外壳批次做 01 的客户端排队、12 的输入框、15 的 `refreshToken`、16 的订阅计数（各 issue「外壳部分待做」）；07、10、13 等 Agix 新版；之后统一升 `agix/` 钉、`set-version.sh`、发版 |
 
 ---
 
@@ -89,6 +89,7 @@
 
 | 日期 | 事 |
 |---|---|
+| 2026-10-27 | IPDrun 需求的后端批次（不依赖新 Agix）：01（超额回 `BUSY` -31005、`limits.max_in_flight`）、02（SIGTERM 走收尾、`SHUTDOWN_GRACE` 10 s、二次信号强退）、03（testkit `dispose()`）、04（并发 `ensure` 幂等）、05（`wait: "ready"`、`harnix.instances.wait`、`ensure_ready` / `wait_ready`）、08（daemon 按实例的数据根锁、`--instance` / `--lock-wait`）、09（状态目录 `harnix.lock`）、11（`inherit_providers`、内核方法 `harnix.instances.inheritProviders`）、12 后端（`[shell] model_switch`、`harnix.sessions.setModel`）、14（`ModuleContext::listen` / `listening`、`serve_with`）、17（`turn_settled.outcome`、`Tap::next_settled`）、31（桌面模板 `PRODUCT_ID` 与 `check-rename.mjs`）、32（`build.sh` 装应用 workspace、SDK 两条）；15 后端不用改（加契约用例），16 全在外壳。`check.sh`：build、rust、clippy、offline、frontend、api（两种拓扑）、template、live、interface、budget 过，remote 未要求；browser 一条失败：`ui/host.spec.ts` 的 `@` 候选用例（外壳批次 ipdrun-27，跑的时候该文件有外壳 agent 未提交的改动），不在本批改动内。未打标签、未推送 |
 | 2026-10-27 | 发布 `Harnix-v0.4.0-2026102701`（Helm 维护者同意；版本号不变、只换日期与序号）：外壳按 Helm 设计 11 补三处：space 可 `place: "bottom"`（左栏底部、系统之上，给全局入口）；右栏开合按 space 各记各的（`harnix.details`，未记时用 space 的 `details` 默认值，原来全局一个）；页签可 `align: "end"` 排到条的右端。`check.sh` 只跑了 offline、frontend 两层（本机磁盘 14 GB，不够 15 GB），build、browser、interface 未跑；Helm 的 testkit 界面用例（经同一外壳）覆盖新行为。分支 `main`、`m7` 与标签推送 |
 | 2026-10-26 | 发布 `Harnix-v0.4.0-2026102607`：桌面壳红绿灯对齐。用 Swift 量出 macOS 26 的窗口按钮是 14×14、在 32pt 标题栏底上 9pt，原先 (18, 19) 让红绿灯中心落在 17pt，而页面顶栏带中心是 26pt；壳改为建窗口前用不显示的探测窗口量按钮再算位置（`traffic_lights`）。收起按钮移出左栏（`#tl-tools`，88px），展开、收起同一处，不随淡出闪。按维护者要求只跑了受影响的：类型检查、样式检查、`check-no-ipc`、壳的 fmt / clippy、界面用例 52 个全过；`check.sh` 没跑 |
 | 2026-10-26 | 发布 `Harnix-v0.4.0-2026102606`：维护者说这种小改动不必跑全量，`check.sh` 跑到 live 层时停下；已过的层 build、rust、clippy、offline、frontend、api、template，另有界面用例 52 个全过、桌面壳 `--smoke` 过。live、browser、interface、budget 这次没跑完 |

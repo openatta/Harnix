@@ -91,7 +91,7 @@ function alive(pid: number): boolean {
   }
 }
 
-test("killed and started again at once, an instance's new daemon follows the old one out (ipdrun-08)",
+test("killed and started again at once, an instance's new daemon follows the old one out",
   { tag: ["@feature:instances", "@layer:api"] }, async () => {
     const first = await startTestApp({ profile: '\n[[instances]]\nid = "ci"\ncarrier = "spawn"\n' });
     let next: Backend | null = null;
