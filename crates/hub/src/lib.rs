@@ -29,6 +29,7 @@
 //! and that is all it ever learns about the other side.
 
 mod clients;
+mod inherit;
 mod instances;
 mod lifecycle;
 mod replay;
@@ -499,6 +500,7 @@ impl Hub {
             "harnix.instances.stop" => return self.stop_instance(subject, params).await,
             "harnix.instances.restart" => return self.restart_instance(subject, params).await,
             "harnix.instances.wait" => return self.wait_instance(params).await,
+            "harnix.instances.inheritProviders" => return self.inherit_providers().await,
             "harnix.sessions.tasks" => {
                 let key = self.key_of(&params)?;
                 return self.tasks_view(&key).await;

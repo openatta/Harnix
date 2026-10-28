@@ -176,6 +176,9 @@ pub struct TemplateDecl {
     pub ui: bool,
     #[serde(default)]
     pub max: Option<usize>,
+    /// Its instances see `system`'s providers under their own (ipdrun-11).
+    #[serde(default)]
+    pub inherit_providers: bool,
     #[serde(default)]
     pub program: Option<PathBuf>,
     #[serde(default)]
@@ -251,6 +254,7 @@ impl TemplateDecl {
             params: self.params.clone(),
             ui: self.ui,
             max: self.max,
+            inherit_providers: self.inherit_providers,
         })
     }
 }

@@ -131,6 +131,9 @@ pub struct InstanceTemplate {
     /// Whether the interface may build from it (D18).
     pub ui: bool,
     pub max: Option<usize>,
+    /// Whether its instances see the providers configured for `system` — the settings page's —
+    /// under their own (ipdrun-11).
+    pub inherit_providers: bool,
 }
 
 impl InstanceTemplate {
@@ -142,6 +145,7 @@ impl InstanceTemplate {
             params: Vec::new(),
             ui: false,
             max: None,
+            inherit_providers: false,
         }
     }
 
@@ -162,6 +166,15 @@ impl InstanceTemplate {
 
     pub fn max(mut self, max: usize) -> Self {
         self.max = Some(max);
+        self
+    }
+
+    /// This template's instances see the providers configured for `system` (the settings page's),
+    /// under their own: Harnix merges them into each instance's global settings tier when it is
+    /// built and every time the settings page changes a provider, then has it reload. A provider
+    /// the instance configures itself under the same id wins.
+    pub fn inherit_providers(mut self) -> Self {
+        self.inherit_providers = true;
         self
     }
 

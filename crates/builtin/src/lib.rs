@@ -99,7 +99,14 @@ const PARTS: &[Part] = &[
             "harnix.settings.set",
             "harnix.settings.setProvider",
         ],
-        grants: &["config.get", "config.getProvider", "config.reload"],
+        // `harnix.instances.inheritProviders` is the hub's, not the engine's: after a provider
+        // changes, the instances whose template inherits `system`'s get it too (ipdrun-11).
+        grants: &[
+            "config.get",
+            "config.getProvider",
+            "config.reload",
+            "harnix.instances.inheritProviders",
+        ],
     },
     Part {
         id: "packages",

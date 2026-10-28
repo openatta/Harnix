@@ -232,6 +232,9 @@ impl Hub {
             Ok(root) => root,
             Err(e) => return down(template.carrier.carrier(), e),
         };
+        if template.inherit_providers {
+            self.inherit_into(&entry.id, &root);
+        }
         match registry.factory.build(&entry.id, &template.carrier, root).await {
             Ok(built) => built,
             Err(e) => down(template.carrier.carrier(), format!("{e:#}")),
@@ -406,6 +409,9 @@ impl Hub {
         let root = template
             .resolve(&name, &filled, &registry.instances_dir)
             .map_err(RpcError::invalid_params)?;
+        if template.inherit_providers {
+            self.inherit_into(&name, &root);
+        }
         let built = registry
             .factory
             .build(&name, &template.carrier, root)
@@ -590,6 +596,48 @@ impl Hub {
             )
             .await;
         }
+    }
+
+    /// `system`'s providers into one instance's global tier, before its engine reads it.
+    fn inherit_into(&self, instance: &str, root: &std::path::Path) {
+        let Some(system) = self.slot(SYSTEM) else { return };
+        if let Err(e) = crate::inherit::merge(&system.facts.data_root, root) {
+            tracing::warn!(instance, error = %e, "the inherited providers were not written");
+        }
+    }
+
+    /// `harnix.instances.inheritProviders`: `system`'s providers changed. Merge them into every
+    /// instance whose template inherits them, and have each one that changed reload. The kernel's,
+    /// and granted to the settings module, which calls it after each provider change (ipdrun-11).
+    pub(crate) async fn inherit_providers(self: &Arc<Self>) -> Result<Value, RpcError> {
+        let Some(system) = self.slot(SYSTEM) else {
+            return Ok(json!({"reloaded": []}));
+        };
+        let inheriting: HashSet<String> = self
+            .registry
+            .lock()
+            .await
+            .templates
+            .iter()
+            .filter(|(_, (t, _))| t.inherit_providers)
+            .map(|(id, _)| id.clone())
+            .collect();
+        let mut reloaded = Vec::new();
+        for slot in self.slots() {
+            if !slot.template.as_ref().is_some_and(|t| inheriting.contains(t)) {
+                continue;
+            }
+            match crate::inherit::merge(&system.facts.data_root, &slot.facts.data_root) {
+                Ok(false) => {}
+                Ok(true) => match slot.link.call("config.reload", json!({})).await {
+                    Ok(_) => reloaded.push(slot.id.clone()),
+                    // Written already: it reads them when it is back.
+                    Err(e) => tracing::warn!(instance = %slot.id, error = %e.message, "inherited providers written, not reloaded"),
+                },
+                Err(e) => tracing::warn!(instance = %slot.id, error = %e, "the inherited providers were not written"),
+            }
+        }
+        Ok(json!({"reloaded": reloaded}))
     }
 
     /// Facts about one instance, for a module's read-only handle.

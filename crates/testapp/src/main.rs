@@ -330,6 +330,7 @@ impl Module for Fleet {
         Manifest::new("fleet", "0.0.1")
             .disclosure("builds an instance of its own and runs headless sessions")
             .grant("session.inspectContext")
+            .grant("config.getProvider")
     }
 
     fn templates(&self, t: &mut InstanceTemplates) {
@@ -343,6 +344,20 @@ impl Module for Fleet {
                 contrib: EngineContrib::new(),
             },
         ));
+        // Its instances see the settings page's providers (ipdrun-11).
+        t.add(
+            InstanceTemplate::new(
+                "heir",
+                TemplateCarrier::InProcess {
+                    engine: EngineProfile {
+                        scene: "chat".into(),
+                        ..EngineProfile::default()
+                    },
+                    contrib: EngineContrib::new(),
+                },
+            )
+            .inherit_providers(),
+        );
     }
 
     /// A space whose sessions land on this module's own instance.
@@ -403,6 +418,13 @@ impl Module for Fleet {
                     })
                     .collect();
                 Ok(json!({"answers": rows}))
+            });
+        m.method("providers", Principal::Device)
+            .describe("the providers an instance's engine has, as it says")
+            .handler(|cx: CallContext, p: Value| async move {
+                cx.module()
+                    .call("config.getProvider", json!({"instance": p["instance"]}))
+                    .await
             });
         m.method("ready_session", Principal::Device)
             .describe("ensure_ready an instance, then at once create a session on it")

@@ -60,3 +60,19 @@
 
 IPDrun 的模块按模板建的实例读不到设置页配的 provider；IPDrun 现在在每次建 / 恢复会话前把 system 的 provider 与自己的合起来写进
 实例数据根再 `config.reload`（`crates/agent/src/host.rs` 的 `sync_providers`），设置页改了以后不是即时的。
+
+## 实现记录
+
+- `InstanceTemplate::inherit_providers()`（字段 `inherit_providers: bool`，缺省 false）；profile 模板 `inherit_providers = true`。
+- `crates/hub/src/inherit.rs` 的 `merge`：把 `system` 数据根 `settings.json` 的 `providers` / `default_provider` 并进实例数据根的 `settings.json`（0600，
+  整文件替换），Harnix 写过的 id 与「默认 provider 是不是它定的」记在 `<实例数据根>/.inherited-providers.json`，只增删改这些；实例自己配的同名
+  provider、自己定的默认 provider 不动；两边都没有要继承的就一个文件也不碰。
+- 时机：建实例（`build`、账本恢复与重启走的 `build_entry`）时在引擎读设置之前并好；`harnix.settings.setProvider` 成功后，设置模块调新的中枢方法
+  `harnix.instances.inheritProviders`（只给内核，设置模块的 manifest 里 grant），对每台继承的实例 `merge`，变了的 `config.reload`。
+- `setProvider` 的返回多 `reloaded_instances: [id…]`。密钥不进返回、不进日志。
+- 偏离：为了让设置模块（只经公开契约）触发推送，加了一个内核级的中枢方法 `harnix.instances.inheritProviders`；设备够不着它。
+- testapp：`fleet` 加进程内模板 `fleet.heir`（`.inherit_providers()`）、grant `config.getProvider`、方法 `app.fleet.providers {instance}`。
+- 测试：Rust `inherit::tests::inherited_providers_follow_system_and_the_instances_own_stay`、`an_instance_with_a_default_of_its_own_keeps_it`、
+  `nothing_to_inherit_touches_nothing`；`tests/live/api/inherit-providers.spec.ts` 的「an inheriting instance sees a provider the moment it is set,
+  and loses it when deleted」（不继承的实例仍为空）、「an inheriting instance built later starts with what is there」、「a spawned inheriting instance does too」。
+  偏离：用例放在新文件，不在 `settings.spec.ts` / `instances-daemon.spec.ts`。

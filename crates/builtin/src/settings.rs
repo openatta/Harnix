@@ -285,9 +285,18 @@ impl Builtin {
         let providers = self.call("settings", "config.getProvider", json!({}))
             .await
             .unwrap_or(json!({}));
+        // And to every instance whose template inherits `system`'s providers.
+        let inherited = match self.call("settings", "harnix.instances.inheritProviders", json!({})).await {
+            Ok(answer) => answer.get("reloaded").cloned().unwrap_or(json!([])),
+            Err(e) => {
+                tracing::warn!(error = %e.message, "the instances inheriting providers were not updated");
+                json!([])
+            }
+        };
         Ok(json!({
             "written": path.display().to_string(),
             "reloaded": reloaded.is_ok(),
+            "reloaded_instances": inherited,
             "providers": providers,
         }))
     }
