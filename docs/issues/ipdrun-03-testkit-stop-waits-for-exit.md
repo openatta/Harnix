@@ -56,3 +56,12 @@ export interface Backend {
 ## 来源
 
 IPDrun 的 API 测试收尾时删目录撞上 `ENOTEMPTY`，现在在自己的测试工具里加了重试（`qa/kit/ipdrun.ts`）。
+
+## 实现记录
+
+- `ui/packages/testkit/src/launcher.ts`：`Backend.dispose()`：发 SIGTERM 等 `exit`，15 s（`DISPOSE_GRACE_MS`，过了后端自己的 10 s 收尾时限）
+  后 SIGKILL 再等；然后删 `scratch`，遇 `ENOTEMPTY` / `EBUSY` / `EPERM` 每 100 ms 重试，最多 20 次。`stop()` 签名与行为不变，文档注明不等退出。
+- `fixtures.ts`、`suite.ts` 的收尾改为 `await dispose()`。
+- 测试：`tests/live/api/shutdown.spec.ts` 的「dispose waits for the process to finish before removing its directory」（`lifecycle` 在 `stop` 里
+  500 ms 写 20 个文件；返回后进程不在、目录不在）、「stop still returns at once, without waiting for the process」。
+- 偏离：testkit 在 `ui/` 下，本条由后端批次（F3a）一并做了，外壳批次不必再做。

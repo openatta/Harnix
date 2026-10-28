@@ -64,7 +64,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       const only = workerInfo.project.name === "ui" && process.env.HARNIX_TOPOLOGY ? [topology()] : undefined;
       const backend = await startHarnix(launchFor(mode, only ? { topologies: only } : {}));
       await use(backend);
-      backend.stop();
+      await backend.dispose();
     },
     { scope: "worker", timeout: 300_000 },
   ],

@@ -29,7 +29,7 @@
 `use harnix::prelude::*;`。
 
 ```text
-harnix::{App, AppBuilder, ModuleStatus, Namespace, HARNIX_VERSION,
+harnix::{App, AppBuilder, ModuleStatus, Namespace, HARNIX_VERSION, SHUTDOWN_GRACE,
          codes, RpcError, Subject, SYSTEM_INSTANCE,
          AttachTo, CallContext, CredentialRef, Credentials, EngineContrib, EngineProfile, Entry,
          EnvCredentials, EventRegistry, Events, Handler, InstanceHandle, InstanceTemplate,
@@ -72,6 +72,9 @@ pub trait Module: Send + Sync + 'static {
 
 顺序：所有模块的注册函数各调一次 → 按顺序 `migrate` → 建实例 → 按顺序 `start` → 开始服务。注册冲突、
 `migrate` 或 `start` 返回 `Err`：只停用这个模块和它的方法、主题、路由、space、实例，原因进诊断页。
+
+退出：SIGINT、SIGTERM、`--exit-with-stdin` 下 stdin 关闭，都是倒序调各模块的 `stop`，再停实例、删本进程的上传目录。
+整个收尾最多 `SHUTDOWN_GRACE`（10 s）；超了，或收尾中再收到一次 SIGINT / SIGTERM，记一条日志后以 1 退出。
 
 ### 1.3 声明
 
@@ -146,6 +149,7 @@ pub trait Module: Send + Sync + 'static {
 | -31002 | `INSTANCE_NOT_FOUND` | 没有这台实例 |
 | -31003 | `SPACE_MISMATCH` | 会话不属于调用方声称的 space。**防 bug，不是权限** |
 | -31004 | `INSTANCE_UNAVAILABLE` | 实例在，但现在够不着（daemon 重启中、协议版本不符） |
+| -31005 | `BUSY` | 这条单双向连接上已有 `limits.max_in_flight`（16）个请求没答；这一个没执行，等一个答了再发。`data.max_in_flight` 是那个数 |
 
 Agix 自己的错误码原样透传（例如会话不存在是 -32000）。
 
@@ -422,7 +426,7 @@ api_version = 2
 | 导出 | 说明 |
 |---|---|
 | `startHarnix(opts) → Backend` | 起一个进程，自己的 HOME、数据根、端口。`opts.bin` 写应用二进制的绝对路径；`profile`（追加的 TOML）、`env`、`args`、`replay`、`seed`、`uiDir`、`scratch` |
-| `Backend` | `url`、`port`、`token`、`scratch`、`state`（`$HOME/.<product_id>`）、`project`、`pid`、`log()`、`stop()`、`halt()`、`restart()` |
+| `Backend` | `url`、`port`、`token`、`scratch`、`state`（`$HOME/.<product_id>`）、`project`、`pid`、`log()`、`stop()`（发 SIGTERM、立刻删目录，不等退出）、`dispose()`（等进程退出——15 s 后 SIGKILL——再删目录；收尾用它，夹具与 `defineSuite` 已用它）、`halt(signal?)`、`restart()` |
 | `connect(backend) → TestClient` | `call`、`refused`（期望被拒，返回错误）、`waitFor(pred, { timeout, describe })`、`events`、`eventsOfKind`、`text`、`close` |
 | `test`、`expect` | Playwright Test，带 `api` 夹具 |
 | `inconclusive(reason)` | 环境不满足时标成「没结论」而不是通过 |

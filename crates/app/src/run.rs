@@ -570,26 +570,74 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         });
         let _ = parent.await;
     };
+    // SIGTERM is how a service manager, a desktop shell, `kill` and a test harness ask a process to
+    // go. It takes the same way out as Ctrl-C (ipdrun-02): under the default disposition it ended
+    // the process on the spot, and no module's `stop` ran.
+    let mut signals = Signals::install()?;
     tokio::select! {
         result = server => { result??; }
         _ = tokio::signal::ctrl_c() => println!("shutting down…"),
+        _ = signals.terminate() => println!("terminated; shutting down…"),
         _ = orphaned => println!("stdin closed; the parent is gone — shutting down…"),
     }
 
-    // Modules stop in reverse: a later module may depend on an earlier one.
-    for record in records.iter().rev().filter(|r| r.is_enabled()) {
-        record.module.stop().await;
-    }
-    hub.shutdown().await;
+    let uploads = roots
+        .state
+        .join("uploads")
+        .join(std::process::id().to_string());
+    let shutdown = async {
+        // Modules stop in reverse: a later module may depend on an earlier one.
+        for record in records.iter().rev().filter(|r| r.is_enabled()) {
+            record.module.stop().await;
+        }
+        hub.shutdown().await;
+    };
+    // Bounded, and a second signal cuts it short: a `stop` that never returned used to keep the
+    // process up for good.
+    let forced = tokio::select! {
+        _ = shutdown => None,
+        _ = signals.any() => Some("a second signal; exiting without waiting"),
+        _ = tokio::time::sleep(crate::SHUTDOWN_GRACE) => Some("shutting down took too long; exiting"),
+    };
     // Uploads are this process's scratch; the rest of the state root outlives
     // it.
-    let _ = std::fs::remove_dir_all(
-        roots
-            .state
-            .join("uploads")
-            .join(std::process::id().to_string()),
-    );
+    let _ = std::fs::remove_dir_all(&uploads);
+    if let Some(why) = forced {
+        tracing::warn!(grace_secs = crate::SHUTDOWN_GRACE.as_secs(), "{why}");
+        // Not a return: the runtime would wait on whatever is still stuck before letting go.
+        std::process::exit(1);
+    }
     Ok(())
+}
+
+/// The two signals that end this process, installed once when serving begins, so the second of
+/// either is noticed while the first one's shutdown runs.
+struct Signals {
+    #[cfg(unix)]
+    term: tokio::signal::unix::Signal,
+}
+
+impl Signals {
+    fn install() -> std::io::Result<Self> {
+        Ok(Self {
+            #[cfg(unix)]
+            term: tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?,
+        })
+    }
+
+    async fn terminate(&mut self) {
+        #[cfg(unix)]
+        self.term.recv().await;
+        #[cfg(not(unix))]
+        std::future::pending::<()>().await
+    }
+
+    async fn any(&mut self) {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = self.terminate() => {}
+        }
+    }
 }
 
 fn down(carrier: harnix_instance::Carrier, reason: String) -> Built {

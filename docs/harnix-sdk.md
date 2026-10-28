@@ -241,9 +241,12 @@ fn main() -> anyhow::Result<()> {
 | `routes` | 注册 | `/apps/<id>/` 下的 HTTP 与 WS |
 | `migrate` | 启动，`start` 之前 | 你自己的数据迁移 |
 | `start` | 启动，实例建好之后 | 拿 `ModuleContext`，起你的服务 |
-| `stop` | 退出或停用 | 收尾 |
+| `stop` | 退出（SIGINT、SIGTERM、`--exit-with-stdin` 下 stdin 关闭）或停用 | 收尾；倒序调。整个收尾（各模块的 `stop`，再到实例）最多 `harnix::SHUTDOWN_GRACE`（10 s），超了或收尾中再来一次信号，进程直接退出 |
 
 **启动顺序**：注册 → 按顺序 `migrate` → 建实例 → 按顺序 `start` → 开始服务。
+
+**退出**：Harnix 自己接 SIGINT 与 SIGTERM，走同一条收尾。模块不要在 `start` 里另装 SIGTERM 处理：两边都会收到信号，
+模块那份会抢在 `stop` 前面把进程带走。
 
 **失败只影响你自己**：注册冲突、`migrate` 失败、`start` 失败，都只停用这个模块和它的方法、路由、
 space、实例，其余照常启动，原因写在诊断页。所以 `start` 里别吞错误：返回 `Err`，让诊断页说清楚。

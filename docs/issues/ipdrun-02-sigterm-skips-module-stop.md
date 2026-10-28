@@ -63,3 +63,13 @@ tokio::select! {
 
 IPDrun 的服务被 `kill` 后，模块的运行记录残留、执行器起的样例服务和测试进程成了孤儿（API 测试跑完曾留下约 90 个）；
 IPDrun 现在在模块 `start` 里自己接 SIGTERM、清进程组后立即退出（`crates/module/src/lib.rs` 的 `sigterm_kills_exec_groups`）。
+
+## 实现记录
+
+- `crates/app/src/run.rs`：服务期间的 `select!` 加了 SIGTERM 一支（unix），与 Ctrl-C、stdin 关闭走同一条收尾；收尾整体受
+  `harnix::SHUTDOWN_GRACE`（10 s，`crates/app/src/lib.rs`，由 `harnix` 再导出）约束，超时或收尾中再来一次 SIGINT / SIGTERM，
+  记日志后 `std::process::exit(1)`（不 return：运行时会等仍卡着的任务）。上传目录在强退前也删。
+- SDK 指南 §5.2、参考 §1.2 写明退出路径、时限常量，以及「模块别自己装 SIGTERM 处理」。
+- testapp 加 `lifecycle` 模块：`stop` 在数据目录写 `stopping` / `stopped`，可配 `slow_stop_files`、`hang_on_stop`。
+- 测试：`tests/live/api/shutdown.spec.ts` 的「SIGTERM runs every module's stop before the process exits」「SIGINT runs every module's stop…」
+  （标记文件在、`uploads/<pid>/` 不在）、「a stop that never returns is cut short by a second signal」（第二次 SIGTERM 后 1 s 内退出）。

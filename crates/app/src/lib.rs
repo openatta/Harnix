@@ -39,6 +39,11 @@ pub use modules::{MethodStatus, ModuleStatus, Namespace};
 /// The version of Harnix this binary was built with.
 pub const HARNIX_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// How long the shutdown after SIGINT, SIGTERM or a closed stdin (`--exit-with-stdin`) may take:
+/// every module's `stop`, then the instances. Past it the process logs that and exits anyway, as
+/// it does on a second signal (ipdrun-02).
+pub const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
+
 pub struct App;
 
 impl App {

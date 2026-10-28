@@ -61,8 +61,17 @@ export interface Backend {
   /** The process id, for a test that kills it. */
   pid: number;
   log(): string;
-  /** End the process and remove everything it owned. */
+  /**
+   * End the process and remove everything it owned. Does not wait for the process to exit, so a
+   * backend still finishing (its modules' `stop`, the engine writing out) can race the removal;
+   * in a teardown use `dispose()`.
+   */
   stop(): void;
+  /**
+   * End the process, wait until it has exited (SIGKILL after a grace period), then remove
+   * everything it owned.
+   */
+  dispose(): Promise<void>;
   /** End the process, keep its directory, and wait until it is gone. */
   halt(signal?: NodeJS.Signals): Promise<void>;
   /** End it and start another on the same directory and port. */
@@ -127,6 +136,23 @@ export async function freePort(): Promise<number> {
       server.close(() => resolve(port));
     });
   });
+}
+
+/** How long `dispose()` lets a backend finish before it is killed: the backend's own shutdown is
+ *  bounded by 10 s, so this is past it. */
+const DISPOSE_GRACE_MS = 15_000;
+
+/** `rm -rf`, again for a moment when something is still letting go of a file in it. */
+async function removeTree(dir: string): Promise<void> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (e: any) {
+      if (attempt >= 20 || !["ENOTEMPTY", "EBUSY", "EPERM"].includes(e?.code)) throw e;
+      await sleep(100);
+    }
+  }
 }
 
 export async function startHarnix(options: LaunchOptions = {}): Promise<Backend> {
@@ -231,6 +257,26 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
         /* already gone */
       }
       rmSync(scratch, { recursive: true, force: true });
+    },
+    async dispose() {
+      if (exited === null) {
+        const gone = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+        try {
+          child.kill("SIGTERM");
+        } catch {
+          /* already gone */
+        }
+        const late = await Promise.race([gone.then(() => false), sleep(DISPOSE_GRACE_MS).then(() => true)]);
+        if (late && exited === null) {
+          try {
+            child.kill("SIGKILL");
+          } catch {
+            /* gone meanwhile */
+          }
+          await gone;
+        }
+      }
+      await removeTree(scratch);
     },
     halt,
     async restart() {

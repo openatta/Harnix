@@ -62,7 +62,7 @@ export function defineSuite(name: string, meta: SuiteMeta, suite: Suite): void {
 
     test.afterAll(async ({ harnix }) => {
       if (suite.teardown) await suite.teardown({ backend: own ?? harnix, env, ...shared }).catch(() => {});
-      own?.stop();
+      await own?.dispose();
       own = null;
     });
 

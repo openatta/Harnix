@@ -11,6 +11,7 @@
 //! | `fails-migrate` | a failed `migrate` disables only that module |
 //! | `probe` (again) | a second module with a taken id is refused at registration |
 //! | `fleet` | its own in-process instance and a space on it, headless sessions, a tap left unread |
+//! | `lifecycle` | what `stop` does on the way out: a mark, a slow finish, one that never returns |
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -33,6 +34,7 @@ fn main() -> anyhow::Result<()> {
         .module(FailsMigrate)
         .module(Duplicate)
         .module(Fleet)
+        .module(Lifecycle::default())
         .run()
 }
 
@@ -489,4 +491,56 @@ impl Module for Fleet {
 
 fn tracing_warn(message: &str) {
     eprintln!("fleet: a headless session did not reopen: {message}");
+}
+
+/* ── lifecycle ─────────────────────────────────────────────────────────── */
+
+/// What happens at the end: `stop` leaves a mark in the module's data directory, and can be told to
+/// take its time or never return.
+#[derive(Default)]
+struct Lifecycle {
+    cx: std::sync::OnceLock<ModuleContext>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct LifecycleConfig {
+    /// `stop` writes this many files, spread over half a second, before it returns.
+    slow_stop_files: usize,
+    /// `stop` never returns.
+    hang_on_stop: bool,
+}
+
+#[harnix::async_trait]
+impl Module for Lifecycle {
+    const API_VERSION: u32 = harnix::MODULE_API_VERSION;
+
+    fn manifest(&self) -> Manifest {
+        Manifest::new("lifecycle", "0.0.1")
+    }
+
+    async fn start(&self, cx: ModuleContext) -> anyhow::Result<()> {
+        let _ = self.cx.set(cx);
+        Ok(())
+    }
+
+    async fn stop(&self) {
+        let Some(cx) = self.cx.get() else { return };
+        let config: LifecycleConfig = cx.config().unwrap_or_default();
+        let dir = cx.data_dir().to_path_buf();
+        let _ = std::fs::write(dir.join("stopping"), "");
+        if config.slow_stop_files > 0 {
+            let slow = dir.join("slow");
+            let _ = std::fs::create_dir_all(&slow);
+            let pause = Duration::from_millis(500 / config.slow_stop_files as u64);
+            for i in 0..config.slow_stop_files {
+                let _ = std::fs::write(slow.join(format!("{i}")), "x");
+                tokio::time::sleep(pause).await;
+            }
+        }
+        if config.hang_on_stop {
+            std::future::pending::<()>().await;
+        }
+        let _ = std::fs::write(dir.join("stopped"), "");
+    }
 }
