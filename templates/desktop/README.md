@@ -131,7 +131,8 @@ url = "https://build-box.local:4317/"
 - `src-tauri/Cargo.toml` 的 `name`（可执行文件名）；
 - `src-tauri/tauri.conf.json` 的 `productName`（窗口标题、`.app` 名）、`identifier`（反向域名，
   也决定用户配置目录）、`version`；
-- `src-tauri/src/config.rs` 的 `ENV_PREFIX`（环境变量前缀）和 `SIDECAR`（sidecar 的名字）；
+- `src-tauri/src/config.rs` 的 `ENV_PREFIX`（环境变量前缀）、`SIDECAR`（sidecar 的名字）和 `PRODUCT_ID`（应用 profile 的
+  `[brand] product_id`：壳不传 `--profile`、profile 编进应用二进制时，壳靠它找 `~/.<product_id>/token`，不改就去 `~/.harnix` 找、等满 60 秒报错）；
 - `dist/index.html` 的 `<title>`，以及 `dist/` 里的文案与样式。
 
 **图标。** 准备一张 1024×1024 的 PNG，在 `src-tauri/` 下运行 `cargo tauri icon your.png`

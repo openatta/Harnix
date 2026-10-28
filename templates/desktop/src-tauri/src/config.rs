@@ -27,6 +27,12 @@ const FILE: &str = "desktop.toml";
 /// next to this executable (`bundle.externalBin`, target triple removed).
 const SIDECAR: &str = "harnix";
 
+/// The app's `[brand] product_id`: its state directory is `~/.<PRODUCT_ID>` when
+/// neither `HARNIX_STATE_DIR` nor a profile given to the shell says otherwise. An
+/// app whose profile is built into its binary renames it with everything else
+/// (README: 改成你的应用), or the shell looks for the token in `~/.harnix`.
+pub const PRODUCT_ID: &str = "harnix";
+
 /// What the shell was told to show.
 #[derive(Debug)]
 pub enum Config {

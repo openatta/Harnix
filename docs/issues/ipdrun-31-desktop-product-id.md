@@ -42,3 +42,11 @@
 ## 来源
 
 IPDrun 的二进制内嵌 profile、壳不传 `--profile`，桌面版启动就卡在读令牌上；IPDrun 在自己的拷贝里把兜底改成了 `"ipdrun"`（`desktop/src-tauri/src/local.rs`）。
+
+## 实现记录
+
+- 第 1 步：`templates/desktop/src-tauri/src/config.rs` 加 `pub const PRODUCT_ID: &str = "harnix"`（与 `ENV_PREFIX`、`SIDECAR` 并列），`local.rs` 的
+  `state_dir` 兜底改用它；README「改成你的应用」的改名清单加了这一项和不改的后果。模板 `cargo build --release --offline` 通过。
+- 检查：新 `templates/desktop/check-rename.mjs`（进 `scripts/check.sh` 的 offline 层）：三个常量在、README 都列了、`state_dir` 不再兜底到字面量。
+  对改动前的 `local.rs` 跑会失败（已验证）。偏离：检查放在模板自己的脚本里，不在 `tests/app-template.mjs`（那个是 `templates/app` 的）。
+- 第 2 步（`--print-state-dir`）没做：建议里写的是「可后做」；README「已知的限制」里「壳镜像应用的路径规则」那条因此保留。
