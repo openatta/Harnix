@@ -45,3 +45,13 @@
 
 IPDrun 迁到 Harnix 后失去了自己原来的状态目录锁，它的「同一状态目录起第二个实例应当被拒」的 API 用例现在只是因为端口相同才通过
 （`app/tests/api/project.rs` 的 `second_instance_with_same_state_dir_is_refused`）。
+
+## 实现记录
+
+- `crates/app/src/state_lock.rs`：`<状态目录>/harnix.lock`，`flock(LOCK_EX | LOCK_NB)`（unix；非 unix 不加锁，同以前），在 `run.rs` 解析完目录、
+  读任何东西之前拿；拿不到就返回错误「`<目录>` is in use by pid N (url)」，进程以非零退出。锁文件内容 `{"pid": N, "url": null}`，监听后补写
+  `url`（与 ipdrun-14 同一份地址）。`harnix daemon` 子命令在这之前就分出去了，不拿这把锁。
+- 测试：Rust `state_lock::tests::a_second_holder_is_refused_with_the_first_ones_pid_and_url`；`tests/live/api/state-dir.spec.ts` 的
+  「a second process on the same state directory is refused, naming the first」（同一 HOME、另一端口，5 s 内非零退出、输出有第一个的 pid 与 URL，
+  令牌文件不变、第一个照常答）、「after the holder is killed outright, the next one starts at once」（SIGKILL 后 `restart()` 立即起来）；
+  testkit `restart()` 的回归在 `migrations.spec.ts` 里照常通过。

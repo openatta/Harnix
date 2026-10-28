@@ -35,6 +35,21 @@ pub trait Kernel: Send + Sync {
         session: &crate::SessionRef,
         capacity: usize,
     ) -> Result<crate::Tap, RpcError>;
+    /// Where this process listens: `None` inside until the listener is bound. A kernel that
+    /// never listens returns no receiver at all.
+    fn listen(&self) -> Option<tokio::sync::watch::Receiver<Option<Listen>>> {
+        None
+    }
+}
+
+/// Where this process accepts connections (ipdrun-14).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Listen {
+    /// Every address this process accepts on — both loopback families when bound to loopback —
+    /// with the port the system chose when `--port 0` asked it to.
+    pub addrs: Vec<std::net::SocketAddr>,
+    /// The one to give a person or a tool: `http(s)://<first addr>/`. It carries no token.
+    pub url: String,
 }
 
 /// Read-only facts about one instance: where its data is, what it runs. Not
@@ -161,6 +176,29 @@ impl ModuleContext {
 
     pub fn instance(&self, id: &str) -> Option<InstanceHandle> {
         self.shared.kernel.instance(id)
+    }
+
+    /// Where this process listens, once it does. Modules start **before** the listener is
+    /// bound, so this is `None` throughout `start`: spawn a task on [`ModuleContext::listening`]
+    /// to write a run record or a link.
+    pub fn listen(&self) -> Option<Listen> {
+        self.shared.kernel.listen().and_then(|rx| rx.borrow().clone())
+    }
+
+    /// [`ModuleContext::listen`], waiting until the listener is bound. Never returns in a process
+    /// that does not serve.
+    pub async fn listening(&self) -> Listen {
+        if let Some(mut rx) = self.shared.kernel.listen() {
+            loop {
+                if let Some(listen) = rx.borrow_and_update().clone() {
+                    return listen;
+                }
+                if rx.changed().await.is_err() {
+                    break;
+                }
+            }
+        }
+        std::future::pending().await
     }
 
     /// Keep a value for this module's handlers: `cx.state::<T>()`.

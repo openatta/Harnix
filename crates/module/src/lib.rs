@@ -27,7 +27,9 @@ mod routes;
 mod sessions;
 
 pub use catalog::{Frequency, Point, PointKind};
-pub use context::{CallContext, InstanceHandle, Kernel, MigrateContext, MigrationReport, ModuleContext};
+pub use context::{
+    CallContext, InstanceHandle, Kernel, Listen, MigrateContext, MigrationReport, ModuleContext,
+};
 pub use credentials::{CredentialRef, Credentials, EnvCredentials};
 pub use events::{EventRegistry, Events, TopicDecl};
 pub use manifest::Manifest;

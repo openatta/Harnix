@@ -77,6 +77,9 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         state = %roots.state.display(),
         "directories"
     );
+    // Before anything in the state directory is read: a second process on it is refused here,
+    // with who has it, rather than starting and overwriting the first one's token and ledger.
+    let state_lock = Arc::new(crate::state_lock::StateLock::acquire(&roots.state)?);
 
     // ── 2. Register ─────────────────────────────────────────────────────
     let paired = Arc::new(Devices::default());
@@ -360,6 +363,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     let kernel = Arc::new(ProcessKernel {
         gate: OnceLock::new(),
         hub: hub.clone(),
+        listen: tokio::sync::watch::channel(None).0,
     });
     let _ = kernel.gate.set(gate.clone());
 
@@ -517,13 +521,25 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     // admission. This is where that circle is broken.
     devices::bootstrap(&paired, !host.is_loopback());
 
-    let server = tokio::spawn(async move { harnix_transport::serve(&addrs, router, tls).await });
-
     let scheme = if cli.tls_cert.is_some() {
         "https"
     } else {
         "http"
     };
+    // Where it listens, once it does: to the modules (ipdrun-14) and into the lock file (ipdrun-09).
+    let told = {
+        let kernel = kernel.clone();
+        let state_lock = state_lock.clone();
+        move |bound: Vec<SocketAddr>| {
+            let Some(first) = bound.first() else { return };
+            let url = format!("{scheme}://{first}/");
+            state_lock.listening(&url);
+            kernel.listen.send_replace(Some(harnix_module::Listen { addrs: bound, url }));
+        }
+    };
+    let server = tokio::spawn(async move {
+        harnix_transport::serve_with(&addrs, router, tls, told).await
+    });
     println!(
         "\n  {} → {scheme}://{addr}/\n  token → {}\n  topology → {}\n",
         app.name,

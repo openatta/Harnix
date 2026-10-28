@@ -33,7 +33,7 @@ harnix::{App, AppBuilder, ModuleStatus, Namespace, HARNIX_VERSION, SHUTDOWN_GRAC
          codes, RpcError, Subject, SYSTEM_INSTANCE,
          AttachTo, CallContext, CredentialRef, Credentials, EngineContrib, EngineProfile, Entry,
          EnvCredentials, EventRegistry, Events, Handler, InstanceHandle, InstanceTemplate,
-         InstanceTemplates, Instances, Manifest, MethodRegistry, MigrateContext, MigrationReport,
+         InstanceTemplates, Instances, Listen, Manifest, MethodRegistry, MigrateContext, MigrationReport,
          Module, ModuleContext, OnBusy, Principal, RouteRegistry, Secret, SessionRef, SessionSpec,
          Sessions, SpaceDecl, SpaceRegistry, Tap, TapEvent, TemplateCarrier,
          CONTRIB_API_VERSION, MODULE_API_VERSION, TAP_CAPACITY,
@@ -116,6 +116,7 @@ pub trait Module: Send + Sync + 'static {
 | `sessions()` | `Sessions`，见 §1.6 |
 | `instances()` | `Instances`：`create(template, name, params)`、`ensure(template, name, params)`（幂等，并发调同名也只建一台，`start` 里用）、`ensure_ready(template, name, params, timeout)`（同上，等到 `ready` 再返回；`down` 或超时报 `INSTANCE_UNAVAILABLE`）、`wait_ready(instance, timeout)`、`stop(instance)`（数据根留着） |
 | `instance(id)` | 只读的 `InstanceHandle` |
+| `listen()` / `listening().await` | 进程监听在哪：`Listen { addrs, url }`（`addrs` 是实际绑上的地址，`--port 0` 时是系统给的端口；`url` 是 `http(s)://<第一个地址>/`，不带令牌）。模块的 `start` 在监听**之前**，所以 `start` 里 `listen()` 是 `None`；要写运行记录就 `tokio::spawn` 一个任务 `listening().await` |
 | `provide(v)` / `provide_arc(arc)` / `state::<T>()` | 模块状态，handler 里用 `cx.state::<T>()` 拿 |
 
 `CallContext`：`subject()`、`device()`（是设备调的就给设备 id）、`module()`、`state::<T>()`。
@@ -250,7 +251,7 @@ quote_api_key = { credential = "helm/quote-api" }
 | 路径 | 是什么 |
 |---|---|
 | `~/.agix/` | 引擎：设置分层、transcript、记忆、技能、录像。和 `agixd` 共用 |
-| `~/.<product_id>/`（不配 `[brand]` 就是 `~/.harnix/`；`HARNIX_STATE_DIR` 可挪） | 程序自己的配置与状态：`token`、`state.json`（工作区、会话标题、偏好、设备）、`spaces.json`、`instances.json`、`instances/<data_root>/`（按模板建的实例的数据根）、`modules/<id>/`（`ctx.data_dir()`）、`uploads/<pid>/` |
+| `~/.<product_id>/`（不配 `[brand]` 就是 `~/.harnix/`；`HARNIX_STATE_DIR` 可挪） | 程序自己的配置与状态：`token`、`state.json`（工作区、会话标题、偏好、设备）、`spaces.json`、`instances.json`、`instances/<data_root>/`（按模板建的实例的数据根）、`modules/<id>/`（`ctx.data_dir()`）、`uploads/<pid>/`、`harnix.lock`（进程活着就持有的独占锁，内容 `{"pid", "url"}`，`url` 在监听后写上：一个状态目录只能有一个进程，第二个启动时报「`<目录>` is in use by pid N (url)」并以非零退出） |
 | `~/Documents/` | 只放项目：选项目从这里开始，新建项目建在这里。Documents 里不放隐藏目录 |
 | `<项目>/.agix/` | 项目自己的数据与配置**一律**放这里（Agix 的项目层设置也在这），不开 `<项目>/.<产品>/` |
 | `~/Documents/.harnix/`（0.4.0-2026102602 及以前） | **不迁移、不读**。升级后旧的令牌、工作区分组、实例账本都从空开始 |

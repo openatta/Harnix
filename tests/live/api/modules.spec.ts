@@ -8,7 +8,10 @@
  */
 
 import { REFUSED, METHOD_NOT_FOUND, INVALID_PARAMS } from "@harnix/core/protocol";
-import { type Backend, type TestClient, connect, expect, test } from "@harnix/testkit";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { type Backend, type TestClient, connect, expect, sleep, test } from "@harnix/testkit";
 
 import { moduleStatus, startTestApp } from "./testapp";
 
@@ -145,4 +148,18 @@ test("a topic declared for the kernel is not a device's to subscribe to", TAGS, 
   const { topics } = await api.call("harnix.reachable");
   expect(topics).toContain("app.probe.counter");
   expect(topics).not.toContain("app.probe.secret");
+});
+
+test("a module learns where the process listens, once it does", TAGS, async () => {
+  // `lifecycle` writes down what `listen()` said during `start`, and what `listening()` said later.
+  const dir = join(backend.state, "modules", "lifecycle");
+  const atStart = JSON.parse(readFileSync(join(dir, "listen-at-start.json"), "utf8"));
+  expect(atStart.listen).toBeNull();
+  let listen: any = null;
+  for (let i = 0; i < 100 && !listen; i += 1) {
+    if (existsSync(join(dir, "listen.json"))) listen = JSON.parse(readFileSync(join(dir, "listen.json"), "utf8"));
+    else await sleep(50);
+  }
+  expect(listen?.url).toBe(backend.url);
+  expect(listen.addrs).toContain(`127.0.0.1:${backend.port}`);
 });

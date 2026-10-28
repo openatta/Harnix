@@ -253,7 +253,7 @@ space、实例，其余照常启动，原因写在诊断页。所以 `start` 里
 
 **`ModuleContext` 有什么**：`id()`、`config()`、`data_dir()`、`credentials()`、`events()`、
 `call(method, params)`（以 `Module(<id>)` 的身份经同一个准入点调任何方法，同样审计）、`instance(id)`
-（只读的实例信息）、`provide()` / `state()`；M3 起还有 `sessions()`（§7）、`instances()`（§6）。
+（只读的实例信息）、`listen()` / `listening()`（进程监听的地址，`start` 之后才有）、`provide()` / `state()`；M3 起还有 `sessions()`（§7）、`instances()`（§6）。
 **没有**中枢的内部状态，也没有直连实例的 `EngineLink`：所有会话操作都经过中枢。
 
 **诊断**：`harnix.diagnostics` 返回各版本号、每个模块的状态（启用 / 在哪一步停用、原因）、披露文本、

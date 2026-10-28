@@ -564,7 +564,22 @@ impl Module for Lifecycle {
         Manifest::new("lifecycle", "0.0.1")
     }
 
+    /// Also where the process listens: not known yet during `start`, and written down once it is.
     async fn start(&self, cx: ModuleContext) -> anyhow::Result<()> {
+        let dir = cx.data_dir().to_path_buf();
+        std::fs::write(
+            dir.join("listen-at-start.json"),
+            json!({"listen": cx.listen().map(|l| l.url)}).to_string(),
+        )?;
+        let watcher = cx.clone();
+        tokio::spawn(async move {
+            let listen = watcher.listening().await;
+            let addrs: Vec<String> = listen.addrs.iter().map(ToString::to_string).collect();
+            let _ = std::fs::write(
+                dir.join("listen.json"),
+                json!({"url": listen.url, "addrs": addrs}).to_string(),
+            );
+        });
         let _ = self.cx.set(cx);
         Ok(())
     }

@@ -42,8 +42,8 @@ pub use harnix_contract::{codes, RpcError, Subject, SYSTEM_INSTANCE};
 pub use harnix_module::{
     AttachTo, CallContext, CredentialRef, Credentials, EngineContrib, EngineProfile, Entry,
     EnvCredentials, EventRegistry, Events, Handler, InstanceHandle, InstanceTemplate,
-    InstanceTemplates, Instances, Manifest, MethodRegistry, MigrateContext, MigrationReport,
-    Module, ModuleContext, OnBusy, Principal, RouteRegistry, Secret, SessionRef, SessionSpec,
+    InstanceTemplates, Instances, Listen, Manifest, MethodRegistry, MigrateContext,
+    MigrationReport, Module, ModuleContext, OnBusy, Principal, RouteRegistry, Secret, SessionRef, SessionSpec,
     Sessions, SpaceDecl, SpaceRegistry, Tap, TapEvent, TemplateCarrier, CONTRIB_API_VERSION,
     MODULE_API_VERSION, TAP_CAPACITY,
 };

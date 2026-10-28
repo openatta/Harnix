@@ -15,7 +15,9 @@ use std::sync::{Arc, OnceLock, RwLock};
 use harnix_authz::Authorizer;
 use harnix_contract::{Gate, RpcError, Subject};
 use harnix_hub::Hub;
-use harnix_module::{CallContext, Handler, InstanceHandle, Kernel, ModuleContext, SessionRef, Tap};
+use harnix_module::{
+    CallContext, Handler, InstanceHandle, Kernel, Listen, ModuleContext, SessionRef, Tap,
+};
 use serde_json::{json, Value};
 
 use crate::modules::ModuleStatus;
@@ -92,6 +94,8 @@ impl Gate for AppGate {
 pub(crate) struct ProcessKernel {
     pub gate: OnceLock<Arc<dyn Gate>>,
     pub hub: Arc<Hub>,
+    /// Where the listener is, once it is bound (ipdrun-14).
+    pub listen: tokio::sync::watch::Sender<Option<Listen>>,
 }
 
 impl ProcessKernel {
@@ -165,6 +169,10 @@ impl Kernel for ProcessKernel {
             tokio::spawn(async move { hub.remove_client(client).await });
         });
         Ok(Tap::new(parts, attached, reattach, on_drop))
+    }
+
+    fn listen(&self) -> Option<tokio::sync::watch::Receiver<Option<Listen>>> {
+        Some(self.listen.subscribe())
     }
 }
 

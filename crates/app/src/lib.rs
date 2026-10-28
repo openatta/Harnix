@@ -27,6 +27,7 @@ mod methods;
 mod modules;
 mod paths;
 mod run;
+mod state_lock;
 
 use std::ffi::OsString;
 use std::sync::Arc;

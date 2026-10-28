@@ -54,3 +54,15 @@ impl ModuleContext {
 ## 来源
 
 IPDrun 的模块要把服务地址写进自己的运行记录给命令行用，现在自己解析 `--host` / `--port` 与 profile（`crates/module/src/run.rs`、`app/src/cli.rs`）。
+
+## 实现记录
+
+- `harnix::Listen { addrs, url }`；`ModuleContext::listen() -> Option<Listen>`、`ModuleContext::listening().await -> Listen`。实现上是 `Kernel` trait
+  多一个带缺省实现的 `fn listen(&self) -> Option<watch::Receiver<Option<Listen>>>`（缺省 `None`，旧的 `Kernel` 实现不用改），应用的
+  `ProcessKernel` 持一个 `watch`。
+- `harnix_transport::serve_with(addrs, router, tls, bound)`：全部绑好后把实际地址交给 `bound`；`serve` 不变（调它，`bound` 为空操作）。
+  `--port 0` 时第二个地址（IPv6 回环）沿用第一个拿到的端口，两族同一个端口。
+- 偏离：建议里写的是共享的 `OnceLock`；用 `watch` 是为了 `listening()` 能等而不轮询。
+- 测试：Rust `serve_tests::port_zero_is_reported_as_the_port_bound`（`--port 0` 报的是真实端口，两族一致）；`tests/live/api/modules.spec.ts` 的
+  「a module learns where the process listens, once it does」（testapp 的 `lifecycle` 在 `start` 里记下 `listen()` 为 `None`，再 spawn 任务
+  `listening().await` 写 `listen.json`；`url` 等于 testkit 的 `Backend.url`）。testkit 起进程时自己选端口，没有用 `--port 0` 起整个进程的 live 用例。

@@ -259,6 +259,18 @@ pub(crate) fn origin_allowed(headers: &axum::http::HeaderMap, extra: &[String]) 
 /// agent and a live model credential, and "it was only for a minute" is how
 /// every one of those gets exposed.
 pub async fn serve(addrs: &[SocketAddr], router: Router, tls: Option<Tls>) -> anyhow::Result<()> {
+    serve_with(addrs, router, tls, |_| {}).await
+}
+
+/// [`serve`], telling `bound` where it listens once every listener is bound: the real addresses,
+/// with the port the system chose when one was asked for as 0. Later addresses asking for port 0
+/// take the port the first one got, so both loopback families answer on one port.
+pub async fn serve_with(
+    addrs: &[SocketAddr],
+    router: Router,
+    tls: Option<Tls>,
+    bound: impl FnOnce(Vec<SocketAddr>) + Send,
+) -> anyhow::Result<()> {
     use std::future::IntoFuture;
 
     if let Some(addr) = addrs.iter().find(|a| !a.ip().is_loopback()) {
@@ -291,8 +303,20 @@ pub async fn serve(addrs: &[SocketAddr], router: Router, tls: Option<Tls>) -> an
     };
 
     let mut servers = Vec::new();
-    for addr in addrs {
-        match (&config, tokio::net::TcpListener::bind(addr).await) {
+    let mut listening: Vec<SocketAddr> = Vec::new();
+    for asked in addrs {
+        let mut addr = *asked;
+        if addr.port() == 0 {
+            if let Some(first) = listening.first() {
+                addr.set_port(first.port());
+            }
+        }
+        let addr = &addr;
+        let bound_listener = tokio::net::TcpListener::bind(addr).await;
+        if let Ok(listener) = &bound_listener {
+            listening.push(listener.local_addr().unwrap_or(*addr));
+        }
+        match (&config, bound_listener) {
             (Some(config), Ok(listener)) => {
                 tracing::info!(%addr, "listening (TLS)");
                 let listener = listener.into_std()?;
@@ -324,10 +348,40 @@ pub async fn serve(addrs: &[SocketAddr], router: Router, tls: Option<Tls>) -> an
     if servers.is_empty() {
         anyhow::bail!("no listener could be bound");
     }
+    bound(listening);
     for server in servers {
         let _ = server.await;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod serve_tests {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+
+    /// `--port 0`: what a module is told is the port the system chose, one for both loopback
+    /// families (ipdrun-14).
+    #[tokio::test]
+    async fn port_zero_is_reported_as_the_port_bound() {
+        let addrs = [
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+            SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 0),
+        ];
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            super::serve_with(&addrs, axum::Router::new(), None, move |bound| {
+                let _ = tx.send(bound);
+            })
+            .await
+        });
+        let bound = rx.await.expect("told where it listens");
+        server.abort();
+        assert!(!bound.is_empty());
+        let port = bound[0].port();
+        assert_ne!(port, 0);
+        assert!(bound.iter().all(|a| a.port() == port), "{bound:?}");
+        assert!(bound[0].ip().is_loopback());
+    }
 }
 
 #[cfg(test)]
