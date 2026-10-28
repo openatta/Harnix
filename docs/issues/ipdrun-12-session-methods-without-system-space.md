@@ -54,3 +54,19 @@ model_switch = true   # 缺省 false
 ## 来源
 
 IPDrun 的产品 profile 不带系统 space，发现输入框不能换模型；会话里的压缩、清空它用自己的方法绕过去了，模型菜单绕不过去。
+
+## 实现记录
+
+后端（F3a）：
+
+- `ShellProfile.model_switch`（缺省 false）。打开时内建多注册一个模块 `model`（`crates/builtin/src/lib.rs` 的 `MODEL`，授权 `session.setModel`），方法
+  `harnix.sessions.setModel {instance?, session_id, model, provider?, space?}`（`crates/builtin/src/system.rs`）：先以声称的 space（缺省 `sessions`）
+  调一次 `session.get`，由中枢的 space 校验拒绝别的 space 的会话（`SPACE_MISMATCH`，`data` 带归属）；声称 `system` 直接 `SPACE_MISMATCH`，跨 space 仍只在
+  `harnix.system.*`。再调引擎的 `session.setModel`。`Builtin::modules(system_space)` 不变，新增 `modules_with(system_space, model_switch)`。
+- 测试：Rust `profile::tests::the_shell_keeps_every_built_in_space_unless_told`（加了 `model_switch` 的缺省与读取）；`tests/live/api/model-switch.spec.ts` 的
+  「with model_switch, a space changes its own session's model」（`reachable` 有 `setModel`、无 `harnix.system.model`；换完 `inspectContext` 报新模型——
+  `session.get` 不带模型字段，验收里那一句改用它）、「claiming one space for another space's session is refused」、「without the line, nothing is added」。
+
+外壳部分待做：`ui/packages/shell/src/Shell.tsx` 里 `SET_MODEL`（`:298`）的两处用法（`:241`、`:531`）改为 `reachable` 有 `harnix.sessions.setModel` 时用它
+（参数 `{instance, session_id, model, provider?, space: <当前 space>}`），没有时照旧看 `harnix.system.model`；界面用例 `tests/live/ui/conversation.spec.ts`
+（开关打开时模型菜单可选、页脚显示新模型；不打开时只显示当前模型）。

@@ -172,11 +172,20 @@ const SYSTEM: Part = Part {
     ],
 };
 
+/// Changing a session's model from the composer when the system space is gone: registered only
+/// with `[shell] model_switch = true`, and scoped to the space the caller claims (ipdrun-12).
+const MODEL: Part = Part {
+    id: "model",
+    disclosure: "换会话的模型：只在调用方声称的 space 自己的会话上（[shell] model_switch）",
+    methods: &["harnix.sessions.setModel"],
+    grants: &["session.setModel"],
+};
+
 /// Every method the built-ins contribute, the system space's included.
 pub fn methods() -> Vec<&'static str> {
     PARTS
         .iter()
-        .chain([&SYSTEM])
+        .chain([&SYSTEM, &MODEL])
         .flat_map(|p| p.methods.iter().copied())
         .collect()
 }
@@ -186,7 +195,7 @@ pub fn methods() -> Vec<&'static str> {
 pub fn engine_methods() -> Vec<&'static str> {
     let mut all: Vec<&'static str> = PARTS
         .iter()
-        .chain([&SYSTEM])
+        .chain([&SYSTEM, &MODEL])
         .flat_map(|p| p.grants.iter().copied())
         .collect();
     all.sort();
@@ -215,9 +224,16 @@ impl Builtin {
 
     /// The built-in modules, in the order they register; the system space's last, when it is on.
     pub fn modules(self: &Arc<Self>, system_space: bool) -> Vec<BuiltinModule> {
+        self.modules_with(system_space, false)
+    }
+
+    /// [`Builtin::modules`], and `harnix.sessions.setModel` with `model_switch`
+    /// (`[shell] model_switch`).
+    pub fn modules_with(self: &Arc<Self>, system_space: bool, model_switch: bool) -> Vec<BuiltinModule> {
         PARTS
             .iter()
             .chain(system_space.then_some(&SYSTEM))
+            .chain(model_switch.then_some(&MODEL))
             .map(|part| BuiltinModule {
                 builtin: self.clone(),
                 part,
@@ -307,6 +323,7 @@ impl Builtin {
             "harnix.workspaces.remove" => self.workspaces_remove(params).await,
             "harnix.sessions.rename" => self.session_rename(params).await,
             "harnix.sessions.archive" => self.session_archive(params).await,
+            "harnix.sessions.setModel" => self.session_set_model(params).await,
             "harnix.prefs.set" => self.prefs_set(params).await,
             "harnix.search" => self.search(params).await,
             "harnix.requestHeaders" => self.request_headers(params).await,

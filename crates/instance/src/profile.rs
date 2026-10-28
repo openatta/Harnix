@@ -81,12 +81,17 @@ pub struct ShellProfile {
     /// Without `system`, its methods go too: no client can claim the system space, and none can act
     /// across spaces.
     pub spaces: Vec<String>,
+    /// Whether the composer may change a session's model without the system space:
+    /// `harnix.sessions.setModel`, scoped to the space the caller claims (ipdrun-12). Off unless
+    /// written, so a product that left model choice to the settings page keeps it there.
+    pub model_switch: bool,
 }
 
 impl Default for ShellProfile {
     fn default() -> Self {
         Self {
             spaces: BUILTIN_SPACES.iter().map(|s| s.to_string()).collect(),
+            model_switch: false,
         }
     }
 }
@@ -342,8 +347,11 @@ mod tests {
                 && profile.shell.keeps("system")
         );
         assert!(profile.ui.runtime_modules);
+        assert!(!profile.shell.model_switch);
         let profile = Profile::parse("[shell]\nspaces = [\"sessions\"]\n").unwrap();
         assert!(!profile.shell.keeps("system"));
+        let profile = Profile::parse("[shell]\nspaces = []\nmodel_switch = true\n").unwrap();
+        assert!(profile.shell.model_switch && !profile.shell.keeps("system"));
         let err = Profile::parse("[shell]\nspaces = [\"home\"]\n").unwrap_err();
         assert!(err.to_string().contains("home"), "{err}");
     }

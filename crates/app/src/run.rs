@@ -86,7 +86,10 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     let mut entries = Vec::new();
     let builtin = if app.builtins {
         let builtin = Builtin::new(roots.state.clone(), roots.projects.clone())?;
-        for module in builtin.modules(profile.shell.keeps(harnix_contract::SYSTEM_SPACE)) {
+        for module in builtin.modules_with(
+            profile.shell.keeps(harnix_contract::SYSTEM_SPACE),
+            profile.shell.model_switch,
+        ) {
             entries.push(Entry {
                 module: Box::new(module),
                 namespace: Namespace::Kernel,
