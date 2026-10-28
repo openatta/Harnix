@@ -5,7 +5,7 @@
 // moved, check-pins an agix/ commit no remote has.
 
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync as realpath, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -93,6 +93,49 @@ try {
     "check-pins: a harnix/ pointer no remote has fails", `got ${JSON.stringify(verdict)}`);
 } finally {
   rmSync(scratch, { recursive: true, force: true });
+}
+
+/* ── build.sh: the application's own pnpm workspace ────────────────────── */
+// An application with its own workspace (spaces/*/ui, tests) installs it before the shell is
+// built, or the shell build cannot resolve a space's third-party imports (ipdrun-32). Run with
+// stand-ins for pnpm, cargo and Harnix's scripts that only write down how they were called.
+{
+  const app = mkdtempSync(join(tmpdir(), "harnix-build-sh-"));
+  try {
+    mkdirSync(join(app, "scripts"), { recursive: true });
+    mkdirSync(join(app, "harnix", "scripts"), { recursive: true });
+    mkdirSync(join(app, "bin"), { recursive: true });
+    writeFileSync(join(app, "scripts", "build.sh"), readFileSync(join(root, "templates/app/scripts/build.sh")));
+    for (const s of ["sync-app-deps.mjs", "check-pins.mjs", "check-lock.mjs"]) {
+      writeFileSync(join(app, "harnix", "scripts", s), "");
+    }
+    const log = join(app, "calls.log");
+    for (const tool of ["pnpm", "cargo"]) {
+      writeFileSync(join(app, "bin", tool), `#!/bin/sh\necho "${tool} $* @ $(pwd -P)" >> "${log}"\n`, { mode: 0o755 });
+    }
+    const build = () => {
+      writeFileSync(log, "");
+      execFileSync("bash", [join(app, "scripts", "build.sh")], {
+        cwd: app,
+        env: { ...process.env, PATH: `${join(app, "bin")}:${process.env.PATH}` },
+        stdio: ["ignore", "ignore", "inherit"],
+      });
+      return readFileSync(log, "utf8").trim().split("\n");
+    };
+    const rootInstall = (calls) =>
+      calls.findIndex((c) => /^pnpm install --frozen-lockfile @ /.test(c) && c.endsWith(` @ ${realpath(app)}`));
+    let calls = build();
+    expect(rootInstall(calls) < 0, "build.sh: without its own workspace an app installs only harnix/",
+      `it installed at the root anyway: ${calls.join(" | ")}`);
+    writeFileSync(join(app, "pnpm-workspace.yaml"), "packages:\n  - spaces/*/ui\n");
+    calls = build();
+    const shell = calls.findIndex((c) => c.includes("--filter @harnix/shell build"));
+    expect(rootInstall(calls) >= 0 && rootInstall(calls) < shell,
+      "build.sh: with its own workspace the app's packages are installed before the shell is built",
+      `calls were: ${calls.join(" | ")}`);
+  } finally {
+    rmSync(app, { recursive: true, force: true });
+  }
 }
 
 if (failures) {

@@ -40,3 +40,14 @@ SDK §3 的「两个 pnpm workspace，互不相交」（`docs/harnix-sdk.md:90-9
 ## 来源
 
 IPDrun 迁到 Harnix 时按 SDK §3 用两个 workspace，走通了；这三处是当时补的（构建脚本里的根 `pnpm install`、tsconfig、vitest 的 `dedupe`）。
+
+## 实现记录
+
+- `templates/app/scripts/build.sh`：`pnpm --dir harnix install` 之后、外壳构建之前，应用根有 `pnpm-workspace.yaml` 时 `pnpm install --frozen-lockfile`。
+- SDK 指南 §3「两个 pnpm workspace」后补三条（两边都要装、`allowImportingTsExtensions`、两份 React 指向 §12）；§12 补 vitest 的
+  `resolve.dedupe`（顺带一句收尾用 `dispose()`，ipdrun-03）。
+- 测试：`tests/app-scripts.mjs`（offline 层）的「build.sh: without its own workspace an app installs only harnix/」「build.sh: with its own workspace
+  the app's packages are installed before the shell is built」：用记录调用的假 `pnpm` / `cargo` 跑真 `build.sh`，有没有 `pnpm-workspace.yaml` 各一遍；
+  改动前第二条失败（已验证）。
+- 偏离：验收写的是在 `tests/app-template.mjs` 里用模板建一个带第三方依赖的 space 的应用、真跑 `build.sh`——那要联网装包，template 层是离线构建；
+  改用上面的离线行为测试。

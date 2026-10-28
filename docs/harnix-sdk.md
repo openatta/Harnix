@@ -91,6 +91,13 @@ Harnix 进程
 把 `react`、`@harnix/react`、`@harnix/core` 去重到外壳那一份）；应用根下自己的 workspace 只收 `spaces/*/ui`
 和测试包，`@harnix/react` 用 `link:../../../harnix/ui/packages/react` 引进来，`react` 的版本写成和 Harnix 一样。
 退路是根 workspace 收 `harnix/ui/packages/*`、只装一次；两种都写在 [Helm 迁移说明](migration-helm.md) P5 里。
+照这样做还要知道三点：
+
+- 两边都要装：模板的 `scripts/build.sh` 先 `pnpm --dir harnix install`，应用根有 `pnpm-workspace.yaml` 时再 `pnpm install`，然后才构建外壳——
+  外壳构建要从应用的 workspace 里解析 space 的 import（第三方包也是）。
+- 类型检查：`@harnix/react` 的 `exports` 指向 `.ts` 源码，应用的 `tsc` 会一起检查它，所以应用的 tsconfig 要有
+  `allowImportingTsExtensions`（继承 `harnix/tsconfig.base.json` 就有；继承自己的 base 时自己加）。
+- 组件测试里的两份 React：见 §12。
 
 Cargo 这边要知道三件事（为什么这样做见设计 §11.2）：
 
@@ -666,6 +673,9 @@ r.strings('zh-CN', { 'hello-app.greeter': '问候' }, 'hello-app');
 - 模型默认走录像回放（确定、离线、不花钱）；`--live` 连真实模型并可以写回录像。
 - 每个套件有自己的 HOME、数据根、端口，互不串。
 - 用例打标签 `@feature:<功能>`、`@layer:api|ui`，覆盖表从标签生成。
+- 应用自己的 vitest 组件测试：`link:` 进来的 `@harnix/react` 会从 `harnix/` 那边解析 `react`，测试里就有两份 React、hook 报错。
+  在应用的 vitest 配置里写 `resolve: { dedupe: ["react", "react-dom"] }`——和外壳构建时 Vite 的去重是同一件事，方向相反。
+- 收尾用 `await backend.dispose()`（等进程退出再删目录），不要用 `stop()`。
 
 ```ts
 import { test, expect } from '@harnix/testkit';
