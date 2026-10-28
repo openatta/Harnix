@@ -43,7 +43,9 @@ pub use sessions::{
 pub use base::interface::credentials::Secret;
 /// Agix's prompt middleware, for a module to install from `EngineContrib::customize_session` with
 /// `Builder::prompt_middleware` without naming Agix's crates (ipdrun-13).
-pub use base::interface::prompt_middleware::{PromptCall, PromptDecision, PromptDelivery, PromptMiddleware};
+pub use base::interface::prompt_middleware::{
+    PromptAttachment, PromptAttachmentKind, PromptCall, PromptDecision, PromptDelivery, PromptMiddleware,
+};
 pub use harnix_instance::profile::EngineProfile;
 pub use harnix_instance::templates::{AttachTo, InstanceTemplate, InstanceTemplates, TemplateCarrier};
 pub use harnix_instance::EngineContrib;
