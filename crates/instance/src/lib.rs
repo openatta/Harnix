@@ -30,17 +30,18 @@ mod factory;
 mod inproc;
 pub mod link;
 pub mod profile;
+mod reap;
 mod serve;
 pub mod templates;
 
 pub use contrib::EngineContrib;
-pub use daemon_link::{DaemonLink, DaemonSpec, Endpoint, SpawnSpec};
+pub use daemon_link::{DaemonLink, DaemonSpec, Endpoint, SpawnOptions, SpawnSpec};
 pub use engine::{build as build_engine, Engine, EngineConfig};
 pub use factory::{engine_config, Built, Facts, Factory};
 pub use inproc::InProcessLink;
 pub use link::{Carrier, DownLink, EngineLink, LinkStatus};
 pub use profile::{EngineProfile, InstanceDecl, Profile, TemplateDecl, TransportProfile, UiProfile};
-pub use serve::{serve_daemon, DaemonArgs};
+pub use serve::{refuse_daemon, refusal_path, serve_daemon, serve_daemon_with, DaemonArgs, REFUSED_EXIT};
 pub use templates::{
     AttachTo, InstanceTemplate, InstanceTemplates, Ledger, LedgerEntry, Owner, TemplateCarrier,
 };

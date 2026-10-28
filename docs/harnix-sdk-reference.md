@@ -36,6 +36,7 @@ harnix::{App, AppBuilder, ModuleStatus, Namespace, HARNIX_VERSION, SHUTDOWN_GRAC
          InstanceTemplates, Instances, Listen, Manifest, MethodRegistry, MigrateContext, MigrationReport,
          Module, ModuleContext, OnBusy, Principal, RouteRegistry, Secret, SessionRef, SessionSpec,
          Sessions, SpaceDecl, SpaceRegistry, Tap, TapEvent, TemplateCarrier,
+         PromptCall, PromptDecision, PromptDelivery, PromptMiddleware,
          CONTRIB_API_VERSION, MODULE_API_VERSION, SETTLED_HELD, TAP_CAPACITY,
          async_trait, axum}
 ```
@@ -87,9 +88,10 @@ pub trait Module: Send + Sync + 'static {
 | `Events` | `cx.events().publish(topic, params_json, value).await`：推**整值快照**；`topic` 写短名 |
 | `RouteRegistry` | `r.serve(&[Principal], axum::Router)`：挂在 `/apps/<id>/` 下，同源，同一套准入 |
 | `SpaceRegistry` | `s.add(SpaceDecl::new(id).instance("template:<模块>.<模板>" \| "<实例 id>").scene(scene))`。不声明：`system` 实例、实例的默认场景 |
-| `InstanceTemplates` | `t.add(InstanceTemplate::new(id, carrier).data_root(pattern).param(name).ui().max(n).inherit_providers())`。`inherit_providers()`：这个模板的实例也看得到 `system` 的 provider（设置页配的）——建实例时、以及每次 `harnix.settings.setProvider` 之后，Harnix 把它们并进实例数据根的 `settings.json`（0600）再让它 `config.reload`；Harnix 写过哪些 id 记在 `.inherited-providers.json`，只动这些，实例自己配的同名 provider 不覆盖。全名 `<模块 id>.<模板 id>`；`data_root` 默认 `{name}`，可用 `{name}` 和声明过的参数 |
+| `InstanceTemplates` | `t.add(InstanceTemplate::new(id, carrier).data_root(pattern).param(name).ui().max(n).inherit_providers())`。`inherit_providers()`：这个模板的实例也看得到 `system` 的 provider（设置页配的）——建实例时、以及每次 `harnix.settings.setProvider` 之后，Harnix 把它们并进实例数据根的 `settings.json`（0600）再让它 `config.reload`；Harnix 写过哪些 id 记在 `.inherited-providers.json`，只动这些，实例自己配的同名 provider 不覆盖。`.reap_on_stop()`（ipdrun-07）：停下或重启时收掉会话留下的进程（spawn：daemon 自成会话，退出后 TERM→1.5 s→KILL 会话里剩下的；两种载体都在实例全局层打开 `sandbox.reap_process_groups`），实例视图带 `reap: true`。`.native(\|e\| …)`（ipdrun-10）：两种载体都有的原生贡献，spawn 时 daemon 带 `--template <全名>` 在自己进程里再建一遍（只调各模块的 `templates()`），找不到以 78 退出、实例 `down`。全名 `<模块 id>.<模板 id>`；`data_root` 默认 `{name}`，可用 `{name}` 和声明过的参数 |
 | `TemplateCarrier` | `InProcess { engine, contrib }`（只有模块的模板能带原生贡献）、`Spawn { engine, program: Option<PathBuf>, args }`（`None` = 本二进制的 `daemon` 子命令）、`Attach(AttachTo { socket, tcp, token })` |
 | `EngineContrib` | `.scene(Arc<dyn AgentScene>)`、`.customize_session(\|builder, cx\| …)`、`.credentials(Arc<dyn CredentialSource>)`、`.extend(other)` |
+| `PromptMiddleware`、`PromptCall`、`PromptDecision`、`PromptDelivery` | Agix 的 prompt 中间件（ipdrun-13），从 `harnix` / `harnix_module` 再导出：`customize_session(\|b, _\| b.prompt_middleware(Arc::new(…)))`。设置层 hook 之后、按注册顺序跑；开一轮时 `Block` 让这一轮以 `stopped_by_hook` 结束、不调模型，steer 时 `Block` 发 `user_message_refused` 事件 |
 | `EngineProfile` | `scene = "coding"`、`scenes = []`、`model = "claude-sonnet-4-6"`、`max_tokens = 2000`、`session_cap = 32`、`session_idle_timeout_secs = 3600`、`permission_prompt_timeout_secs = 300`（括号里是默认值） |
 
 ### 1.4 `Principal`
@@ -210,6 +212,7 @@ params = ["team"]
 ui = true                      # 界面可以按它建
 max = 4
 inherit_providers = true       # 可选：它的实例也看得到「设置 → 模型」里配的 provider（并进实例的全局层，设置页一改就推过去）
+reap_on_stop = true            # 可选：停下或重启时收掉它的会话留下的进程（ipdrun-07）
 [instance_templates.engine]
 scene = "general"
 

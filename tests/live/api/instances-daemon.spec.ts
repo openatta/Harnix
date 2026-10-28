@@ -76,6 +76,17 @@ id = "old"
 carrier = "attach"
 [instances.attach]
 socket = "${join(dir, "old.sock")}"
+
+[[instance_templates]]
+id = "reaper"
+carrier = "spawn"
+ui = true
+reap_on_stop = true
+
+[[instance_templates]]
+id = "keeper"
+carrier = "spawn"
+ui = true
 `,
   });
 });
@@ -134,6 +145,90 @@ test("a killed daemon degrades its instance, comes back, and its sessions resync
     { timeout: 60_000, describe: "a turn after the restart to settle" },
   );
   expect(settled.params.error, "the resumed session replayed rather than called a model").toBeUndefined();
+});
+
+/**
+ * A session on `instance` runs the `leaves-a-process` fixture: Bash leaves a `tail -f /dev/null` behind and
+ * prints its pid. Answers that pid.
+ */
+async function leaveAProcess(api: TestClient, instance: string): Promise<number> {
+  const created = await api.call("session.create", {
+    instance,
+    scene: "coding",
+    project_root: api.project,
+    options: { recorder: { name: "leaves-a-process" } },
+  });
+  const sessionId = created.session_id;
+  await api.call("harnix.attach", { instance, session_id: sessionId });
+  await api.call("harnix.send", { instance, session_id: sessionId, message: "Start a background sleep and print its pid" });
+  await permit(api, instance, sessionId);
+  await api.waitFor(
+    (f) => f.method === "harnix.turn_settled" && f.params.session_id === sessionId,
+    { timeout: 60_000, describe: `the turn on ${instance} to settle` },
+  );
+  const results = JSON.stringify(api.eventsOfKind("tool_result", sessionId));
+  const pid = Number(/PID=(\d+)/.exec(results)?.[1]);
+  expect(pid, `no pid in ${results.slice(0, 300)}`).toBeGreaterThan(1);
+  expect(alive(pid)).toBe(true);
+  return pid;
+}
+
+/** Allow the Bash call the fixture makes: the engine asks before it runs. */
+async function permit(api: TestClient, instance: string, sessionId: string): Promise<void> {
+  const ask = await api.waitFor(
+    (f) => f.method === "harnix.event" && f.params.session_id === sessionId && f.params.event.kind === "prompt",
+    { timeout: 30_000, describe: "the permission ask for the Bash call" },
+  );
+  await api.call("session.respondToPrompt", {
+    instance,
+    session_id: sessionId,
+    prompt_id: ask.params.event.prompt_id,
+    decision: { type: "permit" },
+  });
+}
+
+async function gone(pid: number, within = 3_000): Promise<boolean> {
+  const deadline = Date.now() + within;
+  while (alive(pid) && Date.now() < deadline) await sleep(100);
+  return !alive(pid);
+}
+
+test("reap_on_stop: stopping the instance ends what its sessions left running (ipdrun-07)", TAGS, async () => {
+  const built = await api.call("harnix.instances.create", { template: "reaper", name: "reaper-1", wait: "ready" });
+  expect(built.reap).toBe(true);
+  const pid = await leaveAProcess(api, "reaper-1");
+  await api.call("harnix.instances.stop", { instance: "reaper-1" });
+  expect(await gone(pid), `${pid} outlived instances.stop`).toBe(true);
+});
+
+test("reap_on_stop: a daemon killed outright has its session's processes ended when it is restarted (ipdrun-07)", TAGS, async () => {
+  const built = await api.call("harnix.instances.create", { template: "reaper", name: "reaper-2", wait: "ready" });
+  const pid = await leaveAProcess(api, "reaper-2");
+  process.kill(built.pid, "SIGKILL");
+  try {
+    expect(await gone(pid, 10_000), `${pid} outlived its daemon's SIGKILL`).toBe(true);
+    const after = await until(api, "reaper-2", "ready");
+    expect(after.pid).not.toBe(built.pid);
+  } finally {
+    await api.call("harnix.instances.stop", { instance: "reaper-2" });
+  }
+});
+
+test("without reap_on_stop, what a session left running outlives the instance, as before (ipdrun-07)", TAGS, async () => {
+  const built = await api.call("harnix.instances.create", { template: "keeper", name: "keeper-1", wait: "ready" });
+  expect(built.reap).toBeUndefined();
+  const pid = await leaveAProcess(api, "keeper-1");
+  try {
+    await api.call("harnix.instances.stop", { instance: "keeper-1" });
+    await sleep(2_000);
+    expect(alive(pid), "the background process was ended without reap_on_stop").toBe(true);
+  } finally {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // already gone
+    }
+  }
 });
 
 test("a spawned daemon does not outlive Harnix, even one killed outright", TAGS, async () => {

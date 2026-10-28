@@ -184,6 +184,9 @@ pub struct TemplateDecl {
     /// Its instances see `system`'s providers under their own (ipdrun-11).
     #[serde(default)]
     pub inherit_providers: bool,
+    /// Stopping one of its instances ends what its sessions left running (ipdrun-07).
+    #[serde(default)]
+    pub reap_on_stop: bool,
     #[serde(default)]
     pub program: Option<PathBuf>,
     #[serde(default)]
@@ -260,6 +263,8 @@ impl TemplateDecl {
             ui: self.ui,
             max: self.max,
             inherit_providers: self.inherit_providers,
+            reap_on_stop: self.reap_on_stop,
+            native: None,
         })
     }
 }

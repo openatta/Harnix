@@ -12,14 +12,20 @@
 //! | `probe` (again) | a second module with a taken id is refused at registration |
 //! | `fleet` | its own in-process instance and a space on it, headless sessions, a tap left unread |
 //! | `lifecycle` | what `stop` does on the way out: a mark, a slow finish, one that never returns |
+//!
+//! `probe` also refuses, before it reaches the model, any message with `blocked-word` in it (a prompt
+//! middleware on every session of `system`), and `fleet` has two templates with the same native
+//! contributions — a scene with a tool of its own, a marked system prompt, the same refusal — one
+//! spawned and one in process.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use harnix::axum::routing::get;
 use harnix::prelude::*;
-use harnix::Tap;
+use harnix::{PromptCall, PromptDecision, PromptMiddleware, Tap};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
@@ -67,6 +73,11 @@ impl Module for Probe {
 
     fn manifest(&self) -> Manifest {
         Manifest::new("probe", "0.0.1").disclosure("a module for the tests")
+    }
+
+    /// Every session of `system` refuses a message with `blocked-word` in it (ipdrun-13).
+    fn engine(&self, e: &mut EngineContrib) {
+        e.customize_session(|b, _cx| b.prompt_middleware(Arc::new(Blocklist)));
     }
 
     fn methods(&self, m: &mut MethodRegistry) {
@@ -358,6 +369,28 @@ impl Module for Fleet {
             )
             .inherit_providers(),
         );
+        // The same native contributions, carried two ways (ipdrun-10).
+        t.add(
+            InstanceTemplate::new(
+                "native-spawn",
+                TemplateCarrier::Spawn {
+                    engine: native_engine(),
+                    program: None,
+                    args: Vec::new(),
+                },
+            )
+            .native(native),
+        );
+        t.add(
+            InstanceTemplate::new(
+                "native-local",
+                TemplateCarrier::InProcess {
+                    engine: native_engine(),
+                    contrib: EngineContrib::new(),
+                },
+            )
+            .native(native),
+        );
     }
 
     /// A space whose sessions land on this module's own instance.
@@ -481,6 +514,28 @@ impl Module for Fleet {
                     "waited": again["status"],
                 }))
             });
+        m.method("native_session", Principal::Device)
+            .describe("ensure_ready one of this module's instances, then create a session on it in `scene`")
+            .handler(|cx: CallContext, p: Value| async move {
+                let module = cx.module().clone();
+                let template = p["template"].as_str().unwrap_or_default();
+                let name = p["name"].as_str().unwrap_or_default();
+                module
+                    .instances()
+                    .ensure_ready(template, name, BTreeMap::new(), Duration::from_secs(60))
+                    .await?;
+                let session = module
+                    .sessions()
+                    .create(SessionSpec {
+                        instance: Some(name.to_string()),
+                        scene: p["scene"].as_str().map(str::to_string),
+                        project_root: p["project_root"].as_str().map(Into::into),
+                        recording: p["recording"].as_str().map(str::to_string),
+                        ..SessionSpec::default()
+                    })
+                    .await?;
+                Ok(json!({"instance": session.instance, "session_id": session.session_id}))
+            });
         m.method("sessions", Principal::Device)
             .describe("the headless sessions this module started, in any run")
             .handler(|cx: CallContext, _p: Value| async move {
@@ -505,6 +560,16 @@ impl Module for Fleet {
                     )
                     .await?;
                 Ok(json!({"model": context.get("model")}))
+            });
+        m.method("context", Principal::Device)
+            .describe("what a session's next model call would carry, as the engine says")
+            .handler(|cx: CallContext, p: Value| async move {
+                cx.module()
+                    .call(
+                        "session.inspectContext",
+                        json!({"instance": p["instance"], "session_id": p["session_id"]}),
+                    )
+                    .await
             });
         m.method("tap", Principal::Device)
             .describe("opens a tap on a session and does not read it")
@@ -655,5 +720,114 @@ impl Module for Lifecycle {
             std::future::pending::<()>().await;
         }
         let _ = std::fs::write(dir.join("stopped"), "");
+    }
+}
+
+/* ── native contributions ──────────────────────────────────────────────── */
+
+/// What a message must not contain, for `Blocklist`.
+const BLOCKED_WORD: &str = "blocked-word";
+
+/// Refuses a message with [`BLOCKED_WORD`] in it, opening a turn or steered into one.
+struct Blocklist;
+
+#[harnix::async_trait]
+impl PromptMiddleware for Blocklist {
+    async fn inspect(&self, call: &PromptCall<'_>) -> PromptDecision {
+        if call.content.contains(BLOCKED_WORD) {
+            PromptDecision::Block {
+                message: Some(format!("probe refuses messages with `{BLOCKED_WORD}` in them")),
+            }
+        } else {
+            PromptDecision::Continue
+        }
+    }
+}
+
+/// The scene `native` contributes, and what its tool answers.
+const NATIVE_SCENE: &str = "probe-native";
+const NATIVE_TOOL: &str = "ProbeFixed";
+const NATIVE_ANSWER: &str = "probe-native-answer-7f3a";
+/// What `native` puts at the end of every system prompt.
+const NATIVE_MARKER: &str = "probe-native-marker-51c2";
+
+/// `fleet`'s templates' native contributions (ipdrun-10): built in this process for the in-process
+/// one, and again in the daemon's for the spawned one.
+fn native(e: &mut EngineContrib) {
+    e.scene(Arc::new(NativeScene(scene::scene::chat::ChatScene)));
+    e.customize_session(|b, _cx| {
+        let blocks = base::interface::prompt_registry::InMemoryPromptRegistry::new();
+        let _ = base::interface::prompt_registry::PromptRegistry::register_block(
+            blocks.as_ref(),
+            base::interface::prompt_registry::RegisteredBlock::system("probe-native", 100_000, NATIVE_MARKER),
+        );
+        b.prompt_registry(blocks).prompt_middleware(Arc::new(Blocklist))
+    });
+}
+
+/// The engine of `fleet`'s native templates: their scene is active beside the default one.
+fn native_engine() -> EngineProfile {
+    EngineProfile {
+        scenes: vec![NATIVE_SCENE.into()],
+        ..EngineProfile::default()
+    }
+}
+
+/// The chat scene under another id, with one tool of its own.
+struct NativeScene(scene::scene::chat::ChatScene);
+
+impl base::interface::scene::AgentScene for NativeScene {
+    fn id(&self) -> &str {
+        NATIVE_SCENE
+    }
+    fn name(&self) -> &str {
+        "probe native"
+    }
+    fn description(&self) -> &str {
+        "the chat scene with a tool of its own"
+    }
+    fn build_system_prompt(
+        &self,
+        ctx: &base::interface::scene::ScenePromptContext,
+    ) -> Vec<base::interface::prompt::PromptBlock> {
+        self.0.build_system_prompt(ctx)
+    }
+    fn tools(&self) -> Vec<String> {
+        let mut tools = self.0.tools();
+        tools.push(NATIVE_TOOL.into());
+        tools
+    }
+    fn extra_tools(&self) -> Vec<Arc<dyn base::tool::Tool>> {
+        vec![Arc::new(FixedTool)]
+    }
+    fn token_budget(&self) -> base::interface::scene::TokenBudget {
+        self.0.token_budget()
+    }
+}
+
+/// Answers [`NATIVE_ANSWER`], whatever it is asked.
+struct FixedTool;
+
+#[harnix::async_trait]
+impl base::tool::Tool for FixedTool {
+    fn name(&self) -> &str {
+        NATIVE_TOOL
+    }
+    fn description(&self) -> &str {
+        "Answers a fixed string."
+    }
+    fn input_schema(&self) -> Value {
+        json!({"type": "object", "properties": {}})
+    }
+    fn is_read_only(&self, _: &Value) -> bool {
+        true
+    }
+    async fn call(
+        &self,
+        _input: Value,
+        _cx: base::tool::ToolContext,
+        _progress: base::tool::ProgressSender,
+    ) -> Result<base::tool::ToolResult, base::error::ToolError> {
+        Ok(base::tool::ToolResult::text(NATIVE_ANSWER))
     }
 }

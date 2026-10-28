@@ -62,3 +62,29 @@ impl InstanceTemplate {
 
 IPDrun 的实例里模型用 Bash 起了 `nohup sleep … &`，`instances.stop` 之后进程一直在；IPDrun 现在按「父进程是 1、工作目录在实例的
 工作区下」去找孤儿进程组再杀（`crates/agent/src/reap.rs`），是启发式，`cd` 出去的找不到。
+
+## 实现记录
+
+（F3c，与 ipdrun-10、ipdrun-13 同一提交，提交号见 `git log --grep ipdrun-07`；Agix 钉在 `Agix-v0.2.9-2026102701`，`bbdd8e2`。）
+
+- `InstanceTemplate::reap_on_stop()`（字段 `reap_on_stop`，缺省 false；profile 的 `[[instance_templates]]` 写 `reap_on_stop = true`）。
+  `Factory::build_template` 读它：两种载体都在实例数据根的全局层 `settings.json` 里打开 Agix 的 `sandbox.reap_process_groups`
+  （写文件而不是只改内存：引擎按项目从磁盘读各层设置，`config.reload` 也重读；文件里其他键不动）。spawn 时 `DaemonLink::start_with(spec, SpawnOptions::default().reap_on_stop())`：
+  `pre_exec` 里 `setsid()`；`stop_child`（`instances.stop`、关进程）在 daemon 退出 / 被 kill 之后、`ensure_child` 发现 daemon 已退出要重启之前，
+  对会话号等于旧 daemon pid 的进程 TERM，等 `REAP_GRACE`（1.5 s），KILL 剩下的。列进程在 `crates/instance/src/reap.rs` 一处：Linux 读
+  `/proc/<pid>/stat` 的 session 字段（跳过僵尸），macOS 用 `proc_listallpids` + `getsid`；永远不收本进程自己的会话。
+- 实例视图：`EngineLink::reaps_on_stop()`（缺省 false，只加）为真时多一项 `reap: true`。
+- 测试：Rust `reap::tests::a_session_whose_leader_was_killed_is_reaped`、`reap::tests::this_process_never_reaps_its_own_session`、
+  `reap::tests::the_engine_s_reaping_is_turned_on_in_the_global_tier_and_nothing_else_moves`；`tests/live/api/instances-daemon.spec.ts` 的
+  「reap_on_stop: stopping the instance ends what its sessions left running」「reap_on_stop: a daemon killed outright has its session's processes
+  ended when it is restarted」「without reap_on_stop, what a session left running outlives the instance, as before」。新录像 `leaves-a-process`
+  （由 `calls-a-tool` 手改出：只换了工具入参和最后的文字）。
+
+偏离：
+
+- 验收里的 `sleep 300 … &` 换成 `tail -f /dev/null … &`：Agix 拒绝 Bash 里 2 s 以上的 `sleep`（`use the Monitor tool`）。
+- 模板放在测试的 profile（`[[instance_templates]]` 的 `reaper`、`keeper`）而不是 testapp 的模块里：设备只能按 `ui` 模板建，profile 模板正好；
+  为此 profile 也认 `reap_on_stop`。
+- 只在 macOS 上跑过（本机）；Linux 那一支有代码、未在 CI 上跑。
+- 进程内实例的视图不带 `reap`（`InProcessLink` 没有这一项；它的回收只是引擎那一半）。
+- 实例被 kill -9 之后的回收发生在看护**重启**它之前；看护若因连续快速退出放弃（`down`），最后一次退出后的会话不再收。

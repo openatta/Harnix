@@ -309,6 +309,40 @@ fn engine(&self, e: &mut EngineContrib) {
 
 多个模块的 customizer 由 Harnix 按注册顺序组合。
 
+#### 拦截人的消息（prompt 中间件）
+
+人的话进一轮之前，模块可以按自己的规则放行、改写或拒收，经外壳直接发给会话的（`harnix.send`）也算。挂在会话的 `Builder`
+上，类型从 `harnix`（或 `harnix_module`）取，不用直接依赖 Agix 的 crate：
+
+```rust
+use harnix::{PromptCall, PromptDecision, PromptMiddleware};
+
+struct Policy;
+
+#[harnix::async_trait]
+impl PromptMiddleware for Policy {
+    async fn inspect(&self, call: &PromptCall<'_>) -> PromptDecision {
+        if call.content.contains("rm -rf") {
+            PromptDecision::Block { message: Some("这类话这里不收".into()) }
+        } else {
+            PromptDecision::Continue          // 或 PromptDecision::Rewrite(新的话)
+        }
+    }
+}
+
+fn engine(&self, e: &mut EngineContrib) {
+    e.customize_session(|b, _cx| b.prompt_middleware(Arc::new(Policy)));
+}
+```
+
+- 次序：设置层的 `UserPromptSubmit` hook 之后，再按模块注册顺序（同一个模块里按添加顺序）。
+- `call.delivery` 说这句话是开一轮（`Turn`）还是送进正在跑的一轮（`Steer`，`on_busy: "steer"`）。
+- 开一轮时拒收：这一轮不调模型就结束，`turn_complete` 的 `stop_reason` 是 `stopped_by_hook`、`message` 是你给的理由，
+  `harnix.turn_settled` 的 `outcome` 里也有这两项。
+- steer 时拒收：那句话不进对话，这一轮照常跑完；客户端收到事件 `user_message_refused { message_id, content, message }`
+  （经 `harnix.event`）。没有模块拒收时它不会出现。
+- 载体：进程内实例的中间件跑在本进程。spawn 实例要同样生效，把它放进模板的 `native`（§6.2），它在 daemon 进程里再建一遍。
+
 ### 6.2 给 space 一台独立、隔离的实例（M3 起）
 
 实例只能按模板建。**模板是你在 `templates()` 里声明的**，模块和界面都按它建，Harnix 记进账本、
@@ -325,7 +359,7 @@ fn templates(&self, t: &mut InstanceTemplates) {
         contrib,
     }));
 
-    // daemon：崩溃与资源也隔离；不能带原生贡献
+    // daemon：崩溃与资源也隔离；要原生贡献就写 `.native(…)`（见下）
     t.add(
         InstanceTemplate::new("sandbox", TemplateCarrier::Spawn {
             engine: EngineProfile { scene: "general".into(), ..EngineProfile::default() },
@@ -358,6 +392,17 @@ async fn start(&self, ctx: ModuleContext) -> anyhow::Result<()> {
 - **spawn 实例 `ensure` 之后不是马上可用**：daemon 要零点几秒才起来，这期间的会话调用答 `INSTANCE_UNAVAILABLE`
   （`the instance is starting`）。接着就要用它的，调 `ctx.instances().ensure_ready(template, name, params, timeout)`
   （设备侧：`harnix.instances.ensure { …, wait: "ready" }`）：`ready` 了才返回，`down` 立即报错并带理由，超时同样。
+- **原生贡献两种载体一致**：模板上写 `.native(|e| { e.scene(…); e.customize_session(…); })`。进程内模板把它并在
+  `contrib` 之后；spawn 模板（`program` 为 `None`，即本二进制的 `daemon` 子命令）的 daemon 带 `--template <模块>.<模板>` 起来，
+  照装配顺序对每个应用模块调一次 `templates()`——**不调 `start`、不开任何方法**——找到这个模板，在 daemon 进程里再调一遍闭包。
+  所以 `templates()` 必须没有副作用、不依赖 `start` 之后的状态；闭包跑在 daemon 进程里，**不和模块共享内存**，要模块的状态经
+  Harnix 的方法或文件拿。找不到这个模板时 daemon 以 78 退出，实例 `down`，理由里写明。模板贡献的场景要在 `EngineProfile.scenes`
+  里列出才在实例上启用。
+- **停下时收干净**：模板上写 `.reap_on_stop()`（profile 的模板写 `reap_on_stop = true`），缺省关。spawn 实例的 daemon 自成一个
+  会话（`setsid`），daemon 退出、被杀、崩溃或看护重启时，Harnix 把还留在这个会话里的进程 TERM、等 1.5 s、KILL；同时在实例的全局
+  设置层打开 Agix 的 `sandbox.reap_process_groups`，正常退出时引擎自己先收。进程内实例只有后一半（会话结束时收它起过的进程组）。
+  daemon 在自己的会话里就收不到终端的 Ctrl-C，它的退出照旧跟着 stdin 关闭走。实例视图多一项 `reap: true`（spawn 时）。
+  自己 `setsid` 出去的进程收不到。
   已经建好、正在重启或重连的，用 `wait_ready(instance, timeout)`。会话类调用本身不等。
 
 让一个 space 默认用它：space 声明里写 `instance = "template:research"`（第一次在这个 space 里建会话

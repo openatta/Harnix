@@ -235,7 +235,7 @@ impl Hub {
         if template.inherit_providers {
             self.inherit_into(&entry.id, &root);
         }
-        match registry.factory.build(&entry.id, &template.carrier, root).await {
+        match registry.factory.build_template(&entry.id, template, root).await {
             Ok(built) => built,
             Err(e) => down(template.carrier.carrier(), format!("{e:#}")),
         }
@@ -414,7 +414,7 @@ impl Hub {
         }
         let built = registry
             .factory
-            .build(&name, &template.carrier, root)
+            .build_template(&name, &template, root)
             .await
             .map_err(|e| RpcError::new(codes::INTERNAL_ERROR, format!("{e:#}")))?;
         let created_ms = link::now_ms();
@@ -647,7 +647,7 @@ impl Hub {
 
     pub(crate) fn instance_view(&self, slot: &Slot) -> Value {
         let identity = slot.link.identity();
-        json!({
+        let mut view = json!({
             "id": slot.id,
             "carrier": slot.link.carrier(),
             "template": slot.template,
@@ -660,7 +660,11 @@ impl Hub {
             "scenes": slot.facts.active_scenes,
             "pid": slot.link.pid(),
             "created_ms": slot.created_ms,
-        })
+        });
+        if slot.link.reaps_on_stop() {
+            view["reap"] = json!(true);
+        }
+        view
     }
 
     /// `harnix.instances.templates`: the templates this caller may build

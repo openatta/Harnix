@@ -134,7 +134,17 @@ pub struct InstanceTemplate {
     /// Whether its instances see the providers configured for `system` — the settings page's —
     /// under their own (ipdrun-11).
     pub inherit_providers: bool,
+    /// Stopping or restarting one of its instances ends every process its sessions left running
+    /// (ipdrun-07). See [`InstanceTemplate::reap_on_stop`].
+    pub reap_on_stop: bool,
+    /// Native contributions built again for each instance, whichever carrier runs it (ipdrun-10).
+    /// See [`InstanceTemplate::native`].
+    pub native: Option<NativeContrib>,
 }
+
+/// What [`InstanceTemplate::native`] keeps: called once per engine it builds, in whichever process
+/// that engine runs.
+pub type NativeContrib = std::sync::Arc<dyn Fn(&mut EngineContrib) + Send + Sync>;
 
 impl InstanceTemplate {
     pub fn new(id: impl Into<String>, carrier: TemplateCarrier) -> Self {
@@ -146,6 +156,8 @@ impl InstanceTemplate {
             ui: false,
             max: None,
             inherit_providers: false,
+            reap_on_stop: false,
+            native: None,
         }
     }
 
@@ -176,6 +188,44 @@ impl InstanceTemplate {
     pub fn inherit_providers(mut self) -> Self {
         self.inherit_providers = true;
         self
+    }
+
+    /// Stopping or restarting one of this template's instances ends every process its sessions
+    /// left running, including what a command deliberately left in the background.
+    ///
+    /// For a spawned daemon: it leads a session of its own, and once it is gone — `stop`, killed,
+    /// crashed, about to be started again — whatever is still in that session gets TERM, a grace,
+    /// then KILL. The daemon also has the engine's own reaping on
+    /// (`sandbox.reap_process_groups`), so on an ordinary exit it has ended its sessions'
+    /// processes itself; this is for the daemon that did not get the chance. Being in its own
+    /// session, it no longer gets the terminal's Ctrl-C; its exit follows stdin closing, as it
+    /// always did. For an in-process engine, only the engine's own reaping applies: it ends a
+    /// session's process groups when the session ends. A template that does not ask leaves
+    /// background processes alone, as before.
+    pub fn reap_on_stop(mut self) -> Self {
+        self.reap_on_stop = true;
+        self
+    }
+
+    /// Native contributions for this template's instances, whichever carrier runs them: scenes,
+    /// session customizers, a credential source. In process, they are added after the carrier's
+    /// own `contrib`. For a spawned daemon of this binary, the daemon builds them again in its own
+    /// process: it is started with `--template <id>`, calls every module's `templates()` (and
+    /// nothing else of the module — no `start`, no methods) to find this one, and calls `f` there.
+    /// They share no memory with the module; what they need of its state comes through Harnix's
+    /// methods or files. A template whose `program` is somebody else's gets no `--template`.
+    pub fn native(mut self, f: impl Fn(&mut EngineContrib) + Send + Sync + 'static) -> Self {
+        self.native = Some(std::sync::Arc::new(f));
+        self
+    }
+
+    /// What `native` contributes, built once more.
+    pub fn native_contrib(&self) -> Option<EngineContrib> {
+        self.native.as_ref().map(|f| {
+            let mut contrib = EngineContrib::new();
+            f(&mut contrib);
+            contrib
+        })
     }
 
     /// Check what a caller filled in and say where the instance's data goes.

@@ -112,6 +112,27 @@ impl Record {
     }
 }
 
+/// A spawned daemon's native contributions (ipdrun-10): the template `id` names, found by calling
+/// `templates()` on each module in the order they were added, and nothing else of them — no
+/// `start`, no methods. Only the application's own modules: the built-in ones declare no templates.
+pub(crate) fn native_of(
+    modules: &[Box<dyn harnix_module::ErasedModule>],
+    id: &str,
+) -> Result<EngineContrib, String> {
+    for module in modules {
+        let owner = module.manifest().id;
+        let Some(name) = id.strip_prefix(&format!("{owner}.")) else { continue };
+        let mut templates = InstanceTemplates::default();
+        module.templates(&mut templates);
+        if let Some(template) = templates.into_list().into_iter().find(|t| t.id == name) {
+            return template
+                .native_contrib()
+                .ok_or_else(|| format!("the template `{id}` has no native contributions to build"));
+        }
+    }
+    Err(format!("this binary declares no template `{id}`"))
+}
+
 /// Call every module's registration functions and put what they declare in
 /// the table. A conflict disables the module that came second.
 pub(crate) fn register(

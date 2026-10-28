@@ -1208,8 +1208,10 @@ name = "harnix-testapp"
 version = "0.4.0-2026102701"
 dependencies = [
  "anyhow",
+ "base",
  "futures",
  "harnix",
+ "scene",
  "serde",
  "serde_json",
  "tokio",

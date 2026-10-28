@@ -52,3 +52,34 @@ Agix `ipdrun-03`（必需），Agix `ipdrun-04`（steer 的拒收），Harnix `i
 
 IPDrun 要对人直接说给某类会话的话先做检查；现在两种载体都走 command hook（`ipdrun user-prompt` 子进程），宿主自己发的消息还得先登记、
 让 hook 放行（`crates/agent/src/hook.rs`）。
+
+## 实现记录
+
+（F3c，与 ipdrun-07、ipdrun-10 同一提交，提交号见 `git log --grep ipdrun-13`；前置：`bbdd8e2` 把 `agix/` 钉到 `Agix-v0.2.9-2026102701`。）
+
+- 升钉后 Harnix 不用改就能编过：中枢没有对 `AgentEvent` 的穷举匹配，会话事件不论种类都经 `harnix.event` 原样转发，所以 `user_message_refused`
+  （`{message_id, content, message}`）直接到客户端；中枢不把它放回队列（它不像 `user_messages_returned`）。开一轮时被拒走原来的
+  `turn_complete`（`stopped_by_hook`），`harnix.turn_settled.outcome` 里有 `stop_reason` 与 `message`（ipdrun-17）。
+- `harnix_module` 与 `harnix` 再导出 `PromptMiddleware`、`PromptCall`、`PromptDecision`、`PromptDelivery`。模块照建议
+  `e.customize_session(|b, _| b.prompt_middleware(Arc::new(…)))`；spawn 载体经 ipdrun-10 的 `native`。
+- SDK §6.1 加「拦截人的消息」（次序、两种结局、两种载体），参考文档补再导出与 `EngineContrib` 一行。
+- 测试：testapp 的 `probe` 在 `engine()` 里挂 `Blocklist`（含 `blocked-word` 就 `Block`），`fleet` 的 `native` 也挂它。
+  `tests/live/api/native-contrib.spec.ts`：「system: a module's prompt middleware refuses a turn, and the next one runs」（`stopped_by_hook`、
+  `turn_complete.api_calls == 0`、下一条正常 `end_turn`）、「system: a steered message the middleware refuses arrives as user_message_refused, and stays
+  out of the transcript」（录像 `runs-a-while` 让一轮跑 4 s，`on_busy: "steer"` 发含 `blocked-word` 的话：收到 `user_message_refused`，`session.history`
+  里没有它）、「spawn: the template's prompt middleware refuses a turn before the model」「in_process: …」（两种载体）。
+
+偏离：
+
+- 用例放在新文件 `native-contrib.spec.ts`（testapp 后端、回放），没放进 `turns.spec.ts`：后者只在 `--live` 下跑、用的是空应用。
+- steer 拒收只在 `system`（进程内）测了；spawn 载体测的是开一轮时的拒收。
+- 界面用例没写（见下）。
+
+外壳部分待做：
+
+- `ui/packages/core/src/protocol/frames.ts` 的事件联合里加 `{ kind: "user_message_refused"; message_id: string; content: string; message?: string | null }`；
+  `ui/packages/core/src/state/model.ts` 里收到它时把对应的「排队中 / 待送达」那条（按 `message_id`，没有就按 `content`）拿掉，并在流里显示
+  `message`（被拒的理由）。
+- 开一轮被拒（`turn_complete.stop_reason == "stopped_by_hook"` 且带 `message`）时，流里显示那条理由（现在若只当作普通结束，没有提示）。
+- 界面用例 `tests/live/ui/conversation.spec.ts`：testapp 后端上发含 `blocked-word` 的话，流里看得到理由；steer 时被拒的那条从排队中消失并显示理由
+  （录像 `runs-a-while`，要先允许那次 Bash）。

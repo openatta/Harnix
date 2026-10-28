@@ -48,7 +48,16 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
             println!("\n  {count} files → {}\n", dir.display());
             return Ok(());
         }
-        Some(Command::Daemon(daemon)) => return harnix_instance::serve_daemon(daemon.args()).await,
+        Some(Command::Daemon(daemon)) => {
+            let contrib = match &daemon.template {
+                None => harnix_instance::EngineContrib::default(),
+                Some(id) => match modules::native_of(&app.modules, id) {
+                    Ok(contrib) => contrib,
+                    Err(reason) => harnix_instance::refuse_daemon(&daemon.socket, &reason),
+                },
+            };
+            return harnix_instance::serve_daemon_with(daemon.args(), contrib).await;
+        }
         None => {}
     }
 

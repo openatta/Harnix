@@ -15,6 +15,9 @@ cannot ask for replay, and outside replay the fixture name means nothing.
 | `calls-a-tool` | A `Bash` tool call — the tool row, its result, the details pane |
 | `asks-permission` | A `Bash` call that needs permission — the ask, the broadcast, the answer |
 | `spawns-agent` | An `Agent` call: a sub-agent that is a task of its session, not a session in the list |
+| `leaves-a-process` | A `Bash` call that leaves a `tail -f /dev/null` in the background and prints its pid (ipdrun-07). Made from `calls-a-tool` by hand: only the tool input and the text differ |
+| `calls-a-native-tool` | A call to `ProbeFixed`, the tool `harnix-testapp`'s native scene contributes (ipdrun-10). Made the same way |
+| `runs-a-while` | A `Bash` call that waits four seconds (in `perl`: the engine refuses a `sleep` of 2 s or more): a turn that is still running when something is steered into it (ipdrun-13). Made the same way |
 
 ## Re-recording one
 

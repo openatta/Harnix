@@ -93,6 +93,12 @@ pub trait EngineLink: Send + Sync + 'static {
         None
     }
 
+    /// Whether stopping or restarting the process carrying the engine also ends what is left in its
+    /// session (ipdrun-07).
+    fn reaps_on_stop(&self) -> bool {
+        false
+    }
+
     async fn shutdown(&self);
 }
 

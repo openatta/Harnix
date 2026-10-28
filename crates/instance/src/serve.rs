@@ -5,7 +5,7 @@
 //! builds the engine exactly as an in-process instance would, then serves it
 //! on a unix socket instead of keeping it.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use daemon::DaemonServer;
 use tokio::io::AsyncReadExt;
@@ -29,6 +29,12 @@ pub struct DaemonArgs {
 }
 
 pub async fn serve_daemon(args: DaemonArgs) -> anyhow::Result<()> {
+    serve_daemon_with(args, crate::EngineContrib::default()).await
+}
+
+/// [`serve_daemon`], with native contributions: a template's, built again in this process from
+/// its `native` (ipdrun-10).
+pub async fn serve_daemon_with(args: DaemonArgs, contrib: crate::EngineContrib) -> anyhow::Result<()> {
     std::fs::create_dir_all(&args.data_root)?;
     // Held to the end of this function: past the engine's own shutdown, which is what writes last.
     let _lock = match &args.instance {
@@ -45,11 +51,7 @@ pub async fn serve_daemon(args: DaemonArgs) -> anyhow::Result<()> {
         }
         None => None,
     };
-    let engine = crate::engine::build(engine_config(
-        &args.engine,
-        &args.data_root,
-        crate::EngineContrib::default(),
-    ))
+    let engine = crate::engine::build(engine_config(&args.engine, &args.data_root, contrib))
     .await?;
     let server = engine.server.clone();
     let listener = DaemonServer::bind_unix(&args.socket)?;
@@ -79,4 +81,23 @@ pub async fn serve_daemon(args: DaemonArgs) -> anyhow::Result<()> {
     engine.shutdown().await;
     let _ = std::fs::remove_file(&args.socket);
     Ok(())
+}
+
+/// The exit status of a daemon that refused what it was started with, and will refuse it again
+/// however often it is restarted: the link takes the instance down rather than retrying.
+pub const REFUSED_EXIT: i32 = 78;
+
+/// Where a refusing daemon writes why, for the link that spawned it to read: beside its socket.
+pub fn refusal_path(socket: &Path) -> PathBuf {
+    let mut name = socket.as_os_str().to_owned();
+    name.push(".refused");
+    PathBuf::from(name)
+}
+
+/// Refuse to serve: write `reason` where the link reads it, say it on stderr, and exit with
+/// [`REFUSED_EXIT`].
+pub fn refuse_daemon(socket: &Path, reason: &str) -> ! {
+    let _ = std::fs::write(refusal_path(socket), reason);
+    eprintln!("daemon: {reason}");
+    std::process::exit(REFUSED_EXIT)
 }

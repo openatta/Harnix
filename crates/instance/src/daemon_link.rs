@@ -58,6 +58,25 @@ pub struct DaemonSpec {
     pub spawn: Option<SpawnSpec>,
 }
 
+/// What a spawned daemon is asked for beyond its command line. The default is what a link has always
+/// done.
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+pub struct SpawnOptions {
+    /// The daemon leads a session of its own, and whatever is still in that session once the
+    /// daemon has gone — stopped, killed, crashed, or about to be started again — is ended
+    /// (ipdrun-07). The daemon then no longer gets the terminal signals sent to this process's
+    /// group; its exit follows stdin closing, as it always did.
+    pub reap_on_stop: bool,
+}
+
+impl SpawnOptions {
+    pub fn reap_on_stop(mut self) -> Self {
+        self.reap_on_stop = true;
+        self
+    }
+}
+
 /// How long a spawned daemon has to start listening.
 const START_TIMEOUT: Duration = Duration::from_secs(60);
 /// A daemon that keeps exiting less than this long after the link reached
@@ -82,12 +101,20 @@ pub struct DaemonLink {
     child: Mutex<Option<Child>>,
     pid: AtomicU32,
     cancel: CancellationToken,
+    reap: bool,
 }
 
 impl DaemonLink {
     /// Start connecting (and spawning) in the background. The link is
     /// `Starting` until the daemon answers.
     pub fn start(spec: DaemonSpec) -> Arc<Self> {
+        Self::start_with(spec, SpawnOptions::default())
+    }
+
+    /// [`DaemonLink::start`], with what [`SpawnOptions`] asks of a spawned daemon. An attached one
+    /// ignores them.
+    pub fn start_with(spec: DaemonSpec, options: SpawnOptions) -> Arc<Self> {
+        let reap = options.reap_on_stop && spec.spawn.is_some();
         let (events_tx, events_rx) = mpsc::channel(link::EVENT_CAPACITY);
         let (status, _) = watch::channel(LinkStatus::Starting);
         let this = Arc::new(Self {
@@ -102,6 +129,7 @@ impl DaemonLink {
             child: Mutex::new(None),
             pid: AtomicU32::new(0),
             cancel: CancellationToken::new(),
+            reap,
         });
         tokio::spawn(this.clone().supervise());
         this
@@ -129,6 +157,11 @@ impl DaemonLink {
                     }
                     Ok(false) => {}
                     Err(e) => {
+                        if let Some(refused) = e.downcast_ref::<Refused>() {
+                            self.down(refused.0.clone());
+                            self.stop_child().await;
+                            return;
+                        }
                         let held = self
                             .spec
                             .spawn
@@ -234,11 +267,16 @@ impl DaemonLink {
                 Some(status) => {
                     tracing::warn!(%status, "the spawned daemon exited; starting it again");
                     restarted = true;
+                    if self.reap {
+                        let old = self.pid.load(Ordering::Relaxed) as i32;
+                        crate::reap::reap_session(old, crate::reap::REAP_GRACE).await;
+                    }
                 }
             }
         }
         if let Endpoint::Unix(path) = &self.spec.endpoint {
             let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_file(crate::serve::refusal_path(path));
         }
         let started = Instant::now();
         let mut command = Command::new(&spawn.program);
@@ -252,6 +290,9 @@ impl DaemonLink {
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
             .kill_on_drop(true);
+        if self.reap {
+            crate::reap::own_session_for(&mut command);
+        }
         let child = command.spawn()?;
         tracing::info!(pid = child.id(), program = %spawn.program.display(), "spawned a daemon");
         self.pid.store(child.id().unwrap_or(0), Ordering::Relaxed);
@@ -265,6 +306,16 @@ impl DaemonLink {
         loop {
             if let Some(child) = self.child.lock().await.as_mut() {
                 if let Some(status) = child.try_wait()? {
+                    if status.code() == Some(crate::serve::REFUSED_EXIT) {
+                        let why = match &self.spec.endpoint {
+                            Endpoint::Unix(path) => {
+                                std::fs::read_to_string(crate::serve::refusal_path(path)).unwrap_or_default()
+                            }
+                            Endpoint::Tcp { .. } => String::new(),
+                        };
+                        let why = if why.trim().is_empty() { "no reason given".to_string() } else { why.trim().to_string() };
+                        return Err(Refused(format!("the daemon refused to start ({status}): {why}")).into());
+                    }
                     anyhow::bail!("it exited before listening ({status})");
                 }
             }
@@ -421,11 +472,27 @@ impl DaemonLink {
         {
             let _ = child.kill().await;
         }
+        if self.reap {
+            let pid = self.pid.load(Ordering::Relaxed) as i32;
+            crate::reap::reap_session(pid, crate::reap::REAP_GRACE).await;
+        }
         if let Endpoint::Unix(path) = &self.spec.endpoint {
             let _ = std::fs::remove_file(path);
         }
     }
 }
+
+/// A daemon that exited with [`crate::serve::REFUSED_EXIT`]: starting it again would only refuse again.
+#[derive(Debug)]
+struct Refused(String);
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Refused {}
 
 enum Refusal {
     /// Trying again cannot help: wrong protocol, wrong token.
@@ -499,6 +566,10 @@ impl EngineLink for DaemonLink {
         }
     }
 
+    fn reaps_on_stop(&self) -> bool {
+        self.reap
+    }
+
     async fn shutdown(&self) {
         self.cancel.cancel();
         self.disconnect().await;
@@ -506,5 +577,49 @@ impl EngineLink for DaemonLink {
         self.status.send_replace(LinkStatus::Down {
             reason: "stopped".into(),
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A daemon that exits with the refusal status before listening is not started again: the
+    /// instance is down, with the reason the daemon wrote (ipdrun-10).
+    #[tokio::test]
+    async fn a_daemon_that_refuses_what_it_was_started_with_takes_the_instance_down() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("d.sock");
+        let why = crate::serve::refusal_path(&socket);
+        let link = DaemonLink::start(DaemonSpec {
+            endpoint: Endpoint::Unix(socket),
+            spawn: Some(SpawnSpec {
+                program: "/bin/sh".into(),
+                args: vec![
+                    "-c".into(),
+                    format!(
+                        "printf 'this binary declares no template `t`' > '{}'; exit {}",
+                        why.display(),
+                        crate::serve::REFUSED_EXIT
+                    ),
+                ],
+                env: Vec::new(),
+                lock: None,
+            }),
+        });
+        let mut status = link.status();
+        let down = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if let LinkStatus::Down { reason } = &*status.borrow_and_update() {
+                    return reason.clone();
+                }
+                status.changed().await.unwrap();
+            }
+        })
+        .await
+        .expect("the instance never went down");
+        assert!(down.contains("declares no template `t`"), "{down}");
+        assert!(down.contains("refused to start"), "{down}");
+        link.shutdown().await;
     }
 }

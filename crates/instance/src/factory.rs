@@ -7,12 +7,12 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::daemon_link::{DaemonLink, DaemonSpec, Endpoint, SpawnSpec};
+use crate::daemon_link::{DaemonLink, DaemonSpec, Endpoint, SpawnOptions, SpawnSpec};
 use crate::engine::{self, EngineConfig};
 use crate::inproc::InProcessLink;
 use crate::link::EngineLink;
 use crate::profile::EngineProfile;
-use crate::templates::TemplateCarrier;
+use crate::templates::{InstanceTemplate, TemplateCarrier};
 
 /// What is known about an instance without asking it. Only an in-process
 /// engine can answer most of these; a daemon's are its own.
@@ -64,10 +64,39 @@ impl Factory {
         carrier: &TemplateCarrier,
         data_root: PathBuf,
     ) -> anyhow::Result<Built> {
+        self.build_with(id, carrier, data_root, None).await
+    }
+
+    /// An instance of `template`: its carrier, with what the template adds to it — native
+    /// contributions (ipdrun-10) and reaping on stop (ipdrun-07).
+    pub async fn build_template(
+        &self,
+        id: &str,
+        template: &InstanceTemplate,
+        data_root: PathBuf,
+    ) -> anyhow::Result<Built> {
+        self.build_with(id, &template.carrier, data_root, Some(template)).await
+    }
+
+    async fn build_with(
+        &self,
+        id: &str,
+        carrier: &TemplateCarrier,
+        data_root: PathBuf,
+        template: Option<&InstanceTemplate>,
+    ) -> anyhow::Result<Built> {
         std::fs::create_dir_all(&data_root)?;
+        let reap_on_stop = template.is_some_and(|t| t.reap_on_stop);
+        if reap_on_stop {
+            crate::reap::engine_reaps(&data_root)?;
+        }
         match carrier {
             TemplateCarrier::InProcess { engine, contrib } => {
-                let engine = engine::build(engine_config(engine, &data_root, contrib.clone())).await?;
+                let mut contrib = contrib.clone();
+                if let Some(native) = template.and_then(InstanceTemplate::native_contrib) {
+                    contrib.extend(native);
+                }
+                let engine = engine::build(engine_config(engine, &data_root, contrib)).await?;
                 let facts = Facts {
                     data_root: engine.data_root.clone(),
                     recordings_root: Some(engine.recordings_root.clone()),
@@ -93,8 +122,21 @@ impl Factory {
                     argv.push(id.to_string());
                     crate::data_lock::lock_path(&data_root, id)
                 });
+                // Only this binary's daemon knows how to build the template's native contributions
+                // again (ipdrun-10).
+                if program.is_none() {
+                    if let Some(template) = template.filter(|t| t.native.is_some()) {
+                        argv.push("--template".into());
+                        argv.push(template.id.clone());
+                    }
+                }
                 argv.extend(args.iter().cloned());
-                let link: Arc<dyn EngineLink> = DaemonLink::start(DaemonSpec {
+                let options = if reap_on_stop {
+                    SpawnOptions::default().reap_on_stop()
+                } else {
+                    SpawnOptions::default()
+                };
+                let link: Arc<dyn EngineLink> = DaemonLink::start_with(DaemonSpec {
                     endpoint: Endpoint::Unix(socket),
                     spawn: Some(SpawnSpec {
                         program: program.clone().unwrap_or_else(|| self.program.clone()),
@@ -102,14 +144,14 @@ impl Factory {
                         env: Vec::new(),
                         lock,
                     }),
-                });
+                }, options);
                 Ok(Built {
                     link,
                     facts: Facts {
                         data_root,
                         active_scenes: scenes_of(engine),
                         model: Some(engine.model.clone()),
-                        ..Facts::default()
+                            ..Facts::default()
                     },
                 })
             }

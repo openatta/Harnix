@@ -51,6 +51,10 @@ pub(crate) struct DaemonCommand {
     /// How long to wait for that lock, in seconds.
     #[arg(long, default_value = "10")]
     pub lock_wait: u64,
+    /// The template whose native contributions this daemon builds again: an id as the process
+    /// that spawned it knows it (`<module>.<template>`). Unknown, the daemon refuses to start.
+    #[arg(long)]
+    pub template: Option<String>,
 }
 
 impl DaemonCommand {
