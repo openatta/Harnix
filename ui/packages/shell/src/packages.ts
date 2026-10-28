@@ -33,6 +33,8 @@ function signed(registry: Registry, owner: string): Registry {
     register: (point: string, contribution: unknown) => registry.register(point, contribution, owner),
     tokens: (tokens: Record<string, string>) => registry.tokens(tokens, owner),
     strings: (locale: Locale, dictionary: Record<string, string>) => registry.strings(locale, dictionary, owner),
+    icons: (icons: Record<string, string>) => registry.icons(icons, owner),
+    icon: registry.icon.bind(registry),
     at: registry.at.bind(registry),
   };
   return facade as unknown as Registry;

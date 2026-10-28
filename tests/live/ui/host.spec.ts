@@ -474,3 +474,22 @@ test("@ takes an application's candidates after the shell's own, and the / menu 
     await page.evaluate(() => (window as any).harnix.app.registry.refusals().some((r: any) => r.id === "probe.broken" && /mentions broke/.test(r.reason))),
   ).toBe(true);
 });
+
+test("icons: a space's own icon, by its owner's name, drawn in the shell's frame at the size of the others", SHELL, async ({ page }) => {
+  const errors = watchConsole(page);
+  await open(page, URL);
+  await page.evaluate(() => {
+    const { app } = (window as any).harnix;
+    app.registry.icons({ ship: "<path d='M3 3h18'/>" }, "test");
+    app.registry.register("space", { id: "shipped", icon: "test.ship", title: () => "Shipped", sessions: "sessions" }, "test");
+  });
+  const glyph = page.locator('#side [data-space="shipped"] .glyph');
+  await expect(glyph.locator('svg path[d="M3 3h18"]')).toHaveCount(1);
+  await expect(glyph.locator("svg")).toHaveAttribute("stroke-width", "1.7");
+  const size = async (selector: string) => {
+    const box = (await page.locator(selector).boundingBox())!;
+    return [Math.round(box.width), Math.round(box.height)];
+  };
+  expect(await size('#side .spaces [data-space="shipped"] .glyph')).toEqual(await size('#side .spaces [data-space="sessions"] > .glyph'));
+  expect(errors).toEqual([]);
+});

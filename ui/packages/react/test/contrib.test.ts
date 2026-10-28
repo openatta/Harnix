@@ -75,4 +75,27 @@ describe("registry", () => {
     ]);
     expect(r.refusals().map((x) => x.reason)).toEqual(['a command\'s trigger is "/" or "@", not "#"']);
   });
+
+  it("takes an application's icons under its own name, and refuses a script, a handler, a link", () => {
+    const r = new Registry();
+    r.icons({ ship: "<path d='M3 3h18'/><circle cx=\"12\" cy=\"12\" r=\"3\"/>" }, "testapp");
+    expect(r.icon("testapp.ship")).toBe('<path d="M3 3h18"/><circle cx="12" cy="12" r="3"/>');
+    expect(r.icon("ship")).toBeUndefined();
+    r.icons(
+      {
+        bad: "<path d='M0 0'/><script>alert(1)</script>",
+        loud: "<path d='M0 0' onload='alert(1)'/>",
+        linked: "<use href='#x'/>",
+        painted: "<path d='M0 0' fill='url(#g)'/>",
+      },
+      "testapp",
+    );
+    for (const name of ["bad", "loud", "linked", "painted"]) expect(r.icon(`testapp.${name}`)).toBeUndefined();
+    expect(r.refusals().map((x) => `${x.id}: ${x.reason}`)).toEqual([
+      "testapp.bad: <script> is not a shape an icon may have",
+      "testapp.loud: onload is not an attribute an icon may have",
+      "testapp.linked: <use> is not a shape an icon may have",
+      "testapp.painted: fill may not refer to anything",
+    ]);
+  });
 });

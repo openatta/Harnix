@@ -14,6 +14,8 @@
  * | `command` | `trigger?`（`/` 或 `@`）、`complete(query, ctx?) → 候选[]`（候选可带 `run`） | 全部，按注册顺序拼起来；`/` 与 `@` 两个菜单各问各的 |
  * | `settings.section` | `id`、`label()`、`render()` | 全部，按注册顺序 |
  *
+ * 不是贡献点、但同样按 owner 记的还有三样：令牌覆盖（`tokens`）、语言包（`strings`）与图标（`icons`）。
+ *
  * 注册不合形状的贡献被拒绝并记下理由；`match` 或 `render` 抛错只算这一个贡献失败，点照常工作。
  * 被拒的、失败的都列在诊断页里。
  */
@@ -180,6 +182,7 @@ type Entry<P extends Point> = Contributions[P] & { owner: string };
 export class Registry {
   private readonly entries = new Map<Point, Entry<Point>[]>(POINTS.map((p) => [p, []]));
   private readonly overrides = new Map<string, { value: string; owner: string }>();
+  private readonly glyphs = new Map<string, string>();
   private readonly refused: Refusal[] = [];
   /** The token names a module may override: the ones the page's stylesheets declare on `:root`.
    *  Set by the shell once its styles are in; until then every override waits. */
@@ -254,6 +257,36 @@ export class Registry {
     this.changed();
   }
 
+  /**
+   * An application's own icons: name → the inside of an SVG (no `<svg>`), drawn on the shell's
+   * 24 grid at its 1.7 stroke, in `currentColor`. Each is `<owner>.<name>`, which is what a space's
+   * `icon` names; a name without a dot is still the shell's. Only shapes and their geometry and
+   * stroke are taken — a script, an `on*` handler, a link, a style, a reference to anything else
+   * refuses the whole icon, with the reason. A guard against mistakes: interface modules are
+   * trusted as the page is. Not a contribution point: it draws nothing by itself.
+   */
+  icons(icons: Record<string, string>, owner: string): void {
+    for (const [name, body] of Object.entries(icons)) {
+      const full = `${owner}.${name}`;
+      if (!/^[A-Za-z0-9_-]+$/.test(name)) {
+        this.refuse({ point: "icons", owner, id: full, reason: "an icon's name is letters, digits, - and _" });
+        continue;
+      }
+      const clean = cleanSvg(typeof body === "string" ? body : "");
+      if (typeof clean !== "string") {
+        this.refuse({ point: "icons", owner, id: full, reason: clean.refused });
+        continue;
+      }
+      this.glyphs.set(full, clean);
+    }
+    this.changed();
+  }
+
+  /** An application icon's inside, as `icons` took it; undefined for a name it does not have. */
+  icon(name: string): string | undefined {
+    return this.glyphs.get(name);
+  }
+
   /** Every registration of a point, in order. */
   at<P extends Point>(point: P): Entry<P>[] {
     return (this.entries.get(point) ?? []) as unknown as Entry<P>[];
@@ -313,6 +346,51 @@ export class Registry {
     this.version += 1;
     for (const fn of [...this.listeners]) fn();
   }
+}
+
+const SHAPES = new Set(["path", "circle", "rect", "line", "polyline", "polygon", "ellipse", "g"]);
+const GEOMETRY = new Set([
+  "d", "cx", "cy", "r", "rx", "ry", "x", "y", "x1", "y1", "x2", "y2", "width", "height", "points", "transform", "pathLength",
+  "fill", "fill-opacity", "fill-rule", "clip-rule", "opacity",
+  "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "stroke-dasharray", "stroke-dashoffset", "stroke-miterlimit", "stroke-opacity",
+  "vector-effect",
+]);
+
+/** An SVG's inside, rebuilt from the shapes it may have; or why it may not. */
+function cleanSvg(body: string): string | { refused: string } {
+  const Parser = (globalThis as { DOMParser?: typeof DOMParser }).DOMParser;
+  if (!Parser) return { refused: "icons need a page to be read in" };
+  const doc = new Parser().parseFromString(`<svg xmlns="http://www.w3.org/2000/svg">${body}</svg>`, "image/svg+xml");
+  if (doc.getElementsByTagName("parsererror").length) return { refused: "not well-formed SVG" };
+  const escape = (v: string) => v.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  const walk = (node: Element): string | { refused: string } => {
+    const out: string[] = [];
+    for (const child of Array.from(node.childNodes)) {
+      if (child.nodeType === 3) {
+        if ((child.textContent ?? "").trim()) return { refused: "an icon has no text in it" };
+        continue;
+      }
+      if (child.nodeType === 8) continue;
+      if (child.nodeType !== 1) return { refused: "only shapes go in an icon" };
+      const el = child as Element;
+      const tag = el.localName;
+      if (!SHAPES.has(tag)) return { refused: `<${tag}> is not a shape an icon may have` };
+      const attrs: string[] = [];
+      for (const attr of Array.from(el.attributes)) {
+        const name = attr.name;
+        if (!GEOMETRY.has(name)) return { refused: `${name} is not an attribute an icon may have` };
+        if (/url\(|javascript:|expression|[<>]/i.test(attr.value)) return { refused: `${name} may not refer to anything` };
+        attrs.push(` ${name}="${escape(attr.value)}"`);
+      }
+      const inner = walk(el);
+      if (typeof inner !== "string") return inner;
+      out.push(inner ? `<${tag}${attrs.join("")}>${inner}</${tag}>` : `<${tag}${attrs.join("")}/>`);
+    }
+    return out.join("");
+  };
+  const result = walk(doc.documentElement);
+  if (typeof result === "string" && !result) return { refused: "an icon needs at least one shape" };
+  return result;
 }
 
 /** Re-render when contributions are added or refused. */

@@ -60,7 +60,19 @@ export function toolIcon(name: unknown): string | undefined {
   return ICON.terminal;
 }
 
-/** One of the icons above, in a span the stylesheet sizes by its class. */
+/** Where an application's own icons are looked up (`Registry.icons`): set once by the page. */
+let extra: ((name: string) => string | undefined) | null = null;
+
+/** Resolve names the shell does not have against the application's icons, in the same frame. */
+export function iconsFrom(lookup: (name: string) => string | undefined): void {
+  extra = lookup;
+}
+
+/** One of the icons above — or an application's, by its `<owner>.<name>` — in a span the stylesheet
+ *  sizes by its class. A name nobody has draws nothing. */
 export function glyphHtml(name: string): { __html: string } {
-  return { __html: ICON[name] ?? "" };
+  const own = ICON[name];
+  if (own) return { __html: own };
+  const body = extra?.(name);
+  return { __html: body ? wrap(body) : "" };
 }

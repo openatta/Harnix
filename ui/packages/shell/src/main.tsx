@@ -18,6 +18,7 @@ import modules from "virtual:harnix-modules";
 import { App } from "./app.ts";
 import { registerBuiltins } from "./builtins.tsx";
 import { hostFor } from "./host.ts";
+import { iconsFrom } from "./icons.ts";
 import { loadPackages } from "./packages.ts";
 import { Shell } from "./Shell.tsx";
 
@@ -33,6 +34,7 @@ function chrome(): string {
 
 const client = new HarnixClient({ token: tokenFromDocument() });
 const app = new App(client, new Registry());
+iconsFrom((name) => app.registry.icon(name));
 const host = hostFor(app);
 
 function Root() {

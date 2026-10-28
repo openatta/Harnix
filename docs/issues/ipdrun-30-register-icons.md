@@ -44,3 +44,16 @@ class Registry {
 ## 来源
 
 IPDrun 原型里各 space 的图标（剪贴板、叠放的平面、git 合并、流程线…）大多不在外壳的表里，现在取了最接近的。
+
+## 实现记录
+
+外壳（F3b）：
+
+- `Registry.icons(icons, owner)` 与 `Registry.icon(name)`（`ui/packages/react/src/contrib.ts`）：名字是 `<owner>.<name>`（`name` 只许字母、数字、`-`、`_`）；
+  内容用 `DOMParser` 按 SVG 读，只收 `path`、`circle`、`rect`、`line`、`polyline`、`polygon`、`ellipse`、`g` 与几何、描边属性，按读到的节点重新拼出来存；
+  脚本、`on*`、`href`、`style`、`url(` 之类整个图标拒收，理由进 `refusals()`（`point: "icons"`）。运行期包拿到的签名注册表也有 `icons`（签成包名）。
+- 外壳 `icons.ts` 的 `glyphHtml` 先查自带的表，再经 `iconsFrom(...)`（`main.tsx` 接上注册表）查应用的，用同一个 `wrap()` 外框；都没有时照旧不画（与现在未知名字一致，
+  没加占位与诊断）。
+- 测试：`ui/packages/react/test/contrib.test.ts` 的「takes an application's icons under its own name, and refuses a script, a handler, a link」；
+  `tests/live/ui/host.spec.ts` 的「icons: a space's own icon, by its owner's name, drawn in the shell's frame at the size of the others」。
+  偏离：图标在页面里注册（owner `test`），不改 testapp。
