@@ -12,7 +12,9 @@
 import type { ReactNode } from "react";
 import { errorText, type ConnectionStatus, type HarnixClient, type Hello, type SessionRow } from "@harnix/core";
 import { SYSTEM_INSTANCE, type SessionController } from "@harnix/core/state";
-import { t, type ComposerApi, type DetailItem, type Registry } from "@harnix/react";
+import { t, tabsOf, type ComposerApi, type DetailItem, type Registry, type SpaceContribution, type SpaceTab } from "@harnix/react";
+
+import { topicsOf } from "./topics.ts";
 
 export interface SessionKey {
   instance: string;
@@ -110,6 +112,11 @@ export interface ShellState {
   menu: boolean;
   /** The model providers; null until read (or when this page may not read them). */
   providers: Providers | null;
+  /** The right column's selected tab, per space. `asked`: chosen through the host API, so it is kept
+   *  when the space is entered again; a tab the reader clicked goes back to the first, as before. */
+  tabBySpace: Record<string, { id: string; asked: boolean }>;
+  /** Bumped by `redraw()`: the shell reads the front space's functions again. */
+  drawn: number;
 }
 
 const THEME_KEY = "harnix.theme";
@@ -137,6 +144,30 @@ function remember(key: string, value: unknown): void {
 }
 
 export const keyOf = (instance: string, sessionId: string) => `${instance}/${sessionId}`;
+
+function sameKey(a: SessionKey | null, b: SessionKey | null): boolean {
+  return a === b || (a != null && b != null && a.instance === b.instance && a.sessionId === b.sessionId);
+}
+
+/** The tabs as the strip draws them: the `end` ones after the others. */
+export function orderTabs<T extends { align?: "start" | "end" }>(tabs: T[]): T[] {
+  return [...tabs.filter((x) => x.align !== "end"), ...tabs.filter((x) => x.align === "end")];
+}
+
+/** A space's tabs; a `tabs()` that throws gives none, and is counted as failed. */
+export function safeTabs(registry: Registry, space: (SpaceContribution & { owner?: string }) | undefined): SpaceTab[] {
+  try {
+    return tabsOf(space);
+  } catch (e) {
+    if (space) later(() => registry.fail("space", { id: space.id, owner: space.owner ?? "?" }, e));
+    return [];
+  }
+}
+
+/** Report after the current draw: a registry change made while drawing would draw again at once. */
+export function later(fn: () => void): void {
+  queueMicrotask(fn);
+}
 
 function storedTheme(): ThemeChoice {
   try {
@@ -188,6 +219,8 @@ export class App {
       widths: { side: WIDTHS.side[1], details: WIDTHS.details[1], ...stored<Partial<Widths>>(WIDTHS_KEY, {}) },
       menu: false,
       providers: null,
+      tabBySpace: {},
+      drawn: 0,
     };
   }
 
@@ -205,10 +238,53 @@ export class App {
   }
 
   set(change: Partial<ShellState>): void {
+    const before = this.state;
     const next = { ...this.state, ...change };
     next.current = next.currentBySpace[next.space] ?? null;
     this.state = next;
     for (const fn of [...this.listeners]) fn();
+    if (!sameKey(before.current, next.current)) {
+      const ref = next.current ? { instance: next.current.instance, sessionId: next.current.sessionId } : null;
+      for (const fn of [...this.currentListeners]) fn(ref);
+    }
+  }
+
+  private readonly currentListeners = new Set<(current: SessionKey | null) => void>();
+
+  /** The front space's current session changed — opened, created, closed, deleted, or another space in front. */
+  onCurrent(fn: (current: SessionKey | null) => void): () => void {
+    this.currentListeners.add(fn);
+    return () => this.currentListeners.delete(fn);
+  }
+
+  /* ── drawing ──────────────────────────────────────────────────────── */
+
+  private drawWaiters: (() => void)[] = [];
+
+  /** Read the front space's functions again (tabs, title, badge…): a redraw, the registry untouched. */
+  redraw(): void {
+    this.set({ drawn: this.state.drawn + 1 });
+  }
+
+  /** Resolves once the page has drawn the state as it is now. The shell says so (`drew`); a page
+   *  with no shell drawing it resolves after a moment rather than never. */
+  afterDraw(): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(done, 2000);
+      function done() {
+        clearTimeout(timer);
+        resolve();
+      }
+      this.drawWaiters.push(done);
+      this.redraw();
+    });
+  }
+
+  /** The shell has committed a draw. */
+  drew(): void {
+    const waiting = this.drawWaiters;
+    this.drawWaiters = [];
+    for (const fn of waiting) fn();
   }
 
   /* ── 启动 ─────────────────────────────────────────────────────────── */
@@ -237,14 +313,13 @@ export class App {
         };
         this.set({ reachable: reachable.methods ?? [] });
         void this.refreshProviders();
+        // Through the page's counted table: a space subscribing to the same topic and leaving again
+        // does not take it from the shell.
+        topicsOf(this.client).subscribe("harnix.sessions.status", {}, (value) => this.applyStatus(value));
         this.builtins?.(this);
         this.landOnASpace();
         await this.packages?.(this, hello);
       }
-      await this.client
-        .call("harnix.subscribe", { topic: "harnix.sessions.status" })
-        .then((r) => this.applyStatus((r as { value: unknown }).value))
-        .catch(() => undefined);
       await this.refreshSessions();
     } catch (e) {
       this.notice(errorText(e), "error");
@@ -306,8 +381,6 @@ export class App {
         .catch(() => undefined);
     } else if (method === "harnix.turn_settled") {
       void this.refreshSessions();
-    } else if (method === "harnix.topic" && params.topic === "harnix.sessions.status") {
-      this.applyStatus(params.value);
     } else if (method === "harnix.host_event" && params.kind === "mcp_connect_failed") {
       this.notice(t("banner.mcpFailed", { server: String(params.server ?? "?"), error: String(params.error ?? "") }), "error");
     }
@@ -373,7 +446,10 @@ export class App {
    */
   async switchSpace(space: string): Promise<void> {
     remember(SPACE_KEY, space);
-    this.set({ space, detail: null, menu: false });
+    // Each space starts on its first tab, unless the host API chose one for it.
+    const tabBySpace = { ...this.state.tabBySpace };
+    if (space !== this.state.space && tabBySpace[space] && !tabBySpace[space]!.asked) delete tabBySpace[space];
+    this.set({ space, detail: null, menu: false, tabBySpace });
     const key = this.state.currentBySpace[space];
     if (!key) return;
     try {
@@ -428,7 +504,35 @@ export class App {
   }
 
   showDetail(item: DetailItem): void {
+    // A detail revealed from the flow is what the reader wants to see now.
     this.set({ detail: item, detailsBySpace: this.keepDetails(true) });
+    this.selectTab("details");
+  }
+
+  /** The tab the right column shows for the front space: the one chosen while it is still there,
+   *  else the first. "details" stands while there is a detail to show. */
+  shownTab(state: ShellState = this.state): string {
+    const space = this.registry.at("space").find((c) => c.id === state.space);
+    const tabs = orderTabs(safeTabs(this.registry, space));
+    const chosen = state.tabBySpace[state.space]?.id;
+    if (chosen && tabs.some((x) => x.id === chosen)) return chosen;
+    if (chosen === "details" && state.detail) return "details";
+    return tabs[0]?.id ?? "details";
+  }
+
+  private readonly tabListeners = new Set<(tab: string) => void>();
+
+  /** Select a tab of the front space's right column; `asked` when the host API asked for it. */
+  selectTab(id: string, asked = false): void {
+    const before = this.shownTab();
+    this.set({ tabBySpace: { ...this.state.tabBySpace, [this.state.space]: { id, asked } } });
+    const after = this.shownTab();
+    if (after !== before) for (const fn of [...this.tabListeners]) fn(after);
+  }
+
+  onTab(fn: (tab: string) => void): () => void {
+    this.tabListeners.add(fn);
+    return () => this.tabListeners.delete(fn);
   }
 
   toggleDetails(open?: boolean): void {

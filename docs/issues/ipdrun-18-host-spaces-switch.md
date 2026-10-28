@@ -62,3 +62,16 @@ export interface NestHost {
 
 IPDrun 的对话里的编号、首页流程图的节点都要跳到别的 space；现在由 kit 点左栏按钮、再等 400 ms 或下一帧（`ui/kit/src/shell-bridge.ts`、
 `spaces/issues/ui/src/IssuePage.tsx`）。
+
+## 实现记录
+
+外壳（F3b）：
+
+- `NestHost.spaces.{switch, current}`、`session.open(ref, {switchSpace})`（`ui/packages/react/src/host.tsx`、`ui/packages/shell/src/host.ts`）。`switch` 在
+  `app.switchSpace` 之后等外壳提交一次绘制（`App.afterDraw()`：外壳最外层的 effect 调 `app.drew()`；没有外壳在画时 2 s 后落定）才 resolve。
+- 会话归属不用新读法：`harnix.sessions {instance}` 的行本来就带 `space`（中枢账本，`crates/hub/src/views.rs`），后端不改。后端 space 对到界面 space：
+  前台 space 认领它就留在前台，否则按顺序取 id 相同的、再取 `sessions` 认领它的。
+- 顺带：新对话首屏（`FirstMessage`）的输入框也接上 `host.composer`，否则切到一个没有当前会话的 space 后 `composer.insert` 落空；两个输入框交接时只清自己绑的那个。
+- 测试：`ui/packages/shell/test/host.test.ts` 的「switch brings a space to the front…」「session.open with switchSpace…」；`tests/live/ui/host.spec.ts` 的
+  「spaces.switch brings another space to the front, drawn, before it settles」「session.open with switchSpace opens a session in the space the hub has it in」。
+  偏离：用例里的 space 在页面里注册到外壳的注册表上（不改 testapp），跨 space 的会话用内建的系统 space。

@@ -44,3 +44,12 @@ export function useCurrentSession(): SessionRef | null;
 ## 来源
 
 IPDrun 要「在左栏点一个会话 → 右栏跟到这个会话对应的那一项」；现在只能反过来做（右栏选中 → 打开会话），左栏点会话时右栏不动。
+
+## 实现记录
+
+外壳（F3b）：
+
+- `NestHost.session.onChange(fn)`：`App.set` 里比较前台 `current` 的前后值（按 `instance` + `sessionId`），变了才通知，所以打开、新建、关掉、被删、换 space
+  都走这一处，同一个值不重复。`@harnix/react` 导出 `useCurrentSession()`。
+- 测试：`ui/packages/shell/test/host.test.ts` 的「says when the front space's current session changes, once per change」；`tests/live/ui/host.spec.ts` 的
+  「useCurrentSession: the right column follows the session picked in the left one」（space 的页签组件经页面的 import map 拿到外壳的 React 与 `@harnix/react`）。

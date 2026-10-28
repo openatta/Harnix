@@ -15,7 +15,6 @@ import {
   ChatComposer,
   ChatPanel,
   Contributed,
-  tabsOf,
   useRegistry,
   useT,
   type Attached,
@@ -26,7 +25,7 @@ import {
   type SpaceContribution,
 } from "@harnix/react";
 
-import { keyOf, type App, type ShellState, type Widths } from "./app.ts";
+import { keyOf, orderTabs, safeTabs, type App, type ShellState, type Widths } from "./app.ts";
 import { useBrand } from "./brand.ts";
 import { followEnvelopes } from "./envelope.tsx";
 import { Glyph } from "./glyph.tsx";
@@ -39,6 +38,8 @@ export function Shell({ app }: { app: App }) {
   useTheme(s.theme);
   useShortcuts(app);
   useBrand(app);
+  // Runs after every child has drawn: whoever waits for this state to be on the page can go on.
+  useEffect(() => app.drew());
   const space = spacesOf(app).find((c) => c.id === s.space);
   return (
     <>
@@ -243,6 +244,7 @@ function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app:
   const space = useSyncExternalStore(app.subscribe, () => app.snapshot.space);
   const [picked, setPicked] = useState<ModelOption | null>(null);
   const upload = useUpload(app);
+  const bind = useBindComposer(app);
   const mention = useMemo(() => (query: string) => (query.startsWith("session:") ? sessionMentions(app, query.slice("session:".length)) : []), [app]);
   const send = async (message: string, attachments: unknown[]): Promise<boolean> => {
     if (!app.modelReady()) {
@@ -287,12 +289,31 @@ function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app:
         models={models}
         onModel={switchable ? setPicked : undefined}
         draftKey={`new:${space}:${variant}`}
+        bind={bind}
       />
     </div>
   );
 }
 
 const NO_REPLIES: never[] = [];
+
+/** The host's composer: whichever input is on the page now. One leaving clears it only if it is
+ *  still the one bound — the next one may have bound already. */
+function useBindComposer(app: App): (api: ComposerApi | null) => void {
+  const mine = useRef<ComposerApi | null>(null);
+  return useCallback(
+    (api: ComposerApi | null) => {
+      if (api) {
+        mine.current = api;
+        app.composer = api;
+      } else {
+        if (app.composer === mine.current) app.composer = null;
+        mine.current = null;
+      }
+    },
+    [app],
+  );
+}
 
 /** The engine method a session's model is changed by — the system space's, so only when it is kept. */
 const SET_MODEL = "harnix.system.model";
@@ -520,9 +541,7 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
     },
     [app, onController],
   );
-  const bindComposer = useCallback((api: ComposerApi | null) => {
-    app.composer = api;
-  }, [app]);
+  const bindComposer = useBindComposer(app);
   useEffect(() => (controller ? followEnvelopes(app, controller) : undefined), [app, controller]);
 
   const sessionKey = keyOf(current.instance, current.sessionId);
@@ -698,23 +717,15 @@ function Details({ app, s }: { app: App; s: ShellState }) {
   const t = useT();
   const registry = useRegistry(app.registry);
   const space = spacesOf(app).find((c) => c.id === s.space);
-  const given = tabsOf(space);
-  const tabs = [...given.filter((x) => x.align !== "end"), ...given.filter((x) => x.align === "end")];
+  const tabs = orderTabs(safeTabs(registry, space));
   const firstEnd = tabs.find((x) => x.align === "end")?.id;
-  const [tab, setTab] = useState<string>("details");
-  // A detail revealed from the flow is what the reader wants to see now.
-  useEffect(() => {
-    if (s.detail) setTab("details");
-  }, [s.detail]);
-  useEffect(() => {
-    setTab(tabs[0]?.id ?? "details");
-    // Each space starts on its first tab.
-  }, [s.space]);
+  const setTab = (id: string) => app.selectTab(id);
   const item = s.detail;
   const panel = item ? registry.claim("details.panel", item) : null;
-  // A space's tabs can change with what is selected: a tab that went falls back to the first.
-  const shown = tabs.find((x) => x.id === tab) ?? (tab !== "details" || !item ? tabs[0] : undefined);
-  const current = shown?.id ?? "details";
+  // The selected tab is the app's, per space (the host API can choose it). A space's tabs can change
+  // with what is selected: a tab that went falls back to the first.
+  const current = app.shownTab(s);
+  const shown = tabs.find((x) => x.id === current);
   return (
     <aside id="details" aria-hidden={!app.detailsOpen(s)}>
       <Resizer app={app} column="details" />

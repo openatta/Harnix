@@ -56,3 +56,13 @@ IPDrun 的同一个对象在会话里的卡片和右栏里同时显示、订同�
 按客户端的 `(topic, 键排序后的 params JSON) → {count, last, listeners}` 表、首个订阅者才发 `harnix.subscribe`、最后一个退订才发 `harnix.unsubscribe`、
 后来者在下一个微任务拿到 `last`、重连时按表重订；`ui/packages/shell/test/` 的 host 单测与 `tests/live/ui/` 的端到端用例（可用 testapp 的
 `app.probe.counter` 主题与 `app.probe.bump`）。
+
+外壳（F3b）：
+
+- 计数表在 `ui/packages/shell/src/topics.ts`（`Topics`，按客户端一张，`topicsOf(client)`），键是 `topic` 加键排序后的 params；首个订阅者发 `harnix.subscribe`，
+  最后一个退订才发 `harnix.unsubscribe`；后来者在下一个微任务拿到 `last`；连接断开后标为未持有，回到 `open` 时重订。`hostFor(...).subscribe` 走它。
+- 顺带：外壳自己对 `harnix.sessions.status` 的订阅（`App.boot`）也改走这张表——原来它直接发 `harnix.subscribe`，同一条连接上 space 订同一个主题再退订，
+  会把外壳的「在跑」计数一起撤掉。
+- 测试：`ui/packages/shell/test/host.test.ts` 的「counts subscribers of one topic…」「subscribes again after a reconnect」；端到端
+  `tests/live/ui/host.spec.ts` 的「two subscribers of one topic: the first leaving does not take it from the second」（用内建的 `harnix.sessions.status`，
+  不依赖 testapp 二进制）。

@@ -69,3 +69,16 @@ export interface NestHost {
 
 IPDrun 的 space 把「列表 → 打开的一项 → 再下一层」画成右栏的一串页签，打开一项时要选中新的那页；现在靠注册空语言包触发重画、下一帧点
 `[data-tab]`、收着时点 `details-toggle`（`ui/kit/src/shell-bridge.ts`、`ui/kit/src/keys.ts`）。
+
+## 实现记录
+
+外壳（F3b）：
+
+- `NestHost.details.{open, close, isOpen, tab, onTab}` 与 `NestHost.redraw()`。选中的页签挪进 `ShellState.tabBySpace`（按 space、只在页面内存），
+  `App.selectTab` / `App.shownTab` 是唯一的读写处，`Details` 只读它。
+- 「换 space 回到第一个」保持：人点的页签换 space 后作废；经 `details.open(tab)` 选的（`asked`）留着，所以「换走再回来，开合与选中页签各自保持」只对宿主选的页签成立。
+  揭示详情仍跳到「详情」（`showDetail` 里选 `details`）。
+- `redraw()` 给 `ShellState.drawn` +1，整个外壳重画一遍、读 space 的函数，注册表版本号不动。`open(tab)` 找不到时先重读 `tabs()` 再找，仍没有就只打开、
+  诊断页记一条（`point: "details"`）。`onTab` 只在选中项真的变了时通知（人点的、`open(tab)`、揭示详情）。
+- 测试：`ui/packages/shell/test/host.test.ts` 的 `details` 三条；`tests/live/ui/host.spec.ts` 的「details: redraw adds a tab, open selects it, clicks are heard,
+  and each space keeps its own」。现有 `interface.spec.ts` 的右栏用例照旧（收尾时跑）。
