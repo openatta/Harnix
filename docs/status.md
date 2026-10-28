@@ -10,10 +10,10 @@
 
 | 项 | 值 |
 |---|---|
-| 阶段 | **0.4 的 M0–M9 全部完成并发布**；最新发布 `Harnix-v0.4.0-2026102701`（外壳：底部 space、右栏按 space 记忆、页签靠右），`main` 与 `m7` 同步 |
+| 阶段 | **0.4 的 M0–M9 全部完成并发布**；最新发布 `Harnix-v0.4.0-2026102702`（本地标签，未推送：IPDrun 的需求批次） |
 | 当前里程碑 | 无。下一个里程碑要维护者说开始 |
-| 当前任务 | IPDrun 提的需求（`docs/issues/`）：后端不依赖新 Agix 的一批与外壳批次已落地，见「进行中」 |
-| 下一步 | 依赖新 Agix 的 07、10、13（含 ipdrun-13 的 `user_message_refused` 转发）；做完统一升 Agix 钉、跑全量 `check.sh`、发版 |
+| 当前任务 | IPDrun 提的需求（`docs/issues/`）：后端（含依赖新 Agix 的 07、10、13）与外壳批次全部落地，见「进行中」 |
+| 下一步 | 推送（维护者定）；Agix `Agix-v0.2.9-2026102701` 先推，Harnix 再推 |
 | 最后更新 | 2026-10-27 |
 
 ## 怎么接上
@@ -40,7 +40,7 @@
 | 项 | 值 |
 |---|---|
 | 分支 | `m7`，`main` 快进到同一处（已推送到 0.4.0-2026102701） |
-| `agix/` 钉的 | `e8a1dd8`（`Agix-v0.2.9-2026102603`） |
+| `agix/` 钉的 | `2e5ade3`（`Agix-v0.2.9-2026102701`，本地标签，未推送） |
 | 远程 | `openatta/Harnix`（GitHub 从 `openatta/harnix` 改名，旧地址会转）、`openatta/agix` |
 | 不进 git 的输入文档 | `docs/helm-issue-01-nest-0.4-architecture.md`、`iprun-issue-01-sync.md`（Helm、IPDrun 的原文） |
 | Agix issue | `.local/agix-issue-*.md`：01–07 都已在 Agix 落地 |
@@ -71,7 +71,8 @@
 
 | 任务 | 开始 | 改到哪了 | 下一步 |
 |---|---|---|---|
-| IPDrun 需求 · 后端（不依赖新 Agix） | 2026-10-27 | 01、02+03、04+05、08、09、11、12（后端）、14、15（后端无改动，加契约用例）、16（只记录）、17、31、32 已提交，各 issue 末尾有实现记录；未打标签、未推送 | 07、10、13 等 Agix 新版；之后统一升 `agix/` 钉、`set-version.sh`、发版 |
+| IPDrun 需求 · 后端（不依赖新 Agix） | 2026-10-27 | 01、02+03、04+05、08、09、11、12（后端）、14、15（后端无改动，加契约用例）、16（只记录）、17、31、32 已提交，各 issue 末尾有实现记录；未打标签、未推送 | ——（07、10、13 见下一行） |
+| IPDrun 需求 · 后端（依赖新 Agix） | 2026-10-27 | `agix/` 钉到 `Agix-v0.2.9-2026102701`（`bbdd8e2`）；07（`reap_on_stop`）、10（模板 `native`、daemon `--template`）、13（prompt 中间件再导出、`user_message_refused` 原样转发）一个提交 `b593767`，各 issue 末尾有实现记录与「外壳部分待做」（13：界面显示被拒的消息）；Helm 兼容验证过（`.local/harnix-split/HELM-COMPAT.md` 在 IPDrun 仓库） | 13 的外壳部分 |
 | IPDrun 需求 · 外壳与贡献点 | 2026-10-27 | 18–30 与 01、12、15、16、17 的外壳部分已提交（`15f7a48`…`3471226`），各 issue 末尾有实现记录；界面用例在新文件 `tests/live/ui/host.spec.ts`（17 条），`coverage.md` 已重生成；未打标签、未推送 | 全量 `check.sh` 留给发版前（本批只跑了前端各层与 `ui` project 两种拓扑） |
 
 ---
@@ -90,6 +91,7 @@
 
 | 日期 | 事 |
 |---|---|
+| 2026-10-27 | 发布 `Harnix-v0.4.0-2026102702`（本地标签，未推送）：IPDrun 需求的后端与外壳批次全部在内。依赖新 Agix 的三条：`agix/` 钉到 `Agix-v0.2.9-2026102701`（`bbdd8e2`，本地标签、未推送；Harnix 不用改就编过，会话事件原样转发，`user_message_refused` 直接到客户端）；07 `InstanceTemplate::reap_on_stop()`（spawn 的 daemon `setsid`，停下 / 被杀 / 重启前把它会话里剩下的进程 TERM→1.5 s→KILL；两种载体都在实例全局层打开 `sandbox.reap_process_groups`）；10 `InstanceTemplate::native(f)`（进程内并进 `contrib`，spawn 时 daemon 带 `--template` 在自己进程里只调 `templates()` 再建，找不到以 78 退出、实例 `down`）；13 `harnix` / `harnix_module` 再导出 prompt 中间件四个类型（`b593767`）。新录像三份（由 `calls-a-tool` 手改）。Helm 兼容：副本（IPDrun `.local/helm-compat`）换上本 Harnix 与新 Agix，Helm 的构建、clippy、`cargo test`（71 过）、`pnpm -r typecheck` 全过，不用改。`check.sh` 全量 11 层全过（remote 未要求）。13 的外壳部分（界面显示被拒的消息）记在 issue 末尾 |
 | 2026-10-27 | IPDrun 需求的外壳批次：`NestHost` 加 `spaces.switch/current`、`session.open(ref, {switchSpace})`、`session.onChange` 与 `useCurrentSession()`、`details.*`、`redraw()`、`settings.open()`（18–21）；`SpaceContribution` 加 `badge`、`readOnly`、`pinned`、`composerNotice`、`ids`、`composer.steer`、`hideCommands`（22–26、28、29）；`command` 贡献加 `trigger: "/" \| "@"`、候选的 `run(ctx)`、`complete(query, ctx)`（27、29，点的个数不变，`catalog.rs` 的说明随之改）；`Registry.icons`（30）；外壳的主题订阅按客户端计数（16，外壳自己的 `harnix.sessions.status` 也走它）；客户端 `refreshToken` / `tokenFromPage()` 与「服务已重启」退路（15）、在途上限本地排队（01）、`SessionController.send` 的 `onBusy`（28）、输入框经 `harnix.sessions.setModel` 换模型（12）、`turn_settled.outcome` 类型（17）。检查：各包 typecheck、Vitest（core 45、react 54、shell 12）、style-lint、`coverage.mjs --check` 过；`ui` project 单双向流 69 条全过，`host.spec.ts` 在分离流下也过。未打标签、未推送 |
 | 2026-10-27 | IPDrun 需求的后端批次（不依赖新 Agix）：01（超额回 `BUSY` -31005、`limits.max_in_flight`）、02（SIGTERM 走收尾、`SHUTDOWN_GRACE` 10 s、二次信号强退）、03（testkit `dispose()`）、04（并发 `ensure` 幂等）、05（`wait: "ready"`、`harnix.instances.wait`、`ensure_ready` / `wait_ready`）、08（daemon 按实例的数据根锁、`--instance` / `--lock-wait`）、09（状态目录 `harnix.lock`）、11（`inherit_providers`、内核方法 `harnix.instances.inheritProviders`）、12 后端（`[shell] model_switch`、`harnix.sessions.setModel`）、14（`ModuleContext::listen` / `listening`、`serve_with`）、17（`turn_settled.outcome`、`Tap::next_settled`）、31（桌面模板 `PRODUCT_ID` 与 `check-rename.mjs`）、32（`build.sh` 装应用 workspace、SDK 两条）；15 后端不用改（加契约用例），16 全在外壳。`check.sh`：build、rust、clippy、offline、frontend、api（两种拓扑）、template、live、interface、budget 过，remote 未要求；browser 一条失败：`ui/host.spec.ts` 的 `@` 候选用例（外壳批次 ipdrun-27，跑的时候该文件有外壳 agent 未提交的改动），不在本批改动内。未打标签、未推送 |
 | 2026-10-27 | 发布 `Harnix-v0.4.0-2026102701`（Helm 维护者同意；版本号不变、只换日期与序号）：外壳按 Helm 设计 11 补三处：space 可 `place: "bottom"`（左栏底部、系统之上，给全局入口）；右栏开合按 space 各记各的（`harnix.details`，未记时用 space 的 `details` 默认值，原来全局一个）；页签可 `align: "end"` 排到条的右端。`check.sh` 只跑了 offline、frontend 两层（本机磁盘 14 GB，不够 15 GB），build、browser、interface 未跑；Helm 的 testkit 界面用例（经同一外壳）覆盖新行为。分支 `main`、`m7` 与标签推送 |
