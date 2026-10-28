@@ -114,7 +114,7 @@ pub trait Module: Send + Sync + 'static {
 | `events()` | `&Events` |
 | `call(method, params)` | 以 `Module(<id>)` 的身份调任何方法，和设备走同一个准入点、同样审计 |
 | `sessions()` | `Sessions`，见 §1.6 |
-| `instances()` | `Instances`：`create(template, name, params)`、`ensure(template, name, params)`（幂等，`start` 里用）、`stop(instance)`（数据根留着） |
+| `instances()` | `Instances`：`create(template, name, params)`、`ensure(template, name, params)`（幂等，并发调同名也只建一台，`start` 里用）、`ensure_ready(template, name, params, timeout)`（同上，等到 `ready` 再返回；`down` 或超时报 `INSTANCE_UNAVAILABLE`）、`wait_ready(instance, timeout)`、`stop(instance)`（数据根留着） |
 | `instance(id)` | 只读的 `InstanceHandle` |
 | `provide(v)` / `provide_arc(arc)` / `state::<T>()` | 模块状态，handler 里用 `cx.state::<T>()` 拿 |
 
@@ -286,7 +286,7 @@ schema、来自哪个模块）。下表是分组索引。
 |---|---|---|
 | 握手与会话驱动（中枢） | `harnix.hello`（含 `shell`：品牌、留下的内建 space、`runtime_modules`、目录）、`harnix.sessions`、`harnix.attach`、`harnix.detach`、`harnix.send`、`harnix.queue.remove`、`harnix.subscribe`、`harnix.unsubscribe` | 设备 |
 | 进程（中枢） | `harnix.process`：版本、运行时长、峰值内存、已连接用户（设备、连接方式、User-Agent、连上的时间） | 设备 |
-| 实例（中枢） | `harnix.instances.list / templates / sessions / create / ensure / stop / restart`、`harnix.sessions.tasks` | 设备（`create` 只认 `ui` 模板） |
+| 实例（中枢） | `harnix.instances.list / templates / sessions / create / ensure / stop / restart / wait`、`harnix.sessions.tasks`。`create` / `ensure` 可带 `wait: "ready"`、`timeout_ms`（缺省 60000）：等这台变成 `ready` 再答，变成 `down` 立即以 `-31004` 报错（带理由），超时同样；`wait {instance, timeout_ms?}` 是对已有实例的同一种等。并发 `ensure` 同名同模板都拿到同一台 | 设备（`create` 只认 `ui` 模板） |
 | space、条目（中枢） | `harnix.spaces.list`、`harnix.entries.append`（只许模块与内核） | — |
 | 引擎直通 | `session.create / list / get / history / entries / fork / resume / respondToPrompt`、`session.interrupt / close / delete`、`scene.list / describe / activate`、`commands.list`、`mcp.status`、`plugin.list`、`daemon.status / ping / doctor` | 设备 |
 | 应用层 | `harnix.contributions`、`harnix.diagnostics`、`harnix.audit`、`harnix.reachable` | 设备 |

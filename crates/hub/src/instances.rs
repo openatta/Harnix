@@ -110,6 +110,35 @@ pub(crate) fn claimed_space(params: &Value) -> String {
         .to_string()
 }
 
+/// `wait` and `timeout_ms` on `harnix.instances.create` / `.ensure` / `.wait`.
+struct Wait;
+
+impl Wait {
+    /// How long a wait lasts when the call does not say.
+    const DEFAULT: std::time::Duration = std::time::Duration::from_secs(60);
+
+    /// `Some(timeout)` when the call asks to wait until the instance is ready.
+    fn parse(params: &Value) -> Result<Option<std::time::Duration>, RpcError> {
+        match params.get("wait") {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(s)) if s == "ready" => Self::timeout(params).map(Some),
+            Some(other) => Err(RpcError::invalid_params(format!(
+                "wait is \"ready\" or absent, not {other}"
+            ))),
+        }
+    }
+
+    fn timeout(params: &Value) -> Result<std::time::Duration, RpcError> {
+        match params.get("timeout_ms") {
+            None | Some(Value::Null) => Ok(Self::DEFAULT),
+            Some(v) => v
+                .as_u64()
+                .map(std::time::Duration::from_millis)
+                .ok_or_else(|| RpcError::invalid_params("timeout_ms is a number of milliseconds")),
+        }
+    }
+}
+
 fn refused(message: String) -> RpcError {
     RpcError::new(codes::REFUSED, message)
 }
@@ -209,14 +238,81 @@ impl Hub {
         }
     }
 
-    /// `harnix.instances.create` / `.ensure { template, name, params? }`.
+    /// `harnix.instances.create` / `.ensure { template, name, params?, wait?, timeout_ms? }`.
     ///
     /// `ensure` returns the instance when one by that name was already built
-    /// from that template, which makes it the call a module makes at start.
+    /// from that template, which makes it the call a module makes at start —
+    /// also when two of them race for the same name (ipdrun-04).
+    ///
+    /// `wait: "ready"` answers once the instance is ready, rather than as soon as
+    /// it exists: a spawned daemon is `starting` for a moment after it is built,
+    /// and a session call in that moment is refused (ipdrun-05).
     pub(crate) async fn create_instance(
         self: &Arc<Self>,
         subject: &Subject,
         params: Value,
+        ensure: bool,
+    ) -> Result<Value, RpcError> {
+        let wait = Wait::parse(&params)?;
+        let view = self.create_instance_now(subject, &params, ensure).await?;
+        match wait {
+            None => Ok(view),
+            Some(timeout) => {
+                let name = view.get("id").and_then(Value::as_str).unwrap_or_default().to_string();
+                self.wait_ready(&name, timeout).await
+            }
+        }
+    }
+
+    /// `harnix.instances.wait { instance, timeout_ms? }`: answer with the instance once it is
+    /// ready; at once with `INSTANCE_UNAVAILABLE` if it is down, or when the time runs out.
+    pub(crate) async fn wait_instance(self: &Arc<Self>, params: Value) -> Result<Value, RpcError> {
+        let instance = self.instance_of(&params)?;
+        let timeout = Wait::timeout(&params)?;
+        self.wait_ready(&instance, timeout).await
+    }
+
+    /// Wait on the link's own status, not by asking again.
+    async fn wait_ready(self: &Arc<Self>, instance: &str, timeout: std::time::Duration) -> Result<Value, RpcError> {
+        let slot = self
+            .slot(instance)
+            .ok_or_else(|| RpcError::new(codes::INSTANCE_NOT_FOUND, format!("there is no instance `{instance}`")))?;
+        let mut status = slot.link.status();
+        let waited = tokio::time::timeout(timeout, async {
+            loop {
+                let now = status.borrow_and_update().clone();
+                match now {
+                    LinkStatus::Ready => return Ok(()),
+                    LinkStatus::Down { .. } => return Err(link::unavailable(&now)),
+                    LinkStatus::Starting | LinkStatus::Degraded { .. } => {}
+                }
+                if status.changed().await.is_err() {
+                    return Err(link::unavailable(&status.borrow().clone()));
+                }
+            }
+        })
+        .await;
+        match waited {
+            Ok(Ok(())) => Ok(self.instance_view(&slot)),
+            Ok(Err(mut e)) => {
+                e.data = Some(json!({"instance": instance, "status": slot.status()}));
+                Err(e)
+            }
+            Err(_) => Err(RpcError {
+                code: codes::INSTANCE_UNAVAILABLE,
+                message: format!(
+                    "the instance `{instance}` was not ready within {} ms",
+                    timeout.as_millis()
+                ),
+                data: Some(json!({"instance": instance, "status": slot.status()})),
+            }),
+        }
+    }
+
+    async fn create_instance_now(
+        self: &Arc<Self>,
+        subject: &Subject,
+        params: &Value,
         ensure: bool,
     ) -> Result<Value, RpcError> {
         let template_id = params
@@ -236,7 +332,7 @@ impl Hub {
             })?,
         };
 
-        let space = self.claimed(&params)?;
+        let space = self.claimed(params)?;
         let (template, declared_by) = {
             let registry = self.registry.lock().await;
             registry
@@ -246,12 +342,13 @@ impl Hub {
                 .ok_or_else(|| RpcError::not_found(format!("there is no template `{template_id}`")))?
         };
         let owner = builder_of(subject, &space, &template, &declared_by)?;
+        // The fast path. The check that decides is the one under the registry's lock, in `build`.
         if let Some(existing) = self.slot(&name) {
             if ensure && existing.template.as_deref() == Some(template_id.as_str()) {
                 return Ok(self.instance_view(&existing));
             }
         }
-        self.build(&template_id, &name, filled, owner).await
+        self.build(&template_id, &name, filled, owner, ensure).await
     }
 
     /// Build an instance from a template for its owner — a space's default instance, here.
@@ -261,15 +358,19 @@ impl Hub {
                 return Ok(self.instance_view(&existing));
             }
         }
-        self.build(template, name, BTreeMap::new(), owner).await
+        self.build(template, name, BTreeMap::new(), owner, true).await
     }
 
+    /// Build under the registry's lock, held until the instance is visible: two builds of one
+    /// name are one after the other, and the second sees the first. `ensure` makes that second
+    /// one an answer rather than a refusal.
     async fn build(
         self: &Arc<Self>,
         template_id: &str,
         name: &str,
         filled: BTreeMap<String, String>,
         owner: Owner,
+        ensure: bool,
     ) -> Result<Value, RpcError> {
         let template_id = template_id.to_string();
         let name = name.to_string();
@@ -282,7 +383,10 @@ impl Hub {
                 return Err(refused(format!("module `{id}` is disabled")));
             }
         }
-        if self.slot(&name).is_some() {
+        if let Some(existing) = self.slot(&name) {
+            if ensure && existing.template.as_deref() == Some(template_id.as_str()) {
+                return Ok(self.instance_view(&existing));
+            }
             return Err(RpcError::invalid_params(format!(
                 "there is already an instance `{name}`"
             )));
@@ -318,10 +422,10 @@ impl Hub {
                 created_ms,
             })
             .map_err(|e| RpcError::new(codes::INTERNAL_ERROR, format!("ledger: {e:#}")))?;
-        drop(registry);
         tracing::info!(instance = %name, template = %template_id, owner = %owner, "instance built");
         self.add_instance(&name, built, Some(template_id), filled, owner, created_ms)
             .await;
+        drop(registry);
         let slot = self.slot(&name).expect("just added");
         Ok(self.instance_view(&slot))
     }

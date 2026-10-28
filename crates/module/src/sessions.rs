@@ -262,6 +262,39 @@ impl Instances<'_> {
             .await
     }
 
+    /// [`Instances::ensure`], answering once the instance is ready: a spawned daemon is
+    /// `starting` for a moment after it is built, and a session call in that moment is refused.
+    /// An instance that goes down is an `INSTANCE_UNAVAILABLE` error at once, with why; so is
+    /// running out of `timeout`.
+    pub async fn ensure_ready(
+        &self,
+        template: &str,
+        name: &str,
+        params: BTreeMap<String, String>,
+        timeout: std::time::Duration,
+    ) -> Result<Value, RpcError> {
+        self.cx
+            .call(
+                "harnix.instances.ensure",
+                json!({
+                    "template": template, "name": name, "params": params,
+                    "wait": "ready", "timeout_ms": timeout.as_millis() as u64,
+                }),
+            )
+            .await
+    }
+
+    /// Wait until an instance is ready — one being restarted, or reconnecting — and answer with
+    /// it. The same errors as [`Instances::ensure_ready`].
+    pub async fn wait_ready(&self, instance: &str, timeout: std::time::Duration) -> Result<Value, RpcError> {
+        self.cx
+            .call(
+                "harnix.instances.wait",
+                json!({"instance": instance, "timeout_ms": timeout.as_millis() as u64}),
+            )
+            .await
+    }
+
     /// Stop an instance this module built, and forget it. Its data stays.
     pub async fn stop(&self, instance: &str) -> Result<Value, RpcError> {
         self.cx

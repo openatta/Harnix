@@ -58,3 +58,17 @@ impl Instances<'_> {
 
 IPDrun 改用 spawn 模板后，API 测试里每台实例建好后的第一次 `session.create` 都失败；现在在宿主里 ensure 后轮询 `instances.list`
 等到 ready（`crates/agent/src/host.rs` 的 `wait_ready`）。
+
+## 实现记录
+
+- `harnix.instances.create` / `.ensure` 认可选的 `wait: "ready"` 与 `timeout_ms`（缺省 60000）：等链接自己的状态（`watch`，不轮询），
+  `ready` 返回实例视图；`down` 立即 `-31004`，`message` 是 `the instance is down (<理由>)`，`data` 带 `{instance, status}`；超时同码，
+  `message` 写「was not ready within N ms」。`wait` 是别的值报 `invalid_params`。不带 `wait` 一字不变；会话类调用照旧不等。
+- 为 `wait_ready` 加了中枢方法 `harnix.instances.wait {instance, timeout_ms?}`（`HUB_METHODS`，设备可调，与 `instances.list` 同级）。
+- 模块侧 `Instances::ensure_ready(template, name, params, timeout)`、`Instances::wait_ready(instance, timeout)`。SDK 指南 §6.2、参考 §1.5 / §5.2 写明。
+- 偏离：起不来的 spawn 模板（程序不存在、立即退出）在 `DaemonLink` 里是 `degraded` 并一直重试，不会变成 `down`（本条不改看护行为），
+  所以那种情况等到超时；「`down` 后马上报错」的用例用一个答协议版本 999 的假 daemon 做 `program`。
+- testapp 的 `fleet` 加 `app.fleet.ready_session`（`ensure_ready` 后立刻建会话，再 `wait_ready`）。
+- 测试：`tests/live/api/instances-ready.spec.ts` 的「ensure with wait: ready answers once the daemon is up, and a session follows at once」
+  「a module's ensure_ready is followed by a session at once」「a daemon that goes down fails the wait at once, saying why」
+  「a wait that runs out of time says so」。

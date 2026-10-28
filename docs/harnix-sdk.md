@@ -344,6 +344,11 @@ async fn start(&self, ctx: ModuleContext) -> anyhow::Result<()> {
   一个就拒绝。`ctx.instances().stop(id)` 停掉并从账本删掉（数据根留着）。
 - 建过的实例记在 `.harnix/instances.json`，重启后统一重建；模板没了或模块停用了，它显示为
   `down` 并写明原因。
+- `ensure` 幂等，几个任务同时 `ensure` 同一个名字也只建一台，不用自己加锁。
+- **spawn 实例 `ensure` 之后不是马上可用**：daemon 要零点几秒才起来，这期间的会话调用答 `INSTANCE_UNAVAILABLE`
+  （`the instance is starting`）。接着就要用它的，调 `ctx.instances().ensure_ready(template, name, params, timeout)`
+  （设备侧：`harnix.instances.ensure { …, wait: "ready" }`）：`ready` 了才返回，`down` 立即报错并带理由，超时同样。
+  已经建好、正在重启或重连的，用 `wait_ready(instance, timeout)`。会话类调用本身不等。
 
 让一个 space 默认用它：space 声明里写 `instance = "template:research"`（第一次在这个 space 里建会话
 时按模板建，之后复用），或者写一台固定实例的 id。

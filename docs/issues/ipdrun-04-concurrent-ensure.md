@@ -51,3 +51,13 @@ if let Some(existing) = self.slot(&name) {
 ## 来源
 
 IPDrun 的模块为同一个工作单元并发建两台实例时撞上这个报错，现在在自己的宿主里把 `ensure` 串行（`crates/agent/src/host.rs` 的 `ensuring` 互斥）。
+
+## 实现记录
+
+- `crates/hub/src/instances.rs`：`build()` 多一个 `ensure` 参数，锁内撞名时，`ensure`（含 `build_owned`）且同模板就返回已有的那台；
+  另外把 `drop(registry)` 挪到 `add_instance` 之后——原来两者之间还有一个窗口：第二个调用拿到锁时第一台还没进实例表，会再建一台、
+  顶掉第一台。`create` 撞名照旧 `invalid_params`。
+- testapp 的 `fleet` 加 `app.fleet.ensure_many {template, name, count}`（一个模块并发 `ensure`）。
+- 测试：`tests/live/api/instances-ready.spec.ts` 的「eight ensures of one name at once, from a module, are one in-process instance」
+  「…from a device, are one spawned instance」「two creates of one name at once: one is built, the other refused」。
+- 偏离：spawn 的那一遍放在新文件 `instances-ready.spec.ts`（与 05 共用一个后端），没有放进 `instances-daemon.spec.ts`。

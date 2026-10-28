@@ -383,6 +383,51 @@ impl Module for Fleet {
                 Fleet::save(&module, &state.sessions.lock().await).await?;
                 Ok(json!({"started": started}))
             });
+        m.method("ensure_many", Principal::Device)
+            .describe("`count` ensures of one name at once, from one module: what each answered")
+            .handler(|cx: CallContext, p: Value| async move {
+                let module = cx.module().clone();
+                let template = p["template"].as_str().unwrap_or("fleet.side").to_string();
+                let name = p["name"].as_str().unwrap_or_default().to_string();
+                let count = p["count"].as_u64().unwrap_or(8) as usize;
+                let instances = module.instances();
+                let all = futures::future::join_all(
+                    (0..count).map(|_| instances.ensure(&template, &name, BTreeMap::new())),
+                )
+                .await;
+                let rows: Vec<Value> = all
+                    .into_iter()
+                    .map(|r| match r {
+                        Ok(view) => json!({"id": view["id"]}),
+                        Err(e) => json!({"error": e}),
+                    })
+                    .collect();
+                Ok(json!({"answers": rows}))
+            });
+        m.method("ready_session", Principal::Device)
+            .describe("ensure_ready an instance, then at once create a session on it")
+            .handler(|cx: CallContext, p: Value| async move {
+                let module = cx.module().clone();
+                let template = p["template"].as_str().unwrap_or_default();
+                let name = p["name"].as_str().unwrap_or_default();
+                let view = module
+                    .instances()
+                    .ensure_ready(template, name, BTreeMap::new(), Duration::from_secs(60))
+                    .await?;
+                let session = module
+                    .sessions()
+                    .create(SessionSpec {
+                        instance: Some(name.to_string()),
+                        ..SessionSpec::default()
+                    })
+                    .await?;
+                let again = module.instances().wait_ready(name, Duration::from_secs(5)).await?;
+                Ok(json!({
+                    "status": view["status"],
+                    "session_id": session.session_id,
+                    "waited": again["status"],
+                }))
+            });
         m.method("sessions", Principal::Device)
             .describe("the headless sessions this module started, in any run")
             .handler(|cx: CallContext, _p: Value| async move {

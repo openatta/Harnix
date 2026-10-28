@@ -97,6 +97,7 @@ pub const HUB_METHODS: &[&str] = &[
     "harnix.instances.ensure",
     "harnix.instances.stop",
     "harnix.instances.restart",
+    "harnix.instances.wait",
     "harnix.sessions.tasks",
     "harnix.entries.append",
     "harnix.spaces.list",
@@ -497,6 +498,7 @@ impl Hub {
             "harnix.instances.ensure" => return self.create_instance(subject, params, true).await,
             "harnix.instances.stop" => return self.stop_instance(subject, params).await,
             "harnix.instances.restart" => return self.restart_instance(subject, params).await,
+            "harnix.instances.wait" => return self.wait_instance(params).await,
             "harnix.sessions.tasks" => {
                 let key = self.key_of(&params)?;
                 return self.tasks_view(&key).await;
