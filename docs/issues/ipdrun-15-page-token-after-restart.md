@@ -58,3 +58,18 @@
 ## 来源
 
 IPDrun 的「服务重启后界面恢复」用例只能在重启后 `page.reload()`（`qa/ui/specs/stage0/uf11-realtime.spec.ts`），桌面版里服务重启后窗口一直显示断开。
+
+## 实现记录
+
+后端（F3a）：
+
+- 不用改：令牌只在页面 HTML 的 `<meta name="harnix-token">` 里，每次 `GET /` 注入当前进程的令牌，且该应答已带 `Cache-Control: no-store`
+  （`crates/transport/src/statics.rs`）；旧令牌的 `/ws` 升级与 `POST /handshake` 都答 401。`tokenFromPage()` 需要的服务端行为都在。
+  启动链接模式下没有 cookie 的 `GET /` 答 401，合「走退路提示」。
+- 测试（锁住这份契约）：`tests/live/api/page-token.spec.ts` 的「after a restart the page carries the new token, and the old one is refused」
+  （同端口 `restart()` 后 `GET /` 的 meta 是新令牌、`no-store`；旧令牌握手 401，新令牌 200）。
+
+外壳部分待做（建议第 1–4 条全部在 `ui/`）：`HarnixClientOptions.refreshToken?: () => Promise<string | null>` 与重连失败时换令牌（`token` 改内部可变）；
+`@harnix/core` 导出 `tokenFromPage(baseUrl?)`（`fetch(`${base}/`, {credentials: "same-origin", cache: "no-store"})` 读 meta，401 / 失败返回 null）；
+外壳 `main.tsx` 传 `refreshToken: tokenFromPage()`；连续 N 次失败且取不到新令牌时的「服务已重启，请刷新页面」文案；`ui/packages/core/test/client.test.ts`
+与 `tests/live/ui/interface.spec.ts` 的用例。

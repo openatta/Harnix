@@ -49,3 +49,10 @@
 ## 来源
 
 IPDrun 的同一个对象在会话里的卡片和右栏里同时显示、订同一个主题，一个卸下后另一个不再更新；IPDrun 现在在自己的 kit 里做引用计数（`ui/kit/src/runtime.ts` 的 `Kit.watch`）。
+
+## 实现记录
+
+后端（F3a）：本条全部在外壳（`ui/packages/shell/src/host.ts`），后端不改——服务端「按连接一份订阅」是对的，计数归客户端。留给外壳批次：
+按客户端的 `(topic, 键排序后的 params JSON) → {count, last, listeners}` 表、首个订阅者才发 `harnix.subscribe`、最后一个退订才发 `harnix.unsubscribe`、
+后来者在下一个微任务拿到 `last`、重连时按表重订；`ui/packages/shell/test/` 的 host 单测与 `tests/live/ui/` 的端到端用例（可用 testapp 的
+`app.probe.counter` 主题与 `app.probe.bump`）。
