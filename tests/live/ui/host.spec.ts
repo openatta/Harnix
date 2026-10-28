@@ -130,8 +130,10 @@ test("useCurrentSession: the right column follows the session picked in the left
   const second = await newSession(page, "says-ready");
   await page.evaluate(async () => {
     const { app } = (window as any).harnix;
-    const React = await import("react");
-    const { useCurrentSession } = await import("@harnix/react");
+    // Through the page's import map: the shell's own React and @harnix/react.
+    const load = (name: string) => import(name);
+    const React = await load("react");
+    const { useCurrentSession } = await load("@harnix/react");
     function Current() {
       const current = useCurrentSession();
       return React.createElement("div", { "data-testid": "current-session" }, current ? current.sessionId : "none");
@@ -234,7 +236,8 @@ test("badge: a space's entry shows its count, not when it is zero, also on the r
 async function conversationSpace(page: Page): Promise<void> {
   await page.evaluate(async () => {
     const { app } = (window as any).harnix;
-    const React = await import("react");
+    const load = (name: string) => import(name);
+    const React = await load("react");
     const t = ((window as any).__t = { readOnly: "", pinned: "", clicked: 0, opened: [] as string[] });
     app.registry.register(
       "space",
@@ -423,8 +426,8 @@ test("commands: one that runs instead of inserting, asked with the front space, 
   });
   const names = async () => {
     const input = page.getByTestId("conv-input");
-    await input.press("ControlOrMeta+a");
-    await input.press("Backspace");
+    await expect(input).toHaveValue("");
+    await input.click();
     await input.pressSequentially("/");
     const menu = page.getByTestId("conv-menu");
     await expect(menu).toBeVisible();
@@ -464,8 +467,8 @@ test("@ takes an application's candidates after the shell's own, and the / menu 
   await expect(item).toBeVisible();
   await item.click();
   await expect(input).toHaveValue("see doc:ab ");
-  await input.press("ControlOrMeta+a");
-  await input.press("Backspace");
+  // Back to empty as a person would (select-all is the platform's, and headless macOS has none).
+  for (let i = "see doc:ab ".length; i > 0; i -= 1) await input.press("Backspace");
   await expect(input).toHaveValue("");
   await input.pressSequentially("/");
   await expect(page.getByTestId("conv-menu")).toBeVisible();
