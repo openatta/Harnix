@@ -1055,7 +1055,7 @@ dependencies = [
 
 [[package]]
 name = "harnix"
-version = "0.4.0-2026102703"
+version = "0.4.0-2026102704"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1070,7 +1070,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-app"
-version = "0.4.0-2026102703"
+version = "0.4.0-2026102704"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1098,7 +1098,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-authz"
-version = "0.4.0-2026102703"
+version = "0.4.0-2026102704"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1113,7 +1113,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-builtin"
-version = "0.4.0-2026102703"
+version = "0.4.0-2026102704"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1135,7 +1135,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-contract"
-version = "0.4.0-2026102703"
+version = "0.4.0-2026102704"
 dependencies = [
  "async-trait",
  "serde",
@@ -1145,7 +1145,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-hub"
-version = "0.4.0-2026102703"
+version = "0.4.0-2026102704"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1163,7 +1163,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-instance"
-version = "0.4.0-2026102703"
+version = "0.4.0-2026102704"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1187,7 +1187,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-module"
-version = "0.4.0-2026102703"
+version = "0.4.0-2026102704"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1205,7 +1205,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-testapp"
-version = "0.4.0-2026102703"
+version = "0.4.0-2026102704"
 dependencies = [
  "anyhow",
  "base",
@@ -1219,7 +1219,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-transport"
-version = "0.4.0-2026102703"
+version = "0.4.0-2026102704"
 dependencies = [
  "anyhow",
  "async-trait",
