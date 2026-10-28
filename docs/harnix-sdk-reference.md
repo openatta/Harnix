@@ -336,6 +336,10 @@ schema、来自哪个模块）。下表是分组索引。
 
 React 19（现在 `19.3.1`）。界面包写成 `peerDependencies: { react: "^19" }`，依赖 `@harnix/react: workspace:*`。
 
+自己建 `HarnixClient` 时：`refreshToken`（浏览器里传 `tokenFromPage()`，外壳就是这么传的）让已打开的页面在服务同端口重启、换了令牌后自己接上；
+连续 10 次重连失败又取不到新令牌时状态是 `closed`、说明是 `TOKEN_STALE`。会话控制器 `send(text, attachments, { onBusy: "steer" })` 与
+`ChatPanel` 的 `onBusy` 让一轮在跑时的消息在下一步送进这一轮（缺省仍排队）。
+
 ### 6.2 入口
 
 ```ts
@@ -349,13 +353,13 @@ export function register(r: Registry, host: NestHost): void
 
 | 点 | 形状（必需的加粗） |
 |---|---|
-| `space` | **`id`**、**`icon`**、**`title()`**、`order`、`place: "top" \| "bottom"`（默认 top；bottom 列在左栏底部、系统之上，给全局而非业务面的入口）、`details: "open" \| "closed"`（首次进入时右栏开合，默认 closed；之后每个 space 各记各的）、`center: "chat" \| "minimized" \| "hidden"`（默认 chat）、`sidebar()`（左栏中段）、`overview()`（中区不是对话时）、`tabs: [{ id, title(), render(), align? }]` 或返回它的函数（随选中项变；`align: "end"` 的页签排在条的右端，给不常用的）、`sessions`（列哪个后端 space 的会话，默认自己的 id）、`subtitle()`、`suggestions()`、`notice()`、`placeholder()` |
+| `space` | **`id`**、**`icon`**、**`title()`**、`order`、`place: "top" \| "bottom"`（默认 top；bottom 列在左栏底部、系统之上，给全局而非业务面的入口）、`details: "open" \| "closed"`（首次进入时右栏开合，默认 closed；之后每个 space 各记各的）、`center: "chat" \| "minimized" \| "hidden"`（默认 chat）、`sidebar()`（左栏中段）、`overview()`（中区不是对话时）、`tabs: [{ id, title(), render(), align? }]` 或返回它的函数（随选中项变；`align: "end"` 的页签排在条的右端，给不常用的）、`sessions`（列哪个后端 space 的会话，默认自己的 id）、`subtitle()`、`suggestions()`、`notice()`、`placeholder()`；可选的 `badge()`（左栏角标）、`readOnly(session)`、`pinned(session)`、`composerNotice(session)`、`ids()`、`composer: { steer }`、`hideCommands: string[]`，每次画时读，抛错只丢那一样 |
 | `home.card` | **`id`**、**`render()`**、`title()`、`order`：画在新对话的输入框下面 |
 | `tool.row` | **`id`**、**`match(toolBlock)`**、**`render(toolBlock)`** |
 | `details.panel` | **`id`**、**`match(item)`**、**`render(item)`**、`title(item)`；`item = { kind, name?, … }`，由 `host.reveal(item)` 打开 |
 | `flow.block` | **`id`**、**`match(block)`**、**`render(block)`**：对话流里的块，先于内建的匹配 |
 | `sidebar.group` | **`id`**、**`group(sessions)`** → `[{ key, title, hint?, workspace?, rows }]`、`label()` |
-| `command` | **`id`**、**`complete(query)`** → `[{ replacement, label, description?, source? }]` |
+| `command` | **`id`**、**`complete(query, ctx?)`** → `[{ replacement, label, description?, source?, run?(ctx) }]`、`trigger: "/" \| "@"`（默认 `/`；`@` 的候选排在外壳自己的文件、会话候选之后）。`ctx = { space, session }`；带 `run` 的候选选中即执行、不插入 |
 | `settings.section` | **`id`**、**`label()`**、**`render()`** |
 
 条目（M7）在流里是 `{ kind: "custom", type: "entry", data: { id, ns, event, payload, at } }`，用
@@ -366,8 +370,14 @@ export function register(r: Registry, host: NestHost): void
 | 成员 | 说明 |
 |---|---|
 | `call<T>(method, params?)` | 只放行 `harnix.reachable` 里的 |
-| `subscribe(topic, params \| undefined, fn)` | 返回取消函数 |
+| `subscribe(topic, params \| undefined, fn)` | 返回取消函数。按 `(topic, 键排序后的 params)` 计数：同一页共用一份订阅，最后一个退订才发 `harnix.unsubscribe`，后来者先拿到已有的值，重连后自动重订 |
 | `session.current() / context() / list() / open(ref) / create(spec?)` | 都是前台 space 的；`create` 自动绑定前台 space |
+| `session.open(ref, { switchSpace: true })` | 去会话所属的 space（按中枢账本）打开，先把它带到前台；返回的 promise 在打开后落定，没有这个会话就 reject |
+| `session.onChange(fn)` | 前台 space 的当前会话变了（打开、新建、关掉、被删、换 space），同一个值不重复；`@harnix/react` 的 `useCurrentSession()` 是它的 hook |
+| `spaces.switch(id) / current()` | 把 space 带到前台，新 space 画出来之后落定；没有这个 space 时 reject |
+| `details.open(tab?) / close() / isOpen() / tab() / onTab(fn)` | 右栏开合与选中页签（`tab` 是前台 space 的页签 id，或 `"details"`）。经 `open(tab)` 选的页签按 space 记着；人点的换 space 后回到第一个（同以前） |
+| `redraw()` | 让外壳重读前台 space 的函数（`tabs()`、`badge()`…），不动注册表版本 |
+| `settings.open(section?)` | 打开设置面板的一节；内建的 id：`general`、`scenes`、`models`、`mcp`、`plugins`、`devices`、`diagnostics`、`about`；没有这一节时打开第一节 |
 | `instances.list() / sessions(instance) / tasks(instance, sessionId) / create(template, name, params?) / stop(instance)` | — |
 | `composer.insert(text)` | — |
 | `space(moduleId).fetch(path, init?) / socket(path)` | 模块自有链接（M7） |
@@ -382,8 +392,9 @@ export function register(r: Registry, host: NestHost): void
 |---|---|
 | `r.tokens({ "--accent": "#2f6fb3", … }, owner)` | 只许覆盖主题已有的令牌名（`:root` 上声明过的）；新名字、`url(` 之类的值被拒并记进诊断。后注册的赢 |
 | `r.strings("zh-CN" \| "en", { "<owner>.key": "…" }, owner)` | 语言包；key 必须以 `<owner>.` 开头，别的被拒。之后 `host.t("<owner>.key")` |
+| `r.icons({ name: "<path …/>" }, owner)` | 应用自己的图标，全名 `<owner>.<name>`（space 的 `icon` 写全名）。内容是 SVG 内部，只收 `path`、`circle`、`rect`、`line`、`polyline`、`polygon`、`ellipse`、`g` 与几何、描边属性；带脚本、`on*`、链接、样式、`url(` 的整个拒收、记进诊断 |
 
-两者不是贡献点（贡献点还是 8 个）。编进来的模块和运行期 v2 包都能用；运行期包拿到的注册表把 `owner`
+三者都不是贡献点（贡献点还是 8 个）。编进来的模块和运行期 v2 包都能用；运行期包拿到的注册表把 `owner`
 钉成包名。页面标题、左栏产品名与图标来自 profile 的 `[brand]`。
 
 ### 6.4.2 外壳的框架

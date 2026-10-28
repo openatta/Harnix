@@ -520,6 +520,21 @@ fn spaces(&self, s: &mut SpaceRegistry) {
 贡献点 v2 共 8 个：`space`、`home.card`、`tool.row`、`flow.block`、`details.panel`、`sidebar.group`、
 `command`、`settings.section`。
 
+`space` 还有几个可选的函数，外壳每次画时读（抛错只丢那一样、诊断页记一条）：
+
+| 字段 | 画在哪 |
+|---|---|
+| `badge()` | 左栏入口上的角标（数字或很短的字；null、0、"" 不画），收起成图标条时是右上角的点 |
+| `readOnly(session)` | 返回一句话就把这个会话的输入框换成它。只是界面：服务端照旧收 `harnix.send`，要真拦在后端拦 |
+| `pinned(session)` | 消息流顶上固定的一块（等人回答的问题、要批准的卡） |
+| `composerNotice(session)` | 打开的会话里输入框上方的提醒条。`notice()` 只在新对话首屏；两处都要就写 `composerNotice: () => notice()` |
+| `ids()` | 正文里哪些字是可点的编号（`ChatIds`：带 `g` 的正则、`onOpen`、`canOpen`） |
+| `composer: { steer: true }` | 输入框底栏有「立即送达」开关：一轮在跑时，消息在下一步送进这一轮（`on_busy: "steer"`）。在 Agix 的 UserPromptSubmit 也管 steer 之前，steer 的消息绕过那个 hook |
+| `hideCommands: [...]` | 这些命令名不出现在本 space 的 `/` 菜单里（只藏别的 owner 的，所以你的同名命令能顶上）；手打的照旧当文字发出 |
+
+`command` 贡献可以写 `trigger: "@"`，它的候选就进 `@` 菜单（在外壳自己的文件、`@session:` 候选之后），不写是 `/`。
+`complete(query, ctx)` 的 `ctx` 是 `{space, session}`（前台 space 与它打开的会话）；候选带 `run(ctx)` 时选中即执行，不插入文字。
+
 ### 8.3 `useNest()`
 
 ```tsx
@@ -544,8 +559,12 @@ export function QuotesTab() {
 | 能力 | 说明 |
 |---|---|
 | `call(method, params)` | 包括 `app.<id>.*` |
-| `subscribe(topic, params?, onValue)` | 宿主主题，可带参数；返回取消函数 |
-| `session.*` | `current`、`context`、`list`（本 space）、`open`、`create`。会话都是 `(instance, session)` |
+| `subscribe(topic, params?, onValue)` | 宿主主题，可带参数；返回取消函数。同一页里多处订同一个主题共用一份订阅，最后一个退订才真退 |
+| `session.*` | `current`、`context`、`list`（本 space）、`open`、`create`、`onChange`（前台会话变了；hook 是 `useCurrentSession()`）。会话都是 `(instance, session)`。`open(ref, {switchSpace: true})` 去会话所属的 space 打开 |
+| `spaces.*` | `switch(id)`（带到前台、画好之后才落定）、`current()` |
+| `details.*` | 右栏：`open(tab?)`、`close()`、`isOpen()`、`tab()`、`onTab(fn)`。经 `open(tab)` 选的页签换 space 回来还在；人点的照旧回到第一个 |
+| `redraw()` | `tabs()`、`badge()` 这类函数依赖的状态变了，让外壳重读（不动注册表） |
+| `settings.open(section?)` | 打开设置面板的某一节（`settings.section` 的 id，或内建的 `general`、`models`…） |
 | `instances.*` | `list`、`sessions(instance)`、`tasks(instance, session)`、`create(template, name, params)`、`stop(id)` |
 | `composer.insert(text)` | 往输入框插字（光标处，没有焦点就接在末尾） |
 | `reveal(item)` | 点消息里的卡片，右栏打开它的详情（`item.kind` 由 `details.panel` 认领）。M5 有了右栏页签后加 `panelId` |
@@ -590,7 +609,10 @@ r.strings('zh-CN', { 'hello-app.greeter': '问候' }, 'hello-app');
 ```
 
 令牌只许覆盖主题已有的名字（不另造颜色）；语言包的 key 必须以你的模块 id 开头。被拒的都记进
-设置 · 诊断。`examples/hello-app` 是完整的例子。
+设置 · 诊断。
+
+图标：`r.icons({ ship: "<path d='M3 3h18'/>" }, 'hello-app')` 之后 space 写 `icon: 'hello-app.ship'`。内容是 SVG 的内部（不含 `<svg>`），
+画在 24 的网格、1.7 的描边上，外框由外壳加；只收形状元素与几何、描边属性，带脚本、事件、链接、样式的整个拒收。`examples/hello-app` 是完整的例子。
 
 ## 9. 前后端之间用哪条通道
 
