@@ -7,8 +7,9 @@
  * could go (design §10.2).
  */
 
-import { expect, test } from "@harnix/testkit";
+import { type Backend, expect, test } from "@harnix/testkit";
 
+import { startTestApp } from "../api/testapp";
 import { newSession, open, reply, say, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:sessions", "@layer:ui"] };
@@ -203,4 +204,60 @@ test("the composer's model menu switches the session's model", TAGS, async ({ pa
   await page.getByTestId("conv-model-custom").press("Enter");
   await expect(page.getByTestId("conv-model")).toContainText("claude-switched-model");
   await expect(page.getByTestId("conv-model-menu")).toHaveCount(0);
+});
+
+// A module that refuses some of what a person says (ipdrun-13): `harnix-testapp`'s `probe` gives
+// every session of `system` a prompt middleware that refuses anything with `blocked-word` in it.
+test.describe("a message a module refuses", () => {
+  let app: Backend;
+  test.beforeAll(async () => {
+    app = await startTestApp();
+  });
+  test.afterAll(async () => {
+    await app?.dispose();
+  });
+
+  const REASON = /probe refuses messages with .blocked-word./;
+
+  test("refused at the start of a turn, the flow says why, and the next message runs", TAGS, async ({ page }) => {
+    const errors = watchConsole(page);
+    await open(page, app.url);
+    await newSession(page, "says-ready");
+    await say(page, "blocked-word, please");
+    const note = page.getByTestId("conv-note").last();
+    await expect(note).toContainText(REASON, { timeout: 30_000 });
+    await expect(note).toHaveAttribute("data-state", "stop");
+    await expect(page.getByTestId("conv-send")).toBeVisible();
+    await say(page, "Say exactly: fixture ready");
+    await expect(reply(page)).toContainText(/fixture ready/i, { timeout: 30_000 });
+    expect(errors).toEqual([]);
+  });
+
+  test("refused when steered into a running turn, it leaves the pending list and the flow says why", TAGS, async ({ page }) => {
+    const errors = watchConsole(page);
+    await open(page, app.url);
+    await page.evaluate(() => {
+      const { app } = (window as any).harnix;
+      app.registry.register("space", { id: "steered", icon: "chat", title: () => "Steered", sessions: "sessions", composer: { steer: true } }, "test");
+    });
+    await page.locator('#side [data-space="steered"]').click();
+    await expect(page.locator("#main")).toHaveAttribute("data-space", "steered");
+    await newSession(page, "runs-a-while");
+    await say(page, "Wait four seconds");
+    const ask = page.getByTestId("conv-ask");
+    await expect(ask).toBeVisible({ timeout: 30_000 });
+    const steer = page.getByTestId("conv-steer");
+    await steer.click();
+    await expect(steer).toHaveAttribute("aria-checked", "true");
+    await say(page, "steered blocked-word");
+    await ask.getByTestId("conv-ask-allow").click();
+    const note = page.getByTestId("conv-note").filter({ hasText: REASON });
+    await expect(note).toBeVisible({ timeout: 30_000 });
+    await expect(note).toContainText("steered blocked-word");
+    await expect(page.getByTestId("conv-steer-item")).toHaveCount(0);
+    await expect(page.getByTestId("conv-queue-item")).toHaveCount(0);
+    await expect(page.locator('[data-testid="conv-message"]', { hasText: "steered blocked-word" })).toHaveCount(0);
+    await expect(page.getByTestId("conv-send")).toBeVisible({ timeout: 30_000 });
+    expect(errors).toEqual([]);
+  });
 });

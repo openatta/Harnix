@@ -240,6 +240,16 @@ export interface UserMessagesReturnedEvent {
   kind: "user_messages_returned";
   messages: { message_id: string; content?: string }[];
 }
+/**
+ * 运行中送来的消息（on_busy: "steer"）在步骤边界被拒收（模块的 prompt 中间件，ipdrun-13）：不进对话、不排回队列。
+ * `message_id` 是那次 steer 的编号，`message` 是拒收的理由。没有模块拦人的消息时不会出现。
+ */
+export interface UserMessageRefusedEvent {
+  kind: "user_message_refused";
+  message_id: string;
+  content: string;
+  message?: string | null;
+}
 /** 本轮开始，是本轮的第一帧。 */
 export interface TurnStartEvent {
   kind: "turn_start";
@@ -346,6 +356,7 @@ export type EngineEvent =
   | UserMessageEvent
   | UserMessageDeliveredEvent
   | UserMessagesReturnedEvent
+  | UserMessageRefusedEvent
   | TurnStartEvent
   | StepStartEvent
   | StepEndEvent

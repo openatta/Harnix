@@ -29,6 +29,8 @@ export interface HarnixUiStrings {
   interrupted: string;
   turnFailed: (error: string) => string;
   stopReason: (reason: string) => string;
+  /** 人的话被拒收（ipdrun-13）：`reason` 是理由；`text` 是被拒的那句，只在它不在流里时给（steer）。 */
+  messageRefused?: (reason: string, text?: string) => string;
   tokens: (count: number) => string;
   cached: (count: number) => string;
   toolInput: string;
@@ -151,6 +153,7 @@ export const zhCN: HarnixUiStrings = {
   interrupted: "已中断",
   turnFailed: (error) => `这一轮失败了：${error}`,
   stopReason: (reason) => `停止原因：${reason}`,
+  messageRefused: (reason, text) => `${text ? `「${text}」` : ""}被拒收${reason ? `：${reason}` : ""}`,
   tokens: (count) => `${count.toLocaleString()} tokens`,
   cached: (count) => `缓存 ${count.toLocaleString()}`,
   toolInput: "输入",
@@ -270,6 +273,7 @@ export const en: HarnixUiStrings = {
   interrupted: "Interrupted",
   turnFailed: (error) => `The turn failed: ${error}`,
   stopReason: (reason) => `Stopped: ${reason}`,
+  messageRefused: (reason, text) => `${text ? `"${text}" was refused` : "Refused"}${reason ? `: ${reason}` : ""}`,
   tokens: (count) => `${count.toLocaleString()} tokens`,
   cached: (count) => `${count.toLocaleString()} cached`,
   toolInput: "Input",

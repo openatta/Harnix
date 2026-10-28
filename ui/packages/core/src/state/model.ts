@@ -362,6 +362,11 @@ export interface ApplyOptions {
   /** 别处中断的一轮（停止原因 cancelled）那一行的话 */
   interruptedText?: string;
   stopReasonText?: (reason: string) => string;
+  /**
+   * 人的话被拒收（模块的 prompt 中间件，ipdrun-13）那一行的话：`reason` 是拒收的理由，`text` 是被拒的那句
+   * （steer 时它不在流里，要说出来；开一轮时它已经是一条人的话，不给）。缺省只说理由。
+   */
+  refusedText?: (reason: string, text?: string) => string;
 }
 
 /** 一个引擎事件。没见过的 kind 一律忽略（daemon_rpc_protocol §7）。 */
@@ -398,6 +403,17 @@ export function applyEvent(state: SessionState, event: EngineEvent, options: App
       const returned = event as { messages?: { message_id?: string }[] };
       const ids = (returned.messages ?? []).map((m) => m.message_id).filter((id): id is string => Boolean(id));
       return dropSteering(state, ids);
+    }
+
+    // 运行中送来的话在步骤边界被拒收（ipdrun-13）：不进对话，也不排回队列——从待送达里拿掉，在流里说理由
+    case "user_message_refused": {
+      const refused = event as { message_id?: string; content?: string; message?: string | null };
+      const content = String(refused.content ?? "");
+      const byId = refused.message_id ? state.steering.find((s) => s.itemId === refused.message_id) : undefined;
+      const byText = byId ?? (content ? state.steering.find((s) => s.text === content) : undefined);
+      const base = endStream(byText ? dropSteering(state, [byText.itemId]) : state, now);
+      const reason = String(refused.message ?? "");
+      return note(base, refusalText(options, reason, content || byText?.text), "stop");
     }
 
     case "text_delta": {
@@ -496,6 +512,8 @@ export function applyEvent(state: SessionState, event: EngineEvent, options: App
       if (done.stop_reason && done.stop_reason !== "end_turn" && !options.interrupting) {
         // 别处（服务端代人）中断的：同样是"已中断"，不是"停止原因：cancelled"
         if (/cancel/i.test(done.stop_reason)) next = note(next, options.interruptedText ?? done.stop_reason, "interrupted");
+        // 开一轮时被拒收（hook 或模块的 prompt 中间件，ipdrun-13）且给了理由：说理由，不只说停止原因
+        else if (done.stop_reason === "stopped_by_hook" && done.message) next = note(next, refusalText(options, done.message), "stop");
         else next = note(next, options.stopReasonText ? options.stopReasonText(done.stop_reason) : done.stop_reason, "stop");
       }
       return next;
@@ -512,6 +530,11 @@ export function applyEvent(state: SessionState, event: EngineEvent, options: App
     default:
       return state;
   }
+}
+
+function refusalText(options: ApplyOptions, reason: string, text?: string): string {
+  if (options.refusedText) return options.refusedText(reason, text);
+  return reason || text || "";
 }
 
 function dropSteering(state: SessionState, ids: readonly string[]): SessionState {

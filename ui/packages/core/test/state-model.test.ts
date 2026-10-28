@@ -275,3 +275,43 @@ describe("历史", () => {
     expect(toolResultText({ ok: 1 })).toBe('{\n  "ok": 1\n}');
   });
 });
+
+describe("人的话被拒收（ipdrun-13）", () => {
+  const steer = { kind: "user_message", text: "插一句 blocked-word", item_id: "t-9", delivery: "steer" };
+  const withText = { ...opts, refusedText: (reason: string, text?: string) => `${text ? `「${text}」` : ""}被拒收：${reason}` };
+  const runWith = (events: Record<string, unknown>[], state: SessionState) =>
+    events.reduce((s, e) => applyEvent(s, e as never, withText), state);
+
+  it("steer 时被拒：按 message_id 从待送达拿掉，流里一行说理由和那句话，不成人的话", () => {
+    let s = run([{ kind: "user_message", text: "开始", item_id: "q-1" }, { kind: "text_delta", text: "好" }, steer]);
+    expect(s.steering).toHaveLength(1);
+    s = runWith([{ kind: "user_message_refused", message_id: "t-9", content: "插一句 blocked-word", message: "含 blocked-word" }], s);
+    expect(s.steering).toEqual([]);
+    expect(s.blocks.map((b) => b.kind)).toEqual(["user", "assistant", "note"]);
+    expect(s.blocks[1]).toMatchObject({ streaming: false });
+    expect(s.blocks[2]).toMatchObject({ kind: "note", tone: "stop", text: "「插一句 blocked-word」被拒收：含 blocked-word" });
+  });
+
+  it("message_id 对不上时按内容拿掉；待送达里没有它也照样说理由；没给文案只说理由", () => {
+    const base = run([{ kind: "user_message", text: "开始", item_id: "q-1" }, steer]);
+    const s = run([{ kind: "user_message_refused", message_id: "other", content: "插一句 blocked-word", message: "含 blocked-word" }], base);
+    expect(s.steering).toEqual([]);
+    expect(s.blocks.at(-1)).toMatchObject({ kind: "note", tone: "stop", text: "含 blocked-word" });
+    const untouched = run([{ kind: "user_message_refused", message_id: "x", content: "别的话", message: null }], base);
+    expect(untouched.steering).toEqual(base.steering);
+    expect(untouched.blocks.at(-1)).toMatchObject({ kind: "note", text: "别的话" });
+  });
+
+  it("开一轮被拒（stopped_by_hook 带 message）：流里说理由；不带 message 时照旧只说停止原因", () => {
+    const stopReasonText = (r: string) => `停止原因：${r}`;
+    const refused = [{ kind: "user_message", text: "blocked-word" }, { kind: "turn_complete", stop_reason: "stopped_by_hook", api_calls: 0, message: "含 blocked-word" }];
+    const s = refused.reduce((st, e) => applyEvent(st, e as never, { ...withText, stopReasonText }), { ...emptySession("S"), loading: false });
+    expect(s.blocks.at(-1)).toMatchObject({ kind: "note", tone: "stop", text: "被拒收：含 blocked-word" });
+    expect(s.blocks.filter((b) => b.kind === "note")).toHaveLength(1);
+    const bare = [{ kind: "user_message", text: "x" }, { kind: "turn_complete", stop_reason: "stopped_by_hook" }].reduce(
+      (st, e) => applyEvent(st, e as never, { ...opts, stopReasonText }),
+      { ...emptySession("S"), loading: false },
+    );
+    expect(bare.blocks.at(-1)).toMatchObject({ kind: "note", tone: "stop", text: "停止原因：stopped_by_hook" });
+  });
+});

@@ -39,6 +39,8 @@ export interface SessionStrings {
   result: string;
   image: string;
   stopReason(reason: string): string;
+  /** 人的话被拒收（ipdrun-13）：理由，及被拒的那句（steer 时）。缺省只显示理由。 */
+  messageRefused?(reason: string, text?: string): string;
   interrupted: string;
   turnFailed(reason: string): string;
   sendFailed(reason: string): string;
@@ -249,6 +251,7 @@ export class SessionController {
       interrupting: this.interrupting,
       resultLabel: this.strings.result,
       stopReasonText: this.strings.stopReason,
+      refusedText: this.strings.messageRefused?.bind(this.strings),
       interruptedText: this.strings.interrupted,
     };
   }

@@ -75,7 +75,7 @@ IPDrun 要对人直接说给某类会话的话先做检查；现在两种载体�
 - steer 拒收只在 `system`（进程内）测了；spawn 载体测的是开一轮时的拒收。
 - 界面用例没写（见下）。
 
-外壳部分待做：
+外壳部分待做（已做，见下面「实现记录（外壳部分）」）：
 
 - `ui/packages/core/src/protocol/frames.ts` 的事件联合里加 `{ kind: "user_message_refused"; message_id: string; content: string; message?: string | null }`；
   `ui/packages/core/src/state/model.ts` 里收到它时把对应的「排队中 / 待送达」那条（按 `message_id`，没有就按 `content`）拿掉，并在流里显示
@@ -83,3 +83,25 @@ IPDrun 要对人直接说给某类会话的话先做检查；现在两种载体�
 - 开一轮被拒（`turn_complete.stop_reason == "stopped_by_hook"` 且带 `message`）时，流里显示那条理由（现在若只当作普通结束，没有提示）。
 - 界面用例 `tests/live/ui/conversation.spec.ts`：testapp 后端上发含 `blocked-word` 的话，流里看得到理由；steer 时被拒的那条从排队中消失并显示理由
   （录像 `runs-a-while`，要先允许那次 Bash）。
+
+## 实现记录（外壳部分）
+
+（F3d，提交号见 `git log --grep ipdrun-13` 中标题为 "ipdrun-13: the shell shows a refused message" 的一条。）
+
+- `frames.ts`：事件联合加 `UserMessageRefusedEvent`（`{kind: "user_message_refused", message_id, content, message?}`）。
+- `model.ts`：收到它时从「待送达」（`steering`）里拿掉那条——先按 `message_id`，对不上再按 `content`——并在流里加一行
+  `note`（`tone: "stop"`）说理由和被拒的那句；它不成人的话，也不碰队列（队列是中枢的整值快照，steer 拒收不会回到队列）。
+  `turn_complete` 的 `stop_reason == "stopped_by_hook"` 且带 `message` 时，那一行说理由，不再只说「停止原因：stopped_by_hook」；
+  不带 `message`、别的停止原因都照旧。
+- 文案：`SessionStrings.messageRefused?`、`HarnixUiStrings.messageRefused?`（可选，旧的整张文案表不用改；没给时只显示理由），
+  `ApplyOptions.refusedText?`；zh-CN「「…」被拒收：理由」，en「"…" was refused: reason」。
+- 测试：`ui/packages/core/test/state-model.test.ts` 的「人的话被拒收（ipdrun-13）」三条（按 message_id / 按内容拿掉、开一轮被拒说理由、
+  不带 message 照旧）；`tests/live/ui/conversation.spec.ts` 的 describe「a message a module refuses」两条：
+  「refused at the start of a turn, the flow says why, and the next message runs」「refused when steered into a running turn, it leaves the
+  pending list and the flow says why」（testapp 后端；steer 在权限卡挂着时发出，允许之后在步骤边界被拒）。
+
+偏离：
+
+- 中枢今天不发 `delivery: "steer"` 的 `user_message`，外壳也不按 `harnix.send` 的 steer 应答登记「待送达」，所以 steer 的那条平时不在
+  `steering` 里；拿掉的逻辑照写（有就拿掉），界面用例验证的是「排队中、待送达都没有它、流里没有它这条人的话、有理由」。是否让外壳按 steer
+  应答登记待送达，是另一件事，没在这里改（会改变没有拒收时的显示）。

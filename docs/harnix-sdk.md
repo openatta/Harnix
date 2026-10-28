@@ -341,6 +341,8 @@ fn engine(&self, e: &mut EngineContrib) {
   `harnix.turn_settled` 的 `outcome` 里也有这两项。
 - steer 时拒收：那句话不进对话，这一轮照常跑完；客户端收到事件 `user_message_refused { message_id, content, message }`
   （经 `harnix.event`）。没有模块拒收时它不会出现。
+- 外壳（`@harnix/core` 的会话状态）对两种拒收都在流里加一行说理由（文案 `messageRefused`，可选；应用没给时只显示理由），
+  steer 的那条从「待送达」里拿掉，不成一条人的话。
 - 载体：进程内实例的中间件跑在本进程。spawn 实例要同样生效，把它放进模板的 `native`（§6.2），它在 daemon 进程里再建一遍。
 
 ### 6.2 给 space 一台独立、隔离的实例（M3 起）
