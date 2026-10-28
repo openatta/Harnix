@@ -80,6 +80,8 @@ export interface Hello {
     max_upload_bytes?: number;
     replay_max_frames?: number;
     prompt_timeout_secs?: number;
+    /** 单双向流上同时在途的请求上限；超额的回 `BUSY`（-31005）。客户端照它在本地排队。 */
+    max_in_flight?: number;
   };
 }
 
@@ -465,6 +467,8 @@ export interface Notifications {
     turn_id: string;
     result?: { name?: string | null; usage?: Usage; [key: string]: unknown };
     error?: CallError;
+    /** 这一轮怎么结束的：它的 `turn_complete` 里的几项（没有 `turn_complete` 的轮没有）。 */
+    outcome?: { stop_reason?: string | null; usage?: Usage | null; structured_output?: unknown; message?: string; [key: string]: unknown };
   };
   /** 队列的整值快照。 */
   "harnix.queue": { instance: string; session_id: string; items: QueueItem[] };

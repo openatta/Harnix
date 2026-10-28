@@ -75,7 +75,15 @@ export interface HarnixClientOptions {
    * 调它（每次失败最多一次），拿到的与当前不同就换上再连（服务重启后换了令牌）。浏览器里用 `tokenFromPage()`。
    */
   refreshToken?: () => Promise<string | null>;
+  /**
+   * 单双向流上同时在途的请求最多几个；满了的调用在本地排队，等前面的落定再发。缺省取 `harnix.hello` 应答里的
+   * `limits.max_in_flight`，读到之前按 16。分离流没有这个上限。
+   */
+  maxInFlight?: number;
 }
+
+/** 服务端没说之前的在途上限（与 Harnix 的 `MAX_IN_FLIGHT` 相同）。 */
+const DEFAULT_MAX_IN_FLIGHT = 16;
 
 /**
  * 状态 closed 附带的说明：带 `refreshToken` 的客户端连续这么多次重连失败、又取不到新令牌——服务多半换了令牌
@@ -117,6 +125,10 @@ export class HarnixClient {
   private closedByUser = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly pending = new Map<number, Pending>();
+  /** 在途满了、还没发出的调用，按先后。 */
+  private waiting: { method: string; params: unknown; slot: Pending }[] = [];
+  private maxInFlight: number;
+  private readonly maxInFlightGiven: boolean;
   private readonly notifyListeners = new Set<NotifyListener>();
   private readonly statusListeners = new Set<StatusListener>();
 
@@ -127,6 +139,8 @@ export class HarnixClient {
   constructor(options: HarnixClientOptions) {
     this.token = options.token;
     this.refreshToken = options.refreshToken;
+    this.maxInFlight = options.maxInFlight ?? DEFAULT_MAX_IN_FLIGHT;
+    this.maxInFlightGiven = options.maxInFlight !== undefined;
     const origin = (globalThis as { location?: { origin?: string } }).location?.origin;
     this.baseUrl = options.baseUrl ?? origin ?? "http://127.0.0.1";
     this.speaks = options.speaks ?? SPEAKS;
@@ -246,6 +260,29 @@ export class HarnixClient {
   private rejectPending(): void {
     for (const [, slot] of this.pending) slot.reject({ message: this.messages.connectionClosed });
     this.pending.clear();
+    const waiting = this.waiting;
+    this.waiting = [];
+    for (const { slot } of waiting) slot.reject({ message: this.messages.connectionClosed });
+  }
+
+  /** 有一个落定了：排着的按先后补上。 */
+  private drain(): void {
+    while (this.waiting.length && this.pending.size < this.maxInFlight) {
+      const next = this.waiting.shift()!;
+      this.send(next.method, next.params, next.slot);
+    }
+  }
+
+  /** 发出一个请求（不看上限）。 */
+  private send(method: string, params: unknown, slot: Pending): void {
+    const socket = this.socket;
+    if (!socket || socket.readyState !== OPEN) {
+      slot.reject({ message: this.messages.notConnected } satisfies CallError);
+      return;
+    }
+    const id = this.nextId++;
+    this.pending.set(id, slot);
+    socket.send(JSON.stringify({ jsonrpc: "2.0", method, params: params ?? {}, id }));
   }
 
   /* ── 模块自有链接 ───────────────────────────────────────────────── */
@@ -372,6 +409,7 @@ export class HarnixClient {
         this.pending.delete(frame.id);
         if (frame.error) slot.reject(frame.error);
         else slot.resolve(frame.result);
+        this.drain();
         return;
       }
       this.dispatch(frame);
@@ -443,15 +481,25 @@ export class HarnixClient {
   call(method: string, params?: unknown): Promise<unknown>;
   call(method: string, params?: unknown): Promise<unknown> {
     if (this.carrier) return this.carrier.call(method, params);
-    return new Promise((resolve, reject) => {
+    const sent = new Promise<unknown>((resolve, reject) => {
       const socket = this.socket;
       if (!socket || socket.readyState !== OPEN) {
         reject({ message: this.messages.notConnected } satisfies CallError);
         return;
       }
-      const id = this.nextId++;
-      this.pending.set(id, { resolve, reject });
-      socket.send(JSON.stringify({ jsonrpc: "2.0", method, params: params ?? {}, id }));
+      const slot = { resolve, reject };
+      // 在途满了：在本地排队，不让服务端因超额回 BUSY。
+      if (this.pending.size >= this.maxInFlight) this.waiting.push({ method, params, slot });
+      else this.send(method, params, slot);
+    });
+    if (method !== "harnix.hello" || this.maxInFlightGiven) return sent;
+    return sent.then((hello) => {
+      const cap = (hello as { limits?: { max_in_flight?: unknown } } | null)?.limits?.max_in_flight;
+      if (typeof cap === "number" && cap > 0) {
+        this.maxInFlight = cap;
+        this.drain();
+      }
+      return hello;
     });
   }
 

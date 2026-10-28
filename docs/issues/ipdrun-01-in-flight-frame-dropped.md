@@ -76,3 +76,10 @@ IPDrun 现在在自己的数据层里限 8 个在途（`ui/kit/src/data/client.t
 
 外壳部分待做（建议第 3 条与客户端测试）：`HarnixClient` 按 `limits.max_in_flight`（缺省 16）本地排队、`HarnixClientOptions.maxInFlight?`；
 `ui/packages/core/src/protocol/frames.ts` 手写的 `Limits` 补 `max_in_flight?`；`ui/packages/core/test/client.test.ts` 的排队用例。
+
+外壳（F3b）：
+
+- `HarnixClient` 在单双向流上按在途上限在本地排队：`pending` 满了的调用进 `waiting`，有应答落定就按先后补发；掉线时排着的与在途的一起 reject。
+  上限取 `HarnixClientOptions.maxInFlight`，没给时取 `harnix.hello` 应答里的 `limits.max_in_flight`（读到之前按 16）。分离流不排队（它没有这个上限）。
+  `frames.ts` 手写的 `Hello.limits` 补 `max_in_flight?`。
+- 测试：`ui/packages/core/test/client.test.ts` 的「在途上限」两条（`maxInFlight: 2` 连发 10 个、最多同时 2 个、全部按序落定；照 hello 的上限、掉线时排着的也 reject）。

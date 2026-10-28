@@ -317,3 +317,50 @@ describe("服务换了令牌", () => {
     expect(await tokenFromPage(BASE, async () => Promise.reject(new Error("refused")))()).toBeNull();
   });
 });
+
+describe("在途上限", () => {
+  /** 一台不自动回答 `slow` 的假服务端：测试按先后一个个回。 */
+  function slowServer() {
+    const server = new FakeServer();
+    server.answer = (method) =>
+      method === "harnix.handshake" ? { topology: "single_duplex" } : method === "harnix.hello" ? { limits: { max_in_flight: 3 } } : undefined;
+    return server;
+  }
+  const slow = (server: FakeServer) => server.sent.filter((f) => f.method === "slow");
+  const inFlight = (server: FakeServer, answered: Set<number>) => slow(server).filter((f) => !answered.has(f.id!)).length;
+
+  it("满了在本地排队：最多同时送出 maxInFlight 个，全部落定", async () => {
+    const server = slowServer();
+    const { client } = makeClient(server, undefined, { maxInFlight: 2 });
+    client.connect();
+    await client.ready();
+    const calls = Array.from({ length: 10 }, (_, i) => client.call("slow", { i }));
+    const answered = new Set<number>();
+    let most = 0;
+    while (answered.size < 10) {
+      await settle(2);
+      most = Math.max(most, inFlight(server, answered));
+      const next = slow(server).find((f) => !answered.has(f.id!))!;
+      answered.add(next.id!);
+      server.last.reply(next.id!, { i: next.params.i });
+    }
+    expect(most).toBe(2);
+    expect((await Promise.all(calls)).map((r) => (r as { i: number }).i)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    client.close();
+  });
+
+  it("没给 maxInFlight 时照 hello 的 limits.max_in_flight；掉线时排着的也被 reject", async () => {
+    const server = slowServer();
+    const { client } = makeClient(server);
+    client.connect();
+    await client.ready();
+    await client.call("harnix.hello");
+    const calls = Array.from({ length: 5 }, (_, i) => client.call("slow", { i }).catch((e) => e));
+    await settle(2);
+    expect(slow(server)).toHaveLength(3);
+    server.last.drop();
+    const outcomes = await Promise.all(calls);
+    expect(outcomes.every((e) => (e as { message?: string }).message === "connection closed")).toBe(true);
+    client.close();
+  });
+});

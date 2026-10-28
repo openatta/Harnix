@@ -71,3 +71,6 @@ IPDrun 的宿主在 tap 落后后按转录补每一轮的结果（`crates/agent/
   不读的 tap 确实 `Lagged`，`next_settled` 仍拿到与正常 tap 相同的 `outcome`）。
 - 偏离：带结构化输出、被 hook 截停的两条 live 用例没写：现有录像里没有这两种轮次（要真模型录新录像），由 Rust 单测覆盖字段的提取；
   用例放在新文件 `turn-outcome.spec.ts`（`turns.spec.ts` 要真模型）。
+
+外壳（F3b）：`ui/packages/core/src/protocol/frames.ts` 的 `Notifications["harnix.turn_settled"]` 补可选的
+`outcome?: { stop_reason?, usage?, structured_output?, message? }`（只是类型，外壳不读它）。没有单独的测试：类型由 `typecheck` 覆盖。
