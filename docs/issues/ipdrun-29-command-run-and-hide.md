@@ -72,3 +72,15 @@ export interface SpaceContribution {
 ## 来源
 
 IPDrun 的一类会话的「清空」是「以摘要重建」，和引擎的 `/clear` 不同；现在 `/clear` 仍是引擎的，IPDrun 在右栏另放了「压缩 / 清空」按钮。
+
+## 实现记录
+
+外壳（F3b）：
+
+- `CommandCandidate.run?(ctx)`、`command.complete(query, ctx?)`（`ctx` 是 `CommandContext {space, session}`，从 `@harnix/react` 导出）、
+  `SpaceContribution.hideCommands?`；`ChatCommand.run?()`，`ChatComposer` 选中带 `run` 的候选时把打的 `/xxx` 清掉、调它、不插入不发送。
+- 外壳的 `useCommands` 带上 `ctx`，前台 space 或它的当前会话变了就重问；`run` 抛错用外壳的横幅显示。`hideCommands` 只藏**别的 owner** 的同名命令，
+  所以 space 自己的同名命令能顶上（之后仍是先到先得）；手打的照旧作为文本发出。
+- 测试：`ui/packages/react/test/chat-panel.test.tsx` 的「带 run 的命令选中即执行：输入框清空、不发送；不带 run 的照旧插入」；`tests/live/ui/host.spec.ts` 的
+  「commands: one that runs instead of inserting, asked with the front space, and a space that hides an engine command」。偏离：`run` 记在页面里（`window.__t`），
+  不调 testapp 的方法。

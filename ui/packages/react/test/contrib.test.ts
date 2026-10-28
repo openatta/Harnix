@@ -63,4 +63,16 @@ describe("registry", () => {
     expect(told).toBe(1);
     expect(r.getVersion()).toBe(1);
   });
+
+  it("takes a command for the @ menu, and refuses a trigger that is neither / nor @", () => {
+    const r = new Registry();
+    expect(r.register("command", { id: "docs", trigger: "@", complete: () => [] }, "pkg")).toBe(true);
+    expect(r.register("command", { id: "slash", complete: () => [] }, "pkg")).toBe(true);
+    expect(r.register("command", { id: "hash", trigger: "#", complete: () => [] } as never, "pkg")).toBe(false);
+    expect(r.at("command").map((c) => [c.id, c.trigger ?? "/"])).toEqual([
+      ["docs", "@"],
+      ["slash", "/"],
+    ]);
+    expect(r.refusals().map((x) => x.reason)).toEqual(['a command\'s trigger is "/" or "@", not "#"']);
+  });
 });

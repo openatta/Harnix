@@ -71,6 +71,8 @@ export interface MentionItem {
 export interface ChatCommand {
   name: string;
   description?: string;
+  /** 给了就选中即执行：不插入文字、不发送，输入框里已打的 `/xxx` 清掉 */
+  run?: () => void | Promise<void>;
 }
 
 /**

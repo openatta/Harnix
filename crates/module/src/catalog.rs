@@ -109,7 +109,7 @@ pub const POINTS: &[Point] = &[
     Point {
         id: "command",
         kind: PointKind::Register,
-        what: "一条斜杠命令及其补全候选",
+        what: "一条 `/` 命令或 `@` 引用的补全候选（`trigger` 选哪个菜单）",
         when: "命令面板打开时",
         frequency: Frequency::PerInteraction,
     },

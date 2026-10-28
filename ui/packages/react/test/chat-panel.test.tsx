@@ -401,6 +401,22 @@ describe("菜单", () => {
     expect(screen.queryByTestId("conv-menu")).toBeNull();
   });
 
+  it("带 run 的命令选中即执行：输入框清空、不发送；不带 run 的照旧插入", async () => {
+    const run = vi.fn();
+    mount({ commands: [{ name: "probe", description: "跑一下", run }, { name: "plain" }] });
+    await settle();
+    type("/pro");
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(input().value).toBe("");
+    expect(server.calls.filter((f) => f.method === "harnix.send")).toHaveLength(0);
+    type("/pl");
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(input().value).toBe("/plain ");
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
   it("@ 经应用给的搜索列出条目；点一项插入编号", async () => {
     const search = vi.fn(async (q: string) => [{ id: "SR-002", label: "部署记录" }].filter((x) => x.id.includes(q.toUpperCase())));
     mount({ mention: search });

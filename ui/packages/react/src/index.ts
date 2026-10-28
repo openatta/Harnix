@@ -53,6 +53,7 @@ export {
   Contributed,
   useRegistry,
   type CommandCandidate,
+  type CommandContext,
   type Contributions,
   type DetailItem,
   type Point,

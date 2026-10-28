@@ -11,7 +11,7 @@
  * | `details.panel` | `match(item)`、`render(item)`、`title?(item)` | 后注册的先认领 |
  * | `flow.block` | `match(块)`、`render(块)` | 后注册的先认领 |
  * | `sidebar.group` | `group(会话) → 组[]`、`label?()` | 只用最后注册的那一个 |
- * | `command` | `complete(query) → 候选[]` | 全部，按注册顺序拼起来 |
+ * | `command` | `trigger?`（`/` 或 `@`）、`complete(query, ctx?) → 候选[]`（候选可带 `run`） | 全部，按注册顺序拼起来；`/` 与 `@` 两个菜单各问各的 |
  * | `settings.section` | `id`、`label()`、`render()` | 全部，按注册顺序 |
  *
  * 注册不合形状的贡献被拒绝并记下理由；`match` 或 `render` 抛错只算这一个贡献失败，点照常工作。
@@ -58,6 +58,15 @@ export interface CommandCandidate {
   label: string;
   description?: string;
   source?: string;
+  /** Given: choosing it runs this instead — nothing is inserted or sent, and the `/xxx` typed so
+   *  far is cleared. A failure is shown as the shell's error. */
+  run?(ctx: CommandContext): void | Promise<void>;
+}
+
+/** Where a command or mention is being asked for: the front space and its open session. */
+export interface CommandContext {
+  space: string;
+  session: SessionRef | null;
 }
 
 export interface SpaceTab {
@@ -126,6 +135,10 @@ export interface SpaceContribution {
   /** The composer's options. `steer`: a "deliver now" switch under it — while a turn runs, a
    *  message goes into that turn at its next step instead of waiting for it to end. */
   composer?: { steer?: boolean };
+  /** Command names (without the `/`) left out of this space's `/` menu — other owners' commands
+   *  only, so the space's own command of the same name takes the place of the engine's. Typed by
+   *  hand, such a command is still sent as text: this guards against mistakes, it forbids nothing. */
+  hideCommands?: string[];
 }
 
 export interface Contributions {
@@ -135,7 +148,12 @@ export interface Contributions {
   "details.panel": { id: string; match(item: DetailItem): boolean; render(item: DetailItem): ReactNode; title?(item: DetailItem): string };
   "flow.block": { id: string; match(block: Block): boolean; render(block: Block): ReactNode };
   "sidebar.group": { id: string; group(sessions: SessionRow[]): SidebarGroup[]; label?(): string };
-  command: { id: string; complete(query: string): CommandCandidate[] | Promise<CommandCandidate[]> };
+  command: {
+    id: string;
+    /** Which leading character's menu asks it: `/` (the default) or `@`. */
+    trigger?: "/" | "@";
+    complete(query: string, ctx?: CommandContext): CommandCandidate[] | Promise<CommandCandidate[]>;
+  };
   "settings.section": { id: string; label(): string; render(): ReactNode };
 }
 
@@ -182,6 +200,9 @@ export class Registry {
     const missing = SHAPE[point as Point].filter((name) => typeof c[name] !== "function");
     if (missing.length) {
       return this.refuse({ point, owner, id: c.id, reason: `missing ${missing.join(", ")}` });
+    }
+    if (point === "command" && c.trigger !== undefined && c.trigger !== "/" && c.trigger !== "@") {
+      return this.refuse({ point, owner, id: c.id, reason: `a command's trigger is "/" or "@", not ${JSON.stringify(c.trigger)}` });
     }
     list.push({ ...(c as object), owner } as Entry<Point>);
     this.changed();

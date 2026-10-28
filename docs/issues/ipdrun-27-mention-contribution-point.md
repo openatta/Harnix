@@ -56,3 +56,16 @@ export interface Contributions {
 ## 来源
 
 IPDrun 想让人在对话里打 `@` 选它自己的需求编号；现在只能手打。
+
+## 实现记录
+
+外壳（F3b）：
+
+- `command` 贡献加 `trigger?: "/" | "@"`，别的值注册时被拒、理由进 `refusals()`；`POINTS`、`SHAPE` 不变。`/` 菜单只问不带 `trigger` 或 `"/"` 的，
+  `@` 菜单（新对话首屏与打开的会话两处）先给外壳自己的（文件、`@session:`），再按注册顺序拼 `trigger: "@"` 的贡献的候选（`complete(query, ctx)`），
+  一个贡献抛错或 1.5 s 不答只丢它自己的、记一条失败；外壳那边总数封顶 20，输入框显示前 8 个。候选映射为 `MentionItem {id: label, label: description, insert: replacement}`。
+- 内建的文件、会话候选没有改成注册在 `command` 上的内建贡献（issue 说由维护者定，不改也满足）。
+- `crates/module/src/catalog.rs` 里 `command` 一行的「what」改为同时说 `/` 与 `@`，`docs/contribution_points.md`、概念文档 §5 的表随之改（点的个数不变；
+  对齐它的 Rust 测试由全量检查跑）。
+- 测试：`ui/packages/react/test/contrib.test.ts` 的「takes a command for the @ menu, and refuses a trigger that is neither / nor @」；`tests/live/ui/host.spec.ts` 的
+  「@ takes an application's candidates after the shell's own, and the / menu does not」（含一个抛错的贡献只丢自己的）。

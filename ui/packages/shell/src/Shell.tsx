@@ -22,6 +22,7 @@ import {
   type Attached,
   type ChatCommand,
   type ChatIds,
+  type CommandContext,
   type ComposerApi,
   type MentionItem,
   type ModelOption,
@@ -248,7 +249,10 @@ function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app:
   const [picked, setPicked] = useState<ModelOption | null>(null);
   const upload = useUpload(app);
   const bind = useBindComposer(app);
-  const mention = useMemo(() => (query: string) => (query.startsWith("session:") ? sessionMentions(app, query.slice("session:".length)) : []), [app]);
+  const mention = useMemo(
+    () => async (query: string) => withContributed(app, query, query.startsWith("session:") ? await sessionMentions(app, query.slice("session:".length)) : []),
+    [app],
+  );
   const send = async (message: string, attachments: unknown[]): Promise<boolean> => {
     if (!app.modelReady()) {
       openSettings(app, "models");
@@ -594,20 +598,28 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
     return async (query: string): Promise<MentionItem[]> => {
       const mine = ++filesAsked.current;
       if (query.startsWith("session:")) {
-        const items = await sessionMentions(app, query.slice("session:".length));
+        const items = await withContributed(app, query, await sessionMentions(app, query.slice("session:".length)));
         return mine === filesAsked.current ? items : [];
       }
-      if (!projectRoot) return [];
-      const { files } = await app.call<{ files: { path: string; size?: number }[] }>("harnix.files", {
-        project_root: projectRoot,
-        query,
-      });
+      const files = projectRoot
+        ? (
+            await app.call<{ files: { path: string; size?: number }[] }>("harnix.files", {
+              project_root: projectRoot,
+              query,
+            })
+          ).files
+        : [];
       if (mine !== filesAsked.current) return [];
-      return files.map((f) => ({
-        id: f.path,
-        label: f.size != null ? `${(f.size / 1024).toFixed(1)} KB` : undefined,
-        insert: `@${f.path} `,
-      }));
+      const items = await withContributed(
+        app,
+        query,
+        files.map((f) => ({
+          id: f.path,
+          label: f.size != null ? `${(f.size / 1024).toFixed(1)} KB` : undefined,
+          insert: `@${f.path} `,
+        })),
+      );
+      return mine === filesAsked.current ? items : [];
     };
   }, [app, projectRoot]);
 
@@ -753,17 +765,39 @@ async function sessionMentions(app: App, query: string): Promise<MentionItem[]> 
   return items.slice(0, 20);
 }
 
-/** The `command` point: every contribution's candidates for an empty query, in order. */
+/** Where the composer is: the front space and its open session (`CommandContext`). */
+function commandContext(app: App): CommandContext {
+  const current = app.snapshot.current;
+  return { space: app.snapshot.space, session: current ? { instance: current.instance, sessionId: current.sessionId } : null };
+}
+
+/** The `command` contributions a menu asks: `/` for those without a trigger. */
+function commandsFor(app: App, trigger: "/" | "@") {
+  return app.registry.at("command").filter((c) => (c.trigger ?? "/") === trigger);
+}
+
+/**
+ * The `/` menu: every `/` contribution's candidates for an empty query, in order, asked again when
+ * the registry, the engine's commands, the front space or its session change (`ctx` follows them).
+ * The front space's `hideCommands` leave out other owners' commands of those names, so its own
+ * command of the same name is the one listed; the first of a name wins otherwise.
+ */
 function useCommands(app: App): ChatCommand[] {
   const registry = useRegistry(app.registry);
   const hello = useSyncExternalStore(app.subscribe, () => app.snapshot.hello);
+  const front = useSyncExternalStore(app.subscribe, () => app.snapshot.space);
+  const current = useSyncExternalStore(app.subscribe, () => app.snapshot.current);
   const [commands, setCommands] = useState<ChatCommand[]>([]);
   useEffect(() => {
     let alive = true;
+    const ctx = commandContext(app);
+    const space = spacesOf(app).find((c) => c.id === ctx.space);
+    const hidden = new Set(space?.hideCommands ?? []);
+    const asked = commandsFor(app, "/");
     void Promise.all(
-      registry.at("command").map((c) =>
+      asked.map((c) =>
         Promise.resolve()
-          .then(() => c.complete(""))
+          .then(() => c.complete("", ctx))
           .catch((e: unknown) => {
             registry.fail("command", c, e);
             return [];
@@ -773,19 +807,67 @@ function useCommands(app: App): ChatCommand[] {
       if (!alive) return;
       const seen = new Set<string>();
       const out: ChatCommand[] = [];
-      for (const candidate of lists.flat()) {
-        const name = candidate.replacement.replace(/^\//, "").trim();
-        if (!name || seen.has(name)) continue;
-        seen.add(name);
-        out.push({ name, description: candidate.description });
-      }
+      lists.forEach((list, i) => {
+        const contribution = asked[i]!;
+        for (const candidate of list) {
+          const name = candidate.replacement.replace(/^\//, "").trim();
+          if (!name || seen.has(name)) continue;
+          if (hidden.has(name) && contribution.owner !== space?.owner) continue;
+          seen.add(name);
+          const run = candidate.run;
+          out.push({
+            name,
+            description: candidate.description,
+            ...(run
+              ? {
+                  run: () =>
+                    Promise.resolve()
+                      .then(() => run.call(candidate, ctx))
+                      .catch((e: unknown) => app.notice(errorText(e), "error")),
+                }
+              : {}),
+          });
+        }
+      });
       setCommands(out.slice(0, 200));
     });
     return () => {
       alive = false;
     };
-  }, [registry, hello, registry.getVersion()]);
+  }, [app, registry, hello, front, current, registry.getVersion()]);
   return commands;
+}
+
+/** At most this many `@` candidates, the shell's own and the contributions' together. */
+const MENTIONS_MAX = 20;
+/** A contribution slower than this loses its `@` candidates for this keystroke. */
+const MENTION_WAIT_MS = 1500;
+
+/**
+ * The `@` menu: the shell's own candidates (files, `@session:`) first, then each `@` contribution's
+ * for the same query, in order of registration. One that throws or is slow loses its own.
+ */
+async function withContributed(app: App, query: string, own: MentionItem[]): Promise<MentionItem[]> {
+  const asked = commandsFor(app, "@");
+  if (!asked.length) return own;
+  const ctx = commandContext(app);
+  const lists = await Promise.all(
+    asked.map((c) =>
+      Promise.race([
+        Promise.resolve().then(() => c.complete(query, ctx)),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`no answer in ${MENTION_WAIT_MS} ms`)), MENTION_WAIT_MS)),
+      ]).catch((e: unknown) => {
+        app.registry.fail("command", c, e);
+        return [];
+      }),
+    ),
+  );
+  const contributed = lists.flat().map((candidate, i) => ({
+    id: candidate.label || candidate.replacement || String(i),
+    label: candidate.description,
+    insert: candidate.replacement,
+  }));
+  return [...own, ...contributed].slice(0, MENTIONS_MAX);
 }
 
 function dataUrl(file: File): Promise<string> {

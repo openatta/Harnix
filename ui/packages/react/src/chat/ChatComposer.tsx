@@ -32,6 +32,8 @@ interface MenuItem {
   label: string;
   detail?: string;
   replacement: string;
+  /** 选中即执行（命令的 `run`）：不插入 */
+  run?: () => void | Promise<void>;
 }
 
 interface Trigger {
@@ -248,7 +250,7 @@ export function ChatComposer(props: ChatComposerProps) {
       const items = list
         .filter((c) => c.name.toLowerCase().startsWith(q))
         .slice(0, 40)
-        .map((c) => ({ id: c.name, label: `/${c.name}`, detail: c.description, replacement: `/${c.name} ` }));
+        .map((c) => ({ id: c.name, label: `/${c.name}`, detail: c.description, replacement: `/${c.name} `, run: c.run }));
       setMenu({ kind: "/", trigger, items, index: 0 });
       return;
     }
@@ -271,10 +273,13 @@ export function ChatComposer(props: ChatComposerProps) {
   const choose = (item: MenuItem | undefined) => {
     if (!menu || !item) return;
     const { from, to } = menu.trigger;
-    const next = text.slice(0, from) + item.replacement + text.slice(to);
+    // 选中即执行的命令：打的 `/xxx` 清掉，什么也不插入、不发送
+    const inserted = item.run ? "" : item.replacement;
+    const next = text.slice(0, from) + inserted + text.slice(to);
     setText(next);
     setMenu(null);
-    const caret = from + item.replacement.length;
+    if (item.run) void Promise.resolve().then(item.run).catch(() => undefined);
+    const caret = from + inserted.length;
     requestAnimationFrame(() => {
       const node = input.current;
       if (!node) return;

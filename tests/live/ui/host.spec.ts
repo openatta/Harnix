@@ -401,3 +401,76 @@ test("model_switch: without the system space the composer changes the model thro
     await without.dispose();
   }
 });
+
+test("commands: one that runs instead of inserting, asked with the front space, and a space that hides an engine command", SHELL, async ({ page }) => {
+  const errors = watchConsole(page);
+  await open(page, URL);
+  await page.evaluate(() => {
+    const { app } = (window as any).harnix;
+    const t = ((window as any).__t = { ran: [] as string[], asked: [] as string[] });
+    app.registry.register(
+      "command",
+      {
+        id: "probe.commands",
+        complete: (_q: string, ctx: { space: string }) => {
+          t.asked.push(ctx?.space);
+          return [{ replacement: "/probe-run ", label: "/probe-run", description: "runs", run: (c: { space: string }) => t.ran.push(c.space) }];
+        },
+      },
+      "test",
+    );
+    app.registry.register("space", { id: "quiet", icon: "chat", title: () => "Quiet", sessions: "sessions", hideCommands: ["clear"] }, "test");
+  });
+  const names = async () => {
+    const input = page.getByTestId("conv-input");
+    await input.press("ControlOrMeta+a");
+    await input.press("Backspace");
+    await input.pressSequentially("/");
+    const menu = page.getByTestId("conv-menu");
+    await expect(menu).toBeVisible();
+    return menu.getByTestId("conv-menu-item").evaluateAll((nodes) => nodes.map((n) => (n as HTMLElement).dataset.id));
+  };
+  await inSpace(page, "quiet");
+  await newSession(page, "says-ready");
+  const inQuiet = await names();
+  expect(inQuiet).toContain("probe-run");
+  expect(inQuiet).not.toContain("clear");
+  await page.getByTestId("conv-menu").locator('[data-id="probe-run"]').click();
+  await expect(page.getByTestId("conv-input")).toHaveValue("");
+  await expect.poll(() => page.evaluate(() => (window as any).__t.ran)).toEqual(["quiet"]);
+  expect(await page.evaluate(() => (window as any).__t.asked)).toContain("quiet");
+  await inSpace(page, "sessions");
+  await newSession(page, "says-ready");
+  expect(await names()).toContain("clear");
+  expect(errors).toEqual([]);
+});
+
+test("@ takes an application's candidates after the shell's own, and the / menu does not", SHELL, async ({ page }) => {
+  await open(page, URL);
+  await page.evaluate(() => {
+    const { app } = (window as any).harnix;
+    app.registry.register(
+      "command",
+      { id: "probe.docs", trigger: "@", complete: (q: string) => (q === "ab" ? [{ replacement: "doc:ab ", label: "doc ab", description: "a document" }] : []) },
+      "test",
+    );
+    app.registry.register("command", { id: "probe.broken", trigger: "@", complete: () => { throw new Error("mentions broke"); } }, "test");
+  });
+  await newSession(page, "says-ready");
+  const input = page.getByTestId("conv-input");
+  await input.click();
+  await input.pressSequentially("see @ab");
+  const item = page.getByTestId("conv-menu").locator('[data-id="doc ab"]');
+  await expect(item).toBeVisible();
+  await item.click();
+  await expect(input).toHaveValue("see doc:ab ");
+  await input.press("ControlOrMeta+a");
+  await input.press("Backspace");
+  await expect(input).toHaveValue("");
+  await input.pressSequentially("/");
+  await expect(page.getByTestId("conv-menu")).toBeVisible();
+  expect(await page.getByTestId("conv-menu").locator('[data-id="doc ab"]').count()).toBe(0);
+  expect(
+    await page.evaluate(() => (window as any).harnix.app.registry.refusals().some((r: any) => r.id === "probe.broken" && /mentions broke/.test(r.reason))),
+  ).toBe(true);
+});
