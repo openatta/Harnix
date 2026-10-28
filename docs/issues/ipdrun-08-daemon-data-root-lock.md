@@ -13,25 +13,26 @@ Harnix 进程被 SIGKILL（或崩溃）后马上在同一个状态目录重启�
 
 ## 建议
 
-daemon 对自己的数据根持一把独占锁，活多久持多久：
+spawn 的 daemon 持一把**按实例**的独占锁，活多久持多久：
 
-- `serve_daemon` 一开始在 `<data_root>/.daemon.lock` 上 `flock(LOCK_EX | LOCK_NB)`；拿不到就按间隔重试，最多等一个上限
-  （例如 10 s，可由 `--lock-wait <secs>` 改），等到了再建引擎；超时以非零退出，`DaemonLink` 把实例记成 `down`，理由写
-  「data root is held by pid N」。锁文件里写持有者的 pid，方便理由和诊断。
-- 进程内实例同样在建引擎前拿这把锁（同一个数据根不该被两个引擎同时打开，不论载体）。
-- 可选：`DaemonArgs` 加 `--exit-grace <secs>`，stdin 关闭后在跑的轮最多等这么久就退出（缺省不限，即现在的行为）。
-  应用想让「父进程没了」更快让出数据根时可以设它。
+- 本二进制的 daemon 子命令（模板没写 `program`）的参数多带一个 `--instance <id>`；`serve_daemon` 一开始在 `<data_root>/.daemon-<id>.lock` 上
+  `flock(LOCK_EX | LOCK_NB)`；拿不到就按间隔重试，最多等一个上限（例如 10 s，可由 `--lock-wait <secs>` 改），等到了再建引擎；
+  超时以非零退出，`DaemonLink` 把实例记成 `down`，理由写「data root is held by pid N」。锁文件里写持有者的 pid，方便理由和诊断。
+- 锁按实例而不按数据根：要排开的是「同一台实例的新旧两个 daemon」。模板的 `data_root` 写成不含 `{name}` 的样子、让几台实例
+  共用一个数据根的应用，行为不变（那样做是否受支持不在本条范围）。
+- 进程内实例不拿锁：Harnix 进程没了它们也就没了，不会和新进程重叠。
 
 ## 兼容性
 
 - 正常情况下（只有一个引擎用这个数据根）没有可见变化，只多一个锁文件。
 - 重叠的情况下：新 daemon 晚一两秒就绪，而不是与旧的并写。等不到时报 `down`，比静默并写好。
-- 锁是建议性锁，只约束 Harnix 自己起的引擎；不影响别的工具读数据根。
-- `--exit-grace` 不设时行为不变。
+- 锁是建议性锁，只约束 Harnix 自己起的 daemon；不影响别的工具读数据根，也不影响共用数据根的不同实例。
+- 进程内实例、attach 实例不变；写了第三方 `program` 的 spawn 模板不加 `--instance`、不拿锁，参数与现在一字不差。
 
 ## 验收
 
-- `crates/instance` 测试：在一个数据根上起两个 `serve_daemon`，第二个在第一个退出前不建引擎；第一个退出后第二个在 1 s 内就绪。
+- `crates/instance` 测试：同一个实例 id、同一个数据根起两个 `serve_daemon`，第二个在第一个退出前不建引擎；第一个退出后第二个在 1 s 内就绪。
+- 不同实例 id、同一个数据根：两个都立即就绪（回归）。
 - 锁被占满 `--lock-wait` 之后，第二个以非零退出，`DaemonLink` 的状态是 `down` 且理由含持有者 pid。
 - `tests/live/api/instances-daemon.spec.ts`：对 Harnix 进程 SIGKILL 后立即在同一目录重启，新 daemon 就绪前旧 daemon 已退出
   （查 pid）；会话转录完整、没有交错的行。

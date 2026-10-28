@@ -40,7 +40,8 @@ tap 是有界的（`TAP_CAPACITY = 512`，`crates/module/src/sessions.rs:284`）
 
 - 新字段可选：不认识它的客户端照旧。`result` 不变。协议版本不必升。
 - 帧变大一点（`usage` 是一个小对象）；`structured_output` 可能较大，但本来就已经以 `turn_complete` 发过一次。
-- Helm、hello-app 不受影响。
+- Helm、hello-app 不改代码。Helm 的模块驱动无头会话时也是在 tap 里找 `turn_complete` 帧（`crates/helm-module/src/flow/agent.rs`），
+  `Lagged` 时同样可能漏掉；有了 `outcome` / `next_settled()` 可以换过去。
 
 ## 验收
 

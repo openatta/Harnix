@@ -11,43 +11,47 @@
 
 ## 建议
 
-加一个与 `command` 同形的贡献点 `mention`：
+**不加新的贡献点。** `crates/module/src/catalog.rs:59-65` 说贡献点的个数是设计的一部分，新增一个要先论证；`@` 候选和 `/` 候选是同一件事
+（打一个前导字符 → 按输入的文字给一串「插入什么、显示什么」的候选，全部按注册顺序拼起来），形状与 `command` 完全相同，所以由 `command`
+承载，只加一个可选字段：
 
 ```ts
 export interface Contributions {
-  // …原有八个不变
-  mention: {
+  command: {
     id: string;
-    /** 打 `@` 之后的文字 → 候选。ctx 给出前台 space 与打开的会话，贡献可以只在自己的 space 里给。 */
-    complete(query: string, ctx: { space: string; session: SessionRef | null }): MentionItem[] | Promise<MentionItem[]>;
+    /** 哪个前导字符的菜单问它；缺省 "/"（现在的行为）。 */
+    trigger?: "/" | "@";
+    complete(query: string, ctx?: { space: string; session: SessionRef | null }): CommandCandidate[] | Promise<CommandCandidate[]>;
   };
 }
 ```
 
-- `MentionItem` 沿用 `ui/packages/react/src/chat/types.ts:62-68`（`id`、`label`、`insert`）；可选加 `source?: string` 用于在菜单里分组。
-- 内建的文件、`@session:` 候选改成注册在这个点上的内建贡献（`builtins.tsx`，与 `builtin.commands` 注册在 `command` 上同样的做法），外壳只问这个点：内建的在前，再按注册顺序拼起来，总数封顶；某个贡献抛错或超时只丢它自己的候选。
-- 选中后插入 `insert`；它在发送时怎么解释是应用的事（例如由模块经 `ipdrun-13` 的中间件或自己的工具展开）。
-
-`catalog.rs` 的注释说贡献点的个数是设计的一部分（「a seventh is an argument to be made」，`crates/module/src/catalog.rs:59-65`）。理由：
-`@` 引用是对话里与 `/` 对称的另一个入口，内建 space 自己就在用（文件、会话），只是没有对应用开放；它也被外壳直接问（`@` 菜单），
-不是没人用的接缝。若维护者不想加第九个点，替代方案是给 `command` 的候选加 `trigger?: "/" | "@"`（缺省 `/`），由同一个点承载。
+- `trigger` 放在贡献上、不放在候选上：`/` 菜单现在是注册表变化时问一次 `complete("")`、再在本地过滤（`Shell.tsx:652-683`），`@` 菜单是
+  每次输入都问（`mention(query)`，要查文件）。按贡献分开，外壳问 `/` 时不碰 `@` 的贡献，反之亦然。
+- `@` 菜单：外壳内建的文件、`@session:` 候选在前，再按注册顺序拼上 `trigger: "@"` 的贡献的候选，总数封顶；某个贡献抛错或超时只丢它自己的候选
+  （与 `command` 现在的失败规则相同）。候选的 `replacement` 就是插入的文字（对应 `MentionItem.insert`），`label`、`description` 照画。
+- 内建的文件、会话候选要不要也改成注册在 `command`（`trigger: "@"`）上的内建贡献，由维护者定；不改也满足「点被内建注册、被外壳问」。
+- `ctx` 与 `ipdrun-29` 的是同一个，贡献可以只在自己的 space 里给候选。
+- 选中后插入 `replacement`；它在发送时怎么解释是应用的事（例如由模块经 `ipdrun-13` 的中间件或自己的工具展开）。
+- `catalog.rs` 里 `command` 一行的「what」改成同时说 `/` 与 `@`，`contribution_points.md` 随之重新生成；点的个数不变。
 
 ## 兼容性
 
-- 新增贡献点，旧的八个不变；不注册 `mention` 时 `@` 菜单与现在一样。
-- `contribution_points.md` 与 `catalog.rs` 的表随之加一行；贡献点 API 版本按维护者的规矩决定是否升（只加不改，可以不升）。
-- Helm、hello-app 不受影响。
+- 不写 `trigger` 的 `command` 贡献：`trigger` 视为 `"/"`，与现在一样；不注册 `trigger: "@"` 的贡献时 `@` 菜单与现在一样。
+- `POINTS` 与 `SHAPE` 不变（`trigger` 可选，形状校验只查 `complete`）。
+- 贡献点 API 版本：只加可选成员，可以不升。Helm、hello-app 不受影响。
 
 ## 验收
 
-- `ui/packages/react/test/contrib.test.ts`：`mention` 的形状校验（缺 `complete` 被拒并记理由）。
-- `tests/live/ui/conversation.spec.ts`：testapp 注册一个 `mention`，对 `ab` 返回 `{id: "doc:ab", label: "文档 ab"}`；输入框里打 `@ab`，菜单里有这一项，选中后插入 `doc:ab `；
-  内建的文件候选仍在。
+- `ui/packages/react/test/contrib.test.ts`：带 `trigger: "@"` 的 `command` 贡献照常注册；`trigger` 取别的值被拒并记理由。
+- `tests/live/ui/conversation.spec.ts`：testapp 注册一个 `trigger: "@"` 的 `command`，对 `ab` 返回 `{replacement: "doc:ab ", label: "文档 ab"}`；
+  输入框里打 `@ab`，菜单里有这一项，选中后插入 `doc:ab `；内建的文件候选仍在；`/` 菜单里没有它。
+- 不带 `trigger` 的 `command` 贡献：只出现在 `/` 菜单（回归）。
 - 贡献抛错：菜单里只少它的候选。
 
 ## 依赖
 
-无。
+`ctx` 与 `ipdrun-29` 一起做最省事；不依赖它也能先做（不传 `ctx`）。
 
 ## 来源
 

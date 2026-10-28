@@ -28,26 +28,21 @@
    ```
    profile 里声明的模板同样可写 `inherit_providers = true`。
    声明了的实例：建成时、以及每次 `harnix.settings.setProvider` 成功后，Harnix 把 system 全局层的 `providers` / `default_provider`
-   写进这台实例的一个专用层（例如 `<实例数据根>/settings.inherited.json`，0600），再对它 `config.reload`。实例自己全局层里的同名 provider 优先。
-   若 Agix 的设置层能直接多叠一层只读的「上游全局」，就不必复制文件；那是 Agix 的事，这里先用复制做到。
-2. **变更通知**：模块要在 provider 之上叠自己的配置时，需要知道它变了。
-   ```rust
-   impl ModuleContext {
-       /// Bumped after every successful settings write of the given scope.
-       pub fn settings_changes(&self) -> tokio::sync::watch::Receiver<u64>;
-   }
-   ```
-   界面侧可以有一个宿主主题 `harnix.settings`（整值快照：`{revision, providers: [id…], default_provider}`，不含密钥），设置页之外的
-   space 也能跟着刷新。
-3. `setProvider` 的返回里加 `reloaded_instances: [id…]`，说清这次推到了哪些实例。
+   并进这台实例的全局层（`<实例数据根>/settings.json`，0600），再对它 `config.reload`。今天的 Agix 只有全局、场景、项目三层，
+   没有多叠一层的地方，所以是并进全局层：Harnix 在 `<实例数据根>/.inherited-providers.json` 里记下哪些 provider id 是它写的，
+   只增删改这些；实例全局层里本来就有的同名 provider 不覆盖（实例自己的优先）。若以后 Agix 的设置层能多叠一层只读的
+   「上游全局」，换成那种做法，接口不变。
+   继承来的层由 Harnix 写、由 Harnix 刷新，模块不必知道 provider 什么时候变了，所以本条不加变更通知；模块要在 provider 之上
+   叠自己的配置，写进实例的全局层即可（不用 Harnix 记下的那些 id）。
+2. `setProvider` 的返回里加 `reloaded_instances: [id…]`，说清这次推到了哪些实例。
 
 ## 兼容性
 
 - 不声明 `inherit_providers` 的模板：行为不变，实例照旧只读自己的数据根。
 - `system` 实例不受影响。
 - `setProvider` 返回多一个字段，旧调用方忽略即可。
-- 新主题、新方法都是新增；协议版本不必升。
-- 密钥只复制进 0600 的文件，不进主题、不进日志。
+- 协议版本不必升。
+- 密钥只复制进 0600 的文件，不进返回值、不进日志。
 - Helm、hello-app 只用 `system`，不受影响。
 
 ## 验收
@@ -56,7 +51,6 @@
   这台实例的 `config.getProvider` 里有 `hx-check`（不用重建实例）；`setProvider {delete: true}` 后它消失。
 - 不声明的模板：`config.getProvider` 仍为空（回归）。
 - spawn 载体同样一遍（`instances-daemon.spec.ts`）。
-- 模块侧：`settings_changes()` 在 `setProvider` 后 1 s 内变化。
 
 ## 依赖
 

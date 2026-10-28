@@ -40,6 +40,8 @@
 
 - 不传 `refreshToken` 的客户端：行为与现在一样。外壳传了，所以外壳里所有 space 都受益，不改代码。
 - 令牌不经新的端点下发：仍然只在页面 HTML 里，授权条件与载入页面相同，没有扩大暴露面。
+- 启动链接模式（`--launch-link`）下页面本来不带令牌，靠会话 cookie（`crates/transport/src/statics.rs` 的 `LaunchLink` 一支）；
+  cookie 是上一个进程发的，新进程不认，`tokenFromPage` 取到 401 就返回 null，走第 4 条的退路提示。这一模式的自动恢复不在本条范围。
 - 重连成功后，各订阅与会话的恢复走现有的重连路径（与网络断开后恢复相同）。
 - Helm、hello-app：页面行为改善，不改代码。
 

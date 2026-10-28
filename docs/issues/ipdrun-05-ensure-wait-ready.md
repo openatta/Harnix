@@ -15,34 +15,30 @@
 
 ## 建议
 
-只加不改，二选一或都做：
+只加不改：**`ensure` / `create` 可以等到 ready。** 方法参数加可选的 `wait`：
+```jsonc
+// harnix.instances.ensure / .create
+{ "template": "...", "name": "...", "params": {...}, "wait": "ready", "timeout_ms": 60000 }
+```
+`wait: "ready"` 时，返回前等这台的状态变成 `ready`；变成 `down` 立即以 `INSTANCE_UNAVAILABLE` 报错（带 `down` 的理由）；
+超时同样报错。不带 `wait` 时行为与现在一样。模块侧加对应的便捷方法：
+```rust
+impl Instances<'_> {
+    pub async fn ensure_ready(&self, template: &str, name: &str, params: BTreeMap<String, String>, timeout: Duration)
+        -> Result<Value, RpcError>;
+    pub async fn wait_ready(&self, instance: &str, timeout: Duration) -> Result<Value, RpcError>;
+}
+```
+等待用链接自己的状态变化通知（不必轮询）。
 
-1. **`ensure` / `create` 可以等到 ready。** 方法参数加可选的 `wait`：
-   ```jsonc
-   // harnix.instances.ensure / .create
-   { "template": "...", "name": "...", "params": {...}, "wait": "ready", "timeout_ms": 60000 }
-   ```
-   `wait: "ready"` 时，返回前等这台的状态变成 `ready`；变成 `down` 立即以 `INSTANCE_UNAVAILABLE` 报错（带 `down` 的理由）；
-   超时同样报错。不带 `wait` 时行为与现在一样。模块侧加对应的便捷方法：
-   ```rust
-   impl Instances<'_> {
-       pub async fn ensure_ready(&self, template: &str, name: &str, params: BTreeMap<String, String>, timeout: Duration)
-           -> Result<Value, RpcError>;
-       pub async fn wait_ready(&self, instance: &str, timeout: Duration) -> Result<Value, RpcError>;
-   }
-   ```
-   等待用链接自己的状态变化通知（不必轮询）。
-2. **会话类调用在中枢里等一会儿。** 中枢把会话类调用（`session.create`、`harnix.send` 等）转给一台 `Starting` 的实例时，
-   先等它 ready（上限取 `START_TIMEOUT`，`daemon_link.rs:58`），再转发；`Down` 照旧立即答 unavailable。
-   这一条改的是缺省行为，若采纳需要维护者判断（对 `Degraded` 等不等，尤其要定）。
+会话类调用（`session.create`、`harnix.send` 等）遇到 `Starting` 的实例照旧立即答 unavailable，不在中枢里等：那会改缺省行为，
+依赖「马上失败」做回退的调用方会变慢。要等的调用方显式用 `wait: "ready"`。
 
 并在 SDK §6.2 写明：spawn 实例 `ensure` 之后不是马上可用，用 `wait: "ready"` 或 `ensure_ready`。
 
 ## 兼容性
 
-- 方案 1 纯新增：不带 `wait` 的调用一字不变；`Instances::ensure` / `create` 不变。
-- 方案 2 改缺省行为：以前马上失败的调用会晚一点成功。对已经自己等 ready 的模块无害；对依赖「马上失败」做回退的调用方
-  会变慢，所以列为可选。
+- 纯新增：不带 `wait` 的调用一字不变；`Instances::ensure` / `create` 不变；会话类调用遇到 starting 的实例照旧马上失败。
 - 协议版本不必升：新参数可选，旧服务端不认识时报 `invalid_params` 的话，模块能看出来。
 - Helm、hello-app 不用 spawn 模板，不受影响。
 

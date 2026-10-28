@@ -24,7 +24,7 @@ export interface SpaceContribution {
 
 - 外壳把它与「去配置模型」的提示一起放进 `ChatPanel` 的 `notice`（模型未配置时两条都显示，模型提示在前）。
 - 想让首屏那句也在会话里出现的 space，写 `composerNotice: () => notice()` 即可；SDK §8.2 写一句。
-- 可选的简化：若维护者认为 `notice()` 本来就该在会话里也出现，可以改成「两处都画」并在发布说明里写明——那是一处缺省行为变化，本条不要求。
+- 不改成「`notice()` 两处都画」：那会让已有 space（Helm 的）的首屏提示出现在每个打开的会话里，是缺省行为变化。
 
 ## 兼容性
 

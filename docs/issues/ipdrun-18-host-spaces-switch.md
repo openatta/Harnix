@@ -30,17 +30,19 @@ export interface NestHost {
 
 - `switch` 直接用 `app.switchSpace`（它本来就是 async），在新 space 的第一次渲染之后再 resolve，这样调用方紧接着的 `session.open`、
   `composer.insert` 一定落在新 space 里。
-- `host.session.open(ref)` 对别的 space 的会话：**明确报错**（`SPACE_MISMATCH`，消息里写会话属于哪个 space），而不是静默记错位置。
-  另给一个可选参数让调用方要求自动切过去：
+- `host.session.open(ref)` 加一个可选参数，让调用方要求「会话在哪个 space 就去哪个 space 打开」：
   ```ts
   open(ref: SessionRef, options?: { switchSpace?: boolean }): void | Promise<void>;
   ```
-  `switchSpace: true` 时先 `spaces.switch(会话的 space)` 再打开。会话属于哪个 space，外壳从会话列表（`harnix.sessions` 的 `space` 字段）得知。
+  `switchSpace: true` 时先 `spaces.switch(会话的 space)` 再打开，返回的 promise 在打开之后落定；会话属于哪个 space 由中枢的账本定
+  （`SPACE_MISMATCH` 就是对着它核的），外壳向中枢问（没有现成读法的话，给 `harnix.sessions` 的行带上 `space`，是本条要补的一处）；外壳自己的会话列表只列 `sessions` 这个后端 space（`app.ts:328`），不能拿来判断。
+  找不到这个会话就 reject。不带第二个参数时与现在完全一样（包括把别的 space 的会话
+  记成前台 space 的当前会话这一点；要不要把它改成报错，另作缺陷处理，不在本条）。
 
 ## 兼容性
 
 - `spaces` 是新增成员；`session.open(ref)` 不带第二个参数时，前台 space 的会话照旧打开。
-- 行为变化只在「打开别的 space 的会话」：以前静默错开、随后 `SPACE_MISMATCH`，现在立刻报同一个错误。这是把延后的错误提前，不是新错误。
+- 不带 `options` 的 `session.open` 行为不变；返回类型放宽成 `void | Promise<void>`，原来不看返回值的调用方不受影响。
 - 贡献点 API 版本：`NestHost` 只加成员，可以不升；若维护者按「API 2 加了什么」记账，记一笔即可。
 - Helm、hello-app：不改代码。
 
@@ -49,7 +51,8 @@ export interface NestHost {
 - `tests/live/ui/interface.spec.ts`（testapp 带两个 space A、B）：A 里的组件 `await host.spaces.switch("B")` 之后，`#main[data-space]` 是 B，
   `host.spaces.current()` 是 `"B"`；紧接着 `host.composer.insert("x")`，B 的输入框里有 `x`。
 - `switch("nope")` reject。
-- 在 A 里 `session.open(B 的会话)`：抛 `SPACE_MISMATCH`，前台仍是 A、A 的当前会话不变；带 `{switchSpace: true}`：前台变成 B，打开的是那个会话。
+- 在 A 里 `session.open(B 的会话, {switchSpace: true})`：前台变成 B，打开的是那个会话，A 的当前会话不变。
+- 在 A 里 `session.open(A 的会话)` 不带第二个参数：与现在一样（回归）。
 
 ## 依赖
 

@@ -46,6 +46,9 @@ export interface SpaceContribution {
 ```
 
 - 外壳汇总时把 `run` 一起带上（`ChatCommand` 加可选的 `run`），`ChatComposer` 选中带 `run` 的候选时调它；`run` 抛错时用外壳的错误提示显示。
+- 外壳现在只在注册表或 `hello` 变化时调一次 `complete("")`、再在本地过滤（`Shell.tsx:652-683` 的 `useCommands`）；给了 `ctx` 以后，
+  前台 space 或打开的会话变了也要重问一次，不然 `ctx` 是旧的。
+- 同名去重（`useCommands` 的 `seen`）保持先到先得；space 想用自己的同名命令替掉引擎的，配合 `hideCommands` 把引擎那条藏掉。
 - `hideCommands` 只影响前台 space 的菜单；人手打 `/clear` 发出去，照旧作为文本到引擎（这是**防误**，不是禁止）。要真正禁止，用 Agix 的命令配置或 `ipdrun-13` 的中间件。
 
 ## 兼容性

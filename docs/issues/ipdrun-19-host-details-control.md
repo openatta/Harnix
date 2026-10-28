@@ -41,8 +41,7 @@ export interface NestHost {
   （换 space 回到第一个，揭示详情跳到「详情」）。
 - `open(tab)` 给了一个此刻不在 `tabs()` 里的 id：先 `redraw()` 再找；还找不到就只打开、不换页签，并在诊断里记一条。
 - `redraw()` 只让外壳重新渲染读 space 函数的那几处（`Details`、标题、`notice` 等），不改注册表版本号。
-- 可选：`SpaceContribution` 加 `tab?(): string | undefined`，让 space 自己说「现在应该选中哪一页」（受控），外壳每次画时读；与 `details.open(tab)` 二选一即可，
-  由维护者定。
+- 只给命令式的 `details.open(tab)`，不另加受控的 `SpaceContribution.tab?()`：两种做同一件事，留一种。
 
 ## 兼容性
 
