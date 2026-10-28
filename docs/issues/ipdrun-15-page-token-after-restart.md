@@ -73,3 +73,15 @@ IPDrun 的「服务重启后界面恢复」用例只能在重启后 `page.reload
 `@harnix/core` 导出 `tokenFromPage(baseUrl?)`（`fetch(`${base}/`, {credentials: "same-origin", cache: "no-store"})` 读 meta，401 / 失败返回 null）；
 外壳 `main.tsx` 传 `refreshToken: tokenFromPage()`；连续 N 次失败且取不到新令牌时的「服务已重启，请刷新页面」文案；`ui/packages/core/test/client.test.ts`
 与 `tests/live/ui/interface.spec.ts` 的用例。
+
+外壳（F3b）：
+
+- `HarnixClientOptions.refreshToken?`（`ui/packages/core/src/client/client.ts`；`token` 改为内部可变，公开类型不变）：连接打开过、之后某次重连的 socket
+  没打开时调一次，取到的与当前不同就换上再连。`@harnix/core` 导出 `tokenFromPage(baseUrl?, fetch?)`（同源 `GET /`、`credentials: "same-origin"`、
+  `cache: "no-store"`，读 meta；非 2xx 或连不上返回 null）。外壳 `main.tsx` 传 `refreshToken: tokenFromPage()`。
+- 退路：带 `refreshToken` 的客户端上次打开以来连续 10 次重连失败、又没取到新令牌时，发一次带说明 `TOKEN_STALE`（导出）的 `closed`；外壳据此显示横幅
+  「服务已重启，请刷新页面」（`conn.restarted`），重新连上时收起。重连照旧继续。
+- 只管单双向流（`/ws`）这一路；分离流的重连在 `connectSplit` 里，不在本条。
+- 测试：`ui/packages/core/test/client.test.ts` 的「服务换了令牌」四条（换上新令牌回到 open；不带的保持连不上；取不到时带 `TOKEN_STALE`；`tokenFromPage` 的三种应答）；
+  `tests/live/ui/host.spec.ts` 的「after the backend restarts on its port with a new token, the open page reconnects by itself」（同端口 `restart()`，页面不刷新，
+  客户端换上新进程的令牌，回到 open，新建会话能收到回答）。偏离：放在 `host.spec.ts` 而不是 `interface.spec.ts`。

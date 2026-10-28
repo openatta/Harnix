@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CONTRIB_API_VERSION, HarnixClient, PROTOCOL_VERSION, tokenFromDocument, type ConnectionStatus } from "../src/index.ts";
+import { CONTRIB_API_VERSION, HarnixClient, PROTOCOL_VERSION, TOKEN_STALE, tokenFromDocument, tokenFromPage, type ConnectionStatus } from "../src/index.ts";
 import { FakeServer, FakeSplit, RpcFailure, settle } from "./fakes.ts";
 
 const BASE = "http://127.0.0.1:4287";
@@ -245,5 +245,75 @@ describe("令牌", () => {
     };
     expect(tokenFromDocument(doc)).toBe("abc");
     expect(tokenFromDocument({ querySelector: () => null })).toBe("");
+  });
+});
+
+describe("服务换了令牌", () => {
+  /** 一台会"重启"的假服务端：只认 `token` 这个令牌，别的一律在升级时拒掉（浏览器只看到 onclose）。 */
+  function restartable(server: FakeServer) {
+    const state = { token: "tok en" };
+    server.autoOpen = false;
+    const Base = server.WebSocket;
+    const WebSocket = class extends Base {
+      constructor(url: string) {
+        super(url);
+        const socket = server.last;
+        const given = new URL(url).searchParams.get("token");
+        queueMicrotask(() => (given === state.token ? socket.open() : socket.drop()));
+      }
+    };
+    return { state, WebSocket };
+  }
+
+  it("带 refreshToken：重连失败时取到新令牌，换上再连，回到 open", async () => {
+    const server = new FakeServer();
+    const { state, WebSocket } = restartable(server);
+    const refresh = vi.fn(async () => state.token);
+    const { client } = makeClient(server, undefined, { WebSocket, refreshToken: refresh });
+    client.connect();
+    await client.ready();
+    state.token = "new token";
+    server.last.drop();
+    await expect.poll(() => client.status, { timeout: 2000 }).toBe("open");
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(new URL(server.last.url).searchParams.get("token")).toBe("new token");
+    client.close();
+  });
+
+  it("不带 refreshToken：一直用旧令牌，连不回去", async () => {
+    const server = new FakeServer();
+    const { state, WebSocket } = restartable(server);
+    const { client } = makeClient(server, undefined, { WebSocket });
+    client.connect();
+    await client.ready();
+    state.token = "new token";
+    server.last.drop();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(client.status).not.toBe("open");
+    expect(server.sockets.length).toBeGreaterThan(2);
+    expect(server.sockets.every((s) => new URL(s.url).searchParams.get("token") === "tok en")).toBe(true);
+    client.close();
+  });
+
+  it("取不到新令牌、连续失败够多次：closed 带 TOKEN_STALE，重连照旧", async () => {
+    const server = new FakeServer();
+    const { state, WebSocket } = restartable(server);
+    const details: (string | undefined)[] = [];
+    const { client } = makeClient(server, undefined, { WebSocket, refreshToken: async () => null });
+    client.onStatus((_s, detail) => details.push(detail));
+    client.connect();
+    await client.ready();
+    state.token = "new token";
+    server.last.drop();
+    await expect.poll(() => details.includes(TOKEN_STALE), { timeout: 3000 }).toBe(true);
+    client.close();
+  });
+
+  it("tokenFromPage 同源取页面、读 meta；不认（401）或连不上时是 null", async () => {
+    const page = (status: number, body = "") => async () => new Response(body, { status });
+    const html = '<html><head><meta name="harnix-token" content="abc 123"></head></html>';
+    expect(await tokenFromPage(BASE, page(200, html))()).toBe("abc 123");
+    expect(await tokenFromPage(BASE, page(401))()).toBeNull();
+    expect(await tokenFromPage(BASE, async () => Promise.reject(new Error("refused")))()).toBeNull();
   });
 });

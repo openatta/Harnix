@@ -6,7 +6,7 @@
  */
 
 import { createRoot } from "react-dom/client";
-import { HarnixClient, tokenFromDocument } from "@harnix/core";
+import { HarnixClient, tokenFromDocument, tokenFromPage } from "@harnix/core";
 import { HarnixUiProvider, NestProvider, Registry, currentLocale, en, useLocale, zhCN } from "@harnix/react";
 
 import "@harnix/react/tokens.css";
@@ -32,7 +32,9 @@ function chrome(): string {
   return tauri && /Mac OS X|Macintosh/.test(navigator.userAgent) ? "overlay" : "";
 }
 
-const client = new HarnixClient({ token: tokenFromDocument() });
+// After a restart the backend has a new token, and the old one is refused: the page asks itself for
+// the current one again rather than staying disconnected until someone reloads it.
+const client = new HarnixClient({ token: tokenFromDocument(), refreshToken: tokenFromPage() });
 const app = new App(client, new Registry());
 iconsFrom((name) => app.registry.icon(name));
 const host = hostFor(app);

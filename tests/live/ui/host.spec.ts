@@ -493,3 +493,21 @@ test("icons: a space's own icon, by its owner's name, drawn in the shell's frame
   expect(await size('#side .spaces [data-space="shipped"] .glyph')).toEqual(await size('#side .spaces [data-space="sessions"] > .glyph'));
   expect(errors).toEqual([]);
 });
+
+test("after the backend restarts on its port with a new token, the open page reconnects by itself", { tag: ["@feature:connection", "@layer:ui"] }, async ({ page }) => {
+  const first = await startHarnix(launchFor("replay"));
+  let backend = first;
+  try {
+    await open(page, first.url);
+    backend = await first.restart();
+    expect(backend.token).not.toBe(first.token);
+    // The page now speaks with the new process's token — the old one is refused — without a reload.
+    await expect.poll(() => page.evaluate(() => (window as any).harnix.client.token), { timeout: 30_000 }).toBe(backend.token);
+    await expect(page.locator("#conn")).toHaveAttribute("data-state", "open", { timeout: 30_000 });
+    await newSession(page, "says-ready");
+    await say(page, "Say exactly: fixture ready");
+    await expect(reply(page)).toContainText(/fixture ready/i, { timeout: 30_000 });
+  } finally {
+    await backend.dispose();
+  }
+});

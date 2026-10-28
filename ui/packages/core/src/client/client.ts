@@ -70,7 +70,19 @@ export interface HarnixClientOptions {
   backoff?: (attempt: number) => number;
   /** 本地产生的错误文案（连接已关、未连接）。 */
   messages?: { connectionClosed?: string; notConnected?: string };
+  /**
+   * 重连失败时取一次当前的令牌；返回 null 表示拿不到。缺省不取，行为同现在。连接曾经打开过、断了以后重连又失败时
+   * 调它（每次失败最多一次），拿到的与当前不同就换上再连（服务重启后换了令牌）。浏览器里用 `tokenFromPage()`。
+   */
+  refreshToken?: () => Promise<string | null>;
 }
+
+/**
+ * 状态 closed 附带的说明：带 `refreshToken` 的客户端连续这么多次重连失败、又取不到新令牌——服务多半换了令牌
+ * 而这一页拿不到（例如启动链接的 cookie 只认上一个进程），只有刷新页面能接上。重连照旧继续。
+ */
+export const TOKEN_STALE = "token-stale";
+const TOKEN_STALE_AFTER = 10;
 
 /** 本客户端会说的拓扑，最好的在前。 */
 export const SPEAKS: Topology[] = ["single_duplex", "split_streams"];
@@ -83,7 +95,12 @@ interface Pending {
 }
 
 export class HarnixClient {
-  private readonly token: string;
+  private token: string;
+  private readonly refreshToken: (() => Promise<string | null>) | undefined;
+  /** 打开过一次：之后的重连失败才去取新令牌。 */
+  private everOpen = false;
+  /** 上次打开以来连续失败的重连次数。 */
+  private failedSinceOpen = 0;
   private readonly baseUrl: string;
   private readonly speaks: Topology[];
   private readonly WebSocketImpl: WebSocketCtor | undefined;
@@ -109,6 +126,7 @@ export class HarnixClient {
 
   constructor(options: HarnixClientOptions) {
     this.token = options.token;
+    this.refreshToken = options.refreshToken;
     const origin = (globalThis as { location?: { origin?: string } }).location?.origin;
     this.baseUrl = options.baseUrl ?? origin ?? "http://127.0.0.1";
     this.speaks = options.speaks ?? SPEAKS;
@@ -179,6 +197,10 @@ export class HarnixClient {
   }
 
   private setStatus(status: ConnectionStatus, detail?: string): void {
+    if (status === "open") {
+      this.everOpen = true;
+      this.failedSinceOpen = 0;
+    }
     this.statusValue = status;
     this.statusDetail = detail;
     for (const fn of [...this.statusListeners]) fn(status, detail);
@@ -308,8 +330,10 @@ export class HarnixClient {
     }
     const socket = new WebSocketImpl(this.wsUrl());
     this.socket = socket;
+    let opened = false;
 
     socket.onopen = async () => {
+      opened = true;
       this.attempt = 0;
       try {
         const negotiated = (await this.call("harnix.handshake", {
@@ -368,13 +392,35 @@ export class HarnixClient {
       if (this.refused) return;
       this.setStatus("closed");
       this.attempt = Math.min(this.attempt + 1, 6);
-      this.reconnectTimer = setTimeout(() => {
-        this.reconnectTimer = null;
-        if (!this.closedByUser && !this.refused) {
-          this.setStatus("connecting");
-          this.connectDuplex();
-        }
-      }, this.backoff(this.attempt));
+      const retry = () => {
+        if (this.closedByUser || this.refused) return;
+        this.reconnectTimer = setTimeout(() => {
+          this.reconnectTimer = null;
+          if (!this.closedByUser && !this.refused) {
+            this.setStatus("connecting");
+            this.connectDuplex();
+          }
+        }, this.backoff(this.attempt));
+      };
+      // 打开过、这一次重连没打开：浏览器拿不到升级被拒的 401，只能去取一次当前的令牌看看是不是换了。
+      if (!opened && this.everOpen && this.refreshToken) {
+        this.failedSinceOpen += 1;
+        void this.refreshToken()
+          .then((token) => {
+            if (token && token !== this.token) {
+              this.token = token;
+              return true;
+            }
+            return false;
+          })
+          .catch(() => false)
+          .then((renewed) => {
+            if (!renewed && this.failedSinceOpen >= TOKEN_STALE_AFTER && !this.closedByUser) this.setStatus("closed", TOKEN_STALE);
+            retry();
+          });
+        return;
+      }
+      retry();
     };
 
     socket.onerror = () => this.setStatus("error");
@@ -443,6 +489,27 @@ export function errorText(e: unknown, fallback = "unknown error"): string {
   }
   if (typeof e === "string" && e) return e;
   return e == null ? fallback : String(e);
+}
+
+/**
+ * 取当前令牌的现成实现（`HarnixClientOptions.refreshToken`）：同源再取一次页面，读它的 `<meta name="harnix-token">`。
+ * 请求带上载入页面时的同一份凭据（cookie），授权条件与载入页面相同；服务还没起来、或不认这一页（401）时返回 null。
+ */
+export function tokenFromPage(baseUrl?: string, fetchImpl?: FetchLike): () => Promise<string | null> {
+  return async () => {
+    const fetcher = fetchImpl ?? (globalThis.fetch ? globalThis.fetch.bind(globalThis) : undefined);
+    const origin = baseUrl ?? (globalThis as { location?: { origin?: string } }).location?.origin;
+    if (!fetcher || !origin) return null;
+    try {
+      const response = await fetcher(new URL("/", origin).toString(), { credentials: "same-origin", cache: "no-store" });
+      if (!response.ok) return null;
+      const html = await response.text();
+      const meta = /<meta\s+name="harnix-token"\s+content="([^"]*)"/i.exec(html);
+      return meta?.[1] || null;
+    } catch {
+      return null;
+    }
+  };
 }
 
 /** 页面里的令牌：服务端在发 index.html 时把 `__HARNIX_TOKEN__` 换成真值。 */

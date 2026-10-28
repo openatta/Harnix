@@ -6,8 +6,10 @@
 export {
   HarnixClient,
   SPEAKS,
+  TOKEN_STALE,
   errorText,
   tokenFromDocument,
+  tokenFromPage,
   type ConnectionStatus,
   type HarnixClientOptions,
   type NotifyListener,

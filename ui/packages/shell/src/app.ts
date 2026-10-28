@@ -10,7 +10,7 @@
  */
 
 import type { ReactNode } from "react";
-import { errorText, type ConnectionStatus, type HarnixClient, type Hello, type SessionRow } from "@harnix/core";
+import { TOKEN_STALE, errorText, type ConnectionStatus, type HarnixClient, type Hello, type SessionRow } from "@harnix/core";
 import { SYSTEM_INSTANCE, type SessionController } from "@harnix/core/state";
 import { t, tabsOf, type ComposerApi, type DetailItem, type Registry, type SpaceContribution, type SpaceTab } from "@harnix/react";
 
@@ -301,7 +301,12 @@ export class App {
     this.packages = loadPackages ?? null;
     this.client.onStatus((status, detail) => {
       this.set({ connection: status });
-      if (status === "open") void this.boot();
+      if (status === "open") {
+        if (this.state.banner?.text === t("conn.restarted")) this.dismissBanner();
+        void this.boot();
+      }
+      // Reconnecting, and no new token to be had: only a reload gets this page back.
+      if (status === "closed" && detail === TOKEN_STALE) this.notice(t("conn.restarted"), "error");
       if (status === "incompatible") this.notice(t("banner.incompatible", { reason: detail ?? "" }), "error");
     });
     this.client.onNotify((method, params) => this.handle(method, params));
