@@ -21,6 +21,8 @@
 import { createElement, Component, useSyncExternalStore, type ErrorInfo, type ReactNode } from "react";
 import type { Block, BlockOf } from "@harnix/core/state";
 import type { SessionRow } from "@harnix/core";
+import type { ChatIds } from "./chat/types";
+import type { SessionRef } from "./host";
 import { addStrings, type Locale } from "./i18n/index";
 
 export const POINTS = [
@@ -105,6 +107,25 @@ export interface SpaceContribution {
   /** One line under the composer (what the Agent may and may not do here). */
   notice?(): string;
   placeholder?(): string;
+  /** A badge on the space's entry in the left column: a number or a very short text. Nothing is
+   *  drawn for null, undefined, 0 or "". Read at every draw; call `host.redraw()` when it changes. */
+  badge?(): string | number | null | undefined;
+  /** The open session is read-only: the words that take the composer's place. False or undefined:
+   *  it can be written to. Only the interface — the hub still takes `harnix.send`; this guards
+   *  against mistakes, it is not a security boundary. */
+  readOnly?(session: SessionRef): string | false | undefined;
+  /** What stays at the top of the open session's flow, above the messages; null or undefined for
+   *  nothing. Read at every draw of the conversation. */
+  pinned?(session: SessionRef): ReactNode;
+  /** A line over the composer of an open session (`notice()` is the new conversation's); null or
+   *  undefined for none. Read at every draw of the conversation. */
+  composerNotice?(session: SessionRef): ReactNode;
+  /** Which words in the conversation's text are ids that open something, and what opening one
+   *  does. The pattern carries the `g` flag (the shell adds it when missing, and notes that). */
+  ids?(): ChatIds | undefined;
+  /** The composer's options. `steer`: a "deliver now" switch under it — while a turn runs, a
+   *  message goes into that turn at its next step instead of waiting for it to end. */
+  composer?: { steer?: boolean };
 }
 
 export interface Contributions {
@@ -259,10 +280,11 @@ export class Registry {
   readonly getVersion = (): number => this.version;
 
   private refuse(refusal: Refusal): false {
+    // Only something new is a change: a contribution failing at every draw would otherwise draw again.
     if (!this.refused.some((r) => r.point === refusal.point && r.owner === refusal.owner && r.id === refusal.id && r.reason === refusal.reason)) {
       this.refused.push(refusal);
+      this.changed();
     }
-    this.changed();
     return false;
   }
 

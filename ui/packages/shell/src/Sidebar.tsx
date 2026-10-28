@@ -12,9 +12,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Contributed, setLocale, currentLocale, useRegistry, useT } from "@harnix/react";
+import { Contributed, setLocale, currentLocale, useRegistry, useT, type SpaceContribution } from "@harnix/react";
 
-import { keyOf, type App, type ShellSession, type ShellState } from "./app.ts";
+import { ask, keyOf, type App, type ShellSession, type ShellState } from "./app.ts";
 import { connectionDialog } from "./dialogs.tsx";
 import { Glyph } from "./glyph.tsx";
 import { SessionRow } from "./sessions.tsx";
@@ -113,21 +113,43 @@ function SpaceList({ app, s }: { app: App; s: ShellState }) {
   return (
     <nav className="spaces" aria-label="spaces">
       {spaces.map((space) => (
-        <button
-          type="button"
-          key={space.id}
-          className={`nav space${space.id === s.space ? " on" : ""}`}
-          data-space={space.id}
-          title={space.title()}
-          aria-pressed={space.id === s.space}
-          onClick={() => void app.switchSpace(space.id)}
-        >
-          <Glyph name={space.icon} className="glyph" />
-          <span className="lbl truncate">{space.title()}</span>
-        </button>
+        <SpaceEntry key={space.id} app={app} s={s} space={space} />
       ))}
     </nav>
   );
+}
+
+/** A space's entry: its icon, its title, and its badge if it has one. */
+function SpaceEntry({ app, s, space }: { app: App; s: ShellState; space: SpaceContribution & { owner: string } }) {
+  const t = useT();
+  const badge = badgeOf(app, space);
+  return (
+    <button
+      type="button"
+      className={`nav space${space.id === s.space ? " on" : ""}`}
+      data-space={space.id}
+      title={space.title()}
+      aria-pressed={space.id === s.space}
+      onClick={() => void app.switchSpace(space.id)}
+    >
+      <Glyph name={space.icon} className="glyph" />
+      <span className="lbl truncate">{space.title()}</span>
+      {badge ? (
+        <span className="end">
+          <span className="bn" data-testid="space-badge" aria-label={t("space.badge", { space: space.title(), value: badge })}>
+            {badge}
+          </span>
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+/** What a space's `badge()` says, as drawn: nothing for null, undefined, 0 and "". */
+function badgeOf(app: App, space: SpaceContribution & { owner: string }): string | null {
+  if (!space.badge) return null;
+  const value = ask(app.registry, space, () => space.badge!(), null);
+  return value === null || value === undefined || value === 0 || value === "" ? null : String(value);
 }
 
 /** A space with no column of its own: its sessions, newest first. */
@@ -173,18 +195,7 @@ function Bottom({ app, s }: { app: App; s: ShellState }) {
   return (
     <div className="l-bottom foot">
       {below.map((space) => (
-        <button
-          type="button"
-          key={space.id}
-          className={`nav space${s.space === space.id ? " on" : ""}`}
-          data-space={space.id}
-          title={space.title()}
-          aria-pressed={s.space === space.id}
-          onClick={() => void app.switchSpace(space.id)}
-        >
-          <Glyph name={space.icon} className="glyph" />
-          <span className="lbl truncate">{space.title()}</span>
-        </button>
+        <SpaceEntry key={space.id} app={app} s={s} space={space} />
       ))}
       {system ? (
         <button

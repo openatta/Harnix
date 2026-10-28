@@ -80,3 +80,18 @@ describe("the same session id on two instances", () => {
     b.stop();
   });
 });
+
+describe("send while a turn runs", () => {
+  it("queues by default, and steers when asked to", async () => {
+    const client = new FakeClient() as any;
+    const c = new SessionController({ client, instance: "alpha", space: "greeter", sessionId: "S1", strings });
+    c.start();
+    await flush();
+    await flush();
+    await c.send("first");
+    await c.send("into this turn", [], { onBusy: "steer" });
+    const sent = client.calls.filter((x: any) => x.method === "harnix.send").map((x: any) => x.params.on_busy);
+    expect(sent).toEqual(["queue", "steer"]);
+    c.stop();
+  });
+});

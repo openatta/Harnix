@@ -40,3 +40,12 @@ export interface SpaceContribution {
 ## 来源
 
 IPDrun 的一类会话里有一张等人拍板的卡，要始终在顶上；现在卡写在流里，右栏再固定一份。
+
+## 实现记录
+
+外壳（F3b）：
+
+- `SpaceContribution.pinned?(session)`，结果包在 `Contributed` 里给 `ChatPanel.pinned`；函数本身抛错就没有固定区，返回的组件画的时候抛错只丢这一块
+  （外壳样式 `#main .hx-pinned:empty` 不留空带）。
+- 测试：`tests/live/ui/host.spec.ts` 的「pinned: a session's block stays above the flow and calls its space; other sessions have none」（固定块在第一条消息之上，
+  按钮调到 space 自己的函数；别的会话没有 `conv-pinned`）。没有单测「滚动时不动」：`ChatPanel` 里固定区本来就在消息流的滚动区之外。

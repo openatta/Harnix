@@ -651,3 +651,18 @@
   font-weight: 600;
   margin-bottom: 10px;
 }
+
+/* A space's pinned block (`SpaceContribution.pinned`) that failed to draw leaves no empty band. */
+#main .hx-pinned:empty {
+  display: none;
+}
+
+/* "Deliver now" (`SpaceContribution.composer.steer`): on, it is the accent. */
+#main .hx-cmp .steer.on {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+#main .hx-cmp .steer:disabled {
+  opacity: 0.45;
+}

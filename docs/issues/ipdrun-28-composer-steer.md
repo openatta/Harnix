@@ -53,3 +53,16 @@
 ## 来源
 
 IPDrun 的一类会话里，人要在模型干活时插话并立即送达；现在在右栏另放了一个插话框，走 IPDrun 自己的方法。
+
+## 实现记录
+
+外壳（F3b）：
+
+- `SessionController.send(text, attachments, {onBusy})`（`ui/packages/core/src/state/controller.ts`）：缺省仍 `"queue"`；steer 的应答若带 `turn_id`、
+  而本地已有一轮在跑，不把它换成新的一轮。`ChatPanel.onBusy` 经它的发送路径传下去（给了 `send` 时不用）。
+- `SpaceContribution.composer?: {steer?: boolean}`：外壳在 `composerTools` 位画「立即送达」开关（`data-testid="conv-steer"`，`role=switch`），只在有一轮在跑时可用，
+  开关状态按会话记在页面内存里；开着时 `onBusy: "steer"`。带附件的照中枢规则排队。待送达的气泡沿用已有的 `steerPending` 文案。
+- 没做：Agix 的 `user_message_refused` 帧转发（属 ipdrun-13）。
+- 测试：`ui/packages/core/test/state-instances.test.ts` 的「queues by default, and steers when asked to」；`tests/live/ui/host.spec.ts` 的
+  「composer.steer: a space that asks for it has a deliver-now switch, and a message sent with it goes into the running turn」（用 `asks-permission` 录像：
+  一轮停在权限问上时发出，`harnix.send` 带 `on_busy: "steer"`、队列里没有它；允许之后它作为 `steered` 的人的话进了这一轮）。

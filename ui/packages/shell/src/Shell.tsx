@@ -15,17 +15,20 @@ import {
   ChatComposer,
   ChatPanel,
   Contributed,
+  t,
   useRegistry,
   useT,
+  ComposerNote,
   type Attached,
   type ChatCommand,
+  type ChatIds,
   type ComposerApi,
   type MentionItem,
   type ModelOption,
   type SpaceContribution,
 } from "@harnix/react";
 
-import { keyOf, orderTabs, safeTabs, type App, type ShellState, type Widths } from "./app.ts";
+import { ask, keyOf, later, orderTabs, safeTabs, type App, type ShellState, type Widths } from "./app.ts";
 import { useBrand } from "./brand.ts";
 import { followEnvelopes } from "./envelope.tsx";
 import { Glyph } from "./glyph.tsx";
@@ -239,7 +242,7 @@ function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app:
   const models = useModels(app);
   const engineModel = useSyncExternalStore(app.subscribe, () => app.defaultModel());
   const ready = useSyncExternalStore(app.subscribe, () => app.modelReady());
-  const switchable = useSyncExternalStore(app.subscribe, () => app.snapshot.reachable.includes(SET_MODEL));
+  const switchable = useSyncExternalStore(app.subscribe, () => setModelMethod(app) !== null);
   const connection = useSyncExternalStore(app.subscribe, () => app.snapshot.connection);
   const space = useSyncExternalStore(app.subscribe, () => app.snapshot.space);
   const [picked, setPicked] = useState<ModelOption | null>(null);
@@ -255,7 +258,7 @@ function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app:
       const key = await app.create({});
       const target = { instance: key.instance, session_id: key.sessionId };
       if (picked && picked.id !== engineModel) {
-        await app.call(SET_MODEL, { ...target, ...modelParams(picked) });
+        await setModel(app, target, picked);
         chosenModels.set(keyOf(key.instance, key.sessionId), picked.id);
       }
       await app.sessionCall("harnix.send", target, { message, attachments, ...referencesIn(message) });
@@ -315,8 +318,24 @@ function useBindComposer(app: App): (api: ComposerApi | null) => void {
   );
 }
 
-/** The engine method a session's model is changed by — the system space's, so only when it is kept. */
-const SET_MODEL = "harnix.system.model";
+/**
+ * The method a session's model is changed by: `harnix.sessions.setModel` when the profile opens it
+ * (`[shell] model_switch`), for a session of the front space; else the system space's, so only when
+ * that space is kept. Null when neither is reachable: the menu shows the model and cannot change it.
+ */
+function setModelMethod(app: App): string | null {
+  const reachable = app.snapshot.reachable;
+  if (reachable.includes("harnix.sessions.setModel")) return "harnix.sessions.setModel";
+  if (reachable.includes("harnix.system.model")) return "harnix.system.model";
+  return null;
+}
+
+async function setModel(app: App, target: { instance: string; session_id: string }, option: ModelOption): Promise<void> {
+  const method = setModelMethod(app);
+  if (!method) return;
+  const params = { ...target, ...modelParams(option) };
+  await app.call(method, method === "harnix.sessions.setModel" ? { ...params, space: app.claim() } : params);
+}
 
 /** The model each session was switched to here, by session key: the session's own record does not
  *  say which model it runs on. */
@@ -547,14 +566,14 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
   const sessionKey = keyOf(current.instance, current.sessionId);
   const sessionState = useControllerState(controller);
   const models = useModels(app);
-  const switchable = s.reachable.includes(SET_MODEL);
+  const switchable = setModelMethod(app) !== null;
   const [chosen, setChosen] = useState(() => chosenModels.get(sessionKey) ?? null);
   const recorded = sessionState?.session?.model;
   const model = chosen ?? (typeof recorded === "string" ? recorded : null) ?? app.defaultModel() ?? undefined;
   const onModel = useCallback(
     async (option: ModelOption) => {
       try {
-        await app.call(SET_MODEL, { instance: current.instance, session_id: current.sessionId, ...modelParams(option) });
+        await setModel(app, { instance: current.instance, session_id: current.sessionId }, option);
         chosenModels.set(sessionKey, option.id);
         setChosen(option.id);
       } catch (e) {
@@ -613,6 +632,36 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
     ),
   }));
 
+  // What the front space says about this session: read at every draw, each one failing on its own.
+  const space = spacesOf(app).find((c) => c.id === s.space);
+  const ref = { instance: current.instance, sessionId: current.sessionId };
+  const readOnly = space?.readOnly ? ask(registry, space, () => space.readOnly!(ref), undefined) : undefined;
+  const pinned = space?.pinned ? ask(registry, space, () => space.pinned!(ref), null) : null;
+  const spaceNotice = space?.composerNotice ? ask(registry, space, () => space.composerNotice!(ref), null) : null;
+  const ids = space?.ids ? globalIds(app, space, ask(registry, space, () => space.ids!(), undefined)) : undefined;
+  const steerable = space?.composer?.steer === true;
+  const running = sessionState?.turn != null || sessionState?.session?.turn_state === "running";
+  const [steer, setSteer] = useState(() => steering.has(sessionKey));
+  const toggleSteer = () => {
+    if (steer) steering.delete(sessionKey);
+    else steering.add(sessionKey);
+    setSteer(!steer);
+  };
+  const ready = app.modelReady();
+  const notice =
+    !ready || (spaceNotice != null && spaceNotice !== false) ? (
+      <>
+        {ready ? null : <ModelSetupNote app={app} />}
+        {spaceNotice != null && spaceNotice !== false && space ? (
+          <ComposerNote icon="shield" testId="space-notice">
+            <Contributed registry={registry} point="space" contribution={space}>
+              {spaceNotice}
+            </Contributed>
+          </ComposerNote>
+        ) : null}
+      </>
+    ) : undefined;
+
   return (
     <ChatPanel
       sessionId={current.sessionId}
@@ -629,7 +678,33 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
       mention={mention}
       upload={upload}
       composer={bindComposer}
-      notice={app.modelReady() ? undefined : <ModelSetupNote app={app} />}
+      notice={notice}
+      readOnly={readOnly || undefined}
+      pinned={
+        pinned != null && pinned !== false && space ? (
+          <Contributed registry={registry} point="space" contribution={space}>
+            {pinned}
+          </Contributed>
+        ) : undefined
+      }
+      ids={ids}
+      onBusy={steerable && steer ? "steer" : undefined}
+      composerTools={
+        steerable ? (
+          <button
+            type="button"
+            role="switch"
+            className={`hx-cmp-model steer${steer ? " on" : ""}`}
+            data-testid="conv-steer"
+            aria-checked={steer}
+            disabled={!running}
+            title={t("composer.steerHint")}
+            onClick={toggleSteer}
+          >
+            {t("composer.steer")}
+          </button>
+        ) : undefined
+      }
       model={model}
       models={models}
       onModel={switchable ? onModel : undefined}
@@ -637,6 +712,17 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
       renderers={{ flowBlocks, toolRows }}
     />
   );
+}
+
+/** Sessions with "deliver now" on, by session key: kept in the page while it is open. */
+const steering = new Set<string>();
+
+/** A space's ids, with the `g` flag `ChatIds` needs: added when missing, and noted. */
+function globalIds(app: App, space: { id: string; owner: string }, ids: ChatIds | undefined): ChatIds | undefined {
+  if (!ids || !(ids.pattern instanceof RegExp)) return undefined;
+  if (ids.pattern.global) return ids;
+  later(() => app.registry.note({ point: "space", owner: space.owner, id: space.id, reason: t("host.idsNotGlobal") }));
+  return { ...ids, pattern: new RegExp(ids.pattern.source, `${ids.pattern.flags}g`) };
 }
 
 /** `@session:<instance>/<id>` in a message: the sessions it refers to. */

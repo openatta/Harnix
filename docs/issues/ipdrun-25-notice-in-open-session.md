@@ -45,3 +45,12 @@ export interface SpaceContribution {
 ## 来源
 
 IPDrun 的一类会话要在输入框旁常驻一句「不要透露实现细节」；现在改写了 placeholder，并在右栏另放一条。
+
+## 实现记录
+
+外壳（F3b）：
+
+- `SpaceContribution.composerNotice?(session)`：外壳把「去配置模型」与它一起放进 `ChatPanel.notice`，模型提示在前；space 的这条用 `ComposerNote`
+  （`data-testid="space-notice"`），内容包在 `Contributed` 里。`notice()` 不变，仍只在首屏。
+- 测试：`tests/live/ui/host.spec.ts` 的「composerNotice: the open session's composer has the space's line; the first screen keeps notice()」（含不给它的 space
+  不多出东西的回归）。没做「模型未配置时两条都在」的端到端：测试后端总带凭据，那一支由同一处 JSX 的顺序保证。

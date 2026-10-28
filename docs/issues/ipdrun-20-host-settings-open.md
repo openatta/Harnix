@@ -41,3 +41,12 @@ export interface NestHost {
 ## 来源
 
 IPDrun 的 space 里有「去设置」的入口，现在由 kit 依次点头像、设置、再点「IPDrun」那一节（`ui/kit/src/shell-bridge.ts` 的 `openSettings`）。
+
+## 实现记录
+
+外壳（F3b）：
+
+- `NestHost.settings.open(section?)` 转给 `openSettings(app, section)`；不是已注册的 `settings.section` id 时打开第一节。内建各节的 id：`general`、`scenes`、
+  `models`、`mcp`、`plugins`、`devices`、`diagnostics`、`about`（`ui/packages/shell/src/settings.tsx` 的 `builtinSections`，SDK 参考里列出）。
+- 测试：`tests/live/ui/host.spec.ts` 的「settings.open opens the panel at a section, a built-in one too, and the first for one that is not there」。
+  偏离：`settings.section` 在页面里注册（id `probe`），不改 testapp。

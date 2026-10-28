@@ -309,8 +309,11 @@ export class SessionController {
 
   /* ── 动作 ─────────────────────────────────────────────────────────── */
 
-  /** 发送；有一轮在跑时进中枢的队列（on_busy: queue），上一轮结束后自动发出。 */
-  async send(text: string, attachments: unknown[] = []): Promise<void> {
+  /**
+   * 发送；有一轮在跑时进中枢的队列（on_busy: queue），上一轮结束后自动发出。`onBusy: "steer"`：在下一个步骤边界
+   * 送进正在跑的这一轮（带附件的照中枢的规则排队）。
+   */
+  async send(text: string, attachments: unknown[] = [], options?: { onBusy?: "queue" | "steer" }): Promise<void> {
     const message = text.trim();
     if (!message) return;
     const sessionId = this.state.sessionId;
@@ -322,7 +325,7 @@ export class SessionController {
         ...this.key(),
         message,
         attachments,
-        on_busy: "queue",
+        on_busy: options?.onBusy ?? "queue",
       });
       if (this.state.sessionId !== sessionId) return;
       if ("queued" in result && result.queued) {
@@ -330,7 +333,8 @@ export class SessionController {
         if (!this.state.queue.some((q) => q.item_id === item.item_id)) {
           this.set({ ...this.state, queue: [...this.state.queue, item] });
         }
-      } else if ("turn_id" in result) {
+      } else if ("turn_id" in result && !(options?.onBusy === "steer" && this.state.turn)) {
+        // A steered message goes into the turn already running: that turn stays the one shown.
         this.set({ ...this.state, turn: { turnId: result.turn_id } });
       }
     } catch (e) {

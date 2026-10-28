@@ -43,3 +43,11 @@ export interface SpaceContribution {
 ## 来源
 
 IPDrun 要求对话里出现的任何编号都能点开，现在只有它自己画的卡片里的编号可点，模型回复正文里的不行。
+
+## 实现记录
+
+外壳（F3b）：
+
+- `SpaceContribution.ids?()` 给 `ChatPanel.ids`；`pattern` 不带 `g` 时外壳补上并在诊断里记一条（`host.idsNotGlobal`）。
+- 测试：`tests/live/ui/host.spec.ts` 的「ids: a pattern in the reply's text is a chip the space opens; without ids it is text」。偏离：录像的回答是
+  「fixture ready」，所以模式用 `/\bfixture\b/`（不带 `g`，顺带验补标志的诊断）而不是 `TK-\d+`；`canOpen` 沿用 `ChatPanel` 现有行为，没另测。

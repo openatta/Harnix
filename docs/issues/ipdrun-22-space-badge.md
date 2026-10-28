@@ -44,3 +44,14 @@ export interface SpaceContribution {
 ## 来源
 
 IPDrun 的首页要显示「等人处理的事」的个数，现在把数字拼进 space 的标题（`spaces/home/ui/src/hooks.ts`）。
+
+## 实现记录
+
+外壳（F3b）：
+
+- `SpaceContribution.badge?()`；左栏入口（顶部与 `place: "bottom"` 的都走新的 `SpaceEntry`）在标题后画 `.end > .bn[data-testid=space-badge]`，`aria-label` 是
+  「space 名：值」；收起成图标条时沿用已有的 `.bn` 规则，缩成右上角的小圆点。null / undefined / 0 / "" 不画。
+- 函数抛错：只是不画，space 记一条失败（`app.ts` 的 `ask`：在这次绘制之后再记，免得画的时候改注册表又触发一次绘制）。顺带：注册表的 `refuse` 只在记下新的一条时
+  才通知，同一个贡献每次绘制都失败不再引起重画。
+- 测试：`tests/live/ui/host.spec.ts` 的「badge: a space's entry shows its count, not when it is zero, also on the rail; one that throws is noted」；
+  `ui/packages/shell/test/host.test.ts` 的「give the fallback when they throw, and the space is noted after the draw」。

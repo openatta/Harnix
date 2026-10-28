@@ -43,3 +43,11 @@ export interface SpaceContribution {
 ## 来源
 
 IPDrun 里已经结束（合并、拆分、删除）的那一项，它的会话应当可看不可说；现在只能任其可写。
+
+## 实现记录
+
+外壳（F3b）：
+
+- `SpaceContribution.readOnly?(session)`，外壳每次画对话时读、结果给 `ChatPanel.readOnly`；抛错按可写处理、记一条失败（`ask`）。只是界面，服务端照旧收 `harnix.send`。
+- 测试：`tests/live/ui/host.spec.ts` 的「readOnly: a session the space calls read-only has no composer, only the words」；抛错的规则由
+  `host.test.ts` 的「give the fallback when they throw…」覆盖。偏离：按会话 id 判断，不按名字前缀 `ro-`（新会话没有名字）。

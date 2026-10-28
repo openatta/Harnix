@@ -201,3 +201,24 @@ describe("subscribe", () => {
     off();
   });
 });
+
+describe("a space's functions, read while drawing", () => {
+  it("give the fallback when they throw, and the space is noted after the draw", async () => {
+    const { ask } = await import("../src/app");
+    const broken = { ...space("broken"), owner: "test" };
+    expect(ask(app.registry, broken, () => {
+      throw new Error("read-only broke");
+    }, undefined)).toBeUndefined();
+    expect(app.registry.refusals()).toHaveLength(0);
+    await tick();
+    expect(app.registry.refusals().map((r) => r.reason)).toEqual(["read-only broke"]);
+    // Failing again at the next draw is not news: nothing is drawn again for it.
+    let changes = 0;
+    app.registry.subscribe(() => (changes += 1));
+    ask(app.registry, broken, () => {
+      throw new Error("read-only broke");
+    }, null);
+    await tick();
+    expect(changes).toBe(0);
+  });
+});

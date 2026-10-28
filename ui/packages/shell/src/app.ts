@@ -156,11 +156,17 @@ export function orderTabs<T extends { align?: "start" | "end" }>(tabs: T[]): T[]
 
 /** A space's tabs; a `tabs()` that throws gives none, and is counted as failed. */
 export function safeTabs(registry: Registry, space: (SpaceContribution & { owner?: string }) | undefined): SpaceTab[] {
+  return ask(registry, space, () => tabsOf(space), []);
+}
+
+/** One of a space's functions, read while drawing: one that throws gives `fallback`, and the space
+ *  is counted as failed (after the draw) — the rest of the page draws on. */
+export function ask<T>(registry: Registry, space: (SpaceContribution & { owner?: string }) | undefined, read: () => T, fallback: T): T {
   try {
-    return tabsOf(space);
+    return read();
   } catch (e) {
     if (space) later(() => registry.fail("space", { id: space.id, owner: space.owner ?? "?" }, e));
-    return [];
+    return fallback;
   }
 }
 

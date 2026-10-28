@@ -70,3 +70,11 @@ IPDrun 的产品 profile 不带系统 space，发现输入框不能换模型；�
 外壳部分待做：`ui/packages/shell/src/Shell.tsx` 里 `SET_MODEL`（`:298`）的两处用法（`:241`、`:531`）改为 `reachable` 有 `harnix.sessions.setModel` 时用它
 （参数 `{instance, session_id, model, provider?, space: <当前 space>}`），没有时照旧看 `harnix.system.model`；界面用例 `tests/live/ui/conversation.spec.ts`
 （开关打开时模型菜单可选、页脚显示新模型；不打开时只显示当前模型）。
+
+外壳（F3b）：
+
+- `ui/packages/shell/src/Shell.tsx` 的 `setModelMethod` / `setModel`：`reachable` 有 `harnix.sessions.setModel` 时用它（参数带 `space: app.claim()`），
+  否则照旧看 `harnix.system.model`，两个都没有时模型菜单只显示当前模型。首屏（新会话先建再换）与打开的会话两处都改。
+- 测试：`tests/live/ui/host.spec.ts` 的「model_switch: without the system space the composer changes the model through harnix.sessions.setModel」
+  （profile `spaces = ["sessions"]`、`model_switch = true`：`reachable` 有 `setModel`、无 `harnix.system.model`，菜单可换、底栏显示新模型；不写开关时菜单里没有自填项）。
+  偏离：放在新文件 `host.spec.ts` 而不是 `conversation.spec.ts`，用自己起的两个后端；`spaces = []` 时外壳没有可对话的 space，所以留 `sessions`。

@@ -126,6 +126,8 @@ export interface ChatPanelProps {
   onModel?: (model: ModelOption) => Promise<void> | void;
   /** 底栏右侧、模型前面的额外控件（例如工位的"立即送达"） */
   composerTools?: ReactNode;
+  /** 有一轮在跑时发送的话怎么办：queue（缺省）排到这一轮结束；steer 在下一个步骤边界送进这一轮。给了 `send` 时不用它 */
+  onBusy?: "queue" | "steer";
   features?: ChatFeatures;
   /** 斜杠命令；缺省取 harnix.hello 的 commands */
   commands?: readonly ChatCommand[];
@@ -203,15 +205,16 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
   const otherClient = props.busy === undefined && !managed && elsewhere;
   const viewState = !state ? (props.unavailable ? "unavailable" : "loading") : state.failed ? "failed" : state.loading ? "loading" : running ? "running" : "idle";
 
-  const { send: sendProp, interrupt: interruptProp } = props;
+  const { send: sendProp, interrupt: interruptProp, onBusy } = props;
   const send = useCallback(
     async (text: string, attachments: unknown[]) => {
       if (sendProp) return sendProp(text, attachments);
       if (!controller) return false;
-      await controller.send(text, attachments);
+      if (onBusy) await controller.send(text, attachments, { onBusy });
+      else await controller.send(text, attachments);
       return true;
     },
-    [sendProp, controller],
+    [sendProp, controller, onBusy],
   );
   const interrupt = useCallback(() => {
     if (interruptProp) {

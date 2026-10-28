@@ -9,9 +9,9 @@
  */
 
 import type { Page } from "@playwright/test";
-import { expect, test } from "@harnix/testkit";
+import { expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
-import { newSession, open, say, watchConsole } from "./page";
+import { newSession, open, reply, say, watchConsole } from "./page";
 
 const SHELL = { tag: ["@feature:shell", "@layer:ui"] };
 
@@ -176,4 +176,228 @@ test("two subscribers of one topic: the first leaving does not take it from the 
   await say(page, "Say exactly: fixture ready");
   // A turn running changes the topic: the second still hears it, and so does the shell's own list.
   await expect.poll(() => page.evaluate(() => (window as any).__t.two.length), { timeout: 30_000 }).toBeGreaterThan(before);
+});
+
+test("settings.open opens the panel at a section, a built-in one too, and the first for one that is not there", SHELL, async ({ page }) => {
+  await open(page, URL);
+  await page.evaluate(() => {
+    const { app } = (window as any).harnix;
+    app.registry.register("settings.section", { id: "probe", label: () => "Probe", render: () => "the probe's settings" }, "test");
+    app.registry.register("space", { id: "configured", icon: "settings", title: () => "Configured", sessions: "sessions" }, "test");
+  });
+  await inSpace(page, "configured");
+  const on = page.locator(".settings-nav .nav-item.on");
+  await page.evaluate(() => (window as any).harnix.host.settings.open("probe"));
+  await expect(on).toHaveText("Probe");
+  await expect(page.locator(".settings-page")).toContainText("the probe's settings");
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => (window as any).harnix.host.settings.open("models"));
+  await expect(on).toHaveText(/Models|模型/);
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => (window as any).harnix.host.settings.open("nope"));
+  await expect(on).toHaveText(await page.locator(".settings-nav .nav-item").first().innerText());
+});
+
+test("badge: a space's entry shows its count, not when it is zero, also on the rail; one that throws is noted", SHELL, async ({ page }) => {
+  const errors = watchConsole(page);
+  await open(page, URL);
+  await page.evaluate(() => {
+    const { app } = (window as any).harnix;
+    const t = ((window as any).__t = { count: 0 });
+    app.registry.register("space", { id: "counted", icon: "chat", title: () => "Counted", sessions: "sessions", badge: () => t.count }, "test");
+    app.registry.register(
+      "space",
+      { id: "broken", icon: "chat", title: () => "Broken", sessions: "sessions", badge: () => { throw new Error("badge broke"); } },
+      "test",
+    );
+  });
+  const entry = page.locator('#side [data-space="counted"]');
+  await expect(entry).toBeVisible();
+  await expect(entry.getByTestId("space-badge")).toHaveCount(0);
+  await page.evaluate(() => {
+    (window as any).__t.count = 1;
+    (window as any).harnix.host.redraw();
+  });
+  await expect(entry.getByTestId("space-badge")).toHaveText("1");
+  await expect(entry.getByTestId("space-badge")).toHaveAttribute("aria-label", /Counted.*1/);
+  await page.locator("#side .collapse").click();
+  await expect(page.locator("#frame")).toHaveAttribute("data-sidebar", "collapsed");
+  await expect(entry.getByTestId("space-badge")).toBeVisible();
+  await expect(page.locator('#side [data-space="broken"]')).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).harnix.app.registry.refusals().some((r: any) => r.id === "broken" && /badge broke/.test(r.reason))))
+    .toBe(true);
+  expect(errors).toEqual([]);
+});
+
+/** A space over the session space whose conversation-facing functions read `window.__t`. */
+async function conversationSpace(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const { app } = (window as any).harnix;
+    const React = await import("react");
+    const t = ((window as any).__t = { readOnly: "", pinned: "", clicked: 0, opened: [] as string[] });
+    app.registry.register(
+      "space",
+      {
+        id: "talk",
+        icon: "chat",
+        title: () => "Talk",
+        sessions: "sessions",
+        notice: () => "first-screen notice",
+        readOnly: (s: { sessionId: string }) => (s.sessionId === t.readOnly ? "Archived" : false),
+        pinned: (s: { sessionId: string }) =>
+          s.sessionId === t.pinned
+            ? React.createElement(
+                "div",
+                { "data-testid": "pinned-block" },
+                "waiting on you ",
+                React.createElement("button", { type: "button", "data-testid": "pinned-button", onClick: () => (t.clicked += 1) }, "Approve"),
+              )
+            : null,
+        composerNotice: () => "do not paste keys",
+        ids: () => ({ pattern: /\bfixture\b/, onOpen: (id: string) => t.opened.push(id) }),
+      },
+      "test",
+    );
+  });
+}
+
+test("readOnly: a session the space calls read-only has no composer, only the words", SHELL, async ({ page }) => {
+  await open(page, URL);
+  await conversationSpace(page);
+  await inSpace(page, "talk");
+  const archived = await newSession(page, "says-ready");
+  const open_ = await newSession(page, "says-ready");
+  await page.evaluate((id) => ((window as any).__t.readOnly = id), archived);
+  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "system", sessionId: id }), archived);
+  await expect(page.getByTestId("conv-readonly")).toContainText("Archived");
+  await expect(page.getByTestId("conv-input")).toHaveCount(0);
+  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "system", sessionId: id }), open_);
+  await expect(page.getByTestId("conv-input")).toBeVisible();
+  await expect(page.getByTestId("conv-readonly")).toHaveCount(0);
+});
+
+test("pinned: a session's block stays above the flow and calls its space; other sessions have none", SHELL, async ({ page }) => {
+  const errors = watchConsole(page);
+  await open(page, URL);
+  await conversationSpace(page);
+  await inSpace(page, "talk");
+  const other = await newSession(page, "says-ready");
+  const pinned = await newSession(page, "says-ready");
+  await page.evaluate((id) => ((window as any).__t.pinned = id), pinned);
+  await page.evaluate(() => (window as any).harnix.host.redraw());
+  await say(page, "Say exactly: fixture ready");
+  await expect(reply(page)).toContainText(/fixture ready/i, { timeout: 30_000 });
+  const block = page.getByTestId("conv-pinned");
+  await expect(block).toContainText("waiting on you");
+  const [top, first] = await Promise.all([block.boundingBox(), page.locator('[data-testid="conv-message"]').first().boundingBox()]);
+  expect(top!.y).toBeLessThan(first!.y);
+  await page.getByTestId("pinned-button").click();
+  expect(await page.evaluate(() => (window as any).__t.clicked)).toBe(1);
+  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "system", sessionId: id }), other);
+  await expect(page.getByTestId("conv-input")).toBeVisible();
+  await expect(page.getByTestId("conv-pinned")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("composerNotice: the open session's composer has the space's line; the first screen keeps notice()", SHELL, async ({ page }) => {
+  await open(page, URL);
+  await conversationSpace(page);
+  await inSpace(page, "talk");
+  await expect(page.locator("#main .disc")).toHaveText("first-screen notice");
+  await expect(page.getByTestId("space-notice")).toHaveCount(0);
+  await newSession(page, "says-ready");
+  await expect(page.getByTestId("space-notice")).toHaveText("do not paste keys");
+  // A space that gives none adds nothing.
+  await inSpace(page, "sessions");
+  await newSession(page, "says-ready");
+  await expect(page.getByTestId("space-notice")).toHaveCount(0);
+});
+
+test("ids: a pattern in the reply's text is a chip the space opens; without ids it is text", SHELL, async ({ page }) => {
+  await open(page, URL);
+  await conversationSpace(page);
+  await inSpace(page, "talk");
+  await newSession(page, "says-ready");
+  await say(page, "Say exactly: fixture ready");
+  const chip = reply(page).getByTestId("conv-chip");
+  await expect(chip.first()).toHaveText(/fixture/i, { timeout: 30_000 });
+  await chip.first().click();
+  expect(await page.evaluate(() => (window as any).__t.opened)).toEqual(["fixture"]);
+  // The pattern came without `g`: the shell added it and said so.
+  expect(
+    await page.evaluate(() => (window as any).harnix.app.registry.refusals().some((r: any) => r.id === "talk" && r.point === "space")),
+  ).toBe(true);
+  await inSpace(page, "sessions");
+  await newSession(page, "says-ready");
+  await say(page, "Say exactly: fixture ready");
+  await expect(reply(page)).toContainText(/fixture ready/i, { timeout: 30_000 });
+  await expect(reply(page).getByTestId("conv-chip")).toHaveCount(0);
+});
+
+test("composer.steer: a space that asks for it has a deliver-now switch, and a message sent with it goes into the running turn", SHELL, async ({ page }) => {
+  await open(page, URL);
+  await newSession(page, "says-ready");
+  await expect(page.getByTestId("conv-steer")).toHaveCount(0);
+  await page.evaluate(() => {
+    const { app } = (window as any).harnix;
+    app.registry.register("space", { id: "steered", icon: "chat", title: () => "Steered", sessions: "sessions", composer: { steer: true } }, "test");
+  });
+  await inSpace(page, "steered");
+  await newSession(page, "asks-permission");
+  const steer = page.getByTestId("conv-steer");
+  await expect(steer).toBeDisabled();
+  await say(page, "Use the Bash tool to run exactly: touch harnix-permission-fixture");
+  await expect(page.getByTestId("conv-ask")).toBeVisible({ timeout: 30_000 });
+  await expect(steer).toBeEnabled();
+  await steer.click();
+  await expect(steer).toHaveAttribute("aria-checked", "true");
+  // What the composer sends, as the client sends it.
+  await page.evaluate(() => {
+    const { client } = (window as any).harnix;
+    const t = ((window as any).__t = { busy: [] as string[] });
+    const call = client.call.bind(client);
+    client.call = (method: string, params: any) => {
+      if (method === "harnix.send") t.busy.push(params.on_busy);
+      return call(method, params);
+    };
+  });
+  await say(page, "and this now");
+  expect(await page.evaluate(() => (window as any).__t.busy)).toEqual(["steer"]);
+  // Not queued behind the turn: it goes into it, once the step it waits on is over.
+  await expect(page.getByTestId("conv-queue-item")).toHaveCount(0);
+  await page.getByTestId("conv-ask").getByTestId("conv-ask-allow").click();
+  await expect(page.locator('[data-testid="conv-message"]', { hasText: "and this now" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("conv-queue-item")).toHaveCount(0);
+  // Delivered into the turn (user_message_delivered), not run as a turn of its own.
+  const steered = await page.evaluate(
+    () => (window as any).harnix.app.controller.getSnapshot().blocks.find((b: any) => b.kind === "user" && b.text === "and this now")?.steered,
+  );
+  expect(steered).toBe(true);
+});
+
+test("model_switch: without the system space the composer changes the model through harnix.sessions.setModel", SHELL, async ({ page }) => {
+  const backend = await startHarnix(launchFor("replay", { profile: "[shell]\nspaces = [\"sessions\"]\nmodel_switch = true\n" }));
+  try {
+    await open(page, backend.url);
+    const reachable = await page.evaluate(() => (window as any).harnix.app.snapshot.reachable as string[]);
+    expect(reachable).toContain("harnix.sessions.setModel");
+    expect(reachable).not.toContain("harnix.system.model");
+    await newSession(page, "says-ready");
+    await page.getByTestId("conv-model").click();
+    await page.getByTestId("conv-model-custom").fill("claude-switched-model");
+    await page.getByTestId("conv-model-custom").press("Enter");
+    await expect(page.getByTestId("conv-model")).toContainText("claude-switched-model");
+  } finally {
+    await backend.dispose();
+  }
+  const without = await startHarnix(launchFor("replay", { profile: "[shell]\nspaces = [\"sessions\"]\n" }));
+  try {
+    await open(page, without.url);
+    await newSession(page, "says-ready");
+    await page.getByTestId("conv-model").click();
+    await expect(page.getByTestId("conv-model-custom")).toHaveCount(0);
+  } finally {
+    await without.dispose();
+  }
 });
