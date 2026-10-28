@@ -45,6 +45,10 @@ pub struct SpawnSpec {
     pub program: PathBuf,
     pub args: Vec<String>,
     pub env: Vec<(String, String)>,
+    /// The instance's lock on its data root, when the daemon takes one (`--instance`). A daemon
+    /// that exits before listening while somebody else holds it is not started again: the
+    /// instance is down, saying who holds it (ipdrun-08).
+    pub lock: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -125,6 +129,17 @@ impl DaemonLink {
                     }
                     Ok(false) => {}
                     Err(e) => {
+                        let held = self
+                            .spec
+                            .spawn
+                            .as_ref()
+                            .and_then(|s| s.lock.as_deref())
+                            .and_then(crate::data_lock::holder);
+                        if let Some(held) = held {
+                            self.down(format!("{held}; the daemon gave up waiting for it ({e:#})"));
+                            self.stop_child().await;
+                            return;
+                        }
                         self.degrade(format!("could not start the daemon: {e:#}"));
                         self.pause(&mut backoff).await;
                         continue;

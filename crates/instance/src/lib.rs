@@ -23,6 +23,7 @@
 //! second truth about what an extension may do.
 
 pub mod contrib;
+pub mod data_lock;
 mod daemon_link;
 pub mod engine;
 mod factory;

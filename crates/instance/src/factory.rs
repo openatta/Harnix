@@ -86,6 +86,13 @@ impl Factory {
             } => {
                 let socket = self.socket_dir.join(format!("{}.sock", short_name(id)));
                 let mut argv = daemon_args(engine, &data_root, &socket);
+                // This binary's daemon holds the instance's lock on its data root (ipdrun-08); a
+                // program of somebody else's gets the arguments it always got.
+                let lock = program.is_none().then(|| {
+                    argv.push("--instance".into());
+                    argv.push(id.to_string());
+                    crate::data_lock::lock_path(&data_root, id)
+                });
                 argv.extend(args.iter().cloned());
                 let link: Arc<dyn EngineLink> = DaemonLink::start(DaemonSpec {
                     endpoint: Endpoint::Unix(socket),
@@ -93,6 +100,7 @@ impl Factory {
                         program: program.clone().unwrap_or_else(|| self.program.clone()),
                         args: argv,
                         env: Vec::new(),
+                        lock,
                     }),
                 });
                 Ok(Built {

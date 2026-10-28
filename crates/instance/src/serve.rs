@@ -21,10 +21,30 @@ pub struct DaemonArgs {
     /// Exit when stdin closes: how a spawned daemon learns its parent is
     /// gone, even one that was killed outright.
     pub exit_with_stdin: bool,
+    /// The instance this daemon carries. Given, the daemon holds that instance's lock on the data
+    /// root for its whole life, waiting up to `lock_wait` for a previous daemon of the same
+    /// instance to let go before it builds anything (ipdrun-08).
+    pub instance: Option<String>,
+    pub lock_wait: std::time::Duration,
 }
 
 pub async fn serve_daemon(args: DaemonArgs) -> anyhow::Result<()> {
     std::fs::create_dir_all(&args.data_root)?;
+    // Held to the end of this function: past the engine's own shutdown, which is what writes last.
+    let _lock = match &args.instance {
+        Some(instance) => {
+            let path = crate::data_lock::lock_path(&args.data_root, instance);
+            match crate::data_lock::acquire(&path, args.lock_wait).await? {
+                Ok(lock) => Some(lock),
+                Err(held) => anyhow::bail!(
+                    "{held} ({}), still after {}s; not starting a second engine on it",
+                    path.display(),
+                    args.lock_wait.as_secs()
+                ),
+            }
+        }
+        None => None,
+    };
     let engine = crate::engine::build(engine_config(
         &args.engine,
         &args.data_root,

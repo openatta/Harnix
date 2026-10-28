@@ -45,3 +45,18 @@ spawn 的 daemon 持一把**按实例**的独占锁，活多久持多久：
 
 IPDrun 的服务被杀后马上重启，同一条会话在新旧两个 daemon 里重叠约 1.8 s、转录与名字被两边同时写；IPDrun 现在在启动时把
 `--data-root` 落在自己实例目录下、父进程是 1 的旧 daemon 杀掉（`crates/agent/src/reap.rs` 的 `kill_stale_daemons`）。
+
+## 实现记录
+
+- `crates/instance/src/data_lock.rs`：`<data_root>/.daemon-<id>.lock`，`flock(LOCK_EX | LOCK_NB)`，每 100 ms 重试到 `--lock-wait`（默认 10 s，
+  `DEFAULT_LOCK_WAIT`）；拿到后写 pid，持到 `serve_daemon` 结束（引擎 `shutdown` 之后）。超时 `serve_daemon` 返回错误，进程非零退出。
+- `harnix daemon` 加 `--instance <id>`、`--lock-wait <secs>`；`Factory` 只在模板没写 `program` 时加 `--instance`，第三方 `program` 的参数一字不差。
+- `DaemonLink`：`SpawnSpec` 多一个 `lock: Option<PathBuf>`；子进程在监听前退出、而锁正被别人持有时，实例记为 `down`（理由
+  「the data root is held by pid N; the daemon gave up waiting for it (…)」），不再重拉。其余起不来的情况照旧 `degraded` 重试。
+- 偏离：建议里由 daemon 把理由告诉链接；实际是链接在子进程退出后自己看一眼锁（`data_lock::holder`），不必加一条 daemon → 链接的通道。
+  进程内实例、attach 实例不变。
+- 测试：Rust `data_lock::tests::the_second_daemon_of_an_instance_waits_for_the_first`（第一个放手后 1 s 内拿到）、
+  `other_instances_on_one_data_root_do_not_wait`、`waiting_past_the_limit_says_who_holds_it`、
+  `a_daemon_that_cannot_have_the_lock_leaves_its_instance_down_saying_who`（链接 `down`、理由含持有者 pid）；
+  `tests/live/api/state-dir.spec.ts` 的「killed and started again at once, an instance's new daemon follows the old one out」（SIGKILL Harnix 后立即
+  `restart()`：新 daemon 持锁、旧 daemon 已退出、旧 daemon 写的转录在）。没有断言「没有交错的行」：回放下旧 daemon 收尾很快，交错在这里造不出来。

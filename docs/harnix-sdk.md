@@ -363,6 +363,7 @@ async fn start(&self, ctx: ModuleContext) -> anyhow::Result<()> {
 
 一台 daemon 只服务一个 Harnix；不要让别的客户端也连它。spawn 的 daemon 由 Harnix 看护：挂了就重新拉起，
 实例在这期间是 `degraded`，正在看的会话在它回来后 resync；Harnix 退出（哪怕被 `kill -9`）它也跟着退出。
+Harnix 被杀后马上在同一目录重启时，新 daemon 等旧的那个收完尾、放开这台实例的数据根锁才建引擎，两个引擎不会同时写一份转录。
 attach 的 daemon 握手时比对协议版本，不一致就 `down`，原因里写明两边的版本。
 
 ### 6.3 运行期 Agix 插件包

@@ -44,6 +44,13 @@ pub(crate) struct DaemonCommand {
     /// Exit when stdin closes: how a spawned daemon follows its parent out.
     #[arg(long)]
     pub exit_with_stdin: bool,
+    /// The instance this daemon carries: hold its lock on the data root, so a previous daemon of
+    /// the same instance has finished before this one builds its engine.
+    #[arg(long)]
+    pub instance: Option<String>,
+    /// How long to wait for that lock, in seconds.
+    #[arg(long, default_value = "10")]
+    pub lock_wait: u64,
 }
 
 impl DaemonCommand {
@@ -61,6 +68,8 @@ impl DaemonCommand {
                 permission_prompt_timeout_secs: self.permission_prompt_timeout,
             },
             exit_with_stdin: self.exit_with_stdin,
+            instance: self.instance.clone(),
+            lock_wait: std::time::Duration::from_secs(self.lock_wait),
         }
     }
 }

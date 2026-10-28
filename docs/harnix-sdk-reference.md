@@ -233,7 +233,7 @@ quote_api_key = { credential = "helm/quote-api" }
 | `--launch-link` | 同 `[transport] launch_link` |
 | `--exit-with-stdin`（隐藏） | stdin 关了就退出：桌面壳带走它的子进程 |
 | `ui export <dir>` | 把编进去的界面写出来，给 CDN / 反代 |
-| `daemon …`（隐藏） | spawn 的实例跑的就是它 |
+| `daemon …`（隐藏） | spawn 的实例跑的就是它。Harnix 起它时带 `--instance <id>`：它在 `<数据根>/.daemon-<id>.lock` 上持独占锁（内容是 pid），先等同一台实例的旧 daemon 放手（最多 `--lock-wait` 秒，默认 10）再建引擎；等不到就非零退出，实例记为 `down`，理由「the data root is held by pid N」。模板写了 `program` 的不带这两个参数、不拿锁 |
 
 | 环境变量 | 说明 |
 |---|---|
