@@ -191,6 +191,9 @@ impl Diagnostics {
             "versions": self.versions,
             "modules": modules,
             "unknown_config_sections": self.unknown_sections,
+            // Over the single-duplex in-flight cap a request is answered `BUSY`; a notification has
+            // nothing to answer and is dropped, counted here (ipdrun-01).
+            "transport": {"dropped_notifications": harnix_transport::dropped_notifications()},
         })
     }
 

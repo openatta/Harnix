@@ -75,7 +75,14 @@ pub struct Limits {
     pub max_frame_bytes: usize,
     pub max_upload_bytes: usize,
     pub replay_max_frames: usize,
+    /// Requests one single-duplex connection may have unanswered at once. One more is answered
+    /// with `BUSY` (-31005), not run. The split-streams topology has no such cap: each of
+    /// its requests is an HTTP request of its own.
+    pub max_in_flight: usize,
 }
+
+/// [`Limits::max_in_flight`].
+pub const MAX_IN_FLIGHT: usize = 16;
 
 /// The largest single RPC frame a client may send.
 ///

@@ -16,8 +16,8 @@ pub mod subject;
 
 pub use frame::{Channel, Frame, FrameSink};
 pub use handshake::{
-    Handshake, Limits, Topology, CONTRIB_API_VERSION, MAX_FRAME_BYTES, MAX_UPLOAD_BYTES,
-    PROTOCOL_VERSION,
+    Handshake, Limits, Topology, CONTRIB_API_VERSION, MAX_FRAME_BYTES, MAX_IN_FLIGHT,
+    MAX_UPLOAD_BYTES, PROTOCOL_VERSION,
 };
 pub use space::{DefaultInstance, SpaceDecl, PROJECTS_SPACE, SESSIONS_SPACE, SYSTEM_SPACE};
 pub use subject::Subject;
@@ -113,6 +113,10 @@ pub mod codes {
     /// restarting, or one that refused this Harnix (protocol version). The
     /// instance's status in `harnix.instances` says which.
     pub const INSTANCE_UNAVAILABLE: i32 = -31004;
+    /// This connection already has as many requests in flight as it may (`limits.max_in_flight`).
+    /// Nothing was done; send it again once one of the others has answered. `data.max_in_flight`
+    /// says the number.
+    pub const BUSY: i32 = -31005;
 }
 
 /// The process's single admission point.

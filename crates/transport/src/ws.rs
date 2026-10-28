@@ -30,7 +30,22 @@ use crate::AppState;
 /// rather than queueing; every client shares the hub's one engine connection,
 /// so each is held well below that. A long request also gets its own task, or
 /// it would hold up the read loop.
-const MAX_IN_FLIGHT: usize = 16;
+///
+/// Published in `hello` (`limits.max_in_flight`), and one request over it is
+/// answered with `BUSY` rather than dropped: a dropped request is a promise
+/// that never settles, with nothing to say why (ipdrun-01).
+const MAX_IN_FLIGHT: usize = harnix_contract::MAX_IN_FLIGHT;
+
+/// Notifications dropped for being over the in-flight cap, process-wide. A
+/// notification has no id to answer, so the count in `harnix.diagnostics` is
+/// the only trace of one.
+static DROPPED_NOTIFICATIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// How many notifications the single-duplex topology has dropped for being over
+/// the in-flight cap since this process started.
+pub fn dropped_notifications() -> u64 {
+    DROPPED_NOTIFICATIONS.load(std::sync::atomic::Ordering::Relaxed)
+}
 
 #[derive(serde::Deserialize)]
 pub struct TokenQuery {
@@ -312,7 +327,12 @@ async fn connection(socket: WebSocket, state: AppState, peer: Peer) {
         }
 
         let Ok(permit) = permits.clone().try_acquire_owned() else {
-            warn!("client exceeded its in-flight budget; frame dropped");
+            if is_notification {
+                let n = DROPPED_NOTIFICATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                warn!(conn, method = %method, dropped = n, "client exceeded its in-flight budget; notification dropped");
+            } else {
+                let _ = tx.send(rpc_error_frame(id, &busy()));
+            }
             continue;
         };
         let gate = state.gate.clone();
@@ -334,6 +354,17 @@ async fn connection(socket: WebSocket, state: AppState, peer: Peer) {
         tracing::info!(conn, "single-duplex channel closed");
     }
     pump.abort();
+}
+
+/// The answer to one request over the in-flight cap.
+fn busy() -> RpcError {
+    RpcError {
+        code: codes::BUSY,
+        message: format!(
+            "{MAX_IN_FLIGHT} requests in flight on this connection; retry when one answers"
+        ),
+        data: Some(json!({"max_in_flight": MAX_IN_FLIGHT})),
+    }
 }
 
 fn ok_frame(id: Value, result: Value) -> String {

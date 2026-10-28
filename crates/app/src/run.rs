@@ -227,6 +227,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         max_frame_bytes: harnix_contract::MAX_FRAME_BYTES,
         max_upload_bytes: harnix_contract::MAX_UPLOAD_BYTES,
         replay_max_frames: harnix_hub::REPLAY_MAX_FRAMES,
+        max_in_flight: harnix_contract::MAX_IN_FLIGHT,
     };
     // The spaces the enabled modules are the backend of. A space id taken twice keeps the first.
     let mut declared: Vec<harnix_module::SpaceDecl> = Vec::new();

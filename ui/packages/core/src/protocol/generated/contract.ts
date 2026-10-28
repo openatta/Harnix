@@ -30,6 +30,8 @@ export const INSTANCE_NOT_FOUND = -31002;
 export const SPACE_MISMATCH = -31003;
 /** Harnix: the instance exists and cannot be reached right now; its status in `harnix.instances` says why. */
 export const INSTANCE_UNAVAILABLE = -31004;
+/** Harnix: this connection already has `limits.max_in_flight` requests unanswered; send it again once one answers. */
+export const BUSY = -31005;
 
 /**
  * How the five channel semantics are carried.
@@ -45,7 +47,13 @@ export type Handshake = { protocol_version: number, contrib_api_version: number,
  * Ceilings a client has to respect, told to it once rather than discovered
  * by hitting them.
  */
-export type Limits = { max_frame_bytes: number, max_upload_bytes: number, replay_max_frames: number, };
+export type Limits = { max_frame_bytes: number, max_upload_bytes: number, replay_max_frames: number, 
+/**
+ * Requests one single-duplex connection may have unanswered at once. One more is answered
+ * with `BUSY` (-31005), not run. The split-streams topology has no such cap: each of
+ * its requests is an HTTP request of its own.
+ */
+max_in_flight: number, };
 
 /**
  * The caller behind one request.

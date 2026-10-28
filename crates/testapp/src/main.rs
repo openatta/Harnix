@@ -74,6 +74,13 @@ impl Module for Probe {
             .handler(|cx: CallContext, p: EchoParams| async move {
                 Ok(json!({"text": p.text, "from": cx.subject()}))
             });
+        m.method("sleep", Principal::Device)
+            .describe("answers after `ms` milliseconds: a slow call, for the in-flight cap")
+            .handler(|_cx: CallContext, p: Value| async move {
+                let ms = p["ms"].as_u64().unwrap_or(100).min(10_000);
+                tokio::time::sleep(Duration::from_millis(ms)).await;
+                Ok(json!({"slept": ms}))
+            });
         m.method("internal", Principal::Kernel)
             .handler(|_cx: CallContext, _p: Value| async move { Ok(json!({"internal": true})) });
         m.method("for_peer", Principal::Module("peer".into()))

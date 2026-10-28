@@ -59,3 +59,20 @@ let Ok(permit) = permits.clone().try_acquire_owned() else {
 
 IPDrun 的一个界面在接受一次变更时收到 6 条事件，各个列表同时重取，第 17 个请求被丢，列表一直停在旧状态；
 IPDrun 现在在自己的数据层里限 8 个在途（`ui/kit/src/data/client.ts`）。
+
+## 实现记录
+
+后端（F3a）：
+
+- `codes::BUSY = -31005`（`crates/contract/src/lib.rs`）；`Limits.max_in_flight`（常量 `MAX_IN_FLIGHT = 16`，`run.rs` 组装处填），`hello` 里公布；
+  生成的 `ui/packages/core/src/protocol/generated/contract.ts` 随之重新生成（多了 `BUSY` 与 `max_in_flight`）。
+- `ws.rs`：超额的请求回 `{"code": -31005, "data": {"max_in_flight": 16}}`；超额的通知照旧丢弃，计数进 `harnix.diagnostics` 的
+  `transport.dropped_notifications`。
+- 第 4 条：分离流（`/rpc`）没有在途上限，写进 `Limits.max_in_flight` 的文档，不加上限。
+- testapp 的 `probe` 加了慢调用 `app.probe.sleep {ms}`。
+- 测试：`tests/live/api/limits.spec.ts` 的「a request over the in-flight cap is answered BUSY, on a raw connection」（裸 WebSocket 同时发 40 个
+  400 ms 的调用，全部在时限内落定，超额的是 `-31005` 且 `data.max_in_flight` 与 `hello` 一致）；「hello reports every ceiling」改为 4 个上限；
+  原「more requests in flight than the cap are answered」改为接受 `BUSY`。
+
+外壳部分待做（建议第 3 条与客户端测试）：`HarnixClient` 按 `limits.max_in_flight`（缺省 16）本地排队、`HarnixClientOptions.maxInFlight?`；
+`ui/packages/core/src/protocol/frames.ts` 手写的 `Limits` 补 `max_in_flight?`；`ui/packages/core/test/client.test.ts` 的排队用例。

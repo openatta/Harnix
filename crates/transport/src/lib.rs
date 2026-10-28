@@ -31,6 +31,7 @@ pub use apps::{AppRoutes, RouteGate};
 pub use bulk::BulkStore;
 pub use launch::{BrowserAdmission, LaunchLinks, LINK_TTL};
 pub use statics::{page_csp, Face, StaticFace, BRAND_ICON_PATH, CSP};
+pub use ws::dropped_notifications;
 
 use std::net::SocketAddr;
 use std::sync::Arc;

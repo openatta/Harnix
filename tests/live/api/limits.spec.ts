@@ -12,8 +12,10 @@
 // So these are slow and allocate. That is the cost of testing a limit: you
 // have to reach it.
 
-import { INVALID_PARAMS } from "@harnix/core/protocol";
+import { BUSY, CONTRIB_API_VERSION, INVALID_PARAMS, PROTOCOL_VERSION } from "@harnix/core/protocol";
 import { defineSuite, finish } from "@harnix/testkit";
+
+import { startTestApp } from "./testapp";
 
 const assert = (cond, message) => { if (!cond) throw new Error(message); };
 
@@ -21,14 +23,14 @@ defineSuite("limits", { feature: "connection" }, {
   tests: {
     "hello reports every ceiling a client has to respect": async ({ client }) => {
       const { limits } = await client.call("harnix.hello");
-      for (const key of ["max_frame_bytes", "max_upload_bytes", "replay_max_frames"]) {
+      for (const key of ["max_frame_bytes", "max_upload_bytes", "replay_max_frames", "max_in_flight"]) {
         assert(typeof limits[key] === "number" && limits[key] > 0,
           `limits.${key} is ${JSON.stringify(limits[key])}`);
       }
       // The three were assembled by hand here once, and `max_upload_bytes`
       // was simply left out — a client had no way to learn the number it
       // would be held to.
-      assert(Object.keys(limits).length === 3,
+      assert(Object.keys(limits).length === 4,
         `limits carries ${Object.keys(limits).join(", ")}`);
     },
 
@@ -119,15 +121,63 @@ defineSuite("limits", { feature: "connection" }, {
 
     "more requests in flight than the cap are answered, not dropped":
       async ({ client }) => {
-        // The transport holds a semaphore of 16. What a client must never see
-        // is a request that disappears: over the cap the extra ones wait, and
-        // every one of them comes back.
+        // The transport holds a semaphore of `max_in_flight`. What a client must never see is a
+        // request that disappears: every one of them comes back, as an answer or as `BUSY`.
         const n = 40;
-        const answers = await Promise.all(
+        const answers = await Promise.allSettled(
           Array.from({ length: n }, () => client.call("daemon.ping")));
         assert(answers.length === n, `${answers.length} of ${n} came back`);
-        for (const a of answers) assert(a.pong === true, `an answer was ${JSON.stringify(a)}`);
+        for (const a of answers) {
+          if (a.status === "fulfilled") assert(a.value.pong === true, `an answer was ${JSON.stringify(a.value)}`);
+          else assert(a.reason?.code === BUSY, `a refusal was ${a.reason?.message}`);
+        }
       },
+
+    "a request over the in-flight cap is answered BUSY, on a raw connection": async () => {
+      // Raw, so no client-side queue stands between the test and the cap (ipdrun-01): forty slow
+      // calls at once on one connection. Every one is answered — slept, or refused with the number.
+      const backend = await startTestApp();
+      try {
+        const ws = new WebSocket(`ws://127.0.0.1:${backend.port}/ws?token=${encodeURIComponent(backend.token)}`);
+        await new Promise((r) => { ws.onopen = r; });
+        const answers = new Map();
+        const settled = new Map();
+        ws.onmessage = (e) => {
+          const frame = JSON.parse(e.data);
+          if (frame.id !== undefined) { answers.set(frame.id, frame); settled.get(frame.id)?.(); }
+        };
+        const send = (id, method, params) => new Promise((resolve) => {
+          settled.set(id, resolve);
+          ws.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
+        });
+        await send(0, "harnix.handshake",
+          { protocol_version: PROTOCOL_VERSION, contrib_api_version: CONTRIB_API_VERSION, topology: "single_duplex" });
+        const { result: hello } = await send(1, "harnix.hello", {}).then(() => answers.get(1));
+        assert(hello.limits.max_in_flight === 16, `max_in_flight is ${hello.limits.max_in_flight}`);
+
+        const n = 40;
+        const ids = Array.from({ length: n }, (_, i) => 100 + i);
+        const all = Promise.all(ids.map((id) => send(id, "app.probe.sleep", { ms: 400 })));
+        const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error(
+          `${n - [...answers.keys()].filter((id) => id >= 100).length} of ${n} never answered`)), 10_000));
+        await Promise.race([all, timeout]);
+        ws.close();
+
+        let slept = 0, busy = 0;
+        for (const id of ids) {
+          const frame = answers.get(id);
+          if (frame.result) { slept += 1; continue; }
+          assert(frame.error.code === BUSY, `answered ${JSON.stringify(frame.error)}`);
+          assert(frame.error.data?.max_in_flight === hello.limits.max_in_flight,
+            `BUSY carries ${JSON.stringify(frame.error.data)}`);
+          busy += 1;
+        }
+        assert(slept >= 1 && slept <= hello.limits.max_in_flight, `${slept} ran`);
+        assert(busy === n - slept, `${busy} refused, ${slept} ran`);
+      } finally {
+        backend.stop();
+      }
+    },
 
     "the replay buffer is bounded and says when it truncated":
       async ({ client }) => {

@@ -83,6 +83,11 @@ fn export_the_protocol_types() {
             "INSTANCE_UNAVAILABLE",
             codes::INSTANCE_UNAVAILABLE,
         ),
+        (
+            "Harnix: this connection already has `limits.max_in_flight` requests unanswered; send it again once one answers.",
+            "BUSY",
+            codes::BUSY,
+        ),
     ] {
         out += &constant(docs, name, value);
     }
