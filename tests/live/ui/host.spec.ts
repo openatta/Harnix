@@ -22,7 +22,7 @@ test.beforeEach(({ harnix }) => {
 
 /** Bring a space to the front the way a person does: its entry in the left column. */
 async function inSpace(page: Page, id: string): Promise<void> {
-  await page.locator(`#side [data-space="${id}"]`).click();
+  await page.locator(`#side button[data-space="${id}"]`).click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", id);
 }
 
@@ -513,4 +513,93 @@ test("after the backend restarts on its port with a new token, the open page rec
   } finally {
     await backend.dispose();
   }
+});
+
+test("newSession: false: no New session button, no ⌘K, no composer that creates a session, no heading; the others keep them", SHELL, async ({ page }) => {
+  const errors = watchConsole(page);
+  await open(page, URL);
+  const mine = await newSession(page, "says-ready");
+  await page.evaluate(() => {
+    const { app } = (window as any).harnix;
+    app.registry.register(
+      "space",
+      { id: "closed", icon: "chat", title: () => "Closed Space", sessions: "sessions", newSession: false, placeholder: () => "nothing to start here", suggestions: () => ["a chip"] },
+      "test",
+    );
+    app.registry.register(
+      "space",
+      {
+        id: "board",
+        icon: "chat",
+        title: () => "Board",
+        sessions: "sessions",
+        center: "minimized",
+        newSession: false,
+        overview: () => null,
+      },
+      "test",
+    );
+  });
+  // A space that does not say: as before.
+  await inSpace(page, "sessions");
+  await expect(page.locator("#new")).toBeVisible();
+  // newSession: false: the first screen is words, not a composer; the button is gone and ⌘K does nothing.
+  await inSpace(page, "closed");
+  await page.evaluate(() => (window as any).harnix.app.open(null));
+  await expect(page.locator("#new")).toHaveCount(0);
+  await expect(page.getByTestId("no-new-session")).toHaveText("nothing to start here");
+  await expect(page.getByTestId("first-message")).toHaveCount(0);
+  await expect(page.locator("#main .chips")).toHaveCount(0);
+  await expect(page.locator("#main .header .title, #main .title").first()).toHaveText("Closed Space");
+  await page.keyboard.press("Meta+k");
+  await page.keyboard.press("Control+k");
+  await expect(page.getByTestId("first-message")).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).harnix.app.snapshot.current)).toBeNull();
+  // A session that already exists opens and works there.
+  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "system", sessionId: id }), mine);
+  await expect(page.getByTestId("conv-input")).toBeVisible();
+  await expect(page.locator("#new")).toHaveCount(0);
+  // An overview space: no ask box either.
+  await inSpace(page, "board");
+  await expect(page.getByTestId("overview")).toBeVisible();
+  await expect(page.getByTestId("ask")).toHaveCount(0);
+  // Back to a space without the field: the button and the first-screen composer return.
+  await inSpace(page, "sessions");
+  await expect(page.locator("#new")).toBeVisible();
+  await page.locator("#new").click();
+  await expect(page.getByTestId("first-message")).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("detailsWidth: the space's width is the right column's default; a dragged width wins; the cap is 480, or 720 for a space that asks", SHELL, async ({ page }) => {
+  await open(page, URL);
+  await page.evaluate(() => {
+    const { app } = (window as any).harnix;
+    app.registry.register("space", { id: "wide", icon: "chat", title: () => "Wide", sessions: "sessions", detailsWidth: 560 }, "test");
+    app.registry.register("space", { id: "huge", icon: "chat", title: () => "Huge", sessions: "sessions", detailsWidth: 5000 }, "test");
+  });
+  const width = () => page.evaluate(() => document.querySelector<HTMLElement>("#frame")!.style.getPropertyValue("--details-width"));
+  const drag = (w: number | null) => page.evaluate((v) => (window as any).harnix.app.setWidth("details", v), w);
+  await inSpace(page, "sessions");
+  expect(await width()).toBe("360px");
+  await inSpace(page, "wide");
+  expect(await width()).toBe("560px");
+  await inSpace(page, "huge");
+  expect(await width()).toBe("720px");
+  // The reader's width wins, within the front space's cap.
+  await inSpace(page, "wide");
+  await drag(650);
+  expect(await width()).toBe("650px");
+  await inSpace(page, "sessions");
+  expect(await width()).toBe("480px"); // the dragged 650 is held to this space's 480
+  await drag(900);
+  expect(await width()).toBe("480px");
+  // Double-click's reset: back to each space's own.
+  await drag(null);
+  expect(await width()).toBe("360px");
+  await inSpace(page, "wide");
+  expect(await width()).toBe("560px");
+  // Dragging the side column alone does not freeze the right one at its default.
+  await page.evaluate(() => (window as any).harnix.app.setWidth("side", 300));
+  expect(await width()).toBe("560px");
 });

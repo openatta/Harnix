@@ -29,7 +29,7 @@ import {
   type SpaceContribution,
 } from "@harnix/react";
 
-import { ask, keyOf, later, orderTabs, safeTabs, type App, type ShellState, type Widths } from "./app.ts";
+import { ask, detailsWidthOf, keyOf, later, orderTabs, safeTabs, type App, type ShellState, type Widths } from "./app.ts";
 import { useBrand } from "./brand.ts";
 import { followEnvelopes } from "./envelope.tsx";
 import { Glyph } from "./glyph.tsx";
@@ -54,7 +54,7 @@ export function Shell({ app }: { app: App }) {
         data-details={app.detailsOpen(s) ? "open" : "closed"}
         data-details-max={app.detailsOpen(s) && s.detailsMax ? "" : undefined}
         data-space={s.space}
-        style={{ "--sidebar-width": `${s.widths.side}px`, "--details-width": `${s.widths.details}px` } as CSSProperties}
+        style={{ "--sidebar-width": `${s.widths.side}px`, "--details-width": `${detailsWidthOf(s, space)}px` } as CSSProperties}
       >
         <Sidebar app={app} s={s} />
         <Resizer app={app} column="side" />
@@ -75,7 +75,7 @@ function Resizer({ app, column }: { app: App; column: keyof Widths }) {
   const start = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     const from = event.clientX;
-    const width = app.snapshot.widths[column];
+    const width = column === "details" ? detailsWidthOf(app.snapshot, spacesOf(app).find((c) => c.id === app.snapshot.space)) : app.snapshot.widths[column];
     const move = (e: PointerEvent) => app.setWidth(column, column === "side" ? width + (e.clientX - from) : width - (e.clientX - from));
     const up = () => {
       window.removeEventListener("pointermove", move);
@@ -220,7 +220,7 @@ function Overview({ app, space, onAsked }: { app: App; space: SpaceContribution 
     <Contributed registry={registry} point="space" contribution={space}>
       <div className={`dash-in${space.center === "hidden" ? " full" : ""}`}>
         {space.overview?.() ?? null}
-        {space.center !== "hidden" ? <FirstMessage app={app} variant="ask" onSent={onAsked} placeholder={space.placeholder?.()} /> : null}
+        {space.center !== "hidden" && space.newSession !== false ? <FirstMessage app={app} variant="ask" onSent={onAsked} placeholder={space.placeholder?.()} /> : null}
       </div>
     </Contributed>
   );
@@ -427,8 +427,14 @@ function Hero({ app }: { app: App }) {
         </div>
         <div className="hero-sub">{space?.subtitle?.() ?? space?.title() ?? t("hero.body")}</div>
       </div>
-      <FirstMessage key={seed} app={app} placeholder={space?.placeholder?.()} />
-      {suggestions.length ? (
+      {space?.newSession === false ? (
+        <div className="hero-sub" data-testid="no-new-session">
+          {space.placeholder?.()}
+        </div>
+      ) : (
+        <FirstMessage key={seed} app={app} placeholder={space?.placeholder?.()} />
+      )}
+      {suggestions.length && space?.newSession !== false ? (
         <div className="chips">
           {suggestions.map((text) => (
             <button
@@ -523,7 +529,7 @@ function Header({
           <Glyph name="chevronDown" className="glyph" />
         </button>
       ) : (
-        <div className="title truncate">{overview ? space?.title() : s.current ? name || t("sidebar.untitled") : t("sidebar.newSession")}</div>
+        <div className="title truncate">{overview ? space?.title() : s.current ? name || t("sidebar.untitled") : space?.newSession === false ? space.title() : t("sidebar.newSession")}</div>
       )}
       <div className="meta">
         {space ? (

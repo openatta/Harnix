@@ -79,6 +79,18 @@ export const WIDTHS: { side: [number, number, number]; details: [number, number,
   details: [320, 360, 480],
 };
 
+/** The right column's widest, for a space that gave `detailsWidth` (480 for the others). */
+export const DETAILS_WIDE_MAX = 720;
+
+/** The right column's width: what the reader dragged, else what the front space asked for, else the default. */
+export function detailsWidthOf(s: Pick<ShellState, "widths" | "dragged">, space: { detailsWidth?: number } | undefined): number {
+  const [min, , max] = WIDTHS.details;
+  const asked = space?.detailsWidth;
+  if (s.dragged.details !== undefined) return Math.min(asked === undefined ? max : DETAILS_WIDE_MAX, s.dragged.details);
+  if (typeof asked !== "number" || !Number.isFinite(asked)) return s.widths.details;
+  return Math.round(Math.min(DETAILS_WIDE_MAX, Math.max(min, asked)));
+}
+
 export interface ShellState {
   /** The space in front. */
   space: string;
@@ -108,6 +120,8 @@ export interface ShellState {
   /** The project open in the projects space: one at a time. */
   project: string | null;
   widths: Widths;
+  /** The widths the reader set by dragging; a column not in here has its default (or its space's). */
+  dragged: Partial<Widths>;
   /** The avatar's menu. */
   menu: boolean;
   /** The model providers; null until read (or when this page may not read them). */
@@ -223,6 +237,7 @@ export class App {
       theme: storedTheme(),
       project: stored<string | null>(PROJECT_KEY, null),
       widths: { side: WIDTHS.side[1], details: WIDTHS.details[1], ...stored<Partial<Widths>>(WIDTHS_KEY, {}) },
+      dragged: stored<Partial<Widths>>(WIDTHS_KEY, {}),
       menu: false,
       providers: null,
       tabBySpace: {},
@@ -561,12 +576,17 @@ export class App {
     this.set({ project: id });
   }
 
-  /** A side column's width, kept within its bounds and remembered. */
+  /** A side column's width, kept within its bounds and remembered. The right column of a space that
+   *  gave `detailsWidth` may go out to `DETAILS_WIDE_MAX`. Null: back to the default. */
   setWidth(column: keyof Widths, width: number | null): void {
-    const [min, fallback, max] = WIDTHS[column];
-    const widths = { ...this.state.widths, [column]: width === null ? fallback : Math.round(Math.min(max, Math.max(min, width))) };
-    remember(WIDTHS_KEY, widths);
-    this.set({ widths });
+    const [min, , max] = WIDTHS[column];
+    const front = this.registry.at("space").find((c) => c.id === this.state.space);
+    const widest = column === "details" && front?.detailsWidth !== undefined ? DETAILS_WIDE_MAX : max;
+    const dragged = { ...this.state.dragged };
+    if (width === null) delete dragged[column];
+    else dragged[column] = Math.round(Math.min(widest, Math.max(min, width)));
+    remember(WIDTHS_KEY, dragged);
+    this.set({ dragged, widths: { side: WIDTHS.side[1], details: WIDTHS.details[1], ...dragged } });
   }
 
   toggleMenu(open?: boolean): void {

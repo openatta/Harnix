@@ -85,12 +85,16 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
         </div>
         {overlay ? createPortal(<div id="tl-tools">{collapse}</div>, document.body) : collapse}
       </div>
-      <button type="button" id="new" className="nav new" title={t("sidebar.newSessionHint")} onClick={() => void startNew()}>
-        <Glyph name="edit" className="glyph" />
-        <span className="lbl">{t("sidebar.newSession")}</span>
-        <kbd className="lbl">⌘K</kbd>
-      </button>
-      <div className="sep" />
+      {space?.newSession === false ? null : (
+        <>
+          <button type="button" id="new" className="nav new" title={t("sidebar.newSessionHint")} onClick={() => void startNew()}>
+            <Glyph name="edit" className="glyph" />
+            <span className="lbl">{t("sidebar.newSession")}</span>
+            <kbd className="lbl">⌘K</kbd>
+          </button>
+          <div className="sep" />
+        </>
+      )}
       <SpaceList app={app} s={s} />
       <div id="sessions" className="chats" data-space={s.space}>
         {space?.sidebar ? (

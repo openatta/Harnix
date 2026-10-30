@@ -113,6 +113,16 @@ export interface SpaceContribution {
   sessions?: string;
   /** A line under the title: what this space is for. */
   subtitle?(): string;
+  /** False: this space has no way to start a conversation — while it is in front the shell draws no
+   *  "New session" button (⌘K does nothing), no composer that creates a session (the empty
+   *  centre and the overview's ask box), and no "New session" heading. Sessions that already exist
+   *  open and work as before. Absent or true: as before. Only the interface; the hub still takes
+   *  `session.create`. */
+  newSession?: boolean;
+  /** The right column's width in px when this space is in front and the reader has not dragged it
+   *  (a width the reader set wins). Within 320–720; a space that gives it also lets the reader drag
+   *  that column out to 720 while it is in front (480 otherwise). */
+  detailsWidth?: number;
   /** What a new conversation here might start with, offered under the composer. */
   suggestions?(): string[];
   /** One line under the composer (what the Agent may and may not do here). */

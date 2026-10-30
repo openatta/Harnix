@@ -72,3 +72,12 @@
 | 编号 | 标题 | 类型 | 优先级 | 依赖 |
 |---|---|---|---|---|
 | [helm-01](helm-01-prompt-answerer.md) | 模块不知道是哪台设备回答了某个工具的权限卡（`harnix.prompts.answerer`） | 新能力 | 中 | — |
+
+## Grabix
+
+提出于 2026-10-30，代码位置对照 `5af5728`（`Harnix-v0.4.0-2026102801`）。
+
+| 编号 | 标题 | 类型 | 优先级 | 依赖 |
+|---|---|---|---|---|
+| [grabix-01](grabix-01-space-new-session.md) | space 不能关掉「新会话」（`newSession`） | 新能力 | 中 | — |
+| [grabix-02](grabix-02-space-details-width.md) | space 不能定右栏的缺省宽度（`detailsWidth`） | 新能力 | 低 | — |
