@@ -42,6 +42,8 @@ Grabix 要在标题栏放「上下文用量（已用 / 上限）」和压缩、�
 
 ## 实现记录
 
+落地提交：`c05275a`（main，2026-10-30，已推送；版本待下次发布）。
+
 - `SpaceContribution.headerActions?(session)`（`ui/packages/react/src/contrib.ts`）。
 - `Shell.tsx` 的 `Header`：用 `ask(...)` 读（函数抛错回落为 null），结果包在 `Contributed` 与 `head-actions` 容器里，画在 `theme-toggle` 之前。
 - 测试：`tests/live/ui/host.spec.ts` 的「headerActions: …」。

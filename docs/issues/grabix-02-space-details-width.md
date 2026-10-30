@@ -51,6 +51,8 @@ Grabix 的数据页详情是宽表格，右栏 360 放不下，希望缺省约 4
 
 ## 实现记录
 
+落地提交：`0debd3e`（main，2026-10-30，已推送；版本待下次发布）。
+
 外壳：
 
 - `SpaceContribution.detailsWidth?: number`（`ui/packages/react/src/contrib.ts`）。

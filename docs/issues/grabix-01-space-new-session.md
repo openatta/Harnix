@@ -57,6 +57,8 @@ Grabix 不是通用聊天工具，会话只由应用的任务流程建，不要�
 
 ## 实现记录
 
+落地提交：`0debd3e`（main，2026-10-30，已推送；版本待下次发布）。
+
 外壳：
 
 - `SpaceContribution.newSession?: boolean`（`ui/packages/react/src/contrib.ts`）。
