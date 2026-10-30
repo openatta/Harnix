@@ -516,6 +516,10 @@ function Header({
   const name = row?.name ?? session?.session?.name ?? null;
   const scene = session?.session?.scene ?? row?.scene;
   const overview = space?.center && space.center !== "chat" && !onBack;
+  const registry = useRegistry(app.registry);
+  const actions = space?.headerActions
+    ? ask(registry, space, () => space.headerActions!(s.current ? { instance: s.current.instance, sessionId: s.current.sessionId } : null), null)
+    : null;
   return (
     <header id="head" className="topbar" data-tauri-drag-region="deep">
       {onBack ? (
@@ -546,6 +550,13 @@ function Header({
           <Glyph name="chat" className="glyph" />
           {t("home.continue")}
         </button>
+      ) : null}
+      {actions != null && actions !== false && space ? (
+        <Contributed registry={registry} point="space" contribution={space}>
+          <div className="head-actions" data-testid="head-actions" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            {actions}
+          </div>
+        </Contributed>
       ) : null}
       <button type="button" className="ib" data-testid="theme-toggle" title={t("app.theme")} onClick={() => app.setTheme(isDark() ? "light" : "dark")}>
         <Glyph name={isDark() ? "sun" : "moon"} className="glyph" />

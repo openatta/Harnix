@@ -81,3 +81,4 @@
 |---|---|---|---|---|
 | [grabix-01](grabix-01-space-new-session.md) | space 不能关掉「新会话」（`newSession`） | 新能力 | 中 | — |
 | [grabix-02](grabix-02-space-details-width.md) | space 不能定右栏的缺省宽度（`detailsWidth`） | 新能力 | 低 | — |
+| [grabix-03](grabix-03-space-header-actions.md) | space 不能在标题栏放自己的操作（`headerActions`） | 新能力 | 中 | — |

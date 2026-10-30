@@ -119,6 +119,10 @@ export interface SpaceContribution {
    *  open and work as before. Absent or true: as before. Only the interface; the hub still takes
    *  `session.create`. */
   newSession?: boolean;
+  /** Content in the centre's title bar, at its right end, just left of the theme and right-column
+   *  buttons; null or undefined for nothing. `session` is the open one, null when there is none.
+   *  Read at every draw of the bar; a throw drops this block only. */
+  headerActions?(session: SessionRef | null): ReactNode;
   /** The right column's width in px when this space is in front and the reader has not dragged it
    *  (a width the reader set wins). Within 320–720; a space that gives it also lets the reader drag
    *  that column out to 720 while it is in front (480 otherwise). */

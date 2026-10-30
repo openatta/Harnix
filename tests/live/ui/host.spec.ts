@@ -603,3 +603,60 @@ test("detailsWidth: the space's width is the right column's default; a dragged w
   await page.evaluate(() => (window as any).harnix.app.setWidth("side", 300));
   expect(await width()).toBe("560px");
 });
+
+test("headerActions: the space's block is in the title bar, left of the theme and details buttons; other spaces have none; a throw drops only it", SHELL, async ({ page }) => {
+  await open(page, URL);
+  await page.evaluate(async () => {
+    const { app } = (window as any).harnix;
+    const React = await import("react" as string);
+    const t = ((window as any).__t = { clicked: 0, seen: [] as unknown[] });
+    app.registry.register(
+      "space",
+      {
+        id: "bar",
+        icon: "chat",
+        title: () => "Bar",
+        sessions: "sessions",
+        headerActions: (s: unknown) => {
+          t.seen.push(s);
+          return React.createElement("button", { type: "button", className: "ib", title: "Compact", "data-testid": "bar-compact", onClick: () => (t.clicked += 1) }, "C");
+        },
+      },
+      "test",
+    );
+    app.registry.register(
+      "space",
+      {
+        id: "broken",
+        icon: "chat",
+        title: () => "Broken",
+        sessions: "sessions",
+        headerActions: () => {
+          throw new Error("boom");
+        },
+      },
+      "test",
+    );
+  });
+  await inSpace(page, "bar");
+  const mine = await newSession(page, "says-ready");
+  const block = page.getByTestId("head-actions");
+  await expect(block).toBeVisible();
+  const [a, theme, details] = await Promise.all([
+    page.getByTestId("bar-compact").boundingBox(),
+    page.getByTestId("theme-toggle").boundingBox(),
+    page.getByTestId("details-toggle").boundingBox(),
+  ]);
+  expect(a!.x + a!.width).toBeLessThanOrEqual(theme!.x);
+  expect(theme!.x).toBeLessThan(details!.x);
+  await page.getByTestId("bar-compact").click();
+  expect(await page.evaluate(() => (window as any).__t.clicked)).toBe(1);
+  expect(await page.evaluate(() => (window as any).__t.seen.some((s: any) => s?.sessionId))).toBe(true);
+  expect(mine).toBeTruthy();
+  await inSpace(page, "sessions");
+  await expect(page.getByTestId("head-actions")).toHaveCount(0);
+  await inSpace(page, "broken");
+  await expect(page.getByTestId("head-actions")).toHaveCount(0);
+  await expect(page.getByTestId("theme-toggle")).toBeVisible();
+  await expect(page.getByTestId("details-toggle")).toBeVisible();
+});
