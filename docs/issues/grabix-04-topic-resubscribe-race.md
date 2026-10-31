@@ -45,3 +45,10 @@
 ## 来源
 
 Grabix 的身份、状态、地图主题在切页签时偶尔丢更新（新建的身份不出现在列表里）；应用侧暂时让这几个主题在页面生命周期里一直保持订阅来绕开。
+
+## 实现记录
+
+落地提交：`e1433ff`（main，2026-10-30，已推送；版本待下次发布）。
+
+- `ui/packages/shell/src/topics.ts`：`Topics` 记每个 key 在途的 `harnix.unsubscribe`；`hold` 遇到同 key 的退订在途，等它应答后再发 `harnix.subscribe`（期间新条目照常收监听者，`held = true`；等完时条目已被删或已断线则不发）。没做延迟退订。
+- 测试：`ui/packages/shell/test/topics.test.ts`（退订延迟应答、订阅立即应答的假 client）。
