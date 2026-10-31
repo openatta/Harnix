@@ -3,7 +3,9 @@
  * connection, and the server keeps one subscription per connection and `(topic, params)`: so the
  * first subscriber sends `harnix.subscribe`, the last one to leave sends `harnix.unsubscribe`, a
  * later subscriber is handed the value already held, and after a reconnect every key still wanted
- * is subscribed again.
+ * is subscribed again. The server handles each frame in its own task, so a `subscribe` sent while an
+ * `unsubscribe` of the same key is still on its way could be applied first and then undone: a key
+ * is only subscribed again once its unsubscribe has been answered.
  */
 
 import type { HarnixClient } from "@harnix/core";
@@ -39,6 +41,8 @@ interface Entry {
 /** One client's topic subscriptions, by key. Every host on a page shares it. */
 export class Topics {
   private readonly entries = new Map<string, Entry>();
+  /** The `harnix.unsubscribe` still unanswered, by key. */
+  private readonly leaving = new Map<string, Promise<unknown>>();
 
   constructor(private readonly client: HarnixClient) {
     client.onNotify((method, frame) => {
@@ -82,7 +86,13 @@ export class Topics {
       if (current.listeners.size) return;
       this.entries.delete(key);
       if (current.held && this.client.status === "open") {
-        this.client.call("harnix.unsubscribe", { topic: current.topic, params: current.params }).catch(() => undefined);
+        const gone = this.client
+          .call("harnix.unsubscribe", { topic: current.topic, params: current.params })
+          .catch(() => undefined)
+          .then(() => {
+            if (this.leaving.get(key) === gone) this.leaving.delete(key);
+          });
+        this.leaving.set(key, gone);
       }
     };
   }
@@ -94,10 +104,16 @@ export class Topics {
 
   private hold(entry: Entry): void {
     entry.held = true;
-    this.client
-      .call("harnix.subscribe", { topic: entry.topic, params: entry.params })
+    const key = topicKey(entry.topic, entry.params);
+    const leaving = this.leaving.get(key);
+    // Still the entry wanted, and still connected, once the unsubscribe before it has been answered.
+    const send = () =>
+      this.entries.get(key) === entry && entry.held && this.client.status === "open"
+        ? this.client.call("harnix.subscribe", { topic: entry.topic, params: entry.params })
+        : undefined;
+    (leaving ? leaving.then(send) : Promise.resolve(send()))
       .then((r) => {
-        if (this.entries.get(topicKey(entry.topic, entry.params)) === entry) this.deliver(entry, (r as { value: unknown }).value);
+        if (r && this.entries.get(key) === entry) this.deliver(entry, (r as { value: unknown }).value);
       })
       .catch(() => {
         entry.held = false;
