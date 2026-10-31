@@ -79,10 +79,11 @@ ipdrun-33、34 补提于 2026-10-30，代码位置对照 `e890f00`（main）。
 
 ## Grabix
 
-提出于 2026-10-30，代码位置对照 `5af5728`（`Harnix-v0.4.0-2026102801`）。已落地：grabix-01、grabix-02 → `0debd3e`；grabix-03 → `c05275a`（main，未发版）。
+提出于 2026-10-30，代码位置对照 `5af5728`（`Harnix-v0.4.0-2026102801`）。已落地：grabix-01、grabix-02 → `0debd3e`；grabix-03 → `c05275a`（main，未发版）。grabix-04 提出于 2026-10-31，对照 `b27acd3`，未落地。
 
 | 编号 | 标题 | 类型 | 优先级 | 依赖 |
 |---|---|---|---|---|
 | [grabix-01](grabix-01-space-new-session.md) | space 不能关掉「新会话」（`newSession`） | 新能力 | 中 | — |
 | [grabix-02](grabix-02-space-details-width.md) | space 不能定右栏的缺省宽度（`detailsWidth`） | 新能力 | 低 | — |
 | [grabix-03](grabix-03-space-header-actions.md) | space 不能在标题栏放自己的操作（`headerActions`） | 新能力 | 中 | — |
+| [grabix-04](grabix-04-topic-resubscribe-race.md) | 同一主题退订后立刻再订阅，服务端可能后执行退订，订阅从此丢失 | 缺陷 | 中 | —（与 ipdrun-16 同类） |
