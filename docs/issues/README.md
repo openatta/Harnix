@@ -54,6 +54,10 @@
 | [ipdrun-28](ipdrun-28-composer-steer.md) | 输入框没有「立即送达」（steer）的选项 | 新能力 | 中 | 宜与 Agix ipdrun-04 一起 |
 | [ipdrun-29](ipdrun-29-command-run-and-hide.md) | `/` 命令只能插入文字，space 也藏不掉引擎的命令 | 新能力 | 低 | — |
 | [ipdrun-30](ipdrun-30-register-icons.md) | space 的图标只能从外壳自带的里挑（`r.icons`） | 新能力 | 低 | — |
+| [ipdrun-33](ipdrun-33-shell-title-badge.md) | 应用不能给页面标题加待处理数前缀（`host.shell.badge`） | 新能力 | 低 | — |
+| [ipdrun-34](ipdrun-34-command-args.md) | `/` 命令拿不到命令名后面输入的文字（`run(ctx, args)`） | 新能力 | 低 | — |
+
+ipdrun-33、34 补提于 2026-10-30，代码位置对照 `e890f00`（main）。
 
 `NestHost` 上的新成员（18–21）与 `SpaceContribution` 上的新字段（22–26、28、29）都是可选的；维护者可以按自己的节奏分几版发，
 建议先做 18、19、21、22。
