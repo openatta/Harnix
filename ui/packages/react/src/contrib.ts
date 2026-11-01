@@ -159,6 +159,12 @@ export interface SpaceContribution {
    *  is cut to its length — the shell's own (files, `@session:`; the default) or the `@` command
    *  contributions'. */
   mention?: { first?: "contributed" | "files" };
+  /** The right-column tab this space holds current: one of its tab ids, or "details". Read when the
+   *  space comes to the front and at `host.redraw()`; a tab it names is selected (as by
+   *  `host.details.open(tab)`, without opening the column). Undefined, or an id it does not have:
+   *  the shell's own choice stands. A space that gives it also keeps the tab last clicked across a
+   *  space switch. Follow `host.details.onTab` to keep it in step with clicks. */
+  tab?(): string | undefined;
 }
 
 export interface Contributions {

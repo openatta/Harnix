@@ -583,6 +583,7 @@ fn spaces(&self, s: &mut SpaceRegistry) {
 | `composer: { steer: true }` | 输入框底栏有「立即送达」开关：一轮在跑时，消息在下一步送进这一轮（`on_busy: "steer"`）。在 Agix 的 UserPromptSubmit 也管 steer 之前，steer 的消息绕过那个 hook |
 | `hideCommands: [...]` | 这些命令名不出现在本 space 的 `/` 菜单里（只藏别的 owner 的，所以你的同名命令能顶上）；手打的照旧当文字发出 |
 | `mention: { first: "contributed" }` | 本 space 在前台时，`@` 菜单里 `trigger: "@"` 的候选排在外壳自己的（文件、`@session:`）前面；菜单只列前几项，文件多时贡献的候选就不会被挤掉。不写或 `"files"`：照旧 |
+| `tab()` | 本 space 当前的右栏页签（它的页签 id 或 `"details"`）：带到前台时、`host.redraw()` 时读，是这个 space 的页签就选中它（不打开右栏）；`undefined` 或不认识的 id 不管。写了它，人点的页签换 space 回来也还在。跟着人点要听 `details.onTab` |
 
 `command` 贡献可以写 `trigger: "@"`，它的候选就进 `@` 菜单（在外壳自己的文件、`@session:` 候选之后；前台 space 写了 `mention: { first: "contributed" }` 时在前），不写是 `/`。
 `complete(query, ctx)` 的 `ctx` 是 `{space, session}`（前台 space 与它打开的会话）；候选带 `run(ctx)` 时选中即执行，不插入文字。
@@ -614,7 +615,7 @@ export function QuotesTab() {
 | `subscribe(topic, params?, onValue)` | 宿主主题，可带参数；返回取消函数。同一页里多处订同一个主题共用一份订阅，最后一个退订才真退 |
 | `session.*` | `current`、`context`、`list`（本 space）、`open`、`create`、`onChange`（前台会话变了；hook 是 `useCurrentSession()`）。会话都是 `(instance, session)`。`open(ref, {switchSpace: true})` 去会话所属的 space 打开 |
 | `spaces.*` | `switch(id)`（带到前台、画好之后才落定）、`current()` |
-| `details.*` | 右栏：`open(tab?)`、`close()`、`isOpen()`、`tab()`、`onTab(fn)`。经 `open(tab)` 选的页签换 space 回来还在；人点的照旧回到第一个 |
+| `details.*` | 右栏：`open(tab?)`、`close()`、`isOpen()`、`tab()`、`onTab(fn)`。经 `open(tab)` 选的页签换 space 回来还在；人点的照旧回到第一个（space 写了 `tab()` 时也还在） |
 | `redraw()` | `tabs()`、`badge()` 这类函数依赖的状态变了，让外壳重读（不动注册表） |
 | `settings.open(section?)` | 打开设置面板的某一节（`settings.section` 的 id，或内建的 `general`、`models`…） |
 | `instances.*` | `list`、`sessions(instance)`、`tasks(instance, session)`、`create(template, name, params)`、`stop(id)` |

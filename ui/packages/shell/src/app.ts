@@ -127,7 +127,8 @@ export interface ShellState {
   /** The model providers; null until read (or when this page may not read them). */
   providers: Providers | null;
   /** The right column's selected tab, per space. `asked`: chosen through the host API, so it is kept
-   *  when the space is entered again; a tab the reader clicked goes back to the first, as before. */
+   *  when the space is entered again; a tab the reader clicked goes back to the first, as before
+   *  (kept too for a space that gives `tab()`). */
   tabBySpace: Record<string, { id: string; asked: boolean }>;
   /** Bumped by `redraw()`: the shell reads the front space's functions again. */
   drawn: number;
@@ -330,6 +331,17 @@ export class App {
   /** Read the front space's functions again (tabs, title, badge…): a redraw, the registry untouched. */
   redraw(): void {
     this.set({ drawn: this.state.drawn + 1 });
+    this.followSpaceTab();
+  }
+
+  /** The front space's own say on its selected tab (`SpaceContribution.tab`): taken when it names one
+   *  of its tabs, or "details". A space without `tab()` is left alone. */
+  private followSpaceTab(): void {
+    const space = this.registry.at("space").find((c) => c.id === this.state.space);
+    if (!space?.tab) return;
+    const id = ask(this.registry, space, () => space.tab!(), undefined);
+    if (typeof id !== "string" || id === this.shownTab()) return;
+    if (id === "details" || safeTabs(this.registry, space).some((x) => x.id === id)) this.selectTab(id, true);
   }
 
   /** Resolves once the page has drawn the state as it is now. The shell says so (`drew`); a page
@@ -517,10 +529,13 @@ export class App {
    */
   async switchSpace(space: string): Promise<void> {
     remember(SPACE_KEY, space);
-    // Each space starts on its first tab, unless the host API chose one for it.
+    // Each space starts on its first tab, unless the host API chose one for it — or the space says
+    // which tab is current (`tab()`): then the one clicked last is kept too, and `tab()` has its say.
     const tabBySpace = { ...this.state.tabBySpace };
-    if (space !== this.state.space && tabBySpace[space] && !tabBySpace[space]!.asked) delete tabBySpace[space];
+    const declares = this.registry.at("space").find((c) => c.id === space)?.tab !== undefined;
+    if (space !== this.state.space && tabBySpace[space] && !tabBySpace[space]!.asked && !declares) delete tabBySpace[space];
     this.set({ space, detail: null, menu: false, tabBySpace });
+    this.followSpaceTab();
     const key = this.state.currentBySpace[space];
     if (!key) return;
     try {
