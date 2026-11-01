@@ -61,9 +61,7 @@
 }
 
 @media (max-width: 960px) {
-  #frame,
-  #frame[data-details="open"],
-  #frame[data-sidebar="collapsed"][data-details="open"] {
+  #frame {
     grid-template-columns: var(--rail-width) minmax(0, 1fr) 0;
   }
 }
@@ -83,6 +81,22 @@
 
 #frame[data-details-max] #details .resizer.details {
   display: none;
+}
+
+/* Too narrow for two columns: an open right column is maximized whether or not it was asked to be. */
+@media (max-width: 960px) {
+  #frame[data-details="open"],
+  #frame[data-sidebar="collapsed"][data-details="open"] {
+    grid-template-columns: var(--rail-width) 0 minmax(0, 1fr);
+  }
+
+  #frame[data-details="open"] #main {
+    visibility: hidden;
+  }
+
+  #frame[data-details="open"] #details .resizer.details {
+    display: none;
+  }
 }
 
 #main {
@@ -142,7 +156,7 @@
 
 @media (max-width: 960px) {
   :root[data-chrome="overlay"] #frame #head,
-  :root[data-chrome="overlay"] #frame[data-details-max] #details .strip {
+  :root[data-chrome="overlay"] #frame[data-details="open"] #details .strip {
     padding-left: calc(var(--tl-clear) - var(--rail-width));
   }
 

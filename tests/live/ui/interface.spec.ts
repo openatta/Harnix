@@ -198,6 +198,18 @@ test("the right column is a tab strip with no title bar: it maximizes over the c
   await expect.poll(async () => (await details.boundingBox())?.width ?? 0).toBeLessThan(2);
 });
 
+test("narrower than 960 the right column opens over the centre, its buttons reachable, and closes back to it", SHELL, async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 700 });
+  await open(page, URL);
+  await page.getByTestId("details-toggle").click();
+  const details = page.locator("#details");
+  await expect.poll(async () => (await details.boundingBox())?.width ?? 0).toBeGreaterThan(500);
+  await expect(page.locator("#main")).toBeHidden();
+  await page.getByTestId("details-close").click();
+  await expect.poll(async () => (await details.boundingBox())?.width ?? 0).toBeLessThan(2);
+  await expect(page.locator("#main")).toBeVisible();
+});
+
 test("in the desktop shell on macOS the top bars leave the traffic lights room and are where the window is dragged", SHELL, async ({ page }) => {
   // What the shell (templates/desktop) looks like from inside the page: Tauri's internals, a Mac.
   await page.addInitScript(() => {
