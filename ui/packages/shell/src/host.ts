@@ -68,7 +68,7 @@ export function hostFor(app: App, owner = "page"): NestHost {
       stop: (instance) => call("harnix.instances.stop", { instance }),
     },
     composer: {
-      insert: (text) => app.composer?.insert(text),
+      insert: (text, options) => app.insert(text, options?.session),
     },
     details: {
       open(tab) {

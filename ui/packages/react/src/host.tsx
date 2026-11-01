@@ -76,8 +76,12 @@ export interface NestHost {
     stop(instance: string): Promise<unknown>;
   };
   composer: {
-    /** Put text into the open session's input, at the caret. */
-    insert(text: string): void;
+    /**
+     * Put text into the open session's input, at the caret. With `session`, into that session's
+     * input: at once if it is on the page, else kept for it (added after text already kept) and put
+     * in when it is — so it may come before or after `session.open(session)`.
+     */
+    insert(text: string, options?: { session?: SessionRef }): void;
   };
   /**
    * A module's own link (design §7.7): its routes under `/apps/<module>/`, same-origin, with the

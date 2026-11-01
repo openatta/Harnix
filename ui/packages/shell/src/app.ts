@@ -278,6 +278,40 @@ export class App {
     return () => this.currentListeners.delete(fn);
   }
 
+  /* ── composers ────────────────────────────────────────────────────── */
+
+  /** Each open session's composer while it is on the page, by session key. */
+  private readonly composers = new Map<string, ComposerApi>();
+  /** Text for a session whose composer is not on the page yet: it goes in when that one is bound. */
+  private readonly pendingInserts = new Map<string, string>();
+
+  /** A session's composer is on the page: text waiting for it goes in now. */
+  composerBound(key: string, api: ComposerApi): void {
+    this.composers.set(key, api);
+    const pending = this.pendingInserts.get(key);
+    if (pending === undefined) return;
+    this.pendingInserts.delete(key);
+    api.insert(pending);
+  }
+
+  /** A session's composer left the page; only if it is still the one bound. */
+  composerGone(key: string, api: ComposerApi): void {
+    if (this.composers.get(key) === api) this.composers.delete(key);
+  }
+
+  /** Text into a composer: whichever is on the page; with `session`, that session's — now if it is
+   *  on the page, else when it is (appended to text already waiting). */
+  insert(text: string, session?: SessionKey): void {
+    if (!session) {
+      this.composer?.insert(text);
+      return;
+    }
+    const key = keyOf(session.instance, session.sessionId);
+    const api = this.composers.get(key);
+    if (api) api.insert(text);
+    else this.pendingInserts.set(key, (this.pendingInserts.get(key) ?? "") + text);
+  }
+
   /* ── drawing ──────────────────────────────────────────────────────── */
 
   private drawWaiters: (() => void)[] = [];

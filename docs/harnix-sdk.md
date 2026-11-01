@@ -601,7 +601,7 @@ export function QuotesTab() {
   const ask = async (g: Group) => {
     const s = await harnix.session.create({ title: g.name });   // 自动绑定前台 space
     harnix.session.open(s);
-    harnix.composer.insert(`分析 ${g.name} 里的标的`);
+    harnix.composer.insert(`分析 ${g.name} 里的标的`, { session: s });   // 进 s 的输入框，挂上了才插
   };
   ...
 }
@@ -617,7 +617,7 @@ export function QuotesTab() {
 | `redraw()` | `tabs()`、`badge()` 这类函数依赖的状态变了，让外壳重读（不动注册表） |
 | `settings.open(section?)` | 打开设置面板的某一节（`settings.section` 的 id，或内建的 `general`、`models`…） |
 | `instances.*` | `list`、`sessions(instance)`、`tasks(instance, session)`、`create(template, name, params)`、`stop(id)` |
-| `composer.insert(text)` | 往输入框插字（光标处，没有焦点就接在末尾） |
+| `composer.insert(text, { session? })` | 往输入框插字（光标处，没有焦点就接在末尾）。给了 `session`：插进那个会话的输入框——不在页上就先替它存着（再插接在后面），它挂上时放进去；在 `session.open` 之前之后调都行 |
 | `reveal(item)` | 点消息里的卡片，右栏打开它的详情（`item.kind` 由 `details.panel` 认领）。M5 有了右栏页签后加 `panelId` |
 | `space(id).fetch(path, init?)` / `space(id).socket(path)` | 模块 `id` 的自有链接 `/apps/<id>/<path>`：同源，凭据由宿主带上；`path` 走不出这个前缀（M7） |
 | `t()` | i18n，包括你自己的语言包（§8.6） |

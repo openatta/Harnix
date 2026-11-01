@@ -305,20 +305,23 @@ function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app:
 const NO_REPLIES: never[] = [];
 
 /** The host's composer: whichever input is on the page now. One leaving clears it only if it is
- *  still the one bound — the next one may have bound already. */
-function useBindComposer(app: App): (api: ComposerApi | null) => void {
+ *  still the one bound — the next one may have bound already. An open session's (`session`, its key)
+ *  is also bound as that session's: text kept for it goes in. */
+function useBindComposer(app: App, session?: string): (api: ComposerApi | null) => void {
   const mine = useRef<ComposerApi | null>(null);
   return useCallback(
     (api: ComposerApi | null) => {
       if (api) {
         mine.current = api;
         app.composer = api;
+        if (session !== undefined) app.composerBound(session, api);
       } else {
         if (app.composer === mine.current) app.composer = null;
+        if (session !== undefined && mine.current) app.composerGone(session, mine.current);
         mine.current = null;
       }
     },
-    [app],
+    [app, session],
   );
 }
 
@@ -581,7 +584,7 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
     },
     [app, onController],
   );
-  const bindComposer = useBindComposer(app);
+  const bindComposer = useBindComposer(app, keyOf(current.instance, current.sessionId));
   useEffect(() => (controller ? followEnvelopes(app, controller) : undefined), [app, controller]);
 
   const sessionKey = keyOf(current.instance, current.sessionId);
