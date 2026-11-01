@@ -768,3 +768,21 @@ html.resizing #frame {
 .kv-table .muted {
   color: var(--label-tertiary);
 }
+
+/* An entry found by `host.session.reveal` / `session.open(ref, {reveal})`: flashed for 2.4 s. */
+#main [data-revealed] {
+  border-radius: var(--radius-sm);
+  animation: hx-revealed 2.4s ease-out;
+}
+
+@keyframes hx-revealed {
+  0%,
+  40% {
+    background: var(--accent-soft);
+    box-shadow: 0 0 0 2px var(--accent-line);
+  }
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 2px transparent;
+  }
+}

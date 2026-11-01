@@ -613,7 +613,7 @@ export function QuotesTab() {
 |---|---|
 | `call(method, params)` | 包括 `app.<id>.*` |
 | `subscribe(topic, params?, onValue)` | 宿主主题，可带参数；返回取消函数。同一页里多处订同一个主题共用一份订阅，最后一个退订才真退 |
-| `session.*` | `current`、`context`、`list`（本 space）、`open`、`create`、`onChange`（前台会话变了；hook 是 `useCurrentSession()`）。会话都是 `(instance, session)`。`open(ref, {switchSpace: true})` 去会话所属的 space 打开 |
+| `session.*` | `current`、`context`、`list`（本 space）、`open`、`create`、`onChange`（前台会话变了；hook 是 `useCurrentSession()`）。会话都是 `(instance, session)`。`open(ref, {switchSpace: true})` 去会话所属的 space 打开。`open(ref, {reveal: key})` 打开后等转录追上，把那一条滚到中间并闪一下（返回 `Promise<boolean>`：找到没有）；`reveal(key)` 对当前会话做同样的事 |
 | `spaces.*` | `switch(id)`（带到前台、画好之后才落定）、`current()` |
 | `details.*` | 右栏：`open(tab?)`、`close()`、`isOpen()`、`tab()`、`onTab(fn)`。经 `open(tab)` 选的页签换 space 回来还在；人点的照旧回到第一个（space 写了 `tab()` 时也还在） |
 | `redraw()` | `tabs()`、`badge()` 这类函数依赖的状态变了，让外壳重读（不动注册表） |

@@ -37,8 +37,19 @@ export interface NestHost {
      * Open a session in the front space. With `switchSpace`, in the space it belongs to (as the hub's
      * ledger has it), brought to the front first; the promise settles once it is open, and rejects
      * when there is no such session. Without options, exactly as before: the front space.
+     *
+     * With `reveal`, once open and its transcript caught up, the entry with that key is scrolled to
+     * the centre and highlighted (see `reveal`); the promise says whether it was found.
      */
-    open(ref: SessionRef, options?: { switchSpace?: boolean }): void | Promise<void>;
+    open(ref: SessionRef, options: { switchSpace?: boolean; reveal: string }): Promise<boolean>;
+    open(ref: SessionRef, options?: { switchSpace?: boolean; reveal?: undefined }): void | Promise<void>;
+    /**
+     * In the open session's conversation, the entry with this key — an element with
+     * `data-reveal="<key>"` (a `flow.block` renderer puts it on its block), else the block whose id is
+     * the key — scrolled to the centre and highlighted for a moment (`data-revealed`). Waits for the
+     * transcript to catch up, within a bound; false when it is not found (or no session is open).
+     */
+    reveal(key: string): Promise<boolean>;
     create(spec?: { scene?: string; instance?: string; project_root?: string | null; options?: Record<string, unknown> }): Promise<SessionRef>;
     /** The front space's current session changed (opened, created, closed, deleted, another space in
      *  front). Not called again for the same session. Returns the unsubscribe. */

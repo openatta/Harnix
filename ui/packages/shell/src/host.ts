@@ -7,9 +7,10 @@
  */
 
 import { SYSTEM_INSTANCE } from "@harnix/core/state";
-import { t, type NestHost } from "@harnix/react";
+import { t, type HostSessionRef as SessionRef, type NestHost } from "@harnix/react";
 
 import { later, orderTabs, safeTabs, type App } from "./app.ts";
+import { revealEntry } from "./reveal.ts";
 import { openSettings } from "./settings.tsx";
 import { topicsOf } from "./topics.ts";
 
@@ -40,14 +41,25 @@ export function hostFor(app: App, owner = "page"): NestHost {
       },
       context: () => app.controller?.getSnapshot() ?? null,
       list: () => app.snapshot.sessions,
-      open: (ref, options) => {
-        if (!options?.switchSpace) return app.open(ref);
+      open: ((ref: SessionRef, options?: { switchSpace?: boolean; reveal?: string }) => {
+        const opened = !options?.switchSpace
+          ? app.open(ref)
+          : (async () => {
+              const space = await spaceOfSession(app, ref);
+              await switchTo(space);
+              app.open({ instance: ref.instance, sessionId: ref.sessionId }, space);
+              await app.afterDraw();
+            })();
+        if (options?.reveal === undefined) return opened;
+        const key = options.reveal;
         return (async () => {
-          const space = await spaceOfSession(app, ref);
-          await switchTo(space);
-          app.open({ instance: ref.instance, sessionId: ref.sessionId }, space);
-          await app.afterDraw();
+          await opened;
+          return revealEntry(app, { instance: ref.instance, sessionId: ref.sessionId }, key);
         })();
+      }) as NestHost["session"]["open"],
+      reveal: async (key) => {
+        const current = app.snapshot.current;
+        return current ? revealEntry(app, current, key) : false;
       },
       async create(spec = {}) {
         await app.create(spec);

@@ -378,6 +378,7 @@ export function register(r: Registry, host: NestHost): void
 | `subscribe(topic, params \| undefined, fn)` | 返回取消函数。按 `(topic, 键排序后的 params)` 计数：同一页共用一份订阅，最后一个退订才发 `harnix.unsubscribe`，后来者先拿到已有的值，重连后自动重订 |
 | `session.current() / context() / list() / open(ref) / create(spec?)` | 都是前台 space 的；`create` 自动绑定前台 space |
 | `session.open(ref, { switchSpace: true })` | 去会话所属的 space（按中枢账本）打开，先把它带到前台；返回的 promise 在打开后落定，没有这个会话就 reject |
+| `session.open(ref, { switchSpace?, reveal: key })` / `session.reveal(key)` | 打开后（`reveal(key)`：当前会话）等转录追上（有上限），在对话里找 `[data-reveal="<key>"]`（`flow.block` 的渲染给自己的块加上），没有就找 id 是 `key` 的块，滚到中间、`data-revealed` 闪 2.4 秒；返回 `Promise<boolean>`：找到没有 |
 | `session.onChange(fn)` | 前台 space 的当前会话变了（打开、新建、关掉、被删、换 space），同一个值不重复；`@harnix/react` 的 `useCurrentSession()` 是它的 hook |
 | `spaces.switch(id) / current()` | 把 space 带到前台，新 space 画出来之后落定；没有这个 space 时 reject |
 | `details.open(tab?) / close() / isOpen() / tab() / onTab(fn)` | 右栏开合与选中页签（`tab` 是前台 space 的页签 id，或 `"details"`）。经 `open(tab)` 选的页签按 space 记着；人点的换 space 后回到第一个（同以前；space 写了 `tab()` 时也记着） |
