@@ -38,4 +38,5 @@ IPDrun 的类目对话里 `@` 引用条目（需求、规格…）；仓库文�
 
 ## 落地
 
+落地提交：`b64be53`（main，2026-11-01，未推送；版本待下次发布）。
 外壳：`withContributed`（`ui/packages/shell/src/Shell.tsx`，导出以便测试）读前台 space 的 `mention.first`。

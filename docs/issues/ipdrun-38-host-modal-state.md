@@ -50,5 +50,6 @@ IPDrun 的 space 在 `document` 上处理 Esc 与方向键，要先知道外壳�
 
 ## 落地
 
+落地提交：`bc75665`（main，2026-11-01，未推送；版本待下次发布）。
 外壳：`App.onModal`（`set` 里模态框有无变化时通知），`hostFor` 的 `modal`；`useShortcuts` 加 `window` 捕获阶段的 Esc，
 `#modal` 加 `onKeyDown`（`ui/packages/shell/src/Shell.tsx`）。

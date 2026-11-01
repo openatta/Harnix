@@ -48,5 +48,6 @@ IPDrun 的类目 space 记着自己的页签栈与当前页（UF-04），切回�
 
 ## 落地
 
+落地提交：`186186f`（main，2026-11-01，未推送；版本待下次发布）。
 外壳：`App.followSpaceTab`（`switchSpace` 与 `redraw` 之后调），`switchSpace` 对写了 `tab()` 的 space 不丢人点的页签（`ui/packages/shell/src/app.ts`）。
 与需求原文的差别：「记住人点的页签」没有对所有 space 打开（见兼容性）。

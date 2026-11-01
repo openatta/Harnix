@@ -46,5 +46,6 @@ IPDrun 的「先打开会话再往输入框里放一句」（`ui/kit/src/goahead
 
 ## 落地
 
+落地提交：`03c7c6b`（main，2026-11-01，未推送；版本待下次发布）。
 外壳：`App.insert(text, session?)` 与 `App.composerBound / composerGone`（`ui/packages/shell/src/app.ts`），
 `useBindComposer(app, sessionKey)` 让打开的会话的输入框按会话绑上（`Shell.tsx`）。

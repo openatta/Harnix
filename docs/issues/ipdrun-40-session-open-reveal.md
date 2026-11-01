@@ -49,5 +49,6 @@ IPDrun 从修订 / 提议回到对话里提出它的那一张卡（`ui/kit/src/c
 
 ## 落地
 
+落地提交：`8d20005`（main，2026-11-01，未推送；版本待下次发布）。
 外壳：`ui/packages/shell/src/reveal.ts`（`revealEntry`、`findEntry`、`markRevealed`），`hostFor` 的 `session.open` / `session.reveal`，
 `styles/frame.css` 的 `#main [data-revealed]`。
