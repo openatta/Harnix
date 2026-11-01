@@ -22,6 +22,18 @@ export interface SessionRef {
   sessionId: string;
 }
 
+/** One line under the left column's brand that the application owns (`host.shell.context`,
+ *  ipdrun-49): what it is working on right now. */
+export interface ShellContext {
+  label: string;
+  /** The hover tooltip. */
+  title?: string;
+  /** `active`: a small dot in front; `muted`: quieter text. Neither: plain. */
+  tone?: "active" | "muted";
+  /** Given: the line is a button that calls it. */
+  onClick?: () => void;
+}
+
 export interface NestHost {
   /** One call, if `harnix.reachable` lists it; refused here otherwise. */
   call<T = unknown>(method: string, params?: unknown): Promise<T>;
@@ -99,6 +111,9 @@ export interface NestHost {
      *  whenever it writes the title (brand name, space), so an application never touches
      *  `document.title` (ipdrun-33). */
     badge(n: number | null): void;
+    /** One line under the brand in the left column, the same in every space; null (or an empty
+     *  label) ⇒ none. Each call replaces the last (ipdrun-49). */
+    context(c: ShellContext | null): void;
   };
   modal: {
     /** The shell's own modal layer (settings, dialogs) is open. */

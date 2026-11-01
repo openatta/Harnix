@@ -12,7 +12,7 @@
 import type { ReactNode } from "react";
 import { TOKEN_STALE, errorText, type ConnectionStatus, type HarnixClient, type Hello, type SessionRow } from "@harnix/core";
 import { SYSTEM_INSTANCE, type SessionController } from "@harnix/core/state";
-import { t, tabsOf, type ComposerApi, type DetailItem, type Registry, type SpaceContribution, type SpaceTab } from "@harnix/react";
+import { t, tabsOf, type ComposerApi, type DetailItem, type Registry, type ShellContext, type SpaceContribution, type SpaceTab } from "@harnix/react";
 
 import { topicsOf } from "./topics.ts";
 
@@ -115,6 +115,8 @@ export interface ShellState {
   modal: Modal | null;
   /** The page title's count prefix (`host.shell.badge`, ipdrun-33); null ⇒ none. */
   titleBadge: number | null;
+  /** The line under the brand (`host.shell.context`, ipdrun-49); null ⇒ none. */
+  shellContext: ShellContext | null;
   search: { active: boolean; query: string; hits: SearchHit[] | null | "pending"; truncated: boolean };
   showArchived: boolean;
   expanded: Record<string, boolean>;
@@ -243,6 +245,7 @@ export class App {
       banner: null,
       modal: null,
       titleBadge: null,
+      shellContext: null,
       search: { active: false, query: "", hits: null, truncated: false },
       showArchived: false,
       expanded: {},
@@ -698,6 +701,11 @@ export class App {
   setTitleBadge(n: number | null): void {
     const badge = typeof n === "number" && Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
     if (badge !== this.snapshot.titleBadge) this.set({ titleBadge: badge });
+  }
+
+  /** `host.shell.context`: the line under the brand; null or an empty label clears it. */
+  setShellContext(c: ShellContext | null): void {
+    this.set({ shellContext: c && typeof c.label === "string" && c.label !== "" ? { ...c } : null });
   }
 
   setTheme(choice: ThemeChoice): void {

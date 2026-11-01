@@ -111,6 +111,7 @@ export function hostFor(app: App, owner = "page"): NestHost {
     },
     shell: {
       badge: (n) => app.setTitleBadge(n),
+      context: (c) => app.setShellContext(c),
     },
     modal: {
       isOpen: () => app.snapshot.modal != null,

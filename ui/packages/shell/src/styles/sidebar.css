@@ -73,6 +73,45 @@
   color: var(--label-primary);
 }
 
+/* The application's line under the brand (`host.shell.context`): small, one line, a dot when active. */
+#side .context {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  margin: -6px 0 8px;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 12.5px var(--font-sans);
+  color: var(--label-secondary);
+  text-align: left;
+  white-space: nowrap;
+}
+
+#side button.context {
+  cursor: pointer;
+}
+
+#side button.context:hover {
+  background: var(--interactive-hover);
+  color: var(--label-primary);
+}
+
+#side .context[data-tone="muted"] {
+  color: var(--label-caption);
+}
+
+#side .context .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+}
+
 #side .logo {
   width: 24px;
   height: 24px;
@@ -478,7 +517,8 @@
 #frame[data-sidebar="collapsed"] #side .sec,
 #frame[data-sidebar="collapsed"] #side .chats,
 #frame[data-sidebar="collapsed"] #side .s-tools,
-#frame[data-sidebar="collapsed"] #side .nav kbd {
+#frame[data-sidebar="collapsed"] #side .nav kbd,
+#frame[data-sidebar="collapsed"] #side .context {
   display: none;
 }
 

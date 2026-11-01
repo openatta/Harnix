@@ -625,6 +625,7 @@ export function QuotesTab() {
 | `composer.insert(text, { session? })` | 往输入框插字（光标处，没有焦点就接在末尾）。给了 `session`：插进那个会话的输入框——不在页上就先替它存着（再插接在后面），它挂上时放进去；在 `session.open` 之前之后调都行 |
 | `modal.isOpen()` / `modal.onChange(fn)` | 外壳自己的模态层（设置、对话框）开着没有、开合变了。开着时 Esc 只关它，冒泡阶段的 document / window 键盘监听收不到 |
 | `shell.badge(n)` | 页面标题的数字前缀：n > 0 ⇒ `(n) <标题>`，null 或 0 ⇒ 不带；外壳每次写标题（品牌名、切 space）都带上，应用不碰 `document.title` |
+| `shell.context(c)` | 左栏品牌下面一行：应用此刻在做的对象（例如当前打开的是哪一个）。`{ label, title?, tone?: "active" \| "muted", onClick? }`：`active` 带一个圆点，`muted` 是浅色字，给了 `onClick` 可点；`null` 不画。哪个 space 都一样 |
 | `reveal(item)` | 点消息里的卡片，右栏打开它的详情（`item.kind` 由 `details.panel` 认领）。M5 有了右栏页签后加 `panelId` |
 | `space(id).fetch(path, init?)` / `space(id).socket(path)` | 模块 `id` 的自有链接 `/apps/<id>/<path>`：同源，凭据由宿主带上；`path` 走不出这个前缀（M7） |
 | `t()` | i18n，包括你自己的语言包（§8.6） |

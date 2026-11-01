@@ -85,6 +85,7 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
         </div>
         {overlay ? createPortal(<div id="tl-tools">{collapse}</div>, document.body) : collapse}
       </div>
+      <ContextLine s={s} />
       {space?.newSession === false || !app.startsSessions() ? null : (
         <>
           <button type="button" id="new" className="nav new" title={t("sidebar.newSessionHint")} onClick={() => void startNew()}>
@@ -107,6 +108,27 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
       </div>
       <Bottom app={app} s={s} />
     </aside>
+  );
+}
+
+/** The application's line under the brand (`host.shell.context`, ipdrun-49): a button when it can
+ *  be clicked, plain text otherwise. */
+function ContextLine({ s }: { s: ShellState }) {
+  const c = s.shellContext;
+  if (!c) return null;
+  const body = (
+    <>
+      {c.tone === "active" ? <span className="dot" aria-hidden="true" /> : null}
+      <span className="lbl truncate">{c.label}</span>
+    </>
+  );
+  const props = { className: "context", "data-testid": "shell-context", "data-tone": c.tone, title: c.title };
+  return c.onClick ? (
+    <button type="button" {...props} onClick={() => c.onClick?.()}>
+      {body}
+    </button>
+  ) : (
+    <div {...props}>{body}</div>
   );
 }
 
