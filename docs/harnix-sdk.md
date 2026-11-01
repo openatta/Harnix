@@ -582,8 +582,9 @@ fn spaces(&self, s: &mut SpaceRegistry) {
 | `ids()` | 正文里哪些字是可点的编号（`ChatIds`：带 `g` 的正则、`onOpen`、`canOpen`） |
 | `composer: { steer: true }` | 输入框底栏有「立即送达」开关：一轮在跑时，消息在下一步送进这一轮（`on_busy: "steer"`）。在 Agix 的 UserPromptSubmit 也管 steer 之前，steer 的消息绕过那个 hook |
 | `hideCommands: [...]` | 这些命令名不出现在本 space 的 `/` 菜单里（只藏别的 owner 的，所以你的同名命令能顶上）；手打的照旧当文字发出 |
+| `mention: { first: "contributed" }` | 本 space 在前台时，`@` 菜单里 `trigger: "@"` 的候选排在外壳自己的（文件、`@session:`）前面；菜单只列前几项，文件多时贡献的候选就不会被挤掉。不写或 `"files"`：照旧 |
 
-`command` 贡献可以写 `trigger: "@"`，它的候选就进 `@` 菜单（在外壳自己的文件、`@session:` 候选之后），不写是 `/`。
+`command` 贡献可以写 `trigger: "@"`，它的候选就进 `@` 菜单（在外壳自己的文件、`@session:` 候选之后；前台 space 写了 `mention: { first: "contributed" }` 时在前），不写是 `/`。
 `complete(query, ctx)` 的 `ctx` 是 `{space, session}`（前台 space 与它打开的会话）；候选带 `run(ctx)` 时选中即执行，不插入文字。
 
 ### 8.3 `useNest()`

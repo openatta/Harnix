@@ -155,6 +155,10 @@ export interface SpaceContribution {
    *  only, so the space's own command of the same name takes the place of the engine's. Typed by
    *  hand, such a command is still sent as text: this guards against mistakes, it forbids nothing. */
   hideCommands?: string[];
+  /** The `@` menu while this space is in front. `first`: whose candidates come first when the menu
+   *  is cut to its length — the shell's own (files, `@session:`; the default) or the `@` command
+   *  contributions'. */
+  mention?: { first?: "contributed" | "files" };
 }
 
 export interface Contributions {

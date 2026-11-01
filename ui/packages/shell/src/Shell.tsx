@@ -865,9 +865,10 @@ const MENTION_WAIT_MS = 1500;
 
 /**
  * The `@` menu: the shell's own candidates (files, `@session:`) first, then each `@` contribution's
- * for the same query, in order of registration. One that throws or is slow loses its own.
+ * for the same query, in order of registration — or those first, when the front space says
+ * `mention: { first: "contributed" }`. One that throws or is slow loses its own.
  */
-async function withContributed(app: App, query: string, own: MentionItem[]): Promise<MentionItem[]> {
+export async function withContributed(app: App, query: string, own: MentionItem[]): Promise<MentionItem[]> {
   const asked = commandsFor(app, "@");
   if (!asked.length) return own;
   const ctx = commandContext(app);
@@ -887,7 +888,8 @@ async function withContributed(app: App, query: string, own: MentionItem[]): Pro
     label: candidate.description,
     insert: candidate.replacement,
   }));
-  return [...own, ...contributed].slice(0, MENTIONS_MAX);
+  const first = spacesOf(app).find((c) => c.id === app.snapshot.space)?.mention?.first;
+  return (first === "contributed" ? [...contributed, ...own] : [...own, ...contributed]).slice(0, MENTIONS_MAX);
 }
 
 function dataUrl(file: File): Promise<string> {
