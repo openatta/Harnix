@@ -253,24 +253,32 @@ fn state_dir(profile: Option<&std::path::Path>) -> PathBuf {
 
 /// `POST /auth/link` with the token as a bearer header; the link's path.
 fn mint(addr: SocketAddr, token: &str) -> Result<String, String> {
-    let request = format!(
-        "POST /auth/link HTTP/1.1\r\nHost: {addr}\r\nAuthorization: Bearer {token}\r\n\
-         Content-Length: 0\r\nConnection: close\r\n\r\n"
-    );
-    let response = exchange(addr, &request).map_err(|e| format!("连不上 {addr}：{e}"))?;
-    match response.status {
-        200 => {}
+    let base = format!("http://{addr}");
+    match harnix_client::launch_link(&base, token) {
+        Ok(url) => Ok(url.strip_prefix(&base).unwrap_or(&url).to_string()),
         // The server is up but the file still held an earlier run's token,
         // or another copy of the app sharing this state directory replaced it.
-        401 => return Err("令牌不对（还是上一次运行的，或被另一个进程覆盖了）".into()),
-        other => return Err(format!("POST /auth/link 返回 {other}")),
+        Err(e) if e.kind == harnix_client::ErrorKind::Handshake => {
+            Err("令牌不对（还是上一次运行的，或被另一个进程覆盖了）".into())
+        }
+        Err(e) if e.kind == harnix_client::ErrorKind::Transport && e.code == 0 => {
+            Err(format!("连不上 {addr}：{}", e.message))
+        }
+        Err(e) => Err(format!("POST /auth/link：{e}")),
     }
-    let body: serde_json::Value = serde_json::from_str(&response.body)
-        .map_err(|e| format!("POST /auth/link 的应答不对：{e}"))?;
-    body["path"]
-        .as_str()
-        .map(str::to_string)
-        .ok_or_else(|| "POST /auth/link 的应答里没有 path".into())
+}
+
+impl Started {
+    /// The shell as a client of this child, for what it does on its own behalf: call a method
+    /// (`call`), follow the host events (`events(Face::Host, …)`) for a notification or the Dock
+    /// badge. Same token, same handshake as any other client; nothing crosses Tauri IPC.
+    #[allow(dead_code)]
+    pub fn client(&self) -> Result<harnix_client::Client, String> {
+        let token = std::fs::read_to_string(&self.token_file)
+            .map_err(|e| format!("读不到 {}：{e}", self.token_file.display()))?;
+        harnix_client::Client::connect(&format!("http://{}", self.addr), token.trim())
+            .map_err(|e| e.to_string())
+    }
 }
 
 /// A response, as much of it as the shell looks at.

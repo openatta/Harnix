@@ -27,6 +27,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "1"
 dirs = "7"
+# The shell as a client of its own child (ipdrun-43): the launch link, and whatever the app's shell
+# asks for itself — a notification, a badge, a native picker's answer. Harnix's light client: the
+# contract and std, no server, no runtime. An app's copy points this at its own `harnix/` checkout.
+harnix-client = { path = "../../../crates/client" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Measuring the system's traffic lights before the window is made (main.rs):

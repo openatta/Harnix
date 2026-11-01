@@ -82,6 +82,12 @@ HARNIX_DESKTOP_PROGRAM=/path/to/myapp ./target/debug/harnix-desktop --smoke
 状态目录按应用自己的规则找：`HARNIX_STATE_DIR`，否则 `~/.<product_id>`，`product_id` 取 profile 的
 `[brand] product_id`，没有就是 `harnix`。子进程继承壳的环境变量，两边读的是同一个。
 
+**壳当自己子进程的客户端。** 壳替自己做的事——系统通知、Dock 角标、原生对话框选的项目——经同一个子进程调方法、收事件，
+用 Harnix 的轻量客户端 `harnix-client`（`Cargo.toml` 里按路径引用，应用拷过去时改成自己的 `harnix/crates/client`）：
+`Started::client()` 读令牌、握手（协议版本随 `harnix-client` 编进来，不用自己抄常量），之后 `call(method, params)`、
+`call_within`（慢方法给长一点的等待）、`events(Face::Host, idle)` 逐帧读主机事件（话题、实例变化）。都是回环上的普通 HTTP，
+不经 Tauri IPC，页面一侧不变。启动链接（`mint`）也走它。
+
 **生命周期。** 关窗口、Cmd-Q、壳收到 SIGINT/SIGTERM/SIGHUP，都走到同一个退出点：先给子进程发
 SIGINT（Harnix 收到它会逆序停模块、关中枢、清上传目录），5 秒内没退出就强制结束。子进程自己退出
 时，窗口换成「无法连接」页并写明退出状态。
