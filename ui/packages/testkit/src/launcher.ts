@@ -31,6 +31,8 @@ export interface LaunchOptions {
   topologies?: Topology[];
   /** Play model calls back from the recordings. */
   replay?: boolean;
+  /** With `replay`: a request that differs from the recorded one fails the call (`--replay-strict`, ipdrun-45). */
+  replayStrict?: boolean;
   /** Extra profile TOML, appended after `[transport]`. */
   profile?: string;
   /**
@@ -186,6 +188,7 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
     "--data-dir", join(scratch, "projects"),
     ...(options.uiDir ? ["--ui-dir", options.uiDir] : []),
     ...(options.replay ? ["--replay-dir", RECORDINGS] : []),
+    ...(options.replay && options.replayStrict ? ["--replay-strict"] : []),
     ...(options.args ?? []),
   ];
   const child: ChildProcess = spawn(bin, args, {

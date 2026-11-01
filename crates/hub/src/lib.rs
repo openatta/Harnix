@@ -141,6 +141,8 @@ pub struct Hub {
     /// Where recordings are played back from, when this process was started
     /// in replay. `None` is the ordinary case: record, never play.
     replay_from: Option<std::path::PathBuf>,
+    /// Replay fails a call whose request differs from the recorded one (ipdrun-45).
+    replay_strict: std::sync::atomic::AtomicBool,
     instances: StdRwLock<BTreeMap<String, Arc<Slot>>>,
     registry: Mutex<Registry>,
     inner: Arc<Mutex<Inner>>,
@@ -197,6 +199,7 @@ impl Hub {
         }
         Arc::new(Self {
             replay_from: config.replay_from,
+            replay_strict: std::sync::atomic::AtomicBool::new(false),
             instances: StdRwLock::new(BTreeMap::new()),
             registry: Mutex::new(config.registry),
             inner: Arc::new(Mutex::new(inner)),
@@ -219,6 +222,23 @@ impl Hub {
 
     pub(crate) fn replay_from(&self) -> Option<&std::path::Path> {
         self.replay_from.as_deref()
+    }
+
+    /// In replay, fail a call whose request differs from the recorded one rather than report it
+    /// (ipdrun-45). Off by default; meaningless outside replay. Set once, at startup, by whoever
+    /// started the process in replay — the same operator's decision as replay itself.
+    pub fn set_replay_strict(&self, strict: bool) {
+        self.replay_strict
+            .store(strict, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// The recorder options a new or resumed session gets (see [`with_recording`]).
+    pub(crate) fn recording(&self, params: Value) -> Value {
+        with_recording(
+            params,
+            self.replay_from(),
+            self.replay_strict.load(std::sync::atomic::Ordering::Relaxed),
+        )
     }
 
     /// Replace what a client will be told the packages contribute.
@@ -717,7 +737,7 @@ pub(crate) fn require_session_id(params: &Value) -> Result<String, RpcError> {
 /// When the operator has made it, and only then, a client may name *which*
 /// recording to play. That is not a loosening: outside replay the name means
 /// nothing, and inside it, naming the fixture is the entire point.
-pub(crate) fn with_recording(mut params: Value, replay_from: Option<&std::path::Path>) -> Value {
+pub(crate) fn with_recording(mut params: Value, replay_from: Option<&std::path::Path>, strict: bool) -> Value {
     let named = params
         .get("options")
         .and_then(|o| o.get("recorder"))
@@ -730,22 +750,17 @@ pub(crate) fn with_recording(mut params: Value, replay_from: Option<&std::path::
             "mode": "replay",
             "name": named,
             "dir": dir.display().to_string(),
-            // Divergences are reported, not fatal — and that is a concession
-            // to a fact, not a preference.
+            // Divergences are reported, not fatal, unless the operator
+            // asked for strict replay (`--replay-strict`, ipdrun-45).
             //
             // Strict replay compares the live request against the recorded
-            // one. The assembled prompt carries **today's date** and absolute
-            // paths, so a strict fixture stops matching the morning after it
-            // was recorded, and again on any machine with a different
-            // checkout path. What replay is for here is making an agent's
-            // *behaviour* deterministic — the tool calls, the permission
-            // asks, the sub-agents — and that works regardless.
-            //
-            // Making strict possible needs the engine's `environment` seam
-            // (the one that owns "the date in the prompt") to be settable by
-            // a host. That is filed; until then, strictness would only ever
-            // be a test that fails at midnight.
-            "strict": false,
+            // one. The prompt carries a date and absolute paths: the engine
+            // now dates a replaying session by its recording (Agix ipdrun-06),
+            // but paths are the application's to keep stable — fixed roots, or
+            // workspace-relative tool paths. Until an application has done
+            // that, strictness would only be a test that fails on another
+            // machine, so it stays the operator's choice.
+            "strict": strict,
         }),
         None => json!({"mode": "record"}),
     };
@@ -790,5 +805,29 @@ fn peak_rss_bytes() -> Option<u64> {
     #[cfg(not(unix))]
     {
         None
+    }
+}
+
+#[cfg(test)]
+mod recording_tests {
+    use super::*;
+
+    #[test]
+    fn replay_is_lenient_unless_the_operator_asked_for_strict() {
+        let dir = std::path::Path::new("/rec");
+        let named = json!({"options": {"recorder": {"name": "fixture", "mode": "record", "strict": true}}});
+        let lenient = with_recording(named.clone(), Some(dir), false);
+        assert_eq!(
+            lenient["options"]["recorder"],
+            json!({"mode": "replay", "name": "fixture", "dir": "/rec", "strict": false}),
+            "a client's own mode and strictness are overwritten"
+        );
+        let strict = with_recording(named.clone(), Some(dir), true);
+        assert_eq!(strict["options"]["recorder"]["strict"], true);
+        assert_eq!(
+            with_recording(named, None, true)["options"]["recorder"],
+            json!({"mode": "record"}),
+            "outside replay strictness means nothing"
+        );
     }
 }

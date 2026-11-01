@@ -233,7 +233,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     }
 
     if let Some(dir) = &cli.replay_dir {
-        tracing::warn!(dir = %dir.display(), "replaying recordings; no model will be called");
+        tracing::warn!(dir = %dir.display(), strict = cli.replay_strict, "replaying recordings; no model will be called");
     }
     // The three ceilings, assembled where all three are known. The hub
     // reports them at hello and the transport enforces the frame one; both
@@ -272,6 +272,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         registry,
         spaces,
     });
+    hub.set_replay_strict(cli.replay_strict);
     // What the shell is told at hello: the brand, which built-in spaces this product keeps, and
     // whether installed packages' interface modules load (design §10.5).
     let brand_icon = profile.brand.icon.as_ref().map(|icon| match &cli.profile {

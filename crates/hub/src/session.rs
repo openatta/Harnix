@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 
 use crate::clients::ClientId;
 use crate::replay::Buffer;
-use crate::{notification, with_recording, without_instance, Hub, Inner, SessionKey};
+use crate::{notification, without_instance, Hub, Inner, SessionKey};
 
 pub(crate) struct QueueItem {
     pub item_id: String,
@@ -258,7 +258,7 @@ impl Hub {
             // the one turn with no envelope. Nothing is written until it
             // makes a call, so reopening a conversation just to read it
             // leaves the previous run's recording intact.
-            self.call(instance, "session.resume", with_recording(resume, self.replay_from()))
+            self.call(instance, "session.resume", self.recording(resume))
                 .await?;
             resp = self
                 .call(instance, "session.subscribe", json!({"session_id": session_id}))
@@ -306,7 +306,7 @@ impl Hub {
             .call(
                 &instance,
                 "session.create",
-                with_recording(without_instance(params), self.replay_from()),
+                self.recording(without_instance(params)),
             )
             .await?;
         if let (Some(name), Some(_), Some(sid)) = (

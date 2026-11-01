@@ -143,6 +143,13 @@ pub(crate) struct Cli {
     #[arg(long)]
     pub replay_dir: Option<PathBuf>,
 
+    /// With `--replay-dir`: a request that differs from the recorded one fails
+    /// the call instead of being reported (ipdrun-45). The engine dates a
+    /// replaying session's prompt by its recording, so strict replay no longer
+    /// fails the day after a fixture was recorded.
+    #[arg(long, requires = "replay_dir")]
+    pub replay_strict: bool,
+
     /// TLS certificate chain (PEM). Required to bind anything but loopback.
     #[arg(long)]
     pub tls_cert: Option<PathBuf>,

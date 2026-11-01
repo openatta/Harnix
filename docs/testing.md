@@ -46,6 +46,10 @@ scripts/prune.sh                       # 清构建缓存：增量缓存全删，
 | live | 刷新录像、冒烟 | `--live`（`HARNIX_MODEL=live`），读 `.env` |
 | 无模型 | 没有录像的机器 | `--no-model`。它看着像回放模式，覆盖却少得多，别误用 |
 
+回放缺省是非严格的：请求与录下的不一样只报告、不失败。`harnix serve --replay-dir <目录> --replay-strict`（testkit 的
+`replayStrict: true`）让不一样的那次调用失败（ipdrun-45）。引擎给回放的会话按录像开录那天定日期（Agix ipdrun-06），
+所以严格回放不会隔天就红；路径要应用自己保持稳定（固定的根目录，或文件工具的相对路径）。
+
 `ui` project 永远回放：一个布局测试因为模型慢了而失败，大家就学会了无视它。
 
 标着 `replayed: true` 的 API 套件在 live 模式下也自己起一个回放的后端：它的价值就是每次在同一处
