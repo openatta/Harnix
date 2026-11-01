@@ -95,6 +95,10 @@ export interface SpaceContribution {
   /** Where the left column lists it: with the product's spaces (`top`, the default) or at the
    *  bottom, above the system entry — for what is global rather than one of the surfaces. */
   place?: "top" | "bottom";
+  /** The group it is listed in, among the `top` spaces: a line is drawn between two neighbours (by
+   *  `order`) whose groups differ. Undefined counts as "", so with no space naming one nothing
+   *  changes. Grouping does not reorder: keep a group's spaces together through `order`. */
+  group?: string;
   /** The right column when this space is first entered; afterwards each space keeps its own. */
   details?: "open" | "closed";
   /** What the centre shows: the conversation, the overview with the conversation as a bar under

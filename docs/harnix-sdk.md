@@ -584,6 +584,7 @@ fn spaces(&self, s: &mut SpaceRegistry) {
 | `composer: { steer: true }` | 输入框底栏有「立即送达」开关：一轮在跑时，消息在下一步送进这一轮（`on_busy: "steer"`）。在 Agix 的 UserPromptSubmit 也管 steer 之前，steer 的消息绕过那个 hook |
 | `hideCommands: [...]` | 这些命令名不出现在本 space 的 `/` 菜单里（只藏别的 owner 的，所以你的同名命令能顶上）；手打的照旧当文字发出 |
 | `mention: { first: "contributed" }` | 本 space 在前台时，`@` 菜单里 `trigger: "@"` 的候选排在外壳自己的（文件、`@session:`）前面；菜单只列前几项，文件多时贡献的候选就不会被挤掉。不写或 `"files"`：照旧 |
+| `group`（字段） | 左栏顶部列表里的组名：按 `order` 相邻的两个 space 组不同，中间画一条分隔线；不写算 `""`，都不写就没有线。不重排，同组的靠 `order` 挨在一起 |
 | `tab()` | 本 space 当前的右栏页签（它的页签 id 或 `"details"`）：带到前台时、`host.redraw()` 时读，是这个 space 的页签就选中它（不打开右栏）；`undefined` 或不认识的 id 不管。写了它，人点的页签换 space 回来也还在。跟着人点要听 `details.onTab` |
 
 `command` 贡献可以写 `trigger: "@"`，它的候选就进 `@` 菜单（在外壳自己的文件、`@session:` 候选之后；前台 space 写了 `mention: { first: "contributed" }` 时在前），不写是 `/`。

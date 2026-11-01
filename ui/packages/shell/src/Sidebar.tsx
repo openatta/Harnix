@@ -10,7 +10,7 @@
  * that says `place: "bottom"` (something global, not a surface) sits there too, above it.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Contributed, setLocale, currentLocale, useRegistry, useT, type SpaceContribution } from "@harnix/react";
 
@@ -116,8 +116,12 @@ function SpaceList({ app, s }: { app: App; s: ShellState }) {
   if (!spaces.length) return null;
   return (
     <nav className="spaces" aria-label="spaces">
-      {spaces.map((space) => (
-        <SpaceEntry key={space.id} app={app} s={s} space={space} />
+      {spaces.map((space, i) => (
+        <Fragment key={space.id}>
+          {/* Two neighbours of different groups (`group`, unset counts as ""): a line between. */}
+          {i > 0 && (spaces[i - 1]!.group ?? "") !== (space.group ?? "") ? <div className="sep" role="separator" data-testid="space-sep" /> : null}
+          <SpaceEntry app={app} s={s} space={space} />
+        </Fragment>
       ))}
     </nav>
   );
