@@ -133,10 +133,11 @@ pub trait Module: Send + Sync + 'static {
 | `create(SessionSpec) -> SessionRef` | `SessionSpec { space, instance, scene, project_root, provider, model, permission_mode, permission_rules, output_schema, recording }`，全是 `Option`，`..Default::default()` |
 | `open(instance, session_id)` | 已有的会话（内存里的或只在磁盘上的） |
 | `send(&s, text, OnBusy)` | `OnBusy::{Queue（默认）, Reject, Interrupt, Steer}` |
+| `send_with(&s, text, SendOptions)` | `SendOptions { on_busy, attachments: Vec<Attachment>, references: Vec<SessionRef> }`；`Attachment::{file(path), text(path, content), image(media_type, base64)}`；`references` 同输入框的 `@session`（那个会话的转录作为文本附件）；带附件的不 steer（ipdrun-44） |
 | `interrupt(&s)` / `close(&s)` | — |
 | `append_entry(&s, Entry::new(event, payload))` | 扩展条目（M7）：命名空间由中枢定为 `app.<模块 id>`；只给人看 |
 | `entries(&s) -> Vec<Value>` | 本模块写过的条目，最早的在前 |
-| `tap(&s)` / `tap_with_capacity(&s, n)` | 帧流，默认容量 `TAP_CAPACITY = 512`。`tap.next()` → `TapEvent::Frame(json)` 或 `TapEvent::Lagged { last_seq }`；落后了 `tap.catch_up()`。`tap.next_settled() -> Option<Value>`：跳过别的帧，只等下一个 `harnix.turn_settled` 的 params；满了时结算帧另存（最多 `SETTLED_HELD = 64`），落后也不丢 |
+| `tap(&s)` / `tap_with_capacity(&s, n)` | 帧流，默认容量 `TAP_CAPACITY = 512`。`tap.next()` → `TapEvent::Frame(json)` 或 `TapEvent::Lagged { last_seq }`；落后了 `tap.catch_up()`。`tap.next_settled() -> Option<Value>`：跳过别的帧，只等下一个 `harnix.turn_settled` 的 params；满了时结算帧另存（最多 `SETTLED_HELD = 64`），落后也不丢。`tap.catch_up_settled()`：同 `catch_up`，另存的结算帧按位置放回 `next()` 读的队列（ipdrun-41）。`outcome` 有 `stop_reason`、`usage`、`text`（回答文本，最多 64 KiB，超了 `text_truncated`）、`tool_calls`（`[{id, name, is_error?}]`），有才有的 `structured_output`、`message` |
 
 `SessionRef { instance, session_id }`：会话的全名永远带实例。
 

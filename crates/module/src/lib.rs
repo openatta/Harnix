@@ -36,7 +36,7 @@ pub use manifest::Manifest;
 pub use methods::{Handler, MethodDecl, MethodRegistry};
 pub use routes::{RouteDecl, RouteRegistry};
 pub use sessions::{
-    Entry, Instances, OnBusy, SessionRef, SessionSpec, Sessions, Tap, TapEvent, TapParts,
+    Attachment, Entry, Instances, OnBusy, SendOptions, SessionRef, SessionSpec, Sessions, Tap, TapEvent, TapParts,
     SETTLED_HELD, TAP_CAPACITY,
 };
 

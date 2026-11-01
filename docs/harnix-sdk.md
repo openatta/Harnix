@@ -466,10 +466,14 @@ while let Some(item) = tap.next().await {
 - `OnBusy`：`Queue`（排队，默认）、`Reject`、`Interrupt`（中断本轮、丢掉排着的，然后跑这条）、`Steer`
   （在下一个步骤边界送进运行中的一轮；带附件的照样排队）。
 - **tap 会落后**：它是有界通道（默认 512 帧，`tap_with_capacity` 可调），中枢不会为了等你而卡住会话。
-  落后了就先收到 `Lagged`，再 `catch_up()`：和刷新页面的客户端走同一条路。
+  落后了就先收到 `Lagged`，再 `catch_up()`：和刷新页面的客户端走同一条路。逐帧读、又要每一轮的结算的，用 `catch_up_settled()`：
+  tap 满时另存的结算帧按位置放回 `next()` 读的队列（缓冲里还有它那一轮的事件就排在那些事件之后，否则排在回放之前）。
 - **只要一轮怎么结束的**：`tap.next_settled().await` 只等 `harnix.turn_settled`，返回它的 params：`turn_id`、`result` 或 `error`，
-  以及 `outcome`（`stop_reason`、`usage`，有才有的 `structured_output` 和 hook 截停时的 `message`，取自这一轮的 `turn_complete`）。
-  tap 满了时结算帧另存（最多 `SETTLED_HELD` 个），落后也拿得到，不必 `catch_up`。回答的全文不在里面，读 `session.history`。
+  以及 `outcome`（`stop_reason`、`usage`，有才有的 `structured_output` 和 hook 截停时的 `message`，取自这一轮的 `turn_complete`；
+  `text` 是这一轮的回答文本、`tool_calls` 是它调过的工具 `[{id, name, is_error?}]`，由中枢逐帧收集）。
+  tap 满了时结算帧另存（最多 `SETTLED_HELD` 个），落后也拿得到，不必 `catch_up`。回答超过 64 KiB 的截尾（`text_truncated: true`），全文读 `session.history`。
+- **带附件发**：`send_with(&s, text, SendOptions { attachments: vec![Attachment::file("docs/a.md")], ..Default::default() })`；
+  `references` 是别的会话（同输入框的 `@session`）。带附件的消息不 steer，排到下一轮。
 - `open(instance, session_id)` 拿一个已有的会话（内存里的或只在磁盘上的）；`interrupt`、`close` 同名。
 - 实例重连期间的发送进队列，实例回来、会话 resync 之后照常跑。
 - 会话的全名是 `(instance, session)`，任何地方都带着实例。

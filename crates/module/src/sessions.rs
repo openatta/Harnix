@@ -126,6 +126,80 @@ impl OnBusy {
     }
 }
 
+/// Something a message carries for the turn to read (ipdrun-44), in the shape the engine takes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Attachment {
+    /// A file the engine reads when the turn starts: an image by its extension, anything else as
+    /// text. The path is the engine's — on its machine, absolute or relative to the session's
+    /// project.
+    File { path: String },
+    /// Text already read; `path` labels it for the model and may be a made-up name.
+    Text { path: String, content: String },
+    /// An image already decoded: base64, no data-URI prefix.
+    Image { media_type: String, data: String },
+}
+
+impl Attachment {
+    pub fn file(path: impl Into<String>) -> Self {
+        Attachment::File { path: path.into() }
+    }
+
+    pub fn text(path: impl Into<String>, content: impl Into<String>) -> Self {
+        Attachment::Text {
+            path: path.into(),
+            content: content.into(),
+        }
+    }
+
+    pub fn image(media_type: impl Into<String>, data: impl Into<String>) -> Self {
+        Attachment::Image {
+            media_type: media_type.into(),
+            data: data.into(),
+        }
+    }
+
+    fn to_value(&self) -> Value {
+        match self {
+            Attachment::File { path } => json!({"kind": "file", "path": path}),
+            Attachment::Text { path, content } => {
+                json!({"kind": "text", "path": path, "content": content})
+            }
+            Attachment::Image { media_type, data } => {
+                json!({"kind": "image", "media_type": media_type, "data": data})
+            }
+        }
+    }
+}
+
+/// How [`Sessions::send_with`] sends: what [`Sessions::send`] takes, and what a message from the
+/// interface can carry besides its text.
+#[derive(Debug, Clone, Default)]
+pub struct SendOptions {
+    pub on_busy: OnBusy,
+    pub attachments: Vec<Attachment>,
+    /// Other sessions whose conversation the turn gets as a text attachment — what `@session`
+    /// does in the composer.
+    pub references: Vec<SessionRef>,
+}
+
+impl SendOptions {
+    fn params(&self, session: &SessionRef, message: &str) -> Value {
+        let mut params = json!({
+            "instance": session.instance,
+            "session_id": session.session_id,
+            "message": message,
+            "on_busy": self.on_busy.as_str(),
+        });
+        if !self.attachments.is_empty() {
+            params["attachments"] = self.attachments.iter().map(Attachment::to_value).collect();
+        }
+        if !self.references.is_empty() {
+            params["references"] = self.references.iter().map(key).collect();
+        }
+        params
+    }
+}
+
 pub struct Sessions<'a> {
     pub(crate) cx: &'a ModuleContext,
 }
@@ -170,6 +244,20 @@ impl Sessions<'_> {
                     "on_busy": on_busy.as_str(),
                 }),
             )
+            .await
+    }
+
+    /// [`Sessions::send`] with attachments and session references (ipdrun-44). A message with
+    /// attachments is never steered into a running turn: with [`OnBusy::Steer`] it waits for the
+    /// next one, as from the interface.
+    pub async fn send_with(
+        &self,
+        session: &SessionRef,
+        message: &str,
+        options: SendOptions,
+    ) -> Result<Value, RpcError> {
+        self.cx
+            .call("harnix.send", options.params(session, message))
             .await
     }
 
@@ -416,6 +504,46 @@ impl Tap {
         Ok(attached)
     }
 
+    /// [`Tap::catch_up`], and the settlements that were held apart while the tap was full go into
+    /// what [`Tap::next`] reads, each where it belongs (ipdrun-41): after the replayed events of
+    /// its own turn when the hub's buffer still holds them, otherwise before the replay — those
+    /// turns ended earlier, and the buffer only ever holds the latest one. A caller that reads
+    /// frame by frame then sees every `harnix.turn_settled` of the gap, with its `outcome`, and
+    /// does not need [`Tap::next_settled`] next to its loop.
+    pub async fn catch_up_settled(&mut self) -> Result<Value, RpcError> {
+        let attached = (self.reattach)().await?;
+        let held: Vec<Value> = self.pending.drain(..).collect();
+        let replay = self.replay_frames(&attached);
+        let mut settled = Vec::new();
+        while let Some(frame) = self.settled.pop() {
+            settled.push(frame);
+        }
+        let turn_of = |frame: &Value| {
+            frame
+                .get("params")
+                .and_then(|p| p.get("turn_id"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        };
+        let (mut late, early): (Vec<Value>, Vec<Value>) = settled.into_iter().partition(|s| {
+            let turn = turn_of(s);
+            turn.is_some() && replay.iter().any(|f| turn_of(f) == turn)
+        });
+        self.pending.extend(early);
+        for (i, frame) in replay.iter().enumerate() {
+            self.pending.push_back(frame.clone());
+            let turn = turn_of(frame);
+            if replay[i + 1..].iter().all(|f| turn_of(f) != turn) {
+                let (theirs, rest): (Vec<Value>, Vec<Value>) =
+                    late.into_iter().partition(|s| turn_of(s) == turn);
+                self.pending.extend(theirs);
+                late = rest;
+            }
+        }
+        self.pending.extend(held);
+        Ok(attached)
+    }
+
     pub fn last_seq(&self) -> u64 {
         self.last_seq
     }
@@ -455,22 +583,27 @@ impl Tap {
     }
 
     fn take_replay(&mut self, attached: &Value) {
-        let instance = self.session.instance.clone();
-        let session_id = self.session.session_id.clone();
-        for entry in attached
+        let frames = self.replay_frames(attached);
+        self.pending.extend(frames);
+    }
+
+    fn replay_frames(&self, attached: &Value) -> Vec<Value> {
+        let instance = &self.session.instance;
+        let session_id = &self.session.session_id;
+        attached
             .get("replay")
             .and_then(Value::as_array)
             .into_iter()
             .flatten()
-        {
-            let mut params = entry.clone();
-            if let Some(obj) = params.as_object_mut() {
-                obj.insert("instance".into(), json!(instance));
-                obj.insert("session_id".into(), json!(session_id));
-            }
-            self.pending
-                .push_back(json!({"method": "harnix.event", "params": params}));
-        }
+            .map(|entry| {
+                let mut params = entry.clone();
+                if let Some(obj) = params.as_object_mut() {
+                    obj.insert("instance".into(), json!(instance));
+                    obj.insert("session_id".into(), json!(session_id));
+                }
+                json!({"method": "harnix.event", "params": params})
+            })
+            .collect()
     }
 
     /// Whether this frame is past what was already read. A frame without a
@@ -560,5 +693,129 @@ impl FrameSink for TapSink {
 
     fn wants(&self, channel: Channel) -> bool {
         channel == Channel::SessionEvents
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn frame(session: &str, method: &str, params: Value) -> Frame {
+        Frame::session(
+            session,
+            json!({"jsonrpc": "2.0", "method": method, "params": params}).to_string(),
+        )
+    }
+
+    fn event(seq: u64, turn: &str) -> Value {
+        json!({"session_id": "s", "seq": seq, "turn_id": turn, "event": {"kind": "text_delta", "text": "x"}})
+    }
+
+    fn settled(turn: &str) -> Value {
+        json!({"session_id": "s", "turn_id": turn, "outcome": {"stop_reason": "end_turn"}})
+    }
+
+    fn label(frame: &Value) -> String {
+        let p = &frame["params"];
+        match frame["method"].as_str() {
+            Some("harnix.turn_settled") => format!("settled:{}", p["turn_id"].as_str().unwrap()),
+            _ => format!("{}#{}", p["turn_id"].as_str().unwrap(), p["seq"]),
+        }
+    }
+
+    async fn drain(tap: &mut Tap) -> Vec<String> {
+        let mut out = Vec::new();
+        while let Ok(Some(TapEvent::Frame(f))) =
+            tokio::time::timeout(std::time::Duration::from_millis(50), tap.next()).await
+        {
+            out.push(label(&f));
+        }
+        out
+    }
+
+    /// A tap of capacity 1 that is never read while three turns go by: the second and third
+    /// settle in the gap; the hub's buffer holds only the third turn's events.
+    async fn behind() -> Tap {
+        let session = SessionRef {
+            instance: "system".into(),
+            session_id: "s".into(),
+        };
+        let (sink, parts) = Tap::channel(session, 1);
+        let attached = json!({"replay": [event(5, "t3"), event(6, "t3")]});
+        let reattach: Reattach = Arc::new(move || {
+            let attached = attached.clone();
+            Box::pin(async move { Ok(attached) })
+        });
+        let mut tap = Tap::new(parts, json!({}), reattach, Box::new(|| {}));
+        for (method, params) in [
+            ("harnix.event", event(1, "t1")),
+            ("harnix.turn_settled", settled("t1")),
+            ("harnix.event", event(2, "t2")),
+            ("harnix.turn_settled", settled("t2")),
+            ("harnix.event", event(5, "t3")),
+            ("harnix.event", event(6, "t3")),
+            ("harnix.turn_settled", settled("t3")),
+        ] {
+            sink.deliver(frame("s", method, params)).await;
+        }
+        assert!(matches!(tap.next().await, Some(TapEvent::Lagged { .. })));
+        tap
+    }
+
+    #[test]
+    fn send_options_carry_attachments_and_references_in_the_engine_shape() {
+        let session = SessionRef {
+            instance: "i".into(),
+            session_id: "s".into(),
+        };
+        let options = SendOptions {
+            on_busy: OnBusy::Steer,
+            attachments: vec![
+                Attachment::file("docs/a.md"),
+                Attachment::text("note", "hello"),
+                Attachment::image("image/png", "AAAA"),
+            ],
+            references: vec![SessionRef {
+                instance: "i".into(),
+                session_id: "other".into(),
+            }],
+        };
+        assert_eq!(
+            options.params(&session, "look"),
+            json!({
+                "instance": "i", "session_id": "s", "message": "look", "on_busy": "steer",
+                "attachments": [
+                    {"kind": "file", "path": "docs/a.md"},
+                    {"kind": "text", "path": "note", "content": "hello"},
+                    {"kind": "image", "media_type": "image/png", "data": "AAAA"},
+                ],
+                "references": [{"instance": "i", "session_id": "other"}],
+            })
+        );
+        let plain = SendOptions::default().params(&session, "hi");
+        assert_eq!(
+            plain,
+            json!({"instance": "i", "session_id": "s", "message": "hi", "on_busy": "queue"}),
+            "nothing extra: exactly what send sends"
+        );
+    }
+
+    #[tokio::test]
+    async fn catch_up_settled_puts_each_held_settlement_where_it_belongs() {
+        let mut tap = behind().await;
+        tap.catch_up_settled().await.unwrap();
+        assert_eq!(
+            drain(&mut tap).await,
+            ["settled:t1", "settled:t2", "t3#5", "t3#6", "settled:t3"],
+            "t1 and t2 ended before the buffered turn; t3's settlement follows its events"
+        );
+    }
+
+    #[tokio::test]
+    async fn catch_up_still_leaves_the_held_settlements_to_next_settled() {
+        let mut tap = behind().await;
+        tap.catch_up().await.unwrap();
+        assert_eq!(drain(&mut tap).await, ["t3#5", "t3#6"]);
+        assert_eq!(tap.next_settled().await.unwrap()["turn_id"], "t1");
     }
 }

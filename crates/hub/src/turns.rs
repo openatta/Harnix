@@ -265,6 +265,7 @@ impl Hub {
             state.running_turn = Some(turn_id.clone());
             state.external = false;
             state.last_complete = None;
+            state.answer = Default::default();
             state.history_total_before_turn = total;
             state.replay.clear();
             state.seq += 1;
@@ -316,7 +317,8 @@ impl Hub {
             if total_after > state.history_total_before_turn {
                 state.replay.clear();
             }
-            (state.watchers(), state.queue.pop_front(), state.last_complete.take())
+            let answer = std::mem::take(&mut state.answer);
+            (state.watchers(), state.queue.pop_front(), state.last_complete.take().map(|c| (c, answer)))
         };
 
         let mut params = match &outcome {
@@ -328,8 +330,8 @@ impl Hub {
         };
         // How the turn ended, as the engine said in its `turn_complete`: here too, so a watcher
         // that missed that frame (a tap that fell behind) still has it (ipdrun-17).
-        if let Some(complete) = complete {
-            params["outcome"] = outcome_of(&complete);
+        if let Some((complete, answer)) = complete {
+            params["outcome"] = outcome_of(&complete, &answer);
         }
         self.fan_out(
             &watchers,
@@ -442,12 +444,19 @@ impl Hub {
 }
 
 /// What `harnix.turn_settled` carries as `outcome`: the points of the engine's `turn_complete` a
-/// caller acts on. The answer's text is not among them; it is in `session.history`.
-fn outcome_of(complete: &Value) -> Value {
+/// caller acts on, and what the turn said and called (ipdrun-41) — the answer's text up to
+/// [`ANSWER_TEXT_MAX`](crate::session::ANSWER_TEXT_MAX) (`text_truncated` past it; the whole of it
+/// is in `session.history`), and each tool call's `id`, `name` and `is_error` once it has a result.
+fn outcome_of(complete: &Value, answer: &crate::session::Answer) -> Value {
     let mut outcome = json!({
         "stop_reason": complete.get("stop_reason").cloned().unwrap_or(Value::Null),
         "usage": complete.get("usage").cloned().unwrap_or(Value::Null),
+        "text": answer.text,
+        "tool_calls": answer.tool_calls,
     });
+    if answer.truncated {
+        outcome["text_truncated"] = json!(true);
+    }
     for key in ["structured_output", "message"] {
         if let Some(value) = complete.get(key).filter(|v| !v.is_null()) {
             outcome[key] = value.clone();
@@ -468,15 +477,56 @@ mod outcome_tests {
             "structured_output": {"ok": true}, "message": "the hook said no", "context": {"x": 1},
         });
         assert_eq!(
-            outcome_of(&complete),
+            outcome_of(&complete, &Default::default()),
             json!({
                 "stop_reason": "stopped_by_hook",
                 "usage": {"input_tokens": 10, "output_tokens": 3},
                 "structured_output": {"ok": true},
                 "message": "the hook said no",
+                "text": "",
+                "tool_calls": [],
             })
         );
-        let plain = outcome_of(&json!({"kind": "turn_complete", "stop_reason": "end_turn", "usage": {}}));
+        let plain = outcome_of(&json!({"kind": "turn_complete", "stop_reason": "end_turn", "usage": {}}), &Default::default());
         assert!(plain.get("structured_output").is_none() && plain.get("message").is_none());
+    }
+
+    #[test]
+    fn the_outcome_has_what_the_turn_said_and_called() {
+        let mut answer = crate::session::Answer::default();
+        for (kind, event) in [
+            ("text_delta", json!({"text": "Let me look. "})),
+            ("tool_use", json!({"id": "tu1", "name": "Read", "input": {"path": "a"}})),
+            ("tool_use", json!({"id": "tu2", "name": "Bash", "input": {}})),
+            ("tool_result", json!({"id": "tu1", "name": "Read", "content": "x", "is_error": false})),
+            ("tool_result", json!({"id": "tu2", "name": "Bash", "content": "boom", "is_error": true})),
+            ("thinking_delta", json!({"text": "hmm"})),
+            ("text_delta", json!({"text": "Done."})),
+        ] {
+            answer.take_event(kind, &event);
+        }
+        let outcome = outcome_of(&json!({"stop_reason": "end_turn", "usage": {}}), &answer);
+        assert_eq!(outcome["text"], "Let me look. Done.");
+        assert_eq!(
+            outcome["tool_calls"],
+            json!([
+                {"id": "tu1", "name": "Read", "is_error": false},
+                {"id": "tu2", "name": "Bash", "is_error": true},
+            ])
+        );
+        assert!(outcome.get("text_truncated").is_none());
+    }
+
+    #[test]
+    fn a_long_answer_is_cut_on_a_char_boundary_and_says_so() {
+        let mut answer = crate::session::Answer::default();
+        let chunk = "é".repeat(1000);
+        while !answer.truncated {
+            answer.take_event("text_delta", &json!({"text": chunk}));
+        }
+        answer.take_event("text_delta", &json!({"text": "more"}));
+        assert!(answer.text.len() <= crate::session::ANSWER_TEXT_MAX);
+        let outcome = outcome_of(&json!({"stop_reason": "end_turn"}), &answer);
+        assert_eq!(outcome["text_truncated"], true);
     }
 }

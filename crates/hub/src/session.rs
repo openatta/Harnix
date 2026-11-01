@@ -54,6 +54,50 @@ pub(crate) struct SessionState {
     /// The running turn's `turn_complete` event, once the engine has sent it: what settling
     /// reports as the turn's `outcome` (ipdrun-17).
     pub last_complete: Option<Value>,
+    /// The running turn's answer and tool calls, as its events went by: what settling reports as
+    /// `outcome.text` and `outcome.tool_calls` (ipdrun-41).
+    pub answer: Answer,
+}
+
+/// What a turn said and which tools it called, gathered from its events.
+#[derive(Default)]
+pub(crate) struct Answer {
+    pub text: String,
+    pub truncated: bool,
+    pub tool_calls: Vec<Value>,
+}
+
+/// The most answer text `outcome.text` carries; the rest is in `session.history`.
+pub(crate) const ANSWER_TEXT_MAX: usize = 64 * 1024;
+
+impl Answer {
+    pub fn take_event(&mut self, kind: &str, event: &Value) {
+        let field = |k: &str| event.get(k).and_then(Value::as_str).unwrap_or("");
+        match kind {
+            "text_delta" => {
+                let text = field("text");
+                let room = ANSWER_TEXT_MAX.saturating_sub(self.text.len());
+                if text.len() <= room {
+                    self.text.push_str(text);
+                } else {
+                    let cut = (0..=room).rev().find(|i| text.is_char_boundary(*i)).unwrap_or(0);
+                    self.text.push_str(&text[..cut]);
+                    self.truncated = true;
+                }
+            }
+            "tool_use" => self.tool_calls.push(json!({"id": field("id"), "name": field("name")})),
+            "tool_result" => {
+                if let Some(call) = self
+                    .tool_calls
+                    .iter_mut()
+                    .find(|c| c.get("id").and_then(Value::as_str) == Some(field("id")))
+                {
+                    call["is_error"] = json!(event.get("is_error").and_then(Value::as_bool).unwrap_or(false));
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 impl SessionState {
@@ -97,7 +141,7 @@ pub(crate) async fn route_event(inner: &Arc<Mutex<Inner>>, instance: &str, param
                 state.pending_prompts.clear();
                 state.last_complete = Some(event.clone());
             }
-            _ => {}
+            _ => state.answer.take_event(kind, &event),
         }
         state.seq += 1;
         let seq = state.seq;

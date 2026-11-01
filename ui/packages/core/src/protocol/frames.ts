@@ -479,7 +479,17 @@ export interface Notifications {
     result?: { name?: string | null; usage?: Usage; [key: string]: unknown };
     error?: CallError;
     /** 这一轮怎么结束的：它的 `turn_complete` 里的几项（没有 `turn_complete` 的轮没有）。 */
-    outcome?: { stop_reason?: string | null; usage?: Usage | null; structured_output?: unknown; message?: string; [key: string]: unknown };
+    outcome?: {
+      stop_reason?: string | null;
+      usage?: Usage | null;
+      structured_output?: unknown;
+      message?: string;
+      /** 这一轮的回答文本，最多 64 KiB，超了截尾并 `text_truncated`；工具调用带 `is_error`（ipdrun-41）。 */
+      text?: string;
+      text_truncated?: boolean;
+      tool_calls?: { id: string; name: string; is_error?: boolean }[];
+      [key: string]: unknown;
+    };
   };
   /** 队列的整值快照。 */
   "harnix.queue": { instance: string; session_id: string; items: QueueItem[] };
