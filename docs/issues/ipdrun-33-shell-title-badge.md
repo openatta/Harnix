@@ -41,3 +41,9 @@ interface NestHost {
 ## 来源
 
 IPDrun 首页的「需要你」计数要显示在页签上，现在由 `ui/kit/src/notify.ts` 的 `keepTitlePrefix` 用 `MutationObserver` 补前缀；有了这个原语这段可以删掉。
+
+## 落地
+
+落地提交：`27f75e2`（main，2026-11-01，未推送；版本待下次发布）。
+取第一种：`NestHost.shell.badge(n)`；外壳 `App.setTitleBadge`（快照 `titleBadge`，只认 > 0 的整数），`brand.ts` 写标题时用 `titleOf(name, badge)`。
+测试：`ui/packages/shell/test/title-badge.test.tsx`。
