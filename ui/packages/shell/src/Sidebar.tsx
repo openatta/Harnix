@@ -85,7 +85,7 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
         </div>
         {overlay ? createPortal(<div id="tl-tools">{collapse}</div>, document.body) : collapse}
       </div>
-      {space?.newSession === false ? null : (
+      {space?.newSession === false || !app.startsSessions() ? null : (
         <>
           <button type="button" id="new" className="nav new" title={t("sidebar.newSessionHint")} onClick={() => void startNew()}>
             <Glyph name="edit" className="glyph" />

@@ -273,8 +273,9 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         spaces,
     });
     hub.set_replay_strict(cli.replay_strict);
-    // What the shell is told at hello: the brand, which built-in spaces this product keeps, and
-    // whether installed packages' interface modules load (design §10.5).
+    // What the shell is told at hello: the brand, which built-in spaces this product keeps,
+    // whether installed packages' interface modules load (design §10.5), and whether it starts new
+    // sessions at all (`new_session`, ipdrun-46).
     let brand_icon = profile.brand.icon.as_ref().map(|icon| match &cli.profile {
         Some(path) => path
             .parent()
@@ -290,6 +291,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
             "product_id": profile.brand.product_id.as_deref().unwrap_or("harnix"),
         },
         "runtime_modules": profile.ui.runtime_modules,
+        "new_session": profile.shell.new_session,
         "state_dir": roots.state.display().to_string(),
         "projects_dir": roots.projects.display().to_string(),
         // Whose process this is: the avatar's name. One process, one person (design §2).

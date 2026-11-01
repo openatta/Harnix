@@ -146,6 +146,8 @@ function useShortcuts(app: App) {
       if (event.key === "Escape" && app.snapshot.modal) {
         app.closeModal();
       } else if (mod && event.key.toLowerCase() === "k") {
+        // `[shell] new_session = false` (ipdrun-46): ⌘K is not the shell's — left to the page.
+        if (!app.startsSessions()) return;
         event.preventDefault();
         document.querySelector<HTMLButtonElement>("#new")?.click();
       } else if (mod && event.key === "\\") {

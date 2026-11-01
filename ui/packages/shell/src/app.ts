@@ -448,6 +448,12 @@ export class App {
     this.set({ space });
   }
 
+  /** Whether the shell offers to start a session at all: `[shell] new_session` (ipdrun-46), on unless
+   *  the profile says false. A space's own `newSession` applies on top. */
+  startsSessions(): boolean {
+    return this.state.hello?.shell?.new_session !== false;
+  }
+
   /** The backend space a front space's sessions belong to (`SpaceContribution.sessions`). */
   claim(space = this.state.space): string {
     return this.registry.at("space").find((c) => c.id === space)?.sessions ?? space;

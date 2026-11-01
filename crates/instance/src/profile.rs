@@ -85,6 +85,10 @@ pub struct ShellProfile {
     /// `harnix.sessions.setModel`, scoped to the space the caller claims (ipdrun-12). Off unless
     /// written, so a product that left model choice to the settings page keeps it there.
     pub model_switch: bool,
+    /// Whether the shell draws its "New session" button and takes ⌘K to start one (ipdrun-46).
+    /// On unless written: `false` hides both in every space; a space's own `newSession` still
+    /// applies on top. Only the interface; the hub still takes `session.create`.
+    pub new_session: bool,
 }
 
 impl Default for ShellProfile {
@@ -92,6 +96,7 @@ impl Default for ShellProfile {
         Self {
             spaces: BUILTIN_SPACES.iter().map(|s| s.to_string()).collect(),
             model_switch: false,
+            new_session: true,
         }
     }
 }
@@ -357,8 +362,19 @@ mod tests {
         assert!(!profile.shell.keeps("system"));
         let profile = Profile::parse("[shell]\nspaces = []\nmodel_switch = true\n").unwrap();
         assert!(profile.shell.model_switch && !profile.shell.keeps("system"));
+        assert!(profile.shell.new_session);
         let err = Profile::parse("[shell]\nspaces = [\"home\"]\n").unwrap_err();
         assert!(err.to_string().contains("home"), "{err}");
+    }
+
+    #[test]
+    fn the_shell_starts_new_sessions_unless_told() {
+        let shell = |text: &str| Profile::parse(text).unwrap().shell;
+        assert!(shell("").new_session && shell("[shell]\nspaces = []\n").new_session);
+        let off = shell("[shell]\nnew_session = false\n");
+        assert!(!off.new_session && off.keeps("system"));
+        assert!(shell("[shell]\nnew_session = true\n").new_session);
+        assert!(ShellProfile::default().new_session);
     }
 
     #[test]

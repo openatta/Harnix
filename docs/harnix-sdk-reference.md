@@ -189,6 +189,7 @@ product_id = "helm"            # 程序自己的目录 ~/.helm（§4）；小写
 spaces = ["sessions", "projects", "system"]   # 留哪些内建 space；不写是三个都留，[] 是一个不留
                                # 去掉 system 时它的方法一起撤：谁也声称不了系统 space，也不能跨 space 操作
 model_switch = false           # true：加 harnix.sessions.setModel，没有系统 space 也能在输入框换模型（只限调用方声称的 space 的会话）
+new_session = true             # false：整个外壳不画「新会话」、⌘K 不归外壳（每个 space 都这样；space 自己的 newSession 照旧叠加）；只是界面
 
 [ui]
 dir = "…"                      # 从这个目录出界面（同 --ui-dir）；不写用编进二进制的
@@ -292,7 +293,7 @@ schema、来自哪个模块）。下表是分组索引。
 
 | 组 | 方法 | 谁 |
 |---|---|---|
-| 握手与会话驱动（中枢） | `harnix.hello`（含 `shell`：品牌、留下的内建 space、`runtime_modules`、目录）、`harnix.sessions`、`harnix.attach`、`harnix.detach`、`harnix.send`、`harnix.queue.remove`、`harnix.subscribe`、`harnix.unsubscribe` | 设备 |
+| 握手与会话驱动（中枢） | `harnix.hello`（含 `shell`：品牌、留下的内建 space、`runtime_modules`、`new_session`、目录）、`harnix.sessions`、`harnix.attach`、`harnix.detach`、`harnix.send`、`harnix.queue.remove`、`harnix.subscribe`、`harnix.unsubscribe` | 设备 |
 | 进程（中枢） | `harnix.process`：版本、运行时长、峰值内存、已连接用户（设备、连接方式、User-Agent、连上的时间） | 设备 |
 | 实例（中枢） | `harnix.instances.list / templates / sessions / create / ensure / stop / restart / wait`、`harnix.sessions.tasks`。`create` / `ensure` 可带 `wait: "ready"`、`timeout_ms`（缺省 60000）：等这台变成 `ready` 再答，变成 `down` 立即以 `-31004` 报错（带理由），超时同样；`wait {instance, timeout_ms?}` 是对已有实例的同一种等。并发 `ensure` 同名同模板都拿到同一台 | 设备（`create` 只认 `ui` 模板） |
 | space、条目（中枢） | `harnix.spaces.list`、`harnix.entries.append`（只许模块与内核） | — |

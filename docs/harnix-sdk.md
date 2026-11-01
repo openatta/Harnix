@@ -116,6 +116,7 @@ product_id = "helm"              # 程序自己的配置与状态放 ~/.helm（�
 
 [shell]
 spaces = ["sessions", "projects"]   # 留哪些内建 space：这里去掉了系统 space（产品里一般关掉调试面）
+# new_session = false            # 不写是 true；false：哪个 space 都不画「新会话」、⌘K 不新建（会话由应用自己建）
 
 [engine]                         # system 实例
 scene = "default"
