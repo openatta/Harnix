@@ -385,6 +385,7 @@ export function register(r: Registry, host: NestHost): void
 | `settings.open(section?)` | 打开设置面板的一节；内建的 id：`general`、`scenes`、`models`、`mcp`、`plugins`、`devices`、`diagnostics`、`about`；没有这一节时打开第一节 |
 | `instances.list() / sessions(instance) / tasks(instance, sessionId) / create(template, name, params?) / stop(instance)` | — |
 | `composer.insert(text, { session? })` | 不给 `session`：插进页上的输入框（同以前）。给了：那个会话的输入框在页上就插进去，不在就替它存着（再插接在后面），它挂上时放进去 |
+| `modal.isOpen() / onChange(fn)` | 外壳自己的模态层开着没有；开合变了通知，返回退订。开着时 Esc 只关模态层，不再传到冒泡阶段的 document / window 监听 |
 | `space(moduleId).fetch(path, init?) / socket(path)` | 模块自有链接（M7） |
 | `reveal(item)` | 右栏打开详情 |
 | `t(key, …)` | 文案 |

@@ -94,6 +94,10 @@ export function hostFor(app: App, owner = "page"): NestHost {
         openSettings(app, section !== undefined && ids.includes(section) ? section : ids[0]);
       },
     },
+    modal: {
+      isOpen: () => app.snapshot.modal != null,
+      onChange: (fn) => app.onModal(fn),
+    },
     redraw: () => app.redraw(),
     space: (module) => ({
       fetch: (path, init) => app.client.appFetch(module, path, init),

@@ -83,6 +83,13 @@ export interface NestHost {
      */
     insert(text: string, options?: { session?: SessionRef }): void;
   };
+  modal: {
+    /** The shell's own modal layer (settings, dialogs) is open. */
+    isOpen(): boolean;
+    /** It opened or closed. Returns the unsubscribe. While it is open, Escape closes it and goes no
+     *  further: document- and window-level key listeners do not see it. */
+    onChange(fn: (open: boolean) => void): () => void;
+  };
   /**
    * A module's own link (design §7.7): its routes under `/apps/<module>/`, same-origin, with the
    * credential put on by the host. Paths cannot leave the module's prefix. These links do not get

@@ -264,6 +264,9 @@ export class App {
     next.current = next.currentBySpace[next.space] ?? null;
     this.state = next;
     for (const fn of [...this.listeners]) fn();
+    if ((before.modal == null) !== (next.modal == null)) {
+      for (const fn of [...this.modalListeners]) fn(next.modal != null);
+    }
     if (!sameKey(before.current, next.current)) {
       const ref = next.current ? { instance: next.current.instance, sessionId: next.current.sessionId } : null;
       for (const fn of [...this.currentListeners]) fn(ref);
@@ -276,6 +279,14 @@ export class App {
   onCurrent(fn: (current: SessionKey | null) => void): () => void {
     this.currentListeners.add(fn);
     return () => this.currentListeners.delete(fn);
+  }
+
+  private readonly modalListeners = new Set<(open: boolean) => void>();
+
+  /** The shell's own modal layer opened or closed. */
+  onModal(fn: (open: boolean) => void): () => void {
+    this.modalListeners.add(fn);
+    return () => this.modalListeners.delete(fn);
   }
 
   /* ── composers ────────────────────────────────────────────────────── */

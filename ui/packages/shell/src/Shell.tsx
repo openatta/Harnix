@@ -128,6 +128,19 @@ export function isDark(): boolean {
 
 function useShortcuts(app: App) {
   useEffect(() => {
+    // While the shell's modal is open, Escape is its: one from outside the modal (focus left on the
+    // page) closes it here, before any listener of a space sees it. One from inside goes through the
+    // modal's own handler (`ModalHost`), so what is in the modal can still take Escape first.
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || !app.snapshot.modal) return;
+      if (event.target instanceof Node && document.getElementById("modal")?.contains(event.target)) return;
+      event.stopPropagation();
+      app.closeModal();
+    };
+    window.addEventListener("keydown", onEscape, true);
+    return () => window.removeEventListener("keydown", onEscape, true);
+  }, [app]);
+  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const mod = event.metaKey || event.ctrlKey;
       if (event.key === "Escape" && app.snapshot.modal) {
@@ -990,7 +1003,18 @@ function ModalHost({ app, s }: { app: App; s: ShellState }) {
       }}
     >
       {modal ? (
-        <div id="modal" role="dialog" aria-modal="true" className={modal.wide ? "wide" : ""}>
+        <div
+          id="modal"
+          role="dialog"
+          aria-modal="true"
+          className={modal.wide ? "wide" : ""}
+          onKeyDown={(event) => {
+            // Escape closes the modal and goes no further: a space's key listener does not also act.
+            if (event.key !== "Escape") return;
+            event.stopPropagation();
+            app.closeModal();
+          }}
+        >
           <div className="head">
             <span className="title">{modal.title}</span>
             <button type="button" className="icon-btn close" title={t("common.close")} onClick={() => app.closeModal()}>
