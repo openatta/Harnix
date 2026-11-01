@@ -49,4 +49,8 @@ IPDrun R11 「项目」space：stage-R11.md §1.10。没有打开的项目时，
 
 ## 落地
 
-（待填）
+落地提交：`521801e`（main，2026-11-01，未推送；版本待下次发布）。
+`SpaceContribution.disabled?(): string | false | null | undefined`（`ui/packages/react/src/contrib.ts`）；外壳 `disabledOf(registry, space)`（经 `ask`，
+`ui/packages/shell/src/app.ts`），`SpaceEntry` 画灰与拦点击，`host.spaces.switch` 不切，`App.landOnASpace` 落到没灰的，样式 `#side .nav.disabled`。
+与需求原文的差别：全都灰着时，存着的 space 还在就留在它上面（不硬换到 `order` 最小的）。
+测试：`ui/packages/shell/test/nav-group-disabled.test.tsx`（a disabled space，5）。

@@ -47,4 +47,7 @@ IPDrun R11 「项目」space：stage-R11.md §1.10。左栏品牌下面显示当
 
 ## 落地
 
-（待填）
+落地提交：`4c22164`（main，2026-11-01，未推送；版本待下次发布）。
+`NestHost.shell.context(c: ShellContext | null)`，类型 `ShellContext`（`@harnix/react` 导出，`ui/packages/react/src/host.tsx`）；外壳 `App.setShellContext`
+（快照 `shellContext`），`Sidebar.tsx` 的 `ContextLine` 画在 `.l-top` 下面，样式 `#side .context`；收成图标条时不画。
+测试：`ui/packages/shell/test/shell-context.test.tsx`（4）。

@@ -43,4 +43,7 @@ IPDrun R11 「项目」space：stage-R11.md §1.10。左栏上面是「项目」
 
 ## 落地
 
-（待填）
+落地提交：`ebe867d`（main，2026-11-01，未推送；版本待下次发布）。
+`SpaceContribution.group?: string`（`ui/packages/react/src/contrib.ts`）；`Sidebar.tsx` 的 `SpaceList` 在组不同的相邻两项之间画
+`<div className="sep" role="separator" data-testid="space-sep" />`。
+测试：`ui/packages/shell/test/nav-group-disabled.test.tsx`（space groups，2）。

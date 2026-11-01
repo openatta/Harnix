@@ -51,4 +51,9 @@ IPDrun R11 「项目」space：stage-R11.md §1.10。IPDrun 的会话都由类�
 
 ## 落地
 
-（待填）
+落地提交：`c89f9b5`（main，2026-11-01，未推送；版本待下次发布）。
+Rust：`ShellProfile.new_session`（缺省 true，`crates/instance/src/profile.rs`），hello 的 `shell.new_session`（`crates/app/src/run.rs`）；
+TS：`Hello.shell.new_session?: boolean`（`ui/packages/core/src/protocol/frames.ts`）。外壳：`App.startsSessions()`，`Sidebar.tsx` 不画 `#new` 与它下面的 `.sep`，
+`Shell.tsx` 的 ⌘K 在 false 时直接返回（不 `preventDefault`）。
+只管按钮与 ⌘K：空中区的输入框、「新会话」标题仍由 space 的 `newSession` 管。
+测试：Rust `profile::tests::the_shell_starts_new_sessions_unless_told`；`ui/packages/shell/test/new-session-switch.test.tsx`（3）。

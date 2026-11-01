@@ -66,8 +66,12 @@
 | [ipdrun-38](ipdrun-38-host-modal-state.md) | space 不知道外壳的模态层开着（`host.modal`） | 新能力 | 中 | — |
 | [ipdrun-39](ipdrun-39-space-current-tab.md) | space 说不了自己当前是哪个页签（`SpaceContribution.tab`） | 新能力 | 中 | ipdrun-19 |
 | [ipdrun-40](ipdrun-40-session-open-reveal.md) | 打开会话时定位不到其中的某一条（`session.open(ref, {reveal})`、`session.reveal`） | 新能力 | 中 | — |
+| [ipdrun-46](ipdrun-46-shell-new-session-switch.md) | 产品关不掉整个外壳的「新会话」（profile `[shell] new_session`，缺省 true；hello 带给外壳） | 新能力 | 中 | — |
+| [ipdrun-47](ipdrun-47-space-nav-group.md) | 左栏的 space 列表不能分组（`SpaceContribution.group`） | 新能力 | 低 | — |
+| [ipdrun-48](ipdrun-48-space-disabled.md) | space 不能在左栏暂时灰掉（`SpaceContribution.disabled`） | 新能力 | 中 | 即时刷新要 ipdrun-19 |
+| [ipdrun-49](ipdrun-49-shell-context-line.md) | 左栏品牌下面没有地方放应用的上下文（`host.shell.context`） | 新能力 | 低 | ipdrun-33 |
 
-ipdrun-33、34 补提于 2026-10-30，代码位置对照 `e890f00`（main）；ipdrun-35 提于 2026-11-01；ipdrun-36–45 提于 2026-11-01，对照 `caa934c`（main）。
+ipdrun-33、34 补提于 2026-10-30，代码位置对照 `e890f00`（main）；ipdrun-35 提于 2026-11-01；ipdrun-36–45 提于 2026-11-01，对照 `caa934c`（main）。ipdrun-46–49 提于 2026-11-01，对照 `53f30fb`（main），已落地：46 → `c89f9b5`、47 → `ebe867d`、48 → `521801e`、49 → `4c22164`（main，未推送、未发版）。
 
 `NestHost` 上的新成员（18–21）与 `SpaceContribution` 上的新字段（22–26、28、29）都是可选的；维护者可以按自己的节奏分几版发，
 建议先做 18、19、21、22。
