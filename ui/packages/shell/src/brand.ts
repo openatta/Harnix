@@ -32,14 +32,20 @@ export function themeTokens(): string[] {
   return [...names];
 }
 
+/** The page title: the brand name, with `host.shell.badge`'s count in front when there is one. */
+export function titleOf(name: string, badge: number | null): string {
+  return badge ? `(${badge}) ${name}` : name;
+}
+
 export function useBrand(app: App): void {
   const t = useT();
   const s = useShell(app);
   const registry = useRegistry(app.registry);
   const name = brandName(app, t);
+  const badge = s.titleBadge;
   useEffect(() => {
-    document.title = name;
-  }, [name]);
+    document.title = titleOf(name, badge);
+  }, [name, badge]);
   useEffect(() => {
     registry.knowTokens(themeTokens());
   }, [registry]);

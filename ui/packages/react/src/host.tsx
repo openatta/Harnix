@@ -94,6 +94,12 @@ export interface NestHost {
      */
     insert(text: string, options?: { session?: SessionRef }): void;
   };
+  shell: {
+    /** The page title's count prefix: n > 0 ⇒ `(n) <title>`; null or 0 ⇒ none. The shell puts it on
+     *  whenever it writes the title (brand name, space), so an application never touches
+     *  `document.title` (ipdrun-33). */
+    badge(n: number | null): void;
+  };
   modal: {
     /** The shell's own modal layer (settings, dialogs) is open. */
     isOpen(): boolean;

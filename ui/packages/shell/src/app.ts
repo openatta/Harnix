@@ -113,6 +113,8 @@ export interface ShellState {
   sidebar: "expanded" | "collapsed";
   banner: { text: string; tone?: "info" | "error" } | null;
   modal: Modal | null;
+  /** The page title's count prefix (`host.shell.badge`, ipdrun-33); null ⇒ none. */
+  titleBadge: number | null;
   search: { active: boolean; query: string; hits: SearchHit[] | null | "pending"; truncated: boolean };
   showArchived: boolean;
   expanded: Record<string, boolean>;
@@ -232,6 +234,7 @@ export class App {
       sidebar: "expanded",
       banner: null,
       modal: null,
+      titleBadge: null,
       search: { active: false, query: "", hits: null, truncated: false },
       showArchived: false,
       expanded: {},
@@ -671,6 +674,12 @@ export class App {
 
   closeModal(): void {
     this.set({ modal: null });
+  }
+
+  /** `host.shell.badge`: a whole number above 0 is the title's prefix; anything else clears it. */
+  setTitleBadge(n: number | null): void {
+    const badge = typeof n === "number" && Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+    if (badge !== this.snapshot.titleBadge) this.set({ titleBadge: badge });
   }
 
   setTheme(choice: ThemeChoice): void {

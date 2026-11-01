@@ -106,6 +106,9 @@ export function hostFor(app: App, owner = "page"): NestHost {
         openSettings(app, section !== undefined && ids.includes(section) ? section : ids[0]);
       },
     },
+    shell: {
+      badge: (n) => app.setTitleBadge(n),
+    },
     modal: {
       isOpen: () => app.snapshot.modal != null,
       onChange: (fn) => app.onModal(fn),
