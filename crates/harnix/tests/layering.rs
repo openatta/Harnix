@@ -199,6 +199,22 @@ fn the_contract_depends_on_no_layer() {
     }
 }
 
+/// The light client is what a process's own command line, tests and desktop shell link to talk
+/// to it. Reaching any layer of the server would make every one of them build the server.
+#[test]
+fn the_client_knows_only_the_contract() {
+    for name in dependencies("client") {
+        assert!(
+            !name.starts_with("harnix-") || name == "harnix-contract",
+            "`client` depends on `{name}`; it may know the contract and nothing of the server"
+        );
+        assert!(
+            !["daemon", "base", "runtime", "axum", "hyper", "reqwest"].contains(&name.as_str()),
+            "`client` depends on `{name}`; it is meant to cost its users almost nothing"
+        );
+    }
+}
+
 /// Neither the hub nor the authorizer may name a topology.
 ///
 /// This is §3.3.3's fifth invariant, in the only form that survives: "adding
@@ -369,6 +385,7 @@ fn every_harnix_dependency_resolves() {
         "instance",
         "authz",
         "builtin",
+        "client",
         "contract",
         "harnix",
         "hub",

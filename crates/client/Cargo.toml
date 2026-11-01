@@ -1,0 +1,17 @@
+[package]
+name = "harnix-client"
+version      = "0.4.0-2026102801"
+edition      = "2021"
+rust-version = "1.87"
+license      = "Apache-2.0"
+publish      = false
+description  = "A light client of a running Harnix process: handshake, /rpc, launch links and the event streams, over plain HTTP"
+
+[dependencies]
+harnix-contract = { workspace = true }
+serde_json      = { workspace = true }
+tokio           = { workspace = true, optional = true }
+
+[features]
+# `AsyncClient`: the same calls from async code, each on tokio's blocking pool.
+tokio = ["dep:tokio"]
