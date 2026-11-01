@@ -577,6 +577,7 @@ fn spaces(&self, s: &mut SpaceRegistry) {
 | 字段 | 画在哪 |
 |---|---|
 | `badge()` | 左栏入口上的角标（数字或很短的字；null、0、"" 不画），收起成图标条时是右上角的点 |
+| `disabled()` | 返回一句话 ⇒ 这个 space 暂时进不去：左栏入口灰掉、点不动、悬停是这句话；`host.spaces.switch` 到它不切（照常落定）。连上后落地时存着的 space 灰着，就落到 `order` 最小、没灰的那个。前台的 space 后来灰了，外壳不自动换走。`false` / `null` / `undefined`：照旧；状态变了调 `host.redraw()` |
 | `readOnly(session)` | 返回一句话就把这个会话的输入框换成它。只是界面：服务端照旧收 `harnix.send`，要真拦在后端拦 |
 | `pinned(session)` | 消息流顶上固定的一块（等人回答的问题、要批准的卡） |
 | `composerNotice(session)` | 打开的会话里输入框上方的提醒条。`notice()` 只在新对话首屏；两处都要就写 `composerNotice: () => notice()` |
@@ -616,7 +617,7 @@ export function QuotesTab() {
 | `call(method, params)` | 包括 `app.<id>.*` |
 | `subscribe(topic, params?, onValue)` | 宿主主题，可带参数；返回取消函数。同一页里多处订同一个主题共用一份订阅，最后一个退订才真退 |
 | `session.*` | `current`、`context`、`list`（本 space）、`open`、`create`、`onChange`（前台会话变了；hook 是 `useCurrentSession()`）。会话都是 `(instance, session)`。`open(ref, {switchSpace: true})` 去会话所属的 space 打开。`open(ref, {reveal: key})` 打开后等转录追上，把那一条滚到中间并闪一下（返回 `Promise<boolean>`：找到没有）；`reveal(key)` 对当前会话做同样的事 |
-| `spaces.*` | `switch(id)`（带到前台、画好之后才落定）、`current()` |
+| `spaces.*` | `switch(id)`（带到前台、画好之后才落定；目标 space 的 `disabled()` 给了字符串时不切）、`current()` |
 | `details.*` | 右栏：`open(tab?)`、`close()`、`isOpen()`、`tab()`、`onTab(fn)`。经 `open(tab)` 选的页签换 space 回来还在；人点的照旧回到第一个（space 写了 `tab()` 时也还在） |
 | `redraw()` | `tabs()`、`badge()` 这类函数依赖的状态变了，让外壳重读（不动注册表） |
 | `settings.open(section?)` | 打开设置面板的某一节（`settings.section` 的 id，或内建的 `general`、`models`…） |

@@ -187,6 +187,14 @@ export function ask<T>(registry: Registry, space: (SpaceContribution & { owner?:
   }
 }
 
+/** Why a space cannot be entered for now (`SpaceContribution.disabled`, ipdrun-48): its string, or null
+ *  when it can — no `disabled()`, a non-string answer, or a throw (noted as the space's failure). */
+export function disabledOf(registry: Registry, space: (SpaceContribution & { owner?: string }) | undefined): string | null {
+  if (!space?.disabled) return null;
+  const why = ask(registry, space, () => space.disabled!(), null);
+  return typeof why === "string" ? why : null;
+}
+
 /** Report after the current draw: a registry change made while drawing would draw again at once. */
 export function later(fn: () => void): void {
   queueMicrotask(fn);
@@ -442,10 +450,14 @@ export class App {
 
   /** The stored front space, if this product still has it; else the first one it does have. */
   private landOnASpace(): void {
-    const ids = this.registry.at("space").map((c) => c.id);
-    if (ids.includes(this.state.space) || !ids.length) return;
-    const space = [...this.registry.at("space")].sort((a, b) => (a.order ?? 100) - (b.order ?? 100))[0]!.id;
-    this.set({ space });
+    const spaces = [...this.registry.at("space")].sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
+    if (!spaces.length) return;
+    const here = spaces.find((c) => c.id === this.state.space);
+    if (here && disabledOf(this.registry, here) === null) return;
+    // The stored space is gone or cannot be entered for now (ipdrun-48): the first that can, by
+    // order; when none can, stay where we are if that space is still here, else the first.
+    const space = (spaces.find((c) => disabledOf(this.registry, c) === null) ?? here ?? spaces[0])!.id;
+    if (space !== this.state.space) this.set({ space });
   }
 
   /** Whether the shell offers to start a session at all: `[shell] new_session` (ipdrun-46), on unless

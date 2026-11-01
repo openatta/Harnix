@@ -14,7 +14,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Contributed, setLocale, currentLocale, useRegistry, useT, type SpaceContribution } from "@harnix/react";
 
-import { ask, keyOf, type App, type ShellSession, type ShellState } from "./app.ts";
+import { ask, disabledOf, keyOf, type App, type ShellSession, type ShellState } from "./app.ts";
 import { connectionDialog } from "./dialogs.tsx";
 import { Glyph } from "./glyph.tsx";
 import { SessionRow } from "./sessions.tsx";
@@ -58,7 +58,7 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
   // first that does.
   const startNew = async () => {
     if (space?.center === "hidden" || space?.id === SYSTEM) {
-      const talking = spacesOf(app).find((c) => c.id !== SYSTEM && c.center !== "hidden");
+      const talking = spacesOf(app).find((c) => c.id !== SYSTEM && c.center !== "hidden" && disabledOf(app.registry, c) === null);
       if (!talking) return;
       await app.switchSpace(talking.id);
     }
@@ -131,14 +131,21 @@ function SpaceList({ app, s }: { app: App; s: ShellState }) {
 function SpaceEntry({ app, s, space }: { app: App; s: ShellState; space: SpaceContribution & { owner: string } }) {
   const t = useT();
   const badge = badgeOf(app, space);
+  // `disabled()` (ipdrun-48): greyed, says why on hover, and a click does nothing. Not the `disabled`
+  // attribute: a disabled button shows no tooltip in every browser.
+  const why = disabledOf(app.registry, space);
   return (
     <button
       type="button"
-      className={`nav space${space.id === s.space ? " on" : ""}`}
+      className={`nav space${space.id === s.space ? " on" : ""}${why !== null ? " disabled" : ""}`}
       data-space={space.id}
-      title={space.title()}
+      data-disabled={why !== null ? "" : undefined}
+      aria-disabled={why !== null ? true : undefined}
+      title={why ?? space.title()}
       aria-pressed={space.id === s.space}
-      onClick={() => void app.switchSpace(space.id)}
+      onClick={() => {
+        if (disabledOf(app.registry, space) === null) void app.switchSpace(space.id);
+      }}
     >
       <Glyph name={space.icon} className="glyph" />
       <span className="lbl truncate">{space.title()}</span>

@@ -139,6 +139,12 @@ export interface SpaceContribution {
   /** A badge on the space's entry in the left column: a number or a very short text. Nothing is
    *  drawn for null, undefined, 0 or "". Read at every draw; call `host.redraw()` when it changes. */
   badge?(): string | number | null | undefined;
+  /** A string: this space cannot be entered for now — its left-column entry is greyed, does not
+   *  switch when clicked, and says the string on hover; `host.spaces.switch` to it does nothing.
+   *  False, null or undefined: as before. Read at every draw (call `host.redraw()` when it changes);
+   *  a throw counts as enabled. A front space that becomes disabled stays in front: moving away is
+   *  the application's call. */
+  disabled?(): string | false | null | undefined;
   /** The open session is read-only: the words that take the composer's place. False or undefined:
    *  it can be written to. Only the interface — the hub still takes `harnix.send`; this guards
    *  against mistakes, it is not a security boundary. */

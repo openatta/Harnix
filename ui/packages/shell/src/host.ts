@@ -9,7 +9,7 @@
 import { SYSTEM_INSTANCE } from "@harnix/core/state";
 import { t, type HostSessionRef as SessionRef, type NestHost } from "@harnix/react";
 
-import { later, orderTabs, safeTabs, type App } from "./app.ts";
+import { disabledOf, later, orderTabs, safeTabs, type App } from "./app.ts";
 import { revealEntry } from "./reveal.ts";
 import { openSettings } from "./settings.tsx";
 import { topicsOf } from "./topics.ts";
@@ -25,6 +25,9 @@ export function hostFor(app: App, owner = "page"): NestHost {
   const spaceIds = () => app.registry.at("space").map((c) => c.id);
   const switchTo = async (id: string): Promise<void> => {
     if (!spaceIds().includes(id)) throw new Error(t("host.noSpace", { space: id }));
+    // A space that cannot be entered for now (`disabled()`, ipdrun-48): no switch, no error — the
+    // caller reads `spaces.current()` for where it is.
+    if (disabledOf(app.registry, app.registry.at("space").find((c) => c.id === id)) !== null) return;
     await app.switchSpace(id);
     await app.afterDraw();
   };

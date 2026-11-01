@@ -112,6 +112,17 @@
   color: var(--accent);
 }
 
+/* A space that cannot be entered for now (`disabled()`): greyed, no hover fill, no pointer. */
+#side .nav.disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+#side .nav.disabled:not(.on):hover {
+  background: none;
+  color: var(--label-secondary);
+}
+
 #side .nav.new {
   color: var(--accent);
   font-weight: 500;

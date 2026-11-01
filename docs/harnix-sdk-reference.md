@@ -360,7 +360,7 @@ export function register(r: Registry, host: NestHost): void
 
 | 点 | 形状（必需的加粗） |
 |---|---|
-| `space` | **`id`**、**`icon`**、**`title()`**、`order`、`place: "top" \| "bottom"`（默认 top；bottom 列在左栏底部、系统之上，给全局而非业务面的入口）、`group`（顶部列表里的组名：按 `order` 相邻的两个组不同就在中间画分隔线，不写算 ""；不重排）、`details: "open" \| "closed"`（首次进入时右栏开合，默认 closed；之后每个 space 各记各的）、`center: "chat" \| "minimized" \| "hidden"`（默认 chat）、`sidebar()`（左栏中段）、`overview()`（中区不是对话时）、`tabs: [{ id, title(), render(), align? }]` 或返回它的函数（随选中项变；`align: "end"` 的页签排在条的右端，给不常用的）、`sessions`（列哪个后端 space 的会话，默认自己的 id）、`subtitle()`、`suggestions()`、`notice()`、`placeholder()`；可选的 `badge()`（左栏角标）、`readOnly(session)`、`pinned(session)`、`composerNotice(session)`、`ids()`、`composer: { steer }`、`hideCommands: string[]`、`mention: { first: "contributed" \| "files" }`（`@` 菜单里谁的候选在前，默认外壳自己的）、`tab()`（本 space 当前的右栏页签：带到前台与 `redraw()` 时读，是它的页签就选中），每次画时读，抛错只丢那一样 |
+| `space` | **`id`**、**`icon`**、**`title()`**、`order`、`place: "top" \| "bottom"`（默认 top；bottom 列在左栏底部、系统之上，给全局而非业务面的入口）、`group`（顶部列表里的组名：按 `order` 相邻的两个组不同就在中间画分隔线，不写算 ""；不重排）、`details: "open" \| "closed"`（首次进入时右栏开合，默认 closed；之后每个 space 各记各的）、`center: "chat" \| "minimized" \| "hidden"`（默认 chat）、`sidebar()`（左栏中段）、`overview()`（中区不是对话时）、`tabs: [{ id, title(), render(), align? }]` 或返回它的函数（随选中项变；`align: "end"` 的页签排在条的右端，给不常用的）、`sessions`（列哪个后端 space 的会话，默认自己的 id）、`subtitle()`、`suggestions()`、`notice()`、`placeholder()`；可选的 `badge()`（左栏角标）、`disabled()`（返回一句话 ⇒ 入口灰掉、点不动、悬停是这句话，`spaces.switch` 到它不切；落地时存着的灰着就落到第一个没灰的；前台的后来灰了不自动换走）、`readOnly(session)`、`pinned(session)`、`composerNotice(session)`、`ids()`、`composer: { steer }`、`hideCommands: string[]`、`mention: { first: "contributed" \| "files" }`（`@` 菜单里谁的候选在前，默认外壳自己的）、`tab()`（本 space 当前的右栏页签：带到前台与 `redraw()` 时读，是它的页签就选中），每次画时读，抛错只丢那一样 |
 | `home.card` | **`id`**、**`render()`**、`title()`、`order`：画在新对话的输入框下面 |
 | `tool.row` | **`id`**、**`match(toolBlock)`**、**`render(toolBlock)`** |
 | `details.panel` | **`id`**、**`match(item)`**、**`render(item)`**、`title(item)`；`item = { kind, name?, … }`，由 `host.reveal(item)` 打开 |
@@ -382,7 +382,7 @@ export function register(r: Registry, host: NestHost): void
 | `session.open(ref, { switchSpace: true })` | 去会话所属的 space（按中枢账本）打开，先把它带到前台；返回的 promise 在打开后落定，没有这个会话就 reject |
 | `session.open(ref, { switchSpace?, reveal: key })` / `session.reveal(key)` | 打开后（`reveal(key)`：当前会话）等转录追上（有上限），在对话里找 `[data-reveal="<key>"]`（`flow.block` 的渲染给自己的块加上），没有就找 id 是 `key` 的块，滚到中间、`data-revealed` 闪 2.4 秒；返回 `Promise<boolean>`：找到没有 |
 | `session.onChange(fn)` | 前台 space 的当前会话变了（打开、新建、关掉、被删、换 space），同一个值不重复；`@harnix/react` 的 `useCurrentSession()` 是它的 hook |
-| `spaces.switch(id) / current()` | 把 space 带到前台，新 space 画出来之后落定；没有这个 space 时 reject |
+| `spaces.switch(id) / current()` | 把 space 带到前台，新 space 画出来之后落定；没有这个 space 时 reject；它的 `disabled()` 此刻给了字符串时不切、照常落定（ipdrun-48） |
 | `details.open(tab?) / close() / isOpen() / tab() / onTab(fn)` | 右栏开合与选中页签（`tab` 是前台 space 的页签 id，或 `"details"`）。经 `open(tab)` 选的页签按 space 记着；人点的换 space 后回到第一个（同以前；space 写了 `tab()` 时也记着） |
 | `redraw()` | 让外壳重读前台 space 的函数（`tabs()`、`badge()`…），不动注册表版本 |
 | `settings.open(section?)` | 打开设置面板的一节；内建的 id：`general`、`scenes`、`models`、`mcp`、`plugins`、`devices`、`diagnostics`、`about`；没有这一节时打开第一节 |
