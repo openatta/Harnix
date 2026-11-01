@@ -33,3 +33,7 @@ ctx.sessions().send_with(&s, "看看这个", SendOptions { attachments: vec![Att
 ## 来源
 
 IPDrun 的插话框（服务层代人发到会话）要带附件；测试线的入站检查照旧由 Agix 的 prompt 中间件看附件拦（Agix ipdrun-05）。
+
+## 落地
+
+落地提交：`7178d36`（main，2026-11-01，未推送；与 ipdrun-41 同一个提交）。`Attachment`、`SendOptions` 从 `harnix` 与 `harnix-module` 导出（不进 prelude）。

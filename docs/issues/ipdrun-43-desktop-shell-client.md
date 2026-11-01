@@ -32,3 +32,7 @@ ipdrun-42。
 
 IPDrun 的桌面壳为通知、Dock 角标、原生打开项目手写了第二份握手客户端（`desktop/src-tauri/src/client.rs`），`build.rs` 从 Harnix 源码读版本常量，
 `local.rs` 自己拆 chunked（HARNIX-WORKAROUND C1-#30，N12）。
+
+## 落地
+
+落地提交：`ec093d6`（main，2026-11-01，未推送）。模板 `cargo check` 无警告，`check-no-ipc.mjs`、`check-rename.mjs` 通过；`--smoke` 没跑（本机没有打好的应用二进制）。

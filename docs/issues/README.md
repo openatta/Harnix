@@ -36,6 +36,10 @@
 | [ipdrun-15](ipdrun-15-page-token-after-restart.md) | 服务重启后，已经打开的页面永远连不回去 | 缺陷 | 中 | — |
 | [ipdrun-16](ipdrun-16-host-subscribe-refcount.md) | `useNest().subscribe` 的退订不计数，同一页里另一个订阅者从此收不到推送 | 缺陷 | 高 | — |
 | [ipdrun-17](ipdrun-17-turn-settled-carries-outcome.md) | `harnix.turn_settled` 不带这一轮的结果 | 新能力 | 低 | — |
+| [ipdrun-41](ipdrun-41-catch-up-settled.md) | tap 落后时逐帧读的拿不到缺口里的结算；结算不带回答文本与工具调用（`catch_up_settled`、`outcome.text` / `tool_calls`） | 新能力 | 中 | ipdrun-17 |
+| [ipdrun-42](ipdrun-42-light-rust-client.md) | 没有轻量的 Rust 客户端（`harnix-client`） | 新能力 | 中 | — |
+| [ipdrun-44](ipdrun-44-module-send-attachments.md) | 模块侧发消息不能带附件与 `@session` 引用（`send_with`） | 新能力 | 低 | — |
+| [ipdrun-45](ipdrun-45-replay-strict.md) | 回放只能非严格（`--replay-strict`） | 新能力 | 中 | Agix ipdrun-06 |
 
 ### 外壳与贡献点
 
@@ -56,8 +60,14 @@
 | [ipdrun-30](ipdrun-30-register-icons.md) | space 的图标只能从外壳自带的里挑（`r.icons`） | 新能力 | 低 | — |
 | [ipdrun-33](ipdrun-33-shell-title-badge.md) | 应用不能给页面标题加待处理数前缀（`host.shell.badge`） | 新能力 | 低 | — |
 | [ipdrun-34](ipdrun-34-command-args.md) | `/` 命令拿不到命令名后面输入的文字（`run(ctx, args)`） | 新能力 | 低 | — |
+| [ipdrun-35](ipdrun-35-narrow-details.md) | 窄于 960 时右栏够不着 | 缺陷 | 中 | — |
+| [ipdrun-36](ipdrun-36-composer-insert-session.md) | `composer.insert` 不能指定会话，刚打开的会话插不进去（`insert(text, {session})`） | 新能力 | 中 | — |
+| [ipdrun-37](ipdrun-37-mention-order.md) | `@` 菜单里应用贡献的候选被文件挤掉（`mention.first`） | 缺陷 | 中 | ipdrun-27 |
+| [ipdrun-38](ipdrun-38-host-modal-state.md) | space 不知道外壳的模态层开着（`host.modal`） | 新能力 | 中 | — |
+| [ipdrun-39](ipdrun-39-space-current-tab.md) | space 说不了自己当前是哪个页签（`SpaceContribution.tab`） | 新能力 | 中 | ipdrun-19 |
+| [ipdrun-40](ipdrun-40-session-open-reveal.md) | 打开会话时定位不到其中的某一条（`session.open(ref, {reveal})`、`session.reveal`） | 新能力 | 中 | — |
 
-ipdrun-33、34 补提于 2026-10-30，代码位置对照 `e890f00`（main）。
+ipdrun-33、34 补提于 2026-10-30，代码位置对照 `e890f00`（main）；ipdrun-35 提于 2026-11-01；ipdrun-36–45 提于 2026-11-01，对照 `caa934c`（main）。
 
 `NestHost` 上的新成员（18–21）与 `SpaceContribution` 上的新字段（22–26、28、29）都是可选的；维护者可以按自己的节奏分几版发，
 建议先做 18、19、21、22。
@@ -68,6 +78,7 @@ ipdrun-33、34 补提于 2026-10-30，代码位置对照 `e890f00`（main）。
 |---|---|---|---|---|
 | [ipdrun-31](ipdrun-31-desktop-product-id.md) | 桌面模板在没有 profile 时把状态目录写死成 `~/.harnix` | 缺陷 | 中 | — |
 | [ipdrun-32](ipdrun-32-app-pnpm-workspace-notes.md) | 外部应用的两个 pnpm workspace：模板少一行，文档少两句 | 文档 | 低 | — |
+| [ipdrun-43](ipdrun-43-desktop-shell-client.md) | 桌面模板的壳不能当自己子进程的客户端 | 新能力 | 低 | ipdrun-42 |
 
 ## Helm
 

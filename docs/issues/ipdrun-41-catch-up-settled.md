@@ -35,3 +35,7 @@ ipdrun-17。
 ## 来源
 
 IPDrun 的会话宿主逐帧读 tap；落后时缺口里的轮次按转录补文本、工具调用与结构化输出候选，整轮在缺口里的按转录结掉（HARNIX-WORKAROUND C1-#28）。
+
+## 落地
+
+落地提交：`7178d36`（main，2026-11-01，未推送；版本待下次发布）。与建议一致：`Tap::catch_up_settled()`；`outcome.text`（上限 64 KiB，`text_truncated`）、`outcome.tool_calls`（`[{id, name, is_error?}]`）；`@harnix/core` 的 `turn_settled.outcome` 类型补上这三项。

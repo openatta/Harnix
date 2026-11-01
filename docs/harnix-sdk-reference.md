@@ -233,6 +233,7 @@ quote_api_key = { credential = "helm/quote-api" }
 | `--scene`、`--scenes a,b`、`--model` | `system` 实例的默认值 |
 | `--ui-dir <dir>` / `--headless` | 换界面目录 / 不出界面（纯 RPC 节点） |
 | `--replay-dir <dir>` | 模型调用改成录像回放（测试用；只有运维能开，客户端要不到） |
+| `--replay-strict` | 和 `--replay-dir` 一起：请求与录下的不一样就让那次调用失败（缺省只报告）；回放的会话按录像那天定日期（ipdrun-45） |
 | `--tls-cert`、`--tls-key` | 绑非回环必须 |
 | `--agix-dir` | 引擎目录，默认 `$AGIX_CONFIG_HOME`，再默认 `~/.agix` |
 | `--data-dir` | 项目目录，默认 `$HARNIX_DATA_DIR`，再默认 `~/Documents` |
@@ -488,6 +489,19 @@ api_version = 2
 | 应用自己的 pnpm workspace 怎么摆 | 外部应用靠 Vite 去重解析 `react`、`@harnix/react`；类型检查与别的依赖要应用自己装（见迁移说明） | 消费者落地时定 |
 | 桌面壳在 Windows 上没有干净的停止 | 关窗口 5 秒后直接结束子进程，模块的 `stop` 不跑 | 有需要再做 |
 
+## 9.1 轻量客户端：`harnix-client`
+
+应用自己的命令行、集成测试、桌面壳连自己起的那个进程用它，不链服务端（只依赖 `harnix-contract`、`serde_json`；同步、明文 HTTP，本机与局域网）：
+
+| 调用 | 说明 |
+|---|---|
+| `Client::connect(url, token) -> Client` | split_streams 握手（进程令牌换凭据），版本取本 crate 编进来的 `PROTOCOL_VERSION` / `CONTRIB_API_VERSION` |
+| `client.call(method, params)` / `call_within(…, wait)` | 一次 `/rpc`；缺省等 60 秒（`with_timeout` 改） |
+| `client.events(Face::Session \| Face::Host, idle) -> EventStream` | SSE；`next()` 给 `StreamItem::Frame(json)` 或等满 `idle` 给 `Idle`；流断了报错 |
+| `launch_link(url, token) -> String` | `POST /auth/link`，完整地址 |
+| `ClientError { kind, code, message, data }` | `kind`：`Transport`、`Handshake`、`Unauthenticated`（凭据失效，重连）、`Rpc` |
+| feature `tokio` | `AsyncClient`（同样的调用放在 `spawn_blocking` 里）、`launch_link_async` |
+
 ## 10. 桌面壳：`templates/desktop`
 
 Tauri 2，两种模式：
@@ -496,6 +510,8 @@ Tauri 2，两种模式：
   `~/.<product_id>/token`，`POST /auth/link` 换一条一次性链接给窗口；关窗口时 SIGINT 停应用，壳被强杀时
   应用读到 stdin 断开自己退出。
 - **远程**：窗口开一个配置好的 `https://` Harnix，配对走网页自己的流程。
+
+壳替自己做的事（通知、角标、原生对话框）经 `harnix-client` 当子进程的客户端：`Started::client()`（ipdrun-43）。
 
 业务流量全是页面自己的 HTTP/WS：没有 command、没有 invoke handler、没有全局 Tauri 对象，
 `check-no-ipc.mjs` 在 offline 层查。`--smoke` 不开窗口走一遍起、准入、停。详见它的 README。

@@ -41,3 +41,7 @@ let mut events = client.events(Face::Host, Duration::from_millis(500))?;        
 ## 来源
 
 IPDrun 的 `ipdrun open / check / mcp-config` 与 `app/tests` 手写一份握手客户端，桌面壳又手写一份（HARNIX-WORKAROUND C1-#30，N5）。
+
+## 落地
+
+落地提交：`24c5856`（main，2026-11-01，未推送）；`check.sh` 的 crate 表带上它在 `0cdd9b5`。与草图一致，另有 `Client::with_timeout`、`endpoint()`、`url()`、`token()`；`Endpoint::parse` 认 `http://host:port`、`host:port`、`[::1]`，`https://` 报错。

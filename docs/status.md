@@ -12,9 +12,9 @@
 |---|---|
 | 阶段 | **0.4 的 M0–M9 全部完成并发布**；最新发布 `Harnix-v0.4.0-2026102801`（本地标签，未推送：`agix/` 钉到 `Agix-v0.2.9-2026102702`，再导出 Agix ipdrun-05 的附件类型） |
 | 当前里程碑 | 无。下一个里程碑要维护者说开始 |
-| 当前任务 | 无。下游需求（`docs/issues/`）：IPDrun 01–32 与 Helm helm-01 都已落地 |
-| 下一步 | 推送（维护者定）；Agix `Agix-v0.2.9-2026102702` 先推，Harnix 再推 |
-| 最后更新 | 2026-10-28 |
+| 当前任务 | 无。下游需求（`docs/issues/`）：IPDrun 01–45（06 撤回）、Helm helm-01、Grabix 01–04 都已落地 |
+| 下一步 | 发布（维护者定）：Agix 先发（`agix/` 现钉 `0d55673`，未打版本），Harnix 再发；ipdrun-36–45 未推送 |
+| 最后更新 | 2026-11-01 |
 
 ## 怎么接上
 
@@ -91,6 +91,7 @@
 
 | 日期 | 事 |
 |---|---|
+| 2026-11-01 | IPDrun 提的 ipdrun-36–45 落地（未推送）：外壳 `composer.insert({session})`、`mention.first`、`host.modal`、`SpaceContribution.tab()`、`session.open({reveal})` / `session.reveal`；`Tap::catch_up_settled` 与 `outcome.text` / `tool_calls`；新 crate `harnix-client` 与桌面模板用它；`Sessions::send_with`；`--replay-strict`。`agix/` 钉到 `0d55673`（Agix ipdrun-06 会话时钟、ipdrun-07 rmcp 3.x，未打版本）。Rust：check.sh 的 crate `cargo test` 118 过、clippy 无警告；vitest core 48 · react 54 · shell 26；live 层没跑 |
 | 2026-10-28 | 发布 `Harnix-v0.4.0-2026102801`（本地标签，未推送）：`agix/` 从 `2e5ade3` 钉到 `a228cf2`（`Agix-v0.2.9-2026102702`，Agix ipdrun-05：`PromptMiddleware::inspect_with_attachments` 有缺省实现，中间件经只读的 `PromptAttachment` 看到消息带的附件）；`harnix` / `harnix_module` 再导出 `PromptAttachment`、`PromptAttachmentKind`，`harnix-sdk-reference.md` 随之补上。Harnix 其余不用改。`check.sh` 全量 11 层全过（remote 未要求；磁盘只剩 14 GB，用 `HARNIX_CHECK_NEED_GB=13` 跑）；跑完后日期跨到 28 日，版本号从 `…2026102705` 改成 `…2026102801`，只重跑了 `cargo check` 与 `crate-metadata.mjs` |
 | 2026-10-27 | 发布 `Harnix-v0.4.0-2026102704`：helm-01（Helm 提）。外壳回答权限卡时带卡上的 `tool_use_id`，中枢记下回答的设备、转给引擎前去掉；模块与内核用 `harnix.prompts.answerer` 读一次（最多留 1024 条，设备调用答 `REFUSED`）。Agix 不改。测试：`tests/live/api/prompt-answerer.spec.ts`。`check.sh`：build、rust、clippy、offline、api（两种拓扑）、template、budget 过；frontend 首跑因 `coverage.md` 未重生成失败、browser 首跑 1 条（`interface.spec.ts` 会话改名）失败，重生成后两层单独重跑全过（browser 71 条）；live、interface 本机 `.env` 无模型未跑，remote 未要求 |
 | 2026-10-27 | 发布 `Harnix-v0.4.0-2026102703`（本地标签，未推送）：ipdrun-13 的外壳部分（`607bb7e`）。`frames.ts` 认 `user_message_refused`；`model.ts` 收到时把那条从待送达里拿掉（按 `message_id`，没有就按内容）、流里加一行说理由；开一轮 `stopped_by_hook` 带 `message` 时那一行说理由。文案 `messageRefused` 可选。没有这些帧时行为不变。测试：core Vitest 3 条、`conversation.spec.ts`「a message a module refuses」2 条（testapp 后端）。后端没改，按维护者要求只跑了 `check.sh` 的 frontend、browser、interface 三层，全过（上一版 `…2702` 跑过全量） |
