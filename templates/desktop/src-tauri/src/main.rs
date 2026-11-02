@@ -56,7 +56,10 @@ fn main() {
                     WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                         .title(app.package_info().name.clone())
                         .inner_size(1280.0, 820.0)
-                        .min_inner_size(640.0, 480.0);
+                        .min_inner_size(640.0, 480.0)
+                        // A mark, not a channel (ipdrun-52): the page learns it is in a desktop
+                        // shell and in which mode, and can call nothing through it.
+                        .initialization_script(shell_mark(&config));
                 // The page's top bars are 52px; the lights are centred in them,
                 // and the page leaves them room (it knows it is in this shell).
                 #[cfg(target_os = "macos")]
@@ -82,6 +85,22 @@ fn main() {
             }
         }
     });
+}
+
+/// The script every page in the window runs first (ipdrun-52): a frozen, read-only
+/// `window.__HARNIX_SHELL__ = { kind: "desktop", mode, platform }`. `mode` is `local` when the
+/// app runs on this machine as the shell's child — what the page shows a file "with the system's
+/// program" for, say, is then on this machine — and `remote` otherwise. It is one way: the page
+/// gets no function to call, and still talks only to its server.
+fn shell_mark(config: &Result<Config, String>) -> String {
+    let mode = match config {
+        Ok(Config::Remote(_)) => "remote",
+        _ => "local",
+    };
+    let platform = std::env::consts::OS;
+    format!(
+        "Object.defineProperty(window, \"__HARNIX_SHELL__\", {{ value: Object.freeze({{ kind: \"desktop\", mode: \"{mode}\", platform: \"{platform}\" }}), configurable: false, writable: false }});"
+    )
 }
 
 /// The height of the page's top bars, which the traffic lights are centred in.

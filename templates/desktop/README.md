@@ -203,6 +203,12 @@ cd src-tauri && cargo tauri build      # .app / .dmg / .msi / .deb / AppImage，
   `http://127.0.0.1:*`、`http://localhost:*`）能请求「开始拖动窗口」和「双击最大化」，别的都不行。见下面
   「无标题栏」。
 
+**页面知道自己在壳里，但够不着壳。** 壳给窗口里的每个页面先跑一段初始化脚本，只定义一个冻结的、只读的
+`window.__HARNIX_SHELL__ = { kind: "desktop", mode: "local" | "remote", platform }`（`main.rs` 的 `shell_mark`）：
+页面据此决定画不画只在桌面壳里才有意义的东西（例如「用系统程序打开」只在 `mode = local` 时有：文件在这台机器上）。
+它是单向的标记，不是通道——没有可调的函数；页面要壳做事（打开一个文件、发一条通知），还是请求自己的服务，服务经
+壳以客户端身份连着的链接转给壳（壳当客户端见下面「本地模式」与 `harnix-client`）。
+
 `check-no-ipc.mjs` 查这些，出现就失败（字面匹配，注释也算；`*.md` 不查）；capability 按 JSON 读，除了那两条
 窗口权限，任何权限都算失败，`remote.urls` 只能是回环地址，窗口只能是 `main`：
 
