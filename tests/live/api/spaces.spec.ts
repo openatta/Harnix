@@ -133,3 +133,10 @@ test("with the system space turned off, nobody may claim it", TAGS, async () => 
     off.stop();
   }
 });
+
+test("moving a session to another space is the application's: a device is refused (ipdrun-51)", TAGS, async () => {
+  const mine = await createIn("sessions");
+  const error = await api.refused("harnix.sessions.move", { ...mine, space: "fleet" });
+  expect(error, "a device cannot rebind a session").not.toBeNull();
+  await api.call("session.get", { ...mine, space: "sessions" });
+});

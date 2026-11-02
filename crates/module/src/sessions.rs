@@ -267,6 +267,15 @@ impl Sessions<'_> {
             .await
     }
 
+    /// Bind the session to another space, transcript and all (`harnix.sessions.move`, ipdrun-51):
+    /// for an application that moved a kind of session from one space to another. Already there ⇒
+    /// nothing changes. `{space, from, moved}`.
+    pub async fn move_to(&self, session: &SessionRef, space: &str) -> Result<Value, RpcError> {
+        let mut params = key(session);
+        params["space"] = json!(space);
+        self.cx.call("harnix.sessions.move", params).await
+    }
+
     pub async fn close(&self, session: &SessionRef) -> Result<Value, RpcError> {
         self.cx.call("session.close", key(session)).await
     }

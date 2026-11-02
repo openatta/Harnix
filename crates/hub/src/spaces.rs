@@ -276,6 +276,53 @@ impl Hub {
         Ok(space)
     }
 
+    /// `harnix.sessions.move {instance, session_id, space}` (ipdrun-51): bind an existing session to
+    /// another space, transcript and all — an application that reorganized its spaces moves the
+    /// sessions it made instead of leaving them behind. The application's, not a device's: the
+    /// space is where a product put a session, not where a client would like to see it. The target
+    /// must be a space the session's instance may serve (as for a new session there); the system
+    /// space is nobody's home.
+    pub(crate) async fn move_session(self: &std::sync::Arc<Self>, subject: &Subject, params: Value) -> Result<Value, RpcError> {
+        if matches!(subject, Subject::Device { .. }) {
+            return Err(RpcError::new(
+                codes::REFUSED,
+                "which space a session belongs to is the application's to change, not a device's",
+            ));
+        }
+        let key = self.key_of(&params)?;
+        let space = params
+            .get("space")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| RpcError::invalid_params("missing space"))?
+            .to_string();
+        {
+            let spaces = self.spaces.lock().unwrap_or_else(|e| e.into_inner());
+            if space == SYSTEM_SPACE || !spaces.exists(&space) {
+                return Err(RpcError::new(codes::SPACE_MISMATCH, format!("there is no space `{space}` to move a session to")));
+            }
+        }
+        if let Some(slot) = self.slot(&key.0) {
+            if let Owner::Space(owner) = &slot.owner {
+                if *owner != space {
+                    return Err(RpcError::new(
+                        codes::SPACE_MISMATCH,
+                        format!("instance `{}` belongs to the space `{owner}`, not `{space}`", key.0),
+                    ));
+                }
+            }
+        }
+        // Only a session there is: an unknown one is the engine's not-found, not a record of nothing.
+        self.call(&key.0, "session.get", json!({"session_id": key.1})).await?;
+        let from = self.space_of(&key);
+        if from == space {
+            return Ok(json!({"space": space, "from": from, "moved": false}));
+        }
+        self.bind_space(&key, &space);
+        self.refresh("harnix.instances.sessions", json!({"instance": key.0}));
+        Ok(json!({"space": space, "from": from, "moved": true}))
+    }
+
     /// What the system space creates is its own (design §9.1).
     pub(crate) fn bind_space(&self, key: &SessionKey, space: &str) {
         self.spaces.lock().unwrap_or_else(|e| e.into_inner()).bind(key, space);

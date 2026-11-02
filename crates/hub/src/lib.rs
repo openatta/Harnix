@@ -104,6 +104,7 @@ pub const HUB_METHODS: &[&str] = &[
     "harnix.instances.wait",
     "harnix.sessions.tasks",
     "harnix.entries.append",
+    "harnix.sessions.move",
     "harnix.prompts.answerer",
     "harnix.spaces.list",
     "harnix.process",
@@ -536,6 +537,7 @@ impl Hub {
                 return self.tasks_view(&key).await;
             }
             "harnix.entries.append" => return self.append_entry(subject, params).await,
+            "harnix.sessions.move" => return self.move_session(subject, params).await,
             "harnix.prompts.answerer" => return self.answerer(subject, &params),
             "harnix.attach" => return self.attach(subject, params).await,
             "harnix.detach" => return self.detach(subject, params).await,
