@@ -469,6 +469,11 @@ export class App {
     return this.state.hello?.shell?.new_session !== false;
   }
 
+  /** `[shell] narrow_details` (ipdrun-50): what an open right column does at ≤ 960px. */
+  narrowDetails(): "over" | "beside" {
+    return this.state.hello?.shell?.narrow_details === "beside" ? "beside" : "over";
+  }
+
   /** The backend space a front space's sessions belong to (`SpaceContribution.sessions`). */
   claim(space = this.state.space): string {
     return this.registry.at("space").find((c) => c.id === space)?.sessions ?? space;

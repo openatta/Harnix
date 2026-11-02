@@ -77,6 +77,9 @@ export interface Hello {
     /** False (`[shell] new_session = false`, ipdrun-46): the shell draws no "New session" button and
      *  ⌘K starts none, in every space. Absent or true: as before. */
     new_session?: boolean;
+    /** `[shell] narrow_details` (ipdrun-50): "beside" keeps three columns at ≤ 960px instead of
+     *  maximizing an open right column over the conversation. Absent or "over": as before. */
+    narrow_details?: "over" | "beside";
   };
   limits?: {
     max_frame_bytes?: number;

@@ -51,6 +51,7 @@ export function Shell({ app }: { app: App }) {
       <div
         id="frame"
         data-sidebar={s.sidebar}
+        data-narrow={app.narrowDetails() === "beside" ? "beside" : undefined}
         data-details={app.detailsOpen(s) ? "open" : "closed"}
         data-details-max={app.detailsOpen(s) && s.detailsMax ? "" : undefined}
         data-space={s.space}

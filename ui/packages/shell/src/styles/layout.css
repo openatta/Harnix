@@ -99,6 +99,28 @@
   }
 }
 
+/* `[shell] narrow_details = "beside"` (ipdrun-50): at ≤ 960px an open right column stays beside the
+ * conversation instead of covering it — the sidebar is a rail, the right column narrower. Below 720px
+ * there is no room for two columns and it is maximized as above. Asking to maximize still maximizes. */
+@media (max-width: 960px) and (min-width: 720px) {
+  #frame[data-narrow="beside"][data-details="open"]:not([data-details-max]),
+  #frame[data-narrow="beside"][data-sidebar="collapsed"][data-details="open"]:not([data-details-max]) {
+    grid-template-columns: var(--rail-width) minmax(0, 1fr) clamp(260px, 36vw, var(--details-width));
+  }
+
+  #frame[data-narrow="beside"][data-details="open"]:not([data-details-max]) #main {
+    visibility: visible;
+  }
+
+  #frame[data-narrow="beside"][data-details="open"]:not([data-details-max]) #details .resizer.details {
+    display: block;
+  }
+
+  :root[data-chrome="overlay"] #frame[data-narrow="beside"][data-details="open"]:not([data-details-max]) #details .strip {
+    padding-left: 0;
+  }
+}
+
 #main {
   display: flex;
   flex-direction: column;

@@ -292,6 +292,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         },
         "runtime_modules": profile.ui.runtime_modules,
         "new_session": profile.shell.new_session,
+        "narrow_details": profile.shell.narrow_details.as_str(),
         "state_dir": roots.state.display().to_string(),
         "projects_dir": roots.projects.display().to_string(),
         // Whose process this is: the avatar's name. One process, one person (design §2).

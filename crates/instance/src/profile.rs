@@ -89,6 +89,28 @@ pub struct ShellProfile {
     /// On unless written: `false` hides both in every space; a space's own `newSession` still
     /// applies on top. Only the interface; the hub still takes `session.create`.
     pub new_session: bool,
+    /// What an open right column does when the window is too narrow for three (≤ 960px, ipdrun-50):
+    /// `over` (the default, as before) maximizes it over the conversation; `beside` keeps the three
+    /// columns side by side — the sidebar a rail, the right column narrower — down to 720px.
+    pub narrow_details: NarrowDetails,
+}
+
+/// `[shell] narrow_details` (ipdrun-50).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NarrowDetails {
+    #[default]
+    Over,
+    Beside,
+}
+
+impl NarrowDetails {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            NarrowDetails::Over => "over",
+            NarrowDetails::Beside => "beside",
+        }
+    }
 }
 
 impl Default for ShellProfile {
@@ -97,6 +119,7 @@ impl Default for ShellProfile {
             spaces: BUILTIN_SPACES.iter().map(|s| s.to_string()).collect(),
             model_switch: false,
             new_session: true,
+            narrow_details: NarrowDetails::Over,
         }
     }
 }
@@ -365,6 +388,15 @@ mod tests {
         assert!(profile.shell.new_session);
         let err = Profile::parse("[shell]\nspaces = [\"home\"]\n").unwrap_err();
         assert!(err.to_string().contains("home"), "{err}");
+    }
+
+    #[test]
+    fn the_right_column_goes_over_when_narrow_unless_told() {
+        let shell = |text: &str| Profile::parse(text).unwrap().shell;
+        assert_eq!(shell("").narrow_details, NarrowDetails::Over);
+        assert_eq!(shell("[shell]\nnarrow_details = \"beside\"\n").narrow_details, NarrowDetails::Beside);
+        assert_eq!(shell("[shell]\nnarrow_details = \"over\"\n").narrow_details.as_str(), "over");
+        assert!(Profile::parse("[shell]\nnarrow_details = \"under\"\n").is_err());
     }
 
     #[test]
