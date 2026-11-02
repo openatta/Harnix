@@ -49,4 +49,8 @@ IPDrun R11b 偏离②（stage-R11.md §3）：窄屏外壳把右栏画成盖在�
 
 ## 落地
 
-（待记）
+落地提交：`78e0753`（main，2026-11-02，未推送；版本待下次发布）。
+Rust：`ShellProfile.narrow_details`（`NarrowDetails::{Over, Beside}`，缺省 Over，`crates/instance/src/profile.rs`），hello 的 `shell.narrow_details`
+（`crates/app/src/run.rs`）；TS：`Hello.shell.narrow_details`（`ui/packages/core/src/protocol/frames.ts`）。外壳：`App.narrowDetails()`，`#frame[data-narrow]`
+（`Shell.tsx`），规则在 `ui/packages/shell/src/styles/layout.css`（`@media (max-width: 960px) and (min-width: 720px)`，不是最大化时）。
+测试：Rust `profile::tests::the_right_column_goes_over_when_narrow_unless_told`；`ui/packages/shell/test/narrow-details.test.tsx`（2）。

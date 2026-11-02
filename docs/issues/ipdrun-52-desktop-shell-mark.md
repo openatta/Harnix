@@ -38,4 +38,6 @@ IPDrun R11b 偏离③（stage-R11.md §3）；R12 收口（stage-R12.md §1.1）
 
 ## 落地
 
-（待记）
+落地提交：`18aec65`（main，2026-11-02，未推送；版本待下次发布）。
+模板 `src-tauri/src/main.rs` 的 `shell_mark`（`initialization_script`）；README「业务流量的规则」一段。模板 `cargo check` 无警告、`check-no-ipc.mjs` 通过；
+`--smoke` 没跑（本机没有打好的应用二进制）。

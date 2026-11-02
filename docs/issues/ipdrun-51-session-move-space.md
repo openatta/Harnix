@@ -38,4 +38,6 @@ IPDrun 重构 R1（C1-#33，草稿 `.local/issues/harnix-session-move-space.md`�
 
 ## 落地
 
-（待记）
+落地提交：`8209799`（main，2026-11-02，未推送；版本待下次发布）。
+中枢：`HUB_METHODS` 加 `harnix.sessions.move`，`Hub::move_session`（`crates/hub/src/spaces.rs`）；模块：`Sessions::move_to`（`crates/module/src/sessions.rs`）。
+测试：live API `tests/live/api/spaces.spec.ts`（设备被拒；本次没跑 live，要建后端与 chromium）；模块一侧的真路径在 IPDrun `crates/agent/tests/host.rs`。
