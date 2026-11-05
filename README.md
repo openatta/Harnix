@@ -122,7 +122,9 @@ runtime_modules = true           # installed packages' interface modules
 ## Layout
 
 ```
-crates/harnix     the crate an application depends on, and the `harnix` binary (the empty application)
+crates/harnix     the crate an application depends on
+crates/cli        the `harnix` binary (the empty application): the built-ins, plus the flow module
+crates/flow       the optional flow module, harnix-flow: an application registers it or does without
 crates/app        App::builder(): profile, start order, module lifecycle, diagnostics
 crates/module     the compile-time module contract: Module, its registries, ModuleContext
 crates/hub        the session hub: instances, subscription, replay, seq, turn ownership, queue, topics

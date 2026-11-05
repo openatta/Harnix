@@ -14,7 +14,7 @@
 | **Agix**（原 AttaCore） | `agix/` | Agent 引擎。会话怎么跑、工具怎么派发、上下文怎么压缩，都是它的事 |
 | **Harnix**（原 Nest） | `harnix` | Agix 应用的公共底座：中枢、授权、传输、装配、外壳 |
 | **应用** | app | 在 Harnix 上做出来的产品，例如 Helm、IPDrun。一个应用 = 一个二进制 + 一份界面产物 |
-| **空应用** | `harnix` 二进制 | 只带内建模块的应用，Harnix 自己发布的那个 |
+| **空应用** | `harnix` 二进制（`crates/cli`） | 只带内建模块（和流程模块，xops-02）的应用，Harnix 自己发布的那个 |
 | **二开** | — | 在 Harnix 上做应用，不 fork Harnix |
 | **骨架** | — | 传输、授权、中枢、装配四件事。写死，不可插拔 |
 | **profile** | `profiles/*.toml` | 一份声明式配置：场景、provider、界面、拓扑、实例、模块配置段 |
@@ -142,10 +142,17 @@
 | **租约** | lease | 认领一个任务的期限与 token；过期可再认领，旧 token 交不进来 |
 | **流程包** | pack | 流程定义 + skill，由应用实现的 `Packs` 给 |
 | **协议层** | — | 流程模块在站的 skill 正文前注入的一段：交什么、怎么交、能写什么 |
+| **落点** | placement，`Placement` | 站的会话建在哪：space、实例或模板实例（`instance` / `template` + `params`），用哪个模型（`model` / `provider`）（xops-02） |
+| **交付方式** | `Delivery` | 会话怎么交输出：结构化输出（`structured_output`，缺省：契约作为会话的 `output_schema`，模型调 `StructuredOutput`）或 `flow_submit`（`flow-*` 包装 scene） |
+| **受限工具** | `guarded_tools` | 算作「写」的工具；站的 `writes` 不允许的，各成一条会话的 `deny` 权限规则 |
+| **来源** | `Origin` | 流程包里一条流程从哪来：`builtin`（随应用）· `override`（可写层里覆盖内置的那份）· `user`（只在可写层） |
+| **当前流程** | focus | 流程 space 的一个对话正在编写的那条流程：右栏选中的，或 `flow_create` 刚建的 |
+| **试运行** | dry run，`dry-` 运行 | 在沙箱里真跑内核、外部全部模拟：不建会话、不调应用代码、不花模型费用；`mocks` 给站的输出、门、工具的结果 |
 
 **别混**：
 
 - 「流程」指这个模块的流程定义；贡献点 `flow.block` 与外壳文案里的 `flow.*` 指**对话流**（转录里的一块），两回事。
   流程模块的界面文案用 owner `flowui`。
 - 「运行」不是「实例」，也不是「会话」：一条运行可以用到很多会话。
+- 「试运行」是一条真的运行，只是活在沙箱里：运行号以 `dry-` 开头，不进 `runs`，最多留最近 20 条；不叫「模拟运行」。
 

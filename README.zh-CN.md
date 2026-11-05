@@ -109,7 +109,9 @@ runtime_modules = true           # 装上的包的界面模块
 ## 结构
 
 ```
-crates/harnix     应用依赖的那个 crate，以及 `harnix` 二进制（空应用）
+crates/harnix     应用依赖的那个 crate
+crates/cli        `harnix` 二进制（空应用）：内建模块，加上流程模块
+crates/flow       可选的流程模块 harnix-flow：应用注册才有
 crates/app        App::builder()：profile、启动顺序、模块生命周期、诊断
 crates/module     编译期模块契约：Module、它的注册表、ModuleContext
 crates/hub        会话中枢：实例、订阅、重放、seq、轮次归属、队列、主题

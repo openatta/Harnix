@@ -72,7 +72,7 @@
 
 | 任务 | 开始 | 改到哪了 | 下一步 |
 |---|---|---|---|
-| xops-02 流程落点、对话编写、试运行、空应用自带流程（分支 `flow-2`，基于 `48f51f4`；维护者 2026-11-05 说开始） | 2026-11-05 | issue 已写 | ① 内核与模块（落点、模型、结构化输出、权限规则、可写包、编写工具、focus、试运行）+ 空应用 + testapp 模板 + LIVE API ② 外壳内建流程 space + LIVE 界面 ③ 全量 check.sh、评审、合并 main |
+| xops-02 流程落点、对话编写、试运行、空应用自带流程（分支 `flow-2`，基于 `48f51f4`；维护者 2026-11-05 说开始） | 2026-11-05 | ① 后端一半已提交（`f24ec3d`…）：内核与模块（落点、模型、结构化输出交付、权限规则限写、删 `guard.rs`、可写包、`flow-author` 与编写工具、focus、试运行沙箱）、空应用 `harnix-cli`、testapp 模板与演示流程、LIVE API 4 个文件（两种拓扑全过）；issue 末尾有实现记录 | ② 外壳内建流程 space + LIVE 界面（`ui/flow.spec.ts` 暂 `fixme`） ③ 全量 check.sh、评审、合并 main |
 | IPDrun 需求 · 后端（不依赖新 Agix） | 2026-10-27 | 01、02+03、04+05、08、09、11、12（后端）、14、15（后端无改动，加契约用例）、16（只记录）、17、31、32 已提交，各 issue 末尾有实现记录；未打标签、未推送 | ——（07、10、13 见下一行） |
 | IPDrun 需求 · 后端（依赖新 Agix） | 2026-10-27 | `agix/` 钉到 `Agix-v0.2.9-2026102701`（`bbdd8e2`）；07（`reap_on_stop`）、10（模板 `native`、daemon `--template`）、13（prompt 中间件再导出、`user_message_refused` 原样转发）一个提交 `b593767`，各 issue 末尾有实现记录；13 的外壳部分（界面显示被拒的消息）`607bb7e`；Helm 兼容验证过（`.local/harnix-split/HELM-COMPAT.md` 在 IPDrun 仓库） | —— |
 | IPDrun 需求 · 外壳与贡献点 | 2026-10-27 | 18–30 与 01、12、15、16、17 的外壳部分已提交（`15f7a48`…`3471226`），各 issue 末尾有实现记录；界面用例在新文件 `tests/live/ui/host.spec.ts`（17 条），`coverage.md` 已重生成；未打标签、未推送 | 全量 `check.sh` 留给发版前（本批只跑了前端各层与 `ui` project 两种拓扑） |
@@ -93,6 +93,7 @@
 
 | 日期 | 事 |
 |---|---|
+| 2026-11-05 | xops-02 后端一半：落点与模型、结构化输出交付、权限规则限写、可写包、`flow-author`、试运行；空应用的二进制挪到 `crates/cli`（`harnix-cli`）并注册流程模块；LIVE api 两种拓扑 236 过 |
 | 2026-11-05 | 开始 xops-02（分支 `flow-2`） |
 | 2026-11-05 | xops-01 落地：分支 `flow` 快进合并进 main（`be9157f`…`2df2b74`，未推送）；live、interface 两层用模型补跑都过，全量 11 层过（remote 未要求） |
 | 2026-11-05 | xops-01 全量 `check.sh`：9 层过（live、interface 无模型未跑，remote 未要求）；途中修了 hello-app 过期的依赖区块（含此前漏的 `harnix-client`）与返工第二轮等旧会话起名的问题 |

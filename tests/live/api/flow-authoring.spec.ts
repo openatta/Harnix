@@ -70,7 +70,7 @@ async function turn(session_id: string, message: string): Promise<any> {
 async function results(session_id: string): Promise<Record<string, any[]>> {
   const { messages } = await api.call("session.history", { session_id });
   const blocks = messages.flatMap((m: any) => (Array.isArray(m.content) ? m.content : []));
-  const names = new Map(blocks.filter((b: any) => b.type === "tool_use").map((b: any) => [b.id, b.name]));
+  const names = new Map<string, string>(blocks.filter((b: any) => b.type === "tool_use").map((b: any) => [b.id, b.name]));
   const out: Record<string, any[]> = {};
   for (const b of blocks.filter((b: any) => b.type === "tool_result")) {
     const name = names.get(b.tool_use_id) ?? "?";

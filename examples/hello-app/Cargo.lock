@@ -1074,6 +1074,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "harnix-cli"
+version = "0.4.0-2026102801"
+dependencies = [
+ "anyhow",
+ "harnix",
+ "harnix-flow",
+ "scene",
+]
+
+[[package]]
 name = "harnix-client"
 version = "0.4.0-2026102801"
 dependencies = [
@@ -1102,6 +1112,7 @@ dependencies = [
  "harnix-contract",
  "harnix-module",
  "jsonschema",
+ "scene",
  "schemars",
  "serde",
  "serde_json",

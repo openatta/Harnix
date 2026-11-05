@@ -168,3 +168,119 @@ xops-01。不依赖 Agix 的任何改动。
 
 XOps 的维护者在 xops-01 之后要求：流程会话要能落到不同的实例与模型；Harnix 默认界面直接有流程 space，在中区对话里让 Agent 编写流程，
 右栏只呈现；能试运行；调试不再依赖 testapp。设计依据：XOps `docs/flow-design.md`。
+
+## 实现记录
+
+### 后端一半（分支 `flow-2`，`f24ec3d`…）
+
+外壳（§7）另做；这一半是内核、模块、空应用、testapp 与 LIVE API。
+
+**内核**（`crates/flow/src/kernel`，`--no-default-features` 仍不链 Harnix / Agix）
+
+- `Executor::Session` 加 `model provider instance template params space`（都可选，只加）。校验：`instance` 与 `template` 二选一；
+  `params` 只配 `template`、其中的引用照常查；`Catalog` 加 `templates instances spaces models`（`serde(default)`），**填了才查**；
+  `models` 里写 `model` 或 `provider/model`，只写模型名时匹配任一 `*/model`。
+- session 站必须有 `output` 契约（「必须用 `flow-*` 包装 scene」的规则没了：目录的 `scenes` 现在是应用给的加上包过的）。
+- `WorkItem::Task` 加 `placement: Option<Placement>`（`params` 按任务的上下文解析成字符串）、`delivery: Option<Delivery>`。
+  `Placement::template_instance(run)`：模板实例名取 `params.name`，没有就是 `flow-<run>`；其余参数原样交给模板。
+- `Delivery`：`structured_output`（缺省）| `flow_submit`（`Engine::with_submit_scenes` 列出的 scene，即模块的 `flow-*`）。
+  协议层按它写交法；限写一句改成列出**本站实际被拒的**受限工具（`protocol::refused`）。`Engine::delivery_of(scene)`、
+  `Engine::dispatched_work(rec, now)`（重启接续时按引擎的交法重建；自由函数 `dispatched_work` 保留，一律当结构化输出）。
+- `protocol::refused(guarded, writes) -> [(pattern, rule_tool_name)]`：受限的名字不被 `writes` 允许就拒；分组 `ns__*` 整组拒
+  （规则写 `ns`，Agix 按 `__` 段匹配），但本站 `writes` 落在组内的不拒整组（`deny` 不能带例外）；不在 `__` 边界的 `prefix*` 写不成规则，跳过。
+- `Packs` 加 `writable / origin / save_flow / delete_flow / save_skill / delete_skill`（缺省只读），`Origin { builtin, override, user }`。
+  包只查「能解析、名字能存」；**整份校验在 `Engine::save_flow`**（用引擎的包——模块那层带全目录——判，问题即错误、什么都不写）。
+  `Engine::{save_flow, delete_flow, save_skill, delete_skill}` 先问 `Authorizer`：新 `Op::EditFlow { flow }`、`Op::EditSkill { skill }`（`run` 为 `None`）。
+- `MemPacks::writable()`（内存里的可写层）；`DirPacks::writable(dir)` / `.with_writable(dir)`（最上一层，原子写 `flows/<name>.yaml`、
+  `skills/<name>/SKILL.md`）、`.with_builtin(MemPacks)`（嵌入二进制的最底层，其目录并入 `catalog()`）。删覆盖回到内置；删内置报错。
+- `schema::minimal(&Value)`：`examples[0]` → `default` → `const` → `enum[0]` → `oneOf/anyOf` 第一支、`allOf` 合并 → 按类型
+  （对象给全部 required、数组给 `minItems` 个、字符串补到 `minLength`、几种 `format`、数的下界）；什么都没说给 `{}`。
+- `dryrun`（crate 根，纯内核）：`Sandbox`，每条试运行一个 `Engine` + `MemStore`（`dry-<flow>-<n>`，子运行同库），`Mocks {stations, gates, tools}`，
+  `SandboxPacks`（可给未保存的 YAML；目录收进各流程用到的 step/gate/tool/action/scene 等名字——它们都被模拟）。`start / step / run / list /
+  get / engine_for / absorb / root_of / runs_of`；`KEEP = 20`。站的模拟输出：`mocks.stations.<id>`（多任务的站可给按任务 id 的表）→
+  契约的 `minimal`；不合契约就 `fail` 并写明。门缺省过、`false` 不过；`tool` 出口给 `mocks.tools.<tool>` 或 `{}`；确认与 external 等人。
+
+**模块**（`crates/flow/src/module`）
+
+- 落点（`dispatch::place`）：space = 站的或模块的；`template` → `cx.instances().ensure_ready(template, name, params, ensure_ms)`（缺省 60 s），
+  实例归 `module:flow`；`instance` 照给；都没有时在模块 space 里用 `system`，在别的 space 里由中枢取那个 space 的缺省实例。
+  `SessionSpec` 带 `space instance scene model provider recording`、`permission_rules`（`permission_rules(guarded, writes)`：
+  `{source:"session", behavior:"deny", tool_name}`），结构化输出交付时带 `output_schema`（`flow-*` 不带，旧录像照旧走 `flow_submit`）。
+  落点非法（模板不存在、超时、`SPACE_MISMATCH`、模型不可用）→ 本次 `fail`，理由原样（例：`template flow.nowhere gave no instance
+  `flow-…`: there is no template `flow.nowhere``），按 `retry` 处理。
+- 交付：每轮结算读 `outcome.structured_output`，有就以调度者身份 `submit`（无论哪种交法）；契约不过（理论上 Agix 已退回）或交了但站
+  因**失败的**检查（如 `tool` 出口）未满足，把问题发给会话再交，最多 2 次；一轮什么都没交提醒一次（文案按交法），再一轮还没交 `fail`。
+- 删了 `module/guard.rs` 与 `customize_session`；`DEFAULT_GUARDED`、`matches_any` 挪到模块 / 内核协议层，公开名不变。
+- `Flow::builder()` 加 `.packs_with(|data_dir| …)`、`.author_scene(scene)`（缺省 Agix chat）、`.template(InstanceTemplate)`
+  （模块自己的模板，站里写 `flow.<id>`——中枢只许模块用自己的和 profile 的模板）、`.ensure_ms(ms)`。
+- `tools::StructuredScene`（id `structured-<base>`）：把 `StructuredOutput` 加进白名单的包装，不持模块状态，可放进模板的 `native`
+  （spawn 的 daemon 在自己进程里再建一遍）。**原因**：Agix 只在 scene 允许 `StructuredOutput` 时把它给带 `output_schema` 的会话，
+  而 chat scene 的白名单里没有它（coding 有，但要项目）。
+- `flow-author`（`module/author.rs`）：包应用给的 scene，加系统提示块 `AUTHOR_PROMPT` 与 11 个工具（只读：`flow_list flow_show
+  flow_schema flow_validate flow_dry_run`；非只读：`flow_create flow_update flow_delete flow_skill_set flow_skill_delete flow_start`）。
+  非只读的工具实现 `check_permissions` 返回 `ask`——Agix 原生工具缺省 `allow`，与 `is_read_only` 无关，不改就不会问。
+  `flow_create/flow_update` 先把 YAML 连同要一起存的 skills 整份校验，有问题只返回问题、什么都不写；`flow_update` 的 YAML 必须同名。
+  没有当前流程时返回 `NO_FOCUS`（含「请用户先在右边栏选择」）。不自动起名（回放下那是一次没录的模型调用）。
+- 流程 space 的 `SpaceDecl` 缺省 scene 改为 `flow-author`；`start` 激活包过的 scene 与 `flow-author`、建沙箱、发 `defs` 与 `dry_runs`。
+
+**方法与主题**（`app.flow.*`，都只给 `Device`）
+
+| 方法 | 参数 → 结果 |
+|---|---|
+| `save` | `{yaml}` → `{name, digest, origin}`；校验不过是 `INVALID_PARAMS`，`message` 里列出全部问题 |
+| `delete` | `{name}` → `{name, origin}`（`origin` 是删后这个名字下的流程的来源，没有了是 `null`）；删内置报错 |
+| `skill.save` / `skill.delete` | `{name, body}` → `{name, digest}` / `{name}` → `{name}` |
+| `focus` | `{instance, session_id, flow \| null}` → `{flow}`；不存在的流程 `not_found` |
+| `dry_run.start` | `{flow \| yaml, inputs?, mocks?: {stations?, gates?, tools?}, subject?, title?}` → `{run}`（只排队，不走） |
+| `dry_run.step` / `dry_run.run` | `{run}` → `{run, steps: [{kind, run, station?, task?, gate?, result}], pending, status}` |
+| `dry_run.list` | → `[{id, flow, status, created_at}]`，新的在前 |
+| `defs`（改） | → `[{name, title, digest, origin, valid}]` |
+| `def`（改） | 多了 `origin`、`valid`、`problems`、`writable`；`protocol` 按各站的交法写 |
+| `catalog`（改） | 多了 `templates instances spaces models writable` |
+| `get` / `history` / `claim` / `heartbeat` / `submit` / `fail` / `retry` / `confirm` / `force` / `rework` / `release` / `cancel` | `run` 以 `dry-` 开头时进沙箱；动作产生的工作在沙箱里排队，试运行被 `dry_run.run` 驱动过就接着走到下一个停处 |
+
+| 主题 | 参数 | 值 |
+|---|---|---|
+| `defs` | — | 同 `defs` 方法；启动、保存、删除（含 skill）后重发 |
+| `focus` | `{instance, session_id}` | `{flow: string \| null}`；`focus` 方法、`flow_create`、删掉当前流程时发 |
+| `dry_runs` | — | 同 `dry_run.list` |
+| `run`（改） | `{run}` | 试运行的 `RunView` 也在这里；其 session 任务带 `preview: {round, attempt, scene, message, placement, delivery, output_schema, session_key}`（`message` 是本来要发给会话的完整首条消息：协议层 + skill） |
+
+外壳怎么知道后端有流程模块：外壳启动时已经调 `harnix.reachable`（`app.snapshot.reachable`），**有 `app.flow.defs` 即有**；流程 space 的 id
+（缺省 `flow`，应用可改）从 `harnix.spaces.list` 里 `scene === "flow-author"` 的那项取。hello 快照里 `engine.active_scenes` 也会有
+`flow-author`，但那是间接的。
+
+**空应用**：二进制挪进新 crate `crates/cli`（`harnix-cli`，`[[bin]] name = "harnix"`），注册 `Flow`：`FileStore`（缺省，模块数据目录 `runs/`）、
+`DirPacks::writable(<数据目录>/packs).with_builtin(…)`（内置示例 `example-review`：session 站 + 确认，skill `review`，在 `crates/cli/packs/`），
+`flow-chat`、`flow-coding`、`flow-author`。`crates/harnix` 只剩库、不依赖 `harnix-flow` / `scene`（`layering.rs` 新测试
+`the_library_does_not_carry_the_empty_applications_flow_module`）。`check.sh` 改建 `-p harnix-cli`，testkit 建 `harnix` 时用 `-p harnix-cli`；
+`examples/hello-app/Cargo.lock` 多了这个成员。
+
+**testapp**：流程模块带两个模板 `flow.local`（进程内）、`flow.remote`（spawn），引擎都激活 `structured-chat`（`native` 贡献）；包换成
+`DirPacks::writable(<数据目录>/packs).with_builtin(…)`；新演示 `demo-placed`（`fleet` space + 自己的模型 + 进程内模板；spawn 模板）、
+`demo-guarded`（模板实例上写 `TodoWrite` 被拒）、`demo-misplaced`（模板不存在）。去掉 `target/testapp-ui` 的构建；`ui/flow.spec.ts` 整体 `fixme`，等 §7。
+
+**录像**（手工，形状照 `flow-analyze`，多轮之间放填充调用）：`flow-local`、`flow-remote`（`StructuredOutput` 一次）、`flow-guarded`（`TodoWrite` →
+`StructuredOutput {done: true}`）、`flow-author-unfocused`（`flow_update`）、`flow-author-edit`（三轮：`flow_schema`、`flow_validate`、`flow_create` ·
+`flow_show`、`flow_update`、`flow_dry_run` · `flow_delete`）。
+
+**测试**
+
+- 单元：`tests/validate.rs`（放宽后的规则、落点字段与目录、组合与引用）、`tests/authoring.rs`（落点与交法、`MemPacks`/`DirPacks` 可写层、
+  `Engine::save_flow` 的校验与授权、试运行的模拟规则与步进、保留 20 条）、`kernel::schema`、`kernel::protocol`（`refused`、结构化输出文案）、
+  模块（权限规则生成、目录、懒加载的包、`focus` 记忆、编写工具的只读标记、`StructuredScene`）、`crates/cli`（示例流程有效）。
+- LIVE API：`flow-placement.spec.ts`（进程内与 spawn 模板实例经结构化输出走完、在 `fleet` space、模型 `flow-demo-model` 经 `app.fleet.model`
+  读回；模板实例上 `TodoWrite` 得到 `Denied by permission: denied by rule: TodoWrite`；落点非法任务失败、理由可读）、`flow-authoring.spec.ts`
+  （未选择时 `flow_update` 返回「请先选择」；对话里建、看、改、试运行、删，`focus` 与 `defs` 主题跟着变，非只读工具都被问过；`save` 后
+  `start`、覆盖与恢复；试运行不建会话、走到人、经同样的方法确认 / 认领 / 交付后结束、`preview` 可见；门 `false` 停在该站；未保存的
+  YAML 也能试运行）、`flow-empty-app.spec.ts`（`harnix` 二进制：方法、space、示例、目录、试运行、覆盖）。`flow.spec.ts` 按新目录与新演示改两处。
+- 跑过：`cargo test -p harnix -p harnix-cli -p harnix-flow -p harnix-testapp`、`-p harnix-flow --no-default-features`、这些 crate 的 clippy
+  `-D warnings`；`crate-metadata` 等离线层；`pnpm -r typecheck` 与 `test`；LIVE `api` 全部（两种拓扑各 236 过、15 跳过）；`ui` 全部一次（75 过、3 跳过）。
+  全量 `check.sh` 未跑（等外壳一半）。
+
+偏离与留下的：
+
+- 试运行只在内存里，重启就没了；`preview` 写在发布出去的视图里，不进 `RunRecord`。
+- 交了结构化输出、但那一轮在重启时还没结算的任务，重启后按「没交」提醒一次（回放下没有录像，会失败后按 `retry` 重派）。
+- 组内部分开放的受限分组不拒整组（见上），协议层如实只列出被拒的。
+- `schema::minimal` 给数组的是 `minItems` 个（缺省 0）：`foreach` 站在试运行里不给 `mocks` 就没有任务、直接通过。
