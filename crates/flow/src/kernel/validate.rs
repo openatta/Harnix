@@ -39,6 +39,11 @@ pub fn validate_yaml(yaml: &str, packs: &dyn Packs) -> Vec<Problem> {
     }
 }
 
+/// A skill's name, as a pack can store it: `[a-z][a-z0-9_-]*`.
+pub fn is_skill_name(s: &str) -> bool {
+    is_name(s, b"_")
+}
+
 fn is_name(s: &str, extra: &[u8]) -> bool {
     let b = s.as_bytes();
     !b.is_empty()
@@ -328,7 +333,16 @@ fn station_problems(c: &mut Ctx, s: &Station, cyclic: bool) {
 
 fn executor_problems(c: &mut Ctx, id: &str, t: &TaskSpec) {
     match &t.executor {
-        Executor::Session { scene, session } => {
+        Executor::Session {
+            scene,
+            session,
+            model,
+            provider,
+            instance,
+            template,
+            params,
+            space,
+        } => {
             if scene.trim().is_empty() {
                 c.at(id, format!("session task {} needs a scene", t.id));
             } else if !c.catalog.scenes.contains(scene) {
@@ -337,11 +351,34 @@ fn executor_problems(c: &mut Ctx, id: &str, t: &TaskSpec) {
             if t.skill.is_none() {
                 c.at(id, format!("session task {} needs a skill", t.id));
             }
+            // The output is what a session hands in, by structured output or by `flow_submit`.
+            if c.def.station(id).is_some_and(|s| s.output.is_none()) {
+                c.at(
+                    id,
+                    format!(
+                        "session task {} needs an output contract: it is what the session hands in",
+                        t.id
+                    ),
+                );
+            }
             if let super::def::SessionBinding::Key(k) = session {
                 if refs_in(k).is_empty() {
                     c.at(id, "a session key should contain a reference");
                 }
             }
+            placement_problems(
+                c,
+                id,
+                &t.id,
+                Placed {
+                    model,
+                    provider,
+                    instance,
+                    template,
+                    params,
+                    space,
+                },
+            );
         }
         Executor::Program { step } => {
             if !c.catalog.steps.contains(step) {
@@ -366,6 +403,85 @@ fn executor_problems(c: &mut Ctx, id: &str, t: &TaskSpec) {
     if let Some(skill) = &t.skill {
         if c.packs.skill(skill).is_none() {
             c.at(id, format!("skill {skill} is not in the packs"));
+        }
+    }
+}
+
+/// A session executor's placement fields.
+struct Placed<'a> {
+    model: &'a Option<String>,
+    provider: &'a Option<String>,
+    instance: &'a Option<String>,
+    template: &'a Option<String>,
+    params: &'a BTreeMap<String, String>,
+    space: &'a Option<String>,
+}
+
+/// `instance` or `template`, not both; `params` only with `template`, their references sound;
+/// each name in the catalog when the application filled that part of it in.
+fn placement_problems(c: &mut Ctx, id: &str, task: &str, p: Placed) {
+    let empty = |v: &Option<String>| v.as_ref().is_some_and(|s| s.trim().is_empty());
+    for (what, v) in [
+        ("model", p.model),
+        ("provider", p.provider),
+        ("instance", p.instance),
+        ("template", p.template),
+        ("space", p.space),
+    ] {
+        if empty(v) {
+            c.at(id, format!("session task {task}: {what} is empty"));
+        }
+    }
+    if p.instance.is_some() && p.template.is_some() {
+        c.at(
+            id,
+            format!("session task {task}: name an instance or a template, not both"),
+        );
+    }
+    if !p.params.is_empty() && p.template.is_none() {
+        c.at(
+            id,
+            format!("session task {task}: params only go with a template"),
+        );
+    }
+    let st = c.def.station(id).cloned();
+    if let Some(st) = &st {
+        let refs: Vec<String> = p
+            .params
+            .values()
+            .flat_map(|v| refs_in(v).into_iter().map(String::from).collect::<Vec<_>>())
+            .collect();
+        ref_problems(c, st, &refs);
+    }
+    let check = |set: &BTreeSet<String>, v: &Option<String>| -> Option<String> {
+        let v = v.as_ref()?;
+        (!set.is_empty() && !set.contains(v)).then(|| v.clone())
+    };
+    if let Some(t) = check(&c.catalog.templates, p.template) {
+        c.at(id, format!("template {t} is not in the catalog"));
+    }
+    if let Some(i) = check(&c.catalog.instances, p.instance) {
+        c.at(id, format!("instance {i} is not in the catalog"));
+    }
+    if let Some(s) = check(&c.catalog.spaces, p.space) {
+        c.at(id, format!("space {s} is not in the catalog"));
+    }
+    if let (Some(m), false) = (p.model, c.catalog.models.is_empty()) {
+        let known = c.catalog.models.contains(m)
+            || p.provider
+                .as_ref()
+                .is_some_and(|pr| c.catalog.models.contains(&format!("{pr}/{m}")))
+            || (p.provider.is_none()
+                && c.catalog
+                    .models
+                    .iter()
+                    .any(|e| e.split_once('/').is_some_and(|(_, mm)| mm == m)));
+        if !known {
+            let named = match p.provider {
+                Some(pr) => format!("{pr}/{m}"),
+                None => m.clone(),
+            };
+            c.at(id, format!("model {named} is not in the catalog"));
         }
     }
 }

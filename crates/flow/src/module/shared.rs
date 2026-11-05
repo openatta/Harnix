@@ -8,6 +8,7 @@ use harnix_module::{ModuleContext, RpcError, SessionRef};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
+use crate::dryrun::Sandbox;
 use crate::kernel::engine::Engine;
 use crate::kernel::host::{Event, Gates, Hooks, Programs, WorkItem};
 
@@ -25,6 +26,8 @@ pub(crate) struct Config {
     pub recording: Option<RecordingFn>,
     pub lease_ms: u64,
     pub tick_ms: u64,
+    /// How long a station's template instance may take to be ready.
+    pub ensure_ms: u64,
 }
 
 /// The task a session is working on right now, and under which claim.
@@ -66,6 +69,10 @@ pub(crate) struct Shared {
     pub tick: Mutex<Option<JoinHandle<()>>>,
     /// Accepting proposals one at a time, so one is never accepted twice.
     pub proposals: Arc<tokio::sync::Mutex<()>>,
+    /// Dry runs (xops-02 §5).
+    pub sandbox: OnceLock<Arc<Sandbox>>,
+    /// The flow each authoring conversation works on: `(instance, session_id)` → flow.
+    focus: Mutex<HashMap<(String, String), String>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -86,7 +93,48 @@ impl Shared {
             stopping: AtomicBool::new(false),
             tick: Mutex::new(None),
             proposals: Arc::default(),
+            sandbox: OnceLock::new(),
+            focus: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub fn sandbox(&self) -> Result<Arc<Sandbox>, RpcError> {
+        self.sandbox.get().cloned().ok_or_else(|| {
+            RpcError::new(
+                harnix_contract::codes::INSTANCE_UNAVAILABLE,
+                "the flow module has not started",
+            )
+        })
+    }
+
+    /// The flow a conversation works on.
+    pub fn focus(&self, instance: &str, session_id: &str) -> Option<String> {
+        lock(&self.focus)
+            .get(&(instance.to_string(), session_id.to_string()))
+            .cloned()
+    }
+
+    /// Set (or, with `None`, clear) the flow a conversation works on.
+    pub fn set_focus(&self, instance: &str, session_id: &str, flow: Option<String>) {
+        let key = (instance.to_string(), session_id.to_string());
+        let mut g = lock(&self.focus);
+        match flow {
+            Some(f) => {
+                g.insert(key, f);
+            }
+            None => {
+                g.remove(&key);
+            }
+        }
+    }
+
+    /// Every conversation whose current flow is `flow`.
+    pub fn focused_on(&self, flow: &str) -> Vec<(String, String)> {
+        lock(&self.focus)
+            .iter()
+            .filter(|(_, f)| *f == flow)
+            .map(|(k, _)| k.clone())
+            .collect()
     }
 
     pub fn engine(&self) -> Result<Arc<Engine>, RpcError> {
@@ -204,6 +252,7 @@ mod tests {
                 recording: None,
                 lease_ms: 60_000,
                 tick_ms: 1000,
+                ensure_ms: 60_000,
             },
             tx,
         )
@@ -268,6 +317,23 @@ mod tests {
         drop(held);
         sh.release_lock("r#run", second);
         assert_eq!(sh.session_locks(), 0);
+    }
+
+    #[test]
+    fn a_conversation_remembers_its_flow_until_it_is_cleared() {
+        let sh = shared();
+        assert_eq!(sh.focus("system", "s1"), None);
+        sh.set_focus("system", "s1", Some("demo".into()));
+        sh.set_focus("system", "s2", Some("other".into()));
+        assert_eq!(sh.focus("system", "s1").as_deref(), Some("demo"));
+        assert_eq!(sh.focus("side", "s1"), None, "per instance and session");
+        assert_eq!(
+            sh.focused_on("demo"),
+            [("system".to_string(), "s1".to_string())]
+        );
+        sh.set_focus("system", "s1", None);
+        assert_eq!(sh.focus("system", "s1"), None);
+        assert!(super::super::NO_FOCUS.contains("select"));
     }
 
     #[test]

@@ -22,6 +22,7 @@ use serde_json::{json, Value};
 
 use super::dispatch;
 use super::shared::{Binding, Shared};
+use crate::kernel::protocol::STRUCTURED_OUTPUT_TOOL;
 use crate::kernel::run::Actor;
 use crate::kernel::FlowError;
 
@@ -112,6 +113,98 @@ impl AgentScene for FlowScene {
     }
     /// A flow session spends no model call outside its task: naming it would be one (and,
     /// under replay, one that is not recorded and goes to the network).
+    fn auto_name_session(&self) -> bool {
+        false
+    }
+    fn session_name_prompt(&self, _first_message: &str) -> Option<String> {
+        None
+    }
+    fn memory_extraction_prompt(&self) -> Option<String> {
+        self.inner.memory_extraction_prompt()
+    }
+}
+
+/// The id [`StructuredScene`] gives a base scene: `structured-<id>`.
+pub fn structured_id(base: &str) -> String {
+    format!("structured-{base}")
+}
+
+/// A scene whose sessions can hand a flow task in by structured output: the base scene with the
+/// engine's `StructuredOutput` tool in its whitelist, offered as `structured-<id>`.
+///
+/// The engine gives a session with an `output_schema` that tool only where its scene permits
+/// it, and Agix's chat scene does not. Register it where a station's session runs — in a
+/// template's native contributions (`InstanceTemplate::native`, which a spawned daemon builds
+/// again in its own process) and that template's `EngineProfile.scenes`. It holds no state of
+/// the module's, so it works in any process.
+pub struct StructuredScene {
+    inner: Arc<dyn AgentScene>,
+    id: String,
+    name: String,
+}
+
+impl StructuredScene {
+    pub fn new(inner: Arc<dyn AgentScene>) -> Self {
+        Self {
+            id: structured_id(inner.id()),
+            name: format!("{} (structured output)", inner.name()),
+            inner,
+        }
+    }
+}
+
+impl AgentScene for StructuredScene {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn description(&self) -> &str {
+        self.inner.description()
+    }
+    fn build_system_prompt(&self, ctx: &ScenePromptContext) -> Vec<PromptBlock> {
+        self.inner.build_system_prompt(ctx)
+    }
+    fn tools(&self) -> Vec<String> {
+        let mut tools = self.inner.tools();
+        if !tools.is_empty() {
+            tools.push(STRUCTURED_OUTPUT_TOOL.to_string());
+        }
+        tools
+    }
+    fn requires_project(&self) -> bool {
+        self.inner.requires_project()
+    }
+    fn supports_team(&self) -> bool {
+        self.inner.supports_team()
+    }
+    fn extra_tools(&self) -> Vec<Arc<dyn Tool>> {
+        self.inner.extra_tools()
+    }
+    fn token_budget(&self) -> TokenBudget {
+        self.inner.token_budget()
+    }
+    fn build_system_reminder(&self, ctx: &ReminderContext) -> String {
+        self.inner.build_system_reminder(ctx)
+    }
+    fn disallowed_tools(&self) -> Vec<String> {
+        self.inner
+            .disallowed_tools()
+            .into_iter()
+            .filter(|t| t != STRUCTURED_OUTPUT_TOOL)
+            .collect()
+    }
+    fn permits_tool(&self, name: &str) -> bool {
+        name == STRUCTURED_OUTPUT_TOOL || self.inner.permits_tool(name)
+    }
+    fn deferred_tools(&self) -> Vec<String> {
+        self.inner.deferred_tools()
+    }
+    fn execution_params(&self) -> ExecutionParams {
+        self.inner.execution_params()
+    }
+    /// A flow session spends no model call outside its task.
     fn auto_name_session(&self) -> bool {
         false
     }
@@ -411,6 +504,7 @@ mod tests {
                 recording: None,
                 lease_ms: 60_000,
                 tick_ms: 1000,
+                ensure_ms: 60_000,
             },
             tx,
         ))
@@ -432,6 +526,15 @@ mod tests {
             !s.auto_name_session(),
             "no model call outside the task, even where the base scene names its sessions"
         );
+    }
+
+    #[test]
+    fn the_structured_scene_lets_a_session_hand_in_by_structured_output() {
+        let s = StructuredScene::new(Arc::new(Base(vec!["Read".into()])));
+        assert_eq!(s.id(), "structured-chat");
+        assert_eq!(s.tools(), ["Read", STRUCTURED_OUTPUT_TOOL]);
+        assert!(s.permits_tool(STRUCTURED_OUTPUT_TOOL) && !s.permits_tool("Bash"));
+        assert!(!s.auto_name_session());
     }
 
     #[test]

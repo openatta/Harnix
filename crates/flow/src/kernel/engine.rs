@@ -60,6 +60,8 @@ pub struct Engine {
     pub(crate) lease_ms: u64,
     pub(crate) retries: usize,
     pub(crate) guarded: Vec<String>,
+    /// Scenes whose sessions hand in with `flow_submit` rather than a structured output.
+    pub(crate) submit_scenes: std::collections::BTreeSet<String>,
 }
 
 /// Run `$body` in a fresh transaction `$t`, commit, and retry the whole thing on a conflict.
@@ -100,7 +102,30 @@ impl Engine {
             lease_ms: DEFAULT_LEASE_MS,
             retries: DEFAULT_RETRIES,
             guarded: vec![],
+            submit_scenes: Default::default(),
         }
+    }
+
+    /// The scenes whose sessions hand their output in with the native tool `flow_submit` (the
+    /// module's wrapped `flow-*` scenes). Every other session task hands in by structured
+    /// output: its station's contract is the session's `output_schema`.
+    pub fn with_submit_scenes<I, S>(mut self, scenes: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.submit_scenes = scenes.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// The tools the host refuses as writes unless a station lists them.
+    pub fn guarded(&self) -> &[String] {
+        &self.guarded
+    }
+
+    /// [`crate::dispatched_work`] with this engine's view of how each scene hands in.
+    pub fn dispatched_work(&self, rec: &RunRecord, now: u64) -> Vec<super::host::WorkItem> {
+        super::txn::dispatched_work_with(rec, &self.guarded, &self.submit_scenes, now)
     }
 
     pub fn with_authorizer(mut self, a: Arc<dyn Authorizer>) -> Self {
@@ -180,6 +205,86 @@ impl Engine {
 
     pub async fn history(&self, run: &str) -> Result<Vec<History>> {
         Ok(self.store.history(run).await?)
+    }
+
+    // ── definitions (xops-02) ───────────────────────────────────────────────
+
+    /// How a session task of `scene` hands in.
+    pub fn delivery_of(&self, scene: &str) -> super::host::Delivery {
+        if self.submit_scenes.contains(scene) {
+            super::host::Delivery::FlowSubmit
+        } else {
+            super::host::Delivery::StructuredOutput
+        }
+    }
+
+    /// Save a definition in the writable packs, once it validates against the whole catalog: a
+    /// text with any problem is not saved, and the problems are the error. Runs already started
+    /// keep the definition they pinned. `value`: `{name, digest, origin}`.
+    pub async fn save_flow(&self, yaml: &str, by: Actor) -> Result<Value> {
+        let def = FlowDef::parse(yaml)
+            .map_err(|e| FlowError::Invalid(format!("not a flow definition: {e}")))?;
+        self.authorize(
+            &Op::EditFlow {
+                flow: def.name.clone(),
+            },
+            &by,
+            None,
+        )?;
+        if !self.packs.writable() {
+            return invalid("the flow packs are read-only");
+        }
+        check_def(&def, self.packs.as_ref())?;
+        let digest = self.packs.save_flow(yaml).map_err(FlowError::Invalid)?;
+        Ok(json!({"name": def.name, "digest": digest, "origin": self.packs.origin(&def.name)}))
+    }
+
+    /// Delete a saved definition: a user's flow is gone, an override gives way to the built-in
+    /// one. A built-in flow cannot be deleted. `value`: `{name, origin}` (`origin` of what is
+    /// offered under the name now, `null` when nothing is).
+    pub async fn delete_flow(&self, name: &str, by: Actor) -> Result<Value> {
+        self.authorize(&Op::EditFlow { flow: name.into() }, &by, None)?;
+        if !self.packs.writable() {
+            return invalid("the flow packs are read-only");
+        }
+        if self.packs.flow_text(name).is_none() && self.packs.flow(name).is_none() {
+            return Err(FlowError::NotFound(format!("flow {name}")));
+        }
+        self.packs.delete_flow(name).map_err(FlowError::Invalid)?;
+        let origin = self.packs.flow(name).map(|_| self.packs.origin(name));
+        Ok(json!({"name": name, "origin": origin}))
+    }
+
+    /// Save a skill's body. `value`: `{name, digest}`.
+    pub async fn save_skill(&self, name: &str, body: &str, by: Actor) -> Result<Value> {
+        self.authorize(&Op::EditSkill { skill: name.into() }, &by, None)?;
+        if !self.packs.writable() {
+            return invalid("the flow packs are read-only");
+        }
+        if !super::validate::is_skill_name(name) {
+            return invalid(format!("skill name {name:?} must match [a-z][a-z0-9_-]*"));
+        }
+        if body.trim().is_empty() {
+            return invalid("a skill needs a body");
+        }
+        let digest = self
+            .packs
+            .save_skill(name, body)
+            .map_err(FlowError::Invalid)?;
+        Ok(json!({"name": name, "digest": digest}))
+    }
+
+    /// Delete a saved skill. `value`: `{name}`.
+    pub async fn delete_skill(&self, name: &str, by: Actor) -> Result<Value> {
+        self.authorize(&Op::EditSkill { skill: name.into() }, &by, None)?;
+        if !self.packs.writable() {
+            return invalid("the flow packs are read-only");
+        }
+        if self.packs.skill(name).is_none() {
+            return Err(FlowError::NotFound(format!("skill {name}")));
+        }
+        self.packs.delete_skill(name).map_err(FlowError::Invalid)?;
+        Ok(json!({"name": name}))
     }
 
     // ── runs ─────────────────────────────────────────────────────────────────

@@ -14,7 +14,7 @@ name = "harnix_flow"
 # The Harnix module (`Flow`): sessions, programs, native tools, methods, topics. Off, the crate is
 # the pure kernel with its stores and packs and links nothing of Harnix or Agix.
 default = ["module"]
-module  = ["dep:harnix-module", "dep:harnix-contract", "dep:base", "dep:tracing", "dep:anyhow"]
+module  = ["dep:harnix-module", "dep:harnix-contract", "dep:base", "dep:scene", "dep:tracing", "dep:anyhow"]
 
 [dependencies]
 serde       = { workspace = true }
@@ -30,6 +30,8 @@ tokio       = { workspace = true }
 harnix-module   = { workspace = true, optional = true }
 harnix-contract = { workspace = true, optional = true }
 base            = { workspace = true, optional = true }
+# Agix's chat scene: what `flow-author` wraps unless the application gives another.
+scene           = { workspace = true, optional = true }
 tracing         = { workspace = true, optional = true }
 anyhow          = { workspace = true, optional = true }
 

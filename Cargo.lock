@@ -1102,6 +1102,7 @@ dependencies = [
  "harnix-contract",
  "harnix-module",
  "jsonschema",
+ "scene",
  "schemars",
  "serde",
  "serde_json",

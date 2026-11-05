@@ -138,10 +138,32 @@ impl TaskSpec {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Executor {
     /// A headless session the module opens on `scene`, fed the protocol layer and the skill.
+    /// Where it runs and on which model are optional: absent, the module's space and that
+    /// space's instance, and the instance's model.
     Session {
         scene: String,
         #[serde(default, skip_serializing_if = "SessionBinding::is_new")]
         session: SessionBinding,
+        /// The model the session talks to (`SessionSpec.model`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        /// The provider of that model (`SessionSpec.provider`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider: Option<String>,
+        /// An instance that exists already, by name. Not with `template`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        instance: Option<String>,
+        /// A template's full name (`<module>.<template>`, or a profile's): the module makes sure
+        /// an instance of it is ready, then opens the session there. Not with `instance`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        template: Option<String>,
+        /// With `template`: its parameters. Values may hold references (`${run}`,
+        /// `${inputs.k}`, …); `name` is the instance's name (`flow-${run}` when absent).
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        params: BTreeMap<String, String>,
+        /// The space the session belongs to; the module's when absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
     },
     /// The application's own code (`Programs`).
     Program { step: String },

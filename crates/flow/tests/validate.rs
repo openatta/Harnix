@@ -91,9 +91,86 @@ fn without_the_contract_the_issue_example_reports_it() {
         "    exit: [{kind: output}]\n",
     );
     let ps = validate_yaml(&yaml, &packs());
-    assert_eq!(ps.len(), 1, "{ps:#?}");
-    assert_eq!(ps[0].station.as_deref(), Some("report"));
-    assert!(ps[0].message.contains("output contract"));
+    // The output exit needs it, and so does the session task (it is what the session hands in).
+    assert_eq!(ps.len(), 2, "{ps:#?}");
+    assert!(ps
+        .iter()
+        .all(|p| p.station.as_deref() == Some("report") && p.message.contains("output contract")));
+}
+
+// ── xops-02: placement and the relaxed session rule ─────────────────────────
+
+fn session(executor_extra: &str, station_extra: &str) -> String {
+    format!(
+        "name: p\ninputs: {{who: {{schema: {{type: string}}, default: x}}}}\nstations:\n  - {{id: a, executor: {{kind: session, scene: chat{executor_extra}}}, skill: analyze{station_extra}, exit: [{{kind: confirm}}]}}\n"
+    )
+}
+
+#[test]
+fn a_session_station_needs_an_output_contract_and_any_catalog_scene() {
+    assert_problem(&session("", ""), "needs an output contract");
+    assert_eq!(
+        problems(&session("", ", output: {type: object}")),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn placement_fields_parse_and_are_checked_against_what_the_catalog_says() {
+    let ok = session(
+        ", model: m1, provider: acme, template: app.box, params: {name: 'box-${run}', who: '${inputs.who}'}, space: dev",
+        ", output: {type: object}",
+    );
+    let def = FlowDef::parse(&ok).unwrap();
+    match def.stations[0].executor.as_ref().unwrap() {
+        Executor::Session {
+            model,
+            template,
+            params,
+            space,
+            ..
+        } => {
+            assert_eq!(model.as_deref(), Some("m1"));
+            assert_eq!(template.as_deref(), Some("app.box"));
+            assert_eq!(params["name"], "box-${run}");
+            assert_eq!(space.as_deref(), Some("dev"));
+        }
+        e => panic!("{e:?}"),
+    }
+    // An empty catalog part checks nothing.
+    assert_eq!(problems(&ok), Vec::<String>::new());
+    // A filled one checks its names.
+    let strict = packs().template("app.other").space("prod").model("acme/m2");
+    let ps: Vec<String> = validate_yaml(&ok, &strict)
+        .iter()
+        .map(|p| p.to_string())
+        .collect();
+    for want in ["template app.box", "space dev", "model acme/m1"] {
+        assert!(ps.iter().any(|p| p.contains(want)), "{want}: {ps:#?}");
+    }
+    let known = packs().template("app.box").space("dev").model("acme/m1");
+    assert!(validate_yaml(&ok, &known).is_empty());
+    // A bare model name matches a `provider/model` entry when no provider is named.
+    let bare = session(", model: m1", ", output: {type: object}");
+    assert!(validate_yaml(&bare, &packs().model("acme/m1")).is_empty());
+    let inst = session(", instance: side", ", output: {type: object}");
+    assert!(validate_yaml(&inst, &packs().instance("side")).is_empty());
+    assert!(!validate_yaml(&inst, &packs().instance("main")).is_empty());
+}
+
+#[test]
+fn placement_combinations_and_references() {
+    let o = ", output: {type: object}";
+    assert_problem(&session(", instance: i, template: t", o), "not both");
+    assert_problem(
+        &session(", params: {name: x}", o),
+        "params only go with a template",
+    );
+    assert_problem(
+        &session(", template: t, params: {name: '${inputs.nope}'}", o),
+        "no input nope",
+    );
+    assert_problem(&session(", model: ''", o), "model is empty");
 }
 
 #[test]

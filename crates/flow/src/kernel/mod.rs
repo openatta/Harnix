@@ -8,6 +8,7 @@ pub mod host;
 pub mod protocol;
 pub mod refs;
 pub mod run;
+pub mod schema;
 mod txn;
 pub mod validate;
 

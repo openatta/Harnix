@@ -97,7 +97,7 @@ fn all_packs() -> MemPacks {
             "name: parent\ninputs: {items: {schema: {type: array}}}\nstations: [{id: split, foreach: '${inputs.items}', executor: {kind: subflow, flow: child}, exit: [{kind: children}]}]",
         )
         .flow(
-            "name: chat\nstations:\n  - {id: one, executor: {kind: session, scene: chat, session: per_run}, skill: analyze, exit: [{kind: confirm}]}\n  - {id: two, executor: {kind: session, scene: chat, session: per_run}, skill: report, exit: [{kind: confirm}]}",
+            "name: chat\nstations:\n  - {id: one, executor: {kind: session, scene: chat, session: per_run}, skill: analyze, output: {type: object}, exit: [{kind: confirm}]}\n  - {id: two, executor: {kind: session, scene: chat, session: per_run}, skill: report, output: {type: object}, exit: [{kind: confirm}]}",
         )
 }
 
@@ -771,7 +771,7 @@ async fn session_tasks_carry_protocol_and_share_a_per_run_session() {
     let (run, o) = start(&h, "chat").await;
     let j = jobs(&o)[0].clone();
     assert_eq!(j.session_key.as_deref(), Some("run"));
-    assert!(j.protocol.as_deref().unwrap().contains("flow_submit"));
+    assert!(j.protocol.as_deref().unwrap().contains("StructuredOutput"));
     let skill_digest = o.work.iter().find_map(|w| match w {
         WorkItem::Task { skill_digest, .. } => skill_digest.clone(),
         _ => None,

@@ -66,16 +66,49 @@ pub trait RunStore: Send + Sync {
 // ── packs ────────────────────────────────────────────────────────────────────
 
 /// Names the application registered, for validation and for authors.
+///
+/// `scenes`, `steps`, `gates`, `tools` and `actions` are always checked: a name a definition uses
+/// must be here. `templates`, `instances`, `spaces` and `models` are checked only when the
+/// application filled them in — an empty set says "not known here", not "none".
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Catalog {
+    #[serde(default)]
     pub scenes: BTreeSet<String>,
     /// Program steps (`Programs`).
+    #[serde(default)]
     pub steps: BTreeSet<String>,
+    #[serde(default)]
     pub gates: BTreeSet<String>,
     /// Tools a `tool` exit may call (`Tools`).
+    #[serde(default)]
     pub tools: BTreeSet<String>,
     /// Hook actions (`Hooks`).
+    #[serde(default)]
     pub actions: BTreeSet<String>,
+    /// Templates a session station may name (full names, `<module>.<template>`).
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub templates: BTreeSet<String>,
+    /// Instances a session station may name.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub instances: BTreeSet<String>,
+    /// Spaces a session station may name.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub spaces: BTreeSet<String>,
+    /// Models a session station may name: `model`, or `provider/model` to tie it to a provider.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub models: BTreeSet<String>,
+}
+
+/// Where the flow a pack offers under a name comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Origin {
+    /// Shipped with the application; read-only.
+    Builtin,
+    /// A built-in flow saved again in the writable layer: deleting it brings the built-in back.
+    Override,
+    /// Only in the writable layer.
+    User,
 }
 
 /// Where definitions and skills come from.
@@ -94,6 +127,36 @@ pub trait Packs: Send + Sync {
     /// Names of the skills on offer, for authors. Empty when the packs cannot list them.
     fn skills(&self) -> Vec<String> {
         vec![]
+    }
+
+    // ── writing (xops-02) ────────────────────────────────────────────────────
+    //
+    // The packs store what they are given once it parses; whether it is a *valid* flow is
+    // judged against the whole catalog by whoever saves — `Engine::save_flow` validates first
+    // and saves nothing that has problems. Runs already started keep the definition they pinned.
+
+    /// Whether flows and skills can be saved here.
+    fn writable(&self) -> bool {
+        false
+    }
+    /// Where the flow offered as `flow` comes from.
+    fn origin(&self, _flow: &str) -> Origin {
+        Origin::Builtin
+    }
+    /// Save a definition under the name it declares; the digest of the saved text.
+    fn save_flow(&self, _yaml: &str) -> Result<String, String> {
+        Err("read-only".into())
+    }
+    /// Delete a saved definition: a user's flow goes, an override gives way to the built-in.
+    fn delete_flow(&self, _name: &str) -> Result<(), String> {
+        Err("read-only".into())
+    }
+    /// Save a skill's body; its digest.
+    fn save_skill(&self, _name: &str, _body: &str) -> Result<String, String> {
+        Err("read-only".into())
+    }
+    fn delete_skill(&self, _name: &str) -> Result<(), String> {
+        Err("read-only".into())
     }
 }
 
@@ -164,6 +227,14 @@ pub enum Op {
         task: String,
         session: String,
     },
+    /// Saving or deleting a flow definition (no run: `run` is `None`).
+    EditFlow {
+        flow: String,
+    },
+    /// Saving or deleting a skill (no run: `run` is `None`).
+    EditSkill {
+        skill: String,
+    },
 }
 
 impl Op {
@@ -181,13 +252,16 @@ impl Op {
             Self::Retry { .. } => "retry",
             Self::Cancel => "cancel",
             Self::AttachSession { .. } => "attach_session",
+            Self::EditFlow { .. } => "edit_flow",
+            Self::EditSkill { .. } => "edit_skill",
         }
     }
 }
 
 /// Decides who may do what. The one place authorization happens, whatever the entry point.
 pub trait Authorizer: Send + Sync {
-    /// `run` is `None` only for `create`. `Err` carries the reason shown to the caller.
+    /// `run` is `None` only for `create`, `edit_flow` and `edit_skill`. `Err` carries the reason
+    /// shown to the caller.
     fn check(&self, op: &Op, by: &Actor, run: Option<&RunRecord>) -> Result<(), String>;
 }
 
@@ -346,6 +420,8 @@ pub const EVENT_KINDS: &[&str] = &[
 ];
 
 /// Work for the module to carry out after the commit.
+// A task is the common item and the big one; boxing it would only move the allocation.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WorkItem {
@@ -377,6 +453,13 @@ pub enum WorkItem {
         /// The session already bound to `session_key`, if any.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         session: Option<String>,
+        /// Where a session task's session goes and which model it talks to, references
+        /// resolved (`None` for program tasks).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        placement: Option<Placement>,
+        /// How a session task hands its output in.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        delivery: Option<Delivery>,
     },
     /// Run a gate; report through `gate_result(run, station, round, gate, …)`.
     Gate {
@@ -389,6 +472,50 @@ pub enum WorkItem {
     Hook { action: String, event: Event },
     /// A session served a task that was cancelled.
     CloseSession { session: String },
+}
+
+/// A session task's placement, as the station gave it with `params` resolved for the run.
+/// Everything absent falls back to the module's space and that space's instance and model.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Placement {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template: Option<String>,
+    /// The template's parameters, resolved.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub params: std::collections::BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub space: Option<String>,
+}
+
+impl Placement {
+    /// The instance a template's session goes to: the `name` parameter, else `flow-<run>`.
+    pub fn template_instance(&self, run: &str) -> Option<String> {
+        self.template.as_ref()?;
+        Some(
+            self.params
+                .get("name")
+                .cloned()
+                .filter(|n| !n.is_empty())
+                .unwrap_or_else(|| format!("flow-{run}")),
+        )
+    }
+}
+
+/// How a session task hands in its output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Delivery {
+    /// The session's `output_schema` is the station's contract; the model calls
+    /// `StructuredOutput`, and each turn's structured output is submitted. The default.
+    StructuredOutput,
+    /// A wrapped `flow-*` scene: the model calls the native tool `flow_submit`.
+    FlowSubmit,
 }
 
 /// The result of one operation: produced only after its commit succeeded.

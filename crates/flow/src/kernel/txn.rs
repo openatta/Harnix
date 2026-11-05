@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 
 use super::def::{Executor, ExitCond, FlowDef, SessionBinding, TaskSpec, Work};
 use super::engine::{Engine, MAX_FOREACH_ITEMS, MAX_LEASE_MS, MAX_SUBFLOW_DEPTH};
-use super::host::{ChangeSet, Event, Outcome, WorkItem};
+use super::host::{ChangeSet, Delivery, Event, Outcome, Placement, WorkItem};
 use super::protocol;
 use super::refs::{asserts_fail, context, resolve, resolve_str, station_output};
 use super::run::{
@@ -791,6 +791,7 @@ impl<'a> M<'a> {
         let work = task_work(
             self.rec,
             &self.eng.guarded,
+            &self.eng.submit_scenes,
             sid,
             tid,
             spec,
@@ -1297,6 +1298,7 @@ impl<'a> M<'a> {
 fn task_work(
     rec: &RunRecord,
     guarded: &[String],
+    submit_scenes: &BTreeSet<String>,
     sid: &str,
     tid: &str,
     spec: &TaskSpec,
@@ -1322,6 +1324,43 @@ fn task_work(
         .as_ref()
         .and_then(|k| rec.session_keys.get(k).cloned());
     let st = rec.def.station(sid);
+    let (placement, delivery) = match &spec.executor {
+        Executor::Session {
+            scene,
+            model,
+            provider,
+            instance,
+            template,
+            params,
+            space,
+            ..
+        } => (
+            Some(Placement {
+                model: model.clone(),
+                provider: provider.clone(),
+                instance: instance.clone(),
+                template: template.clone(),
+                params: params
+                    .iter()
+                    .map(|(k, v)| {
+                        let r = match resolve_str(v, &ctx) {
+                            Value::String(s) => s,
+                            Value::Null => String::new(),
+                            v => v.to_string(),
+                        };
+                        (k.clone(), r)
+                    })
+                    .collect(),
+                space: space.clone(),
+            }),
+            Some(if submit_scenes.contains(scene) {
+                Delivery::FlowSubmit
+            } else {
+                Delivery::StructuredOutput
+            }),
+        ),
+        _ => (None, None),
+    };
     let protocol = match (&spec.executor, st) {
         (Executor::Session { .. }, Some(st)) => Some(protocol::render(&protocol::TaskContext {
             def: &rec.def,
@@ -1332,6 +1371,7 @@ fn task_work(
             task: tid,
             item: item.as_ref(),
             guarded,
+            delivery: delivery.unwrap_or(Delivery::StructuredOutput),
         })),
         _ => None,
     };
@@ -1350,6 +1390,8 @@ fn task_work(
         protocol,
         session_key,
         session,
+        placement,
+        delivery,
     }
 }
 
@@ -1358,7 +1400,19 @@ fn task_work(
 /// dispatcher holds a live claim on (`session` is the session the task reported with
 /// `attach_session`, else its key's), and every gate of the current round still waiting for its
 /// result.
+///
+/// Every session task is taken to hand in by structured output here; [`Engine::dispatched_work`]
+/// knows which scenes hand in with `flow_submit`.
 pub fn dispatched_work(rec: &RunRecord, guarded: &[String], now: u64) -> Vec<WorkItem> {
+    dispatched_work_with(rec, guarded, &BTreeSet::new(), now)
+}
+
+pub(crate) fn dispatched_work_with(
+    rec: &RunRecord,
+    guarded: &[String],
+    submit_scenes: &BTreeSet<String>,
+    now: u64,
+) -> Vec<WorkItem> {
     let dispatcher = Actor::flow("dispatch");
     let mut out = vec![];
     if !rec.is_active() {
@@ -1406,6 +1460,7 @@ pub fn dispatched_work(rec: &RunRecord, guarded: &[String], now: u64) -> Vec<Wor
             let mut w = task_work(
                 rec,
                 guarded,
+                submit_scenes,
                 sid,
                 &t.id,
                 &spec,

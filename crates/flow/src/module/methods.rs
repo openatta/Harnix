@@ -1,6 +1,10 @@
 //! `app.flow.*`: what a device may do. Every method is declared for `Device` only; the actor
 //! recorded is `{kind: "device", id: <the device>}`, and the application's authorizer has the
 //! last word on each change.
+//!
+//! A run whose id starts `dry-` is a dry run's (xops-02 §5): `get`, `history` and every action on
+//! a run reach the sandbox for it, and what the action produced is queued there, not carried
+//! out. Writing flows (`save`, `delete`, `skill.save`, `skill.delete`) needs writable packs.
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -14,11 +18,13 @@ use serde_json::{json, Value};
 use super::dispatch;
 use super::rpc_error;
 use super::shared::Shared;
+use crate::dryrun::{is_dry, StartIn as DryStartIn};
 use crate::kernel::def::{definition_schema, Work};
 use crate::kernel::engine::{CreateIn, Engine};
 use crate::kernel::host::Packs;
 use crate::kernel::protocol;
 use crate::kernel::run::{run_schema, Actor, RunQuery};
+use crate::kernel::validate::validate;
 use crate::kernel::FlowError;
 
 fn device(cx: &CallContext) -> Actor {
@@ -44,6 +50,20 @@ struct SchemaIn {
 #[derive(Deserialize)]
 struct YamlIn {
     yaml: String,
+}
+
+#[derive(Deserialize)]
+struct SkillIn {
+    name: String,
+    body: String,
+}
+
+#[derive(Deserialize)]
+struct FocusIn {
+    instance: String,
+    session_id: String,
+    #[serde(default)]
+    flow: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -175,16 +195,47 @@ fn method<P, F, Fut>(
         .handler(move |cx: CallContext, p: P| f(sh.clone(), packs.clone(), cx, p));
 }
 
-/// Run a change, carry out what it produced, answer its value.
+/// Run a change, carry out what it produced (a dry run's: queue it in the sandbox), answer its
+/// value.
 async fn change(sh: &Arc<Shared>, run: Option<&str>, r: crate::Result<crate::Outcome>) -> Answer {
     let o = r.map_err(rpc_error)?;
     let value = o.value.clone();
-    dispatch::apply(sh, run, o).await;
+    match run {
+        Some(run) if is_dry(run) => {
+            sh.sandbox()?.absorb(run, o).await.map_err(rpc_error)?;
+            dispatch::publish_dry(sh, Some(run)).await;
+        }
+        _ => dispatch::apply(sh, run, o).await,
+    }
     Ok(value)
 }
 
 fn engine(sh: &Shared) -> Result<Arc<Engine>, RpcError> {
     sh.engine()
+}
+
+/// The engine `run` is in: the sandbox's for a dry run, the module's otherwise.
+async fn engine_of(sh: &Shared, run: &str) -> Result<Arc<Engine>, RpcError> {
+    if is_dry(run) {
+        sh.sandbox()?.engine_for(run).await.map_err(rpc_error)
+    } else {
+        engine(sh)
+    }
+}
+
+/// After the packs changed: the `defs` topic, and the focus of conversations on a flow that is
+/// gone.
+async fn packs_changed(sh: &Arc<Shared>, flow: Option<&str>) {
+    dispatch::publish_defs(sh).await;
+    if let (Some(flow), Ok(engine)) = (flow, sh.engine()) {
+        let gone = engine.packs().flow(flow).is_none();
+        for (i, s) in sh.focused_on(flow) {
+            if gone {
+                sh.set_focus(&i, &s, None);
+            }
+            dispatch::publish_focus(sh, &i, &s).await;
+        }
+    }
 }
 
 fn to_value(v: impl serde::Serialize) -> Answer {
@@ -207,8 +258,13 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         sh,
         packs,
         "get",
-        "a run with its pinned definition and what each open station lacks: {run}",
-        |sh, _, _, p: RunIn| async move { to_value(engine(&sh)?.get(&p.run).await.map_err(rpc_error)?) },
+        "a run with its pinned definition and what each open station lacks (a dry run's session tasks carry `preview`): {run}",
+        |sh, _, _, p: RunIn| async move {
+            if is_dry(&p.run) {
+                return sh.sandbox()?.get(&p.run).await.map_err(rpc_error);
+            }
+            to_value(engine(&sh)?.get(&p.run).await.map_err(rpc_error)?)
+        },
     );
     method(
         m,
@@ -217,7 +273,13 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         "history",
         "a run's history, oldest first: {run}",
         |sh, _, _, p: RunIn| async move {
-            to_value(engine(&sh)?.history(&p.run).await.map_err(rpc_error)?)
+            to_value(
+                engine_of(&sh, &p.run)
+                    .await?
+                    .history(&p.run)
+                    .await
+                    .map_err(rpc_error)?,
+            )
         },
     );
     method(
@@ -225,27 +287,16 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         sh,
         packs,
         "defs",
-        "the flows on offer: [{name, title, digest}]",
-        |_, packs, _, _: Value| async move {
-            let list: Vec<Value> = packs
-                .flows()
-                .into_iter()
-                .filter_map(|n| {
-                    packs
-                        .flow(&n)
-                        .map(|(d, digest)| json!({"name": n, "title": d.title, "digest": digest}))
-                })
-                .collect();
-            Ok(Value::Array(list))
-        },
+        "the flows on offer, as the `defs` topic has them: [{name, title, digest, origin, valid}]",
+        |_, packs, _, _: Value| async move { Ok(Value::Array(dispatch::defs_list(packs.as_ref()))) },
     );
     method(
         m,
         sh,
         packs,
         "def",
-        "one flow: {def, yaml, digest, skills: {name: body}, protocol: {station: text}}",
-        |sh, packs, _, p: NameIn| async move { def_info(packs.as_ref(), &sh.cfg.guarded, &p.name) },
+        "one flow: {def, yaml, digest, origin, valid, problems, writable, skills: {name: body}, protocol: {station: text}}",
+        |sh, packs, _, p: NameIn| async move { def_info(&*engine(&sh)?, packs.as_ref(), &p.name) },
     );
     method(
         m,
@@ -268,12 +319,14 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         sh,
         packs,
         "catalog",
-        "the names definitions may use: {scenes, steps, gates, tools, actions, skills}",
+        "the names definitions may use: {scenes, steps, gates, tools, actions, templates, instances, spaces, models, skills, writable}",
         |_, packs, _, _: Value| async move {
             let c = packs.catalog();
             Ok(json!({
                 "scenes": c.scenes, "steps": c.steps, "gates": c.gates, "tools": c.tools,
-                "actions": c.actions, "skills": packs.skills(),
+                "actions": c.actions, "templates": c.templates, "instances": c.instances,
+                "spaces": c.spaces, "models": c.models, "skills": packs.skills(),
+                "writable": packs.writable(),
             }))
         },
     );
@@ -284,6 +337,130 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         "validate",
         "every structural problem of a definition text: [{station?, message}]",
         |sh, _, _, p: YamlIn| async move { to_value(engine(&sh)?.validate(&p.yaml).await) },
+    );
+
+    // ── writing flows (xops-02 §3) ───────────────────────────────────────────
+    method(
+        m,
+        sh,
+        packs,
+        "save",
+        "save a definition in the writable packs, once it validates: {yaml} → {name, digest, origin}",
+        |sh, _, cx, p: YamlIn| async move {
+            let v = engine(&sh)?.save_flow(&p.yaml, device(&cx)).await.map_err(rpc_error)?;
+            packs_changed(&sh, v["name"].as_str()).await;
+            Ok(v)
+        },
+    );
+    method(
+        m,
+        sh,
+        packs,
+        "delete",
+        "delete a saved flow (an override: the built-in one is back): {name} → {name, origin}",
+        |sh, _, cx, p: NameIn| async move {
+            let v = engine(&sh)?
+                .delete_flow(&p.name, device(&cx))
+                .await
+                .map_err(rpc_error)?;
+            packs_changed(&sh, Some(&p.name)).await;
+            Ok(v)
+        },
+    );
+    method(
+        m,
+        sh,
+        packs,
+        "skill.save",
+        "save a skill's SKILL.md body: {name, body} → {name, digest}",
+        |sh, _, cx, p: SkillIn| async move {
+            let v = engine(&sh)?
+                .save_skill(&p.name, &p.body, device(&cx))
+                .await
+                .map_err(rpc_error)?;
+            packs_changed(&sh, None).await;
+            Ok(v)
+        },
+    );
+    method(
+        m,
+        sh,
+        packs,
+        "skill.delete",
+        "delete a saved skill: {name} → {name}",
+        |sh, _, cx, p: NameIn| async move {
+            let v = engine(&sh)?
+                .delete_skill(&p.name, device(&cx))
+                .await
+                .map_err(rpc_error)?;
+            packs_changed(&sh, None).await;
+            Ok(v)
+        },
+    );
+    method(
+        m,
+        sh,
+        packs,
+        "focus",
+        "the flow a conversation works on (the panel's selection): {instance, session_id, flow | null} → {flow}",
+        |sh, packs, _, p: FocusIn| async move {
+            let flow = p.flow.filter(|f| !f.is_empty());
+            if let Some(f) = &flow {
+                if packs.flow(f).is_none() {
+                    return Err(rpc_error(FlowError::NotFound(format!("flow {f}"))));
+                }
+            }
+            sh.set_focus(&p.instance, &p.session_id, flow.clone());
+            dispatch::publish_focus(&sh, &p.instance, &p.session_id).await;
+            Ok(json!({"flow": flow}))
+        },
+    );
+
+    // ── dry runs (xops-02 §5) ────────────────────────────────────────────────
+    method(
+        m,
+        sh,
+        packs,
+        "dry_run.start",
+        "start a dry run, nothing outside the flow called: {flow | yaml, inputs?, mocks?, subject?, title?} → {run}",
+        |sh, _, cx, p: DryStartIn| async move {
+            let sandbox = sh.sandbox()?;
+            let run = sandbox.start(p, device(&cx)).await.map_err(rpc_error)?;
+            dispatch::publish_dry(&sh, Some(&run)).await;
+            Ok(json!({"run": run}))
+        },
+    );
+    method(
+        m,
+        sh,
+        packs,
+        "dry_run.step",
+        "take a dry run's next work item: {run} → {run, steps, pending, status}",
+        |sh, _, _, p: RunIn| async move {
+            let progress = sh.sandbox()?.step(&p.run).await.map_err(rpc_error)?;
+            dispatch::publish_dry(&sh, Some(&p.run)).await;
+            to_value(progress)
+        },
+    );
+    method(
+        m,
+        sh,
+        packs,
+        "dry_run.run",
+        "take a dry run's work until it is over or waits for a person: {run} → {run, steps, pending, status}",
+        |sh, _, _, p: RunIn| async move {
+            let progress = sh.sandbox()?.run(&p.run).await.map_err(rpc_error)?;
+            dispatch::publish_dry(&sh, Some(&p.run)).await;
+            to_value(progress)
+        },
+    );
+    method(
+        m,
+        sh,
+        packs,
+        "dry_run.list",
+        "the dry runs kept, newest first: [{id, flow, status, created_at}]",
+        |sh, _, _, _: Value| async move { to_value(sh.sandbox()?.list().await) },
     );
 
     // ── runs ─────────────────────────────────────────────────────────────────
@@ -320,7 +497,10 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
             if let Accept::Already(done) = &accepting {
                 return Ok(json!({"run": p.run, "already": done}));
             }
-            let r = engine(&sh)?.cancel(&p.run, &p.reason, device(&cx)).await;
+            let r = engine_of(&sh, &p.run)
+                .await?
+                .cancel(&p.run, &p.reason, device(&cx))
+                .await;
             let value = change(&sh, Some(&p.run), r).await?;
             accepted(&cx, accepting, "cancel").await;
             Ok(value)
@@ -343,7 +523,8 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         "claim",
         "claim an external task: {run, station, task, lease_ms?} → {token, until}",
         |sh, _, cx, p: ClaimIn| async move {
-            let r = engine(&sh)?
+            let r = engine_of(&sh, &p.run)
+                .await?
                 .claim(
                     &p.run,
                     &p.station,
@@ -362,7 +543,8 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         "heartbeat",
         "extend a claim: {run, station, task, token, lease_ms?} → {until}",
         |sh, _, cx, p: HeartbeatIn| async move {
-            let r = engine(&sh)?
+            let r = engine_of(&sh, &p.run)
+                .await?
                 .heartbeat(
                     &p.run,
                     &p.station,
@@ -382,7 +564,8 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         "submit",
         "hand in a claimed task's output: {run, station, task, token, output}",
         |sh, _, cx, p: SubmitIn| async move {
-            let r = engine(&sh)?
+            let r = engine_of(&sh, &p.run)
+                .await?
                 .submit(&p.run, &p.station, &p.task, &p.token, p.output, device(&cx))
                 .await;
             change(&sh, Some(&p.run), r).await
@@ -395,7 +578,8 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         "fail",
         "report a claimed task's attempt failed: {run, station, task, token, error}",
         |sh, _, cx, p: FailIn| async move {
-            let r = engine(&sh)?
+            let r = engine_of(&sh, &p.run)
+                .await?
                 .fail(&p.run, &p.station, &p.task, &p.token, &p.error, device(&cx))
                 .await;
             change(&sh, Some(&p.run), r).await
@@ -408,7 +592,8 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         "retry",
         "put a failed task back to ready: {run, station, task}",
         |sh, _, cx, p: TaskIn| async move {
-            let r = engine(&sh)?
+            let r = engine_of(&sh, &p.run)
+                .await?
                 .retry(&p.run, &p.station, &p.task, device(&cx))
                 .await;
             change(&sh, Some(&p.run), r).await
@@ -423,7 +608,8 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         "confirm",
         "confirm (pass: true) or reject a station: {run, station, pass, reason?}",
         |sh, _, cx, p: ConfirmIn| async move {
-            let r = engine(&sh)?
+            let r = engine_of(&sh, &p.run)
+                .await?
                 .confirm(&p.run, &p.station, p.pass, p.reason.as_deref(), device(&cx))
                 .await;
             change(&sh, Some(&p.run), r).await
@@ -436,7 +622,8 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         "force",
         "pass a station whose conditions are not met: {run, station, reason}",
         |sh, _, cx, p: ReasonIn| async move {
-            let r = engine(&sh)?
+            let r = engine_of(&sh, &p.run)
+                .await?
                 .force(&p.run, &p.station, &p.reason, device(&cx))
                 .await;
             change(&sh, Some(&p.run), r).await
@@ -453,7 +640,8 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
             if let Accept::Already(done) = &accepting {
                 return Ok(json!({"run": p.run, "already": done}));
             }
-            let r = engine(&sh)?
+            let r = engine_of(&sh, &p.run)
+                .await?
                 .rework(&p.run, &p.to, p.tasks, &p.reason, device(&cx))
                 .await;
             let value = change(&sh, Some(&p.run), r).await?;
@@ -468,7 +656,10 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         "release",
         "let a held station in: {run, station}",
         |sh, _, cx, p: StationIn| async move {
-            let r = engine(&sh)?.release(&p.run, &p.station, device(&cx)).await;
+            let r = engine_of(&sh, &p.run)
+                .await?
+                .release(&p.run, &p.station, device(&cx))
+                .await;
             change(&sh, Some(&p.run), r).await
         },
     );
@@ -534,9 +725,10 @@ async fn accepted(cx: &CallContext, a: Accept, action: &str) {
     }
 }
 
-/// `def`: the definition as parsed and as written, the skills it names, and the protocol layer
-/// each session station's tasks are given (with placeholders for the run).
-fn def_info(packs: &dyn Packs, guarded: &[String], name: &str) -> Answer {
+/// `def`: the definition as parsed and as written, where it comes from and whether it is valid,
+/// the skills it names, and the protocol layer each session station's tasks are given (with
+/// placeholders for the run).
+fn def_info(engine: &Engine, packs: &dyn Packs, name: &str) -> Answer {
     let (def, digest) = packs
         .flow(name)
         .ok_or_else(|| rpc_error(FlowError::NotFound(format!("flow {name}"))))?;
@@ -560,10 +752,10 @@ fn def_info(packs: &dyn Packs, guarded: &[String], name: &str) -> Answer {
                 }
             }
         }
-        if let Some(t) = specs
-            .iter()
-            .find(|t| matches!(t.executor, crate::Executor::Session { .. }))
-        {
+        if let Some((t, scene)) = specs.iter().find_map(|t| match &t.executor {
+            crate::Executor::Session { scene, .. } => Some((t, scene)),
+            _ => None,
+        }) {
             let text = protocol::render(&protocol::TaskContext {
                 def: &def,
                 station: s,
@@ -572,12 +764,16 @@ fn def_info(packs: &dyn Packs, guarded: &[String], name: &str) -> Answer {
                 round: 1,
                 task: &t.id,
                 item: None,
-                guarded,
+                guarded: engine.guarded(),
+                delivery: engine.delivery_of(scene),
             });
             proto.insert(s.id.clone(), text);
         }
     }
+    let problems = validate(&def, packs);
     Ok(json!({
-        "def": def, "yaml": yaml, "digest": digest, "skills": skills, "protocol": proto,
+        "def": def, "yaml": yaml, "digest": digest, "origin": packs.origin(name),
+        "valid": problems.is_empty(), "problems": problems, "writable": packs.writable(),
+        "skills": skills, "protocol": proto,
     }))
 }

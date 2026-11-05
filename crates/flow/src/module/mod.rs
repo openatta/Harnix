@@ -5,10 +5,14 @@
 //! mod.rs       Flow, its builder, FlowHandle; the Module impl (spaces, engine, events, start)
 //! shared.rs    what the module, its tools and its dispatcher share
 //! dispatch.rs  carrying out an Outcome: topics, events, and every work item
-//! tools.rs     the scene wrapper and its native tools (flow_state, flow_submit, flow_propose)
-//! guard.rs     `writes`: a tool middleware refusing writes a station does not allow
+//! tools.rs     the scene wrappers: flow-* (flow_state, flow_submit, flow_propose), structured-*
+//! author.rs    flow-author: writing flows in conversation (xops-02 §4)
 //! methods.rs   app.flow.* — the device methods
 //! ```
+//!
+//! A station's `writes` are carried by the session's permission rules (`deny` for each guarded
+//! tool the station does not allow), its output contract by the session's `output_schema`:
+//! the same on `system`, an in-process template's instance or a spawned daemon (xops-02 §2).
 //!
 //! An application registers it like any module:
 //!
@@ -24,44 +28,61 @@
 //! # let _ = (flow, handle);
 //! ```
 
+mod author;
 mod dispatch;
-mod guard;
 mod methods;
 mod shared;
 mod tools;
 
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use base::interface::scene::AgentScene;
 use harnix_module::{
-    EngineContrib, EventRegistry, Manifest, MethodRegistry, Module, ModuleContext, SpaceDecl,
-    SpaceRegistry,
+    EngineContrib, EventRegistry, InstanceTemplate, InstanceTemplates, Manifest, MethodRegistry,
+    Module, ModuleContext, SpaceDecl, SpaceRegistry,
 };
 use serde_json::json;
 use tokio::sync::broadcast;
 
+use crate::dryrun::{Sandbox, SandboxConfig};
 use crate::kernel::engine::{Engine, DEFAULT_LEASE_MS};
 use crate::kernel::host::{
-    Authorizer, Catalog, Event, Gates, Hooks, Outcome, Packs, Programs, RunStore, Tools, WorkItem,
+    Authorizer, Catalog, Event, Gates, Hooks, Origin, Outcome, Packs, Programs, RunStore, Tools,
+    WorkItem,
 };
 use crate::kernel::FlowError;
 use crate::packs::MemPacks;
 use crate::store::FileStore;
 
-pub use guard::{matches_any, DEFAULT_GUARDED};
+pub use crate::kernel::protocol::matches_any;
+pub use author::{AuthorScene, AUTHOR_PROMPT, AUTHOR_SCENE, AUTHOR_TOOLS, NO_FOCUS};
+pub use dispatch::permission_rules;
 pub use shared::{session_name, session_ref};
-pub use tools::{FlowScene, TOOL_PROPOSE, TOOL_STATE, TOOL_SUBMIT};
+pub use tools::{structured_id, FlowScene, StructuredScene, TOOL_PROPOSE, TOOL_STATE, TOOL_SUBMIT};
 
 use shared::{Config, RecordingFn, Shared};
 
 /// The module id: methods and topics are `app.flow.*`, entries `app.flow`.
 pub const MODULE_ID: &str = "flow";
-/// The instance flow sessions run on. `Module::engine` contributes to it alone, so the
-/// wrapped scenes and the `writes` middleware exist only there.
+/// The instance the flow space's sessions run on, and where a station's session goes when it
+/// names no instance or template and stays in the flow's space. `Module::engine` contributes to
+/// it alone, so the wrapped scenes and `flow-author` exist only there.
 pub const FLOW_INSTANCE: &str = "system";
 
+/// The engine's tools that change something outside the conversation: the shell, the file
+/// editors, the notebook editor, the interpreters.
+pub const DEFAULT_GUARDED: &[&str] = &[
+    "Bash",
+    "PowerShell",
+    "REPL",
+    "Write",
+    "Edit",
+    "NotebookEdit",
+];
+
 type MakeStore = Box<dyn FnOnce(&Path) -> Arc<dyn RunStore> + Send>;
+type MakePacks = Box<dyn FnOnce(&Path) -> Arc<dyn Packs> + Send>;
 
 /// Where runs are stored: given, or made from the module's data directory at start.
 enum StoreSpec {
@@ -73,10 +94,13 @@ enum StoreSpec {
 pub struct Flow {
     sh: Arc<Shared>,
     store: Mutex<Option<StoreSpec>>,
-    packs: Arc<dyn Packs>,
+    packs: Arc<CatalogPacks>,
+    lazy_packs: Mutex<Option<MakePacks>>,
     tools: Option<Arc<dyn Tools>>,
     auth: Option<Arc<dyn Authorizer>>,
     scenes: Vec<Arc<dyn AgentScene>>,
+    author: Arc<dyn AgentScene>,
+    templates: Vec<InstanceTemplate>,
 }
 
 impl Flow {
@@ -96,7 +120,11 @@ impl Flow {
 pub struct FlowBuilder {
     store: Option<StoreSpec>,
     packs: Option<Arc<dyn Packs>>,
+    lazy_packs: Option<MakePacks>,
     scenes: Vec<Arc<dyn AgentScene>>,
+    author: Option<Arc<dyn AgentScene>>,
+    templates: Vec<InstanceTemplate>,
+    ensure_ms: u64,
     programs: Option<Arc<dyn Programs>>,
     gates: Option<Arc<dyn Gates>>,
     tools: Option<Arc<dyn Tools>>,
@@ -114,7 +142,11 @@ impl Default for FlowBuilder {
         Self {
             store: None,
             packs: None,
+            lazy_packs: None,
             scenes: vec![],
+            author: None,
+            templates: vec![],
+            ensure_ms: 60_000,
             programs: None,
             gates: None,
             tools: None,
@@ -159,10 +191,43 @@ impl FlowBuilder {
         self
     }
 
-    /// A scene stations may run sessions in. It is offered as `flow-<its id>`: the same scene
-    /// with the flow's native tools added. Repeatable.
+    /// Packs made at start from the module's data directory — a writable layer there, say:
+    /// `DirPacks::writable(dir.join("packs")).with_builtin(…)`.
+    pub fn packs_with<P, F>(mut self, make: F) -> Self
+    where
+        P: Packs + 'static,
+        F: FnOnce(&Path) -> P + Send + 'static,
+    {
+        self.lazy_packs = Some(Box::new(move |dir: &Path| {
+            Arc::new(make(dir)) as Arc<dyn Packs>
+        }));
+        self
+    }
+
+    /// A scene stations may run sessions in. It is offered as `flow-<id>`: the same scene
+    /// with the flow's native tools added (its sessions hand in with `flow_submit`). Repeatable.
     pub fn scene(mut self, scene: Arc<dyn AgentScene>) -> Self {
         self.scenes.push(scene);
+        self
+    }
+
+    /// The scene `flow-author` wraps — the flow space's conversations. Agix's chat scene when
+    /// not given.
+    pub fn author_scene(mut self, scene: Arc<dyn AgentScene>) -> Self {
+        self.author = Some(scene);
+        self
+    }
+
+    /// A template of the module's own, which stations may name as `flow.<id>` (the hub lets a
+    /// module build only from its own templates and the profile's). Repeatable.
+    pub fn template(mut self, template: InstanceTemplate) -> Self {
+        self.templates.push(template);
+        self
+    }
+
+    /// How long a station's template instance may take to be ready; a minute by default.
+    pub fn ensure_ms(mut self, ms: u64) -> Self {
+        self.ensure_ms = ms.max(1000);
         self
     }
 
@@ -198,11 +263,11 @@ impl FlowBuilder {
         self
     }
 
-    /// The tools that count as writes for a station's `writes` (`prefix*` matches a group):
-    /// in a session working on a flow task, a call to one of them that the station does not
-    /// list is refused, and the protocol layer names them. Only these are guarded — an
-    /// application whose sessions reach other writing tools (its own MCP tools, `mcp__*`,
-    /// plugin tools) lists them here. By default the engine's own: [`DEFAULT_GUARDED`].
+    /// The tools that count as writes for a station's `writes`: a session working on a flow
+    /// task gets a `deny` permission rule for each of them the station does not list, and the
+    /// protocol layer names them. Only these are guarded — an application whose sessions reach
+    /// other writing tools (its own MCP tools, plugin tools) lists them here, by name or as a
+    /// namespace group `ns__*`. By default the engine's own: [`DEFAULT_GUARDED`].
     pub fn guarded_tools<I, S>(mut self, patterns: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -236,6 +301,11 @@ impl FlowBuilder {
 
     pub fn build(self) -> Flow {
         let (tx, _) = broadcast::channel(1024);
+        let own_templates: Vec<String> = self
+            .templates
+            .iter()
+            .map(|t| format!("{MODULE_ID}.{}", t.id))
+            .collect();
         let sh = Arc::new(Shared::new(
             Config {
                 space: self.space.clone(),
@@ -252,6 +322,7 @@ impl FlowBuilder {
                 recording: self.recording.clone(),
                 lease_ms: self.lease_ms,
                 tick_ms: self.tick_ms,
+                ensure_ms: self.ensure_ms,
             },
             tx,
         ));
@@ -260,52 +331,92 @@ impl FlowBuilder {
             .iter()
             .map(|s| Arc::new(FlowScene::new(s.clone(), sh.clone())) as Arc<dyn AgentScene>)
             .collect();
-        let inner = self
-            .packs
-            .unwrap_or_else(|| Arc::new(MemPacks::new()) as Arc<dyn Packs>);
-        let packs: Arc<dyn Packs> = Arc::new(CatalogPacks {
-            inner,
+        let base = self
+            .author
+            .unwrap_or_else(|| Arc::new(scene::scene::chat::ChatScene) as Arc<dyn AgentScene>);
+        let author: Arc<dyn AgentScene> = Arc::new(AuthorScene::new(base, sh.clone()));
+        let packs = Arc::new(CatalogPacks {
+            inner: OnceLock::new(),
             scenes: sh.cfg.scenes.clone(),
+            templates: own_templates,
         });
+        if let Some(p) = self.packs {
+            let _ = packs.inner.set(p);
+        }
         Flow {
             sh,
             store: Mutex::new(self.store),
             packs,
+            lazy_packs: Mutex::new(self.lazy_packs),
             tools: self.tools,
             auth: self.auth,
             scenes,
+            author,
+            templates: self.templates,
         }
     }
 }
 
-/// The application's packs, with the catalog's scenes replaced by the wrapped ones: a session
-/// task runs only in a scene that carries `flow_submit` and the `writes` guard, so a
-/// definition naming `chat` instead of `flow-chat` does not validate.
+/// The application's packs (given, or made at start), with what the module adds to the
+/// catalog: its wrapped `flow-*` scenes, and — when the application lists templates at all —
+/// its own templates.
 struct CatalogPacks {
-    inner: Arc<dyn Packs>,
+    inner: OnceLock<Arc<dyn Packs>>,
     scenes: Vec<String>,
+    templates: Vec<String>,
+}
+
+impl CatalogPacks {
+    fn inner(&self) -> &dyn Packs {
+        static EMPTY: OnceLock<MemPacks> = OnceLock::new();
+        match self.inner.get() {
+            Some(p) => p.as_ref(),
+            None => EMPTY.get_or_init(MemPacks::new),
+        }
+    }
 }
 
 impl Packs for CatalogPacks {
     fn flows(&self) -> Vec<String> {
-        self.inner.flows()
+        self.inner().flows()
     }
     fn flow(&self, name: &str) -> Option<(crate::FlowDef, String)> {
-        self.inner.flow(name)
+        self.inner().flow(name)
     }
     fn skill(&self, name: &str) -> Option<(String, String)> {
-        self.inner.skill(name)
+        self.inner().skill(name)
     }
     fn catalog(&self) -> Catalog {
-        let mut c = self.inner.catalog();
-        c.scenes = self.scenes.iter().cloned().collect();
+        let mut c = self.inner().catalog();
+        c.scenes.extend(self.scenes.iter().cloned());
+        if !c.templates.is_empty() {
+            c.templates.extend(self.templates.iter().cloned());
+        }
         c
     }
     fn flow_text(&self, name: &str) -> Option<String> {
-        self.inner.flow_text(name)
+        self.inner().flow_text(name)
     }
     fn skills(&self) -> Vec<String> {
-        self.inner.skills()
+        self.inner().skills()
+    }
+    fn writable(&self) -> bool {
+        self.inner().writable()
+    }
+    fn origin(&self, flow: &str) -> Origin {
+        self.inner().origin(flow)
+    }
+    fn save_flow(&self, yaml: &str) -> Result<String, String> {
+        self.inner().save_flow(yaml)
+    }
+    fn delete_flow(&self, name: &str) -> Result<(), String> {
+        self.inner().delete_flow(name)
+    }
+    fn save_skill(&self, name: &str, body: &str) -> Result<String, String> {
+        self.inner().save_skill(name, body)
+    }
+    fn delete_skill(&self, name: &str) -> Result<(), String> {
+        self.inner().delete_skill(name)
     }
 }
 
@@ -351,40 +462,46 @@ impl Module for Flow {
 
     fn manifest(&self) -> Manifest {
         Manifest::new(MODULE_ID, env!("CARGO_PKG_VERSION")).disclosure(
-            "runs flows: headless sessions on `system` in its space, the application's programs, \
-             gates and hooks; writes run records where the application said",
+            "runs flows: headless sessions in its space (or where a station places them, on \
+             instances of its templates), the application's programs, gates and hooks; writes \
+             run records and saved flows where the application said",
         )
     }
 
+    /// On `system`: the wrapped scenes and `flow-author`.
     fn engine(&self, e: &mut EngineContrib) {
         for s in &self.scenes {
             e.scene(s.clone());
         }
-        let sh = self.sh.clone();
-        e.customize_session(move |b, cx| {
-            if sh.cfg.scenes.iter().any(|s| s == cx.scene) {
-                b.tool_middleware(Arc::new(guard::Writes::new(sh.clone(), cx.session_id)))
-            } else {
-                b
-            }
-        });
+        e.scene(self.author.clone());
     }
 
-    fn spaces(&self, s: &mut SpaceRegistry) {
-        let mut decl = SpaceDecl::new(&self.sh.cfg.space).instance(FLOW_INSTANCE);
-        if let Some(first) = self.sh.cfg.scenes.first() {
-            decl = decl.scene(first.clone());
+    fn templates(&self, t: &mut InstanceTemplates) {
+        for template in &self.templates {
+            t.add(template.clone());
         }
-        s.add(decl);
+    }
+
+    /// The flow space: its conversations write flows (`flow-author`) on `system`.
+    fn spaces(&self, s: &mut SpaceRegistry) {
+        s.add(
+            SpaceDecl::new(&self.sh.cfg.space)
+                .instance(FLOW_INSTANCE)
+                .scene(AUTHOR_SCENE),
+        );
     }
 
     fn methods(&self, m: &mut MethodRegistry) {
-        methods::register(m, &self.sh, &self.packs);
+        let packs: Arc<dyn Packs> = self.packs.clone();
+        methods::register(m, &self.sh, &packs);
     }
 
     fn events(&self, e: &mut EventRegistry) {
         e.topic("runs");
         e.topic("run").param("run");
+        e.topic("defs");
+        e.topic("focus").param("instance").param("session_id");
+        e.topic("dry_runs");
     }
 
     async fn start(&self, cx: ModuleContext) -> anyhow::Result<()> {
@@ -394,9 +511,19 @@ impl Module for Flow {
             Some(StoreSpec::Lazy(make)) => make(cx.data_dir()),
             None => Arc::new(FileStore::new(cx.data_dir().join("runs"))),
         };
-        let mut engine = Engine::new(store, self.packs.clone())
+        if let Some(make) = self
+            .lazy_packs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+        {
+            let _ = self.packs.inner.set(make(cx.data_dir()));
+        }
+        let packs: Arc<dyn Packs> = self.packs.clone();
+        let mut engine = Engine::new(store, packs.clone())
             .with_lease_ms(self.sh.cfg.lease_ms)
-            .with_guarded(self.sh.cfg.guarded.clone());
+            .with_guarded(self.sh.cfg.guarded.clone())
+            .with_submit_scenes(self.sh.cfg.scenes.clone());
         if let Some(a) = &self.auth {
             engine = engine.with_authorizer(a.clone());
         }
@@ -406,8 +533,22 @@ impl Module for Flow {
         if self.sh.engine.set(Arc::new(engine)).is_err() {
             anyhow::bail!("the flow module was started twice");
         }
+        let _ = self.sh.sandbox.set(Arc::new(Sandbox::new(
+            packs,
+            SandboxConfig {
+                guarded: self.sh.cfg.guarded.clone(),
+                submit_scenes: self.sh.cfg.scenes.clone(),
+            },
+        )));
         let _ = self.sh.cx.set(cx.clone());
-        for scene in &self.sh.cfg.scenes {
+        for scene in self
+            .sh
+            .cfg
+            .scenes
+            .iter()
+            .map(String::as_str)
+            .chain([AUTHOR_SCENE])
+        {
             if let Err(e) = cx
                 .call(
                     "scene.activate",
@@ -419,6 +560,8 @@ impl Module for Flow {
             }
         }
         dispatch::publish_all(&self.sh).await;
+        dispatch::publish_defs(&self.sh).await;
+        dispatch::publish_dry(&self.sh, None).await;
         let sh = self.sh.clone();
         tokio::spawn(async move { dispatch::recover(&sh).await });
         let sh = self.sh.clone();
@@ -465,26 +608,64 @@ pub fn rpc_error(e: FlowError) -> harnix_module::RpcError {
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_session_task_must_name_a_wrapped_scene() {
+    fn catalog_packs(inner: MemPacks, templates: &[&str]) -> CatalogPacks {
         let packs = CatalogPacks {
-            inner: Arc::new(MemPacks::new().scene("chat").skill("work", "Do it.")),
+            inner: OnceLock::new(),
             scenes: vec!["flow-chat".into()],
+            templates: templates.iter().map(|s| s.to_string()).collect(),
         };
+        let _ = packs.inner.set(Arc::new(inner));
+        packs
+    }
+
+    #[test]
+    fn the_catalog_has_the_applications_scenes_and_the_wrapped_ones() {
+        let packs = catalog_packs(
+            MemPacks::new()
+                .scene("structured-chat")
+                .skill("work", "Do it."),
+            &["flow.local"],
+        );
         let yaml = |scene: &str| {
             format!(
                 "name: f\nstations: [{{id: a, executor: {{kind: session, scene: {scene}}}, skill: work, output: {{type: object}}, exit: [{{kind: output}}]}}]"
             )
         };
         assert!(crate::validate_yaml(&yaml("flow-chat"), &packs).is_empty());
-        let problems = crate::validate_yaml(&yaml("chat"), &packs);
+        assert!(crate::validate_yaml(&yaml("structured-chat"), &packs).is_empty());
+        let problems = crate::validate_yaml(&yaml("nowhere"), &packs);
         assert!(
-            problems.iter().any(|p| p.message.contains("scene chat")),
-            "an unwrapped scene has no flow_submit and no writes guard: {problems:?}"
+            problems.iter().any(|p| p.message.contains("scene nowhere")),
+            "{problems:?}"
         );
         assert_eq!(
             packs.catalog().scenes.into_iter().collect::<Vec<_>>(),
-            ["flow-chat"]
+            ["flow-chat", "structured-chat"]
         );
+        assert!(
+            packs.catalog().templates.is_empty(),
+            "templates the application does not list are not checked"
+        );
+        let listed = catalog_packs(MemPacks::new().template("app.box"), &["flow.local"]);
+        assert_eq!(
+            listed.catalog().templates.into_iter().collect::<Vec<_>>(),
+            ["app.box", "flow.local"]
+        );
+    }
+
+    #[test]
+    fn packs_made_at_start_are_empty_until_then_and_writable_after() {
+        let packs = CatalogPacks {
+            inner: OnceLock::new(),
+            scenes: vec![],
+            templates: vec![],
+        };
+        assert!(packs.flows().is_empty() && !packs.writable());
+        let _ = packs.inner.set(Arc::new(MemPacks::new().writable()));
+        assert!(packs.writable());
+        packs
+            .save_flow("name: x\nstations: [{id: a, exit: [{kind: confirm}]}]")
+            .unwrap();
+        assert_eq!(packs.origin("x"), Origin::User);
     }
 }

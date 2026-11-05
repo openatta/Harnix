@@ -6,10 +6,14 @@
 //! answers without waiting for a session. A work item's own engine calls come back through
 //! [`apply`] again.
 //!
-//! A session task: a headless session in the flow's space (or the one its session key is
-//! bound to), told the protocol layer and the skill; after every turn the run is evaluated and
-//! the claim renewed; a turn that ends without a submission gets one nudge, and a second one
-//! fails the attempt. Tasks sharing a session take turns, and a task waiting for its turn keeps
+//! A session task: a headless session where the station places it — its space (the flow's by
+//! default), its instance or an instance of its template made ready first, its model — or the
+//! one its session key is bound to, told the protocol layer and the skill. The station's
+//! contract is the session's `output_schema` and the guarded tools its `writes` do not allow are
+//! the session's `deny` permission rules, whatever carries the session (xops-02 §2). After every
+//! turn, the turn's structured output (if any) is submitted, the run is evaluated and the claim
+//! renewed; an output the station still judges unmet is answered with what is missing; a turn
+//! that ends with nothing handed in gets one nudge, and a second one fails the attempt. Tasks sharing a session take turns, and a task waiting for its turn keeps
 //! its claim alive. A session is bound to a task only while no turn of anyone else's is
 //! running in it, and a task that is over while its turn still runs interrupts that turn and
 //! waits for it to settle before the session goes to the next task. A program keeps its claim
@@ -25,10 +29,12 @@ use serde_json::{json, Value};
 use super::shared::{session_name, session_ref, Binding, Shared, TaskKey};
 use crate::kernel::def::Executor;
 use crate::kernel::engine::view;
-use crate::kernel::host::{GateResult, Outcome, WorkItem};
-use crate::kernel::protocol::skill_body;
-use crate::kernel::run::{Actor, RunQuery, RunRecord, RunStatus, StationStatus, TaskStatus};
-use crate::kernel::{dispatched_work, FlowError};
+use crate::kernel::host::{Delivery, GateResult, Outcome, Placement, WorkItem};
+use crate::kernel::protocol::{refused, task_message, STRUCTURED_OUTPUT_TOOL};
+use crate::kernel::run::{
+    Actor, CheckStatus, RunQuery, RunRecord, RunStatus, StationStatus, TaskStatus,
+};
+use crate::kernel::FlowError;
 
 /// How many runs the `runs` topic carries, newest first.
 pub const RUNS_LISTED: usize = 200;
@@ -36,10 +42,29 @@ pub const RUNS_LISTED: usize = 200;
 /// How long a task that is over waits for the turn it interrupted to settle.
 const SETTLE_AFTER_INTERRUPT: Duration = Duration::from_secs(30);
 
-/// What a session is told when a turn ends and its task is still not handed in.
+/// What a session is told when a turn ends and its task is still not handed in (`flow_submit`).
 pub const NUDGE: &str = "Your flow task is not handed in yet. Call `flow_submit` with an output \
      that satisfies the contract in the flow protocol above (`flow_state` shows what is still \
      missing). If you cannot do the task, say why and use `flow_propose`.";
+
+/// The same, for a session that hands in by structured output.
+pub const NUDGE_STRUCTURED: &str = "Your flow task is not handed in yet. Call the \
+     `StructuredOutput` tool with an output that satisfies the contract in the flow protocol \
+     above. If you cannot do the task, say why.";
+
+/// How many times an output the station still judges unmet is sent back to be fixed.
+const CORRECTIONS: u32 = 2;
+
+/// The session's permission rules for a station: a `deny` for each guarded tool its `writes`
+/// do not allow (xops-02 §2). The same rules whatever carries the session.
+pub fn permission_rules(guarded: &[String], writes: &[String]) -> Value {
+    Value::Array(
+        refused(guarded, writes)
+            .into_iter()
+            .map(|(_, tool)| json!({"source": "session", "behavior": "deny", "tool_name": tool}))
+            .collect(),
+    )
+}
 
 fn dispatcher() -> Actor {
     Actor::flow("dispatch")
@@ -142,6 +167,72 @@ pub(crate) async fn publish_all(sh: &Arc<Shared>) {
     publish(sh, &listed).await;
 }
 
+/// The flows on offer, as the `defs` topic carries them: `[{name, title, digest, origin, valid}]`.
+pub(crate) fn defs_list(packs: &dyn crate::kernel::host::Packs) -> Vec<Value> {
+    packs
+        .flows()
+        .into_iter()
+        .filter_map(|n| {
+            let (def, digest) = packs.flow(&n)?;
+            let valid = crate::kernel::validate::validate(&def, packs).is_empty();
+            Some(json!({
+                "name": n, "title": def.title, "digest": digest,
+                "origin": packs.origin(&n), "valid": valid,
+            }))
+        })
+        .collect()
+}
+
+/// The `defs` topic, after the packs changed.
+pub(crate) async fn publish_defs(sh: &Arc<Shared>) {
+    let (Some(engine), Some(cx)) = (sh.engine.get(), sh.cx.get()) else {
+        return;
+    };
+    let list = defs_list(engine.packs().as_ref());
+    if let Err(e) = cx.events().publish("defs", json!({}), &list).await {
+        tracing::warn!(error = %e, "flow: defs not published");
+    }
+}
+
+/// The `focus {instance, session_id}` topic: `{flow}` (`null` when nothing is selected).
+pub(crate) async fn publish_focus(sh: &Arc<Shared>, instance: &str, session_id: &str) {
+    let Some(cx) = sh.cx.get() else { return };
+    let flow = sh.focus(instance, session_id);
+    let params = json!({"instance": instance, "session_id": session_id});
+    if let Err(e) = cx
+        .events()
+        .publish("focus", params, json!({"flow": flow}))
+        .await
+    {
+        tracing::warn!(error = %e, "flow: focus not published");
+    }
+}
+
+/// A dry run's runs on `run {run}` (with their previews) and the `dry_runs` list.
+pub(crate) async fn publish_dry(sh: &Arc<Shared>, run: Option<&str>) {
+    let (Some(sandbox), Some(cx)) = (sh.sandbox.get(), sh.cx.get()) else {
+        return;
+    };
+    let _order = sh.publish.lock().await;
+    let events = cx.events();
+    if let Some(root) = match run {
+        Some(r) => sandbox.root_of(r).await,
+        None => None,
+    } {
+        for id in sandbox.runs_of(&root).await {
+            if let Ok(v) = sandbox.get(&id).await {
+                if let Err(e) = events.publish("run", json!({"run": id}), v).await {
+                    tracing::warn!(run = id, error = %e, "flow: dry run not published");
+                }
+            }
+        }
+    }
+    let list = sandbox.list().await;
+    if let Err(e) = events.publish("dry_runs", json!({}), &list).await {
+        tracing::warn!(error = %e, "flow: dry runs not listed");
+    }
+}
+
 /// After a restart: whatever was handed out and not answered is carried on with — a session
 /// task waits on the session it had, a program runs again, a gate still waiting runs again.
 pub(crate) async fn recover(sh: &Arc<Shared>) {
@@ -166,7 +257,7 @@ pub(crate) async fn recover(sh: &Arc<Shared>) {
         let Ok(rec) = engine.record(&s.id).await else {
             continue;
         };
-        for w in dispatched_work(&rec, &sh.cfg.guarded, now) {
+        for w in engine.dispatched_work(&rec, now) {
             spawn_work(sh, w, true);
         }
     }
@@ -220,6 +311,9 @@ async fn run_work(sh: Arc<Shared>, w: WorkItem, resume: bool) {
                 item,
                 protocol,
                 session_key,
+                output_schema,
+                placement,
+                delivery,
                 ..
             } = w
             else {
@@ -249,6 +343,9 @@ async fn run_work(sh: Arc<Shared>, w: WorkItem, resume: bool) {
                         session_key,
                         recording,
                         resume,
+                        output_schema,
+                        placement: placement.unwrap_or_default(),
+                        delivery: delivery.unwrap_or(Delivery::StructuredOutput),
                     };
                     session_task(&sh, job).await
                 }
@@ -440,11 +537,54 @@ struct SessionJob {
     session_key: Option<String>,
     recording: Option<String>,
     resume: bool,
+    output_schema: Option<Value>,
+    placement: Placement,
+    delivery: Delivery,
+}
+
+/// Where a new session for `job` goes: the station's space (the module's when it names none),
+/// its instance, or an instance of its template made ready first; the module's own space
+/// without an instance means `system`, another space its own default. `Err`: why there is
+/// nowhere to go, as the task's error.
+async fn place(sh: &Shared, job: &SessionJob) -> Result<(String, Option<String>), String> {
+    let cx = sh.cx.get().ok_or("the flow module has not started")?;
+    let p = &job.placement;
+    let space = p.space.clone().unwrap_or_else(|| sh.cfg.space.clone());
+    if let (Some(template), Some(name)) = (&p.template, p.template_instance(&job.key.run)) {
+        let params = p
+            .params
+            .iter()
+            .filter(|(k, _)| k.as_str() != "name")
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        cx.instances()
+            .ensure_ready(
+                template,
+                &name,
+                params,
+                Duration::from_millis(sh.cfg.ensure_ms),
+            )
+            .await
+            .map_err(|e| {
+                format!(
+                    "template {template} gave no instance `{name}`: {}",
+                    e.message
+                )
+            })?;
+        return Ok((space, Some(name)));
+    }
+    let instance = match &p.instance {
+        Some(i) => Some(i.clone()),
+        None if space == sh.cfg.space => Some(sh.cfg.instance.clone()),
+        None => None,
+    };
+    Ok((space, instance))
 }
 
 /// How the wait for a turn ended.
 enum Waited {
-    Settled,
+    /// The turn's settlement (`harnix.turn_settled` params).
+    Settled(Value),
     /// The claim is no longer ours.
     Superseded,
     /// The session is gone from the hub.
@@ -535,13 +675,32 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
         }
     }
     let resume = job.resume && opened.as_ref().is_some_and(|(_, own)| *own);
+    let writes = rec
+        .def
+        .station(&key.station)
+        .map(|s| s.writes.clone())
+        .unwrap_or_default();
     let session = match opened {
         Some((s, _)) => s,
         None => {
+            let (space, instance) = match place(sh, job).await {
+                Ok(p) => p,
+                Err(why) => {
+                    fail(sh, key, &job.token, &why).await;
+                    return;
+                }
+            };
             let spec = SessionSpec {
-                space: Some(sh.cfg.space.clone()),
-                instance: Some(sh.cfg.instance.clone()),
+                space: Some(space),
+                instance,
                 scene: Some(job.scene.clone()),
+                model: job.placement.model.clone(),
+                provider: job.placement.provider.clone(),
+                output_schema: match job.delivery {
+                    Delivery::StructuredOutput => job.output_schema.clone(),
+                    Delivery::FlowSubmit => None,
+                },
+                permission_rules: Some(permission_rules(&sh.cfg.guarded, &writes)),
                 recording: job.recording.clone(),
                 ..SessionSpec::default()
             };
@@ -572,7 +731,7 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
         // Someone else's turn — the task before, a person: it ends before this task binds,
         // and its settlement is read here, not taken for this task's.
         match wait_turn(sh, &mut tap, key, &job.token).await {
-            Waited::Settled => {}
+            Waited::Settled(_) => {}
             Waited::Superseded | Waited::Gone => return,
         }
     }
@@ -590,11 +749,6 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
     if !settle(sh, &key.run, "attach_session", attached).await {
         return;
     }
-    let writes = rec
-        .def
-        .station(&key.station)
-        .map(|s| s.writes.clone())
-        .unwrap_or_default();
     sh.bind(
         &session.session_id,
         Binding {
@@ -655,7 +809,7 @@ async fn carry(
     // A resumed task whose session is idle had its turn cut off: judge it as a turn that ended.
     let mut running = resumed_running;
     if !resume {
-        let message = task_message(sh, job);
+        let message = task_message_of(sh, job);
         if let Err(e) = sessions.send(session, &message, OnBusy::Queue).await {
             fail(
                 sh,
@@ -669,10 +823,17 @@ async fn carry(
         running = true;
     }
     let mut nudged = false;
+    let mut corrections = 0;
     loop {
+        let mut handed: Option<Value> = None;
         if running {
             match wait_turn(sh, tap, key, &job.token).await {
-                Waited::Settled => {}
+                Waited::Settled(params) => {
+                    handed = params
+                        .pointer("/outcome/structured_output")
+                        .filter(|v| !v.is_null())
+                        .cloned();
+                }
                 Waited::Superseded => return true,
                 Waited::Gone => {
                     if !sh.stopping() && standing(sh, key, &job.token).await == Standing::Claimed {
@@ -685,10 +846,70 @@ async fn carry(
         if sh.stopping() {
             return false;
         }
+        // A structured output is the turn's hand-in, whichever way the session was told to hand
+        // in: the dispatcher submits it under the task's claim.
+        let mut problem: Option<String> = None;
+        if let Some(output) = handed {
+            let r = engine
+                .submit(
+                    &key.run,
+                    &key.station,
+                    &key.task,
+                    &job.token,
+                    output,
+                    dispatcher(),
+                )
+                .await;
+            match r {
+                Ok(o) => apply(sh, Some(&key.run), o).await,
+                Err(FlowError::Contract(m)) => problem = Some(m),
+                Err(e) => {
+                    tracing::debug!(run = key.run, error = %e, "flow: structured output not taken");
+                    return false;
+                }
+            }
+        }
         settle(sh, &key.run, "evaluate", engine.evaluate(&key.run).await).await;
         match standing(sh, key, &job.token).await {
-            Standing::Submitted | Standing::Gone => return false,
+            Standing::Gone => return false,
+            Standing::Submitted => {
+                // Handed in, and judged: a station unmet on a check that failed (a `tool`
+                // exit, say) is the output's to fix — the session is told what, and hands in
+                // again. One waiting on a gate, a person or other tasks is not.
+                if job.delivery == Delivery::StructuredOutput && corrections < CORRECTIONS {
+                    if let Some(missing) = failed_checks(sh, key).await {
+                        corrections += 1;
+                        let text = format!(
+                            "The flow took your output, but station `{}` is not passed: {missing}. \
+                             Fix the output and hand it in again with `{STRUCTURED_OUTPUT_TOOL}`.",
+                            key.station
+                        );
+                        if renew(sh, key, &job.token).await
+                            && sessions.send(session, &text, OnBusy::Queue).await.is_ok()
+                        {
+                            running = true;
+                            continue;
+                        }
+                    }
+                }
+                return false;
+            }
             Standing::Claimed => {}
+        }
+        if let Some(m) = problem {
+            // Not taken: what is wrong goes back, as a turn of its own (it does not count as
+            // the nudge).
+            if corrections < CORRECTIONS && renew(sh, key, &job.token).await {
+                corrections += 1;
+                let text = format!(
+                    "The flow did not take your output: {m}. Fix it and hand it in again with \
+                     `{STRUCTURED_OUTPUT_TOOL}`."
+                );
+                if sessions.send(session, &text, OnBusy::Queue).await.is_ok() {
+                    running = true;
+                    continue;
+                }
+            }
         }
         if !renew(sh, key, &job.token).await {
             return false;
@@ -704,7 +925,11 @@ async fn carry(
             return false;
         }
         nudged = true;
-        if let Err(e) = sessions.send(session, NUDGE, OnBusy::Queue).await {
+        let nudge = match job.delivery {
+            Delivery::FlowSubmit => NUDGE,
+            Delivery::StructuredOutput => NUDGE_STRUCTURED,
+        };
+        if let Err(e) = sessions.send(session, nudge, OnBusy::Queue).await {
             fail(
                 sh,
                 key,
@@ -723,7 +948,7 @@ async fn wait_turn(sh: &Arc<Shared>, tap: &mut Tap, key: &TaskKey, token: &str) 
     let every = renew_every(sh);
     loop {
         match tokio::time::timeout(every, tap.next_settled()).await {
-            Ok(Some(_)) => return Waited::Settled,
+            Ok(Some(p)) => return Waited::Settled(p),
             Ok(None) => return Waited::Gone,
             Err(_) => {
                 if sh.stopping() || !renew(sh, key, token).await {
@@ -734,9 +959,33 @@ async fn wait_turn(sh: &Arc<Shared>, tap: &mut Tap, key: &TaskKey, token: &str) 
     }
 }
 
+/// The station's failed checks, for the session to fix: `None` when nothing failed (it waits
+/// for a gate, a person or other tasks, or it passed).
+async fn failed_checks(sh: &Shared, key: &TaskKey) -> Option<String> {
+    let engine = sh.engine().ok()?;
+    let v = engine.get(&key.run).await.ok()?;
+    if v.record.stations.get(&key.station)?.status != StationStatus::Unmet {
+        return None;
+    }
+    let failed: Vec<String> = v
+        .unmet
+        .get(&key.station)?
+        .iter()
+        .filter(|c| c.status == CheckStatus::Fail)
+        .map(|c| {
+            if c.detail.is_empty() {
+                c.label.clone()
+            } else {
+                format!("{} ({})", c.label, c.detail)
+            }
+        })
+        .collect();
+    (!failed.is_empty()).then(|| failed.join("; "))
+}
+
 /// The protocol layer, then the skill.
-fn task_message(sh: &Shared, job: &SessionJob) -> String {
-    let mut text = job.protocol.clone();
+fn task_message_of(sh: &Shared, job: &SessionJob) -> String {
+    let mut skill = None;
     if let (Some(name), Ok(engine)) = (&job.skill, sh.engine()) {
         match engine.packs().skill(name) {
             Some((body, digest)) => {
@@ -746,12 +995,15 @@ fn task_message(sh: &Shared, job: &SessionJob) -> String {
                         "flow: the skill changed since the station was entered"
                     );
                 }
-                text.push_str(&format!("\n\n## Skill `{name}`\n\n{}\n", skill_body(&body)));
+                skill = Some((name.clone(), body));
             }
             None => tracing::warn!(skill = name, "flow: skill not found"),
         }
     }
-    text
+    task_message(
+        &job.protocol,
+        skill.as_ref().map(|(n, b)| (n.as_str(), b.as_str())),
+    )
 }
 
 #[cfg(test)]
@@ -772,6 +1024,12 @@ mod tests {
             executor: Executor::Session {
                 scene: "flow-chat".into(),
                 session: SessionBinding::New,
+                model: None,
+                provider: None,
+                instance: None,
+                template: None,
+                params: Default::default(),
+                space: None,
             },
             skill: None,
             skill_digest: None,
@@ -780,6 +1038,8 @@ mod tests {
             protocol: None,
             session_key: None,
             session: None,
+            placement: None,
+            delivery: None,
         };
         assert_eq!(run_of(&w), Some("r-1"));
         assert_eq!(
@@ -806,7 +1066,27 @@ mod tests {
             session_key: session_key.map(String::from),
             recording: None,
             resume: false,
+            output_schema: None,
+            placement: Placement::default(),
+            delivery: Delivery::StructuredOutput,
         }
+    }
+
+    #[test]
+    fn permission_rules_deny_the_guarded_tools_a_station_does_not_open() {
+        let g: Vec<String> = ["Bash", "Write", "TodoWrite", "mcp__db__*"]
+            .map(String::from)
+            .to_vec();
+        let rules = permission_rules(&g, &["Write".to_string()]);
+        assert_eq!(
+            rules,
+            json!([
+                {"source": "session", "behavior": "deny", "tool_name": "Bash"},
+                {"source": "session", "behavior": "deny", "tool_name": "TodoWrite"},
+                {"source": "session", "behavior": "deny", "tool_name": "mcp__db"},
+            ])
+        );
+        assert_eq!(permission_rules(&g, &g), json!([]));
     }
 
     #[test]
