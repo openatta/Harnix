@@ -60,7 +60,7 @@ PORT_UI=4360
 PORT_TLS=4361
 
 CRATES=(-p harnix -p harnix-app -p harnix-instance -p harnix-authz -p harnix-builtin
-        -p harnix-client -p harnix-contract -p harnix-module -p harnix-hub -p harnix-transport
+        -p harnix-client -p harnix-contract -p harnix-flow -p harnix-module -p harnix-hub -p harnix-transport
         -p harnix-testapp)
 
 scratch="$(mktemp -d)"

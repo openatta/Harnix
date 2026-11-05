@@ -1093,6 +1093,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "harnix-flow"
+version = "0.4.0-2026102801"
+dependencies = [
+ "async-trait",
+ "jsonschema",
+ "schemars",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "harnix-hub"
 version = "0.4.0-2026102801"
 dependencies = [

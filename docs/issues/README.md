@@ -92,3 +92,12 @@ ipdrun-06 已撤回（在公开契约之上能做，模板写 `program` 即可�
 | [grabix-02](grabix-02-space-details-width.md) | space 不能定右栏的缺省宽度（`detailsWidth`） | 新能力 | 低 | — |
 | [grabix-03](grabix-03-space-header-actions.md) | space 不能在标题栏放自己的操作（`headerActions`） | 新能力 | 中 | — |
 | [grabix-04](grabix-04-topic-resubscribe-race.md) | 同一主题退订后立刻再订阅，服务端可能后执行退订，订阅从此丢失 | 缺陷 | 中 | —（与 ipdrun-16 同类） |
+
+## XOps
+
+提出于 2026-11-04，代码位置对照 `3c264da`。
+
+| 编号 | 标题 | 类型 | 优先级 | 依赖 |
+|---|---|---|---|---|
+| [xops-01](xops-01-flow.md) | 流程能力：按站推动会话工作的可选模块（`harnix-flow`、`@harnix/flow`） | 新能力 | 高 | — |
+

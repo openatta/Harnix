@@ -1,0 +1,25 @@
+[package]
+name = "harnix-flow"
+version      = "0.4.0-2026102801"
+edition      = "2021"
+rust-version = "1.87"
+license      = "Apache-2.0"
+publish      = false
+description  = "Flows: a graph of stations that drives session work, judged on structured signals only"
+
+[lib]
+name = "harnix_flow"
+
+[dependencies]
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+async-trait = { workspace = true }
+sha2        = { workspace = true }
+uuid        = { workspace = true }
+serde_yaml  = "0.9"
+schemars    = "1"
+jsonschema  = { version = "0.49", default-features = false }
+
+[dev-dependencies]
+tokio    = { workspace = true }
+tempfile = { workspace = true }

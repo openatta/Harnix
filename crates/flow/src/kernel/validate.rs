@@ -1,0 +1,451 @@
+//! Structural validation: everything a JSON Schema cannot say. A definition with any
+//! problem cannot start a run; [`validate`] reports all of them at once.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use super::def::{Assert, Executor, ExitCond, FlowDef, Station, TaskSpec, Work, MAX_REWORK_LIMIT};
+use super::host::{Catalog, Packs, EVENT_KINDS};
+use super::refs::{refs_in, refs_in_value, ROOTS};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Problem {
+    /// The station it is about; `None` for the flow as a whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub station: Option<String>,
+    pub message: String,
+}
+
+impl std::fmt::Display for Problem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.station {
+            Some(s) => write!(f, "station {s}: {}", self.message),
+            None => f.write_str(&self.message),
+        }
+    }
+}
+
+/// Parse and validate a definition text.
+pub fn validate_yaml(yaml: &str, packs: &dyn Packs) -> Vec<Problem> {
+    match FlowDef::parse(yaml) {
+        Ok(def) => validate(&def, packs),
+        Err(e) => vec![Problem {
+            station: None,
+            message: format!("not a flow definition: {e}"),
+        }],
+    }
+}
+
+fn is_name(s: &str, extra: &[u8]) -> bool {
+    let b = s.as_bytes();
+    !b.is_empty()
+        && b[0].is_ascii_lowercase()
+        && b.iter().all(|c| {
+            c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-' || extra.contains(c)
+        })
+}
+
+struct Ctx<'a> {
+    def: &'a FlowDef,
+    packs: &'a dyn Packs,
+    catalog: Catalog,
+    out: Vec<Problem>,
+}
+
+impl Ctx<'_> {
+    fn flow(&mut self, m: impl Into<String>) {
+        self.out.push(Problem {
+            station: None,
+            message: m.into(),
+        });
+    }
+
+    fn at(&mut self, st: &str, m: impl Into<String>) {
+        self.out.push(Problem {
+            station: Some(st.to_string()),
+            message: m.into(),
+        });
+    }
+}
+
+/// Every structural problem of a definition; empty = valid.
+pub fn validate(def: &FlowDef, packs: &dyn Packs) -> Vec<Problem> {
+    let mut c = Ctx {
+        def,
+        packs,
+        catalog: packs.catalog(),
+        out: vec![],
+    };
+    if !is_name(&def.name, &[]) {
+        c.flow(format!("name {:?} must match [a-z][a-z0-9-]*", def.name));
+    }
+    if def.stations.is_empty() {
+        c.flow("a flow needs at least one station");
+    }
+    if let Some(n) = def.rework_limit {
+        if n == 0 || n > MAX_REWORK_LIMIT {
+            c.flow(format!(
+                "rework_limit {n} must be between 1 and {MAX_REWORK_LIMIT}"
+            ));
+        }
+    }
+    for (k, i) in &def.inputs {
+        if !is_name(k, b"_") {
+            c.flow(format!("input name {k:?} must match [a-z][a-z0-9_-]*"));
+        }
+        schema_problems(&mut c, None, &format!("input {k}"), &i.schema);
+        if let Some(d) = &i.default {
+            if let Ok(v) = jsonschema::validator_for(&i.schema) {
+                if !v.is_valid(d) {
+                    c.flow(format!(
+                        "input {k}: the default does not satisfy the schema"
+                    ));
+                }
+            }
+        }
+    }
+    for h in &def.hooks {
+        hook_problems(&mut c, None, h.on.as_str(), h.action.as_str());
+    }
+
+    let mut ids = BTreeSet::new();
+    for s in &def.stations {
+        if !is_name(&s.id, b"_") {
+            c.at(&s.id, "station id must match [a-z][a-z0-9_-]*");
+        }
+        if !ids.insert(s.id.as_str()) {
+            c.at(&s.id, "station id is not unique");
+        }
+    }
+    let cyclic = graph_problems(&mut c);
+    for s in &def.stations {
+        station_problems(&mut c, s, cyclic);
+    }
+    c.out
+}
+
+/// Needs exist, are not the station itself, and form no cycle. Returns whether a cycle
+/// was found (ancestor checks are skipped then).
+fn graph_problems(c: &mut Ctx) -> bool {
+    let def = c.def;
+    let ids: BTreeSet<&str> = def.stations.iter().map(|s| s.id.as_str()).collect();
+    let mut edges: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for s in &def.stations {
+        let needs = def.needs_of(&s.id);
+        let mut seen = BTreeSet::new();
+        for n in &needs {
+            if n == &s.id {
+                c.at(&s.id, "needs itself");
+            } else if !ids.contains(n.as_str()) {
+                c.at(&s.id, format!("needs {n}, which is not a station"));
+            }
+            if !seen.insert(n) {
+                c.at(&s.id, format!("needs {n} twice"));
+            }
+        }
+        edges.insert(
+            s.id.clone(),
+            needs
+                .into_iter()
+                .filter(|n| ids.contains(n.as_str()) && *n != s.id)
+                .collect(),
+        );
+    }
+    // Kahn's algorithm: whatever cannot be ordered is on or behind a cycle.
+    let mut done: BTreeSet<String> = BTreeSet::new();
+    loop {
+        let next: Vec<String> = edges
+            .iter()
+            .filter(|(id, ns)| !done.contains(*id) && ns.iter().all(|n| done.contains(n)))
+            .map(|(id, _)| id.clone())
+            .collect();
+        if next.is_empty() {
+            break;
+        }
+        done.extend(next);
+    }
+    let stuck: Vec<String> = edges
+        .keys()
+        .filter(|k| !done.contains(*k))
+        .cloned()
+        .collect();
+    if !stuck.is_empty() {
+        c.flow(format!("needs form a cycle through {}", stuck.join(", ")));
+    }
+    !stuck.is_empty()
+}
+
+fn station_problems(c: &mut Ctx, s: &Station, cyclic: bool) {
+    let def = c.def;
+    let id = s.id.as_str();
+
+    // work shape
+    if s.executor.is_some() && s.tasks.is_some() {
+        c.at(id, "write either executor or tasks, not both");
+    }
+    if s.foreach.is_some() && s.executor.is_none() {
+        c.at(id, "foreach needs an executor (and no tasks)");
+    }
+    if s.max_parallel.is_some() && s.foreach.is_none() {
+        c.at(id, "max_parallel only goes with foreach");
+    }
+    if s.max_parallel == Some(0) {
+        c.at(id, "max_parallel must be at least 1");
+    }
+    if s.tasks.is_some() && (s.skill.is_some() || s.retry.is_some()) {
+        c.at(id, "with tasks, skill and retry go on each task");
+    }
+    let work = s.work();
+    if matches!(work, Work::None) && (s.skill.is_some() || s.retry.is_some()) {
+        c.at(id, "a checkpoint (no executor) has no skill or retry");
+    }
+    if let Some(ts) = &s.tasks {
+        if ts.is_empty() {
+            c.at(id, "tasks is empty");
+        }
+        let mut seen = BTreeSet::new();
+        for t in ts {
+            if !is_name(&t.id, b"_") {
+                c.at(
+                    id,
+                    format!("task id {:?} must match [a-z][a-z0-9_-]*", t.id),
+                );
+            }
+            if !seen.insert(t.id.as_str()) {
+                c.at(id, format!("task id {} is not unique", t.id));
+            }
+        }
+    }
+    let specs: Vec<TaskSpec> = match &work {
+        Work::None => vec![],
+        Work::One(t) | Work::Foreach { task: t, .. } => vec![t.clone()],
+        Work::Tasks(ts) => ts.clone(),
+    };
+    for t in &specs {
+        executor_problems(c, id, t);
+    }
+    if let Some(items) = &s.foreach {
+        let r = refs_in(items);
+        if r.len() != 1 || !items.trim().starts_with("${") || !items.trim().ends_with('}') {
+            c.at(
+                id,
+                "foreach must be one reference, like ${stations.<id>.output.<list>}",
+            );
+        }
+    }
+
+    // exits
+    if s.exit.is_empty() {
+        c.at(id, "no exit condition");
+    }
+    let has_subflow = specs
+        .iter()
+        .any(|t| matches!(t.executor, Executor::Subflow { .. }));
+    for e in &s.exit {
+        match e {
+            ExitCond::Output { .. } => {
+                if s.output.is_none() {
+                    c.at(id, "an output exit needs an output contract");
+                }
+                if matches!(work, Work::None) {
+                    c.at(id, "an output exit needs tasks; a checkpoint has none");
+                }
+            }
+            ExitCond::Children { .. } if !has_subflow => {
+                c.at(id, "a children exit only goes with a subflow executor");
+            }
+            ExitCond::Tool {
+                tool, args, assert, ..
+            } => {
+                if !c.catalog.tools.contains(tool) {
+                    c.at(id, format!("tool {tool} is not in the catalog"));
+                }
+                if assert.is_empty() {
+                    c.at(id, format!("the tool exit {tool} has no assertion"));
+                }
+                for a in assert {
+                    assert_problems(c, id, a, false);
+                }
+                ref_problems(c, s, &refs_in_value(args));
+            }
+            ExitCond::Gate { gate, .. } if !c.catalog.gates.contains(gate) => {
+                c.at(id, format!("gate {gate} is not in the catalog"));
+            }
+            _ => {}
+        }
+    }
+    if let Some(o) = &s.output {
+        schema_problems(c, Some(id), "output", o);
+    }
+
+    // when
+    for a in &s.when {
+        assert_problems(c, id, a, true);
+    }
+
+    // rework
+    if !cyclic {
+        for r in &s.rework_to {
+            if def.station(r).is_none() {
+                c.at(id, format!("rework_to {r} is not a station"));
+            } else if !def.is_self_or_ancestor(r, id) {
+                c.at(
+                    id,
+                    format!("rework_to {r} is neither this station nor an ancestor"),
+                );
+            }
+        }
+        if let Some(u) = &s.on_unmet {
+            if def.station(&u.rework_to).is_none() {
+                c.at(
+                    id,
+                    format!("on_unmet.rework_to {} is not a station", u.rework_to),
+                );
+            } else if !def.is_self_or_ancestor(&u.rework_to, id) {
+                c.at(
+                    id,
+                    format!(
+                        "on_unmet.rework_to {} is neither this station nor an ancestor",
+                        u.rework_to
+                    ),
+                );
+            }
+        }
+    }
+    if let Some(u) = &s.on_unmet {
+        if u.max == 0 {
+            c.at(id, "on_unmet.max must be at least 1");
+        }
+    }
+
+    for h in &s.hooks {
+        hook_problems(c, Some(id), h.on.as_str(), h.action.as_str());
+    }
+}
+
+fn executor_problems(c: &mut Ctx, id: &str, t: &TaskSpec) {
+    match &t.executor {
+        Executor::Session { scene, session } => {
+            if scene.trim().is_empty() {
+                c.at(id, format!("session task {} needs a scene", t.id));
+            } else if !c.catalog.scenes.contains(scene) {
+                c.at(id, format!("scene {scene} is not in the catalog"));
+            }
+            if t.skill.is_none() {
+                c.at(id, format!("session task {} needs a skill", t.id));
+            }
+            if let super::def::SessionBinding::Key(k) = session {
+                if refs_in(k).is_empty() {
+                    c.at(id, "a session key should contain a reference");
+                }
+            }
+        }
+        Executor::Program { step } => {
+            if !c.catalog.steps.contains(step) {
+                c.at(id, format!("step {step} is not in the catalog"));
+            }
+        }
+        Executor::External { .. } => {}
+        Executor::Subflow { flow, .. } => {
+            if c.packs.flow(flow).is_none() {
+                c.at(id, format!("subflow {flow} is not a flow in the packs"));
+            }
+        }
+    }
+    if let Some(skill) = &t.skill {
+        if c.packs.skill(skill).is_none() {
+            c.at(id, format!("skill {skill} is not in the packs"));
+        }
+    }
+}
+
+fn assert_problems(c: &mut Ctx, id: &str, a: &Assert, against_context: bool) {
+    if a.path.trim().is_empty() {
+        c.at(id, "an assertion needs a path");
+    }
+    if a.op_count() != 1 {
+        c.at(
+            id,
+            format!(
+                "assertion on {:?} needs exactly one of eq, ne, len, min_len, exists",
+                a.path
+            ),
+        );
+    }
+    if against_context && !a.path.trim().is_empty() {
+        let st = c.def.station(id).cloned();
+        if let Some(st) = st {
+            ref_problems(c, &st, std::slice::from_ref(&a.path));
+        }
+    }
+}
+
+/// A reference's root exists; `inputs.k` is declared; `stations.x` is an ancestor;
+/// `item` only inside foreach.
+fn ref_problems(c: &mut Ctx, s: &Station, refs: &[String]) {
+    for r in refs {
+        let mut parts = r.split(['.', '[']);
+        let root = parts.next().unwrap_or("");
+        if !ROOTS.contains(&root) {
+            c.at(&s.id, format!("reference {r}: unknown root {root:?}"));
+            continue;
+        }
+        match root {
+            "inputs" => {
+                if let Some(k) = parts.next() {
+                    if !c.def.inputs.contains_key(k) {
+                        c.at(&s.id, format!("reference {r}: no input {k}"));
+                    }
+                }
+            }
+            "stations" => {
+                if let Some(x) = parts.next() {
+                    if c.def.station(x).is_none() {
+                        c.at(&s.id, format!("reference {r}: no station {x}"));
+                    } else if x == s.id || !c.def.descendants(x).contains(&s.id) {
+                        c.at(
+                            &s.id,
+                            format!("reference {r}: station {x} is not an ancestor"),
+                        );
+                    }
+                }
+            }
+            "item" if s.foreach.is_none() => {
+                c.at(
+                    &s.id,
+                    format!("reference {r}: item only exists in a foreach station"),
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
+fn schema_problems(c: &mut Ctx, station: Option<&str>, what: &str, schema: &Value) {
+    if let Err(e) = jsonschema::meta::validate(schema) {
+        let m = format!("{what} is not a valid JSON Schema: {e}");
+        match station {
+            Some(s) => c.at(s, m),
+            None => c.flow(m),
+        }
+    }
+}
+
+fn hook_problems(c: &mut Ctx, station: Option<&str>, on: &str, action: &str) {
+    let mut ms = vec![];
+    if !EVENT_KINDS.contains(&on) {
+        ms.push(format!("hook on {on:?}: not an event kind"));
+    }
+    if !c.catalog.actions.contains(action) {
+        ms.push(format!("hook action {action} is not in the catalog"));
+    }
+    for m in ms {
+        match station {
+            Some(s) => c.at(s, m),
+            None => c.flow(m),
+        }
+    }
+}
