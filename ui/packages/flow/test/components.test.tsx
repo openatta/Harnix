@@ -51,9 +51,10 @@ function view(stations: Record<string, StationRec>, status: "active" | "finished
       created_at: 0,
       created_by: { kind: "device", id: "x" },
       stations,
+      // Where the kernel pins it.
+      def: DEF,
     },
-    def: DEF,
-    unmet: { review: [{ kind: "confirm" }] },
+    unmet: { review: [{ kind: "confirm", label: "confirm by reviewer", status: "wait" }] },
   };
 }
 
@@ -63,7 +64,7 @@ const RUNNING = view({
     status: "passed",
     round: 2,
     tasks: [
-      { id: "0", status: "submitted", attempt: 1, item: "a", session: { instance: "flow", session_id: "s-a" } },
+      { id: "0", status: "submitted", attempt: 1, item: "a", session: "flow/s-a" },
       { id: "1", status: "submitted", attempt: 1, item: "b" },
     ],
     forced: { by: { kind: "device", id: "x" }, at: 0, reason: "ok" },

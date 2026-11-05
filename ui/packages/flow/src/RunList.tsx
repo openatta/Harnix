@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNest, useT } from "@harnix/react";
 
 import { errorText, useMethod, useTopic } from "./hooks";
-import { formatTime, methodName, runIdOf, runTone, runsOf, runsTopic } from "./model";
+import { formatTime, methodName, openOf, runIdOf, runTone, runsOf, runsTopic } from "./model";
 import type { DefSummary, RunStatus } from "./types";
 
 export interface RunListProps {
@@ -131,7 +131,7 @@ export function RunList({ module = "flow", selected, onSelect, flow, onSelectFlo
                 </span>
                 <span className="hx-flow-faint">
                   {r.flow} · {t("flowui.runStatus." + r.status)}
-                  {r.current?.length ? ` · ${r.current.join(", ")}` : ""} · {formatTime(r.created_at)}
+                  {openOf(r).length ? ` · ${openOf(r).join(", ")}` : ""} · {formatTime(r.created_at)}
                 </span>
               </button>
             </li>

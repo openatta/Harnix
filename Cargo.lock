@@ -1096,7 +1096,11 @@ dependencies = [
 name = "harnix-flow"
 version = "0.4.0-2026102801"
 dependencies = [
+ "anyhow",
  "async-trait",
+ "base",
+ "harnix-contract",
+ "harnix-module",
  "jsonschema",
  "schemars",
  "serde",
@@ -1105,6 +1109,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -1176,6 +1181,7 @@ dependencies = [
  "base",
  "futures",
  "harnix",
+ "harnix-flow",
  "scene",
  "serde",
  "serde_json",

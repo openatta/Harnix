@@ -11,6 +11,8 @@ pub mod run;
 mod txn;
 pub mod validate;
 
+pub use txn::dispatched_work;
+
 /// Why an operation did not happen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FlowError {

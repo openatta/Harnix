@@ -15,7 +15,7 @@ import { t as translate, useNest, useT, type Registry } from "@harnix/react";
 import { FlowGraph } from "./FlowGraph";
 import { FlowReference } from "./FlowReference";
 import { errorText, useMethod, useRunView } from "./hooks";
-import { formatTime, methodName, proposalOf, runTone, type BlockShape } from "./model";
+import { defOf, formatTime, methodName, proposalOf, runTone, type BlockShape } from "./model";
 import { ProposalCard } from "./ProposalCard";
 import { RunList } from "./RunList";
 import { StationPanel } from "./StationPanel";
@@ -187,7 +187,7 @@ function Overview({ state, module, stationTab }: { state: FlowSpaceState; module
     return (
       <div className="hx-flow-overview" data-testid="flow-overview" data-run={view.record.id}>
         <RunHeader view={view} module={module} onBack={() => state.showFlow(view.record.flow)} />
-        <FlowGraph def={view.def} view={view} selected={sel.station} onSelect={pick} />
+        <FlowGraph def={defOf(view)!} view={view} selected={sel.station} onSelect={pick} />
       </div>
     );
   }
@@ -278,7 +278,7 @@ function StationTab({ state, module }: { state: FlowSpaceState; module: string }
   const view = useRunView(module, sel.run);
   const flow = sel.run ? (view?.record.flow ?? null) : sel.flow;
   const info = useDefInfo(module, flow);
-  const def = sel.run ? view?.def : info.value?.def;
+  const def = sel.run ? defOf(view) : info.value?.def;
   if (!sel.station || !def) {
     return (
       <div className="hx-flow-panel" data-testid="flow-station-panel">

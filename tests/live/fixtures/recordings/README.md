@@ -17,6 +17,8 @@ cannot ask for replay, and outside replay the fixture name means nothing.
 | `spawns-agent` | An `Agent` call: a sub-agent that is a task of its session, not a session in the list |
 | `leaves-a-process` | A `Bash` call that leaves a `tail -f /dev/null` in the background and prints its pid (ipdrun-07). Made from `calls-a-tool` by hand: only the tool input and the text differ |
 | `calls-a-native-tool` | A call to `ProbeFixed`, the tool `harnix-testapp`'s native scene contributes (ipdrun-10). Made the same way |
+| `flow-analyze` | The flow module's `analyze` station (xops-01): one call to `flow_submit` with `{findings: [one low finding]}`, then a line of text. Made from `calls-a-native-tool` by hand; `harnix-testapp` names a session task's recording `flow-<station>` |
+| `flow-report` | The same for the `report` station's `summary` task: `flow_submit` with `{summary}` |
 | `runs-a-while` | A `Bash` call that waits four seconds (in `perl`: the engine refuses a `sleep` of 2 s or more): a turn that is still running when something is steered into it (ipdrun-13). Made the same way |
 
 ## Re-recording one

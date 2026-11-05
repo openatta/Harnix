@@ -6,7 +6,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  checkOk,
+  defOf,
+  digestLines,
   methodName,
+  openOf,
   proposalOf,
   runIdOf,
   runsOf,
@@ -136,6 +140,21 @@ describe("wire helpers", () => {
   it("reads a task's session", () => {
     expect(sessionOf(task("a", "claimed", { session: { instance: "i", session_id: "s" } }))).toEqual({ instance: "i", sessionId: "s" });
     expect(sessionOf(task("a", "claimed"))).toBe(null);
+    // As the flow module writes it.
+    expect(sessionOf(task("a", "claimed", { session: "system/abc" }))).toEqual({ instance: "system", sessionId: "abc" });
+    expect(sessionOf(task("a", "claimed", { session: "abc" }))).toEqual({ instance: "system", sessionId: "abc" });
+  });
+
+  it("reads the kernel's shapes: the pinned definition, open stations, check status, digests", () => {
+    const def = { name: "f", stations: [] };
+    const record = { id: "r", flow: "f", def_digest: "d", subject: "s", status: "active" as const, rev: 1, created_at: 1, created_by: { kind: "device", id: "x" }, stations: {} };
+    expect(defOf({ record: { ...record, def } })).toBe(def);
+    expect(defOf({ record, def })).toBe(def);
+    expect(openOf({ id: "r", flow: "f", subject: "s", status: "active", created_at: 1, open: ["a"] })).toEqual(["a"]);
+    expect(openOf({ id: "r", flow: "f", subject: "s", status: "active", created_at: 1 })).toEqual([]);
+    expect([checkOk({ status: "pass" }), checkOk({ status: "wait" }), checkOk({ status: "fail" }), checkOk({ ok: true })]).toEqual([true, false, false, true]);
+    expect(digestLines({ analyze: "abc" })).toEqual(["analyze: abc"]);
+    expect(digestLines(null)).toEqual([]);
   });
 
   it("claims only the flow's proposal entries", () => {

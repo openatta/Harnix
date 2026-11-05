@@ -131,6 +131,14 @@ impl Packs for MemPacks {
             .catalog
             .clone()
     }
+
+    fn flow_text(&self, name: &str) -> Option<String> {
+        MemPacks::flow_text(self, name)
+    }
+
+    fn skills(&self) -> Vec<String> {
+        self.read().skills.keys().cloned().collect()
+    }
 }
 
 /// Packs read from directories, each laid out as `flows/<name>.yaml` and
@@ -213,5 +221,26 @@ impl Packs for DirPacks {
 
     fn catalog(&self) -> Catalog {
         self.catalog.clone()
+    }
+
+    fn flow_text(&self, name: &str) -> Option<String> {
+        DirPacks::flow_text(self, name)
+    }
+
+    fn skills(&self) -> Vec<String> {
+        let mut names = std::collections::BTreeSet::new();
+        for d in &self.dirs {
+            let Ok(entries) = std::fs::read_dir(d.join("skills")) else {
+                continue;
+            };
+            for e in entries.flatten() {
+                if e.path().join("SKILL.md").is_file() {
+                    if let Some(n) = e.file_name().to_str() {
+                        names.insert(n.to_string());
+                    }
+                }
+            }
+        }
+        names.into_iter().collect()
     }
 }

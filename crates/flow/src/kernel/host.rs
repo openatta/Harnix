@@ -87,6 +87,14 @@ pub trait Packs: Send + Sync {
     /// A skill's body and its digest.
     fn skill(&self, name: &str) -> Option<(String, String)>;
     fn catalog(&self) -> Catalog;
+    /// The text a flow was given as, for people reading it. `None` when the packs cannot say.
+    fn flow_text(&self, _name: &str) -> Option<String> {
+        None
+    }
+    /// Names of the skills on offer, for authors. Empty when the packs cannot list them.
+    fn skills(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 /// Hex SHA-256 of a text: the digest pinned for definitions and skills.

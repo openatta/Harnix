@@ -763,52 +763,10 @@ impl<'a> M<'a> {
             });
             (round, t.item.clone(), t.attempt, digest)
         };
-        let ctx = context(self.rec, item.as_ref(), Some(tid));
-        let session_key = match &spec.executor {
-            Executor::Session { session, .. } => match session {
-                SessionBinding::New => None,
-                SessionBinding::PerRun => Some("run".to_string()),
-                SessionBinding::Key(k) => Some(match resolve_str(k, &ctx) {
-                    Value::String(s) => s,
-                    v => v.to_string(),
-                }),
-            },
-            _ => None,
-        };
-        let session = session_key
-            .as_ref()
-            .and_then(|k| self.rec.session_keys.get(k).cloned());
-        let st = self.def.station(sid).cloned();
-        let protocol = match (&spec.executor, &st) {
-            (Executor::Session { .. }, Some(st)) => {
-                Some(protocol::render(&protocol::TaskContext {
-                    def: &self.def,
-                    station: st,
-                    run: &self.rec.id,
-                    subject: &self.rec.subject,
-                    round,
-                    task: tid,
-                    item: item.as_ref(),
-                }))
-            }
-            _ => None,
-        };
-        self.fx.work.push(WorkItem::Task {
-            run: self.rec.id.clone(),
-            station: sid.to_string(),
-            round,
-            task: tid.to_string(),
-            token,
-            attempt,
-            executor: spec.executor.clone(),
-            skill: spec.skill.clone(),
-            skill_digest: digest,
-            item,
-            output_schema: st.and_then(|s| s.output),
-            protocol,
-            session_key,
-            session,
-        });
+        let work = task_work(
+            self.rec, sid, tid, spec, token, round, attempt, item, digest,
+        );
+        self.fx.work.push(work);
         let data = json!({"by": dispatcher, "attempt": attempt});
         self.emit("task.claimed", Some(sid), Some(tid), data.clone());
         let by = std::mem::replace(&mut self.by, dispatcher);
@@ -1257,4 +1215,117 @@ impl<'a> M<'a> {
         }
         !expired.is_empty()
     }
+}
+
+/// The work item of a push task claimed under `token`: what [`M::claim_push`] hands out, and
+/// what [`dispatched_work`] rebuilds after a restart.
+#[allow(clippy::too_many_arguments)]
+fn task_work(
+    rec: &RunRecord,
+    sid: &str,
+    tid: &str,
+    spec: &TaskSpec,
+    token: String,
+    round: u32,
+    attempt: u32,
+    item: Option<Value>,
+    digest: Option<String>,
+) -> WorkItem {
+    let ctx = context(rec, item.as_ref(), Some(tid));
+    let session_key = match &spec.executor {
+        Executor::Session { session, .. } => match session {
+            SessionBinding::New => None,
+            SessionBinding::PerRun => Some("run".to_string()),
+            SessionBinding::Key(k) => Some(match resolve_str(k, &ctx) {
+                Value::String(s) => s,
+                v => v.to_string(),
+            }),
+        },
+        _ => None,
+    };
+    let session = session_key
+        .as_ref()
+        .and_then(|k| rec.session_keys.get(k).cloned());
+    let st = rec.def.station(sid);
+    let protocol = match (&spec.executor, st) {
+        (Executor::Session { .. }, Some(st)) => Some(protocol::render(&protocol::TaskContext {
+            def: &rec.def,
+            station: st,
+            run: &rec.id,
+            subject: &rec.subject,
+            round,
+            task: tid,
+            item: item.as_ref(),
+        })),
+        _ => None,
+    };
+    WorkItem::Task {
+        run: rec.id.clone(),
+        station: sid.to_string(),
+        round,
+        task: tid.to_string(),
+        token,
+        attempt,
+        executor: spec.executor.clone(),
+        skill: spec.skill.clone(),
+        skill_digest: digest,
+        item,
+        output_schema: st.and_then(|s| s.output.clone()),
+        protocol,
+        session_key,
+        session,
+    }
+}
+
+/// The work of every session and program task the dispatcher holds a live claim on, as it was
+/// handed out — for a module that restarted and must carry on with what it had been given.
+/// `session` is the session the task reported (`attach_session`), else its key's.
+pub fn dispatched_work(rec: &RunRecord, now: u64) -> Vec<WorkItem> {
+    let dispatcher = Actor::flow("dispatch");
+    let mut out = vec![];
+    if !rec.is_active() {
+        return out;
+    }
+    for (sid, st) in &rec.stations {
+        if st.status != StationStatus::Working {
+            continue;
+        }
+        let Some(sdef) = rec.def.station(sid) else {
+            continue;
+        };
+        for t in &st.tasks {
+            let Some(lease) = t.lease.as_ref() else {
+                continue;
+            };
+            if t.status != TaskStatus::Claimed || lease.by != dispatcher || lease.until <= now {
+                continue;
+            }
+            let Some(spec) = sdef.task_spec(&t.id) else {
+                continue;
+            };
+            if !spec.executor.is_push() {
+                continue;
+            }
+            let digest = spec
+                .skill
+                .as_ref()
+                .and_then(|s| st.skill_digest.get(s).cloned());
+            let mut w = task_work(
+                rec,
+                sid,
+                &t.id,
+                &spec,
+                lease.token.clone(),
+                st.round,
+                t.attempt,
+                t.item.clone(),
+                digest,
+            );
+            if let (WorkItem::Task { session, .. }, Some(own)) = (&mut w, &t.session) {
+                *session = Some(own.clone());
+            }
+            out.push(w);
+        }
+    }
+    out
 }

@@ -20,13 +20,14 @@
 //! kernel/protocol.rs  the protocol layer put before a session task's skill
 //! store.rs            MemStore, FileStore
 //! packs.rs            MemPacks, DirPacks
+//! module/             the Harnix module (feature `module`, on by default): Flow, FlowHandle
 //! ```
 
 pub mod kernel;
+#[cfg(feature = "module")]
+pub mod module;
 pub mod packs;
 pub mod store;
-
-// module: the Harnix module (sessions, programs, native tools, methods, topics) goes here.
 
 pub use kernel::def::{
     definition_schema, Assert, Executor, ExitCond, FlowDef, HookRef, InputDef, OnUnmet, Retry,
@@ -45,6 +46,8 @@ pub use kernel::run::{
     TaskStatus,
 };
 pub use kernel::validate::{validate, validate_yaml, Problem};
-pub use kernel::{FlowError, Result};
+pub use kernel::{dispatched_work, FlowError, Result};
+#[cfg(feature = "module")]
+pub use module::{Flow, FlowBuilder, FlowHandle};
 pub use packs::{DirPacks, MemPacks};
 pub use store::{FileStore, MemStore};

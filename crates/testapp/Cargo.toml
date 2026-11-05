@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 harnix      = { workspace = true }
+harnix-flow = { workspace = true }
 anyhow      = { workspace = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }

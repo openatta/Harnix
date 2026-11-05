@@ -185,6 +185,54 @@ fn the_builtins_use_only_the_public_module_api() {
     assert!(offenders.is_empty(), "{}", offenders.join("\n"));
 }
 
+/// The flow module (xops-01) is an optional module an application registers, written against the
+/// public module contract like a built-in: Harnix's own module API and vocabulary, Agix's scene
+/// and tool interfaces for the scenes it wraps, and third-party crates. Never a layer below the
+/// contract, and never the doors the application uses to drive a module.
+#[test]
+fn the_flow_module_uses_only_the_public_module_api() {
+    for name in dependencies("flow") {
+        if name.starts_with("harnix") {
+            assert!(
+                ["harnix-module", "harnix-contract"].contains(&name.as_str()),
+                "`flow` depends on `{name}`; a module reaches the process only through its context"
+            );
+        }
+        assert!(
+            !["daemon", "runtime", "model", "history", "telemetry", "axum"].contains(&name.as_str()),
+            "`flow` depends on `{name}`; of Agix it may name `base` and `scene` and nothing else"
+        );
+    }
+    let mut offenders = Vec::new();
+    let mut stack = vec![workspace_root().join("crates/flow/src")];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            for needle in [
+                "ModuleContext::new",
+                "CallContext::new",
+                "MethodRegistry::new",
+                "EventRegistry::new",
+                "ErasedModule",
+                "into_decls",
+                "Tap::new",
+                "Tap::channel",
+                "TapParts",
+            ] {
+                if text.contains(needle) {
+                    offenders.push(format!("{} uses `{needle}`", path.display()));
+                }
+            }
+        }
+    }
+    assert!(offenders.is_empty(), "{}", offenders.join("\n"));
+}
+
 /// The contract crate is the shared vocabulary. If it grew a dependency on a
 /// layer, the layers would be able to reach each other through it and every
 /// rule above would be enforceable only on paper.
@@ -387,9 +435,11 @@ fn every_harnix_dependency_resolves() {
         "builtin",
         "client",
         "contract",
+        "flow",
         "harnix",
         "hub",
         "module",
+        "testapp",
         "transport",
     ];
     let known: BTreeSet<String> = crates

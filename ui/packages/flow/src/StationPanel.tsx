@@ -15,6 +15,8 @@ import { useNest, useT } from "@harnix/react";
 import { errorText } from "./hooks";
 import {
   actorLabel,
+  checkOk,
+  digestLines,
   formatTime,
   methodName,
   pretty,
@@ -362,9 +364,13 @@ function RunTab({ station: s, view, module }: { station: Station; view: RunView;
               {rec.left_at ? ` → ${formatTime(rec.left_at)}` : ""}
             </Field>
           ) : null}
-          {rec.skill_digest ? (
+          {digestLines(rec.skill_digest).length ? (
             <Field label={t("flowui.run.skillDigest")}>
-              <code className="hx-flow-id">{rec.skill_digest}</code>
+              {digestLines(rec.skill_digest).map((line) => (
+                <div key={line}>
+                  <code className="hx-flow-id">{line}</code>
+                </div>
+              ))}
             </Field>
           ) : null}
           {unmet.length && rec.status !== "passed" && rec.status !== "skipped" ? (
@@ -372,7 +378,7 @@ function RunTab({ station: s, view, module }: { station: Station; view: RunView;
               <ul className="hx-flow-list">
                 {unmet.map((u, i) => (
                   <li key={i}>
-                    <strong>{t("flowui.exit." + u.kind)}</strong> {u.detail !== undefined && u.detail !== null ? pretty(u.detail) : ""}
+                    <strong>{u.label || t("flowui.exit." + u.kind)}</strong> {u.detail !== undefined && u.detail !== null && u.detail !== "" ? pretty(u.detail) : ""}
                   </li>
                 ))}
               </ul>
@@ -430,8 +436,8 @@ function RunTab({ station: s, view, module }: { station: Station; view: RunView;
             <Field label={t("flowui.run.checks")} testid="flow-checks">
               <ul className="hx-flow-list">
                 {rec.checks.map((c, i) => (
-                  <li key={i} className={`hx-flow-tone-${c.ok ? "ok" : "error"}`}>
-                    {c.ok ? "✓" : "✗"} {t("flowui.exit." + c.kind)} {c.detail !== undefined && c.detail !== null ? <span className="hx-flow-faint">{clipped(c.detail)}</span> : null}
+                  <li key={i} className={`hx-flow-tone-${checkOk(c) ? "ok" : c.status === "wait" ? "muted" : "error"}`} data-status={c.status ?? (c.ok ? "pass" : "fail")}>
+                    {checkOk(c) ? "✓" : c.status === "wait" ? "…" : "✗"} {c.label || t("flowui.exit." + c.kind)} {c.detail !== undefined && c.detail !== null && c.detail !== "" ? <span className="hx-flow-faint">{clipped(c.detail)}</span> : null}
                   </li>
                 ))}
               </ul>

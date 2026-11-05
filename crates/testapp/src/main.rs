@@ -12,6 +12,7 @@
 //! | `probe` (again) | a second module with a taken id is refused at registration |
 //! | `fleet` | its own in-process instance and a space on it, headless sessions, a tap left unread |
 //! | `lifecycle` | what `stop` does on the way out: a mark, a slow finish, one that never returns |
+//! | `flow` | the flow module (xops-01) with two demonstration flows: see `flow_demo.rs` |
 //!
 //! `probe` also refuses, before it reaches the model, any message with `blocked-word` in it (a prompt
 //! middleware on every session of `system`), and `fleet` has two templates with the same native
@@ -30,6 +31,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
+mod flow_demo;
+
 fn main() -> anyhow::Result<()> {
     harnix::App::builder()
         .name("harnix-testapp", "0.0.1")
@@ -41,6 +44,7 @@ fn main() -> anyhow::Result<()> {
         .module(Duplicate)
         .module(Fleet)
         .module(Lifecycle::default())
+        .module(flow_demo::module())
         .run()
 }
 

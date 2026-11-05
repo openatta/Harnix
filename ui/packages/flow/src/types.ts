@@ -130,6 +130,12 @@ export interface TaskSession {
   session_id: string;
 }
 
+/**
+ * How a run record names a task's session. The kernel keeps it opaque; the flow module writes
+ * `"<instance>/<session_id>"`. An object is read too. `sessionOf()` reads either.
+ */
+export type TaskSessionRef = string | TaskSession;
+
 export interface TaskRec {
   id: string;
   item?: unknown;
@@ -138,18 +144,26 @@ export interface TaskRec {
   lease?: Lease | null;
   output?: unknown;
   error?: string | null;
-  session?: TaskSession | null;
+  session?: TaskSessionRef | null;
   /** The child run of a `subflow` task. */
   child?: string | null;
 }
 
-/** One exit condition, judged. */
+/** How an exit condition was judged: `wait` while a gate, a confirmation or children are outstanding. */
+export type CheckStatus = "pass" | "fail" | "wait";
+
+/**
+ * One exit condition, judged (the kernel's `CheckRec`). `cond` is the condition's index in the
+ * station's `exit`, absent for the station's tasks themselves; `kind` also takes `tasks` and `hold`
+ * in a run view's `unmet`. `checkOk()` reads `status` (or a bare `ok`).
+ */
 export interface CheckRec {
-  /** The condition's kind (`output`, `tool`, …). */
+  /** The condition's kind (`output`, `tool`, …, `tasks`, `hold`). */
   kind: ExitKind | string;
-  /** The condition as defined, when the kernel records it. */
-  cond?: ExitCond | null;
-  ok: boolean;
+  cond?: number | ExitCond | null;
+  label?: string | null;
+  status?: CheckStatus;
+  ok?: boolean;
   detail?: unknown;
   round?: number | null;
   at?: Millis | null;
@@ -162,10 +176,12 @@ export interface ConfirmRec {
   reason?: string | null;
 }
 
-/** An exit condition that does not hold right now (`RunView.unmet`, `ForcedRec.unmet`). */
+/** An exit condition that does not hold right now (`RunView.unmet`, `ForcedRec.unmet`): a check not passed. */
 export interface Unmet {
   kind: ExitKind | string;
-  cond?: ExitCond | null;
+  cond?: number | ExitCond | null;
+  label?: string | null;
+  status?: CheckStatus;
   detail?: unknown;
 }
 
@@ -181,7 +197,8 @@ export interface StationRec {
   round: number;
   rounds_total?: number | null;
   auto_reworks?: number | null;
-  skill_digest?: string | null;
+  /** Skill name → the digest pinned when the station was entered (a bare digest is read too). */
+  skill_digest?: Record<string, string> | string | null;
   tasks: TaskRec[];
   checks?: CheckRec[] | null;
   confirms?: ConfirmRec[] | null;
@@ -211,12 +228,17 @@ export interface RunRecord {
   parent?: ParentRef | null;
   stations: Record<string, StationRec>;
   session_keys?: Record<string, string> | null;
+  /** The definition, pinned when the run started. */
+  def?: FlowDef | null;
 }
 
-/** `app.flow.get` and the `app.flow.run {run}` topic: the snapshot, its pinned definition, and what each station still lacks. */
+/**
+ * `app.flow.get` and the `app.flow.run {run}` topic: the snapshot (its pinned definition in
+ * `record.def`) and what each open station still lacks. `defOf()` reads the definition.
+ */
 export interface RunView {
   record: RunRecord;
-  def: FlowDef;
+  def?: FlowDef | null;
   unmet?: Record<string, Unmet[]> | null;
 }
 
@@ -229,7 +251,9 @@ export interface RunSummary {
   status: RunStatus;
   created_at: Millis;
   finished_at?: Millis | null;
-  /** The stations being worked on or waiting for someone, when the summary carries them. */
+  /** The stations entered and not finished (the kernel's `open`). */
+  open?: string[] | null;
+  /** The same, as an older shape named it. */
   current?: string[] | null;
 }
 

@@ -40,6 +40,8 @@ const en: Record<string, string> = {
   "flowui.exit.gate": "Gate",
   "flowui.exit.confirm": "Confirm",
   "flowui.exit.children": "Child runs",
+  "flowui.exit.tasks": "Tasks",
+  "flowui.exit.hold": "Hold",
 
   "flowui.graph.gate": "gate only",
   "flowui.graph.round": "round {n}",
@@ -192,6 +194,8 @@ const zhCN: Record<string, string> = {
   "flowui.exit.gate": "门",
   "flowui.exit.confirm": "确认",
   "flowui.exit.children": "子运行",
+  "flowui.exit.tasks": "任务",
+  "flowui.exit.hold": "暂停",
 
   "flowui.graph.gate": "纯关卡",
   "flowui.graph.round": "第 {n} 轮",

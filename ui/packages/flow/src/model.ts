@@ -5,11 +5,14 @@
 
 import type {
   CatalogEntry,
+  CheckRec,
   ExecutorKind,
+  FlowDef,
   FlowMethod,
   Proposal,
   RunStatus,
   RunSummary,
+  RunView,
   Station,
   StationRec,
   StationStatus,
@@ -50,6 +53,28 @@ export function runsOf(value: unknown): RunSummary[] {
   if (Array.isArray(value)) return value as RunSummary[];
   const runs = (value as { runs?: unknown } | null)?.runs;
   return Array.isArray(runs) ? (runs as RunSummary[]) : [];
+}
+
+/** A run view's pinned definition: `record.def`, or a `def` beside the record. */
+export function defOf(view: Pick<RunView, "record" | "def"> | null | undefined): FlowDef | undefined {
+  return view?.def ?? view?.record?.def ?? undefined;
+}
+
+/** The stations a run summary says are open. */
+export function openOf(r: RunSummary): string[] {
+  return r.open ?? r.current ?? [];
+}
+
+/** Whether a judged condition passed: `status: "pass"`, or a bare `ok`. */
+export function checkOk(c: Pick<CheckRec, "status" | "ok">): boolean {
+  return c.status !== undefined ? c.status === "pass" : !!c.ok;
+}
+
+/** A station's pinned skill digests as `name: digest` lines (a bare digest as itself). */
+export function digestLines(d: Record<string, string> | string | null | undefined): string[] {
+  if (!d) return [];
+  if (typeof d === "string") return [d];
+  return Object.entries(d).map(([name, digest]) => `${name}: ${digest}`);
 }
 
 /* ── a station's work ────────────────────────────────────────────────── */
@@ -183,6 +208,12 @@ export function stationActions(runStatus: RunStatus | undefined, def: Station | 
 /** A task's session, as `host.session.open` takes it; null when it has none. */
 export function sessionOf(task: TaskRec): { instance: string; sessionId: string } | null {
   const s = task.session as unknown;
+  if (typeof s === "string") {
+    // `"<instance>/<session_id>"`, as the flow module writes it; a bare id is on `system`.
+    const at = s.indexOf("/");
+    if (!s) return null;
+    return at > 0 && at < s.length - 1 ? { instance: s.slice(0, at), sessionId: s.slice(at + 1) } : { instance: "system", sessionId: s };
+  }
   if (!s || typeof s !== "object") return null;
   const o = s as Record<string, unknown>;
   const instance = o.instance;

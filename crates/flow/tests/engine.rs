@@ -1062,3 +1062,61 @@ fn operations_are_send(e: &Engine) {
         },
     ));
 }
+
+#[tokio::test]
+async fn dispatched_work_rebuilds_what_the_dispatcher_holds() {
+    let h = h();
+    let (run, o) = start(&h, "multi").await;
+    let o = submit(&h, &jobs(&o)[0], json!({"modules": ["m1", "m2"]})).await;
+    let handed: Vec<WorkItem> = o
+        .work
+        .iter()
+        .filter(|w| matches!(w, WorkItem::Task { .. }))
+        .cloned()
+        .collect();
+    assert_eq!(handed.len(), 2);
+    let m1 = jobs(&o)[0].clone();
+    h.eng
+        .attach_session(
+            &run,
+            "analyze",
+            "m1",
+            &m1.token,
+            "system/s-1",
+            None,
+            Actor::flow("dispatch"),
+        )
+        .await
+        .unwrap();
+    let rec = h.eng.get(&run).await.unwrap().record;
+    let again = dispatched_work(&rec, h.clock.now_ms());
+    assert_eq!(again.len(), 2, "{again:?}");
+    for (w, was) in again.iter().zip(&handed) {
+        match (w, was) {
+            (
+                WorkItem::Task {
+                    token,
+                    protocol,
+                    task,
+                    session,
+                    ..
+                },
+                WorkItem::Task {
+                    token: t0,
+                    protocol: p0,
+                    ..
+                },
+            ) => {
+                assert_eq!(token, t0, "the same claim, not a new one");
+                assert_eq!(protocol, p0);
+                if task == "m1" {
+                    assert_eq!(session.as_deref(), Some("system/s-1"));
+                }
+            }
+            _ => unreachable!(),
+        }
+    }
+    // A lease that ran out is not the dispatcher's any more: `tick` claims it again.
+    h.clock.advance(120_000);
+    assert!(dispatched_work(&rec, h.clock.now_ms()).is_empty());
+}
