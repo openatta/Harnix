@@ -494,3 +494,15 @@
   color: var(--label-secondary);
   white-space: pre-wrap;
 }
+
+/* ── a conversation's changing tool call, named by what it acts on ───── */
+
+.hx-flow-tool-target {
+  margin: 0 0 4px;
+  padding: 4px 10px;
+  border-left: 3px solid var(--hx-warn);
+  border-radius: var(--radius-sm);
+  background: var(--hx-warn-soft);
+  font-size: 13px;
+  font-weight: 600;
+}

@@ -164,9 +164,26 @@ function remember(key: string, value: unknown): void {
 
 export const keyOf = (instance: string, sessionId: string) => `${instance}/${sessionId}`;
 
+/** How long the start waits for an answer it can do without: `harnix.reachable`, the built-ins. */
+export const BOOT_WAIT_MS = 5_000;
+export const TIMED_OUT: unique symbol = Symbol("timed out");
+
+/** The promise's value, or `TIMED_OUT` once `ms` have passed; the promise itself goes on. */
+export function within<T>(promise: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
+    timer = setTimeout(() => resolve(TIMED_OUT), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 /**
- * A session list with each session once. The engine has been seen to list an idle, never-used
- * session twice when it holds many; two rows with one key would draw two entries for one session.
+ * A session list with each session once — a defence, not the fix. Agix's `session.list` lists a
+ * session it has let go of (past `session_cap`) once per project it has served, and counts a folder
+ * reached under two spellings (macOS's `/var/…` and `/private/var/…`) as two projects, so such a
+ * session comes back twice (Agix issue draft `.local/agix-issue-08-session-list-duplicates.md`).
+ * Harnix's tests hand the engine real paths; a person may still give a linked one. Two rows with
+ * one key would draw two entries for one session.
  */
 export function uniqueSessions<T extends { instance?: unknown; session_id: string }>(rows: T[]): T[] {
   const seen = new Set<string>();
@@ -419,17 +436,22 @@ export class App {
       this.set({ hello });
       if (!this.booted) {
         this.booted = true;
-        const reachable = (await this.client.call("harnix.reachable", {}).catch(() => ({ methods: [] }))) as {
-          methods?: string[];
-        };
-        this.set({ reachable: reachable.methods ?? [] });
+        // Not waited for past a bound: the rest of the start (sessions, the front space) does not hang
+        // on it. Late, it is taken when it comes; what was registered meanwhile went without it.
+        const asked = this.client.call("harnix.reachable", {}).catch(() => ({ methods: [] })) as Promise<{ methods?: string[] }>;
+        const reachable = await within(asked, BOOT_WAIT_MS);
+        if (reachable === TIMED_OUT) void asked.then((r) => this.set({ reachable: r.methods ?? [] }));
+        else this.set({ reachable: reachable.methods ?? [] });
         void this.refreshProviders();
         // Through the page's counted table: a space subscribing to the same topic and leaving again
         // does not take it from the shell.
         topicsOf(this.client).subscribe("harnix.sessions.status", {}, (value) => this.applyStatus(value));
         // Awaited: a built-in space the backend has to be asked about (the flow space) is there
         // before the stored front space is looked for.
-        await this.builtins?.(this);
+        // Bounded too (`within`): a built-in that asks the backend and never hears back does not stop
+        // the start.
+        const registering = Promise.resolve(this.builtins?.(this)).catch((e: unknown) => this.notice(errorText(e), "error"));
+        await within(registering, BOOT_WAIT_MS);
         this.landOnASpace();
         await this.packages?.(this, hello);
       }

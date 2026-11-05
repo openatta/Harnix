@@ -3,10 +3,12 @@
  * id of the backend space whose conversations run `flow-author`, and only if the profile keeps it.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { BOOT_WAIT_MS, TIMED_OUT, within } from "../src/app";
+import { registerBuiltins } from "../src/builtins";
 import { flowSpaceOf, registerFlow } from "../src/flow";
-import { scriptedApp } from "./scripted";
+import { scriptedApp, tick } from "./scripted";
 
 const LIST = { spaces: [{ id: "sessions", scene: null }, { id: "flow", scene: "flow-author" }, { id: "system", scene: null }] };
 
@@ -57,5 +59,61 @@ describe("registering it", () => {
     app.set({ reachable: ["harnix.spaces.list"] });
     await registerFlow(app, () => true);
     expect(app.registry.at("space").map((c) => c.id)).toEqual(["sessions", "b"]);
+  });
+});
+
+describe("a backend that does not answer", () => {
+  it("`within` gives up after its bound and leaves the promise to finish", async () => {
+    let settle: (v: string) => void = () => {};
+    const slow = new Promise<string>((r) => (settle = r));
+    expect(await within(slow, 5)).toBe(TIMED_OUT);
+    settle("late");
+    expect(await slow).toBe("late");
+    expect(await within(Promise.resolve(1), 1000)).toBe(1);
+  });
+
+  it("a spaces list that never comes does not hold the start; one that comes late registers the space then", async () => {
+    const { app, client } = scriptedApp();
+    let answer: (v: unknown) => void = () => {};
+    client.answer = (method) => (method === "harnix.spaces.list" ? new Promise((r) => (answer = r)) : {});
+    app.set({ reachable: ["app.flow.defs", "harnix.spaces.list"] });
+    await registerFlow(app, () => true, 10);
+    expect(app.registry.at("space").some((c) => c.id === "flow")).toBe(false);
+    answer(LIST);
+    await tick();
+    await tick();
+    expect(app.registry.at("space").some((c) => c.id === "flow")).toBe(true);
+  });
+
+  it.each([
+    ["reachable never answers", true],
+    ["reachable names the flow module and the spaces list never answers", false],
+  ])("the start goes on to the sessions when %s", async (_, silent) => {
+    vi.useFakeTimers();
+    try {
+      const { app, client } = scriptedApp();
+      const listeners: ((s: string) => void)[] = [];
+      Object.assign(client, {
+        onStatus: (fn: (s: string) => void) => (listeners.push(fn), () => {}),
+        connect: () => listeners.forEach((fn) => fn("open")),
+      });
+      client.answer = (method) =>
+        method === "harnix.reachable"
+          ? silent
+            ? new Promise(() => {})
+            : { methods: ["app.flow.defs", "harnix.spaces.list", "harnix.sessions"] }
+          : method === "harnix.spaces.list"
+            ? new Promise(() => {})
+            : method === "harnix.sessions"
+              ? { sessions: [] }
+              : {};
+      app.start(registerBuiltins);
+      await vi.advanceTimersByTimeAsync(BOOT_WAIT_MS + 100);
+      expect(client.calls.some((c) => c.method === "harnix.sessions")).toBe(true);
+      expect(app.registry.at("space").some((c) => c.id === "sessions")).toBe(true);
+      expect(client.calls.some((c) => c.method === "harnix.spaces.list")).toBe(!silent);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

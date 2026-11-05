@@ -10,11 +10,13 @@
 
 import { registerFlowSpace } from "@harnix/flow";
 
-import type { App } from "./app.ts";
+import { within, type App } from "./app.ts";
 import { hostFor } from "./host.ts";
 
 /** The method whose presence says the backend has the flow module. */
 export const FLOW_PROBE = "app.flow.defs";
+/** How long the start waits for `harnix.spaces.list` before going on without the flow space. */
+export const FLOW_WAIT_MS = 3_000;
 /** The scene the flow module gives its space's conversations. */
 export const FLOW_AUTHOR_SCENE = "flow-author";
 
@@ -43,9 +45,12 @@ export async function flowSpaceOf(reachable: string[], list: () => Promise<unkno
  * Register the flow space when the backend has it and the profile keeps it — `flow` in `[shell]
  * spaces` names the built-in, whatever id the application gave its backend space.
  */
-export async function registerFlow(app: App, keeps: (space: string) => boolean): Promise<void> {
+export async function registerFlow(app: App, keeps: (space: string) => boolean, waitMs = FLOW_WAIT_MS): Promise<void> {
   if (!keeps("flow")) return;
-  const space = await flowSpaceOf(app.snapshot.reachable, () => app.call("harnix.spaces.list", {}));
-  if (space === null) return;
-  registerFlowSpace(app.registry, { space, host: hostFor(app) });
+  // `harnix.spaces.list` not answering does not hold up the start: the space is registered when the
+  // answer comes (the shell draws a registration whenever it happens).
+  const found = flowSpaceOf(app.snapshot.reachable, () => app.call("harnix.spaces.list", {})).then((space) => {
+    if (space !== null && !app.registry.at("space").some((c) => c.id === space)) registerFlowSpace(app.registry, { space, host: hostFor(app) });
+  });
+  await within(found, waitMs);
 }

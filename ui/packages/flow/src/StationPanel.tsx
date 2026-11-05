@@ -236,6 +236,15 @@ function RunTab({ station: s, view, module }: { station: Station; view: RunView;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<History[] | null>(null);
+  // External tasks this panel claimed and has not handed in: their tokens, by task id.
+  const [held, setHeld] = useState<Record<string, Claim>>({});
+  const hold = (task: string, claim: Claim | null) =>
+    setHeld((h) => {
+      const next = { ...h };
+      if (claim) next[task] = claim;
+      else delete next[task];
+      return next;
+    });
 
   // The station's history, read again whenever the run changes.
   useEffect(() => {
@@ -449,7 +458,9 @@ function RunTab({ station: s, view, module }: { station: Station; view: RunView;
                           </pre>
                         </details>
                       ) : null}
-                      {task.status === "ready" && executorOf(s, task.id)?.kind === "external" ? <HandIn module={module} run={run.id} station={s.id} task={task.id} /> : null}
+                      {executorOf(s, task.id)?.kind === "external" && (task.status === "ready" || (task.status === "claimed" && held[task.id])) ? (
+                        <HandIn module={module} run={run.id} station={s.id} task={task.id} held={held[task.id] ?? null} onHeld={(c) => hold(task.id, c)} />
+                      ) : null}
                       {task.output !== undefined && task.output !== null ? (
                         <details className="hx-flow-details">
                           <summary>{t("flowui.run.output")}</summary>
@@ -511,14 +522,26 @@ function executorOf(s: Station, task: string): Executor | null {
   return s.tasks?.find((x) => x.id === task)?.executor ?? s.executor ?? null;
 }
 
-/** An external task done by the person here: claim it, hand in its output. */
-function HandIn({ module, run, station, task }: { module: string; run: string; station: string; task: string }) {
+/** A claim this panel holds: the token `submit` needs, and when it lapses. */
+interface Claim {
+  token: string;
+  until: number;
+}
+
+/**
+ * An external task done by the person here: claim it, hand in its output. The claim is kept while
+ * the hand-in is refused — the error is shown, and it can be handed in again with the same token
+ * until the claim lapses (it then goes back to ready by itself), or given up now (recorded as a
+ * failed attempt, which can be retried).
+ */
+function HandIn({ module, run, station, task, held, onHeld }: { module: string; run: string; station: string; task: string; held: Claim | null; onHeld(claim: Claim | null): void }) {
   const t = useT();
   const nest = useNest();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(held !== null);
   const [output, setOutput] = useState("{}");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const live = held && (leaseUntil(held.until) ?? Infinity) > Date.now() ? held : null;
   const submit = async () => {
     let parsed: unknown;
     try {
@@ -529,9 +552,28 @@ function HandIn({ module, run, station, task }: { module: string; run: string; s
     }
     setBusy(true);
     setError(null);
+    let claim = live;
     try {
-      const claimed = await nest.call<{ token: string }>(methodName(module, "claim"), { run, station, task });
-      await nest.call(methodName(module, "submit"), { run, station, task, token: claimed.token, output: parsed });
+      if (!claim) {
+        claim = await nest.call<Claim>(methodName(module, "claim"), { run, station, task });
+        onHeld(claim);
+      }
+      await nest.call(methodName(module, "submit"), { run, station, task, token: claim.token, output: parsed });
+      onHeld(null);
+      setOpen(false);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const giveUp = async () => {
+    if (!live) return onHeld(null);
+    setBusy(true);
+    setError(null);
+    try {
+      await nest.call(methodName(module, "fail"), { run, station, task, token: live.token, error: t("flowui.act.handInGivenUp") });
+      onHeld(null);
       setOpen(false);
     } catch (e) {
       setError(errorText(e));
@@ -549,23 +591,34 @@ function HandIn({ module, run, station, task }: { module: string; run: string; s
     );
   }
   return (
-    <div className="hx-flow-form" data-testid={`flow-hand-in-form-${task}`}>
+    <div className="hx-flow-form" data-testid={`flow-hand-in-form-${task}`} data-held={live ? "true" : undefined}>
       <label className="hx-flow-label" htmlFor={`hx-flow-hand-in-${task}`}>
         {t("flowui.act.handInOutput")}
       </label>
       <textarea id={`hx-flow-hand-in-${task}`} className="hx-flow-input hx-flow-mono" data-testid={`flow-hand-in-output-${task}`} rows={3} value={output} onChange={(e) => setOutput(e.target.value)} />
+      {live ? (
+        <div className="hx-flow-faint" data-testid={`flow-hand-in-held-${task}`}>
+          {t("flowui.act.handInHeld", { until: formatTime(live.until) })}
+        </div>
+      ) : null}
       {error ? (
-        <div className="hx-flow-error" role="alert">
+        <div className="hx-flow-error" role="alert" data-testid={`flow-hand-in-error-${task}`}>
           {error}
         </div>
       ) : null}
       <div className="hx-flow-actions">
         <button type="button" className="btn sm primary" data-testid={`flow-hand-in-submit-${task}`} disabled={busy} onClick={() => void submit()}>
-          {t("flowui.act.submit.handIn")}
+          {t(live ? "flowui.act.submit.handInAgain" : "flowui.act.submit.handIn")}
         </button>
-        <button type="button" className="btn sm ghost" onClick={() => setOpen(false)}>
-          {t("flowui.act.cancel")}
-        </button>
+        {live ? (
+          <button type="button" className="btn sm outline" data-testid={`flow-hand-in-give-up-${task}`} disabled={busy} onClick={() => void giveUp()}>
+            {t("flowui.act.handInGiveUp")}
+          </button>
+        ) : (
+          <button type="button" className="btn sm ghost" onClick={() => setOpen(false)}>
+            {t("flowui.act.cancel")}
+          </button>
+        )}
       </div>
     </div>
   );

@@ -9,7 +9,9 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NestProvider, Registry, setLocale, type HostSessionRef, type NestHost } from "@harnix/react";
 
+import { toolTarget } from "../src/model";
 import { registerFlowSpace } from "../src/space";
+import { ToolTargetLine } from "../src/ToolTarget";
 import { FlowSpaceState } from "../src/state";
 import { StationPanel } from "../src/StationPanel";
 import { registerFlowStrings } from "../src/strings";
@@ -391,5 +393,110 @@ describe("a station in a dry run", () => {
       </NestProvider>,
     );
     expect(screen.queryByTestId("flow-hand-in-review")).toBeNull();
+  });
+});
+
+describe("a hand-in the module refuses", () => {
+  const ready = (status: "ready" | "claimed"): RunView => ({
+    record: { ...DRY.record, stations: { ...DRY.record.stations, sign: { status: "working", round: 1, tasks: [{ id: "sign", status, attempt: 1 }] } } },
+  });
+
+  it("keeps the claim: the error is shown, the same token hands in again, and it can be given up", async () => {
+    let refuse = true;
+    const fake = fakeHost({
+      "app.flow.claim": { token: "tok", until: Date.now() + 60_000 },
+      "app.flow.submit": () => (refuse ? Promise.reject(new Error("the output does not match the contract")) : null),
+    });
+    const { rerender } = render(
+      <NestProvider host={fake.host}>
+        <StationPanel station="sign" def={DEF} view={ready("ready")} />
+      </NestProvider>,
+    );
+    fireEvent.click(screen.getByTestId("flow-hand-in-sign"));
+    await act(async () => fireEvent.click(screen.getByTestId("flow-hand-in-submit-sign")));
+    expect(screen.getByTestId("flow-hand-in-error-sign").textContent).toContain("does not match");
+    // The task is now claimed (by this panel): the form stays, with the claim shown.
+    rerender(
+      <NestProvider host={fake.host}>
+        <StationPanel station="sign" def={DEF} view={ready("claimed")} />
+      </NestProvider>,
+    );
+    expect(screen.getByTestId("flow-hand-in-held-sign")).toBeTruthy();
+    expect(screen.getByTestId("flow-hand-in-submit-sign").textContent).toBe("Hand in again");
+    refuse = false;
+    await act(async () => fireEvent.click(screen.getByTestId("flow-hand-in-submit-sign")));
+    const claims = fake.calls.filter(([m]) => m === "app.flow.claim");
+    const submits = fake.calls.filter(([m]) => m === "app.flow.submit").map(([, p]) => (p as { token: string }).token);
+    expect(claims).toHaveLength(1);
+    expect(submits).toEqual(["tok", "tok"]);
+  });
+
+  it("gives a held claim up as a failed attempt", async () => {
+    const fake = fakeHost({
+      "app.flow.claim": { token: "tok", until: Date.now() + 60_000 },
+      "app.flow.submit": () => Promise.reject(new Error("no")),
+    });
+    const { rerender } = render(
+      <NestProvider host={fake.host}>
+        <StationPanel station="sign" def={DEF} view={ready("ready")} />
+      </NestProvider>,
+    );
+    fireEvent.click(screen.getByTestId("flow-hand-in-sign"));
+    await act(async () => fireEvent.click(screen.getByTestId("flow-hand-in-submit-sign")));
+    rerender(
+      <NestProvider host={fake.host}>
+        <StationPanel station="sign" def={DEF} view={ready("claimed")} />
+      </NestProvider>,
+    );
+    await act(async () => fireEvent.click(screen.getByTestId("flow-hand-in-give-up-sign")));
+    expect(fake.calls.find(([m]) => m === "app.flow.fail")?.[1]).toMatchObject({ run: "dry-example-review-1", station: "sign", task: "sign", token: "tok" });
+    // Claimed by someone else (no claim held here): nothing to hand in from this panel.
+    expect(screen.queryByTestId("flow-hand-in-form-sign")).toBeNull();
+    expect(screen.queryByTestId("flow-hand-in-sign")).toBeNull();
+  });
+});
+
+describe("a changing tool call names what it acts on", () => {
+  it("reads the target from the call's input", () => {
+    expect(toolTarget("flow_update", { flow: "example-review", yaml: 'name: example-review\ntitle: "Retitled"\nstations: []' })).toEqual({
+      tool: "update",
+      flow: "example-review",
+      title: "Retitled",
+    });
+    expect(toolTarget("flow_delete", '{"flow": "old"}')).toEqual({ tool: "delete", flow: "old" });
+    expect(toolTarget("flow_start", { flow: "f", subject: "repo" })).toMatchObject({ tool: "start", flow: "f", subject: "repo" });
+    expect(toolTarget("flow_dry_run", { flow: "f" })).toMatchObject({ tool: "dry_run", flow: "f" });
+    expect(toolTarget("flow_create", { yaml: "name: authored\ntitle: Authored here\nstations: []" })).toMatchObject({ tool: "create", flow: "authored", title: "Authored here" });
+    expect(toolTarget("flow_skill_set", { name: "review", body: "x" })).toMatchObject({ tool: "skill_set", skill: "review" });
+    expect(toolTarget("ns__flow_skill_delete", { name: "review" })).toMatchObject({ tool: "skill_delete", skill: "review" });
+    // Reading tools and anything else: no row of ours.
+    expect(toolTarget("flow_show", {})).toBe(null);
+    expect(toolTarget("Bash", { command: "ls" })).toBe(null);
+  });
+
+  it("is a tool.row of the space, drawing the line over the ordinary row", () => {
+    const r = new Registry();
+    registerFlowSpace(r);
+    const block = (name: string, input: unknown) => ({ kind: "tool", id: "t", name, input, status: "running" }) as never;
+    expect(r.claim("tool.row", block("flow_update", { flow: "x" }))?.id).toBe("flow.author-tool");
+    expect(r.claim("tool.row", block("flow_show", {}))).toBe(null);
+    const fake = fakeHost();
+    render(
+      <NestProvider host={fake.host}>
+        <ToolTargetLine target={toolTarget("flow_update", { flow: "example-review" })!} />
+        <ToolTargetLine target={toolTarget("flow_create", { yaml: "name: authored\ntitle: Authored here" })!} />
+      </NestProvider>,
+    );
+    const [update, create] = screen.getAllByTestId("flow-tool-target");
+    expect(update!.dataset.flow).toBe("example-review");
+    expect(update!.textContent).toBe("Changes the flow example-review");
+    expect(create!.textContent).toBe("Creates the flow authored (Authored here)");
+  });
+
+  it("leaves a task session's settings entry undrawn", () => {
+    const r = new Registry();
+    registerFlowSpace(r);
+    const entry = { kind: "custom", type: "entry", data: { id: "e", ns: "app.flow", event: "session_settings", payload: { scene: "flow-chat" }, at: 0 } } as never;
+    expect(r.claim("flow.block", entry)).toBe(null);
   });
 });

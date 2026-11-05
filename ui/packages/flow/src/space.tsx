@@ -19,6 +19,8 @@ import { ProposalCard } from "./ProposalCard";
 import { FlowSpaceState } from "./state";
 import { registerFlowStrings, STRINGS_OWNER } from "./strings";
 import { FlowsTab, FocusNotice, ReferenceTab, RunsTab, type FlowTabs } from "./tabs";
+import { FlowToolRow, type ToolBlock } from "./ToolTarget";
+import { toolTarget } from "./model";
 
 export interface FlowSpaceOptions {
   /** The space's id — the backend space whose conversations run `flow-author`; "flow" by default. */
@@ -78,6 +80,18 @@ export function registerFlowSpace(registry: Registry, options: FlowSpaceOptions 
         { id: tabs.runs, title: () => translate("flowui.tab.runs"), render: () => <RunsTab state={state} tabs={tabs} /> },
         { id: tabs.reference, title: () => translate("flowui.tab.reference"), render: () => <ReferenceTab state={state} />, align: "end" },
       ],
+    },
+    owner,
+  );
+
+  // A call of the conversation's tools that changes something, named by what it acts on: the
+  // permission card under it cannot say (it reads "Allow flow_update?").
+  registry.register(
+    "tool.row",
+    {
+      id: `${space}.author-tool`,
+      match: (block: ToolBlock) => toolTarget(block.name, block.input) !== null,
+      render: (block: ToolBlock) => <FlowToolRow block={block} />,
     },
     owner,
   );

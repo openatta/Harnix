@@ -6,8 +6,8 @@
  * their runs and dry runs, and the reference, and edits no definition. The flow selected there is
  * the conversation's current flow (`app.flow.focus`).
  *
- * Recordings: `flow-ui-edit` (the Agent calls `flow_show`, then `flow_update` with
- * `example-review`'s title changed, then says so), `flow-author-unfocused` (`flow_update` with
+ * Recordings: `flow-ui-edit` (the Agent calls `flow_show`, then `flow_update {flow:
+ * example-review}` with its title changed, then says so), `flow-author-unfocused` (`flow_update` with
  * nothing selected, and the Agent relays that a flow must be selected first). The real run's
  * session station has no recording here: the test passes it by force, as a person may.
  *
@@ -117,7 +117,13 @@ test("asked in the conversation, the Agent changes the selected flow, and the ri
   await expect(page.getByTestId("flow-focus-notice")).toHaveAttribute("data-flow", "example-review");
 
   await say(page, "Show the current flow and change its title to “Example: reviewed in conversation”.");
-  // `flow_show` reads; `flow_update` changes something, so it asks.
+  // `flow_show` reads; `flow_update` changes something, so it asks. The card itself only says
+  // "Allow flow_update?": the call's row above it names the flow and the new title.
+  await expect(page.getByTestId("conv-ask").last()).toBeVisible({ timeout: 30_000 });
+  const target = page.getByTestId("flow-tool-target").last();
+  await expect(target).toHaveAttribute("data-tool", "update");
+  await expect(target).toHaveAttribute("data-flow", "example-review");
+  await expect(target).toContainText("Example: reviewed in conversation");
   await allow(page);
   await expect(reply(page)).toContainText("reviewed in conversation", { timeout: 30_000 });
 
@@ -141,6 +147,7 @@ test("with nothing selected, the Agent is told to have one selected first, and s
   await expect(notice).toContainText(/select one on the right|先在右栏选择/);
 
   await say(page, "Change the flow's title.");
+  await expect(page.getByTestId("flow-tool-target").last()).toHaveAttribute("data-flow", "authored", { timeout: 30_000 });
   await allow(page);
   await expect(reply(page)).toContainText("No flow is selected", { timeout: 30_000 });
   await expect(page.getByTestId("conv-tool-name").filter({ hasText: /flow_update/ })).toHaveCount(1);

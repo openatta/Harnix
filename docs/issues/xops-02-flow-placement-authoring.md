@@ -355,16 +355,20 @@ Agent 建的流程被选中、删掉的清掉选择；自己那次 `focus` 还�
   运行页试运行：单步、跑到底、停在确认、看 `preview`、确认后结束、流程页的试运行列表里也有；正式运行：启动、在列表与图里、session 站
   （空应用没给录像名，回放下会失败成 `unmet`）在站详情里强制通过、确认、运行完成；`[shell] spaces` 去掉 `flow` 的 profile 没有这个 space
   （模块仍在）。没有流程模块的后端：`examples/hello-app`，`ui/spaces.spec.ts` 本来就断言它的 space 只有 `sessions projects greeter notes`。
-- 外壳的会话列表去重（`uniqueSessions`，会话 space 与没有自己左栏的 space 都用）：全量 `ui` 在分离流下，
-  `interface.spec.ts` 的搜索 / 改名两条稳定地失败——同一会话在左栏出现两行（strict mode 违例）。查下来是**后端**
-  `harnix.sessions {space: "sessions"}` 的原始回答里就有重复：6 个从没发过消息的闲置 `coding` 会话各列两遍
-  （`created_at`、`last_active` 都是空串，`status: inactive`），中枢的 `space_sessions` 按实例集合取、不会重复，
-  所以是引擎 `session.list` 列了两遍。单跑哪个文件、或 API 里连建 50 个会话都复现不了，前面几份 spec 一起跑才有；
-  外壳换回后端一半时的版本这两条不失败，为什么新外壳让后端出现这种状态**没查清**。外壳按 `instance/session_id`
-  去重是对的（一个 key 两行本来就是错），引擎那一侧留待查。单测 `shell/test/session-list.test.ts`。
+- 外壳的会话列表去重（`uniqueSessions`）：全量 `ui` 分离流下 `interface.spec.ts` 的搜索 / 改名两条遇到同一会话两行。原因后来查清，
+  见「评审后的修改（外壳）」#4；去重留作防御。
 - `coverage.md` 重生成（flow：API 19、界面 6）。`budget`：界面 gzip 166 KB → 186 KB（额度 300 KB），不调。`check.sh` 不用改
   （`target/testapp-ui` 后端一半已去掉）。
 - 跑过：`pnpm -r typecheck`、`pnpm -r test`（core 48、react 54、flow 55、shell 51）、`style-lint`、`coverage.mjs --check`；LIVE `ui` 全部
   两种拓扑各 81 过（去重之后各连跑两遍）；LIVE `api` 的 flow 四个文件 + `spaces` + `brand` 两种拓扑各 31 过。
   全量 `check.sh`（`eab7dd5`，本机无 `.env`）：build、rust、clippy、offline、frontend、api、template、browser、budget 9 层过；
   live、interface 无模型未跑，remote 未要求。第一次全量（`2408892`）browser 层因上面的重复会话失败，修了再跑。
+
+### 评审后的修改（外壳）
+
+| # | 问题 | 改法 | 测试 |
+|---|---|---|---|
+| 1 | 批准卡片不点名流程：Agix 把工具的问句换成「Allow flow_update?」 | `@harnix/flow` 注册 `tool.row`（`<space>.author-tool`）：`flow_create / update / delete / start / dry_run / skill_set / skill_delete` 的那一行上方加一句点名的话（`ToolTarget.tsx`），从这次调用的输入读：`input.flow`；`flow_create` 读 YAML 的 `name`、`title`；`flow_update` 带 YAML 时也读新标题；`flow_start` 读 `subject`；skill 读 `name`；名字可带 `ns__` 前缀。下面照常是 `BuiltinToolRow`，批准卡片紧跟在这一行之后。没有新贡献点。`app.flow` / `session_settings` 条目没人认领、主干不画（单测确认流程 space 不认领它） | `space.test.tsx`「a changing tool call names what it acts on」（`toolTarget` 各工具、注册与渲染、`session_settings` 不认领）；LIVE `ui/flow.spec.ts`：改流程那条在批准前断言这一行 `data-flow="example-review"` 且含新标题，未选择那条断言 `data-flow="authored"`。录像 `flow-ui-edit` 的 `flow_update` 加上 `flow: example-review` |
+| 2 | external 交付先认领再交，交被拒时 token 丢了、面板也没了（只在 `ready` 时出现），任务被占到租约过期 | 认领到的 token 记在站详情（`RunTab` 的 `held`，按任务）；交被拒时错误留在面板上、面板不消失（`claimed` 且这里持有认领时照样显示），按钮变「再交一次」、用同一个 token；显示认领到几点（过期回到待认领）；可「放弃」——以这个 token `fail`，记为一次失败（可重试）。认领过期了下次交会重新认领 | `space.test.tsx`「a hand-in the module refuses」：被拒后错误可见、同一 token 再交成功、只认领一次；放弃调 `fail` 带 token；别处的认领不显示面板 |
+| 3 | 启动可能卡住：`harnix.reachable` / `harnix.spaces.list` 不回，后面的启动（会话列表、落地 space）永远不跑 | `app.ts` 加 `within(promise, ms)`：`harnix.reachable` 最多等 `BOOT_WAIT_MS`（5 s），晚到的照样记下；内建注册整体最多等 5 s；`registerFlow` 等 `harnix.spaces.list` 最多 `FLOW_WAIT_MS`（3 s），晚到就那时注册流程 space（注册随时可画） | `flow-space.test.ts`：`within`；列表晚到时流程 space 晚注册；假计时器下 `reachable` 不回、或 `spaces.list` 不回时启动照样走到 `harnix.sessions`、内建 space 都在 |
+| 4 | 会话重复的根因 | Agix `daemon/src/session_pool.rs`：`list_all` 读历史时不把读到的 id 记进 `seen`；`served_projects` / `note_served` 按路径原文去重，而历史存储按规范路径查——同一个文件夹以 `/var/…` 与 `/private/var/…` 两种写法出现时读两遍，超出 `session_cap`（32）被放出内存的会话各列两遍。testkit 用的是 `tmpdir()` 的 `/var` 写法（`backend.project` 给 `project_root`），引擎的 cwd 是规范路径。改：`startHarnix` 的临时目录取 `realpathSync`（`ui/packages/testkit/src/launcher.ts`）。中枢**不**替客户端规范化 `project_root`：工作区按路径原文匹配会话（`w.path === row.project_root`），改了会让工作区与会话对不上。`uniqueSessions` 留作防御，注释写明根因与 Agix issue 草稿。Agix issue 草稿：`.local/agix-issue-08-session-list-duplicates.md`（`.local/` 不进库） | 新 LIVE `api/session-list.spec.ts`：项目里建 40 个会话，各列一次（改之前同样的调用回 48 行，手工验证过：`/var` 写法 48、规范写法 40）；`shell/test/session-list.test.ts` |

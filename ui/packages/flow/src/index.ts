@@ -39,6 +39,7 @@ export {
   focusTopic,
   isDryRun,
   problemText,
+  toolTarget,
   exitKinds,
   formatTime,
   methodName,
@@ -66,6 +67,7 @@ export {
   type SchemaRow,
   type StationActions,
   type Tone,
+  type ToolTarget,
   type WorkSummary,
 } from "./model";
 export { useDefs, useDryRuns, useMethod, useRunView, useTopic, type Loaded } from "./hooks";
@@ -74,6 +76,7 @@ export { StationPanel, type StationPanelProps } from "./StationPanel";
 export { RunList, StartForm, type RunListProps } from "./RunList";
 export { FlowReference, type FlowReferenceProps } from "./FlowReference";
 export { ProposalCard, type ProposalCardProps } from "./ProposalCard";
+export { FlowToolRow, ToolTargetLine } from "./ToolTarget";
 export { registerFlowSpace, type FlowSpace, type FlowSpaceOptions } from "./space";
 export { FlowSpaceState, type FlowSelection } from "./state";
 export { DryControls, FlowsTab, FocusNotice, ReferenceTab, RunsTab, useSelection, type FlowTabs } from "./tabs";

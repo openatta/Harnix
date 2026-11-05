@@ -8,7 +8,7 @@
 |---|---|---|---|
 | 握手与连接 | `connection` | 34 | 2 |
 | 授权与设备 | `authz` | 17 | 1 |
-| 会话与轮次 | `sessions` | 65 | 15 |
+| 会话与轮次 | `sessions` | 66 | 15 |
 | 无头会话 | `headless` | 4 | 1 |
 | 实例层 | `instances` | 24 | — 实例层没有自己的界面；界面上看实例是系统 space 的事（system） |
 | 模块契约 | `modules` | 18 | 1 |
@@ -26,4 +26,4 @@
 | 流程（harnix-flow，xops-01、xops-02） | `flow` | 20 | 6 |
 | 应用构建 | `build` | — 在脚本层检查（check-pins、check-lock、sync-app-deps），不经协议 | — 构建没有界面 |
 | 桌面壳 | `desktop` | — 桌面壳不加协议面：webview 加载的就是服务端的页面 | — 桌面壳是模板（templates/desktop）：它不调 IPC 由 check-no-ipc.mjs 在 offline 层查，本机模式由它的 --smoke 查 |
-| **合计** | | **252** | **81** |
+| **合计** | | **253** | **81** |

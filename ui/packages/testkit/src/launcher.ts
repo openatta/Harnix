@@ -8,7 +8,7 @@
  */
 
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -161,7 +161,11 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
   const bin = binary(options.bin);
   const port = options.port ?? (await freePort());
   const reused = options.scratch !== undefined;
-  const scratch = options.scratch ?? mkdtempSync(join(tmpdir(), "harnix-live-"));
+  // The real path: on macOS `tmpdir()` is `/var/…`, a link to `/private/var/…`, and the engine's
+  // working directory is the real one. Handing it the other spelling of the same folder made it read
+  // that project's history twice, and list every session past its in-memory cap twice (an Agix
+  // `session.list` defect: `.local/agix-issue-08-session-list-duplicates.md`).
+  const scratch = options.scratch ?? realpathSync(mkdtempSync(join(tmpdir(), "harnix-live-")));
   if (!reused) options.seed?.(scratch);
   const project = makeProject(scratch);
   const home = join(scratch, "home");

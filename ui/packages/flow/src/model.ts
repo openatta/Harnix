@@ -74,6 +74,70 @@ export function dryRunsOf(value: unknown): DryRunSummary[] {
   return Array.isArray(runs) ? (runs as DryRunSummary[]) : [];
 }
 
+/** What one of `flow-author`'s changing tools acts on, read off its call's input. */
+export interface ToolTarget {
+  tool: "create" | "update" | "delete" | "start" | "dry_run" | "skill_set" | "skill_delete";
+  /** The flow it acts on (create: the new flow's name). */
+  flow?: string;
+  /** The title the YAML it hands in gives (create, update). */
+  title?: string;
+  skill?: string;
+  subject?: string;
+}
+
+const AUTHOR_TOOLS: Record<string, ToolTarget["tool"]> = {
+  flow_create: "create",
+  flow_update: "update",
+  flow_delete: "delete",
+  flow_start: "start",
+  flow_dry_run: "dry_run",
+  flow_skill_set: "skill_set",
+  flow_skill_delete: "skill_delete",
+};
+
+/** A top-level `key: value` of a YAML text, unquoted; undefined when it has none. */
+function yamlField(yaml: unknown, key: string): string | undefined {
+  if (typeof yaml !== "string") return undefined;
+  const m = new RegExp(`^${key}:[ \t]*(.+?)[ \t]*$`, "m").exec(yaml);
+  if (!m) return undefined;
+  const v = m[1]!.replace(/^(["'])(.*)\1$/, "$2").trim();
+  return v || undefined;
+}
+
+/**
+ * The flow (or skill) a `flow-author` tool call acts on, from the call's input — what the
+ * permission to run it is about. The engine asks "Allow flow_update?" whatever the tool says, so the
+ * name has to come from here (xops-02 review #4). Null for any other tool. A name may arrive as
+ * `<namespace>__flow_update`.
+ */
+export function toolTarget(name: string | undefined, input: unknown): ToolTarget | null {
+  const bare = (name ?? "").split("__").pop() ?? "";
+  const tool = AUTHOR_TOOLS[bare];
+  if (!tool) return null;
+  let args = input;
+  if (typeof args === "string") {
+    try {
+      args = JSON.parse(args);
+    } catch {
+      args = {};
+    }
+  }
+  const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
+  const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+  const out: ToolTarget = { tool };
+  if (tool === "create") {
+    out.flow = yamlField(a.yaml, "name");
+    out.title = yamlField(a.yaml, "title");
+  } else if (tool === "skill_set" || tool === "skill_delete") {
+    out.skill = text(a.name);
+  } else {
+    out.flow = text(a.flow);
+    if (tool === "update") out.title = yamlField(a.yaml, "title");
+    if (tool === "start") out.subject = text(a.subject);
+  }
+  return out;
+}
+
 /** A problem as one line: `station path: message`. */
 export function problemText(p: Problem | string): string {
   if (typeof p === "string") return p;

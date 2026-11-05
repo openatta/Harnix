@@ -6,7 +6,7 @@
 // tool call actually contains the call rather than stopping at the ask.
 
 import { spawn } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -26,7 +26,8 @@ if (!hasModel(env)) {
 }
 
 const port = 4269;
-const scratch = mkdtempSync(join(tmpdir(), "harnix-record-"));
+// The real path, as the testkit gives it (`/var/…` and `/private/var/…` are one folder the engine reads twice).
+const scratch = realpathSync(mkdtempSync(join(tmpdir(), "harnix-record-")));
 // The session runs in a project of its own, never this checkout: the engine
 // keeps memories inside the project, and one remembered fact puts a recall
 // call in front of every turn of the recording (N-003).
