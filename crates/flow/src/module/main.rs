@@ -82,9 +82,19 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
     let (space, instance) = place_at(sh, &placement, run).await?;
     let wanted = main_settings(&scene, &placement, placement.template_instance(run).as_deref());
     let recording = sh.cfg.main_recording.as_ref().and_then(|f| f(&rec));
+    // A scene that needs a project works in a directory of the run's own.
+    let project_root = if sh.cfg.project_scenes.contains(&scene) {
+        let dir = cx.data_dir().join("workspaces").join(safe_dir(run));
+        std::fs::create_dir_all(&dir).map_err(|e| format!("no workspace for the run: {e}"))?;
+        write_agent_type(&dir, &scene);
+        Some(dir)
+    } else {
+        None
+    };
     let spec = SessionSpec {
         space: Some(space),
         instance,
+        project_root,
         scene: Some(scene),
         model: placement.model.clone(),
         provider: placement.provider.clone(),
@@ -112,6 +122,40 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
     let attached = engine.attach_main(run, &session_name(&s)).await;
     settle_quiet(sh, run, attached).await;
     Ok(s)
+}
+
+/// The agent type a sub-agent station's sub-agent is when the station names none
+/// ([`crate::kernel::protocol::DEFAULT_AGENT_TYPE`]), written into the run's workspace
+/// (`.agix/agents/`, where the engine reads a project's agent types).
+///
+/// It runs on the wrapped scene's own scene (`flow-coding` → `coding`): a sub-agent on the wrapped
+/// one does not build — the engine registers the scene's tools again over the ones it inherited
+/// (Agix issue draft 10). The inner scene grants nothing the wrapped one does not.
+fn write_agent_type(workspace: &std::path::Path, main_scene: &str) {
+    let inner = main_scene.strip_prefix("flow-").unwrap_or(main_scene);
+    let dir = workspace.join(".agix").join("agents");
+    let body = format!(
+        "---\nname: {}\ndescription: Does one task of a flow run, handed over by the run's main \
+         agent\nscene: {inner}\n---\nYou do one task of a flow run, handed to you by the run's \
+         main agent. Do it, then reply with the result only.\n",
+        crate::kernel::protocol::DEFAULT_AGENT_TYPE
+    );
+    let ok = std::fs::create_dir_all(&dir).and_then(|_| {
+        std::fs::write(
+            dir.join(format!("{}.md", crate::kernel::protocol::DEFAULT_AGENT_TYPE)),
+            body,
+        )
+    });
+    if let Err(e) = ok {
+        tracing::warn!(error = %e, "flow: the sub-agent type not written");
+    }
+}
+
+/// A run id as a directory name.
+fn safe_dir(run: &str) -> String {
+    run.chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .collect()
 }
 
 /// The main session's name in the session list: the run's title, else its flow's and its id.
@@ -145,6 +189,12 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef) {
     let Ok(mut tap) = cx.sessions().tap(s).await else {
         return;
     };
+    // Turn → the task it was started for: read when the turn's first frame comes, while that
+    // task is in hand (by its settlement it has often handed in and been let go).
+    let mut turns: std::collections::HashMap<String, Option<(String, String)>> =
+        std::collections::HashMap::new();
+    // `Agent` calls of the main Agent: tool use id → what it named the sub-agent.
+    let mut agent_calls: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     loop {
         let ev = tokio::select! {
             ev = tap.next() => ev,
@@ -164,14 +214,29 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef) {
             }
             Some(TapEvent::Frame(f)) => f,
         };
+        let turn = frame
+            .pointer("/params/turn_id")
+            .and_then(Value::as_str)
+            .filter(|t| !t.is_empty())
+            .map(String::from);
+        let settled = frame.get("method").and_then(Value::as_str) == Some("harnix.turn_settled");
+        if let (Some(t), false) = (&turn, settled) {
+            turns.entry(t.clone()).or_insert_with(|| {
+                working_on(sh, s).map(|b| (b.station, b.task))
+            });
+        }
         match frame.get("method").and_then(Value::as_str) {
             Some("harnix.turn_settled") => {
+                let task = match &turn {
+                    Some(t) => turns.remove(t).unwrap_or_else(|| working_on(sh, s).map(|b| (b.station, b.task))),
+                    None => working_on(sh, s).map(|b| (b.station, b.task)),
+                };
                 let usage = frame
                     .pointer("/params/outcome/usage")
                     .filter(|u| u.is_object())
                     .map(Usage::of_turn);
                 if let Some(u) = usage {
-                    count(sh, run, s, u).await;
+                    count(sh, run, task, u).await;
                 }
             }
             Some("harnix.event") => {
@@ -189,9 +254,64 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef) {
                 if let Some(p) = prompt {
                     answer(sh, s, p).await;
                 }
+                note_agents(sh, run, s, ev, &mut agent_calls);
             }
             _ => {}
         }
+    }
+}
+
+/// The sub-agents a main session starts, as its events show them: the `Agent` call (its
+/// description is the flow task's tag, `agent_tag`), then the sub-agent's own progress, which
+/// names its session and the call it came from.
+fn note_agents(
+    sh: &Shared,
+    run: &str,
+    s: &SessionRef,
+    ev: &Value,
+    calls: &mut std::collections::HashMap<String, String>,
+) {
+    match ev.get("kind").and_then(Value::as_str) {
+        Some("tool_use") if ev.get("name").and_then(Value::as_str) == Some("Agent") => {
+            if let Some(id) = ev.get("id").and_then(Value::as_str) {
+                let d = ev
+                    .pointer("/input/description")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                calls.insert(id.to_string(), d.to_string());
+            }
+        }
+        Some("subagent_progress") => {
+            let Some(agent) = ev.get("agent_session_id").and_then(Value::as_str) else {
+                return;
+            };
+            let call = ev.get("parent_tool_use_id").and_then(Value::as_str);
+            let description = call.and_then(|c| calls.get(c)).cloned();
+            let flow = description
+                .as_deref()
+                .and_then(|d| d.strip_prefix(&format!("flow:{run}/")))
+                .and_then(|r| r.split_once('/'))
+                .map(|(st, t)| json!({"station": st, "task": t}));
+            let inner = ev.pointer("/event/kind").and_then(Value::as_str);
+            let status = match inner {
+                Some("turn_complete") => Some("done"),
+                Some("error") => Some("failed"),
+                _ => None,
+            };
+            sh.note_agent(
+                run,
+                json!({
+                    "agent_session_id": agent,
+                    "instance": s.instance,
+                    "agent_type": ev.get("agent_type"),
+                    "tool_use_id": call,
+                    "description": description,
+                    "flow": flow,
+                    "status": status.map_or(Value::Null, |st| json!(st)),
+                }),
+            );
+        }
+        _ => {}
     }
 }
 
@@ -215,10 +335,9 @@ fn working_on(sh: &Shared, s: &SessionRef) -> Option<super::shared::Binding> {
     sh.in_hand(&key, &b.token).then_some(b)
 }
 
-async fn count(sh: &Arc<Shared>, run: &str, s: &SessionRef, u: Usage) {
+async fn count(sh: &Arc<Shared>, run: &str, task: Option<(String, String)>, u: Usage) {
     let Ok(engine) = sh.engine() else { return };
-    let b = working_on(sh, s);
-    let task = b.as_ref().map(|b| (b.station.as_str(), b.task.as_str()));
+    let task = task.as_ref().map(|(st, t)| (st.as_str(), t.as_str()));
     let r = engine.account(run, task, u).await;
     settle_quiet(sh, run, r).await;
 }

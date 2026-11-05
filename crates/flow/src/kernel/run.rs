@@ -675,6 +675,9 @@ pub struct RunView {
     pub record: RunRecord,
     /// Station id → its exit conditions not passed (failed or waiting).
     pub unmet: BTreeMap<String, Vec<CheckRec>>,
+    /// What the run is doing (`RunRecord::phase`, xops-03 §3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<Phase>,
 }
 
 impl RunView {

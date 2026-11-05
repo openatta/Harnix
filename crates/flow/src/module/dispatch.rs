@@ -1393,6 +1393,7 @@ mod tests {
             RunView {
                 record: rec,
                 unmet: [("a".to_string(), checks)].into(),
+                phase: None,
             }
         };
         let check = |kind: &str, detail: &str| CheckRec {

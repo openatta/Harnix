@@ -350,6 +350,12 @@ impl FlowBuilder {
                     .clone()
                     .or_else(|| self.scenes.first().map(|s| s.id().to_string()))
                     .map(|id| tools::wrapped_id(&id)),
+                project_scenes: self
+                    .scenes
+                    .iter()
+                    .filter(|s| s.requires_project())
+                    .map(|s| tools::wrapped_id(s.id()))
+                    .collect(),
                 lease_ms: self.lease_ms,
                 tick_ms: self.tick_ms,
                 ensure_ms: self.ensure_ms,
@@ -509,11 +515,17 @@ impl Module for Flow {
     const API_VERSION: u32 = harnix_module::MODULE_API_VERSION;
 
     fn manifest(&self) -> Manifest {
-        Manifest::new(MODULE_ID, env!("CARGO_PKG_VERSION")).disclosure(
-            "runs flows: headless sessions in its space (or where a station places them, on \
-             instances of its templates), the application's programs, gates and hooks; writes \
-             run records and saved flows where the application said",
-        )
+        Manifest::new(MODULE_ID, env!("CARGO_PKG_VERSION"))
+            .disclosure(
+                "runs flows: headless sessions in its space (or where a station places them, on \
+                 instances of its templates), the application's programs, gates and hooks; writes \
+                 run records and saved flows where the application said; names the sessions it \
+                 opens and lists a run's sub-agents",
+            )
+            // Naming a run's main session and a flow's conversation; a main session's
+            // sub-agents and other tasks (xops-03).
+            .grant("session.rename")
+            .grant("session.tasks")
     }
 
     /// On `system`: the wrapped scenes and `flow-author`.

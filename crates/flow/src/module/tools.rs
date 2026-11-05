@@ -504,6 +504,7 @@ mod tests {
                 recording: None,
                 main_recording: None,
                 main_scene: None,
+                project_scenes: Default::default(),
                 lease_ms: 60_000,
                 tick_ms: 1000,
                 ensure_ms: 60_000,

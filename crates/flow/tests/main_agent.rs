@@ -188,10 +188,18 @@ async fn nobody_takes_on_an_external_task_while_paused() {
     let (run, _) = start(&h, "ext").await;
     let p = h.eng.record(&run).await.unwrap().phase();
     assert_eq!((p.state.as_str(), p.reason.as_deref()), ("waiting", Some("external")));
+    // Claimed before the pause: in hand, and timed.
+    let rec = h.eng.record(&run).await.unwrap();
+    assert!(rec.stations["x"].tasks[0].started_at.is_none());
     h.eng.pause(&run, me()).await.unwrap();
     let r = h.eng.claim(&run, "x", "x", me(), 60_000).await;
     assert!(matches!(r, Err(FlowError::Invalid(ref m)) if m.contains("paused")), "{r:?}");
+    h.eng.resume(&run, me()).await.unwrap();
+    h.eng.claim(&run, "x", "x", me(), 60_000).await.unwrap();
+    let t = &h.eng.record(&run).await.unwrap().stations["x"].tasks[0];
+    assert_eq!(t.started_at, Some(T0));
     // Cancelling a paused run is fine.
+    h.eng.pause(&run, me()).await.unwrap();
     h.eng.cancel(&run, "enough", me()).await.unwrap();
     assert_eq!(h.eng.record(&run).await.unwrap().phase().state, "cancelled");
 }

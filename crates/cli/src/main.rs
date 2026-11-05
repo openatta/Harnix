@@ -7,8 +7,9 @@
 //! one does not validate (a dry run still goes through it: there everything is mocked). Runs are
 //! kept in the module's data directory (`runs/`); flows and skills come from the example built
 //! into this binary, under a writable layer in the module's data directory (`packs/`) where the
-//! flow space's conversations save what they write. Session stations run in `flow-chat` or
-//! `flow-coding` (Agix's chat and coding scenes, wrapped).
+//! flow space's conversations save what they write. A run's main session is on `flow-coding`
+//! (Agix's coding scene, wrapped: it has the `Agent` tool sub-agent stations need), in a
+//! directory of the run's own; a station of its own session may name `flow-chat` too.
 
 use std::sync::Arc;
 
@@ -31,6 +32,7 @@ pub fn flow() -> Flow {
         })
         .scene(Arc::new(scene::scene::chat::ChatScene))
         .scene(Arc::new(scene::scene::coding::CodingScene))
+        .main_scene("coding")
         .build()
 }
 
@@ -48,8 +50,8 @@ mod tests {
     fn the_example_flow_is_valid_in_the_empty_application() {
         let packs = MemPacks::new()
             .skill("review", EXAMPLE_SKILL)
-            .scene("flow-chat")
-            .scene("flow-coding");
+            .submit_scene("flow-chat")
+            .main_scene("flow-coding");
         let problems = validate_yaml(EXAMPLE_FLOW, &packs as &dyn Packs);
         assert!(problems.is_empty(), "{problems:?}");
     }

@@ -31,6 +31,9 @@ pub(crate) struct Config {
     pub main_recording: Option<MainRecordingFn>,
     /// The wrapped scene a run's main session is opened on when the flow's `main` names none.
     pub main_scene: Option<String>,
+    /// The wrapped scenes whose sessions need a project: a main session on one works in a
+    /// directory of its run's (`workspaces/<run>` in the module's data directory).
+    pub project_scenes: std::collections::BTreeSet<String>,
     pub lease_ms: u64,
     pub tick_ms: u64,
     /// How long a station's template instance may take to be ready.
@@ -94,6 +97,9 @@ pub(crate) struct Shared {
     flow_sessions_path: OnceLock<PathBuf>,
     /// One conversation made at a time, so a flow never gets two.
     pub making_session: tokio::sync::Mutex<()>,
+    /// The sub-agents each run's main session started, as its watch saw them (xops-03 §2):
+    /// run → sub-agents, oldest first. Not kept over a restart.
+    agents: Mutex<HashMap<String, Vec<serde_json::Value>>>,
 }
 
 /// How many conversations' focus is remembered.
@@ -126,7 +132,38 @@ impl Shared {
             flow_sessions: Mutex::new(BTreeMap::new()),
             flow_sessions_path: OnceLock::new(),
             making_session: tokio::sync::Mutex::new(()),
+            agents: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Note a sub-agent of `run`'s main session, or what more is known of it (by
+    /// `agent_session_id`): the fields of `seen` go over the ones noted.
+    pub fn note_agent(&self, run: &str, seen: serde_json::Value) {
+        let Some(id) = seen.get("agent_session_id").and_then(|v| v.as_str()).map(String::from) else {
+            return;
+        };
+        let mut g = lock(&self.agents);
+        let list = g.entry(run.to_string()).or_default();
+        match list
+            .iter_mut()
+            .find(|a| a.get("agent_session_id").and_then(|v| v.as_str()) == Some(id.as_str()))
+        {
+            Some(a) => {
+                if let (Some(a), Some(n)) = (a.as_object_mut(), seen.as_object()) {
+                    for (k, v) in n {
+                        if !v.is_null() {
+                            a.insert(k.clone(), v.clone());
+                        }
+                    }
+                }
+            }
+            None => list.push(seen),
+        }
+    }
+
+    /// The sub-agents noted for `run`.
+    pub fn agents(&self, run: &str) -> Vec<serde_json::Value> {
+        lock(&self.agents).get(run).cloned().unwrap_or_default()
     }
 
     /// Read the flows' conversations from `path`, and save to it from now on.
@@ -423,6 +460,7 @@ mod tests {
                 recording: None,
                 main_recording: None,
                 main_scene: None,
+                project_scenes: Default::default(),
                 lease_ms: 60_000,
                 tick_ms: 1000,
                 ensure_ms: 60_000,

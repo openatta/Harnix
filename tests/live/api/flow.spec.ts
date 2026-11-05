@@ -58,8 +58,8 @@ const status = (id: string, s: string) => (v: View) => station(v, id)?.status ==
 test("the module says what it offers: flows, a definition with its skills, the catalog, schemas", TAGS, async () => {
   const defs = await api.call("app.flow.defs");
   expect(defs.map((d: any) => d.name).sort()).toEqual([
-    "demo-bypassed", "demo-guarded", "demo-linear", "demo-misplaced", "demo-placed", "demo-propose", "demo-review",
-    "demo-shared",
+    "demo-agent", "demo-bypassed", "demo-guarded", "demo-linear", "demo-main", "demo-misplaced", "demo-placed",
+    "demo-propose", "demo-review", "demo-shared",
   ]);
   // Where each comes from and whether it is valid (xops-02 §3): all built in here.
   expect(defs.every((d: any) => d.origin === "builtin" && d.valid === true)).toBe(true);
@@ -73,7 +73,7 @@ test("the module says what it offers: flows, a definition with its skills, the c
 
   const catalog = await api.call("app.flow.catalog");
   // The wrapped scene (flow_submit) and the application's own (structured output, xops-02 §2).
-  expect(catalog.scenes).toEqual(["flow-chat", "structured-chat"]);
+  expect(catalog.scenes).toEqual(["flow-chat", "flow-coding", "structured-chat"]);
   expect(info.protocol.analyze).toContain("refuses these as writes: Bash, PowerShell, REPL, Write, Edit, NotebookEdit, TodoWrite");
   expect(catalog.steps).toEqual(["collect", "self-check"]);
   expect(catalog.skills).toEqual(["analyze", "report"]);

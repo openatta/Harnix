@@ -577,7 +577,8 @@ impl Engine {
                 Some(rec),
             )?;
             let token = new_token();
-            let until = t.fx.now.saturating_add(lease_ms.clamp(1, MAX_LEASE_MS));
+            let now = t.fx.now;
+            let until = now.saturating_add(lease_ms.clamp(1, MAX_LEASE_MS));
             let mut m = t.m(run);
             let attempt = {
                 let Some(tr) = m.task_mut(station, task) else {
@@ -585,6 +586,8 @@ impl Engine {
                 };
                 tr.status = TaskStatus::Claimed;
                 tr.attempt += 1;
+                tr.started_at = Some(now);
+                tr.ended_at = None;
                 tr.lease = Some(super::run::Lease {
                     by: by.clone(),
                     token: token.clone(),
@@ -1272,5 +1275,10 @@ pub fn view(mut record: RunRecord) -> RunView {
         }
         unmet.insert(id.clone(), list);
     }
-    RunView { record, unmet }
+    let phase = Some(record.phase());
+    RunView {
+        record,
+        unmet,
+        phase,
+    }
 }

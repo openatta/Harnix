@@ -92,6 +92,12 @@ pub struct DryRunSummary {
     pub flow: String,
     pub status: RunStatus,
     pub created_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<u64>,
+    /// What it is doing (xops-03 §3): a dry run's work is mocked, so it is never `running`
+    /// for long — it waits for the next step.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<crate::kernel::run::Phase>,
 }
 
 /// One work item a dry run took: `{kind, run, station?, task?, gate?, result}`.
@@ -414,17 +420,14 @@ impl Sandbox {
         let runs = self.runs.lock().await;
         let mut out = vec![];
         for d in runs.iter().rev() {
-            let status = d
-                .engine
-                .record(&d.root)
-                .await
-                .map(|r| r.status)
-                .unwrap_or(RunStatus::Cancelled);
+            let rec = d.engine.record(&d.root).await.ok();
             out.push(DryRunSummary {
                 id: d.root.clone(),
                 flow: d.flow.clone(),
-                status,
+                status: rec.as_ref().map_or(RunStatus::Cancelled, |r| r.status),
                 created_at: d.created_at,
+                finished_at: rec.as_ref().and_then(|r| r.finished_at),
+                phase: rec.as_ref().map(|r| r.phase()),
             });
         }
         out

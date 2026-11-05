@@ -156,6 +156,10 @@ pub struct TaskContext<'a> {
     pub executor: Option<&'a Executor>,
 }
 
+/// The agent type a sub-agent task asks for when its station names none: the module provides
+/// it where the main session works.
+pub const DEFAULT_AGENT_TYPE: &str = "flow-agent";
+
 /// What a sub-agent task's sub-agent is named by (the `Agent` tool's `description`), so the
 /// module can tell it apart among the main session's tasks.
 pub fn agent_tag(run: &str, station: &str, task: &str) -> String {
@@ -195,9 +199,10 @@ pub fn render(t: &TaskContext) -> String {
             "`description: \"{}\"`",
             agent_tag(t.run, &st.id, t.task)
         )];
-        if let Some(a) = agent_type {
-            how.push(format!("`subagent_type: \"{a}\"`"));
-        }
+        how.push(format!(
+            "`subagent_type: \"{}\"`",
+            agent_type.as_deref().unwrap_or(DEFAULT_AGENT_TYPE)
+        ));
         if let Some(m) = model {
             how.push(format!("`model: \"{m}\"`"));
         }

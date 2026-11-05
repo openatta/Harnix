@@ -307,6 +307,81 @@ pub(crate) async fn flow_session(
     Ok(s)
 }
 
+/// [`run_sessions`]' answer for one run.
+async fn run_sessions(cx: &CallContext, rec: &crate::RunRecord) -> Answer {
+    let own: Vec<Value> = rec
+        .def
+        .stations
+        .iter()
+        .filter_map(|d| rec.stations.get(&d.id).map(|s| (d, s)))
+        .flat_map(|(d, s)| {
+            s.tasks
+                .iter()
+                .filter(|t| t.session.is_some() && Some(t.session.as_deref()) != Some(rec.main_session()))
+                .map(|t| {
+                    let r = super::session_ref(t.session.as_deref().unwrap_or_default());
+                    json!({"station": d.id, "task": t.id, "session": {"instance": r.instance, "session_id": r.session_id}})
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let Some(main) = rec.main_session().map(super::session_ref) else {
+        return Ok(json!({"main": null, "own": own, "tasks": [], "sidechains": []}));
+    };
+    let module = cx.module();
+    let target = json!({"instance": main.instance, "session_id": main.session_id});
+    let listed = module.call("session.tasks", target.clone()).await;
+
+    if let Err(e) = &listed {
+        tracing::warn!(run = rec.id, error = %e.message, "flow: a main session's tasks not listed");
+    }
+    let tasks: Vec<Value> = listed
+        .ok()
+        .and_then(|v| v.get("tasks").and_then(Value::as_array).cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|mut t| {
+            // A sub-agent a flow task asked for is named by its tag (`agent_tag`).
+            let tag = t.pointer("/detail/description").and_then(Value::as_str).unwrap_or("");
+            let flow_task = tag
+                .strip_prefix(&format!("flow:{}/", rec.id))
+                .and_then(|r| r.split_once('/'))
+                .map(|(st, task)| json!({"station": st, "task": task}));
+            if let (Some(obj), Some(ft)) = (t.as_object_mut(), flow_task) {
+                obj.insert("flow".into(), ft);
+            }
+            t
+        })
+        .collect();
+    let side = module
+        .call(
+            "session.list",
+            json!({"instance": main.instance, "parent_session_id": main.session_id}),
+        )
+        .await;
+
+    let sidechains: Vec<Value> = side
+        .ok()
+        .and_then(|v| match v {
+            Value::Array(a) => Some(a),
+            Value::Object(o) => o.get("sessions").and_then(Value::as_array).cloned(),
+            _ => None,
+        })
+        .unwrap_or_default()
+        .into_iter()
+        .map(|mut row| {
+            if let Some(o) = row.as_object_mut() {
+                o.insert("instance".into(), json!(main.instance));
+            }
+            row
+        })
+        .collect();
+    Ok(json!({
+        "main": {"instance": main.instance, "session_id": main.session_id},
+        "own": own, "tasks": tasks, "sidechains": sidechains,
+    }))
+}
+
 /// The name of the general conversation, and the start of a flow's conversation's name.
 pub const GENERAL_TITLE: &str = "Flows · general";
 pub const FLOW_TITLE: &str = "Flow · ";
@@ -537,6 +612,22 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
             }
             let s = flow_session(&sh, &packs, &flow).await?;
             Ok(json!({"instance": s.instance, "session_id": s.session_id, "flow": (!flow.is_empty()).then_some(flow)}))
+        },
+    );
+    method(
+        m,
+        sh,
+        packs,
+        "sessions",
+        "a run's sessions (xops-03 §2): {run} → {main, own: [{station, task, session}], agents: [the main session's sub-agents as its events showed them: {agent_session_id, instance, agent_type, tool_use_id, description, flow: {station, task}?, status}], tasks: [the engine's tasks of the main session], sidechains: [its sub-agents' sessions on disk]}",
+        |sh, _, cx, p: RunIn| async move {
+            if in_sandbox(&sh, &p.run).await {
+                return Ok(json!({"main": null, "own": [], "tasks": [], "sidechains": []}));
+            }
+            let rec = engine(&sh)?.record(&p.run).await.map_err(rpc_error)?;
+            let mut v = run_sessions(&cx, &rec).await?;
+            v["agents"] = json!(sh.agents(&p.run));
+            Ok(v)
         },
     );
     method(
