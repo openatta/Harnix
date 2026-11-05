@@ -340,3 +340,7 @@ Agent 建的流程被选中、删掉的清掉选择；自己那次 `focus` 还�
   去重是对的（一个 key 两行本来就是错），引擎那一侧留待查。单测 `shell/test/session-list.test.ts`。
 - `coverage.md` 重生成（flow：API 19、界面 6）。`budget`：界面 gzip 166 KB → 186 KB（额度 300 KB），不调。`check.sh` 不用改
   （`target/testapp-ui` 后端一半已去掉）。
+- 跑过：`pnpm -r typecheck`、`pnpm -r test`（core 48、react 54、flow 55、shell 51）、`style-lint`、`coverage.mjs --check`；LIVE `ui` 全部
+  两种拓扑各 81 过（去重之后各连跑两遍）；LIVE `api` 的 flow 四个文件 + `spaces` + `brand` 两种拓扑各 31 过。
+  全量 `check.sh`（`eab7dd5`，本机无 `.env`）：build、rust、clippy、offline、frontend、api、template、browser、budget 9 层过；
+  live、interface 无模型未跑，remote 未要求。第一次全量（`2408892`）browser 层因上面的重复会话失败，修了再跑。
