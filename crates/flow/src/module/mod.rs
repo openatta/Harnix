@@ -563,6 +563,8 @@ impl Module for Flow {
             anyhow::bail!("{why}");
         }
         self.sh.load_ledger(cx.data_dir().join("instances.json"));
+        self.sh
+            .load_flow_sessions(cx.data_dir().join("sessions.json"));
         if let Some(make) = self
             .lazy_packs
             .lock()

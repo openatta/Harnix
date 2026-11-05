@@ -88,6 +88,12 @@ pub(crate) struct Shared {
     pub ledger: OnceLock<PathBuf>,
     /// Main sessions being watched (xops-03 §1): session id → run.
     watched: Mutex<HashMap<String, String>>,
+    /// Each flow's conversation, and the general one under `""` (xops-03 §5): flow →
+    /// `<instance>/<session_id>`. Kept in the module's data directory (`sessions.json`).
+    flow_sessions: Mutex<BTreeMap<String, String>>,
+    flow_sessions_path: OnceLock<PathBuf>,
+    /// One conversation made at a time, so a flow never gets two.
+    pub making_session: tokio::sync::Mutex<()>,
 }
 
 /// How many conversations' focus is remembered.
@@ -117,7 +123,54 @@ impl Shared {
             instances: Mutex::new(BTreeMap::new()),
             ledger: OnceLock::new(),
             watched: Mutex::new(HashMap::new()),
+            flow_sessions: Mutex::new(BTreeMap::new()),
+            flow_sessions_path: OnceLock::new(),
+            making_session: tokio::sync::Mutex::new(()),
         }
+    }
+
+    /// Read the flows' conversations from `path`, and save to it from now on.
+    pub fn load_flow_sessions(&self, path: PathBuf) {
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            if let Ok(m) = serde_json::from_str::<BTreeMap<String, String>>(&text) {
+                *lock(&self.flow_sessions) = m;
+            }
+        }
+        let _ = self.flow_sessions_path.set(path);
+    }
+
+    /// The conversation of `flow` (`""`: the general one), as recorded.
+    pub fn flow_session(&self, flow: &str) -> Option<String> {
+        lock(&self.flow_sessions).get(flow).cloned()
+    }
+
+    /// Record (or, with `None`, forget) the conversation of `flow`.
+    pub fn set_flow_session(&self, flow: &str, session: Option<String>) {
+        let mut g = lock(&self.flow_sessions);
+        let changed = match session {
+            Some(s) => g.insert(flow.to_string(), s.clone()).as_ref() != Some(&s),
+            None => g.remove(flow).is_some(),
+        };
+        if !changed {
+            return;
+        }
+        if let Some(path) = self.flow_sessions_path.get() {
+            let tmp = path.with_extension("json.tmp");
+            let ok = std::fs::write(&tmp, serde_json::to_vec_pretty(&*g).unwrap_or_default())
+                .and_then(|_| std::fs::rename(&tmp, path));
+            if let Err(e) = ok {
+                tracing::warn!(path = %path.display(), error = %e, "flow: conversations not saved");
+            }
+        }
+    }
+
+    /// The flow whose conversation `<instance>/<session_id>` is, if it is one (`""`: the general one).
+    pub fn flow_of_session(&self, instance: &str, session_id: &str) -> Option<String> {
+        let name = format!("{instance}/{session_id}");
+        lock(&self.flow_sessions)
+            .iter()
+            .find(|(_, s)| **s == name)
+            .map(|(f, _)| f.clone())
     }
 
     /// Read the instance ledger from `path`, and save to it from now on.
@@ -183,8 +236,12 @@ impl Shared {
         })
     }
 
-    /// The flow a conversation works on.
+    /// The flow a conversation works on: a flow's own conversation works on that flow, for
+    /// good (xops-03 §5); another one on what was set for it.
     pub fn focus(&self, instance: &str, session_id: &str) -> Option<String> {
+        if let Some(f) = self.flow_of_session(instance, session_id) {
+            return (!f.is_empty()).then_some(f);
+        }
         lock(&self.focus)
             .get(&(instance.to_string(), session_id.to_string()))
             .map(|(f, _)| f.clone())

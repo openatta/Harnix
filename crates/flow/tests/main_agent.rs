@@ -227,3 +227,35 @@ async fn the_main_session_is_recorded_once() {
     assert_eq!(o.value["changed"], false);
     assert_eq!(h.eng.record(&run).await.unwrap().main_session(), Some("system/s1"));
 }
+
+/// Every whole flow in the guide (a YAML block that starts `name:`) is valid: the guide is what
+/// the reference tab shows and the Agent answers from.
+#[test]
+fn the_guides_examples_are_valid_flows() {
+    let packs = packs()
+        .main_scene("flow-chat")
+        .submit_scene("flow-coding")
+        .gate("ci")
+        .skill("draft", "Draft it.")
+        .skill("collect", "Collect.")
+        .skill("review-code", "Review the code.")
+        .skill("review-docs", "Review the docs.")
+        .skill("list-modules", "List the modules.")
+        .skill("build", "Build it.");
+    for (lang, text) in [
+        ("en", include_str!("../docs/guide.en.md")),
+        ("zh", include_str!("../docs/guide.zh-CN.md")),
+    ] {
+        let mut whole = 0;
+        for block in text.split("```yaml\n").skip(1) {
+            let yaml = block.split("```").next().unwrap();
+            if !yaml.starts_with("name:") {
+                continue;
+            }
+            whole += 1;
+            let problems = validate_yaml(yaml, &packs);
+            assert!(problems.is_empty(), "{lang}: {yaml}\n{problems:?}");
+        }
+        assert_eq!(whole, 3, "{lang}: three whole examples");
+    }
+}

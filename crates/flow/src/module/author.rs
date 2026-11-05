@@ -45,9 +45,10 @@ use crate::kernel::validate::validate_yaml;
 pub const AUTHOR_SCENE: &str = "flow-author";
 
 /// What a tool needing the current flow answers when there is none.
-pub const NO_FOCUS: &str = "No flow is selected yet: ask the user to select the flow to work on \
-     in the panel on the right first (还没有选择流程：请用户先在右边栏选择要操作的流程). Creating a \
-     new flow with `flow_create` needs no selection.";
+pub const NO_FOCUS: &str = "This conversation works on no flow: ask the user to select the flow \
+     in the panel on the right first — its own conversation opens (还没有选择流程：请用户先在右边栏\
+     选择要操作的流程，会打开这个流程自己的会话). Creating a new flow with `flow_create` needs no \
+     selection.";
 
 pub const TOOL_LIST: &str = "flow_list";
 pub const TOOL_SHOW: &str = "flow_show";
@@ -60,9 +61,39 @@ pub const TOOL_SKILL_SET: &str = "flow_skill_set";
 pub const TOOL_SKILL_DELETE: &str = "flow_skill_delete";
 pub const TOOL_DRY_RUN: &str = "flow_dry_run";
 pub const TOOL_START: &str = "flow_start";
+pub const TOOL_GUIDE: &str = "flow_guide";
+pub const TOOL_RUNS: &str = "flow_runs";
+pub const TOOL_RUN: &str = "flow_run";
+pub const TOOL_PAUSE: &str = "flow_pause";
+pub const TOOL_RESUME: &str = "flow_resume";
+pub const TOOL_CANCEL: &str = "flow_cancel";
+pub const TOOL_CONFIRM: &str = "flow_confirm";
+pub const TOOL_FORCE: &str = "flow_force";
+pub const TOOL_REWORK: &str = "flow_rework";
+pub const TOOL_RETRY: &str = "flow_retry";
+pub const TOOL_RELEASE: &str = "flow_release";
+
+/// The tools that act on a run of the current flow (xops-03 §5).
+pub const RUN_TOOLS: [&str; 8] = [
+    TOOL_PAUSE,
+    TOOL_RESUME,
+    TOOL_CANCEL,
+    TOOL_CONFIRM,
+    TOOL_FORCE,
+    TOOL_REWORK,
+    TOOL_RETRY,
+    TOOL_RELEASE,
+];
+
+/// The flow guide (xops-03 §6): what `flow_guide` gives and the reference tab shows.
+pub const GUIDE_EN: &str = include_str!("../../docs/guide.en.md");
+pub const GUIDE_ZH: &str = include_str!("../../docs/guide.zh-CN.md");
+
+/// Who acted when a person approved a run tool in a conversation: the conversation.
+pub const CONVERSATION_KIND: &str = "conversation";
 
 /// Every authoring tool, and whether it is read-only.
-pub const AUTHOR_TOOLS: [(&str, bool); 11] = [
+pub const AUTHOR_TOOLS: [(&str, bool); 22] = [
     (TOOL_LIST, true),
     (TOOL_SHOW, true),
     (TOOL_SCHEMA, true),
@@ -74,6 +105,17 @@ pub const AUTHOR_TOOLS: [(&str, bool); 11] = [
     (TOOL_SKILL_DELETE, false),
     (TOOL_DRY_RUN, true),
     (TOOL_START, false),
+    (TOOL_GUIDE, true),
+    (TOOL_RUNS, true),
+    (TOOL_RUN, true),
+    (TOOL_PAUSE, false),
+    (TOOL_RESUME, false),
+    (TOOL_CANCEL, false),
+    (TOOL_CONFIRM, false),
+    (TOOL_FORCE, false),
+    (TOOL_REWORK, false),
+    (TOOL_RETRY, false),
+    (TOOL_RELEASE, false),
 ];
 
 /// The system prompt block `flow-author` adds.
@@ -95,8 +137,15 @@ How to work:\n\
   text with problems is not saved.\n\
 - Try the path with `flow_dry_run` (nothing outside the flow is called; outputs, gates and tools \
   are mocked, `mocks` can set them). Start a real run with `flow_start` only when the user asks.\n\
-- You cannot confirm, reject, force, rework, release or cancel anything in a run: those are the \
-  user's, in the panel.";
+- Each flow has a conversation of its own (this one, when one is current); the general \
+  conversation creates flows and answers questions. `flow_guide` is the guide to flows: what each \
+  object means and how to define one — answer questions about flows from it.\n\
+- A task without a `scene` works in the run's **main session** (the flow's main Agent, placed by \
+  the flow's `main`); `kind: agent` hands a task to a sub-agent of it; a `scene` gives a task a \
+  session of its own.\n\
+- The runs of the current flow: `flow_runs`, `flow_run`. When the user asks, you may pause, resume, \
+  cancel, confirm (pass or reject), force, rework, retry or release with the run tools — each is \
+  asked of the user, and their approval is what decides. Never do one the user did not ask for.";
 
 /// An application's scene with the authoring tools and prompt added.
 pub struct AuthorScene {
@@ -352,6 +401,17 @@ impl Tool for AuthorTool {
             TOOL_SKILL_DELETE => "Delete a saved skill.",
             TOOL_DRY_RUN => "Dry-run the current flow, named in `flow`: the real kernel, everything outside mocked (no session, no program, no model). Runs until it ends or waits for a person, and returns the path it took. `mocks`: {stations: {id: output}, gates: {gate: false}, tools: {tool: result}}.",
             TOOL_START => "Start a real run of the current flow, named in `flow`, for a subject. Only when the user asks for it.",
+            TOOL_GUIDE => "The guide to flows: the objects (flow, station, work, task, executor, exit condition, run, main session, sub-agent, lease, rework, dry run), what they mean, and how to define a flow, with examples. `lang`: en or zh-CN.",
+            TOOL_RUNS => "The runs of the current flow, newest first: id, title, what each is doing (phase), when it started, its tokens.",
+            TOOL_RUN => "One run of the current flow: each station's status, time and tokens, what it waits for, its tasks.",
+            TOOL_PAUSE => "Pause a run of the current flow: what is in hand finishes, nothing new starts. Only when the user asks.",
+            TOOL_RESUME => "Resume a paused run of the current flow. Only when the user asks.",
+            TOOL_CANCEL => "Cancel a run of the current flow, with a reason. Only when the user asks.",
+            TOOL_CONFIRM => "Confirm a station of a run of the current flow (`pass`: true passes, false rejects), with an optional reason. Only when the user asks: their approval is the confirmation.",
+            TOOL_FORCE => "Pass a station of a run by force, with a reason, whatever is not met. Only when the user asks.",
+            TOOL_REWORK => "Send a run of the current flow back to station `to` (optionally only `tasks`), with a reason. Only when the user asks.",
+            TOOL_RETRY => "Put a failed task of a run back to work with a fresh retry budget. Only when the user asks.",
+            TOOL_RELEASE => "Release a held station of a run. Only when the user asks.",
             _ => "",
         }
     }
@@ -385,6 +445,14 @@ impl Tool for AuthorTool {
             TOOL_START => json!({"type": "object", "required": ["flow", "subject"], "properties": {
                 "flow": {"type": "string", "description": "the flow this acts on, by name: the current one, as flow_show or flow_list gave it"},
                 "subject": {"type": "string"}, "inputs": {"type": "object"}, "title": {"type": "string"}}}),
+            TOOL_GUIDE => json!({"type": "object", "properties": {"lang": {"enum": ["en", "zh-CN"]}}}),
+            TOOL_RUN | TOOL_PAUSE | TOOL_RESUME => json!({"type": "object", "required": ["run"], "properties": {"run": {"type": "string"}}}),
+            TOOL_CANCEL => json!({"type": "object", "required": ["run", "reason"], "properties": {"run": {"type": "string"}, "reason": {"type": "string"}}}),
+            TOOL_CONFIRM => json!({"type": "object", "required": ["run", "station", "pass"], "properties": {"run": {"type": "string"}, "station": {"type": "string"}, "pass": {"type": "boolean"}, "reason": {"type": "string"}}}),
+            TOOL_FORCE => json!({"type": "object", "required": ["run", "station", "reason"], "properties": {"run": {"type": "string"}, "station": {"type": "string"}, "reason": {"type": "string"}}}),
+            TOOL_REWORK => json!({"type": "object", "required": ["run", "to", "reason"], "properties": {"run": {"type": "string"}, "to": {"type": "string"}, "tasks": {"type": "array", "items": {"type": "string"}}, "reason": {"type": "string"}}}),
+            TOOL_RETRY => json!({"type": "object", "required": ["run", "station", "task"], "properties": {"run": {"type": "string"}, "station": {"type": "string"}, "task": {"type": "string"}}}),
+            TOOL_RELEASE => json!({"type": "object", "required": ["run", "station"], "properties": {"run": {"type": "string"}, "station": {"type": "string"}}}),
             _ => json!({"type": "object", "properties": {}}),
         }
     }
@@ -423,6 +491,19 @@ impl Tool for AuthorTool {
                 named("flow"),
                 named("subject")
             ),
+            TOOL_PAUSE => format!("pause the run{}", named("run")),
+            TOOL_RESUME => format!("resume the run{}", named("run")),
+            TOOL_CANCEL => format!("cancel the run{}", named("run")),
+            TOOL_CONFIRM => format!(
+                "{} station{} of the run{}",
+                if input.get("pass").and_then(Value::as_bool) == Some(false) { "reject" } else { "confirm" },
+                named("station"),
+                named("run")
+            ),
+            TOOL_FORCE => format!("force station{} of the run{}", named("station"), named("run")),
+            TOOL_REWORK => format!("send the run{} back to{}", named("run"), named("to")),
+            TOOL_RETRY => format!("retry task{} of the run{}", named("task"), named("run")),
+            TOOL_RELEASE => format!("release station{} of the run{}", named("station"), named("run")),
             other => other.to_string(),
         };
         PermissionDecision::ask(format!("Let the agent {what}?"))
@@ -578,9 +659,27 @@ impl Tool for AuthorTool {
                 }
                 dispatch::publish_defs(sh).await;
                 if let (true, Some(n)) = (creating, name) {
-                    sh.set_focus(&instance, &session, Some(n.clone()));
+                    match sh.flow_of_session(&instance, &session) {
+                        // The general conversation becomes the new flow's own; the next one
+                        // asked for is a new general conversation (xops-03 §5).
+                        Some(own) if own.is_empty() => {
+                            sh.set_flow_session("", None);
+                            sh.set_flow_session(&n, Some(format!("{instance}/{session}")));
+                            out["current"] = json!(n);
+                        }
+                        // Another flow's conversation stays that flow's.
+                        Some(own) => {
+                            out["note"] = json!(format!(
+                                "this is flow {own}'s conversation: the new flow has its own — \
+                                 the user selects it on the right"
+                            ));
+                        }
+                        None => {
+                            sh.set_focus(&instance, &session, Some(n.clone()));
+                            out["current"] = json!(n);
+                        }
+                    }
                     dispatch::publish_focus(sh, &instance, &session).await;
-                    out["current"] = json!(n);
                 }
                 text(out)
             }
@@ -592,6 +691,9 @@ impl Tool for AuthorTool {
                 match engine.delete_flow(&name, by).await {
                     Ok(v) => {
                         dispatch::publish_defs(sh).await;
+                        if packs.flow(&name).is_none() {
+                            sh.set_flow_session(&name, None);
+                        }
                         for (i, s) in sh.focused_on(&name) {
                             if packs.flow(&name).is_none() {
                                 sh.set_focus(&i, &s, None);
@@ -702,9 +804,149 @@ impl Tool for AuthorTool {
                     Err(e) => error(format!("not started: {e}")),
                 }
             }
+            TOOL_GUIDE => {
+                let zh = str_of(&input, "lang").is_some_and(|l| l.starts_with("zh"));
+                Ok(ToolResult::text(if zh { GUIDE_ZH } else { GUIDE_EN }.to_string()))
+            }
+            TOOL_RUNS => {
+                let Ok(name) = need_focus() else {
+                    return error(NO_FOCUS);
+                };
+                match engine
+                    .list(crate::RunQuery {
+                        flow: Some(name),
+                        limit: Some(50),
+                        ..Default::default()
+                    })
+                    .await
+                {
+                    Ok(list) => text(json!({"runs": list.iter().map(run_line).collect::<Vec<_>>()})),
+                    Err(e) => error(e.to_string()),
+                }
+            }
+            TOOL_RUN => {
+                let run = match run_of_focus(&engine, &input, focus.as_deref()).await {
+                    Ok(r) => r,
+                    Err(m) => return error(m),
+                };
+                text(run_detail(&run, engine.clock().now_ms()))
+            }
+            t if RUN_TOOLS.contains(&t) => {
+                let rec = match run_of_focus(&engine, &input, focus.as_deref()).await {
+                    Ok(r) => r,
+                    Err(m) => return error(m),
+                };
+                let run = rec.id.clone();
+                let who = Actor::new(CONVERSATION_KIND, format!("{instance}/{session}"));
+                let station = str_of(&input, "station").unwrap_or_default().to_string();
+                let reason = str_of(&input, "reason").map(String::from);
+                let r = match t {
+                    TOOL_PAUSE => engine.pause(&run, who).await,
+                    TOOL_RESUME => engine.resume(&run, who).await,
+                    TOOL_CANCEL => {
+                        engine
+                            .cancel(&run, reason.as_deref().unwrap_or("cancelled in conversation"), who)
+                            .await
+                    }
+                    TOOL_CONFIRM => {
+                        let pass = input.get("pass").and_then(Value::as_bool).unwrap_or(true);
+                        engine.confirm(&run, &station, pass, reason.as_deref(), who).await
+                    }
+                    TOOL_FORCE => {
+                        engine
+                            .force(&run, &station, reason.as_deref().unwrap_or("forced in conversation"), who)
+                            .await
+                    }
+                    TOOL_REWORK => {
+                        let to = str_of(&input, "to").unwrap_or_default();
+                        let tasks: Option<Vec<String>> = input
+                            .get("tasks")
+                            .and_then(Value::as_array)
+                            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+                        engine
+                            .rework(&run, to, tasks, reason.as_deref().unwrap_or("sent back in conversation"), who)
+                            .await
+                    }
+                    TOOL_RETRY => {
+                        let task = str_of(&input, "task").unwrap_or_default();
+                        engine.retry(&run, &station, task, who).await
+                    }
+                    _ => engine.release(&run, &station, who).await,
+                };
+                match r {
+                    Ok(o) => {
+                        let value = o.value.clone();
+                        dispatch::apply(sh, Some(&run), o).await;
+                        let after = engine.record(&run).await.ok();
+                        text(json!({"done": value, "phase": after.map(|r| r.phase())}))
+                    }
+                    Err(e) => error(format!("not done: {e}")),
+                }
+            }
             other => error(format!("no tool {other}")),
         }
     }
+}
+
+/// The run a run tool names, if it is a run of the conversation's current flow.
+async fn run_of_focus(
+    engine: &crate::Engine,
+    input: &Value,
+    focus: Option<&str>,
+) -> Result<crate::RunRecord, String> {
+    let Some(flow) = focus else {
+        return Err(NO_FOCUS.into());
+    };
+    let Some(run) = str_of(input, "run") else {
+        return Err("name the run in `run` (flow_runs lists them)".into());
+    };
+    if crate::dryrun::is_dry(run) {
+        return Err("a dry run is driven with flow_dry_run, not the run tools".into());
+    }
+    let rec = engine.record(run).await.map_err(|e| e.to_string())?;
+    if rec.flow != flow {
+        return Err(format!(
+            "run {run} is a run of flow {}, not of {flow}, this conversation's flow: nothing was done",
+            rec.flow
+        ));
+    }
+    Ok(rec)
+}
+
+/// A run in a list, for the conversation.
+fn run_line(s: &crate::RunSummary) -> Value {
+    json!({
+        "run": s.id, "title": s.title, "subject": s.subject,
+        "phase": s.phase, "created_at": s.created_at, "finished_at": s.finished_at,
+        "tokens": s.usage.total(),
+    })
+}
+
+/// A run's stations, for the conversation: status, time, tokens, what each waits for.
+fn run_detail(rec: &crate::RunRecord, now: u64) -> Value {
+    let view = crate::view(rec.clone());
+    let stations: Vec<Value> = rec
+        .def
+        .stations
+        .iter()
+        .filter_map(|d| {
+            let s = rec.stations.get(&d.id)?;
+            let elapsed = s.entered_at.map(|e| s.left_at.unwrap_or(now).saturating_sub(e));
+            Some(json!({
+                "station": d.id, "status": s.status, "round": s.round,
+                "elapsed_ms": elapsed, "tokens": s.usage().total(),
+                "waiting": view.unmet.get(&d.id),
+                "tasks": s.tasks.iter().map(|t| json!({
+                    "task": t.id, "status": t.status, "attempt": t.attempt,
+                    "error": t.error, "tokens": t.usage.total(),
+                })).collect::<Vec<_>>(),
+            }))
+        })
+        .collect();
+    json!({
+        "run": rec.id, "flow": rec.flow, "subject": rec.subject, "phase": rec.phase(),
+        "tokens": rec.usage().total(), "main_session": rec.main_session(), "stations": stations,
+    })
 }
 
 #[cfg(test)]
@@ -725,7 +967,10 @@ mod tests {
                 TOOL_SHOW,
                 TOOL_SCHEMA,
                 TOOL_VALIDATE,
-                TOOL_DRY_RUN
+                TOOL_DRY_RUN,
+                TOOL_GUIDE,
+                TOOL_RUNS,
+                TOOL_RUN
             ]
         );
         let writes: Vec<&str> = AUTHOR_TOOLS
@@ -741,14 +986,21 @@ mod tests {
                 TOOL_DELETE,
                 TOOL_SKILL_SET,
                 TOOL_SKILL_DELETE,
-                TOOL_START
+                TOOL_START,
+                TOOL_PAUSE,
+                TOOL_RESUME,
+                TOOL_CANCEL,
+                TOOL_CONFIRM,
+                TOOL_FORCE,
+                TOOL_REWORK,
+                TOOL_RETRY,
+                TOOL_RELEASE
             ]
         );
-        // Nothing that decides for a person.
-        for (n, _) in AUTHOR_TOOLS {
-            for verb in ["confirm", "reject", "force", "rework", "release", "cancel"] {
-                assert!(!n.contains(verb), "{n}");
-            }
+        // What decides for a person is asked of the person every time (xops-03 §5): none of
+        // the run tools is read-only.
+        for t in RUN_TOOLS {
+            assert!(AUTHOR_TOOLS.iter().any(|(n, r)| *n == t && !*r), "{t}");
         }
     }
 

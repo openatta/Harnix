@@ -1415,6 +1415,9 @@ fn task_work(
     }
 }
 
+/// Template parameters, references resolved.
+type ResolveParams<'a> = dyn Fn(&BTreeMap<String, String>) -> BTreeMap<String, String> + 'a;
+
 /// [`main_placement`] with `params` resolved against the run (no item, no task).
 pub(crate) fn main_of(rec: &RunRecord, main_scene: Option<&str>) -> (Placement, Option<String>) {
     let ctx = context(rec, None, None);
@@ -1439,7 +1442,7 @@ pub(crate) fn main_of(rec: &RunRecord, main_scene: Option<&str>) -> (Placement, 
 pub(crate) fn main_placement(
     rec: &RunRecord,
     main_scene: Option<&str>,
-    resolve_params: &dyn Fn(&BTreeMap<String, String>) -> BTreeMap<String, String>,
+    resolve_params: &ResolveParams<'_>,
 ) -> (Placement, Option<String>) {
     let m = rec.def.main.clone().unwrap_or_default();
     (

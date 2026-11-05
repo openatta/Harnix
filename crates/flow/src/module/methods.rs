@@ -58,6 +58,18 @@ struct SkillIn {
     body: String,
 }
 
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct GuideIn {
+    lang: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct FlowSessionIn {
+    flow: Option<String>,
+}
+
 #[derive(Deserialize)]
 struct FocusIn {
     instance: String,
@@ -238,6 +250,10 @@ async fn packs_changed(sh: &Arc<Shared>, flow: Option<&str>) {
     dispatch::publish_defs(sh).await;
     if let (Some(flow), Ok(engine)) = (flow, sh.engine()) {
         let gone = engine.packs().flow(flow).is_none();
+        // A flow that is gone has no conversation any more (the session stays, as history).
+        if gone {
+            sh.set_flow_session(flow, None);
+        }
         for (i, s) in sh.focused_on(flow) {
             if gone {
                 sh.set_focus(&i, &s, None);
@@ -246,6 +262,54 @@ async fn packs_changed(sh: &Arc<Shared>, flow: Option<&str>) {
         }
     }
 }
+
+/// The conversation of `flow` (`""`: the general one): the one recorded while it still exists,
+/// else a new `flow-author` session in the flow space, named after the flow.
+pub(crate) async fn flow_session(
+    sh: &Arc<Shared>,
+    packs: &Arc<dyn Packs>,
+    flow: &str,
+) -> Result<harnix_module::SessionRef, RpcError> {
+    let cx = sh
+        .cx
+        .get()
+        .ok_or_else(|| RpcError::new(harnix_contract::codes::INSTANCE_UNAVAILABLE, "the flow module has not started"))?;
+    let _one = sh.making_session.lock().await;
+    if let Some(name) = sh.flow_session(flow) {
+        let s = super::session_ref(&name);
+        if cx.sessions().open(&s.instance, &s.session_id).await.is_ok() {
+            return Ok(s);
+        }
+    }
+    let s = cx
+        .sessions()
+        .create(harnix_module::SessionSpec {
+            space: Some(sh.cfg.space.clone()),
+            instance: Some(super::FLOW_INSTANCE.to_string()),
+            scene: Some(super::AUTHOR_SCENE.to_string()),
+            ..Default::default()
+        })
+        .await?;
+    sh.set_flow_session(flow, Some(super::session_name(&s)));
+    let name = if flow.is_empty() {
+        GENERAL_TITLE.to_string()
+    } else {
+        let title = packs.flow(flow).map(|(d, _)| d.title).unwrap_or_default();
+        format!("{FLOW_TITLE}{}", if title.is_empty() { flow.to_string() } else { format!("{title} ({flow})") })
+    };
+    let _ = cx
+        .call(
+            "session.rename",
+            json!({"instance": s.instance, "session_id": s.session_id, "name": name}),
+        )
+        .await;
+    dispatch::publish_focus(sh, &s.instance, &s.session_id).await;
+    Ok(s)
+}
+
+/// The name of the general conversation, and the start of a flow's conversation's name.
+pub const GENERAL_TITLE: &str = "Flows · general";
+pub const FLOW_TITLE: &str = "Flow · ";
 
 fn to_value(v: impl serde::Serialize) -> Answer {
     serde_json::to_value(v)
@@ -441,9 +505,80 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
                     return Err(rpc_error(FlowError::NotFound(format!("flow {f}"))));
                 }
             }
+            // A flow's own conversation works on that flow for good; the general one on none.
+            if let Some(own) = sh.flow_of_session(&p.instance, &p.session_id) {
+                let own = (!own.is_empty()).then_some(own);
+                if own != flow {
+                    return Err(RpcError::invalid_params(format!(
+                        "session {}/{} is {}: its flow does not change",
+                        p.instance,
+                        p.session_id,
+                        own.map_or("the general conversation".to_string(), |f| format!("flow {f}'s conversation")),
+                    )));
+                }
+                return Ok(json!({"flow": own}));
+            }
             sh.set_focus(&p.instance, &p.session_id, flow.clone());
             dispatch::publish_focus(&sh, &p.instance, &p.session_id).await;
             Ok(json!({"flow": flow}))
+        },
+    );
+
+    method(
+        m,
+        sh,
+        packs,
+        "session",
+        "a flow's conversation, made when it has none (xops-03 §5): {flow?} → {instance, session_id, flow}; no flow: the general one (new flows, help)",
+        |sh, packs, _, p: FlowSessionIn| async move {
+            let flow = p.flow.filter(|f| !f.is_empty()).unwrap_or_default();
+            if !flow.is_empty() && packs.flow(&flow).is_none() {
+                return Err(rpc_error(FlowError::NotFound(format!("flow {flow}"))));
+            }
+            let s = flow_session(&sh, &packs, &flow).await?;
+            Ok(json!({"instance": s.instance, "session_id": s.session_id, "flow": (!flow.is_empty()).then_some(flow)}))
+        },
+    );
+    method(
+        m,
+        sh,
+        packs,
+        "guide",
+        "the guide to flows (xops-03 §6), markdown: {lang?: en | zh-CN} → {text, lang}",
+        |_, _, _, p: GuideIn| async move {
+            let zh = p.lang.as_deref().is_some_and(|l| l.starts_with("zh"));
+            Ok(json!({
+                "lang": if zh { "zh-CN" } else { "en" },
+                "text": if zh { super::author::GUIDE_ZH } else { super::author::GUIDE_EN },
+            }))
+        },
+    );
+    method(
+        m,
+        sh,
+        packs,
+        "pause",
+        "pause a run: what is in hand finishes, nothing new starts (xops-03 §3): {run}",
+        |sh, _, cx, p: RunIn| async move {
+            let r = engine_of(&sh, &p.run)
+                .await?
+                .pause(&p.run, device(&cx))
+                .await;
+            change(&sh, Some(&p.run), r).await
+        },
+    );
+    method(
+        m,
+        sh,
+        packs,
+        "resume",
+        "carry on with a paused run: {run}",
+        |sh, _, cx, p: RunIn| async move {
+            let r = engine_of(&sh, &p.run)
+                .await?
+                .resume(&p.run, device(&cx))
+                .await;
+            change(&sh, Some(&p.run), r).await
         },
     );
 
