@@ -1,0 +1,13 @@
+name: demo-handoff
+title: "示例：外部交付与审批"
+description: 由外部（人或别的 Agent）认领并交付材料，再由人审批；不通过就退回重交。
+stations:
+  - id: prepare
+    title: 外部交付
+    executor: {kind: external, who: supplier}
+    output: {type: object, required: [link], properties: {link: {type: string}}}
+    exit: [{kind: output}]
+  - id: approve
+    title: 审批
+    exit: [{kind: confirm, who: manager}]
+    rework_to: [prepare]

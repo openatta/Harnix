@@ -1,0 +1,26 @@
+name: demo-write
+title: "示例：起草、评审、确认"
+description: 主 Agent 起草，子 Agent 评审，人确认；确认不过就退回起草。
+stations:
+  - id: draft
+    title: 起草
+    executor: {kind: session}
+    skill: draft
+    output:
+      type: object
+      required: [summary]
+      properties: {summary: {type: string}}
+    exit: [{kind: output}]
+  - id: review
+    title: 评审（子 Agent）
+    executor: {kind: agent, description: 按评审清单检查起草的内容}
+    skill: review
+    output:
+      type: object
+      required: [findings]
+      properties: {findings: {type: array, items: {type: string}}}
+    exit: [{kind: output}]
+  - id: sign
+    title: 确认
+    exit: [{kind: confirm}]
+    rework_to: [draft]

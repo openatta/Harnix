@@ -1,0 +1,24 @@
+name: demo-each
+title: "示例：逐个模块分析"
+description: 主 Agent 列出模块，每个模块一个子 Agent 分析（最多两个同时），再写报告。
+stations:
+  - id: list
+    title: 列出模块
+    executor: {kind: session}
+    skill: list-modules
+    output: {type: object, required: [modules], properties: {modules: {type: array, items: {type: string}}}}
+    exit: [{kind: output}]
+  - id: analyze
+    title: 逐个分析
+    foreach: ${stations.list.output.modules}
+    max_parallel: 2
+    executor: {kind: agent}
+    skill: analyze
+    output: {type: object, required: [risk], properties: {risk: {enum: [high, medium, low]}}}
+    exit: [{kind: output}]
+  - id: report
+    title: 写报告
+    executor: {kind: session}
+    skill: report
+    output: {type: object, required: [text], properties: {text: {type: string}}}
+    exit: [{kind: output}]

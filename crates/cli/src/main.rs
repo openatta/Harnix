@@ -56,6 +56,29 @@ mod tests {
         assert!(problems.is_empty(), "{problems:?}");
     }
 
+    /// The demo's flows (`scripts/demo`, brought in by `scripts/harnix-demo.sh`) are valid here,
+    /// with the demo's skills.
+    #[test]
+    fn the_demo_flows_are_valid_in_the_empty_application() {
+        let demo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/demo");
+        let mut packs = MemPacks::new()
+            .submit_scene("flow-chat")
+            .main_scene("flow-coding");
+        for e in std::fs::read_dir(demo.join("skills")).unwrap() {
+            let d = e.unwrap().path();
+            let name = d.file_name().unwrap().to_str().unwrap().to_string();
+            packs = packs.skill(&name, &std::fs::read_to_string(d.join("SKILL.md")).unwrap());
+        }
+        let mut n = 0;
+        for e in std::fs::read_dir(demo.join("flows")).unwrap() {
+            let yaml = std::fs::read_to_string(e.unwrap().path()).unwrap();
+            let problems = validate_yaml(&yaml, &packs as &dyn Packs);
+            assert!(problems.is_empty(), "{yaml}\n{problems:?}");
+            n += 1;
+        }
+        assert_eq!(n, 4);
+    }
+
     #[test]
     fn saved_flows_go_over_the_built_in_one() {
         let tmp = std::env::temp_dir().join(format!("harnix-cli-{}", std::process::id()));

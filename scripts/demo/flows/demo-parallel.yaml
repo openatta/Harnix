@@ -1,0 +1,29 @@
+name: demo-parallel
+title: "示例：并行评审再汇合"
+description: 主 Agent 收集材料，两个子 Agent 分别评审代码与文档，最后由人汇总确认。
+stations:
+  - id: collect
+    title: 收集
+    executor: {kind: session}
+    skill: collect
+    output: {type: object, required: [files], properties: {files: {type: array}}}
+    exit: [{kind: output}]
+  - id: code
+    title: 评审代码
+    needs: [collect]
+    executor: {kind: agent}
+    skill: review-code
+    output: {type: object}
+    exit: [{kind: output}]
+  - id: docs
+    title: 评审文档
+    needs: [collect]
+    executor: {kind: agent}
+    skill: review-docs
+    output: {type: object}
+    exit: [{kind: output}]
+  - id: join
+    title: 汇总确认
+    needs: [code, docs]
+    exit: [{kind: confirm}]
+    rework_to: [code, docs]
