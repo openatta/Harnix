@@ -29,7 +29,7 @@ use base::interface::prompt::PromptBlock;
 use base::interface::scene::{
     AgentScene, ExecutionParams, ReminderContext, ScenePromptContext, TokenBudget,
 };
-use base::tool::{ProgressSender, Tool, ToolContext, ToolResult};
+use base::tool::{PermissionDecision, ProgressSender, Tool, ToolContext, ToolResult};
 use serde_json::{json, Value};
 
 use super::dispatch;
@@ -339,6 +339,29 @@ impl Tool for AuthorTool {
     }
     fn is_concurrency_safe(&self, _: &Value) -> bool {
         self.read_only
+    }
+    /// What changes something is asked about: the person is in the conversation.
+    async fn check_permissions(&self, input: &Value, _: &ToolContext) -> PermissionDecision {
+        if self.read_only {
+            return PermissionDecision::allow();
+        }
+        let named = |k: &str| {
+            input
+                .get(k)
+                .and_then(Value::as_str)
+                .map(|n| format!(" `{n}`"))
+                .unwrap_or_default()
+        };
+        let what = match self.name {
+            TOOL_CREATE => "create a flow".to_string(),
+            TOOL_UPDATE => "change the current flow".to_string(),
+            TOOL_DELETE => "delete the current flow".to_string(),
+            TOOL_SKILL_SET => format!("save the skill{}", named("name")),
+            TOOL_SKILL_DELETE => format!("delete the skill{}", named("name")),
+            TOOL_START => format!("start a run of the current flow for{}", named("subject")),
+            other => other.to_string(),
+        };
+        PermissionDecision::ask(format!("Let the agent {what}?"))
     }
     async fn call(&self, input: Value, cx: ToolContext, _p: ProgressSender) -> ToolOut {
         let sh = &self.sh;

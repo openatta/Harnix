@@ -35,7 +35,7 @@ export const FEATURES = [
   { id: "routes", name: "模块自有链接" },
   { id: "entries", name: "扩展条目" },
   { id: "brand", name: "品牌与主题" },
-  { id: "flow", name: "流程（harnix-flow，xops-01）" },
+  { id: "flow", name: "流程（harnix-flow，xops-01、xops-02）" },
   {
     id: "build",
     name: "应用构建",
