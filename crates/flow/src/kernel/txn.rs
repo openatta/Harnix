@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use serde_json::{json, Value};
 
-use super::def::{Executor, FlowDef, SessionBinding, TaskSpec, Work};
+use super::def::{Executor, ExitCond, FlowDef, SessionBinding, TaskSpec, Work};
 use super::engine::Engine;
 use super::host::{ChangeSet, Event, Outcome, WorkItem};
 use super::protocol;
@@ -1277,9 +1277,11 @@ fn task_work(
     }
 }
 
-/// The work of every session and program task the dispatcher holds a live claim on, as it was
-/// handed out — for a module that restarted and must carry on with what it had been given.
-/// `session` is the session the task reported (`attach_session`), else its key's.
+/// The work handed out for a run and not answered yet, as it was handed out — for a module that
+/// restarted and must carry on with what it had been given: every session and program task the
+/// dispatcher holds a live claim on (`session` is the session the task reported with
+/// `attach_session`, else its key's), and every gate of the current round still waiting for its
+/// result.
 pub fn dispatched_work(rec: &RunRecord, now: u64) -> Vec<WorkItem> {
     let dispatcher = Actor::flow("dispatch");
     let mut out = vec![];
@@ -1287,12 +1289,27 @@ pub fn dispatched_work(rec: &RunRecord, now: u64) -> Vec<WorkItem> {
         return out;
     }
     for (sid, st) in &rec.stations {
-        if st.status != StationStatus::Working {
-            continue;
-        }
         let Some(sdef) = rec.def.station(sid) else {
             continue;
         };
+        if matches!(st.status, StationStatus::Working | StationStatus::Unmet) {
+            for c in &st.checks {
+                let gate = c.cond.and_then(|i| sdef.exit.get(i));
+                if let (Some(ExitCond::Gate { gate, .. }), CheckStatus::Wait, true) =
+                    (gate, c.status, c.round == st.round)
+                {
+                    out.push(WorkItem::Gate {
+                        run: rec.id.clone(),
+                        station: sid.clone(),
+                        round: st.round,
+                        gate: gate.clone(),
+                    });
+                }
+            }
+        }
+        if st.status != StationStatus::Working {
+            continue;
+        }
         for t in &st.tasks {
             let Some(lease) = t.lease.as_ref() else {
                 continue;

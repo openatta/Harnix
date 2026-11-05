@@ -112,6 +112,10 @@ has_chromium() { [ -d "$HOME/Library/Caches/ms-playwright" -o -d "$HOME/.cache/m
 run_build() {
   pnpm install --frozen-lockfile || return 1
   pnpm --filter @harnix/shell build || return 1
+  # The test application's interface: the shell with the flow space compiled in, into a dist of
+  # its own (`ui/dist` stays Harnix's). The flow interface suite serves it with `--ui-dir`.
+  HARNIX_UI_MODULES="$root/ui/packages/flow/demo/register.tsx" HARNIX_UI_OUT="$root/target/testapp-ui" \
+    pnpm --filter @harnix/shell build || return 1
   cargo build --release -p harnix -p harnix-testapp || return 1
   # The example application, built as an application is — its own workspace,
   # its spaces' interface compiled in. The spaces suites run it.

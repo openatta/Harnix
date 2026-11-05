@@ -1120,3 +1120,36 @@ async fn dispatched_work_rebuilds_what_the_dispatcher_holds() {
     h.clock.advance(120_000);
     assert!(dispatched_work(&rec, h.clock.now_ms()).is_empty());
 }
+
+#[tokio::test]
+async fn dispatched_work_includes_gates_still_waiting() {
+    let h = h();
+    let (run, o) = start(&h, "gated").await;
+    assert!(o.work.iter().any(|w| matches!(w, WorkItem::Gate { .. })));
+    let rec = h.eng.get(&run).await.unwrap().record;
+    let again = dispatched_work(&rec, h.clock.now_ms());
+    assert_eq!(
+        again,
+        vec![WorkItem::Gate {
+            run: run.clone(),
+            station: "lint".into(),
+            round: 1,
+            gate: "lint".into()
+        }]
+    );
+    h.eng
+        .gate_result(
+            &run,
+            "lint",
+            1,
+            "lint",
+            GateResult {
+                pass: true,
+                detail: String::new(),
+            },
+        )
+        .await
+        .unwrap();
+    let rec = h.eng.get(&run).await.unwrap().record;
+    assert!(dispatched_work(&rec, h.clock.now_ms()).is_empty());
+}

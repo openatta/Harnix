@@ -118,8 +118,8 @@ pub(crate) async fn publish_all(sh: &Arc<Shared>) {
     publish(sh, &active).await;
 }
 
-/// After a restart: every task the dispatcher still holds a live claim on is carried on with
-/// (a session task waits on the session it had, a program runs again).
+/// After a restart: whatever was handed out and not answered is carried on with — a session
+/// task waits on the session it had, a program runs again, a gate still waiting runs again.
 pub(crate) async fn recover(sh: &Arc<Shared>) {
     let Some(engine) = sh.engine.get().cloned() else {
         return;
@@ -145,8 +145,6 @@ pub(crate) async fn recover(sh: &Arc<Shared>) {
         for w in dispatched_work(&view.record, now) {
             spawn_work(sh, w, true);
         }
-        // Whatever a stop interrupted (a gate result that never came) is judged again.
-        settle(sh, &s.id, "evaluate", engine.evaluate(&s.id).await).await;
     }
 }
 

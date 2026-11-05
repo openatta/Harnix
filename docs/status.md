@@ -74,7 +74,7 @@
 | IPDrun 需求 · 后端（不依赖新 Agix） | 2026-10-27 | 01、02+03、04+05、08、09、11、12（后端）、14、15（后端无改动，加契约用例）、16（只记录）、17、31、32 已提交，各 issue 末尾有实现记录；未打标签、未推送 | ——（07、10、13 见下一行） |
 | IPDrun 需求 · 后端（依赖新 Agix） | 2026-10-27 | `agix/` 钉到 `Agix-v0.2.9-2026102701`（`bbdd8e2`）；07（`reap_on_stop`）、10（模板 `native`、daemon `--template`）、13（prompt 中间件再导出、`user_message_refused` 原样转发）一个提交 `b593767`，各 issue 末尾有实现记录；13 的外壳部分（界面显示被拒的消息）`607bb7e`；Helm 兼容验证过（`.local/harnix-split/HELM-COMPAT.md` 在 IPDrun 仓库） | —— |
 | IPDrun 需求 · 外壳与贡献点 | 2026-10-27 | 18–30 与 01、12、15、16、17 的外壳部分已提交（`15f7a48`…`3471226`），各 issue 末尾有实现记录；界面用例在新文件 `tests/live/ui/host.spec.ts`（17 条），`coverage.md` 已重生成；未打标签、未推送 | 全量 `check.sh` 留给发版前（本批只跑了前端各层与 `ui` project 两种拓扑） |
-| xops-01 流程能力（分支 `flow`，基于 `3c264da`；维护者 2026-11-04 说开始） | 2026-11-04 | 设计与 issue 已写（`docs/issues/xops-01-flow.md`）；内核、前端包在做 | 计划：① 内核 `crates/flow`（定义、校验、调度、租约、两份存储与包）+ 单元测试 ② 模块（会话派活、原生工具、方法、主题、重启）③ `@harnix/flow` 组件 ④ testapp 注册流程模块与演示流程、流程 space、录像 ⑤ LIVE api/ui 用例 ⑥ 全量 `check.sh` 后合并 main |
+| xops-01 流程能力（分支 `flow`，基于 `3c264da`；维护者 2026-11-04 说开始） | 2026-11-04 | ①–⑤ 已提交：内核 `be9157f`、界面包 `ebf93e0`、模块与 testapp 演示流程与 LIVE（见 issue 末尾实现记录）；flow 的 api 6 条、ui 2 条两种拓扑都过，api project 全量 223 过 | ⑥ 全量 `check.sh` 后合并 main |
 
 ---
 
@@ -92,6 +92,7 @@
 
 | 日期 | 事 |
 |---|---|
+| 2026-11-04 | xops-01 模块落地：`harnix-flow` 的 `module`（Flow、派活、原生工具、`writes`、`app.flow.*`、重启接续），testapp 演示流程，LIVE `flow.spec.ts`（api、ui）；`check.sh` 的 build 层多建一份 `target/testapp-ui` |
 | 2026-11-04 | 开始 xops-01（流程能力，可选 crate `harnix-flow` + `@harnix/flow`），分支 `flow`；glossary 加 §7 流程，SDK §2 表加一行 |
 | 2026-11-01 | IPDrun 提的 ipdrun-36–45 落地（未推送）：外壳 `composer.insert({session})`、`mention.first`、`host.modal`、`SpaceContribution.tab()`、`session.open({reveal})` / `session.reveal`；`Tap::catch_up_settled` 与 `outcome.text` / `tool_calls`；新 crate `harnix-client` 与桌面模板用它；`Sessions::send_with`；`--replay-strict`。`agix/` 钉到 `0d55673`（Agix ipdrun-06 会话时钟、ipdrun-07 rmcp 3.x，未打版本）。Rust：check.sh 的 crate `cargo test` 118 过、clippy 无警告；vitest core 48 · react 54 · shell 26；live 层没跑 |
 | 2026-10-28 | 发布 `Harnix-v0.4.0-2026102801`（本地标签，未推送）：`agix/` 从 `2e5ade3` 钉到 `a228cf2`（`Agix-v0.2.9-2026102702`，Agix ipdrun-05：`PromptMiddleware::inspect_with_attachments` 有缺省实现，中间件经只读的 `PromptAttachment` 看到消息带的附件）；`harnix` / `harnix_module` 再导出 `PromptAttachment`、`PromptAttachmentKind`，`harnix-sdk-reference.md` 随之补上。Harnix 其余不用改。`check.sh` 全量 11 层全过（remote 未要求；磁盘只剩 14 GB，用 `HARNIX_CHECK_NEED_GB=13` 跑）；跑完后日期跨到 28 日，版本号从 `…2026102705` 改成 `…2026102801`，只重跑了 `cargo check` 与 `crate-metadata.mjs` |

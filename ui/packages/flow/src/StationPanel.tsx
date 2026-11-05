@@ -391,8 +391,8 @@ function RunTab({ station: s, view, module }: { station: Station; view: RunView;
               {rec.forced.unmet?.length ? <div className="hx-flow-faint">{rec.forced.unmet.map((u) => u.kind).join(", ")}</div> : null}
             </Field>
           ) : null}
-          <Field label={t("flowui.run.tasks", { n: rec.tasks.length })}>
-            {rec.tasks.length === 0 ? (
+          <Field label={t("flowui.run.tasks", { n: (rec.tasks ?? []).length })}>
+            {!rec.tasks?.length ? (
               <span className="hx-flow-faint">{t("flowui.run.noTasks")}</span>
             ) : (
               <ul className="hx-flow-tasks">

@@ -199,7 +199,8 @@ export interface StationRec {
   auto_reworks?: number | null;
   /** Skill name → the digest pinned when the station was entered (a bare digest is read too). */
   skill_digest?: Record<string, string> | string | null;
-  tasks: TaskRec[];
+  /** Absent when the station has none (a pure checkpoint, or not entered yet). */
+  tasks?: TaskRec[] | null;
   checks?: CheckRec[] | null;
   confirms?: ConfirmRec[] | null;
   forced?: ForcedRec | null;

@@ -155,6 +155,8 @@ describe("wire helpers", () => {
     expect([checkOk({ status: "pass" }), checkOk({ status: "wait" }), checkOk({ status: "fail" }), checkOk({ ok: true })]).toEqual([true, false, false, true]);
     expect(digestLines({ analyze: "abc" })).toEqual(["analyze: abc"]);
     expect(digestLines(null)).toEqual([]);
+    // A station without tasks has none on the wire.
+    expect(stationActions("active", review, { status: "working", round: 1 }).confirm).toBe(true);
   });
 
   it("claims only the flow's proposal entries", () => {

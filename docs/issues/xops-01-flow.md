@@ -228,3 +228,28 @@ pub trait Clock { fn now_ms(&self) -> u64; }
 XOps（2026-11-04 起基于 Harnix 重建）：业务流程按 skill 推动 Agent，运行记录存成 XOps 自己的表，审批人经 XOps 自己的 MCP 回答——
 所以存储、授权都交给应用。IPDrun 的 `crates/flow`（`1572a27`）是这个形状的第一份实现，定义格式、断言、协议层、钉住摘要取自它。
 设计依据：XOps `docs/flow-design.md`。
+
+## 实现记录
+
+内核（`be9157f`）、界面包（`ebf93e0`）之后，模块与接入：
+
+- `crates/flow/src/module/`（feature `module`，缺省开；`--no-default-features` 只剩纯内核，不链 Harnix / Agix）：
+  `Flow::builder()`（`store` / `store_with(|data_dir| …)`，缺省是模块数据目录下的 `FileStore`；`packs`；`scene` 包成 `flow-<id>`，
+  加 `flow_state`、`flow_submit`、`flow_propose`，包过的 id 并进目录；`programs` `gates` `tools` `hooks` `authorizer` `space`
+  `guarded_tools`（缺省 `Bash PowerShell REPL Write Edit NotebookEdit`）`recording` `lease_ms` `tick_ms`），`FlowHandle`
+  （`engine()`、`subscribe()`、`dispatch(outcome)` / `settle(result)`——应用从 Rust 调内核后把结果交回来，工作才有人做）。
+- 模块：space 在 `system` 上；`engine()` 贡献包过的 scene 和只装在这些 scene 会话上的 `writes` 中间件；`start` 建内核、
+  `scene.activate` 包过的 scene、发一次 `runs` 与各进行中运行的 `run`、按 `dispatched_work` 接着做重启前派出去没回来的活、起 1 s 的 `tick`。
+- 派活：`(run, station, round, task)` 同一 token 只做一次（新 token——重试、过期重派——顶替旧的）；共用会话键的任务排队；
+  会话任务每轮结束先 `evaluate`，交了就停，没交续租后提醒一次，再一轮还没交记 `fail`；轮次进行中按租约的三分之一续租。
+  `TaskRec.session` 写成 `"<instance>/<session_id>"`（内核仍是不透明字符串），界面 `sessionOf` 两种都认。
+- 内核补充：`Packs::flow_text`、`Packs::skills`（有缺省实现）；`dispatched_work(rec, now)`：调度器持有的未过期认领、本轮还在等结果的门。
+- 界面包按真实形状改：`RunView` 的定义在 `record.def`（`defOf`）；`RunSummary.open`（`openOf`）；`CheckRec.status`（`checkOk`）；
+  `skill_digest` 是 skill → 摘要的表；没有任务的站不带 `tasks`。
+- 测试：内核加 `dispatched_work` 两条；模块单元测试（scene 包装、`writes` 匹配、派活去重、会话名）；`layering.rs` 加
+  「flow 只用公开的模块 API」；testapp 注册 `demo-linear`、`demo-review` 与演示 programs / gates / tools / hooks；录像 `flow-analyze`、
+  `flow-report`（由 `calls-a-native-tool` 手改）；`tests/live/api/flow.spec.ts` 6 条、`tests/live/ui/flow.spec.ts` 2 条（`target/testapp-ui`，
+  `check.sh` 的 build 层构建它）。
+
+没做：会话任务在重启后若会话空闲，提醒那一轮在回放下没有录像（回放名不随会话恢复），会记失败、按 `retry` 重派新会话——行为对，
+但 LIVE 只测了「停在确认处重启后走完」；`flow_propose` 与 `writes` 只有单元测试，没有 LIVE 用例。

@@ -201,7 +201,7 @@ export function stationActions(runStatus: RunStatus | undefined, def: Station | 
     force: open,
     rework: open || rec.status === "held" || rec.status === "passed" ? reworkTargets(def) : [],
     release: rec.status === "held",
-    retry: open ? rec.tasks.filter((t) => t.status === "failed").map((t) => t.id) : [],
+    retry: open ? (rec.tasks ?? []).filter((t) => t.status === "failed").map((t) => t.id) : [],
   };
 }
 
