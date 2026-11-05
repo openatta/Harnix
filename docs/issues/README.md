@@ -101,4 +101,5 @@ ipdrun-06 已撤回（在公开契约之上能做，模板写 `program` 即可�
 |---|---|---|---|---|
 | [xops-01](xops-01-flow.md) | 流程能力：按站推动会话工作的可选模块（`harnix-flow`、`@harnix/flow`） | 新能力 | 高 | — |
 | [xops-02](xops-02-flow-placement-authoring.md) | 流程会话的落点与模型；结构化输出交付、权限规则限写；空应用自带流程；对话里编写流程；试运行 | 新能力 | 高 | xops-01 |
+| [xops-03](xops-03-flow-main-agent-space.md) | 流程的主 Agent 与子 Agent；运行状态与暂停；按站的耗时与用量；流程 space 改版；demo 数据 | 新能力 | 高 | xops-02 |
 

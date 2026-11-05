@@ -32,9 +32,10 @@ xops-02 落地后，用户手动试流程 space，提出四处要改：
     space: …
   ```
 
-- **会话站缺省在主会话里做**：`session` 的缺省从 `new` 改成 `main`。`main` 的站不能再写 `scene` / `model` / `provider` /
-  `instance` / `template` / `params` / `space`——那是主会话的，写在 `main:` 里；要别的模型，用子 Agent（§2）。
-  `new` / `per_run` / `{key}` 仍可用，意思是**主会话之外的独立会话**（xops-02 的落点、结构化输出、权限规则都照旧）。
+- **会话站没写 `scene` 就在主会话里做**（`session` 不写或写 `main`）。这样的站不能写 `model` / `provider` / `instance` /
+  `template` / `params` / `space`——那是主会话的，写在 `main:` 里；要别的模型，用子 Agent（§2）。写了 `scene` 的会话站是
+  **主会话之外的独立会话**（`session` 缺省 `new`，也可 `per_run` / `{key}`；xops-02 的落点、结构化输出、权限规则都照旧），
+  所以 xops-02 的流程语义不变。
 - **主会话一次一轮**：主会话里的任务排队，一个任务一轮（xops-01 的共享会话那套：认领续租、等前一轮结束）。
 - **交付走 `flow_submit`**：Agix 的 `output_schema` 是建会话时定的，一个会话一份；主会话里各站契约不同，所以主会话
   的任务一律用包装 scene 的 `flow_submit` 交，模块按这一站的 `output` 校验。
@@ -65,7 +66,9 @@ executor:
 
 ### 3. 运行状态与暂停
 
-内核存四种：`active`、`paused`、`finished`、`cancelled`。读者看到的 `RunView.phase` 由它与"此刻有没有活在跑"推出：
+内核的 `RunStatus` 不变（`active` / `finished` / `cancelled`），暂停记在 `RunRecord.paused`（暂停中的运行仍是 `active`，
+提交、确认这些照常可做）。读者看到的 `phase`（`RunRecord::phase()`，`RunSummary.phase`、`RunView.phase`）由它与
+"此刻有没有活在手上"推出：
 
 | `phase.state` | 含义 |
 |---|---|
@@ -86,6 +89,7 @@ executor:
 - `TaskRec` 加 `started_at`（认领）、`ended_at`（交付 / 失败）、`usage`（这一任务各轮的 token 合计）。
 - `RunRecord.usage_other`：主会话里不属于任何任务的轮次（用户插话）。
 - 模块在每一轮结束时（`harnix.turn_settled` 的 `outcome.usage`）记到这一轮的任务上（`Engine::account`，不写历史）。
+  主会话的轮次按 turn id 归属：这一轮第一帧到来时它在为哪个任务做（交付常在一轮中途，到结束时任务已经放手）。
 - 读者：`RunView` 给每站耗时（`entered_at` → `left_at` 或现在）与用量合计、运行合计；`runs` 列表每项带 `phase`、
   `usage`、`elapsed`。没有会话的站显示"—"。子 Agent 的用量：Agix 的一轮用量含不含子 Agent 的部分文档没说
   （issue 09 请 Agix 写明），先如实记一轮的数。
@@ -144,4 +148,74 @@ executor:
 
 ## 实现记录
 
-（实施中）
+分支 `flow-3`（工作树 `../Harnix-flow`），基于 `3d13936`。
+
+### 内核
+
+- `def.rs`：`FlowDef.main: Option<MainSession>`（scene、model、provider、instance / template + params、space）；
+  `Executor::Agent {agent_type, model, description}`；`Executor::Session.scene` 可空、`session: Option<SessionBinding>`，
+  `SessionBinding::Main`；`Executor::binding()`（不写时：没 scene 是 `main`、有 scene 是 `new`）、`in_main()`；
+  `MAIN_SESSION_KEY = "@main"`（会话键，定义里写不出：`@` 开头的 key 校验不过）。
+- `run.rs`：`Usage`（input / output / 两项 cache / turns）、`TaskRec.started_at / ended_at / usage`、
+  `RunRecord.paused: Option<PauseRec>`、`usage_other`、`main_session()`、`usage()`、`phase()`；
+  `RunSummary.phase / usage / dry`；`RunView.phase`。
+- `engine.rs`：`pause` / `resume`（`Op::Pause` / `Op::Resume` 过授权）、`account`（不写历史）、`attach_main`、
+  `with_main_scene`；外部认领在暂停中被拒（"nothing new is taken on"），认领记 `started_at`。
+- `txn.rs`：暂停中 `advance` 不进站、`dispatch` 不派；主会话里的任务（主会话站、子 Agent 站）的工作项：会话键 `@main`、
+  落点取 `main`、scene 取 `main.scene` 或模块的主 scene（`WorkItem::Task.scene`）、交付 `flow_submit`。
+- `validate.rs`：主会话站写了落点字段、子 Agent 站没有输出契约、`main.scene` 不是 `flow_submit` 的包装 scene、
+  有主会话任务却无处可放（流程和模块都没主 scene）、`main` 的落点问题、`@` 开头的会话键。
+- `protocol.rs`：主会话里的任务被告知"你是这个运行的主 Agent"；子 Agent 任务被告知用 `Agent` 工具（`description` 为
+  标签 `flow:<run>/<station>/<task>`、`subagent_type` 为站的 `agent_type`，缺省 `flow-agent`，可选 `model`）、自己不做、
+  拿到结果按契约用 `flow_submit` 交。
+- 试运行沙箱：吸收 `main.scene`、预览子 Agent 任务的消息、带主 scene；摘要有 `phase` 与 `finished_at`。
+
+### 模块
+
+- `module/main.rs`（新）：主会话。运行建好（`run.created`）就开（`run#@main` 锁下：记录里有且打得开就用，否则按 `main` 落点
+  新建、`attach_main`），任务先到也走同一处；回放用 `main_recording(run)`。权限规则对每个受限工具 `ask`。主会话被盯着：
+  一轮在为某个任务做时，这一轮（含子 Agent 冒上来的）权限询问由模块按该站 `writes` 答（`session.respondToPrompt`：
+  `permit` / `deny` 带理由）；不属于任务的轮次照常由人批准。每轮结束记用量。从事件里记子 Agent（`Agent` 调用的
+  `description` → `subagent_progress` 的 `agent_session_id`）。重启后（`recover`）对未结束的运行重新盯上。
+- 主 scene 需要项目（Agix 的 coding）时，模块给运行建工作目录 `<数据目录>/workspaces/<run>` 作主会话的项目，并写入
+  agent 类型 `.agix/agents/flow-agent.md`（`scene:` 为内层场景）：子 Agent 继承包装场景时 Agix 会把场景工具再注册一遍而
+  建不起来（Agix issue 草稿 10，`.local/agix-issue-10-subagent-scene-extra-tools.md`），内层场景没有这个问题。
+- 方法：`session {flow?}`（流程会话 / 通用会话，`sessions.json`）、`pause` / `resume`、`sessions {run}`（主会话、独立会话、
+  `agents`、引擎的 `tasks` 与侧链）、`guide {lang}`。`focus` 拒绝改流程会话的焦点。manifest 授 `session.rename`、
+  `session.tasks`（模块给会话起名、列任务）。
+- `flow-author`：`flow_guide`、`flow_runs`、`flow_run`（只读）；`flow_pause` / `resume` / `cancel` / `confirm` / `force` /
+  `rework` / `retry` / `release`（要批准，只管本流程的正式运行，记的人是 `conversation:<instance>/<session>`）。
+  通用会话里 `flow_create` 后这个会话成了新流程的会话；删流程时去掉它的会话记录。
+- 流程指南 `crates/flow/docs/guide.{en,zh-CN}.md`：`flow_guide` 与参考页用；其中三份完整例子由测试校验。
+
+### 空应用、testapp、demo
+
+- 空应用：主会话在 `flow-coding`；`example-review` 的 review 站改为主会话里做。
+- testapp：加 `flow-coding`、主 scene `chat`；新流程 `demo-main`（外部 → 两个主会话站，一个不许写一个许写 → 确认）、
+  `demo-agent`（子 Agent 站，`main: {scene: flow-coding}`）；录像 `flow-main`、`flow-agent`（手工做，后者含子 Agent 的会话）。
+- `scripts/harnix-demo.sh`（`start | stop | restart | status`）：第一次起时导入 `scripts/demo` 的四条流程与 skills，
+  用 `crates/flow/examples/demo_seed.rs`（真内核、FileStore）造六条运行：完成、等确认、暂停、取消、退回一次后通过、
+  等外部交付；都没有在手上的活，起来不调模型。`crates/cli` 的测试校验 demo 流程在空应用里有效。
+
+### 外壳
+
+- `@harnix/flow`：中区跟着右栏选中项走（流程会话 / 主会话 / 通用会话，`host.session.open`），选中不再调 `focus`；
+  三页按 §6 改版（工具条、只读 YAML、跨流程的运行列表、phase 徽标、耗时与 token、暂停 / 恢复 / 取消、子 Agent 列表、
+  指南与"照这个新建"，`host.composer.insert` 预填）。
+
+### 测试
+
+- 内核 `tests/main_agent.rs` 8 条（主会话与子 Agent 的工作项、主会话站的校验、暂停让手上的跑完、暂停中站通过不往下走、
+  暂停中不许认领、用量归属、`attach_main`、指南例子有效）；模块单测（按站答权限、主会话的 `ask` 规则、只读工具表）。
+- LIVE api `flow-main.spec.ts` 3 条（主会话一开始就有、暂停 → 暂停中 → 已暂停 → 恢复、两站同一主会话、按站自动拒绝 /
+  允许 TodoWrite、用量；子 Agent 真跑起来并对上流程任务；流程会话 / 通用会话、焦点不能改、指南两种语言）；
+  已有 api 用例按主会话调整（`session_keys` 多了 `@main`、提示语、空应用的预览 scene）。
+- LIVE ui `flow.spec.ts` 改写为 9 条。
+
+### 已知
+
+- 子 Agent 站在主会话里一轮一个，同站的几个子 Agent 不并发；要并发得等 Agix 的宿主起子 Agent（草稿 09）。
+- 站写了别的 `agent_type`、而那个类型没写 `scene:` 时，子 Agent 仍会撞上 Agix 的重复注册（草稿 10）。
+- Agix 0.2.10 的 `session.tasks` 对跑完的前台子 Agent 回空、侧链列表也空；子 Agent 列表靠事件，不跨重启。
+- 回放里流程会话不带录像，LIVE 界面的两条录像用例在另建的、设了焦点的对话里跑。
+- 流程列表没有修改时间，只按名字排序。
