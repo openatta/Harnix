@@ -377,3 +377,10 @@ Agent 建的流程被选中、删掉的清掉选择；自己那次 `focus` 还�
 `crate-metadata`；`cargo test` 与 clippy `-D warnings`：`harnix harnix-cli harnix-flow harnix-testapp harnix-instance`；LIVE `ui` 全部两种拓扑各 81 过。
 **全量 `check.sh`，带模型**（`.env` 从主工作树临时拷来、跑完删掉）：build、rust、clippy、offline、frontend、api、template、live（918 s）、
 browser、interface、budget 11 层全过；remote 未要求。
+
+## 落地
+
+落地提交：`c0c3a7d`…`eea2ab2`（main，2026-11-05，快进合并自分支 `flow-2`，未推送；版本待下次发布）。
+测试：全量 `check.sh` 含模型层 11 层过（remote 未要求）；评审意见（高 3、中 5、低 6）已逐条修复，见上面的实现记录。
+留待：Agix 会话列表重复的 issue 草稿 `.local/agix-issue-08-session-list-duplicates.md`，待转交 Agix。
+
