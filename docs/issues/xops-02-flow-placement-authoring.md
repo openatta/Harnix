@@ -331,5 +331,12 @@ Agent 建的流程被选中、删掉的清掉选择；自己那次 `focus` 还�
   运行页试运行：单步、跑到底、停在确认、看 `preview`、确认后结束、流程页的试运行列表里也有；正式运行：启动、在列表与图里、session 站
   （空应用没给录像名，回放下会失败成 `unmet`）在站详情里强制通过、确认、运行完成；`[shell] spaces` 去掉 `flow` 的 profile 没有这个 space
   （模块仍在）。没有流程模块的后端：`examples/hello-app`，`ui/spaces.spec.ts` 本来就断言它的 space 只有 `sessions projects greeter notes`。
+- 外壳的会话列表去重（`uniqueSessions`，会话 space 与没有自己左栏的 space 都用）：全量 `ui` 在分离流下，
+  `interface.spec.ts` 的搜索 / 改名两条稳定地失败——同一会话在左栏出现两行（strict mode 违例）。查下来是**后端**
+  `harnix.sessions {space: "sessions"}` 的原始回答里就有重复：6 个从没发过消息的闲置 `coding` 会话各列两遍
+  （`created_at`、`last_active` 都是空串，`status: inactive`），中枢的 `space_sessions` 按实例集合取、不会重复，
+  所以是引擎 `session.list` 列了两遍。单跑哪个文件、或 API 里连建 50 个会话都复现不了，前面几份 spec 一起跑才有；
+  外壳换回后端一半时的版本这两条不失败，为什么新外壳让后端出现这种状态**没查清**。外壳按 `instance/session_id`
+  去重是对的（一个 key 两行本来就是错），引擎那一侧留待查。单测 `shell/test/session-list.test.ts`。
 - `coverage.md` 重生成（flow：API 19、界面 6）。`budget`：界面 gzip 166 KB → 186 KB（额度 300 KB），不调。`check.sh` 不用改
   （`target/testapp-ui` 后端一半已去掉）。

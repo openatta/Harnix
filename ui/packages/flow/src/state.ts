@@ -101,7 +101,10 @@ export class FlowSpaceState {
     this.remembered = undefined;
     this.generation++;
     this.settled = true;
-    if (!session || !this.host) return this.changed();
+    if (!session || !this.host) {
+      for (const fn of [...this.listeners]) fn();
+      return;
+    }
     // The selection goes to the new session; with none, the session's own is taken up.
     if (this.value.flow !== null) this.sendFocus(this.value.flow);
     this.unfollow = this.host.subscribe(focusTopic(this.module), { instance: session.instance, session_id: session.sessionId }, (v) => {
@@ -142,10 +145,22 @@ export class FlowSpaceState {
     this.changed();
   }
 
+  /** Whether a redraw is already asked for. */
+  private redrawing = false;
+
   private changed(): void {
     // A new object each time, so a reader of `get` draws again when only the focus changed.
     this.value = { ...this.value };
     for (const fn of [...this.listeners]) fn();
-    this.host?.redraw?.();
+    // The space's `notice()` reads the selection: the shell reads it again — only while this space
+    // is in front, and never from inside the shell's own notification (a session change calls
+    // `follow` while the shell is still telling its listeners).
+    const host = this.host;
+    if (!host?.redraw || this.redrawing || host.spaces?.current?.() !== this.space) return;
+    this.redrawing = true;
+    queueMicrotask(() => {
+      this.redrawing = false;
+      if (host.spaces.current() === this.space) host.redraw();
+    });
   }
 }

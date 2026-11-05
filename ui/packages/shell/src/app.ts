@@ -164,6 +164,20 @@ function remember(key: string, value: unknown): void {
 
 export const keyOf = (instance: string, sessionId: string) => `${instance}/${sessionId}`;
 
+/**
+ * A session list with each session once. The engine has been seen to list an idle, never-used
+ * session twice when it holds many; two rows with one key would draw two entries for one session.
+ */
+export function uniqueSessions<T extends { instance?: unknown; session_id: string }>(rows: T[]): T[] {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const key = keyOf(typeof row.instance === "string" ? row.instance : SYSTEM_INSTANCE, row.session_id);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function sameKey(a: SessionKey | null, b: SessionKey | null): boolean {
   return a === b || (a != null && b != null && a.instance === b.instance && a.sessionId === b.sessionId);
 }
@@ -523,7 +537,7 @@ export class App {
       ]);
       const notes = spaces.sessions ?? {};
       const workspaces = spaces.workspaces ?? [];
-      const sessions: ShellSession[] = (listed.sessions ?? []).map((row) => {
+      const sessions: ShellSession[] = uniqueSessions(listed.sessions ?? []).map((row) => {
         const note = notes[row.session_id] ?? {};
         const workspace = workspaces.find((w) => row.project_root && w.path === row.project_root);
         return {

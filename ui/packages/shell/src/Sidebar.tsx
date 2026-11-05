@@ -14,7 +14,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Contributed, setLocale, currentLocale, useRegistry, useT, type SpaceContribution } from "@harnix/react";
 
-import { ask, disabledOf, keyOf, type App, type ShellSession, type ShellState } from "./app.ts";
+import { ask, disabledOf, keyOf, uniqueSessions, type App, type ShellSession, type ShellState } from "./app.ts";
 import { connectionDialog } from "./dialogs.tsx";
 import { Glyph } from "./glyph.tsx";
 import { SessionRow } from "./sessions.tsx";
@@ -209,7 +209,7 @@ function SpaceSessions({ app, s, listed }: { app: App; s: ShellState; listed?: S
     const load = () =>
       app
         .call<{ sessions: ShellSession[] }>("harnix.sessions", { space: claim })
-        .then((r) => alive && setRows([...r.sessions].sort((a, b) => String(b.last_active ?? "").localeCompare(String(a.last_active ?? "")))))
+        .then((r) => alive && setRows(uniqueSessions(r.sessions).sort((a, b) => String(b.last_active ?? "").localeCompare(String(a.last_active ?? "")))))
         .catch(() => alive && setRows([]));
     void load();
     const off = app.client.onNotify((method) => {
