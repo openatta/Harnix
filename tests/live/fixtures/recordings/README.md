@@ -21,6 +21,10 @@ cannot ask for replay, and outside replay the fixture name means nothing.
 | `flow-report` | The same for the `report` station's `summary` task: `flow_submit` with `{summary}` |
 | `flow-propose` | One turn of four calls: `TodoWrite` (which `harnix-testapp` guards as a write, so the flow refuses it), `flow_propose {kind: rework, to: propose}`, `flow_submit {done: true}`, a line of text. Made from `calls-a-native-tool` by hand |
 | `flow-shared` | Two turns in one session (`per_run`): each calls `flow_submit` with its own `step` and says a line; between them a filler `[]` answers the memory-extraction call the engine makes after every finished turn, which otherwise takes the next turn's recorded call. Made the same way |
+| `flow-local`, `flow-remote` | xops-02: a station's session on a template instance (in process / spawned) hands in by structured output — one call to `StructuredOutput` with `{findings: [one low finding]}`, then a line of text. Made the same way, with `StructuredOutput` as the tool |
+| `flow-guarded` | xops-02: `TodoWrite` (refused by the session's `deny` permission rule), then `StructuredOutput {done: true}`, then a line of text |
+| `flow-author-unfocused` | xops-02: a `flow-author` conversation calls `flow_update` with no flow selected (and is told to ask for a selection) |
+| `flow-author-edit` | xops-02: three `flow-author` turns — `flow_schema`, `flow_validate`, `flow_create` · `flow_show`, `flow_update`, `flow_dry_run` · `flow_delete` — with a filler `[]` between turns, as in `flow-shared` |
 | `runs-a-while` | A `Bash` call that waits four seconds (in `perl`: the engine refuses a `sleep` of 2 s or more): a turn that is still running when something is steered into it (ipdrun-13). Made the same way |
 
 ## Re-recording one
