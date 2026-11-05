@@ -13,8 +13,9 @@
 | 阶段 | **0.4 的 M0–M9 全部完成并发布**；最新发布 `Harnix-v0.4.0-2026102801`（本地标签，未推送：`agix/` 钉到 `Agix-v0.2.9-2026102702`，再导出 Agix ipdrun-05 的附件类型） |
 | 当前里程碑 | 无。下一个里程碑要维护者说开始 |
 | 当前任务 | 无。下游需求：IPDrun 01–55（06 撤回）已迁到 GitHub issue（标签 ipdrun，都已落地、关闭；以后在 GitHub 提），Helm helm-01、Grabix 01–04（`docs/issues/`）都已落地 |
+| 当前任务 | 无。下游需求（`docs/issues/`）：IPDrun 01–45（06 撤回）、Helm helm-01、Grabix 01–04、XOps xops-01（流程能力）都已落地 |
 | 下一步 | 发布（维护者定）：Agix 先发（`agix/` 现钉 `0d55673`，未打版本），Harnix 再发；ipdrun-36–45 未推送 |
-| 最后更新 | 2026-11-01 |
+| 最后更新 | 2026-11-05 |
 
 ## 怎么接上
 
@@ -74,7 +75,6 @@
 | IPDrun 需求 · 后端（不依赖新 Agix） | 2026-10-27 | 01、02+03、04+05、08、09、11、12（后端）、14、15（后端无改动，加契约用例）、16（只记录）、17、31、32 已提交，各 issue 末尾有实现记录；未打标签、未推送 | ——（07、10、13 见下一行） |
 | IPDrun 需求 · 后端（依赖新 Agix） | 2026-10-27 | `agix/` 钉到 `Agix-v0.2.9-2026102701`（`bbdd8e2`）；07（`reap_on_stop`）、10（模板 `native`、daemon `--template`）、13（prompt 中间件再导出、`user_message_refused` 原样转发）一个提交 `b593767`，各 issue 末尾有实现记录；13 的外壳部分（界面显示被拒的消息）`607bb7e`；Helm 兼容验证过（`.local/harnix-split/HELM-COMPAT.md` 在 IPDrun 仓库） | —— |
 | IPDrun 需求 · 外壳与贡献点 | 2026-10-27 | 18–30 与 01、12、15、16、17 的外壳部分已提交（`15f7a48`…`3471226`），各 issue 末尾有实现记录；界面用例在新文件 `tests/live/ui/host.spec.ts`（17 条），`coverage.md` 已重生成；未打标签、未推送 | 全量 `check.sh` 留给发版前（本批只跑了前端各层与 `ui` project 两种拓扑） |
-| xops-01 流程能力（分支 `flow`，基于 `3c264da`；维护者 2026-11-04 说开始） | 2026-11-04 | ①–⑤ 已提交；评审意见（HIGH 到 LOW、UI 五条）已逐条修复并带回归测试（见 issue 末尾第二轮表格）；flow 的 api 9 条、ui 3 条；全量 `check.sh` 9 层过 | ⑥ 合并 main（维护者定） |
 
 ---
 
@@ -92,6 +92,7 @@
 
 | 日期 | 事 |
 |---|---|
+| 2026-11-05 | xops-01 落地：分支 `flow` 快进合并进 main（`be9157f`…`2df2b74`，未推送）；live、interface 两层用模型补跑都过，全量 11 层过（remote 未要求） |
 | 2026-11-05 | xops-01 全量 `check.sh`：9 层过（live、interface 无模型未跑，remote 未要求）；途中修了 hello-app 过期的依赖区块（含此前漏的 `harnix-client`）与返工第二轮等旧会话起名的问题 |
 | 2026-11-05 | xops-01 评审意见全部修复（租约 token 不外泄、push 任务只由流程交、foreach 未解析不放行、共享会话换绑先结束上一轮、过期按重试次数、递归子流程、FileStore 索引与路径校验、提议只采纳一次等；逐条见 issue 末尾表格）；LIVE flow api 9 条、ui 3 条 |
 | 2026-11-04 | xops-01 模块落地：`harnix-flow` 的 `module`（Flow、派活、原生工具、`writes`、`app.flow.*`、重启接续），testapp 演示流程，LIVE `flow.spec.ts`（api、ui）；`check.sh` 的 build 层多建一份 `target/testapp-ui` |

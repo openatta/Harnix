@@ -289,3 +289,11 @@ XOps（2026-11-04 起基于 Harnix 重建）：业务流程按 skill 推动 Agen
 直接上网。改为 `new` 会话任务的锁键带 token（各轮各次互不等待），`FlowScene` 不自动起名（`3802b2b`；
 `dispatch::only_tasks_sharing_a_session_wait_for_each_other`）。之后全量 `check.sh`：build、rust、clippy、offline、frontend、api（两种拓扑）、
 template、browser（两种拓扑）、budget 全过；live、interface 本机 `.env` 无模型未跑，remote 未要求。
+
+## 落地
+
+落地提交：`be9157f`…`2df2b74`（main，2026-11-05，快进合并自分支 `flow`，未推送；版本待下次发布）。
+内核、存储与包、模块在 `crates/flow`；界面在 `ui/packages/flow`；testapp 的演示流程在 `crates/testapp/src/flow_demo.rs`。
+测试：`crates/flow/tests/{engine,hardening,store,validate}.rs` 与模块单元测试；live API `tests/live/api/flow.spec.ts`、
+界面 `tests/live/ui/flow.spec.ts`；全量 `check.sh` 11 层过（remote 未要求；live、interface 用模型另跑一遍，都过）。
+
