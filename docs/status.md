@@ -74,7 +74,7 @@
 | IPDrun 需求 · 后端（不依赖新 Agix） | 2026-10-27 | 01、02+03、04+05、08、09、11、12（后端）、14、15（后端无改动，加契约用例）、16（只记录）、17、31、32 已提交，各 issue 末尾有实现记录；未打标签、未推送 | ——（07、10、13 见下一行） |
 | IPDrun 需求 · 后端（依赖新 Agix） | 2026-10-27 | `agix/` 钉到 `Agix-v0.2.9-2026102701`（`bbdd8e2`）；07（`reap_on_stop`）、10（模板 `native`、daemon `--template`）、13（prompt 中间件再导出、`user_message_refused` 原样转发）一个提交 `b593767`，各 issue 末尾有实现记录；13 的外壳部分（界面显示被拒的消息）`607bb7e`；Helm 兼容验证过（`.local/harnix-split/HELM-COMPAT.md` 在 IPDrun 仓库） | —— |
 | IPDrun 需求 · 外壳与贡献点 | 2026-10-27 | 18–30 与 01、12、15、16、17 的外壳部分已提交（`15f7a48`…`3471226`），各 issue 末尾有实现记录；界面用例在新文件 `tests/live/ui/host.spec.ts`（17 条），`coverage.md` 已重生成；未打标签、未推送 | 全量 `check.sh` 留给发版前（本批只跑了前端各层与 `ui` project 两种拓扑） |
-| xops-01 流程能力（分支 `flow`，基于 `3c264da`；维护者 2026-11-04 说开始） | 2026-11-04 | ①–⑤ 已提交；评审意见（HIGH 到 LOW、UI 五条）已逐条修复并带回归测试（见 issue 末尾第二轮表格）；flow 的 api 9 条、ui 3 条 | ⑥ 全量 `check.sh` 后合并 main |
+| xops-01 流程能力（分支 `flow`，基于 `3c264da`；维护者 2026-11-04 说开始） | 2026-11-04 | ①–⑤ 已提交；评审意见（HIGH 到 LOW、UI 五条）已逐条修复并带回归测试（见 issue 末尾第二轮表格）；flow 的 api 9 条、ui 3 条；全量 `check.sh` 9 层过 | ⑥ 合并 main（维护者定） |
 
 ---
 
@@ -92,6 +92,7 @@
 
 | 日期 | 事 |
 |---|---|
+| 2026-11-05 | xops-01 全量 `check.sh`：9 层过（live、interface 无模型未跑，remote 未要求）；途中修了 hello-app 过期的依赖区块（含此前漏的 `harnix-client`）与返工第二轮等旧会话起名的问题 |
 | 2026-11-05 | xops-01 评审意见全部修复（租约 token 不外泄、push 任务只由流程交、foreach 未解析不放行、共享会话换绑先结束上一轮、过期按重试次数、递归子流程、FileStore 索引与路径校验、提议只采纳一次等；逐条见 issue 末尾表格）；LIVE flow api 9 条、ui 3 条 |
 | 2026-11-04 | xops-01 模块落地：`harnix-flow` 的 `module`（Flow、派活、原生工具、`writes`、`app.flow.*`、重启接续），testapp 演示流程，LIVE `flow.spec.ts`（api、ui）；`check.sh` 的 build 层多建一份 `target/testapp-ui` |
 | 2026-11-04 | 开始 xops-01（流程能力，可选 crate `harnix-flow` + `@harnix/flow`），分支 `flow`；glossary 加 §7 流程，SDK §2 表加一行 |

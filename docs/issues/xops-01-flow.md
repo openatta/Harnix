@@ -282,3 +282,10 @@ XOps（2026-11-04 起基于 Harnix 重建）：业务流程按 skill 推动 Agen
 
 另：`tokio` 改为内核的常规依赖（`FileStore` 的阻塞池），`module` 特性不再单独带它；testapp 多了 `demo-propose`、`demo-shared` 两条演示流程与 `flow-propose`、`flow-shared` 两份录像。
 回放的发现：引擎在每轮正常结束后会多调一次模型做记忆提取，按位置回放时它会吃掉下一轮的录像调用——多轮录像要在轮与轮之间放一个占位调用（`flow-shared` 这样做了）。
+
+全量 `check.sh` 第一遍暴露两处：① `examples/hello-app` 的 harnix 依赖区块过期（缺 `harnix-flow`，也缺此前就漏了的 `harnix-client`），
+`sync-app-deps.mjs` 重写后 `--check` 通过（`0e6c229`）；② `demo-propose` 的返工第二轮偶发等 60 s：`new` 会话任务的锁按
+`run/station/task` 取，第二轮要等第一轮会话的轮结算，而那一轮结算前 chat scene 会用模型给会话起名——回放下这次调用不在录像里、
+直接上网。改为 `new` 会话任务的锁键带 token（各轮各次互不等待），`FlowScene` 不自动起名（`3802b2b`；
+`dispatch::only_tasks_sharing_a_session_wait_for_each_other`）。之后全量 `check.sh`：build、rust、clippy、offline、frontend、api（两种拓扑）、
+template、browser（两种拓扑）、budget 全过；live、interface 本机 `.env` 无模型未跑，remote 未要求。
