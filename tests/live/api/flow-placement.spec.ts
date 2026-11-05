@@ -14,7 +14,9 @@
  * refuse.
  */
 
-import { type Backend, type TestClient, connect, expect, test } from "@harnix/testkit";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { type Backend, type TestClient, connect, expect, sleep, test } from "@harnix/testkit";
 
 import { instances } from "./instances";
 import { startTestApp } from "./testapp";
@@ -29,7 +31,14 @@ let api: TestClient;
 test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
-  backend = await startTestApp();
+  // The instance `demo-bypassed` places its session on is set to bypass permissions.
+  backend = await startTestApp({
+    seed: (scratch) => {
+      const root = join(scratch, "home", ".harnix", "instances", "bypass-box");
+      mkdirSync(root, { recursive: true });
+      writeFileSync(join(root, "settings.json"), JSON.stringify({ permission_mode: "bypassPermissions" }));
+    },
+  });
 });
 test.afterAll(() => backend?.stop());
 test.beforeEach(async () => {
@@ -53,6 +62,16 @@ async function until(run: string, ok: (v: View) => boolean, describe: string): P
 }
 
 const station = (v: View, id: string) => v.record.stations[id];
+
+/** Wait until an instance is gone from the list. */
+async function gone(name: string): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    if (!(await instances(api))[name]) return;
+    await sleep(100);
+  }
+  throw new Error(`instance ${name} is still there`);
+}
 const ref = (session: string) => {
   const [instance, session_id] = session.split("/");
   return { instance, session_id };
@@ -67,12 +86,14 @@ test("sessions on an in-process and a spawned template instance hand in by struc
     expect(t.status).toBe("submitted");
     expect(t.output.findings).toHaveLength(1);
   }
-  // On instances of the module's templates: named by the station's `name` parameter, or after the run.
+  // On instances of the module's templates: named by the station's `name` parameter, or by the
+  // module after the run and the template.
   expect(ref(local.session).instance).toBe(`local-${run}`);
-  expect(ref(remote.session).instance).toBe(`flow-${run}`);
+  const made = ref(remote.session).instance;
+  expect(made).toMatch(new RegExp(`^flow-${run}-[0-9a-f]{8}$`));
   const all = await instances(api);
   expect(all[`local-${run}`]).toMatchObject({ carrier: "in_process", owner: "module:flow", template: "flow.local" });
-  expect(all[`flow-${run}`]).toMatchObject({ carrier: "spawn", owner: "module:flow", template: "flow.remote" });
+  expect(all[made]).toMatchObject({ carrier: "spawn", owner: "module:flow", template: "flow.remote" });
 
   // Handed in by the dispatcher from the turn's structured output, not by a native tool.
   const hist = await api.call("app.flow.history", { run });
@@ -93,14 +114,18 @@ test("sessions on an in-process and a spawned template instance hand in by struc
 
   await api.call("app.flow.confirm", { run, station: "approve", pass: true });
   await until(run, (v) => v.record.status === "finished", "the run finishes");
+  // The instance the module named for the run goes with it; the one the station named stays.
+  await gone(made);
+  expect((await instances(api))[`local-${run}`]).toBeTruthy();
 });
 
 test("a write its station does not allow is refused on a template instance by the session's permission rules", TAGS, async () => {
   const run = await start("demo-guarded");
-  const done = await until(run, (v) => v.record.status === "finished", "the run finishes");
-  const task = station(done, "guarded").tasks[0];
+  const waiting = await until(run, (v) => station(v, "approve")?.status === "working", "approve waits");
+  const task = station(waiting, "guarded").tasks[0];
   expect(task.output).toEqual({ done: true });
-  expect(ref(task.session).instance).toBe(`flow-${run}`);
+  const made = ref(task.session).instance;
+  expect(made).toMatch(new RegExp(`^flow-${run}-[0-9a-f]{8}$`));
   const { messages } = await api.call("session.history", ref(task.session));
   // The TodoWrite call's result is an error: refused before it ran.
   const results = messages
@@ -110,6 +135,21 @@ test("a write its station does not allow is refused on a template instance by th
   expect(refused, `no refused tool result in ${JSON.stringify(results).slice(0, 600)}`).toBeTruthy();
   expect(refused.is_error).toBe(true);
   expect(JSON.stringify(messages)).toContain("refuses these as writes");
+  // A cancelled run's instance goes as well.
+  await api.call("app.flow.cancel", { run, reason: "seen enough" });
+  await gone(made);
+});
+
+test("on an instance set to bypass permissions, the session still keeps its station's rules", TAGS, async () => {
+  const run = await start("demo-bypassed");
+  const done = await until(run, (v) => v.record.status === "finished", "the run finishes");
+  const task = station(done, "bypassed").tasks[0];
+  expect(ref(task.session).instance).toBe("bypass-box");
+  const { messages } = await api.call("session.history", ref(task.session));
+  const refused = messages
+    .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    .find((b: any) => b.type === "tool_result" && JSON.stringify(b).includes("denied by rule: TodoWrite"));
+  expect(refused?.is_error, `TodoWrite was not refused: ${JSON.stringify(messages).slice(0, 600)}`).toBe(true);
 });
 
 test("a station placed where there is nothing fails its task, saying why", TAGS, async () => {

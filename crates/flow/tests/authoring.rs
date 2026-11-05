@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use common::{packs, T0};
 use harnix_flow::dryrun::{StartIn, KEEP};
+use harnix_flow::kernel::host::default_instance;
 use harnix_flow::*;
 use serde_json::{json, Value};
 
@@ -29,6 +30,16 @@ stations:
     output: {type: object}
     exit: [{kind: output}]
 "#;
+
+/// The station named its instance: the run does not own it.
+fn p_named(_run: &str) -> bool {
+    let named = Placement {
+        template: Some("t".into()),
+        params: [("name".to_string(), "box".to_string())].into(),
+        ..Default::default()
+    };
+    named.names_its_instance()
+}
 
 fn engine(p: MemPacks) -> Engine {
     Engine::new(Arc::new(MemStore::new()), Arc::new(p))
@@ -111,12 +122,25 @@ async fn session_work_carries_its_placement_resolved_and_how_it_hands_in() {
             ..
         }
     ));
-    // A template without a name parameter gets one from the run.
+    // A template without a name parameter gets one from the run and the template: it fits
+    // the 64-character limit on instance names, and is the run's to stop.
     let bare = Placement {
         template: Some("t".into()),
         ..Default::default()
     };
-    assert_eq!(bare.template_instance("r-1").as_deref(), Some("flow-r-1"));
+    assert!(bare.names_its_instance() && !p_named(&run));
+    let name = bare.template_instance("r-1").unwrap();
+    assert!(
+        name.starts_with("flow-r-1-") && name.len() == "flow-r-1-".len() + 8,
+        "{name}"
+    );
+    assert_eq!(
+        bare.template_instance("r-1"),
+        Some(default_instance("r-1", "t"))
+    );
+    assert_ne!(default_instance("r-1", "t"), default_instance("r-1", "u"));
+    let long = format!("{}-12", "a-very-long-flow-name".repeat(5));
+    assert!(default_instance(&long, "app.box").len() <= 64);
 }
 
 // ── writable packs ───────────────────────────────────────────────────────────

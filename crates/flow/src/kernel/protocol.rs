@@ -1,5 +1,12 @@
 //! The protocol layer: the text the module puts before a skill's body in a session task.
 //!
+//! What a session is opened with — its scene (so how it hands in), its output contract when it
+//! hands in by structured output, the guarded tools it is refused, its model and place — it
+//! keeps for good. Tasks that may share a session (`per_run`, or the same `{key}` expression)
+//! must therefore agree on all of them; validation says so, and the module refuses to put a
+//! task into a shared session opened otherwise. Guarded patterns are names or `ns__*` groups,
+//! and a group is opened whole or not at all ([`refused`], [`partial_writes`]).
+//!
 //! It is generated from the station's definition — what to hand in, how, what
 //! may be written, how the station is judged — so a skill only has to say how
 //! to do the work well. Where the two disagree, the protocol wins.
@@ -20,14 +27,64 @@ pub fn matches_any(patterns: &[String], name: &str) -> bool {
     })
 }
 
+/// What is wrong with a guarded-tool pattern, if anything. A pattern is a tool's exact name or
+/// a namespace group `ns__*` (every tool under `ns`, which the engine's permission rules match
+/// at `__` boundaries); nothing else can be written as a `deny` rule, so nothing else is
+/// accepted — a pattern that would be dropped would silently weaken the guard.
+pub fn guard_problem(pattern: &str) -> Option<String> {
+    let bad = |why: &str| Some(format!("guarded tool pattern {pattern:?}: {why}"));
+    if pattern.trim().is_empty() || pattern.trim() != pattern {
+        return bad("empty or padded");
+    }
+    match pattern.strip_suffix('*') {
+        None if pattern.contains('*') => bad("`*` only goes at the end, after `__`"),
+        None => None,
+        Some(prefix) => match prefix.strip_suffix("__") {
+            Some(ns) if !ns.is_empty() && !ns.contains('*') => None,
+            _ => bad(
+                "a group must be a namespace, `ns__*` — the engine's permission rules cannot \
+                 express another prefix; list the tools one by one",
+            ),
+        },
+    }
+}
+
+/// Every problem of a guarded-tool list ([`guard_problem`]).
+pub fn guard_problems(guarded: &[String]) -> Vec<String> {
+    guarded.iter().filter_map(|g| guard_problem(g)).collect()
+}
+
+/// A station's write that opens only part of a guarded group: `(write, group)`. A `deny` rule
+/// cannot carry an exception, so such a write cannot be granted — validation reports it, and
+/// [`refused`] keeps the whole group refused.
+pub fn partial_writes(guarded: &[String], writes: &[String]) -> Vec<(String, String)> {
+    let mut out = vec![];
+    for g in guarded {
+        let Some(prefix) = g.strip_suffix('*') else {
+            continue;
+        };
+        for w in writes {
+            let inside = match w.strip_suffix('*') {
+                // A wider (or the same) group covers the whole guarded group.
+                Some(wp) => wp.starts_with(prefix) && wp != prefix,
+                None => w.starts_with(prefix),
+            };
+            if inside {
+                out.push((w.clone(), g.clone()));
+            }
+        }
+    }
+    out
+}
+
 /// The guarded tools a station's session is refused, as `(pattern, rule tool name)`: what the
 /// protocol layer names and what the module writes as the session's `deny` permission rules.
 ///
-/// A guarded name is refused unless the station's `writes` allow it. A guarded group
-/// (`ns__*`) is refused as a whole — the rule names the namespace `ns`, which the engine matches
-/// at `__` boundaries — unless some write of the station falls inside it: a deny cannot carry
-/// an exception, so a station that opens part of a group is not refused the group. A group
-/// whose prefix does not end at a `__` boundary cannot be written as a rule and is skipped.
+/// Fails closed. A guarded name is refused unless the station's `writes` allow it; a guarded
+/// group (`ns__*`, the rule names the namespace `ns`) is refused unless a write covers the
+/// whole group — a write of part of it does not open it ([`partial_writes`], a validation
+/// problem). A pattern [`guard_problem`] refuses (the module does not start with one) is
+/// refused as widely as a rule can say: up to its last `__`, or as written.
 pub fn refused(guarded: &[String], writes: &[String]) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = vec![];
     for g in guarded {
@@ -39,16 +96,18 @@ pub fn refused(guarded: &[String], writes: &[String]) -> Vec<(String, String)> {
                 g.clone()
             }
             Some(prefix) => {
-                let overlaps = writes.iter().any(|w| match w.strip_suffix('*') {
-                    Some(wp) => wp.starts_with(prefix) || prefix.starts_with(wp),
-                    None => w.starts_with(prefix),
-                });
-                if overlaps {
+                let covered = writes
+                    .iter()
+                    .any(|w| w.strip_suffix('*').is_some_and(|wp| prefix.starts_with(wp)));
+                if covered {
                     continue;
                 }
                 match prefix.strip_suffix("__") {
                     Some(ns) if !ns.is_empty() => ns.to_string(),
-                    _ => continue,
+                    _ => match prefix.rfind("__") {
+                        Some(i) if i > 0 => prefix[..i].to_string(),
+                        _ => prefix.to_string(),
+                    },
                 }
             }
         };
@@ -214,19 +273,45 @@ mod tests {
         };
         assert_eq!(
             rules(&[]),
-            ["Bash", "Write", "mcp__db"],
-            "a group by its namespace; Note* cannot be a rule"
+            ["Bash", "Write", "mcp__db", "Note"],
+            "a group by its namespace; a pattern no rule can say is refused as written"
         );
-        assert_eq!(rules(&["Write"]), ["Bash", "mcp__db"]);
+        assert_eq!(rules(&["Write"]), ["Bash", "mcp__db", "Note"]);
         assert_eq!(
             rules(&["mcp__db__insert"]),
-            ["Bash", "Write"],
-            "a group partly opened is not refused"
+            ["Bash", "Write", "mcp__db", "Note"],
+            "a group partly opened stays refused: it fails closed"
         );
-        assert_eq!(rules(&["mcp__*"]), ["Bash", "Write"]);
+        assert_eq!(rules(&["mcp__*"]), ["Bash", "Write", "Note"]);
         assert_eq!(
-            rules(&["Bash", "Write", "mcp__db__*"]),
+            rules(&["Bash", "Write", "mcp__db__*", "Note*"]),
             Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn guarded_patterns_are_names_or_namespace_groups() {
+        assert_eq!(guard_problem("Bash"), None);
+        assert_eq!(guard_problem("mcp__db__*"), None);
+        for bad in ["Note*", "mcp__db_*", "__*", "a*b", "", " Bash", "mcp__*__*"] {
+            assert!(guard_problem(bad).is_some(), "{bad:?}");
+        }
+        let v = |xs: &[&str]| xs.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            partial_writes(
+                &v(&["Bash", "mcp__db__*"]),
+                &v(&[
+                    "mcp__db__insert",
+                    "Bash",
+                    "mcp__db__x*",
+                    "mcp__*",
+                    "mcp__db__*"
+                ])
+            ),
+            [
+                ("mcp__db__insert".to_string(), "mcp__db__*".to_string()),
+                ("mcp__db__x*".to_string(), "mcp__db__*".to_string()),
+            ]
         );
     }
 

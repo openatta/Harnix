@@ -97,6 +97,17 @@ pub struct Catalog {
     /// Models a session station may name: `model`, or `provider/model` to tie it to a provider.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub models: BTreeSet<String>,
+    /// The tools the host refuses as writes unless a station's `writes` open them (names, or
+    /// `ns__*` groups). Filled by the host that enforces them; validation reports a write that
+    /// opens part of a group, and stations sharing a session that would be refused different
+    /// tools.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub guarded: Vec<String>,
+    /// Scenes whose sessions hand in with `flow_submit` (the module's `flow-*`): their output
+    /// contract is checked by the flow, not kept by the session, so tasks sharing such a
+    /// session may have different contracts.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub submit_scenes: BTreeSet<String>,
 }
 
 /// Where the flow a pack offers under a name comes from.
@@ -494,17 +505,43 @@ pub struct Placement {
 }
 
 impl Placement {
-    /// The instance a template's session goes to: the `name` parameter, else `flow-<run>`.
+    /// The instance a template's session goes to: the `name` parameter, else
+    /// [`default_instance`]`(run, template)`.
     pub fn template_instance(&self, run: &str) -> Option<String> {
-        self.template.as_ref()?;
+        let template = self.template.as_ref()?;
         Some(
             self.params
                 .get("name")
                 .cloned()
                 .filter(|n| !n.is_empty())
-                .unwrap_or_else(|| format!("flow-{run}")),
+                .unwrap_or_else(|| default_instance(run, template)),
         )
     }
+
+    /// Whether the instance is named by the module ([`default_instance`]), not by the station:
+    /// such an instance is the run's, and stopped when the run is over.
+    pub fn names_its_instance(&self) -> bool {
+        self.template.is_some() && self.params.get("name").is_none_or(|n| n.is_empty())
+    }
+}
+
+/// The name of the instance the module makes from `template` for `run` when the station names
+/// none: `flow-<run, at most 40 characters>-<8 hex of the run and template>` — at most 54
+/// characters (instance names are capped at 64), one per run and template.
+pub fn default_instance(run: &str, template: &str) -> String {
+    let safe: String = run
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .take(40)
+        .collect();
+    let hash = digest(&format!("{run}\u{0}{template}"));
+    format!("flow-{}-{}", safe.trim_end_matches('-'), &hash[..8])
 }
 
 /// How a session task hands in its output.

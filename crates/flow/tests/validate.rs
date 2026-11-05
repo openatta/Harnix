@@ -406,3 +406,118 @@ fn schemas_are_produced() {
     assert!(r["properties"]["stations"].is_object(), "{r}");
     assert!(r.to_string().contains("rounds_total"));
 }
+
+// ── xops-02 review ───────────────────────────────────────────────────────────
+
+#[test]
+fn the_dry_prefix_is_kept_for_dry_runs() {
+    assert_problem(
+        "name: dry-x\nstations: [{id: a, exit: [{kind: confirm}]}]",
+        "kept for dry runs",
+    );
+    assert!(MemPacks::new()
+        .writable()
+        .save_flow("name: dry-x\nstations: [{id: a, exit: [{kind: confirm}]}]")
+        .is_err());
+}
+
+#[test]
+fn a_write_may_open_a_guarded_group_whole_only() {
+    let mut cat = Packs::catalog(&packs());
+    cat.guarded = vec!["Bash".into(), "mcp__db__*".into()];
+    struct P(MemPacks, Catalog);
+    impl Packs for P {
+        fn flows(&self) -> Vec<String> {
+            Packs::flows(&self.0)
+        }
+        fn flow(&self, n: &str) -> Option<(FlowDef, String)> {
+            Packs::flow(&self.0, n)
+        }
+        fn skill(&self, n: &str) -> Option<(String, String)> {
+            Packs::skill(&self.0, n)
+        }
+        fn catalog(&self) -> Catalog {
+            self.1.clone()
+        }
+    }
+    let p = P(packs(), cat);
+    let yaml = |w: &str| {
+        format!(
+        "name: w\nstations: [{{id: a, executor: {{kind: session, scene: chat}}, skill: analyze, output: {{type: object}}, writes: [{w}], exit: [{{kind: output}}]}}]"
+    )
+    };
+    let ps = validate_yaml(&yaml("mcp__db__insert"), &p);
+    assert!(
+        ps.iter().any(|x| x
+            .message
+            .contains("opens only part of the guarded group mcp__db__*")),
+        "{ps:?}"
+    );
+    assert!(validate_yaml(&yaml("'mcp__db__*'"), &p).is_empty());
+    assert!(validate_yaml(&yaml("Bash"), &p).is_empty());
+}
+
+#[test]
+fn tasks_sharing_a_session_must_be_opened_alike() {
+    let two = |a: &str, b: &str, extra_b: &str| {
+        format!(
+        "name: s\nstations:\n  - {{id: one, executor: {{kind: session, scene: chat, session: per_run{a}}}, skill: analyze, output: {{type: object}}, exit: [{{kind: output}}]}}\n  - {{id: two, executor: {{kind: session, scene: chat, session: per_run{b}}}, skill: analyze, output: {{type: object}}{extra_b}, exit: [{{kind: output}}]}}\n"
+    )
+    };
+    assert_eq!(problems(&two("", "", "")), Vec::<String>::new());
+    let ps = problems(&two("", "", ", writes: [Bash]"));
+    assert!(
+        ps.iter().any(|p| p.contains("station two")
+            && p.contains("shares its session")
+            && p.contains("station one")
+            && p.contains("writes")),
+        "{ps:#?}"
+    );
+    let ps = problems(&two("", ", model: m2", ""));
+    assert!(ps.iter().any(|p| p.contains("model")), "{ps:#?}");
+    let ps = problems(&two(", template: t", "", ""));
+    assert!(ps.iter().any(|p| p.contains("placement")), "{ps:#?}");
+    let contract = two("", "", "").replacen(
+        "output: {type: object}, exit",
+        "output: {type: object, required: [x]}, exit",
+        1,
+    );
+    assert!(problems(&contract)
+        .iter()
+        .any(|p| p.contains("output contract")));
+    // Handing in with flow_submit, the contract is the flow's to check, not the session's.
+    let wrapped = contract.replace("scene: chat", "scene: flow-chat");
+    let mut cat = Packs::catalog(&packs().scene("flow-chat"));
+    cat.submit_scenes.insert("flow-chat".into());
+    struct Q(MemPacks, Catalog);
+    impl Packs for Q {
+        fn flows(&self) -> Vec<String> {
+            Packs::flows(&self.0)
+        }
+        fn flow(&self, n: &str) -> Option<(FlowDef, String)> {
+            Packs::flow(&self.0, n)
+        }
+        fn skill(&self, n: &str) -> Option<(String, String)> {
+            Packs::skill(&self.0, n)
+        }
+        fn catalog(&self) -> Catalog {
+            self.1.clone()
+        }
+    }
+    assert!(validate_yaml(&wrapped, &Q(packs(), cat)).is_empty());
+    // A session of its own each: nothing to agree on.
+    let apart = two("", "", ", writes: [Bash]").replace("session: per_run", "session: new");
+    assert_eq!(problems(&apart), Vec::<String>::new());
+    // Tasks of one station sharing by key.
+    let keyed = "name: k\nstations:\n  - id: a\n    tasks:\n      - {id: x, executor: {kind: session, scene: chat, session: {key: '${run}'}}, skill: analyze}\n      - {id: y, executor: {kind: session, scene: other, session: {key: '${run}'}}, skill: analyze}\n    output: {type: object}\n    exit: [{kind: output}]\n";
+    let ps: Vec<String> = validate_yaml(keyed, &packs().scene("other"))
+        .iter()
+        .map(|p| p.to_string())
+        .collect();
+    assert!(
+        ps.iter().any(|p| p.contains("task y")
+            && p.contains("task x of this station")
+            && p.contains("scene")),
+        "{ps:#?}"
+    );
+}

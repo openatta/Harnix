@@ -201,7 +201,7 @@ async fn change(sh: &Arc<Shared>, run: Option<&str>, r: crate::Result<crate::Out
     let o = r.map_err(rpc_error)?;
     let value = o.value.clone();
     match run {
-        Some(run) if is_dry(run) => {
+        Some(run) if in_sandbox(sh, run).await => {
             sh.sandbox()?.absorb(run, o).await.map_err(rpc_error)?;
             dispatch::publish_dry(sh, Some(run)).await;
         }
@@ -210,13 +210,22 @@ async fn change(sh: &Arc<Shared>, run: Option<&str>, r: crate::Result<crate::Out
     Ok(value)
 }
 
+/// Whether `run` is a dry run the sandbox holds: only then does a call go there. (No flow may
+/// be named `dry-…`, so a real run's id never looks like one; this does not rely on it.)
+async fn in_sandbox(sh: &Shared, run: &str) -> bool {
+    match (is_dry(run), sh.sandbox()) {
+        (true, Ok(sandbox)) => sandbox.holds(run).await,
+        _ => false,
+    }
+}
+
 fn engine(sh: &Shared) -> Result<Arc<Engine>, RpcError> {
     sh.engine()
 }
 
 /// The engine `run` is in: the sandbox's for a dry run, the module's otherwise.
 async fn engine_of(sh: &Shared, run: &str) -> Result<Arc<Engine>, RpcError> {
-    if is_dry(run) {
+    if in_sandbox(sh, run).await {
         sh.sandbox()?.engine_for(run).await.map_err(rpc_error)
     } else {
         engine(sh)
@@ -260,7 +269,7 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         "get",
         "a run with its pinned definition and what each open station lacks (a dry run's session tasks carry `preview`): {run}",
         |sh, _, _, p: RunIn| async move {
-            if is_dry(&p.run) {
+            if in_sandbox(&sh, &p.run).await {
                 return sh.sandbox()?.get(&p.run).await.map_err(rpc_error);
             }
             to_value(engine(&sh)?.get(&p.run).await.map_err(rpc_error)?)
@@ -402,8 +411,30 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         sh,
         packs,
         "focus",
-        "the flow a conversation works on (the panel's selection): {instance, session_id, flow | null} → {flow}",
-        |sh, packs, _, p: FocusIn| async move {
+        "the flow a conversation works on (the panel's selection): {instance, session_id, flow | null} → {flow}; the session must be a flow-author conversation",
+        |sh, packs, cx, p: FocusIn| async move {
+            // Only a conversation that can use it: an existing session in the flow-author scene.
+            let session = cx
+                .module()
+                .call(
+                    "session.get",
+                    json!({"instance": p.instance, "session_id": p.session_id}),
+                )
+                .await
+                .map_err(|e| {
+                    RpcError::invalid_params(format!(
+                        "no session {}/{}: {}",
+                        p.instance, p.session_id, e.message
+                    ))
+                })?;
+            if session.get("scene").and_then(Value::as_str) != Some(super::AUTHOR_SCENE) {
+                return Err(RpcError::invalid_params(format!(
+                    "session {}/{} is not a {} conversation",
+                    p.instance,
+                    p.session_id,
+                    super::AUTHOR_SCENE
+                )));
+            }
             let flow = p.flow.filter(|f| !f.is_empty());
             if let Some(f) = &flow {
                 if packs.flow(f).is_none() {

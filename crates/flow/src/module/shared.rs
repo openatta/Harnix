@@ -1,6 +1,7 @@
 //! What the module, its native tools, its middleware and its dispatcher share.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -71,9 +72,18 @@ pub(crate) struct Shared {
     pub proposals: Arc<tokio::sync::Mutex<()>>,
     /// Dry runs (xops-02 §5).
     pub sandbox: OnceLock<Arc<Sandbox>>,
-    /// The flow each authoring conversation works on: `(instance, session_id)` → flow.
-    focus: Mutex<HashMap<(String, String), String>>,
+    /// The flow each authoring conversation works on: `(instance, session_id)` → (flow, when
+    /// set). Bounded by [`FOCUS_KEPT`]: the oldest goes first.
+    focus: Mutex<HashMap<(String, String), (String, u64)>>,
+    focus_seq: std::sync::atomic::AtomicU64,
+    /// Instances the module made for runs under its own names: instance → run. Kept in the
+    /// module's data directory, so an instance a run left behind is stopped after a restart too.
+    instances: Mutex<BTreeMap<String, String>>,
+    pub ledger: OnceLock<PathBuf>,
 }
+
+/// How many conversations' focus is remembered.
+pub const FOCUS_KEPT: usize = 1024;
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -95,7 +105,64 @@ impl Shared {
             proposals: Arc::default(),
             sandbox: OnceLock::new(),
             focus: Mutex::new(HashMap::new()),
+            focus_seq: std::sync::atomic::AtomicU64::new(0),
+            instances: Mutex::new(BTreeMap::new()),
+            ledger: OnceLock::new(),
         }
+    }
+
+    /// Read the instance ledger from `path`, and save to it from now on.
+    pub fn load_ledger(&self, path: PathBuf) {
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            if let Ok(m) = serde_json::from_str::<BTreeMap<String, String>>(&text) {
+                *lock(&self.instances) = m;
+            }
+        }
+        let _ = self.ledger.set(path);
+    }
+
+    fn save_ledger(&self, m: &BTreeMap<String, String>) {
+        let Some(path) = self.ledger.get() else {
+            return;
+        };
+        let tmp = path.with_extension("json.tmp");
+        let ok = std::fs::write(&tmp, serde_json::to_vec_pretty(m).unwrap_or_default())
+            .and_then(|_| std::fs::rename(&tmp, path));
+        if let Err(e) = ok {
+            tracing::warn!(path = %path.display(), error = %e, "flow: instance ledger not saved");
+        }
+    }
+
+    /// Record an instance the module makes for `run` under its own name.
+    pub fn own_instance(&self, instance: &str, run: &str) {
+        let mut g = lock(&self.instances);
+        if g.get(instance).map(String::as_str) != Some(run) {
+            g.insert(instance.to_string(), run.to_string());
+            self.save_ledger(&g);
+        }
+    }
+
+    /// Forget the instances made for `run`; their names.
+    pub fn take_instances(&self, run: &str) -> Vec<String> {
+        let mut g = lock(&self.instances);
+        let names: Vec<String> = g
+            .iter()
+            .filter(|(_, r)| *r == run)
+            .map(|(i, _)| i.clone())
+            .collect();
+        if !names.is_empty() {
+            g.retain(|_, r| r != run);
+            self.save_ledger(&g);
+        }
+        names
+    }
+
+    /// Every run some recorded instance was made for.
+    pub fn instance_runs(&self) -> Vec<String> {
+        let mut runs: Vec<String> = lock(&self.instances).values().cloned().collect();
+        runs.sort();
+        runs.dedup();
+        runs
     }
 
     pub fn sandbox(&self) -> Result<Arc<Sandbox>, RpcError> {
@@ -111,16 +178,30 @@ impl Shared {
     pub fn focus(&self, instance: &str, session_id: &str) -> Option<String> {
         lock(&self.focus)
             .get(&(instance.to_string(), session_id.to_string()))
-            .cloned()
+            .map(|(f, _)| f.clone())
     }
 
-    /// Set (or, with `None`, clear) the flow a conversation works on.
+    /// Set (or, with `None`, clear) the flow a conversation works on. Past [`FOCUS_KEPT`]
+    /// conversations the one set longest ago is forgotten.
     pub fn set_focus(&self, instance: &str, session_id: &str, flow: Option<String>) {
         let key = (instance.to_string(), session_id.to_string());
         let mut g = lock(&self.focus);
         match flow {
             Some(f) => {
-                g.insert(key, f);
+                let seq = self
+                    .focus_seq
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                g.insert(key, (f, seq));
+                while g.len() > FOCUS_KEPT {
+                    let Some(oldest) = g
+                        .iter()
+                        .min_by_key(|(_, (_, s))| *s)
+                        .map(|(k, _)| k.clone())
+                    else {
+                        break;
+                    };
+                    g.remove(&oldest);
+                }
             }
             None => {
                 g.remove(&key);
@@ -132,9 +213,14 @@ impl Shared {
     pub fn focused_on(&self, flow: &str) -> Vec<(String, String)> {
         lock(&self.focus)
             .iter()
-            .filter(|(_, f)| *f == flow)
+            .filter(|(_, (f, _))| *f == flow)
             .map(|(k, _)| k.clone())
             .collect()
+    }
+
+    #[cfg(test)]
+    pub fn focus_len(&self) -> usize {
+        lock(&self.focus).len()
     }
 
     pub fn engine(&self) -> Result<Arc<Engine>, RpcError> {
@@ -334,6 +420,42 @@ mod tests {
         sh.set_focus("system", "s1", None);
         assert_eq!(sh.focus("system", "s1"), None);
         assert!(super::super::NO_FOCUS.contains("select"));
+        for i in 0..FOCUS_KEPT + 10 {
+            sh.set_focus("system", &format!("many-{i}"), Some("demo".into()));
+        }
+        assert_eq!(sh.focus_len(), FOCUS_KEPT, "bounded");
+        assert_eq!(sh.focus("system", "s2"), None, "the oldest went first");
+        assert_eq!(
+            sh.focus("system", &format!("many-{}", FOCUS_KEPT + 9))
+                .as_deref(),
+            Some("demo")
+        );
+    }
+
+    #[test]
+    fn the_instances_made_for_a_run_are_remembered_on_disk_until_taken() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("instances.json");
+        let sh = shared();
+        sh.load_ledger(path.clone());
+        sh.own_instance("flow-r-1-aaaa", "r-1");
+        sh.own_instance("flow-r-1-bbbb", "r-1");
+        sh.own_instance("flow-r-2-cccc", "r-2");
+        let again = shared();
+        again.load_ledger(path.clone());
+        assert_eq!(
+            again.instance_runs(),
+            ["r-1", "r-2"],
+            "it survives a restart"
+        );
+        assert_eq!(
+            again.take_instances("r-1"),
+            ["flow-r-1-aaaa", "flow-r-1-bbbb"]
+        );
+        let third = shared();
+        third.load_ledger(path);
+        assert_eq!(third.instance_runs(), ["r-2"]);
+        assert!(third.take_instances("r-1").is_empty());
     }
 
     #[test]

@@ -182,12 +182,13 @@ XOps 的维护者在 xops-01 之后要求：流程会话要能落到不同的实
   `models` 里写 `model` 或 `provider/model`，只写模型名时匹配任一 `*/model`。
 - session 站必须有 `output` 契约（「必须用 `flow-*` 包装 scene」的规则没了：目录的 `scenes` 现在是应用给的加上包过的）。
 - `WorkItem::Task` 加 `placement: Option<Placement>`（`params` 按任务的上下文解析成字符串）、`delivery: Option<Delivery>`。
-  `Placement::template_instance(run)`：模板实例名取 `params.name`，没有就是 `flow-<run>`；其余参数原样交给模板。
+  `Placement::template_instance(run)`：模板实例名取 `params.name`，没有就是 `default_instance(run, template)` = `flow-<run 前 40 字>-<8 位摘要>`
+  （≤ 54 字，实例名上限 64）；其余参数原样交给模板。（评审 #6 前是 `flow-<run>`。）
 - `Delivery`：`structured_output`（缺省）| `flow_submit`（`Engine::with_submit_scenes` 列出的 scene，即模块的 `flow-*`）。
   协议层按它写交法；限写一句改成列出**本站实际被拒的**受限工具（`protocol::refused`）。`Engine::delivery_of(scene)`、
   `Engine::dispatched_work(rec, now)`（重启接续时按引擎的交法重建；自由函数 `dispatched_work` 保留，一律当结构化输出）。
 - `protocol::refused(guarded, writes) -> [(pattern, rule_tool_name)]`：受限的名字不被 `writes` 允许就拒；分组 `ns__*` 整组拒
-  （规则写 `ns`，Agix 按 `__` 段匹配），但本站 `writes` 落在组内的不拒整组（`deny` 不能带例外）；不在 `__` 边界的 `prefix*` 写不成规则，跳过。
+  （规则写 `ns`，Agix 按 `__` 段匹配）。评审 #2 之后一律**收紧**：见下文「评审后的修改」。
 - `Packs` 加 `writable / origin / save_flow / delete_flow / save_skill / delete_skill`（缺省只读），`Origin { builtin, override, user }`。
   包只查「能解析、名字能存」；**整份校验在 `Engine::save_flow`**（用引擎的包——模块那层带全目录——判，问题即错误、什么都不写）。
   `Engine::{save_flow, delete_flow, save_skill, delete_skill}` 先问 `Authorizer`：新 `Op::EditFlow { flow }`、`Op::EditSkill { skill }`（`run` 为 `None`）。
@@ -284,6 +285,29 @@ XOps 的维护者在 xops-01 之后要求：流程会话要能落到不同的实
 - 交了结构化输出、但那一轮在重启时还没结算的任务，重启后按「没交」提醒一次（回放下没有录像，会失败后按 `retry` 重派）。
 - 组内部分开放的受限分组不拒整组（见上），协议层如实只列出被拒的。
 - `schema::minimal` 给数组的是 `minItems` 个（缺省 0）：`foreach` 站在试运行里不给 `mocks` 就没有任务、直接通过。
+
+### 评审后的修改（后端）
+
+| # | 问题 | 改法 | 回归测试 |
+|---|---|---|---|
+| 1 | 共用会话（`per_run` / 同一 `{key}` 表达式）沿用第一个任务建会话时的 scene、`output_schema`、权限规则、模型、落点（Agix 只在建会话时用它们） | 校验：可能共用一个会话的任务（跨站、同站的静态任务）必须一致——scene（即交付方式）、输出契约（只在结构化输出交付时算，`flow_submit` 的契约由流程判、不进会话）、被拒的受限工具集、模型 / provider、落点；不一致报「task … shares its session (…) with station …, but its … differ」。`Catalog` 加 `guarded`、`submit_scenes`（模块填）。派活时兜底：建会话时写条目 `app.flow` / `session_settings`（`{scene, delivery, output_schema, refused, model, provider, space, template, instance}`），任务按会话键复用别人的会话前比对，不同就 `fail`：「the run's shared session … was opened with other settings (…) and keeps them」 | `validate.rs::tasks_sharing_a_session_must_be_opened_alike`；`dispatch::tests::a_shared_session_names_what_it_was_opened_with_differently` |
+| 2 | `refused()` 放宽：写组内一个工具就整组放行；非 `__` 边界的 `prefix*` 静默跳过 | 受限模式只认确切名字或 `ns__*`（`protocol::guard_problem`）；`FlowBuilder` 收到别的，模块 `start` 失败并写明（诊断页可见）。`refused()` 一律收紧：组只有被整组（或更宽的组）写开才放行；写开组内一部分仍拒整组，校验报「writes … opens only part of the guarded group …」（`protocol::partial_writes`） | `protocol::tests::{refused_writes_are_the_guarded_tools_a_station_does_not_open, guarded_patterns_are_names_or_namespace_groups}`；`module::tests::a_guarded_pattern_no_permission_rule_can_say_keeps_the_module_from_starting`；`validate.rs::a_write_may_open_a_guarded_group_whole_only` |
+| 3 | CI 仍建 `-p harnix`，测试 / clippy 列表缺 `harnix-cli`、`harnix-flow` | `.github/workflows/check.yml` 建 `-p harnix-cli -p harnix-testapp`，测试与 clippy 加 `harnix-cli harnix-client harnix-flow`，另跑 `harnix-flow --no-default-features`。全仓查过：`scripts/check.sh`、testkit 已改；文档、模板、`set-version.sh`（按 `crates/*` 遍历）、桌面模板（只用 `target/release/harnix` 路径）无须改 | — |
+| 4 | `flow_update` / `flow_delete` 作用于调用那一刻的当前流程，批准卡片不点名 | `flow_update`、`flow_delete`、`flow_start`、`flow_dry_run` 必填 `flow`（Agent 从 `flow_show` / `flow_list` 拿到的名字）；执行时与会话当前流程比对，不同就什么都不做并返回「the current flow changed to `X` … ask the user again」。`check_permissions` 的问句点名（「Let the agent change the flow `x`?」）——**但 Agix 的权限闸在模式分派时用自己的 `Allow <tool>?` 替换工具的问句**，所以界面的批准卡片要从这次调用的输入（`prompt.tool_use_id` → `tool_use.input.flow`）读流程名。`flow_skill_*` 不作用于当前流程，问句点名 skill | `author::tests::a_change_acts_only_on_the_flow_it_names_while_that_is_current`；`flow-authoring.spec.ts` 查每个被问的 `flow_update` / `flow_delete` 调用都带 `flow: authored` |
+| 5 | 流程名可以以 `dry-` 开头，真运行会被路由进沙箱 | 校验与 `MemPacks`/`DirPacks` 保存都拒 `dry-` 开头的名字；方法只在沙箱确实持有这个 id 时才路由进去（`Sandbox::holds`），否则照常 | `validate.rs::the_dry_prefix_is_kept_for_dry_runs`；`flow-authoring.spec.ts`（`save` `dry-sneaky` 被拒） |
+| 6 | 模板实例从不停：每条运行一个 `flow-<run>`，daemon 泄漏、`max` 用尽、长流程名超 64 字 | 缺省名改为 `default_instance(run, template)`；模块按自己的命名建的实例记进数据目录 `instances.json`（实例 → 运行，先记后建），运行 `finished` / `cancelled` 时 `harnix.instances.stop`；启动时把已结束运行留下的也停掉。站自己写了 `params.name` 的实例不归运行、不停 | `authoring.rs::session_work_carries_its_placement_resolved_and_how_it_hands_in`（命名、长度）；`shared::tests::the_instances_made_for_a_run_are_remembered_on_disk_until_taken`；`flow-placement.spec.ts`：运行完成后 spawn 实例消失、具名实例还在；取消后实例消失 |
+| 7 | 设置为 `bypassPermissions` 的实例无视会话的权限规则（Agix 对它直接给全放行的 `Permission`） | 任务会话的 `SessionSpec.permission_mode = "acceptEdits"`（`TASK_PERMISSION_MODE`）：Agix 只会把客户端要的模式夹得更严，于是 `default` 的实例照旧，`bypassPermissions` / `yolo` / `auto` 的实例被夹到 `acceptEdits`——走规则、不用分类器（分类器要额外的模型调用）、文件写入自动放行（除非被拒） | `flow-placement.spec.ts`「on an instance set to bypass permissions, the session still keeps its station's rules」（`demo-bypassed`，测试预置 `bypass-box` 的 `settings.json`；去掉这一行时用例失败，验证过） |
+| 低 | `flow_create` / `flow_update` 先存 skill 再存流程 | 先全部校验（skill 名与正文、带上这些 skill 的整份流程），再写；流程没存成就把这次写过的 skill 恢复原样（原来没有的删掉） | `author::tests::skills_written_before_a_failed_save_are_put_back` |
+| 低 | 门或别的任务失败也让会话「改输出」 | 只回送本任务能改的：失败的 `output` 检查里关于本任务的部分；`tool` 出口仅当本站只有这一个任务时 | `dispatch::tests::only_what_the_session_can_fix_is_sent_back_to_it` |
+| 低 | `focus` 表只增不减、接受任意会话 | `focus` 方法先 `session.get`：会话要存在且 scene 是 `flow-author`，否则 `INVALID_PARAMS`；表有上限 `FOCUS_KEPT`（1024），超出丢最早设的 | `shared::tests::a_conversation_remembers_its_flow_until_it_is_cleared`；`flow-authoring.spec.ts`（普通会话、不存在的会话被拒） |
+
+新录像 `flow-bypassed`（同 `flow-guarded`）；`flow-author-*` 按新的 `flow` 输入重做。testapp 的 `demo-guarded` 末尾加一个确认站（运行停在那里才读得到会话历史，结束后实例就停了）；`MemPacks::submit_scene`。
+
+跑过：`cargo test -p harnix -p harnix-cli -p harnix-flow -p harnix-testapp`、`-p harnix-flow --no-default-features`、clippy `-D warnings`（含无缺省特性）、
+`crate-metadata`、`coverage.mjs --check`、`pnpm -r typecheck` / `test`；LIVE 流程 4 个文件两种拓扑各 20 过；`api` 全部一次 237 过、15 跳过。
+
+给外壳：`focus` 只接受 `flow-author` 会话；批准卡片的流程名从工具调用的 `input.flow` 读；`flow_update` 等的输入多了必填 `flow`；会话里多一种
+`app.flow` 条目 `session_settings`（流程任务的会话才有，不必画）。
 
 ### 外壳一半（分支 `flow-2`）
 

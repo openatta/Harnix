@@ -39,15 +39,17 @@ use crate::kernel::schema::minimal;
 use crate::kernel::{FlowError, Result};
 use crate::store::MemStore;
 
-/// The prefix of every dry run's id (and its children's).
-pub const PREFIX: &str = "dry-";
+/// The prefix of every dry run's id (and its children's). No flow may be named with it
+/// (validation), so a real run's id never has it.
+pub const PREFIX: &str = crate::kernel::validate::DRY_PREFIX;
 /// How many dry runs are kept; starting one more drops the oldest.
 pub const KEEP: usize = 20;
 /// The most work items one [`Sandbox::run`] takes before it stops (a flow cannot loop forever,
 /// but a long one can be long).
 pub const MAX_STEPS: usize = 2000;
 
-/// Whether a run id is a dry run's.
+/// Whether a run id looks like a dry run's. Routing asks [`Sandbox::holds`] as well: only a
+/// run the sandbox has goes there.
 pub fn is_dry(run: &str) -> bool {
     run.starts_with(PREFIX)
 }
@@ -440,6 +442,14 @@ impl Sandbox {
             .await
             .ok_or_else(|| Self::not_found(run))?;
         Ok(runs[i].engine.clone())
+    }
+
+    /// Whether `run` is one of the sandbox's runs (a root or a child).
+    pub async fn holds(&self, run: &str) -> bool {
+        is_dry(run) && {
+            let runs = self.runs.lock().await;
+            Self::find(&runs, run).await.is_some()
+        }
     }
 
     /// The root of the dry run `run` belongs to.

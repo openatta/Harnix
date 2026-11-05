@@ -204,6 +204,55 @@ impl Packs for WithSkills<'_> {
     }
 }
 
+/// The flow a tool that changes or runs one acts on: the `flow` it names, if that is still the
+/// conversation's current flow.
+pub(crate) fn target_flow(input: &Value, focus: Option<&str>) -> Result<String, String> {
+    let Some(named) = input
+        .get("flow")
+        .and_then(Value::as_str)
+        .filter(|s| !s.trim().is_empty())
+    else {
+        return Err(
+            "name the flow this acts on in `flow`: the current one, as flow_show gave it".into(),
+        );
+    };
+    match focus {
+        None => Err(NO_FOCUS.into()),
+        Some(f) if f == named => Ok(named.to_string()),
+        Some(f) => Err(format!(
+            "the current flow changed to `{f}` (you named `{named}`): nothing was done — ask the \
+             user again which flow they mean"
+        )),
+    }
+}
+
+/// What is wrong with skills about to be saved.
+fn skill_problems(skills: &BTreeMap<String, String>) -> Vec<String> {
+    let mut out = vec![];
+    for (k, body) in skills {
+        if !crate::kernel::validate::is_skill_name(k) {
+            out.push(format!("skill name {k:?} must match [a-z][a-z0-9_-]*"));
+        }
+        if body.trim().is_empty() {
+            out.push(format!("skill {k} needs a body"));
+        }
+    }
+    out
+}
+
+/// Put back skills this call saved: each as its body was before, or gone if it was not there.
+fn restore_skills(packs: &dyn Packs, before: &[(String, Option<String>)], saved: &[String]) {
+    for (k, old) in before.iter().filter(|(k, _)| saved.contains(k)) {
+        let _ = packs.delete_skill(k);
+        let now = packs.skill(k).map(|(b, _)| b);
+        if now != *old {
+            if let Some(body) = old {
+                let _ = packs.save_skill(k, body);
+            }
+        }
+    }
+}
+
 type ToolOut = Result<ToolResult, base::error::ToolError>;
 
 /// One authoring tool: which one is its name.
@@ -297,12 +346,12 @@ impl Tool for AuthorTool {
             TOOL_SCHEMA => "The JSON Schema of a flow definition, and the names this application offers (scenes, steps, gates, tools, actions, templates, instances, spaces, models, skills).",
             TOOL_VALIDATE => "Every problem of a flow definition text (YAML), without saving anything. An empty list: it is valid.",
             TOOL_CREATE => "Create a new flow from its YAML (and, optionally, skills it uses: {name: SKILL.md body}). It is validated first and not saved if it has problems. It becomes the current flow.",
-            TOOL_UPDATE => "Change the current flow: its YAML (same name), and/or skills ({name: SKILL.md body}). Validated first; nothing is saved if it has problems. Runs already started keep their definition.",
-            TOOL_DELETE => "Delete the current flow. For a built-in flow, this deletes the saved override and the built-in version is back.",
+            TOOL_UPDATE => "Change the current flow, named in `flow`: its YAML (same name), and/or skills ({name: SKILL.md body}). Validated first; nothing is saved if anything has problems. Runs already started keep their definition.",
+            TOOL_DELETE => "Delete the current flow, named in `flow`. For a built-in flow, this deletes the saved override and the built-in version is back.",
             TOOL_SKILL_SET => "Create or change a skill: its SKILL.md body.",
             TOOL_SKILL_DELETE => "Delete a saved skill.",
-            TOOL_DRY_RUN => "Dry-run the current flow: the real kernel, everything outside mocked (no session, no program, no model). Runs until it ends or waits for a person, and returns the path it took. `mocks`: {stations: {id: output}, gates: {gate: false}, tools: {tool: result}}.",
-            TOOL_START => "Start a real run of the current flow for a subject. Only when the user asks for it.",
+            TOOL_DRY_RUN => "Dry-run the current flow, named in `flow`: the real kernel, everything outside mocked (no session, no program, no model). Runs until it ends or waits for a person, and returns the path it took. `mocks`: {stations: {id: output}, gates: {gate: false}, tools: {tool: result}}.",
+            TOOL_START => "Start a real run of the current flow, named in `flow`, for a subject. Only when the user asks for it.",
             _ => "",
         }
     }
@@ -317,7 +366,10 @@ impl Tool for AuthorTool {
                 json!({"type": "object", "required": ["yaml"], "properties": {"yaml": {"type": "string"}, "skills": skills}})
             }
             TOOL_UPDATE => {
-                json!({"type": "object", "properties": {"yaml": {"type": "string"}, "skills": skills}})
+                json!({"type": "object", "required": ["flow"], "properties": {"flow": {"type": "string", "description": "the flow this acts on, by name: the current one, as flow_show or flow_list gave it"}, "yaml": {"type": "string"}, "skills": skills}})
+            }
+            TOOL_DELETE => {
+                json!({"type": "object", "required": ["flow"], "properties": {"flow": {"type": "string", "description": "the flow this acts on, by name: the current one, as flow_show or flow_list gave it"}}})
             }
             TOOL_SKILL_SET => {
                 json!({"type": "object", "required": ["name", "body"], "properties": {"name": {"type": "string"}, "body": {"type": "string"}}})
@@ -325,11 +377,13 @@ impl Tool for AuthorTool {
             TOOL_SKILL_DELETE => {
                 json!({"type": "object", "required": ["name"], "properties": {"name": {"type": "string"}}})
             }
-            TOOL_DRY_RUN => json!({"type": "object", "properties": {
+            TOOL_DRY_RUN => json!({"type": "object", "required": ["flow"], "properties": {
+                "flow": {"type": "string", "description": "the flow this acts on, by name: the current one, as flow_show or flow_list gave it"},
                 "inputs": {"type": "object"},
                 "mocks": {"type": "object", "properties": {
                     "stations": {"type": "object"}, "gates": {"type": "object"}, "tools": {"type": "object"}}}}}),
-            TOOL_START => json!({"type": "object", "required": ["subject"], "properties": {
+            TOOL_START => json!({"type": "object", "required": ["flow", "subject"], "properties": {
+                "flow": {"type": "string", "description": "the flow this acts on, by name: the current one, as flow_show or flow_list gave it"},
                 "subject": {"type": "string"}, "inputs": {"type": "object"}, "title": {"type": "string"}}}),
             _ => json!({"type": "object", "properties": {}}),
         }
@@ -352,13 +406,23 @@ impl Tool for AuthorTool {
                 .map(|n| format!(" `{n}`"))
                 .unwrap_or_default()
         };
+        let created = input
+            .get("yaml")
+            .and_then(Value::as_str)
+            .and_then(|y| FlowDef::parse(y).ok())
+            .map(|d| format!(" `{}`", d.name))
+            .unwrap_or_default();
         let what = match self.name {
-            TOOL_CREATE => "create a flow".to_string(),
-            TOOL_UPDATE => "change the current flow".to_string(),
-            TOOL_DELETE => "delete the current flow".to_string(),
+            TOOL_CREATE => format!("create the flow{created}"),
+            TOOL_UPDATE => format!("change the flow{}", named("flow")),
+            TOOL_DELETE => format!("delete the flow{}", named("flow")),
             TOOL_SKILL_SET => format!("save the skill{}", named("name")),
             TOOL_SKILL_DELETE => format!("delete the skill{}", named("name")),
-            TOOL_START => format!("start a run of the current flow for{}", named("subject")),
+            TOOL_START => format!(
+                "start a run of the flow{} for{}",
+                named("flow"),
+                named("subject")
+            ),
             other => other.to_string(),
         };
         PermissionDecision::ask(format!("Let the agent {what}?"))
@@ -376,6 +440,9 @@ impl Tool for AuthorTool {
             .focus(&instance, &session)
             .filter(|f| packs.flow(f).is_some());
         let need_focus = || focus.clone().ok_or(());
+        // What changes or runs a flow names it, and acts only if it is still the current one:
+        // the person approved that flow, not whatever is selected when the call runs.
+        let target = || target_flow(&input, focus.as_deref());
         match self.name {
             TOOL_LIST => text(json!({
                 "flows": dispatch::defs_list(packs.as_ref()),
@@ -423,10 +490,10 @@ impl Tool for AuthorTool {
             }
             TOOL_CREATE | TOOL_UPDATE => {
                 let creating = self.name == TOOL_CREATE;
-                let current = match (creating, need_focus()) {
+                let current = match (creating, target()) {
                     (true, _) => None,
                     (false, Ok(f)) => Some(f),
-                    (false, Err(())) => return error(NO_FOCUS),
+                    (false, Err(m)) => return error(m),
                 };
                 let skills = match skills_of(&input) {
                     Ok(s) => s,
@@ -460,30 +527,54 @@ impl Tool for AuthorTool {
                         ));
                     }
                 }
-                // Checked whole, with the skills it brings, before anything is written.
+                // Everything is checked — the skills, the text with the skills it brings — before
+                // anything is written.
+                let mut problems: Vec<Value> = skill_problems(&skills)
+                    .into_iter()
+                    .map(|m| json!({"message": m}))
+                    .collect();
                 if let Some(y) = yaml {
                     let with = WithSkills {
                         base: packs.as_ref(),
                         skills: &skills,
                     };
-                    let problems = validate_yaml(y, &with);
-                    if !problems.is_empty() {
-                        return text(json!({"saved": false, "problems": problems}));
-                    }
+                    problems.extend(
+                        validate_yaml(y, &with)
+                            .into_iter()
+                            .filter_map(|p| serde_json::to_value(p).ok()),
+                    );
                 }
+                if !problems.is_empty() {
+                    return text(json!({"saved": false, "problems": problems}));
+                }
+                // Then written; if the flow is not saved after all, the skills this call wrote
+                // are put back as they were.
+                let before: Vec<(String, Option<String>)> = skills
+                    .keys()
+                    .map(|k| (k.clone(), packs.skill(k).map(|(b, _)| b)))
+                    .collect();
                 let mut saved_skills = vec![];
+                let mut failed = None;
                 for (k, body) in &skills {
                     match engine.save_skill(k, body, by.clone()).await {
                         Ok(_) => saved_skills.push(k.clone()),
-                        Err(e) => return error(format!("skill {k} not saved: {e}")),
+                        Err(e) => {
+                            failed = Some(format!("skill {k} not saved: {e}"));
+                            break;
+                        }
                     }
                 }
                 let mut out = json!({"saved": true, "skills": saved_skills});
-                if let Some(y) = yaml {
+                if let (None, Some(y)) = (&failed, yaml) {
                     match engine.save_flow(y, by.clone()).await {
                         Ok(v) => out["flow"] = v,
-                        Err(e) => return error(format!("not saved: {e}")),
+                        Err(e) => failed = Some(format!("not saved: {e}")),
                     }
+                }
+                if let Some(m) = failed {
+                    restore_skills(packs.as_ref(), &before, &saved_skills);
+                    dispatch::publish_defs(sh).await;
+                    return error(format!("{m} (nothing this call wrote was kept)"));
                 }
                 dispatch::publish_defs(sh).await;
                 if let (true, Some(n)) = (creating, name) {
@@ -494,8 +585,9 @@ impl Tool for AuthorTool {
                 text(out)
             }
             TOOL_DELETE => {
-                let Ok(name) = need_focus() else {
-                    return error(NO_FOCUS);
+                let name = match target() {
+                    Ok(n) => n,
+                    Err(m) => return error(m),
                 };
                 match engine.delete_flow(&name, by).await {
                     Ok(v) => {
@@ -537,8 +629,9 @@ impl Tool for AuthorTool {
                 }
             }
             TOOL_DRY_RUN => {
-                let Ok(name) = need_focus() else {
-                    return error(NO_FOCUS);
+                let name = match target() {
+                    Ok(n) => n,
+                    Err(m) => return error(m),
                 };
                 let Ok(sandbox) = sh.sandbox() else {
                     return error("the flow module has not started");
@@ -581,8 +674,9 @@ impl Tool for AuthorTool {
                 }))
             }
             TOOL_START => {
-                let Ok(name) = need_focus() else {
-                    return error(NO_FOCUS);
+                let name = match target() {
+                    Ok(n) => n,
+                    Err(m) => return error(m),
                 };
                 let Some(subject) = str_of(&input, "subject") else {
                     return error("give the run's `subject`");
@@ -656,6 +750,45 @@ mod tests {
                 assert!(!n.contains(verb), "{n}");
             }
         }
+    }
+
+    #[test]
+    fn a_change_acts_only_on_the_flow_it_names_while_that_is_current() {
+        let named = json!({"flow": "a"});
+        assert_eq!(target_flow(&named, Some("a")).unwrap(), "a");
+        let changed = target_flow(&named, Some("b")).unwrap_err();
+        assert!(
+            changed.contains("changed to `b`") && changed.contains("ask the user again"),
+            "{changed}"
+        );
+        assert_eq!(target_flow(&named, None).unwrap_err(), NO_FOCUS);
+        assert!(target_flow(&json!({}), Some("a"))
+            .unwrap_err()
+            .contains("`flow`"));
+    }
+
+    #[test]
+    fn skills_written_before_a_failed_save_are_put_back() {
+        use crate::packs::MemPacks;
+        let packs = MemPacks::new().skill("old", "Built in.").writable();
+        packs.save_skill("mine", "Mine before.").unwrap();
+        let before = vec![
+            ("old".to_string(), Some("Built in.".to_string())),
+            ("mine".to_string(), Some("Mine before.".to_string())),
+            ("new".to_string(), None),
+        ];
+        for (k, b) in [("old", "Changed."), ("mine", "Changed."), ("new", "Fresh.")] {
+            packs.save_skill(k, b).unwrap();
+        }
+        let saved = ["old", "mine", "new"].map(String::from).to_vec();
+        restore_skills(&packs, &before, &saved);
+        assert_eq!(Packs::skill(&packs, "old").unwrap().0, "Built in.");
+        assert_eq!(Packs::skill(&packs, "mine").unwrap().0, "Mine before.");
+        assert!(Packs::skill(&packs, "new").is_none());
+        assert_eq!(
+            skill_problems(&BTreeMap::from([("Bad".to_string(), " ".to_string())])).len(),
+            2
+        );
     }
 
     #[test]

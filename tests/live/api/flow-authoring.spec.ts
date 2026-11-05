@@ -42,6 +42,7 @@ async function author(fixture: string): Promise<string> {
 }
 
 const permitted = new Set<string>();
+const asks: any[] = [];
 
 /** One turn, permitting every ask it raises; its settlement. */
 async function turn(session_id: string, message: string): Promise<any> {
@@ -58,6 +59,7 @@ async function turn(session_id: string, message: string): Promise<any> {
     );
     if (f.method === "harnix.turn_settled") return f.params;
     permitted.add(f.params.event.prompt_id);
+    asks.push(f.params.event);
     await api.call("session.respondToPrompt", {
       session_id,
       prompt_id: f.params.event.prompt_id,
@@ -95,6 +97,12 @@ test("without a selection, changing the current flow answers that the user must 
   expect(await topic("focus", { instance: "system", session_id: session })).toEqual({ flow: "demo-linear" });
   const missing = await api.refused("app.flow.focus", { instance: "system", session_id: session, flow: "nothing" });
   expect(missing?.data?.flow).toBe("not_found");
+  // Only a flow-author conversation has a focus.
+  const plain = await api.call("session.create", { options: { recorder: { name: "says-ready" } } });
+  const notAuthor = await api.refused("app.flow.focus", { instance: plain.instance, session_id: plain.session_id, flow: "demo-linear" });
+  expect(notAuthor?.message).toContain("not a flow-author conversation");
+  const nobody = await api.refused("app.flow.focus", { instance: "system", session_id: "no-such-session", flow: "demo-linear" });
+  expect(nobody?.message).toContain("no session");
   expect(await api.call("app.flow.focus", { instance: "system", session_id: session, flow: null })).toEqual({ flow: null });
 });
 
@@ -132,6 +140,19 @@ test("a flow-author conversation creates a flow (and selects it), shows, changes
   // Each tool that changes something was asked about (create, update, delete here; the update
   // without a selection before): the person in the conversation decides.
   expect(permitted.size).toBeGreaterThanOrEqual(4);
+  // Each ask is about a call that names its flow: what the person approves is that flow. (The
+  // engine shows its own "Allow <tool>?", so the card reads the flow from the call's input.)
+  expect(asks.map((a) => a.tool_name)).toEqual(expect.arrayContaining(["flow_create", "flow_update", "flow_delete"]));
+  const { messages: all } = await api.call("session.history", { session_id: session });
+  const calls = new Map<string, any>(
+    all.flatMap((m: any) => (Array.isArray(m.content) ? m.content : [])).filter((b: any) => b.type === "tool_use").map((b: any) => [b.id, b]),
+  );
+  const named = asks
+    .filter((a) => a.tool_name === "flow_update" || a.tool_name === "flow_delete")
+    .map((a) => calls.get(a.tool_use_id))
+    .filter(Boolean);
+  expect(named).toHaveLength(2);
+  for (const call of named) expect(call.input.flow).toBe("authored");
   // Nothing in the conversation confirms or forces: those tools do not exist.
   const { messages } = await api.call("session.history", { session_id: session });
   expect(JSON.stringify(messages)).not.toMatch(/flow_(confirm|force|rework|release|cancel)/);
@@ -144,6 +165,10 @@ test("a flow saved through the methods can be started; an override gives way to 
   });
   expect(bad?.message).toContain("nowhere");
   expect((await api.call("app.flow.defs")).some((d: any) => d.name === "saved-bad")).toBe(false);
+
+  // `dry-` is kept for dry runs: no flow may take it, so no real run can look like one.
+  const dry = await api.refused("app.flow.save", { yaml: "name: dry-sneaky\nstations: [{id: a, exit: [{kind: confirm}]}]" });
+  expect(dry?.message).toContain("kept for dry runs");
 
   expect(await api.call("app.flow.save", { yaml })).toMatchObject({ name: "saved-one", origin: "user" });
   const { run } = await api.call("app.flow.start", { flow: "saved-one", subject: "x" });

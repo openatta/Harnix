@@ -11,6 +11,7 @@
 //! | `demo-placed` | xops-02: a station on an in-process template's instance in the `fleet` space with a model of its own, one on a spawned template's instance — both handing in by structured output — and a confirmation |
 //! | `demo-guarded` | xops-02: a session on a template's instance tries a write its station does not allow (refused by its permission rules), then hands in |
 //! | `demo-misplaced` | xops-02: a station whose template does not exist; the task fails, saying why |
+//! | `demo-bypassed` | xops-02: like `demo-guarded`, on an instance (`bypass-box`) whose settings a LIVE suite sets to `bypassPermissions` — the session asks for a mode that keeps its rules |
 //!
 //! The flow module has two templates of its own for those (`flow.local` in process, `flow.remote`
 //! spawned): their engines have `structured-chat` — Agix's chat scene with `StructuredOutput`
@@ -162,6 +163,20 @@ stations:
     skill: analyze
     output: {type: object, required: [done], properties: {done: {const: true}}}
     exit: [{kind: output}]
+  - id: approve
+    title: Approve
+    exit: [{kind: confirm}]
+"#;
+
+pub const DEMO_BYPASSED: &str = r#"name: demo-bypassed
+title: "Demo: a write refused on an instance that bypasses permissions"
+stations:
+  - id: bypassed
+    title: Work without writing
+    executor: {kind: session, scene: structured-chat, template: flow.local, params: {name: bypass-box}}
+    skill: analyze
+    output: {type: object, required: [done], properties: {done: {const: true}}}
+    exit: [{kind: output}]
 "#;
 
 pub const DEMO_MISPLACED: &str = r#"name: demo-misplaced
@@ -266,6 +281,7 @@ fn packs() -> MemPacks {
         .flow(DEMO_PLACED)
         .flow(DEMO_GUARDED)
         .flow(DEMO_MISPLACED)
+        .flow(DEMO_BYPASSED)
         .skill("analyze", SKILL_ANALYZE)
         .skill("report", SKILL_REPORT)
         .scene("structured-chat")
@@ -337,7 +353,7 @@ mod tests {
         let packs = MemPacks::new()
             .skill("analyze", SKILL_ANALYZE)
             .skill("report", SKILL_REPORT)
-            .scene("flow-chat")
+            .submit_scene("flow-chat")
             .scene("structured-chat")
             .step("collect")
             .step("self-check")
@@ -352,6 +368,7 @@ mod tests {
             DEMO_PLACED,
             DEMO_GUARDED,
             DEMO_MISPLACED,
+            DEMO_BYPASSED,
         ] {
             let problems = validate_yaml(yaml, &packs as &dyn Packs);
             assert!(problems.is_empty(), "{problems:?}");

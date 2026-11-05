@@ -86,6 +86,11 @@ pub fn validate(def: &FlowDef, packs: &dyn Packs) -> Vec<Problem> {
     };
     if !is_name(&def.name, &[]) {
         c.flow(format!("name {:?} must match [a-z][a-z0-9-]*", def.name));
+    } else if def.name.starts_with(DRY_PREFIX) {
+        c.flow(format!(
+            "name {:?}: names starting `{DRY_PREFIX}` are kept for dry runs",
+            def.name
+        ));
     }
     if def.stations.is_empty() {
         c.flow("a flow needs at least one station");
@@ -129,7 +134,142 @@ pub fn validate(def: &FlowDef, packs: &dyn Packs) -> Vec<Problem> {
     for s in &def.stations {
         station_problems(&mut c, s, cyclic);
     }
+    shared_session_problems(&mut c);
     c.out
+}
+
+/// The prefix of a dry run's id; no flow may be named with it.
+pub const DRY_PREFIX: &str = "dry-";
+
+/// What a session is opened with and keeps: everything a task sharing it must agree on.
+#[derive(PartialEq)]
+struct SessionSettings {
+    scene: String,
+    output: Option<Value>,
+    refused: Vec<String>,
+    model: Option<String>,
+    provider: Option<String>,
+    instance: Option<String>,
+    template: Option<String>,
+    params: BTreeMap<String, String>,
+    space: Option<String>,
+}
+
+impl SessionSettings {
+    /// The names of the fields that differ.
+    fn differ(&self, o: &Self) -> Vec<&'static str> {
+        let mut d = vec![];
+        if self.scene != o.scene {
+            d.push("scene (and so how it hands in)");
+        }
+        if self.output != o.output {
+            d.push("output contract");
+        }
+        if self.refused != o.refused {
+            d.push("writes");
+        }
+        if self.model != o.model || self.provider != o.provider {
+            d.push("model");
+        }
+        if self.instance != o.instance
+            || self.template != o.template
+            || self.params != o.params
+            || self.space != o.space
+        {
+            d.push("placement");
+        }
+        d
+    }
+}
+
+/// Tasks that may share a session (`per_run`, or the same `{key}` expression) must be opened
+/// the same way: the engine takes a session's scene, `output_schema`, permission rules, model
+/// and place when it is created and keeps them, so a task arriving later would work under the
+/// first one's — another contract, another station's writes.
+fn shared_session_problems(c: &mut Ctx) {
+    use super::def::SessionBinding;
+    let def = c.def;
+    // group → the first (station, task, settings) seen
+    let mut first: BTreeMap<String, (String, String, SessionSettings)> = BTreeMap::new();
+    for s in &def.stations {
+        let specs = match s.work() {
+            Work::None => vec![],
+            Work::One(t) | Work::Foreach { task: t, .. } => vec![t],
+            Work::Tasks(ts) => ts,
+        };
+        for t in specs {
+            let Executor::Session {
+                scene,
+                session,
+                model,
+                provider,
+                instance,
+                template,
+                params,
+                space,
+            } = &t.executor
+            else {
+                continue;
+            };
+            let group = match session {
+                SessionBinding::New => continue,
+                SessionBinding::PerRun => "`session: per_run`".to_string(),
+                SessionBinding::Key(k) => format!("`session: {{key: {k}}}`"),
+            };
+            let refused: Vec<String> = if c.catalog.guarded.is_empty() {
+                let mut w = s.writes.clone();
+                w.sort();
+                w.dedup();
+                w
+            } else {
+                let mut r: Vec<String> = super::protocol::refused(&c.catalog.guarded, &s.writes)
+                    .into_iter()
+                    .map(|(_, r)| r)
+                    .collect();
+                r.sort();
+                r
+            };
+            let mine = SessionSettings {
+                scene: scene.clone(),
+                // Kept by the session only when it hands in by structured output.
+                output: if c.catalog.submit_scenes.contains(scene) {
+                    None
+                } else {
+                    s.output.clone()
+                },
+                refused,
+                model: model.clone(),
+                provider: provider.clone(),
+                instance: instance.clone(),
+                template: template.clone(),
+                params: params.clone(),
+                space: space.clone(),
+            };
+            match first.get(&group) {
+                None => {
+                    first.insert(group, (s.id.clone(), t.id.clone(), mine));
+                }
+                Some((st, task, theirs)) => {
+                    let d = theirs.differ(&mine);
+                    if !d.is_empty() {
+                        let other = if *st == s.id {
+                            format!("task {task} of this station")
+                        } else {
+                            format!("station {st}")
+                        };
+                        let m = format!(
+                            "task {} shares its session ({group}) with {other}, but its {} \
+                             differ: a session keeps what it was opened with — give them the same, \
+                             or a session each",
+                            t.id,
+                            d.join(", ")
+                        );
+                        c.at(&s.id, m);
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Needs exist, are not the station itself, and form no cycle. Returns whether a cycle
@@ -284,6 +424,18 @@ fn station_problems(c: &mut Ctx, s: &Station, cyclic: bool) {
     }
     if let Some(o) = &s.output {
         schema_problems(c, Some(id), "output", o);
+    }
+
+    // writes the host can grant: a guarded group whole or not at all
+    for (w, g) in super::protocol::partial_writes(&c.catalog.guarded, &s.writes) {
+        c.at(
+            id,
+            format!(
+                "writes {w} opens only part of the guarded group {g}: a session's deny rule \
+                 cannot make an exception — write {g} to open the whole group, or have the \
+                 application guard those tools one by one"
+            ),
+        );
     }
 
     // when

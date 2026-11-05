@@ -55,6 +55,60 @@ pub const NUDGE_STRUCTURED: &str = "Your flow task is not handed in yet. Call th
 /// How many times an output the station still judges unmet is sent back to be fixed.
 const CORRECTIONS: u32 = 2;
 
+/// The permission mode a task's session asks for: the most permissive one that still goes
+/// through the session's permission rules without a classifier. The engine only ever tightens
+/// what a client asks for, so an instance set stricter keeps its own mode; one set to
+/// `bypassPermissions` — which ignores a session's rules — is held to this one instead, so the
+/// station's `writes` still hold (xops-02 review #7).
+pub const TASK_PERMISSION_MODE: &str = "acceptEdits";
+
+/// The entry a task's session is marked with when it is opened: what it was opened with
+/// (`settings_of`). A task that finds its session key bound to a session opened otherwise fails
+/// instead of working under another station's contract and writes.
+pub const SESSION_SETTINGS: &str = "session_settings";
+
+/// What a session is opened with and keeps for good.
+pub(crate) fn settings_of(
+    guarded: &[String],
+    writes: &[String],
+    job_scene: &str,
+    delivery: Delivery,
+    output: Option<&Value>,
+    p: &Placement,
+    instance: Option<&str>,
+) -> Value {
+    let mut refused: Vec<String> = refused(guarded, writes)
+        .into_iter()
+        .map(|(_, r)| r)
+        .collect();
+    refused.sort();
+    json!({
+        "scene": job_scene,
+        "delivery": delivery,
+        "output_schema": match delivery {
+            Delivery::StructuredOutput => output.cloned().unwrap_or(Value::Null),
+            Delivery::FlowSubmit => Value::Null,
+        },
+        "refused": refused,
+        "model": p.model, "provider": p.provider,
+        "space": p.space, "template": p.template, "instance": instance.map(String::from).or_else(|| p.instance.clone()),
+    })
+}
+
+/// The fields of two sessions' settings that differ.
+pub(crate) fn settings_differ(opened: &Value, wanted: &Value) -> Vec<String> {
+    let (Some(a), Some(b)) = (opened.as_object(), wanted.as_object()) else {
+        return vec![];
+    };
+    let mut keys: Vec<&String> = a.keys().chain(b.keys()).collect();
+    keys.sort();
+    keys.dedup();
+    keys.into_iter()
+        .filter(|k| a.get(*k) != b.get(*k))
+        .map(|k| k.to_string())
+        .collect()
+}
+
 /// The session's permission rules for a station: a `deny` for each guarded tool its `writes`
 /// do not allow (xops-02 §2). The same rules whatever carries the session.
 pub fn permission_rules(guarded: &[String], writes: &[String]) -> Value {
@@ -82,6 +136,10 @@ fn run_of(w: &WorkItem) -> Option<&str> {
 pub(crate) async fn apply(sh: &Arc<Shared>, hint: Option<&str>, o: Outcome) {
     for e in &o.events {
         let _ = sh.events.send(e.clone());
+        if matches!(e.kind.as_str(), "run.finished" | "run.cancelled") {
+            let (sh, run) = (sh.clone(), e.run.clone());
+            tokio::spawn(async move { stop_run_instances(&sh, &run).await });
+        }
     }
     let mut runs: BTreeSet<String> = o.events.iter().map(|e| e.run.clone()).collect();
     runs.extend(o.work.iter().filter_map(run_of).map(String::from));
@@ -230,6 +288,37 @@ pub(crate) async fn publish_dry(sh: &Arc<Shared>, run: Option<&str>) {
     let list = sandbox.list().await;
     if let Err(e) = events.publish("dry_runs", json!({}), &list).await {
         tracing::warn!(error = %e, "flow: dry runs not listed");
+    }
+}
+
+/// Stop the instances the module made for `run` under its own names (xops-02 review #6): a
+/// spawned daemon per run would otherwise outlive it, and a template's `max` run out.
+pub(crate) async fn stop_run_instances(sh: &Arc<Shared>, run: &str) {
+    let Some(cx) = sh.cx.get() else { return };
+    for name in sh.take_instances(run) {
+        match cx.instances().stop(&name).await {
+            Ok(_) => tracing::debug!(run, instance = name, "flow: the run's instance stopped"),
+            Err(e) => {
+                tracing::info!(run, instance = name, error = %e, "flow: the run's instance not stopped")
+            }
+        }
+    }
+}
+
+/// After a restart: the instances of runs that ended while the module was down.
+pub(crate) async fn stop_stale_instances(sh: &Arc<Shared>) {
+    let Some(engine) = sh.engine.get().cloned() else {
+        return;
+    };
+    for run in sh.instance_runs() {
+        let over = match engine.record(&run).await {
+            Ok(rec) => !rec.is_active(),
+            Err(FlowError::NotFound(_)) => true,
+            Err(_) => false,
+        };
+        if over {
+            stop_run_instances(sh, &run).await;
+        }
     }
 }
 
@@ -557,6 +646,11 @@ async fn place(sh: &Shared, job: &SessionJob) -> Result<(String, Option<String>)
             .filter(|(k, _)| k.as_str() != "name")
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
+        // Named by the module, the instance is the run's: recorded before it is made, stopped
+        // when the run is over (`stop_run_instances`).
+        if p.names_its_instance() {
+            sh.own_instance(&name, &job.key.run);
+        }
         cx.instances()
             .ensure_ready(
                 template,
@@ -680,8 +774,37 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
         .station(&key.station)
         .map(|s| s.writes.clone())
         .unwrap_or_default();
+    let instance_of = |job: &SessionJob| job.placement.template_instance(&job.key.run);
+    let wanted = settings_of(
+        &sh.cfg.guarded,
+        &writes,
+        &job.scene,
+        job.delivery,
+        job.output_schema.as_ref(),
+        &job.placement,
+        instance_of(job).as_deref(),
+    );
     let session = match opened {
-        Some((s, _)) => s,
+        Some((s, own)) => {
+            // Validation keeps tasks that share a session alike; this is the net under it — a
+            // definition from before that rule, or keys that resolve alike by chance.
+            if !own {
+                if let Some(opened_with) = recorded_settings(sh, &s).await {
+                    let d = settings_differ(&opened_with, &wanted);
+                    if !d.is_empty() {
+                        let why = format!(
+                            "the run's shared session {} was opened with other settings ({}) and \
+                             keeps them: this task cannot work in it",
+                            session_name(&s),
+                            d.join(", ")
+                        );
+                        fail(sh, key, &job.token, &why).await;
+                        return;
+                    }
+                }
+            }
+            s
+        }
         None => {
             let (space, instance) = match place(sh, job).await {
                 Ok(p) => p,
@@ -700,12 +823,19 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
                     Delivery::StructuredOutput => job.output_schema.clone(),
                     Delivery::FlowSubmit => None,
                 },
+                permission_mode: Some(TASK_PERMISSION_MODE.into()),
                 permission_rules: Some(permission_rules(&sh.cfg.guarded, &writes)),
                 recording: job.recording.clone(),
                 ..SessionSpec::default()
             };
             match sessions.create(spec).await {
-                Ok(s) => s,
+                Ok(s) => {
+                    let entry = harnix_module::Entry::new(SESSION_SETTINGS, wanted.clone());
+                    if let Err(e) = sessions.append_entry(&s, entry).await {
+                        tracing::warn!(error = %e, "flow: a session's settings not recorded");
+                    }
+                    s
+                }
                 Err(e) => {
                     fail(sh, key, &job.token, &format!("no session: {}", e.message)).await;
                     return;
@@ -959,28 +1089,67 @@ async fn wait_turn(sh: &Arc<Shared>, tap: &mut Tap, key: &TaskKey, token: &str) 
     }
 }
 
-/// The station's failed checks, for the session to fix: `None` when nothing failed (it waits
-/// for a gate, a person or other tasks, or it passed).
+/// What a session task last opened its session with, from the session's own entry.
+async fn recorded_settings(sh: &Shared, s: &SessionRef) -> Option<Value> {
+    let cx = sh.cx.get()?;
+    let entries = cx.sessions().entries(s).await.ok()?;
+    entries
+        .into_iter()
+        .rev()
+        .find(|e| e.get("event").and_then(Value::as_str) == Some(SESSION_SETTINGS))
+        .and_then(|e| e.get("payload").cloned())
+}
+
+/// The station's failed checks that are this task's output to fix: `None` when nothing failed
+/// that the session can fix (it waits for a gate, a person or other tasks, or it passed).
 async fn failed_checks(sh: &Shared, key: &TaskKey) -> Option<String> {
     let engine = sh.engine().ok()?;
     let v = engine.get(&key.run).await.ok()?;
-    if v.record.stations.get(&key.station)?.status != StationStatus::Unmet {
+    corrections_for(&v, &key.station, &key.task)
+}
+
+/// What a task's session is told to fix, from its station's view: the parts of a failed `output`
+/// check about this task, and a failed `tool` check when the task is its station's only one
+/// (the tool judges the station, so with several tasks it is no one task's to fix). A gate, a
+/// confirmation, another task's failure is never the session's.
+pub(crate) fn corrections_for(v: &crate::RunView, station: &str, task: &str) -> Option<String> {
+    let st = v.record.stations.get(station)?;
+    if st.status != StationStatus::Unmet {
         return None;
     }
-    let failed: Vec<String> = v
+    let only = v
+        .record
+        .def
+        .station(station)
+        .is_some_and(|s| matches!(s.work(), crate::Work::One(_)));
+    let mine = format!("task {task}: ");
+    let mut out = vec![];
+    for c in v
         .unmet
-        .get(&key.station)?
+        .get(station)?
         .iter()
         .filter(|c| c.status == CheckStatus::Fail)
-        .map(|c| {
-            if c.detail.is_empty() {
+    {
+        match c.kind.as_str() {
+            "output" => {
+                let parts: Vec<&str> = c
+                    .detail
+                    .split("; ")
+                    .filter(|p| p.starts_with(&mine))
+                    .collect();
+                if !parts.is_empty() {
+                    out.push(format!("{} ({})", c.label, parts.join("; ")));
+                }
+            }
+            "tool" if only => out.push(if c.detail.is_empty() {
                 c.label.clone()
             } else {
                 format!("{} ({})", c.label, c.detail)
-            }
-        })
-        .collect();
-    (!failed.is_empty()).then(|| failed.join("; "))
+            }),
+            _ => {}
+        }
+    }
+    (!out.is_empty()).then(|| out.join("; "))
 }
 
 /// The protocol layer, then the skill.
@@ -1070,6 +1239,116 @@ mod tests {
             placement: Placement::default(),
             delivery: Delivery::StructuredOutput,
         }
+    }
+
+    #[test]
+    fn a_shared_session_names_what_it_was_opened_with_differently() {
+        let p = Placement::default();
+        let g = vec!["Bash".to_string()];
+        let schema = json!({"type": "object"});
+        let a = settings_of(
+            &g,
+            &[],
+            "chat",
+            Delivery::StructuredOutput,
+            Some(&schema),
+            &p,
+            None,
+        );
+        assert!(settings_differ(&a, &a.clone()).is_empty());
+        let writes = settings_of(
+            &g,
+            &["Bash".into()],
+            "chat",
+            Delivery::StructuredOutput,
+            Some(&schema),
+            &p,
+            None,
+        );
+        assert_eq!(settings_differ(&a, &writes), ["refused"]);
+        let other = json!({"type": "object", "required": ["x"]});
+        let contract = settings_of(
+            &g,
+            &[],
+            "chat",
+            Delivery::StructuredOutput,
+            Some(&other),
+            &p,
+            None,
+        );
+        assert_eq!(settings_differ(&a, &contract), ["output_schema"]);
+        let model = Placement {
+            model: Some("m".into()),
+            ..Default::default()
+        };
+        let m = settings_of(
+            &g,
+            &[],
+            "chat",
+            Delivery::StructuredOutput,
+            Some(&schema),
+            &model,
+            None,
+        );
+        assert_eq!(settings_differ(&a, &m), ["model"]);
+    }
+
+    #[test]
+    fn only_what_the_session_can_fix_is_sent_back_to_it() {
+        use crate::{CheckRec, CheckStatus, RunView};
+        let view = |work: &str, checks: Vec<CheckRec>| -> RunView {
+            let rec: RunRecord = serde_json::from_value(json!({
+                "id": "r", "flow": "f", "def_digest": "d", "subject": "s", "status": "active",
+                "rev": 1, "created_at": 0, "created_by": {"kind": "x", "id": "y"},
+                "def": serde_yaml::from_str::<Value>(work).unwrap(),
+                "stations": {"a": {"status": "unmet", "round": 1}}
+            }))
+            .unwrap();
+            RunView {
+                record: rec,
+                unmet: [("a".to_string(), checks)].into(),
+            }
+        };
+        let check = |kind: &str, detail: &str| CheckRec {
+            cond: Some(0),
+            kind: kind.into(),
+            label: kind.into(),
+            round: 1,
+            status: CheckStatus::Fail,
+            detail: detail.into(),
+            at: 0,
+        };
+        let one = "{name: f, stations: [{id: a, executor: {kind: session, scene: chat}, skill: s, output: {type: object}, exit: [{kind: output}]}]}";
+        let many = "{name: f, stations: [{id: a, tasks: [{id: x, executor: {kind: session, scene: chat}, skill: s}, {id: y, executor: {kind: external}}], output: {type: object}, exit: [{kind: output}]}]}";
+        // Its own output: yes; another task's part of the same check: no.
+        let v = view(
+            many,
+            vec![check("output", "task x: missing n; task y: no output")],
+        );
+        assert_eq!(
+            corrections_for(&v, "a", "x").unwrap(),
+            "output (task x: missing n)"
+        );
+        assert_eq!(
+            corrections_for(&v, "a", "y").unwrap(),
+            "output (task y: no output)"
+        );
+        // A gate, a confirmation, another task failing: never the session's.
+        let v = view(
+            one,
+            vec![
+                check("gate", "lint: 3 warnings"),
+                check("task", "failed"),
+                check("confirm", ""),
+            ],
+        );
+        assert_eq!(corrections_for(&v, "a", "a"), None);
+        // A tool exit judges the station: its only task's to fix, nobody's among several.
+        assert!(corrections_for(&view(one, vec![check("tool", "total is 2")]), "a", "a").is_some());
+        assert_eq!(
+            corrections_for(&view(many, vec![check("tool", "total is 2")]), "a", "x"),
+            None
+        );
     }
 
     #[test]

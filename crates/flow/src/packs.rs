@@ -28,6 +28,13 @@ fn name_to_save(yaml: &str) -> Result<String, String> {
     if !is_flow_name(&def.name) {
         return Err(format!("name {:?} must match [a-z][a-z0-9-]*", def.name));
     }
+    if def.name.starts_with(crate::kernel::validate::DRY_PREFIX) {
+        return Err(format!(
+            "name {:?}: names starting `{}` are kept for dry runs",
+            def.name,
+            crate::kernel::validate::DRY_PREFIX
+        ));
+    }
     Ok(def.name)
 }
 
@@ -124,6 +131,16 @@ impl MemPacks {
     /// `model`, or `provider/model`.
     pub fn model(self, name: &str) -> Self {
         self.edit(|i| i.catalog.models.insert(name.into()));
+        self
+    }
+
+    /// A scene whose sessions hand in with `flow_submit` (what the flow module's catalog says of
+    /// its `flow-*` scenes): it is in the catalog's `scenes` and `submit_scenes`.
+    pub fn submit_scene(self, name: &str) -> Self {
+        self.edit(|i| {
+            i.catalog.scenes.insert(name.into());
+            i.catalog.submit_scenes.insert(name.into())
+        });
         self
     }
 

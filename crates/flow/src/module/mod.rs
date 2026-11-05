@@ -101,6 +101,8 @@ pub struct Flow {
     scenes: Vec<Arc<dyn AgentScene>>,
     author: Arc<dyn AgentScene>,
     templates: Vec<InstanceTemplate>,
+    /// Why the module must not start: a guarded-tool pattern no permission rule can say.
+    config_error: Option<String>,
 }
 
 impl Flow {
@@ -339,6 +341,15 @@ impl FlowBuilder {
             inner: OnceLock::new(),
             scenes: sh.cfg.scenes.clone(),
             templates: own_templates,
+            guarded: sh.cfg.guarded.clone(),
+        });
+        let problems = crate::kernel::protocol::guard_problems(&self.guarded);
+        let config_error = (!problems.is_empty()).then(|| {
+            format!(
+                "the flow module's guarded tools cannot all be refused by a session's permission \
+                 rules: {}",
+                problems.join("; ")
+            )
         });
         if let Some(p) = self.packs {
             let _ = packs.inner.set(p);
@@ -353,6 +364,7 @@ impl FlowBuilder {
             scenes,
             author,
             templates: self.templates,
+            config_error,
         }
     }
 }
@@ -364,6 +376,7 @@ struct CatalogPacks {
     inner: OnceLock<Arc<dyn Packs>>,
     scenes: Vec<String>,
     templates: Vec<String>,
+    guarded: Vec<String>,
 }
 
 impl CatalogPacks {
@@ -392,6 +405,8 @@ impl Packs for CatalogPacks {
         if !c.templates.is_empty() {
             c.templates.extend(self.templates.iter().cloned());
         }
+        c.guarded = self.guarded.clone();
+        c.submit_scenes = self.scenes.iter().cloned().collect();
         c
     }
     fn flow_text(&self, name: &str) -> Option<String> {
@@ -511,6 +526,10 @@ impl Module for Flow {
             Some(StoreSpec::Lazy(make)) => make(cx.data_dir()),
             None => Arc::new(FileStore::new(cx.data_dir().join("runs"))),
         };
+        if let Some(why) = &self.config_error {
+            anyhow::bail!("{why}");
+        }
+        self.sh.load_ledger(cx.data_dir().join("instances.json"));
         if let Some(make) = self
             .lazy_packs
             .lock()
@@ -563,7 +582,10 @@ impl Module for Flow {
         dispatch::publish_defs(&self.sh).await;
         dispatch::publish_dry(&self.sh, None).await;
         let sh = self.sh.clone();
-        tokio::spawn(async move { dispatch::recover(&sh).await });
+        tokio::spawn(async move {
+            dispatch::stop_stale_instances(&sh).await;
+            dispatch::recover(&sh).await
+        });
         let sh = self.sh.clone();
         let tick = tokio::spawn(async move { dispatch::tick_loop(sh).await });
         *self.sh.tick.lock().unwrap_or_else(|e| e.into_inner()) = Some(tick);
@@ -613,6 +635,7 @@ mod tests {
             inner: OnceLock::new(),
             scenes: vec!["flow-chat".into()],
             templates: templates.iter().map(|s| s.to_string()).collect(),
+            guarded: vec![],
         };
         let _ = packs.inner.set(Arc::new(inner));
         packs
@@ -654,11 +677,25 @@ mod tests {
     }
 
     #[test]
+    fn a_guarded_pattern_no_permission_rule_can_say_keeps_the_module_from_starting() {
+        let ok = Flow::builder()
+            .guarded_tools(["Bash", "mcp__db__*"])
+            .build();
+        assert!(ok.config_error.is_none());
+        let bad = Flow::builder().guarded_tools(["Bash", "Note*"]).build();
+        let why = bad.config_error.unwrap();
+        assert!(why.contains("Note*") && why.contains("ns__*"), "{why}");
+        // The catalog carries what is guarded, for validation.
+        assert_eq!(ok.packs.catalog().guarded, ["Bash", "mcp__db__*"]);
+    }
+
+    #[test]
     fn packs_made_at_start_are_empty_until_then_and_writable_after() {
         let packs = CatalogPacks {
             inner: OnceLock::new(),
             scenes: vec![],
             templates: vec![],
+            guarded: vec![],
         };
         assert!(packs.flows().is_empty() && !packs.writable());
         let _ = packs.inner.set(Arc::new(MemPacks::new().writable()));
