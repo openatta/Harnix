@@ -17,7 +17,9 @@ harnix-app       = { path = "harnix/crates/app" }
 harnix-instance  = { path = "harnix/crates/instance" }
 harnix-authz     = { path = "harnix/crates/authz" }
 harnix-builtin   = { path = "harnix/crates/builtin" }
+harnix-client    = { path = "harnix/crates/client" }
 harnix-contract  = { path = "harnix/crates/contract" }
+harnix-flow      = { path = "harnix/crates/flow" }
 harnix-module    = { path = "harnix/crates/module" }
 harnix-hub       = { path = "harnix/crates/hub" }
 harnix-transport = { path = "harnix/crates/transport" }
