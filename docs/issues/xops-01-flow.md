@@ -168,6 +168,8 @@ pub enum WorkItem { Task{run, station, round, task, token, executor, skill, item
 - `session` / `program` 任务由内核以 `Actor{kind:"flow", id:"dispatch"}` 自动认领并发 `WorkItem::Task`；`external` 任务停在
   `ready` 等外面 `claim`。
 - 所有改状态的操作先问 `Authorizer::check(&Op, &Actor, &RunRecord)`，缺省全放行。
+- `tool` 出口调的应用工具**必须只读、幂等**：站每次被判（每次 `evaluate`、会话任务每轮结束、每次再交）都会再调，
+  一次操作遇到 rev 冲突重算时也会再调（前一次的结果被丢弃）。写东西的工具会被写任意多次。`Tools` trait 的文档写明了这一点。
 
 宿主 trait：
 
@@ -253,3 +255,30 @@ XOps（2026-11-04 起基于 Harnix 重建）：业务流程按 skill 推动 Agen
 
 没做：会话任务在重启后若会话空闲，提醒那一轮在回放下没有录像（回放名不随会话恢复），会记失败、按 `retry` 重派新会话——行为对，
 但 LIVE 只测了「停在确认处重启后走完」；`flow_propose` 与 `writes` 只有单元测试，没有 LIVE 用例。
+
+### 评审后的修改（第二轮）
+
+| # | 问题 | 改法 | 回归测试 |
+|---|---|---|---|
+| 1 | 租约 token 经 `get`、`run` 主题外泄 | `view()` 清空 `lease.token`（空 token 不序列化），`Engine::record()` 给宿主自己用；push（session/program）与 subflow 任务的 `submit`/`fail`/`heartbeat` 只认 `flow`（session 另认 `agent`）；`Op::Submit`/`Op::Fail` 带 `executor`，新增 `Op::Heartbeat`；`heartbeat` 带行为者；再交也查租约是否过期，`heartbeat` 可续交过的任务 | `hardening.rs`：`readers_never_see_a_lease_token`、`push_tasks_are_handed_in_by_the_flow_alone_even_with_the_token`、`a_resubmission_needs_a_live_lease_and_a_heartbeat_extends_it`；`flow.spec.ts`「lease tokens stay with their claimants…」 |
+| 2 | `foreach` 列表没解析出来时 `evaluate` 让空站通过 | `judge` 对没有任务的 `foreach` 站重新解析，不是列表（或超过 `MAX_FOREACH_ITEMS` 1000）就留一条 `foreach` 失败；解析成 `[]` 照常通过 | `an_unresolved_fan_out_stays_unmet_and_an_empty_one_passes` |
+| 3 | 重启后共用会话里没 attach 过的任务只收到提醒 | 只有任务**自己**记过的会话才按「接着等」处理；否则按新任务发协议层与 skill | 逻辑在 `dispatch.rs::with_session`（需要真会话，无单元测试） |
+| 4 | 共用会话：上一任务的轮还在跑就换绑 | 任务结束时若轮还在跑先 `interrupt` 并等它结算再放锁；拿到锁后若会话里有别人的轮在跑，先等它结算再绑定（那次结算不算本任务的） | `flow.spec.ts`「tasks sharing the run's session take turns in it…」（`demo-shared`，`per_run`，两站各交各的，输出契约互斥） |
+| 5 | 部分返工后其余在途任务被调度器当作「不是我的了」 | 调度器只按 token 判断认领是否仍有效，不看轮次 | `dispatch.rs`：`a_partial_rework_leaves_the_other_claims_standing` |
+| 6 | program 不续租；push 任务过期无限重派 | program 运行期间按租约三分之一续租；push 任务过期走失败路径，受 `retry` 次数限制 | `expired_push_task_is_dispatched_again_within_its_retries`、`an_expired_push_task_out_of_retries_fails_instead_of_looping` |
+| 7 | 等共用会话锁的任务不续租 | 等锁时同样定时续租，续不上就放弃 | 逻辑在 `wait_turn_on_session` |
+| 8 | `writes` 的缺口 | 4 修好了「绑定提前没了」；目录的 `scenes` 只给包过的 scene，`chat` 这类未包装的 scene 过不了校验；协议层如实列出宿主守卫的工具（`Engine::with_guarded`），`guarded_tools` 文档写明只守这些 | `module::tests::a_session_task_must_name_a_wrapped_scene`、`protocol` 单元测试、`flow.spec.ts`「a session's write its station does not allow is refused…」（`demo-propose`：testapp 把 `TodoWrite` 列为写，回放里调它被拒） |
+| 9 | `lease_ms` 溢出 | 内核 `MAX_LEASE_MS` 一天封顶，`saturating_add` | `leases_are_capped_and_never_overflow`；LIVE 里 `heartbeat` 传 `MAX_SAFE_INTEGER` |
+| 10 | `retry` 不看站状态 | 要求站在 working / unmet | `retry_needs_an_open_station` |
+| 11 | `tick` 遇错就停 | 单条运行出错跳过，继续其余 | `a_run_that_fails_to_tick_does_not_stop_the_others` |
+| 12 | 递归子流程 | 校验沿包里的子流程定义找回到自身的环；派生时子运行嵌套超过 `MAX_SUBFLOW_DEPTH`（8）层就让该任务失败 | `recursive_subflows_are_refused_and_nesting_is_capped` |
+| 13 | program 的输出因站不开放被拒也算一次失败 | 新增 `FlowError::Contract`（码 `contract`）；只有契约不符才 `fail` | 由 `FlowError::Contract` 的单元测试覆盖（`sequence_runs_to_the_end`） |
+| 14 | 交了之后不能再交；共享会话不关；过期的 `new` 会话不关；锁表只增不减 | 交过的任务保留绑定直到站通过或认领失效（发布时按记录清理）；运行结束 / 取消时关闭 `session_keys` 里的会话；`new` 会话任务过期重派前关闭旧会话；会话锁最后一个用户离开时删除 | `a_finished_or_cancelled_run_closes_its_shared_sessions`、`an_expired_session_task_closes_its_own_session_before_it_is_dispatched_again`、`shared::tests::a_session_lock_is_removed_when_nobody_uses_it`、`dispatch::tests::a_binding_counts_until_its_station_passes_or_its_claim_is_superseded` |
+| 15 | `FileStore` 路径穿越、`list` 每次扫目录、阻塞 IO | `history`、`commit` 也校验运行 id；`list` 用首次扫描建立、由本进程提交维护的摘要索引；磁盘操作在有 Tokio 运行时时进 `spawn_blocking` | `store.rs`：`file_store_names_no_file_outside_its_directory`、`file_store_lists_from_an_index_its_commits_keep_current` |
+| UI | 重启后已结束的运行一直「加载中」 | `useRunView` 在主题没有值时用 `get`；模块启动时也发布列表里全部运行 | `components.test.tsx`「reads a run the topic has no value for…」；`ui/flow.spec.ts`「a run that finished before a restart opens from the list…」 |
+| UI | 返工、强制按钮与内核不一致 | 返工只在站 held / working / unmet 时可用；强制在 held 时也可用 | `model.test.ts` 的 actions 两条 |
+| UI | 提议可被采纳两次 | `flow_propose` 的条目带 `session`；`rework`/`cancel` 接受 `proposal {instance, session_id, entry}`，模块串行判断、只做一次并在会话里写 `proposal_handled`；新方法 `proposal` 查是否已采纳；卡片按它显示；`proposal_handled` 条目有自己的 `flow.block` | `components.test.tsx`「names itself when accepted…」；`flow.spec.ts`「…its proposal is accepted once」 |
+| UI | subflow 任务租约 `until = u64::MAX` 显示乱码 | `leaseUntil()` 认出这种租约，显示「到子运行结束」 | `model.test.ts`「draws a subflow task's lease…」 |
+
+另：`tokio` 改为内核的常规依赖（`FileStore` 的阻塞池），`module` 特性不再单独带它；testapp 多了 `demo-propose`、`demo-shared` 两条演示流程与 `flow-propose`、`flow-shared` 两份录像。
+回放的发现：引擎在每轮正常结束后会多调一次模型做记忆提取，按位置回放时它会吃掉下一轮的录像调用——多轮录像要在轮与轮之间放一个占位调用（`flow-shared` 这样做了）。

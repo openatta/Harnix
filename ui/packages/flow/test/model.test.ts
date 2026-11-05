@@ -7,6 +7,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   checkOk,
+  leaseUntil,
+  proposalHandledOf,
   defOf,
   digestLines,
   methodName,
@@ -77,21 +79,22 @@ describe("actions per status", () => {
   const table = (def: Station, tasks: TaskRec[] = []) =>
     Object.fromEntries(STATION_STATUSES.map((s) => [s, stationActions("active", def, rec(s, tasks))]));
 
-  it("confirm and force while working or unmet; confirm only with a confirm exit", () => {
+  it("confirm while working or unmet, force also while held (as the kernel allows); confirm only with a confirm exit", () => {
     const r = table(review);
     for (const s of STATION_STATUSES) {
       const open = s === "working" || s === "unmet";
       expect(r[s]!.confirm, s).toBe(open);
-      expect(r[s]!.force, s).toBe(open);
+      expect(r[s]!.force, s).toBe(open || s === "held");
     }
     expect(stationActions("active", analyze, rec("working")).confirm).toBe(false);
   });
 
-  it("rework to the station's targets while open, held or passed", () => {
+  it("rework to the station's targets while it is open or held — the kernel needs an open station listing the target", () => {
     const r = table(review);
     expect(r.working!.rework).toEqual(["analyze", "lint"]);
-    expect(r.passed!.rework).toEqual(["analyze", "lint"]);
+    expect(r.unmet!.rework).toEqual(["analyze", "lint"]);
     expect(r.held!.rework).toEqual(["analyze", "lint"]);
+    expect(r.passed!.rework).toEqual([]);
     expect(r.pending!.rework).toEqual([]);
     expect(r.stale!.rework).toEqual([]);
     expect(r.skipped!.rework).toEqual([]);
@@ -162,13 +165,29 @@ describe("wire helpers", () => {
   it("claims only the flow's proposal entries", () => {
     const entry = (ns: string, event: string, payload: unknown) => ({ kind: "custom", type: "entry", data: { id: "e1", ns, event, payload, at: 0 } });
     const p = { run: "r1", station: "review", kind: "rework", to: "analyze", reason: "findings are thin" };
-    expect(proposalOf(entry("app.flow", "proposal", p))).toEqual({ id: "e1", proposal: p });
+    expect(proposalOf(entry("app.flow", "proposal", p))).toEqual({ id: "e1", proposal: { ...p, session: null } });
+    const session = { instance: "system", session_id: "s1" };
+    expect(proposalOf(entry("app.flow", "proposal", { ...p, session }))?.proposal.session).toEqual(session);
     expect(proposalOf(entry("app.flow", "proposal", { ...p, kind: "cancel", to: undefined }))?.proposal.kind).toBe("cancel");
     expect(proposalOf(entry("app.other", "proposal", p))).toBe(null);
     expect(proposalOf(entry("app.ops", "proposal", p), "app.ops")).not.toBe(null);
     expect(proposalOf(entry("app.flow", "other", p))).toBe(null);
     expect(proposalOf(entry("app.flow", "proposal", { ...p, kind: "delete" }))).toBe(null);
     expect(proposalOf({ kind: "custom", type: "request", data: {} })).toBe(null);
+  });
+
+  it("reads an accepted proposal's record, and nothing else", () => {
+    const entry = (event: string, payload: unknown) => ({ kind: "custom", type: "entry", data: { id: "e2", ns: "app.flow", event, payload, at: 0 } });
+    const by = { kind: "device", id: "d" };
+    expect(proposalHandledOf(entry("proposal_handled", { entry: "e1", action: "rework", by }))).toEqual({ entry: "e1", action: "rework", by });
+    expect(proposalHandledOf(entry("proposal", { entry: "e1", action: "rework", by }))).toBe(null);
+    expect(proposalHandledOf(entry("proposal_handled", { action: "rework" }))).toBe(null);
+  });
+
+  it("draws a subflow task's lease as lasting until its child finishes", () => {
+    expect(leaseUntil(1_800_000_000_000)).toBe(1_800_000_000_000);
+    expect(leaseUntil(18446744073709551615)).toBe(null);
+    expect(leaseUntil(undefined)).toBe(null);
   });
 });
 

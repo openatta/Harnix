@@ -118,9 +118,10 @@ export interface Actor {
 /** Milliseconds since the epoch (the kernel's `Clock::now_ms`). An RFC 3339 string is read too. */
 export type Millis = number;
 
+/** A claim. Readers never get its token (the module removes it); a subflow task's runs until its child finishes. */
 export interface Lease {
   by: Actor;
-  token: string;
+  token?: string | null;
   until: Millis;
 }
 
@@ -318,6 +319,15 @@ export interface Proposal {
   kind: "rework" | "cancel";
   to?: string | null;
   reason: string;
+  /** The session it was written in: where its acceptance is recorded. */
+  session?: TaskSession | null;
+}
+
+/** An `app.flow` entry with `event: "proposal_handled"`: a proposal was accepted, once. */
+export interface ProposalHandled {
+  entry: string;
+  action: "rework" | "cancel";
+  by: Actor;
 }
 
 /** The app-side method names, relative to the module id (`app.<module>.<name>`). */
@@ -340,4 +350,5 @@ export type FlowMethod =
   | "rework"
   | "release"
   | "retry"
-  | "cancel";
+  | "cancel"
+  | "proposal";

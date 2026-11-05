@@ -99,3 +99,24 @@ test("a run started from the list goes to its confirmation, and confirming it in
   await expect(panel.getByTestId("flow-open-session-analyze")).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test("a run that finished before a restart opens from the list, read from the module", TAGS, async ({ page }) => {
+  const errors = watchConsole(page);
+  await open(page, backend.url);
+  const run = await page.evaluate(async () => {
+    const { app } = (window as any).harnix;
+    return (await app.call("app.flow.start", { flow: "demo-linear", subject: "before-restart" })).run as string;
+  });
+  await expect
+    .poll(() => page.evaluate(async (r) => (await (window as any).harnix.app.call("app.flow.get", { run: r })).record.stations.approve.status, run), { timeout: 30_000 })
+    .toBe("working");
+  await page.evaluate(async (r) => (window as any).harnix.app.call("app.flow.confirm", { run: r, station: "approve", pass: true }), run);
+
+  backend = await backend.restart();
+  await open(page, backend.url);
+  await inFlow(page);
+  await page.getByTestId(`flow-run-${run}`).click();
+  await expect(page.getByTestId("flow-run-status")).toHaveAttribute("data-status", "finished");
+  await expect(page.getByTestId("flow-node-approve")).toHaveAttribute("data-status", "passed");
+  expect(errors).toEqual([]);
+});

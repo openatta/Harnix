@@ -20,6 +20,8 @@ pub enum FlowError {
     NotFound(String),
     /// The request does not fit the run's state or the definition.
     Invalid(String),
+    /// A task's output does not satisfy its station's contract: fix it and hand it in again.
+    Contract(String),
     /// The authorizer said no.
     Denied(String),
     /// The token is not the task's current one, or its lease has run out.
@@ -35,6 +37,7 @@ impl std::fmt::Display for FlowError {
         match self {
             Self::NotFound(m) => write!(f, "not found: {m}"),
             Self::Invalid(m) => write!(f, "invalid: {m}"),
+            Self::Contract(m) => write!(f, "contract: {m}"),
             Self::Denied(m) => write!(f, "denied: {m}"),
             Self::Lease(m) => write!(f, "lease: {m}"),
             Self::Conflict(m) => write!(f, "conflict: {m}"),
@@ -46,11 +49,13 @@ impl std::fmt::Display for FlowError {
 impl std::error::Error for FlowError {}
 
 impl FlowError {
-    /// A short machine-readable code: `not_found`, `invalid`, `denied`, `lease`, `conflict`, `store`.
+    /// A short machine-readable code: `not_found`, `invalid`, `contract`, `denied`, `lease`,
+    /// `conflict`, `store`.
     pub fn code(&self) -> &'static str {
         match self {
             Self::NotFound(_) => "not_found",
             Self::Invalid(_) => "invalid",
+            Self::Contract(_) => "contract",
             Self::Denied(_) => "denied",
             Self::Lease(_) => "lease",
             Self::Conflict(_) => "conflict",

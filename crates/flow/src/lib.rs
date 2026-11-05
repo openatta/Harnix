@@ -33,7 +33,9 @@ pub use kernel::def::{
     definition_schema, Assert, Executor, ExitCond, FlowDef, HookRef, InputDef, OnUnmet, Retry,
     SessionBinding, Station, TaskSpec, Work, DEFAULT_REWORK_LIMIT, MAX_REWORK_LIMIT,
 };
-pub use kernel::engine::{view, CreateIn, Engine, DEFAULT_LEASE_MS, DEFAULT_RETRIES};
+pub use kernel::engine::{
+    view, CreateIn, Engine, DEFAULT_LEASE_MS, DEFAULT_RETRIES, MAX_LEASE_MS, MAX_SUBFLOW_DEPTH,
+};
 pub use kernel::host::{
     digest, AllowAll, Authorizer, Catalog, ChangeSet, Clock, Event, FixedClock, GateResult, Gates,
     Hooks, ManualClock, NoTools, Op, Outcome, Packs, Programs, RunStore, StoreError, SystemClock,
@@ -43,7 +45,7 @@ pub use kernel::protocol::skill_body;
 pub use kernel::run::{
     run_schema, Actor, CheckRec, CheckStatus, ConfirmRec, ForcedRec, History, Lease, ParentRef,
     RunQuery, RunRecord, RunStatus, RunSummary, RunView, StationRec, StationStatus, TaskRec,
-    TaskStatus,
+    TaskStatus, AGENT_KIND, FLOW_KIND,
 };
 pub use kernel::validate::{validate, validate_yaml, Problem};
 pub use kernel::{dispatched_work, FlowError, Result};

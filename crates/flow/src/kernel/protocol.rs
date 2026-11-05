@@ -27,6 +27,8 @@ pub struct TaskContext<'a> {
     pub round: u32,
     pub task: &'a str,
     pub item: Option<&'a Value>,
+    /// The tools the host refuses as writes unless the station lists them (`Engine::with_guarded`).
+    pub guarded: &'a [String],
 }
 
 pub fn render(t: &TaskContext) -> String {
@@ -71,11 +73,18 @@ pub fn render(t: &TaskContext) -> String {
             ));
         }
     }
+    let guarded = if t.guarded.is_empty() {
+        "the host refuses no tool as a write".to_string()
+    } else {
+        format!("the host refuses these as writes: {}", t.guarded.join(", "))
+    };
     if st.writes.is_empty() {
-        s.push_str("- This station is read-only for you: any tool that writes will be refused.\n");
+        s.push_str(&format!(
+            "- This station allows no writes ({guarded}). Do not change anything outside the flow.\n"
+        ));
     } else {
         s.push_str(&format!(
-            "- The only write tools you may call here are: {}. Other writes will be refused.\n",
+            "- This station allows these writes: {}; beyond them {guarded}.\n",
             st.writes.join(", ")
         ));
     }
@@ -133,6 +142,7 @@ stations:
             round: 1,
             task: "analyze",
             item: Some(&serde_json::json!("m1")),
+            guarded: &["Bash".to_string()],
         });
         for want in [
             "demo-1",
@@ -142,6 +152,7 @@ stations:
             "flow_propose",
             "`count`",
             "\"m1\"",
+            "refuses these as writes: Bash",
         ] {
             assert!(t.contains(want), "missing {want}: {t}");
         }

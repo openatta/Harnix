@@ -22,9 +22,14 @@ export function useTopic<T>(topic: string, params: Record<string, unknown> | nul
   return value;
 }
 
-/** One run, live. */
+/**
+ * One run, live: the `run {run}` topic's value — and, until the topic has one (a run the module
+ * has not published since it started: finished before a restart), what `get` answers.
+ */
 export function useRunView(module: string, run: string | null): RunView | undefined {
-  return useTopic<RunView>(runTopic(module), run ? { run } : null);
+  const live = useTopic<RunView>(runTopic(module), run ? { run } : null);
+  const fetched = useMethod<RunView>(module, "get", run && !live ? { run } : null);
+  return live ?? fetched.value;
 }
 
 export interface Loaded<T> {

@@ -198,8 +198,11 @@ impl FlowBuilder {
         self
     }
 
-    /// The tools that count as writes for a station's `writes` (`prefix*` matches a group).
-    /// By default the engine's own: [`DEFAULT_GUARDED`].
+    /// The tools that count as writes for a station's `writes` (`prefix*` matches a group):
+    /// in a session working on a flow task, a call to one of them that the station does not
+    /// list is refused, and the protocol layer names them. Only these are guarded — an
+    /// application whose sessions reach other writing tools (its own MCP tools, `mcp__*`,
+    /// plugin tools) lists them here. By default the engine's own: [`DEFAULT_GUARDED`].
     pub fn guarded_tools<I, S>(mut self, patterns: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -275,8 +278,9 @@ impl FlowBuilder {
     }
 }
 
-/// The application's packs, with the wrapped scenes in the catalog: a definition names
-/// `flow-chat`, which only this module knows exists.
+/// The application's packs, with the catalog's scenes replaced by the wrapped ones: a session
+/// task runs only in a scene that carries `flow_submit` and the `writes` guard, so a
+/// definition naming `chat` instead of `flow-chat` does not validate.
 struct CatalogPacks {
     inner: Arc<dyn Packs>,
     scenes: Vec<String>,
@@ -294,7 +298,7 @@ impl Packs for CatalogPacks {
     }
     fn catalog(&self) -> Catalog {
         let mut c = self.inner.catalog();
-        c.scenes.extend(self.scenes.iter().cloned());
+        c.scenes = self.scenes.iter().cloned().collect();
         c
     }
     fn flow_text(&self, name: &str) -> Option<String> {
@@ -390,7 +394,9 @@ impl Module for Flow {
             Some(StoreSpec::Lazy(make)) => make(cx.data_dir()),
             None => Arc::new(FileStore::new(cx.data_dir().join("runs"))),
         };
-        let mut engine = Engine::new(store, self.packs.clone()).with_lease_ms(self.sh.cfg.lease_ms);
+        let mut engine = Engine::new(store, self.packs.clone())
+            .with_lease_ms(self.sh.cfg.lease_ms)
+            .with_guarded(self.sh.cfg.guarded.clone());
         if let Some(a) = &self.auth {
             engine = engine.with_authorizer(a.clone());
         }
@@ -443,13 +449,42 @@ pub fn rpc_error(e: FlowError) -> harnix_module::RpcError {
     use harnix_contract::codes;
     let code = match &e {
         FlowError::Denied(_) => codes::REFUSED,
-        FlowError::NotFound(_) | FlowError::Invalid(_) | FlowError::Lease(_) => {
-            codes::INVALID_PARAMS
-        }
+        FlowError::NotFound(_)
+        | FlowError::Invalid(_)
+        | FlowError::Contract(_)
+        | FlowError::Lease(_) => codes::INVALID_PARAMS,
         FlowError::Conflict(_) => codes::BUSY,
         FlowError::Store(_) => codes::INTERNAL_ERROR,
     };
     let mut err = harnix_module::RpcError::new(code, e.to_string());
     err.data = Some(json!({"flow": e.code()}));
     err
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_session_task_must_name_a_wrapped_scene() {
+        let packs = CatalogPacks {
+            inner: Arc::new(MemPacks::new().scene("chat").skill("work", "Do it.")),
+            scenes: vec!["flow-chat".into()],
+        };
+        let yaml = |scene: &str| {
+            format!(
+                "name: f\nstations: [{{id: a, executor: {{kind: session, scene: {scene}}}, skill: work, output: {{type: object}}, exit: [{{kind: output}}]}}]"
+            )
+        };
+        assert!(crate::validate_yaml(&yaml("flow-chat"), &packs).is_empty());
+        let problems = crate::validate_yaml(&yaml("chat"), &packs);
+        assert!(
+            problems.iter().any(|p| p.message.contains("scene chat")),
+            "an unwrapped scene has no flow_submit and no writes guard: {problems:?}"
+        );
+        assert_eq!(
+            packs.catalog().scenes.into_iter().collect::<Vec<_>>(),
+            ["flow-chat"]
+        );
+    }
 }

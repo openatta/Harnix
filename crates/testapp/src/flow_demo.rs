@@ -6,8 +6,14 @@
 //! | `demo-linear` | program → session → confirm: the shortest run that touches each kind of work |
 //! | `demo-review` | a program; a `foreach` session station over its list (two tasks); a gate-only checkpoint in parallel, joined later; a station `when` skips (input `mode`, `manual` by default); a `confirm` by `reviewer`; a closing station with a session task and an `external` one; `rework_to`, `on_unmet` |
 //!
+//! | `demo-propose` | a session that tries a write its station does not allow, proposes a rework, hands in |
+//! | `demo-shared` | two stations, one after the other, whose tasks share the run's session (`per_run`) |
+//!
 //! Session stations replay `flow-<station>` (`tests/live/fixtures/recordings/flow-analyze`,
-//! `flow-report`): each calls `flow_submit` with a fixed output and ends its turn.
+//! `flow-report`, `flow-propose`): each calls `flow_submit` with a fixed output and ends its
+//! turn; `flow-propose` first calls `TodoWrite` — which this application guards as a write, the
+//! one writing tool the chat scene has — and `flow_propose`. A task with a session key replays
+//! `flow-shared` instead: one turn per task, each handing in its own step.
 
 use std::sync::Arc;
 
@@ -86,6 +92,37 @@ stations:
     exit: [{kind: output}]
 "#;
 
+pub const DEMO_PROPOSE: &str = r#"name: demo-propose
+title: "Demo: a session that proposes"
+description: The session tries a write it may not make, proposes a rework, and hands in.
+stations:
+  - id: propose
+    title: Work, and propose
+    executor: {kind: session, scene: flow-chat}
+    skill: analyze
+    output: {type: object}
+    exit: [{kind: output}]
+  - id: approve
+    title: Approve
+    exit: [{kind: confirm}]
+    rework_to: [propose]
+"#;
+
+pub const DEMO_SHARED: &str = r#"name: demo-shared
+title: "Demo: one session for the run"
+stations:
+  - id: first
+    executor: {kind: session, scene: flow-chat, session: per_run}
+    skill: analyze
+    output: {type: object, required: [step], properties: {step: {const: 1}}}
+    exit: [{kind: output}]
+  - id: second
+    executor: {kind: session, scene: flow-chat, session: per_run}
+    skill: report
+    output: {type: object, required: [step], properties: {step: {const: 2}}}
+    exit: [{kind: output}]
+"#;
+
 pub const SKILL_ANALYZE: &str = "---
 name: analyze
 description: Look at one module and list what is wrong with it.
@@ -112,6 +149,8 @@ pub fn module() -> Flow {
             MemPacks::new()
                 .flow(DEMO_LINEAR)
                 .flow(DEMO_REVIEW)
+                .flow(DEMO_PROPOSE)
+                .flow(DEMO_SHARED)
                 .skill("analyze", SKILL_ANALYZE)
                 .skill("report", SKILL_REPORT)
                 .step("collect")
@@ -125,7 +164,17 @@ pub fn module() -> Flow {
         .gates(DemoGates)
         .tools(DemoTools)
         .hooks(DemoHooks)
+        .guarded_tools(
+            harnix_flow::module::DEFAULT_GUARDED
+                .iter()
+                .copied()
+                .chain(["TodoWrite"]),
+        )
         .recording(|w| match w {
+            WorkItem::Task {
+                session_key: Some(_),
+                ..
+            } => Some("flow-shared".into()),
             WorkItem::Task { station, .. } => Some(format!("flow-{station}")),
             _ => None,
         })
@@ -199,7 +248,7 @@ mod tests {
             .gate("lint")
             .tool("open_high")
             .action("notify");
-        for yaml in [DEMO_LINEAR, DEMO_REVIEW] {
+        for yaml in [DEMO_LINEAR, DEMO_REVIEW, DEMO_PROPOSE, DEMO_SHARED] {
             let problems = validate_yaml(yaml, &packs as &dyn Packs);
             assert!(problems.is_empty(), "{problems:?}");
         }

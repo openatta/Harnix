@@ -1,14 +1,19 @@
 //! Carrying out what the kernel hands back.
 //!
 //! Every engine result comes through [`apply`]: its events are broadcast, the runs it touched
-//! are published on `run {run}` and the list on `runs`, and each work item is started on its
-//! own task — a method answers without waiting for a session. A work item's own engine calls
-//! come back through [`apply`] again.
+//! are published on `run {run}` (lease tokens removed) and the list on `runs`, bindings of
+//! claims that are over are dropped, and each work item is started on its own task — a method
+//! answers without waiting for a session. A work item's own engine calls come back through
+//! [`apply`] again.
 //!
 //! A session task: a headless session in the flow's space (or the one its session key is
-//! bound to), told the protocol layer and the skill; after every turn the claim is renewed and
-//! the run evaluated; a turn that ends without a submission gets one nudge, and a second one
-//! fails the attempt. Tasks sharing a session take turns.
+//! bound to), told the protocol layer and the skill; after every turn the run is evaluated and
+//! the claim renewed; a turn that ends without a submission gets one nudge, and a second one
+//! fails the attempt. Tasks sharing a session take turns, and a task waiting for its turn keeps
+//! its claim alive. A session is bound to a task only while no turn of anyone else's is
+//! running in it, and a task that is over while its turn still runs interrupts that turn and
+//! waits for it to settle before the session goes to the next task. A program keeps its claim
+//! alive while it runs.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -19,13 +24,17 @@ use serde_json::{json, Value};
 
 use super::shared::{session_name, session_ref, Binding, Shared, TaskKey};
 use crate::kernel::def::Executor;
+use crate::kernel::engine::view;
 use crate::kernel::host::{GateResult, Outcome, WorkItem};
 use crate::kernel::protocol::skill_body;
-use crate::kernel::run::{Actor, RunQuery, RunStatus, TaskStatus};
+use crate::kernel::run::{Actor, RunQuery, RunRecord, RunStatus, StationStatus, TaskStatus};
 use crate::kernel::{dispatched_work, FlowError};
 
 /// How many runs the `runs` topic carries, newest first.
 pub const RUNS_LISTED: usize = 200;
+
+/// How long a task that is over waits for the turn it interrupted to settle.
+const SETTLE_AFTER_INTERRUPT: Duration = Duration::from_secs(30);
 
 /// What a session is told when a turn ends and its task is still not handed in.
 pub const NUDGE: &str = "Your flow task is not handed in yet. Call `flow_submit` with an output \
@@ -74,7 +83,7 @@ async fn settle(sh: &Arc<Shared>, run: &str, what: &str, r: crate::Result<Outcom
     }
 }
 
-/// The newest snapshot of each run, and the list.
+/// The newest snapshot of each run, and the list; bindings of claims that are over dropped.
 pub(crate) async fn publish(sh: &Arc<Shared>, runs: &BTreeSet<String>) {
     let (Some(engine), Some(cx)) = (sh.engine.get(), sh.cx.get()) else {
         return;
@@ -82,8 +91,9 @@ pub(crate) async fn publish(sh: &Arc<Shared>, runs: &BTreeSet<String>) {
     let _order = sh.publish.lock().await;
     let events = cx.events();
     for run in runs {
-        if let Ok(view) = engine.get(run).await {
-            if let Err(e) = events.publish("run", json!({"run": run}), &view).await {
+        if let Ok(rec) = engine.record(run).await {
+            sh.prune_bindings(run, |b| binding_current(&rec, b));
+            if let Err(e) = events.publish("run", json!({"run": run}), view(rec)).await {
                 tracing::warn!(run, error = %e, "flow: run not published");
             }
         }
@@ -102,20 +112,34 @@ pub(crate) async fn publish(sh: &Arc<Shared>, runs: &BTreeSet<String>) {
     }
 }
 
-/// The list, and every active run: what a subscriber arriving after start sees.
+/// Whether a binding's claim still counts: its station open, its task claimed or handed in
+/// under the binding's token. A task handed in keeps its session bound so it can hand in
+/// again until the station passes.
+pub(crate) fn binding_current(rec: &RunRecord, b: &Binding) -> bool {
+    rec.is_active()
+        && rec.stations.get(&b.station).is_some_and(|st| {
+            matches!(st.status, StationStatus::Working | StationStatus::Unmet)
+                && st.task(&b.task).is_some_and(|t| {
+                    matches!(t.status, TaskStatus::Claimed | TaskStatus::Submitted)
+                        && t.lease.as_ref().is_some_and(|l| l.token == b.token)
+                })
+        })
+}
+
+/// The list, and every run in it: what a subscriber arriving after start sees.
 pub(crate) async fn publish_all(sh: &Arc<Shared>) {
     let Some(engine) = sh.engine.get() else {
         return;
     };
-    let active: BTreeSet<String> = engine
+    let listed: BTreeSet<String> = engine
         .list(RunQuery {
-            status: Some(RunStatus::Active),
+            limit: Some(RUNS_LISTED),
             ..Default::default()
         })
         .await
         .map(|l| l.into_iter().map(|s| s.id).collect())
         .unwrap_or_default();
-    publish(sh, &active).await;
+    publish(sh, &listed).await;
 }
 
 /// After a restart: whatever was handed out and not answered is carried on with — a session
@@ -139,10 +163,10 @@ pub(crate) async fn recover(sh: &Arc<Shared>) {
     };
     let now = engine.clock().now_ms();
     for s in active {
-        let Ok(view) = engine.get(&s.id).await else {
+        let Ok(rec) = engine.record(&s.id).await else {
             continue;
         };
-        for w in dispatched_work(&view.record, now) {
+        for w in dispatched_work(&rec, &sh.cfg.guarded, now) {
             spawn_work(sh, w, true);
         }
     }
@@ -196,7 +220,6 @@ async fn run_work(sh: Arc<Shared>, w: WorkItem, resume: bool) {
                 item,
                 protocol,
                 session_key,
-                session,
                 ..
             } = w
             else {
@@ -224,7 +247,6 @@ async fn run_work(sh: Arc<Shared>, w: WorkItem, resume: bool) {
                         skill_digest,
                         protocol: protocol.unwrap_or_default(),
                         session_key,
-                        session,
                         recording,
                         resume,
                     };
@@ -273,6 +295,29 @@ async fn run_work(sh: Arc<Shared>, w: WorkItem, resume: bool) {
     }
 }
 
+/// How often a claim being worked on is renewed: a third of the lease.
+fn renew_every(sh: &Shared) -> Duration {
+    Duration::from_millis((sh.cfg.lease_ms / 3).max(500))
+}
+
+/// Renew a claim (claimed or handed in); `false` when it is no longer ours.
+async fn renew(sh: &Arc<Shared>, key: &TaskKey, token: &str) -> bool {
+    let Ok(engine) = sh.engine() else {
+        return false;
+    };
+    let r = engine
+        .heartbeat(
+            &key.run,
+            &key.station,
+            &key.task,
+            token,
+            sh.cfg.lease_ms,
+            dispatcher(),
+        )
+        .await;
+    settle(sh, &key.run, "heartbeat", r).await
+}
+
 async fn program_task(
     sh: &Arc<Shared>,
     key: &TaskKey,
@@ -285,7 +330,22 @@ async fn program_task(
         run, station, task, ..
     } = key;
     let result = match (&sh.cfg.programs, engine.get(run).await) {
-        (Some(p), Ok(view)) => p.run(step, &view.record, item).await,
+        (Some(p), Ok(view)) => {
+            // The claim is kept alive while the program runs; one that is lost abandons it.
+            let running = p.run(step, &view.record, item);
+            tokio::pin!(running);
+            let every = renew_every(sh);
+            loop {
+                tokio::select! {
+                    r = &mut running => break r,
+                    _ = tokio::time::sleep(every) => {
+                        if !renew(sh, key, token).await {
+                            return;
+                        }
+                    }
+                }
+            }
+        }
         (None, _) => Err(format!("no programs are registered to run {step}")),
         (_, Err(e)) => {
             tracing::warn!(run, error = %e, "flow: program not run");
@@ -299,7 +359,9 @@ async fn program_task(
                 .await
             {
                 Ok(o) => apply(sh, Some(run), o).await,
-                Err(FlowError::Invalid(m)) => fail(sh, key, token, &m).await,
+                // Only a contract failure is the program's: a station no longer open, a claim
+                // gone, is not a failed attempt.
+                Err(FlowError::Contract(m)) => fail(sh, key, token, &m).await,
                 Err(e) => {
                     tracing::debug!(run, station, task, error = %e, "flow: program output not taken")
                 }
@@ -326,7 +388,7 @@ async fn fail(sh: &Arc<Shared>, key: &TaskKey, token: &str, error: &str) {
 
 /// Where a task stands, as far as one claim is concerned.
 #[derive(Debug, PartialEq, Eq)]
-enum Standing {
+pub(crate) enum Standing {
     /// Still claimed under this token: work on.
     Claimed,
     /// Handed in under this token.
@@ -335,24 +397,18 @@ enum Standing {
     Gone,
 }
 
-async fn standing(sh: &Shared, key: &TaskKey, token: &str) -> Standing {
-    let Ok(engine) = sh.engine() else {
-        return Standing::Gone;
-    };
-    let Ok(view) = engine.get(&key.run).await else {
-        return Standing::Gone;
-    };
-    let rec = view.record;
+/// A claim is its token: a partial rework that starts a new round keeps the tasks it did not
+/// name claimed under their tokens, and they are still to be worked on.
+pub(crate) fn standing_of(rec: &RunRecord, key: &TaskKey, token: &str) -> Standing {
     if !rec.is_active() {
         return Standing::Gone;
     }
-    let Some(st) = rec
-        .stations
-        .get(&key.station)
-        .filter(|s| s.round == key.round)
-    else {
+    let Some(st) = rec.stations.get(&key.station) else {
         return Standing::Gone;
     };
+    if !matches!(st.status, StationStatus::Working | StationStatus::Unmet) {
+        return Standing::Gone;
+    }
     let Some(t) = st.task(&key.task) else {
         return Standing::Gone;
     };
@@ -364,6 +420,16 @@ async fn standing(sh: &Shared, key: &TaskKey, token: &str) -> Standing {
     }
 }
 
+async fn standing(sh: &Shared, key: &TaskKey, token: &str) -> Standing {
+    let Ok(engine) = sh.engine() else {
+        return Standing::Gone;
+    };
+    match engine.record(&key.run).await {
+        Ok(rec) => standing_of(&rec, key, token),
+        Err(_) => Standing::Gone,
+    }
+}
+
 struct SessionJob {
     key: TaskKey,
     token: String,
@@ -372,7 +438,6 @@ struct SessionJob {
     skill_digest: Option<String>,
     protocol: String,
     session_key: Option<String>,
-    session: Option<String>,
     recording: Option<String>,
     resume: bool,
 }
@@ -386,41 +451,87 @@ enum Waited {
     Gone,
 }
 
+/// The session lock's key: tasks sharing a session share it.
+fn lock_key(job: &SessionJob) -> String {
+    match &job.session_key {
+        Some(k) => format!("{}#{k}", job.key.run),
+        None => format!("{}/{}/{}", job.key.run, job.key.station, job.key.task),
+    }
+}
+
 async fn session_task(sh: &Arc<Shared>, job: SessionJob) {
+    let name = lock_key(&job);
+    let lock = sh.session_lock(&name);
+    let acquired = wait_turn_on_session(sh, &lock, &job).await;
+    if let Some(guard) = acquired {
+        with_session(sh, &job).await;
+        drop(guard);
+    }
+    sh.release_lock(&name, lock);
+}
+
+/// The session's lock, renewing the claim while other tasks have it.
+async fn wait_turn_on_session(
+    sh: &Arc<Shared>,
+    lock: &Arc<tokio::sync::Mutex<()>>,
+    job: &SessionJob,
+) -> Option<tokio::sync::OwnedMutexGuard<()>> {
+    let acquire = lock.clone().lock_owned();
+    tokio::pin!(acquire);
+    let every = renew_every(sh);
+    loop {
+        tokio::select! {
+            g = &mut acquire => return Some(g),
+            _ = tokio::time::sleep(every) => {
+                if !renew(sh, &job.key, &job.token).await {
+                    return None;
+                }
+            }
+        }
+    }
+}
+
+/// With the session's lock held: find or make the session, bind it, carry the task.
+async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
     let (Ok(engine), Some(cx)) = (sh.engine(), sh.cx.get()) else {
         return;
     };
     let key = &job.key;
-    let lock_key = match &job.session_key {
-        Some(k) => format!("{}#{k}", key.run),
-        None => format!("{}/{}/{}", key.run, key.station, key.task),
+    let Ok(rec) = engine.record(&key.run).await else {
+        return;
     };
-    let lock = sh.session_lock(&lock_key);
-    let _turn = lock.lock().await;
-    if standing(sh, key, &job.token).await != Standing::Claimed {
+    if standing_of(&rec, key, &job.token) != Standing::Claimed {
         return;
     }
     let sessions = cx.sessions();
 
-    // The session: the one this task reported, else its key's (as bound now, by a task that
-    // went before it in the queue), else a new one.
-    let mut known = job.session.clone();
-    if known.is_none() {
-        if let (Some(k), Ok(view)) = (&job.session_key, engine.get(&key.run).await) {
-            known = view.record.session_keys.get(k).cloned();
-        }
-    }
-    let mut opened: Option<SessionRef> = None;
-    if let Some(name) = &known {
-        let s = session_ref(name);
+    // The task's own session (it reported one before a restart), else its key's (bound by a
+    // task that went before it), else a new one. Only its own is resumed: a task that never
+    // told its session anything is told everything.
+    let own = rec
+        .stations
+        .get(&key.station)
+        .and_then(|s| s.task(&key.task))
+        .and_then(|t| t.session.clone());
+    let keyed = job
+        .session_key
+        .as_ref()
+        .and_then(|k| rec.session_keys.get(k).cloned());
+    let mut opened: Option<(SessionRef, bool)> = None;
+    for (name, is_own) in [(own.clone(), true), (keyed, false)] {
+        let Some(name) = name else { continue };
+        let s = session_ref(&name);
         match sessions.open(&s.instance, &s.session_id).await {
-            Ok(s) => opened = Some(s),
-            Err(e) => tracing::info!(session = name, error = %e, "flow: session gone; a new one"),
+            Ok(s) => {
+                opened = Some((s, is_own));
+                break;
+            }
+            Err(e) => tracing::info!(session = name, error = %e, "flow: session gone"),
         }
     }
-    let resume = job.resume && opened.is_some() && job.session.is_some();
+    let resume = job.resume && opened.as_ref().is_some_and(|(_, own)| *own);
     let session = match opened {
-        Some(s) => s,
+        Some((s, _)) => s,
         None => {
             let spec = SessionSpec {
                 space: Some(sh.cfg.space.clone()),
@@ -438,14 +549,35 @@ async fn session_task(sh: &Arc<Shared>, job: SessionJob) {
             }
         }
     };
-    let name = session_name(&session);
+    let mut tap = match sessions.tap(&session).await {
+        Ok(t) => t,
+        Err(e) => {
+            fail(
+                sh,
+                key,
+                &job.token,
+                &format!("session not watched: {}", e.message),
+            )
+            .await;
+            return;
+        }
+    };
+    let running = turn_running(sh, &session).await;
+    if running && !resume {
+        // Someone else's turn — the task before, a person: it ends before this task binds,
+        // and its settlement is read here, not taken for this task's.
+        match wait_turn(sh, &mut tap, key, &job.token).await {
+            Waited::Settled => {}
+            Waited::Superseded | Waited::Gone => return,
+        }
+    }
     let attached = engine
         .attach_session(
             &key.run,
             &key.station,
             &key.task,
             &job.token,
-            &name,
+            &session_name(&session),
             job.session_key.as_deref(),
             dispatcher(),
         )
@@ -453,11 +585,10 @@ async fn session_task(sh: &Arc<Shared>, job: SessionJob) {
     if !settle(sh, &key.run, "attach_session", attached).await {
         return;
     }
-    let writes = engine
-        .get(&key.run)
-        .await
-        .ok()
-        .and_then(|v| v.record.def.station(&key.station).map(|s| s.writes.clone()))
+    let writes = rec
+        .def
+        .station(&key.station)
+        .map(|s| s.writes.clone())
         .unwrap_or_default();
     sh.bind(
         &session.session_id,
@@ -471,47 +602,54 @@ async fn session_task(sh: &Arc<Shared>, job: SessionJob) {
             writes,
         },
     );
-    carry(sh, &job, &session, resume).await;
-    sh.unbind(&session.session_id, &job.token);
+    let still_running = carry(sh, job, &session, &mut tap, resume, resume && running).await;
+    if still_running && !sh.stopping() {
+        // The task is over while its turn runs on: stop that turn before the session is
+        // anyone else's, so nothing it does lands under the next task.
+        let _ = sessions.interrupt(&session).await;
+        let _ = tokio::time::timeout(SETTLE_AFTER_INTERRUPT, tap.next_settled()).await;
+    }
+    // Handed in: the binding stays, so the session can hand in again until the station
+    // passes (publishing drops it then). Otherwise it goes now.
+    if standing(sh, key, &job.token).await != Standing::Submitted {
+        sh.unbind(&session.session_id, &job.token);
+    }
 }
 
-/// Send the task, then judge after every turn until it is in, over, or failed.
-async fn carry(sh: &Arc<Shared>, job: &SessionJob, session: &SessionRef, resume: bool) {
+async fn turn_running(sh: &Shared, session: &SessionRef) -> bool {
+    let Some(cx) = sh.cx.get() else { return false };
+    cx.call(
+        "session.get",
+        json!({"instance": session.instance, "session_id": session.session_id}),
+    )
+    .await
+    .ok()
+    .and_then(|v| {
+        v.get("turn_state")
+            .and_then(Value::as_str)
+            .map(String::from)
+    })
+    .is_some_and(|s| s != "idle")
+}
+
+/// Send the task, then judge after every turn until it is in, over, or failed. Returns
+/// whether a turn may still be running.
+async fn carry(
+    sh: &Arc<Shared>,
+    job: &SessionJob,
+    session: &SessionRef,
+    tap: &mut Tap,
+    resume: bool,
+    resumed_running: bool,
+) -> bool {
     let (Ok(engine), Some(cx)) = (sh.engine(), sh.cx.get()) else {
-        return;
+        return false;
     };
     let key = &job.key;
     let sessions = cx.sessions();
-    let mut tap = match sessions.tap(session).await {
-        Ok(t) => t,
-        Err(e) => {
-            fail(
-                sh,
-                key,
-                &job.token,
-                &format!("session not watched: {}", e.message),
-            )
-            .await;
-            return;
-        }
-    };
     // A resumed task whose session is idle had its turn cut off: judge it as a turn that ended.
-    let mut judge_now = false;
-    if resume {
-        let state = cx
-            .call(
-                "session.get",
-                json!({"instance": session.instance, "session_id": session.session_id}),
-            )
-            .await
-            .ok()
-            .and_then(|v| {
-                v.get("turn_state")
-                    .and_then(Value::as_str)
-                    .map(String::from)
-            });
-        judge_now = state.as_deref() != Some("running");
-    } else {
+    let mut running = resumed_running;
+    if !resume {
         let message = task_message(sh, job);
         if let Err(e) = sessions.send(session, &message, OnBusy::Queue).await {
             fail(
@@ -521,43 +659,34 @@ async fn carry(sh: &Arc<Shared>, job: &SessionJob, session: &SessionRef, resume:
                 &format!("the task was not sent: {}", e.message),
             )
             .await;
-            return;
+            return false;
         }
+        running = true;
     }
     let mut nudged = false;
     loop {
-        if !judge_now {
-            match wait_turn(sh, &mut tap, key, &job.token).await {
+        if running {
+            match wait_turn(sh, tap, key, &job.token).await {
                 Waited::Settled => {}
-                Waited::Superseded => return,
+                Waited::Superseded => return true,
                 Waited::Gone => {
                     if !sh.stopping() && standing(sh, key, &job.token).await == Standing::Claimed {
                         fail(sh, key, &job.token, "the session went away").await;
                     }
-                    return;
+                    return false;
                 }
             }
         }
-        judge_now = false;
         if sh.stopping() {
-            return;
+            return false;
         }
         settle(sh, &key.run, "evaluate", engine.evaluate(&key.run).await).await;
         match standing(sh, key, &job.token).await {
-            Standing::Submitted | Standing::Gone => return,
+            Standing::Submitted | Standing::Gone => return false,
             Standing::Claimed => {}
         }
-        let renewed = engine
-            .heartbeat(
-                &key.run,
-                &key.station,
-                &key.task,
-                &job.token,
-                sh.cfg.lease_ms,
-            )
-            .await;
-        if !settle(sh, &key.run, "heartbeat", renewed).await {
-            return;
+        if !renew(sh, key, &job.token).await {
+            return false;
         }
         if nudged {
             fail(
@@ -567,7 +696,7 @@ async fn carry(sh: &Arc<Shared>, job: &SessionJob, session: &SessionRef, resume:
                 "the session ended a turn twice without handing the task in",
             )
             .await;
-            return;
+            return false;
         }
         nudged = true;
         if let Err(e) = sessions.send(session, NUDGE, OnBusy::Queue).await {
@@ -578,37 +707,22 @@ async fn carry(sh: &Arc<Shared>, job: &SessionJob, session: &SessionRef, resume:
                 &format!("the reminder was not sent: {}", e.message),
             )
             .await;
-            return;
+            return false;
         }
+        running = true;
     }
 }
 
 /// The next settled turn, renewing the claim while it runs.
 async fn wait_turn(sh: &Arc<Shared>, tap: &mut Tap, key: &TaskKey, token: &str) -> Waited {
-    let Ok(engine) = sh.engine() else {
-        return Waited::Gone;
-    };
-    let every = Duration::from_millis((sh.cfg.lease_ms / 3).max(500));
+    let every = renew_every(sh);
     loop {
         match tokio::time::timeout(every, tap.next_settled()).await {
             Ok(Some(_)) => return Waited::Settled,
             Ok(None) => return Waited::Gone,
             Err(_) => {
-                if sh.stopping() {
+                if sh.stopping() || !renew(sh, key, token).await {
                     return Waited::Superseded;
-                }
-                match standing(sh, key, token).await {
-                    Standing::Claimed => {
-                        let r = engine
-                            .heartbeat(&key.run, &key.station, &key.task, token, sh.cfg.lease_ms)
-                            .await;
-                        if !settle(sh, &key.run, "heartbeat", r).await {
-                            return Waited::Superseded;
-                        }
-                    }
-                    // Handed in mid-turn: the turn's end is still worth waiting for.
-                    Standing::Submitted => {}
-                    Standing::Gone => return Waited::Superseded,
                 }
             }
         }
@@ -639,6 +753,7 @@ fn task_message(sh: &Shared, job: &SessionJob) -> String {
 mod tests {
     use super::*;
     use crate::kernel::def::SessionBinding;
+    use crate::{CreateIn, Engine, ManualClock, MemPacks, MemStore};
 
     #[test]
     fn work_names_its_run() {
@@ -668,5 +783,124 @@ mod tests {
             }),
             None
         );
+    }
+
+    const MULTI: &str = r#"
+name: multi
+stations:
+  - {id: collect, executor: {kind: program, step: collect}, output: {type: object}, exit: [{kind: output}]}
+  - id: analyze
+    foreach: ${stations.collect.output.modules}
+    executor: {kind: program, step: work}
+    output: {type: object}
+    exit: [{kind: output}]
+  - {id: next, exit: [{kind: confirm}]}
+"#;
+
+    fn engine() -> (Engine, Arc<ManualClock>) {
+        let clock = Arc::new(ManualClock::new(1_000_000));
+        let packs = MemPacks::new().flow(MULTI).step("collect").step("work");
+        let eng = Engine::new(Arc::new(MemStore::new()), Arc::new(packs))
+            .with_clock(clock.clone())
+            .with_lease_ms(60_000);
+        (eng, clock)
+    }
+
+    fn tasks(o: &Outcome) -> Vec<(String, u32, String)> {
+        o.work
+            .iter()
+            .filter_map(|w| match w {
+                WorkItem::Task {
+                    task, round, token, ..
+                } => Some((task.clone(), *round, token.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A partial rework starts a new round of the station but keeps the claims it did not
+    /// name: the dispatcher must go on working them (the claim is the token, not the round).
+    #[tokio::test]
+    async fn a_partial_rework_leaves_the_other_claims_standing() {
+        let (eng, _) = engine();
+        let o = eng
+            .create(
+                CreateIn {
+                    flow: "multi".into(),
+                    subject: "s".into(),
+                    ..Default::default()
+                },
+                Actor::new("device", "d"),
+            )
+            .await
+            .unwrap();
+        let run = o.value["run"].as_str().unwrap().to_string();
+        let (_, _, collect) = tasks(&o).remove(0);
+        let o = eng
+            .submit(
+                &run,
+                "collect",
+                "collect",
+                &collect,
+                json!({"modules": ["a", "b"]}),
+                dispatcher(),
+            )
+            .await
+            .unwrap();
+        let fan = tasks(&o);
+        let (a, b) = (fan[0].clone(), fan[1].clone());
+        eng.rework(
+            &run,
+            "analyze",
+            Some(vec!["a".into()]),
+            "again",
+            Actor::new("device", "d"),
+        )
+        .await
+        .unwrap();
+        let rec = eng.record(&run).await.unwrap();
+        assert_eq!(rec.stations["analyze"].round, 2);
+        let key = |(task, round, _): &(String, u32, String)| TaskKey {
+            run: run.clone(),
+            station: "analyze".into(),
+            round: *round,
+            task: task.clone(),
+        };
+        assert_eq!(standing_of(&rec, &key(&b), &b.2), Standing::Claimed);
+        assert_eq!(standing_of(&rec, &key(&a), &a.2), Standing::Gone);
+    }
+
+    #[test]
+    fn a_binding_counts_until_its_station_passes_or_its_claim_is_superseded() {
+        let mut rec: RunRecord = serde_json::from_value(json!({
+            "id": "r", "flow": "f", "def_digest": "d", "subject": "s", "status": "active",
+            "rev": 1, "created_at": 0, "created_by": {"kind": "x", "id": "y"},
+            "def": {"name": "f", "stations": [{"id": "a", "exit": [{"kind": "confirm"}]}]},
+            "stations": {"a": {"status": "working", "round": 1, "tasks": [
+                {"id": "t", "status": "submitted", "attempt": 1,
+                 "lease": {"by": {"kind": "flow", "id": "dispatch"}, "token": "tok", "until": 9}}
+            ]}}
+        }))
+        .unwrap();
+        let b = Binding {
+            instance: "system".into(),
+            run: "r".into(),
+            station: "a".into(),
+            round: 1,
+            task: "t".into(),
+            token: "tok".into(),
+            writes: vec![],
+        };
+        assert!(
+            binding_current(&rec, &b),
+            "handed in, station open: it may hand in again"
+        );
+        let other = Binding {
+            token: "old".into(),
+            ..b.clone()
+        };
+        assert!(!binding_current(&rec, &other));
+        rec.stations.get_mut("a").unwrap().status = StationStatus::Passed;
+        assert!(!binding_current(&rec, &b));
     }
 }

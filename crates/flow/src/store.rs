@@ -101,20 +101,52 @@ const COUNTERS: &str = "ids.json";
 ///
 /// Atomicity is per process: revs are compared under a process-wide mutex. A commit that
 /// touches several runs writes them one after another; a crash in between can leave
-/// some written.
+/// some written. The run summaries `list` answers from are read from the directory once
+/// and then kept up to date by this store's own commits — one process per directory.
+/// Disk work runs on the blocking pool when there is a Tokio runtime. A run id with a path
+/// separator, or starting with `.`, names no run.
+#[derive(Clone)]
 pub struct FileStore {
+    inner: std::sync::Arc<Files>,
+}
+
+struct Files {
     dir: PathBuf,
+    /// id → summary, once read.
+    index: Mutex<Option<BTreeMap<String, RunSummary>>>,
+}
+
+/// Run `f` off the async runtime's worker threads, when there is one.
+async fn blocking<T: Send + 'static>(
+    f: impl FnOnce() -> Result<T, StoreError> + Send + 'static,
+) -> Result<T, StoreError> {
+    match tokio::runtime::Handle::try_current() {
+        Ok(rt) => rt.spawn_blocking(f).await.map_err(other)?,
+        Err(_) => f(),
+    }
+}
+
+/// Whether `id` can be a file name in the directory.
+fn safe_id(id: &str) -> bool {
+    !id.is_empty() && !id.contains(['/', '\\', '\0']) && !id.starts_with('.')
 }
 
 impl FileStore {
     pub fn new(dir: impl Into<PathBuf>) -> Self {
-        Self { dir: dir.into() }
+        Self {
+            inner: std::sync::Arc::new(Files {
+                dir: dir.into(),
+                index: Mutex::new(None),
+            }),
+        }
     }
 
     pub fn dir(&self) -> &Path {
-        &self.dir
+        &self.inner.dir
     }
+}
 
+impl Files {
     fn record_path(&self, id: &str) -> PathBuf {
         self.dir.join(format!("{id}.json"))
     }
@@ -124,7 +156,7 @@ impl FileStore {
     }
 
     fn read_record(&self, id: &str) -> Result<Option<RunRecord>, StoreError> {
-        if id.is_empty() || id.contains(['/', '\\']) || id.starts_with('.') {
+        if !safe_id(id) {
             return Ok(None);
         }
         match std::fs::read(self.record_path(id)) {
@@ -143,17 +175,43 @@ impl FileStore {
     fn ensure_dir(&self) -> Result<(), StoreError> {
         std::fs::create_dir_all(&self.dir).map_err(other)
     }
-}
 
-fn guard() -> Result<std::sync::MutexGuard<'static, ()>, StoreError> {
-    FILE_LOCK
-        .lock()
-        .map_err(|_| other("file store lock poisoned"))
-}
+    fn lock_index(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, Option<BTreeMap<String, RunSummary>>>, StoreError> {
+        self.index
+            .lock()
+            .map_err(|_| other("file store index poisoned"))
+    }
 
-#[async_trait]
-impl RunStore for FileStore {
-    async fn alloc_id(&self, flow: &str) -> Result<String, StoreError> {
+    /// Every run's summary, from the directory.
+    fn scan(&self) -> Result<BTreeMap<String, RunSummary>, StoreError> {
+        let entries = match std::fs::read_dir(&self.dir) {
+            Ok(e) => e,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
+            Err(e) => return Err(other(e)),
+        };
+        let mut all = BTreeMap::new();
+        for entry in entries {
+            let name = entry
+                .map_err(other)?
+                .file_name()
+                .to_string_lossy()
+                .into_owned();
+            let Some(id) = name.strip_suffix(".json") else {
+                continue;
+            };
+            if name == COUNTERS || id.contains(".tmp-") {
+                continue;
+            }
+            if let Some(r) = self.read_record(id)? {
+                all.insert(r.id.clone(), r.summary());
+            }
+        }
+        Ok(all)
+    }
+
+    fn alloc_id(&self, flow: &str) -> Result<String, StoreError> {
         let _g = guard()?;
         self.ensure_dir()?;
         let path = self.dir.join(COUNTERS);
@@ -170,38 +228,26 @@ impl RunStore for FileStore {
         Ok(id)
     }
 
-    async fn load(&self, run: &str) -> Result<Option<RunRecord>, StoreError> {
-        self.read_record(run)
-    }
-
-    async fn list(&self, q: &RunQuery) -> Result<Vec<RunSummary>, StoreError> {
-        let entries = match std::fs::read_dir(&self.dir) {
-            Ok(e) => e,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
-            Err(e) => return Err(other(e)),
-        };
-        let mut all = vec![];
-        for entry in entries {
-            let name = entry
-                .map_err(other)?
-                .file_name()
-                .to_string_lossy()
-                .into_owned();
-            let Some(id) = name.strip_suffix(".json") else {
-                continue;
-            };
-            if name == COUNTERS {
-                continue;
-            }
-            if let Some(r) = self.read_record(id)? {
-                all.push(r.summary());
-            }
+    fn list(&self, q: &RunQuery) -> Result<Vec<RunSummary>, StoreError> {
+        let mut index = self.lock_index()?;
+        if index.is_none() {
+            *index = Some(self.scan()?);
         }
+        let all = index
+            .as_ref()
+            .map(|m| m.values().cloned().collect())
+            .unwrap_or_default();
         Ok(q.apply(all))
     }
 
-    async fn commit(&self, cs: &ChangeSet) -> Result<(), StoreError> {
+    fn commit(&self, cs: &ChangeSet) -> Result<(), StoreError> {
         let _g = guard()?;
+        if let Some((bad, _)) = cs.records.iter().find(|(r, _)| !safe_id(&r.id)) {
+            return Err(other(format!("{:?} cannot name a run", bad.id)));
+        }
+        if let Some(h) = cs.history.iter().find(|h| !safe_id(&h.run)) {
+            return Err(other(format!("{:?} cannot name a run", h.run)));
+        }
         self.ensure_dir()?;
         let mut current = BTreeMap::new();
         for (rec, _) in &cs.records {
@@ -211,6 +257,11 @@ impl RunStore for FileStore {
         for (rec, _) in &cs.records {
             let bytes = serde_json::to_vec_pretty(rec).map_err(other)?;
             self.write_atomic(&self.record_path(&rec.id), &bytes)?;
+        }
+        if let Some(index) = self.lock_index()?.as_mut() {
+            for (rec, _) in &cs.records {
+                index.insert(rec.id.clone(), rec.summary());
+            }
         }
         let mut by_run: BTreeMap<&str, String> = BTreeMap::new();
         for h in &cs.history {
@@ -230,7 +281,10 @@ impl RunStore for FileStore {
         Ok(())
     }
 
-    async fn history(&self, run: &str) -> Result<Vec<History>, StoreError> {
+    fn history(&self, run: &str) -> Result<Vec<History>, StoreError> {
+        if !safe_id(run) {
+            return Ok(vec![]);
+        }
         let text = match std::fs::read_to_string(self.history_path(run)) {
             Ok(t) => t,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
@@ -240,5 +294,39 @@ impl RunStore for FileStore {
             .filter(|l| !l.trim().is_empty())
             .map(|l| serde_json::from_str(l).map_err(other))
             .collect()
+    }
+}
+
+fn guard() -> Result<std::sync::MutexGuard<'static, ()>, StoreError> {
+    FILE_LOCK
+        .lock()
+        .map_err(|_| other("file store lock poisoned"))
+}
+
+#[async_trait]
+impl RunStore for FileStore {
+    async fn alloc_id(&self, flow: &str) -> Result<String, StoreError> {
+        let (files, flow) = (self.inner.clone(), flow.to_string());
+        blocking(move || files.alloc_id(&flow)).await
+    }
+
+    async fn load(&self, run: &str) -> Result<Option<RunRecord>, StoreError> {
+        let (files, run) = (self.inner.clone(), run.to_string());
+        blocking(move || files.read_record(&run)).await
+    }
+
+    async fn list(&self, q: &RunQuery) -> Result<Vec<RunSummary>, StoreError> {
+        let (files, q) = (self.inner.clone(), q.clone());
+        blocking(move || files.list(&q)).await
+    }
+
+    async fn commit(&self, cs: &ChangeSet) -> Result<(), StoreError> {
+        let (files, cs) = (self.inner.clone(), cs.clone());
+        blocking(move || files.commit(&cs)).await
+    }
+
+    async fn history(&self, run: &str) -> Result<Vec<History>, StoreError> {
+        let (files, run) = (self.inner.clone(), run.to_string());
+        blocking(move || files.history(&run)).await
     }
 }

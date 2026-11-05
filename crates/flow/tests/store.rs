@@ -210,3 +210,72 @@ async fn engine_on_a_file_store() {
         RunStatus::Finished
     );
 }
+
+#[tokio::test]
+async fn file_store_names_no_file_outside_its_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let runs = dir.path().join("runs");
+    let s = FileStore::new(&runs);
+    // A history file beside the directory, reachable with `..` if ids were not checked.
+    std::fs::write(
+        dir.path().join("secret.history.jsonl"),
+        serde_json::to_string(&hist("secret", 1, "leak")).unwrap() + "\n",
+    )
+    .unwrap();
+    for id in ["../secret", "..\\secret", ".hidden", ""] {
+        assert!(s.history(id).await.unwrap().is_empty(), "{id:?}");
+        assert_eq!(s.load(id).await.unwrap(), None, "{id:?}");
+    }
+    let bad = s
+        .commit(&ChangeSet {
+            records: vec![(record("../escape", "demo", "x", 1, 1), None)],
+            history: vec![],
+        })
+        .await;
+    assert!(bad.is_err());
+    assert!(!dir.path().join("escape.json").exists());
+}
+
+#[tokio::test]
+async fn file_store_lists_from_an_index_its_commits_keep_current() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = FileStore::new(dir.path());
+    s.commit(&ChangeSet {
+        records: vec![(record("demo-1", "demo", "x", 1, 1), None)],
+        history: vec![],
+    })
+    .await
+    .unwrap();
+    assert_eq!(s.list(&RunQuery::default()).await.unwrap().len(), 1);
+    // Read once: a file appearing behind the store's back is not listed...
+    std::fs::write(
+        dir.path().join("demo-9.json"),
+        serde_json::to_vec(&record("demo-9", "demo", "z", 1, 9)).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(s.list(&RunQuery::default()).await.unwrap().len(), 1);
+    // ...while its own commits are, at once.
+    let mut a = record("demo-1", "demo", "x", 2, 1);
+    a.status = RunStatus::Finished;
+    s.commit(&ChangeSet {
+        records: vec![(a, Some(1)), (record("demo-2", "demo", "y", 1, 2), None)],
+        history: vec![],
+    })
+    .await
+    .unwrap();
+    let listed = s.list(&RunQuery::default()).await.unwrap();
+    assert_eq!(
+        listed.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+        ["demo-2", "demo-1"]
+    );
+    assert_eq!(listed[1].status, RunStatus::Finished);
+    // A fresh store reads the directory.
+    assert_eq!(
+        FileStore::new(dir.path())
+            .list(&RunQuery::default())
+            .await
+            .unwrap()
+            .len(),
+        3
+    );
+}

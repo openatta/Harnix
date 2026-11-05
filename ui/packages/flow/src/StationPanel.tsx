@@ -18,6 +18,7 @@ import {
   checkOk,
   digestLines,
   formatTime,
+  leaseUntil,
   methodName,
   pretty,
   stationActions,
@@ -417,7 +418,13 @@ function RunTab({ station: s, view, module }: { station: Station; view: RunView;
                         ) : null}
                       </div>
                       {task.item !== undefined && task.item !== null ? <div className="hx-flow-faint">{t("flowui.run.item")}: {clipped(task.item)}</div> : null}
-                      {task.lease ? <div className="hx-flow-faint">{t("flowui.run.lease", { by: actorLabel(task.lease.by), until: formatTime(task.lease.until) })}</div> : null}
+                      {task.lease ? (
+                        <div className="hx-flow-faint" data-testid={`flow-lease-${task.id}`}>
+                          {leaseUntil(task.lease.until) === null
+                            ? t("flowui.run.leaseChild", { by: actorLabel(task.lease.by) })
+                            : t("flowui.run.lease", { by: actorLabel(task.lease.by), until: formatTime(task.lease.until) })}
+                        </div>
+                      ) : null}
                       {task.child ? <div className="hx-flow-faint">{t("flowui.run.child", { run: task.child })}</div> : null}
                       {task.error ? <div className="hx-flow-error">{task.error}</div> : null}
                       {task.output !== undefined && task.output !== null ? (

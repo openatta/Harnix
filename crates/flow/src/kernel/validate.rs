@@ -352,6 +352,14 @@ fn executor_problems(c: &mut Ctx, id: &str, t: &TaskSpec) {
         Executor::Subflow { flow, .. } => {
             if c.packs.flow(flow).is_none() {
                 c.at(id, format!("subflow {flow} is not a flow in the packs"));
+            } else if let Some(path) = subflow_cycle(c.packs, &c.def.name, flow) {
+                c.at(
+                    id,
+                    format!(
+                        "subflow {flow} leads back to this flow: {}",
+                        path.join(" → ")
+                    ),
+                );
             }
         }
     }
@@ -360,6 +368,47 @@ fn executor_problems(c: &mut Ctx, id: &str, t: &TaskSpec) {
             c.at(id, format!("skill {skill} is not in the packs"));
         }
     }
+}
+
+/// A chain of subflows from `start` back to `root`, if there is one: `[root, start, …, root]`.
+/// The pack's current definitions are followed; a flow already visited is not entered again.
+fn subflow_cycle(packs: &dyn Packs, root: &str, start: &str) -> Option<Vec<String>> {
+    fn children(def: &FlowDef) -> Vec<String> {
+        let mut out = vec![];
+        for s in &def.stations {
+            let specs = match s.work() {
+                super::def::Work::None => vec![],
+                super::def::Work::One(t) | super::def::Work::Foreach { task: t, .. } => vec![t],
+                super::def::Work::Tasks(ts) => ts,
+            };
+            for t in specs {
+                if let Executor::Subflow { flow, .. } = t.executor {
+                    out.push(flow);
+                }
+            }
+        }
+        out
+    }
+    let mut seen = BTreeSet::new();
+    let mut stack = vec![vec![root.to_string(), start.to_string()]];
+    while let Some(path) = stack.pop() {
+        let last = path.last().cloned().unwrap_or_default();
+        if last == root {
+            return Some(path);
+        }
+        if !seen.insert(last.clone()) {
+            continue;
+        }
+        let Some((def, _)) = packs.flow(&last) else {
+            continue;
+        };
+        for next in children(&def) {
+            let mut p = path.clone();
+            p.push(next);
+            stack.push(p);
+        }
+    }
+    None
 }
 
 fn assert_problems(c: &mut Ctx, id: &str, a: &Assert, against_context: bool) {

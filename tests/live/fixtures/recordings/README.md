@@ -19,6 +19,8 @@ cannot ask for replay, and outside replay the fixture name means nothing.
 | `calls-a-native-tool` | A call to `ProbeFixed`, the tool `harnix-testapp`'s native scene contributes (ipdrun-10). Made the same way |
 | `flow-analyze` | The flow module's `analyze` station (xops-01): one call to `flow_submit` with `{findings: [one low finding]}`, then a line of text. Made from `calls-a-native-tool` by hand; `harnix-testapp` names a session task's recording `flow-<station>` |
 | `flow-report` | The same for the `report` station's `summary` task: `flow_submit` with `{summary}` |
+| `flow-propose` | One turn of four calls: `TodoWrite` (which `harnix-testapp` guards as a write, so the flow refuses it), `flow_propose {kind: rework, to: propose}`, `flow_submit {done: true}`, a line of text. Made from `calls-a-native-tool` by hand |
+| `flow-shared` | Two turns in one session (`per_run`): each calls `flow_submit` with its own `step` and says a line; between them a filler `[]` answers the memory-extraction call the engine makes after every finished turn, which otherwise takes the next turn's recorded call. Made the same way |
 | `runs-a-while` | A `Bash` call that waits four seconds (in `perl`: the engine refuses a `sleep` of 2 s or more): a turn that is still running when something is steered into it (ipdrun-13). Made the same way |
 
 ## Re-recording one

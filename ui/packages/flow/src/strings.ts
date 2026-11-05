@@ -113,6 +113,7 @@ const en: Record<string, string> = {
   "flowui.run.openSession": "Open session",
   "flowui.run.item": "Item",
   "flowui.run.lease": "Claimed by {by} until {until}",
+  "flowui.run.leaseChild": "Claimed by {by} until the child run finishes",
   "flowui.run.child": "Child run {run}",
   "flowui.run.output": "Output",
   "flowui.run.checks": "Condition results",
@@ -165,6 +166,9 @@ const en: Record<string, string> = {
   "flowui.proposal.accept": "Accept",
   "flowui.proposal.dismiss": "Dismiss",
   "flowui.proposal.accepted": "Accepted.",
+  "flowui.proposal.handled": "Proposal accepted ({action}) by {by}",
+  "flowui.proposal.action.rework": "rework",
+  "flowui.proposal.action.cancel": "cancel the run",
 };
 
 const zhCN: Record<string, string> = {
@@ -267,6 +271,7 @@ const zhCN: Record<string, string> = {
   "flowui.run.openSession": "打开会话",
   "flowui.run.item": "条目",
   "flowui.run.lease": "{by} 认领，到 {until}",
+  "flowui.run.leaseChild": "{by} 认领，到子运行结束",
   "flowui.run.child": "子运行 {run}",
   "flowui.run.output": "输出",
   "flowui.run.checks": "条件结果",
@@ -319,6 +324,9 @@ const zhCN: Record<string, string> = {
   "flowui.proposal.accept": "采纳",
   "flowui.proposal.dismiss": "忽略",
   "flowui.proposal.accepted": "已采纳。",
+  "flowui.proposal.handled": "{by} 采纳了提议（{action}）",
+  "flowui.proposal.action.rework": "退回",
+  "flowui.proposal.action.cancel": "取消运行",
 };
 
 export const STRINGS = { en, "zh-CN": zhCN } as const;

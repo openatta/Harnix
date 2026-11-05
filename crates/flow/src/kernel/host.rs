@@ -122,14 +122,22 @@ pub enum Op {
         task: String,
         who: Option<String>,
     },
+    /// `executor`: the task's executor kind (`session`, `program`, `external`, `subflow`).
     Submit {
         station: String,
         task: String,
+        executor: String,
         who: Option<String>,
     },
     Fail {
         station: String,
         task: String,
+        executor: String,
+    },
+    Heartbeat {
+        station: String,
+        task: String,
+        executor: String,
     },
     Confirm {
         station: String,
@@ -165,6 +173,7 @@ impl Op {
             Self::Claim { .. } => "claim",
             Self::Submit { .. } => "submit",
             Self::Fail { .. } => "fail",
+            Self::Heartbeat { .. } => "heartbeat",
             Self::Confirm { .. } => "confirm",
             Self::Force { .. } => "force",
             Self::Rework { .. } => "rework",
@@ -194,6 +203,11 @@ impl Authorizer for AllowAll {
 // ── judgement and execution ─────────────────────────────────────────────────
 
 /// Read-only application tools a `tool` exit calls.
+///
+/// **They must be read-only and idempotent.** A `tool` exit is called again whenever its
+/// station is judged — every `evaluate`, every turn a session task ends, every resubmission —
+/// and again when an operation is recomputed after a store conflict, whose first result is
+/// thrown away. A tool that changes something would change it any number of times.
 #[async_trait]
 pub trait Tools: Send + Sync {
     async fn call(&self, tool: &str, args: &Value) -> Result<Value, String>;

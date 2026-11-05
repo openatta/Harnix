@@ -57,7 +57,7 @@ const status = (id: string, s: string) => (v: View) => station(v, id)?.status ==
 
 test("the module says what it offers: flows, a definition with its skills, the catalog, schemas", TAGS, async () => {
   const defs = await api.call("app.flow.defs");
-  expect(defs.map((d: any) => d.name).sort()).toEqual(["demo-linear", "demo-review"]);
+  expect(defs.map((d: any) => d.name).sort()).toEqual(["demo-linear", "demo-propose", "demo-review", "demo-shared"]);
   const info = await api.call("app.flow.def", { name: "demo-review" });
   expect(info.def.stations.map((s: any) => s.id)).toEqual(["collect", "analyze", "lint", "self-check", "review", "report"]);
   expect(info.yaml).toContain("name: demo-review");
@@ -66,7 +66,9 @@ test("the module says what it offers: flows, a definition with its skills, the c
   expect(info.digest).toMatch(/^[0-9a-f]{64}$/);
 
   const catalog = await api.call("app.flow.catalog");
-  expect(catalog.scenes).toContain("flow-chat");
+  // Only wrapped scenes: a session task runs where flow_submit and the writes guard are.
+  expect(catalog.scenes).toEqual(["flow-chat"]);
+  expect(info.protocol.analyze).toContain("refuses these as writes: Bash, PowerShell, REPL, Write, Edit, NotebookEdit, TodoWrite");
   expect(catalog.steps).toEqual(["collect", "self-check"]);
   expect(catalog.skills).toEqual(["analyze", "report"]);
   const def = await api.call("app.flow.schema", { of: "definition" });
@@ -80,6 +82,57 @@ test("the module says what it offers: flows, a definition with its skills, the c
   });
   expect(problems.length).toBeGreaterThan(0);
   expect(JSON.stringify(problems)).toContain("nowhere");
+  const unwrapped = await api.call("app.flow.validate", {
+    yaml: "name: bare\nstations: [{id: a, executor: {kind: session, scene: chat}, skill: analyze, output: {type: object}, exit: [{kind: output}]}]",
+  });
+  expect(JSON.stringify(unwrapped)).toContain("scene chat");
+});
+
+test("lease tokens stay with their claimants, and push tasks are the flow's to hand in", TAGS, async () => {
+  const run = await start("demo-review");
+  const review = await until(run, status("review", "working"), "review waits");
+  const text = JSON.stringify(review);
+  expect(text).not.toContain('"token"');
+  expect(JSON.stringify(await api.call("app.flow.get", { run }))).not.toContain('"token"');
+  await api.call("app.flow.confirm", { run, station: "review", pass: true });
+  await until(run, (v) => station(v, "report")?.tasks?.some((t: any) => t.id === "sign"), "report entered");
+  const { token } = await api.call("app.flow.claim", { run, station: "report", task: "sign" });
+  const after = await api.call("app.flow.get", { run });
+  expect(JSON.stringify(after)).not.toContain(token);
+  // The summary is a session task: a device holding no token, or any token, cannot hand it in.
+  const denied = await api.refused("app.flow.submit", { run, station: "report", task: "summary", token, output: {} });
+  expect(denied?.data?.flow).toMatch(/denied|lease/);
+  // A lease past the cap is cut to a day, not overflowed.
+  const hb = await api.call("app.flow.heartbeat", { run, station: "report", task: "sign", token, lease_ms: Number.MAX_SAFE_INTEGER });
+  expect(hb.until).toBeLessThanOrEqual(Date.now() + 24 * 3600 * 1000 + 60_000);
+  await api.call("app.flow.cancel", { run, reason: "done" });
+});
+
+test("a session's write its station does not allow is refused, its proposal is accepted once", TAGS, async () => {
+  const run = await start("demo-propose");
+  const waiting = await until(run, status("approve", "working"), "approve waits");
+  const task = station(waiting, "propose").tasks[0];
+  expect(task.status).toBe("submitted");
+  const [instance, session_id] = task.session.split("/");
+  const history = JSON.stringify((await api.call("session.history", { instance, session_id })).messages);
+  expect(history).toContain("allows no writes");
+  expect(history).toContain("TodoWrite");
+
+  const { entries } = await api.call("session.entries", { instance, session_id });
+  const proposal = entries.find((e: any) => e.ns === "app.flow" && e.event === "proposal");
+  expect(proposal.payload).toMatchObject({ run, station: "propose", kind: "rework", to: "propose", session: { instance, session_id } });
+  const ref = { instance, session_id, entry: proposal.id };
+  expect((await api.call("app.flow.proposal", ref)).handled).toBeNull();
+
+  await api.call("app.flow.rework", { run, to: "propose", reason: proposal.payload.reason, proposal: ref });
+  const again = await api.call("app.flow.rework", { run, to: "propose", reason: proposal.payload.reason, proposal: ref });
+  expect(again.already).toMatchObject({ entry: proposal.id, action: "rework", by: { kind: "device" } });
+  expect((await api.call("app.flow.proposal", ref)).handled).toMatchObject({ action: "rework" });
+  const hist = await api.call("app.flow.history", { run });
+  expect(hist.filter((h: any) => h.op === "rework")).toHaveLength(1);
+  // The second round runs in a new session and hands in again.
+  await until(run, (v) => station(v, "propose").round === 2 && station(v, "approve").status === "working", "the second round");
+  await api.call("app.flow.cancel", { run, reason: "done" });
 });
 
 test("a linear run: a program, a session that hands in through flow_submit, a confirmation", TAGS, async () => {
@@ -169,6 +222,20 @@ test("force and rework: a station passed without its confirmation, and work sent
 
   await api.call("app.flow.cancel", { run, reason: "done looking" });
   await until(run, (v) => v.record.status === "cancelled", "the run is cancelled");
+});
+
+test("tasks sharing the run's session take turns in it, each handing in under its own claim", TAGS, async () => {
+  const run = await start("demo-shared");
+  const done = await until(run, (v) => v.record.status === "finished", "both stations hand in");
+  const [first, second] = [station(done, "first").tasks[0], station(done, "second").tasks[0]];
+  expect(first.output).toEqual({ step: 1 });
+  expect(second.output).toEqual({ step: 2 });
+  expect(first.session).toBe(second.session);
+  expect(done.record.session_keys).toEqual({ run: first.session });
+  // Every submission landed where it belonged: none was refused for the other's contract.
+  const hist = await api.call("app.flow.history", { run });
+  expect(hist.filter((h: any) => h.op === "submit").map((h: any) => h.station)).toEqual(["first", "second"]);
+  expect(hist.some((h: any) => h.op === "fail")).toBe(false);
 });
 
 test("only a device may drive a flow: another module is refused", TAGS, async () => {

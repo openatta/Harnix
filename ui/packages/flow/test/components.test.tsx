@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { NestProvider, Registry, setLocale, type NestHost } from "@harnix/react";
 
 import { FlowGraph } from "../src/FlowGraph";
+import { useRunView } from "../src/hooks";
 import { ProposalCard } from "../src/ProposalCard";
 import { registerFlowSpace } from "../src/space";
 import { StationPanel } from "../src/StationPanel";
@@ -230,6 +231,54 @@ describe("ProposalCard", () => {
     act(() => fireEvent.click(screen.getByTestId("flow-proposal-dismiss")));
     expect(screen.queryByTestId("flow-proposal")).toBeNull();
   });
+
+  it("names itself when accepted, and reads as accepted from the module's record after a reload", async () => {
+    const session = { instance: "system", session_id: "s1" };
+    const proposal = { run: "r1", station: "review", kind: "rework" as const, to: "analyze", reason: "thin", session };
+    const fresh = fakeHost({ "app.flow.proposal": { handled: null } });
+    render(
+      <NestProvider host={fresh.host}>
+        <ProposalCard id="e3" proposal={proposal} />
+      </NestProvider>,
+    );
+    await act(async () => {});
+    expect(screen.getByTestId("flow-proposal").dataset.state).toBe("open");
+    await act(async () => fireEvent.click(screen.getByTestId("flow-proposal-accept")));
+    expect(fresh.calls).toContainEqual([
+      "app.flow.rework",
+      { run: "r1", to: "analyze", reason: "thin", proposal: { ...session, entry: "e3" } },
+    ]);
+    cleanup();
+    const after = fakeHost({ "app.flow.proposal": { handled: { entry: "e3", action: "rework", by: { kind: "device", id: "d" } } } });
+    render(
+      <NestProvider host={after.host}>
+        <ProposalCard id="e3" proposal={proposal} />
+      </NestProvider>,
+    );
+    await act(async () => {});
+    expect(after.calls).toEqual([["app.flow.proposal", { ...session, entry: "e3" }]]);
+    expect(screen.getByTestId("flow-proposal-accepted")).toBeTruthy();
+    expect(screen.queryByTestId("flow-proposal-accept")).toBeNull();
+  });
+});
+
+describe("useRunView", () => {
+  function Shown({ run }: { run: string }) {
+    const view = useRunView("flow", run);
+    return <div data-testid="shown">{view ? `${view.record.id}:${view.record.status}` : "loading"}</div>;
+  }
+
+  it("reads a run the topic has no value for (finished before a restart) from get", async () => {
+    const { host, calls } = fakeHost({ "app.flow.get": view({}, "finished") });
+    render(
+      <NestProvider host={host}>
+        <Shown run="r1" />
+      </NestProvider>,
+    );
+    await act(async () => {});
+    expect(screen.getByTestId("shown").textContent).toBe("r1:finished");
+    expect(calls).toContainEqual(["app.flow.get", { run: "r1" }]);
+  });
 });
 
 describe("registerFlowSpace", () => {
@@ -244,6 +293,8 @@ describe("registerFlowSpace", () => {
     expect((space.tabs as { id: string }[]).map((x) => x.id)).toEqual([flow.tabs.station, flow.tabs.reference]);
     const block = { kind: "custom", type: "entry", data: { id: "e", ns: "app.flow", event: "proposal", payload: { run: "r", station: "s", kind: "cancel", reason: "x" }, at: 0 } } as never;
     expect(r.claim("flow.block", block)?.id).toBe("flow.proposal");
+    const handled = { kind: "custom", type: "entry", data: { id: "h", ns: "app.flow", event: "proposal_handled", payload: { entry: "e", action: "cancel", by: { kind: "device", id: "d" } }, at: 0 } } as never;
+    expect(r.claim("flow.block", handled)?.id).toBe("flow.proposal-handled");
   });
 
   it("follows a module registered under another id", () => {

@@ -64,6 +64,8 @@ pub(crate) struct Shared {
     pub publish: tokio::sync::Mutex<()>,
     pub stopping: AtomicBool,
     pub tick: Mutex<Option<JoinHandle<()>>>,
+    /// Accepting proposals one at a time, so one is never accepted twice.
+    pub proposals: Arc<tokio::sync::Mutex<()>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -83,6 +85,7 @@ impl Shared {
             publish: tokio::sync::Mutex::new(()),
             stopping: AtomicBool::new(false),
             tick: Mutex::new(None),
+            proposals: Arc::default(),
         }
     }
 
@@ -141,6 +144,26 @@ impl Shared {
             .entry(key.to_string())
             .or_default()
             .clone()
+    }
+
+    /// Give back a session lock; the last one out removes it, so the table holds only the
+    /// sessions some task is using or waiting for.
+    pub fn release_lock(&self, key: &str, held: Arc<tokio::sync::Mutex<()>>) {
+        let mut g = lock(&self.session_locks);
+        drop(held);
+        if g.get(key).is_some_and(|l| Arc::strong_count(l) == 1) {
+            g.remove(key);
+        }
+    }
+
+    #[cfg(test)]
+    pub fn session_locks(&self) -> usize {
+        lock(&self.session_locks).len()
+    }
+
+    /// Drop the bindings of `run` that `keep` says are over.
+    pub fn prune_bindings(&self, run: &str, keep: impl Fn(&Binding) -> bool) {
+        lock(&self.bindings).retain(|_, b| b.run != run || keep(b));
     }
 }
 
@@ -232,6 +255,19 @@ mod tests {
         assert_eq!(sh.binding("s").map(|b| b.token), Some("new".into()));
         sh.unbind("s", "new");
         assert!(sh.binding("s").is_none());
+    }
+
+    #[tokio::test]
+    async fn a_session_lock_is_removed_when_nobody_uses_it() {
+        let sh = shared();
+        let first = sh.session_lock("r#run");
+        let second = sh.session_lock("r#run");
+        let held = first.clone().lock_owned().await;
+        sh.release_lock("r#run", first);
+        assert_eq!(sh.session_locks(), 1, "another task still waits on it");
+        drop(held);
+        sh.release_lock("r#run", second);
+        assert_eq!(sh.session_locks(), 0);
     }
 
     #[test]

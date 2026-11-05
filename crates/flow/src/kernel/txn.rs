@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use serde_json::{json, Value};
 
 use super::def::{Executor, ExitCond, FlowDef, SessionBinding, TaskSpec, Work};
-use super::engine::Engine;
+use super::engine::{Engine, MAX_FOREACH_ITEMS, MAX_LEASE_MS, MAX_SUBFLOW_DEPTH};
 use super::host::{ChangeSet, Event, Outcome, WorkItem};
 use super::protocol;
 use super::refs::{asserts_fail, context, resolve, resolve_str, station_output};
@@ -206,7 +206,21 @@ impl<'e> Txn<'e> {
         if !waiting {
             return Ok(());
         }
+        // How deep the parent already is.
+        let mut depth = 1;
+        let mut up = self.get(&parent.run).parent.clone();
+        while let Some(p) = up {
+            depth += 1;
+            if depth > MAX_SUBFLOW_DEPTH {
+                break;
+            }
+            self.load(&p.run).await?;
+            up = self.get(&p.run).parent.clone();
+        }
         let made = match self.eng.packs.flow(&flow) {
+            _ if depth > MAX_SUBFLOW_DEPTH => Err(format!(
+                "child runs nest deeper than {MAX_SUBFLOW_DEPTH}: {flow} is not started"
+            )),
             None => Err(format!("no flow {flow}")),
             Some((def, digest)) => {
                 let problems = validate(&def, self.eng.packs.as_ref());
@@ -405,6 +419,17 @@ fn item_ids(items: &[Value]) -> Vec<String> {
         }
     }
     (0..items.len()).map(|i| i.to_string()).collect()
+}
+
+/// Why a `foreach` list did not resolve.
+fn foreach_problem(items: &str, got: &Value) -> String {
+    match got {
+        Value::Array(list) => format!(
+            "{items} has {} items; a station fans out to at most {MAX_FOREACH_ITEMS}",
+            list.len()
+        ),
+        other => format!("{items} is not a list: {other}"),
+    }
 }
 
 pub(crate) fn new_token() -> String {
@@ -632,7 +657,7 @@ impl<'a> M<'a> {
                         .map(|t| TaskRec::new(t.id.clone(), None))
                         .collect(),
                     Work::Foreach { items, .. } => match resolve_str(items, &ctx) {
-                        Value::Array(list) => item_ids(&list)
+                        Value::Array(list) if list.len() <= MAX_FOREACH_ITEMS => item_ids(&list)
                             .into_iter()
                             .zip(list)
                             .map(|(id, v)| TaskRec::new(id, Some(v)))
@@ -647,7 +672,7 @@ impl<'a> M<'a> {
                                 label: "foreach".into(),
                                 round,
                                 status: CheckStatus::Fail,
-                                detail: format!("{items} is not a list: {other}"),
+                                detail: foreach_problem(items, &other),
                                 at: now,
                             }];
                             self.emit("station.entered", Some(sid), None, json!({"round": round}));
@@ -759,12 +784,21 @@ impl<'a> M<'a> {
             t.lease = Some(Lease {
                 by: dispatcher.clone(),
                 token: token.clone(),
-                until: now + lease_ms,
+                until: now.saturating_add(lease_ms.min(MAX_LEASE_MS)),
             });
             (round, t.item.clone(), t.attempt, digest)
         };
         let work = task_work(
-            self.rec, sid, tid, spec, token, round, attempt, item, digest,
+            self.rec,
+            &self.eng.guarded,
+            sid,
+            tid,
+            spec,
+            token,
+            round,
+            attempt,
+            item,
+            digest,
         );
         self.fx.work.push(work);
         let data = json!({"by": dispatcher, "attempt": attempt});
@@ -920,6 +954,24 @@ impl<'a> M<'a> {
         };
         let mut checks = vec![];
         let r = self.rec.stations[sid].clone();
+        // A fan-out whose list never resolved has no tasks, and an `output` exit over no tasks
+        // would pass: the station stays unmet until a rework enters it again.
+        if let Work::Foreach { items, .. } = st.work() {
+            if r.tasks.is_empty() {
+                match resolve_str(&items, &context(self.rec, None, None)) {
+                    Value::Array(list) if list.len() <= MAX_FOREACH_ITEMS => {}
+                    other => checks.push(CheckRec {
+                        cond: None,
+                        kind: "foreach".into(),
+                        label: "foreach".into(),
+                        round,
+                        status: CheckStatus::Fail,
+                        detail: foreach_problem(&items, &other),
+                        at: now,
+                    }),
+                }
+            }
+        }
         for t in &r.tasks {
             let detail = match t.status {
                 TaskStatus::Failed => t.error.clone().unwrap_or_else(|| "failed".into()),
@@ -1148,6 +1200,7 @@ impl<'a> M<'a> {
         let now = self.now();
         self.rec.status = RunStatus::Finished;
         self.rec.finished_at = Some(now);
+        self.close_keyed_sessions();
         self.emit("run.finished", None, None, Value::Null);
         self.log("finish", None, None, Value::Null);
         if let Some(p) = self.rec.parent.clone() {
@@ -1173,6 +1226,7 @@ impl<'a> M<'a> {
         }
         self.rec.status = RunStatus::Cancelled;
         self.rec.finished_at = Some(now);
+        self.close_keyed_sessions();
         let data = json!({"reason": reason});
         self.emit("run.cancelled", None, None, data.clone());
         self.log("cancel", None, None, data);
@@ -1185,8 +1239,17 @@ impl<'a> M<'a> {
         }
     }
 
-    /// Leases that have run out: push tasks are dispatched again under a new token,
-    /// external tasks go back to ready. Returns whether anything expired.
+    /// The sessions shared by key (`per_run`, `{key}`) outlive their tasks: closed with the run.
+    fn close_keyed_sessions(&mut self) {
+        let sessions: BTreeSet<String> = self.rec.session_keys.values().cloned().collect();
+        for session in sessions {
+            self.fx.work.push(WorkItem::CloseSession { session });
+        }
+    }
+
+    /// Leases that have run out. A push task's attempt has failed: it is dispatched again
+    /// while its retries last (a session of its own is closed first), otherwise it fails.
+    /// An external task goes back to ready. Returns whether anything expired.
     pub fn expire(&mut self) -> bool {
         let now = self.now();
         let mut expired = vec![];
@@ -1206,7 +1269,18 @@ impl<'a> M<'a> {
             self.emit("task.expired", Some(sid), Some(tid), Value::Null);
             self.log("expire", Some(sid), Some(tid), Value::Null);
             if spec.executor.is_push() {
-                self.claim_push(sid, tid, &spec);
+                let own = matches!(
+                    spec.executor,
+                    Executor::Session {
+                        session: SessionBinding::New,
+                        ..
+                    }
+                );
+                let session = self.task_mut(sid, tid).and_then(|t| t.session.take());
+                if let (true, Some(session)) = (own, session) {
+                    self.fx.work.push(WorkItem::CloseSession { session });
+                }
+                self.task_failed(sid, tid, "the lease ran out".into());
             } else if let Some(t) = self.task_mut(sid, tid) {
                 t.status = TaskStatus::Ready;
                 t.lease = None;
@@ -1222,6 +1296,7 @@ impl<'a> M<'a> {
 #[allow(clippy::too_many_arguments)]
 fn task_work(
     rec: &RunRecord,
+    guarded: &[String],
     sid: &str,
     tid: &str,
     spec: &TaskSpec,
@@ -1256,6 +1331,7 @@ fn task_work(
             round,
             task: tid,
             item: item.as_ref(),
+            guarded,
         })),
         _ => None,
     };
@@ -1282,7 +1358,7 @@ fn task_work(
 /// dispatcher holds a live claim on (`session` is the session the task reported with
 /// `attach_session`, else its key's), and every gate of the current round still waiting for its
 /// result.
-pub fn dispatched_work(rec: &RunRecord, now: u64) -> Vec<WorkItem> {
+pub fn dispatched_work(rec: &RunRecord, guarded: &[String], now: u64) -> Vec<WorkItem> {
     let dispatcher = Actor::flow("dispatch");
     let mut out = vec![];
     if !rec.is_active() {
@@ -1329,6 +1405,7 @@ pub fn dispatched_work(rec: &RunRecord, now: u64) -> Vec<WorkItem> {
                 .and_then(|s| st.skill_digest.get(s).cloned());
             let mut w = task_work(
                 rec,
+                guarded,
                 sid,
                 &t.id,
                 &spec,

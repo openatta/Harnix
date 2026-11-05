@@ -31,9 +31,19 @@ impl Actor {
     /// The kernel itself, under a role name: `dispatch` (auto-claims), `auto` (on_unmet
     /// rework), `clock` (lease expiry), `gate`, `evaluate`.
     pub fn flow(role: &str) -> Self {
-        Self::new("flow", role)
+        Self::new(FLOW_KIND, role)
+    }
+
+    /// A session handing in its own task, as the host's dispatcher lets it (`id`: the session).
+    pub fn agent(session: impl Into<String>) -> Self {
+        Self::new(AGENT_KIND, session)
     }
 }
+
+/// The kind of [`Actor::flow`]: the kernel and the host's dispatcher acting for it.
+pub const FLOW_KIND: &str = "flow";
+/// The kind of [`Actor::agent`]: a session task's own session, through the host's tools.
+pub const AGENT_KIND: &str = "agent";
 
 impl std::fmt::Display for Actor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -90,9 +100,13 @@ pub enum TaskStatus {
 }
 
 /// A claim on a task: who, the fencing token, and until when.
+///
+/// The token is the claimant's alone: a [`RunView`] (what readers get) carries it empty, and
+/// an empty token is left out of the JSON.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Lease {
     pub by: Actor,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub token: String,
     /// Epoch milliseconds. Subflow tasks hold a lease that never expires.
     pub until: u64,
@@ -414,8 +428,8 @@ impl RunQuery {
     }
 }
 
-/// A run as a reader sees it: the record (with its pinned definition) and, per open
-/// station, what is not met yet.
+/// A run as a reader sees it: the record (with its pinned definition, every lease token
+/// removed) and, per open station, what is not met yet.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct RunView {
     pub record: RunRecord,

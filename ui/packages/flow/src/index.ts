@@ -37,6 +37,8 @@ export {
   methodName,
   openOf,
   pretty,
+  leaseUntil,
+  proposalHandledOf,
   proposalOf,
   reworkTargets,
   runIdOf,

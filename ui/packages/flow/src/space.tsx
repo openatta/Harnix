@@ -15,7 +15,7 @@ import { t as translate, useNest, useT, type Registry } from "@harnix/react";
 import { FlowGraph } from "./FlowGraph";
 import { FlowReference } from "./FlowReference";
 import { errorText, useMethod, useRunView } from "./hooks";
-import { defOf, formatTime, methodName, proposalOf, runTone, type BlockShape } from "./model";
+import { actorLabel, defOf, formatTime, methodName, proposalHandledOf, proposalOf, runTone, type BlockShape } from "./model";
 import { ProposalCard } from "./ProposalCard";
 import { RunList } from "./RunList";
 import { StationPanel } from "./StationPanel";
@@ -119,6 +119,24 @@ export function registerFlowSpace(registry: Registry, options: FlowSpaceOptions 
         { id: tabs.station, title: () => translate("flowui.tab.station"), render: () => <StationTab state={state} module={module} /> },
         { id: tabs.reference, title: () => translate("flowui.tab.reference"), render: () => <ReferenceTab state={state} module={module} />, align: "end" },
       ],
+    },
+    owner,
+  );
+
+  // The record of an accepted proposal: one quiet line where it was accepted.
+  registry.register(
+    "flow.block",
+    {
+      id: `${space}.proposal-handled`,
+      match: (block: BlockShape) => proposalHandledOf(block, `app.${module}`) !== null,
+      render: (block: BlockShape) => {
+        const h = proposalHandledOf(block, `app.${module}`)!;
+        return (
+          <div className="hx-blk hx-flow-faint" data-testid="flow-proposal-handled">
+            {translate("flowui.proposal.handled", { action: translate("flowui.proposal.action." + h.action), by: actorLabel(h.by) })}
+          </div>
+        );
+      },
     },
     owner,
   );

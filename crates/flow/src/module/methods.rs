@@ -116,6 +116,14 @@ struct ReasonIn {
     reason: String,
 }
 
+/// A session's `proposal` entry a person is accepting.
+#[derive(Deserialize, Clone)]
+struct ProposalRef {
+    instance: String,
+    session_id: String,
+    entry: String,
+}
+
 #[derive(Deserialize)]
 struct ReworkIn {
     run: String,
@@ -123,6 +131,9 @@ struct ReworkIn {
     #[serde(default)]
     tasks: Option<Vec<String>>,
     reason: String,
+    /// Accepting this proposal: done once, and recorded in its session.
+    #[serde(default)]
+    proposal: Option<ProposalRef>,
 }
 
 #[derive(Deserialize)]
@@ -135,6 +146,8 @@ struct StationIn {
 struct CancelIn {
     run: String,
     reason: String,
+    #[serde(default)]
+    proposal: Option<ProposalRef>,
 }
 
 /// The lease an external claimant gets when it names none: five minutes.
@@ -232,7 +245,7 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         packs,
         "def",
         "one flow: {def, yaml, digest, skills: {name: body}, protocol: {station: text}}",
-        |_, packs, _, p: NameIn| async move { def_info(packs.as_ref(), &p.name) },
+        |sh, packs, _, p: NameIn| async move { def_info(packs.as_ref(), &sh.cfg.guarded, &p.name) },
     );
     method(
         m,
@@ -303,9 +316,23 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         "cancel",
         "cancel a run, its tasks and its child runs: {run, reason}",
         |sh, _, cx, p: CancelIn| async move {
+            let accepting = accept_once(&sh, &cx, p.proposal.as_ref()).await?;
+            if let Accept::Already(done) = &accepting {
+                return Ok(json!({"run": p.run, "already": done}));
+            }
             let r = engine(&sh)?.cancel(&p.run, &p.reason, device(&cx)).await;
-            change(&sh, Some(&p.run), r).await
+            let value = change(&sh, Some(&p.run), r).await?;
+            accepted(&cx, accepting, "cancel").await;
+            Ok(value)
         },
+    );
+    method(
+        m,
+        sh,
+        packs,
+        "proposal",
+        "whether a session's proposal was accepted: {instance, session_id, entry} → {handled}",
+        |_, _, cx, p: ProposalRef| async move { Ok(json!({"handled": handled(&cx, &p).await?})) },
     );
 
     // ── external tasks ───────────────────────────────────────────────────────
@@ -334,7 +361,7 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         packs,
         "heartbeat",
         "extend a claim: {run, station, task, token, lease_ms?} → {until}",
-        |sh, _, _, p: HeartbeatIn| async move {
+        |sh, _, cx, p: HeartbeatIn| async move {
             let r = engine(&sh)?
                 .heartbeat(
                     &p.run,
@@ -342,6 +369,7 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
                     &p.task,
                     &p.token,
                     p.lease_ms.unwrap_or(CLAIM_MS),
+                    device(&cx),
                 )
                 .await;
             change(&sh, Some(&p.run), r).await
@@ -421,10 +449,16 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         "rework",
         "send work back to a station: {run, to, tasks?, reason}",
         |sh, _, cx, p: ReworkIn| async move {
+            let accepting = accept_once(&sh, &cx, p.proposal.as_ref()).await?;
+            if let Accept::Already(done) = &accepting {
+                return Ok(json!({"run": p.run, "already": done}));
+            }
             let r = engine(&sh)?
                 .rework(&p.run, &p.to, p.tasks, &p.reason, device(&cx))
                 .await;
-            change(&sh, Some(&p.run), r).await
+            let value = change(&sh, Some(&p.run), r).await?;
+            accepted(&cx, accepting, "rework").await;
+            Ok(value)
         },
     );
     method(
@@ -440,9 +474,69 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
     );
 }
 
+/// The entry a proposal's acceptance is recorded as, in the proposal's own session.
+pub const PROPOSAL_HANDLED: &str = "proposal_handled";
+
+/// What accepting a proposal found.
+enum Accept {
+    /// No proposal named: an ordinary call.
+    Plain,
+    /// Not accepted before; the lock is held until it is recorded.
+    First(ProposalRef, Actor, tokio::sync::OwnedMutexGuard<()>),
+    /// Accepted already: what was recorded then.
+    Already(Value),
+}
+
+/// The record of a proposal's acceptance, if there is one.
+async fn handled(cx: &CallContext, p: &ProposalRef) -> Result<Option<Value>, RpcError> {
+    let session = harnix_module::SessionRef {
+        instance: p.instance.clone(),
+        session_id: p.session_id.clone(),
+    };
+    let entries = cx.module().sessions().entries(&session).await?;
+    Ok(entries.into_iter().find_map(|e| {
+        (e.get("event").and_then(Value::as_str) == Some(PROPOSAL_HANDLED)
+            && e.pointer("/payload/entry").and_then(Value::as_str) == Some(p.entry.as_str()))
+        .then(|| e.get("payload").cloned().unwrap_or(Value::Null))
+    }))
+}
+
+async fn accept_once(
+    sh: &Arc<Shared>,
+    cx: &CallContext,
+    p: Option<&ProposalRef>,
+) -> Result<Accept, RpcError> {
+    let Some(p) = p else {
+        return Ok(Accept::Plain);
+    };
+    let guard = sh.proposals.clone().lock_owned().await;
+    match handled(cx, p).await? {
+        Some(done) => Ok(Accept::Already(done)),
+        None => Ok(Accept::First(p.clone(), device(cx), guard)),
+    }
+}
+
+/// Record the acceptance in the proposal's session (the card reads it from there).
+async fn accepted(cx: &CallContext, a: Accept, action: &str) {
+    let Accept::First(p, by, _guard) = a else {
+        return;
+    };
+    let session = harnix_module::SessionRef {
+        instance: p.instance.clone(),
+        session_id: p.session_id.clone(),
+    };
+    let entry = harnix_module::Entry::new(
+        PROPOSAL_HANDLED,
+        json!({"entry": p.entry, "action": action, "by": by}),
+    );
+    if let Err(e) = cx.module().sessions().append_entry(&session, entry).await {
+        tracing::warn!(entry = p.entry, error = %e, "flow: a proposal's acceptance not recorded");
+    }
+}
+
 /// `def`: the definition as parsed and as written, the skills it names, and the protocol layer
 /// each session station's tasks are given (with placeholders for the run).
-fn def_info(packs: &dyn Packs, name: &str) -> Answer {
+fn def_info(packs: &dyn Packs, guarded: &[String], name: &str) -> Answer {
     let (def, digest) = packs
         .flow(name)
         .ok_or_else(|| rpc_error(FlowError::NotFound(format!("flow {name}"))))?;
@@ -478,6 +572,7 @@ fn def_info(packs: &dyn Packs, name: &str) -> Answer {
                 round: 1,
                 task: &t.id,
                 item: None,
+                guarded,
             });
             proto.insert(s.id.clone(), text);
         }

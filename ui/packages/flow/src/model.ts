@@ -10,6 +10,7 @@ import type {
   FlowDef,
   FlowMethod,
   Proposal,
+  ProposalHandled,
   RunStatus,
   RunSummary,
   RunView,
@@ -195,11 +196,14 @@ const NONE: StationActions = { confirm: false, force: false, rework: [], release
 export function stationActions(runStatus: RunStatus | undefined, def: Station | undefined, rec: StationRec | undefined): StationActions {
   if (runStatus !== "active" || !def || !rec) return NONE;
   const open = rec.status === "working" || rec.status === "unmet";
+  // As the kernel has it: an open station (held included) may be forced, and may send work
+  // back to what its `rework_to` / `on_unmet` names; a passed one no longer can.
+  const entered = open || rec.status === "held";
   const confirmable = (def.exit ?? []).some((c) => c.kind === "confirm");
   return {
     confirm: open && confirmable,
-    force: open,
-    rework: open || rec.status === "held" || rec.status === "passed" ? reworkTargets(def) : [],
+    force: entered,
+    rework: entered ? reworkTargets(def) : [],
     release: rec.status === "held",
     retry: open ? (rec.tasks ?? []).filter((t) => t.status === "failed").map((t) => t.id) : [],
   };
@@ -221,6 +225,11 @@ export function sessionOf(task: TaskRec): { instance: string; sessionId: string 
   return typeof instance === "string" && typeof id === "string" ? { instance, sessionId: id } : null;
 }
 
+/** A lease's end, or null when it has none: a subflow task holds its claim until the child finishes. */
+export function leaseUntil(until: unknown): number | null {
+  return typeof until === "number" && until < 8.64e15 ? until : null;
+}
+
 /* ── the proposal card ───────────────────────────────────────────────── */
 
 /** The `custom` block an entry becomes, as far as this package needs it. */
@@ -237,10 +246,21 @@ export function proposalOf(block: BlockShape, ns = "app.flow"): { id: string; pr
   if (!entry || entry.ns !== ns || entry.event !== "proposal") return null;
   const p = entry.payload as Partial<Proposal> | null;
   if (!p || typeof p.run !== "string" || (p.kind !== "rework" && p.kind !== "cancel")) return null;
+  const session = p.session && typeof p.session.instance === "string" && typeof p.session.session_id === "string" ? p.session : null;
   return {
     id: String(entry.id ?? ""),
-    proposal: { run: p.run, station: String(p.station ?? ""), kind: p.kind, to: p.to ?? null, reason: String(p.reason ?? "") },
+    proposal: { run: p.run, station: String(p.station ?? ""), kind: p.kind, to: p.to ?? null, reason: String(p.reason ?? ""), session },
   };
+}
+
+/** A `proposal_handled` entry in a conversation block, if that is what it is. */
+export function proposalHandledOf(block: BlockShape, ns = "app.flow"): ProposalHandled | null {
+  if (block.kind !== "custom" || block.type !== "entry") return null;
+  const entry = block.data as { ns?: string; event?: string; payload?: unknown } | null;
+  if (!entry || entry.ns !== ns || entry.event !== "proposal_handled") return null;
+  const p = entry.payload as Partial<ProposalHandled> | null;
+  if (!p || typeof p.entry !== "string" || (p.action !== "rework" && p.action !== "cancel")) return null;
+  return { entry: p.entry, action: p.action, by: p.by ?? { kind: "", id: "" } };
 }
 
 /* ── formatting ──────────────────────────────────────────────────────── */

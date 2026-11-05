@@ -170,10 +170,18 @@ impl Tool for StateTool {
         let Ok(engine) = self.0.engine() else {
             return Ok(ToolResult::error_text("the flow module has not started"));
         };
-        let view = match engine.get(&b.run).await {
-            Ok(v) => v,
+        // The whole record, to tell whether the claim is still this session's; only the
+        // fields below leave here, never a token.
+        let full = match engine.record(&b.run).await {
+            Ok(r) => r,
             Err(e) => return Ok(ToolResult::error_text(e.to_string())),
         };
+        let current = full
+            .stations
+            .get(&b.station)
+            .and_then(|s| s.task(&b.task))
+            .is_some_and(|t| t.lease.as_ref().is_some_and(|l| l.token == b.token));
+        let view = crate::kernel::engine::view(full);
         let rec = &view.record;
         let st = rec.stations.get(&b.station);
         let task = st.and_then(|s| s.task(&b.task));
@@ -194,7 +202,7 @@ impl Tool for StateTool {
             "exits": sdef.map(|s| s.exit.iter().map(|e| e.label()).collect::<Vec<_>>()),
             "unmet": view.unmet.get(&b.station),
             "writes": b.writes,
-            "current": task.is_some_and(|t| t.lease.as_ref().is_some_and(|l| l.token == b.token)),
+            "current": current,
         });
         Ok(ToolResult::text(pretty(&state)))
     }
@@ -257,8 +265,11 @@ impl Tool for SubmitTool {
                     status.as_str().unwrap_or("unknown")
                 )))
             }
-            Err(FlowError::Invalid(m)) => Ok(ToolResult::error_text(format!(
+            Err(FlowError::Contract(m)) => Ok(ToolResult::error_text(format!(
                 "Not accepted: {m}. Fix the output and call {TOOL_SUBMIT} again."
+            ))),
+            Err(e @ FlowError::Invalid(_)) => Ok(ToolResult::error_text(format!(
+                "Not accepted: {e}. The station is not taking submissions now."
             ))),
             Err(e) => Ok(ToolResult::error_text(format!(
                 "Not accepted: {e}. Your claim on this task is no longer current; stop working on it."
@@ -331,6 +342,7 @@ impl Tool for ProposeTool {
         let payload = json!({
             "run": b.run, "station": b.station, "task": b.task,
             "kind": kind, "to": to, "reason": reason,
+            "session": {"instance": session.instance, "session_id": session.session_id},
         });
         match module
             .sessions()

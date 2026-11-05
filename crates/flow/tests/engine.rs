@@ -128,7 +128,7 @@ async fn sequence_runs_to_the_end() {
         .submit(&run, "a", "a", &j.token, json!({}), Actor::flow("dispatch"))
         .await;
     assert!(
-        matches!(bad, Err(FlowError::Invalid(ref m)) if m.contains("n")),
+        matches!(bad, Err(FlowError::Contract(ref m)) if m.contains("n")),
         "{bad:?}"
     );
 
@@ -238,7 +238,7 @@ async fn foreach_and_tasks_complete_all_before_judging() {
     assert_eq!(status(&h, &run, "analyze").await, StationStatus::Working);
     let o = submit(&h, &third, json!({"findings": [3]})).await;
     assert!(has(&o, "station.passed:analyze"));
-    let rec = h.eng.get(&run).await.unwrap().record;
+    let rec = h.eng.record(&run).await.unwrap();
     assert_eq!(
         station_output(&rec.def, &rec, "analyze"),
         json!([{"findings": [1]}, {"findings": [2]}, {"findings": [3]}])
@@ -270,7 +270,7 @@ async fn foreach_and_tasks_complete_all_before_judging() {
         .await
         .unwrap();
     assert!(has(&o, "run.finished"), "{:?}", kinds(&o));
-    let rec = h.eng.get(&run).await.unwrap().record;
+    let rec = h.eng.record(&run).await.unwrap();
     assert_eq!(
         station_output(&rec.def, &rec, "report"),
         json!({"summary": {"text": "ok"}, "sign": {"signed": true}})
@@ -342,7 +342,7 @@ async fn partial_rework_redoes_only_the_named_tasks() {
         .unwrap();
     assert_eq!(stations_of(&o), ["analyze/m2"]);
     assert!(has(&o, "station.stale:report"));
-    let rec = h.eng.get(&run).await.unwrap().record;
+    let rec = h.eng.record(&run).await.unwrap();
     let a = &rec.stations["analyze"];
     assert_eq!(
         a.task("m1").unwrap().output,
@@ -354,7 +354,7 @@ async fn partial_rework_redoes_only_the_named_tasks() {
 
     let o = submit(&h, &jobs(&o)[0], json!({"findings": ["again"]})).await;
     assert!(has(&o, "station.passed:analyze") && has(&o, "station.entered:report"));
-    let rec = h.eng.get(&run).await.unwrap().record;
+    let rec = h.eng.record(&run).await.unwrap();
     assert_eq!(
         station_output(&rec.def, &rec, "analyze"),
         json!([{"findings": ["m1"]}, {"findings": ["again"]}, {"findings": ["m3"]}])
@@ -495,7 +495,7 @@ async fn force_is_recorded() {
         .await
         .unwrap();
     assert!(has(&o, "station.forced:check") && has(&o, "run.finished"));
-    let rec = h.eng.get(&run).await.unwrap().record;
+    let rec = h.eng.record(&run).await.unwrap();
     let f = rec.stations["check"].forced.clone().unwrap();
     assert_eq!(f.by, me());
     assert_eq!(f.reason, "known false positive");
@@ -568,7 +568,7 @@ async fn expired_lease_rejects_the_old_token_and_allows_a_new_claim() {
     assert!(h.eng.claim(&run, "sign", "sign", me(), 1000).await.is_err());
     let hb = h
         .eng
-        .heartbeat(&run, "sign", "sign", &old, 1000)
+        .heartbeat(&run, "sign", "sign", &old, 1000, bob.clone())
         .await
         .unwrap();
     assert_eq!(hb.value["until"], json!(T0 + 1000));
@@ -598,7 +598,7 @@ async fn expired_lease_rejects_the_old_token_and_allows_a_new_claim() {
     assert!(matches!(stale, Err(FlowError::Lease(_))), "{stale:?}");
     assert!(h
         .eng
-        .heartbeat(&run, "sign", "sign", &old, 1000)
+        .heartbeat(&run, "sign", "sign", &old, 1000, me())
         .await
         .is_err());
     let o = h
@@ -611,12 +611,13 @@ async fn expired_lease_rejects_the_old_token_and_allows_a_new_claim() {
 }
 
 #[tokio::test]
-async fn expired_push_task_is_dispatched_again() {
+async fn expired_push_task_is_dispatched_again_within_its_retries() {
     let h = h();
-    let (run, o) = start(&h, "seq").await;
+    let (run, o) = start(&h, "retry").await;
     let first = jobs(&o)[0].clone();
     h.clock.advance(60_001);
     let ticked = h.eng.tick().await.unwrap();
+    assert!(has(&ticked[0], "task.expired:a/a") && has(&ticked[0], "task.failed:a/a"));
     let again = jobs(&ticked[0]);
     assert_eq!(again.len(), 1);
     assert_eq!(again[0].attempt, 2);
@@ -635,6 +636,24 @@ async fn expired_push_task_is_dispatched_again() {
     assert!(matches!(late, Err(FlowError::Lease(_))), "{late:?}");
     submit(&h, &again[0], json!({"n": 1})).await;
     assert_eq!(status(&h, &run, "a").await, StationStatus::Passed);
+}
+
+#[tokio::test]
+async fn an_expired_push_task_out_of_retries_fails_instead_of_looping() {
+    let h = h();
+    let (run, _) = start(&h, "retry").await;
+    for _ in 0..2 {
+        h.clock.advance(60_001);
+        h.eng.tick().await.unwrap();
+    }
+    let t = task(&h, &run, "a", "a").await;
+    assert_eq!((t.status, t.attempt), (TaskStatus::Failed, 2));
+    assert_eq!(status(&h, &run, "a").await, StationStatus::Unmet);
+    h.clock.advance(60_001);
+    assert!(
+        h.eng.tick().await.unwrap().is_empty(),
+        "nothing left to expire"
+    );
 }
 
 #[tokio::test]
@@ -999,7 +1018,7 @@ async fn a_running_run_keeps_its_pinned_definition() {
     );
     let o = submit(&h, &jobs(&o)[0], json!({"n": 1})).await;
     assert_eq!(stations_of(&o), ["b/b"]);
-    let rec = h.eng.get(&run).await.unwrap().record;
+    let rec = h.eng.record(&run).await.unwrap();
     assert_eq!(rec.def_digest, digest);
     assert!(rec.def.station("b").is_some() && rec.def.station("z").is_none());
 
@@ -1088,8 +1107,8 @@ async fn dispatched_work_rebuilds_what_the_dispatcher_holds() {
         )
         .await
         .unwrap();
-    let rec = h.eng.get(&run).await.unwrap().record;
-    let again = dispatched_work(&rec, h.clock.now_ms());
+    let rec = h.eng.record(&run).await.unwrap();
+    let again = dispatched_work(&rec, &[], h.clock.now_ms());
     assert_eq!(again.len(), 2, "{again:?}");
     for (w, was) in again.iter().zip(&handed) {
         match (w, was) {
@@ -1118,7 +1137,7 @@ async fn dispatched_work_rebuilds_what_the_dispatcher_holds() {
     }
     // A lease that ran out is not the dispatcher's any more: `tick` claims it again.
     h.clock.advance(120_000);
-    assert!(dispatched_work(&rec, h.clock.now_ms()).is_empty());
+    assert!(dispatched_work(&rec, &[], h.clock.now_ms()).is_empty());
 }
 
 #[tokio::test]
@@ -1126,8 +1145,8 @@ async fn dispatched_work_includes_gates_still_waiting() {
     let h = h();
     let (run, o) = start(&h, "gated").await;
     assert!(o.work.iter().any(|w| matches!(w, WorkItem::Gate { .. })));
-    let rec = h.eng.get(&run).await.unwrap().record;
-    let again = dispatched_work(&rec, h.clock.now_ms());
+    let rec = h.eng.record(&run).await.unwrap();
+    let again = dispatched_work(&rec, &[], h.clock.now_ms());
     assert_eq!(
         again,
         vec![WorkItem::Gate {
@@ -1150,6 +1169,6 @@ async fn dispatched_work_includes_gates_still_waiting() {
         )
         .await
         .unwrap();
-    let rec = h.eng.get(&run).await.unwrap().record;
-    assert!(dispatched_work(&rec, h.clock.now_ms()).is_empty());
+    let rec = h.eng.record(&run).await.unwrap();
+    assert!(dispatched_work(&rec, &[], h.clock.now_ms()).is_empty());
 }

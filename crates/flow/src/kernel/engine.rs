@@ -29,6 +29,12 @@ use super::{FlowError, Result};
 pub const DEFAULT_LEASE_MS: u64 = 10 * 60 * 1000;
 /// How often an operation is recomputed after a rev conflict before giving up.
 pub const DEFAULT_RETRIES: usize = 5;
+/// The longest lease anyone gets, whatever they ask for: a day.
+pub const MAX_LEASE_MS: u64 = 24 * 60 * 60 * 1000;
+/// How deep child runs may nest; a deeper spawn fails its task.
+pub const MAX_SUBFLOW_DEPTH: usize = 8;
+/// The most tasks a `foreach` station may fan out to; a longer list leaves it unmet.
+pub const MAX_FOREACH_ITEMS: usize = 1000;
 
 /// Starting a run.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -53,6 +59,7 @@ pub struct Engine {
     pub(crate) clock: Arc<dyn Clock>,
     pub(crate) lease_ms: u64,
     pub(crate) retries: usize,
+    pub(crate) guarded: Vec<String>,
 }
 
 /// Run `$body` in a fresh transaction `$t`, commit, and retry the whole thing on a conflict.
@@ -92,6 +99,7 @@ impl Engine {
             clock: Arc::new(SystemClock),
             lease_ms: DEFAULT_LEASE_MS,
             retries: DEFAULT_RETRIES,
+            guarded: vec![],
         }
     }
 
@@ -112,7 +120,14 @@ impl Engine {
 
     /// The lease of tasks the kernel claims for its dispatcher.
     pub fn with_lease_ms(mut self, ms: u64) -> Self {
-        self.lease_ms = ms;
+        self.lease_ms = ms.clamp(1, MAX_LEASE_MS);
+        self
+    }
+
+    /// The tools the host refuses as writes unless a station lists them (`prefix*` matches a
+    /// group): named in the protocol layer, so a session is told the truth about them.
+    pub fn with_guarded(mut self, tools: Vec<String>) -> Self {
+        self.guarded = tools;
         self
     }
 
@@ -144,14 +159,19 @@ impl Engine {
         validate_yaml(yaml, self.packs.as_ref())
     }
 
-    /// A run with its pinned definition and, per open station, what is not met.
+    /// A run with its pinned definition and, per open station, what is not met — as anyone may
+    /// read it: lease tokens are removed.
     pub async fn get(&self, run: &str) -> Result<RunView> {
-        let record = self
-            .store
+        Ok(view(self.record(run).await?))
+    }
+
+    /// The whole record, lease tokens included: for the host's own dispatcher, never for
+    /// someone else to read.
+    pub async fn record(&self, run: &str) -> Result<RunRecord> {
+        self.store
             .load(run)
             .await?
-            .ok_or_else(|| FlowError::NotFound(format!("run {run}")))?;
-        Ok(view(record))
+            .ok_or_else(|| FlowError::NotFound(format!("run {run}")))
     }
 
     pub async fn list(&self, q: RunQuery) -> Result<Vec<RunSummary>> {
@@ -240,7 +260,8 @@ impl Engine {
         })
     }
 
-    /// Lease expiry over every active run whose earliest lease has run out.
+    /// Lease expiry over every active run whose earliest lease has run out. A run that fails
+    /// is skipped (its error is in `Err` only when listing the runs fails); the others go on.
     pub async fn tick(&self) -> Result<Vec<Outcome>> {
         let now = self.clock.now_ms();
         let due: Vec<String> = self
@@ -264,10 +285,10 @@ impl Engine {
                 }
                 Ok(json!({"run": run}))
             });
-            match o {
-                Ok(o) if !o.events.is_empty() => out.push(o),
-                Ok(_) | Err(FlowError::NotFound(_)) => {}
-                Err(e) => return Err(e),
+            if let Ok(o) = o {
+                if !o.events.is_empty() {
+                    out.push(o);
+                }
             }
         }
         Ok(out)
@@ -342,7 +363,7 @@ impl Engine {
                 Some(rec),
             )?;
             let token = new_token();
-            let until = t.fx.now + lease_ms;
+            let until = t.fx.now.saturating_add(lease_ms.clamp(1, MAX_LEASE_MS));
             let mut m = t.m(run);
             let attempt = {
                 let Some(tr) = m.task_mut(station, task) else {
@@ -365,7 +386,8 @@ impl Engine {
         })
     }
 
-    /// Extend a claim. Only the current token, before its lease runs out. `value`: `{until}`.
+    /// Extend a claim — or, after a submission, the window for submitting again. Only the
+    /// current token, before its lease runs out, on a station still open. `value`: `{until}`.
     pub async fn heartbeat(
         &self,
         run: &str,
@@ -373,17 +395,32 @@ impl Engine {
         task: &str,
         token: &str,
         lease_ms: u64,
+        by: Actor,
     ) -> Result<Outcome> {
-        transact!(self, Actor::flow("heartbeat"), |t| {
+        transact!(self, by.clone(), |t| {
             t.load(run).await?;
             let now = t.fx.now;
             let holder = {
                 let rec = t.get(run);
-                let (_, st) = open_station(rec, station)?;
-                let tr = claimed(st, station, task, token, now)?;
+                let (def, st) = open_station(rec, station)?;
+                if !matches!(st.status, StationStatus::Working | StationStatus::Unmet) {
+                    return invalid(format!("station {station} is {:?}", st.status));
+                }
+                let tr = held(st, station, task, token, now)?;
+                let executor = task_executor(def, station, task)?;
+                hand_in_by(&executor, &by, station, task)?;
+                self.authorize(
+                    &Op::Heartbeat {
+                        station: station.into(),
+                        task: task.into(),
+                        executor: executor.kind().into(),
+                    },
+                    &by,
+                    Some(rec),
+                )?;
                 tr.lease.as_ref().map(|l| l.by.clone())
             };
-            let until = now + lease_ms;
+            let until = now.saturating_add(lease_ms.clamp(1, MAX_LEASE_MS));
             let mut m = t.m(run);
             if let Some(h) = holder {
                 m.by = h;
@@ -420,39 +457,26 @@ impl Engine {
             if !matches!(st.status, StationStatus::Working | StationStatus::Unmet) {
                 return invalid(format!("station {station} is {:?}", st.status));
             }
-            let tr = st
-                .task(task)
-                .ok_or_else(|| FlowError::NotFound(format!("task {station}/{task}")))?;
-            match tr.status {
-                TaskStatus::Claimed => {
-                    claimed(st, station, task, token, now)?;
-                }
-                TaskStatus::Submitted if tr.lease.as_ref().is_some_and(|l| l.token == token) => {}
-                s => {
-                    return Err(FlowError::Lease(format!(
-                        "task {station}/{task} is {s:?} or the token is not its own"
-                    )))
-                }
-            }
+            held(st, station, task, token, now)?;
             let sdef = def.station(station).cloned();
-            let who =
-                sdef.as_ref()
-                    .and_then(|s| s.task_spec(task))
-                    .and_then(|s| match s.executor {
-                        super::def::Executor::External { who } => who,
-                        _ => None,
-                    });
+            let executor = task_executor(def, station, task)?;
+            hand_in_by(&executor, &by, station, task)?;
+            let who = match &executor {
+                super::def::Executor::External { who } => who.clone(),
+                _ => None,
+            };
             self.authorize(
                 &Op::Submit {
                     station: station.into(),
                     task: task.into(),
+                    executor: executor.kind().into(),
                     who,
                 },
                 &by,
                 Some(rec),
             )?;
             check_output(sdef.and_then(|s| s.output).as_ref(), &output).map_err(|e| {
-                FlowError::Invalid(format!("output does not satisfy the contract: {e}"))
+                FlowError::Contract(format!("output does not satisfy the contract: {e}"))
             })?;
             t.m(run).task_submitted(station, task, output.clone());
             t.settle().await?;
@@ -475,12 +499,15 @@ impl Engine {
             t.load(run).await?;
             let now = t.fx.now;
             let rec = t.get(run);
-            let (_, st) = open_station(rec, station)?;
+            let (def, st) = open_station(rec, station)?;
             claimed(st, station, task, token, now)?;
+            let executor = task_executor(def, station, task)?;
+            hand_in_by(&executor, &by, station, task)?;
             self.authorize(
                 &Op::Fail {
                     station: station.into(),
                     task: task.into(),
+                    executor: executor.kind().into(),
                 },
                 &by,
                 Some(rec),
@@ -543,6 +570,9 @@ impl Engine {
             t.load(run).await?;
             let rec = t.get(run);
             let (_, st) = open_station(rec, station)?;
+            if !matches!(st.status, StationStatus::Working | StationStatus::Unmet) {
+                return invalid(format!("station {station} is {:?}", st.status));
+            }
             let tr = st
                 .task(task)
                 .ok_or_else(|| FlowError::NotFound(format!("task {station}/{task}")))?;
@@ -877,6 +907,76 @@ fn open_station<'r>(
     }
 }
 
+/// The executor of one task of a station.
+fn task_executor(def: &FlowDef, station: &str, task: &str) -> Result<super::def::Executor> {
+    def.station(station)
+        .and_then(|s| s.task_spec(task))
+        .map(|s| s.executor)
+        .ok_or_else(|| FlowError::NotFound(format!("task {station}/{task}")))
+}
+
+/// Who may hand in, fail or renew a task. An external task: whoever claimed it (the token
+/// says so). A session task: the kernel's dispatcher or the session itself
+/// ([`Actor::agent`]); a program or subflow task: the dispatcher alone. Nobody else may,
+/// even holding the token.
+fn hand_in_by(
+    executor: &super::def::Executor,
+    by: &Actor,
+    station: &str,
+    task: &str,
+) -> Result<()> {
+    use super::def::Executor as E;
+    use super::run::{AGENT_KIND, FLOW_KIND};
+    let ok = match executor {
+        E::External { .. } => true,
+        E::Session { .. } => by.kind == FLOW_KIND || by.kind == AGENT_KIND,
+        E::Program { .. } | E::Subflow { .. } => by.kind == FLOW_KIND,
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err(FlowError::Denied(format!(
+            "{station}/{task} is a {} task: the flow hands it in, not {by}",
+            executor.kind()
+        )))
+    }
+}
+
+/// The task's current claim is `token` and has not run out: claimed, or submitted under it
+/// (a submission may be made again while the claim lasts).
+fn held<'r>(
+    st: &'r super::run::StationRec,
+    station: &str,
+    task: &str,
+    token: &str,
+    now: u64,
+) -> Result<&'r super::run::TaskRec> {
+    let tr = st
+        .task(task)
+        .ok_or_else(|| FlowError::NotFound(format!("task {station}/{task}")))?;
+    let Some(lease) = tr
+        .lease
+        .as_ref()
+        .filter(|_| matches!(tr.status, TaskStatus::Claimed | TaskStatus::Submitted))
+    else {
+        return Err(FlowError::Lease(format!(
+            "task {station}/{task} is {:?}, not claimed",
+            tr.status
+        )));
+    };
+    if lease.token != token {
+        return Err(FlowError::Lease(format!(
+            "token is not the current one for {station}/{task}"
+        )));
+    }
+    if lease.until <= now {
+        return Err(FlowError::Lease(format!(
+            "the lease on {station}/{task} has expired"
+        )));
+    }
+    Ok(tr)
+}
+
 /// The task is claimed under `token` and its lease has not run out.
 fn claimed<'r>(
     st: &'r super::run::StationRec,
@@ -910,8 +1010,15 @@ fn claimed<'r>(
     Ok(tr)
 }
 
-/// The record plus what each open station is still missing.
-pub fn view(record: RunRecord) -> RunView {
+/// The record plus what each open station is still missing, lease tokens removed.
+pub fn view(mut record: RunRecord) -> RunView {
+    for s in record.stations.values_mut() {
+        for t in &mut s.tasks {
+            if let Some(l) = t.lease.as_mut() {
+                l.token.clear();
+            }
+        }
+    }
     let mut unmet = std::collections::BTreeMap::new();
     for (id, s) in &record.stations {
         if !s.status.is_open() {
