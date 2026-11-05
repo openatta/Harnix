@@ -19,18 +19,23 @@ import {
   actorLabel,
   checkOk,
   digestLines,
+  formatDuration,
   formatTime,
+  formatTokens,
   leaseUntil,
   methodName,
   pretty,
   stationActions,
+  stationElapsed,
   stationStyle,
+  stationUsage,
   stationTitle,
   sessionOf,
   taskTone,
+  tokensOf,
   workLabel,
 } from "./model";
-import type { DefInfo, Executor, FlowDef, FlowMethod, History, RunView, Station, TaskSpec } from "./types";
+import type { DefInfo, Executor, FlowDef, FlowMethod, History, RunView, Station, TaskRec, TaskSpec } from "./types";
 
 export interface StationPanelProps {
   station: string;
@@ -105,6 +110,9 @@ function Code({ value, testid }: { value: unknown; testid?: string }) {
 function executorText(e: Executor): string {
   switch (e.kind) {
     case "session": {
+      if (!e.scene && (e.session ?? "main") === "main") {
+        return "session · main session";
+      }
       const alloc = e.session ?? "new";
       const where = [
         e.instance ? `instance ${e.instance}` : "",
@@ -114,6 +122,8 @@ function executorText(e: Executor): string {
       ].filter(Boolean);
       return [`session · scene ${e.scene}`, ...where, typeof alloc === "string" ? alloc : `key ${alloc.key}`].join(" · ");
     }
+    case "agent":
+      return ["agent · sub-agent of the main session", e.agent_type ? `type ${e.agent_type}` : "", e.model ? `model ${e.model}` : ""].filter(Boolean).join(" · ");
     case "program":
       return `program · step ${e.step}`;
     case "external":
@@ -380,6 +390,9 @@ function RunTab({ station: s, view, module }: { station: Station; view: RunView;
             <Field label={t("flowui.run.times")}>
               {formatTime(rec.entered_at)}
               {rec.left_at ? ` → ${formatTime(rec.left_at)}` : ""}
+              <span className="hx-flow-faint" data-testid="flow-station-spent" data-tokens={tokensOf(stationUsage(rec))}>
+                {[` · ${formatDuration(stationElapsed(rec, Date.now()))}`, tokensOf(stationUsage(rec)) ? t("flowui.tokens", { n: formatTokens(tokensOf(stationUsage(rec))) }) : ""].filter(Boolean).join(" · ")}
+              </span>
             </Field>
           ) : null}
           {digestLines(rec.skill_digest).length ? (
@@ -422,6 +435,7 @@ function RunTab({ station: s, view, module }: { station: Station; view: RunView;
                         <code>{task.id}</code>
                         <span className={`hx-flow-pill hx-flow-tone-${taskTone(task.status)}`}>{t("flowui.task." + task.status)}</span>
                         {task.attempt > 1 ? <span className="hx-flow-faint">{t("flowui.run.attempt", { n: task.attempt })}</span> : null}
+                        <TaskSpent task={task} />
                         <span className="hx-flow-grow" />
                         {session ? (
                           <button type="button" className="btn sm ghost" data-testid={`flow-open-session-${task.id}`} onClick={() => void nest.session.open(session, { switchSpace: true })}>
@@ -514,6 +528,20 @@ function RunTab({ station: s, view, module }: { station: Station; view: RunView;
         </Field>
       ) : null}
     </div>
+  );
+}
+
+/** How long a task's attempt took (still takes) and its tokens. */
+function TaskSpent({ task }: { task: TaskRec }) {
+  const t = useT();
+  const from = typeof task.started_at === "number" ? task.started_at : null;
+  const took = from === null ? null : (typeof task.ended_at === "number" ? task.ended_at : Date.now()) - from;
+  const tokens = tokensOf(task.usage);
+  if (took === null && !tokens) return null;
+  return (
+    <span className="hx-flow-faint" data-testid={`flow-task-spent-${task.id}`} data-tokens={tokens}>
+      {[formatDuration(took), tokens ? t("flowui.tokens", { n: formatTokens(tokens) }) : ""].filter(Boolean).join(" · ")}
+    </span>
   );
 }
 

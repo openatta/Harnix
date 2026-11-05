@@ -10,6 +10,10 @@ import type {
   DryRunSummary,
   Problem,
   ExecutorKind,
+  Phase,
+  PhaseState,
+  RunRecord,
+  Usage,
   FlowDef,
   FlowMethod,
   Proposal,
@@ -76,13 +80,32 @@ export function dryRunsOf(value: unknown): DryRunSummary[] {
 
 /** What one of `flow-author`'s changing tools acts on, read off its call's input. */
 export interface ToolTarget {
-  tool: "create" | "update" | "delete" | "start" | "dry_run" | "skill_set" | "skill_delete";
+  tool:
+    | "create"
+    | "update"
+    | "delete"
+    | "start"
+    | "dry_run"
+    | "skill_set"
+    | "skill_delete"
+    | "pause"
+    | "resume"
+    | "cancel"
+    | "confirm"
+    | "reject"
+    | "force"
+    | "rework"
+    | "retry"
+    | "release";
   /** The flow it acts on (create: the new flow's name). */
   flow?: string;
   /** The title the YAML it hands in gives (create, update). */
   title?: string;
   skill?: string;
   subject?: string;
+  /** A run tool's run, and the station (`to` for a rework) it acts on (xops-03 §5). */
+  run?: string;
+  station?: string;
 }
 
 const AUTHOR_TOOLS: Record<string, ToolTarget["tool"]> = {
@@ -93,7 +116,18 @@ const AUTHOR_TOOLS: Record<string, ToolTarget["tool"]> = {
   flow_dry_run: "dry_run",
   flow_skill_set: "skill_set",
   flow_skill_delete: "skill_delete",
+  flow_pause: "pause",
+  flow_resume: "resume",
+  flow_cancel: "cancel",
+  flow_confirm: "confirm",
+  flow_force: "force",
+  flow_rework: "rework",
+  flow_retry: "retry",
+  flow_release: "release",
 };
+
+/** The tools that act on a run rather than on a flow. */
+export const RUN_TOOL_TARGETS: readonly ToolTarget["tool"][] = ["pause", "resume", "cancel", "confirm", "reject", "force", "rework", "retry", "release"];
 
 /** A top-level `key: value` of a YAML text, unquoted; undefined when it has none. */
 function yamlField(yaml: unknown, key: string): string | undefined {
@@ -112,7 +146,7 @@ function yamlField(yaml: unknown, key: string): string | undefined {
  */
 export function toolTarget(name: string | undefined, input: unknown): ToolTarget | null {
   const bare = (name ?? "").split("__").pop() ?? "";
-  const tool = AUTHOR_TOOLS[bare];
+  let tool = AUTHOR_TOOLS[bare];
   if (!tool) return null;
   let args = input;
   if (typeof args === "string") {
@@ -124,7 +158,13 @@ export function toolTarget(name: string | undefined, input: unknown): ToolTarget
   }
   const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
   const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+  if (tool === "confirm" && a.pass === false) tool = "reject";
   const out: ToolTarget = { tool };
+  if (RUN_TOOL_TARGETS.includes(tool)) {
+    out.run = text(a.run);
+    out.station = text(tool === "rework" ? a.to : a.station);
+    return out;
+  }
   if (tool === "create") {
     out.flow = yamlField(a.yaml, "name");
     out.title = yamlField(a.yaml, "title");
@@ -368,6 +408,202 @@ export function proposalHandledOf(block: BlockShape, ns = "app.flow"): ProposalH
   const p = entry.payload as Partial<ProposalHandled> | null;
   if (!p || typeof p.entry !== "string" || (p.action !== "rework" && p.action !== "cancel")) return null;
   return { entry: p.entry, action: p.action, by: p.by ?? { kind: "", id: "" } };
+}
+
+/* ── what a run is doing, and what it spent (xops-03 §3, §4) ─────────── */
+
+/** The session key of a run's main session. */
+export const MAIN_SESSION_KEY = "@main";
+
+/** A run's main session, as `host.session.open` takes it; null before it is opened. */
+export function mainSessionOf(record: Pick<RunRecord, "session_keys"> | null | undefined): { instance: string; sessionId: string } | null {
+  const name = record?.session_keys?.[MAIN_SESSION_KEY];
+  return name ? sessionOf({ session: name } as TaskRec) : null;
+}
+
+export const PHASE_STATES: readonly PhaseState[] = ["running", "waiting", "pausing", "paused", "finished", "cancelled"];
+
+const PHASE_TONE: Record<PhaseState, Tone> = {
+  running: "info",
+  waiting: "warn",
+  pausing: "warn",
+  paused: "muted",
+  finished: "ok",
+  cancelled: "muted",
+};
+
+/** What a run (or a dry run's summary) is doing: its `phase`, or — from a shape without one — its status. */
+export function phaseOf(r: { phase?: Phase | null; status?: RunStatus | string | null }): Phase {
+  if (r.phase && PHASE_STATES.includes(r.phase.state)) return r.phase;
+  if (r.status === "finished" || r.status === "cancelled") return { state: r.status };
+  return { state: "running" };
+}
+
+export function phaseTone(state: PhaseState | string): Tone {
+  return PHASE_TONE[state as PhaseState] ?? "muted";
+}
+
+/** All the tokens of a usage: input (cache included) and output. 0 for none. */
+export function tokensOf(u: Usage | null | undefined): number {
+  if (!u) return 0;
+  return (u.input_tokens ?? 0) + (u.output_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+}
+
+/** Usages added up. */
+export function addUsage(...us: (Usage | null | undefined)[]): Usage {
+  const out = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, turns: 0 };
+  for (const u of us) {
+    if (!u) continue;
+    out.input_tokens += u.input_tokens ?? 0;
+    out.output_tokens += u.output_tokens ?? 0;
+    out.cache_read_input_tokens += u.cache_read_input_tokens ?? 0;
+    out.cache_creation_input_tokens += u.cache_creation_input_tokens ?? 0;
+    out.turns += u.turns ?? 0;
+  }
+  return out;
+}
+
+/** A station's tokens: its tasks', summed. */
+export function stationUsage(rec: StationRec | undefined): Usage {
+  return addUsage(...(rec?.tasks ?? []).map((t) => t.usage));
+}
+
+/** A run's tokens: every task's and the main session's other turns. */
+export function runUsage(record: RunRecord): Usage {
+  return addUsage(record.usage_other, ...Object.values(record.stations ?? {}).map(stationUsage));
+}
+
+/** How long a station has been at it: entered → left, or → `now` while open; null if never entered. */
+export function stationElapsed(rec: StationRec | undefined, now: number): number | null {
+  const from = toMillis(rec?.entered_at);
+  if (from === null) return null;
+  const to = toMillis(rec?.left_at) ?? now;
+  return Math.max(0, to - from);
+}
+
+/** How long a run has been at it: started → finished, or → `now`. */
+export function runElapsed(r: { created_at?: unknown; finished_at?: unknown }, now: number): number | null {
+  const from = toMillis(r.created_at);
+  if (from === null) return null;
+  return Math.max(0, (toMillis(r.finished_at) ?? now) - from);
+}
+
+function toMillis(at: unknown): number | null {
+  if (typeof at === "number" && Number.isFinite(at)) return at;
+  if (typeof at === "string" && at) {
+    const n = Date.parse(at);
+    return Number.isNaN(n) ? null : n;
+  }
+  return null;
+}
+
+/** `850ms`, `42s`, `3m 05s`, `2h 07m`; "" for none. */
+export function formatDuration(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined || !Number.isFinite(ms)) return "";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${String(s % 60).padStart(2, "0")}s`;
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
+}
+
+/** `940`, `12.3k`, `1.2M`; "" for 0. */
+export function formatTokens(n: number | null | undefined): string {
+  if (!n) return "";
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+/* ── the guide (xops-03 §6) ──────────────────────────────────────────── */
+
+/** One block of the guide's markdown, as the reference tab draws it. */
+export type GuideBlock =
+  | { kind: "heading"; level: number; text: string }
+  | { kind: "paragraph"; text: string }
+  | { kind: "list"; items: string[] }
+  | { kind: "table"; head: string[]; rows: string[][] }
+  /** `example`: a whole flow (YAML starting `name:`), which can be the start of a new one. */
+  | { kind: "code"; lang: string; text: string; example: boolean };
+
+/** The guide's markdown as blocks: headings, paragraphs, lists, tables and fenced code — all it uses. */
+export function guideBlocks(markdown: string): GuideBlock[] {
+  const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
+  const out: GuideBlock[] = [];
+  let i = 0;
+  const cells = (line: string) =>
+    line
+      .trim()
+      .replace(/^\|/, "")
+      .replace(/\|$/, "")
+      .split("|")
+      .map((c) => c.trim());
+  while (i < lines.length) {
+    const line = lines[i]!;
+    const fence = /^```(\w*)\s*$/.exec(line);
+    if (fence) {
+      const body: string[] = [];
+      i++;
+      while (i < lines.length && !/^```\s*$/.test(lines[i]!)) body.push(lines[i++]!);
+      i++;
+      const text = body.join("\n");
+      out.push({ kind: "code", lang: fence[1] ?? "", text, example: fence[1] === "yaml" && /^name:/.test(text) });
+      continue;
+    }
+    const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (heading) {
+      out.push({ kind: "heading", level: heading[1]!.length, text: heading[2]!.trim() });
+      i++;
+      continue;
+    }
+    if (/^\s*\|/.test(line)) {
+      const rows: string[][] = [];
+      while (i < lines.length && /^\s*\|/.test(lines[i]!)) rows.push(cells(lines[i++]!));
+      const [head, sep, ...rest] = rows;
+      const isSep = (r: string[] | undefined) => !!r && r.every((c) => /^:?-{2,}:?$/.test(c));
+      out.push(isSep(sep) ? { kind: "table", head: head ?? [], rows: rest } : { kind: "table", head: [], rows });
+      continue;
+    }
+    if (/^\s*(?:[-*]|\d+\.)\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && lines[i]!.trim() !== "" && !/^```/.test(lines[i]!) && !/^#/.test(lines[i]!)) {
+        const l = lines[i++]!;
+        const item = /^\s*(?:[-*]|\d+\.)\s+(.*)$/.exec(l);
+        if (item) items.push(item[1]!.trim());
+        else if (items.length) items[items.length - 1] += ` ${l.trim()}`;
+      }
+      out.push({ kind: "list", items });
+      continue;
+    }
+    if (line.trim() === "") {
+      i++;
+      continue;
+    }
+    const para: string[] = [];
+    while (i < lines.length && lines[i]!.trim() !== "" && !/^(```|#|\s*\||\s*(?:[-*]|\d+\.)\s)/.test(lines[i]!)) para.push(lines[i++]!.trim());
+    out.push({ kind: "paragraph", text: para.join(" ") });
+  }
+  return out;
+}
+
+/** An inline run of guide text: plain, `code`, or **strong**. */
+export interface Inline {
+  kind: "text" | "code" | "strong";
+  text: string;
+}
+
+export function inlineOf(text: string): Inline[] {
+  const out: Inline[] = [];
+  const re = /`([^`]+)`|\*\*([^*]+)\*\*/g;
+  let at = 0;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    if (m.index > at) out.push({ kind: "text", text: text.slice(at, m.index) });
+    out.push(m[1] !== undefined ? { kind: "code", text: m[1] } : { kind: "strong", text: m[2]! });
+    at = m.index + m[0].length;
+  }
+  if (at < text.length) out.push({ kind: "text", text: text.slice(at) });
+  return out;
 }
 
 /* ── formatting ──────────────────────────────────────────────────────── */

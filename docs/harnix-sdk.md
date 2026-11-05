@@ -533,12 +533,19 @@ r.register('flow.block', {
 Harnix 自带的 space——会话、项目、系统，以及后端有流程模块时的流程（`flow`）——都是用例，你的产品用
 `[shell] spaces` 决定留哪些；Harnix 本身做薄，产品面都是你的 space。
 
-流程 space（xops-02 §7，`@harnix/flow` 的 `registerFlowSpace()`，外壳自己注册）：外壳启动时 `harnix.reachable` 里有
-`app.flow.defs` 就有它，id 取 `harnix.spaces.list` 里 scene 为 `flow-author` 的那个（缺省 `flow`）；`[shell] spaces`
-里的 `flow` 指它。中区是对话（会话跑 `flow-author`，Agent 用编写工具改流程），输入框上方（`composerNotice`）写着当前流程；
-右栏三页「流程 / 运行 / 参考」只呈现、不编辑定义——选中的流程就是当前对话的当前流程（`app.flow.focus`）；运行页能试运行
-（单步 / 跑到底）、启动正式运行，站详情里确认、驳回、强制、返工、放行、重试、交付。自己编外壳的应用照
-`ui/packages/flow/demo/register.tsx` 调 `registerFlowSpace(registry, {host})`。
+流程 space（xops-02 §7、xops-03 §6，`@harnix/flow` 的 `registerFlowSpace()`，外壳自己注册）：外壳启动时 `harnix.reachable`
+里有 `app.flow.defs` 就有它，id 取 `harnix.spaces.list` 里 scene 为 `flow-author` 的那个（缺省 `flow`）；`[shell] spaces`
+里的 `flow` 指它。**右栏选中什么，中区就是它的会话**：流程页选中流程 → 这条流程自己的对话（`app.flow.session {flow}`，
+Agent 在里面改它、试运行、启动、操作它的运行，改动类操作要批准）；运行页选中运行 → 它的主会话；什么都没选 → 通用会话。
+右栏三页「流程 / 运行 / 参考」只呈现、不编辑定义：流程页有添加、筛选、排序与只读 YAML；运行页列出所有流程的运行与试运行，
+带状态（暂停中转圈）、耗时、token，详情里暂停 / 恢复 / 取消、站的确认等操作、子 Agent 与任务；参考页是流程指南
+（`app.flow.guide`）加本应用目录与字段表。自己编外壳的应用照 `ui/packages/flow/demo/register.tsx` 调
+`registerFlowSpace(registry, {host})`。
+
+流程模块的构建器（`Flow::builder()`）里与 xops-03 有关的：`.main_scene(id)`（主会话缺省 scene，给的是
+`.scene(...)` 的 id，包装成 `flow-<id>`；不给是第一个）、`.main_recording(|run| …)`（回放时主会话用哪份录像）。主会话的
+scene 需要项目时，模块给每个运行建工作目录（模块数据目录下 `workspaces/<run>`），并写入子 Agent 站缺省用的 agent 类型
+`flow-agent`。
 
 ```tsx
 // ui/src/index.tsx —— 构建时由 virtual:harnix-modules 接进外壳（examples/hello-app 是完整的例子）

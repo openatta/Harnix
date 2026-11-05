@@ -133,7 +133,13 @@
 | **运行** | `RunRecord`，`run` | 一条流程的一次执行，处理一个对象（`subject`）。不叫「实例」：实例只指 Agix 实例 |
 | **站** | `Station` | 流程里的判定单位：出口条件、返工、确认、强制通过都按站算 |
 | **任务** | `TaskRec` | 流程里的执行单位：一站 0..N 个，每个交一份结构化输出 |
-| **执行者** | `Executor` | 做一个任务的那一方：`session`（无头会话）· `program`（应用代码）· `external`（人或外部 Agent 来认领）· `subflow`（子运行） |
+| **执行者** | `Executor` | 做一个任务的那一方：`session`（会话）· `agent`（主会话下的子 Agent，xops-03）· `program`（应用代码）· `external`（人或外部 Agent 来认领）· `subflow`（子运行） |
+| **主会话** / **主 Agent** | `RunRecord::main_session`，会话键 `@main` | 每个运行一个，运行建好就开（xops-03）：没写 `scene` 的会话站、子 Agent 站都在它里面一轮一轮地做；落点与模型写在流程级 `main:`。写了 `scene` 的会话站是**独立会话** |
+| **子 Agent 站** | `kind: agent` | 主 Agent 用 Agix 的 `Agent` 工具把任务交给子 Agent（`agent_type`、`model` 可选），拿到结果用 `flow_submit` 交；`description` 是任务的标签 `flow:<run>/<station>/<task>` |
+| **运行状态** | `Phase` | 读者看到的：`running` · `waiting`（`reason`：confirm / held / unmet / failed / external / children / work）· `pausing` · `paused` · `finished` · `cancelled`。由 `RunStatus` 与「此刻有没有活在手上」推出 |
+| **暂停** | `pause` / `resume`，`RunRecord.paused` | 手上的活跑完、照常记下，不进下一站、不派新任务；恢复后接着走。状态仍是 `active` |
+| **用量** | `Usage` | 一个任务各轮的 token 合计（`TaskRec.usage`）；主会话里不属于任务的轮次记在运行的 `usage_other` |
+| **流程会话** / **通用会话** | `app.flow.session {flow?}` | 每条流程一个 `flow-author` 对话，它的当前流程就是这条、改不了；不属于哪条流程的是通用会话（新建流程、问帮助），在里面新建的流程把它认作自己的会话 |
 | **纯关卡** | — | 没有任务的站，进站就判出口 |
 | **出口条件** | `ExitCond` | 出站要满足的结构化条件：`output` · `tool` · `gate` · `confirm` · `children` |
 | **门** | gate | 一种出口条件：宿主跑的一项检查，结果是通过 / 不通过 / 出错 / 跳过 |
@@ -146,13 +152,14 @@
 | **交付方式** | `Delivery` | 会话怎么交输出：结构化输出（`structured_output`，缺省：契约作为会话的 `output_schema`，模型调 `StructuredOutput`）或 `flow_submit`（`flow-*` 包装 scene） |
 | **受限工具** | `guarded_tools` | 算作「写」的工具；站的 `writes` 不允许的，各成一条会话的 `deny` 权限规则 |
 | **来源** | `Origin` | 流程包里一条流程从哪来：`builtin`（随应用）· `override`（可写层里覆盖内置的那份）· `user`（只在可写层） |
-| **当前流程** | focus | 流程 space 的一个对话正在编写的那条流程：右栏选中的，或 `flow_create` 刚建的 |
+| **当前流程** | focus | 一个 `flow-author` 对话操作的那条流程：流程会话的就是它自己那条；别的对话是 `app.flow.focus` 设的，或 `flow_create` 刚建的 |
 | **试运行** | dry run，`dry-` 运行 | 在沙箱里真跑内核、外部全部模拟：不建会话、不调应用代码、不花模型费用；`mocks` 给站的输出、门、工具的结果 |
 
 **别混**：
 
 - 「流程」指这个模块的流程定义；贡献点 `flow.block` 与外壳文案里的 `flow.*` 指**对话流**（转录里的一块），两回事。
   流程模块的界面文案用 owner `flowui`。
-- 「运行」不是「实例」，也不是「会话」：一条运行可以用到很多会话。
+- 「运行」不是「实例」，也不是「会话」：一条运行有一个主会话，还可能有独立会话与子 Agent 的侧链会话。
+- 流程的「子 Agent」就是 Agix 的子 Agent（父会话的一件**任务**、一条侧链会话）；流程的「任务」（`TaskRec`）是另一回事。
 - 「试运行」是一条真的运行，只是活在沙箱里：运行号以 `dry-` 开头，不进 `runs`，最多留最近 20 条；不叫「模拟运行」。
 

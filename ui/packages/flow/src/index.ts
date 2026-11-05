@@ -1,5 +1,5 @@
 /**
- * @harnix/flow — the flow module's interface (xops-01 §7, xops-02 §7, flow-design §17).
+ * @harnix/flow — the flow module's interface (xops-01 §7, xops-02 §7, xops-03 §6, flow-design §17).
  *
  * Only `@harnix/react`. The components work wherever `useNest()` does; `registerFlowSpace()` puts
  * them together as one space, which the shell registers itself when the backend has the module. The wire shapes are in `types.ts`, in one place.
@@ -26,7 +26,25 @@ export {
   type LayoutStation,
 } from "./layout";
 export {
+  MAIN_SESSION_KEY,
+  PHASE_STATES,
+  RUN_TOOL_TARGETS,
   STATION_STATUSES,
+  addUsage,
+  formatDuration,
+  formatTokens,
+  guideBlocks,
+  inlineOf,
+  mainSessionOf,
+  phaseOf,
+  phaseTone,
+  runElapsed,
+  runUsage,
+  stationElapsed,
+  stationUsage,
+  tokensOf,
+  type GuideBlock,
+  type Inline,
   actorLabel,
   catalogEntries,
   checkOk,
@@ -78,6 +96,6 @@ export { FlowReference, type FlowReferenceProps } from "./FlowReference";
 export { ProposalCard, type ProposalCardProps } from "./ProposalCard";
 export { FlowToolRow, ToolTargetLine } from "./ToolTarget";
 export { registerFlowSpace, type FlowSpace, type FlowSpaceOptions } from "./space";
-export { FlowSpaceState, type FlowSelection } from "./state";
-export { DryControls, FlowsTab, FocusNotice, ReferenceTab, RunsTab, useSelection, type FlowTabs } from "./tabs";
+export { FlowSpaceState, type FlowSelection, type StateTabs } from "./state";
+export { DryControls, FlowsTab, FocusNotice, GuideView, PhaseBadge, ReferenceTab, RunsTab, useSelection, type FlowTabs } from "./tabs";
 export { STRINGS, STRINGS_OWNER, registerFlowStrings } from "./strings";

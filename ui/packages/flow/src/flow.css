@@ -506,3 +506,55 @@
   font-size: 13px;
   font-weight: 600;
 }
+
+/* ── the first row of a tab: add · filter, sort (xops-03 §6) ─────────── */
+
+.hx-flow-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.hx-flow-toolbar select,
+.hx-flow-toolbar .hx-flow-search {
+  min-width: 0;
+  max-width: 150px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-l2);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  font-size: 12.5px;
+}
+
+/* ── a run's state ───────────────────────────────────────────────────── */
+
+.hx-flow-phase { gap: 5px; margin-right: 6px; }
+.hx-flow-spin {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: hx-flow-spin 0.8s linear infinite;
+}
+.hx-flow-spin-slow { animation-duration: 1.6s; opacity: 0.7; }
+@keyframes hx-flow-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hx-flow-spin { animation: none; }
+}
+
+/* ── the guide ───────────────────────────────────────────────────────── */
+
+.hx-flow-guide { font-size: 13px; line-height: 1.55; }
+.hx-flow-guide-h { margin: 14px 0 6px; font-size: 14px; font-weight: 600; }
+.hx-flow-guide-p { margin: 6px 0; }
+.hx-flow-guide code { font-family: var(--font-mono); font-size: 12px; }
+.hx-flow-table { width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 12.5px; }
+.hx-flow-table th,
+.hx-flow-table td { padding: 4px 6px; border-bottom: 1px solid var(--border-l1); text-align: left; vertical-align: top; }
+.hx-flow-table th { color: var(--label-secondary); font-weight: 600; }
+.hx-flow-example { margin: 6px 0 10px; }

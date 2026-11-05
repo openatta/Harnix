@@ -4,12 +4,13 @@
  * own shell may call it too.
  *
  *   left    the space's conversations (the shell's own list)
- *   centre  the conversation: its sessions run `flow-author`, whose tools write flows; the line
- *           over the composer names the conversation's current flow     (`composerNotice`)
+ *   centre  the conversation of what is selected on the right (xops-03 §6): a flow's own
+ *           (`flow-author`, whose tools write and run it), a run's main session, or the general
+ *           one; the line over the composer names its flow                (`composerNotice`)
  *   right   flows · runs · reference: shown, never edited here          (`tabs`)
  *
- * The flow selected on the right is the open conversation's current flow (`focus`, see
- * `FlowSpaceState`). Also the `flow.block` that draws a session's proposal, and the `flowui` strings.
+ * See `FlowSpaceState`. Also the `flow.block` that draws a session's proposal, and the `flowui`
+ * strings.
  */
 
 import { t as translate, type HostSessionRef, type NestHost, type Registry } from "@harnix/react";
@@ -34,8 +35,7 @@ export interface FlowSpaceOptions {
   group?: string;
   /** The owner the contributions are registered as; "flowui" by default. */
   owner?: string;
-  /** Given: the conversation's focus follows the selection from now on, not only once the space
-   *  is first drawn. */
+  /** Given: the middle follows the selection from now on, not only once the space is first drawn. */
   host?: NestHost;
 }
 
@@ -51,8 +51,8 @@ export function registerFlowSpace(registry: Registry, options: FlowSpaceOptions 
   const space = options.space ?? "flow";
   const module = options.module ?? "flow";
   const owner = options.owner ?? STRINGS_OWNER;
-  const state = new FlowSpaceState(space, module);
   const tabs: FlowTabs = { flows: `${space}.flows`, runs: `${space}.runs`, reference: `${space}.reference` };
+  const state = new FlowSpaceState(space, module, tabs);
   if (options.host) state.attach(options.host);
 
   registerFlowStrings(registry);

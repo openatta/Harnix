@@ -89,7 +89,7 @@ test("without a selection, changing the current flow answers that the user must 
   await turn(session, "Change the flow's title.");
   const [update] = (await results(session)).flow_update;
   expect(update.is_error).toBe(true);
-  expect(JSON.stringify(update.content)).toContain("No flow is selected");
+  expect(JSON.stringify(update.content)).toContain("works on no flow");
   expect((await api.call("app.flow.defs")).some((d: any) => d.name === "authored")).toBe(false);
   // The panel's selection is the focus, and is published for the panel.
   const selected = await api.call("app.flow.focus", { instance: "system", session_id: session, flow: "demo-linear" });

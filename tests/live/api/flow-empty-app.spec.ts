@@ -50,7 +50,12 @@ test("its example dry-runs to the approval and finishes once approved; a saved c
   const { run } = await api.call("app.flow.dry_run.start", { flow: "example-review" });
   expect((await api.call("app.flow.dry_run.run", { run })).status).toBe("active");
   const view = await api.call("app.flow.get", { run });
-  expect(view.record.stations.review.tasks[0].preview).toMatchObject({ scene: "flow-chat", delivery: "flow_submit" });
+  // The review is a turn of the run's main session (xops-03), on flow-coding.
+  expect(view.record.stations.review.tasks[0].preview).toMatchObject({
+    scene: "flow-coding",
+    delivery: "flow_submit",
+    session_key: "@main",
+  });
   expect(view.record.stations.approve.status).toBe("working");
   await api.call("app.flow.confirm", { run, station: "approve", pass: true });
   expect((await api.call("app.flow.get", { run })).record.status).toBe("finished");

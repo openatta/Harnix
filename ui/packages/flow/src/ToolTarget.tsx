@@ -5,12 +5,13 @@
  * question with its generic one, so the card cannot say which flow. The row the call is drawn in —
  * the `tool.row` this package registers — says it instead, read from the call's input: the flow
  * named in `flow` (the tool refuses if that is no longer the conversation's current flow), the name
- * and title of a flow being created, the skill being written.
+ * and title of a flow being created, the skill being written, the run (and station) a run tool acts
+ * on (xops-03 §5).
  */
 
 import { BuiltinToolRow, useT, type ToolRowContribution } from "@harnix/react";
 
-import { toolTarget, type ToolTarget } from "./model";
+import { RUN_TOOL_TARGETS, toolTarget, type ToolTarget } from "./model";
 
 /** A tool block, as a `tool.row` contribution is handed it. */
 export type ToolBlock = Parameters<ToolRowContribution["render"]>[0];
@@ -20,8 +21,9 @@ export function ToolTargetLine({ target }: { target: ToolTarget }) {
   const t = useT();
   const what = target.tool;
   const name = target.flow ?? target.skill ?? "?";
-  const text =
-    what === "create"
+  const text = RUN_TOOL_TARGETS.includes(what)
+    ? t("flowui.target." + what, { run: target.run ?? "?", station: target.station ?? "?" })
+    : what === "create"
       ? t("flowui.target.create", { flow: name, title: target.title ?? name })
       : what === "update" && target.title
         ? t("flowui.target.updateTitled", { flow: name, title: target.title })
@@ -29,7 +31,7 @@ export function ToolTargetLine({ target }: { target: ToolTarget }) {
           ? t("flowui.target.startOn", { flow: name, subject: target.subject })
           : t("flowui.target." + what, { flow: name, skill: name });
   return (
-    <div className="hx-flow-tool-target" data-testid="flow-tool-target" data-tool={what} data-flow={target.flow ?? ""} data-skill={target.skill ?? ""}>
+    <div className="hx-flow-tool-target" data-testid="flow-tool-target" data-tool={what} data-flow={target.flow ?? ""} data-skill={target.skill ?? ""} data-run={target.run ?? ""}>
       {text}
     </div>
   );

@@ -33,13 +33,17 @@ export interface HookRef {
   action: string;
 }
 
-/** How a session task picks its session: a new one (default), one per run, or one per key. */
-export type SessionAlloc = "new" | "per_run" | { key: string };
+/**
+ * How a session task picks its session: the run's main session (`main`, the default without a
+ * `scene`), a new one (the default with a `scene`), one per run, or one per key.
+ */
+export type SessionAlloc = "main" | "new" | "per_run" | { key: string };
 
 export type Executor =
   | {
       kind: "session";
-      scene: string;
+      /** Absent: the task is a turn of the run's main session (xops-03 §1). */
+      scene?: string | null;
       session?: SessionAlloc | null;
       /** Where the session runs and on what model (xops-02 §1); each optional. */
       model?: string | null;
@@ -49,6 +53,8 @@ export type Executor =
       params?: Record<string, string> | null;
       space?: string | null;
     }
+  /** A sub-agent of the run's main session (xops-03 §2). */
+  | { kind: "agent"; agent_type?: string | null; model?: string | null; description?: string | null }
   | { kind: "program"; step: string }
   | { kind: "external"; who?: string | null }
   | { kind: "subflow"; flow: string; inputs?: Record<string, unknown> | null };
@@ -104,11 +110,23 @@ export interface Station {
   hooks?: HookRef[] | null;
 }
 
+/** Where a run's main session goes and on which model (xops-03 §1); each optional. */
+export interface MainSession {
+  scene?: string | null;
+  model?: string | null;
+  provider?: string | null;
+  instance?: string | null;
+  template?: string | null;
+  params?: Record<string, string> | null;
+  space?: string | null;
+}
+
 export interface FlowDef {
   name: string;
   title?: string | null;
   description?: string | null;
   inputs?: Record<string, InputDef> | null;
+  main?: MainSession | null;
   rework_limit?: number | null;
   hooks?: HookRef[] | null;
   stations: Station[];
@@ -128,6 +146,29 @@ export interface Actor {
 
 /** Milliseconds since the epoch (the kernel's `Clock::now_ms`). An RFC 3339 string is read too. */
 export type Millis = number;
+
+/** Tokens a model spent, summed over turns (xops-03 §4). */
+export interface Usage {
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+  turns?: number | null;
+}
+
+/**
+ * What a run is doing now (xops-03 §3): work in hand (`running`), waiting on a person or the
+ * outside (`waiting`, `reason` says on what), paused with work still finishing (`pausing`), paused,
+ * or over.
+ */
+export type PhaseState = "running" | "waiting" | "pausing" | "paused" | "finished" | "cancelled";
+
+export interface Phase {
+  state: PhaseState;
+  reason?: "confirm" | "held" | "unmet" | "failed" | "external" | "children" | "work" | string | null;
+  /** The stations it is about: those working, or those waiting. */
+  stations?: string[] | null;
+}
 
 /** A claim. Readers never get its token (the module removes it); a subflow task's runs until its child finishes. */
 export interface Lease {
@@ -161,6 +202,10 @@ export interface TaskRec {
   child?: string | null;
   /** A dry run's session task: what its session would have been sent (xops-02 §5). */
   preview?: TaskPreview | null;
+  /** The current attempt: claimed, and handed in or failed (xops-03 §4). */
+  started_at?: Millis | null;
+  ended_at?: Millis | null;
+  usage?: Usage | null;
 }
 
 /** How a session task's output comes back: structured output (the default) or `flow_submit`. */
@@ -260,7 +305,12 @@ export interface RunRecord {
   finished_at?: Millis | null;
   parent?: ParentRef | null;
   stations: Record<string, StationRec>;
+  /** Session key → session; `@main` is the run's main session (xops-03 §1). */
   session_keys?: Record<string, string> | null;
+  /** Set while the run is paused. */
+  paused?: { by: Actor; at: Millis } | null;
+  /** Turns of the main session that worked on no task. */
+  usage_other?: Usage | null;
   /** The definition, pinned when the run started. */
   def?: FlowDef | null;
 }
@@ -273,6 +323,8 @@ export interface RunView {
   record: RunRecord;
   def?: FlowDef | null;
   unmet?: Record<string, Unmet[]> | null;
+  /** What the run is doing (xops-03 §3), as its summary has it. */
+  phase?: Phase | null;
 }
 
 /** One line of `app.flow.list` and of the `app.flow.runs` topic. */
@@ -288,6 +340,9 @@ export interface RunSummary {
   open?: string[] | null;
   /** The same, as an older shape named it. */
   current?: string[] | null;
+  phase?: Phase | null;
+  usage?: Usage | null;
+  dry?: boolean | null;
 }
 
 export interface History {
@@ -337,6 +392,8 @@ export interface DryRunSummary {
   flow: string;
   status: RunStatus;
   created_at: Millis;
+  finished_at?: Millis | null;
+  phase?: Phase | null;
 }
 
 /** One piece of work a dry run took: a mocked task, a gate, a tool exit… */
@@ -360,6 +417,60 @@ export interface DryProgress {
 /** The `app.flow.focus {instance, session_id}` topic and the `focus` method's answer. */
 export interface Focus {
   flow: string | null;
+}
+
+/** A session as the module names it on the wire. */
+export interface SessionWire {
+  instance: string;
+  session_id: string;
+}
+
+/** `app.flow.session {flow?}`: a flow's own conversation, or (no flow) the general one. */
+export interface FlowConversation extends SessionWire {
+  flow?: string | null;
+}
+
+/** One of `session.tasks`: a main session's sub-agent, shell command, monitor… (Agix's shape). */
+export interface SessionTask {
+  task_id: string;
+  kind: string;
+  status: string;
+  started_ms?: Millis | null;
+  ended_ms?: Millis | null;
+  detail?: { agent_type?: string | null; description?: string | null; command?: string | null; [k: string]: unknown } | null;
+  error?: string | null;
+  /** The flow task a sub-agent works on, read off its description. */
+  flow?: { station: string; task: string } | null;
+}
+
+/** A sub-agent of a run's main session, as the session's events showed it (xops-03 §2). */
+export interface RunAgent {
+  agent_session_id: string;
+  instance: string;
+  agent_type?: string | null;
+  tool_use_id?: string | null;
+  description?: string | null;
+  /** The flow task it works on, read off its description. */
+  flow?: { station: string; task: string } | null;
+  status?: "done" | "failed" | string | null;
+}
+
+/**
+ * `app.flow.sessions {run}`: the run's main session, its sub-agents (`agents`), its sessions of
+ * their own; and what Agix lists of the main session's tasks and side chains.
+ */
+export interface RunSessions {
+  main?: SessionWire | null;
+  agents?: RunAgent[] | null;
+  own?: { station: string; task: string; session: SessionWire }[] | null;
+  tasks?: SessionTask[] | null;
+  sidechains?: ({ session_id: string; instance: string; name?: string | null; title?: string | null; created_at?: unknown } & Record<string, unknown>)[] | null;
+}
+
+/** `app.flow.guide {lang}`: the guide to flows, markdown. */
+export interface Guide {
+  text: string;
+  lang: string;
 }
 
 /** An entry of the app's catalog: a bare name, or a name with what it is. */
@@ -432,6 +543,11 @@ export type FlowMethod =
   | "cancel"
   | "proposal"
   | "focus"
+  | "session"
+  | "sessions"
+  | "pause"
+  | "resume"
+  | "guide"
   | "dry_run.start"
   | "dry_run.step"
   | "dry_run.run"

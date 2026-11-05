@@ -3,8 +3,9 @@
  *
  * Definition mode (no run): each station shows its title, its work (executor kind, task count, `×N`
  * for `foreach`), its skill, its exit-condition kinds, and a marker when it fires hooks. Run mode (a
- * `RunView`): the same graph coloured by each station's status, with its round, its task progress
- * and a mark when it was forced through. `needs` edges are solid, rework edges dashed arcs.
+ * `RunView`): the same graph coloured by each station's status, with its round, its task progress,
+ * how long it took and its tokens (xops-03 §4), and a mark when it was forced through. `needs` edges
+ * are solid, rework edges dashed arcs.
  *
  * Each station is a button (`data-testid="flow-node-<id>"`, `data-status` in run mode); clicking it
  * or pressing Enter calls `onSelect`.
@@ -14,7 +15,7 @@ import { useId, useMemo, type KeyboardEvent } from "react";
 import { useT } from "@harnix/react";
 
 import { backEdgePath, backLanes, edgePath, layoutFlow, type LayoutOptions } from "./layout";
-import { exitKinds, stationStyle, stationTitle, taskProgress, workLabel, workOf } from "./model";
+import { exitKinds, formatDuration, formatTokens, stationElapsed, stationStyle, stationTitle, stationUsage, taskProgress, tokensOf, workLabel, workOf } from "./model";
 import type { FlowDef, RunView, Station, StationStatus } from "./types";
 
 export interface FlowGraphProps {
@@ -48,6 +49,7 @@ export function FlowGraph({ def, view, selected, onSelect, layout: options }: Fl
   const byId = useMemo(() => new Map(stations.map((s) => [s.id, s])), [stations]);
   const run = view?.record ?? null;
   const units = Math.floor(((options?.nodeWidth ?? 184) - 20) / 7);
+  const now = Date.now();
 
   const label = (s: Station): string => {
     const title = stationTitle(s);
@@ -115,8 +117,17 @@ export function FlowGraph({ def, view, selected, onSelect, layout: options }: Fl
           const line2 = run
             ? [t("flowui.status." + status), rec && rec.round > 1 ? t("flowui.graph.round", { n: rec.round }) : ""].filter(Boolean).join(" · ")
             : [workLabel(s) || t("flowui.graph.gate"), ...work.skills].join(" · ");
+          const elapsed = run ? stationElapsed(rec, now) : null;
+          const tokens = run ? tokensOf(stationUsage(rec)) : 0;
           const line3 = run
-            ? [total ? `${done}/${total}` : "", unmet && status !== "passed" ? t("flowui.graph.unmet", { n: unmet }) : ""].filter(Boolean).join(" · ")
+            ? [
+                total ? `${done}/${total}` : "",
+                formatDuration(elapsed),
+                tokens ? t("flowui.tokens", { n: formatTokens(tokens) }) : "",
+                unmet && status !== "passed" ? t("flowui.graph.unmet", { n: unmet }) : "",
+              ]
+                .filter(Boolean)
+                .join(" · ")
             : exitKinds(s).join(" · ");
           return (
             <g
@@ -129,6 +140,8 @@ export function FlowGraph({ def, view, selected, onSelect, layout: options }: Fl
               aria-pressed={selected === n.id}
               data-testid={`flow-node-${n.id}`}
               data-status={status}
+              data-elapsed={elapsed ?? undefined}
+              data-tokens={run ? tokens : undefined}
               onClick={() => onSelect?.(n.id)}
               onKeyDown={key(n.id)}
             >

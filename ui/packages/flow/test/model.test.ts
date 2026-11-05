@@ -6,6 +6,19 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  formatDuration,
+  formatTokens,
+  guideBlocks,
+  inlineOf,
+  mainSessionOf,
+  phaseOf,
+  phaseTone,
+  runElapsed,
+  runUsage,
+  stationElapsed,
+  stationUsage,
+  tokensOf,
+  toolTarget,
   checkOk,
   leaseUntil,
   proposalHandledOf,
@@ -274,5 +287,76 @@ describe("dictionaries", () => {
       "flowui.ref.of.run",
     ];
     expect(keys.filter((k) => !(k in en))).toEqual([]);
+  });
+});
+
+describe("what a run is doing and what it spent (xops-03)", () => {
+  it("reads the phase, or falls back on the status", () => {
+    expect(phaseOf({ phase: { state: "pausing" }, status: "active" }).state).toBe("pausing");
+    expect(phaseOf({ status: "finished" }).state).toBe("finished");
+    expect(phaseOf({ status: "active" }).state).toBe("running");
+    expect(phaseOf({ phase: { state: "bogus" as never }, status: "cancelled" }).state).toBe("cancelled");
+    expect(phaseTone("waiting")).toBe("warn");
+  });
+
+  it("adds tokens up by task, station and run, and formats them", () => {
+    const rec = {
+      usage_other: { input_tokens: 5, output_tokens: 5, turns: 1 },
+      stations: {
+        a: { status: "passed", round: 1, tasks: [{ id: "a", status: "submitted", attempt: 1, usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 80, turns: 2 } }] },
+        b: { status: "pending", round: 0 },
+      },
+    } as never;
+    expect(tokensOf(stationUsage((rec as { stations: Record<string, never> }).stations.a))).toBe(200);
+    expect(tokensOf(runUsage(rec))).toBe(210);
+    expect(runUsage(rec).turns).toBe(3);
+    expect(formatTokens(0)).toBe("");
+    expect(formatTokens(940)).toBe("940");
+    expect(formatTokens(12_345)).toBe("12k");
+    expect(formatTokens(1_500)).toBe("1.5k");
+    expect(formatTokens(2_300_000)).toBe("2.3M");
+  });
+
+  it("times a station and a run, open ones up to now", () => {
+    expect(stationElapsed({ status: "passed", round: 1, entered_at: 1000, left_at: 4500 }, 9999)).toBe(3500);
+    expect(stationElapsed({ status: "working", round: 1, entered_at: 1000 }, 3000)).toBe(2000);
+    expect(stationElapsed({ status: "pending", round: 0 }, 3000)).toBe(null);
+    expect(runElapsed({ created_at: 0, finished_at: 61_000 }, 0)).toBe(61_000);
+    expect(formatDuration(850)).toBe("850ms");
+    expect(formatDuration(42_000)).toBe("42s");
+    expect(formatDuration(185_000)).toBe("3m 05s");
+    expect(formatDuration(7_620_000)).toBe("2h 07m");
+    expect(formatDuration(null)).toBe("");
+  });
+
+  it("finds the main session under @main", () => {
+    expect(mainSessionOf({ session_keys: { "@main": "box/m1", run: "system/x" } })).toEqual({ instance: "box", sessionId: "m1" });
+    expect(mainSessionOf({ session_keys: {} })).toBe(null);
+  });
+
+  it("names the run a run tool acts on", () => {
+    expect(toolTarget("flow_pause", { run: "r-1" })).toEqual({ tool: "pause", run: "r-1", station: undefined });
+    expect(toolTarget("flow_confirm", { run: "r-1", station: "sign", pass: false })).toMatchObject({ tool: "reject", run: "r-1", station: "sign" });
+    expect(toolTarget("flow_confirm", { run: "r-1", station: "sign", pass: true })).toMatchObject({ tool: "confirm" });
+    expect(toolTarget("flow_rework", { run: "r-1", to: "draft" })).toMatchObject({ tool: "rework", station: "draft" });
+    expect(toolTarget("flow_runs", {})).toBe(null);
+  });
+});
+
+describe("the guide's markdown", () => {
+  it("is headings, paragraphs, lists, tables and code; a whole flow is an example", () => {
+    const blocks = guideBlocks("# Title\n\nSome **bold** and `code`\ncontinued.\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n1. first\n2. second\n   more\n\n```yaml\nname: x\nstations: []\n```\n\n```yaml\n  - id: part\n```\n");
+    expect(blocks.map((b) => b.kind)).toEqual(["heading", "paragraph", "table", "list", "code", "code"]);
+    expect(blocks[1]).toEqual({ kind: "paragraph", text: "Some **bold** and `code` continued." });
+    expect(blocks[2]).toEqual({ kind: "table", head: ["a", "b"], rows: [["1", "2"]] });
+    expect(blocks[3]).toEqual({ kind: "list", items: ["first", "second more"] });
+    expect(blocks[4]).toMatchObject({ example: true, text: "name: x\nstations: []" });
+    expect(blocks[5]).toMatchObject({ example: false });
+    expect(inlineOf("a `b` **c**")).toEqual([
+      { kind: "text", text: "a " },
+      { kind: "code", text: "b" },
+      { kind: "text", text: " " },
+      { kind: "strong", text: "c" },
+    ]);
   });
 });

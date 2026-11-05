@@ -1,7 +1,8 @@
 /**
- * The flow space of xops-02 §7 against a fake host: the selection is the conversation's focus (sent
- * on select and on a session change, followed from the topic), the line over the composer, the
- * right column's tabs, a dry run's controls, and the message a dry run's session task would have
+ * The flow space of xops-03 §6 against a fake host: what is selected on the right is the
+ * conversation in the middle (a flow's own, a run's main session, the general one), the line over
+ * the composer, the right column's tabs with their first rows, a run's state, time, tokens and
+ * sub-agents, the guide, a dry run's controls, and the message a dry run's session task would have
  * been sent.
  */
 
@@ -15,7 +16,7 @@ import { ToolTargetLine } from "../src/ToolTarget";
 import { FlowSpaceState } from "../src/state";
 import { StationPanel } from "../src/StationPanel";
 import { registerFlowStrings } from "../src/strings";
-import { DryControls, FlowsTab, FocusNotice, RunsTab, type FlowTabs } from "../src/tabs";
+import { DryControls, FlowsTab, FocusNotice, ReferenceTab, RunsTab, type FlowTabs } from "../src/tabs";
 import type { DefInfo, DefSummary, FlowDef, RunView } from "../src/types";
 
 afterEach(cleanup);
@@ -70,15 +71,23 @@ const DRY: RunView = {
   },
 };
 
-/** A host whose topics can be pushed to, with an open session and a front space. */
+/** A host whose topics can be pushed to, with an open session, a front space and a right column. */
 function fakeHost(answers: Record<string, unknown> = {}) {
   const calls: [string, unknown][] = [];
   const topics = new Map<string, Set<(v: unknown) => void>>();
   const values = new Map<string, unknown>();
   const changes = new Set<(s: HostSessionRef | null) => void>();
+  const tabFns = new Set<(tab: string) => void>();
   let current: HostSessionRef | null = { instance: "system", sessionId: "s1" };
   let front = "flow";
+  let tab = "flow.flows";
   const keyOf = (topic: string, params?: Record<string, unknown>) => `${topic} ${JSON.stringify(params ?? {})}`;
+  const opened: HostSessionRef[] = [];
+  const inserted: [string, unknown][] = [];
+  const setCurrent = (session: HostSessionRef | null) => {
+    current = session;
+    for (const fn of [...changes]) fn(session);
+  };
   const host = {
     call: vi.fn(async (method: string, params?: unknown) => {
       calls.push([method, params]);
@@ -99,62 +108,124 @@ function fakeHost(answers: Record<string, unknown> = {}) {
         changes.add(fn);
         return () => changes.delete(fn);
       },
-      open: vi.fn(),
+      open: vi.fn(async (ref: HostSessionRef) => {
+        opened.push(ref);
+        setCurrent(ref);
+      }),
     },
     spaces: { current: () => front },
-    details: { open: vi.fn() },
+    details: {
+      open: vi.fn(),
+      tab: () => tab,
+      onTab: (fn: (tab: string) => void) => {
+        tabFns.add(fn);
+        return () => tabFns.delete(fn);
+      },
+    },
+    composer: { insert: vi.fn((text: string, options?: unknown) => inserted.push([text, options])) },
     redraw: vi.fn(),
     t: (k: string) => k,
   } as unknown as NestHost;
   return {
     host,
     calls,
+    opened,
+    inserted,
     push(topic: string, params: Record<string, unknown> | undefined, value: unknown) {
       const key = keyOf(topic, params);
       values.set(key, value);
       for (const fn of [...(topics.get(key) ?? [])]) fn(value);
     },
     open(session: HostSessionRef | null, space = "flow") {
-      current = session;
       front = space;
-      for (const fn of [...changes]) fn(session);
+      setCurrent(session);
+    },
+    tab(next: string) {
+      tab = next;
+      for (const fn of [...tabFns]) fn(next);
     },
   };
 }
 
-const focusCalls = (calls: [string, unknown][]) => calls.filter(([m]) => m === "app.flow.focus").map(([, p]) => p);
+/** `session {flow?}`: `f-<flow>` for a flow's conversation, `general` for the general one. */
+const conversations = (p: { flow?: string }) => ({ instance: "system", session_id: p?.flow ? `f-${p.flow}` : "general", flow: p?.flow ?? null });
+const ids = (refs: HostSessionRef[]) => refs.map((r) => r.sessionId);
 const settle = () => act(async () => {});
 
-describe("the selection is the conversation's focus", () => {
-  it("is sent for the open session on select, and again when another session of the space opens", async () => {
-    const fake = fakeHost({ "app.flow.focus": (p: { flow: string | null }) => ({ flow: p.flow }) });
+describe("what is selected on the right is what the middle talks to", () => {
+  it("a flow: its own conversation; nothing: the general one; no focus is sent", async () => {
+    const fake = fakeHost({ "app.flow.session": conversations });
     const state = new FlowSpaceState();
     state.attach(fake.host);
     await settle();
-    // Nothing selected yet: nothing is sent, the session keeps its own.
-    expect(focusCalls(fake.calls)).toEqual([]);
-
     state.selectFlow("example-review");
     await settle();
-    expect(focusCalls(fake.calls)).toEqual([{ instance: "system", session_id: "s1", flow: "example-review" }]);
-    expect(state.focusOf()).toBe("example-review");
-
-    act(() => fake.open({ instance: "system", sessionId: "s2" }));
+    expect(ids(fake.opened)).toEqual(["f-example-review"]);
+    expect(fake.calls).toContainEqual(["app.flow.session", { flow: "example-review" }]);
+    state.selectFlow(null);
     await settle();
-    expect(focusCalls(fake.calls).at(-1)).toEqual({ instance: "system", session_id: "s2", flow: "example-review" });
-
-    // A session of another space is not ours: nothing is sent for it.
-    const before = fake.calls.length;
-    act(() => fake.open({ instance: "system", sessionId: "other" }, "sessions"));
-    await settle();
-    expect(fake.calls.length).toBe(before);
-    state.selectFlow("broken");
-    await settle();
-    expect(focusCalls(fake.calls).at(-1)).toEqual({ instance: "system", session_id: "s2", flow: "example-review" });
+    expect(ids(fake.opened)).toEqual(["f-example-review", "general"]);
+    expect(fake.calls.some(([m]) => m === "app.flow.focus")).toBe(false);
   });
 
-  it("follows the topic: a flow the Agent created is selected, a deleted one clears the selection", async () => {
-    const fake = fakeHost({ "app.flow.focus": (p: { flow: string | null }) => ({ flow: p.flow }) });
+  it("a run: its main session; the tab in front decides; the reference tab is the general conversation", async () => {
+    const fake = fakeHost({
+      "app.flow.session": conversations,
+      "app.flow.get": { record: { id: "example-review-1", flow: "example-review", session_keys: { "@main": "system/main-1" } } },
+    });
+    const state = new FlowSpaceState();
+    state.attach(fake.host);
+    state.selectFlow("example-review");
+    await settle();
+    act(() => fake.tab("flow.runs"));
+    await settle();
+    // Nothing selected in the runs tab: the general conversation.
+    expect(ids(fake.opened).at(-1)).toBe("general");
+    state.showRun("example-review-1");
+    await settle();
+    expect(fake.opened.at(-1)).toEqual({ instance: "system", sessionId: "main-1" });
+    act(() => fake.tab("flow.flows"));
+    await settle();
+    expect(ids(fake.opened).at(-1)).toBe("f-example-review");
+    act(() => fake.tab("flow.reference"));
+    await settle();
+    expect(ids(fake.opened).at(-1)).toBe("general");
+  });
+
+  it("puts the middle on the selection when the space comes to the front", async () => {
+    const fake = fakeHost({ "app.flow.session": conversations });
+    act(() => fake.open({ instance: "system", sessionId: "x" }, "sessions"));
+    const state = new FlowSpaceState();
+    state.attach(fake.host);
+    state.selectFlow("example-review");
+    await settle();
+    expect(fake.opened).toEqual([]);
+    act(() => fake.open({ instance: "system", sessionId: "last" }, "flow"));
+    await settle();
+    expect(ids(fake.opened)).toEqual(["f-example-review"]);
+  });
+
+  it("does nothing while another space is in front, and drops an answer a later switch overtook", async () => {
+    let slow: (v: unknown) => void = () => {};
+    const fake = fakeHost({
+      "app.flow.session": (p: { flow?: string }) => (p.flow === "slow" ? new Promise((r) => (slow = r)) : conversations(p)),
+    });
+    const state = new FlowSpaceState();
+    state.attach(fake.host);
+    act(() => fake.open({ instance: "system", sessionId: "x" }, "sessions"));
+    state.selectFlow("example-review");
+    await settle();
+    expect(fake.opened).toEqual([]);
+    act(() => fake.open({ instance: "system", sessionId: "s1" }, "flow"));
+    state.selectFlow("slow");
+    state.selectFlow("broken");
+    await settle();
+    await act(async () => slow(conversations({ flow: "slow" })));
+    expect(ids(fake.opened)).toEqual(["f-broken"]);
+  });
+
+  it("follows the topic: a flow the general conversation created is selected, a deleted one clears it", async () => {
+    const fake = fakeHost();
     const state = new FlowSpaceState();
     state.attach(fake.host);
     const topic = { instance: "system", session_id: "s1" };
@@ -162,37 +233,19 @@ describe("the selection is the conversation's focus", () => {
     expect(state.get().flow).toBe(null);
     act(() => fake.push("app.flow.focus", topic, { flow: "authored" }));
     expect(state.get()).toMatchObject({ flow: "authored", run: null });
+    expect(state.focusOf()).toBe("authored");
     act(() => fake.push("app.flow.focus", topic, { flow: null }));
     expect(state.get().flow).toBe(null);
-    // Following sends nothing back.
-    expect(focusCalls(fake.calls)).toEqual([]);
-  });
-
-  it("takes up a session's remembered flow when nothing is selected", async () => {
-    const fake = fakeHost();
-    fake.push("app.flow.focus", { instance: "system", session_id: "s1" }, { flow: "example-review" });
-    const state = new FlowSpaceState();
-    state.attach(fake.host);
-    expect(state.get().flow).toBe("example-review");
-    expect(focusCalls(fake.calls)).toEqual([]);
-  });
-
-  it("does not follow the old value while its own call is unanswered", async () => {
-    let answer: (v: unknown) => void = () => {};
-    const fake = fakeHost({ "app.flow.focus": () => new Promise((resolve) => (answer = resolve)) });
-    const state = new FlowSpaceState();
-    state.attach(fake.host);
-    state.selectFlow("example-review");
-    act(() => fake.push("app.flow.focus", { instance: "system", session_id: "s1" }, { flow: null }));
-    expect(state.get().flow).toBe("example-review");
-    await act(async () => answer({ flow: "example-review" }));
-    expect(state.get().flow).toBe("example-review");
+    // A run selected: the topic does not take the selection over.
+    state.showRun("r-1");
+    act(() => fake.push("app.flow.focus", topic, { flow: "other" }));
+    expect(state.get()).toMatchObject({ flow: null, run: "r-1" });
   });
 });
 
 describe("the line over the composer", () => {
-  it("names the current flow, or says to select one first — and that creating needs none", async () => {
-    const fake = fakeHost({ "app.flow.focus": (p: { flow: string | null }) => ({ flow: p.flow }) });
+  it("names the conversation's flow, or says it is the general one", async () => {
+    const fake = fakeHost();
     fake.push("app.flow.defs", {}, DEFS);
     const state = new FlowSpaceState();
     render(
@@ -202,66 +255,77 @@ describe("the line over the composer", () => {
     );
     const notice = screen.getByTestId("flow-focus-notice");
     expect(notice.dataset.flow).toBe("");
-    expect(notice.textContent).toContain("select one on the right");
-    expect(notice.textContent).toContain("Creating a new flow needs no selection");
-    await act(async () => state.selectFlow("example-review"));
+    expect(notice.textContent).toContain("The general conversation");
+    act(() => fake.push("app.flow.focus", { instance: "system", session_id: "s1" }, { flow: "example-review" }));
     expect(screen.getByTestId("flow-focus-notice").dataset.flow).toBe("example-review");
-    expect(screen.getByTestId("flow-focus-notice").textContent).toContain("Current flow: Example: review and approve");
+    expect(screen.getByTestId("flow-focus-notice").textContent).toContain("This conversation is for Example: review and approve");
   });
 
-  it("is what the space gives the shell, and the new conversation's line follows the selection", () => {
+  it("is what the space gives the shell", () => {
     const r = new Registry();
     const flow = registerFlowSpace(r);
     const space = r.at("space")[0]!;
-    expect(space.notice?.()).toContain("No flow selected");
+    expect(space.notice?.()).toContain("general conversation");
     flow.state.selectFlow("example-review");
     expect(space.notice?.()).toContain("example-review");
+    expect(flow.state.tabs).toEqual(flow.tabs);
   });
 });
 
 const TABS: FlowTabs = { flows: "flow.flows", runs: "flow.runs", reference: "flow.reference" };
 
-describe("the right column", () => {
-  it("流程: the flows with their origin and validity; the selected one's graph, skills and dry runs", async () => {
-    const fake = fakeHost({
-      "app.flow.def": INFO,
-      "app.flow.focus": (p: { flow: string | null }) => ({ flow: p.flow }),
-      "app.flow.dry_run.start": { run: "dry-example-review-2" },
-    });
-    fake.push("app.flow.defs", {}, DEFS);
-    fake.push("app.flow.dry_runs", {}, [
-      { id: "dry-example-review-1", flow: "example-review", status: "active", created_at: 1 },
-      { id: "dry-other-1", flow: "other", status: "finished", created_at: 1 },
-    ]);
+describe("流程", () => {
+  it("lists the flows with their origin and validity, filtered and sorted; adds in the general conversation", async () => {
+    const fake = fakeHost({ "app.flow.session": conversations });
+    fake.push("app.flow.defs", {}, [...DEFS, { name: "alpha", title: "Zed", digest: "z", origin: "override", valid: true }]);
     const state = new FlowSpaceState();
     render(
       <NestProvider host={fake.host}>
         <FlowsTab state={state} tabs={TABS} />
       </NestProvider>,
     );
+    const names = () => [...screen.getByTestId("flow-def-list").querySelectorAll("button")].map((b) => b.dataset.testid);
+    expect(names()).toEqual(["flow-def-alpha", "flow-def-broken", "flow-def-example-review"]);
     expect(screen.getByTestId("flow-def-example-review").dataset.origin).toBe("builtin");
-    expect(screen.getByTestId("flow-def-example-review").textContent).toContain("built in");
     expect(screen.getByTestId("flow-def-broken").dataset.valid).toBe("false");
-    expect(screen.getByTestId("flow-def-broken").textContent).toContain("invalid");
-    expect(screen.getByTestId("flow-pick-hint")).toBeTruthy();
+    fireEvent.change(screen.getByTestId("flow-sort-flows"), { target: { value: "title" } });
+    expect(names()).toEqual(["flow-def-broken", "flow-def-example-review", "flow-def-alpha"]);
+    fireEvent.change(screen.getByTestId("flow-filter-valid"), { target: { value: "valid" } });
+    expect(names()).toEqual(["flow-def-example-review", "flow-def-alpha"]);
+    fireEvent.change(screen.getByTestId("flow-filter-origin"), { target: { value: "override" } });
+    expect(names()).toEqual(["flow-def-alpha"]);
+    fireEvent.change(screen.getByTestId("flow-filter-origin"), { target: { value: "" } });
+    fireEvent.change(screen.getByTestId("flow-filter-name"), { target: { value: "review" } });
+    expect(names()).toEqual(["flow-def-example-review"]);
 
+    state.attach(fake.host);
+    await act(async () => fireEvent.click(screen.getByTestId("flow-add")));
+    expect(ids(fake.opened).at(-1)).toBe("general");
+    expect(fake.inserted).toEqual([["Create a new flow: ", { session: { instance: "system", sessionId: "general" } }]]);
+  });
+
+  it("draws the selected one: graph, skills, read-only YAML; a dry run started here is shown in the runs tab", async () => {
+    const fake = fakeHost({ "app.flow.def": INFO, "app.flow.session": conversations, "app.flow.dry_run.start": { run: "dry-example-review-2" } });
+    fake.push("app.flow.defs", {}, DEFS);
+    const state = new FlowSpaceState();
+    render(
+      <NestProvider host={fake.host}>
+        <FlowsTab state={state} tabs={TABS} />
+      </NestProvider>,
+    );
+    expect(screen.getByTestId("flow-pick-hint")).toBeTruthy();
     await act(async () => fireEvent.click(screen.getByTestId("flow-def-example-review")));
-    expect(focusCalls(fake.calls)).toEqual([{ instance: "system", session_id: "s1", flow: "example-review" }]);
+    expect(ids(fake.opened)).toEqual(["f-example-review"]);
     expect(screen.getByTestId("flow-detail").dataset.digest).toBe("aaaa1111");
     expect(screen.getByTestId("flow-graph").dataset.mode).toBe("definition");
     expect(screen.getByTestId("flow-skill-body-review").textContent).toContain("Look at the subject.");
-    // Only this flow's dry runs.
-    expect(screen.getByTestId("flow-dry-dry-example-review-1")).toBeTruthy();
-    expect(screen.queryByTestId("flow-dry-dry-other-1")).toBeNull();
+    expect(screen.getByTestId("flow-yaml-text").textContent).toBe("name: example-review\n");
     // Nothing here edits a definition.
     expect(document.querySelector("textarea")).toBeNull();
-    expect(fake.calls.some(([m]) => /app\.flow\.(save|delete|skill)/.test(m))).toBe(false);
-
-    // A station of the graph: its definition below.
+    expect(fake.calls.some(([m]) => /app\.flow\.(save|delete|skill|validate)/.test(m))).toBe(false);
     fireEvent.click(screen.getByTestId("flow-node-review"));
     expect(screen.getByTestId("flow-station-panel").dataset.station).toBe("review");
 
-    // A dry run, started here, is shown in the runs tab.
     await act(async () => fireEvent.click(screen.getByTestId("flow-dry-start")));
     expect(fake.calls).toContainEqual(["app.flow.dry_run.start", { flow: "example-review" }]);
     expect(state.get().run).toBe("dry-example-review-2");
@@ -286,16 +350,39 @@ describe("the right column", () => {
     expect(reads()).toBe(before + 1);
     expect(screen.getByTestId("flow-def-example-review").textContent).toContain("Changed");
   });
+});
 
-  it("运行: the selected flow's runs and dry runs; a run's graph and its station's details", async () => {
+const usage = (n: number) => ({ input_tokens: n, output_tokens: 0, turns: 1 });
+
+const LIVE: RunView = {
+  record: {
+    ...DRY.record,
+    id: "example-review-1",
+    subject: "repo",
+    created_at: 1_000,
+    session_keys: { "@main": "system/main-1" },
+    stations: {
+      review: { status: "passed", round: 1, entered_at: 1_000, left_at: 4_000, tasks: [{ id: "review", status: "submitted", attempt: 1, started_at: 1_000, ended_at: 4_000, usage: usage(1500) }] },
+      approve: { status: "working", round: 1, entered_at: 4_000, tasks: [] },
+      sign: { status: "pending", round: 0 },
+    },
+  },
+  unmet: { approve: [{ kind: "confirm", status: "wait" }] },
+  phase: { state: "waiting", reason: "confirm", stations: ["approve"] },
+};
+
+describe("运行", () => {
+  const RUNS = [
+    { id: "example-review-1", flow: "example-review", subject: "repo", status: "active", created_at: 3, phase: { state: "waiting", reason: "confirm", stations: ["approve"] }, usage: usage(1500) },
+    { id: "example-review-2", flow: "example-review", subject: "x", status: "active", created_at: 5, phase: { state: "pausing", stations: ["review"] }, usage: usage(200) },
+    { id: "other-1", flow: "other", subject: "x", status: "finished", created_at: 4, finished_at: 9, phase: { state: "finished" } },
+  ];
+
+  it("every flow's runs and dry runs, filtered by state, flow and kind, sorted by start or tokens", () => {
     const fake = fakeHost();
     fake.push("app.flow.defs", {}, DEFS);
-    fake.push("app.flow.runs", {}, [
-      { id: "example-review-1", flow: "example-review", subject: "repo", status: "active", created_at: 3 },
-      { id: "other-1", flow: "other", subject: "x", status: "finished", created_at: 4 },
-    ]);
+    fake.push("app.flow.runs", {}, RUNS);
     fake.push("app.flow.dry_runs", {}, [{ id: "dry-example-review-1", flow: "example-review", status: "active", created_at: 2 }]);
-    fake.push("app.flow.run", { run: "dry-example-review-1" }, DRY);
     const state = new FlowSpaceState();
     state.selectFlow("example-review");
     render(
@@ -303,22 +390,130 @@ describe("the right column", () => {
         <RunsTab state={state} tabs={TABS} />
       </NestProvider>,
     );
-    const rows = [...screen.getByTestId("flow-run-list").querySelectorAll("button")].map((b) => b.dataset.testid);
-    expect(rows).toEqual(["flow-run-example-review-1", "flow-run-dry-example-review-1"]);
+    const rows = () => [...screen.getByTestId("flow-run-list").querySelectorAll("button")].map((b) => b.dataset.testid!.replace("flow-run-", ""));
+    // The selected flow does not filter the runs: every flow's are here.
+    expect(rows()).toEqual(["example-review-2", "other-1", "example-review-1", "dry-example-review-1"]);
     expect(screen.getByTestId("flow-run-dry-example-review-1").dataset.dry).toBe("true");
+    expect(screen.getByTestId("flow-run-example-review-2").dataset.phase).toBe("pausing");
+    expect(screen.getByTestId("flow-run-example-review-2").querySelector(".hx-flow-spin")).toBeTruthy();
+    expect(screen.getByTestId("flow-run-example-review-1").textContent).toContain("Waiting · to be confirmed");
+    expect(screen.getByTestId("flow-run-example-review-1").textContent).toContain("1.5k tokens");
+    // No "start" or "add" here.
+    expect(screen.queryByTestId("flow-start-open")).toBeNull();
+    expect(screen.queryByTestId("flow-add")).toBeNull();
+
+    fireEvent.change(screen.getByTestId("flow-sort-runs"), { target: { value: "tokens" } });
+    expect(rows()[0]).toBe("example-review-1");
+    fireEvent.change(screen.getByTestId("flow-filter-kind"), { target: { value: "dry" } });
+    expect(rows()).toEqual(["dry-example-review-1"]);
+    fireEvent.change(screen.getByTestId("flow-filter-kind"), { target: { value: "" } });
+    fireEvent.change(screen.getByTestId("flow-filter-flow"), { target: { value: "other" } });
+    expect(rows()).toEqual(["other-1"]);
+    fireEvent.change(screen.getByTestId("flow-filter-flow"), { target: { value: "" } });
+    fireEvent.change(screen.getByTestId("flow-filter-state"), { target: { value: "waiting" } });
+    expect(rows()).toEqual(["example-review-1"]);
+  });
+
+  it("a run: its state, time and tokens per station, pause, and its sub-agents and tasks to open", async () => {
+    const fake = fakeHost({
+      "app.flow.get": LIVE,
+      "app.flow.sessions": {
+        main: { instance: "system", session_id: "main-1" },
+        agents: [{ agent_session_id: "agent-1", instance: "system", agent_type: "flow-agent", description: "flow:example-review-1/review/review", flow: { station: "review", task: "review" }, status: "done" }],
+        own: [{ station: "sign", task: "sign", session: { instance: "box", session_id: "own-1" } }],
+        tasks: [{ task_id: "t1", kind: "agent", status: "done", started_ms: 1, ended_ms: 2001, detail: { agent_type: "reviewer", description: "flow:example-review-1/review/review" }, flow: { station: "review", task: "review" } }],
+        sidechains: [{ session_id: "side-1", instance: "system", name: "a side chain" }],
+      },
+    });
+    fake.push("app.flow.runs", {}, RUNS);
+    fake.push("app.flow.run", { run: "example-review-1" }, LIVE);
+    const state = new FlowSpaceState();
+    render(
+      <NestProvider host={fake.host}>
+        <RunsTab state={state} tabs={TABS} />
+      </NestProvider>,
+    );
+    fireEvent.click(screen.getByTestId("flow-run-example-review-1"));
+    await settle();
+    expect(screen.getByTestId("flow-run-detail").dataset.run).toBe("example-review-1");
+    expect(screen.getByTestId("flow-run-phase").dataset.phase).toBe("waiting");
+    expect(screen.getByTestId("flow-run-phase").dataset.reason).toBe("confirm");
+    expect(screen.getByTestId("flow-run-meta").dataset.tokens).toBe("1500");
+    expect(screen.getByTestId("flow-node-review").dataset.tokens).toBe("1500");
+    expect(screen.getByTestId("flow-node-review").dataset.elapsed).toBe("3000");
+    expect(screen.getByTestId("flow-node-review").textContent).toContain("3s");
+
+    await act(async () => fireEvent.click(screen.getByTestId("flow-pause-run")));
+    expect(fake.calls).toContainEqual(["app.flow.pause", { run: "example-review-1" }]);
+
+    expect(fake.calls).toContainEqual(["app.flow.sessions", { run: "example-review-1" }]);
+    // The sub-agent the events showed is listed once (not again as Agix's task), and opens its own session.
+    expect(screen.getByTestId("flow-agent-agent-1").textContent).toContain("review/review");
+    expect(screen.queryByTestId("flow-task-of-main-t1")).toBeNull();
+    await act(async () => fireEvent.click(screen.getByTestId("flow-agent-agent-1")));
+    expect(fake.opened.at(-1)).toEqual({ instance: "system", sessionId: "agent-1" });
+    await act(async () => fireEvent.click(screen.getByTestId("flow-open-main")));
+    expect(fake.opened.at(-1)).toEqual({ instance: "system", sessionId: "main-1" });
+    await act(async () => fireEvent.click(screen.getByTestId("flow-sidechain-side-1")));
+    expect(fake.opened.at(-1)).toEqual({ instance: "system", sessionId: "side-1" });
+    await act(async () => fireEvent.click(screen.getByTestId("flow-own-session-sign-sign")));
+    expect(fake.opened.at(-1)).toEqual({ instance: "box", sessionId: "own-1" });
+  });
+
+  it("a paused run resumes; a dry run has its controls and no pause", async () => {
+    const paused: RunView = { ...LIVE, record: { ...LIVE.record, paused: { by: { kind: "device", id: "d" }, at: 5 } }, phase: { state: "paused" } };
+    const fake = fakeHost();
+    fake.push("app.flow.runs", {}, [{ ...RUNS[0]!, phase: { state: "paused" } }]);
+    fake.push("app.flow.dry_runs", {}, [{ id: "dry-example-review-1", flow: "example-review", status: "active", created_at: 2 }]);
+    fake.push("app.flow.run", { run: "example-review-1" }, paused);
+    fake.push("app.flow.run", { run: "dry-example-review-1" }, DRY);
+    const state = new FlowSpaceState();
+    render(
+      <NestProvider host={fake.host}>
+        <RunsTab state={state} tabs={TABS} />
+      </NestProvider>,
+    );
+    fireEvent.click(screen.getByTestId("flow-run-example-review-1"));
+    expect(screen.getByTestId("flow-run-phase").dataset.phase).toBe("paused");
+    await act(async () => fireEvent.click(screen.getByTestId("flow-resume-run")));
+    expect(fake.calls).toContainEqual(["app.flow.resume", { run: "example-review-1" }]);
 
     fireEvent.click(screen.getByTestId("flow-run-dry-example-review-1"));
-    expect(screen.getByTestId("flow-run-detail").dataset.run).toBe("dry-example-review-1");
-    expect(screen.getByTestId("flow-graph").dataset.mode).toBe("run");
-    expect(screen.getByTestId("flow-run-status").dataset.status).toBe("active");
     expect(screen.getByTestId("flow-dry-controls")).toBeTruthy();
+    expect(screen.queryByTestId("flow-pause-run")).toBeNull();
+    expect(screen.queryByTestId("flow-run-sessions")).toBeNull();
     fireEvent.click(screen.getByTestId("flow-node-approve"));
-    expect(screen.getByTestId("flow-station-panel").dataset.station).toBe("approve");
     expect((screen.getByTestId("flow-confirm") as HTMLButtonElement).disabled).toBe(false);
+  });
+});
 
-    // A real run has no dry-run controls.
-    fireEvent.click(screen.getByTestId("flow-run-example-review-1"));
-    expect(screen.queryByTestId("flow-dry-controls")).toBeNull();
+describe("参考", () => {
+  const GUIDE = "# Flow guide\n\nA flow is a **graph**.\n\n| Object | Meaning |\n|---|---|\n| **Flow** | A `name` |\n\n- one\n- two\n\n```yaml\nname: like-this\nstations: []\n```\n\n```yaml\n  - id: part\n```\n";
+
+  it("the guide in the page's language, then the catalog and the fields; an example starts a flow like it", async () => {
+    const fake = fakeHost({ "app.flow.guide": (p: { lang: string }) => ({ text: GUIDE, lang: p.lang }), "app.flow.session": conversations, "app.flow.catalog": {}, "app.flow.schema": {} });
+    const state = new FlowSpaceState();
+    state.attach(fake.host);
+    render(
+      <NestProvider host={fake.host}>
+        <ReferenceTab state={state} />
+      </NestProvider>,
+    );
+    await settle();
+    expect(fake.calls).toContainEqual(["app.flow.guide", { lang: "en" }]);
+    const guide = screen.getByTestId("flow-guide");
+    expect(guide.dataset.lang).toBe("en");
+    expect(guide.querySelector("table")?.textContent).toContain("Flow");
+    expect(guide.querySelector("strong")?.textContent).toBe("graph");
+    // Only a whole flow is an example to start from.
+    expect(screen.getByTestId("flow-guide-example-0")).toBeTruthy();
+    expect(screen.queryByTestId("flow-guide-example-1")).toBeNull();
+    expect(screen.getByTestId("flow-catalog")).toBeTruthy();
+    expect(screen.queryByTestId("flow-validate-box")).toBeNull();
+
+    await act(async () => fireEvent.click(screen.getByTestId("flow-guide-like-0")));
+    expect(ids(fake.opened).at(-1)).toBe("general");
+    expect(fake.inserted[0]![0]).toContain("name: like-this");
   });
 });
 
@@ -491,6 +686,16 @@ describe("a changing tool call names what it acts on", () => {
     expect(update!.dataset.flow).toBe("example-review");
     expect(update!.textContent).toBe("Changes the flow example-review");
     expect(create!.textContent).toBe("Creates the flow authored (Authored here)");
+    // A run tool names the run (xops-03 §5).
+    expect(r.claim("tool.row", block("flow_pause", { run: "r-1" }))?.id).toBe("flow.author-tool");
+    cleanup();
+    render(
+      <NestProvider host={fake.host}>
+        <ToolTargetLine target={toolTarget("flow_confirm", { run: "r-1", station: "sign", pass: false })!} />
+      </NestProvider>,
+    );
+    expect(screen.getByTestId("flow-tool-target").dataset.run).toBe("r-1");
+    expect(screen.getByTestId("flow-tool-target").textContent).toBe("Rejects sign of the run r-1");
   });
 
   it("leaves a task session's settings entry undrawn", () => {
