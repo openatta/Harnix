@@ -110,11 +110,13 @@ impl AgentScene for FlowScene {
     fn execution_params(&self) -> ExecutionParams {
         self.inner.execution_params()
     }
+    /// A flow session spends no model call outside its task: naming it would be one (and,
+    /// under replay, one that is not recorded and goes to the network).
     fn auto_name_session(&self) -> bool {
-        self.inner.auto_name_session()
+        false
     }
-    fn session_name_prompt(&self, first_message: &str) -> Option<String> {
-        self.inner.session_name_prompt(first_message)
+    fn session_name_prompt(&self, _first_message: &str) -> Option<String> {
+        None
     }
     fn memory_extraction_prompt(&self) -> Option<String> {
         self.inner.memory_extraction_prompt()
@@ -390,6 +392,9 @@ mod tests {
                 compact_keep_recent: 0,
             }
         }
+        fn auto_name_session(&self) -> bool {
+            true
+        }
     }
 
     fn sh() -> Arc<Shared> {
@@ -423,6 +428,10 @@ mod tests {
             .collect();
         assert_eq!(names, [TOOL_STATE, TOOL_SUBMIT, TOOL_PROPOSE]);
         assert!(s.permits_tool(TOOL_SUBMIT) && s.permits_tool("Read") && !s.permits_tool("Bash"));
+        assert!(
+            !s.auto_name_session(),
+            "no model call outside the task, even where the base scene names its sessions"
+        );
     }
 
     #[test]

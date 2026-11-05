@@ -451,11 +451,16 @@ enum Waited {
     Gone,
 }
 
-/// The session lock's key: tasks sharing a session share it.
+/// The session lock's key: tasks sharing a session share it. A task with a session of its
+/// own (`new`) shares it with nobody — not even its own next round or attempt, which gets a
+/// new session and must not wait for the old one's turn to end.
 fn lock_key(job: &SessionJob) -> String {
     match &job.session_key {
         Some(k) => format!("{}#{k}", job.key.run),
-        None => format!("{}/{}/{}", job.key.run, job.key.station, job.key.task),
+        None => format!(
+            "{}/{}/{}@{}",
+            job.key.run, job.key.station, job.key.task, job.token
+        ),
     }
 }
 
@@ -782,6 +787,38 @@ mod tests {
                 session: "s".into()
             }),
             None
+        );
+    }
+
+    fn job(round: u32, token: &str, session_key: Option<&str>) -> SessionJob {
+        SessionJob {
+            key: TaskKey {
+                run: "r".into(),
+                station: "s".into(),
+                round,
+                task: "t".into(),
+            },
+            token: token.into(),
+            scene: "flow-chat".into(),
+            skill: None,
+            skill_digest: None,
+            protocol: String::new(),
+            session_key: session_key.map(String::from),
+            recording: None,
+            resume: false,
+        }
+    }
+
+    #[test]
+    fn only_tasks_sharing_a_session_wait_for_each_other() {
+        assert_ne!(
+            lock_key(&job(1, "a", None)),
+            lock_key(&job(2, "b", None)),
+            "a rework's new round has a new session: it does not wait for the old turn"
+        );
+        assert_eq!(
+            lock_key(&job(1, "a", Some("run"))),
+            lock_key(&job(1, "b", Some("run")))
         );
     }
 
