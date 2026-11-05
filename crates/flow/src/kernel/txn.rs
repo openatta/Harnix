@@ -621,7 +621,7 @@ impl<'a> M<'a> {
         if let Some(why) = skip {
             r.status = StationStatus::Skipped;
             r.left_at = Some(now);
-            r.tasks.clear();
+            r.clear_tasks();
             let data = json!({"round": round, "reason": why});
             self.emit("station.skipped", Some(sid), None, data.clone());
             self.log("skip", Some(sid), None, data);
@@ -646,7 +646,10 @@ impl<'a> M<'a> {
                 let r = self.st(sid);
                 for n in names {
                     if let Some(t) = r.task_mut(n) {
+                        // What it spent before stays spent (review #5).
+                        let usage = t.usage;
                         *t = TaskRec::new(n.clone(), t.item.take());
+                        t.usage = usage;
                     }
                 }
                 names.to_vec()
@@ -667,7 +670,7 @@ impl<'a> M<'a> {
                             .collect(),
                         other => {
                             let r = self.st(sid);
-                            r.tasks.clear();
+                            r.clear_tasks();
                             r.status = StationStatus::Unmet;
                             r.checks = vec![CheckRec {
                                 cond: None,
@@ -691,7 +694,16 @@ impl<'a> M<'a> {
                     },
                 };
                 let ids = tasks.iter().map(|t| t.id.clone()).collect();
-                self.st(sid).tasks = tasks;
+                let r = self.st(sid);
+                // A task of the same id in an earlier round: its tokens stay counted.
+                let mut tasks = tasks;
+                for old in std::mem::take(&mut r.tasks) {
+                    match tasks.iter_mut().find(|t| t.id == old.id) {
+                        Some(t) => t.usage = old.usage,
+                        None => r.spent.add(&old.usage),
+                    }
+                }
+                r.tasks = tasks;
                 ids
             }
         };
@@ -712,7 +724,9 @@ impl<'a> M<'a> {
         for t in &fresh {
             self.emit("task.ready", Some(sid), Some(t), Value::Null);
         }
-        if !st.hold {
+        // Paused (a rework while paused): nothing is judged or dispatched here until the run
+        // resumes — a station with no tasks would run its gates now (review).
+        if !st.hold && self.rec.paused.is_none() {
             if empty {
                 self.judge_later(sid);
             }

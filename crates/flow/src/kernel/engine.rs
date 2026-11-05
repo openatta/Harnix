@@ -396,6 +396,21 @@ impl Engine {
             m.rec.paused = None;
             m.emit("run.resumed", None, None, Value::Null);
             m.log("resume", None, None, Value::Null);
+            // A station entered while paused with nothing to do has not been judged yet.
+            let unjudged: Vec<String> = m
+                .rec
+                .stations
+                .iter()
+                .filter(|(_, s)| {
+                    s.status == StationStatus::Working
+                        && s.tasks.is_empty()
+                        && !s.checks.iter().any(|c| c.round == s.round)
+                })
+                .map(|(id, _)| id.clone())
+                .collect();
+            for sid in &unjudged {
+                m.judge_later(sid);
+            }
             m.advance_later();
             t.settle().await?;
             Ok(json!({"run": run}))
@@ -427,6 +442,31 @@ impl Engine {
             if !counted {
                 m.rec.usage_other.add(&usage);
             }
+            Ok(json!({"run": run}))
+        })
+    }
+
+    /// Give back a dispatched claim nothing was done under (a task that waited for its session
+    /// while the run was paused, review #4): the task is ready again, the attempt not counted,
+    /// and it is dispatched again once the run goes on.
+    pub async fn requeue(&self, run: &str, station: &str, task: &str, token: &str) -> Result<Outcome> {
+        transact!(self, Actor::flow("dispatch"), |t| {
+            t.load(run).await?;
+            let now = t.fx.now;
+            let rec = t.get(run);
+            let (_, st) = open_station(rec, station)?;
+            claimed(st, station, task, token, now)?;
+            let mut m = t.m(run);
+            if let Some(tr) = m.task_mut(station, task) {
+                tr.status = TaskStatus::Ready;
+                tr.lease = None;
+                tr.attempt = tr.attempt.saturating_sub(1);
+                tr.started_at = None;
+            }
+            m.emit("task.ready", Some(station), Some(task), Value::Null);
+            m.log("requeue", Some(station), Some(task), Value::Null);
+            m.advance_later();
+            t.settle().await?;
             Ok(json!({"run": run}))
         })
     }

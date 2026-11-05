@@ -13,7 +13,7 @@ main: {model: big, params: {}}
 stations:
   - {id: draft, executor: {kind: session}, skill: analyze, output: {type: object}, exit: [{kind: output}]}
   - {id: check, executor: {kind: agent, agent_type: reviewer, model: small}, skill: report, output: {type: object}, writes: [Write], exit: [{kind: output}]}
-  - {id: sign, exit: [{kind: confirm}]}
+  - {id: sign, exit: [{kind: confirm}], rework_to: [draft]}
 "#;
 
 /// Three items, one at a time, then a confirmation.
@@ -266,4 +266,61 @@ fn the_guides_examples_are_valid_flows() {
         }
         assert_eq!(whole, 3, "{lang}: three whole examples");
     }
+}
+
+#[tokio::test]
+async fn a_claim_nothing_was_done_under_goes_back_while_paused() {
+    let h = h();
+    let (run, o) = start_with(&h, "each", json!({"items": ["a"]})).await;
+    let j = &jobs(&o)[0];
+    h.eng.pause(&run, me()).await.unwrap();
+    assert_eq!(h.eng.record(&run).await.unwrap().phase().state, "pausing");
+    h.eng.requeue(&run, &j.station, &j.task, &j.token).await.unwrap();
+    let rec = h.eng.record(&run).await.unwrap();
+    let t = &rec.stations["work"].tasks[0];
+    assert_eq!((t.status, t.attempt, t.started_at), (TaskStatus::Ready, 0, None));
+    assert_eq!(rec.phase().state, "paused");
+    // Its old claim no longer counts; on resume it is dispatched afresh.
+    assert!(h.eng.submit(&run, &j.station, &j.task, &j.token, json!({}), Actor::flow("dispatch")).await.is_err());
+    let o = h.eng.resume(&run, me()).await.unwrap();
+    assert_eq!(jobs(&o)[0].attempt, 1);
+}
+
+#[tokio::test]
+async fn tokens_spent_stay_counted_through_a_rework() {
+    let h = h();
+    let (run, o) = start(&h, "main").await;
+    let turn = Usage::of_turn(&json!({"input_tokens": 100, "output_tokens": 10}));
+    h.eng.account(&run, Some(("draft", "draft")), turn).await.unwrap();
+    let o = submit(&h, &jobs(&o)[0], json!({})).await;
+    h.eng.account(&run, Some(("check", "check")), turn).await.unwrap();
+    submit(&h, &jobs(&o)[0], json!({})).await;
+    h.eng.rework(&run, "draft", None, "again", me()).await.unwrap();
+    let rec = h.eng.record(&run).await.unwrap();
+    assert_eq!(rec.stations["draft"].tasks[0].usage.turns, 1, "the task keeps what it spent");
+    assert_eq!(rec.usage().turns, 2, "the run keeps all of it");
+}
+
+#[tokio::test]
+async fn a_claimed_external_task_is_waited_on_not_running() {
+    let h = h();
+    let (run, _) = start(&h, "ext").await;
+    h.eng.claim(&run, "x", "x", me(), 60_000).await.unwrap();
+    let p = h.eng.record(&run).await.unwrap().phase();
+    assert_eq!((p.state.as_str(), p.reason.as_deref()), ("waiting", Some("external")));
+    h.eng.pause(&run, me()).await.unwrap();
+    assert_eq!(h.eng.record(&run).await.unwrap().phase().state, "paused");
+}
+
+#[tokio::test]
+async fn a_station_entered_again_while_paused_is_judged_on_resume() {
+    let h = harness(packs().flow("name: g\nstations: [{id: a, executor: {kind: program, step: work}, output: {type: object}, exit: [{kind: output}]}, {id: lint, exit: [{kind: gate, gate: lint}], rework_to: [lint]}]"));
+    let (run, o) = start(&h, "g").await;
+    let o = submit(&h, &jobs(&o)[0], json!({})).await;
+    assert!(o.work.iter().any(|w| matches!(w, WorkItem::Gate { .. })));
+    h.eng.pause(&run, me()).await.unwrap();
+    let o = h.eng.rework(&run, "lint", None, "again", me()).await.unwrap();
+    assert!(!o.work.iter().any(|w| matches!(w, WorkItem::Gate { .. })), "no gate while paused");
+    let o = h.eng.resume(&run, me()).await.unwrap();
+    assert!(o.work.iter().any(|w| matches!(w, WorkItem::Gate { .. })), "the gate runs on resume");
 }

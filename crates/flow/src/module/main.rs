@@ -17,7 +17,7 @@ use harnix_module::{Entry, SessionRef, SessionSpec, TapEvent};
 use serde_json::{json, Value};
 
 use super::dispatch::{place_at, settle_quiet, SESSION_SETTINGS, TASK_PERMISSION_MODE};
-use super::shared::{session_name, session_ref, Shared, TaskKey};
+use super::shared::{session_name, session_ref, Binding, Shared};
 use crate::kernel::def::MAIN_SESSION_KEY;
 use crate::kernel::protocol::{matches_any, refused};
 use crate::kernel::run::{RunRecord, Usage};
@@ -191,7 +191,7 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef) {
     };
     // Turn → the task it was started for: read when the turn's first frame comes, while that
     // task is in hand (by its settlement it has often handed in and been let go).
-    let mut turns: std::collections::HashMap<String, Option<(String, String)>> =
+    let mut turns: std::collections::HashMap<String, Option<Binding>> =
         std::collections::HashMap::new();
     // `Agent` calls of the main Agent: tool use id → what it named the sub-agent.
     let mut agent_calls: std::collections::HashMap<String, String> = std::collections::HashMap::new();
@@ -219,18 +219,25 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef) {
             .and_then(Value::as_str)
             .filter(|t| !t.is_empty())
             .map(String::from);
-        let settled = frame.get("method").and_then(Value::as_str) == Some("harnix.turn_settled");
-        if let (Some(t), false) = (&turn, settled) {
-            turns.entry(t.clone()).or_insert_with(|| {
-                working_on(sh, s).map(|b| (b.station, b.task))
-            });
+        // A turn begins with its `user_message`: one the dispatcher sent for a task is that
+        // task's, any other a person's.
+        if let (Some(t), Some(text)) = (
+            &turn,
+            frame
+                .pointer("/params/event")
+                .filter(|e| e.get("kind").and_then(Value::as_str) == Some("user_message"))
+                .and_then(|e| e.get("text"))
+                .and_then(Value::as_str),
+        ) {
+            turns.insert(t.clone(), sh.take_sent(&s.session_id, text));
         }
         match frame.get("method").and_then(Value::as_str) {
             Some("harnix.turn_settled") => {
-                let task = match &turn {
-                    Some(t) => turns.remove(t).unwrap_or_else(|| working_on(sh, s).map(|b| (b.station, b.task))),
-                    None => working_on(sh, s).map(|b| (b.station, b.task)),
-                };
+                let task = turn
+                    .as_ref()
+                    .and_then(|t| turns.remove(t))
+                    .flatten()
+                    .map(|b| (b.station, b.task));
                 let usage = frame
                     .pointer("/params/outcome/usage")
                     .filter(|u| u.is_object())
@@ -252,7 +259,8 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef) {
                     _ => None,
                 };
                 if let Some(p) = prompt {
-                    answer(sh, s, p).await;
+                    let owner = turn.as_ref().and_then(|t| turns.get(t)).cloned().flatten();
+                    answer(sh, s, p, owner).await;
                 }
                 note_agents(sh, run, s, ev, &mut agent_calls);
             }
@@ -322,19 +330,6 @@ async fn run_active(sh: &Shared, run: &str) -> bool {
     }
 }
 
-/// The task a main session's turn is working on now, if any: its binding, while that claim is
-/// being carried out.
-fn working_on(sh: &Shared, s: &SessionRef) -> Option<super::shared::Binding> {
-    let b = sh.binding(&s.session_id)?;
-    let key = TaskKey {
-        run: b.run.clone(),
-        station: b.station.clone(),
-        round: b.round,
-        task: b.task.clone(),
-    };
-    sh.in_hand(&key, &b.token).then_some(b)
-}
-
 async fn count(sh: &Arc<Shared>, run: &str, task: Option<(String, String)>, u: Usage) {
     let Ok(engine) = sh.engine() else { return };
     let task = task.as_ref().map(|(st, t)| (st.as_str(), t.as_str()));
@@ -344,12 +339,18 @@ async fn count(sh: &Arc<Shared>, run: &str, task: Option<(String, String)>, u: U
 
 /// The decision on a guarded tool's use for the task a turn works on: what its station's
 /// `writes` say. `None`: not the module's to decide — no task, or not a guarded tool.
+///
+/// Judged on the guarded patterns the station leaves refused, so a nested group (`mcp__desk__*`)
+/// is the group as written, not its first namespace (review #1).
 pub(crate) fn decision(guarded: &[String], writes: &[String], station: &str, tool: &str) -> Option<Value> {
     if !matches_any(guarded, tool) {
         return None;
     }
-    let covers = |r: &String| r == tool || ns_of(tool) == Some(r.as_str());
-    if refused(guarded, writes).iter().any(|(_, r)| covers(r)) {
+    let refused_patterns: Vec<String> = refused(guarded, writes)
+        .into_iter()
+        .map(|(g, _)| g)
+        .collect();
+    if matches_any(&refused_patterns, tool) {
         Some(json!({
             "type": "deny",
             "reason": format!("station {station} of the flow does not allow {tool} (its writes: {})",
@@ -360,13 +361,9 @@ pub(crate) fn decision(guarded: &[String], writes: &[String], station: &str, too
     }
 }
 
-/// `ns` of `ns__tool`.
-fn ns_of(tool: &str) -> Option<&str> {
-    tool.split_once("__").map(|(ns, _)| ns).filter(|ns| !ns.is_empty())
-}
-
-async fn answer(sh: &Arc<Shared>, s: &SessionRef, prompt: &Value) {
-    let (Some(cx), Some(b)) = (sh.cx.get(), working_on(sh, s)) else {
+/// Answer a question of a task's turn from its station; a person's turn's is the person's.
+async fn answer(sh: &Arc<Shared>, s: &SessionRef, prompt: &Value, owner: Option<Binding>) {
+    let (Some(cx), Some(b)) = (sh.cx.get(), owner) else {
         return;
     };
     let tool = prompt.get("tool_name").and_then(Value::as_str).unwrap_or("");
@@ -409,6 +406,11 @@ mod tests {
         );
         assert_eq!(decision(&guarded, &g(&["git__*"]), "s", "git__commit"), permit);
         assert_eq!(decision(&guarded, &g(&[]), "s", "git__commit").unwrap()["type"], "deny");
+        // A nested group is judged as written: `mcp__desk__*` refused is not opened by `mcp`.
+        let nested = g(&["mcp__desk__*", "mcp__wiki__*"]);
+        assert_eq!(decision(&nested, &g(&[]), "s", "mcp__desk__ticket_create").unwrap()["type"], "deny");
+        assert_eq!(decision(&nested, &g(&["mcp__wiki__*"]), "s", "mcp__desk__ticket_create").unwrap()["type"], "deny");
+        assert_eq!(decision(&nested, &g(&["mcp__desk__*"]), "s", "mcp__desk__ticket_create"), permit);
         // Not guarded: the person's (or the mode's) to decide.
         assert_eq!(decision(&guarded, &g(&[]), "s", "Read"), None);
     }

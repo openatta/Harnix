@@ -89,8 +89,20 @@ pub const RUN_TOOLS: [&str; 8] = [
 pub const GUIDE_EN: &str = include_str!("../../docs/guide.en.md");
 pub const GUIDE_ZH: &str = include_str!("../../docs/guide.zh-CN.md");
 
-/// Who acted when a person approved a run tool in a conversation: the conversation.
+/// Who acted when a person approved a run tool in a conversation and the device that answered
+/// is not known: the conversation.
 pub const CONVERSATION_KIND: &str = "conversation";
+
+/// A flow conversation's permission rules: `ask` for each authoring tool that changes something.
+pub fn ask_rules() -> Value {
+    Value::Array(
+        AUTHOR_TOOLS
+            .iter()
+            .filter(|(_, read_only)| !read_only)
+            .map(|(name, _)| json!({"source": "session", "behavior": "ask", "tool_name": name}))
+            .collect(),
+    )
+}
 
 /// Every authoring tool, and whether it is read-only.
 pub const AUTHOR_TOOLS: [(&str, bool); 22] = [
@@ -837,7 +849,22 @@ impl Tool for AuthorTool {
                     Err(m) => return error(m),
                 };
                 let run = rec.id.clone();
-                let who = Actor::new(CONVERSATION_KIND, format!("{instance}/{session}"));
+                // The device whose approval let the call through (the hub kept it for the audit).
+                let answered = match sh.cx.get() {
+                    Some(mcx) => mcx
+                        .call(
+                            "harnix.prompts.answerer",
+                            json!({"session_id": session, "tool_use_id": cx.tool_use_id}),
+                        )
+                        .await
+                        .ok()
+                        .and_then(|v| v.get("answerer").and_then(Value::as_str).map(String::from)),
+                    None => None,
+                };
+                let who = match answered.as_deref().and_then(|a| a.strip_prefix("device:")) {
+                    Some(device) => Actor::new("device", device),
+                    None => Actor::new(CONVERSATION_KIND, format!("{instance}/{session}")),
+                };
                 let station = str_of(&input, "station").unwrap_or_default().to_string();
                 let reason = str_of(&input, "reason").map(String::from);
                 let r = match t {

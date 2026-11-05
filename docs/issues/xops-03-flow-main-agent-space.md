@@ -56,8 +56,8 @@ executor:
 
 - **现在是模型起**：Agix 没有让宿主起子 Agent 的接口（`agent.*` 未实现）。子 Agent 站的任务是主会话里的一轮：
   写明"用 `Agent` 工具（`subagent_type` / `model` 为 …）把这件事交给子 Agent，`description` 用 `flow:<run>/<station>/<task>`，
-  拿到结果后整理成符合契约的输出，`flow_submit` 交上"。同一站一起派出的几个子 Agent 任务并成一轮，让主 Agent 在
-  一次回复里并发调用 `Agent`。
+  拿到结果后整理成符合契约的输出，`flow_submit` 交上"。主会话一次一轮，所以同一站的几个子 Agent 任务一个接一个；
+  要并发，等程序起（下一条）。
 - **以后是程序起**：Agix issue 草稿 `.local/agix-issue-09-host-started-subagents.md`（`session.startAgent`、`tag`、
   `structured_output`、`usage`）。daemon 报了 `host_agents` 就改走它，不经主 Agent；本 issue 不实现这条，只留接缝。
 - 子 Agent 的权限询问冒到宿主时，模块按它那一站的 `writes` 答（与主会话同一规则）。
@@ -211,6 +211,20 @@ executor:
   允许 TodoWrite、用量；子 Agent 真跑起来并对上流程任务；流程会话 / 通用会话、焦点不能改、指南两种语言）；
   已有 api 用例按主会话调整（`session_keys` 多了 `@main`、提示语、空应用的预览 scene）。
 - LIVE ui `flow.spec.ts` 改写为 9 条。
+
+### 评审后的修改
+
+评审（独立 agent，读 `3d13936..fddc0f6`）提出 3 条会出错的、4 条较小的，都改了：
+
+| # | 问题 | 改法 | 测试 |
+|---|---|---|---|
+| 1 | 主会话按站答写工具时，多级命名空间组（`mcp__desk__*`）按第一段比，站不许的写被放行（安全） | 按站仍拒的受限**模式**判（`matches_any`），不再拆命名空间 | `main::tests::a_station_decides_…`（加多级组） |
+| 2 | 权限询问与用量按"此刻绑定的任务"算：人在主会话里排队的一轮会被按任务的 `writes` 自动答、记到任务上；任务的 `carry` 也会把人的那轮结束当成自己的 | 一轮属于哪个任务看它的 `user_message`：派发方发给任务的文本先记下（`note_sent`），对上的那轮才是任务的，别的都是人的；`carry` 在主会话里只认自己发出的轮次（`wait_own_turn`） | LIVE `flow-main`（两站各自的 TodoWrite 按站答） |
+| 3 | 运行操作工具只靠工具自己的 `ask`，一次"总是允许"之后 Agent 就能自己确认 / 强制；记的人不是批准的设备 | 流程会话建时对每个改动类工具加 `ask` 规则（压过 allow）；记的人取 `harnix.prompts.answerer`（`device:<id>`），取不到才记会话 | — |
+| 4 | 暂停时已认领、还在排队等主会话的任务照样一个个做 | 拿到会话锁时运行已暂停且什么都没发：`Engine::requeue` 交回认领（回到待做、不算一次尝试），恢复时重派 | `a_claim_nothing_was_done_under_goes_back_while_paused` |
+| 5 | 返工把任务的用量清零，合计少算 | 同 id 的任务跨轮带着用量；跳过、换了项而消失的任务的用量记进站的 `spent` | `tokens_spent_stay_counted_through_a_rework` |
+| 6 | 被人认领的外部任务算"运行中"，暂停后一直"暂停中" | 外部认领算"等待（external）" | `a_claimed_external_task_is_waited_on_not_running` |
+| 7 | 暂停中返工重进一个没任务的站会立刻判、跑闸门；子 Agent 记录不清理 | 暂停中进站不判不派，恢复时判；子 Agent 记录最多留 256 个运行 | `a_station_entered_again_while_paused_is_judged_on_resume` |
 
 ### 已知
 

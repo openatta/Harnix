@@ -287,6 +287,10 @@ pub(crate) async fn flow_session(
             space: Some(sh.cfg.space.clone()),
             instance: Some(super::FLOW_INSTANCE.to_string()),
             scene: Some(super::AUTHOR_SCENE.to_string()),
+            // Every tool that changes something is asked of the person, every time: an `ask` rule
+            // outranks an `allow` one ("always allow" included), so an approval stays a person's
+            // decision (review #3).
+            permission_rules: Some(super::author::ask_rules()),
             ..Default::default()
         })
         .await?;

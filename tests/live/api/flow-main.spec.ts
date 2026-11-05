@@ -74,10 +74,11 @@ test("a run has its main session from the start; paused, it lets the work in han
   const { summary } = { summary: (await api.call("app.flow.list", { flow: "demo-main" })).find((s: any) => s.id === run) };
   expect(summary.phase).toMatchObject({ state: "waiting", reason: "external" });
 
-  // Claimed, it is in hand: the pause lets it finish.
+  // Claimed before the pause, it may still be handed in; someone outside has it, so the run is
+  // paused at once (only the flow's own work in hand keeps it pausing).
   const { token } = await api.call("app.flow.claim", { run, station: "wait", task: "wait" });
   await api.call("app.flow.pause", { run });
-  expect((await api.call("app.flow.list", { flow: "demo-main" })).find((s: any) => s.id === run).phase.state).toBe("pausing");
+  expect((await api.call("app.flow.list", { flow: "demo-main" })).find((s: any) => s.id === run).phase.state).toBe("paused");
   await api.call("app.flow.submit", { run, station: "wait", task: "wait", token, output: {} });
   const paused = await until(run, (v) => station(v, "wait").status === "passed", "wait passes while paused");
   expect(paused.record.paused).toBeTruthy();

@@ -99,8 +99,16 @@ pub(crate) struct Shared {
     pub making_session: tokio::sync::Mutex<()>,
     /// The sub-agents each run's main session started, as its watch saw them (xops-03 §2):
     /// run → sub-agents, oldest first. Not kept over a restart.
-    agents: Mutex<HashMap<String, Vec<serde_json::Value>>>,
+    agents: Mutex<HashMap<String, (u64, Vec<serde_json::Value>)>>,
+    agents_seq: std::sync::atomic::AtomicU64,
+    /// What the dispatcher sent a main session for a task and has not seen start yet: session id
+    /// → (the message's text, the task's binding). The turn whose `user_message` is that text is
+    /// the task's; every other turn of the session is a person's (xops-03 review #2).
+    sent: Mutex<HashMap<String, Vec<(String, Binding)>>>,
 }
+
+/// How many runs' sub-agents are remembered.
+pub const AGENTS_KEPT: usize = 256;
 
 /// How many conversations' focus is remembered.
 pub const FOCUS_KEPT: usize = 1024;
@@ -133,7 +141,30 @@ impl Shared {
             flow_sessions_path: OnceLock::new(),
             making_session: tokio::sync::Mutex::new(()),
             agents: Mutex::new(HashMap::new()),
+            agents_seq: std::sync::atomic::AtomicU64::new(0),
+            sent: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Note a message sent to a main session for the task `b` (before it is sent).
+    pub fn note_sent(&self, session_id: &str, text: &str, b: Binding) {
+        lock(&self.sent)
+            .entry(session_id.to_string())
+            .or_default()
+            .push((text.to_string(), b));
+    }
+
+    /// The task a turn that began with `text` was started for, taken off the list; `None`: a
+    /// person's turn.
+    pub fn take_sent(&self, session_id: &str, text: &str) -> Option<Binding> {
+        let mut g = lock(&self.sent);
+        let list = g.get_mut(session_id)?;
+        let i = list.iter().position(|(t, _)| t == text)?;
+        let (_, b) = list.remove(i);
+        if list.is_empty() {
+            g.remove(session_id);
+        }
+        Some(b)
     }
 
     /// Note a sub-agent of `run`'s main session, or what more is known of it (by
@@ -142,8 +173,18 @@ impl Shared {
         let Some(id) = seen.get("agent_session_id").and_then(|v| v.as_str()).map(String::from) else {
             return;
         };
+        let seq = self
+            .agents_seq
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let mut g = lock(&self.agents);
-        let list = g.entry(run.to_string()).or_default();
+        // The runs whose sub-agents were noted longest ago go first, past AGENTS_KEPT.
+        if !g.contains_key(run) && g.len() >= AGENTS_KEPT {
+            if let Some(oldest) = g.iter().min_by_key(|(_, (s, _))| *s).map(|(k, _)| k.clone()) {
+                g.remove(&oldest);
+            }
+        }
+        let (at, list) = g.entry(run.to_string()).or_insert((seq, vec![]));
+        *at = seq;
         match list
             .iter_mut()
             .find(|a| a.get("agent_session_id").and_then(|v| v.as_str()) == Some(id.as_str()))
@@ -163,7 +204,10 @@ impl Shared {
 
     /// The sub-agents noted for `run`.
     pub fn agents(&self, run: &str) -> Vec<serde_json::Value> {
-        lock(&self.agents).get(run).cloned().unwrap_or_default()
+        lock(&self.agents)
+            .get(run)
+            .map(|(_, l)| l.clone())
+            .unwrap_or_default()
     }
 
     /// Read the flows' conversations from `path`, and save to it from now on.
@@ -367,11 +411,6 @@ impl Shared {
         }
         g.insert(key.clone(), token.to_string());
         true
-    }
-
-    /// Whether the task is being carried out under `token` now.
-    pub fn in_hand(&self, key: &TaskKey, token: &str) -> bool {
-        lock(&self.active).get(key).is_some_and(|t| t == token)
     }
 
     /// Start watching a main session. `false`: it is watched already.

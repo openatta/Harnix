@@ -300,6 +300,9 @@ pub struct StationRec {
     pub entered_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub left_at: Option<u64>,
+    /// Tokens of tasks a later round no longer has (a skip, other items), still spent.
+    #[serde(default, skip_serializing_if = "Usage::is_empty")]
+    pub spent: Usage,
 }
 
 impl StationRec {
@@ -316,6 +319,7 @@ impl StationRec {
             forced: None,
             entered_at: None,
             left_at: None,
+            spent: Usage::default(),
         }
     }
 
@@ -327,14 +331,21 @@ impl StationRec {
         self.tasks.iter_mut().find(|t| t.id == id)
     }
 
+    /// Clear the tasks, keeping what they spent.
+    pub fn clear_tasks(&mut self) {
+        for t in std::mem::take(&mut self.tasks) {
+            self.spent.add(&t.usage);
+        }
+    }
+
     /// No task is ready or claimed.
     pub fn tasks_settled(&self) -> bool {
         !self.tasks.iter().any(TaskRec::in_flight)
     }
 
-    /// Its tasks' usage, summed.
+    /// Its tasks' usage, and what tasks gone from it spent.
     pub fn usage(&self) -> Usage {
-        let mut u = Usage::default();
+        let mut u = self.spent;
         for t in &self.tasks {
             u.add(&t.usage);
         }
@@ -441,8 +452,12 @@ impl RunRecord {
             let claimed = r.tasks.iter().any(|t| {
                 t.status == TaskStatus::Claimed
                     && s.task_spec(&t.id).is_some_and(|spec| {
-                        // A subflow's claim is the child's; an external one is someone's.
-                        !matches!(spec.executor, super::def::Executor::Subflow { .. })
+                        // A subflow's claim is the child's, an external one someone's outside:
+                        // the run waits on them (review #6).
+                        !matches!(
+                            spec.executor,
+                            super::def::Executor::Subflow { .. } | super::def::Executor::External { .. }
+                        )
                     })
             });
             let gate = r.status == StationStatus::Working

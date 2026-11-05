@@ -799,6 +799,15 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
     if standing_of(&rec, key, &job.token) != Standing::Claimed {
         return;
     }
+    // Paused while it waited for its session: nothing was sent, so it goes back to ready and is
+    // dispatched again on resume (xops-03 §3: what is not begun does not begin).
+    if rec.is_paused() && !job.resume {
+        let r = engine
+            .requeue(&key.run, &key.station, &key.task, &job.token)
+            .await;
+        settle(sh, &key.run, "requeue", r).await;
+        return;
+    }
     let sessions = cx.sessions();
 
     // The task's own session (it reported one before a restart), else its key's (bound by a
@@ -1005,12 +1014,28 @@ async fn carry(
         return false;
     };
     let key = &job.key;
-    let sessions = cx.sessions();
+    // In the main session a person may talk too: only the turns this task's messages start are
+    // its own (review #2). A resumed task's turn still running is taken as its own.
+    let mut own = OwnTurns {
+        main: job.main,
+        texts: vec![],
+        turns: Default::default(),
+        any_next: resumed_running,
+    };
+    let binding = sh.binding(&session.session_id);
+    let send = |text: String| {
+        if let (true, Some(b)) = (job.main, binding.clone()) {
+            sh.note_sent(&session.session_id, &text, b);
+        }
+        let sessions = cx.sessions();
+        async move { sessions.send(session, &text, OnBusy::Queue).await }
+    };
     // A resumed task whose session is idle had its turn cut off: judge it as a turn that ended.
     let mut running = resumed_running;
     if !resume {
         let message = task_message_of(sh, job);
-        if let Err(e) = sessions.send(session, &message, OnBusy::Queue).await {
+        own.texts.push(message.clone());
+        if let Err(e) = send(message).await {
             fail(
                 sh,
                 key,
@@ -1027,7 +1052,7 @@ async fn carry(
     loop {
         let mut handed: Option<Value> = None;
         if running {
-            match wait_turn(sh, tap, key, &job.token).await {
+            match wait_own_turn(sh, tap, key, &job.token, &mut own).await {
                 Waited::Settled(params) => {
                     handed = params
                         .pointer("/outcome/structured_output")
@@ -1098,9 +1123,8 @@ async fn carry(
                              Fix the output and hand it in again with `{STRUCTURED_OUTPUT_TOOL}`.",
                             key.station
                         );
-                        if renew(sh, key, &job.token).await
-                            && sessions.send(session, &text, OnBusy::Queue).await.is_ok()
-                        {
+                        own.texts.push(text.clone());
+                        if renew(sh, key, &job.token).await && send(text).await.is_ok() {
                             running = true;
                             continue;
                         }
@@ -1119,7 +1143,8 @@ async fn carry(
                     "The flow did not take your output: {m}. Fix it and hand it in again with \
                      `{STRUCTURED_OUTPUT_TOOL}`."
                 );
-                if sessions.send(session, &text, OnBusy::Queue).await.is_ok() {
+                own.texts.push(text.clone());
+                if send(text).await.is_ok() {
                     running = true;
                     continue;
                 }
@@ -1143,7 +1168,8 @@ async fn carry(
             Delivery::FlowSubmit => NUDGE,
             Delivery::StructuredOutput => NUDGE_STRUCTURED,
         };
-        if let Err(e) = sessions.send(session, nudge, OnBusy::Queue).await {
+        own.texts.push(nudge.to_string());
+        if let Err(e) = send(nudge.to_string()).await {
             fail(
                 sh,
                 key,
@@ -1154,6 +1180,72 @@ async fn carry(
             return false;
         }
         running = true;
+    }
+}
+
+/// Which turns of a session are a task's: those its messages started (in the main session), or
+/// every one (a session of its own).
+struct OwnTurns {
+    main: bool,
+    /// The texts sent and not seen start yet.
+    texts: Vec<String>,
+    turns: std::collections::HashSet<String>,
+    /// The next settlement is the task's whatever started it (a resumed task's running turn).
+    any_next: bool,
+}
+
+/// [`wait_turn`] for a task: in the main session, the next settlement of a turn one of its own
+/// messages started — a person's turns in between are not the task's.
+async fn wait_own_turn(
+    sh: &Arc<Shared>,
+    tap: &mut Tap,
+    key: &TaskKey,
+    token: &str,
+    own: &mut OwnTurns,
+) -> Waited {
+    if !own.main {
+        return wait_turn(sh, tap, key, token).await;
+    }
+    let every = renew_every(sh);
+    loop {
+        let frame = match tokio::time::timeout(every, tap.next()).await {
+            Ok(Some(harnix_module::TapEvent::Frame(f))) => f,
+            Ok(Some(harnix_module::TapEvent::Lagged { .. })) => {
+                let _ = tap.catch_up().await;
+                continue;
+            }
+            Ok(None) => return Waited::Gone,
+            Err(_) => {
+                if sh.stopping() || !renew(sh, key, token).await {
+                    return Waited::Superseded;
+                }
+                continue;
+            }
+        };
+        let turn = frame
+            .pointer("/params/turn_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        match frame.get("method").and_then(Value::as_str) {
+            Some("harnix.event") => {
+                let text = frame
+                    .pointer("/params/event")
+                    .filter(|e| e.get("kind").and_then(Value::as_str) == Some("user_message"))
+                    .and_then(|e| e.get("text"))
+                    .and_then(Value::as_str);
+                if let Some(i) = text.and_then(|t| own.texts.iter().position(|x| x == t)) {
+                    own.texts.remove(i);
+                    own.turns.insert(turn);
+                }
+            }
+            Some("harnix.turn_settled")
+                if own.turns.remove(&turn) || std::mem::take(&mut own.any_next) =>
+            {
+                return Waited::Settled(frame.get("params").cloned().unwrap_or(Value::Null));
+            }
+            _ => {}
+        }
     }
 }
 
