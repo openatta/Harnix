@@ -8,6 +8,13 @@
 //!
 //! | `demo-propose` | a session that tries a write its station does not allow, proposes a rework, hands in |
 //! | `demo-shared` | two stations, one after the other, whose tasks share the run's session (`per_run`) |
+//! | `demo-placed` | xops-02: a station on an in-process template's instance in the `fleet` space with a model of its own, one on a spawned template's instance — both handing in by structured output — and a confirmation |
+//! | `demo-guarded` | xops-02: a session on a template's instance tries a write its station does not allow (refused by its permission rules), then hands in |
+//! | `demo-misplaced` | xops-02: a station whose template does not exist; the task fails, saying why |
+//!
+//! The flow module has two templates of its own for those (`flow.local` in process, `flow.remote`
+//! spawned): their engines have `structured-chat` — Agix's chat scene with `StructuredOutput`
+//! allowed — as a native contribution, which the spawned daemon builds again in its process.
 //!
 //! Session stations replay `flow-<station>` (`tests/live/fixtures/recordings/flow-analyze`,
 //! `flow-report`, `flow-propose`): each calls `flow_submit` with a fixed output and ends its
@@ -17,6 +24,8 @@
 
 use std::sync::Arc;
 
+use harnix::prelude::*;
+use harnix_flow::module::StructuredScene;
 use harnix_flow::{
     Event, FileStore, Flow, GateResult, Gates, Hooks, MemPacks, Programs, RunRecord, Tools,
     WorkItem,
@@ -123,6 +132,48 @@ stations:
     exit: [{kind: output}]
 "#;
 
+pub const DEMO_PLACED: &str = r#"name: demo-placed
+title: "Demo: sessions placed on template instances"
+description: Two sessions on instances of the flow module's templates, handing in by structured output.
+stations:
+  - id: local
+    title: In process, in the fleet space, on a model of its own
+    executor: {kind: session, scene: structured-chat, template: flow.local, params: {name: "local-${run}"}, space: fleet, model: flow-demo-model}
+    skill: analyze
+    output: {type: object, required: [findings], properties: {findings: {type: array}}}
+    exit: [{kind: output}]
+  - id: remote
+    title: On a spawned daemon
+    executor: {kind: session, scene: structured-chat, template: flow.remote}
+    skill: analyze
+    output: {type: object, required: [findings], properties: {findings: {type: array}}}
+    exit: [{kind: output}]
+  - id: approve
+    title: Approve
+    exit: [{kind: confirm}]
+"#;
+
+pub const DEMO_GUARDED: &str = r#"name: demo-guarded
+title: "Demo: a write refused on a template instance"
+stations:
+  - id: guarded
+    title: Work without writing
+    executor: {kind: session, scene: structured-chat, template: flow.local}
+    skill: analyze
+    output: {type: object, required: [done], properties: {done: {const: true}}}
+    exit: [{kind: output}]
+"#;
+
+pub const DEMO_MISPLACED: &str = r#"name: demo-misplaced
+title: "Demo: a station placed nowhere"
+stations:
+  - id: nowhere
+    executor: {kind: session, scene: structured-chat, template: flow.nowhere}
+    skill: analyze
+    output: {type: object}
+    exit: [{kind: output}]
+"#;
+
 pub const SKILL_ANALYZE: &str = "---
 name: analyze
 description: Look at one module and list what is wrong with it.
@@ -141,24 +192,48 @@ Read the findings handed in at the `analyze` station (`flow_state` shows the run
 summary: how many findings of each severity, and the one that matters most.
 ";
 
+/// The scene a template's session hands in from: chat, with `StructuredOutput` allowed.
+fn structured(e: &mut EngineContrib) {
+    e.scene(Arc::new(StructuredScene::new(Arc::new(
+        scene::scene::chat::ChatScene,
+    ))));
+}
+
+/// The engine of the flow module's templates: `structured-chat` active beside the default.
+fn template_engine() -> EngineProfile {
+    EngineProfile {
+        scene: "chat".into(),
+        scenes: vec!["structured-chat".into()],
+        ..EngineProfile::default()
+    }
+}
+
 /// What the flow module is registered with in `harnix-testapp`.
 pub fn module() -> Flow {
     Flow::builder()
         .store_with(|dir| FileStore::new(dir.join("runs")))
-        .packs(
-            MemPacks::new()
-                .flow(DEMO_LINEAR)
-                .flow(DEMO_REVIEW)
-                .flow(DEMO_PROPOSE)
-                .flow(DEMO_SHARED)
-                .skill("analyze", SKILL_ANALYZE)
-                .skill("report", SKILL_REPORT)
-                .step("collect")
-                .step("self-check")
-                .gate("lint")
-                .tool("open_high")
-                .action("notify"),
+        .template(
+            InstanceTemplate::new(
+                "local",
+                TemplateCarrier::InProcess {
+                    engine: template_engine(),
+                    contrib: EngineContrib::new(),
+                },
+            )
+            .native(structured),
         )
+        .template(
+            InstanceTemplate::new(
+                "remote",
+                TemplateCarrier::Spawn {
+                    engine: template_engine(),
+                    program: None,
+                    args: Vec::new(),
+                },
+            )
+            .native(structured),
+        )
+        .packs_with(|dir| harnix_flow::DirPacks::writable(dir.join("packs")).with_builtin(packs()))
         .scene(Arc::new(scene::scene::chat::ChatScene))
         .programs(DemoPrograms)
         .gates(DemoGates)
@@ -179,6 +254,26 @@ pub fn module() -> Flow {
             _ => None,
         })
         .build()
+}
+
+/// The flows and skills built in; saved ones go over them in the module's data directory.
+fn packs() -> MemPacks {
+    MemPacks::new()
+        .flow(DEMO_LINEAR)
+        .flow(DEMO_REVIEW)
+        .flow(DEMO_PROPOSE)
+        .flow(DEMO_SHARED)
+        .flow(DEMO_PLACED)
+        .flow(DEMO_GUARDED)
+        .flow(DEMO_MISPLACED)
+        .skill("analyze", SKILL_ANALYZE)
+        .skill("report", SKILL_REPORT)
+        .scene("structured-chat")
+        .step("collect")
+        .step("self-check")
+        .gate("lint")
+        .tool("open_high")
+        .action("notify")
 }
 
 struct DemoPrograms;
@@ -243,12 +338,21 @@ mod tests {
             .skill("analyze", SKILL_ANALYZE)
             .skill("report", SKILL_REPORT)
             .scene("flow-chat")
+            .scene("structured-chat")
             .step("collect")
             .step("self-check")
             .gate("lint")
             .tool("open_high")
             .action("notify");
-        for yaml in [DEMO_LINEAR, DEMO_REVIEW, DEMO_PROPOSE, DEMO_SHARED] {
+        for yaml in [
+            DEMO_LINEAR,
+            DEMO_REVIEW,
+            DEMO_PROPOSE,
+            DEMO_SHARED,
+            DEMO_PLACED,
+            DEMO_GUARDED,
+            DEMO_MISPLACED,
+        ] {
             let problems = validate_yaml(yaml, &packs as &dyn Packs);
             assert!(problems.is_empty(), "{problems:?}");
         }

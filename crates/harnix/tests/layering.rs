@@ -139,7 +139,14 @@ fn the_module_contract_cannot_reach_the_hub() {
     let mut offenders = Vec::new();
     for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
         let text = std::fs::read_to_string(entry.path()).unwrap_or_default();
-        for needle in ["EngineLink", "InProcessLink", "DaemonLink", "DownLink", "Factory", "build_engine"] {
+        for needle in [
+            "EngineLink",
+            "InProcessLink",
+            "DaemonLink",
+            "DownLink",
+            "Factory",
+            "build_engine",
+        ] {
             if text.contains(needle) {
                 offenders.push(format!("{} names `{needle}`", entry.path().display()));
             }
@@ -155,7 +162,13 @@ fn the_module_contract_cannot_reach_the_hub() {
 fn the_builtins_use_only_the_public_module_api() {
     assert_ignorant_of(
         "builtin",
-        &["harnix-hub", "harnix-authz", "harnix-instance", "harnix-app", "daemon"],
+        &[
+            "harnix-hub",
+            "harnix-authz",
+            "harnix-instance",
+            "harnix-app",
+            "daemon",
+        ],
         "a built-in is a module, and a module reaches the process only through its context",
     );
     // And not through the doors the application itself uses to drive a
@@ -199,7 +212,8 @@ fn the_flow_module_uses_only_the_public_module_api() {
             );
         }
         assert!(
-            !["daemon", "runtime", "model", "history", "telemetry", "axum"].contains(&name.as_str()),
+            !["daemon", "runtime", "model", "history", "telemetry", "axum"]
+                .contains(&name.as_str()),
             "`flow` depends on `{name}`; of Agix it may name `base` and `scene` and nothing else"
         );
     }
@@ -231,6 +245,35 @@ fn the_flow_module_uses_only_the_public_module_api() {
         }
     }
     assert!(offenders.is_empty(), "{}", offenders.join("\n"));
+}
+
+/// The empty application registers the flow module (xops-02 §6), and an application that
+/// depends on the `harnix` library must not be made to compile it: the `harnix` binary is its own
+/// crate (`crates/cli`), and the library names no flow.
+#[test]
+fn the_library_does_not_carry_the_empty_applications_flow_module() {
+    assert_ignorant_of(
+        "harnix",
+        &["harnix-flow", "scene"],
+        "a library user registers flows if it wants them; the empty application is `harnix-cli`",
+    );
+    let manifest =
+        std::fs::read_to_string(workspace_root().join("crates/harnix/Cargo.toml")).unwrap();
+    assert!(
+        !manifest.contains("[[bin]]"),
+        "`crates/harnix` builds no binary: the empty application's `harnix` is `crates/cli`"
+    );
+    let cli = dependencies("cli");
+    assert!(
+        cli.contains("harnix") && cli.contains("harnix-flow"),
+        "{cli:?}"
+    );
+    let cli_manifest =
+        std::fs::read_to_string(workspace_root().join("crates/cli/Cargo.toml")).unwrap();
+    assert!(
+        cli_manifest.contains("name = \"harnix\""),
+        "the binary is still called `harnix`"
+    );
 }
 
 /// The contract crate is the shared vocabulary. If it grew a dependency on a
@@ -433,6 +476,7 @@ fn every_harnix_dependency_resolves() {
         "instance",
         "authz",
         "builtin",
+        "cli",
         "client",
         "contract",
         "flow",

@@ -57,8 +57,13 @@ const status = (id: string, s: string) => (v: View) => station(v, id)?.status ==
 
 test("the module says what it offers: flows, a definition with its skills, the catalog, schemas", TAGS, async () => {
   const defs = await api.call("app.flow.defs");
-  expect(defs.map((d: any) => d.name).sort()).toEqual(["demo-linear", "demo-propose", "demo-review", "demo-shared"]);
+  expect(defs.map((d: any) => d.name).sort()).toEqual([
+    "demo-guarded", "demo-linear", "demo-misplaced", "demo-placed", "demo-propose", "demo-review", "demo-shared",
+  ]);
+  // Where each comes from and whether it is valid (xops-02 §3): all built in here.
+  expect(defs.every((d: any) => d.origin === "builtin" && d.valid === true)).toBe(true);
   const info = await api.call("app.flow.def", { name: "demo-review" });
+  expect(info).toMatchObject({ origin: "builtin", valid: true, problems: [], writable: true });
   expect(info.def.stations.map((s: any) => s.id)).toEqual(["collect", "analyze", "lint", "self-check", "review", "report"]);
   expect(info.yaml).toContain("name: demo-review");
   expect(Object.keys(info.skills).sort()).toEqual(["analyze", "report"]);
@@ -66,8 +71,8 @@ test("the module says what it offers: flows, a definition with its skills, the c
   expect(info.digest).toMatch(/^[0-9a-f]{64}$/);
 
   const catalog = await api.call("app.flow.catalog");
-  // Only wrapped scenes: a session task runs where flow_submit and the writes guard are.
-  expect(catalog.scenes).toEqual(["flow-chat"]);
+  // The wrapped scene (flow_submit) and the application's own (structured output, xops-02 §2).
+  expect(catalog.scenes).toEqual(["flow-chat", "structured-chat"]);
   expect(info.protocol.analyze).toContain("refuses these as writes: Bash, PowerShell, REPL, Write, Edit, NotebookEdit, TodoWrite");
   expect(catalog.steps).toEqual(["collect", "self-check"]);
   expect(catalog.skills).toEqual(["analyze", "report"]);

@@ -118,7 +118,7 @@ export function binary(name = "harnix"): string {
     built.set(name, given);
     return given;
   }
-  const pkg = name === "harnix" ? "harnix" : name;
+  const pkg = name === "harnix" ? "harnix-cli" : name;
   execFileSync("cargo", ["build", "--release", "-p", pkg], {
     cwd: ROOT,
     stdio: existsSync(path) ? ["ignore", "ignore", "inherit"] : "inherit",

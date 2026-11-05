@@ -293,8 +293,8 @@ impl DirPacks {
         self
     }
 
-    /// Flows and skills built into the binary, under every directory. Its catalog is not used:
-    /// say the names with [`DirPacks::with_catalog`].
+    /// Flows and skills built into the binary, under every directory. Its catalog's names are
+    /// added to [`DirPacks::with_catalog`]'s.
     pub fn with_builtin(mut self, packs: MemPacks) -> Self {
         self.builtin = Some(packs);
         self
@@ -422,7 +422,20 @@ impl Packs for DirPacks {
     }
 
     fn catalog(&self) -> Catalog {
-        self.catalog.clone()
+        let mut c = self.catalog.clone();
+        if let Some(b) = &self.builtin {
+            let bc = b.catalog();
+            c.scenes.extend(bc.scenes);
+            c.steps.extend(bc.steps);
+            c.gates.extend(bc.gates);
+            c.tools.extend(bc.tools);
+            c.actions.extend(bc.actions);
+            c.templates.extend(bc.templates);
+            c.instances.extend(bc.instances);
+            c.spaces.extend(bc.spaces);
+            c.models.extend(bc.models);
+        }
+        c
     }
 
     fn flow_text(&self, name: &str) -> Option<String> {

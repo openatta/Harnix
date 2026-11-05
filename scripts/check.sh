@@ -59,7 +59,7 @@ export CARGO_PROFILE_DEV_DEBUG=line-tables-only
 PORT_UI=4360
 PORT_TLS=4361
 
-CRATES=(-p harnix -p harnix-app -p harnix-instance -p harnix-authz -p harnix-builtin
+CRATES=(-p harnix -p harnix-cli -p harnix-app -p harnix-instance -p harnix-authz -p harnix-builtin
         -p harnix-client -p harnix-contract -p harnix-flow -p harnix-module -p harnix-hub -p harnix-transport
         -p harnix-testapp)
 
@@ -112,11 +112,7 @@ has_chromium() { [ -d "$HOME/Library/Caches/ms-playwright" -o -d "$HOME/.cache/m
 run_build() {
   pnpm install --frozen-lockfile || return 1
   pnpm --filter @harnix/shell build || return 1
-  # The test application's interface: the shell with the flow space compiled in, into a dist of
-  # its own (`ui/dist` stays Harnix's). The flow interface suite serves it with `--ui-dir`.
-  HARNIX_UI_MODULES="$root/ui/packages/flow/demo/register.tsx" HARNIX_UI_OUT="$root/target/testapp-ui" \
-    pnpm --filter @harnix/shell build || return 1
-  cargo build --release -p harnix -p harnix-testapp || return 1
+  cargo build --release -p harnix-cli -p harnix-testapp || return 1
   # The example application, built as an application is — its own workspace,
   # its spaces' interface compiled in. The spaces suites run it.
   examples/hello-app/scripts/build.sh --offline

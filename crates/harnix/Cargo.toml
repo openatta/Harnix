@@ -5,14 +5,13 @@ edition      = "2021"
 rust-version = "1.87"
 license      = "Apache-2.0"
 publish      = false
-description  = "Agix, assembled into a product — the crate an application depends on, and the empty application"
+description  = "Agix, assembled into a product — the crate an application depends on"
 
 [lib]
 path = "src/lib.rs"
 
-[[bin]]
-name = "harnix"
-path = "src/main.rs"
+# The empty application's binary, `harnix`, is `crates/cli` (`harnix-cli`): it registers the
+# flow module, which a library user must not be made to compile (xops-02 §6).
 
 [dependencies]
 harnix-app       = { workspace = true }
