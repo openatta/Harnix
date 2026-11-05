@@ -26,6 +26,8 @@ fn record(id: &str, flow: &str, subject: &str, rev: u64, at: u64) -> RunRecord {
         parent: None,
         stations: [("a".to_string(), StationRec::new())].into(),
         session_keys: Default::default(),
+        paused: None,
+        usage_other: Default::default(),
         def,
     }
 }

@@ -136,6 +136,15 @@ pub struct TaskRec {
     /// The child run of a subflow task.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub child: Option<String>,
+    /// When the current attempt was claimed (epoch ms).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<u64>,
+    /// When it was handed in or failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<u64>,
+    /// The tokens of the turns that worked on it, over every attempt (xops-03 §4).
+    #[serde(default, skip_serializing_if = "Usage::is_empty")]
+    pub usage: Usage,
 }
 
 impl TaskRec {
@@ -150,6 +159,9 @@ impl TaskRec {
             error: None,
             session: None,
             child: None,
+            started_at: None,
+            ended_at: None,
+            usage: Usage::default(),
         }
     }
 
@@ -157,6 +169,65 @@ impl TaskRec {
     pub fn in_flight(&self) -> bool {
         matches!(self.status, TaskStatus::Ready | TaskStatus::Claimed)
     }
+}
+
+/// Tokens a model spent, summed over turns (`turn_complete.usage`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(default)]
+pub struct Usage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub cache_read_input_tokens: u64,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub cache_creation_input_tokens: u64,
+    /// How many turns were counted.
+    pub turns: u64,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
+}
+
+impl Usage {
+    /// One turn's usage, from the engine's `usage` object; missing fields count 0.
+    pub fn of_turn(v: &Value) -> Self {
+        let n = |k: &str| v.get(k).and_then(Value::as_u64).unwrap_or(0);
+        Self {
+            input_tokens: n("input_tokens"),
+            output_tokens: n("output_tokens"),
+            cache_read_input_tokens: n("cache_read_input_tokens"),
+            cache_creation_input_tokens: n("cache_creation_input_tokens"),
+            turns: 1,
+        }
+    }
+
+    pub fn add(&mut self, o: &Usage) {
+        self.input_tokens += o.input_tokens;
+        self.output_tokens += o.output_tokens;
+        self.cache_read_input_tokens += o.cache_read_input_tokens;
+        self.cache_creation_input_tokens += o.cache_creation_input_tokens;
+        self.turns += o.turns;
+    }
+
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// Input (cache included) and output.
+    pub fn total(&self) -> u64 {
+        self.input_tokens
+            + self.output_tokens
+            + self.cache_read_input_tokens
+            + self.cache_creation_input_tokens
+    }
+}
+
+/// A pause: who asked and when (xops-03 §3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PauseRec {
+    pub by: Actor,
+    pub at: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -260,6 +331,15 @@ impl StationRec {
     pub fn tasks_settled(&self) -> bool {
         !self.tasks.iter().any(TaskRec::in_flight)
     }
+
+    /// Its tasks' usage, summed.
+    pub fn usage(&self) -> Usage {
+        let mut u = Usage::default();
+        for t in &self.tasks {
+            u.add(&t.usage);
+        }
+        u
+    }
 }
 
 impl Default for StationRec {
@@ -303,9 +383,16 @@ pub struct RunRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<ParentRef>,
     pub stations: BTreeMap<String, StationRec>,
-    /// Session key (`run` for `per_run`, the resolved key otherwise) → session id.
+    /// Session key (`run` for `per_run`, the resolved key otherwise, `@main` for the main
+    /// session) → session id.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub session_keys: BTreeMap<String, String>,
+    /// Set while the run is paused (xops-03 §3): nothing new is entered or dispatched.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paused: Option<PauseRec>,
+    /// Turns of the main session that worked on no task (a person talking to it).
+    #[serde(default, skip_serializing_if = "Usage::is_empty")]
+    pub usage_other: Usage,
 }
 
 impl RunRecord {
@@ -313,8 +400,126 @@ impl RunRecord {
         self.stations.get(id)
     }
 
+    /// Not over: a paused run is active too.
     pub fn is_active(&self) -> bool {
         self.status == RunStatus::Active
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.is_active() && self.paused.is_some()
+    }
+
+    /// The run's main session (xops-03 §1), once opened.
+    pub fn main_session(&self) -> Option<&str> {
+        self.session_keys
+            .get(super::def::MAIN_SESSION_KEY)
+            .map(String::as_str)
+    }
+
+    /// Every task's usage and the main session's other turns.
+    pub fn usage(&self) -> Usage {
+        let mut u = self.usage_other;
+        for s in self.stations.values() {
+            u.add(&s.usage());
+        }
+        u
+    }
+
+    /// What it is doing now (xops-03 §3).
+    pub fn phase(&self) -> Phase {
+        let state = |s: &str| s.to_string();
+        match self.status {
+            RunStatus::Finished => return Phase::new("finished"),
+            RunStatus::Cancelled => return Phase::new("cancelled"),
+            RunStatus::Active => {}
+        }
+        let mut busy: Vec<String> = vec![];
+        for s in &self.def.stations {
+            let Some(r) = self.stations.get(&s.id) else {
+                continue;
+            };
+            let claimed = r.tasks.iter().any(|t| {
+                t.status == TaskStatus::Claimed
+                    && s.task_spec(&t.id).is_some_and(|spec| {
+                        // A subflow's claim is the child's; an external one is someone's.
+                        !matches!(spec.executor, super::def::Executor::Subflow { .. })
+                    })
+            });
+            let gate = r.status == StationStatus::Working
+                && r.tasks_settled()
+                && r.checks.iter().any(|c| {
+                    c.status == CheckStatus::Wait
+                        && c.round == r.round
+                        && c.kind == "gate"
+                });
+            if claimed || gate {
+                busy.push(s.id.clone());
+            }
+        }
+        if self.paused.is_some() {
+            let mut p = Phase::new(if busy.is_empty() { "paused" } else { "pausing" });
+            p.stations = busy;
+            return p;
+        }
+        if !busy.is_empty() {
+            let mut p = Phase::new("running");
+            p.stations = busy;
+            return p;
+        }
+        // Waiting: on whom, station by station.
+        let mut p = Phase::new("waiting");
+        for s in &self.def.stations {
+            let Some(r) = self.stations.get(&s.id) else {
+                continue;
+            };
+            let why = match r.status {
+                StationStatus::Held => Some("held"),
+                StationStatus::Unmet => Some(
+                    if r.tasks.iter().any(|t| t.status == TaskStatus::Failed) {
+                        "failed"
+                    } else {
+                        "unmet"
+                    },
+                ),
+                StationStatus::Working => Some(
+                    if r.tasks.iter().any(|t| {
+                        t.status == TaskStatus::Claimed
+                            || (t.status == TaskStatus::Ready
+                                && s.task_spec(&t.id).is_some_and(|spec| {
+                                    matches!(spec.executor, super::def::Executor::External { .. })
+                                }))
+                    }) {
+                        if r.tasks.iter().any(|t| t.child.is_some() && t.in_flight()) {
+                            "children"
+                        } else {
+                            "external"
+                        }
+                    } else if r
+                        .checks
+                        .iter()
+                        .any(|c| c.status == CheckStatus::Wait && c.kind == "confirm")
+                    {
+                        "confirm"
+                    } else if r
+                        .checks
+                        .iter()
+                        .any(|c| c.status == CheckStatus::Wait && c.kind == "children")
+                    {
+                        "children"
+                    } else {
+                        "work"
+                    },
+                ),
+                _ => None,
+            };
+            if let Some(w) = why {
+                if p.reason.is_none() {
+                    p.reason = Some(state(w));
+                }
+                p.stations.push(s.id.clone());
+            }
+        }
+        p
     }
 
     /// Stations entered and not finished, in definition order.
@@ -350,6 +555,33 @@ impl RunRecord {
             parent: self.parent.as_ref().map(|p| p.run.clone()),
             open: self.open_stations(),
             next_expiry: self.next_expiry(),
+            phase: Some(self.phase()),
+            usage: self.usage(),
+            dry: false,
+        }
+    }
+}
+
+/// What a run is doing now, for people (xops-03 §3): `running` (work in hand), `waiting` (on a
+/// person or the outside: `reason` says on what — `confirm`, `held`, `unmet`, `failed`,
+/// `external`, `children`, `work`), `pausing` (paused, work still in hand), `paused`,
+/// `finished`, `cancelled`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Phase {
+    pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// The stations it is about: those working, or those waiting.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stations: Vec<String>,
+}
+
+impl Phase {
+    pub fn new(state: &str) -> Self {
+        Self {
+            state: state.to_string(),
+            reason: None,
+            stations: vec![],
         }
     }
 }
@@ -392,6 +624,14 @@ pub struct RunSummary {
     /// The earliest lease expiry; `tick` only loads runs where it has passed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_expiry: Option<u64>,
+    /// What it is doing (`RunRecord::phase`); absent in a summary a store kept from before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<Phase>,
+    #[serde(default, skip_serializing_if = "Usage::is_empty")]
+    pub usage: Usage,
+    /// A dry run (xops-02 §5), when a list mixes them in.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dry: bool,
 }
 
 /// Which runs to list. Every field set must match.

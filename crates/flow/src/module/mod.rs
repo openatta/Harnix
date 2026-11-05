@@ -30,6 +30,7 @@
 
 mod author;
 mod dispatch;
+mod main;
 mod methods;
 mod shared;
 mod tools;
@@ -61,7 +62,7 @@ pub use dispatch::permission_rules;
 pub use shared::{session_name, session_ref};
 pub use tools::{structured_id, FlowScene, StructuredScene, TOOL_PROPOSE, TOOL_STATE, TOOL_SUBMIT};
 
-use shared::{Config, RecordingFn, Shared};
+use shared::{Config, MainRecordingFn, RecordingFn, Shared};
 
 /// The module id: methods and topics are `app.flow.*`, entries `app.flow`.
 pub const MODULE_ID: &str = "flow";
@@ -135,6 +136,8 @@ pub struct FlowBuilder {
     space: String,
     guarded: Vec<String>,
     recording: Option<RecordingFn>,
+    main_recording: Option<MainRecordingFn>,
+    main_scene: Option<String>,
     lease_ms: u64,
     tick_ms: u64,
 }
@@ -157,6 +160,8 @@ impl Default for FlowBuilder {
             space: "flow".into(),
             guarded: DEFAULT_GUARDED.iter().map(|s| s.to_string()).collect(),
             recording: None,
+            main_recording: None,
+            main_scene: None,
             lease_ms: DEFAULT_LEASE_MS,
             tick_ms: 1000,
         }
@@ -289,6 +294,23 @@ impl FlowBuilder {
         self
     }
 
+    /// The recording a run's main session replays (tests and demos): ignored unless the process
+    /// runs in replay. Every task in the main session takes its turns in that one recording.
+    pub fn main_recording(
+        mut self,
+        f: impl Fn(&crate::RunRecord) -> Option<String> + Send + Sync + 'static,
+    ) -> Self {
+        self.main_recording = Some(Arc::new(f));
+        self
+    }
+
+    /// The scene (an id given to [`FlowBuilder::scene`]) a run's main session is opened on when
+    /// its flow's `main` names none; it is wrapped (`flow-<id>`). The first scene given by default.
+    pub fn main_scene(mut self, id: impl Into<String>) -> Self {
+        self.main_scene = Some(id.into());
+        self
+    }
+
     /// The lease the dispatcher holds on the tasks it carries out (it renews it while working).
     pub fn lease_ms(mut self, ms: u64) -> Self {
         self.lease_ms = ms.max(1000);
@@ -322,6 +344,12 @@ impl FlowBuilder {
                 hooks: self.hooks.clone(),
                 guarded: self.guarded.clone(),
                 recording: self.recording.clone(),
+                main_recording: self.main_recording.clone(),
+                main_scene: self
+                    .main_scene
+                    .clone()
+                    .or_else(|| self.scenes.first().map(|s| s.id().to_string()))
+                    .map(|id| tools::wrapped_id(&id)),
                 lease_ms: self.lease_ms,
                 tick_ms: self.tick_ms,
                 ensure_ms: self.ensure_ms,
@@ -342,6 +370,7 @@ impl FlowBuilder {
             scenes: sh.cfg.scenes.clone(),
             templates: own_templates,
             guarded: sh.cfg.guarded.clone(),
+            main_scene: sh.cfg.main_scene.clone(),
         });
         let problems = crate::kernel::protocol::guard_problems(&self.guarded);
         let config_error = (!problems.is_empty()).then(|| {
@@ -377,6 +406,7 @@ struct CatalogPacks {
     scenes: Vec<String>,
     templates: Vec<String>,
     guarded: Vec<String>,
+    main_scene: Option<String>,
 }
 
 impl CatalogPacks {
@@ -407,6 +437,9 @@ impl Packs for CatalogPacks {
         }
         c.guarded = self.guarded.clone();
         c.submit_scenes = self.scenes.iter().cloned().collect();
+        if c.main_scene.is_none() {
+            c.main_scene = self.main_scene.clone();
+        }
         c
     }
     fn flow_text(&self, name: &str) -> Option<String> {
@@ -543,6 +576,9 @@ impl Module for Flow {
             .with_lease_ms(self.sh.cfg.lease_ms)
             .with_guarded(self.sh.cfg.guarded.clone())
             .with_submit_scenes(self.sh.cfg.scenes.clone());
+        if let Some(m) = &self.sh.cfg.main_scene {
+            engine = engine.with_main_scene(m.clone());
+        }
         if let Some(a) = &self.auth {
             engine = engine.with_authorizer(a.clone());
         }
@@ -557,6 +593,7 @@ impl Module for Flow {
             SandboxConfig {
                 guarded: self.sh.cfg.guarded.clone(),
                 submit_scenes: self.sh.cfg.scenes.clone(),
+                main_scene: self.sh.cfg.main_scene.clone(),
             },
         )));
         let _ = self.sh.cx.set(cx.clone());
@@ -636,6 +673,7 @@ mod tests {
             scenes: vec!["flow-chat".into()],
             templates: templates.iter().map(|s| s.to_string()).collect(),
             guarded: vec![],
+            main_scene: None,
         };
         let _ = packs.inner.set(Arc::new(inner));
         packs
@@ -696,6 +734,7 @@ mod tests {
             scenes: vec![],
             templates: vec![],
             guarded: vec![],
+            main_scene: None,
         };
         assert!(packs.flows().is_empty() && !packs.writable());
         let _ = packs.inner.set(Arc::new(MemPacks::new().writable()));

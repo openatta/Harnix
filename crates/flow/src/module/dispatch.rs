@@ -27,7 +27,7 @@ use harnix_module::{OnBusy, SessionRef, SessionSpec, Tap};
 use serde_json::{json, Value};
 
 use super::shared::{session_name, session_ref, Binding, Shared, TaskKey};
-use crate::kernel::def::Executor;
+use crate::kernel::def::{Executor, MAIN_SESSION_KEY};
 use crate::kernel::engine::view;
 use crate::kernel::host::{Delivery, GateResult, Outcome, Placement, WorkItem};
 use crate::kernel::protocol::{refused, task_message, STRUCTURED_OUTPUT_TOOL};
@@ -140,6 +140,16 @@ pub(crate) async fn apply(sh: &Arc<Shared>, hint: Option<&str>, o: Outcome) {
             let (sh, run) = (sh.clone(), e.run.clone());
             tokio::spawn(async move { stop_run_instances(&sh, &run).await });
         }
+        // Every run has its main session from the start (xops-03 §1), whatever its first
+        // station is: the conversation a person opens to watch and talk to it.
+        if e.kind == "run.created" {
+            let (sh, run) = (sh.clone(), e.run.clone());
+            tokio::spawn(async move {
+                if let Err(why) = super::main::ensure_main(&sh, &run).await {
+                    tracing::warn!(run, why, "flow: no main session");
+                }
+            });
+        }
     }
     let mut runs: BTreeSet<String> = o.events.iter().map(|e| e.run.clone()).collect();
     runs.extend(o.work.iter().filter_map(run_of).map(String::from));
@@ -150,6 +160,18 @@ pub(crate) async fn apply(sh: &Arc<Shared>, hint: Option<&str>, o: Outcome) {
     for w in o.work {
         spawn_work(sh, w, false);
     }
+}
+
+/// [`settle`] for bookkeeping: what it changed is published, a refusal only logged. Boxed:
+/// it is reached from work [`apply`] starts, and the future must not contain itself.
+pub(crate) fn settle_quiet<'a>(
+    sh: &'a Arc<Shared>,
+    run: &'a str,
+    r: crate::Result<Outcome>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+    Box::pin(async move {
+        settle(sh, run, "bookkeeping", r).await;
+    })
 }
 
 /// An engine call's result: carried out when it succeeded, logged when not.
@@ -349,6 +371,13 @@ pub(crate) async fn recover(sh: &Arc<Shared>) {
         for w in engine.dispatched_work(&rec, now) {
             spawn_work(sh, w, true);
         }
+        // Its main session watched again (opened, if it never was).
+        let (sh, run) = (sh.clone(), s.id.clone());
+        tokio::spawn(async move {
+            if let Err(why) = super::main::ensure_main(&sh, &run).await {
+                tracing::warn!(run, why, "flow: no main session after a restart");
+            }
+        });
     }
 }
 
@@ -403,6 +432,7 @@ async fn run_work(sh: Arc<Shared>, w: WorkItem, resume: bool) {
                 output_schema,
                 placement,
                 delivery,
+                scene,
                 ..
             } = w
             else {
@@ -421,8 +451,25 @@ async fn run_work(sh: Arc<Shared>, w: WorkItem, resume: bool) {
                 Executor::Program { step } => {
                     program_task(&sh, &key, &token, &step, item.as_ref()).await
                 }
-                Executor::Session { scene, .. } => {
+                Executor::Session { .. } | Executor::Agent { .. } => {
+                    let main = session_key.as_deref() == Some(MAIN_SESSION_KEY);
+                    let scene = match (scene, executor) {
+                        (Some(s), _) => s,
+                        (None, Executor::Session { scene, .. }) if !scene.is_empty() => scene,
+                        _ => {
+                            fail(
+                                &sh,
+                                &key,
+                                &token,
+                                "the flow names no main scene and the module has none",
+                            )
+                            .await;
+                            sh.end(&key, &token);
+                            return;
+                        }
+                    };
                     let job = SessionJob {
+                        main,
                         key: key.clone(),
                         token: token.clone(),
                         scene,
@@ -629,6 +676,8 @@ struct SessionJob {
     output_schema: Option<Value>,
     placement: Placement,
     delivery: Delivery,
+    /// A turn of the run's main session (xops-03 §1).
+    main: bool,
 }
 
 /// Where a new session for `job` goes: the station's space (the module's when it names none),
@@ -636,10 +685,18 @@ struct SessionJob {
 /// without an instance means `system`, another space its own default. `Err`: why there is
 /// nowhere to go, as the task's error.
 async fn place(sh: &Shared, job: &SessionJob) -> Result<(String, Option<String>), String> {
+    place_at(sh, &job.placement, &job.key.run).await
+}
+
+/// [`place`] for a placement of `run`'s (a station's, or the main session's).
+pub(crate) async fn place_at(
+    sh: &Shared,
+    p: &Placement,
+    run: &str,
+) -> Result<(String, Option<String>), String> {
     let cx = sh.cx.get().ok_or("the flow module has not started")?;
-    let p = &job.placement;
     let space = p.space.clone().unwrap_or_else(|| sh.cfg.space.clone());
-    if let (Some(template), Some(name)) = (&p.template, p.template_instance(&job.key.run)) {
+    if let (Some(template), Some(name)) = (&p.template, p.template_instance(run)) {
         let params = p
             .params
             .iter()
@@ -649,7 +706,7 @@ async fn place(sh: &Shared, job: &SessionJob) -> Result<(String, Option<String>)
         // Named by the module, the instance is the run's: recorded before it is made, stopped
         // when the run is over (`stop_run_instances`).
         if p.names_its_instance() {
-            sh.own_instance(&name, &job.key.run);
+            sh.own_instance(&name, run);
         }
         cx.instances()
             .ensure_ready(
@@ -787,8 +844,9 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
     let session = match opened {
         Some((s, own)) => {
             // Validation keeps tasks that share a session alike; this is the net under it — a
-            // definition from before that rule, or keys that resolve alike by chance.
-            if !own {
+            // definition from before that rule, or keys that resolve alike by chance. The main
+            // session keeps no station's settings: its writes are answered turn by turn.
+            if !own && !job.main {
                 if let Some(opened_with) = recorded_settings(sh, &s).await {
                     let d = settings_differ(&opened_with, &wanted);
                     if !d.is_empty() {
@@ -804,6 +862,15 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
                 }
             }
             s
+        }
+        None if job.main => {
+            match super::main::open_or_make(sh, &key.run).await {
+                Ok(s) => s,
+                Err(why) => {
+                    fail(sh, key, &job.token, &why).await;
+                    return;
+                }
+            }
         }
         None => {
             let (space, instance) = match place(sh, job).await {
@@ -843,6 +910,9 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
             }
         }
     };
+    if job.main {
+        super::main::watch(sh, &key.run, &session);
+    }
     let mut tap = match sessions.tap(&session).await {
         Ok(t) => t,
         Err(e) => {
@@ -963,6 +1033,20 @@ async fn carry(
                         .pointer("/outcome/structured_output")
                         .filter(|v| !v.is_null())
                         .cloned();
+                    // A main session's turns are counted by its watch (xops-03 §4).
+                    if let (false, Some(u)) = (
+                        job.main,
+                        params.pointer("/outcome/usage").filter(|u| u.is_object()),
+                    ) {
+                        let r = engine
+                            .account(
+                                &key.run,
+                                Some((&key.station, &key.task)),
+                                crate::kernel::run::Usage::of_turn(u),
+                            )
+                            .await;
+                        settle_quiet(sh, &key.run, r).await;
+                    }
                 }
                 Waited::Superseded => return true,
                 Waited::Gone => {
@@ -1192,7 +1276,7 @@ mod tests {
             attempt: 1,
             executor: Executor::Session {
                 scene: "flow-chat".into(),
-                session: SessionBinding::New,
+                session: Some(SessionBinding::New),
                 model: None,
                 provider: None,
                 instance: None,
@@ -1208,6 +1292,7 @@ mod tests {
             session_key: None,
             session: None,
             placement: None,
+            scene: None,
             delivery: None,
         };
         assert_eq!(run_of(&w), Some("r-1"));
@@ -1221,6 +1306,7 @@ mod tests {
 
     fn job(round: u32, token: &str, session_key: Option<&str>) -> SessionJob {
         SessionJob {
+            main: false,
             key: TaskKey {
                 run: "r".into(),
                 station: "s".into(),

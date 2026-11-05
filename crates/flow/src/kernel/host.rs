@@ -108,6 +108,10 @@ pub struct Catalog {
     /// session may have different contracts.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub submit_scenes: BTreeSet<String>,
+    /// The scene a run's main session is opened on when the flow's `main` names none
+    /// (xops-03 §1). Absent: a flow with tasks in the main session must name one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub main_scene: Option<String>,
 }
 
 /// Where the flow a pack offers under a name comes from.
@@ -233,6 +237,9 @@ pub enum Op {
         task: String,
     },
     Cancel,
+    /// Pausing a run, or resuming it (xops-03 §3).
+    Pause,
+    Resume,
     AttachSession {
         station: String,
         task: String,
@@ -252,6 +259,8 @@ impl Op {
     pub fn name(&self) -> &'static str {
         match self {
             Self::Create { .. } => "create",
+            Self::Pause => "pause",
+            Self::Resume => "resume",
             Self::Claim { .. } => "claim",
             Self::Submit { .. } => "submit",
             Self::Fail { .. } => "fail",
@@ -471,6 +480,11 @@ pub enum WorkItem {
         /// How a session task hands its output in.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         delivery: Option<Delivery>,
+        /// The scene a session task's session is opened on: the station's, or the main
+        /// session's for a task in the main session (`None` for program tasks, and when the
+        /// module has no main scene).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scene: Option<String>,
     },
     /// Run a gate; report through `gate_result(run, station, round, gate, …)`.
     Gate {

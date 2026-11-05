@@ -34,8 +34,9 @@ pub mod store;
 
 pub use dryrun::{Mocks, Sandbox};
 pub use kernel::def::{
-    definition_schema, Assert, Executor, ExitCond, FlowDef, HookRef, InputDef, OnUnmet, Retry,
-    SessionBinding, Station, TaskSpec, Work, DEFAULT_REWORK_LIMIT, MAX_REWORK_LIMIT,
+    definition_schema, Assert, Executor, ExitCond, FlowDef, HookRef, InputDef, MainSession,
+    OnUnmet, Retry, SessionBinding, Station, TaskSpec, Work, DEFAULT_REWORK_LIMIT,
+    MAIN_SESSION_KEY, MAX_REWORK_LIMIT,
 };
 pub use kernel::engine::{
     view, CreateIn, Engine, DEFAULT_LEASE_MS, DEFAULT_RETRIES, MAX_LEASE_MS, MAX_SUBFLOW_DEPTH,
@@ -45,11 +46,11 @@ pub use kernel::host::{
     GateResult, Gates, Hooks, ManualClock, NoTools, Op, Origin, Outcome, Packs, Placement,
     Programs, RunStore, StoreError, SystemClock, Tools, WorkItem, EVENT_KINDS,
 };
-pub use kernel::protocol::{skill_body, STRUCTURED_OUTPUT_TOOL};
+pub use kernel::protocol::{agent_tag, skill_body, STRUCTURED_OUTPUT_TOOL};
 pub use kernel::run::{
     run_schema, Actor, CheckRec, CheckStatus, ConfirmRec, ForcedRec, History, Lease, ParentRef,
-    RunQuery, RunRecord, RunStatus, RunSummary, RunView, StationRec, StationStatus, TaskRec,
-    TaskStatus, AGENT_KIND, FLOW_KIND,
+    PauseRec, Phase, RunQuery, RunRecord, RunStatus, RunSummary, RunView, StationRec,
+    StationStatus, TaskRec, TaskStatus, Usage, AGENT_KIND, FLOW_KIND,
 };
 pub use kernel::schema::minimal;
 pub use kernel::validate::{validate, validate_yaml, Problem};

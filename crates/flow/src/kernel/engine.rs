@@ -62,6 +62,8 @@ pub struct Engine {
     pub(crate) guarded: Vec<String>,
     /// Scenes whose sessions hand in with `flow_submit` rather than a structured output.
     pub(crate) submit_scenes: std::collections::BTreeSet<String>,
+    /// The scene a run's main session is opened on when its flow's `main` names none.
+    pub(crate) main_scene: Option<String>,
 }
 
 /// Run `$body` in a fresh transaction `$t`, commit, and retry the whole thing on a conflict.
@@ -103,6 +105,7 @@ impl Engine {
             retries: DEFAULT_RETRIES,
             guarded: vec![],
             submit_scenes: Default::default(),
+            main_scene: None,
         }
     }
 
@@ -118,6 +121,17 @@ impl Engine {
         self
     }
 
+    /// The scene a run's main session is opened on when its flow's `main` names none.
+    pub fn with_main_scene(mut self, scene: impl Into<String>) -> Self {
+        self.main_scene = Some(scene.into());
+        self
+    }
+
+    /// That scene.
+    pub fn main_scene(&self) -> Option<&str> {
+        self.main_scene.as_deref()
+    }
+
     /// The tools the host refuses as writes unless a station lists them.
     pub fn guarded(&self) -> &[String] {
         &self.guarded
@@ -125,7 +139,13 @@ impl Engine {
 
     /// [`crate::dispatched_work`] with this engine's view of how each scene hands in.
     pub fn dispatched_work(&self, rec: &RunRecord, now: u64) -> Vec<super::host::WorkItem> {
-        super::txn::dispatched_work_with(rec, &self.guarded, &self.submit_scenes, now)
+        super::txn::dispatched_work_with(
+            rec,
+            &self.guarded,
+            &self.submit_scenes,
+            self.main_scene.as_deref(),
+            now,
+        )
     }
 
     pub fn with_authorizer(mut self, a: Arc<dyn Authorizer>) -> Self {
@@ -341,6 +361,92 @@ impl Engine {
         })
     }
 
+    /// Pause a run (xops-03 §3): what is in hand runs to its end and is recorded, and its
+    /// station is judged as ever; nothing new is entered or dispatched until [`Engine::resume`].
+    pub async fn pause(&self, run: &str, by: Actor) -> Result<Outcome> {
+        transact!(self, by.clone(), |t| {
+            t.load(run).await?;
+            let rec = t.get(run);
+            if !rec.is_active() {
+                return invalid(format!("run {run} is not active"));
+            }
+            if rec.paused.is_some() {
+                return invalid(format!("run {run} is paused already"));
+            }
+            self.authorize(&Op::Pause, &by, Some(rec))?;
+            let mut m = t.m(run);
+            let at = m.fx.now;
+            m.rec.paused = Some(super::run::PauseRec { by: by.clone(), at });
+            m.emit("run.paused", None, None, Value::Null);
+            m.log("pause", None, None, Value::Null);
+            Ok(json!({"run": run}))
+        })
+    }
+
+    /// Carry on with a paused run: enter and dispatch what waited.
+    pub async fn resume(&self, run: &str, by: Actor) -> Result<Outcome> {
+        transact!(self, by.clone(), |t| {
+            t.load(run).await?;
+            let rec = t.get(run);
+            if !rec.is_paused() {
+                return invalid(format!("run {run} is not paused"));
+            }
+            self.authorize(&Op::Resume, &by, Some(rec))?;
+            let mut m = t.m(run);
+            m.rec.paused = None;
+            m.emit("run.resumed", None, None, Value::Null);
+            m.log("resume", None, None, Value::Null);
+            m.advance_later();
+            t.settle().await?;
+            Ok(json!({"run": run}))
+        })
+    }
+
+    /// Count a turn's tokens (xops-03 §4): on the task it worked on, or — no task — on the
+    /// run's other turns. No history: it is bookkeeping, not a step of the run. A task of
+    /// another round or gone counts as the run's.
+    pub async fn account(
+        &self,
+        run: &str,
+        task: Option<(&str, &str)>,
+        usage: super::run::Usage,
+    ) -> Result<Outcome> {
+        transact!(self, Actor::flow("dispatch"), |t| {
+            t.load(run).await?;
+            let mut m = t.m(run);
+            let counted = match task {
+                Some((sid, tid)) => match m.task_mut(sid, tid) {
+                    Some(tr) => {
+                        tr.usage.add(&usage);
+                        true
+                    }
+                    None => false,
+                },
+                None => false,
+            };
+            if !counted {
+                m.rec.usage_other.add(&usage);
+            }
+            Ok(json!({"run": run}))
+        })
+    }
+
+    /// Record the run's main session (xops-03 §1), opened before any task needed it.
+    pub async fn attach_main(&self, run: &str, session: &str) -> Result<Outcome> {
+        transact!(self, Actor::flow("dispatch"), |t| {
+            t.load(run).await?;
+            let mut m = t.m(run);
+            if m.rec.main_session() == Some(session) {
+                return Ok(json!({"run": run, "changed": false}));
+            }
+            m.rec
+                .session_keys
+                .insert(super::def::MAIN_SESSION_KEY.to_string(), session.to_string());
+            m.log("attach_main", None, None, json!({"session": session}));
+            Ok(json!({"run": run, "changed": true}))
+        })
+    }
+
     /// Judge again every open station whose tasks are settled (tool exits are re-called).
     pub async fn evaluate(&self, run: &str) -> Result<Outcome> {
         transact!(self, Actor::flow("evaluate"), |t| {
@@ -416,6 +522,9 @@ impl Engine {
             let (def, st) = open_station(rec, station)?;
             if st.status != StationStatus::Working {
                 return invalid(format!("station {station} is {:?}, not working", st.status));
+            }
+            if rec.is_paused() {
+                return invalid(format!("run {run} is paused: nothing new is taken on"));
             }
             let spec = def
                 .station(station)
@@ -1034,7 +1143,7 @@ fn hand_in_by(
     use super::run::{AGENT_KIND, FLOW_KIND};
     let ok = match executor {
         E::External { .. } => true,
-        E::Session { .. } => by.kind == FLOW_KIND || by.kind == AGENT_KIND,
+        E::Session { .. } | E::Agent { .. } => by.kind == FLOW_KIND || by.kind == AGENT_KIND,
         E::Program { .. } | E::Subflow { .. } => by.kind == FLOW_KIND,
     };
     if ok {

@@ -13,7 +13,7 @@
 
 use serde_json::Value;
 
-use super::def::{ExitCond, FlowDef, Station};
+use super::def::{Executor, ExitCond, FlowDef, Station};
 use super::host::Delivery;
 
 /// The name of the engine's tool a session hands a structured output in with.
@@ -151,6 +151,15 @@ pub struct TaskContext<'a> {
     pub guarded: &'a [String],
     /// How the output is handed in.
     pub delivery: Delivery,
+    /// The task's executor: a sub-agent task (`kind: agent`) and a task in the main session
+    /// are told so.
+    pub executor: Option<&'a Executor>,
+}
+
+/// What a sub-agent task's sub-agent is named by (the `Agent` tool's `description`), so the
+/// module can tell it apart among the main session's tasks.
+pub fn agent_tag(run: &str, station: &str, task: &str) -> String {
+    format!("flow:{run}/{station}/{task}")
 }
 
 pub fn render(t: &TaskContext) -> String {
@@ -171,6 +180,34 @@ pub fn render(t: &TaskContext) -> String {
     ));
     if let Some(item) = t.item {
         s.push_str(&format!("- Your item:\n\n```json\n{}\n```\n", pretty(item)));
+    }
+    if t.executor.is_some_and(Executor::in_main) {
+        s.push_str(
+            "- You are this run's main agent: this message is one task of the run, and the other \
+             messages of this session belong to other tasks of it.\n",
+        );
+    }
+    if let Some(Executor::Agent {
+        agent_type, model, ..
+    }) = t.executor
+    {
+        let mut how = vec![format!(
+            "`description: \"{}\"`",
+            agent_tag(t.run, &st.id, t.task)
+        )];
+        if let Some(a) = agent_type {
+            how.push(format!("`subagent_type: \"{a}\"`"));
+        }
+        if let Some(m) = model {
+            how.push(format!("`model: \"{m}\"`"));
+        }
+        s.push_str(&format!(
+            "- **This task is a sub-agent's.** Do not do it yourself: call the `Agent` tool once, \
+             with {} and a prompt that gives the sub-agent the task — the item, the contract and \
+             the skill below. When it answers, check its result against the contract and hand it \
+             in with `flow_submit`; if it falls short, call it again with what is missing.\n",
+            how.join(", ")
+        ));
     }
     match &st.output {
         Some(schema) => s.push_str(&format!(
@@ -331,6 +368,7 @@ mod tests {
             item: None,
             guarded: &[],
             delivery: Delivery::StructuredOutput,
+            executor: None,
         });
         assert!(t.contains("`StructuredOutput`"), "{t}");
         assert!(
@@ -365,6 +403,7 @@ stations:
             item: Some(&serde_json::json!("m1")),
             guarded: &["Bash".to_string()],
             delivery: Delivery::FlowSubmit,
+            executor: None,
         });
         for want in [
             "demo-1",

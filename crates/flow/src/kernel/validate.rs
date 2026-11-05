@@ -135,6 +135,7 @@ pub fn validate(def: &FlowDef, packs: &dyn Packs) -> Vec<Problem> {
         station_problems(&mut c, s, cyclic);
     }
     shared_session_problems(&mut c);
+    main_problems(&mut c);
     c.out
 }
 
@@ -200,19 +201,20 @@ fn shared_session_problems(c: &mut Ctx) {
         for t in specs {
             let Executor::Session {
                 scene,
-                session,
                 model,
                 provider,
                 instance,
                 template,
                 params,
                 space,
+                ..
             } = &t.executor
             else {
                 continue;
             };
-            let group = match session {
-                SessionBinding::New => continue,
+            let group = match t.executor.binding().unwrap_or(SessionBinding::New) {
+                // The main session's settings are the flow's `main`, alike for every task.
+                SessionBinding::Main | SessionBinding::New => continue,
                 SessionBinding::PerRun => "`session: per_run`".to_string(),
                 SessionBinding::Key(k) => format!("`session: {{key: {k}}}`"),
             };
@@ -485,6 +487,47 @@ fn station_problems(c: &mut Ctx, s: &Station, cyclic: bool) {
 
 fn executor_problems(c: &mut Ctx, id: &str, t: &TaskSpec) {
     match &t.executor {
+        e @ Executor::Session {
+            scene,
+            model,
+            provider,
+            instance,
+            template,
+            params,
+            space,
+            ..
+        } if e.in_main() => {
+            let placed = !scene.is_empty()
+                || model.is_some()
+                || provider.is_some()
+                || instance.is_some()
+                || template.is_some()
+                || !params.is_empty()
+                || space.is_some();
+            if placed {
+                c.at(
+                    id,
+                    format!(
+                        "session task {}: a task in the main session takes its scene, model and \
+                         place from the flow's `main` (another model: a sub-agent, `kind: agent`; \
+                         a session of its own: `session: new`)",
+                        t.id
+                    ),
+                );
+            }
+            if t.skill.is_none() {
+                c.at(id, format!("session task {} needs a skill", t.id));
+            }
+            needs_output(c, id, &t.id, "session");
+        }
+        Executor::Agent { agent_type, model, .. } => {
+            for (what, v) in [("agent_type", agent_type), ("model", model)] {
+                if v.as_ref().is_some_and(|s| s.trim().is_empty()) {
+                    c.at(id, format!("agent task {}: {what} is empty", t.id));
+                }
+            }
+            needs_output(c, id, &t.id, "agent");
+        }
         Executor::Session {
             scene,
             session,
@@ -513,9 +556,12 @@ fn executor_problems(c: &mut Ctx, id: &str, t: &TaskSpec) {
                     ),
                 );
             }
-            if let super::def::SessionBinding::Key(k) = session {
+            if let Some(super::def::SessionBinding::Key(k)) = session {
                 if refs_in(k).is_empty() {
                     c.at(id, "a session key should contain a reference");
+                }
+                if k.starts_with('@') {
+                    c.at(id, "a session key cannot start with `@` (kept for the main session)");
                 }
             }
             placement_problems(
@@ -571,6 +617,79 @@ struct Placed<'a> {
 
 /// `instance` or `template`, not both; `params` only with `template`, their references sound;
 /// each name in the catalog when the application filled that part of it in.
+/// A task the station's sessions or sub-agents hand in: it needs the station's output contract.
+fn needs_output(c: &mut Ctx, id: &str, task: &str, kind: &str) {
+    if c.def.station(id).is_some_and(|s| s.output.is_none()) {
+        c.at(
+            id,
+            format!("{kind} task {task} needs an output contract: it is what is handed in"),
+        );
+    }
+}
+
+/// The flow's `main`: a scene that hands in with `flow_submit`, and a place that exists.
+fn main_problems(c: &mut Ctx) {
+    let uses_main = c.def.stations.iter().any(|s| {
+        let specs = match s.work() {
+            Work::None => vec![],
+            Work::One(t) | Work::Foreach { task: t, .. } => vec![t],
+            Work::Tasks(ts) => ts,
+        };
+        specs.iter().any(|t| t.executor.in_main())
+    });
+    let m = c.def.main.clone().unwrap_or_default();
+    let scene = m.scene.clone().or_else(|| c.catalog.main_scene.clone());
+    match &scene {
+        Some(sc) if sc.trim().is_empty() => c.flow("main.scene is empty"),
+        Some(sc) => {
+            if !c.catalog.scenes.is_empty() && !c.catalog.scenes.contains(sc) {
+                c.flow(format!("main scene {sc} is not in the catalog"));
+            } else if !c.catalog.submit_scenes.is_empty() && !c.catalog.submit_scenes.contains(sc) {
+                c.flow(format!(
+                    "main scene {sc} does not hand in with flow_submit: the main session's tasks \
+                     have different contracts, so it needs a wrapped flow-* scene"
+                ));
+            }
+        }
+        None if uses_main && !c.catalog.scenes.is_empty() => c.flow(
+            "tasks run in the main session, but the flow names no main.scene and the \
+             application has no main scene",
+        ),
+        None => {}
+    }
+    let empty = |v: &Option<String>| v.as_ref().is_some_and(|s| s.trim().is_empty());
+    for (what, v) in [
+        ("model", &m.model),
+        ("provider", &m.provider),
+        ("instance", &m.instance),
+        ("template", &m.template),
+        ("space", &m.space),
+    ] {
+        if empty(v) {
+            c.flow(format!("main.{what} is empty"));
+        }
+    }
+    if m.instance.is_some() && m.template.is_some() {
+        c.flow("main: name an instance or a template, not both");
+    }
+    if !m.params.is_empty() && m.template.is_none() {
+        c.flow("main: params only go with a template");
+    }
+    let check = |set: &BTreeSet<String>, v: &Option<String>| -> Option<String> {
+        let v = v.as_ref()?;
+        (!set.is_empty() && !set.contains(v)).then(|| v.clone())
+    };
+    if let Some(t) = check(&c.catalog.templates, &m.template) {
+        c.flow(format!("main: template {t} is not in the catalog"));
+    }
+    if let Some(i) = check(&c.catalog.instances, &m.instance) {
+        c.flow(format!("main: instance {i} is not in the catalog"));
+    }
+    if let Some(s) = check(&c.catalog.spaces, &m.space) {
+        c.flow(format!("main: space {s} is not in the catalog"));
+    }
+}
+
 fn placement_problems(c: &mut Ctx, id: &str, task: &str, p: Placed) {
     let empty = |v: &Option<String>| v.as_ref().is_some_and(|s| s.trim().is_empty());
     for (what, v) in [

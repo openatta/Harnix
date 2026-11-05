@@ -183,6 +183,10 @@ impl SandboxPacks {
 
 /// Add every program step, gate, tool, action, scene and placement name `def` uses.
 fn take_in(c: &mut Catalog, def: &FlowDef) {
+    if let Some(sc) = def.main.as_ref().and_then(|m| m.scene.clone()) {
+        c.scenes.insert(sc.clone());
+        c.submit_scenes.insert(sc);
+    }
     for h in &def.hooks {
         c.actions.insert(h.action.clone());
     }
@@ -220,7 +224,9 @@ fn take_in(c: &mut Catalog, def: &FlowDef) {
                     space,
                     ..
                 } => {
-                    c.scenes.insert(scene);
+                    if !scene.is_empty() {
+                        c.scenes.insert(scene);
+                    }
                     let put = |set: &mut BTreeSet<String>, v: Option<String>| {
                         if let (false, Some(v)) = (set.is_empty(), v) {
                             set.insert(v);
@@ -303,6 +309,8 @@ pub struct SandboxConfig {
     pub guarded: Vec<String>,
     /// Scenes whose sessions hand in with `flow_submit`.
     pub submit_scenes: Vec<String>,
+    /// The scene a run's main session is opened on when its flow names none.
+    pub main_scene: Option<String>,
 }
 
 /// Every dry run, newest last.
@@ -358,12 +366,14 @@ impl Sandbox {
             inner: MemStore::new(),
             seq: self.seq.clone(),
         });
-        let engine = Arc::new(
-            Engine::new(store.clone(), packs)
-                .with_tools(Arc::new(MockTools(input.mocks.tools.clone())))
-                .with_guarded(self.cfg.guarded.clone())
-                .with_submit_scenes(self.cfg.submit_scenes.clone()),
-        );
+        let mut engine = Engine::new(store.clone(), packs)
+            .with_tools(Arc::new(MockTools(input.mocks.tools.clone())))
+            .with_guarded(self.cfg.guarded.clone())
+            .with_submit_scenes(self.cfg.submit_scenes.clone());
+        if let Some(m) = &self.cfg.main_scene {
+            engine = engine.with_main_scene(m.clone());
+        }
+        let engine = Arc::new(engine);
         let o = engine
             .create(
                 CreateIn {
@@ -571,6 +581,7 @@ impl Sandbox {
                 session_key,
                 placement,
                 delivery,
+                scene,
                 ..
             } => {
                 let mut stepped = Stepped {
@@ -581,7 +592,7 @@ impl Sandbox {
                     gate: None,
                     result: String::new(),
                 };
-                if let Executor::Session { scene, .. } = &executor {
+                if matches!(executor, Executor::Session { .. } | Executor::Agent { .. }) {
                     let body = skill
                         .as_ref()
                         .and_then(|s| packs.skill(s).map(|(b, _)| (s.clone(), b)));

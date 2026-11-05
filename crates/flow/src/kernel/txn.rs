@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use serde_json::{json, Value};
 
-use super::def::{Executor, ExitCond, FlowDef, SessionBinding, TaskSpec, Work};
+use super::def::{Executor, ExitCond, FlowDef, SessionBinding, TaskSpec, Work, MAIN_SESSION_KEY};
 use super::engine::{Engine, MAX_FOREACH_ITEMS, MAX_LEASE_MS, MAX_SUBFLOW_DEPTH};
 use super::host::{ChangeSet, Delivery, Event, Outcome, Placement, WorkItem};
 use super::protocol;
@@ -338,6 +338,8 @@ pub(crate) fn new_record(
             .map(|s| (s.id.clone(), StationRec::new()))
             .collect(),
         session_keys: BTreeMap::new(),
+        paused: None,
+        usage_other: Default::default(),
         def,
     }
 }
@@ -549,7 +551,8 @@ impl<'a> M<'a> {
             let mut moved = false;
             for sid in &ids {
                 match self.status(sid) {
-                    StationStatus::Pending | StationStatus::Stale => {
+                    // Paused: nothing new is entered (xops-03 §3).
+                    StationStatus::Pending | StationStatus::Stale if self.rec.paused.is_none() => {
                         if self
                             .def
                             .needs_of(sid)
@@ -720,6 +723,9 @@ impl<'a> M<'a> {
     /// Claim ready session and program tasks for the dispatcher and spawn subflow children,
     /// within `max_parallel`. External tasks stay ready.
     pub fn dispatch(&mut self, sid: &str) {
+        if self.rec.paused.is_some() {
+            return;
+        }
         let Some(st) = self.def.station(sid).cloned() else {
             return;
         };
@@ -756,7 +762,7 @@ impl<'a> M<'a> {
             };
             match &spec.executor {
                 Executor::External { .. } => continue,
-                Executor::Session { .. } | Executor::Program { .. } => {
+                Executor::Session { .. } | Executor::Agent { .. } | Executor::Program { .. } => {
                     self.claim_push(sid, &tid, &spec)
                 }
                 Executor::Subflow { flow, inputs } => self.claim_subflow(sid, &tid, flow, inputs),
@@ -781,6 +787,8 @@ impl<'a> M<'a> {
             let Some(t) = r.task_mut(tid) else { return };
             t.status = TaskStatus::Claimed;
             t.attempt += 1;
+            t.started_at = Some(now);
+            t.ended_at = None;
             t.lease = Some(Lease {
                 by: dispatcher.clone(),
                 token: token.clone(),
@@ -792,6 +800,7 @@ impl<'a> M<'a> {
             self.rec,
             &self.eng.guarded,
             &self.eng.submit_scenes,
+            self.eng.main_scene.as_deref(),
             sid,
             tid,
             spec,
@@ -812,12 +821,15 @@ impl<'a> M<'a> {
     fn claim_subflow(&mut self, sid: &str, tid: &str, flow: &str, inputs: &Value) {
         let token = new_token();
         let dispatcher = Actor::flow("dispatch");
+        let now = self.now();
         let item = {
             let Some(t) = self.task_mut(sid, tid) else {
                 return;
             };
             t.status = TaskStatus::Claimed;
             t.attempt += 1;
+            t.started_at = Some(now);
+            t.ended_at = None;
             t.child = None;
             t.lease = Some(Lease {
                 by: dispatcher.clone(),
@@ -853,7 +865,9 @@ impl<'a> M<'a> {
 
     /// A task handed in its output (already checked against the contract).
     pub fn task_submitted(&mut self, sid: &str, tid: &str, output: Value) {
+        let now = self.now();
         if let Some(t) = self.task_mut(sid, tid) {
+            t.ended_at = Some(now);
             t.status = TaskStatus::Submitted;
             t.output = Some(output);
             t.error = None;
@@ -866,10 +880,12 @@ impl<'a> M<'a> {
     /// A task's attempt failed: back to ready while attempts remain, otherwise failed.
     pub fn task_failed(&mut self, sid: &str, tid: &str, error: String) {
         let attempts = self.spec(sid, tid).map_or(1, |s| s.attempts());
+        let now = self.now();
         let retrying = {
             let Some(t) = self.task_mut(sid, tid) else {
                 return;
             };
+            t.ended_at = Some(now);
             t.error = Some(error.clone());
             t.lease = None;
             let retrying = t.attempt < attempts;
@@ -893,13 +909,10 @@ impl<'a> M<'a> {
 
     /// Cancel a task that is still to be done; close its session, cancel its child run.
     pub fn cancel_task(&mut self, sid: &str, tid: &str) {
-        let binding_new = matches!(
-            self.spec(sid, tid).map(|s| s.executor),
-            Some(Executor::Session {
-                session: SessionBinding::New,
-                ..
-            })
-        );
+        let binding_new = self
+            .spec(sid, tid)
+            .and_then(|s| s.executor.binding())
+            .is_some_and(|b| b.is_new());
         let (session, child) = {
             let Some(t) = self.task_mut(sid, tid) else {
                 return;
@@ -1270,13 +1283,7 @@ impl<'a> M<'a> {
             self.emit("task.expired", Some(sid), Some(tid), Value::Null);
             self.log("expire", Some(sid), Some(tid), Value::Null);
             if spec.executor.is_push() {
-                let own = matches!(
-                    spec.executor,
-                    Executor::Session {
-                        session: SessionBinding::New,
-                        ..
-                    }
-                );
+                let own = spec.executor.binding().is_some_and(|b| b.is_new());
                 let session = self.task_mut(sid, tid).and_then(|t| t.session.take());
                 if let (true, Some(session)) = (own, session) {
                     self.fx.work.push(WorkItem::CloseSession { session });
@@ -1299,6 +1306,7 @@ fn task_work(
     rec: &RunRecord,
     guarded: &[String],
     submit_scenes: &BTreeSet<String>,
+    main_scene: Option<&str>,
     sid: &str,
     tid: &str,
     spec: &TaskSpec,
@@ -1309,11 +1317,26 @@ fn task_work(
     digest: Option<String>,
 ) -> WorkItem {
     let ctx = context(rec, item.as_ref(), Some(tid));
+    let resolve_params = |params: &BTreeMap<String, String>| -> BTreeMap<String, String> {
+        params
+            .iter()
+            .map(|(k, v)| {
+                let r = match resolve_str(v, &ctx) {
+                    Value::String(s) => s,
+                    Value::Null => String::new(),
+                    v => v.to_string(),
+                };
+                (k.clone(), r)
+            })
+            .collect()
+    };
     let session_key = match &spec.executor {
-        Executor::Session { session, .. } => match session {
+        Executor::Agent { .. } => Some(MAIN_SESSION_KEY.to_string()),
+        e @ Executor::Session { .. } => match e.binding().unwrap_or(SessionBinding::New) {
+            SessionBinding::Main => Some(MAIN_SESSION_KEY.to_string()),
             SessionBinding::New => None,
             SessionBinding::PerRun => Some("run".to_string()),
-            SessionBinding::Key(k) => Some(match resolve_str(k, &ctx) {
+            SessionBinding::Key(k) => Some(match resolve_str(&k, &ctx) {
                 Value::String(s) => s,
                 v => v.to_string(),
             }),
@@ -1324,7 +1347,11 @@ fn task_work(
         .as_ref()
         .and_then(|k| rec.session_keys.get(k).cloned());
     let st = rec.def.station(sid);
-    let (placement, delivery) = match &spec.executor {
+    let (placement, delivery, scene) = match &spec.executor {
+        e if e.in_main() => {
+            let (placement, scene) = main_placement(rec, main_scene, &resolve_params);
+            (Some(placement), Some(Delivery::FlowSubmit), scene)
+        }
         Executor::Session {
             scene,
             model,
@@ -1340,17 +1367,7 @@ fn task_work(
                 provider: provider.clone(),
                 instance: instance.clone(),
                 template: template.clone(),
-                params: params
-                    .iter()
-                    .map(|(k, v)| {
-                        let r = match resolve_str(v, &ctx) {
-                            Value::String(s) => s,
-                            Value::Null => String::new(),
-                            v => v.to_string(),
-                        };
-                        (k.clone(), r)
-                    })
-                    .collect(),
+                params: resolve_params(params),
                 space: space.clone(),
             }),
             Some(if submit_scenes.contains(scene) {
@@ -1358,11 +1375,12 @@ fn task_work(
             } else {
                 Delivery::StructuredOutput
             }),
+            Some(scene.clone()),
         ),
-        _ => (None, None),
+        _ => (None, None, None),
     };
     let protocol = match (&spec.executor, st) {
-        (Executor::Session { .. }, Some(st)) => Some(protocol::render(&protocol::TaskContext {
+        (Executor::Session { .. } | Executor::Agent { .. }, Some(st)) => Some(protocol::render(&protocol::TaskContext {
             def: &rec.def,
             station: st,
             run: &rec.id,
@@ -1372,6 +1390,7 @@ fn task_work(
             item: item.as_ref(),
             guarded,
             delivery: delivery.unwrap_or(Delivery::StructuredOutput),
+            executor: Some(&spec.executor),
         })),
         _ => None,
     };
@@ -1392,7 +1411,48 @@ fn task_work(
         session,
         placement,
         delivery,
+        scene,
     }
+}
+
+/// [`main_placement`] with `params` resolved against the run (no item, no task).
+pub(crate) fn main_of(rec: &RunRecord, main_scene: Option<&str>) -> (Placement, Option<String>) {
+    let ctx = context(rec, None, None);
+    let resolve_params = |params: &BTreeMap<String, String>| -> BTreeMap<String, String> {
+        params
+            .iter()
+            .map(|(k, v)| {
+                let r = match resolve_str(v, &ctx) {
+                    Value::String(s) => s,
+                    Value::Null => String::new(),
+                    v => v.to_string(),
+                };
+                (k.clone(), r)
+            })
+            .collect()
+    };
+    main_placement(rec, main_scene, &resolve_params)
+}
+
+/// Where the run's main session goes and its scene: the flow's `main`, its `params` resolved,
+/// and the module's main scene when it names none (`None`: there is none).
+pub(crate) fn main_placement(
+    rec: &RunRecord,
+    main_scene: Option<&str>,
+    resolve_params: &dyn Fn(&BTreeMap<String, String>) -> BTreeMap<String, String>,
+) -> (Placement, Option<String>) {
+    let m = rec.def.main.clone().unwrap_or_default();
+    (
+        Placement {
+            model: m.model,
+            provider: m.provider,
+            instance: m.instance,
+            template: m.template,
+            params: resolve_params(&m.params),
+            space: m.space,
+        },
+        m.scene.or_else(|| main_scene.map(String::from)),
+    )
 }
 
 /// The work handed out for a run and not answered yet, as it was handed out — for a module that
@@ -1404,13 +1464,14 @@ fn task_work(
 /// Every session task is taken to hand in by structured output here; [`Engine::dispatched_work`]
 /// knows which scenes hand in with `flow_submit`.
 pub fn dispatched_work(rec: &RunRecord, guarded: &[String], now: u64) -> Vec<WorkItem> {
-    dispatched_work_with(rec, guarded, &BTreeSet::new(), now)
+    dispatched_work_with(rec, guarded, &BTreeSet::new(), None, now)
 }
 
 pub(crate) fn dispatched_work_with(
     rec: &RunRecord,
     guarded: &[String],
     submit_scenes: &BTreeSet<String>,
+    main_scene: Option<&str>,
     now: u64,
 ) -> Vec<WorkItem> {
     let dispatcher = Actor::flow("dispatch");
@@ -1461,6 +1522,7 @@ pub(crate) fn dispatched_work_with(
                 rec,
                 guarded,
                 submit_scenes,
+                main_scene,
                 sid,
                 &t.id,
                 &spec,

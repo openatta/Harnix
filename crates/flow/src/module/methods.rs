@@ -783,10 +783,16 @@ fn def_info(engine: &Engine, packs: &dyn Packs, name: &str) -> Answer {
                 }
             }
         }
-        if let Some((t, scene)) = specs.iter().find_map(|t| match &t.executor {
-            crate::Executor::Session { scene, .. } => Some((t, scene)),
-            _ => None,
-        }) {
+        if let Some(t) = specs
+            .iter()
+            .find(|t| matches!(t.executor, crate::Executor::Session { .. } | crate::Executor::Agent { .. }))
+        {
+            let delivery = match &t.executor {
+                crate::Executor::Session { scene, .. } if !t.executor.in_main() => {
+                    engine.delivery_of(scene)
+                }
+                _ => crate::Delivery::FlowSubmit,
+            };
             let text = protocol::render(&protocol::TaskContext {
                 def: &def,
                 station: s,
@@ -796,7 +802,8 @@ fn def_info(engine: &Engine, packs: &dyn Packs, name: &str) -> Answer {
                 task: &t.id,
                 item: None,
                 guarded: engine.guarded(),
-                delivery: engine.delivery_of(scene),
+                delivery,
+                executor: Some(&t.executor),
             });
             proto.insert(s.id.clone(), text);
         }

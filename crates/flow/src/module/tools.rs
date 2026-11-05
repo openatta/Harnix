@@ -502,6 +502,8 @@ mod tests {
                 hooks: None,
                 guarded: vec![],
                 recording: None,
+                main_recording: None,
+                main_scene: None,
                 lease_ms: 60_000,
                 tick_ms: 1000,
                 ensure_ms: 60_000,

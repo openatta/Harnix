@@ -35,10 +35,37 @@ pub struct FlowDef {
     /// How many rounds one station may run (first entry included). Default 10, at most 20.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rework_limit: Option<u32>,
+    /// The run's main session — the flow's main Agent (xops-03 §1): where it goes and which
+    /// model it talks to. Absent: the module's main scene in the module's space.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub main: Option<MainSession>,
     /// Notifications fired on run-level and station-level events.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hooks: Vec<HookRef>,
     pub stations: Vec<Station>,
+}
+
+/// The run's main session: what session tasks bound to `main` and sub-agent tasks work in.
+/// The fields are a session station's placement (xops-02 §1).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MainSession {
+    /// A wrapped `flow-*` scene (its tasks hand in with `flow_submit`); the module's main
+    /// scene when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub params: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub space: Option<String>,
 }
 
 /// A run parameter.
@@ -137,13 +164,16 @@ impl TaskSpec {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Executor {
-    /// A headless session the module opens on `scene`, fed the protocol layer and the skill.
-    /// Where it runs and on which model are optional: absent, the module's space and that
-    /// space's instance, and the instance's model.
+    /// A session task, fed the protocol layer and the skill. Without a `scene` (and `session`
+    /// absent or `main`): a turn of the run's main session, which the flow's `main` places — the
+    /// placement fields are not written then (xops-03 §1). With one: a session of its own (`new`,
+    /// the default then), or its key's; where it runs and on which model are optional — absent,
+    /// the module's space and that space's instance, and the instance's model.
     Session {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
         scene: String,
-        #[serde(default, skip_serializing_if = "SessionBinding::is_new")]
-        session: SessionBinding,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session: Option<SessionBinding>,
         /// The model the session talks to (`SessionSpec.model`).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
@@ -165,6 +195,19 @@ pub enum Executor {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
     },
+    /// A sub-agent of the run's main session (xops-03 §2): the main Agent hands the task to an
+    /// Agix sub-agent (its `Agent` tool) and hands the result in with `flow_submit`.
+    Agent {
+        /// A type in Agix's agent catalog (its model, tools, skills); the default agent when absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_type: Option<String>,
+        /// The model the sub-agent talks to (the `Agent` tool's `model`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        /// One line for people about what the sub-agent does.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        description: String,
+    },
     /// The application's own code (`Programs`).
     Program { step: String },
     /// Waits to be claimed from outside: a person or an external agent. `who` is an opaque
@@ -185,24 +228,53 @@ impl Executor {
     pub fn kind(&self) -> &'static str {
         match self {
             Self::Session { .. } => "session",
+            Self::Agent { .. } => "agent",
             Self::Program { .. } => "program",
             Self::External { .. } => "external",
             Self::Subflow { .. } => "subflow",
         }
     }
 
-    /// Session and program tasks are dispatched (auto-claimed) by the kernel.
+    /// Session, agent and program tasks are dispatched (auto-claimed) by the kernel.
     pub fn is_push(&self) -> bool {
-        matches!(self, Self::Session { .. } | Self::Program { .. })
+        matches!(
+            self,
+            Self::Session { .. } | Self::Agent { .. } | Self::Program { .. }
+        )
+    }
+
+    /// A turn of the run's main session: a session task bound to `main`, or a sub-agent task.
+    pub fn in_main(&self) -> bool {
+        match self {
+            Self::Session { .. } => self.binding().is_some_and(|b| b.is_main()),
+            Self::Agent { .. } => true,
+            _ => false,
+        }
+    }
+
+    /// A session task's binding as it applies: the one written, else `main` without a scene
+    /// and `new` with one.
+    pub fn binding(&self) -> Option<SessionBinding> {
+        match self {
+            Self::Session { session, scene, .. } => Some(session.clone().unwrap_or(
+                if scene.is_empty() {
+                    SessionBinding::Main
+                } else {
+                    SessionBinding::New
+                },
+            )),
+            _ => None,
+        }
     }
 }
 
 /// Which session a session task runs in.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionBinding {
+    /// The run's main session (xops-03 §1).
+    Main,
     /// A new session per task.
-    #[default]
     New,
     /// One session for every task of the run.
     PerRun,
@@ -214,7 +286,15 @@ impl SessionBinding {
     pub fn is_new(&self) -> bool {
         matches!(self, Self::New)
     }
+
+    pub fn is_main(&self) -> bool {
+        matches!(self, Self::Main)
+    }
 }
+
+/// The session key of the run's main session in `RunRecord::session_keys`: no key a station
+/// writes can be it (keys resolve to what a definition writes, and `@` is not a reference).
+pub const MAIN_SESSION_KEY: &str = "@main";
 
 /// Retry policy of a task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

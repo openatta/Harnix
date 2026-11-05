@@ -9,7 +9,7 @@ pub mod protocol;
 pub mod refs;
 pub mod run;
 pub mod schema;
-mod txn;
+pub(crate) mod txn;
 pub mod validate;
 
 pub use txn::dispatched_work;

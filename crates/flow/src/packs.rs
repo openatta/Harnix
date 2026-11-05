@@ -144,6 +144,17 @@ impl MemPacks {
         self
     }
 
+    /// The scene a run's main session is opened on when a flow's `main` names none (a submit
+    /// scene: it is added as one).
+    pub fn main_scene(self, name: &str) -> Self {
+        self.edit(|i| {
+            i.catalog.scenes.insert(name.into());
+            i.catalog.submit_scenes.insert(name.into());
+            i.catalog.main_scene = Some(name.into());
+        });
+        self
+    }
+
     /// Accept saved flows and skills, in memory, over the ones given in code.
     pub fn writable(self) -> Self {
         self.edit(|i| i.writable = true);

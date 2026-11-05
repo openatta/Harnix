@@ -12,8 +12,10 @@ use tokio::task::JoinHandle;
 use crate::dryrun::Sandbox;
 use crate::kernel::engine::Engine;
 use crate::kernel::host::{Event, Gates, Hooks, Programs, WorkItem};
+use crate::kernel::run::RunRecord;
 
 pub(crate) type RecordingFn = Arc<dyn Fn(&WorkItem) -> Option<String> + Send + Sync>;
+pub(crate) type MainRecordingFn = Arc<dyn Fn(&RunRecord) -> Option<String> + Send + Sync>;
 
 pub(crate) struct Config {
     pub space: String,
@@ -25,6 +27,10 @@ pub(crate) struct Config {
     pub hooks: Option<Arc<dyn Hooks>>,
     pub guarded: Vec<String>,
     pub recording: Option<RecordingFn>,
+    /// The recording a run's main session replays (xops-03 §1).
+    pub main_recording: Option<MainRecordingFn>,
+    /// The wrapped scene a run's main session is opened on when the flow's `main` names none.
+    pub main_scene: Option<String>,
     pub lease_ms: u64,
     pub tick_ms: u64,
     /// How long a station's template instance may take to be ready.
@@ -80,6 +86,8 @@ pub(crate) struct Shared {
     /// module's data directory, so an instance a run left behind is stopped after a restart too.
     instances: Mutex<BTreeMap<String, String>>,
     pub ledger: OnceLock<PathBuf>,
+    /// Main sessions being watched (xops-03 §1): session id → run.
+    watched: Mutex<HashMap<String, String>>,
 }
 
 /// How many conversations' focus is remembered.
@@ -108,6 +116,7 @@ impl Shared {
             focus_seq: std::sync::atomic::AtomicU64::new(0),
             instances: Mutex::new(BTreeMap::new()),
             ledger: OnceLock::new(),
+            watched: Mutex::new(HashMap::new()),
         }
     }
 
@@ -266,6 +275,25 @@ impl Shared {
         true
     }
 
+    /// Whether the task is being carried out under `token` now.
+    pub fn in_hand(&self, key: &TaskKey, token: &str) -> bool {
+        lock(&self.active).get(key).is_some_and(|t| t == token)
+    }
+
+    /// Start watching a main session. `false`: it is watched already.
+    pub fn watch(&self, session_id: &str, run: &str) -> bool {
+        let mut g = lock(&self.watched);
+        if g.contains_key(session_id) {
+            return false;
+        }
+        g.insert(session_id.to_string(), run.to_string());
+        true
+    }
+
+    pub fn unwatch(&self, session_id: &str) {
+        lock(&self.watched).remove(session_id);
+    }
+
     pub fn end(&self, key: &TaskKey, token: &str) {
         let mut g = lock(&self.active);
         if g.get(key).is_some_and(|t| t == token) {
@@ -336,6 +364,8 @@ mod tests {
                 hooks: None,
                 guarded: vec![],
                 recording: None,
+                main_recording: None,
+                main_scene: None,
                 lease_ms: 60_000,
                 tick_ms: 1000,
                 ensure_ms: 60_000,
