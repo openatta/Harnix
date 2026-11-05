@@ -71,13 +71,15 @@ pub struct TransportProfile {
     pub extra_origins: Vec<String>,
 }
 
-/// The built-in spaces, all optional: a product keeps the ones it wants as they are.
-pub const BUILTIN_SPACES: &[&str] = &["sessions", "projects", "system"];
+/// The built-in spaces, all optional: a product keeps the ones it wants as they are. `flow` is the
+/// flow module's space (xops-02 §7): the interface draws it only when the backend has that module.
+pub const BUILTIN_SPACES: &[&str] = &["sessions", "projects", "system", "flow"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ShellProfile {
-    /// Which built-in spaces to keep, of `sessions`, `projects`, `system`. All three when absent.
+    /// Which built-in spaces to keep, of `sessions`, `projects`, `system`, `flow`. All of them when
+    /// absent (`flow` is drawn only where the flow module is registered).
     /// Without `system`, its methods go too: no client can claim the system space, and none can act
     /// across spaces.
     pub spaces: Vec<String>,
@@ -378,11 +380,12 @@ mod tests {
             profile.shell.keeps("sessions")
                 && profile.shell.keeps("projects")
                 && profile.shell.keeps("system")
+                && profile.shell.keeps("flow")
         );
         assert!(profile.ui.runtime_modules);
         assert!(!profile.shell.model_switch);
         let profile = Profile::parse("[shell]\nspaces = [\"sessions\"]\n").unwrap();
-        assert!(!profile.shell.keeps("system"));
+        assert!(!profile.shell.keeps("system") && !profile.shell.keeps("flow"));
         let profile = Profile::parse("[shell]\nspaces = []\nmodel_switch = true\n").unwrap();
         assert!(profile.shell.model_switch && !profile.shell.keeps("system"));
         assert!(profile.shell.new_session);

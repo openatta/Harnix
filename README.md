@@ -27,7 +27,8 @@ cargo build --release
 ```
 
 Rust 1.87 or newer, Node with pnpm for the interface. `--recurse-submodules` matters: Agix lives at
-`agix/`. What runs is the empty application: Harnix's three built-in spaces and nothing else.
+`agix/`. What runs is the empty application: Harnix's built-in spaces — sessions, projects, flows, the
+system — and nothing else.
 
 No environment variable is required. With no model configured it still starts, and the page says
 so: **Set up a model** (or the avatar → **Settings → Models & credentials**) adds providers — as many
@@ -93,7 +94,7 @@ icon = "brand.svg"
 product_id = "hello-app"         # state in ~/.hello-app
 
 [shell]
-spaces = ["sessions", "projects"]   # the built-in spaces to keep (all three when absent)
+spaces = ["sessions", "projects"]   # the built-in spaces to keep (all of them when absent)
 
 [ui]
 runtime_modules = true           # installed packages' interface modules

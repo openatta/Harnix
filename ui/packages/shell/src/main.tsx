@@ -60,8 +60,8 @@ document.documentElement.dataset.chrome = chrome();
 createRoot(document.getElementById("root")!).render(<Root />);
 // The built-ins first, then the application's modules in its order, then installed packages' v2
 // modules: a later registration wins a claim, so an application can take over what Harnix draws.
-app.start((a) => {
-  registerBuiltins(a);
+app.start(async (a) => {
+  await registerBuiltins(a);
   for (const module of modules) {
     try {
       module.register?.(a.registry, host);

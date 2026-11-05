@@ -18,7 +18,7 @@ export interface FlowReferenceProps {
   initialYaml?: string;
 }
 
-const CATALOG_KEYS = ["scenes", "steps", "gates", "tools", "actions", "skills"] as const;
+const CATALOG_KEYS = ["scenes", "steps", "gates", "tools", "actions", "skills", "templates", "instances", "spaces", "models"] as const;
 
 export function FlowReference({ module = "flow", initialYaml = "" }: FlowReferenceProps) {
   const t = useT();
@@ -113,6 +113,7 @@ function Validate({ module, initialYaml }: { module: string; initialYaml: string
   return (
     <section className="hx-flow-section" data-testid="flow-validate-box">
       <div className="hx-flow-section-head">{t("flowui.ref.validate")}</div>
+      <p className="hx-flow-hint">{t("flowui.ref.validateNote")}</p>
       <textarea
         className="hx-flow-input hx-flow-mono"
         data-testid="flow-validate-yaml"

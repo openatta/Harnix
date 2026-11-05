@@ -5,8 +5,10 @@
  * exit conditions, rework targets, writable tools, hooks, and the protocol layer when the module
  * gives it. Run: what happened to it in this run — status and rounds, what it still lacks, its
  * tasks (claimant, output, error, a link to the session), condition results, confirmations, the
- * forced record, its history — and the hands to act: confirm, reject, force, rework, release, retry.
- * A button that does not apply to the station's status is disabled.
+ * forced record, its history — and the hands to act: confirm, reject, force, rework, release, retry,
+ * and for an external task, claim and hand in its output. A button that does not apply to the
+ * station's status is disabled. A dry run's session task also shows the message its session would
+ * have been sent (`preview`, xops-02 §5).
  */
 
 import { useEffect, useState, type ReactNode } from "react";
@@ -104,7 +106,13 @@ function executorText(e: Executor): string {
   switch (e.kind) {
     case "session": {
       const alloc = e.session ?? "new";
-      return `session · scene ${e.scene}${e.template ? ` · template ${e.template}` : ""} · ${typeof alloc === "string" ? alloc : `key ${alloc.key}`}`;
+      const where = [
+        e.instance ? `instance ${e.instance}` : "",
+        e.template ? `template ${e.template}` : "",
+        e.space ? `space ${e.space}` : "",
+        e.model ? `model ${e.provider ? `${e.provider}/` : ""}${e.model}` : e.provider ? `provider ${e.provider}` : "",
+      ].filter(Boolean);
+      return [`session · scene ${e.scene}`, ...where, typeof alloc === "string" ? alloc : `key ${alloc.key}`].join(" · ");
     }
     case "program":
       return `program · step ${e.step}`;
@@ -427,6 +435,21 @@ function RunTab({ station: s, view, module }: { station: Station; view: RunView;
                       ) : null}
                       {task.child ? <div className="hx-flow-faint">{t("flowui.run.child", { run: task.child })}</div> : null}
                       {task.error ? <div className="hx-flow-error">{task.error}</div> : null}
+                      {task.preview ? (
+                        <details className="hx-flow-details" data-testid={`flow-preview-${task.id}`}>
+                          <summary>
+                            {t("flowui.run.preview")}
+                            <span className="hx-flow-faint">
+                              {" "}
+                              {[task.preview.scene, task.preview.delivery].filter(Boolean).join(" · ")}
+                            </span>
+                          </summary>
+                          <pre className="hx-flow-code hx-flow-prose" data-testid={`flow-preview-message-${task.id}`}>
+                            {task.preview.message}
+                          </pre>
+                        </details>
+                      ) : null}
+                      {task.status === "ready" && executorOf(s, task.id)?.kind === "external" ? <HandIn module={module} run={run.id} station={s.id} task={task.id} /> : null}
                       {task.output !== undefined && task.output !== null ? (
                         <details className="hx-flow-details">
                           <summary>{t("flowui.run.output")}</summary>
@@ -479,6 +502,71 @@ function RunTab({ station: s, view, module }: { station: Station; view: RunView;
           </ul>
         </Field>
       ) : null}
+    </div>
+  );
+}
+
+/** The executor a station's task runs under: its own in `tasks`, else the station's. */
+function executorOf(s: Station, task: string): Executor | null {
+  return s.tasks?.find((x) => x.id === task)?.executor ?? s.executor ?? null;
+}
+
+/** An external task done by the person here: claim it, hand in its output. */
+function HandIn({ module, run, station, task }: { module: string; run: string; station: string; task: string }) {
+  const t = useT();
+  const nest = useNest();
+  const [open, setOpen] = useState(false);
+  const [output, setOutput] = useState("{}");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = async () => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(output);
+    } catch (e) {
+      setError(t("flowui.start.badJson", { error: errorText(e) }));
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const claimed = await nest.call<{ token: string }>(methodName(module, "claim"), { run, station, task });
+      await nest.call(methodName(module, "submit"), { run, station, task, token: claimed.token, output: parsed });
+      setOpen(false);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!open) {
+    return (
+      <div className="hx-flow-actions">
+        <button type="button" className="btn sm outline" data-testid={`flow-hand-in-${task}`} onClick={() => setOpen(true)}>
+          {t("flowui.act.handIn")}
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="hx-flow-form" data-testid={`flow-hand-in-form-${task}`}>
+      <label className="hx-flow-label" htmlFor={`hx-flow-hand-in-${task}`}>
+        {t("flowui.act.handInOutput")}
+      </label>
+      <textarea id={`hx-flow-hand-in-${task}`} className="hx-flow-input hx-flow-mono" data-testid={`flow-hand-in-output-${task}`} rows={3} value={output} onChange={(e) => setOutput(e.target.value)} />
+      {error ? (
+        <div className="hx-flow-error" role="alert">
+          {error}
+        </div>
+      ) : null}
+      <div className="hx-flow-actions">
+        <button type="button" className="btn sm primary" data-testid={`flow-hand-in-submit-${task}`} disabled={busy} onClick={() => void submit()}>
+          {t("flowui.act.submit.handIn")}
+        </button>
+        <button type="button" className="btn sm ghost" onClick={() => setOpen(false)}>
+          {t("flowui.act.cancel")}
+        </button>
+      </div>
     </div>
   );
 }

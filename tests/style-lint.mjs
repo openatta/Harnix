@@ -27,9 +27,11 @@ const files = (dir, pattern) => {
   return out;
 };
 
-const sheets = [...files(join(packages, "react", "src"), /\.css$/), ...files(join(packages, "shell", "src"), /\.css$/)];
+// The flow space is built into the shell (xops-02 §7): its package is held to the same rules.
+const builtIn = ["react", "shell", "flow"];
+const sheets = builtIn.flatMap((p) => files(join(packages, p, "src"), /\.css$/));
 const css = sheets.map(([, body]) => body).join("\n");
-const sources = [...files(join(packages, "react", "src"), /\.tsx?$/), ...files(join(packages, "shell", "src"), /\.tsx?$/)];
+const sources = builtIn.flatMap((p) => files(join(packages, p, "src"), /\.tsx?$/));
 
 const fail = (m) => { console.log("FAIL:", m); process.exitCode = 1; };
 const ok = (m) => console.log("ok —", m);

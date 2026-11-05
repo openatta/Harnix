@@ -1,15 +1,7 @@
 /* @harnix/flow: the flow space and its components. Tokens only (`@harnix/react/tokens.css`), both
    themes; every class is `hx-flow-*`. Buttons are the shell's `.btn`, the tab strip its `.seg`. */
 
-/* ── the centre ──────────────────────────────────────────────────────── */
-
-.hx-flow-overview {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 16px 20px;
-  min-width: 0;
-}
+/* ── a flow's or a run's head ────────────────────────────────────────── */
 
 .hx-flow-head {
   display: flex;
@@ -155,6 +147,22 @@
 .hx-flow-pill.hx-flow-tone-warn { background: var(--hx-warn-soft); }
 .hx-flow-pill.hx-flow-tone-info { background: var(--state-info-soft); }
 
+.hx-flow-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--label-secondary);
+  background: var(--bg-layer-2);
+  vertical-align: middle;
+}
+
+.hx-flow-badge.hx-flow-tone-error { background: var(--hx-danger-soft); }
+
 .hx-flow-dot {
   display: inline-block;
   width: 7px;
@@ -174,6 +182,12 @@
   padding: 12px 14px 24px;
   min-width: 0;
   font-size: 13px;
+}
+
+/* A station's details under the graph, inside a tab that is itself a panel. */
+.hx-flow-panel .hx-flow-panel {
+  padding: 10px 0 0;
+  border-top: 1px solid var(--border-l1);
 }
 
 .hx-flow-panel-head {
@@ -356,7 +370,7 @@
   font-size: 12px;
 }
 
-/* ── the left column ─────────────────────────────────────────────────── */
+/* ── lists: flows, runs (and `RunList`, for an application's own left column) ── */
 
 .hx-flow-sidebar {
   display: flex;

@@ -15,9 +15,17 @@ export function registerFlowStrings(registry: Registry): void {
 
 const en: Record<string, string> = {
   "flowui.space": "Flows",
-  "flowui.space.subtitle": "Stations, runs, and the hands to move them",
-  "flowui.tab.station": "Station",
+  "flowui.space.subtitle": "Write flows in conversation; see, try and run them on the right",
+  "flowui.tab.flows": "Flows",
+  "flowui.tab.runs": "Runs",
   "flowui.tab.reference": "Reference",
+  "flowui.composer.placeholder": "Ask the Agent to write, change or try a flow…",
+  "flowui.focus.current": "Current flow: {title}",
+  "flowui.focus.next": "This conversation will work on {flow}, selected on the right.",
+  "flowui.focus.none": "No flow selected: select one on the right for the Agent to show, change or try it. Creating a new flow needs no selection.",
+  "flowui.origin.builtin": "built in",
+  "flowui.origin.override": "changed",
+  "flowui.origin.user": "written here",
   "flowui.loading": "Loading…",
 
   "flowui.status.pending": "Pending",
@@ -80,6 +88,7 @@ const en: Record<string, string> = {
   "flowui.def.writes": "Writable tools",
   "flowui.def.readOnly": "read-only tools only",
   "flowui.def.hooks": "Hooks",
+  "flowui.def.invalid": "invalid",
 
   "flowui.act.confirm": "Confirm",
   "flowui.act.reject": "Reject",
@@ -97,6 +106,9 @@ const en: Record<string, string> = {
   "flowui.act.submit.force": "Force through",
   "flowui.act.submit.rework": "Send back",
   "flowui.act.submit.cancel": "Cancel the run",
+  "flowui.act.handIn": "Hand in…",
+  "flowui.act.handInOutput": "Output (JSON)",
+  "flowui.act.submit.handIn": "Claim and hand in",
 
   "flowui.run.notEntered": "This station has not been entered in this run.",
   "flowui.run.round": "Round",
@@ -121,6 +133,7 @@ const en: Record<string, string> = {
   "flowui.run.confirmed": "Confirmed by {by} at {at}",
   "flowui.run.rejected": "Rejected by {by} at {at}",
   "flowui.run.history": "History",
+  "flowui.run.preview": "Message its session would be sent",
 
   "flowui.list.flows": "Flows",
   "flowui.list.runs": "Runs",
@@ -131,6 +144,24 @@ const en: Record<string, string> = {
   "flowui.list.allStatuses": "All statuses",
   "flowui.list.noRuns": "No runs yet.",
   "flowui.list.noMatch": "No run matches.",
+  "flowui.list.noFlows": "No flows yet: ask the Agent in the conversation to write one.",
+
+  "flowui.flows.pick": "Select a flow: it is drawn here, and it becomes the conversation's current flow.",
+  "flowui.flows.skills": "Skills",
+  "flowui.flows.noSkills": "This flow names no skills.",
+  "flowui.flows.dryRuns": "Dry runs",
+  "flowui.flows.noDryRuns": "No dry runs of this flow.",
+
+  "flowui.runs.of": "Runs of {flow}",
+  "flowui.runs.all": "All runs",
+  "flowui.runs.pick": "Select a run to see it.",
+
+  "flowui.dry.start": "Dry run",
+  "flowui.dry.badge": "dry run",
+  "flowui.dry.note": "A dry run: nothing outside the flow is called.",
+  "flowui.dry.step": "Step",
+  "flowui.dry.run": "Run to the end",
+  "flowui.dry.took": "Took {n}; {pending} still queued.",
 
   "flowui.start.open": "Start run",
   "flowui.start.flow": "Flow",
@@ -140,8 +171,6 @@ const en: Record<string, string> = {
   "flowui.start.submit": "Start",
   "flowui.start.badJson": "The inputs are not JSON: {error}",
 
-  "flowui.overview.empty": "Choose a flow or a run on the left.",
-  "flowui.overview.back": "Back to the definition",
   "flowui.overview.meta": "{flow} · {subject} · started {at} by {by}",
   "flowui.overview.parent": "child of {run} at {station}",
 
@@ -156,6 +185,11 @@ const en: Record<string, string> = {
   "flowui.ref.cat.tools": "Tools",
   "flowui.ref.cat.actions": "Hook actions",
   "flowui.ref.cat.skills": "Skills",
+  "flowui.ref.cat.templates": "Instance templates",
+  "flowui.ref.cat.instances": "Instances",
+  "flowui.ref.cat.spaces": "Spaces",
+  "flowui.ref.cat.models": "Models",
+  "flowui.ref.validateNote": "Checks only, saves nothing: changing a flow is done in the conversation.",
   "flowui.ref.validate": "Validate a definition",
   "flowui.ref.yaml": "Definition YAML",
   "flowui.ref.validateButton": "Validate",
@@ -173,9 +207,17 @@ const en: Record<string, string> = {
 
 const zhCN: Record<string, string> = {
   "flowui.space": "流程",
-  "flowui.space.subtitle": "站、运行，以及推动它们的操作",
-  "flowui.tab.station": "站",
+  "flowui.space.subtitle": "在对话里编写流程，右边看、试、跑",
+  "flowui.tab.flows": "流程",
+  "flowui.tab.runs": "运行",
   "flowui.tab.reference": "参考",
+  "flowui.composer.placeholder": "让 Agent 编写、修改或试运行流程…",
+  "flowui.focus.current": "当前流程：{title}",
+  "flowui.focus.next": "这个对话将操作右栏选中的流程 {flow}。",
+  "flowui.focus.none": "还没有选择流程：请先在右栏选择要查看、修改或试运行的流程。新建流程不需要选择。",
+  "flowui.origin.builtin": "内置",
+  "flowui.origin.override": "已改",
+  "flowui.origin.user": "自建",
   "flowui.loading": "加载中…",
 
   "flowui.status.pending": "未开始",
@@ -238,6 +280,7 @@ const zhCN: Record<string, string> = {
   "flowui.def.writes": "可写工具",
   "flowui.def.readOnly": "只用只读工具",
   "flowui.def.hooks": "Hook",
+  "flowui.def.invalid": "无效",
 
   "flowui.act.confirm": "确认",
   "flowui.act.reject": "驳回",
@@ -255,6 +298,9 @@ const zhCN: Record<string, string> = {
   "flowui.act.submit.force": "强制通过",
   "flowui.act.submit.rework": "退回",
   "flowui.act.submit.cancel": "取消这条运行",
+  "flowui.act.handIn": "交付…",
+  "flowui.act.handInOutput": "输出（JSON）",
+  "flowui.act.submit.handIn": "认领并交付",
 
   "flowui.run.notEntered": "这条运行还没进到这一站。",
   "flowui.run.round": "轮次",
@@ -279,6 +325,7 @@ const zhCN: Record<string, string> = {
   "flowui.run.confirmed": "{by} 于 {at} 确认",
   "flowui.run.rejected": "{by} 于 {at} 驳回",
   "flowui.run.history": "历史",
+  "flowui.run.preview": "本来要发给会话的消息",
 
   "flowui.list.flows": "流程",
   "flowui.list.runs": "运行",
@@ -289,6 +336,24 @@ const zhCN: Record<string, string> = {
   "flowui.list.allStatuses": "全部状态",
   "flowui.list.noRuns": "还没有运行。",
   "flowui.list.noMatch": "没有符合的运行。",
+  "flowui.list.noFlows": "还没有流程：在对话里让 Agent 写一条。",
+
+  "flowui.flows.pick": "选一条流程：这里画出它，它也成为对话的当前流程。",
+  "flowui.flows.skills": "Skill",
+  "flowui.flows.noSkills": "这条流程没有用到 skill。",
+  "flowui.flows.dryRuns": "试运行",
+  "flowui.flows.noDryRuns": "这条流程还没有试运行。",
+
+  "flowui.runs.of": "{flow} 的运行",
+  "flowui.runs.all": "全部运行",
+  "flowui.runs.pick": "选一条运行来查看。",
+
+  "flowui.dry.start": "试运行",
+  "flowui.dry.badge": "试运行",
+  "flowui.dry.note": "试运行：流程之外的一切都是模拟的。",
+  "flowui.dry.step": "单步",
+  "flowui.dry.run": "跑到底",
+  "flowui.dry.took": "走了 {n} 步，还排着 {pending} 项。",
 
   "flowui.start.open": "启动运行",
   "flowui.start.flow": "流程",
@@ -298,8 +363,6 @@ const zhCN: Record<string, string> = {
   "flowui.start.submit": "启动",
   "flowui.start.badJson": "参数不是合法的 JSON：{error}",
 
-  "flowui.overview.empty": "在左侧选一条流程或一条运行。",
-  "flowui.overview.back": "回到定义",
   "flowui.overview.meta": "{flow} · {subject} · {by} 于 {at} 启动",
   "flowui.overview.parent": "{run} 在 {station} 的子运行",
 
@@ -314,6 +377,11 @@ const zhCN: Record<string, string> = {
   "flowui.ref.cat.tools": "工具",
   "flowui.ref.cat.actions": "Hook 动作",
   "flowui.ref.cat.skills": "Skill",
+  "flowui.ref.cat.templates": "实例模板",
+  "flowui.ref.cat.instances": "实例",
+  "flowui.ref.cat.spaces": "Space",
+  "flowui.ref.cat.models": "模型",
+  "flowui.ref.validateNote": "只校验，不保存：改流程请在对话里让 Agent 做。",
   "flowui.ref.validate": "校验一份定义",
   "flowui.ref.yaml": "定义 YAML",
   "flowui.ref.validateButton": "校验",

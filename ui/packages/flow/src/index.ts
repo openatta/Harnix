@@ -1,8 +1,8 @@
 /**
- * @harnix/flow — the flow module's optional interface (xops-01 §7, flow-design §17).
+ * @harnix/flow — the flow module's interface (xops-01 §7, xops-02 §7, flow-design §17).
  *
  * Only `@harnix/react`. The components work wherever `useNest()` does; `registerFlowSpace()` puts
- * them together as one space. The wire shapes are in `types.ts`, in one place.
+ * them together as one space, which the shell registers itself when the backend has the module. The wire shapes are in `types.ts`, in one place.
  */
 
 import "./flow.css";
@@ -31,7 +31,14 @@ export {
   catalogEntries,
   checkOk,
   defOf,
+  defsOf,
+  defsTopic,
   digestLines,
+  dryRunsOf,
+  dryRunsTopic,
+  focusTopic,
+  isDryRun,
+  problemText,
   exitKinds,
   formatTime,
   methodName,
@@ -61,11 +68,13 @@ export {
   type Tone,
   type WorkSummary,
 } from "./model";
-export { useMethod, useRunView, useTopic, type Loaded } from "./hooks";
+export { useDefs, useDryRuns, useMethod, useRunView, useTopic, type Loaded } from "./hooks";
 export { FlowGraph, clipText, type FlowGraphProps } from "./FlowGraph";
 export { StationPanel, type StationPanelProps } from "./StationPanel";
 export { RunList, StartForm, type RunListProps } from "./RunList";
 export { FlowReference, type FlowReferenceProps } from "./FlowReference";
 export { ProposalCard, type ProposalCardProps } from "./ProposalCard";
-export { FlowSpaceState, registerFlowSpace, type FlowSelection, type FlowSpace, type FlowSpaceOptions } from "./space";
+export { registerFlowSpace, type FlowSpace, type FlowSpaceOptions } from "./space";
+export { FlowSpaceState, type FlowSelection } from "./state";
+export { DryControls, FlowsTab, FocusNotice, ReferenceTab, RunsTab, useSelection, type FlowTabs } from "./tabs";
 export { STRINGS, STRINGS_OWNER, registerFlowStrings } from "./strings";

@@ -220,7 +220,7 @@ export class App {
   /** The open session's controller and composer, for the host API. Not state: nothing redraws on them. */
   controller: SessionController | null = null;
   composer: ComposerApi | null = null;
-  private builtins: ((app: App) => void) | null = null;
+  private builtins: ((app: App) => void | Promise<void>) | null = null;
   private packages: ((app: App, hello: Hello) => Promise<void>) | null = null;
 
   constructor(client: HarnixClient, registry: Registry) {
@@ -382,7 +382,7 @@ export class App {
   /* ── 启动 ─────────────────────────────────────────────────────────── */
 
   /** 连上就跑一遍：hello、可调方法、内建贡献（一页一次）、会话列表。重连后再跑一遍。 */
-  start(registerBuiltins: (app: App) => void, loadPackages?: (app: App, hello: Hello) => Promise<void>): void {
+  start(registerBuiltins: (app: App) => void | Promise<void>, loadPackages?: (app: App, hello: Hello) => Promise<void>): void {
     this.builtins = registerBuiltins;
     this.packages = loadPackages ?? null;
     this.client.onStatus((status, detail) => {
@@ -413,7 +413,9 @@ export class App {
         // Through the page's counted table: a space subscribing to the same topic and leaving again
         // does not take it from the shell.
         topicsOf(this.client).subscribe("harnix.sessions.status", {}, (value) => this.applyStatus(value));
-        this.builtins?.(this);
+        // Awaited: a built-in space the backend has to be asked about (the flow space) is there
+        // before the stored front space is looked for.
+        await this.builtins?.(this);
         this.landOnASpace();
         await this.packages?.(this, hello);
       }

@@ -25,6 +25,7 @@ cannot ask for replay, and outside replay the fixture name means nothing.
 | `flow-guarded` | xops-02: `TodoWrite` (refused by the session's `deny` permission rule), then `StructuredOutput {done: true}`, then a line of text |
 | `flow-author-unfocused` | xops-02: a `flow-author` conversation calls `flow_update` with no flow selected (and is told to ask for a selection) |
 | `flow-author-edit` | xops-02: three `flow-author` turns — `flow_schema`, `flow_validate`, `flow_create` · `flow_show`, `flow_update`, `flow_dry_run` · `flow_delete` — with a filler `[]` between turns, as in `flow-shared` |
+| `flow-ui-edit` | xops-02 §7, the flow space in the browser: one `flow-author` turn — `flow_show`, then `flow_update` with the empty application's `example-review` retitled "Example: reviewed in conversation", then a line of text — and a filler `[]` for the memory extraction after it. Made from `flow-author-unfocused` by hand |
 | `runs-a-while` | A `Bash` call that waits four seconds (in `perl`: the engine refuses a `sleep` of 2 s or more): a turn that is still running when something is steered into it (ipdrun-13). Made the same way |
 
 ## Re-recording one

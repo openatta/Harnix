@@ -6,6 +6,9 @@
 import type {
   CatalogEntry,
   CheckRec,
+  DefSummary,
+  DryRunSummary,
+  Problem,
   ExecutorKind,
   FlowDef,
   FlowMethod,
@@ -35,6 +38,46 @@ export function runsTopic(module: string): string {
 /** Subscribed with `{run}`. */
 export function runTopic(module: string): string {
   return `app.${module}.run`;
+}
+
+/** The flows' list, re-sent after every save and delete. */
+export function defsTopic(module: string): string {
+  return `app.${module}.defs`;
+}
+
+/** Subscribed with `{instance, session_id}`: the flow that conversation works on. */
+export function focusTopic(module: string): string {
+  return `app.${module}.focus`;
+}
+
+/** The dry runs kept. */
+export function dryRunsTopic(module: string): string {
+  return `app.${module}.dry_runs`;
+}
+
+/** A dry run's id: the sandbox's runs are `dry-…`. */
+export function isDryRun(run: string | null | undefined): boolean {
+  return typeof run === "string" && run.startsWith("dry-");
+}
+
+/** The defs method's or topic's value: the list itself, or `{defs: […]}`. */
+export function defsOf(value: unknown): DefSummary[] {
+  if (Array.isArray(value)) return value as DefSummary[];
+  const defs = (value as { defs?: unknown } | null)?.defs;
+  return Array.isArray(defs) ? (defs as DefSummary[]) : [];
+}
+
+/** The dry runs' list: the list itself, or `{runs: […]}`. */
+export function dryRunsOf(value: unknown): DryRunSummary[] {
+  if (Array.isArray(value)) return value as DryRunSummary[];
+  const runs = (value as { runs?: unknown } | null)?.runs;
+  return Array.isArray(runs) ? (runs as DryRunSummary[]) : [];
+}
+
+/** A problem as one line: `station path: message`. */
+export function problemText(p: Problem | string): string {
+  if (typeof p === "string") return p;
+  return [p.station, p.path].filter(Boolean).join(" ") + (p.station || p.path ? ": " : "") + p.message;
 }
 
 /** The run id in what `start` answered: an id, `{run}`, `{id}`, `{value: …}` or a run view. */

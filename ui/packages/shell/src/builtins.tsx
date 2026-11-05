@@ -13,6 +13,7 @@ import { Disclosure, STATUS_GLYPH, ToolDetails, t, toolArgs, toolDisplayName, TO
 
 import type { App, ShellSession } from "./app.ts";
 import { Labelled, RequestPanel, RequestRow, type RequestBlock } from "./envelope.tsx";
+import { registerFlow } from "./flow.ts";
 import { Glyph } from "./glyph.tsx";
 import { ProjectsSidebar } from "./projects.tsx";
 import { SessionsSidebar } from "./sessions.tsx";
@@ -22,11 +23,12 @@ import { registerSystem } from "./system.tsx";
 const OWNER = "builtin";
 
 /**
- * The three built-in spaces — conversations by time, conversations by project, the system — are
- * examples an application keeps or drops (`[shell] spaces`). Whatever it drops is not registered at
- * all, so the frame is the fixed chrome plus whichever spaces are left.
+ * The built-in spaces — conversations by time, conversations by project, the system, and the flows
+ * when the backend has the flow module — are examples an application keeps or drops (`[shell]
+ * spaces`). Whatever it drops is not registered at all, so the frame is the fixed chrome plus
+ * whichever spaces are left. Settles once the flow space, which the backend is asked about, is in.
  */
-export function registerBuiltins(app: App): void {
+export async function registerBuiltins(app: App): Promise<void> {
   const r = app.registry;
   const keeps = (space: string) => app.snapshot.hello?.shell?.spaces?.includes(space) ?? true;
 
@@ -114,6 +116,8 @@ export function registerBuiltins(app: App): void {
   );
 
   for (const section of builtinSections(app)) r.register("settings.section", section, OWNER);
+
+  await registerFlow(app, keeps);
 }
 
 /* ── tool rows ────────────────────────────────────────────────────────── */

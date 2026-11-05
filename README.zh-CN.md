@@ -24,7 +24,7 @@ cargo build --release
 ```
 
 Rust 1.87 或更新，界面要 Node 和 pnpm。`--recurse-submodules` 不能少：Agix 在 `agix/`。跑起来的是空应用：
-Harnix 自带的三个 space，别的什么也没有。
+Harnix 自带的 space——会话、项目、流程、系统——别的什么也没有。
 
 不需要任何环境变量。没配模型也能启动，页面会提示：点 **配置模型**（或头像 → **设置 → 模型与凭据**）添加
 模型服务，可以配多个，每个是 Anthropic 或 OpenAI 兼容的 API，其中一个是默认。写进全局的
@@ -80,7 +80,7 @@ icon = "brand.svg"
 product_id = "hello-app"         # 状态在 ~/.hello-app
 
 [shell]
-spaces = ["sessions", "projects"]   # 留哪些内建 space（不写就是三个都留）
+spaces = ["sessions", "projects"]   # 留哪些内建 space（不写就是都留）
 
 [ui]
 runtime_modules = true           # 装上的包的界面模块

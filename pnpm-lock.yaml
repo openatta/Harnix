@@ -131,6 +131,9 @@ importers:
       '@harnix/core':
         specifier: workspace:*
         version: link:../core
+      '@harnix/flow':
+        specifier: workspace:*
+        version: link:../flow
       '@harnix/react':
         specifier: workspace:*
         version: link:../react

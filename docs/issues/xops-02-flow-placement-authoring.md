@@ -284,3 +284,52 @@ XOps 的维护者在 xops-01 之后要求：流程会话要能落到不同的实
 - 交了结构化输出、但那一轮在重启时还没结算的任务，重启后按「没交」提醒一次（回放下没有录像，会失败后按 `retry` 重派）。
 - 组内部分开放的受限分组不拒整组（见上），协议层如实只列出被拒的。
 - `schema::minimal` 给数组的是 `minItems` 个（缺省 0）：`foreach` 站在试运行里不给 `mocks` 就没有任务、直接通过。
+
+### 外壳一半（分支 `flow-2`）
+
+**外壳怎么知道有流程模块**（`ui/packages/shell/src/flow.ts`）：`registerBuiltins` 改成异步、`App.boot` 等它注册完再找落地的 space。
+`harnix.reachable` 里有 `app.flow.defs` 才有；space 的 id 取 `harnix.spaces.list` 里 `scene === "flow-author"` 的那项（缺省 `flow`，
+列表取不到时按 `flow`，列表里没有这样的 space 就不注册）；`[shell] spaces` 里写的 `flow` 指这个内建 space（不论后端 space 叫什么）。
+
+**唯一的后端改动**：`[shell] spaces` 原来只认 `sessions projects system`，写 `flow` 进程起不来、缺省也不含它——外壳因此永远
+`keeps("flow") == false`。`BUILTIN_SPACES` 加 `flow`（`crates/instance/src/profile.rs`，缺省全留；单测补一句）。只影响界面：
+中枢不按它撤任何方法。显式列了内建 space 的 profile（没写 `flow`）从此不显示流程 space，这正是 §7 要的去掉方式。
+
+**布局**（`registerFlowSpace`，`@harnix/flow`；`SpaceContribution` 用到的字段）：
+
+- `center: "chat"`，不给 `sidebar`（左栏是这个 space 的会话）、不给 `newSession`（可新建）、不给 `overview`；会话的 scene 由后端
+  space 声明（`flow-author`），外壳建会话时不指定。
+- `composerNotice(session)`：`当前流程：<标题> <name>`，取该会话的 `focus`（主题，未到时取右栏选择）；没有就提示先在右栏选、
+  新建不需要选。不拦发送。`notice()`（新对话首页）同义，`placeholder()` 换成编写流程的说法。
+- `tabs`：`<space>.flows`「流程」、`<space>.runs`「运行」、`<space>.reference`「参考」（`align: "end"`）；`details: "open"`、
+  `detailsWidth: 560`。
+  - 流程：列表（标题、来源徽标 内置 / 已改 / 自建、无效徽标；`defs` 主题，主题未到时用方法），选中流程的定义图（点站看站的定义，只读）、
+    `problems`、skill 正文（只读）、它的试运行（`dry_runs` 主题）与「试运行」按钮（`dry_run.start {flow}`，开出来的显示在运行页）。
+    列表的 `digest` 变了就重读 `def`（对话里改过）。
+  - 运行：选中流程的正式运行（`runs`）与试运行合在一个列表（试运行带徽标）；「启动运行」（`StartForm`，预选当前流程）、「试运行」；
+    选一条画运行图（`run {run}`，没值时 `get`）、头部的状态与取消；试运行多一排「单步 / 跑到底」（`dry_run.step` / `dry_run.run`，
+    显示这次走了几步、还排几项）；点站看 `StationPanel`（确认、驳回、强制、返工、放行、重试保留；**新加**：`external` 任务 `ready`
+    时「交付…」——`claim` 再带 token `submit`；试运行的 session 任务显示 `preview`：scene、交法与 `message` 全文）。
+  - 参考：`FlowReference`（字段、目录——目录多了 templates / instances / spaces / models），校验框保留但只校验、不保存，并写明。
+- 去掉了 xops-01 的中区总览、运行头部（挪进运行页）与左栏的 `RunList`（组件仍导出给自己编外壳的应用）。
+
+**选择 ↔ focus**（`FlowSpaceState`，`ui/packages/flow/src/state.ts`）：选流程即对本 space 打开的会话调 `focus`；`host.session.onChange`
+换到本 space 的另一个会话时，有选择就把选择发过去，没选择就接过那个会话记着的；订阅当前会话的 `focus {instance, session_id}`，
+Agent 建的流程被选中、删掉的清掉选择；自己那次 `focus` 还没回时到的旧值不跟。别的 space 的会话不碰。`registerFlowSpace({host})`
+时立刻接上，否则 space 的任一部分第一次画出来时接上。
+
+**测试**
+
+- 单元：`flow/test/space.test.tsx`（选择即 focus：选时发、换会话再发、别的 space 不发、跟主题、接过会话自己的、未回不跟旧值；
+  输入框上方的提示两种文案；流程页列表 / 徽标 / 图 / skill / 试运行列表 / 不调任何写方法、digest 变就重读；运行页列表合并与过滤、
+  试运行有控制而正式运行没有、点站看站；单步与跑到底的调用与结果、结束后禁用；`preview` 与 external 交付），`components.test.tsx`
+  改了注册断言；`shell/test/flow-space.test.ts`（探测、改名、取不到列表、`[shell] spaces` 去掉、没有模块）。`tests/style-lint.mjs`
+  的扫描加上 `ui/packages/flow`。
+- LIVE 界面 `tests/live/ui/flow.spec.ts`（空应用 `harnix`、缺省 `ui/dist`、回放）6 条：有流程 space、列出 `example-review`、选中画图、
+  新对话的提示写它、`focus` 主题是它、参考页；对话里让 Agent 改（新录像 `flow-ui-edit`：`flow_show` → `flow_update` → 一句话，
+  在界面上允许权限卡），右栏列表、标题、digest、提示都跟着变、来源变「已改」；没选择时（录像 `flow-author-unfocused`）Agent 转告「请先选择」；
+  运行页试运行：单步、跑到底、停在确认、看 `preview`、确认后结束、流程页的试运行列表里也有；正式运行：启动、在列表与图里、session 站
+  （空应用没给录像名，回放下会失败成 `unmet`）在站详情里强制通过、确认、运行完成；`[shell] spaces` 去掉 `flow` 的 profile 没有这个 space
+  （模块仍在）。没有流程模块的后端：`examples/hello-app`，`ui/spaces.spec.ts` 本来就断言它的 space 只有 `sessions projects greeter notes`。
+- `coverage.md` 重生成（flow：API 19、界面 6）。`budget`：界面 gzip 166 KB → 186 KB（额度 300 KB），不调。`check.sh` 不用改
+  （`target/testapp-ui` 后端一半已去掉）。

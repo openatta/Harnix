@@ -37,7 +37,18 @@ export interface HookRef {
 export type SessionAlloc = "new" | "per_run" | { key: string };
 
 export type Executor =
-  | { kind: "session"; scene: string; template?: string | null; session?: SessionAlloc | null }
+  | {
+      kind: "session";
+      scene: string;
+      session?: SessionAlloc | null;
+      /** Where the session runs and on what model (xops-02 §1); each optional. */
+      model?: string | null;
+      provider?: string | null;
+      instance?: string | null;
+      template?: string | null;
+      params?: Record<string, string> | null;
+      space?: string | null;
+    }
   | { kind: "program"; step: string }
   | { kind: "external"; who?: string | null }
   | { kind: "subflow"; flow: string; inputs?: Record<string, unknown> | null };
@@ -148,6 +159,26 @@ export interface TaskRec {
   session?: TaskSessionRef | null;
   /** The child run of a `subflow` task. */
   child?: string | null;
+  /** A dry run's session task: what its session would have been sent (xops-02 §5). */
+  preview?: TaskPreview | null;
+}
+
+/** How a session task's output comes back: structured output (the default) or `flow_submit`. */
+export type Delivery = "structured_output" | "flow_submit";
+
+/**
+ * A dry run's session task, mocked: the session it would have opened and the whole first message
+ * it would have been sent (protocol layer and skill).
+ */
+export interface TaskPreview {
+  round?: number | null;
+  attempt?: number | null;
+  scene?: string | null;
+  message: string;
+  placement?: Record<string, unknown> | null;
+  delivery?: Delivery | string | null;
+  output_schema?: JsonSchema | null;
+  session_key?: string | null;
 }
 
 /** How an exit condition was judged: `wait` while a gate, a confirmation or children are outstanding. */
@@ -271,11 +302,17 @@ export interface History {
 
 /* ━━ ③ The module's other answers ━━ */
 
-/** One line of `app.flow.defs`. */
+/** Where a flow comes from: built in, a saved copy over a built-in one, or written here. */
+export type Origin = "builtin" | "override" | "user";
+
+/** One line of `app.flow.defs` and of the `app.flow.defs` topic. */
 export interface DefSummary {
   name: string;
   title?: string | null;
   digest: string;
+  origin?: Origin | null;
+  /** False: it does not validate against this application's catalog (it cannot be started). */
+  valid?: boolean | null;
 }
 
 /** `app.flow.def {name}`: the parsed definition, its YAML, its digest, and the bodies of the skills it names. */
@@ -286,6 +323,43 @@ export interface DefInfo {
   skills?: Record<string, string> | null;
   /** The protocol layer each station's sessions get, by station id, when the module gives it. */
   protocol?: Record<string, string> | null;
+  origin?: Origin | null;
+  valid?: boolean | null;
+  /** What keeps it from validating; empty when valid. */
+  problems?: (Problem | string)[] | null;
+  /** Whether the packs can be written (the conversation's tools save there). */
+  writable?: boolean | null;
+}
+
+/** One line of `app.flow.dry_run.list` and of the `app.flow.dry_runs` topic. */
+export interface DryRunSummary {
+  id: string;
+  flow: string;
+  status: RunStatus;
+  created_at: Millis;
+}
+
+/** One piece of work a dry run took: a mocked task, a gate, a tool exit… */
+export interface DryStep {
+  kind: string;
+  run: string;
+  station?: string | null;
+  task?: string | null;
+  gate?: string | null;
+  result?: unknown;
+}
+
+/** `app.flow.dry_run.step` / `dry_run.run`: what was taken, what is still queued, the run's status. */
+export interface DryProgress {
+  run: string;
+  steps: DryStep[];
+  pending: number;
+  status: RunStatus;
+}
+
+/** The `app.flow.focus {instance, session_id}` topic and the `focus` method's answer. */
+export interface Focus {
+  flow: string | null;
 }
 
 /** An entry of the app's catalog: a bare name, or a name with what it is. */
@@ -299,6 +373,11 @@ export interface Catalog {
   tools?: CatalogEntry[] | null;
   actions?: CatalogEntry[] | null;
   skills?: CatalogEntry[] | null;
+  templates?: CatalogEntry[] | null;
+  instances?: CatalogEntry[] | null;
+  spaces?: CatalogEntry[] | null;
+  models?: CatalogEntry[] | null;
+  writable?: boolean | null;
 }
 
 /** One structural problem from `app.flow.validate`. */
@@ -351,4 +430,9 @@ export type FlowMethod =
   | "release"
   | "retry"
   | "cancel"
-  | "proposal";
+  | "proposal"
+  | "focus"
+  | "dry_run.start"
+  | "dry_run.step"
+  | "dry_run.run"
+  | "dry_run.list";

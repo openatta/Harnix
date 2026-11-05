@@ -186,7 +186,8 @@ icon = "brand/helm.svg"        # 品牌图标（SVG），相对 profile 所在�
 product_id = "helm"            # 程序自己的目录 ~/.helm（§4）；小写字母、数字、`-`，字母开头；不写是 harnix
 
 [shell]
-spaces = ["sessions", "projects", "system"]   # 留哪些内建 space；不写是三个都留，[] 是一个不留
+spaces = ["sessions", "projects", "system", "flow"]   # 留哪些内建 space；不写是都留，[] 是一个不留
+                               # flow：流程 space，只在后端注册了流程模块时出现（xops-02 §7）
                                # 去掉 system 时它的方法一起撤：谁也声称不了系统 space，也不能跨 space 操作
 model_switch = false           # true：加 harnix.sessions.setModel，没有系统 space 也能在输入框换模型（只限调用方声称的 space 的会话）
 new_session = true             # false：整个外壳不画「新会话」、⌘K 不归外壳（每个 space 都这样；space 自己的 newSession 照旧叠加）；只是界面

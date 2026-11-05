@@ -116,7 +116,7 @@ icon = "brand/helm.svg"          # 相对 profile
 product_id = "helm"              # 程序自己的配置与状态放 ~/.helm（不配就是 ~/.harnix），见 §5.4
 
 [shell]
-spaces = ["sessions", "projects"]   # 留哪些内建 space：这里去掉了系统 space（产品里一般关掉调试面）
+spaces = ["sessions", "projects"]   # 留哪些内建 space：这里去掉了系统 space（产品里一般关掉调试面）与流程 space
 # new_session = false            # 不写是 true；false：哪个 space 都不画「新会话」、⌘K 不新建（会话由应用自己建）
 # narrow_details = "beside"      # 不写是 over；beside：≤ 960 宽时右栏不盖住中区，三栏并排
 
@@ -159,7 +159,8 @@ runtime_modules = false          # 不加载运行期包的界面模块（见 §
    钉的那个 Agix（`git -C harnix ls-tree HEAD agix` 看得到）。
 2. 跑 `node harnix/scripts/sync-app-deps.mjs .`，再跑 `node harnix/scripts/check-pins.mjs .`。
 3. `scripts/build.sh`，然后 `./target/release/<app> --profile profiles/<app>.toml`。
-4. 打开启动链接，看到空应用：会话、项目、系统三个内建 space，头像即设置。
+4. 打开启动链接，看到空应用：会话、项目、流程、系统四个内建 space，头像即设置（流程 space 只在后端注册了流程模块时出现，
+   空应用 `harnix` 注册了；你的应用 `.module(Flow…)` 了才有）。
 5. 在 `spaces/` 下加第一个 space，在 `app/src/main.rs` 里 `.module(...)` 加上它；它的界面入口
    `spaces/<x>/ui/src/index.tsx` 由模板的 `scripts/build.sh` 自动接进构建（§8.2）。
 6. 在 profile 里写上 `[brand]`，`[shell] spaces` 留下你要的内建 space。
@@ -529,8 +530,15 @@ r.register('flow.block', {
 | 右栏 | `tabs`：数组，或随选中项变的函数 | 只有详情页 |
 
 不随 space 变的只有外壳的固定部分：顶部的标识、新建对话、搜索，底部的头像（设置入口，外圈表示连接）。
-Harnix 自带的三个 space——会话、项目、系统——都是用例，你的产品用 `[shell] spaces` 决定留哪些；Harnix
-本身做薄，产品面都是你的 space。
+Harnix 自带的 space——会话、项目、系统，以及后端有流程模块时的流程（`flow`）——都是用例，你的产品用
+`[shell] spaces` 决定留哪些；Harnix 本身做薄，产品面都是你的 space。
+
+流程 space（xops-02 §7，`@harnix/flow` 的 `registerFlowSpace()`，外壳自己注册）：外壳启动时 `harnix.reachable` 里有
+`app.flow.defs` 就有它，id 取 `harnix.spaces.list` 里 scene 为 `flow-author` 的那个（缺省 `flow`）；`[shell] spaces`
+里的 `flow` 指它。中区是对话（会话跑 `flow-author`，Agent 用编写工具改流程），输入框上方（`composerNotice`）写着当前流程；
+右栏三页「流程 / 运行 / 参考」只呈现、不编辑定义——选中的流程就是当前对话的当前流程（`app.flow.focus`）；运行页能试运行
+（单步 / 跑到底）、启动正式运行，站详情里确认、驳回、强制、返工、放行、重试、交付。自己编外壳的应用照
+`ui/packages/flow/demo/register.tsx` 调 `registerFlowSpace(registry, {host})`。
 
 ```tsx
 // ui/src/index.tsx —— 构建时由 virtual:harnix-modules 接进外壳（examples/hello-app 是完整的例子）
