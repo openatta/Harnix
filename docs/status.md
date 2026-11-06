@@ -95,7 +95,7 @@
 
 | 日期 | 事 |
 |---|---|
-| 2026-11-06 | xops-04 落地：分支 `flow-4` 快进合并进 main（`a8dbb79`…，未推送）；独立评审 6 条都改了；全量 `check.sh` 含模型层过（api 层一次 ipdrun-07 回收计时用例偶发失败，重跑过；`instances.spec.ts` 收尾改用 `dispose()`） |
+| 2026-11-06 | xops-04 落地：分支 `flow-4` 快进合并进 main（`a8dbb79`…`8d4d343`，未推送）；独立评审 6 条都改了；全量 `check.sh` 含模型层过（api 层一次 ipdrun-07 回收计时用例偶发失败，重跑过；`instances.spec.ts` 收尾改用 `dispose()`） |
 | 2026-11-06 | xops-04 外壳与 demo：外壳的二级栏（`secondary`）与空会话说明（`emptyConversation`）；流程 / 运行详情进二级栏；demo 包补规则、策略、门禁、钩子，第一次启动时在回放下把会话剧本说一遍 |
 | 2026-11-06 | xops-04 后端：流程包加规则、策略与权限（每次工具调用 deny > ask > allow，由模块答，`ask` 等人，运行 `waiting: approval`）、门禁（tool / command / host）、钩子（webhook，不写在流程里）；`writes`、`tool` 出站、流程的 `hooks` 与 `Hooks` trait 取消 |
 | 2026-11-06 | xops-03 落地：分支 `flow-3` 快进合并进 main（`458732f`…`ac23191`，未推送）；评审 7 条都改了；全量 `check.sh` 含模型层 11 层过 |
