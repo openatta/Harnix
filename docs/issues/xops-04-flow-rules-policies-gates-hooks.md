@@ -234,3 +234,81 @@ xops-03。不需要 Agix 新接口（`ask` 规则 + `respondToPrompt` 是现成�
 ## 来源
 
 用户 2026-11-06 的反馈与讨论（详情布局、XForge 四者的沿用、钩子、demo 会话）。
+
+## 实现记录
+
+### 内核（`harnix-flow`）
+
+- `kernel/parts.rs`（新）：`PartKind`；规则的标题与正文；`Permission` / `PolicyDef` / `Granted`；`permissions_of`、
+  `rules_of`、`asked_tools`；`judge`（规范化路径、拆开的命令、项目外转人）、`resolve_permission`（值转义、空引用失败朝安全）、
+  `glob`；`GateDef`（tool / command / host）、`HookDef`（`webhook`）；`Pinned` 与 `pin`、`uses`、`part_schema`。
+- 定义：流程与站有 `rules` / `policies` / `permissions`；`writes`、`tool` 出站、`hooks`、`HookRef` 取消。
+- `Packs` 按种类读写件（`part` / `parts` / `save_part` / `delete_part` / `part_origin`，以及 `rule` / `policy` / `gate` /
+  `hook` / `hooks`）；`MemPacks`、`DirPacks` 照此改（`DirPacks` 的目录合并补上 `submit_scenes` 与 `main_scene`）。
+- 运行记录 `parts`（建立时钉住策略与门禁）；站记录 `rule_digest`；任务 `asking`；`Phase` 的 `approval`；
+  事件加 `run.paused` / `run.resumed` / `task.asking`；`Engine::asking`（核对认领令牌）、`save_part` / `delete_part`
+  （回 `broken`）、`with_workspaces` / `workspace`（引用 `${workspace}`）。
+- 派工的 `WorkItem::Task` 带 `rules`（名字与进站时的摘要）与 `permissions`（已解析）；`tool` 门禁判站时当场判，
+  `command` / `host` 门禁出 `WorkItem::Gate`；`Hooks` trait 与 `WorkItem::Hook` 取消；`Catalog.actions` 换成
+  `command_gates`。
+- 校验：引用的规则、策略、门禁在包里；权限的工具模式与引用；件自己的问题（`part_problems`）；共享会话不再比写权限。
+- 协议层：列出这一站的权限（含来源）、门禁说明、受限工具；任务消息在 skill 之前放规则。
+
+### 模块
+
+- 每个流程会话（主会话、独立会话）建时对「受限工具 ∪ 权限提到的工具」各一条 `ask` 规则（`flow_rules`）；独立会话也被
+  盯着（`watch` 在返回前就接上事件流）。只答自己让问的工具；按这一轮所属任务的权限判；`ask` 留给人并标 `asking`，
+  工具结果（`id`）或这一轮结束时解除；子 Agent 的询问按同名工具最近一次的输入判；认不出的轮次算会话绑定的任务。
+- 命令门禁（`FlowBuilder::command_gates`）：干净的环境、上下文文件、工作目录下的相对 `cwd`、进程组、限量输出。
+- 钩子（`module/hooks.rs`，新）：每个钩子一个有界队列与投递进程，重试、签名（带时间戳）、回环不走代理、URL 遮挡、
+  闲置退出；`app.flow.hooks`。
+- 方法：`app.flow.def` 回 `parts` / `hooks` / `stations`，协议预览含规则；`parts` / `part` / `part.save` /
+  `part.delete` 取代 `skill.*`；`catalog` 回 `checks` / `command_gates` / `guarded` / `parts`；`sessions` 给没有主会话的
+  运行补开一个。作者工具 `flow_part_set` / `flow_part_delete` 取代 `flow_skill_*`，`flow_create` / `flow_update` 带
+  `parts`，`flow_show` 带件与钩子。`FlowBuilder::conversation_recording`。
+- 空应用（CLI）：例子带规则 `review-honest` 与策略 `read-only`；命令门禁打开；回放时流程会话的录像名
+  `flow-run-<run>` / `flow-conversation-<flow>` / `flow-conversation`。testapp：`demo-asked`、规则、策略、三种门禁。
+
+### 外壳（`4aaaa0a`）
+
+- `@harnix/react` 的 space 可以声明 `secondary()`（二级栏：键、标题、正文、`onClose`、宽度）与
+  `emptyConversation(session)`；外壳中区成为 `#centre`（会话 + 二级栏），二级栏有自己的宽度与拖动，关掉只清选中详情，
+  右栏最大化时隐藏，窄屏浮在会话上。
+- 流程 space：右栏只放列表；流程详情（逻辑框图、定义、配套、YAML）与运行详情进二级栏；`approval` 与任务的 `asking`；
+  三种会话的空会话说明（中英文）。
+
+### demo
+
+- `scripts/demo/` 补规则、策略、门禁、钩子，四条流程引用它们；`demo_seed` 读整个包、替运行答命令门禁，时间线结束在现在。
+- 会话：`conversations.json` 是剧本，`recordings.py` 生成录像，`talk.mjs` 在 `--replay-dir` 下把剧本说给应用；
+  `harnix-demo.sh` 第一次启动时做这一步，程序从 demo 目录启动（会话看不到这个仓库）。
+
+### 测试
+
+- Rust：`tests/parts.rs`（5 条）与内核单元测试（判定、路径、命令、引用、钩子过滤、HMAC、URL）；原有测试改成新写法。
+- LIVE api：`flow-parts.spec.ts`（4 条：等人批后门禁通过、件的读写、命令门禁的干净环境、钩子按序收到事件）；
+  `flow.spec.ts`、`flow-placement.spec.ts`、`flow-authoring.spec.ts`、`flow-empty-app.spec.ts` 改成新写法；
+  录像 `flow-asked`（新）、`flow-author-edit` 的 `flow_create` 改用 `parts`。LIVE ui：`flow.spec.ts` 9 条覆盖二级栏、
+  定义与配套、关闭二级栏、空会话说明。
+- `instances.spec.ts` 收尾改用 `dispose()`：全量跑时 `stop()` 不等进程退出就删目录，撞上 `ENOTEMPTY`（ipdrun-03 那个竞争）。
+
+### 评审后的修改（`b54474e`）
+
+| # | 问题 | 改法 |
+|---|---|---|
+| 1 | 模块答了任务轮次里的**每个**询问，引擎自己的（项目外读写、`WebFetch`、`Monitor`）也被放行 | 只答自己让问的工具；放行但碰到项目外路径的转人 |
+| 2 | 路径按原文比，`..` / 相对路径 / `//` 能绕过；`deny` 要所有路径都中 | 规范化；`deny` / `ask` 任一路径中即中，`allow` 要全中 |
+| 3 | 命令是带前缀的 glob，`ls; curl … \| sh` 能过 `ls*` | 拆成单条；`allow` 不放行带替换、重定向的整行；`deny` 在链里找 |
+| 4 | 命令门禁继承整个环境（模型密钥、钩子密钥）、相对 `cwd` 跟进程走、超时只杀 `sh`、输出不限量、上下文太大起不来 | 干净环境、工作目录下的 `cwd`、杀整组、限量、上下文文件 |
+| 5 | 等人批不随工具结果解除（看错了字段）、子 Agent 的询问进不了、重新派工带着旧的 | 看 `id`；按同名工具；认领时清空；`asking` 核对令牌 |
+| 6 | 重启或积压后认不出轮次，询问挂到时限被拒 | 认不出的算会话绑定的任务 |
+| — | 引用为空放宽模式、值里的 `*`；钩子队列无界、闲置进程不走、签名可重放、URL 带凭据被列出、回环判断不全 | 都改了 |
+
+没改的：命令模式只看命令的文字，`git -C . push` 这类写法 `deny` 拦不住；`Grep` / `Glob` 从被拒目录的上层搜仍能看到内容
+（路径范围本身的局限）；钩子事件在并发的提交之间可能乱序，`run` 是投递时的样子（最后这条写在钩子一节）。
+
+### 已知
+
+- 子 Agent 的询问只能按同名工具最近一次调用判，同一时刻几个子 Agent 调同一个工具时可能张冠李戴（Agix 的询问不带调用 id；
+  草稿 09 的宿主起子 Agent 接口落地后可以改按会话判）。
+- 人只有实例的批准时限（缺省 300 秒）来答 `ask`。

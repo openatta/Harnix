@@ -25,7 +25,7 @@ test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
   backend = await startTestApp({ profile: INSTANCES_PROFILE });
 });
-test.afterAll(() => backend?.stop());
+test.afterAll(async () => backend?.dispose());
 test.beforeEach(async () => {
   api = await connect(backend);
 });
