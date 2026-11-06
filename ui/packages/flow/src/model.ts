@@ -16,6 +16,10 @@ import type {
   Usage,
   FlowDef,
   FlowMethod,
+  Granted,
+  Permission,
+  PartKind,
+  PolicyDef,
   Proposal,
   ProposalHandled,
   RunStatus,
@@ -86,8 +90,8 @@ export interface ToolTarget {
     | "delete"
     | "start"
     | "dry_run"
-    | "skill_set"
-    | "skill_delete"
+    | "part_set"
+    | "part_delete"
     | "pause"
     | "resume"
     | "cancel"
@@ -101,7 +105,9 @@ export interface ToolTarget {
   flow?: string;
   /** The title the YAML it hands in gives (create, update). */
   title?: string;
-  skill?: string;
+  /** The part a `flow_part_*` call writes: its kind and name (xops-04). */
+  part?: string;
+  kind?: PartKind;
   subject?: string;
   /** A run tool's run, and the station (`to` for a rework) it acts on (xops-03 §5). */
   run?: string;
@@ -114,8 +120,8 @@ const AUTHOR_TOOLS: Record<string, ToolTarget["tool"]> = {
   flow_delete: "delete",
   flow_start: "start",
   flow_dry_run: "dry_run",
-  flow_skill_set: "skill_set",
-  flow_skill_delete: "skill_delete",
+  flow_part_set: "part_set",
+  flow_part_delete: "part_delete",
   flow_pause: "pause",
   flow_resume: "resume",
   flow_cancel: "cancel",
@@ -168,8 +174,10 @@ export function toolTarget(name: string | undefined, input: unknown): ToolTarget
   if (tool === "create") {
     out.flow = yamlField(a.yaml, "name");
     out.title = yamlField(a.yaml, "title");
-  } else if (tool === "skill_set" || tool === "skill_delete") {
-    out.skill = text(a.name);
+  } else if (tool === "part_set" || tool === "part_delete") {
+    out.part = text(a.name);
+    const kind = text(a.kind);
+    if (kind && (PART_KINDS as readonly string[]).includes(kind)) out.kind = kind as PartKind;
   } else {
     out.flow = text(a.flow);
     if (tool === "update") out.title = yamlField(a.yaml, "title");
@@ -261,6 +269,64 @@ export function workLabel(s: Station): string {
   if (w.shape === "foreach") return `${kinds} ×N`;
   if (w.shape === "tasks") return `${kinds} ×${w.count}`;
   return kinds;
+}
+
+/* ── rules, policies, permissions, gates (xops-04) ───────────────────── */
+
+export const PART_KINDS: readonly PartKind[] = ["skill", "rule", "policy", "gate", "hook"];
+
+/** A part kind's directory in a pack, the key `app.flow.def`'s `parts` uses. */
+export function partDir(kind: PartKind): "skills" | "rules" | "policies" | "gates" | "hooks" {
+  return ({ skill: "skills", rule: "rules", policy: "policies", gate: "gates", hook: "hooks" } as const)[kind];
+}
+
+/** The rules a station works under: the flow's, then its own, each once (the kernel's order). */
+export function rulesOf(def: FlowDef, s: Station): string[] {
+  return [...new Set([...(def.rules ?? []), ...(s.rules ?? [])])];
+}
+
+/**
+ * What a station's tasks work under, in the kernel's order: the flow's policies, the flow's own
+ * permissions, the station's policies, its own. A policy not in `policies` contributes nothing.
+ */
+export function permissionsOf(def: FlowDef, s: Station, policies: Record<string, PolicyDef> | null | undefined): Granted[] {
+  const out: Granted[] = [];
+  const add = (names: string[] | null | undefined) => {
+    for (const n of names ?? []) for (const p of policies?.[n]?.permissions ?? []) out.push({ ...p, from: `policy ${n}` });
+  };
+  add(def.policies);
+  for (const p of def.permissions ?? []) out.push({ ...p, from: "flow" });
+  add(s.policies);
+  for (const p of s.permissions ?? []) out.push({ ...p, from: `station ${s.id}` });
+  return out;
+}
+
+/** A permission's scope in one line: `paths a, b; commands c; table x`; empty for "every call". */
+export function permissionScope(p: Permission): string {
+  const parts: string[] = [];
+  if (p.paths?.length) parts.push(`paths ${p.paths.join(", ")}`);
+  if (p.commands?.length) parts.push(`commands ${p.commands.join(", ")}`);
+  for (const [k, v] of Object.entries(p.args ?? {})) parts.push(`${k} ${v.join(", ")}`);
+  return parts.join("; ");
+}
+
+/** The title of a part from its text: a YAML part's `title:`, a rule's first `# ` heading, a skill's `name:`. */
+export function partTitle(kind: PartKind, name: string, text: string | null | undefined): string {
+  if (!text) return name;
+  if (kind === "rule") {
+    const m = /^#\s+(.+?)\s*$/m.exec(text.trim().split("\n")[0] ?? "");
+    return m ? m[1]! : name;
+  }
+  if (kind === "skill") return yamlField(text, "description") ?? name;
+  return yamlField(text, "title") ?? name;
+}
+
+/** A gate's title: the run's pinned gate, else the pack's text the module gave; "" when neither says. */
+export function gateTitle(gate: string, info: { parts?: { gates?: Record<string, string | null> | null } | null } | null | undefined, view?: { record: { parts?: { gates?: Record<string, { title?: string | null }> | null } | null } } | null): string {
+  const pinned = view?.record.parts?.gates?.[gate]?.title;
+  if (pinned) return pinned;
+  const t = partTitle("gate", gate, info?.parts?.gates?.[gate]);
+  return t === gate ? "" : t;
 }
 
 export function exitKinds(s: Station): string[] {

@@ -60,6 +60,7 @@ export {
   type Refusal,
   type SidebarGroup,
   type SpaceContribution,
+  type SpaceSecondary,
   type SpaceTab,
   tabsOf,
 } from "./contrib";

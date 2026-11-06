@@ -1,8 +1,9 @@
 /**
  * The frame: banner, three columns and the modal host. A space is the three columns together —
  * its own left column, a centre that is the conversation unless it says otherwise, and its right
- * tabs — inside the chrome that stays: the brand and the avatar. Both side columns are dragged
- * wider or narrower, and remember it.
+ * tabs — inside the chrome that stays: the brand and the avatar. Beside the centre a space may open
+ * a second side panel (`secondary`, xops-04 §7): the details of what is selected on the right. Every
+ * side column is dragged wider or narrower, and remembers it.
  *
  * What is inside the conversation column is `ChatPanel`, the conversation trunk shared with
  * IPDrun (D21).
@@ -27,9 +28,10 @@ import {
   type MentionItem,
   type ModelOption,
   type SpaceContribution,
+  type SpaceSecondary,
 } from "@harnix/react";
 
-import { ask, detailsWidthOf, keyOf, later, orderTabs, safeTabs, type App, type ShellState, type Widths } from "./app.ts";
+import { ask, detailsWidthOf, keyOf, later, orderTabs, safeTabs, secondaryWidthOf, type App, type ShellState, type Widths } from "./app.ts";
 import { useBrand } from "./brand.ts";
 import { followEnvelopes } from "./envelope.tsx";
 import { Glyph } from "./glyph.tsx";
@@ -45,6 +47,7 @@ export function Shell({ app }: { app: App }) {
   // Runs after every child has drawn: whoever waits for this state to be on the page can go on.
   useEffect(() => app.drew());
   const space = spacesOf(app).find((c) => c.id === s.space);
+  const secondary = secondaryOf(app, space);
   return (
     <>
       <Banner app={app} s={s} />
@@ -54,12 +57,22 @@ export function Shell({ app }: { app: App }) {
         data-narrow={app.narrowDetails() === "beside" ? "beside" : undefined}
         data-details={app.detailsOpen(s) ? "open" : "closed"}
         data-details-max={app.detailsOpen(s) && s.detailsMax ? "" : undefined}
+        data-secondary={secondary ? "open" : undefined}
         data-space={s.space}
-        style={{ "--sidebar-width": `${s.widths.side}px`, "--details-width": `${detailsWidthOf(s, space)}px` } as CSSProperties}
+        style={
+          {
+            "--sidebar-width": `${s.widths.side}px`,
+            "--details-width": `${detailsWidthOf(s, space)}px`,
+            "--secondary-width": `${secondaryWidthOf(s, secondary?.width)}px`,
+          } as CSSProperties
+        }
       >
         <Sidebar app={app} s={s} />
         <Resizer app={app} column="side" />
-        <Main app={app} s={s} />
+        <div id="centre">
+          <Main app={app} s={s} />
+          {secondary && space ? <Secondary app={app} space={space} panel={secondary} /> : null}
+        </div>
         {space || s.detail ? <Details app={app} s={s} /> : <aside id="details" aria-hidden />}
       </div>
       <ModalHost app={app} s={s} />
@@ -76,7 +89,13 @@ function Resizer({ app, column }: { app: App; column: keyof Widths }) {
   const start = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     const from = event.clientX;
-    const width = column === "details" ? detailsWidthOf(app.snapshot, spacesOf(app).find((c) => c.id === app.snapshot.space)) : app.snapshot.widths[column];
+    const front = spacesOf(app).find((c) => c.id === app.snapshot.space);
+    const width =
+      column === "details"
+        ? detailsWidthOf(app.snapshot, front)
+        : column === "secondary"
+          ? secondaryWidthOf(app.snapshot, secondaryOf(app, front)?.width)
+          : app.snapshot.widths[column];
     const move = (e: PointerEvent) => app.setWidth(column, column === "side" ? width + (e.clientX - from) : width - (e.clientX - from));
     const up = () => {
       window.removeEventListener("pointermove", move);
@@ -685,6 +704,9 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
   const ref = { instance: current.instance, sessionId: current.sessionId };
   const readOnly = space?.readOnly ? ask(registry, space, () => space.readOnly!(ref), undefined) : undefined;
   const pinned = space?.pinned ? ask(registry, space, () => space.pinned!(ref), null) : null;
+  // Nothing said yet in it: the space may say what this conversation is for.
+  const blank = !!sessionState && !sessionState.loading && !sessionState.failed && sessionState.blocks.length === 0 && !sessionState.turn && !sessionState.queue.length;
+  const emptyHint = blank && space?.emptyConversation ? ask(registry, space, () => space.emptyConversation!(ref), null) : null;
   const spaceNotice = space?.composerNotice ? ask(registry, space, () => space.composerNotice!(ref), null) : null;
   const ids = space?.ids ? globalIds(app, space, ask(registry, space, () => space.ids!(), undefined)) : undefined;
   const steerable = space?.composer?.steer === true;
@@ -729,10 +751,17 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
       notice={notice}
       readOnly={readOnly || undefined}
       pinned={
-        pinned != null && pinned !== false && space ? (
-          <Contributed registry={registry} point="space" contribution={space}>
-            {pinned}
-          </Contributed>
+        (pinned != null && pinned !== false) || (emptyHint != null && emptyHint !== false) ? (
+          space ? (
+            <Contributed registry={registry} point="space" contribution={space}>
+              {pinned != null && pinned !== false ? pinned : null}
+              {emptyHint != null && emptyHint !== false ? (
+                <div className="empty-conversation" data-testid="empty-conversation">
+                  {emptyHint}
+                </div>
+              ) : null}
+            </Contributed>
+          ) : undefined
         ) : undefined
       }
       ids={ids}
@@ -915,6 +944,54 @@ function dataUrl(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
+}
+
+/* ── the second side panel ─────────────────────────────────────────── */
+
+/** The front space's second side panel, if it has one open now; a throw counts as none. */
+function secondaryOf(app: App, space: (SpaceContribution & { owner: string }) | undefined): SpaceSecondary | null {
+  if (!space?.secondary) return null;
+  const panel = ask(app.registry, space, () => space.secondary!(), null);
+  return panel && typeof panel.render === "function" ? panel : null;
+}
+
+/**
+ * What the front space has open beside the conversation: its heading, a close button, its body.
+ * Closing hands it back to the space (`onClose`), which lets go of the selection; the centre stays.
+ */
+function Secondary({ app, space, panel }: { app: App; space: SpaceContribution & { owner: string }; panel: SpaceSecondary }) {
+  const t = useT();
+  const registry = useRegistry(app.registry);
+  const title = ask(registry, space, () => panel.title(), "");
+  return (
+    <aside id="secondary" data-testid="secondary" data-key={panel.key} aria-label={title}>
+      <Resizer app={app} column="secondary" />
+      <div className="strip" data-tauri-drag-region="deep">
+        <div className="title" data-testid="secondary-title">
+          {title}
+        </div>
+        <div className="win">
+          <button
+            type="button"
+            className="icon-btn close"
+            data-testid="secondary-close"
+            title={t("common.close")}
+            onClick={() => {
+              ask(registry, space, () => panel.onClose?.(), undefined);
+              app.redraw();
+            }}
+          >
+            <Glyph name="close" className="glyph" />
+          </button>
+        </div>
+      </div>
+      <div className="body">
+        <Contributed registry={registry} point="space" contribution={space}>
+          {ask(registry, space, () => panel.render(), null)}
+        </Contributed>
+      </div>
+    </aside>
+  );
 }
 
 /* ── details ──────────────────────────────────────────────────────────── */

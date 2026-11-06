@@ -2,7 +2,8 @@
  * The station graph (component A, flow-design §17): one picture in two modes.
  *
  * Definition mode (no run): each station shows its title, its work (executor kind, task count, `×N`
- * for `foreach`), its skill, its exit-condition kinds, and a marker when it fires hooks. Run mode (a
+ * for `foreach`), its skill, its exit-condition kinds, and a marker when it names policies or
+ * permissions of its own (xops-04). Run mode (a
  * `RunView`): the same graph coloured by each station's status, with its round, its task progress,
  * how long it took and its tokens (xops-03 §4), and a mark when it was forced through. `needs` edges
  * are solid, rework edges dashed arcs.
@@ -155,9 +156,13 @@ export function FlowGraph({ def, view, selected, onSelect, layout: options }: Fl
               <text className="hx-flow-line hx-flow-faint" x={10} y={59}>
                 {clipText(line3, units)}
               </text>
-              {!run && (s.hooks?.length ?? 0) > 0 ? (
-                <circle className="hx-flow-hook" cx={n.width - 12} cy={12} r={4} data-testid={`flow-hook-${n.id}`}>
-                  <title>{t("flowui.graph.hooks", { list: (s.hooks ?? []).map((h) => `${h.on} → ${h.action}`).join(", ") })}</title>
+              {!run && ((s.policies?.length ?? 0) > 0 || (s.permissions?.length ?? 0) > 0) ? (
+                <circle className="hx-flow-hook" cx={n.width - 12} cy={12} r={4} data-testid={`flow-guarded-${n.id}`}>
+                  <title>
+                    {t("flowui.graph.guarded", {
+                      list: [...(s.policies ?? []), ...(s.permissions ?? []).map((p) => `${p.effect} ${p.tools.join(", ")}`)].join("; "),
+                    })}
+                  </title>
                 </circle>
               ) : null}
               {!run && s.hold ? (

@@ -2,8 +2,8 @@
  * One station's details (component B, flow-design §17), in two tabs.
  *
  * Definition: what the station is — its work, skill (with the body), scene, the output contract,
- * exit conditions, rework targets, writable tools, hooks, and the protocol layer when the module
- * gives it. Run: what happened to it in this run — status and rounds, what it still lacks, its
+ * exit conditions (a gate with its title), rework targets, its rules and its permissions in the
+ * order they are judged (xops-04), and the protocol layer when the module gives it. Run: what happened to it in this run — status and rounds, what it still lacks, its
  * tasks (claimant, output, error, a link to the session), condition results, confirmations, the
  * forced record, its history — and the hands to act: confirm, reject, force, rework, release, retry,
  * and for an external task, claim and hand in its output. A button that does not apply to the
@@ -22,9 +22,12 @@ import {
   formatDuration,
   formatTime,
   formatTokens,
+  gateTitle,
   leaseUntil,
   methodName,
+  permissionsOf,
   pretty,
+  rulesOf,
   stationActions,
   stationElapsed,
   stationStyle,
@@ -35,14 +38,15 @@ import {
   tokensOf,
   workLabel,
 } from "./model";
-import type { DefInfo, Executor, FlowDef, FlowMethod, History, RunView, Station, TaskRec, TaskSpec } from "./types";
+import { PermissionList, RuleChips } from "./parts";
+import type { DefInfo, Executor, FlowDef, FlowMethod, Granted, History, RunView, Station, TaskRec, TaskSpec } from "./types";
 
 export interface StationPanelProps {
   station: string;
   /** The definition: the run's pinned one when a run is shown. */
   def: FlowDef;
   view?: RunView | null;
-  /** From `def {name}`: skill bodies and, when given, the protocol layer. */
+  /** From `def {name}`: the parts' texts, each station's permissions and, when given, the protocol layer. */
   info?: DefInfo | null;
   /** The module id the application registered the flow module under. */
   module?: string;
@@ -83,7 +87,7 @@ export function StationPanel({ station, def, view, info, module = "flow", initia
           {t("flowui.panel.run")}
         </button>
       </div>
-      {tab === "run" && view ? <RunTab station={s} view={view} module={module} /> : <DefinitionTab station={s} def={def} info={info ?? null} />}
+      {tab === "run" && view ? <RunTab station={s} view={view} module={module} /> : <DefinitionTab station={s} def={def} info={info ?? null} view={view ?? null} />}
     </div>
   );
 }
@@ -107,7 +111,7 @@ function Code({ value, testid }: { value: unknown; testid?: string }) {
   );
 }
 
-function executorText(e: Executor): string {
+export function executorText(e: Executor): string {
   switch (e.kind) {
     case "session": {
       if (!e.scene && (e.session ?? "main") === "main") {
@@ -135,7 +139,14 @@ function executorText(e: Executor): string {
   }
 }
 
-function DefinitionTab({ station: s, def, info }: { station: Station; def: FlowDef; info: DefInfo | null }) {
+/** What a station works under: as the module listed it (`def {name}`), else read off the run's pinned policies. */
+export function stationPermissions(def: FlowDef, s: Station, info: DefInfo | null, view: RunView | null): Granted[] {
+  const listed = info?.stations?.[s.id]?.permissions;
+  if (listed) return listed;
+  return permissionsOf(def, s, view?.record.parts?.policies ?? null);
+}
+
+function DefinitionTab({ station: s, def, info, view }: { station: Station; def: FlowDef; info: DefInfo | null; view: RunView | null }) {
   const t = useT();
   const index = def.stations.findIndex((x) => x.id === s.id);
   const needs = Array.isArray(s.needs) ? s.needs : index > 0 ? [def.stations[index - 1]!.id] : [];
@@ -175,7 +186,7 @@ function DefinitionTab({ station: s, def, info }: { station: Station; def: FlowD
       {s.retry ? <Field label={t("flowui.def.retry")}>{t("flowui.def.retryMax", { n: s.retry.max })}</Field> : null}
       {skills.map((name) => (
         <Field key={name} label={t("flowui.def.skill", { name })} testid={`flow-skill-${name}`}>
-          {info?.skills?.[name] !== undefined ? <pre className="hx-flow-code hx-flow-prose">{info.skills[name]}</pre> : <span className="hx-flow-faint">{t("flowui.def.noBody")}</span>}
+          {typeof info?.parts?.skills?.[name] === "string" ? <pre className="hx-flow-code hx-flow-prose">{info.parts.skills[name]}</pre> : <span className="hx-flow-faint">{t("flowui.def.noBody")}</span>}
         </Field>
       ))}
       {protocol ? (
@@ -189,16 +200,10 @@ function DefinitionTab({ station: s, def, info }: { station: Station; def: FlowD
           {(s.exit ?? []).map((c, i) => (
             <li key={i}>
               <strong>{t("flowui.exit." + c.kind)}</strong>
-              {c.kind === "tool" ? (
+              {c.kind === "gate" ? (
                 <>
                   {" "}
-                  <code>{c.tool}</code>
-                  {c.args || c.assert ? <Code value={{ args: c.args ?? undefined, assert: c.assert ?? undefined }} /> : null}
-                </>
-              ) : c.kind === "gate" ? (
-                <>
-                  {" "}
-                  <code>{c.gate}</code>
+                  <code>{c.gate}</code> <span className="hx-flow-faint">{gateTitle(c.gate, info, view)}</span>
                 </>
               ) : c.kind === "confirm" && c.who ? (
                 ` · ${c.who}`
@@ -214,18 +219,12 @@ function DefinitionTab({ station: s, def, info }: { station: Station; def: FlowD
         </Field>
       ) : null}
       {s.hold ? <Field label={t("flowui.def.hold")}>{t("flowui.def.holdYes")}</Field> : null}
-      <Field label={t("flowui.def.writes")}>{s.writes?.length ? s.writes.map((w) => <code key={w} className="hx-flow-chip">{w}</code>) : <span className="hx-flow-faint">{t("flowui.def.readOnly")}</span>}</Field>
-      {s.hooks?.length ? (
-        <Field label={t("flowui.def.hooks")}>
-          <ul className="hx-flow-list">
-            {s.hooks.map((h, i) => (
-              <li key={i}>
-                <code>{h.on}</code> → <code>{h.action}</code>
-              </li>
-            ))}
-          </ul>
-        </Field>
-      ) : null}
+      <Field label={t("flowui.def.rules")} testid="flow-station-rules">
+        <RuleChips rules={info?.stations?.[s.id]?.rules ?? rulesOf(def, s)} info={info} />
+      </Field>
+      <Field label={t("flowui.def.permissions")}>
+        <PermissionList permissions={stationPermissions(def, s, info, view)} testid="flow-station-permissions" />
+      </Field>
     </div>
   );
 }
@@ -448,6 +447,12 @@ function RunTab({ station: s, view, module }: { station: Station; view: RunView;
                           </button>
                         ) : null}
                       </div>
+                      {task.asking ? (
+                        <div className="hx-flow-asking hx-flow-tone-warn" data-testid={`flow-asking-${task.id}`} data-tool={task.asking.tool}>
+                          {t("flowui.run.asking", { tool: task.asking.tool, since: formatTime(task.asking.since) })}
+                          {task.asking.reason ? <div className="hx-flow-faint">{task.asking.reason}</div> : null}
+                        </div>
+                      ) : null}
                       {task.item !== undefined && task.item !== null ? <div className="hx-flow-faint">{t("flowui.run.item")}: {clipped(task.item)}</div> : null}
                       {task.lease ? (
                         <div className="hx-flow-faint" data-testid={`flow-lease-${task.id}`}>

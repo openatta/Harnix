@@ -67,17 +67,33 @@ export interface Providers {
   default_provider?: string | null;
 }
 
-/** The two side columns' widths, as the reader dragged them. */
+/** The side columns' widths, as the reader dragged them: the left one, the right one, and a
+ *  space's second side panel (xops-04 §7). */
 export interface Widths {
   side: number;
   details: number;
+  secondary: number;
 }
 
-export const WIDTHS: { side: [number, number, number]; details: [number, number, number] } = {
+export const WIDTHS: { side: [number, number, number]; details: [number, number, number]; secondary: [number, number, number] } = {
   // min, default, max
   side: [200, 260, 360],
   details: [320, 360, 480],
+  secondary: [300, 440, 760],
 };
+
+/** The defaults, with what the reader dragged over them. */
+function widthsWith(dragged: Partial<Widths>): Widths {
+  return { side: WIDTHS.side[1], details: WIDTHS.details[1], secondary: WIDTHS.secondary[1], ...dragged };
+}
+
+/** The second side panel's width: what the reader dragged, else what the space asked for, else the default. */
+export function secondaryWidthOf(s: Pick<ShellState, "dragged">, asked: number | undefined): number {
+  const [min, def, max] = WIDTHS.secondary;
+  if (s.dragged.secondary !== undefined) return s.dragged.secondary;
+  if (typeof asked !== "number" || !Number.isFinite(asked)) return def;
+  return Math.round(Math.min(max, Math.max(min, asked)));
+}
 
 /** The right column's widest, for a space that gave `detailsWidth` (480 for the others). */
 export const DETAILS_WIDE_MAX = 720;
@@ -282,7 +298,7 @@ export class App {
       expanded: {},
       theme: storedTheme(),
       project: stored<string | null>(PROJECT_KEY, null),
-      widths: { side: WIDTHS.side[1], details: WIDTHS.details[1], ...stored<Partial<Widths>>(WIDTHS_KEY, {}) },
+      widths: widthsWith(stored<Partial<Widths>>(WIDTHS_KEY, {})),
       dragged: stored<Partial<Widths>>(WIDTHS_KEY, {}),
       menu: false,
       providers: null,
@@ -713,7 +729,7 @@ export class App {
     if (width === null) delete dragged[column];
     else dragged[column] = Math.round(Math.min(widest, Math.max(min, width)));
     remember(WIDTHS_KEY, dragged);
-    this.set({ dragged, widths: { side: WIDTHS.side[1], details: WIDTHS.details[1], ...dragged } });
+    this.set({ dragged, widths: widthsWith(dragged) });
   }
 
   toggleMenu(open?: boolean): void {

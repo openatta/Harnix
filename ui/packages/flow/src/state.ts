@@ -13,6 +13,10 @@
  *   a flow it becomes that flow's, and with nothing selected the flow is selected; a flow deleted
  *   under its own conversation clears the selection.
  *
+ * What is selected is shown beside the conversation, in the shell's second side panel (xops-04 §7):
+ * the flows tab's flow, or the runs tab's run (`detail()`). Closing that panel lets go of the
+ * selection there and leaves the middle as it is (`closeDetail()`).
+ *
  * The wiring needs the host; it starts with `attach(host)` — `registerFlowSpace` does that when it
  * is given one, and every part of the space does it when it is drawn.
  */
@@ -21,6 +25,9 @@ import type { HostSessionRef as SessionRef, NestHost } from "@harnix/react";
 
 import { focusTopic, isDryRun, mainSessionOf, methodName } from "./model";
 import type { FlowConversation, Focus, RunView } from "./types";
+
+/** What the second side panel shows: the flows tab's flow, or the runs tab's run. */
+export type FlowDetailOf = { kind: "flow"; flow: string } | { kind: "run"; run: string };
 
 export interface FlowSelection {
   flow: string | null;
@@ -81,11 +88,7 @@ export class FlowSpaceState {
     if (this.host) return;
     this.host = host;
     host.session.onChange(() => {
-      // Brought to the front: the middle is what the selection says.
-      const front = host.spaces.current() === this.space;
-      const arrived = front && !this.front;
-      this.front = front;
-      if (arrived) void this.centre();
+      this.lookFront();
       this.follow();
     });
     this.front = host.spaces.current() === this.space;
@@ -93,9 +96,28 @@ export class FlowSpaceState {
     host.details?.onTab?.((tab) => {
       if (tab === this.tab) return;
       this.tab = tab;
+      // The panel beside the conversation follows the tab.
+      this.changed();
       void this.centre();
     });
     this.follow();
+  }
+
+  /**
+   * Whether this space came to the front since last looked: then the right column's tab is read
+   * again and the middle put on the selection. Looked at when the session changes and when a part
+   * of the space is drawn — a space switch with no session to change tells nothing else.
+   */
+  lookFront(): void {
+    const host = this.host;
+    if (!host) return;
+    const front = host.spaces.current() === this.space;
+    const arrived = front && !this.front;
+    this.front = front;
+    if (!arrived) return;
+    this.tab = host.details?.tab?.() ?? this.tab;
+    this.changed();
+    void this.centre();
   }
 
   /** A flow chosen in the flows tab: shown, and its conversation opened in the middle. */
@@ -114,6 +136,31 @@ export class FlowSpaceState {
 
   pick(station: string | null): void {
     this.set({ ...this.value, station });
+  }
+
+  /** The right column's tab: the shell's, while this space is in front; else as last seen. */
+  tabNow(): string | null {
+    const host = this.host;
+    if (host && host.spaces.current() === this.space) {
+      const now = host.details?.tab?.();
+      if (typeof now === "string") this.tab = now;
+    }
+    return this.tab;
+  }
+
+  /** What the second side panel shows now: the selection of the tab in front; null for none. */
+  detail(): FlowDetailOf | null {
+    const tab = this.tabNow();
+    if (tab === this.tabs.flows && this.value.flow) return { kind: "flow", flow: this.value.flow };
+    if (tab === this.tabs.runs && this.value.run) return { kind: "run", run: this.value.run };
+    return null;
+  }
+
+  /** The second side panel was closed: what it showed is no longer selected; the middle stays. */
+  closeDetail(): void {
+    const tab = this.tabNow();
+    if (tab === this.tabs.runs) this.set({ ...this.value, run: null });
+    else if (tab === this.tabs.flows) this.set({ flow: null, run: this.value.run, station: null });
   }
 
   /** The session of this space now open, if any. */
@@ -142,6 +189,8 @@ export class FlowSpaceState {
     if (!host || host.spaces.current() !== this.space) return null;
     const generation = ++this.switching;
     const { flow, run } = this.value;
+    // A session opened by someone else while the answer is awaited wins over it.
+    const before = host.session.current();
     let ref: SessionRef | null = null;
     if (tab === this.tabs.runs && run) {
       ref = isDryRun(run) ? await this.conversation(await this.flowOfRun(run)) : await this.mainOf(run);
@@ -151,19 +200,25 @@ export class FlowSpaceState {
       ref = await this.conversation(null);
     }
     if (!ref || generation !== this.switching) return null;
-    await this.open(ref);
+    if (!(await this.open(ref, before))) return null;
     return ref;
   }
 
-  private async open(ref: SessionRef): Promise<void> {
+  /** Open `ref` in the middle, unless the session there is no longer `before` (null: none was open;
+   *  undefined: open it whatever is there — a person asked). Whether it is open now. */
+  private async open(ref: SessionRef, before?: SessionRef | null): Promise<boolean> {
     const host = this.host;
-    if (!host) return;
+    if (!host) return false;
     const now = host.session.current();
-    if (now && now.instance === ref.instance && now.sessionId === ref.sessionId) return;
+    if (now && now.instance === ref.instance && now.sessionId === ref.sessionId) return true;
+    const same = (a: SessionRef | null, b: SessionRef | null) => (a === null ? b === null : b !== null && a.instance === b.instance && a.sessionId === b.sessionId);
+    if (before !== undefined && !same(before, now)) return false;
     try {
       await host.session.open(ref);
+      return true;
     } catch {
       // Gone between the answer and the open: the middle stays as it was.
+      return false;
     }
   }
 

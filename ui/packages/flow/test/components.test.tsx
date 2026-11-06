@@ -33,7 +33,8 @@ const DEF: FlowDef = {
       skill: "analyze",
       output: { type: "object", required: ["findings"] },
       exit: [{ kind: "output" }],
-      hooks: [{ on: "station.passed", action: "notify" }],
+      policies: ["read-only"],
+      permissions: [{ effect: "allow", tools: ["Write"], paths: ["${workspace}/out/**"] }],
     },
     { id: "lint", needs: ["collect"], exit: [{ kind: "gate", gate: "lint" }] },
     { id: "review", needs: ["analyze", "lint"], exit: [{ kind: "confirm", who: "reviewer" }], rework_to: ["analyze", "lint"] },
@@ -91,7 +92,7 @@ function fakeHost(answers: Record<string, unknown> = {}) {
 }
 
 describe("FlowGraph", () => {
-  it("draws the definition: one button per station, needs and rework edges, foreach, hooks", () => {
+  it("draws the definition: one button per station, needs and rework edges, foreach, its permissions marked", () => {
     const { host } = fakeHost();
     const picked: string[] = [];
     render(
@@ -103,7 +104,7 @@ describe("FlowGraph", () => {
     for (const s of DEF.stations) expect(screen.getByTestId(`flow-node-${s.id}`).getAttribute("role")).toBe("button");
     expect(screen.getByTestId("flow-node-analyze").getAttribute("aria-label")).toContain("session ×N");
     expect(screen.getByTestId("flow-node-analyze").textContent).toContain("analyze");
-    expect(screen.getByTestId("flow-hook-analyze")).toBeTruthy();
+    expect(screen.getByTestId("flow-guarded-analyze").textContent).toContain("read-only");
     expect(screen.getByTestId("flow-node-lint").textContent).toContain("gate");
     expect(document.querySelectorAll(".hx-flow-back")).toHaveLength(2);
     expect(screen.getByTestId("flow-node-review").dataset.status).toBeUndefined();
@@ -197,15 +198,36 @@ describe("StationPanel", () => {
     expect(opened).toEqual([{ instance: "flow", sessionId: "s-a" }]);
   });
 
-  it("shows the definition tab with the skill body and the output contract", () => {
+  it("shows the definition tab with the skill body, its rules and permissions, the output contract", () => {
     const { host } = fakeHost();
+    const info = {
+      def: DEF,
+      yaml: "",
+      digest: "d",
+      parts: { skills: { analyze: "Read the module." }, rules: { "no-secrets": "# No secrets\n\nNever." } },
+      stations: {
+        analyze: {
+          rules: ["no-secrets"],
+          permissions: [
+            { effect: "deny" as const, tools: ["Write", "Edit"], message: "look only", from: "policy read-only" },
+            { effect: "allow" as const, tools: ["Write"], paths: ["/ws/r/out/**"], from: "station analyze" },
+          ],
+        },
+      },
+    };
     render(
       <NestProvider host={host}>
-        <StationPanel station="analyze" def={DEF} info={{ def: DEF, yaml: "", digest: "d", skills: { analyze: "Read the module." } }} />
+        <StationPanel station="analyze" def={DEF} info={info} />
       </NestProvider>,
     );
     expect(screen.getByTestId("flow-definition")).toBeTruthy();
     expect(screen.getByTestId("flow-skill-analyze").textContent).toContain("Read the module.");
+    expect(screen.getByTestId("flow-station-rules").textContent).toContain("no-secrets");
+    const perms = screen.getByTestId("flow-station-permissions");
+    expect(perms.querySelectorAll("li").length).toBe(2);
+    expect(screen.getByTestId("flow-station-permissions-0").getAttribute("data-effect")).toBe("deny");
+    expect(screen.getByTestId("flow-station-permissions-0").textContent).toContain("look only");
+    expect(screen.getByTestId("flow-station-permissions-1").textContent).toContain("paths /ws/r/out/**");
     expect(screen.getByTestId("flow-output-contract").textContent).toContain("findings");
     expect((screen.getByTestId("flow-tab-run") as HTMLButtonElement).disabled).toBe(true);
   });

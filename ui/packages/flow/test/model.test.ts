@@ -6,6 +6,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  gateTitle,
+  partTitle,
+  permissionScope,
+  permissionsOf,
+  rulesOf,
   formatDuration,
   formatTokens,
   guideBlocks,
@@ -280,9 +285,13 @@ describe("dictionaries", () => {
       ...STATION_STATUSES.map((s) => `flowui.status.${s}`),
       ...["ready", "claimed", "submitted", "failed", "cancelled"].map((s) => `flowui.task.${s}`),
       ...["active", "finished", "cancelled"].map((s) => `flowui.runStatus.${s}`),
-      ...["output", "tool", "gate", "confirm", "children"].map((k) => `flowui.exit.${k}`),
+      ...["output", "gate", "confirm", "children"].map((k) => `flowui.exit.${k}`),
       ...["reject", "force", "rework", "cancel"].map((k) => `flowui.act.submit.${k}`),
-      ...["scenes", "steps", "gates", "tools", "actions", "skills"].map((k) => `flowui.ref.cat.${k}`),
+      ...["scenes", "steps", "checks", "tools", "guarded", "templates", "instances", "spaces", "models"].map((k) => `flowui.ref.cat.${k}`),
+      ...["skill", "rule", "policy", "gate", "hook"].flatMap((k) => [`flowui.part.kind.${k}`, `flowui.part.kinds.${k}`]),
+      ...["allow", "ask", "deny"].map((k) => `flowui.effect.${k}`),
+      ...["approval", "confirm", "held", "unmet", "failed", "external", "children", "work"].map((k) => `flowui.reason.${k}`),
+      ...["flow", "run", "general"].flatMap((k) => [`flowui.empty.${k}`, `flowui.empty.${k}.title`, `flowui.empty.${k}.ask1`, `flowui.empty.${k}.ask2`, `flowui.empty.${k}.ask3`]),
       "flowui.ref.of.definition",
       "flowui.ref.of.run",
     ];
@@ -358,5 +367,44 @@ describe("the guide's markdown", () => {
       { kind: "text", text: " " },
       { kind: "strong", text: "c" },
     ]);
+  });
+});
+
+describe("rules, policies and permissions, gates (xops-04)", () => {
+  const def = {
+    name: "f",
+    rules: ["no-secrets"],
+    policies: ["tables"],
+    permissions: [{ effect: "deny" as const, tools: ["Bash"] }],
+    stations: [{ id: "emit", rules: ["house", "no-secrets"], policies: ["ro"], permissions: [{ effect: "ask" as const, tools: ["mcp__desk__emit_row"], args: { table: ["orders"] } }] }],
+  };
+  const policies = {
+    tables: { name: "tables", permissions: [{ effect: "allow" as const, tools: ["mcp__desk__*"] }] },
+    ro: { name: "ro", permissions: [{ effect: "deny" as const, tools: ["Write"], paths: ["/etc/**"] }] },
+  };
+
+  it("lists what a station works under in the kernel's order", () => {
+    const s = def.stations[0]!;
+    expect(rulesOf(def, s)).toEqual(["no-secrets", "house"]);
+    expect(permissionsOf(def, s, policies).map((p) => p.from)).toEqual(["policy tables", "flow", "policy ro", "station emit"]);
+    expect(permissionsOf(def, s, null).map((p) => p.from)).toEqual(["flow", "station emit"]);
+  });
+
+  it("says a permission's scope and a part's title", () => {
+    expect(permissionScope({ effect: "allow", tools: ["Write"], paths: ["a/**"], commands: ["ls*"], args: { table: ["x", "y"] } })).toBe("paths a/**; commands ls*; table x, y");
+    expect(permissionScope({ effect: "deny", tools: ["Bash"] })).toBe("");
+    expect(partTitle("rule", "r", "# No secrets\n\nNever.")).toBe("No secrets");
+    expect(partTitle("gate", "g", "name: g\ntitle: Tests pass\nkind: command\n")).toBe("Tests pass");
+    expect(partTitle("policy", "p", null)).toBe("p");
+    expect(gateTitle("ci", { parts: { gates: { ci: "name: ci\ntitle: CI\nkind: host\n" } } })).toBe("CI");
+    expect(gateTitle("ci", null, { record: { parts: { gates: { ci: { title: "Pinned" } } } } })).toBe("Pinned");
+    expect(gateTitle("ci", null)).toBe("");
+  });
+
+  it("names the part a flow_part_* call writes", () => {
+    expect(toolTarget("flow_part_set", { kind: "policy", name: "ro", text: "x" })).toMatchObject({ tool: "part_set", part: "ro", kind: "policy" });
+    const unknown = toolTarget("ns__flow_part_delete", { kind: "nope", name: "ro" });
+    expect(unknown).toMatchObject({ tool: "part_delete", part: "ro" });
+    expect(unknown?.kind).toBeUndefined();
   });
 });

@@ -16,7 +16,7 @@ import { ToolTargetLine } from "../src/ToolTarget";
 import { FlowSpaceState } from "../src/state";
 import { StationPanel } from "../src/StationPanel";
 import { registerFlowStrings } from "../src/strings";
-import { DryControls, FlowsTab, FocusNotice, ReferenceTab, RunsTab, type FlowTabs } from "../src/tabs";
+import { DryControls, EmptyConversation, FlowSecondary, FlowsTab, FocusNotice, ReferenceTab, RunsTab, type FlowTabs } from "../src/tabs";
 import type { DefInfo, DefSummary, FlowDef, RunView } from "../src/types";
 
 afterEach(cleanup);
@@ -38,7 +38,17 @@ const DEFS: DefSummary[] = [
   { name: "broken", title: "Broken", digest: "bbbb", origin: "user", valid: false },
 ];
 
-const INFO: DefInfo = { def: DEF, yaml: "name: example-review\n", digest: "aaaa1111", skills: { review: "Look at the subject." }, origin: "builtin", valid: true, problems: [] };
+const INFO: DefInfo = {
+  def: DEF,
+  yaml: "name: example-review\n",
+  digest: "aaaa1111",
+  parts: { skills: { review: "Look at the subject." }, rules: { "no-secrets": "# No secrets\n\nNever." }, gates: { gone: null } },
+  hooks: [{ name: "erp", title: "ERP", on: ["run.finished"], kind: "webhook", action: "https://erp.example/h" }],
+  stations: { review: { rules: ["no-secrets"], permissions: [{ effect: "deny", tools: ["Write"], from: "policy read-only" }] } },
+  origin: "builtin",
+  valid: true,
+  problems: [],
+};
 
 const DRY: RunView = {
   record: {
@@ -270,6 +280,54 @@ describe("the line over the composer", () => {
     expect(space.notice?.()).toContain("example-review");
     expect(flow.state.tabs).toEqual(flow.tabs);
   });
+
+  it("the selection's details are the second side panel; closing it lets go of the selection, not the middle", async () => {
+    const fake = fakeHost({ "app.flow.session": conversations });
+    const r = new Registry();
+    const flow = registerFlowSpace(r, { host: fake.host });
+    const space = r.at("space")[0]!;
+    expect(space.secondary?.()).toBeNull();
+    flow.state.selectFlow("example-review");
+    await settle();
+    const panel = space.secondary?.();
+    expect(panel?.key).toBe("flow:example-review");
+    expect(panel?.title()).toBe("Flow · example-review");
+    expect(panel?.width).toBe(560);
+    const before = ids(fake.opened);
+    panel?.onClose?.();
+    expect(flow.state.get().flow).toBeNull();
+    expect(space.secondary?.()).toBeNull();
+    expect(ids(fake.opened)).toEqual(before);
+    // The runs tab: its run's.
+    flow.state.showRun("example-review-1");
+    act(() => fake.tab("flow.runs"));
+    expect(space.secondary?.()?.key).toBe("run:example-review-1");
+    // The reference tab: nothing beside.
+    act(() => fake.tab("flow.reference"));
+    expect(space.secondary?.()).toBeNull();
+  });
+
+  it("an empty conversation says what it is for", async () => {
+    const fake = fakeHost({ "app.flow.session": conversations });
+    fake.push("app.flow.defs", {}, DEFS);
+    const state = new FlowSpaceState();
+    const r = render(
+      <NestProvider host={fake.host}>
+        <EmptyConversation state={state} session={{ instance: "system", sessionId: "s1" }} />
+      </NestProvider>,
+    );
+    expect(screen.getByTestId("flow-empty-conversation").dataset.kind).toBe("general");
+    act(() => fake.push("app.flow.focus", { instance: "system", session_id: "s1" }, { flow: "example-review" }));
+    expect(screen.getByTestId("flow-empty-conversation").dataset.kind).toBe("flow");
+    expect(screen.getByTestId("flow-empty-conversation").textContent).toContain("Example: review and approve");
+    // Another session than this space's open one: nothing.
+    r.rerender(
+      <NestProvider host={fake.host}>
+        <EmptyConversation state={state} session={{ instance: "system", sessionId: "other" }} />
+      </NestProvider>,
+    );
+    expect(screen.queryByTestId("flow-empty-conversation")).toBeNull();
+  });
 });
 
 const TABS: FlowTabs = { flows: "flow.flows", runs: "flow.runs", reference: "flow.reference" };
@@ -304,21 +362,40 @@ describe("流程", () => {
     expect(fake.inserted).toEqual([["Create a new flow: ", { session: { instance: "system", sessionId: "general" } }]]);
   });
 
-  it("draws the selected one: graph, skills, read-only YAML; a dry run started here is shown in the runs tab", async () => {
-    const fake = fakeHost({ "app.flow.def": INFO, "app.flow.session": conversations, "app.flow.dry_run.start": { run: "dry-example-review-2" } });
+  it("draws the selected one beside: diagram, definition, parts and hooks, read-only YAML; a dry run started here is shown in the runs tab", async () => {
+    const fake = fakeHost({
+      "app.flow.def": INFO,
+      "app.flow.session": conversations,
+      "app.flow.dry_run.start": { run: "dry-example-review-2" },
+      "app.flow.hooks": [{ name: "erp", title: "ERP", on: ["run.finished"], kind: "webhook", action: "https://erp.example/h", last: { at: 5, event: "run.finished", status: "failed", error: "HTTP 502" } }],
+    });
     fake.push("app.flow.defs", {}, DEFS);
     const state = new FlowSpaceState();
     render(
       <NestProvider host={fake.host}>
         <FlowsTab state={state} tabs={TABS} />
+        <FlowSecondary state={state} tabs={TABS} />
       </NestProvider>,
     );
     expect(screen.getByTestId("flow-pick-hint")).toBeTruthy();
+    expect(screen.queryByTestId("flow-detail")).toBeNull();
     await act(async () => fireEvent.click(screen.getByTestId("flow-def-example-review")));
     expect(ids(fake.opened)).toEqual(["f-example-review"]);
+    expect(screen.queryByTestId("flow-pick-hint")).toBeNull();
+    // The list is not the detail: the detail is its own panel.
+    expect(screen.getByTestId("flow-flows").contains(screen.getByTestId("flow-detail"))).toBe(false);
     expect(screen.getByTestId("flow-detail").dataset.digest).toBe("aaaa1111");
-    expect(screen.getByTestId("flow-graph").dataset.mode).toBe("definition");
-    expect(screen.getByTestId("flow-skill-body-review").textContent).toContain("Look at the subject.");
+    expect(screen.getByTestId("flow-diagram").querySelector("[data-testid=flow-graph]")?.getAttribute("data-mode")).toBe("definition");
+    // The definition, station by station: who does it, its rules and permissions, its exits.
+    expect(screen.getByTestId("flow-def-station-review").textContent).toContain("no-secrets");
+    expect(screen.getByTestId("flow-def-permissions-review-0").dataset.effect).toBe("deny");
+    expect(screen.getByTestId("flow-def-station-sign").textContent).toContain("external");
+    // 配套: each part openable; one the packs lack says so; the hooks with their last delivery.
+    expect(screen.getByTestId("flow-part-skill-review").textContent).toContain("Look at the subject.");
+    expect(screen.getByTestId("flow-part-rule-no-secrets").textContent).toContain("No secrets");
+    expect(screen.getByTestId("flow-part-gate-gone").dataset.missing).toBe("true");
+    expect(screen.getByTestId("flow-hook-erp").dataset.last).toBe("failed");
+    expect(screen.getByTestId("flow-hook-last-erp").textContent).toContain("HTTP 502");
     expect(screen.getByTestId("flow-yaml-text").textContent).toBe("name: example-review\n");
     // Nothing here edits a definition.
     expect(document.querySelector("textarea")).toBeNull();
@@ -340,6 +417,7 @@ describe("流程", () => {
     render(
       <NestProvider host={fake.host}>
         <FlowsTab state={state} tabs={TABS} />
+        <FlowSecondary state={state} tabs={TABS} />
       </NestProvider>,
     );
     await settle();
@@ -427,14 +505,18 @@ describe("运行", () => {
     });
     fake.push("app.flow.runs", {}, RUNS);
     fake.push("app.flow.run", { run: "example-review-1" }, LIVE);
+    fake.tab("flow.runs");
     const state = new FlowSpaceState();
     render(
       <NestProvider host={fake.host}>
         <RunsTab state={state} tabs={TABS} />
+        <FlowSecondary state={state} tabs={TABS} />
       </NestProvider>,
     );
+    expect(screen.getByTestId("flow-run-pick-hint")).toBeTruthy();
     fireEvent.click(screen.getByTestId("flow-run-example-review-1"));
     await settle();
+    expect(screen.getByTestId("flow-runs").contains(screen.getByTestId("flow-run-detail"))).toBe(false);
     expect(screen.getByTestId("flow-run-detail").dataset.run).toBe("example-review-1");
     expect(screen.getByTestId("flow-run-phase").dataset.phase).toBe("waiting");
     expect(screen.getByTestId("flow-run-phase").dataset.reason).toBe("confirm");
@@ -467,10 +549,12 @@ describe("运行", () => {
     fake.push("app.flow.dry_runs", {}, [{ id: "dry-example-review-1", flow: "example-review", status: "active", created_at: 2 }]);
     fake.push("app.flow.run", { run: "example-review-1" }, paused);
     fake.push("app.flow.run", { run: "dry-example-review-1" }, DRY);
+    fake.tab("flow.runs");
     const state = new FlowSpaceState();
     render(
       <NestProvider host={fake.host}>
         <RunsTab state={state} tabs={TABS} />
+        <FlowSecondary state={state} tabs={TABS} />
       </NestProvider>,
     );
     fireEvent.click(screen.getByTestId("flow-run-example-review-1"));
@@ -662,8 +746,8 @@ describe("a changing tool call names what it acts on", () => {
     expect(toolTarget("flow_start", { flow: "f", subject: "repo" })).toMatchObject({ tool: "start", flow: "f", subject: "repo" });
     expect(toolTarget("flow_dry_run", { flow: "f" })).toMatchObject({ tool: "dry_run", flow: "f" });
     expect(toolTarget("flow_create", { yaml: "name: authored\ntitle: Authored here\nstations: []" })).toMatchObject({ tool: "create", flow: "authored", title: "Authored here" });
-    expect(toolTarget("flow_skill_set", { name: "review", body: "x" })).toMatchObject({ tool: "skill_set", skill: "review" });
-    expect(toolTarget("ns__flow_skill_delete", { name: "review" })).toMatchObject({ tool: "skill_delete", skill: "review" });
+    expect(toolTarget("flow_part_set", { kind: "skill", name: "review", text: "x" })).toMatchObject({ tool: "part_set", part: "review", kind: "skill" });
+    expect(toolTarget("ns__flow_part_delete", { kind: "rule", name: "house" })).toMatchObject({ tool: "part_delete", part: "house", kind: "rule" });
     // Reading tools and anything else: no row of ours.
     expect(toolTarget("flow_show", {})).toBe(null);
     expect(toolTarget("Bash", { command: "ls" })).toBe(null);
@@ -686,6 +770,14 @@ describe("a changing tool call names what it acts on", () => {
     expect(update!.dataset.flow).toBe("example-review");
     expect(update!.textContent).toBe("Changes the flow example-review");
     expect(create!.textContent).toBe("Creates the flow authored (Authored here)");
+    cleanup();
+    render(
+      <NestProvider host={fake.host}>
+        <ToolTargetLine target={toolTarget("flow_part_set", { kind: "policy", name: "read-only", text: "x" })!} />
+      </NestProvider>,
+    );
+    expect(screen.getByTestId("flow-tool-target").textContent).toBe("Writes the policy read-only");
+    expect(screen.getByTestId("flow-tool-target").dataset.kind).toBe("policy");
     // A run tool names the run (xops-03 §5).
     expect(r.claim("tool.row", block("flow_pause", { run: "r-1" }))?.id).toBe("flow.author-tool");
     cleanup();

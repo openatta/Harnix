@@ -79,6 +79,23 @@ export interface SpaceTab {
   align?: "start" | "end";
 }
 
+/**
+ * A space's second side panel (xops-04 §7): the details of what is selected in its right column,
+ * between the conversation and that column. See `SpaceContribution.secondary`.
+ */
+export interface SpaceSecondary {
+  /** What is shown, as a stable key (a new key is a new thing shown: `data-key` on the panel). */
+  key: string;
+  /** The panel's heading. */
+  title(): string;
+  render(): ReactNode;
+  /** The reader closed it: let go of what it showed (its selection), then `host.redraw()`. The
+   *  conversation in the centre stays as it is. */
+  onClose?(): void;
+  /** Its width in px while the reader has not dragged it: within 300–760, 440 by default. */
+  width?: number;
+}
+
 /** A space's right-column tabs, whichever way it gave them. */
 export function tabsOf(space: SpaceContribution | undefined): SpaceTab[] {
   const tabs = space?.tabs;
@@ -163,6 +180,14 @@ export interface SpaceContribution {
   /** A line over the composer of an open session (`notice()` is the new conversation's); null or
    *  undefined for none. Read at every draw of the conversation. */
   composerNotice?(session: SessionRef): ReactNode;
+  /** What the open session's conversation shows while it has no message yet (a hint of what it is
+   *  for, what to ask); null or undefined for nothing. Read at every draw of the conversation. */
+  emptyConversation?(session: SessionRef): ReactNode;
+  /** The second side panel: what the space has open beside its right column (a selected item's
+   *  details); null or undefined while there is nothing — then no panel is drawn. Read at every
+   *  draw: call `host.redraw()` when it changes. Resizable, closable; on a narrow window it lies
+   *  over the conversation. */
+  secondary?(): SpaceSecondary | null | undefined;
   /** Which words in the conversation's text are ids that open something, and what opening one
    *  does. The pattern carries the `g` flag (the shell adds it when missing, and notes that). */
   ids?(): ChatIds | undefined;

@@ -558,3 +558,32 @@
 .hx-flow-table td { padding: 4px 6px; border-bottom: 1px solid var(--border-l1); text-align: left; vertical-align: top; }
 .hx-flow-table th { color: var(--label-secondary); font-weight: 600; }
 .hx-flow-example { margin: 6px 0 10px; }
+
+/* ── xops-04: the details beside the conversation ───────────────────── */
+
+.hx-flow-diagram .hx-flow-graph { max-height: none; }
+
+.hx-flow-dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 6px 0 0;
+  font-size: 12.5px;
+}
+.hx-flow-dl dt { color: var(--label-tertiary); }
+.hx-flow-dl dd { margin: 0; min-width: 0; }
+
+.hx-flow-station-cards { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.hx-flow-station-card { border: 1px solid var(--border-l1); border-radius: 8px; padding: 8px 10px; }
+.hx-flow-station-card.on { border-color: var(--accent); }
+.hx-flow-station-card-head { display: flex; align-items: baseline; gap: 6px; background: none; border: 0; padding: 0; color: inherit; cursor: pointer; text-align: left; }
+
+.hx-flow-perms { margin: 0; }
+.hx-flow-perms li { margin: 2px 0; }
+.hx-flow-effect { font-size: 11px; padding: 0 6px; }
+.hx-flow-perm-msg { color: var(--label-secondary); font-size: 12px; margin-left: 4px; }
+
+.hx-flow-part-group { margin: 8px 0; }
+.hx-flow-asking { margin: 4px 0; font-size: 12.5px; }
+
+.hx-flow-empty-title { font-weight: 600; color: var(--label-primary); margin-bottom: 2px; }

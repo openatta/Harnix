@@ -5,7 +5,7 @@
  * question with its generic one, so the card cannot say which flow. The row the call is drawn in —
  * the `tool.row` this package registers — says it instead, read from the call's input: the flow
  * named in `flow` (the tool refuses if that is no longer the conversation's current flow), the name
- * and title of a flow being created, the skill being written, the run (and station) a run tool acts
+ * and title of a flow being created, the part (skill, rule, policy, gate, hook) being written, the run (and station) a run tool acts
  * on (xops-03 §5).
  */
 
@@ -20,7 +20,7 @@ export type ToolBlock = Parameters<ToolRowContribution["render"]>[0];
 export function ToolTargetLine({ target }: { target: ToolTarget }) {
   const t = useT();
   const what = target.tool;
-  const name = target.flow ?? target.skill ?? "?";
+  const name = target.flow ?? target.part ?? "?";
   const text = RUN_TOOL_TARGETS.includes(what)
     ? t("flowui.target." + what, { run: target.run ?? "?", station: target.station ?? "?" })
     : what === "create"
@@ -29,9 +29,9 @@ export function ToolTargetLine({ target }: { target: ToolTarget }) {
         ? t("flowui.target.updateTitled", { flow: name, title: target.title })
         : what === "start" && target.subject
           ? t("flowui.target.startOn", { flow: name, subject: target.subject })
-          : t("flowui.target." + what, { flow: name, skill: name });
+          : t("flowui.target." + what, { flow: name, name, kind: t("flowui.part.kind." + (target.kind ?? "skill")) });
   return (
-    <div className="hx-flow-tool-target" data-testid="flow-tool-target" data-tool={what} data-flow={target.flow ?? ""} data-skill={target.skill ?? ""} data-run={target.run ?? ""}>
+    <div className="hx-flow-tool-target" data-testid="flow-tool-target" data-tool={what} data-flow={target.flow ?? ""} data-part={target.part ?? ""} data-kind={target.kind ?? ""} data-run={target.run ?? ""}>
       {text}
     </div>
   );

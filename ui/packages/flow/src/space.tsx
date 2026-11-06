@@ -7,7 +7,11 @@
  *   centre  the conversation of what is selected on the right (xops-03 §6): a flow's own
  *           (`flow-author`, whose tools write and run it), a run's main session, or the general
  *           one; the line over the composer names its flow                (`composerNotice`)
- *   right   flows · runs · reference: shown, never edited here          (`tabs`)
+ *   right   flows · runs · reference: the lists, shown, never edited here    (`tabs`)
+ *   beside  the selected flow's or run's details, between the centre and the right column
+ *           (`secondary`, xops-04 §7); closing it lets go of the selection there
+ *
+ * An empty conversation says what it is for (`emptyConversation`).
  *
  * See `FlowSpaceState`. Also the `flow.block` that draws a session's proposal, and the `flowui`
  * strings.
@@ -19,7 +23,7 @@ import { actorLabel, proposalHandledOf, proposalOf, type BlockShape } from "./mo
 import { ProposalCard } from "./ProposalCard";
 import { FlowSpaceState } from "./state";
 import { registerFlowStrings, STRINGS_OWNER } from "./strings";
-import { FlowsTab, FocusNotice, ReferenceTab, RunsTab, type FlowTabs } from "./tabs";
+import { EmptyConversation, FlowSecondary, FlowsTab, FocusNotice, ReferenceTab, RunsTab, type FlowTabs } from "./tabs";
 import { FlowToolRow, type ToolBlock } from "./ToolTarget";
 import { toolTarget } from "./model";
 
@@ -68,13 +72,25 @@ export function registerFlowSpace(registry: Registry, options: FlowSpaceOptions 
       subtitle: () => translate("flowui.space.subtitle"),
       center: "chat",
       details: "open",
-      detailsWidth: 560,
+      detailsWidth: 400,
       placeholder: () => translate("flowui.composer.placeholder"),
       notice: () => {
         const flow = state.get().flow;
         return flow ? translate("flowui.focus.next", { flow }) : translate("flowui.focus.none");
       },
       composerNotice: (session: HostSessionRef) => <FocusNotice state={state} session={session} />,
+      emptyConversation: (session: HostSessionRef) => <EmptyConversation state={state} session={session} />,
+      secondary: () => {
+        const detail = state.detail();
+        if (!detail) return null;
+        return {
+          key: detail.kind === "flow" ? `flow:${detail.flow}` : `run:${detail.run}`,
+          title: () => translate(detail.kind === "flow" ? "flowui.secondary.flow" : "flowui.secondary.run", { name: detail.kind === "flow" ? detail.flow : detail.run }),
+          render: () => <FlowSecondary state={state} tabs={tabs} />,
+          onClose: () => state.closeDetail(),
+          width: 560,
+        };
+      },
       tabs: [
         { id: tabs.flows, title: () => translate("flowui.tab.flows"), render: () => <FlowsTab state={state} tabs={tabs} /> },
         { id: tabs.runs, title: () => translate("flowui.tab.runs"), render: () => <RunsTab state={state} tabs={tabs} /> },

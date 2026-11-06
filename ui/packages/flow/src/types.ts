@@ -12,7 +12,7 @@
 /** A JSON Schema, as written in the definition. Not interpreted here beyond display. */
 export type JsonSchema = Record<string, unknown>;
 
-/** `{path, eq | ne | len | min_len | exists}`, exactly one of the comparisons. Shared by `when` and the `tool` exit. */
+/** `{path, eq | ne | len | min_len | exists}`, exactly one of the comparisons. Shared by `when` and `tool` gates. */
 export interface Assert {
   path: string;
   eq?: unknown;
@@ -28,9 +28,25 @@ export interface InputDef {
   default?: unknown;
 }
 
-export interface HookRef {
-  on: string;
-  action: string;
+/** What becomes of a tool call a permission matches (xops-04 §3). */
+export type Effect = "allow" | "ask" | "deny";
+
+/**
+ * One permission: which tool calls (`tools`, a name or `ns__*`), in which scope (`paths`,
+ * `commands`, `args`), and what becomes of them. Judged deny over ask over allow.
+ */
+export interface Permission {
+  effect: Effect;
+  tools: string[];
+  paths?: string[] | null;
+  commands?: string[] | null;
+  args?: Record<string, string[]> | null;
+  message?: string | null;
+}
+
+/** A permission with where it came from (`policy <name>`, `flow`, `station <id>`). */
+export interface Granted extends Permission {
+  from: string;
 }
 
 /**
@@ -63,8 +79,7 @@ export type ExecutorKind = Executor["kind"];
 
 export type ExitCond =
   | { kind: "output" }
-  | { kind: "tool"; tool: string; args?: Record<string, unknown> | null; assert?: Assert[] | null }
-  | { kind: "gate"; gate: string }
+  | { kind: "gate"; gate: string; label?: string | null }
   | { kind: "confirm"; who?: string | null }
   | { kind: "children" };
 
@@ -106,8 +121,12 @@ export interface Station {
   rework_to?: string[] | null;
   on_unmet?: OnUnmet | null;
   hold?: boolean | null;
-  writes?: string[] | null;
-  hooks?: HookRef[] | null;
+  /** Rules (`rules/<name>.md`) this station works under besides the flow's (xops-04 §2). */
+  rules?: string[] | null;
+  /** Policies this station works under besides the flow's. */
+  policies?: string[] | null;
+  /** Permissions written on the station itself. */
+  permissions?: Permission[] | null;
 }
 
 /** Where a run's main session goes and on which model (xops-03 §1); each optional. */
@@ -128,7 +147,10 @@ export interface FlowDef {
   inputs?: Record<string, InputDef> | null;
   main?: MainSession | null;
   rework_limit?: number | null;
-  hooks?: HookRef[] | null;
+  /** Rules, policies and permissions every station works under (xops-04). */
+  rules?: string[] | null;
+  policies?: string[] | null;
+  permissions?: Permission[] | null;
   stations: Station[];
 }
 
@@ -165,7 +187,7 @@ export type PhaseState = "running" | "waiting" | "pausing" | "paused" | "finishe
 
 export interface Phase {
   state: PhaseState;
-  reason?: "confirm" | "held" | "unmet" | "failed" | "external" | "children" | "work" | string | null;
+  reason?: "approval" | "confirm" | "held" | "unmet" | "failed" | "external" | "children" | "work" | string | null;
   /** The stations it is about: those working, or those waiting. */
   stations?: string[] | null;
 }
@@ -206,6 +228,8 @@ export interface TaskRec {
   started_at?: Millis | null;
   ended_at?: Millis | null;
   usage?: Usage | null;
+  /** A call of its turn held for a person's answer (an `ask` permission, xops-04 §3). */
+  asking?: { tool: string; reason?: string | null; since: Millis } | null;
 }
 
 /** How a session task's output comes back: structured output (the default) or `flow_submit`. */
@@ -235,7 +259,7 @@ export type CheckStatus = "pass" | "fail" | "wait";
  * in a run view's `unmet`. `checkOk()` reads `status` (or a bare `ok`).
  */
 export interface CheckRec {
-  /** The condition's kind (`output`, `tool`, …, `tasks`, `hold`). */
+  /** The condition's kind (`output`, `gate`, …, `tasks`, `hold`). */
   kind: ExitKind | string;
   cond?: number | ExitCond | null;
   label?: string | null;
@@ -313,6 +337,8 @@ export interface RunRecord {
   usage_other?: Usage | null;
   /** The definition, pinned when the run started. */
   def?: FlowDef | null;
+  /** The policies and gates the definition uses, pinned with it (xops-04). */
+  parts?: { policies?: Record<string, PolicyDef> | null; gates?: Record<string, GateDef> | null } | null;
 }
 
 /**
@@ -370,12 +396,92 @@ export interface DefSummary {
   valid?: boolean | null;
 }
 
-/** `app.flow.def {name}`: the parsed definition, its YAML, its digest, and the bodies of the skills it names. */
+/** The kinds of part a pack holds besides flows (xops-04 §1). */
+export type PartKind = "skill" | "rule" | "policy" | "gate" | "hook";
+
+/** A policy: a named set of permissions. */
+export interface PolicyDef {
+  name: string;
+  title?: string | null;
+  description?: string | null;
+  permissions: Permission[];
+}
+
+/** A gate: a named check an exit `{kind: gate}` refers to. */
+export interface GateDef {
+  name: string;
+  title?: string | null;
+  description?: string | null;
+  kind: "tool" | "command" | "host";
+  tool?: string | null;
+  args?: unknown;
+  assert?: Assert[] | null;
+  command?: string | null;
+  cwd?: string | null;
+  timeout_seconds?: number | null;
+}
+
+/** A hook over a flow, as `app.flow.def` lists it. */
+export interface HookBrief {
+  name: string;
+  title?: string | null;
+  on?: string[] | null;
+  kind: string;
+  action: string;
+}
+
+/** A hook's last delivery (`app.flow.hooks`). */
+export interface HookDelivery {
+  at: Millis;
+  event: string;
+  run?: string | null;
+  status: "delivered" | "failed" | string;
+  code?: number | null;
+  error?: string | null;
+  tries?: number | null;
+}
+
+/** One line of `app.flow.hooks`. */
+export interface HookInfo extends HookBrief {
+  description?: string | null;
+  flows?: string[] | null;
+  signed?: boolean | null;
+  last?: HookDelivery | null;
+}
+
+/** One part, read (`app.flow.part {kind, name}`). */
+export interface PartInfo {
+  kind: PartKind;
+  name: string;
+  text: string;
+  digest?: string | null;
+  origin?: Origin | null;
+  title?: string | null;
+  description?: string | null;
+  parsed?: unknown;
+  problems?: string[] | null;
+  flows?: string[] | null;
+  writable?: boolean | null;
+}
+
+/** The texts of the parts a flow uses, by the kind's directory (`null`: not in the packs). */
+export interface UsedParts {
+  skills?: Record<string, string | null> | null;
+  rules?: Record<string, string | null> | null;
+  policies?: Record<string, string | null> | null;
+  gates?: Record<string, string | null> | null;
+}
+
+/** `app.flow.def {name}`: the parsed definition, its YAML, its digest, the parts it uses. */
 export interface DefInfo {
   def: FlowDef;
   yaml: string;
   digest: string;
-  skills?: Record<string, string> | null;
+  parts?: UsedParts | null;
+  /** The hooks of the pack over this flow. */
+  hooks?: HookBrief[] | null;
+  /** Each station's rules (the flow's and its own) and its permissions in order (xops-04). */
+  stations?: Record<string, { rules?: string[] | null; permissions?: Granted[] | null }> | null;
   /** The protocol layer each station's sessions get, by station id, when the module gives it. */
   protocol?: Record<string, string> | null;
   origin?: Origin | null;
@@ -396,7 +502,7 @@ export interface DryRunSummary {
   phase?: Phase | null;
 }
 
-/** One piece of work a dry run took: a mocked task, a gate, a tool exit… */
+/** One piece of work a dry run took: a mocked task, a gate… */
 export interface DryStep {
   kind: string;
   run: string;
@@ -480,14 +586,18 @@ export type CatalogEntry = string | { name: string; description?: string | null;
 export interface Catalog {
   scenes?: CatalogEntry[] | null;
   steps?: CatalogEntry[] | null;
-  gates?: CatalogEntry[] | null;
+  /** The application's own checks, which `host` gates name. */
+  checks?: CatalogEntry[] | null;
   tools?: CatalogEntry[] | null;
-  actions?: CatalogEntry[] | null;
-  skills?: CatalogEntry[] | null;
+  command_gates?: boolean | null;
   templates?: CatalogEntry[] | null;
   instances?: CatalogEntry[] | null;
   spaces?: CatalogEntry[] | null;
   models?: CatalogEntry[] | null;
+  /** The tools refused unless a permission allows them. */
+  guarded?: CatalogEntry[] | null;
+  /** The parts on offer, by kind. */
+  parts?: Partial<Record<PartKind, string[]>> | null;
   writable?: boolean | null;
 }
 
@@ -548,6 +658,11 @@ export type FlowMethod =
   | "pause"
   | "resume"
   | "guide"
+  | "parts"
+  | "part"
+  | "part.save"
+  | "part.delete"
+  | "hooks"
   | "dry_run.start"
   | "dry_run.step"
   | "dry_run.run"

@@ -4,15 +4,19 @@
  * (`FlowSpaceState`).
  *
  *   流程 / Flows      first row: add (the general conversation, the composer started) · filter, sort;
- *                     the flows (title, origin, valid); the selected one's graph, skills, YAML, and
- *                     a dry run or a run of it started from here
+ *                     the flows (title, origin, valid)
  *   运行 / Runs       first row: filter (state, flow, kind), sort (start, duration, tokens); every
- *                     run and dry run; the selected run's graph with each station's time and tokens,
- *                     its stations' details and their hands, pause / resume / cancel, its sub-agents
- *                     and tasks
+ *                     run and dry run
  *   参考 / Reference  the guide to flows, then this application's catalog and the fields
  *
- * And the line over the composer that names the conversation's flow.
+ * What is selected opens in the shell's second side panel, beside the conversation (xops-04 §7,
+ * `FlowSecondary`): a flow — its diagram (a station picked there opens below it), its definition
+ * station by station, its 配套 (skills, rules, policies, gates, the hooks over it), its YAML, and a
+ * dry run or a run of it started from there; a run — its graph with each station's time and tokens,
+ * its stations' details and their hands, pause / resume / cancel, its sub-agents and tasks.
+ *
+ * And the line over the composer that names the conversation's flow, and what an empty
+ * conversation says it is for.
  */
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
@@ -26,6 +30,7 @@ import {
   PHASE_STATES,
   defOf,
   formatDuration,
+  gateTitle,
   formatTime,
   formatTokens,
   guideBlocks,
@@ -34,20 +39,24 @@ import {
   methodName,
   phaseOf,
   phaseTone,
+  permissionsOf,
   problemText,
+  rulesOf,
   runElapsed,
   runIdOf,
   runUsage,
   runsOf,
   runsTopic,
   sessionOf,
+  stationTitle,
   tokensOf,
   type GuideBlock,
 } from "./model";
+import { FlowParts, PermissionList, RuleChips } from "./parts";
 import { StartForm } from "./RunList";
 import type { FlowSelection, FlowSpaceState } from "./state";
-import { StationPanel } from "./StationPanel";
-import type { DefInfo, DefSummary, DryProgress, Guide, Phase, RunSessions, RunStatus, RunView, SessionWire } from "./types";
+import { executorText, StationPanel, stationPermissions } from "./StationPanel";
+import type { DefInfo, DefSummary, DryProgress, FlowDef, Guide, Phase, RunSessions, RunStatus, RunView, SessionWire, Station } from "./types";
 
 /** The right column's tab ids. */
 export interface FlowTabs {
@@ -63,7 +72,11 @@ interface TabProps {
 
 export function useSelection(state: FlowSpaceState): FlowSelection {
   const nest = useNest();
-  useEffect(() => state.attach(nest), [state, nest]);
+  useEffect(() => {
+    state.attach(nest);
+    // Drawn: the space is in front, whether or not a session change said so.
+    state.lookFront();
+  }, [state, nest]);
   return useSyncExternalStore(state.subscribe, state.get);
 }
 
@@ -200,9 +213,7 @@ export function FlowsTab({ state, tabs }: TabProps) {
           ))}
         </ul>
       </section>
-      {sel.flow ? (
-        <FlowDetail key={sel.flow} state={state} tabs={tabs} flow={sel.flow} summary={defs.list.find((d) => d.name === sel.flow)} station={sel.station} />
-      ) : (
+      {sel.flow ? null : (
         <p className="hx-flow-hint" data-testid="flow-pick-hint">
           {t("flowui.flows.pick")}
         </p>
@@ -211,14 +222,110 @@ export function FlowsTab({ state, tabs }: TabProps) {
   );
 }
 
-function FlowDetail({ state, tabs, flow, summary, station }: TabProps & { flow: string; summary: DefSummary | undefined; station: string | null }) {
+/* ── the second side panel ──────────────────────────────────────────── */
+
+/** What the second side panel shows: the selected flow's details, or the selected run's. */
+export function FlowSecondary({ state, tabs }: TabProps) {
+  const sel = useSelection(state);
+  const defs = useDefs(state.module);
+  const detail = state.detail();
+  if (detail?.kind === "flow") {
+    return <FlowDetail key={detail.flow} state={state} tabs={tabs} flow={detail.flow} summary={defs.list.find((d) => d.name === detail.flow)} station={sel.station} />;
+  }
+  if (detail?.kind === "run") return <RunDetail key={detail.run} state={state} run={detail.run} station={sel.station} />;
+  return null;
+}
+
+/** What an empty conversation of this space is for: a flow's own, a run's main session, the general one. */
+export function EmptyConversation({ state, session }: { state: FlowSpaceState; session: SessionRef }) {
+  const t = useT();
+  const sel = useSelection(state);
+  const { list } = useDefs(state.module);
+  const mine = state.session();
+  if (!mine || mine.instance !== session.instance || mine.sessionId !== session.sessionId) return null;
+  const tab = state.tabNow();
+  let kind: "run" | "flow" | "general" = "general";
+  let name = "";
+  if (tab === state.tabs.runs && sel.run) {
+    kind = "run";
+    name = sel.run;
+  } else if (state.focusOf()) {
+    kind = "flow";
+    name = titleOf(list, state.focusOf()!);
+  }
+  return (
+    <div data-testid="flow-empty-conversation" data-kind={kind}>
+      <div className="hx-flow-empty-title">{t("flowui.empty." + kind + ".title", { name })}</div>
+      <p>{t("flowui.empty." + kind)}</p>
+      <ul className="hx-flow-list">
+        {[1, 2, 3].map((i) => (
+          <li key={i}>{t(`flowui.empty.${kind}.ask${i}`)}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** One station, briefly, for a flow's definition: who does it, with what, under what, how it is judged. */
+function StationSummary({ def, s, info, picked, onPick }: { def: FlowDef; s: Station; info: DefInfo | null; picked: boolean; onPick(): void }) {
+  const t = useT();
+  const specs = s.tasks?.length ? s.tasks : s.executor ? [{ id: s.id, executor: s.executor, skill: s.skill ?? null }] : [];
+  const skills = [...new Set(specs.map((x) => x.skill).filter((x): x is string => !!x))];
+  return (
+    <li className={`hx-flow-station-card${picked ? " on" : ""}`} data-testid={`flow-def-station-${s.id}`}>
+      <button type="button" className="hx-flow-station-card-head" aria-pressed={picked} onClick={onPick}>
+        <strong>{stationTitle(s)}</strong> <code className="hx-flow-id">{s.id}</code>
+      </button>
+      <dl className="hx-flow-dl">
+        <dt>{t("flowui.def.who")}</dt>
+        <dd>{specs.length ? specs.map((x) => executorText(x.executor)).join("; ") : t("flowui.graph.gate")}</dd>
+        {skills.length ? (
+          <>
+            <dt>{t("flowui.def.skills")}</dt>
+            <dd>
+              {skills.map((k) => (
+                <code key={k} className="hx-flow-chip">
+                  {k}
+                </code>
+              ))}
+            </dd>
+          </>
+        ) : null}
+        <dt>{t("flowui.def.rules")}</dt>
+        <dd>
+          <RuleChips rules={info?.stations?.[s.id]?.rules ?? rulesOf(def, s)} info={info} />
+        </dd>
+        <dt>{t("flowui.def.permissions")}</dt>
+        <dd>
+          <PermissionList permissions={stationPermissions(def, s, info, null)} testid={`flow-def-permissions-${s.id}`} />
+        </dd>
+        <dt>{t("flowui.def.exit")}</dt>
+        <dd>
+          {(s.exit ?? []).map((c, i) => (
+            <span key={i} className="hx-flow-chip" data-kind={c.kind}>
+              {t("flowui.exit." + c.kind)}
+              {c.kind === "gate" ? ` ${c.gate}${gateTitle(c.gate, info) ? ` · ${gateTitle(c.gate, info)}` : ""}` : c.kind === "confirm" && c.who ? ` · ${c.who}` : ""}
+            </span>
+          ))}
+        </dd>
+        {s.rework_to?.length ? (
+          <>
+            <dt>{t("flowui.def.rework")}</dt>
+            <dd>{s.rework_to.join(", ")}</dd>
+          </>
+        ) : null}
+      </dl>
+    </li>
+  );
+}
+
+export function FlowDetail({ state, tabs, flow, summary, station }: TabProps & { flow: string; summary: DefSummary | undefined; station: string | null }) {
   const t = useT();
   const nest = useNest();
   // Read again whenever the list says the flow changed: the conversation saved it.
   const info = useMethod<DefInfo>(state.module, "def", { name: flow }, summary?.digest);
   const def = info.value?.def;
   const digest = info.value?.digest ?? summary?.digest ?? "";
-  const skills = Object.entries(info.value?.skills ?? {});
   const problems = info.value?.problems ?? [];
   const dry = useDryStart(state, tabs);
   const [starting, setStarting] = useState(false);
@@ -269,25 +376,53 @@ function FlowDetail({ state, tabs, flow, summary, station }: TabProps & { flow: 
           ))}
         </ul>
       ) : null}
+      <div className="hx-flow-section-head">{t("flowui.detail.diagram")}</div>
       {def ? (
-        <FlowGraph def={def} selected={station} onSelect={(s) => state.pick(station === s ? null : s)} />
+        <div className="hx-flow-diagram" data-testid="flow-diagram">
+          <FlowGraph def={def} selected={station} onSelect={(s) => state.pick(station === s ? null : s)} />
+        </div>
       ) : info.error ? null : (
         <p className="hx-flow-hint">{t("flowui.loading")}</p>
       )}
       {def && station ? <StationPanel key={station} station={station} def={def} info={info.value ?? null} module={state.module} initialTab="definition" /> : null}
-      <div className="hx-flow-section-head">{t("flowui.flows.skills")}</div>
-      {skills.length ? (
-        <div data-testid="flow-skills">
-          {skills.map(([name, body]) => (
-            <details key={name} className="hx-flow-details" data-testid={`flow-skill-body-${name}`}>
-              <summary>{t("flowui.def.skill", { name })}</summary>
-              <pre className="hx-flow-code hx-flow-prose">{body}</pre>
-            </details>
-          ))}
+      <div className="hx-flow-section-head">{t("flowui.detail.definition")}</div>
+      {def ? (
+        <div data-testid="flow-definition-all">
+          <dl className="hx-flow-dl" data-testid="flow-def-flow-level">
+            <dt>{t("flowui.def.flowRules")}</dt>
+            <dd>
+              <RuleChips rules={def.rules ?? []} info={info.value ?? null} />
+            </dd>
+            <dt>{t("flowui.def.flowPolicies")}</dt>
+            <dd>
+              {def.policies?.length ? (
+                def.policies.map((p) => (
+                  <code key={p} className="hx-flow-chip">
+                    {p}
+                  </code>
+                ))
+              ) : (
+                <span className="hx-flow-faint">{t("flowui.def.none")}</span>
+              )}
+            </dd>
+            {def.permissions?.length ? (
+              <>
+                <dt>{t("flowui.def.flowPermissions")}</dt>
+                <dd>
+                  <PermissionList permissions={permissionsOf({ ...def, policies: [] }, { id: "", exit: [] }, null)} />
+                </dd>
+              </>
+            ) : null}
+          </dl>
+          <ul className="hx-flow-station-cards">
+            {def.stations.map((s) => (
+              <StationSummary key={s.id} def={def} s={s} info={info.value ?? null} picked={station === s.id} onPick={() => state.pick(station === s.id ? null : s.id)} />
+            ))}
+          </ul>
         </div>
-      ) : (
-        <p className="hx-flow-hint">{t("flowui.flows.noSkills")}</p>
-      )}
+      ) : null}
+      <div className="hx-flow-section-head">{t("flowui.detail.parts")}</div>
+      <FlowParts module={state.module} info={info.value ?? null} flow={flow} />
       {info.value?.yaml ? (
         <details className="hx-flow-details" data-testid="flow-yaml">
           <summary>{t("flowui.flows.yaml")}</summary>
@@ -445,7 +580,11 @@ export function RunsTab({ state }: TabProps) {
           ))}
         </ul>
       </section>
-      {sel.run ? <RunDetail key={sel.run} state={state} run={sel.run} station={sel.station} /> : <p className="hx-flow-hint">{t("flowui.runs.pick")}</p>}
+      {sel.run ? null : (
+        <p className="hx-flow-hint" data-testid="flow-run-pick-hint">
+          {t("flowui.runs.pick")}
+        </p>
+      )}
     </div>
   );
 }
@@ -462,7 +601,7 @@ export function PhaseBadge({ phase, testid }: { phase: Phase; testid?: string })
   );
 }
 
-function RunDetail({ state, run, station }: { state: FlowSpaceState; run: string; station: string | null }) {
+export function RunDetail({ state, run, station }: { state: FlowSpaceState; run: string; station: string | null }) {
   const t = useT();
   const view = useRunView(state.module, run);
   // A run just started has its main session a moment later: the middle goes to it then.

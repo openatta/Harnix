@@ -9,14 +9,14 @@ import { useState } from "react";
 import { useT } from "@harnix/react";
 
 import { useMethod } from "./hooks";
-import { catalogEntries, schemaRows } from "./model";
+import { catalogEntries, PART_KINDS, schemaRows } from "./model";
 import type { Catalog } from "./types";
 
 export interface FlowReferenceProps {
   module?: string;
 }
 
-const CATALOG_KEYS = ["scenes", "steps", "gates", "tools", "actions", "skills", "templates", "instances", "spaces", "models"] as const;
+const CATALOG_KEYS = ["scenes", "steps", "checks", "tools", "guarded", "templates", "instances", "spaces", "models"] as const;
 
 export function FlowReference({ module = "flow" }: FlowReferenceProps) {
   const t = useT();
@@ -51,6 +51,33 @@ export function FlowReference({ module = "flow" }: FlowReferenceProps) {
               );
             })
           : null}
+        {catalog.value
+          ? PART_KINDS.map((k) => {
+              const names = catalog.value?.parts?.[k] ?? [];
+              return (
+                <div key={k} className="hx-flow-field" data-testid={`flow-catalog-part-${k}`}>
+                  <div className="hx-flow-label">{t("flowui.part.kinds." + k)}</div>
+                  <div className="hx-flow-value">
+                    {names.length === 0 ? (
+                      <span className="hx-flow-faint">{t("flowui.def.none")}</span>
+                    ) : (
+                      names.map((n) => (
+                        <code key={n} className="hx-flow-chip">
+                          {n}
+                        </code>
+                      ))
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          : null}
+        {catalog.value ? (
+          <div className="hx-flow-field" data-testid="flow-catalog-command-gates">
+            <div className="hx-flow-label">{t("flowui.ref.commandGates")}</div>
+            <div className="hx-flow-value">{t(catalog.value.command_gates ? "flowui.ref.commandGates.on" : "flowui.ref.commandGates.off")}</div>
+          </div>
+        ) : null}
       </section>
 
       <section className="hx-flow-section">

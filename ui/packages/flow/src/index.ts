@@ -81,6 +81,13 @@ export {
   taskTone,
   workLabel,
   workOf,
+  PART_KINDS,
+  gateTitle,
+  partDir,
+  partTitle,
+  permissionScope,
+  permissionsOf,
+  rulesOf,
   type BlockShape,
   type SchemaRow,
   type StationActions,
@@ -90,12 +97,13 @@ export {
 } from "./model";
 export { useDefs, useDryRuns, useMethod, useRunView, useTopic, type Loaded } from "./hooks";
 export { FlowGraph, clipText, type FlowGraphProps } from "./FlowGraph";
-export { StationPanel, type StationPanelProps } from "./StationPanel";
+export { StationPanel, stationPermissions, type StationPanelProps } from "./StationPanel";
+export { FlowHooks, FlowParts, PermissionList, RuleChips } from "./parts";
 export { RunList, StartForm, type RunListProps } from "./RunList";
 export { FlowReference, type FlowReferenceProps } from "./FlowReference";
 export { ProposalCard, type ProposalCardProps } from "./ProposalCard";
 export { FlowToolRow, ToolTargetLine } from "./ToolTarget";
 export { registerFlowSpace, type FlowSpace, type FlowSpaceOptions } from "./space";
-export { FlowSpaceState, type FlowSelection, type StateTabs } from "./state";
-export { DryControls, FlowsTab, FocusNotice, GuideView, PhaseBadge, ReferenceTab, RunsTab, useSelection, type FlowTabs } from "./tabs";
+export { FlowSpaceState, type FlowDetailOf, type FlowSelection, type StateTabs } from "./state";
+export { DryControls, EmptyConversation, FlowDetail, FlowSecondary, FlowsTab, FocusNotice, GuideView, PhaseBadge, ReferenceTab, RunDetail, RunsTab, useSelection, type FlowTabs } from "./tabs";
 export { STRINGS, STRINGS_OWNER, registerFlowStrings } from "./strings";

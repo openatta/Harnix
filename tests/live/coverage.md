@@ -23,7 +23,7 @@
 | 模块自有链接 | `routes` | 5 | 1 |
 | 扩展条目 | `entries` | 5 | 3 |
 | 品牌与主题 | `brand` | 2 | 1 |
-| 流程（harnix-flow，xops-01、xops-02） | `flow` | 23 | 9 |
+| 流程（harnix-flow，xops-01、xops-02） | `flow` | 26 | 9 |
 | 应用构建 | `build` | — 在脚本层检查（check-pins、check-lock、sync-app-deps），不经协议 | — 构建没有界面 |
 | 桌面壳 | `desktop` | — 桌面壳不加协议面：webview 加载的就是服务端的页面 | — 桌面壳是模板（templates/desktop）：它不调 IPC 由 check-no-ipc.mjs 在 offline 层查，本机模式由它的 --smoke 查 |
-| **合计** | | **256** | **84** |
+| **合计** | | **259** | **84** |

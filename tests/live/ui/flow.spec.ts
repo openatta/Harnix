@@ -4,8 +4,11 @@
  *
  * What is selected on the right is what the middle talks to: a flow's own conversation (made by the
  * module, `app.flow.session {flow}`), a run's main session, or — nothing selected, the reference —
- * the general conversation. The right column shows and edits no definition: its first rows add (in
- * the general conversation), filter and sort.
+ * the general conversation. The right column lists and edits no definition: its first rows add (in
+ * the general conversation), filter and sort. What is selected opens beside the conversation, in the
+ * second side panel (xops-04 §7): a flow's diagram, definition, parts (skills, rules, policies,
+ * gates, hooks) and YAML; a run's details. Closing that panel lets go of the selection, not the
+ * conversation. An empty conversation says what it is for.
  *
  * Recordings: `flow-ui-edit` (the Agent calls `flow_show`, then `flow_update {flow:
  * example-review}` with its title changed, then says so), `flow-author-unfocused` (`flow_update` with
@@ -47,8 +50,11 @@ async function tab(page: Page, id: "flows" | "runs" | "reference"): Promise<void
 async function select(page: Page, flow: string): Promise<void> {
   await tab(page, "flows");
   await page.getByTestId(`flow-def-${flow}`).click();
-  await expect(page.getByTestId("flow-detail")).toHaveAttribute("data-flow", flow);
+  await expect(page.locator('#secondary [data-testid="flow-detail"]')).toHaveAttribute("data-flow", flow);
 }
+
+/** The station panel, in the second side panel. */
+const stationPanel = (page: Page) => page.locator('#secondary [data-testid="flow-station-panel"]');
 
 /** The session open in the middle. */
 async function current(page: Page): Promise<string | null> {
@@ -84,7 +90,7 @@ async function allow(page: Page): Promise<void> {
   await expect(ask).toHaveAttribute("data-state", "answered");
 }
 
-test("the flows tab: filter and sort; a flow drawn with its YAML; selecting it opens its own conversation, nothing selected the general one", TAGS, async ({ page }) => {
+test("the flows tab: filter and sort; a flow's details beside the conversation — diagram, definition, parts, YAML; selecting it opens its own conversation, nothing selected the general one", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, backend.url);
   await inFlow(page);
@@ -112,26 +118,51 @@ test("the flows tab: filter and sort; a flow drawn with its YAML; selecting it o
   const notice = page.getByTestId("flow-focus-notice");
   await expect(notice).toHaveAttribute("data-flow", "example-review");
   await expect(notice).toContainText("Example: review and approve");
+  // Nothing said in it yet: it says what it is for.
+  await expect(page.getByTestId("flow-empty-conversation")).toHaveAttribute("data-kind", "flow");
 
-  const graph = page.getByTestId("flow-graph");
+  // The details are beside the conversation, not under the list.
+  const side = page.locator("#secondary");
+  await expect(side).toHaveAttribute("data-key", "flow:example-review");
+  await expect(page.locator('#details [data-testid="flow-detail"]')).toHaveCount(0);
+  await expect(page.getByTestId("flow-pick-hint")).toHaveCount(0);
+  const graph = side.getByTestId("flow-diagram").getByTestId("flow-graph");
   await expect(graph).toHaveAttribute("data-mode", "definition");
-  for (const id of ["review", "approve"]) await expect(page.getByTestId(`flow-node-${id}`)).toBeVisible();
-  await expect(page.getByTestId("flow-skill-body-review")).toContainText("Look at the subject");
-  await page.getByTestId("flow-yaml").locator("summary").click();
-  await expect(page.getByTestId("flow-yaml-text")).toContainText("name: example-review");
-  // Read-only: nothing in the right column takes text but the filters.
-  await expect(page.locator("#details textarea")).toHaveCount(0);
-  await page.getByTestId("flow-node-review").click();
-  await expect(page.locator('#details [data-testid="flow-station-panel"]')).toHaveAttribute("data-station", "review");
+  for (const id of ["review", "approve"]) await expect(side.getByTestId(`flow-node-${id}`)).toBeVisible();
+  // The definition, station by station: the example's review keeps a rule and a read-only policy.
+  const review = side.getByTestId("flow-def-station-review");
+  await expect(review).toContainText("review-honest");
+  await expect(side.getByTestId("flow-def-permissions-review-0")).toHaveAttribute("data-effect", "deny");
+  // Its parts, each to open.
+  await expect(side.getByTestId("flow-part-skill-review")).toContainText("Look at the subject");
+  await expect(side.getByTestId("flow-part-rule-review-honest")).toContainText("Report what you saw");
+  await expect(side.getByTestId("flow-part-policy-read-only")).toContainText("Look, do not touch");
+  await expect(side.getByTestId("flow-parts-hook")).toBeVisible();
+  await side.getByTestId("flow-yaml").locator("summary").click();
+  await expect(side.getByTestId("flow-yaml-text")).toContainText("name: example-review");
+  // Read-only: nothing takes text but the filters.
+  await expect(page.locator("#details textarea, #secondary textarea")).toHaveCount(0);
+  await side.getByTestId("flow-node-review").click();
+  await expect(stationPanel(page)).toHaveAttribute("data-station", "review");
+  await expect(stationPanel(page).getByTestId("flow-station-permissions")).toContainText("read-only");
 
-  // Selected again: nothing is, and the middle is the general conversation.
+  // Closed: nothing is selected, the conversation stays.
+  await page.getByTestId("secondary-close").click();
+  await expect(side).toHaveCount(0);
+  await expect(page.getByTestId("flow-def-example-review")).not.toHaveAttribute("aria-current", "true");
+  await expect.poll(() => current(page)).toBe(own);
+
+  // Selected, then selected again: nothing is, and the middle is the general conversation.
+  await select(page, "example-review");
   await page.getByTestId("flow-def-example-review").click();
   await expect(page.getByTestId("flow-pick-hint")).toBeVisible();
+  await expect(page.locator("#secondary")).toHaveCount(0);
   const general = await conversationOf(page);
   expect(general).not.toBe(own);
   await expect.poll(() => current(page)).toBe(general);
   await expect(page.getByTestId("flow-focus-notice")).toHaveAttribute("data-flow", "");
   await expect(page.getByTestId("flow-focus-notice")).toContainText(/general conversation|通用会话/);
+  await expect(page.getByTestId("flow-empty-conversation")).toHaveAttribute("data-kind", "general");
 
   // Back to it: the same conversation as before.
   await select(page, "example-review");
@@ -155,7 +186,7 @@ test("asked in a conversation on the flow, the Agent changes it, and the right c
   await open(page, backend.url);
   await inFlow(page);
   await select(page, "example-review");
-  const before = await page.getByTestId("flow-detail").getAttribute("data-digest");
+  const before = await page.locator('#secondary [data-testid="flow-detail"]').getAttribute("data-digest");
   await converse(page, "flow-ui-edit", "example-review");
   await expect(page.getByTestId("flow-focus-notice")).toHaveAttribute("data-flow", "example-review");
 
@@ -173,8 +204,8 @@ test("asked in a conversation on the flow, the Agent changes it, and the right c
   const row = page.getByTestId("flow-def-example-review");
   await expect(row).toContainText("Example: reviewed in conversation");
   await expect(row).toHaveAttribute("data-origin", "override");
-  await expect(page.getByTestId("flow-detail-title")).toHaveText("Example: reviewed in conversation");
-  await expect(page.getByTestId("flow-detail")).not.toHaveAttribute("data-digest", before ?? "");
+  await expect(page.locator("#secondary").getByTestId("flow-detail-title")).toHaveText("Example: reviewed in conversation");
+  await expect(page.locator('#secondary [data-testid="flow-detail"]')).not.toHaveAttribute("data-digest", before ?? "");
   await expect(page.getByTestId("flow-focus-notice")).toContainText("Example: reviewed in conversation");
   expect(errors).toEqual([]);
 });
@@ -204,7 +235,7 @@ test("a dry run started on the flow is in the runs tab: it steps, runs to the ap
   await inFlow(page);
   await select(page, "example-review");
   await page.getByTestId("flow-dry-start").click();
-  const detail = page.getByTestId("flow-run-detail");
+  const detail = page.locator('#secondary [data-testid="flow-run-detail"]');
   await expect(detail).toHaveAttribute("data-run", /^dry-example-review-/);
   const run = (await detail.getAttribute("data-run"))!;
   await expect(page.getByTestId(`flow-run-${run}`)).toHaveAttribute("data-dry", "true");
@@ -222,7 +253,7 @@ test("a dry run started on the flow is in the runs tab: it steps, runs to the ap
 
   // The mocked session task: the whole message the main session would have been sent.
   await page.getByTestId("flow-node-review").click();
-  const panel = page.locator('#details [data-testid="flow-station-panel"]');
+  const panel = stationPanel(page);
   await expect(panel).toHaveAttribute("data-station", "review");
   await panel.getByTestId("flow-preview-review").locator("summary").click();
   await expect(panel.getByTestId("flow-preview-message-review")).toContainText("Skill `review`");
@@ -246,7 +277,7 @@ test("a run started on the flow: its main session in the middle, its state, paus
   await page.getByTestId("flow-start-subject").fill("repo");
   await page.getByTestId("flow-start-submit").click();
 
-  const detail = page.getByTestId("flow-run-detail");
+  const detail = page.locator('#secondary [data-testid="flow-run-detail"]');
   await expect(detail).toHaveAttribute("data-run", /^example-review-/);
   const run = (await detail.getAttribute("data-run"))!;
   const row = page.getByTestId(`flow-run-${run}`);
@@ -281,7 +312,7 @@ test("a run started on the flow: its main session in the middle, its state, paus
   await expect(phase).toHaveAttribute("data-phase", /^(running|waiting)$/);
 
   await review.click();
-  const panel = page.locator('#details [data-testid="flow-station-panel"]');
+  const panel = stationPanel(page);
   await expect(panel.getByTestId("flow-station-spent")).toBeVisible();
   await panel.getByTestId("flow-force").click();
   await panel.getByTestId("flow-reason").fill("reviewed by hand");
@@ -322,7 +353,9 @@ test("the runs tab lists every run and dry run, filtered by state and kind", TAG
   await page.getByTestId("flow-filter-state").selectOption("");
   await page.getByTestId("flow-sort-runs").selectOption("duration");
   await expect(rows.first()).toBeVisible();
-  // Nothing selected in the runs tab: the general conversation.
+  // Nothing selected in the runs tab: nothing beside the conversation, which is the general one.
+  await expect(page.getByTestId("flow-run-pick-hint")).toBeVisible();
+  await expect(page.locator("#secondary")).toHaveCount(0);
   await expect.poll(() => current(page)).toBe(await conversationOf(page));
   expect(errors).toEqual([]);
 });
@@ -338,6 +371,10 @@ test("the reference tab: the guide, the catalog and the fields; an example start
   await expect(guide.locator("table").first()).toBeVisible();
   await expect(page.getByTestId("flow-guide-example-2")).toBeVisible();
   await expect(page.getByTestId("flow-catalog-scenes")).toContainText("flow-chat");
+  await expect(page.getByTestId("flow-catalog-part-rule")).toContainText("review-honest");
+  await expect(page.getByTestId("flow-catalog-part-policy")).toContainText("read-only");
+  // The reference has nothing beside the conversation.
+  await expect(page.locator("#secondary")).toHaveCount(0);
   await expect(page.getByTestId("flow-ref-fields")).toContainText("stations");
   await expect(page.getByTestId("flow-validate-box")).toHaveCount(0);
   // The reference talks in the general conversation.
