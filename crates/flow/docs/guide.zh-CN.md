@@ -31,8 +31,8 @@ skill 讲"这一站怎么做"，规则讲"整个流程里不能违背什么"，�
 | **规则**（rule） | `rules/<名>.md`，第一个 `# ` 标题是它的标题。流程级和站级的 `rules` 引用它；一站受的规则 = 流程级 ∪ 站级，放进会话任务的消息里（在 skill 之前），进站时固定版本。从不拦。 |
 | **权限**（permission） | 一条 `effect`（`allow` / `ask` / `deny`）+ `tools`（工具名或 `ns__*` 一组），可选 `paths`（路径参数按 glob；相对的从运行工作目录算）、`commands`（命令按 glob）、`args`（输入的字段 → glob 列表）、`message`。模式里可以有引用：`${run}`、`${inputs.k}`、`${item…}`、`${workspace}`。 |
 | **策略**（policy） | `policies/<名>.yaml`：有名字的一组权限，流程级和站级的 `policies` 引用它。 |
-| **判定** | 一个任务的权限 = 流程级策略 → 流程级权限 → 站级策略 → 站级权限，派工时解析引用、定下来。每次工具调用：命中的里 `deny` 大于 `ask` 大于 `allow`；一条都没命中时，受限工具（Bash、Write、Edit……）拒绝，其余放行。`ask` 留给人在会话里批，运行显示"等待：审批"；没人在实例的批准时限（缺省 300 秒）内答，引擎当作拒绝。主会话、独立会话都由流程这一处答。 |
-| **门禁**（gate） | `gates/<名>.yaml`，出站条件 `{kind: gate, gate: <名>}` 引用它。三种：`tool`（调应用的只读工具，对结果断言，判站时当场判）、`command`（在运行工作目录跑一条命令，退出码 0 为过；应用打开了才能用；运行的上下文从环境变量 `FLOW_RUN`、`FLOW_STATION`、`FLOW_WORKSPACE`、`FLOW_CONTEXT` 读，不拼进命令行）、`host`（应用自己的检查，按名字）。 |
+| **判定** | 一个任务的权限 = 流程级策略 → 流程级权限 → 站级策略 → 站级权限，派工时解析引用、定下来。每次工具调用：命中的里 `deny` 大于 `ask` 大于 `allow`；一条都没命中时，受限工具（Bash、Write、Edit……）拒绝，其余放行。路径先规范化（`..` 等折叠），带路径的 `deny` 任一路径命中即拒；命令按 `;` `&&` `|` 拆开比，`allow` 不放行带命令替换、重定向的整行；本来放行但碰到会话项目之外路径的调用转给人，除非放行的那条自己的 `paths` 写到了那里。`ask` 留给人在会话里批，运行显示"等待：审批"；没人在实例的批准时限（缺省 300 秒）内答，引擎当作拒绝。主会话、独立会话都由流程这一处答。 |
+| **门禁**（gate） | `gates/<名>.yaml`，出站条件 `{kind: gate, gate: <名>}` 引用它。三种：`tool`（调应用的只读工具，对结果断言，判站时当场判）、`command`（在运行工作目录跑一条命令，退出码 0 为过；应用打开了才能用；环境变量只留基础几个，运行的上下文从 `FLOW_RUN`、`FLOW_STATION`、`FLOW_WORKSPACE`、`FLOW_CONTEXT_FILE`（小的还有 `FLOW_CONTEXT`）读，不拼进命令行；超时整组杀掉）、`host`（应用自己的检查，按名字）。 |
 | **钩子**（hook） | `hooks/<名>.yaml`：`on`（事件，可写 `station.*`；不写 = 全部）、`flows`（只管这些流程；不写 = 全部）、`kind`（现在只有 `webhook`）、`action`（URL）、`secret_env`（可选：带签名）。**不写在流程里**：放进包里就生效，不改任何流程。投递失败重试三次，从不卡住流程。 |
 | **返工**（rework） | 退回到某一站重做（`rework_to` 列出能退到哪；`on_unmet` 自动返工）；可以只重做其中几个任务。 |
 | **租约**（lease） | 认领一个任务就拿到一份限时租约，做的过程中续租；过期了任务回到待做（或按 `retry` 重试）。 |
@@ -169,7 +169,7 @@ action: https://erp.example.com/harnix/flow
 secret_env: ERP_HOOK_SECRET
 ```
 
-钩子收到的是 `POST` 的 JSON：`{hook, delivery, event: {kind, run, flow, at, station?, task?, data}, run: {id, flow, title, subject, status, phase, usage}}`，头里有 `X-Harnix-Event`、`X-Harnix-Delivery`；配了 `secret_env` 时有 `X-Harnix-Signature: sha256=<正文的 HMAC>`。同一次投递重试时 `delivery` 不变。
+钩子收到的是 `POST` 的 JSON：`{hook, delivery, event: {kind, run, flow, at, station?, task?, data}, run: {id, flow, title, subject, status, phase, usage}}`，头里有 `X-Harnix-Event`、`X-Harnix-Delivery`、`X-Harnix-Timestamp`；配了 `secret_env` 时有 `X-Harnix-Signature: sha256=<"时间戳.正文" 的 HMAC>`，收方据时间戳拒收旧的。同一次投递重试时 `delivery` 不变。
 
 ### 独立会话：放到别的实例、用别的模型
 

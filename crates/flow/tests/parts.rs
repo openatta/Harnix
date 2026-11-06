@@ -85,12 +85,14 @@ async fn a_task_is_handed_its_rules_and_its_permissions_resolved() {
         (call("Bash", json!({"command": "ls"})), Effect::Deny),
         (call("mcp__desk__emit_row", json!({"table": "orders"})), Effect::Ask),
         (call("mcp__desk__emit_row", json!({"table": "order_lines"})), Effect::Allow),
-        (call("Read", json!({"file_path": "/etc/passwd"})), Effect::Allow),
+        (call("Read", json!({"file_path": "/data/ws/ruled-1/notes.md"})), Effect::Allow),
+        // Allowed by nothing in particular, outside the session's project: a person decides.
+        (call("Read", json!({"file_path": "/etc/passwd"})), Effect::Ask),
     ] {
         let v = judge(
             &permissions,
             h.eng.guarded(),
-            &Call { tool, input: Some(&input), paths: &[], workspace: Some("/data/ws/ruled-1") },
+            &Call { tool, input: Some(&input), paths: &[], workspace: Some("/data/ws/ruled-1"), root: Some("/data/ws/ruled-1") },
             "emit",
         );
         assert_eq!(v.effect, want, "{tool} {input}: {}", v.reason);
@@ -108,9 +110,12 @@ async fn a_call_held_for_a_person_makes_the_run_wait_for_approval() {
     let h = h();
     let (run, o) = start(&h, "ruled").await;
     let j = &jobs(&o)[0];
+    // Under another claim's token, nothing is held.
+    h.eng.asking(&run, "emit", "emit", "stale", Some(("Write".into(), "x".into()))).await.unwrap();
+    assert!(task(&h, &run, "emit", "emit").await.asking.is_none());
     let o = h
         .eng
-        .asking(&run, "emit", "emit", Some(("mcp__desk__emit_row".into(), "a nod first".into())))
+        .asking(&run, "emit", "emit", &j.token, Some(("mcp__desk__emit_row".into(), "a nod first".into())))
         .await
         .unwrap();
     assert!(has(&o, "task.asking:emit/emit"));
@@ -121,7 +126,7 @@ async fn a_call_held_for_a_person_makes_the_run_wait_for_approval() {
     h.eng.pause(&run, me()).await.unwrap();
     assert_eq!(h.eng.record(&run).await.unwrap().phase().state, "pausing");
     h.eng.resume(&run, me()).await.unwrap();
-    h.eng.asking(&run, "emit", "emit", None).await.unwrap();
+    h.eng.asking(&run, "emit", "emit", &j.token, None).await.unwrap();
     assert_eq!(h.eng.record(&run).await.unwrap().phase().state, "running");
     // Handed in, nothing is held any more.
     h.tools.set("count", json!({"total": 0}));

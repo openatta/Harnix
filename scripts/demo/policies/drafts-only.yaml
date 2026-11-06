@@ -9,6 +9,3 @@ permissions:
     tools: [Write, Edit]
     paths: ["${workspace}/release/**"]
     message: 写发布目录要人确认
-  - effect: allow
-    tools: [Bash]
-    commands: ["ls*", "cat *", "wc *"]

@@ -115,6 +115,32 @@ test("the parts are read and saved by kind; a part a flow needs cannot go withou
   await api.call("app.flow.delete", { name: "ruled" });
 });
 
+test("a command gate runs with none of the application's secrets, the run's context in a file", TAGS, async () => {
+  // The test application is started with HARNIX_CREDENTIAL_PROBE_KEY in its environment.
+  await api.call("app.flow.part.save", {
+    kind: "gate",
+    name: "clean-env",
+    text: [
+      "name: clean-env",
+      "kind: command",
+      "cwd: sub",
+      `command: 'test -z "$HARNIX_CREDENTIAL_PROBE_KEY" && test -s "$FLOW_CONTEXT_FILE" && grep -q clean-subject "$FLOW_CONTEXT_FILE" && test "$(basename "$PWD")" = sub && echo clean'`,
+      "",
+    ].join("\n"),
+  });
+  await api.call("app.flow.save", { yaml: "name: env-gated\nstations: [{id: a, exit: [{kind: gate, gate: clean-env}]}]" });
+  try {
+    const { run } = await api.call("app.flow.start", { flow: "env-gated", subject: "clean-subject" });
+    const done = await until(run, (v) => v.record.status === "finished" || station(v, "a")?.status === "unmet", "the gate is judged");
+    const check = station(done, "a").checks.find((c: any) => c.kind === "gate");
+    expect(check, JSON.stringify(station(done, "a"))).toMatchObject({ status: "pass" });
+    expect(check.detail).toContain("clean");
+  } finally {
+    await api.call("app.flow.delete", { name: "env-gated" }).catch(() => {});
+    await api.call("app.flow.part.delete", { kind: "gate", name: "clean-env" }).catch(() => {});
+  }
+});
+
 type Delivery = { headers: IncomingHttpHeaders; body: any };
 
 test("a hook put in the pack is told a run's events, filtered by event and flow; no flow names it", TAGS, async () => {
@@ -151,6 +177,7 @@ test("a hook put in the pack is told a run's events, filtered by event and flow;
       expect(d.body).toMatchObject({ hook: "live-hook", event: { run, flow: "hooked" }, run: { id: run, flow: "hooked" } });
       expect(d.headers["x-harnix-event"]).toBe(d.body.event.kind);
       expect(d.headers["x-harnix-delivery"]).toBe(d.body.delivery);
+      expect(Number(d.headers["x-harnix-timestamp"])).toBeGreaterThan(Date.now() - 600_000);
       expect(d.headers["x-harnix-signature"]).toBeUndefined();
     }
     expect(new Set(got.map((d) => d.body.delivery)).size).toBe(got.length);

@@ -487,12 +487,13 @@ impl Engine {
 
     /// A call of a task's turn held for a person (`ask`: the tool and why), or no longer held
     /// (`None`) — xops-04 §3. While held the run waits for `approval`; holding emits
-    /// `task.asking`. A task no longer claimed is left alone.
+    /// `task.asking`. Only under the claim `token`: a task claimed again is left alone.
     pub async fn asking(
         &self,
         run: &str,
         station: &str,
         task: &str,
+        token: &str,
         ask: Option<(String, String)>,
     ) -> Result<Outcome> {
         transact!(self, Actor::flow("dispatch"), |t| {
@@ -502,6 +503,10 @@ impl Engine {
             let Some(tr) = m.task_mut(station, task) else {
                 return Ok(json!({"run": run}));
             };
+            // Only the claim it was asked under: a new attempt starts with nothing held.
+            if tr.lease.as_ref().is_none_or(|l| l.token != token) {
+                return Ok(json!({"run": run}));
+            }
             if tr.status != TaskStatus::Claimed {
                 tr.asking = None;
                 return Ok(json!({"run": run}));

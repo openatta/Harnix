@@ -427,7 +427,7 @@ pub(crate) fn parts_used(packs: &dyn Packs, def: &FlowDef) -> Value {
         .hooks()
         .into_iter()
         .filter(|h| h.flows.is_empty() || h.flows.contains(&def.name))
-        .map(|h| json!({"name": h.name, "title": h.title, "on": h.on, "kind": h.kind, "action": h.action}))
+        .map(|h| json!({"name": h.name, "title": h.title, "on": h.on, "kind": h.kind, "action": super::hooks::redact_url(&h.action)}))
         .collect();
     json!({"parts": used, "hooks": hooks})
 }

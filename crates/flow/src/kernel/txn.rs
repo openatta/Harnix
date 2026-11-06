@@ -808,6 +808,7 @@ impl<'a> M<'a> {
             t.attempt += 1;
             t.started_at = Some(now);
             t.ended_at = None;
+            t.asking = None;
             t.lease = Some(Lease {
                 by: dispatcher.clone(),
                 token: token.clone(),
@@ -1371,11 +1372,7 @@ fn task_work(
             super::parts::permissions_of(&rec.def, st, &rec.parts.policies)
                 .into_iter()
                 .map(|g| super::parts::Granted {
-                    permission: g.permission.map_patterns(|p| match resolve_str(p, &ctx) {
-                        Value::String(s) => s,
-                        Value::Null => String::new(),
-                        v => v.to_string(),
-                    }),
+                    permission: super::parts::resolve_permission(&g.permission, &ctx),
                     from: g.from,
                 })
                 .collect()

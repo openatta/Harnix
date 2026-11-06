@@ -186,16 +186,34 @@ pub(crate) async fn watch(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: boo
 const CALLS_KEPT: usize = 64;
 
 async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: bool, mut tap: harnix_module::Tap) {
+    // What it asks about (the pinned flow's), and where its project is: a question about any other
+    // tool is the engine's own, and a person's to answer; a path outside the project is a
+    // person's to allow.
+    let asked: Vec<String> = match sh.engine() {
+        Ok(e) => match e.record(run).await {
+            Ok(rec) => crate::kernel::parts::asked_tools(&rec.def, &rec.parts.policies, &sh.cfg.guarded),
+            Err(_) => return,
+        },
+        Err(_) => return,
+    };
+    let root: Option<String> = match sh.cx.get() {
+        Some(cx) => cx
+            .call("session.get", json!({"instance": s.instance, "session_id": s.session_id}))
+            .await
+            .ok()
+            .and_then(|v| v.get("project_root").and_then(Value::as_str).map(String::from)),
+        None => None,
+    };
     // Turn → the task it was started for: read when the turn's first frame comes, while that
     // task is in hand (by its settlement it has often handed in and been let go).
     let mut turns: std::collections::HashMap<String, Option<Binding>> =
         std::collections::HashMap::new();
     // `Agent` calls of the main Agent: tool use id → what it named the sub-agent.
     let mut agent_calls: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    // Tool use id → input, newest last: what a question about a call is judged on.
-    let mut inputs: std::collections::VecDeque<(String, Value)> = Default::default();
-    // Calls held for a person: tool use id → the task (station, task).
-    let mut held: std::collections::HashMap<String, (String, String)> = Default::default();
+    // Tool calls, newest last — (id, tool, input): what a question about a call is judged on.
+    let mut inputs: std::collections::VecDeque<(String, String, Value)> = Default::default();
+    // Questions held for a person: the call's id (the question's when it names none) → the task.
+    let mut held: std::collections::HashMap<String, Binding> = Default::default();
     loop {
         let ev = tokio::select! {
             ev = tap.next() => ev,
@@ -240,8 +258,8 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: bool, mut
                     .flatten()
                     .map(|b| (b.station, b.task));
                 // Whatever was held is over with the turn.
-                for (_, (st, t)) in held.drain() {
-                    unhold(sh, run, &st, &t).await;
+                for (_, b) in held.drain() {
+                    unhold(sh, &b).await;
                 }
                 let usage = frame
                     .pointer("/params/outcome/usage")
@@ -263,26 +281,46 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: bool, mut
                 match inner.get("kind").and_then(Value::as_str) {
                     Some("tool_use") => {
                         if let (Some(id), Some(input)) = (inner.get("id").and_then(Value::as_str), inner.get("input")) {
-                            inputs.push_back((id.to_string(), input.clone()));
+                            let tool = inner.get("name").and_then(Value::as_str).unwrap_or_default();
+                            inputs.push_back((id.to_string(), tool.to_string(), input.clone()));
                             if inputs.len() > CALLS_KEPT {
                                 inputs.pop_front();
                             }
                         }
                     }
                     Some("tool_result") => {
-                        let id = inner.get("tool_use_id").and_then(Value::as_str).unwrap_or_default();
-                        if let Some((st, t)) = held.remove(id) {
-                            unhold(sh, run, &st, &t).await;
+                        // The engine names the call `id`; a hub may say `tool_use_id`.
+                        for k in ["id", "tool_use_id"] {
+                            if let Some(b) = inner.get(k).and_then(Value::as_str).and_then(|id| held.remove(id)) {
+                                unhold(sh, &b).await;
+                            }
                         }
                     }
                     Some("prompt") => {
-                        let owner = turn.as_ref().and_then(|t| turns.get(t)).cloned().flatten();
+                        let tool = inner.get("tool_name").and_then(Value::as_str).unwrap_or_default();
+                        if !crate::kernel::parts::tool_matches(&asked, tool) {
+                            continue;
+                        }
+                        // The turn's task; a turn begun before this watch saw it (a restart, a lag)
+                        // is the session's bound task's.
+                        let owner = match turn.as_ref().and_then(|t| turns.get(t)) {
+                            Some(o) => o.clone(),
+                            None => sh.binding(&s.session_id),
+                        };
                         let call_id = inner.get("tool_use_id").and_then(Value::as_str);
-                        let input = call_id.and_then(|id| inputs.iter().rev().find(|(k, _)| k == id)).map(|(_, v)| v.clone());
+                        // By the call; a sub-agent's question names none — its latest call of the tool.
+                        let input = match call_id {
+                            Some(id) => inputs.iter().rev().find(|(k, _, _)| k == id),
+                            None => inputs.iter().rev().find(|(_, t, _)| t == tool),
+                        }
+                        .map(|(_, _, v)| v.clone());
                         if let Some(b) = owner {
-                            let asked = answer(sh, s, inner, input.as_ref(), &b).await;
-                            if let (true, Some(id)) = (asked, call_id) {
-                                held.insert(id.to_string(), (b.station.clone(), b.task.clone()));
+                            let asked_person = answer(sh, s, inner, input.as_ref(), root.as_deref(), &b).await;
+                            if asked_person {
+                                let key = call_id
+                                    .or_else(|| inner.get("prompt_id").and_then(Value::as_str))
+                                    .unwrap_or_default();
+                                held.insert(key.to_string(), b.clone());
                             }
                         }
                     }
@@ -366,7 +404,7 @@ async fn count(sh: &Arc<Shared>, run: &str, task: Option<(String, String)>, u: U
 }
 
 /// What becomes of a question about a call of a task's turn: its permissions judge it.
-pub(crate) fn verdict(sh: &Shared, b: &Binding, prompt: &Value, input: Option<&Value>) -> Verdict {
+pub(crate) fn verdict(sh: &Shared, b: &Binding, prompt: &Value, input: Option<&Value>, root: Option<&str>) -> Verdict {
     let tool = prompt.get("tool_name").and_then(Value::as_str).unwrap_or("");
     let paths: Vec<String> = prompt
         .get("paths")
@@ -382,6 +420,7 @@ pub(crate) fn verdict(sh: &Shared, b: &Binding, prompt: &Value, input: Option<&V
             input,
             paths: &paths,
             workspace: ws.as_ref().and_then(|p| p.to_str()),
+            root,
         },
         &b.station,
     )
@@ -398,18 +437,27 @@ pub(crate) fn decision(v: &Verdict) -> Option<Value> {
 
 /// Answer a question of a task's turn from its permissions. Returns whether it was left to a
 /// person (the task is marked as waiting for them).
-async fn answer(sh: &Arc<Shared>, s: &SessionRef, prompt: &Value, input: Option<&Value>, b: &Binding) -> bool {
+async fn answer(
+    sh: &Arc<Shared>,
+    s: &SessionRef,
+    prompt: &Value,
+    input: Option<&Value>,
+    root: Option<&str>,
+    b: &Binding,
+) -> bool {
     let Some(cx) = sh.cx.get() else {
         return false;
     };
     let Some(id) = prompt.get("prompt_id").and_then(Value::as_str) else {
         return false;
     };
-    let v = verdict(sh, b, prompt, input);
+    let v = verdict(sh, b, prompt, input, root);
     let Some(d) = decision(&v) else {
         let tool = prompt.get("tool_name").and_then(Value::as_str).unwrap_or("").to_string();
         if let Ok(engine) = sh.engine() {
-            let r = engine.asking(&b.run, &b.station, &b.task, Some((tool, v.reason))).await;
+            let r = engine
+                .asking(&b.run, &b.station, &b.task, &b.token, Some((tool, v.reason)))
+                .await;
             settle_quiet(sh, &b.run, r).await;
         }
         return true;
@@ -431,10 +479,10 @@ async fn answer(sh: &Arc<Shared>, s: &SessionRef, prompt: &Value, input: Option<
 }
 
 /// A held call was answered (or its turn is over): the task works again.
-async fn unhold(sh: &Arc<Shared>, run: &str, station: &str, task: &str) {
+async fn unhold(sh: &Arc<Shared>, b: &Binding) {
     if let Ok(engine) = sh.engine() {
-        let r = engine.asking(run, station, task, None).await;
-        settle_quiet(sh, run, r).await;
+        let r = engine.asking(&b.run, &b.station, &b.task, &b.token, None).await;
+        settle_quiet(sh, &b.run, r).await;
     }
 }
 
