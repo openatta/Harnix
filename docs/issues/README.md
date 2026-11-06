@@ -1,19 +1,13 @@
 # 下游项目提的需求
 
-这个目录放在 Harnix 上做应用的项目提过来的需求：缺陷、要加的能力、文档该补的地方。一个需求一个文件，文件名是
-`<项目>-NN-<英文短名>.md`，前缀是提出的项目，`NN` 由那个项目在本仓库里自己编号。
+在 Harnix 上做应用的项目（IPDrun、Helm、Grabix、XOps……）提的需求——缺陷、要加的能力、文档该补的地方——都在
+[GitHub issue](https://github.com/openatta/Harnix/issues) 里记，每个项目一个标签（`ipdrun`、`helm`、`grabix`、`xops`），每条带原文与落地提交。
+新需求直接在 GitHub 提，用 `<项目>-NN：标题` 作标题、打上项目标签，正文的结构照已有的：类型与优先级；现象或需求（带代码位置）；
+建议（接口草图）；兼容性；验收；依赖；来源。用词照 [glossary](../glossary.md)。落地时，提交说明里写上编号（如 `ipdrun-05`）。
 
-每份的结构相同：类型与优先级；现象或需求（带代码位置）；建议（接口草图）；兼容性（对现有应用、缺省行为、协议与贡献点 API 版本的影响）；
-验收（本仓库的测试怎么证明）；依赖；来源（提出方在哪里撞到的，一两句）。
-
-规矩：需求、接口、验收只用 Harnix 自己的概念（用词照 [glossary](../glossary.md)），提出方的业务只出现在「来源」里；接口只加不改，
-旧调用方不改代码就能继续工作，缺省行为不变（缺陷修复改掉的那一处行为在「兼容性」里写明）。
-
-落地时，提交说明里写上对应的编号（如 `ipdrun-05`）。
+代码注释与提交说明里的编号按下表找。
 
 ## IPDrun
-
-IPDrun 提的需求（ipdrun-01…55，2026-10-27 起）已迁到 GitHub issue，标签 [`ipdrun`](https://github.com/openatta/Harnix/issues?q=label%3Aipdrun)，每条带原文与落地提交；以后 IPDrun 的新需求直接在 GitHub 提（同一标签），不再放这个目录。代码注释与提交说明里的 `ipdrun-NN` 按下表找：
 
 | 编号 | GitHub | 标题 |
 |---|---|---|
@@ -72,35 +66,26 @@ IPDrun 提的需求（ipdrun-01…55，2026-10-27 起）已迁到 GitHub issue�
 | ipdrun-54 | [#53](https://github.com/openatta/Harnix/issues/53) | space 的主会话在左栏会话列表里与 space 入口重复（`SpaceContribution.listSession`） |
 | ipdrun-55 | [#54](https://github.com/openatta/Harnix/issues/54) | 再点前台 space 的入口没有反应（`SpaceContribution.reenter`） |
 
-ipdrun-06 已撤回（在公开契约之上能做，模板写 `program` 即可），没有建。
-
 ## Helm
 
-提出于 2026-10-27，代码位置对照 `c9dc17e`（`Harnix-v0.4.0-2026102703`）。
-
-| 编号 | 标题 | 类型 | 优先级 | 依赖 |
-|---|---|---|---|---|
-| [helm-01](helm-01-prompt-answerer.md) | 模块不知道是哪台设备回答了某个工具的权限卡（`harnix.prompts.answerer`） | 新能力 | 中 | — |
+| 编号 | GitHub | 标题 |
+|---|---|---|
+| helm-01 | [#59](https://github.com/openatta/Harnix/issues/59) | 模块不知道是哪台设备回答了某个工具的权限卡 |
 
 ## Grabix
 
-提出于 2026-10-30，代码位置对照 `5af5728`（`Harnix-v0.4.0-2026102801`）。已落地：grabix-01、grabix-02 → `0debd3e`；grabix-03 → `c05275a`；grabix-04 → `e1433ff`（main，未发版）。
-
-| 编号 | 标题 | 类型 | 优先级 | 依赖 |
-|---|---|---|---|---|
-| [grabix-01](grabix-01-space-new-session.md) | space 不能关掉「新会话」（`newSession`） | 新能力 | 中 | — |
-| [grabix-02](grabix-02-space-details-width.md) | space 不能定右栏的缺省宽度（`detailsWidth`） | 新能力 | 低 | — |
-| [grabix-03](grabix-03-space-header-actions.md) | space 不能在标题栏放自己的操作（`headerActions`） | 新能力 | 中 | — |
-| [grabix-04](grabix-04-topic-resubscribe-race.md) | 同一主题退订后立刻再订阅，服务端可能后执行退订，订阅从此丢失 | 缺陷 | 中 | —（与 ipdrun-16 同类） |
+| 编号 | GitHub | 标题 |
+|---|---|---|
+| grabix-01 | [#55](https://github.com/openatta/Harnix/issues/55) | space 不能关掉「新会话」（`newSession`） |
+| grabix-02 | [#56](https://github.com/openatta/Harnix/issues/56) | space 不能定右栏的缺省宽度（`detailsWidth`） |
+| grabix-03 | [#57](https://github.com/openatta/Harnix/issues/57) | space 不能在标题栏放自己的操作（`headerActions`） |
+| grabix-04 | [#58](https://github.com/openatta/Harnix/issues/58) | 同一主题退订后立刻再订阅，服务端可能后执行退订，订阅从此丢失 |
 
 ## XOps
 
-提出于 2026-11-04，代码位置对照 `3c264da`。已落地：xops-01 → `be9157f`…`2df2b74`；xops-02 → `c0c3a7d`…`eea2ab2`；xops-03 → `458732f`…`ac23191`；xops-04 → `a8dbb79`…`8d4d343`（main，未推送，未发版）。
-
-| 编号 | 标题 | 类型 | 优先级 | 依赖 |
-|---|---|---|---|---|
-| [xops-01](xops-01-flow.md) | 流程能力：按站推动会话工作的可选模块（`harnix-flow`、`@harnix/flow`） | 新能力 | 高 | — |
-| [xops-02](xops-02-flow-placement-authoring.md) | 流程会话的落点与模型；结构化输出交付、权限规则限写；空应用自带流程；对话里编写流程；试运行 | 新能力 | 高 | xops-01 |
-| [xops-03](xops-03-flow-main-agent-space.md) | 流程的主 Agent 与子 Agent；运行状态与暂停；按站的耗时与用量；流程 space 改版；demo 数据 | 新能力 | 高 | xops-02 |
-| [xops-04](xops-04-flow-rules-policies-gates-hooks.md) | 流程包的规则、策略与权限、门禁、钩子；详情进二级栏；demo 会话（不兼容：未发布，按用户决定整体重构） | 重构 + 新能力 | 高 | xops-03 |
-
+| 编号 | GitHub | 标题 |
+|---|---|---|
+| xops-01 | [#60](https://github.com/openatta/Harnix/issues/60) | 流程能力——按站推动会话工作的可选模块（`harnix-flow`） |
+| xops-02 | [#61](https://github.com/openatta/Harnix/issues/61) | 流程会话的落点与模型、按会话参数交付与限写、空应用自带流程、在对话里编写流程、试运行 |
+| xops-03 | [#62](https://github.com/openatta/Harnix/issues/62) | 流程的主 Agent 与子 Agent、运行状态与暂停、按站的耗时与用量、流程 space 改版 |
+| xops-04 | [#63](https://github.com/openatta/Harnix/issues/63) | 流程的规则、策略与权限、门禁、钩子；详情进二级栏；demo 会话 |

@@ -19,7 +19,7 @@ members = [
 
 # No `[workspace.package]`: each crate states its own version, licence,
 # edition and toolchain floor. An application takes these crates in as members
-# of *its* workspace (docs/harnix-0.4-design-and-plan.md §11.2), and anything
+# of *its* workspace (docs/harnix-sdk.md), and anything
 # inherited from a workspace would then be the application's — its licence
 # included. `scripts/set-version.sh` changes the version everywhere at once;
 # `tests/crate-metadata.mjs` checks they agree. The toolchain floor, 1.87, is

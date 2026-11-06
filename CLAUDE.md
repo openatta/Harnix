@@ -24,9 +24,12 @@ crate 自己的 `Cargo.toml` 里，不从 workspace 继承（应用把这些 cra
 
 ## 开发
 
-- 进度记在 `docs/status.md`：接手前先读它，停下前更新它。架构与理由在 `docs/concept_and_architecture.md`，
-  用词照 `docs/glossary.md`，二开接口在 `docs/harnix-sdk.md`、`docs/harnix-sdk-reference.md`。
-  `docs/harnix-0.4-design-and-plan.md` 是 0.4 的设计记录，已冻结（代码注释里的「设计 §x」指它）。
+- `docs/` 只放架构与二开的文档：架构与理由在 `docs/concept_and_architecture.md`，用词照 `docs/glossary.md`，
+  二开接口在 `docs/harnix-sdk.md`、`docs/harnix-sdk-reference.md`，贡献点 `docs/contribution_points.md`，测试 `docs/testing.md`。
+  过程（计划、进度、设计记录）不进 `docs/`。下游项目的需求在 GitHub issue 里记（每个项目一个标签），
+  `docs/issues/README.md` 只是代码里的编号与 issue 的对照表。代码注释里的「设计 §x」「roadmap Mx-y」指 0.4 的设计记录与路线，
+  已从仓库移出，在 git 历史里。
+- 改了 `README.md` 或 `docs/README.zh-CN.md`，两边一起改，再 `node tests/readme-pairing.mjs --write`。
 - 开始一个新的里程碑，要维护者明确说开始。
 - 界面照 `../Helm/docs/design/11-gui-workbench-v0.1.md` 的工作台框架；Harnix 本身做薄，产品面是应用的 space。
 - 构建缓存及时清：里程碑或发布之后跑 `scripts/prune.sh`。

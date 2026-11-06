@@ -9,8 +9,10 @@
 | 怎么在 Harnix 上做应用 | [二开指南](harnix-sdk.md)；签名、profile 键、方法与主题的清单在 [SDK 参考](harnix-sdk-reference.md) |
 | 贡献点的完整目录 | [contribution_points.md](contribution_points.md)，由代码生成 |
 | 测试怎么跑、怎么写 | [testing.md](testing.md) |
-| 计划、里程碑、做到哪了 | [roadmap](roadmap.md)、[status](status.md) |
-| 0.4 当时是怎么设计的 | [0.4 设计](harnix-0.4-design-and-plan.md)。**已冻结，只作历史记录**；它的结论都已并进本文，两者不一致时以本文和代码为准 |
+| 下游项目提的需求 | [GitHub issue](https://github.com/openatta/Harnix/issues)，每个项目一个标签；代码里的编号（`ipdrun-NN`、`xops-NN`……）对照见 [issues](issues/README.md) |
+
+代码注释里的「设计 §x」指 0.4 的设计记录（`docs/harnix-0.4-design-and-plan.md`）。它的结论都已并进本文，文件已从仓库移出，
+要看原文到 git 历史里找。
 
 Harnix 建立在 [Agix](https://github.com/openatta/agix) 之上。引擎相关的概念（轮次循环、扩展点、场景、
 权限、压缩、插件包）以 Agix 自己的文档为准，这里只在需要说明边界时引用。
@@ -524,6 +526,34 @@ space 声明（`spaces()`：默认实例、场景）、`app.<id>.*` 方法（带
   Harnix 的授权与保证之内，由应用负责。
 - **非 Rust 的 sidecar 服务**：走 Agix 的 MCP，或经模块路由转发。
 
+### 4.7 可选模块：流程（`harnix-flow`）
+
+流程不进骨架，是一个**按公开模块契约写的可选模块**（crate `harnix-flow`，界面 `@harnix/flow`）：应用注册它就有，
+不注册什么都不变；空应用（`crates/cli`）注册了它。它让 Agent 按一套定义好的过程干活，判定只看结构化信号。
+
+```
+ 流程包（内置层 + 可写层）     flows · skills · rules · policies · gates · hooks
+          │ 校验、建运行时钉住定义与策略、门禁
+          ▼
+ 内核（kernel/，纯）          站的有向无环图：进站、派工、租约、出站判定、返工、暂停；
+          │                   只经宿主 trait 读写（RunStore、Packs、Authorizer、Tools）
+          ▼ 工作项
+ 模块（module/）              会话任务交给会话（主会话 = 主 Agent；子 Agent；独立会话），
+                              程序交给应用，命令 / 宿主门禁去跑，钩子去投递；
+                              答流程会话的权限询问；app.flow.* 方法与主题
+```
+
+**分层**：内核不建会话、不碰磁盘、不知道谁是用户——存储、授权、应用的程序与检查都由应用以 trait 交进来，
+所以同一个内核也跑在试运行的沙箱里（外面的一切模拟）。模块把内核接到 Harnix：会话、原生工具（`flow_submit`、
+`flow_state`、`flow_propose`）、作者 scene `flow-author`、方法与主题、流程 space。
+
+**每个时间点只有一处能拦**：干活过程中是**权限**——流程会话对受限工具和权限提到的工具都 `ask`，模块按这一轮所属
+任务的权限判（`deny` > `ask` > `allow`，`ask` 留给人）；出站时是**出站条件**——输出契约、门禁（`tool` / `command` /
+`host`）、人的确认。**规则**与 skill 只告诉 Agent，不拦。**钩子**是旁观者：不写在流程里，从不阻塞运行。
+
+**不进 Harnix 的**：审批策略（几个人批、批与做不能是同一人）归应用——流程把 `who` 交给应用的授权方。
+对象与写法见流程 space 的参考页（`crates/flow/docs/guide.*.md`）。
+
 ---
 
 ## 5. 界面
@@ -634,6 +664,9 @@ API」是同一条。
 | Agent | Agix 实例里 | 原生 Rust（模块的 `engine()` 或模板）或运行期 Agix 插件包 |
 
 只有前端与 Agent 部分的 space 不用在后端声明，取默认（`system` 实例、实例的默认场景）。
+
+中区缺省是对话；space 可以在对话旁边开一个**二级栏**（`secondary()`：标题、正文、能拖宽、能最大化、能关），放它右栏里
+选中那一项的详情——列表留在右栏，详情不挤在列表下面。会话还空着时，space 可以给一段说明（`emptyConversation`）。
 
 **会话规则：**
 
@@ -1012,7 +1045,7 @@ Harnix 依赖 Agix 提供的、并且已经由它提供的：
 | 扩展条目 | `session.appendEntry` / `session.entries` / `extension_entry` 帧；分叉带上条目 |
 | 包 | 包方案与载体解耦；`plugin.list` 带包的 `root`、`script_faults`、`component_faults`；装不上的包不会假装装上；manifest 里不认识的段只告警 |
 
-这些曾经一条条是给 Agix 提的 issue，记录在 [0.4 设计](harnix-0.4-design-and-plan.md) §17 与 `.local/` 里。
+这些曾经一条条是给 Agix 提的 issue。
 
 ---
 
@@ -1038,7 +1071,7 @@ Harnix 依赖 Agix 提供的、并且已经由它提供的：
 | 迁移的备份钩子、`--dry-run` | Harnix 只管迁移的顺序与失败隔离（§4.1） |
 | 协议层的投影子系统 | 派生视图不属于协议 |
 
-这些里有「以后可能做」的，排在 [roadmap](roadmap.md) 的「0.4 之后」，前提都是真实需求加 §1.3 的判据。
+这些里有「以后可能做」的，前提都是真实需求加 §1.3 的判据。
 
 ---
 
@@ -1048,8 +1081,7 @@ Harnix 依赖 Agix 提供的、并且已经由它提供的：
 
 0.4 把 Harnix 从「一个产品」变成「应用的公共底座」：M0–M9 依次立起引擎基线与构建方式、LIVE 测试、模块契约与
 应用装配、实例层与服务端会话、React 外壳、space 模型、系统 space、模块的对话与链接能力、运行期界面模块 v2 与
-品牌、桌面壳。每个里程碑交付完整的功能模块（后端、前端、两层测试各一块）。里程碑、任务、验收与「0.4 之后」
-排什么，见 [roadmap](roadmap.md)；做到哪了见 [status](status.md)。
+品牌、桌面壳。每个里程碑交付完整的功能模块（后端、前端、两层测试各一块）。之后的需求按下游项目的 issue 来。
 
 **0.4.z 内协议与模块 API 只做加法**：协议形状（`instance` 字段、会话键）在 0.4.0 定下，之后不改已有的形状。
 0.4 的最后一条验收是：**照二开指南从模板做出一个换了品牌的应用，不问作者**。

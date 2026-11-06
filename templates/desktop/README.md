@@ -1,7 +1,7 @@
 # harnix-desktop：Harnix 应用的桌面壳
 
 > 读者：要把自己的 Harnix 应用做成桌面程序的人。为什么这样设计见
-> [0.4 设计 §12](../../docs/harnix-0.4-design-and-plan.md)（D5：Tauri 只是外壳）。
+> [概念与架构](../../docs/concept_and_architecture.md)（Tauri 只是外壳）。
 
 一个 Tauri 2 窗口，里面就是应用自己发出的网页界面。**壳只管三件事：窗口、子进程、配置。** 应用做的
 一切（调用、事件、上传）都是页面自己对服务端发的 HTTP/WS，和在浏览器标签页里一模一样。所以桌面版

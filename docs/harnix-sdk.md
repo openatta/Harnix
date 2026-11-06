@@ -6,8 +6,7 @@
 > `examples/hello-app` 是能编译、有测试的完整例子，`templates/app`、`templates/desktop` 是起步用的模板。
 >
 > **接口清单在 [SDK 参考](harnix-sdk-reference.md)**：每个类型、方法、profile 键、命令行开关、目录、
-> 线上方法与主题、贡献点的形状，以及迁移时要知道的缺口。本指南讲怎么用、为什么。Helm、IPDrun 的迁移
-> 照 [Helm 迁移说明](migration-helm.md)、[IPDrun 迁移说明](migration-ipdrun.md)。
+> 线上方法与主题、贡献点的形状，以及迁移时要知道的缺口。本指南讲怎么用、为什么。
 >
 > 用词照 [术语](glossary.md)。为什么是这个形状见 [概念与架构](concept_and_architecture.md)。
 
@@ -91,7 +90,7 @@ Harnix 进程
 **两个 pnpm workspace，互不相交。** `harnix/` 用它自己的（`pnpm --dir harnix install`，外壳在那里构建，Vite
 把 `react`、`@harnix/react`、`@harnix/core` 去重到外壳那一份）；应用根下自己的 workspace 只收 `spaces/*/ui`
 和测试包，`@harnix/react` 用 `link:../../../harnix/ui/packages/react` 引进来，`react` 的版本写成和 Harnix 一样。
-退路是根 workspace 收 `harnix/ui/packages/*`、只装一次；两种都写在 [Helm 迁移说明](migration-helm.md) P5 里。
+退路是根 workspace 收 `harnix/ui/packages/*`、只装一次。
 照这样做还要知道三点：
 
 - 两边都要装：模板的 `scripts/build.sh` 先 `pnpm --dir harnix install`，应用根有 `pnpm-workspace.yaml` 时再 `pnpm install`，然后才构建外壳——
@@ -811,8 +810,7 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 ### 14.0 迁移分析怎么做
 
 在自己的仓库里做分析时，输入是：本指南、[SDK 参考](harnix-sdk-reference.md)（尤其 §9 的缺口表）、能跑
-的范例 `examples/hello-app`。Helm、IPDrun 已经各有一份写好的迁移说明（§14.1）；**以你仓库里现在的代码为准**，
-对不上就按代码改。
+的范例 `examples/hello-app`。**以你仓库里现在的代码为准**，对不上就按代码改。
 
 逐项过一遍，每项落成「保留 / 改写 / 删掉 / 等 Harnix」：
 
@@ -840,13 +838,6 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 4. 前端换成 React 包：每个 space 一个 `ui/` 包，`register()` 注册。
 5. 测试换成 `@harnix/testkit`。
 6. 删掉 vendor 副本和照抄的代码，`check-pins` 通过，没有补丁。
-
-### 14.1 Helm、IPDrun
-
-两份逐步的迁移说明，照它们各自仓库里现在的代码写的：
-
-- [Helm 迁移说明](migration-helm.md)
-- [IPDrun 迁移说明](migration-ipdrun.md)
 
 ## 15. 各能力从哪个里程碑起可用
 

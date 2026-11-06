@@ -31,7 +31,7 @@ const blob = (file) =>
 const parse = (text) => {
   const pairs = {};
   for (const line of text.split("\n")) {
-    const m = /^([\w.\-]+):\s*([0-9a-f]{40})\s*$/.exec(line);
+    const m = /^([\w.\-/]+):\s*([0-9a-f]{40})\s*$/.exec(line);
     if (m) pairs[m[1]] = m[2];
   }
   return pairs;
@@ -43,7 +43,7 @@ const HEADER = `# Bilingual-pair consistency record: the git blob hash of each s
 #   node tests/readme-pairing.mjs --write
 `;
 
-const FILES = ["README.md", "README.zh-CN.md"];
+const FILES = ["README.md", "docs/README.zh-CN.md"];
 const current = Object.fromEntries(FILES.map((f) => [f, blob(f)]));
 
 if (write) {
@@ -66,7 +66,7 @@ if (moved.length === FILES.length) {
 
 // A structural check the hashes cannot make: each side must point at the other,
 // or the switcher is a dead end.
-const links = { "README.md": "(README.zh-CN.md)", "README.zh-CN.md": "(README.md)" };
+const links = { "README.md": "(docs/README.zh-CN.md)", "docs/README.zh-CN.md": "(../README.md)" };
 for (const file of FILES) {
   const text = readFileSync(join(root, file), "utf8");
   if (!text.includes(links[file])) fail(`${file} has no link to its counterpart`);
@@ -75,9 +75,10 @@ for (const file of FILES) {
 
 // Images are shared between the two, so a missing one breaks both at once.
 const images = new Set();
+// Each side's image paths are relative to where that side lives.
 for (const file of FILES) {
   const text = readFileSync(join(root, file), "utf8");
-  for (const m of text.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)) images.add(m[1]);
+  for (const m of text.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)) images.add(join(dirname(file), m[1]));
 }
 for (const image of images) {
   try {

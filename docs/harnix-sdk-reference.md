@@ -3,8 +3,7 @@
 > 读者：在 Harnix 上做应用的人，以及在 Helm、IPDrun 里做迁移分析的人（包括 Agent）。
 >
 > **这份参考写的是已经落地的接口**，对照的是 0.4 的全部里程碑（M0–M9，Agix 钉在
-> `Agix-v0.2.9-2026102603`）。怎么用、为什么这样用见 [二开指南](harnix-sdk.md)；Helm、IPDrun 怎么迁过来见
-> [迁移说明](migration-helm.md)、[IPDrun](migration-ipdrun.md)；用词照 [术语](glossary.md)。
+> `Agix-v0.2.9-2026102603`）。怎么用、为什么这样用见 [二开指南](harnix-sdk.md)；用词照 [术语](glossary.md)。
 >
 > 写法：签名照抄代码；默认值照抄代码。代码和这里对不上时以代码为准，并且这里是错的，要改。
 
@@ -362,7 +361,7 @@ export function register(r: Registry, host: NestHost): void
 
 | 点 | 形状（必需的加粗） |
 |---|---|
-| `space` | **`id`**、**`icon`**、**`title()`**、`order`、`place: "top" \| "bottom"`（默认 top；bottom 列在左栏底部、系统之上，给全局而非业务面的入口）、`group`（顶部列表里的组名：按 `order` 相邻的两个组不同就在中间画分隔线，不写算 ""；不重排）、`details: "open" \| "closed"`（首次进入时右栏开合，默认 closed；之后每个 space 各记各的）、`center: "chat" \| "minimized" \| "hidden"`（默认 chat）、`sidebar()`（左栏中段）、`overview()`（中区不是对话时）、`tabs: [{ id, title(), render(), align? }]` 或返回它的函数（随选中项变；`align: "end"` 的页签排在条的右端，给不常用的）、`sessions`（列哪个后端 space 的会话，默认自己的 id）、`subtitle()`、`suggestions()`、`notice()`、`placeholder()`；可选的 `badge()`（左栏角标）、`disabled()`（返回一句话 ⇒ 入口灰掉、点不动、悬停是这句话，`spaces.switch` 到它不切；落地时存着的灰着就落到第一个没灰的；前台的后来灰了不自动换走）、`readOnly(session)`、`pinned(session)`、`composerNotice(session)`、`ids()`、`composer: { steer }`、`hideCommands: string[]`、`mention: { first: "contributed" \| "files" }`（`@` 菜单里谁的候选在前，默认外壳自己的）、`tab()`（本 space 当前的右栏页签：带到前台与 `redraw()` 时读，是它的页签就选中），每次画时读，抛错只丢那一样 |
+| `space` | **`id`**、**`icon`**、**`title()`**、`order`、`place: "top" \| "bottom"`（默认 top；bottom 列在左栏底部、系统之上，给全局而非业务面的入口）、`group`（顶部列表里的组名：按 `order` 相邻的两个组不同就在中间画分隔线，不写算 ""；不重排）、`details: "open" \| "closed"`（首次进入时右栏开合，默认 closed；之后每个 space 各记各的）、`center: "chat" \| "minimized" \| "hidden"`（默认 chat）、`sidebar()`（左栏中段）、`overview()`（中区不是对话时）、`tabs: [{ id, title(), render(), align? }]` 或返回它的函数（随选中项变；`align: "end"` 的页签排在条的右端，给不常用的）、`sessions`（列哪个后端 space 的会话，默认自己的 id）、`subtitle()`、`suggestions()`、`notice()`、`placeholder()`；可选的 `badge()`（左栏角标）、`disabled()`（返回一句话 ⇒ 入口灰掉、点不动、悬停是这句话，`spaces.switch` 到它不切；落地时存着的灰着就落到第一个没灰的；前台的后来灰了不自动换走）、`readOnly(session)`、`pinned(session)`、`composerNotice(session)`、`ids()`、`composer: { steer }`、`hideCommands: string[]`、`mention: { first: "contributed" \| "files" }`（`@` 菜单里谁的候选在前，默认外壳自己的）、`tab()`（本 space 当前的右栏页签：带到前台与 `redraw()` 时读，是它的页签就选中）、`listSession(session)`（返回 false ⇒ 这个会话不列在左栏）、`reenter()`（前台 space 的入口被再点一次）、`newSession`（false ⇒ 没有「新会话」）、`headerActions(session)`（标题栏里自己的操作）、`detailsWidth`（右栏缺省宽度）、`emptyConversation(session)`（会话还没有消息时画在转录顶部的说明）、`secondary()`（**二级栏**：`{ key, title(), render(), onClose?(), width? }`，返回非空就在中区对话旁边打开；能拖宽（300–760，缺省 440）、能最大化 / 还原（按 space 记住）、能关——关时调 `onClose`，space 放掉选中项再 `redraw()`；返回空就收起），每次画时读，抛错只丢那一样 |
 | `home.card` | **`id`**、**`render()`**、`title()`、`order`：画在新对话的输入框下面 |
 | `tool.row` | **`id`**、**`match(toolBlock)`**、**`render(toolBlock)`** |
 | `details.panel` | **`id`**、**`match(item)`**、**`render(item)`**、`title(item)`；`item = { kind, name?, … }`，由 `host.reveal(item)` 打开 |
@@ -453,6 +452,34 @@ api_version = 2
 - 运行期包仍然**不能**新增 space。范例：`tests/fixtures/packages/demo-rows-v2/`。
 
 ---
+
+## 6.7 流程模块：`harnix-flow`、`@harnix/flow`
+
+可选模块：应用 `.module(harnix_flow::Flow::builder()….build())` 才有；空应用注册了它（`crates/cli/src/main.rs`）。
+对象与写法（站、执行器、出站条件、规则、策略与权限、门禁、钩子……）见流程指南 `crates/flow/docs/guide.zh-CN.md`
+（流程 space 的参考页就是它，`app.flow.guide {lang}` 也给它）。
+
+| 构建器 | 意思 |
+|---|---|
+| `.packs(impl Packs)` / `.packs_with(\|data_dir\| …)` | 流程包：`MemPacks`（代码里给）、`DirPacks`（目录分层，`with_builtin` + `with_writable`） |
+| `.store(impl RunStore)` / `.store_with(…)` | 运行存在哪；缺省模块数据目录下 `runs/` 的 `FileStore` |
+| `.scene(Arc<dyn AgentScene>)` | 给流程用的 scene，包装成 `flow-<id>`（带 `flow_submit`、`flow_state`、`flow_propose`） |
+| `.main_scene(id)` | 运行主会话缺省的 scene（缺省第一个） |
+| `.template(InstanceTemplate)` | 站可以放上去的模板（`flow.<id>`） |
+| `.programs(impl Programs)` / `.tools(impl Tools)` / `.gates(impl Gates)` | 应用的程序（`kind: program`）、只读工具（`tool` 门禁）、检查（`host` 门禁，名字也要进目录） |
+| `.command_gates(bool)` | 让 `command` 门禁在本机跑命令（缺省关） |
+| `.guarded_tools(…)` | 没有权限放行就拒绝的工具（缺省引擎的 shell、文件编辑、notebook、解释器） |
+| `.authorizer(impl Authorizer)` | 谁能做什么（确认、认领、交付、编辑流程……），`who` 交给它解释 |
+| `.space(id)` | 流程会话所在的 space，缺省 `flow` |
+| `.recording(…)` / `.main_recording(…)` / `.conversation_recording(…)` | 回放时任务会话、主会话、流程会话用哪份录像（只在 `--replay-dir` 下有意义） |
+
+方法 `app.flow.*`（设备调用）：读——`defs`、`def`、`list`、`get`、`history`、`catalog`、`schema`、`validate`、
+`parts {kind}`、`part`、`hooks`、`guide`、`sessions {run}`；写流程与件——`save`、`delete`、`part.save`、`part.delete`；
+运行——`start`、`cancel`、`pause`、`resume`、`confirm`、`force`、`rework`、`retry`、`release`、`proposal`；外部任务——`claim`、
+`heartbeat`、`submit`、`fail`；对话——`session {flow?}`、`focus`；试运行——`dry_run.start` / `step` / `run` / `list`。
+主题：`app.flow.runs`、`app.flow.run {run}`、`app.flow.defs`、`app.flow.focus {instance, session_id}`、`app.flow.dry_runs`。每个方法的参数与返回写在它注册时的说明里（`harnix.reachable` 列出）。
+
+界面：外壳在后端有流程模块时自己注册流程 space；自己编外壳的应用调 `registerFlowSpace(registry, { host })`。
 
 ## 7. 测试：`@harnix/testkit`
 

@@ -1,5 +1,5 @@
 # The front end and the live tests, as one pnpm workspace
-# (docs/harnix-0.4-design-and-plan.md §4.2, §13).
+# (docs/concept_and_architecture.md §5.2, docs/testing.md).
 #
 #   ui/packages/*  @harnix/core, @harnix/react, @harnix/shell, @harnix/testkit
 #   tests/live     the LIVE suites: Playwright Test, against the real binary

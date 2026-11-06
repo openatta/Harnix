@@ -1,6 +1,6 @@
 # 测试：LIVE 框架
 
-> 设计见 [0.4 设计 §13](harnix-0.4-design-and-plan.md)。这里写怎么用：怎么跑、怎么写、怎么录像、覆盖表怎么读。
+> 为什么这样测见 [概念与架构](concept_and_architecture.md)。这里写怎么用：怎么跑、怎么写、怎么录像、覆盖表怎么读。
 
 ---
 
@@ -144,7 +144,7 @@ Playwright 会把这些用例的位置记成 `suite.ts`（`test()` 在那里调�
 
 ## 5. 覆盖表
 
-每个用例带两个标签：`@feature:<id>`（[设计 §4.3](harnix-0.4-design-and-plan.md) 的一行）、
+每个用例带两个标签：`@feature:<id>`（`tests/live/features.mjs` 里的一项）、
 `@layer:api|ui`。`tests/live/coverage.md` 由标签生成：
 
 ```sh
