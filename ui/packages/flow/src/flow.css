@@ -589,23 +589,8 @@
 .hx-flow-empty-title { font-weight: 600; color: var(--label-primary); margin-bottom: 2px; }
 
 /* ── the framework diagram and the grouped guide (flow-5) ─────────────
- * One colour per group of the guide: the picture and the text read as one. */
-
-:root {
-  --hx-flow-g1: #2f6bd8;
-  --hx-flow-g2: #138a63;
-  --hx-flow-g3: #c76b12;
-  --hx-flow-g4: #8a4fd6;
-  --hx-flow-g5: #5f6b7a;
-}
-
-:root[data-theme="dark"] {
-  --hx-flow-g1: #79a6ff;
-  --hx-flow-g2: #4fd1a5;
-  --hx-flow-g3: #f2a65a;
-  --hx-flow-g4: #c09bf5;
-  --hx-flow-g5: #a3adbb;
-}
+ * One colour per group of the guide: the picture and the text read as one. The colours are
+ * tokens (`--hx-flow-g1…5`, tokens.css), light and dark. */
 
 .hx-fw-g1 { --hx-g: var(--hx-flow-g1); }
 .hx-fw-g2 { --hx-g: var(--hx-flow-g2); }
