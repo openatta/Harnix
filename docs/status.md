@@ -16,6 +16,7 @@
 | 当前任务 | 无。下游需求（`docs/issues/`）：IPDrun 01–45（06 撤回）、Helm helm-01、Grabix 01–04、XOps xops-01（流程能力）都已落地 |
 | 当前任务 | 无。下游需求（`docs/issues/`）：IPDrun 01–45（06 撤回）、Helm helm-01、Grabix 01–04、XOps xops-01、xops-02（流程能力及其落点、对话编写、试运行、空应用流程 space）都已落地 |
 | 当前任务 | xops-03（分支 `flow-3`）：流程的主 Agent 与子 Agent、运行状态与暂停、耗时与用量、流程 space 改版、demo 数据。下游需求（`docs/issues/`）：IPDrun 01–45（06 撤回）、Helm helm-01、Grabix 01–04、XOps xops-01、xops-02 都已落地 |
+| 当前任务 | 无。下游需求（`docs/issues/`）：IPDrun 01–45（06 撤回）、Helm helm-01、Grabix 01–04、XOps xops-01–03（流程能力、落点与对话编写、主 Agent 与流程 space 改版）都已落地 |
 | 下一步 | 发布（维护者定）：Agix 先发（`agix/` 现钉 `0d55673`，未打版本），Harnix 再发；ipdrun-36–45 未推送 |
 | 最后更新 | 2026-11-05 |
 
@@ -94,6 +95,7 @@
 
 | 日期 | 事 |
 |---|---|
+| 2026-11-06 | xops-03 落地：分支 `flow-3` 快进合并进 main（`458732f`…`ac23191`，未推送）；评审 7 条都改了；全量 `check.sh` 含模型层 11 层过 |
 | 2026-11-06 | xops-03 外壳与 demo：中区跟着右栏选中项走（流程会话 / 主会话 / 通用会话）、三页改版；`scripts/harnix-demo.sh` 第一次起时导入 demo 流程与真内核造的六条运行；LIVE ui `flow.spec.ts` 改写 9 条 |
 | 2026-11-06 | xops-03 后端：每个运行一个主会话（没写 scene 的会话站、`kind: agent` 子 Agent 站在里面做，按站自动答写工具的询问）、暂停 / 恢复、`phase`、按任务的耗时与 token、流程会话与通用会话、运行操作工具、流程指南；Agix issue 草稿 09（宿主起子 Agent）、10（场景带工具的会话起不了子 Agent，Harnix 用 `flow-agent` 类型绕开） |
 | 2026-11-05 | 开始 xops-03（分支 `flow-3`）：用户手动试流程 space 后的四点意见 |

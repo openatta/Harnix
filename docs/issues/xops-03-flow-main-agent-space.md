@@ -239,3 +239,8 @@ live、browser、interface、budget 都过（remote 未要求）。第一次跑 
 - Agix 0.2.10 的 `session.tasks` 对跑完的前台子 Agent 回空、侧链列表也空；子 Agent 列表靠事件，不跨重启。
 - 回放里流程会话不带录像，LIVE 界面的两条录像用例在另建的、设了焦点的对话里跑。
 - 流程列表没有修改时间，只按名字排序。
+
+## 落地
+
+分支 `flow-3` 快进合并进 main：`458732f`…`ac23191`（未推送，未发版）。全量 `check.sh` 带模型 11 层过（见上）。
+Agix issue 草稿 09（宿主起子 Agent）、10（场景带工具的会话起不了子 Agent）在 `.local/`，待转交。
