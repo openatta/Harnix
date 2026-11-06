@@ -64,7 +64,7 @@ pub use author::{AuthorScene, AUTHOR_PROMPT, AUTHOR_SCENE, AUTHOR_TOOLS, NO_FOCU
 pub use shared::{session_name, session_ref};
 pub use tools::{structured_id, FlowScene, StructuredScene, TOOL_PROPOSE, TOOL_STATE, TOOL_SUBMIT};
 
-use shared::{Config, MainRecordingFn, RecordingFn, Shared};
+use shared::{Config, ConversationRecordingFn, MainRecordingFn, RecordingFn, Shared};
 
 /// The module id: methods and topics are `app.flow.*`, entries `app.flow`.
 pub const MODULE_ID: &str = "flow";
@@ -139,6 +139,7 @@ pub struct FlowBuilder {
     guarded: Vec<String>,
     recording: Option<RecordingFn>,
     main_recording: Option<MainRecordingFn>,
+    conversation_recording: Option<ConversationRecordingFn>,
     main_scene: Option<String>,
     lease_ms: u64,
     tick_ms: u64,
@@ -163,6 +164,7 @@ impl Default for FlowBuilder {
             guarded: DEFAULT_GUARDED.iter().map(|s| s.to_string()).collect(),
             recording: None,
             main_recording: None,
+            conversation_recording: None,
             main_scene: None,
             lease_ms: DEFAULT_LEASE_MS,
             tick_ms: 1000,
@@ -310,6 +312,16 @@ impl FlowBuilder {
         self
     }
 
+    /// The recording a flow's conversation replays (the flow's name; `""` for the general
+    /// conversation) — tests and demos: ignored unless the process runs in replay.
+    pub fn conversation_recording(
+        mut self,
+        f: impl Fn(&str) -> Option<String> + Send + Sync + 'static,
+    ) -> Self {
+        self.conversation_recording = Some(Arc::new(f));
+        self
+    }
+
     /// The scene (an id given to [`FlowBuilder::scene`]) a run's main session is opened on when
     /// its flow's `main` names none; it is wrapped (`flow-<id>`). The first scene given by default.
     pub fn main_scene(mut self, id: impl Into<String>) -> Self {
@@ -351,6 +363,7 @@ impl FlowBuilder {
                 guarded: self.guarded.clone(),
                 recording: self.recording.clone(),
                 main_recording: self.main_recording.clone(),
+                conversation_recording: self.conversation_recording.clone(),
                 main_scene: self
                     .main_scene
                     .clone()

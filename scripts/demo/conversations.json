@@ -1,0 +1,191 @@
+{
+  "about": "The demo's conversations (xops-04 §8): each turn is what is said, then what the model answers, step by step. scripts/demo/recordings.py makes a recording of the answers for each conversation; scripts/demo/talk.mjs says the turns to the application running under --replay-dir and answers its permission questions as `prompts` say. A run's turn with `task` says that station's task message (the protocol, the rules, the skill), as the dispatcher would. `${ws}` is the run's workspace.",
+  "conversations": [
+    {
+      "kind": "flow",
+      "flow": "demo-write",
+      "turns": [
+        {
+          "say": "这个流程是做什么的？每一站受哪些规则和权限约束？",
+          "steps": [
+            {"tool": "flow_show", "input": {}},
+            {"text": "**示例：起草、评审、确认**，三站：\n\n1. **起草**（主 Agent）：skill `draft`，策略 `drafts-only`——只能写运行工作目录下的 `drafts/`，写 `release/` 要人点头；出站要输出满足契约，并且门禁 `draft-exists`（`drafts/draft.md` 非空）通过。\n2. **评审**（子 Agent）：skill `review`，规则 `cite-sources`，策略 `read-only`（不改文件、不跑命令）。\n3. **确认**：由人确认，不通过就退回起草。\n\n整个流程都受规则 `no-secrets`（不外泄机密）和 `plain-chinese`（写给人看）约束。规则只是告诉干活的 Agent，真正拦的是权限和门禁。"}
+          ]
+        },
+        {
+          "say": "最近的运行怎么样？",
+          "steps": [
+            {"tool": "flow_runs", "input": {}},
+            {"text": "两次运行：\n\n- `demo-write-1`（发布说明 v1.2）已完成，确认意见是“可以发布”。\n- `demo-write-2`（API 变更提案）起草和评审都交了，正在**等人确认**。评审的发现是：范围写清楚了，缺一节回滚方案。\n\n要确认或退回，在运行详情里点，或者在这里跟我说（每一步都会请你批准）。"}
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "flow",
+      "flow": "demo-parallel",
+      "turns": [
+        {
+          "say": "支付服务评审为什么停着？",
+          "steps": [
+            {"tool": "flow_run", "input": {"run": "demo-parallel-1"}},
+            {"text": "`demo-parallel-1` **已暂停**：暂停时“收集”这一站正在做，没有打断，做完交了两份文件；之后就没有再开新的站，代码、文档两路评审都还没开始。\n\n要继续，说“恢复”，我会请你确认。"}
+          ]
+        },
+        {
+          "say": "先别恢复。试运行一遍，看看会怎么走。",
+          "steps": [
+            {"tool": "flow_dry_run", "input": {"flow": "demo-parallel"}},
+            {"text": "试运行走到“汇总确认”停下等人：收集 → 代码、文档两路评审并行 → 汇总确认。外面的一切都是模拟的，没有开会话，也没花钱。"}
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "flow",
+      "flow": "demo-each",
+      "turns": [
+        {
+          "say": "哪些站是子 Agent 做的？一次最多几个？",
+          "steps": [
+            {"tool": "flow_show", "input": {}},
+            {"text": "只有“逐个分析”：列表里每个模块交给一个子 Agent，`max_parallel: 2`，一次最多两个同时做，受策略 `read-only` 约束。“列出模块”和“写报告”都在主会话里做。"}
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "flow",
+      "flow": "demo-handoff",
+      "turns": [
+        {
+          "say": "供应商资质那个运行在等什么？",
+          "steps": [
+            {"tool": "flow_runs", "input": {}},
+            {"text": "`demo-handoff-2`（供应商资质材料）在**等外部交付**：`prepare` 由供应商认领后交一个链接，门禁 `link-reachable` 检查它是不是 https，再由 manager 审批。\n\n上一次的 `demo-handoff-1`：第一次缺签字页被退回，第二次通过。另外，钩子 `handoff-notify` 会把交付和审批的结果推给供应商系统——它不写在流程里，放进包里就生效。"}
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "general",
+      "turns": [
+        {
+          "say": "怎么定义一个带门禁的流程？",
+          "steps": [
+            {"tool": "flow_guide", "input": {"lang": "zh-CN"}},
+            {"text": "门禁是包里的一个文件（`gates/<名>.yaml`），在站的出站条件里引用：\n\n```yaml\nexit: [{kind: output}, {kind: gate, gate: ci}]\n```\n\n三种：\n\n- `tool`：调应用的只读工具，对结果断言，判站时当场判；\n- `command`：在运行工作目录跑一条命令，退出码 0 为过（运行的上下文从环境变量 `FLOW_CONTEXT` 读）；\n- `host`：应用自己的检查，按名字。\n\n要我照这个新建一个流程吗？"}
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "run",
+      "run": "demo-write-1",
+      "turns": [
+        {
+          "task": "draft",
+          "steps": [
+            {"text": "先把草稿写进 `drafts/`。"},
+            {"tool": "Write", "input": {"file_path": "${ws}/drafts/draft.md", "content": "# 发布说明 v1.2\n\n## 目标\n让结算页的金额四舍五入与账单一致。\n\n## 范围\n结算页、账单导出；不动支付通道。\n\n## 关键决定\n统一用银行家舍入。\n"}},
+            {"text": "草稿写在 `drafts/draft.md`，按契约交付：\n\n```json\n{\"summary\": \"发布说明 v1.2：目标、范围、关键决定。\"}\n```"}
+          ],
+          "prompts": [{"decision": "permit"}]
+        },
+        {
+          "task": "review",
+          "steps": [
+            {"text": "评审交给子 Agent（`flow-agent`），按清单逐条看草稿。它回来了：\n\n- 范围写清楚了；\n- 缺一节回滚方案。\n\n按契约交付：\n\n```json\n{\"findings\": [\"范围写清楚了\", \"缺一节回滚方案\"]}\n```"}
+          ]
+        },
+        {
+          "say": "回滚方案我来补，先确认吧。",
+          "steps": [
+            {"text": "好的。确认要你来做：在右边运行详情里点“确认”。我不能替你确认，也不能强制放行。"}
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "run",
+      "run": "demo-write-2",
+      "turns": [
+        {
+          "task": "draft",
+          "steps": [
+            {"text": "先试着直接写到发布目录。"},
+            {"tool": "Write", "input": {"file_path": "${ws}/release/api-change.md", "content": "# API 变更提案\n"}},
+            {"text": "写发布目录被拒绝了（要人确认）。改写到草稿目录。"},
+            {"tool": "Write", "input": {"file_path": "${ws}/drafts/draft.md", "content": "# API 变更提案\n\n## 目标\n把订单查询改成分页。\n\n## 范围\n`GET /orders`；旧参数保留两个版本。\n\n## 关键决定\n游标分页，不用页码。\n"}},
+            {"text": "草稿写好了，按契约交付：\n\n```json\n{\"summary\": \"API 变更提案：目标、范围、关键决定。\"}\n```"}
+          ],
+          "prompts": [
+            {"decision": "deny", "reason": "写发布目录要人确认：这次先不写"},
+            {"decision": "permit"}
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "run",
+      "run": "demo-parallel-1",
+      "turns": [
+        {
+          "task": "collect",
+          "steps": [
+            {"tool": "TodoWrite", "input": {"todos": [{"content": "找出支付相关的代码", "status": "completed", "activeForm": "查找代码"}, {"content": "找出支付相关的文档", "status": "completed", "activeForm": "查找文档"}]}},
+            {"text": "收集到两份：`src/pay.rs`、`docs/pay.md`。交付：\n\n```json\n{\"files\": [\"src/pay.rs\", \"docs/pay.md\"]}\n```"}
+          ]
+        },
+        {
+          "say": "先暂停一下，等我看完材料再继续。",
+          "steps": [
+            {"text": "运行已经在暂停：收集这一站做完就停了，没有开新的站。看完要继续，在运行详情里点“恢复”，或者到流程会话里让我恢复（会请你批准）。"}
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "run",
+      "run": "demo-each-1",
+      "turns": [
+        {
+          "task": "list",
+          "steps": [
+            {"text": "商城有三个模块：\n\n```json\n{\"modules\": [\"auth\", \"billing\", \"search\"]}\n```\n\n逐个分析会交给子 Agent，一次两个。"}
+          ]
+        },
+        {
+          "say": "范围变了，这次先取消。",
+          "steps": [
+            {"text": "明白。运行已经取消（原因：范围变了，重新来）。`auth` 的分析在取消前已经交了，风险中等；`billing`、`search` 没有开始。"}
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "run",
+      "run": "demo-handoff-1",
+      "turns": [
+        {
+          "say": "第一次的附件缺签字页，我退回了。第二次的呢？",
+          "steps": [
+            {"text": "第二次交的 `annex-v2.pdf` 链接是 https，门禁通过，你已经审批通过，运行完成。钩子 `handoff-notify` 把结果推给了供应商系统（本机没有接收端时，钩子详情里能看到投递失败）。"}
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "run",
+      "run": "demo-handoff-2",
+      "turns": [
+        {
+          "say": "供应商什么时候交？",
+          "steps": [
+            {"text": "还没人认领 `prepare`。供应商认领后有一小时的租约，期间可以续；交了链接之后，门禁检查是不是 https，再由 manager 审批。"}
+          ]
+        }
+      ]
+    }
+  ]
+}

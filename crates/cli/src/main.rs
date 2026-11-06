@@ -10,7 +10,8 @@
 //! example built into this binary, under a writable layer in the module's data directory
 //! (`packs/`) where the flow space's conversations save what they write. A run's main session is on `flow-coding`
 //! (Agix's coding scene, wrapped: it has the `Agent` tool sub-agent stations need), in a
-//! directory of the run's own; a station of its own session may name `flow-chat` too.
+//! directory of the run's own; a station of its own session may name `flow-chat` too. Run under
+//! `--replay-dir`, the flow sessions replay recordings named after their run or flow.
 
 use std::sync::Arc;
 
@@ -44,6 +45,17 @@ pub fn flow() -> Flow {
         .scene(Arc::new(scene::scene::coding::CodingScene))
         .main_scene("coding")
         .command_gates(true)
+        // Under `--replay-dir` only (outside it the names mean nothing): a run's main session
+        // replays `flow-run-<run>`, a flow's conversation `flow-conversation-<flow>`, the general
+        // one `flow-conversation` — what `scripts/harnix-demo.sh` makes its conversations with.
+        .main_recording(|rec| Some(format!("flow-run-{}", rec.id)))
+        .conversation_recording(|flow| {
+            Some(if flow.is_empty() {
+                "flow-conversation".to_string()
+            } else {
+                format!("flow-conversation-{flow}")
+            })
+        })
         .build()
 }
 

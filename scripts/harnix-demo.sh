@@ -11,11 +11,13 @@
 # `start` builds first when there is no binary, or when the interface or the Rust sources are newer
 # than it (`pnpm --filter @harnix/shell build`, then `cargo build --release -p harnix-cli`).
 #
-# The first `start` in a fresh directory brings in demo data (xops-03 §7): the flows and skills of
-# `scripts/demo/` into the flow module's writable packs, and a few runs in different states —
-# finished, waiting for a confirmation, paused, cancelled, waiting for an external hand-in — made
-# by the real kernel (`crates/flow/examples/demo_seed.rs`). None has work in hand, so nothing
-# calls a model until you act. The empty application itself ships none of it.
+# The first `start` in a fresh directory brings in demo data (xops-03 §7, xops-04 §8): the pack of
+# `scripts/demo/` (flows, skills, rules, policies, gates, hooks) into the flow module's writable
+# packs; a few runs in different states — finished, waiting for a confirmation, paused, cancelled,
+# waiting for an external hand-in — made by the real kernel (`crates/flow/examples/demo_seed.rs`);
+# and conversations in each flow's conversation, the general one and each run's main session,
+# said once to the application under --replay-dir (`scripts/demo/conversations.json`). None has
+# work in hand, so nothing calls a model until you act. The empty application ships none of it.
 #
 #   HARNIX_DEMO_DIR    where it keeps everything (default ~/harnix-demo)
 #   HARNIX_DEMO_PORT   the port (default 4080)
@@ -60,7 +62,40 @@ seed() {
     [ -d "scripts/demo/$kind" ] && mkdir -p "$FLOW_DATA/packs/$kind" && cp -R "scripts/demo/$kind/." "$FLOW_DATA/packs/$kind/"
   done
   cargo run --quiet --release -p harnix-flow --example demo_seed -- scripts/demo "$FLOW_DATA/runs"
+  talk
   touch "$DIR/.seeded"
+}
+
+# The conversations (xops-04 §8): the application once under --replay-dir, the demo's script said
+# to it (each flow's conversation, the general one, each run's main session), then stopped. The
+# sessions are real; only the model's answers come from the recordings made from the same script.
+talk() {
+  echo "bringing in the demo conversations …"
+  python3 scripts/demo/recordings.py scripts/demo/conversations.json \
+    tests/live/fixtures/recordings/flow-main "$FLOW_DATA/workspaces" "$DIR/recordings" >/dev/null
+  # Run from the demo's directory: a session without a project of its own works where the
+  # process does, and should see the demo's files, not this repository.
+  (cd "$DIR" && HARNIX_STATE_DIR="$DIR/state" exec "$BIN" \
+    --port "$PORT" \
+    --agix-dir "$DIR/agix" \
+    --data-dir "$DIR/projects" \
+    --replay-dir "$DIR/recordings") \
+    >"$DIR/seed.log" 2>&1 &
+  local pid=$!
+  local up=""
+  for _ in $(seq 1 60); do
+    if curl --noproxy "*" -fsS -o /dev/null "$URL" 2>/dev/null; then up=1; break; fi
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.5
+  done
+  if [ -n "$up" ]; then
+    node scripts/demo/talk.mjs "$URL" "$DIR/state/token" scripts/demo/conversations.json \
+      || echo "some conversations were not made; see $DIR/seed.log" >&2
+  else
+    echo "the application did not start for the conversations; see $DIR/seed.log" >&2
+  fi
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
 }
 
 start() {
@@ -79,10 +114,10 @@ start() {
   if [ -f .env ]; then
     set -a; . ./.env; set +a
   fi
-  HARNIX_STATE_DIR="$DIR/state" nohup "$BIN" \
+  (cd "$DIR" && HARNIX_STATE_DIR="$DIR/state" exec nohup "$BIN" \
     --port "$PORT" \
     --agix-dir "$DIR/agix" \
-    --data-dir "$DIR/projects" \
+    --data-dir "$DIR/projects") \
     >"$LOG" 2>&1 &
   echo $! >"$PIDFILE"
 

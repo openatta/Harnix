@@ -17,6 +17,7 @@ use crate::kernel::run::RunRecord;
 
 pub(crate) type RecordingFn = Arc<dyn Fn(&WorkItem) -> Option<String> + Send + Sync>;
 pub(crate) type MainRecordingFn = Arc<dyn Fn(&RunRecord) -> Option<String> + Send + Sync>;
+pub(crate) type ConversationRecordingFn = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 pub(crate) struct Config {
     pub space: String,
@@ -31,6 +32,8 @@ pub(crate) struct Config {
     pub recording: Option<RecordingFn>,
     /// The recording a run's main session replays (xops-03 §1).
     pub main_recording: Option<MainRecordingFn>,
+    /// The recording a flow's conversation replays (`""`: the general one) — xops-04 §8.
+    pub conversation_recording: Option<ConversationRecordingFn>,
     /// The wrapped scene a run's main session is opened on when the flow's `main` names none.
     pub main_scene: Option<String>,
     /// The wrapped scenes whose sessions need a project: a main session on one works in a
@@ -506,6 +509,7 @@ mod tests {
                 guarded: vec![],
                 recording: None,
                 main_recording: None,
+                conversation_recording: None,
                 main_scene: None,
                 project_scenes: Default::default(),
                 lease_ms: 60_000,

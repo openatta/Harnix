@@ -298,6 +298,7 @@ pub(crate) async fn flow_session(
             // outranks an `allow` one ("always allow" included), so an approval stays a person's
             // decision (review #3).
             permission_rules: Some(super::author::ask_rules()),
+            recording: sh.cfg.conversation_recording.as_ref().and_then(|f| f(flow)),
             ..Default::default()
         })
         .await?;
@@ -656,7 +657,15 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
             if in_sandbox(&sh, &p.run).await {
                 return Ok(json!({"main": null, "own": [], "tasks": [], "sidechains": []}));
             }
-            let rec = engine(&sh)?.record(&p.run).await.map_err(rpc_error)?;
+            let mut rec = engine(&sh)?.record(&p.run).await.map_err(rpc_error)?;
+            // Every run has its main session; one that has none (made where the module was not
+            // running) is given it now.
+            if rec.main_session().is_none() {
+                if let Err(why) = super::main::ensure_main(&sh, &p.run).await {
+                    tracing::warn!(run = p.run, why, "flow: no main session");
+                }
+                rec = engine(&sh)?.record(&p.run).await.map_err(rpc_error)?;
+            }
             let mut v = run_sessions(&cx, &rec).await?;
             v["agents"] = json!(sh.agents(&p.run));
             Ok(v)

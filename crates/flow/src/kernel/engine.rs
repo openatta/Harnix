@@ -565,7 +565,7 @@ impl Engine {
         })
     }
 
-    /// Judge again every open station whose tasks are settled (tool exits are re-called).
+    /// Judge again every open station whose tasks are settled (tool gates are called again).
     pub async fn evaluate(&self, run: &str) -> Result<Outcome> {
         transact!(self, Actor::flow("evaluate"), |t| {
             t.load(run).await?;

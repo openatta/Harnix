@@ -503,6 +503,7 @@ mod tests {
                 guarded: vec![],
                 recording: None,
                 main_recording: None,
+                conversation_recording: None,
                 main_scene: None,
                 project_scenes: Default::default(),
                 lease_ms: 60_000,
