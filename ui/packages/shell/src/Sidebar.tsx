@@ -104,7 +104,7 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
             {space.sidebar()}
           </Contributed>
         ) : space ? (
-          <SpaceSessions app={app} s={s} />
+          <SpaceSessions app={app} s={s} listed={space.listSession} />
         ) : null}
       </div>
       <Bottom app={app} s={s} />
@@ -191,7 +191,7 @@ function badgeOf(app: App, space: SpaceContribution & { owner: string }): string
 }
 
 /** A space with no column of its own: its sessions, newest first. */
-function SpaceSessions({ app, s }: { app: App; s: ShellState }) {
+function SpaceSessions({ app, s, listed }: { app: App; s: ShellState; listed?: SpaceContribution["listSession"] }) {
   const t = useT();
   const [rows, setRows] = useState<ShellSession[] | null>(null);
   const claim = app.claim(s.space);
@@ -213,13 +213,24 @@ function SpaceSessions({ app, s }: { app: App; s: ShellState }) {
   }, [app, claim, s.current]);
   if (rows === null) return null;
   if (!rows.length) return <div className="empty">{t("sidebar.noSessions")}</div>;
+  // the space leaves some out (its main conversation, which its entry opens): an empty result draws nothing
+  const shown = listed ? rows.filter((row) => shownBy(listed, row)) : rows;
+  if (!shown.length) return null;
   return (
     <div className="group">
-      {rows.map((row) => (
+      {shown.map((row) => (
         <SessionRow key={keyOf(row.instance ?? "system", row.session_id)} app={app} s={s} session={row} />
       ))}
     </div>
   );
+}
+
+function shownBy(listed: NonNullable<SpaceContribution["listSession"]>, row: ShellSession): boolean {
+  try {
+    return listed({ instance: row.instance ?? "system", sessionId: row.session_id }) !== false;
+  } catch {
+    return true;
+  }
 }
 
 /* ── the bottom: the system entry and the avatar ──────────────────────── */

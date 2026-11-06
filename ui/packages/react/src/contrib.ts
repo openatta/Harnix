@@ -106,6 +106,10 @@ export interface SpaceContribution {
   center?: "chat" | "minimized" | "hidden";
   /** The left column below the space list: its entries. The space's own sessions when absent. */
   sidebar?(): ReactNode;
+  /** With no `sidebar()`: false leaves a session out of the space's list in the left column — say
+   *  the space's main conversation, which its entry already opens (ipdrun-54). Read at every draw
+   *  (call `host.redraw()` when the answer changes); absent, or a throw, lists it. */
+  listSession?(session: SessionRef): boolean;
   /** The centre when it is not the conversation. */
   overview?(): ReactNode;
   /** Right-column tabs, beside the details drawer. A function when they depend on what is

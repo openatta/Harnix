@@ -5,10 +5,11 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { HarnixClient } from "@harnix/core";
 import { HarnixUiProvider } from "@harnix/react";
 
-import type { App } from "../src/app";
+import { App } from "../src/app";
+import { Registry } from "@harnix/react";
 import { Shell } from "../src/Shell";
 import { hostFor } from "../src/host";
-import { scriptedApp, space, tick } from "./scripted";
+import { ScriptedClient, scriptedApp, space, tick } from "./scripted";
 
 afterEach(cleanup);
 
@@ -34,6 +35,45 @@ describe("space list and sessions", () => {
     expect(sep?.getAttribute("role")).toBe("separator");
     expect(sep?.previousElementSibling?.matches("nav.spaces")).toBe(true);
     expect(sep?.nextElementSibling?.id).toBe("sessions");
+  });
+});
+
+describe("listSession (ipdrun-54)", () => {
+  const rowsIn = (container: HTMLElement) => [...container.querySelectorAll("#sessions .tt.name")].map((el) => el.textContent);
+
+  it("false leaves a session out of the front space's list; a throw lists it", async () => {
+    localStorage.clear();
+    const client = new ScriptedClient();
+    client.answer = (method) =>
+      method === "harnix.sessions"
+        ? { sessions: [{ session_id: "main", instance: "system", name: "Main", last_active: "2026-11-06T02:00:00Z" }, { session_id: "x", instance: "system", name: "X", last_active: "2026-11-06T01:00:00Z" }, { session_id: "boom", instance: "system", name: "Boom", last_active: "2026-11-06T00:00:00Z" }] }
+        : {};
+    const app = new App(client as unknown as HarnixClient, new Registry());
+    app.registry.register(
+      "space",
+      space("sessions", {
+        listSession: (r) => {
+          if (r.sessionId === "boom") throw new Error("boom");
+          return r.sessionId !== "main";
+        },
+      }),
+      "test",
+    );
+    const { container } = draw(app);
+    await act(tick);
+    expect(rowsIn(container)).toEqual(["X", "Boom"]);
+  });
+
+  it("all left out: nothing drawn, not the empty-list words", async () => {
+    localStorage.clear();
+    const client = new ScriptedClient();
+    client.answer = (method) => (method === "harnix.sessions" ? { sessions: [{ session_id: "main", instance: "system", name: "Main" }] } : {});
+    const app = new App(client as unknown as HarnixClient, new Registry());
+    app.registry.register("space", space("sessions", { listSession: () => false }), "test");
+    const { container } = draw(app);
+    await act(tick);
+    expect(rowsIn(container)).toEqual([]);
+    expect(container.querySelector("#sessions .empty")).toBeNull();
   });
 });
 
