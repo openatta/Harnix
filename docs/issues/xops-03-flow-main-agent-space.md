@@ -226,6 +226,12 @@ executor:
 | 6 | 被人认领的外部任务算"运行中"，暂停后一直"暂停中" | 外部认领算"等待（external）" | `a_claimed_external_task_is_waited_on_not_running` |
 | 7 | 暂停中返工重进一个没任务的站会立刻判、跑闸门；子 Agent 记录不清理 | 暂停中进站不判不派，恢复时判；子 Agent 记录最多留 256 个运行 | `a_station_entered_again_while_paused_is_judged_on_resume` |
 
+### 全量检查
+
+全量 `check.sh`，带模型（`.env` 从主工作树临时拷来、跑完删掉）：build、rust、clippy、offline、frontend、api、template、
+live、browser、interface、budget 都过（remote 未要求）。第一次跑 frontend 因 `tests/live/coverage.md` 没重生成、live 因
+`flow-main` 的一个等待条件碰到进站前的旧帧而失败；修了以后这两层与 api 层重跑都过（live 695 s）。
+
 ### 已知
 
 - 子 Agent 站在主会话里一轮一个，同站的几个子 Agent 不并发；要并发得等 Agix 的宿主起子 Agent（草稿 09）。

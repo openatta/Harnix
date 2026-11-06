@@ -104,7 +104,7 @@ test("a run has its main session from the start; paused, it lets the work in han
   expect(refused.is_error).toBe(true);
   expect(results(messages).filter((b: any) => b.is_error).length, JSON.stringify(todo).slice(0, 800)).toBe(1);
   // Tokens: each station's turn, counted on its task once the turn is over (it handed in during it).
-  const counted = await until(run, (v) => !!station(v, "edit").tasks[0].usage, "edit's turn is counted");
+  const counted = await until(run, (v) => !!station(v, "edit")?.tasks?.[0]?.usage, "edit's turn is counted");
   expect(station(counted, "draft").tasks[0].usage.turns).toBeGreaterThanOrEqual(1);
   expect(station(counted, "edit").tasks[0].usage.input_tokens).toBeGreaterThan(0);
   const phase = (await api.call("app.flow.list", { flow: "demo-main" })).find((s: any) => s.id === run);
