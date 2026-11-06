@@ -50,7 +50,7 @@ describe("the profile's new_session switch", () => {
     app.set({ hello: hello({ new_session: false }) });
     const { container } = draw(app);
     expect(container.querySelector("#new")).toBeNull();
-    expect(container.querySelector("#side > .sep")).toBeNull();
+    expect(container.querySelector("#side > .sep:not(.chats-sep)")).toBeNull();
     expect(app.startsSessions()).toBe(false);
     const current = app.snapshot.current;
     expect(commandK()).toBe(false);

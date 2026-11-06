@@ -204,6 +204,11 @@
   margin: 6px 8px;
 }
 
+/* Between the space entries (fixed) and the front space's column (its recent sessions, changing). */
+#side .chats-sep {
+  margin: 10px 8px 6px;
+}
+
 #side .spaces {
   display: flex;
   flex-direction: column;
@@ -516,6 +521,7 @@
 #frame[data-sidebar="collapsed"] #side .lbl,
 #frame[data-sidebar="collapsed"] #side .sec,
 #frame[data-sidebar="collapsed"] #side .chats,
+#frame[data-sidebar="collapsed"] #side .chats-sep,
 #frame[data-sidebar="collapsed"] #side .s-tools,
 #frame[data-sidebar="collapsed"] #side .nav kbd,
 #frame[data-sidebar="collapsed"] #side .context {

@@ -25,6 +25,18 @@ function listed(container: HTMLElement): string[] {
   return [...container.querySelectorAll("nav.spaces > *")].map((el) => (el.getAttribute("data-testid") === "space-sep" ? "|" : el.getAttribute("data-space") ?? "?"));
 }
 
+describe("space list and sessions", () => {
+  it("a separator sits between the space entries and the front space's sessions (ipdrun-53)", async () => {
+    const { app } = scriptedApp();
+    const { container } = draw(app);
+    await act(tick);
+    const sep = container.querySelector('[data-testid="sessions-sep"]');
+    expect(sep?.getAttribute("role")).toBe("separator");
+    expect(sep?.previousElementSibling?.matches("nav.spaces")).toBe(true);
+    expect(sep?.nextElementSibling?.id).toBe("sessions");
+  });
+});
+
 describe("space groups", () => {
   it("no space names a group: no separator", () => {
     const { app } = scriptedApp();

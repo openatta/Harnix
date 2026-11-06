@@ -97,6 +97,7 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
         </>
       )}
       <SpaceList app={app} s={s} />
+      {space ? <div className="sep chats-sep" role="separator" data-testid="sessions-sep" /> : null}
       <div id="sessions" className="chats" data-space={s.space}>
         {space?.sidebar ? (
           <Contributed registry={registry} point="space" contribution={space}>
