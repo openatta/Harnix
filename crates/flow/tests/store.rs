@@ -14,6 +14,7 @@ fn record(id: &str, flow: &str, subject: &str, rev: u64, at: u64) -> RunRecord {
         id: id.into(),
         flow: flow.into(),
         def_digest: "d".into(),
+        parts: Default::default(),
         title: String::new(),
         subject: subject.into(),
         inputs: json!({}),

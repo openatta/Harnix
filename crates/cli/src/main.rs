@@ -3,11 +3,12 @@
 //! An application's own binary is the built-ins with its modules added (`templates/app`); an
 //! application that wants flows registers `harnix_flow::Flow` itself, as this one does.
 //!
-//! The flow module here has no programs, gates or tools of an application — a flow that names
-//! one does not validate (a dry run still goes through it: there everything is mocked). Runs are
-//! kept in the module's data directory (`runs/`); flows and skills come from the example built
-//! into this binary, under a writable layer in the module's data directory (`packs/`) where the
-//! flow space's conversations save what they write. A run's main session is on `flow-coding`
+//! The flow module here has no programs, checks or tools of an application — a flow that names
+//! one does not validate (a dry run still goes through it: there everything is mocked). Command
+//! gates are on: a gate of the pack may run a command on this machine, in the run's workspace.
+//! Runs are kept in the module's data directory (`runs/`); flows and their parts come from the
+//! example built into this binary, under a writable layer in the module's data directory
+//! (`packs/`) where the flow space's conversations save what they write. A run's main session is on `flow-coding`
 //! (Agix's coding scene, wrapped: it has the `Agent` tool sub-agent stations need), in a
 //! directory of the run's own; a station of its own session may name `flow-chat` too.
 
@@ -19,20 +20,30 @@ use harnix_flow::{DirPacks, Flow, MemPacks};
 pub const EXAMPLE_FLOW: &str = include_str!("../packs/flows/example-review.yaml");
 /// The skill its session works from.
 pub const EXAMPLE_SKILL: &str = include_str!("../packs/skills/review/SKILL.md");
+/// The rule it keeps.
+pub const EXAMPLE_RULE: &str = include_str!("../packs/rules/review-honest.md");
+/// The policy it works under.
+pub const EXAMPLE_POLICY: &str = include_str!("../packs/policies/read-only.yaml");
+
+/// The example's flow and parts.
+fn example() -> MemPacks {
+    MemPacks::new()
+        .flow(EXAMPLE_FLOW)
+        .skill("review", EXAMPLE_SKILL)
+        .rule("review-honest", EXAMPLE_RULE)
+        .policy(EXAMPLE_POLICY)
+}
 
 /// The flow module as the empty application registers it.
 pub fn flow() -> Flow {
     Flow::builder()
         .packs_with(|dir| {
-            DirPacks::writable(dir.join("packs")).with_builtin(
-                MemPacks::new()
-                    .flow(EXAMPLE_FLOW)
-                    .skill("review", EXAMPLE_SKILL),
-            )
+            DirPacks::writable(dir.join("packs")).with_builtin(example())
         })
         .scene(Arc::new(scene::scene::chat::ChatScene))
         .scene(Arc::new(scene::scene::coding::CodingScene))
         .main_scene("coding")
+        .command_gates(true)
         .build()
 }
 
@@ -48,10 +59,7 @@ mod tests {
     /// Valid with nothing of an application's: the catalog has only the wrapped scenes.
     #[test]
     fn the_example_flow_is_valid_in_the_empty_application() {
-        let packs = MemPacks::new()
-            .skill("review", EXAMPLE_SKILL)
-            .submit_scene("flow-chat")
-            .main_scene("flow-coding");
+        let packs = example().submit_scene("flow-chat").main_scene("flow-coding");
         let problems = validate_yaml(EXAMPLE_FLOW, &packs as &dyn Packs);
         assert!(problems.is_empty(), "{problems:?}");
     }
@@ -61,13 +69,17 @@ mod tests {
     #[test]
     fn the_demo_flows_are_valid_in_the_empty_application() {
         let demo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/demo");
-        let mut packs = MemPacks::new()
+        let catalog = MemPacks::new()
             .submit_scene("flow-chat")
-            .main_scene("flow-coding");
-        for e in std::fs::read_dir(demo.join("skills")).unwrap() {
-            let d = e.unwrap().path();
-            let name = d.file_name().unwrap().to_str().unwrap().to_string();
-            packs = packs.skill(&name, &std::fs::read_to_string(d.join("SKILL.md")).unwrap());
+            .main_scene("flow-coding")
+            .command_gates();
+        let packs = DirPacks::new([demo.clone()]).with_builtin(catalog);
+        for kind in harnix_flow::PartKind::ALL {
+            for name in packs.parts(kind) {
+                let (text, _) = packs.part(kind, &name).unwrap();
+                let problems = harnix_flow::part_problems(kind, &name, &text, &packs as &dyn Packs);
+                assert!(problems.is_empty(), "{kind} {name}: {problems:?}");
+            }
         }
         let mut n = 0;
         for e in std::fs::read_dir(demo.join("flows")).unwrap() {

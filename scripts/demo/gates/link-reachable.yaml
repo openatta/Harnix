@@ -1,0 +1,6 @@
+name: link-reachable
+title: 交付链接是 https
+description: 交付的 link 是 https 地址（命令门禁从环境变量 FLOW_CONTEXT 读运行的上下文）。
+kind: command
+command: 'case "$FLOW_CONTEXT" in *"\"link\":\"https://"*) exit 0;; *) echo "交付的链接不是 https"; exit 1;; esac'
+timeout_seconds: 10

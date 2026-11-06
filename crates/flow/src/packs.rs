@@ -11,7 +11,8 @@ use std::sync::RwLock;
 
 use crate::kernel::def::FlowDef;
 use crate::kernel::host::{digest, Catalog, Origin, Packs};
-use crate::kernel::validate::is_skill_name;
+use crate::kernel::parts::PartKind;
+use crate::kernel::validate::is_part_name;
 
 /// A flow's name as a pack stores it: `[a-z][a-z0-9-]*`.
 fn is_flow_name(s: &str) -> bool {
@@ -42,10 +43,10 @@ fn name_to_save(yaml: &str) -> Result<String, String> {
 struct Inner {
     /// name → (text, parsed): what was given in code.
     flows: BTreeMap<String, (String, Option<FlowDef>)>,
-    skills: BTreeMap<String, String>,
+    parts: BTreeMap<(PartKind, String), String>,
     /// The writable layer, over the above.
     user_flows: BTreeMap<String, (String, Option<FlowDef>)>,
-    user_skills: BTreeMap<String, String>,
+    user_parts: BTreeMap<(PartKind, String), String>,
     catalog: Catalog,
     writable: bool,
 }
@@ -54,9 +55,14 @@ impl Inner {
     fn flow_entry(&self, name: &str) -> Option<&(String, Option<FlowDef>)> {
         self.user_flows.get(name).or_else(|| self.flows.get(name))
     }
+
+    fn part_entry(&self, kind: PartKind, name: &str) -> Option<&String> {
+        let k = (kind, name.to_string());
+        self.user_parts.get(&k).or_else(|| self.parts.get(&k))
+    }
 }
 
-/// Definitions, skills and a catalog given in code.
+/// Definitions, parts (skills, rules, policies, gates, hooks) and a catalog given in code.
 ///
 /// ```
 /// # use harnix_flow::MemPacks;
@@ -83,8 +89,36 @@ impl MemPacks {
     }
 
     pub fn skill(self, name: &str, body: &str) -> Self {
-        self.put_skill(name, body);
+        self.part(PartKind::Skill, name, body)
+    }
+
+    /// Add (or replace) a part of any kind.
+    pub fn part(self, kind: PartKind, name: &str, text: &str) -> Self {
+        self.put_part(kind, name, text);
         self
+    }
+
+    pub fn rule(self, name: &str, text: &str) -> Self {
+        self.part(PartKind::Rule, name, text)
+    }
+
+    /// A policy; its name is read from the text.
+    pub fn policy(self, yaml: &str) -> Self {
+        let name = yaml_name(yaml);
+        self.part(PartKind::Policy, &name, yaml)
+    }
+
+    /// A gate of the pack; its name is read from the text. (A name the application's own checks
+    /// answer to, for `host` gates, is [`MemPacks::check`].)
+    pub fn gate_def(self, yaml: &str) -> Self {
+        let name = yaml_name(yaml);
+        self.part(PartKind::Gate, &name, yaml)
+    }
+
+    /// A hook; its name is read from the text.
+    pub fn hook(self, yaml: &str) -> Self {
+        let name = yaml_name(yaml);
+        self.part(PartKind::Hook, &name, yaml)
     }
 
     pub fn scene(self, name: &str) -> Self {
@@ -97,7 +131,8 @@ impl MemPacks {
         self
     }
 
-    pub fn gate(self, name: &str) -> Self {
+    /// A check of the application's own (`Gates`) that `host` gates may name.
+    pub fn check(self, name: &str) -> Self {
         self.edit(|i| i.catalog.gates.insert(name.into()));
         self
     }
@@ -107,8 +142,9 @@ impl MemPacks {
         self
     }
 
-    pub fn action(self, name: &str) -> Self {
-        self.edit(|i| i.catalog.actions.insert(name.into()));
+    /// Let `command` gates run.
+    pub fn command_gates(self) -> Self {
+        self.edit(|i| i.catalog.command_gates = true);
         self
     }
 
@@ -174,8 +210,8 @@ impl MemPacks {
         self.edit(|i| i.flows.insert(name, (yaml.to_string(), parsed)));
     }
 
-    pub fn put_skill(&self, name: &str, body: &str) {
-        self.edit(|i| i.skills.insert(name.into(), body.into()));
+    pub fn put_part(&self, kind: PartKind, name: &str, text: &str) {
+        self.edit(|i| i.parts.insert((kind, name.into()), text.into()));
     }
 
     /// The text a flow was given as.
@@ -210,12 +246,21 @@ impl Packs for MemPacks {
         Some((def.clone()?, digest(text)))
     }
 
-    fn skill(&self, name: &str) -> Option<(String, String)> {
+    fn part(&self, kind: PartKind, name: &str) -> Option<(String, String)> {
         let g = self.read();
-        g.user_skills
-            .get(name)
-            .or_else(|| g.skills.get(name))
-            .map(|b| (b.clone(), digest(b)))
+        g.part_entry(kind, name).map(|b| (b.clone(), digest(b)))
+    }
+
+    fn parts(&self, kind: PartKind) -> Vec<String> {
+        let g = self.read();
+        let names: BTreeSet<&String> = g
+            .parts
+            .keys()
+            .chain(g.user_parts.keys())
+            .filter(|(k, _)| *k == kind)
+            .map(|(_, n)| n)
+            .collect();
+        names.into_iter().cloned().collect()
     }
 
     fn catalog(&self) -> Catalog {
@@ -226,14 +271,18 @@ impl Packs for MemPacks {
         MemPacks::flow_text(self, name)
     }
 
-    fn skills(&self) -> Vec<String> {
-        let g = self.read();
-        let names: BTreeSet<&String> = g.skills.keys().chain(g.user_skills.keys()).collect();
-        names.into_iter().cloned().collect()
-    }
-
     fn writable(&self) -> bool {
         self.read().writable
+    }
+
+    fn part_origin(&self, kind: PartKind, name: &str) -> Origin {
+        let g = self.read();
+        let k = (kind, name.to_string());
+        match (g.user_parts.contains_key(&k), g.parts.contains_key(&k)) {
+            (true, true) => Origin::Override,
+            (true, false) => Origin::User,
+            _ => Origin::Builtin,
+        }
     }
 
     fn origin(&self, flow: &str) -> Origin {
@@ -264,29 +313,38 @@ impl Packs for MemPacks {
             .ok_or_else(|| format!("flow {name} is built in: there is nothing saved to delete"))
     }
 
-    fn save_skill(&self, name: &str, body: &str) -> Result<String, String> {
+    fn save_part(&self, kind: PartKind, name: &str, text: &str) -> Result<String, String> {
         if !Packs::writable(self) {
             return Err("read-only".into());
         }
-        if !is_skill_name(name) {
-            return Err(format!("skill name {name:?} must match [a-z][a-z0-9_-]*"));
+        if !is_part_name(kind, name) {
+            return Err(format!("{kind} name {name:?} must match [a-z][a-z0-9-]*"));
         }
-        self.edit(|i| i.user_skills.insert(name.into(), body.into()));
-        Ok(digest(body))
+        self.edit(|i| i.user_parts.insert((kind, name.into()), text.into()));
+        Ok(digest(text))
     }
 
-    fn delete_skill(&self, name: &str) -> Result<(), String> {
+    fn delete_part(&self, kind: PartKind, name: &str) -> Result<(), String> {
         if !Packs::writable(self) {
             return Err("read-only".into());
         }
-        self.edit(|i| i.user_skills.remove(name))
+        self.edit(|i| i.user_parts.remove(&(kind, name.to_string())))
             .map(|_| ())
-            .ok_or_else(|| format!("skill {name} is built in: there is nothing saved to delete"))
+            .ok_or_else(|| format!("{kind} {name} is built in: there is nothing saved to delete"))
     }
 }
 
-/// Packs read from directories, each laid out as `flows/<name>.yaml` and
-/// `skills/<name>/SKILL.md`. A later directory overrides an earlier one, file by file
+/// The `name:` a YAML text declares, if any.
+fn yaml_name(yaml: &str) -> String {
+    serde_yaml::from_str::<serde_yaml::Value>(yaml)
+        .ok()
+        .and_then(|v| v.get("name").and_then(|n| n.as_str()).map(String::from))
+        .unwrap_or_default()
+}
+
+/// Packs read from directories, each laid out as `flows/<name>.yaml`,
+/// `skills/<name>/SKILL.md`, `rules/<name>.md`, `policies/<name>.yaml`, `gates/<name>.yaml` and
+/// `hooks/<name>.yaml`. A later directory overrides an earlier one, file by file
 /// (built-in first, project last). Read on every call: an edit shows up in the next run.
 ///
 /// Below the directories there may be packs built into the binary ([`DirPacks::with_builtin`]);
@@ -321,7 +379,7 @@ impl DirPacks {
         self
     }
 
-    /// Flows and skills built into the binary, under every directory. Its catalog's names are
+    /// Flows and parts built into the binary, under every directory. Its catalog's names are
     /// added to [`DirPacks::with_catalog`]'s.
     pub fn with_builtin(mut self, packs: MemPacks) -> Self {
         self.builtin = Some(packs);
@@ -369,6 +427,10 @@ impl DirPacks {
             .chain(self.read_dirs().rev())
             .find_map(|d| Self::text_in(d, name))
             .or_else(|| self.builtin.as_ref().and_then(|b| b.flow_text(name)))
+    }
+
+    fn part_in(dir: &Path, kind: PartKind, name: &str) -> Option<String> {
+        std::fs::read_to_string(dir.join(kind.dir()).join(kind.file(name))).ok()
     }
 
     fn top_dir(&self) -> Result<&Path, String> {
@@ -429,7 +491,7 @@ impl Packs for DirPacks {
         Some((def, digest(&text)))
     }
 
-    fn skill(&self, name: &str) -> Option<(String, String)> {
+    fn part(&self, kind: PartKind, name: &str) -> Option<(String, String)> {
         if !safe(name) {
             return None;
         }
@@ -437,13 +499,11 @@ impl Packs for DirPacks {
             .top
             .iter()
             .chain(self.read_dirs().rev())
-            .find_map(|d| {
-                std::fs::read_to_string(d.join("skills").join(name).join("SKILL.md")).ok()
-            })
+            .find_map(|d| Self::part_in(d, kind, name))
             .or_else(|| {
                 self.builtin
                     .as_ref()
-                    .and_then(|b| b.skill(name).map(|(b, _)| b))
+                    .and_then(|b| b.part(kind, name).map(|(b, _)| b))
             })?;
         let digest = digest(&body);
         Some((body, digest))
@@ -457,11 +517,15 @@ impl Packs for DirPacks {
             c.steps.extend(bc.steps);
             c.gates.extend(bc.gates);
             c.tools.extend(bc.tools);
-            c.actions.extend(bc.actions);
+            c.command_gates |= bc.command_gates;
             c.templates.extend(bc.templates);
             c.instances.extend(bc.instances);
             c.spaces.extend(bc.spaces);
             c.models.extend(bc.models);
+            c.submit_scenes.extend(bc.submit_scenes);
+            if c.main_scene.is_none() {
+                c.main_scene = bc.main_scene;
+            }
         }
         c
     }
@@ -470,24 +534,48 @@ impl Packs for DirPacks {
         DirPacks::flow_text(self, name)
     }
 
-    fn skills(&self) -> Vec<String> {
+    fn parts(&self, kind: PartKind) -> Vec<String> {
         let mut names = BTreeSet::new();
         for d in self.read_dirs().chain(self.top.iter()) {
-            let Ok(entries) = std::fs::read_dir(d.join("skills")) else {
+            let Ok(entries) = std::fs::read_dir(d.join(kind.dir())) else {
                 continue;
             };
             for e in entries.flatten() {
-                if e.path().join("SKILL.md").is_file() {
-                    if let Some(n) = e.file_name().to_str() {
-                        names.insert(n.to_string());
+                let Some(n) = e.file_name().to_str().map(String::from) else {
+                    continue;
+                };
+                let name = match kind {
+                    PartKind::Skill => e.path().join("SKILL.md").is_file().then_some(n),
+                    _ => {
+                        let ext = if kind == PartKind::Rule { ".md" } else { ".yaml" };
+                        n.strip_suffix(ext).filter(|s| !s.starts_with('.')).map(String::from)
                     }
-                }
+                };
+                names.extend(name);
             }
         }
         if let Some(b) = &self.builtin {
-            names.extend(b.skills());
+            names.extend(b.parts(kind));
         }
         names.into_iter().collect()
+    }
+
+    fn part_origin(&self, kind: PartKind, name: &str) -> Origin {
+        let saved = safe(name)
+            && self
+                .top
+                .as_ref()
+                .is_some_and(|t| Self::part_in(t, kind, name).is_some());
+        let shipped = self.read_dirs().any(|d| Self::part_in(d, kind, name).is_some())
+            || self
+                .builtin
+                .as_ref()
+                .is_some_and(|b| b.part(kind, name).is_some());
+        match (saved, shipped) {
+            (true, true) => Origin::Override,
+            (true, false) => Origin::User,
+            _ => Origin::Builtin,
+        }
     }
 
     fn writable(&self) -> bool {
@@ -536,26 +624,32 @@ impl Packs for DirPacks {
         }
     }
 
-    fn save_skill(&self, name: &str, body: &str) -> Result<String, String> {
+    fn save_part(&self, kind: PartKind, name: &str, text: &str) -> Result<String, String> {
         let top = self.top_dir()?;
-        if !is_skill_name(name) {
-            return Err(format!("skill name {name:?} must match [a-z][a-z0-9_-]*"));
+        if !is_part_name(kind, name) {
+            return Err(format!("{kind} name {name:?} must match [a-z][a-z0-9-]*"));
         }
-        write_atomic(&top.join("skills").join(name).join("SKILL.md"), body)?;
-        Ok(digest(body))
+        write_atomic(&top.join(kind.dir()).join(kind.file(name)), text)?;
+        Ok(digest(text))
     }
 
-    fn delete_skill(&self, name: &str) -> Result<(), String> {
+    fn delete_part(&self, kind: PartKind, name: &str) -> Result<(), String> {
         let top = self.top_dir()?;
-        if !is_skill_name(name) {
-            return Err(format!("no skill {name}"));
+        if !is_part_name(kind, name) {
+            return Err(format!("no {kind} {name}"));
         }
-        let dir = top.join("skills").join(name);
-        if !dir.join("SKILL.md").is_file() {
+        let path = top.join(kind.dir()).join(kind.file(name));
+        if !path.is_file() {
             return Err(format!(
-                "skill {name} is built in: there is nothing saved to delete"
+                "{kind} {name} is built in: there is nothing saved to delete"
             ));
         }
-        std::fs::remove_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))
+        match kind {
+            PartKind::Skill => {
+                let dir = top.join(kind.dir()).join(name);
+                std::fs::remove_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))
+            }
+            _ => std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display())),
+        }
     }
 }

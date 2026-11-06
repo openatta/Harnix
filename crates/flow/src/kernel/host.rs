@@ -3,9 +3,9 @@
 //! The kernel neither stores nor runs anything. It reads and commits through
 //! [`RunStore`], reads definitions and skills through [`Packs`], asks
 //! [`Authorizer`] before every change made on someone's behalf, and calls
-//! [`Tools`] to judge `tool` exits. [`Gates`], [`Programs`] and [`Hooks`] are
-//! not called by the kernel: the module calls them when it carries out the
-//! [`WorkItem`]s an operation returns.
+//! [`Tools`] to judge `tool` gates. [`Gates`] and [`Programs`] are not called by
+//! the kernel: the module calls them when it carries out the [`WorkItem`]s an
+//! operation returns.
 
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::def::{Executor, FlowDef};
+use super::parts::{GateDef, Granted, HookDef, PartKind, PolicyDef};
 use super::run::{Actor, History, RunQuery, RunRecord, RunSummary};
 
 // ── storage ──────────────────────────────────────────────────────────────────
@@ -67,7 +68,7 @@ pub trait RunStore: Send + Sync {
 
 /// Names the application registered, for validation and for authors.
 ///
-/// `scenes`, `steps`, `gates`, `tools` and `actions` are always checked: a name a definition uses
+/// `scenes`, `steps`, `gates` and `tools` are always checked: a name a definition or a gate uses
 /// must be here. `templates`, `instances`, `spaces` and `models` are checked only when the
 /// application filled them in — an empty set says "not known here", not "none".
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -77,14 +78,16 @@ pub struct Catalog {
     /// Program steps (`Programs`).
     #[serde(default)]
     pub steps: BTreeSet<String>,
+    /// The application's own checks, which `host` gates name (`Gates`).
     #[serde(default)]
     pub gates: BTreeSet<String>,
-    /// Tools a `tool` exit may call (`Tools`).
+    /// Tools a `tool` gate may call (`Tools`).
     #[serde(default)]
     pub tools: BTreeSet<String>,
-    /// Hook actions (`Hooks`).
-    #[serde(default)]
-    pub actions: BTreeSet<String>,
+    /// Whether `command` gates may run here: they run a command on the host, so only an
+    /// application that turned them on has them.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub command_gates: bool,
     /// Templates a session station may name (full names, `<module>.<template>`).
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub templates: BTreeSet<String>,
@@ -97,10 +100,9 @@ pub struct Catalog {
     /// Models a session station may name: `model`, or `provider/model` to tie it to a provider.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub models: BTreeSet<String>,
-    /// The tools the host refuses as writes unless a station's `writes` open them (names, or
-    /// `ns__*` groups). Filled by the host that enforces them; validation reports a write that
-    /// opens part of a group, and stations sharing a session that would be refused different
-    /// tools.
+    /// The tools the host refuses unless a permission allows them (names, or `ns__*` groups).
+    /// Filled by the host that enforces them; validation checks permission tool patterns against
+    /// the same rules.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub guarded: Vec<String>,
     /// Scenes whose sessions hand in with `flow_submit` (the module's `flow-*`): their output
@@ -126,36 +128,71 @@ pub enum Origin {
     User,
 }
 
-/// Where definitions and skills come from.
+/// Where flows and the other parts of a pack (skills, rules, policies, gates, hooks) come from.
 pub trait Packs: Send + Sync {
     /// Names of the flows on offer.
     fn flows(&self) -> Vec<String>;
     /// A definition and the digest of its text.
     fn flow(&self, name: &str) -> Option<(FlowDef, String)>;
-    /// A skill's body and its digest.
-    fn skill(&self, name: &str) -> Option<(String, String)>;
     fn catalog(&self) -> Catalog;
     /// The text a flow was given as, for people reading it. `None` when the packs cannot say.
     fn flow_text(&self, _name: &str) -> Option<String> {
         None
     }
-    /// Names of the skills on offer, for authors. Empty when the packs cannot list them.
-    fn skills(&self) -> Vec<String> {
+    /// A part's text and its digest.
+    fn part(&self, kind: PartKind, name: &str) -> Option<(String, String)>;
+    /// Names of the parts of a kind on offer. Empty when the packs cannot list them.
+    fn parts(&self, _kind: PartKind) -> Vec<String> {
         vec![]
     }
 
-    // ── writing (xops-02) ────────────────────────────────────────────────────
-    //
-    // The packs store what they are given once it parses; whether it is a *valid* flow is
-    // judged against the whole catalog by whoever saves — `Engine::save_flow` validates first
-    // and saves nothing that has problems. Runs already started keep the definition they pinned.
+    /// A skill's body and its digest.
+    fn skill(&self, name: &str) -> Option<(String, String)> {
+        self.part(PartKind::Skill, name)
+    }
+    /// A rule's text and its digest.
+    fn rule(&self, name: &str) -> Option<(String, String)> {
+        self.part(PartKind::Rule, name)
+    }
+    /// A policy, parsed; `None` when there is none or it does not parse or is named otherwise.
+    fn policy(&self, name: &str) -> Option<PolicyDef> {
+        let (text, _) = self.part(PartKind::Policy, name)?;
+        serde_yaml::from_str::<PolicyDef>(&text).ok().filter(|p| p.name == name)
+    }
+    /// A gate, parsed (as [`Packs::policy`]).
+    fn gate(&self, name: &str) -> Option<GateDef> {
+        let (text, _) = self.part(PartKind::Gate, name)?;
+        serde_yaml::from_str::<GateDef>(&text).ok().filter(|g| g.name == name)
+    }
+    /// A hook, parsed (as [`Packs::policy`]).
+    fn hook(&self, name: &str) -> Option<HookDef> {
+        let (text, _) = self.part(PartKind::Hook, name)?;
+        serde_yaml::from_str::<HookDef>(&text).ok().filter(|h| h.name == name)
+    }
+    /// Every hook that parses.
+    fn hooks(&self) -> Vec<HookDef> {
+        self.parts(PartKind::Hook)
+            .iter()
+            .filter_map(|n| self.hook(n))
+            .collect()
+    }
 
-    /// Whether flows and skills can be saved here.
+    // ── writing (xops-02, xops-04) ───────────────────────────────────────────
+    //
+    // The packs store what they are given once it parses; whether it is *valid* is judged against
+    // the whole catalog by whoever saves — `Engine::save_flow` and `Engine::save_part` validate
+    // first and save nothing that has problems. Runs already started keep what they pinned.
+
+    /// Whether flows and parts can be saved here.
     fn writable(&self) -> bool {
         false
     }
     /// Where the flow offered as `flow` comes from.
     fn origin(&self, _flow: &str) -> Origin {
+        Origin::Builtin
+    }
+    /// Where a part comes from.
+    fn part_origin(&self, _kind: PartKind, _name: &str) -> Origin {
         Origin::Builtin
     }
     /// Save a definition under the name it declares; the digest of the saved text.
@@ -166,11 +203,12 @@ pub trait Packs: Send + Sync {
     fn delete_flow(&self, _name: &str) -> Result<(), String> {
         Err("read-only".into())
     }
-    /// Save a skill's body; its digest.
-    fn save_skill(&self, _name: &str, _body: &str) -> Result<String, String> {
+    /// Save a part's text; its digest.
+    fn save_part(&self, _kind: PartKind, _name: &str, _text: &str) -> Result<String, String> {
         Err("read-only".into())
     }
-    fn delete_skill(&self, _name: &str) -> Result<(), String> {
+    /// Delete a saved part (as [`Packs::delete_flow`]).
+    fn delete_part(&self, _kind: PartKind, _name: &str) -> Result<(), String> {
         Err("read-only".into())
     }
 }
@@ -249,9 +287,10 @@ pub enum Op {
     EditFlow {
         flow: String,
     },
-    /// Saving or deleting a skill (no run: `run` is `None`).
-    EditSkill {
-        skill: String,
+    /// Saving or deleting a part of a pack (no run: `run` is `None`).
+    EditPart {
+        kind: PartKind,
+        name: String,
     },
 }
 
@@ -273,14 +312,14 @@ impl Op {
             Self::Cancel => "cancel",
             Self::AttachSession { .. } => "attach_session",
             Self::EditFlow { .. } => "edit_flow",
-            Self::EditSkill { .. } => "edit_skill",
+            Self::EditPart { .. } => "edit_part",
         }
     }
 }
 
 /// Decides who may do what. The one place authorization happens, whatever the entry point.
 pub trait Authorizer: Send + Sync {
-    /// `run` is `None` only for `create`, `edit_flow` and `edit_skill`. `Err` carries the reason
+    /// `run` is `None` only for `create`, `edit_flow` and `edit_part`. `Err` carries the reason
     /// shown to the caller.
     fn check(&self, op: &Op, by: &Actor, run: Option<&RunRecord>) -> Result<(), String>;
 }
@@ -296,9 +335,9 @@ impl Authorizer for AllowAll {
 
 // ── judgement and execution ─────────────────────────────────────────────────
 
-/// Read-only application tools a `tool` exit calls.
+/// Read-only application tools a `tool` gate calls.
 ///
-/// **They must be read-only and idempotent.** A `tool` exit is called again whenever its
+/// **They must be read-only and idempotent.** A `tool` gate is called again whenever its
 /// station is judged — every `evaluate`, every turn a session task ends, every resubmission —
 /// and again when an operation is recomputed after a store conflict, whose first result is
 /// thrown away. A tool that changes something would change it any number of times.
@@ -307,7 +346,7 @@ pub trait Tools: Send + Sync {
     async fn call(&self, tool: &str, args: &Value) -> Result<Value, String>;
 }
 
-/// No tools: every `tool` exit fails.
+/// No tools: every `tool` gate fails.
 pub struct NoTools;
 
 #[async_trait]
@@ -324,8 +363,8 @@ pub struct GateResult {
     pub detail: String,
 }
 
-/// Runs a gate (called by the module for [`WorkItem::Gate`]; the result goes to
-/// `Engine::gate_result`).
+/// Runs the application's own checks — `host` gates, by name (called by the module for a
+/// [`WorkItem::Gate`]; the result goes to `Engine::gate_result`).
 #[async_trait]
 pub trait Gates: Send + Sync {
     async fn run(&self, run: &RunRecord, station: &str, gate: &str) -> GateResult;
@@ -337,13 +376,6 @@ pub trait Gates: Send + Sync {
 pub trait Programs: Send + Sync {
     async fn run(&self, step: &str, run: &RunRecord, item: Option<&Value>)
         -> Result<Value, String>;
-}
-
-/// Carries out a hook action (called by the module for [`WorkItem::Hook`]). A failure
-/// is logged and blocks nothing.
-#[async_trait]
-pub trait Hooks: Send + Sync {
-    async fn fire(&self, action: &str, event: &Event);
 }
 
 // ── time ─────────────────────────────────────────────────────────────────────
@@ -400,9 +432,7 @@ impl Clock for ManualClock {
 
 /// Something that happened, after it was committed.
 ///
-/// Kinds: `run.{created, finished, cancelled}`,
-/// `station.{entered, held, released, passed, unmet, forced, skipped, stale, reworked, confirmed}`,
-/// `task.{ready, claimed, submitted, failed, cancelled, expired}`.
+/// Kinds: [`EVENT_KINDS`]. Hooks are told them (`hooks/<name>.yaml`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Event {
     pub kind: String,
@@ -416,9 +446,11 @@ pub struct Event {
     pub data: Value,
 }
 
-/// Every event kind, for validating `hooks[].on`.
+/// Every event kind, for validating a hook's `on`.
 pub const EVENT_KINDS: &[&str] = &[
     "run.created",
+    "run.paused",
+    "run.resumed",
     "run.finished",
     "run.cancelled",
     "station.entered",
@@ -437,6 +469,7 @@ pub const EVENT_KINDS: &[&str] = &[
     "task.failed",
     "task.cancelled",
     "task.expired",
+    "task.asking",
 ];
 
 /// Work for the module to carry out after the commit.
@@ -459,6 +492,14 @@ pub enum WorkItem {
         /// The skill digest pinned on station entry.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         skill_digest: Option<String>,
+        /// The rules the task works under, each with the digest pinned on station entry
+        /// (`None`: the rule was not in the packs then).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        rules: Vec<(String, Option<String>)>,
+        /// The permissions the task works under, references resolved (session and sub-agent
+        /// tasks).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        permissions: Vec<Granted>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         item: Option<Value>,
         /// The station's output contract (for the session's `output_schema`).
@@ -486,15 +527,14 @@ pub enum WorkItem {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         scene: Option<String>,
     },
-    /// Run a gate; report through `gate_result(run, station, round, gate, …)`.
+    /// Run a `command` or `host` gate (the run pins its definition); report through
+    /// `gate_result(run, station, round, gate, …)`.
     Gate {
         run: String,
         station: String,
         round: u32,
         gate: String,
     },
-    /// A definition hook matched an event.
-    Hook { action: String, event: Event },
     /// A session served a task that was cancelled.
     CloseSession { session: String },
 }

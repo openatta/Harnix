@@ -8,9 +8,11 @@
 //!
 //! A session task: a headless session where the station places it — its space (the flow's by
 //! default), its instance or an instance of its template made ready first, its model — or the
-//! one its session key is bound to, told the protocol layer and the skill. The station's
-//! contract is the session's `output_schema` and the guarded tools its `writes` do not allow are
-//! the session's `deny` permission rules, whatever carries the session (xops-02 §2). After every
+//! one its session key is bound to, told the protocol layer, the rules and the skill. The
+//! station's contract is the session's `output_schema` when it hands in by structured output; the
+//! session `ask`s about every guarded tool and every tool a permission names, and the module
+//! answers each question from the permissions of the task the turn works on, whatever carries
+//! the session (xops-04 §3). After every
 //! turn, the turn's structured output (if any) is submitted, the run is evaluated and the claim
 //! renewed; an output the station still judges unmet is answered with what is missing; a turn
 //! that ends with nothing handed in gets one nudge, and a second one fails the attempt. Tasks sharing a session take turns, and a task waiting for its turn keeps
@@ -30,7 +32,8 @@ use super::shared::{session_name, session_ref, Binding, Shared, TaskKey};
 use crate::kernel::def::{Executor, MAIN_SESSION_KEY};
 use crate::kernel::engine::view;
 use crate::kernel::host::{Delivery, GateResult, Outcome, Placement, WorkItem};
-use crate::kernel::protocol::{refused, task_message, STRUCTURED_OUTPUT_TOOL};
+use crate::kernel::parts::{asked_tools, GateKind};
+use crate::kernel::protocol::{ask_rules, task_message, STRUCTURED_OUTPUT_TOOL};
 use crate::kernel::run::{
     Actor, CheckStatus, RunQuery, RunRecord, RunStatus, StationStatus, TaskStatus,
 };
@@ -59,29 +62,22 @@ const CORRECTIONS: u32 = 2;
 /// through the session's permission rules without a classifier. The engine only ever tightens
 /// what a client asks for, so an instance set stricter keeps its own mode; one set to
 /// `bypassPermissions` — which ignores a session's rules — is held to this one instead, so the
-/// station's `writes` still hold (xops-02 review #7).
+/// flow's answers to its questions still hold (xops-02 review #7).
 pub const TASK_PERMISSION_MODE: &str = "acceptEdits";
 
 /// The entry a task's session is marked with when it is opened: what it was opened with
 /// (`settings_of`). A task that finds its session key bound to a session opened otherwise fails
-/// instead of working under another station's contract and writes.
+/// instead of working under another station's contract.
 pub const SESSION_SETTINGS: &str = "session_settings";
 
 /// What a session is opened with and keeps for good.
 pub(crate) fn settings_of(
-    guarded: &[String],
-    writes: &[String],
     job_scene: &str,
     delivery: Delivery,
     output: Option<&Value>,
     p: &Placement,
     instance: Option<&str>,
 ) -> Value {
-    let mut refused: Vec<String> = refused(guarded, writes)
-        .into_iter()
-        .map(|(_, r)| r)
-        .collect();
-    refused.sort();
     json!({
         "scene": job_scene,
         "delivery": delivery,
@@ -89,7 +85,6 @@ pub(crate) fn settings_of(
             Delivery::StructuredOutput => output.cloned().unwrap_or(Value::Null),
             Delivery::FlowSubmit => Value::Null,
         },
-        "refused": refused,
         "model": p.model, "provider": p.provider,
         "space": p.space, "template": p.template, "instance": instance.map(String::from).or_else(|| p.instance.clone()),
     })
@@ -109,15 +104,11 @@ pub(crate) fn settings_differ(opened: &Value, wanted: &Value) -> Vec<String> {
         .collect()
 }
 
-/// The session's permission rules for a station: a `deny` for each guarded tool its `writes`
-/// do not allow (xops-02 §2). The same rules whatever carries the session.
-pub fn permission_rules(guarded: &[String], writes: &[String]) -> Value {
-    Value::Array(
-        refused(guarded, writes)
-            .into_iter()
-            .map(|(_, tool)| json!({"source": "session", "behavior": "deny", "tool_name": tool}))
-            .collect(),
-    )
+/// A flow session's permission rules: `ask` for every guarded tool and every tool a permission
+/// of the run's flow names, so each call of them comes to the module to be judged (xops-04 §3).
+/// The same rules whatever carries the session.
+pub(crate) fn flow_rules(sh: &Shared, rec: &RunRecord) -> Value {
+    ask_rules(&asked_tools(&rec.def, &rec.parts.policies, &sh.cfg.guarded))
 }
 
 fn dispatcher() -> Actor {
@@ -127,7 +118,6 @@ fn dispatcher() -> Actor {
 fn run_of(w: &WorkItem) -> Option<&str> {
     match w {
         WorkItem::Task { run, .. } | WorkItem::Gate { run, .. } => Some(run),
-        WorkItem::Hook { event, .. } => Some(&event.run),
         WorkItem::CloseSession { .. } => None,
     }
 }
@@ -157,6 +147,7 @@ pub(crate) async fn apply(sh: &Arc<Shared>, hint: Option<&str>, o: Outcome) {
         runs.insert(h.to_string());
     }
     publish(sh, &runs).await;
+    super::hooks::notify(sh, &o.events).await;
     for w in o.work {
         spawn_work(sh, w, false);
     }
@@ -426,6 +417,8 @@ async fn run_work(sh: Arc<Shared>, w: WorkItem, resume: bool) {
                 executor,
                 skill,
                 skill_digest,
+                rules,
+                permissions,
                 item,
                 protocol,
                 session_key,
@@ -475,6 +468,8 @@ async fn run_work(sh: Arc<Shared>, w: WorkItem, resume: bool) {
                         scene,
                         skill,
                         skill_digest,
+                        rules,
+                        permissions,
                         protocol: protocol.unwrap_or_default(),
                         session_key,
                         recording,
@@ -495,26 +490,32 @@ async fn run_work(sh: Arc<Shared>, w: WorkItem, resume: bool) {
             round,
             gate,
         } => {
-            let result = match (&sh.cfg.gates, engine.get(&run).await) {
-                (Some(g), Ok(view)) => g.run(&view.record, &station, &gate).await,
-                (None, _) => GateResult {
-                    pass: false,
-                    detail: format!("no gates are registered to run {gate}"),
-                },
-                (_, Err(e)) => {
+            let rec = match engine.record(&run).await {
+                Ok(r) => r,
+                Err(e) => {
                     tracing::warn!(run, error = %e, "flow: gate not run");
                     return;
                 }
+            };
+            let result = match rec.parts.gates.get(&gate) {
+                Some(g) if g.kind == GateKind::Command => command_gate(&sh, &engine, &rec, &station, g).await,
+                Some(_) => match &sh.cfg.gates {
+                    Some(gs) => gs.run(&rec, &station, &gate).await,
+                    None => GateResult {
+                        pass: false,
+                        detail: format!("the application runs no checks: {gate} cannot run"),
+                    },
+                },
+                None => GateResult {
+                    pass: false,
+                    detail: format!("gate {gate} was not in the packs when the run started"),
+                },
             };
             let r = engine
                 .gate_result(&run, &station, round, &gate, result)
                 .await;
             settle(&sh, &run, "gate_result", r).await;
         }
-        WorkItem::Hook { action, event } => match &sh.cfg.hooks {
-            Some(h) => h.fire(&action, &event).await,
-            None => tracing::info!(action, kind = event.kind, "flow: no hooks registered"),
-        },
         WorkItem::CloseSession { session } => {
             let s = session_ref(&session);
             sh.unbind_session(&s.session_id);
@@ -669,6 +670,10 @@ struct SessionJob {
     scene: String,
     skill: Option<String>,
     skill_digest: Option<String>,
+    /// The rules it works under, with the digests pinned on station entry.
+    rules: Vec<(String, Option<String>)>,
+    /// What it works under (xops-04 §3).
+    permissions: Vec<crate::kernel::parts::Granted>,
     protocol: String,
     session_key: Option<String>,
     recording: Option<String>,
@@ -835,15 +840,8 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
         }
     }
     let resume = job.resume && opened.as_ref().is_some_and(|(_, own)| *own);
-    let writes = rec
-        .def
-        .station(&key.station)
-        .map(|s| s.writes.clone())
-        .unwrap_or_default();
     let instance_of = |job: &SessionJob| job.placement.template_instance(&job.key.run);
     let wanted = settings_of(
-        &sh.cfg.guarded,
-        &writes,
         &job.scene,
         job.delivery,
         job.output_schema.as_ref(),
@@ -854,7 +852,7 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
         Some((s, own)) => {
             // Validation keeps tasks that share a session alike; this is the net under it — a
             // definition from before that rule, or keys that resolve alike by chance. The main
-            // session keeps no station's settings: its writes are answered turn by turn.
+            // session keeps no station's settings.
             if !own && !job.main {
                 if let Some(opened_with) = recorded_settings(sh, &s).await {
                     let d = settings_differ(&opened_with, &wanted);
@@ -900,7 +898,7 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
                     Delivery::FlowSubmit => None,
                 },
                 permission_mode: Some(TASK_PERMISSION_MODE.into()),
-                permission_rules: Some(permission_rules(&sh.cfg.guarded, &writes)),
+                permission_rules: Some(flow_rules(sh, &rec)),
                 recording: job.recording.clone(),
                 ..SessionSpec::default()
             };
@@ -919,9 +917,9 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
             }
         }
     };
-    if job.main {
-        super::main::watch(sh, &key.run, &session);
-    }
+    // Its questions are answered from the task its turn works on (xops-04 §3); a main session's
+    // watch also counts its turns.
+    super::main::watch(sh, &key.run, &session, job.main).await;
     let mut tap = match sessions.tap(&session).await {
         Ok(t) => t,
         Err(e) => {
@@ -967,7 +965,7 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
             round: key.round,
             task: key.task.clone(),
             token: job.token.clone(),
-            writes,
+            permissions: job.permissions.clone(),
         },
     );
     let still_running = carry(sh, job, &session, &mut tap, resume, resume && running).await;
@@ -1024,7 +1022,7 @@ async fn carry(
     };
     let binding = sh.binding(&session.session_id);
     let send = |text: String| {
-        if let (true, Some(b)) = (job.main, binding.clone()) {
+        if let Some(b) = binding.clone() {
             sh.note_sent(&session.session_id, &text, b);
         }
         let sessions = cx.sessions();
@@ -1317,7 +1315,7 @@ pub(crate) fn corrections_for(v: &crate::RunView, station: &str, task: &str) -> 
                     out.push(format!("{} ({})", c.label, parts.join("; ")));
                 }
             }
-            "tool" if only => out.push(if c.detail.is_empty() {
+            "gate" if only => out.push(if c.detail.is_empty() {
                 c.label.clone()
             } else {
                 format!("{} ({})", c.label, c.detail)
@@ -1328,8 +1326,22 @@ pub(crate) fn corrections_for(v: &crate::RunView, station: &str, task: &str) -> 
     (!out.is_empty()).then(|| out.join("; "))
 }
 
-/// The protocol layer, then the skill.
+/// The protocol layer, the rules, then the skill.
 fn task_message_of(sh: &Shared, job: &SessionJob) -> String {
+    let mut rules = vec![];
+    if let Ok(engine) = sh.engine() {
+        for (name, pinned) in &job.rules {
+            match engine.packs().rule(name) {
+                Some((text, digest)) => {
+                    if pinned.as_ref().is_some_and(|d| *d != digest) {
+                        tracing::warn!(rule = name, "flow: the rule changed since the station was entered");
+                    }
+                    rules.push((name.clone(), text));
+                }
+                None => tracing::warn!(rule = name, "flow: rule not found"),
+            }
+        }
+    }
     let mut skill = None;
     if let (Some(name), Ok(engine)) = (&job.skill, sh.engine()) {
         match engine.packs().skill(name) {
@@ -1347,9 +1359,80 @@ fn task_message_of(sh: &Shared, job: &SessionJob) -> String {
     }
     task_message(
         &job.protocol,
+        &rules,
         skill.as_ref().map(|(n, b)| (n.as_str(), b.as_str())),
     )
 }
+
+/// Run a `command` gate where the run works (xops-04 §4): `sh -c` in its `cwd` (references
+/// resolved), else the run's workspace; passes on exit status 0. The run reaches it in the
+/// environment, never in the command line: `FLOW_RUN`, `FLOW_STATION`, `FLOW_WORKSPACE` and
+/// `FLOW_CONTEXT` (the reference context as JSON — inputs, stations' outputs). Refused unless the
+/// application turned command gates on.
+async fn command_gate(sh: &Shared, engine: &crate::Engine, rec: &RunRecord, station: &str, g: &crate::GateDef) -> GateResult {
+    let fail = |detail: String| GateResult { pass: false, detail };
+    if !sh.cfg.command_gates {
+        return fail(format!("command gates are not turned on here: {} cannot run", g.name));
+    }
+    let Some(command) = g.command.clone().filter(|c| !c.trim().is_empty()) else {
+        return fail(format!("gate {} has no command", g.name));
+    };
+    let ws = engine.workspace(&rec.id);
+    let ctx = crate::kernel::refs::context_in(rec, None, None, ws.as_ref().and_then(|p| p.to_str()));
+    let cwd = match &g.cwd {
+        Some(c) => match crate::kernel::refs::resolve_str(c, &ctx) {
+            Value::String(s) if !s.is_empty() => std::path::PathBuf::from(s),
+            _ => return fail(format!("gate {}: cwd {c} resolves to nothing", g.name)),
+        },
+        None => match ws {
+            Some(w) => w,
+            None => return fail(format!("gate {}: the run has no workspace", g.name)),
+        },
+    };
+    if let Err(e) = std::fs::create_dir_all(&cwd) {
+        return fail(format!("gate {}: {}: {e}", g.name, cwd.display()));
+    }
+    let child = tokio::process::Command::new("sh")
+        .arg("-c")
+        .arg(&command)
+        .current_dir(&cwd)
+        .env("FLOW_RUN", &rec.id)
+        .env("FLOW_STATION", station)
+        .env("FLOW_WORKSPACE", ws_str(engine, &rec.id))
+        .env("FLOW_CONTEXT", ctx.to_string())
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .output();
+    let out = match tokio::time::timeout(Duration::from_secs(g.timeout_seconds()), child).await {
+        Err(_) => return fail(format!("`{command}` ran longer than {}s", g.timeout_seconds())),
+        Ok(Err(e)) => return fail(format!("`{command}` did not start: {e}")),
+        Ok(Ok(o)) => o,
+    };
+    let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+    text.push_str(&String::from_utf8_lossy(&out.stderr));
+    let tail: String = {
+        let chars: Vec<char> = text.trim().chars().collect();
+        chars[chars.len().saturating_sub(GATE_OUTPUT_KEPT)..].iter().collect()
+    };
+    match out.status.code() {
+        Some(0) => GateResult { pass: true, detail: tail },
+        code => fail(format!(
+            "`{command}` exited with {}{}",
+            code.map_or("a signal".to_string(), |c| c.to_string()),
+            if tail.is_empty() { String::new() } else { format!(": {tail}") }
+        )),
+    }
+}
+
+fn ws_str(engine: &crate::Engine, run: &str) -> String {
+    engine
+        .workspace(run)
+        .and_then(|p| p.to_str().map(String::from))
+        .unwrap_or_default()
+}
+
+/// How much of a command gate's output its result keeps (the end of it).
+const GATE_OUTPUT_KEPT: usize = 2000;
 
 #[cfg(test)]
 mod tests {
@@ -1378,6 +1461,8 @@ mod tests {
             },
             skill: None,
             skill_digest: None,
+            rules: vec![],
+            permissions: vec![],
             item: None,
             output_schema: None,
             protocol: None,
@@ -1409,6 +1494,8 @@ mod tests {
             scene: "flow-chat".into(),
             skill: None,
             skill_digest: None,
+            rules: vec![],
+            permissions: vec![],
             protocol: String::new(),
             session_key: session_key.map(String::from),
             recording: None,
@@ -1422,52 +1509,17 @@ mod tests {
     #[test]
     fn a_shared_session_names_what_it_was_opened_with_differently() {
         let p = Placement::default();
-        let g = vec!["Bash".to_string()];
         let schema = json!({"type": "object"});
-        let a = settings_of(
-            &g,
-            &[],
-            "chat",
-            Delivery::StructuredOutput,
-            Some(&schema),
-            &p,
-            None,
-        );
+        let a = settings_of("chat", Delivery::StructuredOutput, Some(&schema), &p, None);
         assert!(settings_differ(&a, &a.clone()).is_empty());
-        let writes = settings_of(
-            &g,
-            &["Bash".into()],
-            "chat",
-            Delivery::StructuredOutput,
-            Some(&schema),
-            &p,
-            None,
-        );
-        assert_eq!(settings_differ(&a, &writes), ["refused"]);
         let other = json!({"type": "object", "required": ["x"]});
-        let contract = settings_of(
-            &g,
-            &[],
-            "chat",
-            Delivery::StructuredOutput,
-            Some(&other),
-            &p,
-            None,
-        );
+        let contract = settings_of("chat", Delivery::StructuredOutput, Some(&other), &p, None);
         assert_eq!(settings_differ(&a, &contract), ["output_schema"]);
         let model = Placement {
             model: Some("m".into()),
             ..Default::default()
         };
-        let m = settings_of(
-            &g,
-            &[],
-            "chat",
-            Delivery::StructuredOutput,
-            Some(&schema),
-            &model,
-            None,
-        );
+        let m = settings_of("chat", Delivery::StructuredOutput, Some(&schema), &model, None);
         assert_eq!(settings_differ(&a, &m), ["model"]);
     }
 
@@ -1512,39 +1564,44 @@ mod tests {
             corrections_for(&v, "a", "y").unwrap(),
             "output (task y: no output)"
         );
-        // A gate, a confirmation, another task failing: never the session's.
+        // A confirmation, another task failing: never the session's.
         let v = view(
             one,
             vec![
-                check("gate", "lint: 3 warnings"),
                 check("task", "failed"),
                 check("confirm", ""),
             ],
         );
         assert_eq!(corrections_for(&v, "a", "a"), None);
-        // A tool exit judges the station: its only task's to fix, nobody's among several.
-        assert!(corrections_for(&view(one, vec![check("tool", "total is 2")]), "a", "a").is_some());
+        // A gate judges the station: its only task's to fix, nobody's among several.
+        assert!(corrections_for(&view(one, vec![check("gate", "total is 2")]), "a", "a").is_some());
         assert_eq!(
-            corrections_for(&view(many, vec![check("tool", "total is 2")]), "a", "x"),
+            corrections_for(&view(many, vec![check("gate", "total is 2")]), "a", "x"),
             None
         );
     }
 
     #[test]
-    fn permission_rules_deny_the_guarded_tools_a_station_does_not_open() {
-        let g: Vec<String> = ["Bash", "Write", "TodoWrite", "mcp__db__*"]
-            .map(String::from)
-            .to_vec();
-        let rules = permission_rules(&g, &["Write".to_string()]);
+    fn a_flow_session_asks_about_every_guarded_tool_and_every_tool_a_permission_names() {
+        let def = crate::FlowDef::parse(
+            "{name: f, permissions: [{effect: allow, tools: [mcp__desk__emit_row]}], stations: [{id: a, policies: [p], exit: [{kind: confirm}]}]}",
+        )
+        .unwrap();
+        let policies = [(
+            "p".to_string(),
+            serde_yaml::from_str::<crate::PolicyDef>("{name: p, permissions: [{effect: deny, tools: [Read], paths: ['/etc/**']}]}").unwrap(),
+        )]
+        .into();
+        let g: Vec<String> = ["Bash", "mcp__db__*"].map(String::from).to_vec();
         assert_eq!(
-            rules,
+            ask_rules(&asked_tools(&def, &policies, &g)),
             json!([
-                {"source": "session", "behavior": "deny", "tool_name": "Bash"},
-                {"source": "session", "behavior": "deny", "tool_name": "TodoWrite"},
-                {"source": "session", "behavior": "deny", "tool_name": "mcp__db"},
+                {"source": "session", "behavior": "ask", "tool_name": "Bash"},
+                {"source": "session", "behavior": "ask", "tool_name": "mcp__db"},
+                {"source": "session", "behavior": "ask", "tool_name": "mcp__desk__emit_row"},
+                {"source": "session", "behavior": "ask", "tool_name": "Read"},
             ])
         );
-        assert_eq!(permission_rules(&g, &g), json!([]));
     }
 
     #[test]
@@ -1664,7 +1721,7 @@ stations:
             round: 1,
             task: "t".into(),
             token: "tok".into(),
-            writes: vec![],
+            permissions: vec![],
         };
         assert!(
             binding_current(&rec, &b),

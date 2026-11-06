@@ -1,0 +1,7 @@
+name: read-only
+title: Look, do not touch
+description: A review changes nothing in the subject it reviews.
+permissions:
+  - effect: deny
+    tools: [Write, Edit, NotebookEdit]
+    message: this station reviews; it changes nothing — put what should change in a finding

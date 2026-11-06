@@ -1,7 +1,7 @@
 //! References (`${...}`) and assertions.
 //!
 //! Both read the same thing: a JSON context built from the run —
-//! `{run, subject, inputs, stations: {<id>: {status, round, output}}, item, task}`.
+//! `{run, subject, inputs, stations: {<id>: {status, round, output}}, item, task, workspace}`.
 //! A reference names a path into it (`${stations.collect.output.modules}`); an
 //! assertion in `when` does too (`path: inputs.mode`). A `tool` exit's
 //! assertions select from the tool's result instead.
@@ -15,7 +15,17 @@ use super::def::{Assert, FlowDef, Work};
 use super::run::{RunRecord, TaskStatus};
 
 /// The roots a reference may start with.
-pub const ROOTS: &[&str] = &["run", "subject", "inputs", "stations", "item", "task"];
+pub const ROOTS: &[&str] = &["run", "subject", "inputs", "stations", "item", "task", "workspace"];
+
+/// The directory a run works in under the application's workspaces (`<root>/<run>`, the run's id
+/// made safe as a name): `${workspace}`.
+pub fn workspace_of(root: &std::path::Path, run: &str) -> std::path::PathBuf {
+    let safe: String = run
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .collect();
+    root.join(safe)
+}
 
 /// A station's output as downstream sees it: a single task's output; `{task id: output}`
 /// for static tasks; an array in item order for `foreach`; `null` for a checkpoint.
@@ -40,6 +50,11 @@ pub fn station_output(def: &FlowDef, run: &RunRecord, station: &str) -> Value {
 
 /// The context references and `when` assertions are read against.
 pub fn context(run: &RunRecord, item: Option<&Value>, task: Option<&str>) -> Value {
+    context_in(run, item, task, None)
+}
+
+/// [`context`] with the run's workspace (`null` when the application keeps none).
+pub fn context_in(run: &RunRecord, item: Option<&Value>, task: Option<&str>, workspace: Option<&str>) -> Value {
     let stations: Map<String, Value> = run
         .stations
         .iter()
@@ -61,6 +76,7 @@ pub fn context(run: &RunRecord, item: Option<&Value>, task: Option<&str>) -> Val
         "stations": stations,
         "item": item.cloned().unwrap_or(Value::Null),
         "task": task.map_or(Value::Null, |t| Value::String(t.into())),
+        "workspace": workspace.map_or(Value::Null, |w| Value::String(w.into())),
     })
 }
 

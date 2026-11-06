@@ -8,13 +8,13 @@
 //! | tool | read-only | does |
 //! |---|---|---|
 //! | `flow_list` | yes | the flows: name, title, origin, valid |
-//! | `flow_show` | yes | the current flow: YAML, the skills it uses, problems, its stations |
-//! | `flow_schema` | yes | the definition's JSON Schema and this application's catalog |
+//! | `flow_show` | yes | the current flow: YAML, the parts it uses, the hooks over it, problems, its stations |
+//! | `flow_schema` | yes | the JSON Schemas of a definition and of the parts, and this application's catalog |
 //! | `flow_validate {yaml}` | yes | a text's problems, nothing saved |
-//! | `flow_create {yaml, skills?}` | no | a new flow, which becomes the current one |
-//! | `flow_update {yaml?, skills?}` | no | change the current flow |
+//! | `flow_create {yaml, parts?}` | no | a new flow, which becomes the current one |
+//! | `flow_update {yaml?, parts?}` | no | change the current flow |
 //! | `flow_delete` | no | delete the current flow (a built-in one: its override) |
-//! | `flow_skill_set {name, body}` / `flow_skill_delete {name}` | no | change, delete a skill |
+//! | `flow_part_set {kind, name, text}` / `flow_part_delete {kind, name}` | no | change, delete a skill, rule, policy, gate or hook |
 //! | `flow_dry_run {inputs?, mocks?}` | yes | dry-run the current flow, as far as it goes |
 //! | `flow_start {subject, inputs?, title?}` | no | start the current flow for real |
 //!
@@ -38,8 +38,9 @@ use crate::dryrun::StartIn;
 use crate::kernel::def::{definition_schema, FlowDef, Work};
 use crate::kernel::engine::CreateIn;
 use crate::kernel::host::{Catalog, Packs};
+use crate::kernel::parts::{part_schema, rules_of, PartKind};
 use crate::kernel::run::Actor;
-use crate::kernel::validate::validate_yaml;
+use crate::kernel::validate::{part_problems, validate_yaml};
 
 /// The scene's id.
 pub const AUTHOR_SCENE: &str = "flow-author";
@@ -57,8 +58,8 @@ pub const TOOL_VALIDATE: &str = "flow_validate";
 pub const TOOL_CREATE: &str = "flow_create";
 pub const TOOL_UPDATE: &str = "flow_update";
 pub const TOOL_DELETE: &str = "flow_delete";
-pub const TOOL_SKILL_SET: &str = "flow_skill_set";
-pub const TOOL_SKILL_DELETE: &str = "flow_skill_delete";
+pub const TOOL_PART_SET: &str = "flow_part_set";
+pub const TOOL_PART_DELETE: &str = "flow_part_delete";
 pub const TOOL_DRY_RUN: &str = "flow_dry_run";
 pub const TOOL_START: &str = "flow_start";
 pub const TOOL_GUIDE: &str = "flow_guide";
@@ -113,8 +114,8 @@ pub const AUTHOR_TOOLS: [(&str, bool); 22] = [
     (TOOL_CREATE, false),
     (TOOL_UPDATE, false),
     (TOOL_DELETE, false),
-    (TOOL_SKILL_SET, false),
-    (TOOL_SKILL_DELETE, false),
+    (TOOL_PART_SET, false),
+    (TOOL_PART_DELETE, false),
     (TOOL_DRY_RUN, true),
     (TOOL_START, false),
     (TOOL_GUIDE, true),
@@ -133,15 +134,22 @@ pub const AUTHOR_TOOLS: [(&str, bool); 22] = [
 /// The system prompt block `flow-author` adds.
 pub const AUTHOR_PROMPT: &str = "## Writing flows\n\n\
 You help the user write and try out **flows**: YAML definitions of a graph of stations that a run \
-moves one subject through. Each station has work (`executor`: a `session` working from a skill, a \
-`program`, an `external` claimant, a `subflow`; or `tasks`, or `foreach` + `executor`; or none, a \
-pure checkpoint) and exit conditions (`exit`: `output`, `tool`, `gate`, `confirm`, `children`) that \
-must all hold for it to pass; `needs` orders stations (absent = the previous one), `rework_to` \
-says where work may be sent back. A session station needs a `skill` and an `output` contract (a \
-JSON Schema): the session hands its output in against it.\n\n\
+moves one subject through. Each station has work (`executor`: a `session` working from a skill, an \
+`agent` (a sub-agent), a `program`, an `external` claimant, a `subflow`; or `tasks`, or `foreach` + \
+`executor`; or none, a pure checkpoint) and exit conditions (`exit`: `output`, `gate`, `confirm`, \
+`children`) that must all hold for it to pass; `needs` orders stations (absent = the previous one), \
+`rework_to` says where work may be sent back. A session station needs a `skill` and an `output` \
+contract (a JSON Schema): the session hands its output in against it.\n\n\
+Besides flows and skills, a pack holds **rules** (`rules/<name>.md`: prose every station of a flow \
+that names them is told to keep — never enforced), **policies** (`policies/<name>.yaml`: a set of \
+permissions), **gates** (`gates/<name>.yaml`: a check a `gate` exit names — `tool`, `command` or \
+`host`) and **hooks** (`hooks/<name>.yaml`: tell a URL about runs' events — no flow names them). \
+Flows and stations name `rules` and `policies` and may write `permissions` of their own: each tool \
+call of a task is judged against them, deny over ask over allow; `ask` waits for a person; a \
+guarded tool nothing allows is refused.\n\n\
 How to work:\n\
-- Read `flow_schema` before writing: the fields, and the names this application offers (scenes, \
-  program steps, gates, tools, actions, templates…). Use only those names.\n\
+- Read `flow_schema` before writing: the fields, the parts' shapes, and the names this application \
+  offers (scenes, program steps, checks, tools, templates, and the parts on offer). Use only those.\n\
 - Before changing a flow, read it with `flow_show`. The flow you work on is the one the user \
   selected in the panel on the right; if none is selected, ask them to select one (creating a \
   new flow with `flow_create` needs no selection, and selects it).\n\
@@ -241,24 +249,36 @@ impl AgentScene for AuthorScene {
     }
 }
 
-/// The packs as they will be once `skills` are saved: what a text is checked against first.
-struct WithSkills<'a> {
+/// Parts about to be saved: (kind, name) → text.
+type PartTexts = BTreeMap<(PartKind, String), String>;
+
+/// The packs as they will be once `parts` are saved: what a text is checked against first.
+struct WithParts<'a> {
     base: &'a dyn Packs,
-    skills: &'a BTreeMap<String, String>,
+    parts: &'a PartTexts,
 }
 
-impl Packs for WithSkills<'_> {
+impl Packs for WithParts<'_> {
     fn flows(&self) -> Vec<String> {
         self.base.flows()
     }
     fn flow(&self, name: &str) -> Option<(FlowDef, String)> {
         self.base.flow(name)
     }
-    fn skill(&self, name: &str) -> Option<(String, String)> {
-        match self.skills.get(name) {
+    fn part(&self, kind: PartKind, name: &str) -> Option<(String, String)> {
+        match self.parts.get(&(kind, name.to_string())) {
             Some(b) => Some((b.clone(), crate::kernel::host::digest(b))),
-            None => self.base.skill(name),
+            None => self.base.part(kind, name),
         }
+    }
+    fn parts(&self, kind: PartKind) -> Vec<String> {
+        let mut names = self.base.parts(kind);
+        for (k, n) in self.parts.keys() {
+            if *k == kind && !names.contains(n) {
+                names.push(n.clone());
+            }
+        }
+        names
     }
     fn catalog(&self) -> Catalog {
         self.base.catalog()
@@ -287,28 +307,14 @@ pub(crate) fn target_flow(input: &Value, focus: Option<&str>) -> Result<String, 
     }
 }
 
-/// What is wrong with skills about to be saved.
-fn skill_problems(skills: &BTreeMap<String, String>) -> Vec<String> {
-    let mut out = vec![];
-    for (k, body) in skills {
-        if !crate::kernel::validate::is_skill_name(k) {
-            out.push(format!("skill name {k:?} must match [a-z][a-z0-9_-]*"));
-        }
-        if body.trim().is_empty() {
-            out.push(format!("skill {k} needs a body"));
-        }
-    }
-    out
-}
-
-/// Put back skills this call saved: each as its body was before, or gone if it was not there.
-fn restore_skills(packs: &dyn Packs, before: &[(String, Option<String>)], saved: &[String]) {
-    for (k, old) in before.iter().filter(|(k, _)| saved.contains(k)) {
-        let _ = packs.delete_skill(k);
-        let now = packs.skill(k).map(|(b, _)| b);
+/// Put back parts this call saved: each as its text was before, or gone if it was not there.
+fn restore_parts(packs: &dyn Packs, before: &[((PartKind, String), Option<String>)], saved: &[(PartKind, String)]) {
+    for ((kind, name), old) in before.iter().filter(|(k, _)| saved.contains(k)) {
+        let _ = packs.delete_part(*kind, name);
+        let now = packs.part(*kind, name).map(|(b, _)| b);
         if now != *old {
-            if let Some(body) = old {
-                let _ = packs.save_skill(k, body);
+            if let Some(text) = old {
+                let _ = packs.save_part(*kind, name, text);
             }
         }
     }
@@ -342,29 +348,88 @@ fn str_of<'v>(input: &'v Value, k: &str) -> Option<&'v str> {
         .filter(|s| !s.trim().is_empty())
 }
 
-/// `skills: {name: body}` from a tool's input.
-fn skills_of(input: &Value) -> Result<BTreeMap<String, String>, String> {
-    match input.get("skills") {
+/// `parts: [{kind, name, text}]` from a tool's input.
+fn parts_of(input: &Value) -> Result<PartTexts, String> {
+    match input.get("parts") {
         None | Some(Value::Null) => Ok(BTreeMap::new()),
-        Some(Value::Object(m)) => m
+        Some(Value::Array(a)) => a
             .iter()
-            .map(|(k, v)| {
-                v.as_str()
-                    .map(|b| (k.clone(), b.to_string()))
-                    .ok_or_else(|| format!("skill {k}: the body is a string"))
+            .map(|p| {
+                let kind = p
+                    .get("kind")
+                    .and_then(Value::as_str)
+                    .and_then(PartKind::parse)
+                    .ok_or("each part has a `kind`: skill, rule, policy, gate or hook")?;
+                let name = p.get("name").and_then(Value::as_str).ok_or("each part has a `name`")?;
+                let text = p.get("text").and_then(Value::as_str).ok_or("each part has its `text`")?;
+                Ok(((kind, name.to_string()), text.to_string()))
             })
             .collect(),
-        Some(_) => Err("`skills` is an object of skill name → SKILL.md body".into()),
+        Some(_) => Err("`parts` is a list of {kind, name, text}".into()),
     }
 }
 
-fn catalog_json(packs: &dyn Packs) -> Value {
+/// The names this application offers and the parts on offer, by kind.
+pub(crate) fn catalog_json(packs: &dyn Packs) -> Value {
     let c: Catalog = packs.catalog();
+    let parts: BTreeMap<&str, Vec<String>> = PartKind::ALL
+        .into_iter()
+        .map(|k| (k.as_str(), packs.parts(k)))
+        .collect();
     json!({
-        "scenes": c.scenes, "steps": c.steps, "gates": c.gates, "tools": c.tools,
-        "actions": c.actions, "templates": c.templates, "instances": c.instances,
-        "spaces": c.spaces, "models": c.models, "skills": packs.skills(),
+        "scenes": c.scenes, "steps": c.steps, "checks": c.gates, "tools": c.tools,
+        "command_gates": c.command_gates, "templates": c.templates, "instances": c.instances,
+        "spaces": c.spaces, "models": c.models, "guarded": c.guarded, "parts": parts,
     })
+}
+
+/// The JSON Schemas of the parts that are YAML.
+pub(crate) fn part_schemas() -> Value {
+    let m: serde_json::Map<String, Value> = [PartKind::Policy, PartKind::Gate, PartKind::Hook]
+        .into_iter()
+        .filter_map(|k| part_schema(k).map(|s| (k.as_str().to_string(), s)))
+        .collect();
+    Value::Object(m)
+}
+
+/// The parts a flow uses, with their texts (`null`: not in the packs), and the hooks over it.
+pub(crate) fn parts_used(packs: &dyn Packs, def: &FlowDef) -> Value {
+    let mut used: BTreeMap<&str, BTreeMap<String, Option<String>>> = BTreeMap::new();
+    let mut put = |kind: PartKind, name: &str| {
+        used.entry(kind.dir())
+            .or_default()
+            .insert(name.to_string(), packs.part(kind, name).map(|(t, _)| t));
+    };
+    for s in &def.stations {
+        let specs = match s.work() {
+            Work::None => vec![],
+            Work::One(t) | Work::Foreach { task: t, .. } => vec![t],
+            Work::Tasks(ts) => ts,
+        };
+        for t in specs {
+            if let Some(k) = t.skill {
+                put(PartKind::Skill, &k);
+            }
+        }
+        for r in rules_of(def, s) {
+            put(PartKind::Rule, &r);
+        }
+        for p in def.policies.iter().chain(s.policies.iter()) {
+            put(PartKind::Policy, p);
+        }
+        for e in &s.exit {
+            if let crate::ExitCond::Gate { gate, .. } = e {
+                put(PartKind::Gate, gate);
+            }
+        }
+    }
+    let hooks: Vec<Value> = packs
+        .hooks()
+        .into_iter()
+        .filter(|h| h.flows.is_empty() || h.flows.contains(&def.name))
+        .map(|h| json!({"name": h.name, "title": h.title, "on": h.on, "kind": h.kind, "action": h.action}))
+        .collect();
+    json!({"parts": used, "hooks": hooks})
 }
 
 /// A flow's stations, briefly: `id`, `title`, `needs`, its work, its exits.
@@ -403,17 +468,17 @@ impl Tool for AuthorTool {
     fn description(&self) -> &str {
         match self.name {
             TOOL_LIST => "The flows on offer: name, title, origin (builtin, override, user) and whether each is valid; and which one is current.",
-            TOOL_SHOW => "The current flow (the one the user selected): its YAML, the bodies of the skills it uses, its problems, and its stations in brief.",
-            TOOL_SCHEMA => "The JSON Schema of a flow definition, and the names this application offers (scenes, steps, gates, tools, actions, templates, instances, spaces, models, skills).",
+            TOOL_SHOW => "The current flow (the one the user selected): its YAML, the texts of the parts it uses (skills, rules, policies, gates), the hooks over it, its problems, and its stations in brief.",
+            TOOL_SCHEMA => "The JSON Schemas of a flow definition and of policies, gates and hooks, and the names this application offers (scenes, steps, checks, tools, templates, instances, spaces, models, guarded tools, and the parts on offer by kind).",
             TOOL_VALIDATE => "Every problem of a flow definition text (YAML), without saving anything. An empty list: it is valid.",
-            TOOL_CREATE => "Create a new flow from its YAML (and, optionally, skills it uses: {name: SKILL.md body}). It is validated first and not saved if it has problems. It becomes the current flow.",
-            TOOL_UPDATE => "Change the current flow, named in `flow`: its YAML (same name), and/or skills ({name: SKILL.md body}). Validated first; nothing is saved if anything has problems. Runs already started keep their definition.",
+            TOOL_CREATE => "Create a new flow from its YAML (and, optionally, parts it uses: [{kind: skill|rule|policy|gate, name, text}]). Everything is validated first and nothing is saved if anything has problems. It becomes the current flow.",
+            TOOL_UPDATE => "Change the current flow, named in `flow`: its YAML (same name), and/or parts ([{kind, name, text}]). Validated first; nothing is saved if anything has problems. Runs already started keep their definition.",
             TOOL_DELETE => "Delete the current flow, named in `flow`. For a built-in flow, this deletes the saved override and the built-in version is back.",
-            TOOL_SKILL_SET => "Create or change a skill: its SKILL.md body.",
-            TOOL_SKILL_DELETE => "Delete a saved skill.",
-            TOOL_DRY_RUN => "Dry-run the current flow, named in `flow`: the real kernel, everything outside mocked (no session, no program, no model). Runs until it ends or waits for a person, and returns the path it took. `mocks`: {stations: {id: output}, gates: {gate: false}, tools: {tool: result}}.",
+            TOOL_PART_SET => "Create or change a part of the pack: a skill (its SKILL.md), a rule (markdown, first `# ` heading its title), a policy, a gate or a hook (YAML; its `name` the same). Checked first; the flows it breaks are listed.",
+            TOOL_PART_DELETE => "Delete a saved part (a built-in one: its override, and the built-in one is back).",
+            TOOL_DRY_RUN => "Dry-run the current flow, named in `flow`: the real kernel, everything outside mocked (no session, no program, no model, no command). Runs until it ends or waits for a person, and returns the path it took. `mocks`: {stations: {id: output}, gates: {gate: false} (command and host gates), tools: {tool: result} (what tool gates get)}.",
             TOOL_START => "Start a real run of the current flow, named in `flow`, for a subject. Only when the user asks for it.",
-            TOOL_GUIDE => "The guide to flows: the objects (flow, station, work, task, executor, exit condition, run, main session, sub-agent, lease, rework, dry run), what they mean, and how to define a flow, with examples. `lang`: en or zh-CN.",
+            TOOL_GUIDE => "The guide to flows: the objects (flow, station, work, task, executor, exit condition, rule, policy and permission, gate, hook, run, main session, sub-agent, lease, rework, dry run), what they mean, and how to define a flow, with examples. `lang`: en or zh-CN.",
             TOOL_RUNS => "The runs of the current flow, newest first: id, title, what each is doing (phase), when it started, its tokens.",
             TOOL_RUN => "One run of the current flow: each station's status, time and tokens, what it waits for, its tasks.",
             TOOL_PAUSE => "Pause a run of the current flow: what is in hand finishes, nothing new starts. Only when the user asks.",
@@ -428,26 +493,28 @@ impl Tool for AuthorTool {
         }
     }
     fn input_schema(&self) -> Value {
-        let skills = json!({"type": "object", "additionalProperties": {"type": "string"},
-                            "description": "skill name → SKILL.md body"});
+        let parts = json!({"type": "array", "description": "parts saved with the flow", "items": {
+            "type": "object", "required": ["kind", "name", "text"], "properties": {
+                "kind": {"enum": ["skill", "rule", "policy", "gate", "hook"]},
+                "name": {"type": "string"}, "text": {"type": "string"}}}});
         match self.name {
             TOOL_VALIDATE => {
                 json!({"type": "object", "required": ["yaml"], "properties": {"yaml": {"type": "string"}}})
             }
             TOOL_CREATE => {
-                json!({"type": "object", "required": ["yaml"], "properties": {"yaml": {"type": "string"}, "skills": skills}})
+                json!({"type": "object", "required": ["yaml"], "properties": {"yaml": {"type": "string"}, "parts": parts}})
             }
             TOOL_UPDATE => {
-                json!({"type": "object", "required": ["flow"], "properties": {"flow": {"type": "string", "description": "the flow this acts on, by name: the current one, as flow_show or flow_list gave it"}, "yaml": {"type": "string"}, "skills": skills}})
+                json!({"type": "object", "required": ["flow"], "properties": {"flow": {"type": "string", "description": "the flow this acts on, by name: the current one, as flow_show or flow_list gave it"}, "yaml": {"type": "string"}, "parts": parts}})
             }
             TOOL_DELETE => {
                 json!({"type": "object", "required": ["flow"], "properties": {"flow": {"type": "string", "description": "the flow this acts on, by name: the current one, as flow_show or flow_list gave it"}}})
             }
-            TOOL_SKILL_SET => {
-                json!({"type": "object", "required": ["name", "body"], "properties": {"name": {"type": "string"}, "body": {"type": "string"}}})
+            TOOL_PART_SET => {
+                json!({"type": "object", "required": ["kind", "name", "text"], "properties": {"kind": {"enum": ["skill", "rule", "policy", "gate", "hook"]}, "name": {"type": "string"}, "text": {"type": "string"}}})
             }
-            TOOL_SKILL_DELETE => {
-                json!({"type": "object", "required": ["name"], "properties": {"name": {"type": "string"}}})
+            TOOL_PART_DELETE => {
+                json!({"type": "object", "required": ["kind", "name"], "properties": {"kind": {"enum": ["skill", "rule", "policy", "gate", "hook"]}, "name": {"type": "string"}}})
             }
             TOOL_DRY_RUN => json!({"type": "object", "required": ["flow"], "properties": {
                 "flow": {"type": "string", "description": "the flow this acts on, by name: the current one, as flow_show or flow_list gave it"},
@@ -496,8 +563,8 @@ impl Tool for AuthorTool {
             TOOL_CREATE => format!("create the flow{created}"),
             TOOL_UPDATE => format!("change the flow{}", named("flow")),
             TOOL_DELETE => format!("delete the flow{}", named("flow")),
-            TOOL_SKILL_SET => format!("save the skill{}", named("name")),
-            TOOL_SKILL_DELETE => format!("delete the skill{}", named("name")),
+            TOOL_PART_SET => format!("save the {}{}", input.get("kind").and_then(Value::as_str).unwrap_or("part"), named("name")),
+            TOOL_PART_DELETE => format!("delete the {}{}", input.get("kind").and_then(Value::as_str).unwrap_or("part"), named("name")),
             TOOL_START => format!(
                 "start a run of the flow{} for{}",
                 named("flow"),
@@ -544,6 +611,7 @@ impl Tool for AuthorTool {
             })),
             TOOL_SCHEMA => text(json!({
                 "definition": definition_schema(),
+                "parts": part_schemas(),
                 "catalog": catalog_json(packs.as_ref()),
             })),
             TOOL_VALIDATE => {
@@ -559,26 +627,13 @@ impl Tool for AuthorTool {
                 let Some((def, digest)) = packs.flow(&name) else {
                     return error(format!("flow {name} is gone"));
                 };
-                let mut skills = BTreeMap::new();
-                for s in &def.stations {
-                    let specs = match s.work() {
-                        Work::None => vec![],
-                        Work::One(t) | Work::Foreach { task: t, .. } => vec![t],
-                        Work::Tasks(ts) => ts,
-                    };
-                    for t in specs {
-                        if let Some(k) = t.skill {
-                            let body = packs.skill(&k).map(|(b, _)| b);
-                            skills.insert(k, body);
-                        }
-                    }
-                }
+                let used = parts_used(packs.as_ref(), &def);
                 text(json!({
                     "name": name, "title": def.title, "origin": packs.origin(&name), "digest": digest,
                     "yaml": packs.flow_text(&name).unwrap_or_default(),
                     "problems": crate::kernel::validate::validate(&def, packs.as_ref()),
                     "stations": stations_of(&def),
-                    "skills": skills,
+                    "parts": used["parts"], "hooks": used["hooks"],
                 }))
             }
             TOOL_CREATE | TOOL_UPDATE => {
@@ -588,7 +643,7 @@ impl Tool for AuthorTool {
                     (false, Ok(f)) => Some(f),
                     (false, Err(m)) => return error(m),
                 };
-                let skills = match skills_of(&input) {
+                let parts = match parts_of(&input) {
                     Ok(s) => s,
                     Err(m) => return error(m),
                 };
@@ -596,8 +651,8 @@ impl Tool for AuthorTool {
                 if creating && yaml.is_none() {
                     return error("give the new flow's definition as `yaml`");
                 }
-                if yaml.is_none() && skills.is_empty() {
-                    return error("give `yaml`, `skills`, or both");
+                if yaml.is_none() && parts.is_empty() {
+                    return error("give `yaml`, `parts`, or both");
                 }
                 let name = match yaml.map(FlowDef::parse) {
                     Some(Ok(d)) => Some(d.name),
@@ -620,17 +675,21 @@ impl Tool for AuthorTool {
                         ));
                     }
                 }
-                // Everything is checked — the skills, the text with the skills it brings — before
+                // Everything is checked — the parts, the text with the parts it brings — before
                 // anything is written.
-                let mut problems: Vec<Value> = skill_problems(&skills)
-                    .into_iter()
-                    .map(|m| json!({"message": m}))
+                let with = WithParts {
+                    base: packs.as_ref(),
+                    parts: &parts,
+                };
+                let mut problems: Vec<Value> = parts
+                    .iter()
+                    .flat_map(|((k, n), t)| {
+                        part_problems(*k, n, t, &with)
+                            .into_iter()
+                            .map(move |m| json!({"message": format!("{k} {n}: {m}")}))
+                    })
                     .collect();
                 if let Some(y) = yaml {
-                    let with = WithSkills {
-                        base: packs.as_ref(),
-                        skills: &skills,
-                    };
                     problems.extend(
                         validate_yaml(y, &with)
                             .into_iter()
@@ -640,24 +699,27 @@ impl Tool for AuthorTool {
                 if !problems.is_empty() {
                     return text(json!({"saved": false, "problems": problems}));
                 }
-                // Then written; if the flow is not saved after all, the skills this call wrote
+                // Then written; if the flow is not saved after all, the parts this call wrote
                 // are put back as they were.
-                let before: Vec<(String, Option<String>)> = skills
+                let before: Vec<((PartKind, String), Option<String>)> = parts
                     .keys()
-                    .map(|k| (k.clone(), packs.skill(k).map(|(b, _)| b)))
+                    .map(|(k, n)| ((*k, n.clone()), packs.part(*k, n).map(|(b, _)| b)))
                     .collect();
-                let mut saved_skills = vec![];
+                let mut saved_parts: Vec<(PartKind, String)> = vec![];
                 let mut failed = None;
-                for (k, body) in &skills {
-                    match engine.save_skill(k, body, by.clone()).await {
-                        Ok(_) => saved_skills.push(k.clone()),
+                for ((k, n), t) in &parts {
+                    match engine.save_part(*k, n, t, by.clone()).await {
+                        Ok(_) => saved_parts.push((*k, n.clone())),
                         Err(e) => {
-                            failed = Some(format!("skill {k} not saved: {e}"));
+                            failed = Some(format!("{k} {n} not saved: {e}"));
                             break;
                         }
                     }
                 }
-                let mut out = json!({"saved": true, "skills": saved_skills});
+                let mut out = json!({
+                    "saved": true,
+                    "parts": saved_parts.iter().map(|(k, n)| json!({"kind": k, "name": n})).collect::<Vec<_>>(),
+                });
                 if let (None, Some(y)) = (&failed, yaml) {
                     match engine.save_flow(y, by.clone()).await {
                         Ok(v) => out["flow"] = v,
@@ -665,7 +727,7 @@ impl Tool for AuthorTool {
                     }
                 }
                 if let Some(m) = failed {
-                    restore_skills(packs.as_ref(), &before, &saved_skills);
+                    restore_parts(packs.as_ref(), &before, &saved_parts);
                     dispatch::publish_defs(sh).await;
                     return error(format!("{m} (nothing this call wrote was kept)"));
                 }
@@ -717,12 +779,13 @@ impl Tool for AuthorTool {
                     Err(e) => error(format!("not deleted: {e}")),
                 }
             }
-            TOOL_SKILL_SET => {
-                let (Some(name), Some(body)) = (str_of(&input, "name"), str_of(&input, "body"))
+            TOOL_PART_SET => {
+                let kind = str_of(&input, "kind").and_then(PartKind::parse);
+                let (Some(kind), Some(name), Some(body)) = (kind, str_of(&input, "name"), str_of(&input, "text"))
                 else {
-                    return error("give the skill's `name` and `body`");
+                    return error("give the part's `kind` (skill, rule, policy, gate, hook), `name` and `text`");
                 };
-                match engine.save_skill(name, body, by).await {
+                match engine.save_part(kind, name, body, by).await {
                     Ok(v) => {
                         dispatch::publish_defs(sh).await;
                         text(v)
@@ -730,11 +793,12 @@ impl Tool for AuthorTool {
                     Err(e) => error(format!("not saved: {e}")),
                 }
             }
-            TOOL_SKILL_DELETE => {
-                let Some(name) = str_of(&input, "name") else {
-                    return error("give the skill's `name`");
+            TOOL_PART_DELETE => {
+                let kind = str_of(&input, "kind").and_then(PartKind::parse);
+                let (Some(kind), Some(name)) = (kind, str_of(&input, "name")) else {
+                    return error("give the part's `kind` and `name`");
                 };
-                match engine.delete_skill(name, by).await {
+                match engine.delete_part(kind, name, by).await {
                     Ok(v) => {
                         dispatch::publish_defs(sh).await;
                         text(v)
@@ -1011,8 +1075,8 @@ mod tests {
                 TOOL_CREATE,
                 TOOL_UPDATE,
                 TOOL_DELETE,
-                TOOL_SKILL_SET,
-                TOOL_SKILL_DELETE,
+                TOOL_PART_SET,
+                TOOL_PART_DELETE,
                 TOOL_START,
                 TOOL_PAUSE,
                 TOOL_RESUME,
@@ -1047,37 +1111,32 @@ mod tests {
     }
 
     #[test]
-    fn skills_written_before_a_failed_save_are_put_back() {
+    fn parts_written_before_a_failed_save_are_put_back() {
         use crate::packs::MemPacks;
         let packs = MemPacks::new().skill("old", "Built in.").writable();
-        packs.save_skill("mine", "Mine before.").unwrap();
+        let sk = |n: &str| (PartKind::Skill, n.to_string());
+        packs.save_part(PartKind::Skill, "mine", "Mine before.").unwrap();
         let before = vec![
-            ("old".to_string(), Some("Built in.".to_string())),
-            ("mine".to_string(), Some("Mine before.".to_string())),
-            ("new".to_string(), None),
+            (sk("old"), Some("Built in.".to_string())),
+            (sk("mine"), Some("Mine before.".to_string())),
+            ((PartKind::Rule, "new".to_string()), None),
         ];
-        for (k, b) in [("old", "Changed."), ("mine", "Changed."), ("new", "Fresh.")] {
-            packs.save_skill(k, b).unwrap();
-        }
-        let saved = ["old", "mine", "new"].map(String::from).to_vec();
-        restore_skills(&packs, &before, &saved);
+        packs.save_part(PartKind::Skill, "old", "Changed.").unwrap();
+        packs.save_part(PartKind::Skill, "mine", "Changed.").unwrap();
+        packs.save_part(PartKind::Rule, "new", "Fresh.").unwrap();
+        let saved = vec![sk("old"), sk("mine"), (PartKind::Rule, "new".to_string())];
+        restore_parts(&packs, &before, &saved);
         assert_eq!(Packs::skill(&packs, "old").unwrap().0, "Built in.");
         assert_eq!(Packs::skill(&packs, "mine").unwrap().0, "Mine before.");
-        assert!(Packs::skill(&packs, "new").is_none());
-        assert_eq!(
-            skill_problems(&BTreeMap::from([("Bad".to_string(), " ".to_string())])).len(),
-            2
-        );
+        assert!(Packs::rule(&packs, "new").is_none());
     }
 
     #[test]
-    fn skills_come_as_a_table_of_bodies() {
-        assert_eq!(skills_of(&json!({})).unwrap().len(), 0);
-        assert_eq!(
-            skills_of(&json!({"skills": {"a": "A."}})).unwrap()["a"],
-            "A."
-        );
-        assert!(skills_of(&json!({"skills": {"a": 1}})).is_err());
-        assert!(skills_of(&json!({"skills": []})).is_err());
+    fn parts_come_as_a_list() {
+        assert_eq!(parts_of(&json!({})).unwrap().len(), 0);
+        let p = parts_of(&json!({"parts": [{"kind": "rule", "name": "a", "text": "A."}]})).unwrap();
+        assert_eq!(p[&(PartKind::Rule, "a".to_string())], "A.");
+        assert!(parts_of(&json!({"parts": [{"kind": "nope", "name": "a", "text": "A."}]})).is_err());
+        assert!(parts_of(&json!({"parts": {"a": "A."}})).is_err());
     }
 }

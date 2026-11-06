@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::def::{ExitCond, FlowDef};
+use super::parts::PartKind;
 use super::host::{
     AllowAll, Authorizer, Clock, GateResult, NoTools, Op, Outcome, Packs, RunStore, SystemClock,
     Tools,
@@ -64,6 +65,8 @@ pub struct Engine {
     pub(crate) submit_scenes: std::collections::BTreeSet<String>,
     /// The scene a run's main session is opened on when its flow's `main` names none.
     pub(crate) main_scene: Option<String>,
+    /// Where runs' workspaces are (`${workspace}` is `<root>/<run>`); none: `${workspace}` is null.
+    pub(crate) workspaces: Option<std::path::PathBuf>,
 }
 
 /// Run `$body` in a fresh transaction `$t`, commit, and retry the whole thing on a conflict.
@@ -106,7 +109,21 @@ impl Engine {
             guarded: vec![],
             submit_scenes: Default::default(),
             main_scene: None,
+            workspaces: None,
         }
+    }
+
+    /// Where runs' workspaces are: `${workspace}` of a run is `<root>/<run>` (made safe).
+    pub fn with_workspaces(mut self, root: impl Into<std::path::PathBuf>) -> Self {
+        self.workspaces = Some(root.into());
+        self
+    }
+
+    /// A run's workspace, if the application keeps them.
+    pub fn workspace(&self, run: &str) -> Option<std::path::PathBuf> {
+        self.workspaces
+            .as_ref()
+            .map(|r| super::refs::workspace_of(r, run))
     }
 
     /// The scenes whose sessions hand their output in with the native tool `flow_submit` (the
@@ -139,13 +156,7 @@ impl Engine {
 
     /// [`crate::dispatched_work`] with this engine's view of how each scene hands in.
     pub fn dispatched_work(&self, rec: &RunRecord, now: u64) -> Vec<super::host::WorkItem> {
-        super::txn::dispatched_work_with(
-            rec,
-            &self.guarded,
-            &self.submit_scenes,
-            self.main_scene.as_deref(),
-            now,
-        )
+        super::txn::dispatched_work_with(rec, self, now)
     }
 
     pub fn with_authorizer(mut self, a: Arc<dyn Authorizer>) -> Self {
@@ -275,36 +286,63 @@ impl Engine {
         Ok(json!({"name": name, "origin": origin}))
     }
 
-    /// Save a skill's body. `value`: `{name, digest}`.
-    pub async fn save_skill(&self, name: &str, body: &str, by: Actor) -> Result<Value> {
-        self.authorize(&Op::EditSkill { skill: name.into() }, &by, None)?;
+    /// Save a part (a skill, rule, policy, gate or hook) in the writable packs, once it is sound
+    /// on its own: a text with any problem is not saved, and the problems are the error.
+    /// `value`: `{kind, name, digest, origin, broken: [{flow, problems}]}` — `broken`, the flows
+    /// using it that are not valid now.
+    pub async fn save_part(&self, kind: PartKind, name: &str, text: &str, by: Actor) -> Result<Value> {
+        self.authorize(&Op::EditPart { kind, name: name.into() }, &by, None)?;
         if !self.packs.writable() {
             return invalid("the flow packs are read-only");
         }
-        if !super::validate::is_skill_name(name) {
-            return invalid(format!("skill name {name:?} must match [a-z][a-z0-9_-]*"));
-        }
-        if body.trim().is_empty() {
-            return invalid("a skill needs a body");
+        let problems = super::validate::part_problems(kind, name, text, self.packs.as_ref());
+        if !problems.is_empty() {
+            return invalid(format!("{kind} {name}: {}", problems.join("; ")));
         }
         let digest = self
             .packs
-            .save_skill(name, body)
+            .save_part(kind, name, text)
             .map_err(FlowError::Invalid)?;
-        Ok(json!({"name": name, "digest": digest}))
+        Ok(json!({
+            "kind": kind, "name": name, "digest": digest,
+            "origin": self.packs.part_origin(kind, name),
+            "broken": self.broken_by(kind, name),
+        }))
     }
 
-    /// Delete a saved skill. `value`: `{name}`.
-    pub async fn delete_skill(&self, name: &str, by: Actor) -> Result<Value> {
-        self.authorize(&Op::EditSkill { skill: name.into() }, &by, None)?;
+    /// Delete a saved part: a user's is gone, an override gives way to the built-in one.
+    /// `value`: `{kind, name, origin, broken}` (`origin` of what is offered under the name now,
+    /// `null` when nothing is).
+    pub async fn delete_part(&self, kind: PartKind, name: &str, by: Actor) -> Result<Value> {
+        self.authorize(&Op::EditPart { kind, name: name.into() }, &by, None)?;
         if !self.packs.writable() {
             return invalid("the flow packs are read-only");
         }
-        if self.packs.skill(name).is_none() {
-            return Err(FlowError::NotFound(format!("skill {name}")));
+        if self.packs.part(kind, name).is_none() {
+            return Err(FlowError::NotFound(format!("{kind} {name}")));
         }
-        self.packs.delete_skill(name).map_err(FlowError::Invalid)?;
-        Ok(json!({"name": name}))
+        self.packs.delete_part(kind, name).map_err(FlowError::Invalid)?;
+        let origin = self
+            .packs
+            .part(kind, name)
+            .map(|_| self.packs.part_origin(kind, name));
+        Ok(json!({"kind": kind, "name": name, "origin": origin, "broken": self.broken_by(kind, name)}))
+    }
+
+    /// The flows that use a part and are not valid.
+    fn broken_by(&self, kind: PartKind, name: &str) -> Vec<Value> {
+        self.packs
+            .flows()
+            .into_iter()
+            .filter_map(|f| self.packs.flow(&f))
+            .filter(|(def, _)| super::parts::uses(def, kind, name))
+            .filter_map(|(def, _)| {
+                let problems = super::validate::validate(&def, self.packs.as_ref());
+                (!problems.is_empty()).then(|| {
+                    json!({"flow": def.name, "problems": problems.iter().map(ToString::to_string).collect::<Vec<_>>()})
+                })
+            })
+            .collect()
     }
 
     // ── runs ─────────────────────────────────────────────────────────────────
@@ -331,6 +369,7 @@ impl Engine {
             let rec = new_record(
                 id.clone(),
                 def.clone(),
+                super::parts::pin(&def, self.packs.as_ref()),
                 digest.clone(),
                 input.title.clone().unwrap_or_default(),
                 input.subject.clone(),
@@ -441,6 +480,45 @@ impl Engine {
             };
             if !counted {
                 m.rec.usage_other.add(&usage);
+            }
+            Ok(json!({"run": run}))
+        })
+    }
+
+    /// A call of a task's turn held for a person (`ask`: the tool and why), or no longer held
+    /// (`None`) — xops-04 §3. While held the run waits for `approval`; holding emits
+    /// `task.asking`. A task no longer claimed is left alone.
+    pub async fn asking(
+        &self,
+        run: &str,
+        station: &str,
+        task: &str,
+        ask: Option<(String, String)>,
+    ) -> Result<Outcome> {
+        transact!(self, Actor::flow("dispatch"), |t| {
+            t.load(run).await?;
+            let now = t.fx.now;
+            let mut m = t.m(run);
+            let Some(tr) = m.task_mut(station, task) else {
+                return Ok(json!({"run": run}));
+            };
+            if tr.status != TaskStatus::Claimed {
+                tr.asking = None;
+                return Ok(json!({"run": run}));
+            }
+            let data = match ask.clone() {
+                Some((tool, reason)) => {
+                    let data = json!({"tool": tool, "reason": reason});
+                    tr.asking = Some(super::run::AskRec { tool, reason, since: now });
+                    Some(data)
+                }
+                None => {
+                    tr.asking = None;
+                    None
+                }
+            };
+            if let Some(d) = data {
+                m.emit("task.asking", Some(station), Some(task), d);
             }
             Ok(json!({"run": run}))
         })

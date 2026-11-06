@@ -1,0 +1,6 @@
+name: progress-log
+title: 进度推送（示例）
+description: 把运行的进度推给本机的一个接收端；没有接收端时投递失败，详情里能看到最近一次的结果。
+on: [run.created, run.paused, run.resumed, "station.*", task.asking, run.finished, run.cancelled]
+kind: webhook
+action: http://127.0.0.1:4099/harnix/flow

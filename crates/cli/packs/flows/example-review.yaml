@@ -8,6 +8,8 @@ stations:
     title: Review
     executor: {kind: session}   # no scene: a turn of the run's main session
     skill: review
+    rules: [review-honest]      # told to the session, never enforced
+    policies: [read-only]       # each tool call is judged against its permissions
     output:
       type: object
       required: [summary, findings]

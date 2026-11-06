@@ -1,6 +1,8 @@
 name: demo-parallel
 title: "示例：并行评审再汇合"
 description: 主 Agent 收集材料，两个子 Agent 分别评审代码与文档，最后由人汇总确认。
+rules: [no-secrets, cite-sources]
+policies: [read-only]
 stations:
   - id: collect
     title: 收集

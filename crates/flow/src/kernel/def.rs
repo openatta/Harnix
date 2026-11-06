@@ -14,6 +14,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::parts::Permission;
+
 /// Rounds a station may run when the definition does not say.
 pub const DEFAULT_REWORK_LIMIT: u32 = 10;
 /// The most `rework_limit` may be.
@@ -39,9 +41,15 @@ pub struct FlowDef {
     /// model it talks to. Absent: the module's main scene in the module's space.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub main: Option<MainSession>,
-    /// Notifications fired on run-level and station-level events.
+    /// Rules every station works under (`rules/<name>.md`): read by its sessions, never enforced.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub hooks: Vec<HookRef>,
+    pub rules: Vec<String>,
+    /// Policies every station works under (`policies/<name>.yaml`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub policies: Vec<String>,
+    /// Permissions every station works under, written here.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub permissions: Vec<Permission>,
     pub stations: Vec<Station>,
 }
 
@@ -134,11 +142,15 @@ pub struct Station {
     /// Stop on entry until someone releases the station.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hold: bool,
-    /// Write tools a session may call while working here (`prefix*` matches a group).
+    /// Rules this station works under besides the flow's.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub writes: Vec<String>,
+    pub rules: Vec<String>,
+    /// Policies this station works under besides the flow's.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub hooks: Vec<HookRef>,
+    pub policies: Vec<String>,
+    /// Permissions this station works under besides the flow's.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub permissions: Vec<Permission>,
 }
 
 /// One task of a static `tasks` list.
@@ -320,16 +332,7 @@ pub enum ExitCond {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         label: Option<String>,
     },
-    /// Call an application tool with `args` (references resolved) and assert on the result.
-    Tool {
-        tool: String,
-        #[serde(default, skip_serializing_if = "Value::is_null")]
-        args: Value,
-        assert: Vec<Assert>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        label: Option<String>,
-    },
-    /// A check the host runs asynchronously; its result comes back through `gate_result`.
+    /// A gate of the pack (`gates/<name>.yaml`) passes.
     Gate {
         gate: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -353,7 +356,6 @@ impl ExitCond {
     pub fn kind(&self) -> &'static str {
         match self {
             Self::Output { .. } => "output",
-            Self::Tool { .. } => "tool",
             Self::Gate { .. } => "gate",
             Self::Confirm { .. } => "confirm",
             Self::Children { .. } => "children",
@@ -364,7 +366,6 @@ impl ExitCond {
     pub fn label(&self) -> String {
         let (label, made) = match self {
             Self::Output { label } => (label, "output".to_string()),
-            Self::Tool { label, tool, .. } => (label, format!("tool {tool}")),
             Self::Gate { label, gate } => (label, format!("gate {gate}")),
             Self::Confirm { label, who } => (
                 label,
@@ -380,7 +381,7 @@ impl ExitCond {
 /// An assertion on a JSON value: `path` selects, exactly one of the operators compares.
 ///
 /// Shared by `when` (evaluated against the run context: `inputs.mode`,
-/// `stations.collect.output.modules`, …) and `tool` exits (against the tool's result).
+/// `stations.collect.output.modules`, …) and `tool` gates (against the tool's result).
 /// A path that selects nothing reads as `null`. `eq: null` cannot be written — use
 /// `exists: false`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -417,14 +418,6 @@ impl Assert {
         .filter(|b| **b)
         .count()
     }
-}
-
-/// A notification: when event `on` happens, the host runs `action`. It never blocks a station.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct HookRef {
-    pub on: String,
-    pub action: String,
 }
 
 /// A station's work, normalised.
@@ -472,14 +465,6 @@ impl Station {
             Work::Tasks(ts) => ts.into_iter().find(|t| t.id == task),
             Work::Foreach { task: t, .. } => Some(t),
         }
-    }
-
-    /// Whether a session working here may call write tool `tool`.
-    pub fn allows(&self, tool: &str) -> bool {
-        self.writes.iter().any(|w| match w.strip_suffix('*') {
-            Some(prefix) => tool.starts_with(prefix),
-            None => w == tool,
-        })
     }
 
     /// The `who` label of the first `confirm` exit, if any.

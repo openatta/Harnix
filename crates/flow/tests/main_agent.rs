@@ -12,7 +12,7 @@ name: main
 main: {model: big, params: {}}
 stations:
   - {id: draft, executor: {kind: session}, skill: analyze, output: {type: object}, exit: [{kind: output}]}
-  - {id: check, executor: {kind: agent, agent_type: reviewer, model: small}, skill: report, output: {type: object}, writes: [Write], exit: [{kind: output}]}
+  - {id: check, executor: {kind: agent, agent_type: reviewer, model: small}, skill: report, output: {type: object}, permissions: [{effect: allow, tools: [Write]}], exit: [{kind: output}]}
   - {id: sign, exit: [{kind: confirm}], rework_to: [draft]}
 "#;
 
@@ -243,7 +243,10 @@ fn the_guides_examples_are_valid_flows() {
     let packs = packs()
         .main_scene("flow-chat")
         .submit_scene("flow-coding")
-        .gate("ci")
+        .check("ci")
+        .gate_def("{name: ci, kind: host}")
+        .rule("no-secrets", "# No secrets\n\nNever paste keys.")
+        .policy("{name: read-only, permissions: [{effect: deny, tools: [Write]}]}")
         .skill("draft", "Draft it.")
         .skill("collect", "Collect.")
         .skill("review-code", "Review the code.")
@@ -264,7 +267,7 @@ fn the_guides_examples_are_valid_flows() {
             let problems = validate_yaml(yaml, &packs);
             assert!(problems.is_empty(), "{lang}: {yaml}\n{problems:?}");
         }
-        assert_eq!(whole, 3, "{lang}: three whole examples");
+        assert_eq!(whole, 4, "{lang}: four whole examples");
     }
 }
 

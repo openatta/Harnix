@@ -4,6 +4,7 @@
 
 pub mod def;
 pub mod engine;
+pub mod parts;
 pub mod host;
 pub mod protocol;
 pub mod refs;
@@ -12,7 +13,6 @@ pub mod schema;
 pub(crate) mod txn;
 pub mod validate;
 
-pub use txn::dispatched_work;
 
 /// Why an operation did not happen.
 #[derive(Debug, Clone, PartialEq, Eq)]

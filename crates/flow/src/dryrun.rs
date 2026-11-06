@@ -61,9 +61,9 @@ pub struct Mocks {
     /// Station id → the output its tasks hand in: one value, or (for a station of several
     /// tasks) an object keyed by task id.
     pub stations: BTreeMap<String, Value>,
-    /// Gate → whether it passes (`true` when absent).
+    /// Gate → whether a `command` or `host` gate passes (`true` when absent).
     pub gates: BTreeMap<String, bool>,
-    /// Tool → what a `tool` exit gets back (`{}` when absent).
+    /// Tool → what a `tool` gate's tool gets back (`{}` when absent).
     pub tools: BTreeMap<String, Value>,
 }
 
@@ -187,28 +187,21 @@ impl SandboxPacks {
     }
 }
 
-/// Add every program step, gate, tool, action, scene and placement name `def` uses.
-fn take_in(c: &mut Catalog, def: &FlowDef) {
+/// Add every program step, gate's check and tool, scene and placement name `def` uses: outside
+/// the kernel everything is mocked, command gates included.
+fn take_in(c: &mut Catalog, def: &FlowDef, packs: &dyn Packs) {
     if let Some(sc) = def.main.as_ref().and_then(|m| m.scene.clone()) {
         c.scenes.insert(sc.clone());
         c.submit_scenes.insert(sc);
     }
-    for h in &def.hooks {
-        c.actions.insert(h.action.clone());
-    }
+    c.command_gates = true;
     for s in &def.stations {
-        for h in &s.hooks {
-            c.actions.insert(h.action.clone());
-        }
         for e in &s.exit {
-            match e {
-                ExitCond::Gate { gate, .. } => {
-                    c.gates.insert(gate.clone());
+            if let ExitCond::Gate { gate, .. } = e {
+                c.gates.insert(gate.clone());
+                if let Some(t) = packs.gate(gate).and_then(|g| g.tool) {
+                    c.tools.insert(t);
                 }
-                ExitCond::Tool { tool, .. } => {
-                    c.tools.insert(tool.clone());
-                }
-                _ => {}
             }
         }
         let specs = match s.work() {
@@ -273,13 +266,27 @@ impl Packs for SandboxPacks {
             _ => self.base.flow(name),
         }
     }
-    fn skill(&self, name: &str) -> Option<(String, String)> {
-        self.base.skill(name)
+    /// A gate a definition names and the packs do not have is a mocked `host` gate: a dry run
+    /// can be tried before every part is written.
+    fn part(&self, kind: crate::kernel::parts::PartKind, name: &str) -> Option<(String, String)> {
+        use crate::kernel::parts::PartKind;
+        self.base.part(kind, name).or_else(|| {
+            let named = kind == PartKind::Gate
+                && self.defs().iter().any(|d| crate::kernel::parts::uses(d, PartKind::Gate, name));
+            named.then(|| {
+                let text = format!("{{name: {name}, kind: host, description: mocked in a dry run}}");
+                let digest = crate::kernel::host::digest(&text);
+                (text, digest)
+            })
+        })
+    }
+    fn parts(&self, kind: crate::kernel::parts::PartKind) -> Vec<String> {
+        self.base.parts(kind)
     }
     fn catalog(&self) -> Catalog {
         let mut c = self.base.catalog();
         for d in self.defs() {
-            take_in(&mut c, &d);
+            take_in(&mut c, &d, self.base.as_ref());
         }
         c
     }
@@ -288,9 +295,6 @@ impl Packs for SandboxPacks {
             Some((n, text)) if n == name => Some(text.clone()),
             _ => self.base.flow_text(name),
         }
-    }
-    fn skills(&self) -> Vec<String> {
-        self.base.skills()
     }
 }
 
@@ -579,6 +583,7 @@ impl Sandbox {
                 attempt,
                 executor,
                 skill,
+                rules,
                 protocol,
                 output_schema,
                 session_key,
@@ -599,8 +604,13 @@ impl Sandbox {
                     let body = skill
                         .as_ref()
                         .and_then(|s| packs.skill(s).map(|(b, _)| (s.clone(), b)));
+                    let rules: Vec<(String, String)> = rules
+                        .iter()
+                        .filter_map(|(r, _)| packs.rule(r).map(|(t, _)| (r.clone(), t)))
+                        .collect();
                     let message = task_message(
                         protocol.as_deref().unwrap_or_default(),
+                        &rules,
                         body.as_ref().map(|(n, b)| (n.as_str(), b.as_str())),
                     );
                     d.previews.insert(
@@ -669,17 +679,6 @@ impl Sandbox {
                 };
                 (stepped, r.map(|o| o.work).unwrap_or_default())
             }
-            WorkItem::Hook { action, event } => (
-                Stepped {
-                    kind: "hook".into(),
-                    run: event.run.clone(),
-                    station: event.station.clone(),
-                    task: event.task.clone(),
-                    gate: None,
-                    result: format!("ignored: {action} on {}", event.kind),
-                },
-                vec![],
-            ),
             WorkItem::CloseSession { session } => (
                 Stepped {
                     kind: "close_session".into(),

@@ -54,11 +54,12 @@ FLOW_DATA="$DIR/state/modules/flow"
 seed() {
   [ -f "$DIR/.seeded" ] && return 0
   echo "bringing in the demo flows and runs …"
-  mkdir -p "$FLOW_DATA/packs/flows" "$FLOW_DATA/packs/skills" "$FLOW_DATA/runs"
-  cp scripts/demo/flows/*.yaml "$FLOW_DATA/packs/flows/"
-  cp -R scripts/demo/skills/. "$FLOW_DATA/packs/skills/"
-  cargo run --quiet --release -p harnix-flow --example demo_seed -- \
-    scripts/demo/flows scripts/demo/skills "$FLOW_DATA/runs"
+  mkdir -p "$FLOW_DATA/packs" "$FLOW_DATA/runs"
+  # The pack: flows, skills, rules, policies, gates, hooks.
+  for kind in flows skills rules policies gates hooks; do
+    [ -d "scripts/demo/$kind" ] && mkdir -p "$FLOW_DATA/packs/$kind" && cp -R "scripts/demo/$kind/." "$FLOW_DATA/packs/$kind/"
+  done
+  cargo run --quiet --release -p harnix-flow --example demo_seed -- scripts/demo "$FLOW_DATA/runs"
   touch "$DIR/.seeded"
 }
 

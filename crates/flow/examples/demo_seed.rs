@@ -2,31 +2,27 @@
 //! by the real kernel through a few states, written where the flow module keeps its runs.
 //!
 //! ```sh
-//! cargo run --release -p harnix-flow --example demo_seed -- <flows dir> <skills dir> <runs dir>
+//! cargo run --release -p harnix-flow --example demo_seed -- <pack dir> <runs dir>
 //! ```
 //!
 //! Nothing is called outside the kernel: session and sub-agent tasks are handed in here, as a
-//! dispatcher would after their turns, with the tokens such turns might have spent. No run is
-//! left with work in hand, so the application starts without calling a model; the runs that are
-//! not over wait for a person — a confirmation, a resume, an external hand-in.
+//! dispatcher would after their turns, with the tokens such turns might have spent; the command
+//! gates are answered as the module would after running them. No run is left with work in hand,
+//! so the application starts without calling a model; the runs that are not over wait for a
+//! person — a confirmation, a resume, an external hand-in. The timeline ends about now, so the
+//! conversations made after the seed read as the runs' last moments.
 
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use harnix_flow::{
-    Actor, CreateIn, Engine, FileStore, ManualClock, MemPacks, Outcome, Usage, WorkItem,
+    Actor, CreateIn, DirPacks, Engine, FileStore, GateResult, ManualClock, MemPacks, Outcome,
+    Usage, WorkItem,
 };
 use serde_json::{json, Value};
 
 const MINUTE: u64 = 60_000;
-
-fn read_dir(dir: &Path) -> Vec<PathBuf> {
-    let mut out: Vec<PathBuf> = std::fs::read_dir(dir)
-        .map(|r| r.filter_map(|e| e.ok().map(|e| e.path())).collect())
-        .unwrap_or_default();
-    out.sort();
-    out
-}
+/// How long the seeded timeline lasts: it starts this long before now.
+const SPAN_MINUTES: u64 = 10 * 60 + 30;
 
 /// The tasks an outcome dispatched: (station, task, token).
 fn tasks(o: &Outcome) -> Vec<(String, String, String)> {
@@ -73,6 +69,23 @@ impl Seed {
         (run, o)
     }
 
+    /// The command and host gates an outcome asks for, passed as their runs would have.
+    async fn gates(&self, o: &Outcome) -> Vec<Outcome> {
+        let mut out = vec![];
+        for w in &o.work {
+            if let WorkItem::Gate { run, station, round, gate } = w {
+                self.wait(1);
+                let r = self
+                    .eng
+                    .gate_result(run, station, *round, gate, GateResult { pass: true, detail: "ok".into() })
+                    .await
+                    .expect("gate answered");
+                out.push(r);
+            }
+        }
+        out
+    }
+
     /// A dispatched task's turns (tokens counted), then its output handed in.
     async fn hand_in(
         &self,
@@ -90,10 +103,17 @@ impl Seed {
                 .await
                 .expect("counted");
         }
-        self.eng
+        let o = self
+            .eng
             .submit(run, station, task, token, output, Actor::flow("dispatch"))
             .await
-            .expect("handed in")
+            .expect("handed in");
+        // The work the gates' results led to is the outcome's.
+        let mut merged = o.clone();
+        for g in self.gates(&o).await {
+            merged.work.extend(g.work);
+        }
+        merged
     }
 }
 
@@ -104,27 +124,20 @@ fn person() -> Actor {
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let [flows, skills, runs] = args.as_slice() else {
-        eprintln!("usage: demo_seed <flows dir> <skills dir> <runs dir>");
+    let [pack, runs] = args.as_slice() else {
+        eprintln!("usage: demo_seed <pack dir> <runs dir>");
         std::process::exit(2);
     };
-    let mut packs = MemPacks::new()
+    // The empty application's catalog: its wrapped scenes, command gates on.
+    let catalog = MemPacks::new()
         .submit_scene("flow-chat")
-        .main_scene("flow-coding");
-    for f in read_dir(Path::new(flows)) {
-        packs = packs.flow(&std::fs::read_to_string(&f).expect("a flow"));
-    }
-    for d in read_dir(Path::new(skills)) {
-        let name = d.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
-        if let Ok(body) = std::fs::read_to_string(d.join("SKILL.md")) {
-            packs = packs.skill(&name, &body);
-        }
-    }
-    // Three days ago, so the runs read as recent history.
+        .main_scene("flow-coding")
+        .command_gates();
+    let packs = DirPacks::new([pack.clone()]).with_builtin(catalog);
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64);
-    let clock = Arc::new(ManualClock::new(now - 3 * 24 * 60 * MINUTE));
+    let clock = Arc::new(ManualClock::new(now - SPAN_MINUTES * MINUTE));
     let eng = Engine::new(Arc::new(FileStore::new(runs)), Arc::new(packs))
         .with_clock(clock.clone())
         .with_main_scene("flow-coding")
@@ -189,10 +202,12 @@ async fn main() {
                 .expect("claimed");
             let token = c.value["token"].as_str().expect("a token").to_string();
             s.wait(20);
-            s.eng
+            let o = s
+                .eng
                 .submit(&run, "prepare", "prepare", &token, json!({"link": format!("https://example.com/annex-v{round}.pdf")}), supplier.clone())
                 .await
                 .expect("handed in");
+            s.gates(&o).await;
             s.wait(15);
             let reason = if pass { "可以" } else { "缺签字页" };
             s.eng

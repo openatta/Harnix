@@ -10,9 +10,11 @@
 //! methods.rs   app.flow.* — the device methods
 //! ```
 //!
-//! A station's `writes` are carried by the session's permission rules (`deny` for each guarded
-//! tool the station does not allow), its output contract by the session's `output_schema`:
-//! the same on `system`, an in-process template's instance or a spawned daemon (xops-02 §2).
+//! What a task may do is judged by the module call by call: a flow session `ask`s about every
+//! guarded tool and every tool a permission names, and the module answers from the permissions
+//! of the task the turn works on (xops-04 §3). A station's output contract is the session's
+//! `output_schema` when it hands in by structured output: the same on `system`, an in-process
+//! template's instance or a spawned daemon (xops-02 §2).
 //!
 //! An application registers it like any module:
 //!
@@ -30,6 +32,7 @@
 
 mod author;
 mod dispatch;
+mod hooks;
 mod main;
 mod methods;
 mod shared;
@@ -49,7 +52,7 @@ use tokio::sync::broadcast;
 use crate::dryrun::{Sandbox, SandboxConfig};
 use crate::kernel::engine::{Engine, DEFAULT_LEASE_MS};
 use crate::kernel::host::{
-    Authorizer, Catalog, Event, Gates, Hooks, Origin, Outcome, Packs, Programs, RunStore, Tools,
+    Authorizer, Catalog, Event, Gates, Origin, Outcome, Packs, Programs, RunStore, Tools,
     WorkItem,
 };
 use crate::kernel::FlowError;
@@ -58,7 +61,6 @@ use crate::store::FileStore;
 
 pub use crate::kernel::protocol::matches_any;
 pub use author::{AuthorScene, AUTHOR_PROMPT, AUTHOR_SCENE, AUTHOR_TOOLS, NO_FOCUS};
-pub use dispatch::permission_rules;
 pub use shared::{session_name, session_ref};
 pub use tools::{structured_id, FlowScene, StructuredScene, TOOL_PROPOSE, TOOL_STATE, TOOL_SUBMIT};
 
@@ -131,7 +133,7 @@ pub struct FlowBuilder {
     programs: Option<Arc<dyn Programs>>,
     gates: Option<Arc<dyn Gates>>,
     tools: Option<Arc<dyn Tools>>,
-    hooks: Option<Arc<dyn Hooks>>,
+    command_gates: bool,
     auth: Option<Arc<dyn Authorizer>>,
     space: String,
     guarded: Vec<String>,
@@ -155,7 +157,7 @@ impl Default for FlowBuilder {
             programs: None,
             gates: None,
             tools: None,
-            hooks: None,
+            command_gates: false,
             auth: None,
             space: "flow".into(),
             guarded: DEFAULT_GUARDED.iter().map(|s| s.to_string()).collect(),
@@ -243,19 +245,23 @@ impl FlowBuilder {
         self
     }
 
+    /// The application's own checks, which `host` gates name (each name also in the catalog's
+    /// `gates`).
     pub fn gates(mut self, g: impl Gates + 'static) -> Self {
         self.gates = Some(Arc::new(g));
         self
     }
 
-    /// Read-only application tools `tool` exits call.
+    /// Read-only application tools `tool` gates call.
     pub fn tools(mut self, t: impl Tools + 'static) -> Self {
         self.tools = Some(Arc::new(t));
         self
     }
 
-    pub fn hooks(mut self, h: impl Hooks + 'static) -> Self {
-        self.hooks = Some(Arc::new(h));
+    /// Let `command` gates run (xops-04 §4): a gate of the pack then runs a command on this
+    /// host, in the run's workspace by default. Off unless turned on.
+    pub fn command_gates(mut self, on: bool) -> Self {
+        self.command_gates = on;
         self
     }
 
@@ -270,11 +276,11 @@ impl FlowBuilder {
         self
     }
 
-    /// The tools that count as writes for a station's `writes`: a session working on a flow
-    /// task gets a `deny` permission rule for each of them the station does not list, and the
-    /// protocol layer names them. Only these are guarded — an application whose sessions reach
-    /// other writing tools (its own MCP tools, plugin tools) lists them here, by name or as a
-    /// namespace group `ns__*`. By default the engine's own: [`DEFAULT_GUARDED`].
+    /// The tools refused to a flow task unless one of its permissions allows them: a flow
+    /// session asks about each, the module answers, and the protocol layer names them. Only
+    /// these are refused by default — an application whose sessions reach other writing tools
+    /// (its own MCP tools, plugin tools) lists them here, by name or as a namespace group
+    /// `ns__*`. By default the engine's own: [`DEFAULT_GUARDED`].
     pub fn guarded_tools<I, S>(mut self, patterns: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -341,7 +347,7 @@ impl FlowBuilder {
                     .collect(),
                 programs: self.programs.clone(),
                 gates: self.gates.clone(),
-                hooks: self.hooks.clone(),
+                command_gates: self.command_gates,
                 guarded: self.guarded.clone(),
                 recording: self.recording.clone(),
                 main_recording: self.main_recording.clone(),
@@ -377,6 +383,7 @@ impl FlowBuilder {
             templates: own_templates,
             guarded: sh.cfg.guarded.clone(),
             main_scene: sh.cfg.main_scene.clone(),
+            command_gates: sh.cfg.command_gates,
         });
         let problems = crate::kernel::protocol::guard_problems(&self.guarded);
         let config_error = (!problems.is_empty()).then(|| {
@@ -413,6 +420,7 @@ struct CatalogPacks {
     templates: Vec<String>,
     guarded: Vec<String>,
     main_scene: Option<String>,
+    command_gates: bool,
 }
 
 impl CatalogPacks {
@@ -432,11 +440,15 @@ impl Packs for CatalogPacks {
     fn flow(&self, name: &str) -> Option<(crate::FlowDef, String)> {
         self.inner().flow(name)
     }
-    fn skill(&self, name: &str) -> Option<(String, String)> {
-        self.inner().skill(name)
+    fn part(&self, kind: crate::PartKind, name: &str) -> Option<(String, String)> {
+        self.inner().part(kind, name)
+    }
+    fn parts(&self, kind: crate::PartKind) -> Vec<String> {
+        self.inner().parts(kind)
     }
     fn catalog(&self) -> Catalog {
         let mut c = self.inner().catalog();
+        c.command_gates = self.command_gates;
         c.scenes.extend(self.scenes.iter().cloned());
         if !c.templates.is_empty() {
             c.templates.extend(self.templates.iter().cloned());
@@ -451,9 +463,6 @@ impl Packs for CatalogPacks {
     fn flow_text(&self, name: &str) -> Option<String> {
         self.inner().flow_text(name)
     }
-    fn skills(&self) -> Vec<String> {
-        self.inner().skills()
-    }
     fn writable(&self) -> bool {
         self.inner().writable()
     }
@@ -466,11 +475,14 @@ impl Packs for CatalogPacks {
     fn delete_flow(&self, name: &str) -> Result<(), String> {
         self.inner().delete_flow(name)
     }
-    fn save_skill(&self, name: &str, body: &str) -> Result<String, String> {
-        self.inner().save_skill(name, body)
+    fn part_origin(&self, kind: crate::PartKind, name: &str) -> Origin {
+        self.inner().part_origin(kind, name)
     }
-    fn delete_skill(&self, name: &str) -> Result<(), String> {
-        self.inner().delete_skill(name)
+    fn save_part(&self, kind: crate::PartKind, name: &str, text: &str) -> Result<String, String> {
+        self.inner().save_part(kind, name, text)
+    }
+    fn delete_part(&self, kind: crate::PartKind, name: &str) -> Result<(), String> {
+        self.inner().delete_part(kind, name)
     }
 }
 
@@ -518,9 +530,11 @@ impl Module for Flow {
         Manifest::new(MODULE_ID, env!("CARGO_PKG_VERSION"))
             .disclosure(
                 "runs flows: headless sessions in its space (or where a station places them, on \
-                 instances of its templates), the application's programs, gates and hooks; writes \
-                 run records and saved flows where the application said; names the sessions it \
-                 opens and lists a run's sub-agents",
+                 instances of its templates), the application's programs and gates (command gates \
+                 only when the application turned them on); answers its sessions' permission \
+                 questions from the flow's permissions; posts run events to the hooks' URLs; \
+                 writes run records and saved flows where the application said; names the sessions \
+                 it opens and lists a run's sub-agents",
             )
             // Naming a run's main session and a flow's conversation; a main session's
             // sub-agents and other tasks (xops-03).
@@ -589,7 +603,8 @@ impl Module for Flow {
         let mut engine = Engine::new(store, packs.clone())
             .with_lease_ms(self.sh.cfg.lease_ms)
             .with_guarded(self.sh.cfg.guarded.clone())
-            .with_submit_scenes(self.sh.cfg.scenes.clone());
+            .with_submit_scenes(self.sh.cfg.scenes.clone())
+            .with_workspaces(cx.data_dir().join("workspaces"));
         if let Some(m) = &self.sh.cfg.main_scene {
             engine = engine.with_main_scene(m.clone());
         }
@@ -688,6 +703,7 @@ mod tests {
             templates: templates.iter().map(|s| s.to_string()).collect(),
             guarded: vec![],
             main_scene: None,
+            command_gates: false,
         };
         let _ = packs.inner.set(Arc::new(inner));
         packs
@@ -749,6 +765,7 @@ mod tests {
             templates: vec![],
             guarded: vec![],
             main_scene: None,
+            command_gates: false,
         };
         assert!(packs.flows().is_empty() && !packs.writable());
         let _ = packs.inner.set(Arc::new(MemPacks::new().writable()));

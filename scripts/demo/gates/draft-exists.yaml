@@ -1,0 +1,6 @@
+name: draft-exists
+title: 草稿已落盘
+description: 运行工作目录里有非空的 drafts/draft.md。
+kind: command
+command: test -s drafts/draft.md
+timeout_seconds: 30

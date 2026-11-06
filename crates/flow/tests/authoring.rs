@@ -169,13 +169,18 @@ fn check_layers(p: &dyn Packs) {
     );
     p.delete_flow("mine").unwrap();
     assert!(p.flow("mine").is_none());
-    // Skills the same way.
-    assert!(p.save_skill("Bad Name", "x").is_err());
-    p.save_skill("fresh", "Do it.").unwrap();
+    // Parts the same way.
+    assert!(p.save_part(PartKind::Skill, "Bad Name", "x").is_err());
+    p.save_part(PartKind::Skill, "fresh", "Do it.").unwrap();
     assert_eq!(p.skill("fresh").unwrap().0, "Do it.");
-    assert!(p.skills().contains(&"fresh".to_string()));
-    p.delete_skill("fresh").unwrap();
+    assert!(p.parts(PartKind::Skill).contains(&"fresh".to_string()));
+    p.delete_part(PartKind::Skill, "fresh").unwrap();
     assert!(p.skill("fresh").is_none());
+    p.save_part(PartKind::Rule, "house", "# House style\n\nShort lines.").unwrap();
+    assert_eq!(p.part_origin(PartKind::Rule, "house"), Origin::User);
+    assert_eq!(p.parts(PartKind::Rule), ["house"]);
+    p.delete_part(PartKind::Rule, "house").unwrap();
+    assert!(p.rule("house").is_none());
     // What does not parse is not stored.
     assert!(p.save_flow("name: [").is_err());
     assert!(p.save_flow("name: Bad\nstations: []").is_err());
@@ -224,7 +229,7 @@ async fn the_engine_saves_only_what_validates_and_asks_the_authorizer() {
             _: Option<&RunRecord>,
         ) -> std::result::Result<(), String> {
             match op {
-                Op::EditFlow { .. } | Op::EditSkill { .. } => Err(format!("no {}", op.name())),
+                Op::EditFlow { .. } | Op::EditPart { .. } => Err(format!("no {}", op.name())),
                 _ => Ok(()),
             }
         }
@@ -265,8 +270,26 @@ async fn the_engine_saves_only_what_validates_and_asks_the_authorizer() {
         eng.delete_flow("nothing", me()).await.unwrap_err().code(),
         "not_found"
     );
-    eng.save_skill("extra", "Body.", me()).await.unwrap();
-    eng.delete_skill("extra", me()).await.unwrap();
+    eng.save_part(PartKind::Skill, "extra", "Body.", me()).await.unwrap();
+    eng.delete_part(PartKind::Skill, "extra", me()).await.unwrap();
+    // A part with problems is not saved; one that breaks a flow says so.
+    let bad = eng
+        .save_part(PartKind::Policy, "p", "{name: other, permissions: []}", me())
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(bad.contains("declares the name") && bad.contains("no permissions"), "{bad}");
+    eng.save_flow("name: uses\npolicies: [strict]\nstations: [{id: a, exit: [{kind: confirm}]}]", me())
+        .await
+        .unwrap_err();
+    eng.save_part(PartKind::Policy, "strict", "{name: strict, permissions: [{effect: deny, tools: [Bash]}]}", me())
+        .await
+        .unwrap();
+    eng.save_flow("name: uses\npolicies: [strict]\nstations: [{id: a, exit: [{kind: confirm}]}]", me())
+        .await
+        .unwrap();
+    let gone = eng.delete_part(PartKind::Policy, "strict", me()).await.unwrap();
+    assert_eq!(gone["broken"][0]["flow"], "uses", "{gone}");
 
     let read_only = engine(packs());
     assert!(read_only
@@ -281,7 +304,7 @@ async fn the_engine_saves_only_what_validates_and_asks_the_authorizer() {
         "denied"
     );
     assert_eq!(
-        denied.save_skill("x", "y", me()).await.unwrap_err().code(),
+        denied.save_part(PartKind::Skill, "x", "y", me()).await.unwrap_err().code(),
         "denied"
     );
 }
@@ -306,7 +329,7 @@ stations:
     exit: [{kind: gate, gate: not-registered-either}]
   - id: check
     needs: [analyze, lint]
-    exit: [{kind: tool, tool: count, args: {run: "${run}"}, assert: [{path: total, eq: 0}]}]
+    exit: [{kind: gate, gate: counted}]
   - id: approve
     exit: [{kind: confirm}]
 "#;

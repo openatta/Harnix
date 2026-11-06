@@ -9,6 +9,9 @@ use serde_json::Value;
 
 use super::def::{Assert, Executor, ExitCond, FlowDef, Station, TaskSpec, Work, MAX_REWORK_LIMIT};
 use super::host::{Catalog, Packs, EVENT_KINDS};
+use super::parts::{
+    permissions_of, GateDef, GateKind, HookDef, PartKind, Permission, PolicyDef, MAX_GATE_SECONDS,
+};
 use super::refs::{refs_in, refs_in_value, ROOTS};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -117,8 +120,11 @@ pub fn validate(def: &FlowDef, packs: &dyn Packs) -> Vec<Problem> {
             }
         }
     }
-    for h in &def.hooks {
-        hook_problems(&mut c, None, h.on.as_str(), h.action.as_str());
+    names_problems(&mut c, None, &def.rules, &def.policies);
+    for (i, p) in def.permissions.iter().enumerate() {
+        for m in permission_problems(p) {
+            c.flow(format!("permissions[{i}]: {m}"));
+        }
     }
 
     let mut ids = BTreeSet::new();
@@ -147,7 +153,6 @@ pub const DRY_PREFIX: &str = "dry-";
 struct SessionSettings {
     scene: String,
     output: Option<Value>,
-    refused: Vec<String>,
     model: Option<String>,
     provider: Option<String>,
     instance: Option<String>,
@@ -166,9 +171,6 @@ impl SessionSettings {
         if self.output != o.output {
             d.push("output contract");
         }
-        if self.refused != o.refused {
-            d.push("writes");
-        }
         if self.model != o.model || self.provider != o.provider {
             d.push("model");
         }
@@ -186,7 +188,8 @@ impl SessionSettings {
 /// Tasks that may share a session (`per_run`, or the same `{key}` expression) must be opened
 /// the same way: the engine takes a session's scene, `output_schema`, permission rules, model
 /// and place when it is created and keeps them, so a task arriving later would work under the
-/// first one's — another contract, another station's writes.
+/// first one's — another contract. (What a task may do is not kept by its session: each call is
+/// judged against the permissions of the task its turn works on.)
 fn shared_session_problems(c: &mut Ctx) {
     use super::def::SessionBinding;
     let def = c.def;
@@ -218,19 +221,6 @@ fn shared_session_problems(c: &mut Ctx) {
                 SessionBinding::PerRun => "`session: per_run`".to_string(),
                 SessionBinding::Key(k) => format!("`session: {{key: {k}}}`"),
             };
-            let refused: Vec<String> = if c.catalog.guarded.is_empty() {
-                let mut w = s.writes.clone();
-                w.sort();
-                w.dedup();
-                w
-            } else {
-                let mut r: Vec<String> = super::protocol::refused(&c.catalog.guarded, &s.writes)
-                    .into_iter()
-                    .map(|(_, r)| r)
-                    .collect();
-                r.sort();
-                r
-            };
             let mine = SessionSettings {
                 scene: scene.clone(),
                 // Kept by the session only when it hands in by structured output.
@@ -239,7 +229,6 @@ fn shared_session_problems(c: &mut Ctx) {
                 } else {
                     s.output.clone()
                 },
-                refused,
                 model: model.clone(),
                 provider: provider.clone(),
                 instance: instance.clone(),
@@ -404,23 +393,19 @@ fn station_problems(c: &mut Ctx, s: &Station, cyclic: bool) {
             ExitCond::Children { .. } if !has_subflow => {
                 c.at(id, "a children exit only goes with a subflow executor");
             }
-            ExitCond::Tool {
-                tool, args, assert, ..
-            } => {
-                if !c.catalog.tools.contains(tool) {
-                    c.at(id, format!("tool {tool} is not in the catalog"));
+            ExitCond::Gate { gate, .. } => match c.packs.part(PartKind::Gate, gate) {
+                None => c.at(id, format!("gate {gate} is not in the packs")),
+                Some((text, _)) => {
+                    for m in part_problems(PartKind::Gate, gate, &text, c.packs) {
+                        c.at(id, format!("gate {gate}: {m}"));
+                    }
+                    if let Some(g) = c.packs.gate(gate) {
+                        if !g.args.is_null() {
+                            ref_problems(c, s, &refs_in_value(&g.args));
+                        }
+                    }
                 }
-                if assert.is_empty() {
-                    c.at(id, format!("the tool exit {tool} has no assertion"));
-                }
-                for a in assert {
-                    assert_problems(c, id, a, false);
-                }
-                ref_problems(c, s, &refs_in_value(args));
-            }
-            ExitCond::Gate { gate, .. } if !c.catalog.gates.contains(gate) => {
-                c.at(id, format!("gate {gate} is not in the catalog"));
-            }
+            },
             _ => {}
         }
     }
@@ -428,17 +413,29 @@ fn station_problems(c: &mut Ctx, s: &Station, cyclic: bool) {
         schema_problems(c, Some(id), "output", o);
     }
 
-    // writes the host can grant: a guarded group whole or not at all
-    for (w, g) in super::protocol::partial_writes(&c.catalog.guarded, &s.writes) {
-        c.at(
-            id,
-            format!(
-                "writes {w} opens only part of the guarded group {g}: a session's deny rule \
-                 cannot make an exception — write {g} to open the whole group, or have the \
-                 application guard those tools one by one"
-            ),
-        );
+    // rules, policies, permissions
+    names_problems(c, Some(id), &s.rules, &s.policies);
+    for (i, p) in s.permissions.iter().enumerate() {
+        for m in permission_problems(p) {
+            c.at(id, format!("permissions[{i}]: {m}"));
+        }
     }
+    let policies: BTreeMap<String, PolicyDef> = def
+        .policies
+        .iter()
+        .chain(s.policies.iter())
+        .filter_map(|n| c.packs.policy(n).map(|p| (n.clone(), p)))
+        .collect();
+    let refs: Vec<String> = permissions_of(def, s, &policies)
+        .iter()
+        .flat_map(|g| {
+            g.permission
+                .patterns()
+                .flat_map(|p| refs_in(p).into_iter().map(String::from).collect::<Vec<_>>())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    ref_problems(c, s, &refs);
 
     // when
     for a in &s.when {
@@ -478,10 +475,6 @@ fn station_problems(c: &mut Ctx, s: &Station, cyclic: bool) {
         if u.max == 0 {
             c.at(id, "on_unmet.max must be at least 1");
         }
-    }
-
-    for h in &s.hooks {
-        hook_problems(c, Some(id), h.on.as_str(), h.action.as_str());
     }
 }
 
@@ -870,13 +863,35 @@ fn schema_problems(c: &mut Ctx, station: Option<&str>, what: &str, schema: &Valu
     }
 }
 
-fn hook_problems(c: &mut Ctx, station: Option<&str>, on: &str, action: &str) {
+/// The rules and policies a flow or station names are in the packs (a policy that does not
+/// parse is reported as such).
+fn names_problems(c: &mut Ctx, station: Option<&str>, rules: &[String], policies: &[String]) {
     let mut ms = vec![];
-    if !EVENT_KINDS.contains(&on) {
-        ms.push(format!("hook on {on:?}: not an event kind"));
+    for r in rules {
+        if c.packs.rule(r).is_none() {
+            ms.push(format!("rule {r} is not in the packs"));
+        }
     }
-    if !c.catalog.actions.contains(action) {
-        ms.push(format!("hook action {action} is not in the catalog"));
+    for p in policies {
+        match c.packs.part(PartKind::Policy, p) {
+            None => ms.push(format!("policy {p} is not in the packs")),
+            Some((text, _)) => {
+                for m in part_problems(PartKind::Policy, p, &text, c.packs) {
+                    ms.push(format!("policy {p}: {m}"));
+                }
+            }
+        }
+    }
+    let mut seen = BTreeSet::new();
+    for n in rules {
+        if !seen.insert(("rule", n)) {
+            ms.push(format!("rule {n} is named twice"));
+        }
+    }
+    for n in policies {
+        if !seen.insert(("policy", n)) {
+            ms.push(format!("policy {n} is named twice"));
+        }
     }
     for m in ms {
         match station {
@@ -884,4 +899,183 @@ fn hook_problems(c: &mut Ctx, station: Option<&str>, on: &str, action: &str) {
             None => c.flow(m),
         }
     }
+}
+
+/// What is wrong with one permission, on its own.
+pub fn permission_problems(p: &Permission) -> Vec<String> {
+    let mut out = vec![];
+    if p.tools.is_empty() {
+        out.push("names no tool".to_string());
+    }
+    for t in &p.tools {
+        if let Some(m) = super::protocol::guard_problem(t) {
+            out.push(m.replacen("guarded tool pattern", "tool pattern", 1));
+        }
+    }
+    for pat in p.patterns() {
+        if pat.trim().is_empty() {
+            out.push("a pattern is empty".to_string());
+        }
+    }
+    for k in p.args.keys() {
+        if k.trim().is_empty() {
+            out.push("an args field has no name".to_string());
+        }
+    }
+    for pat in p.patterns() {
+        for r in refs_in(pat) {
+            let root = r.split(['.', '[']).next().unwrap_or("");
+            if !ROOTS.contains(&root) {
+                out.push(format!("reference {r}: unknown root {root:?}"));
+            }
+        }
+    }
+    out
+}
+
+/// A part's name, as a pack can store it: `[a-z][a-z0-9-]*` (skills may have `_`).
+pub fn is_part_name(kind: PartKind, name: &str) -> bool {
+    match kind {
+        PartKind::Skill => is_skill_name(name),
+        _ => is_name(name, &[]),
+    }
+}
+
+/// Every problem of a part's text on its own (a flow that uses it is judged by [`validate`]);
+/// empty = it may be saved.
+pub fn part_problems(kind: PartKind, name: &str, text: &str, packs: &dyn Packs) -> Vec<String> {
+    let mut out = vec![];
+    if !is_part_name(kind, name) {
+        out.push(format!("name {name:?} must match [a-z][a-z0-9-]*"));
+    }
+    let named = |declared: &str, out: &mut Vec<String>| {
+        if declared != name {
+            out.push(format!("it declares the name {declared:?}, but is saved as {name:?}"));
+        }
+    };
+    match kind {
+        PartKind::Skill | PartKind::Rule => {
+            if text.trim().is_empty() {
+                out.push("it is empty".to_string());
+            }
+        }
+        PartKind::Policy => match serde_yaml::from_str::<PolicyDef>(text) {
+            Err(e) => out.push(format!("not a policy: {e}")),
+            Ok(p) => {
+                named(&p.name, &mut out);
+                if p.permissions.is_empty() {
+                    out.push("it has no permissions".to_string());
+                }
+                for (i, x) in p.permissions.iter().enumerate() {
+                    for m in permission_problems(x) {
+                        out.push(format!("permissions[{i}]: {m}"));
+                    }
+                }
+            }
+        },
+        PartKind::Gate => match serde_yaml::from_str::<GateDef>(text) {
+            Err(e) => out.push(format!("not a gate: {e}")),
+            Ok(g) => {
+                named(&g.name, &mut out);
+                out.extend(gate_problems(&g, &packs.catalog()));
+            }
+        },
+        PartKind::Hook => match serde_yaml::from_str::<HookDef>(text) {
+            Err(e) => out.push(format!("not a hook: {e}")),
+            Ok(h) => {
+                named(&h.name, &mut out);
+                out.extend(hook_problems(&h));
+            }
+        },
+    }
+    out
+}
+
+fn gate_problems(g: &GateDef, catalog: &Catalog) -> Vec<String> {
+    let mut out = vec![];
+    let tool_fields = g.tool.is_some() || !g.args.is_null() || !g.assert.is_empty();
+    let command_fields = g.command.is_some() || g.cwd.is_some() || g.timeout_seconds.is_some();
+    match g.kind {
+        GateKind::Tool => {
+            match &g.tool {
+                None => out.push("a tool gate names its tool".to_string()),
+                Some(t) if !catalog.tools.contains(t) => out.push(format!("tool {t} is not in the catalog")),
+                Some(_) => {}
+            }
+            if g.assert.is_empty() {
+                out.push("a tool gate needs an assertion".to_string());
+            }
+            for a in &g.assert {
+                if a.path.trim().is_empty() {
+                    out.push("an assertion needs a path".to_string());
+                }
+                if a.op_count() != 1 {
+                    out.push(format!(
+                        "assertion on {:?} needs exactly one of eq, ne, len, min_len, exists",
+                        a.path
+                    ));
+                }
+            }
+            if command_fields {
+                out.push("command, cwd and timeout_seconds go with a command gate".to_string());
+            }
+        }
+        GateKind::Command => {
+            if !catalog.command_gates {
+                out.push("command gates are not turned on in this application".to_string());
+            }
+            if g.command.as_deref().is_none_or(|c| c.trim().is_empty()) {
+                out.push("a command gate needs its command".to_string());
+            }
+            if g.timeout_seconds.is_some_and(|t| t == 0 || t > MAX_GATE_SECONDS) {
+                out.push(format!("timeout_seconds must be between 1 and {MAX_GATE_SECONDS}"));
+            }
+            if tool_fields {
+                out.push("tool, args and assert go with a tool gate".to_string());
+            }
+        }
+        GateKind::Host => {
+            if !catalog.gates.contains(&g.name) {
+                out.push(format!("the application has no check named {}", g.name));
+            }
+            if tool_fields || command_fields {
+                out.push("a host gate has nothing but its name, title and description".to_string());
+            }
+        }
+    }
+    for r in refs_in_value(&g.args).iter().chain(
+        g.cwd.iter().flat_map(|c| refs_in(c).into_iter().map(String::from).collect::<Vec<_>>()).collect::<Vec<_>>().iter(),
+    ) {
+        let root = r.split(['.', '[']).next().unwrap_or("");
+        if !ROOTS.contains(&root) {
+            out.push(format!("reference {r}: unknown root {root:?}"));
+        }
+    }
+    out
+}
+
+fn hook_problems(h: &HookDef) -> Vec<String> {
+    let mut out = vec![];
+    for on in &h.on {
+        let known = match on.strip_suffix('*') {
+            Some(prefix) => EVENT_KINDS.iter().any(|k| k.starts_with(prefix)),
+            None => EVENT_KINDS.contains(&on.as_str()),
+        };
+        if !known {
+            out.push(format!("on {on:?}: not an event kind"));
+        }
+    }
+    for f in &h.flows {
+        if !is_name(f, &[]) {
+            out.push(format!("flows: {f:?} is not a flow name"));
+        }
+    }
+    let a = h.action.trim();
+    if !(a.starts_with("http://") || a.starts_with("https://")) || a.len() < 10 {
+        out.push(format!("action {a:?}: a webhook's action is an http(s) URL"));
+    }
+    if h.secret_env.as_deref().is_some_and(|v| v.trim().is_empty()) {
+        out.push("secret_env is empty".to_string());
+    }
+    out
 }

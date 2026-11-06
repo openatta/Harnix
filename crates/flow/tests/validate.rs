@@ -12,7 +12,6 @@ title: Demo review
 inputs:
   mode: {schema: {enum: [manual, auto]}, default: manual}
 rework_limit: 5
-hooks: [{on: run.finished, action: notify}]
 stations:
   - id: collect
     executor: {kind: program, step: collect}
@@ -26,7 +25,7 @@ stations:
     output: {type: object, required: [findings]}
     exit: [{kind: output}]
     retry: {max: 1}
-    writes: []
+    permissions: [{effect: deny, tools: [Bash], message: no shell here}]
   - id: lint
     needs: [collect]
     exit: [{kind: gate, gate: lint}]
@@ -34,7 +33,7 @@ stations:
     needs: [analyze]
     when: [{path: inputs.mode, eq: auto}]
     executor: {kind: program, step: check}
-    exit: [{kind: tool, tool: count, args: {run: "${run}"}, assert: [{path: total, eq: 0}]}]
+    exit: [{kind: gate, gate: counted}]
     on_unmet: {rework_to: analyze, max: 2}
   - id: review
     needs: [self-check, lint]
@@ -312,23 +311,19 @@ fn catalog_references() {
     );
     assert_problem(
         "name: x\nstations: [{id: a, exit: [{kind: gate, gate: nope}]}]",
-        "gate nope is not in the catalog",
+        "gate nope is not in the packs",
     );
     assert_problem(
-        "name: x\nstations: [{id: a, exit: [{kind: tool, tool: nope, assert: [{path: x, eq: 1}]}]}]",
-        "tool nope is not in the catalog",
+        "name: x\nrules: [nope]\nstations: [{id: a, policies: [none], exit: [{kind: confirm}]}]",
+        "rule nope is not in the packs",
+    );
+    assert_problem(
+        "name: x\nstations: [{id: a, policies: [none], exit: [{kind: confirm}]}]",
+        "policy none is not in the packs",
     );
     assert_problem(
         "name: x\nstations: [{id: a, executor: {kind: session, scene: chat}, skill: nope, exit: [{kind: confirm}]}]",
         "skill nope is not in the packs",
-    );
-    assert_problem(
-        "name: x\nhooks: [{on: run.finished, action: nope}]\nstations: [{id: a, exit: [{kind: confirm}]}]",
-        "hook action nope is not in the catalog",
-    );
-    assert_problem(
-        "name: x\nstations: [{id: a, hooks: [{on: run.exploded, action: notify}], exit: [{kind: confirm}]}]",
-        "not an event kind",
     );
     assert_problem(
         "name: x\nstations: [{id: a, executor: {kind: subflow, flow: nope}, exit: [{kind: children}]}]",
@@ -346,14 +341,9 @@ fn assertions_have_exactly_one_operator() {
         "name: x\ninputs: {m: {}}\nstations: [{id: a, when: [{path: inputs.m, eq: 1, ne: 2}], exit: [{kind: confirm}]}]",
         "exactly one of",
     );
-    assert_problem(
-        "name: x\nstations: [{id: a, exit: [{kind: tool, tool: count, assert: [{path: total, len: 1, min_len: 1}]}]}]",
-        "exactly one of",
-    );
-    assert_problem(
-        "name: x\nstations: [{id: a, exit: [{kind: tool, tool: count, assert: []}]}]",
-        "has no assertion",
-    );
+    let gate = |text: &str| part_problems(PartKind::Gate, "g", text, &packs()).join("; ");
+    assert!(gate("{name: g, kind: tool, tool: count, assert: [{path: total, len: 1, min_len: 1}]}").contains("exactly one of"));
+    assert!(gate("{name: g, kind: tool, tool: count}").contains("needs an assertion"));
 }
 
 #[test]
@@ -367,8 +357,12 @@ fn references_are_checked() {
         "station a is not an ancestor",
     );
     assert_problem(
-        "name: x\nstations: [{id: a, exit: [{kind: tool, tool: count, args: {x: '${bogus}'}, assert: [{path: t, eq: 0}]}]}]",
+        "name: x\nstations: [{id: a, permissions: [{effect: allow, tools: [Write], paths: ['${bogus}/**']}], exit: [{kind: confirm}]}]",
         "unknown root",
+    );
+    assert_problem(
+        "name: x\nstations: [{id: a, permissions: [{effect: allow, tools: [Write], paths: ['${stations.b.output.dir}/**']}], exit: [{kind: confirm}]}, {id: b, exit: [{kind: confirm}]}]",
+        "station b is not an ancestor",
     );
 }
 
@@ -422,39 +416,45 @@ fn the_dry_prefix_is_kept_for_dry_runs() {
 }
 
 #[test]
-fn a_write_may_open_a_guarded_group_whole_only() {
-    let mut cat = Packs::catalog(&packs());
-    cat.guarded = vec!["Bash".into(), "mcp__db__*".into()];
-    struct P(MemPacks, Catalog);
-    impl Packs for P {
-        fn flows(&self) -> Vec<String> {
-            Packs::flows(&self.0)
-        }
-        fn flow(&self, n: &str) -> Option<(FlowDef, String)> {
-            Packs::flow(&self.0, n)
-        }
-        fn skill(&self, n: &str) -> Option<(String, String)> {
-            Packs::skill(&self.0, n)
-        }
-        fn catalog(&self) -> Catalog {
-            self.1.clone()
-        }
-    }
-    let p = P(packs(), cat);
-    let yaml = |w: &str| {
-        format!(
-        "name: w\nstations: [{{id: a, executor: {{kind: session, scene: chat}}, skill: analyze, output: {{type: object}}, writes: [{w}], exit: [{{kind: output}}]}}]"
-    )
-    };
-    let ps = validate_yaml(&yaml("mcp__db__insert"), &p);
-    assert!(
-        ps.iter().any(|x| x
-            .message
-            .contains("opens only part of the guarded group mcp__db__*")),
-        "{ps:?}"
+fn parts_are_checked_on_their_own() {
+    let p = packs();
+    let problems = |kind: PartKind, name: &str, text: &str| part_problems(kind, name, text, &p).join("; ");
+    assert_eq!(problems(PartKind::Rule, "house", "# House\n\nShort."), "");
+    assert!(problems(PartKind::Rule, "House", "x").contains("must match"));
+    assert!(problems(PartKind::Rule, "house", "  ").contains("empty"));
+    assert_eq!(
+        problems(PartKind::Policy, "p", "{name: p, permissions: [{effect: ask, tools: ['mcp__db__*'], args: {table: [orders]}}]}"),
+        ""
     );
-    assert!(validate_yaml(&yaml("'mcp__db__*'"), &p).is_empty());
-    assert!(validate_yaml(&yaml("Bash"), &p).is_empty());
+    assert!(problems(PartKind::Policy, "p", "{name: p, permissions: [{effect: allow, tools: ['Note*']}]}").contains("tool pattern"));
+    assert!(problems(PartKind::Policy, "p", "{name: p, permissions: [{effect: allow, tools: []}]}").contains("names no tool"));
+    assert!(problems(PartKind::Policy, "p", "{name: p, permissions: [{effect: maybe, tools: [Bash]}]}").contains("not a policy"));
+    // Command gates only where the application turned them on; host gates by the checks it has.
+    assert!(problems(PartKind::Gate, "t", "{name: t, kind: command, command: make test}").contains("not turned on"));
+    let on = packs().command_gates();
+    assert!(part_problems(PartKind::Gate, "t", "{name: t, kind: command, command: make test}", &on).is_empty());
+    assert!(problems(PartKind::Gate, "t", "{name: t, kind: command, command: make, tool: count}").contains("go with a tool gate"));
+    assert!(problems(PartKind::Gate, "nope", "{name: nope, kind: host}").contains("no check named nope"));
+    assert_eq!(problems(PartKind::Gate, "lint", "{name: lint, kind: host}"), "");
+    assert!(problems(PartKind::Gate, "g", "{name: g, kind: tool, tool: nope, assert: [{path: x, eq: 1}]}").contains("tool nope is not in the catalog"));
+    // Hooks: known events, a URL.
+    assert_eq!(problems(PartKind::Hook, "h", "{name: h, on: [run.created, 'station.*'], kind: webhook, action: 'https://x.example/h'}"), "");
+    assert!(problems(PartKind::Hook, "h", "{name: h, on: [run.exploded], kind: webhook, action: 'https://x.example/h'}").contains("not an event kind"));
+    assert!(problems(PartKind::Hook, "h", "{name: h, kind: webhook, action: 'ftp://x'}").contains("http(s) URL"));
+    assert!(problems(PartKind::Hook, "h", "{name: h, kind: mail, action: 'https://x.example/h'}").contains("not a hook"));
+}
+
+#[test]
+fn a_flow_names_rules_and_policies_the_packs_have_and_its_permissions_are_sound() {
+    let p = packs()
+        .rule("house", "# House style\n\nShort lines.")
+        .policy("{name: ro, permissions: [{effect: deny, tools: [Write, Edit]}]}");
+    let ok = "name: r\nrules: [house]\npolicies: [ro]\nstations: [{id: a, rules: [house], permissions: [{effect: allow, tools: [Write], paths: ['${workspace}/out/**']}], exit: [{kind: confirm}]}]";
+    assert_eq!(validate_yaml(ok, &p), vec![]);
+    let twice = "name: r\nstations: [{id: a, policies: [ro, ro], exit: [{kind: confirm}]}]";
+    assert!(validate_yaml(twice, &p).iter().any(|x| x.message.contains("named twice")));
+    let bad = "name: r\npermissions: [{effect: deny, tools: ['a*b']}]\nstations: [{id: a, exit: [{kind: confirm}]}]";
+    assert!(validate_yaml(bad, &p).iter().any(|x| x.message.contains("permissions[0]")));
 }
 
 #[test]
@@ -465,13 +465,10 @@ fn tasks_sharing_a_session_must_be_opened_alike() {
     )
     };
     assert_eq!(problems(&two("", "", "")), Vec::<String>::new());
-    let ps = problems(&two("", "", ", writes: [Bash]"));
-    assert!(
-        ps.iter().any(|p| p.contains("station two")
-            && p.contains("shares its session")
-            && p.contains("station one")
-            && p.contains("writes")),
-        "{ps:#?}"
+    // What a task may do is judged call by call, not kept by the session: permissions may differ.
+    assert_eq!(
+        problems(&two("", "", ", permissions: [{effect: allow, tools: [Bash]}]")),
+        Vec::<String>::new()
     );
     let ps = problems(&two("", ", model: m2", ""));
     assert!(ps.iter().any(|p| p.contains("model")), "{ps:#?}");
@@ -497,8 +494,8 @@ fn tasks_sharing_a_session_must_be_opened_alike() {
         fn flow(&self, n: &str) -> Option<(FlowDef, String)> {
             Packs::flow(&self.0, n)
         }
-        fn skill(&self, n: &str) -> Option<(String, String)> {
-            Packs::skill(&self.0, n)
+        fn part(&self, k: PartKind, n: &str) -> Option<(String, String)> {
+            Packs::part(&self.0, k, n)
         }
         fn catalog(&self) -> Catalog {
             self.1.clone()
@@ -506,7 +503,7 @@ fn tasks_sharing_a_session_must_be_opened_alike() {
     }
     assert!(validate_yaml(&wrapped, &Q(packs(), cat)).is_empty());
     // A session of its own each: nothing to agree on.
-    let apart = two("", "", ", writes: [Bash]").replace("session: per_run", "session: new");
+    let apart = two("", ", model: m2", "").replace("session: per_run", "session: new");
     assert_eq!(problems(&apart), Vec::<String>::new());
     // Tasks of one station sharing by key.
     let keyed = "name: k\nstations:\n  - id: a\n    tasks:\n      - {id: x, executor: {kind: session, scene: chat, session: {key: '${run}'}}, skill: analyze}\n      - {id: y, executor: {kind: session, scene: other, session: {key: '${run}'}}, skill: analyze}\n    output: {type: object}\n    exit: [{kind: output}]\n";

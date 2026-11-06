@@ -15,8 +15,9 @@ use serde_json::{json, Value};
 use super::def::{Executor, ExitCond, FlowDef, SessionBinding, TaskSpec, Work, MAIN_SESSION_KEY};
 use super::engine::{Engine, MAX_FOREACH_ITEMS, MAX_LEASE_MS, MAX_SUBFLOW_DEPTH};
 use super::host::{ChangeSet, Delivery, Event, Outcome, Placement, WorkItem};
+use super::parts::{GateKind, Pinned};
 use super::protocol;
-use super::refs::{asserts_fail, context, resolve, resolve_str, station_output};
+use super::refs::{asserts_fail, context_in, resolve, resolve_str, station_output};
 use super::run::{
     Actor, CheckRec, CheckStatus, History, Lease, ParentRef, RunRecord, RunStatus, StationRec,
     StationStatus, TaskRec, TaskStatus,
@@ -239,9 +240,11 @@ impl<'e> Txn<'e> {
                         Ok(inputs) => {
                             let id = self.eng.store.alloc_id(&flow).await?;
                             let title = format!("{} / {}", parent.run, parent.task);
+                            let parts = super::parts::pin(&def, self.eng.packs.as_ref());
                             Ok(new_record(
                                 id,
                                 def,
+                                parts,
                                 digest,
                                 title,
                                 subject,
@@ -310,6 +313,7 @@ impl<'e> Txn<'e> {
 pub(crate) fn new_record(
     id: String,
     def: FlowDef,
+    parts: Pinned,
     digest: String,
     title: String,
     subject: String,
@@ -322,6 +326,7 @@ pub(crate) fn new_record(
         id,
         flow: def.name.clone(),
         def_digest: digest,
+        parts,
         title,
         subject,
         inputs,
@@ -461,6 +466,12 @@ impl<'a> M<'a> {
 
     // ── bookkeeping ─────────────────────────────────────────────────────────
 
+    /// The run's reference context, its workspace included.
+    fn ctx(&self, item: Option<&Value>, task: Option<&str>) -> Value {
+        let ws = self.eng.workspace(&self.rec.id);
+        context_in(self.rec, item, task, ws.as_ref().and_then(|p| p.to_str()))
+    }
+
     fn now(&self) -> u64 {
         self.fx.now
     }
@@ -474,18 +485,6 @@ impl<'a> M<'a> {
             task: task.map(String::from),
             data,
         };
-        let station_hooks = station
-            .and_then(|s| self.def.station(s))
-            .map(|s| s.hooks.as_slice())
-            .unwrap_or(&[]);
-        for h in self.def.hooks.iter().chain(station_hooks) {
-            if h.on == kind {
-                self.fx.work.push(WorkItem::Hook {
-                    action: h.action.clone(),
-                    event: ev.clone(),
-                });
-            }
-        }
         self.fx.events.push(ev);
     }
 
@@ -605,7 +604,7 @@ impl<'a> M<'a> {
             return;
         };
         let now = self.now();
-        let ctx = context(self.rec, None, None);
+        let ctx = self.ctx(None, None);
         let skip = if partial.is_none() {
             asserts_fail(&ctx, &st.when)
         } else {
@@ -638,6 +637,12 @@ impl<'a> M<'a> {
         for skill in specs.iter().filter_map(|t| t.skill.as_ref()) {
             if let Some((_, digest)) = self.eng.packs.skill(skill) {
                 self.st(sid).skill_digest.insert(skill.clone(), digest);
+            }
+        }
+        self.st(sid).rule_digest.clear();
+        for rule in super::parts::rules_of(&self.rec.def, &st) {
+            if let Some((_, digest)) = self.eng.packs.rule(&rule) {
+                self.st(sid).rule_digest.insert(rule, digest);
             }
         }
 
@@ -812,9 +817,7 @@ impl<'a> M<'a> {
         };
         let work = task_work(
             self.rec,
-            &self.eng.guarded,
-            &self.eng.submit_scenes,
-            self.eng.main_scene.as_deref(),
+            self.eng,
             sid,
             tid,
             spec,
@@ -852,7 +855,7 @@ impl<'a> M<'a> {
             });
             t.item.clone()
         };
-        let ctx = context(self.rec, item.as_ref(), Some(tid));
+        let ctx = self.ctx(item.as_ref(), Some(tid));
         let subject = match &item {
             Some(Value::String(s)) => s.clone(),
             Some(v) => v.to_string(),
@@ -986,7 +989,7 @@ impl<'a> M<'a> {
         // would pass: the station stays unmet until a rework enters it again.
         if let Work::Foreach { items, .. } = st.work() {
             if r.tasks.is_empty() {
-                match resolve_str(&items, &context(self.rec, None, None)) {
+                match resolve_str(&items, &self.ctx(None, None)) {
                     Value::Array(list) if list.len() <= MAX_FOREACH_ITEMS => {}
                     other => checks.push(CheckRec {
                         cond: None,
@@ -1038,24 +1041,24 @@ impl<'a> M<'a> {
                         (CheckStatus::Fail, bad.join("; "))
                     }
                 }
-                C::Tool {
-                    tool, args, assert, ..
-                } => {
-                    let args = if args.is_null() {
-                        json!({})
-                    } else {
-                        args.clone()
-                    };
-                    let args = resolve(&args, &context(self.rec, None, None));
-                    match self.eng.tools.call(tool, &args).await {
-                        Ok(v) => match asserts_fail(&v, assert) {
-                            None => (CheckStatus::Pass, String::new()),
-                            Some(d) => (CheckStatus::Fail, d),
-                        },
-                        Err(e) => (CheckStatus::Fail, format!("{tool} failed: {e}")),
+                C::Gate { gate, .. } => match self.rec.parts.gates.get(gate).cloned() {
+                    None => (
+                        CheckStatus::Fail,
+                        format!("gate {gate} was not in the packs when the run started"),
+                    ),
+                    Some(g) if g.kind == GateKind::Tool => {
+                        let tool = g.tool.clone().unwrap_or_default();
+                        let args = if g.args.is_null() { json!({}) } else { g.args.clone() };
+                        let args = resolve(&args, &self.ctx(None, None));
+                        match self.eng.tools.call(&tool, &args).await {
+                            Ok(v) => match asserts_fail(&v, &g.assert) {
+                                None => (CheckStatus::Pass, String::new()),
+                                Some(d) => (CheckStatus::Fail, d),
+                            },
+                            Err(e) => (CheckStatus::Fail, format!("{tool} failed: {e}")),
+                        }
                     }
-                }
-                C::Gate { gate, .. } => match r
+                    Some(_) => match r
                     .checks
                     .iter()
                     .find(|k| k.cond == Some(i) && k.round == round)
@@ -1073,6 +1076,7 @@ impl<'a> M<'a> {
                         });
                         (CheckStatus::Wait, "requested".into())
                     }
+                },
                 },
                 C::Confirm { .. } => match r.confirms.iter().rev().find(|c| c.round == round) {
                     Some(c) if c.pass => (CheckStatus::Pass, String::new()),
@@ -1318,9 +1322,7 @@ impl<'a> M<'a> {
 #[allow(clippy::too_many_arguments)]
 fn task_work(
     rec: &RunRecord,
-    guarded: &[String],
-    submit_scenes: &BTreeSet<String>,
-    main_scene: Option<&str>,
+    eng: &Engine,
     sid: &str,
     tid: &str,
     spec: &TaskSpec,
@@ -1330,7 +1332,9 @@ fn task_work(
     item: Option<Value>,
     digest: Option<String>,
 ) -> WorkItem {
-    let ctx = context(rec, item.as_ref(), Some(tid));
+    let (guarded, submit_scenes, main_scene) = (&eng.guarded, &eng.submit_scenes, eng.main_scene.as_deref());
+    let workspace = eng.workspace(&rec.id);
+    let ctx = context_in(rec, item.as_ref(), Some(tid), workspace.as_ref().and_then(|p| p.to_str()));
     let resolve_params = |params: &BTreeMap<String, String>| -> BTreeMap<String, String> {
         params
             .iter()
@@ -1361,6 +1365,23 @@ fn task_work(
         .as_ref()
         .and_then(|k| rec.session_keys.get(k).cloned());
     let st = rec.def.station(sid);
+    // What the task works under, fixed now (xops-04 §3).
+    let permissions: Vec<super::parts::Granted> = match (&spec.executor, st) {
+        (Executor::Session { .. } | Executor::Agent { .. }, Some(st)) => {
+            super::parts::permissions_of(&rec.def, st, &rec.parts.policies)
+                .into_iter()
+                .map(|g| super::parts::Granted {
+                    permission: g.permission.map_patterns(|p| match resolve_str(p, &ctx) {
+                        Value::String(s) => s,
+                        Value::Null => String::new(),
+                        v => v.to_string(),
+                    }),
+                    from: g.from,
+                })
+                .collect()
+        }
+        _ => vec![],
+    };
     let (placement, delivery, scene) = match &spec.executor {
         e if e.in_main() => {
             let (placement, scene) = main_placement(rec, main_scene, &resolve_params);
@@ -1403,10 +1424,22 @@ fn task_work(
             task: tid,
             item: item.as_ref(),
             guarded,
+            permissions: &permissions,
+            gates: &rec.parts.gates,
             delivery: delivery.unwrap_or(Delivery::StructuredOutput),
             executor: Some(&spec.executor),
         })),
         _ => None,
+    };
+    let rules: Vec<(String, Option<String>)> = match (&spec.executor, st) {
+        (Executor::Session { .. } | Executor::Agent { .. }, Some(st)) => super::parts::rules_of(&rec.def, st)
+            .into_iter()
+            .map(|r| {
+                let d = rec.stations.get(sid).and_then(|s| s.rule_digest.get(&r).cloned());
+                (r, d)
+            })
+            .collect(),
+        _ => vec![],
     };
     WorkItem::Task {
         run: rec.id.clone(),
@@ -1418,6 +1451,8 @@ fn task_work(
         executor: spec.executor.clone(),
         skill: spec.skill.clone(),
         skill_digest: digest,
+        rules,
+        permissions,
         item,
         output_schema: st.and_then(|s| s.output.clone()),
         protocol,
@@ -1434,7 +1469,7 @@ type ResolveParams<'a> = dyn Fn(&BTreeMap<String, String>) -> BTreeMap<String, S
 
 /// [`main_placement`] with `params` resolved against the run (no item, no task).
 pub(crate) fn main_of(rec: &RunRecord, main_scene: Option<&str>) -> (Placement, Option<String>) {
-    let ctx = context(rec, None, None);
+    let ctx = context_in(rec, None, None, None);
     let resolve_params = |params: &BTreeMap<String, String>| -> BTreeMap<String, String> {
         params
             .iter()
@@ -1475,22 +1510,9 @@ pub(crate) fn main_placement(
 /// The work handed out for a run and not answered yet, as it was handed out — for a module that
 /// restarted and must carry on with what it had been given: every session and program task the
 /// dispatcher holds a live claim on (`session` is the session the task reported with
-/// `attach_session`, else its key's), and every gate of the current round still waiting for its
-/// result.
-///
-/// Every session task is taken to hand in by structured output here; [`Engine::dispatched_work`]
-/// knows which scenes hand in with `flow_submit`.
-pub fn dispatched_work(rec: &RunRecord, guarded: &[String], now: u64) -> Vec<WorkItem> {
-    dispatched_work_with(rec, guarded, &BTreeSet::new(), None, now)
-}
-
-pub(crate) fn dispatched_work_with(
-    rec: &RunRecord,
-    guarded: &[String],
-    submit_scenes: &BTreeSet<String>,
-    main_scene: Option<&str>,
-    now: u64,
-) -> Vec<WorkItem> {
+/// `attach_session`, else its key's), and every
+/// `command` or `host` gate of the current round still waiting for its result.
+pub(crate) fn dispatched_work_with(rec: &RunRecord, eng: &Engine, now: u64) -> Vec<WorkItem> {
     let dispatcher = Actor::flow("dispatch");
     let mut out = vec![];
     if !rec.is_active() {
@@ -1506,6 +1528,9 @@ pub(crate) fn dispatched_work_with(
                 if let (Some(ExitCond::Gate { gate, .. }), CheckStatus::Wait, true) =
                     (gate, c.status, c.round == st.round)
                 {
+                    if rec.parts.gates.get(gate).is_none_or(|g| g.kind == GateKind::Tool) {
+                        continue;
+                    }
                     out.push(WorkItem::Gate {
                         run: rec.id.clone(),
                         station: sid.clone(),
@@ -1537,9 +1562,7 @@ pub(crate) fn dispatched_work_with(
                 .and_then(|s| st.skill_digest.get(s).cloned());
             let mut w = task_work(
                 rec,
-                guarded,
-                submit_scenes,
-                main_scene,
+                eng,
                 sid,
                 &t.id,
                 &spec,

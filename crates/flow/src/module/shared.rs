@@ -11,7 +11,8 @@ use tokio::task::JoinHandle;
 
 use crate::dryrun::Sandbox;
 use crate::kernel::engine::Engine;
-use crate::kernel::host::{Event, Gates, Hooks, Programs, WorkItem};
+use crate::kernel::host::{Event, Gates, Programs, WorkItem};
+use crate::kernel::parts::Granted;
 use crate::kernel::run::RunRecord;
 
 pub(crate) type RecordingFn = Arc<dyn Fn(&WorkItem) -> Option<String> + Send + Sync>;
@@ -24,7 +25,8 @@ pub(crate) struct Config {
     pub scenes: Vec<String>,
     pub programs: Option<Arc<dyn Programs>>,
     pub gates: Option<Arc<dyn Gates>>,
-    pub hooks: Option<Arc<dyn Hooks>>,
+    /// Whether `command` gates may run (xops-04 §4).
+    pub command_gates: bool,
     pub guarded: Vec<String>,
     pub recording: Option<RecordingFn>,
     /// The recording a run's main session replays (xops-03 §1).
@@ -49,8 +51,8 @@ pub(crate) struct Binding {
     pub round: u32,
     pub task: String,
     pub token: String,
-    /// The station's `writes`.
-    pub writes: Vec<String>,
+    /// What the task works under, references resolved (xops-04 §3).
+    pub permissions: Vec<Granted>,
 }
 
 /// One task in one round: what is dispatched at most once at a time.
@@ -105,6 +107,10 @@ pub(crate) struct Shared {
     /// → (the message's text, the task's binding). The turn whose `user_message` is that text is
     /// the task's; every other turn of the session is a person's (xops-03 review #2).
     sent: Mutex<HashMap<String, Vec<(String, Binding)>>>,
+    /// Each hook's last delivery (xops-04 §5): hook → `{at, event, status, error?}`.
+    pub hook_status: Mutex<BTreeMap<String, serde_json::Value>>,
+    /// Each hook's delivery queue.
+    pub hook_queues: super::hooks::Queues,
 }
 
 /// How many runs' sub-agents are remembered.
@@ -143,6 +149,8 @@ impl Shared {
             agents: Mutex::new(HashMap::new()),
             agents_seq: std::sync::atomic::AtomicU64::new(0),
             sent: Mutex::new(HashMap::new()),
+            hook_status: Mutex::new(BTreeMap::new()),
+            hook_queues: Default::default(),
         }
     }
 
@@ -494,7 +502,7 @@ mod tests {
                 scenes: vec![],
                 programs: None,
                 gates: None,
-                hooks: None,
+                command_gates: false,
                 guarded: vec![],
                 recording: None,
                 main_recording: None,
@@ -546,7 +554,7 @@ mod tests {
             round: 1,
             task: "a".into(),
             token: token.into(),
-            writes: vec![],
+            permissions: vec![],
         };
         sh.bind("s", b("old"));
         sh.bind("s", b("new"));

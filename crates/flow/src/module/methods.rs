@@ -53,9 +53,16 @@ struct YamlIn {
 }
 
 #[derive(Deserialize)]
-struct SkillIn {
+struct PartIn {
+    kind: crate::PartKind,
     name: String,
-    body: String,
+    #[serde(default)]
+    text: String,
+}
+
+#[derive(Deserialize)]
+struct KindIn {
+    kind: crate::PartKind,
 }
 
 #[derive(Deserialize, Default)]
@@ -471,15 +478,11 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         sh,
         packs,
         "catalog",
-        "the names definitions may use: {scenes, steps, gates, tools, actions, templates, instances, spaces, models, skills, writable}",
+        "the names definitions may use: {scenes, steps, checks, tools, command_gates, templates, instances, spaces, models, guarded, parts: {kind: [name]}, writable}",
         |_, packs, _, _: Value| async move {
-            let c = packs.catalog();
-            Ok(json!({
-                "scenes": c.scenes, "steps": c.steps, "gates": c.gates, "tools": c.tools,
-                "actions": c.actions, "templates": c.templates, "instances": c.instances,
-                "spaces": c.spaces, "models": c.models, "skills": packs.skills(),
-                "writable": packs.writable(),
-            }))
+            let mut v = super::author::catalog_json(packs.as_ref());
+            v["writable"] = json!(packs.writable());
+            Ok(v)
         },
     );
     method(
@@ -519,15 +522,32 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
             Ok(v)
         },
     );
+    // ── the other parts of a pack (xops-04) ─────────────────────────────────
     method(
         m,
         sh,
         packs,
-        "skill.save",
-        "save a skill's SKILL.md body: {name, body} → {name, digest}",
-        |sh, _, cx, p: SkillIn| async move {
+        "parts",
+        "the parts of a kind on offer: {kind: skill|rule|policy|gate|hook} → [{name, title, description, origin, flows}] (flows: the flows that use it)",
+        |_, packs, _, p: KindIn| async move { Ok(Value::Array(parts_list(packs.as_ref(), p.kind))) },
+    );
+    method(
+        m,
+        sh,
+        packs,
+        "part",
+        "one part: {kind, name} → {kind, name, text, digest, origin, title, description, parsed?, problems, flows}",
+        |_, packs, _, p: PartIn| async move { part_info(packs.as_ref(), p.kind, &p.name) },
+    );
+    method(
+        m,
+        sh,
+        packs,
+        "part.save",
+        "save a part in the writable packs, once it is sound: {kind, name, text} → {kind, name, digest, origin, broken: [{flow, problems}]}",
+        |sh, _, cx, p: PartIn| async move {
             let v = engine(&sh)?
-                .save_skill(&p.name, &p.body, device(&cx))
+                .save_part(p.kind, &p.name, &p.text, device(&cx))
                 .await
                 .map_err(rpc_error)?;
             packs_changed(&sh, None).await;
@@ -538,16 +558,24 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         m,
         sh,
         packs,
-        "skill.delete",
-        "delete a saved skill: {name} → {name}",
-        |sh, _, cx, p: NameIn| async move {
+        "part.delete",
+        "delete a saved part (an override: the built-in one is back): {kind, name} → {kind, name, origin, broken}",
+        |sh, _, cx, p: PartIn| async move {
             let v = engine(&sh)?
-                .delete_skill(&p.name, device(&cx))
+                .delete_part(p.kind, &p.name, device(&cx))
                 .await
                 .map_err(rpc_error)?;
             packs_changed(&sh, None).await;
             Ok(v)
         },
+    );
+    method(
+        m,
+        sh,
+        packs,
+        "hooks",
+        "the hooks of the pack, each with its last delivery: [{name, title, description, on, flows, kind, action, signed, last: {at, event, run, status, code?, error?, tries} | null}]",
+        |sh, packs, _, _: Value| async move { Ok(Value::Array(super::hooks::listing(&sh, &packs.hooks()))) },
     );
     method(
         m,
@@ -987,7 +1015,8 @@ async fn accepted(cx: &CallContext, a: Accept, action: &str) {
 }
 
 /// `def`: the definition as parsed and as written, where it comes from and whether it is valid,
-/// the skills it names, and the protocol layer each session station's tasks are given (with
+/// the parts it uses (skills, rules, policies, gates) and the hooks over it, each station's rules
+/// and permissions, and the protocol layer each session station's tasks are given (with
 /// placeholders for the run).
 fn def_info(engine: &Engine, packs: &dyn Packs, name: &str) -> Answer {
     let (def, digest) = packs
@@ -997,8 +1026,9 @@ fn def_info(engine: &Engine, packs: &dyn Packs, name: &str) -> Answer {
         .flow_text(name)
         .or_else(|| serde_yaml::to_string(&def).ok())
         .unwrap_or_default();
-    let mut skills = BTreeMap::new();
     let mut proto = BTreeMap::new();
+    let mut stations = BTreeMap::new();
+    let pinned = crate::kernel::parts::pin(&def, packs);
     for s in &def.stations {
         let specs = match s.work() {
             Work::None => vec![],
@@ -1006,13 +1036,11 @@ fn def_info(engine: &Engine, packs: &dyn Packs, name: &str) -> Answer {
             Work::Tasks(ts) => ts,
             Work::Foreach { task, .. } => vec![task],
         };
-        for t in &specs {
-            if let Some(skill) = &t.skill {
-                if let Some((body, _)) = packs.skill(skill) {
-                    skills.insert(skill.clone(), body);
-                }
-            }
-        }
+        let permissions = crate::kernel::parts::permissions_of(&def, s, &pinned.policies);
+        stations.insert(
+            s.id.clone(),
+            json!({"rules": crate::kernel::parts::rules_of(&def, s), "permissions": permissions}),
+        );
         if let Some(t) = specs
             .iter()
             .find(|t| matches!(t.executor, crate::Executor::Session { .. } | crate::Executor::Agent { .. }))
@@ -1032,6 +1060,8 @@ fn def_info(engine: &Engine, packs: &dyn Packs, name: &str) -> Answer {
                 task: &t.id,
                 item: None,
                 guarded: engine.guarded(),
+                permissions: &permissions,
+                gates: &pinned.gates,
                 delivery,
                 executor: Some(&t.executor),
             });
@@ -1039,9 +1069,96 @@ fn def_info(engine: &Engine, packs: &dyn Packs, name: &str) -> Answer {
         }
     }
     let problems = validate(&def, packs);
+    let used = super::author::parts_used(packs, &def);
     Ok(json!({
         "def": def, "yaml": yaml, "digest": digest, "origin": packs.origin(name),
         "valid": problems.is_empty(), "problems": problems, "writable": packs.writable(),
-        "skills": skills, "protocol": proto,
+        "parts": used["parts"], "hooks": used["hooks"], "stations": stations, "protocol": proto,
+    }))
+}
+
+/// A part's title and description: a YAML part's fields, a rule's heading, a skill's front matter.
+fn part_heading(kind: crate::PartKind, name: &str, text: &str) -> (String, String) {
+    use crate::PartKind as K;
+    match kind {
+        K::Rule => {
+            let (title, body) = crate::kernel::parts::rule_parts(name, text);
+            (title, body.lines().next().unwrap_or_default().to_string())
+        }
+        K::Skill => {
+            let front = text
+                .trim_start()
+                .strip_prefix("---\n")
+                .and_then(|r| r.split_once("\n---"))
+                .and_then(|(f, _)| serde_yaml::from_str::<serde_yaml::Value>(f).ok());
+            let get = |k: &str| {
+                front
+                    .as_ref()
+                    .and_then(|f| f.get(k))
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+            };
+            (get("name").unwrap_or_else(|| name.to_string()), get("description").unwrap_or_default())
+        }
+        K::Policy | K::Gate | K::Hook => {
+            let v = serde_yaml::from_str::<serde_yaml::Value>(text).ok();
+            let get = |k: &str| {
+                v.as_ref()
+                    .and_then(|f| f.get(k))
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+                    .unwrap_or_default()
+            };
+            (get("title"), get("description"))
+        }
+    }
+}
+
+/// The flows that use a part.
+fn users_of(packs: &dyn Packs, kind: crate::PartKind, name: &str) -> Vec<String> {
+    match kind {
+        crate::PartKind::Hook => packs
+            .hook(name)
+            .map(|h| if h.flows.is_empty() { packs.flows() } else { h.flows })
+            .unwrap_or_default(),
+        _ => packs
+            .flows()
+            .into_iter()
+            .filter(|f| packs.flow(f).is_some_and(|(d, _)| crate::kernel::parts::uses(&d, kind, name)))
+            .collect(),
+    }
+}
+
+fn parts_list(packs: &dyn Packs, kind: crate::PartKind) -> Vec<Value> {
+    packs
+        .parts(kind)
+        .into_iter()
+        .filter_map(|n| {
+            let (text, _) = packs.part(kind, &n)?;
+            let (title, description) = part_heading(kind, &n, &text);
+            Some(json!({
+                "name": n, "title": title, "description": description,
+                "origin": packs.part_origin(kind, &n), "flows": users_of(packs, kind, &n),
+            }))
+        })
+        .collect()
+}
+
+fn part_info(packs: &dyn Packs, kind: crate::PartKind, name: &str) -> Answer {
+    let (text, digest) = packs
+        .part(kind, name)
+        .ok_or_else(|| rpc_error(FlowError::NotFound(format!("{kind} {name}"))))?;
+    let (title, description) = part_heading(kind, name, &text);
+    let parsed = match kind {
+        crate::PartKind::Policy => packs.policy(name).and_then(|p| serde_json::to_value(p).ok()),
+        crate::PartKind::Gate => packs.gate(name).and_then(|g| serde_json::to_value(g).ok()),
+        crate::PartKind::Hook => packs.hook(name).and_then(|h| serde_json::to_value(h).ok()),
+        _ => None,
+    };
+    Ok(json!({
+        "kind": kind, "name": name, "text": text, "digest": digest,
+        "origin": packs.part_origin(kind, name), "title": title, "description": description,
+        "parsed": parsed, "problems": crate::kernel::validate::part_problems(kind, name, &text, packs),
+        "flows": users_of(packs, kind, name), "writable": packs.writable(),
     }))
 }

@@ -1,20 +1,24 @@
 //! The protocol layer: the text the module puts before a skill's body in a session task.
 //!
 //! What a session is opened with — its scene (so how it hands in), its output contract when it
-//! hands in by structured output, the guarded tools it is refused, its model and place — it
-//! keeps for good. Tasks that may share a session (`per_run`, or the same `{key}` expression)
-//! must therefore agree on all of them; validation says so, and the module refuses to put a
-//! task into a shared session opened otherwise. Guarded patterns are names or `ns__*` groups,
-//! and a group is opened whole or not at all ([`refused`], [`partial_writes`]).
+//! hands in by structured output, its model and place — it keeps for good. Tasks that may share
+//! a session (`per_run`, or the same `{key}` expression) must therefore agree on all of them;
+//! validation says so, and the module refuses to put a task into a shared session opened
+//! otherwise. What a task may do is not kept by the session: the module judges each call against
+//! the permissions of the task the turn works on (xops-04 §3). Tool patterns are names or `ns__*`
+//! groups ([`guard_problem`], [`rule_tool`]).
 //!
 //! It is generated from the station's definition — what to hand in, how, what
-//! may be written, how the station is judged — so a skill only has to say how
+//! may be done, how the station is judged — so a skill only has to say how
 //! to do the work well. Where the two disagree, the protocol wins.
 
 use serde_json::Value;
 
+use std::collections::BTreeMap;
+
 use super::def::{Executor, ExitCond, FlowDef, Station};
 use super::host::Delivery;
+use super::parts::{Effect, GateDef, GateKind, Granted};
 
 /// The name of the engine's tool a session hands a structured output in with.
 pub const STRUCTURED_OUTPUT_TOOL: &str = "StructuredOutput";
@@ -54,68 +58,39 @@ pub fn guard_problems(guarded: &[String]) -> Vec<String> {
     guarded.iter().filter_map(|g| guard_problem(g)).collect()
 }
 
-/// A station's write that opens only part of a guarded group: `(write, group)`. A `deny` rule
-/// cannot carry an exception, so such a write cannot be granted — validation reports it, and
-/// [`refused`] keeps the whole group refused.
-pub fn partial_writes(guarded: &[String], writes: &[String]) -> Vec<(String, String)> {
-    let mut out = vec![];
-    for g in guarded {
-        let Some(prefix) = g.strip_suffix('*') else {
-            continue;
-        };
-        for w in writes {
-            let inside = match w.strip_suffix('*') {
-                // A wider (or the same) group covers the whole guarded group.
-                Some(wp) => wp.starts_with(prefix) && wp != prefix,
-                None => w.starts_with(prefix),
-            };
-            if inside {
-                out.push((w.clone(), g.clone()));
-            }
-        }
+/// The tool name an engine permission rule gives for a pattern: the name, or for a group
+/// `ns__*` its namespace `ns` (the engine matches rules at `__` boundaries). A pattern
+/// [`guard_problem`] refuses is taken as widely as a rule can say: up to its last `__`, or as
+/// written.
+pub fn rule_tool(pattern: &str) -> String {
+    match pattern.strip_suffix('*') {
+        None => pattern.to_string(),
+        Some(prefix) => match prefix.strip_suffix("__") {
+            Some(ns) if !ns.is_empty() => ns.to_string(),
+            _ => match prefix.rfind("__") {
+                Some(i) if i > 0 => prefix[..i].to_string(),
+                _ => prefix.to_string(),
+            },
+        },
     }
-    out
 }
 
-/// The guarded tools a station's session is refused, as `(pattern, rule tool name)`: what the
-/// protocol layer names and what the module writes as the session's `deny` permission rules.
-///
-/// Fails closed. A guarded name is refused unless the station's `writes` allow it; a guarded
-/// group (`ns__*`, the rule names the namespace `ns`) is refused unless a write covers the
-/// whole group — a write of part of it does not open it ([`partial_writes`], a validation
-/// problem). A pattern [`guard_problem`] refuses (the module does not start with one) is
-/// refused as widely as a rule can say: up to its last `__`, or as written.
-pub fn refused(guarded: &[String], writes: &[String]) -> Vec<(String, String)> {
-    let mut out: Vec<(String, String)> = vec![];
-    for g in guarded {
-        let rule = match g.strip_suffix('*') {
-            None => {
-                if matches_any(writes, g) {
-                    continue;
-                }
-                g.clone()
-            }
-            Some(prefix) => {
-                let covered = writes
-                    .iter()
-                    .any(|w| w.strip_suffix('*').is_some_and(|wp| prefix.starts_with(wp)));
-                if covered {
-                    continue;
-                }
-                match prefix.strip_suffix("__") {
-                    Some(ns) if !ns.is_empty() => ns.to_string(),
-                    _ => match prefix.rfind("__") {
-                        Some(i) if i > 0 => prefix[..i].to_string(),
-                        _ => prefix.to_string(),
-                    },
-                }
-            }
-        };
-        if !out.iter().any(|(_, r)| *r == rule) {
-            out.push((g.clone(), rule));
+/// A session's `ask` permission rules for tool patterns, each rule once: every call of those
+/// tools comes to be judged.
+pub fn ask_rules(patterns: &[String]) -> Value {
+    let mut tools: Vec<String> = vec![];
+    for p in patterns {
+        let t = rule_tool(p);
+        if !tools.contains(&t) {
+            tools.push(t);
         }
     }
-    out
+    Value::Array(
+        tools
+            .into_iter()
+            .map(|t| serde_json::json!({"source": "session", "behavior": "ask", "tool_name": t}))
+            .collect(),
+    )
 }
 
 /// A SKILL.md body without its front matter.
@@ -128,10 +103,21 @@ pub fn skill_body(text: &str) -> String {
     body.trim().to_string()
 }
 
-/// The whole first message a session task's session is sent: the protocol layer, then the
-/// skill's body under its name (`skill`: name and SKILL.md text).
-pub fn task_message(protocol: &str, skill: Option<(&str, &str)>) -> String {
+/// The whole first message a session task's session is sent: the protocol layer, the rules it
+/// works under (`rules`: name and text), then the skill's body under its name (`skill`: name and
+/// SKILL.md text).
+pub fn task_message(protocol: &str, rules: &[(String, String)], skill: Option<(&str, &str)>) -> String {
     let mut text = protocol.to_string();
+    if !rules.is_empty() {
+        text.push_str(
+            "\n\n## Rules\n\nThese hold for the whole flow. They are not checked here by \
+             reading your words: keep to them.\n",
+        );
+        for (name, body) in rules {
+            let (title, body) = super::parts::rule_parts(name, body);
+            text.push_str(&format!("\n### {title} (`{name}`)\n\n{body}\n"));
+        }
+    }
     if let Some((name, body)) = skill {
         text.push_str(&format!("\n\n## Skill `{name}`\n\n{}\n", skill_body(body)));
     }
@@ -147,8 +133,12 @@ pub struct TaskContext<'a> {
     pub round: u32,
     pub task: &'a str,
     pub item: Option<&'a Value>,
-    /// The tools the host refuses as writes unless the station lists them (`Engine::with_guarded`).
+    /// The tools the host refuses unless a permission allows them (`Engine::with_guarded`).
     pub guarded: &'a [String],
+    /// What the task works under, references resolved.
+    pub permissions: &'a [Granted],
+    /// The run's pinned gates, for the station's `gate` exits.
+    pub gates: &'a BTreeMap<String, GateDef>,
     /// How the output is handed in.
     pub delivery: Delivery,
     /// The task's executor: a sub-agent task (`kind: agent`) and a task in the main session
@@ -208,8 +198,8 @@ pub fn render(t: &TaskContext) -> String {
         }
         s.push_str(&format!(
             "- **This task is a sub-agent's.** Do not do it yourself: call the `Agent` tool once, \
-             with {} and a prompt that gives the sub-agent the task — the item, the contract and \
-             the skill below. When it answers, check its result against the contract and hand it \
+             with {} and a prompt that gives the sub-agent the task — the item, the contract, \
+             the rules and the skill below. When it answers, check its result against the contract and hand it \
              in with `flow_submit`; if it falls short, call it again with what is missing.\n",
             how.join(", ")
         ));
@@ -242,32 +232,23 @@ pub fn render(t: &TaskContext) -> String {
         exits(st)
     ));
     for e in &st.exit {
-        if let ExitCond::Tool { tool, args, .. } = e {
-            s.push_str(&format!(
-                "- Exit check `{tool}` is called with {}; you may call it yourself before submitting.\n",
-                args
-            ));
+        let ExitCond::Gate { gate, .. } = e else { continue };
+        let Some(g) = t.gates.get(gate) else { continue };
+        let what = if g.description.is_empty() { g.label().to_string() } else { g.description.clone() };
+        match g.kind {
+            GateKind::Tool => s.push_str(&format!(
+                "- Gate `{gate}`: {what} It calls `{}` with {}; you may call it yourself before handing in.\n",
+                g.tool.as_deref().unwrap_or_default(),
+                g.args
+            )),
+            GateKind::Command => s.push_str(&format!(
+                "- Gate `{gate}`: {what} It runs `{}` once your output is in.\n",
+                g.command.as_deref().unwrap_or_default()
+            )),
+            GateKind::Host => s.push_str(&format!("- Gate `{gate}`: {what}\n")),
         }
     }
-    let refused: Vec<String> = refused(t.guarded, &st.writes)
-        .into_iter()
-        .map(|(p, _)| p)
-        .collect();
-    let guarded = if refused.is_empty() {
-        "the host refuses no tool as a write".to_string()
-    } else {
-        format!("the host refuses these as writes: {}", refused.join(", "))
-    };
-    if st.writes.is_empty() {
-        s.push_str(&format!(
-            "- This station allows no writes ({guarded}). Do not change anything outside the flow.\n"
-        ));
-    } else {
-        s.push_str(&format!(
-            "- This station allows these writes: {}; beyond them {guarded}.\n",
-            st.writes.join(", ")
-        ));
-    }
+    s.push_str(&permissions_text(t.permissions, t.guarded));
     match t.delivery {
         Delivery::FlowSubmit => s.push_str(
             "- Rework and cancellation are not yours to decide: propose them with \
@@ -279,6 +260,49 @@ pub fn render(t: &TaskContext) -> String {
              an earlier station done again, say so in your reply and a person decides. You cannot \
              confirm or force a station.\n",
         ),
+    }
+    s
+}
+
+/// What the task may do, as the session is told: each permission, then the tools refused unless
+/// one allows them.
+fn permissions_text(granted: &[Granted], guarded: &[String]) -> String {
+    let mut s = String::from(
+        "- The flow judges each tool call against these permissions (deny over ask over allow); a \
+         call refused says why — do not try it another way. A call a person is asked about waits for \
+         their answer.\n",
+    );
+    if granted.is_empty() {
+        s.push_str("  - (no permissions)\n");
+    }
+    for g in granted {
+        let p = &g.permission;
+        let mut scope = vec![];
+        if !p.paths.is_empty() {
+            scope.push(format!("paths {}", p.paths.join(", ")));
+        }
+        if !p.commands.is_empty() {
+            scope.push(format!("commands {}", p.commands.join(", ")));
+        }
+        for (k, v) in &p.args {
+            scope.push(format!("{k} {}", v.join(", ")));
+        }
+        let scope = if scope.is_empty() { String::new() } else { format!(" — {}", scope.join("; ")) };
+        let verb = match p.effect {
+            Effect::Allow => "allowed",
+            Effect::Ask => "a person is asked",
+            Effect::Deny => "refused",
+        };
+        let msg = if p.message.is_empty() { String::new() } else { format!(": {}", p.message) };
+        s.push_str(&format!("  - {} {verb}{scope} ({}){msg}\n", p.tools.join(", "), g.from));
+    }
+    if guarded.is_empty() {
+        s.push_str("- No tool is refused unless a permission says so.\n");
+    } else {
+        s.push_str(&format!(
+            "- Refused unless a permission allows them: {}. Do not change anything outside the flow otherwise.\n",
+            guarded.join(", ")
+        ));
     }
     s
 }
@@ -307,28 +331,17 @@ mod tests {
     }
 
     #[test]
-    fn refused_writes_are_the_guarded_tools_a_station_does_not_open() {
+    fn a_group_is_asked_by_its_namespace() {
         let v = |xs: &[&str]| xs.iter().map(|x| x.to_string()).collect::<Vec<_>>();
-        let g = v(&["Bash", "Write", "mcp__db__*", "Note*"]);
-        let rules = |w: &[&str]| -> Vec<String> {
-            refused(&g, &v(w)).into_iter().map(|(_, r)| r).collect()
-        };
-        assert_eq!(
-            rules(&[]),
-            ["Bash", "Write", "mcp__db", "Note"],
-            "a group by its namespace; a pattern no rule can say is refused as written"
-        );
-        assert_eq!(rules(&["Write"]), ["Bash", "mcp__db", "Note"]);
-        assert_eq!(
-            rules(&["mcp__db__insert"]),
-            ["Bash", "Write", "mcp__db", "Note"],
-            "a group partly opened stays refused: it fails closed"
-        );
-        assert_eq!(rules(&["mcp__*"]), ["Bash", "Write", "Note"]);
-        assert_eq!(
-            rules(&["Bash", "Write", "mcp__db__*", "Note*"]),
-            Vec::<String>::new()
-        );
+        let rules = ask_rules(&v(&["Bash", "mcp__db__*", "mcp__db__insert", "Note*", "Bash"]));
+        let names: Vec<&str> = rules
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["tool_name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["Bash", "mcp__db", "mcp__db__insert", "Note"]);
+        assert!(rules.as_array().unwrap().iter().all(|r| r["behavior"] == "ask"));
     }
 
     #[test]
@@ -338,23 +351,25 @@ mod tests {
         for bad in ["Note*", "mcp__db_*", "__*", "a*b", "", " Bash", "mcp__*__*"] {
             assert!(guard_problem(bad).is_some(), "{bad:?}");
         }
-        let v = |xs: &[&str]| xs.iter().map(|x| x.to_string()).collect::<Vec<_>>();
-        assert_eq!(
-            partial_writes(
-                &v(&["Bash", "mcp__db__*"]),
-                &v(&[
-                    "mcp__db__insert",
-                    "Bash",
-                    "mcp__db__x*",
-                    "mcp__*",
-                    "mcp__db__*"
-                ])
-            ),
-            [
-                ("mcp__db__insert".to_string(), "mcp__db__*".to_string()),
-                ("mcp__db__x*".to_string(), "mcp__db__*".to_string()),
-            ]
-        );
+    }
+
+    static M1: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| serde_json::json!("m1"));
+
+    fn ctx<'a>(def: &'a FlowDef, granted: &'a [Granted], gates: &'a BTreeMap<String, GateDef>, guarded: &'a [String], delivery: Delivery) -> TaskContext<'a> {
+        TaskContext {
+            def,
+            station: &def.stations[0],
+            run: "demo-1",
+            subject: "repo",
+            round: 1,
+            task: &def.stations[0].id,
+            item: Some(&M1),
+            guarded,
+            permissions: granted,
+            gates,
+            delivery,
+            executor: None,
+        }
     }
 
     #[test]
@@ -363,24 +378,10 @@ mod tests {
             "name: d\nstations: [{id: a, executor: {kind: session, scene: chat}, skill: s, output: {type: object}, exit: [{kind: output}]}]",
         )
         .unwrap();
-        let t = render(&TaskContext {
-            def: &def,
-            station: &def.stations[0],
-            run: "d-1",
-            subject: "x",
-            round: 1,
-            task: "a",
-            item: None,
-            guarded: &[],
-            delivery: Delivery::StructuredOutput,
-            executor: None,
-        });
+        let t = render(&ctx(&def, &[], &BTreeMap::new(), &[], Delivery::StructuredOutput));
         assert!(t.contains("`StructuredOutput`"), "{t}");
-        assert!(
-            !t.contains("flow_submit") && !t.contains("flow_propose"),
-            "{t}"
-        );
-        assert!(t.contains("refuses no tool"), "{t}");
+        assert!(!t.contains("flow_submit") && !t.contains("flow_propose"), "{t}");
+        assert!(t.contains("No tool is refused"), "{t}");
     }
 
     #[test]
@@ -393,34 +394,39 @@ stations:
     executor: {kind: session, scene: chat}
     skill: analyze
     output: {type: object, required: [findings]}
-    writes: [app.x.findings_*]
-    exit: [{kind: output}, {kind: tool, tool: count, args: {run: "${run}"}, assert: [{path: total, eq: 0}]}]
+    exit: [{kind: output}, {kind: gate, gate: counted}]
 "#,
         )
         .unwrap();
-        let t = render(&TaskContext {
-            def: &def,
-            station: &def.stations[0],
-            run: "demo-1",
-            subject: "repo",
-            round: 1,
-            task: "analyze",
-            item: Some(&serde_json::json!("m1")),
-            guarded: &["Bash".to_string()],
-            delivery: Delivery::FlowSubmit,
-            executor: None,
-        });
+        let granted = vec![Granted {
+            permission: serde_yaml::from_str("{effect: allow, tools: [app.x.findings_add], message: only findings}").unwrap(),
+            from: "station analyze".into(),
+        }];
+        let gates: BTreeMap<String, GateDef> = [(
+            "counted".to_string(),
+            serde_yaml::from_str("{name: counted, kind: tool, tool: count, args: {run: '${run}'}, assert: [{path: total, eq: 0}]}").unwrap(),
+        )]
+        .into();
+        let t = render(&ctx(&def, &granted, &gates, &["Bash".to_string()], Delivery::FlowSubmit));
         for want in [
             "demo-1",
             "findings",
-            "app.x.findings_*",
+            "app.x.findings_add allowed (station analyze): only findings",
             "flow_submit",
             "flow_propose",
             "`count`",
             "\"m1\"",
-            "refuses these as writes: Bash",
+            "Refused unless a permission allows them: Bash",
         ] {
             assert!(t.contains(want), "missing {want}: {t}");
         }
+    }
+
+    #[test]
+    fn rules_come_before_the_skill() {
+        let m = task_message("P", &[("no-secrets".into(), "# No secrets\n\nNever paste keys.".into())], Some(("s", "Do it.")));
+        let (r, k) = (m.find("### No secrets (`no-secrets`)").unwrap(), m.find("## Skill `s`").unwrap());
+        assert!(r < k, "{m}");
+        assert!(m.contains("Never paste keys."));
     }
 }

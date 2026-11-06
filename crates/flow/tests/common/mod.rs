@@ -16,9 +16,11 @@ pub fn packs() -> MemPacks {
         .step("collect")
         .step("work")
         .step("check")
-        .gate("lint")
+        .check("lint")
+        .gate_def("{name: lint, kind: host}")
         .tool("count")
-        .action("notify")
+        .gate_def("{name: no-high, kind: tool, tool: count, args: {run: '${run}', what: high}, assert: [{path: total, eq: 0}]}")
+        .gate_def("{name: counted, kind: tool, tool: count, args: {run: '${run}'}, assert: [{path: total, eq: 0}]}")
         .skill("analyze", "---\nname: analyze\n---\nAnalyze it.")
         .skill("report", "Write the report.")
 }

@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::def::FlowDef;
+use super::parts::Pinned;
 
 /// Whoever did something. The kernel records it and never interprets it.
 #[derive(
@@ -145,6 +146,19 @@ pub struct TaskRec {
     /// The tokens of the turns that worked on it, over every attempt (xops-03 §4).
     #[serde(default, skip_serializing_if = "Usage::is_empty")]
     pub usage: Usage,
+    /// Set while its session waits for a person to answer a call an `ask` permission holds
+    /// (xops-04 §3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asking: Option<AskRec>,
+}
+
+/// A call held for a person (xops-04 §3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AskRec {
+    pub tool: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub reason: String,
+    pub since: u64,
 }
 
 impl TaskRec {
@@ -162,6 +176,7 @@ impl TaskRec {
             started_at: None,
             ended_at: None,
             usage: Usage::default(),
+            asking: None,
         }
     }
 
@@ -288,6 +303,9 @@ pub struct StationRec {
     /// Skill name → content digest, pinned on entry.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub skill_digest: BTreeMap<String, String>,
+    /// Rule name → content digest, pinned on entry (xops-04 §2).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub rule_digest: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tasks: Vec<TaskRec>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -313,6 +331,7 @@ impl StationRec {
             rounds_total: 0,
             auto_reworks: 0,
             skill_digest: BTreeMap::new(),
+            rule_digest: BTreeMap::new(),
             tasks: vec![],
             checks: vec![],
             confirms: vec![],
@@ -376,6 +395,9 @@ pub struct RunRecord {
     pub def_digest: String,
     /// The definition, pinned at creation: a changed pack does not affect a running run.
     pub def: FlowDef,
+    /// The policies and gates the definition refers to, pinned with it (xops-04).
+    #[serde(default, skip_serializing_if = "Pinned::is_empty")]
+    pub parts: Pinned,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub title: String,
     pub subject: String,
@@ -445,12 +467,15 @@ impl RunRecord {
             RunStatus::Active => {}
         }
         let mut busy: Vec<String> = vec![];
+        // Held for a person's answer: in hand, but waiting (xops-04 §3).
+        let mut asking: Vec<String> = vec![];
         for s in &self.def.stations {
             let Some(r) = self.stations.get(&s.id) else {
                 continue;
             };
             let claimed = r.tasks.iter().any(|t| {
                 t.status == TaskStatus::Claimed
+                    && t.asking.is_none()
                     && s.task_spec(&t.id).is_some_and(|spec| {
                         // A subflow's claim is the child's, an external one someone's outside:
                         // the run waits on them (review #6).
@@ -469,9 +494,12 @@ impl RunRecord {
                 });
             if claimed || gate {
                 busy.push(s.id.clone());
+            } else if r.tasks.iter().any(|t| t.status == TaskStatus::Claimed && t.asking.is_some()) {
+                asking.push(s.id.clone());
             }
         }
         if self.paused.is_some() {
+            busy.extend(asking);
             let mut p = Phase::new(if busy.is_empty() { "paused" } else { "pausing" });
             p.stations = busy;
             return p;
@@ -497,7 +525,9 @@ impl RunRecord {
                     },
                 ),
                 StationStatus::Working => Some(
-                    if r.tasks.iter().any(|t| {
+                    if r.tasks.iter().any(|t| t.asking.is_some() && t.status == TaskStatus::Claimed) {
+                        "approval"
+                    } else if r.tasks.iter().any(|t| {
                         t.status == TaskStatus::Claimed
                             || (t.status == TaskStatus::Ready
                                 && s.task_spec(&t.id).is_some_and(|spec| {
@@ -578,8 +608,8 @@ impl RunRecord {
 }
 
 /// What a run is doing now, for people (xops-03 §3): `running` (work in hand), `waiting` (on a
-/// person or the outside: `reason` says on what — `confirm`, `held`, `unmet`, `failed`,
-/// `external`, `children`, `work`), `pausing` (paused, work still in hand), `paused`,
+/// person or the outside: `reason` says on what — `approval` (a call held for a person, xops-04),
+/// `confirm`, `held`, `unmet`, `failed`, `external`, `children`, `work`), `pausing` (paused, work still in hand), `paused`,
 /// `finished`, `cancelled`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Phase {

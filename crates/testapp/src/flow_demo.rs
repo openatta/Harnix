@@ -12,8 +12,13 @@
 //! | `demo-guarded` | xops-02: a session on a template's instance tries a write its station does not allow (refused by its permission rules), then hands in |
 //! | `demo-misplaced` | xops-02: a station whose template does not exist; the task fails, saying why |
 //! | `demo-bypassed` | xops-02: like `demo-guarded`, on an instance (`bypass-box`) whose settings a LIVE suite sets to `bypassPermissions` — the session asks for a mode that keeps its rules |
-//! | `demo-main` | xops-03: an external task, then two session stations without a scene — turns of the run's main session; the first tries a write it does not allow, the second one it does — then a confirmation |
+//! | `demo-main` | xops-03: an external task, then two session stations without a scene — turns of the run's main session; the first tries a write no permission allows, the second one its permission allows — then a confirmation |
 //! | `demo-agent` | xops-03: a sub-agent station; the main session is on `flow-coding` (it has the `Agent` tool), in a directory of the run's |
+//! | `demo-asked` | xops-04: a main-session station whose policy asks a person before the write; a rule; a tool gate and a command gate |
+//!
+//! The pack also has (xops-04) the rule `review-rules`, the policy `ask-todo`, and the gates `lint`
+//! (the application's own check), `open-high` (a tool) and `self-test` (a command: command gates
+//! are on here).
 //!
 //! The flow module has two templates of its own for those (`flow.local` in process, `flow.remote`
 //! spawned): their engines have `structured-chat` — Agix's chat scene with `StructuredOutput`
@@ -31,8 +36,7 @@ use std::sync::Arc;
 use harnix::prelude::*;
 use harnix_flow::module::StructuredScene;
 use harnix_flow::{
-    Event, FileStore, Flow, GateResult, Gates, Hooks, MemPacks, Programs, RunRecord, Tools,
-    WorkItem,
+    FileStore, Flow, GateResult, Gates, MemPacks, Programs, RunRecord, Tools, WorkItem,
 };
 use serde_json::{json, Value};
 
@@ -62,7 +66,7 @@ description: Every kind of station the flow module has, in one small review.
 inputs:
   mode: {schema: {enum: [manual, auto]}, default: manual}
 rework_limit: 5
-hooks: [{on: run.finished, action: notify}]
+rules: [review-rules]
 stations:
   - id: collect
     title: Collect the modules
@@ -78,7 +82,6 @@ stations:
     output: {type: object, required: [findings], properties: {findings: {type: array}}}
     exit: [{kind: output}]
     retry: {max: 1}
-    writes: []
   - id: lint
     title: Lint
     needs: [collect]
@@ -89,7 +92,7 @@ stations:
     when: [{path: inputs.mode, eq: auto}]
     executor: {kind: program, step: self-check}
     output: {type: object}
-    exit: [{kind: output}, {kind: tool, tool: open_high, args: {run: "${run}"}, assert: [{path: total, eq: 0}]}]
+    exit: [{kind: output}, {kind: gate, gate: open-high}]
     on_unmet: {rework_to: analyze, max: 2}
   - id: review
     title: Review
@@ -139,7 +142,7 @@ stations:
     title: Edit, in the main session, writing allowed
     executor: {kind: session}
     skill: report
-    writes: [TodoWrite]
+    permissions: [{effect: allow, tools: [TodoWrite]}]
     output: {type: object, required: [edited], properties: {edited: {const: true}}}
     exit: [{kind: output}]
   - id: sign
@@ -158,6 +161,43 @@ stations:
     output: {type: object, required: [files], properties: {files: {type: array}}}
     exit: [{kind: output}]
 "#;
+
+pub const DEMO_ASKED: &str = r#"name: demo-asked
+title: "Demo: a write a person is asked about"
+rules: [review-rules]
+stations:
+  - id: edit
+    title: Edit, asking first
+    executor: {kind: session}
+    skill: report
+    policies: [ask-todo]
+    output: {type: object, required: [edited], properties: {edited: {const: true}}}
+    exit: [{kind: output}, {kind: gate, gate: open-high}]
+  - id: test
+    title: Self-test
+    exit: [{kind: gate, gate: self-test}]
+"#;
+
+pub const RULE_REVIEW: &str = "# Review rules
+
+Name the module a finding is about. Never paste a secret into a finding.
+";
+
+pub const POLICY_ASK_TODO: &str = "name: ask-todo
+title: Ask before the todo list
+permissions:
+  - {effect: ask, tools: [TodoWrite], message: the todo list is a person's call here}
+";
+
+pub const GATE_LINT: &str = "name: lint\ntitle: Lint\ndescription: The application's own lint.\nkind: host\n";
+pub const GATE_OPEN_HIGH: &str = "name: open-high
+title: No open high findings
+kind: tool
+tool: open_high
+args: {run: \"${run}\"}
+assert: [{path: total, eq: 0}]
+";
+pub const GATE_SELF_TEST: &str = "name: self-test\ntitle: Self-test\nkind: command\ncommand: echo self-test passed\n";
 
 pub const DEMO_SHARED: &str = r#"name: demo-shared
 title: "Demo: one session for the run"
@@ -296,7 +336,7 @@ pub fn module() -> Flow {
         .programs(DemoPrograms)
         .gates(DemoGates)
         .tools(DemoTools)
-        .hooks(DemoHooks)
+        .command_gates(true)
         .guarded_tools(
             harnix_flow::module::DEFAULT_GUARDED
                 .iter()
@@ -314,14 +354,15 @@ pub fn module() -> Flow {
         .main_recording(|rec: &RunRecord| match rec.flow.as_str() {
             "demo-main" => Some("flow-main".into()),
             "demo-agent" => Some("flow-agent".into()),
+            "demo-asked" => Some("flow-asked".into()),
             _ => None,
         })
         .build()
 }
 
-/// The flows and skills built in; saved ones go over them in the module's data directory.
+/// The flows and parts built in; saved ones go over them in the module's data directory.
 fn packs() -> MemPacks {
-    MemPacks::new()
+    parts(MemPacks::new())
         .flow(DEMO_LINEAR)
         .flow(DEMO_REVIEW)
         .flow(DEMO_PROPOSE)
@@ -332,14 +373,23 @@ fn packs() -> MemPacks {
         .flow(DEMO_BYPASSED)
         .flow(DEMO_MAIN)
         .flow(DEMO_AGENT)
-        .skill("analyze", SKILL_ANALYZE)
+        .flow(DEMO_ASKED)
+}
+
+/// The skills, rules, policies and gates, and the catalog names they use.
+fn parts(p: MemPacks) -> MemPacks {
+    p.skill("analyze", SKILL_ANALYZE)
         .skill("report", SKILL_REPORT)
+        .rule("review-rules", RULE_REVIEW)
+        .policy(POLICY_ASK_TODO)
+        .gate_def(GATE_LINT)
+        .gate_def(GATE_OPEN_HIGH)
+        .gate_def(GATE_SELF_TEST)
         .scene("structured-chat")
         .step("collect")
         .step("self-check")
-        .gate("lint")
+        .check("lint")
         .tool("open_high")
-        .action("notify")
 }
 
 struct DemoPrograms;
@@ -384,15 +434,6 @@ impl Tools for DemoTools {
     }
 }
 
-struct DemoHooks;
-
-#[harnix::async_trait]
-impl Hooks for DemoHooks {
-    async fn fire(&self, action: &str, event: &Event) {
-        eprintln!("flow hook {action}: {} {}", event.kind, event.run);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -400,17 +441,10 @@ mod tests {
 
     #[test]
     fn the_demo_flows_are_valid() {
-        let packs = MemPacks::new()
-            .skill("analyze", SKILL_ANALYZE)
-            .skill("report", SKILL_REPORT)
+        let packs = parts(MemPacks::new())
             .submit_scene("flow-coding")
             .main_scene("flow-chat")
-            .scene("structured-chat")
-            .step("collect")
-            .step("self-check")
-            .gate("lint")
-            .tool("open_high")
-            .action("notify");
+            .command_gates();
         for yaml in [
             DEMO_LINEAR,
             DEMO_REVIEW,
@@ -422,6 +456,7 @@ mod tests {
             DEMO_BYPASSED,
             DEMO_MAIN,
             DEMO_AGENT,
+            DEMO_ASKED,
         ] {
             let problems = validate_yaml(yaml, &packs as &dyn Packs);
             assert!(problems.is_empty(), "{problems:?}");

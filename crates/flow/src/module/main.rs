@@ -5,11 +5,14 @@
 //! the session tasks bound to `main` and the sub-agent tasks take their turns in it (the shared
 //! session's lock, `run#@main`).
 //!
-//! Its permission rules `ask` for every guarded tool. While a turn of it works on a task, the
-//! module answers those questions itself from that task's station's `writes` — a station's
-//! limit holds in a session that every station shares — and a turn that works on no task (a
-//! person talking to the main Agent) is asked of the person as ever. The same watch counts each
-//! turn's tokens on the task it worked on, or on the run (`Engine::account`).
+//! Every flow session — the main one and a station's own — `ask`s about every guarded tool and
+//! every tool a permission of the flow names. While a turn works on a task, the module answers
+//! those questions itself from that task's permissions (xops-04 §3): `allow` is permitted, `deny`
+//! refused with its reason, `ask` left to a person — the run waits for `approval` until it is
+//! answered. A station's limit so holds in a session that every station shares. A turn that works
+//! on no task (a person talking to the main Agent) is asked of the person as ever. The main
+//! session's watch also counts each turn's tokens on the task it worked on, or on the run
+//! (`Engine::account`), and notes the sub-agents it starts.
 
 use std::sync::Arc;
 
@@ -19,7 +22,7 @@ use serde_json::{json, Value};
 use super::dispatch::{place_at, settle_quiet, SESSION_SETTINGS, TASK_PERMISSION_MODE};
 use super::shared::{session_name, session_ref, Binding, Shared};
 use crate::kernel::def::MAIN_SESSION_KEY;
-use crate::kernel::protocol::{matches_any, refused};
+use crate::kernel::parts::{judge, Call, Effect, Verdict};
 use crate::kernel::run::{RunRecord, Usage};
 
 /// The lock the main session's turns take (the shared-session lock of the `@main` key).
@@ -27,19 +30,7 @@ pub(crate) fn main_lock(run: &str) -> String {
     format!("{run}#{MAIN_SESSION_KEY}")
 }
 
-/// The main session's permission rules: `ask` for each guarded tool, so each use comes to the
-/// module (or the person) to be decided.
-pub fn ask_rules(guarded: &[String]) -> Value {
-    Value::Array(
-        refused(guarded, &[])
-            .into_iter()
-            .map(|(_, tool)| json!({"source": "session", "behavior": "ask", "tool_name": tool}))
-            .collect(),
-    )
-}
-
-/// What a main session is opened with: everything but the stations' writes, which it does not
-/// keep (they are answered turn by turn).
+/// What a main session is opened with (what its tasks may do is answered turn by turn).
 pub(crate) fn main_settings(scene: &str, p: &crate::Placement, instance: Option<&str>) -> Value {
     json!({
         "scene": scene, "delivery": crate::Delivery::FlowSubmit, "main": true,
@@ -59,7 +50,7 @@ pub(crate) async fn ensure_main(sh: &Arc<Shared>, run: &str) -> Result<SessionRe
     };
     sh.release_lock(&lock_name, lock);
     if let Ok(s) = &r {
-        watch(sh, run, s);
+        watch(sh, run, s, true).await;
     }
     r
 }
@@ -84,7 +75,9 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
     let recording = sh.cfg.main_recording.as_ref().and_then(|f| f(&rec));
     // A scene that needs a project works in a directory of the run's own.
     let project_root = if sh.cfg.project_scenes.contains(&scene) {
-        let dir = cx.data_dir().join("workspaces").join(safe_dir(run));
+        let dir = engine
+            .workspace(run)
+            .unwrap_or_else(|| crate::kernel::refs::workspace_of(&cx.data_dir().join("workspaces"), run));
         std::fs::create_dir_all(&dir).map_err(|e| format!("no workspace for the run: {e}"))?;
         write_agent_type(&dir, &scene);
         Some(dir)
@@ -99,7 +92,7 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
         model: placement.model.clone(),
         provider: placement.provider.clone(),
         permission_mode: Some(TASK_PERMISSION_MODE.into()),
-        permission_rules: Some(ask_rules(&sh.cfg.guarded)),
+        permission_rules: Some(super::dispatch::flow_rules(sh, &rec)),
         recording,
         ..SessionSpec::default()
     };
@@ -151,13 +144,6 @@ fn write_agent_type(workspace: &std::path::Path, main_scene: &str) {
     }
 }
 
-/// A run id as a directory name.
-fn safe_dir(run: &str) -> String {
-    run.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
-        .collect()
-}
-
 /// The main session's name in the session list: the run's title, else its flow's and its id.
 fn main_title(rec: &RunRecord) -> String {
     let flow = if rec.def.title.is_empty() {
@@ -172,29 +158,44 @@ fn main_title(rec: &RunRecord) -> String {
     }
 }
 
-/// Watch a main session while the run lasts, once.
-pub(crate) fn watch(sh: &Arc<Shared>, run: &str, s: &SessionRef) {
+/// Watch a flow session while the run lasts, once: its questions answered (every session), its
+/// turns counted and its sub-agents noted (the main one, `main`; a station's own session's turns
+/// are counted by the task carrying it).
+///
+/// The session is tapped before this returns, so nothing sent to it afterwards goes unseen.
+pub(crate) async fn watch(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: bool) {
     if !sh.watch(&s.session_id, run) {
         return;
     }
+    let tap = match sh.cx.get() {
+        Some(cx) => cx.sessions().tap(s).await.ok(),
+        None => None,
+    };
+    let Some(tap) = tap else {
+        sh.unwatch(&s.session_id);
+        return;
+    };
     let (sh, run, s) = (sh.clone(), run.to_string(), s.clone());
     tokio::spawn(async move {
-        watch_loop(&sh, &run, &s).await;
+        watch_loop(&sh, &run, &s, main, tap).await;
         sh.unwatch(&s.session_id);
     });
 }
 
-async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef) {
-    let Some(cx) = sh.cx.get() else { return };
-    let Ok(mut tap) = cx.sessions().tap(s).await else {
-        return;
-    };
+/// The tool calls a watch keeps the input of, to judge the question that may follow.
+const CALLS_KEPT: usize = 64;
+
+async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: bool, mut tap: harnix_module::Tap) {
     // Turn → the task it was started for: read when the turn's first frame comes, while that
     // task is in hand (by its settlement it has often handed in and been let go).
     let mut turns: std::collections::HashMap<String, Option<Binding>> =
         std::collections::HashMap::new();
     // `Agent` calls of the main Agent: tool use id → what it named the sub-agent.
     let mut agent_calls: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    // Tool use id → input, newest last: what a question about a call is judged on.
+    let mut inputs: std::collections::VecDeque<(String, Value)> = Default::default();
+    // Calls held for a person: tool use id → the task (station, task).
+    let mut held: std::collections::HashMap<String, (String, String)> = Default::default();
     loop {
         let ev = tokio::select! {
             ev = tap.next() => ev,
@@ -238,11 +239,15 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef) {
                     .and_then(|t| turns.remove(t))
                     .flatten()
                     .map(|b| (b.station, b.task));
+                // Whatever was held is over with the turn.
+                for (_, (st, t)) in held.drain() {
+                    unhold(sh, run, &st, &t).await;
+                }
                 let usage = frame
                     .pointer("/params/outcome/usage")
                     .filter(|u| u.is_object())
                     .map(Usage::of_turn);
-                if let Some(u) = usage {
+                if let (true, Some(u)) = (main, usage) {
                     count(sh, run, task, u).await;
                 }
             }
@@ -250,19 +255,42 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef) {
                 let Some(ev) = frame.pointer("/params/event") else {
                     continue;
                 };
-                // A sub-agent's question comes wrapped in its progress.
-                let prompt = match ev.get("kind").and_then(Value::as_str) {
-                    Some("prompt") => Some(ev),
-                    Some("subagent_progress") => ev
-                        .get("event")
-                        .filter(|e| e.get("kind").and_then(Value::as_str) == Some("prompt")),
-                    _ => None,
+                // A sub-agent's calls and questions come wrapped in its progress.
+                let inner = match ev.get("kind").and_then(Value::as_str) {
+                    Some("subagent_progress") => ev.get("event").unwrap_or(ev),
+                    _ => ev,
                 };
-                if let Some(p) = prompt {
-                    let owner = turn.as_ref().and_then(|t| turns.get(t)).cloned().flatten();
-                    answer(sh, s, p, owner).await;
+                match inner.get("kind").and_then(Value::as_str) {
+                    Some("tool_use") => {
+                        if let (Some(id), Some(input)) = (inner.get("id").and_then(Value::as_str), inner.get("input")) {
+                            inputs.push_back((id.to_string(), input.clone()));
+                            if inputs.len() > CALLS_KEPT {
+                                inputs.pop_front();
+                            }
+                        }
+                    }
+                    Some("tool_result") => {
+                        let id = inner.get("tool_use_id").and_then(Value::as_str).unwrap_or_default();
+                        if let Some((st, t)) = held.remove(id) {
+                            unhold(sh, run, &st, &t).await;
+                        }
+                    }
+                    Some("prompt") => {
+                        let owner = turn.as_ref().and_then(|t| turns.get(t)).cloned().flatten();
+                        let call_id = inner.get("tool_use_id").and_then(Value::as_str);
+                        let input = call_id.and_then(|id| inputs.iter().rev().find(|(k, _)| k == id)).map(|(_, v)| v.clone());
+                        if let Some(b) = owner {
+                            let asked = answer(sh, s, inner, input.as_ref(), &b).await;
+                            if let (true, Some(id)) = (asked, call_id) {
+                                held.insert(id.to_string(), (b.station.clone(), b.task.clone()));
+                            }
+                        }
+                    }
+                    _ => {}
                 }
-                note_agents(sh, run, s, ev, &mut agent_calls);
+                if main {
+                    note_agents(sh, run, s, ev, &mut agent_calls);
+                }
             }
             _ => {}
         }
@@ -337,41 +365,54 @@ async fn count(sh: &Arc<Shared>, run: &str, task: Option<(String, String)>, u: U
     settle_quiet(sh, run, r).await;
 }
 
-/// The decision on a guarded tool's use for the task a turn works on: what its station's
-/// `writes` say. `None`: not the module's to decide — no task, or not a guarded tool.
-///
-/// Judged on the guarded patterns the station leaves refused, so a nested group (`mcp__desk__*`)
-/// is the group as written, not its first namespace (review #1).
-pub(crate) fn decision(guarded: &[String], writes: &[String], station: &str, tool: &str) -> Option<Value> {
-    if !matches_any(guarded, tool) {
-        return None;
-    }
-    let refused_patterns: Vec<String> = refused(guarded, writes)
-        .into_iter()
-        .map(|(g, _)| g)
-        .collect();
-    if matches_any(&refused_patterns, tool) {
-        Some(json!({
-            "type": "deny",
-            "reason": format!("station {station} of the flow does not allow {tool} (its writes: {})",
-                if writes.is_empty() { "none".to_string() } else { writes.join(", ") }),
-        }))
-    } else {
-        Some(json!({"type": "permit"}))
+/// What becomes of a question about a call of a task's turn: its permissions judge it.
+pub(crate) fn verdict(sh: &Shared, b: &Binding, prompt: &Value, input: Option<&Value>) -> Verdict {
+    let tool = prompt.get("tool_name").and_then(Value::as_str).unwrap_or("");
+    let paths: Vec<String> = prompt
+        .get("paths")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(|p| p.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    let ws = sh.engine().ok().and_then(|e| e.workspace(&b.run));
+    judge(
+        &b.permissions,
+        &sh.cfg.guarded,
+        &Call {
+            tool,
+            input,
+            paths: &paths,
+            workspace: ws.as_ref().and_then(|p| p.to_str()),
+        },
+        &b.station,
+    )
+}
+
+/// The answer to give the engine for a verdict; `None` for `ask` (a person answers).
+pub(crate) fn decision(v: &Verdict) -> Option<Value> {
+    match v.effect {
+        Effect::Allow => Some(json!({"type": "permit"})),
+        Effect::Deny => Some(json!({"type": "deny", "reason": v.reason})),
+        Effect::Ask => None,
     }
 }
 
-/// Answer a question of a task's turn from its station; a person's turn's is the person's.
-async fn answer(sh: &Arc<Shared>, s: &SessionRef, prompt: &Value, owner: Option<Binding>) {
-    let (Some(cx), Some(b)) = (sh.cx.get(), owner) else {
-        return;
+/// Answer a question of a task's turn from its permissions. Returns whether it was left to a
+/// person (the task is marked as waiting for them).
+async fn answer(sh: &Arc<Shared>, s: &SessionRef, prompt: &Value, input: Option<&Value>, b: &Binding) -> bool {
+    let Some(cx) = sh.cx.get() else {
+        return false;
     };
-    let tool = prompt.get("tool_name").and_then(Value::as_str).unwrap_or("");
     let Some(id) = prompt.get("prompt_id").and_then(Value::as_str) else {
-        return;
+        return false;
     };
-    let Some(d) = decision(&sh.cfg.guarded, &b.writes, &b.station, tool) else {
-        return;
+    let v = verdict(sh, b, prompt, input);
+    let Some(d) = decision(&v) else {
+        let tool = prompt.get("tool_name").and_then(Value::as_str).unwrap_or("").to_string();
+        if let Ok(engine) = sh.engine() {
+            let r = engine.asking(&b.run, &b.station, &b.task, Some((tool, v.reason))).await;
+            settle_quiet(sh, &b.run, r).await;
+        }
+        return true;
     };
     if let Err(e) = cx
         .call(
@@ -383,7 +424,17 @@ async fn answer(sh: &Arc<Shared>, s: &SessionRef, prompt: &Value, owner: Option<
         )
         .await
     {
-        tracing::warn!(tool, error = %e.message, "flow: a main session's question not answered");
+        let tool = prompt.get("tool_name").and_then(Value::as_str).unwrap_or("");
+        tracing::warn!(tool, error = %e.message, "flow: a session's question not answered");
+    }
+    false
+}
+
+/// A held call was answered (or its turn is over): the task works again.
+async fn unhold(sh: &Arc<Shared>, run: &str, station: &str, task: &str) {
+    if let Ok(engine) = sh.engine() {
+        let r = engine.asking(run, station, task, None).await;
+        settle_quiet(sh, run, r).await;
     }
 }
 
@@ -391,40 +442,14 @@ async fn answer(sh: &Arc<Shared>, s: &SessionRef, prompt: &Value, owner: Option<
 mod tests {
     use super::*;
 
-    fn g(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
-    }
-
     #[test]
-    fn a_station_decides_the_guarded_tools_of_its_turns_and_nothing_else() {
-        let guarded = g(&["Bash", "Write", "git__*"]);
-        let permit = Some(json!({"type": "permit"}));
-        assert_eq!(decision(&guarded, &g(&["Write"]), "s", "Write"), permit);
+    fn a_verdict_is_an_answer_unless_a_person_is_asked() {
+        let v = |effect, reason: &str| Verdict { effect, reason: reason.into() };
+        assert_eq!(decision(&v(Effect::Allow, "")), Some(json!({"type": "permit"})));
         assert_eq!(
-            decision(&guarded, &g(&["Write"]), "s", "Bash").unwrap()["type"],
-            "deny"
+            decision(&v(Effect::Deny, "station s does not allow Bash")),
+            Some(json!({"type": "deny", "reason": "station s does not allow Bash"}))
         );
-        assert_eq!(decision(&guarded, &g(&["git__*"]), "s", "git__commit"), permit);
-        assert_eq!(decision(&guarded, &g(&[]), "s", "git__commit").unwrap()["type"], "deny");
-        // A nested group is judged as written: `mcp__desk__*` refused is not opened by `mcp`.
-        let nested = g(&["mcp__desk__*", "mcp__wiki__*"]);
-        assert_eq!(decision(&nested, &g(&[]), "s", "mcp__desk__ticket_create").unwrap()["type"], "deny");
-        assert_eq!(decision(&nested, &g(&["mcp__wiki__*"]), "s", "mcp__desk__ticket_create").unwrap()["type"], "deny");
-        assert_eq!(decision(&nested, &g(&["mcp__desk__*"]), "s", "mcp__desk__ticket_create"), permit);
-        // Not guarded: the person's (or the mode's) to decide.
-        assert_eq!(decision(&guarded, &g(&[]), "s", "Read"), None);
-    }
-
-    #[test]
-    fn the_main_session_asks_for_every_guarded_tool() {
-        let rules = ask_rules(&g(&["Bash", "git__*"]));
-        let names: Vec<&str> = rules
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|r| r["tool_name"].as_str().unwrap())
-            .collect();
-        assert_eq!(names, ["Bash", "git"]);
-        assert!(rules.as_array().unwrap().iter().all(|r| r["behavior"] == "ask"));
+        assert_eq!(decision(&v(Effect::Ask, "a nod")), None);
     }
 }

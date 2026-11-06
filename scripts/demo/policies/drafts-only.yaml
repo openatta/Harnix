@@ -1,0 +1,14 @@
+name: drafts-only
+title: 只写草稿目录
+description: 起草只能写运行工作目录下的 drafts/；写发布目录前要人点头。
+permissions:
+  - effect: allow
+    tools: [Write, Edit]
+    paths: ["${workspace}/drafts/**"]
+  - effect: ask
+    tools: [Write, Edit]
+    paths: ["${workspace}/release/**"]
+    message: 写发布目录要人确认
+  - effect: allow
+    tools: [Bash]
+    commands: ["ls*", "cat *", "wc *"]

@@ -1,6 +1,7 @@
 name: demo-each
 title: "示例：逐个模块分析"
 description: 主 Agent 列出模块，每个模块一个子 Agent 分析（最多两个同时），再写报告。
+rules: [cite-sources, plain-chinese]
 stations:
   - id: list
     title: 列出模块
@@ -14,6 +15,7 @@ stations:
     max_parallel: 2
     executor: {kind: agent}
     skill: analyze
+    policies: [read-only]
     output: {type: object, required: [risk], properties: {risk: {enum: [high, medium, low]}}}
     exit: [{kind: output}]
   - id: report

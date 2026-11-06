@@ -1,0 +1,7 @@
+name: handoff-notify
+title: 交付通知供应商系统（示例）
+description: 只管外部交付流程：交付、审批的结果推给供应商系统。
+flows: [demo-handoff]
+on: [task.submitted, station.confirmed, station.reworked, run.finished]
+kind: webhook
+action: http://127.0.0.1:4099/supplier/notify

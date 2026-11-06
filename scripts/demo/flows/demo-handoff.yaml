@@ -6,7 +6,7 @@ stations:
     title: 外部交付
     executor: {kind: external, who: supplier}
     output: {type: object, required: [link], properties: {link: {type: string}}}
-    exit: [{kind: output}]
+    exit: [{kind: output}, {kind: gate, gate: link-reachable}]
   - id: approve
     title: 审批
     exit: [{kind: confirm, who: manager}]

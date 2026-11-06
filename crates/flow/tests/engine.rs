@@ -13,14 +13,12 @@ use serde_json::{json, Value};
 
 const SEQ: &str = r#"
 name: seq
-hooks: [{on: run.finished, action: notify}]
 stations:
   - {id: a, executor: {kind: program, step: work}, output: {type: object, required: [n]}, exit: [{kind: output}]}
   - id: b
     executor: {kind: program, step: work}
     output: {type: object}
     exit: [{kind: output}]
-    hooks: [{on: station.passed, action: notify}]
 "#;
 
 const PAR: &str = r#"
@@ -69,7 +67,7 @@ name: auto
 stations:
   - {id: work, executor: {kind: program, step: work}, output: {type: object}, exit: [{kind: output}]}
   - id: check
-    exit: [{kind: tool, tool: count, args: {run: "${run}", what: high}, assert: [{path: total, eq: 0}]}]
+    exit: [{kind: gate, gate: no-high}]
     on_unmet: {rework_to: work, max: 2}
 "#;
 
@@ -136,17 +134,7 @@ async fn sequence_runs_to_the_end() {
     assert!(has(&o, "station.passed:a"));
     assert_eq!(stations_of(&o), ["b/b"]);
     let o = submit(&h, &jobs(&o)[0], json!({})).await;
-    assert!(has(&o, "run.finished"));
-    // hooks: the run-level one and the station-level one
-    let hooks: Vec<&str> = o
-        .work
-        .iter()
-        .filter_map(|w| match w {
-            WorkItem::Hook { event, .. } => Some(event.kind.as_str()),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(hooks, ["station.passed", "run.finished"]);
+    assert!(has(&o, "station.passed:b") && has(&o, "run.finished"));
     assert_eq!(run_status(&h, &run).await, RunStatus::Finished);
 
     let hist = h.eng.history(&run).await.unwrap();
@@ -500,7 +488,7 @@ async fn force_is_recorded() {
     assert_eq!(f.by, me());
     assert_eq!(f.reason, "known false positive");
     assert_eq!(f.unmet.len(), 1);
-    assert_eq!(f.unmet[0].kind, "tool");
+    assert_eq!(f.unmet[0].kind, "gate");
     assert!(h
         .eng
         .history(&run)
@@ -1108,7 +1096,7 @@ async fn dispatched_work_rebuilds_what_the_dispatcher_holds() {
         .await
         .unwrap();
     let rec = h.eng.record(&run).await.unwrap();
-    let again = dispatched_work(&rec, &[], h.clock.now_ms());
+    let again = h.eng.dispatched_work(&rec, h.clock.now_ms());
     assert_eq!(again.len(), 2, "{again:?}");
     for (w, was) in again.iter().zip(&handed) {
         match (w, was) {
@@ -1137,7 +1125,7 @@ async fn dispatched_work_rebuilds_what_the_dispatcher_holds() {
     }
     // A lease that ran out is not the dispatcher's any more: `tick` claims it again.
     h.clock.advance(120_000);
-    assert!(dispatched_work(&rec, &[], h.clock.now_ms()).is_empty());
+    assert!(h.eng.dispatched_work(&rec, h.clock.now_ms()).is_empty());
 }
 
 #[tokio::test]
@@ -1146,7 +1134,7 @@ async fn dispatched_work_includes_gates_still_waiting() {
     let (run, o) = start(&h, "gated").await;
     assert!(o.work.iter().any(|w| matches!(w, WorkItem::Gate { .. })));
     let rec = h.eng.record(&run).await.unwrap();
-    let again = dispatched_work(&rec, &[], h.clock.now_ms());
+    let again = h.eng.dispatched_work(&rec, h.clock.now_ms());
     assert_eq!(
         again,
         vec![WorkItem::Gate {
@@ -1170,5 +1158,5 @@ async fn dispatched_work_includes_gates_still_waiting() {
         .await
         .unwrap();
     let rec = h.eng.record(&run).await.unwrap();
-    assert!(dispatched_work(&rec, &[], h.clock.now_ms()).is_empty());
+    assert!(h.eng.dispatched_work(&rec, h.clock.now_ms()).is_empty());
 }

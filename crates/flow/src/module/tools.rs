@@ -296,7 +296,7 @@ impl Tool for StateTool {
             "contract": sdef.and_then(|s| s.output.clone()),
             "exits": sdef.map(|s| s.exit.iter().map(|e| e.label()).collect::<Vec<_>>()),
             "unmet": view.unmet.get(&b.station),
-            "writes": b.writes,
+            "permissions": b.permissions,
             "current": current,
         });
         Ok(ToolResult::text(pretty(&state)))
@@ -499,7 +499,7 @@ mod tests {
                 scenes: vec!["flow-chat".into()],
                 programs: None,
                 gates: None,
-                hooks: None,
+                command_gates: false,
                 guarded: vec![],
                 recording: None,
                 main_recording: None,
