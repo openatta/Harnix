@@ -2,18 +2,17 @@
 
 A flow is a directed acyclic graph of **stations**: a **run** carries one **subject** (a code base, a requirement, a draft…) from the first station to the last. Each station has its **work** and its **exit conditions**; when they all hold, the run moves on. A flow definition is a YAML file; it says what is done and how it is judged — how to do the work well is in the **skills**.
 
-Besides flows and skills a pack holds four things: **rules**, **policies** (sets of **permissions**), **gates** and **hooks**. Each point in time has one place that can stop work:
+The whole picture comes in five groups, read from what is done to how it is written:
 
-| | What it is | When it acts | Does it stop work |
-|---|---|---|---|
-| **Rule** | named prose: what must hold across the flow | told to the sessions that work | no |
-| **Policy / permission** | `allow` / `ask` / `deny`: which tools, on which arguments | while work is done, every tool call | **yes** |
-| **Gate** | a named deterministic check | when a station is judged, as an exit condition | **yes** |
-| **Hook** | tells a system outside about a run's events | after they happen | no |
+1. **The skeleton** — what is done: flow, station, work and tasks, exit conditions, output contract.
+2. **Running** — who does it, how it goes: run, executor, main session, sub-agent, session of its own, lease, rework, pause.
+3. **Constraints and checks** — what can stop work: rules, policies and permissions, gates, a person's decision.
+4. **Interfaces to the outside** — how it meets other systems: hooks (progress going out), external tasks (work claimed and handed in from outside), the application's own capabilities.
+5. **Writing and trying** — how one is made: the pack and its parts, flow conversations, validation, dry runs.
 
-A skill says how to do a station's work, a rule what must not be broken anywhere in the flow; both are only read by the Agent. Prose never widens or narrows what may be done — only permissions do. A rule that must be checked is written as a gate.
+## 1. The skeleton
 
-## The objects
+A flow is a directed acyclic graph of stations; each station has its **work** and its **exit conditions**, and moves on when they all hold.
 
 | Object | What it is |
 |---|---|
@@ -21,21 +20,64 @@ A skill says how to do a station's work, a rule what must not be broken anywhere
 | **Station** | The unit of judgement. `needs` orders stations (absent = the previous one in the list, `[]` = none); `when` skips it unless it holds; `hold: true` waits for someone to release it. |
 | **Work** | What a station does, one of: `executor` (one task), `tasks` (several, each with an id), `foreach` + `executor` (one task per item of a list, `max_parallel` at once), or none (a checkpoint, judged on entry). |
 | **Task** | One piece of work. Session, sub-agent and program tasks are dispatched by the flow; external tasks wait to be claimed; a subflow task starts a child run. |
-| **Executor** | Who does it: `session` (a session working from a skill), `agent` (a sub-agent the main Agent hands it to), `program` (the application's code), `external` (a person or an outside agent claims it), `subflow` (another flow). |
 | **Exit condition** | All must hold: `output` (every task's output satisfies the `output` contract), `gate` (a gate of the pack passes), `confirm` (someone confirms), `children` (every child run finished). |
 | **Output contract** | A JSON Schema. What a session or sub-agent hands in must satisfy it; later stations refer to it as `${stations.<id>.output.<field>}`. |
+
+## 2. Running
+
+A **run** carries one subject through the graph; each task is done by an **executor**, and the main session is the flow's main Agent.
+
+| Object | What it is |
+|---|---|
 | **Run** | One execution of a flow on one subject. Its states are below. |
+| **Executor** | Who does it: `session` (a session working from a skill), `agent` (a sub-agent the main Agent hands it to), `program` (the application's code), `external` (a person or an outside agent claims it), `subflow` (another flow). |
 | **Main session / main Agent** | Every run has one main session: the flow's main Agent. Session stations without a `scene`, and every sub-agent station, take their turns in it. Select the run in the flow space's Runs tab and it is the conversation in the middle; you can talk to it. |
 | **Sub-agent** (`kind: agent`) | A sub-agent of the main session: the main Agent hands the task to it with its `Agent` tool (`agent_type`, `model` optional) and hands the result in. |
 | **Session of its own** | A session station that names a `scene` has its own session (`session: new`, or `{key: …}` to share by key), which may go to another instance, a template's instance or a space, on another model. |
+| **Lease** | Claiming a task takes a lease for a while, renewed as the work goes on; when it runs out the task is ready again (or retried by `retry`). |
+| **Rework** | Send the run back to a station (`rework_to` says where it may go; `on_unmet` does it automatically), optionally only some of its tasks. |
+| **Pause** | What is in hand finishes: a running turn is not cut off and its result is recorded; nothing new is entered or dispatched; the run goes on when resumed. See "A run's states" below. |
+
+## 3. Constraints and checks
+
+Each point in time has one place that can stop work:
+
+| | What it is | When it acts | Does it stop work |
+|---|---|---|---|
+| **Rule** | named prose: what must hold across the flow | told to the sessions that work | no |
+| **Policy / permission** | `allow` / `ask` / `deny`: which tools, on which arguments | while work is done, every tool call | **yes** |
+| **Gate** | a named deterministic check | when a station is judged, as an exit condition | **yes** |
+| **A person's decision** | someone decides | at the exit (`confirm`), or a call held for them (`ask`) | **yes** |
+
+A skill says how to do a station's work, a rule what must not be broken anywhere in the flow; both are only read by the Agent. Prose never widens or narrows what may be done — only permissions do. A rule that must be checked is written as a gate.
+
+| Object | What it is |
+|---|---|
 | **Rule** | `rules/<name>.md`, its first `# ` heading its title. Flows and stations name them in `rules`; a station works under the flow's and its own, told to its session tasks (before the skill), pinned when the station is entered. Never enforced. |
-| **Permission** | An `effect` (`allow` / `ask` / `deny`) and `tools` (names, or `ns__*` for a namespace), optionally `paths` (the call's path, glob; relative ones from the run's workspace), `commands` (the command, glob), `args` (input fields → globs), `message`. Patterns may hold references: `${run}`, `${inputs.k}`, `${item…}`, `${workspace}`. |
 | **Policy** | `policies/<name>.yaml`: a named set of permissions, which flows and stations name in `policies`. |
+| **Permission** | An `effect` (`allow` / `ask` / `deny`) and `tools` (names, or `ns__*` for a namespace), optionally `paths` (the call's path, glob; relative ones from the run's workspace), `commands` (the command, glob), `args` (input fields → globs), `message`. Patterns may hold references: `${run}`, `${inputs.k}`, `${item…}`, `${workspace}`. |
 | **Judging a call** | A task works under the flow's policies, the flow's permissions, the station's policies, the station's permissions — references resolved when it is dispatched. For each tool call: of the permissions that match, `deny` over `ask` over `allow`; none matching, a guarded tool (Bash, Write, Edit…) is refused and any other allowed. Paths are normalised first (`..` and the like folded), and a `deny` with paths refuses when any of them matches; commands are split at `;` `&&` `|`, and an `allow` never passes a line with command substitution or redirection; a call that would be allowed but touches a path outside the session's project is asked of a person, unless the `allow` that matched names that place in its own `paths`. `ask` is left to a person in the conversation, and the run waits for `approval`; unanswered within the instance's time for an answer (300 seconds by default), the engine takes it as a refusal. The main session and sessions of their own are answered the same way, by the flow. |
 | **Gate** | `gates/<name>.yaml`, named by an exit `{kind: gate, gate: <name>}`. Three kinds: `tool` (call a read-only application tool and assert on its result, judged on the spot), `command` (run a command in the run's workspace, passing on exit status 0; only where the application turned command gates on; it keeps only the basics of the environment, and the run reaches it there — `FLOW_RUN`, `FLOW_STATION`, `FLOW_WORKSPACE`, `FLOW_CONTEXT_FILE` (and `FLOW_CONTEXT` when small) — never in the command line; killed as a group when out of time), `host` (the application's own check, by name). |
+| **A person's decision** | The exit `confirm` (`who` is handed to the application's authorizer); a permission's `ask`, waiting for a person; `hold: true`, waiting for someone to release the station; and a person may force a station through (with a reason, recorded) or send work back. Who may do which is the application's to decide — the flow hands it `who`. |
+
+## 4. Interfaces to the outside
+
+A flow meets other systems in three places: progress goes out, work comes in, and the application's own capabilities are used.
+
+| Object | What it is |
+|---|---|
 | **Hook** | `hooks/<name>.yaml`: `on` (event kinds, `station.*` allowed; absent: every event), `flows` (only these; absent: every flow), `kind` (`webhook` for now), `action` (the URL), `secret_env` (optional: signed). **No flow names a hook**: put in the pack, it applies, and no flow changes. A failed delivery is tried three times more; it never holds a run up. |
-| **Rework** | Send the run back to a station (`rework_to` says where it may go; `on_unmet` does it automatically), optionally only some of its tasks. |
-| **Lease** | Claiming a task takes a lease for a while, renewed as the work goes on; when it runs out the task is ready again (or retried by `retry`). |
+| **External task** (`kind: external`) | A task waiting to be claimed from outside: a person or another system claims it with `app.flow.claim` (a lease for a while, renewed by `heartbeat`) and hands it in with `app.flow.submit`, checked against the output contract. `who` is handed to the application's authorizer. |
+| **The application's capabilities** | What the application registers for flows: programs (`kind: program`, its own code), tools (what `tool` gates call), checks (`host` gates), templates and instances (where a session of its own goes). A flow uses only names in the catalog. |
+| **Subflow** (`kind: subflow`) | A task that starts a run of another flow and is handed in when that run ends; the exit `children` waits for every child run. |
+
+## 5. Writing and trying
+
+| Object | What it is |
+|---|---|
+| **The pack and its parts** | A pack holds flows and five kinds of part: `skills/<name>/SKILL.md`, `rules/<name>.md`, `policies/<name>.yaml`, `gates/<name>.yaml`, `hooks/<name>.yaml`. Each comes from somewhere: `builtin` (shipped), `override` (saved over a shipped one; deleting it brings the shipped one back), `user` (only saved). |
+| **Flow conversation / general conversation** | Each flow has a conversation of its own: ask the Agent there to change it, dry-run it, start it, act on its runs — each change asked of you. With no flow selected it is the general conversation, for new flows and questions. |
+| **Validation** | Before a definition is saved it is checked with the parts it uses, and not saved with problems; a part is checked when it is saved, and the flows it breaks are listed. |
 | **Dry run** | The real kernel, everything outside mocked: no session, no program, no cost. See the path a run takes and the message each session station would get. |
 
 ## A run's states
