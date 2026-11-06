@@ -8,13 +8,13 @@
 use std::sync::Arc;
 
 use base::interface::credentials::CredentialSource;
-use base::interface::scene::AgentScene;
+use base::interface::scene::Scene;
 use daemon::{SessionCtx, SessionCustomizer};
 use runtime::agent::Builder;
 
 #[derive(Default, Clone)]
 pub struct EngineContrib {
-    pub(crate) scenes: Vec<Arc<dyn AgentScene>>,
+    pub(crate) scenes: Vec<Arc<dyn Scene>>,
     pub(crate) customizers: Vec<SessionCustomizer>,
     pub(crate) credentials: Option<Arc<dyn CredentialSource>>,
 }
@@ -25,7 +25,7 @@ impl EngineContrib {
     }
 
     /// A scene beyond Agix's built-in ones, available to `session.create`.
-    pub fn scene(&mut self, scene: Arc<dyn AgentScene>) -> &mut Self {
+    pub fn scene(&mut self, scene: Arc<dyn Scene>) -> &mut Self {
         self.scenes.push(scene);
         self
     }

@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use base::interface::prompt::PromptBlock;
 use base::interface::scene::{
-    AgentScene, ExecutionParams, ReminderContext, ScenePromptContext, TokenBudget,
+    Scene, ExecutionParams, ReminderContext, ScenePromptContext, TokenBudget,
 };
 use base::tool::{ProgressSender, Tool, ToolContext, ToolResult};
 use harnix_module::{Entry, SessionRef};
@@ -37,7 +37,7 @@ pub(crate) fn wrapped_id(base: &str) -> String {
 
 /// An application's scene with the flow's tools added.
 pub struct FlowScene {
-    inner: Arc<dyn AgentScene>,
+    inner: Arc<dyn Scene>,
     id: String,
     name: String,
     description: String,
@@ -45,7 +45,7 @@ pub struct FlowScene {
 }
 
 impl FlowScene {
-    pub(crate) fn new(inner: Arc<dyn AgentScene>, sh: Arc<Shared>) -> Self {
+    pub(crate) fn new(inner: Arc<dyn Scene>, sh: Arc<Shared>) -> Self {
         Self {
             id: wrapped_id(inner.id()),
             name: format!("{} (flow)", inner.name()),
@@ -59,7 +59,7 @@ impl FlowScene {
     }
 }
 
-impl AgentScene for FlowScene {
+impl Scene for FlowScene {
     fn id(&self) -> &str {
         &self.id
     }
@@ -138,13 +138,13 @@ pub fn structured_id(base: &str) -> String {
 /// again in its own process) and that template's `EngineProfile.scenes`. It holds no state of
 /// the module's, so it works in any process.
 pub struct StructuredScene {
-    inner: Arc<dyn AgentScene>,
+    inner: Arc<dyn Scene>,
     id: String,
     name: String,
 }
 
 impl StructuredScene {
-    pub fn new(inner: Arc<dyn AgentScene>) -> Self {
+    pub fn new(inner: Arc<dyn Scene>) -> Self {
         Self {
             id: structured_id(inner.id()),
             name: format!("{} (structured output)", inner.name()),
@@ -153,7 +153,7 @@ impl StructuredScene {
     }
 }
 
-impl AgentScene for StructuredScene {
+impl Scene for StructuredScene {
     fn id(&self) -> &str {
         &self.id
     }
@@ -463,7 +463,7 @@ mod tests {
 
     struct Base(Vec<String>);
 
-    impl AgentScene for Base {
+    impl Scene for Base {
         fn id(&self) -> &str {
             "chat"
         }

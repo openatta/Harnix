@@ -500,6 +500,7 @@ mod tests {
                     thinking_mode: ThinkingMode::Off,
                     fallback_model: None,
                     cache_edits: vec![],
+                    search_max_uses: None,
                 },
                 system: system.iter().map(|b| blobs.put(b).expect("blob")).collect(),
                 tools: blobs.put(&tools.to_vec()).expect("blob"),

@@ -41,8 +41,8 @@ pub fn flow() -> Flow {
         .packs_with(|dir| {
             DirPacks::writable(dir.join("packs")).with_builtin(example())
         })
-        .scene(Arc::new(scene::scene::chat::ChatScene))
-        .scene(Arc::new(scene::scene::coding::CodingScene))
+        .scene(Arc::new(scene::chat::ChatScene))
+        .scene(Arc::new(scene::coding::CodingScene))
         .main_scene("coding")
         .command_gates(true)
         // Under `--replay-dir` only (outside it the names mean nothing): a run's main session

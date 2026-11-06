@@ -21,7 +21,7 @@
 //! ```no_run
 //! # use std::sync::Arc;
 //! # use harnix_flow::{Flow, MemPacks};
-//! # fn scene() -> Arc<dyn base::interface::scene::AgentScene> { unimplemented!() }
+//! # fn scene() -> Arc<dyn base::interface::scene::Scene> { unimplemented!() }
 //! let flow = Flow::builder()
 //!     .packs(MemPacks::new().flow("name: demo\nstations: [{id: a, exit: [{kind: confirm}]}]"))
 //!     .scene(scene())          // offered to definitions as `flow-<id>`
@@ -41,7 +41,7 @@ mod tools;
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use base::interface::scene::AgentScene;
+use base::interface::scene::Scene;
 use harnix_module::{
     EngineContrib, EventRegistry, InstanceTemplate, InstanceTemplates, Manifest, MethodRegistry,
     Module, ModuleContext, SpaceDecl, SpaceRegistry,
@@ -101,8 +101,8 @@ pub struct Flow {
     lazy_packs: Mutex<Option<MakePacks>>,
     tools: Option<Arc<dyn Tools>>,
     auth: Option<Arc<dyn Authorizer>>,
-    scenes: Vec<Arc<dyn AgentScene>>,
-    author: Arc<dyn AgentScene>,
+    scenes: Vec<Arc<dyn Scene>>,
+    author: Arc<dyn Scene>,
     templates: Vec<InstanceTemplate>,
     /// Why the module must not start: a guarded-tool pattern no permission rule can say.
     config_error: Option<String>,
@@ -126,8 +126,8 @@ pub struct FlowBuilder {
     store: Option<StoreSpec>,
     packs: Option<Arc<dyn Packs>>,
     lazy_packs: Option<MakePacks>,
-    scenes: Vec<Arc<dyn AgentScene>>,
-    author: Option<Arc<dyn AgentScene>>,
+    scenes: Vec<Arc<dyn Scene>>,
+    author: Option<Arc<dyn Scene>>,
     templates: Vec<InstanceTemplate>,
     ensure_ms: u64,
     programs: Option<Arc<dyn Programs>>,
@@ -217,14 +217,14 @@ impl FlowBuilder {
 
     /// A scene stations may run sessions in. It is offered as `flow-<id>`: the same scene
     /// with the flow's native tools added (its sessions hand in with `flow_submit`). Repeatable.
-    pub fn scene(mut self, scene: Arc<dyn AgentScene>) -> Self {
+    pub fn scene(mut self, scene: Arc<dyn Scene>) -> Self {
         self.scenes.push(scene);
         self
     }
 
     /// The scene `flow-author` wraps — the flow space's conversations. Agix's chat scene when
     /// not given.
-    pub fn author_scene(mut self, scene: Arc<dyn AgentScene>) -> Self {
+    pub fn author_scene(mut self, scene: Arc<dyn Scene>) -> Self {
         self.author = Some(scene);
         self
     }
@@ -381,15 +381,15 @@ impl FlowBuilder {
             },
             tx,
         ));
-        let scenes: Vec<Arc<dyn AgentScene>> = self
+        let scenes: Vec<Arc<dyn Scene>> = self
             .scenes
             .iter()
-            .map(|s| Arc::new(FlowScene::new(s.clone(), sh.clone())) as Arc<dyn AgentScene>)
+            .map(|s| Arc::new(FlowScene::new(s.clone(), sh.clone())) as Arc<dyn Scene>)
             .collect();
         let base = self
             .author
-            .unwrap_or_else(|| Arc::new(scene::scene::chat::ChatScene) as Arc<dyn AgentScene>);
-        let author: Arc<dyn AgentScene> = Arc::new(AuthorScene::new(base, sh.clone()));
+            .unwrap_or_else(|| Arc::new(scene::chat::ChatScene) as Arc<dyn Scene>);
+        let author: Arc<dyn Scene> = Arc::new(AuthorScene::new(base, sh.clone()));
         let packs = Arc::new(CatalogPacks {
             inner: OnceLock::new(),
             scenes: sh.cfg.scenes.clone(),

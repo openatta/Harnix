@@ -758,7 +758,7 @@ const NATIVE_MARKER: &str = "probe-native-marker-51c2";
 /// `fleet`'s templates' native contributions (ipdrun-10): built in this process for the in-process
 /// one, and again in the daemon's for the spawned one.
 fn native(e: &mut EngineContrib) {
-    e.scene(Arc::new(NativeScene(scene::scene::chat::ChatScene)));
+    e.scene(Arc::new(NativeScene(scene::chat::ChatScene)));
     e.customize_session(|b, _cx| {
         let blocks = base::interface::prompt_registry::InMemoryPromptRegistry::new();
         let _ = base::interface::prompt_registry::PromptRegistry::register_block(
@@ -778,9 +778,9 @@ fn native_engine() -> EngineProfile {
 }
 
 /// The chat scene under another id, with one tool of its own.
-struct NativeScene(scene::scene::chat::ChatScene);
+struct NativeScene(scene::chat::ChatScene);
 
-impl base::interface::scene::AgentScene for NativeScene {
+impl base::interface::scene::Scene for NativeScene {
     fn id(&self) -> &str {
         NATIVE_SCENE
     }

@@ -102,12 +102,12 @@ impl Engine {
 
 fn resolve_scene(
     name: &str,
-    contributed: &[Arc<dyn base::interface::scene::AgentScene>],
-) -> anyhow::Result<Arc<dyn base::interface::scene::AgentScene>> {
+    contributed: &[Arc<dyn base::interface::scene::Scene>],
+) -> anyhow::Result<Arc<dyn base::interface::scene::Scene>> {
     if let Some(scene) = contributed.iter().find(|s| s.id() == name) {
         return Ok(scene.clone());
     }
-    let mut registry = scene::scene::SceneRegistry::new();
+    let mut registry = scene::SceneRegistry::new();
     registry.register_builtin();
     registry.resolve(name).ok_or_else(|| {
         let mut known = registry.ids();

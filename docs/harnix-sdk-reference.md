@@ -2,8 +2,8 @@
 
 > 读者：在 Harnix 上做应用的人，以及在 Helm、IPDrun 里做迁移分析的人（包括 Agent）。
 >
-> **这份参考写的是已经落地的接口**，对照的是 0.4 的全部里程碑（M0–M9，Agix 钉在
-> `Agix-v0.2.9-2026102603`）。怎么用、为什么这样用见 [二开指南](harnix-sdk.md)；用词照 [术语](glossary.md)。
+> **这份参考写的是已经落地的接口**，对照的是 0.4 的全部里程碑（M0–M9），Agix 钉在
+> `Agix-v0.3.2-2026110503`。怎么用、为什么这样用见 [二开指南](harnix-sdk.md)；用词照 [术语](glossary.md)。
 >
 > 写法：签名照抄代码；默认值照抄代码。代码和这里对不上时以代码为准，并且这里是错的，要改。
 
@@ -89,7 +89,7 @@ pub trait Module: Send + Sync + 'static {
 | `SpaceRegistry` | `s.add(SpaceDecl::new(id).instance("template:<模块>.<模板>" \| "<实例 id>").scene(scene))`。不声明：`system` 实例、实例的默认场景 |
 | `InstanceTemplates` | `t.add(InstanceTemplate::new(id, carrier).data_root(pattern).param(name).ui().max(n).inherit_providers())`。`inherit_providers()`：这个模板的实例也看得到 `system` 的 provider（设置页配的）——建实例时、以及每次 `harnix.settings.setProvider` 之后，Harnix 把它们并进实例数据根的 `settings.json`（0600）再让它 `config.reload`；Harnix 写过哪些 id 记在 `.inherited-providers.json`，只动这些，实例自己配的同名 provider 不覆盖。`.reap_on_stop()`（ipdrun-07）：停下或重启时收掉会话留下的进程（spawn：daemon 自成会话，退出后 TERM→1.5 s→KILL 会话里剩下的；两种载体都在实例全局层打开 `sandbox.reap_process_groups`），实例视图带 `reap: true`。`.native(\|e\| …)`（ipdrun-10）：两种载体都有的原生贡献，spawn 时 daemon 带 `--template <全名>` 在自己进程里再建一遍（只调各模块的 `templates()`），找不到以 78 退出、实例 `down`。全名 `<模块 id>.<模板 id>`；`data_root` 默认 `{name}`，可用 `{name}` 和声明过的参数 |
 | `TemplateCarrier` | `InProcess { engine, contrib }`（只有模块的模板能带原生贡献）、`Spawn { engine, program: Option<PathBuf>, args }`（`None` = 本二进制的 `daemon` 子命令）、`Attach(AttachTo { socket, tcp, token })` |
-| `EngineContrib` | `.scene(Arc<dyn AgentScene>)`、`.customize_session(\|builder, cx\| …)`、`.credentials(Arc<dyn CredentialSource>)`、`.extend(other)` |
+| `EngineContrib` | `.scene(Arc<dyn Scene>)`、`.customize_session(\|builder, cx\| …)`、`.credentials(Arc<dyn CredentialSource>)`、`.extend(other)` |
 | `PromptMiddleware`、`PromptCall`、`PromptDecision`、`PromptDelivery`、`PromptAttachment`、`PromptAttachmentKind` | Agix 的 prompt 中间件（ipdrun-13），从 `harnix` / `harnix_module` 再导出：`customize_session(\|b, _\| b.prompt_middleware(Arc::new(…)))`。设置层 hook 之后、按注册顺序跑；开一轮时 `Block` 让这一轮以 `stopped_by_hook` 结束、不调模型，steer 时 `Block` 发 `user_message_refused` 事件。消息带的附件要看就实现 `inspect_with_attachments`（Agix ipdrun-05，缺省交给 `inspect`），附件经只读的 `PromptAttachment`（类型 `PromptAttachmentKind`）给出；steer 的消息不带附件 |
 | `EngineProfile` | `scene = "coding"`、`scenes = []`、`model = "claude-sonnet-4-6"`、`max_tokens = 2000`、`session_cap = 32`、`session_idle_timeout_secs = 3600`、`permission_prompt_timeout_secs = 300`（括号里是默认值） |
 
@@ -463,7 +463,7 @@ api_version = 2
 |---|---|
 | `.packs(impl Packs)` / `.packs_with(\|data_dir\| …)` | 流程包：`MemPacks`（代码里给）、`DirPacks`（目录分层，`with_builtin` + `with_writable`） |
 | `.store(impl RunStore)` / `.store_with(…)` | 运行存在哪；缺省模块数据目录下 `runs/` 的 `FileStore` |
-| `.scene(Arc<dyn AgentScene>)` | 给流程用的 scene，包装成 `flow-<id>`（带 `flow_submit`、`flow_state`、`flow_propose`） |
+| `.scene(Arc<dyn Scene>)` | 给流程用的 scene，包装成 `flow-<id>`（带 `flow_submit`、`flow_state`、`flow_propose`） |
 | `.main_scene(id)` | 运行主会话缺省的 scene（缺省第一个） |
 | `.template(InstanceTemplate)` | 站可以放上去的模板（`flow.<id>`） |
 | `.programs(impl Programs)` / `.tools(impl Tools)` / `.gates(impl Gates)` | 应用的程序（`kind: program`）、只读工具（`tool` 门禁）、检查（`host` 门禁，名字也要进目录） |

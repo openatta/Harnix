@@ -27,7 +27,7 @@ use std::sync::Arc;
 
 use base::interface::prompt::PromptBlock;
 use base::interface::scene::{
-    AgentScene, ExecutionParams, ReminderContext, ScenePromptContext, TokenBudget,
+    Scene, ExecutionParams, ReminderContext, ScenePromptContext, TokenBudget,
 };
 use base::tool::{PermissionDecision, ProgressSender, Tool, ToolContext, ToolResult};
 use serde_json::{json, Value};
@@ -169,17 +169,17 @@ How to work:\n\
 
 /// An application's scene with the authoring tools and prompt added.
 pub struct AuthorScene {
-    inner: Arc<dyn AgentScene>,
+    inner: Arc<dyn Scene>,
     sh: Arc<Shared>,
 }
 
 impl AuthorScene {
-    pub(crate) fn new(inner: Arc<dyn AgentScene>, sh: Arc<Shared>) -> Self {
+    pub(crate) fn new(inner: Arc<dyn Scene>, sh: Arc<Shared>) -> Self {
         Self { inner, sh }
     }
 }
 
-impl AgentScene for AuthorScene {
+impl Scene for AuthorScene {
     fn id(&self) -> &str {
         AUTHOR_SCENE
     }

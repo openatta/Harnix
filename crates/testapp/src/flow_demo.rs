@@ -291,7 +291,7 @@ summary: how many findings of each severity, and the one that matters most.
 /// The scene a template's session hands in from: chat, with `StructuredOutput` allowed.
 fn structured(e: &mut EngineContrib) {
     e.scene(Arc::new(StructuredScene::new(Arc::new(
-        scene::scene::chat::ChatScene,
+        scene::chat::ChatScene,
     ))));
 }
 
@@ -330,8 +330,8 @@ pub fn module() -> Flow {
             .native(structured),
         )
         .packs_with(|dir| harnix_flow::DirPacks::writable(dir.join("packs")).with_builtin(packs()))
-        .scene(Arc::new(scene::scene::chat::ChatScene))
-        .scene(Arc::new(scene::scene::coding::CodingScene))
+        .scene(Arc::new(scene::chat::ChatScene))
+        .scene(Arc::new(scene::coding::CodingScene))
         .main_scene("chat")
         .programs(DemoPrograms)
         .gates(DemoGates)
