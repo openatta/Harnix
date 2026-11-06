@@ -544,8 +544,15 @@ Agent 在里面改它、试运行、启动、操作它的运行，改动类操�
 
 流程模块的构建器（`Flow::builder()`）里与 xops-03 有关的：`.main_scene(id)`（主会话缺省 scene，给的是
 `.scene(...)` 的 id，包装成 `flow-<id>`；不给是第一个）、`.main_recording(|run| …)`（回放时主会话用哪份录像）。主会话的
-scene 需要项目时，模块给每个运行建工作目录（模块数据目录下 `workspaces/<run>`），并写入子 Agent 站缺省用的 agent 类型
-`flow-agent`。
+scene 需要项目时，模块给每个运行建工作目录（模块数据目录下 `workspaces/<run>`，也是引用 `${workspace}`），并写入子 Agent
+站缺省用的 agent 类型 `flow-agent`。
+
+xops-04 起流程包除了流程与 skill 还有规则、策略（权限）、门禁、钩子（`rules/`、`policies/`、`gates/`、`hooks/`，
+见术语表）。构建器里相关的：`.gates(impl Gates)` 只跑 `host` 门禁（门禁的名字也要进目录的 `gates`，`MemPacks::check`）；
+`.tools(impl Tools)` 是 `tool` 门禁调的只读工具；`.command_gates(true)` 让 `command` 门禁能在本机跑命令（缺省关）；
+`.guarded_tools(…)` 是没有权限放行就拒绝的工具；`.conversation_recording(|flow| …)`（回放时流程会话用哪份录像）。
+`Hooks` trait 没有了：钩子是包里的文件，模块自己投递。方法 `app.flow.parts {kind}` / `part` / `part.save` / `part.delete`
+读写各种件，`app.flow.hooks` 列出钩子与最近一次投递。
 
 ```tsx
 // ui/src/index.tsx —— 构建时由 virtual:harnix-modules 接进外壳（examples/hello-app 是完整的例子）
