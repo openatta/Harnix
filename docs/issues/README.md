@@ -13,82 +13,66 @@
 
 ## IPDrun
 
-提出于 2026-10-27，代码位置对照 `790b3a2`（`Harnix-v0.4.0-2026102701`）。同日按框架边界复审过一遍：撤回的留一行「已撤回」，编号不重排。依赖一栏里 `Agix ipdrun-NN` 指 Agix 仓库 `docs/issues/` 里的那一条。
+IPDrun 提的需求（ipdrun-01…55，2026-10-27 起）已迁到 GitHub issue，标签 [`ipdrun`](https://github.com/openatta/Harnix/issues?q=label%3Aipdrun)，每条带原文与落地提交；以后 IPDrun 的新需求直接在 GitHub 提（同一标签），不再放这个目录。代码注释与提交说明里的 `ipdrun-NN` 按下表找：
 
-### 后端
+| 编号 | GitHub | 标题 |
+|---|---|---|
+| ipdrun-01 | [#1](https://github.com/openatta/Harnix/issues/1) | 单双向流上超过在途上限的请求被静默丢掉 |
+| ipdrun-02 | [#2](https://github.com/openatta/Harnix/issues/2) | SIGTERM 不走模块的 `stop` |
+| ipdrun-03 | [#3](https://github.com/openatta/Harnix/issues/3) | testkit 的 `stop()` 不等进程退出就删目录 |
+| ipdrun-04 | [#4](https://github.com/openatta/Harnix/issues/4) | 两个并发的 `instances.ensure` 同名时，第二个失败 |
+| ipdrun-05 | [#5](https://github.com/openatta/Harnix/issues/5) | spawn 实例 `ensure` 返回时还在 starting，紧接着的会话调用失败 |
+| ipdrun-07 | [#6](https://github.com/openatta/Harnix/issues/6) | spawn 实例停下以后，它的会话起的后台进程还活着 |
+| ipdrun-08 | [#7](https://github.com/openatta/Harnix/issues/7) | 新旧两个 daemon 会同时写同一个实例数据根 |
+| ipdrun-09 | [#8](https://github.com/openatta/Harnix/issues/8) | 同一个状态目录可以同时起两个进程 |
+| ipdrun-10 | [#9](https://github.com/openatta/Harnix/issues/9) | spawn 模板带不了原生贡献 |
+| ipdrun-11 | [#10](https://github.com/openatta/Harnix/issues/10) | 模板建的实例读不到「设置 → 模型」里配的 provider |
+| ipdrun-12 | [#11](https://github.com/openatta/Harnix/issues/11) | profile 去掉系统 space 后，输入框不能换模型 |
+| ipdrun-13 | [#12](https://github.com/openatta/Harnix/issues/12) | 模块拿到 Agix 的 prompt 中间件 |
+| ipdrun-14 | [#13](https://github.com/openatta/Harnix/issues/13) | 模块不知道进程监听在哪个地址 |
+| ipdrun-15 | [#14](https://github.com/openatta/Harnix/issues/14) | 服务重启后，已经打开的页面永远连不回去 |
+| ipdrun-16 | [#15](https://github.com/openatta/Harnix/issues/15) | `useNest().subscribe` 的退订不计数，同一页里另一个订阅者从此收不到推送 |
+| ipdrun-17 | [#16](https://github.com/openatta/Harnix/issues/16) | `harnix.turn_settled` 不带这一轮的结果 |
+| ipdrun-18 | [#17](https://github.com/openatta/Harnix/issues/17) | space 不能把别的 space 带到前台 |
+| ipdrun-19 | [#18](https://github.com/openatta/Harnix/issues/18) | space 管不了右栏：选哪个页签、开合、页签变了让外壳重画 |
+| ipdrun-20 | [#19](https://github.com/openatta/Harnix/issues/19) | space 不能打开设置面板的某一节 |
+| ipdrun-21 | [#20](https://github.com/openatta/Harnix/issues/20) | 前台会话变了，space 收不到通知 |
+| ipdrun-22 | [#21](https://github.com/openatta/Harnix/issues/21) | space 在左栏不能显示角标 |
+| ipdrun-23 | [#22](https://github.com/openatta/Harnix/issues/22) | space 不能让中区的对话只读 |
+| ipdrun-24 | [#23](https://github.com/openatta/Harnix/issues/23) | space 不能在转录顶部放固定的内容 |
+| ipdrun-25 | [#24](https://github.com/openatta/Harnix/issues/24) | space 的提示只在新对话首屏出现，打开的会话里没有 |
+| ipdrun-26 | [#25](https://github.com/openatta/Harnix/issues/25) | space 不能让对话正文里的某种模式变成可点的 chip |
+| ipdrun-27 | [#26](https://github.com/openatta/Harnix/issues/26) | `@` 的候选不能由应用贡献 |
+| ipdrun-28 | [#27](https://github.com/openatta/Harnix/issues/27) | 输入框没有「立即送达」（steer）的选项 |
+| ipdrun-29 | [#28](https://github.com/openatta/Harnix/issues/28) | `/` 命令只能插入文字，space 也藏不掉引擎的命令 |
+| ipdrun-30 | [#29](https://github.com/openatta/Harnix/issues/29) | space 的图标只能从外壳自带的那几十个里挑 |
+| ipdrun-31 | [#30](https://github.com/openatta/Harnix/issues/30) | 桌面模板在没有 profile 时把状态目录写死成 `~/.harnix` |
+| ipdrun-32 | [#31](https://github.com/openatta/Harnix/issues/31) | 外部应用的两个 pnpm workspace：模板少一行，文档少两句 |
+| ipdrun-33 | [#32](https://github.com/openatta/Harnix/issues/32) | 应用不能给页面标题加待处理数前缀 |
+| ipdrun-34 | [#33](https://github.com/openatta/Harnix/issues/33) | `/` 命令拿不到命令名后面输入的文字 |
+| ipdrun-35 | [#34](https://github.com/openatta/Harnix/issues/34) | 窄于 960 时右栏够不着 |
+| ipdrun-36 | [#35](https://github.com/openatta/Harnix/issues/35) | `composer.insert` 不能指定会话，刚打开的会话插不进去 |
+| ipdrun-37 | [#36](https://github.com/openatta/Harnix/issues/36) | `@` 菜单里应用贡献的候选被文件挤掉 |
+| ipdrun-38 | [#37](https://github.com/openatta/Harnix/issues/37) | space 不知道外壳的模态层开着，Esc 同时落到 space 的键盘处理上 |
+| ipdrun-39 | [#38](https://github.com/openatta/Harnix/issues/38) | space 说不了自己当前是哪个页签，换回来总在第一个 |
+| ipdrun-40 | [#39](https://github.com/openatta/Harnix/issues/39) | 打开会话时定位不到其中的某一条 |
+| ipdrun-41 | [#40](https://github.com/openatta/Harnix/issues/40) | tap 落后时，逐帧读的调用方拿不到缺口里的结算；结算也不带回答文本与工具调用 |
+| ipdrun-42 | [#41](https://github.com/openatta/Harnix/issues/41) | 没有轻量的 Rust 客户端 |
+| ipdrun-43 | [#42](https://github.com/openatta/Harnix/issues/42) | 桌面模板的壳不能当自己子进程的客户端 |
+| ipdrun-44 | [#43](https://github.com/openatta/Harnix/issues/43) | 模块侧发消息不能带附件与 `@session` 引用 |
+| ipdrun-45 | [#44](https://github.com/openatta/Harnix/issues/44) | 回放只能非严格 |
+| ipdrun-46 | [#45](https://github.com/openatta/Harnix/issues/45) | 产品关不掉整个外壳的「新会话」（`[shell] new_session`） |
+| ipdrun-47 | [#46](https://github.com/openatta/Harnix/issues/46) | 左栏的 space 列表不能分组（`SpaceContribution.group`） |
+| ipdrun-48 | [#47](https://github.com/openatta/Harnix/issues/47) | space 不能在左栏暂时灰掉（`SpaceContribution.disabled`） |
+| ipdrun-49 | [#48](https://github.com/openatta/Harnix/issues/48) | 左栏品牌下面没有地方放应用的上下文（`host.shell.context`） |
+| ipdrun-50 | [#49](https://github.com/openatta/Harnix/issues/49) | 窄屏时右栏只能盖住中区（`[shell] narrow_details`） |
+| ipdrun-51 | [#50](https://github.com/openatta/Harnix/issues/50) | 会话建了就不能换 space（`harnix.sessions.move`） |
+| ipdrun-52 | [#51](https://github.com/openatta/Harnix/issues/51) | 页面不知道自己在桌面壳里、是不是本地模式（`window.__HARNIX_SHELL__`） |
+| ipdrun-53 | [#52](https://github.com/openatta/Harnix/issues/52) | 左栏的 space 入口与下面的会话之间太挤，没有分隔 |
+| ipdrun-54 | [#53](https://github.com/openatta/Harnix/issues/53) | space 的主会话在左栏会话列表里与 space 入口重复（`SpaceContribution.listSession`） |
+| ipdrun-55 | [#54](https://github.com/openatta/Harnix/issues/54) | 再点前台 space 的入口没有反应（`SpaceContribution.reenter`） |
 
-| 编号 | 标题 | 类型 | 优先级 | 依赖 |
-|---|---|---|---|---|
-| [ipdrun-01](ipdrun-01-in-flight-frame-dropped.md) | 单双向流上超过在途上限的请求被静默丢掉 | 缺陷 | 高 | — |
-| [ipdrun-02](ipdrun-02-sigterm-skips-module-stop.md) | SIGTERM 不走模块的 `stop` | 缺陷 | 高 | — |
-| [ipdrun-03](ipdrun-03-testkit-stop-waits-for-exit.md) | testkit 的 `stop()` 不等进程退出就删目录 | 缺陷 | 中 | 宜与 ipdrun-02 一起 |
-| [ipdrun-04](ipdrun-04-concurrent-ensure.md) | 两个并发的 `instances.ensure` 同名时，第二个失败 | 缺陷 | 高 | — |
-| [ipdrun-05](ipdrun-05-ensure-wait-ready.md) | spawn 实例 `ensure` 返回时还在 starting，紧接着的会话调用失败 | 新能力 | 高 | — |
-| ipdrun-06 | （已撤回：在公开契约之上能做，模板写 `program` 即可） | — | — | — |
-| [ipdrun-07](ipdrun-07-spawn-instance-leftover-processes.md) | spawn 实例停下以后，它的会话起的后台进程还活着 | 缺陷 | 高 | 正常退出那一半依赖 Agix ipdrun-01 |
-| [ipdrun-08](ipdrun-08-daemon-data-root-lock.md) | 同一台实例的新旧两个 daemon 会同时写它的数据根 | 缺陷 | 中 | — |
-| [ipdrun-09](ipdrun-09-state-dir-single-process.md) | 同一个状态目录可以同时起两个进程 | 缺陷 | 中 | — |
-| [ipdrun-10](ipdrun-10-spawn-template-native-contributions.md) | spawn 模板带不了原生贡献 | 新能力 | 中 | — |
-| [ipdrun-11](ipdrun-11-template-instances-inherit-providers.md) | 模板建的实例读不到「设置 → 模型」里配的 provider | 新能力 | 中 | — |
-| [ipdrun-12](ipdrun-12-session-methods-without-system-space.md) | profile 去掉系统 space 后，输入框不能换模型（`[shell] model_switch`，缺省关） | 新能力 | 中 | — |
-| [ipdrun-13](ipdrun-13-prompt-middleware-for-modules.md) | 模块拿到 Agix 的 prompt 中间件 | 新能力 | 中 | Agix ipdrun-03、Agix ipdrun-04；spawn 载体要 ipdrun-10 |
-| [ipdrun-14](ipdrun-14-module-knows-listen-address.md) | 模块不知道进程监听在哪个地址 | 新能力 | 低 | — |
-| [ipdrun-15](ipdrun-15-page-token-after-restart.md) | 服务重启后，已经打开的页面永远连不回去 | 缺陷 | 中 | — |
-| [ipdrun-16](ipdrun-16-host-subscribe-refcount.md) | `useNest().subscribe` 的退订不计数，同一页里另一个订阅者从此收不到推送 | 缺陷 | 高 | — |
-| [ipdrun-17](ipdrun-17-turn-settled-carries-outcome.md) | `harnix.turn_settled` 不带这一轮的结果 | 新能力 | 低 | — |
-| [ipdrun-41](ipdrun-41-catch-up-settled.md) | tap 落后时逐帧读的拿不到缺口里的结算；结算不带回答文本与工具调用（`catch_up_settled`、`outcome.text` / `tool_calls`） | 新能力 | 中 | ipdrun-17 |
-| [ipdrun-42](ipdrun-42-light-rust-client.md) | 没有轻量的 Rust 客户端（`harnix-client`） | 新能力 | 中 | — |
-| [ipdrun-44](ipdrun-44-module-send-attachments.md) | 模块侧发消息不能带附件与 `@session` 引用（`send_with`） | 新能力 | 低 | — |
-| [ipdrun-45](ipdrun-45-replay-strict.md) | 回放只能非严格（`--replay-strict`） | 新能力 | 中 | Agix ipdrun-06 |
-
-### 外壳与贡献点
-
-| 编号 | 标题 | 类型 | 优先级 | 依赖 |
-|---|---|---|---|---|
-| [ipdrun-18](ipdrun-18-host-spaces-switch.md) | space 不能把别的 space 带到前台（`host.spaces.switch`） | 新能力 | 高 | — |
-| [ipdrun-19](ipdrun-19-host-details-control.md) | space 管不了右栏：选哪个页签、开合、重画（`host.details.*`、`host.redraw`） | 新能力 | 高 | — |
-| [ipdrun-20](ipdrun-20-host-settings-open.md) | space 不能打开设置面板的某一节（`host.settings.open`） | 新能力 | 中 | — |
-| [ipdrun-21](ipdrun-21-host-session-onchange.md) | 前台会话变了，space 收不到通知（`host.session.onChange`） | 新能力 | 中 | — |
-| [ipdrun-22](ipdrun-22-space-badge.md) | space 在左栏不能显示角标（`badge`） | 新能力 | 中 | 即时刷新要 ipdrun-19 |
-| [ipdrun-23](ipdrun-23-space-read-only-conversation.md) | space 不能让中区的对话只读（`readOnly`） | 新能力 | 中 | — |
-| [ipdrun-24](ipdrun-24-space-pinned-area.md) | space 不能在转录顶部放固定的内容（`pinned`） | 新能力 | 中 | — |
-| [ipdrun-25](ipdrun-25-notice-in-open-session.md) | space 的提示只在新对话首屏出现（`composerNotice`） | 新能力 | 中 | — |
-| [ipdrun-26](ipdrun-26-space-chat-ids.md) | 对话正文里的某种模式变成可点的 chip（`ids`） | 新能力 | 中 | 跳到别的 space 要 ipdrun-18 |
-| [ipdrun-27](ipdrun-27-mention-contribution-point.md) | `@` 的候选不能由应用贡献（`command` 加 `trigger`，不加贡献点） | 新能力 | 低 | 宜与 ipdrun-29 一起 |
-| [ipdrun-28](ipdrun-28-composer-steer.md) | 输入框没有「立即送达」（steer）的选项 | 新能力 | 中 | 宜与 Agix ipdrun-04 一起 |
-| [ipdrun-29](ipdrun-29-command-run-and-hide.md) | `/` 命令只能插入文字，space 也藏不掉引擎的命令 | 新能力 | 低 | — |
-| [ipdrun-30](ipdrun-30-register-icons.md) | space 的图标只能从外壳自带的里挑（`r.icons`） | 新能力 | 低 | — |
-| [ipdrun-33](ipdrun-33-shell-title-badge.md) | 应用不能给页面标题加待处理数前缀（`host.shell.badge`） | 新能力 | 低 | — |
-| [ipdrun-34](ipdrun-34-command-args.md) | `/` 命令拿不到命令名后面输入的文字（`run(ctx, args)`） | 新能力 | 低 | — |
-| [ipdrun-35](ipdrun-35-narrow-details.md) | 窄于 960 时右栏够不着 | 缺陷 | 中 | — |
-| [ipdrun-36](ipdrun-36-composer-insert-session.md) | `composer.insert` 不能指定会话，刚打开的会话插不进去（`insert(text, {session})`） | 新能力 | 中 | — |
-| [ipdrun-37](ipdrun-37-mention-order.md) | `@` 菜单里应用贡献的候选被文件挤掉（`mention.first`） | 缺陷 | 中 | ipdrun-27 |
-| [ipdrun-38](ipdrun-38-host-modal-state.md) | space 不知道外壳的模态层开着（`host.modal`） | 新能力 | 中 | — |
-| [ipdrun-39](ipdrun-39-space-current-tab.md) | space 说不了自己当前是哪个页签（`SpaceContribution.tab`） | 新能力 | 中 | ipdrun-19 |
-| [ipdrun-40](ipdrun-40-session-open-reveal.md) | 打开会话时定位不到其中的某一条（`session.open(ref, {reveal})`、`session.reveal`） | 新能力 | 中 | — |
-| [ipdrun-46](ipdrun-46-shell-new-session-switch.md) | 产品关不掉整个外壳的「新会话」（profile `[shell] new_session`，缺省 true；hello 带给外壳） | 新能力 | 中 | — |
-| [ipdrun-47](ipdrun-47-space-nav-group.md) | 左栏的 space 列表不能分组（`SpaceContribution.group`） | 新能力 | 低 | — |
-| [ipdrun-48](ipdrun-48-space-disabled.md) | space 不能在左栏暂时灰掉（`SpaceContribution.disabled`） | 新能力 | 中 | 即时刷新要 ipdrun-19 |
-| [ipdrun-49](ipdrun-49-shell-context-line.md) | 左栏品牌下面没有地方放应用的上下文（`host.shell.context`） | 新能力 | 低 | ipdrun-33 |
-| [ipdrun-50](ipdrun-50-narrow-details-beside.md) | 窄屏时右栏只能盖住中区（profile `[shell] narrow_details = "beside"`，缺省 over） | 新能力 | 中 | ipdrun-35 |
-| [ipdrun-51](ipdrun-51-session-move-space.md) | 会话建了就不能换 space（`harnix.sessions.move`、`Sessions::move_to`） | 新能力 | 低 | — |
-| [ipdrun-52](ipdrun-52-desktop-shell-mark.md) | 页面不知道自己在桌面壳里、是不是本地模式（`window.__HARNIX_SHELL__`） | 新能力 | 低 | ipdrun-43 |
-| [ipdrun-53](ipdrun-53-sessions-separator.md) | 左栏的 space 入口与下面的会话之间太挤，没有分隔（`.chats-sep`） | 界面 | 低 | — |
-| [ipdrun-54](ipdrun-54-space-list-session.md) | space 的主会话在左栏会话列表里与 space 入口重复（`SpaceContribution.listSession`） | 新能力 | 低 | ipdrun-53 |
-| [ipdrun-55](ipdrun-55-space-reenter.md) | 再点前台 space 的入口没有反应（`SpaceContribution.reenter`） | 新能力 | 中 | ipdrun-54 |
-
-ipdrun-33、34 补提于 2026-10-30，代码位置对照 `e890f00`（main）；ipdrun-35 提于 2026-11-01；ipdrun-36–45 提于 2026-11-01，对照 `caa934c`（main）。ipdrun-46–49 提于 2026-11-01，对照 `53f30fb`（main），已落地：46 → `c89f9b5`、47 → `ebe867d`、48 → `521801e`、49 → `4c22164`（main，未推送、未发版）。ipdrun-50–52 提于 2026-11-02，对照 `e2736e9`（main），已落地：50 → `78e0753`、51 → `8209799`、52 → `18aec65`（main，未推送、未发版）。
-
-`NestHost` 上的新成员（18–21）与 `SpaceContribution` 上的新字段（22–26、28、29）都是可选的；维护者可以按自己的节奏分几版发，
-建议先做 18、19、21、22。
-
-### 模板与文档
-
-| 编号 | 标题 | 类型 | 优先级 | 依赖 |
-|---|---|---|---|---|
-| [ipdrun-31](ipdrun-31-desktop-product-id.md) | 桌面模板在没有 profile 时把状态目录写死成 `~/.harnix` | 缺陷 | 中 | — |
-| [ipdrun-32](ipdrun-32-app-pnpm-workspace-notes.md) | 外部应用的两个 pnpm workspace：模板少一行，文档少两句 | 文档 | 低 | — |
-| [ipdrun-43](ipdrun-43-desktop-shell-client.md) | 桌面模板的壳不能当自己子进程的客户端 | 新能力 | 低 | ipdrun-42 |
+ipdrun-06 已撤回（在公开契约之上能做，模板写 `program` 即可），没有建。
 
 ## Helm
 
