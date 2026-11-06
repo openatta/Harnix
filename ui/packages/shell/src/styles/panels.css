@@ -861,6 +861,26 @@
   left: 0;
 }
 
+/* Maximized, the panel takes the whole centre: the conversation steps aside (still there, out of
+ * sight) and comes back at the panel's own width on restore. */
+#frame[data-secondary-max] #centre > #main {
+  display: none;
+}
+
+#frame[data-secondary-max] #secondary {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: none;
+}
+
+#frame[data-secondary-max] #secondary .resizer.secondary {
+  display: none;
+}
+
+#secondary .strip .win .icon-btn[aria-pressed="true"] {
+  color: var(--accent);
+}
+
 /* Maximized right column: the centre is out of sight, and so is the panel beside it. */
 #frame[data-details-max] #secondary {
   display: none;

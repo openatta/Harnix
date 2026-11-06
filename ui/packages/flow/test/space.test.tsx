@@ -572,6 +572,51 @@ describe("运行", () => {
 });
 
 describe("参考", () => {
+  const GROUPED =
+    "# Flow guide\n\nIntro.\n\n1. **The skeleton**\n2. **Running**\n3. **Constraints and checks**\n4. **Interfaces to the outside**\n5. **Writing and trying**\n\n" +
+    "## 1. The skeleton\n\n| Object | What it is |\n|---|---|\n| **Flow** | a definition |\n| **Exit condition** | all must hold |\n\n" +
+    "## 2. Running\n\n| Object | What it is |\n|---|---|\n| **Sub-agent** (`kind: agent`) | a sub-agent |\n\n" +
+    "## 3. Constraints and checks\n\n| | What | When | Stops |\n|---|---|---|---|\n| **Gate** | a check | exit | yes |\n\n| Object | What it is |\n|---|---|\n| **Gate** | `gates/<name>.yaml` |\n\n" +
+    "## 4. Interfaces to the outside\n\nText.\n\n## 5. Writing and trying\n\nText.\n\n## A run's states\n\nMore.\n";
+
+  it("the framework above the guide: its elements in the guide's group colours; a click goes to the row, or the group", async () => {
+    const fake = fakeHost({ "app.flow.guide": () => ({ text: GROUPED, lang: "en" }), "app.flow.catalog": {}, "app.flow.schema": {} });
+    const state = new FlowSpaceState();
+    render(
+      <NestProvider host={fake.host}>
+        <ReferenceTab state={state} />
+      </NestProvider>,
+    );
+    await settle();
+    const fw = screen.getByTestId("flow-framework");
+    // Above the guide, the catalog after it.
+    const order = [fw, screen.getByTestId("flow-guide"), screen.getByTestId("flow-catalog")];
+    expect(order.every((el, i) => i === 0 || (order[i - 1]!.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0)).toBe(true);
+    expect(screen.getByTestId("flow-fw-gate").dataset.group).toBe("3");
+    expect(screen.getByTestId("flow-fw-hook").dataset.group).toBe("4");
+    expect(screen.getByTestId("flow-fw-pack").dataset.group).toBe("5");
+    for (const g of [1, 2, 3, 4, 5]) {
+      expect(screen.getByTestId(`flow-fw-legend-${g}`)).toBeTruthy();
+      expect(screen.getByTestId(`flow-guide-group-${g}`).dataset.guideHeading).toBe(String(g));
+    }
+    expect(screen.getByTestId("flow-guide-group-3").textContent).toContain("Constraints and checks");
+    // The gate: its object row in group 3, not the summary table's.
+    fireEvent.click(screen.getByTestId("flow-fw-gate"));
+    const marked = [...document.querySelectorAll("[data-revealed]")];
+    expect(marked).toHaveLength(1);
+    expect(marked[0]!.getAttribute("data-guide-term")).toBe("Gate");
+    expect(marked[0]!.textContent).toContain("gates/<name>.yaml");
+    // A sub-agent by its bold term; a hook has no row: its group's heading.
+    fireEvent.click(screen.getByTestId("flow-fw-sub"));
+    expect(document.querySelector("[data-revealed]")!.getAttribute("data-guide-term")).toBe("Sub-agent");
+    fireEvent.keyDown(screen.getByTestId("flow-fw-hook"), { key: "Enter" });
+    expect(document.querySelector("[data-revealed]")!.getAttribute("data-guide-heading")).toBe("4");
+    fireEvent.click(screen.getByTestId("flow-fw-legend-5"));
+    expect(document.querySelector("[data-revealed]")!.getAttribute("data-guide-heading")).toBe("5");
+    // The overview list is coloured by group too.
+    expect(screen.getByTestId("flow-guide").querySelectorAll(".hx-flow-guide-overview li").length).toBe(5);
+  });
+
   const GUIDE = "# Flow guide\n\nA flow is a **graph**.\n\n| Object | Meaning |\n|---|---|\n| **Flow** | A `name` |\n\n- one\n- two\n\n```yaml\nname: like-this\nstations: []\n```\n\n```yaml\n  - id: part\n```\n";
 
   it("the guide in the page's language, then the catalog and the fields; an example starts a flow like it", async () => {

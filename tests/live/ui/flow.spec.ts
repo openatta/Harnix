@@ -146,6 +146,19 @@ test("the flows tab: filter and sort; a flow's details beside the conversation �
   await expect(stationPanel(page)).toHaveAttribute("data-station", "review");
   await expect(stationPanel(page).getByTestId("flow-station-permissions")).toContainText("read-only");
 
+  // Maximized, it takes the whole centre; restored, it is back beside the conversation.
+  const max = page.getByTestId("secondary-max");
+  await expect(max).toHaveAttribute("aria-pressed", "false");
+  await max.click();
+  await expect(page.locator("#frame")).toHaveAttribute("data-secondary-max", "");
+  await expect(page.locator("#main")).toBeHidden();
+  await expect(max).toHaveAttribute("aria-pressed", "true");
+  const wide = (await side.boundingBox())!.width;
+  await max.click();
+  await expect(page.locator("#frame")).not.toHaveAttribute("data-secondary-max", "");
+  await expect(page.locator("#main")).toBeVisible();
+  expect((await side.boundingBox())!.width).toBeLessThan(wide);
+
   // Closed: nothing is selected, the conversation stays.
   await page.getByTestId("secondary-close").click();
   await expect(side).toHaveCount(0);
@@ -366,6 +379,18 @@ test("the reference tab: the guide, the catalog and the fields; an example start
   await inFlow(page);
   await select(page, "example-review");
   await tab(page, "reference");
+  // The framework first: one picture, coloured by the guide's five groups; an element clicked goes
+  // to its row in its group below.
+  const fw = page.getByTestId("flow-framework");
+  await expect(fw).toBeVisible();
+  for (const g of [1, 2, 3, 4, 5]) await expect(page.getByTestId(`flow-guide-group-${g}`)).toBeVisible();
+  await expect(page.getByTestId("flow-fw-gate")).toHaveAttribute("data-group", "3");
+  await page.getByTestId("flow-fw-gate").click();
+  const reached = page.locator('[data-guide-group="3"] [data-revealed]');
+  await expect(reached).toHaveAttribute("data-guide-term", /^(Gate|门禁)$/);
+  await expect(reached).toBeInViewport();
+  await page.getByTestId("flow-fw-legend-4").click();
+  await expect(page.locator('[data-guide-heading="4"][data-revealed]')).toBeInViewport();
   const guide = page.getByTestId("flow-guide");
   await expect(guide).toContainText(/Flow guide|流程指南/);
   await expect(guide.locator("table").first()).toBeVisible();

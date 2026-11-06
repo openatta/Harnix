@@ -123,6 +123,8 @@ const en: Record<string, string> = {
   "details.title": "Details",
   "details.maximize": "Maximize",
   "details.restore": "Restore",
+  "secondary.maximize": "Maximize the details: the conversation makes way",
+  "secondary.restore": "Restore the details beside the conversation",
   "details.empty": "Open a tool call to see its full input and output",
   "details.callId": "Call id",
 

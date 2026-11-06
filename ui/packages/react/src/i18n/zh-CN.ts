@@ -121,6 +121,8 @@ const zhCN: Record<string, string> = {
   "details.title": "详情",
   "details.maximize": "最大化",
   "details.restore": "还原",
+  "secondary.maximize": "最大化详情：会话让出位置",
+  "secondary.restore": "还原：详情回到会话旁边",
   "details.empty": "打开一个工具调用查看它的完整输入与输出",
   "details.callId": "调用 id",
 

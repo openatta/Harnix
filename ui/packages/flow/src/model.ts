@@ -598,13 +598,28 @@ export function guideBlocks(markdown: string): GuideBlock[] {
   const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
   const out: GuideBlock[] = [];
   let i = 0;
-  const cells = (line: string) =>
-    line
-      .trim()
-      .replace(/^\|/, "")
-      .replace(/\|$/, "")
-      .split("|")
-      .map((c) => c.trim());
+  // A row's cells: split at `|`, but not inside `code` nor at an escaped `\|`.
+  const cells = (line: string) => {
+    const row = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+    const out: string[] = [];
+    let cell = "";
+    let code = false;
+    for (let k = 0; k < row.length; k++) {
+      const c = row[k]!;
+      if (c === "\\" && row[k + 1] === "|") {
+        cell += "|";
+        k++;
+      } else if (c === "`") {
+        code = !code;
+        cell += c;
+      } else if (c === "|" && !code) {
+        out.push(cell.trim());
+        cell = "";
+      } else cell += c;
+    }
+    out.push(cell.trim());
+    return out;
+  };
   while (i < lines.length) {
     const line = lines[i]!;
     const fence = /^```(\w*)\s*$/.exec(line);
@@ -651,6 +666,46 @@ export function guideBlocks(markdown: string): GuideBlock[] {
     out.push({ kind: "paragraph", text: para.join(" ") });
   }
   return out;
+}
+
+/** The guide's five groups (xops-04, the guide's `##` sections): 1 skeleton, 2 running, 3 constraints
+ *  and checks, 4 interfaces to the outside, 5 writing and trying. */
+export type GuideGroup = 1 | 2 | 3 | 4 | 5;
+
+export const GUIDE_GROUPS: readonly GuideGroup[] = [1, 2, 3, 4, 5];
+
+/** The group a `##` heading opens (`一、流程骨架`, `1. The skeleton`); null for any other. */
+export function guideGroupOf(heading: string): GuideGroup | null {
+  const t = heading.trim();
+  const zh = /^([一二三四五])、/.exec(t);
+  if (zh) return ("一二三四五".indexOf(zh[1]!) + 1) as GuideGroup;
+  const en = /^([1-5])\.\s/.exec(t);
+  return en ? (Number(en[1]) as GuideGroup) : null;
+}
+
+/** The term a guide table row is about: its first cell's first **bold** run, else the cell. */
+export function guideTermOf(cell: string | undefined): string {
+  const c = (cell ?? "").trim();
+  const m = /\*\*(.+?)\*\*/.exec(c);
+  return (m ? m[1]! : c).trim();
+}
+
+/** The guide's blocks with the group each is in: a `##` heading of a group opens it, any other
+ *  `##` closes it. The overview list before the first group (five items) is the groups' own. */
+export function guideSections(blocks: GuideBlock[]): { group: GuideGroup | null; blocks: GuideBlock[]; overview?: boolean }[] {
+  const out: { group: GuideGroup | null; blocks: GuideBlock[]; overview?: boolean }[] = [{ group: null, blocks: [] }];
+  for (const b of blocks) {
+    if (b.kind === "heading" && b.level <= 2) {
+      out.push({ group: b.level === 2 ? guideGroupOf(b.text) : null, blocks: [b] });
+      continue;
+    }
+    out[out.length - 1]!.blocks.push(b);
+  }
+  for (const sec of out) {
+    if (sec.group !== null) break;
+    if (sec.blocks.some((b) => b.kind === "list" && b.items.length === 5)) sec.overview = true;
+  }
+  return out.filter((sec) => sec.blocks.length);
 }
 
 /** An inline run of guide text: plain, `code`, or **strong**. */

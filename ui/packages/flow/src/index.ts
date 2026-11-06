@@ -88,6 +88,11 @@ export {
   permissionScope,
   permissionsOf,
   rulesOf,
+  GUIDE_GROUPS,
+  guideGroupOf,
+  guideSections,
+  guideTermOf,
+  type GuideGroup,
   type BlockShape,
   type SchemaRow,
   type StationActions,
@@ -97,6 +102,7 @@ export {
 } from "./model";
 export { useDefs, useDryRuns, useMethod, useRunView, useTopic, type Loaded } from "./hooks";
 export { FlowGraph, clipText, type FlowGraphProps } from "./FlowGraph";
+export { FlowFramework, type FlowFrameworkProps, type FrameworkPick } from "./FlowFramework";
 export { StationPanel, stationPermissions, type StationPanelProps } from "./StationPanel";
 export { FlowHooks, FlowParts, PermissionList, RuleChips } from "./parts";
 export { RunList, StartForm, type RunListProps } from "./RunList";
@@ -105,5 +111,6 @@ export { ProposalCard, type ProposalCardProps } from "./ProposalCard";
 export { FlowToolRow, ToolTargetLine } from "./ToolTarget";
 export { registerFlowSpace, type FlowSpace, type FlowSpaceOptions } from "./space";
 export { FlowSpaceState, type FlowDetailOf, type FlowSelection, type StateTabs } from "./state";
+export { revealInGuide } from "./tabs";
 export { DryControls, EmptyConversation, FlowDetail, FlowSecondary, FlowsTab, FocusNotice, GuideView, PhaseBadge, ReferenceTab, RunDetail, RunsTab, useSelection, type FlowTabs } from "./tabs";
 export { STRINGS, STRINGS_OWNER, registerFlowStrings } from "./strings";

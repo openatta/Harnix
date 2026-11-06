@@ -78,6 +78,35 @@ describe("the second side panel", () => {
     expect(frame().style.getPropertyValue("--secondary-width")).toBe(`${WIDTHS.secondary[2]}px`);
   });
 
+  it("maximized it takes the whole centre; restored it is back at its width; per space, remembered", () => {
+    const { app, container, frame } = drawn(() => ({ key: "k", title: () => "t", render: () => null, width: 520 }));
+    const button = () => container.querySelector<HTMLButtonElement>('[data-testid="secondary-max"]')!;
+    // Left of the close button.
+    expect(button().nextElementSibling!.getAttribute("data-testid")).toBe("secondary-close");
+    expect(button().getAttribute("aria-pressed")).toBe("false");
+    expect(button().title).toBe("Maximize the details: the conversation makes way");
+    expect(frame().hasAttribute("data-secondary-max")).toBe(false);
+    act(() => app.toggleDetailsMax(true));
+    act(() => fireEvent.click(button()));
+    expect(frame().hasAttribute("data-secondary-max")).toBe(true);
+    expect(app.snapshot.detailsMax).toBe(false);
+    expect(button().getAttribute("aria-pressed")).toBe("true");
+    expect(button().title).toBe("Restore the details beside the conversation");
+    expect(JSON.parse(localStorage.getItem("harnix.secondaryMax")!)).toEqual({ side: true });
+    // A redraw keeps it; another space has its own.
+    act(() => app.redraw());
+    expect(frame().hasAttribute("data-secondary-max")).toBe(true);
+    act(() => app.set({ space: "b" }));
+    expect(app.secondaryMax()).toBe(false);
+    act(() => app.set({ space: "side" }));
+    expect(app.secondaryMax()).toBe(true);
+    // Restored: the width it had.
+    act(() => fireEvent.click(button()));
+    expect(frame().hasAttribute("data-secondary-max")).toBe(false);
+    expect(frame().style.getPropertyValue("--secondary-width")).toBe("520px");
+    expect(JSON.parse(localStorage.getItem("harnix.secondaryMax")!)).toEqual({});
+  });
+
   it("a space whose panel throws draws none", () => {
     const { aside } = drawn(() => {
       throw new Error("no");

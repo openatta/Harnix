@@ -126,6 +126,8 @@ export interface ShellState {
   detailsBySpace: Record<string, boolean>;
   /** The right column takes the centre's place too (it closes back to its own width). */
   detailsMax: boolean;
+  /** A space's second side panel takes the whole centre, per space; remembered (xops-04 §7). */
+  secondaryMaxBySpace: Record<string, boolean>;
   sidebar: "expanded" | "collapsed";
   banner: { text: string; tone?: "info" | "error" } | null;
   modal: Modal | null;
@@ -160,6 +162,7 @@ const CURRENT_KEY = "harnix.space.current";
 const PROJECT_KEY = "harnix.project";
 const WIDTHS_KEY = "harnix.widths";
 const DETAILS_KEY = "harnix.details";
+const SECONDARY_MAX_KEY = "harnix.secondaryMax";
 
 function stored<T>(key: string, fallback: T): T {
   try {
@@ -288,6 +291,7 @@ export class App {
       detail: null,
       detailsBySpace: stored<Record<string, boolean>>(DETAILS_KEY, {}),
       detailsMax: false,
+      secondaryMaxBySpace: stored<Record<string, boolean>>(SECONDARY_MAX_KEY, {}),
       sidebar: "expanded",
       banner: null,
       modal: null,
@@ -707,6 +711,21 @@ export class App {
   toggleDetails(open?: boolean): void {
     const detailsOpen = open ?? !this.detailsOpen();
     this.set({ detailsBySpace: this.keepDetails(detailsOpen), detailsMax: detailsOpen && this.state.detailsMax });
+  }
+
+  /** Whether the front space's second side panel takes the whole centre. */
+  secondaryMax(state: ShellState = this.state): boolean {
+    return state.secondaryMaxBySpace[state.space] === true;
+  }
+
+  /** The front space's second side panel takes the whole centre, or goes back beside the
+   *  conversation at the width it had. Remembered per space. A maximized right column gives way. */
+  toggleSecondaryMax(max?: boolean): void {
+    const next = max ?? !this.secondaryMax();
+    const secondaryMaxBySpace = { ...this.state.secondaryMaxBySpace, [this.state.space]: next };
+    if (!next) delete secondaryMaxBySpace[this.state.space];
+    remember(SECONDARY_MAX_KEY, secondaryMaxBySpace);
+    this.set({ secondaryMaxBySpace, detailsMax: next ? false : this.state.detailsMax });
   }
 
   toggleDetailsMax(max?: boolean): void {

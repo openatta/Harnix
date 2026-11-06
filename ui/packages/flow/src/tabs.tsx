@@ -7,7 +7,9 @@
  *                     the flows (title, origin, valid)
  *   运行 / Runs       first row: filter (state, flow, kind), sort (start, duration, tokens); every
  *                     run and dry run
- *   参考 / Reference  the guide to flows, then this application's catalog and the fields
+ *   参考 / Reference  the framework of a flow in one picture (`FlowFramework`), coloured by the
+ *                     guide's five groups; the guide below it, in those groups (an element clicked
+ *                     goes to its row); then this application's catalog and the fields
  *
  * What is selected opens in the shell's second side panel, beside the conversation (xops-04 §7,
  * `FlowSecondary`): a flow — its diagram (a station picked there opens below it), its definition
@@ -19,9 +21,10 @@
  * conversation says it is for.
  */
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useLocale, useNest, useT, type HostSessionRef as SessionRef } from "@harnix/react";
 
+import { FlowFramework, type FrameworkPick } from "./FlowFramework";
 import { FlowGraph } from "./FlowGraph";
 import { FlowReference } from "./FlowReference";
 import { errorText, useDefs, useDryRuns, useMethod, useRunView, useTopic } from "./hooks";
@@ -34,6 +37,8 @@ import {
   formatTime,
   formatTokens,
   guideBlocks,
+  guideSections,
+  guideTermOf,
   inlineOf,
   isDryRun,
   methodName,
@@ -51,6 +56,7 @@ import {
   stationTitle,
   tokensOf,
   type GuideBlock,
+  type GuideGroup,
 } from "./model";
 import { FlowParts, PermissionList, RuleChips } from "./parts";
 import { StartForm } from "./RunList";
@@ -863,46 +869,96 @@ export function ReferenceTab({ state }: { state: FlowSpaceState }) {
   useSelection(state);
   const lang = locale.startsWith("zh") ? "zh-CN" : "en";
   const guide = useMethod<Guide>(state.module, "guide", { lang });
+  const box = useRef<HTMLDivElement | null>(null);
   return (
-    <div className="hx-flow-panel hx-flow-reference" data-testid="flow-reference-tab">
+    <div className="hx-flow-panel hx-flow-reference" data-testid="flow-reference-tab" ref={box}>
+      <FlowFramework onPick={(p) => box.current && revealInGuide(box.current, p)} />
       <GuideView state={state} guide={guide.value ?? null} error={guide.error} />
       <FlowReference module={state.module} />
     </div>
   );
 }
 
-/** The guide's markdown, drawn; each whole example can start a new flow in the general conversation. */
+/**
+ * Bring what a picked element of the framework is about into view in the guide below: the row of
+ * its term in its group (the last such row: a group's summary table comes before its objects), else
+ * the group's heading; it is marked for a moment.
+ */
+export function revealInGuide(root: HTMLElement, pick: FrameworkPick): HTMLElement | null {
+  const rows = [...root.querySelectorAll<HTMLElement>(`[data-guide-group="${pick.group}"] [data-guide-term]`)];
+  const row = pick.term ? rows.filter((r) => r.dataset.guideTerm === pick.term).pop() : undefined;
+  const target = row ?? root.querySelector<HTMLElement>(`[data-guide-heading="${pick.group}"]`);
+  if (!target) return null;
+  target.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  for (const el of root.querySelectorAll("[data-revealed]")) el.removeAttribute("data-revealed");
+  target.setAttribute("data-revealed", "");
+  setTimeout(() => target.removeAttribute("data-revealed"), 1600);
+  return target;
+}
+
+/** The guide's markdown, drawn in its groups (each with its colour); each whole example can start a
+ *  new flow in the general conversation. */
 export function GuideView({ state, guide, error }: { state: FlowSpaceState; guide: Guide | null; error?: string | null }) {
   const t = useT();
   const nest = useNest();
-  const blocks = useMemo(() => (guide ? guideBlocks(guide.text) : []), [guide]);
+  const sections = useMemo(() => (guide ? guideSections(guideBlocks(guide.text)) : []), [guide]);
   let example = 0;
+  const part = (b: GuideBlock, i: number, group: GuideGroup | null, overview: boolean) => {
+    if (b.kind === "code" && b.example) {
+      const n = example++;
+      return (
+        <div key={i} className="hx-flow-example" data-testid={`flow-guide-example-${n}`}>
+          <pre className="hx-flow-code hx-flow-mono">{b.text}</pre>
+          <div className="hx-flow-actions">
+            <span className="hx-flow-grow" />
+            <button
+              type="button"
+              className="btn sm outline"
+              data-testid={`flow-guide-like-${n}`}
+              onClick={() => void startInGeneral(state, nest, t("flowui.guide.likePrompt", { yaml: b.text }))}
+            >
+              {t("flowui.guide.like")}
+            </button>
+          </div>
+        </div>
+      );
+    }
+    if (b.kind === "heading" && b.level === 2 && group !== null) {
+      return (
+        <h3 key={i} className={`hx-flow-guide-h hx-flow-guide-group-h hx-fw-g${group}`} data-guide-heading={group} data-testid={`flow-guide-group-${group}`}>
+          <span className="hx-flow-guide-swatch" aria-hidden="true" />
+          <Inline text={b.text} />
+        </h3>
+      );
+    }
+    if (b.kind === "list" && overview && b.items.length === 5) {
+      return (
+        <ul key={i} className="hx-flow-list hx-flow-guide-overview">
+          {b.items.map((item, j) => (
+            <li key={j} className={`hx-fw-g${j + 1}`} data-group={j + 1}>
+              <span className="hx-flow-guide-swatch" aria-hidden="true" />
+              <Inline text={item} />
+            </li>
+          ))}
+        </ul>
+      );
+    }
+    return <GuidePart key={i} block={b} />;
+  };
   return (
     <section className="hx-flow-section hx-flow-guide" data-testid="flow-guide" data-lang={guide?.lang}>
       {error ? <div className="hx-flow-error">{error}</div> : null}
       {!guide && !error ? <p className="hx-flow-hint">{t("flowui.loading")}</p> : null}
-      {blocks.map((b, i) => {
-        if (b.kind === "code" && b.example) {
-          const n = example++;
-          return (
-            <div key={i} className="hx-flow-example" data-testid={`flow-guide-example-${n}`}>
-              <pre className="hx-flow-code hx-flow-mono">{b.text}</pre>
-              <div className="hx-flow-actions">
-                <span className="hx-flow-grow" />
-                <button
-                  type="button"
-                  className="btn sm outline"
-                  data-testid={`flow-guide-like-${n}`}
-                  onClick={() => void startInGeneral(state, nest, t("flowui.guide.likePrompt", { yaml: b.text }))}
-                >
-                  {t("flowui.guide.like")}
-                </button>
-              </div>
-            </div>
-          );
-        }
-        return <GuidePart key={i} block={b} />;
-      })}
+      {sections.map((sec, k) => (
+        <div
+          key={k}
+          className={sec.group ? `hx-flow-guide-sec hx-fw-g${sec.group}` : "hx-flow-guide-sec"}
+          data-guide-group={sec.group ?? undefined}
+          data-testid={sec.group ? `flow-guide-sec-${sec.group}` : undefined}
+        >
+          {sec.blocks.map((b, i) => part(b, i, sec.group, !!sec.overview))}
+        </div>
+      ))}
     </section>
   );
 }
@@ -957,7 +1013,7 @@ function GuidePart({ block: b }: { block: GuideBlock }) {
           ) : null}
           <tbody>
             {b.rows.map((r, i) => (
-              <tr key={i}>
+              <tr key={i} data-guide-term={guideTermOf(r[0]) || undefined}>
                 {r.map((c, j) => (
                   <td key={j}>
                     <Inline text={c} />

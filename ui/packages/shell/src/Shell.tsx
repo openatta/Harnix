@@ -58,6 +58,7 @@ export function Shell({ app }: { app: App }) {
         data-details={app.detailsOpen(s) ? "open" : "closed"}
         data-details-max={app.detailsOpen(s) && s.detailsMax ? "" : undefined}
         data-secondary={secondary ? "open" : undefined}
+        data-secondary-max={secondary && app.secondaryMax(s) ? "" : undefined}
         data-space={s.space}
         style={
           {
@@ -71,7 +72,7 @@ export function Shell({ app }: { app: App }) {
         <Resizer app={app} column="side" />
         <div id="centre">
           <Main app={app} s={s} />
-          {secondary && space ? <Secondary app={app} space={space} panel={secondary} /> : null}
+          {secondary && space ? <Secondary app={app} space={space} panel={secondary} max={app.secondaryMax(s)} /> : null}
         </div>
         {space || s.detail ? <Details app={app} s={s} /> : <aside id="details" aria-hidden />}
       </div>
@@ -959,7 +960,7 @@ function secondaryOf(app: App, space: (SpaceContribution & { owner: string }) | 
  * What the front space has open beside the conversation: its heading, a close button, its body.
  * Closing hands it back to the space (`onClose`), which lets go of the selection; the centre stays.
  */
-function Secondary({ app, space, panel }: { app: App; space: SpaceContribution & { owner: string }; panel: SpaceSecondary }) {
+function Secondary({ app, space, panel, max }: { app: App; space: SpaceContribution & { owner: string }; panel: SpaceSecondary; max: boolean }) {
   const t = useT();
   const registry = useRegistry(app.registry);
   const title = ask(registry, space, () => panel.title(), "");
@@ -971,6 +972,17 @@ function Secondary({ app, space, panel }: { app: App; space: SpaceContribution &
           {title}
         </div>
         <div className="win">
+          <button
+            type="button"
+            className="icon-btn"
+            data-testid="secondary-max"
+            title={max ? t("secondary.restore") : t("secondary.maximize")}
+            aria-label={max ? t("secondary.restore") : t("secondary.maximize")}
+            aria-pressed={max}
+            onClick={() => app.toggleSecondaryMax()}
+          >
+            <Glyph name={max ? "restore" : "maximize"} className="glyph" />
+          </button>
           <button
             type="button"
             className="icon-btn close"

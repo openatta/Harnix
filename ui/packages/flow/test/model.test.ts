@@ -6,6 +6,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  guideGroupOf,
+  guideSections,
+  guideTermOf,
   gateTitle,
   partTitle,
   permissionScope,
@@ -406,5 +409,31 @@ describe("rules, policies and permissions, gates (xops-04)", () => {
     const unknown = toolTarget("ns__flow_part_delete", { kind: "nope", name: "ro" });
     expect(unknown).toMatchObject({ tool: "part_delete", part: "ro" });
     expect(unknown?.kind).toBeUndefined();
+  });
+});
+
+describe("the guide's five groups (flow-5)", () => {
+  it("keeps a `|` inside code, or escaped, in its cell", () => {
+    const [t] = guideBlocks("| a | b |\n|---|---|\n| **Judging** | split at `;` `&&` `|`, or \\| here |\n");
+    expect(t).toEqual({ kind: "table", head: ["a", "b"], rows: [["**Judging**", "split at `;` `&&` `|`, or | here"]] });
+  });
+
+  it("reads a group off its heading, a term off a row's first cell", () => {
+    expect(guideGroupOf("一、流程骨架")).toBe(1);
+    expect(guideGroupOf("五、编写与试用")).toBe(5);
+    expect(guideGroupOf("3. Constraints and checks")).toBe(3);
+    expect(guideGroupOf("A run's states")).toBe(null);
+    expect(guideTermOf("**Sub-agent** (`kind: agent`)")).toBe("Sub-agent");
+    expect(guideTermOf("**主会话 / 主 Agent**")).toBe("主会话 / 主 Agent");
+    expect(guideTermOf("")).toBe("");
+  });
+
+  it("puts each block in its group; another heading ends it; the overview list is the groups'", () => {
+    const md = "# Guide\n\nIntro.\n\n1. **A**\n2. **B**\n3. **C**\n4. **D**\n5. **E**\n\n## 1. The skeleton\n\n| Object | What |\n|---|---|\n| **Flow** | x |\n\n## 3. Constraints and checks\n\nText.\n\n## A run's states\n\nMore.\n";
+    const secs = guideSections(guideBlocks(md));
+    expect(secs.map((x) => x.group)).toEqual([null, 1, 3, null]);
+    expect(secs[0]!.overview).toBe(true);
+    expect(secs[1]!.blocks.map((b) => b.kind)).toEqual(["heading", "table"]);
+    expect(secs[3]!.overview).toBeUndefined();
   });
 });

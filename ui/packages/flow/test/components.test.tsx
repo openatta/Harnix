@@ -11,6 +11,7 @@ import { NestProvider, Registry, setLocale, type NestHost } from "@harnix/react"
 
 import { FlowGraph } from "../src/FlowGraph";
 import { useRunView } from "../src/hooks";
+import { FlowFramework, type FrameworkPick } from "../src/FlowFramework";
 import { ProposalCard } from "../src/ProposalCard";
 import { registerFlowSpace } from "../src/space";
 import { StationPanel } from "../src/StationPanel";
@@ -230,6 +231,35 @@ describe("StationPanel", () => {
     expect(screen.getByTestId("flow-station-permissions-1").textContent).toContain("paths /ws/r/out/**");
     expect(screen.getByTestId("flow-output-contract").textContent).toContain("findings");
     expect((screen.getByTestId("flow-tab-run") as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe("FlowFramework", () => {
+  it("names each element in the page's language, and picks it with its group and the guide's term", () => {
+    const picks: FrameworkPick[] = [];
+    setLocale("zh-CN");
+    try {
+      render(<FlowFramework onPick={(p) => picks.push(p)} />);
+      expect(screen.getByTestId("flow-fw-permission").textContent).toContain("权限");
+      fireEvent.click(screen.getByTestId("flow-fw-permission"));
+      fireEvent.click(screen.getByTestId("flow-fw-main"));
+      fireEvent.click(screen.getByTestId("flow-fw-legend-2"));
+    } finally {
+      setLocale("en");
+    }
+    expect(picks).toEqual([
+      { id: "permission", group: 3, term: "权限" },
+      { id: "main", group: 2, term: "主会话 / 主 Agent" },
+      { id: "group-2", group: 2, term: null },
+    ]);
+    cleanup();
+    render(<FlowFramework />);
+    expect(screen.getByTestId("flow-fw-permission").textContent).toContain("Permissions");
+    expect(screen.getByTestId("flow-fw-permission").getAttribute("role")).toBe("button");
+    // Every group has a legend entry, and each element one of the five colours.
+    expect(document.querySelectorAll("[data-testid^=flow-fw-legend-]").length).toBe(5);
+    const groups = new Set([...document.querySelectorAll<HTMLElement>("[data-testid^=flow-fw-]")].map((e) => e.dataset.group));
+    expect([...groups].sort()).toEqual(["1", "2", "3", "4", "5"]);
   });
 });
 
