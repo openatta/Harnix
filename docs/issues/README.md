@@ -75,6 +75,7 @@
 | [ipdrun-52](ipdrun-52-desktop-shell-mark.md) | 页面不知道自己在桌面壳里、是不是本地模式（`window.__HARNIX_SHELL__`） | 新能力 | 低 | ipdrun-43 |
 | [ipdrun-53](ipdrun-53-sessions-separator.md) | 左栏的 space 入口与下面的会话之间太挤，没有分隔（`.chats-sep`） | 界面 | 低 | — |
 | [ipdrun-54](ipdrun-54-space-list-session.md) | space 的主会话在左栏会话列表里与 space 入口重复（`SpaceContribution.listSession`） | 新能力 | 低 | ipdrun-53 |
+| [ipdrun-55](ipdrun-55-space-reenter.md) | 再点前台 space 的入口没有反应（`SpaceContribution.reenter`） | 新能力 | 中 | ipdrun-54 |
 
 ipdrun-33、34 补提于 2026-10-30，代码位置对照 `e890f00`（main）；ipdrun-35 提于 2026-11-01；ipdrun-36–45 提于 2026-11-01，对照 `caa934c`（main）。ipdrun-46–49 提于 2026-11-01，对照 `53f30fb`（main），已落地：46 → `c89f9b5`、47 → `ebe867d`、48 → `521801e`、49 → `4c22164`（main，未推送、未发版）。ipdrun-50–52 提于 2026-11-02，对照 `e2736e9`（main），已落地：50 → `78e0753`、51 → `8209799`、52 → `18aec65`（main，未推送、未发版）。
 

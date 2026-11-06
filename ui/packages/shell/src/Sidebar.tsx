@@ -167,7 +167,16 @@ function SpaceEntry({ app, s, space }: { app: App; s: ShellState; space: SpaceCo
       title={why ?? space.title()}
       aria-pressed={space.id === s.space}
       onClick={() => {
-        if (disabledOf(app.registry, space) === null) void app.switchSpace(space.id);
+        if (disabledOf(app.registry, space) !== null) return;
+        if (space.id === s.space && space.reenter) {
+          try {
+            space.reenter();
+          } catch {
+            // the space's own business; the click stays harmless
+          }
+          return;
+        }
+        void app.switchSpace(space.id);
       }}
     >
       <Glyph name={space.icon} className="glyph" />

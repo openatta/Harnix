@@ -110,6 +110,10 @@ export interface SpaceContribution {
    *  the space's main conversation, which its entry already opens (ipdrun-54). Read at every draw
    *  (call `host.redraw()` when the answer changes); absent, or a throw, lists it. */
   listSession?(session: SessionRef): boolean;
+  /** Its entry in the left column was clicked while it is already in front: say, back to its main
+   *  conversation and its first page (with `listSession` that conversation has no row of its own).
+   *  Absent: such a click does nothing, as before; a throw is ignored (ipdrun-55). */
+  reenter?(): void;
   /** The centre when it is not the conversation. */
   overview?(): ReactNode;
   /** Right-column tabs, beside the details drawer. A function when they depend on what is

@@ -77,6 +77,23 @@ describe("listSession (ipdrun-54)", () => {
   });
 });
 
+describe("reenter (ipdrun-55)", () => {
+  it("a click on the front space's entry calls reenter; on another space's entry it switches", async () => {
+    const { app } = scriptedApp();
+    let n = 0;
+    app.registry.register("space", space("c", { reenter: () => (n += 1) }), "test");
+    const { container } = draw(app);
+    await act(tick);
+    const entry = (id: string) => container.querySelector(`nav.spaces [data-space="${id}"]`) as HTMLElement;
+    await act(async () => fireEvent.click(entry("c")));
+    expect(app.snapshot.space).toBe("c");
+    expect(n).toBe(0);
+    await act(async () => fireEvent.click(entry("c")));
+    expect(n).toBe(1);
+    expect(app.snapshot.space).toBe("c");
+  });
+});
+
 describe("space groups", () => {
   it("no space names a group: no separator", () => {
     const { app } = scriptedApp();
