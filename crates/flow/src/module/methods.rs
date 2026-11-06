@@ -1065,7 +1065,12 @@ fn def_info(engine: &Engine, packs: &dyn Packs, name: &str) -> Answer {
                 delivery,
                 executor: Some(&t.executor),
             });
-            proto.insert(s.id.clone(), text);
+            // What the session is told before its skill: the rules too.
+            let rules: Vec<(String, String)> = crate::kernel::parts::rules_of(&def, s)
+                .into_iter()
+                .filter_map(|r| packs.rule(&r).map(|(t, _)| (r, t)))
+                .collect();
+            proto.insert(s.id.clone(), protocol::task_message(&text, &rules, None));
         }
     }
     let problems = validate(&def, packs);

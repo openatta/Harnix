@@ -37,8 +37,9 @@ test("the empty application says it has flows: its methods, its space, its examp
     expect.objectContaining({ name: "example-review", origin: "builtin", valid: true }),
   ]);
   const catalog = await api.call("app.flow.catalog");
-  expect(catalog).toMatchObject({ scenes: ["flow-chat", "flow-coding"], steps: [], gates: [], tools: [], writable: true });
-  expect(catalog.skills).toEqual(["review"]);
+  expect(catalog).toMatchObject({ scenes: ["flow-chat", "flow-coding"], steps: [], checks: [], tools: [], command_gates: true, writable: true });
+  // The example's parts: its skill, the rule it keeps, the policy it works under.
+  expect(catalog.parts).toMatchObject({ skill: ["review"], rule: ["review-honest"], policy: ["read-only"], gate: [], hook: [] });
   // A flow that needs an application's program does not validate here.
   const problems = await api.call("app.flow.validate", {
     yaml: "name: x\nstations: [{id: a, executor: {kind: program, step: build}, output: {type: object}, exit: [{kind: output}]}]",

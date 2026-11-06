@@ -55,10 +55,10 @@ async function until(run: string, ok: (v: View) => boolean, describe: string): P
 const station = (v: View, id: string) => v.record.stations[id];
 const status = (id: string, s: string) => (v: View) => station(v, id)?.status === s;
 
-test("the module says what it offers: flows, a definition with its skills, the catalog, schemas", TAGS, async () => {
+test("the module says what it offers: flows, a definition with its parts, the catalog, schemas", TAGS, async () => {
   const defs = await api.call("app.flow.defs");
   expect(defs.map((d: any) => d.name).sort()).toEqual([
-    "demo-agent", "demo-bypassed", "demo-guarded", "demo-linear", "demo-main", "demo-misplaced", "demo-placed",
+    "demo-agent", "demo-asked", "demo-bypassed", "demo-guarded", "demo-linear", "demo-main", "demo-misplaced", "demo-placed",
     "demo-propose", "demo-review", "demo-shared",
   ]);
   // Where each comes from and whether it is valid (xops-02 §3): all built in here.
@@ -67,16 +67,23 @@ test("the module says what it offers: flows, a definition with its skills, the c
   expect(info).toMatchObject({ origin: "builtin", valid: true, problems: [], writable: true });
   expect(info.def.stations.map((s: any) => s.id)).toEqual(["collect", "analyze", "lint", "self-check", "review", "report"]);
   expect(info.yaml).toContain("name: demo-review");
-  expect(Object.keys(info.skills).sort()).toEqual(["analyze", "report"]);
+  expect(Object.keys(info.parts.skills).sort()).toEqual(["analyze", "report"]);
+  expect(Object.keys(info.parts.rules)).toEqual(["review-rules"]);
+  expect(Object.keys(info.parts.gates).sort()).toEqual(["lint", "open-high"]);
+  expect(info.stations.analyze.rules).toEqual(["review-rules"]);
+  expect(info.protocol.analyze).toContain("### Review rules");
   expect(info.protocol.analyze).toContain("flow_submit");
   expect(info.digest).toMatch(/^[0-9a-f]{64}$/);
 
   const catalog = await api.call("app.flow.catalog");
   // The wrapped scene (flow_submit) and the application's own (structured output, xops-02 §2).
   expect(catalog.scenes).toEqual(["flow-chat", "flow-coding", "structured-chat"]);
-  expect(info.protocol.analyze).toContain("refuses these as writes: Bash, PowerShell, REPL, Write, Edit, NotebookEdit, TodoWrite");
+  expect(info.protocol.analyze).toContain("Refused unless a permission allows them: Bash, PowerShell, REPL, Write, Edit, NotebookEdit, TodoWrite");
   expect(catalog.steps).toEqual(["collect", "self-check"]);
-  expect(catalog.skills).toEqual(["analyze", "report"]);
+  expect(catalog).toMatchObject({ checks: ["lint"], tools: ["open_high"], command_gates: true });
+  expect(catalog.parts).toMatchObject({
+    skill: ["analyze", "report"], rule: ["review-rules"], policy: ["ask-todo"], gate: ["lint", "open-high", "self-test"], hook: [],
+  });
   const def = await api.call("app.flow.schema", { of: "definition" });
   expect(def.properties.stations).toBeTruthy();
   const run = await api.call("app.flow.schema", { of: "run" });
@@ -114,15 +121,15 @@ test("lease tokens stay with their claimants, and push tasks are the flow's to h
   await api.call("app.flow.cancel", { run, reason: "done" });
 });
 
-test("a session's write its station does not allow is refused, its proposal is accepted once", TAGS, async () => {
+test("a session's write no permission allows is refused, its proposal is accepted once", TAGS, async () => {
   const run = await start("demo-propose");
   const waiting = await until(run, status("approve", "working"), "approve waits");
   const task = station(waiting, "propose").tasks[0];
   expect(task.status).toBe("submitted");
   const [instance, session_id] = task.session.split("/");
   const history = JSON.stringify((await api.call("session.history", { instance, session_id })).messages);
-  expect(history).toContain("allows no writes");
-  expect(history).toContain("TodoWrite");
+  expect(history).toContain("Refused unless a permission allows them");
+  expect(history).toContain("station propose of the flow does not allow TodoWrite");
 
   const { entries } = await api.call("session.entries", { instance, session_id });
   const proposal = entries.find((e: any) => e.ns === "app.flow" && e.event === "proposal");

@@ -1,17 +1,17 @@
 /**
- * Where a flow station's session runs, on which model, how it hands in and what it may write
- * (xops-02 §1–2), in `harnix-testapp`.
+ * Where a flow station's session runs, on which model, how it hands in and what it may do
+ * (xops-02 §1–2, xops-04 §3), in `harnix-testapp`.
  *
  * The flow module there has two templates of its own: `flow.local` (in process) and
  * `flow.remote` (a spawned daemon); both engines have `structured-chat`, Agix's chat scene with
  * `StructuredOutput` allowed, as a native contribution. A station names the template (and its
  * space, its model); the module makes the instance ready, opens the session there with the
- * station's contract as its `output_schema` and a `deny` permission rule for each guarded tool
- * the station does not allow, and submits each turn's structured output.
+ * station's contract as its `output_schema` and an `ask` permission rule for each guarded tool,
+ * answers each question from the task's permissions, and submits each turn's structured output.
  *
  * Session stations replay `flow-<station>`: `flow-local` and `flow-remote` call `StructuredOutput`
- * once; `flow-guarded` first calls `TodoWrite` (guarded in this application), which its rules
- * refuse.
+ * once; `flow-guarded` first calls `TodoWrite` (guarded in this application), which no permission
+ * of the station allows: the flow refuses it.
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -119,7 +119,7 @@ test("sessions on an in-process and a spawned template instance hand in by struc
   expect((await instances(api))[`local-${run}`]).toBeTruthy();
 });
 
-test("a write its station does not allow is refused on a template instance by the session's permission rules", TAGS, async () => {
+test("a write no permission allows is refused on a template instance: the flow answers the session's question", TAGS, async () => {
   const run = await start("demo-guarded");
   const waiting = await until(run, (v) => station(v, "approve")?.status === "working", "approve waits");
   const task = station(waiting, "guarded").tasks[0];
@@ -131,10 +131,10 @@ test("a write its station does not allow is refused on a template instance by th
   const results = messages
     .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
     .filter((b: any) => b.type === "tool_result");
-  const refused = results.find((b: any) => JSON.stringify(b).includes("denied by rule: TodoWrite"));
+  const refused = results.find((b: any) => JSON.stringify(b).includes("station guarded of the flow does not allow TodoWrite"));
   expect(refused, `no refused tool result in ${JSON.stringify(results).slice(0, 600)}`).toBeTruthy();
   expect(refused.is_error).toBe(true);
-  expect(JSON.stringify(messages)).toContain("refuses these as writes");
+  expect(JSON.stringify(messages)).toContain("Refused unless a permission allows them");
   // A cancelled run's instance goes as well.
   await api.call("app.flow.cancel", { run, reason: "seen enough" });
   await gone(made);
@@ -148,7 +148,7 @@ test("on an instance set to bypass permissions, the session still keeps its stat
   const { messages } = await api.call("session.history", ref(task.session));
   const refused = messages
     .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
-    .find((b: any) => b.type === "tool_result" && JSON.stringify(b).includes("denied by rule: TodoWrite"));
+    .find((b: any) => b.type === "tool_result" && JSON.stringify(b).includes("station bypassed of the flow does not allow TodoWrite"));
   expect(refused?.is_error, `TodoWrite was not refused: ${JSON.stringify(messages).slice(0, 600)}`).toBe(true);
 });
 

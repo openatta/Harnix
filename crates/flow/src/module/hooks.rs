@@ -122,12 +122,14 @@ fn enqueue(sh: &Arc<Shared>, d: Delivery) {
 }
 
 async fn work(sh: Arc<Shared>, mut rx: mpsc::UnboundedReceiver<Delivery>) {
-    let client = match reqwest::Client::builder().timeout(TIMEOUT).build() {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::warn!(error = %e, "flow: hooks have no HTTP client");
-            return;
-        }
+    // The environment's proxy for the world, none for this machine.
+    let clients = (
+        reqwest::Client::builder().timeout(TIMEOUT).build(),
+        reqwest::Client::builder().timeout(TIMEOUT).no_proxy().build(),
+    );
+    let (Ok(world), Ok(local)) = clients else {
+        tracing::warn!("flow: hooks have no HTTP client");
+        return;
     };
     while let Some(d) = rx.recv().await {
         if sh.stopping() {
@@ -136,7 +138,8 @@ async fn work(sh: Arc<Shared>, mut rx: mpsc::UnboundedReceiver<Delivery>) {
         let mut tries = 0usize;
         let outcome = loop {
             tries += 1;
-            let r = send(&client, &d).await;
+            let client = if is_loopback(&d.hook.action) { &local } else { &world };
+            let r = send(client, &d).await;
             match (&r, BACKOFF.get(tries - 1)) {
                 (Ok(_), _) | (Err(_), None) => break r,
                 (Err(_), Some(wait)) => {
@@ -197,6 +200,26 @@ async fn send(client: &reqwest::Client, d: &Delivery) -> Result<u16, String> {
     }
 }
 
+/// Whether a URL is this machine's.
+fn is_loopback(url: &str) -> bool {
+    let host = url
+        .split_once("://")
+        .map_or(url, |(_, r)| r)
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default();
+    let host = host.rsplit_once('@').map_or(host, |(_, h)| h);
+    let host = if host.starts_with('[') {
+        host.split(']').next().unwrap_or_default().trim_start_matches('[')
+    } else {
+        host.split(':').next().unwrap_or_default()
+    };
+    host == "localhost"
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+}
+
 /// Hex HMAC-SHA256 (RFC 2104).
 pub(crate) fn hmac_sha256(key: &[u8], msg: &[u8]) -> String {
     use sha2::{Digest, Sha256};
@@ -239,6 +262,16 @@ pub(crate) fn listing(sh: &Shared, hooks: &[HookDef]) -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn this_machine_is_not_reached_through_a_proxy() {
+        for url in ["http://127.0.0.1:4099/h", "http://localhost/x", "http://[::1]:80/", "http://u@127.0.0.2/"] {
+            assert!(is_loopback(url), "{url}");
+        }
+        for url in ["https://erp.example.com/h", "http://10.0.0.1/", "http://localhost.example/"] {
+            assert!(!is_loopback(url), "{url}");
+        }
+    }
 
     #[test]
     fn hmac_matches_the_rfc_4231_vector() {

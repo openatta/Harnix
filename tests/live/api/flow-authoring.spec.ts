@@ -118,8 +118,8 @@ test("a flow-author conversation creates a flow (and selects it), shows, changes
   expect(defs.find((d: any) => d.name === "authored")).toMatchObject({ origin: "user", valid: true, title: "Authored in conversation" });
   // Created means selected: the panel is told.
   expect(await topic("focus", { instance: "system", session_id: session })).toEqual({ flow: "authored" });
-  expect((await api.call("app.flow.def", { name: "authored" })).skills).toEqual({});
-  expect((await api.call("app.flow.catalog")).skills).toContain("authored-note");
+  expect((await api.call("app.flow.def", { name: "authored" })).parts).toEqual({});
+  expect((await api.call("app.flow.catalog")).parts.skill).toContain("authored-note");
 
   await turn(session, "Show it, change its title, and try it.");
   r = await results(session);
@@ -184,8 +184,8 @@ test("a flow saved through the methods can be started; an override gives way to 
   const builtin = await api.refused("app.flow.delete", { name: "demo-linear" });
   expect(builtin?.message).toContain("built in");
 
-  expect(await api.call("app.flow.skill.save", { name: "saved-skill", body: "Do it." })).toMatchObject({ name: "saved-skill" });
-  expect(await api.call("app.flow.skill.delete", { name: "saved-skill" })).toEqual({ name: "saved-skill" });
+  expect(await api.call("app.flow.part.save", { kind: "skill", name: "saved-skill", text: "Do it." })).toMatchObject({ kind: "skill", name: "saved-skill", origin: "user", broken: [] });
+  expect(await api.call("app.flow.part.delete", { kind: "skill", name: "saved-skill" })).toMatchObject({ kind: "skill", name: "saved-skill", origin: null });
   await api.call("app.flow.delete", { name: "saved-one" });
 });
 
