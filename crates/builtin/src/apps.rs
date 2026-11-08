@@ -20,6 +20,10 @@
 //!   it leaves it disabled and says why.
 //! - `harnix.apps.uninstall {id}` — stop it, take back what installing it put in place (its agent
 //!   package, its skills, its interface modules), and delete its directory, data included.
+//! - The topic `harnix.apps` — the same value as `harnix.apps.list`, pushed whenever it changes:
+//!   what the system space's Apps tab draws (each application's VM health, its calls and errors,
+//!   the calls it was refused). Looked at once a second while the process runs, and pushed only
+//!   when something in it moved.
 //!
 //! What "start" and "install" mean is the runtime's ([`AppsRuntime`], `harnix-apps`): this crate
 //! names no WebAssembly. A build without it keeps the records and the switches and refuses to
@@ -29,12 +33,20 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use harnix_contract::{codes, RpcError};
-use harnix_module::{CallContext, Handler, Manifest, MethodRegistry, Module, ModuleContext, Principal};
+use harnix_module::{
+    AppHost, CallContext, EventRegistry, Handler, Manifest, MethodRegistry, Module, ModuleContext, Principal,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 /// The module's id: the one module the kernel hands its application host to.
 pub const MODULE_ID: &str = "apps";
+
+/// The topic the list is pushed on: `harnix.apps`.
+pub const TOPIC: &str = "apps";
+
+/// How often the list is looked at for a change to push.
+const WATCH_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// Every method this module adds.
 pub const METHODS: &[&str] = &[
@@ -132,6 +144,8 @@ struct Shared {
     runtime: Option<Arc<dyn AppsRuntime>>,
     /// One install, enable, disable or uninstall at a time.
     serial: tokio::sync::Mutex<()>,
+    /// What pushes `harnix.apps`, while the module runs.
+    watcher: std::sync::Mutex<Option<tokio::task::AbortHandle>>,
 }
 
 impl AppsModule {
@@ -142,6 +156,7 @@ impl AppsModule {
                 dev: false,
                 runtime: None,
                 serial: tokio::sync::Mutex::new(()),
+                watcher: std::sync::Mutex::new(None),
             }),
         }
     }
@@ -164,6 +179,7 @@ impl AppsModule {
             dev,
             runtime,
             serial: tokio::sync::Mutex::new(()),
+            watcher: std::sync::Mutex::new(None),
         };
         f(&mut shared);
         Self {
@@ -199,6 +215,10 @@ impl Module for AppsModule {
         }
     }
 
+    fn events(&self, events: &mut EventRegistry) {
+        events.topic(TOPIC);
+    }
+
     async fn start(&self, cx: ModuleContext) -> anyhow::Result<()> {
         let dir = &self.shared.dir;
         std::fs::create_dir_all(dir)
@@ -213,10 +233,30 @@ impl Module for AppsModule {
                 }
             }
         }
+        // `harnix.apps`: pushed when it changes. The runtime's counters move without telling anyone,
+        // so it is looked at rather than waited for.
+        let shared = self.shared.clone();
+        let task = tokio::spawn(async move {
+            let mut last = Value::Null;
+            loop {
+                let now = snapshot(&shared, cx.apps().as_ref());
+                if now != last {
+                    if let Err(e) = cx.events().publish(TOPIC, json!({}), &now).await {
+                        tracing::warn!(error = %e.message, "harnix.apps was not published");
+                    }
+                    last = now;
+                }
+                tokio::time::sleep(WATCH_EVERY).await;
+            }
+        });
+        *self.shared.watcher.lock().unwrap_or_else(|e| e.into_inner()) = Some(task.abort_handle());
         Ok(())
     }
 
     async fn stop(&self) {
+        if let Some(task) = self.shared.watcher.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            task.abort();
+        }
         if let Some(runtime) = &self.shared.runtime {
             runtime.shutdown().await;
         }
@@ -251,34 +291,7 @@ impl Handler for AppsMethod {
         let host = module.apps();
         let runtime = shared.runtime.as_ref();
         match self.name {
-            "harnix.apps.list" => {
-                let (installed, unreadable) = read_all(&shared.dir);
-                let registered = host.as_ref().map(|h| h.registered()).unwrap_or_default();
-                let apps: Vec<Value> = installed
-                    .iter()
-                    .map(|r| {
-                        let live = registered.iter().find(|s| s.id == r.id);
-                        let mut entry = json!({
-                            "id": r.id,
-                            "version": r.version,
-                            "title": r.title,
-                            "enabled": r.enabled,
-                            "registered": live.is_some(),
-                        });
-                        if let Some(runtime) = runtime {
-                            entry["runtime"] = runtime.status(&r.id);
-                        }
-                        entry
-                    })
-                    .collect();
-                Ok(json!({
-                    "dir": shared.dir.display().to_string(),
-                    "apps": apps,
-                    "unreadable": unreadable,
-                    "registered": registered,
-                    "runtime": runtime.map(|r| json!({"fingerprint": r.fingerprint(), "dev": shared.dev})),
-                }))
-            }
+            "harnix.apps.list" => Ok(snapshot(shared, host.as_ref())),
             "harnix.apps.installFile" => {
                 let runtime = runtime.ok_or_else(no_runtime)?;
                 if !shared.dev {
@@ -392,6 +405,38 @@ impl Handler for AppsMethod {
             other => Err(RpcError::not_found(format!("`{other}` is not the apps module's"))),
         }
     }
+}
+
+/// Every record (and the ones that do not read, with why), what the runtime says of each, and every
+/// application registered with the host now: `harnix.apps.list`, and the value of `harnix.apps`.
+fn snapshot(shared: &Shared, host: Option<&AppHost>) -> Value {
+    let runtime = shared.runtime.as_ref();
+    let (installed, unreadable) = read_all(&shared.dir);
+    let registered = host.map(|h| h.registered()).unwrap_or_default();
+    let apps: Vec<Value> = installed
+        .iter()
+        .map(|r| {
+            let live = registered.iter().find(|s| s.id == r.id);
+            let mut entry = json!({
+                "id": r.id,
+                "version": r.version,
+                "title": r.title,
+                "enabled": r.enabled,
+                "registered": live.is_some(),
+            });
+            if let Some(runtime) = runtime {
+                entry["runtime"] = runtime.status(&r.id);
+            }
+            entry
+        })
+        .collect();
+    json!({
+        "dir": shared.dir.display().to_string(),
+        "apps": apps,
+        "unreadable": unreadable,
+        "registered": registered,
+        "runtime": runtime.map(|r| json!({"fingerprint": r.fingerprint(), "dev": shared.dev})),
+    })
 }
 
 /// Whether a directory name can be an application id (the host's rule: dot-separated segments of

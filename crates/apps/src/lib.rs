@@ -19,6 +19,7 @@
 //!
 //! Only a build with the `apps` feature links this crate. The component runs in `harnix-wasm`.
 
+mod backend;
 mod host;
 pub mod manifest;
 pub mod package;

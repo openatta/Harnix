@@ -15,7 +15,10 @@ use base::interface::tool_middleware::{dispatch_through, ToolAnswer, ToolCall};
 use harnix_apps::{AppsPlugin, Options, Runtime};
 use harnix_builtin::apps::{AppsRuntime, InstallRecord};
 use harnix_contract::{RpcError, Subject};
-use harnix_module::{InstanceHandle, Kernel, ModuleContext, SessionRef, Tap};
+use harnix_module::apps::AppRuntime;
+use harnix_module::{
+    AppSpec, AppSummary, AppWithdrawn, InstanceHandle, Kernel, ModuleContext, SessionRef, Tap,
+};
 use serde_json::{json, Value};
 
 fn root() -> PathBuf {
@@ -52,6 +55,92 @@ struct FakeKernel {
     /// `(method, instance)` that answers an error.
     fail: Mutex<Vec<(String, String)>>,
     instances: Vec<String>,
+    /// The application host, for the rigs that have one.
+    apps: Option<Arc<FakeApps>>,
+}
+
+/// A stand-in for the kernel's application host: it keeps what was registered, answers the
+/// application's own methods with their handlers, and lets the application call only what its
+/// `hub` lists — what `crates/app`'s real host does through the authorizer.
+#[derive(Default)]
+struct FakeApps {
+    specs: Mutex<Vec<AppSpec>>,
+    published: Mutex<Vec<(String, Value)>>,
+    /// What the application called as itself and was let through.
+    called: Mutex<Vec<String>>,
+    withdrawn: Mutex<Vec<String>>,
+}
+
+impl FakeApps {
+    fn spec(&self, id: &str) -> Option<AppSpec> {
+        self.specs.lock().unwrap().iter().find(|s| s.id == id).cloned()
+    }
+
+    async fn device_call(&self, id: &str, method: &str, params: Value) -> Result<Value, RpcError> {
+        let spec = self.spec(id).ok_or_else(|| RpcError::not_found("withdrawn"))?;
+        let m = spec.methods.iter().find(|m| m.name == method).unwrap().clone();
+        m.handler.call(&Subject::Device { id: "d1".into() }, params).await
+    }
+}
+
+#[async_trait::async_trait]
+impl AppRuntime for FakeApps {
+    async fn register(&self, by: &str, spec: AppSpec) -> Result<AppSummary, RpcError> {
+        let summary = AppSummary {
+            id: spec.id.clone(),
+            by: by.into(),
+            methods: spec.methods.iter().map(|m| format!("app.{}.{}", spec.id, m.name)).collect(),
+            topics: spec.topics.iter().map(|t| format!("app.{}.{}", spec.id, t.name)).collect(),
+            spaces: spec.spaces.iter().map(|s| s.id.clone()).collect(),
+            hub: spec.hub.clone(),
+            since_ms: 0,
+        };
+        self.specs.lock().unwrap().push(spec);
+        Ok(summary)
+    }
+    async fn withdraw(&self, _by: &str, id: &str) -> Result<AppWithdrawn, RpcError> {
+        let mut specs = self.specs.lock().unwrap();
+        let before = specs.len();
+        specs.retain(|s| s.id != id);
+        if specs.len() == before {
+            return Err(RpcError::invalid_params("not registered"));
+        }
+        self.withdrawn.lock().unwrap().push(id.into());
+        Ok(AppWithdrawn {
+            id: id.into(),
+            methods: vec![],
+            topics: vec![],
+            spaces: vec![],
+            subscriptions_ended: 0,
+        })
+    }
+    async fn publish(&self, _by: &str, id: &str, topic: &str, _params: Value, value: Value) -> Result<(), RpcError> {
+        self.published.lock().unwrap().push((format!("app.{id}.{topic}"), value));
+        Ok(())
+    }
+    fn registered(&self) -> Vec<AppSummary> {
+        vec![]
+    }
+    async fn call_as(&self, _by: &str, id: &str, method: &str, params: Value) -> Result<Value, RpcError> {
+        let spec = self.spec(id).ok_or_else(|| RpcError::invalid_params("not registered"))?;
+        if let Some(own) = method.strip_prefix(&format!("app.{id}.")) {
+            let m = spec.methods.iter().find(|m| m.name == own).unwrap().clone();
+            return m.handler.call(&Subject::Module { id: id.into() }, params).await;
+        }
+        if !spec.hub.iter().any(|h| h == method) {
+            return Err(RpcError::refused(format!("`module:{id}` may not call `{method}`: not in its `hub`")));
+        }
+        self.called.lock().unwrap().push(method.into());
+        Ok(json!({"session_id": "s-from-the-backend"}))
+    }
+    async fn subscribe_as(&self, _by: &str, id: &str, topic: &str, _params: Value) -> Result<Value, RpcError> {
+        let spec = self.spec(id).unwrap();
+        if !spec.hub.contains(&format!("topic:{topic}")) {
+            return Err(RpcError::refused("not in its `hub`"));
+        }
+        // A value now, as the hub gives a subscriber, so the backend's `on-topic` sees one.
+        Ok(json!({"topic": topic, "value": {"sessions": [{"session_id": "a"}]}}))
+    }
 }
 
 #[async_trait::async_trait]
@@ -110,6 +199,11 @@ impl Kernel for FakeKernel {
     ) -> Result<Tap, RpcError> {
         Err(RpcError::refused("no taps here"))
     }
+    fn apps(&self, module: &str) -> Option<Arc<dyn AppRuntime>> {
+        (module == "apps")
+            .then(|| self.apps.clone().map(|a| a as Arc<dyn AppRuntime>))
+            .flatten()
+    }
 }
 
 impl FakeKernel {
@@ -133,10 +227,15 @@ struct Rig {
 
 impl Rig {
     fn new(dev: bool) -> Self {
+        Self::with_apps(dev, None)
+    }
+
+    fn with_apps(dev: bool, apps: Option<Arc<FakeApps>>) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let kernel = Arc::new(FakeKernel {
             data_root: dir.path().join("engine"),
             instances: vec!["system".into(), "other".into()],
+            apps,
             ..Default::default()
         });
         let cx = ModuleContext::new(
@@ -258,7 +357,8 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
     assert_eq!(
         rig.runtime.ui_contributions(),
         [
-            json!({"plugin": ID, "point": "home.card", "api_version": 2, "module": "/apps/example.showcase/ui/showcase.js"})
+            json!({"plugin": ID, "point": "home.card", "api_version": 2, "module": "/apps/example.showcase/ui/showcase.js"}),
+            json!({"plugin": ID, "point": "space", "api_version": 2, "module": "/apps/example.showcase/ui/showcase.js"}),
         ]
     );
     assert!(
@@ -279,7 +379,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
     std::fs::write(project.join("NOTES.md"), "the project's notes").unwrap();
     let tools = plugin.tools(&project);
     let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
-    for tool in ["echo", "count", "config", "read_project", "slow", "vetoed"] {
+    for tool in ["echo", "count", "config", "read_project", "slow", "vetoed", "board"] {
         assert!(
             names.contains(&format!("app__example_showcase__{tool}").as_str()),
             "{names:?}"
@@ -405,7 +505,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
         .load(&rig.cx, &record, &rig.apps().join(ID))
         .await
         .unwrap();
-    assert_eq!(plugin.tools(&project).len(), 6);
+    assert_eq!(plugin.tools(&project).len(), 7);
     assert!(rig.skill("system").is_dir());
     // Out: what was placed elsewhere is taken back.
     rig.runtime.unload(&rig.cx, &record).await;
@@ -415,6 +515,95 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
         .unwrap();
     assert_eq!(rig.kernel.called("plugin.uninstall").len(), 1);
     assert!(!rig.skill("system").exists());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_backend_is_registered_answers_its_methods_and_acts_only_as_far_as_its_hub() {
+    let apps = Arc::new(FakeApps::default());
+    let rig = Rig::with_apps(true, Some(apps.clone()));
+    let record = rig.install(&rig.package("backend", |m| m)).await.unwrap();
+
+    // Registered before the VM started: its methods, its topics, its space and its `hub`.
+    let spec = apps.spec(ID).expect("registered");
+    let names: Vec<&str> = spec.methods.iter().map(|m| m.name.as_str()).collect();
+    for name in ["notes.add", "notes.list", "state", "session.start", "overreach"] {
+        assert!(names.contains(&name), "{names:?}");
+    }
+    let topics: Vec<&str> = spec.topics.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(topics, ["notes", "heartbeat"]);
+    assert_eq!(spec.spaces[0].id, ID);
+    assert!(spec.hub.contains(&"topic:harnix.sessions.status".to_string()));
+    let state = rig.runtime.status(ID);
+    assert_eq!(state["world"], json!("backend"));
+    assert_eq!(state["health"]["subscriptions"], json!(1), "init subscribed");
+
+    // A method: checked against its schema, answered by the backend, its topic published in order.
+    let added = apps.device_call(ID, "notes.add", json!({"text": "one"})).await.unwrap();
+    assert_eq!(added, json!({"count": 1}));
+    apps.device_call(ID, "notes.add", json!({"text": "two"})).await.unwrap();
+    let bad = apps.device_call(ID, "notes.add", json!({"text": 3})).await.unwrap_err();
+    assert_eq!(bad.code, harnix_contract::codes::INVALID_PARAMS);
+    assert!(bad.message.contains("schema"), "{}", bad.message);
+    let listed = apps.device_call(ID, "notes.list", json!({})).await.unwrap();
+    assert_eq!(listed["notes"][0]["by"], json!("device:d1"), "the backend is told who called");
+    for _ in 0..50 {
+        if apps.published.lock().unwrap().len() >= 2 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    let counts: Vec<Value> = apps.published.lock().unwrap().iter().map(|(_, v)| v["count"].clone()).collect();
+    assert_eq!(counts, [json!(1), json!(2)]);
+
+    // What it subscribed to in `init` reached `on-topic`, once the VM was up to take it.
+    let mut state = Value::Null;
+    for _ in 0..50 {
+        state = apps.device_call(ID, "state", json!({})).await.unwrap();
+        if state["status_seen"] == json!(1) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!((state["status_seen"].clone(), state["running_sessions"].clone()), (json!(1), json!(1)));
+
+    // As itself: what its `hub` lists goes through; anything else is refused, and kept.
+    let started = apps
+        .device_call(ID, "session.start", json!({"message": "hello"}))
+        .await
+        .unwrap();
+    assert_eq!(started["session_id"], json!("s-from-the-backend"));
+    assert_eq!(*apps.called.lock().unwrap(), ["session.create", "harnix.send"]);
+    let over = apps.device_call(ID, "overreach", json!({})).await.unwrap();
+    assert_eq!(over["refused"], json!(true));
+    let status = rig.runtime.status(ID);
+    assert_eq!(status["calls"]["refused"][0]["method"], json!("harnix.apps.uninstall"));
+
+    // A tool cannot see the backend's memory; it asks, as the application, and is answered.
+    let plugin = AppsPlugin::new(rig.runtime.registry());
+    let project = rig.dir.path().join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    let board = plugin
+        .tools(&project)
+        .into_iter()
+        .find(|t| t.name() == "app__example_showcase__board")
+        .unwrap();
+    let out = board
+        .call(json!({}), ToolContext::for_test(project.clone()), ProgressSender::noop("b"))
+        .await
+        .unwrap();
+    assert!(format!("{:?}", out.content).contains("the board has 2 notes"), "{out:?}");
+    drop(board);
+
+    // Stopped: the registration goes with it, and a method still held by the kernel answers that
+    // the application is not running, not something that looks like an answer.
+    let held = spec.methods.iter().find(|m| m.name == "notes.list").unwrap().clone();
+    drop(spec);
+    rig.runtime.unload(&rig.cx, &record).await;
+    assert_eq!(*apps.withdrawn.lock().unwrap(), [ID]);
+    let gone = held.handler.call(&Subject::Kernel, json!({})).await.unwrap_err();
+    assert_eq!(gone.code, harnix_contract::codes::INTERNAL_ERROR);
+    let failure = gone.data.unwrap()["failure"].clone();
+    assert!(failure == json!("stopped") || failure == json!("unavailable"), "{failure}: {}", gone.message);
 }
 
 #[tokio::test(flavor = "multi_thread")]

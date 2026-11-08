@@ -1,4 +1,27 @@
-//! The showcase's tools: a `tools-app` component (`harnix:app`, `crates/wasm/wit/app.wit`).
+//! The showcase's component: a `backend-app` (`harnix:app`, `crates/wasm/wit/app.wit`) — a
+//! resident backend, and the agent's tools, each tool call in an instance of its own.
+//!
+//! # The backend
+//!
+//! One instance for the whole process, started with the application (`init`) and stopped with it
+//! (`stop`). Its methods are `app.example.showcase.<name>`, declared in `harnix-app.toml`:
+//!
+//! | method | shows |
+//! |---|---|
+//! | `notes.add {text}` | params checked against the manifest's schema; the key-value store; the `notes` topic |
+//! | `notes.list`, `notes.clear` | the same store, read and emptied |
+//! | `counter.bump` | state in the instance's own memory, which a recycled instance loses |
+//! | `state` | what the backend knows: what its tools ask it for, with `host.call` |
+//! | `timer.start {ms, times?}` | `host.set-timer`: each firing publishes `heartbeat` |
+//! | `fetch {url}` | `host.http-request`, to a host in `net` only |
+//! | `session.start {message, …}` | driving the agent: `session.create` and `harnix.send`, as `module:example.showcase` |
+//! | `overreach` | a call its `hub` does not list: refused, and on the record |
+//! | `spin`, `crash` | what a timeout and a trap do to the instance |
+//!
+//! It subscribes to `harnix.sessions.status` in `init` (listed in its `hub` as
+//! `topic:harnix.sessions.status`) and counts what arrives at `on-topic`.
+//!
+//! # The tools
 //!
 //! | tool | shows |
 //! |---|---|
@@ -8,21 +31,221 @@
 //! | `read_project {path}` | the calling session's project, read-only, at `/project` |
 //! | `slow {steps?, ms?}` | progress while it runs (`host.progress`), and being cancelled |
 //! | `vetoed` | nothing: the event hook below refuses every call to it |
+//! | `board` | the backend's state, asked of it with `host.call` — a tool cannot see its memory |
 //!
 //! The `events` export sees every tool call of a session that has the application — not only
 //! its own tools — and refuses the one its configuration names (`blocked_tool`).
 
 wit_bindgen::generate!({
     path: "../../../../crates/wasm/wit",
-    world: "tools-app",
+    world: "backend-app",
 });
 
+use exports::harnix::app::backend::{AppError, Guest as Backend};
 use exports::harnix::app::events::{Guest as Events, HookDecision};
 use exports::harnix::app::tools::{Guest as Tools, ToolDef, ToolOutput};
 use harnix::app::host;
 use serde_json::{json, Value};
+use std::sync::Mutex;
 
 struct Showcase;
+
+const ID: &str = "example.showcase";
+/// Where the notes are kept: the key-value store, so they outlive a recycled instance.
+const NOTES: &str = "notes";
+
+/// The backend's memory: gone when the instance is replaced, which is the point of `counter`.
+#[derive(Default)]
+struct Memory {
+    counter: u64,
+    ticks: u64,
+    /// Firings left of the timer `timer.start` armed.
+    ticks_left: u64,
+    tick_ms: u64,
+    /// Values seen on `harnix.sessions.status`, and how many sessions the last one had running.
+    status_seen: u64,
+    running_sessions: u64,
+    started_ms: u64,
+}
+
+static MEMORY: Mutex<Option<Memory>> = Mutex::new(None);
+
+fn memory<T>(f: impl FnOnce(&mut Memory) -> T) -> T {
+    let mut guard = MEMORY.lock().unwrap();
+    f(guard.get_or_insert_with(Memory::default))
+}
+
+fn error(code: i32, message: impl Into<String>) -> AppError {
+    AppError {
+        code,
+        message: message.into(),
+        data_json: None,
+    }
+}
+
+fn config() -> Value {
+    serde_json::from_str(&host::config()).unwrap_or(Value::Null)
+}
+
+fn notes() -> Vec<Value> {
+    host::kv_get(NOTES)
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+/// Keep the notes and tell whoever watches the `notes` topic.
+fn save(notes: &[Value]) -> Result<(), AppError> {
+    let bytes = serde_json::to_vec(notes).unwrap_or_default();
+    host::kv_set(NOTES, &bytes).map_err(|e| error(2, e))?;
+    let _ = host::publish("notes", &json!({"notes": notes, "count": notes.len()}).to_string());
+    Ok(())
+}
+
+fn state() -> Value {
+    let (counter, ticks, status_seen, running, started) = memory(|m| {
+        (m.counter, m.ticks, m.status_seen, m.running_sessions, m.started_ms)
+    });
+    json!({
+        "notes": notes().len(),
+        "counter": counter,
+        "ticks": ticks,
+        "status_seen": status_seen,
+        "running_sessions": running,
+        "started_ms": started,
+        "secret_set": host::secret("SHOWCASE_TOKEN").is_some(),
+    })
+}
+
+impl Backend for Showcase {
+    fn init(config: String) -> Result<(), String> {
+        let config: Value = serde_json::from_str(&config).unwrap_or(Value::Null);
+        memory(|m| {
+            *m = Memory::default();
+            m.started_ms = host::now_ms();
+        });
+        // Every change to which sessions are running arrives at `on-topic`. Not being let watch is
+        // no reason not to start: the board works without it.
+        if config["watch_sessions"].as_bool().unwrap_or(true) {
+            if let Err(e) = host::subscribe("harnix.sessions.status", "{}") {
+                host::log("warn", &format!("not watching the sessions: {e}"));
+            }
+        }
+        host::log("info", "the showcase's backend started");
+        Ok(())
+    }
+
+    fn handle(method: String, params: String, caller: String) -> Result<String, AppError> {
+        let params: Value = serde_json::from_str(&params).unwrap_or(Value::Null);
+        let answer = match method.as_str() {
+            "notes.add" => {
+                let caller: Value = serde_json::from_str(&caller).unwrap_or(Value::Null);
+                let mut all = notes();
+                all.push(json!({
+                    "text": params["text"],
+                    "by": caller["subject"],
+                    "at_ms": host::now_ms(),
+                }));
+                save(&all)?;
+                json!({"count": all.len()})
+            }
+            "notes.list" => json!({"notes": notes()}),
+            "notes.clear" => {
+                save(&[])?;
+                json!({"count": 0})
+            }
+            "counter.bump" => json!({"counter": memory(|m| { m.counter += 1; m.counter })}),
+            "state" => state(),
+            "timer.start" => {
+                let ms = params["ms"].as_u64().unwrap_or(500);
+                let times = params["times"].as_u64().unwrap_or(1).clamp(1, 100);
+                memory(|m| {
+                    m.ticks_left = times;
+                    m.tick_ms = ms;
+                });
+                host::set_timer("tick", ms).map_err(|e| error(3, e))?;
+                json!({"armed": true, "ms": ms, "times": times})
+            }
+            "fetch" => {
+                let url = params["url"].as_str().unwrap_or_default();
+                let response = host::http_request("GET", url, &[], None).map_err(|e| error(4, e))?;
+                json!({
+                    "status": response.status,
+                    "body": String::from_utf8_lossy(&response.body),
+                })
+            }
+            "session.start" => {
+                // The agent, driven by the application: a session of its own, and a prompt.
+                let mut create = json!({"instance": "system"});
+                for key in ["project_root", "options", "space"] {
+                    if !params[key].is_null() {
+                        create[key] = params[key].clone();
+                    }
+                }
+                let created = host::call("session.create", &create.to_string()).map_err(|e| error(5, e))?;
+                let created: Value = serde_json::from_str(&created).unwrap_or(Value::Null);
+                let session_id = created["session_id"].clone();
+                let send = json!({
+                    "instance": "system",
+                    "session_id": session_id,
+                    "message": params["message"].as_str().unwrap_or("Hello from the showcase's backend"),
+                });
+                let sent = host::call("harnix.send", &send.to_string()).map_err(|e| error(5, e))?;
+                json!({
+                    "instance": "system",
+                    "session_id": session_id,
+                    "sent": serde_json::from_str::<Value>(&sent).unwrap_or(Value::Null),
+                })
+            }
+            "overreach" => {
+                // Its `hub` does not list this; the answer is the refusal, as the backend got it.
+                match host::call("harnix.apps.uninstall", &json!({"id": ID}).to_string()) {
+                    Ok(answer) => json!({"refused": false, "answer": answer}),
+                    Err(refusal) => json!({"refused": true, "message": refusal}),
+                }
+            }
+            "spin" => loop {
+                std::hint::black_box(memory(|m| m.counter));
+            },
+            "crash" => panic!("the showcase was asked to crash"),
+            other => return Err(error(-32601, format!("the showcase has no method `{other}`"))),
+        };
+        Ok(answer.to_string())
+    }
+
+    fn on_topic(topic: String, value: String) {
+        if topic != "harnix.sessions.status" {
+            return;
+        }
+        let value: Value = serde_json::from_str(&value).unwrap_or(Value::Null);
+        let running = value["sessions"].as_array().map_or(0, |s| s.len() as u64);
+        memory(|m| {
+            m.status_seen += 1;
+            m.running_sessions = running;
+        });
+    }
+
+    fn on_timer(id: String) {
+        if id != "tick" {
+            return;
+        }
+        let (ticks, left, ms) = memory(|m| {
+            m.ticks += 1;
+            m.ticks_left = m.ticks_left.saturating_sub(1);
+            (m.ticks, m.ticks_left, m.tick_ms)
+        });
+        let _ = host::publish(
+            "heartbeat",
+            &json!({"ticks": ticks, "at_ms": host::now_ms()}).to_string(),
+        );
+        if left > 0 {
+            let _ = host::set_timer("tick", ms);
+        }
+    }
+
+    fn stop() {
+        host::log("info", "the showcase's backend stopped");
+    }
+}
 
 fn tool(name: &str, description: &str, schema: Value, read_only: bool) -> ToolDef {
     ToolDef {
@@ -49,10 +272,6 @@ fn failure(content: impl Into<String>) -> ToolOutput {
         structured: None,
         is_error: true,
     }
-}
-
-fn config() -> Value {
-    serde_json::from_str(&host::config()).unwrap_or(Value::Null)
 }
 
 impl Tools for Showcase {
@@ -92,6 +311,12 @@ impl Tools for Showcase {
                 true,
             ),
             tool("vetoed", "A tool the showcase's own event hook refuses", object(json!({}), &[]), true),
+            tool(
+                "board",
+                "What the showcase's backend holds now: its notes, its counter, its timer",
+                object(json!({}), &[]),
+                true,
+            ),
         ]
     }
 
@@ -141,6 +366,20 @@ impl Tools for Showcase {
                 "the event hook let this through, and it should not have",
                 None,
             ),
+            // This instance is not the backend's: what the backend holds, it has to ask for.
+            "board" => match host::call(&format!("app.{ID}.state"), "{}") {
+                Ok(state) => {
+                    let state: Value = serde_json::from_str(&state).unwrap_or(Value::Null);
+                    answer(
+                        format!(
+                            "the board has {} notes; the counter is at {}",
+                            state["notes"], state["counter"]
+                        ),
+                        Some(state),
+                    )
+                }
+                Err(e) => failure(format!("the backend did not answer: {e}")),
+            },
             other => failure(format!("the showcase has no tool `{other}`")),
         }
     }

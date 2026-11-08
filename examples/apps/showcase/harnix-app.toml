@@ -7,30 +7,123 @@ version = "0.1.0"
 harnix_api = 1
 title = "Showcase"
 publisher = "example"
-description = "One of everything an application can bring: tools, an event hook, an agent package, a skill and an interface module"
+description = "One of everything an application can bring: a backend with methods, topics and a space, tools, an event hook, an agent package, a skill and an interface module"
 
 # Nothing is granted that is not written here, and the installer shows each line.
 [capabilities]
-# The `count` tool keeps its counters in the application's key-value storage.
+# The `count` tool keeps its counters, and the backend its notes, in the key-value storage.
 storage_mb = 1
 # A tool call sees the calling session's project, read-only, at /project (`read_project`).
 fs = ["${project}"]
+# `fetch` may reach this host and no other. The LIVE suite serves it on loopback.
+net = ["127.0.0.1"]
+# What `state` reports as `secret_set`, through `host.secret`.
+env = ["SHOWCASE_TOKEN"]
+# What the backend may do as `module:example.showcase`: start a session and send it a prompt
+# (`session.start`), and watch which sessions are running. `overreach` tries something else.
+hub = ["session.create", "harnix.send", "topic:harnix.sessions.status"]
 
 [[component]]
 name = "tools"
-world = "harnix:app/tools-app@0.1.0"
+world = "harnix:app/backend-app@0.1.0"
 memory_mb = 32
-timeout_ms = 20000
+# A call longer than this is abandoned, and the backend replaced (`spin` shows it).
+timeout_ms = 5000
 
-# What `host.config()` answers (the `config` tool, the event hook). A profile can set over it:
-# [apps.config."example.showcase"] greeting = "…"
+# The backend's methods: app.example.showcase.<name>. Callable by the page (a device) unless said
+# otherwise; always by the application itself (the `board` tool asks `state`).
+[[method]]
+name = "notes.add"
+description = "Pin a note on the board"
+[method.params]
+type = "object"
+required = ["text"]
+additionalProperties = false
+properties.text = { type = "string", minLength = 1, maxLength = 200 }
+
+[[method]]
+name = "notes.list"
+description = "Every note on the board"
+
+[[method]]
+name = "notes.clear"
+description = "Take every note down"
+
+[[method]]
+name = "counter.bump"
+description = "One more on the counter, kept in the backend's memory only"
+
+[[method]]
+name = "state"
+description = "What the backend holds"
+subject = ["device", "module"]
+
+[[method]]
+name = "timer.start"
+description = "Publish `heartbeat` every `ms`, `times` times"
+[method.params]
+type = "object"
+properties.ms = { type = "integer", minimum = 10, maximum = 60000 }
+properties.times = { type = "integer", minimum = 1, maximum = 100 }
+
+[[method]]
+name = "fetch"
+description = "GET a URL on a host in `net`"
+[method.params]
+type = "object"
+required = ["url"]
+properties.url = { type = "string" }
+
+[[method]]
+name = "session.start"
+description = "Start a session in the showcase's space and send it a prompt"
+[method.params]
+type = "object"
+required = ["message"]
+properties.message = { type = "string" }
+
+[[method]]
+name = "overreach"
+description = "Try a call the application's `hub` does not list"
+
+[[method]]
+name = "spin"
+description = "Never return: the call is abandoned at the timeout and the backend recycled"
+
+[[method]]
+name = "crash"
+description = "Trap: the backend is rebuilt once, and a second crash sets the application aside"
+
+# What the backend publishes. A client subscribes to app.example.showcase.<name>.
+[[topic]]
+name = "notes"
+description = "The board, after every change"
+
+[[topic]]
+name = "heartbeat"
+description = "Each firing of the timer"
+
+# Where the sessions `session.start` creates land; the interface module draws it.
+[[space]]
+id = "example.showcase"
+
+# What `host.config()` answers (the `config` tool, the event hook, `init`). A profile can set over
+# it: [apps.config."example.showcase"] greeting = "…"
 [config]
 greeting = "hello from the showcase"
 # The event hook refuses calls to this tool, whoever makes them.
 blocked_tool = "app__example_showcase__vetoed"
+# The backend subscribes to `harnix.sessions.status` in `init`.
+watch_sessions = true
 
 [[ui]]
 point = "home.card"
+module = "showcase.js"
+api_version = 2
+
+# The same module draws the showcase's space: its board, over the backend's methods and topics.
+[[ui]]
+point = "space"
 module = "showcase.js"
 api_version = 2
 

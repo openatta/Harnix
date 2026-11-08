@@ -3,8 +3,7 @@
 //! Read strictly. Everything an application may have is a section or a field below; anything else
 //! is refused with its name, because a manifest is also what the installer shows a person, and a
 //! line nothing reads is a line that person was shown for nothing — or a capability somebody
-//! believes was granted. Sections the design has but this build does not serve yet (`[[method]]`,
-//! `[[topic]]`, `[[space]]`: a backend's) are refused as such, rather than accepted and ignored.
+//! believes was granted.
 //!
 //! ```toml
 //! [app]
@@ -19,14 +18,32 @@
 //! net = ["api.example.com"]     # hosts `http-request` may reach, exactly
 //! env = ["SHOWCASE_TOKEN"]      # what `secret` may read
 //! storage_mb = 1                # the key-value store's ceiling
-//! hub = []                      # hub methods it may call (with a backend, later)
+//! hub = ["session.create", "topic:harnix.sessions.status"]
+//!                               # what it may call (methods) and subscribe to (`topic:<name>`) as
+//!                               # `module:<id>`; its own `app.<id>.*` needs no entry
 //! fs = ["${data}", "${project}"]# ${data} read-write; ${project} read-only, tool calls only
 //!
 //! [[component]]                 # at most one
 //! name = "tools"                # wasm/<name>.<engine fingerprint>.cwasm
-//! world = "harnix:app/tools-app@0.1.0"
+//! world = "harnix:app/tools-app@0.1.0"   # or harnix:app/backend-app@0.1.0
 //! memory_mb = 64
 //! timeout_ms = 30000
+//!
+//! [[method]]                    # app.<id>.<name>, answered by the backend (`backend-app` only)
+//! name = "notes.add"
+//! subject = "device"            # who may call it: device (the default), module, kernel, or a list
+//! description = "…"             # optional
+//! [method.params]               # optional: JSON Schema the params are checked against
+//! type = "object"
+//! required = ["text"]
+//!
+//! [[topic]]                     # app.<id>.<name>, published by the backend (`backend-app` only)
+//! name = "notes"
+//!
+//! [[space]]                     # a backend space: where its sessions land
+//! id = "acme.showcase"          # the application's id, or `<id>.<name>`
+//! scene = "harnix"              # optional: the scene a new session starts in
+//! instance = "system"           # optional
 //!
 //! [config]                      # host.config(): defaults, set over by the profile
 //! greeting = "hello"
@@ -52,19 +69,16 @@ pub const HARNIX_API: u32 = 1;
 pub const MANIFEST: &str = "harnix-app.toml";
 
 /// The sections a manifest may have.
-const SECTIONS: &[&str] = &["app", "capabilities", "component", "config", "ui", "agent"];
-
-/// Designed, and not served by this build: a backend's.
-const LATER: &[(&str, &str)] = &[
-    (
-        "method",
-        "an application's methods are answered by a backend component",
-    ),
-    (
-        "topic",
-        "an application's topics are published by a backend component",
-    ),
-    ("space", "an application's spaces come with its backend"),
+const SECTIONS: &[&str] = &[
+    "app",
+    "capabilities",
+    "component",
+    "config",
+    "ui",
+    "agent",
+    "method",
+    "topic",
+    "space",
 ];
 
 /// The capabilities there are.
@@ -79,6 +93,71 @@ pub struct Manifest {
     pub config: Value,
     pub ui: Vec<UiEntry>,
     pub agent: Agent,
+    pub methods: Vec<Method>,
+    pub topics: Vec<Topic>,
+    pub spaces: Vec<Space>,
+}
+
+/// One `[[method]]`: `app.<id>.<name>`, answered by the backend's `handle`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Method {
+    pub name: String,
+    /// Who may call it: `device`, `module`, `kernel`, or several. The application itself always
+    /// may (its tools reach their backend that way).
+    #[serde(default = "default_subject")]
+    pub subject: Subjects,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// JSON Schema its params are checked against before the backend sees them, written as TOML.
+    #[serde(default)]
+    pub params: Option<toml::Value>,
+}
+
+/// `subject = "device"` or `subject = ["device", "module"]`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(untagged)]
+pub enum Subjects {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl Subjects {
+    pub fn names(&self) -> Vec<&str> {
+        match self {
+            Subjects::One(s) => vec![s.as_str()],
+            Subjects::Many(v) => v.iter().map(String::as_str).collect(),
+        }
+    }
+}
+
+fn default_subject() -> Subjects {
+    Subjects::One("device".into())
+}
+
+/// Who a method may be declared for.
+pub const SUBJECTS: &[&str] = &["device", "module", "kernel"];
+
+/// One `[[topic]]`: `app.<id>.<name>`, whole values the backend publishes (`host.publish`).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Topic {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+/// One `[[space]]`: a backend space, where the sessions created in it land. What it looks like is
+/// the interface module's (a `space` contribution of the same id).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Space {
+    /// The application's id, or `<id>.<name>`.
+    pub id: String,
+    #[serde(default)]
+    pub scene: Option<String>,
+    #[serde(default)]
+    pub instance: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -169,11 +248,6 @@ impl Manifest {
             format!("{MANIFEST} is not valid TOML: {}", e.message())
         })?;
         for key in table.keys() {
-            if let Some((_, why)) = LATER.iter().find(|(name, _)| name == key) {
-                return Err(format!(
-                    "{MANIFEST}: `[[{key}]]` is not supported by this Harnix yet ({why}, which this build does not run)"
-                ));
-            }
             if !SECTIONS.contains(&key.as_str()) {
                 return Err(format!(
                     "{MANIFEST}: unknown section `{key}` (an application has: {})",
@@ -227,6 +301,18 @@ impl Manifest {
             Some(v) => v.try_into().map_err(|e| field_error("agent", e))?,
             None => Agent::default(),
         };
+        let methods: Vec<Method> = match section("method") {
+            Some(v) => v.try_into().map_err(|e| field_error("[method]]", e))?,
+            None => Vec::new(),
+        };
+        let topics: Vec<Topic> = match section("topic") {
+            Some(v) => v.try_into().map_err(|e| field_error("[topic]]", e))?,
+            None => Vec::new(),
+        };
+        let spaces: Vec<Space> = match section("space") {
+            Some(v) => v.try_into().map_err(|e| field_error("[space]]", e))?,
+            None => Vec::new(),
+        };
         let manifest = Manifest {
             app,
             capabilities,
@@ -234,6 +320,9 @@ impl Manifest {
             config,
             ui,
             agent,
+            methods,
+            topics,
+            spaces,
         };
         manifest.check()?;
         Ok(manifest)
@@ -281,10 +370,11 @@ impl Manifest {
                 ));
             }
         }
-        for method in &caps.hub {
-            if method.is_empty() || method.contains(char::is_whitespace) {
+        for entry in &caps.hub {
+            let name = entry.strip_prefix("topic:").unwrap_or(entry);
+            if !valid_dotted(name) {
                 return Err(format!(
-                    "{MANIFEST}: `{method}` in `hub` is not a method name"
+                    "{MANIFEST}: `{entry}` in `hub` is not a method name, or `topic:` and a topic's"
                 ));
             }
         }
@@ -311,12 +401,6 @@ impl Manifest {
                     c.world
                 ));
             }
-            if c.world == WORLDS[1] {
-                return Err(format!(
-                    "{MANIFEST}: a backend component (`{}`) is not supported by this Harnix yet",
-                    c.world
-                ));
-            }
             if !(1..=4096).contains(&c.memory_mb) {
                 return Err(format!("{MANIFEST}: `memory_mb` is 1 to 4096"));
             }
@@ -338,6 +422,64 @@ impl Manifest {
                 return Err(format!(
                     "{MANIFEST}: the interface module `{}` is a `.js` file under ui/",
                     entry.module
+                ));
+            }
+        }
+        let backend = self.component.as_ref().is_some_and(|c| c.world == WORLDS[1]);
+        if !backend && (!self.methods.is_empty() || !self.topics.is_empty()) {
+            return Err(format!(
+                "{MANIFEST}: `[[method]]` and `[[topic]]` are a backend's: the component's world is \
+                 `{}`",
+                WORLDS[1]
+            ));
+        }
+        let mut names = std::collections::BTreeSet::new();
+        for m in &self.methods {
+            if !valid_dotted(&m.name) || !names.insert(format!("method {}", m.name)) {
+                return Err(format!(
+                    "{MANIFEST}: the method `{}` is a unique dot-separated name of letters, digits, \
+                     `_` and `-`",
+                    m.name
+                ));
+            }
+            let subjects = m.subject.names();
+            if subjects.is_empty() || subjects.iter().any(|s| !SUBJECTS.contains(s)) {
+                return Err(format!(
+                    "{MANIFEST}: the method `{}`'s `subject` is one or more of {}",
+                    m.name,
+                    SUBJECTS.join(", ")
+                ));
+            }
+            if let Some(params) = &m.params {
+                let schema = toml_to_json(params);
+                if !schema.is_object() || jsonschema::meta::validate(&schema).is_err() {
+                    return Err(format!(
+                        "{MANIFEST}: the method `{}`'s `params` is not a JSON Schema",
+                        m.name
+                    ));
+                }
+            }
+        }
+        for t in &self.topics {
+            if !valid_dotted(&t.name) || !names.insert(format!("topic {}", t.name)) {
+                return Err(format!(
+                    "{MANIFEST}: the topic `{}` is a unique dot-separated name of letters, digits, \
+                     `_` and `-`",
+                    t.name
+                ));
+            }
+        }
+        for space in &self.spaces {
+            let id = &app.id;
+            let ours = space.id == *id
+                || space
+                    .id
+                    .strip_prefix(&format!("{id}."))
+                    .is_some_and(valid_name);
+            if !ours || !names.insert(format!("space {}", space.id)) {
+                return Err(format!(
+                    "{MANIFEST}: the space `{}` is `{id}` or `{id}.<name>`, once",
+                    space.id
                 ));
             }
         }
@@ -373,6 +515,18 @@ pub(crate) fn valid_name(name: &str) -> bool {
         && name
             .chars()
             .all(|c| matches!(c, 'a'..='z' | '0'..='9' | '-'))
+}
+
+/// A method or topic name: dot-separated segments of letters, digits, `_` and `-`.
+fn valid_dotted(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 128
+        && name.split('.').all(|s| {
+            !s.is_empty()
+                && s
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
+        })
 }
 
 fn valid_version(v: &str) -> bool {
@@ -502,8 +656,8 @@ install_into = ["system"]
         let cases: Vec<(String, &str)> = vec![
             (GOOD.replace("storage_mb = 1", "gpu = true"), "unknown capability `gpu`"),
             (format!("{GOOD}\n[extras]\nx = 1\n"), "unknown section `extras`"),
-            (format!("{GOOD}\n[[method]]\nname = \"m\"\n"), "`[[method]]` is not supported"),
-            (format!("{GOOD}\n[[topic]]\nname = \"t\"\n"), "`[[topic]]` is not supported"),
+            (format!("{GOOD}\n[[method]]\nname = \"m\"\n"), "are a backend's"),
+            (format!("{GOOD}\n[[topic]]\nname = \"t\"\n"), "are a backend's"),
             (GOOD.replace("title = \"Showcase\"", "title = \"S\"\ncolour = \"red\""), "unknown field `colour`"),
             (GOOD.replace("timeout_ms = 5000", "timeout_ms = 5000\nthreads = 4"), "unknown field `threads`"),
             (GOOD.replace("harnix_api = 1", "harnix_api = 2"), "implements 1"),
@@ -512,7 +666,6 @@ install_into = ["system"]
             (GOOD.replace("publisher = \"acme\"", "publisher = \"other\""), "first segment"),
             (GOOD.replace("0.1.0", "one"), "not a version"),
             (GOOD.replace("tools-app@0.1.0", "tools@0.1.0"), "world is one of"),
-            (GOOD.replace("tools-app@0.1.0", "backend-app@0.1.0"), "backend component"),
             (GOOD.replace("fs = [\"${project}\"]", "fs = [\"/etc\"]"), "must start with"),
             (GOOD.replace("storage_mb = 1", "net = [\"https://x.example\"]"), "lists hosts"),
             (GOOD.replace("api_version = 2", "api_version = 1"), "contribution API 1"),
@@ -530,5 +683,77 @@ install_into = ["system"]
             assert!(err.starts_with(MANIFEST), "{err}");
         }
         assert!(with(|g| g.to_string()).is_ok());
+    }
+
+    const BACKEND: &str = r#"
+[[method]]
+name = "notes.add"
+description = "Add a note"
+[method.params]
+type = "object"
+required = ["text"]
+properties.text = { type = "string", maxLength = 20 }
+
+[[method]]
+name = "notes.list"
+subject = ["device", "module"]
+
+[[topic]]
+name = "notes"
+
+[[space]]
+id = "acme.showcase"
+scene = "harnix"
+"#;
+
+    fn backend(extra: &str) -> String {
+        format!(
+            "{}\n{BACKEND}\n{extra}",
+            GOOD.replace("tools-app@0.1.0", "backend-app@0.1.0")
+        )
+    }
+
+    #[test]
+    fn a_backend_declares_its_methods_topics_and_spaces() {
+        let m = Manifest::parse(&backend("")).unwrap();
+        assert_eq!(m.methods.len(), 2);
+        assert_eq!(m.methods[0].subject.names(), ["device"]);
+        assert_eq!(m.methods[1].subject.names(), ["device", "module"]);
+        assert_eq!(
+            toml_to_json(m.methods[0].params.as_ref().unwrap())["required"],
+            json!(["text"])
+        );
+        assert_eq!(m.topics[0].name, "notes");
+        assert_eq!(m.spaces[0].scene.as_deref(), Some("harnix"));
+        let hub = backend("").replace(
+            "storage_mb = 1",
+            "storage_mb = 1\nhub = [\"session.create\", \"topic:harnix.sessions.status\"]",
+        );
+        assert_eq!(Manifest::parse(&hub).unwrap().capabilities.hub.len(), 2);
+    }
+
+    #[test]
+    fn a_backends_declarations_are_checked() {
+        let cases: Vec<(String, &str)> = vec![
+            (backend("[[method]]\nname = \"notes.add\"\n"), "unique"),
+            (backend("[[method]]\nname = \"bad name\"\n"), "unique"),
+            (backend("[[method]]\nname = \"m\"\nsubject = \"everyone\"\n"), "`subject`"),
+            (backend("[[method]]\nname = \"m\"\nsubject = []\n"), "`subject`"),
+            (backend("[[method]]\nname = \"m\"\nparams = { type = 7 }\n"), "not a JSON Schema"),
+            (backend("[[topic]]\nname = \"\"\n"), "the topic"),
+            (backend("[[space]]\nid = \"other.space\"\n"), "the space"),
+            (backend("[[space]]\nid = \"acme.showcase\"\n"), "once"),
+            (backend("[[space]]\nid = \"acme.showcase.x\"\ncolour = 1\n"), "unknown field"),
+            (
+                backend("").replace("storage_mb = 1", "storage_mb = 1\nhub = [\"bad name\"]"),
+                "in `hub`",
+            ),
+        ];
+        for (text, says) in cases {
+            let err = Manifest::parse(&text)
+                .err()
+                .unwrap_or_else(|| panic!("accepted: {says}"));
+            assert!(err.contains(says), "wanted `{says}`, got: {err}");
+        }
     }
 }

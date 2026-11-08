@@ -14,8 +14,10 @@
 //! 3. Its `agent/` is zipped and handed to Agix's `plugin.install` in each instance it names; its
 //!    `agent/skills/<name>/` are copied into each one's skills directory and the instance re-reads
 //!    its configuration.
-//! 4. It is started: the component loaded (refused if it was compiled for another engine), its
-//!    VM started, its tools listed, its interface modules served.
+//! 4. It is started: registered with the kernel — its methods, topics and spaces, under
+//!    `app.<id>.*`, and its `hub` capability (`backend.rs`) — then the component loaded (refused if
+//!    it was compiled for another engine), its VM started (a backend's `init` runs, and may already
+//!    publish, call and subscribe), its tools listed, its interface modules served.
 //!
 //! A step that fails undoes every step before it, and the application is not installed. The
 //! `apps` module writes the record last.
@@ -34,11 +36,13 @@ use std::sync::{Arc, Mutex, RwLock};
 use harnix_builtin::apps::{AppsRuntime, InstallRecord, PackageInfo};
 use harnix_contract::{codes, RpcError};
 use harnix_module::ModuleContext;
-use harnix_wasm::{AppSpec, AppVm, Capabilities, FsGrant, Limits, ToolDef, WasmEngine, World};
+use harnix_module::{AppHandle, AppMethod, AppTopic, Principal};
+use harnix_wasm::{AppSpec, AppVm, Capabilities, FsGrant, Limits, ToolDef, VmState, WasmEngine, World};
 use serde_json::{json, Map, Value};
 use tokio_util::sync::CancellationToken;
 
-use crate::manifest::{Manifest, UiEntry, MANIFEST};
+use crate::backend::{Bridge, Method, Stats, VmSlot};
+use crate::manifest::{toml_to_json, Manifest, UiEntry, MANIFEST};
 use crate::package;
 
 /// What marks a skill directory as an application's, inside an instance's skills directory.
@@ -57,6 +61,23 @@ pub struct Loaded {
     pub ui: Vec<UiEntry>,
     /// What a spawned daemon's MCP client presents for this application's endpoint.
     pub token: String,
+    /// Its registration with the kernel: its methods, topics, spaces and `hub` capability.
+    pub handle: Option<AppHandle>,
+    /// What it declared, by full name: `app.<id>.<name>`.
+    pub methods: Vec<String>,
+    pub topics: Vec<String>,
+    pub spaces: Vec<String>,
+    pub hub: Vec<String>,
+    /// Its calls, errors and refusals, for the system space.
+    pub stats: Arc<Stats>,
+}
+
+/// What starting an application made.
+struct Started {
+    vm: Option<AppVm>,
+    tools: Vec<ToolDef>,
+    handle: Option<AppHandle>,
+    stats: Arc<Stats>,
 }
 
 impl Loaded {
@@ -273,12 +294,108 @@ impl Runtime {
         Manifest::parse(&text).map_err(refused)
     }
 
+    /// Register the application with the kernel, then start its VM: so what `init` does already
+    /// reaches the process, and a method called before the VM is up is answered "not running".
+    /// A VM that does not start takes the registration back with it.
+    async fn start_app(
+        &self,
+        cx: &ModuleContext,
+        manifest: &Manifest,
+        root: &Path,
+        app_dir: &Path,
+    ) -> Result<Started, RpcError> {
+        let id = &manifest.app.id;
+        let bridge = Bridge::new(id, manifest.topics.iter().map(|t| t.name.clone()));
+        let slot = Arc::new(VmSlot::default());
+        let mut spec = harnix_module::AppSpec::new(id.clone())
+            .hub(manifest.capabilities.hub.clone())
+            .topic_sink(bridge.sink());
+        for m in &manifest.methods {
+            let schema = match &m.params {
+                Some(params) => Some(jsonschema::validator_for(&toml_to_json(params)).map_err(|e| {
+                    refused(format!("`{id}`'s method `{}` has a schema that does not compile: {e}", m.name))
+                })?),
+                None => None,
+            };
+            let mut principals = Vec::new();
+            for subject in m.subject.names() {
+                principals.push(match subject {
+                    "device" => Principal::Device,
+                    "module" => Principal::AnyModule,
+                    _ => Principal::Kernel,
+                });
+            }
+            principals.push(Principal::Kernel);
+            principals.dedup();
+            spec = spec.method_with(AppMethod {
+                name: m.name.clone(),
+                principals,
+                description: m.description.clone().unwrap_or_default(),
+                handler: Arc::new(Method {
+                    app: id.clone(),
+                    name: m.name.clone(),
+                    schema,
+                    vm: slot.clone(),
+                    stats: bridge.stats.clone(),
+                }),
+            });
+        }
+        for t in &manifest.topics {
+            spec = spec.topic_with(AppTopic {
+                name: t.name.clone(),
+                params: Vec::new(),
+                principals: vec![Principal::Device, Principal::AnyModule],
+            });
+        }
+        for space in &manifest.spaces {
+            let mut decl = harnix_contract::SpaceDecl::new(space.id.clone());
+            if let Some(instance) = &space.instance {
+                decl = decl.instance(instance);
+            }
+            if let Some(scene) = &space.scene {
+                decl = decl.scene(scene.clone());
+            }
+            spec = spec.space(decl);
+        }
+        let handle = match cx.apps() {
+            Some(host) => {
+                let handle = host.register(spec).await?;
+                bridge.bind(handle.clone());
+                Some(handle)
+            }
+            None => None,
+        };
+        match self.start_vm(manifest, root, app_dir, bridge.clone()).await {
+            Ok((vm, tools)) => {
+                if let Some(vm) = &vm {
+                    slot.set(vm.downgrade());
+                    bridge.started(vm.downgrade());
+                }
+                Ok(Started {
+                    vm,
+                    tools,
+                    handle,
+                    stats: bridge.stats.clone(),
+                })
+            }
+            Err(e) => {
+                if let Some(handle) = &handle {
+                    if let Err(w) = handle.withdraw().await {
+                        tracing::warn!(app = %id, error = %w.message, "a registration was not taken back");
+                    }
+                }
+                Err(e)
+            }
+        }
+    }
+
     /// Start the VM and list its tools.
     async fn start_vm(
         &self,
         manifest: &Manifest,
         root: &Path,
         app_dir: &Path,
+        bridge: Arc<Bridge>,
     ) -> Result<(Option<AppVm>, Vec<ToolDef>), RpcError> {
         let Some(component) = &manifest.component else {
             return Ok((None, Vec::new()));
@@ -306,7 +423,12 @@ impl Runtime {
         // developer's own build, on the developer's own machine.
         let loaded = unsafe { self.engine.load(&bytes, fingerprint) }
             .map_err(|e| refused(format!("`{id}`: {e:#}")))?;
-        if loaded.world() != World::Tools {
+        let declared = if component.world == crate::manifest::WORLDS[1] {
+            World::Backend
+        } else {
+            World::Tools
+        };
+        if loaded.world() != declared {
             return Err(refused(format!(
                 "`{id}`'s component implements {:?}, and its manifest says `{}`",
                 loaded.world(),
@@ -342,7 +464,7 @@ impl Runtime {
         let kv = harnix_wasm::FileKv::open(app_dir.join("kv"))
             .map_err(|e| internal(format!("`{id}`'s storage: {e}")))?;
         let services = harnix_wasm::Services {
-            host: Arc::new(crate::host::Host),
+            host: bridge,
             kv: Arc::new(kv),
             http: Arc::new(crate::host::Http::new()),
         };
@@ -678,8 +800,16 @@ impl AppsRuntime for Runtime {
         app_dir: &Path,
     ) -> Result<Value, RpcError> {
         let id = &record.id;
-        if self.registry.get(id).is_some() {
-            return Ok(self.status(id));
+        if let Some(running) = self.registry.get(id) {
+            // Set aside after faulting: enabling it again is starting it again, from nothing.
+            let faulted = running
+                .vm
+                .as_ref()
+                .is_some_and(|vm| matches!(vm.health().state, VmState::Disabled { .. }));
+            if !faulted {
+                return Ok(self.status(id));
+            }
+            self.unload(cx, record).await;
         }
         let root = app_dir.join(&record.version);
         let attempt = async {
@@ -695,7 +825,7 @@ impl AppsRuntime for Runtime {
             }
             self.switch_agent(cx, id, &root, &record.parts, true)
                 .await?;
-            let (vm, tools) = match self.start_vm(&manifest, &root, app_dir).await {
+            let started = match self.start_app(cx, &manifest, &root, app_dir).await {
                 Ok(started) => started,
                 Err(e) => {
                     self.switch_agent(cx, id, &root, &record.parts, false)
@@ -704,15 +834,22 @@ impl AppsRuntime for Runtime {
                     return Err(e);
                 }
             };
+            let full = |name: &String| format!("app.{id}.{name}");
             Ok(Arc::new(Loaded {
                 id: id.clone(),
                 version: record.version.clone(),
                 title: manifest.app.title.clone(),
                 root: root.clone(),
-                vm,
-                tools,
+                vm: started.vm,
+                tools: started.tools,
                 ui: manifest.ui.clone(),
                 token: uuid::Uuid::new_v4().simple().to_string(),
+                handle: started.handle,
+                methods: manifest.methods.iter().map(|m| full(&m.name)).collect(),
+                topics: manifest.topics.iter().map(|t| full(&t.name)).collect(),
+                spaces: manifest.spaces.iter().map(|s| s.id.clone()).collect(),
+                hub: manifest.capabilities.hub.clone(),
+                stats: started.stats,
             }))
         };
         match attempt.await {
@@ -747,6 +884,14 @@ impl AppsRuntime for Runtime {
         // Out of the registry first: a session built from here on has none of its tools, and the
         // page is told its modules are gone. A call already running holds its own handle.
         self.changed();
+        // Then its names: a call decided from here is unknown. (The `apps` module has usually
+        // withdrawn them already; then there is nothing left to take.) Calls queued behind the
+        // backend are answered that it stopped.
+        if let Some(handle) = &loaded.handle {
+            if handle.withdraw().await.is_ok() {
+                tracing::debug!(app = %record.id, "registration withdrawn");
+            }
+        }
         if let Some(vm) = &loaded.vm {
             vm.stop().await;
         }
@@ -784,8 +929,20 @@ impl AppsRuntime for Runtime {
 
     fn status(&self, id: &str) -> Value {
         if let Some(app) = self.registry.get(id) {
+            let health = app.vm.as_ref().map(|vm| vm.health());
+            let (state, reason) = match health.as_ref().map(|h| &h.state) {
+                Some(VmState::Disabled { reason }) => ("faulted", Some(reason.clone())),
+                _ => ("running", None),
+            };
             return json!({
-                "state": "running",
+                "state": state,
+                "reason": reason,
+                "world": app.vm.as_ref().map(|vm| vm.world()),
+                "methods": app.methods,
+                "topics": app.topics,
+                "spaces": app.spaces,
+                "hub": app.hub,
+                "calls": app.stats.report(),
                 "tools": app.tools.iter().map(|t| json!({
                     "name": app.tool_name(&t.name),
                     "tool": t.name,
@@ -793,7 +950,7 @@ impl AppsRuntime for Runtime {
                 })).collect::<Vec<_>>(),
                 "ui": app.ui.iter().map(|u| format!("/apps/{id}/ui/{}", u.module)).collect::<Vec<_>>(),
                 "mcp": format!("/apps/{id}/mcp"),
-                "health": app.vm.as_ref().map(|vm| serde_json::to_value(vm.health()).unwrap_or(Value::Null)),
+                "health": health.map(|h| serde_json::to_value(h).unwrap_or(Value::Null)),
             });
         }
         match self
