@@ -68,6 +68,11 @@ pub enum Change {
     Withdraw,
     /// Putting a name in was refused, and nothing was written.
     Refuse,
+    /// An existing name was opened to a runtime application (its `hub`
+    /// capability, as a module's manifest grants).
+    Grant,
+    /// That grant was taken back, with the application.
+    Revoke,
 }
 
 impl Change {
@@ -76,6 +81,8 @@ impl Change {
             Change::Declare => "declare",
             Change::Withdraw => "withdraw",
             Change::Refuse => "refuse",
+            Change::Grant => "grant",
+            Change::Revoke => "revoke",
         }
     }
 }

@@ -31,16 +31,32 @@
 //!
 //! Every name declared, withdrawn or refused is an audit entry under the
 //! subject of the module that hosts the application, with the time.
+//!
+//! **Acting as itself.** An application reaches the rest of the process as
+//! `module:<id>` (`call_as`, `subscribe_as`): through the authorizer, like any
+//! module, and only to what its `hub` lists — method names, topics as
+//! `topic:<name>` — plus its own `app.<id>.*`, which it is always declared
+//! for. The `hub` entries are checked at registration exactly as a compiled-in
+//! module's manifest grants are (an unknown name or one the hub owns refuses
+//! the registration) and granted to it in the same step as its names go in
+//! the table; withdrawing takes them back. Every module may call what every
+//! device may, so the table alone would let an application reach far more
+//! than it declared: the `hub` list is checked first, and a refusal there is
+//! audited under the application's subject like one from the table.
+//!
+//! Its subscriptions are one client of the hub per application, made at
+//! registration when it gives a topic sink and removed at withdrawal; what the
+//! hub pushes that client goes to the sink.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
-use harnix_authz::{apps_overlap, topic, valid_app_id, Authorizer, Change};
-use harnix_contract::{RpcError, SpaceDecl, Subject};
+use harnix_authz::{apps_overlap, topic, valid_app_id, Authorizer, Change, Decision};
+use harnix_contract::{Channel, Frame, FrameSink, Gate, RpcError, SpaceDecl, Subject};
 use harnix_hub::Hub;
 use harnix_module::apps::AppRuntime;
-use harnix_module::{AppSpec, AppSummary, AppTopic, AppWithdrawn, Principal};
-use serde_json::Value;
+use harnix_module::{AppSpec, AppSummary, AppTopic, AppTopicSink, AppWithdrawn, Principal};
+use serde_json::{json, Value};
 
 use crate::gate::AppGate;
 
@@ -55,6 +71,15 @@ pub(crate) trait Surfaces: Send + Sync {
     async fn publish(&self, name: &str, params: Value, value: Value);
     fn add_space(&self, decl: SpaceDecl) -> Result<(), String>;
     fn remove_space(&self, id: &str) -> bool;
+    /// A client of the hub's topics that is not a connection: an
+    /// application's subscriptions. `None` where there is no hub.
+    async fn add_client(&self, sink: Arc<dyn FrameSink>) -> Option<u64> {
+        let _ = sink;
+        None
+    }
+    async fn remove_client(&self, client: u64) {
+        let _ = client;
+    }
 }
 
 pub(crate) struct HubSurfaces(pub Arc<Hub>);
@@ -76,11 +101,54 @@ impl Surfaces for HubSurfaces {
     fn remove_space(&self, id: &str) -> bool {
         self.0.remove_space(id)
     }
+    async fn add_client(&self, sink: Arc<dyn FrameSink>) -> Option<u64> {
+        Some(self.0.add_client(sink).await.0)
+    }
+    async fn remove_client(&self, client: u64) {
+        self.0.remove_client(harnix_hub::ClientId(client)).await
+    }
 }
 
 struct Live {
     summary: AppSummary,
     topics: Vec<AppTopic>,
+    /// Its `hub` capability: what it may reach as itself beyond its own names.
+    hub: BTreeSet<String>,
+    /// The entries of `hub` that were opened to it at registration, to be
+    /// closed again at withdrawal (the rest were open to every module anyway).
+    granted: Vec<String>,
+    /// Its subscriptions' client of the hub, when it gave a topic sink.
+    client: Option<u64>,
+}
+
+/// Why a call an application made as itself was refused before the table: on the record.
+const NOT_IN_HUB: &str = "not in the application's `hub` capability";
+
+/// What the hub pushes an application's subscriptions, handed to its sink.
+struct TopicFrames(Arc<dyn AppTopicSink>);
+
+#[async_trait::async_trait]
+impl FrameSink for TopicFrames {
+    async fn deliver(&self, frame: Frame) -> bool {
+        let Ok(note) = serde_json::from_str::<Value>(&frame.payload) else {
+            return true;
+        };
+        let p = &note["params"];
+        let topic = p["topic"].as_str().unwrap_or_default();
+        match note["method"].as_str() {
+            Some("harnix.topic") => self.0.deliver(topic, &p["params"], &p["value"]),
+            Some(harnix_hub::TOPIC_ENDED) => {
+                self.0.ended(topic, &p["params"], p["reason"].as_str().unwrap_or_default())
+            }
+            _ => {}
+        }
+        true
+    }
+
+    /// Topics only: a session's events are not for an application's backend.
+    fn wants(&self, channel: Channel) -> bool {
+        channel == Channel::HostEvents
+    }
 }
 
 pub(crate) struct Apps {
@@ -203,14 +271,42 @@ impl AppRuntime for Apps {
             }
         }
 
+        // Its `hub`, as a module's manifest grants: names that exist and are not the hub's own.
+        // Another application's names are left to that application's principals.
+        let mut to_grant = Vec::new();
+        for name in &spec.hub {
+            if name.starts_with("app.") || name.starts_with("topic:app.") {
+                continue;
+            }
+            match az.table().check_grant(name, &id) {
+                Ok(true) => to_grant.push(name.clone()),
+                Ok(false) => {}
+                Err(e) => {
+                    return Err(refuse(
+                        az,
+                        &host,
+                        name,
+                        "the application's `hub` names what cannot be granted",
+                        format!("`{id}`'s `hub` capability: {e}"),
+                    ))
+                }
+            }
+        }
+
         let methods: Vec<String> = spec.methods.iter().map(|m| format!("app.{id}.{}", m.name)).collect();
         let topics: Vec<String> = spec.topics.iter().map(|t| format!("app.{id}.{}", t.name)).collect();
+        // The application itself always reaches its own names: its tools ask its backend.
+        let with_self = |principals: &[Principal]| {
+            let mut principals = principals.to_vec();
+            principals.push(Principal::Module(id.clone()));
+            principals
+        };
         let rows: Vec<(String, Vec<Principal>)> = spec
             .methods
             .iter()
             .zip(&methods)
-            .map(|(m, name)| (name.clone(), m.principals.clone()))
-            .chain(spec.topics.iter().zip(&topics).map(|(t, name)| (topic(name), t.principals.clone())))
+            .map(|(m, name)| (name.clone(), with_self(&m.principals)))
+            .chain(spec.topics.iter().zip(&topics).map(|(t, name)| (topic(name), with_self(&t.principals))))
             .collect();
         if let Err(e) = az.table().check_app(&id, &rows) {
             let name = match &e {
@@ -255,6 +351,26 @@ impl AppRuntime for Apps {
         for space in &added_spaces {
             az.audit().record_change(&host, &format!("space:{space}"), Change::Declare, Some("declared by a runtime application"));
         }
+        {
+            let mut table = az.table_mut();
+            for name in &to_grant {
+                // Checked above, under the same serial lock: nothing else writes grants since.
+                let _ = table.grant(name, &id);
+            }
+        }
+        for name in &to_grant {
+            az.audit().record_change(
+                &Subject::Module { id: id.clone() },
+                name,
+                Change::Grant,
+                Some("the application's `hub` capability"),
+            );
+        }
+        let client = match &spec.topic_sink {
+            Some(sink) => self.surfaces.add_client(Arc::new(TopicFrames(sink.clone()))).await,
+            None => None,
+        };
+
         tracing::info!(app = %id, by, methods = methods.len(), topics = topics.len(), spaces = added_spaces.len(), "runtime application registered");
         let summary = AppSummary {
             id: id.clone(),
@@ -262,6 +378,7 @@ impl AppRuntime for Apps {
             methods,
             topics,
             spaces: added_spaces,
+            hub: spec.hub.clone(),
             since_ms: now_ms(),
         };
         self.live().insert(
@@ -269,6 +386,9 @@ impl AppRuntime for Apps {
             Live {
                 summary: summary.clone(),
                 topics: spec.topics,
+                hub: spec.hub.into_iter().collect(),
+                granted: to_grant,
+                client,
             },
         );
         Ok(summary)
@@ -277,7 +397,7 @@ impl AppRuntime for Apps {
     async fn withdraw(&self, by: &str, id: &str) -> Result<AppWithdrawn, RpcError> {
         let _serial = self.serial.lock().await;
         let host = Subject::Module { id: by.to_string() };
-        let summary = match self.live().get(id) {
+        let (summary, granted, client) = match self.live().get(id) {
             None => return Err(RpcError::invalid_params(format!("no application `{id}` is registered"))),
             Some(live) if live.summary.by != by => {
                 return Err(RpcError::refused(format!(
@@ -285,10 +405,25 @@ impl AppRuntime for Apps {
                     live.summary.by
                 )))
             }
-            Some(live) => live.summary.clone(),
+            Some(live) => (live.summary.clone(), live.granted.clone(), live.client),
         };
-        // The table first: from here a call is decided as unknown.
+        // The table first: from here a call is decided as unknown, and what it was granted is
+        // closed to it again.
         self.authorizer.withdraw_app(&host, id);
+        {
+            let mut table = self.authorizer.table_mut();
+            for name in &granted {
+                table.revoke(name, id);
+            }
+        }
+        let me = Subject::Module { id: id.to_string() };
+        for name in &granted {
+            self.authorizer.audit().record_change(&me, name, Change::Revoke, Some("withdrawn with its runtime application"));
+        }
+        // Its own subscriptions end with it; the hub forgets the client's.
+        if let Some(client) = client {
+            self.surfaces.remove_client(client).await;
+        }
         self.gate.unbind(&summary.methods);
         let reason = format!("the application `{id}` was withdrawn");
         let mut ended = 0;
@@ -333,6 +468,65 @@ impl AppRuntime for Apps {
     fn registered(&self) -> Vec<AppSummary> {
         self.live().values().map(|l| l.summary.clone()).collect()
     }
+
+    async fn call_as(&self, by: &str, id: &str, method: &str, mut params: Value) -> Result<Value, RpcError> {
+        let me = Subject::Module { id: id.to_string() };
+        let listed = self.reach(by, id, |live| method.starts_with(&format!("app.{id}.")) || live.hub.contains(method))?;
+        if !listed {
+            let session = params.get("session_id").and_then(Value::as_str).map(str::to_string);
+            self.authorizer.audit().record(&me, method, Decision::Refuse(NOT_IN_HUB), Some(NOT_IN_HUB), session);
+            return Err(RpcError::refused(format!(
+                "`module:{id}` may not call `{method}`: it is not in the application's `hub` capability"
+            )));
+        }
+        // Never a connection's: the application cannot stand in for one.
+        if let Some(obj) = params.as_object_mut() {
+            obj.remove("__client");
+        }
+        self.authorizer.call(&me, method, params).await
+    }
+
+    async fn subscribe_as(&self, by: &str, id: &str, name: &str, params: Value) -> Result<Value, RpcError> {
+        self.watch(by, id, name, params, "harnix.subscribe").await
+    }
+
+    async fn unsubscribe_as(&self, by: &str, id: &str, name: &str, params: Value) -> Result<(), RpcError> {
+        self.watch(by, id, name, params, "harnix.unsubscribe").await.map(|_| ())
+    }
+}
+
+impl Apps {
+    /// `check` against the live application `id`, which `by` must have registered.
+    fn reach(&self, by: &str, id: &str, check: impl FnOnce(&Live) -> bool) -> Result<bool, RpcError> {
+        let live = self.live();
+        match live.get(id).filter(|l| l.summary.by == by) {
+            Some(app) => Ok(check(app)),
+            None => Err(RpcError::invalid_params(format!("no application `{id}` is registered by this module"))),
+        }
+    }
+
+    /// Subscribe or unsubscribe the application's client, as the application.
+    async fn watch(&self, by: &str, id: &str, name: &str, params: Value, method: &str) -> Result<Value, RpcError> {
+        let me = Subject::Module { id: id.to_string() };
+        let entry = topic(name);
+        let mut client = None;
+        let listed = self.reach(by, id, |live| {
+            client = live.client;
+            name.starts_with(&format!("app.{id}.")) || live.hub.contains(&entry)
+        })?;
+        if !listed {
+            self.authorizer.audit().record(&me, &entry, Decision::Refuse(NOT_IN_HUB), Some(NOT_IN_HUB), None);
+            return Err(RpcError::refused(format!(
+                "`module:{id}` may not subscribe to `{name}`: `{entry}` is not in the application's `hub` capability"
+            )));
+        }
+        let Some(client) = client else {
+            return Err(RpcError::refused(format!("`{id}` was registered without anywhere for topic values to go")));
+        };
+        self.authorizer
+            .call(&me, method, json!({"topic": name, "params": params, "__client": client}))
+            .await
+    }
 }
 
 #[cfg(test)]
@@ -351,14 +545,17 @@ mod tests {
     #[derive(Default)]
     struct Below {
         app_calls: AtomicUsize,
+        /// Every call that reached below, with its subject and params.
+        seen: Mutex<Vec<(String, String, Value)>>,
     }
 
     #[async_trait::async_trait]
     impl Gate for Below {
-        async fn call(&self, _s: &Subject, method: &str, _p: Value) -> Result<Value, RpcError> {
+        async fn call(&self, s: &Subject, method: &str, p: Value) -> Result<Value, RpcError> {
             if method.starts_with("app.") {
                 self.app_calls.fetch_add(1, Ordering::SeqCst);
             }
+            self.seen.lock().unwrap().push((s.label(), method.to_string(), p));
             Ok(json!({"below": method}))
         }
     }
@@ -371,6 +568,9 @@ mod tests {
         ended: Mutex<Vec<(String, String)>>,
         published: Mutex<Vec<(String, Value, Value)>>,
         spaces: Mutex<BTreeSet<String>>,
+        /// Clients made for applications' subscriptions, and the ones removed.
+        clients: Mutex<Vec<Arc<dyn FrameSink>>>,
+        removed: Mutex<Vec<u64>>,
     }
 
     #[async_trait::async_trait]
@@ -402,6 +602,14 @@ mod tests {
         fn remove_space(&self, id: &str) -> bool {
             self.spaces.lock().unwrap().remove(id)
         }
+        async fn add_client(&self, sink: Arc<dyn FrameSink>) -> Option<u64> {
+            let mut clients = self.clients.lock().unwrap();
+            clients.push(sink);
+            Some(100 + clients.len() as u64)
+        }
+        async fn remove_client(&self, client: u64) {
+            self.removed.lock().unwrap().push(client);
+        }
     }
 
     struct World {
@@ -426,7 +634,16 @@ mod tests {
             unknown_sections: Vec::new(),
         });
         let gate = Arc::new(AppGate::new(below.clone(), diagnostics, audit.clone()));
-        let table = MethodTable::new().allow("harnix.hello", Reach::Device).allow("app.probe.echo", Reach::Device);
+        let table = MethodTable::new()
+            .allow("harnix.hello", Reach::Device)
+            .allow("app.probe.echo", Reach::Device)
+            .allow("harnix.subscribe", Reach::Device)
+            .allow("harnix.unsubscribe", Reach::Device)
+            .allow("session.create", Reach::Device)
+            .allow("settings.write", Reach::Refused("not for devices"))
+            .allow("harnix.turn", Reach::HubOwned("the hub's"))
+            .allow(&topic("harnix.sessions.status"), Reach::Device)
+            .allow(&topic("harnix.process"), Reach::Kernel);
         let compiled: Arc<dyn harnix_module::AppHandler> = Arc::new(Fixed(json!("the compiled-in probe")));
         assert!(gate.bind_app("app.probe.echo", compiled));
         let az = Arc::new(Authorizer::new(table, gate.clone(), audit));
@@ -503,6 +720,103 @@ mod tests {
         assert!(w.apps.registered().is_empty());
         // And the id is free again.
         w.apps.register("host", fake("fake")).await.unwrap();
+    }
+
+    /// What a sink is handed.
+    #[derive(Default)]
+    struct Heard(Mutex<Vec<(String, Value, Value)>>, Mutex<Vec<String>>);
+
+    impl AppTopicSink for Heard {
+        fn deliver(&self, topic: &str, params: &Value, value: &Value) {
+            self.0.lock().unwrap().push((topic.into(), params.clone(), value.clone()));
+        }
+        fn ended(&self, topic: &str, _params: &Value, reason: &str) {
+            self.1.lock().unwrap().push(format!("{topic}: {reason}"));
+        }
+    }
+
+    fn me(id: &str) -> Subject {
+        Subject::Module { id: id.into() }
+    }
+
+    #[tokio::test]
+    async fn an_application_acts_as_itself_and_only_as_far_as_its_hub_says() {
+        let w = world();
+        let heard = Arc::new(Heard::default());
+        let spec = fake("acme.notes")
+            .hub(["session.create", "settings.write", "topic:harnix.sessions.status"])
+            .topic_sink(heard.clone());
+        w.apps.register("host", spec).await.unwrap();
+
+        // Listed, and open to every module anyway: through the authorizer, as `module:acme.notes`,
+        // and never with a connection's stamp.
+        assert_eq!(
+            w.apps.call_as("host", "acme.notes", "session.create", json!({"__client": 9, "x": 1})).await.unwrap(),
+            json!({"below": "session.create"})
+        );
+        let (subject, _, params) = w.below.seen.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(subject, "module:acme.notes");
+        assert_eq!(params, json!({"x": 1}));
+        // Listed and refused to devices: granted to it, and to nobody else.
+        assert!(w.apps.call_as("host", "acme.notes", "settings.write", json!({})).await.is_ok());
+        assert_eq!(w.az.call(&me("other"), "settings.write", json!({})).await.unwrap_err().code, codes::REFUSED);
+        // Its own methods, unlisted and declared for devices only.
+        assert_eq!(
+            w.apps.call_as("host", "acme.notes", "app.acme.notes.echo", json!({"y": 2})).await.unwrap()["caller"],
+            json!({"kind": "module", "id": "acme.notes"})
+        );
+        // Not listed, though open to every module: refused before the table, and on the record.
+        let refused = w.apps.call_as("host", "acme.notes", "harnix.hello", json!({})).await.unwrap_err();
+        assert_eq!(refused.code, codes::REFUSED);
+        assert!(refused.message.contains("`hub` capability"), "{}", refused.message);
+        let entry = w.az.audit().recent(100).into_iter().find(|e| e.method == "harnix.hello").unwrap();
+        assert_eq!((entry.subject.as_str(), entry.decision), ("module:acme.notes", "refuse"));
+        assert_eq!(entry.reason, Some(NOT_IN_HUB));
+        // Only the module that registered it speaks for it.
+        assert!(w.apps.call_as("other", "acme.notes", "session.create", json!({})).await.is_err());
+
+        // Subscribing: a listed topic, through its own client of the hub; an unlisted one refused.
+        w.apps.subscribe_as("host", "acme.notes", "harnix.sessions.status", json!({})).await.unwrap();
+        let (subject, method, params) = w.below.seen.lock().unwrap().last().cloned().unwrap();
+        assert_eq!((subject.as_str(), method.as_str()), ("module:acme.notes", "harnix.subscribe"));
+        assert_eq!(params, json!({"topic": "harnix.sessions.status", "params": {}, "__client": 101}));
+        assert_eq!(
+            w.apps.subscribe_as("host", "acme.notes", "harnix.process", json!({})).await.unwrap_err().code,
+            codes::REFUSED
+        );
+        assert!(w.az.audit().recent(100).iter().any(|e| e.method == "topic:harnix.process" && e.decision == "refuse"));
+        // Its own topic needs no listing.
+        w.apps.subscribe_as("host", "acme.notes", "app.acme.notes.ticks", json!({"job": 1})).await.unwrap();
+        // What the hub pushes its client reaches the sink, topic values and endings both.
+        let client = w.stub.clients.lock().unwrap()[0].clone();
+        let push = |method: &str, params: Value| Frame::host(json!({"jsonrpc": "2.0", "method": method, "params": params}).to_string());
+        client.deliver(push("harnix.topic", json!({"topic": "harnix.sessions.status", "params": {}, "value": {"n": 1}}))).await;
+        client.deliver(push(harnix_hub::TOPIC_ENDED, json!({"topic": "app.x.t", "params": {}, "reason": "gone"}))).await;
+        assert_eq!(heard.0.lock().unwrap().as_slice(), [("harnix.sessions.status".to_string(), json!({}), json!({"n": 1}))]);
+        assert_eq!(heard.1.lock().unwrap().as_slice(), ["app.x.t: gone"]);
+        assert!(!client.wants(Channel::SessionEvents));
+
+        // Withdrawn: the grant is closed, the client removed, and nothing more is called as it.
+        w.apps.withdraw("host", "acme.notes").await.unwrap();
+        assert_eq!(w.stub.removed.lock().unwrap().as_slice(), [101]);
+        assert_eq!(w.az.call(&me("acme.notes"), "settings.write", json!({})).await.unwrap_err().code, codes::REFUSED);
+        assert_eq!(w.apps.call_as("host", "acme.notes", "session.create", json!({})).await.unwrap_err().code, codes::INVALID_PARAMS);
+        let changes: Vec<_> = w.az.audit().recent(200).into_iter().filter(|e| e.method == "settings.write").map(|e| e.decision).collect();
+        assert!(changes.contains(&"grant") && changes.contains(&"revoke"), "{changes:?}");
+    }
+
+    #[tokio::test]
+    async fn a_hub_capability_that_cannot_be_granted_refuses_the_registration() {
+        let w = world();
+        for name in ["harnix.turn", "nothing.here", "topic:nowhere"] {
+            let e = w.apps.register("host", fake("acme.notes").hub([name])).await.unwrap_err();
+            assert_eq!(e.code, codes::REFUSED, "{name}");
+            assert!(e.message.contains(name), "{name}: {}", e.message);
+        }
+        assert!(w.apps.registered().is_empty());
+        assert!(w.stub.topics.lock().unwrap().is_empty());
+        // Another application's names are that application's to admit, so they are not checked here.
+        w.apps.register("host", fake("acme.notes").hub(["app.acme.todo.list"])).await.unwrap();
     }
 
     #[tokio::test]

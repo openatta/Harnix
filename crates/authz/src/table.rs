@@ -307,6 +307,32 @@ impl MethodTable {
         Ok(())
     }
 
+    /// Whether [`MethodTable::grant`] would take for `module`, without
+    /// writing: `Ok(true)` when it would open the entry, `Ok(false)` when the
+    /// entry already lets that module in (say, it is open to every module).
+    pub fn check_grant(&self, method: &str, module: &str) -> Result<bool, TableError> {
+        if self.runtime.contains_key(method) {
+            return Err(TableError::Unknown(method.to_string()));
+        }
+        let Some(rule) = self.entries.get(method) else {
+            return Err(TableError::Unknown(method.to_string()));
+        };
+        if rule.hub_owned {
+            return Err(TableError::HubOwned(method.to_string()));
+        }
+        Ok(!rule.allows_module(module))
+    }
+
+    /// Take back what [`MethodTable::grant`] gave `module`: a runtime
+    /// application's `hub` capability, when it is withdrawn. Touches nothing
+    /// but that one id on that one entry, so an entry open to every module
+    /// stays open.
+    pub fn revoke(&mut self, method: &str, module: &str) {
+        if let Some(rule) = self.entries.get_mut(method) {
+            rule.modules.remove(module);
+        }
+    }
+
     pub fn decide(&self, subject: &Subject, method: &str) -> Decision {
         let Some(rule) = self.entries.get(method) else {
             return Decision::Unknown;
@@ -683,6 +709,29 @@ mod tests {
         assert_eq!(t.decide(&module("peer"), "app.fake.peer"), Decision::Allow);
         assert!(matches!(t.decide(&module("other"), "app.fake.peer"), Decision::Refuse(_)));
         assert_eq!(t.grant("app.fake.mine", "other"), Err(TableError::Unknown("app.fake.mine".into())));
+    }
+
+    #[test]
+    fn a_grant_is_checked_like_a_modules_and_revoked_without_touching_the_rest() {
+        let mut t = assembled()
+            .allow("settings.write", Reach::Refused("not for devices"))
+            .allow("harnix.turn", Reach::HubOwned("the hub's"));
+        t.declare_app("fake", &rows(&["app.fake.echo"])).unwrap();
+        // Open to every module already: nothing to grant, and revoking leaves it open.
+        assert_eq!(t.check_grant("harnix.hello", "acme.notes"), Ok(false));
+        assert_eq!(t.check_grant("settings.write", "acme.notes"), Ok(true));
+        assert_eq!(t.check_grant("harnix.turn", "acme.notes"), Err(TableError::HubOwned("harnix.turn".into())));
+        assert_eq!(t.check_grant("nothing.here", "acme.notes"), Err(TableError::Unknown("nothing.here".into())));
+        assert_eq!(t.check_grant("app.fake.echo", "acme.notes"), Err(TableError::Unknown("app.fake.echo".into())));
+
+        t.grant("settings.write", "acme.notes").unwrap();
+        t.grant("settings.write", "settings").unwrap();
+        assert_eq!(t.decide(&module("acme.notes"), "settings.write"), Decision::Allow);
+        t.revoke("settings.write", "acme.notes");
+        assert!(matches!(t.decide(&module("acme.notes"), "settings.write"), Decision::Refuse(_)));
+        assert_eq!(t.decide(&module("settings"), "settings.write"), Decision::Allow, "another grant stays");
+        t.revoke("harnix.hello", "acme.notes");
+        assert_eq!(t.decide(&module("acme.notes"), "harnix.hello"), Decision::Allow);
     }
 
     #[test]

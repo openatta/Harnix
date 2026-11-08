@@ -27,7 +27,7 @@ mod methods;
 mod routes;
 mod sessions;
 
-pub use apps::{AppHandle, AppHandler, AppHost, AppMethod, AppSpec, AppSummary, AppTopic, AppWithdrawn};
+pub use apps::{AppHandle, AppHandler, AppHost, AppMethod, AppSpec, AppSummary, AppTopic, AppTopicSink, AppWithdrawn};
 pub use catalog::{Frequency, Point, PointKind};
 pub use context::{
     CallContext, InstanceHandle, Kernel, Listen, MigrateContext, MigrationReport, ModuleContext,
