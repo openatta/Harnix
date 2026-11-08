@@ -1,7 +1,7 @@
 /**
  * Settings → Applications in the browser, against the mock store (`../api/apps-store.ts`): the
- * catalog offers the showcase; "Install" shows what it asks for and installs nothing until the
- * disclosure's own button is pressed; installed, it is listed as countersigned by the store with
+ * catalog offers the showcase; "Install" shows what it asks for — a modal over the settings, every
+ * capability a sentence — and installs nothing until the disclosure's own button is pressed; installed, it is listed as countersigned by the store with
  * its switches; switched off and on; updated, with only what the new version adds shown and asked
  * for; uninstalled, gone from the list and back on offer.
  */
@@ -60,7 +60,17 @@ test("the store's application is installed through its disclosure, and only thro
   await offered.getByTestId("app-install").click();
   const disclosure = page.getByTestId("app-disclosure");
   await expect(disclosure).toBeVisible();
+  // A modal over the settings, every capability a sentence.
+  await expect(disclosure).toHaveAttribute("role", "dialog");
+  await expect(disclosure).toHaveAttribute("aria-modal", "true");
+  await expect(disclosure).toBeFocused();
   await expect(disclosure).toContainText(/Showcase 0\.2\.0/);
+  await expect(disclosure.locator('[data-capability="net"]').first()).toContainText(/Reach the host|访问主机/);
+  await expect(disclosure.locator('[data-capability="hub"]', { hasText: "sessions.status" })).toContainText(/Watch the topic|订阅主题/);
+  await expect(disclosure.locator('[data-capability="fs"]')).toContainText(/project, without changing it|项目（只读）/);
+  // What it is told through the shell's own views is a line of its own too.
+  await expect(disclosure.locator('[data-capability="inline"]', { hasText: "/showcase" })).toContainText(/Be told what is typed|得知为这个命令输入的内容/);
+  await expect(disclosure.locator('[data-inline="tool_row"]')).toHaveCount(2);
   await expect(disclosure).toContainText(/Countersigned by the store|商店已副署/);
   for (const capability of ["net", "env", "storage_mb", "fs", "ui", "agent"]) {
     await expect(disclosure.locator(`[data-capability="${capability}"]`).first(), capability).toBeVisible();
@@ -69,7 +79,12 @@ test("the store's application is installed through its disclosure, and only thro
   await expect(disclosure).toContainText("api.example.com");
   // Shown, and nothing installed.
   expect(await listed()).toEqual([]);
+  // Escape closes it, and only it: the settings stay.
+  await page.keyboard.press("Escape");
+  await expect(disclosure).toHaveCount(0);
+  await expect(page.locator(".settings-page")).toBeVisible();
   // Cancelled: still nothing.
+  await offered.getByTestId("app-install").click();
   await disclosure.getByRole("button", { name: /Cancel|取消/ }).click();
   await expect(disclosure).toHaveCount(0);
   expect(await listed()).toEqual([]);
@@ -123,6 +138,9 @@ test("an update shows only what it adds, and waits for its own consent", TAGS, a
   await expect(disclosure.locator('[data-capability="net"]')).toContainText("api.example.com");
   await expect(disclosure.locator('[data-capability="storage_mb"]')).toContainText("2 MB");
   await expect(disclosure.locator('[data-capability="fs"]')).toHaveCount(0);
+  // Only what it adds: not the interface, not what the shell draws for it.
+  await expect(disclosure.locator("[data-inline]")).toHaveCount(0);
+  await expect(disclosure).toContainText(/Everything else it was already granted|已经给过它的其余能力照旧/);
   expect((await listed())[0].version).toBe("0.1.0");
   await page.getByTestId("app-consent").click();
   await expect(installed).toHaveAttribute("data-version", "0.2.0", { timeout: 30_000 });
@@ -132,8 +150,10 @@ test("an update shows only what it adds, and waits for its own consent", TAGS, a
 test("uninstalled from its row: gone, and on offer again", TAGS, async ({ page }) => {
   await open(page, backend.url);
   await applications(page);
-  page.once("dialog", (dialog) => void dialog.accept());
   await page.locator(`[data-testid="app-installed"][data-app="${SHOWCASE_ID}"]`).getByTestId("app-uninstall").click();
+  // Asked in a modal of its own over the settings.
+  await expect(page.getByTestId("app-uninstall-ask")).toContainText(/Its data goes with it|数据会一起删除/);
+  await page.getByTestId("app-uninstall-ask-confirm").click();
   await expect(page.getByTestId("app-installed")).toHaveCount(0, { timeout: 30_000 });
   await expect(page.locator(`[data-testid="app-offered"][data-app="${SHOWCASE_ID}"]`).getByTestId("app-install")).toBeVisible();
   expect(await listed()).toEqual([]);

@@ -20,8 +20,9 @@ net = ["127.0.0.1"]
 # What `state` reports as `secret_set`, through `host.secret`.
 env = ["SHOWCASE_TOKEN"]
 # What the backend may do as `module:example.showcase`: start a session and send it a prompt
-# (`session.start`), and watch which sessions are running. `overreach` tries something else.
-hub = ["session.create", "harnix.send", "topic:harnix.sessions.status"]
+# (`session.start`), watch which sessions are running, and put a card in a session's flow
+# (`card.post`, drawn from `[[inline.flow_block]]`). `overreach` tries something else.
+hub = ["session.create", "harnix.send", "topic:harnix.sessions.status", "harnix.entries.append"]
 
 [[component]]
 name = "tools"
@@ -94,6 +95,25 @@ description = "Never return: the call is abandoned at the timeout and the backen
 name = "crash"
 description = "Trap: the backend is rebuilt once, and a second crash sets the application aside"
 
+[[method]]
+name = "card.post"
+description = "Put a card in a session's flow: an entry the shell draws as `[[inline.flow_block]]` says"
+[method.params]
+type = "object"
+required = ["session_id"]
+properties.session_id = { type = "string" }
+properties.instance = { type = "string" }
+properties.title = { type = "string", maxLength = 200 }
+properties.body = { type = "string", maxLength = 2000 }
+
+[[method]]
+name = "complete"
+description = "The candidates of the `/showcase` command and the `@notes` source, for the shell's menus"
+
+[[method]]
+name = "sessions.group"
+description = "How the showcase's space groups its sessions in the left column: those it put a card in, and the rest"
+
 # What the backend publishes. A client subscribes to app.example.showcase.<name>.
 [[topic]]
 name = "notes"
@@ -129,3 +149,66 @@ api_version = 2
 
 [agent]
 install_into = ["system"]
+
+# What the shell draws for the showcase in its own views, from this manifest alone: no code of the
+# showcase's runs in the page for any of it. A store application's interface runs isolated; these
+# are the inline points it still has.
+
+# Its tools' rows in the flow: an icon, a title from the call's input, what follows it.
+[[inline.tool_row]]
+tool = "echo"
+icon = "terminal"
+title = { en = "Showcase echo · {input.text}", zh-CN = "示例应用回声 · {input.text}" }
+summary = "result"
+# The result unfolded, under the title.
+collapsed = false
+
+[[inline.tool_row]]
+tool = "count"
+icon = "check"
+title = { en = "Showcase count · {input.key}", zh-CN = "示例应用计数 · {input.key}" }
+summary = "result"
+
+# An entry the backend appends with the event `card` (`card.post`) is drawn as this card; its
+# payload fills the placeholders. The buttons call the showcase's own methods.
+[[inline.flow_block]]
+kind = "card"
+icon = "file"
+title = "{payload.title}"
+body = "{payload.body}"
+[[inline.flow_block.field]]
+label = { en = "Notes on the board", zh-CN = "留言板上的留言" }
+value = "{payload.notes}"
+[[inline.flow_block.field]]
+label = { en = "Posted by", zh-CN = "贴卡的" }
+value = "{payload.by}"
+[[inline.flow_block.button]]
+label = { en = "Count one more", zh-CN = "再数一个" }
+method = "counter.bump"
+confirm = { en = "Count one more on the showcase's counter?", zh-CN = "在示例应用的计数器上再数一个？" }
+done = { en = "The counter is at {result.counter}", zh-CN = "计数器到了 {result.counter}" }
+[[inline.flow_block.button]]
+label = { en = "Pin the title on the board", zh-CN = "把标题贴上留言板" }
+method = "notes.add"
+params = { text = "{payload.title}" }
+done = { en = "{result.count} notes on the board", zh-CN = "留言板上有 {result.count} 条留言" }
+
+# `/showcase…` in the composer's `/` menu, `@notes` in its `@` menu: the candidates come from the
+# backend's `complete`. The installer says it is told what is typed for them.
+[[inline.command]]
+trigger = "/"
+name = "showcase"
+description = { en = "The showcase's commands", zh-CN = "示例应用的命令" }
+
+[[inline.command]]
+trigger = "@"
+name = "notes"
+description = { en = "A note on the showcase's board", zh-CN = "示例应用留言板上的留言" }
+
+# The showcase's space lists its sessions in two groups, as the backend's `sessions.group` says:
+# those it put a card in, and the rest. The installer says it is told the space's sessions.
+[[inline.sidebar_group]]
+space = "example.showcase"
+by = "method"
+method = "sessions.group"
+other = { en = "Without a card", zh-CN = "没有卡片的" }

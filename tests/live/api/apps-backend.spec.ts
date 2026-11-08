@@ -94,7 +94,7 @@ test.describe("an application with a backend", () => {
     expect(rt.topics).toEqual([M("notes"), M("heartbeat")]);
     expect(rt.spaces).toEqual([SHOWCASE_ID]);
     const registered = (await api.call("harnix.apps.list")).registered.find((r: any) => r.id === SHOWCASE_ID);
-    expect(registered).toMatchObject({ by: "apps", hub: ["session.create", "harnix.send", "topic:harnix.sessions.status"] });
+    expect(registered).toMatchObject({ by: "apps", hub: ["session.create", "harnix.send", "topic:harnix.sessions.status", "harnix.entries.append"] });
     // Reachable to this page like any method, and listed among the spaces.
     const reachable = await api.call("harnix.reachable");
     expect(reachable.methods).toContain(M("notes.add"));

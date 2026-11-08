@@ -2,13 +2,14 @@
 
 One of everything a runtime application can bring to this Harnix, in one package — the sample
 the LIVE suites install (`tests/live/api/apps-runtime.spec.ts`, `tests/live/api/apps-backend.spec.ts`,
-`tests/live/ui/apps.spec.ts`), and the one the store suites sign, list in a mock store and install
+`tests/live/ui/apps.spec.ts`, `tests/live/api/apps-inline.spec.ts`, `tests/live/ui/apps-inline.spec.ts`),
+and the one the store suites sign, list in a mock store and install
 by name (`tests/live/api/apps-store.spec.ts`, `tests/live/ui/apps-store.spec.ts`).
 
 | Part | Where | What it shows |
 |---|---|---|
-| Manifest | `harnix-app.toml` | the id; the capabilities it asks for (`storage_mb`, `fs`, `net`, `env`, `hub`); one `backend-app` component; its `[[method]]`s (with a params schema), `[[topic]]`s and `[[space]]`; `[config]`; its interface module; where its agent package goes |
-| Backend | `component/` (Rust, `wasm32-wasip2`), `backend` | one resident instance: a board of notes in the key-value store (`notes.add` / `list` / `clear`, published on the `notes` topic), a counter in its own memory (`counter.bump`), a timer that publishes `heartbeat` (`timer.start`), `fetch` (`host.http-request`, to the one host in `net`), `session.start` (creates a session in its space and sends it a prompt, as `module:example.showcase`), `overreach` (a call its `hub` does not list), `state`, and `spin` / `crash` (a timeout recycles the instance; a crash rebuilds it once, a second sets the application aside). `init` subscribes to `harnix.sessions.status` |
+| Manifest | `harnix-app.toml` | the id; the capabilities it asks for (`storage_mb`, `fs`, `net`, `env`, `hub`); one `backend-app` component; its `[[method]]`s (with a params schema), `[[topic]]`s and `[[space]]`; `[config]`; its interface module; where its agent package goes; and what the shell draws for it inline (`[inline]`, below) |
+| Backend | `component/` (Rust, `wasm32-wasip2`), `backend` | one resident instance: a board of notes in the key-value store (`notes.add` / `list` / `clear`, published on the `notes` topic), a counter in its own memory (`counter.bump`), a timer that publishes `heartbeat` (`timer.start`), `fetch` (`host.http-request`, to the one host in `net`), `session.start` (creates a session in its space and sends it a prompt, as `module:example.showcase`), `overreach` (a call its `hub` does not list), `state`, `card.post` (a card in a session's flow), `complete` (its commands' candidates), `sessions.group` (its space's groups), and `spin` / `crash` (a timeout recycles the instance; a crash rebuilds it once, a second sets the application aside). `init` subscribes to `harnix.sessions.status` |
 | Tools | `component/`, `tools` | `echo`, `count` (key-value storage), `config` (`host.config()`), `read_project` (the session's project, read-only), `slow` (progress, cancellation), `vetoed`, `board` (the backend's state, asked for with `host.call`: a tool's instance cannot see the backend's memory) |
 | Event hook | `component/` (`events`) | refuses the tool its configuration names (`blocked_tool`), on every tool call of the session |
 | Agent package | `agent/plugin.toml` | a QuickJS `prompt.block` (`scripts/block.js`) and an agent type, `showcase-guide` |
@@ -18,6 +19,28 @@ by name (`tests/live/api/apps-store.spec.ts`, `tests/live/ui/apps-store.spec.ts`
 A session sees the tools as `app__example_showcase__<tool>`; each one asks before it runs. A
 daemon this Harnix spawned sees them as `mcp__app-example_showcase__<tool>`, over the
 application's MCP endpoint: it runs no WebAssembly of its own, and the call runs in this process.
+
+## Drawn by the shell: `[inline]`
+
+What a store application's interface cannot do in the page — it runs isolated — the shell does for
+it, from the manifest alone; no code of the showcase's runs for any of this:
+
+| Point | In the manifest | What the shell draws |
+|---|---|---|
+| `tool_row` | `echo` and `count`: a glyph, a title from the call's input (`{input.text}`), the result after it; `echo`'s unfolded | their calls' rows in the flow |
+| `flow_block` | the kind `card`: a title, two fields and a Markdown body from the entry's payload (`{payload.…}`), and two buttons | a card for every entry `card.post` appends (`harnix.entries.append`, in its `hub`). "Count one more" asks first in the shell's own dialog, then calls `counter.bump`; "Pin the title on the board" calls `notes.add` with the card's title. What came back is shown in the card (`done`, `{result.…}`) |
+| `command` | `/showcase` and `@notes` | the composer's menus as they are, with the candidates `complete` answers: `/showcase-bump` and `/showcase-clear` run those methods when chosen; `@notes` offers the board's notes matching what is typed |
+| `sidebar_group` | its space, `by = "method"` | the space's sessions in the left column, grouped as `sessions.group` answers: those it put a card in, and the rest (`other`) |
+
+Every text is a string or one per locale (`{ en = "…", zh-CN = "…" }`). A point that does not hold
+together is refused at install, by name: a placeholder of a root the point does not have, a button
+calling a method that is not its own or not a device's to call, a command without `complete`, a card
+without `harnix.entries.append` in its `hub`, a row for a tool its component does not list. The
+installer says what the showcase is told through them — what is typed for its commands, its space's
+sessions — a line each.
+
+Try it: with the showcase installed, `app.example.showcase.card.post {"session_id": "<an open
+session>"}` puts a card in that session's flow.
 
 ## The backend's methods
 
@@ -76,8 +99,11 @@ Then, from any client: `harnix.apps.installFile {"path": "/abs/path/showcase.hxa
 sessions have the tools, the prompt block and the agent type; the home screen has the card, and
 the left column the showcase's space. `fetch` reaches `127.0.0.1` only (any port): start something
 there to try it. `state` reports `secret_set: true` when `SHOWCASE_TOKEN` is set for the process.
-`harnix.apps.disable` / `enable {"id": "example.showcase"}` switch it, `harnix.apps.uninstall`
-takes it out, its stored counts and notes with it. After a second crash the application is set
+`harnix.apps.disable` / `enable {"id": "example.showcase"}` switch it, `harnix.apps.clearData`
+deletes its stored counts, notes and cards and starts it again from nothing, `harnix.apps.uninstall`
+takes it out, its stored counts and notes with it. Settings → Applications does each of these, and
+shows its permissions; its space in the left column carries the application mark (the same page
+turns it off). After a second crash the application is set
 aside (`harnix.apps.list` → `runtime.state: "faulted"`); `harnix.apps.enable` starts it again.
 
 ## Sign, publish, install by name

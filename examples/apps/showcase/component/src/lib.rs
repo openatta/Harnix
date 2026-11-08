@@ -17,6 +17,9 @@
 //! | `session.start {message, …}` | driving the agent: `session.create` and `harnix.send`, as `module:example.showcase` |
 //! | `overreach` | a call its `hub` does not list: refused, and on the record |
 //! | `spin`, `crash` | what a timeout and a trap do to the instance |
+//! | `card.post {session_id, …}` | an entry in a session's flow (`harnix.entries.append`), which the shell draws as the manifest's card |
+//! | `complete {trigger, name, query}` | the candidates of its `/showcase` command and its `@notes` source |
+//! | `sessions.group {space, sessions}` | how its space's left column groups sessions: those it put a card in, and the rest |
 //!
 //! It subscribes to `harnix.sessions.status` in `init` (listed in its `hub` as
 //! `topic:harnix.sessions.status`) and counts what arrives at `on-topic`.
@@ -53,6 +56,8 @@ struct Showcase;
 const ID: &str = "example.showcase";
 /// Where the notes are kept: the key-value store, so they outlive a recycled instance.
 const NOTES: &str = "notes";
+/// The sessions it put a card in, for `sessions.group`.
+const CARDS: &str = "cards";
 
 /// The backend's memory: gone when the instance is replaced, which is the point of `counter`.
 #[derive(Default)]
@@ -99,6 +104,54 @@ fn save(notes: &[Value]) -> Result<(), AppError> {
     host::kv_set(NOTES, &bytes).map_err(|e| error(2, e))?;
     let _ = host::publish("notes", &json!({"notes": notes, "count": notes.len()}).to_string());
     Ok(())
+}
+
+fn carded() -> Vec<String> {
+    host::kv_get(CARDS)
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+/// `{en, zh-CN}`: the shell shows the reader's.
+fn words(en: &str, zh: &str) -> Value {
+    json!({"en": en, "zh-CN": zh})
+}
+
+/// The `/showcase…` commands and the `@notes` source. A command names the method the shell runs for
+/// it — one of the showcase's own, nothing else; a note is put in the composer.
+fn complete(params: &Value) -> Value {
+    let query = params["query"].as_str().unwrap_or_default().to_lowercase();
+    let candidates: Vec<Value> = match (params["trigger"].as_str(), params["name"].as_str()) {
+        (Some("/"), Some("showcase")) => vec![
+            json!({
+                "replacement": "/showcase-bump",
+                "description": words("Count one more on the showcase's counter", "在示例应用的计数器上再数一个"),
+                "call": {"method": "counter.bump"},
+                "done": words("Counted one more", "又数了一个"),
+            }),
+            json!({
+                "replacement": "/showcase-clear",
+                "description": words("Take every note off the showcase's board", "撤下示例应用留言板上的所有留言"),
+                "call": {"method": "notes.clear"},
+                "done": words("The board is empty", "留言板空了"),
+            }),
+        ],
+        (Some("@"), Some("notes")) => notes()
+            .iter()
+            .filter_map(|n| n["text"].as_str())
+            .filter(|text| query.is_empty() || text.to_lowercase().contains(&query))
+            .take(10)
+            .map(|text| {
+                json!({
+                    "replacement": format!("“{text}” "),
+                    "label": format!("notes:{text}"),
+                    "description": words("A note on the showcase's board", "示例应用留言板上的留言"),
+                })
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
+    json!({"candidates": candidates})
 }
 
 fn state() -> Value {
@@ -207,6 +260,53 @@ impl Backend for Showcase {
                 std::hint::black_box(memory(|m| m.counter));
             },
             "crash" => panic!("the showcase was asked to crash"),
+            "card.post" => {
+                // An entry in the session's log, for people: the shell draws its `card` event as the
+                // manifest's `[[inline.flow_block]]`, with this payload in its placeholders.
+                let caller: Value = serde_json::from_str(&caller).unwrap_or(Value::Null);
+                let session_id = params["session_id"].as_str().unwrap_or_default().to_string();
+                let instance = params["instance"].as_str().unwrap_or("system");
+                let entry = json!({
+                    "instance": instance,
+                    "session_id": session_id,
+                    "event": "card",
+                    "payload": {
+                        "title": params["title"].as_str().unwrap_or("A card from the showcase"),
+                        "body": params["body"].as_str().unwrap_or("The board has **notes**, a counter and a heartbeat."),
+                        "notes": notes().len(),
+                        "by": caller["subject"],
+                    },
+                });
+                let appended = host::call("harnix.entries.append", &entry.to_string()).map_err(|e| error(6, e))?;
+                let mut cards = carded();
+                if !cards.contains(&session_id) {
+                    cards.push(session_id.clone());
+                    let bytes = serde_json::to_vec(&cards).unwrap_or_default();
+                    host::kv_set(CARDS, &bytes).map_err(|e| error(2, e))?;
+                }
+                json!({
+                    "session_id": session_id,
+                    "appended": serde_json::from_str::<Value>(&appended).unwrap_or(Value::Null),
+                })
+            }
+            "complete" => complete(&params),
+            "sessions.group" => {
+                // The shell hands over the space's sessions; the rest of them land in its `other`.
+                let cards = carded();
+                let ids: Vec<Value> = params["sessions"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|s| s["session_id"].as_str())
+                    .filter(|id| cards.iter().any(|c| c == id))
+                    .map(|id| json!(id))
+                    .collect();
+                json!({"groups": [{
+                    "key": "cards",
+                    "title": words("With a card", "有卡片的"),
+                    "sessions": ids,
+                }]})
+            }
             other => return Err(error(-32601, format!("the showcase has no method `{other}`"))),
         };
         Ok(answer.to_string())

@@ -189,7 +189,7 @@ test.describe("the store, trusted", () => {
         fs: ["${project}"],
         net: ["127.0.0.1"],
         env: ["SHOWCASE_TOKEN"],
-        hub: ["session.create", "harnix.send", "topic:harnix.sessions.status"],
+        hub: ["session.create", "harnix.send", "topic:harnix.sessions.status", "harnix.entries.append"],
       },
       component: { world: "harnix:app/backend-app@0.1.0" },
       ui: [
@@ -205,9 +205,13 @@ test.describe("the store, trusted", () => {
       "hub",
       "hub",
       "hub",
+      "hub",
       "fs",
       "ui",
       "ui",
+      "inline",
+      "inline",
+      "inline",
       "agent",
     ]);
     // Disclosed, and nothing done.
