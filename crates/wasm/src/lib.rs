@@ -32,7 +32,9 @@
 //! The product build links no compiler: it deserializes artifacts the store
 //! compiled for its [`WasmEngine::fingerprint`]. The `compile` feature adds
 //! Cranelift for development, tests and the store's own build tool
-//! (`harnix-wasm-compile`).
+//! (`harnix-wasm-compile`). Every artifact is compiled for the target's
+//! baseline [`CPU`], so one compiled on one machine loads on every machine
+//! of its target triple.
 
 mod bindings;
 mod engine;
@@ -45,7 +47,7 @@ mod state;
 mod vm;
 
 pub use bindings::WIT_PACKAGE;
-pub use engine::{AppComponent, WasmEngine, EPOCH_TICK, WASMTIME_VERSION};
+pub use engine::{AppComponent, WasmEngine, CPU, EPOCH_TICK, WASMTIME_VERSION};
 pub use health::{HealthSnapshot, VmState, FAULT_LIMIT};
 pub use kv::{FileKv, KvError, KvStore, MemoryKv, MAX_KEY_BYTES};
 pub use services::{
