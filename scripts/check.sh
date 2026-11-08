@@ -64,9 +64,10 @@ CRATES=(-p harnix -p harnix-cli -p harnix-app -p harnix-instance -p harnix-authz
         -p harnix-testapp -p harnix-wasm -p harnix-apps)
 
 # The build that hosts runtime applications: `harnix` with the `apps` feature, which links the
-# application runtime and its WebAssembly engine, and the author's packing tool. A target directory
-# of its own, so the default build above is exactly what it was; the LIVE suites that need it are
-# told where it is (`HARNIX_APPS_BIN`), and `budget` measures it against a limit of its own.
+# application runtime and its WebAssembly engine; the author's packing tool; and the test
+# application built the same way. A target directory of its own, so the default build above is
+# exactly what it was; the LIVE suites that need it are told where it is (`HARNIX_APPS_BIN`, the
+# rest beside it), and `budget` measures it against a limit of its own.
 APPS_TARGET="$root/target/apps"
 export HARNIX_APPS_BIN="$APPS_TARGET/release/harnix"
 
@@ -122,6 +123,9 @@ run_build() {
   cargo build --release -p harnix-cli -p harnix-testapp || return 1
   cargo build --release -p harnix-cli --features apps --target-dir "$APPS_TARGET" || return 1
   cargo build --release -p harnix-apps --features compile --bin harnix-app --target-dir "$APPS_TARGET" || return 1
+  # The test application hosting applications too: the one binary that trusts the mock store the
+  # store suites make (tests/live/api/apps-store.ts).
+  cargo build --release -p harnix-testapp --features apps --target-dir "$APPS_TARGET" || return 1
   # The example application, built as an application is — its own workspace,
   # its spaces' interface compiled in. The spaces suites run it.
   examples/hello-app/scripts/build.sh --offline

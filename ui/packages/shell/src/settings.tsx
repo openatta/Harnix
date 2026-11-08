@@ -17,6 +17,7 @@ import { Contributed, localeChoice, setLocale, t, useRegistry, useT, type Locale
 import type { App, ThemeChoice } from "./app.ts";
 import { Body, CloseFoot } from "./dialogs.tsx";
 import { Glyph } from "./glyph.tsx";
+import { AppsSettings } from "./apps.tsx";
 
 /** Bumped after a write, so every section reads again. */
 const Reload = createContext<{ version: number; reload: () => void }>({ version: 0, reload: () => {} });
@@ -97,8 +98,13 @@ function Select({ options, value, onChange, testId }: { options: [string, string
   );
 }
 
+/** Every section on the page reads again (after a write). */
+export function useReload(): () => void {
+  return useContext(Reload).reload;
+}
+
 /** A titled block whose content is loaded; a late answer for a page no longer shown is dropped. */
-function Section<T>({ title, load, children }: { title: string; load: () => Promise<T>; children: (data: T) => ReactNode }) {
+export function Section<T>({ title, load, children }: { title: string; load: () => Promise<T>; children: (data: T) => ReactNode }) {
   const t = useT();
   const { version } = useContext(Reload);
   const [state, setState] = useState<{ data?: T; error?: string } | null>(null);
@@ -129,7 +135,7 @@ function Section<T>({ title, load, children }: { title: string; load: () => Prom
   );
 }
 
-function Value({ tone, children }: { tone?: "ok" | "err"; children: ReactNode }) {
+export function Value({ tone, children }: { tone?: "ok" | "err"; children: ReactNode }) {
   return <span className={`value${tone ? ` ${tone}` : ""}`}>{children}</span>;
 }
 
@@ -982,6 +988,8 @@ export function builtinSections(app: App) {
     section("models", "settings.nav.models", () => <Models app={app} />),
     section("mcp", "settings.nav.mcp", () => <Mcp app={app} />),
     section("plugins", "settings.nav.plugins", () => <Plugins app={app} />),
+    // Runtime applications: only where the backend hosts them (`[apps] enabled`).
+    ...(app.snapshot.reachable.includes("harnix.apps.list") ? [section("apps", "settings.nav.apps", () => <AppsSettings app={app} />)] : []),
     section("devices", "settings.nav.devices", () => <Devices app={app} />),
     section("diagnostics", "settings.nav.diagnostics", () => <Diagnostics app={app} />),
     section("about", "settings.nav.about", () => <About app={app} />),

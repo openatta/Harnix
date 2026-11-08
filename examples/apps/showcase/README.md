@@ -1,7 +1,9 @@
 # Showcase
 
 One of everything a runtime application can bring to this Harnix, in one package — the sample
-the LIVE suites install (`tests/live/api/apps-runtime.spec.ts`, `tests/live/ui/apps.spec.ts`).
+the LIVE suites install (`tests/live/api/apps-runtime.spec.ts`, `tests/live/ui/apps.spec.ts`), and
+the one the store suites sign, list in a mock store and install by name
+(`tests/live/api/apps-store.spec.ts`, `tests/live/ui/apps-store.spec.ts`).
 
 | Part | Where | What it shows |
 |---|---|---|
@@ -32,10 +34,14 @@ manifest, `ui/`, `agent/` and both forms of the component. It prints the package
 engine fingerprint: the package installs on a Harnix whose engine reports the same one
 (`harnix.apps.list` → `runtime.fingerprint`; `harnix.hello` → `apps_engine`).
 
-## Install
+`harnix-app build examples/apps/showcase` does the first half alone: the component, and its
+artifact compiled for this engine, in `build/`. Artifacts are compiled for the target's baseline
+CPU, so one built here loads on any machine of the same target triple.
 
-A Harnix built with the `apps` feature, and a profile that hosts applications and trusts unsigned
-ones (there are no signatures before the store):
+## Install, unsigned
+
+A Harnix built with the `apps` feature, and a profile that hosts applications and runs unsigned
+ones (`dev = true`, for developing an application):
 
 ```sh
 cargo build --release -p harnix-cli --features apps --target-dir target/apps
@@ -55,3 +61,37 @@ Then, from any client: `harnix.apps.installFile {"path": "/abs/path/showcase.hxa
 sessions have the tools, the prompt block and the agent type; the home screen has the card.
 `harnix.apps.disable` / `enable {"id": "example.showcase"}` switch it, `harnix.apps.uninstall`
 takes it out, its stored counts with it.
+
+## Sign, publish, install by name
+
+A signed package runs without `dev`. Its publisher signs every file; a store checks that
+signature, adds the components it compiled, and countersigns:
+
+```sh
+T=target/apps/release/harnix-app
+$T keygen publisher.key                       # prints the public key
+$T sign showcase.hxapp --key publisher.key
+# The store's side:
+mkdir -p store/packages
+$T countersign showcase.hxapp --key store.key -o store/packages/example.showcase-0.1.0.hxapp
+$T index store --name "My store"              # store/index.json
+```
+
+A Harnix installs a package countersigned with the store key it carries built in, or one a
+publisher it trusts signed in full:
+
+```toml
+[apps]
+enabled = true
+store = "https://store.example.com/index.json"   # or file:///…/store/index.json
+
+[apps.trusted_publishers]
+example = ["<the publisher's public key>"]
+```
+
+`harnix.apps.catalog` lists what the store has for this Harnix's engine.
+`harnix.apps.install {"id": "example.showcase"}` downloads the newest version, checks it against
+the sha256 the index lists and against its signatures, and answers what the application asks for
+and a `digest`; the same call with `"consent": "<digest>"` installs it. `harnix.apps.update` lists
+only what a newer version asks for beyond the installed one, and asks again only then. Settings →
+Applications does the same in the page.
