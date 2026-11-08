@@ -99,12 +99,14 @@ impl Hub {
                 let state = guard.sessions.get(&(instance.to_string(), sid.clone()));
                 let running = state.is_some_and(|s| s.running_turn.is_some());
                 let queued = state.map(|s| s.queue.len()).unwrap_or(0);
+                let tasks = state.map(|s| s.live_tasks.len()).unwrap_or(0);
                 let space = self.space_of(&(instance.to_string(), sid.clone()));
                 if let Some(obj) = row.as_object_mut() {
                     obj.insert("instance".into(), json!(instance));
                     obj.insert("space".into(), json!(space));
                     obj.insert("running".into(), json!(running));
                     obj.insert("queued".into(), json!(queued));
+                    obj.insert("tasks".into(), json!(tasks));
                     obj.insert(
                         "state".into(),
                         json!(match (running, queued) {
@@ -139,6 +141,26 @@ impl Hub {
             obj.insert("session_id".into(), json!(key.1));
         }
         Ok(value)
+    }
+
+    /// The ids of a session's tasks that are running or waiting, as the
+    /// engine reports them now; none if it cannot say.
+    pub(crate) async fn live_tasks(&self, key: &SessionKey) -> std::collections::BTreeSet<String> {
+        let Ok(view) = self.tasks_view(key).await else {
+            return Default::default();
+        };
+        view.get("tasks")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|t| {
+                matches!(
+                    t.get("status").and_then(Value::as_str),
+                    Some("running" | "waiting" | "pending")
+                )
+            })
+            .filter_map(|t| t.get("task_id").and_then(Value::as_str).map(str::to_string))
+            .collect()
     }
 
     /// Every session that is not idle, across instances (IPDrun R-11): what

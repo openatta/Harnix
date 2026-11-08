@@ -184,9 +184,9 @@ pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
     // from `has_credentials` and the providers it reads — says what to
     // configure.
     let has_router = !daemon_config.settings.providers.is_empty();
-    let api_key = std::env::var("ANTHROPIC_AUTH_TOKEN")
-        .or_else(|_| std::env::var("ANTHROPIC_API_KEY"))
-        .ok();
+    // An empty variable is how a key is unset in a profile or a launcher: not a credential.
+    let set = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
+    let api_key = set("ANTHROPIC_AUTH_TOKEN").or_else(|| set("ANTHROPIC_API_KEY"));
     if api_key.is_none() && !has_router {
         tracing::warn!("no model credentials yet: add a provider from the settings page");
     }

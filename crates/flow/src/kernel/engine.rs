@@ -234,7 +234,10 @@ impl Engine {
         Ok(self.store.list(&q).await?)
     }
 
+    /// A run's history, oldest first. A run that does not exist is not found, as for `get`: an
+    /// empty history is a run that has done nothing yet, not a run that is not there.
     pub async fn history(&self, run: &str) -> Result<Vec<History>> {
+        self.record(run).await?;
         Ok(self.store.history(run).await?)
     }
 

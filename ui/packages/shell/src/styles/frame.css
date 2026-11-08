@@ -746,6 +746,12 @@ html.resizing #frame {
   color: var(--label-secondary);
 }
 
+/* A task is its header row with, when picked, its detail and output under it — not beside it. */
+#details .task {
+  flex-direction: column;
+  align-items: stretch;
+}
+
 #details .task.on {
   border-color: var(--accent-line);
 }

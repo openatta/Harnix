@@ -56,8 +56,8 @@ export type Block =
   | { key: number; kind: "ask"; prompt: PromptEvent; deadline: number; answered?: AskAnswer }
   | { key: number; kind: "note"; text: string; tone: NoteTone }
   /**
-   * 注入进对话、不是人说的话：提醒、召回、技能指令，或者压缩留下的摘要。`compact` 说它是一次压缩：实时看到的带上压缩前后的
-   * 消息数与估计省下的 token（`compact_action`），从历史读回来的只有摘要。
+   * 注入进对话、不是人说的话：提醒、召回、技能指令，或者压缩留下的消息。`compact` 说它和压缩有关：实时看到的是一次压缩，
+   * 带上压缩前后的消息数与省下的 token（`compact` 帧）；从历史读回来的是压缩替换进来的一条消息，只有它的内容。
    */
   | { key: number; kind: "context"; text: string; compact?: CompactFacts }
   | { key: number; kind: "image"; src: string }
@@ -532,13 +532,22 @@ export function applyEvent(state: SessionState, event: EngineEvent, options: App
     case "subagent_progress":
       return subagentEvent(state, event as never);
 
-    // 一轮里发生了压缩。摘要在 transcript 里，重新打开时由历史画；这里只说压了多少。
-    case "compact_action": {
-      const done = event as { messages_before?: number; messages_after?: number; estimated_tokens_saved?: number | null };
+    // 发生了一次压缩（daemon_rpc_protocol §7.1 的 `compact` 帧）。替换进来的消息在 transcript 里，重新打开时由历史画；
+    // 这里只说压了多少。
+    case "compact": {
+      const done = event as {
+        messages_before?: number;
+        messages_after?: number;
+        tokens_before?: number;
+        tokens_after?: number;
+        estimated_tokens_saved?: number | null;
+      };
+      const measured = done.tokens_before != null && done.tokens_after != null ? done.tokens_before - done.tokens_after : 0;
+      const saved = done.estimated_tokens_saved || measured;
       const facts: CompactFacts = {
         before: done.messages_before,
         after: done.messages_after,
-        ...(done.estimated_tokens_saved ? { saved: done.estimated_tokens_saved } : {}),
+        ...(saved > 0 ? { saved } : {}),
       };
       return push(endStream(state, now), { kind: "context", text: "", compact: facts })[0];
     }

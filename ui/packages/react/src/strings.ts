@@ -175,7 +175,7 @@ export const zhCN: HarnixUiStrings = {
   compacted: ({ before, after, saved }) =>
     before != null && after != null
       ? `上下文已压缩：${before} 条 → ${after} 条${saved ? `，约省 ${saved} token` : ""}`
-      : "上下文已压缩",
+      : "压缩后的消息",
   thinking: "思考",
   subagent: "子 agent",
   subagentDone: "完成",
@@ -302,7 +302,7 @@ export const en: HarnixUiStrings = {
   compacted: ({ before, after, saved }) =>
     before != null && after != null
       ? `Context compacted: ${before} → ${after} messages${saved ? `, ~${saved} tokens saved` : ""}`
-      : "Context compacted",
+      : "Compacted message",
   thinking: "Thinking",
   subagent: "Sub-agent",
   subagentDone: "done",

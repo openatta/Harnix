@@ -257,6 +257,7 @@ impl Hub {
     async fn open_turn(self: &Arc<Self>, key: &SessionKey, item: &QueueItem) -> String {
         let (instance, session_id) = (&key.0, key.1.as_str());
         let total = self.history_total(key).await;
+        let compactions = self.compactions(key).await;
         let turn_id = new_id("t");
 
         let (seq, event, watchers) = {
@@ -267,6 +268,8 @@ impl Hub {
             state.last_complete = None;
             state.answer = Default::default();
             state.history_total_before_turn = total;
+            state.compactions_before_turn = compactions;
+            state.compacted = false;
             state.replay.clear();
             state.seq += 1;
             let seq = state.seq;
@@ -301,6 +304,7 @@ impl Hub {
     ) -> Option<QueueItem> {
         let (instance, session_id) = (&key.0, key.1.as_str());
         let total_after = self.history_total(key).await;
+        let compactions_after = self.compactions(key).await;
         let (watchers, next, complete) = {
             let mut guard = self.inner.lock().await;
             let state = guard.sessions.entry(key.clone()).or_default();
@@ -312,11 +316,16 @@ impl Hub {
             state.running_turn = None;
             state.external = false;
             state.pending_prompts.clear();
-            // Only once the transcript has grown. A turn that finished but is
-            // not yet on disk would otherwise be in neither place.
-            if total_after > state.history_total_before_turn {
+            // Only once the transcript has grown — or been compacted, which
+            // writes it shorter. A turn that finished but is not yet on disk
+            // would otherwise be in neither place.
+            if total_after > state.history_total_before_turn
+                || compactions_after != state.compactions_before_turn
+                || state.compacted
+            {
                 state.replay.clear();
             }
+            state.compacted = false;
             let answer = std::mem::take(&mut state.answer);
             (state.watchers(), state.queue.pop_front(), state.last_complete.take().map(|c| (c, answer)))
         };

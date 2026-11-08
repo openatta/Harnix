@@ -89,6 +89,11 @@ export class SessionController {
    * 不写终止标记——所以只有发起中断的一方知道它是被截断而不是正常结束。
    */
   private interrupting = false;
+  /**
+   * 已结算的轮次（最近的几个）。`harnix.send` 的应答与事件分走两条通道时（split streams），应答可能比这一轮的
+   * `turn_settled` 还晚到：据应答把它记成"在跑"会让一轮已结束的会话一直显示停止键。
+   */
+  private settled: string[] = [];
 
   constructor(options: SessionControllerOptions) {
     this.client = options.client;
@@ -286,6 +291,7 @@ export class SessionController {
 
     if (method === "harnix.turn_settled") {
       const params = raw as unknown as Notifications["harnix.turn_settled"];
+      this.settled = [...this.settled.slice(-15), params.turn_id];
       const wasInterrupted = this.interrupting;
       this.interrupting = false;
       this.set(
@@ -336,7 +342,7 @@ export class SessionController {
         if (!this.state.queue.some((q) => q.item_id === item.item_id)) {
           this.set({ ...this.state, queue: [...this.state.queue, item] });
         }
-      } else if ("turn_id" in result && !(options?.onBusy === "steer" && this.state.turn)) {
+      } else if ("turn_id" in result && !this.settled.includes(result.turn_id) && !(options?.onBusy === "steer" && this.state.turn)) {
         // A steered message goes into the turn already running: that turn stays the one shown.
         this.set({ ...this.state, turn: { turnId: result.turn_id } });
       }

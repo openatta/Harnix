@@ -24,6 +24,7 @@ import { confirmDialog, Connections, exportDialog, renameDialog, since, type Con
 import { Glyph } from "./glyph.tsx";
 import { useShell } from "./hooks.ts";
 import { Diagnostics } from "./settings.tsx";
+import { topicKey, topicsOf, type Topics } from "./topics.ts";
 
 export const SYSTEM = "system";
 const OWNER = "builtin";
@@ -52,6 +53,8 @@ interface SessionRowView {
   project_root?: string | null;
   space?: string;
   last_active?: string;
+  /** How many of its tasks are running: work that can outlive the turn that started it. */
+  tasks?: number;
 }
 
 interface Task {
@@ -185,21 +188,13 @@ class View {
   /** A tool call to pick out in the calls tab, once: what a jump from the conversation asked for. */
   private tool: string | null = null;
   private readonly listeners = new Set<() => void>();
-  private readonly topics = new Map<string, { value: unknown; readers: number; listeners: Set<() => void> }>();
+  /** The page's one table of subscriptions, shared with the shell: one per connection and key. */
+  private readonly table: Topics;
+  /** The last value of each topic watched here, while something here watches it. */
+  private readonly values = new Map<string, { value: unknown; readers: number }>();
 
   constructor(private readonly app: App) {
-    app.client.onNotify((method, params) => {
-      if (method !== "harnix.topic") return;
-      const entry = this.topics.get(topicKey(String(params.topic), params.params));
-      if (!entry) return;
-      entry.value = params.value;
-      for (const fn of [...entry.listeners]) fn();
-    });
-    // A reconnect forgets every subscription: take them out again.
-    app.client.onStatus((status) => {
-      if (status !== "open") return;
-      for (const key of this.topics.keys()) void this.fetch(key);
-    });
+    this.table = topicsOf(app.client);
   }
 
   readonly subscribe = (fn: () => void): (() => void) => {
@@ -230,44 +225,23 @@ class View {
 
   watch(topic: string, params: Record<string, unknown> | undefined, fn: () => void): () => void {
     const key = topicKey(topic, params);
-    let entry = this.topics.get(key);
-    if (!entry) {
-      entry = { value: undefined, readers: 0, listeners: new Set() };
-      this.topics.set(key, entry);
-      void this.fetch(key);
-    }
+    const entry = this.values.get(key) ?? { value: undefined, readers: 0 };
+    this.values.set(key, entry);
     entry.readers += 1;
-    entry.listeners.add(fn);
+    const off = this.table.subscribe(topic, params ?? {}, (value) => {
+      entry.value = value;
+      fn();
+    });
     return () => {
-      entry!.listeners.delete(fn);
-      entry!.readers -= 1;
-      if (entry!.readers === 0) {
-        this.topics.delete(key);
-        void this.app.client.call("harnix.unsubscribe", { topic, ...(params ? { params } : {}) }).catch(() => undefined);
-      }
+      off();
+      entry.readers -= 1;
+      if (entry.readers === 0 && this.values.get(key) === entry) this.values.delete(key);
     };
   }
 
   value(topic: string, params?: Record<string, unknown>): unknown {
-    return this.topics.get(topicKey(topic, params))?.value;
+    return this.values.get(topicKey(topic, params))?.value;
   }
-
-  private async fetch(key: string): Promise<void> {
-    const { topic, params } = JSON.parse(key) as { topic: string; params?: Record<string, unknown> };
-    try {
-      const answer = (await this.app.client.call("harnix.subscribe", { topic, ...(params ? { params } : {}) })) as { value: unknown };
-      const entry = this.topics.get(key);
-      if (!entry) return;
-      entry.value = answer.value;
-      for (const fn of [...entry.listeners]) fn();
-    } catch {
-      /* the instance is down or gone: the tree says so from `harnix.instances` */
-    }
-  }
-}
-
-function topicKey(topic: string, params: unknown): string {
-  return JSON.stringify(params == null ? { topic } : { topic, params });
 }
 
 function useSelection(view: View): Selection | null {
@@ -379,7 +353,7 @@ function Strip({ app, view }: { app: App; view: View }) {
     };
   }, [app]);
   const instances = useTopic<{ instances: InstanceRow[] }>(view, "harnix.instances");
-  const tasks = useRunningTasks(view, Object.keys(s.running));
+  const tasks = useRunningTasks(view, useBusy(view, instances?.instances ?? [], Object.keys(s.running)));
   const users = process?.connections ?? [];
   const kpi = (id: string, value: string, label: string, extra?: React.ReactNode) => (
     <div className={`kpi${extra ? " has-tip" : ""}`} data-kpi={id} title={value}>
@@ -418,6 +392,26 @@ function uptime(secs: number): string {
 
 const LIVE = new Set(["running", "waiting", "pending"]);
 
+/**
+ * The sessions with something running (`instance/session` keys): a turn — `running`, what the shell
+ * knows — or a task, which goes on after its turn has ended.
+ */
+function useBusy(view: View, instances: InstanceRow[], running: string[]): string[] {
+  const [, bump] = useState(0);
+  const ids = instances.map((i) => i.id).sort();
+  const joined = ids.join(",");
+  useEffect(() => {
+    const offs = ids.map((instance) => view.watch("harnix.instances.sessions", { instance }, () => bump((n) => n + 1)));
+    return () => offs.forEach((off) => off());
+  }, [view, joined]);
+  const busy = new Set(running);
+  for (const instance of ids) {
+    const rows = (view.value("harnix.instances.sessions", { instance }) as { sessions?: SessionRowView[] } | undefined)?.sessions ?? [];
+    for (const row of rows) if (row.tasks) busy.add(`${instance}/${row.session_id}`);
+  }
+  return [...busy].sort();
+}
+
 /** How many tasks are running across these sessions (`instance/session` keys). */
 function useRunningTasks(view: View, keys: string[]): number {
   const [, bump] = useState(0);
@@ -444,15 +438,17 @@ function splitKey(key: string): [string, string] {
 }
 
 /**
- * What is running right now: each instance, its running sessions, their running tasks. Something
- * that stops running stays a moment, fading, and is gone — finished work is not listed here.
+ * What is running right now: each instance, its sessions with a turn or a task running, their running
+ * tasks. Something that stops running stays a moment, fading, and is gone — finished work is not
+ * listed here.
  */
 function Running({ app, view }: { app: App; view: View }) {
   const tr = useT();
   const listed = useTopic<{ instances: InstanceRow[] }>(view, "harnix.instances");
   const s = useShell(app);
   const picked = useSelection(view);
-  const running = Object.keys(s.running);
+  const turns = Object.keys(s.running);
+  const running = useBusy(view, listed?.instances ?? [], turns);
   const leaving = useLeaving(running);
   return (
     <div className="tree2" data-testid="system-running">

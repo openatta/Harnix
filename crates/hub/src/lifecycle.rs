@@ -61,6 +61,20 @@ impl Hub {
         }
         crate::session::route_event(&self.inner, instance, params.clone()).await;
         if matches!(kind, "task_started" | "task_finished") {
+            let task_id = params
+                .get("event")
+                .and_then(|e| e.get("task"))
+                .and_then(|t| t.get("task_id"))
+                .and_then(Value::as_str);
+            if let Some(task_id) = task_id {
+                let mut guard = self.inner.lock().await;
+                let live = &mut guard.sessions.entry(key.clone()).or_default().live_tasks;
+                if kind == "task_started" {
+                    live.insert(task_id.to_string());
+                } else {
+                    live.remove(task_id);
+                }
+            }
             self.refresh(
                 "harnix.sessions.tasks",
                 json!({"instance": instance, "session_id": session_id}),
@@ -87,8 +101,17 @@ impl Hub {
             (
                 "session_created" | "session_resumed" | "session_evicted" | "session_closed"
                 | "session_deleted",
-                _,
+                sid,
             ) => {
+                // An engine that is gone runs no tasks, and says nothing more of those it ran.
+                if let (Some(sid), "session_evicted" | "session_closed" | "session_deleted") =
+                    (sid, kind.as_str())
+                {
+                    let key: SessionKey = (instance.to_string(), sid);
+                    if let Some(state) = self.inner.lock().await.sessions.get_mut(&key) {
+                        state.live_tasks.clear();
+                    }
+                }
                 self.refresh("harnix.instances.sessions", json!({"instance": instance}));
                 self.refresh("harnix.instances", json!({}));
             }
@@ -120,6 +143,7 @@ impl Hub {
             }
             state.running_turn = Some(turn_id.to_string());
             state.external = true;
+            state.compacted = false;
             state.replay.clear();
         }
         self.refresh("harnix.sessions.status", json!({}));
@@ -130,10 +154,12 @@ impl Hub {
         let turn = turn_id.to_string();
         tokio::spawn(async move {
             let total = hub.history_total(&key).await;
+            let compactions = hub.compactions(&key).await;
             let mut guard = hub.inner.lock().await;
             if let Some(state) = guard.sessions.get_mut(&key) {
                 if state.running_turn.as_deref() == Some(turn.as_str()) {
                     state.history_total_before_turn = total;
+                    state.compactions_before_turn = compactions;
                 }
             }
         });
@@ -241,6 +267,9 @@ impl Hub {
             Some(seq) => seq,
             None => self.history_total(&key).await,
         };
+        // Task events missed while the subscription was gone: read what is live now. A session
+        // not subscribed again hears of no task ending, so it lists none.
+        let live_tasks = if had_watchers { self.live_tasks(&key).await } else { Default::default() };
         let running = info.get("turn_state").and_then(Value::as_str) == Some("running");
         let current = info
             .get("current_turn_id")
@@ -250,6 +279,8 @@ impl Hub {
             let mut guard = self.inner.lock().await;
             let state = guard.sessions.entry(key.clone()).or_default();
             state.history_total_before_turn = total;
+            state.compactions_before_turn = crate::session::compactions_of(&info);
+            state.live_tasks = live_tasks;
             let mut settle = None;
             if running {
                 if state.running_turn != current {

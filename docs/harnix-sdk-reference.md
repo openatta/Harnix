@@ -317,7 +317,7 @@ schema、来自哪个模块）。下表是分组索引。
 | 主题 | 参数 | 值 |
 |---|---|---|
 | `harnix.instances` | — | 实例树 |
-| `harnix.instances.sessions` | `instance` | 一台实例的会话 |
+| `harnix.instances.sessions` | `instance` | 一台实例的会话：每行带 `running`（有一轮在跑）、`queued`、`tasks`（还在跑的任务数——任务可以比起它的那一轮活得久） |
 | `harnix.sessions.tasks` | `instance`、`session_id` | 一个会话的任务 |
 | `harnix.sessions.status` | — | 各会话的运行状态 |
 | `app.<id>.<主题>` | 你声明的 | 你推的整值快照 |

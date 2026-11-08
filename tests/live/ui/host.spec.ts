@@ -377,6 +377,8 @@ test("composer.steer: a space that asks for it has a deliver-now switch, and a m
     () => (window as any).harnix.app.controller.getSnapshot().blocks.find((b: any) => b.kind === "user" && b.text === "and this now")?.steered,
   );
   expect(steered).toBe(true);
+  // And the flow says so on the message itself.
+  await expect(page.locator('[data-testid="conv-message"]', { hasText: "and this now" }).getByTestId("conv-steered")).toBeVisible();
 });
 
 test("model_switch: without the system space the composer changes the model through harnix.sessions.setModel", SHELL, async ({ page }) => {
@@ -659,4 +661,28 @@ test("headerActions: the space's block is in the title bar, left of the theme an
   await expect(page.getByTestId("head-actions")).toHaveCount(0);
   await expect(page.getByTestId("theme-toggle")).toBeVisible();
   await expect(page.getByTestId("details-toggle")).toBeVisible();
+});
+
+test("an overview space with a session open: the overview first, the conversation one click away and back", SHELL, async ({ page }) => {
+  const errors = watchConsole(page);
+  await open(page, URL);
+  const mine = await newSession(page, "says-ready");
+  await page.evaluate(() => {
+    const { app } = (window as any).harnix;
+    app.registry.register(
+      "space",
+      { id: "desk", icon: "chat", title: () => "Desk", sessions: "sessions", center: "minimized", overview: () => null },
+      "test",
+    );
+  });
+  await inSpace(page, "desk");
+  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "system", sessionId: id }), mine);
+  await expect(page.getByTestId("overview")).toBeVisible();
+  await page.getByTestId("to-conversation").click();
+  await expect(page.getByTestId("conv-input")).toBeVisible();
+  await expect(page.getByTestId("overview")).toHaveCount(0);
+  await page.getByTestId("back-to-overview").click();
+  await expect(page.getByTestId("overview")).toBeVisible();
+  await expect(page.getByTestId("back-to-overview")).toHaveCount(0);
+  expect(errors).toEqual([]);
 });

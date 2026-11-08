@@ -148,3 +148,250 @@ test("a run is cancelled from its header, and only with a reason", TAGS, async (
   expect(JSON.stringify(history)).toContain("started by mistake");
   expect(errors).toEqual([]);
 });
+
+const PAIR = [
+  "name: ui-pair",
+  "title: Two hands",
+  "stations:",
+  "  - id: pair",
+  "    tasks: [{id: x, executor: {kind: external}}, {id: y, executor: {kind: external}}]",
+  "    output: {type: object}",
+  "    exit: [{kind: output}]",
+  "  - id: check",
+  "    needs: [pair]",
+  "    exit: [{kind: confirm}]",
+  "    rework_to: [pair]",
+].join("\n");
+
+/** Into the flow space, a flow's details picked in the flows tab. */
+async function pickFlow(page: Page, flow: string): Promise<void> {
+  await page.locator('#side .spaces [data-space="flow"]').click();
+  await expect(page.locator("#main")).toHaveAttribute("data-space", "flow");
+  await page.locator('#details [data-tab="flow.flows"]').click();
+  await page.getByTestId(`flow-def-${flow}`).click();
+  await expect(page.locator('#secondary [data-testid="flow-detail"]')).toHaveAttribute("data-flow", flow);
+}
+
+test("a station's panel says its state and, on its definition tab, its work, contract and exits; the run says what and whose", TAGS, async ({ page }) => {
+  const errors = watchConsole(page);
+  await startRun(page);
+  await expect(node(page, "draft")).toHaveAttribute("data-status", "held", { timeout: 15_000 });
+  await station(page, "draft");
+  await expect(panel(page).getByTestId("flow-station-status")).toHaveAttribute("data-status", "held");
+  await expect(panel(page).getByTestId("flow-actions")).toBeVisible();
+
+  await panel(page).getByTestId("flow-tab-definition").click();
+  const def = panel(page).getByTestId("flow-definition");
+  await expect(def).toBeVisible();
+  await expect(def.getByTestId("flow-output-contract")).toContainText("text");
+  await expect(def.getByTestId("flow-exit").locator("li")).toHaveCount(1);
+
+  const meta = page.getByTestId("flow-run-meta");
+  await expect(meta).toContainText("ui-actions");
+  await expect(meta).toContainText("the page");
+  // No session station: the run has its sessions section, with no main session in it.
+  await expect(page.getByTestId("flow-run-sessions")).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("an action the module refuses says why, in the panel", TAGS, async ({ page }) => {
+  await startRun(page);
+  await expect(node(page, "draft")).toHaveAttribute("data-status", "held", { timeout: 15_000 });
+  await station(page, "draft");
+  // The module refuses this one release as it would a stale one: the panel shows the refusal.
+  await page.evaluate(() => {
+    const client = (window as any).harnix.app.client;
+    const call = client.call.bind(client);
+    client.call = (method: string, params: unknown) =>
+      method === "app.flow.release" ? Promise.reject(new Error("the station is not held any more")) : call(method, params);
+  });
+  await panel(page).getByTestId("flow-release").click();
+  await expect(panel(page).getByTestId("flow-error")).toContainText("not held any more");
+  await expect(node(page, "draft")).toHaveAttribute("data-status", "held");
+});
+
+test("work sent back to a station of two tasks names which of them go again", TAGS, async ({ page }) => {
+  const errors = watchConsole(page);
+  await open(page, backend.url);
+  const run = await page.evaluate(async (yaml) => {
+    const { app } = (window as any).harnix;
+    try {
+      await app.call("app.flow.save", { yaml });
+      return (await app.call("app.flow.start", { flow: "ui-pair", subject: "both" })).run as string;
+    } catch (e) {
+      throw new Error(JSON.stringify(e));
+    }
+  }, PAIR);
+  await page.locator('#side .spaces [data-space="flow"]').click();
+  await page.locator('#details [data-tab="flow.runs"]').click();
+  await page.getByTestId(`flow-run-${run}`).click();
+  for (const task of ["x", "y"]) {
+    await station(page, "pair");
+    await panel(page).getByTestId(`flow-hand-in-${task}`).click();
+    const form = panel(page).getByTestId(`flow-hand-in-form-${task}`);
+    await form.getByTestId(`flow-hand-in-output-${task}`).fill(JSON.stringify({ by: task }));
+    await form.getByTestId(`flow-hand-in-submit-${task}`).click();
+    await expect(form).toHaveCount(0);
+  }
+  await expect(node(page, "check")).toHaveAttribute("data-status", "working", { timeout: 15_000 });
+
+  await station(page, "check");
+  await panel(page).getByTestId("flow-rework").click();
+  await panel(page).getByTestId("flow-rework-target").selectOption("pair");
+  const pick = panel(page).getByTestId("flow-rework-tasks");
+  await expect(pick.locator("input[type=checkbox]")).toHaveCount(2);
+  await pick.getByTestId("flow-rework-task-x").check();
+  await panel(page).getByTestId("flow-reason").fill("x again");
+  await panel(page).getByTestId("flow-action-submit").click();
+  await expect(node(page, "pair")).toHaveAttribute("data-status", "working", { timeout: 15_000 });
+  const tasks = await page.evaluate(async (r) => (await (window as any).harnix.app.call("app.flow.get", { run: r })).record.stations.pair.tasks, run);
+  const status = Object.fromEntries(tasks.map((t: any) => [t.id, t.status]));
+  expect(status.x, JSON.stringify(tasks)).not.toBe(status.y);
+  expect(errors).toEqual([]);
+});
+
+test("a run started from a flow's details: what it is about, a title and inputs, refused until they are right", TAGS, async ({ page }) => {
+  const errors = watchConsole(page);
+  await open(page, backend.url);
+  await page.evaluate((yaml) => (window as any).harnix.app.call("app.flow.save", { yaml }), FLOW);
+  await pickFlow(page, "ui-actions");
+  await page.getByTestId("flow-start-open").click();
+  const form = page.getByTestId("flow-start-form");
+  await expect(form).toBeVisible();
+  await page.getByTestId("flow-start-subject").fill("");
+  await expect(page.getByTestId("flow-start-submit"), "nothing to start on").toBeDisabled();
+  await page.getByTestId("flow-start-subject").fill("from the form");
+  await page.getByTestId("flow-start-title").fill("Started by hand");
+  await page.getByTestId("flow-start-inputs").fill("{not json");
+  await page.getByTestId("flow-start-submit").click();
+  await expect(page.getByTestId("flow-start-error")).toBeVisible();
+
+  // JSON, but an input the flow does not declare: the module's refusal, in the same place.
+  await page.getByTestId("flow-start-inputs").fill('{"note": "hi"}');
+  await page.getByTestId("flow-start-submit").click();
+  await expect(page.getByTestId("flow-start-error")).toContainText("note");
+  await page.getByTestId("flow-start-inputs").fill("");
+  await page.getByTestId("flow-start-submit").click();
+  await expect(form).toHaveCount(0);
+  // The runs tab, the new run picked: it is the one started here.
+  const meta = page.getByTestId("flow-run-meta");
+  await expect(meta).toContainText("from the form", { timeout: 15_000 });
+  await expect(page.locator('#secondary [data-testid="flow-run-detail"]')).toContainText("Started by hand");
+  expect(errors).toEqual([]);
+});
+
+test("the runs tab narrowed to one flow's runs", TAGS, async ({ page }) => {
+  await open(page, backend.url);
+  const [a, b] = await page.evaluate(
+    async ([one, two]) => {
+      const { app } = (window as any).harnix;
+      await app.call("app.flow.save", { yaml: one });
+      await app.call("app.flow.save", { yaml: two });
+      return [
+        (await app.call("app.flow.start", { flow: "ui-actions", subject: "a" })).run as string,
+        (await app.call("app.flow.start", { flow: "ui-pair", subject: "b" })).run as string,
+      ];
+    },
+    [FLOW, PAIR],
+  );
+  await page.locator('#side .spaces [data-space="flow"]').click();
+  await page.locator('#details [data-tab="flow.runs"]').click();
+  await expect(page.getByTestId(`flow-run-${a}`)).toBeVisible();
+  await expect(page.getByTestId(`flow-run-${b}`)).toBeVisible();
+  await page.getByTestId("flow-filter-flow").selectOption("ui-pair");
+  await expect(page.getByTestId(`flow-run-${a}`)).toHaveCount(0);
+  await expect(page.getByTestId(`flow-run-${b}`)).toBeVisible();
+  await page.getByTestId("flow-filter-flow").selectOption("");
+  await expect(page.getByTestId(`flow-run-${a}`)).toBeVisible();
+});
+
+test("a flow broken by a part taken from it says what is wrong, and cannot be started", TAGS, async ({ page }) => {
+  const errors = watchConsole(page);
+  await open(page, backend.url);
+  await page.evaluate(async () => {
+    const { app } = (window as any).harnix;
+    await app.call("app.flow.part.save", { kind: "rule", name: "ui-mine", text: "# Mine\n\nKeep it short." });
+    await app.call("app.flow.save", { yaml: "name: ui-ruled\nrules: [ui-mine]\nstations: [{id: a, exit: [{kind: confirm}]}]" });
+    await app.call("app.flow.part.delete", { kind: "rule", name: "ui-mine" });
+  });
+  await pickFlow(page, "ui-ruled");
+  await expect(page.getByTestId("flow-def-ui-ruled")).toHaveAttribute("data-valid", "false");
+  await expect(page.getByTestId("flow-def-problems")).toContainText("ui-mine");
+  await expect(page.getByTestId("flow-start-open")).toBeDisabled();
+  // Its definition is still read in full.
+  await expect(page.getByTestId("flow-def-flow-level")).toContainText("ui-mine");
+  await page.evaluate(() => (window as any).harnix.app.call("app.flow.delete", { name: "ui-ruled" }));
+  expect(errors).toEqual([]);
+});
+
+const RETRY = [
+  "name: ui-retry",
+  "title: Tried again",
+  "stations:",
+  "  - id: draft",
+  "    executor: {kind: external, who: author}",
+  "    output: {type: object, required: [text], properties: {text: {type: string}}}",
+  "    exit: [{kind: output}]",
+  "  - id: approve",
+  "    needs: [draft]",
+  "    permissions: [{effect: deny, tools: [Bash]}]",
+  "    exit: [{kind: confirm}]",
+].join("\n");
+
+async function startRetry(page: Page): Promise<string> {
+  await open(page, backend.url);
+  const run = await page.evaluate(async (yaml) => {
+    const { app } = (window as any).harnix;
+    await app.call("app.flow.save", { yaml });
+    return (await app.call("app.flow.start", { flow: "ui-retry", subject: "again" })).run as string;
+  }, RETRY);
+  await page.locator('#side .spaces [data-space="flow"]').click();
+  await page.locator('#details [data-tab="flow.runs"]').click();
+  await page.getByTestId(`flow-run-${run}`).click();
+  await expect(page.locator('#secondary [data-testid="flow-run-detail"]')).toHaveAttribute("data-run", run);
+  return run;
+}
+
+test("a hand-in held while it is refused shows its lease; given up, the task fails and is tried again", TAGS, async ({ page }) => {
+  const errors = watchConsole(page);
+  await startRetry(page);
+  await station(page, "draft");
+  await panel(page).getByTestId("flow-hand-in-draft").click();
+  const form = panel(page).getByTestId("flow-hand-in-form-draft");
+  await form.getByTestId("flow-hand-in-output-draft").fill('{"nope": 1}');
+  await form.getByTestId("flow-hand-in-submit-draft").click();
+  await expect(form.getByTestId("flow-hand-in-error-draft")).toBeVisible();
+  // Claimed for the hand-in: the task is leased to this person until it is handed in or given up.
+  await expect(form).toHaveAttribute("data-held", "true");
+  await expect(panel(page).getByTestId("flow-lease-draft")).toBeVisible();
+
+  await form.getByTestId("flow-hand-in-give-up-draft").click();
+  await expect(panel(page).getByTestId("flow-task-draft")).toHaveAttribute("data-status", "failed", { timeout: 15_000 });
+  await panel(page).getByTestId("flow-retry-draft").click();
+  await expect(panel(page).getByTestId("flow-task-draft")).not.toHaveAttribute("data-status", "failed", { timeout: 15_000 });
+  await handIn(page, "second try");
+  await expect(node(page, "draft")).toHaveAttribute("data-status", "passed", { timeout: 15_000 });
+  expect(errors).toEqual([]);
+});
+
+test("marks on the diagrams: a guarded station on the flow's; a forced one on the run's, with who and why", TAGS, async ({ page }) => {
+  const errors = watchConsole(page);
+  await open(page, backend.url);
+  await page.evaluate((yaml) => (window as any).harnix.app.call("app.flow.save", { yaml }), RETRY);
+  await pickFlow(page, "ui-retry");
+  await expect(page.locator('#secondary [data-testid="flow-diagram"]').getByTestId("flow-guarded-approve")).toBeAttached();
+  await expect(page.locator('#secondary [data-testid="flow-diagram"]').getByTestId("flow-guarded-draft")).toHaveCount(0);
+
+  await startRetry(page);
+  await handIn(page, "done");
+  await expect(node(page, "approve")).toHaveAttribute("data-status", "working", { timeout: 15_000 });
+  await station(page, "approve");
+  await panel(page).getByTestId("flow-force").click();
+  await expect(panel(page).getByTestId("flow-action-submit"), "forcing needs a reason").toBeDisabled();
+  await panel(page).getByTestId("flow-reason").fill("nobody to confirm today");
+  await panel(page).getByTestId("flow-action-submit").click();
+  await expect(page.getByTestId("flow-forced-approve")).toBeAttached({ timeout: 15_000 });
+  await expect(panel(page).getByTestId("flow-forced")).toContainText("nobody to confirm today");
+  await expect(page.getByTestId("flow-run-phase")).toHaveAttribute("data-phase", "finished", { timeout: 15_000 });
+  expect(errors).toEqual([]);
+});

@@ -296,3 +296,50 @@ test("with every built-in space removed, the frame is the chrome alone and says 
     bare.stop();
   }
 });
+
+test("at a phone's width nothing scrolls sideways: a conversation, the system space, the flow space", TAGS, async ({ page }) => {
+  const errors = watchConsole(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page, URL);
+  const sideways = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  await newSession(page, "says-markdown");
+  await say(page, "Say exactly: fixture ready");
+  await expect(page.locator('[data-testid="conv-group"] table')).toBeVisible({ timeout: 30_000 });
+  expect(await sideways(), "the conversation").toBeLessThanOrEqual(0);
+  await expect(page.getByTestId("conv-input")).toBeInViewport();
+  for (const space of ["system", "flow"]) {
+    await page.evaluate((id) => (window as any).harnix.app.switchSpace(id), space);
+    await expect(page.locator("#main")).toHaveAttribute("data-space", space);
+    // Polled: the columns animate into place when a space opens its right column.
+    await expect.poll(sideways, { message: `the ${space} space` }).toBeLessThanOrEqual(0);
+  }
+  expect(errors).toEqual([]);
+});
+
+test("in Chinese the flow space has no string left untranslated or showing its key", SETTINGS, async ({ page }) => {
+  await open(page, URL);
+  await openSettings(page);
+  await page.getByTestId("settings-language").selectOption("zh-CN");
+  await page.keyboard.press("Escape");
+  await page.locator('#side .spaces [data-space="flow"]').click();
+  await expect(page.locator("#main")).toHaveAttribute("data-space", "flow");
+  const leaked = () =>
+    page.evaluate(() => {
+      const text = document.body.innerText;
+      // The flow interface's strings are `flowui.*`; a key that is drawn is one without a translation.
+      return text.match(/\bflowui\.[a-z][\w.]*[a-z]\b/g) ?? [];
+    });
+  for (const tab of ["flows", "runs", "reference"]) {
+    const button = page.locator(`#details [data-tab="flow.${tab}"]`);
+    await expect(button, `the ${tab} tab's title`).toHaveText(/[一-鿿]/);
+    await button.click();
+    expect(await leaked(), `the ${tab} tab`).toEqual([]);
+  }
+  await page.locator('#details [data-tab="flow.flows"]').click();
+  await page.getByTestId("flow-def-example-review").click();
+  await expect(page.locator('#secondary [data-testid="flow-detail"]')).toBeVisible();
+  expect(await leaked(), "a flow's details").toEqual([]);
+  await expect(page.locator('#secondary [data-testid="flow-detail"]')).toContainText(/[一-鿿]/);
+  await openSettings(page);
+  await page.getByTestId("settings-language").selectOption("system");
+});

@@ -27,6 +27,9 @@ cannot ask for replay, and outside replay the fixture name means nothing.
 | `flow-author-edit` | xops-02: three `flow-author` turns — `flow_schema`, `flow_validate`, `flow_create` · `flow_show`, `flow_update`, `flow_dry_run` · `flow_delete` — with a filler `[]` between turns, as in `flow-shared` |
 | `flow-ui-edit` | xops-02 §7, the flow space in the browser: one `flow-author` turn — `flow_show`, then `flow_update {flow: example-review, yaml}` with the empty application's `example-review` retitled "Example: reviewed in conversation", then a line of text — and a filler `[]` for the memory extraction after it. Made from `flow-author-unfocused` by hand |
 | `runs-a-while` | A `Bash` call that waits four seconds (in `perl`: the engine refuses a `sleep` of 2 s or more): a turn that is still running when something is steered into it (ipdrun-13). Made the same way |
+| `many-turns` | `says-ready`'s one call sixty times over: a session long enough to compact (eight turns), whichever call comes next — a turn, a memory extraction, a compaction's summary — answered the same. Made by `python3` from `says-ready`, sequence numbers renumbered |
+| `streams-output` | A `Monitor` call (a `code`-scene tool) whose command prints a line every quarter second for ten seconds: a running task whose output grows. Made from `leaves-a-process` by hand: the tool's name and input differ |
+| `says-markdown` | `says-ready` with its reply's text replaced by markdown: a `sh` code block, a table and a link — what the conversation draws of a reply. Made from `says-ready` by hand: only the text differs |
 
 ## Re-recording one
 

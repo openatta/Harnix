@@ -163,6 +163,7 @@ test("each run method refuses what it cannot do, and says which run, station or 
   const nowhere = { run: "no-such-run", station: "report", task: "sign" };
   for (const [method, params] of [
     ["app.flow.get", { run: nowhere.run }],
+    ["app.flow.history", { run: nowhere.run }],
     ["app.flow.claim", nowhere],
     ["app.flow.heartbeat", { ...nowhere, token: "t" }],
     ["app.flow.cancel", { run: nowhere.run, reason: "x" }],
@@ -178,8 +179,6 @@ test("each run method refuses what it cannot do, and says which run, station or 
     expect(e, `${method} answered for a run that does not exist`).toBeTruthy();
     expect(JSON.stringify(e), method).toMatch(/no-such-run|not found|unknown/i);
   }
-  // The one that answers: an unknown run's history is empty, where `get` says there is no such run.
-  expect(await api.call("app.flow.history", { run: nowhere.run })).toEqual([]);
   // Nor an unknown flow, part or guide language.
   expect(await api.refused("app.flow.start", { flow: "no-such-flow", subject: "x" })).toBeTruthy();
   expect(await api.refused("app.flow.def", { name: "no-such-flow" })).toBeTruthy();

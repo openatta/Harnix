@@ -47,6 +47,18 @@ pub(crate) struct SessionState {
     /// Projected-message count before the running turn began, so settling can
     /// tell whether the transcript has caught up.
     pub history_total_before_turn: u64,
+    /// How many times the session had been compacted then. A compaction
+    /// rewrites the transcript shorter, so a count that did not grow can
+    /// still be a transcript that caught up; this is what tells them apart.
+    pub compactions_before_turn: u64,
+    /// The running turn's own `compact` event went by: it compacted the
+    /// transcript. Said by the turn itself, so it holds where the counts read
+    /// around a turn the hub only heard of may already be the compacted ones.
+    pub compacted: bool,
+    /// The session's tasks that were announced and have not finished, by id:
+    /// work that outlives the turn that started it, which is what tells a
+    /// session that is idle apart from one that still has something running.
+    pub live_tasks: std::collections::BTreeSet<String>,
     /// The running turn is not driven by a loop of ours: the engine started
     /// it (a schedule), or the link that was running it went away. Its end
     /// arrives as `turn_completed` or is found by a resync.
@@ -134,6 +146,9 @@ pub(crate) async fn route_event(inner: &Arc<Mutex<Inner>>, instance: &str, param
             .sessions
             .entry((instance.to_string(), session_id.clone()))
             .or_default();
+        if kind == "compact" {
+            state.compacted = true;
+        }
         match kind {
             "prompt" => state.pending_prompts.push(event.clone()),
             // Nothing is waiting on those answers any more.
@@ -183,6 +198,7 @@ impl Hub {
             .await?;
         self.ensure_subscribed(&key, &info).await?;
         let total = self.history_total(&key).await;
+        let compactions = compactions_of(&info);
 
         let mut guard = self.inner.lock().await;
         let state = guard.sessions.entry(key).or_default();
@@ -197,7 +213,12 @@ impl Hub {
         let (history_total, serve_replay) = if running {
             (state.history_total_before_turn, true)
         } else {
-            (total, total <= state.history_total_before_turn)
+            (
+                total,
+                total <= state.history_total_before_turn
+                    && compactions == state.compactions_before_turn
+                    && !state.compacted,
+            )
         };
         let replay = if serve_replay {
             state.replay.snapshot()
@@ -330,6 +351,14 @@ impl Hub {
         Ok(created)
     }
 
+    /// How many times the engine has compacted the session (`session.get`'s `compact_count`).
+    pub(crate) async fn compactions(&self, key: &SessionKey) -> u64 {
+        self.call(&key.0, "session.get", json!({"session_id": key.1}))
+            .await
+            .map(|info| compactions_of(&info))
+            .unwrap_or(0)
+    }
+
     pub(crate) async fn history_total(&self, key: &SessionKey) -> u64 {
         self.call(
             &key.0,
@@ -367,4 +396,9 @@ pub(crate) fn client_of(
                 subject.label()
             ))
         })
+}
+
+/// A `session.get` answer's compaction count; zero when it does not say.
+pub(crate) fn compactions_of(info: &Value) -> u64 {
+    info.get("compact_count").and_then(Value::as_u64).unwrap_or(0)
 }

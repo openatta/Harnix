@@ -9,7 +9,7 @@
  * daemon), so the tree has more than one branch to show.
  */
 
-import { cpSync } from "node:fs";
+import { cpSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { type Backend, RECORDINGS, expect, launchFor, startHarnix, test } from "@harnix/testkit";
@@ -399,5 +399,96 @@ test("system-timeline: calls on a time line, searched and narrowed by a stretch 
   await expect(page.getByTestId("turn-step")).toHaveCount(2);
   await page.getByTestId("turns-total").click();
   await expect(page.getByTestId("turn-context").first()).not.toHaveText("—");
+  expect(errors).toEqual([]);
+});
+
+test("system-calls: a failed call is one click away, and listed alone on asking", TREE, async ({ page }) => {
+  const errors = watchConsole(page);
+  await open(page, backend.url);
+  const sid = await sessionWithTurn(page, "system");
+  // `calls-a-tool`, its last call failed as an overloaded provider would have failed it.
+  const dir = join(backend.scratch, "agix", "recordings", sid);
+  cpSync(join(RECORDINGS, "calls-a-tool"), dir, { recursive: true });
+  const lines = readFileSync(join(dir, "calls.jsonl"), "utf8").trimEnd().split("\n");
+  const last = lines.map((line) => JSON.parse(line).type).lastIndexOf("end");
+  lines[last] = JSON.stringify({ ...JSON.parse(lines[last]!), outcome: { status: "error", error: "overloaded" } });
+  writeFileSync(join(dir, "calls.jsonl"), lines.join("\n") + "\n");
+
+  await toSystem(page);
+  await pick(page, "system", sid);
+  await tab(page, "calls");
+  const calls = page.getByTestId("system-call");
+  await expect(calls).toHaveCount(2);
+  await expect(calls.nth(1)).toHaveClass(/\bbad\b/);
+  await expect(calls.nth(0)).not.toHaveClass(/\bbad\b/);
+
+  await page.locator('#details [data-filter="failed"]').click();
+  await expect(calls).toHaveCount(1);
+  await expect(calls.first()).toHaveAttribute("data-call", "1");
+  await page.locator('#details [data-filter="tools"]').click();
+  await expect(calls).toHaveCount(1);
+  await expect(calls.first()).toHaveAttribute("data-call", "0");
+  await page.locator('#details [data-filter="all"]').click();
+  await expect(calls).toHaveCount(2);
+
+  await page.getByTestId("jump-to-failure").click();
+  await expect(page.locator('#details [data-testid="system-call"][data-call="1"]')).toBeInViewport();
+  expect(errors).toEqual([]);
+});
+
+test("system-turns: a turn's cache hits are said as a share, or not at all", TREE, async ({ page }) => {
+  await open(page, backend.url);
+  const sid = await sessionWithTurn(page, "system");
+  cpSync(join(RECORDINGS, "calls-a-tool"), join(backend.scratch, "agix", "recordings", sid), { recursive: true });
+  await toSystem(page);
+  await pick(page, "system", sid);
+  await tab(page, "turns");
+  await expect(page.getByTestId("system-turns")).toBeVisible();
+  await expect(page.getByTestId("turn-cache").first()).toHaveText(/^(\d+%|—)$/);
+});
+
+test("system-frames: narrowed to one kind of frame", TREE, async ({ page }) => {
+  await open(page, backend.url);
+  const sid = await sessionWithTurn(page, "system");
+  await toSystem(page);
+  await pick(page, "system", sid);
+  await tab(page, "frames");
+  await page.evaluate(
+    (sid) => (window as any).harnix.app.call("harnix.send", { instance: "system", session_id: sid, space: "system", message: "Say exactly: fixture ready" }),
+    sid,
+  );
+  const rows = page.locator("#details .frames tbody tr");
+  await expect.poll(() => rows.count(), { timeout: 30_000 }).toBeGreaterThan(2);
+  const kinds = page.getByTestId("frames-kind");
+  const offered = await kinds.locator("option").evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value).filter(Boolean));
+  expect(offered.length, "a turn's frames are of more than one kind").toBeGreaterThan(1);
+  const all = await rows.count();
+  await kinds.selectOption(offered[0]!);
+  await expect.poll(() => rows.count()).toBeLessThan(all);
+  for (const text of await rows.allTextContents()) expect(text).toContain(offered[0]!);
+});
+
+test("system-instances: an instance made from a template is listed and picked, and stopped again", TREE, async ({ page }) => {
+  const errors = watchConsole(page);
+  await open(page, backend.url);
+  await toSystem(page);
+  await page.locator('#side .system-tree .inst[data-instance="system"]').click();
+  const form = page.getByTestId("new-instance");
+  await expect(form).toBeVisible();
+  await expect(page.getByTestId("new-instance-create"), "no name, nothing to make").toBeDisabled();
+  await page.getByTestId("new-instance-name").fill("w-ui");
+  // The template's own parameter (`team`, which its data root is made from).
+  await form.locator(".field", { hasText: "team" }).locator("input").fill("ui");
+  await page.getByTestId("new-instance-create").click();
+  const made = page.locator('#side .system-tree .inst[data-instance="w-ui"]');
+  await expect(made).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("system-instance")).toContainText("w-ui");
+  await expect(made).toHaveAttribute("data-state", "ready", { timeout: 60_000 });
+
+  // Stopping asks first; confirmed, the instance is gone and the system instance is picked.
+  await page.getByTestId("inst-stop").click();
+  await page.getByTestId("confirm").click();
+  await expect(made).toHaveCount(0, { timeout: 30_000 });
+  await expect(page.getByTestId("system-instance")).toContainText("system");
   expect(errors).toEqual([]);
 });

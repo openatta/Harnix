@@ -145,6 +145,16 @@ async fn sequence_runs_to_the_end() {
     assert!(hist.windows(2).all(|w| w[1].seq == w[0].seq + 1));
 }
 
+/// A run that is not there is not found, for its history as for itself.
+#[tokio::test]
+async fn an_unknown_runs_history_is_not_found_as_the_run_is() {
+    let h = h();
+    let get = h.eng.get("no-such-run").await;
+    let history = h.eng.history("no-such-run").await;
+    assert!(matches!(get, Err(FlowError::NotFound(_))), "{get:?}");
+    assert!(matches!(history, Err(FlowError::NotFound(ref m)) if m.contains("no-such-run")), "{history:?}");
+}
+
 #[tokio::test]
 async fn parallel_branches_join() {
     let h = h();

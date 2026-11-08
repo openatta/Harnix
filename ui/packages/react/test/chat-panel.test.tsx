@@ -234,7 +234,7 @@ describe("发送", () => {
 });
 
 describe("消息流", () => {
-  it("压缩留下的摘要画成「上下文已压缩」一行（可展开），别的注入仍是「注入的上下文」", async () => {
+  it("压缩替换进来的消息画成「压缩后的消息」一行（可展开），别的注入仍是「注入的上下文」", async () => {
     server.handlers["session.history"] = () => ({
       messages: [
         { role: "user", content: "之前聊过的摘要", origin: "compact" },
@@ -246,7 +246,7 @@ describe("消息流", () => {
     mount();
     await settle();
     const compact = screen.getByTestId("conv-compact");
-    expect(compact.textContent).toContain("上下文已压缩");
+    expect(compact.textContent).toContain("压缩后的消息");
     expect(compact.textContent).toContain("之前聊过的摘要");
     expect(screen.getByTestId("conv-context").textContent).toContain("注入的上下文");
   });

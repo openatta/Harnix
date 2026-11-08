@@ -116,7 +116,7 @@ describe("归约", () => {
 
   it("不认识的 kind 一律忽略", () => {
     const s0 = run([]);
-    expect(run([{ kind: "compact" }, { kind: "team_progress" }, { kind: "skills_changed" }], s0)).toBe(s0);
+    expect(run([{ kind: "something_new" }, { kind: "team_progress" }, { kind: "skills_changed" }], s0)).toBe(s0);
   });
 
   it("子 agent 按 agent_session_id 归组", () => {
@@ -264,14 +264,17 @@ describe("历史", () => {
     expect(s.blocks[1]).not.toHaveProperty("compact");
   });
 
-  it("一轮里的压缩（compact_action）成一行，带前后条数与估计省下的 token", () => {
+  it("一次压缩（compact 帧）成一行，带前后条数与省下的 token", () => {
     let s = emptySession("S");
     s = applyEvent(s, { kind: "text_delta", text: "写到一半" } as never, opts);
-    s = applyEvent(s, { kind: "compact_action", strategy: "Summarize", messages_before: 40, messages_after: 6, turn_id: "t1", estimated_tokens_saved: 12000 } as never, opts);
+    s = applyEvent(s, { kind: "compact", strategy: "Summarize", messages_before: 40, messages_after: 6, tokens_before: 20000, tokens_after: 8000, estimated_tokens_saved: 12000 } as never, opts);
     const last = s.blocks.at(-1)!;
     expect(last).toMatchObject({ kind: "context", text: "", compact: { before: 40, after: 6, saved: 12000 } });
     // 正在流的那段先收尾，压缩行不插进它中间
     expect(s.blocks.at(-2)).toMatchObject({ kind: "assistant", streaming: false });
+    // 没给估计时，省下的是前后之差
+    const t = applyEvent(emptySession("S"), { kind: "compact", strategy: "Snip", messages_before: 17, messages_after: 12, tokens_before: 900, tokens_after: 600 } as never, opts);
+    expect(t.blocks.at(-1)).toMatchObject({ compact: { before: 17, after: 12, saved: 300 } });
   });
 
   it("从历史读回被取消的工具（BUG-UI-211）：已中断，不是失败", () => {

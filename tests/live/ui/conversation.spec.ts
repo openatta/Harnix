@@ -91,6 +91,40 @@ test("a queued message is edited in place, and keeps its place", TAGS, async ({ 
   await expect(page.getByTestId("conv-queue-editor")).toHaveCount(0);
   await expect(queued.first()).toContainText("first, as edited");
   await expect(queued.nth(1)).toContainText("second");
+
+  // Cancelled, the edit is dropped; saved with the button, it is kept.
+  await queued.nth(1).getByTestId("conv-queue-edit").click();
+  await page.getByTestId("conv-queue-editor").fill("second, not kept");
+  await page.getByTestId("conv-queue-cancel").click();
+  await expect(page.getByTestId("conv-queue-editor")).toHaveCount(0);
+  await expect(queued.nth(1)).toContainText("second");
+  await expect(queued.nth(1)).not.toContainText("not kept");
+  await queued.nth(1).getByTestId("conv-queue-edit").click();
+  await page.getByTestId("conv-queue-editor").fill("second, as saved");
+  await page.getByTestId("conv-queue-save").click();
+  await expect(queued.nth(1)).toContainText("second, as saved");
+});
+
+test("a compaction is a row of its own: told with its counts as it happens, and still there after a reload", TAGS, async ({ page }) => {
+  test.setTimeout(90_000);
+  await open(page, URL);
+  const id = await newSession(page, "many-turns");
+  const replies = page.locator('[data-testid="conv-message"]', { hasText: /fixture ready/i });
+  for (let i = 0; i < 8; i += 1) {
+    await say(page, `Turn ${i}, please.`);
+    await expect(replies).toHaveCount(i + 1, { timeout: 20_000 });
+    await expect(page.getByTestId("conv-send")).toBeVisible();
+  }
+  await page.evaluate((sid) => (window as any).harnix.app.call("harnix.system.compact", { instance: "system", session_id: sid }), id);
+  const live = page.getByTestId("conv-compact").last();
+  await expect(live).toBeVisible({ timeout: 20_000 });
+  await expect(live).toContainText(/\d+ (条 )?→ \d+/);
+
+  await page.reload();
+  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
+  await page.evaluate((sid) => (window as any).harnix.app.open({ instance: "system", sessionId: sid }), id);
+  // From the transcript: the messages the compaction put in place of the older ones.
+  await expect(page.getByTestId("conv-compact").filter({ hasText: /压缩后的消息|Compacted message/ }).first()).toBeVisible({ timeout: 15_000 });
 });
 
 test("stopping a turn says it was interrupted, not that it failed", TAGS, async ({ page }) => {
