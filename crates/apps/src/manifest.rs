@@ -55,12 +55,18 @@
 //!
 //! [agent]                       # agent/ (an Agix package) goes into these instances
 //! install_into = ["system"]
+//!
+//! [[inline.tool_row]]           # what the shell draws for it inline, from here alone: tool rows,
+//! tool = "echo"                 #   cards in the flow, commands, how its space groups sessions
+//! title = "Echo · {input.text}" #   (`inline.rs`)
 //! ```
 
 use std::collections::BTreeMap;
 
 use serde::Deserialize;
 use serde_json::Value;
+
+use crate::inline::Inline;
 
 /// The application interface this build implements: `[app] harnix_api`.
 pub const HARNIX_API: u32 = 1;
@@ -79,6 +85,7 @@ const SECTIONS: &[&str] = &[
     "method",
     "topic",
     "space",
+    "inline",
 ];
 
 /// The capabilities there are.
@@ -96,6 +103,8 @@ pub struct Manifest {
     pub methods: Vec<Method>,
     pub topics: Vec<Topic>,
     pub spaces: Vec<Space>,
+    /// `[inline]`: what the shell draws for it, declared.
+    pub inline: Inline,
 }
 
 /// One `[[method]]`: `app.<id>.<name>`, answered by the backend's `handle`.
@@ -313,6 +322,10 @@ impl Manifest {
             Some(v) => v.try_into().map_err(|e| field_error("[space]]", e))?,
             None => Vec::new(),
         };
+        let inline = match section("inline") {
+            Some(v) => Inline::read(&v)?,
+            None => Inline::default(),
+        };
         let manifest = Manifest {
             app,
             capabilities,
@@ -323,6 +336,7 @@ impl Manifest {
             methods,
             topics,
             spaces,
+            inline,
         };
         manifest.check()?;
         Ok(manifest)
@@ -496,7 +510,7 @@ impl Manifest {
                 ));
             }
         }
-        Ok(())
+        self.inline.check(self)
     }
 
     /// `[config]`, with `overrides` set over it key by key.

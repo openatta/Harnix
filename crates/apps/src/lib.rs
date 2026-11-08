@@ -27,6 +27,7 @@ mod acquire;
 mod backend;
 pub mod disclosure;
 mod host;
+pub mod inline;
 pub mod manifest;
 pub mod package;
 mod plugin;

@@ -31,6 +31,9 @@
 //!   it leaves it disabled and says why.
 //! - `harnix.apps.uninstall {id}` — stop it, take back what installing it put in place (its agent
 //!   package, its skills, its interface modules), and delete its directory, data included.
+//! - `harnix.apps.clearData {id}` — delete what it keeps (its data directory and its key-value
+//!   store) and nothing else: a running one is stopped first and started again after, from nothing,
+//!   so no instance holds on to what was deleted. Answers how much was cleared.
 //! - The topic `harnix.apps` — the same value as `harnix.apps.list`, pushed whenever it changes:
 //!   what the system space's Apps tab draws (each application's VM health, its calls and errors,
 //!   the calls it was refused). Looked at once a second while the process runs, and pushed only
@@ -73,6 +76,7 @@ pub const METHODS: &[&str] = &[
     "harnix.apps.catalog",
     "harnix.apps.install",
     "harnix.apps.update",
+    "harnix.apps.clearData",
 ];
 
 /// Engine methods the runtime calls as this module: installing an application's agent package
@@ -520,6 +524,40 @@ impl Handler for AppsMethod {
                     "started": started,
                 }))
             }
+            "harnix.apps.clearData" => {
+                let id = id_param(&params)?;
+                let _serial = shared.serial.lock().await;
+                let record = read_one(&shared.dir, &id)?;
+                let app_dir = shared.dir.join(&id);
+                // Stopped around it: a backend's memory, or a store it has open, would outlive the
+                // files otherwise.
+                let running = record.enabled && runtime.is_some_and(|r| r.status(&id)["state"] != json!("stopped"));
+                if running {
+                    if let Some(runtime) = runtime {
+                        runtime.unload(module, &record).await;
+                    }
+                }
+                let cleared = clear_data(&app_dir);
+                let mut started = Value::Null;
+                if running {
+                    if let Some(runtime) = runtime {
+                        started = match runtime.load(module, &record, &app_dir).await {
+                            Ok(summary) => summary,
+                            // Cleared, and not running: said, and the list says why.
+                            Err(e) => json!({"error": e.message}),
+                        };
+                    }
+                }
+                let cleared = cleared.map_err(|e| internal(format!("{}: {e}", app_dir.display())))?;
+                tracing::info!(app = %id, bytes = cleared, "application data cleared");
+                Ok(json!({
+                    "id": id,
+                    "cleared_bytes": cleared,
+                    "data_bytes": data_bytes(&app_dir),
+                    "restarted": running,
+                    "started": started,
+                }))
+            }
             "harnix.apps.uninstall" => {
                 let id = id_param(&params)?;
                 let _serial = shared.serial.lock().await;
@@ -719,6 +757,21 @@ fn data_bytes(app_dir: &Path) -> u64 {
     size(&app_dir.join("data")) + size(&app_dir.join("kv"))
 }
 
+/// Delete what an application keeps (what `data_bytes` counts), leaving its directories in place
+/// and empty: how many bytes went.
+fn clear_data(app_dir: &Path) -> std::io::Result<u64> {
+    let before = data_bytes(app_dir);
+    for part in ["data", "kv"] {
+        let dir = app_dir.join(part);
+        match std::fs::remove_dir_all(&dir) {
+            Ok(()) => std::fs::create_dir_all(&dir)?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(before - data_bytes(app_dir).min(before))
+}
+
 fn internal(e: impl std::fmt::Display) -> RpcError {
     RpcError::new(codes::INTERNAL_ERROR, e.to_string())
 }
@@ -838,6 +891,29 @@ mod tests {
         assert!(records.is_empty());
         assert_eq!(unreadable.len(), 1, "{unreadable:?}");
         assert_eq!(unreadable[0]["dir"], json!("acme.notes"));
+    }
+
+    #[test]
+    fn clearing_takes_what_it_keeps_and_nothing_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = dir.path().join("acme.notes");
+        std::fs::create_dir_all(app.join("data/sub")).unwrap();
+        std::fs::create_dir_all(app.join("kv")).unwrap();
+        std::fs::create_dir_all(app.join("1.0.0")).unwrap();
+        std::fs::write(app.join("data/sub/a"), [0u8; 10]).unwrap();
+        std::fs::write(app.join("kv/b"), [0u8; 5]).unwrap();
+        std::fs::write(app.join("1.0.0/package-file"), [0u8; 100]).unwrap();
+        std::fs::write(app.join(RECORD), "{}").unwrap();
+        assert_eq!(clear_data(&app).unwrap(), 15);
+        assert_eq!(data_bytes(&app), 0);
+        // The directories are there to be written again; the package and the record are untouched.
+        assert!(app.join("data").is_dir() && app.join("kv").is_dir());
+        assert!(app.join("1.0.0/package-file").exists() && app.join(RECORD).exists());
+        // Nothing kept, nothing to clear.
+        let bare = dir.path().join("acme.bare");
+        std::fs::create_dir_all(&bare).unwrap();
+        assert_eq!(clear_data(&bare).unwrap(), 0);
+        assert!(!bare.join("data").exists());
     }
 
     #[test]

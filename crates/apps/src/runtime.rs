@@ -76,6 +76,8 @@ pub struct Loaded {
     pub hub: Vec<String>,
     /// Its calls, errors and refusals, for the system space.
     pub stats: Arc<Stats>,
+    /// `[inline]`, as the shell draws it (`harnix.apps.list` → `runtime.inline`).
+    pub inline: Value,
 }
 
 /// What starting an application made.
@@ -522,6 +524,16 @@ impl Runtime {
                 )));
             }
         }
+        // A row drawn for a tool it does not have is a manifest that does not match its component.
+        let names: Vec<String> = tools.iter().map(|t| t.name.clone()).collect();
+        let unknown = manifest.inline.unknown_tools(&names);
+        if !unknown.is_empty() {
+            vm.stop().await;
+            return Err(refused(format!(
+                "`{id}`'s manifest draws a tool row for `{}`, which its component does not list as a tool",
+                unknown.join("`, `")
+            )));
+        }
         Ok((Some(vm), tools))
     }
 
@@ -926,6 +938,7 @@ impl AppsRuntime for Runtime {
                 spaces: manifest.spaces.iter().map(|s| s.id.clone()).collect(),
                 hub: manifest.capabilities.hub.clone(),
                 stats: started.stats,
+                inline: serde_json::to_value(&manifest.inline).unwrap_or(Value::Null),
             }))
         };
         match attempt.await {
@@ -1014,6 +1027,7 @@ impl AppsRuntime for Runtime {
                 })).collect::<Vec<_>>(),
                 "ui": app.ui.iter().map(|u| format!("/apps/{id}/ui/{}", u.module)).collect::<Vec<_>>(),
                 "mcp": format!("/apps/{id}/mcp"),
+                "inline": app.inline,
                 "health": health.map(|h| serde_json::to_value(h).unwrap_or(Value::Null)),
             });
         }

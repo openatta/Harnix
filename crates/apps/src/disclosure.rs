@@ -44,6 +44,15 @@ pub fn lines(manifest: &Manifest, agent: bool) -> Vec<Value> {
             .iter()
             .map(|u| line("ui", format!("{} ({})", u.point, u.module))),
     );
+    // What it is told through the shell's own views: what is typed for its commands, its space's
+    // sessions for a grouping it computes.
+    out.extend(
+        manifest
+            .inline
+            .disclosed(&manifest.app.id)
+            .into_iter()
+            .map(|v| line("inline", v)),
+    );
     if agent {
         out.extend(
             manifest
@@ -108,6 +117,8 @@ pub fn disclose(
         "ui": manifest.ui.iter().map(|u| json!({"point": u.point, "module": u.module})).collect::<Vec<_>>(),
         // Until interfaces run isolated, every one runs in the page, whoever signed it.
         "ui_in_page": !manifest.ui.is_empty(),
+        // Drawn by the shell from the manifest: no code of the application's runs for these.
+        "inline": manifest.inline,
         "agent": inspected.agent.as_ref().map(|a| json!({
             "package": a.name, "version": a.version, "install_into": manifest.agent.install_into,
         })),

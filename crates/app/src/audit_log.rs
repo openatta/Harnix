@@ -114,6 +114,8 @@ fn is_consequential(method: &str) -> bool {
             | "harnix.apps.installFile"
             | "harnix.apps.update"
             | "harnix.apps.uninstall"
+            // Deleting what one keeps cannot be undone.
+            | "harnix.apps.clearData"
             | "harnix.devices.pair.complete"
             | "harnix.devices.revoke"
             | "harnix.settings.set"

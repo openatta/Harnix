@@ -262,6 +262,7 @@ impl Runtime {
             "lines": disclosure::lines(manifest, inspected.agent.is_some()),
             "component": manifest.component.as_ref().map(|c| json!({"world": c.world, "memory_mb": c.memory_mb})),
             "ui": manifest.ui.iter().map(|u| json!({"point": u.point, "module": u.module})).collect::<Vec<_>>(),
+            "inline": manifest.inline,
         })
     }
 }
