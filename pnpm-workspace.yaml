@@ -1,7 +1,8 @@
 # The front end and the live tests, as one pnpm workspace
 # (docs/concept_and_architecture.md §5.2, docs/testing.md).
 #
-#   ui/packages/*  @harnix/core, @harnix/react, @harnix/shell, @harnix/testkit
+#   ui/packages/*  @harnix/core, @harnix/react, @harnix/shell, @harnix/testkit,
+#                  @harnix/app-sdk, @harnix/ui-kit (an application's page in its isolated frame)
 #   tests/live     the LIVE suites: Playwright Test, against the real binary
 #   examples/hello-app/ui  the example application's interface modules
 #

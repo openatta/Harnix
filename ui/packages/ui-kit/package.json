@@ -1,0 +1,28 @@
+{
+  "name": "@harnix/ui-kit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The shell's look for an application's isolated frame: its design tokens and a few plain components (button, input, table, card, empty, loading), following the shell's theme and locale through the bridge.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./kit.css": "./src/kit.css"
+  },
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@harnix/app-sdk": "workspace:*",
+    "@harnix/react": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "jsdom": "30.1.3",
+    "typescript": "5.9.3",
+    "vite": "7.3.7",
+    "vitest": "5.0.5"
+  }
+}
