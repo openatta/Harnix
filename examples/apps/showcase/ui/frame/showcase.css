@@ -1,0 +1,24 @@
+/* The showcase's own few rules, over the kit's. Colours only from the shell's tokens. */
+
+.sc-notes > li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sc-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--accent);
+  vertical-align: middle;
+}
+
+.sc-side {
+  padding: 8px 12px;
+}
+
+.sc-wide {
+  flex: 1 1 200px;
+}

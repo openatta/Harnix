@@ -24,8 +24,8 @@
 | 扩展条目 | `entries` | 5 | 3 |
 | 品牌与主题 | `brand` | 2 | 1 |
 | 流程（harnix-flow，xops-01、xops-02） | `flow` | 30 | 23 |
-| 运行期应用（登记与撤下、安装与卸载、启停、工具、agent 包、界面模块、MCP 端点、WASM 后端、系统 space 应用页签） | `apps` | 33 | 4 |
+| 运行期应用（登记与撤下、安装与卸载、启停、工具、agent 包、界面模块、隔离 iframe 里的界面与外壳的桥、MCP 端点、WASM 后端、系统 space 应用页签） | `apps` | 39 | 15 |
 | 应用商店（签名与副署、目录、按名字安装与升级、披露与同意、设置 · 应用） | `apps-store` | 8 | 4 |
 | 应用构建 | `build` | — 在脚本层检查（check-pins、check-lock、sync-app-deps），不经协议 | — 构建没有界面 |
 | 桌面壳 | `desktop` | — 桌面壳不加协议面：webview 加载的就是服务端的页面 | — 桌面壳是模板（templates/desktop）：它不调 IPC 由 check-no-ipc.mjs 在 offline 层查，本机模式由它的 --smoke 查 |
-| **合计** | | **329** | **154** |
+| **合计** | | **335** | **165** |

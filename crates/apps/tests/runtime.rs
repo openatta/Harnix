@@ -355,13 +355,48 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
         "the instance was not told to re-read"
     );
     assert_eq!(rig.runtime.status(ID)["state"], json!("running"));
+    // Unsigned, its interface is its isolated surfaces: its in-page modules are listed as not
+    // running, and nothing tells the page to import them.
+    let ui = rig.runtime.ui_contributions();
+    assert!(ui.iter().all(|c| c.get("module").is_none()), "{ui:?}");
     assert_eq!(
-        rig.runtime.ui_contributions(),
+        ui.iter()
+            .filter_map(|c| c["refused"].as_str())
+            .collect::<Vec<_>>(),
+        ["showcase.js", "showcase.js"]
+    );
+    let frames: Vec<&str> = ui
+        .iter()
+        .filter(|c| c["frame"].is_string())
+        .map(|c| c["point"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        frames,
         [
-            json!({"plugin": ID, "point": "home.card", "api_version": 2, "module": "/apps/example.showcase/ui/showcase.js"}),
-            json!({"plugin": ID, "point": "space", "api_version": 2, "module": "/apps/example.showcase/ui/showcase.js"}),
+            "space",
+            "space.sidebar",
+            "space.tab",
+            "space.secondary",
+            "details.panel",
+            "home.card",
+            "settings.section",
+            "modal"
         ]
     );
+    let centre = ui
+        .iter()
+        .find(|c| c["point"] == "space" && c["frame"].is_string())
+        .unwrap();
+    assert_eq!(
+        centre["frame"],
+        json!("/apps/example.showcase/ui/frame/index.html")
+    );
+    assert_eq!(centre["surface"]["sessions"], json!(ID));
+    assert_eq!(
+        centre["interface"],
+        json!({"hub": ["harnix.sessions"], "links": true, "trust": "unsigned", "title": "Showcase", "spaces": [ID]})
+    );
+    assert_eq!(rig.runtime.status(ID)["frames"], json!(true));
     assert!(
         rig.runtime.mcp_servers().is_empty(),
         "no listener yet, so nothing to point a daemon at"

@@ -177,6 +177,7 @@ run_frontend() {
   diff -u ui/packages/core/src/protocol/generated/contract.ts "$scratch/ts/contract.ts" || {
     echo "generated protocol types are stale: cargo test -p harnix-contract --features ts"; return 1; }
   echo "── coverage table ──"; node tests/live/coverage.mjs --check || return 1
+  echo "── app ui vendored ──"; node tests/app-ui-vendored.mjs || return 1
 }
 
 # `templates/app`, copied out and built offline as a fresh application would

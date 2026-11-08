@@ -45,6 +45,12 @@ scripts/prune.sh                       # 清构建缓存：增量缓存全删，
 （`examples/apps/showcase`）在测试开始时编组件、为这个引擎编译、打成 `.hxapp`，按源码哈希缓存在 `target/apps/showcase/`。
 `cargo test -p harnix-apps --features compile` 也拿它跑（装、用、停、卸，和装到一半失败的回滚）。
 
+应用界面放进隔离 iframe 的套件（`api/apps-frames.spec.ts`、`ui/apps-frames.spec.ts`）也装 showcase：未签名、商店签的应用界面
+画在沙箱 iframe 里（`ui/frame/`），受信发布者的进页面，清单 `[interface] isolate = true` 时同一个应用也进 iframe（套件用 mock 发布者
+的钥匙现签一份）。iframe 里的东西用 `page.frameLocator` 找，看它自己的世界（存储、令牌、网络）用 `frame.evaluate`。
+`@harnix/app-sdk` 与 `@harnix/ui-kit` 有自己的 Vitest（SDK 带 mock 宿主，界面可以脱离 Harnix 单测）；showcase 带着两者构建出的
+文件（`ui/frame/vendor/`），`node tests/app-ui-vendored.mjs` 在 `frontend` 层查它们是不是最新的（`--write` 重新生成）。
+
 商店的套件（`api/apps-store.spec.ts`、`ui/apps-store.spec.ts`）对着一个 mock 商店：`tests/live/api/apps-store.ts`
 在临时目录里用 `harnix-app sign` / `countersign` / `index` 把 showcase 做成两个版本（0.2.0 多要几项能力）、写出
 `index.json`，经 `[apps] store = "file://…"` 给后端。mock 的发布者与商店密钥在 `tests/live/fixtures/store/`，只是测试钥。
@@ -84,6 +90,8 @@ scripts/prune.sh                       # 清构建缓存：增量缓存全删，
 ui/packages/core/            @harnix/core：协议类型（生成）、协议客户端、会话状态；Vitest
 ui/packages/react/           @harnix/react：对话组件、贡献注册表、i18n、令牌；Vitest（jsdom）
 ui/packages/shell/           @harnix/shell：界面本身；Vitest，构建到 ui/dist
+ui/packages/app-sdk/         @harnix/app-sdk：应用界面在隔离 iframe 里的一侧（桥 harnix-ui-bridge@1、mock 宿主）；Vitest
+ui/packages/ui-kit/          @harnix/ui-kit：iframe 里的外壳令牌与基础组件；Vitest
 ui/packages/testkit/         @harnix/testkit
   src/launcher.ts            startHarnix：独立的 HOME、数据根、引擎根、项目、端口、拓扑、回放目录
   src/api.ts                 connect：基于 @harnix/core/client 的测试客户端；finish、inconclusive；覆盖计数

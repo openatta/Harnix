@@ -116,6 +116,8 @@ blocked_tool = "app__example_showcase__vetoed"
 # The backend subscribes to `harnix.sessions.status` in `init`.
 watch_sessions = true
 
+# The interface, in the page: what a trusted publisher's runs as (`ui/showcase.js`, on the shell's
+# own React). Signed by the store, or unsigned, it does not run — the surfaces below do instead.
 [[ui]]
 point = "home.card"
 module = "showcase.js"
@@ -126,6 +128,67 @@ api_version = 2
 point = "space"
 module = "showcase.js"
 api_version = 2
+
+# The interface in isolated frames: one page (`ui/frame/index.html`, on @harnix/app-sdk and
+# @harnix/ui-kit) for every surface, each told by the shell which one it is. Everything it does
+# goes through the shell's bridge: its own app.example.showcase.* methods and topics, and what is
+# listed here.
+[interface]
+# Besides its own names: the session list (the left column counts the space's sessions).
+hub = ["harnix.sessions"]
+# The card links to the showcase's README; the shell asks before it opens.
+links = true
+
+[[surface]]
+point = "space"
+space = "example.showcase"
+page = "frame/index.html"
+title = { en = "Showcase", zh-CN = "示例应用" }
+icon = "file"
+order = 60
+center = "hidden"
+
+[[surface]]
+point = "space.sidebar"
+space = "example.showcase"
+page = "frame/index.html"
+
+[[surface]]
+point = "space.tab"
+id = "heartbeat"
+space = "example.showcase"
+page = "frame/index.html"
+title = { en = "Heartbeat", zh-CN = "心跳" }
+
+[[surface]]
+point = "space.secondary"
+space = "example.showcase"
+page = "frame/index.html"
+title = { en = "Note", zh-CN = "留言" }
+
+[[surface]]
+point = "details.panel"
+id = "note"
+page = "frame/index.html"
+kinds = ["example.showcase.note"]
+title = { en = "Note", zh-CN = "留言" }
+
+[[surface]]
+point = "home.card"
+page = "frame/index.html"
+title = { en = "Showcase", zh-CN = "示例应用" }
+
+[[surface]]
+point = "settings.section"
+id = "board"
+page = "frame/index.html"
+title = { en = "Showcase", zh-CN = "示例应用" }
+
+[[surface]]
+point = "modal"
+id = "compose"
+page = "frame/index.html"
+title = { en = "A note for the board", zh-CN = "给留言板写一条" }
 
 [agent]
 install_into = ["system"]

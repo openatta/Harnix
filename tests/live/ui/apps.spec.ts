@@ -1,10 +1,11 @@
 /**
- * A runtime application's interface module in the browser: the showcase (`examples/apps/showcase`),
- * installed from a file on the apps-enabled binary, puts its `home.card` in front of a new
- * conversation — imported from `/apps/<id>/ui/`, on the shell's own React, with words from its own
- * language pack — and the page reports nothing. Its space draws the backend's board: the module
- * calls the backend's methods and draws what its topics push, over the page's own connection. The
- * system space's Apps tab shows its VM. Disabled, the card is gone after a reload.
+ * A runtime application's interface in the browser: the showcase (`examples/apps/showcase`),
+ * installed unsigned from a file on the apps-enabled binary, puts its `home.card` in front of a
+ * new conversation — in an isolated frame, its in-page module listed as not running (only a
+ * trusted publisher's runs in the page) — and the page reports nothing. Its space draws the
+ * backend's board, in a frame too: it calls the backend's methods and draws what its topics push,
+ * through the shell's bridge (`apps-frames.spec.ts` has the rest of the frames). The system
+ * space's Apps tab shows its VM. Disabled, the card is gone after a reload.
  */
 
 import type { Page } from "@playwright/test";
@@ -32,7 +33,7 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => { await backend?.dispose(); });
 
-test("an application's interface module draws its card, signed with its id", TAGS, async ({ page }) => {
+test("an application's card is drawn in its frame, signed with its id; its module does not run", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
   const violations: string[] = [];
   page.on("console", (m) => {
@@ -42,16 +43,19 @@ test("an application's interface module draws its card, signed with its id", TAG
   await expect
     .poll(() => page.evaluate(() => (window as any).harnix.app.registry.at("home.card").map((c: any) => c.owner)), { timeout: 15_000 })
     .toContain(SHOWCASE_ID);
-  const card = page.getByTestId("showcase-card");
+  const frame = page.frameLocator(`iframe.hx-frame[data-app="${SHOWCASE_ID}"][data-point="home.card"]`);
+  const card = frame.getByTestId("showcase-card");
   await expect(card).toBeVisible({ timeout: 15_000 });
-  await expect(card).toContainText(/Showcase|示例应用/);
   await expect(card).toContainText(/Seven tools|七个工具/);
+  // Unsigned: the module that would run in the page is said not to, in the diagnostics.
+  const refused = await page.evaluate(() => (window as any).harnix.app.registry.refusals().filter((r: any) => r.id === "showcase.js"));
+  expect(refused.length).toBeGreaterThan(0);
   expect(violations).toEqual([]);
   expect(errors).toEqual([]);
 });
 
 async function toSpace(page: Page, space: string): Promise<void> {
-  await page.locator(`#side [data-space="${space}"]`).click();
+  await page.locator(`#side [data-space="${space}"]:not(#sessions)`).click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", space);
 }
 
@@ -59,15 +63,16 @@ test("its space: the board calls the backend, and draws what the backend's topic
   const errors = watchConsole(page);
   await open(page, backend.url);
   await toSpace(page, SHOWCASE_ID);
-  const board = page.getByTestId("showcase-board");
+  const frame = page.frameLocator(`iframe.hx-frame[data-app="${SHOWCASE_ID}"][data-point="space"]`);
+  const board = frame.getByTestId("showcase-board");
   await expect(board).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId("showcase-note")).toHaveCount(0);
+  await expect(frame.getByTestId("showcase-note")).toHaveCount(0);
 
-  // A method, the backend, its topic, the page.
-  await page.getByTestId("showcase-note-input").fill("from the browser");
-  await page.getByTestId("showcase-note-add").click();
-  await expect(page.getByTestId("showcase-note")).toHaveText(["from the browser"]);
-  await expect(page.getByTestId("showcase-note-input")).toHaveValue("");
+  // A method, the backend, its topic, the frame.
+  await frame.getByTestId("showcase-note-input").fill("from the browser");
+  await frame.getByTestId("showcase-note-add").click();
+  await expect(frame.getByTestId("showcase-note")).toHaveText(["from the browser"]);
+  await expect(frame.getByTestId("showcase-note-input")).toHaveValue("");
   // Another client's note arrives the same way, without the page asking.
   const api = await connect(backend);
   try {
@@ -75,14 +80,14 @@ test("its space: the board calls the backend, and draws what the backend's topic
   } finally {
     api.close();
   }
-  await expect(page.getByTestId("showcase-note")).toHaveText(["from the browser", "from another client"]);
+  await expect(frame.getByTestId("showcase-note")).toHaveText(["from the browser", "from another client"]);
 
   // The backend's memory, and its timer.
-  await page.getByTestId("showcase-bump").click();
-  await expect(page.getByTestId("showcase-counter")).toHaveText(/1/);
-  await page.getByTestId("showcase-heartbeat-start").click();
-  await expect(page.getByTestId("showcase-ticks")).toHaveText(/3/, { timeout: 10_000 });
-  await expect(page.getByTestId("showcase-error")).toHaveCount(0);
+  await frame.getByTestId("showcase-bump").click();
+  await expect(frame.getByTestId("showcase-counter")).toHaveText(/1/);
+  await frame.getByTestId("showcase-heartbeat-start").click();
+  await expect(frame.getByTestId("showcase-ticks")).toHaveText(/3/, { timeout: 10_000 });
+  await expect(frame.getByTestId("showcase-error")).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
@@ -95,7 +100,7 @@ test("the system space's Apps tab shows the application's VM, its calls and its 
     api.close();
   }
   await open(page, backend.url);
-  await page.locator('#side [data-space="system"]').click();
+  await page.locator('#side [data-space="system"]:not(#sessions)').click();
   await expect(page.getByTestId("system-console")).toBeVisible();
   await page.locator('[data-testid="system-console"] [data-tab="apps"]').click();
   const row = page.locator(`[data-testid="system-app"][data-app="${SHOWCASE_ID}"]`);
@@ -120,9 +125,9 @@ test("disabled, its card is gone from the page", TAGS, async ({ page }) => {
   await expect(page.locator("#hero")).toBeVisible();
   const owners = await page.evaluate(() => (window as any).harnix.app.registry.at("home.card").map((c: any) => c.owner));
   expect(owners).not.toContain(SHOWCASE_ID);
-  await expect(page.getByTestId("showcase-card")).toHaveCount(0);
+  await expect(page.locator(`iframe.hx-frame[data-app="${SHOWCASE_ID}"]`)).toHaveCount(0);
   // And the Apps tab says it is off.
-  await page.locator('#side [data-space="system"]').click();
+  await page.locator('#side [data-space="system"]:not(#sessions)').click();
   await page.locator('[data-testid="system-console"] [data-tab="apps"]').click();
   await expect(page.locator(`[data-testid="system-app"][data-app="${SHOWCASE_ID}"]`)).toHaveAttribute("data-state", "stopped", { timeout: 15_000 });
 });
