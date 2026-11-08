@@ -4,6 +4,8 @@
 .env
 /.agix
 /3rds
+# Version migration notes (docs/migrations/<x.y.z>.md): kept locally, not in the repository.
+/docs/migrations/
 node_modules/
 /test-results
 /playwright-report
