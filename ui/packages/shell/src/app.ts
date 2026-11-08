@@ -104,15 +104,20 @@ export function detailsMax(side: number, viewport: number = typeof window === "u
   return Math.max(WIDTHS.details[0], Math.min(Math.round(viewport * 0.7), viewport - side - CENTRE_MIN));
 }
 
-/** The right column's width: what the reader dragged, else what the front space asked for, else the default. */
-export function detailsWidthOf(s: Pick<ShellState, "widths" | "dragged">, space: { detailsWidth?: number } | undefined): number {
+/** The right column's width: what the reader dragged, else what the front space asked for, else the
+ *  default. A space's width under 1 is a share of the window (DSH opens its right column at 0.45). */
+export function detailsWidthOf(
+  s: Pick<ShellState, "widths" | "dragged">,
+  space: { detailsWidth?: number } | undefined,
+  viewport: number = typeof window === "undefined" ? 1600 : window.innerWidth,
+): number {
   const min = WIDTHS.details[0];
-  const max = detailsMax(s.widths.side);
+  const max = detailsMax(s.widths.side, viewport);
   const within = (w: number) => Math.round(Math.min(max, Math.max(min, w)));
   if (s.dragged.details !== undefined) return within(s.dragged.details);
   const asked = space?.detailsWidth;
-  if (typeof asked !== "number" || !Number.isFinite(asked)) return within(s.widths.details);
-  return within(asked);
+  if (typeof asked !== "number" || !Number.isFinite(asked) || asked <= 0) return within(s.widths.details);
+  return within(asked < 1 ? asked * viewport : asked);
 }
 
 export interface ShellState {

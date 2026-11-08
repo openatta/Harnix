@@ -61,6 +61,11 @@ pub(crate) struct SessionState {
     /// work that outlives the turn that started it, which is what tells a
     /// session that is idle apart from one that still has something running.
     pub live_tasks: std::collections::BTreeSet<String>,
+    /// The session's goal as the hub last heard it (`goal_changed`, or a goal call's answer):
+    /// `None` is not heard, `Some(Value::Null)` is no goal.
+    pub goal: Option<Value>,
+    /// Each team's latest `team_progress` frame, by `team_id`: where its run stands.
+    pub teams: std::collections::BTreeMap<String, Value>,
     /// The running turn is not driven by a loop of ours: the engine started
     /// it (a schedule), or the link that was running it went away. Its end
     /// arrives as `turn_completed` or is found by a resync.
@@ -153,6 +158,12 @@ pub(crate) async fn route_event(inner: &Arc<Mutex<Inner>>, instance: &str, param
         }
         match kind {
             "prompt" => state.pending_prompts.push(event.clone()),
+            "goal_changed" => state.goal = Some(event.get("goal").cloned().unwrap_or(Value::Null)),
+            "team_progress" => {
+                if let Some(id) = event.get("team_id").and_then(Value::as_str) {
+                    state.teams.insert(id.to_string(), event.clone());
+                }
+            }
             // Answered, or refused on its timeout: the tool went on either way.
             "tool_result" => {
                 let id = event.get("id").and_then(Value::as_str);
@@ -321,6 +332,12 @@ impl Hub {
             state.watchers.remove(&client);
         }
         Ok(json!({"detached": true}))
+    }
+
+    /// A goal heard in an answer: kept for the session's row.
+    pub(crate) async fn goal_heard(self: &Arc<Self>, key: &SessionKey, goal: Value) {
+        self.inner.lock().await.sessions.entry(key.clone()).or_default().goal = Some(goal);
+        self.refresh("harnix.instances.sessions", json!({"instance": key.0}));
     }
 
     /// A prompt was answered: it no longer waits, and the session's row says so.

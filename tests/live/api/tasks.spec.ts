@@ -43,7 +43,9 @@ test("a sub-agent is a task of its session, not a session in the list", TAGS, as
     expect(settled.params.error).toBeUndefined();
     expect(api.eventsOfKind("tool_use", s.session_id).some((e) => e.name === "Agent")).toBe(true);
 
-    const { tasks } = await api.call("harnix.sessions.tasks", s);
+    const { tasks, teams } = await api.call("harnix.sessions.tasks", s);
+    // No team ran here: the list is there, and empty.
+    expect(teams).toEqual([]);
     const agents = tasks.filter((t: any) => t.kind === "agent");
     expect(agents, JSON.stringify(tasks)).toHaveLength(1);
     expect(agents[0].status).toBe("done");
@@ -57,6 +59,11 @@ test("a sub-agent is a task of its session, not a session in the list", TAGS, as
     const returned = api.eventsOfKind("tool_result", s.session_id).find((e) => e.id === agents[0].detail.tool_use_id);
     expect(returned, "the Agent call's result").toBeDefined();
     expect(out.output, JSON.stringify({ out, returned })).toBe(returned.is_error ? "" : textOf(returned.content));
+
+    // A finished sub-agent has no turn to read a message in: not delivered, and why.
+    const told = await api.call("harnix.system.tasks.message", { ...s, task_id: agents[0].task_id, message: "one more thing" });
+    expect(told.delivered).toBe(false);
+    expect(told.reason).toBeTruthy();
 
     // The topic said so too, without being asked.
     await api.waitFor(

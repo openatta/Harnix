@@ -45,6 +45,8 @@ export function Shell({ app }: { app: App }) {
   useTheme(s.theme);
   useShortcuts(app);
   useBrand(app);
+  // The right column's bounds, and a width given as a share, follow the window.
+  useWindowWidth();
   // Runs after every child has drawn: whoever waits for this state to be on the page can go on.
   useEffect(() => app.drew());
   const space = spacesOf(app).find((c) => c.id === s.space);
@@ -122,6 +124,23 @@ function Resizer({ app, column }: { app: App; column: keyof Widths }) {
 }
 
 /* ── theme and keys ───────────────────────────────────────────────────── */
+
+/** Draw again when the window's width changes, at most once a frame. */
+function useWindowWidth(): void {
+  const [, bump] = useState(0);
+  useEffect(() => {
+    let frame = 0;
+    const changed = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => bump((n) => n + 1));
+    };
+    window.addEventListener("resize", changed);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", changed);
+    };
+  }, []);
+}
 
 function systemDark(): boolean {
   return typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: dark)").matches;

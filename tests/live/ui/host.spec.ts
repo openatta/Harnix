@@ -581,6 +581,7 @@ test("detailsWidth: the space's width is the right column's default; a dragged w
     const { app } = (window as any).harnix;
     app.registry.register("space", { id: "wide", icon: "chat", title: () => "Wide", sessions: "sessions", detailsWidth: 560 }, "test");
     app.registry.register("space", { id: "huge", icon: "chat", title: () => "Huge", sessions: "sessions", detailsWidth: 5000 }, "test");
+    app.registry.register("space", { id: "share", icon: "chat", title: () => "Share", sessions: "sessions", detailsWidth: 0.45 }, "test");
   });
   const width = () => page.evaluate(() => document.querySelector<HTMLElement>("#frame")!.style.getPropertyValue("--details-width"));
   const drag = (w: number | null) => page.evaluate((v) => (window as any).harnix.app.setWidth("details", v), w);
@@ -590,6 +591,9 @@ test("detailsWidth: the space's width is the right column's default; a dragged w
   expect(await width()).toBe("560px");
   await inSpace(page, "huge");
   expect(await width()).toBe("940px");
+  // Under 1, a share of the window: 45% of 1600.
+  await inSpace(page, "share");
+  expect(await width()).toBe("720px");
   // The reader's width wins, in every space, up to the cap.
   await inSpace(page, "wide");
   await drag(650);

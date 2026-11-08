@@ -118,6 +118,7 @@ pub const HUB_TOPICS: &[(&str, &[&str])] = &[
     ("harnix.instances.sessions", &["instance"]),
     ("harnix.sessions.tasks", &["instance", "session_id"]),
     ("harnix.sessions.status", &[]),
+    ("harnix.process", &[]),
 ];
 
 /// The instance every process has: the profile's `[engine]`.
@@ -145,6 +146,8 @@ pub struct Hub {
     replay_from: Option<std::path::PathBuf>,
     /// Replay fails a call whose request differs from the recorded one (ipdrun-45).
     replay_strict: std::sync::atomic::AtomicBool,
+    /// Whether the `harnix.process` topic's clock has been started (at its first subscriber).
+    process_ticking: std::sync::atomic::AtomicBool,
     instances: StdRwLock<BTreeMap<String, Arc<Slot>>>,
     registry: Mutex<Registry>,
     inner: Arc<Mutex<Inner>>,
@@ -202,6 +205,7 @@ impl Hub {
         Arc::new(Self {
             replay_from: config.replay_from,
             replay_strict: std::sync::atomic::AtomicBool::new(false),
+            process_ticking: std::sync::atomic::AtomicBool::new(false),
             instances: StdRwLock::new(BTreeMap::new()),
             registry: Mutex::new(config.registry),
             inner: Arc::new(Mutex::new(inner)),
@@ -388,6 +392,22 @@ impl Hub {
         *self.shell.write().unwrap_or_else(|e| e.into_inner()) = shell;
     }
 
+    /// `harnix.process` as a topic: its memory, threads and connections change without an event to
+    /// say so, so it is computed again every few seconds — only while someone watches it.
+    fn tick_process(self: &Arc<Self>) {
+        if self.process_ticking.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let hub = Arc::downgrade(self);
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(PROCESS_EVERY).await;
+                let Some(hub) = hub.upgrade() else { return };
+                hub.refresh("harnix.process", json!({}));
+            }
+        });
+    }
+
     /// The process's own facts for `harnix.process`.
     pub fn set_process(&self, process: Value) {
         *self.process.write().unwrap_or_else(|e| e.into_inner()) = process;
@@ -517,7 +537,12 @@ impl Hub {
         match method {
             "harnix.hello" => return self.hello().await,
             "harnix.process" => return Ok(self.process()),
-            "harnix.subscribe" => return self.subscribe(subject, params).await,
+            "harnix.subscribe" => {
+                if params.get("topic").and_then(Value::as_str) == Some("harnix.process") {
+                    self.tick_process();
+                }
+                return self.subscribe(subject, params).await;
+            }
             "harnix.unsubscribe" => return self.unsubscribe(subject, params).await,
             "harnix.sessions" if params.get("space").is_some() => {
                 return self.space_sessions(&self.claimed(&params)?).await;
@@ -591,6 +616,7 @@ impl Hub {
         }
         if PASSTHROUGH.contains(&method) || (!device && is_engine_method(method)) {
             let instance = self.instance_of(&params)?;
+            let session_of_call = params.get("session_id").and_then(Value::as_str).map(str::to_string);
             let prompt = (method == "session.respondToPrompt")
                 .then(|| {
                     let field = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_string);
@@ -600,6 +626,11 @@ impl Hub {
             let answer = self
                 .call(&instance, method, without_instance(params))
                 .await?;
+            if matches!(method, "session.goal" | "session.setGoal" | "session.updateGoal") {
+                if let (Some(goal), Some(session)) = (answer.get("goal"), session_of_call.as_ref()) {
+                    self.goal_heard(&(instance.clone(), session.clone()), goal.clone()).await;
+                }
+            }
             if let Some((session, prompt_id)) = prompt {
                 self.answered(&(instance.clone(), session), |p| {
                     p.get("prompt_id").and_then(Value::as_str) == Some(prompt_id.as_str())
@@ -863,6 +894,9 @@ fn os_threads() -> Option<u64> {
         None
     }
 }
+
+/// How often the `harnix.process` topic is computed again while watched.
+const PROCESS_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Now, in ms since the epoch.
 pub(crate) fn now_ms() -> u64 {

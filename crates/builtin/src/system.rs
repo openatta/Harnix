@@ -14,6 +14,11 @@ const ENGINE: &[(&str, &str, &[&str])] = &[
     ("harnix.system.context", "session.inspectContext", &[]),
     ("harnix.system.tasks.stop", "session.stopTask", &["task_id"]),
     (
+        "harnix.system.tasks.message",
+        "session.messageTask",
+        &["task_id", "message"],
+    ),
+    (
         "harnix.system.tasks.output",
         "session.taskOutput",
         &["task_id", "tail_bytes", "from_byte"],
@@ -37,6 +42,16 @@ const ENGINE: &[(&str, &str, &[&str])] = &[
     ),
     ("harnix.system.rename", "session.rename", &["name"]),
     ("harnix.system.goal", "session.goal", &[]),
+    (
+        "harnix.system.goal.set",
+        "session.setGoal",
+        &["objective", "max_rounds"],
+    ),
+    (
+        "harnix.system.goal.update",
+        "session.updateGoal",
+        &["action", "objective", "max_rounds"],
+    ),
 ];
 
 impl Builtin {

@@ -212,6 +212,11 @@ test("system-agents: a running turn's clock counts on; one that finished unseen 
   await expect(row).toHaveAttribute("data-state", "done", { timeout: 30_000 });
   await expect(row.locator(".act")).toHaveText(/not yet seen|未看/);
   await expect(clock).toHaveCount(0);
+  // Kept in this browser: a reload does not forget it.
+  await page.reload();
+  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("system-console")).toBeVisible();
+  await expect(row).toHaveAttribute("data-state", "done", { timeout: 10_000 });
   await row.getByTestId("system-agent").click();
   await expect(row).toHaveAttribute("data-state", "idle");
   await expect(row.getByTestId("system-agent")).toHaveAttribute("title", new RegExp(id));
@@ -248,6 +253,27 @@ test("system-agents: an Agent with a goal shows it on its row and on the right",
   await expect(goal).toHaveAttribute("data-phase", "active");
   await expect(goal).toContainText("Keep the fixture tests green");
   await expect(goal).toContainText(/Round|轮/);
+
+  // Edited from here: a new objective and fewer rounds.
+  await goal.getByTestId("agent-goal-edit").click();
+  await page.getByTestId("goal-objective").fill("Keep them green, and fast");
+  await page.getByTestId("goal-rounds").fill("5");
+  await page.getByTestId("goal-save").click();
+  await expect(goal).toContainText("Keep them green, and fast");
+  await expect(goal).toContainText(/of 5|共 5 轮/);
+  // Paused, it shows the way back.
+  if (await goal.getByTestId("agent-goal-pause").count()) await goal.getByTestId("agent-goal-pause").click();
+  await expect(goal.getByTestId("agent-goal-resume")).toBeVisible();
+  // Cleared (after a confirm): no goal, and a way to set one.
+  await goal.getByTestId("agent-goal-clear").click();
+  await page.getByTestId("confirm").click();
+  const pane = page.getByTestId("system-session");
+  await expect(pane.getByTestId("agent-goal")).toHaveCount(0);
+  await expect(pane.getByTestId("agent-goal-set")).toBeVisible();
+  // A bad form says so and is not sent.
+  await pane.getByTestId("agent-goal-set").click();
+  await page.getByTestId("goal-save").click();
+  await expect(page.getByTestId("goal-error")).toBeVisible();
 });
 
 test("system-agents: an Agent waiting on its permission ask says so, first in the list, and counts on the strip", TREE, async ({ page }) => {

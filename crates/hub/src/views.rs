@@ -69,6 +69,7 @@ impl Hub {
                 self.tasks_view(&key).await
             }
             "harnix.sessions.status" => Ok(self.status_view().await),
+            "harnix.process" => Ok(self.process()),
             _ => Err(RpcError::not_found(format!("`{topic}` is not the hub's"))),
         }
     }
@@ -101,8 +102,13 @@ impl Hub {
                 let queued = state.map(|s| s.queue.len()).unwrap_or(0);
                 let tasks = state.map(|s| s.live_tasks.len()).unwrap_or(0);
                 let waiting = state.and_then(|s| s.pending_prompts.first()).map(|p| {
-                    match p.get("prompt_type").and_then(Value::as_str) {
-                        Some("question") => "answer",
+                    match (
+                        p.get("prompt_type").and_then(Value::as_str),
+                        p.get("tool_name").and_then(Value::as_str),
+                    ) {
+                        (Some("question"), _) => "answer",
+                        // Leaving plan mode is asked as a permission: the plan waits on a review.
+                        (_, Some("ExitPlanMode")) => "plan",
                         _ => "approval",
                     }
                 });
@@ -120,6 +126,10 @@ impl Hub {
                         json!(state.and_then(|s| s.turn_started_ms)),
                     );
                     obj.insert("started_by".into(), json!(self.starter_of(&key)));
+                    // What the hub last heard of its goal; absent when it has heard nothing.
+                    if let Some(goal) = state.and_then(|s| s.goal.as_ref()) {
+                        obj.insert("goal".into(), goal.clone());
+                    }
                     obj.insert(
                         "state".into(),
                         json!(match (running, queued) {
@@ -135,8 +145,9 @@ impl Hub {
         Ok(json!({"instance": instance, "sessions": rows}))
     }
 
-    /// A session's tasks, as Agix reports them. Watching them keeps the hub
-    /// subscribed to the session, which is how it hears a task start or end.
+    /// A session's tasks, as Agix reports them, and its teams as the hub last heard them
+    /// (`team_progress`). Watching them keeps the hub subscribed to the session, which is how it
+    /// hears a task start or end.
     pub(crate) async fn tasks_view(&self, key: &SessionKey) -> Result<Value, RpcError> {
         let result = self
             .call(&key.0, "session.tasks", json!({"session_id": key.1}))
@@ -149,9 +160,18 @@ impl Hub {
             }
             Err(e) => return Err(e),
         };
+        let teams: Vec<Value> = self
+            .inner
+            .lock()
+            .await
+            .sessions
+            .get(key)
+            .map(|s| s.teams.values().cloned().collect())
+            .unwrap_or_default();
         if let Some(obj) = value.as_object_mut() {
             obj.insert("instance".into(), json!(key.0));
             obj.insert("session_id".into(), json!(key.1));
+            obj.insert("teams".into(), json!(teams));
         }
         Ok(value)
     }

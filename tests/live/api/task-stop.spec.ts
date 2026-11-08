@@ -133,3 +133,34 @@ test("a task's output is followed by offset: each read starts where the last end
     api.close();
   }
 });
+
+test("a goal is set, paused, edited, resumed and cleared from the system space", TAGS, async () => {
+  const api = await connect(backend);
+  try {
+    const created = await api.call("session.create", { scene: "code", project_root: api.project, options: { recorder: { name: "says-ready" } } });
+    const s = { instance: "system", session_id: created.session_id };
+    await api.call("harnix.attach", s);
+    const goal = async () => (await api.call("harnix.system.goal", s)).goal;
+    expect(await goal()).toBeNull();
+    const set = await api.call("harnix.system.goal.set", { ...s, objective: "Keep the suite green", max_rounds: 4 });
+    expect(set.goal).toMatchObject({ objective: "Keep the suite green", max_rounds: 4 });
+    // The hub heard it, and keeps it on the session's row.
+    const row = async () => (await api.call("harnix.instances.sessions", { instance: "system" })).sessions.find((r: any) => r.session_id === s.session_id);
+    await expect.poll(async () => (await row())?.goal?.objective, { timeout: 10_000 }).toBe("Keep the suite green");
+    // Paused: whatever round it opened is stopped, and no more open.
+    const paused = await api.call("harnix.system.goal.update", { ...s, action: "pause" });
+    expect(paused.goal.phase).toBe("paused");
+    const edited = await api.call("harnix.system.goal.update", { ...s, action: "edit", objective: "Keep the suite green, twice", max_rounds: 8 });
+    expect(edited.goal).toMatchObject({ objective: "Keep the suite green, twice", max_rounds: 8 });
+    const resumed = await api.call("harnix.system.goal.update", { ...s, action: "resume" });
+    expect(resumed.goal.phase).toBe("active");
+    const cleared = await api.call("harnix.system.goal.update", { ...s, action: "clear" });
+    expect(cleared.goal).toBeNull();
+    await expect.poll(async () => (await row())?.goal, { timeout: 10_000 }).toBeNull();
+    await expect.poll(goal, { timeout: 10_000 }).toBeNull();
+    // An action the engine does not have is refused, not guessed at.
+    expect((await api.refused("harnix.system.goal.update", { ...s, action: "explode" }))?.code).toBe(-32602);
+  } finally {
+    api.close();
+  }
+});

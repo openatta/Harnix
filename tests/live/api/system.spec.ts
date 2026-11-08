@@ -25,7 +25,10 @@ const SYSTEM_METHODS = [
   "harnix.system.turns",
   "harnix.system.usage",
   "harnix.system.goal",
+  "harnix.system.goal.set",
+  "harnix.system.goal.update",
   "harnix.system.tasks.stop",
+  "harnix.system.tasks.message",
   "harnix.system.tasks.output",
   "harnix.system.messages.drop",
   "harnix.system.messages.edit",
@@ -184,9 +187,18 @@ test.describe("on", () => {
     await api.waitFor((f) => f.method === "harnix.turn_settled" && f.params.turn_id === sent.turn_id, { timeout: 60_000, describe: "the turn to settle" });
   });
 
-  test("harnix.process counts the operating system's threads in the process", TAGS, async () => {
+  test("harnix.process counts the operating system's threads in the process, and is pushed while watched", TAGS, async () => {
     const process = await api.call("harnix.process", {});
     expect(process.threads).toBeGreaterThan(1);
+    const first = await api.call("harnix.subscribe", { topic: "harnix.process" });
+    expect(first.value.threads).toBeGreaterThan(1);
+    // Nothing asked again: the hub pushes it on its own clock.
+    const pushed = await api.waitFor((f) => f.method === "harnix.topic" && f.params.topic === "harnix.process", {
+      timeout: 15_000,
+      describe: "harnix.process to be pushed",
+    });
+    expect(pushed.params.value.uptime_secs).toBeGreaterThanOrEqual(first.value.uptime_secs);
+    await api.call("harnix.unsubscribe", { topic: "harnix.process" });
   });
 
   test("a session's model calls: its envelopes, every call with its tool calls, one in full", TAGS, async () => {

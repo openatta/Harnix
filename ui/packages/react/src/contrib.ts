@@ -152,9 +152,10 @@ export interface SpaceContribution {
    *  buttons; null or undefined for nothing. `session` is the open one, null when there is none.
    *  Read at every draw of the bar; a throw drops this block only. */
   headerActions?(session: SessionRef | null): ReactNode;
-  /** The right column's width in px when this space is in front and the reader has not dragged it
-   *  (a width the reader set wins). At least 320; at most 70% of the window, leaving the centre
-   *  400 px — the bound the reader drags within too, in every space. */
+  /** The right column's width when this space is in front and the reader has not dragged it (a width
+   *  the reader set wins): px, or under 1 a share of the window (0.45 is 45%). At least 320; at most
+   *  70% of the window, leaving the centre 400 px — the bound the reader drags within too, in every
+   *  space. */
   detailsWidth?: number;
   /** What a new conversation here might start with, offered under the composer. */
   suggestions?(): string[];

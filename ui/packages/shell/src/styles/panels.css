@@ -1066,3 +1066,77 @@
   font-size: 12.5px;
   overflow-wrap: anywhere;
 }
+
+#details .task-message {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+#details .task-message textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-l2);
+  border-radius: 10px;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+
+#details .task-message .btn {
+  align-self: flex-end;
+}
+
+.teams .team {
+  margin: 6px 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-l1);
+  border-radius: 8px;
+}
+
+.teams .team-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.teams .team-h .nm {
+  font-weight: 600;
+}
+
+.teams .member {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12.5px;
+}
+
+.teams .dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--label-tertiary);
+}
+
+.teams .dot.running {
+  background: var(--state-success);
+}
+
+.teams .dot.done {
+  background: var(--state-success);
+}
+
+.teams .dot.waiting,
+.teams .dot.stopped {
+  background: var(--state-warn);
+}
+
+.teams .dot.failed {
+  background: var(--state-error);
+}
