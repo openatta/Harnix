@@ -919,3 +919,150 @@
 #main .empty-conversation:empty {
   display: none;
 }
+
+/* ── the system space's Agent pane ────────────────────────────────────── */
+
+#details .agent-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+
+#details .agent-head .nm {
+  font-weight: 600;
+}
+
+#details .agent-head .dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--label-tertiary);
+}
+
+#details .agent-head .dot.running {
+  background: var(--state-success);
+}
+
+#details .agent-head .dot.waiting,
+#details .agent-head .dot.stopped {
+  background: var(--state-warn);
+}
+
+#details .agent-head .dot.failed {
+  background: var(--state-error);
+}
+
+#details .agent-head .dot.done {
+  background: var(--state-success);
+}
+
+#details .agent-head .dot.cold {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--label-tertiary);
+}
+
+#details .kd {
+  padding: 0 5px;
+  border: 1px solid var(--border-l1);
+  border-radius: 5px;
+  font-size: 11px;
+  color: var(--label-tertiary);
+  white-space: nowrap;
+}
+
+#details .kd.own {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#details .stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+#details .stat-grid .cell {
+  padding: 8px;
+  border: 1px solid var(--border-l1);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+#details .stat-grid .v {
+  font-family: var(--font-code);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+#details .stat-grid .l {
+  font-size: 11px;
+  color: var(--label-tertiary);
+}
+
+#details .ctx-ring {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 0;
+}
+
+#details .ctx-ring .ring {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  background: conic-gradient(var(--accent) var(--pct), var(--border-l1) 0);
+}
+
+#details .ctx-ring .ring span {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface);
+  font-family: var(--font-code);
+  font-size: 11.5px;
+}
+
+#details .goal {
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid var(--border-l1);
+  border-radius: 8px;
+}
+
+#details .goal .label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#details .goal .objective {
+  margin: 4px 0;
+  font-size: 13px;
+}
+
+#details .kd.phase.active {
+  border-color: var(--state-success);
+  color: var(--state-success);
+}
+
+#details .kd.phase.paused,
+#details .kd.phase.blocked {
+  border-color: var(--state-warn);
+  color: var(--state-warn);
+}
+
+#details .messages .msg {
+  padding: 6px 0;
+  border-top: 1px solid var(--border-l1);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}

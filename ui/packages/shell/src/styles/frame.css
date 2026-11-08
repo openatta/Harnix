@@ -556,6 +556,17 @@ html.resizing #frame {
   color: var(--accent);
 }
 
+.tree2 .kd.goal.active {
+  border-color: var(--state-success);
+  color: var(--state-success);
+}
+
+.tree2 .kd.goal.paused,
+.tree2 .kd.goal.blocked {
+  border-color: var(--state-warn);
+  color: var(--state-warn);
+}
+
 .tree2 .stat {
   display: inline-flex;
   flex: none;

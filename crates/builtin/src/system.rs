@@ -16,7 +16,7 @@ const ENGINE: &[(&str, &str, &[&str])] = &[
     (
         "harnix.system.tasks.output",
         "session.taskOutput",
-        &["task_id", "tail_bytes"],
+        &["task_id", "tail_bytes", "from_byte"],
     ),
     (
         "harnix.system.messages.drop",
@@ -36,6 +36,7 @@ const ENGINE: &[(&str, &str, &[&str])] = &[
         &["model", "provider"],
     ),
     ("harnix.system.rename", "session.rename", &["name"]),
+    ("harnix.system.goal", "session.goal", &[]),
 ];
 
 impl Builtin {

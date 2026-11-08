@@ -72,6 +72,8 @@ interface Task {
   ended_ms?: number | null;
   detail?: Record<string, unknown>;
   error?: string;
+  usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
+  waiting_for?: string[];
 }
 
 /** What the right column is about. `space`: one space's sessions, across instances, the one a
@@ -79,7 +81,8 @@ interface Task {
 export type Selection =
   | { kind: "space"; space: string; current?: SessionKey }
   | { kind: "instance"; instance: string }
-  | { kind: "session"; instance: string; sessionId: string }
+  /** `parent`: a sub-agent's session, under that main Agent's (its calls are in the parent's recording). */
+  | { kind: "session"; instance: string; sessionId: string; parent?: string }
   | { kind: "task"; instance: string; sessionId: string; taskId: string };
 
 /** The system space's view, once it is registered: what `openInSystem` drives. */
@@ -172,6 +175,11 @@ function tabsFor(app: App, view: View): SpaceTab[] {
     return [{ id: "system.overview", title: () => t("system.tab.overview"), render: () => <InstanceOverview app={app} view={view} instance={picked.instance} /> }];
   }
   const session: SessionKey = { instance: picked.instance, sessionId: picked.sessionId };
+  // A sub-agent's calls are in its parent's recording and its runtime state in its parent's tasks.
+  if (picked.kind === "session" && picked.parent) {
+    const parent = picked.parent;
+    return [{ id: "system.overview", title: () => t("system.tab.overview"), render: () => <SubAgentOverview app={app} view={view} session={session} parent={parent} /> }];
+  }
   const tabs: SpaceTab[] = [
     { id: "system.overview", title: () => t("system.tab.overview"), render: () => <SessionOverview app={app} view={view} session={session} /> },
     { id: "system.calls", title: () => t("system.tab.calls"), render: () => <CallsTab app={app} view={view} session={session} /> },
@@ -509,6 +517,30 @@ function useUsage(app: App, rows: AgentRow[], every: number | null): Record<stri
   return usage;
 }
 
+/** The goals of these sessions (`harnix.system.goal`), read again every `every` ms. */
+function useGoals(app: App, rows: AgentRow[], every: number): Record<string, Goal | null> {
+  const [goals, setGoals] = useState<Record<string, Goal | null>>({});
+  const joined = rows.map((row) => row.key).join(",");
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      for (const row of rows) {
+        void app
+          .call<{ goal: Goal | null }>("harnix.system.goal", { instance: row.instance, session_id: row.session_id })
+          .then((answer) => alive && setGoals((now) => (JSON.stringify(now[row.key]) === JSON.stringify(answer.goal) ? now : { ...now, [row.key]: answer.goal })))
+          .catch(() => undefined);
+      }
+    };
+    load();
+    const timer = setInterval(load, every);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [app, joined, every]);
+  return goals;
+}
+
 /** One `harnix.system.usage` call's most. */
 const USAGE_BATCH = 200;
 /** How many main Agents the all tab lists before "more". */
@@ -556,10 +588,12 @@ function Agents({ app, view, scope }: { app: App; view: View; scope: Scope }) {
   const sorted = [...chosen].sort((a, b) => stateOf(a, turns).rank - stateOf(b, turns).rank || (b.last_active ?? "").localeCompare(a.last_active ?? ""));
   const shown = scope === "all" ? sorted.slice(0, limit) : sorted;
   const usage = useUsage(app, shown, scope === "active" ? 3000 : null);
+  // A goal is the engine's, in memory: asked of the loaded Agents on the active tab.
+  const goals = useGoals(app, scope === "active" ? shown.filter((row) => row.status === "active") : [], 5000);
   return (
     <div className="tree2 agents" data-testid="system-agents" data-scope={scope}>
       {shown.length ? (
-        shown.map((row) => <AgentItem key={row.key} app={app} view={view} row={row} usage={usage[row.key]} turns={turns} scope={scope} />)
+        shown.map((row) => <AgentItem key={row.key} app={app} view={view} row={row} usage={usage[row.key]} goal={goals[row.key] ?? null} turns={turns} scope={scope} />)
       ) : (
         <div className="empty">{tr(scope === "active" ? "system.agents.noneActive" : "system.agents.none")}</div>
       )}
@@ -613,7 +647,7 @@ function ms(n: number): string {
   return secs < 60 ? `${secs.toFixed(1)}s` : `${Math.floor(secs / 60)}m${String(Math.round(secs % 60)).padStart(2, "0")}s`;
 }
 
-function AgentItem({ app, view, row, usage, turns, scope }: { app: App; view: View; row: AgentRow; usage?: AgentUsage[]; turns: Set<string>; scope: Scope }) {
+function AgentItem({ app, view, row, usage, goal, turns, scope }: { app: App; view: View; row: AgentRow; usage?: AgentUsage[]; goal: Goal | null; turns: Set<string>; scope: Scope }) {
   const tr = useT();
   const picked = useSelection(view);
   const state = stateOf(row, turns);
@@ -651,6 +685,11 @@ function AgentItem({ app, view, row, usage, turns, scope }: { app: App; view: Vi
         {row.started_by === "harnix" ? <span className="kd own" data-testid="system-agent-harnix" title={tr("system.agents.harnixTip")}>Harnix</span> : null}
         <span className="kd">{row.space ?? "sessions"}</span>
         {row.instance !== SYSTEM ? <span className="kd">{row.instance}</span> : null}
+        {goal && goal.phase !== "complete" ? (
+          <span className={`kd goal ${goal.phase}`} data-testid="system-agent-goal" data-phase={goal.phase} title={goal.objective}>
+            {tr("system.goal")} · {tr(`system.goal.${goal.phase}`)}
+          </span>
+        ) : null}
         <span className="act">{state.label}</span>
         <span className="stat" data-stat="subagents" title={tr("system.stat.subagents")}>
           <Glyph className="ic" name="agent" /> {subCount}
@@ -696,7 +735,7 @@ function SubAgentRows({ view, instance, root, under, parent, depth }: { view: Vi
               data-testid="system-subagent"
               data-sub={sub.id}
               data-status={status}
-              onClick={() => view.select({ kind: "session", instance, sessionId: sub.id })}
+              onClick={() => view.select({ kind: "session", instance, sessionId: sub.id, parent: root })}
             >
               <span className={`dot ${status}`} />
               <span className="nm">{tr("system.task.agent")}</span>
@@ -961,14 +1000,170 @@ function SpaceSessions({ app, view, space, current }: { app: App; view: View; sp
   );
 }
 
+/** A session's goal (`session.goal`): one aim the engine keeps opening turns for. */
+interface Goal {
+  objective: string;
+  phase: "active" | "paused" | "blocked" | "complete";
+  armed: boolean;
+  max_rounds: number;
+  rounds_started: number;
+  blocked_reason?: { code?: string; message?: string } | string | null;
+}
+
+/** One `harnix.system.turns` row: a turn's calls summed. */
+interface TurnRow {
+  turn: number;
+  calls: number[];
+  ttft_ms?: number | null;
+  model_ms: number;
+  tool_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_hit?: number | null;
+  tokens_per_s?: number | null;
+}
+
+/**
+ * What the Agent pane reads: its figures this run, its turns, the context of its next call and its
+ * goal — again whenever one of its turns settles, and every few seconds while it is busy. A part
+ * that cannot be read (a session not in memory has no context to inspect) is left out, not an error.
+ */
+function useAgentFacts(app: App, session: SessionKey, busy: boolean) {
+  const [facts, setFacts] = useState<{ usage: AgentUsage[] | null; turns: TurnRow[]; context: Context | null; goal: Goal | null }>({ usage: null, turns: [], context: null, goal: null });
+  useEffect(() => {
+    let alive = true;
+    const target = { instance: session.instance, session_id: session.sessionId };
+    const quiet = <T,>(p: Promise<T>) => p.catch(() => null);
+    const load = async () => {
+      const [usage, turns, context, goal] = await Promise.all([
+        quiet(app.call<{ sessions: Record<string, { agents: AgentUsage[] }> }>("harnix.system.usage", { instance: session.instance, session_ids: [session.sessionId] })),
+        quiet(app.call<{ turns: TurnRow[] }>("harnix.system.turns", target)),
+        quiet(app.call<Context>("harnix.system.context", target)),
+        quiet(app.call<{ goal: Goal | null }>("harnix.system.goal", target)),
+      ]);
+      if (!alive) return;
+      setFacts({ usage: usage?.sessions[session.sessionId]?.agents ?? null, turns: turns?.turns ?? [], context, goal: goal?.goal ?? null });
+    };
+    void load();
+    const off = app.client.onNotify((method, params) => {
+      if (method === "harnix.turn_settled" && params.session_id === session.sessionId) void load();
+    });
+    const timer = busy ? setInterval(() => void load(), 5000) : undefined;
+    return () => {
+      alive = false;
+      off();
+      clearInterval(timer);
+    };
+  }, [app, session.instance, session.sessionId, busy]);
+  return facts;
+}
+
+/** The figures DSH puts by the composer, for one Agent: its turns and calls, its tokens, how fast. */
+function Stats({ own, turns }: { own: AgentUsage | undefined; turns: TurnRow[] }) {
+  const tr = useT();
+  if (!own && !turns.length) return <div className="note" data-testid="agent-stats-none">{tr("system.stat.noRecording")}</div>;
+  const sum = (f: (t: TurnRow) => number) => turns.reduce((n, t) => n + f(t), 0);
+  const ttfts = turns.map((t) => t.ttft_ms).filter((v): v is number => typeof v === "number");
+  const output = own?.output_tokens ?? sum((t) => t.output_tokens);
+  // Tokens a second, weighted by what each turn wrote.
+  const rated = turns.filter((t) => t.tokens_per_s && t.output_tokens);
+  const writing = rated.reduce((n, t) => n + t.output_tokens / t.tokens_per_s!, 0);
+  const rate = writing > 0 ? rated.reduce((n, t) => n + t.output_tokens, 0) / writing : null;
+  const input = own ? own.input_tokens + own.cache_read_tokens + own.cache_write_tokens : sum((t) => t.input_tokens);
+  const hit = own && input > 0 ? own.cache_read_tokens / input : null;
+  const cells: [string, string, string][] = [
+    ["turns", tr("system.stat.turns"), String(own?.turns ?? turns.length)],
+    ["calls", tr("system.stat.calls"), String(own?.calls ?? sum((t) => t.calls.length))],
+    ["total", tr("system.stat.total"), compact(input + output)],
+    ["hit", tr("system.stat.cacheHit"), hit === null ? "—" : `${Math.round(hit * 100)}%`],
+    ["rate", tr("system.stat.rate"), rate === null ? "—" : `${rate.toFixed(1)}/s`],
+    ["ttft", tr("system.stat.ttft"), ttfts.length ? ms(Math.round(ttfts.reduce((a, b) => a + b, 0) / ttfts.length)) : "—"],
+    ["model", tr("system.stat.time"), ms(own?.model_ms ?? sum((t) => t.model_ms))],
+    ["tool", tr("system.stat.toolTime"), turns.length ? ms(sum((t) => t.tool_ms)) : "—"],
+  ];
+  return (
+    <>
+      <div className="stat-grid" data-testid="agent-stats">
+        {cells.map(([id, label, value]) => (
+          <div key={id} className="cell" data-cell={id}>
+            <div className="v">{value}</div>
+            <div className="l">{label}</div>
+          </div>
+        ))}
+      </div>
+      {own ? (
+        <div className="note" data-testid="agent-tokens">
+          {tr("system.tokenTip", { input: own.input_tokens, read: own.cache_read_tokens, write: own.cache_write_tokens, output: own.output_tokens })}
+          {own.errors ? ` · ${tr("system.stat.errors", { count: own.errors })}` : ""}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/** How full the next call's context is, against the window: the provider's count when there is one. */
+function ContextRing({ context }: { context: Context | null }) {
+  const tr = useT();
+  if (!context) return null;
+  const used = context.measured?.tokens ?? context.total_tokens ?? 0;
+  const window = context.measured?.window ?? 0;
+  const pct = window ? Math.min(100, Math.round((used / window) * 100)) : null;
+  return (
+    <div className="ctx-ring" data-testid="agent-context" data-pct={pct ?? undefined}>
+      <div className="ring" style={{ "--pct": `${pct ?? 0}%` } as React.CSSProperties}>
+        <span>{pct === null ? "—" : `${pct}%`}</span>
+      </div>
+      <div className="txt">
+        <div>{window ? tr("system.tokensOf", { count: used, of: window }) : tr("system.tokens", { count: `~${used}` })}</div>
+        <div className="note">{context.measured ? tr("system.fact.measured") : tr("system.fact.estimated")}</div>
+      </div>
+    </div>
+  );
+}
+
+function GoalBlock({ goal }: { goal: Goal | null }) {
+  const tr = useT();
+  if (!goal) return null;
+  const reason = typeof goal.blocked_reason === "string" ? goal.blocked_reason : goal.blocked_reason?.message;
+  return (
+    <div className="goal" data-testid="agent-goal" data-phase={goal.phase}>
+      <div className="label">
+        {tr("system.goal")}
+        <span className={`kd phase ${goal.phase}`}>{tr(`system.goal.${goal.phase}`)}</span>
+        {goal.phase === "active" && !goal.armed ? <span className="kd">{tr("system.goal.disarmed")}</span> : null}
+      </div>
+      <div className="objective">{goal.objective}</div>
+      <div className="note">
+        {tr("system.goal.rounds", { count: goal.rounds_started, of: goal.max_rounds })}
+        {reason ? ` · ${reason}` : ""}
+      </div>
+    </div>
+  );
+}
+
 function SessionOverview({ app, view, session }: { app: App; view: View; session: SessionKey }) {
   const tr = useT();
+  const s = useShell(app);
   const params = useMemo(() => ({ instance: session.instance }), [session.instance]);
   const listed = useTopic<{ sessions: SessionRowView[] }>(view, "harnix.instances.sessions", params);
   const row = listed?.sessions?.find((r) => r.session_id === session.sessionId);
   const space = row?.space ?? "sessions";
+  const agent: AgentRow | undefined = row ? { ...row, instance: session.instance, key: `${session.instance}/${row.session_id}` } : undefined;
+  const turns = new Set(Object.keys(s.running));
+  const state = agent ? stateOf(agent, turns) : null;
+  const busy = Boolean(agent && (turns.has(agent.key) || agent.running || agent.tasks));
+  const facts = useAgentFacts(app, session, busy);
+  const own = facts.usage?.find((u) => u.session_id === session.sessionId);
+  const subs = (facts.usage ?? []).filter((u) => u.session_id !== session.sessionId);
+  const model = facts.context?.model ?? own?.models.join(", ") ?? "";
   return (
     <div className="system-pane" data-testid="system-session">
+      <div className="agent-head">
+        {state ? <span className={`dot ${state.dot}`} /> : null}
+        <span className="nm">{row?.name || tr("sidebar.untitled")}</span>
+        {row?.started_by === "harnix" ? <span className="kd own">Harnix</span> : null}
+        {state ? <span className="kd" data-testid="agent-state">{state.label}</span> : null}
+      </div>
       <Facts
         rows={[
           [tr("system.fact.instance"), session.instance],
@@ -976,9 +1171,20 @@ function SessionOverview({ app, view, session }: { app: App; view: View; session
           [tr("system.fact.name"), row?.name ?? ""],
           [tr("system.fact.space"), space],
           [tr("system.fact.scene"), row?.scene ?? ""],
+          [tr("system.fact.model"), model],
           [tr("system.fact.project"), row?.project_root ?? ""],
+          [tr("system.fact.startedBy"), row?.started_by === "harnix" ? tr("system.startedBy.harnix") : tr("system.startedBy.user")],
         ]}
       />
+      <GoalBlock goal={facts.goal} />
+      <ContextRing context={facts.context} />
+      <div className="label">{tr("system.stats")}</div>
+      <Stats own={own} turns={facts.turns} />
+      {subs.length ? (
+        <div className="note" data-testid="agent-subs">
+          {tr("system.subTotals", { count: subs.length, tokens: compact(subs.reduce((n, u) => n + totalTokens(u), 0)), time: ms(subs.reduce((n, u) => n + u.model_ms, 0)) })}
+        </div>
+      ) : null}
       {space !== SYSTEM ? (
         <button
           type="button"
@@ -999,6 +1205,71 @@ function SessionOverview({ app, view, session }: { app: App; view: View; session
       </button>
       <div className="label">{tr("system.ops")}</div>
       <Operations app={app} view={view} session={session} name={row?.name ?? null} />
+    </div>
+  );
+}
+
+/**
+ * A sub-agent, picked: its own figures out of its parent's recording, how its task stands, and what
+ * it has said — its transcript is a session of its own, read like any.
+ */
+function SubAgentOverview({ app, view, session, parent }: { app: App; view: View; session: SessionKey; parent: string }) {
+  const tr = useT();
+  const parentKey: SessionKey = { instance: session.instance, sessionId: parent };
+  const taskParams = useMemo(() => ({ instance: session.instance, session_id: parent }), [session.instance, parent]);
+  const listed = useTopic<{ tasks: Task[] }>(view, "harnix.sessions.tasks", taskParams);
+  const task = listed?.tasks.find((t) => t.kind === "agent" && t.detail?.agent_session_id === session.sessionId);
+  const facts = useAgentFacts(app, parentKey, Boolean(task && LIVE.has(task.status)));
+  const own = facts.usage?.find((u) => u.session_id === session.sessionId);
+  const [messages, setMessages] = useState<HistoryMessage[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const target = { instance: session.instance, session_id: session.sessionId, space: SYSTEM };
+    void (async () => {
+      try {
+        const first = await app.call<{ total: number }>("session.history", { ...target, offset: 0, limit: 1 });
+        const page = await app.call<{ messages: HistoryMessage[] }>("session.history", { ...target, offset: Math.max(0, first.total - 30), limit: 30 });
+        if (alive) setMessages(page.messages ?? []);
+      } catch {
+        if (alive) setMessages([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [app, session.instance, session.sessionId, task?.status]);
+  const d = (task?.detail ?? {}) as Record<string, unknown>;
+  return (
+    <div className="system-pane" data-testid="system-subagent-pane">
+      <div className="agent-head">
+        <span className={`dot ${task?.status ?? "done"}`} />
+        <span className="nm">{tr("system.task.agent")}</span>
+        <span className="kd" data-testid="agent-state">{tr(`system.taskStatus.${task?.status ?? "done"}`)}</span>
+      </div>
+      <Facts
+        rows={[
+          [tr("system.fact.session"), session.sessionId],
+          [tr("system.fact.parent"), parent],
+          [tr("system.fact.agentType"), d.agent_type == null ? "" : String(d.agent_type)],
+          [tr("system.fact.what"), d.description == null ? "" : String(d.description)],
+          [tr("system.fact.model"), own?.models.join(", ") ?? ""],
+          [tr("system.fact.duration"), task ? duration(task) : ""],
+        ].filter(([, v]) => v !== "") as [string, string][]}
+      />
+      <button type="button" className="btn sm outline wide" data-testid="agent-open-parent" onClick={() => view.select({ kind: "session", instance: session.instance, sessionId: parent })}>
+        {tr("system.openParent")}
+      </button>
+      <div className="label">{tr("system.stats")}</div>
+      <Stats own={own} turns={[]} />
+      <div className="label">{tr("system.messages")}</div>
+      <div className="messages" data-testid="subagent-messages">
+        {messages && !messages.length ? <div className="note">{tr("system.noMessages")}</div> : null}
+        {(messages ?? []).map((message) => (
+          <div key={message.seq} className="msg" data-role={message.role}>
+            <span className="kd">{message.role}</span> {clip(messageText(message.content), 400)}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1848,7 +2119,7 @@ function TasksTab({ app, view, session }: { app: App; view: View; session: Sessi
     <div className="system-pane tasks" data-testid="system-tasks">
       {tasks.map((task) => (
         <div key={task.task_id} className={`task${task.task_id === chosen ? " on" : ""}`} data-kind={task.kind} data-status={task.status}>
-          <div className="task-h">
+          <div className="task-h" onClick={() => view.select({ kind: "task", instance: session.instance, sessionId: session.sessionId, taskId: task.task_id })}>
             <span className={`dot ${task.status}`} />
             <span className="kind">{tr(`system.task.${task.kind}`)}</span>
             <span className="what truncate" title={taskLabel(task)}>
@@ -1860,33 +2131,44 @@ function TasksTab({ app, view, session }: { app: App; view: View; session: Sessi
                 type="button"
                 className="btn sm outline"
                 data-testid="task-stop"
-                onClick={() => void act(app, () => app.call("harnix.system.tasks.stop", { ...params, task_id: task.task_id }))}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void act(app, () => app.call("harnix.system.tasks.stop", { ...params, task_id: task.task_id }));
+                }}
               >
                 {tr("system.stop")}
               </button>
             ) : null}
           </div>
-          {task.task_id === chosen ? (
-            <>
-              {task.error ? <div className="hint err">{task.error}</div> : null}
-              <pre className="hx-pre">{JSON.stringify(task.detail ?? {}, null, 2)}</pre>
-              {task.kind === "cron" ? null : <TaskOutput app={app} params={params} task={task} />}
-            </>
-          ) : null}
+          {task.task_id === chosen ? <TaskDetail app={app} view={view} params={params} task={task} /> : null}
         </div>
       ))}
     </div>
   );
 }
 
+/** One read of a task's output (`session.taskOutput`): the bytes from `from_byte` to `next_byte`. */
+interface OutputSlice {
+  output: string;
+  from_byte: number;
+  next_byte: number;
+  dropped: number;
+  final: boolean;
+}
+
+/** The most of a task's output this page keeps: the engine keeps the last 256 KiB. */
+const OUTPUT_KEPT = 256 * 1024;
+
 /**
  * What a task has produced so far (Agix `session.taskOutput`): a shell command's or a monitor's
- * lines as they come, a sub-agent's answer once it has one. Read again every second while the
- * task runs; a task the engine has forgotten shows nothing.
+ * lines as they come, a sub-agent's answer once it has one. The first read is the tail; after it,
+ * each read starts where the last ended (`next_byte`) and only what is new is added — and when the
+ * engine had already let some of it go, the gap is said, not papered over. Read every second until
+ * the task's output is final; a task the engine has forgotten shows nothing.
  */
 function TaskOutput({ app, params, task }: { app: App; params: { instance: string; session_id: string }; task: Task }) {
   const tr = useT();
-  const [out, setOut] = useState<{ output: string; truncated: boolean } | null>(null);
+  const [out, setOut] = useState<{ text: string; earlier: boolean; final: boolean } | null>(null);
   const [follow, setFollow] = useState(true);
   const pre = useRef<HTMLPreElement>(null);
   const live = LIVE.has(task.status);
@@ -1896,13 +2178,30 @@ function TaskOutput({ app, params, task }: { app: App; params: { instance: strin
   }, [out, follow]);
   useEffect(() => {
     let stopped = false;
-    const read = () =>
-      app
-        .call("harnix.system.tasks.output", { ...params, task_id: task.task_id })
-        .then((r) => !stopped && setOut(r as { output: string; truncated: boolean }))
-        .catch(() => !stopped && setOut(null));
+    let next: number | null = null;
+    let final = false;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const read = async () => {
+      try {
+        const at = next;
+        const r = await app.call<OutputSlice>("harnix.system.tasks.output", { ...params, task_id: task.task_id, ...(at === null ? {} : { from_byte: at }) });
+        if (stopped) return;
+        next = r.next_byte;
+        final = r.final;
+        setOut((now) => {
+          if (at === null || !now) return { text: r.output, earlier: r.from_byte > 0, final: r.final };
+          const gap = r.dropped > 0 ? `\n${tr("system.outputDropped", { count: r.dropped })}\n` : "";
+          const text = now.text + gap + r.output;
+          return { text: text.length > OUTPUT_KEPT ? text.slice(-OUTPUT_KEPT) : text, earlier: now.earlier || text.length > OUTPUT_KEPT, final: r.final };
+        });
+        if (final) clearInterval(timer);
+      } catch {
+        if (!stopped) setOut(null);
+      }
+    };
     void read();
-    const timer = live ? setInterval(read, 1000) : undefined;
+    // A stopped task may still be writing as it winds down: read until its output is final.
+    if (live || task.status === "stopped") timer = setInterval(() => !final && void read(), 1000);
     return () => {
       stopped = true;
       clearInterval(timer);
@@ -1910,10 +2209,10 @@ function TaskOutput({ app, params, task }: { app: App; params: { instance: strin
   }, [app, params, task.task_id, live]);
   if (!out) return null;
   return (
-    <div className="task-output" data-testid="task-output">
+    <div className="task-output" data-testid="task-output" data-final={out.final ? "" : undefined}>
       <div className="label">
         {tr("system.taskOutput")}
-        {out.truncated ? <span className="hint">{tr("system.outputTruncated")}</span> : null}
+        {out.earlier ? <span className="hint">{tr("system.outputTruncated")}</span> : null}
         {live ? (
           <label className="check end">
             <input type="checkbox" data-testid="task-follow" checked={follow} onChange={(e) => setFollow(e.target.checked)} />
@@ -1922,8 +2221,60 @@ function TaskOutput({ app, params, task }: { app: App; params: { instance: strin
         ) : null}
       </div>
       <pre className="hx-pre scroll" ref={pre} data-testid="task-output-text">
-        {out.output || tr("system.noOutput")}
+        {out.text || tr("system.noOutput")}
       </pre>
+    </div>
+  );
+}
+
+/** A task, picked: what it is, how it stands, what it has used and is waiting on, and its output. */
+function TaskDetail({ app, view, params, task }: { app: App; view: View; params: { instance: string; session_id: string }; task: Task }) {
+  const tr = useT();
+  const d = (task.detail ?? {}) as Record<string, unknown>;
+  const usage = task.usage;
+  const waiting = task.waiting_for ?? [];
+  const when = (ms?: number | null) => (ms ? new Date(ms).toLocaleTimeString() : "");
+  const what = d.command ?? d.description ?? d.prompt ?? d.member ?? d.cron;
+  const sub = task.kind === "agent" ? (d.agent_session_id as string | undefined) : undefined;
+  const rows: [string, string][] = [
+    [tr("system.fact.kind"), tr(`system.task.${task.kind}`)],
+    [tr("system.fact.status"), tr(`system.taskStatus.${task.status}`)],
+    [tr("system.fact.what"), what == null ? "" : String(what)],
+    [tr("system.fact.agentType"), d.agent_type == null ? "" : String(d.agent_type)],
+    [tr("system.fact.started"), when(task.started_ms)],
+    [tr("system.fact.ended"), when(task.ended_ms)],
+    [tr("system.fact.duration"), duration(task)],
+  ];
+  if (usage) {
+    rows.push([
+      tr("system.fact.tokens"),
+      tr("system.tokenTip", {
+        input: usage.input_tokens ?? 0,
+        read: usage.cache_read_input_tokens ?? 0,
+        write: usage.cache_creation_input_tokens ?? 0,
+        output: usage.output_tokens ?? 0,
+      }),
+    ]);
+  }
+  if (waiting.length) rows.push([tr("system.fact.waitingFor"), waiting.join(", ")]);
+  return (
+    <div className="task-detail" data-testid="system-task">
+      {task.error ? <div className="hint err">{task.error}</div> : null}
+      <Facts rows={rows.filter(([, v]) => v !== "")} />
+      {sub ? (
+        <button
+          type="button"
+          className="btn sm outline wide"
+          data-testid="task-open-agent"
+          onClick={() => view.select({ kind: "session", instance: params.instance, sessionId: sub, parent: params.session_id })}
+        >
+          {tr("system.openSubAgent")}
+        </button>
+      ) : null}
+      <Disclosure testId="task-raw" state="ok" summary={<span className="hx-tool-name">{tr("system.rawDetail")}</span>}>
+        <pre className="hx-pre">{JSON.stringify(task.detail ?? {}, null, 2)}</pre>
+      </Disclosure>
+      {task.kind === "cron" ? null : <TaskOutput app={app} params={params} task={task} />}
     </div>
   );
 }

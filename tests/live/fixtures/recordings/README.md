@@ -15,6 +15,7 @@ cannot ask for replay, and outside replay the fixture name means nothing.
 | `calls-a-tool` | A `Bash` tool call — the tool row, its result, the details pane |
 | `asks-permission` | A `Bash` call that needs permission — the ask, the broadcast, the answer |
 | `spawns-agent` | An `Agent` call: a sub-agent that is a task of its session, not a session in the list |
+| `sets-a-goal` | A `GoalCreate` call (objective "Keep the fixture tests green"), then "Goal set.": a session with a goal. The engine opens the next round itself; the recording has nothing for it, the round fails and the goal is left ongoing but disarmed. Made from `calls-a-tool` by hand: the tool, its input and the text differ |
 | `leaves-a-process` | A `Bash` call that leaves a `tail -f /dev/null` in the background and prints its pid (ipdrun-07). Made from `calls-a-tool` by hand: only the tool input and the text differ |
 | `calls-a-native-tool` | A call to `ProbeFixed`, the tool `harnix-testapp`'s native scene contributes (ipdrun-10). Made the same way |
 | `flow-analyze` | The flow module's `analyze` station (xops-01): one call to `flow_submit` with `{findings: [one low finding]}`, then a line of text. Made from `calls-a-native-tool` by hand; `harnix-testapp` names a session task's recording `flow-<station>` |

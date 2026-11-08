@@ -147,6 +147,28 @@ test("system-agents: the active tab lists the loaded Agents, the all tab every o
   await expect(sub).toContainText("small");
   await expect(sub).toContainText("200");
   await row.getByTestId("system-agent").click();
+  const pane = page.getByTestId("system-session");
+  await expect(pane).toContainText(id);
+  // On the right: the Agent's own figures this run, as DSH counts them, and its sub-agents' sum.
+  const stats = pane.getByTestId("agent-stats");
+  await expect(stats.locator('[data-cell="turns"] .v')).toHaveText("1");
+  await expect(stats.locator('[data-cell="calls"] .v')).toHaveText("1");
+  await expect(stats.locator('[data-cell="total"] .v')).toHaveText("1.0k"); // 600 + 400 + 34
+  await expect(stats.locator('[data-cell="hit"] .v')).toHaveText("40%");
+  await expect(stats.locator('[data-cell="model"] .v')).toHaveText("900ms");
+  await expect(pane.getByTestId("agent-tokens")).toContainText(/cache read 400/);
+  await expect(pane.getByTestId("agent-subs")).toContainText("1");
+  await expect(pane.getByTestId("agent-goal")).toHaveCount(0);
+  // The model the next call goes to, and how full that call's context is.
+  await expect(pane.locator(".facts")).toContainText(/claude-|big/);
+  await expect(pane.getByTestId("agent-context")).toBeVisible();
+  // The sub-agent, picked: its own figures out of the parent's recording, and the way back.
+  await sub.click();
+  const subPane = page.getByTestId("system-subagent-pane");
+  await expect(subPane.getByTestId("agent-stats").locator('[data-cell="total"] .v')).toHaveText("200");
+  await expect(subPane.getByTestId("agent-stats").locator('[data-cell="model"] .v')).toHaveText("600ms");
+  await expect(subPane.locator(".facts")).toContainText("small");
+  await subPane.getByTestId("agent-open-parent").click();
   await expect(page.getByTestId("system-session")).toContainText(id);
 
   // The strip counts the Agents and what waits on a person.
@@ -159,6 +181,24 @@ test("system-agents: the active tab lists the loaded Agents, the all tab every o
   await page.locator('[data-testid="system-console"] [data-tab="all"]').click();
   await expect(agents).toHaveAttribute("data-scope", "all");
   await expect(agents.locator(`.tgroup[data-sid="${id}"]`)).toBeVisible();
+});
+
+test("system-agents: an Agent with a goal shows it on its row and on the right", TREE, async ({ page }) => {
+  await open(page, backend.url);
+  await newSession(page, "sets-a-goal");
+  await say(page, "Set the goal: keep the fixture tests green");
+  await expect(page.locator('[data-testid="conv-message"]', { hasText: "Goal set." })).toBeVisible({ timeout: 30_000 });
+  const id = await page.evaluate(() => (window as any).harnix.app.snapshot.current?.sessionId as string);
+  await toSystem(page);
+  const row = page.locator(`[data-testid="system-agents"] .tgroup[data-sid="${id}"]`);
+  const chip = row.getByTestId("system-agent-goal");
+  await expect(chip).toHaveAttribute("data-phase", "active", { timeout: 15_000 });
+  await expect(chip).toHaveAttribute("title", "Keep the fixture tests green");
+  await row.getByTestId("system-agent").click();
+  const goal = page.getByTestId("system-session").getByTestId("agent-goal");
+  await expect(goal).toHaveAttribute("data-phase", "active");
+  await expect(goal).toContainText("Keep the fixture tests green");
+  await expect(goal).toContainText(/Round|轮/);
 });
 
 test("system-agents: an Agent waiting on its permission ask says so, first in the list, and counts on the strip", TREE, async ({ page }) => {

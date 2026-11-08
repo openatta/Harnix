@@ -24,6 +24,7 @@ const SYSTEM_METHODS = [
   "harnix.system.calls",
   "harnix.system.turns",
   "harnix.system.usage",
+  "harnix.system.goal",
   "harnix.system.tasks.stop",
   "harnix.system.tasks.output",
   "harnix.system.messages.drop",

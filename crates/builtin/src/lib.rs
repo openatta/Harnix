@@ -149,7 +149,7 @@ const PARTS: &[Part] = &[
 /// takes its methods out of the authorization table rather than only out of sight (design §9.1).
 const SYSTEM: Part = Part {
     id: "system",
-    disclosure: "系统 space：看任何实例的会话与任务、读调用信封与上下文、任务的输出；压缩、清空、换模型、改名、改写或删除消息、停止任务。每次操作写审计",
+    disclosure: "系统 space：看任何实例的会话与任务、读调用信封与上下文、任务的输出、会话的目标与用量；压缩、清空、换模型、改名、改写或删除消息、停止任务。每次操作写审计",
     methods: &[
         "harnix.system.context",
         "harnix.system.calls",
@@ -165,6 +165,7 @@ const SYSTEM: Part = Part {
         "harnix.system.clear",
         "harnix.system.model",
         "harnix.system.rename",
+        "harnix.system.goal",
     ],
     grants: &[
         "session.inspectContext",
@@ -176,6 +177,7 @@ const SYSTEM: Part = Part {
         "session.clear",
         "session.setModel",
         "session.rename",
+        "session.goal",
     ],
 };
 

@@ -45,11 +45,19 @@ test("system-tasks: a running task's output grows in the tasks tab and, followed
   // The output is under the task's header, as wide as the task — not squeezed in beside it.
   const width = async (selector: string) => (await page.locator(selector).first().boundingBox())!.width;
   expect(await width('[data-testid="task-output-text"]')).toBeGreaterThan(0.8 * (await width('[data-testid="system-tasks"] .task.on')));
+  // The task's own detail: what it is, how it stands.
+  const detail = page.getByTestId("system-task");
+  await expect(detail.locator(".facts")).toContainText(/Monitor|监视器/);
+  await expect(detail.locator(".facts")).toContainText(/Running|运行中/);
   const lines = async () => ((await text.textContent()) ?? "").split("\n").filter((l) => l.startsWith("line-")).length;
   const first = await lines();
   // Long enough to overflow the box (it holds about seventeen lines), so following has to scroll.
   await expect.poll(lines, { timeout: 15_000 }).toBeGreaterThanOrEqual(Math.max(first + 3, 25));
   expect(await text.evaluate((el) => el.scrollHeight > el.clientHeight), "the output overflows its box").toBe(true);
+  // Read piece by piece from where the last read ended: the lines in order, none twice.
+  const seen = ((await text.textContent()) ?? "").split("\n").filter((l) => l.startsWith("line-"));
+  const at = Number(seen[0]!.slice(5));
+  expect(seen).toEqual(seen.map((_, i) => `line-${at + i}`));
   // Following: the newest line is in view, the box scrolled to its end.
   await expect
     .poll(() => text.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop), { timeout: 5_000 })
