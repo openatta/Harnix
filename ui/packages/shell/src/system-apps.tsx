@@ -13,6 +13,7 @@ import { Fragment, useEffect, useState } from "react";
 import { useT } from "@harnix/react";
 
 import type { App } from "./app.ts";
+import { SurfaceCount, SurfaceDetail } from "./surfaces/status.tsx";
 import { topicsOf } from "./topics.ts";
 
 /** The topic, and the method whose presence says the process hosts applications at all. */
@@ -108,6 +109,7 @@ export function AppsTab({ app }: { app: App }) {
             <th>{tr("system.apps.storage")}</th>
             <th>{tr("system.apps.calls")}</th>
             <th>{tr("system.apps.refused")}</th>
+            <th>{tr("system.apps.interface")}</th>
           </tr>
         </thead>
         <tbody>
@@ -132,10 +134,13 @@ export function AppsTab({ app }: { app: App }) {
                   <td data-field="storage">{h ? `${mb(h.storage_bytes)} / ${mb(h.storage_limit_bytes)}` : "—"}</td>
                   <td data-field="calls">{rt?.calls ? `${rt.calls.calls} · ${rt.calls.errors}` : "—"}</td>
                   <td data-field="refused">{refused.length}</td>
+                  <td data-field="surfaces">
+                    <SurfaceCount app={row.id} />
+                  </td>
                 </tr>
                 {open === row.id ? (
                   <tr data-testid="system-app-detail" data-app={row.id}>
-                    <td colSpan={9}>
+                    <td colSpan={10}>
                       {rt?.reason ? <div role="alert" data-testid="system-app-reason">{rt.reason}</div> : null}
                       {h?.last_error ? <div className="muted">{tr("system.apps.lastError", { error: h.last_error })}</div> : null}
                       {rt?.methods?.length ? <div className="muted">{tr("system.apps.methods", { methods: rt.methods.join(", ") })}</div> : null}
@@ -152,6 +157,7 @@ export function AppsTab({ app }: { app: App }) {
                       ) : (
                         <div className="muted">{tr("system.apps.noRefusals")}</div>
                       )}
+                      <SurfaceDetail app={row.id} />
                     </td>
                   </tr>
                 ) : null}

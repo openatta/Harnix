@@ -1,0 +1,220 @@
+/* Applications' isolated frames (`src/surfaces/`): the frame the shell draws around each — its
+ * loading, failure and note — the places kept frames are laid over, and the shell's own question
+ * drawn over everything. Colours only from tokens. */
+
+/* ── a surface ────────────────────────────────────────────────────────── */
+
+.hx-surface {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.hx-surface.fill {
+  height: 100%;
+}
+
+.hx-surface.sized {
+  min-height: 48px;
+  transition: height var(--dur-fast) var(--ease);
+}
+
+.hx-frame-holder {
+  position: absolute;
+  inset: 0;
+}
+
+.hx-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color-scheme: normal;
+}
+
+/* Dragging a column edge: the pointer is the page's, not the frame's it passes over. */
+html.resizing .hx-frame {
+  pointer-events: none;
+}
+
+.hx-surface-cover {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  background: var(--bg-base);
+  color: var(--label-tertiary);
+  font-size: 13px;
+  text-align: center;
+}
+
+.hx-surface.sized .hx-surface-cover {
+  position: relative;
+  min-height: 48px;
+  background: transparent;
+}
+
+.hx-surface-cover.loading {
+  flex-direction: row;
+  /* Only a load that takes a moment is shown: a quick one would only flash. */
+  animation: hx-surface-in var(--dur) var(--ease) 250ms both;
+}
+
+@keyframes hx-surface-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.hx-surface-cover.failed {
+  color: var(--label-secondary);
+}
+
+.hx-surface-title {
+  color: var(--label-primary);
+  font-weight: 600;
+}
+
+.hx-surface-why {
+  max-width: 420px;
+  color: var(--label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.hx-spin {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-l3);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: hx-spin 0.8s linear infinite;
+}
+
+@keyframes hx-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── kept frames, laid over their slots ───────────────────────────────── */
+
+.hx-slot {
+  width: 100%;
+  height: 100%;
+  min-height: 120px;
+}
+
+.hx-kept {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  visibility: hidden;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* The places a frame fills edge to edge: no padding of the shell's around it, no scroll of the
+ * shell's (the frame scrolls itself). */
+#overview:has(> .dash-in > .hx-slot) {
+  overflow: hidden;
+}
+
+#overview .dash-in:has(> .hx-slot) {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0;
+}
+
+#overview .dash-in:has(> .hx-slot) > .hx-slot {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+#details .body:has(> .hx-slot),
+#sessions:has(> .hx-slot) {
+  overflow: hidden;
+  padding: 0;
+}
+
+#secondary .body:has(> .hx-surface.fill) {
+  overflow: hidden;
+  padding: 0;
+}
+
+#details .body:has(> .hx-surface.fill) {
+  overflow: hidden;
+  padding: 0;
+}
+
+.hx-modal-surface {
+  min-width: 0;
+}
+
+/* ── the shell's question, over everything ────────────────────────────── */
+
+.hx-ask-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--bg-mask);
+}
+
+#hx-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 420px;
+  max-width: 100%;
+  padding: 18px 18px 16px;
+  border: 1px solid var(--border-l2);
+  border-radius: 18px;
+  background: var(--bg-layer-1);
+  box-shadow: var(--shadow-float);
+}
+
+.hx-ask-who {
+  color: var(--label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.hx-ask-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.hx-ask-text {
+  color: var(--label-secondary);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.hx-ask-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.btn.primary.danger-fill {
+  background: var(--state-error);
+}
+
+.btn.primary.danger-fill:hover:not(:disabled) {
+  background: var(--state-error);
+  opacity: 0.9;
+}
