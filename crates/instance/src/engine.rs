@@ -266,6 +266,9 @@ pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
             credentials: config.contrib.credentials.clone(),
             transcripts,
             permission: None,
+            // Modules contribute through the customizer; nothing in Harnix is a
+            // `runtime::plugin::Plugin` yet.
+            plugins: Vec::new(),
             customize_session: config.contrib.composed(),
             mcp_oauth_resolver: None,
         },

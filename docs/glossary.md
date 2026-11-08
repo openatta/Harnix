@@ -72,7 +72,7 @@
 | 术语 | 代码 | 意思 |
 |---|---|---|
 | **模块** | `Module` | 编译期链接进来的 Rust 代码，实现 `Module` trait。内核级信任。内建功能也是模块（**内建模块**） |
-| **插件** | plugin | **只**指 Agix 的包（WASM / QuickJS / manifest）。Harnix 没有自己的插件体系 |
+| **插件** | plugin | **只**指 Agix 的包（QuickJS 脚本 / manifest）。Harnix 没有自己的插件体系 |
 | **运行期包** | package | 安装时进来的 Agix 插件包。可以带 Agent 段（引擎读）和 `[[ui]]` 段（Harnix 读） |
 | **界面模块** | `[[ui]]` | 运行期包里给浏览器加载的预编译 ES 模块（贡献点 API 2：从页面的 import map 拿 React）。页面级信任；`[ui] runtime_modules = false` 时一律不加载 |
 | **space** | `space` | 左栏（`sidebar()`）+ 中区（默认是对话，`center`）+ 右栏（`tabs`）合起来，原子注册。会话按 space 绑定 |

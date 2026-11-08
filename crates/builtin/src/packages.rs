@@ -234,8 +234,9 @@ mod tests {
             version = "1.0.0"
             api_version = "1"
 
-            [[wasm]]
-            component = "p.wasm"
+            [[script]]
+            point = "tool.result"
+            entry = "scripts/p.js:onResult"
 
             [[mcp]]
             name = "gh"
@@ -253,8 +254,9 @@ mod tests {
             version = "1.0.0"
             api_version = "1"
 
-            [[wasm]]
-            component = "p.wasm"
+            [[script]]
+            point = "tool.result"
+            entry = "scripts/p.js:onResult"
 
             [[mcp]]
             name = "gh"
