@@ -101,7 +101,7 @@ test.describe("the store, trusted", () => {
     expect(app.installed).toBeUndefined();
     expect(app.versions.map((v: any) => v.version)).toEqual(["0.2.0", "0.1.0"]);
     expect(app.versions[0].engines).toEqual([fingerprint]);
-    expect(app.capabilities.env).toEqual(["SHOWCASE_TOKEN"]);
+    expect(app.capabilities.env).toEqual(["SHOWCASE_TOKEN", "SHOWCASE_EXTRA"]);
     // Nothing is installed by looking.
     expect((await api.call("harnix.apps.list")).apps).toEqual([]);
   });
@@ -184,12 +184,32 @@ test.describe("the store, trusted", () => {
       publisher: "example",
       trust: "store",
       publisher_key: MOCK_PUBLISHER,
-      capabilities: { storage_mb: 1, fs: ["${project}"], net: [], env: [], hub: [] },
-      component: { world: "harnix:app/tools-app@0.1.0" },
-      ui: [{ point: "home.card", module: "showcase.js" }],
+      capabilities: {
+        storage_mb: 1,
+        fs: ["${project}"],
+        net: ["127.0.0.1"],
+        env: ["SHOWCASE_TOKEN"],
+        hub: ["session.create", "harnix.send", "topic:harnix.sessions.status"],
+      },
+      component: { world: "harnix:app/backend-app@0.1.0" },
+      ui: [
+        { point: "home.card", module: "showcase.js" },
+        { point: "space", module: "showcase.js" },
+      ],
       agent: { package: "example-showcase", install_into: ["system"] },
     });
-    expect(disclosed.disclosure.lines.map((l: any) => l.capability)).toEqual(["storage_mb", "fs", "ui", "agent"]);
+    expect(disclosed.disclosure.lines.map((l: any) => l.capability)).toEqual([
+      "net",
+      "env",
+      "storage_mb",
+      "hub",
+      "hub",
+      "hub",
+      "fs",
+      "ui",
+      "ui",
+      "agent",
+    ]);
     // Disclosed, and nothing done.
     expect((await api.call("harnix.apps.list")).apps).toEqual([]);
 
@@ -236,7 +256,7 @@ test.describe("the store, trusted", () => {
     expect(asked.disclosure.update).toMatchObject({ from: "0.1.0", needs_consent: true });
     expect(asked.disclosure.update.added).toEqual([
       { capability: "net", value: "api.example.com" },
-      { capability: "env", value: "SHOWCASE_TOKEN" },
+      { capability: "env", value: "SHOWCASE_EXTRA" },
       { capability: "storage_mb", value: 2, from: 1 },
     ]);
     // Not yet.
@@ -249,7 +269,7 @@ test.describe("the store, trusted", () => {
     expect(updated).toMatchObject({ id: SHOWCASE_ID, version: "0.2.0", from: "0.1.0", trust: "store", enabled: true });
     const listed = (await api.call("harnix.apps.list")).apps[0];
     expect(listed).toMatchObject({ version: "0.2.0", trust: "store", runtime: { state: "running" } });
-    expect(listed.app.capabilities.env).toEqual(["SHOWCASE_TOKEN"]);
+    expect(listed.app.capabilities.env).toEqual(["SHOWCASE_TOKEN", "SHOWCASE_EXTRA"]);
     expect(existsSync(join(backend.state, "apps", SHOWCASE_ID, "0.1.0")), "the old version's files").toBe(false);
     // Its data came along: the count goes on.
     const count = await session(api, "app-count");

@@ -225,9 +225,10 @@ fn tampered(package: &Path, name: &str, bytes: &[u8], out: &Path) {
 fn grow(manifest: String) -> String {
     manifest
         .replace("version = \"0.1.0\"", "version = \"0.2.0\"")
+        .replace("storage_mb = 1", "storage_mb = 4")
         .replace(
-            "storage_mb = 1",
-            "storage_mb = 4\nenv = [\"SHOWCASE_TOKEN\"]",
+            "env = [\"SHOWCASE_TOKEN\"]",
+            "env = [\"SHOWCASE_TOKEN\", \"SHOWCASE_EXTRA\"]",
         )
 }
 
@@ -363,7 +364,7 @@ async fn an_update_discloses_what_it_adds_keeps_the_data_and_undoes_itself_when_
     assert_eq!(
         update["added"],
         json!([
-            {"capability": "env", "value": "SHOWCASE_TOKEN"},
+            {"capability": "env", "value": "SHOWCASE_EXTRA"},
             {"capability": "storage_mb", "value": 4, "from": 1},
         ])
     );
@@ -426,6 +427,6 @@ async fn an_update_discloses_what_it_adds_keeps_the_data_and_undoes_itself_when_
     };
     assert_eq!(
         rig.runtime.describe(&updated, &app_dir)["capabilities"]["env"],
-        json!(["SHOWCASE_TOKEN"])
+        json!(["SHOWCASE_TOKEN", "SHOWCASE_EXTRA"])
     );
 }

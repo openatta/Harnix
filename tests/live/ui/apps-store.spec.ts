@@ -65,7 +65,7 @@ test("the store's application is installed through its disclosure, and only thro
   for (const capability of ["net", "env", "storage_mb", "fs", "ui", "agent"]) {
     await expect(disclosure.locator(`[data-capability="${capability}"]`).first(), capability).toBeVisible();
   }
-  await expect(disclosure).toContainText("SHOWCASE_TOKEN");
+  await expect(disclosure).toContainText("SHOWCASE_EXTRA");
   await expect(disclosure).toContainText("api.example.com");
   // Shown, and nothing installed.
   expect(await listed()).toEqual([]);
@@ -81,7 +81,7 @@ test("the store's application is installed through its disclosure, and only thro
   await expect(installed).toHaveAttribute("data-trust", "store");
   await expect(installed).toHaveAttribute("data-version", "0.2.0");
   await expect(installed).toContainText(/Countersigned by the store|商店已副署/);
-  await expect(installed.locator('[data-capability="env"]')).toContainText("SHOWCASE_TOKEN");
+  await expect(installed.locator('[data-capability="env"]', { hasText: "SHOWCASE_EXTRA" })).toBeVisible();
   await expect(offered).toContainText(/Installed \(0\.2\.0\)|已安装（0\.2\.0）/);
   expect((await listed())[0]).toMatchObject({ id: SHOWCASE_ID, version: "0.2.0", trust: "store" });
   expect(errors).toEqual([]);
@@ -119,7 +119,7 @@ test("an update shows only what it adds, and waits for its own consent", TAGS, a
   await expect(disclosure).toContainText(/0\.1\.0.*0\.2\.0/);
   // What 0.1.0 already had is not asked for again.
   await expect(disclosure.locator("[data-capability]")).toHaveCount(3);
-  await expect(disclosure.locator('[data-capability="env"]')).toContainText("SHOWCASE_TOKEN");
+  await expect(disclosure.locator('[data-capability="env"]')).toContainText("SHOWCASE_EXTRA");
   await expect(disclosure.locator('[data-capability="net"]')).toContainText("api.example.com");
   await expect(disclosure.locator('[data-capability="storage_mb"]')).toContainText("2 MB");
   await expect(disclosure.locator('[data-capability="fs"]')).toHaveCount(0);

@@ -68,7 +68,9 @@ export interface MockStore {
 function grown(manifest: string): string {
   return manifest
     .replace('version = "0.1.0"', 'version = "0.2.0"')
-    .replace("storage_mb = 1", 'storage_mb = 2\nenv = ["SHOWCASE_TOKEN"]\nnet = ["api.example.com"]');
+    .replace("storage_mb = 1", "storage_mb = 2")
+    .replace('env = ["SHOWCASE_TOKEN"]', 'env = ["SHOWCASE_TOKEN", "SHOWCASE_EXTRA"]')
+    .replace('net = ["127.0.0.1"]', 'net = ["127.0.0.1", "api.example.com"]');
 }
 
 /** A fresh mock store in a temporary directory. */
