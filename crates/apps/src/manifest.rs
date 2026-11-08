@@ -378,6 +378,12 @@ impl Manifest {
                 ));
             }
         }
+        // What is written under ${data} counts toward `storage_mb`: with none, it could write nothing.
+        if caps.storage_mb == 0 && caps.fs.iter().any(|p| p.starts_with("${data}")) {
+            return Err(format!(
+                "{MANIFEST}: `fs` grants ${{data}}, and its files count toward `storage_mb`, which is 0"
+            ));
+        }
         // The grants themselves are checked when the VM starts (`harnix-wasm`); the anchors here.
         for path in &caps.fs {
             if !(path.starts_with("${data}") || path.starts_with("${project}")) {
@@ -667,6 +673,11 @@ install_into = ["system"]
             (GOOD.replace("0.1.0", "one"), "not a version"),
             (GOOD.replace("tools-app@0.1.0", "tools@0.1.0"), "world is one of"),
             (GOOD.replace("fs = [\"${project}\"]", "fs = [\"/etc\"]"), "must start with"),
+            (
+                GOOD.replace("storage_mb = 1", "storage_mb = 0")
+                    .replace("fs = [\"${project}\"]", "fs = [\"${data}\"]"),
+                "which is 0",
+            ),
             (GOOD.replace("storage_mb = 1", "net = [\"https://x.example\"]"), "lists hosts"),
             (GOOD.replace("api_version = 2", "api_version = 1"), "contribution API 1"),
             (GOOD.replace("showcase.js", "../escape.js"), "under ui/"),

@@ -303,6 +303,8 @@ async fn files_are_reachable_only_inside_a_preopened_directory() {
                     path: "${data}/notes".into(),
                     writable: true,
                 }],
+                // What it writes there counts toward this.
+                storage_bytes: 1 << 20,
                 ..Default::default()
             },
             limits(5_000),
