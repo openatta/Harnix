@@ -188,6 +188,26 @@ describe("发送", () => {
     elsewhere.remove();
   });
 
+  it("排队中的一条能就地改：保存发 harnix.queue.edit，原位留下新的话；Esc 放弃不发", async () => {
+    server.handlers["harnix.attach"] = () => attached("S1", { queue: [{ item_id: "q1", message: "旧的话", attachments: [] }] });
+    server.handlers["harnix.queue.edit"] = (p) => ({ items: [{ item_id: "q1", message: String(p.message), attachments: [] }] });
+    mount();
+    await settle();
+    fireEvent.click(screen.getByTestId("conv-queue-edit"));
+    const editor = screen.getByTestId("conv-queue-editor") as HTMLTextAreaElement;
+    expect(editor.value).toBe("旧的话");
+    fireEvent.keyDown(editor, { key: "Escape" });
+    expect(screen.queryByTestId("conv-queue-editor")).toBeNull();
+    expect(server.called("harnix.queue.edit")).toHaveLength(0);
+
+    fireEvent.click(screen.getByTestId("conv-queue-edit"));
+    fireEvent.change(screen.getByTestId("conv-queue-editor"), { target: { value: "新的话" } });
+    await act(async () => fireEvent.click(screen.getByTestId("conv-queue-save")));
+    await settle();
+    expect(server.called("harnix.queue.edit")[0]!.params).toMatchObject({ session_id: "S1", item_id: "q1", message: "新的话" });
+    expect(screen.getByTestId("conv-queue-item").textContent).toContain("新的话");
+  });
+
   it("disabled（如断线）：发送不可用，已输入的内容保留", async () => {
     const view = mount({ draftKey: "D" });
     await settle();

@@ -92,6 +92,7 @@ pub const HUB_METHODS: &[&str] = &[
     "harnix.detach",
     "harnix.send",
     "harnix.queue.remove",
+    "harnix.queue.edit",
     "harnix.subscribe",
     "harnix.unsubscribe",
     "harnix.instances.list",
@@ -544,6 +545,7 @@ impl Hub {
             "harnix.detach" => return self.detach(subject, params).await,
             "harnix.send" => return self.send(subject, params).await,
             "harnix.queue.remove" => return self.queue_remove(params).await,
+            "harnix.queue.edit" => return self.queue_edit(params).await,
             "session.interrupt" => return self.interrupt(params).await,
             "session.close" | "session.delete" => {
                 return self.close_or_delete(method, params).await

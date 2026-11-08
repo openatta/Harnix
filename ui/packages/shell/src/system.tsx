@@ -20,7 +20,7 @@ import { errorText } from "@harnix/core";
 import { Disclosure, clip, t, useT, type SpaceTab } from "@harnix/react";
 
 import { keyOf, type App, type SessionKey } from "./app.ts";
-import { confirmDialog, Connections, renameDialog, since, type Connection } from "./dialogs.tsx";
+import { confirmDialog, Connections, exportDialog, renameDialog, since, type Connection } from "./dialogs.tsx";
 import { Glyph } from "./glyph.tsx";
 import { useShell } from "./hooks.ts";
 import { Diagnostics } from "./settings.tsx";
@@ -849,6 +849,7 @@ function Operations({ app, view, session, name }: { app: App; view: View; sessio
       run: () => renameDialog(app, tr("system.op.model"), app.snapshot.hello?.engine?.model ?? "", (model) => system("model", { model: model.trim() })),
     },
     { id: "interrupt", icon: "stop", label: tr("system.op.interrupt"), run: () => void act(app, () => claimed("session.interrupt")) },
+    { id: "export", icon: "download", label: tr("system.op.export"), run: () => exportDialog(app, { ...target, space: SYSTEM }) },
     { id: "rename", icon: "edit", label: tr("system.op.rename"), run: () => renameDialog(app, tr("system.op.rename"), name, (value) => system("rename", { name: value.trim() })) },
     { id: "close", icon: "close", label: tr("system.op.close"), run: () => void act(app, () => claimed("session.close")).then(settled) },
     {
@@ -1695,7 +1696,13 @@ function TasksTab({ app, view, session }: { app: App; view: View; session: Sessi
 function TaskOutput({ app, params, task }: { app: App; params: { instance: string; session_id: string }; task: Task }) {
   const tr = useT();
   const [out, setOut] = useState<{ output: string; truncated: boolean } | null>(null);
+  const [follow, setFollow] = useState(true);
+  const pre = useRef<HTMLPreElement>(null);
   const live = LIVE.has(task.status);
+  // Following: what just arrived stays in view.
+  useEffect(() => {
+    if (follow && pre.current) pre.current.scrollTop = pre.current.scrollHeight;
+  }, [out, follow]);
   useEffect(() => {
     let stopped = false;
     const read = () =>
@@ -1716,8 +1723,16 @@ function TaskOutput({ app, params, task }: { app: App; params: { instance: strin
       <div className="label">
         {tr("system.taskOutput")}
         {out.truncated ? <span className="hint">{tr("system.outputTruncated")}</span> : null}
+        {live ? (
+          <label className="check end">
+            <input type="checkbox" data-testid="task-follow" checked={follow} onChange={(e) => setFollow(e.target.checked)} />
+            {tr("system.follow")}
+          </label>
+        ) : null}
       </div>
-      <pre className="hx-pre">{out.output || tr("system.noOutput")}</pre>
+      <pre className="hx-pre scroll" ref={pre} data-testid="task-output-text">
+        {out.output || tr("system.noOutput")}
+      </pre>
     </div>
   );
 }

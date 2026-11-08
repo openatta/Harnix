@@ -24,6 +24,9 @@ export interface HarnixUiStrings {
   runningElsewhere: string;
   queued: (index: number) => string;
   queueRemove: string;
+  queueEdit: string;
+  queueSave: string;
+  queueCancel: string;
   removeAttachment: string;
   uploading: string;
   interrupted: string;
@@ -150,6 +153,9 @@ export const zhCN: HarnixUiStrings = {
   runningElsewhere: "这个会话正在别处运行",
   queued: (index) => `排队 ${index}`,
   queueRemove: "撤回",
+  queueEdit: "编辑",
+  queueSave: "保存",
+  queueCancel: "取消",
   removeAttachment: "去掉这个附件",
   uploading: "正在上传…",
   interrupted: "已中断",
@@ -274,6 +280,9 @@ export const en: HarnixUiStrings = {
   runningElsewhere: "This session is running elsewhere",
   queued: (index) => `Queued ${index}`,
   queueRemove: "Withdraw",
+  queueEdit: "Edit",
+  queueSave: "Save",
+  queueCancel: "Cancel",
   removeAttachment: "Remove this attachment",
   uploading: "Uploading…",
   interrupted: "Interrupted",

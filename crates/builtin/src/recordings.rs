@@ -31,7 +31,7 @@ use crate::{require_session_id, Builtin};
 
 impl Builtin {
     /// Where an instance writes a session's recording.
-    fn recording_dir(&self, instance: &str, session_id: &str) -> Result<PathBuf, RpcError> {
+    pub(crate) fn recording_dir(&self, instance: &str, session_id: &str) -> Result<PathBuf, RpcError> {
         let handle = self.instance(instance).ok_or_else(|| {
             RpcError::new(
                 codes::INSTANCE_NOT_FOUND,

@@ -216,6 +216,34 @@ test.describe("on", () => {
     expect((await api.refused("harnix.system.turns", {}))?.code).toBe(INVALID_PARAMS);
   });
 
+  test("a session exported as markdown to read and as a bundle to keep, the recording only when asked", TAGS, async () => {
+    const s = await oneTurn(api, "sessions");
+    const own = { ...s, space: "sessions" };
+    const md = await api.call("harnix.sessions.export", { ...own, format: "markdown" });
+    expect(md.format).toBe("markdown");
+    expect(md.file).toMatch(/\.md$/);
+    expect(md.content).toContain("**User**\n\nSay exactly: fixture ready");
+    expect(md.content).toMatch(/\*\*Assistant\*\*\n\n[\s\S]*fixture ready/i);
+
+    const history = await api.call("session.history", { ...s, space: "system" });
+    const plain = await api.call("harnix.sessions.export", { ...own, format: "bundle" });
+    expect(plain.file).toMatch(/\.json$/);
+    expect(plain.content).toMatchObject({ kind: "harnix-session", version: 1 });
+    expect(plain.content.messages).toHaveLength(history.total);
+    expect(plain.content.recording, "no recording unless asked").toBeUndefined();
+
+    cpSync(join(RECORDINGS, "says-ready"), join(backend.scratch, "agix", "recordings", s.session_id), { recursive: true });
+    const full = await api.call("harnix.sessions.export", { ...own, format: "bundle", recording: true });
+    expect(full.content.recording.calls).toContain('"type":"call"');
+    expect(Object.keys(full.content.recording.blobs).length).toBeGreaterThan(0);
+
+    // A session of another space is not this caller's to export; nor a format that is not one.
+    expect((await api.refused("harnix.sessions.export", { ...s, space: "fleet", format: "markdown" }))?.code).toBe(SPACE_MISMATCH);
+    expect((await api.refused("harnix.sessions.export", { ...own, format: "pdf" }))?.code).toBe(INVALID_PARAMS);
+    const audit = await api.call("harnix.audit", { limit: 50 });
+    expect(audit.entries.some((e: any) => e.method === "harnix.sessions.export")).toBe(true);
+  });
+
   test("a session's model is switched from the system space, and says so", TAGS, async () => {
     const s = await oneTurn(api, "fleet");
     await api.call("harnix.system.model", { ...s, model: "claude-haiku-5-5" });

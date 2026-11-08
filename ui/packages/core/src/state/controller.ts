@@ -403,6 +403,22 @@ export class SessionController {
     }
   }
 
+  /** 改排队中那一条的话（位置和附件不变）。已经开始或已撤回的会被拒绝，横幅说明。 */
+  async editQueued(itemId: string, message: string): Promise<boolean> {
+    try {
+      const result = await this.client.call("harnix.queue.edit", {
+        ...this.key(),
+        item_id: itemId,
+        message,
+      });
+      this.set({ ...this.state, queue: result.items || [] });
+      return true;
+    } catch (e) {
+      this.set({ ...this.state, banner: errorText(e) });
+      return false;
+    }
+  }
+
   /** 放一块界面自己的内容进流（`custom` 块）。还在追赶时不放：追赶会整个重建状态。 */
   insert(type: string, data: unknown): boolean {
     if (this.state.loading) return false;

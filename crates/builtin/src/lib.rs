@@ -14,6 +14,7 @@
 //! State lives in Harnix's own directory, never mixed into the engine's root —
 //! see [`store`]. Deleting it loses grouping and titles and nothing else.
 
+mod export;
 pub mod files;
 pub mod packages;
 pub mod plugins;
@@ -81,6 +82,7 @@ const PARTS: &[Part] = &[
             "harnix.workspaces.remove",
             "harnix.sessions.rename",
             "harnix.sessions.archive",
+            "harnix.sessions.export",
             "harnix.prefs.set",
             "harnix.search",
             "harnix.listDirectory",
@@ -324,6 +326,7 @@ impl Builtin {
             "harnix.workspaces.remove" => self.workspaces_remove(params).await,
             "harnix.sessions.rename" => self.session_rename(params).await,
             "harnix.sessions.archive" => self.session_archive(params).await,
+            "harnix.sessions.export" => self.session_export(params).await,
             "harnix.sessions.setModel" => self.session_set_model(params).await,
             "harnix.prefs.set" => self.prefs_set(params).await,
             "harnix.search" => self.search(params).await,

@@ -141,6 +141,81 @@ export interface ChatPanelProps {
   className?: string;
 }
 
+/** 排队中的一条：撤回，或者就地改它的话（改完还排在原位）。 */
+function QueuedItem({
+  id,
+  text,
+  controller,
+  testId,
+  note,
+  editable,
+}: {
+  id: string;
+  text: string;
+  controller: SessionController | null;
+  testId: string;
+  note?: ReactNode;
+  editable: boolean;
+}) {
+  const strings = useStrings();
+  const [draft, setDraft] = useState<string | null>(null);
+  if (draft !== null) {
+    const save = async () => {
+      if (!draft.trim() || draft === text) return setDraft(null);
+      if (await controller?.editQueued(id, draft)) setDraft(null);
+    };
+    return (
+      <div className="hx-blk hx-cv-u" data-testid={testId} data-id={id} data-state="editing">
+        <div className="hx-cv-ub">
+          <textarea
+            className="hx-cv-qedit"
+            data-testid="conv-queue-editor"
+            value={draft}
+            autoFocus
+            rows={Math.min(6, Math.max(2, draft.split("\n").length))}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setDraft(null);
+              else if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                void save();
+              }
+            }}
+          />
+          <div className="hx-cv-q">
+            <button type="button" data-testid="conv-queue-save" onClick={() => void save()}>
+              {strings.queueSave}
+            </button>
+            <button type="button" data-testid="conv-queue-cancel" onClick={() => setDraft(null)}>
+              {strings.queueCancel}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <QueuedBubble
+      testId={testId}
+      id={id}
+      text={text}
+      note={note}
+      action={
+        editable ? (
+          <>
+            <button type="button" data-testid="conv-queue-edit" onClick={() => setDraft(text)}>
+              {strings.queueEdit}
+            </button>
+            <button type="button" data-testid="conv-queue-remove" onClick={() => void controller?.removeQueued(id)}>
+              {strings.queueRemove}
+            </button>
+          </>
+        ) : undefined
+      }
+    />
+  );
+}
+
 export function ChatPanel(props: ChatPanelProps) {
   if (!props.sessionId) return <ChatFrame {...props} state={null} controller={null} />;
   return <LiveChat {...props} sessionId={props.sessionId} />;
@@ -640,19 +715,14 @@ function ChatFlow({
         />
       ))}
       {queue.map((item) => (
-        <QueuedBubble
+        <QueuedItem
           key={item.item_id}
-          testId={queueConfig?.testId ?? "conv-queue-item"}
           id={item.item_id}
           text={item.message}
+          controller={controller}
+          testId={queueConfig?.testId ?? "conv-queue-item"}
           note={queueConfig?.note}
-          action={
-            queueConfig?.removable === false ? undefined : (
-              <button type="button" data-testid="conv-queue-remove" onClick={() => void controller?.removeQueued(item.item_id)}>
-                {strings.queueRemove}
-              </button>
-            )
-          }
+          editable={queueConfig?.removable !== false}
         />
       ))}
       {extra.map((item) => (

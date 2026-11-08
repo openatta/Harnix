@@ -424,6 +424,38 @@ impl Hub {
         Ok(json!({"items": snapshot}))
     }
 
+    /// `harnix.queue.edit {session_id, item_id, message}`: change what a queued message says before
+    /// it runs. Its place and attachments stay. One that has started (or was withdrawn) is no longer
+    /// in the queue, and is refused rather than quietly sent as it was.
+    pub(crate) async fn queue_edit(self: &Arc<Self>, params: Value) -> Result<Value, RpcError> {
+        let key = self.key_of(&params)?;
+        let item_id = params
+            .get("item_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError::invalid_params("missing item_id"))?
+            .to_string();
+        let message = params
+            .get("message")
+            .and_then(Value::as_str)
+            .filter(|m| !m.trim().is_empty())
+            .ok_or_else(|| RpcError::invalid_params("missing message: to take it out of the queue, harnix.queue.remove"))?
+            .to_string();
+        let (watchers, snapshot) = {
+            let mut guard = self.inner.lock().await;
+            let state = guard.sessions.entry(key.clone()).or_default();
+            let Some(item) = state.queue.iter_mut().find(|i| i.item_id == item_id) else {
+                return Err(RpcError::new(
+                    harnix_contract::codes::REFUSED,
+                    format!("`{item_id}` is not waiting in this session's queue: it has started or was withdrawn"),
+                ));
+            };
+            item.message = message;
+            (state.watchers(), state.queue_view())
+        };
+        self.push_queue(&key, &watchers, snapshot.clone()).await;
+        Ok(json!({"items": snapshot}))
+    }
+
     /// The queue is pushed **whole**, never as a delta. A merge bug only shows
     /// up in one order of arrival, and that order is not one tests reliably
     /// produce (§3.2).

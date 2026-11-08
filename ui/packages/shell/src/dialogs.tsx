@@ -345,6 +345,84 @@ export function confirmDialog(app: App, message: string, confirm: () => Promise<
   });
 }
 
+/* ── export ───────────────────────────────────────────────────────────── */
+
+/** Where a session is, and the space a call about it claims. */
+export interface ExportTarget {
+  instance: string;
+  session_id: string;
+  space: string;
+}
+
+/**
+ * Export a session: as markdown to read, or as a bundle to keep (its facts, every message, its
+ * entries — and the recorded model calls only when asked, since they carry the full prompts and
+ * tool input). The file is made here from what the backend answers.
+ */
+export function exportDialog(app: App, target: ExportTarget): void {
+  app.openModal({ title: t("dialog.export"), content: <ExportForm app={app} target={target} /> });
+}
+
+function ExportForm({ app, target }: { app: App; target: ExportTarget }) {
+  const [format, setFormat] = useState<"markdown" | "bundle">("markdown");
+  const [recording, setRecording] = useState(false);
+  const go = () =>
+    attempt(
+      app,
+      async () => {
+        const answer = await app.call<{ file: string; format: string; content: unknown }>("harnix.sessions.export", {
+          ...target,
+          format,
+          recording: format === "bundle" && recording,
+        });
+        const text = typeof answer.content === "string" ? answer.content : JSON.stringify(answer.content, null, 2);
+        const url = URL.createObjectURL(new Blob([text], { type: format === "markdown" ? "text/markdown" : "application/json" }));
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = answer.file;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        app.closeModal();
+      },
+      (error) => t("dialog.exportFailed", { error }),
+    );
+  return (
+    <>
+      <Body>
+        <div className="field">
+          <label className="check">
+            <input type="radio" name="export-format" data-testid="export-markdown" checked={format === "markdown"} onChange={() => setFormat("markdown")} />
+            {t("dialog.exportMarkdown")}
+          </label>
+          <label className="check">
+            <input type="radio" name="export-format" data-testid="export-bundle" checked={format === "bundle"} onChange={() => setFormat("bundle")} />
+            {t("dialog.exportBundle")}
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              data-testid="export-recording"
+              disabled={format !== "bundle"}
+              checked={format === "bundle" && recording}
+              onChange={(e) => setRecording(e.target.checked)}
+            />
+            {t("dialog.exportRecording")}
+          </label>
+          <div className="hint">{t("dialog.exportRecordingHint")}</div>
+        </div>
+      </Body>
+      <Foot>
+        <button type="button" className="btn outline" onClick={() => app.closeModal()}>
+          {t("common.cancel")}
+        </button>
+        <button type="button" className="btn primary" data-testid="export-go" onClick={() => void go()}>
+          {t("dialog.exportGo")}
+        </button>
+      </Foot>
+    </>
+  );
+}
+
 /* ── menus ────────────────────────────────────────────────────────────── */
 
 function MenuItem({ id, icon, label, sub, danger, onClick }: { id?: string; icon: string; label: string; sub?: string; danger?: boolean; onClick: () => void }) {
@@ -412,6 +490,12 @@ export function sessionMenu(app: App, session: ShellSession): void {
                   (error) => t("dialog.forkFailed", { error }),
                 )
               }
+            />
+            <MenuItem
+              icon="download"
+              id="export"
+              label={t("dialog.export")}
+              onClick={() => exportDialog(app, key)}
             />
             <MenuItem
               icon="archive"

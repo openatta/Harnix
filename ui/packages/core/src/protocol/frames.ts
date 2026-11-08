@@ -439,6 +439,7 @@ export interface Methods {
     result: SendResult;
   };
   "harnix.queue.remove": { params: SessionKey & { item_id: string }; result: { items: QueueItem[] } };
+  "harnix.queue.edit": { params: SessionKey & { item_id: string; message: string }; result: { items: QueueItem[] } };
   "harnix.subscribe": { params: { topic: string; params?: Record<string, unknown> }; result: { topic: string; value: unknown } };
   "harnix.unsubscribe": { params: { topic: string; params?: Record<string, unknown> }; result: { unsubscribed: boolean } };
   "harnix.instances.list": { params: Record<string, never>; result: { instances: InstanceRow[] } };

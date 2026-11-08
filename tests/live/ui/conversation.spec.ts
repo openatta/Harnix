@@ -74,6 +74,25 @@ test("a message sent during a turn queues, and can be withdrawn", TAGS, async ({
   await expect(queued).toHaveCount(0);
 });
 
+test("a queued message is edited in place, and keeps its place", TAGS, async ({ page }) => {
+  await open(page, URL);
+  await newSession(page, "asks-permission");
+  await say(page, "Use the Bash tool to run exactly: touch harnix-permission-fixture");
+  await expect(page.getByTestId("conv-ask")).toBeVisible({ timeout: 30_000 });
+  await say(page, "first, as written");
+  await say(page, "second");
+  const queued = page.getByTestId("conv-queue-item");
+  await expect(queued).toHaveCount(2);
+  await queued.first().getByTestId("conv-queue-edit").click();
+  const editor = page.getByTestId("conv-queue-editor");
+  await expect(editor).toHaveValue("first, as written");
+  await editor.fill("first, as edited");
+  await editor.press("Enter");
+  await expect(page.getByTestId("conv-queue-editor")).toHaveCount(0);
+  await expect(queued.first()).toContainText("first, as edited");
+  await expect(queued.nth(1)).toContainText("second");
+});
+
 test("stopping a turn says it was interrupted, not that it failed", TAGS, async ({ page }) => {
   await open(page, URL);
   await newSession(page, "asks-permission");
