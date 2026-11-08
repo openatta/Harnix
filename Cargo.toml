@@ -15,6 +15,7 @@ members = [
     "crates/module",
     "crates/testapp",
     "crates/transport",
+    "crates/wasm",
 ]
 
 # No `[workspace.package]`: each crate states its own version, licence,
@@ -36,6 +37,8 @@ members = [
 #                        └────→ instance → Agix
 #   module ─→ instance, authz, contract
 #   client ─→ contract                               (a process's own clients: CLI, tests, desktop shell)
+#   wasm                                             (applications' WebAssembly; a leaf: the host
+#                                                     implements its traits, and only it names wasmtime)
 # ──────────────────────────────────────────────
 [workspace.dependencies]
 harnix           = { path = "crates/harnix" }
@@ -49,6 +52,7 @@ harnix-flow      = { path = "crates/flow" }
 harnix-module    = { path = "crates/module" }
 harnix-hub       = { path = "crates/hub" }
 harnix-transport = { path = "crates/transport" }
+harnix-wasm      = { path = "crates/wasm" }
 
 # ──────────────────────────────────────────────
 # Agix (submodule at agix/)
@@ -60,9 +64,10 @@ harnix-transport = { path = "crates/transport" }
 # change here. Only the entry crates Harnix's crates name directly are listed.
 #
 # `daemon` keeps its default features: the QuickJS script carrier (~1 MB) and
-# the package layer. The plugin carrier (wasmtime, ~20 MB) is deliberately not
-# built; Agix's own table already turns it off by default. Extension
-# execution is Agix's; Harnix links no interpreter of its own.
+# the package layer. Agent extensions are Agix's, and Harnix links no
+# interpreter for them. An application's own WebAssembly (its backend and
+# tools) is Harnix's and runs in `harnix-wasm`, which only a build that
+# enables applications links.
 # ──────────────────────────────────────────────
 daemon    = { path = "agix/daemon" }
 base      = { path = "agix/crates/core" }

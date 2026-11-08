@@ -1,0 +1,215 @@
+/// The contract between Harnix and an application's WebAssembly components.
+///
+/// An application ships at most one component. A `tools-app` component gives the
+/// agent tools and may observe and veto lifecycle events; a `backend-app`
+/// component additionally holds the application's state, answers its methods
+/// (`app.<id>.<method>`), publishes its topics and reacts to timers and hub
+/// topics. Harnix runs the backend as one long-lived instance per process and
+/// every tool call and event in a fresh, short-lived one, so a tool cannot see
+/// the backend's memory: a tool that needs the application's state asks for
+/// it with `host.call` like any other caller.
+///
+/// # Stability
+///
+/// The application interface's major version is the manifest's `harnix_api`;
+/// this package is its WIT form. Within one `harnix_api`:
+///
+/// - **Functions and types are only added**, never changed or removed. A new
+///   function ships as a new patch version of this package (0.1.1, …), which
+///   a component built against 0.1.0 still links to: wasmtime matches imports
+///   semver-compatibly, and a component imports only what it calls.
+/// - **An existing record's fields and an existing variant's cases are
+///   frozen.** Unlike JSON, component-model types are checked structurally
+///   when a component is linked: a field added to `tool-def` makes it a
+///   different type, and every component built against the old one would
+///   stop linking. Where a shape is expected to
+///   grow it is a JSON string instead (`params-json`, `caller-json`,
+///   `config-json`, `payload-json`), and for those the rule is the familiar
+///   one — fields are only added, and a consumer ignores fields it does not
+///   know.
+/// - Anything else — a changed signature, a removed function, a new required
+///   export — is a new `harnix_api` and a new major version of this package.
+package harnix:app@0.1.0;
+
+interface types {
+  /// One tool a component exports.
+  record tool-def {
+    /// Unique within the application; Harnix namespaces it as
+    /// `app__<app id>__<name>`.
+    name: string,
+    /// One line. This is what ships in the model's tool list on every call,
+    /// so it is deliberately the short form.
+    description: string,
+    /// The long usage guide, fetched on demand rather than sent every turn.
+    doc: option<string>,
+    /// JSON Schema for the tool's input.
+    input-schema: string,
+    /// Declared for scheduling only. The host does not relax permissions
+    /// because a component says its tool is harmless.
+    read-only: bool,
+    concurrency-safe: bool,
+  }
+
+  /// A tool's result: model-facing content, an optional structured value
+  /// (JSON) for programmatic consumers, and the error flag. An error result
+  /// is the tool answering; only a trap is the tool failing.
+  record tool-output {
+    content: string,
+    structured: option<string>,
+    is-error: bool,
+  }
+
+  /// What a component may answer when the host offers it a lifecycle event.
+  ///
+  /// Observe and veto only. There is deliberately no "rewrite this" case:
+  /// silently altering another party's tool call is a different power from
+  /// refusing it, and it is not one a downloaded package gets.
+  variant hook-decision {
+    /// Nothing to say.
+    proceed,
+    /// Refuse, with a reason the user sees.
+    block(string),
+    /// Add an attributable note to the conversation.
+    add-context(string),
+  }
+
+  /// The answer to `host.http-request`.
+  record http-response {
+    status: u16,
+    headers: list<tuple<string, string>>,
+    body: list<u8>,
+  }
+
+  /// A method's failure, as the application wants its caller to see it.
+  /// Shaped like a JSON-RPC error, which is what the caller receives.
+  record app-error {
+    /// Application-defined; Harnix passes it through.
+    code: s32,
+    message: string,
+    /// Optional structured detail, as JSON.
+    data-json: option<string>,
+  }
+}
+
+/// Services the host lends to a component. Every function here is a place
+/// the application's declared capabilities are enforced, and a refusal says
+/// which capability would have allowed it.
+///
+/// There is no file API: files are reached through WASI, and only inside the
+/// directories the manifest's `fs` capability preopens (the application's
+/// own data directory, the project read-only). Re-implementing path checks
+/// as host functions is how those checks get subtly wrong.
+interface host {
+  use types.{http-response};
+
+  /// `level` is one of error, warn, info, debug; anything else logs as info.
+  log: func(level: string, msg: string);
+  /// Wall-clock milliseconds since the Unix epoch.
+  now-ms: func() -> u64;
+  /// Progress for the tool call `call-id`, shown to the user while it runs.
+  /// Outside a tool call it goes nowhere.
+  progress: func(call-id: string, text: string);
+
+  /// Subject to the manifest's `net` capability: the URL's host must be
+  /// listed exactly (no suffix rules). Redirects are not followed.
+  http-request: func(
+    method: string,
+    url: string,
+    headers: list<tuple<string, string>>,
+    body: option<list<u8>>,
+  ) -> result<http-response, string>;
+  /// Subject to the manifest's `env` capability. An undeclared name reads as
+  /// absent, the same as a declared one that is not set.
+  secret: func(key: string) -> option<string>;
+
+  /// The application's key-value storage: one namespace per application,
+  /// shared by its backend and its tool calls, bounded by the manifest's
+  /// `storage_mb` (keys and values both count), and deleted on uninstall.
+  kv-get: func(key: string) -> option<list<u8>>;
+  /// Fails when the write would take the namespace past its quota, or the
+  /// key is empty or longer than 120 bytes.
+  kv-set: func(key: string, value: list<u8>) -> result<_, string>;
+  kv-delete: func(key: string);
+
+  /// Call a hub method as the application (`module:<app id>`). Admission is
+  /// the hub's, against the manifest's `hub` capability, exactly as for a
+  /// compiled-in module's grants. The answer is the method's result as JSON,
+  /// or its error message.
+  call: func(method: string, params-json: string) -> result<string, string>;
+  /// Publish `value-json` on the application's topic `app.<id>.<topic>`.
+  publish: func(topic: string, value-json: string) -> result<_, string>;
+
+  /// Backend only. Subscribe to a hub topic; each value arrives at
+  /// `backend.on-topic`. Which topics may be subscribed is the hub's
+  /// decision, against the `hub` capability. Subscriptions belong to the
+  /// running backend instance and end with it.
+  subscribe: func(topic: string, params-json: string) -> result<_, string>;
+  unsubscribe: func(topic: string, params-json: string);
+  /// Backend only. Arm (or re-arm) the timer `id`; `backend.on-timer` is
+  /// called once after `after-ms`. Timers belong to the running backend
+  /// instance, do not survive a restart, and are bounded in number.
+  set-timer: func(id: string, after-ms: u64) -> result<_, string>;
+  cancel-timer: func(id: string);
+}
+
+interface tools {
+  use types.{tool-def, tool-output};
+  /// The authority on what this component provides. The manifest's tool list
+  /// is what the installer showed; this is what the host registers.
+  list-tools: func() -> list<tool-def>;
+  call-tool: func(name: string, input-json: string, call-id: string) -> tool-output;
+}
+
+/// Lifecycle events from the agent engine, offered for observation and veto.
+/// A component with nothing to say answers `proceed`.
+interface events {
+  use types.{hook-decision};
+  on-event: func(event: string, payload-json: string) -> hook-decision;
+}
+
+/// The application's resident logic. Calls into one backend are serialized:
+/// a `handle` that waits on the host (`call`, `http-request`) still holds the
+/// instance, so slow work belongs in "start it, report back via a timer or a
+/// topic". A call that outlives the manifest's `timeout_ms` is abandoned and
+/// the instance is replaced by a fresh one (`init` runs again): code stopped
+/// halfway cannot be trusted to have left its own state consistent.
+interface backend {
+  use types.{app-error};
+  /// Called on the resident instance, before anything else, with the
+  /// application's configuration; again whenever the instance is replaced.
+  /// An error stops the application from starting. Tool and event instances
+  /// are not initialized: what they need of the application's state they
+  /// ask the backend for, with `host.call`.
+  init: func(config-json: string) -> result<_, string>;
+  /// Answer the method `app.<id>.<method>`. `caller-json` describes who
+  /// called (`{"subject": …}`); the hub has already admitted the call.
+  handle: func(method: string, params-json: string, caller-json: string) -> result<string, app-error>;
+  /// A value on a topic this instance subscribed to.
+  on-topic: func(topic: string, value-json: string);
+  /// A timer this instance armed has fired.
+  on-timer: func(id: string);
+  /// The application is being stopped (turned off, uninstalled, or the
+  /// process is exiting). Bounded by the same timeout as any call. Not called
+  /// when the application is set aside for faulting: its instance is dropped.
+  stop: func();
+}
+
+/// A component that gives tools and observes events, and keeps no state of
+/// its own between calls (the key-value store aside).
+///
+/// The worlds are named apart from the interfaces because WIT gives a
+/// package one namespace for both; the manifest's `world` names one of these.
+world tools-app {
+  import host;
+  export tools;
+  export events;
+}
+
+/// A component with a resident backend, which also serves tools and events
+/// (each in an instance of its own, without `init`).
+world backend-app {
+  import host;
+  export backend;
+  export tools;
+  export events;
+}

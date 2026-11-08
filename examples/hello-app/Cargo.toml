@@ -24,6 +24,7 @@ harnix-flow      = { path = "harnix/crates/flow" }
 harnix-module    = { path = "harnix/crates/module" }
 harnix-hub       = { path = "harnix/crates/hub" }
 harnix-transport = { path = "harnix/crates/transport" }
+harnix-wasm      = { path = "harnix/crates/wasm" }
 daemon    = { path = "harnix/agix/daemon" }
 base      = { path = "harnix/agix/crates/core" }
 model     = { path = "harnix/agix/crates/model" }

@@ -33,6 +33,11 @@ scripts/prune.sh                       # 清构建缓存：增量缓存全删，
 拒跑并说明，免得跑到一半在某一层报出一个看不出原因的错。cargo 只增不删，每个里程碑、每次发布之后跑一次
 `scripts/prune.sh`。
 
+`harnix-wasm`（应用的 WebAssembly 运行时）的测试拿真组件跑：`crates/wasm/tests/fixtures/` 下的组件用
+`cargo build --target wasm32-wasip2` 现编（rustc 的 wasip2 链接器直接出组件，不需要别的工具），按源码哈希缓存在
+`target/tmp/` 下。第一次之前要 `rustup target add wasm32-wasip2`。它跑两遍：`cargo test -p harnix-wasm` 是产品的构建
+（不带编译器，那里的测试加载商店编译工具编出的产物），`cargo test -p harnix-wasm --features compile` 跑组件测试。
+
 `ui` project 从磁盘读构建好的界面（`--ui-dir ui/dist`），所以改了前端只要
 `pnpm --filter @harnix/shell build`，不用重编后端。
 
