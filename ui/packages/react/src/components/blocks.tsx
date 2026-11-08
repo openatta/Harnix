@@ -113,6 +113,7 @@ export function Disclosure({
   summary,
   tail,
   children,
+  initiallyOpen = false,
 }: {
   testId: string;
   id?: string;
@@ -120,8 +121,10 @@ export function Disclosure({
   summary: ReactNode;
   tail?: ReactNode;
   children: ReactNode;
+  /** Unfolded when first drawn. */
+  initiallyOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initiallyOpen);
   return (
     <div className="hx-blk hx-row" data-testid={testId} data-id={id} data-state={state}>
       <button

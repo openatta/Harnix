@@ -2,23 +2,27 @@
  * Settings → Applications: the runtime applications installed here, and the store's catalog.
  *
  * Installed: each with its version, how far it is trusted (countersigned by the store, signed by a
- * publisher the profile trusts, or unsigned), what it keeps, what it asks for, and its switches —
- * enable or disable, update when the store has a newer version, uninstall.
+ * publisher the profile trusts, or unsigned), whether it runs; its permissions — every capability
+ * as a sentence, and what the shell draws for it from its manifest; what it keeps, with a button
+ * that clears it; and its switches — enable or disable, update when the store has a newer version,
+ * uninstall. Above them, whether the left column marks the spaces applications brought.
  *
  * The store: what it offers this Harnix, each with an install button. Installing and updating go
- * through the disclosure: the backend answers what the application would be granted (for an
- * update, only what it adds) and a digest, the panel shows it, and only "Install" / "Update" in it
- * sends the digest back. Nothing is installed by a click anywhere else. An update that asks for
- * nothing more is done without asking.
+ * through the disclosure, a modal over the settings: the backend answers what the application would
+ * be granted (for an update, only what it adds) and a digest, the modal shows it, and only
+ * "Install" / "Update" in it sends the digest back. Nothing is installed by a click anywhere else.
+ * An update that asks for nothing more is done without asking. Clearing and uninstalling ask in a
+ * modal of their own too.
  *
  * Registered only when the backend hosts applications (`harnix.apps.list` is reachable).
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { errorText } from "@harnix/core";
 import { useT } from "@harnix/react";
 
 import type { App } from "./app.ts";
+import { appsOf, type Inline } from "./inline/index.tsx";
 import { Row, Section, Value, useReload } from "./settings.tsx";
 
 interface Line {
@@ -36,7 +40,7 @@ interface Installed {
   source?: string;
   data_bytes?: number;
   runtime?: { state?: string; reason?: string };
-  app?: { publisher?: string; description?: string | null; lines?: Line[] } | null;
+  app?: { publisher?: string; description?: string | null; lines?: Line[]; ui?: unknown[]; inline?: Inline | null } | null;
 }
 
 interface CatalogApp {
@@ -58,8 +62,11 @@ interface Asked {
   disclosure?: {
     title?: string | null;
     publisher?: string;
+    description?: string | null;
     trust?: string;
     lines?: Line[];
+    ui_in_page?: boolean;
+    inline?: Inline | null;
     update?: { from: string; added: Line[] };
   };
 }
@@ -71,6 +78,15 @@ interface Pending {
   version?: string;
 }
 
+/** A question asked before something that cannot be undone. */
+interface Asking {
+  testId: string;
+  title: string;
+  message: string;
+  confirm: string;
+  run: () => Promise<unknown>;
+}
+
 function size(bytes: number | undefined): string {
   const n = bytes ?? 0;
   if (n < 1024) return `${n} B`;
@@ -78,14 +94,30 @@ function size(bytes: number | undefined): string {
   return `${(n / 1048576).toFixed(1)} MB`;
 }
 
+/** What a line lets it do, in a sentence: the words, the value, and why it matters. */
 function LineText({ line }: { line: Line }) {
   const t = useT();
-  const value = line.capability === "storage_mb" ? t("apps.megabytes", { size: String(line.value) }) : String(line.value);
+  const raw = String(line.value);
+  let key = `apps.cap.${line.capability}`;
+  let value = raw;
+  if (line.capability === "storage_mb") value = t("apps.megabytes", { size: raw });
+  if (line.capability === "hub" && raw.startsWith("topic:")) {
+    key = "apps.cap.hubTopic";
+    value = raw.slice("topic:".length);
+  }
+  if (line.capability === "fs") key = raw.startsWith("${data}") ? "apps.cap.fsData" : "apps.cap.fsProject";
+  if (line.capability === "inline") {
+    const [what, ...rest] = raw.split(" ");
+    key = what === "command" ? "apps.cap.inlineCommand" : "apps.cap.inlineGroup";
+    value = rest.join(" ");
+  }
   const from = line.from !== undefined ? ` (${t("apps.from", { value: t("apps.megabytes", { size: String(line.from) }) })})` : "";
+  const why = ["net", "env", "hub", "ui", "agent"].includes(line.capability) ? t(`apps.cap.why.${line.capability}`) : "";
   return (
     <li data-capability={line.capability}>
-      <span className="apps-cap">{t(`apps.cap.${line.capability}`)}</span> <code>{value}</code>
+      <span className="apps-cap">{t(key)}</span> <code>{value}</code>
       {from}
+      {why ? <span className="apps-why"> — {why}</span> : null}
     </li>
   );
 }
@@ -101,10 +133,74 @@ function Lines({ lines, empty }: { lines: Line[]; empty: string }) {
   );
 }
 
+/** What the shell draws for it from its manifest, a line each. */
+function InlinePoints({ inline }: { inline: Inline | null | undefined }) {
+  const t = useT();
+  const items: [string, string][] = [
+    ...(inline?.tool_row ?? []).map((r): [string, string] => ["tool_row", r.tool]),
+    ...(inline?.flow_block ?? []).map((b): [string, string] => ["flow_block", b.kind]),
+    ...(inline?.command ?? []).map((c): [string, string] => ["command", `${c.trigger}${c.name}`]),
+    ...(inline?.sidebar_group ?? []).map((g): [string, string] => ["sidebar_group", g.space ?? ""]),
+  ];
+  if (!items.length) return null;
+  return (
+    <>
+      <div className="hint">{t("apps.inlinePoints")}</div>
+      <ul className="apps-lines">
+        {items.map(([point, name], i) => (
+          <li key={i} data-inline={point}>
+            <span className="apps-cap">{t(`apps.inline.${point}`)}</span> <code>{name}</code>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+/**
+ * A modal over the settings (which are the shell's modal already): a veil over the whole page,
+ * focus inside it, and Escape closing only this one.
+ */
+function Dialog({ testId, label, onClose, children, actions }: { testId: string; label: string; onClose: () => void; children: ReactNode; actions: ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => box.current?.focus(), []);
+  return (
+    <div
+      className="apps-veil"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        ref={box}
+        className="apps-dialog"
+        data-testid={testId}
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape") return;
+          // This dialog's: the settings under it stay open.
+          event.stopPropagation();
+          onClose();
+        }}
+      >
+        <h3>{label}</h3>
+        <div className="apps-dialog-body">{children}</div>
+        <div className="apps-actions">{actions}</div>
+      </div>
+    </div>
+  );
+}
+
 export function AppsSettings({ app }: { app: App }) {
   const t = useT();
   const reload = useReload();
+  const watch = appsOf(app);
+  useSyncExternalStore(watch.subscribe, watch.getVersion);
   const [pending, setPending] = useState<Pending | null>(null);
+  const [asking, setAsking] = useState<Asking | null>(null);
   const [busy, setBusy] = useState(false);
   const [latest, setLatest] = useState<Record<string, string>>({});
 
@@ -148,12 +244,47 @@ export function AppsSettings({ app }: { app: App }) {
       .call(method, params)
       .then(reload)
       .catch(fail);
+  const confirmed = async () => {
+    if (!asking) return;
+    setBusy(true);
+    try {
+      await asking.run();
+    } catch (e) {
+      fail(e);
+    } finally {
+      setAsking(null);
+      setBusy(false);
+      reload();
+    }
+  };
 
   const trust = (value: string | undefined) => t(`apps.trust.${value ?? "unsigned"}`);
 
   return (
     <>
       {pending ? <Disclosure pending={pending} busy={busy} onConsent={() => void consent()} onCancel={() => setPending(null)} trust={trust} /> : null}
+      {asking ? (
+        <Dialog
+          testId={asking.testId}
+          label={asking.title}
+          onClose={() => setAsking(null)}
+          actions={
+            <>
+              <button type="button" className="btn sm outline" disabled={busy} onClick={() => setAsking(null)}>
+                {t("common.cancel")}
+              </button>
+              <button type="button" className="btn sm danger" data-testid={`${asking.testId}-confirm`} disabled={busy} onClick={() => void confirmed()}>
+                {asking.confirm}
+              </button>
+            </>
+          }
+        >
+          <div>{asking.message}</div>
+        </Dialog>
+      ) : null}
+      <Row label={t("apps.mark")} hint={t("apps.markHint")}>
+        <input type="checkbox" data-testid="apps-mark-toggle" checked={watch.marked()} onChange={(e) => watch.setMarked(e.target.checked)} />
+      </Row>
       <Section title={t("apps.installed")} load={() => app.call<{ apps?: Installed[] }>("harnix.apps.list", {})}>
         {(data) => {
           const apps = data.apps ?? [];
@@ -162,13 +293,24 @@ export function AppsSettings({ app }: { app: App }) {
             <>
               {apps.map((a) => {
                 const newer = latest[a.id] && latest[a.id] !== a.version ? latest[a.id] : null;
-                const state = a.runtime?.state;
-                const hint = [a.id, trust(a.trust), t("apps.data", { size: size(a.data_bytes) })];
-                if (state === "failed") hint.push(t("apps.failed", { reason: a.runtime?.reason ?? "" }));
+                const name = a.title || a.id;
+                const state = a.enabled ? (a.runtime?.state ?? "stopped") : "stopped";
+                const hint = [a.id, trust(a.trust), t(`apps.state.${state}`)];
+                if (state === "failed" || state === "faulted") hint.push(a.runtime?.reason ?? "");
                 return (
-                  <div key={a.id} className="apps-app" data-testid="app-installed" data-app={a.id} data-version={a.version} data-trust={a.trust ?? "unsigned"}>
-                    <Row label={`${a.title || a.id} ${a.version}`} hint={hint.join(" · ")}>
-                      <Value tone={state === "running" ? "ok" : undefined}>{a.enabled ? t("apps.enabled") : t("apps.disabled")}</Value>
+                  <div
+                    key={a.id}
+                    className="apps-app"
+                    data-testid="app-installed"
+                    data-app={a.id}
+                    data-version={a.version}
+                    data-trust={a.trust ?? "unsigned"}
+                    data-state={state}
+                  >
+                    <Row label={`${name} ${a.version}`} hint={hint.filter(Boolean).join(" · ")}>
+                      <Value tone={state === "running" ? "ok" : state === "failed" || state === "faulted" ? "err" : undefined}>
+                        {a.enabled ? t("apps.enabled") : t("apps.disabled")}
+                      </Value>
                       <button
                         type="button"
                         className="btn sm outline"
@@ -188,14 +330,51 @@ export function AppsSettings({ app }: { app: App }) {
                         className="btn sm danger"
                         data-testid="app-uninstall"
                         disabled={busy}
-                        onClick={() => {
-                          if (confirm(t("apps.uninstallConfirm", { name: a.title || a.id }))) void act("harnix.apps.uninstall", { id: a.id });
-                        }}
+                        onClick={() =>
+                          setAsking({
+                            testId: "app-uninstall-ask",
+                            title: t("apps.uninstall"),
+                            message: t("apps.uninstallConfirm", { name }),
+                            confirm: t("apps.uninstall"),
+                            run: () => app.call("harnix.apps.uninstall", { id: a.id }),
+                          })
+                        }
                       >
                         {t("apps.uninstall")}
                       </button>
                     </Row>
-                    <Lines lines={a.app?.lines ?? []} empty={t("apps.asksNothing")} />
+                    <div className="apps-permissions" data-testid="app-permissions">
+                      <div className="apps-sub">{t("apps.permissions")}</div>
+                      <Lines lines={a.app?.lines ?? []} empty={t("apps.asksNothing")} />
+                      <InlinePoints inline={a.app?.inline} />
+                    </div>
+                    <Row label={t("apps.data", { size: size(a.data_bytes) })}>
+                      <Value>
+                        <span data-testid="app-data" data-bytes={a.data_bytes ?? 0}>
+                          {size(a.data_bytes)}
+                        </span>
+                      </Value>
+                      <button
+                        type="button"
+                        className="btn sm outline"
+                        data-testid="app-clear"
+                        disabled={busy || !a.data_bytes}
+                        onClick={() =>
+                          setAsking({
+                            testId: "app-clear-ask",
+                            title: t("apps.clearData"),
+                            message: t("apps.clearDataConfirm", { name, size: size(a.data_bytes) }),
+                            confirm: t("apps.clearData"),
+                            run: async () => {
+                              const done = await app.call<{ cleared_bytes?: number }>("harnix.apps.clearData", { id: a.id });
+                              app.notice(t("apps.cleared", { name, size: size(done.cleared_bytes) }));
+                            },
+                          })
+                        }
+                      >
+                        {t("apps.clearData")}
+                      </button>
+                    </Row>
                   </div>
                 );
               })}
@@ -256,13 +435,24 @@ function Disclosure({
   const d = asked.disclosure ?? {};
   const name = d.title || asked.id;
   const update = pending.method === "harnix.apps.update" ? d.update : undefined;
+  const title = update ? t("apps.askUpdate", { name, from: update.from, version: asked.version }) : t("apps.askInstall", { name, version: asked.version });
   return (
-    <div className="apps-disclosure" data-testid="app-disclosure" role="dialog" aria-label={name}>
-      <h3>
-        {update
-          ? t("apps.askUpdate", { name, from: update.from, version: asked.version })
-          : t("apps.askInstall", { name, version: asked.version })}
-      </h3>
+    <Dialog
+      testId="app-disclosure"
+      label={title}
+      onClose={onCancel}
+      actions={
+        <>
+          <button type="button" className="btn sm outline" disabled={busy} onClick={onCancel}>
+            {t("common.cancel")}
+          </button>
+          <button type="button" className="btn sm primary" data-testid="app-consent" disabled={busy} onClick={onConsent}>
+            {update ? t("apps.consentUpdate") : t("apps.consentInstall")}
+          </button>
+        </>
+      }
+    >
+      {d.description ? <div className="hint">{d.description}</div> : null}
       <Row label={t("apps.publisher")} hint={asked.id}>
         <Value>{d.publisher ?? "—"}</Value>
       </Row>
@@ -271,14 +461,14 @@ function Disclosure({
       </Row>
       <div className="hint">{update ? t("apps.asksMore") : t("apps.asks")}</div>
       <Lines lines={update ? update.added : d.lines ?? []} empty={t("apps.asksNothing")} />
-      <div className="apps-actions">
-        <button type="button" className="btn sm outline" disabled={busy} onClick={onCancel}>
-          {t("common.cancel")}
-        </button>
-        <button type="button" className="btn sm primary" data-testid="app-consent" disabled={busy} onClick={onConsent}>
-          {update ? t("apps.consentUpdate") : t("apps.consentInstall")}
-        </button>
-      </div>
-    </div>
+      {update ? (
+        <div className="hint">{t("apps.updateKeeps")}</div>
+      ) : (
+        <>
+          <div className="hint">{d.ui_in_page ? t("apps.interfaceInPage") : t("apps.interfaceNone")}</div>
+          <InlinePoints inline={d.inline} />
+        </>
+      )}
+    </Dialog>
   );
 }

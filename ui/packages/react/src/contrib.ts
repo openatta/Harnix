@@ -281,6 +281,20 @@ export class Registry {
   }
 
   /**
+   * Take back one registration: `owner`'s `id` at `point`. For what the shell registers on an
+   * application's behalf from its manifest (its declared inline points), which goes when the
+   * application stops or changes. Answers whether there was one.
+   */
+  unregister(point: Point, id: string, owner: string): boolean {
+    const list = this.entries.get(point);
+    const at = list?.findIndex((c) => c.id === id && c.owner === owner) ?? -1;
+    if (!list || at < 0) return false;
+    list.splice(at, 1);
+    this.changed();
+    return true;
+  }
+
+  /**
    * Token overrides (design §10.5): a module's colours for names the theme already has. A name the
    * theme does not declare is refused with the reason — a module adds no colours of its own — and
    * so is a value that reaches outside the page (`url(`). Not a contribution point: it draws

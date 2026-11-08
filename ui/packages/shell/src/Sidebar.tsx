@@ -10,13 +10,14 @@
  * that says `place: "bottom"` (something global, not a surface) sits there too, above it.
  */
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { Contributed, setLocale, currentLocale, useRegistry, useT, type SpaceContribution } from "@harnix/react";
 
 import { ask, disabledOf, keyOf, uniqueSessions, type App, type ShellSession, type ShellState } from "./app.ts";
 import { connectionDialog } from "./dialogs.tsx";
 import { Glyph } from "./glyph.tsx";
+import { AppMark, GroupedSessions, appsOf, groupingOf } from "./inline/index.tsx";
 import { SessionRow } from "./sessions.tsx";
 import { openSettings } from "./settings.tsx";
 
@@ -181,6 +182,8 @@ function SpaceEntry({ app, s, space }: { app: App; s: ShellState; space: SpaceCo
     >
       <Glyph name={space.icon} className="glyph" />
       <span className="lbl truncate">{space.title()}</span>
+      {/* A space an installed application brought says so (unless the reader turned it off). */}
+      <AppMark app={app} owner={space.owner} />
       {badge ? (
         <span className="end">
           <span className="bn" data-testid="space-badge" aria-label={t("space.badge", { space: space.title(), value: badge })}>
@@ -204,6 +207,9 @@ function SpaceSessions({ app, s, listed }: { app: App; s: ShellState; listed?: S
   const t = useT();
   const [rows, setRows] = useState<ShellSession[] | null>(null);
   const claim = app.claim(s.space);
+  // Drawn again when an application starts or stops: its grouping comes and goes with it.
+  const watch = appsOf(app);
+  useSyncExternalStore(watch.subscribe, watch.getVersion);
   useEffect(() => {
     let alive = true;
     const load = () =>
@@ -225,6 +231,9 @@ function SpaceSessions({ app, s, listed }: { app: App; s: ShellState; listed?: S
   // the space leaves some out (its main conversation, which its entry opens): an empty result draws nothing
   const shown = listed ? rows.filter((row) => shownBy(listed, row)) : rows;
   if (!shown.length) return null;
+  // An application's space grouped as its manifest declares.
+  const rule = groupingOf(app, s.space);
+  if (rule) return <GroupedSessions app={app} s={s} rule={rule} rows={shown} />;
   return (
     <div className="group">
       {shown.map((row) => (

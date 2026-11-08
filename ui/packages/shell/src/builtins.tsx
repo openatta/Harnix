@@ -18,6 +18,7 @@ import { Glyph } from "./glyph.tsx";
 import { ProjectsSidebar } from "./projects.tsx";
 import { SessionsSidebar } from "./sessions.tsx";
 import { builtinSections } from "./settings.tsx";
+import { startInline } from "./inline/index.tsx";
 import { openInSystem, registerSystem, systemOffered } from "./system.tsx";
 
 const OWNER = "builtin";
@@ -118,6 +119,8 @@ export async function registerBuiltins(app: App): Promise<void> {
   for (const section of builtinSections(app)) r.register("settings.section", section, OWNER);
 
   await registerFlow(app, keeps);
+  // What runtime applications declare inline, drawn by the shell: registered as they start.
+  startInline(app);
 }
 
 /* ── tool rows ────────────────────────────────────────────────────────── */

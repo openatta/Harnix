@@ -1,0 +1,150 @@
+/* What the shell draws for runtime applications from their manifests (`src/inline/`), and the
+   applications' settings: tool rows, cards in the flow, the left column's mark, the modals over
+   the settings. Tokens only. */
+
+.app-inline-icon {
+  display: inline-flex;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+  color: var(--label-tertiary);
+  vertical-align: -2px;
+}
+
+.app-card {
+  margin: 6px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-l2);
+  border-radius: var(--radius-card);
+  background: var(--bg-layer-1);
+}
+
+.app-card-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-weight: 600;
+}
+
+.app-card-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-card-from {
+  flex: none;
+  margin-left: 8px;
+  color: var(--label-tertiary);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.app-card-fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+
+.app-card-fields dt {
+  color: var(--label-tertiary);
+}
+
+.app-card-fields dd {
+  margin: 0;
+  color: var(--label-secondary);
+  overflow-wrap: anywhere;
+}
+
+.app-card-body {
+  margin-top: 8px;
+}
+
+.app-card .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.app-card-done {
+  margin-top: 8px;
+  color: var(--label-secondary);
+  font-size: 12px;
+}
+
+/* A space an installed application brought: a small ring beside its title. */
+.app-mark {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border: 1.5px solid var(--accent-line);
+  border-radius: 50%;
+}
+
+.app-mark[data-trust="unsigned"] {
+  border-color: var(--state-warn);
+}
+
+.apps-app {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-l1);
+}
+
+.apps-permissions {
+  padding: 0 0 0 2px;
+}
+
+.apps-sub {
+  margin: 2px 0 2px;
+  color: var(--label-tertiary);
+  font-size: 11px;
+}
+
+.apps-why {
+  color: var(--label-tertiary);
+}
+
+/* A modal over the settings, which are the shell's modal already. */
+.apps-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--bg-mask);
+}
+
+.apps-dialog {
+  display: flex;
+  flex-direction: column;
+  width: 520px;
+  max-width: 100%;
+  max-height: 80vh;
+  padding: 16px 18px 14px;
+  border: 1px solid var(--border-l2);
+  border-radius: 18px;
+  background: var(--bg-layer-1);
+  box-shadow: var(--shadow-float);
+  outline: none;
+}
+
+.apps-dialog > h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.apps-dialog-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-bottom: 12px;
+  overflow-y: auto;
+}
