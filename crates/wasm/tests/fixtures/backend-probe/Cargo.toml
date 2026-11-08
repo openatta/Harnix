@@ -1,0 +1,21 @@
+[package]
+name = "backend-probe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Outside the workspace on purpose: it builds for wasm32-wasip2, and a member
+# that only compiles for another target breaks `cargo build --workspace`.
+# The tests build it (tests/common/mod.rs); rustc's wasip2 linker turns the
+# cdylib into a component, so no component tooling is needed beyond the target.
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "0.48"
+
+[profile.release]
+opt-level = "s"
+strip = true

@@ -370,16 +370,22 @@ fn neither_the_hub_nor_the_authorizer_names_a_topology() {
     );
 }
 
-/// Harnix links no interpreter.
+/// Harnix links no interpreter, and runs WebAssembly in one place only.
 ///
-/// Extending the agent is Agix's: the carrier, the sandbox, the
-/// capability gate. Harnix may read a manifest — it reads one section of one,
-/// deliberately (§4.6) — but it must never be able to *run* what a package
-/// brought, because that is where a second answer to "what may an extension
-/// do" would come from.
+/// Extending the *agent* is Agix's: its carriers, its sandbox, its
+/// capability gate. Harnix may read a manifest, but it must never run a
+/// script a package brought — that is where a second answer to "what may an
+/// extension do" would come from — so QuickJS is named nowhere here.
+///
+/// An application's own backend and tools are Harnix's, and they run in
+/// WebAssembly, in `harnix-wasm` and nowhere else (crates/wasm/src/lib.rs).
+/// Everything outside that crate reaches a component through its API, which
+/// names no wasmtime type, so this is a check on the boundary rather than on
+/// a convention.
 #[test]
-fn harnix_constructs_no_interpreter() {
+fn harnix_constructs_no_interpreter_and_runs_wasm_only_in_harnix_wasm() {
     let root = workspace_root().join("crates");
+    let wasm_crate = root.join("wasm");
     let mut offenders = Vec::new();
     let mut stack = vec![root];
     while let Some(dir) = stack.pop() {
@@ -389,7 +395,7 @@ fn harnix_constructs_no_interpreter() {
                 stack.push(path);
                 continue;
             }
-            if path.extension().is_none_or(|e| e != "rs") {
+            if path.extension().is_none_or(|e| e != "rs" && e != "toml") {
                 continue;
             }
             // This file names them in order to forbid them.
@@ -397,7 +403,11 @@ fn harnix_constructs_no_interpreter() {
                 continue;
             }
             let text = std::fs::read_to_string(&path).unwrap_or_default();
-            for needle in ["QuickJsEngine", "rquickjs", "wasmtime"] {
+            let mut forbidden = vec!["QuickJsEngine", "rquickjs"];
+            if !path.starts_with(&wasm_crate) {
+                forbidden.push("wasmtime");
+            }
+            for needle in forbidden {
                 if text.contains(needle) {
                     offenders.push(format!("{} names `{needle}`", path.display()));
                 }
@@ -406,9 +416,29 @@ fn harnix_constructs_no_interpreter() {
     }
     assert!(
         offenders.is_empty(),
-        "Harnix must link no interpreter:\n{}",
+        "QuickJS is Agix's, and wasmtime is `harnix-wasm`'s alone:\n{}",
         offenders.join("\n")
     );
+}
+
+/// `harnix-wasm` is the boundary between wasmtime and Harnix, and it is a
+/// leaf: it defines the traits the host implements (`AppHost`, `KvStore`,
+/// `HttpFetcher`) instead of depending on the crates that will implement
+/// them, and it knows nothing of the engine. Anything else would let a
+/// component's runtime reach a layer through a type.
+#[test]
+fn the_wasm_runtime_depends_on_no_harnix_crate_and_nothing_of_agix() {
+    for name in dependencies("wasm") {
+        assert!(
+            !name.starts_with("harnix"),
+            "`wasm` depends on `{name}`; it is a leaf the host plugs services into"
+        );
+        assert!(
+            !["daemon", "base", "model", "history", "scene", "telemetry", "runtime", "plugin"]
+                .contains(&name.as_str()),
+            "`wasm` depends on `{name}`; an application's VM knows nothing of the engine"
+        );
+    }
 }
 
 /// Harnix reads exactly one section of a package manifest.
@@ -487,6 +517,7 @@ fn every_harnix_dependency_resolves() {
         "module",
         "testapp",
         "transport",
+        "wasm",
     ];
     let known: BTreeSet<String> = crates
         .iter()

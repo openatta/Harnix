@@ -61,7 +61,7 @@ PORT_TLS=4361
 
 CRATES=(-p harnix -p harnix-cli -p harnix-app -p harnix-instance -p harnix-authz -p harnix-builtin
         -p harnix-client -p harnix-contract -p harnix-flow -p harnix-module -p harnix-hub -p harnix-transport
-        -p harnix-testapp)
+        -p harnix-testapp -p harnix-wasm)
 
 scratch="$(mktemp -d)"
 backend_pid=""
@@ -117,11 +117,20 @@ run_build() {
   # its spaces' interface compiled in. The spaces suites run it.
   examples/hello-app/scripts/build.sh --offline
 }
-run_rust()    { cargo test "${CRATES[@]}"; }
+# `harnix-wasm` runs twice: as the product builds it (no compiler; its test there loads what
+# the store's compiler produced) and with `compile`, which its component tests need. Nothing
+# else enables that feature, so neither run changes what the other crates are built with.
+run_rust()    {
+  cargo test "${CRATES[@]}" || return 1
+  cargo test -p harnix-wasm --features compile
+}
 # `--no-deps` matters: without it `-D warnings` is applied to the Agix
 # submodule too, and this script goes red for lints in code this repository
 # does not own. Harnix's own crates are held to zero warnings.
-run_clippy()  { cargo clippy "${CRATES[@]}" --all-targets --no-deps -- -D warnings; }
+run_clippy()  {
+  cargo clippy "${CRATES[@]}" --all-targets --no-deps -- -D warnings || return 1
+  cargo clippy -p harnix-wasm --all-targets --features compile --no-deps -- -D warnings
+}
 
 run_offline() {
   # No backend, no model, no browser: the checks that should never be the

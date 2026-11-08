@@ -1,0 +1,58 @@
+[package]
+name = "harnix-wasm"
+version      = "0.4.1-2026110806"
+edition      = "2021"
+rust-version = "1.87"
+license      = "Apache-2.0"
+publish      = false
+description  = "The WebAssembly runtime for Harnix applications: one wasmtime engine, one VM per application"
+
+# Depends on no other Harnix crate and on nothing of Agix: it defines the
+# traits through which the host lends it services (`AppHost`, `KvStore`,
+# `HttpFetcher`), and the host implements them. That keeps wasmtime's names
+# inside this crate, which `crates/harnix/tests/layering.rs` asserts.
+[dependencies]
+anyhow      = { workspace = true }
+async-trait = { workspace = true }
+hex         = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+sha2        = { workspace = true }
+tokio       = { workspace = true }
+tokio-util  = { workspace = true }
+tracing     = { workspace = true }
+# Pinned exactly, both of them. A precompiled artifact is bound to the
+# wasmtime version that wrote it, the version is part of the engine
+# fingerprint the store compiles against, and so moving it is a decision a
+# release makes on purpose — not something `cargo update` does on the side.
+# `WASMTIME_VERSION` in src/engine.rs states the same number; a test checks
+# they agree.
+#
+# No `gc`, no `threads`, no pooling allocator: an application component is a
+# Rust (or similar) program in linear memory, and every feature here is one
+# more thing in the binary and one more input to the fingerprint.
+wasmtime      = { version = "=47.0.3", default-features = false, features = ["runtime", "component-model", "async", "std", "anyhow"] }
+wasmtime-wasi = { version = "=47.0.3", default-features = false, features = ["p2"] }
+
+[features]
+default = []
+# Link Cranelift, so this build can turn a `.wasm` into a `.cwasm`: for
+# development (`harnix app dev`), for tests, and for the store's build tool
+# (`harnix-wasm-compile`). Without it `WasmEngine::compile` does not exist,
+# so "the product cannot compile WebAssembly" is a fact the type system
+# enforces rather than a policy someone maintains.
+#
+# Nothing that changes the engine configuration may go here: the fingerprint
+# must be the same with and without it, or the store's artifacts would never
+# match the product that loads them (`tests/runtime_only.rs` checks this
+# against a real artifact).
+compile = ["wasmtime/cranelift", "wasmtime/parallel-compilation"]
+
+[[bin]]
+name = "harnix-wasm-compile"
+path = "src/bin/harnix-wasm-compile.rs"
+required-features = ["compile"]
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio    = { workspace = true }
