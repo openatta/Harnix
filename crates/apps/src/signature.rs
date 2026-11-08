@@ -507,7 +507,7 @@ mod tests {
         ]);
         if cwasm {
             files.insert(
-                "wasm/tools.wasmtime-1+x+abc.cwasm".into(),
+                "wasm/tools.engine-1+x+abc.cwasm".into(),
                 sha256(b"compiled"),
             );
         }
@@ -565,10 +565,10 @@ mod tests {
         assert_eq!(verified.trust, Trust::Store);
         assert_eq!(verified.publisher_key, Some(publisher.public()));
         assert!(verified
-            .check("wasm/tools.wasmtime-1+x+abc.cwasm", b"compiled")
+            .check("wasm/tools.engine-1+x+abc.cwasm", b"compiled")
             .is_ok());
         let err = verified
-            .check("wasm/tools.wasmtime-1+x+abc.cwasm", b"other")
+            .check("wasm/tools.engine-1+x+abc.cwasm", b"other")
             .unwrap_err();
         assert!(err.contains("sha256 differs"), "{err}");
 

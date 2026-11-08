@@ -370,7 +370,7 @@ mod tests {
                     "id": "acme.notes", "publisher": "acme",
                     "versions": [
                         {"version": "1.0.0", "harnix_api": 1, "artifacts": {fingerprint: {"url": "p/1.0.0.hxapp", "sha256": "aa"}}},
-                        {"version": "1.10.0", "harnix_api": 1, "artifacts": {"wasmtime-0+elsewhere+0": {"url": "p/1.10.0.hxapp", "sha256": "bb"}}},
+                        {"version": "1.10.0", "harnix_api": 1, "artifacts": {"engine-0+elsewhere+0": {"url": "p/1.10.0.hxapp", "sha256": "bb"}}},
                         {"version": "1.2.0", "harnix_api": 1, "artifacts": {fingerprint: {"url": "https://cdn.example.com/1.2.0.hxapp", "sha256": "cc"}}},
                         {"version": "2.0.0", "harnix_api": 2, "artifacts": {fingerprint: {"url": "p/2.0.0.hxapp", "sha256": "dd"}}},
                         {"version": "1.3.0-rc.1", "harnix_api": 1, "artifacts": {"*": {"url": "p/any.hxapp", "sha256": "ee"}}}
@@ -394,16 +394,16 @@ mod tests {
     #[test]
     fn the_newest_version_for_this_interface_is_chosen_and_its_engine_must_match() {
         let store = Store::new("file:///srv/store/index.json").unwrap();
-        let fp = "wasmtime-47+here+123";
+        let fp = "engine-47+here+123";
         let index = index(fp);
         // 1.10.0 is the newest of interface 1, and has no build for this engine: said so, with
         // the engines it has one for — not quietly swapped for an older version.
         let err = store.resolve(&index, "acme.notes", None, fp).unwrap_err();
         assert!(
-            err.contains("no build for this Harnix's engine (`wasmtime-47+here+123`)"),
+            err.contains("no build for this Harnix's engine (`engine-47+here+123`)"),
             "{err}"
         );
-        assert!(err.contains("`wasmtime-0+elsewhere+0`"), "{err}");
+        assert!(err.contains("`engine-0+elsewhere+0`"), "{err}");
         assert!(err.contains("upgrade Harnix"), "{err}");
 
         let r = store
@@ -436,7 +436,7 @@ mod tests {
 
     #[test]
     fn the_view_says_what_this_engine_can_install() {
-        let fp = "wasmtime-47+here+123";
+        let fp = "engine-47+here+123";
         let view = view(&index(fp), fp);
         let app = &view["apps"][0];
         assert_eq!(app["latest"], json!("1.10.0"));
