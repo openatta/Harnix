@@ -19,6 +19,7 @@
 //! transport. What an application chooses: its name and version, its
 //! modules and their order, and where secrets come from.
 
+mod apps;
 mod audit_log;
 mod cli;
 mod devices;

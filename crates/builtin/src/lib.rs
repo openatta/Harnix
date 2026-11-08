@@ -14,6 +14,7 @@
 //! State lives in Harnix's own directory, never mixed into the engine's root —
 //! see [`store`]. Deleting it loses grouping and titles and nothing else.
 
+pub mod apps;
 mod export;
 pub mod files;
 pub mod packages;

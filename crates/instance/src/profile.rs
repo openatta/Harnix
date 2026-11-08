@@ -35,10 +35,23 @@ pub struct Profile {
     /// `[brand]`: what the product is called, its icon, and the id its own
     /// directory is named after.
     pub brand: BrandProfile,
+    /// `[apps]`: whether this process hosts runtime applications.
+    pub apps: AppsProfile,
     /// `[modules.<id>]`: each compile-time module's own section, handed to
     /// it as written. Secrets are references (`{ credential = "…" }`),
     /// never values (design §7.4).
     pub modules: BTreeMap<String, toml::Value>,
+}
+
+/// `[apps]`: runtime applications — methods, topics and spaces under `app.<id>.*` that enter the
+/// process after it started (the `apps` built-in module, `harnix.apps.*`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AppsProfile {
+    /// Off unless written. Off, nothing of it exists: no `harnix.apps.*`, no host a module can
+    /// register through, no `harnix.spaces` topic — the authorization table is what assembly made
+    /// it and nothing else, for the life of the process.
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

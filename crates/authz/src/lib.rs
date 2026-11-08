@@ -25,11 +25,12 @@ mod audit;
 mod devices;
 mod table;
 
-pub use audit::{Audit, AuditEntry, AuditSink, Decision};
+pub use audit::{Audit, AuditEntry, AuditSink, Change, Decision};
 pub use devices::challenge as devices_challenge;
 pub use devices::{Device, Devices, PairError, PAIRING_TTL};
 pub use table::{
-    route, topic, MethodTable, Principal, Reach, Rule, TableError, ENGINE_REFUSALS, HUB_OWNED,
+    apps_overlap, route, topic, valid_app_id, MethodTable, Principal, Reach, Rule, TableError,
+    ENGINE_REFUSALS, HUB_OWNED,
 };
 
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -68,6 +69,48 @@ impl Authorizer {
         self.table.write().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// Put a runtime application's names in the table, all or none, and put
+    /// on the record who did: one `declare` entry per name, or one `refuse`
+    /// entry naming the first name that did not take. See
+    /// [`MethodTable::declare_app`] for what is refused.
+    pub fn declare_app(
+        &self,
+        by: &Subject,
+        app: &str,
+        rows: &[(String, Vec<Principal>)],
+    ) -> Result<(), TableError> {
+        let result = self.table_mut().declare_app(app, rows);
+        match &result {
+            Ok(()) => {
+                for (name, _) in rows {
+                    self.audit
+                        .record_change(by, name, Change::Declare, Some("declared by a runtime application"));
+                }
+            }
+            Err(e) => {
+                let name = match e {
+                    TableError::Taken(n) | TableError::Namespace(n) | TableError::HubOwned(n) | TableError::Unknown(n) => {
+                        n.clone()
+                    }
+                    TableError::Overlap { app, .. } => format!("app.{app}.*"),
+                };
+                self.audit.record_change(by, &name, Change::Refuse, Some(change_refusal(e)));
+            }
+        }
+        result
+    }
+
+    /// Take a runtime application's names back out, and put each on the
+    /// record. A call decided after this returns is decided as unknown.
+    pub fn withdraw_app(&self, by: &Subject, app: &str) -> Vec<String> {
+        let names = self.table_mut().withdraw_app(app);
+        for name in &names {
+            self.audit
+                .record_change(by, name, Change::Withdraw, Some("withdrawn with its runtime application"));
+        }
+        names
+    }
+
     /// Methods this subject may call, for a client that wants to grey out
     /// what it cannot use rather than discover it by being refused.
     pub fn reachable(&self, subject: &Subject) -> Vec<String> {
@@ -97,6 +140,15 @@ impl Authorizer {
             return Decision::Allow; // the hub answers a missing topic itself
         };
         self.table().decide(subject, &topic(name))
+    }
+}
+
+fn change_refusal(e: &TableError) -> &'static str {
+    match e {
+        TableError::Taken(_) => "the name is already in the authorization table",
+        TableError::Namespace(_) => "outside the application's own namespace",
+        TableError::Overlap { .. } => "the application id overlaps names already in the authorization table",
+        TableError::HubOwned(_) | TableError::Unknown(_) => "not a name a runtime application may declare",
     }
 }
 

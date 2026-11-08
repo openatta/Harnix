@@ -17,6 +17,7 @@
 //! The interface's contribution points (`catalog`) live here too: the
 //! front-end half of the same contract.
 
+pub mod apps;
 pub mod catalog;
 mod context;
 mod credentials;
@@ -26,6 +27,7 @@ mod methods;
 mod routes;
 mod sessions;
 
+pub use apps::{AppHandle, AppHandler, AppHost, AppMethod, AppSpec, AppSummary, AppTopic, AppWithdrawn};
 pub use catalog::{Frequency, Point, PointKind};
 pub use context::{
     CallContext, InstanceHandle, Kernel, Listen, MigrateContext, MigrationReport, ModuleContext,

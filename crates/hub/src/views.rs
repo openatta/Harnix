@@ -70,6 +70,7 @@ impl Hub {
             }
             "harnix.sessions.status" => Ok(self.status_view().await),
             "harnix.process" => Ok(self.process()),
+            crate::SPACES_TOPIC => Ok(self.spaces_view()),
             _ => Err(RpcError::not_found(format!("`{topic}` is not the hub's"))),
         }
     }

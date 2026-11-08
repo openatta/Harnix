@@ -27,6 +27,36 @@ impl Topics {
         self.known.insert(name.to_string(), params);
     }
 
+    /// Declare a topic that must not exist yet. `false` when one does.
+    pub fn declare_new(&mut self, name: &str, params: Vec<String>) -> bool {
+        if self.known.contains_key(name) {
+            return false;
+        }
+        self.known.insert(name.to_string(), params);
+        true
+    }
+
+    /// Take a topic out: it is no longer declared, its values are dropped,
+    /// and its subscriptions end. Returns who was subscribed to which
+    /// parameter set, so they can be told.
+    pub fn withdraw(&mut self, name: &str) -> Vec<(Vec<ClientId>, Value)> {
+        if self.known.remove(name).is_none() {
+            return Vec::new();
+        }
+        self.values.retain(|(topic, _), _| topic != name);
+        let keys: Vec<(String, String)> = self.subscribers.keys().filter(|(topic, _)| topic == name).cloned().collect();
+        let mut told = Vec::new();
+        for key in keys {
+            let Some(set) = self.subscribers.remove(&key) else { continue };
+            if set.is_empty() {
+                continue;
+            }
+            let params = serde_json::from_str(&key.1).unwrap_or(json!({}));
+            told.push((set.into_iter().collect(), params));
+        }
+        told
+    }
+
     pub fn names(&self) -> Vec<String> {
         self.known.keys().cloned().collect()
     }
@@ -91,7 +121,40 @@ impl Topics {
     }
 }
 
+/// What a subscriber of a withdrawn topic is told, once per parameter set it
+/// was subscribed to. After it, the topic is unknown: subscribing again is
+/// refused until something declares it again, and nothing more is pushed.
+pub const TOPIC_ENDED: &str = "harnix.topic_ended";
+
 impl crate::Hub {
+    /// Declare a topic after assembly — a runtime application's. Refused
+    /// (`false`) for a name already declared, the hub's own included.
+    pub async fn declare_runtime_topic(&self, name: &str, params: Vec<String>) -> bool {
+        self.inner.lock().await.topics.declare_new(name, params)
+    }
+
+    /// Withdraw a topic declared at runtime. Each of its subscribers is sent
+    /// `harnix.topic_ended {topic, params, reason}` for each parameter set it
+    /// held; the topic's values are dropped. The hub's own topics cannot be
+    /// withdrawn. Returns how many subscriptions were ended.
+    pub async fn withdraw_topic(&self, name: &str, reason: &str) -> usize {
+        if crate::HUB_TOPICS.iter().any(|(own, _)| *own == name) || name == crate::SPACES_TOPIC {
+            return 0;
+        }
+        let mut guard = self.inner.lock().await;
+        let told = guard.topics.withdraw(name);
+        let mut count = 0;
+        for (clients, params) in told {
+            count += clients.len();
+            let frame = Frame::host(notification(
+                TOPIC_ENDED,
+                json!({"topic": name, "params": params, "reason": reason}),
+            ));
+            guard.clients.send_many(&clients, &frame).await;
+        }
+        count
+    }
+
     /// `harnix.subscribe { topic, params? }` → `{ value }`: the current value
     /// now, every later one as `harnix.topic`.
     ///
@@ -105,7 +168,7 @@ impl crate::Hub {
         let client = crate::session::client_of(subject, &params)?;
         let (topic, args) = topic_params(&params)?;
         let key = self.inner.lock().await.topics.key(&topic, &args)?;
-        if crate::HUB_TOPICS.iter().any(|(name, _)| *name == topic) {
+        if crate::HUB_TOPICS.iter().any(|(name, _)| *name == topic) || topic == crate::SPACES_TOPIC {
             if topic == "harnix.sessions.tasks" {
                 self.watch_tasks(&args).await;
             }
@@ -176,4 +239,40 @@ fn topic_params(params: &Value) -> Result<(String, Value), RpcError> {
         .to_string();
     let args = params.get("params").cloned().unwrap_or(json!({}));
     Ok((topic, args))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_withdrawn_topic_ends_every_subscription_and_forgets_its_values() {
+        let mut topics = Topics::default();
+        assert!(topics.declare_new("app.fake.ticks", vec!["job".into()]));
+        assert!(!topics.declare_new("app.fake.ticks", Vec::new()), "declared twice");
+        let a = topics.key("app.fake.ticks", &json!({"job": "a"})).unwrap();
+        let b = topics.key("app.fake.ticks", &json!({"job": "b"})).unwrap();
+        topics.subscribe(ClientId(1), a.clone());
+        topics.subscribe(ClientId(2), a.clone());
+        topics.subscribe(ClientId(3), b.clone());
+        topics.publish(a.clone(), json!({"job": "a"}), json!(1));
+
+        let mut told = topics.withdraw("app.fake.ticks");
+        told.sort_by_key(|(_, p)| p.to_string());
+        assert_eq!(told.len(), 2);
+        let mut first = told[0].0.clone();
+        first.sort_by_key(|c| c.0);
+        assert_eq!(first, vec![ClientId(1), ClientId(2)]);
+        assert_eq!(told[0].1, json!({"job": "a"}));
+        assert_eq!(told[1].0, vec![ClientId(3)]);
+
+        // Unknown from now on; nothing kept.
+        assert!(topics.key("app.fake.ticks", &json!({"job": "a"})).is_err());
+        assert!(!topics.has_subscribers(&a));
+        assert!(topics.values.is_empty());
+        assert!(topics.withdraw("app.fake.ticks").is_empty());
+        // Declaring it again starts from nothing.
+        assert!(topics.declare_new("app.fake.ticks", vec!["job".into()]));
+        assert_eq!(topics.subscribe(ClientId(1), a), Value::Null);
+    }
 }

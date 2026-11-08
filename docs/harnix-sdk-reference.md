@@ -119,6 +119,7 @@ pub trait Module: Send + Sync + 'static {
 | `instance(id)` | 只读的 `InstanceHandle` |
 | `listen()` / `listening().await` | 进程监听在哪：`Listen { addrs, url }`（`addrs` 是实际绑上的地址，`--port 0` 时是系统给的端口；`url` 是 `http(s)://<第一个地址>/`，不带令牌）。模块的 `start` 在监听**之前**，所以 `start` 里 `listen()` 是 `None`；要写运行记录就 `tokio::spawn` 一个任务 `listening().await` |
 | `provide(v)` / `provide_arc(arc)` / `state::<T>()` | 模块状态，handler 里用 `cx.state::<T>()` 拿 |
+| `apps()` | `Option<AppHost>`：运行期应用的宿主（§1.8），只在 `[apps] enabled = true` 时有 |
 
 `CallContext`：`subject()`、`device()`（是设备调的就给设备 id）、`module()`、`state::<T>()`。
 `MigrateContext { id, data_dir, config }`；`MigrationReport::none()` / `::applied(steps)`。
@@ -155,6 +156,23 @@ pub trait Module: Send + Sync + 'static {
 | -31005 | `BUSY` | 这条单双向连接上已有 `limits.max_in_flight`（16）个请求没答；这一个没执行，等一个答了再发。`data.max_in_flight` 是那个数 |
 
 引擎的错误码原样透传（例如会话不存在是 -32000）。
+
+### 1.8 运行期应用：`AppHost`（`[apps] enabled`）
+
+进程跑起来之后才进来、也能再撤走的方法、主题与 space，全名 `app.<应用 id>.*`。应用 id 是点分的小写段（`fake`、`acme.notes`）。
+
+| 类型 | API |
+|---|---|
+| `AppSpec` | `AppSpec::new(id)` → `.method(name, &[Principal], \|caller: Subject, params: Value\| async { … })`（或 `.method_with(AppMethod { name, principals, description, handler: Arc<dyn AppHandler> })`）、`.topic(name, &[参数名])`（设备与模块可订；`.topic_with(AppTopic)` 自定）、`.space(SpaceDecl)`（id 是应用 id 或 `<id>.<名>`，落在已有的实例上，不能是模板） |
+| `AppHost` | `cx.apps()?` 拿到；`register(spec).await -> AppHandle`（全有或全无）、`withdraw(id).await -> AppWithdrawn`（只有登记它的模块能撤）、`registered() -> Vec<AppSummary { id, by, methods, topics, spaces, since_ms }>` |
+| `AppHandle` | `id()`、`publish(topic, params, value).await`（只能推自己声明的主题，参数按声明取）、`withdraw().await`；撤下之后都报错 |
+| `AppHandler` | `async fn call(&self, caller: &Subject, params: Value) -> Result<Value, RpcError>`：调用已过准入 |
+
+规则：方法与主题是授权表里的行，和编译期模块同一个准入点、同一套审计；只能在自己的命名空间里；id 与任何编译期模块（不管它有没有方法）
+或已登记的应用重叠（相同，或一个是另一个的点前缀）就拒绝，名字已被占就拒绝——编译进来的优先；拒绝时什么都不写。
+撤下时先出授权表（之后的调用答 `-32601`，和从没有过一样），在途的调用照常做完；主题的每个订阅者收到 `harnix.topic_ended`；space 从
+`harnix.spaces.list` 消失。登记、撤下、被拒的每个名字都记审计（主体是宿主模块，带 `at_ms`；方法写 `app.<id>.<名>`、`topic:…`、`space:…`，
+`decision` 是 `declare` / `withdraw` / `refuse`）。
 
 ---
 
@@ -195,6 +213,9 @@ narrow_details = "over"        # ≤ 960 宽时打开的右栏：over（缺省�
 [ui]
 dir = "…"                      # 从这个目录出界面（同 --ui-dir）；不写用编进二进制的
 runtime_modules = true         # false：运行期包的 [[ui]] 一律不提供、不服务；交易类产品要关
+
+[apps]
+enabled = false                # true：运行期应用（§1.8）——加 harnix.apps.*、模块拿得到 AppHost、加 harnix.spaces 主题；不写或 false 时这些一概没有
 
 [[instances]]                  # 固定实例
 id = "ci"
@@ -260,7 +281,7 @@ quote_api_key = { credential = "helm/quote-api" }
 | 路径 | 是什么 |
 |---|---|
 | `~/.agix/` | 引擎：设置分层、transcript、记忆、技能、录像。和 `agixd` 共用 |
-| `~/.<product_id>/`（不配 `[brand]` 就是 `~/.harnix/`；`HARNIX_STATE_DIR` 可挪） | 程序自己的配置与状态：`token`、`state.json`（工作区、会话标题、偏好、设备）、`spaces.json`、`instances.json`、`instances/<data_root>/`（按模板建的实例的数据根）、`modules/<id>/`（`ctx.data_dir()`）、`uploads/<pid>/`、`harnix.lock`（进程活着就持有的独占锁，内容 `{"pid", "url"}`，`url` 在监听后写上：一个状态目录只能有一个进程，第二个启动时报「`<目录>` is in use by pid N (url)」并以非零退出） |
+| `~/.<product_id>/`（不配 `[brand]` 就是 `~/.harnix/`；`HARNIX_STATE_DIR` 可挪） | 程序自己的配置与状态：`token`、`state.json`（工作区、会话标题、偏好、设备）、`spaces.json`、`instances.json`、`instances/<data_root>/`（按模板建的实例的数据根）、`modules/<id>/`（`ctx.data_dir()`）、`apps/<应用 id>/install.json`（运行期应用的安装记录 `{id, version, title?, enabled}`，`[apps] enabled` 时）、`uploads/<pid>/`、`harnix.lock`（进程活着就持有的独占锁，内容 `{"pid", "url"}`，`url` 在监听后写上：一个状态目录只能有一个进程，第二个启动时报「`<目录>` is in use by pid N (url)」并以非零退出） |
 | `~/Documents/` | 只放项目：选项目从这里开始，新建项目建在这里。Documents 里不放隐藏目录 |
 | `<项目>/.agix/` | 项目自己的数据与配置**一律**放这里（引擎的项目层设置也在这），不开 `<项目>/.<产品>/` |
 | `~/Documents/.harnix/`（0.4.0-2026102602 及以前） | **不迁移、不读**。升级后旧的令牌、工作区分组、实例账本都从空开始 |
@@ -306,7 +327,9 @@ schema、来自哪个模块）。下表是分组索引。
 | 中枢，只给内核（自带的设置模块经 grant 调） | `harnix.instances.inheritProviders`：把 `system` 的 provider 并进所有 `inherit_providers` 模板的实例并让变了的重读，答 `{reloaded: [id…]}` | 内核 |
 | 系统 space（`[shell] spaces` 留着 `system` 时） | `harnix.system.context / messages.drop / messages.edit / tasks.stop / tasks.message / tasks.output / compact / clear / rename / model / calls`（`tasks.message {task_id, message}` 给在跑的子 Agent 或团队成员发话，它在下一个步骤读到；答 `{delivered, reason?}`）（`tasks.output {task_id, tail_bytes? | from_byte?}` 是任务到目前的输出：不带是最后 8 KiB；`from_byte` 从那个偏移读到末尾，应答带 `from_byte` / `next_byte` / `dropped` / `final`，跟随时下一次从 `next_byte` 接着读，`dropped > 0` 是中间已丢掉的字节数，`final` 之后不再长）；`harnix.system.goal`（会话的目标：`{goal: {objective, phase, armed, max_rounds, rounds_started, blocked_reason} | null}`）、`harnix.system.goal.set {objective, max_rounds?}`（设定；会话空闲时引擎立刻开第一轮；已有未完成的目标时拒绝）、`harnix.system.goal.update {action: pause | resume | edit | clear, objective?, max_rounds?}`（答同 `goal`）；`harnix.system.trace`（这一次运行里每次模型调用的输入与输出、它要的工具调用和结果，以及 `timing {sent_at, ttft_ms, generate_ms, tokens_per_s}`）、`harnix.system.trace.call {index}`（一次调用的全文）、`harnix.system.turns`（按轮汇总：调用数、首字时间、模型与工具时间、进出 token、按 token 计的缓存命中、上下文较上一轮的增量）、`harnix.system.usage {instance?, session_ids}`（一次至多 200 个会话，各自本次运行里每个 Agent 用了多少：`{sessions: {<id>: {recording, agents: [{session_id, parent_session_id, calls, auxiliary, turns, models, input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, model_ms, errors, first_at, last_at}]}}}`，会话自己的在前，子 Agent 带父会话，整棵树都在；只读录像的调用行与结束行，录像没变就不重读）；`harnix.system.context` 带 `measured`（上一次调用 provider 计的数，估算之外） | 设备 |
 | 检视（内核，模块可 grant） | `session.tasks`、`session.taskOutput`、`session.stopTask`、`session.inspectContext`、`session.dropMessages`、`session.editMessage` | 内核 |
+| `[apps] enabled = true` 时（`apps` 自带模块） | `harnix.apps.list`（`{dir, apps: [{id, version, title, enabled, registered}], unreadable: [{dir, reason}], registered: [AppSummary]}`）、`harnix.apps.enable {id}` / `harnix.apps.disable {id}`（改安装记录的 `enabled`；disable 顺带撤下本模块登记的这个应用；答 `{id, enabled, registered, withdrawn}`；没装的 id 答 `INVALID_PARAMS`）。安装本身是后面的阶段 | 设备 |
 | 你的模块 | `app.<id>.*` | 你声明的 |
+| 运行期应用 | `app.<应用 id>.*` | 它登记时声明的（§1.8） |
 
 明确拒绝并说明原因的（不是「没有这个方法」）：引擎里交凭据、开端点的方法；`session.run_turn`、
 `session.subscribe` 这类中枢独占的方法；`plugin.install` 等包生命周期（走 `harnix.plugins.*`）；
@@ -322,6 +345,10 @@ schema、来自哪个模块）。下表是分组索引。
 | `harnix.sessions.status` | — | 各会话的运行状态 |
 | `harnix.process` | — | 同 `harnix.process` 方法的答；有人订阅时 hub 每 5 秒重算一次推出 |
 | `app.<id>.<主题>` | 你声明的 | 你推的整值快照 |
+| `harnix.spaces` | — | 同 `harnix.spaces.list` 的答；运行期应用加减 space 时推。只在 `[apps] enabled` 时有 |
+
+运行期应用撤下时，它的主题的每个订阅者按订阅的参数组各收到一次 `harnix.topic_ended { topic, params, reason }`，之后不再推；
+再订答 `-32601`，等它重新登记。
 
 会话事件不是主题：`harnix.attach` 之后经 `harnix.event` 帧来，带 `seq`，断线按 `seq` 追赶。M7 起
 条目以 `harnix.event { event: { kind: "extension_entry", entry } }` 推给正在看的人。

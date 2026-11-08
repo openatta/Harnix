@@ -49,6 +49,8 @@ struct Ledger {
 
 pub struct Spaces {
     decls: BTreeMap<String, SpaceDecl>,
+    /// The ids in `decls` a runtime application added, which only it removes.
+    runtime: BTreeSet<String>,
     system_enabled: bool,
     path: PathBuf,
     ledger: Ledger,
@@ -72,10 +74,46 @@ impl Spaces {
         }
         Ok(Self {
             decls: all,
+            runtime: BTreeSet::new(),
             system_enabled,
             path,
             ledger,
         })
+    }
+
+    /// Add a space declared at runtime. Refused for an id already declared
+    /// (assembly's keep precedence), a built-in space's id, an id a call could
+    /// not claim, and a default instance built from a template — a runtime
+    /// application's space lands on an instance that exists.
+    pub fn add_runtime(&mut self, decl: SpaceDecl) -> Result<(), String> {
+        let id = decl.id.clone();
+        let builtin = [SESSIONS_SPACE, harnix_contract::PROJECTS_SPACE, SYSTEM_SPACE, "flow"];
+        if builtin.contains(&id.as_str()) {
+            return Err(format!("`{id}` is a built-in space"));
+        }
+        if self.decls.contains_key(&id) {
+            return Err(format!("there is already a space `{id}`"));
+        }
+        if !self.exists(&id) {
+            return Err(format!("`{id}` cannot name a space"));
+        }
+        if matches!(decl.instance, DefaultInstance::Template(_)) {
+            return Err(format!("the space `{id}` names a template; a runtime space lands on an instance that exists"));
+        }
+        self.runtime.insert(id.clone());
+        self.decls.insert(id, decl);
+        Ok(())
+    }
+
+    /// Remove a space added at runtime; `false` for any other. The sessions
+    /// bound to it keep their binding: a space with no declaration takes the
+    /// defaults, so they stay where they are and still list under it.
+    pub fn remove_runtime(&mut self, id: &str) -> bool {
+        if !self.runtime.remove(id) {
+            return false;
+        }
+        self.decls.remove(id);
+        true
     }
 
     fn save(&self) {
@@ -188,6 +226,23 @@ pub(crate) const CHECKED: &[&str] = &[
 ];
 
 impl Hub {
+    /// Add a space at runtime (see [`Spaces::add_runtime`]); the
+    /// `harnix.spaces` topic is pushed to whoever watches it.
+    pub fn add_space(self: &Arc<Self>, decl: SpaceDecl) -> Result<(), String> {
+        self.spaces.lock().unwrap_or_else(|e| e.into_inner()).add_runtime(decl)?;
+        self.refresh(crate::SPACES_TOPIC, json!({}));
+        Ok(())
+    }
+
+    /// Remove a space added at runtime, and push `harnix.spaces`.
+    pub fn remove_space(self: &Arc<Self>, id: &str) -> bool {
+        let removed = self.spaces.lock().unwrap_or_else(|e| e.into_inner()).remove_runtime(id);
+        if removed {
+            self.refresh(crate::SPACES_TOPIC, json!({}));
+        }
+        removed
+    }
+
     pub fn set_audit(&self, hook: AuditHook) {
         *self.audit.write().unwrap_or_else(|e| e.into_inner()) = Some(hook);
     }
@@ -461,5 +516,34 @@ fn message_text(message: &Value) -> String {
             .collect::<Vec<_>>()
             .join("\n"),
         _ => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn spaces(dir: &std::path::Path) -> Spaces {
+        Spaces::load(dir.join("spaces.json"), vec![SpaceDecl::new("fleet")], true).unwrap()
+    }
+
+    #[test]
+    fn a_runtime_space_is_added_and_removed_and_assemblys_stay() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = spaces(dir.path());
+        s.add_runtime(SpaceDecl::new("fake").scene("mini")).unwrap();
+        assert!(s.decls.contains_key("fake"));
+        for taken in ["fleet", "sessions", "projects", "system", "flow", "fake"] {
+            assert!(s.add_runtime(SpaceDecl::new(taken)).is_err(), "{taken} was added");
+        }
+        assert!(s.add_runtime(SpaceDecl::new("bad id")).is_err());
+        assert!(s.add_runtime(SpaceDecl::new("templated").instance("template:fleet.side")).is_err());
+        // Only what was added at runtime can be removed.
+        assert!(!s.remove_runtime("fleet"));
+        assert!(!s.remove_runtime("sessions"));
+        assert!(s.remove_runtime("fake"));
+        assert!(!s.remove_runtime("fake"));
+        assert!(!s.decls.contains_key("fake"));
+        assert!(s.decls.contains_key("fleet"));
     }
 }

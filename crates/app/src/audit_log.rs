@@ -106,6 +106,9 @@ fn is_consequential(method: &str) -> bool {
             // put there by hand — so it can change the active set without any
             // other call having been made.
             | "harnix.plugins.reload"
+            // Switching a runtime application on or off changes what this process serves.
+            | "harnix.apps.enable"
+            | "harnix.apps.disable"
             | "harnix.devices.pair.complete"
             | "harnix.devices.revoke"
             | "harnix.settings.set"

@@ -51,7 +51,7 @@ pub use axum;
 pub use harnix_app::{App, AppBuilder, ModuleStatus, Namespace, HARNIX_VERSION, SHUTDOWN_GRACE};
 pub use harnix_contract::{codes, RpcError, Subject, SYSTEM_INSTANCE};
 pub use harnix_module::{
-    AttachTo, Attachment, SendOptions, CallContext, CredentialRef, Credentials, EngineContrib, EngineProfile, Entry,
+    AppHandle, AppHandler, AppHost, AppMethod, AppSpec, AppSummary, AppTopic, AppWithdrawn, AttachTo, Attachment, SendOptions, CallContext, CredentialRef, Credentials, EngineContrib, EngineProfile, Entry,
     EnvCredentials, EventRegistry, Events, Handler, InstanceHandle, InstanceTemplate,
     InstanceTemplates, Instances, Listen, Manifest, MethodRegistry, MigrateContext,
     MigrationReport, Module, ModuleContext, OnBusy, Principal, RouteRegistry, Secret, SessionRef, SessionSpec,

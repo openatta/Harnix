@@ -104,6 +104,13 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
                 namespace: Namespace::Kernel,
             });
         }
+        // Runtime applications' install records and switches: only when this process hosts them.
+        if profile.apps.enabled {
+            entries.push(Entry {
+                module: Box::new(harnix_builtin::apps::AppsModule::new(roots.state.join("apps"))),
+                namespace: Namespace::Kernel,
+            });
+        }
         // Revoking is wired to the transport's session registry, because
         // ending a device's channels needs the layer that knows there are
         // channels. Nothing above transport ever learns there were.
@@ -125,6 +132,11 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         });
     }
     let mut table = methods::table();
+    if profile.apps.enabled {
+        // What changes the list of spaces after assembly is a runtime application; only then is
+        // there anything to watch.
+        table = table.allow(&harnix_authz::topic(harnix_hub::SPACES_TOPIC), harnix_authz::Reach::Device);
+    }
     let mut records = modules::register(entries, &mut table, &profile.modules, &roots.state);
 
     // ── 3. Migrate ──────────────────────────────────────────────────────
@@ -324,6 +336,9 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
             .await;
     }
     hub.restore().await;
+    if profile.apps.enabled {
+        hub.declare_spaces_topic().await;
+    }
     for record in records.iter().filter(|r| r.is_enabled()) {
         for topic in &record.topics {
             hub.declare_topic(&topic.name, topic.params.clone()).await;
@@ -379,10 +394,23 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     let gate: Arc<dyn Gate> = authorizer.clone();
     let kernel = Arc::new(ProcessKernel {
         gate: OnceLock::new(),
+        apps: OnceLock::new(),
         hub: hub.clone(),
         listen: tokio::sync::watch::channel(None).0,
     });
     let _ = kernel.gate.set(gate.clone());
+    if profile.apps.enabled {
+        // Every compiled-in module's id is reserved, enabled or not: a runtime application never
+        // takes one, or nests under one.
+        let apps = crate::apps::Apps::new(
+            authorizer.clone(),
+            app_gate.clone(),
+            Arc::new(crate::apps::HubSurfaces(hub.clone())),
+            records.iter().map(|r| r.manifest.id.clone()),
+        );
+        let _ = kernel.apps.set(Arc::new(apps));
+        tracing::info!("[apps] enabled: this process hosts runtime applications");
+    }
 
     // ── 5. Start ────────────────────────────────────────────────────────
     for record in records.iter_mut() {

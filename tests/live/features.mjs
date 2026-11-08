@@ -37,6 +37,11 @@ export const FEATURES = [
   { id: "brand", name: "品牌与主题" },
   { id: "flow", name: "流程（harnix-flow，xops-01、xops-02）" },
   {
+    id: "apps",
+    name: "运行期应用（登记与撤下、安装记录与启停）",
+    ui: { pending: "应用 S4：系统 space 的「应用」页签" },
+  },
+  {
     id: "build",
     name: "应用构建",
     api: { na: "在脚本层检查（check-pins、check-lock、sync-app-deps），不经协议" },

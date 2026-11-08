@@ -40,6 +40,11 @@ pub trait Kernel: Send + Sync {
     fn listen(&self) -> Option<tokio::sync::watch::Receiver<Option<Listen>>> {
         None
     }
+    /// The runtime-application host, when this process hosts applications
+    /// (`[apps] enabled`). `None` otherwise, which is the default.
+    fn apps(&self) -> Option<Arc<dyn crate::apps::AppRuntime>> {
+        None
+    }
 }
 
 /// Where this process accepts connections (ipdrun-14).
@@ -199,6 +204,17 @@ impl ModuleContext {
             }
         }
         std::future::pending().await
+    }
+
+    /// The runtime-application host (see [`crate::AppHost`]): registering an
+    /// application's methods, topics and spaces while the process runs.
+    /// `None` unless the profile says `[apps] enabled = true`. What this
+    /// module registers through it is audited as this module's.
+    pub fn apps(&self) -> Option<crate::AppHost> {
+        self.shared
+            .kernel
+            .apps()
+            .map(|runtime| crate::AppHost::new(runtime, &self.shared.id))
     }
 
     /// Keep a value for this module's handlers: `cx.state::<T>()`.

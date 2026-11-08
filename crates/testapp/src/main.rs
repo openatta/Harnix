@@ -13,6 +13,7 @@
 //! | `fleet` | its own in-process instance and a space on it, headless sessions, a tap left unread |
 //! | `lifecycle` | what `stop` does on the way out: a mark, a slow finish, one that never returns |
 //! | `flow` | the flow module (xops-01) with two demonstration flows: see `flow_demo.rs` |
+//! | `fakehost` | a fake runtime application registered and withdrawn through the app host: see `fake_app.rs` |
 //!
 //! `probe` also refuses, before it reaches the model, any message with `blocked-word` in it (a prompt
 //! middleware on every session of `system`), and `fleet` has two templates with the same native
@@ -31,6 +32,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
+mod fake_app;
 mod flow_demo;
 
 fn main() -> anyhow::Result<()> {
@@ -45,6 +47,7 @@ fn main() -> anyhow::Result<()> {
         .module(Fleet)
         .module(Lifecycle::default())
         .module(flow_demo::module())
+        .module(fake_app::FakeHost)
         .run()
 }
 

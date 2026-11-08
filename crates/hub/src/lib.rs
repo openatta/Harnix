@@ -43,6 +43,7 @@ pub use clients::ClientId;
 pub use instances::{Registry, Slot};
 pub use replay::{MAX_BYTES as REPLAY_MAX_BYTES, MAX_FRAMES as REPLAY_MAX_FRAMES};
 pub use spaces::{AuditHook, Spaces};
+pub use topics::TOPIC_ENDED;
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::atomic::AtomicU64;
@@ -120,6 +121,12 @@ pub const HUB_TOPICS: &[(&str, &[&str])] = &[
     ("harnix.sessions.status", &[]),
     ("harnix.process", &[]),
 ];
+
+/// `harnix.spaces`: the same value as `harnix.spaces.list`, pushed when a
+/// space is added or removed at runtime. Declared only where something can
+/// change the list — with `[apps] enabled` — by [`Hub::declare_spaces_topic`];
+/// elsewhere the list is fixed at assembly and there is nothing to watch.
+pub const SPACES_TOPIC: &str = "harnix.spaces";
 
 /// The instance every process has: the profile's `[engine]`.
 pub use harnix_contract::SYSTEM_INSTANCE as SYSTEM;
@@ -253,6 +260,12 @@ impl Hub {
     /// reload to appear is a package nobody will believe installed.
     pub async fn set_ui_contributions(&self, contributions: Value) {
         *self.ui_contributions.write().await = contributions;
+    }
+
+    /// Declare [`SPACES_TOPIC`]. Its value is computed when it is subscribed
+    /// to and recomputed when a space is added or removed.
+    pub async fn declare_spaces_topic(&self) {
+        self.inner.lock().await.topics.declare(SPACES_TOPIC, Vec::new());
     }
 
     /// Declare a host topic, at assembly. Subscribing to one that was never

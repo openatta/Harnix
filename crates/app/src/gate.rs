@@ -16,13 +16,20 @@ use harnix_authz::Authorizer;
 use harnix_contract::{Gate, RpcError, Subject};
 use harnix_hub::Hub;
 use harnix_module::{
-    CallContext, Handler, InstanceHandle, Kernel, Listen, ModuleContext, SessionRef, Tap,
+    AppHandler, CallContext, Handler, InstanceHandle, Kernel, Listen, ModuleContext, SessionRef, Tap,
 };
 use serde_json::{json, Value};
 
 use crate::modules::ModuleStatus;
 
-type Bound = (Arc<dyn Handler>, ModuleContext);
+/// What answers one method above the hub.
+#[derive(Clone)]
+enum Bound {
+    /// A compiled-in module's, with that module's context.
+    Module(Arc<dyn Handler>, ModuleContext),
+    /// A runtime application's (`crate::apps`).
+    App(Arc<dyn AppHandler>),
+}
 
 pub(crate) struct AppGate {
     hub: Arc<dyn Gate>,
@@ -45,7 +52,18 @@ impl AppGate {
         self.methods
             .write()
             .unwrap_or_else(|e| e.into_inner())
-            .insert(name.to_string(), (handler, cx));
+            .insert(name.to_string(), Bound::Module(handler, cx));
+    }
+
+    /// Bind a runtime application's method. Never replaces anything: a name
+    /// already bound is refused (`false`), whoever bound it.
+    pub fn bind_app(&self, name: &str, handler: Arc<dyn AppHandler>) -> bool {
+        let mut methods = self.methods.write().unwrap_or_else(|e| e.into_inner());
+        if methods.contains_key(name) {
+            return false;
+        }
+        methods.insert(name.to_string(), Bound::App(handler));
+        true
     }
 
     pub fn unbind(&self, names: &[String]) {
@@ -78,13 +96,24 @@ impl Gate for AppGate {
             }
             _ => {}
         }
-        if let Some((handler, cx)) = self.bound(method) {
+        if let Some(bound) = self.bound(method) {
             // The transport's stamp is for the hub's watching methods; a
             // module's typed params should not have to know it exists.
             if let Some(obj) = params.as_object_mut() {
                 obj.remove("__client");
             }
-            return handler.call(CallContext::new(subject.clone(), cx), params).await;
+            // The handler is a clone out of the map: withdrawing the method
+            // while this runs does not cut it short.
+            return match bound {
+                Bound::Module(handler, cx) => handler.call(CallContext::new(subject.clone(), cx), params).await,
+                Bound::App(handler) => handler.call(subject, params).await,
+            };
+        }
+        // The hub answers no `app.*` name. One that reached here with nothing
+        // bound was withdrawn between admission and now; it goes no further
+        // down than a name that never existed.
+        if method.starts_with("app.") {
+            return Err(RpcError::not_found(format!("method `{method}` is not served here (any more)")));
         }
         self.hub.call(subject, method, params).await
     }
@@ -93,6 +122,8 @@ impl Gate for AppGate {
 /// The process, as a module's context sees it.
 pub(crate) struct ProcessKernel {
     pub gate: OnceLock<Arc<dyn Gate>>,
+    /// The runtime-application host, set only with `[apps] enabled`.
+    pub apps: OnceLock<Arc<dyn harnix_module::apps::AppRuntime>>,
     pub hub: Arc<Hub>,
     /// Where the listener is, once it is bound (ipdrun-14).
     pub listen: tokio::sync::watch::Sender<Option<Listen>>,
@@ -173,6 +204,10 @@ impl Kernel for ProcessKernel {
 
     fn listen(&self) -> Option<tokio::sync::watch::Receiver<Option<Listen>>> {
         Some(self.listen.subscribe())
+    }
+
+    fn apps(&self) -> Option<Arc<dyn harnix_module::apps::AppRuntime>> {
+        self.apps.get().cloned()
     }
 }
 

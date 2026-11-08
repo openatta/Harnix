@@ -51,6 +51,33 @@ pub struct AuditEntry {
     /// being paired belongs to no conversation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session: Option<String>,
+    /// When, in milliseconds since the epoch: on what changed the table at
+    /// runtime (an application's names declared or withdrawn), where "when"
+    /// is half the question. A decision on a call is in order in the ring and
+    /// carries none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub at_ms: Option<u64>,
+}
+
+/// What a runtime change to the table was, as an entry's `decision`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Change {
+    /// A name was put in the table.
+    Declare,
+    /// A name was taken out again.
+    Withdraw,
+    /// Putting a name in was refused, and nothing was written.
+    Refuse,
+}
+
+impl Change {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Change::Declare => "declare",
+            Change::Withdraw => "withdraw",
+            Change::Refuse => "refuse",
+        }
+    }
 }
 
 /// Somewhere entries outlive the process. Wired by the app to the engine's
@@ -92,13 +119,35 @@ impl Audit {
         reason: Option<&'static str>,
         session: Option<String>,
     ) {
-        let entry = AuditEntry {
+        self.push(AuditEntry {
             subject: subject.label(),
             method: method.to_string(),
             decision: decision.as_str(),
             reason,
             session,
-        };
+            at_ms: None,
+        });
+    }
+
+    /// A change to the table at runtime: `subject` (the module hosting the
+    /// application) declared or withdrew `name`, or was refused it. `reason`
+    /// says on whose behalf, or why not.
+    pub fn record_change(&self, subject: &Subject, name: &str, change: Change, reason: Option<&'static str>) {
+        let at_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        self.push(AuditEntry {
+            subject: subject.label(),
+            method: name.to_string(),
+            decision: change.as_str(),
+            reason,
+            session: None,
+            at_ms: Some(at_ms),
+        });
+    }
+
+    fn push(&self, entry: AuditEntry) {
         if let Some(sink) = self.sink.lock().unwrap().as_ref() {
             sink.append(&entry);
         }
