@@ -8,13 +8,17 @@
  * live model decides for itself whether to spawn one.
  */
 
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { type Backend, expect, launchFor, startHarnix, connect, test } from "@harnix/testkit";
 
 const TAGS = { tag: ["@feature:instances", "@layer:api"] };
 
 let backend: Backend;
 test.beforeAll(async () => {
-  backend = await startHarnix(launchFor("replay"));
+  // Teams are a `code`-scene tool: activated beside the default.
+  backend = await startHarnix(launchFor("replay", { profile: '\n[engine]\nscenes = ["code"]\n' }));
 });
 test.afterAll(async () => { await backend?.dispose(); });
 
@@ -84,3 +88,68 @@ function textOf(content: unknown): string {
   if (typeof content === "string") return content;
   return Array.isArray(content) ? content.map((b: { text?: string }) => b.text ?? "").join("") : "";
 }
+
+test("a team's run is on its session's tasks: each team's stage and members, as the hub last heard them", TAGS, async () => {
+  const api = await connect(backend);
+  try {
+    // Teams are the operator's switch too: on for this project.
+    mkdirSync(join(api.project, ".agix"), { recursive: true });
+    writeFileSync(join(api.project, ".agix", "settings.json"), JSON.stringify({ execution: { team_enabled: true } }));
+    const created = await api.call("session.create", { scene: "code", project_root: api.project, options: { recorder: { name: "runs-a-team" } } });
+    const s = { instance: "system", session_id: created.session_id };
+    await api.call("harnix.subscribe", { topic: "harnix.sessions.tasks", params: s });
+    await api.call("harnix.attach", s);
+    await api.call("harnix.send", { ...s, message: "Run a team of one: alpha says it is here" });
+    const settled = await api.waitFor((f) => f.method === "harnix.turn_settled" && f.params.session_id === s.session_id, {
+      timeout: 60_000,
+      describe: "the team's turn to settle",
+    });
+    expect(settled.params.error).toBeUndefined();
+    expect(api.eventsOfKind("tool_use", s.session_id).some((e) => e.name === "TeamCreate")).toBe(true);
+    // Pushed on the topic, and answered when asked: the one stage, finished, its one member.
+    const pushed = await api.waitFor(
+      (f) => f.method === "harnix.topic" && f.params.topic === "harnix.sessions.tasks" && f.params.value.teams?.some((t: any) => t.status === "completed"),
+      { timeout: 15_000, describe: "the team to be pushed finished" },
+    );
+    const [team] = pushed.params.value.teams;
+    expect(team).toMatchObject({ team: "ui-team", stage_index: 0, stage_count: 1, status: "completed", members: ["alpha"], failed: [] });
+    expect((await api.call("harnix.sessions.tasks", s)).teams).toEqual(pushed.params.value.teams);
+  } finally {
+    api.close();
+  }
+});
+
+test("a running sub-agent is told something, and reads it in the turn it is in", TAGS, async () => {
+  const api = await connect(backend);
+  try {
+    const created = await api.call("session.create", { scene: "harnix", project_root: api.project, options: { recorder: { name: "messages-a-subagent" } } });
+    const s = { instance: "system", session_id: created.session_id };
+    await api.call("harnix.attach", s);
+    // Its Bash call asks; let it through.
+    await api.call("harnix.send", { ...s, message: "Start a background sub-agent that waits, then answers" });
+    const ask = await api.waitFor((f) => f.method === "harnix.event" && f.params.session_id === s.session_id && f.params.event.kind === "prompt", {
+      timeout: 30_000,
+      describe: "the sub-agent's Bash call to ask",
+    });
+    await api.call("session.respondToPrompt", { ...s, prompt_id: ask.params.event.prompt_id, decision: { type: "permit" } });
+    let agent: any;
+    await expect
+      .poll(async () => {
+        agent = (await api.call("harnix.sessions.tasks", s)).tasks.find((t: any) => t.kind === "agent");
+        return agent?.status;
+      }, { timeout: 15_000 })
+      .toBe("running");
+    // In its ten seconds of Bash: delivered, for its next step.
+    const told = await api.call("harnix.system.tasks.message", { ...s, task_id: agent.task_id, message: "When you are done, say so." });
+    expect(told, JSON.stringify(told)).toEqual({ delivered: true });
+    await expect
+      .poll(async () => (await api.call("harnix.sessions.tasks", s)).tasks.find((t: any) => t.task_id === agent.task_id)?.status, { timeout: 30_000 })
+      .toBe("done");
+    // What it was told is in its own transcript.
+    const sub = agent.detail.agent_session_id;
+    const history = await api.call("session.history", { instance: "system", session_id: sub, space: "system" });
+    expect(JSON.stringify(history.messages)).toContain("When you are done, say so.");
+  } finally {
+    api.close();
+  }
+});

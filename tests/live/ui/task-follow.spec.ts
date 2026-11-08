@@ -6,6 +6,9 @@
  * of the `code` scene, so this backend activates it beside the default.
  */
 
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { type Backend, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
 import { open, say, watchConsole } from "./page";
@@ -16,6 +19,10 @@ let backend: Backend;
 
 test.beforeAll(async () => {
   backend = await startHarnix(launchFor("replay", { profile: '\n[engine]\nscenes = ["code"]\n' }));
+  // Teams are the operator's switch too: on for this backend's project, before any session reads
+  // its settings.
+  mkdirSync(join(backend.project, ".agix"), { recursive: true });
+  writeFileSync(join(backend.project, ".agix", "settings.json"), JSON.stringify({ execution: { team_enabled: true } }));
 });
 test.afterAll(async () => {
   await backend?.dispose();
@@ -97,4 +104,51 @@ test("system-tasks: a task that outlives its turn is listed as running, and is s
   await expect(task.getByTestId("task-stop")).toHaveCount(0);
   await expect(page.locator(`[data-testid="system-agents"] [data-task="${id}"][data-status="running"]`)).toHaveCount(0);
   expect(errors).toEqual([]);
+});
+
+test("system-teams: a team's stage and members are drawn under its Agent and on the tasks tab", TAGS, async ({ page }) => {
+  await open(page, backend.url);
+  await page.evaluate(() => (window as any).harnix.app.create({ scene: "code", options: { recorder: { name: "runs-a-team" } } }));
+  await expect(page.getByTestId("conv-input")).toBeEnabled();
+  const id = await page.evaluate(() => (window as any).harnix.app.snapshot.current?.sessionId as string);
+  await say(page, "Run a team of one: alpha says it is here");
+  await expect(page.locator('[data-testid="conv-message"]', { hasText: "Team done." })).toBeVisible({ timeout: 30_000 });
+
+  await page.locator('#side [data-space="system"]').click();
+  const row = page.locator(`[data-testid="system-agents"] .tgroup[data-sid="${id}"]`);
+  await row.getByTestId("system-agent-toggle").click();
+  const team = row.locator('[data-testid="team-board"] .team[data-team="ui-team"]');
+  await expect(team).toHaveAttribute("data-status", "completed", { timeout: 15_000 });
+  await expect(team).toContainText(/1 of 1|1 \/ 1/);
+  await expect(team.locator('.member[data-member="alpha"]')).toHaveAttribute("data-status", "done");
+  // And on the Agent's tasks tab.
+  await row.getByTestId("system-agent").click();
+  await page.locator('#details .tabs [data-tab="system.tasks"]').click();
+  await expect(page.locator('[data-testid="system-tasks"] [data-testid="team-board"] .team[data-team="ui-team"]')).toBeVisible();
+});
+
+test("system-tasks: a running sub-agent is told something from its own detail, and it is delivered", TAGS, async ({ page }) => {
+  await open(page, backend.url);
+  await page.evaluate(() => (window as any).harnix.app.create({ scene: "harnix", options: { recorder: { name: "messages-a-subagent" } } }));
+  await expect(page.getByTestId("conv-input")).toBeEnabled();
+  const id = await page.evaluate(() => (window as any).harnix.app.snapshot.current?.sessionId as string);
+  await say(page, "Start a background sub-agent that waits, then answers");
+  // The sub-agent's Bash call asks in its parent's conversation; let it through.
+  const ask = page.getByTestId("conv-ask");
+  await expect(ask).toBeVisible({ timeout: 30_000 });
+  await ask.getByTestId("conv-ask-allow").click();
+
+  await page.locator('#side [data-space="system"]').click();
+  const row = page.locator(`[data-testid="system-agents"] .tgroup[data-sid="${id}"]`);
+  const sub = row.getByTestId("system-subagent").first();
+  // A row with a task running opens by itself; open it only if it has not.
+  const toggle = row.getByTestId("system-agent-toggle");
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+  await expect(sub).toHaveAttribute("data-status", "running", { timeout: 15_000 });
+  await sub.click();
+  const pane = page.getByTestId("system-subagent-pane");
+  await pane.getByTestId("task-message-text").fill("When you are done, say so.");
+  await pane.getByTestId("task-message-send").click();
+  await expect(pane.getByTestId("task-message-said")).toHaveText(/Delivered|已送达/);
+  await expect(pane.getByTestId("task-message-text")).toHaveValue("");
 });

@@ -2435,8 +2435,12 @@ function TeamBoard({ teams, tasks }: { teams: Team[]; tasks: Task[] }) {
     <div className="teams" data-testid="team-board">
       {teams.map((team) => {
         const mine = tasks.filter((task) => task.kind === "teammate" && task.detail?.team === team.team);
+        // A member's own task says how it stands when there is one (a standing teammate); otherwise the
+        // stage does: dispatched is running, finished is done, unless the member is among the failed.
         const statusOf = (member: string) =>
-          team.failed.includes(member) ? "failed" : mine.find((task) => task.detail?.member === member)?.status ?? "pending";
+          team.failed.includes(member)
+            ? "failed"
+            : mine.find((task) => task.detail?.member === member)?.status ?? (team.status === "completed" ? "done" : "running");
         const counts = team.members.reduce<Record<string, number>>((n, member) => ({ ...n, [statusOf(member)]: (n[statusOf(member)] ?? 0) + 1 }), {});
         return (
           <div key={team.team_id} className="team" data-team={team.team} data-status={team.status}>
