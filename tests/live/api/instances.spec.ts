@@ -121,17 +121,37 @@ test("the instance tree is pushed whole", TAGS, async () => {
   const status = await api.call("harnix.subscribe", { topic: "harnix.sessions.status" });
   expect(status.value.sessions).toEqual([]);
 
-  const sessionId = await runOn(api, "side", "harnix");
+  // A turn held on its permission ask: running for as long as the test needs, where a replayed
+  // turn that just answers may settle inside one coalescing window and never be pushed running.
+  const created = await api.call("session.create", {
+    instance: "side",
+    scene: "harnix",
+    project_root: api.project,
+    options: { recorder: { name: "runs-a-while" } },
+  });
+  const sessionId = created.session_id;
+  const s = { instance: "side", session_id: sessionId };
+  await api.call("harnix.attach", s);
+  const sent = await api.call("harnix.send", { ...s, message: "Wait four seconds" });
+  const ask = await api.waitFor(
+    (f) => f.method === "harnix.event" && f.params.session_id === sessionId && f.params.event.kind === "prompt",
+    { timeout: 30_000, describe: "the permission ask for the Bash call" },
+  );
   await api.waitFor(
     (f) => f.method === "harnix.topic" && f.params.topic === "harnix.instances.sessions"
       && f.params.value.sessions.some((s: any) => s.session_id === sessionId),
     { describe: "side's session list to include the new session" },
   );
-  const running = api.events.filter(
+  await api.waitFor(
     (f) => f.method === "harnix.topic" && f.params.topic === "harnix.sessions.status"
       && f.params.value.sessions.some((s: any) => s.session_id === sessionId && s.state === "running"),
+    { describe: "the session to be shown running while its turn runs" },
   );
-  expect(running.length, "the session was shown running while its turn ran").toBeGreaterThan(0);
+  await api.call("session.respondToPrompt", { ...s, prompt_id: ask.params.event.prompt_id, decision: { type: "permit" } });
+  await api.waitFor(
+    (f) => f.method === "harnix.turn_settled" && f.params.turn_id === sent.turn_id,
+    { timeout: 60_000, describe: "the turn to settle" },
+  );
   await api.waitFor(
     (f) => f.method === "harnix.topic" && f.params.topic === "harnix.sessions.status"
       && !f.params.value.sessions.some((s: any) => s.session_id === sessionId),

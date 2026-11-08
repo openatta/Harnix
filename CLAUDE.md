@@ -12,13 +12,18 @@
 crate 自己的 `Cargo.toml` 里，不从 workspace 继承（应用把这些 crate 收进自己的 workspace 时，继承到的会是
 应用的值），所以改版本用 `scripts/set-version.sh`，`tests/crate-metadata.mjs` 检查它们一致。
 
+每个 Harnix 发布对应一个 Agix 发布，一一对应，不兼容多个 Agix 版本：子模块 `agix/` 锁在一个带 `Agix-v…` 标签的提交上，
+升 Agix 就是出一个新的 Harnix 发布。`tests/crate-metadata.mjs` 检查锁定的提交恰好带一个 Agix 标签、且检出的就是它。
+
 发布步骤：
 
 1. 子模块 `agix/` 检出到主仓库锁定的那个提交（`git submodule update`），否则 `Cargo.lock` 记下的是工作区里碰巧检出的 Agix。
+   升 Agix 时检出到它的发布标签（`git -C agix checkout Agix-v…`），再 `git add agix`。
 2. `scripts/set-version.sh x.y.z-YYYYMMDDNN` 改所有 crate 的版本号，它会顺带 `cargo update -w`。
 3. `scripts/check.sh` 通过（跑不了的层要说明，不能当作通过）。
 4. 版本号改动单独一个提交。
-5. 在这个提交上打附注标签（标签名就是完整的版本标识，标签消息写本次发布的要点），和分支一起推送。
+5. 在这个提交上打附注标签（标签名就是完整的版本标识，标签消息第一行写对应的 Agix 标签，如 `Agix: Agix-v0.3.8-2026110801`，
+   再写本次发布的要点），和分支一起推送。
 
 改名为 Harnix 之前的标签（`v0.3.0` 及更早、`nest-v0.3.1-2026102501`）保留原样，不改名。
 

@@ -72,6 +72,9 @@ test("a message sent during a turn queues, and can be withdrawn", TAGS, async ({
   await expect(queued).toContainText("and then this");
   await queued.getByTestId("conv-queue-remove").click();
   await expect(queued).toHaveCount(0);
+  // Not left waiting on its ask: later tests count the sessions that are running.
+  await page.getByTestId("conv-interrupt").click();
+  await expect(page.getByTestId("conv-send")).toBeVisible({ timeout: 20_000 });
 });
 
 test("a queued message is edited in place, and keeps its place", TAGS, async ({ page }) => {
@@ -103,6 +106,12 @@ test("a queued message is edited in place, and keeps its place", TAGS, async ({ 
   await page.getByTestId("conv-queue-editor").fill("second, as saved");
   await page.getByTestId("conv-queue-save").click();
   await expect(queued.nth(1)).toContainText("second, as saved");
+  for (let left = 2; left > 0; left -= 1) {
+    await queued.first().getByTestId("conv-queue-remove").click();
+    await expect(queued).toHaveCount(left - 1);
+  }
+  await page.getByTestId("conv-interrupt").click();
+  await expect(page.getByTestId("conv-send")).toBeVisible({ timeout: 20_000 });
 });
 
 test("a compaction is a row of its own: told with its counts as it happens, and still there after a reload", TAGS, async ({ page }) => {

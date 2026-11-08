@@ -5,7 +5,12 @@
 // are built in — and an application builds them as members of its own (see
 // Cargo.toml). The check is what keeps "they agree" true without the
 // inheritance that used to guarantee it.
+//
+// And each Harnix release stands on exactly one Agix release: the submodule is
+// pinned to a commit that carries an `Agix-v…` tag, and is checked out there,
+// so the Cargo.lock written from it is the pinned one.
 
+import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,5 +40,11 @@ for (const [key, values] of Object.entries(seen)) {
 if (seen.license && [...seen.license.values()].some((v) => v !== '"Apache-2.0"')) {
   fail("every crate is Apache-2.0");
 }
+const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+const pinned = git("ls-files", "-s", "agix").split(/\s+/)[1];
+const checkedOut = git("-C", "agix", "rev-parse", "HEAD");
+if (pinned !== checkedOut) fail(`agix/ is checked out at ${checkedOut.slice(0, 7)}, not the pinned ${pinned?.slice(0, 7)} (git submodule update)`);
+const agix = git("-C", "agix", "tag", "--points-at", pinned, "--list", "Agix-v*").split("\n").filter(Boolean);
+if (agix.length !== 1) fail(`the pinned Agix ${pinned?.slice(0, 7)} carries ${agix.length ? agix.join(", ") : "no Agix-v… tag"}, not exactly one release`);
 if (failed) process.exit(1);
-console.log(`ok — ${crates.length} crates, version ${[...seen.version.values()][0]}`);
+console.log(`ok — ${crates.length} crates, version ${[...seen.version.values()][0]}, on ${agix[0]}`);
