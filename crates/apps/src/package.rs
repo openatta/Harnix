@@ -163,6 +163,18 @@ pub fn inspect(path: &Path, fingerprint: &str) -> Result<Inspected, String> {
         }
     }
 
+    for surface in &manifest.surfaces {
+        let Some(page) = &surface.page else { continue };
+        let file = format!("ui/{page}");
+        if !names.contains(&file) {
+            return Err(format!(
+                "the manifest's {} surface `{}` is the page `{page}`, and the package has no `{file}`",
+                surface.point,
+                surface.id()
+            ));
+        }
+    }
+
     let has_agent = names.iter().any(|n| n.starts_with("agent/"));
     let agent = if has_agent {
         let text = read_text(&mut archive, "agent/plugin.toml").map_err(|_| {

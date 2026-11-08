@@ -1,9 +1,12 @@
 //! What the runtime serves over HTTP, under `/apps/<id>/` on the process's own listener:
 //!
-//! - `GET /apps/<id>/ui/<file>` — a running application's interface modules, same-origin, so the
-//!   page can `import()` them like an installed package's (`/plugins/<name>/ui/…`). Only files of
-//!   an application that is running, only under its `ui/`; like the page's own files, served
-//!   without a credential.
+//! - `GET /apps/<id>/ui/<file>` — a running application's interface: the modules a trusted
+//!   publisher's runs in the page, same-origin, so the page can `import()` them like an installed
+//!   package's (`/plugins/<name>/ui/…`); and the pages (and their scripts, styles, images) the
+//!   shell's isolated frames load (`crate::surface`). Only files of an application that is
+//!   running, only under its `ui/`; like the page's own files, served without a credential. Every
+//!   one carries [`FRAME_CSP`]: a frame's page has no network, no plugins, no nested frames, and
+//!   loads only what its own package has.
 //! - `POST /apps/<id>/mcp` — the application's tools for a daemon this process spawned (design
 //!   §5.1): a daemon is another process and has no VM, so its sessions call the tools here, and
 //!   they run in this process's VM. The smallest MCP server Agix's client (streamable HTTP) needs:
@@ -28,6 +31,18 @@ use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
 use crate::runtime::{Loaded, Registry};
+
+/// The policy every file under `/apps/<id>/ui/` is served with (it is a document's that matters:
+/// a module the page imports runs under the page's own). What a frame's page may load is its
+/// package's files and inline styles; it may not connect anywhere (`connect-src 'none'`: its data
+/// comes over the shell's bridge), submit a form anywhere, frame anything, or be framed by
+/// anything but this page. Its sandbox (`allow-scripts allow-forms`, no `allow-same-origin`)
+/// is the shell's; together they make it an opaque origin that cannot read the page's token,
+/// storage or cookies.
+pub const FRAME_CSP: &str =
+    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
+     img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; frame-src 'none'; \
+     form-action 'none'; base-uri 'none'; frame-ancestors 'self'";
 
 /// Protocol versions this server answers `initialize` with: the client's, when it is one of these.
 const PROTOCOL_VERSIONS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -74,6 +89,8 @@ async fn ui(registry: Arc<Registry>, id: String, file: String) -> Response {
                 (header::CONTENT_TYPE, content_type(&file)),
                 (header::CACHE_CONTROL, "no-store"),
                 (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+                (header::CONTENT_SECURITY_POLICY, FRAME_CSP),
+                (header::REFERRER_POLICY, "no-referrer"),
             ],
             bytes,
         )
@@ -84,11 +101,14 @@ async fn ui(registry: Arc<Registry>, id: String, file: String) -> Response {
 
 fn content_type(file: &str) -> &'static str {
     match file.rsplit('.').next().unwrap_or("") {
+        "html" => "text/html; charset=utf-8",
         "js" | "mjs" => "text/javascript; charset=utf-8",
         "css" => "text/css; charset=utf-8",
         "json" | "map" => "application/json; charset=utf-8",
         "svg" => "image/svg+xml",
         "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
         _ => "application/octet-stream",
     }
 }

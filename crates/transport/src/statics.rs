@@ -42,11 +42,14 @@ fn embedded(path: &str) -> Option<&'static [u8]> {
 /// from the binary and a module served from the plugin cache come from the
 /// same host and port.
 ///
+/// Frames are this origin's only (`frame-src 'self'`): a runtime application's isolated
+/// interface, `/apps/<id>/ui/…`, sandboxed by the shell and served under a policy of its own.
+///
 /// The one inline thing is the page's import map (design §10.5), which a browser accepts only
 /// inline. It is allowed by its own hash and nothing else ([`page_csp`]); no `'unsafe-inline'`,
 /// no `'unsafe-eval'`. The token travels in a `<meta>` tag.
 pub const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; \
-     connect-src 'self'; img-src 'self' data:; font-src 'self' data:; \
+     connect-src 'self'; img-src 'self' data:; font-src 'self' data:; frame-src 'self'; \
      base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 /// Where the product's `[brand] icon` is served.
