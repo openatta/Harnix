@@ -43,6 +43,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::future::Future;
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
@@ -159,7 +160,6 @@ struct Inner {
     tools: Option<tools::GuestIndices>,
     events: Option<events::GuestIndices>,
     backend: Option<backend::GuestIndices>,
-    config_json: String,
     timeout: Duration,
     resident: tokio::sync::Mutex<Option<Resident>>,
 }
@@ -175,6 +175,8 @@ pub(crate) struct Shared {
     vm_id: u64,
     pub app: String,
     pub caps: Resolved,
+    /// `host.config()`, and what the backend's `init` is handed.
+    pub config_json: String,
     pub services: Services,
     pub memory: Arc<MemoryAccount>,
     engine: WasmEngine,
@@ -284,6 +286,7 @@ impl AppVm {
             vm_id: NEXT_VM.fetch_add(1, Ordering::Relaxed),
             app: app.clone(),
             caps,
+            config_json: spec.config.to_string(),
             services,
             memory: Arc::new(MemoryAccount::new(spec.limits.memory_bytes)),
             engine: engine.clone(),
@@ -301,7 +304,6 @@ impl AppVm {
             pre,
             world,
             backend,
-            config_json: spec.config.to_string(),
             timeout: spec.limits.timeout,
             resident: tokio::sync::Mutex::new(None),
         });
@@ -333,7 +335,7 @@ impl AppVm {
         let inner = &self.inner;
         let idx = inner.export(&inner.tools, "tools")?;
         inner.shared.admit()?;
-        let mut store = inner.store(Role::Transient, None)?;
+        let mut store = inner.store(Role::Transient, None, None)?;
         let mut started = false;
         let call = async {
             let instance = inner.pre.instantiate_async(&mut store).await?;
@@ -348,12 +350,15 @@ impl AppVm {
     }
 
     /// Run one tool in an instance of its own. `input` is the tool's
-    /// arguments; `progress` receives the component's `host.progress`.
+    /// arguments; `project` is the calling session's project, which the
+    /// manifest's `${project}` grants are placed under (read-only) for this
+    /// call alone; `progress` receives the component's `host.progress`.
     pub async fn call_tool(
         &self,
         name: &str,
         input: &Value,
         call_id: &str,
+        project: Option<&Path>,
         progress: Option<Arc<dyn ProgressSink>>,
         cancel: &CancellationToken,
     ) -> Result<ToolOutput, CallFailure> {
@@ -361,7 +366,7 @@ impl AppVm {
         let idx = inner.export(&inner.tools, "tools")?;
         inner.shared.admit()?;
         let input = input.to_string();
-        let mut store = inner.store(Role::Transient, progress)?;
+        let mut store = inner.store(Role::Transient, progress, project)?;
         let mut started = false;
         let call = async {
             let instance = inner.pre.instantiate_async(&mut store).await?;
@@ -402,7 +407,7 @@ impl AppVm {
         };
         inner.shared.admit()?;
         let payload = payload.to_string();
-        let mut store = inner.store(Role::Transient, None)?;
+        let mut store = inner.store(Role::Transient, None, None)?;
         let mut started = false;
         let call = async {
             let instance = inner.pre.instantiate_async(&mut store).await?;
@@ -554,8 +559,9 @@ impl Inner {
         &self,
         role: Role,
         progress: Option<Arc<dyn ProgressSink>>,
+        project: Option<&Path>,
     ) -> Result<Store<AppState>, CallFailure> {
-        let state = AppState::new(self.shared.clone(), role, progress)
+        let state = AppState::new(self.shared.clone(), role, progress, project)
             .map_err(|e| CallFailure::Faulted(format!("{e:#}")))?;
         let mut store = Store::new(self.shared.engine.inner(), state);
         store.limiter(|s| &mut s.limiter);
@@ -570,11 +576,13 @@ impl Inner {
     /// A fresh resident instance with `init` run on it.
     async fn instantiate_resident(&self) -> Result<Resident, CallFailure> {
         let idx = self.export(&self.backend, "backend")?;
-        let mut store = self.store(Role::Backend, None)?;
+        let mut store = self.store(Role::Backend, None, None)?;
         let call = async {
             let instance = self.pre.instantiate_async(&mut store).await?;
             let guest = idx.load(&mut store, &instance)?;
-            let init = guest.call_init(&mut store, &self.config_json).await?;
+            let init = guest
+                .call_init(&mut store, &self.shared.config_json)
+                .await?;
             Ok((guest, init))
         };
         let outcome = holding(self.shared.vm_id, with_deadline(call, self.timeout, None)).await;

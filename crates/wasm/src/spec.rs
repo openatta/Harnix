@@ -55,6 +55,11 @@ pub struct Capabilities {
 /// directory) or `${project}` (read-only) — and may not contain `..`. An
 /// unanchored path is refused rather than taken literally: `/` would read as
 /// a grant of the whole machine, which is exactly the line a reviewer skims.
+///
+/// `${project}` has no single value for an application: it is the project of
+/// the session whose tool call is running, so it is resolved per call
+/// ([`crate::AppVm::call_tool`]'s `project`), and the backend, which serves
+/// every session at once, never has it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FsGrant {
     pub path: String,
@@ -62,16 +67,14 @@ pub struct FsGrant {
     pub writable: bool,
 }
 
-/// Where the anchors of [`FsGrant`] point for this application.
+/// Where the `${data}` anchor of [`FsGrant`] points for this application.
+/// (`${project}` is the calling session's, given per tool call.)
 #[derive(Debug, Clone, Default)]
 pub struct AppDirs {
     /// `${data}`. Created if it does not exist. Keep the key-value store
     /// ([`crate::FileKv`]) outside it: anything under `${data}` is the
     /// component's to rewrite when it is granted writable.
     pub data: PathBuf,
-    /// `${project}`, if the host has one to offer; a grant of it is refused
-    /// otherwise.
-    pub project: Option<PathBuf>,
 }
 
 /// The manifest's `[[component]]` limits.
@@ -101,7 +104,18 @@ pub(crate) struct Resolved {
     net: HashSet<String>,
     env: HashSet<String>,
     pub storage_bytes: u64,
+    /// `${data}` grants, the same for every instance.
     pub preopens: Vec<Preopen>,
+    /// `${project}` grants, checked here and placed per tool call.
+    project: Vec<ProjectGrant>,
+}
+
+/// A `${project}` grant, checked but not yet placed: `rest` is the path
+/// below the project (empty for the project itself).
+#[derive(Debug, Clone)]
+struct ProjectGrant {
+    rest: String,
+    guest: String,
 }
 
 #[derive(Debug, Clone)]
@@ -118,15 +132,43 @@ pub(crate) struct Preopen {
 impl Resolved {
     pub fn resolve(caps: &Capabilities, dirs: &AppDirs) -> Result<Self> {
         let mut preopens = Vec::new();
+        let mut project = Vec::new();
         for grant in &caps.fs {
-            preopens.push(resolve_grant(grant, dirs)?);
+            match resolve_grant(grant, dirs)? {
+                Grant::Data(p) => preopens.push(p),
+                Grant::Project(p) => project.push(p),
+            }
         }
         Ok(Self {
             net: caps.net.iter().map(|h| h.to_ascii_lowercase()).collect(),
             env: caps.env.iter().cloned().collect(),
             storage_bytes: caps.storage_bytes,
             preopens,
+            project,
         })
+    }
+
+    /// The `${project}` grants placed under `project`, read-only. A granted
+    /// subdirectory this project does not have is left out (the component
+    /// sees it as absent) rather than failing the call: projects differ, and
+    /// the grant was checked when the application started.
+    pub fn project_preopens(&self, project: &Path) -> Vec<Preopen> {
+        self.project
+            .iter()
+            .filter_map(|g| {
+                let host = project.join(&g.rest);
+                if host.is_dir() {
+                    Some(Preopen {
+                        host,
+                        guest: g.guest.clone(),
+                        writable: false,
+                    })
+                } else {
+                    tracing::debug!(dir = %host.display(), "a granted project directory is absent here");
+                    None
+                }
+            })
+            .collect()
     }
 
     pub fn allows_url(&self, url: &str) -> bool {
@@ -138,18 +180,20 @@ impl Resolved {
     }
 }
 
-fn resolve_grant(grant: &FsGrant, dirs: &AppDirs) -> Result<Preopen> {
+enum Grant {
+    Data(Preopen),
+    Project(ProjectGrant),
+}
+
+fn resolve_grant(grant: &FsGrant, dirs: &AppDirs) -> Result<Grant> {
     let raw = grant.path.as_str();
     let (anchor, rest, guest_root) = if let Some(rest) = raw.strip_prefix("${data}") {
-        (dirs.data.clone(), rest, "/data")
+        (Some(dirs.data.clone()), rest, "/data")
     } else if let Some(rest) = raw.strip_prefix("${project}") {
         if grant.writable {
             bail!("`{raw}`: the project is offered read-only");
         }
-        let Some(project) = &dirs.project else {
-            bail!("`{raw}`: there is no project to offer this application");
-        };
-        (project.clone(), rest, "/project")
+        (None, rest, "/project")
     } else {
         bail!(
             "capability path `{raw}` must start with ${{data}} or ${{project}} — an unanchored \
@@ -166,23 +210,25 @@ fn resolve_grant(grant: &FsGrant, dirs: &AppDirs) -> Result<Preopen> {
     {
         bail!("capability path `{raw}` may not contain `..`, `.` or a root");
     }
-    let host = anchor.join(rest);
-    if guest_root == "/data" {
-        std::fs::create_dir_all(&host)
-            .with_context(|| format!("creating {} for `{raw}`", host.display()))?;
-    } else if !host.is_dir() {
-        bail!("`{raw}` is not a directory ({})", host.display());
-    }
     let guest = if rest.is_empty() {
         guest_root.to_string()
     } else {
         format!("{guest_root}/{rest}")
     };
-    Ok(Preopen {
+    let Some(anchor) = anchor else {
+        return Ok(Grant::Project(ProjectGrant {
+            rest: rest.to_string(),
+            guest,
+        }));
+    };
+    let host = anchor.join(rest);
+    std::fs::create_dir_all(&host)
+        .with_context(|| format!("creating {} for `{raw}`", host.display()))?;
+    Ok(Grant::Data(Preopen {
         host,
         guest,
         writable: grant.writable,
-    })
+    }))
 }
 
 /// Lowercased host of an absolute http(s) URL; `None` means denied.
@@ -216,15 +262,14 @@ mod tests {
         Resolved::resolve(&caps, dirs)
     }
 
-    fn dirs() -> (tempfile::TempDir, AppDirs) {
+    fn dirs() -> (tempfile::TempDir, AppDirs, PathBuf) {
         let tmp = tempfile::tempdir().unwrap();
         let project = tmp.path().join("project");
         std::fs::create_dir_all(project.join("src")).unwrap();
         let dirs = AppDirs {
             data: tmp.path().join("data"),
-            project: Some(project),
         };
-        (tmp, dirs)
+        (tmp, dirs, project)
     }
 
     #[test]
@@ -279,7 +324,7 @@ mod tests {
 
     #[test]
     fn grants_resolve_under_their_anchor_and_hide_the_host_path() {
-        let (_tmp, dirs) = dirs();
+        let (_tmp, dirs, project) = dirs();
         let r = resolve(
             Capabilities {
                 fs: vec![
@@ -302,24 +347,66 @@ mod tests {
         )
         .unwrap();
         let guests: Vec<&str> = r.preopens.iter().map(|p| p.guest.as_str()).collect();
-        assert_eq!(guests, ["/data", "/data/cache", "/project/src"]);
+        assert_eq!(
+            guests,
+            ["/data", "/data/cache"],
+            "the project is not the backend's"
+        );
         assert!(
             dirs.data.join("cache").is_dir(),
             "the data directory is created"
         );
-        assert_eq!(r.preopens[2].host, dirs.project.unwrap().join("src"));
+        let placed = r.project_preopens(&project);
+        assert_eq!(placed.len(), 1);
+        assert_eq!(placed[0].guest, "/project/src");
+        assert_eq!(placed[0].host, project.join("src"));
+        assert!(!placed[0].writable);
+    }
+
+    #[test]
+    fn a_project_grant_is_placed_per_call_and_left_out_where_absent() {
+        let (tmp, dirs, project) = dirs();
+        let r = resolve(
+            Capabilities {
+                fs: vec![
+                    FsGrant {
+                        path: "${project}".into(),
+                        writable: false,
+                    },
+                    FsGrant {
+                        path: "${project}/docs".into(),
+                        writable: false,
+                    },
+                ],
+                ..Default::default()
+            },
+            &dirs,
+        )
+        .unwrap();
+        assert!(r.preopens.is_empty());
+        let placed = r.project_preopens(&project);
+        assert_eq!(placed.len(), 1, "this project has no docs/");
+        assert_eq!(placed[0].guest, "/project");
+        let other = tmp.path().join("other");
+        std::fs::create_dir_all(other.join("docs")).unwrap();
+        let placed: Vec<String> = r
+            .project_preopens(&other)
+            .into_iter()
+            .map(|p| p.guest)
+            .collect();
+        assert_eq!(placed, ["/project", "/project/docs"]);
     }
 
     #[test]
     fn unanchored_traversing_and_writable_project_grants_are_refused() {
-        let (_tmp, dirs) = dirs();
+        let (_tmp, dirs, _project) = dirs();
         for (path, writable, says) in [
             ("/", false, "must start with"),
             ("${data}/../..", true, "may not contain"),
             ("${data}/./x", true, "may not contain"),
             ("${data}x", true, "expected a `/`"),
             ("${project}", true, "read-only"),
-            ("${project}/missing", false, "not a directory"),
+            ("${project}/../x", false, "may not contain"),
         ] {
             let err = resolve(
                 Capabilities {
@@ -336,23 +423,5 @@ mod tests {
             .to_string();
             assert!(err.contains(says), "`{path}`: {err}");
         }
-    }
-
-    #[test]
-    fn a_project_grant_without_a_project_is_refused() {
-        let err = resolve(
-            Capabilities {
-                fs: vec![FsGrant {
-                    path: "${project}".into(),
-                    writable: false,
-                }],
-                ..Default::default()
-            },
-            &AppDirs::default(),
-        )
-        .err()
-        .unwrap()
-        .to_string();
-        assert!(err.contains("no project"), "{err}");
     }
 }

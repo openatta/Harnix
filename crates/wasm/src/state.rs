@@ -9,6 +9,7 @@
 use crate::spec::Resolved;
 use crate::vm::Shared;
 use crate::ProgressSink;
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use wasmtime::ResourceLimiter;
@@ -36,12 +37,15 @@ pub(crate) struct AppState {
 }
 
 impl AppState {
+    /// `project` is the calling session's project, for a tool call; the
+    /// `${project}` grants are placed under it. Nothing else has one.
     pub fn new(
         shared: Arc<Shared>,
         role: Role,
         progress: Option<Arc<dyn ProgressSink>>,
+        project: Option<&Path>,
     ) -> anyhow::Result<Self> {
-        let wasi = wasi_for(&shared.caps)?;
+        let wasi = wasi_for(&shared.caps, project)?;
         let limiter = StoreLimiter::new(shared.memory.clone());
         Ok(Self {
             shared,
@@ -57,13 +61,16 @@ impl AppState {
 /// The WASI context: preopens for the declared directories, and nothing else.
 /// No inherited environment, arguments or stdio, and no sockets — the
 /// network is `host.http-request`, where `net` is checked.
-fn wasi_for(caps: &Resolved) -> anyhow::Result<WasiCtx> {
+fn wasi_for(caps: &Resolved, project: Option<&Path>) -> anyhow::Result<WasiCtx> {
     let mut builder = WasiCtxBuilder::new();
     builder
         .allow_tcp(false)
         .allow_udp(false)
         .allow_ip_name_lookup(false);
-    for p in &caps.preopens {
+    let placed = project
+        .map(|p| caps.project_preopens(p))
+        .unwrap_or_default();
+    for p in caps.preopens.iter().chain(&placed) {
         let (dirs, files) = if p.writable {
             (DirPerms::all(), FilePerms::all())
         } else {

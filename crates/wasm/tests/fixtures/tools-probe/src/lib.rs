@@ -72,6 +72,7 @@ impl Tools for Probe {
             tool("write-file", "Write `text` to the file at `path`"),
             tool("explode", "Trap"),
             tool("timer", "Try to arm a timer, which a tool may not"),
+            tool("config", "Return the application's configuration"),
         ]
     }
 
@@ -130,6 +131,7 @@ impl Tools for Probe {
                 }
             }
             "explode" => panic!("asked to explode"),
+            "config" => ok(host::config()),
             "timer" => match host::set_timer("t", 10) {
                 Ok(()) => ok("armed"),
                 Err(e) => err(e),

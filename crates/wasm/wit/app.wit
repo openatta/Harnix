@@ -96,9 +96,10 @@ interface types {
 /// which capability would have allowed it.
 ///
 /// There is no file API: files are reached through WASI, and only inside the
-/// directories the manifest's `fs` capability preopens (the application's
-/// own data directory, the project read-only). Re-implementing path checks
-/// as host functions is how those checks get subtly wrong.
+/// directories the manifest's `fs` capability preopens: the application's
+/// own data directory (`/data`), and — for a tool call only, read-only — the
+/// project of the session that made the call (`/project`). Re-implementing
+/// path checks as host functions is how those checks get subtly wrong.
 interface host {
   use types.{http-response};
 
@@ -106,6 +107,11 @@ interface host {
   log: func(level: string, msg: string);
   /// Wall-clock milliseconds since the Unix epoch.
   now-ms: func() -> u64;
+  /// The application's configuration, as JSON: the manifest's `[config]`
+  /// with whatever the person running it set over it. The same value the
+  /// backend's `init` is handed — and the way a tool call or an event, which
+  /// are not initialized, reads it.
+  config: func() -> string;
   /// Progress for the tool call `call-id`, shown to the user while it runs.
   /// Outside a tool call it goes nowhere.
   progress: func(call-id: string, text: string);

@@ -78,7 +78,14 @@ async fn state_lives_in_the_resident_instance_and_tools_cannot_see_it() {
     );
     let out = rig
         .vm
-        .call_tool("peek", &json!({}), "c", None, &CancellationToken::new())
+        .call_tool(
+            "peek",
+            &json!({}),
+            "c",
+            None,
+            None,
+            &CancellationToken::new(),
+        )
         .await
         .unwrap();
     assert_eq!(out.content, "0");

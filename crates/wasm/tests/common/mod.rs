@@ -210,7 +210,6 @@ pub fn spec(capabilities: Capabilities, limits: Limits, dir: &Path) -> AppSpec {
         limits,
         dirs: AppDirs {
             data: dir.join("data"),
-            project: None,
         },
         config: json!({ "greeting": "hi" }),
     }

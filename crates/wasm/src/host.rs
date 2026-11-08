@@ -52,6 +52,10 @@ impl Host for AppState {
             .unwrap_or(0)
     }
 
+    async fn config(&mut self) -> String {
+        self.shared.config_json.clone()
+    }
+
     async fn progress(&mut self, call_id: String, text: String) {
         if let Some(sink) = &self.progress {
             sink.on_progress(&call_id, &text);

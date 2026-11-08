@@ -78,6 +78,7 @@ async fn an_artifact_from_the_store_compiler_runs_in_a_build_without_one() {
             &json!({"text": "loaded"}),
             "c",
             None,
+            None,
             &Default::default(),
         )
         .await
