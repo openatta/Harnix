@@ -1,6 +1,6 @@
 [package]
 name = "harnix-flow"
-version      = "0.4.1-2026110801"
+version      = "0.4.1-2026110802"
 edition      = "2021"
 rust-version = "1.87"
 license      = "Apache-2.0"
