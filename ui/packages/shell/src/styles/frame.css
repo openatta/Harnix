@@ -590,6 +590,55 @@ html.resizing #frame {
   background: none;
 }
 
+.tree2 .agents-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 8px;
+  border-bottom: 1px solid var(--border-l1);
+  margin-bottom: 4px;
+}
+
+.tree2 .agents-bar input,
+.tree2 .agents-bar select {
+  height: 30px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-l2);
+  border-radius: 15px;
+  background: transparent;
+  font-size: 12.5px;
+  color: var(--label-primary);
+}
+
+.tree2 .agents-bar input {
+  flex: 1;
+  min-width: 0;
+}
+
+.tree2 .agents-bar .count {
+  flex: none;
+  font-family: var(--font-code);
+  font-size: 12px;
+  color: var(--label-tertiary);
+}
+
+.tree2 .el.live {
+  color: var(--state-success);
+}
+
+/* Narrow: the row keeps its state, name and counts; the times go. */
+@media (max-width: 720px) {
+  .tree2 .stat[data-stat="time"],
+  .tree2 .tr.agent .el,
+  .tree2 .tr.agent .kd {
+    display: none;
+  }
+
+  .tree2 .agents-bar select {
+    max-width: 40%;
+  }
+}
+
 .tree2 > .empty {
   padding: 18px 10px;
   font-size: 13px;

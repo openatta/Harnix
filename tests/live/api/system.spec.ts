@@ -288,7 +288,7 @@ test.describe("on", () => {
     expect((await api.refused("harnix.system.turns", {}))?.code).toBe(INVALID_PARAMS);
   });
 
-  test("a session exported as markdown to read and as a bundle to keep, the recording only when asked", TAGS, async () => {
+  test("a session exported as markdown to read, as a bundle or the engine's archive to keep, the recording only when asked", TAGS, async () => {
     const s = await oneTurn(api, "sessions");
     const own = { ...s, space: "sessions" };
     const md = await api.call("harnix.sessions.export", { ...own, format: "markdown" });
@@ -308,6 +308,17 @@ test.describe("on", () => {
     const full = await api.call("harnix.sessions.export", { ...own, format: "bundle", recording: true });
     expect(full.content.recording.calls).toContain('"type":"call"');
     expect(Object.keys(full.content.recording.blobs).length).toBeGreaterThan(0);
+
+    // As the engine packs it (Agix #37): a zip, its manifest and the session's own files in it.
+    const archive = await api.call("harnix.sessions.export", { ...own, format: "archive" });
+    expect(archive).toMatchObject({ format: "archive", encoding: "base64", recording: false });
+    expect(archive.file).toMatch(/\.zip$/);
+    const zip = Buffer.from(archive.content, "base64");
+    expect(zip.length).toBe(archive.bytes);
+    expect(zip.subarray(0, 4).toString("binary")).toBe("PK\x03\x04");
+    expect(zip.includes("manifest.json")).toBe(true);
+    expect(zip.includes(`sessions/${s.session_id}/history.json`)).toBe(true);
+    expect(archive.sessions).toBeGreaterThanOrEqual(1);
 
     // A session of another space is not this caller's to export; nor a format that is not one.
     expect((await api.refused("harnix.sessions.export", { ...s, space: "fleet", format: "markdown" }))?.code).toBe(SPACE_MISMATCH);

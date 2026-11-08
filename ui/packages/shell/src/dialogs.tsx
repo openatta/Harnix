@@ -355,28 +355,35 @@ export interface ExportTarget {
 }
 
 /**
- * Export a session: as markdown to read, or as a bundle to keep (its facts, every message, its
- * entries — and the recorded model calls only when asked, since they carry the full prompts and
- * tool input). The file is made here from what the backend answers.
+ * Export a session: as markdown to read, or as the engine's archive to keep (the session with its
+ * sub-agents' sessions, the images in its messages, its entries and a manifest — and the recorded
+ * model calls only when asked, since they carry the full prompts and tool input). The file is made
+ * here from what the backend answers.
  */
 export function exportDialog(app: App, target: ExportTarget): void {
   app.openModal({ title: t("dialog.export"), content: <ExportForm app={app} target={target} /> });
 }
 
 function ExportForm({ app, target }: { app: App; target: ExportTarget }) {
-  const [format, setFormat] = useState<"markdown" | "bundle">("markdown");
+  const [format, setFormat] = useState<"markdown" | "archive">("markdown");
   const [recording, setRecording] = useState(false);
   const go = () =>
     attempt(
       app,
       async () => {
-        const answer = await app.call<{ file: string; format: string; content: unknown }>("harnix.sessions.export", {
+        const answer = await app.call<{ file: string; format: string; content: unknown; encoding?: string }>("harnix.sessions.export", {
           ...target,
           format,
-          recording: format === "bundle" && recording,
+          recording: format === "archive" && recording,
         });
-        const text = typeof answer.content === "string" ? answer.content : JSON.stringify(answer.content, null, 2);
-        const url = URL.createObjectURL(new Blob([text], { type: format === "markdown" ? "text/markdown" : "application/json" }));
+        const body =
+          answer.encoding === "base64"
+            ? Uint8Array.from(atob(String(answer.content)), (c) => c.charCodeAt(0))
+            : typeof answer.content === "string"
+              ? answer.content
+              : JSON.stringify(answer.content, null, 2);
+        const type = format === "markdown" ? "text/markdown" : answer.encoding === "base64" ? "application/zip" : "application/json";
+        const url = URL.createObjectURL(new Blob([body], { type }));
         const link = document.createElement("a");
         link.href = url;
         link.download = answer.file;
@@ -395,15 +402,15 @@ function ExportForm({ app, target }: { app: App; target: ExportTarget }) {
             {t("dialog.exportMarkdown")}
           </label>
           <label className="check">
-            <input type="radio" name="export-format" data-testid="export-bundle" checked={format === "bundle"} onChange={() => setFormat("bundle")} />
-            {t("dialog.exportBundle")}
+            <input type="radio" name="export-format" data-testid="export-archive" checked={format === "archive"} onChange={() => setFormat("archive")} />
+            {t("dialog.exportArchive")}
           </label>
           <label className="check">
             <input
               type="checkbox"
               data-testid="export-recording"
-              disabled={format !== "bundle"}
-              checked={format === "bundle" && recording}
+              disabled={format !== "archive"}
+              checked={format === "archive" && recording}
               onChange={(e) => setRecording(e.target.checked)}
             />
             {t("dialog.exportRecording")}

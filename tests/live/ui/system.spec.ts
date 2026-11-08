@@ -183,6 +183,55 @@ test("system-agents: the active tab lists the loaded Agents, the all tab every o
   await expect(agents.locator(`.tgroup[data-sid="${id}"]`)).toBeVisible();
 });
 
+test("system-agents: a running turn's clock counts on; one that finished unseen says so until picked; the list is searched and filtered", TREE, async ({ page }) => {
+  await open(page, backend.url);
+  await toSystem(page);
+  // Started from elsewhere while the list is in view: four seconds of Bash, its ask let through.
+  const id = await page.evaluate(async () => {
+    const { app } = (window as any).harnix;
+    const created = await app.call("session.create", {
+      instance: "system", space: "sessions", scene: "harnix", options: { recorder: { name: "runs-a-while" } },
+    });
+    const key = { instance: "system", session_id: created.session_id, space: "sessions" };
+    app.client.onNotify((method: string, params: any) => {
+      if (method === "harnix.event" && params.session_id === created.session_id && params.event?.kind === "prompt") {
+        void app.call("session.respondToPrompt", { ...key, prompt_id: params.event.prompt_id, decision: { type: "permit" } });
+      }
+    });
+    await app.call("harnix.attach", key);
+    await app.call("harnix.send", { ...key, message: "Use the Bash tool to wait a few seconds" });
+    return created.session_id as string;
+  });
+  const agents = page.getByTestId("system-agents");
+  const row = agents.locator(`.tgroup[data-sid="${id}"]`);
+  const clock = row.getByTestId("system-agent-elapsed");
+  await expect(clock).toBeVisible({ timeout: 10_000 });
+  const first = await clock.textContent();
+  await expect.poll(() => clock.textContent(), { timeout: 5_000 }).not.toBe(first);
+  // Done while nobody had it open or picked: DSH's "completed", until someone looks.
+  await expect(row).toHaveAttribute("data-state", "done", { timeout: 30_000 });
+  await expect(row.locator(".act")).toHaveText(/not yet seen|未看/);
+  await expect(clock).toHaveCount(0);
+  await row.getByTestId("system-agent").click();
+  await expect(row).toHaveAttribute("data-state", "idle");
+  await expect(row.getByTestId("system-agent")).toHaveAttribute("title", new RegExp(id));
+
+  // Searched: by its id, one row; by nothing anyone has, none, and it says so.
+  const search = page.getByTestId("system-agents-search");
+  await search.fill(id);
+  await expect(agents.locator(".tgroup")).toHaveCount(1);
+  await expect(page.getByTestId("system-agents-count")).toHaveText(/^1 (of|\/) \d+$/);
+  await search.fill("nothing-is-called-this");
+  await expect(agents.locator(".tgroup")).toHaveCount(0);
+  await expect(agents.locator(".empty")).toHaveText(/No Agent matches|没有符合/);
+  // Filtered by who started it: Harnix's own are all marked.
+  await search.fill("");
+  await page.getByTestId("system-agents-who").selectOption("harnix");
+  await expect(agents.locator(".tgroup:not(:has([data-testid='system-agent-harnix']))")).toHaveCount(0);
+  await page.getByTestId("system-agents-who").selectOption("user");
+  await expect(agents.locator(`.tgroup[data-sid="${id}"]`)).toBeVisible();
+});
+
 test("system-agents: an Agent with a goal shows it on its row and on the right", TREE, async ({ page }) => {
   await open(page, backend.url);
   await newSession(page, "sets-a-goal");

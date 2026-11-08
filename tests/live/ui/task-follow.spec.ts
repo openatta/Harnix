@@ -87,6 +87,10 @@ test("system-tasks: a task that outlives its turn is listed as running, and is s
   await row.click();
   const task = page.locator('[data-testid="system-tasks"] .task.on');
   await expect(task).toHaveAttribute("data-status", "running");
+  // As DSH has it: the first press arms the button, the second stops.
+  await task.getByTestId("task-stop").click();
+  await expect(task.getByTestId("task-stop")).toHaveAttribute("data-armed", "");
+  await expect(task).toHaveAttribute("data-status", "running");
   await task.getByTestId("task-stop").click();
   // Long before its ten seconds are up: no longer running, and nothing left to stop.
   await expect(task).not.toHaveAttribute("data-status", /running|waiting|pending/, { timeout: 5_000 });

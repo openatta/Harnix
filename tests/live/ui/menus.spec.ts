@@ -146,30 +146,33 @@ test("a new session from a project's menu: the dialog offers the active scenes, 
   await expect.poll(made, { timeout: 15_000 }).toEqual({ project_root: path, scene: "harnix" });
 });
 
-test("a session is exported from its menu: markdown to read, or a bundle without the recording unless asked", SPACE, async ({ page }) => {
+test("a session is exported from its menu: markdown to read, or the engine's archive without the recording unless asked", SPACE, async ({ page }) => {
   await open(page, URL);
   const id = await withTurn(page);
   const download = async (pick: () => Promise<void>) => {
     await fromMenu(page, id, "export");
     await pick();
     const [file] = await Promise.all([page.waitForEvent("download"), page.getByTestId("export-go").click()]);
-    return { name: file.suggestedFilename(), text: readFileSync((await file.path())!, "utf8") };
+    const bytes = readFileSync((await file.path())!);
+    return { name: file.suggestedFilename(), text: bytes.toString("utf8"), bytes };
   };
 
   const md = await download(async () => {
     await expect(page.getByTestId("export-markdown")).toBeChecked();
-    await expect(page.getByTestId("export-recording"), "a recording only goes with a bundle").toBeDisabled();
+    await expect(page.getByTestId("export-recording"), "a recording only goes with an archive").toBeDisabled();
   });
   expect(md.name).toMatch(/\.md$/);
   expect(md.text).toContain("Say exactly: fixture ready");
 
-  const bundle = await download(async () => {
-    await page.getByTestId("export-bundle").check();
+  const archive = await download(async () => {
+    await page.getByTestId("export-archive").check();
+    await expect(page.getByTestId("export-recording")).toBeEnabled();
     await expect(page.getByTestId("export-recording")).not.toBeChecked();
   });
-  expect(bundle.name).toMatch(/\.json$/);
-  const parsed = JSON.parse(bundle.text);
-  expect(parsed.kind).toBe("harnix-session");
-  expect(parsed.recording).toBeUndefined();
+  expect(archive.name).toMatch(/\.zip$/);
+  // A zip, as the engine wrote it: its manifest and the session's own transcript inside.
+  expect(archive.bytes.subarray(0, 4).toString("binary")).toBe("PK\x03\x04");
+  expect(archive.bytes.includes("manifest.json")).toBe(true);
+  expect(archive.bytes.includes(`sessions/${id}/`)).toBe(true);
   await expect(page.locator("#modal")).toHaveCount(0);
 });

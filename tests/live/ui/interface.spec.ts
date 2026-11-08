@@ -316,6 +316,28 @@ test("at a phone's width nothing scrolls sideways: a conversation, the system sp
   expect(errors).toEqual([]);
 });
 
+test("in Chinese the system space has no string left untranslated or showing its key", SETTINGS, async ({ page }) => {
+  await open(page, URL);
+  await openSettings(page);
+  await page.getByTestId("settings-language").selectOption("zh-CN");
+  await page.keyboard.press("Escape");
+  await page.locator('#side [data-space="system"]').click();
+  await expect(page.getByTestId("system-console")).toBeVisible();
+  // The system space's strings are `system.*`; one drawn as its key has no translation. Method
+  // names (`harnix.system.context`) are not keys: a dot before is not a key's start.
+  const leaked = () => page.evaluate(() => document.body.innerText.match(/(?<![\w.])system\.[a-z][\w.]*[a-z]\b/g) ?? []);
+  for (const tab of ["active", "all"]) {
+    const button = page.locator(`[data-testid="system-console"] [data-tab="${tab}"]`);
+    await expect(button, `the ${tab} tab's title`).toHaveText(/[一-鿿]/);
+    await button.click();
+    expect(await leaked(), `the ${tab} tab`).toEqual([]);
+  }
+  await expect(page.locator('[data-testid="system-strip"] [data-kpi="threads"] .l')).toHaveText(/[一-鿿]/);
+  await openSettings(page);
+  await page.getByTestId("settings-language").selectOption("system");
+  await page.keyboard.press("Escape");
+});
+
 test("in Chinese the flow space has no string left untranslated or showing its key", SETTINGS, async ({ page }) => {
   await open(page, URL);
   await openSettings(page);

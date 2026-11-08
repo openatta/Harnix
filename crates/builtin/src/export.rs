@@ -1,10 +1,13 @@
 //! `harnix.sessions.export`: a session written out, for reading or for keeping.
 //!
-//! Two forms. `markdown` is the conversation as a person reads it. `bundle` is everything Harnix
-//! can hand over about the session as one JSON document — its facts, every message of the
-//! transcript, its extension entries, and (only when asked) the model calls it recorded. The
-//! answer carries the content itself; the page turns it into a file. A bundle that would not fit
-//! one frame is refused with the way out (leave the recording behind) rather than cut.
+//! Three forms. `markdown` is the conversation as a person reads it. `archive` is the session as
+//! the engine packs it (`session.export`): the session and its sub-agents' sessions at any depth,
+//! cut at one moment, the images in its messages as files, its extension entries and a versioned
+//! manifest — and its recording only when asked — as a zip. `bundle` is the older, Harnix-made
+//! JSON document: the facts, every message, the entries, the recording when asked; no sub-agents,
+//! no image files. The answer carries the content itself (the zip as base64); the page turns it
+//! into a file. One that would not fit a frame is refused with the way out (leave the recording
+//! behind) rather than cut.
 //!
 //! The caller claims a space like any session call, and `session.get` with that claim is what
 //! checks it: a session of another space is refused by the hub, not read here.
@@ -26,9 +29,9 @@ impl Builtin {
     pub(crate) async fn session_export(&self, params: Value) -> Result<Value, RpcError> {
         let session_id = require_session_id(&params)?;
         let format = require_str(&params, "format")?;
-        if format != "markdown" && format != "bundle" {
+        if !matches!(format.as_str(), "markdown" | "bundle" | "archive") {
             return Err(RpcError::invalid_params(format!(
-                "format is markdown or bundle, not `{format}`"
+                "format is markdown, archive or bundle, not `{format}`"
             )));
         }
         let with_recording = params
@@ -45,6 +48,14 @@ impl Builtin {
         }
 
         let info = self.call("sessions", "session.get", target.clone()).await?;
+        if format == "archive" {
+            let title = self.title_of(&session_id).await.or_else(|| {
+                info.get("name").and_then(Value::as_str).map(str::to_string)
+            });
+            return self
+                .archive(&target, &file_stem(title.as_deref(), &session_id), with_recording)
+                .await;
+        }
         let messages = self.all_messages(&target).await?;
         let entries = self
             .call("sessions", "session.entries", target.clone())
@@ -114,6 +125,47 @@ impl Builtin {
             }
         }
         Ok(messages)
+    }
+
+    /// The engine's archive of the session, written to a directory of its own under the system's
+    /// temporary one and read back: the engine writes where it runs, which for every carrier but
+    /// an attached daemon is this machine. The directory goes either way.
+    async fn archive(&self, target: &Value, stem: &str, with_recording: bool) -> Result<Value, RpcError> {
+        let dir = std::env::temp_dir().join(format!("harnix-export-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| RpcError::new(codes::INTERNAL_ERROR, format!("no room to export into: {e}")))?;
+        let file = format!("{stem}.zip");
+        let path = dir.join(&file);
+        let mut include = vec!["sidechains", "attachments"];
+        if with_recording {
+            include.push("recording");
+        }
+        let mut ask = target.clone();
+        ask["path"] = json!(path);
+        ask["format"] = json!("zip");
+        ask["include"] = json!(include);
+        let made = self.call("sessions", "session.export", ask).await;
+        let bytes = made.as_ref().ok().map(|_| std::fs::read(&path));
+        let _ = std::fs::remove_dir_all(&dir);
+        let made = made?;
+        let bytes = bytes.unwrap_or_else(|| Ok(Vec::new())).map_err(|e| {
+            RpcError::new(
+                codes::REFUSED,
+                format!("the engine wrote the archive where this process cannot read it: {e}"),
+            )
+        })?;
+        use base64::Engine as _;
+        Ok(json!({
+            "format": "archive",
+            "file": file,
+            "encoding": "base64",
+            "content": base64::engine::general_purpose::STANDARD.encode(&bytes),
+            "bytes": bytes.len(),
+            "sessions": made.get("sessions").and_then(Value::as_array).map_or(0, Vec::len),
+            "attachments": made.get("attachments").cloned().unwrap_or(json!(0)),
+            "recording": made.get("recording").cloned().unwrap_or(json!(false)),
+            "warnings": made.get("warnings").cloned().unwrap_or(json!([])),
+        }))
     }
 
     /// The title a person gave the session here, if any (the engine's name otherwise).

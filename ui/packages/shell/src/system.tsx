@@ -51,7 +51,6 @@ interface SessionRowView {
   name?: string | null;
   scene?: string | null;
   status?: string | null;
-  project_root?: string | null;
   space?: string;
   last_active?: string;
   /** How many of its tasks are running: work that can outlive the turn that started it. */
@@ -62,6 +61,9 @@ interface SessionRowView {
   waiting?: "approval" | "answer" | null;
   /** `harnix`: a module or the kernel started it, not a person. */
   started_by?: "user" | "harnix";
+  /** When the running turn began (ms since the epoch). */
+  turn_started_ms?: number | null;
+  project_root?: string | null;
 }
 
 interface Task {
@@ -208,9 +210,35 @@ class View {
   private readonly table: Topics;
   /** The last value of each topic watched here, while something here watches it. */
   private readonly values = new Map<string, { value: unknown; readers: number }>();
+  /** Sessions whose turn ended while they were neither open nor picked here (`instance/session`):
+   *  DSH's "completed", until someone looks. */
+  private readonly unread = new Set<string>();
+  /** The sessions each instance's list last showed running. */
+  private readonly wasRunning = new Map<string, Set<string>>();
 
   constructor(private readonly app: App) {
     this.table = topicsOf(app.client);
+  }
+
+  isUnread(key: string): boolean {
+    return this.unread.has(key);
+  }
+
+  /** A session list arrived: a turn that was running there and is not now, and that nobody here is
+   *  looking at, finished unseen. */
+  private noteRunning(instance: string, value: unknown): void {
+    const rows = (value as { sessions?: SessionRowView[] } | undefined)?.sessions ?? [];
+    const now = new Set(rows.filter((r) => r.running).map((r) => r.session_id));
+    const before = this.wasRunning.get(instance);
+    this.wasRunning.set(instance, now);
+    if (!before) return;
+    const open = this.app.snapshot.current;
+    const picked = this.picked && this.picked.kind === "session" ? `${this.picked.instance}/${this.picked.sessionId}` : null;
+    for (const id of before) {
+      const key = `${instance}/${id}`;
+      if (now.has(id) || key === picked || (open && open.instance === instance && open.sessionId === id)) continue;
+      this.unread.add(key);
+    }
   }
 
   readonly subscribe = (fn: () => void): (() => void) => {
@@ -233,6 +261,7 @@ class View {
 
   select(selection: Selection): void {
     this.picked = selection;
+    if (selection.kind === "session" || selection.kind === "task") this.unread.delete(`${selection.instance}/${selection.sessionId}`);
     for (const fn of [...this.listeners]) fn();
     // The right column is where a selection is shown; redraw it with the new tabs.
     this.app.set({ detail: null });
@@ -246,6 +275,7 @@ class View {
     entry.readers += 1;
     const off = this.table.subscribe(topic, params ?? {}, (value) => {
       entry.value = value;
+      if (topic === "harnix.instances.sessions" && typeof params?.instance === "string") this.noteRunning(params.instance, value);
       fn();
     });
     return () => {
@@ -269,6 +299,16 @@ function useTopic<T>(view: View, topic: string, params?: Record<string, unknown>
   const [, bump] = useState(0);
   useEffect(() => view.watch(topic, params, () => bump((n) => n + 1)), [view, key]);
   return view.value(topic, params) as T | undefined;
+}
+
+/** Draw again every `every` ms while given: for clocks that count on their own. */
+function useNow(every: number | null): void {
+  const [, bump] = useState(0);
+  useEffect(() => {
+    if (!every) return;
+    const timer = setInterval(() => bump((n) => n + 1), every);
+    return () => clearInterval(timer);
+  }, [every]);
 }
 
 /** `useTopic`, watching only while `on`. */
@@ -473,11 +513,12 @@ function isActive(row: AgentRow, turns: Set<string>): boolean {
 }
 
 /** How a main Agent stands, as DSH draws it: what waits on a person first, then what runs. */
-function stateOf(row: AgentRow, turns: Set<string>): { dot: string; label: string; rank: number } {
+function stateOf(row: AgentRow, turns: Set<string>, unread = false): { dot: string; label: string; rank: number } {
   if (row.waiting === "approval") return { dot: "waiting", label: t("system.state.approval"), rank: 0 };
   if (row.waiting === "answer") return { dot: "waiting", label: t("system.state.answer"), rank: 0 };
   if (turns.has(row.key) || row.running) return { dot: "running", label: row.queued ? t("system.state.queued", { count: row.queued }) : t("system.state.running"), rank: 1 };
   if (row.tasks) return { dot: "running", label: t("system.state.tasks", { count: row.tasks }), rank: 2 };
+  if (unread) return { dot: "done", label: t("system.state.unread"), rank: 3 };
   if (row.status === "active") return { dot: "idle", label: t("system.state.idle"), rank: 3 };
   return { dot: "cold", label: t("system.state.inactive"), rank: 4 };
 }
@@ -543,6 +584,8 @@ function useGoals(app: App, rows: AgentRow[], every: number): Record<string, Goa
 
 /** One `harnix.system.usage` call's most. */
 const USAGE_BATCH = 200;
+/** A sub-agent's transcript, read a page of this many messages at a time. */
+const SUB_PAGE = 30;
 /** How many main Agents the all tab lists before "more". */
 const PAGE = 100;
 
@@ -584,18 +627,44 @@ function Agents({ app, view, scope }: { app: App; view: View; scope: Scope }) {
   const turns = new Set(Object.keys(s.running));
   const rows = useAgentRows(view, listed?.instances ?? []);
   const [limit, setLimit] = useState(PAGE);
-  const chosen = scope === "active" ? rows.filter((row) => isActive(row, turns)) : rows;
-  const sorted = [...chosen].sort((a, b) => stateOf(a, turns).rank - stateOf(b, turns).rank || (b.last_active ?? "").localeCompare(a.last_active ?? ""));
+  const [query, setQuery] = useState("");
+  const [who, setWho] = useState<"all" | "user" | "harnix">("all");
+  const q = query.trim().toLowerCase();
+  const matches = (row: AgentRow) =>
+    (who === "all" || (row.started_by ?? "user") === who) &&
+    (!q || [row.name, row.session_id, row.space, row.instance, row.scene, row.project_root].some((v) => v && String(v).toLowerCase().includes(q)));
+  const inScope = scope === "active" ? rows.filter((row) => isActive(row, turns)) : rows;
+  const chosen = inScope.filter(matches);
+  const rank = (row: AgentRow) => stateOf(row, turns, view.isUnread(row.key)).rank;
+  const sorted = [...chosen].sort((a, b) => rank(a) - rank(b) || (b.last_active ?? "").localeCompare(a.last_active ?? ""));
+  // A running turn's clock goes on by the second.
+  useNow(sorted.some((row) => row.turn_started_ms) ? 1000 : null);
   const shown = scope === "all" ? sorted.slice(0, limit) : sorted;
   const usage = useUsage(app, shown, scope === "active" ? 3000 : null);
   // A goal is the engine's, in memory: asked of the loaded Agents on the active tab.
   const goals = useGoals(app, scope === "active" ? shown.filter((row) => row.status === "active") : [], 5000);
   return (
     <div className="tree2 agents" data-testid="system-agents" data-scope={scope}>
+      <div className="agents-bar">
+        <input
+          type="search"
+          className="search"
+          data-testid="system-agents-search"
+          placeholder={tr("system.agents.search")}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <select data-testid="system-agents-who" value={who} onChange={(e) => setWho(e.target.value as typeof who)}>
+          <option value="all">{tr("system.agents.who.all")}</option>
+          <option value="user">{tr("system.agents.who.user")}</option>
+          <option value="harnix">{tr("system.agents.who.harnix")}</option>
+        </select>
+        <span className="count" data-testid="system-agents-count">{tr("system.agents.count", { count: chosen.length, of: inScope.length })}</span>
+      </div>
       {shown.length ? (
         shown.map((row) => <AgentItem key={row.key} app={app} view={view} row={row} usage={usage[row.key]} goal={goals[row.key] ?? null} turns={turns} scope={scope} />)
       ) : (
-        <div className="empty">{tr(scope === "active" ? "system.agents.noneActive" : "system.agents.none")}</div>
+        <div className="empty">{tr(q || who !== "all" ? "system.agents.noMatch" : scope === "active" ? "system.agents.noneActive" : "system.agents.none")}</div>
       )}
       {sorted.length > shown.length ? (
         <button type="button" className="more" data-testid="system-agents-more" onClick={() => setLimit((n) => n + PAGE)}>
@@ -650,7 +719,7 @@ function ms(n: number): string {
 function AgentItem({ app, view, row, usage, goal, turns, scope }: { app: App; view: View; row: AgentRow; usage?: AgentUsage[]; goal: Goal | null; turns: Set<string>; scope: Scope }) {
   const tr = useT();
   const picked = useSelection(view);
-  const state = stateOf(row, turns);
+  const state = stateOf(row, turns, view.isUnread(row.key));
   const [open, setOpen] = useState<boolean | null>(null);
   const live = row.tasks ?? 0;
   const expanded = open ?? (scope === "active" && live > 0);
@@ -666,7 +735,12 @@ function AgentItem({ app, view, row, usage, goal, turns, scope }: { app: App; vi
   const select = () => view.select({ kind: "session", instance: row.instance, sessionId: row.session_id });
   return (
     <div className={`tgroup${expanded ? " open" : ""}`} data-sid={row.session_id} data-instance={row.instance} data-state={state.dot}>
-      <div className={`tr agent${isSelected(picked, { kind: "session", instance: row.instance, sessionId: row.session_id }) ? " on" : ""}`} data-testid="system-agent" onClick={select}>
+      <div
+        className={`tr agent${isSelected(picked, { kind: "session", instance: row.instance, sessionId: row.session_id }) ? " on" : ""}`}
+        data-testid="system-agent"
+        title={[row.name || tr("sidebar.untitled"), state.label, `${row.instance} · ${row.space ?? "sessions"} · ${row.scene ?? ""}`, row.project_root ?? "", row.session_id, row.last_active ?? ""].filter(Boolean).join("\n")}
+        onClick={select}
+      >
         <button
           type="button"
           className="twist"
@@ -703,7 +777,13 @@ function AgentItem({ app, view, row, usage, goal, turns, scope }: { app: App; vi
         <span className="stat" data-stat="time" title={tr("system.stat.time")}>
           {usage ? ms(time) : "—"}
         </span>
-        <span className="el" title={row.last_active ?? ""}>{row.last_active ? since(Date.parse(row.last_active)) : ""}</span>
+        {row.turn_started_ms ? (
+          <span className="el live" data-testid="system-agent-elapsed" title={tr("system.stat.elapsed")}>
+            {since(row.turn_started_ms)}
+          </span>
+        ) : (
+          <span className="el" title={row.last_active ?? ""}>{row.last_active ? since(Date.parse(row.last_active)) : ""}</span>
+        )}
       </div>
       {expanded ? (
         <>
@@ -1222,14 +1302,20 @@ function SubAgentOverview({ app, view, session, parent }: { app: App; view: View
   const facts = useAgentFacts(app, parentKey, Boolean(task && LIVE.has(task.status)));
   const own = facts.usage?.find((u) => u.session_id === session.sessionId);
   const [messages, setMessages] = useState<HistoryMessage[] | null>(null);
+  // How far back the transcript is read: the last page, and more on asking.
+  const [from, setFrom] = useState<number | null>(null);
+  const [pages, setPages] = useState(1);
   useEffect(() => {
     let alive = true;
     const target = { instance: session.instance, session_id: session.sessionId, space: SYSTEM };
     void (async () => {
       try {
         const first = await app.call<{ total: number }>("session.history", { ...target, offset: 0, limit: 1 });
-        const page = await app.call<{ messages: HistoryMessage[] }>("session.history", { ...target, offset: Math.max(0, first.total - 30), limit: 30 });
-        if (alive) setMessages(page.messages ?? []);
+        const offset = Math.max(0, first.total - SUB_PAGE * pages);
+        const page = await app.call<{ messages: HistoryMessage[] }>("session.history", { ...target, offset, limit: SUB_PAGE * pages });
+        if (!alive) return;
+        setMessages(page.messages ?? []);
+        setFrom(offset);
       } catch {
         if (alive) setMessages([]);
       }
@@ -1237,7 +1323,7 @@ function SubAgentOverview({ app, view, session, parent }: { app: App; view: View
     return () => {
       alive = false;
     };
-  }, [app, session.instance, session.sessionId, task?.status]);
+  }, [app, session.instance, session.sessionId, task?.status, pages]);
   const d = (task?.detail ?? {}) as Record<string, unknown>;
   return (
     <div className="system-pane" data-testid="system-subagent-pane">
@@ -1263,6 +1349,11 @@ function SubAgentOverview({ app, view, session, parent }: { app: App; view: View
       <Stats own={own} turns={[]} />
       <div className="label">{tr("system.messages")}</div>
       <div className="messages" data-testid="subagent-messages">
+        {from ? (
+          <button type="button" className="btn sm outline wide" data-testid="subagent-earlier" onClick={() => setPages((n) => n + 1)}>
+            {tr("system.earlierMessages", { count: from })}
+          </button>
+        ) : null}
         {messages && !messages.length ? <div className="note">{tr("system.noMessages")}</div> : null}
         {(messages ?? []).map((message) => (
           <div key={message.seq} className="msg" data-role={message.role}>
@@ -2127,23 +2218,43 @@ function TasksTab({ app, view, session }: { app: App; view: View; session: Sessi
             </span>
             <span className="when">{duration(task)}</span>
             {LIVE.has(task.status) ? (
-              <button
-                type="button"
-                className="btn sm outline"
-                data-testid="task-stop"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void act(app, () => app.call("harnix.system.tasks.stop", { ...params, task_id: task.task_id }));
-                }}
-              >
-                {tr("system.stop")}
-              </button>
+              <StopTask onStop={() => void act(app, () => app.call("harnix.system.tasks.stop", { ...params, task_id: task.task_id }))} />
             ) : null}
           </div>
           {task.task_id === chosen ? <TaskDetail app={app} view={view} params={params} task={task} /> : null}
         </div>
       ))}
     </div>
+  );
+}
+
+/** How long the first press of "stop" waits for the second (DSH's `KILL_ARM_MS`). */
+const STOP_ARM_MS = 3000;
+
+/** Stop, as DSH has it: the first press arms the button, a second within three seconds stops. */
+function StopTask({ onStop }: { onStop: () => void }) {
+  const tr = useT();
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const timer = setTimeout(() => setArmed(false), STOP_ARM_MS);
+    return () => clearTimeout(timer);
+  }, [armed]);
+  return (
+    <button
+      type="button"
+      className={`btn sm outline${armed ? " danger" : ""}`}
+      data-testid="task-stop"
+      data-armed={armed ? "" : undefined}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!armed) return setArmed(true);
+        setArmed(false);
+        onStop();
+      }}
+    >
+      {tr(armed ? "system.stopConfirm" : "system.stop")}
+    </button>
   );
 }
 

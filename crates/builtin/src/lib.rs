@@ -94,7 +94,7 @@ const PARTS: &[Part] = &[
             "harnix.projects.create",
             "harnix.upload.begin",
         ],
-        grants: &[],
+        grants: &["session.export"],
     },
     Part {
         id: "settings",

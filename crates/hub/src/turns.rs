@@ -264,6 +264,7 @@ impl Hub {
             let mut guard = self.inner.lock().await;
             let state = guard.sessions.entry(key.clone()).or_default();
             state.running_turn = Some(turn_id.clone());
+            state.turn_started_ms = Some(crate::now_ms());
             state.external = false;
             state.last_complete = None;
             state.answer = Default::default();
@@ -314,6 +315,7 @@ impl Hub {
                 return None;
             }
             state.running_turn = None;
+            state.turn_started_ms = None;
             state.external = false;
             state.pending_prompts.clear();
             // Only once the transcript has grown — or been compacted, which

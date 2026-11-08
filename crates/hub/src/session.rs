@@ -41,6 +41,8 @@ pub(crate) struct SessionState {
     pub seq: u64,
     pub replay: Buffer,
     pub running_turn: Option<String>,
+    /// When the running turn began, in ms since the epoch: what an elapsed clock counts from.
+    pub turn_started_ms: Option<u64>,
     pub queue: VecDeque<QueueItem>,
     pub pending_prompts: Vec<Value>,
     pub watchers: HashSet<ClientId>,

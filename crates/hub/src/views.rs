@@ -115,6 +115,10 @@ impl Hub {
                     obj.insert("queued".into(), json!(queued));
                     obj.insert("tasks".into(), json!(tasks));
                     obj.insert("waiting".into(), json!(waiting));
+                    obj.insert(
+                        "turn_started_ms".into(),
+                        json!(state.and_then(|s| s.turn_started_ms)),
+                    );
                     obj.insert("started_by".into(), json!(self.starter_of(&key)));
                     obj.insert(
                         "state".into(),

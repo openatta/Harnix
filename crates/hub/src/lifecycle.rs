@@ -146,6 +146,7 @@ impl Hub {
                 return;
             }
             state.running_turn = Some(turn_id.to_string());
+            state.turn_started_ms = Some(crate::now_ms());
             state.external = true;
             state.compacted = false;
             state.replay.clear();
