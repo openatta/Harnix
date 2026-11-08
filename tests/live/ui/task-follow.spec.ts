@@ -35,7 +35,7 @@ test("system-tasks: a running task's output grows in the tasks tab and, followed
 
   await page.locator('#side [data-space="system"]').click();
   await expect(page.getByTestId("system-console")).toBeVisible();
-  const row = page.locator('[data-testid="system-running"] [data-task][data-status="running"]').first();
+  const row = page.locator('[data-testid="system-agents"] [data-task][data-status="running"]').first();
   await expect(row).toBeVisible({ timeout: 15_000 });
   await row.click();
 
@@ -73,7 +73,7 @@ test("system-tasks: a task that outlives its turn is listed as running, and is s
 
   await page.locator('#side [data-space="system"]').click();
   await expect(page.locator('[data-testid="system-strip"] [data-kpi="tasks"] .v')).toHaveText("1", { timeout: 15_000 });
-  const row = page.locator('[data-testid="system-running"] [data-task][data-status="running"]').first();
+  const row = page.locator('[data-testid="system-agents"] [data-task][data-status="running"]').first();
   await expect(row).toBeVisible({ timeout: 15_000 });
   const id = (await row.getAttribute("data-task"))!;
   await row.click();
@@ -83,6 +83,6 @@ test("system-tasks: a task that outlives its turn is listed as running, and is s
   // Long before its ten seconds are up: no longer running, and nothing left to stop.
   await expect(task).not.toHaveAttribute("data-status", /running|waiting|pending/, { timeout: 5_000 });
   await expect(task.getByTestId("task-stop")).toHaveCount(0);
-  await expect(page.locator(`[data-testid="system-running"] [data-task="${id}"]`)).toHaveCount(0);
+  await expect(page.locator(`[data-testid="system-agents"] [data-task="${id}"][data-status="running"]`)).toHaveCount(0);
   expect(errors).toEqual([]);
 });

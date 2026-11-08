@@ -417,6 +417,7 @@ impl Hub {
                 json!(self.started.elapsed().as_secs()),
             );
             obj.insert("peak_rss_bytes".into(), json!(peak_rss_bytes()));
+            obj.insert("threads".into(), json!(os_threads()));
             obj.insert("connections".into(), json!(connections));
         }
         out
@@ -550,7 +551,7 @@ impl Hub {
             "session.close" | "session.delete" => {
                 return self.close_or_delete(method, params).await
             }
-            "session.create" => return self.create(params).await,
+            "session.create" => return self.create(subject, params).await,
             "session.fork" => {
                 let key = self.key_of(&params)?;
                 let space = params
@@ -560,7 +561,9 @@ impl Hub {
                     .unwrap_or_else(|| self.space_of(&key));
                 let forked = self.call(&key.0, method, without_instance(params)).await?;
                 if let Some(sid) = forked.get("session_id").and_then(Value::as_str) {
-                    self.bind_space(&(key.0.clone(), sid.to_string()), &space);
+                    let new = (key.0.clone(), sid.to_string());
+                    self.bind_space(&new, &space);
+                    self.note_starter(&new, subject);
                 }
                 self.refresh("harnix.instances.sessions", json!({"instance": key.0}));
                 return Ok(forked);
@@ -588,9 +591,21 @@ impl Hub {
         }
         if PASSTHROUGH.contains(&method) || (!device && is_engine_method(method)) {
             let instance = self.instance_of(&params)?;
+            let prompt = (method == "session.respondToPrompt")
+                .then(|| {
+                    let field = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_string);
+                    field("session_id").zip(field("prompt_id"))
+                })
+                .flatten();
             let answer = self
                 .call(&instance, method, without_instance(params))
                 .await?;
+            if let Some((session, prompt_id)) = prompt {
+                self.answered(&(instance.clone(), session), |p| {
+                    p.get("prompt_id").and_then(Value::as_str) == Some(prompt_id.as_str())
+                })
+                .await;
+            }
             // What the session list shows changed; the engine sends no event for it.
             if RELISTED.contains(&method) {
                 self.refresh("harnix.instances.sessions", json!({"instance": instance}));
@@ -813,9 +828,53 @@ fn peak_rss_bytes() -> Option<u64> {
     }
 }
 
+/// How many threads the operating system counts in this process — the runtime's workers, the
+/// blocking pool, and whatever the engine and its tools started.
+fn os_threads() -> Option<u64> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut info = std::mem::MaybeUninit::<libc::proc_taskinfo>::zeroed();
+        let size = std::mem::size_of::<libc::proc_taskinfo>() as libc::c_int;
+        // SAFETY: `proc_pidinfo` writes at most `size` bytes into `info` and reports how many.
+        let wrote = unsafe {
+            libc::proc_pidinfo(
+                libc::getpid(),
+                libc::PROC_PIDTASKINFO,
+                0,
+                info.as_mut_ptr().cast(),
+                size,
+            )
+        };
+        if wrote != size {
+            return None;
+        }
+        Some(unsafe { info.assume_init() }.pti_threadnum.max(0) as u64)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_to_string("/proc/self/status")
+            .ok()?
+            .lines()
+            .find_map(|line| line.strip_prefix("Threads:"))
+            .and_then(|n| n.trim().parse().ok())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        None
+    }
+}
+
 #[cfg(test)]
 mod recording_tests {
     use super::*;
+
+    #[test]
+    fn the_process_counts_its_threads() {
+        if cfg!(any(target_os = "macos", target_os = "linux")) {
+            let _worker = std::thread::spawn(|| std::thread::sleep(std::time::Duration::from_millis(200)));
+            assert!(os_threads().is_some_and(|n| n >= 2));
+        }
+    }
 
     #[test]
     fn replay_is_lenient_unless_the_operator_asked_for_strict() {

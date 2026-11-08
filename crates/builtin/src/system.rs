@@ -52,6 +52,9 @@ impl Builtin {
         if name == "harnix.system.turns" {
             return self.turns(params).await;
         }
+        if name == "harnix.system.usage" {
+            return self.usage(params).await;
+        }
         if name == "harnix.system.context" {
             return self.inspect_context(params).await;
         }

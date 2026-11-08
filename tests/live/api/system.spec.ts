@@ -8,7 +8,7 @@
  * its own: the session there is another space's, which is the case the system space is for.
  */
 
-import { cpSync, readFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { INVALID_PARAMS, METHOD_NOT_FOUND, REFUSED, SPACE_MISMATCH } from "@harnix/core/protocol";
@@ -23,6 +23,7 @@ const SYSTEM_METHODS = [
   "harnix.system.context",
   "harnix.system.calls",
   "harnix.system.turns",
+  "harnix.system.usage",
   "harnix.system.tasks.stop",
   "harnix.system.tasks.output",
   "harnix.system.messages.drop",
@@ -115,6 +116,76 @@ test.describe("on", () => {
     }
     // And what it asked of the engine, as the system module.
     expect(entries.some((e: any) => e.method === "session.clear" && JSON.stringify(e.subject).includes("system"))).toBe(true);
+  });
+
+  test("harnix.system.usage: what each Agent of a session used this run — the session first, then its sub-agents with their parents", TAGS, async () => {
+    const s = await oneTurn(api, "sessions");
+    const usage = async () => (await api.call("harnix.system.usage", { instance: s.instance, session_ids: [s.session_id] })).sessions[s.session_id];
+    // A replayed session writes no recording of its own.
+    expect(await usage()).toEqual({ recording: false, agents: [] });
+
+    // One written by hand: the session's own two turns, a sub-agent's call, and a title call beside them.
+    const dir = join(backend.scratch, "agix", "recordings", s.session_id);
+    mkdirSync(dir, { recursive: true });
+    const lines = [
+      { type: "recording", version: 1, session_id: s.session_id },
+      { type: "call", seq: 1, ts: 1000, session_id: s.session_id, turn: 0, step: 0, params: { model: "big" } },
+      { type: "end", seq: 2, ts: 1400, call: 1, outcome: { status: "ok" }, usage: { input_tokens: 10, cache_read_input_tokens: 90, output_tokens: 5 }, duration_ms: 400 },
+      { type: "call", seq: 3, ts: 1500, session_id: "SUB", parent_session_id: s.session_id, turn: 0, step: 0, params: { model: "small" } },
+      { type: "end", seq: 4, ts: 1600, call: 3, outcome: { status: "ok" }, usage: { input_tokens: 20, output_tokens: 3 }, duration_ms: 100 },
+      { type: "call", seq: 5, ts: 2000, session_id: s.session_id, turn: 1, step: 0, params: { model: "big" } },
+      { type: "end", seq: 6, ts: 2300, call: 5, outcome: { status: "error" }, usage: {}, duration_ms: 300 },
+      { type: "call", seq: 7, ts: 2400, session_id: s.session_id, turn: 1, purpose: "title", params: { model: "small" } },
+    ];
+    const write = (records: object[]) => writeFileSync(join(dir, "calls.jsonl"), records.map((r) => JSON.stringify(r)).join("\n") + "\n");
+    write(lines);
+    const first = await usage();
+    expect(first.recording).toBe(true);
+    expect(first.agents.map((a: any) => [a.session_id, a.parent_session_id])).toEqual([[s.session_id, null], ["SUB", s.session_id]]);
+    expect(first.agents[0]).toMatchObject({
+      calls: 2, auxiliary: 1, turns: 2, models: ["big", "small"],
+      input_tokens: 10, cache_read_tokens: 90, cache_write_tokens: 0, output_tokens: 5,
+      model_ms: 700, errors: 1, first_at: 1000, last_at: 2400,
+    });
+    expect(first.agents[1]).toMatchObject({ calls: 1, turns: 1, models: ["small"], input_tokens: 20, output_tokens: 3, model_ms: 100, errors: 0 });
+
+    // The recording grew: read again, not served from before.
+    write([...lines, { type: "call", seq: 8, ts: 3000, session_id: "SUB", parent_session_id: s.session_id, turn: 1, params: { model: "small" } },
+      { type: "end", seq: 9, ts: 3050, call: 8, outcome: { status: "ok" }, usage: { output_tokens: 7 }, duration_ms: 50 }]);
+    expect((await usage()).agents[1]).toMatchObject({ calls: 2, output_tokens: 10, model_ms: 150 });
+
+    expect((await api.refused("harnix.system.usage", { instance: s.instance }))?.code).toBe(INVALID_PARAMS);
+    const many = Array.from({ length: 201 }, (_, i) => `s${i}`);
+    expect((await api.refused("harnix.system.usage", { instance: s.instance, session_ids: many }))?.code).toBe(INVALID_PARAMS);
+  });
+
+  test("a session's row says who started it — a person, or Harnix itself — and what it waits on a person for", TAGS, async () => {
+    const row = async (instance: string, id: string) =>
+      (await api.call("harnix.instances.sessions", { instance })).sessions.find((r: any) => r.session_id === id);
+    const mine = await oneTurn(api, "sessions");
+    expect(await row(mine.instance, mine.session_id)).toMatchObject({ started_by: "user", waiting: null });
+
+    const { started: [own] } = await api.call("app.fleet.headless", { count: 1, project_root: api.project, recording: "says-ready" });
+    expect((await row(own.instance, own.session_id))?.started_by).toBe("harnix");
+
+    // A turn held on its permission ask waits on a person; answered, it does not.
+    const created = await api.call("session.create", { options: { recorder: { name: "asks-permission" } } });
+    const s = { instance: created.instance, session_id: created.session_id };
+    await api.call("harnix.attach", s);
+    const sent = await api.call("harnix.send", { ...s, message: "Use the Bash tool to run exactly: touch harnix-permission-fixture" });
+    const ask = await api.waitFor(
+      (f) => f.method === "harnix.event" && f.params.session_id === s.session_id && f.params.event.kind === "prompt",
+      { timeout: 30_000, describe: "the permission ask" },
+    );
+    await expect.poll(async () => (await row(s.instance, s.session_id))?.waiting, { timeout: 10_000 }).toBe("approval");
+    await api.call("session.respondToPrompt", { ...s, prompt_id: ask.params.event.prompt_id, decision: { type: "deny", reason: "not in this test" } });
+    await expect.poll(async () => (await row(s.instance, s.session_id))?.waiting ?? null, { timeout: 10_000 }).toBeNull();
+    await api.waitFor((f) => f.method === "harnix.turn_settled" && f.params.turn_id === sent.turn_id, { timeout: 60_000, describe: "the turn to settle" });
+  });
+
+  test("harnix.process counts the operating system's threads in the process", TAGS, async () => {
+    const process = await api.call("harnix.process", {});
+    expect(process.threads).toBeGreaterThan(1);
   });
 
   test("a session's model calls: its envelopes, every call with its tool calls, one in full", TAGS, async () => {

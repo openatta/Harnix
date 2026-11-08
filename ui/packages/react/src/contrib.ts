@@ -153,8 +153,8 @@ export interface SpaceContribution {
    *  Read at every draw of the bar; a throw drops this block only. */
   headerActions?(session: SessionRef | null): ReactNode;
   /** The right column's width in px when this space is in front and the reader has not dragged it
-   *  (a width the reader set wins). Within 320–720; a space that gives it also lets the reader drag
-   *  that column out to 720 while it is in front (480 otherwise). */
+   *  (a width the reader set wins). At least 320; at most 70% of the window, leaving the centre
+   *  400 px — the bound the reader drags within too, in every space. */
   detailsWidth?: number;
   /** What a new conversation here might start with, offered under the composer. */
   suggestions?(): string[];

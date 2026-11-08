@@ -60,6 +60,10 @@ impl Hub {
             return;
         }
         crate::session::route_event(&self.inner, instance, params.clone()).await;
+        // What a session waits on is on its row.
+        if matches!(kind, "prompt" | "tool_result" | "turn_complete") {
+            self.refresh("harnix.instances.sessions", json!({"instance": instance}));
+        }
         if matches!(kind, "task_started" | "task_finished") {
             let task_id = params
                 .get("event")

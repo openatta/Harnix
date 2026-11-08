@@ -9,7 +9,7 @@
  * daemon), so the tree has more than one branch to show.
  */
 
-import { cpSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { type Backend, RECORDINGS, expect, launchFor, startHarnix, test } from "@harnix/testkit";
@@ -87,14 +87,20 @@ test("system-tree: every instance, its sessions of every space, and their tasks;
   await expect(page.getByTestId("conv-input")).toHaveCount(0);
 
   const tree = page.getByTestId("system-tree");
-  for (const id of ["system", "side", "ci"]) {
-    await expect(tree.locator(`.inst[data-instance="${id}"]`)).toBeVisible();
-    await expect(page.locator(`[data-testid="system-running"] .tgroup[data-instance="${id}"]`)).toBeVisible();
-  }
+  for (const id of ["system", "side", "ci"]) await expect(tree.locator(`.inst[data-instance="${id}"]`)).toBeVisible();
   await expect(tree.locator('.inst[data-instance="side"]')).toHaveAttribute("data-state", "ready");
   await expect(tree.locator('.inst[data-instance="ci"]')).toHaveAttribute("data-state", "ready", { timeout: 30_000 });
-  // Finished work is not listed: both turns have settled.
-  await expect(page.locator('[data-testid="system-running"] .tr.l1')).toHaveCount(0, { timeout: 5_000 });
+  // Both turns have settled; both Agents are loaded, so active, and idle.
+  const agents = page.getByTestId("system-agents");
+  await expect(agents).toHaveAttribute("data-scope", "active");
+  await expect(agents.locator(`.tgroup[data-instance="side"][data-sid="${onSide}"]`)).toHaveAttribute("data-state", "idle", { timeout: 10_000 });
+  const parent = agents.locator(`.tgroup[data-instance="system"][data-sid="${withAgent}"]`);
+  await expect(parent).toHaveAttribute("data-state", "idle");
+  // Its sub-agent is counted on the row, and under it once the row is open.
+  await expect(parent.locator('[data-stat="subagents"]')).toHaveText("1", { timeout: 10_000 });
+  await parent.getByTestId("system-agent-toggle").click();
+  await expect(parent.getByTestId("system-subagent")).toHaveCount(1);
+  await expect(parent.getByTestId("system-subagent")).toContainText("list files");
 
   await pick(page, "side", onSide);
   await expect(page.getByTestId("system-session")).toContainText("side");
@@ -108,6 +114,72 @@ test("system-tree: every instance, its sessions of every space, and their tasks;
   await page.locator('#side .system-tree .inst[data-instance="ci"]').click();
   await expect(page.getByTestId("system-instance")).toContainText(/daemon/);
   expect(errors).toEqual([]);
+});
+
+test("system-agents: the active tab lists the loaded Agents, the all tab every one; a row carries its sub-agents, tasks, tokens and model time", TREE, async ({ page }) => {
+  await open(page, backend.url);
+  const id = await sessionWithTurn(page, "system");
+  // A replayed session records nothing; give it a recording: two calls of its own, one of a sub-agent's.
+  const dir = join(backend.scratch, "agix", "recordings", id);
+  mkdirSync(dir, { recursive: true });
+  const lines = [
+    { type: "recording", version: 1, session_id: id },
+    { type: "call", seq: 1, ts: 1000, session_id: id, turn: 0, step: 0, params: { model: "big" } },
+    { type: "end", seq: 2, ts: 1900, call: 1, outcome: { status: "ok" }, usage: { input_tokens: 600, cache_read_input_tokens: 400, output_tokens: 34 }, duration_ms: 900 },
+    { type: "call", seq: 3, ts: 2000, session_id: "SUB-1", parent_session_id: id, turn: 0, step: 0, params: { model: "small" } },
+    { type: "end", seq: 4, ts: 2600, call: 3, outcome: { status: "ok" }, usage: { input_tokens: 150, output_tokens: 50 }, duration_ms: 600 },
+  ];
+  writeFileSync(join(dir, "calls.jsonl"), lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
+  await toSystem(page);
+
+  const agents = page.getByTestId("system-agents");
+  const row = agents.locator(`.tgroup[data-instance="system"][data-sid="${id}"]`);
+  await expect(row).toHaveAttribute("data-state", "idle", { timeout: 10_000 });
+  await expect(row.locator('[data-stat="tokens"]')).toHaveText("1.2k", { timeout: 10_000 }); // 1034 + 200
+  await expect(row.locator('[data-stat="time"]')).toHaveText("1.5s");
+  await expect(row.locator('[data-stat="subagents"]')).toHaveText("1");
+  await expect(row.locator('[data-stat="tasks"]')).toHaveText("0");
+  await expect(row.locator('[data-stat="tokens"]')).toHaveAttribute("title", /cache read 400/);
+  await expect(row.getByTestId("system-agent-harnix")).toHaveCount(0);
+  // Opened: the sub-agent under it, with its own figures; clicked, the Agent is on the right.
+  await row.getByTestId("system-agent-toggle").click();
+  const sub = row.locator('[data-testid="system-subagent"][data-sub="SUB-1"]');
+  await expect(sub).toContainText("small");
+  await expect(sub).toContainText("200");
+  await row.getByTestId("system-agent").click();
+  await expect(page.getByTestId("system-session")).toContainText(id);
+
+  // The strip counts the Agents and what waits on a person.
+  const strip = page.getByTestId("system-strip");
+  await expect(strip.locator('[data-kpi="agents"] .v')).toHaveText(/^\d+\/\d+$/);
+  await expect(strip.locator('[data-kpi="waiting"] .v')).toHaveText("0");
+  await expect.poll(async () => Number(await strip.locator('[data-kpi="threads"] .v').textContent())).toBeGreaterThan(1);
+
+  // The all tab: every main Agent, this one among them.
+  await page.locator('[data-testid="system-console"] [data-tab="all"]').click();
+  await expect(agents).toHaveAttribute("data-scope", "all");
+  await expect(agents.locator(`.tgroup[data-sid="${id}"]`)).toBeVisible();
+});
+
+test("system-agents: an Agent waiting on its permission ask says so, first in the list, and counts on the strip", TREE, async ({ page }) => {
+  await open(page, backend.url);
+  await newSession(page, "asks-permission");
+  await say(page, "Use the Bash tool to run exactly: touch harnix-permission-fixture");
+  await expect(page.getByTestId("conv-ask")).toBeVisible({ timeout: 30_000 });
+  const id = await page.evaluate(() => (window as any).harnix.app.snapshot.current?.sessionId as string);
+  await toSystem(page);
+  const first = page.locator('[data-testid="system-agents"] .tgroup').first();
+  await expect(first).toHaveAttribute("data-sid", id, { timeout: 10_000 });
+  await expect(first).toHaveAttribute("data-state", "waiting");
+  await expect(first.locator(".act")).toHaveText(/Approval|等批准/);
+  await expect(page.locator('[data-testid="system-strip"] [data-kpi="waiting"] .v')).toHaveText("1");
+  // Answered from its own conversation, it waits on nobody.
+  await page.locator('#side [data-space="sessions"]').click();
+  await page.evaluate((sid) => (window as any).harnix.app.open({ instance: "system", sessionId: sid }), id);
+  await page.getByTestId("conv-ask").getByTestId("conv-ask-allow").click();
+  await toSystem(page);
+  await expect(page.locator(`[data-testid="system-agents"] .tgroup[data-sid="${id}"]`)).not.toHaveAttribute("data-state", "waiting", { timeout: 15_000 });
+  await expect(page.locator('[data-testid="system-strip"] [data-kpi="waiting"] .v')).toHaveText("0");
 });
 
 test("system-strip: versions, uptime, memory and the connected users", TREE, async ({ page, context }) => {

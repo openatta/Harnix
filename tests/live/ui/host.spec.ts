@@ -573,7 +573,9 @@ test("newSession: false: no New session button, no ⌘K, no composer that create
   expect(errors).toEqual([]);
 });
 
-test("detailsWidth: the space's width is the right column's default; a dragged width wins; the cap is 480, or 720 for a space that asks", SHELL, async ({ page }) => {
+test("detailsWidth: the space's width is the right column's default; a dragged width wins in every space; the cap is 70% of the window, leaving the centre 400px", SHELL, async ({ page }) => {
+  // 1600 wide, a 260 left column: the cap is min(70% of 1600, 1600 - 260 - 400) = 940.
+  await page.setViewportSize({ width: 1600, height: 900 });
   await open(page, URL);
   await page.evaluate(() => {
     const { app } = (window as any).harnix;
@@ -587,15 +589,17 @@ test("detailsWidth: the space's width is the right column's default; a dragged w
   await inSpace(page, "wide");
   expect(await width()).toBe("560px");
   await inSpace(page, "huge");
-  expect(await width()).toBe("720px");
-  // The reader's width wins, within the front space's cap.
+  expect(await width()).toBe("940px");
+  // The reader's width wins, in every space, up to the cap.
   await inSpace(page, "wide");
   await drag(650);
   expect(await width()).toBe("650px");
   await inSpace(page, "sessions");
-  expect(await width()).toBe("480px"); // the dragged 650 is held to this space's 480
-  await drag(900);
-  expect(await width()).toBe("480px");
+  expect(await width()).toBe("650px");
+  await drag(2000);
+  expect(await width()).toBe("940px");
+  await drag(10);
+  expect(await width()).toBe("320px");
   // Double-click's reset: back to each space's own.
   await drag(null);
   expect(await width()).toBe("360px");
@@ -604,6 +608,14 @@ test("detailsWidth: the space's width is the right column's default; a dragged w
   // Dragging the side column alone does not freeze the right one at its default.
   await page.evaluate(() => (window as any).harnix.app.setWidth("side", 300));
   expect(await width()).toBe("560px");
+
+  // A narrower window: the open right column gives way so the centre keeps 400px.
+  await page.evaluate(() => (window as any).harnix.app.toggleDetails(true));
+  await page.setViewportSize({ width: 1100, height: 800 });
+  const column = () => page.evaluate(() => Math.round(document.querySelector("#details")!.getBoundingClientRect().width));
+  await expect.poll(column).toBe(400); // 1100 - 300 - 400
+  const centre = await page.evaluate(() => Math.round(document.querySelector("#centre")!.getBoundingClientRect().width));
+  expect(centre).toBeGreaterThanOrEqual(400);
 });
 
 test("headerActions: the space's block is in the title bar, left of the theme and details buttons; other spaces have none; a throw drops only it", SHELL, async ({ page }) => {

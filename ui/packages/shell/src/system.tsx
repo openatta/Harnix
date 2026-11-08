@@ -2,8 +2,9 @@
  * The system space (design §9): what this process runs, and the hands to act on it.
  *
  * Its three columns: on the left, the instances; in the centre, the console — the process at a
- * glance, then what is running right now (each instance, its running sessions, their running
- * tasks; what finishes fades out) and the diagnostics; on the right, whatever was picked there:
+ * glance, then the Agents (the active ones, or all of them: each main Agent on a row with its
+ * sub-agents, tasks, tokens and model time, opened into its sub-agents and tasks) and the
+ * diagnostics; on the right, whatever was picked there:
  * an instance's facts and its restart, or a session's facts and operations, every model call with
  * what went in and what came out, the context the next call will carry, its tasks, and its frames
  * as they arrive. There is no conversation here: the system space looks at sessions, it does not
@@ -55,6 +56,12 @@ interface SessionRowView {
   last_active?: string;
   /** How many of its tasks are running: work that can outlive the turn that started it. */
   tasks?: number;
+  running?: boolean;
+  queued?: number;
+  /** What it waits on a person for: a permission, or an answer to the model's question. */
+  waiting?: "approval" | "answer" | null;
+  /** `harnix`: a module or the kernel started it, not a person. */
+  started_by?: "user" | "harnix";
 }
 
 interface Task {
@@ -145,6 +152,7 @@ export function registerSystem(app: App): void {
       title: () => t("space.system"),
       subtitle: () => t("space.system.subtitle"),
       center: "hidden",
+      detailsWidth: 720,
       overview: () => <Console app={app} view={view} />,
       sidebar: () => <InstanceList app={app} view={view} />,
       tabs: () => tabsFor(app, view),
@@ -255,6 +263,14 @@ function useTopic<T>(view: View, topic: string, params?: Record<string, unknown>
   return view.value(topic, params) as T | undefined;
 }
 
+/** `useTopic`, watching only while `on`. */
+function useTopicIf<T>(view: View, topic: string, params: Record<string, unknown>, on: boolean): T | undefined {
+  const key = topicKey(topic, params);
+  const [, bump] = useState(0);
+  useEffect(() => (on ? view.watch(topic, params, () => bump((n) => n + 1)) : undefined), [view, key, on]);
+  return on ? (view.value(topic, params) as T | undefined) : undefined;
+}
+
 /** A call made from this space, with its failure said in the banner. */
 async function act(app: App, run: () => Promise<unknown>): Promise<boolean> {
   try {
@@ -315,29 +331,36 @@ interface Process {
   agix?: string | null;
   uptime_secs?: number;
   peak_rss_bytes?: number | null;
+  threads?: number | null;
   connections?: Connection[];
 }
 
+type Scope = "active" | "all";
+
 function Console({ app, view }: { app: App; view: View }) {
   const tr = useT();
-  const [tab, setTab] = useState<"running" | "diagnostics">("running");
+  const [tab, setTab] = useState<Scope | "diagnostics">("active");
+  const tabs: [Scope | "diagnostics", string][] = [
+    ["active", tr("system.agents.active")],
+    ["all", tr("system.agents.all")],
+    ["diagnostics", tr("system.diagnostics")],
+  ];
   return (
     <div className="system-console" data-testid="system-console">
       <Strip app={app} view={view} />
       <div className="stabs" role="tablist">
-        <button type="button" role="tab" data-tab="running" aria-selected={tab === "running"} className={tab === "running" ? "on" : ""} onClick={() => setTab("running")}>
-          {tr("system.running")}
-        </button>
-        <button type="button" role="tab" data-tab="diagnostics" aria-selected={tab === "diagnostics"} className={tab === "diagnostics" ? "on" : ""} onClick={() => setTab("diagnostics")}>
-          {tr("system.diagnostics")}
-        </button>
+        {tabs.map(([id, label]) => (
+          <button key={id} type="button" role="tab" data-tab={id} aria-selected={tab === id} className={tab === id ? "on" : ""} onClick={() => setTab(id)}>
+            {label}
+          </button>
+        ))}
       </div>
-      {tab === "running" ? <Running app={app} view={view} /> : <div className="system-diagnostics settings-page"><Diagnostics app={app} /></div>}
+      {tab === "diagnostics" ? <div className="system-diagnostics settings-page"><Diagnostics app={app} /></div> : <Agents key={tab} app={app} view={view} scope={tab} />}
     </div>
   );
 }
 
-/** The process in one row: versions, how long it has run, its memory, who is connected, and what runs. */
+/** The process in one row: versions, how long it has run, its memory and threads, who is connected, and the Agents. */
 function Strip({ app, view }: { app: App; view: View }) {
   const tr = useT();
   const s = useShell(app);
@@ -353,7 +376,10 @@ function Strip({ app, view }: { app: App; view: View }) {
     };
   }, [app]);
   const instances = useTopic<{ instances: InstanceRow[] }>(view, "harnix.instances");
-  const tasks = useRunningTasks(view, useBusy(view, instances?.instances ?? [], Object.keys(s.running)));
+  const rows = useAgentRows(view, instances?.instances ?? []);
+  const turns = new Set(Object.keys(s.running));
+  const busy = rows.filter((row) => row.tasks).map((row) => row.key);
+  const tasks = useRunningTasks(view, [...new Set([...turns, ...busy])]);
   const users = process?.connections ?? [];
   const kpi = (id: string, value: string, label: string, extra?: React.ReactNode) => (
     <div className={`kpi${extra ? " has-tip" : ""}`} data-kpi={id} title={value}>
@@ -368,6 +394,7 @@ function Strip({ app, view }: { app: App; view: View }) {
       {kpi("agix", process?.agix ?? "—", "Agix")}
       {kpi("uptime", process?.uptime_secs != null ? uptime(process.uptime_secs) : "—", tr("system.uptime"))}
       {kpi("memory", process?.peak_rss_bytes ? `${Math.round(process.peak_rss_bytes / 1048576)} MB` : "—", tr("system.peakMemory"))}
+      {kpi("threads", process?.threads != null ? String(process.threads) : "—", tr("system.threads"))}
       {kpi(
         "users",
         String(users.length),
@@ -378,8 +405,10 @@ function Strip({ app, view }: { app: App; view: View }) {
         </div>,
       )}
       {kpi("instances", String(instances?.instances.length ?? 0), tr("system.instances"))}
-      {kpi("sessions", String(Object.keys(s.running).length), tr("system.runningSessions"))}
+      {kpi("agents", `${rows.filter((row) => isActive(row, turns)).length}/${rows.length}`, tr("system.kpi.agents"))}
+      {kpi("sessions", String(turns.size), tr("system.runningSessions"))}
       {kpi("tasks", String(tasks), tr("system.runningTasks"))}
+      {kpi("waiting", String(rows.filter((row) => row.waiting).length), tr("system.kpi.waiting"))}
     </div>
   );
 }
@@ -392,11 +421,31 @@ function uptime(secs: number): string {
 
 const LIVE = new Set(["running", "waiting", "pending"]);
 
-/**
- * The sessions with something running (`instance/session` keys): a turn — `running`, what the shell
- * knows — or a task, which goes on after its turn has ended.
- */
-function useBusy(view: View, instances: InstanceRow[], running: string[]): string[] {
+/** A main Agent: a top-level session of an instance, as the instance's session list has it. */
+interface AgentRow extends SessionRowView {
+  instance: string;
+  /** `instance/session`. */
+  key: string;
+}
+
+/** What one Agent of a session has used in its current run (`harnix.system.usage`). */
+interface AgentUsage {
+  session_id: string;
+  parent_session_id?: string | null;
+  calls: number;
+  turns: number;
+  models: string[];
+  input_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  output_tokens: number;
+  model_ms: number;
+  errors: number;
+  last_at?: number | null;
+}
+
+/** Every instance's main Agents, kept current by the instances' session lists. */
+function useAgentRows(view: View, instances: InstanceRow[]): AgentRow[] {
   const [, bump] = useState(0);
   const ids = instances.map((i) => i.id).sort();
   const joined = ids.join(",");
@@ -404,18 +453,71 @@ function useBusy(view: View, instances: InstanceRow[], running: string[]): strin
     const offs = ids.map((instance) => view.watch("harnix.instances.sessions", { instance }, () => bump((n) => n + 1)));
     return () => offs.forEach((off) => off());
   }, [view, joined]);
-  const busy = new Set(running);
-  for (const instance of ids) {
+  return ids.flatMap((instance) => {
     const rows = (view.value("harnix.instances.sessions", { instance }) as { sessions?: SessionRowView[] } | undefined)?.sessions ?? [];
-    for (const row of rows) if (row.tasks) busy.add(`${instance}/${row.session_id}`);
-  }
-  return [...busy].sort();
+    return rows.map((row) => ({ ...row, instance, key: `${instance}/${row.session_id}` }));
+  });
 }
+
+/** An Agent doing something, or loaded and ready to: a turn, a queue, a question, a task, or in memory. */
+function isActive(row: AgentRow, turns: Set<string>): boolean {
+  return Boolean(turns.has(row.key) || row.running || row.queued || row.waiting || row.tasks || row.status === "active");
+}
+
+/** How a main Agent stands, as DSH draws it: what waits on a person first, then what runs. */
+function stateOf(row: AgentRow, turns: Set<string>): { dot: string; label: string; rank: number } {
+  if (row.waiting === "approval") return { dot: "waiting", label: t("system.state.approval"), rank: 0 };
+  if (row.waiting === "answer") return { dot: "waiting", label: t("system.state.answer"), rank: 0 };
+  if (turns.has(row.key) || row.running) return { dot: "running", label: row.queued ? t("system.state.queued", { count: row.queued }) : t("system.state.running"), rank: 1 };
+  if (row.tasks) return { dot: "running", label: t("system.state.tasks", { count: row.tasks }), rank: 2 };
+  if (row.status === "active") return { dot: "idle", label: t("system.state.idle"), rank: 3 };
+  return { dot: "cold", label: t("system.state.inactive"), rank: 4 };
+}
+
+/** What each of these sessions' Agents has used, read again every `every` ms while given. */
+function useUsage(app: App, rows: AgentRow[], every: number | null): Record<string, AgentUsage[]> {
+  const [usage, setUsage] = useState<Record<string, AgentUsage[]>>({});
+  const joined = rows.map((row) => row.key).join(",");
+  useEffect(() => {
+    let alive = true;
+    const by = new Map<string, string[]>();
+    for (const row of rows) by.set(row.instance, [...(by.get(row.instance) ?? []), row.session_id]);
+    const load = () => {
+      for (const [instance, ids] of by) {
+        for (let at = 0; at < ids.length; at += USAGE_BATCH) {
+          void app
+            .call<{ sessions: Record<string, { agents: AgentUsage[] }> }>("harnix.system.usage", { instance, session_ids: ids.slice(at, at + USAGE_BATCH) })
+            .then((answer) => {
+              if (!alive) return;
+              setUsage((now) => {
+                const next = { ...now };
+                for (const [id, value] of Object.entries(answer.sessions)) next[`${instance}/${id}`] = value.agents;
+                return next;
+              });
+            })
+            .catch(() => undefined);
+        }
+      }
+    };
+    load();
+    const timer = every ? setInterval(load, every) : undefined;
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [app, joined, every]);
+  return usage;
+}
+
+/** One `harnix.system.usage` call's most. */
+const USAGE_BATCH = 200;
+/** How many main Agents the all tab lists before "more". */
+const PAGE = 100;
 
 /** How many tasks are running across these sessions (`instance/session` keys). */
 function useRunningTasks(view: View, keys: string[]): number {
   const [, bump] = useState(0);
-  const joined = keys.sort().join(",");
+  const joined = [...keys].sort().join(",");
   useEffect(() => {
     const offs = keys.map((key) => {
       const [instance, session_id] = splitKey(key);
@@ -438,102 +540,195 @@ function splitKey(key: string): [string, string] {
 }
 
 /**
- * What is running right now: each instance, its sessions with a turn or a task running, their running
- * tasks. Something that stops running stays a moment, fading, and is gone — finished work is not
- * listed here.
+ * The Agents: each main Agent on a row — how it stands, whether Harnix itself started it, and its
+ * sub-agents, tasks, tokens and model time — and, opened, its sub-agents as a tree and its tasks.
+ * The active tab lists what is doing something or is loaded; the all tab every main Agent of every
+ * instance, Harnix's own among them.
  */
-function Running({ app, view }: { app: App; view: View }) {
+function Agents({ app, view, scope }: { app: App; view: View; scope: Scope }) {
   const tr = useT();
   const listed = useTopic<{ instances: InstanceRow[] }>(view, "harnix.instances");
   const s = useShell(app);
-  const picked = useSelection(view);
-  const turns = Object.keys(s.running);
-  const running = useBusy(view, listed?.instances ?? [], turns);
-  const leaving = useLeaving(running);
+  const turns = new Set(Object.keys(s.running));
+  const rows = useAgentRows(view, listed?.instances ?? []);
+  const [limit, setLimit] = useState(PAGE);
+  const chosen = scope === "active" ? rows.filter((row) => isActive(row, turns)) : rows;
+  const sorted = [...chosen].sort((a, b) => stateOf(a, turns).rank - stateOf(b, turns).rank || (b.last_active ?? "").localeCompare(a.last_active ?? ""));
+  const shown = scope === "all" ? sorted.slice(0, limit) : sorted;
+  const usage = useUsage(app, shown, scope === "active" ? 3000 : null);
   return (
-    <div className="tree2" data-testid="system-running">
-      {(listed?.instances ?? []).map((instance) => {
-        const mine = [...new Set([...running, ...leaving])].filter((key) => key.startsWith(`${instance.id}/`));
-        return (
-          <div key={instance.id} className="tgroup" data-instance={instance.id}>
-            <div
-              className={`tr inst${isSelected(picked, { kind: "instance", instance: instance.id }) ? " on" : ""}`}
-              data-state={instance.status.state}
-              onClick={() => view.select({ kind: "instance", instance: instance.id })}
-            >
-              <span className={`dot ${instance.status.state}`} />
-              <span className="nm">{instance.id}</span>
-              <span className="kd">{tr(`system.carrier.${instance.carrier}`)}</span>
-              <span className="kd">{instance.status.state}</span>
-              <span className="act">{running.filter((k) => k.startsWith(`${instance.id}/`)).length ? tr("system.runningIn", { count: running.filter((k) => k.startsWith(`${instance.id}/`)).length }) : tr("system.idle")}</span>
-            </div>
-            {mine.map((key) => (
-              <RunningSession key={key} app={app} view={view} instance={instance.id} sessionId={splitKey(key)[1]} done={!running.includes(key)} />
-            ))}
-          </div>
-        );
-      })}
-      <div className="note">{tr("system.runningNote")}</div>
+    <div className="tree2 agents" data-testid="system-agents" data-scope={scope}>
+      {shown.length ? (
+        shown.map((row) => <AgentItem key={row.key} app={app} view={view} row={row} usage={usage[row.key]} turns={turns} scope={scope} />)
+      ) : (
+        <div className="empty">{tr(scope === "active" ? "system.agents.noneActive" : "system.agents.none")}</div>
+      )}
+      {sorted.length > shown.length ? (
+        <button type="button" className="more" data-testid="system-agents-more" onClick={() => setLimit((n) => n + PAGE)}>
+          {tr("system.agents.more", { count: sorted.length - shown.length })}
+        </button>
+      ) : null}
+      <div className="note">{tr(scope === "active" ? "system.agents.activeNote" : "system.agents.allNote")}</div>
     </div>
   );
 }
 
-/** Keys that just stopped being in `live`, for as long as they take to fade. */
-function useLeaving(live: string[]): string[] {
-  const previous = useRef<string[]>(live);
-  const [leaving, setLeaving] = useState<string[]>([]);
-  const joined = [...live].sort().join(",");
-  useEffect(() => {
-    const gone = previous.current.filter((key) => !live.includes(key));
-    previous.current = live;
-    if (!gone.length) return;
-    setLeaving((now) => [...now, ...gone]);
-    const timer = setTimeout(() => setLeaving((now) => now.filter((key) => !gone.includes(key))), 1400);
-    return () => clearTimeout(timer);
-  }, [joined]);
-  return leaving;
+/** A sub-agent: its session, what it has used, and the task that runs it while the engine has one. */
+interface SubAgent {
+  id: string;
+  parent: string;
+  usage?: AgentUsage;
+  task?: Task;
 }
 
-function RunningSession({ app, view, instance, sessionId, done }: { app: App; view: View; instance: string; sessionId: string; done: boolean }) {
+/** The sub-agents under each parent: from the recording, which has every one this run, and from the
+ *  main Agent's tasks, which have the ones still known to the engine and how they stand. */
+function subAgentsOf(root: string, usage: AgentUsage[] | undefined, tasks: Task[]): Map<string, SubAgent[]> {
+  const all = new Map<string, SubAgent>();
+  for (const u of usage ?? []) if (u.session_id !== root) all.set(u.session_id, { id: u.session_id, parent: u.parent_session_id ?? root, usage: u });
+  for (const task of tasks) {
+    const id = task.kind === "agent" ? (task.detail?.agent_session_id as string | undefined) : undefined;
+    if (!id) continue;
+    const known = all.get(id);
+    if (known) known.task = task;
+    else all.set(id, { id, parent: root, task });
+  }
+  const under = new Map<string, SubAgent[]>();
+  for (const sub of all.values()) under.set(sub.parent, [...(under.get(sub.parent) ?? []), sub]);
+  return under;
+}
+
+function totalTokens(u: AgentUsage): number {
+  return u.input_tokens + u.cache_read_tokens + u.cache_write_tokens + u.output_tokens;
+}
+
+function tokenTip(u: AgentUsage[]): string {
+  const sum = (k: keyof AgentUsage) => u.reduce((n, a) => n + Number(a[k] ?? 0), 0);
+  return t("system.tokenTip", { input: sum("input_tokens"), read: sum("cache_read_tokens"), write: sum("cache_write_tokens"), output: sum("output_tokens") });
+}
+
+function ms(n: number): string {
+  if (n < 1000) return `${n}ms`;
+  const secs = n / 1000;
+  return secs < 60 ? `${secs.toFixed(1)}s` : `${Math.floor(secs / 60)}m${String(Math.round(secs % 60)).padStart(2, "0")}s`;
+}
+
+function AgentItem({ app, view, row, usage, turns, scope }: { app: App; view: View; row: AgentRow; usage?: AgentUsage[]; turns: Set<string>; scope: Scope }) {
   const tr = useT();
   const picked = useSelection(view);
-  const params = useMemo(() => ({ instance }), [instance]);
-  const sessions = useTopic<{ sessions: SessionRowView[] }>(view, "harnix.instances.sessions", params);
-  const taskParams = useMemo(() => ({ instance, session_id: sessionId }), [instance, sessionId]);
-  const listed = useTopic<{ tasks: Task[] }>(view, "harnix.sessions.tasks", taskParams);
-  const row = sessions?.sessions?.find((r) => r.session_id === sessionId);
-  const live = (listed?.tasks ?? []).filter((task) => LIVE.has(task.status)).map((task) => task.task_id);
-  const leaving = useLeaving(live);
-  const tasks = (listed?.tasks ?? []).filter((task) => live.includes(task.task_id) || leaving.includes(task.task_id));
-  const select = (kind: "session" | "task", taskId?: string) =>
-    view.select(kind === "task" ? { kind, instance, sessionId, taskId: taskId! } : { kind, instance, sessionId });
+  const state = stateOf(row, turns);
+  const [open, setOpen] = useState<boolean | null>(null);
+  const live = row.tasks ?? 0;
+  const expanded = open ?? (scope === "active" && live > 0);
+  const taskParams = useMemo(() => ({ instance: row.instance, session_id: row.session_id }), [row.instance, row.session_id]);
+  const listed = useTopicIf<{ tasks: Task[] }>(view, "harnix.sessions.tasks", taskParams, expanded || (scope === "active" && row.status === "active"));
+  const tasks = listed?.tasks ?? [];
+  const subs = subAgentsOf(row.session_id, usage, tasks);
+  const subCount = [...subs.values()].reduce((n, list) => n + list.length, 0);
+  const own = tasks.filter((task) => task.kind !== "agent");
+  const taskCount = listed ? tasks.length : live;
+  const tokens = (usage ?? []).reduce((n, u) => n + totalTokens(u), 0);
+  const time = (usage ?? []).reduce((n, u) => n + u.model_ms, 0);
+  const select = () => view.select({ kind: "session", instance: row.instance, sessionId: row.session_id });
+  return (
+    <div className={`tgroup${expanded ? " open" : ""}`} data-sid={row.session_id} data-instance={row.instance} data-state={state.dot}>
+      <div className={`tr agent${isSelected(picked, { kind: "session", instance: row.instance, sessionId: row.session_id }) ? " on" : ""}`} data-testid="system-agent" onClick={select}>
+        <button
+          type="button"
+          className="twist"
+          data-testid="system-agent-toggle"
+          aria-expanded={expanded}
+          aria-label={tr(expanded ? "system.collapse" : "system.expand")}
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen(!expanded);
+          }}
+        >
+          <Glyph className="ic" name={expanded ? "chevronDown" : "chevronRight"} />
+        </button>
+        <span className={`dot ${state.dot}`} title={state.label} />
+        <span className="nm">{row.name || tr("sidebar.untitled")}</span>
+        {row.started_by === "harnix" ? <span className="kd own" data-testid="system-agent-harnix" title={tr("system.agents.harnixTip")}>Harnix</span> : null}
+        <span className="kd">{row.space ?? "sessions"}</span>
+        {row.instance !== SYSTEM ? <span className="kd">{row.instance}</span> : null}
+        <span className="act">{state.label}</span>
+        <span className="stat" data-stat="subagents" title={tr("system.stat.subagents")}>
+          <Glyph className="ic" name="agent" /> {subCount}
+        </span>
+        <span className="stat" data-stat="tasks" title={tr("system.stat.tasks")}>
+          <Glyph className="ic" name="terminal" /> {taskCount}
+        </span>
+        <span className="stat" data-stat="tokens" title={usage ? tokenTip(usage) : tr("system.stat.noRecording")}>
+          {usage ? compact(tokens) : "—"}
+        </span>
+        <span className="stat" data-stat="time" title={tr("system.stat.time")}>
+          {usage ? ms(time) : "—"}
+        </span>
+        <span className="el" title={row.last_active ?? ""}>{row.last_active ? since(Date.parse(row.last_active)) : ""}</span>
+      </div>
+      {expanded ? (
+        <>
+          <SubAgentRows view={view} instance={row.instance} root={row.session_id} under={subs} parent={row.session_id} depth={1} />
+          {own.map((task) => (
+            <TaskRow key={task.task_id} view={view} instance={row.instance} sessionId={row.session_id} task={task} depth={1} />
+          ))}
+          {!subCount && !own.length ? <div className="tr none l1">{tr("system.agents.nothingUnder")}</div> : null}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function SubAgentRows({ view, instance, root, under, parent, depth }: { view: View; instance: string; root: string; under: Map<string, SubAgent[]>; parent: string; depth: number }) {
+  const tr = useT();
+  const picked = useSelection(view);
   return (
     <>
-      <div
-        className={`tr l1${done ? " done" : ""}${isSelected(picked, { kind: "session", instance, sessionId }) ? " on" : ""}`}
-        data-sid={sessionId}
-        onClick={() => select("session")}
-      >
-        <span className="dot running" />
-        <span className="nm">{row?.name || tr("sidebar.untitled")}</span>
-        <span className="kd">{tr("system.kind.session")}</span>
-        <span className="act">{row?.space ?? "sessions"}</span>
-      </div>
-      {tasks.map((task) => (
-        <div
-          key={task.task_id}
-          className={`tr l2${live.includes(task.task_id) ? "" : " done"}${isSelected(picked, { kind: "task", instance, sessionId, taskId: task.task_id }) ? " on" : ""}`}
-          data-task={task.task_id}
-          data-status={task.status}
-          onClick={() => select("task", task.task_id)}
-        >
-          <span className={`dot ${task.status}`} />
-          <span className="nm">{tr(`system.task.${task.kind}`)}</span>
-          <span className="act">{taskLabel(task)}</span>
-          <span className="el">{duration(task)}</span>
-        </div>
-      ))}
+      {(under.get(parent) ?? []).map((sub) => {
+        const status = sub.task?.status ?? "done";
+        const label = String(sub.task?.detail?.description ?? sub.task?.detail?.agent_type ?? sub.id);
+        const u = sub.usage;
+        return (
+          <Fragment key={sub.id}>
+            <div
+              className={`tr sub${isSelected(picked, { kind: "session", instance, sessionId: sub.id }) ? " on" : ""}`}
+              style={{ paddingLeft: 28 + depth * 20 }}
+              data-testid="system-subagent"
+              data-sub={sub.id}
+              data-status={status}
+              onClick={() => view.select({ kind: "session", instance, sessionId: sub.id })}
+            >
+              <span className={`dot ${status}`} />
+              <span className="nm">{tr("system.task.agent")}</span>
+              <span className="act">{clip(label, 120)}</span>
+              {u?.models[0] ? <span className="kd">{u.models[0]}</span> : null}
+              <span className="stat" title={u ? tokenTip([u]) : ""}>{u ? compact(totalTokens(u)) : "—"}</span>
+              <span className="stat">{u ? ms(u.model_ms) : sub.task ? duration(sub.task) : "—"}</span>
+            </div>
+            <SubAgentRows view={view} instance={instance} root={root} under={under} parent={sub.id} depth={depth + 1} />
+          </Fragment>
+        );
+      })}
     </>
+  );
+}
+
+function TaskRow({ view, instance, sessionId, task, depth }: { view: View; instance: string; sessionId: string; task: Task; depth: number }) {
+  const tr = useT();
+  const picked = useSelection(view);
+  return (
+    <div
+      className={`tr task${isSelected(picked, { kind: "task", instance, sessionId, taskId: task.task_id }) ? " on" : ""}`}
+      style={{ paddingLeft: 28 + depth * 20 }}
+      data-task={task.task_id}
+      data-status={task.status}
+      onClick={() => view.select({ kind: "task", instance, sessionId, taskId: task.task_id })}
+    >
+      <span className={`dot ${task.status}`} />
+      <span className="nm">{tr(`system.task.${task.kind}`)}</span>
+      <span className="act">{taskLabel(task)}</span>
+      <span className="el">{duration(task)}</span>
+    </div>
   );
 }
 

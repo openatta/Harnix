@@ -151,6 +151,14 @@ pub(crate) async fn route_event(inner: &Arc<Mutex<Inner>>, instance: &str, param
         }
         match kind {
             "prompt" => state.pending_prompts.push(event.clone()),
+            // Answered, or refused on its timeout: the tool went on either way.
+            "tool_result" => {
+                let id = event.get("id").and_then(Value::as_str);
+                state
+                    .pending_prompts
+                    .retain(|p| id.is_none() || p.get("tool_use_id").and_then(Value::as_str) != id);
+                state.answer.take_event(kind, &event);
+            }
             // Nothing is waiting on those answers any more.
             "turn_complete" => {
                 state.pending_prompts.clear();
@@ -313,8 +321,20 @@ impl Hub {
         Ok(json!({"detached": true}))
     }
 
+    /// A prompt was answered: it no longer waits, and the session's row says so.
+    pub(crate) async fn answered(self: &Arc<Self>, key: &SessionKey, which: impl Fn(&Value) -> bool) {
+        if let Some(state) = self.inner.lock().await.sessions.get_mut(key) {
+            state.pending_prompts.retain(|p| !which(p));
+        }
+        self.refresh("harnix.instances.sessions", json!({"instance": key.0}));
+    }
+
     /// Intercepted so the new session records (see `with_recording`).
-    pub(crate) async fn create(self: &std::sync::Arc<Self>, mut params: Value) -> Result<Value, RpcError> {
+    pub(crate) async fn create(
+        self: &std::sync::Arc<Self>,
+        subject: &harnix_contract::Subject,
+        mut params: Value,
+    ) -> Result<Value, RpcError> {
         let space = self.place(&mut params).await?;
         let instance = self.instance_of(&params)?;
         let named = params
@@ -342,7 +362,9 @@ impl Hub {
                 .insert((instance.clone(), sid.to_string()), name);
         }
         if let Some(sid) = created.get("session_id").and_then(Value::as_str) {
-            self.bind_space(&(instance.clone(), sid.to_string()), &space);
+            let key = (instance.clone(), sid.to_string());
+            self.bind_space(&key, &space);
+            self.note_starter(&key, subject);
         }
         if let Some(obj) = created.as_object_mut() {
             obj.insert("instance".into(), json!(instance));

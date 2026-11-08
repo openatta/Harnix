@@ -45,19 +45,14 @@
   grid-template-columns: var(--rail-width) minmax(0, 1fr) 0;
 }
 
+/* As the window narrows the right column gives way first, down to 320px, so the centre keeps 400px;
+ * then the sidebar goes to its rail. */
 #frame[data-details="open"] {
-  grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--details-width);
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr) clamp(320px, calc(100vw - var(--sidebar-width) - 400px), var(--details-width));
 }
 
 #frame[data-sidebar="collapsed"][data-details="open"] {
-  grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--details-width);
-}
-
-/* Details concedes first, then the sidebar goes to its rail. */
-@media (max-width: 1180px) {
-  #frame[data-details="open"] {
-    grid-template-columns: var(--sidebar-width) minmax(0, 1fr) 320px;
-  }
+  grid-template-columns: var(--rail-width) minmax(0, 1fr) clamp(320px, calc(100vw - var(--rail-width) - 400px), var(--details-width));
 }
 
 @media (max-width: 960px) {

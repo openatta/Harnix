@@ -23,6 +23,7 @@ pub mod search;
 pub mod settings;
 pub mod store;
 mod system;
+mod usage;
 pub mod workspaces;
 
 use std::collections::HashMap;
@@ -62,6 +63,8 @@ pub struct Builtin {
     /// built-in makes goes out as that module, so the audit names it and a
     /// grant (settings writing a provider) applies to it alone.
     contexts: RwLock<HashMap<&'static str, ModuleContext>>,
+    /// `harnix.system.usage`'s summaries, by recording, until the recording changes.
+    usage: std::sync::Mutex<usage::UsageCache>,
 }
 
 /// The built-in modules: id, methods (full names), grants, disclosure.
@@ -153,6 +156,7 @@ const SYSTEM: Part = Part {
         "harnix.system.trace",
         "harnix.system.trace.call",
         "harnix.system.turns",
+        "harnix.system.usage",
         "harnix.system.tasks.stop",
         "harnix.system.tasks.output",
         "harnix.system.messages.drop",
@@ -222,6 +226,7 @@ impl Builtin {
             max_upload_bytes: harnix_contract::MAX_UPLOAD_BYTES,
             on_packages_changed: Mutex::new(None),
             contexts: RwLock::new(HashMap::new()),
+            usage: std::sync::Mutex::new(HashMap::new()),
         }))
     }
 

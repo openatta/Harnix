@@ -9,6 +9,9 @@
 //! A space needs no declaration here: one with only an interface and an Agent takes the defaults
 //! (`system`, the instance's scene). A module declares one to give it a default instance or scene.
 //!
+//! The same ledger records which sessions Harnix itself started — a module's or the kernel's,
+//! rather than a person's at a device — so the system space can mark them.
+//!
 //! A call that claims a space (`params.space`) is checked against the record: a session of another
 //! space is refused with `SPACE_MISMATCH`, naming the space it does belong to. The system space is
 //! the one exception — it sees and acts on every space's sessions — and each time it reaches across
@@ -39,6 +42,9 @@ struct Ledger {
     /// space → the instance built from its template.
     #[serde(default)]
     instances: BTreeMap<String, String>,
+    /// `instance/session` of every session a module or the kernel started.
+    #[serde(default)]
+    harnix: BTreeSet<String>,
 }
 
 pub struct Spaces {
@@ -108,9 +114,21 @@ impl Spaces {
     }
 
     fn unbind(&mut self, key: &SessionKey) {
-        if self.ledger.bindings.remove(&slot(key)).is_some() {
+        let bound = self.ledger.bindings.remove(&slot(key)).is_some();
+        let started = self.ledger.harnix.remove(&slot(key));
+        if bound || started {
             self.save();
         }
+    }
+
+    fn mark_harnix(&mut self, key: &SessionKey) {
+        if self.ledger.harnix.insert(slot(key)) {
+            self.save();
+        }
+    }
+
+    pub(crate) fn started_by_harnix(&self, key: &SessionKey) -> bool {
+        self.ledger.harnix.contains(&slot(key))
     }
 
     /// Whether a call may claim this space. A space with no backend — only an interface and an
@@ -326,6 +344,22 @@ impl Hub {
     /// What the system space creates is its own (design §9.1).
     pub(crate) fn bind_space(&self, key: &SessionKey, space: &str) {
         self.spaces.lock().unwrap_or_else(|e| e.into_inner()).bind(key, space);
+    }
+
+    /// Who started a new session: a device is a person; a module or the kernel is Harnix itself.
+    pub(crate) fn note_starter(&self, key: &SessionKey, subject: &Subject) {
+        if !matches!(subject, Subject::Device { .. }) {
+            self.spaces.lock().unwrap_or_else(|e| e.into_inner()).mark_harnix(key);
+        }
+    }
+
+    /// `"harnix"` for a session a module or the kernel started, `"user"` otherwise.
+    pub(crate) fn starter_of(&self, key: &SessionKey) -> &'static str {
+        if self.spaces.lock().unwrap_or_else(|e| e.into_inner()).started_by_harnix(key) {
+            "harnix"
+        } else {
+            "user"
+        }
     }
 
     pub(crate) fn unbind_space(&self, key: &SessionKey) {

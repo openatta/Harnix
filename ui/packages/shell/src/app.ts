@@ -78,7 +78,7 @@ export interface Widths {
 export const WIDTHS: { side: [number, number, number]; details: [number, number, number]; secondary: [number, number, number] } = {
   // min, default, max
   side: [200, 260, 360],
-  details: [320, 360, 480],
+  details: [320, 360, 1600], // the right column's real widest is `detailsMax`
   secondary: [300, 440, 760],
 };
 
@@ -95,16 +95,24 @@ export function secondaryWidthOf(s: Pick<ShellState, "dragged">, asked: number |
   return Math.round(Math.min(max, Math.max(min, asked)));
 }
 
-/** The right column's widest, for a space that gave `detailsWidth` (480 for the others). */
-export const DETAILS_WIDE_MAX = 720;
+/** The centre's narrowest beside an open right column: the right column gives way first. */
+export const CENTRE_MIN = 400;
+
+/** The right column's widest: 70% of the window, and never so wide that the centre beside the left
+ *  column would go under `CENTRE_MIN`. The layout holds the same bound when the window shrinks. */
+export function detailsMax(side: number, viewport: number = typeof window === "undefined" ? 1600 : window.innerWidth): number {
+  return Math.max(WIDTHS.details[0], Math.min(Math.round(viewport * 0.7), viewport - side - CENTRE_MIN));
+}
 
 /** The right column's width: what the reader dragged, else what the front space asked for, else the default. */
 export function detailsWidthOf(s: Pick<ShellState, "widths" | "dragged">, space: { detailsWidth?: number } | undefined): number {
-  const [min, , max] = WIDTHS.details;
+  const min = WIDTHS.details[0];
+  const max = detailsMax(s.widths.side);
+  const within = (w: number) => Math.round(Math.min(max, Math.max(min, w)));
+  if (s.dragged.details !== undefined) return within(s.dragged.details);
   const asked = space?.detailsWidth;
-  if (s.dragged.details !== undefined) return Math.min(asked === undefined ? max : DETAILS_WIDE_MAX, s.dragged.details);
-  if (typeof asked !== "number" || !Number.isFinite(asked)) return s.widths.details;
-  return Math.round(Math.min(DETAILS_WIDE_MAX, Math.max(min, asked)));
+  if (typeof asked !== "number" || !Number.isFinite(asked)) return within(s.widths.details);
+  return within(asked);
 }
 
 export interface ShellState {
@@ -743,12 +751,11 @@ export class App {
     this.set({ project: id });
   }
 
-  /** A side column's width, kept within its bounds and remembered. The right column of a space that
-   *  gave `detailsWidth` may go out to `DETAILS_WIDE_MAX`. Null: back to the default. */
+  /** A side column's width, kept within its bounds and remembered; the right column's widest is
+   *  `detailsMax`. Null: back to the default. */
   setWidth(column: keyof Widths, width: number | null): void {
     const [min, , max] = WIDTHS[column];
-    const front = this.registry.at("space").find((c) => c.id === this.state.space);
-    const widest = column === "details" && front?.detailsWidth !== undefined ? DETAILS_WIDE_MAX : max;
+    const widest = column === "details" ? detailsMax(this.state.widths.side) : max;
     const dragged = { ...this.state.dragged };
     if (width === null) delete dragged[column];
     else dragged[column] = Math.round(Math.min(widest, Math.max(min, width)));

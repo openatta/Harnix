@@ -100,13 +100,22 @@ impl Hub {
                 let running = state.is_some_and(|s| s.running_turn.is_some());
                 let queued = state.map(|s| s.queue.len()).unwrap_or(0);
                 let tasks = state.map(|s| s.live_tasks.len()).unwrap_or(0);
-                let space = self.space_of(&(instance.to_string(), sid.clone()));
+                let waiting = state.and_then(|s| s.pending_prompts.first()).map(|p| {
+                    match p.get("prompt_type").and_then(Value::as_str) {
+                        Some("question") => "answer",
+                        _ => "approval",
+                    }
+                });
+                let key = (instance.to_string(), sid.clone());
+                let space = self.space_of(&key);
                 if let Some(obj) = row.as_object_mut() {
                     obj.insert("instance".into(), json!(instance));
                     obj.insert("space".into(), json!(space));
                     obj.insert("running".into(), json!(running));
                     obj.insert("queued".into(), json!(queued));
                     obj.insert("tasks".into(), json!(tasks));
+                    obj.insert("waiting".into(), json!(waiting));
+                    obj.insert("started_by".into(), json!(self.starter_of(&key)));
                     obj.insert(
                         "state".into(),
                         json!(match (running, queued) {
