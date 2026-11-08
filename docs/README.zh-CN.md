@@ -143,6 +143,7 @@ spaces = ["sessions", "projects"]   # 保留哪些自带的 space（不写就全
 |---|---|
 | [概念与架构](concept_and_architecture.md) | Harnix 是什么、由哪些部分组成、每条边界为什么在那儿 |
 | [二开指南](harnix-sdk.md) | 怎么在上面做应用 |
+| [应用开发](app-development.md) | 三种做法：Rust 产品、嵌入的运行期应用、独立进程的运行期应用（只有设计） |
 | [SDK 参考](harnix-sdk-reference.md) | 每个类型、方法、profile 键、开关、目录、主题 |
 | [贡献点](contribution_points.md) | 界面的贡献点，由代码生成 |
 | [测试](testing.md) | 测试分层、LIVE 测试、录像、覆盖表 |

@@ -156,6 +156,7 @@ it); the engine's in `~/.agix/`; projects in `~/Documents/`, with nothing hidden
 |---|---|
 | [docs/concept_and_architecture.md](docs/concept_and_architecture.md) | What Harnix is, its parts, and why each boundary is where it is |
 | [docs/harnix-sdk.md](docs/harnix-sdk.md) | Building an application: the guide |
+| [docs/app-development.md](docs/app-development.md) | The three ways: a Rust product, embedded runtime applications, a process per runtime application (designed only) |
 | [docs/harnix-sdk-reference.md](docs/harnix-sdk-reference.md) | Every type, method, profile key, flag, directory and topic |
 | [docs/contribution_points.md](docs/contribution_points.md) | The interface's contribution points, generated from the code |
 | [docs/testing.md](docs/testing.md) | The test layers, the LIVE suites, recordings, the coverage table |

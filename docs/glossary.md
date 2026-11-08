@@ -75,6 +75,9 @@
 | **插件** | plugin | **只**指 Agix 的包（QuickJS 脚本 / manifest）。Harnix 没有自己的插件体系 |
 | **运行期包** | package | 安装时进来的 Agix 插件包。可以带 Agent 段（引擎读）和 `[[ui]]` 段（Harnix 读） |
 | **界面模块** | `[[ui]]` | 运行期包里给浏览器加载的预编译 ES 模块（贡献点 API 2：从页面的 import map 拿 React）。页面级信任；`[ui] runtime_modules = false` 时一律不加载 |
+| **运行期应用** | `harnix.apps.*`、`app.<id>.*` | 装进应用里跑的应用：一个应用包，带 WASM 组件、运行期包与界面。跑法分模式 2（嵌入）与模式 3（独立进程），见 [应用开发](app-development.md)。不叫「插件」 |
+| **应用包** | `.hxapp`、`harnix-app.toml` | 运行期应用的分发单位：清单、预编译 `.cwasm`、`agent/`（一个运行期包）、`ui/`、`SIGNATURES` |
+| **模式 1 / 2 / 3** | — | 在 Harnix 上做应用的三种做法：1 用 Rust 做产品；2 运行期应用嵌在产品进程里；3 每个运行期应用一个进程（只有设计）。一个产品开 2 或 3，不同时开 |
 | **space** | `space` | 左栏（`sidebar()`）+ 中区（默认是对话，`center`）+ 右栏（`tabs`）合起来，原子注册。会话按 space 绑定 |
 | **部分** | — | 一个 space 的三个组成：**前端部分**（React）、**后端部分**（一个模块）、**Agent 部分**（原生 Rust 贡献或运行期包）。任意组合 |
 | **条目** | entry | space 左栏里用户新建的东西，例如项目 space 的项目（工作区）、Helm 的关注组。存在账本里 |
