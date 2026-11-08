@@ -615,7 +615,7 @@ function Mcp({ app }: { app: App }) {
 interface PluginList {
   available?: boolean;
   reason?: string;
-  plugins?: { name: string; version?: string; enabled?: boolean; description?: string; script_faults?: string[]; component_faults?: string[] }[];
+  plugins?: { name: string; version?: string; enabled?: boolean; description?: string; script_faults?: string[] }[];
   contributes?: { plugin: string; ui?: { point: string; module: string }[]; inert?: string[]; notes?: string[] }[];
 }
 
@@ -671,7 +671,7 @@ function Plugins({ app }: { app: App }) {
                   {(contributes?.notes ?? []).map((note) => (
                     <Row key={note} label={t("settings.pluginNote")} hint={note} />
                   ))}
-                  {[...(plugin.script_faults ?? []), ...(plugin.component_faults ?? [])].map((fault) => (
+                  {(plugin.script_faults ?? []).map((fault) => (
                     <Row key={fault} label={t("settings.pluginFault")} hint={fault} />
                   ))}
                 </div>

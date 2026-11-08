@@ -60,9 +60,9 @@ harnix-transport = { path = "crates/transport" }
 # change here. Only the entry crates Harnix's crates name directly are listed.
 #
 # `daemon` keeps its default features: the QuickJS script carrier (~1 MB) and
-# the package layer. The plugin carrier (wasmtime, ~20 MB) is deliberately not
-# built; Agix's own table already turns it off by default. Extension
-# execution is Agix's; Harnix links no interpreter of its own.
+# the package layer. Since Agix 0.3.9 that is the only carrier there is (the
+# WebAssembly one was removed). Extension execution is Agix's; Harnix links
+# no interpreter of its own.
 # ──────────────────────────────────────────────
 daemon    = { path = "agix/daemon" }
 base      = { path = "agix/crates/core" }

@@ -447,7 +447,7 @@ attach 的 daemon 握手时比对协议版本，不一致就 `down`，原因里�
 
 ### 6.3 运行期插件包
 
-Agent 侧的第三方扩展装到实例里（WASM / QuickJS），能力门控与披露都在引擎那边。Harnix 只读包里
+Agent 侧的第三方扩展装到实例里（QuickJS 脚本），能力与披露都在引擎那边。Harnix 只读包里
 的 `[[ui]]` 段：贡献点 API 2 的界面模块是预编译好的 ES 模块，从页面的 import map 拿 `react` 和
 `@harnix/react`（SDK 参考 §6.6，范例 `tests/fixtures/packages/demo-rows-v2/`）。0.4 里运行期包**不能**
 新增 space，也不能往别的 space 加页签；`[ui] runtime_modules = false` 一条都不加载。

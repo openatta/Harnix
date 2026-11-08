@@ -65,8 +65,8 @@ export interface Backend {
   log(): string;
   /**
    * End the process and remove everything it owned. Does not wait for the process to exit, so a
-   * backend still finishing (its modules' `stop`, the engine writing out) can race the removal;
-   * in a teardown use `dispose()`.
+   * backend still finishing (its modules' `stop`, the engine writing out) can race the removal and
+   * leave part of the directory behind; that is not an error here. In a teardown use `dispose()`.
    */
   stop(): void;
   /**
@@ -266,7 +266,14 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
       } catch {
         /* already gone */
       }
-      rmSync(scratch, { recursive: true, force: true });
+      // A file the exiting process writes while the tree is walked fails the last `rmdir` with
+      // ENOTEMPTY — on a loaded machine often enough to matter. Not waiting is the point of
+      // `stop()`, so what it leaves behind stays in the temp directory.
+      try {
+        rmSync(scratch, { recursive: true, force: true });
+      } catch (e: any) {
+        if (!["ENOTEMPTY", "EBUSY", "EPERM"].includes(e?.code)) throw e;
+      }
     },
     async dispose() {
       if (exited === null) {

@@ -514,7 +514,7 @@ api_version = 2
 | 导出 | 说明 |
 |---|---|
 | `startHarnix(opts) → Backend` | 起一个进程，自己的 HOME、数据根、端口。`opts.bin` 写应用二进制的绝对路径；`profile`（追加的 TOML）、`env`、`args`、`replay`、`seed`、`uiDir`、`scratch` |
-| `Backend` | `url`、`port`、`token`、`scratch`、`state`（`$HOME/.<product_id>`）、`project`、`pid`、`log()`、`stop()`（发 SIGTERM、立刻删目录，不等退出）、`dispose()`（等进程退出——15 s 后 SIGKILL——再删目录；收尾用它，夹具与 `defineSuite` 已用它）、`halt(signal?)`、`restart()` |
+| `Backend` | `url`、`port`、`token`、`scratch`、`state`（`$HOME/.<product_id>`）、`project`、`pid`、`log()`、`stop()`（发 SIGTERM、立刻删目录，不等退出；还在退出的进程写进去的文件可能留下，不报错）、`dispose()`（等进程退出——15 s 后 SIGKILL——再删目录；收尾用它，夹具与 `defineSuite` 已用它）、`halt(signal?)`、`restart()` |
 | `connect(backend) → TestClient` | `call`、`refused`（期望被拒，返回错误）、`waitFor(pred, { timeout, describe })`、`events`、`eventsOfKind`、`text`、`close` |
 | `test`、`expect` | Playwright Test，带 `api` 夹具 |
 | `inconclusive(reason)` | 环境不满足时标成「没结论」而不是通过 |
