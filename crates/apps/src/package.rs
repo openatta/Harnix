@@ -196,6 +196,64 @@ pub fn inspect(path: &Path, fingerprint: &str) -> Result<Inspected, String> {
     })
 }
 
+/// Only the manifest of the package at `path`: for a tool that looks at a package compiled for
+/// another engine, which [`inspect`] would refuse.
+pub fn manifest_of(path: &Path) -> Result<Manifest, String> {
+    let file = File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|e| format!("{} is not a package (a zip): {e}", path.display()))?;
+    let mut entry = archive
+        .by_name(MANIFEST)
+        .map_err(|_| format!("the package has no `{MANIFEST}`"))?;
+    let mut text = String::new();
+    entry
+        .read_to_string(&mut text)
+        .map_err(|e| format!("`{MANIFEST}`: {e}"))?;
+    Manifest::parse(&text)
+}
+
+/// What [`inspect`] says of a package already unpacked at `root`: the manifest, the agent
+/// package, the skills — to put an installed version back in place (an update that failed).
+pub fn inspect_dir(root: &Path) -> Result<Inspected, String> {
+    let read = |name: &str| {
+        std::fs::read_to_string(root.join(name))
+            .map_err(|e| format!("{}: {e}", root.join(name).display()))
+    };
+    let manifest = Manifest::parse(&read(MANIFEST)?)?;
+    let agent = if root.join("agent").is_dir() {
+        Some(agent_package(&read("agent/plugin.toml")?)?)
+    } else {
+        None
+    };
+    let mut skills: Vec<String> = std::fs::read_dir(root.join("agent").join("skills"))
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter(|e| e.path().join("SKILL.md").is_file())
+                .filter_map(|e| e.file_name().into_string().ok())
+                .collect()
+        })
+        .unwrap_or_default();
+    skills.sort();
+    let artifact = manifest.component.as_ref().and_then(|c| {
+        let prefix = format!("{}.", c.name);
+        std::fs::read_dir(root.join("wasm"))
+            .ok()?
+            .flatten()
+            .find_map(|e| {
+                let name = e.file_name().into_string().ok()?;
+                (name.starts_with(&prefix) && name.ends_with(".cwasm"))
+                    .then(|| format!("wasm/{name}"))
+            })
+    });
+    Ok(Inspected {
+        manifest,
+        artifact,
+        agent,
+        skills,
+    })
+}
+
 /// `[plugin] name` and `version` of an Agix manifest: what `plugin.install` is asked to install
 /// under. Nothing else of it is read here; the rest is the engine's.
 fn agent_package(text: &str) -> Result<AgentPackage, String> {

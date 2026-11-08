@@ -37,6 +37,7 @@ export const FEATURES = [
   { id: "brand", name: "品牌与主题" },
   { id: "flow", name: "流程（harnix-flow，xops-01、xops-02）" },
   { id: "apps", name: "运行期应用（登记与撤下、安装与卸载、启停、工具、agent 包、界面模块、MCP 端点、WASM 后端、系统 space 应用页签）" },
+  { id: "apps-store", name: "应用商店（签名与副署、目录、按名字安装与升级、披露与同意、设置 · 应用）" },
   {
     id: "build",
     name: "应用构建",

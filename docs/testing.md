@@ -38,12 +38,20 @@ scripts/prune.sh                       # 清构建缓存：增量缓存全删，
 `target/tmp/` 下。第一次之前要 `rustup target add wasm32-wasip2`。它跑两遍：`cargo test -p harnix-wasm` 是产品的构建
 （不带编译器，那里的测试加载商店编译工具编出的产物），`cargo test -p harnix-wasm --features compile` 跑组件测试。
 
-运行期应用的套件（`api/apps-runtime.spec.ts`、`ui/apps.spec.ts`）要带 `apps` feature 的 `harnix`：它连着应用运行时和
+运行期应用的套件（`api/apps-runtime.spec.ts`、`ui/apps.spec.ts`，和下面商店的）要带 `apps` feature 的 `harnix`：它连着应用运行时和
 它的 WebAssembly 引擎，缺省的构建里没有。它编在自己的目标目录里（`cargo build --release -p harnix-cli --features apps
 --target-dir target/apps`），旁边是作者的打包工具 `harnix-app`（`-p harnix-apps --features compile`）；`scripts/check.sh`
 两个都编，经 `HARNIX_APPS_BIN` 告诉套件在哪，单跑时套件自己编（`tests/live/api/apps-host.ts`）。示例应用
 （`examples/apps/showcase`）在测试开始时编组件、为这个引擎编译、打成 `.hxapp`，按源码哈希缓存在 `target/apps/showcase/`。
 `cargo test -p harnix-apps --features compile` 也拿它跑（装、用、停、卸，和装到一半失败的回滚）。
+
+商店的套件（`api/apps-store.spec.ts`、`ui/apps-store.spec.ts`）对着一个 mock 商店：`tests/live/api/apps-store.ts`
+在临时目录里用 `harnix-app sign` / `countersign` / `index` 把 showcase 做成两个版本（0.2.0 多要几项能力）、写出
+`index.json`，经 `[apps] store = "file://…"` 给后端。mock 的发布者与商店密钥在 `tests/live/fixtures/store/`，只是测试钥。
+`harnix` 内置的是商店自己的公钥、profile 改不了，所以 mock 商店在它那里什么也装不上（套件也测这一条）；信 mock 商店的只有
+带 `apps` 编的 `harnix-testapp`（装配时经隐藏的 `AppBuilder::store_keys` 换成 mock 的钥），同样编在 `target/apps` 里。
+签名、目录、披露的逻辑另有 Rust 单测（`crates/apps/src/{signature,store,disclosure,publish}.rs`），装签名包、篡改、
+升级与升级失败的回滚在 `crates/apps/tests/signed.rs`。
 
 `ui` project 从磁盘读构建好的界面（`--ui-dir ui/dist`），所以改了前端只要
 `pnpm --filter @harnix/shell build`，不用重编后端。

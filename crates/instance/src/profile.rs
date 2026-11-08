@@ -52,9 +52,16 @@ pub struct AppsProfile {
     /// register through, no `harnix.spaces` topic — the authorization table is what assembly made
     /// it and nothing else, for the life of the process.
     pub enabled: bool,
-    /// `harnix.apps.installFile` installs an unsigned package from a file. For developing an
-    /// application: nothing verifies such a package (signatures arrive with the store).
+    /// `harnix.apps.installFile` installs an unsigned package from a file, and an unsigned
+    /// application starts. For developing an application: nothing vouches for such a package.
     pub dev: bool,
+    /// The store's catalog (`https://…/index.json`, or `file://` on this machine). Unset, the one
+    /// built in. Whatever it lists, a package installs only with a valid signature.
+    pub store: Option<String>,
+    /// `[apps.trusted_publishers]`: a publisher's id (the first segment of its applications' ids)
+    /// and the ed25519 public keys (hex) that sign as it. A package such a key signed in full is
+    /// installed and run without the store's countersignature, as `trusted`.
+    pub trusted_publishers: BTreeMap<String, Vec<String>>,
     /// `[apps.config."<id>"]`: set over an application's own `[config]` defaults, key by key —
     /// what `host.config()` and its backend's `init` are handed.
     pub config: BTreeMap<String, toml::Value>,

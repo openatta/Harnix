@@ -1437,6 +1437,7 @@ dependencies = [
  "hex",
  "jsonschema",
  "reqwest 0.12.28",
+ "ring",
  "runtime",
  "serde",
  "serde_json",

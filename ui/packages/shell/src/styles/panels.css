@@ -1140,3 +1140,45 @@
 .teams .dot.failed {
   background: var(--state-error);
 }
+
+/* Settings → Applications: what each application asks for, and the disclosure an install or an
+   update waits on. */
+.apps-lines {
+  margin: 0 0 8px;
+  padding: 0 0 0 16px;
+  color: var(--label-secondary);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.apps-lines code {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--code-inline);
+  font-family: var(--font-code);
+  font-size: 11px;
+}
+
+.apps-cap {
+  color: var(--label-tertiary);
+}
+
+.apps-disclosure {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-card);
+  background: var(--accent-soft);
+}
+
+.apps-disclosure > .hint {
+  margin: 8px 0 4px;
+  color: var(--label-secondary);
+  font-size: 12px;
+}
+
+.apps-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

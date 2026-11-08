@@ -19,3 +19,9 @@ serde       = { workspace = true }
 serde_json  = { workspace = true }
 tokio       = { workspace = true }
 futures     = { workspace = true }
+
+[features]
+default = []
+# `cargo build -p harnix-testapp --features apps`: this application hosting runtime applications,
+# verified against the mock store's key (tests/live/fixtures/store) instead of the store's own.
+apps = ["harnix/apps"]

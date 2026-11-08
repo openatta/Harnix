@@ -254,6 +254,7 @@ impl Rig {
                 toml::Value::Table(toml::toml! { greeting = "set by the profile" }),
             )]
             .into(),
+            ..Options::default()
         })
         .unwrap();
         Rig {
@@ -665,7 +666,7 @@ async fn a_failed_install_is_undone_and_leaves_nothing_behind() {
         "the agent package stayed"
     );
 
-    // Not trusted to run unsigned code: the component is not loaded, and the install is undone.
+    // Not trusted to run unsigned code: refused before anything of it is written.
     let rig = Rig::new(false);
     let err = rig
         .install(&rig.package("unsigned", |m| m))
@@ -673,7 +674,7 @@ async fn a_failed_install_is_undone_and_leaves_nothing_behind() {
         .unwrap_err();
     assert!(err.message.contains("[apps] dev = true"), "{}", err.message);
     assert!(!rig.apps().join(ID).exists());
-    assert_eq!(rig.kernel.called("plugin.uninstall").len(), 1);
+    assert!(rig.kernel.called("plugin.install").is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]

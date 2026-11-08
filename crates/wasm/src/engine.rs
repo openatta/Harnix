@@ -17,6 +17,18 @@
 //! triple, and the engine configuration minus the compiler's own settings —
 //! and never from wasmtime's compatibility hash, which hashes the compiler
 //! too and so differs between the two builds by construction.
+//!
+//! # A baseline CPU
+//!
+//! Left to itself, Cranelift compiles for the CPU it runs on: every feature
+//! the compiling machine has (AVX2, LSE, …) is assumed, and the artifact
+//! refuses to load on a machine of the same target that lacks one. A store
+//! compiles once per fingerprint for every machine that reports it, so the
+//! configuration names the target explicitly, which turns that inference
+//! off: an artifact assumes only the target triple's baseline ([`CPU`]), and
+//! loads on any machine of that triple. The same configuration is used for a
+//! developer's local compile, so there is one kind of artifact, and the
+//! fingerprint says which.
 
 use anyhow::{anyhow, bail, Context, Result};
 use sha2::{Digest, Sha256};
@@ -31,6 +43,12 @@ use wasmtime::{Config, Engine, Precompiled};
 /// compiled it, and a patch release that fixes the compiler should not keep
 /// running code the broken one produced.
 pub const WASMTIME_VERSION: &str = "47.0.3";
+
+/// The CPU an artifact is compiled for: the target triple's baseline, with no
+/// feature of the compiling machine assumed (see the module's docs). Part of
+/// the fingerprint, so that an artifact compiled any other way is never
+/// mistaken for one that loads everywhere.
+pub const CPU: &str = "baseline";
 
 /// How often the engine's epoch advances. A running guest yields at every
 /// tick, so this bounds how late a deadline or a cancellation can be noticed.
@@ -64,6 +82,12 @@ impl WasmEngine {
         // budget"), so interruption is by epoch, not by fuel: fuel counts
         // instructions, which answers a different question.
         config.epoch_interruption(true);
+        // An explicit target, even this build's own, is what stops Cranelift
+        // from inferring the compiling machine's CPU features: the artifact
+        // assumes the triple's baseline and nothing else (`CPU`).
+        config
+            .target(env!("HARNIX_WASM_TARGET"))
+            .expect("the target this crate is built for is one wasmtime knows");
         config
     }
 
@@ -82,7 +106,8 @@ impl WasmEngine {
     }
 
     /// What an artifact must have been compiled for to load here:
-    /// `wasmtime-<version>+<target triple>+<configuration digest>`. Stable
+    /// `wasmtime-<version>+<target triple>+<configuration digest>`, the digest
+    /// covering the configuration and the [`CPU`] it compiles for. Stable
     /// for a given build; reported in `harnix.hello` so the store can serve
     /// the matching artifact.
     pub fn fingerprint(&self) -> &str {
@@ -210,7 +235,12 @@ fn world_of(engine: &Engine, component: &Component) -> Result<crate::World> {
 
 /// The fingerprint of an engine built from `config`.
 fn fingerprint_of(config: &Config) -> String {
-    let described = without_field(&format!("{config:?}"), "compiler_config");
+    // `Config`'s `Debug` does not show the target, so the CPU an artifact
+    // assumes is stated beside it.
+    let described = format!(
+        "{} cpu={CPU}",
+        without_field(&format!("{config:?}"), "compiler_config")
+    );
     let digest = hex::encode(Sha256::digest(described.as_bytes()));
     format!(
         "wasmtime-{WASMTIME_VERSION}+{}+{}",
@@ -332,6 +362,22 @@ mod tests {
         let described = without_field(&format!("{:?}", WasmEngine::config()), "compiler_config");
         assert!(!described.contains("compiler_config"), "{described}");
         assert!(described.contains("epoch_interruption"), "{described}");
+    }
+
+    /// The CPU an artifact assumes is part of what the fingerprint covers:
+    /// the same configuration compiled for the machine it runs on would be
+    /// another fingerprint.
+    #[test]
+    fn the_fingerprint_covers_the_baseline_cpu() {
+        let config = WasmEngine::config();
+        let described = without_field(&format!("{config:?}"), "compiler_config");
+        let digest = |text: &str| hex::encode(Sha256::digest(text.as_bytes()))[..12].to_string();
+        let fp = fingerprint_of(&config);
+        assert!(
+            fp.ends_with(&digest(&format!("{described} cpu={CPU}"))),
+            "{fp}"
+        );
+        assert!(!fp.ends_with(&digest(&described)), "{fp}");
     }
 
     #[test]

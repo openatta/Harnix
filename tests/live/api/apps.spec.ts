@@ -48,7 +48,8 @@ test.describe("with [apps] enabled", () => {
   test("the install records are listed and switched on and off", TAGS, async () => {
     const listed = await api.call("harnix.apps.list");
     expect(listed.apps).toEqual([
-      { id: "acme.notes", version: "1.2.0", title: "Notes", enabled: false, registered: false },
+      // A record written before signatures says nothing of them: unsigned, from a file.
+      { id: "acme.notes", version: "1.2.0", title: "Notes", enabled: false, registered: false, trust: "unsigned", source: "file", data_bytes: 0 },
     ]);
     expect(listed.unreadable.map((u: any) => u.dir)).toEqual(["broken"]);
     expect(listed.registered).toEqual([]);
