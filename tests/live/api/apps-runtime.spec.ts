@@ -22,7 +22,7 @@ import { SHOWCASE_ID, showcasePackage, startApps, variant } from "./apps-host";
 const TAGS = { tag: ["@feature:apps", "@layer:api"] };
 
 const TOOL = (name: string) => `app__example_showcase__${name}`;
-const TOOLS = ["echo", "count", "config", "read_project", "slow", "vetoed"].map(TOOL);
+const TOOLS = ["echo", "count", "config", "read_project", "slow", "vetoed", "board"].map(TOOL);
 const MCP_SERVER = "app-example_showcase";
 const BLOCK_MARKER = "showcase-block-7d21";
 
@@ -126,8 +126,8 @@ carrier = "spawn"
       ["unknown-section", "unknown section `daemon`", (e) => {
         e.set("harnix-app.toml", Buffer.from(`${e.get("harnix-app.toml")!.toString()}\n[daemon]\nrun = "x"\n`));
       }],
-      ["a-backend", "`[[method]]` is not supported", (e) => {
-        e.set("harnix-app.toml", Buffer.from(`${e.get("harnix-app.toml")!.toString()}\n[[method]]\nname = "m"\n`));
+      ["methods-without-a-backend", "are a backend's", (e) => {
+        e.set("harnix-app.toml", Buffer.from(e.get("harnix-app.toml")!.toString().replace("backend-app@0.1.0", "tools-app@0.1.0")));
       }],
       ["other-engine", "engine-0.0.0+elsewhere+000000000000", (e) => {
         const cwasm = `wasm/tools.${fingerprint}.cwasm`;
@@ -169,7 +169,7 @@ carrier = "spawn"
     expect(listed).toHaveLength(1);
     expect(listed[0]).toMatchObject({ id: SHOWCASE_ID, enabled: true, runtime: { state: "running" } });
     expect(listed[0].runtime.tools.map((t: any) => t.name).sort()).toEqual([...TOOLS].sort());
-    expect(listed[0].runtime.health).toMatchObject({ world: "tools", state: "running" });
+    expect(listed[0].runtime.health).toMatchObject({ world: "backend", state: "running" });
 
     // What the engine says the agent package puts in front of the model, as the installer shows it.
     const disclosure = JSON.stringify(installed.installed.agent.disclosure);
@@ -305,7 +305,7 @@ carrier = "spawn"
     // The daemon is told of the endpoint once this process listens; it connects in the background.
     await expect
       .poll(async () => JSON.stringify(await api.call("mcp.status", { instance: "far" }).catch((e) => e)), { timeout: 60_000, intervals: [500] })
-      .toContain(`"name":"${MCP_SERVER}","tool_count":6`);
+      .toContain(`"name":"${MCP_SERVER}","tool_count":7`);
     const s = await session(api, "app-mcp-echo", "far");
     const { settled, asks } = await turn(api, s, "Use the showcase's echo tool over MCP");
     expect(settled.params.error, JSON.stringify(settled.params.error)).toBeUndefined();

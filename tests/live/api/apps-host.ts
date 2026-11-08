@@ -87,13 +87,14 @@ export function showcasePackage(): { path: string; fingerprint: string } {
 /** A backend of the apps binary with `[apps] enabled`, `dev` unless said otherwise; replaying
  *  unless given another mode. */
 export function startApps(
-  options: { dev?: boolean; profile?: string; seed?: LaunchOptions["seed"]; mode?: ModelMode } = {},
+  options: { dev?: boolean; profile?: string; seed?: LaunchOptions["seed"]; mode?: ModelMode; env?: Record<string, string> } = {},
 ): Promise<Backend> {
   const { bin } = appsTools();
   return startHarnix(
     launchFor(options.mode ?? "replay", {
       bin,
       seed: options.seed,
+      env: options.env,
       profile: `
 [apps]
 enabled = true
