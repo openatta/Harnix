@@ -36,6 +36,16 @@ const BUDGET = [
     measure: () => statSync(join(root, "target", "release", "harnix")).size,
   },
   {
+    name: "backend binary (apps build)",
+    limit: 52 * MB,
+    unit: (n) => `${(n / MB).toFixed(1)} MB`,
+    // `--features apps`, built into target/apps by scripts/check.sh: the application runtime and
+    // its WebAssembly engine, runtime only — no compiler, which is what keeps it small (it
+    // measured 41.0 MB against the default build's 37.3 MB, 2026-11-08). The default build's
+    // limit plus four megabytes: room for the runtime, and none for a compiler creeping in.
+    measure: () => statSync(join(root, "target", "apps", "release", "harnix")).size,
+  },
+  {
     name: "interface (gzipped, as embedded)",
     limit: 300 * KB,
     unit: (n) => `${(n / KB).toFixed(0)} KB`,

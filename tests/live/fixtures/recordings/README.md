@@ -32,6 +32,10 @@ cannot ask for replay, and outside replay the fixture name means nothing.
 | `runs-a-while` | A `Bash` call that waits four seconds (in `perl`: the engine refuses a `sleep` of 2 s or more): a turn that is still running when something is steered into it (ipdrun-13). Made the same way |
 | `many-turns` | `says-ready`'s one call sixty times over: a session long enough to compact (eight turns), whichever call comes next — a turn, a memory extraction, a compaction's summary — answered the same. Made by `python3` from `says-ready`, sequence numbers renumbered |
 | `streams-output` | A `Monitor` call (a `code`-scene tool) whose command prints a line every quarter second for ten seconds: a running task whose output grows. Made from `leaves-a-process` by hand: the tool's name and input differ |
+| `app-echo`, `app-count`, `app-config`, `app-read-project`, `app-vetoed` | The showcase application (`examples/apps/showcase`): one call to its tool `app__example_showcase__<tool>` — `echo {text: showcase-echo-42}`, `count {key: visits}`, `config {}`, `read_project {path: README.md}`, `vetoed {}` — then a line of text. Made by a script from `calls-a-native-tool`'s request blobs: only the tool, its input and the text are its own |
+| `app-slow`, `app-slow-long` | The same for `slow {steps: 3, ms: 300}` and `slow {steps: 100, ms: 300}`: a tool that reports progress, and one still working when its turn is cancelled |
+| `app-subagent` | Two sessions: the parent calls `Agent` with the showcase's own agent type (`showcase-guide`), the sub-agent calls `app__example_showcase__echo {text: showcase-sub-7}` and says a line, the parent says "The sub-agent used the showcase's tool.". Made the same way |
+| `app-mcp-echo` | A spawned daemon's session calls `mcp__app-example_showcase__echo {text: showcase-over-mcp}` — the showcase's tool over its MCP endpoint — then a line of text. Made the same way |
 | `says-markdown` | `says-ready` with its reply's text replaced by markdown: a `sh` code block, a table and a link — what the conversation draws of a reply. Made from `says-ready` by hand: only the text differs |
 
 ## Re-recording one

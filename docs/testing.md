@@ -38,6 +38,13 @@ scripts/prune.sh                       # 清构建缓存：增量缓存全删，
 `target/tmp/` 下。第一次之前要 `rustup target add wasm32-wasip2`。它跑两遍：`cargo test -p harnix-wasm` 是产品的构建
 （不带编译器，那里的测试加载商店编译工具编出的产物），`cargo test -p harnix-wasm --features compile` 跑组件测试。
 
+运行期应用的套件（`api/apps-runtime.spec.ts`、`ui/apps.spec.ts`）要带 `apps` feature 的 `harnix`：它连着应用运行时和
+它的 WebAssembly 引擎，缺省的构建里没有。它编在自己的目标目录里（`cargo build --release -p harnix-cli --features apps
+--target-dir target/apps`），旁边是作者的打包工具 `harnix-app`（`-p harnix-apps --features compile`）；`scripts/check.sh`
+两个都编，经 `HARNIX_APPS_BIN` 告诉套件在哪，单跑时套件自己编（`tests/live/api/apps-host.ts`）。示例应用
+（`examples/apps/showcase`）在测试开始时编组件、为这个引擎编译、打成 `.hxapp`，按源码哈希缓存在 `target/apps/showcase/`。
+`cargo test -p harnix-apps --features compile` 也拿它跑（装、用、停、卸，和装到一半失败的回滚）。
+
 `ui` project 从磁盘读构建好的界面（`--ui-dir ui/dist`），所以改了前端只要
 `pnpm --filter @harnix/shell build`，不用重编后端。
 

@@ -65,6 +65,20 @@ test.describe("with [apps] enabled", () => {
     expect(switched.length).toBeGreaterThan(0);
   });
 
+  test("a build without the application runtime keeps the records and installs nothing", TAGS, async () => {
+    // `harnix-testapp` is built without the `apps` feature.
+    const error = await api.refused("harnix.apps.installFile", { path: "/nowhere/app.hxapp" });
+    expect(error?.code).toBe(REFUSED);
+    expect(error?.message).toContain("`apps` feature");
+    expect((await api.call("harnix.apps.list")).runtime).toBeNull();
+  });
+
+  test("the host is handed to the apps built-in alone: another compiled-in module gets none", TAGS, async () => {
+    // `probe` is an ordinary module of the test application; `fakehost` is let in by name
+    // (`AppBuilder::app_host`), the way only a test application would.
+    expect(await api.call("app.probe.has_app_host")).toEqual({ has: false });
+  });
+
   test("a registered application's method answers a device, through the same door, on the record", TAGS, async () => {
     const spaces = await api.call("harnix.subscribe", { topic: "harnix.spaces" });
     expect(spaces.value.spaces.map((s: any) => s.id)).not.toContain("fake");
@@ -196,7 +210,7 @@ test.describe("with [apps] off", () => {
   test.afterEach(() => api?.close());
 
   test("nothing of it exists: no harnix.apps.*, no host, no spaces topic", TAGS, async () => {
-    for (const method of ["harnix.apps.list", "harnix.apps.enable", "harnix.apps.disable"]) {
+    for (const method of ["harnix.apps.list", "harnix.apps.enable", "harnix.apps.disable", "harnix.apps.installFile", "harnix.apps.uninstall"]) {
       expect((await api.refused(method, { id: "acme.notes" }))?.code, method).toBe(METHOD_NOT_FOUND);
     }
     const { methods, topics } = await api.call("harnix.reachable");

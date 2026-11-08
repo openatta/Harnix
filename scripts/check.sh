@@ -61,7 +61,14 @@ PORT_TLS=4361
 
 CRATES=(-p harnix -p harnix-cli -p harnix-app -p harnix-instance -p harnix-authz -p harnix-builtin
         -p harnix-client -p harnix-contract -p harnix-flow -p harnix-module -p harnix-hub -p harnix-transport
-        -p harnix-testapp -p harnix-wasm)
+        -p harnix-testapp -p harnix-wasm -p harnix-apps)
+
+# The build that hosts runtime applications: `harnix` with the `apps` feature, which links the
+# application runtime and its WebAssembly engine, and the author's packing tool. A target directory
+# of its own, so the default build above is exactly what it was; the LIVE suites that need it are
+# told where it is (`HARNIX_APPS_BIN`), and `budget` measures it against a limit of its own.
+APPS_TARGET="$root/target/apps"
+export HARNIX_APPS_BIN="$APPS_TARGET/release/harnix"
 
 scratch="$(mktemp -d)"
 backend_pid=""
@@ -113,6 +120,8 @@ run_build() {
   pnpm install --frozen-lockfile || return 1
   pnpm --filter @harnix/shell build || return 1
   cargo build --release -p harnix-cli -p harnix-testapp || return 1
+  cargo build --release -p harnix-cli --features apps --target-dir "$APPS_TARGET" || return 1
+  cargo build --release -p harnix-apps --features compile --bin harnix-app --target-dir "$APPS_TARGET" || return 1
   # The example application, built as an application is — its own workspace,
   # its spaces' interface compiled in. The spaces suites run it.
   examples/hello-app/scripts/build.sh --offline
@@ -120,16 +129,21 @@ run_build() {
 # `harnix-wasm` runs twice: as the product builds it (no compiler; its test there loads what
 # the store's compiler produced) and with `compile`, which its component tests need. Nothing
 # else enables that feature, so neither run changes what the other crates are built with.
+# The same for `harnix-apps`, whose runtime tests compile the showcase's component; and the
+# application layer once more with `apps`, which is the only build its wiring of them is in.
 run_rust()    {
   cargo test "${CRATES[@]}" || return 1
-  cargo test -p harnix-wasm --features compile
+  cargo test -p harnix-wasm --features compile || return 1
+  cargo test -p harnix-apps --features compile || return 1
+  cargo test -p harnix-app --features apps
 }
 # `--no-deps` matters: without it `-D warnings` is applied to the Agix
 # submodule too, and this script goes red for lints in code this repository
 # does not own. Harnix's own crates are held to zero warnings.
 run_clippy()  {
   cargo clippy "${CRATES[@]}" --all-targets --no-deps -- -D warnings || return 1
-  cargo clippy -p harnix-wasm --all-targets --features compile --no-deps -- -D warnings
+  cargo clippy -p harnix-wasm -p harnix-apps --all-targets --features harnix-wasm/compile,harnix-apps/compile --no-deps -- -D warnings || return 1
+  cargo clippy -p harnix-app -p harnix-cli --all-targets --features harnix-app/apps,harnix-cli/apps --no-deps -- -D warnings
 }
 
 run_offline() {
