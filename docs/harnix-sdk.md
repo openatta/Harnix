@@ -2,7 +2,7 @@
 
 > 读者：在 Harnix 上做产品的人（Helm、IPDrun，以及以后的应用）。
 >
-> **对照的是 0.4 的全部里程碑**（M0–M9，Agix 钉在 0.2.9）。示例就是真实的签名：`crates/testapp`、
+> **对照的是 0.4 的全部里程碑**（M0–M9）。示例就是真实的签名：`crates/testapp`、
 > `examples/hello-app` 是能编译、有测试的完整例子，`templates/app`、`templates/desktop` 是起步用的模板。
 >
 > **接口清单在 [SDK 参考](harnix-sdk-reference.md)**：每个类型、方法、profile 键、命令行开关、目录、
@@ -14,12 +14,12 @@
 
 ## 1. Harnix 是什么
 
-**Harnix 是 Agix 应用的公共底座。** 三层分工：
+**Harnix 是 Agent 应用的公共底座。** 你的应用只认 Harnix：仓库里一个子仓 `harnix/`，代码里一个 crate
+`harnix`（前端是 `@harnix/*` 的包）。Agent 引擎是 Harnix 带进来的，你不单独引入它、不钉它的版本，也不直接找它。
 
 | 层 | 管什么 | 你要不要改它 |
 |---|---|---|
-| **Agix** | Agent 引擎：轮次循环、工具、权限、上下文、压缩、插件包 | 不改。缺能力给 Agix 提 issue |
-| **Harnix** | 把引擎变成产品的那一层：会话的持有与追赶、多设备、授权、传输、外壳、space、实例管理 | 不 fork。公共改动在 `harnix/` 子仓里做、回推 |
+| **Harnix**（含它带的 Agent 引擎） | 轮次循环、工具、权限、上下文、压缩、插件包；会话的持有与追赶、多设备、授权、传输、外壳、space、实例管理 | 不 fork。缺什么、哪里坏了，提 Harnix 的 issue（§2.1）；公共改动在 `harnix/` 子仓里做、回推 |
 | **你的应用** | 领域服务、数据库、产品面板、场景与原生工具、品牌 | 全是你的 |
 
 运行时按四层组织：
@@ -41,7 +41,7 @@ Harnix 进程
 |---|---|---|
 | 前端 | React 组件 + 注册 | 浏览器 |
 | 后端 | 一个 Rust `Module` | Harnix 进程内 |
-| Agent | 原生工具、场景（经模块）；或 Agix 插件包 | Agix 实例里 |
+| Agent | 原生工具、场景（经模块，类型从 `harnix::agent` 取）；或运行期插件包 | 实例里 |
 
 **有几件事是写死的，你改不了，也不该想改**：传输的通道语义、授权（默认拒绝）、中枢（会话的唯一
 持有者，「中枢永远比任何客户端先订阅」）、装配顺序。这些正是「刷新不丢内容、多设备一致、turn 不挂
@@ -65,14 +65,21 @@ Harnix 进程
 | 会话和 space 的对应关系 | Harnix | 各写一份就会串会话 |
 | 一个通用的界面组件缺了个开关 | Harnix（回推） | 契约的一部分 |
 
+
+### 2.1 问题与需求：只提 Harnix 的 issue
+
+缺一个能力、碰到一个缺陷，不管它最后落在哪一层，都在 [Harnix 的 GitHub issue](https://github.com/openatta/Harnix/issues)
+里提：标题 `<项目>-NN：一句话`，打上你项目的标签，正文写现象或需求（带代码位置）、想要的接口、验收方式。
+在哪一层实现、要不要改引擎、什么时候进哪个版本，由 Harnix 决定；落地后 issue 里回复提交与版本标签，你升级 `harnix/` 子仓就拿到。
+应用不跟踪引擎的版本，也不在引擎那边开分支。
+
 ## 3. 应用仓库长什么样
 
 ```text
 <app>/
 ├── Cargo.toml              workspace 根，唯一的锁文件
 ├── Cargo.lock
-├── agix/                   子仓 → Agix（你自己钉）
-├── harnix/                 子仓 → Harnix（不要初始化它里面的 agix/）
+├── harnix/                 子仓 → Harnix（唯一的子仓；--recursive 带上它依赖的一切）
 ├── app/                    bin crate：main.rs 里 App::builder()…
 ├── spaces/
 │   └── <x>/
@@ -84,8 +91,8 @@ Harnix 进程
 └── scripts/build.sh        pnpm build → cargo build
 ```
 
-**`agix/` 和 `harnix/` 平级。** 你发现 Agix 的问题，直接在自己的 `agix/` 里开分支、回推 Agix，
-不用先改 Harnix。
+**只有 `harnix/` 一个子仓。** 它依赖的东西（包括 Agent 引擎）由它自己带，`git submodule update --init --recursive`
+一次取齐，版本永远是这一版 Harnix 测过的那一份。你要的改动不管在哪一层，都提 Harnix 的 issue（§2.1）。
 
 **两个 pnpm workspace，互不相交。** `harnix/` 用它自己的（`pnpm --dir harnix install`，外壳在那里构建，Vite
 把 `react`、`@harnix/react`、`@harnix/core` 去重到外壳那一份）；应用根下自己的 workspace 只收 `spaces/*/ui`
@@ -101,9 +108,10 @@ Harnix 进程
 
 Cargo 这边要知道三件事（为什么这样做见设计 §11.2）：
 
-1. 应用的 workspace 把 `harnix/crates/*` 收为**成员**，`exclude = ["agix", "harnix/agix", "harnix/crates/testapp"]`。
+1. 应用的 workspace 把 `harnix/crates/*` 收为**成员**，`exclude = ["harnix/agix", "harnix/crates/testapp"]`。
 2. 根 `Cargo.toml` 里有一段带标记的区块，由 `harnix/scripts/sync-app-deps.mjs` 生成，**不要手改**。它把
-   Harnix 需要的依赖（含 Agix 的入口 crate）指到以应用根为基准的路径。升级 Harnix 之后重新跑一次。
+   Harnix 的 crate 需要的依赖指到以应用根为基准的路径。升级 Harnix 之后重新跑一次。你自己的 crate 只写
+   `harnix = { workspace = true }`，用不着这一段里的其他名字。
 3. `[profile.release]`、`[patch]` 写在应用根，Harnix 根目录里的那些对你不生效。模板里已经带好了。
 
 一份 profile 的样子（每一段都拒绝不认识的键：拼错了进程起不来，并说是哪一行）：
@@ -154,8 +162,8 @@ runtime_modules = false          # 不加载运行期包的界面模块（见 §
 
 ## 4. 起步：从模板建一个应用（M2 起）
 
-1. 复制 `harnix/templates/app` 到新仓库；`git submodule add` 加上 `agix/` 和 `harnix/`，钉到 Harnix 当前
-   钉的那个 Agix（`git -C harnix ls-tree HEAD agix` 看得到）。
+1. 复制 `harnix/templates/app` 到新仓库；`git submodule add` 加上 `harnix/`，再
+   `git submodule update --init --recursive`。
 2. 跑 `node harnix/scripts/sync-app-deps.mjs .`，再跑 `node harnix/scripts/check-pins.mjs .`。
 3. `scripts/build.sh`，然后 `./target/release/<app> --profile profiles/<app>.toml`。
 4. 打开启动链接，看到空应用：会话、项目、流程、系统四个内建 space，头像即设置（流程 space 只在后端注册了流程模块时出现，
@@ -297,11 +305,22 @@ Harnix 只管什么时候迁、失败了怎么办，不管用什么迁。数据�
   `data_dir`）放 `~/.<product_id>`，不配 `[brand]` 就是 `~/.harnix`；`HARNIX_STATE_DIR` 能挪。
   0.4.0-2026102602 及以前放在 `~/Documents/.harnix`，新版本不迁移、不读它。
 - Documents 里只放项目，不放隐藏目录。
-- 项目里，项目自己的数据与配置一律放 `<项目>/.agix/`，不另开 `<项目>/.<你的产品>/`。
+- 项目里，项目自己的数据与配置一律放 `<项目>/.agix/`（引擎在项目里用的目录），不另开 `<项目>/.<你的产品>/`。
 
 ## 6. Agent 侧
 
 ### 6.1 给 `system` 加原生工具和场景（M2 起）
+
+原生工具、场景、prompt 块的类型都从 `harnix::agent` 取，内置场景从 `harnix::scenes` 取，不用另加依赖：
+
+| 要写什么 | 类型 |
+|---|---|
+| 原生工具 | `harnix::agent::tool::{Tool, ToolContext, ToolResult, ProgressSender}`，错误 `harnix::agent::error::ToolError` |
+| 场景 | `harnix::agent::interface::scene::{Scene, ScenePromptContext, TokenBudget}` |
+| prompt 块 | `harnix::agent::interface::prompt::PromptBlock` |
+| 包一个内置场景 | `harnix::scenes::harnix::HarnixScene`（缺省）、`harnix::scenes::code::CodeScene`、`harnix::scenes::mini::MiniScene` |
+
+完整的例子是 `crates/testapp` 的 `NativeScene` 和 `FixedTool`。
 
 ```rust
 fn engine(&self, e: &mut EngineContrib) {
@@ -315,7 +334,7 @@ fn engine(&self, e: &mut EngineContrib) {
 #### 拦截人的消息（prompt 中间件）
 
 人的话进一轮之前，模块可以按自己的规则放行、改写或拒收，经外壳直接发给会话的（`harnix.send`）也算。挂在会话的 `Builder`
-上，类型从 `harnix`（或 `harnix_module`）取，不用直接依赖 Agix 的 crate：
+上，类型从 `harnix`（或 `harnix_module`）取：
 
 ```rust
 use harnix::{PromptCall, PromptDecision, PromptMiddleware};
@@ -405,7 +424,7 @@ async fn start(&self, ctx: ModuleContext) -> anyhow::Result<()> {
   里列出才在实例上启用。
 - **停下时收干净**：模板上写 `.reap_on_stop()`（profile 的模板写 `reap_on_stop = true`），缺省关。spawn 实例的 daemon 自成一个
   会话（`setsid`），daemon 退出、被杀、崩溃或看护重启时，Harnix 把还留在这个会话里的进程 TERM、等 1.5 s、KILL；同时在实例的全局
-  设置层打开 Agix 的 `sandbox.reap_process_groups`，正常退出时引擎自己先收。进程内实例只有后一半（会话结束时收它起过的进程组）。
+  设置层打开引擎的 `sandbox.reap_process_groups`，正常退出时引擎自己先收。进程内实例只有后一半（会话结束时收它起过的进程组）。
   daemon 在自己的会话里就收不到终端的 Ctrl-C，它的退出照旧跟着 stdin 关闭走。实例视图多一项 `reap: true`（spawn 时）。
   自己 `setsid` 出去的进程收不到。
   已经建好、正在重启或重连的，用 `wait_ready(instance, timeout)`。会话类调用本身不等。
@@ -418,7 +437,7 @@ async fn start(&self, ctx: ModuleContext) -> anyhow::Result<()> {
 | 要什么 | 用 |
 |---|---|
 | 原生 Rust 工具、`SessionCustomizer` | 进程内 |
-| 和 `system` 不同的 MCP、凭据、插件 | 两种都行（Agix 0.2.7 起进程内的几台互相隔离） |
+| 和 `system` 不同的 MCP、凭据、插件 | 两种都行（进程内的几台互相隔离） |
 | 崩溃、内存与 Harnix 隔开 | daemon |
 
 一台 daemon 只服务一个 Harnix；不要让别的客户端也连它。spawn 的 daemon 由 Harnix 看护：挂了就重新拉起，
@@ -426,9 +445,9 @@ async fn start(&self, ctx: ModuleContext) -> anyhow::Result<()> {
 Harnix 被杀后马上在同一目录重启时，新 daemon 等旧的那个收完尾、放开这台实例的数据根锁才建引擎，两个引擎不会同时写一份转录。
 attach 的 daemon 握手时比对协议版本，不一致就 `down`，原因里写明两边的版本。
 
-### 6.3 运行期 Agix 插件包
+### 6.3 运行期插件包
 
-Agent 侧的第三方扩展照旧装到 Agix（WASM / QuickJS），能力门控与披露都在引擎那边。Harnix 只读包里
+Agent 侧的第三方扩展装到实例里（WASM / QuickJS），能力门控与披露都在引擎那边。Harnix 只读包里
 的 `[[ui]]` 段：贡献点 API 2 的界面模块是预编译好的 ES 模块，从页面的 import map 拿 `react` 和
 `@harnix/react`（SDK 参考 §6.6，范例 `tests/fixtures/packages/demo-rows-v2/`）。0.4 里运行期包**不能**
 新增 space，也不能往别的 space 加页签；`[ui] runtime_modules = false` 一条都不加载。
@@ -488,7 +507,7 @@ ctx.sessions().append_entry(&s, Entry::new("alert", json!({ "symbol": "NVDA" }))
 let mine = ctx.sessions().entries(&s).await?;   // 本模块写过的，最早的在前
 ```
 
-条目进会话日志（Agix 0.2.8 的 `session.appendEntry`），刷新、重放、整段分叉都看得到；**只给人看，
+条目进会话日志（`session.appendEntry`），刷新、重放、整段分叉都看得到；**只给人看，
 不给模型看**。命名空间由中枢定成 `app.<你的模块 id>`，模块写不了别人的，设备一条也写不了（人说的话
 走 `harnix.send`）。写的时候正在看这个会话的人立刻收到。
 
@@ -542,7 +561,7 @@ Agent 在里面改它、试运行、启动、操作它的运行，改动类操�
 `registerFlowSpace(registry, {host})`。
 
 流程模块的构建器（`Flow::builder()`）里与 xops-03 有关的：`.main_scene(id)`（主会话缺省 scene，给的是
-`.scene(...)` 的 id，包装成 `flow-<id>`；不给是第一个）、`.main_recording(|run| …)`（回放时主会话用哪份录像）。主会话的
+`.scene(...)` 的 id，包装成 `flow-<id>`；不给是第一个，一个 scene 都不给时流程用内置的 `harnix`、`code`、`mini`，主会话在 `flow-harnix`）、`.main_recording(|run| …)`（回放时主会话用哪份录像）。主会话的
 scene 需要项目时，模块给每个运行建工作目录（模块数据目录下 `workspaces/<run>`，也是引用 `${workspace}`），并写入子 Agent
 站缺省用的 agent 类型 `flow-agent`。
 
@@ -605,7 +624,7 @@ fn spaces(&self, s: &mut SpaceRegistry) {
 | `pinned(session)` | 消息流顶上固定的一块（等人回答的问题、要批准的卡） |
 | `composerNotice(session)` | 打开的会话里输入框上方的提醒条。`notice()` 只在新对话首屏；两处都要就写 `composerNotice: () => notice()` |
 | `ids()` | 正文里哪些字是可点的编号（`ChatIds`：带 `g` 的正则、`onOpen`、`canOpen`） |
-| `composer: { steer: true }` | 输入框底栏有「立即送达」开关：一轮在跑时，消息在下一步送进这一轮（`on_busy: "steer"`）。在 Agix 的 UserPromptSubmit 也管 steer 之前，steer 的消息绕过那个 hook |
+| `composer: { steer: true }` | 输入框底栏有「立即送达」开关：一轮在跑时，消息在下一步送进这一轮（`on_busy: "steer"`）。在引擎的 UserPromptSubmit hook 也管 steer 之前，steer 的消息绕过那个 hook |
 | `hideCommands: [...]` | 这些命令名不出现在本 space 的 `/` 菜单里（只藏别的 owner 的，所以你的同名命令能顶上）；手打的照旧当文字发出 |
 | `mention: { first: "contributed" }` | 本 space 在前台时，`@` 菜单里 `trigger: "@"` 的候选排在外壳自己的（文件、`@session:`）前面；菜单只列前几项，文件多时贡献的候选就不会被挤掉。不写或 `"files"`：照旧 |
 | `group`（字段） | 左栏顶部列表里的组名：按 `order` 相邻的两个 space 组不同，中间画一条分隔线；不写算 `""`，都不写就没有线。不重排，同组的靠 `order` 挨在一起 |
@@ -759,14 +778,15 @@ r.strings('zh-CN', { 'hello-app.greeter': '问候' }, 'hello-app');
 
 - `scripts/build.sh`：`pnpm build` → `cargo build`。没有界面产物直接 `cargo build` 会明确失败；
   `--headless` 可以不要界面。
-- `<app> --version` 打印应用、Harnix、Agix、模块 API、贡献点 API、协议的版本。
-- **两个钉**：`harnix/` 钉一个 Harnix 的标签（`Harnix-v<x.y.z>-<日期><序号>`），`agix/` 钉一个 Agix 的提交。
-  `harnix/scripts/check-pins.mjs` 管两者的关系：
-  - `agix/` 和 Harnix 钉的一样：通过。
-  - 比 Harnix 钉的新，并且在 Agix 上存在：开发分支告警；发布前要么回到一样，要么先让 Harnix 升到这一版。
-  - 只在本地、不在上游：失败。
-- **升级 Harnix**：bump `harnix/` 子仓 → 把 `agix/` 对齐到 Harnix 新钉的版本 → `sync-app-deps` →
+- `<app> --version` 打印应用、Harnix、引擎、模块 API、贡献点 API、协议的版本（排查问题时贴进 issue）。
+- **一个钉**：`harnix/` 钉一个 Harnix 的标签（`Harnix-v<x.y.z>-<日期><序号>`），它带的东西随它一起钉死。
+  `harnix/scripts/check-pins.mjs` 查两件事：`harnix/` 指向的提交在 Harnix 上游存在；`harnix/` 带的东西检出的正是它钉的那一版
+  （忘了 `--recursive` 时它会告诉你）。
+- **升级 Harnix**：bump `harnix/` 子仓 → `git submodule update --init --recursive` → `sync-app-deps` →
   `check-pins`、`check-lock` → 跑测试。0.4.z 里协议与模块 API 只做加法，升 z 不该打破你。
+- **从旧布局迁过来**（应用根下还有自己的 `agix/` 子仓的）：`git submodule deinit -f agix && git rm agix`，
+  `git -C harnix submodule update --init agix`，再跑 `sync-app-deps`、`check-pins`；代码里的 `base::…`、`scene::…`
+  换成 `harnix::agent::…`、`harnix::scenes::…`，应用 crate 的依赖里删掉 `base`、`scene` 等。迁移之前两个脚本照常工作，只多一条告警。
 - **公共改动**：直接在你的 `harnix/` 子仓里开分支 → 回推 Harnix → 合并、打标签 → 你 bump 子仓。
   不许有长期补丁：子仓指针只能指向上游存在的提交。
 - **桌面版**（M9 起）：复制 `harnix/templates/desktop`，改名字、图标，把你的二进制打成 sidecar。本机模式
@@ -832,8 +852,8 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 ### 14.0.1 通用步骤
 
 
-1. 把 Agix 升到 Harnix 钉的那一版。
-2. 换布局：`harnix/`、`agix/` 平级的子仓；workspace 收 `harnix/crates/*`；`sync-app-deps`、`check-pins`。
+1. 换布局：只留 `harnix/` 一个子仓（`git submodule update --init --recursive`）；workspace 收 `harnix/crates/*`；
+   `sync-app-deps`、`check-pins`。代码里的引擎类型改从 `harnix::agent`、`harnix::scenes` 取（§6.1）。
 3. 后端改成模块：一个 space 的后端一个 `Module`；领域方法挪到 `methods()`。
 4. 前端换成 React 包：每个 space 一个 `ui/` 包，`register()` 注册。
 5. 测试换成 `@harnix/testkit`。

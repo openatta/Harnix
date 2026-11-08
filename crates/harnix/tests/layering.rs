@@ -249,12 +249,14 @@ fn the_flow_module_uses_only_the_public_module_api() {
 
 /// The empty application registers the flow module (xops-02 §6), and an application that
 /// depends on the `harnix` library must not be made to compile it: the `harnix` binary is its own
-/// crate (`crates/cli`), and the library names no flow.
+/// crate (`crates/cli`), and the library names no flow. (The engine's built-in scenes are another
+/// matter: the instance layer builds on them anyway, and the library re-exports them as
+/// `harnix::scenes`.)
 #[test]
 fn the_library_does_not_carry_the_empty_applications_flow_module() {
     assert_ignorant_of(
         "harnix",
-        &["harnix-flow", "scene"],
+        &["harnix-flow"],
         "a library user registers flows if it wants them; the empty application is `harnix-cli`",
     );
     let manifest =

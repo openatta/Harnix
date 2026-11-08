@@ -6,8 +6,7 @@
 # produce two genuinely different deployments.
 
 [engine]
-scene = "coding"
-scenes = ["chat"]
+scene = "harnix"
 model = "claude-sonnet-4-6"
 session_cap = 16
 session_idle_timeout_secs = 3600

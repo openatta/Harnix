@@ -165,6 +165,29 @@ describe("发送", () => {
     expect(input().value).toBe("");
   });
 
+  it("发出去后焦点回到输入框；发送期间人去了别处（如搜索框），焦点不被抢回", async () => {
+    let done: (sent: boolean) => void = () => undefined;
+    const send = () => new Promise<boolean>((resolve) => (done = resolve));
+    mount({ send });
+    await settle();
+    type("第一条");
+    input().focus();
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await act(async () => done(true));
+    await settle();
+    expect(document.activeElement).toBe(input());
+
+    const elsewhere = document.createElement("input");
+    document.body.appendChild(elsewhere);
+    type("第二条");
+    fireEvent.keyDown(input(), { key: "Enter" });
+    elsewhere.focus();
+    await act(async () => done(true));
+    await settle();
+    expect(document.activeElement).toBe(elsewhere);
+    elsewhere.remove();
+  });
+
   it("disabled（如断线）：发送不可用，已输入的内容保留", async () => {
     const view = mount({ draftKey: "D" });
     await settle();
@@ -191,6 +214,23 @@ describe("发送", () => {
 });
 
 describe("消息流", () => {
+  it("压缩留下的摘要画成「上下文已压缩」一行（可展开），别的注入仍是「注入的上下文」", async () => {
+    server.handlers["session.history"] = () => ({
+      messages: [
+        { role: "user", content: "之前聊过的摘要", origin: "compact" },
+        { role: "user", content: "召回的记忆", origin: "injected" },
+        { role: "user", content: "接着说", origin: "user" },
+      ],
+    });
+    server.handlers["harnix.attach"] = () => attached("S1", { history_total: 3 });
+    mount();
+    await settle();
+    const compact = screen.getByTestId("conv-compact");
+    expect(compact.textContent).toContain("上下文已压缩");
+    expect(compact.textContent).toContain("之前聊过的摘要");
+    expect(screen.getByTestId("conv-context").textContent).toContain("注入的上下文");
+  });
+
   it("助手：头像 + 名字一组只出一次；人的话打断分组；编号变 chip，点了交给应用", async () => {
     const open = vi.fn();
     server.handlers["session.history"] = () => ({

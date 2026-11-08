@@ -56,6 +56,32 @@ test("text is readable in both themes, and the theme button switches between the
   await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).not.toBe(before);
 });
 
+test("the theme chosen in settings applies at once, survives a reload, and follows the system when set back", SETTINGS, async ({ page }) => {
+  await open(page, URL);
+  const theme = () => page.evaluate(() => document.documentElement.dataset.theme);
+  const body = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  await openSettings(page);
+  const select = page.getByTestId("settings-theme");
+  await select.selectOption("dark");
+  await expect.poll(theme).toBe("dark");
+  const dark = await body();
+  await select.selectOption("light");
+  await expect.poll(theme).toBe("light");
+  expect(await body(), "the two themes paint the page differently").not.toBe(dark);
+
+  await page.reload();
+  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
+  await expect.poll(theme).toBe("light");
+
+  // Back to the system's: the page follows what the system prefers.
+  await page.emulateMedia({ colorScheme: "dark" });
+  await openSettings(page);
+  await page.getByTestId("settings-theme").selectOption("system");
+  await expect.poll(theme).toBe("dark");
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect.poll(theme).toBe("light");
+});
+
 test("icons are sized by a class, not left to fill the row", TAGS, async ({ page }) => {
   await open(page, URL);
   await newSession(page, "says-ready");
@@ -93,7 +119,7 @@ test("the settings panel opens, every section draws, and the panel keeps one siz
 test("the language switches everything at once, and comes back", SETTINGS, async ({ page }) => {
   await open(page, URL);
   await openSettings(page);
-  const language = page.locator(".settings-page select").nth(1);
+  const language = page.getByTestId("settings-language");
   await language.selectOption("en");
   await expect(page.locator("#new")).toContainText("New session");
   await expect(page.locator(".settings-nav .nav-item").first()).toHaveText("General");
@@ -143,7 +169,7 @@ test("a session renamed from its menu is renamed in the list", TAGS, async ({ pa
   const id = await newSession(page, "says-ready");
   const row = page.locator(`#side .srow[data-sid="${id}"]`);
   await row.click({ button: "right" });
-  await page.locator("#modal .menu-list button").nth(1).click();
+  await page.locator('#modal .menu-list button[data-item="rename"]').click();
   const input = page.locator("#modal input");
   await input.fill("renamed in the test");
   await input.press("Enter");
@@ -154,7 +180,7 @@ test("a session renamed from its menu is renamed in the list", TAGS, async ({ pa
 test("a device is paired from settings with a code shown once, counting down", { tag: ["@feature:authz", "@layer:ui"] }, async ({ page }) => {
   await open(page, URL);
   await openSettings(page);
-  await page.locator(".settings-nav .nav-item").nth(5).click();
+  await page.locator('.settings-nav [data-section="devices"]').click();
   await page.locator(".settings-page button", { hasText: /pair|配对/i }).last().click();
   await expect(page.locator(".pairing-code")).toHaveText(/\S{4,}/);
   await expect(page.locator(".settings-page")).toContainText(/\d+:\d{2}/);

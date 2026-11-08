@@ -13,7 +13,7 @@ try {
   await page.goto(backend.url);
   await page.waitForSelector("#conn.on", { timeout: 15000 });
   await page.screenshot({ path: `${out}/s-1.png` });
-  await page.evaluate(() => window.harnix.app.create({ scene: "coding", options: { recorder: { name: "calls-a-tool" } } }));
+  await page.evaluate(() => window.harnix.app.create({ scene: "code", options: { recorder: { name: "calls-a-tool" } } }));
   await page.getByTestId("conv-input").fill("Use the Bash tool to run exactly: echo harnix-fixture");
   await page.keyboard.press("Enter");
   await page.waitForTimeout(3000);

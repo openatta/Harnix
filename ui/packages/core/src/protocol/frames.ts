@@ -58,6 +58,8 @@ export interface Hello {
   engine: {
     model?: string;
     active_scenes?: string[];
+    /** The scene a session that names none is created in. */
+    scene?: string | null;
     has_credentials?: boolean;
     [key: string]: unknown;
   };
@@ -407,7 +409,7 @@ export interface InstanceRow {
 /** 一件任务（Agix `session.tasks`）。 */
 export interface TaskRow {
   task_id: string;
-  kind: "agent" | "teammate" | "shell" | "monitor" | "cron";
+  kind: "agent" | "teammate" | "shell" | "monitor" | "cron" | "code";
   status: "running" | "done" | "failed" | "stopped" | "waiting";
   started_ms: number;
   ended_ms: number | null;

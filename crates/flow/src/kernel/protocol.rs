@@ -375,7 +375,7 @@ mod tests {
     #[test]
     fn structured_output_is_the_default_way_in() {
         let def = FlowDef::parse(
-            "name: d\nstations: [{id: a, executor: {kind: session, scene: chat}, skill: s, output: {type: object}, exit: [{kind: output}]}]",
+            "name: d\nstations: [{id: a, executor: {kind: session, scene: harnix}, skill: s, output: {type: object}, exit: [{kind: output}]}]",
         )
         .unwrap();
         let t = render(&ctx(&def, &[], &BTreeMap::new(), &[], Delivery::StructuredOutput));
@@ -391,7 +391,7 @@ mod tests {
 name: demo
 stations:
   - id: analyze
-    executor: {kind: session, scene: chat}
+    executor: {kind: session, scene: harnix}
     skill: analyze
     output: {type: object, required: [findings]}
     exit: [{kind: output}, {kind: gate, gate: counted}]

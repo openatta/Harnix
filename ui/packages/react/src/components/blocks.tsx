@@ -57,6 +57,19 @@ export interface UserRowContribution {
 export const ContextRow = memo(function ContextRow({ block }: { block: BlockOf<"context"> }) {
   const strings = useStrings();
   const summary = clip(block.text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(), 120);
+  if (block.compact) {
+    // 一次压缩：说压了多少；有摘要（从历史读回来的）才能展开
+    const label = strings.compacted(block.compact);
+    return block.text ? (
+      <Disclosure testId="conv-compact" summary={`${label} · ${summary}`} state="done">
+        <pre className="hx-pre">{block.text}</pre>
+      </Disclosure>
+    ) : (
+      <div className="hx-blk hx-row" data-testid="conv-compact" data-state="done">
+        <span className="hx-tool-arg">{label}</span>
+      </div>
+    );
+  }
   return (
     <Disclosure testId="conv-context" summary={`${strings.injectedContext} · ${summary}`} state="done">
       <pre className="hx-pre">{block.text}</pre>

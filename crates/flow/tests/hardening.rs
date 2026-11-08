@@ -23,8 +23,8 @@ stations:
     output: {type: object}
     exit: [{kind: output}]
 "#;
-const SHARED: &str = "name: shared\nstations:\n  - {id: one, executor: {kind: session, scene: chat, session: per_run}, skill: analyze, output: {type: object}, exit: [{kind: output}]}\n  - {id: two, exit: [{kind: confirm}]}";
-const OWN: &str = "name: own\nstations: [{id: s, executor: {kind: session, scene: chat}, skill: analyze, retry: {max: 1}, output: {type: object}, exit: [{kind: output}]}]";
+const SHARED: &str = "name: shared\nstations:\n  - {id: one, executor: {kind: session, scene: harnix, session: per_run}, skill: analyze, output: {type: object}, exit: [{kind: output}]}\n  - {id: two, exit: [{kind: confirm}]}";
+const OWN: &str = "name: own\nstations: [{id: s, executor: {kind: session, scene: harnix}, skill: analyze, retry: {max: 1}, output: {type: object}, exit: [{kind: output}]}]";
 const CHILD: &str = "name: leaf\nstations: [{id: s, exit: [{kind: confirm}]}]";
 
 fn packs_all() -> MemPacks {

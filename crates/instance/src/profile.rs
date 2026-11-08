@@ -302,7 +302,7 @@ impl TemplateDecl {
 impl Default for EngineProfile {
     fn default() -> Self {
         Self {
-            scene: "coding".into(),
+            scene: "harnix".into(),
             scenes: Vec::new(),
             model: "claude-sonnet-4-6".into(),
             max_tokens: 2000,
@@ -432,7 +432,7 @@ mod tests {
             id = "side"
             carrier = "in_process"
             [instances.engine]
-            scene = "chat"
+            scene = "harnix"
 
             [[instance_templates]]
             id = "worker"
@@ -443,7 +443,7 @@ mod tests {
             "#,
         )
         .unwrap();
-        assert_eq!(profile.instances[0].engine.scene, "chat");
+        assert_eq!(profile.instances[0].engine.scene, "harnix");
         let template = profile.instance_templates[0].template().unwrap();
         assert!(template.ui);
         assert_eq!(template.carrier.kind(), "spawn");

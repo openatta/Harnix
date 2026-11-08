@@ -8,12 +8,10 @@
 //! gates are on: a gate of the pack may run a command on this machine, in the run's workspace.
 //! Runs are kept in the module's data directory (`runs/`); flows and their parts come from the
 //! example built into this binary, under a writable layer in the module's data directory
-//! (`packs/`) where the flow space's conversations save what they write. A run's main session is on `flow-coding`
-//! (Agix's coding scene, wrapped: it has the `Agent` tool sub-agent stations need), in a
-//! directory of the run's own; a station of its own session may name `flow-chat` too. Run under
+//! (`packs/`) where the flow space's conversations save what they write. The flow module offers Agix's
+//! built-in scenes wrapped — `flow-harnix`, `flow-code`, `flow-mini` — and a run's main session is
+//! on `flow-harnix` unless its flow names another, in a directory of the run's own. Run under
 //! `--replay-dir`, the flow sessions replay recordings named after their run or flow.
-
-use std::sync::Arc;
 
 use harnix_flow::{DirPacks, Flow, MemPacks};
 
@@ -41,9 +39,6 @@ pub fn flow() -> Flow {
         .packs_with(|dir| {
             DirPacks::writable(dir.join("packs")).with_builtin(example())
         })
-        .scene(Arc::new(scene::chat::ChatScene))
-        .scene(Arc::new(scene::coding::CodingScene))
-        .main_scene("coding")
         .command_gates(true)
         // Under `--replay-dir` only (outside it the names mean nothing): a run's main session
         // replays `flow-run-<run>`, a flow's conversation `flow-conversation-<flow>`, the general
@@ -71,7 +66,7 @@ mod tests {
     /// Valid with nothing of an application's: the catalog has only the wrapped scenes.
     #[test]
     fn the_example_flow_is_valid_in_the_empty_application() {
-        let packs = example().submit_scene("flow-chat").main_scene("flow-coding");
+        let packs = example().main_scene("flow-harnix");
         let problems = validate_yaml(EXAMPLE_FLOW, &packs as &dyn Packs);
         assert!(problems.is_empty(), "{problems:?}");
     }
@@ -81,10 +76,7 @@ mod tests {
     #[test]
     fn the_demo_flows_are_valid_in_the_empty_application() {
         let demo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/demo");
-        let catalog = MemPacks::new()
-            .submit_scene("flow-chat")
-            .main_scene("flow-coding")
-            .command_gates();
+        let catalog = MemPacks::new().main_scene("flow-harnix").command_gates();
         let packs = DirPacks::new([demo.clone()]).with_builtin(catalog);
         for kind in harnix_flow::PartKind::ALL {
             for name in packs.parts(kind) {

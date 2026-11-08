@@ -13,7 +13,7 @@
 //! | `demo-misplaced` | xops-02: a station whose template does not exist; the task fails, saying why |
 //! | `demo-bypassed` | xops-02: like `demo-guarded`, on an instance (`bypass-box`) whose settings a LIVE suite sets to `bypassPermissions` — the session asks for a mode that keeps its rules |
 //! | `demo-main` | xops-03: an external task, then two session stations without a scene — turns of the run's main session; the first tries a write no permission allows, the second one its permission allows — then a confirmation |
-//! | `demo-agent` | xops-03: a sub-agent station; the main session is on `flow-coding` (it has the `Agent` tool), in a directory of the run's |
+//! | `demo-agent` | xops-03: a sub-agent station; the main session is on `flow-harnix` (it has the `Agent` tool), in a directory of the run's |
 //! | `demo-asked` | xops-04: a main-session station whose policy asks a person before the write; a rule; a tool gate and a command gate |
 //!
 //! The pack also has (xops-04) the rule `review-rules`, the policy `ask-todo`, and the gates `lint`
@@ -21,15 +21,15 @@
 //! are on here).
 //!
 //! The flow module has two templates of its own for those (`flow.local` in process, `flow.remote`
-//! spawned): their engines have `structured-chat` — Agix's chat scene with `StructuredOutput`
+//! spawned): their engines have `structured-harnix` — Agix's harnix scene with `StructuredOutput`
 //! allowed — as a native contribution, which the spawned daemon builds again in its process.
 //!
 //! Session stations replay `flow-<station>` (`tests/live/fixtures/recordings/flow-analyze`,
 //! `flow-report`, `flow-propose`): each calls `flow_submit` with a fixed output and ends its
-//! turn; `flow-propose` first calls `TodoWrite` — which this application guards as a write, the
-//! one writing tool the chat scene has — and `flow_propose`. A task with a session key replays
-//! `flow-shared` instead: one turn per task, each handing in its own step. A run's main session
-//! replays `flow-main` (`demo-main`) or `flow-agent` (`demo-agent`).
+//! turn; `flow-propose` first calls `TodoWrite` — which this application guards as a write — and
+//! `flow_propose`. A task with a session key replays `flow-shared` instead: one turn per task,
+//! each handing in its own step. A run's main session replays `flow-main` (`demo-main`) or
+//! `flow-agent` (`demo-agent`).
 
 use std::sync::Arc;
 
@@ -51,7 +51,7 @@ stations:
     exit: [{kind: output}]
   - id: analyze
     title: Analyze
-    executor: {kind: session, scene: flow-chat}
+    executor: {kind: session, scene: flow-harnix}
     skill: analyze
     output: {type: object, required: [findings], properties: {findings: {type: array}}}
     exit: [{kind: output}]
@@ -77,7 +77,7 @@ stations:
     title: Analyze each module
     foreach: ${stations.collect.output.modules}
     max_parallel: 2
-    executor: {kind: session, scene: flow-chat}
+    executor: {kind: session, scene: flow-harnix}
     skill: analyze
     output: {type: object, required: [findings], properties: {findings: {type: array}}}
     exit: [{kind: output}]
@@ -102,7 +102,7 @@ stations:
   - id: report
     title: Report and sign
     tasks:
-      - {id: summary, executor: {kind: session, scene: flow-chat}, skill: report}
+      - {id: summary, executor: {kind: session, scene: flow-harnix}, skill: report}
       - {id: sign, executor: {kind: external, who: reviewer}}
     output: {type: object}
     exit: [{kind: output}]
@@ -114,7 +114,7 @@ description: The session tries a write it may not make, proposes a rework, and h
 stations:
   - id: propose
     title: Work, and propose
-    executor: {kind: session, scene: flow-chat}
+    executor: {kind: session, scene: flow-harnix}
     skill: analyze
     output: {type: object}
     exit: [{kind: output}]
@@ -152,7 +152,7 @@ stations:
 
 pub const DEMO_AGENT: &str = r#"name: demo-agent
 title: "Demo: a sub-agent"
-main: {scene: flow-coding}
+main: {scene: flow-harnix}
 stations:
   - id: check
     title: Checked by a sub-agent
@@ -203,12 +203,12 @@ pub const DEMO_SHARED: &str = r#"name: demo-shared
 title: "Demo: one session for the run"
 stations:
   - id: first
-    executor: {kind: session, scene: flow-chat, session: per_run}
+    executor: {kind: session, scene: flow-harnix, session: per_run}
     skill: analyze
     output: {type: object, required: [step], properties: {step: {const: 1}}}
     exit: [{kind: output}]
   - id: second
-    executor: {kind: session, scene: flow-chat, session: per_run}
+    executor: {kind: session, scene: flow-harnix, session: per_run}
     skill: report
     output: {type: object, required: [step], properties: {step: {const: 2}}}
     exit: [{kind: output}]
@@ -220,13 +220,13 @@ description: Two sessions on instances of the flow module's templates, handing i
 stations:
   - id: local
     title: In process, in the fleet space, on a model of its own
-    executor: {kind: session, scene: structured-chat, template: flow.local, params: {name: "local-${run}"}, space: fleet, model: flow-demo-model}
+    executor: {kind: session, scene: structured-harnix, template: flow.local, params: {name: "local-${run}"}, space: fleet, model: flow-demo-model}
     skill: analyze
     output: {type: object, required: [findings], properties: {findings: {type: array}}}
     exit: [{kind: output}]
   - id: remote
     title: On a spawned daemon
-    executor: {kind: session, scene: structured-chat, template: flow.remote}
+    executor: {kind: session, scene: structured-harnix, template: flow.remote}
     skill: analyze
     output: {type: object, required: [findings], properties: {findings: {type: array}}}
     exit: [{kind: output}]
@@ -240,7 +240,7 @@ title: "Demo: a write refused on a template instance"
 stations:
   - id: guarded
     title: Work without writing
-    executor: {kind: session, scene: structured-chat, template: flow.local}
+    executor: {kind: session, scene: structured-harnix, template: flow.local}
     skill: analyze
     output: {type: object, required: [done], properties: {done: {const: true}}}
     exit: [{kind: output}]
@@ -254,7 +254,7 @@ title: "Demo: a write refused on an instance that bypasses permissions"
 stations:
   - id: bypassed
     title: Work without writing
-    executor: {kind: session, scene: structured-chat, template: flow.local, params: {name: bypass-box}}
+    executor: {kind: session, scene: structured-harnix, template: flow.local, params: {name: bypass-box}}
     skill: analyze
     output: {type: object, required: [done], properties: {done: {const: true}}}
     exit: [{kind: output}]
@@ -264,7 +264,7 @@ pub const DEMO_MISPLACED: &str = r#"name: demo-misplaced
 title: "Demo: a station placed nowhere"
 stations:
   - id: nowhere
-    executor: {kind: session, scene: structured-chat, template: flow.nowhere}
+    executor: {kind: session, scene: structured-harnix, template: flow.nowhere}
     skill: analyze
     output: {type: object}
     exit: [{kind: output}]
@@ -288,18 +288,18 @@ Read the findings handed in at the `analyze` station (`flow_state` shows the run
 summary: how many findings of each severity, and the one that matters most.
 ";
 
-/// The scene a template's session hands in from: chat, with `StructuredOutput` allowed.
+/// The scene a template's session hands in from: harnix, with `StructuredOutput` allowed.
 fn structured(e: &mut EngineContrib) {
     e.scene(Arc::new(StructuredScene::new(Arc::new(
-        scene::chat::ChatScene,
+        harnix::scenes::harnix::HarnixScene,
     ))));
 }
 
-/// The engine of the flow module's templates: `structured-chat` active beside the default.
+/// The engine of the flow module's templates: `structured-harnix` active beside the default.
 fn template_engine() -> EngineProfile {
     EngineProfile {
-        scene: "chat".into(),
-        scenes: vec!["structured-chat".into()],
+        scene: "harnix".into(),
+        scenes: vec!["structured-harnix".into()],
         ..EngineProfile::default()
     }
 }
@@ -330,9 +330,6 @@ pub fn module() -> Flow {
             .native(structured),
         )
         .packs_with(|dir| harnix_flow::DirPacks::writable(dir.join("packs")).with_builtin(packs()))
-        .scene(Arc::new(scene::chat::ChatScene))
-        .scene(Arc::new(scene::coding::CodingScene))
-        .main_scene("chat")
         .programs(DemoPrograms)
         .gates(DemoGates)
         .tools(DemoTools)
@@ -385,7 +382,7 @@ fn parts(p: MemPacks) -> MemPacks {
         .gate_def(GATE_LINT)
         .gate_def(GATE_OPEN_HIGH)
         .gate_def(GATE_SELF_TEST)
-        .scene("structured-chat")
+        .scene("structured-harnix")
         .step("collect")
         .step("self-check")
         .check("lint")
@@ -442,8 +439,7 @@ mod tests {
     #[test]
     fn the_demo_flows_are_valid() {
         let packs = parts(MemPacks::new())
-            .submit_scene("flow-coding")
-            .main_scene("flow-chat")
+            .main_scene("flow-harnix")
             .command_gates();
         for yaml in [
             DEMO_LINEAR,

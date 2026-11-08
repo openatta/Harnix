@@ -16,12 +16,12 @@ let backend: Backend;
 test.beforeAll(async () => {
   backend = await startHarnix(launchFor("replay"));
 });
-test.afterAll(() => backend?.stop());
+test.afterAll(async () => { await backend?.dispose(); });
 
 test("every frame of a turn names its instance", TAGS, async () => {
   const api = await connect(backend);
   const created = await api.call("session.create", {
-    scene: "coding",
+    scene: "harnix",
     project_root: api.project,
     options: { recorder: { name: "says-ready" } },
   });

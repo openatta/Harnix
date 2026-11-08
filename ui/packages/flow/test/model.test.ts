@@ -56,7 +56,7 @@ const review: Station = { id: "review", needs: ["self-check"], exit: [{ kind: "c
 const analyze: Station = {
   id: "analyze",
   foreach: "${stations.collect.output.modules}",
-  executor: { kind: "session", scene: "flow-chat" },
+  executor: { kind: "session", scene: "flow-harnix" },
   skill: "analyze",
   exit: [{ kind: "output" }],
   on_unmet: { rework_to: "collect" },
@@ -69,7 +69,7 @@ describe("work", () => {
     const report: Station = {
       id: "report",
       tasks: [
-        { id: "summary", executor: { kind: "session", scene: "flow-chat" }, skill: "report" },
+        { id: "summary", executor: { kind: "session", scene: "flow-harnix" }, skill: "report" },
         { id: "sign", executor: { kind: "external", who: "reviewer" } },
       ],
     };

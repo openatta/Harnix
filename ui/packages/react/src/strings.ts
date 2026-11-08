@@ -41,6 +41,8 @@ export interface HarnixUiStrings {
   result: string;
   image: string;
   injectedContext: string;
+  /** 一次压缩的一行：知道前后几条时说压了几条，知道省了多少时也说。 */
+  compacted: (facts: { before?: number; after?: number; saved?: number }) => string;
   thinking: string;
   subagent: string;
   subagentDone: string;
@@ -164,6 +166,10 @@ export const zhCN: HarnixUiStrings = {
   result: "结果",
   image: "[图片]",
   injectedContext: "注入的上下文",
+  compacted: ({ before, after, saved }) =>
+    before != null && after != null
+      ? `上下文已压缩：${before} 条 → ${after} 条${saved ? `，约省 ${saved} token` : ""}`
+      : "上下文已压缩",
   thinking: "思考",
   subagent: "子 agent",
   subagentDone: "完成",
@@ -284,6 +290,10 @@ export const en: HarnixUiStrings = {
   result: "Result",
   image: "[image]",
   injectedContext: "Injected context",
+  compacted: ({ before, after, saved }) =>
+    before != null && after != null
+      ? `Context compacted: ${before} → ${after} messages${saved ? `, ~${saved} tokens saved` : ""}`
+      : "Context compacted",
   thinking: "Thinking",
   subagent: "Sub-agent",
   subagentDone: "done",

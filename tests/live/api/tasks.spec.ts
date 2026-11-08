@@ -16,13 +16,13 @@ let backend: Backend;
 test.beforeAll(async () => {
   backend = await startHarnix(launchFor("replay"));
 });
-test.afterAll(() => backend?.stop());
+test.afterAll(async () => { await backend?.dispose(); });
 
 test("a sub-agent is a task of its session, not a session in the list", TAGS, async () => {
   const api = await connect(backend);
   try {
     const created = await api.call("session.create", {
-      scene: "coding",
+      scene: "harnix",
       project_root: api.project,
       options: { recorder: { name: "spawns-agent" } },
     });

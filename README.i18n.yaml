@@ -2,5 +2,5 @@
 # confirmed-consistent state. Both languages carry equal authority; after editing either
 # side, bring the other along and re-record with:
 #   node tests/readme-pairing.mjs --write
-README.md: be6401a351e6029494da97c7bde3fbfbcc1091d7
-docs/README.zh-CN.md: d6dc23780639c71c9a29a80a21804e0986a11cbe
+README.md: 9039f6a2387119f15708db3df440773abbf38cc8
+docs/README.zh-CN.md: 8f7d4e895c880845b96d43ecdf1beb84362faef6

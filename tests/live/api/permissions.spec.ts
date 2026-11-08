@@ -30,11 +30,11 @@ defineSuite("permissions", { feature: "sessions" }, {
   tests: {
     "a tool that needs permission asks every watcher": async ({ backend, client }) => {
       const created = await client.call("session.create", {
-        scene: "coding",
+        scene: "harnix",
         project_root: client.project,
         options: { permission_mode: "default" },
       }).catch(() => null);
-      if (!created) inconclusive("no coding scene in this build, so no tool to ask about");
+      if (!created) inconclusive("no harnix scene in this build, so no tool to ask about");
 
       const second = await connect(backend, { topology: client.topology });
       await client.call("harnix.attach", { session_id: created.session_id });
@@ -91,11 +91,11 @@ defineSuite("permissions", { feature: "sessions" }, {
 
     "an unanswered ask is handed to a client that arrives late": async ({ backend, client }) => {
       const created = await client.call("session.create", {
-        scene: "coding",
+        scene: "harnix",
         project_root: client.project,
         options: { permission_mode: "default" },
       }).catch(() => null);
-      if (!created) inconclusive("no coding scene in this build, so no tool to ask about");
+      if (!created) inconclusive("no harnix scene in this build, so no tool to ask about");
 
       await client.call("harnix.attach", { session_id: created.session_id });
       await client.call("harnix.send", {

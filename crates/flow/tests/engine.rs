@@ -49,7 +49,7 @@ stations:
   - id: analyze
     foreach: ${stations.collect.output.modules}
     max_parallel: 2
-    executor: {kind: session, scene: chat}
+    executor: {kind: session, scene: harnix}
     skill: analyze
     output: {type: object, required: [findings]}
     exit: [{kind: output}]
@@ -95,7 +95,7 @@ fn all_packs() -> MemPacks {
             "name: parent\ninputs: {items: {schema: {type: array}}}\nstations: [{id: split, foreach: '${inputs.items}', executor: {kind: subflow, flow: child}, exit: [{kind: children}]}]",
         )
         .flow(
-            "name: chat\nstations:\n  - {id: one, executor: {kind: session, scene: chat, session: per_run}, skill: analyze, output: {type: object}, exit: [{kind: confirm}]}\n  - {id: two, executor: {kind: session, scene: chat, session: per_run}, skill: report, output: {type: object}, exit: [{kind: confirm}]}",
+            "name: chat\nstations:\n  - {id: one, executor: {kind: session, scene: harnix, session: per_run}, skill: analyze, output: {type: object}, exit: [{kind: confirm}]}\n  - {id: two, executor: {kind: session, scene: harnix, session: per_run}, skill: report, output: {type: object}, exit: [{kind: confirm}]}",
         )
 }
 

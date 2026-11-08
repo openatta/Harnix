@@ -498,6 +498,7 @@ mod tests {
                     model: model.to_string(),
                     max_tokens: 8192,
                     thinking_mode: ThinkingMode::Off,
+                    effort: None,
                     fallback_model: None,
                     cache_edits: vec![],
                     search_max_uses: None,

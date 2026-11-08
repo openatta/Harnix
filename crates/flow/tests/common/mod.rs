@@ -12,7 +12,7 @@ pub const T0: u64 = 1_000_000;
 /// Packs with a catalog covering every name the test flows use.
 pub fn packs() -> MemPacks {
     MemPacks::new()
-        .scene("chat")
+        .scene("harnix")
         .step("collect")
         .step("work")
         .step("check")

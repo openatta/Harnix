@@ -11,7 +11,7 @@
 
 | 术语 | 代码 | 意思 |
 |---|---|---|
-| **Agix**（原 AttaCore） | `agix/` | Agent 引擎。会话怎么跑、工具怎么派发、上下文怎么压缩，都是它的事 |
+| **Agix**（原 AttaCore） | `agix/` | Agent 引擎。会话怎么跑、工具怎么派发、上下文怎么压缩，都是它的事。Harnix 带着它；应用只经 `harnix::agent`、`harnix::scenes` 用到它的类型，问题与需求提给 Harnix |
 | **Harnix**（原 Nest） | `harnix` | Agix 应用的公共底座：中枢、授权、传输、装配、外壳 |
 | **应用** | app | 在 Harnix 上做出来的产品，例如 Helm、IPDrun。一个应用 = 一个二进制 + 一份界面产物 |
 | **空应用** | `harnix` 二进制（`crates/cli`） | 只带内建模块（和流程模块，xops-02）的应用，Harnix 自己发布的那个 |
@@ -113,8 +113,8 @@
 
 | 术语 | 代码 | 意思 |
 |---|---|---|
-| **子仓** | submodule | `agix/`（Agix）、`harnix/`（Harnix）。应用里两者平级 |
-| **钉** | pin | 子仓指针指向的提交。Harnix 钉一个 Agix；应用钉自己的 Agix 和 Harnix |
+| **子仓** | submodule | 应用只有一个：`harnix/`。它自己带 `agix/`（Agix），应用经 `--recursive` 取到、不单独引入 |
+| **钉** | pin | 子仓指针指向的提交。应用钉 Harnix；Harnix 钉 Agix，应用随之拿到同一份 |
 | **版本标识** | `Harnix-v<x.y.z>-<YYYYMMDD><NN>` | 发布的标签名，见 CLAUDE.md |
 | **模块 API 版本** | `MODULE_API_VERSION` | `Module` trait 的版本。不匹配编译失败 |
 | **贡献点 API 版本** | `[[ui]] api_version` | 界面模块照哪一版贡献点写的 |

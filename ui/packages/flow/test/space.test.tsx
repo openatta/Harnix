@@ -27,7 +27,7 @@ const DEF: FlowDef = {
   name: "example-review",
   title: "Example: review and approve",
   stations: [
-    { id: "review", executor: { kind: "session", scene: "flow-chat" }, skill: "review", output: { type: "object" }, exit: [{ kind: "output" }] },
+    { id: "review", executor: { kind: "session", scene: "flow-harnix" }, skill: "review", output: { type: "object" }, exit: [{ kind: "output" }] },
     { id: "approve", exit: [{ kind: "confirm" }], rework_to: ["review"] },
     { id: "sign", needs: ["approve"], executor: { kind: "external", who: "clerk" }, output: { type: "object" }, exit: [{ kind: "output" }] },
   ],
@@ -71,7 +71,7 @@ const DRY: RunView = {
             status: "submitted",
             attempt: 1,
             output: { summary: "" },
-            preview: { round: 1, attempt: 1, scene: "flow-chat", delivery: "flow_submit", message: "# Flow protocol\n\n## Skill `review`\nLook at the subject." },
+            preview: { round: 1, attempt: 1, scene: "flow-harnix", delivery: "flow_submit", message: "# Flow protocol\n\n## Skill `review`\nLook at the subject." },
           },
         ],
       },
@@ -686,7 +686,7 @@ describe("a station in a dry run", () => {
         <StationPanel station="review" def={DEF} view={DRY} />
       </NestProvider>,
     );
-    expect(screen.getByTestId("flow-preview-review").textContent).toContain("flow-chat · flow_submit");
+    expect(screen.getByTestId("flow-preview-review").textContent).toContain("flow-harnix · flow_submit");
     expect(screen.getByTestId("flow-preview-message-review").textContent).toContain("## Skill `review`");
   });
 
@@ -717,6 +717,19 @@ describe("a station in a dry run", () => {
       </NestProvider>,
     );
     expect(screen.queryByTestId("flow-hand-in-review")).toBeNull();
+  });
+
+  it("offers no hand-in while the station is held: its task is ready, but cannot be claimed until it is let in", () => {
+    const held: RunView = {
+      record: { ...DRY.record, stations: { ...DRY.record.stations, sign: { status: "held", round: 1, tasks: [{ id: "sign", status: "ready", attempt: 0 }] } } },
+    };
+    const fake = fakeHost();
+    render(
+      <NestProvider host={fake.host}>
+        <StationPanel station="sign" def={DEF} view={held} />
+      </NestProvider>,
+    );
+    expect(screen.queryByTestId("flow-hand-in-sign")).toBeNull();
   });
 });
 
@@ -838,7 +851,7 @@ describe("a changing tool call names what it acts on", () => {
   it("leaves a task session's settings entry undrawn", () => {
     const r = new Registry();
     registerFlowSpace(r);
-    const entry = { kind: "custom", type: "entry", data: { id: "e", ns: "app.flow", event: "session_settings", payload: { scene: "flow-chat" }, at: 0 } } as never;
+    const entry = { kind: "custom", type: "entry", data: { id: "e", ns: "app.flow", event: "session_settings", payload: { scene: "flow-harnix" }, at: 0 } } as never;
     expect(r.claim("flow.block", entry)).toBe(null);
   });
 });

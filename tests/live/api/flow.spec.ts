@@ -14,6 +14,7 @@ import { startTestApp } from "./testapp";
 
 const TAGS = { tag: ["@feature:flow", "@layer:api"] };
 const REFUSED = -31000;
+const INVALID = -32602;
 
 type View = { record: any; unmet: Record<string, any[]> };
 
@@ -25,7 +26,7 @@ test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
   backend = await startTestApp();
 });
-test.afterAll(() => backend?.stop());
+test.afterAll(async () => { await backend?.dispose(); });
 test.beforeEach(async () => {
   api = await connect(backend);
 });
@@ -77,7 +78,7 @@ test("the module says what it offers: flows, a definition with its parts, the ca
 
   const catalog = await api.call("app.flow.catalog");
   // The wrapped scene (flow_submit) and the application's own (structured output, xops-02 §2).
-  expect(catalog.scenes).toEqual(["flow-chat", "flow-coding", "structured-chat"]);
+  expect(catalog.scenes).toEqual(["flow-code", "flow-harnix", "flow-mini", "structured-harnix"]);
   expect(info.protocol.analyze).toContain("Refused unless a permission allows them: Bash, PowerShell, REPL, Write, Edit, NotebookEdit, TodoWrite");
   expect(catalog.steps).toEqual(["collect", "self-check"]);
   expect(catalog).toMatchObject({ checks: ["lint"], tools: ["open_high"], command_gates: true });
@@ -96,9 +97,9 @@ test("the module says what it offers: flows, a definition with its parts, the ca
   expect(problems.length).toBeGreaterThan(0);
   expect(JSON.stringify(problems)).toContain("nowhere");
   const unwrapped = await api.call("app.flow.validate", {
-    yaml: "name: bare\nstations: [{id: a, executor: {kind: session, scene: chat}, skill: analyze, output: {type: object}, exit: [{kind: output}]}]",
+    yaml: "name: bare\nstations: [{id: a, executor: {kind: session, scene: harnix}, skill: analyze, output: {type: object}, exit: [{kind: output}]}]",
   });
-  expect(JSON.stringify(unwrapped)).toContain("scene chat");
+  expect(JSON.stringify(unwrapped)).toContain("scene harnix");
 });
 
 test("lease tokens stay with their claimants, and push tasks are the flow's to hand in", TAGS, async () => {
@@ -119,6 +120,111 @@ test("lease tokens stay with their claimants, and push tasks are the flow's to h
   const hb = await api.call("app.flow.heartbeat", { run, station: "report", task: "sign", token, lease_ms: Number.MAX_SAFE_INTEGER });
   expect(hb.until).toBeLessThanOrEqual(Date.now() + 24 * 3600 * 1000 + 60_000);
   await api.call("app.flow.cancel", { run, reason: "done" });
+});
+
+test("a held station waits for its release; an external task that failed is retried and handed in", TAGS, async () => {
+  await api.call("app.flow.save", {
+    yaml: [
+      "name: held-external",
+      "stations:",
+      "  - id: sign",
+      "    hold: true",
+      "    executor: {kind: external, who: reviewer}",
+      "    output: {type: object}",
+      "    exit: [{kind: output}]",
+    ].join("\n"),
+  });
+  const run = await start("held-external");
+  await until(run, status("sign", "held"), "sign is held");
+  // Nothing can be claimed until the station is let in, and only a held one can be.
+  expect(await api.refused("app.flow.claim", { run, station: "sign", task: "sign" })).toBeTruthy();
+  await api.call("app.flow.release", { run, station: "sign" });
+  await until(run, status("sign", "working"), "sign is let in");
+  expect((await api.refused("app.flow.release", { run, station: "sign" }))?.code).toBe(INVALID);
+
+  // A task that has not failed cannot be retried; one claimed under another token cannot be failed.
+  expect((await api.refused("app.flow.retry", { run, station: "sign", task: "sign" }))?.code).toBe(INVALID);
+  const first = await api.call("app.flow.claim", { run, station: "sign", task: "sign" });
+  expect(await api.refused("app.flow.fail", { run, station: "sign", task: "sign", token: "nope", error: "x" })).toBeTruthy();
+  await api.call("app.flow.fail", { run, station: "sign", task: "sign", token: first.token, error: "the signer was away" });
+  const failed = await until(run, (v) => station(v, "sign")?.tasks?.[0]?.status === "failed", "the task failed");
+  expect(JSON.stringify(station(failed, "sign").tasks[0])).toContain("the signer was away");
+
+  await api.call("app.flow.retry", { run, station: "sign", task: "sign" });
+  await until(run, (v) => station(v, "sign")?.tasks?.[0]?.status === "ready", "the task is ready again");
+  const second = await api.call("app.flow.claim", { run, station: "sign", task: "sign" });
+  await api.call("app.flow.submit", { run, station: "sign", task: "sign", token: second.token, output: { signed: true } });
+  await until(run, (v) => v.record.status === "finished", "the run is finished");
+  await api.call("app.flow.delete", { name: "held-external" });
+});
+
+test("each run method refuses what it cannot do, and says which run, station or task", TAGS, async () => {
+  // Nothing of an unknown run.
+  const nowhere = { run: "no-such-run", station: "report", task: "sign" };
+  for (const [method, params] of [
+    ["app.flow.get", { run: nowhere.run }],
+    ["app.flow.claim", nowhere],
+    ["app.flow.heartbeat", { ...nowhere, token: "t" }],
+    ["app.flow.cancel", { run: nowhere.run, reason: "x" }],
+    ["app.flow.pause", { run: nowhere.run }],
+    ["app.flow.resume", { run: nowhere.run }],
+    ["app.flow.confirm", { run: nowhere.run, station: "review", pass: true }],
+    ["app.flow.rework", { run: nowhere.run, to: "analyze", reason: "x" }],
+    ["app.flow.sessions", { run: nowhere.run }],
+    ["app.flow.dry_run.step", { run: nowhere.run }],
+    ["app.flow.dry_run.run", { run: nowhere.run }],
+  ] as const) {
+    const e = await api.refused(method, params);
+    expect(e, `${method} answered for a run that does not exist`).toBeTruthy();
+    expect(JSON.stringify(e), method).toMatch(/no-such-run|not found|unknown/i);
+  }
+  // The one that answers: an unknown run's history is empty, where `get` says there is no such run.
+  expect(await api.call("app.flow.history", { run: nowhere.run })).toEqual([]);
+  // Nor an unknown flow, part or guide language.
+  expect(await api.refused("app.flow.start", { flow: "no-such-flow", subject: "x" })).toBeTruthy();
+  expect(await api.refused("app.flow.def", { name: "no-such-flow" })).toBeTruthy();
+  expect(await api.refused("app.flow.part", { kind: "skill", name: "no-such-skill" })).toBeTruthy();
+  expect(await api.refused("app.flow.part", { kind: "nothing", name: "x" })).toBeTruthy();
+  expect(await api.refused("app.flow.part.delete", { kind: "skill", name: "analyze" }), "a built-in part is not deleted").toBeTruthy();
+
+  // What a live run is not ready for.
+  const run = await start("demo-review");
+  await until(run, status("review", "working"), "review waits");
+  expect((await api.refused("app.flow.resume", { run }))?.code, "a run that is not paused").toBe(INVALID);
+  expect(await api.refused("app.flow.confirm", { run, station: "report", pass: true }), "a station not entered").toBeTruthy();
+  expect(await api.refused("app.flow.claim", { run, station: "analyze", task: "nope" }), "a task that does not exist").toBeTruthy();
+  expect(await api.refused("app.flow.rework", { run, to: "no-such-station", reason: "x" })).toBeTruthy();
+  expect(await api.refused("app.flow.cancel", { run }), "a cancel says why").toBeTruthy();
+  await api.call("app.flow.pause", { run });
+  expect((await api.refused("app.flow.pause", { run }))?.code, "paused twice").toBe(INVALID);
+  await api.call("app.flow.resume", { run });
+  await api.call("app.flow.cancel", { run, reason: "done" });
+  expect((await api.refused("app.flow.confirm", { run, station: "review", pass: true }))?.code, "a cancelled run").toBe(INVALID);
+});
+
+test("a client that unsubscribes is told no more; one still subscribed is", TAGS, async () => {
+  const run = await start("demo-review");
+  await until(run, status("review", "working"), "review waits");
+  const watcher = await connect(backend);
+  try {
+    await watcher.call("harnix.subscribe", { topic: "app.flow.run", params: { run } });
+    await watcher.call("harnix.subscribe", { topic: "app.flow.runs" });
+    await watcher.call("harnix.unsubscribe", { topic: "app.flow.run", params: { run } });
+    expect((await watcher.refused("harnix.unsubscribe", {}))?.code, "a topic is named").toBe(INVALID);
+    const mark = watcher.events.length;
+    await api.call("app.flow.cancel", { run, reason: "unsubscribed" });
+    // Both topics change with the cancel: the one still subscribed says so, the other stays quiet.
+    await watcher.waitFor(
+      (f) => f.method === "harnix.topic" && f.params.topic === "app.flow.runs"
+        && JSON.stringify(f.params.value).includes(run) && JSON.stringify(f.params.value).includes("cancelled"),
+      { describe: "the runs list to show the cancel" },
+    );
+    await until(run, (v) => v.record.status === "cancelled", "the run is cancelled");
+    const late = watcher.events.slice(mark).filter((f) => f.method === "harnix.topic" && f.params.topic === "app.flow.run");
+    expect(late, "a frame of the topic unsubscribed from").toEqual([]);
+  } finally {
+    watcher.close();
+  }
 });
 
 test("a session's write no permission allows is refused, its proposal is accepted once", TAGS, async () => {

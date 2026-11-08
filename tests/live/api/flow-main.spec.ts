@@ -6,7 +6,7 @@
  * `flow_submit`), and a confirmation. `draft` does not allow the write, `edit` does — the flow
  * answers the main session's question each time from the station being worked on.
  *
- * `demo-agent`: a sub-agent station; the main session is on `flow-coding` in a directory of the
+ * `demo-agent`: a sub-agent station; the main session is on `flow-harnix` in a directory of the
  * run's, and replays `flow-agent` (an `Agent` call named by the task's tag, then `flow_submit`).
  *
  * Also: pause and resume, each station's time and tokens, a run's sessions, a flow's own
@@ -29,7 +29,7 @@ test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
   backend = await startTestApp();
 });
-test.afterAll(() => backend?.stop());
+test.afterAll(async () => { await backend?.dispose(); });
 test.beforeEach(async () => {
   api = await connect(backend);
 });
@@ -126,7 +126,7 @@ test("a sub-agent station: the main Agent hands the task to a sub-agent of the m
   expect(station(v, "check").tasks[0].output).toEqual({ files: ["README.md"] });
   const session = main(v)!;
   const info = await api.call("session.get", ref(session));
-  expect(info.scene).toBe("flow-coding");
+  expect(info.scene).toBe("flow-harnix");
   const { messages } = await api.call("session.history", ref(session));
   expect(JSON.stringify(messages)).toContain("flow:demo-agent-1/check/check");
   const sessions = await api.call("app.flow.sessions", { run });

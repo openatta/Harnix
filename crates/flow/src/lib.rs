@@ -62,6 +62,6 @@ pub use kernel::schema::minimal;
 pub use kernel::validate::{part_problems, validate, validate_yaml, Problem};
 pub use kernel::{FlowError, Result};
 #[cfg(feature = "module")]
-pub use module::{Flow, FlowBuilder, FlowHandle};
+pub use module::{builtin_scenes, Flow, FlowBuilder, FlowHandle};
 pub use packs::{DirPacks, MemPacks};
 pub use store::{FileStore, MemStore};

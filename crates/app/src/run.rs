@@ -198,6 +198,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         recordings_root: Some(engine.recordings_root.clone()),
         history: engine.history.clone(),
         active_scenes: engine.active_scenes.clone(),
+        scene: Some(engine.scene.clone()),
         model: Some(engine.model.clone()),
         has_credentials: engine.has_credentials,
     };

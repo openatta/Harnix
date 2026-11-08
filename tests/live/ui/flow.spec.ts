@@ -395,13 +395,12 @@ test("the reference tab: the guide, the catalog and the fields; an example start
   await expect(guide).toContainText(/Flow guide|流程指南/);
   await expect(guide.locator("table").first()).toBeVisible();
   await expect(page.getByTestId("flow-guide-example-2")).toBeVisible();
-  await expect(page.getByTestId("flow-catalog-scenes")).toContainText("flow-chat");
+  await expect(page.getByTestId("flow-catalog-scenes")).toContainText("flow-harnix");
   await expect(page.getByTestId("flow-catalog-part-rule")).toContainText("review-honest");
   await expect(page.getByTestId("flow-catalog-part-policy")).toContainText("read-only");
   // The reference has nothing beside the conversation.
   await expect(page.locator("#secondary")).toHaveCount(0);
   await expect(page.getByTestId("flow-ref-fields")).toContainText("stations");
-  await expect(page.getByTestId("flow-validate-box")).toHaveCount(0);
   // The reference talks in the general conversation.
   const general = await conversationOf(page);
   await expect.poll(() => current(page)).toBe(general);

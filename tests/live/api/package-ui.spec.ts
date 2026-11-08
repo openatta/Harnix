@@ -39,9 +39,9 @@ test.describe("runtime modules on", () => {
     await install(api, backend, "demo-rows");
     await install(api, backend, "demo-rows-v2");
   });
-  test.afterAll(() => {
+  test.afterAll(async () => {
     api?.close();
-    backend?.stop();
+    await backend?.dispose();
   });
 
   test("a v2 module is offered and served; a v1 one does not take, and says why", TAGS, async () => {
@@ -86,6 +86,52 @@ test.describe("runtime modules on", () => {
   });
 });
 
+test.describe("a package's lifecycle", () => {
+  let backend: Backend;
+  let api: TestClient;
+  test.beforeAll(async () => {
+    backend = await startHarnix(launchFor("replay"));
+    api = await connect(backend);
+    await install(api, backend, "demo-rows-v2");
+  });
+  test.afterAll(async () => {
+    api?.close();
+    await backend?.dispose();
+  });
+
+  /** What a fresh client is told to load, and whether the module is served. */
+  async function offered(): Promise<{ contributions: any[]; served: number }> {
+    const fresh = await connect(backend);
+    try {
+      const { contributions } = await fresh.call("harnix.hello");
+      const served = (await fetch(new URL("plugins/demo-rows-v2/ui/rows.js", backend.url))).status;
+      return { contributions, served };
+    } finally {
+      fresh.close();
+    }
+  }
+
+  test("disabled, its interface module is neither offered nor served; enabled, both again; uninstalled, gone", TAGS, async () => {
+    expect(await offered()).toMatchObject({ contributions: [{ plugin: "demo-rows-v2" }], served: 200 });
+
+    await api.call("harnix.plugins.disable", { name: "demo-rows-v2" });
+    const disabled = await offered();
+    expect(disabled.contributions).toEqual([]);
+    expect(disabled.served).not.toBe(200);
+    const listed = (await api.call("harnix.plugins.list")).plugins.find((p: any) => p.name === "demo-rows-v2");
+    expect(listed, "a disabled package is still installed").toBeTruthy();
+
+    await api.call("harnix.plugins.enable", { name: "demo-rows-v2" });
+    expect(await offered()).toMatchObject({ contributions: [{ plugin: "demo-rows-v2" }], served: 200 });
+
+    await api.call("harnix.plugins.uninstall", { name: "demo-rows-v2" });
+    const gone = await offered();
+    expect(gone.contributions).toEqual([]);
+    expect(gone.served).not.toBe(200);
+    expect((await api.call("harnix.plugins.list")).plugins.some((p: any) => p.name === "demo-rows-v2")).toBe(false);
+  });
+});
+
 test.describe("runtime modules off", () => {
   let backend: Backend;
   let api: TestClient;
@@ -94,9 +140,9 @@ test.describe("runtime modules off", () => {
     api = await connect(backend);
     await install(api, backend, "demo-rows-v2");
   });
-  test.afterAll(() => {
+  test.afterAll(async () => {
     api?.close();
-    backend?.stop();
+    await backend?.dispose();
   });
 
   test("with the switch off, no package's interface module is offered or served", TAGS, async () => {

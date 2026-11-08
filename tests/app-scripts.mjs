@@ -2,7 +2,7 @@
 //
 // Each one is shown a drift made on purpose, in a scratch directory, and has
 // to say so: sync-app-deps a hand-edited block, check-lock a version that
-// moved, check-pins an agix/ commit no remote has.
+// moved, check-pins an engine commit no remote has.
 
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, realpathSync as realpath, rmSync, writeFileSync, mkdirSync } from "node:fs";
@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { block, rewrite } from "../scripts/sync-app-deps.mjs";
+import { MOVE_HINT, block, rewrite } from "../scripts/sync-app-deps.mjs";
 import { drift } from "../scripts/check-lock.mjs";
 import { judge } from "../scripts/check-pins.mjs";
 
@@ -26,8 +26,10 @@ const synced = rewrite(template, block());
 expect(synced.includes('harnix-hub       = { path = "harnix/crates/hub" }'),
   "sync-app-deps rebases Harnix's crates on the application root",
   "the generated block does not point at harnix/crates");
-expect(synced.includes('daemon    = { path = "agix/daemon" }'),
-  "and leaves agix/ where it sits, beside harnix/", "agix/ was rebased");
+expect(synced.includes('daemon    = { path = "harnix/agix/daemon" }'),
+  "and finds the engine inside harnix/, which brings it", "the engine is not under harnix/agix");
+expect(block(undefined, { engine: "agix" }).includes('daemon    = { path = "agix/daemon" }'),
+  "an application still on the old layout keeps its own agix/ paths", "the old layout lost its paths");
 expect(rewrite(synced, block()) === synced, "and writing it twice changes nothing", "the block is not stable");
 const tampered = synced.replace('tokio = { version = "1"', 'tokio = { version = "0.2"');
 expect(rewrite(tampered, block()) !== tampered,
@@ -51,24 +53,24 @@ const commit = (repo, message) => {
   return sh(repo, "rev-parse", "HEAD");
 };
 try {
-  // Agix upstream with two commits, and the application's clone of it.
+  // The engine's upstream with two commits; Harnix pins a1, and its commit is on its remote.
   const agixUp = join(scratch, "agix-up");
   mkdirSync(agixUp);
   sh(agixUp, "init", "-q", "-b", "main");
   const a1 = commit(agixUp, "a1");
   const a2 = commit(agixUp, "a2");
-  const app = join(scratch, "app");
-  mkdirSync(app);
-  execFileSync("git", ["clone", "-q", agixUp, join(app, "agix")]);
-  // Harnix pins a1, and its commit is on its remote.
   const harnixUp = join(scratch, "harnix-up");
   mkdirSync(harnixUp);
   sh(harnixUp, "init", "-q", "-b", "main");
   sh(harnixUp, "update-index", "--add", "--cacheinfo", `160000,${a1},agix`);
   commit(harnixUp, "harnix pins a1");
-  execFileSync("git", ["clone", "-q", harnixUp, join(app, "harnix")]);
 
-  const agix = join(app, "agix");
+  // An application: one submodule, harnix/, with the engine checked out inside it.
+  const app = join(scratch, "app");
+  mkdirSync(app);
+  execFileSync("git", ["clone", "-q", harnixUp, join(app, "harnix")]);
+  const agix = join(app, "harnix", "agix");
+  execFileSync("git", ["clone", "-q", agixUp, agix]);
   sh(agix, "checkout", "-q", a1);
   let verdict = judge(app);
   expect(!verdict.problems.length && !verdict.warnings.length, "check-pins: the same pin passes",
@@ -83,7 +85,7 @@ try {
 
   commit(agix, "local only");
   verdict = judge(app);
-  expect(verdict.problems.some((p) => p.includes("no Agix remote")),
+  expect(verdict.problems.some((p) => p.includes("no engine remote")),
     "check-pins: a commit only this machine has fails", `got ${JSON.stringify(verdict)}`);
 
   sh(agix, "checkout", "-q", a1);
@@ -91,6 +93,18 @@ try {
   verdict = judge(app);
   expect(verdict.problems.some((p) => p.includes("no Harnix remote")),
     "check-pins: a harnix/ pointer no remote has fails", `got ${JSON.stringify(verdict)}`);
+
+  // An application on the old layout: its own agix/ beside harnix/ is judged the same way,
+  // and it is told to move.
+  const old = join(scratch, "old");
+  mkdirSync(old);
+  execFileSync("git", ["clone", "-q", harnixUp, join(old, "harnix")]);
+  execFileSync("git", ["clone", "-q", agixUp, join(old, "agix")]);
+  sh(join(old, "agix"), "checkout", "-q", a1);
+  writeFileSync(join(old, "agix", "Cargo.toml"), "");
+  verdict = judge(old);
+  expect(!verdict.problems.length && verdict.warnings.length === 1 && verdict.warnings[0] === MOVE_HINT,
+    "check-pins: the old layout still passes, and is told how to move", `got ${JSON.stringify(verdict)}`);
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }

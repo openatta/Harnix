@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { defineSuite, finish } from "@harnix/testkit";
+import { defineSuite, finish, inconclusive } from "@harnix/testkit";
 
 const assert = (cond, message) => { if (!cond) throw new Error(message); };
 
@@ -151,6 +151,32 @@ defineSuite("workspaces", { feature: "session-space" }, {
       await client.call("harnix.prefs.set", { key: "grouping", value: "recent" });
       const { prefs } = await client.call("harnix.workspaces.list");
       assert(prefs.grouping === "recent", `prefs are ${JSON.stringify(prefs)}`);
+    },
+
+    "search finds a session by what was said in it, and says where": async ({ client, model, replay }) => {
+      if (!model && !replay) inconclusive("no model and no recordings: nothing is said to search for");
+      const created = await client.call("session.create", { options: { recorder: { name: "says-ready" } } });
+      await client.call("harnix.attach", { session_id: created.session_id });
+      await client.call("harnix.send", { session_id: created.session_id, message: "Say exactly: fixture ready" });
+      await client.waitFor((f) => f.method === "harnix.turn_settled" && f.params.session_id === created.session_id,
+        { timeout: 60_000, describe: "the turn to settle" });
+      try {
+        // The transcript is written after the turn settles: wait for it rather than for the clock.
+        let hit = null;
+        for (let i = 0; i < 50 && !hit; i += 1) {
+          const { hits } = await client.call("harnix.search", { query: "fixture ready" });
+          hit = hits.find((h) => h.session_id === created.session_id);
+          if (!hit) await new Promise((r) => setTimeout(r, 100));
+        }
+        assert(hit, "the session that said it is not among the hits");
+        assert(/fixture ready/i.test(hit.snippet), `the snippet is "${hit.snippet}"`);
+        const one = await client.call("harnix.search", { query: "fixture ready", limit: 1 });
+        assert(one.hits.length <= 1, `limit 1 gave ${one.hits.length} hits`);
+        const missing = await client.refused("harnix.search", {});
+        assert(missing, "a search without a query answered");
+      } finally {
+        await finish(client, created.session_id);
+      }
     },
 
     "search answers on an empty corpus without failing": async ({ client }) => {

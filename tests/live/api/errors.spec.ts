@@ -20,7 +20,7 @@
 //      project". A client that cannot tell them apart reports the wrong bug.
 
 import { INVALID_PARAMS, METHOD_NOT_FOUND, REFUSED } from "@harnix/core/protocol";
-import { defineSuite, finish } from "@harnix/testkit";
+import { defineSuite, finish, inconclusive } from "@harnix/testkit";
 
 const assert = (cond, message) => { if (!cond) throw new Error(message); };
 
@@ -120,7 +120,7 @@ defineSuite("errors", { feature: "connection" }, {
           const params = { session_id: missing };
           if (method === "harnix.sessions.rename") params.name = "x";
           if (method === "harnix.sessions.archive") params.archived = true;
-          if (method === "session.resume") params.scene = "coding";
+          if (method === "session.resume") params.scene = "harnix";
           const e = await client.refused(method, params);
           refusals.push([method, e]);
         }
@@ -182,7 +182,7 @@ defineSuite("errors", { feature: "connection" }, {
       async ({ client }) => {
         const { scenes } = await client.call("scene.list");
         const needsProject = scenes.find((s) => s.requires_project && s.active);
-        if (!needsProject) return;
+        if (!needsProject) inconclusive("no active scene here needs a project");
         const e = await client.refused("session.create",
           { scene: needsProject.scene, project_root: null });
         assert(e, "a project-requiring scene created a session without one");
@@ -192,7 +192,7 @@ defineSuite("errors", { feature: "connection" }, {
     "a scene that is not active is refused by name": async ({ client }) => {
       const { scenes } = await client.call("scene.list");
       const inactive = scenes.find((s) => !s.active);
-      if (!inactive) return;
+      if (!inactive) inconclusive("every scene here is active");
       const e = await client.refused("session.create", { scene: inactive.scene });
       assert(e, `creating in inactive scene ${inactive.scene} succeeded`);
       assert(e.message.includes(inactive.scene), `does not name the scene: "${e.message}"`);

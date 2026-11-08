@@ -478,6 +478,7 @@ impl Hub {
             "engine": {
                 "model": facts.model,
                 "active_scenes": facts.active_scenes,
+                "scene": facts.scene,
                 "data_root": facts.data_root.display().to_string(),
                 "has_credentials": facts.has_credentials,
                 "status": status,

@@ -49,6 +49,9 @@ impl Builtin {
         if name == "harnix.system.trace.call" {
             return self.trace_call(params).await;
         }
+        if name == "harnix.system.context" {
+            return self.inspect_context(params).await;
+        }
         let Some((_, method, keys)) = ENGINE.iter().find(|(n, _, _)| *n == name) else {
             return Err(RpcError::not_found(format!(
                 "`{name}` is not a system method"
@@ -68,6 +71,29 @@ impl Builtin {
 }
 
 impl Builtin {
+    /// `harnix.system.context {instance?, session_id}`: the engine's `session.inspectContext` — what
+    /// the next call will carry, per block, its token counts estimated — with `measured`: what the
+    /// provider counted for the last call that was made (`session.get`'s `context`), absent before
+    /// the first one. The interface sizes the bar by the measured figure and only divides it by the
+    /// estimates, so an estimate never passes for a count.
+    async fn inspect_context(&self, params: Value) -> Result<Value, RpcError> {
+        let target = json!({
+            "instance": params.get("instance").cloned().unwrap_or(json!(harnix_contract::SYSTEM_INSTANCE)),
+            "session_id": require_session_id(&params)?,
+        });
+        let mut context = self.call("system", "session.inspectContext", target.clone()).await?;
+        let measured = self
+            .call("system", "session.get", target)
+            .await
+            .ok()
+            .and_then(|info| info.get("context").cloned())
+            .filter(|c| c.get("tokens").and_then(Value::as_u64).is_some_and(|n| n > 0));
+        if let (Some(measured), Some(obj)) = (measured, context.as_object_mut()) {
+            obj.insert("measured".into(), measured);
+        }
+        Ok(context)
+    }
+
     /// `harnix.sessions.setModel { instance?, session_id, model, provider?, space? }`: the engine's
     /// `session.setModel` on a session of the space the caller claims (the session space when it
     /// claims none), checked the way the hub checks a session call. Never across spaces — that is

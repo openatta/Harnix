@@ -26,7 +26,7 @@ test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
   backend = await startTestApp();
 });
-test.afterAll(() => backend?.stop());
+test.afterAll(async () => { await backend?.dispose(); });
 test.beforeEach(async () => {
   api = await connect(backend);
 });
@@ -210,7 +210,7 @@ test("a dry run opens no session, runs to a person, takes their part through the
   const preview = st.analyze.tasks[0].preview;
   expect(preview.message).toContain("Flow protocol");
   expect(preview.message).toContain("## Skill `analyze`");
-  expect(preview).toMatchObject({ scene: "flow-chat", delivery: "flow_submit", round: 1 });
+  expect(preview).toMatchObject({ scene: "flow-harnix", delivery: "flow_submit", round: 1 });
   // The same on its topic.
   expect((await topic("run", { run })).record.stations.analyze.tasks[0].preview.message).toBe(preview.message);
 

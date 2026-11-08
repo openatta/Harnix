@@ -95,8 +95,10 @@ agix/             Agix (submodule)
 
 ## Building on Harnix
 
-Copy `templates/app`, add `agix/` and `harnix/` as sibling submodules, and follow the
-[SDK guide](docs/harnix-sdk.md); every interface is listed in the [SDK reference](docs/harnix-sdk-reference.md).
+Copy `templates/app`, add `harnix/` as its one submodule (`git submodule update --init --recursive` brings
+what Harnix is built on), and follow the [SDK guide](docs/harnix-sdk.md); every interface is listed in the
+[SDK reference](docs/harnix-sdk-reference.md). An application names only Harnix — the crate `harnix`, the
+`@harnix/*` packages — and takes its problems and requests to Harnix's issues.
 `examples/hello-app` is a complete application: two spaces, its own instance, a long job with a result
 card, its own HTTP route and WebSocket, an approval card and a brand.
 

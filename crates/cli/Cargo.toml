@@ -16,6 +16,5 @@ path = "src/main.rs"
 [dependencies]
 harnix      = { workspace = true }
 harnix-flow = { workspace = true }
-scene       = { workspace = true }
 anyhow      = { workspace = true }
 

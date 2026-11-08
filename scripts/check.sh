@@ -166,7 +166,7 @@ live() { HARNIX_BIN="$root/target/release/harnix" node tests/live/run.mjs "$@"; 
 run_api() {
   for topology in single_duplex split_streams; do
     echo "── replayed · $topology ──"
-    live --project api --topology "$topology" || return 1
+    HARNIX_COVERAGE_GATE=1 live --project api --topology "$topology" || return 1
   done
 }
 
@@ -196,7 +196,7 @@ host = "127.0.0.1"
 port = $PORT_UI
 EOF
   set -a; . ./.env; set +a
-  HARNIX_STATE_DIR="$scratch/state" target/release/harnix --profile "$scratch/profile.toml" --scenes chat \
+  HARNIX_STATE_DIR="$scratch/state" target/release/harnix --profile "$scratch/profile.toml" --scenes harnix \
     --ui-dir ui/dist --agix-dir "$scratch/atta" --data-dir "$scratch/projects" \
     > "$scratch/backend.log" 2>&1 &
   backend_pid=$!

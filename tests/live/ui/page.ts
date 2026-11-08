@@ -35,7 +35,7 @@ export async function newSession(page: Page, fixture: string, projectRoot?: stri
   const id = await page.evaluate(
     async ({ name, root }) => {
       const { app } = (window as unknown as { harnix: { app: any } }).harnix;
-      const params: Record<string, unknown> = { scene: "coding", options: { recorder: { name } } };
+      const params: Record<string, unknown> = { scene: "harnix", options: { recorder: { name } } };
       if (root) params.project_root = root;
       try {
         await app.create(params);

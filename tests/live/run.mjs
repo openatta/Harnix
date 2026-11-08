@@ -3,6 +3,7 @@
 //   --live                 the model in `.env` instead of the recordings
 //   --no-model             nothing model-shaped
 //   --topology <t>         what the API suites speak (single_duplex by default)
+//   --strict               replayed calls that no longer match their recording fail
 //
 // Everything else goes to `playwright test` as is.
 
@@ -18,6 +19,7 @@ for (let i = 0; i < argv.length; i += 1) {
   if (a === "--live") env.HARNIX_MODEL = "live";
   else if (a === "--no-model") env.HARNIX_MODEL = "none";
   else if (a === "--topology") env.HARNIX_TOPOLOGY = argv[++i];
+  else if (a === "--strict") env.HARNIX_REPLAY_STRICT = "1";
   else rest.push(a);
 }
 const result = spawnSync("pnpm", ["exec", "playwright", "test", ...rest], {

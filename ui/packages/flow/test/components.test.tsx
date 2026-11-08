@@ -30,7 +30,7 @@ const DEF: FlowDef = {
     {
       id: "analyze",
       foreach: "${stations.collect.output.modules}",
-      executor: { kind: "session", scene: "flow-chat" },
+      executor: { kind: "session", scene: "flow-harnix" },
       skill: "analyze",
       output: { type: "object", required: ["findings"] },
       exit: [{ kind: "output" }],

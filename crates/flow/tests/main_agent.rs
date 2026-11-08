@@ -28,12 +28,12 @@ stations:
 fn h() -> H {
     let mut h = harness(
         packs()
-            .main_scene("flow-chat")
+            .main_scene("flow-harnix")
             .flow(MAIN)
             .flow(EACH)
             .flow("name: ext\nstations: [{id: x, executor: {kind: external}, output: {type: object}, exit: [{kind: output}]}, {id: y, exit: [{kind: confirm}]}]"),
     );
-    h.eng = h.eng.with_main_scene("flow-chat").with_guarded(vec!["Write".to_string(), "Bash".to_string()]);
+    h.eng = h.eng.with_main_scene("flow-harnix").with_guarded(vec!["Write".to_string(), "Bash".to_string()]);
     h
 }
 
@@ -62,7 +62,7 @@ async fn a_station_without_a_scene_and_a_sub_agent_take_turns_in_the_main_sessio
         unreachable!()
     };
     assert_eq!(session_key.as_deref(), Some(MAIN_SESSION_KEY));
-    assert_eq!(scene.as_deref(), Some("flow-chat"));
+    assert_eq!(scene.as_deref(), Some("flow-harnix"));
     assert_eq!(*delivery, Some(Delivery::FlowSubmit));
     assert_eq!(placement.as_ref().unwrap().model.as_deref(), Some("big"));
     assert!(protocol.as_ref().unwrap().contains("main agent"));
@@ -100,7 +100,7 @@ async fn a_task_in_the_main_session_takes_its_place_from_the_flow() {
             "from the flow's `main`",
         ),
         (
-            "name: b\nstations: [{id: s, executor: {kind: session, scene: chat, session: main}, skill: analyze, output: {type: object}, exit: [{kind: output}]}]",
+            "name: b\nstations: [{id: s, executor: {kind: session, scene: harnix, session: main}, skill: analyze, output: {type: object}, exit: [{kind: output}]}]",
             "from the flow's `main`",
         ),
         (
@@ -108,7 +108,7 @@ async fn a_task_in_the_main_session_takes_its_place_from_the_flow() {
             "needs an output contract",
         ),
         (
-            "name: d\nmain: {scene: chat}\nstations: [{id: s, executor: {kind: session}, skill: analyze, output: {type: object}, exit: [{kind: output}]}]",
+            "name: d\nmain: {scene: harnix}\nstations: [{id: s, executor: {kind: session}, skill: analyze, output: {type: object}, exit: [{kind: output}]}]",
             "does not hand in with flow_submit",
         ),
         (
@@ -116,7 +116,7 @@ async fn a_task_in_the_main_session_takes_its_place_from_the_flow() {
             "an instance or a template",
         ),
         (
-            "name: f\nstations: [{id: s, tasks: [{id: x, executor: {kind: session, scene: chat, session: {key: '@${run}'}}, skill: analyze}], output: {type: object}, exit: [{kind: output}]}]",
+            "name: f\nstations: [{id: s, tasks: [{id: x, executor: {kind: session, scene: harnix, session: {key: '@${run}'}}, skill: analyze}], output: {type: object}, exit: [{kind: output}]}]",
             "cannot start with `@`",
         ),
     ] {
@@ -127,11 +127,11 @@ async fn a_task_in_the_main_session_takes_its_place_from_the_flow() {
         );
     }
     // Without a main scene anywhere, tasks in the main session have nowhere to go.
-    let bare = harness(packs().submit_scene("flow-chat"));
+    let bare = harness(packs().submit_scene("flow-harnix"));
     let problems = bare.eng.validate("name: g\nstations: [{id: s, executor: {kind: session}, skill: analyze, output: {type: object}, exit: [{kind: output}]}]").await;
     assert!(problems.iter().any(|p| p.message.contains("no main scene")), "{problems:?}");
     // A scene written: a session of its own, as before.
-    let own = h.eng.validate("name: h\nstations: [{id: s, executor: {kind: session, scene: chat}, skill: analyze, output: {type: object}, exit: [{kind: output}]}]").await;
+    let own = h.eng.validate("name: h\nstations: [{id: s, executor: {kind: session, scene: harnix}, skill: analyze, output: {type: object}, exit: [{kind: output}]}]").await;
     assert!(own.is_empty(), "{own:?}");
 }
 
@@ -241,8 +241,7 @@ async fn the_main_session_is_recorded_once() {
 #[test]
 fn the_guides_examples_are_valid_flows() {
     let packs = packs()
-        .main_scene("flow-chat")
-        .submit_scene("flow-coding")
+        .main_scene("flow-harnix")
         .check("ci")
         .gate_def("{name: ci, kind: host}")
         .rule("no-secrets", "# No secrets\n\nNever paste keys.")

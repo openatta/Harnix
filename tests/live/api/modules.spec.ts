@@ -23,7 +23,7 @@ let api: TestClient;
 test.beforeAll(async () => {
   backend = await startTestApp();
 });
-test.afterAll(() => backend?.stop());
+test.afterAll(async () => { await backend?.dispose(); });
 test.beforeEach(async () => {
   api = await connect(backend);
 });

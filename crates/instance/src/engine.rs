@@ -52,7 +52,7 @@ pub struct EngineConfig {
 impl Default for EngineConfig {
     fn default() -> Self {
         Self {
-            scene: "coding".to_string(),
+            scene: "harnix".to_string(),
             scenes: Vec::new(),
             model: "claude-sonnet-4-6".to_string(),
             max_tokens: 2000,
@@ -84,6 +84,8 @@ pub struct Engine {
     pub cancel: CancellationToken,
     /// Scenes actually active after startup, sorted.
     pub active_scenes: Vec<String>,
+    /// The scene a session that names none is created in.
+    pub scene: String,
     /// The model name sessions get with nothing overriding it.
     pub model: String,
     /// Whether an `ANTHROPIC_*` key was found at startup. False, with no
@@ -129,11 +131,27 @@ fn active_scenes(scene: &str, scenes: &[String]) -> Vec<String> {
     all
 }
 
+/// What modules contribute, and Agix's `harnix` scene attended unless a module contributes one
+/// under that id itself.
+fn host_scenes(
+    contributed: &[Arc<dyn base::interface::scene::Scene>],
+) -> Vec<Arc<dyn base::interface::scene::Scene>> {
+    let mut scenes = contributed.to_vec();
+    if !scenes
+        .iter()
+        .any(|s| s.id() == crate::attended::ATTENDED_SCENE)
+    {
+        scenes.push(Arc::new(crate::attended::Attended::harnix()));
+    }
+    scenes
+}
+
 pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
-    let scene = resolve_scene(&config.scene, &config.contrib.scenes)?;
+    let host_scenes = host_scenes(&config.contrib.scenes);
+    let scene = resolve_scene(&config.scene, &host_scenes)?;
     let scope = scene.id().to_string();
     for extra in &config.scenes {
-        resolve_scene(extra, &config.contrib.scenes)?; // fail before any state is touched
+        resolve_scene(extra, &host_scenes)?; // fail before any state is touched
     }
 
     let cwd = config
@@ -240,7 +258,7 @@ pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
         Assembly {
             cwd: Some(cwd),
             extra_scenes: config.scenes.clone(),
-            scenes: config.contrib.scenes.clone(),
+            scenes: host_scenes,
             permission_prompt_timeout: std::time::Duration::from_secs(
                 config.permission_prompt_timeout_secs,
             ),
@@ -265,6 +283,7 @@ pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
         pool,
         cancel,
         active_scenes: active_scenes(&config.scene, &config.scenes),
+        scene: scope,
         model: model_name,
         has_credentials,
     })

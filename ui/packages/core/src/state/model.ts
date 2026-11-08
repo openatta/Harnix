@@ -55,7 +55,11 @@ export type Block =
     }
   | { key: number; kind: "ask"; prompt: PromptEvent; deadline: number; answered?: AskAnswer }
   | { key: number; kind: "note"; text: string; tone: NoteTone }
-  | { key: number; kind: "context"; text: string }
+  /**
+   * 注入进对话、不是人说的话：提醒、召回、技能指令，或者压缩留下的摘要。`compact` 说它是一次压缩：实时看到的带上压缩前后的
+   * 消息数与估计省下的 token（`compact_action`），从历史读回来的只有摘要。
+   */
+  | { key: number; kind: "context"; text: string; compact?: CompactFacts }
   | { key: number; kind: "image"; src: string }
   | { key: number; kind: "agent"; id: string; label: string; state: "running" | "complete"; lines: AgentLine[] }
   /**
@@ -65,6 +69,12 @@ export type Block =
   | { key: number; kind: "custom"; type: string; data: unknown; at?: number };
 
 export type NoteTone = "info" | "error" | "interrupted" | "stop";
+/** 一次压缩：前后各几条消息、估计省了多少 token。从历史读回来的不知道这些。 */
+export interface CompactFacts {
+  before?: number;
+  after?: number;
+  saved?: number;
+}
 /** 权限卡的结局：允许、拒绝、超时（引擎超时即按拒绝处理）。 */
 export type AskAnswer = "allow" | "deny" | "timeout";
 export interface AgentLine {
@@ -309,7 +319,7 @@ export function applyHistoryMessage(state: SessionState, message: HistoryMessage
       // 注入的上下文（提醒、召回的记忆、skill 的指令、压缩的摘要）记成 user 消息。它不是用户说的，不给气泡；
       // 但丢掉会歪曲模型是根据什么回答的，所以变成一行可展开的。
       if (message.role === "user" && isInjected(message, text)) {
-        next = push(next, { kind: "context", text })[0];
+        next = push(next, message.origin === "compact" ? { kind: "context", text, compact: {} } : { kind: "context", text })[0];
         continue;
       }
       next = push(
@@ -521,6 +531,17 @@ export function applyEvent(state: SessionState, event: EngineEvent, options: App
 
     case "subagent_progress":
       return subagentEvent(state, event as never);
+
+    // 一轮里发生了压缩。摘要在 transcript 里，重新打开时由历史画；这里只说压了多少。
+    case "compact_action": {
+      const done = event as { messages_before?: number; messages_after?: number; estimated_tokens_saved?: number | null };
+      const facts: CompactFacts = {
+        before: done.messages_before,
+        after: done.messages_after,
+        ...(done.estimated_tokens_saved ? { saved: done.estimated_tokens_saved } : {}),
+      };
+      return push(endStream(state, now), { kind: "context", text: "", compact: facts })[0];
+    }
 
     case "extension_entry": {
       const entry = (event as { entry?: SessionEntry }).entry;

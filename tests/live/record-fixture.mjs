@@ -66,7 +66,7 @@ ws.onmessage = (e) => {
 await new Promise((r) => { ws.onopen = r; });
 await call("harnix.handshake", { protocol_version: PROTOCOL_VERSION, contrib_api_version: CONTRIB_API_VERSION, topology: "single_duplex" });
 
-const session = await call("session.create", { scene: "coding", project_root: project });
+const session = await call("session.create", { scene: "code", project_root: project });
 await call("harnix.attach", { session_id: session.session_id });
 await call("harnix.send", { session_id: session.session_id, message: prompt });
 

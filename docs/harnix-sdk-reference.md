@@ -2,8 +2,7 @@
 
 > 读者：在 Harnix 上做应用的人，以及在 Helm、IPDrun 里做迁移分析的人（包括 Agent）。
 >
-> **这份参考写的是已经落地的接口**，对照的是 0.4 的全部里程碑（M0–M9），Agix 钉在
-> `Agix-v0.3.2-2026110503`。怎么用、为什么这样用见 [二开指南](harnix-sdk.md)；用词照 [术语](glossary.md)。
+> **这份参考写的是已经落地的接口**，对照的是 0.4 的全部里程碑（M0–M9）。怎么用、为什么这样用见 [二开指南](harnix-sdk.md)；用词照 [术语](glossary.md)。
 >
 > 写法：签名照抄代码；默认值照抄代码。代码和这里对不上时以代码为准，并且这里是错的，要改。
 
@@ -18,7 +17,7 @@
 | 贡献点 API | `2` | `harnix::CONTRIB_API_VERSION`；`harnix.hello` 里也有 | 贡献点的契约变了。2：运行期包的界面模块是预编译的 ES 模块，从页面的 import map 拿 React；**React 的大版本是它的一部分** |
 | 协议 | `4` | `harnix_contract::PROTOCOL_VERSION` | 握手比对，不一致拒绝（`HANDSHAKE_REFUSED`） |
 
-`<app> --version` 打印上面全部，加上 Agix 的版本。0.4.z 内协议与模块 API 只做加法。
+`<app> --version` 打印上面全部，加上引擎的版本。0.4.z 内协议与模块 API 只做加法。
 
 ---
 
@@ -89,9 +88,10 @@ pub trait Module: Send + Sync + 'static {
 | `SpaceRegistry` | `s.add(SpaceDecl::new(id).instance("template:<模块>.<模板>" \| "<实例 id>").scene(scene))`。不声明：`system` 实例、实例的默认场景 |
 | `InstanceTemplates` | `t.add(InstanceTemplate::new(id, carrier).data_root(pattern).param(name).ui().max(n).inherit_providers())`。`inherit_providers()`：这个模板的实例也看得到 `system` 的 provider（设置页配的）——建实例时、以及每次 `harnix.settings.setProvider` 之后，Harnix 把它们并进实例数据根的 `settings.json`（0600）再让它 `config.reload`；Harnix 写过哪些 id 记在 `.inherited-providers.json`，只动这些，实例自己配的同名 provider 不覆盖。`.reap_on_stop()`（ipdrun-07）：停下或重启时收掉会话留下的进程（spawn：daemon 自成会话，退出后 TERM→1.5 s→KILL 会话里剩下的；两种载体都在实例全局层打开 `sandbox.reap_process_groups`），实例视图带 `reap: true`。`.native(\|e\| …)`（ipdrun-10）：两种载体都有的原生贡献，spawn 时 daemon 带 `--template <全名>` 在自己进程里再建一遍（只调各模块的 `templates()`），找不到以 78 退出、实例 `down`。全名 `<模块 id>.<模板 id>`；`data_root` 默认 `{name}`，可用 `{name}` 和声明过的参数 |
 | `TemplateCarrier` | `InProcess { engine, contrib }`（只有模块的模板能带原生贡献）、`Spawn { engine, program: Option<PathBuf>, args }`（`None` = 本二进制的 `daemon` 子命令）、`Attach(AttachTo { socket, tcp, token })` |
+| `harnix::agent`、`harnix::scenes` | 写 Agent 侧要的类型，应用不另加依赖。`agent::tool::{Tool, ToolContext, ToolResult, ProgressSender}`、`agent::error::ToolError`（原生工具）；`agent::interface::scene::{Scene, ScenePromptContext, TokenBudget}`（场景）；`agent::interface::prompt::PromptBlock`（prompt 块）；`scenes::harnix::HarnixScene`（缺省场景）、`scenes::code::CodeScene`、`scenes::mini::MiniScene`。路径与引擎的模块一一对应 |
 | `EngineContrib` | `.scene(Arc<dyn Scene>)`、`.customize_session(\|builder, cx\| …)`、`.credentials(Arc<dyn CredentialSource>)`、`.extend(other)` |
-| `PromptMiddleware`、`PromptCall`、`PromptDecision`、`PromptDelivery`、`PromptAttachment`、`PromptAttachmentKind` | Agix 的 prompt 中间件（ipdrun-13），从 `harnix` / `harnix_module` 再导出：`customize_session(\|b, _\| b.prompt_middleware(Arc::new(…)))`。设置层 hook 之后、按注册顺序跑；开一轮时 `Block` 让这一轮以 `stopped_by_hook` 结束、不调模型，steer 时 `Block` 发 `user_message_refused` 事件。消息带的附件要看就实现 `inspect_with_attachments`（Agix ipdrun-05，缺省交给 `inspect`），附件经只读的 `PromptAttachment`（类型 `PromptAttachmentKind`）给出；steer 的消息不带附件 |
-| `EngineProfile` | `scene = "coding"`、`scenes = []`、`model = "claude-sonnet-4-6"`、`max_tokens = 2000`、`session_cap = 32`、`session_idle_timeout_secs = 3600`、`permission_prompt_timeout_secs = 300`（括号里是默认值） |
+| `PromptMiddleware`、`PromptCall`、`PromptDecision`、`PromptDelivery`、`PromptAttachment`、`PromptAttachmentKind` | prompt 中间件（ipdrun-13），从 `harnix` / `harnix_module` 导出：`customize_session(\|b, _\| b.prompt_middleware(Arc::new(…)))`。设置层 hook 之后、按注册顺序跑；开一轮时 `Block` 让这一轮以 `stopped_by_hook` 结束、不调模型，steer 时 `Block` 发 `user_message_refused` 事件。消息带的附件要看就实现 `inspect_with_attachments`（缺省交给 `inspect`），附件经只读的 `PromptAttachment`（类型 `PromptAttachmentKind`）给出；steer 的消息不带附件 |
+| `EngineProfile` | `scene = "harnix"`、`scenes = []`、`model = "claude-sonnet-4-6"`、`max_tokens = 2000`、`session_cap = 32`、`session_idle_timeout_secs = 3600`、`permission_prompt_timeout_secs = 300`（括号里是默认值） |
 
 ### 1.4 `Principal`
 
@@ -154,7 +154,7 @@ pub trait Module: Send + Sync + 'static {
 | -31004 | `INSTANCE_UNAVAILABLE` | 实例在，但现在够不着（daemon 重启中、协议版本不符） |
 | -31005 | `BUSY` | 这条单双向连接上已有 `limits.max_in_flight`（16）个请求没答；这一个没执行，等一个答了再发。`data.max_in_flight` 是那个数 |
 
-Agix 自己的错误码原样透传（例如会话不存在是 -32000）。
+引擎的错误码原样透传（例如会话不存在是 -32000）。
 
 ---
 
@@ -164,7 +164,7 @@ Agix 自己的错误码原样透传（例如会话不存在是 -32000）。
 
 ```toml
 [engine]                       # system 实例；字段同 EngineProfile（§1.3）
-scene = "coding"
+scene = "harnix"
 scenes = []
 model = "claude-sonnet-4-6"
 max_tokens = 2000
@@ -262,7 +262,7 @@ quote_api_key = { credential = "helm/quote-api" }
 | `~/.agix/` | 引擎：设置分层、transcript、记忆、技能、录像。和 `agixd` 共用 |
 | `~/.<product_id>/`（不配 `[brand]` 就是 `~/.harnix/`；`HARNIX_STATE_DIR` 可挪） | 程序自己的配置与状态：`token`、`state.json`（工作区、会话标题、偏好、设备）、`spaces.json`、`instances.json`、`instances/<data_root>/`（按模板建的实例的数据根）、`modules/<id>/`（`ctx.data_dir()`）、`uploads/<pid>/`、`harnix.lock`（进程活着就持有的独占锁，内容 `{"pid", "url"}`，`url` 在监听后写上：一个状态目录只能有一个进程，第二个启动时报「`<目录>` is in use by pid N (url)」并以非零退出） |
 | `~/Documents/` | 只放项目：选项目从这里开始，新建项目建在这里。Documents 里不放隐藏目录 |
-| `<项目>/.agix/` | 项目自己的数据与配置**一律**放这里（Agix 的项目层设置也在这），不开 `<项目>/.<产品>/` |
+| `<项目>/.agix/` | 项目自己的数据与配置**一律**放这里（引擎的项目层设置也在这），不开 `<项目>/.<产品>/` |
 | `~/Documents/.harnix/`（0.4.0-2026102602 及以前） | **不迁移、不读**。升级后旧的令牌、工作区分组、实例账本都从空开始 |
 
 模块的数据（`ctx.data_dir()`）随产品 id 走；同一台机器上装 Helm 和 IPDrun 不会抢令牌和账本。
@@ -463,8 +463,8 @@ api_version = 2
 |---|---|
 | `.packs(impl Packs)` / `.packs_with(\|data_dir\| …)` | 流程包：`MemPacks`（代码里给）、`DirPacks`（目录分层，`with_builtin` + `with_writable`） |
 | `.store(impl RunStore)` / `.store_with(…)` | 运行存在哪；缺省模块数据目录下 `runs/` 的 `FileStore` |
-| `.scene(Arc<dyn Scene>)` | 给流程用的 scene，包装成 `flow-<id>`（带 `flow_submit`、`flow_state`、`flow_propose`） |
-| `.main_scene(id)` | 运行主会话缺省的 scene（缺省第一个） |
+| `.scene(Arc<dyn Scene>)` | 给流程用的 scene，包装成 `flow-<id>`（带 `flow_submit`、`flow_state`、`flow_propose`）。一个都不给时用内置的 `harnix`、`code`、`mini`（`flow-harnix`、`flow-code`、`flow-mini`，见 `harnix_flow::builtin_scenes`） |
+| `.main_scene(id)` | 运行主会话缺省的 scene（缺省第一个；不给 scene 时是 `harnix`）。流程定义里 `main: {scene: flow-code}`、站点的 `scene:` 可各自另选 |
 | `.template(InstanceTemplate)` | 站可以放上去的模板（`flow.<id>`） |
 | `.programs(impl Programs)` / `.tools(impl Tools)` / `.gates(impl Gates)` | 应用的程序（`kind: program`）、只读工具（`tool` 门禁）、检查（`host` 门禁，名字也要进目录） |
 | `.command_gates(bool)` | 让 `command` 门禁在本机跑命令（缺省关） |
@@ -501,12 +501,12 @@ api_version = 2
 | 脚本 | 什么时候跑 |
 |---|---|
 | `harnix/scripts/sync-app-deps.mjs <app> [--check]` | 升 Harnix 之后：重写应用根 `Cargo.toml` 里带标记的依赖块；`--check` 只比对 |
-| `harnix/scripts/check-pins.mjs <app>` | 构建前：`agix/` 与 Harnix 钉的是否一致、是否在上游 |
+| `harnix/scripts/check-pins.mjs <app> [--release]` | 构建前：`harnix/` 指向的提交在上游存在；它带的东西检出的正是它钉的那一版。应用根下还有旧布局的 `agix/` 时照样检查，并告警提示迁移 |
 | `harnix/scripts/check-lock.mjs <app>` | 构建后：应用的锁文件里 Harnix 的依赖是否和 Harnix 的一致 |
 | `harnix/scripts/set-version.sh` | 不是给应用的：Harnix 自己发布用 |
 
-仓库地址：`https://github.com/openatta/Harnix.git`（GitHub 上已从 `openatta/harnix` 改名，旧地址会转），
-`https://github.com/openatta/agix.git`。
+仓库地址：`https://github.com/openatta/Harnix.git`（GitHub 上已从 `openatta/harnix` 改名，旧地址会转）。问题与需求都提到
+这里的 issue（二开指南 §2.1）。
 
 ---
 
@@ -517,7 +517,7 @@ api_version = 2
 | 没有 MCP 服务端、角色令牌 | 外部 Agent 要连：模块 `start()` 里自己起监听 | 0.4 之后 |
 | 批准原语 | 不进 Harnix：照指南 §10.1 用条目 + 主题 + 只许设备的方法自己做 | 不做 |
 | 运行期包新增 space | 第三方包只能贡献 8 个点里除 `space` 之外的 | 0.4 之后（D28） |
-| 子 Agent 的进度 | 任务页能读 Shell / 监视器边跑边出的输出、子 Agent 的回答，但看不到子 Agent 正在第几步；要看过程走它的侧链会话 | Agix，有需要再提 |
+| 子 Agent 的进度 | 任务页能读 Shell / 监视器边跑边出的输出、子 Agent 的回答，但看不到子 Agent 正在第几步；要看过程走它的侧链会话 | 引擎，有需要再提 Harnix issue |
 | 应用自己的 pnpm workspace 怎么摆 | 外部应用靠 Vite 去重解析 `react`、`@harnix/react`；类型检查与别的依赖要应用自己装（见迁移说明） | 消费者落地时定 |
 | 桌面壳在 Windows 上没有干净的停止 | 关窗口 5 秒后直接结束子进程，模块的 `stop` 不跑 | 有需要再做 |
 

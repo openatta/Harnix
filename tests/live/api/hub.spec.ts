@@ -9,7 +9,7 @@
 // Everything here works without a model by driving the queue and the
 // watcher registry directly; the turn-shaped versions are in `05-turns`.
 
-import { connect, defineSuite, finish } from "@harnix/testkit";
+import { connect, defineSuite, finish, inconclusive } from "@harnix/testkit";
 
 const assert = (cond, message) => { if (!cond) throw new Error(message); };
 
@@ -131,7 +131,11 @@ defineSuite("hub", { feature: "sessions" }, {
       // unchanged — so the second send queues.
       const queued = await client.call("harnix.send",
         { session_id: created.session_id, message: "second", on_busy: "queue" });
-      if (queued.queued) {
+      if (!queued.queued) {
+        await finish(client, created.session_id);
+        inconclusive("the first turn had settled before the second send, so nothing queued");
+      }
+      {
         assert(queued.item.item_id, "a queued item has no id");
         const snapshot = await client.waitFor(
           (f) => f.method === "harnix.queue" && f.params.session_id === created.session_id,
@@ -152,7 +156,11 @@ defineSuite("hub", { feature: "sessions" }, {
         .catch(() => {});
       const second = await client.refused("harnix.send",
         { session_id: created.session_id, message: "second", on_busy: "reject" });
-      if (second) assert(/busy/i.test(second.message), `says "${second.message}"`);
+      if (!second) {
+        await finish(client, created.session_id);
+        inconclusive("the first turn had settled before the second send, so there was nothing to be busy with");
+      }
+      assert(/busy/i.test(second.message), `says "${second.message}"`);
       await finish(client, created.session_id);
     },
 

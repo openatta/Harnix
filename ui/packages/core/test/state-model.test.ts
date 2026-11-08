@@ -259,6 +259,19 @@ describe("历史", () => {
     s = applyHistoryMessage(s, { role: "user", content: "之前的摘要", origin: "compact", seq: 3, id: "d#0" }, labels);
     s = applyHistoryMessage(s, { role: "user", content: "/review 展开", origin: "command", seq: 4, id: "e" }, labels);
     expect(s.blocks.map((b) => b.kind)).toEqual(["user", "context", "user", "context", "user"]);
+    // 压缩的那一行认得出是压缩，别的注入不是
+    expect(s.blocks[3]).toMatchObject({ kind: "context", text: "之前的摘要", compact: {} });
+    expect(s.blocks[1]).not.toHaveProperty("compact");
+  });
+
+  it("一轮里的压缩（compact_action）成一行，带前后条数与估计省下的 token", () => {
+    let s = emptySession("S");
+    s = applyEvent(s, { kind: "text_delta", text: "写到一半" } as never, opts);
+    s = applyEvent(s, { kind: "compact_action", strategy: "Summarize", messages_before: 40, messages_after: 6, turn_id: "t1", estimated_tokens_saved: 12000 } as never, opts);
+    const last = s.blocks.at(-1)!;
+    expect(last).toMatchObject({ kind: "context", text: "", compact: { before: 40, after: 6, saved: 12000 } });
+    // 正在流的那段先收尾，压缩行不插进它中间
+    expect(s.blocks.at(-2)).toMatchObject({ kind: "assistant", streaming: false });
   });
 
   it("从历史读回被取消的工具（BUG-UI-211）：已中断，不是失败", () => {

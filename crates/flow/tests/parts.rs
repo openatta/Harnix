@@ -15,7 +15,7 @@ policies: [tables]
 permissions: [{effect: deny, tools: [Bash], message: no shell in this flow}]
 stations:
   - id: emit
-    executor: {kind: session, scene: chat}
+    executor: {kind: session, scene: harnix}
     skill: analyze
     rules: [house]
     permissions:

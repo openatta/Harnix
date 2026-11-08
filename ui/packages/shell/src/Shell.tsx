@@ -38,6 +38,7 @@ import { Glyph } from "./glyph.tsx";
 import { sessionMenu } from "./dialogs.tsx";
 import { openSettings } from "./settings.tsx";
 import { Sidebar, spacesOf } from "./Sidebar.tsx";
+import { SYSTEM, openInSystem, systemOffered } from "./system.tsx";
 
 export function Shell({ app }: { app: App }) {
   const s = useSyncExternalStore(app.subscribe, app.getSnapshot);
@@ -596,6 +597,18 @@ function Header({
             {actions}
           </div>
         </Contributed>
+      ) : null}
+      {row && !overview && s.space !== SYSTEM && systemOffered() ? (
+        <button
+          type="button"
+          className="ib"
+          data-testid="head-in-system"
+          title={t("head.inSystem")}
+          aria-label={t("head.inSystem")}
+          onClick={() => void openInSystem(app, { instance: row.instance ?? "system", sessionId: row.session_id, space: s.space })}
+        >
+          <Glyph name="cpu" className="glyph" />
+        </button>
       ) : null}
       <button type="button" className="ib" data-testid="theme-toggle" title={t("app.theme")} onClick={() => app.setTheme(isDark() ? "light" : "dark")}>
         <Glyph name={isDark() ? "sun" : "moon"} className="glyph" />

@@ -84,8 +84,9 @@ agix/             Agix（子模块）
 
 ## 在 Harnix 上二开
 
-复制 `templates/app`，把 `agix/` 和 `harnix/` 加成平级的子模块，照 [二开指南](harnix-sdk.md) 做；每个接口都列在
-[SDK 参考](harnix-sdk-reference.md) 里。`examples/hello-app` 是一个完整的应用：两个 space、自己的实例、一个带结果卡片的
+复制 `templates/app`，把 `harnix/` 加成唯一的子模块（`git submodule update --init --recursive` 带上 Harnix 依赖的一切），
+照 [二开指南](harnix-sdk.md) 做；每个接口都列在 [SDK 参考](harnix-sdk-reference.md) 里。应用只认 Harnix——crate `harnix`、
+`@harnix/*` 的包——问题与需求都提 Harnix 的 issue。`examples/hello-app` 是一个完整的应用：两个 space、自己的实例、一个带结果卡片的
 长任务、自己的 HTTP 路由和 WebSocket、一张审批卡片、自己的品牌。
 
 ```rust

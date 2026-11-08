@@ -132,7 +132,10 @@ function NewSession({ app, recents, preselect }: { app: App; recents: Recents; p
   const t = useT();
   const scenes = (app.snapshot.hello?.scenes ?? []) as (Scene & { capabilities?: { requires_project?: boolean } })[];
   const active = scenes.filter((scene) => scene.active);
-  const [scene, setScene] = useState(active[0]?.scene ?? "coding");
+  // The engine's own default first: the active list is sorted by id, and a flow's wrapped scenes
+  // (`flow-*`) sort before most.
+  const preferred = app.snapshot.hello?.engine?.scene;
+  const [scene, setScene] = useState(active.find((s) => s.scene === preferred)?.scene ?? active[0]?.scene ?? "harnix");
   const [mode, setMode] = useState("default");
   const [root, setRoot] = useState<string | null>(preselect ?? recents.cwd ?? null);
   const chosen = scenes.find((s) => s.scene === scene);
@@ -344,9 +347,9 @@ export function confirmDialog(app: App, message: string, confirm: () => Promise<
 
 /* ── menus ────────────────────────────────────────────────────────────── */
 
-function MenuItem({ icon, label, sub, danger, onClick }: { icon: string; label: string; sub?: string; danger?: boolean; onClick: () => void }) {
+function MenuItem({ id, icon, label, sub, danger, onClick }: { id?: string; icon: string; label: string; sub?: string; danger?: boolean; onClick: () => void }) {
   return (
-    <button type="button" className={danger ? "danger" : ""} onClick={onClick}>
+    <button type="button" className={danger ? "danger" : ""} data-item={id ?? icon} onClick={onClick}>
       <Glyph name={icon} className="glyph" />
       <span>
         {label}
@@ -368,6 +371,7 @@ export function sessionMenu(app: App, session: ShellSession): void {
           <div className="menu-list">
             <MenuItem
               icon="chat"
+              id="open"
               label={t("common.open")}
               onClick={() => {
                 app.closeModal();
@@ -376,11 +380,13 @@ export function sessionMenu(app: App, session: ShellSession): void {
             />
             <MenuItem
               icon="edit"
+              id="rename"
               label={t("common.rename")}
               onClick={() => renameDialog(app, t("dialog.renameSession"), session.name, (title) => app.call("harnix.sessions.rename", { ...key, title }))}
             />
             <MenuItem
               icon="archive"
+              id="archive"
               label={session.archived ? t("dialog.unarchive") : t("dialog.archive")}
               sub={t("dialog.archiveHint")}
               onClick={async () => {
@@ -392,6 +398,7 @@ export function sessionMenu(app: App, session: ShellSession): void {
             />
             <MenuItem
               icon="fork"
+              id="fork"
               label={t("dialog.fork")}
               onClick={() =>
                 void attempt(
@@ -408,6 +415,7 @@ export function sessionMenu(app: App, session: ShellSession): void {
             />
             <MenuItem
               icon="archive"
+              id="close"
               label={t("dialog.closeSession")}
               sub={t("dialog.closeSessionHint")}
               onClick={() =>
@@ -425,6 +433,7 @@ export function sessionMenu(app: App, session: ShellSession): void {
             <MenuItem
               icon="trash"
               danger
+              id="delete"
               label={t("dialog.deleteSession")}
               sub={t("dialog.deleteSessionHint")}
               onClick={() =>
@@ -461,6 +470,7 @@ export function workspaceMenu(app: App, workspace: Workspace): void {
           <div className="menu-list">
             <MenuItem
               icon="plus"
+              id="new"
               label={t("dialog.newSessionHere")}
               onClick={() => {
                 app.closeModal();
@@ -469,6 +479,7 @@ export function workspaceMenu(app: App, workspace: Workspace): void {
             />
             <MenuItem
               icon="edit"
+              id="rename"
               label={t("common.rename")}
               onClick={() =>
                 renameDialog(app, t("dialog.renameProject"), workspace.title, (title) =>
@@ -479,6 +490,7 @@ export function workspaceMenu(app: App, workspace: Workspace): void {
             <MenuItem
               icon="trash"
               danger
+              id="remove"
               label={t("dialog.removeGroup")}
               sub={t("dialog.removeGroupHint")}
               onClick={async () => {

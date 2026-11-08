@@ -69,7 +69,7 @@ impl Inner {
 /// let packs = MemPacks::new()
 ///     .flow("name: demo\nstations: [{id: a, exit: [{kind: confirm}]}]")
 ///     .skill("analyze", "Analyze the module.")
-///     .scene("chat");
+///     .scene("harnix");
 /// ```
 #[derive(Default)]
 pub struct MemPacks {

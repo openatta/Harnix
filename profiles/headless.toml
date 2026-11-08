@@ -5,7 +5,7 @@
 # all, and that is a supported shape rather than a degraded one.
 
 [engine]
-scene = "coding"
+scene = "harnix"
 session_cap = 4
 session_idle_timeout_secs = 600
 

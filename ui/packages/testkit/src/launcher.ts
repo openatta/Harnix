@@ -226,7 +226,10 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
     }
     try {
       const response = await fetch(url);
-      if (response.ok && existsSync(tokenFile)) break;
+      // Under launch links (`--launch-link`) the page is refused until a link is opened: a 401
+      // that says so is a backend that is up.
+      const up = response.ok || response.status === 401;
+      if (up && existsSync(tokenFile)) break;
     } catch {
       /* not up yet */
     }

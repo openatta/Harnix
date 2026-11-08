@@ -64,15 +64,75 @@ interface Task {
   error?: string;
 }
 
-/** What the right column is about. */
+/** What the right column is about. `space`: one space's sessions, across instances, the one a
+ *  person came from (`current`) first. */
 export type Selection =
+  | { kind: "space"; space: string; current?: SessionKey }
   | { kind: "instance"; instance: string }
   | { kind: "session"; instance: string; sessionId: string }
   | { kind: "task"; instance: string; sessionId: string; taskId: string };
 
+/** The system space's view, once it is registered: what `openInSystem` drives. */
+let registered: View | null = null;
+
+/** Whether this product keeps the system space, so a way into it may be offered. */
+export function systemOffered(): boolean {
+  return registered !== null;
+}
+
+/**
+ * Into the system space from a conversation. With `tool`: that session's calls, the call that asked
+ * for the tool picked out. Without: the sessions of the space the person came from, theirs first —
+ * an application has many, and the one in front is only one of them.
+ */
+export async function openInSystem(app: App, target: { instance: string; sessionId: string; space: string; tool?: string }): Promise<void> {
+  const view = registered;
+  if (!view) return;
+  await app.switchSpace(SYSTEM);
+  const session = { instance: target.instance, sessionId: target.sessionId };
+  if (target.tool) {
+    view.focusTool(target.tool);
+    view.select({ kind: "session", ...session });
+    app.selectTab("system.calls", true);
+  } else {
+    view.select({ kind: "space", space: target.space, current: session });
+  }
+}
+
+/** Back from the system space to a session where it belongs (the session space lists by time and
+ *  by project, so a session of `sessions` may be shown by another), then `then` once it is open. */
+function openWhereItBelongs(app: App, session: SessionKey, space: string): void {
+  const target = app.registry.at("space").find((c) => (c.sessions ?? c.id) === space && c.id !== SYSTEM)?.id ?? space;
+  app.open(session, target);
+  void app.switchSpace(target);
+}
+
+/**
+ * From a call back to the conversation: the session opened where it belongs, and the tool call it
+ * asked for (if it asked for one) scrolled to and flashed. The row is drawn once the history is in,
+ * so it is looked for a few times.
+ */
+async function locateInConversation(app: App, session: SessionKey, tool: string | null): Promise<void> {
+  const listed = await app.call<{ sessions: SessionRowView[] }>("harnix.sessions", { space: SYSTEM }).catch(() => ({ sessions: [] }));
+  const row = listed.sessions.find((r) => r.session_id === session.sessionId && (r.instance ?? "system") === session.instance);
+  openWhereItBelongs(app, session, row?.space ?? "sessions");
+  if (!tool) return;
+  for (let i = 0; i < 25; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const node = document.querySelector<HTMLElement>(`[data-testid="conv-tool"][data-id="${CSS.escape(tool)}"]`);
+    if (!node) continue;
+    node.scrollIntoView({ block: "center" });
+    node.classList.add("hx-flash");
+    node.dataset.located = "true";
+    setTimeout(() => node.classList.remove("hx-flash"), 2000);
+    return;
+  }
+}
+
 export function registerSystem(app: App): void {
   if (!app.snapshot.reachable.includes("harnix.system.context")) return;
   const view = new View(app);
+  registered = view;
   app.registry.register(
     "space",
     {
@@ -94,14 +154,17 @@ export function registerSystem(app: App): void {
 function tabsFor(app: App, view: View): SpaceTab[] {
   const picked = view.selected();
   if (!picked) return [];
+  if (picked.kind === "space") {
+    return [{ id: "system.overview", title: () => t("system.tab.spaceSessions"), render: () => <SpaceSessions app={app} view={view} space={picked.space} current={picked.current ?? null} /> }];
+  }
   if (picked.kind === "instance") {
     return [{ id: "system.overview", title: () => t("system.tab.overview"), render: () => <InstanceOverview app={app} view={view} instance={picked.instance} /> }];
   }
   const session: SessionKey = { instance: picked.instance, sessionId: picked.sessionId };
   const tabs: SpaceTab[] = [
     { id: "system.overview", title: () => t("system.tab.overview"), render: () => <SessionOverview app={app} view={view} session={session} /> },
-    { id: "system.calls", title: () => t("system.tab.calls"), render: () => <CallsTab app={app} session={session} /> },
-    { id: "system.context", title: () => t("system.tab.context"), render: () => <ContextTab app={app} session={session} /> },
+    { id: "system.calls", title: () => t("system.tab.calls"), render: () => <CallsTab app={app} view={view} session={session} /> },
+    { id: "system.context", title: () => t("system.tab.context"), render: () => <ContextTab app={app} view={view} session={session} /> },
     { id: "system.tasks", title: () => t("system.tab.tasks"), render: () => <TasksTab app={app} view={view} session={session} /> },
     { id: "system.frames", title: () => t("system.tab.frames"), render: () => <FramesTab app={app} session={session} /> },
   ];
@@ -118,6 +181,8 @@ function tabsFor(app: App, view: View): SpaceTab[] {
  */
 class View {
   private picked: Selection | null = null;
+  /** A tool call to pick out in the calls tab, once: what a jump from the conversation asked for. */
+  private tool: string | null = null;
   private readonly listeners = new Set<() => void>();
   private readonly topics = new Map<string, { value: unknown; readers: number; listeners: Set<() => void> }>();
 
@@ -142,6 +207,17 @@ class View {
   };
 
   readonly selected = (): Selection | null => this.picked;
+
+  focusTool(id: string): void {
+    this.tool = id;
+  }
+
+  /** The tool call to pick out, given up once read. */
+  takeTool(): string | null {
+    const id = this.tool;
+    this.tool = null;
+    return id;
+  }
 
   select(selection: Selection): void {
     this.picked = selection;
@@ -216,7 +292,7 @@ async function act(app: App, run: () => Promise<unknown>): Promise<boolean> {
 }
 
 function isSelected(picked: Selection | null, row: Selection): boolean {
-  if (!picked || picked.kind !== row.kind || picked.instance !== row.instance) return false;
+  if (!picked || picked.kind === "space" || picked.kind !== row.kind || picked.instance !== row.instance) return false;
   if (row.kind === "instance") return true;
   if (picked.kind === "instance" || picked.sessionId !== (row as { sessionId: string }).sessionId) return false;
   return row.kind === "session" || (picked as { taskId: string }).taskId === (row as { taskId: string }).taskId;
@@ -639,6 +715,60 @@ function NewInstance({ app, view }: { app: App; view: View }) {
 
 /* ── right column: a session ──────────────────────────────────────────── */
 
+/** One space's sessions, every instance's: the one a person came from first, then by when last active. */
+function SpaceSessions({ app, view, space, current }: { app: App; view: View; space: string; current: SessionKey | null }) {
+  const tr = useT();
+  const [rows, setRows] = useState<SessionRowView[] | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      app
+        .call<{ sessions: SessionRowView[] }>("harnix.sessions", { space: SYSTEM })
+        .then((r) => alive && setRows((r.sessions ?? []).filter((row) => (row.space ?? "sessions") === space)))
+        .catch((e) => alive && setFailure(errorText(e)));
+    void load();
+    const off = app.client.onNotify((method) => {
+      if (method === "harnix.turn_settled") void load();
+    });
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [app, space]);
+  if (failure) return <div className="empty">{failure}</div>;
+  if (!rows) return null;
+  const isCurrent = (row: SessionRowView) => current != null && row.session_id === current.sessionId && (row.instance ?? "system") === current.instance;
+  const sorted = [...rows].sort((a, b) => Number(isCurrent(b)) - Number(isCurrent(a)) || String(b.last_active ?? "").localeCompare(String(a.last_active ?? "")));
+  return (
+    <div className="system-pane" data-testid="system-space" data-space={space}>
+      <div className="label">{tr("system.spaceSessionsCount", { space, count: rows.length })}</div>
+      {!sorted.length ? <div className="note">{tr("sidebar.noSessions")}</div> : null}
+      <div className="inst-sessions">
+        {sorted.map((row) => {
+          const instance = row.instance ?? "system";
+          return (
+            <button
+              type="button"
+              key={`${instance}/${row.session_id}`}
+              className={`srow sub${isCurrent(row) ? " on" : ""}`}
+              data-sid={row.session_id}
+              data-instance={instance}
+              data-current={isCurrent(row) ? "true" : undefined}
+              title={[row.name, row.scene, row.project_root].filter(Boolean).join(" · ")}
+              onClick={() => view.select({ kind: "session", instance, sessionId: row.session_id })}
+            >
+              <span className="tt name">{row.name || tr("sidebar.untitled")}</span>
+              {isCurrent(row) ? <span className="space-tag">{tr("system.currentSession")}</span> : null}
+              <span className="space-tag">{instance}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function SessionOverview({ app, view, session }: { app: App; view: View; session: SessionKey }) {
   const tr = useT();
   const params = useMemo(() => ({ instance: session.instance }), [session.instance]);
@@ -662,16 +792,19 @@ function SessionOverview({ app, view, session }: { app: App; view: View; session
           type="button"
           className="btn sm outline wide"
           data-testid="open-in-space"
-          onClick={() => {
-            // The session space is listed by time and by project: open it where it belongs.
-            const target = app.registry.at("space").find((c) => (c.sessions ?? c.id) === space && c.id !== SYSTEM)?.id ?? space;
-            app.open(session, target);
-            void app.switchSpace(target);
-          }}
+          onClick={() => openWhereItBelongs(app, session, space)}
         >
           {tr("system.openInSpace", { space })}
         </button>
       ) : null}
+      <button
+        type="button"
+        className="btn sm outline wide"
+        data-testid="system-space-sessions"
+        onClick={() => view.select({ kind: "space", space, current: session })}
+      >
+        {tr("system.spaceSessions", { space })}
+      </button>
       <div className="label">{tr("system.ops")}</div>
       <Operations app={app} view={view} session={session} name={row?.name ?? null} />
     </div>
@@ -767,8 +900,10 @@ function failed(call: TraceCall): boolean {
   return call.outcome?.status === "error" || call.tools.some((tool) => tool.is_error);
 }
 
-function CallsTab({ app, session }: { app: App; session: SessionKey }) {
+function CallsTab({ app, view, session }: { app: App; view: View; session: SessionKey }) {
   const tr = useT();
+  // A jump from the conversation names a tool call: the call that asked for it is picked out.
+  const [focus] = useState(() => view.takeTool());
   const [calls, setCalls] = useState<TraceCall[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
@@ -794,6 +929,9 @@ function CallsTab({ app, session }: { app: App; session: SessionKey }) {
   useEffect(() => {
     if (open === null && list.current) list.current.scrollTop = scroll.current;
   }, [open]);
+  useEffect(() => {
+    if (focus && calls) list.current?.querySelector(`[data-tool="${CSS.escape(focus)}"]`)?.scrollIntoView({ block: "center" });
+  }, [focus, calls]);
   if (error) return <div className="empty">{error}</div>;
   if (!calls) return null;
   if (open !== null) {
@@ -832,7 +970,7 @@ function CallsTab({ app, session }: { app: App; session: SessionKey }) {
               <div key={call.index}>
                 <button
                   type="button"
-                  className={`step k-model${failed(call) && call.outcome?.status === "error" ? " bad" : ""}`}
+                  className={`step k-model${failed(call) && call.outcome?.status === "error" ? " bad" : ""}${focus && call.tools.some((tool) => tool.id === focus) ? " on" : ""}`}
                   data-call={call.index}
                   data-testid="system-call"
                   onClick={() => {
@@ -854,7 +992,7 @@ function CallsTab({ app, session }: { app: App; session: SessionKey }) {
                   </div>
                 </button>
                 {call.tools.map((tool) => (
-                  <div key={tool.id} className={`step k-tool nested${tool.is_error ? " bad" : ""}`} data-tool={tool.id}>
+                  <div key={tool.id} className={`step k-tool nested${tool.is_error ? " bad" : ""}${tool.id === focus ? " on" : ""}`} data-tool={tool.id}>
                     <div className="l1">
                       <span className="kd2">{tr("system.step.tool")}</span>
                       <b>{tool.name}</b>
@@ -949,6 +1087,9 @@ function CallDetail({ app, session, call, previous, onBack }: { app: App; sessio
         ) : null}
         <button type="button" className="btn sm outline" onClick={copy}>
           {tr("system.copyJson")}
+        </button>
+        <button type="button" className="btn sm outline" data-testid="call-locate" onClick={() => void locateInConversation(app, session, call.tools.at(0)?.id ?? null)}>
+          {tr("system.locateInConversation")}
         </button>
       </div>
       <div className="cd-stats">
@@ -1050,6 +1191,8 @@ interface Context {
   messages?: { count: number; tokens: number };
   total_tokens?: number;
   compact_threshold?: number;
+  /** What the provider counted for the last call made; absent before the first. */
+  measured?: { tokens: number; window?: number; compact_threshold?: number };
 }
 
 interface HistoryMessage {
@@ -1059,7 +1202,7 @@ interface HistoryMessage {
   content: unknown;
 }
 
-function ContextTab({ app, session }: { app: App; session: SessionKey }) {
+function ContextTab({ app, view, session }: { app: App; view: View; session: SessionKey }) {
   const tr = useT();
   const [context, setContext] = useState<Context | null>(null);
   const [history, setHistory] = useState<{ messages: HistoryMessage[]; total: number } | null>(null);
@@ -1100,27 +1243,42 @@ function ContextTab({ app, session }: { app: App; session: SessionKey }) {
   const systemTokens = (context.system ?? []).reduce((n, b) => n + b.tokens, 0);
   const toolTokens = (context.tools ?? []).reduce((n, b) => n + (b.tokens ?? 0), 0);
   const messageTokens = context.messages?.tokens ?? 0;
-  const budget = Math.max(context.compact_threshold ?? 0, context.total_tokens ?? 0, 1);
-  const pct = (n: number) => `${Math.min(100, (n / budget) * 100)}%`;
+  // The bar is as long as the provider's own count of the last call (when there is one), against the
+  // window; the estimates only divide it. An estimate is never shown as if it were a count: `~`.
+  const estimated = Math.max(systemTokens + toolTokens + messageTokens, 1);
+  const measured = context.measured?.tokens ?? null;
+  const threshold = context.measured?.compact_threshold ?? context.compact_threshold ?? 0;
+  const length = measured ?? estimated;
+  const budget = Math.max(context.measured?.window ?? 0, threshold, length, 1);
+  const pct = (n: number) => `${Math.min(100, ((n / estimated) * length * 100) / budget)}%`;
+  const about = (n: number) => `~${n}`;
   return (
     <div className="system-pane" data-testid="system-context">
       <div className="note">{tr("system.contextNote")}</div>
-      <div className="stack" data-testid="context-stack" title={tr("system.tokens", { count: context.total_tokens ?? 0 })}>
+      <div className="stack" data-testid="context-stack" data-measured={measured ?? undefined} title={measured != null ? tr("system.tokens", { count: measured }) : tr("system.tokens", { count: about(estimated) })}>
         <i className="sys" style={{ width: pct(systemTokens) }} />
         <i className="tools" style={{ width: pct(toolTokens) }} />
         <i className="msgs" style={{ width: pct(messageTokens) }} />
       </div>
       <div className="legend2">
-        <span className="sys">{tr("system.legend.system", { count: systemTokens })}</span>
-        <span className="tools">{tr("system.legend.tools", { count: toolTokens })}</span>
-        <span className="msgs">{tr("system.legend.messages", { count: messageTokens })}</span>
+        <span className="sys">{tr("system.legend.system", { count: about(systemTokens) })}</span>
+        <span className="tools">{tr("system.legend.tools", { count: about(toolTokens) })}</span>
+        <span className="msgs">{tr("system.legend.messages", { count: about(messageTokens) })}</span>
       </div>
       <Facts
         rows={[
           [tr("system.fact.model"), context.model ?? ""],
-          [tr("system.fact.total"), tr("system.tokens", { count: context.total_tokens ?? 0 })],
-          [tr("system.fact.threshold"), context.compact_threshold ? tr("system.tokens", { count: context.compact_threshold }) : ""],
-          [tr("system.fact.messages"), tr("system.messagesTokens", { count: context.messages?.count ?? 0, tokens: context.messages?.tokens ?? 0 })],
+          [
+            tr("system.fact.measured"),
+            measured != null
+              ? context.measured?.window
+                ? tr("system.tokensOf", { count: measured, of: context.measured.window })
+                : tr("system.tokens", { count: measured })
+              : tr("system.notMeasured"),
+          ],
+          [tr("system.fact.estimated"), tr("system.tokens", { count: about(context.total_tokens ?? estimated) })],
+          [tr("system.fact.threshold"), threshold ? tr("system.tokens", { count: threshold }) : ""],
+          [tr("system.fact.messages"), tr("system.messagesTokens", { count: context.messages?.count ?? 0, tokens: about(context.messages?.tokens ?? 0) })],
         ]}
       />
       <div className="label">{tr("system.blocks", { count: context.system?.length ?? 0 })}</div>
@@ -1135,7 +1293,7 @@ function ContextTab({ app, session }: { app: App; session: SessionKey }) {
               <span className="hx-tool-arg">{originLabel(block.origin)}</span>
             </>
           }
-          tail={tr("system.tokens", { count: block.tokens })}
+          tail={tr("system.tokens", { count: about(block.tokens) })}
         >
           <pre className="hx-pre">{block.text}</pre>
         </Disclosure>
@@ -1172,6 +1330,22 @@ function ContextTab({ app, session }: { app: App; session: SessionKey }) {
                   <Glyph name="edit" className="glyph" />
                 </button>
               ) : null}
+              <button
+                type="button"
+                className="icon-btn"
+                data-testid="message-fork"
+                title={tr("system.forkHere")}
+                onClick={() =>
+                  void act(app, async () => {
+                    // `at_message` is how many to keep: this one and everything before it.
+                    const forked = await app.call<{ session_id: string; instance?: string }>("session.fork", { ...target, at_message: message.seq + 1, space: SYSTEM });
+                    void app.refreshSessions();
+                    view.select({ kind: "session", instance: forked.instance ?? session.instance, sessionId: forked.session_id });
+                  })
+                }
+              >
+                <Glyph name="fork" className="glyph" />
+              </button>
               {droppable ? (
                 <button
                   type="button"

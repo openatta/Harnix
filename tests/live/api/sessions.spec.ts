@@ -18,6 +18,12 @@ defineSuite("sessions", { feature: "sessions" }, {
       assert(hello.limits.max_frame_bytes > 0, "no frame ceiling");
       assert(hello.limits.replay_max_frames > 0, "no replay ceiling");
       assert(Array.isArray(hello.scenes) && hello.scenes.length, "no scene list");
+      // The default a new session gets, which the interface preselects: Harnix's own, and active.
+      assert(hello.engine.scene === "harnix", `the default scene is ${hello.engine.scene}`);
+      assert(hello.engine.active_scenes.includes(hello.engine.scene), "the default scene is not active");
+      const created = await client.call("session.create", {});
+      assert(created.scene === hello.engine.scene, `a session naming no scene is in ${created.scene}`);
+      await client.call("session.delete", { session_id: created.session_id }).catch(() => {});
     },
 
     "a session can be created, opened and closed": async ({ client }) => {

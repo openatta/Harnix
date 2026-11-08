@@ -27,7 +27,7 @@ pub(crate) struct DaemonCommand {
     pub data_root: PathBuf,
     #[arg(long)]
     pub socket: PathBuf,
-    #[arg(long, default_value = "coding")]
+    #[arg(long, default_value = "harnix")]
     pub scene: String,
     #[arg(long, value_delimiter = ',')]
     pub scenes: Vec<String>,
@@ -116,7 +116,7 @@ pub(crate) struct Cli {
     #[arg(long)]
     pub scene: Option<String>,
 
-    /// Extra scenes to activate, comma-separated (e.g. `chat,research`).
+    /// Extra scenes to activate, comma-separated (e.g. `harnix,mini`).
     #[arg(long, value_delimiter = ',')]
     pub scenes: Vec<String>,
 

@@ -21,7 +21,7 @@ test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
   backend = await startTestApp();
 });
-test.afterAll(() => backend?.stop());
+test.afterAll(async () => { await backend?.dispose(); });
 test.beforeEach(async () => {
   api = await connect(backend);
 });
@@ -42,8 +42,11 @@ async function oneTurn(): Promise<{ instance: string; session_id: string }> {
 
 test("a module's entry lands where it was written, under its own name, and watchers see it at once", TAGS, async () => {
   const s = await oneTurn();
+  // After the transcript as it stands: the turn's two messages, behind whatever the engine put at
+  // the start of the conversation (the session's context, its skills).
+  const { total } = await api.call("session.history", s);
   const { written, mine } = await api.call("app.probe.note", { ...s, event: "job_done", payload: { title: "entry-marker-41" } });
-  expect(written).toMatchObject({ ns: "app.probe", event: "job_done", at: 2, payload: { title: "entry-marker-41" } });
+  expect(written).toMatchObject({ ns: "app.probe", event: "job_done", at: total, payload: { title: "entry-marker-41" } });
   expect(mine.map((e: any) => e.id)).toEqual([written.id]);
 
   // The attached client was told, outside any turn.
@@ -54,17 +57,18 @@ test("a module's entry lands where it was written, under its own name, and watch
   expect(frame.params.event.entry.id).toBe(written.id);
 
   const { entries } = await api.call("session.entries", s);
-  expect(entries.map((e: any) => [e.ns, e.event, e.at])).toEqual([["app.probe", "job_done", 2]]);
+  expect(entries.map((e: any) => [e.ns, e.event, e.at])).toEqual([["app.probe", "job_done", total]]);
 });
 
 test("the model never sees an entry", TAGS, async () => {
   const s = await oneTurn();
+  const before = (await api.call("session.history", s)).total;
   await api.call("app.probe.note", { ...s, event: "secret_card", payload: { title: "entry-marker-77" } });
   const history = await api.call("session.history", s);
-  expect(history.total).toBe(2);
+  expect(history.total, "an entry is not a message").toBe(before);
   expect(JSON.stringify(history.messages)).not.toContain("entry-marker-77");
   const context = await api.call("harnix.system.context", s);
-  expect(context.messages.count).toBe(2);
+  expect(context.messages.count).toBe(before);
   expect(JSON.stringify(context)).not.toContain("entry-marker-77");
 });
 

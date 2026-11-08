@@ -217,7 +217,7 @@ secret_env: ERP_HOOK_SECRET
 
 ```yaml
   - id: build
-    executor: {kind: session, scene: flow-coding, model: claude-sonnet-5-5, session: new}
+    executor: {kind: session, scene: flow-harnix, model: claude-sonnet-5-5, session: new}
     skill: build
     permissions: [{effect: allow, tools: [Bash, Write, Edit]}]
     output: {type: object}

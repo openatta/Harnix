@@ -23,6 +23,7 @@ pnpm live --project ui --topology split_streams    # 界面：后端只给分离
 pnpm -r run test                       # 前端各包的 Vitest（会话状态、组件、注册表、i18n、外壳）
 pnpm live --live                       # 连 .env 里的真模型
 pnpm live --no-model                   # 不碰模型：要模型的套件跳过（只给没有录像的机器用）
+pnpm live --strict                     # 严格回放：请求与录像不一致的那次调用失败
 pnpm live api/hub.spec.ts              # 一个文件；其余参数原样交给 playwright test
 scripts/check.sh                       # 所有层，从便宜到贵
 scripts/prune.sh                       # 清构建缓存：增量缓存全删，超过 25G 的 target 整个清掉
@@ -46,8 +47,9 @@ scripts/prune.sh                       # 清构建缓存：增量缓存全删，
 | live | 刷新录像、冒烟 | `--live`（`HARNIX_MODEL=live`），读 `.env` |
 | 无模型 | 没有录像的机器 | `--no-model`。它看着像回放模式，覆盖却少得多，别误用 |
 
-回放缺省是非严格的：请求与录下的不一样只报告、不失败。`harnix serve --replay-dir <目录> --replay-strict`（testkit 的
-`replayStrict: true`）让不一样的那次调用失败（ipdrun-45）。引擎给回放的会话按录像开录那天定日期（Agix ipdrun-06），
+回放缺省是非严格的：请求与录下的不一样只报告、不失败。`pnpm live --strict`（`HARNIX_REPLAY_STRICT=1`，即
+`harnix serve --replay-dir <目录> --replay-strict`、testkit 的 `replayStrict: true`）让不一样的那次调用失败（ipdrun-45）：
+改了提示词、工具表或场景之后，用它找出该重录的录像。引擎给回放的会话按录像开录那天定日期（Agix ipdrun-06），
 所以严格回放不会隔天就红；路径要应用自己保持稳定（固定的根目录，或文件工具的相对路径）。
 
 `ui` project 永远回放：一个布局测试因为模型慢了而失败，大家就学会了无视它。
@@ -87,7 +89,7 @@ import { expect, finish, test } from "@harnix/testkit";
 const TAGS = { tag: ["@feature:sessions", "@layer:api"] };
 
 test("a new session is idle and in the list", TAGS, async ({ api }) => {
-  const { session_id } = await api.call("session.create", { scene: "coding", project_root: api.project });
+  const { session_id } = await api.call("session.create", { scene: "harnix", project_root: api.project });
   try {
     expect((await api.call("session.get", { session_id })).turn_state).toBe("idle");
     const { sessions } = await api.call("harnix.sessions");
@@ -172,6 +174,10 @@ node tests/live/coverage.mjs --check               # scripts/check.sh 跑的就�
 第二个数存在，是因为第一个数太容易满足。一个只回答过、从没被拒绝过的方法，参数没被检查过，前置
 条件没被测过，拒绝路径没走过。**它不会也不该到 100%**：不带参数的方法（`harnix.hello`、各种
 `*.list`）没有失败可走。它的用处是：加了一个有参数的方法，这个数掉了，那就是信号。
+
+第一个数是门槛：`scripts/check.sh` 跑整个 `api` project 时设 `HARNIX_COVERAGE_GATE=1`，后端说能调、却没有用例调到的
+方法让这一层失败，除非 `features.mjs` 的 `UNCALLED` 写了它和理由；`UNCALLED` 里的方法有用例调到了也失败，免得清单
+替已经做完的事继续开脱。只跑一个文件时不设，只打印。
 
 ## 6. 录像
 

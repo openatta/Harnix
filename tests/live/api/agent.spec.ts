@@ -18,7 +18,7 @@ const assert = (cond, message) => { if (!cond) throw new Error(message); };
 /** A session bound to one fixture, and the prompt it was recorded with. */
 async function replaying(client, fixture, message) {
   const created = await client.call("session.create", {
-    scene: "coding",
+    scene: "harnix",
     project_root: client.project,
     options: { recorder: { name: fixture } },
   });

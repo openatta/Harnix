@@ -16,15 +16,23 @@ import { startTestApp } from "./testapp";
 
 const TAGS = { tag: ["@feature:headless", "@layer:api"] };
 
-/** Wait until none of these sessions is running a turn. */
+/**
+ * Wait until none of these sessions is running a turn — by the engine's account and by the hub's.
+ * The hub settles a turn after the engine has gone idle (it reads where the transcript ends first),
+ * and what a device attaching sees is the hub's.
+ */
 async function idle(api: TestClient, sessions: { instance: string; session_id: string }[]) {
   const deadline = Date.now() + 60_000;
   for (;;) {
     const states = await Promise.all(
       sessions.map((s) => api.call("session.get", { instance: s.instance, session_id: s.session_id })),
     );
-    if (states.every((s) => s.turn_state === "idle")) return;
-    if (Date.now() > deadline) throw new Error(`still running: ${JSON.stringify(states.map((s) => s.turn_state))}`);
+    const rows = await Promise.all(
+      [...new Set(sessions.map((s) => s.instance))].map((instance) => api.call("harnix.instances.sessions", { instance })),
+    );
+    const running = rows.flatMap((r) => r.sessions).filter((r: any) => r.running).map((r: any) => r.session_id);
+    if (states.every((s) => s.turn_state === "idle") && !sessions.some((s) => running.includes(s.session_id))) return;
+    if (Date.now() > deadline) throw new Error(`still running: ${JSON.stringify(states.map((s) => s.turn_state))}, hub: ${running}`);
     await sleep(100);
   }
 }
@@ -38,7 +46,7 @@ test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
   backend = await startTestApp();
 });
-test.afterAll(() => backend?.stop());
+test.afterAll(async () => { await backend?.dispose(); });
 test.beforeEach(async () => {
   api = await connect(backend);
 });

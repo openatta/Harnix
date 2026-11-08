@@ -35,7 +35,7 @@ test("the instances are listed with where they came from", TAGS, async () => {
   await until(api, "ci", "ready");
   const all = await instances(api);
   expect(all.system).toMatchObject({ carrier: "in_process", owner: "kernel", template: null });
-  expect(all.side).toMatchObject({ carrier: "in_process", owner: "kernel", scenes: ["chat"] });
+  expect(all.side).toMatchObject({ carrier: "in_process", owner: "kernel", scenes: ["harnix"] });
   expect(all.ci).toMatchObject({ carrier: "spawn", owner: "kernel" });
   expect(all.ci.pid).toBeGreaterThan(0);
   expect(all.ci.protocol_version).toBe(all.system.protocol_version);
@@ -54,7 +54,7 @@ test("the instances are listed with where they came from", TAGS, async () => {
 test("each instance runs its own sessions and sees none of the others'", TAGS, async () => {
   await until(api, "ci", "ready");
   const ran: Record<string, string> = {};
-  for (const [instance, scene] of [["system", "coding"], ["side", "chat"], ["ci", "coding"]]) {
+  for (const [instance, scene] of [["system", "harnix"], ["side", "harnix"], ["ci", "harnix"]]) {
     ran[instance] = await runOn(api, instance, scene);
     expect(api.text(ran[instance])).toMatch(/fixture ready/i);
   }
@@ -121,7 +121,7 @@ test("the instance tree is pushed whole", TAGS, async () => {
   const status = await api.call("harnix.subscribe", { topic: "harnix.sessions.status" });
   expect(status.value.sessions).toEqual([]);
 
-  const sessionId = await runOn(api, "side", "chat");
+  const sessionId = await runOn(api, "side", "harnix");
   await api.waitFor(
     (f) => f.method === "harnix.topic" && f.params.topic === "harnix.instances.sessions"
       && f.params.value.sessions.some((s: any) => s.session_id === sessionId),
@@ -147,7 +147,7 @@ test("the instance tree is pushed whole", TAGS, async () => {
 });
 
 test("a restart builds again what the ledger records", TAGS, async () => {
-  const before = await runOn(api, "side", "chat");
+  const before = await runOn(api, "side", "harnix");
   api.close();
   backend = await backend.restart();
   api = await connect(backend);

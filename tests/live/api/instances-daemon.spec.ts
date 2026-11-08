@@ -90,8 +90,8 @@ ui = true
 `,
   });
 });
-test.afterAll(() => {
-  backend?.stop();
+test.afterAll(async () => {
+  await backend?.dispose();
   fake?.close();
   rmSync(dir, { recursive: true, force: true });
 });
@@ -154,7 +154,7 @@ test("a killed daemon degrades its instance, comes back, and its sessions resync
 async function leaveAProcess(api: TestClient, instance: string): Promise<number> {
   const created = await api.call("session.create", {
     instance,
-    scene: "coding",
+    scene: "harnix",
     project_root: api.project,
     options: { recorder: { name: "leaves-a-process" } },
   });

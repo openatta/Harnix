@@ -32,8 +32,19 @@
 //! }
 //! ```
 //!
-//! What is here is a re-export: the application builder (`harnix-app`) and
-//! the module contract (`harnix-module`). See `docs/harnix-sdk.md`.
+//! What is here is a re-export: the application builder (`harnix-app`), the
+//! module contract (`harnix-module`), and the agent side an application
+//! builds on — native tools, scenes, prompt blocks ([`agent`], [`scenes`]).
+//! An application depends on this crate alone. See `docs/harnix-sdk.md`.
+
+/// The agent side an application builds on: a native tool (`agent::tool::Tool`), a scene
+/// (`agent::interface::scene::Scene`), a prompt block (`agent::interface::prompt::PromptBlock`),
+/// a tool's error (`agent::error::ToolError`). These are the types the engine takes, under this
+/// crate's name.
+pub use ::base as agent;
+/// The built-in scenes: `scenes::harnix::HarnixScene` (the default), `scenes::code::CodeScene`,
+/// `scenes::mini::MiniScene`.
+pub use ::scene as scenes;
 
 pub use async_trait::async_trait;
 pub use axum;

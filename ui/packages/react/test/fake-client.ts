@@ -75,7 +75,7 @@ export class FakeClient {
 /** 一个空会话的 attach 应答。 */
 export function attached(sessionId: string, extra: Record<string, unknown> = {}) {
   return {
-    session: { session_id: sessionId, name: "测试会话", scene: "coding", turn_state: "idle" },
+    session: { session_id: sessionId, name: "测试会话", scene: "harnix", turn_state: "idle" },
     history_total: 0,
     replay: [],
     truncated: false,

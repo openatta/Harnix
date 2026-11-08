@@ -19,7 +19,7 @@ test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
   backend = await startHarnix(launchFor("replay"));
 });
-test.afterAll(() => backend?.stop());
+test.afterAll(async () => { await backend?.dispose(); });
 test.beforeEach(async () => {
   api = await connect(backend);
 });
@@ -37,7 +37,7 @@ test("the empty application says it has flows: its methods, its space, its examp
     expect.objectContaining({ name: "example-review", origin: "builtin", valid: true }),
   ]);
   const catalog = await api.call("app.flow.catalog");
-  expect(catalog).toMatchObject({ scenes: ["flow-chat", "flow-coding"], steps: [], checks: [], tools: [], command_gates: true, writable: true });
+  expect(catalog).toMatchObject({ scenes: ["flow-code", "flow-harnix", "flow-mini"], steps: [], checks: [], tools: [], command_gates: true, writable: true });
   // The example's parts: its skill, the rule it keeps, the policy it works under.
   expect(catalog.parts).toMatchObject({ skill: ["review"], rule: ["review-honest"], policy: ["read-only"], gate: [], hook: [] });
   // A flow that needs an application's program does not validate here.
@@ -51,9 +51,9 @@ test("its example dry-runs to the approval and finishes once approved; a saved c
   const { run } = await api.call("app.flow.dry_run.start", { flow: "example-review" });
   expect((await api.call("app.flow.dry_run.run", { run })).status).toBe("active");
   const view = await api.call("app.flow.get", { run });
-  // The review is a turn of the run's main session (xops-03), on flow-coding.
+  // The review is a turn of the run's main session (xops-03), on flow-harnix.
   expect(view.record.stations.review.tasks[0].preview).toMatchObject({
-    scene: "flow-coding",
+    scene: "flow-harnix",
     delivery: "flow_submit",
     session_key: "@main",
   });

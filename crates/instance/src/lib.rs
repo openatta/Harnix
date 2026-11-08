@@ -22,6 +22,7 @@
 //! `harnix_builtin::plugins`). Anything here that read a manifest would be a
 //! second truth about what an extension may do.
 
+mod attended;
 pub mod contrib;
 pub mod data_lock;
 mod daemon_link;

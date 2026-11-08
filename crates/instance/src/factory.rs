@@ -22,6 +22,8 @@ pub struct Facts {
     pub recordings_root: Option<PathBuf>,
     pub history: Option<Arc<dyn history::store::HistoryStore>>,
     pub active_scenes: Vec<String>,
+    /// The scene `session.create` uses when it names none.
+    pub scene: Option<String>,
     pub model: Option<String>,
     pub has_credentials: bool,
 }
@@ -102,6 +104,7 @@ impl Factory {
                     recordings_root: Some(engine.recordings_root.clone()),
                     history: engine.history.clone(),
                     active_scenes: engine.active_scenes.clone(),
+                    scene: Some(engine.scene.clone()),
                     model: Some(engine.model.clone()),
                     has_credentials: engine.has_credentials,
                 };
@@ -150,6 +153,7 @@ impl Factory {
                     facts: Facts {
                         data_root,
                         active_scenes: scenes_of(engine),
+                        scene: Some(engine.scene.clone()),
                         model: Some(engine.model.clone()),
                             ..Facts::default()
                     },

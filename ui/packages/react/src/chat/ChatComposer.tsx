@@ -229,7 +229,9 @@ export function ChatComposer(props: ChatComposerProps) {
       .catch(() => undefined)
       .finally(() => {
         setSending(false);
-        if (fromInput) input.current?.focus();
+        // 回到输入框——除非这期间人已经去了别处（比如搜索框）：抢回焦点会把他正在打的字送进这里
+        const active = document.activeElement;
+        if (fromInput && (!active || active === document.body || active === input.current)) input.current?.focus();
       });
   };
 

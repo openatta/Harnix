@@ -10,7 +10,7 @@ export const INSTANCES_PROFILE = `
 id = "side"
 carrier = "in_process"
 [instances.engine]
-scene = "chat"
+scene = "harnix"
 
 [[instances]]
 id = "ci"
@@ -44,7 +44,7 @@ export async function until(api: TestClient, id: string, state: string, timeout 
 }
 
 /** Create a session on an instance, run the `says-ready` fixture, wait for it. */
-export async function runOn(api: TestClient, instance: string, scene = "coding"): Promise<string> {
+export async function runOn(api: TestClient, instance: string, scene = "harnix"): Promise<string> {
   const created = await api.call("session.create", {
     instance,
     scene,

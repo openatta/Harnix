@@ -477,7 +477,8 @@ function RunTab({ station: s, view, module }: { station: Station; view: RunView;
                           </pre>
                         </details>
                       ) : null}
-                      {executorOf(s, task.id)?.kind === "external" && (task.status === "ready" || (task.status === "claimed" && held[task.id])) ? (
+                      {/* A held station's tasks are ready but cannot be claimed until it is let in. */}
+                      {executorOf(s, task.id)?.kind === "external" && rec.status !== "held" && (task.status === "ready" || (task.status === "claimed" && held[task.id])) ? (
                         <HandIn module={module} run={run.id} station={s.id} task={task.id} held={held[task.id] ?? null} onHeld={(c) => hold(task.id, c)} />
                       ) : null}
                       {task.output !== undefined && task.output !== null ? (

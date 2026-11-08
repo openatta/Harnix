@@ -18,7 +18,7 @@ import { Glyph } from "./glyph.tsx";
 import { ProjectsSidebar } from "./projects.tsx";
 import { SessionsSidebar } from "./sessions.tsx";
 import { builtinSections } from "./settings.tsx";
-import { registerSystem } from "./system.tsx";
+import { openInSystem, registerSystem, systemOffered } from "./system.tsx";
 
 const OWNER = "builtin";
 
@@ -153,6 +153,19 @@ function ToolRow({ app, block }: { app: App; block: BlockOf<"tool"> }) {
         >
           {t("flow.openInDetails")}
         </button>
+        {systemOffered() && app.snapshot.current && block.id ? (
+          <button
+            type="button"
+            className="btn sm outline"
+            data-testid="tool-in-system"
+            onClick={() => {
+              const current = app.snapshot.current!;
+              void openInSystem(app, { instance: current.instance, sessionId: current.sessionId, space: app.snapshot.space, tool: block.id });
+            }}
+          >
+            {t("flow.inSystem")}
+          </button>
+        ) : null}
       </div>
     </Disclosure>
   );

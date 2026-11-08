@@ -9,11 +9,15 @@
 // *application's* `[workspace.dependencies]` (design §11.2). Harnix's own
 // table is the one source of truth; this copies it into a marked block in
 // the application's root Cargo.toml with every path rebased on the
-// application's root — `crates/x` becomes `harnix/crates/x`, and `agix/…`
-// stays `agix/…` because there `agix/` sits beside `harnix/`. Generated and
-// checked, never hand-copied.
+// application's root — `crates/x` becomes `harnix/crates/x`, and Harnix's
+// engine (`agix/…` in its own table) becomes `harnix/agix/…`: an application
+// carries one submodule, `harnix/`, and the engine comes with it. Generated
+// and checked, never hand-copied.
+//
+// An application still on the old layout (its own `agix/` beside `harnix/`)
+// keeps its paths for now and is told how to move.
 
-import { readFileSync, writeFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -22,8 +26,21 @@ export const END = "# END harnix";
 
 const harnixRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
+/** Where an application finds the engine: `harnix/agix`, or `agix` on the old layout. */
+export function engineAt(appRoot) {
+  const own = existsSync(join(appRoot, "agix", "Cargo.toml"));
+  const nested = existsSync(join(appRoot, "harnix", "agix", "Cargo.toml"));
+  return own && !nested ? "agix" : "harnix/agix";
+}
+
+/** What an application on the old layout is told. */
+export const MOVE_HINT =
+  "this application carries its own agix/; Harnix brings the engine as harnix/agix — " +
+  "git submodule deinit -f agix && git rm agix && git -C harnix submodule update --init agix, " +
+  "then run this script again (harnix/docs/harnix-sdk.md §11)";
+
 /** The `[workspace.dependencies]` lines of Harnix's own Cargo.toml, rebased. */
-export function block(harnix = harnixRoot) {
+export function block(harnix = harnixRoot, { engine = "harnix/agix" } = {}) {
   const text = readFileSync(join(harnix, "Cargo.toml"), "utf8");
   const lines = text.split("\n");
   const start = lines.findIndex((l) => l.trim() === "[workspace.dependencies]");
@@ -34,7 +51,7 @@ export function block(harnix = harnixRoot) {
     if (/^\s*#/.test(line) || !line.trim()) continue;
     out.push(
       line.replace(/path\s*=\s*"([^"]+)"/, (_, path) =>
-        `path = "${path.startsWith("agix/") ? path : `harnix/${path}`}"`),
+        `path = "${path.startsWith("agix/") ? `${engine}/${path.slice("agix/".length)}` : `harnix/${path}`}"`),
     );
   }
   return [BEGIN, ...out, END].join("\n");
@@ -60,7 +77,9 @@ if (process.argv[1] && realpathSync(resolve(process.argv[1])) === realpathSync(f
   const appRoot = resolve(args.find((a) => !a.startsWith("--")) ?? join(harnixRoot, ".."));
   const path = join(appRoot, "Cargo.toml");
   const current = readFileSync(path, "utf8");
-  const wanted = rewrite(current, block());
+  const engine = engineAt(appRoot);
+  if (engine === "agix") console.warn(`sync-app-deps: warning: ${MOVE_HINT}`);
+  const wanted = rewrite(current, block(harnixRoot, { engine }));
   if (check) {
     if (current !== wanted) {
       console.error(`${path}: the harnix block differs from harnix/Cargo.toml — run harnix/scripts/sync-app-deps.mjs`);

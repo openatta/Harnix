@@ -152,7 +152,7 @@ async function drive(client) {
   // A session, an attach, and a send — the attach is the interesting one:
   // in split streams it registers a watcher for a stream that is not this
   // request's connection.
-  const created = await client.call("session.create", { project_root: null, scene: "chat" })
+  const created = await client.call("session.create", { project_root: null, scene: "harnix" })
     .catch(() => client.call("session.create", {}));
   out.created = typeof created.session_id === "string";
   const attached = await client.call("harnix.attach", { session_id: created.session_id });

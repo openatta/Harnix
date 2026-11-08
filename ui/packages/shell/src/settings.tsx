@@ -44,6 +44,7 @@ function Settings({ app }: { app: App }) {
               <button
                 type="button"
                 key={s.id}
+                data-section={s.id}
                 className={`nav-item${s.id === section?.id ? " on" : ""}`}
                 onClick={() => {
                   active = s.id;
@@ -84,9 +85,9 @@ export function Row({ label, hint, children }: { label: ReactNode; hint?: ReactN
   );
 }
 
-function Select({ options, value, onChange }: { options: [string, string][]; value: string; onChange: (v: string) => void }) {
+function Select({ options, value, onChange, testId }: { options: [string, string][]; value: string; onChange: (v: string) => void; testId?: string }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)}>
+    <select value={value} data-testid={testId} onChange={(e) => onChange(e.target.value)}>
       {options.map(([key, text]) => (
         <option key={key} value={key}>
           {text}
@@ -258,6 +259,7 @@ function General({ app }: { app: App }) {
       <h3>{t("settings.appearance")}</h3>
       <Row label={t("settings.theme")} hint={t("settings.themeHint")}>
         <Select
+          testId="settings-theme"
           options={[
             ["system", t("settings.theme.system")],
             ["light", t("settings.theme.light")],
@@ -272,6 +274,7 @@ function General({ app }: { app: App }) {
       </Row>
       <Row label={t("settings.language")} hint={t("settings.languageHint")}>
         <Select
+          testId="settings-language"
           options={[
             ["system", t("settings.language.system")],
             ["zh-CN", "简体中文"],
@@ -753,6 +756,8 @@ function Devices({ app }: { app: App }) {
               <button
                 type="button"
                 className="btn sm danger"
+                data-testid="device-revoke"
+                data-device={device.id}
                 onClick={() => {
                   if (!confirm(t("settings.deviceRevokeConfirm", { name: device.label || device.id }))) return;
                   app

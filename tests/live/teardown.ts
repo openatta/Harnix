@@ -11,6 +11,8 @@ import { join } from "node:path";
 
 import { ROOT } from "@harnix/testkit";
 
+import { UNCALLED } from "./features.mjs";
+
 export default function teardown(): void {
   const dir = join(ROOT, "test-results", ".api-coverage");
   if (!existsSync(dir)) return;
@@ -44,4 +46,17 @@ export default function teardown(): void {
       + [...codes.entries()].sort((a, b) => b[0] - a[0]).map(([c, via]) => `${c} (${via})`).join(", "),
   );
   console.log(lines.join("\n"));
+
+  // A partial run (one file, one project) calls a fraction of the methods: the gate is for a whole
+  // `api` run, which `scripts/check.sh` asks for.
+  if (process.env.HARNIX_COVERAGE_GATE !== "1") return;
+  const exempt: Record<string, string> = UNCALLED;
+  const problems = [
+    ...untested.filter((m) => !(m in exempt)).map((m) => `${m} is reachable and no test calls it`),
+    ...Object.keys(exempt).filter((m) => called.has(m)).map((m) => `${m} is called now: take it out of UNCALLED`),
+    ...Object.keys(exempt).filter((m) => !reachable.has(m)).map((m) => `${m} in UNCALLED is not reachable`),
+  ];
+  if (problems.length) {
+    throw new Error(`API coverage (tests/live/features.mjs UNCALLED):\n${problems.map((p) => `  ${p}`).join("\n")}`);
+  }
 }

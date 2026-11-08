@@ -15,7 +15,7 @@ import type { Page } from "@playwright/test";
 import { type Backend, RECORDINGS, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
 import { INSTANCES_PROFILE } from "../api/instances";
-import { open, reply, watchConsole } from "./page";
+import { newSession, open, reply, say, watchConsole } from "./page";
 
 const TREE = { tag: ["@feature:system", "@layer:ui"] };
 
@@ -40,7 +40,7 @@ async function sessionWithTurn(page: Page, instance: string, fixture = "says-rea
     async ({ instance, fixture, message }) => {
       const { app } = (window as any).harnix;
       const created = await app
-        .call("session.create", { instance, space: "sessions", scene: instance === "side" ? "chat" : "coding", options: { recorder: { name: fixture } } })
+        .call("session.create", { instance, space: "sessions", scene: "harnix", options: { recorder: { name: fixture } } })
         .catch((e: any) => {
           throw new Error(JSON.stringify(e));
         });
@@ -243,4 +243,113 @@ test("system-frames: a session's frames arrive as it runs, with their seq", TREE
     sid,
   );
   await expect(page.locator("#details .frames tr").first()).toBeVisible({ timeout: 30_000 });
+});
+
+test("system-context: a message of the context is edited and removed from the page, and the injected one is neither", TREE, async ({ page }) => {
+  await open(page, backend.url);
+  const sid = await sessionWithTurn(page, "system");
+  await toSystem(page);
+  await pick(page, "system", sid);
+  await tab(page, "context");
+  const messages = page.getByTestId("system-messages");
+  const user = messages.locator('.message[data-origin="user"]').first();
+  await expect(user).toContainText("Say exactly: fixture ready");
+  // What the engine put at the start is shown, and is not the host's to change.
+  const injected = messages.locator('.message[data-origin="injected"]');
+  await expect(injected.first()).toBeVisible();
+  await expect(injected.getByTestId("message-edit")).toHaveCount(0);
+  await expect(injected.getByTestId("message-drop")).toHaveCount(0);
+  // The model's own message is neither.
+  await expect(messages.locator('.message[data-origin="assistant"]').getByTestId("message-edit")).toHaveCount(0);
+
+  await user.getByTestId("message-edit").click();
+  const input = page.locator("#modal input");
+  await input.fill("Say exactly: edited from the page");
+  await input.press("Enter");
+  await expect(messages.locator('.message[data-origin="user"]').first()).toContainText("edited from the page");
+
+  await messages.locator('.message[data-origin="user"]').first().getByTestId("message-drop").click();
+  await expect(messages).toContainText(/removed by the host/i);
+  const history = await page.evaluate(
+    async (sid) => (await (window as any).harnix.app.call("session.history", { instance: "system", session_id: sid, space: "system" })).messages,
+    sid,
+  );
+  expect(JSON.stringify(history)).not.toContain("edited from the page");
+});
+
+/** A conversation in the session space that called a tool, with the recording its fixture was made
+ *  from where `system`'s engine keeps them (a replayed session writes none of its own). */
+async function conversationWithTool(page: Page): Promise<string> {
+  await open(page, backend.url);
+  const sid = await newSession(page, "calls-a-tool");
+  await say(page, "Use the Bash tool to run exactly: echo harnix-fixture");
+  await expect(page.locator('[data-testid="conv-tool"]').first()).toHaveAttribute("data-state", "ok", { timeout: 30_000 });
+  cpSync(join(RECORDINGS, "calls-a-tool"), join(backend.scratch, "agix", "recordings", sid), { recursive: true });
+  return sid;
+}
+
+test("system-jump: the header's button opens the space's sessions in the system space, this one first", TREE, async ({ page }) => {
+  const errors = watchConsole(page);
+  const sid = await conversationWithTool(page);
+  await page.getByTestId("head-in-system").click();
+  await expect(page.locator("#main")).toHaveAttribute("data-space", "system");
+  const list = page.getByTestId("system-space");
+  await expect(list).toHaveAttribute("data-space", "sessions");
+  const first = list.locator(".srow").first();
+  await expect(first).toHaveAttribute("data-sid", sid);
+  await expect(first).toHaveAttribute("data-current", "true");
+  // Every row is a session of that space, and one click inspects it.
+  await first.click();
+  await expect(page.getByTestId("system-session")).toContainText(sid);
+  // And back: the session's overview lists its space's sessions again.
+  await page.getByTestId("system-space-sessions").click();
+  await expect(page.getByTestId("system-space")).toHaveAttribute("data-space", "sessions");
+  expect(errors).toEqual([]);
+});
+
+test("system-jump: a tool row opens the call that asked for it, and the call finds its way back to the row", TREE, async ({ page }) => {
+  const errors = watchConsole(page);
+  const sid = await conversationWithTool(page);
+  const row = page.locator('[data-testid="conv-tool"]').first();
+  const tool = (await row.getAttribute("data-id"))!;
+  await row.getByTestId("conv-tool-toggle").click();
+  await row.getByTestId("tool-in-system").click();
+  await expect(page.locator("#main")).toHaveAttribute("data-space", "system");
+  await expect(page.getByTestId("system-session")).toHaveCount(0);
+  const picked = page.locator(`#details [data-tool="${tool}"]`);
+  await expect(picked).toHaveClass(/\bon\b/);
+  await expect(page.locator('#details [data-testid="system-call"].on')).toHaveCount(1);
+
+  // From the call's detail, back to the conversation, the row found and marked.
+  await page.locator('#details [data-testid="system-call"].on').click();
+  await page.getByTestId("call-locate").click();
+  await expect(page.locator("#main")).toHaveAttribute("data-space", "sessions");
+  await expect.poll(() => page.evaluate(() => (window as any).harnix.app.snapshot.current?.sessionId)).toBe(sid);
+  await expect(page.locator(`[data-testid="conv-tool"][data-id="${tool}"]`)).toHaveAttribute("data-located", "true", { timeout: 10_000 });
+  expect(errors).toEqual([]);
+});
+
+test("system-context: measured apart from estimated, and a fork from any message", TREE, async ({ page }) => {
+  const errors = watchConsole(page);
+  await open(page, backend.url);
+  const sid = await sessionWithTurn(page, "system");
+  await toSystem(page);
+  await pick(page, "system", sid);
+  await tab(page, "context");
+  const pane = page.getByTestId("system-context");
+  // The bar is as long as what the provider counted; the estimates that divide it say they are.
+  await expect(pane.getByTestId("context-stack")).toHaveAttribute("data-measured", /^[1-9]\d*$/);
+  await expect(pane.locator(".legend2")).toContainText("~");
+
+  // A fork that keeps up to the user's message: a new session, picked, its context that much of it.
+  const user = pane.locator('.message[data-origin="user"]').first();
+  const seq = Number(await user.getAttribute("data-seq"));
+  const before = await pane.locator(".message").count();
+  expect(before, "the original goes on past the user's message").toBeGreaterThan(seq + 1);
+  const sessions = () => page.evaluate(async () => (await (window as any).harnix.app.call("harnix.sessions", { space: "system" })).sessions.length);
+  const listed = await sessions();
+  await user.getByTestId("message-fork").click();
+  await expect(page.getByTestId("system-context").locator(".message")).toHaveCount(seq + 1);
+  await expect.poll(sessions).toBe(listed + 1);
+  expect(errors).toEqual([]);
 });

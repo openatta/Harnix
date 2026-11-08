@@ -172,6 +172,19 @@ impl Default for FlowBuilder {
     }
 }
 
+/// Agix's built-in scenes, the ones a flow offers when the application gives none: `harnix` (the
+/// main scene), `code` and `mini`. All unattended — a flow session has no one to put a question
+/// to; its permission asks are the module's to answer (the wrapper is attended for those).
+pub fn builtin_scenes() -> Vec<Arc<dyn Scene>> {
+    vec![
+        Arc::new(scene::harnix::HarnixScene),
+        Arc::new(scene::code::CodeScene::new(
+            scene::code::Interaction::Unattended,
+        )),
+        Arc::new(scene::mini::MiniScene),
+    ]
+}
+
 impl FlowBuilder {
     /// Where runs live. Without one, a [`FileStore`] in the module's data directory (`runs/`).
     pub fn store(mut self, store: impl RunStore + 'static) -> Self {
@@ -217,12 +230,14 @@ impl FlowBuilder {
 
     /// A scene stations may run sessions in. It is offered as `flow-<id>`: the same scene
     /// with the flow's native tools added (its sessions hand in with `flow_submit`). Repeatable.
+    /// Given none, the module offers Agix's built-in ones ([`builtin_scenes`]): `flow-harnix`,
+    /// `flow-code` and `flow-mini`, with `flow-harnix` the main scene.
     pub fn scene(mut self, scene: Arc<dyn Scene>) -> Self {
         self.scenes.push(scene);
         self
     }
 
-    /// The scene `flow-author` wraps — the flow space's conversations. Agix's chat scene when
+    /// The scene `flow-author` wraps — the flow space's conversations. Agix's harnix scene when
     /// not given.
     pub fn author_scene(mut self, scene: Arc<dyn Scene>) -> Self {
         self.author = Some(scene);
@@ -322,8 +337,9 @@ impl FlowBuilder {
         self
     }
 
-    /// The scene (an id given to [`FlowBuilder::scene`]) a run's main session is opened on when
-    /// its flow's `main` names none; it is wrapped (`flow-<id>`). The first scene given by default.
+    /// The scene (an id given to [`FlowBuilder::scene`], or `harnix`, `code` or `mini` when none
+    /// is) a run's main session is opened on when its flow's `main` names none; it is wrapped
+    /// (`flow-<id>`). The first scene by default: `harnix` when none is given.
     pub fn main_scene(mut self, id: impl Into<String>) -> Self {
         self.main_scene = Some(id.into());
         self
@@ -341,7 +357,10 @@ impl FlowBuilder {
         self
     }
 
-    pub fn build(self) -> Flow {
+    pub fn build(mut self) -> Flow {
+        if self.scenes.is_empty() {
+            self.scenes = builtin_scenes();
+        }
         let (tx, _) = broadcast::channel(1024);
         let own_templates: Vec<String> = self
             .templates
@@ -388,7 +407,7 @@ impl FlowBuilder {
             .collect();
         let base = self
             .author
-            .unwrap_or_else(|| Arc::new(scene::chat::ChatScene) as Arc<dyn Scene>);
+            .unwrap_or_else(|| Arc::new(scene::harnix::HarnixScene) as Arc<dyn Scene>);
         let author: Arc<dyn Scene> = Arc::new(AuthorScene::new(base, sh.clone()));
         let packs = Arc::new(CatalogPacks {
             inner: OnceLock::new(),
@@ -712,7 +731,7 @@ mod tests {
     fn catalog_packs(inner: MemPacks, templates: &[&str]) -> CatalogPacks {
         let packs = CatalogPacks {
             inner: OnceLock::new(),
-            scenes: vec!["flow-chat".into()],
+            scenes: vec!["flow-harnix".into()],
             templates: templates.iter().map(|s| s.to_string()).collect(),
             guarded: vec![],
             main_scene: None,
@@ -726,7 +745,7 @@ mod tests {
     fn the_catalog_has_the_applications_scenes_and_the_wrapped_ones() {
         let packs = catalog_packs(
             MemPacks::new()
-                .scene("structured-chat")
+                .scene("structured-harnix")
                 .skill("work", "Do it."),
             &["flow.local"],
         );
@@ -735,8 +754,8 @@ mod tests {
                 "name: f\nstations: [{{id: a, executor: {{kind: session, scene: {scene}}}, skill: work, output: {{type: object}}, exit: [{{kind: output}}]}}]"
             )
         };
-        assert!(crate::validate_yaml(&yaml("flow-chat"), &packs).is_empty());
-        assert!(crate::validate_yaml(&yaml("structured-chat"), &packs).is_empty());
+        assert!(crate::validate_yaml(&yaml("flow-harnix"), &packs).is_empty());
+        assert!(crate::validate_yaml(&yaml("structured-harnix"), &packs).is_empty());
         let problems = crate::validate_yaml(&yaml("nowhere"), &packs);
         assert!(
             problems.iter().any(|p| p.message.contains("scene nowhere")),
@@ -744,7 +763,7 @@ mod tests {
         );
         assert_eq!(
             packs.catalog().scenes.into_iter().collect::<Vec<_>>(),
-            ["flow-chat", "structured-chat"]
+            ["flow-harnix", "structured-harnix"]
         );
         assert!(
             packs.catalog().templates.is_empty(),
@@ -768,6 +787,19 @@ mod tests {
         assert!(why.contains("Note*") && why.contains("ns__*"), "{why}");
         // The catalog carries what is guarded, for validation.
         assert_eq!(ok.packs.catalog().guarded, ["Bash", "mcp__db__*"]);
+    }
+
+    #[test]
+    fn with_no_scene_given_the_built_in_ones_are_offered_on_harnix() {
+        let flow = Flow::builder().build();
+        assert_eq!(
+            flow.sh.cfg.scenes,
+            ["flow-harnix", "flow-code", "flow-mini"]
+        );
+        assert_eq!(flow.sh.cfg.main_scene.as_deref(), Some("flow-harnix"));
+        assert!(flow.scenes.iter().all(|s| s.interactive()));
+        let code = Flow::builder().main_scene("code").build();
+        assert_eq!(code.sh.cfg.main_scene.as_deref(), Some("flow-code"));
     }
 
     #[test]

@@ -353,7 +353,7 @@ impl Module for Fleet {
             "side",
             TemplateCarrier::InProcess {
                 engine: EngineProfile {
-                    scene: "chat".into(),
+                    scene: "harnix".into(),
                     ..EngineProfile::default()
                 },
                 contrib: EngineContrib::new(),
@@ -365,7 +365,7 @@ impl Module for Fleet {
                 "heir",
                 TemplateCarrier::InProcess {
                     engine: EngineProfile {
-                        scene: "chat".into(),
+                        scene: "harnix".into(),
                         ..EngineProfile::default()
                     },
                     contrib: EngineContrib::new(),
@@ -399,7 +399,7 @@ impl Module for Fleet {
 
     /// A space whose sessions land on this module's own instance.
     fn spaces(&self, s: &mut SpaceRegistry) {
-        s.add(SpaceDecl::new("fleet").instance(FLEET_INSTANCE).scene("chat"));
+        s.add(SpaceDecl::new("fleet").instance(FLEET_INSTANCE).scene("harnix"));
     }
 
     fn methods(&self, m: &mut MethodRegistry) {
@@ -414,7 +414,7 @@ impl Module for Fleet {
                         .sessions()
                         .create(SessionSpec {
                             instance: p.instance.clone(),
-                            scene: Some("coding".into()),
+                            scene: Some("harnix".into()),
                             project_root: p.project_root.clone().map(Into::into),
                             model: Some(format!("headless-model-{i}")),
                             recording: p.recording.clone(),
@@ -463,7 +463,7 @@ impl Module for Fleet {
                 let sessions = module.sessions();
                 let session = sessions
                     .create(SessionSpec {
-                        scene: Some("coding".into()),
+                        scene: Some("harnix".into()),
                         project_root: p["project_root"].as_str().map(Into::into),
                         recording: p["recording"].as_str().map(str::to_string),
                         ..SessionSpec::default()
@@ -758,12 +758,12 @@ const NATIVE_MARKER: &str = "probe-native-marker-51c2";
 /// `fleet`'s templates' native contributions (ipdrun-10): built in this process for the in-process
 /// one, and again in the daemon's for the spawned one.
 fn native(e: &mut EngineContrib) {
-    e.scene(Arc::new(NativeScene(scene::chat::ChatScene)));
+    e.scene(Arc::new(NativeScene(harnix::scenes::harnix::HarnixScene)));
     e.customize_session(|b, _cx| {
-        let blocks = base::interface::prompt_registry::InMemoryPromptRegistry::new();
-        let _ = base::interface::prompt_registry::PromptRegistry::register_block(
+        let blocks = harnix::agent::interface::prompt_registry::InMemoryPromptRegistry::new();
+        let _ = harnix::agent::interface::prompt_registry::PromptRegistry::register_block(
             blocks.as_ref(),
-            base::interface::prompt_registry::RegisteredBlock::system("probe-native", 100_000, NATIVE_MARKER),
+            harnix::agent::interface::prompt_registry::RegisteredBlock::system("probe-native", 100_000, NATIVE_MARKER),
         );
         b.prompt_registry(blocks).prompt_middleware(Arc::new(Blocklist))
     });
@@ -777,10 +777,10 @@ fn native_engine() -> EngineProfile {
     }
 }
 
-/// The chat scene under another id, with one tool of its own.
-struct NativeScene(scene::chat::ChatScene);
+/// The harnix scene under another id, with one tool of its own.
+struct NativeScene(harnix::scenes::harnix::HarnixScene);
 
-impl base::interface::scene::Scene for NativeScene {
+impl harnix::agent::interface::scene::Scene for NativeScene {
     fn id(&self) -> &str {
         NATIVE_SCENE
     }
@@ -788,12 +788,12 @@ impl base::interface::scene::Scene for NativeScene {
         "probe native"
     }
     fn description(&self) -> &str {
-        "the chat scene with a tool of its own"
+        "the harnix scene with a tool of its own"
     }
     fn build_system_prompt(
         &self,
-        ctx: &base::interface::scene::ScenePromptContext,
-    ) -> Vec<base::interface::prompt::PromptBlock> {
+        ctx: &harnix::agent::interface::scene::ScenePromptContext,
+    ) -> Vec<harnix::agent::interface::prompt::PromptBlock> {
         self.0.build_system_prompt(ctx)
     }
     fn tools(&self) -> Vec<String> {
@@ -801,10 +801,10 @@ impl base::interface::scene::Scene for NativeScene {
         tools.push(NATIVE_TOOL.into());
         tools
     }
-    fn extra_tools(&self) -> Vec<Arc<dyn base::tool::Tool>> {
+    fn extra_tools(&self) -> Vec<Arc<dyn harnix::agent::tool::Tool>> {
         vec![Arc::new(FixedTool)]
     }
-    fn token_budget(&self) -> base::interface::scene::TokenBudget {
+    fn token_budget(&self) -> harnix::agent::interface::scene::TokenBudget {
         self.0.token_budget()
     }
 }
@@ -813,7 +813,7 @@ impl base::interface::scene::Scene for NativeScene {
 struct FixedTool;
 
 #[harnix::async_trait]
-impl base::tool::Tool for FixedTool {
+impl harnix::agent::tool::Tool for FixedTool {
     fn name(&self) -> &str {
         NATIVE_TOOL
     }
@@ -829,9 +829,9 @@ impl base::tool::Tool for FixedTool {
     async fn call(
         &self,
         _input: Value,
-        _cx: base::tool::ToolContext,
-        _progress: base::tool::ProgressSender,
-    ) -> Result<base::tool::ToolResult, base::error::ToolError> {
-        Ok(base::tool::ToolResult::text(NATIVE_ANSWER))
+        _cx: harnix::agent::tool::ToolContext,
+        _progress: harnix::agent::tool::ProgressSender,
+    ) -> Result<harnix::agent::tool::ToolResult, harnix::agent::error::ToolError> {
+        Ok(harnix::agent::tool::ToolResult::text(NATIVE_ANSWER))
     }
 }

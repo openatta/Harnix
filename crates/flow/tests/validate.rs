@@ -20,7 +20,7 @@ stations:
   - id: analyze
     foreach: ${stations.collect.output.modules}
     max_parallel: 2
-    executor: {kind: session, scene: chat, session: new}
+    executor: {kind: session, scene: harnix, session: new}
     skill: analyze
     output: {type: object, required: [findings]}
     exit: [{kind: output}]
@@ -41,7 +41,7 @@ stations:
     rework_to: [analyze, lint]
   - id: report
     tasks:
-      - {id: summary, executor: {kind: session, scene: chat}, skill: report}
+      - {id: summary, executor: {kind: session, scene: harnix}, skill: report}
       - {id: sign, executor: {kind: external, who: reviewer}}
     output: {type: object}
     exit: [{kind: output}]
@@ -101,7 +101,7 @@ fn without_the_contract_the_issue_example_reports_it() {
 
 fn session(executor_extra: &str, station_extra: &str) -> String {
     format!(
-        "name: p\ninputs: {{who: {{schema: {{type: string}}, default: x}}}}\nstations:\n  - {{id: a, executor: {{kind: session, scene: chat{executor_extra}}}, skill: analyze{station_extra}, exit: [{{kind: confirm}}]}}\n"
+        "name: p\ninputs: {{who: {{schema: {{type: string}}, default: x}}}}\nstations:\n  - {{id: a, executor: {{kind: session, scene: harnix{executor_extra}}}, skill: analyze{station_extra}, exit: [{{kind: confirm}}]}}\n"
     )
 }
 
@@ -274,7 +274,7 @@ fn children_only_with_subflow() {
 #[test]
 fn session_tasks_need_skill_and_scene() {
     assert_problem(
-        "name: x\nstations: [{id: a, executor: {kind: session, scene: chat}, exit: [{kind: confirm}]}]",
+        "name: x\nstations: [{id: a, executor: {kind: session, scene: harnix}, exit: [{kind: confirm}]}]",
         "needs a skill",
     );
     assert_problem(
@@ -322,7 +322,7 @@ fn catalog_references() {
         "policy none is not in the packs",
     );
     assert_problem(
-        "name: x\nstations: [{id: a, executor: {kind: session, scene: chat}, skill: nope, exit: [{kind: confirm}]}]",
+        "name: x\nstations: [{id: a, executor: {kind: session, scene: harnix}, skill: nope, exit: [{kind: confirm}]}]",
         "skill nope is not in the packs",
     );
     assert_problem(
@@ -461,7 +461,7 @@ fn a_flow_names_rules_and_policies_the_packs_have_and_its_permissions_are_sound(
 fn tasks_sharing_a_session_must_be_opened_alike() {
     let two = |a: &str, b: &str, extra_b: &str| {
         format!(
-        "name: s\nstations:\n  - {{id: one, executor: {{kind: session, scene: chat, session: per_run{a}}}, skill: analyze, output: {{type: object}}, exit: [{{kind: output}}]}}\n  - {{id: two, executor: {{kind: session, scene: chat, session: per_run{b}}}, skill: analyze, output: {{type: object}}{extra_b}, exit: [{{kind: output}}]}}\n"
+        "name: s\nstations:\n  - {{id: one, executor: {{kind: session, scene: harnix, session: per_run{a}}}, skill: analyze, output: {{type: object}}, exit: [{{kind: output}}]}}\n  - {{id: two, executor: {{kind: session, scene: harnix, session: per_run{b}}}, skill: analyze, output: {{type: object}}{extra_b}, exit: [{{kind: output}}]}}\n"
     )
     };
     assert_eq!(problems(&two("", "", "")), Vec::<String>::new());
@@ -483,9 +483,9 @@ fn tasks_sharing_a_session_must_be_opened_alike() {
         .iter()
         .any(|p| p.contains("output contract")));
     // Handing in with flow_submit, the contract is the flow's to check, not the session's.
-    let wrapped = contract.replace("scene: chat", "scene: flow-chat");
-    let mut cat = Packs::catalog(&packs().scene("flow-chat"));
-    cat.submit_scenes.insert("flow-chat".into());
+    let wrapped = contract.replace("scene: harnix", "scene: flow-harnix");
+    let mut cat = Packs::catalog(&packs().scene("flow-harnix"));
+    cat.submit_scenes.insert("flow-harnix".into());
     struct Q(MemPacks, Catalog);
     impl Packs for Q {
         fn flows(&self) -> Vec<String> {
@@ -506,7 +506,7 @@ fn tasks_sharing_a_session_must_be_opened_alike() {
     let apart = two("", ", model: m2", "").replace("session: per_run", "session: new");
     assert_eq!(problems(&apart), Vec::<String>::new());
     // Tasks of one station sharing by key.
-    let keyed = "name: k\nstations:\n  - id: a\n    tasks:\n      - {id: x, executor: {kind: session, scene: chat, session: {key: '${run}'}}, skill: analyze}\n      - {id: y, executor: {kind: session, scene: other, session: {key: '${run}'}}, skill: analyze}\n    output: {type: object}\n    exit: [{kind: output}]\n";
+    let keyed = "name: k\nstations:\n  - id: a\n    tasks:\n      - {id: x, executor: {kind: session, scene: harnix, session: {key: '${run}'}}, skill: analyze}\n      - {id: y, executor: {kind: session, scene: other, session: {key: '${run}'}}, skill: analyze}\n    output: {type: object}\n    exit: [{kind: output}]\n";
     let ps: Vec<String> = validate_yaml(keyed, &packs().scene("other"))
         .iter()
         .map(|p| p.to_string())

@@ -146,6 +146,7 @@ function SessionList({ app, s }: { app: App; s: ShellState }) {
         <button
           type="button"
           className="archive-toggle"
+          data-testid="archive-toggle"
           onClick={() => {
             const showArchived = !s.showArchived;
             app.set({ showArchived });

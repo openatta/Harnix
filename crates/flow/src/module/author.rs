@@ -1,6 +1,6 @@
 //! Writing flows in conversation (xops-02 §4): the `flow-author` scene and its tools.
 //!
-//! The flow space's default scene. It wraps a scene the application gives (Agix's chat by
+//! The flow space's default scene. It wraps a scene the application gives (Agix's harnix by
 //! default) and adds the tools below and a system prompt block on how to write flows. A tool
 //! that needs **the current flow** reads it from the conversation's focus: what the person has
 //! selected in the panel beside it (device method `focus`), or the flow `flow_create` just made.
@@ -233,6 +233,21 @@ impl Scene for AuthorScene {
     }
     fn deferred_tools(&self) -> Vec<String> {
         self.inner.deferred_tools()
+    }
+    fn build_session_context(&self, ctx: &ScenePromptContext) -> String {
+        self.inner.build_session_context(ctx)
+    }
+    fn path_style(&self) -> base::context::config::PathStyle {
+        self.inner.path_style()
+    }
+    fn bundled_skills(&self) -> Vec<String> {
+        self.inner.bundled_skills()
+    }
+    /// Attended whatever the base scene says: the module answers this session's permission asks
+    /// (from its task's permissions, or by asking a person in the flow space), so they must reach
+    /// the host rather than be refused as no one's to answer.
+    fn interactive(&self) -> bool {
+        true
     }
     fn execution_params(&self) -> ExecutionParams {
         self.inner.execution_params()

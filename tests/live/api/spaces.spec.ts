@@ -21,7 +21,7 @@ test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
   backend = await startTestApp();
 });
-test.afterAll(() => backend?.stop());
+test.afterAll(async () => { await backend?.dispose(); });
 test.beforeEach(async () => {
   api = await connect(backend);
 });
@@ -36,7 +36,7 @@ async function createIn(space: string): Promise<{ instance: string; session_id: 
 
 test("a space's new session lands on its default instance and is listed in it alone", TAGS, async () => {
   const { spaces } = await api.call("harnix.spaces.list");
-  expect(spaces.find((s: any) => s.id === "fleet")).toMatchObject({ instance: "fleet-side", scene: "chat" });
+  expect(spaces.find((s: any) => s.id === "fleet")).toMatchObject({ instance: "fleet-side", scene: "harnix" });
   const fleet = await createIn("fleet");
   expect(fleet.instance).toBe("fleet-side");
   const mine = await createIn("sessions");
@@ -132,6 +132,29 @@ test("with the system space turned off, nobody may claim it", TAGS, async () => 
   } finally {
     off.stop();
   }
+});
+
+test("a module moves a session to another space, where it is listed alone; a space it cannot go to is refused (ipdrun-51)", TAGS, async () => {
+  const mine = await createIn("sessions");
+  const move = (params: Record<string, unknown>) =>
+    api.call("app.probe.call", { method: "harnix.sessions.move", params: { ...mine, ...params } });
+  expect(await move({ space: "projects" })).toEqual({ space: "projects", from: "sessions", moved: true });
+  const listed = async (space: string) =>
+    (await api.call("harnix.sessions", { space })).sessions.map((r: any) => r.session_id);
+  expect(await listed("projects")).toContain(mine.session_id);
+  expect(await listed("sessions")).not.toContain(mine.session_id);
+  expect((await api.refused("session.get", { ...mine, space: "sessions" }))?.code).toBe(SPACE_MISMATCH);
+  await api.call("session.get", { ...mine, space: "projects" });
+  // Moving it where it already is changes nothing.
+  expect(await move({ space: "projects" })).toMatchObject({ moved: false });
+
+  // Not to the system space, nor to a name no space can have (a well-formed one is a space — one
+  // may live only in the interface).
+  for (const space of ["system", "not a space!"]) {
+    const refused = await api.refused("app.probe.call", { method: "harnix.sessions.move", params: { ...mine, space } });
+    expect(refused?.code, space).toBe(SPACE_MISMATCH);
+  }
+  expect(await api.refused("app.probe.call", { method: "harnix.sessions.move", params: { ...mine, session_id: "no-such-session", space: "sessions" } })).toBeTruthy();
 });
 
 test("moving a session to another space is the application's: a device is refused (ipdrun-51)", TAGS, async () => {

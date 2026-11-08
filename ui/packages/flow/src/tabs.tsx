@@ -767,7 +767,7 @@ function RunSessionsList({ module, run, rev }: { module: string; run: string; re
                 onClick={() => open(main)}
               >
                 <span className="hx-flow-row-title">
-                  <span className="hx-flow-badge">{t("flowui.sessions.kind." + (["agent", "teammate", "shell", "monitor", "cron"].includes(task.kind) ? task.kind : "other"))}</span>
+                  <span className="hx-flow-badge">{t("flowui.sessions.kind." + (["agent", "teammate", "shell", "monitor", "cron", "code"].includes(task.kind) ? task.kind : "other"))}</span>
                   {task.flow ? `${task.flow.station}/${task.flow.task}` : task.detail?.description || task.detail?.command || task.task_id}
                 </span>
                 <span className="hx-flow-faint">

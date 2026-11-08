@@ -15,7 +15,7 @@ let backend: Backend;
 test.beforeAll(async () => {
   backend = await startTestApp();
 });
-test.afterAll(() => backend?.stop());
+test.afterAll(async () => { await backend?.dispose(); });
 
 const url = (path: string) => `${backend.url.replace(/\/$/, "")}${path}`;
 

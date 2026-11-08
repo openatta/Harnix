@@ -1,9 +1,9 @@
 // `templates/app` builds, offline, as a fresh application would (M2-10).
 //
-// The template is copied into a scratch directory with `harnix/` and
-// `agix/` beside each other (links to this checkout and its submodule), the
+// The template is copied into a scratch directory with `harnix/` beside it
+// (a link to this checkout, which brings the engine as `harnix/agix`), the
 // dependency block is generated, and the application is built with
-// `--offline`: a layout that needed the network to resolve Agix (design
+// `--offline`: a layout that needed the network to resolve the engine (design
 // §11.2's first row) fails here rather than in someone's CI. Then the binary
 // is asked its versions, and the lock file is compared with Harnix's.
 
@@ -21,7 +21,6 @@ const run = (cmd, args, cwd = app) =>
 try {
   cpSync(join(root, "templates", "app"), app, { recursive: true });
   symlinkSync(root, join(app, "harnix"));
-  symlinkSync(join(root, "agix"), join(app, "agix"));
   // Start from Harnix's lock, as an application that just added the
   // submodules would after its first `cargo generate-lockfile` — and so the
   // build needs nothing the registry cache does not already have.

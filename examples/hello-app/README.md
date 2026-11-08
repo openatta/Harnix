@@ -1,8 +1,7 @@
 # hello-app
 
-An application on Harnix, laid out and built the way one is (docs/harnix-sdk.md §3): `harnix/` and
-`agix/` beside it (here, links into this checkout), its own Cargo workspace, its own interface
-modules.
+An application on Harnix, laid out and built the way one is (docs/harnix-sdk.md §3): `harnix/` beside it
+(here, a link to this checkout), its own Cargo workspace, its own interface modules.
 
 | space | interface (`ui/`) | backend (`app/`) | Agent |
 |---|---|---|---|

@@ -69,7 +69,7 @@ impl Module for Greeter {
             "desk",
             TemplateCarrier::InProcess {
                 engine: EngineProfile {
-                    scene: "chat".into(),
+                    scene: "harnix".into(),
                     ..EngineProfile::default()
                 },
                 contrib: EngineContrib::new(),
@@ -78,7 +78,7 @@ impl Module for Greeter {
     }
 
     fn spaces(&self, s: &mut SpaceRegistry) {
-        s.add(SpaceDecl::new("greeter").instance("template:greeter.desk").scene("chat"));
+        s.add(SpaceDecl::new("greeter").instance("template:greeter.desk").scene("harnix"));
     }
 
     fn methods(&self, m: &mut MethodRegistry) {

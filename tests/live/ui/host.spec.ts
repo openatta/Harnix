@@ -58,7 +58,7 @@ test("session.open with switchSpace opens a session in the space the hub has it 
   // A session of the system space, made the way that space makes them.
   const other = await page.evaluate(async () => {
     const { app } = (window as any).harnix;
-    const created = await app.call("session.create", { space: "system", scene: "coding", options: { recorder: { name: "says-ready" } } });
+    const created = await app.call("session.create", { space: "system", scene: "harnix", options: { recorder: { name: "says-ready" } } });
     return { instance: created.instance ?? "system", sessionId: created.session_id as string };
   });
   // Without the option, nothing changes: the front space's own session is opened there.

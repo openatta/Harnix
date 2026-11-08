@@ -34,6 +34,9 @@ export function launchFor(mode: ModelMode, extra: LaunchOptions = {}): LaunchOpt
   const model = mode === "live" && hasModel(env);
   return {
     replay: mode === "replay",
+    // `pnpm live --strict`: a request that no longer matches its recording fails the call, rather
+    // than being reported and played back anyway.
+    replayStrict: process.env.HARNIX_REPLAY_STRICT === "1",
     // The interface as built (`pnpm --filter @harnix/shell build`), from disk rather than the copy
     // compiled in, so a front-end change is tested without rebuilding the binary.
     uiDir: join(ROOT, "ui", "dist"),

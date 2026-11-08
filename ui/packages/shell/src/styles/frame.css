@@ -555,6 +555,11 @@ html.resizing #frame {
   width: calc(100% - 14px);
 }
 
+/* The call a jump from the conversation asked for. */
+#details .step.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
 #details .step.bad {
   border-color: var(--state-error);
 }
@@ -785,4 +790,11 @@ html.resizing #frame {
     background: transparent;
     box-shadow: 0 0 0 2px transparent;
   }
+}
+
+/* A row found from the system space ("find in conversation"), for a moment. */
+.hx-flash {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }

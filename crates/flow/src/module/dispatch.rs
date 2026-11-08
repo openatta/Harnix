@@ -1517,7 +1517,7 @@ mod tests {
             token: "t".into(),
             attempt: 1,
             executor: Executor::Session {
-                scene: "flow-chat".into(),
+                scene: "flow-harnix".into(),
                 session: Some(SessionBinding::New),
                 model: None,
                 provider: None,
@@ -1558,7 +1558,7 @@ mod tests {
                 task: "t".into(),
             },
             token: token.into(),
-            scene: "flow-chat".into(),
+            scene: "flow-harnix".into(),
             skill: None,
             skill_digest: None,
             rules: vec![],
@@ -1577,16 +1577,16 @@ mod tests {
     fn a_shared_session_names_what_it_was_opened_with_differently() {
         let p = Placement::default();
         let schema = json!({"type": "object"});
-        let a = settings_of("chat", Delivery::StructuredOutput, Some(&schema), &p, None);
+        let a = settings_of("harnix", Delivery::StructuredOutput, Some(&schema), &p, None);
         assert!(settings_differ(&a, &a.clone()).is_empty());
         let other = json!({"type": "object", "required": ["x"]});
-        let contract = settings_of("chat", Delivery::StructuredOutput, Some(&other), &p, None);
+        let contract = settings_of("harnix", Delivery::StructuredOutput, Some(&other), &p, None);
         assert_eq!(settings_differ(&a, &contract), ["output_schema"]);
         let model = Placement {
             model: Some("m".into()),
             ..Default::default()
         };
-        let m = settings_of("chat", Delivery::StructuredOutput, Some(&schema), &model, None);
+        let m = settings_of("harnix", Delivery::StructuredOutput, Some(&schema), &model, None);
         assert_eq!(settings_differ(&a, &m), ["model"]);
     }
 
@@ -1616,8 +1616,8 @@ mod tests {
             detail: detail.into(),
             at: 0,
         };
-        let one = "{name: f, stations: [{id: a, executor: {kind: session, scene: chat}, skill: s, output: {type: object}, exit: [{kind: output}]}]}";
-        let many = "{name: f, stations: [{id: a, tasks: [{id: x, executor: {kind: session, scene: chat}, skill: s}, {id: y, executor: {kind: external}}], output: {type: object}, exit: [{kind: output}]}]}";
+        let one = "{name: f, stations: [{id: a, executor: {kind: session, scene: harnix}, skill: s, output: {type: object}, exit: [{kind: output}]}]}";
+        let many = "{name: f, stations: [{id: a, tasks: [{id: x, executor: {kind: session, scene: harnix}, skill: s}, {id: y, executor: {kind: external}}], output: {type: object}, exit: [{kind: output}]}]}";
         // Its own output: yes; another task's part of the same check: no.
         let v = view(
             many,

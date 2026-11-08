@@ -20,12 +20,12 @@ name: placed
 inputs: {box: {schema: {type: string}, default: b1}}
 stations:
   - id: work
-    executor: {kind: session, scene: chat, model: m1, provider: acme, template: app.box, params: {name: "box-${inputs.box}", run: "${run}"}, space: dev}
+    executor: {kind: session, scene: harnix, model: m1, provider: acme, template: app.box, params: {name: "box-${inputs.box}", run: "${run}"}, space: dev}
     skill: analyze
     output: {type: object, required: [done], properties: {done: {const: true}}}
     exit: [{kind: output}]
   - id: wrapped
-    executor: {kind: session, scene: flow-chat, instance: side}
+    executor: {kind: session, scene: flow-harnix, instance: side}
     skill: analyze
     output: {type: object}
     exit: [{kind: output}]
@@ -44,12 +44,12 @@ fn p_named(_run: &str) -> bool {
 fn engine(p: MemPacks) -> Engine {
     Engine::new(Arc::new(MemStore::new()), Arc::new(p))
         .with_clock(Arc::new(FixedClock(T0)))
-        .with_submit_scenes(["flow-chat"])
+        .with_submit_scenes(["flow-harnix"])
 }
 
 #[tokio::test]
 async fn session_work_carries_its_placement_resolved_and_how_it_hands_in() {
-    let eng = engine(packs().scene("flow-chat").flow(PLACED));
+    let eng = engine(packs().scene("flow-harnix").flow(PLACED));
     let o = eng
         .create(
             CreateIn {
@@ -320,7 +320,7 @@ stations:
     exit: [{kind: output}]
   - id: analyze
     foreach: ${stations.collect.output.modules}
-    executor: {kind: session, scene: chat}
+    executor: {kind: session, scene: harnix}
     skill: analyze
     output: {type: object, required: [findings], properties: {findings: {type: array}}}
     exit: [{kind: output}]

@@ -129,10 +129,7 @@ async fn main() {
         std::process::exit(2);
     };
     // The empty application's catalog: its wrapped scenes, command gates on.
-    let catalog = MemPacks::new()
-        .submit_scene("flow-chat")
-        .main_scene("flow-coding")
-        .command_gates();
+    let catalog = MemPacks::new().main_scene("flow-harnix").command_gates();
     let packs = DirPacks::new([pack.clone()]).with_builtin(catalog);
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -140,8 +137,8 @@ async fn main() {
     let clock = Arc::new(ManualClock::new(now - SPAN_MINUTES * MINUTE));
     let eng = Engine::new(Arc::new(FileStore::new(runs)), Arc::new(packs))
         .with_clock(clock.clone())
-        .with_main_scene("flow-coding")
-        .with_submit_scenes(["flow-chat", "flow-coding"]);
+        .with_main_scene("flow-harnix")
+        .with_submit_scenes(["flow-harnix"]);
     let s = Seed { eng, clock };
 
     // demo-write: one finished, one waiting for the confirmation.

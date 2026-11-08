@@ -108,6 +108,21 @@ impl Scene for FlowScene {
     fn deferred_tools(&self) -> Vec<String> {
         self.inner.deferred_tools()
     }
+    fn build_session_context(&self, ctx: &ScenePromptContext) -> String {
+        self.inner.build_session_context(ctx)
+    }
+    fn path_style(&self) -> base::context::config::PathStyle {
+        self.inner.path_style()
+    }
+    fn bundled_skills(&self) -> Vec<String> {
+        self.inner.bundled_skills()
+    }
+    /// Attended whatever the base scene says: the module answers this session's permission asks
+    /// (from its task's permissions, or by asking a person in the flow space), so they must reach
+    /// the host rather than be refused as no one's to answer.
+    fn interactive(&self) -> bool {
+        true
+    }
     fn execution_params(&self) -> ExecutionParams {
         self.inner.execution_params()
     }
@@ -133,7 +148,7 @@ pub fn structured_id(base: &str) -> String {
 /// engine's `StructuredOutput` tool in its whitelist, offered as `structured-<id>`.
 ///
 /// The engine gives a session with an `output_schema` that tool only where its scene permits
-/// it, and Agix's chat scene does not. Register it where a station's session runs — in a
+/// it, and Agix's harnix scene does not. Register it where a station's session runs — in a
 /// template's native contributions (`InstanceTemplate::native`, which a spawned daemon builds
 /// again in its own process) and that template's `EngineProfile.scenes`. It holds no state of
 /// the module's, so it works in any process.
@@ -200,6 +215,21 @@ impl Scene for StructuredScene {
     }
     fn deferred_tools(&self) -> Vec<String> {
         self.inner.deferred_tools()
+    }
+    fn build_session_context(&self, ctx: &ScenePromptContext) -> String {
+        self.inner.build_session_context(ctx)
+    }
+    fn path_style(&self) -> base::context::config::PathStyle {
+        self.inner.path_style()
+    }
+    fn bundled_skills(&self) -> Vec<String> {
+        self.inner.bundled_skills()
+    }
+    /// Attended whatever the base scene says: the module answers this session's permission asks
+    /// (from its task's permissions, or by asking a person in the flow space), so they must reach
+    /// the host rather than be refused as no one's to answer.
+    fn interactive(&self) -> bool {
+        true
     }
     fn execution_params(&self) -> ExecutionParams {
         self.inner.execution_params()
@@ -465,10 +495,10 @@ mod tests {
 
     impl Scene for Base {
         fn id(&self) -> &str {
-            "chat"
+            "harnix"
         }
         fn name(&self) -> &str {
-            "Chat"
+            "Harnix"
         }
         fn description(&self) -> &str {
             "talk"
@@ -488,6 +518,9 @@ mod tests {
         fn auto_name_session(&self) -> bool {
             true
         }
+        fn path_style(&self) -> base::context::config::PathStyle {
+            base::context::config::PathStyle::WorkspaceRelative
+        }
     }
 
     fn sh() -> Arc<Shared> {
@@ -496,7 +529,7 @@ mod tests {
             Config {
                 space: "flow".into(),
                 instance: "system".into(),
-                scenes: vec!["flow-chat".into()],
+                scenes: vec!["flow-harnix".into()],
                 programs: None,
                 gates: None,
                 command_gates: false,
@@ -517,7 +550,7 @@ mod tests {
     #[test]
     fn the_wrapped_scene_adds_the_flow_tools() {
         let s = FlowScene::new(Arc::new(Base(vec!["Read".into()])), sh());
-        assert_eq!(s.id(), "flow-chat");
+        assert_eq!(s.id(), "flow-harnix");
         assert_eq!(s.tools(), ["Read", TOOL_STATE, TOOL_SUBMIT, TOOL_PROPOSE]);
         let names: Vec<String> = s
             .extra_tools()
@@ -535,10 +568,27 @@ mod tests {
     #[test]
     fn the_structured_scene_lets_a_session_hand_in_by_structured_output() {
         let s = StructuredScene::new(Arc::new(Base(vec!["Read".into()])));
-        assert_eq!(s.id(), "structured-chat");
+        assert_eq!(s.id(), "structured-harnix");
         assert_eq!(s.tools(), ["Read", STRUCTURED_OUTPUT_TOOL]);
         assert!(s.permits_tool(STRUCTURED_OUTPUT_TOOL) && !s.permits_tool("Bash"));
         assert!(!s.auto_name_session());
+    }
+
+    /// The base's path style carries over, and the session is attended: under an
+    /// unattended scene the engine would refuse the asks the module answers.
+    #[test]
+    fn the_wrappers_keep_the_base_and_are_attended() {
+        let base: Arc<dyn Scene> = Arc::new(Base(vec!["Read".into()]));
+        assert!(!base.interactive());
+        let flow = FlowScene::new(base.clone(), sh());
+        let structured = StructuredScene::new(base);
+        for s in [&flow as &dyn Scene, &structured] {
+            assert!(s.interactive(), "{}", s.id());
+            assert_eq!(
+                s.path_style(),
+                base::context::config::PathStyle::WorkspaceRelative
+            );
+        }
     }
 
     #[test]
