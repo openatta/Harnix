@@ -37,6 +37,7 @@ pub(crate) fn mount(
     mut router: axum::Router<AppState>,
     state: &AppState,
     apps: Vec<AppRoutes>,
+    runtime: Option<axum::Router>,
 ) -> axum::Router<AppState> {
     for app in apps {
         let guard_state = state.clone();
@@ -48,12 +49,16 @@ pub(crate) fn mount(
         }));
         router = router.nest_service(&format!("/apps/{}", app.id), guarded);
     }
-    // Anything else under `/apps/` is a module that is not here — disabled,
-    // or never was — and must not fall through to the interface's index.
-    router.route(
-        "/apps/{*rest}",
-        axum::routing::any(|| async { (StatusCode::NOT_FOUND, "no module serves this path") }),
-    )
+    // Anything else under `/apps/` is a runtime application's, when this
+    // process hosts them, or a module that is not here — disabled, or never
+    // was — and must not fall through to the interface's index.
+    match runtime {
+        Some(runtime) => router.route_service("/apps/{*rest}", runtime),
+        None => router.route(
+            "/apps/{*rest}",
+            axum::routing::any(|| async { (StatusCode::NOT_FOUND, "no module serves this path") }),
+        ),
+    }
 }
 
 async fn guard(state: AppState, module: String, req: Request, next: Next) -> Response {

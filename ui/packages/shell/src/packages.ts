@@ -2,7 +2,7 @@
  * Installed packages' interface modules (design §10.5, contribution API 2).
  *
  * A v2 module is a precompiled ES module the page imports from its own origin
- * (`/plugins/<package>/ui/<file>`). It brings no React of its own: `react`, `react-dom`,
+ * (`/plugins/<package>/ui/<file>`, or `/apps/<id>/ui/<file>` for a runtime application's). It brings no React of its own: `react`, `react-dom`,
  * `react/jsx-runtime` and `@harnix/react` resolve through the page's import map to the copies the
  * shell itself runs on, so hooks and the host's context are the shell's. It exports
  * `register(registry, host)` like a compiled-in module, through a registry that signs everything
@@ -50,8 +50,9 @@ export async function loadPackages(app: App, hello: Hello): Promise<void> {
       app.registry.note({ point: entry.point ?? "?", owner, id: module, reason: t("contrib.v1Inert") });
       continue;
     }
-    // A package's file is listed once per point it declares; it registers once.
-    if (!module.startsWith("/plugins/") || loaded.has(module)) continue;
+    // A package's file is listed once per point it declares; it registers once. A runtime
+    // application's modules are served the same way, from `/apps/<id>/ui/`.
+    if (!(module.startsWith("/plugins/") || module.startsWith("/apps/")) || loaded.has(module)) continue;
     loaded.add(module);
     try {
       const imported = (await import(/* @vite-ignore */ module)) as { register?: (r: Registry, host: NestHost) => void };

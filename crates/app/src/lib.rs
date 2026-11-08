@@ -57,6 +57,7 @@ impl App {
             modules: Vec::new(),
             credentials: None,
             args: None,
+            app_hosts: Vec::new(),
         }
     }
 }
@@ -68,6 +69,7 @@ pub struct AppBuilder {
     pub(crate) modules: Vec<Box<dyn ErasedModule>>,
     pub(crate) credentials: Option<Arc<dyn Credentials>>,
     pub(crate) args: Option<Vec<OsString>>,
+    pub(crate) app_hosts: Vec<String>,
 }
 
 impl AppBuilder {
@@ -116,6 +118,16 @@ impl AppBuilder {
     /// resolved. The environment by default.
     pub fn credentials(mut self, source: impl Credentials + 'static) -> Self {
         self.credentials = Some(Arc::new(source));
+        self
+    }
+
+    /// Hand the runtime-application host to this module as well as to the `apps` built-in.
+    ///
+    /// For a test application whose module fakes an application host (`harnix-testapp`'s
+    /// `fakehost`); a product has no reason to. Without `[apps] enabled` there is no host to hand.
+    #[doc(hidden)]
+    pub fn app_host(mut self, module: impl Into<String>) -> Self {
+        self.app_hosts.push(module.into());
         self
     }
 

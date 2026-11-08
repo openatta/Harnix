@@ -33,6 +33,7 @@ mod inherit;
 mod instances;
 mod lifecycle;
 mod replay;
+mod servers;
 mod session;
 mod spaces;
 mod topics;
@@ -191,6 +192,9 @@ pub struct Hub {
     prompt_timeout_secs: u64,
     spaces: StdMutex<Spaces>,
     audit: StdRwLock<Option<AuditHook>>,
+    /// MCP servers every daemon this process spawns is configured with: the runtime
+    /// applications' endpoints (`servers.rs`). Empty unless this process hosts applications.
+    shared_servers: StdRwLock<serde_json::Map<String, Value>>,
 }
 
 pub struct HubConfig {
@@ -230,6 +234,7 @@ impl Hub {
             prompt_timeout_secs: config.prompt_timeout_secs,
             spaces: StdMutex::new(config.spaces),
             audit: StdRwLock::new(None),
+            shared_servers: StdRwLock::new(serde_json::Map::new()),
         })
     }
 

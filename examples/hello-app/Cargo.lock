@@ -1402,6 +1402,7 @@ dependencies = [
  "base",
  "clap",
  "daemon",
+ "harnix-apps",
  "harnix-authz",
  "harnix-builtin",
  "harnix-contract",
@@ -1419,6 +1420,33 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "harnix-apps"
+version = "0.4.1-2026110806"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "base",
+ "harnix-builtin",
+ "harnix-contract",
+ "harnix-module",
+ "harnix-wasm",
+ "hex",
+ "reqwest 0.12.28",
+ "runtime",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "toml",
+ "tracing",
+ "uuid",
+ "zip",
 ]
 
 [[package]]

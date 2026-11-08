@@ -46,6 +46,13 @@ pub struct Factory {
     pub socket_dir: PathBuf,
     /// What a credential reference resolves to (an attached daemon's token).
     pub credential: Resolve,
+    /// Agix plugins every engine built in this process gets — the in-process
+    /// carrier's alone: a daemon is another process, and what it should have
+    /// of this one's reaches it another way (an application's tools, over MCP).
+    pub plugins: Vec<Arc<dyn runtime::plugin::Plugin>>,
+    /// The tools those plugins register, which every scene of such an engine admits
+    /// (`EngineContrib::admit_tools`).
+    pub admitted_tools: Vec<String>,
 }
 
 impl Factory {
@@ -57,6 +64,8 @@ impl Factory {
             program,
             socket_dir,
             credential,
+            plugins: Vec::new(),
+            admitted_tools: Vec::new(),
         })
     }
 
@@ -97,6 +106,12 @@ impl Factory {
                 let mut contrib = contrib.clone();
                 if let Some(native) = template.and_then(InstanceTemplate::native_contrib) {
                     contrib.extend(native);
+                }
+                for plugin in &self.plugins {
+                    contrib.plugin(plugin.clone());
+                }
+                for pattern in &self.admitted_tools {
+                    contrib.admit_tools(pattern.clone());
                 }
                 let engine = engine::build(engine_config(engine, &data_root, contrib)).await?;
                 let facts = Facts {
@@ -144,7 +159,7 @@ impl Factory {
                     spawn: Some(SpawnSpec {
                         program: program.clone().unwrap_or_else(|| self.program.clone()),
                         args: argv,
-                        env: Vec::new(),
+                        env: loopback_without_proxy(),
                         lock,
                     }),
                 }, options);
@@ -190,6 +205,23 @@ impl Factory {
             }
         }
     }
+}
+
+/// A daemon this process spawns reaches this process back over loopback (a runtime
+/// application's MCP endpoint). A proxy configured in the environment (`HTTP_PROXY`) would carry
+/// that to somewhere that is not this machine, so loopback is added to whatever `NO_PROXY` says.
+fn loopback_without_proxy() -> Vec<(String, String)> {
+    const LOOPBACK: &str = "127.0.0.1,localhost,::1";
+    ["NO_PROXY", "no_proxy"]
+        .iter()
+        .map(|name| {
+            let value = match std::env::var(name) {
+                Ok(given) if !given.trim().is_empty() => format!("{given},{LOOPBACK}"),
+                _ => LOOPBACK.to_string(),
+            };
+            (name.to_string(), value)
+        })
+        .collect()
 }
 
 pub fn engine_config(engine: &EngineProfile, data_root: &Path, contrib: crate::EngineContrib) -> EngineConfig {

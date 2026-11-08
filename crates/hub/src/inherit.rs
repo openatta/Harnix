@@ -104,7 +104,7 @@ fn read(path: &Path) -> std::io::Result<Value> {
 }
 
 /// Replaced whole, readable by its owner only: it holds credentials.
-fn write_private(path: &Path, value: &Value) -> std::io::Result<()> {
+pub(crate) fn write_private(path: &Path, value: &Value) -> std::io::Result<()> {
     use std::io::Write as _;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;

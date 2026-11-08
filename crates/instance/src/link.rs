@@ -52,7 +52,9 @@ impl LinkStatus {
     }
 }
 
-/// Which carrier, for the instance list. The hub never branches on it.
+/// Which carrier, for the instance list. The hub branches on it once: a daemon it spawned is the
+/// one kind of instance that is another process of this machine's, and so the one that reaches
+/// this process's runtime applications over MCP rather than directly (`set_shared_servers`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Carrier {

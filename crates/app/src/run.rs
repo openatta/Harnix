@@ -33,6 +33,10 @@ use crate::modules::{self, Entry, Namespace};
 use crate::paths::{RootArgs, Roots};
 use crate::{audit_log, devices, methods, AppBuilder};
 
+/// The topic a running application's tool calls report their progress on (`host.progress`).
+#[cfg(feature = "apps")]
+const APPS_PROGRESS_TOPIC: &str = "harnix.apps.progress";
+
 pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
@@ -90,6 +94,19 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     // with who has it, rather than starting and overwriting the first one's token and ledger.
     let state_lock = Arc::new(crate::state_lock::StateLock::acquire(&roots.state)?);
 
+    // The runtime applications run in, when this build has one and the profile asks for it.
+    // Made before anything is registered: the `apps` module drives it, and the instances built
+    // below carry its plugin.
+    #[cfg(feature = "apps")]
+    let app_runtime = if profile.apps.enabled && app.builtins {
+        Some(harnix_apps::Runtime::new(harnix_apps::Options {
+            dev: profile.apps.dev,
+            config: profile.apps.config.clone(),
+        })?)
+    } else {
+        None
+    };
+
     // ── 2. Register ─────────────────────────────────────────────────────
     let paired = Arc::new(Devices::default());
     let mut entries = Vec::new();
@@ -106,8 +123,15 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         }
         // Runtime applications' install records and switches: only when this process hosts them.
         if profile.apps.enabled {
+            #[allow(unused_mut)]
+            let mut module =
+                harnix_builtin::apps::AppsModule::new(roots.state.join("apps")).dev(profile.apps.dev);
+            #[cfg(feature = "apps")]
+            if let Some(runtime) = &app_runtime {
+                module = module.runtime(runtime.clone());
+            }
             entries.push(Entry {
-                module: Box::new(harnix_builtin::apps::AppsModule::new(roots.state.join("apps"))),
+                module: Box::new(module),
                 namespace: Namespace::Kernel,
             });
         }
@@ -137,6 +161,11 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         // there anything to watch.
         table = table.allow(&harnix_authz::topic(harnix_hub::SPACES_TOPIC), harnix_authz::Reach::Device);
     }
+    // A running application's tool calls, step by step, as their components report them.
+    #[cfg(feature = "apps")]
+    if app_runtime.is_some() {
+        table = table.allow(&harnix_authz::topic(APPS_PROGRESS_TOPIC), harnix_authz::Reach::Device);
+    }
     let mut records = modules::register(entries, &mut table, &profile.modules, &roots.state);
 
     // ── 3. Migrate ──────────────────────────────────────────────────────
@@ -151,7 +180,17 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         let credentials = credentials.clone();
         Arc::new(move |name: &str| credentials.get(name).ok().map(|s| s.expose().to_string()))
     };
-    let factory = Factory::new(resolve)?;
+    #[allow(unused_mut)]
+    let mut factory = Factory::new(resolve)?;
+    // Every engine built in this process gives its sessions the running applications' tools; a
+    // spawned daemon reaches them over MCP instead (`set_shared_servers`, below).
+    #[cfg(feature = "apps")]
+    let apps_plugin = app_runtime.as_ref().map(|r| r.plugin());
+    #[cfg(feature = "apps")]
+    if let Some(plugin) = &apps_plugin {
+        factory.plugins.push(plugin.clone());
+        factory.admitted_tools.push(harnix_apps::TOOL_PATTERN.to_string());
+    }
     let instances_dir = roots.state.join("instances");
     let mut registry = Registry {
         templates: BTreeMap::new(),
@@ -197,7 +236,15 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         permission_prompt_timeout_secs: profile.engine.permission_prompt_timeout_secs,
         data_root: roots.engine.clone(),
         cwd: None,
-        contrib: modules::engine_contrib(&records),
+        contrib: {
+            #[allow(unused_mut)]
+            let mut contrib = modules::engine_contrib(&records);
+            #[cfg(feature = "apps")]
+            if let Some(plugin) = &apps_plugin {
+                contrib.plugin(plugin.clone()).admit_tools(harnix_apps::TOOL_PATTERN);
+            }
+            contrib
+        },
     })
     .await?;
     tracing::info!(
@@ -312,12 +359,19 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         "user": std::env::var("USER").or_else(|_| std::env::var("USERNAME")).ok(),
     }));
     let agix = daemon::discovery::identity();
-    hub.set_process(json!({
+    #[allow(unused_mut)]
+    let mut process = json!({
         "app": { "name": app.name, "version": app.version },
         "harnix": crate::HARNIX_VERSION,
         "agix": agix.get("version").cloned().unwrap_or(json!(null)),
         "started_ms": now_ms(),
-    }));
+    });
+    // What a store has to have compiled an application for, for this process to run it.
+    #[cfg(feature = "apps")]
+    if let Some(runtime) = &app_runtime {
+        process["apps_engine"] = json!(runtime.engine().fingerprint());
+    }
+    hub.set_process(process);
     let started = now_ms();
     hub.add_instance(
         harnix_hub::SYSTEM,
@@ -338,6 +392,15 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     hub.restore().await;
     if profile.apps.enabled {
         hub.declare_spaces_topic().await;
+    }
+    #[cfg(feature = "apps")]
+    if let Some(runtime) = &app_runtime {
+        hub.declare_topic(APPS_PROGRESS_TOPIC, Vec::new()).await;
+        let hub = hub.clone();
+        runtime.on_progress(move |value| {
+            let hub = hub.clone();
+            tokio::spawn(async move { hub.publish(APPS_PROGRESS_TOPIC, json!({}), value).await });
+        });
     }
     for record in records.iter().filter(|r| r.is_enabled()) {
         for topic in &record.topics {
@@ -395,6 +458,9 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     let kernel = Arc::new(ProcessKernel {
         gate: OnceLock::new(),
         apps: OnceLock::new(),
+        app_hosts: std::iter::once(harnix_builtin::apps::MODULE_ID.to_string())
+            .chain(app.app_hosts.iter().cloned())
+            .collect(),
         hub: hub.clone(),
         listen: tokio::sync::watch::channel(None).0,
     });
@@ -434,6 +500,17 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         match record.module.start(cx.clone()).await {
             Ok(()) => record.context = Some(cx),
             Err(e) => {
+                // What it registered with the application host before failing goes with it: a
+                // module that is not running answers nothing, and its applications would be names
+                // with nobody behind them.
+                if let Some(apps) = kernel.apps.get() {
+                    let id = &record.manifest.id;
+                    for app in apps.registered().into_iter().filter(|a| &a.by == id) {
+                        if let Err(e) = apps.withdraw(id, &app.id).await {
+                            tracing::warn!(module = %id, app = %app.id, error = %e.message, "could not withdraw");
+                        }
+                    }
+                }
                 app_gate.unbind(&record.declared);
                 record.disable("start", format!("{e:#}"), &mut authorizer.table_mut());
                 hub.module_disabled(&record.manifest.id).await;
@@ -525,6 +602,12 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         harnix_transport::Extensions {
             apps,
             route_gate: Some(Arc::new(Routes(authorizer.clone()))),
+            #[cfg(feature = "apps")]
+            runtime_apps: app_runtime
+                .as_ref()
+                .map(|r| harnix_apps::serve::router(r.registry())),
+            #[cfg(not(feature = "apps"))]
+            runtime_apps: None,
         },
     );
 
@@ -541,6 +624,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         ));
     }
     let addr = addrs[0];
+    let ui_modules = Arc::new(UiModules::default());
     if let Some(builtin) = &builtin {
         // What the installed packages contribute to this side, resolved once
         // before anything is served. A package installed later refreshes
@@ -551,14 +635,39 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
             &statics,
             builtin.contributions().await,
             runtime_modules,
+            &ui_modules,
         );
         let hub = hub.clone();
         let statics = statics.clone();
+        let ui_modules = ui_modules.clone();
         builtin
             .on_packages_changed(move |contributions| {
-                apply_packages(&hub, &statics, contributions, runtime_modules);
+                apply_packages(&hub, &statics, contributions, runtime_modules, &ui_modules);
             })
             .await;
+    }
+    // A running application's interface modules go to the page with the packages' (under the
+    // same `[ui] runtime_modules`); its tools go to every daemon this process spawned, as an MCP
+    // endpoint each. Both follow what is running, from the start (the enabled applications were
+    // started with the `apps` module) to every enable, disable, install and uninstall.
+    #[cfg(feature = "apps")]
+    if let Some(runtime) = &app_runtime {
+        let follow = {
+            let runtime = Arc::downgrade(runtime);
+            let hub = hub.clone();
+            let ui_modules = ui_modules.clone();
+            move || {
+                let Some(runtime) = runtime.upgrade() else { return };
+                if runtime_modules {
+                    ui_modules.set_apps(&hub, runtime.ui_contributions());
+                }
+                let hub = hub.clone();
+                let servers = runtime.mcp_servers();
+                tokio::spawn(async move { hub.set_shared_servers(servers).await });
+            }
+        };
+        follow();
+        runtime.on_change(follow);
     }
 
     // Before anything is served: a reachable node with no paired device has
@@ -575,10 +684,16 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     let told = {
         let kernel = kernel.clone();
         let state_lock = state_lock.clone();
+        #[cfg(feature = "apps")]
+        let told_runtime = app_runtime.clone();
         move |bound: Vec<SocketAddr>| {
             let Some(first) = bound.first() else { return };
             let url = format!("{scheme}://{first}/");
             state_lock.listening(&url);
+            #[cfg(feature = "apps")]
+            if let Some(runtime) = &told_runtime {
+                runtime.set_listening(&url);
+            }
             kernel.listen.send_replace(Some(harnix_module::Listen { addrs: bound, url }));
         }
     };
@@ -754,6 +869,7 @@ fn apply_packages(
     statics: &Arc<harnix_transport::StaticFace>,
     contributions: Vec<harnix_builtin::packages::Contributions>,
     runtime_modules: bool,
+    ui_modules: &Arc<UiModules>,
 ) {
     let contributions = if runtime_modules {
         contributions
@@ -793,8 +909,38 @@ fn apply_packages(
             })
         })
         .collect();
-    let hub = hub.clone();
-    tokio::spawn(async move {
-        hub.set_ui_contributions(json!(modules)).await;
-    });
+    ui_modules.set_packages(hub, modules);
+}
+
+/// The interface modules the page is told at hello: the installed packages', and the running
+/// applications'. Two sources that change apart, told as one list.
+#[derive(Default)]
+struct UiModules {
+    lists: std::sync::Mutex<(Vec<serde_json::Value>, Vec<serde_json::Value>)>,
+}
+
+impl UiModules {
+    fn set_packages(self: &Arc<Self>, hub: &Arc<Hub>, modules: Vec<serde_json::Value>) {
+        self.lists.lock().unwrap_or_else(|e| e.into_inner()).0 = modules;
+        self.publish(hub);
+    }
+
+    #[cfg_attr(not(feature = "apps"), allow(dead_code))]
+    fn set_apps(self: &Arc<Self>, hub: &Arc<Hub>, modules: Vec<serde_json::Value>) {
+        self.lists.lock().unwrap_or_else(|e| e.into_inner()).1 = modules;
+        self.publish(hub);
+    }
+
+    /// Spawned rather than awaited: this is called from callbacks that cannot be async. The lists
+    /// are read when the task runs, so whichever task runs last sets the latest of both.
+    fn publish(self: &Arc<Self>, hub: &Arc<Hub>) {
+        let (hub, this) = (hub.clone(), self.clone());
+        tokio::spawn(async move {
+            let all: Vec<serde_json::Value> = {
+                let lists = this.lists.lock().unwrap_or_else(|e| e.into_inner());
+                lists.0.iter().chain(&lists.1).cloned().collect()
+            };
+            hub.set_ui_contributions(json!(all)).await;
+        });
+    }
 }

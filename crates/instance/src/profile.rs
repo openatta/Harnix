@@ -52,6 +52,12 @@ pub struct AppsProfile {
     /// register through, no `harnix.spaces` topic — the authorization table is what assembly made
     /// it and nothing else, for the life of the process.
     pub enabled: bool,
+    /// `harnix.apps.installFile` installs an unsigned package from a file. For developing an
+    /// application: nothing verifies such a package (signatures arrive with the store).
+    pub dev: bool,
+    /// `[apps.config."<id>"]`: set over an application's own `[config]` defaults, key by key —
+    /// what `host.config()` and its backend's `init` are handed.
+    pub config: BTreeMap<String, toml::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

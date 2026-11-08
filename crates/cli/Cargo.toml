@@ -18,3 +18,9 @@ harnix      = { workspace = true }
 harnix-flow = { workspace = true }
 anyhow      = { workspace = true }
 
+
+[features]
+default = []
+# `cargo build -p harnix-cli --features apps`: a `harnix` that can host runtime applications.
+# Its own target directory keeps the default build's untouched (scripts/check.sh).
+apps = ["harnix/apps"]

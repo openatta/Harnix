@@ -40,9 +40,14 @@ pub trait Kernel: Send + Sync {
     fn listen(&self) -> Option<tokio::sync::watch::Receiver<Option<Listen>>> {
         None
     }
-    /// The runtime-application host, when this process hosts applications
-    /// (`[apps] enabled`). `None` otherwise, which is the default.
-    fn apps(&self) -> Option<Arc<dyn crate::apps::AppRuntime>> {
+    /// The runtime-application host, for the module `module` — `None` unless
+    /// this process hosts applications (`[apps] enabled`) **and** `module` is
+    /// the one that hosts them: the `apps` built-in. What enters the
+    /// authorization table at run time comes through one door, and a
+    /// compiled-in module that wants names of its own declares them at
+    /// registration like every other.
+    fn apps(&self, module: &str) -> Option<Arc<dyn crate::apps::AppRuntime>> {
+        let _ = module;
         None
     }
 }
@@ -208,12 +213,13 @@ impl ModuleContext {
 
     /// The runtime-application host (see [`crate::AppHost`]): registering an
     /// application's methods, topics and spaces while the process runs.
-    /// `None` unless the profile says `[apps] enabled = true`. What this
-    /// module registers through it is audited as this module's.
+    /// `None` unless the profile says `[apps] enabled = true`, and `None` for
+    /// every module but the one that hosts applications (the `apps`
+    /// built-in). What it registers through it is audited as its own.
     pub fn apps(&self) -> Option<crate::AppHost> {
         self.shared
             .kernel
-            .apps()
+            .apps(&self.shared.id)
             .map(|runtime| crate::AppHost::new(runtime, &self.shared.id))
     }
 

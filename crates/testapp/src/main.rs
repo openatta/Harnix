@@ -48,6 +48,9 @@ fn main() -> anyhow::Result<()> {
         .module(Lifecycle::default())
         .module(flow_demo::module())
         .module(fake_app::FakeHost)
+        // The kernel hands its application host to the `apps` built-in alone; the fake host is
+        // let in by name, the way only a test application would.
+        .app_host("fakehost")
         .run()
 }
 
@@ -103,6 +106,9 @@ impl Module for Probe {
             });
         m.method("internal", Principal::Kernel)
             .handler(|_cx: CallContext, _p: Value| async move { Ok(json!({"internal": true})) });
+        m.method("has_app_host", Principal::Device)
+            .describe("whether the kernel handed this module the runtime-application host (it must not)")
+            .handler(|cx: CallContext, _p: Value| async move { Ok(json!({"has": cx.module().apps().is_some()})) });
         m.method("for_peer", Principal::Module("peer".into()))
             .handler(|cx: CallContext, _p: Value| async move { Ok(json!({"caller": cx.subject()})) });
         m.method("config", Principal::Device)

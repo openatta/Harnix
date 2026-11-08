@@ -29,6 +29,15 @@ serde_json  = { workspace = true }
 toml        = { workspace = true }
 uuid        = { workspace = true }
 libc        = { workspace = true }
+# Runtime applications' WebAssembly (`apps` below). Not in a default build: it brings the
+# application runtime and its engine, which the binary-size budget measures separately.
+harnix-apps = { workspace = true, optional = true }
+
+[features]
+default = []
+# Host runtime applications: install a package, run its component, give sessions its tools
+# (`[apps] enabled` in the profile still decides whether a process does).
+apps = ["dep:harnix-apps"]
 
 [dev-dependencies]
 tempfile    = { workspace = true }

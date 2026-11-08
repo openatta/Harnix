@@ -235,6 +235,9 @@ impl Hub {
         if template.inherit_providers {
             self.inherit_into(&entry.id, &root);
         }
+        if template.carrier.carrier() == Carrier::Spawn {
+            self.servers_into(&entry.id, &root);
+        }
         match registry.factory.build_template(&entry.id, template, root).await {
             Ok(built) => built,
             Err(e) => down(template.carrier.carrier(), format!("{e:#}")),
@@ -411,6 +414,9 @@ impl Hub {
             .map_err(RpcError::invalid_params)?;
         if template.inherit_providers {
             self.inherit_into(&name, &root);
+        }
+        if template.carrier.carrier() == Carrier::Spawn {
+            self.servers_into(&name, &root);
         }
         let built = registry
             .factory
@@ -595,6 +601,48 @@ impl Hub {
                 slot.created_ms,
             )
             .await;
+        }
+    }
+
+    /// The shared MCP servers into one spawned instance's global tier, before its daemon reads it.
+    fn servers_into(&self, instance: &str, root: &std::path::Path) {
+        let servers = self.shared_servers.read().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Err(e) = crate::servers::merge(root, &servers) {
+            tracing::warn!(instance, error = %e, "the shared MCP servers were not written");
+        }
+    }
+
+    /// Set the MCP servers every daemon this process spawns is configured with (a runtime
+    /// application's endpoint, `servers.rs`), and bring the ones running in line: each spawned
+    /// instance whose settings changed reloads them once it is ready. Answers without waiting
+    /// for the reloads.
+    pub async fn set_shared_servers(self: &Arc<Self>, servers: serde_json::Map<String, Value>) {
+        *self.shared_servers.write().unwrap_or_else(|e| e.into_inner()) = servers.clone();
+        for slot in self.slots() {
+            if slot.link.carrier() != Carrier::Spawn {
+                continue;
+            }
+            match crate::servers::merge(&slot.facts.data_root, &servers) {
+                Ok(false) => {}
+                Ok(true) => {
+                    let hub = self.clone();
+                    tokio::spawn(async move {
+                        // A daemon still starting cannot take the call; it reads the file when it
+                        // is up only if it was not already past reading it, so wait and ask.
+                        let ready = hub
+                            .wait_ready(&slot.id, std::time::Duration::from_secs(60))
+                            .await;
+                        if ready.is_err() {
+                            tracing::warn!(instance = %slot.id, "shared MCP servers written; the instance was not ready to reload them");
+                            return;
+                        }
+                        if let Err(e) = slot.link.call("config.reload", json!({})).await {
+                            tracing::warn!(instance = %slot.id, error = %e.message, "shared MCP servers written, not reloaded");
+                        }
+                    });
+                }
+                Err(e) => tracing::warn!(instance = %slot.id, error = %e, "the shared MCP servers were not written"),
+            }
         }
     }
 

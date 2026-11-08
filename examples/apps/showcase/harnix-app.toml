@@ -1,0 +1,38 @@
+# The showcase application: everything a runtime application can be in this Harnix, one of each.
+# README.md says what each part is and how to build and pack it.
+
+[app]
+id = "example.showcase"
+version = "0.1.0"
+harnix_api = 1
+title = "Showcase"
+publisher = "example"
+description = "One of everything an application can bring: tools, an event hook, an agent package, a skill and an interface module"
+
+# Nothing is granted that is not written here, and the installer shows each line.
+[capabilities]
+# The `count` tool keeps its counters in the application's key-value storage.
+storage_mb = 1
+# A tool call sees the calling session's project, read-only, at /project (`read_project`).
+fs = ["${project}"]
+
+[[component]]
+name = "tools"
+world = "harnix:app/tools-app@0.1.0"
+memory_mb = 32
+timeout_ms = 20000
+
+# What `host.config()` answers (the `config` tool, the event hook). A profile can set over it:
+# [apps.config."example.showcase"] greeting = "…"
+[config]
+greeting = "hello from the showcase"
+# The event hook refuses calls to this tool, whoever makes them.
+blocked_tool = "app__example_showcase__vetoed"
+
+[[ui]]
+point = "home.card"
+module = "showcase.js"
+api_version = 2
+
+[agent]
+install_into = ["system"]

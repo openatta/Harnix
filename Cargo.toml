@@ -3,6 +3,7 @@ resolver = "2"
 exclude = ["agix", "examples"]
 members = [
     "crates/app",
+    "crates/apps",
     "crates/instance",
     "crates/authz",
     "crates/builtin",
@@ -39,10 +40,13 @@ members = [
 #   client ─→ contract                               (a process's own clients: CLI, tests, desktop shell)
 #   wasm                                             (applications' WebAssembly; a leaf: the host
 #                                                     implements its traits, and only it names wasmtime)
+#   apps ─→ wasm, builtin, module                    (the runtime behind the apps module; only a
+#                                                     build with the `apps` feature links it)
 # ──────────────────────────────────────────────
 [workspace.dependencies]
 harnix           = { path = "crates/harnix" }
 harnix-app       = { path = "crates/app" }
+harnix-apps      = { path = "crates/apps" }
 harnix-instance  = { path = "crates/instance" }
 harnix-authz     = { path = "crates/authz" }
 harnix-builtin   = { path = "crates/builtin" }
@@ -109,6 +113,9 @@ libc = "0.2"
 base64 = "0.22"
 ignore = "0.4"
 toml = "0.8"
+# Application packages (`.hxapp`) and the agent package an installer hands Agix. The same
+# version and features Agix's own package layer links, so nothing new is compiled.
+zip = { version = "2", default-features = false, features = ["deflate"] }
 clap = { version = "4", features = ["derive", "string"] }
 tempfile = "3"
 # Only under harnix-contract's `ts` feature — see crates/contract/Cargo.toml.

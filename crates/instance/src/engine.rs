@@ -132,9 +132,11 @@ fn active_scenes(scene: &str, scenes: &[String]) -> Vec<String> {
 }
 
 /// What modules contribute, and Agix's `harnix` scene attended unless a module contributes one
-/// under that id itself.
+/// under that id itself. With tools to admit, every scene — Agix's built-in ones too, served under
+/// their own ids — admits them (`admit.rs`).
 fn host_scenes(
     contributed: &[Arc<dyn base::interface::scene::Scene>],
+    admitted: &[String],
 ) -> Vec<Arc<dyn base::interface::scene::Scene>> {
     let mut scenes = contributed.to_vec();
     if !scenes
@@ -143,11 +145,27 @@ fn host_scenes(
     {
         scenes.push(Arc::new(crate::attended::Attended::harnix()));
     }
+    if admitted.is_empty() {
+        return scenes;
+    }
+    let mut builtin = scene::SceneRegistry::new();
+    builtin.register_builtin();
+    for id in builtin.ids() {
+        if scenes.iter().any(|s| s.id() == id) {
+            continue;
+        }
+        if let Some(scene) = builtin.resolve(&id) {
+            scenes.push(scene);
+        }
+    }
     scenes
+        .into_iter()
+        .map(|s| Arc::new(crate::admit::Admitting::new(s, admitted.to_vec())) as Arc<dyn base::interface::scene::Scene>)
+        .collect()
 }
 
 pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
-    let host_scenes = host_scenes(&config.contrib.scenes);
+    let host_scenes = host_scenes(&config.contrib.scenes, &config.contrib.admitted);
     let scene = resolve_scene(&config.scene, &host_scenes)?;
     let scope = scene.id().to_string();
     for extra in &config.scenes {
@@ -266,9 +284,9 @@ pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
             credentials: config.contrib.credentials.clone(),
             transcripts,
             permission: None,
-            // Modules contribute through the customizer; nothing in Harnix is a
-            // `runtime::plugin::Plugin` yet.
-            plugins: Vec::new(),
+            // Modules contribute through the customizer; Agix plugins (the
+            // applications' tools, `AppsPlugin`) are registered in delegates too.
+            plugins: config.contrib.plugins.clone(),
             customize_session: config.contrib.composed(),
             mcp_oauth_resolver: None,
         },

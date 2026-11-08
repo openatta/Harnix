@@ -1,0 +1,26 @@
+# The showcase's agent side: an Agix package, installed into the instances the application's
+# manifest names (`[agent] install_into`). Agix reads this file; Harnix reads only its name and
+# version, to ask Agix to install it. `skills/` beside it is Harnix's: each `skills/<name>/` is
+# copied into those instances' skills directories, and taken back out with the application.
+
+[plugin]
+name = "example-showcase"
+version = "0.1.0"
+api_version = "0.1"
+description = "The showcase application's agent side: a note in the prompt and a guide agent"
+author = "Harnix examples"
+
+# A fixed block in every session's system prompt, from QuickJS (Agix's script carrier). Scripts
+# have no I/O and no channel to the application's component: a hook with logic in it is the
+# component's `events` export instead.
+[[script]]
+point = "prompt.block"
+entry = "scripts/block.js:onBlock"
+timeout_ms = 1000
+
+[[agent]]
+name = "showcase-guide"
+description = "Shows what the showcase application does by trying its tools"
+prompt = "agents/guide.md"
+allowed_tools = ["app__example_showcase__echo", "app__example_showcase__config", "app__example_showcase__count"]
+max_turns = 5

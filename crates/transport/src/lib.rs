@@ -94,6 +94,11 @@ pub struct Config {
 pub struct Extensions {
     pub apps: Vec<AppRoutes>,
     pub route_gate: Option<Arc<dyn RouteGate>>,
+    /// What answers `/apps/<id>/…` for an id no module took: the runtime applications'
+    /// own paths (their interface modules, the MCP endpoint a spawned daemon reaches their tools
+    /// through). Handed the request whole, path and all, and it does its own admission — none of
+    /// what it serves is reached with a device's credential. Without one those paths are 404.
+    pub runtime_apps: Option<Router>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -199,7 +204,7 @@ pub fn router(
             .route("/events/session", get(split::session_events))
             .route("/events/host", get(split::host_events));
     }
-    router = apps::mount(router, &state, extensions.apps);
+    router = apps::mount(router, &state, extensions.apps, extensions.runtime_apps);
     if state.statics.serves_anything() {
         router = router.fallback(get(statics::serve));
     }

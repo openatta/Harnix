@@ -13,6 +13,11 @@ path = "src/lib.rs"
 # The empty application's binary, `harnix`, is `crates/cli` (`harnix-cli`): it registers the
 # flow module, which a library user must not be made to compile (xops-02 §6).
 
+[features]
+default = []
+# Runtime applications (`harnix-app`'s `apps`): see crates/app/Cargo.toml.
+apps = ["harnix-app/apps"]
+
 [dependencies]
 harnix-app       = { workspace = true }
 harnix-module    = { workspace = true }

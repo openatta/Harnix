@@ -124,6 +124,10 @@ pub(crate) struct ProcessKernel {
     pub gate: OnceLock<Arc<dyn Gate>>,
     /// The runtime-application host, set only with `[apps] enabled`.
     pub apps: OnceLock<Arc<dyn harnix_module::apps::AppRuntime>>,
+    /// The modules it is handed to: the `apps` built-in, and whatever the
+    /// application named with [`crate::AppBuilder::app_host`] (a test
+    /// application's fake host).
+    pub app_hosts: std::collections::BTreeSet<String>,
     pub hub: Arc<Hub>,
     /// Where the listener is, once it is bound (ipdrun-14).
     pub listen: tokio::sync::watch::Sender<Option<Listen>>,
@@ -206,7 +210,10 @@ impl Kernel for ProcessKernel {
         Some(self.listen.subscribe())
     }
 
-    fn apps(&self) -> Option<Arc<dyn harnix_module::apps::AppRuntime>> {
+    fn apps(&self, module: &str) -> Option<Arc<dyn harnix_module::apps::AppRuntime>> {
+        if !self.app_hosts.contains(module) {
+            return None;
+        }
         self.apps.get().cloned()
     }
 }

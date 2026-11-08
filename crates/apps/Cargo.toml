@@ -1,0 +1,48 @@
+[package]
+name = "harnix-apps"
+version      = "0.4.1-2026110806"
+edition      = "2021"
+rust-version = "1.87"
+license      = "Apache-2.0"
+publish      = false
+description  = "Runtime applications: the .hxapp package, installing it, and its tools in every session"
+
+# The application runtime behind the `apps` built-in module (`harnix_builtin::apps::AppsRuntime`):
+# the package and its manifest, installing and removing one, the Agix plugin that gives every
+# session the enabled applications' tools, and the MCP endpoint a spawned daemon reaches them by.
+# Only a build with the `apps` feature links it (crates/app), and through it `harnix-wasm`.
+[dependencies]
+harnix-builtin  = { workspace = true }
+harnix-contract = { workspace = true }
+harnix-module   = { workspace = true }
+harnix-wasm     = { workspace = true }
+base        = { workspace = true }
+runtime     = { workspace = true }
+anyhow      = { workspace = true }
+async-trait = { workspace = true }
+axum        = { workspace = true }
+hex         = { workspace = true }
+reqwest     = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+sha2        = { workspace = true }
+tokio       = { workspace = true }
+tokio-util  = { workspace = true }
+toml        = { workspace = true }
+tracing     = { workspace = true }
+uuid        = { workspace = true }
+zip         = { workspace = true }
+
+[features]
+default = []
+# The author's packing tool (`harnix-app`): build the component, compile it for this engine, zip
+# the package. Links the compiler, so it is never part of the product.
+compile = ["harnix-wasm/compile"]
+
+[[bin]]
+name = "harnix-app"
+path = "src/bin/harnix-app.rs"
+required-features = ["compile"]
+
+[dev-dependencies]
+tempfile = { workspace = true }

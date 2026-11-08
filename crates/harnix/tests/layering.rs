@@ -441,6 +441,37 @@ fn the_wasm_runtime_depends_on_no_harnix_crate_and_nothing_of_agix() {
     }
 }
 
+/// The application runtime is reached through one door. `harnix-wasm` (the engine) is named by
+/// `harnix-apps` alone, and `harnix-apps` by the application layer alone, as an optional
+/// dependency behind its `apps` feature: a build that does not ask for applications links neither.
+#[test]
+fn only_the_apps_feature_links_the_application_runtime() {
+    let root = workspace_root().join("crates");
+    for entry in std::fs::read_dir(&root).into_iter().flatten().flatten() {
+        let dir = entry.file_name().to_string_lossy().to_string();
+        if !entry.path().join("Cargo.toml").is_file() {
+            continue;
+        }
+        let deps = dependencies(&dir);
+        if deps.contains("harnix-wasm") {
+            assert_eq!(dir, "apps", "`{dir}` depends on `harnix-wasm`; only `harnix-apps` may");
+        }
+        if deps.contains("harnix-apps") {
+            assert_eq!(dir, "app", "`{dir}` depends on `harnix-apps`; only the application layer may");
+        }
+    }
+    let manifest = std::fs::read_to_string(root.join("app/Cargo.toml")).unwrap();
+    let line = manifest
+        .lines()
+        .find(|l| l.starts_with("harnix-apps"))
+        .expect("harnix-app names harnix-apps");
+    assert!(line.contains("optional = true"), "`{line}`: harnix-apps must be optional");
+    assert!(
+        manifest.contains("apps = [\"dep:harnix-apps\"]"),
+        "harnix-app's `apps` feature is what brings the runtime in"
+    );
+}
+
 /// Harnix reads exactly one section of a package manifest.
 ///
 /// This is §2.2 in the only form that survives a rewrite. "Harnix has no plugin
@@ -518,6 +549,7 @@ fn every_harnix_dependency_resolves() {
         "testapp",
         "transport",
         "wasm",
+        "apps",
     ];
     let known: BTreeSet<String> = crates
         .iter()
