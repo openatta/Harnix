@@ -72,6 +72,15 @@ impl Backend for Probe {
                     .map_err(|e| app_error(2, e))
             }
             "kv.get" => Ok(host::kv_get(&p("key")).map_or("null".into(), |v| v.len().to_string())),
+            "file.write" => {
+                let size: usize = p("size").parse().unwrap_or(0);
+                std::fs::write(format!("/data/{}", p("name")), vec![b'x'; size])
+                    .map(|()| "true".into())
+                    .map_err(|e| app_error(5, e.to_string()))
+            }
+            "file.delete" => std::fs::remove_file(format!("/data/{}", p("name")))
+                .map(|()| "true".into())
+                .map_err(|e| app_error(5, e.to_string())),
             "timer" => {
                 let ms: u64 = p("ms").parse().unwrap_or(0);
                 host::set_timer(&p("id"), ms)

@@ -118,12 +118,21 @@ impl Host for AppState {
     }
 
     async fn kv_set(&mut self, key: String, value: Vec<u8>) -> Result<(), String> {
-        let quota = self.shared.caps.storage_bytes;
-        self.shared
+        // The files under `/data` take their share of the same quota first.
+        let shared = &self.shared;
+        let quota = shared.kv_quota();
+        shared
             .services
             .kv
             .put(&key, Some(&value), quota)
-            .map_err(|e| e.to_string())
+            .map_err(|e| match e {
+                crate::KvError::QuotaExceeded { .. } => format!(
+                    "storage quota exceeded: the application's `storage_mb` allows {} bytes, and \
+                     its stored values and its files under /data would take more",
+                    shared.caps.storage_bytes
+                ),
+                other => other.to_string(),
+            })
     }
 
     async fn kv_delete(&mut self, key: String) {

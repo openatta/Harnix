@@ -43,7 +43,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::future::Future;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
@@ -65,6 +65,11 @@ const DELIVERY_QUEUE: usize = 256;
 const MAX_TIMER_DELAY: Duration = Duration::from_secs(30 * 24 * 3600);
 /// JSON-RPC's "internal error", for a backend answer that is not JSON.
 const INTERNAL_ERROR: i32 = -32603;
+/// How long a backend has to run without crashing for a crash before it to stop counting: past
+/// this, the next crash is a first one again and is rebuilt, rather than disabling the
+/// application. A backend that crashes once a week is unlucky; one that crashes twice in a minute
+/// is broken. [`AppVm::set_healthy_period`] changes it.
+pub const HEALTHY_PERIOD: Duration = Duration::from_secs(10 * 60);
 
 static NEXT_VM: AtomicU64 = AtomicU64::new(1);
 
@@ -153,6 +158,20 @@ pub struct AppVm {
     inner: Arc<Inner>,
 }
 
+/// An [`AppVm`] that does not keep it alive: for what the host hands out that would otherwise
+/// hold the VM in a cycle through its own services (a topic forwarder, a method's handler).
+#[derive(Clone)]
+pub struct WeakAppVm {
+    inner: Weak<Inner>,
+}
+
+impl WeakAppVm {
+    /// The VM, if anything still holds it.
+    pub fn upgrade(&self) -> Option<AppVm> {
+        self.inner.upgrade().map(|inner| AppVm { inner })
+    }
+}
+
 struct Inner {
     shared: Arc<Shared>,
     pre: InstancePre<AppState>,
@@ -186,6 +205,12 @@ pub(crate) struct Shared {
     timers: Mutex<HashMap<String, (u64, AbortHandle)>>,
     timer_generation: AtomicU64,
     deliveries: mpsc::Sender<Delivery>,
+    /// `${data}`, when the application was granted it: measured into its storage.
+    data_dir: Option<PathBuf>,
+    /// What the files under it took when last measured.
+    data_bytes: AtomicU64,
+    /// [`HEALTHY_PERIOD`], in milliseconds.
+    healthy_ms: AtomicU64,
 }
 
 enum Delivery {
@@ -282,6 +307,12 @@ impl AppVm {
             World::Tools => None,
         };
         let (deliveries, queue) = mpsc::channel(DELIVERY_QUEUE);
+        let data_dir = spec
+            .capabilities
+            .fs
+            .iter()
+            .any(|g| g.path.starts_with("${data}"))
+            .then(|| spec.dirs.data.clone());
         let shared = Arc::new(Shared {
             vm_id: NEXT_VM.fetch_add(1, Ordering::Relaxed),
             app: app.clone(),
@@ -296,7 +327,11 @@ impl AppVm {
             timers: Mutex::new(HashMap::new()),
             timer_generation: AtomicU64::new(0),
             deliveries,
+            data_dir,
+            data_bytes: AtomicU64::new(0),
+            healthy_ms: AtomicU64::new(HEALTHY_PERIOD.as_millis() as u64),
         });
+        shared.measure();
         let inner = Arc::new(Inner {
             shared,
             tools: tools::GuestIndices::new(&pre).ok(),
@@ -320,6 +355,12 @@ impl AppVm {
 
     pub fn app(&self) -> &str {
         &self.inner.shared.app
+    }
+
+    pub fn downgrade(&self) -> WeakAppVm {
+        WeakAppVm {
+            inner: Arc::downgrade(&self.inner),
+        }
     }
 
     pub fn world(&self) -> World {
@@ -509,6 +550,15 @@ impl AppVm {
         inner.shared.release_bindings().await;
     }
 
+    /// How long the backend must run without crashing before an earlier crash stops counting
+    /// against it ([`HEALTHY_PERIOD`] unless set).
+    pub fn set_healthy_period(&self, period: Duration) {
+        self.inner
+            .shared
+            .healthy_ms
+            .store(period.as_millis() as u64, Ordering::Relaxed);
+    }
+
     pub fn health(&self) -> HealthSnapshot {
         let shared = &self.inner.shared;
         let c = lock(&shared.counters);
@@ -527,7 +577,8 @@ impl AppVm {
             memory_bytes: shared.memory.used(),
             memory_peak_bytes: shared.memory.peak(),
             memory_limit_bytes: shared.memory.limit,
-            storage_bytes: shared.services.kv.used_bytes(),
+            storage_bytes: shared.storage_used(),
+            storage_files_bytes: shared.data_bytes.load(Ordering::Relaxed),
             storage_limit_bytes: shared.caps.storage_bytes,
             subscriptions: lock(&shared.subscriptions).len(),
             timers: lock(&shared.timers).len(),
@@ -624,6 +675,7 @@ impl Inner {
         what: &str,
     ) -> Result<T, CallFailure> {
         let shared = &self.shared;
+        shared.measure();
         // Could not even be instantiated because the application's other
         // instances hold its memory: the component did nothing wrong.
         if let (Err(Abort::Failed(_)), false, true) = (&outcome, started, refused) {
@@ -672,9 +724,11 @@ impl Inner {
         what: &str,
     ) -> Result<T, CallFailure> {
         let shared = &self.shared;
+        shared.measure();
         let refused = guard
             .as_ref()
             .is_some_and(|r| r.store.data().limiter.refused());
+        let healthy = Duration::from_millis(shared.healthy_ms.load(Ordering::Relaxed));
         let crash = {
             let mut c = lock(&shared.counters);
             c.calls += 1;
@@ -690,6 +744,11 @@ impl Inner {
                 }
                 Err(Abort::Failed(e)) => {
                     let message = self.describe(&e, refused);
+                    // A crash long enough ago is forgiven: this one is a first one again.
+                    if c.last_crash.is_some_and(|at| at.elapsed() >= healthy) {
+                        c.crashes = 0;
+                    }
+                    c.last_crash = Some(std::time::Instant::now());
                     c.faults += 1;
                     c.crashes += 1;
                     c.last_error = Some(format!("`{what}`: {message}"));
@@ -727,6 +786,10 @@ impl Inner {
     ) {
         **guard = None;
         self.shared.release_bindings().await;
+        // Stopping (or set aside) meanwhile: nothing is to run in it any more.
+        if self.shared.admit().is_err() {
+            return;
+        }
         match self.instantiate_resident().await {
             Ok(resident) => {
                 **guard = Some(resident);
@@ -806,9 +869,40 @@ impl Shared {
         }
     }
 
+    /// Bytes the application keeps: its key-value store, and its files under `${data}` as last
+    /// measured.
+    pub(crate) fn storage_used(&self) -> u64 {
+        self.services.kv.used_bytes() + self.data_bytes.load(Ordering::Relaxed)
+    }
+
+    /// Measure the files under `${data}` again: after anything that could have written them.
+    fn measure(&self) {
+        if let Some(dir) = &self.data_dir {
+            self.data_bytes
+                .store(crate::storage::dir_bytes(dir), Ordering::Relaxed);
+        }
+    }
+
+    /// The key-value store's share of the quota: what the files leave of it.
+    pub(crate) fn kv_quota(&self) -> u64 {
+        self.caps
+            .storage_bytes
+            .saturating_sub(self.data_bytes.load(Ordering::Relaxed))
+    }
+
+    /// Over the quota: new instances get `/data` read-only until it has room again.
+    pub(crate) fn storage_full(&self) -> bool {
+        self.data_dir.is_some() && self.storage_used() >= self.caps.storage_bytes
+    }
+
+    /// Set the application aside. A VM already stopped stays stopped: what failed while it was
+    /// stopping is not a reason to report it broken.
     fn disable(&self, reason: String) {
-        tracing::error!(app = %self.app, %reason, "application disabled");
-        *lock(&self.state) = VmState::Disabled { reason };
+        let mut state = lock(&self.state);
+        if *state == VmState::Running {
+            tracing::error!(app = %self.app, %reason, "application disabled");
+            *state = VmState::Disabled { reason };
+        }
     }
 
     fn enqueue(&self, delivery: Delivery) {

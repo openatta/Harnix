@@ -45,7 +45,7 @@ impl AppState {
         progress: Option<Arc<dyn ProgressSink>>,
         project: Option<&Path>,
     ) -> anyhow::Result<Self> {
-        let wasi = wasi_for(&shared.caps, project)?;
+        let wasi = wasi_for(&shared.caps, project, shared.storage_full())?;
         let limiter = StoreLimiter::new(shared.memory.clone());
         Ok(Self {
             shared,
@@ -60,8 +60,10 @@ impl AppState {
 
 /// The WASI context: preopens for the declared directories, and nothing else.
 /// No inherited environment, arguments or stdio, and no sockets — the
-/// network is `host.http-request`, where `net` is checked.
-fn wasi_for(caps: &Resolved, project: Option<&Path>) -> anyhow::Result<WasiCtx> {
+/// network is `host.http-request`, where `net` is checked. `full`: the
+/// application is over its storage quota, so `/data`'s files are offered
+/// read-only (and may still be removed, which is how it gets under again).
+fn wasi_for(caps: &Resolved, project: Option<&Path>, full: bool) -> anyhow::Result<WasiCtx> {
     let mut builder = WasiCtxBuilder::new();
     builder
         .allow_tcp(false)
@@ -71,8 +73,11 @@ fn wasi_for(caps: &Resolved, project: Option<&Path>) -> anyhow::Result<WasiCtx> 
         .map(|p| caps.project_preopens(p))
         .unwrap_or_default();
     for p in caps.preopens.iter().chain(&placed) {
-        let (dirs, files) = if p.writable {
+        let (dirs, files) = if p.writable && !full {
             (DirPerms::all(), FilePerms::all())
+        } else if p.writable {
+            // Over the quota: nothing written, but it may still delete to make room.
+            (DirPerms::all(), FilePerms::READ)
         } else {
             (DirPerms::READ, FilePerms::READ)
         };

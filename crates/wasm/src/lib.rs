@@ -42,6 +42,7 @@ mod kv;
 mod services;
 mod spec;
 mod state;
+mod storage;
 mod vm;
 
 pub use bindings::WIT_PACKAGE;
@@ -53,6 +54,6 @@ pub use services::{
 };
 pub use spec::{host_of, AppDirs, AppSpec, Capabilities, FsGrant, Limits};
 pub use vm::{
-    AppError, AppVm, CallFailure, HookDecision, ToolDef, ToolOutput, World, MAX_SUBSCRIPTIONS,
-    MAX_TIMERS,
+    AppError, AppVm, CallFailure, HookDecision, ToolDef, ToolOutput, WeakAppVm, World,
+    HEALTHY_PERIOD, MAX_SUBSCRIPTIONS, MAX_TIMERS,
 };

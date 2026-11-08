@@ -16,7 +16,9 @@
 //! - **The backend**: a trap loses the instance and the state in it. It is
 //!   rebuilt once; a second crash disables the application, because a backend
 //!   that crashes again after a clean start is not going to be saved by a
-//!   third.
+//!   third. "Again" means within [`crate::HEALTHY_PERIOD`]: a backend that
+//!   has run that long since its last crash has its count cleared, and its
+//!   next crash is rebuilt like a first one.
 
 use crate::World;
 use serde::Serialize;
@@ -52,6 +54,8 @@ pub(crate) struct Counters {
     pub recycles: u32,
     pub dropped_deliveries: u64,
     pub last_error: Option<String>,
+    /// When the backend last crashed: a crash older than the healthy period is forgiven.
+    pub last_crash: Option<std::time::Instant>,
 }
 
 /// One application's VM, as the system space shows it.
@@ -81,7 +85,10 @@ pub struct HealthSnapshot {
     pub memory_bytes: u64,
     pub memory_peak_bytes: u64,
     pub memory_limit_bytes: u64,
+    /// The key-value store and the files under `${data}`, together: what `storage_mb` bounds.
     pub storage_bytes: u64,
+    /// The files' part of it, as last measured.
+    pub storage_files_bytes: u64,
     pub storage_limit_bytes: u64,
     pub subscriptions: usize,
     pub timers: usize,

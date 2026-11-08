@@ -256,6 +256,106 @@ async fn a_backend_that_traps_is_rebuilt_once_and_disabled_the_second_time() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn calls_made_at_once_queue_for_the_one_instance() {
+    let rig = rig("backend-probe", backend_caps(), limits(5_000)).await;
+    let calls: Vec<_> = (0..20)
+        .map(|_| {
+            let vm = rig.vm.clone();
+            tokio::spawn(async move { ok(&vm, "count", json!({})).await })
+        })
+        .collect();
+    let mut seen = Vec::new();
+    for call in calls {
+        seen.push(call.await.unwrap().as_u64().unwrap());
+    }
+    seen.sort();
+    assert_eq!(seen, (1..=20).collect::<Vec<u64>>(), "each call saw the one before it");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stopping_while_a_call_holds_the_backend_starts_nothing_new() {
+    let rig = rig("backend-probe", backend_caps(), limits(1_000)).await;
+    let vm = rig.vm.clone();
+    let spinning = tokio::spawn(async move { call(&vm, "spin", json!({})).await });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let vm = rig.vm.clone();
+    let queued = tokio::spawn(async move { call(&vm, "count", json!({})).await });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    rig.vm.stop().await;
+    assert_eq!(spinning.await.unwrap().unwrap_err(), CallFailure::TimedOut);
+    let waiting = queued.await.unwrap().unwrap_err();
+    assert!(
+        matches!(&waiting, CallFailure::Unavailable(m) if m.contains("stopped")),
+        "{waiting:?}"
+    );
+    let health = rig.vm.health();
+    assert_eq!(health.state, VmState::Stopped, "not reported broken for stopping");
+    assert_eq!(health.recycles, 0, "no fresh instance for a VM that is going");
+    assert_eq!(health.memory_bytes, 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_crash_after_a_healthy_period_is_rebuilt_like_a_first_one() {
+    let rig = rig("backend-probe", backend_caps(), limits(5_000)).await;
+    rig.vm.set_healthy_period(Duration::from_millis(300));
+    call(&rig.vm, "trap", json!({})).await.unwrap_err();
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    call(&rig.vm, "trap", json!({})).await.unwrap_err();
+    let health = rig.vm.health();
+    assert_eq!(health.state, VmState::Running, "{health:?}");
+    assert_eq!(health.rebuilds, 2);
+    assert_eq!(ok(&rig.vm, "count", json!({})).await, json!(1));
+    // Within the period, the second crash is the last.
+    call(&rig.vm, "trap", json!({})).await.unwrap_err();
+    assert!(matches!(rig.vm.health().state, VmState::Disabled { .. }));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn files_under_data_count_toward_the_storage_quota() {
+    let caps = Capabilities {
+        fs: vec![FsGrant {
+            path: "${data}".into(),
+            writable: true,
+        }],
+        ..backend_caps()
+    };
+    let rig = rig("backend-probe", caps, limits(5_000)).await;
+    assert_eq!(
+        ok(&rig.vm, "file.write", json!({"name": "f", "size": "700"})).await,
+        json!(true)
+    );
+    let health = rig.vm.health();
+    assert_eq!((health.storage_bytes, health.storage_files_bytes), (700, 700));
+    // The files have taken 700 of the 1000: a value that would fit an empty store does not.
+    let refused = call(&rig.vm, "kv.put", json!({"key": "a", "size": "400"}))
+        .await
+        .unwrap()
+        .unwrap_err();
+    assert!(refused.message.contains("files under /data"), "{refused:?}");
+    assert_eq!(
+        ok(&rig.vm, "kv.put", json!({"key": "a", "size": "200"})).await,
+        json!(true)
+    );
+    assert_eq!(rig.vm.health().storage_bytes, 901, "the key counts too");
+
+    // Over the quota, an instance started from then on has /data read-only, until there is room.
+    ok(&rig.vm, "file.write", json!({"name": "g", "size": "200"})).await;
+    assert!(rig.vm.health().storage_bytes >= 1000);
+    call(&rig.vm, "trap", json!({})).await.unwrap_err();
+    let refused = call(&rig.vm, "file.write", json!({"name": "h", "size": "1"}))
+        .await
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(refused.code, 5, "{refused:?}");
+    assert!(!rig.dir.path().join("data/h").exists());
+    // Deleting is how it makes room, and it still may.
+    assert_eq!(
+        ok(&rig.vm, "file.delete", json!({"name": "g"})).await,
+        json!(true)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_timer_fires_once_into_the_backend() {
     let rig = rig("backend-probe", backend_caps(), limits(5_000)).await;
     assert_eq!(
