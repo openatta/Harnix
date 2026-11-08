@@ -798,3 +798,70 @@ html.resizing #frame {
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
+
+/* The calls tab's time line: a bar per call (its wait for the first chunk lighter), the tools
+ * between the calls of a turn, and the stretch dragged across it. */
+#details .timeline {
+  position: relative;
+  height: 22px;
+  margin: 6px 0 4px;
+  border-radius: 6px;
+  background: var(--border-l1);
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+#details .timeline i {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  min-width: 2px;
+  border-radius: 3px;
+}
+
+#details .timeline .call,
+#details .legend2 .model::before {
+  background: var(--state-info);
+}
+
+#details .timeline .call.aux {
+  opacity: 0.5;
+}
+
+#details .timeline .call b {
+  display: block;
+  height: 100%;
+  border-radius: 3px 0 0 3px;
+  background: var(--accent-soft);
+}
+
+#details .legend2 .wait::before {
+  background: var(--accent-soft);
+}
+
+#details .timeline .gap,
+#details .legend2 .gap::before {
+  background: var(--state-warn);
+}
+
+#details .timeline .range {
+  top: 0;
+  bottom: 0;
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  pointer-events: none;
+}
+
+#details .calls .search {
+  flex: 1;
+  min-width: 0;
+}
+
+#details .turns .turn-row {
+  cursor: pointer;
+}
+
+#details .turns .step-row td {
+  color: var(--label-secondary);
+}

@@ -565,7 +565,11 @@ export class App {
 
   /* ── 会话列表 ─────────────────────────────────────────────────────── */
 
+  /** Which `refreshSessions` is the latest: an earlier one answering later must not undo it. */
+  private refreshes = 0;
+
   async refreshSessions(): Promise<void> {
+    const mine = ++this.refreshes;
     try {
       const [listed, spaces] = await Promise.all([
         this.client.call("harnix.sessions", { space: "sessions" }) as Promise<{ sessions: SessionRow[] }>,
@@ -591,13 +595,14 @@ export class App {
           workspace_id: workspace?.id ?? null,
         };
       });
+      if (mine !== this.refreshes) return;
       this.set({
         sessions,
         workspaces,
         showArchived: Boolean(spaces.prefs?.showArchived ?? this.state.showArchived),
       });
     } catch (e) {
-      this.notice(errorText(e), "error");
+      if (mine === this.refreshes) this.notice(errorText(e), "error");
     }
   }
 

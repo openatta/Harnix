@@ -353,3 +353,51 @@ test("system-context: measured apart from estimated, and a fork from any message
   await expect.poll(sessions).toBe(listed + 1);
   expect(errors).toEqual([]);
 });
+
+test("system-timeline: calls on a time line, searched and narrowed by a stretch of time; a row per turn", TREE, async ({ page }) => {
+  const errors = watchConsole(page);
+  await open(page, backend.url);
+  const sid = await sessionWithTurn(page, "system");
+  cpSync(join(RECORDINGS, "spawns-agent"), join(backend.scratch, "agix", "recordings", sid), { recursive: true });
+  await toSystem(page);
+  await pick(page, "system", sid);
+  await tab(page, "calls");
+  const calls = page.getByTestId("system-call");
+  await expect(calls.first()).toBeVisible();
+  const all = await calls.count();
+  const timeline = page.getByTestId("calls-timeline");
+  await expect(timeline.getByTestId("timeline-call")).toHaveCount(all);
+  await expect(calls.first().getByTestId("call-ttft")).toBeVisible();
+
+  // Search: only the calls that say or call the Agent tool, fewer than all of them.
+  await page.getByTestId("calls-search").fill("agent");
+  await expect.poll(() => calls.count()).toBeLessThan(all);
+  expect(await calls.count()).toBeGreaterThan(0);
+  await page.getByTestId("calls-search").fill("no call says this");
+  await expect(page.getByTestId("calls-none")).toBeVisible();
+  await page.getByTestId("calls-search").fill("");
+  await expect(calls).toHaveCount(all);
+
+  // Drag across the first call's bar alone: the list is that call.
+  const first = await timeline.locator('[data-call="0"]').boundingBox();
+  const box = (await timeline.boundingBox())!;
+  await page.mouse.move(first!.x + 1, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(first!.x + first!.width - 1, box.y + box.height / 2, { steps: 5 });
+  await page.mouse.up();
+  await expect(page.getByTestId("timeline-range")).toBeVisible();
+  await expect(calls).toHaveCount(1);
+  await expect(calls.first()).toHaveAttribute("data-call", "0");
+  await page.getByTestId("timeline-clear").click();
+  await expect(calls).toHaveCount(all);
+
+  // Per turn: one row for the turn, opened into its calls; the context as a change or a total.
+  await tab(page, "turns");
+  const rows = page.getByTestId("turn-row");
+  await expect(rows).toHaveCount(1);
+  await rows.first().click();
+  await expect(page.getByTestId("turn-step")).toHaveCount(2);
+  await page.getByTestId("turns-total").click();
+  await expect(page.getByTestId("turn-context").first()).not.toHaveText("—");
+  expect(errors).toEqual([]);
+});

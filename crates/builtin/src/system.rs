@@ -49,6 +49,9 @@ impl Builtin {
         if name == "harnix.system.trace.call" {
             return self.trace_call(params).await;
         }
+        if name == "harnix.system.turns" {
+            return self.turns(params).await;
+        }
         if name == "harnix.system.context" {
             return self.inspect_context(params).await;
         }

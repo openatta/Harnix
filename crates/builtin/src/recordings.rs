@@ -16,7 +16,8 @@
 //! change on every one and a change back afterwards, none of which describes
 //! the conversation.
 
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use base::interface::model::{ModelEvent, ToolDef};
 use base::interface::prompt::PromptBlock;
@@ -60,6 +61,21 @@ impl Builtin {
             .and_then(Value::as_str)
             .unwrap_or(harnix_contract::SYSTEM_INSTANCE);
         trace_in(&self.recording_dir(instance, &session_id)?)
+    }
+
+    /// `harnix.system.turns {instance?, session_id}` — the trace summed up per turn: how many calls,
+    /// the time to first token, model and tool time, tokens in and out, the cache's share of what
+    /// went in (by tokens, so one cold call is not hidden by warm ones), and how much the context
+    /// grew since the turn before. The system space's per-turn tab.
+    pub(crate) async fn turns(&self, params: Value) -> Result<Value, RpcError> {
+        let session_id = require_session_id(&params)?;
+        let instance = params
+            .get("instance")
+            .and_then(Value::as_str)
+            .unwrap_or(harnix_contract::SYSTEM_INSTANCE);
+        let trace = trace_in(&self.recording_dir(instance, &session_id)?)?;
+        let calls = trace["calls"].as_array().cloned().unwrap_or_default();
+        Ok(json!({"recording": trace["recording"], "turns": turns_of(&calls)}))
     }
 
     /// `harnix.system.trace.call {instance?, session_id, index}` — one call in full: every system
@@ -140,6 +156,170 @@ fn outcome(call: &reader::RecordedCall) -> Value {
     }
 }
 
+/// When a call was sent, its first and last streamed chunk, and when it ended (milliseconds).
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+struct Timing {
+    sent: u64,
+    first: Option<u64>,
+    last: Option<u64>,
+    end: Option<u64>,
+}
+
+/// Each call's times, in the order of its call records — read off `calls.jsonl` itself, since the
+/// reader folds the chunks into events and keeps none of their times. A packed run of chunks
+/// (`ts0` and the gaps `dt`) spans from its first member to its last.
+fn timings(dir: &Path) -> Vec<Timing> {
+    let Ok(text) = std::fs::read_to_string(dir.join("calls.jsonl")) else {
+        return Vec::new();
+    };
+    let mut order = Vec::new();
+    let mut by_call: HashMap<u64, Timing> = HashMap::new();
+    for line in text.lines() {
+        let Ok(record) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        match record["type"].as_str() {
+            Some("recording") => {}
+            Some("call") => {
+                if let (Some(seq), Some(ts)) = (record["seq"].as_u64(), record["ts"].as_u64()) {
+                    order.push(seq);
+                    by_call.insert(seq, Timing { sent: ts, ..Timing::default() });
+                }
+            }
+            Some("end") => {
+                if let (Some(call), Some(ts)) = (record["call"].as_u64(), record["ts"].as_u64()) {
+                    if let Some(timing) = by_call.get_mut(&call) {
+                        timing.end = Some(ts);
+                    }
+                }
+            }
+            _ => {
+                let Some(call) = record["call"].as_u64() else {
+                    continue;
+                };
+                let span = match (record["ts0"].as_u64(), record["ts"].as_u64()) {
+                    (Some(ts0), _) => {
+                        let gaps: i64 = record["dt"]
+                            .as_array()
+                            .map(|dt| dt.iter().filter_map(Value::as_i64).sum())
+                            .unwrap_or(0);
+                        (ts0, ts0.saturating_add(gaps.max(0) as u64))
+                    }
+                    (None, Some(ts)) => (ts, ts),
+                    (None, None) => continue,
+                };
+                if let Some(timing) = by_call.get_mut(&call) {
+                    timing.first = Some(timing.first.map_or(span.0, |t| t.min(span.0)));
+                    timing.last = Some(timing.last.map_or(span.1, |t| t.max(span.1)));
+                }
+            }
+        }
+    }
+    order.iter().filter_map(|seq| by_call.get(seq).copied()).collect()
+}
+
+/// A call's `timing`: when it was sent, how long to its first chunk, how long it streamed, and
+/// the output rate over that stretch. Absent parts are left out rather than guessed.
+fn timing_json(timing: &Timing, output_tokens: Option<u64>) -> Value {
+    let ttft = timing.first.map(|first| first.saturating_sub(timing.sent));
+    let generate = match (timing.first, timing.last) {
+        (Some(first), Some(last)) => Some(last.saturating_sub(first)),
+        _ => None,
+    };
+    let rate = match (output_tokens, generate) {
+        (Some(tokens), Some(ms)) if ms > 0 && tokens > 0 => Some((tokens as f64) * 1000.0 / ms as f64),
+        _ => None,
+    };
+    json!({
+        "sent_at": timing.sent,
+        "ttft_ms": ttft,
+        "generate_ms": generate,
+        "tokens_per_s": rate.map(|r| (r * 10.0).round() / 10.0),
+    })
+}
+
+/// Tokens that went in: uncached, read from the cache, written to it — the three do not overlap.
+fn tokens_in(usage: &Value) -> u64 {
+    ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"]
+        .iter()
+        .filter_map(|k| usage[*k].as_u64())
+        .sum()
+}
+
+/// The trace's turn calls summed per turn, in the order the turns ran (see `Builtin::turns`).
+/// Auxiliary calls (compaction, memory, titles) are counted beside a turn, not inside its figures.
+fn turns_of(calls: &[Value]) -> Vec<Value> {
+    let mut order: Vec<u64> = Vec::new();
+    let mut by_turn: HashMap<u64, Vec<&Value>> = HashMap::new();
+    let mut auxiliary: HashMap<u64, u64> = HashMap::new();
+    for call in calls {
+        let turn = call["turn"].as_u64().unwrap_or(0);
+        if !call["purpose"].is_null() {
+            *auxiliary.entry(turn).or_default() += 1;
+            continue;
+        }
+        if !by_turn.contains_key(&turn) {
+            order.push(turn);
+        }
+        by_turn.entry(turn).or_default().push(call);
+    }
+    let mut previous_context: Option<u64> = None;
+    let mut out = Vec::new();
+    for turn in order {
+        let steps = &by_turn[&turn];
+        let sent = |c: &Value| c["timing"]["sent_at"].as_u64();
+        let duration = |c: &Value| c["duration_ms"].as_u64();
+        let model_ms: u64 = steps.iter().filter_map(|c| duration(c)).sum();
+        // Between one call's end and the next one's start, the turn ran its tools.
+        let tool_ms: u64 = steps
+            .windows(2)
+            .filter_map(|pair| {
+                let ended = sent(pair[0])? + duration(pair[0])?;
+                Some(sent(pair[1])?.saturating_sub(ended))
+            })
+            .sum();
+        let input: u64 = steps.iter().map(|c| tokens_in(&c["usage"])).sum();
+        let cache_read: u64 = steps
+            .iter()
+            .filter_map(|c| c["usage"]["cache_read_input_tokens"].as_u64())
+            .sum();
+        let output: u64 = steps
+            .iter()
+            .filter_map(|c| c["usage"]["output_tokens"].as_u64())
+            .sum();
+        let generate_ms: u64 = steps
+            .iter()
+            .filter_map(|c| c["timing"]["generate_ms"].as_u64())
+            .sum();
+        let context = steps.last().map(|c| tokens_in(&c["usage"])).filter(|n| *n > 0);
+        let started = steps.first().and_then(|c| sent(c));
+        let ended = steps.last().and_then(|c| Some(sent(c)? + duration(c)?));
+        out.push(json!({
+            "turn": turn,
+            "calls": steps.iter().map(|c| c["index"].clone()).collect::<Vec<_>>(),
+            "auxiliary": auxiliary.get(&turn).copied().unwrap_or(0),
+            "started_at": started,
+            "duration_ms": started.zip(ended).map(|(s, e)| e.saturating_sub(s)),
+            "ttft_ms": steps.first().map(|c| c["timing"]["ttft_ms"].clone()),
+            "model_ms": model_ms,
+            "tool_ms": tool_ms,
+            "input_tokens": input,
+            "output_tokens": output,
+            "cache_hit": (input > 0).then(|| ((cache_read as f64 / input as f64) * 1000.0).round() / 1000.0),
+            "tokens_per_s": (generate_ms > 0 && output > 0).then(|| ((output as f64 * 1000.0 / generate_ms as f64) * 10.0).round() / 10.0),
+            "context_tokens": context,
+            "context_delta": match (context, previous_context) {
+                (Some(now), Some(before)) => Some(now as i64 - before as i64),
+                _ => None,
+            },
+        }));
+        if context.is_some() {
+            previous_context = context;
+        }
+    }
+    out
+}
+
 fn trace_in(dir: &std::path::Path) -> Result<Value, RpcError> {
     let recording = match reader::load(dir) {
         Ok(recording) => recording,
@@ -152,6 +332,8 @@ fn trace_in(dir: &std::path::Path) -> Result<Value, RpcError> {
         }
     };
     let blobs = BlobStore::new(dir);
+    // Times only when every call record was found: otherwise they could be paired with the wrong call.
+    let times = Some(timings(dir)).filter(|t| t.len() == recording.calls.len());
     let messages: Vec<Vec<Value>> = recording
         .calls
         .iter()
@@ -200,6 +382,12 @@ fn trace_in(dir: &std::path::Path) -> Result<Value, RpcError> {
             .collect();
         let tool_count = read::<Vec<ToolDef>>(&blobs, &request.tools).map_or(0, |t| t.len());
         let end = call.end.as_ref();
+        let output_tokens = end.and_then(|e| e.usage.as_ref()).map(|u| u.output_tokens as u64);
+        let timing = times
+            .as_ref()
+            .and_then(|t| t.get(index))
+            .map(|t| timing_json(t, output_tokens))
+            .unwrap_or(Value::Null);
         calls.push(json!({
             "index": index,
             "turn": request.turn,
@@ -224,6 +412,7 @@ fn trace_in(dir: &std::path::Path) -> Result<Value, RpcError> {
             "stop_reason": end.and_then(|e| e.stop_reason.clone()),
             "usage": end.and_then(|e| e.usage.as_ref()).and_then(|u| serde_json::to_value(u).ok()),
             "duration_ms": end.map(|e| e.duration_ms),
+            "timing": timing,
         }));
     }
     Ok(json!({"recording": true, "calls": calls, "damaged": recording.damaged}))
@@ -421,6 +610,60 @@ fn read<T: serde::de::DeserializeOwned>(blobs: &BlobStore, id: &BlobId) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two calls of one turn with a tool between them, and an auxiliary call after: what the
+    /// timings read off the file, and what a turn sums to.
+    #[test]
+    fn times_are_read_off_the_file_and_summed_per_turn() {
+        let dir = tempfile::tempdir().unwrap();
+        let lines = [
+            r#"{"type":"recording","version":1}"#,
+            r#"{"type":"call","seq":10,"ts":1000,"turn":0,"step":0}"#,
+            r#"{"type":"chunk","seq":11,"ts":1300,"call":10,"chunk":{}}"#,
+            r#"{"type":"text_chunks","seq0":12,"ts0":1310,"call":10,"texts":["a","b","c"],"dt":[100,90]}"#,
+            r#"{"type":"end","seq":15,"ts":1600,"call":10,"outcome":{"status":"ok"},"duration_ms":600}"#,
+            r#"{"type":"call","seq":20,"ts":2100,"turn":0,"step":1}"#,
+            r#"{"type":"chunk","seq":21,"ts":2150,"call":20,"chunk":{}}"#,
+            r#"{"type":"end","seq":22,"ts":2350,"call":20,"outcome":{"status":"ok"},"duration_ms":250}"#,
+            r#"{"type":"call","seq":30,"ts":2400,"turn":0,"step":0,"purpose":"memory"}"#,
+            "not json",
+        ];
+        std::fs::write(dir.path().join("calls.jsonl"), lines.join("\n")).unwrap();
+        let t = timings(dir.path());
+        assert_eq!(t.len(), 3, "one per call record, the damaged line skipped");
+        assert_eq!(t[0], Timing { sent: 1000, first: Some(1300), last: Some(1500), end: Some(1600) });
+        assert_eq!(t[1], Timing { sent: 2100, first: Some(2150), last: Some(2150), end: Some(2350) });
+        assert_eq!(t[2].first, None, "a call that streamed nothing has no first chunk");
+
+        let timing = timing_json(&t[0], Some(100));
+        assert_eq!(timing["ttft_ms"], 300);
+        assert_eq!(timing["generate_ms"], 200);
+        assert_eq!(timing["tokens_per_s"], 500.0);
+        assert!(timing_json(&t[2], None)["ttft_ms"].is_null());
+
+        let usage = |input: u64, read: u64, output: u64| json!({"input_tokens": input, "cache_read_input_tokens": read, "output_tokens": output});
+        let calls = vec![
+            json!({"index": 0, "turn": 0, "purpose": null, "duration_ms": 600, "usage": usage(100, 900, 100), "timing": timing_json(&t[0], Some(100))}),
+            json!({"index": 1, "turn": 0, "purpose": null, "duration_ms": 250, "usage": usage(50, 1050, 20), "timing": timing_json(&t[1], Some(20))}),
+            json!({"index": 2, "turn": 0, "purpose": "memory", "duration_ms": 10, "usage": usage(5, 0, 1), "timing": timing_json(&t[2], Some(1))}),
+            json!({"index": 3, "turn": 1, "purpose": null, "duration_ms": 100, "usage": usage(10, 1200, 5), "timing": {"sent_at": 3000, "ttft_ms": 40, "generate_ms": 50}}),
+        ];
+        let turns = turns_of(&calls);
+        assert_eq!(turns.len(), 2);
+        let first = &turns[0];
+        assert_eq!(first["calls"], json!([0, 1]));
+        assert_eq!(first["auxiliary"], 1, "the memory call is beside the turn, not in it");
+        assert_eq!(first["model_ms"], 850);
+        assert_eq!(first["tool_ms"], 500, "from the first call's end (1600) to the second's start (2100)");
+        assert_eq!(first["ttft_ms"], 300);
+        assert_eq!(first["input_tokens"], 2100);
+        assert_eq!(first["output_tokens"], 120);
+        assert_eq!(first["cache_hit"], 0.929, "1950 of 2100 tokens in came from the cache");
+        assert_eq!(first["context_tokens"], 1100, "what the last call carried");
+        assert!(first["context_delta"].is_null(), "nothing before the first turn");
+        assert_eq!(turns[1]["context_delta"], 110);
+        assert_eq!(first["duration_ms"], 1350);
+    }
     use base::interface::model::ToolDef;
     use base::interface::prompt::{BlockRole, CacheStrategy, PromptBlock};
     use base::interface::settings::ThinkingMode;

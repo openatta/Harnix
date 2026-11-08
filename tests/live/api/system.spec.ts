@@ -8,7 +8,7 @@
  * its own: the session there is another space's, which is the case the system space is for.
  */
 
-import { cpSync } from "node:fs";
+import { cpSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { INVALID_PARAMS, METHOD_NOT_FOUND, REFUSED, SPACE_MISMATCH } from "@harnix/core/protocol";
@@ -22,6 +22,7 @@ const TAGS = { tag: ["@feature:system", "@layer:api"] };
 const SYSTEM_METHODS = [
   "harnix.system.context",
   "harnix.system.calls",
+  "harnix.system.turns",
   "harnix.system.tasks.stop",
   "harnix.system.tasks.output",
   "harnix.system.messages.drop",
@@ -178,6 +179,41 @@ test.describe("on", () => {
     expect(JSON.stringify(kept.messages.at(call)?.content)).toContain("tool_use");
     // What the cut left open is closed, not left dangling: nothing after it is the original's.
     expect(JSON.stringify(kept.messages.slice(call + 1))).not.toContain("harnix-fixture\\n");
+  });
+
+  test("each call's time to first token and output rate, and a turn's model and tool time, read off the recording", TAGS, async () => {
+    const s = await oneTurn(api, "sessions");
+    cpSync(join(RECORDINGS, "calls-a-tool"), join(backend.scratch, "agix", "recordings", s.session_id), { recursive: true });
+    // What the recording says, worked out here independently: each call's send, first chunk, last chunk.
+    const records = readFileSync(join(RECORDINGS, "calls-a-tool", "calls.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    const sent = records.filter((r) => r.type === "call");
+    const times = sent.map((call) => {
+      const chunks = records.filter((r) => r.call === call.seq && r.type !== "end");
+      const starts = chunks.map((r) => r.ts0 ?? r.ts);
+      const ends = chunks.map((r) => (r.ts0 != null ? r.ts0 + (r.dt ?? []).reduce((a: number, b: number) => a + b, 0) : r.ts));
+      const end = records.find((r) => r.type === "end" && r.call === call.seq);
+      return { sent: call.ts, first: Math.min(...starts), last: Math.max(...ends), duration: end.duration_ms };
+    });
+
+    const { calls } = await api.call("harnix.system.trace", s);
+    expect(calls).toHaveLength(times.length);
+    calls.forEach((call: any, i: number) => {
+      expect(call.timing.sent_at, `call ${i}`).toBe(times[i]!.sent);
+      expect(call.timing.ttft_ms, `call ${i}`).toBe(times[i]!.first - times[i]!.sent);
+      expect(call.timing.generate_ms, `call ${i}`).toBe(times[i]!.last - times[i]!.first);
+    });
+
+    const { turns } = await api.call("harnix.system.turns", s);
+    expect(turns).toHaveLength(1);
+    const [turn] = turns;
+    expect(turn.calls).toEqual([0, 1]);
+    expect(turn.model_ms).toBe(times[0]!.duration + times[1]!.duration);
+    expect(turn.tool_ms).toBe(times[1]!.sent - (times[0]!.sent + times[0]!.duration));
+    expect(turn.ttft_ms).toBe(calls[0].timing.ttft_ms);
+    const out = calls.reduce((n: number, c: any) => n + (c.usage?.output_tokens ?? 0), 0);
+    expect(turn.output_tokens).toBe(out);
+    expect(turn.cache_hit === null || (turn.cache_hit >= 0 && turn.cache_hit <= 1)).toBe(true);
+    expect((await api.refused("harnix.system.turns", {}))?.code).toBe(INVALID_PARAMS);
   });
 
   test("a session's model is switched from the system space, and says so", TAGS, async () => {

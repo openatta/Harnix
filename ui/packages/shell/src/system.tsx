@@ -15,7 +15,7 @@
  * every one of them audited. What Agix does not offer has no tab here (§9.3).
  */
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { errorText } from "@harnix/core";
 import { Disclosure, clip, t, useT, type SpaceTab } from "@harnix/react";
 
@@ -164,12 +164,13 @@ function tabsFor(app: App, view: View): SpaceTab[] {
   const tabs: SpaceTab[] = [
     { id: "system.overview", title: () => t("system.tab.overview"), render: () => <SessionOverview app={app} view={view} session={session} /> },
     { id: "system.calls", title: () => t("system.tab.calls"), render: () => <CallsTab app={app} view={view} session={session} /> },
+    { id: "system.turns", title: () => t("system.tab.turns"), render: () => <TurnsTab app={app} session={session} /> },
     { id: "system.context", title: () => t("system.tab.context"), render: () => <ContextTab app={app} view={view} session={session} /> },
     { id: "system.tasks", title: () => t("system.tab.tasks"), render: () => <TasksTab app={app} view={view} session={session} /> },
     { id: "system.frames", title: () => t("system.tab.frames"), render: () => <FramesTab app={app} session={session} /> },
   ];
   // A task opens on its own tab.
-  if (picked.kind === "task") tabs.unshift(tabs.splice(3, 1)[0]!);
+  if (picked.kind === "task") tabs.unshift(tabs.splice(tabs.findIndex((x) => x.id === "system.tasks"), 1)[0]!);
   return tabs;
 }
 
@@ -891,6 +892,8 @@ interface TraceCall {
   outcome: { status: string; error?: string; message?: string };
   stop_reason?: string | null;
   usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | null;
+  /** When it was sent, how long to its first chunk, how long it streamed; absent without the times. */
+  timing?: { sent_at: number; ttft_ms?: number | null; generate_ms?: number | null; tokens_per_s?: number | null } | null;
   duration_ms?: number | null;
 }
 
@@ -907,6 +910,8 @@ function CallsTab({ app, view, session }: { app: App; view: View; session: Sessi
   const [calls, setCalls] = useState<TraceCall[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
+  const [query, setQuery] = useState("");
+  const [range, setRange] = useState<[number, number] | null>(null);
   const [open, setOpen] = useState<number | null>(null);
   const list = useRef<HTMLDivElement>(null);
   const scroll = useRef(0);
@@ -939,7 +944,13 @@ function CallsTab({ app, view, session }: { app: App; view: View; session: Sessi
     return <CallDetail app={app} session={session} call={calls.find((c) => c.index === open)!} previous={previous} onBack={() => setOpen(null)} />;
   }
   if (!calls.length) return <div className="empty">{tr("system.noCalls")}</div>;
-  const shown = calls.filter((call) => (filter === "failed" ? failed(call) : filter === "tools" ? call.tools.length > 0 : true));
+  const needle = query.trim().toLowerCase();
+  const shown = calls.filter(
+    (call) =>
+      (filter === "failed" ? failed(call) : filter === "tools" ? call.tools.length > 0 : true) &&
+      (!needle || searchable(call).includes(needle)) &&
+      (!range || overlaps(call, range)),
+  );
   const firstFailure = calls.find(failed);
   const turns = [...new Set(shown.map((c) => c.turn))];
   return (
@@ -961,6 +972,23 @@ function CallsTab({ app, view, session }: { app: App; view: View; session: Sessi
           </button>
         ) : null}
       </div>
+      <div className="tools-row">
+        <input
+          className="search"
+          type="search"
+          data-testid="calls-search"
+          placeholder={tr("system.searchCalls")}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        {range ? (
+          <button type="button" className="btn sm outline end" data-testid="timeline-clear" onClick={() => setRange(null)}>
+            {tr("system.clearRange")}
+          </button>
+        ) : null}
+      </div>
+      <Timeline calls={calls} range={range} onRange={setRange} />
+      {!shown.length ? <div className="note" data-testid="calls-none">{tr("system.noMatchingCalls")}</div> : null}
       {turns.map((turn) => (
         <div key={turn}>
           <div className="turnh">{tr("system.turn", { turn })}</div>
@@ -982,7 +1010,9 @@ function CallsTab({ app, view, session }: { app: App; view: View; session: Sessi
                     <span className="kd2">{call.purpose ? call.purpose : tr("system.step.model")}</span>
                     <b>#{call.index + 1}</b>
                     <span className="r">
-                      {call.model} · {tokens(call.usage)} · {call.duration_ms != null ? `${(call.duration_ms / 1000).toFixed(1)}s` : "—"} · {call.stop_reason ?? call.outcome?.status}
+                      {call.model} · {tokens(call.usage)} · {call.duration_ms != null ? `${(call.duration_ms / 1000).toFixed(1)}s` : "—"}
+                      {call.timing?.ttft_ms != null ? <span data-testid="call-ttft"> · {tr("system.ttft", { ms: call.timing.ttft_ms })}</span> : null}
+                      {call.timing?.tokens_per_s != null ? ` · ${tr("system.rate", { rate: call.timing.tokens_per_s })}` : ""} · {call.stop_reason ?? call.outcome?.status}
                     </span>
                   </div>
                   <div className="l2">
@@ -1009,6 +1039,220 @@ function CallsTab({ app, view, session }: { app: App; view: View; session: Sessi
             ))}
         </div>
       ))}
+    </div>
+  );
+}
+
+/** What a search over the calls looks in: the answer, the model, what it was for, its tool calls. */
+function searchable(call: TraceCall): string {
+  return [call.output.text, call.model, call.purpose ?? "", ...call.tools.flatMap((tool) => [tool.name, tool.input, tool.result ?? ""])].join("\n").toLowerCase();
+}
+
+/** A call's stretch of time: from being sent to its end. */
+function spanOf(call: TraceCall): [number, number] | null {
+  const sent = call.timing?.sent_at;
+  if (sent == null) return null;
+  return [sent, sent + (call.duration_ms ?? 0)];
+}
+
+function overlaps(call: TraceCall, [from, to]: [number, number]): boolean {
+  const span = spanOf(call);
+  return span != null && span[0] <= to && span[1] >= from;
+}
+
+/**
+ * The calls on one time line: each call a bar from when it was sent to its end, the wait for its
+ * first chunk drawn lighter; between two calls of a turn, the tools ran. Dragging across it picks a
+ * stretch of time, and the list below shows only the calls in it.
+ */
+function Timeline({ calls, range, onRange }: { calls: TraceCall[]; range: [number, number] | null; onRange: (r: [number, number] | null) => void }) {
+  const tr = useT();
+  const strip = useRef<HTMLDivElement>(null);
+  const [drag, setDrag] = useState<[number, number] | null>(null);
+  const spans = calls.map((call) => ({ call, span: spanOf(call) })).filter((x): x is { call: TraceCall; span: [number, number] } => x.span != null);
+  if (!spans.length) return null;
+  const start = Math.min(...spans.map((x) => x.span[0]));
+  const end = Math.max(...spans.map((x) => x.span[1]));
+  const total = Math.max(end - start, 1);
+  const pct = (t: number) => `${((t - start) / total) * 100}%`;
+  const width = (from: number, to: number) => `${(Math.max(to - from, 0) / total) * 100}%`;
+  const at = (clientX: number) => {
+    const box = strip.current!.getBoundingClientRect();
+    return start + Math.min(Math.max((clientX - box.left) / box.width, 0), 1) * total;
+  };
+  const shownRange = drag ?? range;
+  const gaps: { key: string; from: number; to: number }[] = [];
+  for (let i = 1; i < spans.length; i += 1) {
+    const a = spans[i - 1]!;
+    const b = spans[i]!;
+    if (a.call.turn === b.call.turn && !b.call.purpose && b.span[0] > a.span[1]) gaps.push({ key: `${a.call.index}-${b.call.index}`, from: a.span[1], to: b.span[0] });
+  }
+  return (
+    <div className="timeline-wrap">
+      <div
+        className="timeline"
+        ref={strip}
+        data-testid="calls-timeline"
+        title={tr("system.timelineHint")}
+        onPointerDown={(e) => {
+          strip.current?.setPointerCapture?.(e.pointerId);
+          const t = at(e.clientX);
+          setDrag([t, t]);
+        }}
+        onPointerMove={(e) => drag && setDrag([drag[0], at(e.clientX)])}
+        onPointerUp={() => {
+          if (!drag) return;
+          const [a, b] = drag[0] <= drag[1] ? drag : [drag[1], drag[0]];
+          setDrag(null);
+          onRange(b - a >= total / 200 ? [a, b] : null);
+        }}
+      >
+        {gaps.map((gap) => (
+          <i key={gap.key} className="gap" style={{ left: pct(gap.from), width: width(gap.from, gap.to) }} />
+        ))}
+        {spans.map(({ call, span }) => (
+          <i key={call.index} className={`call${call.purpose ? " aux" : ""}`} data-testid="timeline-call" data-call={call.index} style={{ left: pct(span[0]), width: width(span[0], span[1]) }}>
+            {call.timing?.ttft_ms ? <b style={{ width: `${Math.min(100, (call.timing.ttft_ms / Math.max(span[1] - span[0], 1)) * 100)}%` }} /> : null}
+          </i>
+        ))}
+        {shownRange ? (
+          <i
+            className="range"
+            data-testid="timeline-range"
+            style={{ left: pct(Math.min(...shownRange)), width: width(Math.min(...shownRange), Math.max(...shownRange)) }}
+          />
+        ) : null}
+      </div>
+      <div className="legend2">
+        <span className="model">{tr("system.legend.model")}</span>
+        <span className="wait">{tr("system.legend.wait")}</span>
+        <span className="gap">{tr("system.legend.toolsTime")}</span>
+        <span className="muted">{tr("system.duration", { seconds: (total / 1000).toFixed(1) })}</span>
+      </div>
+    </div>
+  );
+}
+
+interface TurnRow {
+  turn: number;
+  calls: number[];
+  auxiliary: number;
+  duration_ms?: number | null;
+  ttft_ms?: number | null;
+  model_ms: number;
+  tool_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_hit?: number | null;
+  tokens_per_s?: number | null;
+  context_tokens?: number | null;
+  context_delta?: number | null;
+}
+
+/**
+ * Per turn (DSH's statistics, for the system space): a row per turn — its calls, time to first
+ * token, model and tool time, tokens, the cache's share by tokens, output rate, the context at its
+ * end — opened into its calls. The context column shows the change from the turn before, or the
+ * running total.
+ */
+function TurnsTab({ app, session }: { app: App; session: SessionKey }) {
+  const tr = useT();
+  const [data, setData] = useState<{ turns: TurnRow[]; calls: TraceCall[] } | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+  const [mode, setMode] = useState<"delta" | "total">("delta");
+  const [open, setOpen] = useState<Set<number>>(new Set());
+  useEffect(() => {
+    let alive = true;
+    const target = { instance: session.instance, session_id: session.sessionId };
+    const load = () =>
+      Promise.all([app.call<{ turns?: TurnRow[] }>("harnix.system.turns", target), app.call<{ calls?: TraceCall[] }>("harnix.system.trace", target)])
+        .then(([t, c]) => alive && (setData({ turns: t.turns ?? [], calls: c.calls ?? [] }), setFailure(null)))
+        .catch((e) => alive && setFailure(errorText(e)));
+    void load();
+    const off = app.client.onNotify((method, params) => {
+      if (method === "harnix.turn_settled" && params.session_id === session.sessionId) void load();
+    });
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [app, session.instance, session.sessionId]);
+  if (failure) return <div className="empty">{failure}</div>;
+  if (!data) return null;
+  if (!data.turns.length) return <div className="empty">{tr("system.noCalls")}</div>;
+  const sec = (ms?: number | null) => (ms != null ? `${(ms / 1000).toFixed(1)}s` : "—");
+  const pctOf = (x?: number | null) => (x != null ? `${Math.round(x * 100)}%` : "—");
+  const signed = (n?: number | null) => (n == null ? "—" : n > 0 ? `+${compact(n)}` : n < 0 ? `−${compact(-n)}` : "0");
+  const toggle = (turn: number) => setOpen((was) => {
+    const next = new Set(was);
+    if (next.has(turn)) next.delete(turn);
+    else next.add(turn);
+    return next;
+  });
+  return (
+    <div className="system-pane turns" data-testid="system-turns">
+      <div className="tools-row">
+        {(["delta", "total"] as const).map((m) => (
+          <button type="button" key={m} className={`btn sm outline${mode === m ? " on" : ""}`} data-testid={`turns-${m}`} onClick={() => setMode(m)}>
+            {tr(`system.turns.${m}`)}
+          </button>
+        ))}
+      </div>
+      <table className="frames">
+        <thead>
+          <tr>
+            <th>{tr("system.turns.turn")}</th>
+            <th>{tr("system.turns.calls")}</th>
+            <th>TTFT</th>
+            <th>{tr("system.turns.model")}</th>
+            <th>{tr("system.turns.tools")}</th>
+            <th>{tr("system.turns.inOut")}</th>
+            <th>{tr("system.turns.cache")}</th>
+            <th>{tr("system.turns.rate")}</th>
+            <th>{mode === "delta" ? tr("system.turns.contextDelta") : tr("system.turns.context")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.turns.map((row) => (
+            <Fragment key={row.turn}>
+              <tr className="turn-row" data-testid="turn-row" data-turn={row.turn} onClick={() => toggle(row.turn)}>
+                <td>{row.turn}</td>
+                <td>
+                  {row.calls.length}
+                  {row.auxiliary ? <span className="muted"> +{row.auxiliary}</span> : null}
+                </td>
+                <td>{sec(row.ttft_ms)}</td>
+                <td>{sec(row.model_ms)}</td>
+                <td>{sec(row.tool_ms)}</td>
+                <td>
+                  {compact(row.input_tokens)} / {compact(row.output_tokens)}
+                </td>
+                <td data-testid="turn-cache">{pctOf(row.cache_hit)}</td>
+                <td>{row.tokens_per_s != null ? row.tokens_per_s : "—"}</td>
+                <td data-testid="turn-context">{mode === "delta" ? signed(row.context_delta) : row.context_tokens != null ? compact(row.context_tokens) : "—"}</td>
+              </tr>
+              {open.has(row.turn)
+                ? row.calls.map((index) => {
+                    const call = data.calls.find((c) => c.index === index);
+                    if (!call) return null;
+                    return (
+                      <tr key={index} className="step-row" data-testid="turn-step" data-call={index}>
+                        <td />
+                        <td>#{index + 1}</td>
+                        <td>{sec(call.timing?.ttft_ms)}</td>
+                        <td>{sec(call.duration_ms)}</td>
+                        <td>{call.tools.map((tool) => tool.name).join(", ") || "—"}</td>
+                        <td colSpan={2}>{tokens(call.usage)}</td>
+                        <td>{call.timing?.tokens_per_s ?? "—"}</td>
+                        <td />
+                      </tr>
+                    );
+                  })
+                : null}
+            </Fragment>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

@@ -150,6 +150,7 @@ const SYSTEM: Part = Part {
         "harnix.system.calls",
         "harnix.system.trace",
         "harnix.system.trace.call",
+        "harnix.system.turns",
         "harnix.system.tasks.stop",
         "harnix.system.tasks.output",
         "harnix.system.messages.drop",
