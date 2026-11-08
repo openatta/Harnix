@@ -15,11 +15,15 @@ import { openSettings } from "./settings.tsx";
 import { topicsOf } from "./topics.ts";
 
 export function hostFor(app: App, owner = "page"): NestHost {
-  const call = <T,>(method: string, params?: unknown): Promise<T> => {
+  const listed = (method: string) => {
     const reachable = app.snapshot.reachable;
-    if (reachable.length && !reachable.includes(method) && !method.startsWith("harnix.subscribe") && !method.startsWith("harnix.unsubscribe")) {
-      return Promise.reject(new Error(t("contrib.methodNotDeclared", { owner, method })));
-    }
+    return !reachable.length || reachable.includes(method) || method.startsWith("harnix.subscribe") || method.startsWith("harnix.unsubscribe");
+  };
+  const call = async <T,>(method: string, params?: unknown): Promise<T> => {
+    // A runtime application's methods come and go while the page is open (installed, enabled):
+    // one not listed yet is asked about once more before it is refused here.
+    if (!listed(method) && method.startsWith("app.")) await app.refreshReachable();
+    if (!listed(method)) throw new Error(t("contrib.methodNotDeclared", { owner, method }));
     return app.call<T>(method, params);
   };
   const spaceIds = () => app.registry.at("space").map((c) => c.id);

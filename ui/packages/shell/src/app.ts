@@ -494,6 +494,16 @@ export class App {
     }
   }
 
+  /** Ask `harnix.reachable` again: a runtime application registered since the start adds methods. */
+  async refreshReachable(): Promise<void> {
+    try {
+      const r = (await this.client.call("harnix.reachable", {})) as { methods?: string[] };
+      this.set({ reachable: r.methods ?? [] });
+    } catch {
+      // What was known stays.
+    }
+  }
+
   /** Read the model providers again: at connect, and after the settings page changes one. */
   async refreshProviders(): Promise<void> {
     if (!this.state.reachable.includes("harnix.settings.describe")) return;

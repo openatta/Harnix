@@ -25,6 +25,7 @@ import { Body, confirmDialog, Connections, exportDialog, Foot, renameDialog, sin
 import { Glyph } from "./glyph.tsx";
 import { useShell } from "./hooks.ts";
 import { Diagnostics } from "./settings.tsx";
+import { AppsTab, appsOffered } from "./system-apps.tsx";
 import { topicKey, topicsOf, type Topics } from "./topics.ts";
 
 export const SYSTEM = "system";
@@ -406,10 +407,12 @@ type Scope = "active" | "all";
 
 function Console({ app, view }: { app: App; view: View }) {
   const tr = useT();
-  const [tab, setTab] = useState<Scope | "diagnostics">("active");
-  const tabs: [Scope | "diagnostics", string][] = [
+  const [tab, setTab] = useState<Scope | "apps" | "diagnostics">("active");
+  const tabs: [Scope | "apps" | "diagnostics", string][] = [
     ["active", tr("system.agents.active")],
     ["all", tr("system.agents.all")],
+    // The runtime applications, where this process hosts them.
+    ...(appsOffered(app) ? [["apps", tr("system.apps")] as ["apps", string]] : []),
     ["diagnostics", tr("system.diagnostics")],
   ];
   return (
@@ -422,7 +425,13 @@ function Console({ app, view }: { app: App; view: View }) {
           </button>
         ))}
       </div>
-      {tab === "diagnostics" ? <div className="system-diagnostics settings-page"><Diagnostics app={app} /></div> : <Agents key={tab} app={app} view={view} scope={tab} />}
+      {tab === "diagnostics" ? (
+        <div className="system-diagnostics settings-page"><Diagnostics app={app} /></div>
+      ) : tab === "apps" ? (
+        <AppsTab app={app} />
+      ) : (
+        <Agents key={tab} app={app} view={view} scope={tab} />
+      )}
     </div>
   );
 }
