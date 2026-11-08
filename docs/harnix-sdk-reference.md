@@ -216,6 +216,10 @@ runtime_modules = true         # false：运行期包的 [[ui]] 一律不提供�
 
 [apps]
 enabled = false                # true：运行期应用（§1.8）——加 harnix.apps.*、模块拿得到 AppHost、加 harnix.spaces 主题；不写或 false 时这些一概没有
+dev = false                    # true：未签名的包也能从文件装、能启动（开发应用用）
+store = "https://…/index.json" # 商店目录（https:// 或本机 file://）；不写用内置的。目录里列什么都要验签才装
+[apps.trusted_publishers]      # 受信发布者：发布者 id → 签它的 ed25519 公钥（hex）；它签全的包不经商店副署也能装（trust = trusted）
+# acme = ["<64 位 hex>"]
 
 [[instances]]                  # 固定实例
 id = "ci"
@@ -327,7 +331,7 @@ schema、来自哪个模块）。下表是分组索引。
 | 中枢，只给内核（自带的设置模块经 grant 调） | `harnix.instances.inheritProviders`：把 `system` 的 provider 并进所有 `inherit_providers` 模板的实例并让变了的重读，答 `{reloaded: [id…]}` | 内核 |
 | 系统 space（`[shell] spaces` 留着 `system` 时） | `harnix.system.context / messages.drop / messages.edit / tasks.stop / tasks.message / tasks.output / compact / clear / rename / model / calls`（`tasks.message {task_id, message}` 给在跑的子 Agent 或团队成员发话，它在下一个步骤读到；答 `{delivered, reason?}`）（`tasks.output {task_id, tail_bytes? | from_byte?}` 是任务到目前的输出：不带是最后 8 KiB；`from_byte` 从那个偏移读到末尾，应答带 `from_byte` / `next_byte` / `dropped` / `final`，跟随时下一次从 `next_byte` 接着读，`dropped > 0` 是中间已丢掉的字节数，`final` 之后不再长）；`harnix.system.goal`（会话的目标：`{goal: {objective, phase, armed, max_rounds, rounds_started, blocked_reason} | null}`）、`harnix.system.goal.set {objective, max_rounds?}`（设定；会话空闲时引擎立刻开第一轮；已有未完成的目标时拒绝）、`harnix.system.goal.update {action: pause | resume | edit | clear, objective?, max_rounds?}`（答同 `goal`）；`harnix.system.trace`（这一次运行里每次模型调用的输入与输出、它要的工具调用和结果，以及 `timing {sent_at, ttft_ms, generate_ms, tokens_per_s}`）、`harnix.system.trace.call {index}`（一次调用的全文）、`harnix.system.turns`（按轮汇总：调用数、首字时间、模型与工具时间、进出 token、按 token 计的缓存命中、上下文较上一轮的增量）、`harnix.system.usage {instance?, session_ids}`（一次至多 200 个会话，各自本次运行里每个 Agent 用了多少：`{sessions: {<id>: {recording, agents: [{session_id, parent_session_id, calls, auxiliary, turns, models, input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, model_ms, errors, first_at, last_at}]}}}`，会话自己的在前，子 Agent 带父会话，整棵树都在；只读录像的调用行与结束行，录像没变就不重读）；`harnix.system.context` 带 `measured`（上一次调用 provider 计的数，估算之外） | 设备 |
 | 检视（内核，模块可 grant） | `session.tasks`、`session.taskOutput`、`session.stopTask`、`session.inspectContext`、`session.dropMessages`、`session.editMessage` | 内核 |
-| `[apps] enabled = true` 时（`apps` 自带模块） | `harnix.apps.list`（`{dir, apps: [{id, version, title, enabled, registered}], unreadable: [{dir, reason}], registered: [AppSummary]}`）、`harnix.apps.enable {id}` / `harnix.apps.disable {id}`（改安装记录的 `enabled`；disable 顺带撤下本模块登记的这个应用；答 `{id, enabled, registered, withdrawn}`；没装的 id 答 `INVALID_PARAMS`）。安装本身是后面的阶段 | 设备 |
+| `[apps] enabled = true` 时（`apps` 自带模块） | `harnix.apps.list`（`{dir, apps: [{id, version, title, enabled, registered}], unreadable: [{dir, reason}], registered: [AppSummary]}`）、`harnix.apps.enable {id}` / `harnix.apps.disable {id}`（改安装记录的 `enabled`；disable 顺带撤下本模块登记的这个应用；答 `{id, enabled, registered, withdrawn}`；没装的 id 答 `INVALID_PARAMS`）；带应用运行时的构建另有 `harnix.apps.installFile {path}`（签了的验签后装，未签名的要 `dev`）、`harnix.apps.catalog`（商店目录：`{name, store, fingerprint, apps: [{id, title, publisher, latest, installable, installed?, versions}]}`）、`harnix.apps.install {id, version?, consent?}`（第一次答 `{consent: "required", digest, disclosure}`，带上 `consent: digest` 再调才装；包、签名或要替换的版本变了就重新披露）、`harnix.apps.update {id, version?, consent?}`（只列比已装版本多要的能力，多要了才要同意；失败留着原版本）、`harnix.apps.uninstall {id}`；列表里每项带 `trust`（`store` / `trusted` / `unsigned`）、`source`、`data_bytes` 与清单的能力 | 设备 |
 | 你的模块 | `app.<id>.*` | 你声明的 |
 | 运行期应用 | `app.<应用 id>.*` | 它登记时声明的（§1.8） |
 

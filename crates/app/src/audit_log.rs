@@ -109,6 +109,11 @@ fn is_consequential(method: &str) -> bool {
             // Switching a runtime application on or off changes what this process serves.
             | "harnix.apps.enable"
             | "harnix.apps.disable"
+            // Installing, updating or removing one changes what code this process runs.
+            | "harnix.apps.install"
+            | "harnix.apps.installFile"
+            | "harnix.apps.update"
+            | "harnix.apps.uninstall"
             | "harnix.devices.pair.complete"
             | "harnix.devices.revoke"
             | "harnix.settings.set"

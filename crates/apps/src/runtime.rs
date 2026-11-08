@@ -20,18 +20,23 @@
 //! A step that fails undoes every step before it, and the application is not installed. The
 //! `apps` module writes the record last.
 //!
-//! # Unsigned
+//! # Signed, and unsigned
 //!
-//! Nothing verifies a package yet — signatures arrive with the store. A package is installed from
-//! a file only with `[apps] dev = true`, and its compiled component is loaded only while that is
-//! still so: an application installed unsigned does not start in a process that does not trust
-//! unsigned code.
+//! A package's signatures (`signature.rs`) are verified before anything of it is unpacked, and
+//! again — over the files as they are on disk — every time it is started, before its compiled
+//! component is deserialized; the component's bytes are checked against their signed sha256 as
+//! they are read. A package countersigned by the store, or signed by a publisher the profile
+//! trusts, runs in any process that hosts applications. An unsigned one is installed and started
+//! only with `[apps] dev = true`: an application installed unsigned does not start in a process
+//! that does not trust unsigned code.
+//!
+//! Updating, the catalog and fetching from the store are in `acquire.rs`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
-use harnix_builtin::apps::{AppsRuntime, InstallRecord, PackageInfo};
+use harnix_builtin::apps::{AppsRuntime, Disclosed, InstallRecord, PackageInfo};
 use harnix_contract::{codes, RpcError};
 use harnix_module::ModuleContext;
 use harnix_wasm::{AppSpec, AppVm, Capabilities, FsGrant, Limits, ToolDef, WasmEngine, World};
@@ -40,6 +45,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::manifest::{Manifest, UiEntry, MANIFEST};
 use crate::package;
+use crate::signature::{Keys, Trust, Verified};
 
 /// What marks a skill directory as an application's, inside an instance's skills directory.
 const SKILL_MARK: &str = ".harnix-app";
@@ -140,29 +146,35 @@ impl Registry {
 type OnChange = Arc<dyn Fn() + Send + Sync>;
 
 /// What the process tells the runtime at assembly.
+#[derive(Default)]
 pub struct Options {
     /// `[apps] dev`.
     pub dev: bool,
     /// `[apps.config]`, by application id.
     pub config: BTreeMap<String, toml::Value>,
+    /// What signatures are verified with: the built-in store key (`store::store_keys`) and the
+    /// profile's `[apps.trusted_publishers]`.
+    pub keys: Keys,
+    /// `[apps] store`: the catalog's URL (`store::DEFAULT_STORE` when the profile names none).
+    pub store: Option<String>,
 }
 
 pub struct Runtime {
-    engine: WasmEngine,
+    pub(crate) engine: WasmEngine,
     registry: Arc<Registry>,
-    options: Options,
+    pub(crate) options: Options,
     on_change: Mutex<Option<OnChange>>,
     /// Where this process listens, once it does: the MCP endpoints' base.
     base: RwLock<Option<String>>,
     /// Why an application that should be running is not.
-    failed: Mutex<BTreeMap<String, String>>,
+    pub(crate) failed: Mutex<BTreeMap<String, String>>,
 }
 
-fn refused(message: impl Into<String>) -> RpcError {
+pub(crate) fn refused(message: impl Into<String>) -> RpcError {
     RpcError::refused(message)
 }
 
-fn internal(message: impl Into<String>) -> RpcError {
+pub(crate) fn internal(message: impl Into<String>) -> RpcError {
     RpcError::new(codes::INTERNAL_ERROR, message)
 }
 
@@ -267,18 +279,19 @@ impl Runtime {
             .collect()
     }
 
-    fn manifest_in(root: &Path) -> Result<Manifest, RpcError> {
+    pub(crate) fn manifest_in(root: &Path) -> Result<Manifest, RpcError> {
         let text = std::fs::read_to_string(root.join(MANIFEST))
             .map_err(|e| internal(format!("{}: {e}", root.join(MANIFEST).display())))?;
         Manifest::parse(&text).map_err(refused)
     }
 
-    /// Start the VM and list its tools.
+    /// Start the VM and list its tools. `verified`: the package's signatures, checked over `root`.
     async fn start_vm(
         &self,
         manifest: &Manifest,
         root: &Path,
         app_dir: &Path,
+        verified: &Verified,
     ) -> Result<(Option<AppVm>, Vec<ToolDef>), RpcError> {
         let Some(component) = &manifest.component else {
             return Ok((None, Vec::new()));
@@ -295,15 +308,24 @@ impl Runtime {
                 component.name
             ))
         })?;
-        if !self.options.dev {
+        if !verified.trust.signed() && !self.options.dev {
             return Err(refused(format!(
                 "`{id}` was installed unsigned, and its code runs only with `[apps] dev = true`"
             )));
         }
-        // SAFETY: an artifact is machine code, and nothing has verified this one: there are no
-        // signatures before the store. It is loaded only under `[apps] dev = true` (checked just
-        // above), which is the operator saying that unsigned code is theirs to trust — the
-        // developer's own build, on the developer's own machine.
+        // The bytes about to be deserialized are the ones that were signed, not merely a file of
+        // that name that was signed a moment ago.
+        verified
+            .check(
+                &format!("wasm/{}.{fingerprint}.cwasm", component.name),
+                &bytes,
+            )
+            .map_err(|e| refused(format!("`{id}`: {e}")))?;
+        // SAFETY: an artifact is machine code. Signed, its bytes were just checked against the
+        // sha256 the store (or a publisher the profile trusts) signed, whose signature was
+        // verified before this was called. Unsigned, it is loaded only under `[apps] dev = true`
+        // (checked just above), which is the operator saying that unsigned code is theirs to trust
+        // — the developer's own build, on the developer's own machine.
         let loaded = unsafe { self.engine.load(&bytes, fingerprint) }
             .map_err(|e| refused(format!("`{id}`: {e:#}")))?;
         if loaded.world() != World::Tools {
@@ -516,26 +538,46 @@ fn remove_skills(cx: &ModuleContext, id: &str, instance: &str, names: &[String])
 
 /// What installing put in place, as the record keeps it.
 #[derive(Default)]
-struct Placed {
-    agent: Option<(String, String, Vec<String>)>,
-    skills: BTreeMap<String, Vec<String>>,
+pub(crate) struct Placed {
+    pub(crate) agent: Option<(String, String, Vec<String>)>,
+    pub(crate) skills: BTreeMap<String, Vec<String>>,
     /// The engine's disclosure of the agent package, for the installer to show.
-    disclosure: Value,
+    pub(crate) disclosure: Value,
+    /// What its signatures made it.
+    pub(crate) trust: Option<Trust>,
 }
 
 impl Placed {
-    fn parts(&self) -> Value {
+    pub(crate) fn parts(&self) -> Value {
         json!({
             "agent": self.agent.as_ref().map(|(package, version, instances)| json!({
                 "package": package, "version": version, "instances": instances,
             })),
             "skills": self.skills,
-            "signed": false,
+            "trust": self.trust.unwrap_or(Trust::Unsigned).as_str(),
         })
     }
 
+    /// What a record's `parts` say was put in place.
+    pub(crate) fn of(parts: &Value) -> Self {
+        let mut placed = Placed::default();
+        if let Some(agent) = parts.get("agent").filter(|a| !a.is_null()) {
+            placed.agent = Some((
+                agent["package"].as_str().unwrap_or_default().to_string(),
+                agent["version"].as_str().unwrap_or_default().to_string(),
+                strings(&agent["instances"]),
+            ));
+        }
+        if let Some(skills) = parts.get("skills").and_then(Value::as_object) {
+            for (instance, names) in skills {
+                placed.skills.insert(instance.clone(), strings(names));
+            }
+        }
+        placed
+    }
+
     /// Take it all back, as far as it goes.
-    async fn undo(&self, cx: &ModuleContext, id: &str) {
+    pub(crate) async fn undo(&self, cx: &ModuleContext, id: &str) {
         for (instance, names) in &self.skills {
             remove_skills(cx, id, instance, names);
             reload(cx, instance).await;
@@ -548,6 +590,105 @@ impl Placed {
                 }
             }
         }
+    }
+}
+
+impl Runtime {
+    /// Put a package in place under `app_dir` and start it: unpack it (from `package`, when it is
+    /// not unpacked already), install its agent package and skills into the instances it names,
+    /// and load it. What was put where is written to `placed` as it is done, so that whoever
+    /// called this can take back exactly that when it fails.
+    pub(crate) async fn place(
+        &self,
+        cx: &ModuleContext,
+        package: Option<&Path>,
+        inspected: &package::Inspected,
+        app_dir: &Path,
+        placed: &mut Placed,
+    ) -> Result<Value, RpcError> {
+        let manifest = &inspected.manifest;
+        let id = manifest.app.id.clone();
+        let root = app_dir.join(&manifest.app.version);
+        if let Some(package) = package {
+            package::extract(package, &root).map_err(refused)?;
+        }
+        let targets = &manifest.agent.install_into;
+        for target in targets {
+            if cx.instance(target).is_none() {
+                return Err(refused(format!(
+                    "`{id}` installs its agent package into `{target}`, and there is no such instance"
+                )));
+            }
+        }
+        if let Some(agent) = &inspected.agent {
+            let zip = app_dir.join("agent.zip");
+            package::zip_dir(&root.join("agent"), &zip).map_err(internal)?;
+            let mut instances = Vec::new();
+            let mut failure = None;
+            let mut disclosed = Value::Null;
+            for target in targets {
+                let params = json!({
+                    "name": agent.name,
+                    "version": agent.version,
+                    "download_url": format!("file://{}", zip.display()),
+                    "instance": target,
+                });
+                match cx.call("plugin.install", params).await {
+                    Ok(answer) => {
+                        // What the engine says the package puts in front of the model: the
+                        // installer shows it.
+                        if disclosed.is_null() {
+                            disclosed = answer.get("disclosure").cloned().unwrap_or(answer);
+                        }
+                        instances.push(target.clone());
+                    }
+                    Err(e) => {
+                        failure = Some(refused(format!(
+                            "`{id}`'s agent package did not install into `{target}`: {}",
+                            e.message
+                        )));
+                        break;
+                    }
+                }
+            }
+            let _ = std::fs::remove_file(&zip);
+            placed.agent = Some((agent.name.clone(), agent.version.clone(), instances));
+            placed.disclosure = disclosed;
+            if let Some(e) = failure {
+                return Err(e);
+            }
+        }
+        if !inspected.skills.is_empty() {
+            for target in targets {
+                // Recorded before it is done: undoing removes only what is marked as ours.
+                placed
+                    .skills
+                    .insert(target.clone(), inspected.skills.clone());
+                place_skills(cx, &id, target, &root, &inspected.skills)?;
+                reload(cx, target).await;
+            }
+        }
+        let record = InstallRecord {
+            id: id.clone(),
+            version: manifest.app.version.clone(),
+            title: manifest.app.title.clone(),
+            enabled: true,
+            parts: placed.parts(),
+        };
+        self.load(cx, &record, app_dir).await
+    }
+
+    /// What an install or an update tells its caller.
+    pub(crate) fn summary(&self, placed: &Placed, started: Value) -> Value {
+        json!({
+            "fingerprint": self.engine.fingerprint(),
+            "trust": placed.trust.unwrap_or(Trust::Unsigned).as_str(),
+            "agent": placed.agent.as_ref().map(|(package, _, instances)| json!({
+                "package": package, "instances": instances, "disclosure": placed.disclosure,
+            })),
+            "skills": placed.skills,
+            "started": started,
+        })
     }
 }
 
@@ -574,90 +715,20 @@ impl AppsRuntime for Runtime {
         app_dir: &Path,
     ) -> Result<(Value, Value), RpcError> {
         let inspected = package::inspect(path, self.engine.fingerprint()).map_err(refused)?;
-        let manifest = &inspected.manifest;
-        let id = manifest.app.id.clone();
-        let root = app_dir.join(&manifest.app.version);
+        // Before a byte of it is written.
+        let verified = self.admit_zip(path, &inspected.manifest)?;
+        let id = inspected.manifest.app.id.clone();
         std::fs::create_dir_all(app_dir)
             .map_err(|e| internal(format!("{}: {e}", app_dir.display())))?;
-        let mut placed = Placed::default();
-        let outcome = async {
-            package::extract(path, &root).map_err(refused)?;
-            let targets = &manifest.agent.install_into;
-            for target in targets {
-                if cx.instance(target).is_none() {
-                    return Err(refused(format!(
-                        "`{id}` installs its agent package into `{target}`, and there is no such instance"
-                    )));
-                }
-            }
-            if let Some(agent) = &inspected.agent {
-                let zip = app_dir.join("agent.zip");
-                package::zip_dir(&root.join("agent"), &zip).map_err(internal)?;
-                let mut instances = Vec::new();
-                let mut failure = None;
-                let mut disclosed = Value::Null;
-                for target in targets {
-                    let params = json!({
-                        "name": agent.name,
-                        "version": agent.version,
-                        "download_url": format!("file://{}", zip.display()),
-                        "instance": target,
-                    });
-                    match cx.call("plugin.install", params).await {
-                        Ok(answer) => {
-                            // What the engine says the package puts in front of the model: the
-                            // installer shows it.
-                            if disclosed.is_null() {
-                                disclosed = answer.get("disclosure").cloned().unwrap_or(answer);
-                            }
-                            instances.push(target.clone());
-                        }
-                        Err(e) => {
-                            failure = Some(refused(format!(
-                                "`{id}`'s agent package did not install into `{target}`: {}",
-                                e.message
-                            )));
-                            break;
-                        }
-                    }
-                }
-                let _ = std::fs::remove_file(&zip);
-                placed.agent = Some((agent.name.clone(), agent.version.clone(), instances));
-                placed.disclosure = disclosed;
-                if let Some(e) = failure {
-                    return Err(e);
-                }
-            }
-            if !inspected.skills.is_empty() {
-                for target in targets {
-                    // Recorded before it is done: undoing removes only what is marked as ours.
-                    placed.skills.insert(target.clone(), inspected.skills.clone());
-                    place_skills(cx, &id, target, &root, &inspected.skills)?;
-                    reload(cx, target).await;
-                }
-            }
-            let record = InstallRecord {
-                id: id.clone(),
-                version: manifest.app.version.clone(),
-                title: manifest.app.title.clone(),
-                enabled: true,
-                parts: placed.parts(),
-            };
-            self.load(cx, &record, app_dir).await
-        }
-        .await;
+        let mut placed = Placed {
+            trust: Some(verified.trust),
+            ..Placed::default()
+        };
+        let outcome = self
+            .place(cx, Some(path), &inspected, app_dir, &mut placed)
+            .await;
         match outcome {
-            Ok(started) => Ok((
-                placed.parts(),
-                json!({
-                    "fingerprint": self.engine.fingerprint(),
-                    "agent": placed.agent.as_ref().map(|(package, _, instances)| json!({
-                        "package": package, "instances": instances, "disclosure": placed.disclosure,
-                    })),
-                    "skills": placed.skills,
-                    "started": started,
-                }),
-            )),
+            Ok(started) => Ok((placed.parts(), self.summary(&placed, started))),
             Err(e) => {
                 tracing::warn!(app = %id, error = %e.message, "the install failed; undoing it");
                 placed.undo(cx, &id).await;
@@ -693,9 +764,12 @@ impl AppsRuntime for Runtime {
                     record.version
                 )));
             }
+            // Every start, over the files as they are now: what is on disk may not be what was
+            // installed.
+            let verified = self.admit_root(&root, &manifest)?;
             self.switch_agent(cx, id, &root, &record.parts, true)
                 .await?;
-            let (vm, tools) = match self.start_vm(&manifest, &root, app_dir).await {
+            let (vm, tools) = match self.start_vm(&manifest, &root, app_dir, &verified).await {
                 Ok(started) => started,
                 Err(e) => {
                     self.switch_agent(cx, id, &root, &record.parts, false)
@@ -762,19 +836,7 @@ impl AppsRuntime for Runtime {
         record: &InstallRecord,
         _app_dir: &Path,
     ) -> Result<Value, RpcError> {
-        let mut placed = Placed::default();
-        if let Some(agent) = record.parts.get("agent").filter(|a| !a.is_null()) {
-            placed.agent = Some((
-                agent["package"].as_str().unwrap_or_default().to_string(),
-                agent["version"].as_str().unwrap_or_default().to_string(),
-                strings(&agent["instances"]),
-            ));
-        }
-        if let Some(skills) = record.parts.get("skills").and_then(Value::as_object) {
-            for (instance, names) in skills {
-                placed.skills.insert(instance.clone(), strings(names));
-            }
-        }
+        let placed = Placed::of(&record.parts);
         placed.undo(cx, &record.id).await;
         Ok(json!({
             "agent": placed.agent.as_ref().map(|(package, _, instances)| json!({"package": package, "instances": instances})),
@@ -814,5 +876,40 @@ impl AppsRuntime for Runtime {
                 vm.stop().await;
             }
         }
+    }
+
+    fn disclose(
+        &self,
+        package: &Path,
+        installed: Option<(&InstallRecord, &Path)>,
+    ) -> Result<Disclosed, RpcError> {
+        self.disclose_package(package, installed)
+    }
+
+    async fn catalog(&self) -> Result<Value, RpcError> {
+        self.catalog_view().await
+    }
+
+    async fn fetch(
+        &self,
+        id: &str,
+        version: Option<&str>,
+        staging: &Path,
+    ) -> Result<PathBuf, RpcError> {
+        self.fetch_package(id, version, staging).await
+    }
+
+    async fn update(
+        &self,
+        cx: &ModuleContext,
+        record: &InstallRecord,
+        package: &Path,
+        app_dir: &Path,
+    ) -> Result<(Value, Value), RpcError> {
+        self.update_to(cx, record, package, app_dir).await
+    }
+
+    fn describe(&self, record: &InstallRecord, app_dir: &Path) -> Value {
+        self.describe_app(record, app_dir)
     }
 }

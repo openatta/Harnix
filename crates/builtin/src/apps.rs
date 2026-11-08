@@ -12,14 +12,29 @@
 //!
 //! - `harnix.apps.list` — every record (and the ones that do not read, with why), what the runtime
 //!   says of each, and every application registered with the host now, by whichever module.
-//! - `harnix.apps.installFile {path}` — install a local `.hxapp`. Only with `[apps] dev = true`:
-//!   nothing verifies a package yet (signatures arrive with the store), so this is the developer's
-//!   door and nobody else's. All or nothing: a step that fails undoes the ones before it.
+//! - `harnix.apps.installFile {path}` — install a local `.hxapp`. A signed one (by the store, or by
+//!   a publisher the profile trusts) is verified and installed; an unsigned one only with
+//!   `[apps] dev = true`, the developer's door and nobody else's. All or nothing: a step that fails
+//!   undoes the ones before it.
+//! - `harnix.apps.catalog` — what the store (`[apps] store`) offers this Harnix, and what of it is
+//!   installed here.
+//! - `harnix.apps.install {id, version?, consent?}` — from the store, by name: resolved, downloaded,
+//!   verified, and **disclosed** — the first call answers what the application would be granted and
+//!   a digest; the same call with `consent: <digest>` installs exactly that, or is disclosed afresh
+//!   if what would be installed has changed since. All or nothing.
+//! - `harnix.apps.update {id, version?, consent?}` — to the store's newest (or the given) version.
+//!   An update that asks for nothing more than the installed version had goes ahead; one that asks
+//!   for more lists only what it adds and waits for consent as `install` does. A failed update
+//!   leaves the installed version as it was. Its data is kept.
 //! - `harnix.apps.enable {id}` / `harnix.apps.disable {id}` — flip a record's `enabled`, and start
 //!   or stop the application: new sessions have its tools, or do not. An enable that fails to start
 //!   it leaves it disabled and says why.
 //! - `harnix.apps.uninstall {id}` — stop it, take back what installing it put in place (its agent
 //!   package, its skills, its interface modules), and delete its directory, data included.
+//!
+//! The record keeps how far the package was trusted (`parts.trust`: `store`, `trusted`,
+//! `unsigned`) and where it came from (`parts.source`: `store` or `file`), as the runtime verified
+//! it: whether its interface runs in the page or in an isolated frame is decided from that.
 //!
 //! What "start" and "install" mean is the runtime's ([`AppsRuntime`], `harnix-apps`): this crate
 //! names no WebAssembly. A build without it keeps the records and the switches and refuses to
@@ -43,6 +58,9 @@ pub const METHODS: &[&str] = &[
     "harnix.apps.disable",
     "harnix.apps.installFile",
     "harnix.apps.uninstall",
+    "harnix.apps.catalog",
+    "harnix.apps.install",
+    "harnix.apps.update",
 ];
 
 /// Engine methods the runtime calls as this module: installing an application's agent package
@@ -78,6 +96,21 @@ pub struct PackageInfo {
     pub id: String,
     pub version: String,
     pub title: Option<String>,
+}
+
+/// A package read, its signatures verified, and described: what installing it would grant, and
+/// the digest that consenting to exactly that is.
+#[derive(Debug, Clone)]
+pub struct Disclosed {
+    pub info: PackageInfo,
+    /// `store`, `trusted` or `unsigned`.
+    pub trust: String,
+    /// What a person is shown before consenting (the runtime's shape).
+    pub disclosure: Value,
+    /// Changes when the package, its trust or the version it replaces does.
+    pub digest: String,
+    /// An update that asks for more than the installed version had; an install always does.
+    pub needs_consent: bool,
 }
 
 /// What loads, runs and removes applications. `harnix-apps` implements it, in a build with the
@@ -116,6 +149,56 @@ pub trait AppsRuntime: Send + Sync {
 
     /// The process is going: stop every application.
     async fn shutdown(&self);
+
+    /// Read, verify and describe a package file; `installed`, the record and directory of the
+    /// version it would replace. A runtime that verifies nothing says so: unsigned.
+    fn disclose(
+        &self,
+        package: &Path,
+        installed: Option<(&InstallRecord, &Path)>,
+    ) -> Result<Disclosed, RpcError> {
+        let _ = installed;
+        Ok(Disclosed {
+            info: self.inspect(package)?,
+            trust: "unsigned".into(),
+            disclosure: Value::Null,
+            digest: String::new(),
+            needs_consent: true,
+        })
+    }
+
+    /// What the store offers this Harnix.
+    async fn catalog(&self) -> Result<Value, RpcError> {
+        Err(RpcError::refused("this application runtime has no store"))
+    }
+
+    /// Resolve `id` (at `version`, or the newest this Harnix runs) in the store and download it into
+    /// `staging`, checked against what the store lists: the package file, for `disclose` and
+    /// `install` or `update`.
+    async fn fetch(&self, id: &str, version: Option<&str>, staging: &Path) -> Result<PathBuf, RpcError> {
+        let _ = (id, version, staging);
+        Err(RpcError::refused("this application runtime has no store"))
+    }
+
+    /// Replace the installed version (`record`, stopped or running) with `package`, keeping its
+    /// data. On an error the installed version is as it was — running again if it was. Answers the
+    /// new record's `parts`, and a summary.
+    async fn update(
+        &self,
+        cx: &ModuleContext,
+        record: &InstallRecord,
+        package: &Path,
+        app_dir: &Path,
+    ) -> Result<(Value, Value), RpcError> {
+        let _ = (cx, record, package, app_dir);
+        Err(RpcError::refused("this application runtime does not update applications"))
+    }
+
+    /// What an installed application is and asks for, from its own manifest.
+    fn describe(&self, record: &InstallRecord, app_dir: &Path) -> Value {
+        let _ = (record, app_dir);
+        Value::Null
+    }
 }
 
 const RECORD: &str = "install.json";
@@ -258,15 +341,20 @@ impl Handler for AppsMethod {
                     .iter()
                     .map(|r| {
                         let live = registered.iter().find(|s| s.id == r.id);
+                        let app_dir = shared.dir.join(&r.id);
                         let mut entry = json!({
                             "id": r.id,
                             "version": r.version,
                             "title": r.title,
                             "enabled": r.enabled,
                             "registered": live.is_some(),
+                            "trust": r.parts.get("trust").cloned().unwrap_or(json!("unsigned")),
+                            "source": r.parts.get("source").cloned().unwrap_or(json!("file")),
+                            "data_bytes": data_bytes(&app_dir),
                         });
                         if let Some(runtime) = runtime {
                             entry["runtime"] = runtime.status(&r.id);
+                            entry["app"] = runtime.describe(r, &app_dir);
                         }
                         entry
                     })
@@ -281,50 +369,105 @@ impl Handler for AppsMethod {
             }
             "harnix.apps.installFile" => {
                 let runtime = runtime.ok_or_else(no_runtime)?;
-                if !shared.dev {
-                    return Err(RpcError::refused(
-                        "installing a package from a file needs `[apps] dev = true`: nothing verifies \
-                         an unsigned package, so this is for developing an application, not for \
-                         installing one",
-                    ));
-                }
                 let path = params
                     .get("path")
                     .and_then(Value::as_str)
                     .map(PathBuf::from)
                     .ok_or_else(|| RpcError::invalid_params("missing path"))?;
                 let _serial = shared.serial.lock().await;
-                let info = runtime.inspect(&path)?;
-                if read_one(&shared.dir, &info.id).is_ok() || shared.dir.join(&info.id).exists() {
-                    return Err(RpcError::refused(format!(
-                        "an application `{}` is installed already; uninstall it first",
-                        info.id
-                    )));
+                let disclosed = runtime.disclose(&path, None)?;
+                if disclosed.trust == "unsigned" && !shared.dev {
+                    return Err(RpcError::refused(
+                        "the package is unsigned, and installing an unsigned package from a file \
+                         needs `[apps] dev = true`: that is for developing an application, not for \
+                         installing one",
+                    ));
                 }
-                let app_dir = shared.dir.join(&info.id);
-                let (parts, summary) = runtime.install(module, &path, &app_dir).await?;
-                let record = InstallRecord {
-                    id: info.id.clone(),
-                    version: info.version.clone(),
-                    title: info.title.clone(),
-                    enabled: true,
-                    parts,
-                };
-                if let Err(e) = write_one(&shared.dir, &record) {
-                    // The record is what makes it installed; without it, take the rest back.
-                    runtime.unload(module, &record).await;
-                    let _ = runtime.uninstall(module, &record, &app_dir).await;
-                    let _ = std::fs::remove_dir_all(&app_dir);
-                    return Err(e);
+                refuse_installed(&shared.dir, &disclosed.info.id)?;
+                install(shared, module, runtime, &path, &disclosed, "file").await
+            }
+            "harnix.apps.catalog" => {
+                let runtime = runtime.ok_or_else(no_runtime)?;
+                let mut catalog = runtime.catalog().await?;
+                let (installed, _) = read_all(&shared.dir);
+                if let Some(apps) = catalog.get_mut("apps").and_then(Value::as_array_mut) {
+                    for app in apps {
+                        let id = app["id"].as_str().unwrap_or_default().to_string();
+                        if let Some(record) = installed.iter().find(|r| r.id == id) {
+                            app["installed"] = json!(record.version);
+                        }
+                    }
                 }
-                tracing::info!(app = %record.id, version = %record.version, "application installed");
-                Ok(json!({
-                    "id": record.id,
-                    "version": record.version,
-                    "title": record.title,
-                    "enabled": true,
-                    "installed": summary,
-                }))
+                Ok(catalog)
+            }
+            "harnix.apps.install" | "harnix.apps.update" => {
+                let runtime = runtime.ok_or_else(no_runtime)?;
+                let id = id_param(&params)?;
+                if !valid_id(&id) {
+                    return Err(RpcError::invalid_params(format!("`{id}` is not an application id")));
+                }
+                let version = params.get("version").and_then(Value::as_str);
+                let consent = params.get("consent").and_then(Value::as_str);
+                let updating = self.name == "harnix.apps.update";
+                let _serial = shared.serial.lock().await;
+                let installed = read_one(&shared.dir, &id).ok();
+                match (&installed, updating) {
+                    (Some(record), false) => {
+                        return Err(RpcError::refused(format!(
+                            "`{id}` {} is installed already; `harnix.apps.update` moves it to another version",
+                            record.version
+                        )))
+                    }
+                    (None, true) => return Err(RpcError::invalid_params(format!("no application `{id}` is installed"))),
+                    _ => {}
+                }
+                if installed.is_none() && shared.dir.join(&id).exists() {
+                    refuse_installed(&shared.dir, &id)?;
+                }
+                let staging = shared.dir.join(STAGING).join(uuid_like());
+                let outcome = async {
+                    let package = runtime.fetch(&id, version, &staging).await?;
+                    let app_dir = shared.dir.join(&id);
+                    let disclosed = runtime.disclose(&package, installed.as_ref().map(|r| (r, app_dir.as_path())))?;
+                    if disclosed.info.id != id {
+                        return Err(RpcError::refused(format!(
+                            "the store's package for `{id}` is the application `{}`",
+                            disclosed.info.id
+                        )));
+                    }
+                    if let Some(record) = &installed {
+                        // Without a version asked for, an update goes forward or nowhere.
+                        let behind = version.is_none() && !newer(&disclosed.info.version, &record.version);
+                        if record.version == disclosed.info.version || behind {
+                            return Ok(json!({
+                                "id": id,
+                                "version": record.version,
+                                "latest": disclosed.info.version,
+                                "up_to_date": true,
+                            }));
+                        }
+                    }
+                    let consented = consent == Some(disclosed.digest.as_str());
+                    if disclosed.needs_consent && !consented {
+                        // Disclosed, and nothing done: the same call with the digest goes ahead.
+                        return Ok(json!({
+                            "id": id,
+                            "version": disclosed.info.version,
+                            "consent": "required",
+                            "digest": disclosed.digest,
+                            "disclosure": disclosed.disclosure,
+                            // A digest that was passed and is not this one was consent to something else.
+                            "changed": consent.is_some(),
+                        }));
+                    }
+                    match &installed {
+                        None => install(shared, module, runtime, &package, &disclosed, "store").await,
+                        Some(record) => update(shared, module, runtime, record, &package, &disclosed).await,
+                    }
+                }
+                .await;
+                let _ = std::fs::remove_dir_all(&staging);
+                outcome
             }
             "harnix.apps.enable" | "harnix.apps.disable" => {
                 let id = id_param(&params)?;
@@ -404,6 +547,133 @@ pub fn valid_id(id: &str) -> bool {
         })
 }
 
+/// Where downloads wait to be disclosed and installed: under the records' directory, so on the
+/// same disk, and skipped as not a record.
+const STAGING: &str = ".staging";
+
+fn uuid_like() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("{}-{nanos}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
+fn refuse_installed(dir: &Path, id: &str) -> Result<(), RpcError> {
+    if read_one(dir, id).is_ok() || dir.join(id).exists() {
+        return Err(RpcError::refused(format!(
+            "an application `{id}` is installed already; uninstall it first"
+        )));
+    }
+    Ok(())
+}
+
+/// Install a package that was disclosed (and consented to, from the store), and write its record.
+async fn install(
+    shared: &Shared,
+    module: &ModuleContext,
+    runtime: &Arc<dyn AppsRuntime>,
+    path: &Path,
+    disclosed: &Disclosed,
+    source: &str,
+) -> Result<Value, RpcError> {
+    let info = &disclosed.info;
+    let app_dir = shared.dir.join(&info.id);
+    let (mut parts, summary) = runtime.install(module, path, &app_dir).await?;
+    if parts.is_object() {
+        parts["source"] = json!(source);
+    }
+    let record = InstallRecord {
+        id: info.id.clone(),
+        version: info.version.clone(),
+        title: info.title.clone(),
+        enabled: true,
+        parts,
+    };
+    if let Err(e) = write_one(&shared.dir, &record) {
+        // The record is what makes it installed; without it, take the rest back.
+        runtime.unload(module, &record).await;
+        let _ = runtime.uninstall(module, &record, &app_dir).await;
+        let _ = std::fs::remove_dir_all(&app_dir);
+        return Err(e);
+    }
+    tracing::info!(app = %record.id, version = %record.version, trust = %disclosed.trust, source, "application installed");
+    Ok(json!({
+        "id": record.id,
+        "version": record.version,
+        "title": record.title,
+        "enabled": true,
+        "trust": disclosed.trust,
+        "source": source,
+        "installed": summary,
+    }))
+}
+
+/// Move an installed application to the version in `path`, and rewrite its record. The runtime
+/// leaves the installed version as it was if it cannot.
+async fn update(
+    shared: &Shared,
+    module: &ModuleContext,
+    runtime: &Arc<dyn AppsRuntime>,
+    record: &InstallRecord,
+    path: &Path,
+    disclosed: &Disclosed,
+) -> Result<Value, RpcError> {
+    let app_dir = shared.dir.join(&record.id);
+    let (mut parts, summary) = runtime.update(module, record, path, &app_dir).await?;
+    if parts.is_object() {
+        parts["source"] = json!("store");
+    }
+    let next = InstallRecord {
+        id: record.id.clone(),
+        version: disclosed.info.version.clone(),
+        title: disclosed.info.title.clone(),
+        enabled: record.enabled,
+        parts,
+    };
+    write_one(&shared.dir, &next)?;
+    tracing::info!(app = %next.id, from = %record.version, to = %next.version, "application updated");
+    Ok(json!({
+        "id": next.id,
+        "version": next.version,
+        "from": record.version,
+        "title": next.title,
+        "enabled": next.enabled,
+        "trust": disclosed.trust,
+        "updated": summary,
+    }))
+}
+
+/// Whether the version `a` is after `b` (`x.y.z`, numerically; a pre-release before its release).
+fn newer(a: &str, b: &str) -> bool {
+    let split = |v: &str| {
+        let (core, pre) = v.split_once('-').map_or((v, None), |(c, p)| (c, Some(p.to_string())));
+        let nums: Vec<u64> = core.split('.').map(|n| n.parse().unwrap_or(0)).collect();
+        // A release sorts after every pre-release of it.
+        (nums, pre.is_none(), pre)
+    };
+    split(a) > split(b)
+}
+
+/// What an application keeps: its data directory and its key-value store.
+fn data_bytes(app_dir: &Path) -> u64 {
+    fn size(path: &Path) -> u64 {
+        let Ok(meta) = std::fs::symlink_metadata(path) else {
+            return 0;
+        };
+        if meta.is_dir() {
+            std::fs::read_dir(path)
+                .map(|entries| entries.flatten().map(|e| size(&e.path())).sum())
+                .unwrap_or(0)
+        } else {
+            meta.len()
+        }
+    }
+    size(&app_dir.join("data")) + size(&app_dir.join("kv"))
+}
+
 fn internal(e: impl std::fmt::Display) -> RpcError {
     RpcError::new(codes::INTERNAL_ERROR, e.to_string())
 }
@@ -419,6 +689,8 @@ fn read_all(dir: &Path) -> (Vec<InstallRecord>, Vec<Value>) {
         .flatten()
         .filter(|e| e.path().is_dir())
         .filter_map(|e| e.file_name().into_string().ok())
+        // Downloads waiting to be installed, not an application.
+        .filter(|name| name != STAGING)
         .collect();
     names.sort();
     for name in names {
@@ -495,6 +767,32 @@ mod tests {
         assert_eq!(read_one(dir.path(), "nobody").unwrap_err().code, codes::INVALID_PARAMS);
         // Never a path out of the directory.
         assert_eq!(read_one(dir.path(), "../etc").unwrap_err().code, codes::INVALID_PARAMS);
+    }
+
+    #[test]
+    fn versions_are_compared_as_numbers() {
+        assert!(newer("0.10.0", "0.2.0"));
+        assert!(newer("0.2.0", "0.2.0-rc.1"));
+        assert!(!newer("0.2.0", "0.2.0"));
+        assert!(!newer("0.1.9", "0.2.0"));
+    }
+
+    #[test]
+    fn what_an_application_keeps_is_counted_and_downloads_are_not_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = dir.path().join("acme.notes");
+        std::fs::create_dir_all(app.join("data/sub")).unwrap();
+        std::fs::create_dir_all(app.join("kv")).unwrap();
+        std::fs::create_dir_all(app.join("1.0.0")).unwrap();
+        std::fs::write(app.join("data/sub/a"), [0u8; 10]).unwrap();
+        std::fs::write(app.join("kv/b"), [0u8; 5]).unwrap();
+        std::fs::write(app.join("1.0.0/package-file"), [0u8; 100]).unwrap();
+        assert_eq!(data_bytes(&app), 15);
+        std::fs::create_dir_all(dir.path().join(STAGING).join("x")).unwrap();
+        let (records, unreadable) = read_all(dir.path());
+        assert!(records.is_empty());
+        assert_eq!(unreadable.len(), 1, "{unreadable:?}");
+        assert_eq!(unreadable[0]["dir"], json!("acme.notes"));
     }
 
     #[test]

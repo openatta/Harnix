@@ -102,6 +102,8 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         Some(harnix_apps::Runtime::new(harnix_apps::Options {
             dev: profile.apps.dev,
             config: profile.apps.config.clone(),
+            keys: signing_keys(&profile.apps, app.store_keys.as_deref())?,
+            store: profile.apps.store.clone(),
         })?)
     } else {
         None
@@ -943,4 +945,34 @@ impl UiModules {
             hub.set_ui_contributions(json!(all)).await;
         });
     }
+}
+
+/// What the application runtime verifies packages with: the store's key built in (or, for a test
+/// application, the ones it was assembled with), and the profile's trusted publishers. A key that
+/// does not read stops the start, naming it: a typo here would otherwise quietly trust nobody.
+#[cfg(feature = "apps")]
+fn signing_keys(
+    apps: &harnix_instance::profile::AppsProfile,
+    store: Option<&[String]>,
+) -> anyhow::Result<harnix_apps::signature::Keys> {
+    use harnix_apps::signature::PublicKey;
+    let store = match store {
+        Some(keys) => keys
+            .iter()
+            .map(|k| PublicKey::parse(k).map_err(anyhow::Error::msg))
+            .collect::<anyhow::Result<Vec<_>>>()?,
+        None => harnix_apps::store::store_keys(),
+    };
+    let mut trusted = BTreeMap::new();
+    for (publisher, keys) in &apps.trusted_publishers {
+        let keys = keys
+            .iter()
+            .map(|k| {
+                PublicKey::parse(k)
+                    .map_err(|e| anyhow::anyhow!("[apps.trusted_publishers] {publisher}: {e}"))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        trusted.insert(publisher.clone(), keys);
+    }
+    Ok(harnix_apps::signature::Keys { store, trusted })
 }

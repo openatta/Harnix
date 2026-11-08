@@ -58,6 +58,7 @@ impl App {
             credentials: None,
             args: None,
             app_hosts: Vec::new(),
+            store_keys: None,
         }
     }
 }
@@ -70,6 +71,7 @@ pub struct AppBuilder {
     pub(crate) credentials: Option<Arc<dyn Credentials>>,
     pub(crate) args: Option<Vec<OsString>>,
     pub(crate) app_hosts: Vec<String>,
+    pub(crate) store_keys: Option<Vec<String>>,
 }
 
 impl AppBuilder {
@@ -128,6 +130,21 @@ impl AppBuilder {
     #[doc(hidden)]
     pub fn app_host(mut self, module: impl Into<String>) -> Self {
         self.app_hosts.push(module.into());
+        self
+    }
+
+    /// Verify store-countersigned applications with these keys (hex ed25519) instead of the
+    /// store's own, built in.
+    ///
+    /// For a test application that installs from a mock store (`harnix-testapp`); a product has no
+    /// reason to, and a profile cannot. Without the `apps` feature there is nothing to verify.
+    #[doc(hidden)]
+    pub fn store_keys<I, T>(mut self, keys: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<String>,
+    {
+        self.store_keys = Some(keys.into_iter().map(Into::into).collect());
         self
     }
 

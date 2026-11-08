@@ -23,6 +23,8 @@ async-trait = { workspace = true }
 axum        = { workspace = true }
 hex         = { workspace = true }
 reqwest     = { workspace = true }
+# ed25519 for packages' signatures; already linked for devices' (harnix-authz).
+ring        = { workspace = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }
 sha2        = { workspace = true }

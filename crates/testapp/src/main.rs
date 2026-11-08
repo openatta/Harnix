@@ -15,6 +15,10 @@
 //! | `flow` | the flow module (xops-01) with two demonstration flows: see `flow_demo.rs` |
 //! | `fakehost` | a fake runtime application registered and withdrawn through the app host: see `fake_app.rs` |
 //!
+//! Built with `apps`, it hosts runtime applications too, and trusts the mock store the LIVE suites
+//! make (`tests/live/fixtures/store`) in place of the store's own key — which nothing but a test
+//! application can do.
+//!
 //! `probe` also refuses, before it reaches the model, any message with `blocked-word` in it (a prompt
 //! middleware on every session of `system`), and `fleet` has two templates with the same native
 //! contributions — a scene with a tool of its own, a marked system prompt, the same refusal — one
@@ -35,6 +39,9 @@ use tokio::sync::Mutex;
 mod fake_app;
 mod flow_demo;
 
+/// The key the LIVE suites' mock store countersigns with (its secret is beside it).
+const MOCK_STORE_KEY: &str = include_str!("../../../tests/live/fixtures/store/mock-store.pub");
+
 fn main() -> anyhow::Result<()> {
     harnix::App::builder()
         .name("harnix-testapp", "0.0.1")
@@ -51,6 +58,8 @@ fn main() -> anyhow::Result<()> {
         // The kernel hands its application host to the `apps` built-in alone; the fake host is
         // let in by name, the way only a test application would.
         .app_host("fakehost")
+        // The mock store's key, instead of the one built in: only a test application says this.
+        .store_keys([MOCK_STORE_KEY.trim()])
         .run()
 }
 
