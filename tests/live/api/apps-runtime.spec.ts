@@ -180,7 +180,8 @@ carrier = "spawn"
     expect(plugin.enabled).not.toBe(false);
     expect((await api.refused("harnix.apps.installFile", { path }))?.message).toContain("installed already");
 
-    // The interface module is served beside the page, and named in what a client is told.
+    // The interface module is served beside the page. Unsigned, the application's interface is
+    // its isolated frames: those are what a client is told (apps-frames.spec.ts has the rest).
     const module = await fetch(`${backend.url.replace(/\/$/, "")}/apps/${SHOWCASE_ID}/ui/showcase.js`);
     expect(module.status).toBe(200);
     expect(module.headers.get("content-type")).toContain("javascript");
@@ -188,7 +189,7 @@ carrier = "spawn"
     expect((await fetch(`${backend.url.replace(/\/$/, "")}/apps/${SHOWCASE_ID}/ui/../harnix-app.toml`)).status).toBe(404);
     await expect
       .poll(async () => JSON.stringify((await api.call("harnix.hello")).contributions ?? []), { timeout: 10_000 })
-      .toContain(`/apps/${SHOWCASE_ID}/ui/showcase.js`);
+      .toContain(`/apps/${SHOWCASE_ID}/ui/frame/index.html`);
     // What a store has to compile for, for this process to run it.
     expect(JSON.stringify(await api.call("harnix.process"))).toContain(fingerprint);
   });

@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@harnix/app-sdk": "workspace:*",
     "@harnix/core": "workspace:*",
     "@harnix/flow": "workspace:*",
     "@harnix/react": "workspace:*",

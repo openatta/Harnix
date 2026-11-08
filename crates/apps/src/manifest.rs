@@ -48,10 +48,18 @@
 //! [config]                      # host.config(): defaults, set over by the profile
 //! greeting = "hello"
 //!
-//! [[ui]]                        # ES modules under ui/, as a package's [[ui]]
-//! point = "home.card"
+//! [[ui]]                        # ES modules under ui/, as a package's [[ui]]: run in the page,
+//! point = "home.card"           # a trusted publisher's only
 //! module = "showcase.js"
 //! api_version = 2
+//!
+//! [interface]                   # the interface in isolated frames (`surface.rs`)
+//! hub = ["harnix.sessions"]     # beyond app.<id>.*, what a frame may call
+//!
+//! [[surface]]                   # a region of the shell a frame fills
+//! point = "space"
+//! space = "acme.showcase"
+//! page = "frame/board.html"     # under ui/
 //!
 //! [agent]                       # agent/ (an Agix package) goes into these instances
 //! install_into = ["system"]
@@ -67,6 +75,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::inline::Inline;
+pub use crate::surface::{Interface, Surface, Title};
 
 /// The application interface this build implements: `[app] harnix_api`.
 pub const HARNIX_API: u32 = 1;
@@ -86,6 +95,8 @@ const SECTIONS: &[&str] = &[
     "topic",
     "space",
     "inline",
+    "interface",
+    "surface",
 ];
 
 /// The capabilities there are.
@@ -105,6 +116,10 @@ pub struct Manifest {
     pub spaces: Vec<Space>,
     /// `[inline]`: what the shell draws for it, declared.
     pub inline: Inline,
+    /// `[interface]`: how the interface runs in frames, and what they may reach.
+    pub interface: Interface,
+    /// `[[surface]]`: the regions of the shell its frames fill.
+    pub surfaces: Vec<Surface>,
 }
 
 /// One `[[method]]`: `app.<id>.<name>`, answered by the backend's `handle`.
@@ -326,6 +341,14 @@ impl Manifest {
             Some(v) => Inline::read(&v)?,
             None => Inline::default(),
         };
+        let interface: Interface = match section("interface") {
+            Some(v) => v.try_into().map_err(|e| field_error("interface", e))?,
+            None => Interface::default(),
+        };
+        let surfaces: Vec<Surface> = match section("surface") {
+            Some(v) => v.try_into().map_err(|e| field_error("[surface]]", e))?,
+            None => Vec::new(),
+        };
         let manifest = Manifest {
             app,
             capabilities,
@@ -337,6 +360,8 @@ impl Manifest {
             topics,
             spaces,
             inline,
+            interface,
+            surfaces,
         };
         manifest.check()?;
         Ok(manifest)
@@ -503,6 +528,7 @@ impl Manifest {
                 ));
             }
         }
+        crate::surface::check(&app.id, &self.interface, &self.surfaces)?;
         for target in &self.agent.install_into {
             if target.is_empty() || target.contains(['/', ' ']) {
                 return Err(format!(
@@ -538,7 +564,7 @@ pub(crate) fn valid_name(name: &str) -> bool {
 }
 
 /// A method or topic name: dot-separated segments of letters, digits, `_` and `-`.
-fn valid_dotted(name: &str) -> bool {
+pub(crate) fn valid_dotted(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 128
         && name.split('.').all(|s| {

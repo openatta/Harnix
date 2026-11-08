@@ -192,6 +192,8 @@ test.describe("the store, trusted", () => {
         hub: ["session.create", "harnix.send", "topic:harnix.sessions.status", "harnix.entries.append"],
       },
       component: { world: "harnix:app/backend-app@0.1.0" },
+      // A store's application runs its interface in isolated frames, never in the page.
+      ui_in_page: false,
       ui: [
         { point: "home.card", module: "showcase.js" },
         { point: "space", module: "showcase.js" },
@@ -212,6 +214,8 @@ test.describe("the store, trusted", () => {
       "inline",
       "inline",
       "inline",
+      "ui_hub",
+      "links",
       "agent",
     ]);
     // Disclosed, and nothing done.

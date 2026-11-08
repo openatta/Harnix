@@ -1,0 +1,18 @@
+<!doctype html>
+<!-- Every surface of the showcase is this page: the shell tells it which one it is (hello). It is
+     served under the frames' policy (no inline script, no network), so everything is a file of
+     the package, and its scripts are classic ones: a frame's origin is opaque. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="vendor/harnix-ui-kit.css" />
+    <link rel="stylesheet" href="showcase.css" />
+  </head>
+  <body>
+    <div id="root" class="hk-loading" role="status"></div>
+    <script src="vendor/harnix-app-sdk.js"></script>
+    <script src="vendor/harnix-ui-kit.js"></script>
+    <script src="surfaces.js"></script>
+  </body>
+</html>

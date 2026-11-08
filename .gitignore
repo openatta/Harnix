@@ -15,3 +15,5 @@ tests/browser/.running.json
 /ui/dist/
 /examples/hello-app/target/
 /examples/apps/*/component/target/
+/ui/packages/app-sdk/dist/
+/ui/packages/ui-kit/dist/

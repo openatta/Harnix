@@ -10,7 +10,8 @@
 //! - [`AppsPlugin`], an Agix plugin for every in-process instance's assembly: the running
 //!   applications' tools in each session built, and their `events` as a middleware on its tool
 //!   calls.
-//! - [`serve::router`], for the listener's `/apps/<id>/…`: the interface modules, and the MCP
+//! - [`serve::router`], for the listener's `/apps/<id>/…`: the interface — modules for the page,
+//!   pages for the isolated frames ([`surface`]) — and the MCP
 //!   endpoint a spawned daemon reaches the tools through (it runs no VM of its own: one
 //!   application, one VM, in this process).
 //! - [`Runtime::ui_contributions`] and [`Runtime::mcp_servers`], re-read after every change
@@ -36,6 +37,7 @@ mod runtime;
 pub mod serve;
 pub mod signature;
 pub mod store;
+pub mod surface;
 
 pub use plugin::{AppsPlugin, NAME as PLUGIN_NAME};
 pub use runtime::{server_name, tool_name, Loaded, Options, Registry, Runtime, TOOL_PATTERN};

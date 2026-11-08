@@ -1,0 +1,470 @@
+/* The shell's look inside an application's frame: its tokens (the very file the shell's theme is,
+ * light and `data-theme="dark"`), and a few components drawn with them. `follow(app)` sets the
+ * theme and the shell's current token values (a brand's included) on <html>, so the frame changes
+ * with the shell the moment it does. Colours only from tokens. */
+
+/* Design tokens — the only file with colours in it.
+ *
+ * An enterprise palette: cool slate neutrals, one blue accent, sans throughout (`--font-serif` is
+ * kept as a name so feature styles and application brands keep working, but it is the sans stack).
+ * Feature styles consume the aliases below — never a raw colour — so a theme stays one file, and an
+ * application's brand overrides these names and no others.
+ *
+ * Dark is `data-theme="dark"` on <html>, set from the stored preference or the system. */
+
+:root {
+  /* ── palette ───────────────────────────────────────────────────────── */
+  --paper: #f7f8fa;
+  --paper-side: #f0f2f5;
+  --paper-surface: #ffffff;
+  --paper-bubble: #eaf1fd;
+  --paper-line: #e3e7ee;
+  --ink: #1d2330;
+  --ink-2: #4e5969;
+  --ink-3: #86909c;
+  --brand-blue: #2563eb;
+  --green: #1f9d55;
+  --ochre: #d97706;
+  --brick: #d93026;
+  --blue: #0b7bd6;
+
+  /* ── semantic aliases ──────────────────────────────────────────────── */
+  --bg-base: var(--paper);
+  --bg-layer-1: var(--paper-surface);
+  --bg-layer-2: var(--paper-surface);
+  --bg-layer-3: var(--paper-surface);
+  --bg-sidebar: var(--paper-side);
+  --bg-module: var(--paper-bubble);
+  --bg-mask: rgba(15, 23, 42, 0.32);
+  --bg-bubble: var(--paper-bubble);
+  --surface: var(--paper-surface);
+
+  --border-l1: var(--paper-line);
+  --border-l2: var(--paper-line);
+  --border-thin: var(--paper-line);
+  --border-l3: #d4dae3;
+
+  --label-primary: var(--ink);
+  --label-secondary: var(--ink-2);
+  --label-tertiary: var(--ink-3);
+  --label-caption: var(--ink-3);
+  --label-inverted: var(--paper);
+
+  --accent: var(--brand-blue);
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(37, 99, 235, 0.1);
+  --accent-line: rgba(37, 99, 235, 0.4);
+
+  --interactive-hover: rgba(15, 23, 42, 0.05);
+  --interactive-active: rgba(15, 23, 42, 0.08);
+  --interactive-hover-solid: #e9edf3;
+  --interactive-hover-danger: rgba(217, 48, 38, 0.06);
+
+  --button-primary-fill: var(--brand-blue);
+  --button-primary-hover: #1d4ed8;
+  --button-primary-label: #ffffff;
+
+  --code-inline: rgba(15, 23, 42, 0.05);
+  --code-block: var(--paper);
+
+  --state-info: var(--blue);
+  --state-info-soft: rgba(11, 123, 214, 0.1);
+  --state-success: var(--green);
+  --state-warn: var(--ochre);
+  --state-warn-label: #9a5205;
+  --state-warn-soft: rgba(217, 119, 6, 0.1);
+  --state-error: var(--brick);
+  --state-error-soft: rgba(217, 48, 38, 0.08);
+
+  --scrollbar-thumb: #d0d6df;
+  --scrollbar-thumb-hover: #b8c0cc;
+  --shadow-float: 0 6px 24px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-card: 0 2px 12px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.05);
+
+  /* ── type, motion, geometry ────────────────────────────────────────── */
+  --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Segoe UI",
+    "Microsoft YaHei", sans-serif;
+  --font-serif: var(--font-sans);
+  --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 0.1s;
+  --dur: 0.2s;
+  --dur-slow: 0.3s;
+
+  --chat-width: 720px;
+  --chat-clearance: 24px;
+  --rail-width: 56px;
+  --sidebar-width: 248px;
+  --details-width: 360px;
+  --radius-card: 10px;
+  --radius-pill: 999px;
+  --radius-sm: 6px;
+
+  /* ── conversation components (@harnix/react) ───────────────────────── */
+  --hx-font: var(--font-sans);
+  --hx-serif: var(--font-serif);
+  --hx-mono: var(--font-code);
+  --hx-bg: var(--bg-base);
+  --hx-bg-soft: var(--bg-sidebar);
+  --hx-bg-sunk: var(--bg-module);
+  --hx-fg: var(--label-primary);
+  --hx-fg-soft: var(--label-secondary);
+  --hx-fg-faint: var(--label-caption);
+  --hx-line: var(--border-l2);
+  --hx-accent: var(--accent);
+  --hx-accent-fg: var(--accent-fg);
+  --hx-accent-soft: var(--accent-soft);
+  --hx-ok: var(--state-success);
+  --hx-ok-soft: rgba(31, 157, 85, 0.1);
+  --hx-warn: var(--state-warn);
+  --hx-warn-soft: var(--state-warn-soft);
+  --hx-danger: var(--state-error);
+  --hx-danger-soft: var(--state-error-soft);
+  --hx-bubble: var(--bg-bubble);
+  --hx-ask-bg: var(--surface);
+  --hx-ask-line: var(--border-l2);
+  --hx-radius: 10px;
+  --hx-term: var(--bg-base);
+  --hx-av: var(--brand-blue);
+  --hx-on-av: #ffffff;
+  --hx-diff-a: #e6f4ea;
+  --hx-diff-d: #fdecea;
+  --hx-diff-a-fg: #18794e;
+  --hx-diff-d-fg: #b42318;
+  --hx-shadow: var(--shadow-float);
+  --hx-cmp-shadow: var(--shadow-card);
+  /* The flow guide's five groups (the reference tab's diagram and its grouped text). */
+  --hx-flow-g1: #2f6bd8;
+  --hx-flow-g2: #138a63;
+  --hx-flow-g3: #c76b12;
+  --hx-flow-g4: #8a4fd6;
+  --hx-flow-g5: #5f6b7a;
+}
+
+:root[data-theme="dark"] {
+  --paper: #161a21;
+  --paper-side: #11141a;
+  --paper-surface: #1e232c;
+  --paper-bubble: #1f2b40;
+  --paper-line: #2b323d;
+  --ink: #e6eaf0;
+  --ink-2: #aab3bf;
+  --ink-3: #7c8794;
+  --brand-blue: #4f8cff;
+  --green: #3fb950;
+  --ochre: #d29922;
+  --brick: #f26b62;
+  --blue: #58a6ff;
+
+  --bg-mask: rgba(0, 0, 0, 0.55);
+  --border-l3: #38404c;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(79, 140, 255, 0.16);
+  --accent-line: rgba(79, 140, 255, 0.45);
+  --interactive-hover: rgba(230, 234, 240, 0.06);
+  --interactive-active: rgba(230, 234, 240, 0.1);
+  --interactive-hover-solid: #262c36;
+  --interactive-hover-danger: rgba(242, 107, 98, 0.1);
+  --button-primary-hover: #3b7bf5;
+  --code-inline: rgba(230, 234, 240, 0.07);
+  --state-warn-label: var(--ochre);
+  --scrollbar-thumb: #38404c;
+  --scrollbar-thumb-hover: #4a5361;
+  --shadow-float: 0 6px 24px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --hx-ok-soft: rgba(63, 185, 80, 0.14);
+  --hx-diff-a: #16301f;
+  --hx-diff-d: #3a1d1b;
+  --hx-diff-a-fg: #7ee2a0;
+  --hx-diff-d-fg: #ffa198;
+  --hx-flow-g1: #79a6ff;
+  --hx-flow-g2: #4fd1a5;
+  --hx-flow-g3: #f2a65a;
+  --hx-flow-g4: #c09bf5;
+  --hx-flow-g5: #a3adbb;
+}
+
+:root {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  background: transparent;
+  color: var(--label-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 22px;
+  -webkit-font-smoothing: antialiased;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* ── layout ───────────────────────────────────────────────────────────── */
+
+.hk-page {
+  min-height: 100vh;
+  padding: 16px 24px 32px;
+  background: var(--bg-base);
+}
+
+.hk-page.flush {
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.hk-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hk-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.hk-h1 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 600;
+}
+
+.hk-h2 {
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 600;
+}
+
+.hk-muted {
+  color: var(--label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* ── controls ─────────────────────────────────────────────────────────── */
+
+.hk-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--border-l2);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--label-primary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+
+.hk-btn:hover:not(:disabled) {
+  background: var(--interactive-hover-solid);
+}
+
+.hk-btn:active:not(:disabled) {
+  background: var(--interactive-active);
+}
+
+.hk-btn:focus-visible,
+.hk-input:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 1px;
+}
+
+.hk-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.hk-btn.primary {
+  border-color: transparent;
+  background: var(--button-primary-fill);
+  color: var(--button-primary-label);
+}
+
+.hk-btn.primary:hover:not(:disabled) {
+  background: var(--button-primary-hover);
+}
+
+.hk-btn.ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+.hk-btn.ghost:hover:not(:disabled) {
+  background: var(--interactive-hover);
+}
+
+.hk-btn.danger:hover:not(:disabled) {
+  background: var(--interactive-hover-danger);
+  color: var(--state-error);
+}
+
+.hk-btn.sm {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.hk-input {
+  height: 32px;
+  min-width: 0;
+  padding: 0 12px;
+  border: 1px solid var(--border-l2);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--label-primary);
+  font: inherit;
+  font-size: 13px;
+}
+
+textarea.hk-input {
+  height: auto;
+  min-height: 72px;
+  padding: 8px 12px;
+  resize: vertical;
+}
+
+.hk-input::placeholder {
+  color: var(--label-caption);
+}
+
+.hk-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hk-field > .hk-label {
+  color: var(--label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* ── content ──────────────────────────────────────────────────────────── */
+
+.hk-card {
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border-l2);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.hk-card > .hk-card-title {
+  margin-bottom: 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.hk-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.hk-table th {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-l2);
+  color: var(--label-tertiary);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+}
+
+.hk-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-l1);
+}
+
+.hk-table tr.on td,
+.hk-table tbody tr:hover td {
+  background: var(--interactive-hover);
+}
+
+.hk-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hk-list > li {
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+}
+
+.hk-list > li.on,
+.hk-list > li[role="button"]:hover {
+  background: var(--interactive-hover);
+  cursor: pointer;
+}
+
+.hk-empty {
+  padding: 24px 12px;
+  color: var(--label-tertiary);
+  font-size: 13px;
+  text-align: center;
+}
+
+.hk-alert {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--state-error-soft);
+  color: var(--state-error);
+  font-size: 13px;
+}
+
+.hk-alert.info {
+  background: var(--state-info-soft);
+  color: var(--state-info);
+}
+
+.hk-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 12px;
+  color: var(--label-tertiary);
+  font-size: 13px;
+}
+
+.hk-loading::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-l3);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: hk-spin 0.8s linear infinite;
+}
+
+@keyframes hk-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hk-loading::before {
+    animation: none;
+  }
+}

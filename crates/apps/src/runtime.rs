@@ -47,7 +47,7 @@ use serde_json::{json, Map, Value};
 use tokio_util::sync::CancellationToken;
 
 use crate::backend::{Bridge, Method, Stats, VmSlot};
-use crate::manifest::{toml_to_json, Manifest, UiEntry, MANIFEST};
+use crate::manifest::{toml_to_json, Interface, Manifest, Surface, Title, UiEntry, MANIFEST};
 use crate::package;
 use crate::signature::{Keys, Trust, Verified};
 
@@ -65,6 +65,14 @@ pub struct Loaded {
     /// What the component says it provides, listed once when it started.
     pub tools: Vec<ToolDef>,
     pub ui: Vec<UiEntry>,
+    /// Its isolated interface: `[interface]` and the `[[surface]]`s its frames fill.
+    pub interface: Interface,
+    pub surfaces: Vec<Surface>,
+    /// How far its package was trusted when it started: whether its interface runs in the page
+    /// (its `[[ui]]` modules) or in frames (its surfaces) is decided from this.
+    pub trust: Trust,
+    /// Its `[[space]]` ids, in order: where a frame's new sessions land.
+    pub backend_spaces: Vec<String>,
     /// What a spawned daemon's MCP client presents for this application's endpoint.
     pub token: String,
     /// Its registration with the kernel: its methods, topics, spaces and `hub` capability.
@@ -261,21 +269,16 @@ impl Runtime {
         self.changed();
     }
 
-    /// The interface modules of every running application, as the page is told them at hello.
+    /// The interface of every running application, as the page is told it at hello: a trusted
+    /// publisher's `[[ui]]` modules, which the page imports; everyone else's (and a trusted one
+    /// that asked for it) as its surfaces, which the shell draws as isolated frames
+    /// (`crate::surface`). A module that will not run is listed as such, with why, so the page can
+    /// say so in its diagnostics.
     pub fn ui_contributions(&self) -> Vec<Value> {
         self.registry
             .loaded()
             .iter()
-            .flat_map(|app| {
-                app.ui.iter().map(move |entry| {
-                    json!({
-                        "plugin": app.id,
-                        "point": entry.point,
-                        "api_version": entry.api_version,
-                        "module": format!("/apps/{}/ui/{}", app.id, entry.module),
-                    })
-                })
-            })
+            .flat_map(|app| ui_entries(app))
             .collect()
     }
 
@@ -584,6 +587,115 @@ impl Runtime {
         }
         Ok(())
     }
+}
+
+/// Whether a running application's interface is drawn in frames rather than imported into the page.
+fn frames(app: &Loaded) -> bool {
+    crate::surface::runs_in_frames(app.trust, &app.interface, !app.ui.is_empty())
+}
+
+/// What the page is told of one running application's interface (`Runtime::ui_contributions`).
+fn ui_entries(app: &Loaded) -> Vec<Value> {
+    let id = &app.id;
+    if !frames(app) {
+        return app
+            .ui
+            .iter()
+            .map(|entry| {
+                json!({
+                    "plugin": id,
+                    "point": entry.point,
+                    "api_version": entry.api_version,
+                    "module": format!("/apps/{id}/ui/{}", entry.module),
+                })
+            })
+            .collect();
+    }
+    let interface = json!({
+        "hub": app.interface.hub,
+        "links": app.interface.links,
+        "trust": app.trust.as_str(),
+        "title": app.title,
+        "spaces": app.backend_spaces,
+    });
+    // A module that runs in the page runs with the page's rights: not this application's.
+    let refused = app.ui.iter().map(|entry| {
+        json!({
+            "plugin": id,
+            "point": entry.point,
+            "api_version": entry.api_version,
+            "refused": entry.module,
+            "reason": format!(
+                "`{}` runs in the page, which only a trusted publisher's interface does ({} here); this \
+                 application's interface is its isolated surfaces",
+                entry.module,
+                app.trust.as_str()
+            ),
+        })
+    });
+    let surfaces = app.surfaces.iter().map(|s| {
+        // Where a space's sessions go: its own backend space when the application declares one by
+        // that id, else the application's first.
+        let sessions = s.space.as_ref().and_then(|space| {
+            app.backend_spaces
+                .iter()
+                .find(|b| *b == space)
+                .or(app.backend_spaces.first())
+                .cloned()
+        });
+        json!({
+            "plugin": id,
+            "point": s.point,
+            "api_version": harnix_contract::CONTRIB_API_VERSION,
+            "frame": s.page.as_ref().map(|page| format!("/apps/{id}/ui/{page}")),
+            "surface": {
+                "id": s.id(),
+                "title": s.title.as_ref().map(title_json),
+                "space": s.space,
+                "sessions": sessions,
+                "icon": s.icon,
+                "order": s.order,
+                "center": s.center,
+                "kinds": s.kinds,
+                "wide": s.wide,
+            },
+            "interface": interface,
+        })
+    });
+    refused.chain(surfaces).collect()
+}
+
+fn title_json(title: &Title) -> Value {
+    match title {
+        Title::One(text) => json!({"en": text}),
+        Title::ByLocale(by) => json!(by),
+    }
+}
+
+/// A stamp of everything under an application's `ui/`: each file's path, size and modification
+/// time. Read on every look at the application (once a second, by the `apps` module's topic), so
+/// it is a watcher that needs no thread: a file saved there changes it.
+fn ui_rev(dir: &Path) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let mut stack = vec![dir.to_path_buf()];
+    let mut files = Vec::new();
+    while let Some(at) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&at) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            match entry.metadata() {
+                Ok(meta) if meta.is_dir() => stack.push(path),
+                Ok(meta) => files.push((path, meta.len(), meta.modified().ok())),
+                Err(_) => {}
+            }
+        }
+    }
+    files.sort();
+    files.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }
 
 fn strings(v: &Value) -> Vec<String> {
@@ -931,6 +1043,10 @@ impl AppsRuntime for Runtime {
                 vm: started.vm,
                 tools: started.tools,
                 ui: manifest.ui.clone(),
+                interface: manifest.interface.clone(),
+                surfaces: manifest.surfaces.clone(),
+                trust: verified.trust,
+                backend_spaces: manifest.spaces.iter().map(|s| s.id.clone()).collect(),
                 token: uuid::Uuid::new_v4().simple().to_string(),
                 handle: started.handle,
                 methods: manifest.methods.iter().map(|m| full(&m.name)).collect(),
@@ -1026,6 +1142,11 @@ impl AppsRuntime for Runtime {
                     "description": t.description,
                 })).collect::<Vec<_>>(),
                 "ui": app.ui.iter().map(|u| format!("/apps/{id}/ui/{}", u.module)).collect::<Vec<_>>(),
+                "frames": frames(&app),
+                "surfaces": app.surfaces.iter().map(|s| format!("{}:{}", s.point, s.id())).collect::<Vec<_>>(),
+                // An unsigned application's interface, in developer mode, changes under it: the
+                // page reloads its frames when this does.
+                "ui_rev": (self.options.dev && app.trust == Trust::Unsigned).then(|| ui_rev(&app.root.join("ui"))),
                 "mcp": format!("/apps/{id}/mcp"),
                 "inline": app.inline,
                 "health": health.map(|h| serde_json::to_value(h).unwrap_or(Value::Null)),

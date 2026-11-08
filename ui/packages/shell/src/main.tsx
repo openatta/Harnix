@@ -21,6 +21,7 @@ import { hostFor } from "./host.ts";
 import { iconsFrom } from "./icons.ts";
 import { loadPackages } from "./packages.ts";
 import { Shell } from "./Shell.tsx";
+import { loadSurfaces } from "./surfaces/register.tsx";
 
 /**
  * "overlay" in the desktop shell on macOS (templates/desktop): the window has no title bar, its
@@ -69,7 +70,11 @@ app.start(async (a) => {
       a.registry.note({ point: "module", owner: "application", reason: e instanceof Error ? e.message : String(e) });
     }
   }
-}, loadPackages);
+}, async (a, hello) => {
+  // Trusted publishers' modules in the page, then every other application's surfaces in frames.
+  await loadPackages(a, hello);
+  await loadSurfaces(a, hello);
+});
 window.addEventListener("beforeunload", () => {
   const current = app.snapshot.current;
   if (current) client.notify("harnix.detach", { instance: current.instance, session_id: current.sessionId });

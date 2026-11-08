@@ -53,6 +53,17 @@ pub fn lines(manifest: &Manifest, agent: bool) -> Vec<Value> {
             .into_iter()
             .map(|v| line("inline", v)),
     );
+    // What the interface's frames may reach beyond the application's own names, through the shell.
+    out.extend(
+        manifest
+            .interface
+            .hub
+            .iter()
+            .map(|m| line("ui_hub", m.as_str())),
+    );
+    if manifest.interface.links {
+        out.push(line("links", true));
+    }
     if agent {
         out.extend(
             manifest
@@ -115,8 +126,11 @@ pub fn disclose(
             "world": c.world, "memory_mb": c.memory_mb, "timeout_ms": c.timeout_ms,
         })),
         "ui": manifest.ui.iter().map(|u| json!({"point": u.point, "module": u.module})).collect::<Vec<_>>(),
-        // Until interfaces run isolated, every one runs in the page, whoever signed it.
-        "ui_in_page": !manifest.ui.is_empty(),
+        // In the page only for a trusted publisher that did not ask for frames; everyone else's
+        // interface runs in its isolated frames, and its modules not at all.
+        "ui_in_page": !manifest.ui.is_empty()
+            && !crate::surface::runs_in_frames(verified.trust, &manifest.interface, true),
+        "surfaces": manifest.surfaces.iter().map(|s| json!({"point": s.point, "id": s.id(), "page": s.page})).collect::<Vec<_>>(),
         // Drawn by the shell from the manifest: no code of the application's runs for these.
         "inline": manifest.inline,
         "agent": inspected.agent.as_ref().map(|a| json!({
@@ -209,14 +223,24 @@ publisher = "acme"
 
     #[test]
     fn every_capability_is_a_line() {
-        let m = manifest("net = [\"h\"]\nenv = [\"E\"]\nstorage_mb = 3\nhub = [\"harnix.sessions\"]\nfs = [\"${project}\"]", true);
+        let m = manifest("net = [\"h\"]\nenv = [\"E\"]\nstorage_mb = 3\nhub = [\"harnix.sessions\"]\nfs = [\"${project}\"]\n\n[interface]\nhub = [\"harnix.sessions\"]\nlinks = true", true);
         let kinds: Vec<String> = lines(&m, true)
             .iter()
             .map(|l| l["capability"].as_str().unwrap().to_string())
             .collect();
         assert_eq!(
             kinds,
-            ["net", "env", "storage_mb", "hub", "fs", "ui", "agent"]
+            [
+                "net",
+                "env",
+                "storage_mb",
+                "hub",
+                "fs",
+                "ui",
+                "ui_hub",
+                "links",
+                "agent"
+            ]
         );
     }
 }
