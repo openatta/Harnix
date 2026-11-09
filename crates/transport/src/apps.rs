@@ -106,7 +106,9 @@ async fn subject_of(state: &AppState, headers: &HeaderMap, query: &str) -> Optio
         let is_token = |t: Option<String>| t.is_some_and(|t| harnix_authz::tokens_equal(&t, token));
         let by_token = is_token(bearer) || is_token(param("token"));
         if by_token || state.config.links.admits(headers) {
-            return Some(Subject::Device { id: "local".into() });
+            return Some(Subject::Device {
+                id: harnix_contract::LOCAL_DEVICE.into(),
+            });
         }
     }
     None
