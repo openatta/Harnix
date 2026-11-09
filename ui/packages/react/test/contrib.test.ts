@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { POINTS, Registry } from "../src/contrib";
+import { askedTool, rowTitle, toolAsks } from "../src/components/blocks";
 
 const tool = (name: string) => ({ key: 1, kind: "tool" as const, id: "t", name, status: "ok" as const });
 
@@ -97,5 +98,27 @@ describe("registry", () => {
       "testapp.linked: <use> is not a shape an icon may have",
       "testapp.painted: fill may not refer to anything",
     ]);
+  });
+});
+
+describe("a tool's one name: its row's, on the card and in the announcement", () => {
+  const echo = { ...tool("app__acme__echo"), id: "e1" };
+  const rows = [
+    { match: (b: { name: string }) => b.name.startsWith("app__"), title: () => "Any app" },
+    { match: (b: { name: string }) => b.name === "app__acme__echo", title: () => "Acme echo" },
+  ];
+  const prompt = (over: Record<string, unknown>) => ({ kind: "prompt", prompt_type: "permission", prompt_id: "p", ...over }) as never;
+
+  it("is the newest row's that claims the call and says one, else the display name", () => {
+    expect(rowTitle(echo, rows)).toBe("Acme echo");
+    expect(rowTitle(echo, [rows[1]!, { match: () => true, title: () => null }])).toBe("app__acme__echo");
+    expect(rowTitle(tool("Edit"), rows)).toBe("Update");
+  });
+
+  it("names the call a prompt is about by its row, and a prompt with no call by its tool", () => {
+    const asks = toolAsks([echo], (b) => rowTitle(b, rows));
+    expect(askedTool(prompt({ tool_name: "app__acme__echo", tool_use_id: "e1" }), asks)).toBe("Acme echo");
+    expect(askedTool(prompt({ tool_name: "Edit" }), asks)).toBe("Update");
+    expect(askedTool(prompt({}), asks)).toBe("");
   });
 });

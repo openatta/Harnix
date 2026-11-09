@@ -18,10 +18,10 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardE
 import { useConnection, useHello, useSession, useStrings } from "../context";
 import { usageTotals, type Block, type BlockOf, type SessionState } from "@harnix/core/state";
 import type { SessionController } from "@harnix/core/state";
-import { Agent, AskCard, ContextRow, ImageBlock, toolAsks, type ToolAsks } from "../components/blocks";
+import { Agent, AskCard, ContextRow, ImageBlock, rowTitle, toolAsks, type ToolAsks } from "../components/blocks";
 import { ConnectionBadge } from "../components/ConnectionBadge";
 import { ChatComposer, type Attached, type ComposerApi, type ContextRingConfig, type ModelOption } from "./ChatComposer";
-import { TOOL_NAMES, toolDisplayName } from "./format";
+import { TOOL_NAMES } from "./format";
 import { Icon } from "./icons";
 import {
   AssistantHead,
@@ -268,16 +268,8 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
   const blocks = state?.blocks;
   const lastAsks = useRef<{ key: string; names: Record<string, string>; tools: Block[]; asks: ToolAsks } | null>(null);
   const asks = useMemo(() => {
-    // A call's name is its row's: the newest row that claims it and says one, else the display name.
-    const title = (block: BlockOf<"tool">): string => {
-      for (const row of [...(toolRows.current ?? [])].reverse()) {
-        if (!row.title || !row.match(block)) continue;
-        const said = row.title(block);
-        if (said) return said;
-        break;
-      }
-      return toolDisplayName(block.name, toolNames);
-    };
+    // A call's name is its row's (`rowTitle`); the rows read when a card asks.
+    const title = (block: BlockOf<"tool">): string => rowTitle(block, toolRows.current, toolNames);
     // The same calls and the same open asks: the same value, so a streamed reply does not draw every row again.
     const next = toolAsks(blocks ?? [], title);
     const tools = (blocks ?? []).filter((b) => b.kind === "tool");
