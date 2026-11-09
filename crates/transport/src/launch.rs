@@ -132,7 +132,7 @@ pub async fn create(State(state): State<AppState>, headers: HeaderMap) -> Respon
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "));
-    if bearer != Some(state.config.token.as_str()) {
+    if !bearer.is_some_and(|b| harnix_authz::tokens_equal(b, &state.config.token)) {
         return (StatusCode::UNAUTHORIZED, "bad token").into_response();
     }
     let code = state.config.links.mint(SystemTime::now());

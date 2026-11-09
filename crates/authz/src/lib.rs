@@ -27,7 +27,7 @@ mod table;
 
 pub use audit::{Audit, AuditEntry, AuditSink, Change, Decision};
 pub use devices::challenge as devices_challenge;
-pub use devices::{Device, Devices, PairError, PAIRING_TTL};
+pub use devices::{tokens_equal, Device, Devices, PairError, Persist, PAIRING_TTL};
 pub use table::{
     apps_overlap, route, topic, valid_app_id, MethodTable, Principal, Reach, Rule, TableError,
     ENGINE_REFUSALS, HUB_OWNED,

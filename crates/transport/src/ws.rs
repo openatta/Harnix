@@ -69,7 +69,11 @@ pub async fn upgrade(
     // Or a launch-link session cookie, which a browser sends on
     // a same-site upgrade by itself — the page under launch links has no
     // token to put in the query.
-    let admitted_by = if query.token.as_deref() == Some(state.config.token.as_str()) {
+    let token_ok = query
+        .token
+        .as_deref()
+        .is_some_and(|t| harnix_authz::tokens_equal(t, &state.config.token));
+    let admitted_by = if token_ok {
         "token"
     } else if state.config.links.admits(&headers) {
         "cookie"
