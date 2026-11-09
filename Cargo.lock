@@ -1573,6 +1573,7 @@ dependencies = [
  "harnix-contract",
  "harnix-module",
  "jsonschema",
+ "libc",
  "reqwest 0.12.28",
  "scene",
  "schemars",
