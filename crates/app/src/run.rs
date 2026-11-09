@@ -18,9 +18,9 @@ use std::sync::{Arc, OnceLock, RwLock};
 
 use std::collections::BTreeMap;
 
-use harnix_authz::{Audit, Authorizer, Devices};
+use harnix_authz::{Audit, Authorizer};
 use harnix_builtin::Builtin;
-use harnix_contract::sync::{lock, write};
+use harnix_contract::sync::write;
 use harnix_contract::{Gate, Topology};
 use harnix_hub::{Hub, HubConfig, HubGate, Registry};
 use harnix_instance::link::{now_ms, DownLink, EngineLink};
@@ -34,9 +34,15 @@ use crate::modules::{self, Entry, Namespace};
 use crate::paths::{RootArgs, Roots};
 use crate::{audit_log, devices, methods, AppBuilder};
 
-/// The topic a running application's tool calls report their progress on (`host.progress`).
+mod packages;
+mod state_files;
 #[cfg(feature = "apps")]
-const APPS_PROGRESS_TOPIC: &str = "harnix.apps.progress";
+mod wiring;
+
+use packages::{apply_packages, UiModules};
+use state_files::{load_devices, write_token, DEVICES_FILE};
+#[cfg(feature = "apps")]
+use wiring::{signing_keys, DaemonTokens, APPS_PROGRESS_TOPIC};
 
 pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt()
@@ -840,94 +846,12 @@ impl Signals {
     }
 }
 
-/// What issues and revokes the credential each daemon this process spawns presents at a runtime
-/// application's MCP endpoint: the application runtime, which serves them.
-#[cfg(feature = "apps")]
-struct DaemonTokens(Arc<harnix_apps::Registry>);
-
-#[cfg(feature = "apps")]
-impl harnix_instance::ServerTokens for DaemonTokens {
-    fn issue(&self) -> String {
-        self.0.issue_daemon_token()
-    }
-    fn revoke(&self, token: &str) {
-        self.0.revoke_daemon_token(token)
-    }
-}
-
 fn down(carrier: harnix_instance::Carrier, reason: String) -> Built {
     tracing::error!(%reason, "instance not built");
     Built {
         link: DownLink::new(carrier, reason),
         facts: Facts::default(),
     }
-}
-
-/// The paired devices, beside the token in the state directory.
-const DEVICES_FILE: &str = "devices.json";
-
-/// The devices paired before this start, and every change written back.
-///
-/// A file that is not there is no devices. One that does not parse is set aside as
-/// `devices.json.broken` and the node starts with none — on a reachable listener it then prints a
-/// pairing code, which is the one way back in. One that cannot be read stops the start: taken as
-/// empty, the next change would write over it.
-fn load_devices(path: &std::path::Path) -> anyhow::Result<Devices> {
-    let paired: Vec<harnix_authz::Device> = match std::fs::read(path) {
-        Ok(bytes) => match serde_json::from_slice(&bytes) {
-            Ok(paired) => paired,
-            Err(e) => {
-                let broken = path.with_extension("json.broken");
-                tracing::warn!(error = %e, kept = %broken.display(), "the paired devices could not be read; starting with none");
-                std::fs::rename(path, &broken)?;
-                Vec::new()
-            }
-        },
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        Err(e) => anyhow::bail!("could not read {}: {e}", path.display()),
-    };
-    let file = path.to_path_buf();
-    Ok(Devices::new(paired).persist_with(Box::new(move |devices| {
-        if let Err(e) = write_devices(&file, devices) {
-            tracing::warn!(error = %e, file = %file.display(), "could not write the paired devices");
-        }
-    })))
-}
-
-/// Replace the devices file whole, readable by its owner only: it holds no secret — public keys —
-/// but it decides who is let in, so it is kept like the token.
-fn write_devices(path: &std::path::Path, devices: &[harnix_authz::Device]) -> std::io::Result<()> {
-    let body = serde_json::to_vec_pretty(devices)?;
-    let temp = path.with_extension("json.tmp");
-    let _ = std::fs::remove_file(&temp);
-    write_private(&temp, &body)?;
-    std::fs::rename(&temp, path)
-}
-
-/// Write the token readable by its owner only (IPDrun N-302).
-///
-/// The token admits a client to everything a person at this machine can do;
-/// with launch links it is also what mints them. The default umask leaves a
-/// fresh file readable by every account. An existing file is narrowed too,
-/// since `create` does not change the mode of a file that is already there.
-fn write_token(path: &std::path::Path, token: &str) -> std::io::Result<()> {
-    write_private(path, token.as_bytes())
-}
-
-/// Write `bytes` to a file only its owner can read, narrowing a file that is already there.
-fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write as _;
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
-        options.mode(0o600);
-        if path.exists() {
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-        }
-    }
-    options.open(path)?.write_all(bytes)
 }
 
 /// The bulk store of an application built without the built-ins: nothing
@@ -938,176 +862,5 @@ struct NoUploads;
 impl harnix_transport::BulkStore for NoUploads {
     async fn claim(&self, _token: &str) -> Option<(std::path::PathBuf, usize)> {
         None
-    }
-}
-
-/// Serve what these packages contribute, and tell clients about it.
-///
-/// Spawned rather than awaited, because this is called from a callback that
-/// cannot be async — the alternative was making the whole notification path
-/// async for the sake of two assignments.
-///
-/// With `[ui] runtime_modules = false` nothing is served and nothing is told: a package is then
-/// the engine's alone, and its interface modules are not even reachable over HTTP.
-fn apply_packages(
-    hub: &Arc<Hub>,
-    statics: &Arc<harnix_transport::StaticFace>,
-    contributions: Vec<harnix_builtin::packages::Contributions>,
-    runtime_modules: bool,
-    ui_modules: &Arc<UiModules>,
-) {
-    let contributions = if runtime_modules {
-        contributions
-    } else {
-        if contributions.iter().any(|c| !c.ui.is_empty()) {
-            tracing::info!(
-                "[ui] runtime_modules = false: packages' interface modules are not loaded"
-            );
-        }
-        Vec::new()
-    };
-    if !contributions.is_empty() {
-        tracing::info!(
-            packages = contributions.len(),
-            ui = contributions.iter().map(|c| c.ui.len()).sum::<usize>(),
-            "packages contribute to the interface"
-        );
-    }
-    statics.set_packages(
-        contributions
-            .iter()
-            .filter(|c| c.enabled)
-            .map(|c| (c.plugin.clone(), c.root.clone()))
-            .collect(),
-    );
-    let modules: Vec<serde_json::Value> = contributions
-        .iter()
-        .filter(|c| c.enabled)
-        .flat_map(|c| {
-            c.ui.iter().map(|entry| {
-                json!({
-                    "plugin": c.plugin,
-                    "point": entry.point,
-                    "api_version": entry.api_version,
-                    "module": format!("/plugins/{}/ui/{}", c.plugin, entry.module),
-                })
-            })
-        })
-        .collect();
-    ui_modules.set_packages(hub, modules);
-}
-
-/// The interface modules the page is told at hello: the installed packages', and the running
-/// applications'. Two sources that change apart, told as one list.
-#[derive(Default)]
-struct UiModules {
-    lists: std::sync::Mutex<(Vec<serde_json::Value>, Vec<serde_json::Value>)>,
-}
-
-impl UiModules {
-    fn set_packages(self: &Arc<Self>, hub: &Arc<Hub>, modules: Vec<serde_json::Value>) {
-        lock(&self.lists).0 = modules;
-        self.publish(hub);
-    }
-
-    #[cfg_attr(not(feature = "apps"), allow(dead_code))]
-    fn set_apps(self: &Arc<Self>, hub: &Arc<Hub>, modules: Vec<serde_json::Value>) {
-        lock(&self.lists).1 = modules;
-        self.publish(hub);
-    }
-
-    /// Spawned rather than awaited: this is called from callbacks that cannot be async. The lists
-    /// are read when the task runs, so whichever task runs last sets the latest of both.
-    fn publish(self: &Arc<Self>, hub: &Arc<Hub>) {
-        let (hub, this) = (hub.clone(), self.clone());
-        tokio::spawn(async move {
-            let all: Vec<serde_json::Value> = {
-                let lists = lock(&this.lists);
-                lists.0.iter().chain(&lists.1).cloned().collect()
-            };
-            hub.set_ui_contributions(json!(all)).await;
-        });
-    }
-}
-
-/// What the application runtime verifies packages with: the store's key built in (or, for a test
-/// application, the ones it was assembled with), and the profile's trusted publishers. A key that
-/// does not read stops the start, naming it: a typo here would otherwise quietly trust nobody.
-#[cfg(feature = "apps")]
-fn signing_keys(
-    apps: &harnix_instance::profile::AppsProfile,
-    store: Option<&[String]>,
-) -> anyhow::Result<harnix_apps::signature::Keys> {
-    use harnix_apps::signature::PublicKey;
-    let store = match store {
-        Some(keys) => keys
-            .iter()
-            .map(|k| PublicKey::parse(k).map_err(anyhow::Error::msg))
-            .collect::<anyhow::Result<Vec<_>>>()?,
-        None => harnix_apps::store::store_keys(),
-    };
-    let mut trusted = BTreeMap::new();
-    for (publisher, keys) in &apps.trusted_publishers {
-        let keys = keys
-            .iter()
-            .map(|k| {
-                PublicKey::parse(k)
-                    .map_err(|e| anyhow::anyhow!("[apps.trusted_publishers] {publisher}: {e}"))
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        trusted.insert(publisher.clone(), keys);
-    }
-    Ok(harnix_apps::signature::Keys { store, trusted })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn device(id: &str) -> harnix_authz::Device {
-        harnix_authz::Device {
-            id: id.into(),
-            label: "laptop".into(),
-            public_key: "pk".into(),
-            paired_at: "1".into(),
-            last_seen: None,
-        }
-    }
-
-    /// Paired devices survive a restart, in a file only the owner can read; a broken one is set
-    /// aside rather than trusted or written over.
-    #[test]
-    fn paired_devices_are_kept_across_starts() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(DEVICES_FILE);
-        assert!(load_devices(&path).unwrap().list().is_empty(), "no file is no devices");
-
-        let devices = load_devices(&path).unwrap();
-        devices.begin_pairing("ABC123", "laptop", std::time::SystemTime::now());
-        let paired = devices
-            .complete_pairing("ABC123", "pk", std::time::SystemTime::now(), "1")
-            .unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-            assert_eq!(mode, 0o600, "{mode:o}");
-        }
-        let again = load_devices(&path).unwrap();
-        assert!(again.is_paired(&paired.id));
-        assert!(again.revoke(&paired.id));
-        assert!(load_devices(&path).unwrap().list().is_empty(), "the revocation was kept");
-
-        write_devices(&path, &[device("dev-a")]).unwrap();
-        assert!(load_devices(&path).unwrap().is_paired("dev-a"));
-
-        std::fs::write(&path, "not json").unwrap();
-        assert!(load_devices(&path).unwrap().list().is_empty());
-        assert!(path.with_extension("json.broken").exists());
-
-        // Unreadable — a directory where the file should be — stops the start.
-        std::fs::remove_file(&path).ok();
-        std::fs::create_dir(&path).unwrap();
-        assert!(load_devices(&path).is_err());
     }
 }
