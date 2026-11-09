@@ -1180,8 +1180,27 @@ html.resizing #frame {
   background: var(--surface);
 }
 
+/* The VM's four figures, as the inspector's facts are drawn: a label and its value on one line. */
 .frames.apps .app-detail .facts {
-  margin-bottom: 8px;
+  display: grid;
+  gap: 4px;
+  margin: 0 0 8px;
+}
+
+.frames.apps .app-detail .fact {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 8px;
+}
+
+.frames.apps .app-detail .fact dt {
+  color: var(--label-caption);
+}
+
+.frames.apps .app-detail .fact dd {
+  margin: 0;
+  font-family: var(--font-code);
+  font-size: 12px;
 }
 
 /* A goal the engine opens no rounds for, until someone resumes it. */
