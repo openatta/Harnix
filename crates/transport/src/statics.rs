@@ -186,11 +186,11 @@ impl StaticFace {
         // embed.
         if let Some(rest) = clean.strip_prefix("plugins/") {
             let (name, file) = rest.split_once("/ui/")?;
-            if file.contains("..") || name.contains('/') {
+            if name.contains('/') {
                 return None;
             }
             let dir = read(&self.packages).get(name).cloned()?;
-            return read_file(&dir.join("ui").join(file)).map(|b| (b, content_type(file)));
+            return read_file(&contained(&dir.join("ui"), file)?).map(|b| (b, content_type(file)));
         }
 
         match self.interface(clean) {
@@ -206,10 +206,28 @@ impl StaticFace {
     fn interface(&self, path: &str) -> Option<Vec<u8>> {
         match &self.face {
             Face::Embedded => embedded(path).map(<[u8]>::to_vec),
-            Face::Directory(root) => read_file(&root.join(path)),
+            Face::Directory(root) => read_file(&contained(root, path)?),
             Face::Headless => None,
         }
     }
+}
+
+/// `base` joined with a request's path, if what that names is inside `base`.
+///
+/// `Path::join` with an absolute path *replaces* the base: `/plugins/x/ui//etc/passwd` split at
+/// `/ui/` leaves `/etc/passwd`, and joining that onto the package's directory read the system's
+/// file — with no token, since the static face does not ask for one. So the request's part may
+/// only be plain names (no root, no `..`, no `.`), and what it resolves to, links followed, has to
+/// still be under `base`: a link inside a package pointing out of it is the same escape.
+fn contained(base: &Path, rel: &str) -> Option<PathBuf> {
+    use std::path::Component;
+    let rel = Path::new(rel);
+    if rel.as_os_str().is_empty() || !rel.components().all(|c| matches!(c, Component::Normal(_))) {
+        return None;
+    }
+    let base = base.canonicalize().ok()?;
+    let path = base.join(rel).canonicalize().ok()?;
+    path.starts_with(&base).then_some(path)
 }
 
 fn read_file(path: &Path) -> Option<Vec<u8>> {
@@ -311,6 +329,42 @@ mod tests {
             br#"{"imports":{"react":"/shared/react.js"}}"#,
         ));
         assert!(csp.contains(&expected), "{csp}");
+    }
+
+    /// A package's files, and nothing beside them: an absolute path after `/ui/`, `..`, a link out
+    /// of the package, or an encoded traversal reach nothing.
+    #[test]
+    fn a_package_path_cannot_leave_the_package() {
+        let root = std::env::temp_dir().join(format!("harnix-statics-{}", uuid::Uuid::new_v4().simple()));
+        let ui = root.join("pkg").join("ui");
+        std::fs::create_dir_all(ui.join("sub")).unwrap();
+        std::fs::write(ui.join("sub").join("index.js"), "ok").unwrap();
+        std::fs::write(root.join("secret"), "secret").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(root.join("secret"), ui.join("link")).unwrap();
+        let face = StaticFace::new(Face::Directory(ui.clone()));
+        face.set_packages(BTreeMap::from([("x".to_string(), root.join("pkg"))]));
+
+        let (bytes, _) = face.read("/plugins/x/ui/sub/index.js").expect("the package's own file");
+        assert_eq!(bytes, b"ok");
+        let secret = root.join("secret");
+        for path in [
+            format!("/plugins/x/ui/{}", secret.display()),
+            "/plugins/x/ui//etc/passwd".to_string(),
+            "/plugins/x/ui//etc/hosts".to_string(),
+            "/plugins/x/ui/../../secret".to_string(),
+            "/plugins/x/ui/%2e%2e/%2e%2e/secret".to_string(),
+            "/plugins/x/ui/link".to_string(),
+            "/plugins/x/ui/".to_string(),
+        ] {
+            assert!(face.read(&path).is_none(), "{path} was served");
+        }
+        // The `--ui-dir` interface the same: an unknown or escaping path is the index, never a
+        // file outside.
+        assert!(face.interface("/etc/passwd").is_none());
+        assert!(face.interface("link").is_none());
+        assert_eq!(face.interface("sub/index.js").as_deref(), Some(&b"ok"[..]));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
