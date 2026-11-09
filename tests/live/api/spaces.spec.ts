@@ -130,7 +130,7 @@ test("with the system space turned off, nobody may claim it", TAGS, async () => 
     expect(spaces.map((s: any) => s.id)).not.toContain("system");
     client.close();
   } finally {
-    off.stop();
+    await off.dispose();
   }
 });
 

@@ -54,7 +54,7 @@ export interface Backend {
   port: number;
   url: string;
   token: string;
-  /** Everything this process owns; removed by `stop`. */
+  /** Everything this process owns; removed by `dispose`. */
   scratch: string;
   /** The program's own directory, `$HOME/.<product_id>`: token, ledgers, modules' data. */
   state: string;
@@ -66,7 +66,10 @@ export interface Backend {
   /**
    * End the process and remove everything it owned. Does not wait for the process to exit, so a
    * backend still finishing (its modules' `stop`, the engine writing out) can race the removal and
-   * leave part of the directory behind; that is not an error here. In a teardown use `dispose()`.
+   * leave part of the directory behind, and the next backend starts while this one is still
+   * shutting down.
+   *
+   * @deprecated Use `await dispose()`. Kept so a suite written against it still runs.
    */
   stop(): void;
   /**

@@ -33,7 +33,7 @@ test.beforeAll(async () => {
     api.close();
   }
 });
-test.afterAll(() => backend?.stop());
+test.afterAll(async () => { await backend?.dispose(); });
 
 test("package-ui: a v2 module draws its row on the shell's React, and the CSP has nothing to say", TAGS, async ({ page }) => {
   const errors = watchConsole(page);

@@ -39,7 +39,7 @@ test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
   backend = await startHarnix(launchFor("replay"));
 });
-test.afterAll(() => backend?.stop());
+test.afterAll(async () => { await backend?.dispose(); });
 
 const select = openFlow;
 
@@ -424,7 +424,7 @@ test("a profile that drops the flows in [shell] spaces does not get them", TAGS,
     expect(await page.evaluate(() => (window as any).harnix.app.snapshot.reachable.includes("app.flow.defs"))).toBe(true);
     expect(errors).toEqual([]);
   } finally {
-    without.stop();
+    await without.dispose();
   }
 });
 
@@ -443,6 +443,6 @@ test("a profile that keeps the flows but not the system space gets them as a spa
     await expect(page.getByTestId("flow-context")).toHaveCount(0);
     expect(errors).toEqual([]);
   } finally {
-    alone.stop();
+    await alone.dispose();
   }
 });

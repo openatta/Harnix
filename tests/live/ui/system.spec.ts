@@ -26,7 +26,7 @@ test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
   backend = await startHarnix(launchFor("replay", { profile: INSTANCES_PROFILE }));
 });
-test.afterAll(() => backend?.stop());
+test.afterAll(async () => { await backend?.dispose(); });
 
 async function toSystem(page: Page): Promise<void> {
   await page.locator('#side [data-space="system"]').click();

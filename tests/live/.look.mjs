@@ -28,4 +28,4 @@ try {
 } catch (e) { errors.push("script: " + e.message); await page.screenshot({ path: `${out}/s-x.png` }); }
 console.log(errors.join("\n") || "no errors");
 await browser.close();
-backend.stop();
+await backend.dispose();

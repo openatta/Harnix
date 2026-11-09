@@ -139,7 +139,7 @@ test("a new session is idle and in the list", TAGS, async ({ api }) => {
 界面测试拿 `page` 和 `harnix`：`await page.goto(harnix.url)`。
 
 要一个配置不同的后端（种子数据、只开一种拓扑、带某个 profile 段），在用例里
-`startHarnix({ seed, topologies, profile })`，用完 `stop()`。
+`startHarnix({ seed, topologies, profile })`，用完 `await backend.dispose()`（等进程退出再删目录；`stop()` 不等，已标 `@deprecated`）。
 
 ### 0.3 迁过来的：`defineSuite`
 

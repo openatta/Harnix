@@ -24,7 +24,7 @@ test("a module's migration runs before it starts, and only once per step", TAGS,
     expect(readFileSync(marker, "utf8").split("\n")).toEqual(["001-create", "002-index"]);
     api.close();
   } finally {
-    backend.stop();
+    await backend.dispose();
   }
 });
 
@@ -42,6 +42,6 @@ test("a failed migration disables that module alone", TAGS, async () => {
     expect((await api.call("app.probe.echo", { text: "up" })).text).toBe("up");
     api.close();
   } finally {
-    backend.stop();
+    await backend.dispose();
   }
 });

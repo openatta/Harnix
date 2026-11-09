@@ -41,7 +41,7 @@ test("a brand names the product, serves its icon, and keeps its state in ~/.<pro
     expect(await served.text()).toBe(ICON);
     api.close();
   } finally {
-    backend.stop();
+    await backend.dispose();
   }
 });
 
@@ -56,7 +56,7 @@ test("without a brand the state is ~/.harnix, and a product id that is not a nam
     expect((await fetch(`${backend.url}brand/icon.svg`)).headers.get("content-type")).not.toBe("image/svg+xml");
     api.close();
   } finally {
-    backend.stop();
+    await backend.dispose();
   }
   await expect(startHarnix(launchFor("replay", { profile: '\n[brand]\nproduct_id = "../etc"\n' }))).rejects.toThrow(/product_id/);
 });
@@ -74,7 +74,7 @@ test("a product keeps the built-in spaces it names; without the system space its
     expect(refused?.code).toBe(SPACE_MISMATCH);
     api.close();
   } finally {
-    backend.stop();
+    await backend.dispose();
   }
   await expect(startHarnix(launchFor("replay", { profile: '\n[shell]\nspaces = ["home"]\n' }))).rejects.toThrow(/home/);
 });
@@ -94,6 +94,6 @@ test("harnix.process: versions, uptime, peak memory, and every connected user", 
     await expect.poll(async () => (await one.call("harnix.process")).connections.length).toBe(process.connections.length - 1);
     one.close();
   } finally {
-    backend.stop();
+    await backend.dispose();
   }
 });

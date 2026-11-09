@@ -293,7 +293,7 @@ test("with every built-in space removed, the frame is the chrome alone and says 
     await expect(page.locator('#side [data-space="system"]')).toHaveCount(0);
     await expect(page.getByTestId("avatar")).toBeVisible();
   } finally {
-    bare.stop();
+    await bare.dispose();
   }
 });
 

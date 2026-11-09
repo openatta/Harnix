@@ -25,7 +25,7 @@ test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
   backend = await startHarnix(launchFor("replay"));
 });
-test.afterAll(() => backend?.stop());
+test.afterAll(async () => { await backend?.dispose(); });
 
 /** A flow's own conversation, made by the module the first time it is asked for. */
 async function ownConversation(page: Page, flow: string): Promise<string> {
