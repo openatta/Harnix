@@ -14,8 +14,9 @@
 //! entered by one call at a time; and a fresh, short-lived instance for every
 //! tool call and event, so tool calls run concurrently and a bad one damages
 //! nothing that outlives it. Memory is accounted per application across all of
-//! them, calls are bounded by a deadline, and an application that keeps
-//! faulting is set aside rather than retried forever.
+//! them, calls are bounded by a deadline, and what keeps faulting — a tool, or
+//! a backend that crashes again after its rebuild — is set aside rather than
+//! retried forever.
 //!
 //! # What the host provides
 //!

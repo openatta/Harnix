@@ -266,17 +266,26 @@ async fn the_network_is_reached_only_for_a_declared_host() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn only_a_declared_environment_variable_is_readable() {
-    std::env::set_var("HARNIX_WASM_TEST_DECLARED", "yes");
-    std::env::set_var("HARNIX_WASM_TEST_UNDECLARED", "also-yes");
+async fn only_a_declared_secret_is_readable_and_never_the_process_environment() {
+    // In the process's environment, declared: still not the application's.
+    std::env::set_var("HARNIX_WASM_TEST_IN_THE_ENVIRONMENT", "the-process-own");
     let caps = Capabilities {
-        env: vec!["HARNIX_WASM_TEST_DECLARED".into()],
+        env: vec![
+            "HARNIX_WASM_TEST_DECLARED".into(),
+            "HARNIX_WASM_TEST_IN_THE_ENVIRONMENT".into(),
+        ],
         ..Default::default()
     };
     let rig = rig("tools-probe", caps, limits(5_000)).await;
+    {
+        let mut secrets = rig.host.secrets.lock().unwrap();
+        secrets.insert("HARNIX_WASM_TEST_DECLARED".into(), "yes".into());
+        secrets.insert("HARNIX_WASM_TEST_UNDECLARED".into(), "also-yes".into());
+    }
     for (key, expect) in [
         ("HARNIX_WASM_TEST_DECLARED", "secret=yes "),
         ("HARNIX_WASM_TEST_UNDECLARED", "secret=none "),
+        ("HARNIX_WASM_TEST_IN_THE_ENVIRONMENT", "secret=none "),
     ] {
         let out = rig
             .vm
@@ -371,46 +380,94 @@ async fn a_tool_may_not_arm_a_timer() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn consecutive_faults_disable_the_application() {
+async fn consecutive_faults_set_that_tool_aside_and_nothing_else() {
     let rig = rig("tools-probe", Capabilities::default(), limits(5_000)).await;
-    // An answer in between resets the streak.
     for _ in 0..FAULT_LIMIT - 1 {
         rig.vm
             .call_tool("explode", &json!({}), "c", None, None, &none())
             .await
             .unwrap_err();
     }
+    let answered = rig
+        .vm
+        .call_tool("explode", &json!({}), "c", None, None, &none())
+        .await;
+    assert!(answered.is_err());
+    assert_eq!(rig.vm.health().consecutive_faults, FAULT_LIMIT);
+    let health = rig.vm.health();
+    assert!(health.tools_aside.contains_key("explode"), "{health:?}");
+
+    // Another tool's success does not reset one set aside; it runs, and so does everything else.
     rig.vm
         .call_tool("echo", &json!({"text": "ok"}), "c", None, None, &none())
         .await
         .unwrap();
-    assert_eq!(rig.vm.health().consecutive_faults, 0);
+    let err = rig
+        .vm
+        .call_tool("explode", &json!({}), "c", None, None, &none())
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&err, CallFailure::Unavailable(m) if m.contains("set aside") && m.contains("explode")),
+        "{err:?}"
+    );
+    let health = rig.vm.health();
+    assert_eq!(health.state, VmState::Running, "{health:?}");
+    assert_eq!(health.faults, u64::from(FAULT_LIMIT), "a refused call is not run");
+    assert_eq!(rig.vm.list_tools(&none()).await.unwrap().len(), 9);
+    assert_eq!(
+        rig.vm
+            .on_event("tool.before", &json!({"tool": "echo"}), &none())
+            .await
+            .unwrap(),
+        HookDecision::Proceed
+    );
+}
 
-    for _ in 0..FAULT_LIMIT {
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tools_streak_is_its_own_and_ends_with_an_answer() {
+    let rig = rig("tools-probe", Capabilities::default(), limits(5_000)).await;
+    for _ in 0..FAULT_LIMIT - 1 {
+        rig.vm
+            .call_tool("explode", &json!({}), "c", None, None, &none())
+            .await
+            .unwrap_err();
+    }
+    // A fault of one tool is not another's: `echo`'s answer leaves `explode` on its streak.
+    rig.vm
+        .call_tool("echo", &json!({"text": "ok"}), "c", None, None, &none())
+        .await
+        .unwrap();
+    assert_eq!(rig.vm.health().consecutive_faults, FAULT_LIMIT - 1);
+    rig.vm
+        .call_tool("explode", &json!({}), "c", None, None, &none())
+        .await
+        .unwrap_err();
+    assert!(rig.vm.health().tools_aside.contains_key("explode"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_event_hook_that_faults_is_held_against_nothing() {
+    let rig = rig("tools-probe", Capabilities::default(), limits(5_000)).await;
+    for _ in 0..FAULT_LIMIT + 1 {
         let err = rig
             .vm
-            .call_tool("explode", &json!({}), "c", None, None, &none())
+            .on_event("explode", &json!({}), &none())
             .await
             .unwrap_err();
         assert!(matches!(err, CallFailure::Faulted(_)), "{err:?}");
     }
     let health = rig.vm.health();
-    assert!(
-        matches!(&health.state, VmState::Disabled { reason } if reason.contains("explode")),
-        "{health:?}"
+    assert_eq!(health.state, VmState::Running);
+    assert_eq!(
+        (health.faults, health.consecutive_faults),
+        (u64::from(FAULT_LIMIT + 1), 0)
     );
-    assert_eq!(health.faults, u64::from(2 * FAULT_LIMIT - 1));
-
-    let err = rig
-        .vm
+    assert!(health.tools_aside.is_empty());
+    rig.vm
         .call_tool("echo", &json!({"text": "ok"}), "c", None, None, &none())
         .await
-        .unwrap_err();
-    assert!(
-        matches!(&err, CallFailure::Unavailable(m) if m.contains("disabled")),
-        "{err:?}"
-    );
-    assert!(rig.vm.list_tools(&none()).await.is_err());
+        .unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]

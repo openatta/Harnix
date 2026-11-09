@@ -475,7 +475,7 @@ pub async fn serve_with(
                 servers.spawn(async move {
                     axum_server::from_tcp_rustls(listener, config)
                         .handle(handle)
-                        .serve(router.into_make_service())
+                        .serve(router.into_make_service_with_connect_info::<SocketAddr>())
                         .await
                         .map_err(|e| anyhow::anyhow!("{addr}: {e}"))
                 });
@@ -486,7 +486,9 @@ pub async fn serve_with(
                 let until = stopped(stopping.clone());
                 let addr = *addr;
                 servers.spawn(async move {
-                    axum::serve(listener, router)
+                    // Who each connection is from, for what is served to this machine only (a
+                    // runtime application's MCP endpoint).
+                    axum::serve(listener, router.into_make_service_with_connect_info::<SocketAddr>())
                         .with_graceful_shutdown(until)
                         .into_future()
                         .await

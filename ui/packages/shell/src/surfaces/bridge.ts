@@ -3,14 +3,19 @@
  *
  * The frame is handed a `MessageChannel` port once, when its page first loads, and that port is
  * the only thing the shell listens to for it: no window message is ever read. A second load is
- * the page going away (it navigated, or was replaced): the frame has failed. So has one that does
+ * the page going away (it navigated, or was replaced): the frame has failed, and is emptied at
+ * once (`about:blank`) rather than left showing — and running — whatever it went to, and the
+ * failure is on the Apps tab's record. Where it may go at all is the page's own `frame-src 'self'`:
+ * this origin, so the address it went to carries nothing to anyone else. So has one that does
  * not say hello in time (`HELLO_MS`), and one that stops answering the heartbeat (`PING_MS`,
  * `MISSES`) — which only a browser that runs sandboxed frames apart from the page can notice: where
  * the frame shares the page's thread, a page that hangs hangs the shell with it.
  *
  * Everything the frame asks is done by the shell, and only what its application's manifest lets
- * it ask for: methods and topics of its own (`app.<id>.*`) and in its `[interface] hub`, sessions
- * of its own space, items of its own kinds, its own modals and settings sections. A refusal is
+ * it ask for: methods and topics of its own (`app.<id>.*`) and in its `[interface] hub` — an
+ * allowlist (`FRAME_HUB`), each name narrowed to the application's own spaces and their sessions
+ * before the call goes out as the page —, sessions of its own space, items of its own kinds, its
+ * own modals and settings sections. A refusal is
  * answered as one, recorded for the Apps tab (`store.ts`) and noted in the registry, which
  * Settings → Diagnostics lists.
  */
@@ -19,6 +24,7 @@ import { errorText } from "@harnix/core";
 import { SYSTEM_INSTANCE } from "@harnix/core/state";
 import { t } from "@harnix/react";
 import {
+  FRAME_HUB,
   PROTOCOL,
   admits,
   inDialog,
@@ -28,6 +34,7 @@ import {
   type Environment,
   type ErrorCode,
   type FrameRequests,
+  type HubScope,
   type KeyPress,
   type Message,
   type SessionRef,
@@ -141,6 +148,9 @@ export class FrameBridge {
   private readonly loaded = (): void => {
     this.loads += 1;
     if (this.loads > 1) {
+      // Not the application's page any more: whatever it navigated to is not left running here.
+      this.iframe.removeEventListener("load", this.loaded);
+      this.iframe.src = "about:blank";
       this.fail(t("surface.failed.navigated"));
       return;
     }
@@ -198,6 +208,38 @@ export class FrameBridge {
     return key ? { instance: key.instance, sessionId: key.sessionId } : null;
   }
 
+  /**
+   * A call through a name of `[interface] hub`, narrowed by its scope: about the sessions of one of
+   * the application's own spaces (`space` filled in when it is left out), or about one session in
+   * them. The page's connection could reach any session; a frame is given its own.
+   */
+  private async narrow(name: string, scope: HubScope | undefined, raw: unknown): Promise<unknown> {
+    if (!scope || scope === "open") return raw;
+    const params: Record<string, unknown> = raw && typeof raw === "object" && !Array.isArray(raw) ? { ...(raw as Record<string, unknown>) } : {};
+    const own = this.host.iface.spaces;
+    if (!own.length) this.refuse(name, t("surface.why.noSpace"));
+    if (scope === "space") {
+      const space = params.space ?? this.spaceSessions;
+      if (typeof space !== "string" || !own.includes(space)) this.refuse(name, t("surface.why.otherSpace"));
+      params.space = space;
+      return params;
+    }
+    const sessionId = params.session_id;
+    if (typeof sessionId !== "string") throw new Invalid("`session_id` names a session of the application's own space");
+    const instance = typeof params.instance === "string" ? params.instance : SYSTEM_INSTANCE;
+    if (!(await this.ownsSession(instance, sessionId))) this.refuse(name, t("surface.why.otherSpace"));
+    return params;
+  }
+
+  /** Whether the session is in one of the application's own spaces. */
+  private async ownsSession(instance: string, sessionId: string): Promise<boolean> {
+    for (const space of this.host.iface.spaces) {
+      const { sessions } = await this.host.app.call<{ sessions: { session_id: string }[] }>("harnix.sessions", { space, instance });
+      if (sessions.some((s) => s.session_id === sessionId)) return true;
+    }
+    return false;
+  }
+
   /** The application's own space must be in front for what acts on the front space. */
   private ownFront(name: string): string {
     const space = this.host.space;
@@ -235,13 +277,15 @@ export class FrameBridge {
       case "call": {
         const name = text("method", 200);
         if (!admits(iface.id, iface.hub, name, false)) this.refuse(name, t("surface.why.notListed"));
-        return app.call(name, p.params ?? {});
+        return app.call(name, await this.narrow(name, FRAME_HUB[name], p.params ?? {}));
       }
       case "subscribe": {
         const topic = text("topic", 200);
         if (!admits(iface.id, iface.hub, topic, true)) this.refuse(topic, t("surface.why.notListed"));
+        const params = (await this.narrow(topic, FRAME_HUB[`topic:${topic}`], p.params ?? {})) as Record<string, unknown>;
+        if (this.disposed) return null;
         const sub = this.nextSub++;
-        const off = topicsOf(app.client).subscribe(topic, (p.params as Record<string, unknown> | undefined) ?? {}, (value) =>
+        const off = topicsOf(app.client).subscribe(topic, params, (value) =>
           this.send({ kind: "event", name: "topic", data: { sub, value } satisfies ShellEvents["topic"] }),
         );
         this.subs.set(sub, off);

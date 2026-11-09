@@ -187,6 +187,7 @@ pub fn describe(root: &Path) -> Value {
         "capabilities": {
             "net": caps.net, "env": caps.env, "storage_mb": caps.storage_mb, "hub": caps.hub, "fs": caps.fs,
         },
+        "events": manifest.events.tools,
         "lines": disclosure::lines(manifest, inspected.agent.is_some()),
         "component": manifest.component.as_ref().map(|c| json!({"world": c.world, "memory_mb": c.memory_mb})),
         "ui": manifest.ui.iter().map(|u| json!({"point": u.point, "module": u.module})).collect::<Vec<_>>(),

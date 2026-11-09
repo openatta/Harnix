@@ -65,6 +65,10 @@ pub struct AppsProfile {
     /// `[apps.config."<id>"]`: set over an application's own `[config]` defaults, key by key —
     /// what `host.config()` and its backend's `init` are handed.
     pub config: BTreeMap<String, toml::Value>,
+    /// `[apps.secrets."<id>"]`: the secrets an application's `host.secret` reads, by the names its
+    /// `env` capability declares. Only these: a declared name is never looked up in this
+    /// process's environment, which holds the product's own keys.
+    pub secrets: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

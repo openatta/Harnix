@@ -9,7 +9,11 @@
  * timeout, a crash and a withdrawal are each provoked on purpose and answered the way the design
  * says: the instance recycled, rebuilt once and then set aside, the names gone.
  *
- * `fetch` reaches a server this suite starts on loopback, the one host the showcase's `net` lists.
+ * `fetch` reaches the one host the showcase's `net` lists, `api.showcase.test`, which this suite
+ * answers for: as the proxy the backend is told to use. A host on this machine would be simpler,
+ * and it is what an application should not be taught to ask for — the installer warns about it and
+ * the store does not countersign it. `host.secret` reads the profile's `[apps.secrets]`, and not
+ * the process's own environment, which this suite sets to something else under the same name.
  */
 
 import { type AddressInfo } from "node:net";
@@ -59,18 +63,26 @@ test.describe("an application with a backend", () => {
   let backend: Backend;
   let api: TestClient;
   let server: Server;
-  let served = "";
+  const served = "http://api.showcase.test";
+  /** What reached the proxy, by the host it was for. */
+  const proxied: string[] = [];
 
   test.beforeAll(async () => {
     test.setTimeout(600_000);
     showcasePackage();
+    // A forward proxy for plain HTTP: asked for an absolute URL, it answers for any host.
     server = createServer((req, res) => {
+      const url = new URL(req.url ?? "/", "http://unknown");
+      proxied.push(url.host);
       res.writeHead(200, { "content-type": "text/plain" });
-      res.end(`hello from the test server, ${req.url}`);
+      res.end(`hello from the test server, ${url.pathname}`);
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-    served = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    backend = await startApps({ env: { SHOWCASE_TOKEN: "set-for-the-suite" } });
+    const proxy = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    backend = await startApps({
+      env: { SHOWCASE_TOKEN: "from-the-process-environment", HTTP_PROXY: proxy, http_proxy: proxy, NO_PROXY: "127.0.0.1,localhost,::1", no_proxy: "127.0.0.1,localhost,::1" },
+      profile: `\n[apps.secrets."${SHOWCASE_ID}"]\nSHOWCASE_TOKEN = "set-for-the-suite"\n`,
+    });
     const client = await connect(backend);
     try {
       await client.call("harnix.apps.installFile", { path: showcasePackage().path });
@@ -156,17 +168,22 @@ test.describe("an application with a backend", () => {
     // Its tool asked as the application itself, and was let in as one of its own methods.
     const asked = (await audit(api)).find((e) => e.subject === ME && e.method === M("state"));
     expect(asked?.decision).toBe("allow");
-    // What the backend could read through `host.secret`: a name its `env` lists.
-    expect(await api.call(M("state"))).toMatchObject({ secret_set: true, counter: 1, notes: 1 });
+    // What the backend could read through `host.secret`: a name its `env` lists, as the profile
+    // sets it — not as the process's environment does.
+    expect(await api.call(M("state"))).toMatchObject({ secret_set: true, secret_length: "set-for-the-suite".length, counter: 1, notes: 1 });
   });
 
   test("it reaches the network at the hosts its net lists, and nowhere else", TAGS, async () => {
     const fetched = await api.call(M("fetch"), { url: `${served}/ping` });
     expect(fetched).toEqual({ status: 200, body: "hello from the test server, /ping" });
-    // The backend's own error, passed through as it gave it.
-    const elsewhere = await api.refused(M("fetch"), { url: served.replace("127.0.0.1", "localhost") });
-    expect(elsewhere?.code).toBe(4);
-    expect(elsewhere?.message).toContain("`localhost` is not in this application's `net` capability");
+    expect(proxied).toEqual(["api.showcase.test"]);
+    // The backend's own error, passed through as it gave it; and nothing reached for it.
+    for (const host of ["elsewhere.showcase.test", "127.0.0.1"]) {
+      const elsewhere = await api.refused(M("fetch"), { url: `http://${host}/ping` });
+      expect(elsewhere?.code).toBe(4);
+      expect(elsewhere?.message).toContain(`\`${host}\` is not in this application's \`net\` capability`);
+    }
+    expect(proxied).toHaveLength(1);
   });
 
   test("the backend drives a session: creating one in its space, and sending it a prompt", TAGS, async () => {

@@ -29,7 +29,7 @@ import { Row, Section, Value, useReload } from "./settings.tsx";
 
 interface Line {
   capability: string;
-  value: string | number;
+  value: string | number | boolean;
   from?: number;
 }
 
@@ -103,6 +103,8 @@ function LineText({ line }: { line: Line }) {
   let key = `apps.cap.${line.capability}`;
   let value = raw;
   if (line.capability === "storage_mb") value = t("apps.megabytes", { size: raw });
+  // A line that is the whole of what it says: nothing to show beside it.
+  if (line.value === true || line.capability === "events") value = "";
   if (line.capability === "hub" && raw.startsWith("topic:")) {
     key = "apps.cap.hubTopic";
     value = raw.slice("topic:".length);
@@ -114,10 +116,11 @@ function LineText({ line }: { line: Line }) {
     value = rest.join(" ");
   }
   const from = line.from !== undefined ? ` (${t("apps.from", { value: t("apps.megabytes", { size: String(line.from) }) })})` : "";
-  const why = ["net", "env", "hub", "ui", "agent"].includes(line.capability) ? t(`apps.cap.why.${line.capability}`) : "";
+  const why = ["net", "net_local", "env", "hub", "ui", "ui_hub", "events", "frames", "agent"].includes(line.capability) ? t(`apps.cap.why.${line.capability}`) : "";
   return (
     <li data-capability={line.capability}>
-      <span className="apps-cap">{t(key)}</span> <code>{value}</code>
+      <span className="apps-cap">{t(key)}</span>
+      {value ? <> <code>{value}</code></> : null}
       {from}
       {why ? <span className="apps-why"> — {why}</span> : null}
     </li>

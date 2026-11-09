@@ -36,6 +36,10 @@ use harnix_app_port::codes;
 
 /// Refused calls kept per application for the system space.
 const REFUSALS_KEPT: usize = 20;
+/// Publishes waiting for the platform, and topic values waiting for the backend's VM to start.
+/// Past this the application (or the hub, for what it subscribed to) is outrunning what takes them,
+/// and dropping — counted — beats growing without bound.
+pub(crate) const QUEUE: usize = 256;
 /// Method errors kept per application.
 const ERRORS_KEPT: usize = 20;
 
@@ -63,6 +67,10 @@ struct Counted {
     /// `host.call`s it made, and how many were refused.
     hub_calls: u64,
     published: u64,
+    /// What a full queue dropped: publishes, values for the backend, a tool call's progress.
+    dropped_publishes: u64,
+    dropped_topic_values: u64,
+    dropped_progress: u64,
     errors: VecDeque<Value>,
     refused: VecDeque<Value>,
 }
@@ -95,6 +103,10 @@ impl Stats {
         }
     }
 
+    pub(crate) fn dropped_progress(&self) {
+        lock(&self.inner).dropped_progress += 1;
+    }
+
     pub fn report(&self) -> Value {
         let c = lock(&self.inner);
         let calls: u64 = c.methods.values().map(|(n, _)| n).sum();
@@ -105,6 +117,11 @@ impl Stats {
             "methods": c.methods.iter().map(|(name, (n, e))| json!({"name": name, "calls": n, "errors": e})).collect::<Vec<_>>(),
             "hub_calls": c.hub_calls,
             "published": c.published,
+            "dropped": {
+                "publishes": c.dropped_publishes,
+                "topic_values": c.dropped_topic_values,
+                "progress": c.dropped_progress,
+            },
             // Newest first.
             "recent_errors": c.errors.iter().rev().collect::<Vec<_>>(),
             "refused": c.refused.iter().rev().collect::<Vec<_>>(),
@@ -112,17 +129,20 @@ impl Stats {
     }
 }
 
-/// What the application's VM is lent: the platform behind `call`, `publish` and `subscribe`, and
-/// the queue its subscriptions' values wait in until the VM has started.
+/// What the application's VM is lent: the platform behind `call`, `publish` and `subscribe`, the
+/// secrets the profile gives it, and the queue its subscriptions' values wait in until the VM has
+/// started.
 pub struct Bridge {
     app: String,
     platform: Arc<dyn Platform>,
     /// `[[topic]]`: all `host.publish` may reach.
     topics: BTreeSet<String>,
+    /// `[apps.secrets."<id>"]`: what `host.secret` reads, for a name `env` declares.
+    secrets: BTreeMap<String, String>,
     /// Publishes, in the order the backend made them, to one task that hands them to the platform.
-    publish: mpsc::UnboundedSender<(String, Value)>,
+    publish: mpsc::Sender<(String, Value)>,
     /// Topic values for the backend's `on-topic`, held until its VM has started.
-    topic_values: mpsc::UnboundedSender<(String, Value)>,
+    topic_values: mpsc::Sender<(String, Value)>,
     started: Mutex<Option<oneshot::Sender<WeakAppVm>>>,
     pub stats: Arc<Stats>,
 }
@@ -131,10 +151,11 @@ impl Bridge {
     pub fn new(
         app: &str,
         topics: impl IntoIterator<Item = String>,
+        secrets: BTreeMap<String, String>,
         platform: Arc<dyn Platform>,
     ) -> Arc<Self> {
-        let (publish, mut publish_rx) = mpsc::unbounded_channel::<(String, Value)>();
-        let (topic_values, mut values) = mpsc::unbounded_channel::<(String, Value)>();
+        let (publish, mut publish_rx) = mpsc::channel::<(String, Value)>(QUEUE);
+        let (topic_values, mut values) = mpsc::channel::<(String, Value)>(QUEUE);
         let (started, vm) = oneshot::channel::<WeakAppVm>();
         let stats = Arc::new(Stats::default());
         // Values that arrive while `init` is still running wait here; the VM queues them behind it.
@@ -166,6 +187,7 @@ impl Bridge {
             app: app.to_string(),
             platform,
             topics: topics.into_iter().collect(),
+            secrets,
             publish,
             topic_values,
             started: Mutex::new(Some(started)),
@@ -175,7 +197,14 @@ impl Bridge {
 
     /// A value on a topic it subscribed to, from the platform.
     pub fn deliver(&self, topic: String, value: Value) {
-        let _ = self.topic_values.send((topic, value));
+        self.queue_value(topic, value);
+    }
+
+    fn queue_value(&self, topic: String, value: Value) {
+        if let Err(mpsc::error::TrySendError::Full(_)) = self.topic_values.try_send((topic, value)) {
+            lock(&self.stats.inner).dropped_topic_values += 1;
+            tracing::warn!(app = %self.app, "the backend's topic queue is full; a value dropped");
+        }
     }
 
     /// The VM has started: hand it what arrived meanwhile, and everything after.
@@ -210,9 +239,20 @@ impl AppHost for Bridge {
                 self.app
             ));
         }
-        self.publish
-            .send((topic.to_string(), value))
-            .map_err(|_| "the application is stopping".to_string())
+        match self.publish.try_send((topic.to_string(), value)) {
+            Ok(()) => Ok(()),
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                lock(&self.stats.inner).dropped_publishes += 1;
+                Err(format!(
+                    "dropped: `{}` has {QUEUE} publishes waiting already; it publishes faster than \
+                     they can be sent",
+                    self.app
+                ))
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                Err("the application is stopping".to_string())
+            }
+        }
     }
 
     async fn subscribe(&self, _app: &str, topic: &str, params: &Value) -> Result<(), String> {
@@ -229,7 +269,7 @@ impl AppHost for Bridge {
         // The value now, as any subscriber is given it; every later one comes from the platform.
         let value = &answer["value"];
         if !value.is_null() {
-            let _ = self.topic_values.send((topic.to_string(), value.clone()));
+            self.queue_value(topic.to_string(), value.clone());
         }
         Ok(())
     }
@@ -243,6 +283,15 @@ impl AppHost for Bridge {
                 params: params.clone(),
             })
             .await;
+    }
+
+    /// From the profile, never from this process's environment (`AppHost::secret`).
+    fn secret(&self, _app: &str, key: &str) -> Option<String> {
+        let value = self.secrets.get(key).cloned();
+        if value.is_none() {
+            tracing::debug!(app = %self.app, %key, "a declared secret the profile does not set");
+        }
+        value
     }
 }
 
@@ -332,6 +381,89 @@ pub(crate) fn unavailable(app: &str, method: &str, why: &str, failure: &str) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A platform that never takes a publish: one the application outruns.
+    struct Stuck;
+
+    #[async_trait]
+    impl Platform for Stuck {
+        async fn publish(&self, _: Publish) -> Result<(), RpcError> {
+            std::future::pending().await
+        }
+        async fn register(&self, _: harnix_app_port::Registration) -> Result<(), RpcError> {
+            unreachable!()
+        }
+        async fn withdraw(&self, _: String) -> Result<(), RpcError> {
+            unreachable!()
+        }
+        async fn call(&self, _: CallAs) -> Result<Value, RpcError> {
+            unreachable!()
+        }
+        async fn subscribe(&self, _: Subscription) -> Result<Value, RpcError> {
+            unreachable!()
+        }
+        async fn unsubscribe(&self, _: Subscription) -> Result<(), RpcError> {
+            unreachable!()
+        }
+        async fn has_instance(&self, _: String) -> Result<bool, RpcError> {
+            unreachable!()
+        }
+        async fn install_agent(&self, _: harnix_app_port::AgentInstall) -> Result<Value, RpcError> {
+            unreachable!()
+        }
+        async fn uninstall_agent(&self, _: harnix_app_port::AgentRef) -> Result<(), RpcError> {
+            unreachable!()
+        }
+        async fn switch_agent(&self, _: harnix_app_port::AgentSwitch) -> Result<(), RpcError> {
+            unreachable!()
+        }
+        async fn place_skills(&self, _: harnix_app_port::Skills) -> Result<(), RpcError> {
+            unreachable!()
+        }
+        async fn remove_skills(&self, _: harnix_app_port::Skills) -> Result<(), RpcError> {
+            unreachable!()
+        }
+        async fn reload_instance(&self, _: String) -> Result<(), RpcError> {
+            unreachable!()
+        }
+        async fn expose_tools(&self, _: harnix_app_port::Offer) -> Result<(), RpcError> {
+            unreachable!()
+        }
+        async fn progress(&self, _: harnix_app_port::Progress) -> Result<(), RpcError> {
+            unreachable!()
+        }
+    }
+
+    #[tokio::test]
+    async fn publishes_past_the_queue_are_dropped_counted_and_said() {
+        let bridge = Bridge::new("acme.notes", ["notes".to_string()], BTreeMap::new(), Arc::new(Stuck));
+        let mut refused = Vec::new();
+        for n in 0..QUEUE + 10 {
+            if let Err(e) = AppHost::publish(&*bridge, "acme.notes", "notes", json!(n)) {
+                refused.push(e);
+            }
+        }
+        // The queue, and at most one taken off it and stuck in the platform.
+        assert!((9..=10).contains(&refused.len()), "{}", refused.len());
+        assert!(refused[0].starts_with("dropped"), "{}", refused[0]);
+        assert_eq!(bridge.stats.report()["dropped"]["publishes"], json!(refused.len()));
+        // Topic values for a VM that has not started wait in a queue of the same bound.
+        for n in 0..QUEUE + 3 {
+            bridge.deliver("harnix.sessions.status".into(), json!(n));
+        }
+        assert_eq!(bridge.stats.report()["dropped"]["topic_values"], json!(3));
+    }
+
+    #[test]
+    fn a_secret_is_the_profiles_or_none() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let _in = runtime.enter();
+        let secrets = BTreeMap::from([("TOKEN".to_string(), "given".to_string())]);
+        let bridge = Bridge::new("acme.notes", [], secrets, Arc::new(Stuck));
+        std::env::set_var("HARNIX_BRIDGE_TEST_ENV", "the-process-own");
+        assert_eq!(AppHost::secret(&*bridge, "acme.notes", "TOKEN").as_deref(), Some("given"));
+        assert_eq!(AppHost::secret(&*bridge, "acme.notes", "HARNIX_BRIDGE_TEST_ENV"), None);
+    }
 
     #[test]
     fn the_caller_is_named_for_the_backend() {

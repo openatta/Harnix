@@ -76,7 +76,7 @@ test.describe("unsigned, under [apps] dev", () => {
     expect(centre).toMatchObject({
       frame: `/apps/${SHOWCASE_ID}/ui/frame/index.html`,
       surface: { id: "space", space: SHOWCASE_ID, sessions: SHOWCASE_ID, icon: "file", center: "hidden", title: { en: "Showcase", "zh-CN": "示例应用" } },
-      interface: { hub: ["harnix.sessions"], links: true, trust: "unsigned", spaces: [SHOWCASE_ID, SHOWCASE_CHATS] },
+      interface: { hub: ["harnix.sessions", "session.get"], links: true, trust: "unsigned", spaces: [SHOWCASE_ID, SHOWCASE_CHATS] },
     });
     // The second space has no page: its centre is the conversation, its left column the shell's list.
     expect(listed.at(-1)).toMatchObject({ frame: null, surface: { space: SHOWCASE_CHATS, sessions: SHOWCASE_CHATS, center: "chat" } });
@@ -131,8 +131,11 @@ test.describe("unsigned, under [apps] dev", () => {
   });
 
   test("a frame is never given what is the shell's own, nor a page its package does not carry", TAGS, async () => {
-    const shells = edited("hub", (m) => m.replace('hub = ["harnix.sessions"]', 'hub = ["harnix.sessions", "harnix.apps.uninstall"]'));
+    const shells = edited("hub", (m) => m.replace('hub = ["harnix.sessions", "session.get"]', 'hub = ["harnix.sessions", "harnix.apps.uninstall"]'));
     expect((await api.refused("harnix.apps.installFile", { path: shells }))?.message).toContain("the shell's own");
+    // An allowlist: a name of the families a frame may reach, but not on it, is refused too.
+    const unlisted = edited("unlisted", (m) => m.replace('hub = ["harnix.sessions", "session.get"]', 'hub = ["harnix.sessions", "session.delete"]'));
+    expect((await api.refused("harnix.apps.installFile", { path: unlisted }))?.message).toContain("not one a frame may be given");
     const missing = edited("page", (m) => m.replace('point = "home.card"\npage = "frame/index.html"', 'point = "home.card"\npage = "frame/missing.html"'));
     expect((await api.refused("harnix.apps.installFile", { path: missing }))?.message).toContain("frame/missing.html");
     const unknown = edited("point", (m) => m.replace('point = "modal"', 'point = "flow.block"'));

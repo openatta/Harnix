@@ -11,8 +11,8 @@ by name (`tests/live/api/apps-store.spec.ts`, `tests/live/ui/apps-store.spec.ts`
 |---|---|---|
 | Manifest | `harnix-app.toml` | the id; the capabilities it asks for (`storage_mb`, `fs`, `net`, `env`, `hub`); one `backend-app` component; its `[[method]]`s (with a params schema), `[[topic]]`s and two `[[space]]`s (its board, and its chats); `[config]`; its interface module; its isolated interface (`[interface]`, `[[surface]]`); where its agent package goes; and what the shell draws for it inline (`[inline]`, below) |
 | Backend | `component/` (Rust, `wasm32-wasip2`), `backend` | one resident instance: a board of notes in the key-value store (`notes.add` / `list` / `clear`, published on the `notes` topic), a counter in its own memory (`counter.bump`), a timer that publishes `heartbeat` (`timer.start`), `fetch` (`host.http-request`, to the one host in `net`), `session.start` (creates a session in its space and sends it a prompt, as `module:example.showcase`), `overreach` (a call its `hub` does not list), `state`, `card.post` (a card in a session's flow), `complete` (its commands' candidates), `sessions.group` (its space's groups), and `spin` / `crash` (a timeout recycles the instance; a crash rebuilds it once, a second sets the application aside). `init` subscribes to `harnix.sessions.status` |
-| Tools | `component/`, `tools` | `echo`, `count` (key-value storage), `config` (`host.config()`), `read_project` (the session's project, read-only), `slow` (progress, cancellation), `vetoed`, `board` (the backend's state, asked for with `host.call`: a tool's instance cannot see the backend's memory) |
-| Event hook | `component/` (`events`) | refuses the tool its configuration names (`blocked_tool`), on every tool call of the session |
+| Tools | `component/`, `tools` | `echo`, `count` (key-value storage), `config` (`host.config()`), `read_project` (the session's project, read-only), `slow` (progress, cancellation), `vetoed`, `crash` (a trap: three in a row set that tool aside, and only it), `board` (the backend's state, asked for with `host.call`: a tool's instance cannot see the backend's memory) |
+| Event hook | `component/` (`events`, `[events]`) | refuses the tool its configuration names (`blocked_tool`); offered the calls of its own tools only, as `[events] tools = "own"` says |
 | Agent package | `agent/plugin.toml` | a QuickJS `prompt.block` (`scripts/block.js`) and an agent type, `showcase-guide` |
 | Skill | `agent/skills/showcase-tour/` | copied into each instance the package goes to, and taken out with it |
 | Interface, in the page | `ui/showcase.js` (`[[ui]]`) | a `home.card`, and the showcase's space: the board, which calls the backend's methods and draws what its topics push — over the page's own connection, on the shell's React, with its own strings. Runs only when a publisher this Harnix trusts signed the package |
@@ -154,14 +154,20 @@ dev = true
 # Optional: set over the application's own [config].
 [apps.config."example.showcase"]
 greeting = "hello from my profile"
+
+# Optional: the secret its `env` declares. Only here — never this process's environment.
+[apps.secrets."example.showcase"]
+SHOWCASE_TOKEN = "anything"
 EOF
 target/apps/release/harnix --profile /tmp/apps.toml
 ```
 
 Then, from any client: `harnix.apps.installFile {"path": "/abs/path/showcase.hxapp"}`. New
 sessions have the tools, the prompt block and the agent type; the home screen has the card, and
-the left column the showcase's space. `fetch` reaches `127.0.0.1` only (any port): start something
-there to try it. `state` reports `secret_set: true` when `SHOWCASE_TOKEN` is set for the process.
+the left column the showcase's space. `fetch` reaches `api.showcase.test` only (any port), a name
+nothing answers for: point `HTTP_PROXY` at something that does to try it (the LIVE suite does). A
+host on this machine would do as well, but the installer warns about one and the store does not
+countersign it. `state` reports `secret_set: true` when the profile sets `SHOWCASE_TOKEN` for it.
 `harnix.apps.disable` / `enable {"id": "example.showcase"}` switch it, `harnix.apps.clearData`
 deletes its stored counts, notes and cards and starts it again from nothing, `harnix.apps.uninstall`
 takes it out, its stored counts and notes with it. Settings → Applications does each of these, and

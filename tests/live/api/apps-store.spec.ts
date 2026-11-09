@@ -187,7 +187,7 @@ test.describe("the store, trusted", () => {
       capabilities: {
         storage_mb: 1,
         fs: ["${project}"],
-        net: ["127.0.0.1"],
+        net: ["api.showcase.test"],
         env: ["SHOWCASE_TOKEN"],
         hub: ["session.create", "harnix.send", "topic:harnix.sessions.status", "harnix.entries.append"],
       },
@@ -215,7 +215,9 @@ test.describe("the store, trusted", () => {
       "inline",
       "inline",
       "ui_hub",
+      "ui_hub",
       "links",
+      "frames",
       "agent",
     ]);
     // Disclosed, and nothing done.

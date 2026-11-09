@@ -44,6 +44,9 @@ pub struct HostOptions {
     pub admission: Admission,
     /// `[apps.config]`, by application id: set over each one's `[config]`.
     pub config: BTreeMap<String, toml::Value>,
+    /// `[apps.secrets]`, by application id: what `host.secret` gives each one, by name, for the
+    /// names its `env` declares. Nothing else is: not this process's environment.
+    pub secrets: BTreeMap<String, BTreeMap<String, String>>,
     /// How long every on-demand backend idles before it hibernates, in place of its manifest's
     /// `idle_secs` (which is never under a minute). For a test application that needs to see one
     /// hibernate; a product has no reason to, and a profile cannot.
@@ -74,6 +77,10 @@ struct Running {
     topics: Vec<String>,
     spaces: Vec<String>,
     hub: Vec<String>,
+    /// `[events] tools = "all"`: its `events` export is offered every tool call, not only its own
+    /// tools' (`own_tools`, by the names a session knows them by).
+    events_all: bool,
+    own_tools: std::collections::BTreeSet<String>,
 }
 
 /// What starting an application's VM made.
@@ -140,12 +147,20 @@ fn world_name(world: World) -> String {
 }
 
 /// A tool call's `host.progress`, in order, to the platform: the sink is called on the VM's side
-/// and does not wait, so it queues for one task that does.
-struct ProgressQueue(tokio::sync::mpsc::UnboundedSender<String>);
+/// and does not wait, so it queues for one task that does — boundedly, dropping (and counting)
+/// what a tool says faster than it can be told.
+struct ProgressQueue {
+    tx: tokio::sync::mpsc::Sender<String>,
+    stats: Arc<crate::Stats>,
+}
 
 impl ProgressSink for ProgressQueue {
     fn on_progress(&self, _call_id: &str, text: &str) {
-        let _ = self.0.send(text.to_string());
+        if let Err(tokio::sync::mpsc::error::TrySendError::Full(_)) =
+            self.tx.try_send(text.to_string())
+        {
+            self.stats.dropped_progress();
+        }
     }
 }
 
@@ -413,6 +428,7 @@ impl Host {
         let bridge = Bridge::new(
             id,
             manifest.topics.iter().map(|t| t.name.clone()),
+            self.options.secrets.get(id).cloned().unwrap_or_default(),
             self.platform.clone(),
         );
         lock(&self.bridges).insert(id.clone(), bridge.clone());
@@ -459,6 +475,11 @@ impl Host {
             topics: manifest.topics.iter().map(|t| full(&t.name)).collect(),
             spaces: manifest.spaces.iter().map(|s| s.id.clone()).collect(),
             hub: manifest.capabilities.hub.clone(),
+            events_all: manifest.events.all(),
+            own_tools: tools
+                .iter()
+                .map(|t| harnix_app_package::tool_name(id, &t.name))
+                .collect(),
         });
         let offer = Offer {
             app: id.clone(),
@@ -515,6 +536,13 @@ impl Host {
             Some(reason) => json!({"state": "failed", "reason": reason}),
             None => json!({"state": "stopped"}),
         }
+    }
+
+    /// Whether a lifecycle event is about a call of one of the application's own tools.
+    fn about_own_tool(app: &Running, call: &HookCall) -> bool {
+        call.payload["tool"]
+            .as_str()
+            .is_some_and(|tool| app.own_tools.contains(tool))
     }
 
     /// A cancellation for the call `call_id`, registered for as long as the entry is held.
@@ -665,7 +693,7 @@ impl Control for Host {
         let (cancel, _running) = self.cancellation(&call.call_id);
         let _busy = app.activity.hold();
         let (sink, forwarded) = if call.progress {
-            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+            let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(crate::bridge::QUEUE);
             let (platform, app_id, tool, call_id) = (
                 self.platform.clone(),
                 call.app.clone(),
@@ -683,8 +711,12 @@ impl Control for Host {
                     let _ = platform.progress(progress).await;
                 }
             });
+            let queue = ProgressQueue {
+                tx,
+                stats: app.bridge.stats.clone(),
+            };
             (
-                Some(Arc::new(ProgressQueue(tx)) as Arc<dyn ProgressSink>),
+                Some(Arc::new(queue) as Arc<dyn ProgressSink>),
                 Some(forwarded),
             )
         } else {
@@ -724,6 +756,10 @@ impl Control for Host {
         let Some(vm) = &app.vm else {
             return Ok(HookReply::Proceed);
         };
+        // `[events]`: what it was not granted, it is not shown — not even that it happened.
+        if !app.events_all && !Self::about_own_tool(&app, &call) {
+            return Ok(HookReply::Proceed);
+        }
         let (cancel, _running) = self.cancellation(&call.call_id);
         let _busy = app.activity.hold();
         Ok(match vm.on_event(&call.event, &call.payload, &cancel).await {

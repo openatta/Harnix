@@ -29,6 +29,9 @@
 //! memory_mb = 64
 //! timeout_ms = 30000
 //!
+//! [events]                      # what its `events` export is offered (when it has one)
+//! tools = "own"                 # own (the default): its own tools' calls; all: every tool call
+//!
 //! [[method]]                    # app.<id>.<name>, answered by the backend (`backend-app` only)
 //! name = "notes.add"
 //! subject = "device"            # who may call it: device (the default), module, kernel, or a list
@@ -98,6 +101,7 @@ const SECTIONS: &[&str] = &[
     "interface",
     "surface",
     "backend",
+    "events",
 ];
 
 /// The capabilities there are.
@@ -123,6 +127,43 @@ pub struct Manifest {
     pub surfaces: Vec<Surface>,
     /// `[backend]`: whether its backend stays up, or is let go while idle.
     pub backend: Backend,
+    /// `[events]`: which tool calls its `events` export is offered.
+    pub events: Events,
+}
+
+/// What `[events] tools` may say: the calls of the application's own tools only, or every tool
+/// call of every session (by name, with its input) — which is a capability, disclosed.
+pub const EVENT_SCOPES: &[&str] = &["own", "all"];
+
+/// `[events]`: which tool calls a component's `events` export is offered (`tool.before`).
+///
+/// By default, `own`: only the calls of its own tools. Anything more is what a person installing
+/// it has to be told, because seeing another tool's input is seeing what the session does with it
+/// — the commands it runs, the files it writes.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Events {
+    #[serde(default = "default_event_scope")]
+    pub tools: String,
+}
+
+impl Default for Events {
+    fn default() -> Self {
+        Self {
+            tools: default_event_scope(),
+        }
+    }
+}
+
+impl Events {
+    /// Offered every tool call, not only its own tools'.
+    pub fn all(&self) -> bool {
+        self.tools == EVENT_SCOPES[1]
+    }
+}
+
+fn default_event_scope() -> String {
+    EVENT_SCOPES[0].to_string()
 }
 
 /// One `[[method]]`: `app.<id>.<name>`, answered by the backend's `handle`.
@@ -399,6 +440,10 @@ impl Manifest {
             Some(v) => v.try_into().map_err(|e| field_error("backend", e))?,
             None => Backend::default(),
         };
+        let events: Events = match section("events") {
+            Some(v) => v.try_into().map_err(|e| field_error("events", e))?,
+            None => Events::default(),
+        };
         let manifest = Manifest {
             app,
             capabilities,
@@ -413,6 +458,7 @@ impl Manifest {
             interface,
             surfaces,
             backend,
+            events,
         };
         manifest.check()?;
         Ok(manifest)
@@ -541,6 +587,18 @@ impl Manifest {
                 WORLDS[1]
             ));
         }
+        if !EVENT_SCOPES.contains(&self.events.tools.as_str()) {
+            return Err(format!(
+                "{MANIFEST}: `[events] tools` is one of {}, not `{}`",
+                EVENT_SCOPES.join(", "),
+                self.events.tools
+            ));
+        }
+        if self.component.is_none() && self.events != Events::default() {
+            return Err(format!(
+                "{MANIFEST}: `[events]` is a component's: it says what its `events` export is offered"
+            ));
+        }
         if !backend && (!self.methods.is_empty() || !self.topics.is_empty()) {
             return Err(format!(
                 "{MANIFEST}: `[[method]]` and `[[topic]]` are a backend's: the component's world is \
@@ -661,14 +719,41 @@ fn valid_version(v: &str) -> bool {
         && v.len() <= 64
 }
 
-/// A relative path with no `..`, no root and no empty segment.
+/// A relative path with no `..`, no root, no empty segment, and no control character: a name
+/// that reads as one line wherever it is written — in the signatures' payload above all, where a
+/// line break in a name would make it two entries (`signature.rs`).
 pub fn safe_relative(path: &str) -> bool {
     !path.is_empty()
         && !path.starts_with('/')
         && !path.contains('\\')
+        && !path.chars().any(char::is_control)
         && path
             .split('/')
             .all(|s| !s.is_empty() && s != "." && s != "..")
+}
+
+/// Whether a `net` host is this machine or its local network: a loopback or private address, or
+/// a name that only ever means one (`localhost`, `*.localhost`, `*.local`). What such a host
+/// reaches is not the internet but the services next to Harnix — Harnix's own listener among
+/// them — so the installer says so, and the store does not countersign one.
+pub fn local_host(host: &str) -> bool {
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    if host == "localhost" || host.ends_with(".localhost") || host.ends_with(".local") {
+        return true;
+    }
+    match host.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(ip)) => {
+            ip.is_loopback() || ip.is_private() || ip.is_link_local() || ip.is_unspecified()
+        }
+        Ok(std::net::IpAddr::V6(ip)) => {
+            let first = ip.segments()[0];
+            ip.is_loopback()
+                || ip.is_unspecified()
+                || (first & 0xfe00) == 0xfc00 // unique local, fc00::/7
+                || (first & 0xffc0) == 0xfe80 // link local, fe80::/10
+        }
+        Err(_) => false,
+    }
 }
 
 pub fn toml_to_json(v: &toml::Value) -> Value {
@@ -781,6 +866,41 @@ install_into = ["system"]
         // A tools-only component has no backend to keep.
         let err = with(|m| format!("{m}\n[backend]\nresident = \"on-demand\"\n")).unwrap_err();
         assert!(err.contains("`[backend]` is a backend's"), "{err}");
+    }
+
+    #[test]
+    fn events_are_its_own_tools_unless_it_asks_for_all() {
+        let m = Manifest::parse(GOOD).unwrap();
+        assert!(!m.events.all(), "own unless written");
+        assert!(with(|m| format!("{m}\n[events]\ntools = \"all\"\n")).unwrap().events.all());
+        assert!(!with(|m| format!("{m}\n[events]\ntools = \"own\"\n")).unwrap().events.all());
+        for (section, says) in [
+            ("[events]\ntools = \"some\"\n", "`[events] tools` is one of own, all"),
+            ("[events]\ninput = true\n", "unknown field `input`"),
+        ] {
+            let err = with(|m| format!("{m}\n{section}")).unwrap_err();
+            assert!(err.contains(says), "{section}: {err}");
+        }
+        let none = "[app]\nid = \"a.b\"\nversion = \"1.0.0\"\nharnix_api = 1\npublisher = \"a\"\n\n[events]\ntools = \"all\"\n";
+        assert!(Manifest::parse(none).unwrap_err().contains("a component's"));
+    }
+
+    #[test]
+    fn local_hosts_are_told_apart() {
+        for host in ["127.0.0.1", "127.8.9.1", "localhost", "LOCALHOST.", "api.localhost", "printer.local", "10.0.0.2", "192.168.1.20", "172.16.0.1", "169.254.1.1", "0.0.0.0"] {
+            assert!(local_host(host), "{host}");
+        }
+        for host in ["api.example.com", "8.8.8.8", "172.32.0.1", "localhost.example.com", "showcase.test"] {
+            assert!(!local_host(host), "{host}");
+        }
+    }
+
+    #[test]
+    fn a_name_with_a_control_character_is_not_a_path() {
+        assert!(safe_relative("ui/a.js"));
+        for name in ["ui/a\n0123  ui/b.js", "ui/a\r.js", "ui/a\0.js", "ui/\u{7f}.js"] {
+            assert!(!safe_relative(name), "{name:?}");
+        }
     }
 
     #[test]

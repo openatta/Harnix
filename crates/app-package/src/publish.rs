@@ -97,6 +97,20 @@ pub fn countersign(
     let mut entries = entries(package)?;
     let manifest = manifest_of(&entries)?;
     let app = (manifest.app.id.as_str(), manifest.app.version.as_str());
+    // The store's policy: what it vouches for reaches the internet, not the machine it is
+    // installed on. An application that needs a service there is a trusted publisher's to ship.
+    if let Some(host) = manifest
+        .capabilities
+        .net
+        .iter()
+        .find(|h| crate::manifest::local_host(h))
+    {
+        return Err(format!(
+            "the store does not countersign `{}`: its `net` lists `{host}`, which is this machine \
+             or its local network",
+            manifest.app.id
+        ));
+    }
     let (_, existing) = entries
         .iter()
         .find(|(n, _)| n == signature::FILE)
@@ -313,6 +327,24 @@ mod tests {
             written.apps[0].versions[0].artifacts[FP].url,
             "packages/acme.probe-1.0.0.hxapp"
         );
+    }
+
+    #[test]
+    fn a_package_that_reaches_this_machine_is_not_countersigned() {
+        let dir = tempfile::tempdir().unwrap();
+        let manifest = format!("{MANIFEST_TEXT}\n[capabilities]\nnet = [\"127.0.0.1\"]\n");
+        let pkg = zip_of(
+            dir.path(),
+            "local",
+            &[
+                (MANIFEST, manifest.as_bytes()),
+                ("wasm/tools.wasm", b"portable"),
+                ("ui/card.js", b"export function register() {}"),
+            ],
+        );
+        sign(&pkg, &key(1), &pkg).unwrap();
+        let err = countersign(&pkg, &key(2), &[], &dir.path().join("out.hxapp")).unwrap_err();
+        assert!(err.contains("`127.0.0.1`") && err.contains("this machine"), "{err}");
     }
 
     #[test]

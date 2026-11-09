@@ -1,6 +1,8 @@
 //! A `backend-app` component that drives every host service from its methods,
 //! keeps a counter in its own memory (so a test can tell a replaced instance
-//! from a kept one), and can be told to spin or trap.
+//! from a kept one), and can be told to spin or trap. It exports no `events`:
+//! the plain world, which is how a component that has nothing to say about
+//! tool calls is built.
 
 wit_bindgen::generate!({
     path: "../../../wit",
@@ -8,7 +10,6 @@ wit_bindgen::generate!({
 });
 
 use exports::harnix::app::backend::{AppError, Guest as Backend};
-use exports::harnix::app::events::{Guest as Events, HookDecision};
 use exports::harnix::app::tools::{Guest as Tools, ToolDef, ToolOutput};
 use harnix::app::host;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -71,7 +72,12 @@ impl Backend for Probe {
                     .map(|()| "true".into())
                     .map_err(|e| app_error(2, e))
             }
-            "kv.get" => Ok(host::kv_get(&p("key")).map_or("null".into(), |v| v.len().to_string())),
+            "kv.get" => host::kv_get(&p("key"))
+                .map(|v| v.map_or("null".into(), |v| v.len().to_string()))
+                .map_err(|e| app_error(2, e)),
+            "kv.delete" => host::kv_delete(&p("key"))
+                .map(|()| "true".into())
+                .map_err(|e| app_error(2, e)),
             "file.write" => {
                 let size: usize = p("size").parse().unwrap_or(0);
                 std::fs::write(format!("/data/{}", p("name")), vec![b'x'; size])
@@ -125,30 +131,31 @@ impl Backend for Probe {
 
 impl Tools for Probe {
     fn list_tools() -> Vec<ToolDef> {
-        vec![ToolDef {
-            name: "peek".into(),
-            description: "The counter, as this instance sees it".into(),
+        let tool = |name: &str, description: &str| ToolDef {
+            name: name.into(),
+            description: description.into(),
             doc: None,
             input_schema: r#"{"type":"object"}"#.into(),
             read_only: true,
             concurrency_safe: true,
-        }]
+        };
+        vec![
+            tool("peek", "The counter, as this instance sees it"),
+            tool("explode", "Trap"),
+        ]
     }
 
-    /// Runs in an instance of its own, so it sees its own counter (zero),
+    /// Runs in an instance of its own, so `peek` sees its own counter (zero),
     /// never the backend's.
-    fn call_tool(_name: String, _input: String, _call_id: String) -> ToolOutput {
+    fn call_tool(name: String, _input: String, _call_id: String) -> ToolOutput {
+        if name == "explode" {
+            panic!("asked to explode");
+        }
         ToolOutput {
             content: COUNTER.load(Ordering::SeqCst).to_string(),
             structured: None,
             is_error: false,
         }
-    }
-}
-
-impl Events for Probe {
-    fn on_event(_event: String, _payload: String) -> HookDecision {
-        HookDecision::Proceed
     }
 }
 

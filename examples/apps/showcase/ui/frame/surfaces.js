@@ -14,6 +14,9 @@
 (async () => {
   const { h, button, input, card, empty, alert, render, follow } = HarnixKit;
   const app = await HarnixApp.connect();
+  // The connected bridge, for the LIVE suite to ask the shell for what no button does — and be
+  // refused what its manifest does not let it ask for. Nothing else reads it.
+  window.showcaseBridge = app;
   follow(app);
   const ID = app.surface.app;
   const method = (name) => `app.${ID}.${name}`;

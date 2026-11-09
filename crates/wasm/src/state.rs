@@ -32,6 +32,10 @@ pub(crate) struct AppState {
     pub role: Role,
     pub progress: Option<Arc<dyn ProgressSink>>,
     pub limiter: StoreLimiter,
+    /// Whether this store has a writable `/data`, and if so whether the application was over its
+    /// storage quota when the store was made (then its files are read-only here). `None`: nothing
+    /// it can write, so nothing to measure after its calls.
+    pub over_quota: Option<bool>,
     wasi: WasiCtx,
     table: ResourceTable,
 }
@@ -45,13 +49,16 @@ impl AppState {
         progress: Option<Arc<dyn ProgressSink>>,
         project: Option<&Path>,
     ) -> anyhow::Result<Self> {
-        let wasi = wasi_for(&shared.caps, project, shared.storage_full())?;
+        let full = shared.storage_full();
+        let wasi = wasi_for(&shared.caps, project, full)?;
         let limiter = StoreLimiter::new(shared.memory.clone());
+        let over_quota = shared.caps.preopens.iter().any(|p| p.writable).then_some(full);
         Ok(Self {
             shared,
             role,
             progress,
             limiter,
+            over_quota,
             wasi,
             table: ResourceTable::new(),
         })

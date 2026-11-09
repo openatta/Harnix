@@ -23,6 +23,18 @@ fn parse(what: &str, json: &str) -> Result<Value, String> {
 }
 
 impl AppState {
+    /// A storage error, as the component is told it: the reason, never the host's path, which
+    /// is none of its business (the log has the whole of it).
+    fn kv_error(&self, what: &str, e: crate::KvError) -> String {
+        match e {
+            crate::KvError::Io(detail) => {
+                tracing::warn!(app = %self.shared.app, error = %detail, "{what} failed");
+                format!("{what} failed: the application's storage could not be reached")
+            }
+            other => other.to_string(),
+        }
+    }
+
     fn backend_only(&self, function: &str) -> Result<(), String> {
         match self.role {
             Role::Backend => Ok(()),
@@ -107,14 +119,14 @@ impl Host for AppState {
         self.shared.services.host.secret(&self.shared.app, &key)
     }
 
-    async fn kv_get(&mut self, key: String) -> Option<Vec<u8>> {
-        match self.shared.services.kv.get(&key) {
-            Ok(value) => value,
-            Err(e) => {
-                tracing::warn!(app = %self.shared.app, error = %e, "kv-get failed");
-                None
-            }
-        }
+    async fn kv_get(&mut self, key: String) -> Result<Option<Vec<u8>>, String> {
+        // An error is not an absent key: storage that cannot be read must not look empty to code
+        // that would then write over it.
+        self.shared
+            .services
+            .kv
+            .get(&key)
+            .map_err(|e| self.kv_error("kv-get", e))
     }
 
     async fn kv_set(&mut self, key: String, value: Vec<u8>) -> Result<(), String> {
@@ -131,15 +143,17 @@ impl Host for AppState {
                      its stored values and its files under /data would take more",
                     shared.caps.storage_bytes
                 ),
-                other => other.to_string(),
+                other => self.kv_error("kv-set", other),
             })
     }
 
-    async fn kv_delete(&mut self, key: String) {
-        // A delete never grows the namespace, so the quota cannot refuse it.
-        if let Err(e) = self.shared.services.kv.put(&key, None, 0) {
-            tracing::warn!(app = %self.shared.app, error = %e, "kv-delete failed");
-        }
+    async fn kv_delete(&mut self, key: String) -> Result<(), String> {
+        // A delete never grows the namespace, so the quota cannot refuse it; anything else can.
+        self.shared
+            .services
+            .kv
+            .put(&key, None, 0)
+            .map_err(|e| self.kv_error("kv-delete", e))
     }
 
     async fn call(&mut self, method: String, params_json: String) -> Result<String, String> {

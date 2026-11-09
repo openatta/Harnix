@@ -124,18 +124,25 @@ interface host {
     headers: list<tuple<string, string>>,
     body: option<list<u8>>,
   ) -> result<http-response, string>;
-  /// Subject to the manifest's `env` capability. An undeclared name reads as
-  /// absent, the same as a declared one that is not set.
+  /// Subject to the manifest's `env` capability: a secret the person running
+  /// the application gave it under this name (Harnix: the profile's
+  /// `[apps.secrets."<id>"]`) — never the host process's own environment. An
+  /// undeclared name reads as absent, the same as a declared one that is not
+  /// set; the host's log says which it was.
   secret: func(key: string) -> option<string>;
 
   /// The application's key-value storage: one namespace per application,
   /// shared by its backend and its tool calls, bounded by the manifest's
   /// `storage_mb` (keys and values both count), and deleted on uninstall.
-  kv-get: func(key: string) -> option<list<u8>>;
+  /// `none` is a key that has no value; an error is storage that could not
+  /// be read, which is not the same thing.
+  kv-get: func(key: string) -> result<option<list<u8>>, string>;
   /// Fails when the write would take the namespace past its quota, or the
   /// key is empty or longer than 120 bytes.
   kv-set: func(key: string, value: list<u8>) -> result<_, string>;
-  kv-delete: func(key: string);
+  /// Deleting a key that has no value succeeds; an error is storage that
+  /// could not be written.
+  kv-delete: func(key: string) -> result<_, string>;
 
   /// Call a hub method as the application (`module:<app id>`). Admission is
   /// the hub's, against the manifest's `hub` capability, exactly as for a
@@ -167,7 +174,13 @@ interface tools {
 }
 
 /// Lifecycle events from the agent engine, offered for observation and veto.
-/// A component with nothing to say answers `proceed`.
+/// A component with nothing to say answers `proceed` — or does not export
+/// this at all (the `*-events` worlds below are the ones that do).
+///
+/// What it is offered is the manifest's `[events]`: by default only the calls
+/// of the application's own tools; with `tools = "all"`, every tool call of
+/// every session, by name and with its input, which the installer is told.
+/// `add-context` is attached only to the result of one of its own tools.
 interface events {
   use types.{hook-decision};
   on-event: func(event: string, payload-json: string) -> hook-decision;
@@ -200,22 +213,35 @@ interface backend {
   stop: func();
 }
 
-/// A component that gives tools and observes events, and keeps no state of
-/// its own between calls (the key-value store aside).
+/// A component that gives tools, and keeps no state of its own between calls
+/// (the key-value store aside).
 ///
 /// The worlds are named apart from the interfaces because WIT gives a
-/// package one namespace for both; the manifest's `world` names one of these.
+/// package one namespace for both; the manifest's `world` names one of these
+/// two, whether or not the component also exports `events`.
 world tools-app {
   import host;
   export tools;
-  export events;
 }
 
-/// A component with a resident backend, which also serves tools and events
-/// (each in an instance of its own, without `init`).
+/// A component with a resident backend, which also serves tools (each call in
+/// an instance of its own, without `init`).
 world backend-app {
   import host;
   export backend;
   export tools;
+}
+
+/// `tools-app`, also observing and vetoing tool calls (`events`). The manifest
+/// still says `tools-app`: the extra export is found in the component.
+world tools-app-events {
+  include tools-app;
+  export events;
+}
+
+/// `backend-app`, also observing and vetoing tool calls (`events`), each event
+/// in an instance of its own.
+world backend-app-events {
+  include backend-app;
   export events;
 }

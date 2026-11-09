@@ -74,7 +74,7 @@ async fn state_lives_in_the_resident_instance_and_tools_cannot_see_it() {
     let tools = rig.vm.list_tools(&CancellationToken::new()).await.unwrap();
     assert_eq!(
         tools.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(),
-        ["peek"]
+        ["peek", "explode"]
     );
     let out = rig
         .vm
@@ -338,21 +338,121 @@ async fn files_under_data_count_toward_the_storage_quota() {
     );
     assert_eq!(rig.vm.health().storage_bytes, 901, "the key counts too");
 
-    // Over the quota, an instance started from then on has /data read-only, until there is room.
+    // Over the quota, the resident instance itself is replaced: the one that takes over has /data
+    // read-only, so its next write is refused — no trap or timeout needed to get there.
+    assert_eq!(ok(&rig.vm, "count", json!({})).await, json!(1));
     ok(&rig.vm, "file.write", json!({"name": "g", "size": "200"})).await;
-    assert!(rig.vm.health().storage_bytes >= 1000);
-    call(&rig.vm, "trap", json!({})).await.unwrap_err();
+    let health = rig.vm.health();
+    assert!(health.storage_bytes >= 1000);
+    assert_eq!((health.storage_recycles, health.recycles, health.rebuilds), (1, 0, 0));
+    assert_eq!(ok(&rig.vm, "count", json!({})).await, json!(1), "a fresh instance");
     let refused = call(&rig.vm, "file.write", json!({"name": "h", "size": "1"}))
         .await
         .unwrap()
         .unwrap_err();
     assert_eq!(refused.code, 5, "{refused:?}");
     assert!(!rig.dir.path().join("data/h").exists());
-    // Deleting is how it makes room, and it still may.
+    // Deleting is how it makes room, and it still may; back under, it may write again.
     assert_eq!(
         ok(&rig.vm, "file.delete", json!({"name": "g"})).await,
         json!(true)
     );
+    assert_eq!(rig.vm.health().storage_recycles, 2);
+    assert_eq!(
+        ok(&rig.vm, "file.write", json!({"name": "h", "size": "1"})).await,
+        json!(true)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tool_that_keeps_faulting_is_set_aside_and_the_backend_goes_on() {
+    let rig = rig("backend-probe", backend_caps(), limits(5_000)).await;
+    assert_eq!(ok(&rig.vm, "count", json!({})).await, json!(1));
+    for _ in 0..FAULT_LIMIT {
+        rig.vm
+            .call_tool("explode", &json!({}), "c", None, None, &CancellationToken::new())
+            .await
+            .unwrap_err();
+    }
+    let err = rig
+        .vm
+        .call_tool("explode", &json!({}), "c", None, None, &CancellationToken::new())
+        .await
+        .unwrap_err();
+    assert!(matches!(&err, CallFailure::Unavailable(m) if m.contains("set aside")), "{err:?}");
+    // The backend kept its instance and its memory; the other tool runs.
+    assert_eq!(ok(&rig.vm, "count", json!({})).await, json!(2));
+    rig.vm
+        .call_tool("peek", &json!({}), "c", None, None, &CancellationToken::new())
+        .await
+        .unwrap();
+    let health = rig.vm.health();
+    assert_eq!(health.state, VmState::Running);
+    assert_eq!((health.rebuilds, health.recycles), (0, 0));
+    assert_eq!(health.tools_aside.keys().collect::<Vec<_>>(), ["explode"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_that_cannot_get_the_backend_in_time_is_answered_busy() {
+    let rig = rig("backend-probe", backend_caps(), limits(300)).await;
+    let spin = |vm: AppVm| tokio::spawn(async move { call(&vm, "spin", json!({})).await });
+    let first = spin(rig.vm.clone());
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    let second = spin(rig.vm.clone());
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    // Behind two calls that each hold the backend for its whole timeout: not served in time.
+    let err = call(&rig.vm, "count", json!({})).await.unwrap_err();
+    assert!(matches!(&err, CallFailure::Unavailable(m) if m.starts_with("busy")), "{err:?}");
+    assert_eq!(first.await.unwrap().unwrap_err(), CallFailure::TimedOut);
+    let _ = second.await.unwrap();
+    assert!(rig.vm.health().queue_timeouts >= 1);
+    assert_eq!(rig.vm.health().state, VmState::Running);
+    ok(&rig.vm, "count", json!({})).await;
+}
+
+/// A store that cannot be read, as a disk that went away would be.
+struct BrokenKv;
+
+impl KvStore for BrokenKv {
+    fn get(&self, _key: &str) -> Result<Option<Vec<u8>>, KvError> {
+        Err(KvError::Io("/somewhere/secret/kv/k: input/output error".into()))
+    }
+    fn put(&self, _key: &str, _value: Option<&[u8]>, _quota: u64) -> Result<(), KvError> {
+        Err(KvError::Io("/somewhere/secret/kv/k: input/output error".into()))
+    }
+    fn used_bytes(&self) -> u64 {
+        0
+    }
+    fn clear(&self) -> Result<(), KvError> {
+        Ok(())
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn storage_that_cannot_be_read_is_an_error_not_an_absent_key() {
+    let rig = rig("backend-probe", backend_caps(), limits(5_000)).await;
+    assert_eq!(ok(&rig.vm, "kv.get", json!({"key": "k"})).await, json!(null));
+    assert_eq!(ok(&rig.vm, "kv.delete", json!({"key": "k"})).await, json!(true), "deleting nothing is fine");
+
+    let dir = tempfile::tempdir().unwrap();
+    let services = Services {
+        host: std::sync::Arc::new(MockHost::default()),
+        kv: std::sync::Arc::new(BrokenKv),
+        http: std::sync::Arc::new(NoNetwork),
+    };
+    let vm = AppVm::start(
+        engine(),
+        &component("backend-probe"),
+        spec(backend_caps(), limits(5_000), dir.path()),
+        services,
+    )
+    .await
+    .unwrap();
+    for method in ["kv.get", "kv.delete"] {
+        let err = call(&vm, method, json!({"key": "k"})).await.unwrap().unwrap_err();
+        assert!(err.message.contains("could not be reached"), "{method}: {err:?}");
+        assert!(!err.message.contains("/somewhere"), "the host's path is not the component's: {err:?}");
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]

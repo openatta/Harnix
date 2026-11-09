@@ -12,10 +12,13 @@
 //!   the host's `harnix.apps.progress` topic, and cancelling the turn stops it
 //!   (`Control::cancel`). **Every call asks first**: a tool's `read-only` claim is the component's
 //!   own word, so it schedules calls and decides nothing about permission.
-//! - its `events` export, as a `tool.around` middleware on every tool call of the session (not
-//!   only its own tools): offered `tool.before` with the tool's name and input, it may let the call
-//!   through, refuse it, or add a note to its result. It cannot change the call. A hook that fails
-//!   lets the call through: an application's fault is not the user's.
+//! - its `events` export, as a `tool.around` middleware on the session's tool calls: offered
+//!   `tool.before` with the tool's name and input — for its own tools' calls only, unless its
+//!   manifest asks for every one (`[events] tools = "all"`, which the installer is told; the host
+//!   decides) — it may let the call through, refuse it, or add a note to its result. A note goes
+//!   on the result of one of its own tools only, and only so long ([`MAX_NOTE`]): a downloaded
+//!   package does not get to write into the result of every tool the model calls. It cannot change
+//!   the call. A hook that fails lets the call through: an application's fault is not the user's.
 
 use std::future::Future;
 use std::path::PathBuf;
@@ -39,6 +42,9 @@ use crate::runtime::{Loaded, Registry};
 
 /// The plugin's name in every session.
 pub const NAME: &str = "harnix-apps";
+
+/// The longest note an application's hook may add to a tool's result, in characters.
+pub const MAX_NOTE: usize = 2000;
 
 pub struct AppsPlugin {
     registry: Arc<Registry>,
@@ -259,6 +265,20 @@ struct AppEvents {
     depth: u32,
 }
 
+/// What a note of the application `app` adds to the result of `tool`: nothing for a tool not its
+/// own, and at most [`MAX_NOTE`] characters, under its name.
+fn note_for(app: &str, tool: &str, note: &str) -> Option<String> {
+    if !tool.starts_with(&crate::tool_name(app, "")) {
+        return None;
+    }
+    let cut = note.chars().count() > MAX_NOTE;
+    let mut note: String = note.chars().take(MAX_NOTE).collect();
+    if cut {
+        note.push('…');
+    }
+    Some(format!("\n\n[{app}] {note}"))
+}
+
 #[async_trait::async_trait]
 impl ToolMiddleware for AppEvents {
     async fn around(
@@ -298,9 +318,11 @@ impl ToolMiddleware for AppEvents {
             }
             HookReply::AddContext(note) => {
                 let mut answer = next.run(call, exec).await?;
-                answer
-                    .text
-                    .push_str(&format!("\n\n[{}] {note}", self.app.id));
+                if let Some(note) = note_for(&self.app.id, &call.name, &note) {
+                    answer.text.push_str(&note);
+                } else {
+                    tracing::debug!(app = %self.app.id, tool = %call.name, "a note for another's tool; left out");
+                }
                 Ok(answer)
             }
             HookReply::Failed(failure) => {
@@ -308,5 +330,25 @@ impl ToolMiddleware for AppEvents {
                 next.run(call, exec).await
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_note_goes_on_its_own_tools_results_only_and_only_so_long() {
+        assert_eq!(
+            note_for("acme.notes", "app__acme_notes__search", "seen").as_deref(),
+            Some("\n\n[acme.notes] seen")
+        );
+        for tool in ["Bash", "app__acme_other__search", "app__acme_notesx__search"] {
+            assert_eq!(note_for("acme.notes", tool, "seen"), None, "{tool}");
+        }
+        let long = "x".repeat(MAX_NOTE + 10);
+        let note = note_for("acme.notes", "app__acme_notes__search", &long).unwrap();
+        assert_eq!(note.chars().filter(|c| *c == 'x').count(), MAX_NOTE);
+        assert!(note.ends_with('…'));
     }
 }
