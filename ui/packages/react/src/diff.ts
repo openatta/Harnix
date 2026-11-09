@@ -1,5 +1,7 @@
 /** 按行的最小差异（LCS）：工具行里编辑类的 diff、应用里新旧对照都用。文本小（几十到几百行），O(n·m) 足够。 */
 
+import { t } from "./i18n/index";
+
 export interface DiffLine {
   op: "same" | "add" | "del";
   text: string;
@@ -37,8 +39,12 @@ export function lineDiff(oldText: string, newText: string): DiffLine[] {
   return out;
 }
 
-/** 只留改动附近的几行（其余折成"…"） */
-export function hunks(lines: DiffLine[], context = 2): (DiffLine | { op: "gap"; text: string })[] {
+/** 只留改动附近的几行（其余折成"…"）。`gap` says how many were left out: by default, in the page's language. */
+export function hunks(
+  lines: DiffLine[],
+  context = 2,
+  gap: (n: number) => string = (n) => t("chat.unchangedLines", { n }),
+): (DiffLine | { op: "gap"; text: string })[] {
   const keep = new Array<boolean>(lines.length).fill(false);
   lines.forEach((l, i) => {
     if (l.op !== "same") {
@@ -49,11 +55,11 @@ export function hunks(lines: DiffLine[], context = 2): (DiffLine | { op: "gap"; 
   let skipped = 0;
   lines.forEach((l, i) => {
     if (keep[i]) {
-      if (skipped) out.push({ op: "gap", text: `… ${skipped} 行未变` });
+      if (skipped) out.push({ op: "gap", text: gap(skipped) });
       skipped = 0;
       out.push(l);
     } else skipped++;
   });
-  if (skipped) out.push({ op: "gap", text: `… ${skipped} 行未变` });
+  if (skipped) out.push({ op: "gap", text: gap(skipped) });
   return out;
 }

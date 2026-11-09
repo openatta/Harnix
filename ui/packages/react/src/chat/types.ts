@@ -6,7 +6,7 @@
 
 import { createContext, useContext, type ReactNode } from "react";
 import type { Block, BlockOf } from "@harnix/core/state";
-import type { ToolRowContribution, UserRowContribution } from "../components/blocks";
+import type { ToolAsks, ToolRowContribution, UserRowContribution } from "../components/blocks";
 import { TOOL_NAMES } from "./format";
 
 /** 回答者：头像是一个字（或两个字母），按角色上色。 */
@@ -142,6 +142,8 @@ export interface ChatContextValue {
   /** 每次切换"收起所有 diff"加一：各行自己点过的开合作废 */
   diffGeneration: number;
   toolSummary?: ChatRenderers["toolSummary"];
+  /** The calls waiting on a person, and how their rows name them (a live session only). */
+  asks?: ToolAsks;
 }
 
 export const ChatContext = createContext<ChatContextValue>({

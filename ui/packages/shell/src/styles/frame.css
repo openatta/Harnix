@@ -238,14 +238,6 @@ html.resizing #frame {
   color: var(--label-tertiary);
 }
 
-#side .prj .more {
-  display: none;
-}
-
-#side .prj:hover .more {
-  display: inline-flex;
-}
-
 /* The open project's conversations hang off a guide line: they belong to it. */
 #side .pgroup {
   margin: 0 0 4px 15px;
@@ -562,6 +554,7 @@ html.resizing #frame {
 }
 
 .tree2 .kd.goal.paused,
+.tree2 .kd.goal.stalled,
 .tree2 .kd.goal.blocked {
   border-color: var(--state-warn);
   color: var(--state-warn);
@@ -626,11 +619,124 @@ html.resizing #frame {
   color: var(--state-success);
 }
 
-/* Narrow: the row keeps its state, name and counts; the times go. */
-@media (max-width: 720px) {
-  .tree2 .stat[data-stat="time"],
-  .tree2 .tr.agent .el,
-  .tree2 .tr.agent .kd {
+/*
+ * The Agents as a grid: every main Agent's row and the header line share the list's columns
+ * (subgrid), so a figure stands under its heading whatever the rows hold. The name column takes
+ * what is left and its tags give way first, cut short; the figures keep their width. The list's
+ * own width (not the window's) decides which figures fit: the model time and the last-active time
+ * go first, then the state's words (its dot stays) and the tokens.
+ */
+.tree2.agents {
+  container: agents / inline-size;
+}
+
+.tree2 .agents-list {
+  display: grid;
+  grid-template-columns: 18px 8px minmax(6em, 1fr) fit-content(9em) repeat(5, auto);
+  column-gap: 8px;
+}
+
+.tree2 .agents-list > .tgroup,
+.tree2 .agents-list > .tgroup > .tr.agent,
+.tree2 .agents-list > .tr.head {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  align-items: center;
+}
+
+/* What hangs under an opened Agent spans the row: its sub-agents, tasks and team. */
+.tree2 .agents-list > .tgroup > :not(.agent) {
+  grid-column: 1 / -1;
+}
+
+.tree2 .tr.head {
+  padding-top: 4px;
+  padding-bottom: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--label-tertiary);
+  cursor: default;
+}
+
+.tree2 .tr.head:hover {
+  background: none;
+}
+
+.tree2 .tr.head .c-name {
+  grid-column: 1 / 4;
+}
+
+.tree2 .tr.head .stat,
+.tree2 .tr.head .el {
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--label-tertiary);
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.tree2 .tr.agent .c-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tree2 .tr.agent .c-name .nm {
+  flex: 0 1 auto;
+  min-width: 3em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree2 .tr.agent .c-name .kd {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree2 .tr.agent .c-state {
+  flex: none;
+}
+
+.tree2 .tr.agent .stat,
+.tree2 .tr.head .stat {
+  min-width: 0;
+}
+
+.tree2 .tr.agent .el,
+.tree2 .tr.head .el {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.tree2 [role="row"][tabindex]:focus-visible {
+  outline-offset: -2px;
+}
+
+@container agents (max-width: 520px) {
+  .tree2 .agents-list {
+    grid-template-columns: 18px 8px minmax(5em, 1fr) fit-content(8em) repeat(3, auto);
+  }
+
+  .tree2 .agents-list [data-stat="time"],
+  .tree2 .agents-list .tr.agent .el,
+  .tree2 .agents-list .tr.head .el {
+    display: none;
+  }
+}
+
+@container agents (max-width: 400px) {
+  .tree2 .agents-list {
+    grid-template-columns: 18px 8px minmax(4em, 1fr) repeat(2, auto);
+  }
+
+  .tree2 .agents-list [data-stat="tokens"],
+  .tree2 .agents-list .tr.agent .c-state,
+  .tree2 .agents-list .tr.head .c-state {
     display: none;
   }
 
@@ -875,14 +981,26 @@ html.resizing #frame {
   vertical-align: -1px;
 }
 
-#details .frames {
+/* A table of figures, in the right column or the centre. */
+.frames {
   width: 100%;
   border-collapse: collapse;
   font-family: var(--font-code);
   font-size: 12px;
 }
 
-#details .frames td {
+.frames th {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border-l2);
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--label-tertiary);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.frames td {
   padding: 4px 6px;
   border-bottom: 1px solid var(--border-l1);
   white-space: nowrap;
@@ -1016,6 +1134,109 @@ html.resizing #frame {
 
 #details .turns .turn-row {
   cursor: pointer;
+}
+
+.frames tr[tabindex]:focus-visible {
+  outline-offset: -2px;
+}
+
+/* The applications: a table a row of which opens below it. Too wide for the column, it scrolls
+ * inside its own box rather than pushing the page; a header never breaks a word. */
+.system-apps .table-wrap {
+  overflow-x: auto;
+}
+
+.frames.apps {
+  font-family: inherit;
+  font-size: 12.5px;
+}
+
+.frames.apps td {
+  vertical-align: top;
+  font-variant-numeric: tabular-nums;
+}
+
+.frames.apps .app-row {
+  cursor: pointer;
+}
+
+.frames.apps .app-row:hover {
+  background: var(--interactive-hover);
+}
+
+.frames.apps .app-name {
+  white-space: normal;
+  min-width: 10em;
+}
+
+.frames.apps .app-name .muted {
+  font-family: var(--font-code);
+  font-size: 11.5px;
+}
+
+.frames.apps .app-detail td {
+  white-space: normal;
+  padding: 8px 10px 12px;
+  background: var(--surface);
+}
+
+/* The VM's four figures, as the inspector's facts are drawn: a label and its value on one line. */
+.frames.apps .app-detail .facts {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 8px;
+}
+
+.frames.apps .app-detail .fact {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 8px;
+}
+
+.frames.apps .app-detail .fact dt {
+  color: var(--label-caption);
+}
+
+.frames.apps .app-detail .fact dd {
+  margin: 0;
+  font-family: var(--font-code);
+  font-size: 12px;
+}
+
+/* A goal the engine opens no rounds for, until someone resumes it. */
+#details .kd.phase.stalled {
+  border-color: var(--state-warn);
+  color: var(--state-warn);
+}
+
+/* The tasks tab: a task's header is the button that picks it, with its stop beside it. */
+#details .task-pick {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+/* The header's space pill: in a narrow header it says only the space, not what the space is for. */
+#head {
+  container: head / inline-size;
+}
+
+#head .pill.acc {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@container head (max-width: 720px) {
+  #head .pill .sub {
+    display: none;
+  }
 }
 
 #details .turns .step-row td {

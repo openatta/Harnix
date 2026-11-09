@@ -394,31 +394,6 @@
   display: none;
 }
 
-#side .srow .more {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  display: none;
-  place-items: center;
-  color: var(--label-caption);
-  flex: none;
-}
-
-#side .srow .more .glyph {
-  width: 15px;
-  height: 15px;
-}
-
-#side .srow:hover .more,
-#side .srow.on .more {
-  display: grid;
-}
-
-#side .srow .more:hover {
-  background: var(--interactive-hover);
-  color: var(--label-primary);
-}
-
 #side .srow .live {
   width: 7px;
   height: 7px;
@@ -515,6 +490,20 @@
 
 #side .conn.off .dot {
   background: var(--state-error);
+}
+
+/* The rail's way back to the column it folded: the front space's sessions (narrow, in a drawer). */
+#side .rail-entry {
+  display: none;
+}
+
+#frame[data-sidebar="collapsed"] #side .rail-entry {
+  display: flex;
+}
+
+/* With the column folded away nothing takes the height: the system entry and the avatar stay at the foot. */
+#frame[data-sidebar="collapsed"] #side .l-bottom {
+  margin-top: auto;
 }
 
 /* The rail: icons only. */

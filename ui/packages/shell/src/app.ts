@@ -159,7 +159,14 @@ export interface ShellState {
   detailsMax: boolean;
   /** A space's second side panel takes the whole centre, per space; remembered (xops-04 §7). */
   secondaryMaxBySpace: Record<string, boolean>;
+  /** The sidebar as the person left it in a wide window (⌘\ there, the toggle). */
   sidebar: "expanded" | "collapsed";
+  /** The window is 960px wide or less (`Shell` follows the media query). The sidebar is a rail then,
+   *  and the right column a drawer over the conversation. */
+  narrow: boolean;
+  /** Narrow, the sidebar is open as a drawer over the page: the person asked for it (the toggle,
+   *  the rail's entry, ⌘\); picking a session, another space, Escape or the veil close it. */
+  drawer: boolean;
   /** The notice in front: `notices[0]`, kept in step by `set`. */
   banner: Notice | null;
   /** What the banner has to say, in order: the one in front first. */
@@ -330,6 +337,8 @@ export class App {
       detailsMax: false,
       secondaryMaxBySpace: stored<Record<string, boolean>>(SECONDARY_MAX_KEY, {}),
       sidebar: "expanded",
+      narrow: false,
+      drawer: false,
       banner: null,
       notices: [],
       modals: [],
@@ -555,8 +564,10 @@ export class App {
     return Object.keys(providers.providers).length > 0 || hello?.engine?.has_credentials === true;
   }
 
-  /** The model a new session runs on: the default provider's, else the engine's. */
+  /** The model a new session runs on: the default provider's, else the engine's; none while no
+   *  model is configured (`modelReady()`), whatever name the engine started with. */
   defaultModel(): string | null {
+    if (!this.modelReady()) return null;
     const { providers, hello } = this.state;
     const chosen = providers?.default_provider ? providers.providers[providers.default_provider] : undefined;
     return chosen?.default_model || (typeof hello?.engine?.model === "string" ? hello.engine.model : null);
@@ -813,8 +824,26 @@ export class App {
     this.set({ menu: open ?? !this.state.menu });
   }
 
+  /** The sidebar as drawn: in a wide window what the person left it at; narrow, the rail, or the
+   *  drawer while it is open. Styles read only this (`#frame[data-sidebar]`). */
+  sidebarShown(state: ShellState = this.state): "expanded" | "collapsed" {
+    return state.narrow ? (state.drawer ? "expanded" : "collapsed") : state.sidebar;
+  }
+
+  /** Expand or collapse the sidebar: the wide choice in a wide window, the drawer in a narrow one.
+   *  Each is the person's own and stays when the window crosses 960px and back. */
   toggleSidebar(): void {
-    this.set({ sidebar: this.state.sidebar === "expanded" ? "collapsed" : "expanded" });
+    if (this.state.narrow) this.set({ drawer: !this.state.drawer });
+    else this.set({ sidebar: this.state.sidebar === "expanded" ? "collapsed" : "expanded" });
+  }
+
+  /** The window crossed 960px. A drawer left open closes: the wide sidebar is back, or the rail is. */
+  setNarrow(narrow: boolean): void {
+    if (narrow !== this.state.narrow) this.set({ narrow, drawer: false });
+  }
+
+  closeDrawer(): void {
+    if (this.state.drawer) this.set({ drawer: false });
   }
 
   /**

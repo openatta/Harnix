@@ -19,7 +19,7 @@ import { memo, useState, type CSSProperties, type KeyboardEvent, type ReactNode 
 import { useStrings } from "../context";
 import { markdown } from "../markdown";
 import type { BlockOf, ToolStatus } from "@harnix/core/state";
-import { ToolDetails, toolDuration } from "../components/blocks";
+import { ToolDetails, toolDuration, useToolState } from "../components/blocks";
 import { chipifyHtml, clockTime, editOf, numberedDiff, splitIds, toolArgs, toolDisplayName, toolSummary } from "./format";
 import { Icon } from "./icons";
 import { useChat, type ChatRole } from "./types";
@@ -359,6 +359,7 @@ const BULLET: Record<ToolStatus, string> = { ok: "ok", running: "run", error: "x
 export const TranscriptToolRow = memo(function TranscriptToolRow({ block }: { block: BlockOf<"tool"> }) {
   const strings = useStrings();
   const { toolNames, diffsCollapsed, diffGeneration, toolSummary: domainSummary } = useChat();
+  const { state, tail } = useToolState(block);
   const [local, setLocal] = useState<{ generation: number; open: boolean } | null>(null);
   const edit = editOf(block);
   const fallback = edit ? !diffsCollapsed : false;
@@ -370,7 +371,7 @@ export const TranscriptToolRow = memo(function TranscriptToolRow({ block }: { bl
     e.preventDefault();
     toggle();
   };
-  const summary = (block.status === "ok" && domainSummary?.(block)) || toolSummary(block, {
+  const summary = state === "awaiting" ? tail : (block.status === "ok" && domainSummary?.(block)) || toolSummary(block, {
     running: strings.toolRunning,
     interrupted: strings.toolInterrupted,
     done: strings.toolDone,
@@ -384,7 +385,7 @@ export const TranscriptToolRow = memo(function TranscriptToolRow({ block }: { bl
       className="hx-blk hx-cc-row hx-cc-tool"
       data-testid="conv-tool"
       data-id={block.id}
-      data-state={block.status}
+      data-state={state}
       data-diff={edit ? "1" : undefined}
       data-act={can ? "toolOpen" : undefined}
       role={can ? "button" : undefined}

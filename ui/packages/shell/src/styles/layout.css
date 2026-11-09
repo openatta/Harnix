@@ -3,7 +3,14 @@
  * Collapsing the sidebar leaves a 56px control rail (its controls stay
  * reachable); closing details goes to zero width. Only details concedes when
  * the window narrows, and it auto-closes rather than squeezing the
- * conversation below its content width. */
+ * conversation below its content width.
+ *
+ * At 960px and below (Helm §1) the columns become drawers: the sidebar is the
+ * rail, and opened it lies over the page from the left; an open right column
+ * lies over the conversation from the right; the conversation keeps the width
+ * with 16px gutters. Which state the sidebar is in is the shell's to say
+ * (`data-sidebar`, from `matchMedia` and the person's toggle): the styles only
+ * draw it. */
 
 #root {
   display: flex;
@@ -55,12 +62,6 @@
   grid-template-columns: var(--rail-width) minmax(0, 1fr) clamp(320px, calc(100vw - var(--rail-width) - 400px), var(--details-width));
 }
 
-@media (max-width: 960px) {
-  #frame {
-    grid-template-columns: var(--rail-width) minmax(0, 1fr) 0;
-  }
-}
-
 /* Maximized, the right column takes the centre's place; the centre stays mounted, out of sight. */
 #frame[data-details="open"][data-details-max] {
   grid-template-columns: var(--sidebar-width) 0 minmax(0, 1fr);
@@ -78,33 +79,63 @@
   display: none;
 }
 
-/* Too narrow for two columns: an open right column is maximized whether or not it was asked to be. */
+/* Too narrow for three columns: the rail and the conversation share the width, and the drawers lie
+ * over them. Maximized, the right column takes the conversation's place, as in a wide window. */
 @media (max-width: 960px) {
-  #frame[data-details="open"],
-  #frame[data-sidebar="collapsed"][data-details="open"] {
+  #frame[data-sidebar][data-details] {
+    grid-template-columns: var(--rail-width) minmax(0, 1fr) 0;
+    --chat-clearance: 16px;
+  }
+
+  #frame[data-sidebar][data-details="open"][data-details-max] {
     grid-template-columns: var(--rail-width) 0 minmax(0, 1fr);
   }
 
-  #frame[data-details="open"] #main {
-    visibility: hidden;
+  /* Under an open drawer: a veil over the rest of the page; a click on it closes the drawer. */
+  #frame > .drawer-veil {
+    position: absolute;
+    inset: 0;
+    z-index: 24;
+    background: var(--bg-mask);
   }
 
-  #frame[data-details="open"] #details .resizer.details {
-    display: none;
+  /* The sidebar's drawer, over the rail it opened from. */
+  #frame[data-drawer] #side {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 28;
+    width: min(var(--sidebar-width), calc(100% - 48px));
+    box-shadow: var(--shadow-float);
+  }
+
+  /* The right column's drawer, over the conversation. */
+  #frame[data-details="open"]:not([data-details-max]) #details {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 26;
+    width: min(var(--details-width), calc(100% - var(--rail-width)));
+    box-shadow: var(--shadow-float);
   }
 }
 
 /* `[shell] narrow_details = "beside"` (ipdrun-50): at ≤ 960px an open right column stays beside the
  * conversation instead of covering it — the sidebar is a rail, the right column narrower. Below 720px
- * there is no room for two columns and it is maximized as above. Asking to maximize still maximizes. */
+ * there is no room for two columns and it is a drawer as above. Asking to maximize still maximizes. */
 @media (max-width: 960px) and (min-width: 720px) {
   #frame[data-narrow="beside"][data-details="open"]:not([data-details-max]),
   #frame[data-narrow="beside"][data-sidebar="collapsed"][data-details="open"]:not([data-details-max]) {
     grid-template-columns: var(--rail-width) minmax(0, 1fr) clamp(260px, 36vw, var(--details-width));
   }
 
-  #frame[data-narrow="beside"][data-details="open"]:not([data-details-max]) #main {
-    visibility: visible;
+  #frame[data-narrow="beside"][data-details="open"]:not([data-details-max]) #details {
+    position: relative;
+    z-index: auto;
+    width: auto;
+    box-shadow: none;
   }
 
   #frame[data-narrow="beside"][data-details="open"]:not([data-details-max]) #details .resizer.details {
@@ -173,7 +204,7 @@
 
 @media (max-width: 960px) {
   :root[data-chrome="overlay"] #frame #head,
-  :root[data-chrome="overlay"] #frame[data-details="open"] #details .strip {
+  :root[data-chrome="overlay"] #frame[data-details="open"][data-details-max] #details .strip {
     padding-left: calc(var(--tl-clear) - var(--rail-width));
   }
 

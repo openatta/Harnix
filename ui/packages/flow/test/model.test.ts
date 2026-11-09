@@ -293,7 +293,7 @@ describe("dictionaries", () => {
       ...["scenes", "steps", "checks", "tools", "guarded", "templates", "instances", "spaces", "models"].map((k) => `flowui.ref.cat.${k}`),
       ...["skill", "rule", "policy", "gate", "hook"].flatMap((k) => [`flowui.part.kind.${k}`, `flowui.part.kinds.${k}`]),
       ...["allow", "ask", "deny"].map((k) => `flowui.effect.${k}`),
-      ...["approval", "confirm", "held", "unmet", "failed", "external", "children", "work"].map((k) => `flowui.reason.${k}`),
+      ...["approval", "confirm", "held", "unmet", "failed", "external", "children", "work"].map((k) => `flowui.waiting.${k}`),
       ...["flow", "run", "general"].flatMap((k) => [`flowui.empty.${k}`, `flowui.empty.${k}.title`, `flowui.empty.${k}.ask1`, `flowui.empty.${k}.ask2`, `flowui.empty.${k}.ask3`]),
       "flowui.ref.of.definition",
       "flowui.ref.of.run",

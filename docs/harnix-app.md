@@ -75,6 +75,9 @@ fn main() -> anyhow::Result<()> {
 
 - **左栏顶上的「新会话」**（⌘K）：不建会话，只打开新对话的空页。前台是系统 space、`center: "hidden"` 的 space 或嵌在别的
   space 里的 space 时，先换到第一个能对话的 space。⌘\ 收起左栏，⌘/ 聚焦输入框。对话框开着时这三个键都不生效。
+- **窄窗口**（≤ 960 宽）：左栏是 56px 的轨，轨上的「会话」入口、收起键或 ⌘\ 把它作为抽屉盖在页面上打开；在抽屉里选了会话或 space、
+  按 Esc、点幕布就收回。打开的右栏是从右边盖住中区的抽屉（`narrow_details = "beside"` 时 720–960 宽仍三栏并排）。宽窗口里人自己
+  收起或展开的左栏，窗口变窄再变宽后照旧。
 - **新对话的空页**：问候（按钟点是早上、下午、晚上）、这个 space 的 `subtitle()`、输入框、`suggestions()` 的建议（点了就建会话
   并发出）、`notice()`，下面是 `home.card` 的卡片。**第一次发出时才建会话**：`session.create`（带前台 space 的归属，项目 space 里带项目的
   目录），然后 `harnix.send`。Harnix app 的两个 space 不给建议、提示与卡片；应用的模块与插件 APP 可以给 `home.card`。
@@ -122,7 +125,7 @@ fn main() -> anyhow::Result<()> {
 spaces = ["sessions", "projects", "system", "flow"]   # 留哪些内建 space；不写是都留，[] 是一个不留
 model_switch = false      # true：加 harnix.sessions.setModel，没有系统 space 也能在输入框换模型
 new_session = true        # false：整个外壳不画「新会话」、⌘K 不归外壳；只是界面
-narrow_details = "over"   # ≤ 960 宽时打开的右栏：over 盖住中区；beside 三栏并排（< 720 仍盖住）
+narrow_details = "over"   # ≤ 960 宽时打开的右栏：over 是盖住中区的抽屉；beside 三栏并排（< 720 仍是抽屉）
 ```
 
 每一段都拒绝不认识的键；`spaces` 里写了不是内建 space 的名字，进程起不来并说是哪一个。

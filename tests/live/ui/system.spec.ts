@@ -253,9 +253,19 @@ test("system-agents: an Agent with a goal shows it on its row and on the right",
   await expect(goal).toHaveAttribute("data-phase", "active");
   await expect(goal).toContainText("Keep the fixture tests green");
   await expect(goal).toContainText(/Round|轮/);
+  // One word for how it stands, the same on the row and on the right: ongoing while the engine
+  // opens its rounds, stalled while it does not (not "Ongoing" beside "Inactive"), and then why.
+  const armed = (await goal.getAttribute("data-armed")) !== null;
+  const word = armed ? /Ongoing|进行中/ : /Stalled|已停摆/;
+  await expect(goal.getByTestId("agent-goal-state")).toHaveText(word);
+  await expect(chip).toContainText(word);
+  await expect(chip).toHaveAttribute("data-goal", armed ? "active" : "stalled");
+  await expect(goal).not.toContainText(/Inactive|未启用/);
+  await expect(goal.getByTestId("agent-goal-stalled")).toHaveCount(armed ? 0 : 1);
 
-  // Edited from here: a new objective and fewer rounds.
+  // Edited from here: a new objective and fewer rounds — the form says what the rounds are.
   await goal.getByTestId("agent-goal-edit").click();
+  await expect(page.getByTestId("goal-rounds-hint")).toContainText("256");
   await page.getByTestId("goal-objective").fill("Keep them green, and fast");
   await page.getByTestId("goal-rounds").fill("5");
   await page.getByTestId("goal-save").click();
@@ -286,7 +296,7 @@ test("system-agents: an Agent waiting on its permission ask says so, first in th
   const first = page.locator('[data-testid="system-agents"] .tgroup').first();
   await expect(first).toHaveAttribute("data-sid", id, { timeout: 10_000 });
   await expect(first).toHaveAttribute("data-state", "waiting");
-  await expect(first.locator(".act")).toHaveText(/Approval|等批准/);
+  await expect(first.locator(".act")).toHaveText(/Approval|待批准/);
   await expect(page.locator('[data-testid="system-strip"] [data-kpi="waiting"] .v')).toHaveText("1");
   // Answered from its own conversation, it waits on nobody.
   await page.locator('#side [data-space="sessions"]').click();
@@ -685,4 +695,135 @@ test("system-instances: an instance made from a template is listed and picked, a
   await expect(made).toHaveCount(0, { timeout: 30_000 });
   await expect(page.getByTestId("system-instance")).toContainText("system");
   expect(errors).toEqual([]);
+});
+
+test("system-agents: one header line names the columns; at 1000 px, a goal tag on a row, every figure stays inside its row", TREE, async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 800 });
+  await open(page, backend.url);
+  await newSession(page, "sets-a-goal");
+  await say(page, "Set the goal: keep the fixture tests green");
+  await expect(page.locator('[data-testid="conv-message"]', { hasText: "Goal set." })).toBeVisible({ timeout: 30_000 });
+  const id = await page.evaluate(() => (window as any).harnix.app.snapshot.current?.sessionId as string);
+  await toSystem(page);
+  const agents = page.getByTestId("system-agents");
+  const head = page.getByTestId("system-agents-head");
+  await expect(head).toContainText(/Agent/);
+  await expect(head).toContainText(/Tasks|任务/);
+  const row = agents.locator(`.tgroup[data-sid="${id}"]`);
+  await expect(row.getByTestId("system-agent-goal")).toBeVisible({ timeout: 15_000 });
+  // Picked, the right column opens and the centre is at its narrowest.
+  await row.getByTestId("system-agent").click();
+  await expect(page.getByTestId("system-session")).toBeVisible();
+  // Every row at once, in the page: what does not fit, said row by row.
+  const misfits = () =>
+    page.evaluate(() => {
+      const bad: string[] = [];
+      const rect = (el: Element) => el.getBoundingClientRect();
+      const head = document.querySelector('[data-testid="system-agents-head"]')!;
+      for (const row of document.querySelectorAll<HTMLElement>('[data-testid="system-agent"]')) {
+        const sid = row.closest(".tgroup")?.getAttribute("data-sid");
+        const r = rect(row);
+        for (const cell of row.querySelectorAll<HTMLElement>("[data-stat], .el")) {
+          if (!cell.getClientRects().length) continue;
+          const c = rect(cell);
+          if (c.left < r.left - 1 || c.right > r.right + 1) bad.push(`${sid} ${cell.dataset.stat ?? "el"}: ${c.left}-${c.right} outside ${r.left}-${r.right}`);
+          const h = cell.dataset.stat ? head.querySelector(`[data-stat="${cell.dataset.stat}"]`) : head.querySelector(".el");
+          if (h && Math.abs(rect(h).right - c.right) > 1) bad.push(`${sid} ${cell.dataset.stat ?? "el"}: ends at ${c.right}, its heading at ${rect(h).right}`);
+        }
+        // The name keeps room to be read; the tags give way first.
+        const name = rect(row.querySelector(".nm")!).width;
+        if (name < 30) bad.push(`${sid}: name ${name} wide`);
+      }
+      return bad;
+    });
+  await expect.poll(misfits, { timeout: 10_000 }).toEqual([]);
+});
+
+test("system-keys: an Agent row is reached by Tab and picked by Enter, the right column follows; the console's tabs go by arrows", TREE, async ({ page }) => {
+  await open(page, backend.url);
+  await sessionWithTurn(page, "system");
+  await toSystem(page);
+  const agents = page.getByTestId("system-agents");
+  await expect(agents.getByTestId("system-agent").first()).toBeVisible({ timeout: 10_000 });
+  // From the search, past the filter: the list's first row.
+  await page.getByTestId("system-agents-search").focus();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
+  const focused = () => page.evaluate(() => (document.activeElement as HTMLElement | null)?.closest(".tgroup")?.getAttribute("data-sid") ?? null);
+  const first = await focused();
+  expect(first, "Tab reaches an Agent row").toBeTruthy();
+  await expect(page.locator('[data-testid="system-agent"]:focus')).toHaveCount(1);
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("system-session")).toContainText(first!);
+  await expect(agents.locator(`.tgroup[data-sid="${first}"] [data-testid="system-agent"]`)).toHaveAttribute("aria-selected", "true");
+  // Down to the next row, if there is one, and Enter again: the right column changes with it.
+  if ((await agents.getByTestId("system-agent").count()) > 1) {
+    await page.keyboard.press("ArrowDown");
+    const second = await focused();
+    expect(second).not.toBe(first);
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("system-session")).toContainText(second!);
+  }
+
+  // The console's tab strip is one stop: the arrows go along it and show each tab.
+  const tabs = page.locator('[data-testid="system-console"] .stabs');
+  await tabs.locator('[data-tab="active"]').focus();
+  await expect(tabs.locator('[tabindex="0"]')).toHaveCount(1);
+  await page.keyboard.press("ArrowRight");
+  await expect(tabs.locator('[data-tab="all"]')).toBeFocused();
+  await expect(tabs.locator('[data-tab="all"]')).toHaveAttribute("aria-selected", "true");
+  await expect(agents).toHaveAttribute("data-scope", "all");
+  await expect(page.locator("#system-tabpanel")).toHaveAttribute("aria-labelledby", "system-tab-all");
+  await page.keyboard.press("End");
+  await expect(tabs.locator('[data-tab="diagnostics"]')).toHaveAttribute("aria-selected", "true");
+  // So is the right column's.
+  const details = page.locator("#details .tabs");
+  await details.locator('[role="tab"][aria-selected="true"]').focus();
+  await expect(details.locator('[role="tab"][tabindex="0"]')).toHaveCount(1);
+});
+
+test("system-about: the flows, apps and diagnostics tabs let go of what was picked, the right column says what the tab is; a tab left keeps its search", TREE, async ({ page }) => {
+  await open(page, backend.url);
+  const id = await sessionWithTurn(page, "system");
+  await toSystem(page);
+  const agents = page.getByTestId("system-agents");
+  await agents.locator(`.tgroup[data-sid="${id}"]`).getByTestId("system-agent").click();
+  await expect(page.getByTestId("system-session")).toContainText(id);
+  await page.getByTestId("system-agents-search").fill(id);
+  await expect(agents.locator(".tgroup")).toHaveCount(1);
+
+  await page.locator('[data-testid="system-console"] [data-tab="diagnostics"]').click();
+  await expect(page.getByTestId("system-session")).toHaveCount(0);
+  const about = page.locator('#details [data-testid="system-about"]');
+  await expect(about).toHaveAttribute("data-tab", "diagnostics");
+  await expect(about).toContainText(/settings|设置/);
+  // Not the conversation's words: there is no tool call here to open.
+  await expect(page.locator("#details")).not.toContainText(/tool call|工具调用/);
+
+  // Back on the Agents: nothing picked, so the right column says what to do there, and the search
+  // is as it was left.
+  await page.locator('[data-testid="system-console"] [data-tab="active"]').click();
+  await expect(about).toHaveAttribute("data-tab", "active");
+  await expect(page.getByTestId("system-agents-search")).toHaveValue(id);
+  await expect(agents.locator(".tgroup")).toHaveCount(1);
+});
+
+test("system-context: a session in the middle of a turn says so in words, the backend's own in the title", TREE, async ({ page }) => {
+  await open(page, backend.url);
+  const id = await newSession(page, "asks-permission");
+  await say(page, "Use the Bash tool to run exactly: touch harnix-permission-fixture");
+  // Waiting on its ask, the turn runs: the engine will not lay out a context it is in the middle of.
+  await expect(page.getByTestId("conv-ask")).toBeVisible({ timeout: 30_000 });
+  await toSystem(page);
+  await page.locator(`[data-testid="system-agents"] .tgroup[data-sid="${id}"]`).getByTestId("system-agent").click();
+  await tab(page, "context");
+  const failed = page.getByTestId("system-context-failed");
+  await expect(failed).toHaveText(/running a turn|正在跑一轮/);
+  await expect(failed).toHaveAttribute("title", /is running turn/);
+  await expect(failed).toHaveAttribute("data-code", "-32015");
+  // Answered, the turn ends and the context is there.
+  await page.locator('#side [data-space="sessions"]').click();
+  await page.evaluate((sid) => (window as any).harnix.app.open({ instance: "system", sessionId: sid }), id);
+  await page.getByTestId("conv-ask").getByTestId("conv-ask-allow").click();
+  await expect(page.getByTestId("conv-send")).toBeVisible({ timeout: 30_000 });
 });

@@ -10,6 +10,7 @@ import { errorText, type Scene } from "@harnix/core";
 import { t, useT } from "@harnix/react";
 
 import type { App, ShellSession, Workspace } from "./app.ts";
+import { since } from "./format.ts";
 import { Glyph } from "./glyph.tsx";
 import { openMenu, type MenuEntry } from "./Menu.tsx";
 
@@ -594,13 +595,6 @@ export function Connections({ connections }: { connections: Connection[] }) {
       ))}
     </div>
   );
-}
-
-export function since(ms: number): string {
-  const secs = Math.max(0, Math.round((Date.now() - ms) / 1000));
-  if (secs < 60) return `${secs}s`;
-  if (secs < 3600) return `${Math.floor(secs / 60)}m`;
-  return `${Math.floor(secs / 3600)}h${String(Math.floor((secs % 3600) / 60)).padStart(2, "0")}m`;
 }
 
 /** This page's connection, and everyone else's. */

@@ -9,7 +9,20 @@
  * IPDrun (D21).
  */
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+} from "react";
 import { errorText } from "@harnix/core";
 import type { SessionController, SessionState } from "@harnix/core/state";
 import {
@@ -38,9 +51,10 @@ import { Glyph } from "./glyph.tsx";
 import { sessionMenu } from "./dialogs.tsx";
 import { listenForLayers, modalUp, useLayer } from "./layers.ts";
 import { MenuHost, menuBelow } from "./Menu.tsx";
+import { useRovingTabIndex } from "./roving.ts";
 import { openSettings } from "./settings.tsx";
 import { Sidebar, spacesOf } from "./Sidebar.tsx";
-import { SYSTEM, openInSystem, systemOffered } from "./system.tsx";
+import { SYSTEM, openInSystem, systemOffered } from "./system/index.tsx";
 
 export function Shell({ app }: { app: App }) {
   const s = useSyncExternalStore(app.subscribe, app.getSnapshot);
@@ -49,6 +63,7 @@ export function Shell({ app }: { app: App }) {
   useBrand(app);
   // The right column's bounds, and a width given as a share, follow the window.
   useWindowWidth();
+  const narrow = useNarrow(app, s);
   // Runs after every child has drawn: whoever waits for this state to be on the page can go on.
   useEffect(() => app.drew());
   const space = spacesOf(app).find((c) => c.id === s.space);
@@ -58,7 +73,8 @@ export function Shell({ app }: { app: App }) {
       <Banner app={app} s={s} />
       <div
         id="frame"
-        data-sidebar={s.sidebar}
+        data-sidebar={app.sidebarShown(s)}
+        data-drawer={s.narrow && s.drawer ? "" : undefined}
         data-narrow={app.narrowDetails() === "beside" ? "beside" : undefined}
         data-details={app.detailsOpen(s) ? "open" : "closed"}
         data-details-max={app.detailsOpen(s) && s.detailsMax ? "" : undefined}
@@ -72,6 +88,7 @@ export function Shell({ app }: { app: App }) {
             "--secondary-width": `${secondaryWidthOf(s, secondary?.width)}px`,
           } as CSSProperties
         }
+        onKeyDown={narrow.onKeyDown}
       >
         <Sidebar app={app} s={s} />
         <Resizer app={app} column="side" />
@@ -80,6 +97,7 @@ export function Shell({ app }: { app: App }) {
           {secondary && space ? <Secondary app={app} space={space} panel={secondary} max={app.secondaryMax(s)} /> : null}
         </div>
         {space || s.detail ? <Details app={app} s={s} /> : <aside id="details" aria-hidden inert />}
+        {narrow.veil ? <div className="drawer-veil" data-testid="drawer-veil" aria-hidden="true" onClick={narrow.closeTop} /> : null}
       </div>
       <ModalHost app={app} s={s} />
       {/* Where a layer drawn outside its own place goes: an anchored menu, a dialog's own dialog. */}
@@ -126,6 +144,71 @@ function Resizer({ app, column }: { app: App; column: keyof Widths }) {
       onDoubleClick={() => app.setWidth(column, null)}
     />
   );
+}
+
+/* ── narrow windows ───────────────────────────────────────────────────── */
+
+/** Whether a media query matches, as the window changes. */
+function useMedia(query: string): boolean {
+  const matches = () => typeof matchMedia === "function" && matchMedia(query).matches;
+  const [on, setOn] = useState(matches);
+  useEffect(() => {
+    if (typeof matchMedia !== "function") return;
+    const list = matchMedia(query);
+    const change = () => setOn(list.matches);
+    change();
+    list.addEventListener("change", change);
+    return () => list.removeEventListener("change", change);
+  }, [query]);
+  return on;
+}
+
+/** A ref to an element the frame draws somewhere below it, found when it is asked for. */
+function byId(id: string): RefObject<HTMLElement | null> {
+  return {
+    get current() {
+      return document.getElementById(id);
+    },
+  } as RefObject<HTMLElement | null>;
+}
+
+const SIDE = byId("side");
+const DETAILS = byId("details");
+
+/**
+ * At 960px and below (Helm §1) the sidebar is the rail, and the toggle, the rail's entry or ⌘\
+ * open it as a drawer over the page; an open right column is a drawer from the right (unless the
+ * profile keeps it beside, `narrow_details`, and there is room). Each drawer is a layer
+ * (`layers.ts`) that is not modal: Escape closes the top one and the page stays live. A veil under
+ * them closes them on a click, and the sidebar's drawer closes once a session or a space is picked
+ * in it.
+ */
+function useNarrow(app: App, s: ShellState): { veil: boolean; closeTop: () => void; onKeyDown: (event: ReactKeyboardEvent) => void } {
+  const narrow = useMedia("(max-width: 960px)");
+  const roomy = useMedia("(min-width: 720px)");
+  useLayoutEffect(() => app.setNarrow(narrow), [app, narrow]);
+  const drawer = s.narrow && s.drawer;
+  const over = s.narrow && app.detailsOpen(s) && !s.detailsMax && !(app.narrowDetails() === "beside" && roomy);
+  const side = useLayer(SIDE, { open: drawer, modal: false, close: () => app.closeDrawer() });
+  const details = useLayer(DETAILS, { open: over, modal: false, close: () => app.toggleDetails(false) });
+  // Picked in the drawer: what was picked is what the person wants to see now.
+  const picked = `${s.space}\n${s.current ? keyOf(s.current.instance, s.current.sessionId) : ""}`;
+  const last = useRef(picked);
+  useEffect(() => {
+    if (last.current === picked) return;
+    last.current = picked;
+    app.closeDrawer();
+  }, [app, picked]);
+  return {
+    veil: drawer || over,
+    closeTop: () => (drawer ? app.closeDrawer() : app.toggleDetails(false)),
+    // Escape inside a drawer that nothing in it took (a layer's own handler; see `useLayer`).
+    onKeyDown: (event) => {
+      const target = event.target as Node;
+      if (drawer && SIDE.current?.contains(target)) side.onKeyDown(event);
+      else if (over && DETAILS.current?.contains(target)) details.onKeyDown(event);
+    },
+  };
 }
 
 /* ── theme and keys ───────────────────────────────────────────────────── */
@@ -364,6 +447,7 @@ function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app:
         attachments
         voice={false}
         model={picked?.id ?? engineModel}
+        modelUnset={!ready}
         models={models}
         onModel={switchable ? setPicked : undefined}
         draftKey={`new:${space}:${variant}`}
@@ -619,7 +703,8 @@ function Header({
       <div className="meta">
         {space ? (
           <span className="pill acc" data-testid="space-pill">
-            {space.subtitle ? `${space.title()} · ${space.subtitle()}` : space.title()}
+            {space.title()}
+            {space.subtitle ? <span className="sub"> · {space.subtitle()}</span> : null}
           </span>
         ) : null}
         {!overview && scene ? <span className="pill">{scene}</span> : null}
@@ -747,6 +832,7 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
   const toolRows = registry.at("tool.row").map((c) => ({
     id: c.id,
     match: c.match,
+    title: c.title,
     render: (block: Parameters<typeof c.render>[0]) => (
       <Contributed registry={registry} point="tool.row" contribution={c}>
         {c.render(block)}
@@ -839,6 +925,7 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
           ) : undefined
         }
         model={model}
+        modelUnset={!ready}
         models={models}
         onModel={switchable ? onModel : undefined}
         features={{ voice: false, contextRing: true, options: false }}
@@ -1100,17 +1187,22 @@ function Details({ app, s }: { app: App; s: ShellState }) {
   // with what is selected: a tab that went falls back to the first.
   const current = app.shownTab(s);
   const shown = tabs.find((x) => x.id === current);
+  // One Tab stop for the strip; the arrows go along it.
+  const strip = useRef<HTMLDivElement>(null);
+  const roving = useRovingTabIndex(strip, { items: '[role="tab"]', orientation: "horizontal", activate: true });
   return (
     // Closed it is zero wide, not gone: inert, or Tab would still walk through what is in it.
     <aside id="details" aria-hidden={!app.detailsOpen(s)} inert={!app.detailsOpen(s)}>
       <Resizer app={app} column="details" />
       <div className="strip" data-tauri-drag-region="deep">
-        <div className="tabs" role="tablist">
+        <div className="tabs" role="tablist" ref={strip} onKeyDown={roving.onKeyDown} onFocus={roving.onFocus}>
           {tabs.map((x) => (
             <button
               type="button"
               role="tab"
               key={x.id}
+              id={`details-tab-${x.id}`}
+              aria-controls="details-panel"
               data-tab={x.id}
               data-align={x.id === firstEnd ? "end" : undefined}
               aria-selected={current === x.id}
@@ -1121,7 +1213,7 @@ function Details({ app, s }: { app: App; s: ShellState }) {
             </button>
           ))}
           {item || !tabs.length ? (
-            <button type="button" role="tab" data-tab="details" aria-selected={current === "details"} className={current === "details" ? "on" : ""} onClick={() => setTab("details")}>
+            <button type="button" role="tab" id="details-tab-details" aria-controls="details-panel" data-tab="details" aria-selected={current === "details"} className={current === "details" ? "on" : ""} onClick={() => setTab("details")}>
               {item && !tabs.length ? (panel?.title?.(item) ?? item.name ?? t("details.title")) : t("details.title")}
             </button>
           ) : null}
@@ -1142,7 +1234,7 @@ function Details({ app, s }: { app: App; s: ShellState }) {
           </button>
         </div>
       </div>
-      <div className="body">
+      <div className="body" role="tabpanel" id="details-panel" aria-labelledby={`details-tab-${shown ? shown.id : "details"}`}>
         {shown && space ? (
           <Contributed registry={registry} point="space" contribution={space}>
             {shown.render()}

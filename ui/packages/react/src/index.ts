@@ -42,10 +42,10 @@ export {
 export { SessionView, type SessionViewProps } from "./components/SessionView";
 export { SessionList, type SessionListProps } from "./components/SessionList";
 export { ConnectionBadge } from "./components/ConnectionBadge";
-export { BuiltinToolRow, Disclosure, STATUS_GLYPH, ToolDetails, argumentSummary, clip, type ToolRowContribution, type UserRowContribution } from "./components/blocks";
+export { BuiltinToolRow, Disclosure, STATUS_GLYPH, ToolDetails, argumentSummary, clip, toolAsks, useToolState, type ToolAsks, type ToolRowContribution, type UserRowContribution } from "./components/blocks";
 export { lineDiff, hunks, type DiffLine } from "./diff";
 export { markdown, escapeHtml } from "./markdown";
-export { zhCN, en, type HarnixUiStrings } from "./strings";
+export { zhCN, en, uiStrings, type HarnixUiStrings } from "./strings";
 export { Icon } from "./chat/icons";
 export {
   POINTS,
@@ -64,6 +64,6 @@ export {
   type SpaceTab,
   tabsOf,
 } from "./contrib";
-export { t, useT, useLocale, setLocale, currentLocale, localeChoice, addStrings, DICTIONARIES, type Locale, type LocaleChoice, type Translate } from "./i18n/index";
+export { t, translate, useT, useLocale, setLocale, currentLocale, localeChoice, addStrings, DICTIONARIES, type Locale, type LocaleChoice, type Translate } from "./i18n/index";
 export type { FlowBlockContribution } from "./chat/types";
 export { NestProvider, useCurrentSession, useNest, type NestHost, type SessionRef as HostSessionRef, type ShellContext } from "./host";

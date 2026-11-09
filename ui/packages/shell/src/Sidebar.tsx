@@ -17,14 +17,13 @@ import { createPortal } from "react-dom";
 import { Contributed, setLocale, currentLocale, useRegistry, useT, type SpaceContribution } from "@harnix/react";
 
 import { ask, disabledOf, keyOf, uniqueSessions, type App, type ShellSession, type ShellState } from "./app.ts";
+import { SYSTEM } from "./constants.ts";
 import { connectionDialog } from "./dialogs.tsx";
 import { Glyph } from "./glyph.tsx";
 import { AppMark, GroupedSessions, appsOf, groupingOf } from "./inline/index.tsx";
 import { Menu, type MenuEntry } from "./Menu.tsx";
 import { SessionRow } from "./sessions.tsx";
 import { openSettings } from "./settings.tsx";
-
-export const SYSTEM = "system";
 
 /** The spaces, in order. */
 export function spacesOf(app: App) {
@@ -51,7 +50,8 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
    * controls slide in. Reduced motion skips to the end. */
   const toggle = () => {
     const still = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (still) {
+    // Narrow, the toggle opens a drawer over the page: nothing to fade, nothing lands.
+    if (still || app.snapshot.narrow) {
       app.toggleSidebar();
       return;
     }
@@ -74,8 +74,17 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
     app.open(null);
   };
   const icon = s.hello?.shell?.brand?.icon;
+  const open = app.sidebarShown(s) === "expanded";
   const collapse = (
-    <button type="button" className="ib collapse" title={t("app.collapseSidebar")} onClick={toggle}>
+    <button
+      type="button"
+      className="ib collapse"
+      data-testid="sidebar-toggle"
+      title={open ? t("app.collapseSidebar") : t("app.expandSidebar")}
+      aria-label={open ? t("app.collapseSidebar") : t("app.expandSidebar")}
+      aria-expanded={open}
+      onClick={toggle}
+    >
       <Glyph name="panel" className="glyph" />
     </button>
   );
@@ -116,6 +125,12 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
           <SpaceSessions app={app} s={s} listed={space.listSession} />
         ) : null}
       </div>
+      {/* On the rail, where the column folded away: it opens it again (narrow, as a drawer). */}
+      {space ? (
+        <button type="button" className="nav rail-entry" data-testid="rail-sessions" title={t("sidebar.showSessions")} aria-label={t("sidebar.showSessions")} onClick={toggle}>
+          <Glyph name="list" className="glyph" />
+        </button>
+      ) : null}
       <Bottom app={app} s={s} />
     </aside>
   );
@@ -219,6 +234,8 @@ function SpaceSessions({ app, s, listed }: { app: App; s: ShellState; listed?: S
   // Drawn again when an application starts or stops: its grouping comes and goes with it.
   const watch = appsOf(app);
   useSyncExternalStore(watch.subscribe, watch.getVersion);
+  // Read again when a turn settles, and when the shell's own list was read again (`refreshSessions`:
+  // a session made, renamed, archived or deleted) — not each time another listed one is opened.
   useEffect(() => {
     let alive = true;
     const load = () =>
@@ -234,7 +251,7 @@ function SpaceSessions({ app, s, listed }: { app: App; s: ShellState; listed?: S
       alive = false;
       off();
     };
-  }, [app, claim, s.current]);
+  }, [app, claim, s.sessions]);
   if (rows === null) return null;
   if (!rows.length) return <div className="empty">{t("sidebar.noSessions")}</div>;
   // the space leaves some out (its main conversation, which its entry opens): an empty result draws nothing

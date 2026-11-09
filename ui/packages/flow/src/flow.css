@@ -3,14 +3,24 @@
 
 /* ── a flow's or a run's head ────────────────────────────────────────── */
 
+/* Narrow (the system space's right column), its buttons go to a line of their own rather than
+   breaking their words. */
 .hx-flow-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
 
+.hx-flow-head .btn,
+.hx-flow-head .hx-flow-id {
+  flex: none;
+  white-space: nowrap;
+}
+
 .hx-flow-head-title {
+  min-width: 0;
   font-size: 16px;
   font-weight: 600;
   overflow: hidden;

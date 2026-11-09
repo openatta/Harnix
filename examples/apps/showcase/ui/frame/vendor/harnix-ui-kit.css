@@ -10,7 +10,10 @@
  * Feature styles consume the aliases below — never a raw colour — so a theme stays one file, and an
  * application's brand overrides these names and no others.
  *
- * Dark is `data-theme="dark"` on <html>, set from the stored preference or the system. */
+ * Dark is `data-theme="dark"` on <html>, set from the stored preference or the system.
+ *
+ * Text tokens hold 4.5:1 (WCAG AA) on every background they are read on, in both themes:
+ * `tests/style-lint.mjs` computes the pairs. */
 
 :root {
   /* ── palette ───────────────────────────────────────────────────────── */
@@ -21,12 +24,12 @@
   --paper-line: #e3e7ee;
   --ink: #1d2330;
   --ink-2: #4e5969;
-  --ink-3: #86909c;
+  --ink-3: #646f7c;
   --brand-blue: #2563eb;
   --green: #1f9d55;
   --ochre: #d97706;
   --brick: #d93026;
-  --blue: #0b7bd6;
+  --blue: #0a66b5;
 
   /* ── semantic aliases ──────────────────────────────────────────────── */
   --bg-base: var(--paper);
@@ -68,7 +71,7 @@
   --code-block: var(--paper);
 
   --state-info: var(--blue);
-  --state-info-soft: rgba(11, 123, 214, 0.1);
+  --state-info-soft: rgba(10, 102, 181, 0.1);
   --state-success: var(--green);
   --state-warn: var(--ochre);
   --state-warn-label: #9a5205;
@@ -149,7 +152,7 @@
   --paper-line: #2b323d;
   --ink: #e6eaf0;
   --ink-2: #aab3bf;
-  --ink-3: #7c8794;
+  --ink-3: #8a94a1;
   --brand-blue: #4f8cff;
   --green: #3fb950;
   --ochre: #d29922;
@@ -165,7 +168,8 @@
   --interactive-active: rgba(230, 234, 240, 0.1);
   --interactive-hover-solid: #262c36;
   --interactive-hover-danger: rgba(242, 107, 98, 0.1);
-  --button-primary-hover: #3b7bf5;
+  --button-primary-fill: #2f6fe0;
+  --button-primary-hover: #2a62cc;
   --code-inline: rgba(230, 234, 240, 0.07);
   --state-warn-label: var(--ochre);
   --scrollbar-thumb: #38404c;

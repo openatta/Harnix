@@ -601,14 +601,16 @@ export function RunsTab({ state, onPick }: ListProps) {
   );
 }
 
-/** A run's state as a pill: a spinner while it is pausing; why it waits, when it does. */
+/** The reasons a run waits for that have a sentence of their own (`flowui.waiting.*`). */
+const WAITING = new Set(["approval", "confirm", "held", "unmet", "failed", "external", "children", "work"]);
+
+/** A run's state as a pill: a spinner while it is pausing; why it waits, when it does, in one sentence. */
 export function PhaseBadge({ phase, testid }: { phase: Phase; testid?: string }) {
   const t = useT();
   return (
     <span className={`hx-flow-pill hx-flow-phase hx-flow-tone-${phaseTone(phase.state)}`} data-testid={testid} data-phase={phase.state} data-reason={phase.reason ?? undefined}>
       {phase.state === "pausing" || phase.state === "running" ? <span className={`hx-flow-spin${phase.state === "running" ? " hx-flow-spin-slow" : ""}`} aria-hidden="true" /> : null}
-      {t("flowui.phase." + phase.state)}
-      {phase.state === "waiting" && phase.reason ? ` · ${t("flowui.reason." + phase.reason)}` : ""}
+      {phase.state === "waiting" && phase.reason && WAITING.has(phase.reason) ? t("flowui.waiting." + phase.reason) : t("flowui.phase." + phase.state)}
     </span>
   );
 }

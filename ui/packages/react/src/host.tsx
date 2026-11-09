@@ -11,7 +11,7 @@
  */
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import type { SessionRow } from "@harnix/core";
+import type { Methods, SessionRow } from "@harnix/core";
 import type { SessionState } from "@harnix/core/state";
 
 import type { DetailItem } from "./contrib";
@@ -91,12 +91,13 @@ export interface NestHost {
   };
   /** The front space's functions (tabs, title, badge, notice…) changed: the shell reads them again. */
   redraw(): void;
+  /** The instances, typed as the protocol answers them (`Methods` in `@harnix/core`). */
   instances: {
-    list(): Promise<unknown>;
-    sessions(instance: string): Promise<unknown>;
-    tasks(instance: string, sessionId: string): Promise<unknown>;
-    create(template: string, name: string, params?: Record<string, string>): Promise<unknown>;
-    stop(instance: string): Promise<unknown>;
+    list(): Promise<Methods["harnix.instances.list"]["result"]>;
+    sessions(instance: string): Promise<Methods["harnix.instances.sessions"]["result"]>;
+    tasks(instance: string, sessionId: string): Promise<Methods["harnix.sessions.tasks"]["result"]>;
+    create(template: string, name: string, params?: Record<string, string>): Promise<Methods["harnix.instances.create"]["result"]>;
+    stop(instance: string): Promise<Methods["harnix.instances.stop"]["result"]>;
   };
   composer: {
     /**

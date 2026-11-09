@@ -23,6 +23,7 @@ import { errorText } from "@harnix/core";
 import { useT } from "@harnix/react";
 
 import type { App } from "./app.ts";
+import { fileSize } from "./format.ts";
 import { appsOf, type Inline } from "./inline/index.tsx";
 import { useLayer } from "./layers.ts";
 import { Row, Section, Value, useReload } from "./settings.tsx";
@@ -87,13 +88,6 @@ interface Asking {
   message: string;
   confirm: string;
   run: () => Promise<unknown>;
-}
-
-function size(bytes: number | undefined): string {
-  const n = bytes ?? 0;
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1048576).toFixed(1)} MB`;
 }
 
 /** What a line lets it do, in a sentence: the words, the value, and why it matters. */
@@ -342,10 +336,10 @@ export function AppsSettings({ app }: { app: App }) {
                       <Lines lines={a.app?.lines ?? []} empty={t("apps.asksNothing")} />
                       <InlinePoints inline={a.app?.inline} />
                     </div>
-                    <Row label={t("apps.data", { size: size(a.data_bytes) })}>
+                    <Row label={t("apps.data", { size: fileSize(a.data_bytes) })}>
                       <Value>
                         <span data-testid="app-data" data-bytes={a.data_bytes ?? 0}>
-                          {size(a.data_bytes)}
+                          {fileSize(a.data_bytes)}
                         </span>
                       </Value>
                       <button
@@ -357,11 +351,11 @@ export function AppsSettings({ app }: { app: App }) {
                           setAsking({
                             testId: "app-clear-ask",
                             title: t("apps.clearData"),
-                            message: t("apps.clearDataConfirm", { name, size: size(a.data_bytes) }),
+                            message: t("apps.clearDataConfirm", { name, size: fileSize(a.data_bytes) }),
                             confirm: t("apps.clearData"),
                             run: async () => {
                               const done = await app.call<{ cleared_bytes?: number }>("harnix.apps.clearData", { id: a.id });
-                              app.notice(t("apps.cleared", { name, size: size(done.cleared_bytes) }));
+                              app.notice(t("apps.cleared", { name, size: fileSize(done.cleared_bytes) }));
                             },
                           })
                         }

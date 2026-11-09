@@ -6,7 +6,7 @@
 
 import type { ReactNode } from "react";
 
-import type { App } from "./app.ts";
+import type { App } from "../app.ts";
 
 export interface SystemFlowsTab {
   title(): string;

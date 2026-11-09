@@ -114,6 +114,33 @@ test("the system space's Apps tab shows the application's VM, its calls and its 
   await expect(detail).toContainText(`app.${SHOWCASE_ID}.notes.add`);
 });
 
+test("the Apps tab in Chinese: a header never breaks a word, the table fits its column, the VM's figures in the row opened", TAGS, async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("harnix.locale", "zh-CN"));
+  await open(page, backend.url);
+  await page.locator('#side [data-space="system"]:not(#sessions)').click();
+  await page.locator('[data-testid="system-console"] [data-tab="apps"]').click();
+  const table = page.locator('[data-testid="system-apps"] table');
+  const row = page.locator(`[data-testid="system-app"][data-app="${SHOWCASE_ID}"]`);
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  // One line each: "状态" is not drawn as 状 over 态. Counted as the lines its text is laid out on.
+  const lines = (el: Element) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    return new Set([...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top))).size;
+  };
+  for (const th of await table.locator("th").all()) expect(await th.evaluate(lines), `${await th.textContent()} on one line`).toBe(1);
+  for (const field of ["state", "backend"]) expect(await row.locator(`[data-field="${field}"]`).evaluate(lines), `${field} on one line`).toBe(1);
+  // The page does not scroll sideways for it.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  // Opened by the keyboard: its recycles, faults, memory and storage.
+  await row.focus();
+  await page.keyboard.press("Enter");
+  const vm = page.locator(`[data-testid="system-app-detail"][data-app="${SHOWCASE_ID}"]`).getByTestId("system-app-vm");
+  await expect(vm.locator('[data-field="memory"]')).toContainText("MB");
+  await expect(vm.locator('[data-field="storage"]')).toContainText("MB");
+  await expect(row).toHaveAttribute("aria-expanded", "true");
+});
+
 test("disabled, its card is gone from the page", TAGS, async ({ page }) => {
   const api = await connect(backend);
   try {

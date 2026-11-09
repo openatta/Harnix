@@ -5,16 +5,21 @@
  */
 
 import type { BlockOf } from "@harnix/core/state";
-import { Disclosure, STATUS_GLYPH, ToolDetails, clip, t, toolArgs } from "@harnix/react";
+import { Disclosure, STATUS_GLYPH, ToolDetails, clip, t, toolArgs, useToolState } from "@harnix/react";
 
 import type { App } from "../app.ts";
 import { Glyph } from "../glyph.tsx";
 import type { RuntimeApp, ToolRowDecl } from "./apps.ts";
 import { inputOf, lookup, say, words } from "./template.ts";
 
+/** The row's title for a call: the declared one, filled from the call's input; else the tool's name. */
+export function inlineTitle(decl: ToolRowDecl, block: BlockOf<"tool">): string {
+  return decl.title ? say(decl.title, { input: inputOf(block.input), result: block.result ?? "" }) : decl.tool;
+}
+
 export function InlineToolRow({ app, owner, decl, block }: { app: App; owner: RuntimeApp; decl: ToolRowDecl; block: BlockOf<"tool"> }) {
   const scope = { input: inputOf(block.input), result: block.result ?? "" };
-  const title = decl.title ? say(decl.title, scope) : decl.tool;
+  const title = inlineTitle(decl, block);
   const summary =
     decl.summary === "result"
       ? block.status === "running"
@@ -23,14 +28,13 @@ export function InlineToolRow({ app, owner, decl, block }: { app: App; owner: Ru
       : decl.summary
         ? words(lookup(scope, decl.summary))
         : toolArgs(block.input);
-  const tail =
-    block.status === "running" ? t("flow.toolRunning") : block.status === "error" ? t("flow.toolFailed") : block.status === "interrupted" ? t("flow.interrupted") : undefined;
+  const { state, tail } = useToolState(block);
   return (
     <div className="app-inline" data-inline="tool.row" data-app={owner.id} data-tool={decl.tool}>
       <Disclosure
         testId="conv-tool"
         id={block.id}
-        state={block.status}
+        state={state}
         initiallyOpen={decl.collapsed === false}
         summary={
           <>

@@ -321,6 +321,42 @@ describe("一轮", () => {
     expect(within(screen.getByTestId("conv-ask")).queryAllByRole("button")).toHaveLength(0);
   });
 
+  it("the permission card names the call as its row does, with its arguments; the row awaits approval until it is answered", async () => {
+    const toolRows = [{ id: "app", match: (b: { name: string }) => b.name === "app__acme__echo", render: () => <div data-testid="conv-tool" />, title: () => "Acme echo" }];
+    render(
+      <HarnixUiProvider client={server.asClient()}>
+        <SessionView sessionId="S1" />
+      </HarnixUiProvider>,
+    );
+    await settle();
+    act(() => {
+      server.event("S1", { kind: "tool_use", id: "b1", name: "Bash", input: { command: "rm -f /tmp/x" } });
+      server.event("S1", { kind: "prompt", prompt_type: "permission", prompt_id: "p1", tool_name: "Bash", tool_use_id: "b1" });
+    });
+    const card = screen.getByTestId("conv-ask");
+    expect(within(card).getByTestId("conv-ask-args").textContent).toBe("rm -f /tmp/x");
+    expect(screen.getByTestId("conv-tool").dataset.state).toBe("awaiting");
+    expect(screen.getByTestId("conv-tool").textContent).toContain("待批准");
+    fireEvent.click(within(card).getByTestId("conv-ask-allow"));
+    await settle();
+    expect(screen.getByTestId("conv-tool").dataset.state).toBe("running");
+    cleanup();
+
+    // A row that names the tool (an application's, `title`) gives the card its name.
+    render(
+      <HarnixUiProvider client={server.asClient()}>
+        <SessionView sessionId="S2" toolRows={toolRows} />
+      </HarnixUiProvider>,
+    );
+    await settle();
+    act(() => {
+      server.event("S2", { kind: "tool_use", id: "e1", name: "app__acme__echo", input: { text: "hi" } });
+      server.event("S2", { kind: "prompt", prompt_type: "permission", prompt_id: "p2", tool_name: "app__acme__echo", tool_use_id: "e1", message: "Allow app__acme__echo?" });
+    });
+    expect(screen.getByTestId("conv-ask").getAttribute("aria-label")).toContain("Acme echo");
+    expect(screen.getByTestId("conv-ask").textContent).not.toContain("app__acme__echo");
+  });
+
   it("插话：运行中发送进队列；队列整值替换；可撤回", async () => {
     server.handlers["harnix.attach"] = () => attached("S1", { running_turn: "t1" });
     server.handlers["harnix.send"] = (p) => ({ queued: true, item: { item_id: "q1", message: p.message } });

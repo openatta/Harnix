@@ -236,8 +236,10 @@ test("narrower than 960 the right column opens over the centre, its buttons reac
   await open(page, URL);
   await page.getByTestId("details-toggle").click();
   const details = page.locator("#details");
-  await expect.poll(async () => (await details.boundingBox())?.width ?? 0).toBeGreaterThan(500);
-  await expect(page.locator("#main")).toBeHidden();
+  // A drawer from the right edge, over the conversation, which stays where it was (review G2).
+  await expect.poll(async () => (await details.boundingBox())?.width ?? 0).toBeGreaterThan(300);
+  await expect.poll(async () => Math.round(((await details.boundingBox())?.x ?? 0) + ((await details.boundingBox())?.width ?? 0))).toBe(800);
+  await expect(page.locator("#main")).toBeVisible();
   await page.getByTestId("details-close").click();
   await expect.poll(async () => (await details.boundingBox())?.width ?? 0).toBeLessThan(2);
   await expect(page.locator("#main")).toBeVisible();

@@ -7,10 +7,11 @@
  */
 
 import { errorText } from "@harnix/core";
-import { clip, currentLocale, useRegistry, useT, type SidebarGroup } from "@harnix/react";
+import { clip, useRegistry, useT, type SidebarGroup } from "@harnix/react";
 
 import { keyOf, type App, type ShellSession, type ShellState } from "./app.ts";
 import { sessionMenu } from "./dialogs.tsx";
+import { ago } from "./format.ts";
 import { Glyph } from "./glyph.tsx";
 import { useShell } from "./hooks.ts";
 import { menuBelow, menuPoint } from "./Menu.tsx";
@@ -178,11 +179,13 @@ export function SessionRow({ app, s, session, nested = false }: { app: App; s: S
   const menu = (event: { clientX?: number; clientY?: number; currentTarget: EventTarget | null }) =>
     sessionMenu(app, session, { origin: event.currentTarget instanceof HTMLElement ? event.currentTarget : null, at: menuPoint(event) });
   // `⋯` is the row's sibling, not inside it: a button in a button is neither HTML nor reachable by Tab.
+  // Nested under a project it is an item of the projects' tree.
   return (
-    <div className={`srow-wrap${on ? " on" : ""}${nested ? " nested" : ""}`}>
+    <div className={`srow-wrap${on ? " on" : ""}${nested ? " nested" : ""}`} role={nested ? "none" : undefined}>
       <button
         type="button"
         className={`srow${on ? " on" : ""}${nested ? " nested" : ""}`}
+        {...(nested ? { role: "treeitem", "aria-level": 2, "aria-selected": on } : {})}
         data-sid={session.session_id}
         data-instance={instance}
         title={tooltip}
@@ -211,14 +214,3 @@ export function SessionRow({ app, s, session, nested = false }: { app: App; s: S
   );
 }
 
-export function ago(iso: string | undefined, t: (k: string, v?: Record<string, unknown>) => string): string {
-  if (!iso) return "";
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return "";
-  const secs = Math.max(0, (Date.now() - then) / 1000);
-  if (secs < 60) return t("time.justNow");
-  if (secs < 3600) return t("time.minutes", { count: Math.floor(secs / 60) });
-  if (secs < 86400) return t("time.hours", { count: Math.floor(secs / 3600) });
-  if (secs < 86400 * 30) return t("time.days", { count: Math.floor(secs / 86400) });
-  return new Date(then).toLocaleDateString(currentLocale());
-}
