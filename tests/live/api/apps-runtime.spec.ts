@@ -259,7 +259,7 @@ carrier = "spawn"
 
   test("a tool that keeps trapping is set aside, and only it: the backend, its other tools and its interface go on", TAGS, async () => {
     const s = await session(api, "app-crash");
-    const { settled, asks } = await turn(api, s, "Use the showcase's crash tool until it stops");
+    const { settled, asks } = await runTurn(api, s, "Use the showcase's crash tool until it stops");
     expect(settled.params.error, JSON.stringify(settled.params.error)).toBeUndefined();
     expect(asks.length, "each call asked").toBeGreaterThanOrEqual(3);
     expect(api.text(s.session_id)).toContain("The showcase's crash tool failed three times.");
@@ -271,7 +271,7 @@ carrier = "spawn"
     // Its backend answers, its other tools run, and its interface is still offered.
     expect((await api.call(`app.${SHOWCASE_ID}.notes.list`)).notes).toEqual(expect.any(Array));
     const echo = await session(api, "app-echo");
-    await turn(api, echo, "Use the showcase's echo tool");
+    await runTurn(api, echo, "Use the showcase's echo tool");
     expect(results(api, echo)).toContain("showcase-echo-42");
     expect(JSON.stringify((await api.call("harnix.hello")).contributions ?? [])).toContain(`/apps/${SHOWCASE_ID}/ui/frame/index.html`);
   });
@@ -433,7 +433,7 @@ test.describe("its event hook, as far as its manifest's [events]", () => {
 
   const bash = async () => {
     const s = await session(api, "calls-a-tool");
-    await turn(api, s, "Run echo harnix-fixture");
+    await runTurn(api, s, "Run echo harnix-fixture");
     return results(api, s);
   };
 
