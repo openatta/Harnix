@@ -32,8 +32,8 @@ fn line(capability: &str, value: impl Into<Value>) -> Value {
 /// services on this machine" is what that line means, and it reads nothing like "it can reach
 /// api.example.com". `env` names secrets the profile gives it (`[apps.secrets."<id>"]`), never
 /// the process's environment. `events` is there when it is offered every tool call, not only its
-/// own tools'; `frames` when it has pages of its own, which run isolated but can navigate
-/// themselves away — and take with them what they were shown.
+/// own tools'; `frames` when it has pages of its own, which run isolated: no network, and a page
+/// that navigates itself is kept to this origin (the shell's `frame-src 'self'`) and taken down.
 pub fn lines(manifest: &Manifest, agent: bool) -> Vec<Value> {
     let caps = &manifest.capabilities;
     let mut out = Vec::new();

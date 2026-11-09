@@ -42,8 +42,8 @@ use crate::runtime::{Loaded, Registry};
 /// shell's; together they make it an opaque origin that cannot read the page's token, storage or
 /// cookies. (`allow-forms` is for a form's `submit` event, which never fires without it; where a
 /// form may submit to is `form-action 'none'`.)
-/// Neither stops it navigating itself away, with what it was shown in the address: the shell
-/// empties a frame that does, and the installer is told (`disclosure.rs`, `frames`).
+/// Neither stops it navigating itself away; the page's `frame-src 'self'` keeps it to this origin,
+/// and the shell empties a frame that does.
 pub const FRAME_CSP: &str =
     "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
      img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; frame-src 'none'; \

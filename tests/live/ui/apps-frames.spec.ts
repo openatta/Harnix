@@ -21,7 +21,7 @@ import { join } from "node:path";
 import type { Frame, FrameLocator, Page } from "@playwright/test";
 import { type Backend, connect, expect, test } from "@harnix/testkit";
 
-import { SHOWCASE_ID, appsTools, showcasePackage, startApps, variant } from "../api/apps-host";
+import { SHOWCASE_CHATS, SHOWCASE_ID, appsTools, showcasePackage, startApps, variant } from "../api/apps-host";
 import { MOCK_PUBLISHER, STORE_FIXTURE } from "../api/apps-store";
 import { open, watchConsole } from "./page";
 
@@ -128,11 +128,12 @@ test.describe("an application in isolated frames", () => {
   });
 
   test("what its hub lists reaches its own space's sessions, and no other", TAGS, async ({ page }) => {
+    // One in its second space (its board's left column counts the first), and one elsewhere.
     const api = await connect(backend);
     let own = "";
     let other = "";
     try {
-      own = (await api.call("session.create", { space: SPACE, project_root: api.project })).session_id;
+      own = (await api.call("session.create", { space: SHOWCASE_CHATS, project_root: api.project })).session_id;
       other = (await api.call("session.create", { project_root: api.project })).session_id;
     } finally {
       api.close();
@@ -151,10 +152,11 @@ test.describe("an application in isolated frames", () => {
         },
         [method, params] as const,
       );
-    // The session list is its own space's, asked for or not.
-    const listed = JSON.stringify(await ask("harnix.sessions", {}));
+    // The session list is its own spaces': the frame's own when it names none.
+    const listed = JSON.stringify(await ask("harnix.sessions", { space: SHOWCASE_CHATS }));
     expect(listed).toContain(own);
     expect(listed).not.toContain(other);
+    expect(JSON.stringify(await ask("harnix.sessions", {}))).not.toContain(other);
     expect(await ask("harnix.sessions", { space: "example.elsewhere" })).toMatchObject({ code: "refused" });
     // A session of its own space it may read; one elsewhere it is refused, though the page could.
     expect((await ask("session.get", { instance: "system", session_id: own })).ok).toBeTruthy();
@@ -193,11 +195,10 @@ test.describe("an application in isolated frames", () => {
     await expect(surface.getByTestId("surface-reason")).toContainText(/navigated|跳转/);
     expect(await page.evaluate(() => (window as any).srcs)).toContain("about:blank");
     await expect(page.locator(`iframe.hx-frame[data-app="${SHOWCASE_ID}"][data-point="space"]`)).toHaveCount(0);
-    // Nothing of where it went keeps running in the shell.
-    const seen = reached.length;
+    // Where it went was never reached: the page's own `frame-src 'self'` keeps a frame's navigation
+    // to this origin, so what it carried in the address goes nowhere else.
     await page.waitForTimeout(500);
-    expect(reached.length, `reached: ${JSON.stringify(reached)}`).toBe(seen);
-    console.log(`navigated frame reached: ${JSON.stringify(reached)}`);
+    expect(reached, "the frame reached another host").toEqual([]);
     // On the record: the Apps tab's count of its interface's failures, and Diagnostics.
     const failures = await page.evaluate(() => (window as any).harnix.app.registry.refusals().filter((r: any) => r.point === "surface" && r.owner === "example.showcase"));
     expect(failures.length).toBeGreaterThanOrEqual(1);

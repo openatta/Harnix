@@ -10,7 +10,8 @@
  * page opens through the bridge's `openLink`, which the shell asks the person about). Forms are
  * allowed because without it a form's `submit` event never fires, and a page's own forms are how
  * it takes input; its policy's `form-action 'none'` is what keeps one from submitting anywhere. The
- * frame can still navigate itself: the bridge empties it when it does (`bridge.ts`).
+ * frame can still navigate itself, within this origin (the page's `frame-src 'self'`): the bridge
+ * empties it when it does (`bridge.ts`).
  */
 
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";

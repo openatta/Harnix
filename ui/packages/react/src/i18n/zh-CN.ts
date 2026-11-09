@@ -456,7 +456,7 @@ const zhCN: Record<string, string> = {
   "apps.cap.frames": "显示它自己的页面（隔离）",
   "apps.cap.why.net_local": "Harnix 自己就在那里监听，你的别的服务也可能在。",
   "apps.cap.why.events": "运行的命令、写的文件：Agent 做什么，它都看得到。",
-  "apps.cap.why.frames": "页面不能联网，但能把自己导航走，带走它看到的东西。",
+  "apps.cap.why.frames": "页面只经外壳拿东西，自己导航走的会被撤下。",
   "apps.cap.why.ui_hub": "它以这个页面的身份去做，只涉及它自己 space 里的东西。",
   "settings.devices": "已配对的设备",
   "settings.devicesHint": "远程访问需要配对过的设备。绑在非回环地址上时，光有 token 不够。",

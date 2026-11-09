@@ -458,7 +458,7 @@ const en: Record<string, string> = {
   "apps.cap.frames": "Show its own pages, isolated",
   "apps.cap.why.net_local": "Harnix itself listens there, and so may other services of yours.",
   "apps.cap.why.events": "The commands it runs, the files it writes: what the agent does, the application sees.",
-  "apps.cap.why.frames": "A page cannot reach the network, but it can navigate itself away — and take what it was shown with it.",
+  "apps.cap.why.frames": "They reach nothing but through the shell, and one that navigates away is taken down.",
   "apps.cap.why.ui_hub": "It acts as this page, on what its own space holds.",
   "settings.devices": "Paired devices",
   "settings.devicesHint": "Remote access needs a paired device. Bound to anything but loopback, the token alone is not enough.",

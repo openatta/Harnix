@@ -324,9 +324,11 @@ world backend-app-events { include backend-app; export events; }
 - **iframe**：`sandbox="allow-scripts allow-forms"`，不给 `allow-same-origin`（不透明源，读不到页面的令牌、存储与 cookie），不给
   `allow-popups`、`allow-top-navigation`（外链只经 `openLink`）。`allow-forms` 不是多余的：没有它，表单的 `submit` 事件根本不触发，
   页面自己的表单就收不了输入；表单能提交到哪里由 CSP 的 `form-action 'none'` 管（哪里都不能）。
-- **iframe 能自己导航走。** 沙箱与 CSP 都挡不住页面 `location = "https://…"` 把自己换掉，地址里可以带着它拿到的数据：所以
-  `net = []` **不等于**「数据出不去」——它经桥拿到的、后端推给它的，都可能这样带出去。外壳在 iframe 第二次加载时立刻把它清空（`about:blank`），
-  记一次界面失败（应用页签、诊断里都看得到），但那时请求已经发出去了。装的时候，有页面的应用披露里有这一行（`frames`）。
+- **iframe 能自己导航走，但出不了这个源。** 沙箱与 iframe 自己的 CSP 都挡不住页面 `location = "…"` 把自己换掉；挡住它的是外壳页面的
+  CSP `frame-src 'self'`：iframe 的导航也按它查，别的主机一个请求都不发（LIVE 钉着这一点），所以页面没法把它拿到的东西放进地址带去别处。
+  它还能导航到 Harnix 自己的路径（地址只到这个 Harnix）。外壳在 iframe 第二次加载时立刻把它清空（`about:blank`），记一次界面失败
+  （应用页签、诊断里都看得到）。这条边界靠的是外壳页面的 CSP：把外壳嵌进别的页面、换掉这条策略的产品，要自己守住它。
+  装的时候，有页面的应用披露里有这一行（`frames`）。
 - **CSP**：`/apps/<id>/ui/` 下的每个文件带 `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:;
   font-src 'self'; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'`。**`connect-src 'none'`**：
   页面不能联网，数据只走桥。页面是不透明源，所以用经典脚本（`<script src>`）：模块脚本要 CORS。
@@ -433,7 +435,7 @@ app.onEnv((env) => (document.documentElement.dataset.theme = env.theme));
   `SIGNATURES`；目录里的能力与钥只是在下载之前给人看的。每次问都重读目录。
 - **装**：`harnix.apps.install {id, version?}` 分两步。第一次答**披露**（发布者、签名、版本、要的每一项能力、界面能调的名字、是否进页面、
   行内点会知道什么；`net_local`——它能访问这台机器或局域网上的服务、`events`——它会看到每一次工具调用的名字与参数、
-  `frames`——它的页面能把自己导航走、带走它看到的，各是一行）与一个 digest，不装；带上 `consent: <digest>` 再调一次才装。要装的东西在这之间变了（包、签名、要替换的版本），就重新披露。
+  `frames`——它有自己的页面，隔离着跑，各是一行）与一个 digest，不装；带上 `consent: <digest>` 再调一次才装。要装的东西在这之间变了（包、签名、要替换的版本），就重新披露。
   同意是无状态的：第二次调用重新下载、重新验签。
 - **装的顺序**：验签 → 解包到 `~/.<product_id>/apps/<id>/<version>/` → 把 `agent/` 装进声明的实例、拷 skill → 登记方法、主题、space →
   加载组件、后端 `init` → 发界面。任何一步失败整体回滚，只停这一个应用。

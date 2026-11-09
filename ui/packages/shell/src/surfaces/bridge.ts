@@ -4,10 +4,9 @@
  * The frame is handed a `MessageChannel` port once, when its page first loads, and that port is
  * the only thing the shell listens to for it: no window message is ever read. A second load is
  * the page going away (it navigated, or was replaced): the frame has failed, and is emptied at
- * once (`about:blank`) rather than left showing — and running — whatever it went to. Nothing
- * stops the navigation itself, and the address it went to may carry what the page was shown:
- * that is said where the application is installed, and the failure is on the Apps tab's record.
- * So has one that does
+ * once (`about:blank`) rather than left showing — and running — whatever it went to, and the
+ * failure is on the Apps tab's record. Where it may go at all is the page's own `frame-src 'self'`:
+ * this origin, so the address it went to carries nothing to anyone else. So has one that does
  * not say hello in time (`HELLO_MS`), and one that stops answering the heartbeat (`PING_MS`,
  * `MISSES`) — which only a browser that runs sandboxed frames apart from the page can notice: where
  * the frame shares the page's thread, a page that hangs hangs the shell with it.
