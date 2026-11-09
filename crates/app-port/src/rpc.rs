@@ -1,9 +1,11 @@
-//! The port as names and JSON: each method of [`Platform`] and [`Control`] is a name and one
-//! JSON value, answered by one JSON value or an [`RpcError`].
+//! The port as names and JSON: each method of [`Kernel`], [`Agent`] and [`Control`] is a name and
+//! one JSON value, answered by one JSON value or an [`RpcError`].
 //!
-//! [`serve_platform`] and [`serve_control`] answer a call so named on whatever implements the
-//! trait; [`PlatformClient`] and [`ControlClient`] implement the trait by sending each call to a
-//! [`Wire`]. A link between two processes is a `Wire`; under the `loopback` feature [`Loopback`] is
+//! [`serve_kernel`], [`serve_agent`] and [`serve_control`] answer a call so named on whatever
+//! implements the trait; [`KernelClient`], [`AgentClient`] and [`ControlClient`] implement the
+//! trait by sending each call to a [`Wire`]. (An edition with a process per application carries
+//! `Kernel` and `Control` over its link; its `Agent` is beside the host, and needs no wire. The
+//! wire for it is here so a test can prove its values survive one too.) A link between two processes is a `Wire`; under the `loopback` feature [`Loopback`] is
 //! one that goes nowhere — each call is encoded to text, decoded, answered by the target, and its
 //! answer encoded and decoded again — so a test run through it proves every argument and answer
 //! survives the trip.
@@ -70,13 +72,17 @@ macro_rules! wire {
     };
 }
 
-wire!(Platform, PlatformClient, serve_platform, {
+wire!(Kernel, KernelClient, serve_kernel, {
     register(Registration) -> ();
     withdraw(String) -> ();
     call(CallAs) -> Value;
     publish(Publish) -> ();
     subscribe(Subscription) -> Value;
     unsubscribe(Subscription) -> ();
+    progress(Progress) -> ();
+});
+
+wire!(Agent, AgentClient, serve_agent, {
     has_instance(String) -> bool;
     install_agent(AgentInstall) -> Value;
     uninstall_agent(AgentRef) -> ();
@@ -85,7 +91,6 @@ wire!(Platform, PlatformClient, serve_platform, {
     remove_skills(Skills) -> ();
     reload_instance(String) -> ();
     expose_tools(Offer) -> ();
-    progress(Progress) -> ();
 });
 
 wire!(Control, ControlClient, serve_control, {
@@ -111,7 +116,8 @@ mod loopback {
     use super::*;
 
     enum Target {
-        Platform(Arc<dyn Platform>),
+        Kernel(Arc<dyn Kernel>),
+        Agent(Arc<dyn Agent>),
         Control(Arc<dyn Control>),
     }
 
@@ -122,9 +128,14 @@ mod loopback {
     }
 
     impl Loopback {
-        /// `platform`, as a host sees it across a wire.
-        pub fn platform(platform: Arc<dyn Platform>) -> Arc<PlatformClient> {
-            Arc::new(PlatformClient(Arc::new(Self::new(Target::Platform(platform)))))
+        /// `kernel`, as a host sees it across a wire.
+        pub fn kernel(kernel: Arc<dyn Kernel>) -> Arc<KernelClient> {
+            Arc::new(KernelClient(Arc::new(Self::new(Target::Kernel(kernel)))))
+        }
+
+        /// `agent`, as a host would see it across a wire.
+        pub fn agent(agent: Arc<dyn Agent>) -> Arc<AgentClient> {
+            Arc::new(AgentClient(Arc::new(Self::new(Target::Agent(agent)))))
         }
 
         /// `control`, as a product sees it across a wire.
@@ -153,7 +164,8 @@ mod loopback {
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let params = trip(&params);
             let answer = match &self.target {
-                Target::Platform(p) => serve_platform(p.as_ref(), method, params).await,
+                Target::Kernel(k) => serve_kernel(k.as_ref(), method, params).await,
+                Target::Agent(a) => serve_agent(a.as_ref(), method, params).await,
                 Target::Control(c) => serve_control(c.as_ref(), method, params).await,
             };
             trip(&answer)
@@ -173,12 +185,13 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
-    /// A platform that keeps what it was told, and answers what a subscription would.
+    /// A kernel and an agent engine that keep what they were told, and answer what a subscription
+    /// would.
     #[derive(Default)]
     struct Kept(Mutex<Vec<String>>);
 
     #[async_trait]
-    impl Platform for Kept {
+    impl Kernel for Kept {
         async fn register(&self, r: Registration) -> Result<(), RpcError> {
             self.0.lock().unwrap().push(format!("register {} {}", r.app, r.methods.len()));
             Ok(())
@@ -198,6 +211,13 @@ mod tests {
         async fn unsubscribe(&self, _: Subscription) -> Result<(), RpcError> {
             Ok(())
         }
+        async fn progress(&self, _: Progress) -> Result<(), RpcError> {
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl Agent for Kept {
         async fn has_instance(&self, instance: String) -> Result<bool, RpcError> {
             Ok(instance == "system")
         }
@@ -223,15 +243,13 @@ mod tests {
             self.0.lock().unwrap().push(format!("offer {} {}", o.app, o.tools.len()));
             Ok(())
         }
-        async fn progress(&self, _: Progress) -> Result<(), RpcError> {
-            Ok(())
-        }
     }
 
     #[tokio::test]
     async fn every_call_and_answer_survives_the_trip() {
         let kept = Arc::new(Kept::default());
-        let wire = Loopback::platform(kept.clone());
+        let wire = Loopback::kernel(kept.clone());
+        let agent = Loopback::agent(kept.clone());
         let registration = Registration {
             app: "acme.notes".into(),
             methods: vec![MethodDecl {
@@ -253,12 +271,12 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(answer["params"]["n"], serde_json::json!(1));
-        assert!(wire.has_instance("system".into()).await.unwrap());
-        assert!(!wire.has_instance("other".into()).await.unwrap());
+        assert!(agent.has_instance("system".into()).await.unwrap());
+        assert!(!agent.has_instance("other".into()).await.unwrap());
         let refused = wire.withdraw("acme.notes".into()).await.unwrap_err();
         assert_eq!(refused.code, harnix_contract::codes::REFUSED);
         assert!(refused.message.contains("never here"));
-        wire.expose_tools(Offer {
+        agent.expose_tools(Offer {
             app: "acme.notes".into(),
             title: None,
             version: "1.0.0".into(),
@@ -276,14 +294,19 @@ mod tests {
         .unwrap();
         assert_eq!(*kept.0.lock().unwrap(), ["register acme.notes 1", "offer acme.notes 1"]);
         // A name the port does not have, and a value it does not take, are errors, not panics.
-        let platform: &dyn Platform = kept.as_ref();
+        let kernel: &dyn Kernel = kept.as_ref();
         assert_eq!(
-            serve_platform(platform, "format", Value::Null).await.unwrap_err().code,
+            serve_kernel(kernel, "format", Value::Null).await.unwrap_err().code,
             harnix_contract::codes::METHOD_NOT_FOUND
         );
         assert_eq!(
-            serve_platform(platform, "call", serde_json::json!(3)).await.unwrap_err().code,
+            serve_kernel(kernel, "call", serde_json::json!(3)).await.unwrap_err().code,
             harnix_contract::codes::INVALID_PARAMS
+        );
+        // Each trait answers its own names only: the agent engine's are not the kernel's.
+        assert_eq!(
+            serve_kernel(kernel, "has_instance", serde_json::json!("system")).await.unwrap_err().code,
+            harnix_contract::codes::METHOD_NOT_FOUND
         );
     }
 

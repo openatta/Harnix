@@ -2,7 +2,7 @@
 //!
 //! The VM has already checked every request against the application's declared `net` before it
 //! gets here; this is what serves the requests that passed. (`host.call`, `publish` and
-//! `subscribe` go through the platform: `bridge.rs`.)
+//! `subscribe` go through the kernel: `bridge.rs`.)
 
 use std::time::Duration;
 

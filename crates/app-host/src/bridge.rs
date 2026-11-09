@@ -2,7 +2,7 @@
 //! it is counted by.
 //!
 //! An application reaches the product, and the product reaches it, through the registration the
-//! host makes for it ([`Platform::register`]). That registration is everything the application is
+//! host makes for it ([`Kernel::register`]). That registration is everything the application is
 //! to the rest of the product:
 //!
 //! - **Its methods** (`[[method]]`, `app.<id>.<name>`) are declared with the principals the
@@ -12,7 +12,7 @@
 //! - **Its topics** (`[[topic]]`) are the only ones `host.publish` reaches, in the order the
 //!   backend published them.
 //! - **Its `hub` capability** is what `host.call` and `host.subscribe` may reach as
-//!   `module:<id>`; the platform decides, grants and audits. Whatever it refuses is kept here too,
+//!   `module:<id>`; the kernel decides, grants and audits. Whatever it refuses is kept here too,
 //!   for the system space.
 //! - **Its spaces** (`[[space]]`) are listed with every other.
 //!
@@ -28,7 +28,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use async_trait::async_trait;
-use harnix_app_port::{CallAs, Failure, Platform, Publish, RpcError, Subject, Subscription};
+use harnix_app_port::{CallAs, Failure, Kernel, Publish, RpcError, Subject, Subscription};
 use harnix_wasm::{AppHost, AppVm, CallFailure, WeakAppVm};
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot};
@@ -37,7 +37,7 @@ use harnix_app_port::codes;
 
 /// Refused calls kept per application for the system space.
 const REFUSALS_KEPT: usize = 20;
-/// Publishes waiting for the platform, and topic values waiting for the backend's VM to start.
+/// Publishes waiting for the kernel, and topic values waiting for the backend's VM to start.
 /// Past this the application (or the hub, for what it subscribed to) is outrunning what takes them,
 /// and dropping — counted — beats growing without bound.
 pub(crate) const QUEUE: usize = 256;
@@ -139,17 +139,17 @@ impl Stats {
     }
 }
 
-/// What the application's VM is lent: the platform behind `call`, `publish` and `subscribe`, the
+/// What the application's VM is lent: the kernel behind `call`, `publish` and `subscribe`, the
 /// secrets the profile gives it, and the queue its subscriptions' values wait in until the VM has
 /// started.
 pub struct Bridge {
     app: String,
-    platform: Arc<dyn Platform>,
+    kernel: Arc<dyn Kernel>,
     /// `[[topic]]`: all `host.publish` may reach.
     topics: BTreeSet<String>,
     /// `[apps.secrets."<id>"]`: what `host.secret` reads, for a name `env` declares.
     secrets: BTreeMap<String, String>,
-    /// Publishes, in the order the backend made them, to one task that hands them to the platform.
+    /// Publishes, in the order the backend made them, to one task that hands them to the kernel.
     publish: mpsc::Sender<(String, Value)>,
     /// Topic values for the backend's `on-topic`, held until its VM has started.
     topic_values: mpsc::Sender<(String, Value)>,
@@ -163,7 +163,7 @@ impl Bridge {
         app: &str,
         topics: impl IntoIterator<Item = String>,
         secrets: BTreeMap<String, String>,
-        platform: Arc<dyn Platform>,
+        kernel: Arc<dyn Kernel>,
         generation: Arc<AtomicU64>,
     ) -> Arc<Self> {
         let (publish, mut publish_rx) = mpsc::channel::<(String, Value)>(QUEUE);
@@ -182,7 +182,7 @@ impl Bridge {
             }
         });
         {
-            let (app, platform, stats) = (app.to_string(), platform.clone(), stats.clone());
+            let (app, kernel, stats) = (app.to_string(), kernel.clone(), stats.clone());
             tokio::spawn(async move {
                 while let Some((topic, value)) = publish_rx.recv().await {
                     let publish = Publish {
@@ -190,7 +190,7 @@ impl Bridge {
                         topic: topic.clone(),
                         value,
                     };
-                    match platform.publish(publish).await {
+                    match kernel.publish(publish).await {
                         Ok(()) => stats.counted().published += 1,
                         // Withdrawn under it: nothing more can be published.
                         Err(e) => tracing::debug!(%app, %topic, error = %e.message, "not published"),
@@ -200,7 +200,7 @@ impl Bridge {
         }
         Arc::new(Self {
             app: app.to_string(),
-            platform,
+            kernel,
             topics: topics.into_iter().collect(),
             secrets,
             publish,
@@ -210,7 +210,7 @@ impl Bridge {
         })
     }
 
-    /// A value on a topic it subscribed to, from the platform.
+    /// A value on a topic it subscribed to, from the kernel.
     pub fn deliver(&self, topic: String, value: Value) {
         self.queue_value(topic, value);
     }
@@ -236,7 +236,7 @@ impl AppHost for Bridge {
         // On the same task, so a call that routes back into this backend is recognized by the VM
         // and refused rather than waiting for itself.
         let outcome = self
-            .platform
+            .kernel
             .call(CallAs {
                 app: self.app.clone(),
                 method: method.to_string(),
@@ -272,7 +272,7 @@ impl AppHost for Bridge {
 
     async fn subscribe(&self, _app: &str, topic: &str, params: &Value) -> Result<(), String> {
         let outcome = self
-            .platform
+            .kernel
             .subscribe(Subscription {
                 app: self.app.clone(),
                 topic: topic.to_string(),
@@ -281,7 +281,7 @@ impl AppHost for Bridge {
             .await;
         self.stats.hub(&format!("topic:{topic}"), &outcome);
         let answer = outcome.map_err(|e| e.message)?;
-        // The value now, as any subscriber is given it; every later one comes from the platform.
+        // The value now, as any subscriber is given it; every later one comes from the kernel.
         let value = &answer["value"];
         if !value.is_null() {
             self.queue_value(topic.to_string(), value.clone());
@@ -291,7 +291,7 @@ impl AppHost for Bridge {
 
     async fn unsubscribe(&self, _app: &str, topic: &str, params: &Value) {
         let _ = self
-            .platform
+            .kernel
             .unsubscribe(Subscription {
                 app: self.app.clone(),
                 topic: topic.to_string(),
@@ -397,11 +397,11 @@ pub(crate) fn unavailable(app: &str, method: &str, why: &str, failure: &str) -> 
 mod tests {
     use super::*;
 
-    /// A platform that never takes a publish: one the application outruns.
+    /// A kernel that never takes a publish: one the application outruns.
     struct Stuck;
 
     #[async_trait]
-    impl Platform for Stuck {
+    impl Kernel for Stuck {
         async fn publish(&self, _: Publish) -> Result<(), RpcError> {
             std::future::pending().await
         }
@@ -420,30 +420,6 @@ mod tests {
         async fn unsubscribe(&self, _: Subscription) -> Result<(), RpcError> {
             unreachable!()
         }
-        async fn has_instance(&self, _: String) -> Result<bool, RpcError> {
-            unreachable!()
-        }
-        async fn install_agent(&self, _: harnix_app_port::AgentInstall) -> Result<Value, RpcError> {
-            unreachable!()
-        }
-        async fn uninstall_agent(&self, _: harnix_app_port::AgentRef) -> Result<(), RpcError> {
-            unreachable!()
-        }
-        async fn switch_agent(&self, _: harnix_app_port::AgentSwitch) -> Result<(), RpcError> {
-            unreachable!()
-        }
-        async fn place_skills(&self, _: harnix_app_port::Skills) -> Result<(), RpcError> {
-            unreachable!()
-        }
-        async fn remove_skills(&self, _: harnix_app_port::Skills) -> Result<(), RpcError> {
-            unreachable!()
-        }
-        async fn reload_instance(&self, _: String) -> Result<(), RpcError> {
-            unreachable!()
-        }
-        async fn expose_tools(&self, _: harnix_app_port::Offer) -> Result<(), RpcError> {
-            unreachable!()
-        }
         async fn progress(&self, _: harnix_app_port::Progress) -> Result<(), RpcError> {
             unreachable!()
         }
@@ -458,7 +434,7 @@ mod tests {
                 refused.push(e);
             }
         }
-        // The queue, and at most one taken off it and stuck in the platform.
+        // The queue, and at most one taken off it and stuck in the kernel.
         assert!((9..=10).contains(&refused.len()), "{}", refused.len());
         assert!(refused[0].starts_with("dropped"), "{}", refused[0]);
         assert_eq!(bridge.stats.report()["dropped"]["publishes"], json!(refused.len()));

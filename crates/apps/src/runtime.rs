@@ -2,7 +2,7 @@
 //! [`Runtime`], the `harnix_builtin::apps::AppsRuntime` the `apps` module drives.
 //!
 //! The applications run in a `harnix_app_host::Host` — one VM each, in this process — which this
-//! drives through its `Control` and lends this process through its `Platform`
+//! drives through its `Control` and lends this process through its `Kernel` and `Agent`
 //! (`platform.rs`). What is running is in a [`Registry`] the plugin (`plugin.rs`) and the HTTP
 //! side (`serve.rs`) read: an application is in it exactly while its tools are on offer and its
 //! interface is served. Every change to it is told to whoever assembled the process
@@ -249,6 +249,7 @@ impl Runtime {
                 secrets: options.secrets,
                 idle: options.idle,
             },
+            platform.clone(),
             platform.clone(),
         )?;
         let control: Arc<dyn Control> = host.clone();

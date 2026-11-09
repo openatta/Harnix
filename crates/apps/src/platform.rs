@@ -1,4 +1,5 @@
-//! The host's [`Platform`], over this process's kernel: what an application embedded here is lent.
+//! The host's [`Kernel`] and [`Agent`], over this process's kernel and its Agix: what an
+//! application embedded here is lent.
 //!
 //! - **Its names** are registered with the kernel's application host
 //!   (`harnix_module::AppHost`), under the `apps` module: each `[[method]]` a row in the
@@ -10,7 +11,7 @@
 //! - **Its agent side** is this process's Agix: its agent package installed into the instances its
 //!   manifest names (`plugin.install` and friends), its skills copied into each one's skills
 //!   directory, marked as its own, and its tools in every session built here ([`crate::AppsPlugin`]
-//!   reads what [`Platform::expose_tools`] offered).
+//!   reads what [`Agent::expose_tools`] offered).
 //!
 //! The kernel is reached through the `apps` module's context, which every call of the
 //! `AppsRuntime` hands in; nothing here reaches it before the module has.
@@ -23,8 +24,8 @@ use async_trait::async_trait;
 use harnix_app_package::acquire::{internal, refused};
 use harnix_app_package::package;
 use harnix_app_port::{
-    AgentInstall, AgentRef, AgentSwitch, CallAs, Control, MethodCall, Offer, Platform, Progress,
-    Publish, Registration, Skills, Subscription, TopicValue,
+    Agent, AgentInstall, AgentRef, AgentSwitch, CallAs, Control, Kernel, MethodCall, Offer,
+    Progress, Publish, Registration, Skills, Subscription, TopicValue,
 };
 use harnix_contract::{codes, RpcError, Subject};
 use harnix_module::{
@@ -200,7 +201,7 @@ fn principals(app: &str, method: &str, subjects: &[String]) -> Result<Vec<Princi
 }
 
 #[async_trait]
-impl Platform for KernelPlatform {
+impl Kernel for KernelPlatform {
     async fn register(&self, r: Registration) -> Result<(), RpcError> {
         // Before anything is registered, and whether or not there is a host to register with.
         for m in &r.methods {
@@ -273,6 +274,15 @@ impl Platform for KernelPlatform {
     async fn unsubscribe(&self, s: Subscription) -> Result<(), RpcError> {
         self.handle(&s.app)?.unsubscribe(&s.topic, s.params).await
     }
+
+    async fn progress(&self, p: Progress) -> Result<(), RpcError> {
+        self.registry.told(&p.call_id, &p.text);
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl Agent for KernelPlatform {
 
     async fn has_instance(&self, instance: String) -> Result<bool, RpcError> {
         Ok(self.cx()?.instance(&instance).is_some())
@@ -367,11 +377,6 @@ impl Platform for KernelPlatform {
 
     async fn expose_tools(&self, offer: Offer) -> Result<(), RpcError> {
         self.registry.offer(offer);
-        Ok(())
-    }
-
-    async fn progress(&self, p: Progress) -> Result<(), RpcError> {
-        self.registry.told(&p.call_id, &p.text);
         Ok(())
     }
 }

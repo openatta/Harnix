@@ -6,14 +6,15 @@
 //! then queued for the resident backend), its tools (an instance per call, cancellable, with
 //! progress), its event hook, and the values of what its backend subscribed to. An on-demand
 //! backend hibernates while idle, and the next call starts it again (`idle.rs`). Everything it
-//! needs from outside is [`harnix_app_port::Platform`]: registering the application's names, what
-//! it does as itself (`host.call`, `publish`, `subscribe`), the agent engine its tools and agent
-//! package go to.
+//! needs from outside is two things: [`harnix_app_port::Kernel`] — registering the application's
+//! names, what it does as itself (`host.call`, `publish`, `subscribe`), a tool call's progress —
+//! and [`harnix_app_port::Agent`], the agent engine its tools and agent package go to.
 //!
 //! It reads packages with `harnix-app-package` and nothing else of the product: no kernel, no
 //! hub, no agent engine, no HTTP framework. So the same host runs embedded in a product's process
-//! (`harnix-apps` lends it a platform over the kernel) or in a process of its own, with the port
-//! carried over a link; its tests run it through `harnix_app_port::rpc::Loopback`.
+//! (`harnix-apps` lends it both over the kernel and this process's Agix) or in a process of its
+//! own, with the kernel carried over a link and an agent engine of its own; its tests run it
+//! through `harnix_app_port::rpc::Loopback`.
 //!
 //! An application's own HTTP (`host.http-request`, already checked against its `net`) goes out
 //! from wherever the host runs ([`http`]).
