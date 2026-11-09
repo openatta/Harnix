@@ -518,3 +518,24 @@ fn tasks_sharing_a_session_must_be_opened_alike() {
         "{ps:#?}"
     );
 }
+
+/// What a station's work is made of, whatever its shape: the one place that says it.
+#[test]
+fn a_stations_task_specs_are_its_work_whatever_its_shape() {
+    let def = FlowDef::parse(
+        "{name: f, stations: [\
+           {id: one, executor: {kind: program, step: collect}, skill: s},\
+           {id: many, tasks: [{id: x, executor: {kind: external}}, {id: y, executor: {kind: program, step: work}}]},\
+           {id: each, foreach: '${inputs.items}', executor: {kind: program, step: work}},\
+           {id: check, exit: [{kind: confirm}]}]}",
+    )
+    .unwrap();
+    let ids = |s: &str| -> Vec<String> {
+        def.station(s).unwrap().task_specs().into_iter().map(|t| t.id).collect()
+    };
+    assert_eq!(ids("one"), ["one"]);
+    assert_eq!(def.station("one").unwrap().task_specs()[0].skill.as_deref(), Some("s"));
+    assert_eq!(ids("many"), ["x", "y"]);
+    assert_eq!(ids("each"), ["each"], "a foreach station's tasks share its one template");
+    assert!(ids("check").is_empty(), "a checkpoint has none");
+}

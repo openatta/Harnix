@@ -196,12 +196,7 @@ fn shared_session_problems(c: &mut Ctx) {
     // group → the first (station, task, settings) seen
     let mut first: BTreeMap<String, (String, String, SessionSettings)> = BTreeMap::new();
     for s in &def.stations {
-        let specs = match s.work() {
-            Work::None => vec![],
-            Work::One(t) | Work::Foreach { task: t, .. } => vec![t],
-            Work::Tasks(ts) => ts,
-        };
-        for t in specs {
+        for t in s.task_specs() {
             let Executor::Session {
                 scene,
                 model,
@@ -355,11 +350,7 @@ fn station_problems(c: &mut Ctx, s: &Station, cyclic: bool) {
             }
         }
     }
-    let specs: Vec<TaskSpec> = match &work {
-        Work::None => vec![],
-        Work::One(t) | Work::Foreach { task: t, .. } => vec![t.clone()],
-        Work::Tasks(ts) => ts.clone(),
-    };
+    let specs = work.clone().into_specs();
     for t in &specs {
         executor_problems(c, id, t);
     }
@@ -623,12 +614,7 @@ fn needs_output(c: &mut Ctx, id: &str, task: &str, kind: &str) {
 /// The flow's `main`: a scene that hands in with `flow_submit`, and a place that exists.
 fn main_problems(c: &mut Ctx) {
     let uses_main = c.def.stations.iter().any(|s| {
-        let specs = match s.work() {
-            Work::None => vec![],
-            Work::One(t) | Work::Foreach { task: t, .. } => vec![t],
-            Work::Tasks(ts) => ts,
-        };
-        specs.iter().any(|t| t.executor.in_main())
+        s.task_specs().iter().any(|t| t.executor.in_main())
     });
     let m = c.def.main.clone().unwrap_or_default();
     let scene = m.scene.clone().or_else(|| c.catalog.main_scene.clone());
@@ -756,12 +742,7 @@ fn subflow_cycle(packs: &dyn Packs, root: &str, start: &str) -> Option<Vec<Strin
     fn children(def: &FlowDef) -> Vec<String> {
         let mut out = vec![];
         for s in &def.stations {
-            let specs = match s.work() {
-                super::def::Work::None => vec![],
-                super::def::Work::One(t) | super::def::Work::Foreach { task: t, .. } => vec![t],
-                super::def::Work::Tasks(ts) => ts,
-            };
-            for t in specs {
+            for t in s.task_specs() {
                 if let Executor::Subflow { flow, .. } = t.executor {
                     out.push(flow);
                 }

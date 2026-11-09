@@ -14,7 +14,7 @@ name = "harnix_flow"
 # The Harnix module (`Flow`): sessions, programs, native tools, methods, topics. Off, the crate is
 # the pure kernel with its stores and packs and links nothing of Harnix or Agix.
 default = ["module"]
-module  = ["dep:harnix-module", "dep:harnix-contract", "dep:base", "dep:scene", "dep:anyhow", "dep:reqwest", "dep:tokio-util"]
+module  = ["dep:harnix-module", "dep:harnix-contract", "dep:base", "dep:scene", "dep:anyhow", "dep:reqwest", "dep:tokio-util", "dep:futures"]
 
 [dependencies]
 serde       = { workspace = true }
@@ -33,6 +33,8 @@ tracing     = { workspace = true }
 libc        = { workspace = true }
 # The module's tasks, tracked and told to stop.
 tokio-util  = { workspace = true, optional = true }
+# A session task reads its session as a stream of frames.
+futures     = { workspace = true, optional = true }
 harnix-module   = { workspace = true, optional = true }
 harnix-contract = { workspace = true, optional = true }
 base            = { workspace = true, optional = true }
@@ -44,3 +46,5 @@ reqwest         = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# Paused time: a session task's waits run through in an instant.
+tokio    = { workspace = true, features = ["test-util"] }

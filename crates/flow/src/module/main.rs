@@ -19,7 +19,8 @@ use std::sync::Arc;
 use harnix_module::{Entry, SessionRef, SessionSpec, TapEvent};
 use serde_json::{json, Value};
 
-use super::dispatch::{place_at, settle_quiet, SESSION_SETTINGS, TASK_PERMISSION_MODE};
+use super::dispatch::settle_quiet;
+use super::session::{place_at, SESSION_SETTINGS, TASK_PERMISSION_MODE};
 use super::shared::{session_name, session_ref, Binding, Shared};
 use crate::kernel::def::MAIN_SESSION_KEY;
 use crate::kernel::parts::{judge, Call, Effect, Verdict};
@@ -68,7 +69,7 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
             return Ok(s);
         }
     }
-    let (placement, scene) = crate::kernel::txn::main_of(&rec, engine.main_scene());
+    let (placement, scene) = crate::kernel::work::main_of(&rec, engine.main_scene());
     let scene = scene.ok_or("the flow names no main scene and the module has none")?;
     let (space, instance) = place_at(sh, &placement, run).await?;
     let wanted = main_settings(&scene, &placement, placement.template_instance(run).as_deref());
@@ -92,7 +93,7 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
         model: placement.model.clone(),
         provider: placement.provider.clone(),
         permission_mode: Some(TASK_PERMISSION_MODE.into()),
-        permission_rules: Some(super::dispatch::flow_rules(sh, &rec)),
+        permission_rules: Some(super::session::flow_rules(sh, &rec)),
         recording,
         ..SessionSpec::default()
     };

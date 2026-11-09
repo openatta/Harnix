@@ -11,6 +11,7 @@ pub mod refs;
 pub mod run;
 pub mod schema;
 pub(crate) mod txn;
+pub(crate) mod work;
 pub mod validate;
 
 

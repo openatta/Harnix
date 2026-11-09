@@ -435,6 +435,17 @@ pub enum Work {
     },
 }
 
+impl Work {
+    /// The task specs it is made of: a `foreach`'s one template, a checkpoint's none.
+    pub fn into_specs(self) -> Vec<TaskSpec> {
+        match self {
+            Work::None => vec![],
+            Work::One(t) | Work::Foreach { task: t, .. } => vec![t],
+            Work::Tasks(ts) => ts,
+        }
+    }
+}
+
 impl Station {
     /// The work in normalised form. When the fields are combined in a way validation
     /// rejects, `tasks` wins over `executor`.
@@ -455,6 +466,11 @@ impl Station {
             (None, Some(e), None) => Work::One(one(e)),
             (None, None, _) => Work::None,
         }
+    }
+
+    /// Every task spec of its work: a `foreach` station's one template, a checkpoint's none.
+    pub fn task_specs(&self) -> Vec<TaskSpec> {
+        self.work().into_specs()
     }
 
     /// The task template a task id belongs to (foreach tasks share one).
