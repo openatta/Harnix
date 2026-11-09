@@ -86,5 +86,54 @@ for (const [path, source] of sources) {
 if (inline.length) fail(`colors written into components: ${inline.slice(0, 6).join(", ")}`);
 else ok("no colors in inline styles");
 
+/* ── body text is readable: 4.5:1 on what it is read on, in both themes ──── */
+// The token pairs the pages set running text in. A grey that reads as "quiet" on a designer's
+// screen is a grey a good part of the readers cannot read (WCAG AA is 4.5:1 below 18px).
+const tokenSheet = sheets.find(([path]) => path.endsWith(join("react", "src", "tokens.css")))?.[1] ?? "";
+const themes = { light: {}, dark: {} };
+for (const [, selector, body] of tokenSheet.matchAll(/(:root(?:\[data-theme="dark"\])?)\s*\{([^}]*)\}/g)) {
+  const into = selector.includes("dark") ? themes.dark : themes.light;
+  for (const [, name, value] of body.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) into[name] = value.trim();
+}
+themes.dark = { ...themes.light, ...themes.dark };
+const resolve = (theme, name, depth = 0) => {
+  const value = theme[name];
+  const ref = value?.match(/^var\((--[\w-]+)\)$/);
+  return ref && depth < 8 ? resolve(theme, ref[1], depth + 1) : value;
+};
+const luminance = (hex) => {
+  const h = hex.length === 4 ? [...hex.slice(1)].map((c) => c + c).join("") : hex.slice(1);
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contrast = (a, b) => {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+};
+const grounds = ["--bg-base", "--bg-sidebar", "--surface"];
+const pairs = [
+  ...["--label-primary", "--label-secondary", "--label-caption", "--label-tertiary", "--state-info", "--state-warn-label"].flatMap((fg) => grounds.map((bg) => [fg, bg])),
+  ["--label-primary", "--bg-bubble"],
+  ["--label-secondary", "--bg-bubble"],
+  ["--label-caption", "--bg-bubble"],
+  ["--button-primary-label", "--button-primary-fill"],
+];
+const unreadable = [];
+let measured = 0;
+for (const [theme, tokens] of Object.entries(themes)) {
+  for (const [fg, bg] of pairs) {
+    const [a, b] = [resolve(tokens, fg), resolve(tokens, bg)];
+    if (!/^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(a ?? "") || !/^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(b ?? "")) {
+      unreadable.push(`${theme} ${fg} on ${bg}: not a plain colour (${a} on ${b})`);
+      continue;
+    }
+    measured += 1;
+    const ratio = contrast(a, b);
+    if (ratio < 4.5) unreadable.push(`${theme} ${fg} ${a} on ${bg} ${b}: ${ratio.toFixed(2)}:1`);
+  }
+}
+if (unreadable.length) fail(`text tokens under 4.5:1 — ${unreadable.join("; ")}`);
+else ok(`${measured} text/background token pairs, every one at least 4.5:1`);
+
 console.log(process.exitCode ? "\nSTYLE LINT FAILED" : "\nSTYLE LINT PASSED");
 process.exit(process.exitCode || 0);
