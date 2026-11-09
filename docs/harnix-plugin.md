@@ -539,7 +539,8 @@ app.onEnv((env) => (document.documentElement.dataset.theme = env.theme));
 - **升级**：`harnix.apps.update {id, version?, allow_downgrade?}` 到商店最新（或给的）版本。新版只多要了能力时才要同意，披露里只列多出来的那几项；失败留着原版本，
   数据保留。放回原版本会重装它的 Agix 包，安装记录随之改写；原版本也放不回来时，记录标成停用（`enabled: false`），并写下 `reason`。
 - **降级**：给的版本比装着的旧，没有 `allow_downgrade: true` 就拒；有，就披露（`update.downgrade: true`），不管要的能力是多是少都要同意。
-  不给版本的升级只往前走，商店的「最新」比装着的旧时答 `up_to_date`。旧版本可能正是新版本修掉的那个漏洞，所以只有人明说才回去。
+  不给版本的升级只往前走，商店的「最新」比装着的旧时答 `up_to_date`。旧版本可能正是新版本修掉的那个漏洞，所以只有人明说才回去。界面上也一样：设置里商店的最新比装着的旧时，那一行的按钮写「回到 <版本>」，
+  点了带 `allow_downgrade` 去问，披露里那条降级警示同意了才回去。
 - **卸载**：`harnix.apps.uninstall {id}`：停下，撤掉安装放进去的一切（Agix 插件、skill、界面），删掉它的目录，连同数据。
 - **清数据**：`harnix.apps.clearData {id}`：只删它存的东西（数据目录与 kv）；在跑的先停、清完再起（`init` 从空开始）。
 - **从文件装**：`harnix.apps.installFile {path}`：签了的验签后装；未签名的只在 `[apps] dev = true` 时装。
