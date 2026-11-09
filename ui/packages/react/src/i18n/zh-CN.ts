@@ -777,6 +777,15 @@ const zhCN: Record<string, string> = {
   "app.expandSidebar": "展开侧栏（⌘\\）",
   "sidebar.showSessions": "显示会话列表（⌘\\）",
 
+  // ── 系统 space：列头，以及整句的计数 ────────────────────────────────────
+  "system.turns.ttft": "首字",
+  "system.taskCount.running": "{n} 个运行中",
+  "system.taskCount.waiting": "{n} 个等人回答",
+  "system.taskCount.pending": "{n} 个待开始",
+  "system.taskCount.done": "{n} 个已完成",
+  "system.taskCount.failed": "{n} 个失败",
+  "system.taskCount.stopped": "{n} 个已停止",
+
   // ── 会话组件（@harnix/react 的 HarnixUiStrings） ──────────────────────────
   "chat.untitled": "未命名会话",
   "chat.connOpen": "已连接",

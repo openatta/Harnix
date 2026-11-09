@@ -779,6 +779,15 @@ const en: Record<string, string> = {
   "app.expandSidebar": "Expand sidebar (⌘\\)",
   "sidebar.showSessions": "Show the sessions (⌘\\)",
 
+  // ── the system space: a column head, and counts said whole ──────────────
+  "system.turns.ttft": "TTFT",
+  "system.taskCount.running": "{n} running",
+  "system.taskCount.waiting": "{n} waiting on a person",
+  "system.taskCount.pending": "{n} pending",
+  "system.taskCount.done": "{n} done",
+  "system.taskCount.failed": "{n} failed",
+  "system.taskCount.stopped": "{n} stopped",
+
   // ── the conversation components (@harnix/react's HarnixUiStrings) ──────────
   "chat.untitled": "Untitled session",
   "chat.connOpen": "Connected",

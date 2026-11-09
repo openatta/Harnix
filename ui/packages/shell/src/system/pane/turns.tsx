@@ -64,7 +64,7 @@ export function TurnsTab({ app, session }: { app: App; session: SessionKey }) {
           <tr>
             <th>{tr("system.turns.turn")}</th>
             <th>{tr("system.turns.calls")}</th>
-            <th>TTFT</th>
+            <th>{tr("system.turns.ttft")}</th>
             <th>{tr("system.turns.model")}</th>
             <th>{tr("system.turns.tools")}</th>
             <th>{tr("system.turns.inOut")}</th>

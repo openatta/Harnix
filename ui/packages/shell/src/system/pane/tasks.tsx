@@ -99,6 +99,9 @@ export function TaskMessage({ app, params, task }: { app: App; params: { instanc
   );
 }
 
+/** The task states whose count is said as one phrase (`system.taskCount.*`): "3 running", "3 个运行中". */
+const COUNTED = new Set(["running", "waiting", "pending", "done", "failed", "stopped"]);
+
 export function TeamBoard({ teams, tasks }: { teams: Team[]; tasks: Task[] }) {
   const tr = useT();
   if (!teams.length) return null;
@@ -119,7 +122,7 @@ export function TeamBoard({ teams, tasks }: { teams: Team[]; tasks: Task[] }) {
               <span className="nm">{team.team}</span>
               <span className="kd">{tr("system.team.stage", { index: team.stage_index + 1, count: team.stage_count, stage: team.stage })}</span>
               <span className={`kd phase ${team.status}`}>{team.status}</span>
-              <span className="note">{Object.entries(counts).map(([status, n]) => `${tr(`system.taskStatus.${status}`)} ${n}`).join(" · ")}</span>
+              <span className="note">{Object.entries(counts).map(([status, n]) => (COUNTED.has(status) ? tr(`system.taskCount.${status}`, { n }) : `${tr(`system.taskStatus.${status}`)} ${n}`)).join(" · ")}</span>
             </div>
             {team.members.map((member) => (
               <div key={member} className="member" data-member={member} data-status={statusOf(member)}>
