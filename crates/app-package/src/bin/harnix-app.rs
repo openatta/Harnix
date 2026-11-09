@@ -11,7 +11,8 @@
 //! and, on the store's side,
 //!
 //!     harnix-app countersign <package.hxapp> --key <store key file> [--artifact <x.cwasm>]… [-o <out>]
-//!     harnix-app index <store dir> [--name <name>]
+//!     harnix-app index <store dir> --key <store key file> [--name <name>] [--days <n>]
+//!     harnix-app sign-index <index.json> --key <store key file> [--days <n> | --expires <time>]
 //!
 //! `new` lays out an application: its manifest, a component with one tool, the WIT it builds
 //! against. `build` builds the component (`cargo build --release --target wasm32-wasip2` in
@@ -27,7 +28,10 @@
 //! publisher (`[apps.trusted_publishers]`) installs it without dev mode. `countersign` is the
 //! store's: it checks the publisher's signature, adds the components it compiled, and signs the
 //! lot; `index` lists `<store dir>/packages/*.hxapp` as `<store dir>/index.json`, the catalog a
-//! Harnix reads (`[apps] store`).
+//! Harnix reads (`[apps] store`), signed with the store's key and believed for `--days` (14
+//! unless said). `sign-index` signs a catalog again after the store edited it — a version
+//! `revoked`, an application's `min_version` raised — or to republish it before it expires;
+//! `--expires` (`YYYY-MM-DDTHH:MM:SSZ`) says when instead.
 //!
 //! An unsigned package installs only with `[apps] dev = true`.
 
@@ -43,7 +47,9 @@ const USAGE: &str =
                      | keygen <key file> | sign <package> --key <key file> [-o <out>] \
                      | verify <package> [--store-key <hex>]… [--trust <publisher>=<hex>]… \
                      | countersign <package> --key <key file> [--artifact <x.cwasm>]… [-o <out>] \
-                     | index <store dir> [--name <name>] | fingerprint";
+                     | index <store dir> --key <key file> [--name <name>] [--days <n>] \
+                     | sign-index <index.json> --key <key file> [--days <n> | --expires <time>] \
+                     | fingerprint";
 
 /// The WIT a component builds against, written beside it by `new`.
 const WIT: &str = include_str!("../../../wasm/wit/app.wit");
@@ -64,6 +70,7 @@ fn main() -> Result<()> {
         Some("verify") => verify(rest),
         Some("countersign") => countersign(rest),
         Some("index") => index(rest),
+        Some("sign-index") => sign_index(rest),
         _ => bail!(USAGE),
     }
 }
@@ -453,11 +460,23 @@ fn verify(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// `--days <n>`: how long a catalog signed now is believed.
+fn valid_for(args: &Args) -> Result<std::time::Duration> {
+    match args.one(&["--days"]) {
+        None => Ok(harnix_app_package::publish::CATALOG_VALID),
+        Some(days) => {
+            let days: u64 = days.parse().with_context(|| format!("--days {days}: a number of days"))?;
+            Ok(std::time::Duration::from_secs(days * 24 * 3600))
+        }
+    }
+}
+
 fn index(args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &["--name"], &[])?;
+    let args = Args::parse(args, &["--name", "--key", "--days"], &[])?;
     let store = args.positional("store directory")?;
-    let index =
-        harnix_app_package::publish::index(store, args.one(&["--name"])).map_err(anyhow::Error::msg)?;
+    let key = read_key(args.one(&["--key"]).context("--key <store key file>")?)?;
+    let index = harnix_app_package::publish::index(store, args.one(&["--name"]), &key, valid_for(&args)?)
+        .map_err(anyhow::Error::msg)?;
     println!("{}", store.join("index.json").display());
     for app in &index.apps {
         for version in &app.versions {
@@ -474,5 +493,21 @@ fn index(args: &[String]) -> Result<()> {
             );
         }
     }
+    Ok(())
+}
+
+fn sign_index(args: &[String]) -> Result<()> {
+    let args = Args::parse(args, &["--key", "--days", "--expires"], &[])?;
+    let path = args.positional("index.json")?;
+    let key = read_key(args.one(&["--key"]).context("--key <store key file>")?)?;
+    let expires = match args.one(&["--expires"]) {
+        Some(at) => {
+            let secs = harnix_app_package::store::parse_utc(at).map_err(anyhow::Error::msg)?;
+            std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs)
+        }
+        None => std::time::SystemTime::now() + valid_for(&args)?,
+    };
+    let index = harnix_app_package::publish::sign_index(path, &key, expires).map_err(anyhow::Error::msg)?;
+    println!("{} {}", path.display(), index.expires);
     Ok(())
 }

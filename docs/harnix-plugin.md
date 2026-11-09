@@ -431,16 +431,26 @@ app.onEnv((env) => (document.documentElement.dataset.theme = env.theme));
 ## 9. 商店与同意
 
 - **目录**：一份静态的 `index.json`（`https://`，或本机的 `file://`；`http://` 拒），profile 的 `[apps] store`，不写用内置的。列每个应用的版本、
-  `harnix_api`、要的能力、签名的钥、每个引擎指纹一份的包（地址、sha256、大小）。目录只是报价：下载下来的先对它列的 sha256，再对包自己的
+  `harnix_api`、要的能力、签名的钥、每个引擎指纹一份的包（地址、sha256、大小）。下载下来的先对它列的 sha256，再对包自己的
   `SIGNATURES`；目录里的能力与钥只是在下载之前给人看的。每次问都重读目录。
+- **目录要签名，并且会过期**：商店用它的钥（就是副署包的那把，这个 Harnix 带的商店公钥之一）签整份目录（`signature: {key, signature}`，
+  签的是除 `signature` 以外的全部、键排好序的紧凑 JSON），`expires`（`YYYY-MM-DDTHH:MM:SSZ`，UTC）之后不再信。没签、签名的钥不是这里带的、
+  签名对不上、没有 `expires`、过期了，目录一律拒（`catalog`、`install`、`update` 都答 `REFUSED`，说是哪一种）。所以替商店发目录的人
+  （CDN、镜像、中间人）拿一份旧目录冒充，最多冒充到它过期；也删不掉目录里的撤销。`file://` 的目录一样要签。
+- **撤销**：版本可以带 `revoked: "<为什么>"`，应用可以带 `min_version`（商店只支持这个版本及以后）。被撤的、比 `min_version` 旧的版本不再从商店装
+  （按名字点也不行），「最新」跳过它们；已经装着的，`catalog` 在那个应用上标 `installed_revoked`（为什么），安装记录也记下来（`list` 的
+  `revoked`），但不停它——停不停由人定。
+- **下载**：`https://` 的重定向只跟到 `https://`，至多 5 次；reqwest 0.12 缺省是会从 `https://` 跟到 `http://` 的，这里显式换掉了。
 - **装**：`harnix.apps.install {id, version?}` 分两步。第一次答**披露**（发布者、签名、版本、要的每一项能力、界面能调的名字、是否进页面、
   行内点会知道什么；`net_local`——它能访问这台机器或局域网上的服务、`events`——它会看到每一次工具调用的名字与参数、
   `frames`——它有自己的页面，隔离着跑，各是一行）与一个 digest，不装；带上 `consent: <digest>` 再调一次才装。要装的东西在这之间变了（包、签名、要替换的版本），就重新披露。
   同意是无状态的：第二次调用重新下载、重新验签。
 - **装的顺序**：验签 → 解包到 `~/.<product_id>/apps/<id>/<version>/` → 把 `agent/` 装进声明的实例、拷 skill → 登记方法、主题、space →
   加载组件、后端 `init` → 发界面。任何一步失败整体回滚，只停这一个应用。
-- **升级**：`harnix.apps.update {id, version?}` 到商店最新（或给的）版本。新版只多要了能力时才要同意，披露里只列多出来的那几项；失败留着原版本，
+- **升级**：`harnix.apps.update {id, version?, allow_downgrade?}` 到商店最新（或给的）版本。新版只多要了能力时才要同意，披露里只列多出来的那几项；失败留着原版本，
   数据保留。
+- **降级**：给的版本比装着的旧，没有 `allow_downgrade: true` 就拒；有，就披露（`update.downgrade: true`），不管要的能力是多是少都要同意。
+  不给版本的升级只往前走，商店的「最新」比装着的旧时答 `up_to_date`。旧版本可能正是新版本修掉的那个漏洞，所以只有人明说才回去。
 - **卸载**：`harnix.apps.uninstall {id}`：停下，撤掉安装放进去的一切（Agix 插件、skill、界面），删掉它的目录，连同数据。
 - **清数据**：`harnix.apps.clearData {id}`：只删它存的东西（数据目录与 kv）；在跑的先停、清完再起（`init` 从空开始）。
 - **从文件装**：`harnix.apps.installFile {path}`：签了的验签后装；未签名的只在 `[apps] dev = true` 时装。
@@ -461,7 +471,8 @@ app.onEnv((env) => (document.documentElement.dataset.theme = env.theme));
 | `sign <包> --key <钥文件> [-o <out>]` | 以发布者签每一个文件 |
 | `verify <包> [--store-key <hex>]… [--trust <发布者>=<hex>]…` | 验，打印 id、版本与信任等级 |
 | `countersign <包> --key <商店钥> [--artifact <x.cwasm>]… [-o <out>]` | 商店用：查发布者的签名，加编译产物，副署 |
-| `index <商店目录> [--name <名字>]` | 商店用：从 `packages/*.hxapp` 写出 `index.json` |
+| `index <商店目录> --key <商店钥> [--name <名字>] [--days <天数>]` | 商店用：从 `packages/*.hxapp` 写出 `index.json`，签好，`--days` 天后过期（缺省 14） |
+| `sign-index <index.json> --key <商店钥> [--days <天数> \| --expires <时间>]` | 商店用：改过目录（撤一个版本、提高 `min_version`）之后重签；没改也要在过期前重签再发 |
 | `fingerprint` | 打印这个引擎的指纹 |
 
 工具链：`rustup target add wasm32-wasip2`；rustc 的 wasip2 链接器直接出组件，不需要别的工具。
@@ -602,9 +613,9 @@ interface host {
 |---|---|---|---|
 | `list` | — | 快照（下） | |
 | `installFile` | `path` | `{id, version, title, enabled, trust, source: "file", installed}` | 未签名的要 `[apps] dev = true`；同 id 已装就拒（先卸载）；全有或全无 |
-| `catalog` | — | `{name, store, fingerprint, apps: [{id, title, publisher, description, latest, installable, capabilities, versions: [{version, harnix_api, installable, engines}], installed?}]}` | `installed` 是这里装着的版本 |
+| `catalog` | — | `{name, expires, store, fingerprint, apps: [{id, title, publisher, description, min_version, latest, installable, capabilities, versions: [{version, harnix_api, installable, revoked, engines}], installed?, installed_revoked?}]}` | 目录没签、签名不对、过期都拒；`installed` 是这里装着的版本，`installed_revoked` 是商店撤了它的理由（没撤是 `null`），也记进安装记录 |
 | `install` | `id`，`version?`，`consent?` | 第一次（或同意过期）：`{id, version, consent: "required", digest, disclosure, changed}`；同意对得上：`{id, version, title, enabled: true, trust, source: "store", installed}` | 已装就拒（用 `update`）；全有或全无 |
-| `update` | `id`，`version?`，`consent?` | 已是最新：`{id, version, latest, up_to_date: true}`；多要能力：同 `install` 的第一步；否则 `{id, version, from, title, enabled, trust, updated}` | 数据保留，失败放回原版本 |
+| `update` | `id`，`version?`，`consent?`，`allow_downgrade?` | 已是最新：`{id, version, latest, up_to_date: true}`；多要能力或降级：同 `install` 的第一步；否则 `{id, version, from, downgrade, title, enabled, trust, updated}` | 数据保留，失败放回原版本；降级要 `allow_downgrade: true` |
 | `enable` / `disable` | `id` | `{id, enabled, registered, withdrawn, runtime, started}` | 启用时起不来：记录退回停用，答错误 |
 | `uninstall` | `id` | `{id, uninstalled: true, removed: {agent: {package, instances} \| null, skills}}` | |
 | `clearData` | `id` | `{id, cleared_bytes, data_bytes, restarted, started}` | 记进审计 |
@@ -615,13 +626,14 @@ interface host {
 
 ```text
 { dir,
-  apps: [{ id, version, title, enabled, registered, trust, source, data_bytes, runtime?, app? }],
+  apps: [{ id, version, title, enabled, registered, trust, source, data_bytes, revoked?, runtime?, app? }],
   unreadable: [{ dir, reason }],
   registered: [{ id, by, methods, topics, spaces, hub?, since_ms }],
   runtime: { fingerprint, dev } | null }
 ```
 
 - `trust`：`store` / `trusted` / `unsigned`；`source`：`store` / `file`。
+- `revoked`：上次读目录时，商店说这个版本撤了（或比 `min_version` 旧）的理由；换了版本就没了。
 - `app`：清单给人看的那份：`{publisher, description, capabilities {net, env, storage_mb, hub, fs}, events, lines, component {world, memory_mb}, ui, inline}`（`events` 是 `[events] tools`）。
 - `runtime`：在跑的应用的状态：
 
@@ -671,7 +683,7 @@ interface host {
 [apps]
 enabled = false          # true：harnix.apps.*、模块的应用宿主、harnix.spaces 主题；不写或 false 时一概没有，授权表就是装配出来的那张
 dev = false              # true：installFile 装未签名的包，未签名的应用能启动。开发用：没有人为这样的包担保
-store = "https://…/index.json"   # 商店目录（https:// 或本机 file://）；不写用内置的。列什么都要验签才装
+store = "https://…/index.json"   # 商店目录（https:// 或本机 file://）；不写用内置的。目录要内置的商店钥签过、没过期才信，列什么都要验签才装
 
 [apps.trusted_publishers]        # 发布者 id → 以它签名的 ed25519 公钥（hex）；它签全的包不经商店副署也能装（trusted）
 acme = ["<64 位 hex>"]

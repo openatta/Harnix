@@ -381,6 +381,7 @@ impl Runtime {
             title: manifest.app.title.clone(),
             enabled: true,
             parts: placed.clone(),
+            ..InstallRecord::default()
         };
         let started = self.load(cx, &record, app_dir).await?;
         Ok((placed, summary(&self.fingerprint, &record.parts, &placement.disclosure, started)))
@@ -682,11 +683,12 @@ impl AppsRuntime for Runtime {
             digest: disclosed.digest,
             disclosure: disclosed.disclosure,
             needs_consent: disclosed.needs_consent,
+            downgrade: disclosed.downgrade,
         })
     }
 
-    async fn catalog(&self) -> Result<Value, RpcError> {
-        acquire::catalog(self.store.as_deref(), &self.fingerprint).await
+    async fn catalog(&self, installed: &BTreeMap<String, String>) -> Result<Value, RpcError> {
+        acquire::catalog(self.store.as_deref(), &self.admission.keys, &self.fingerprint, installed).await
     }
 
     async fn fetch(
@@ -695,7 +697,15 @@ impl AppsRuntime for Runtime {
         version: Option<&str>,
         staging: &Path,
     ) -> Result<PathBuf, RpcError> {
-        acquire::fetch(self.store.as_deref(), id, version, &self.fingerprint, staging).await
+        acquire::fetch(
+            self.store.as_deref(),
+            &self.admission.keys,
+            id,
+            version,
+            &self.fingerprint,
+            staging,
+        )
+        .await
     }
 
     async fn update(

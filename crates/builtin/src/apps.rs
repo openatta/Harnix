@@ -17,14 +17,17 @@
 //!   `[apps] dev = true`, the developer's door and nobody else's. All or nothing: a step that fails
 //!   undoes the ones before it.
 //! - `harnix.apps.catalog` — what the store (`[apps] store`) offers this Harnix, and what of it is
-//!   installed here.
+//!   installed here: an installed version the store has withdrawn (revoked, or older than its
+//!   `min_version`) is flagged there, and its record keeps the flag (`revoked`) for the list.
 //! - `harnix.apps.install {id, version?, consent?}` — from the store, by name: resolved, downloaded,
 //!   verified, and **disclosed** — the first call answers what the application would be granted and
 //!   a digest; the same call with `consent: <digest>` installs exactly that, or is disclosed afresh
 //!   if what would be installed has changed since. All or nothing.
-//! - `harnix.apps.update {id, version?, consent?}` — to the store's newest (or the given) version.
-//!   An update that asks for nothing more than the installed version had goes ahead; one that asks
-//!   for more lists only what it adds and waits for consent as `install` does. A failed update
+//! - `harnix.apps.update {id, version?, consent?, allow_downgrade?}` — to the store's newest (or the
+//!   given) version. An update that asks for nothing more than the installed version had goes
+//!   ahead; one that asks for more lists only what it adds and waits for consent as `install` does.
+//!   An older version than the installed one is refused unless `allow_downgrade: true`, and then
+//!   disclosed (`update.downgrade`) and consented to however little it asks for. A failed update
 //!   leaves the installed version as it was. Its data is kept.
 //! - `harnix.apps.enable {id}` / `harnix.apps.disable {id}` — flip a record's `enabled`, and start
 //!   or stop the application: new sessions have its tools, or do not. An enable that fails to start
@@ -47,6 +50,7 @@
 //! names no WebAssembly. A build without it keeps the records and the switches and refuses to
 //! install, saying why.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -92,7 +96,7 @@ pub const GRANTS: &[&str] = &[
 ];
 
 /// One install record.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct InstallRecord {
     pub id: String,
     pub version: String,
@@ -104,6 +108,9 @@ pub struct InstallRecord {
     /// instances, its skills): what uninstalling has to take back. Opaque here.
     #[serde(default, skip_serializing_if = "Value::is_null")]
     pub parts: Value,
+    /// Why the store withdrew this version, as its catalog said when it was last read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revoked: Option<String>,
 }
 
 /// What a package says it is, read before anything is written.
@@ -125,8 +132,11 @@ pub struct Disclosed {
     pub disclosure: Value,
     /// Changes when the package, its trust or the version it replaces does.
     pub digest: String,
-    /// An update that asks for more than the installed version had; an install always does.
+    /// An update that asks for more than the installed version had, or goes back to an older
+    /// one; an install always does.
     pub needs_consent: bool,
+    /// An update to an older version than the installed one.
+    pub downgrade: bool,
 }
 
 /// What loads, runs and removes applications. `harnix-apps` implements it, in a build with the
@@ -181,11 +191,15 @@ pub trait AppsRuntime: Send + Sync {
             disclosure: Value::Null,
             digest: String::new(),
             needs_consent: true,
+            downgrade: false,
         })
     }
 
-    /// What the store offers this Harnix.
-    async fn catalog(&self) -> Result<Value, RpcError> {
+    /// What the store offers this Harnix; `installed`, the version of each application installed
+    /// here (by id), which each of the catalog's applications says it has and flags as
+    /// `installed_revoked` (why) when the store withdrew it.
+    async fn catalog(&self, installed: &BTreeMap<String, String>) -> Result<Value, RpcError> {
+        let _ = installed;
         Err(RpcError::refused("this application runtime has no store"))
     }
 
@@ -401,14 +415,26 @@ impl Handler for AppsMethod {
             }
             "harnix.apps.catalog" => {
                 let runtime = runtime.ok_or_else(no_runtime)?;
-                let mut catalog = runtime.catalog().await?;
                 let (installed, _) = read_all(&shared.dir);
-                if let Some(apps) = catalog.get_mut("apps").and_then(Value::as_array_mut) {
-                    for app in apps {
-                        let id = app["id"].as_str().unwrap_or_default().to_string();
-                        if let Some(record) = installed.iter().find(|r| r.id == id) {
-                            app["installed"] = json!(record.version);
+                let versions = installed.iter().map(|r| (r.id.clone(), r.version.clone())).collect();
+                let catalog = runtime.catalog(&versions).await?;
+                // What the store says of a version installed here stays with its record: the list
+                // shows it without asking the store.
+                let _serial = shared.serial.lock().await;
+                for app in catalog["apps"].as_array().into_iter().flatten() {
+                    let (Some(id), Some(version)) = (app["id"].as_str(), app["installed"].as_str()) else {
+                        continue;
+                    };
+                    let revoked = app["installed_revoked"].as_str().map(str::to_string);
+                    match read_one(&shared.dir, id) {
+                        Ok(mut record) if record.version == version && record.revoked != revoked => {
+                            if let Some(why) = &revoked {
+                                tracing::warn!(app = %id, %version, reason = %why, "the store has withdrawn an installed version");
+                            }
+                            record.revoked = revoked;
+                            write_one(&shared.dir, &record)?;
                         }
+                        _ => {}
                     }
                 }
                 Ok(catalog)
@@ -421,6 +447,7 @@ impl Handler for AppsMethod {
                 }
                 let version = params.get("version").and_then(Value::as_str);
                 let consent = params.get("consent").and_then(Value::as_str);
+                let allow_downgrade = params.get("allow_downgrade").and_then(Value::as_bool) == Some(true);
                 let updating = self.name == "harnix.apps.update";
                 let _serial = shared.serial.lock().await;
                 let installed = read_one(&shared.dir, &id).ok();
@@ -450,7 +477,7 @@ impl Handler for AppsMethod {
                     }
                     if let Some(record) = &installed {
                         // Without a version asked for, an update goes forward or nowhere.
-                        let behind = version.is_none() && !newer(&disclosed.info.version, &record.version);
+                        let behind = version.is_none() && disclosed.downgrade;
                         if record.version == disclosed.info.version || behind {
                             return Ok(json!({
                                 "id": id,
@@ -458,6 +485,15 @@ impl Handler for AppsMethod {
                                 "latest": disclosed.info.version,
                                 "up_to_date": true,
                             }));
+                        }
+                        // Back to an older version only when that is what was asked for: whoever
+                        // serves the store cannot make an update one.
+                        if disclosed.downgrade && !allow_downgrade {
+                            return Err(RpcError::refused(format!(
+                                "`{id}` {} is older than the installed {}: going back to it is asked for \
+                                 with `allow_downgrade: true`",
+                                disclosed.info.version, record.version
+                            )));
                         }
                     }
                     let consented = consent == Some(disclosed.digest.as_str());
@@ -611,6 +647,9 @@ async fn snapshot(shared: &Shared, host: Option<&AppHost>) -> Value {
                 "source": r.parts.get("source").cloned().unwrap_or(json!("file")),
                 "data_bytes": data_bytes(&app_dir),
             });
+            if let Some(why) = &r.revoked {
+                entry["revoked"] = json!(why);
+            }
             if let Some(runtime) = runtime {
                 entry["runtime"] = runtime.status(&r.id).await;
                 entry["app"] = runtime.describe(r, &app_dir);
@@ -665,6 +704,7 @@ async fn install(
         title: info.title.clone(),
         enabled: true,
         parts,
+        ..InstallRecord::default()
     };
     if let Err(e) = write_one(&shared.dir, &record) {
         // The record is what makes it installed; without it, take the rest back.
@@ -706,29 +746,21 @@ async fn update(
         title: disclosed.info.title.clone(),
         enabled: record.enabled,
         parts,
+        // Another version: what the store said of the last one is not said of this.
+        ..InstallRecord::default()
     };
     write_one(&shared.dir, &next)?;
-    tracing::info!(app = %next.id, from = %record.version, to = %next.version, "application updated");
+    tracing::info!(app = %next.id, from = %record.version, to = %next.version, downgrade = disclosed.downgrade, "application updated");
     Ok(json!({
         "id": next.id,
         "version": next.version,
         "from": record.version,
+        "downgrade": disclosed.downgrade,
         "title": next.title,
         "enabled": next.enabled,
         "trust": disclosed.trust,
         "updated": summary,
     }))
-}
-
-/// Whether the version `a` is after `b` (`x.y.z`, numerically; a pre-release before its release).
-fn newer(a: &str, b: &str) -> bool {
-    let split = |v: &str| {
-        let (core, pre) = v.split_once('-').map_or((v, None), |(c, p)| (c, Some(p.to_string())));
-        let nums: Vec<u64> = core.split('.').map(|n| n.parse().unwrap_or(0)).collect();
-        // A release sorts after every pre-release of it.
-        (nums, pre.is_none(), pre)
-    };
-    split(a) > split(b)
 }
 
 /// What an application keeps: its data directory and its key-value store.
@@ -856,14 +888,6 @@ mod tests {
         assert_eq!(read_one(dir.path(), "nobody").unwrap_err().code, codes::INVALID_PARAMS);
         // Never a path out of the directory.
         assert_eq!(read_one(dir.path(), "../etc").unwrap_err().code, codes::INVALID_PARAMS);
-    }
-
-    #[test]
-    fn versions_are_compared_as_numbers() {
-        assert!(newer("0.10.0", "0.2.0"));
-        assert!(newer("0.2.0", "0.2.0-rc.1"));
-        assert!(!newer("0.2.0", "0.2.0"));
-        assert!(!newer("0.1.9", "0.2.0"));
     }
 
     #[test]

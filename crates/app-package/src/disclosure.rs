@@ -4,7 +4,8 @@
 //! The disclosure is read from the package itself — its manifest, its parts, its signatures —
 //! never from the catalog, which only lists offers. Every capability is a line; for an update, the
 //! lines that are new since the installed version are listed apart (`added`), and only those ask
-//! for consent again: an update that asks for nothing more goes ahead.
+//! for consent again: an update that asks for nothing more goes ahead. One to an older version
+//! (`downgrade`) always asks: an older version may be one with the hole the newer one closed.
 //!
 //! Consent is a digest: of the package's bytes, the trust its signatures give it, and the version
 //! it replaces. The first `harnix.apps.install` answers the disclosure and the digest; the second
@@ -157,10 +158,13 @@ pub fn disclose(
     });
     if let Some(previous) = previous {
         let added = added(previous, (manifest, agent));
+        let downgrade =
+            crate::store::compare_versions(&app.version, &previous.0.app.version).is_lt();
         disclosure["update"] = json!({
             "from": previous.0.app.version,
             "added": added,
-            "needs_consent": !added.is_empty(),
+            "downgrade": downgrade,
+            "needs_consent": !added.is_empty() || downgrade,
         });
     }
     disclosure
@@ -203,6 +207,33 @@ publisher = "acme"
             }
         ))
         .unwrap()
+    }
+
+    #[test]
+    fn an_update_to_an_older_version_always_asks() {
+        let at = |version: &str| {
+            let mut manifest = manifest("", false);
+            manifest.app.version = version.into();
+            Inspected {
+                manifest,
+                artifact: None,
+                agent: None,
+                skills: Vec::new(),
+            }
+        };
+        let verified = Verified {
+            trust: crate::signature::Trust::Unsigned,
+            publisher_key: None,
+            files: Default::default(),
+        };
+        let installed = at("1.10.0").manifest;
+        let older = disclose(&at("1.9.0"), &verified, Some((&installed, false)));
+        assert_eq!(older["update"]["added"], json!([]));
+        assert_eq!(older["update"]["downgrade"], json!(true));
+        assert_eq!(older["update"]["needs_consent"], json!(true));
+        let newer = disclose(&at("1.11.0"), &verified, Some((&installed, false)));
+        assert_eq!(newer["update"]["downgrade"], json!(false));
+        assert_eq!(newer["update"]["needs_consent"], json!(false));
     }
 
     #[test]

@@ -57,6 +57,8 @@ pub struct Disclosure {
     pub disclosure: Value,
     pub digest: String,
     pub needs_consent: bool,
+    /// It is older than the version it would replace.
+    pub downgrade: bool,
 }
 
 type Signed = Result<(BTreeMap<String, String>, Option<Signatures>), String>;
@@ -126,6 +128,7 @@ impl Admission {
         let bytes = std::fs::read(path).map_err(|e| refused(format!("{}: {e}", path.display())))?;
         let needs_consent =
             previous.is_none() || disclosure["update"]["needs_consent"] == json!(true);
+        let downgrade = disclosure["update"]["downgrade"] == json!(true);
         let app = inspected.manifest.app;
         Ok(Disclosure {
             id: app.id,
@@ -135,35 +138,43 @@ impl Admission {
             digest: disclosure::digest(&bytes, &verified, installed.map(|(version, _)| version)),
             disclosure,
             needs_consent,
+            downgrade,
         })
     }
 }
 
-fn store_at(url: Option<&str>) -> Result<Store, RpcError> {
-    Store::new(url.unwrap_or(store::DEFAULT_STORE)).map_err(refused)
+fn store_at(url: Option<&str>, keys: &Keys) -> Result<Store, RpcError> {
+    Store::new(url.unwrap_or(store::DEFAULT_STORE), keys.store.clone()).map_err(refused)
 }
 
 /// What the store at `url` (the default store when none) offers an engine whose fingerprint is
-/// `fingerprint`.
-pub async fn catalog(url: Option<&str>, fingerprint: &str) -> Result<Value, RpcError> {
-    let store = store_at(url)?;
+/// `fingerprint`, its catalog verified with the store keys of `keys`; `installed`, what is
+/// installed here (id → version), each flagged if the store has withdrawn it.
+pub async fn catalog(
+    url: Option<&str>,
+    keys: &Keys,
+    fingerprint: &str,
+    installed: &BTreeMap<String, String>,
+) -> Result<Value, RpcError> {
+    let store = store_at(url, keys)?;
     let index = store.index().await.map_err(refused)?;
-    let mut view = store::view(&index, fingerprint);
+    let mut view = store::view(&index, fingerprint, installed);
     view["store"] = json!(store.url());
     view["fingerprint"] = json!(fingerprint);
     Ok(view)
 }
 
 /// Resolve `id` (at `version`, or the newest this engine runs) in the store and download it into
-/// `staging`, checked against what the store lists.
+/// `staging`, checked against what the store's verified catalog lists.
 pub async fn fetch(
     url: Option<&str>,
+    keys: &Keys,
     id: &str,
     version: Option<&str>,
     fingerprint: &str,
     staging: &Path,
 ) -> Result<PathBuf, RpcError> {
-    let store = store_at(url)?;
+    let store = store_at(url, keys)?;
     let index = store.index().await.map_err(refused)?;
     let resolved = store
         .resolve(&index, id, version, fingerprint)

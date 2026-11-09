@@ -309,6 +309,7 @@ impl Rig {
             title: info.title,
             enabled: true,
             parts,
+            ..InstallRecord::default()
         })
     }
 }

@@ -89,7 +89,7 @@ impl PublicKey {
         hex::encode(self.0)
     }
 
-    fn verifies(&self, message: &[u8], signature_hex: &str) -> bool {
+    pub(crate) fn verifies(&self, message: &[u8], signature_hex: &str) -> bool {
         let Ok(signature) = hex::decode(signature_hex) else {
             return false;
         };
@@ -137,7 +137,7 @@ impl SecretKey {
         PublicKey(bytes)
     }
 
-    fn sign(&self, message: &[u8]) -> String {
+    pub(crate) fn sign(&self, message: &[u8]) -> String {
         hex::encode(self.pair.sign(message).as_ref())
     }
 }

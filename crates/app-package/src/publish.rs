@@ -1,6 +1,6 @@
 //! The publisher's and the store's side of a package: signing it, countersigning it, and listing
-//! a directory of packages as a store's `index.json`. What `harnix-app sign`, `countersign` and
-//! `index` do; nothing in a running Harnix calls these.
+//! a directory of packages as a store's `index.json`, signed. What `harnix-app sign`,
+//! `countersign`, `index` and `sign-index` do; nothing in a running Harnix calls these.
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -12,7 +12,8 @@ use serde_json::{json, Value};
 use crate::manifest::{Manifest, MANIFEST};
 use crate::signature::{self, sha256, SecretKey, Signatures};
 use crate::store::{
-    compare_versions, Artifact, CatalogApp, CatalogVersion, Index, ANY_ENGINE, INDEX_FORMAT,
+    compare_versions, format_utc, sign_catalog, Artifact, CatalogApp, CatalogVersion, Index,
+    ANY_ENGINE, INDEX_FORMAT,
 };
 
 /// Every entry of a zip, in its order.
@@ -145,10 +146,20 @@ fn engines(manifest: &Manifest, entries: &[(String, Vec<u8>)]) -> Vec<String> {
         .collect()
 }
 
-/// List every `.hxapp` under `store/packages/` as the store's index, written to
-/// `store/index.json`. Each package is listed under every engine it has a component for; the
-/// URLs are relative to the index.
-pub fn index(store: &Path, name: Option<&str>) -> Result<Index, String> {
+/// How long a catalog is believed when its store does not say: long enough that a store published
+/// by hand is not refused next week, short enough that an old copy does not outlive a revocation
+/// for long.
+pub const CATALOG_VALID: std::time::Duration = std::time::Duration::from_secs(14 * 24 * 3600);
+
+/// List every `.hxapp` under `store/packages/` as the store's index, signed with `key` and valid
+/// for `valid` from now, written to `store/index.json`. Each package is listed under every engine
+/// it has a component for; the URLs are relative to the index.
+pub fn index(
+    store: &Path,
+    name: Option<&str>,
+    key: &SecretKey,
+    valid: std::time::Duration,
+) -> Result<Index, String> {
     let packages = store.join("packages");
     let mut files: Vec<_> = std::fs::read_dir(&packages)
         .map_err(|e| format!("{}: {e}", packages.display()))?
@@ -178,6 +189,7 @@ pub fn index(store: &Path, name: Option<&str>) -> Result<Index, String> {
                 title: None,
                 publisher: manifest.app.publisher.clone(),
                 description: None,
+                min_version: None,
                 versions: Vec::new(),
             });
         // The newest version's title and description are the application's.
@@ -204,6 +216,7 @@ pub fn index(store: &Path, name: Option<&str>) -> Result<Index, String> {
                         "net": caps.net, "env": caps.env, "storage_mb": caps.storage_mb, "hub": caps.hub, "fs": caps.fs,
                     }),
                     signatures: signatures.clone(),
+                    revoked: None,
                     artifacts: BTreeMap::new(),
                 });
                 app.versions.last_mut().unwrap()
@@ -228,12 +241,37 @@ pub fn index(store: &Path, name: Option<&str>) -> Result<Index, String> {
     let index = Index {
         format: INDEX_FORMAT.into(),
         name: name.map(str::to_string),
+        expires: String::new(),
         apps,
+        signature: None,
     };
     let out = store.join("index.json");
     std::fs::write(&out, serde_json::to_string_pretty(&index).unwrap())
         .map_err(|e| format!("{}: {e}", out.display()))?;
-    Ok(index)
+    sign_index(&out, key, std::time::SystemTime::now() + valid)
+}
+
+/// Sign the catalog at `path` as the store, valid until `expires`, in place: what a store runs
+/// after it edits its catalog (a version revoked, a `min_version` raised) and each time it
+/// republishes it before it expires. Whatever else is in it is kept as it is.
+pub fn sign_index(
+    path: &Path,
+    key: &SecretKey,
+    expires: std::time::SystemTime,
+) -> Result<Index, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    Index::parse(&bytes)?;
+    let mut catalog: Value = serde_json::from_slice(&bytes)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    let secs = expires
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| "an expiry before 1970".to_string())?
+        .as_secs();
+    catalog["expires"] = json!(format_utc(secs));
+    sign_catalog(&mut catalog, key)?;
+    let text = serde_json::to_string_pretty(&catalog).expect("plain data serializes");
+    std::fs::write(path, &text).map_err(|e| format!("{}: {e}", path.display()))?;
+    Index::parse(text.as_bytes())
 }
 
 #[cfg(test)]
@@ -311,7 +349,7 @@ mod tests {
         )
         .is_err());
 
-        let index = index(&store_dir, Some("test")).unwrap();
+        let index = index(&store_dir, Some("test"), &store, CATALOG_VALID).unwrap();
         let version = &index.apps[0].versions[0];
         assert_eq!(index.apps[0].id, "acme.probe");
         assert_eq!(version.artifacts.keys().collect::<Vec<_>>(), [FP]);
@@ -320,7 +358,12 @@ mod tests {
             sha256(&std::fs::read(&out).unwrap())
         );
         assert_eq!(version.signatures["store"], json!(store.public().hex()));
-        let written = Index::parse(&std::fs::read(store_dir.join("index.json")).unwrap()).unwrap();
+        // Signed by the store, and believed until it expires.
+        let bytes = std::fs::read(store_dir.join("index.json")).unwrap();
+        let now = std::time::SystemTime::now();
+        let written = Index::verify(&bytes, &[store.public()], now).unwrap();
+        assert!(Index::verify(&bytes, &[store.public()], now + CATALOG_VALID).is_err());
+        assert!(Index::verify(&bytes, &[publisher.public()], now).is_err());
         assert_eq!(
             written.apps[0].versions[0].artifacts[FP].url,
             "packages/acme.probe-1.0.0.hxapp"
