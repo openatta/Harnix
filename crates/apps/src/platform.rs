@@ -175,9 +175,37 @@ impl AppTopicSink for TopicValues {
     }
 }
 
+/// Who may call one of an application's methods: the subjects it names, and always the kernel. A
+/// name that is none of them is refused rather than read as one: the manifest checks it, but a
+/// registration may come from over a link, and an unknown subject must not open a method to
+/// anybody.
+fn principals(app: &str, method: &str, subjects: &[String]) -> Result<Vec<Principal>, RpcError> {
+    let mut principals = Vec::new();
+    for subject in subjects {
+        principals.push(match subject.as_str() {
+            "device" => Principal::Device,
+            "module" => Principal::AnyModule,
+            "kernel" => Principal::Kernel,
+            other => {
+                return Err(refused(format!(
+                    "`app.{app}.{method}` names the subject `{other}`, and a method's subject is \
+                     `device`, `module` or `kernel`"
+                )))
+            }
+        });
+    }
+    principals.push(Principal::Kernel);
+    principals.dedup();
+    Ok(principals)
+}
+
 #[async_trait]
 impl Platform for KernelPlatform {
     async fn register(&self, r: Registration) -> Result<(), RpcError> {
+        // Before anything is registered, and whether or not there is a host to register with.
+        for m in &r.methods {
+            principals(&r.app, &m.name, &m.subjects)?;
+        }
         let cx = self.cx()?;
         // A process without an application host: nothing is declared, and what the application
         // does as itself is refused as not registered.
@@ -193,16 +221,7 @@ impl Platform for KernelPlatform {
             .hub(r.hub.clone())
             .topic_sink(Arc::new(TopicValues::new(&r.app, control.clone())));
         for m in r.methods {
-            let mut principals = Vec::new();
-            for subject in &m.subjects {
-                principals.push(match subject.as_str() {
-                    "device" => Principal::Device,
-                    "module" => Principal::AnyModule,
-                    _ => Principal::Kernel,
-                });
-            }
-            principals.push(Principal::Kernel);
-            principals.dedup();
+            let principals = principals(&r.app, &m.name, &m.subjects)?;
             spec = spec.method_with(AppMethod {
                 name: m.name.clone(),
                 principals,
@@ -354,5 +373,26 @@ impl Platform for KernelPlatform {
     async fn progress(&self, p: Progress) -> Result<(), RpcError> {
         self.registry.told(&p.call_id, &p.text);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_subject_is_one_of_three_or_the_registration_is_refused() {
+        let named = |subjects: &[&str]| {
+            principals("acme.notes", "save", &subjects.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+        };
+        assert_eq!(named(&["device"]).unwrap(), [Principal::Device, Principal::Kernel]);
+        assert_eq!(
+            named(&["module", "kernel"]).unwrap(),
+            [Principal::AnyModule, Principal::Kernel]
+        );
+        assert_eq!(named(&[]).unwrap(), [Principal::Kernel]);
+        let err = named(&["device", "everyone"]).unwrap_err();
+        assert_eq!(err.code, codes::REFUSED);
+        assert!(err.message.contains("`app.acme.notes.save` names the subject `everyone`"), "{}", err.message);
     }
 }

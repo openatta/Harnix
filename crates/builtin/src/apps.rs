@@ -111,6 +111,29 @@ pub struct InstallRecord {
     /// Why the store withdrew this version, as its catalog said when it was last read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revoked: Option<String>,
+    /// Why it is switched off when nobody switched it off: an update failed and the version it
+    /// was to replace did not come back. Cleared when it starts again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// An update that did not happen, and what became of the version it was to replace.
+#[derive(Debug)]
+pub struct UpdateFailed {
+    pub error: RpcError,
+    /// `None`: the installed version was not touched. `Some(Ok(parts))`: it was taken down and put
+    /// back, and `parts` is what putting it back put where, which its record must say from now on.
+    /// `Some(Err(why))`: it did not come back.
+    pub restored: Option<Result<Value, String>>,
+}
+
+impl From<RpcError> for UpdateFailed {
+    fn from(error: RpcError) -> Self {
+        Self {
+            error,
+            restored: None,
+        }
+    }
 }
 
 /// What a package says it is, read before anything is written.
@@ -212,17 +235,18 @@ pub trait AppsRuntime: Send + Sync {
     }
 
     /// Replace the installed version (`record`, stopped or running) with `package`, keeping its
-    /// data. On an error the installed version is as it was — running again if it was. Answers the
-    /// new record's `parts`, and a summary.
+    /// data. On an error the installed version is put back as it was — running again if it was —
+    /// and the failure says whether that worked ([`UpdateFailed::restored`]). Answers the new
+    /// record's `parts`, and a summary.
     async fn update(
         &self,
         cx: &ModuleContext,
         record: &InstallRecord,
         package: &Path,
         app_dir: &Path,
-    ) -> Result<(Value, Value), RpcError> {
+    ) -> Result<(Value, Value), UpdateFailed> {
         let _ = (cx, record, package, app_dir);
-        Err(RpcError::refused("this application runtime does not update applications"))
+        Err(RpcError::refused("this application runtime does not update applications").into())
     }
 
     /// What an installed application is and asks for, from its own manifest.
@@ -537,7 +561,13 @@ impl Handler for AppsMethod {
                 if let Some(runtime) = runtime {
                     if enabled {
                         match runtime.load(module, &record, &shared.dir.join(&id)).await {
-                            Ok(summary) => started = summary,
+                            Ok(summary) => {
+                                started = summary;
+                                // Started again: whatever left it off is over.
+                                if record.reason.take().is_some() {
+                                    write_one(&shared.dir, &record)?;
+                                }
+                            }
                             Err(e) => {
                                 // What was asked for did not happen: it stays as it was.
                                 record.enabled = false;
@@ -650,6 +680,9 @@ async fn snapshot(shared: &Shared, host: Option<&AppHost>) -> Value {
             if let Some(why) = &r.revoked {
                 entry["revoked"] = json!(why);
             }
+            if let Some(why) = &r.reason {
+                entry["reason"] = json!(why);
+            }
             if let Some(runtime) = runtime {
                 entry["runtime"] = runtime.status(&r.id).await;
                 entry["app"] = runtime.describe(r, &app_dir);
@@ -736,7 +769,13 @@ async fn update(
     disclosed: &Disclosed,
 ) -> Result<Value, RpcError> {
     let app_dir = shared.dir.join(&record.id);
-    let (mut parts, summary) = runtime.update(module, record, path, &app_dir).await?;
+    let (mut parts, summary) = match runtime.update(module, record, path, &app_dir).await {
+        Ok(done) => done,
+        Err(failed) => {
+            settle_failed_update(&shared.dir, record, &disclosed.info.version, failed.restored);
+            return Err(failed.error);
+        }
+    };
     if parts.is_object() {
         parts["source"] = json!("store");
     }
@@ -761,6 +800,38 @@ async fn update(
         "trust": disclosed.trust,
         "updated": summary,
     }))
+}
+
+/// Make the record of an update that failed say what is installed now: the version put back, with
+/// what putting it back put where; or, when it did not come back, switched off and why — not
+/// "installed and enabled" over nothing that runs.
+fn settle_failed_update(dir: &Path, record: &InstallRecord, to: &str, restored: Option<Result<Value, String>>) {
+    let next = match restored {
+        None => return,
+        Some(Ok(mut parts)) => {
+            if parts.is_object() {
+                parts["source"] = record.parts.get("source").cloned().unwrap_or(json!("store"));
+            }
+            InstallRecord {
+                parts,
+                ..record.clone()
+            }
+        }
+        Some(Err(why)) => {
+            tracing::error!(app = %record.id, from = %record.version, %to, error = %why, "after a failed update the installed version did not come back; it is switched off");
+            InstallRecord {
+                enabled: false,
+                reason: Some(format!(
+                    "the update to {to} failed, and {} did not come back: {why}",
+                    record.version
+                )),
+                ..record.clone()
+            }
+        }
+    };
+    if let Err(e) = write_one(dir, &next) {
+        tracing::error!(app = %record.id, error = %e.message, "the record of a failed update was not rewritten");
+    }
 }
 
 /// What an application keeps: its data directory and its key-value store.
@@ -929,6 +1000,42 @@ mod tests {
         std::fs::create_dir_all(&bare).unwrap();
         assert_eq!(clear_data(&bare).unwrap(), 0);
         assert!(!bare.join("data").exists());
+    }
+
+    #[test]
+    fn a_failed_update_leaves_a_record_of_what_is_installed() {
+        let dir = tempfile::tempdir().unwrap();
+        seed(dir.path(), "acme.notes", "{}");
+        let record = InstallRecord {
+            id: "acme.notes".into(),
+            version: "1.0.0".into(),
+            enabled: true,
+            parts: json!({"trust": "store", "source": "store", "agent": {"package": "old"}}),
+            ..InstallRecord::default()
+        };
+        write_one(dir.path(), &record).unwrap();
+        // Not touched: the record is not either.
+        settle_failed_update(dir.path(), &record, "2.0.0", None);
+        assert_eq!(read_one(dir.path(), "acme.notes").unwrap().parts, record.parts);
+        // Put back: with what putting it back put where.
+        settle_failed_update(
+            dir.path(),
+            &record,
+            "2.0.0",
+            Some(Ok(json!({"trust": "store", "agent": {"package": "again"}}))),
+        );
+        let back = read_one(dir.path(), "acme.notes").unwrap();
+        assert!(back.enabled && back.reason.is_none());
+        assert_eq!(back.parts["agent"]["package"], json!("again"));
+        assert_eq!(back.parts["source"], json!("store"));
+        // Gone: switched off, saying why.
+        settle_failed_update(dir.path(), &record, "2.0.0", Some(Err("no such instance".into())));
+        let gone = read_one(dir.path(), "acme.notes").unwrap();
+        assert!(!gone.enabled);
+        assert_eq!(
+            gone.reason.as_deref(),
+            Some("the update to 2.0.0 failed, and 1.0.0 did not come back: no such instance")
+        );
     }
 
     #[test]

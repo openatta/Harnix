@@ -43,7 +43,7 @@ use harnix_app_package::manifest::{Interface, Manifest, Surface, Title, UiEntry}
 use harnix_app_package::package;
 use harnix_app_package::signature::{Keys, Trust};
 use harnix_app_port::{Control, Offer, Place, Start, Stop, ToolDef, Unplace};
-use harnix_builtin::apps::{AppsRuntime, Disclosed, InstallRecord, PackageInfo};
+use harnix_builtin::apps::{AppsRuntime, Disclosed, InstallRecord, PackageInfo, UpdateFailed};
 use harnix_contract::RpcError;
 use harnix_module::ModuleContext;
 use serde_json::{json, Map, Value};
@@ -714,7 +714,7 @@ impl AppsRuntime for Runtime {
         record: &InstallRecord,
         package: &Path,
         app_dir: &Path,
-    ) -> Result<(Value, Value), RpcError> {
+    ) -> Result<(Value, Value), UpdateFailed> {
         self.platform.bind(cx);
         self.update_to(cx, record, package, app_dir).await
     }

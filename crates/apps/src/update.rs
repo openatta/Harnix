@@ -9,14 +9,16 @@
 //! 3. The new version is put in place as an install would (`Runtime::place`) and started.
 //! 4. Done: the old version's files go. Failed: whatever the new version put in place is taken
 //!    back, its files go, and the old version is put back from its files and started as it was.
+//!    The failure says how that went ([`UpdateFailed::restored`]): putting it back puts its agent
+//!    package in again, and the record has to say where; and if it did not come back, the record
+//!    has to stop saying it is installed and running.
 
 use std::path::Path;
 
 use harnix_app_package::acquire::{internal, refused};
 use harnix_app_package::package;
 use harnix_app_package::signature::Trust;
-use harnix_builtin::apps::{AppsRuntime, InstallRecord};
-use harnix_contract::RpcError;
+use harnix_builtin::apps::{AppsRuntime, InstallRecord, UpdateFailed};
 use harnix_module::ModuleContext;
 use serde_json::{json, Value};
 
@@ -29,25 +31,28 @@ impl Runtime {
         record: &InstallRecord,
         path: &Path,
         app_dir: &Path,
-    ) -> Result<(Value, Value), RpcError> {
+    ) -> Result<(Value, Value), UpdateFailed> {
         let id = &record.id;
         let inspected = package::inspect(path, &self.fingerprint()).map_err(refused)?;
         if inspected.manifest.app.id != *id {
             return Err(refused(format!(
                 "the package is `{}`, not `{id}`",
                 inspected.manifest.app.id
-            )));
+            ))
+            .into());
         }
         let verified = self.admission.admit_zip(path, &inspected.manifest)?;
         let version = inspected.manifest.app.version.clone();
         if version == record.version {
             return Err(refused(format!(
                 "`{id}` {version} is the version installed"
-            )));
+            ))
+            .into());
         }
         let old_root = app_dir.join(&record.version);
         let old = package::inspect_dir(&old_root)
             .map_err(|e| internal(format!("the installed `{id}`: {e}")))?;
+        // From here on the installed version is taken down: a failure says what became of it.
         let new_root = app_dir.join(&version);
         // What an update that did not finish may have left.
         let _ = std::fs::remove_dir_all(&new_root);
@@ -89,14 +94,26 @@ impl Runtime {
                     .map(Trust::parse)
                     .unwrap_or(Trust::Unsigned);
                 let mut back = None;
-                match self.place(cx, &old.manifest, app_dir, trust, &mut back).await {
-                    Ok(_) if !record.enabled => self.unload(cx, record).await,
-                    Ok(_) => {}
+                let restored = match self.place(cx, &old.manifest, app_dir, trust, &mut back).await {
+                    Ok((parts, _)) => {
+                        if !record.enabled {
+                            self.unload(cx, &record_with(record, &record.version, parts.clone()))
+                                .await;
+                        }
+                        Ok(parts)
+                    }
                     Err(again) => {
                         tracing::error!(app = %id, error = %again.message, "the installed version did not come back after a failed update");
+                        if let Some(parts) = &back {
+                            self.unplace(id, parts).await;
+                        }
+                        Err(again.message)
                     }
-                }
-                Err(e)
+                };
+                Err(UpdateFailed {
+                    error: e,
+                    restored: Some(restored),
+                })
             }
         }
     }
