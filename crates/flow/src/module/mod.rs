@@ -676,25 +676,30 @@ impl Module for Flow {
         dispatch::publish_defs(&self.sh).await;
         dispatch::publish_dry(&self.sh, None).await;
         let sh = self.sh.clone();
-        tokio::spawn(async move {
+        self.sh.spawn(async move {
             dispatch::stop_stale_instances(&sh).await;
             dispatch::recover(&sh).await
         });
         let sh = self.sh.clone();
-        let tick = tokio::spawn(async move { dispatch::tick_loop(sh).await });
+        let tick = self.sh.spawn(async move { dispatch::tick_loop(sh).await });
         *lock(&self.sh.tick) = Some(tick);
         Ok(())
     }
 
+    /// Every task told to stop, and waited for a little: the module can say when it is quiet.
+    /// Runs are not cancelled; the next start recovers their work.
     async fn stop(&self) {
-        self.sh
-            .stopping
-            .store(true, std::sync::atomic::Ordering::SeqCst);
         if let Some(t) = lock(&self.sh.tick).take() {
             t.abort();
         }
+        if !self.sh.stop_tasks(STOP_GRACE).await {
+            tracing::warn!(left = self.sh.tasks.len(), "flow: tasks still running after the stop's grace");
+        }
     }
 }
+
+/// How long stopping waits for the module's tasks to notice.
+const STOP_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// A kernel error as a method answers it: the code by kind — `NOT_FOUND` for no such run, station,
 /// task or flow; `INVALID_PARAMS` for a request that does not fit the run or the contract;

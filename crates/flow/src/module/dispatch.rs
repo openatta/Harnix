@@ -127,15 +127,15 @@ pub(crate) async fn apply(sh: &Arc<Shared>, hint: Option<&str>, o: Outcome) {
     for e in &o.events {
         let _ = sh.events.send(e.clone());
         if matches!(e.kind.as_str(), "run.finished" | "run.cancelled") {
-            let (sh, run) = (sh.clone(), e.run.clone());
-            tokio::spawn(async move { stop_run_instances(&sh, &run).await });
+            let (sh2, run) = (sh.clone(), e.run.clone());
+            sh.spawn(async move { stop_run_instances(&sh2, &run).await });
         }
         // Every run has its main session from the start (xops-03 §1), whatever its first
         // station is: the conversation a person opens to watch and talk to it.
         if e.kind == "run.created" {
-            let (sh, run) = (sh.clone(), e.run.clone());
-            tokio::spawn(async move {
-                if let Err(why) = super::main::ensure_main(&sh, &run).await {
+            let (sh2, run) = (sh.clone(), e.run.clone());
+            sh.spawn(async move {
+                if let Err(why) = super::main::ensure_main(&sh2, &run).await {
                     tracing::warn!(run, why, "flow: no main session");
                 }
             });
@@ -371,9 +371,9 @@ pub(crate) async fn recover(sh: &Arc<Shared>) {
             spawn_work(sh, w, true);
         }
         // Its main session watched again (opened, if it never was).
-        let (sh, run) = (sh.clone(), s.id.clone());
-        tokio::spawn(async move {
-            if let Err(why) = super::main::ensure_main(&sh, &run).await {
+        let (sh2, run) = (sh.clone(), s.id.clone());
+        sh.spawn(async move {
+            if let Err(why) = super::main::ensure_main(&sh2, &run).await {
                 tracing::warn!(run, why, "flow: no main session after a restart");
             }
         });
@@ -385,9 +385,9 @@ pub(crate) async fn tick_loop(sh: Arc<Shared>) {
     let mut every = tokio::time::interval(Duration::from_millis(sh.cfg.tick_ms));
     every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
-        every.tick().await;
-        if sh.stopping() {
-            return;
+        tokio::select! {
+            _ = every.tick() => {}
+            _ = sh.cancel.cancelled() => return,
         }
         let Some(engine) = sh.engine.get().cloned() else {
             continue;
@@ -404,8 +404,8 @@ pub(crate) async fn tick_loop(sh: Arc<Shared>) {
 }
 
 pub(crate) fn spawn_work(sh: &Arc<Shared>, w: WorkItem, resume: bool) {
-    let sh = sh.clone();
-    tokio::spawn(async move { run_work(sh, w, resume).await });
+    let sh2 = sh.clone();
+    sh.spawn(async move { run_work(sh2, w, resume).await });
 }
 
 async fn run_work(sh: Arc<Shared>, w: WorkItem, resume: bool) {
@@ -585,6 +585,8 @@ async fn program_task(
                             return;
                         }
                     }
+                    // Abandoned, not failed: the claim lapses and the next start takes it up.
+                    _ = sh.cancel.cancelled() => return,
                 }
             }
         }
@@ -796,6 +798,7 @@ async fn wait_turn_on_session(
                     return None;
                 }
             }
+            _ = sh.cancel.cancelled() => return None,
         }
     }
 }
@@ -1214,7 +1217,11 @@ async fn wait_own_turn(
     }
     let every = renew_every(sh);
     loop {
-        let frame = match tokio::time::timeout(every, tap.next()).await {
+        let next = tokio::select! {
+            next = tokio::time::timeout(every, tap.next()) => next,
+            _ = sh.cancel.cancelled() => return Waited::Superseded,
+        };
+        let frame = match next {
             Ok(Some(harnix_module::TapEvent::Frame(f))) => f,
             Ok(Some(harnix_module::TapEvent::Lagged { .. })) => {
                 let _ = tap.catch_up().await;
@@ -1259,7 +1266,11 @@ async fn wait_own_turn(
 async fn wait_turn(sh: &Arc<Shared>, tap: &mut Tap, key: &TaskKey, token: &str) -> Waited {
     let every = renew_every(sh);
     loop {
-        match tokio::time::timeout(every, tap.next_settled()).await {
+        let next = tokio::select! {
+            next = tokio::time::timeout(every, tap.next_settled()) => next,
+            _ = sh.cancel.cancelled() => return Waited::Superseded,
+        };
+        match next {
             Ok(Some(p)) => return Waited::Settled(p),
             Ok(None) => return Waited::Gone,
             Err(_) => {

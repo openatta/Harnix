@@ -14,7 +14,7 @@ name = "harnix_flow"
 # The Harnix module (`Flow`): sessions, programs, native tools, methods, topics. Off, the crate is
 # the pure kernel with its stores and packs and links nothing of Harnix or Agix.
 default = ["module"]
-module  = ["dep:harnix-module", "dep:harnix-contract", "dep:base", "dep:scene", "dep:anyhow", "dep:reqwest"]
+module  = ["dep:harnix-module", "dep:harnix-contract", "dep:base", "dep:scene", "dep:anyhow", "dep:reqwest", "dep:tokio-util"]
 
 [dependencies]
 serde       = { workspace = true }
@@ -31,6 +31,8 @@ tokio       = { workspace = true }
 tracing     = { workspace = true }
 # The file store's flush to disk (`fsync`) on macOS.
 libc        = { workspace = true }
+# The module's tasks, tracked and told to stop.
+tokio-util  = { workspace = true, optional = true }
 harnix-module   = { workspace = true, optional = true }
 harnix-contract = { workspace = true, optional = true }
 base            = { workspace = true, optional = true }
