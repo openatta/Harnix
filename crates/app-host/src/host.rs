@@ -15,6 +15,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use async_trait::async_trait;
@@ -105,6 +106,8 @@ pub struct Host {
     failed: Mutex<BTreeMap<String, String>>,
     /// Tool calls and hooks running, by their ids: what [`Control::cancel`] reaches.
     calls: Mutex<HashMap<String, CancellationToken>>,
+    /// See [`Host::generation`].
+    generation: Arc<AtomicU64>,
 }
 
 /// A running call's entry in [`Host::calls`], taken out however the call ends (a caller that goes
@@ -177,7 +180,22 @@ impl Host {
             bridges: Mutex::new(BTreeMap::new()),
             failed: Mutex::new(BTreeMap::new()),
             calls: Mutex::new(HashMap::new()),
+            generation: Arc::default(),
         }))
+    }
+
+    /// A number that moves whenever what [`Control::status`] answers may have: an application
+    /// started, stopped or failed; a method call, tool call, hook or delivered value ended; a
+    /// backend let go while idle; anything its bridge counts (what a backend does on its own,
+    /// through its timers, included). A product that shows the status asks again only when this
+    /// moved. What a VM changes without passing through any of these — the memory it holds — is
+    /// seen at the next move.
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Relaxed)
+    }
+
+    fn moved(&self) {
+        self.generation.fetch_add(1, Ordering::Relaxed);
     }
 
     /// The engine every VM runs on: what precompiled artifacts must have been compiled for
@@ -425,6 +443,7 @@ impl Host {
             manifest.topics.iter().map(|t| t.name.clone()),
             self.options.secrets.get(id).cloned().unwrap_or_default(),
             self.platform.clone(),
+            self.generation.clone(),
         );
         lock(&self.bridges).insert(id.clone(), bridge.clone());
         let booted = match self
@@ -451,7 +470,7 @@ impl Host {
         let activity = Arc::new(Activity::default());
         let watch = CancellationToken::new();
         if let (Some(vm), Some(idle)) = (backend, idle) {
-            idle::watch(vm, activity.clone(), idle, watch.clone());
+            idle::watch(vm, activity.clone(), idle, watch.clone(), self.generation.clone());
         }
         let running = Arc::new(Running {
             version: start.version.clone(),
@@ -591,7 +610,7 @@ impl Control for Host {
                 tools: running.tools.clone(),
             });
         }
-        match self.start_app(&start).await {
+        let outcome = match self.start_app(&start).await {
             Ok(started) => {
                 lock(&self.failed).remove(&start.app);
                 Ok(started)
@@ -600,12 +619,15 @@ impl Control for Host {
                 lock(&self.failed).insert(start.app.clone(), e.message.clone());
                 Err(e)
             }
-        }
+        };
+        self.moved();
+        outcome
     }
 
     async fn stop(&self, stop: Stop) -> Result<(), RpcError> {
         let id = &stop.app;
         lock(&self.failed).remove(id);
+        self.moved();
         let Some(app) = write(&self.apps).remove(id) else {
             return Ok(());
         };
@@ -633,11 +655,13 @@ impl Control for Host {
             .await
             .ok();
         tracing::info!(app = %id, "application stopped");
+        self.moved();
         Ok(())
     }
 
     async fn forget(&self, app: String) -> Result<(), RpcError> {
         lock(&self.failed).remove(&app);
+        self.moved();
         Ok(())
     }
 
@@ -663,6 +687,7 @@ impl Control for Host {
             method.answer(app.vm.as_ref(), &call.caller, call.params).await
         };
         app.bridge.stats.method(&call.method, outcome.as_ref().err());
+        self.moved();
         outcome
     }
 
@@ -670,6 +695,7 @@ impl Control for Host {
         let bridge = lock(&self.bridges).get(&value.app).cloned();
         if let Some(bridge) = bridge {
             bridge.deliver(value.topic, value.value);
+            self.moved();
         }
         Ok(())
     }
@@ -731,6 +757,7 @@ impl Control for Host {
         if let Some(forwarded) = forwarded {
             let _ = forwarded.await;
         }
+        self.moved();
         Ok(match outcome {
             Ok(out) => ToolReply::Output {
                 content: out.content,
@@ -757,7 +784,9 @@ impl Control for Host {
         }
         let (cancel, _running) = self.cancellation(&call.call_id);
         let _busy = app.activity.hold();
-        Ok(match vm.on_event(&call.event, &call.payload, &cancel).await {
+        let decided = vm.on_event(&call.event, &call.payload, &cancel).await;
+        self.moved();
+        Ok(match decided {
             Ok(HookDecision::Proceed) => HookReply::Proceed,
             Ok(HookDecision::Block(reason)) => HookReply::Block(reason),
             Ok(HookDecision::AddContext(note)) => HookReply::AddContext(note),
@@ -782,6 +811,7 @@ impl Control for Host {
             }
             tracing::debug!(app = %id, %reason, "application stopped");
         }
+        self.moved();
         Ok(())
     }
 }

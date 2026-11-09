@@ -448,7 +448,7 @@ app.onEnv((env) => (document.documentElement.dataset.theme = env.theme));
 - **装的顺序**：验签 → 解包到 `~/.<product_id>/apps/<id>/<version>/` → 把 `agent/` 装进声明的实例、拷 skill → 登记方法、主题、space →
   加载组件、后端 `init` → 发界面。任何一步失败整体回滚，只停这一个应用。
 - **升级**：`harnix.apps.update {id, version?, allow_downgrade?}` 到商店最新（或给的）版本。新版只多要了能力时才要同意，披露里只列多出来的那几项；失败留着原版本，
-  数据保留。
+  数据保留。放回原版本会重装它的 Agix 包，安装记录随之改写；原版本也放不回来时，记录标成停用（`enabled: false`），并写下 `reason`。
 - **降级**：给的版本比装着的旧，没有 `allow_downgrade: true` 就拒；有，就披露（`update.downgrade: true`），不管要的能力是多是少都要同意。
   不给版本的升级只往前走，商店的「最新」比装着的旧时答 `up_to_date`。旧版本可能正是新版本修掉的那个漏洞，所以只有人明说才回去。
 - **卸载**：`harnix.apps.uninstall {id}`：停下，撤掉安装放进去的一切（Agix 插件、skill、界面），删掉它的目录，连同数据。
@@ -626,13 +626,16 @@ interface host {
 
 ```text
 { dir,
-  apps: [{ id, version, title, enabled, registered, trust, source, data_bytes, revoked?, runtime?, app? }],
+  apps: [{ id, version, title, enabled, registered, trust, source, data_bytes, revoked?, reason?, runtime?, app? }],
   unreadable: [{ dir, reason }],
   registered: [{ id, by, methods, topics, spaces, hub?, since_ms }],
   runtime: { fingerprint, dev } | null }
 ```
 
 - `trust`：`store` / `trusted` / `unsigned`；`source`：`store` / `file`。
+- `data_bytes`：它存的（数据目录与 kv）：在跑的取虚拟机的 `health.storage_bytes`（配额的算法，kv 连键带值），没在跑的由运行期在盘上量；
+  不带运行期的构建是 `null`。
+- `reason`：没人停它它却停着时的理由（升级失败、原版本也没放回来）；再启用成功就清掉。
 - `revoked`：上次读目录时，商店说这个版本撤了（或比 `min_version` 旧）的理由；换了版本就没了。
 - `app`：清单给人看的那份：`{publisher, description, capabilities {net, env, storage_mb, hub, fs}, events, lines, component {world, memory_mb}, ui, inline}`（`events` 是 `[events] tools`）。
 - `runtime`：在跑的应用的状态：
@@ -659,7 +662,7 @@ interface host {
 
 | 主题 | 参数 | 值 | 什么时候推 |
 |---|---|---|---|
-| `harnix.apps` | — | 同 `harnix.apps.list` | 后端每秒看一次，变了才推；设备与模块可订 |
+| `harnix.apps` | — | 同 `harnix.apps.list` | 后端每秒看一次运行期的代际号（宿主每次启停、调用结束、投递、休眠、计数都让它动），动了才重读各应用的状态，没动也至多 10 秒重读一次（虚拟机自己变的，比如内存）；清单的描述按（id, 版本）缓存，`data_bytes` 用虚拟机量过的 `storage_bytes`，不再每秒走盘。变了才推；设备与模块可订 |
 | `harnix.apps.progress` | — | `{app, tool, session_id, tool_use_id, text}`（`tool` 是 `app__…` 全名） | 进程内会话的工具调用每次 `host.progress`；只在带运行时的构建里 |
 | `harnix.spaces` | — | 同 `harnix.spaces.list` | 插件 APP 加减 space 时；只在 `[apps] enabled` 时有 |
 | `app.<id>.<主题>` | 无 | 后端 `host.publish` 的值 | 设备与模块可订 |

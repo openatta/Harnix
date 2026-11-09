@@ -35,6 +35,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 
 use harnix_app_host::{Host, HostOptions};
@@ -206,6 +207,9 @@ pub struct Runtime {
     store: Option<String>,
     fingerprint: String,
     on_change: Mutex<Option<OnChange>>,
+    /// Moved by every change to what is running here: with the host's, what
+    /// [`AppsRuntime::generation`] answers.
+    changes: AtomicU64,
     /// Where this process listens, once it does: the MCP endpoints' base.
     base: RwLock<Option<String>>,
 }
@@ -239,6 +243,7 @@ impl Runtime {
             admission,
             store: options.store,
             on_change: Mutex::new(None),
+            changes: AtomicU64::new(0),
             base: RwLock::new(None),
         }))
     }
@@ -274,6 +279,7 @@ impl Runtime {
     }
 
     fn changed(&self) {
+        self.changes.fetch_add(1, Ordering::Relaxed);
         let f = lock(&self.on_change).clone();
         if let Some(f) = f {
             f();
@@ -344,12 +350,17 @@ impl Runtime {
             // reloads its frames when this does.
             map.insert(
                 "ui_rev".into(),
-                json!((self.admission.dev && app.trust == Trust::Unsigned).then(|| ui_rev(&app.root.join("ui")))),
+                json!(self.watches_ui(&app).then(|| format!("{:016x}", ui_stamp(&app.root.join("ui"))))),
             );
             map.insert("mcp".into(), json!(format!("/apps/{id}/mcp")));
             map.insert("inline".into(), app.inline.clone());
         }
         status
+    }
+
+    /// An unsigned application's interface, in developer mode, changes under it on disk.
+    fn watches_ui(&self, app: &Loaded) -> bool {
+        self.admission.dev && app.trust == Trust::Unsigned
     }
 
     /// Put an unpacked package in place under `app_dir` and start it. What was put elsewhere is
@@ -496,9 +507,10 @@ fn title_json(title: &Title) -> Value {
 }
 
 /// A stamp of everything under an application's `ui/`: each file's path, size and modification
-/// time. Read on every look at the application (once a second, by the `apps` module's topic), so
-/// it is a watcher that needs no thread: a file saved there changes it.
-fn ui_rev(dir: &Path) -> String {
+/// time. Read on every look at an application that [`Runtime::watches_ui`] (once a second, by the
+/// `apps` module's topic, through the generation), so it is a watcher that needs no thread: a file
+/// saved there changes it.
+fn ui_stamp(dir: &Path) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     let mut stack = vec![dir.to_path_buf()];
@@ -518,7 +530,7 @@ fn ui_rev(dir: &Path) -> String {
     }
     files.sort();
     files.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    hasher.finish()
 }
 
 #[async_trait::async_trait]
@@ -721,5 +733,24 @@ impl AppsRuntime for Runtime {
 
     fn describe(&self, record: &InstallRecord, app_dir: &Path) -> Value {
         acquire::describe(&app_dir.join(&record.version))
+    }
+
+    /// The host's generation and this runtime's own changes; in developer mode, with the stamp of
+    /// each unsigned application's `ui/` too, which changes on disk with nobody saying so.
+    fn generation(&self) -> Option<u64> {
+        let mut generation = self
+            .host
+            .generation()
+            .wrapping_add(self.changes.load(Ordering::Relaxed));
+        for app in self.registry.loaded() {
+            if self.watches_ui(&app) {
+                generation = generation.rotate_left(7) ^ ui_stamp(&app.root.join("ui"));
+            }
+        }
+        Some(generation)
+    }
+
+    fn data_bytes(&self, app_dir: &Path) -> Option<u64> {
+        harnix_app_host::data_bytes(app_dir)
     }
 }

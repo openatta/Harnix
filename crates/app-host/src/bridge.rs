@@ -24,7 +24,8 @@
 //! backend's state asks for it with `host.call`.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use async_trait::async_trait;
 use harnix_app_port::{CallAs, Failure, Platform, Publish, RpcError, Subject, Subscription};
@@ -54,10 +55,13 @@ pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// What one application did, as the system space shows it.
+/// What one application did, as the system space shows it. Every count it makes bumps the host's
+/// generation (`Host::generation`): what the application does on its own — a timer's work, what
+/// it publishes — moves it as much as a call does.
 #[derive(Default)]
 pub struct Stats {
     inner: Mutex<Counted>,
+    generation: Arc<AtomicU64>,
 }
 
 #[derive(Default)]
@@ -76,8 +80,14 @@ struct Counted {
 }
 
 impl Stats {
+    /// The counts, to change: the generation moves with them.
+    fn counted(&self) -> MutexGuard<'_, Counted> {
+        self.generation.fetch_add(1, Ordering::Relaxed);
+        lock(&self.inner)
+    }
+
     pub(crate) fn method(&self, name: &str, error: Option<&RpcError>) {
-        let mut c = lock(&self.inner);
+        let mut c = self.counted();
         let entry = c.methods.entry(name.to_string()).or_default();
         entry.0 += 1;
         if let Some(e) = error {
@@ -91,7 +101,7 @@ impl Stats {
 
     /// A call the application made as itself (`host.call`, `host.subscribe`) and how it ended.
     fn hub(&self, what: &str, outcome: &Result<Value, RpcError>) {
-        let mut c = lock(&self.inner);
+        let mut c = self.counted();
         c.hub_calls += 1;
         if let Err(e) = outcome {
             if e.code == codes::REFUSED {
@@ -104,7 +114,7 @@ impl Stats {
     }
 
     pub(crate) fn dropped_progress(&self) {
-        lock(&self.inner).dropped_progress += 1;
+        self.counted().dropped_progress += 1;
     }
 
     pub fn report(&self) -> Value {
@@ -148,16 +158,21 @@ pub struct Bridge {
 }
 
 impl Bridge {
+    /// `generation`: the host's, which every count this bridge makes moves.
     pub fn new(
         app: &str,
         topics: impl IntoIterator<Item = String>,
         secrets: BTreeMap<String, String>,
         platform: Arc<dyn Platform>,
+        generation: Arc<AtomicU64>,
     ) -> Arc<Self> {
         let (publish, mut publish_rx) = mpsc::channel::<(String, Value)>(QUEUE);
         let (topic_values, mut values) = mpsc::channel::<(String, Value)>(QUEUE);
         let (started, vm) = oneshot::channel::<WeakAppVm>();
-        let stats = Arc::new(Stats::default());
+        let stats = Arc::new(Stats {
+            inner: Mutex::default(),
+            generation,
+        });
         // Values that arrive while `init` is still running wait here; the VM queues them behind it.
         tokio::spawn(async move {
             let Ok(vm) = vm.await else { return };
@@ -176,7 +191,7 @@ impl Bridge {
                         value,
                     };
                     match platform.publish(publish).await {
-                        Ok(()) => lock(&stats.inner).published += 1,
+                        Ok(()) => stats.counted().published += 1,
                         // Withdrawn under it: nothing more can be published.
                         Err(e) => tracing::debug!(%app, %topic, error = %e.message, "not published"),
                     }
@@ -202,7 +217,7 @@ impl Bridge {
 
     fn queue_value(&self, topic: String, value: Value) {
         if let Err(mpsc::error::TrySendError::Full(_)) = self.topic_values.try_send((topic, value)) {
-            lock(&self.stats.inner).dropped_topic_values += 1;
+            self.stats.counted().dropped_topic_values += 1;
             tracing::warn!(app = %self.app, "the backend's topic queue is full; a value dropped");
         }
     }
@@ -242,7 +257,7 @@ impl AppHost for Bridge {
         match self.publish.try_send((topic.to_string(), value)) {
             Ok(()) => Ok(()),
             Err(mpsc::error::TrySendError::Full(_)) => {
-                lock(&self.stats.inner).dropped_publishes += 1;
+                self.stats.counted().dropped_publishes += 1;
                 Err(format!(
                     "dropped: `{}` has {QUEUE} publishes waiting already; it publishes faster than \
                      they can be sent",
@@ -436,7 +451,7 @@ mod tests {
 
     #[tokio::test]
     async fn publishes_past_the_queue_are_dropped_counted_and_said() {
-        let bridge = Bridge::new("acme.notes", ["notes".to_string()], BTreeMap::new(), Arc::new(Stuck));
+        let bridge = Bridge::new("acme.notes", ["notes".to_string()], BTreeMap::new(), Arc::new(Stuck), Default::default());
         let mut refused = Vec::new();
         for n in 0..QUEUE + 10 {
             if let Err(e) = AppHost::publish(&*bridge, "acme.notes", "notes", json!(n)) {
@@ -459,7 +474,7 @@ mod tests {
         let runtime = tokio::runtime::Runtime::new().unwrap();
         let _in = runtime.enter();
         let secrets = BTreeMap::from([("TOKEN".to_string(), "given".to_string())]);
-        let bridge = Bridge::new("acme.notes", [], secrets, Arc::new(Stuck));
+        let bridge = Bridge::new("acme.notes", [], secrets, Arc::new(Stuck), Default::default());
         std::env::set_var("HARNIX_BRIDGE_TEST_ENV", "the-process-own");
         assert_eq!(AppHost::secret(&*bridge, "acme.notes", "TOKEN").as_deref(), Some("given"));
         assert_eq!(AppHost::secret(&*bridge, "acme.notes", "HARNIX_BRIDGE_TEST_ENV"), None);

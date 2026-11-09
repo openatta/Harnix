@@ -11,7 +11,7 @@
 //! runs in an instance of its own whether the backend is up or not, so it wakes nothing — unless it
 //! calls the backend (`host.call`), which is a method call like any.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -57,8 +57,15 @@ impl Activity {
     }
 }
 
-/// Watch an on-demand backend until `done`: let it go each time it has been idle for `idle`.
-pub(crate) fn watch(vm: &AppVm, activity: Arc<Activity>, idle: Duration, done: CancellationToken) {
+/// Watch an on-demand backend until `done`: let it go each time it has been idle for `idle`, and
+/// move the host's `generation` when it does.
+pub(crate) fn watch(
+    vm: &AppVm,
+    activity: Arc<Activity>,
+    idle: Duration,
+    done: CancellationToken,
+    generation: Arc<AtomicU64>,
+) {
     let vm = vm.downgrade();
     // Often enough that it goes within a quarter of `idle` of being due, and no oftener than a
     // test's short idle needs.
@@ -79,6 +86,7 @@ pub(crate) fn watch(vm: &AppVm, activity: Arc<Activity>, idle: Duration, done: C
             }
             // The VM checks again, under the backend's own lock, that nothing holds it.
             vm.hibernate().await;
+            generation.fetch_add(1, Ordering::Relaxed);
         }
     });
 }

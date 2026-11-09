@@ -224,3 +224,30 @@ async fn its_secret_is_the_profiles_never_the_processs() {
     let state = with.platform.device_call("state", json!({})).await.unwrap();
     assert_eq!(state["secret_length"], json!("from-the-profile".len()));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_generation_moves_with_what_its_status_says() {
+    let rig = Rig::new(|_| {});
+    let before = rig.host.generation();
+    let parts = rig.install(|m| m).await;
+    let started = rig.host.generation();
+    assert!(started > before, "a start moves it");
+    // Each of these changes what its status answers, and moves it.
+    rig.platform.device_call("notes.add", json!({"text": "one"})).await.unwrap();
+    let called = rig.host.generation();
+    assert!(called > started, "a method call");
+    assert!(rig.status().await["calls"]["calls"].as_u64().unwrap() >= 1);
+    let tool = ToolCall {
+        app: ID.into(),
+        tool: "echo".into(),
+        input: json!({"text": "hi"}),
+        call_id: "g1".into(),
+        project: None,
+        progress: false,
+    };
+    rig.control.call_tool(tool).await.unwrap();
+    let tooled = rig.host.generation();
+    assert!(tooled > called, "a tool call");
+    rig.control.stop(Stop { app: ID.into(), parts }).await.unwrap();
+    assert!(rig.host.generation() > tooled, "a stop");
+}
