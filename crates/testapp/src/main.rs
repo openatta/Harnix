@@ -17,7 +17,8 @@
 //!
 //! Built with `apps`, it hosts runtime applications too, and trusts the mock store the LIVE suites
 //! make (`tests/live/fixtures/store`) in place of the store's own key — which nothing but a test
-//! application can do.
+//! application can do; and with `HARNIX_TESTAPP_APP_IDLE_MS` set, it hibernates an on-demand
+//! application's backend after that much idle rather than its `idle_secs`.
 //!
 //! `probe` also refuses, before it reaches the model, any message with `blocked-word` in it (a prompt
 //! middleware on every session of `system`), and `fleet` has two templates with the same native
@@ -43,7 +44,7 @@ mod flow_demo;
 const MOCK_STORE_KEY: &str = include_str!("../../../tests/live/fixtures/store/mock-store.pub");
 
 fn main() -> anyhow::Result<()> {
-    harnix::App::builder()
+    let builder = harnix::App::builder()
         .name("harnix-testapp", "0.0.1")
         .with_builtins()
         .module(Probe)
@@ -59,8 +60,14 @@ fn main() -> anyhow::Result<()> {
         // let in by name, the way only a test application would.
         .app_host("fakehost")
         // The mock store's key, instead of the one built in: only a test application says this.
-        .store_keys([MOCK_STORE_KEY.trim()])
-        .run()
+        .store_keys([MOCK_STORE_KEY.trim()]);
+    // An on-demand application's backend idles this long here, so a suite sees it hibernate
+    // (`tests/live/api/apps-idle.spec.ts`); a manifest's `idle_secs` is never under a minute.
+    let builder = match std::env::var("HARNIX_TESTAPP_APP_IDLE_MS").ok().and_then(|ms| ms.parse().ok()) {
+        Some(ms) => builder.app_idle(Duration::from_millis(ms)),
+        None => builder,
+    };
+    builder.run()
 }
 
 /* ── probe ─────────────────────────────────────────────────────────────── */

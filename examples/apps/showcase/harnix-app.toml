@@ -127,6 +127,12 @@ description = "Each firing of the timer"
 [[space]]
 id = "example.showcase"
 
+# A second space, for conversations: the shell draws it (its centre is the conversation) and lists
+# its sessions in the left column, grouped as its `sidebar_group` (below) says. The first space draws
+# its own left column (`space.sidebar`) instead: a space's left column is one or the other.
+[[space]]
+id = "example.showcase.chats"
+
 # What `host.config()` answers (the `config` tool, the event hook, `init`). A profile can set over
 # it: [apps.config."example.showcase"] greeting = "…"
 [config]
@@ -210,6 +216,16 @@ id = "compose"
 page = "frame/index.html"
 title = { en = "A note for the board", zh-CN = "给留言板写一条" }
 
+# The second space: no page of its own, the conversation in its centre, the shell's session list on
+# its left.
+[[surface]]
+point = "space"
+space = "example.showcase.chats"
+title = { en = "Showcase chats", zh-CN = "示例应用的对话" }
+icon = "chat"
+order = 61
+center = "chat"
+
 [agent]
 install_into = ["system"]
 
@@ -268,10 +284,11 @@ trigger = "@"
 name = "notes"
 description = { en = "A note on the showcase's board", zh-CN = "示例应用留言板上的留言" }
 
-# The showcase's space lists its sessions in two groups, as the backend's `sessions.group` says:
-# those it put a card in, and the rest. The installer says it is told the space's sessions.
+# The showcase's chats space lists its sessions in two groups, as the backend's `sessions.group`
+# says: those it put a card in, and the rest. The installer says it is told the space's sessions.
+# (Not the first space: its left column is its own `space.sidebar` frame, which no grouping reaches.)
 [[inline.sidebar_group]]
-space = "example.showcase"
+space = "example.showcase.chats"
 by = "method"
 method = "sessions.group"
 other = { en = "Without a card", zh-CN = "没有卡片的" }

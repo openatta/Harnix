@@ -160,8 +160,9 @@ pub trait AppsRuntime: Send + Sync {
     /// module's to delete.
     async fn uninstall(&self, cx: &ModuleContext, record: &InstallRecord, app_dir: &Path) -> Result<Value, RpcError>;
 
-    /// What is running of it, or why it is not.
-    fn status(&self, id: &str) -> Value;
+    /// What is running of it, or why it is not. Asked of the host that runs it, which may be in
+    /// another process: so it is awaited.
+    async fn status(&self, id: &str) -> Value;
 
     /// The process is going: stop every application.
     async fn shutdown(&self);
@@ -326,7 +327,7 @@ impl Module for AppsModule {
         let task = tokio::spawn(async move {
             let mut last = Value::Null;
             loop {
-                let now = snapshot(&shared, cx.apps().as_ref());
+                let now = snapshot(&shared, cx.apps().as_ref()).await;
                 if now != last {
                     if let Err(e) = cx.events().publish(TOPIC, json!({}), &now).await {
                         tracing::warn!(error = %e.message, "harnix.apps was not published");
@@ -378,7 +379,7 @@ impl Handler for AppsMethod {
         let host = module.apps();
         let runtime = shared.runtime.as_ref();
         match self.name {
-            "harnix.apps.list" => Ok(snapshot(shared, host.as_ref())),
+            "harnix.apps.list" => Ok(snapshot(shared, host.as_ref()).await),
             "harnix.apps.installFile" => {
                 let runtime = runtime.ok_or_else(no_runtime)?;
                 let path = params
@@ -520,7 +521,10 @@ impl Handler for AppsMethod {
                     "enabled": enabled,
                     "registered": registered,
                     "withdrawn": withdrawn,
-                    "runtime": runtime.map(|r| r.status(&id)),
+                    "runtime": match runtime {
+                        Some(r) => Some(r.status(&id).await),
+                        None => None,
+                    },
                     "started": started,
                 }))
             }
@@ -531,7 +535,10 @@ impl Handler for AppsMethod {
                 let app_dir = shared.dir.join(&id);
                 // Stopped around it: a backend's memory, or a store it has open, would outlive the
                 // files otherwise.
-                let running = record.enabled && runtime.is_some_and(|r| r.status(&id)["state"] != json!("stopped"));
+                let running = match runtime {
+                    Some(r) if record.enabled => r.status(&id).await["state"] != json!("stopped"),
+                    _ => false,
+                };
                 if running {
                     if let Some(runtime) = runtime {
                         runtime.unload(module, &record).await;
@@ -585,13 +592,13 @@ impl Handler for AppsMethod {
 
 /// Every record (and the ones that do not read, with why), what the runtime says of each, and every
 /// application registered with the host now: `harnix.apps.list`, and the value of `harnix.apps`.
-fn snapshot(shared: &Shared, host: Option<&AppHost>) -> Value {
+async fn snapshot(shared: &Shared, host: Option<&AppHost>) -> Value {
     let runtime = shared.runtime.as_ref();
     let (installed, unreadable) = read_all(&shared.dir);
     let registered = host.map(|h| h.registered()).unwrap_or_default();
-    let apps: Vec<Value> = installed
-        .iter()
-        .map(|r| {
+    let mut apps: Vec<Value> = Vec::with_capacity(installed.len());
+    for r in &installed {
+        apps.push({
             let live = registered.iter().find(|s| s.id == r.id);
             let app_dir = shared.dir.join(&r.id);
             let mut entry = json!({
@@ -605,12 +612,12 @@ fn snapshot(shared: &Shared, host: Option<&AppHost>) -> Value {
                 "data_bytes": data_bytes(&app_dir),
             });
             if let Some(runtime) = runtime {
-                entry["runtime"] = runtime.status(&r.id);
+                entry["runtime"] = runtime.status(&r.id).await;
                 entry["app"] = runtime.describe(r, &app_dir);
             }
             entry
-        })
-        .collect();
+        });
+    }
     json!({
         "dir": shared.dir.display().to_string(),
         "apps": apps,

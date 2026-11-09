@@ -181,6 +181,9 @@ struct Inner {
     backend: Option<backend::GuestIndices>,
     timeout: Duration,
     resident: tokio::sync::Mutex<Option<Resident>>,
+    /// The resident instance was let go while idle ([`AppVm::hibernate`]): the next call into
+    /// the backend starts one again.
+    hibernating: std::sync::atomic::AtomicBool,
 }
 
 struct Resident {
@@ -211,6 +214,8 @@ pub(crate) struct Shared {
     data_bytes: AtomicU64,
     /// [`HEALTHY_PERIOD`], in milliseconds.
     healthy_ms: AtomicU64,
+    /// Deliveries queued for the backend or being delivered: a backend with any is not idle.
+    pending: AtomicU64,
 }
 
 enum Delivery {
@@ -330,6 +335,7 @@ impl AppVm {
             data_dir,
             data_bytes: AtomicU64::new(0),
             healthy_ms: AtomicU64::new(HEALTHY_PERIOD.as_millis() as u64),
+            pending: AtomicU64::new(0),
         });
         shared.measure();
         let inner = Arc::new(Inner {
@@ -341,6 +347,7 @@ impl AppVm {
             backend,
             timeout: spec.limits.timeout,
             resident: tokio::sync::Mutex::new(None),
+            hibernating: std::sync::atomic::AtomicBool::new(false),
         });
         if world == World::Backend {
             let resident = inner
@@ -486,6 +493,7 @@ impl AppVm {
         let (params, caller) = (params.to_string(), caller.to_string());
         let mut guard = inner.resident.lock().await;
         inner.shared.admit()?;
+        inner.wake(&mut guard).await?;
         let Some(resident) = guard.as_mut() else {
             return Err(CallFailure::Unavailable(
                 "the backend is not running".into(),
@@ -582,7 +590,51 @@ impl AppVm {
             storage_limit_bytes: shared.caps.storage_bytes,
             subscriptions: lock(&shared.subscriptions).len(),
             timers: lock(&shared.timers).len(),
+            hibernating: self.hibernating(),
+            wakes: c.wakes,
         }
+    }
+
+    /// Whether the resident backend was let go while idle and not started again yet.
+    pub fn hibernating(&self) -> bool {
+        self.inner.hibernating.load(Ordering::Acquire)
+    }
+
+    /// Let the resident backend go while nothing holds it — no subscription, no timer, no delivery
+    /// queued or running, no call into it (which holds it, so this waits its turn behind one) —
+    /// after its `stop`, bounded by the timeout. Its tools and events still run, each in an
+    /// instance of its own; the next call into the backend starts it again, `init` and all, with
+    /// what it kept in its storage and none of what it held in memory. Not a fault and not a
+    /// recycle. Answers whether it hibernated.
+    pub async fn hibernate(&self) -> bool {
+        let inner = &self.inner;
+        if inner.world != World::Backend {
+            return false;
+        }
+        let mut guard = inner.resident.lock().await;
+        let shared = &inner.shared;
+        let held = !lock(&shared.subscriptions).is_empty()
+            || !lock(&shared.timers).is_empty()
+            || shared.pending.load(Ordering::Acquire) > 0;
+        if shared.admit().is_err() || held {
+            return false;
+        }
+        let Some(mut resident) = guard.take() else {
+            return false;
+        };
+        let call = resident.guest.call_stop(&mut resident.store);
+        match holding(shared.vm_id, with_deadline(call, inner.timeout, None)).await {
+            Ok(()) => {}
+            Err(Abort::Failed(e)) => {
+                tracing::warn!(app = %shared.app, error = %format!("{e:#}"), "backend stop failed on hibernating")
+            }
+            Err(_) => tracing::warn!(app = %shared.app, "backend stop timed out on hibernating"),
+        }
+        drop(resident);
+        shared.release_bindings().await;
+        inner.hibernating.store(true, Ordering::Release);
+        tracing::info!(app = %shared.app, "backend hibernating");
+        true
     }
 }
 
@@ -650,6 +702,31 @@ impl Inner {
         drop(store);
         self.shared.release_bindings().await;
         Err(failure)
+    }
+
+    /// A hibernating backend, started again for the call holding `guard`: `init` runs. One that
+    /// will not start sets the application aside. Calls waiting behind this one find it started.
+    async fn wake(
+        &self,
+        guard: &mut tokio::sync::MutexGuard<'_, Option<Resident>>,
+    ) -> Result<(), CallFailure> {
+        if guard.is_some() || !self.hibernating.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        match self.instantiate_resident().await {
+            Ok(resident) => {
+                **guard = Some(resident);
+                self.hibernating.store(false, Ordering::Release);
+                lock(&self.shared.counters).wakes += 1;
+                tracing::info!(app = %self.shared.app, "backend woken");
+                Ok(())
+            }
+            Err(f) => {
+                self.shared
+                    .disable(format!("the backend did not start again after hibernating: {f}"));
+                Err(f)
+            }
+        }
     }
 
     /// A trap's message, or the memory limit when that is what caused it.
@@ -821,11 +898,22 @@ impl Inner {
     }
 
     async fn deliver(&self, delivery: Delivery) {
+        // However it ends: queued, then delivered or dropped.
+        struct Delivered<'a>(&'a AtomicU64);
+        impl Drop for Delivered<'_> {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, Ordering::AcqRel);
+            }
+        }
+        let _delivered = Delivered(&self.shared.pending);
         if self.shared.admit().is_err() {
             return;
         }
         let mut guard = self.resident.lock().await;
         if self.shared.admit().is_err() {
+            return;
+        }
+        if self.wake(&mut guard).await.is_err() {
             return;
         }
         let Some(resident) = guard.as_mut() else {
@@ -906,9 +994,13 @@ impl Shared {
     }
 
     fn enqueue(&self, delivery: Delivery) {
-        if let Err(mpsc::error::TrySendError::Full(_)) = self.deliveries.try_send(delivery) {
-            lock(&self.counters).dropped_deliveries += 1;
-            tracing::warn!(app = %self.app, "backend delivery queue full; dropped");
+        self.pending.fetch_add(1, Ordering::AcqRel);
+        if let Err(e) = self.deliveries.try_send(delivery) {
+            self.pending.fetch_sub(1, Ordering::AcqRel);
+            if let mpsc::error::TrySendError::Full(_) = e {
+                lock(&self.counters).dropped_deliveries += 1;
+                tracing::warn!(app = %self.app, "backend delivery queue full; dropped");
+            }
         }
     }
 

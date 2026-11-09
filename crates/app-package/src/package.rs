@@ -340,7 +340,7 @@ pub fn zip_dir(dir: &Path, out: &Path) -> Result<(), String> {
 }
 
 /// Every file under `dir`, relative to `root` with `/` separators, in a stable order.
-pub(crate) fn walk(
+pub fn walk(
     root: &Path,
     dir: &Path,
     out: &mut Vec<(String, PathBuf)>,

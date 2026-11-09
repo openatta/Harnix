@@ -9,14 +9,14 @@ by name (`tests/live/api/apps-store.spec.ts`, `tests/live/ui/apps-store.spec.ts`
 
 | Part | Where | What it shows |
 |---|---|---|
-| Manifest | `harnix-app.toml` | the id; the capabilities it asks for (`storage_mb`, `fs`, `net`, `env`, `hub`); one `backend-app` component; its `[[method]]`s (with a params schema), `[[topic]]`s and `[[space]]`; `[config]`; its interface module; its isolated interface (`[interface]`, `[[surface]]`); where its agent package goes; and what the shell draws for it inline (`[inline]`, below) |
+| Manifest | `harnix-app.toml` | the id; the capabilities it asks for (`storage_mb`, `fs`, `net`, `env`, `hub`); one `backend-app` component; its `[[method]]`s (with a params schema), `[[topic]]`s and two `[[space]]`s (its board, and its chats); `[config]`; its interface module; its isolated interface (`[interface]`, `[[surface]]`); where its agent package goes; and what the shell draws for it inline (`[inline]`, below) |
 | Backend | `component/` (Rust, `wasm32-wasip2`), `backend` | one resident instance: a board of notes in the key-value store (`notes.add` / `list` / `clear`, published on the `notes` topic), a counter in its own memory (`counter.bump`), a timer that publishes `heartbeat` (`timer.start`), `fetch` (`host.http-request`, to the one host in `net`), `session.start` (creates a session in its space and sends it a prompt, as `module:example.showcase`), `overreach` (a call its `hub` does not list), `state`, `card.post` (a card in a session's flow), `complete` (its commands' candidates), `sessions.group` (its space's groups), and `spin` / `crash` (a timeout recycles the instance; a crash rebuilds it once, a second sets the application aside). `init` subscribes to `harnix.sessions.status` |
 | Tools | `component/`, `tools` | `echo`, `count` (key-value storage), `config` (`host.config()`), `read_project` (the session's project, read-only), `slow` (progress, cancellation), `vetoed`, `board` (the backend's state, asked for with `host.call`: a tool's instance cannot see the backend's memory) |
 | Event hook | `component/` (`events`) | refuses the tool its configuration names (`blocked_tool`), on every tool call of the session |
 | Agent package | `agent/plugin.toml` | a QuickJS `prompt.block` (`scripts/block.js`) and an agent type, `showcase-guide` |
 | Skill | `agent/skills/showcase-tour/` | copied into each instance the package goes to, and taken out with it |
 | Interface, in the page | `ui/showcase.js` (`[[ui]]`) | a `home.card`, and the showcase's space: the board, which calls the backend's methods and draws what its topics push — over the page's own connection, on the shell's React, with its own strings. Runs only when a publisher this Harnix trusts signed the package |
-| Interface, in frames | `ui/frame/` (`[interface]`, `[[surface]]`) | the same, and more, in isolated frames: every surface the shell offers — the space's centre (the board), its left column, a right-column tab, its second panel, a details panel, a home card, a settings section, a modal — drawn by one page on `@harnix/app-sdk` and `@harnix/ui-kit`, through the shell's bridge only. How it runs when it is store-signed or unsigned (see below) |
+| Interface, in frames | `ui/frame/` (`[interface]`, `[[surface]]`) | the same, and more, in isolated frames: every surface the shell offers — the space's centre (the board), its left column, a right-column tab, its second panel, a details panel, a home card, a settings section, a modal — drawn by one page on `@harnix/app-sdk` and `@harnix/ui-kit`, through the shell's bridge only; and a second space, `example.showcase.chats`, with no page: the conversation in its centre, and the shell's session list, grouped, on its left. How it runs when it is store-signed or unsigned (see below) |
 
 A session sees the tools as `app__example_showcase__<tool>`; each one asks before it runs. A
 daemon this Harnix spawned sees them as `mcp__app-example_showcase__<tool>`, over the
@@ -32,12 +32,15 @@ it, from the manifest alone; no code of the showcase's runs for any of this:
 | `tool_row` | `echo` and `count`: a glyph, a title from the call's input (`{input.text}`), the result after it; `echo`'s unfolded | their calls' rows in the flow |
 | `flow_block` | the kind `card`: a title, two fields and a Markdown body from the entry's payload (`{payload.…}`), and two buttons | a card for every entry `card.post` appends (`harnix.entries.append`, in its `hub`). "Count one more" asks first in the shell's own dialog, then calls `counter.bump`; "Pin the title on the board" calls `notes.add` with the card's title. What came back is shown in the card (`done`, `{result.…}`) |
 | `command` | `/showcase` and `@notes` | the composer's menus as they are, with the candidates `complete` answers: `/showcase-bump` and `/showcase-clear` run those methods when chosen; `@notes` offers the board's notes matching what is typed |
-| `sidebar_group` | its space, `by = "method"` | the space's sessions in the left column, grouped as `sessions.group` answers: those it put a card in, and the rest (`other`) |
+| `sidebar_group` | its second space, `example.showcase.chats`, `by = "method"` | that space's sessions in the left column, grouped as `sessions.group` answers: those it put a card in, and the rest (`other`) |
 
 Every text is a string or one per locale (`{ en = "…", zh-CN = "…" }`). A point that does not hold
 together is refused at install, by name: a placeholder of a root the point does not have, a button
 calling a method that is not its own or not a device's to call, a command without `complete`, a card
-without `harnix.entries.append` in its `hub`, a row for a tool its component does not list. The
+without `harnix.entries.append` in its `hub`, a row for a tool its component does not list, a
+grouping for a space whose left column is the application's own `space.sidebar` frame (a space's
+left column is the shell's session list or the application's frame, never both: that is why the
+showcase has a second space, `example.showcase.chats`, a conversation space the shell draws). The
 installer says what the showcase is told through them — what is typed for its commands, its space's
 sessions — a line each.
 
@@ -57,6 +60,29 @@ What the backend does as itself is admitted against its `hub`: `session.create`,
 the topic `harnix.sessions.status`. Anything else — `overreach` tries `harnix.apps.uninstall` — is
 refused, on the record (`harnix.audit`, subject `module:example.showcase`), and listed in the
 system space's Apps tab with the application's VM health.
+
+## Resident, or idle
+
+The showcase's backend stays up while it runs: its manifest has no `[backend]`, which is
+`resident = "always"`, and it subscribes in `init` anyway. An application whose backend need not
+stay up says
+
+```toml
+[backend]
+resident = "on-demand"
+idle_secs = 600   # the default; 60 at the least
+```
+
+and its backend is stopped (its `stop` runs) once it has held no subscription, no timer and no call
+— a method, a tool call or its hook — for `idle_secs`. The system space's Apps tab and
+`harnix.apps.list` say `hibernating`, which is neither a fault nor a recycle. The next method call
+starts it again: `init` runs, what it kept in its key-value store is there (the board), and what it
+held in memory is not (the counter). Two calls at once start one instance. Its tools run in an
+instance of their own either way, so a tool call wakes nothing unless it calls the backend, as
+`board` does.
+
+The LIVE suites try this on the showcase itself, made on-demand in the test with
+`watch_sessions = false` (so `init` subscribes to nothing): `tests/live/api/apps-idle.spec.ts`.
 
 ## The interface, in frames
 
@@ -99,7 +125,7 @@ You need the `wasm32-wasip2` target (`rustup target add wasm32-wasip2`) and the 
 which links the engine's compiler and so is never part of the product:
 
 ```sh
-cargo build --release -p harnix-apps --features compile --bin harnix-app --target-dir target/apps
+cargo build --release -p harnix-app-package --features compile --bin harnix-app --target-dir target/apps
 target/apps/release/harnix-app pack examples/apps/showcase --build -o showcase.hxapp
 ```
 

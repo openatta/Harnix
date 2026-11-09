@@ -1,0 +1,26 @@
+[package]
+name = "harnix-app-port"
+version      = "0.4.1-2026110806"
+edition      = "2021"
+rust-version = "1.87"
+license      = "Apache-2.0"
+publish      = false
+description  = "The boundary between a runtime application's host and the product around it: Platform and Control"
+
+# The boundary, and nothing else: two traits and the serde types they pass. It names no layer of
+# Harnix but the contract (`RpcError`, `Subject`, `SpaceDecl`), nothing of Agix, no VM and no HTTP
+# framework, so either side of it can be in another process (`crates/harnix/tests/layering.rs`).
+[dependencies]
+harnix-contract = { workspace = true }
+async-trait = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+
+[features]
+default = []
+# `rpc::Loopback`: every call and its answer through serde_json, for tests that prove the boundary
+# carries over a wire. Never part of the product.
+loopback = []
+
+[dev-dependencies]
+tokio = { workspace = true }

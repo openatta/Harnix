@@ -1,58 +1,55 @@
-//! Installing, starting, stopping and removing applications: [`Runtime`], the
-//! `harnix_builtin::apps::AppsRuntime` the `apps` module drives.
+//! Installing, starting, stopping and removing applications embedded in this process:
+//! [`Runtime`], the `harnix_builtin::apps::AppsRuntime` the `apps` module drives.
 //!
-//! One VM per application, in this process (`harnix-wasm`). What is running is in a [`Registry`]
-//! the plugin (`plugin.rs`) and the HTTP side (`serve.rs`) read: an application is in it exactly
-//! while its tools are on offer and its interface modules are served. Every change to it is told
-//! to whoever assembled the process ([`Runtime::on_change`]), which republishes the interface
-//! modules and the MCP servers spawned daemons are configured with.
+//! The applications run in a `harnix_app_host::Host` — one VM each, in this process — which this
+//! drives through its `Control` and lends this process through its `Platform`
+//! (`platform.rs`). What is running is in a [`Registry`] the plugin (`plugin.rs`) and the HTTP
+//! side (`serve.rs`) read: an application is in it exactly while its tools are on offer and its
+//! interface is served. Every change to it is told to whoever assembled the process
+//! ([`Runtime::on_change`]), which republishes the interface and the MCP servers spawned daemons
+//! are configured with.
 //!
 //! # Installing, in order, and backwards on a failure
 //!
-//! 1. The package is read and checked (`package.rs`).
+//! 1. The package is read and checked (`harnix_app_package::package`), and its signatures
+//!    verified before anything of it is unpacked.
 //! 2. It is unpacked to `<apps>/<id>/<version>/`.
-//! 3. Its `agent/` is zipped and handed to Agix's `plugin.install` in each instance it names; its
-//!    `agent/skills/<name>/` are copied into each one's skills directory and the instance re-reads
-//!    its configuration.
-//! 4. It is started: registered with the kernel — its methods, topics and spaces, under
-//!    `app.<id>.*`, and its `hub` capability (`backend.rs`) — then the component loaded (refused if
-//!    it was compiled for another engine), its VM started (a backend's `init` runs, and may already
-//!    publish, call and subscribe), its tools listed, its interface modules served.
+//! 3. Its agent package and skills are put in place by the host (`Control::place`): its `agent/`
+//!    handed to Agix's `plugin.install` in each instance it names, its `agent/skills/<name>/`
+//!    copied into each one's skills directory, and the instance re-reads its configuration.
+//! 4. It is started (`Control::start`): verified again over its files on disk, registered with the
+//!    kernel — its methods, topics and spaces, under `app.<id>.*`, and its `hub` capability — its
+//!    VM started, its tools listed and offered; then its interface served.
 //!
 //! A step that fails undoes every step before it, and the application is not installed. The
 //! `apps` module writes the record last.
 //!
 //! # Signed, and unsigned
 //!
-//! A package's signatures (`signature.rs`) are verified before anything of it is unpacked, and
-//! again — over the files as they are on disk — every time it is started, before its compiled
-//! component is deserialized; the component's bytes are checked against their signed sha256 as
-//! they are read. A package countersigned by the store, or signed by a publisher the profile
-//! trusts, runs in any process that hosts applications. An unsigned one is installed and started
-//! only with `[apps] dev = true`: an application installed unsigned does not start in a process
-//! that does not trust unsigned code.
+//! A package countersigned by the store, or signed by a publisher the profile trusts, runs in any
+//! process that hosts applications. An unsigned one is installed and started only with
+//! `[apps] dev = true`: an application installed unsigned does not start in a process that does
+//! not trust unsigned code.
 //!
-//! Updating, the catalog and fetching from the store are in `acquire.rs`.
+//! Updating is in `update.rs`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 
+use harnix_app_host::{Host, HostOptions};
+use harnix_app_package::acquire::{self, internal, refused, Admission};
+use harnix_app_package::manifest::{Interface, Manifest, Surface, Title, UiEntry, MANIFEST};
+use harnix_app_package::package;
+use harnix_app_package::signature::{Keys, Trust};
+use harnix_app_port::{Control, Offer, Place, Start, Stop, ToolDef, Unplace};
 use harnix_builtin::apps::{AppsRuntime, Disclosed, InstallRecord, PackageInfo};
-use harnix_contract::{codes, RpcError};
+use harnix_contract::RpcError;
 use harnix_module::ModuleContext;
-use harnix_module::{AppHandle, AppMethod, AppTopic, Principal};
-use harnix_wasm::{AppSpec, AppVm, Capabilities, FsGrant, Limits, ToolDef, VmState, WasmEngine, World};
 use serde_json::{json, Map, Value};
-use tokio_util::sync::CancellationToken;
 
-use crate::backend::{Bridge, Method, Stats, VmSlot};
-use crate::manifest::{toml_to_json, Interface, Manifest, Surface, Title, UiEntry, MANIFEST};
-use crate::package;
-use crate::signature::{Keys, Trust, Verified};
-
-/// What marks a skill directory as an application's, inside an instance's skills directory.
-const SKILL_MARK: &str = ".harnix-app";
+use crate::platform::KernelPlatform;
+pub use harnix_app_package::{server_name, tool_name, TOOL_PATTERN};
 
 /// One application that is running.
 pub struct Loaded {
@@ -61,7 +58,8 @@ pub struct Loaded {
     pub title: Option<String>,
     /// The unpacked package.
     pub root: PathBuf,
-    pub vm: Option<AppVm>,
+    /// It has a component: its tools are offered, and its events run around every tool call.
+    pub component: bool,
     /// What the component says it provides, listed once when it started.
     pub tools: Vec<ToolDef>,
     pub ui: Vec<UiEntry>,
@@ -75,102 +73,105 @@ pub struct Loaded {
     pub backend_spaces: Vec<String>,
     /// What a spawned daemon's MCP client presents for this application's endpoint.
     pub token: String,
-    /// Its registration with the kernel: its methods, topics, spaces and `hub` capability.
-    pub handle: Option<AppHandle>,
-    /// What it declared, by full name: `app.<id>.<name>`.
-    pub methods: Vec<String>,
-    pub topics: Vec<String>,
-    pub spaces: Vec<String>,
-    pub hub: Vec<String>,
-    /// Its calls, errors and refusals, for the system space.
-    pub stats: Arc<Stats>,
     /// `[inline]`, as the shell draws it (`harnix.apps.list` → `runtime.inline`).
     pub inline: Value,
 }
 
-/// What starting an application made.
-struct Started {
-    vm: Option<AppVm>,
-    tools: Vec<ToolDef>,
-    handle: Option<AppHandle>,
-    stats: Arc<Stats>,
-}
-
 impl Loaded {
-    /// The name a session sees one of its tools by: `app__<id>__<tool>`, with the id's dots as
-    /// `_` (a model's tool names are letters, digits, `_` and `-`; an id has no `_`, so this is
-    /// one-to-one).
+    /// The name a session sees one of its tools by ([`tool_name`]).
     pub fn tool_name(&self, tool: &str) -> String {
         tool_name(&self.id, tool)
     }
 }
 
-/// Every application tool's name matches this: what each scene of an instance with the plugin
-/// has to admit besides its own tool list.
-pub const TOOL_PATTERN: &str = "app__*";
-
-pub fn tool_name(app: &str, tool: &str) -> String {
-    format!("app__{}__{tool}", app.replace('.', "_"))
-}
-
-/// The name a spawned daemon knows this application's MCP server by (its tools are
-/// `mcp__<server>__<tool>` there).
-pub fn server_name(app: &str) -> String {
-    format!("app-{}", app.replace('.', "_"))
-}
-
 /// Where a running tool call's progress is told: `{app, tool, session_id, tool_use_id, text}`.
 pub type OnProgress = Arc<dyn Fn(Value) + Send + Sync>;
+
+/// Where one tool call's progress goes, by the call's id.
+pub(crate) type Listener = Arc<dyn Fn(&str) + Send + Sync>;
 
 /// What is running, shared with the plugin and the HTTP side.
 #[derive(Default)]
 pub struct Registry {
     apps: RwLock<BTreeMap<String, Arc<Loaded>>>,
+    /// What the host offered, by application: read when it is loaded.
+    offered: RwLock<BTreeMap<String, Offer>>,
     progress: RwLock<Option<OnProgress>>,
+    listeners: Mutex<HashMap<String, Listener>>,
+    control: OnceLock<Weak<dyn Control>>,
+}
+
+fn read<T>(l: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
+    l.read().unwrap_or_else(|e| e.into_inner())
+}
+
+fn write<T>(l: &RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
+    l.write().unwrap_or_else(|e| e.into_inner())
+}
+
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 impl Registry {
     /// Tell whoever listens about a tool call's progress.
     pub fn progress(&self, value: Value) {
-        let f = self
-            .progress
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
+        let f = read(&self.progress).clone();
         if let Some(f) = f {
             f(value);
         }
     }
 
     pub fn loaded(&self) -> Vec<Arc<Loaded>> {
-        self.apps
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .values()
-            .cloned()
-            .collect()
+        read(&self.apps).values().cloned().collect()
     }
 
     pub fn get(&self, id: &str) -> Option<Arc<Loaded>> {
-        self.apps
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(id)
-            .cloned()
+        read(&self.apps).get(id).cloned()
     }
 
     fn insert(&self, loaded: Arc<Loaded>) {
-        self.apps
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(loaded.id.clone(), loaded);
+        write(&self.apps).insert(loaded.id.clone(), loaded);
     }
 
     fn remove(&self, id: &str) -> Option<Arc<Loaded>> {
-        self.apps
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(id)
+        write(&self.apps).remove(id)
+    }
+
+    /// The host that runs what is listed here: what tool calls and hooks go to.
+    pub fn control(&self) -> Option<Arc<dyn Control>> {
+        self.control.get().and_then(Weak::upgrade)
+    }
+
+    /// The host offered an application's tools (or, with none, took them back).
+    pub(crate) fn offer(&self, offer: Offer) {
+        let mut offered = write(&self.offered);
+        if offer.component {
+            offered.insert(offer.app.clone(), offer);
+        } else {
+            offered.remove(&offer.app);
+        }
+    }
+
+    fn offered(&self, id: &str) -> Option<Offer> {
+        read(&self.offered).get(id).cloned()
+    }
+
+    /// Hear one tool call's progress, until [`Self::unlisten`].
+    pub(crate) fn listen(&self, call_id: &str, listener: Listener) {
+        lock(&self.listeners).insert(call_id.to_string(), listener);
+    }
+
+    pub(crate) fn unlisten(&self, call_id: &str) {
+        lock(&self.listeners).remove(call_id);
+    }
+
+    /// The host told a tool call's progress.
+    pub(crate) fn told(&self, call_id: &str, text: &str) {
+        let listener = lock(&self.listeners).get(call_id).cloned();
+        if let Some(listener) = listener {
+            listener(text);
+        }
     }
 }
 
@@ -188,36 +189,54 @@ pub struct Options {
     pub keys: Keys,
     /// `[apps] store`: the catalog's URL (`store::DEFAULT_STORE` when the profile names none).
     pub store: Option<String>,
+    /// How long an on-demand backend idles before it hibernates, in place of its `idle_secs`:
+    /// for a test application only (`AppBuilder::app_idle`).
+    #[doc(hidden)]
+    pub idle: Option<std::time::Duration>,
 }
 
 pub struct Runtime {
-    pub(crate) engine: WasmEngine,
+    host: Arc<Host>,
+    control: Arc<dyn Control>,
+    platform: Arc<KernelPlatform>,
     registry: Arc<Registry>,
-    pub(crate) options: Options,
+    pub(crate) admission: Admission,
+    store: Option<String>,
+    fingerprint: String,
     on_change: Mutex<Option<OnChange>>,
     /// Where this process listens, once it does: the MCP endpoints' base.
     base: RwLock<Option<String>>,
-    /// Why an application that should be running is not.
-    pub(crate) failed: Mutex<BTreeMap<String, String>>,
-}
-
-pub(crate) fn refused(message: impl Into<String>) -> RpcError {
-    RpcError::refused(message)
-}
-
-pub(crate) fn internal(message: impl Into<String>) -> RpcError {
-    RpcError::new(codes::INTERNAL_ERROR, message)
 }
 
 impl Runtime {
     pub fn new(options: Options) -> anyhow::Result<Arc<Self>> {
+        let registry = Arc::new(Registry::default());
+        let platform = Arc::new(KernelPlatform::new(registry.clone()));
+        let admission = Admission {
+            keys: options.keys,
+            dev: options.dev,
+        };
+        let host = Host::new(
+            HostOptions {
+                admission: admission.clone(),
+                config: options.config,
+                idle: options.idle,
+            },
+            platform.clone(),
+        )?;
+        let control: Arc<dyn Control> = host.clone();
+        platform.lend_to(Arc::downgrade(&control));
+        let _ = registry.control.set(Arc::downgrade(&control));
         Ok(Arc::new(Self {
-            engine: WasmEngine::new()?,
-            registry: Arc::new(Registry::default()),
-            options,
+            fingerprint: host.engine().fingerprint().to_string(),
+            host,
+            control,
+            platform,
+            registry,
+            admission,
+            store: options.store,
             on_change: Mutex::new(None),
             base: RwLock::new(None),
-            failed: Mutex::new(BTreeMap::new()),
         }))
     }
 
@@ -230,32 +249,29 @@ impl Runtime {
         Arc::new(crate::AppsPlugin::new(self.registry.clone()))
     }
 
-    pub fn engine(&self) -> &WasmEngine {
-        &self.engine
+    /// The engine the applications run on.
+    pub fn engine(&self) -> &harnix_app_host::WasmEngine {
+        self.host.engine()
+    }
+
+    pub(crate) fn control(&self) -> &Arc<dyn Control> {
+        &self.control
     }
 
     /// Told every `host.progress` of a tool call from an in-process session. (The engine's own
     /// progress channel for a tool is not delivered to a client by Agix 0.3.9, so this is how a
     /// client sees an application's tool working.)
     pub fn on_progress(&self, f: impl Fn(Value) + Send + Sync + 'static) {
-        *self
-            .registry
-            .progress
-            .write()
-            .unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(f));
+        *write(&self.registry.progress) = Some(Arc::new(f));
     }
 
     /// Told after every change to what is running, and when the listener's address is learnt.
     pub fn on_change(&self, f: impl Fn() + Send + Sync + 'static) {
-        *self.on_change.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(f));
+        *lock(&self.on_change) = Some(Arc::new(f));
     }
 
     fn changed(&self) {
-        let f = self
-            .on_change
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
+        let f = lock(&self.on_change).clone();
         if let Some(f) = f {
             f();
         }
@@ -264,16 +280,15 @@ impl Runtime {
     /// Where this process listens (`http://127.0.0.1:<port>/`): what a spawned daemon is pointed
     /// at for an application's MCP endpoint.
     pub fn set_listening(&self, url: &str) {
-        *self.base.write().unwrap_or_else(|e| e.into_inner()) =
-            Some(url.trim_end_matches('/').to_string());
+        *write(&self.base) = Some(url.trim_end_matches('/').to_string());
         self.changed();
     }
 
     /// The interface of every running application, as the page is told it at hello: a trusted
     /// publisher's `[[ui]]` modules, which the page imports; everyone else's (and a trusted one
     /// that asked for it) as its surfaces, which the shell draws as isolated frames
-    /// (`crate::surface`). A module that will not run is listed as such, with why, so the page can
-    /// say so in its diagnostics.
+    /// (`harnix_app_package::surface`). A module that will not run is listed as such, with why, so
+    /// the page can say so in its diagnostics.
     pub fn ui_contributions(&self) -> Vec<Value> {
         self.registry
             .loaded()
@@ -285,7 +300,7 @@ impl Runtime {
     /// The MCP servers a spawned daemon is configured with: one per running application with
     /// tools. Empty until the listener's address is known.
     pub fn mcp_servers(&self) -> Map<String, Value> {
-        let Some(base) = self.base.read().unwrap_or_else(|e| e.into_inner()).clone() else {
+        let Some(base) = read(&self.base).clone() else {
             return Map::new();
         };
         self.registry
@@ -311,287 +326,97 @@ impl Runtime {
         Manifest::parse(&text).map_err(refused)
     }
 
-    /// Register the application with the kernel, then start its VM: so what `init` does already
-    /// reaches the process, and a method called before the VM is up is answered "not running".
-    /// A VM that does not start takes the registration back with it. `verified`: as for
-    /// [`Self::start_vm`].
-    async fn start_app(
-        &self,
-        cx: &ModuleContext,
-        manifest: &Manifest,
-        root: &Path,
-        app_dir: &Path,
-        verified: &Verified,
-    ) -> Result<Started, RpcError> {
-        let id = &manifest.app.id;
-        let bridge = Bridge::new(id, manifest.topics.iter().map(|t| t.name.clone()));
-        let slot = Arc::new(VmSlot::default());
-        let mut spec = harnix_module::AppSpec::new(id.clone())
-            .hub(manifest.capabilities.hub.clone())
-            .topic_sink(bridge.sink());
-        for m in &manifest.methods {
-            let schema = match &m.params {
-                Some(params) => Some(jsonschema::validator_for(&toml_to_json(params)).map_err(|e| {
-                    refused(format!("`{id}`'s method `{}` has a schema that does not compile: {e}", m.name))
-                })?),
-                None => None,
-            };
-            let mut principals = Vec::new();
-            for subject in m.subject.names() {
-                principals.push(match subject {
-                    "device" => Principal::Device,
-                    "module" => Principal::AnyModule,
-                    _ => Principal::Kernel,
-                });
-            }
-            principals.push(Principal::Kernel);
-            principals.dedup();
-            spec = spec.method_with(AppMethod {
-                name: m.name.clone(),
-                principals,
-                description: m.description.clone().unwrap_or_default(),
-                handler: Arc::new(Method {
-                    app: id.clone(),
-                    name: m.name.clone(),
-                    schema,
-                    vm: slot.clone(),
-                    stats: bridge.stats.clone(),
-                }),
-            });
-        }
-        for t in &manifest.topics {
-            spec = spec.topic_with(AppTopic {
-                name: t.name.clone(),
-                params: Vec::new(),
-                principals: vec![Principal::Device, Principal::AnyModule],
-            });
-        }
-        for space in &manifest.spaces {
-            let mut decl = harnix_contract::SpaceDecl::new(space.id.clone());
-            if let Some(instance) = &space.instance {
-                decl = decl.instance(instance);
-            }
-            if let Some(scene) = &space.scene {
-                decl = decl.scene(scene.clone());
-            }
-            spec = spec.space(decl);
-        }
-        let handle = match cx.apps() {
-            Some(host) => {
-                let handle = host.register(spec).await?;
-                bridge.bind(handle.clone());
-                Some(handle)
-            }
-            None => None,
-        };
-        match self.start_vm(manifest, root, app_dir, bridge.clone(), verified).await {
-            Ok((vm, tools)) => {
-                if let Some(vm) = &vm {
-                    slot.set(vm.downgrade());
-                    bridge.started(vm.downgrade());
-                }
-                Ok(Started {
-                    vm,
-                    tools,
-                    handle,
-                    stats: bridge.stats.clone(),
-                })
-            }
-            Err(e) => {
-                if let Some(handle) = &handle {
-                    if let Err(w) = handle.withdraw().await {
-                        tracing::warn!(app = %id, error = %w.message, "a registration was not taken back");
-                    }
-                }
-                Err(e)
-            }
-        }
-    }
-
-    /// Start the VM and list its tools. `verified`: the package's signatures, checked over `root`.
-    async fn start_vm(
-        &self,
-        manifest: &Manifest,
-        root: &Path,
-        app_dir: &Path,
-        bridge: Arc<Bridge>,
-        verified: &Verified,
-    ) -> Result<(Option<AppVm>, Vec<ToolDef>), RpcError> {
-        let Some(component) = &manifest.component else {
-            return Ok((None, Vec::new()));
-        };
-        let id = &manifest.app.id;
-        let fingerprint = self.engine.fingerprint();
-        let artifact = root
-            .join("wasm")
-            .join(format!("{}.{fingerprint}.cwasm", component.name));
-        let bytes = std::fs::read(&artifact).map_err(|_| {
-            refused(format!(
-                "`{id}` has no `{}` component compiled for this engine (`{fingerprint}`): it needs an \
-                 artifact built for this Harnix release",
-                component.name
-            ))
-        })?;
-        if !verified.trust.signed() && !self.options.dev {
-            return Err(refused(format!(
-                "`{id}` was installed unsigned, and its code runs only with `[apps] dev = true`"
-            )));
-        }
-        // The bytes about to be deserialized are the ones that were signed, not merely a file of
-        // that name that was signed a moment ago.
-        verified
-            .check(
-                &format!("wasm/{}.{fingerprint}.cwasm", component.name),
-                &bytes,
-            )
-            .map_err(|e| refused(format!("`{id}`: {e}")))?;
-        // SAFETY: an artifact is machine code. Signed, its bytes were just checked against the
-        // sha256 the store (or a publisher the profile trusts) signed, whose signature was
-        // verified before this was called. Unsigned, it is loaded only under `[apps] dev = true`
-        // (checked just above), which is the operator saying that unsigned code is theirs to trust
-        // — the developer's own build, on the developer's own machine.
-        let loaded = unsafe { self.engine.load(&bytes, fingerprint) }
-            .map_err(|e| refused(format!("`{id}`: {e:#}")))?;
-        let declared = if component.world == crate::manifest::WORLDS[1] {
-            World::Backend
-        } else {
-            World::Tools
-        };
-        if loaded.world() != declared {
-            return Err(refused(format!(
-                "`{id}`'s component implements {:?}, and its manifest says `{}`",
-                loaded.world(),
-                component.world
-            )));
-        }
-        let caps = &manifest.capabilities;
-        let spec = AppSpec {
-            id: id.clone(),
-            capabilities: Capabilities {
-                net: caps.net.clone(),
-                env: caps.env.clone(),
-                storage_bytes: u64::from(caps.storage_mb) << 20,
-                fs: caps
-                    .fs
-                    .iter()
-                    .map(|path| FsGrant {
-                        path: path.clone(),
-                        writable: path.starts_with("${data}"),
-                    })
-                    .collect(),
-            },
-            limits: Limits {
-                memory_bytes: u64::from(component.memory_mb) << 20,
-                timeout: std::time::Duration::from_millis(component.timeout_ms),
-            },
-            dirs: harnix_wasm::AppDirs {
-                data: app_dir.join("data"),
-            },
-            config: manifest
-                .config_with(crate::manifest::overrides_for(&self.options.config, id).as_ref()),
-        };
-        let kv = harnix_wasm::FileKv::open(app_dir.join("kv"))
-            .map_err(|e| internal(format!("`{id}`'s storage: {e}")))?;
-        let services = harnix_wasm::Services {
-            host: bridge,
-            kv: Arc::new(kv),
-            http: Arc::new(crate::host::Http::new()),
-        };
-        let vm = AppVm::start(&self.engine, &loaded, spec, services)
+    /// What the host says of it, and what of its interface this process serves.
+    pub async fn status_of(&self, id: &str) -> Value {
+        let mut status = self
+            .control
+            .status(id.to_string())
             .await
-            .map_err(|e| refused(format!("`{id}` did not start: {e:#}")))?;
-        let tools = match vm.list_tools(&CancellationToken::new()).await {
-            Ok(tools) => tools,
-            Err(e) => {
-                vm.stop().await;
-                return Err(refused(format!("`{id}` did not list its tools: {e}")));
-            }
-        };
-        let mut seen = std::collections::BTreeSet::new();
-        for tool in &tools {
-            let full = tool_name(id, &tool.name);
-            let ok = !tool.name.is_empty()
-                && tool
-                    .name
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-                && full.len() <= 64
-                && seen.insert(tool.name.clone())
-                && serde_json::from_str::<Value>(&tool.input_schema).is_ok_and(|s| s.is_object());
-            if !ok {
-                vm.stop().await;
-                return Err(refused(format!(
-                    "`{id}`'s tool `{}` cannot be offered: a tool's name is letters, digits, `_` and \
-                     `-`, unique, `{full}` at most 64 characters, and its input schema a JSON object",
-                    tool.name
-                )));
-            }
+            .unwrap_or_else(|e| json!({"state": "failed", "reason": e.message}));
+        if let (Some(app), Some(map)) = (self.registry.get(id), status.as_object_mut()) {
+            map.insert(
+                "ui".into(),
+                json!(app.ui.iter().map(|u| format!("/apps/{id}/ui/{}", u.module)).collect::<Vec<_>>()),
+            );
+            map.insert("frames".into(), json!(frames(&app)));
+            map.insert(
+                "surfaces".into(),
+                json!(app.surfaces.iter().map(|s| format!("{}:{}", s.point, s.id())).collect::<Vec<_>>()),
+            );
+            // An unsigned application's interface, in developer mode, changes under it: the page
+            // reloads its frames when this does.
+            map.insert(
+                "ui_rev".into(),
+                json!((self.admission.dev && app.trust == Trust::Unsigned).then(|| ui_rev(&app.root.join("ui")))),
+            );
+            map.insert("mcp".into(), json!(format!("/apps/{id}/mcp")));
+            map.insert("inline".into(), app.inline.clone());
         }
-        // A row drawn for a tool it does not have is a manifest that does not match its component.
-        let names: Vec<String> = tools.iter().map(|t| t.name.clone()).collect();
-        let unknown = manifest.inline.unknown_tools(&names);
-        if !unknown.is_empty() {
-            vm.stop().await;
-            return Err(refused(format!(
-                "`{id}`'s manifest draws a tool row for `{}`, which its component does not list as a tool",
-                unknown.join("`, `")
-            )));
-        }
-        Ok((Some(vm), tools))
+        status
     }
 
-    /// The agent package and skills, in the instances the install put them in: switched on (or
-    /// off) with the application.
-    async fn switch_agent(
+    /// Put an unpacked package in place under `app_dir` and start it. What was put elsewhere is
+    /// written to `parts` as soon as it is, so that whoever called this can take back exactly that
+    /// when it fails. `trust`: what its signatures made it.
+    pub(crate) async fn place(
         &self,
         cx: &ModuleContext,
-        id: &str,
-        root: &Path,
-        parts: &Value,
-        on: bool,
-    ) -> Result<(), RpcError> {
-        if let Some(agent) = parts.get("agent").filter(|a| !a.is_null()) {
-            let name = agent["package"].as_str().unwrap_or_default();
-            for instance in strings(&agent["instances"]) {
-                let method = if on {
-                    "plugin.enable"
-                } else {
-                    "plugin.disable"
-                };
-                if let Err(e) = cx
-                    .call(method, json!({"name": name, "instance": instance}))
-                    .await
-                {
-                    if on {
-                        return Err(refused(format!(
-                            "`{id}`'s agent package could not be switched on in `{instance}`: {}",
-                            e.message
-                        )));
-                    }
-                    tracing::warn!(app = %id, %instance, error = %e.message, "the agent package was not switched off");
-                }
-            }
-        }
-        if let Some(skills) = parts.get("skills").filter(|s| s.is_object()) {
-            for (instance, names) in skills.as_object().into_iter().flatten() {
-                let names = strings(names);
-                let result = if on {
-                    place_skills(cx, id, instance, root, &names)
-                } else {
-                    remove_skills(cx, id, instance, &names);
-                    Ok(())
-                };
-                result?;
-                reload(cx, instance).await;
-            }
-        }
-        Ok(())
+        manifest: &Manifest,
+        app_dir: &Path,
+        trust: Trust,
+        parts: &mut Option<Value>,
+    ) -> Result<(Value, Value), RpcError> {
+        let id = manifest.app.id.clone();
+        let placement = self
+            .control
+            .place(Place {
+                app: id.clone(),
+                app_dir: app_dir.to_path_buf(),
+                version: manifest.app.version.clone(),
+            })
+            .await?;
+        let mut placed = placement.parts;
+        placed["trust"] = json!(trust.as_str());
+        *parts = Some(placed.clone());
+        let record = InstallRecord {
+            id,
+            version: manifest.app.version.clone(),
+            title: manifest.app.title.clone(),
+            enabled: true,
+            parts: placed.clone(),
+        };
+        let started = self.load(cx, &record, app_dir).await?;
+        Ok((placed, summary(&self.fingerprint, &record.parts, &placement.disclosure, started)))
     }
+
+    /// Take back what a placement put elsewhere.
+    pub(crate) async fn unplace(&self, id: &str, parts: &Value) -> Value {
+        self.control
+            .unplace(Unplace {
+                app: id.to_string(),
+                parts: parts.clone(),
+            })
+            .await
+            .unwrap_or(Value::Null)
+    }
+}
+
+/// What an install or an update tells its caller.
+pub(crate) fn summary(fingerprint: &str, parts: &Value, disclosure: &Value, started: Value) -> Value {
+    json!({
+        "fingerprint": fingerprint,
+        "trust": parts.get("trust").cloned().unwrap_or(json!("unsigned")),
+        "agent": parts.get("agent").filter(|a| !a.is_null()).map(|agent| json!({
+            "package": agent["package"], "instances": agent["instances"], "disclosure": disclosure,
+        })),
+        "skills": parts.get("skills").cloned().unwrap_or(json!({})),
+        "started": started,
+    })
 }
 
 /// Whether a running application's interface is drawn in frames rather than imported into the page.
 fn frames(app: &Loaded) -> bool {
-    crate::surface::runs_in_frames(app.trust, &app.interface, !app.ui.is_empty())
+    harnix_app_package::surface::runs_in_frames(app.trust, &app.interface, !app.ui.is_empty())
 }
 
 /// What the page is told of one running application's interface (`Runtime::ui_contributions`).
@@ -698,256 +523,14 @@ fn ui_rev(dir: &Path) -> String {
     format!("{:016x}", hasher.finish())
 }
 
-fn strings(v: &Value) -> Vec<String> {
-    v.as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// An instance re-reads its configuration — its skills directory included.
-async fn reload(cx: &ModuleContext, instance: &str) {
-    if let Err(e) = cx
-        .call("config.reload", json!({"instance": instance}))
-        .await
-    {
-        tracing::warn!(%instance, error = %e.message, "the instance did not reload");
-    }
-}
-
-fn skills_dir(cx: &ModuleContext, instance: &str) -> Result<PathBuf, RpcError> {
-    cx.instance(instance)
-        .map(|h| h.data_root.join("skills"))
-        .ok_or_else(|| refused(format!("there is no instance `{instance}`")))
-}
-
-/// Copy `agent/skills/<name>/` into the instance's skills directory, marked as `id`'s. A
-/// directory of that name that is not `id`'s is somebody else's skill, and refuses it.
-fn place_skills(
-    cx: &ModuleContext,
-    id: &str,
-    instance: &str,
-    root: &Path,
-    names: &[String],
-) -> Result<(), RpcError> {
-    let dir = skills_dir(cx, instance)?;
-    for name in names {
-        let target = dir.join(name);
-        if target.exists()
-            && std::fs::read_to_string(target.join(SKILL_MARK))
-                .ok()
-                .as_deref()
-                != Some(id)
-        {
-            return Err(refused(format!(
-                "the instance `{instance}` has a skill `{name}` of its own; `{id}` would replace it"
-            )));
-        }
-        let _ = std::fs::remove_dir_all(&target);
-        let source = root.join("agent").join("skills").join(name);
-        let mut files = Vec::new();
-        package::walk(&source, &source, &mut files)
-            .map_err(|e| internal(format!("{}: {e}", source.display())))?;
-        for (relative, path) in files {
-            let to = target.join(&relative);
-            if let Some(parent) = to.parent() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| internal(format!("{}: {e}", parent.display())))?;
-            }
-            std::fs::copy(&path, &to).map_err(|e| internal(format!("{}: {e}", to.display())))?;
-        }
-        std::fs::write(target.join(SKILL_MARK), id).map_err(|e| internal(e.to_string()))?;
-    }
-    Ok(())
-}
-
-/// Remove the skills marked as `id`'s, and nothing else.
-fn remove_skills(cx: &ModuleContext, id: &str, instance: &str, names: &[String]) {
-    let Ok(dir) = skills_dir(cx, instance) else {
-        return;
-    };
-    for name in names {
-        let target = dir.join(name);
-        if std::fs::read_to_string(target.join(SKILL_MARK))
-            .ok()
-            .as_deref()
-            == Some(id)
-        {
-            if let Err(e) = std::fs::remove_dir_all(&target) {
-                tracing::warn!(app = %id, skill = %name, error = %e, "a skill was not removed");
-            }
-        }
-    }
-}
-
-/// What installing put in place, as the record keeps it.
-#[derive(Default)]
-pub(crate) struct Placed {
-    pub(crate) agent: Option<(String, String, Vec<String>)>,
-    pub(crate) skills: BTreeMap<String, Vec<String>>,
-    /// The engine's disclosure of the agent package, for the installer to show.
-    pub(crate) disclosure: Value,
-    /// What its signatures made it.
-    pub(crate) trust: Option<Trust>,
-}
-
-impl Placed {
-    pub(crate) fn parts(&self) -> Value {
-        json!({
-            "agent": self.agent.as_ref().map(|(package, version, instances)| json!({
-                "package": package, "version": version, "instances": instances,
-            })),
-            "skills": self.skills,
-            "trust": self.trust.unwrap_or(Trust::Unsigned).as_str(),
-        })
-    }
-
-    /// What a record's `parts` say was put in place.
-    pub(crate) fn of(parts: &Value) -> Self {
-        let mut placed = Placed::default();
-        if let Some(agent) = parts.get("agent").filter(|a| !a.is_null()) {
-            placed.agent = Some((
-                agent["package"].as_str().unwrap_or_default().to_string(),
-                agent["version"].as_str().unwrap_or_default().to_string(),
-                strings(&agent["instances"]),
-            ));
-        }
-        if let Some(skills) = parts.get("skills").and_then(Value::as_object) {
-            for (instance, names) in skills {
-                placed.skills.insert(instance.clone(), strings(names));
-            }
-        }
-        placed
-    }
-
-    /// Take it all back, as far as it goes.
-    pub(crate) async fn undo(&self, cx: &ModuleContext, id: &str) {
-        for (instance, names) in &self.skills {
-            remove_skills(cx, id, instance, names);
-            reload(cx, instance).await;
-        }
-        if let Some((package, version, instances)) = &self.agent {
-            for instance in instances {
-                let params = json!({"name": package, "version": version, "instance": instance});
-                if let Err(e) = cx.call("plugin.uninstall", params).await {
-                    tracing::warn!(app = %id, %instance, error = %e.message, "the agent package was not uninstalled");
-                }
-            }
-        }
-    }
-}
-
-impl Runtime {
-    /// Put a package in place under `app_dir` and start it: unpack it (from `package`, when it is
-    /// not unpacked already), install its agent package and skills into the instances it names,
-    /// and load it. What was put where is written to `placed` as it is done, so that whoever
-    /// called this can take back exactly that when it fails.
-    pub(crate) async fn place(
-        &self,
-        cx: &ModuleContext,
-        package: Option<&Path>,
-        inspected: &package::Inspected,
-        app_dir: &Path,
-        placed: &mut Placed,
-    ) -> Result<Value, RpcError> {
-        let manifest = &inspected.manifest;
-        let id = manifest.app.id.clone();
-        let root = app_dir.join(&manifest.app.version);
-        if let Some(package) = package {
-            package::extract(package, &root).map_err(refused)?;
-        }
-        let targets = &manifest.agent.install_into;
-        for target in targets {
-            if cx.instance(target).is_none() {
-                return Err(refused(format!(
-                    "`{id}` installs its agent package into `{target}`, and there is no such instance"
-                )));
-            }
-        }
-        if let Some(agent) = &inspected.agent {
-            let zip = app_dir.join("agent.zip");
-            package::zip_dir(&root.join("agent"), &zip).map_err(internal)?;
-            let mut instances = Vec::new();
-            let mut failure = None;
-            let mut disclosed = Value::Null;
-            for target in targets {
-                let params = json!({
-                    "name": agent.name,
-                    "version": agent.version,
-                    "download_url": format!("file://{}", zip.display()),
-                    "instance": target,
-                });
-                match cx.call("plugin.install", params).await {
-                    Ok(answer) => {
-                        // What the engine says the package puts in front of the model: the
-                        // installer shows it.
-                        if disclosed.is_null() {
-                            disclosed = answer.get("disclosure").cloned().unwrap_or(answer);
-                        }
-                        instances.push(target.clone());
-                    }
-                    Err(e) => {
-                        failure = Some(refused(format!(
-                            "`{id}`'s agent package did not install into `{target}`: {}",
-                            e.message
-                        )));
-                        break;
-                    }
-                }
-            }
-            let _ = std::fs::remove_file(&zip);
-            placed.agent = Some((agent.name.clone(), agent.version.clone(), instances));
-            placed.disclosure = disclosed;
-            if let Some(e) = failure {
-                return Err(e);
-            }
-        }
-        if !inspected.skills.is_empty() {
-            for target in targets {
-                // Recorded before it is done: undoing removes only what is marked as ours.
-                placed
-                    .skills
-                    .insert(target.clone(), inspected.skills.clone());
-                place_skills(cx, &id, target, &root, &inspected.skills)?;
-                reload(cx, target).await;
-            }
-        }
-        let record = InstallRecord {
-            id: id.clone(),
-            version: manifest.app.version.clone(),
-            title: manifest.app.title.clone(),
-            enabled: true,
-            parts: placed.parts(),
-        };
-        self.load(cx, &record, app_dir).await
-    }
-
-    /// What an install or an update tells its caller.
-    pub(crate) fn summary(&self, placed: &Placed, started: Value) -> Value {
-        json!({
-            "fingerprint": self.engine.fingerprint(),
-            "trust": placed.trust.unwrap_or(Trust::Unsigned).as_str(),
-            "agent": placed.agent.as_ref().map(|(package, _, instances)| json!({
-                "package": package, "instances": instances, "disclosure": placed.disclosure,
-            })),
-            "skills": placed.skills,
-            "started": started,
-        })
-    }
-}
-
 #[async_trait::async_trait]
 impl AppsRuntime for Runtime {
     fn fingerprint(&self) -> String {
-        self.engine.fingerprint().to_string()
+        self.fingerprint.clone()
     }
 
     fn inspect(&self, path: &Path) -> Result<PackageInfo, RpcError> {
-        let inspected = package::inspect(path, self.engine.fingerprint()).map_err(refused)?;
+        let inspected = package::inspect(path, &self.fingerprint).map_err(refused)?;
         let app = inspected.manifest.app;
         Ok(PackageInfo {
             id: app.id,
@@ -962,29 +545,29 @@ impl AppsRuntime for Runtime {
         path: &Path,
         app_dir: &Path,
     ) -> Result<(Value, Value), RpcError> {
-        let inspected = package::inspect(path, self.engine.fingerprint()).map_err(refused)?;
+        self.platform.bind(cx);
+        let inspected = package::inspect(path, &self.fingerprint).map_err(refused)?;
         // Before a byte of it is written.
-        let verified = self.admit_zip(path, &inspected.manifest)?;
-        let id = inspected.manifest.app.id.clone();
+        let verified = self.admission.admit_zip(path, &inspected.manifest)?;
+        let manifest = &inspected.manifest;
+        let id = manifest.app.id.clone();
         std::fs::create_dir_all(app_dir)
             .map_err(|e| internal(format!("{}: {e}", app_dir.display())))?;
-        let mut placed = Placed {
-            trust: Some(verified.trust),
-            ..Placed::default()
-        };
-        let outcome = self
-            .place(cx, Some(path), &inspected, app_dir, &mut placed)
-            .await;
+        let mut parts = None;
+        let outcome = async {
+            package::extract(path, &app_dir.join(&manifest.app.version)).map_err(refused)?;
+            self.place(cx, manifest, app_dir, verified.trust, &mut parts).await
+        }
+        .await;
         match outcome {
-            Ok(started) => Ok((placed.parts(), self.summary(&placed, started))),
+            Ok(done) => Ok(done),
             Err(e) => {
                 tracing::warn!(app = %id, error = %e.message, "the install failed; undoing it");
-                placed.undo(cx, &id).await;
+                if let Some(parts) = &parts {
+                    self.unplace(&id, parts).await;
+                }
                 let _ = std::fs::remove_dir_all(app_dir);
-                self.failed
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .remove(&id);
+                let _ = self.control.forget(id).await;
                 Err(e)
             }
         }
@@ -996,114 +579,69 @@ impl AppsRuntime for Runtime {
         record: &InstallRecord,
         app_dir: &Path,
     ) -> Result<Value, RpcError> {
+        self.platform.bind(cx);
         let id = &record.id;
-        if let Some(running) = self.registry.get(id) {
+        if self.registry.get(id).is_some() {
             // Set aside after faulting: enabling it again is starting it again, from nothing.
-            let faulted = running
-                .vm
-                .as_ref()
-                .is_some_and(|vm| matches!(vm.health().state, VmState::Disabled { .. }));
-            if !faulted {
-                return Ok(self.status(id));
+            if self.status_of(id).await["state"] != json!("faulted") {
+                return Ok(self.status_of(id).await);
             }
             self.unload(cx, record).await;
         }
-        let root = app_dir.join(&record.version);
-        let attempt = async {
-            let manifest = Self::manifest_in(&root)?;
-            if &manifest.app.id != id || manifest.app.version != record.version {
-                return Err(internal(format!(
-                    "{} says it is `{}` {}, and the record `{id}` {}",
-                    root.display(),
-                    manifest.app.id,
-                    manifest.app.version,
-                    record.version
-                )));
-            }
-            // Every start, over the files as they are now: what is on disk may not be what was
-            // installed.
-            let verified = self.admit_root(&root, &manifest)?;
-            self.switch_agent(cx, id, &root, &record.parts, true)
-                .await?;
-            let started = match self.start_app(cx, &manifest, &root, app_dir, &verified).await {
-                Ok(started) => started,
-                Err(e) => {
-                    self.switch_agent(cx, id, &root, &record.parts, false)
-                        .await
-                        .ok();
-                    return Err(e);
-                }
-            };
-            let full = |name: &String| format!("app.{id}.{name}");
-            Ok(Arc::new(Loaded {
-                id: id.clone(),
+        let started = self
+            .control
+            .start(Start {
+                app: id.clone(),
                 version: record.version.clone(),
-                title: manifest.app.title.clone(),
-                root: root.clone(),
-                vm: started.vm,
-                tools: started.tools,
-                ui: manifest.ui.clone(),
-                interface: manifest.interface.clone(),
-                surfaces: manifest.surfaces.clone(),
-                trust: verified.trust,
-                backend_spaces: manifest.spaces.iter().map(|s| s.id.clone()).collect(),
-                token: uuid::Uuid::new_v4().simple().to_string(),
-                handle: started.handle,
-                methods: manifest.methods.iter().map(|m| full(&m.name)).collect(),
-                topics: manifest.topics.iter().map(|t| full(&t.name)).collect(),
-                spaces: manifest.spaces.iter().map(|s| s.id.clone()).collect(),
-                hub: manifest.capabilities.hub.clone(),
-                stats: started.stats,
-                inline: serde_json::to_value(&manifest.inline).unwrap_or(Value::Null),
-            }))
-        };
-        match attempt.await {
-            Ok(loaded) => {
-                tracing::info!(app = %id, tools = loaded.tools.len(), ui = loaded.ui.len(), "application started");
-                self.registry.insert(loaded);
-                self.failed
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .remove(id);
-                self.changed();
-                Ok(self.status(id))
-            }
+                app_dir: app_dir.to_path_buf(),
+                parts: record.parts.clone(),
+            })
+            .await?;
+        let root = app_dir.join(&record.version);
+        let manifest = match Self::manifest_in(&root) {
+            Ok(manifest) => manifest,
             Err(e) => {
-                self.failed
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .insert(id.clone(), e.message.clone());
-                Err(e)
+                self.unload(cx, record).await;
+                return Err(e);
             }
-        }
+        };
+        let offer = self.registry.offered(id);
+        let loaded = Arc::new(Loaded {
+            id: id.clone(),
+            version: record.version.clone(),
+            title: manifest.app.title.clone(),
+            root,
+            component: offer.as_ref().is_some_and(|o| o.component),
+            tools: offer.map(|o| o.tools).unwrap_or_default(),
+            ui: manifest.ui.clone(),
+            interface: manifest.interface.clone(),
+            surfaces: manifest.surfaces.clone(),
+            trust: Trust::parse(&started.trust),
+            backend_spaces: manifest.spaces.iter().map(|s| s.id.clone()).collect(),
+            token: uuid::Uuid::new_v4().simple().to_string(),
+            inline: serde_json::to_value(&manifest.inline).unwrap_or(Value::Null),
+        });
+        tracing::debug!(app = %id, ui = loaded.ui.len(), "application served");
+        self.registry.insert(loaded);
+        self.changed();
+        Ok(self.status_of(id).await)
     }
 
     async fn unload(&self, cx: &ModuleContext, record: &InstallRecord) {
-        self.failed
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(&record.id);
-        let Some(loaded) = self.registry.remove(&record.id) else {
-            return;
-        };
+        self.platform.bind(cx);
+        let removed = self.registry.remove(&record.id);
         // Out of the registry first: a session built from here on has none of its tools, and the
-        // page is told its modules are gone. A call already running holds its own handle.
-        self.changed();
-        // Then its names: a call decided from here is unknown. (The `apps` module has usually
-        // withdrawn them already; then there is nothing left to take.) Calls queued behind the
-        // backend are answered that it stopped.
-        if let Some(handle) = &loaded.handle {
-            if handle.withdraw().await.is_ok() {
-                tracing::debug!(app = %record.id, "registration withdrawn");
-            }
+        // page is told its modules are gone. A call already running holds its own instance.
+        if removed.is_some() {
+            self.changed();
         }
-        if let Some(vm) = &loaded.vm {
-            vm.stop().await;
+        let stop = Stop {
+            app: record.id.clone(),
+            parts: record.parts.clone(),
+        };
+        if let Err(e) = self.control.stop(stop).await {
+            tracing::warn!(app = %record.id, error = %e.message, "the application did not stop cleanly");
         }
-        self.switch_agent(cx, &record.id, &loaded.root, &record.parts, false)
-            .await
-            .ok();
-        tracing::info!(app = %record.id, "application stopped");
     }
 
     async fn uninstall(
@@ -1112,64 +650,19 @@ impl AppsRuntime for Runtime {
         record: &InstallRecord,
         _app_dir: &Path,
     ) -> Result<Value, RpcError> {
-        let placed = Placed::of(&record.parts);
-        placed.undo(cx, &record.id).await;
-        Ok(json!({
-            "agent": placed.agent.as_ref().map(|(package, _, instances)| json!({"package": package, "instances": instances})),
-            "skills": placed.skills,
-        }))
+        self.platform.bind(cx);
+        Ok(self.unplace(&record.id, &record.parts).await)
     }
 
-    fn status(&self, id: &str) -> Value {
-        if let Some(app) = self.registry.get(id) {
-            let health = app.vm.as_ref().map(|vm| vm.health());
-            let (state, reason) = match health.as_ref().map(|h| &h.state) {
-                Some(VmState::Disabled { reason }) => ("faulted", Some(reason.clone())),
-                _ => ("running", None),
-            };
-            return json!({
-                "state": state,
-                "reason": reason,
-                "world": app.vm.as_ref().map(|vm| vm.world()),
-                "methods": app.methods,
-                "topics": app.topics,
-                "spaces": app.spaces,
-                "hub": app.hub,
-                "calls": app.stats.report(),
-                "tools": app.tools.iter().map(|t| json!({
-                    "name": app.tool_name(&t.name),
-                    "tool": t.name,
-                    "description": t.description,
-                })).collect::<Vec<_>>(),
-                "ui": app.ui.iter().map(|u| format!("/apps/{id}/ui/{}", u.module)).collect::<Vec<_>>(),
-                "frames": frames(&app),
-                "surfaces": app.surfaces.iter().map(|s| format!("{}:{}", s.point, s.id())).collect::<Vec<_>>(),
-                // An unsigned application's interface, in developer mode, changes under it: the
-                // page reloads its frames when this does.
-                "ui_rev": (self.options.dev && app.trust == Trust::Unsigned).then(|| ui_rev(&app.root.join("ui"))),
-                "mcp": format!("/apps/{id}/mcp"),
-                "inline": app.inline,
-                "health": health.map(|h| serde_json::to_value(h).unwrap_or(Value::Null)),
-            });
-        }
-        match self
-            .failed
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(id)
-        {
-            Some(reason) => json!({"state": "failed", "reason": reason}),
-            None => json!({"state": "stopped"}),
-        }
+    async fn status(&self, id: &str) -> Value {
+        self.status_of(id).await
     }
 
     async fn shutdown(&self) {
         for app in self.registry.loaded() {
             self.registry.remove(&app.id);
-            if let Some(vm) = &app.vm {
-                vm.stop().await;
-            }
         }
+        let _ = self.control.shutdown("the process is stopping".into()).await;
     }
 
     fn disclose(
@@ -1177,11 +670,26 @@ impl AppsRuntime for Runtime {
         package: &Path,
         installed: Option<(&InstallRecord, &Path)>,
     ) -> Result<Disclosed, RpcError> {
-        self.disclose_package(package, installed)
+        let disclosed = self.admission.disclose(
+            package,
+            installed.map(|(record, app_dir)| (record.version.as_str(), app_dir)),
+            &self.fingerprint,
+        )?;
+        Ok(Disclosed {
+            info: PackageInfo {
+                id: disclosed.id,
+                version: disclosed.version,
+                title: disclosed.title,
+            },
+            trust: disclosed.trust.as_str().into(),
+            digest: disclosed.digest,
+            disclosure: disclosed.disclosure,
+            needs_consent: disclosed.needs_consent,
+        })
     }
 
     async fn catalog(&self) -> Result<Value, RpcError> {
-        self.catalog_view().await
+        acquire::catalog(self.store.as_deref(), &self.fingerprint).await
     }
 
     async fn fetch(
@@ -1190,7 +698,7 @@ impl AppsRuntime for Runtime {
         version: Option<&str>,
         staging: &Path,
     ) -> Result<PathBuf, RpcError> {
-        self.fetch_package(id, version, staging).await
+        acquire::fetch(self.store.as_deref(), id, version, &self.fingerprint, staging).await
     }
 
     async fn update(
@@ -1200,10 +708,26 @@ impl AppsRuntime for Runtime {
         package: &Path,
         app_dir: &Path,
     ) -> Result<(Value, Value), RpcError> {
+        self.platform.bind(cx);
         self.update_to(cx, record, package, app_dir).await
     }
 
     fn describe(&self, record: &InstallRecord, app_dir: &Path) -> Value {
-        self.describe_app(record, app_dir)
+        acquire::describe(&app_dir.join(&record.version))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// The install records and the manifest agree on what an id is.
+    #[test]
+    fn an_id_is_the_same_to_the_records_and_the_manifest() {
+        for id in ["acme.notes", "a", "a-1.b2", "Acme.notes", "acme..notes", "1acme", "acme.notes_x", ""] {
+            assert_eq!(
+                harnix_app_package::valid_id(id),
+                harnix_builtin::apps::valid_id(id),
+                "{id:?}"
+            );
+        }
     }
 }

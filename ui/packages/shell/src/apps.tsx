@@ -308,7 +308,7 @@ export function AppsSettings({ app }: { app: App }) {
                     data-state={state}
                   >
                     <Row label={`${name} ${a.version}`} hint={hint.filter(Boolean).join(" · ")}>
-                      <Value tone={state === "running" ? "ok" : state === "failed" || state === "faulted" ? "err" : undefined}>
+                      <Value tone={state === "running" || state === "hibernating" ? "ok" : state === "failed" || state === "faulted" ? "err" : undefined}>
                         {a.enabled ? t("apps.enabled") : t("apps.disabled")}
                       </Value>
                       <button

@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { INVALID_PARAMS, REFUSED } from "@harnix/core/protocol";
 import { type Backend, type TestClient, connect, expect, test, topology } from "@harnix/testkit";
 
-import { SHOWCASE_ID, showcasePackage, startApps, variant } from "./apps-host";
+import { SHOWCASE_CHATS, SHOWCASE_ID, showcasePackage, startApps, variant } from "./apps-host";
 
 const TAGS = { tag: ["@feature:apps-inline", "@layer:api"] };
 
@@ -72,7 +72,9 @@ test.describe("an application's inline points and its data", () => {
       ["foreign-placeholder", "`{session.token}`", edit('title = "{payload.title}"', 'title = "{session.token}"')],
       ["undeclared-method", "`notes.purge`", edit('method = "counter.bump"', 'method = "notes.purge"')],
       ["no-complete", "`complete`", edit('name = "complete"', 'name = "completion"')],
-      ["foreign-space", "the grouping of `other.space`", edit('space = "example.showcase"\nby', 'space = "other.space"\nby')],
+      ["foreign-space", "the grouping of `other.space`", edit('space = "example.showcase.chats"\nby', 'space = "other.space"\nby')],
+      // A space's left column is the shell's list, grouped, or the application's own frame: not both.
+      ["grouped-and-own-sidebar", "has a `space.sidebar` surface", edit('space = "example.showcase.chats"\nby', 'space = "example.showcase"\nby')],
       ["no-append", "harnix.entries.append", edit(', "harnix.entries.append"]', "]")],
       ["unknown-locale", "the locale `fr`", edit('zh-CN = "示例应用回声', 'fr = "示例应用回声')],
       // Only the component knows its tools: a row for one it does not list fails the start.
@@ -99,12 +101,12 @@ test.describe("an application's inline points and its data", () => {
     expect(inline.flow_block[0]).toMatchObject({ kind: "card", title: "{payload.title}" });
     expect(inline.flow_block[0].button.map((b: any) => b.method)).toEqual(["counter.bump", "notes.add"]);
     expect(inline.command.map((c: any) => `${c.trigger}${c.name}`)).toEqual(["/showcase", "@notes"]);
-    expect(inline.sidebar_group[0]).toMatchObject({ space: SHOWCASE_ID, by: "method", method: "sessions.group" });
+    expect(inline.sidebar_group[0]).toMatchObject({ space: SHOWCASE_CHATS, by: "method", method: "sessions.group" });
     // What it declares is part of what it is, stopped or running.
     expect(app.app.inline).toEqual(inline);
     // It is told what is typed for its commands, and its space's sessions: each a line of its own.
     const lines = app.app.lines.filter((l: any) => l.capability === "inline").map((l: any) => l.value);
-    expect(lines).toEqual(["command /showcase", "command @notes", `sidebar.group ${SHOWCASE_ID}`]);
+    expect(lines).toEqual(["command /showcase", "command @notes", `sidebar.group ${SHOWCASE_CHATS}`]);
     // Stopped, nothing is drawn for it.
     await api.call("harnix.apps.disable", { id: SHOWCASE_ID });
     expect((await listed(api)).runtime.inline).toBeUndefined();
@@ -122,8 +124,8 @@ test.describe("an application's inline points and its data", () => {
     expect(at.candidates.map((c: any) => c.label)).toEqual(["notes:zebra crossing"]);
 
     // A card: an entry under the application's own namespace, with the event its manifest draws.
-    const carded = await oneTurn(api, SHOWCASE_ID);
-    const plain = await oneTurn(api, SHOWCASE_ID);
+    const carded = await oneTurn(api, SHOWCASE_CHATS);
+    const plain = await oneTurn(api, SHOWCASE_CHATS);
     const posted = await api.call(M("card.post"), { ...carded, title: "inline-card-17" });
     expect(posted.appended).toMatchObject({ ns: `app.${SHOWCASE_ID}`, event: "card", payload: { title: "inline-card-17", notes: 2 } });
     const pushed = await api.waitFor(
@@ -136,11 +138,11 @@ test.describe("an application's inline points and its data", () => {
     // Only through its `hub`: a session in which the entry is appended is still the session's.
     expect((await api.refused(M("card.post"), { title: "no session" }))?.code).toBe(INVALID_PARAMS);
 
-    // Its space's groups: the sessions it put a card in, the rest left to the shell's `other`.
-    const { sessions } = await api.call("harnix.sessions", { space: SHOWCASE_ID });
+    // Its chats space's groups: the sessions it put a card in, the rest left to the shell's `other`.
+    const { sessions } = await api.call("harnix.sessions", { space: SHOWCASE_CHATS });
     const ids = sessions.map((r: any) => r.session_id);
     expect(ids).toEqual(expect.arrayContaining([carded.session_id, plain.session_id]));
-    const grouped = await api.call(M("sessions.group"), { space: SHOWCASE_ID, sessions: sessions.map((r: any) => ({ session_id: r.session_id })) });
+    const grouped = await api.call(M("sessions.group"), { space: SHOWCASE_CHATS, sessions: sessions.map((r: any) => ({ session_id: r.session_id })) });
     expect(grouped.groups).toEqual([{ key: "cards", title: { en: "With a card", "zh-CN": "有卡片的" }, sessions: [carded.session_id] }]);
   });
 

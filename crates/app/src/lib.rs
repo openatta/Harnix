@@ -59,6 +59,7 @@ impl App {
             args: None,
             app_hosts: Vec::new(),
             store_keys: None,
+            app_idle: None,
         }
     }
 }
@@ -72,6 +73,7 @@ pub struct AppBuilder {
     pub(crate) args: Option<Vec<OsString>>,
     pub(crate) app_hosts: Vec<String>,
     pub(crate) store_keys: Option<Vec<String>>,
+    pub(crate) app_idle: Option<std::time::Duration>,
 }
 
 impl AppBuilder {
@@ -145,6 +147,17 @@ impl AppBuilder {
         T: Into<String>,
     {
         self.store_keys = Some(keys.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Hibernate every on-demand runtime application's backend after this much idle, in place of
+    /// its manifest's `idle_secs` (never under a minute).
+    ///
+    /// For a test application that needs to see one hibernate (`harnix-testapp`); a product has no
+    /// reason to, and a profile cannot. Without the `apps` feature there is nothing to idle.
+    #[doc(hidden)]
+    pub fn app_idle(mut self, idle: std::time::Duration) -> Self {
+        self.app_idle = Some(idle);
         self
     }
 

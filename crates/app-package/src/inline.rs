@@ -330,6 +330,17 @@ impl Inline {
             if !declared || !seen.insert(format!("grouping {space}")) {
                 return refuse(format!("{at}: `space` is one of the application's `[[space]]`s (or its id), grouped once"));
             }
+            // A space's left column is the shell's session list (which this groups) or the
+            // application's own `space.sidebar` frame in its place: never both.
+            if manifest
+                .surfaces
+                .iter()
+                .any(|s| s.point == "space.sidebar" && s.space.as_deref() == Some(space))
+            {
+                return refuse(format!(
+                    "{at}: the space `{space}` has a `space.sidebar` surface, which draws its left column in place of the session list a grouping groups; a space has one or the other"
+                ));
+            }
             if !GROUP_BY.contains(&group.by.as_str()) {
                 return refuse(format!(
                     "{at}: `by` is one of {}, not `{}`",
@@ -628,7 +639,7 @@ other = { en = "Other", zh-CN = "其他" }
             [
                 "command /showcase",
                 "command @notes",
-                "sidebar.group example.showcase"
+                "sidebar.group example.showcase.chats"
             ]
         );
     }
@@ -727,5 +738,32 @@ other = { en = "Other", zh-CN = "其他" }
         assert!(parse(&format!("{no_complete}{INLINE}"))
             .unwrap_err()
             .contains("`complete`"));
+    }
+
+    #[test]
+    fn a_space_is_grouped_or_has_its_own_sidebar_never_both() {
+        let frames = r#"
+[[surface]]
+point = "space"
+space = "acme.notes"
+page = "board.html"
+
+[[surface]]
+point = "space.sidebar"
+space = "acme.notes"
+page = "side.html"
+"#;
+        let err = parse(&format!("{BASE}{INLINE}{frames}")).unwrap_err();
+        assert!(
+            err.contains("the grouping of `acme.notes`") && err.contains("`space.sidebar`"),
+            "{err}"
+        );
+        // Its own sidebar in one space, and the shell's list grouped in another: both are drawn.
+        let elsewhere = INLINE.replace(
+            "[[inline.sidebar_group]]\nby = \"method\"\nmethod = \"notes.add\"\n",
+            "",
+        );
+        let m = parse(&format!("{BASE}{elsewhere}{frames}")).unwrap();
+        assert_eq!(m.inline.sidebar_group.len(), 1);
     }
 }

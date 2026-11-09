@@ -3,6 +3,9 @@ resolver = "2"
 exclude = ["agix", "examples"]
 members = [
     "crates/app",
+    "crates/app-host",
+    "crates/app-package",
+    "crates/app-port",
     "crates/apps",
     "crates/instance",
     "crates/authz",
@@ -40,12 +43,20 @@ members = [
 #   client ─→ contract                               (a process's own clients: CLI, tests, desktop shell)
 #   wasm                                             (applications' WebAssembly; a leaf: the host
 #                                                     implements its traits, and only it names wasmtime)
-#   apps ─→ wasm, builtin, module                    (the runtime behind the apps module; only a
-#                                                     build with the `apps` feature links it)
+#   app-package ─→ contract                          (a runtime application as it is distributed:
+#                                                     manifest, package, signatures, store)
+#   app-port ─→ contract                             (the host's boundary: Platform and Control)
+#   app-host ─→ app-package, app-port, wasm          (the supervisor: lifecycle, dispatch, idling)
+#   apps ─→ app-host, builtin, module, Agix          (the embedded glue: the port over the kernel,
+#                                                     the Agix plugin, /apps/<id>/…; only a build
+#                                                     with the `apps` feature links any of these)
 # ──────────────────────────────────────────────
 [workspace.dependencies]
 harnix           = { path = "crates/harnix" }
 harnix-app       = { path = "crates/app" }
+harnix-app-host  = { path = "crates/app-host" }
+harnix-app-package = { path = "crates/app-package" }
+harnix-app-port  = { path = "crates/app-port" }
 harnix-apps      = { path = "crates/apps" }
 harnix-instance  = { path = "crates/instance" }
 harnix-authz     = { path = "crates/authz" }

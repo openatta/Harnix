@@ -40,10 +40,13 @@ scripts/prune.sh                       # 清构建缓存：增量缓存全删，
 
 运行期应用的套件（`api/apps-runtime.spec.ts`、`ui/apps.spec.ts`，和下面商店的）要带 `apps` feature 的 `harnix`：它连着应用运行时和
 它的 WebAssembly 引擎，缺省的构建里没有。它编在自己的目标目录里（`cargo build --release -p harnix-cli --features apps
---target-dir target/apps`），旁边是作者的打包工具 `harnix-app`（`-p harnix-apps --features compile`）；`scripts/check.sh`
+--target-dir target/apps`），旁边是作者的打包工具 `harnix-app`（`-p harnix-app-package --features compile`）；`scripts/check.sh`
 两个都编，经 `HARNIX_APPS_BIN` 告诉套件在哪，单跑时套件自己编（`tests/live/api/apps-host.ts`）。示例应用
 （`examples/apps/showcase`）在测试开始时编组件、为这个引擎编译、打成 `.hxapp`，按源码哈希缓存在 `target/apps/showcase/`。
-`cargo test -p harnix-apps --features compile` 也拿它跑（装、用、停、卸，和装到一半失败的回滚）。
+Rust 这边也拿它跑，分两层：
+- `cargo test -p harnix-app-host --features compile`：应用宿主对着一个假的 `Platform`，`Platform` 与 `Control` 两个方向的每次调用
+  都经 `harnix-app-port` 的回环适配器（feature `loopback`）用 `serde_json` 编码再解码，证明这条边界能搬上 RPC；
+- `cargo test -p harnix-apps --features compile`：嵌入的粘合层，照 `apps` 模块那样装、用、停、卸，和装到一半失败的回滚。
 
 应用界面放进隔离 iframe 的套件（`api/apps-frames.spec.ts`、`ui/apps-frames.spec.ts`）也装 showcase：未签名、商店签的应用界面
 画在沙箱 iframe 里（`ui/frame/`），受信发布者的进页面，清单 `[interface] isolate = true` 时同一个应用也进 iframe（套件用 mock 发布者
@@ -56,7 +59,11 @@ scripts/prune.sh                       # 清构建缓存：增量缓存全删，
 `index.json`，经 `[apps] store = "file://…"` 给后端。mock 的发布者与商店密钥在 `tests/live/fixtures/store/`，只是测试钥。
 `harnix` 内置的是商店自己的公钥、profile 改不了，所以 mock 商店在它那里什么也装不上（套件也测这一条）；信 mock 商店的只有
 带 `apps` 编的 `harnix-testapp`（装配时经隐藏的 `AppBuilder::store_keys` 换成 mock 的钥），同样编在 `target/apps` 里。
-签名、目录、披露的逻辑另有 Rust 单测（`crates/apps/src/{signature,store,disclosure,publish}.rs`），装签名包、篡改、
+闲置休眠的套件（`api/apps-idle.spec.ts`、`ui/apps-idle.spec.ts`）在测试里把 showcase 改成 `[backend] resident = "on-demand"`
+（`watch_sessions = false`，`init` 不订阅），跑在带 `apps` 编的 `harnix-testapp` 上：清单的 `idle_secs` 最少一分钟，profile 改不了；
+只有测试应用经隐藏的 `AppBuilder::app_idle` 把它缩短，套件用环境变量 `HARNIX_TESTAPP_APP_IDLE_MS` 告诉它多短。Rust 这边
+`crates/app-host/tests/idle.rs` 用 `HostOptions::idle` 测同样的规则，`crates/wasm/tests/hibernate.rs` 测虚拟机这一层。
+签名、目录、披露的逻辑另有 Rust 单测（`crates/app-package/src/{signature,store,disclosure,publish}.rs`），装签名包、篡改、
 升级与升级失败的回滚在 `crates/apps/tests/signed.rs`。
 
 `ui` project 从磁盘读构建好的界面（`--ui-dir ui/dist`），所以改了前端只要

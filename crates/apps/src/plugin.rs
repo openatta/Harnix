@@ -6,16 +6,18 @@
 //! one disabled now is not (a session already built keeps what it was built with until it is
 //! rebuilt). Per application:
 //!
-//! - each tool the component listed, as `app__<id>__<tool>`. A call runs in an instance of its own
-//!   (`AppVm::call_tool`), with the calling session's project as its read-only `/project` when the
-//!   manifest asks for `${project}`; `host.progress` goes to the tool's progress and to the
-//!   host's `harnix.apps.progress` topic, and cancelling the turn stops it. **Every call asks first**: a tool's `read-only` claim is the component's
+//! - each tool the host offered for it, as `app__<id>__<tool>`. A call runs in an instance of its
+//!   own (`Control::call_tool`), with the calling session's project as its read-only `/project`
+//!   when the manifest asks for `${project}`; `host.progress` goes to the tool's progress and to
+//!   the host's `harnix.apps.progress` topic, and cancelling the turn stops it
+//!   (`Control::cancel`). **Every call asks first**: a tool's `read-only` claim is the component's
 //!   own word, so it schedules calls and decides nothing about permission.
 //! - its `events` export, as a `tool.around` middleware on every tool call of the session (not
 //!   only its own tools): offered `tool.before` with the tool's name and input, it may let the call
 //!   through, refuse it, or add a note to its result. It cannot change the call. A hook that fails
 //!   lets the call through: an application's fault is not the user's.
 
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -27,9 +29,11 @@ use base::interface::tool::{
 use base::interface::tool_middleware::{
     NextDispatch, ToolAnswer, ToolCall, ToolExec, ToolMiddleware, ToolOutcome,
 };
-use harnix_wasm::{CallFailure, HookDecision, ProgressSink, ToolDef};
+use harnix_app_port::{Control, Failure, HookCall, HookReply, ToolDef, ToolReply};
+use harnix_contract::codes;
 use runtime::plugin::{Plugin, PluginSession, Registrar};
 use serde_json::{json, Value};
+use tokio_util::sync::CancellationToken;
 
 use crate::runtime::{Loaded, Registry};
 
@@ -38,6 +42,25 @@ pub const NAME: &str = "harnix-apps";
 
 pub struct AppsPlugin {
     registry: Arc<Registry>,
+}
+
+/// Run `call` (a tool call or a hook named `call_id`), and cancel it in the host if `cancel` fires
+/// first. The call is polled first, so the host has its cancellation before it can be asked to.
+pub(crate) async fn cancellable<T>(
+    control: &Arc<dyn Control>,
+    call_id: &str,
+    cancel: &CancellationToken,
+    call: impl Future<Output = T>,
+) -> T {
+    tokio::pin!(call);
+    tokio::select! {
+        biased;
+        out = &mut call => out,
+        _ = cancel.cancelled() => {
+            let _ = control.cancel(call_id.to_string()).await;
+            call.await
+        }
+    }
 }
 
 impl AppsPlugin {
@@ -49,7 +72,7 @@ impl AppsPlugin {
     pub fn tools(&self, project: &std::path::Path) -> Vec<Arc<dyn Tool>> {
         let mut tools: Vec<Arc<dyn Tool>> = Vec::new();
         for app in self.registry.loaded() {
-            if app.vm.is_none() {
+            if !app.component {
                 continue;
             }
             for def in &app.tools {
@@ -72,10 +95,11 @@ impl AppsPlugin {
         self.registry
             .loaded()
             .into_iter()
-            .filter(|app| app.vm.is_some())
+            .filter(|app| app.component)
             .map(|app| {
                 Arc::new(AppEvents {
                     app,
+                    registry: self.registry.clone(),
                     session_id: session_id.to_string(),
                     depth,
                 }) as Arc<dyn ToolMiddleware>
@@ -108,30 +132,6 @@ struct AppTool {
     registry: Arc<Registry>,
     /// The session's project: `/project`, for a manifest that asks for `${project}`.
     project: PathBuf,
-}
-
-/// A tool call's `host.progress`: to the engine's progress channel, and to the host's listeners
-/// (`Registry::progress`), which is what a client sees.
-struct Progress {
-    sender: ProgressSender,
-    registry: Arc<Registry>,
-    app: String,
-    tool: String,
-    session_id: String,
-    tool_use_id: String,
-}
-
-impl ProgressSink for Progress {
-    fn on_progress(&self, _call_id: &str, text: &str) {
-        self.sender.send(text);
-        self.registry.progress(json!({
-            "app": self.app,
-            "tool": self.tool,
-            "session_id": self.session_id,
-            "tool_use_id": self.tool_use_id,
-            "text": text,
-        }));
-    }
 }
 
 #[async_trait::async_trait]
@@ -181,9 +181,9 @@ impl Tool for AppTool {
         ctx: ToolContext,
         progress: ProgressSender,
     ) -> Result<ToolResult, ToolError> {
-        let Some(vm) = &self.app.vm else {
+        let Some(control) = self.registry.control() else {
             return Err(ToolError::NotFound(format!(
-                "`{}` has no component",
+                "`{}` is not running",
                 self.app.id
             )));
         };
@@ -192,36 +192,61 @@ impl Tool for AppTool {
         } else {
             ctx.tool_use_id.clone()
         };
-        let sink: Arc<dyn ProgressSink> = Arc::new(Progress {
-            sender: progress,
-            registry: self.registry.clone(),
-            app: self.app.id.clone(),
-            tool: self.name.clone(),
-            session_id: ctx.session_id.clone(),
-            tool_use_id: call_id.clone(),
-        });
-        match vm
-            .call_tool(
-                &self.def.name,
-                &input,
-                &call_id,
-                Some(&self.project),
-                Some(sink),
-                &ctx.cancel,
-            )
-            .await
+        // A tool call's `host.progress`: to the engine's progress channel, and to the host's
+        // listeners (`Registry::progress`), which is what a client sees.
         {
-            Ok(out) => Ok(ToolResult {
-                content: ToolResultContent::Text(out.content),
-                is_error: out.is_error,
-                structured_content: out.structured,
+            let registry = self.registry.clone();
+            let (app, tool, session_id, tool_use_id) = (
+                self.app.id.clone(),
+                self.name.clone(),
+                ctx.session_id.clone(),
+                call_id.clone(),
+            );
+            self.registry.listen(
+                &call_id,
+                Arc::new(move |text: &str| {
+                    progress.send(text);
+                    registry.progress(json!({
+                        "app": app,
+                        "tool": tool,
+                        "session_id": session_id,
+                        "tool_use_id": tool_use_id,
+                        "text": text,
+                    }));
+                }),
+            );
+        }
+        let call = harnix_app_port::ToolCall {
+            app: self.app.id.clone(),
+            tool: self.def.name.clone(),
+            input,
+            call_id: call_id.clone(),
+            project: Some(self.project.clone()),
+            progress: true,
+        };
+        let reply = cancellable(&control, &call_id, &ctx.cancel, control.call_tool(call)).await;
+        self.registry.unlisten(&call_id);
+        match reply {
+            Ok(ToolReply::Output {
+                content,
+                structured,
+                is_error,
+            }) => Ok(ToolResult {
+                content: ToolResultContent::Text(content),
+                is_error,
+                structured_content: structured,
                 ..ToolResult::default()
             }),
-            Err(CallFailure::Cancelled) => Err(ToolError::Cancelled),
-            Err(failure) => Ok(ToolResult::error_text(format!(
-                "{}: {failure}",
+            Ok(ToolReply::Failed {
+                failure: Failure::Cancelled,
+                ..
+            }) => Err(ToolError::Cancelled),
+            Ok(ToolReply::Failed { message, .. }) => Ok(ToolResult::error_text(format!(
+                "{}: {message}",
                 self.app.id
             ))),
+            Err(e) if e.code == codes::METHOD_NOT_FOUND => Err(ToolError::NotFound(e.message)),
+            Err(e) => Ok(ToolResult::error_text(format!("{}: {}", self.app.id, e.message))),
         }
     }
 }
@@ -229,6 +254,7 @@ impl Tool for AppTool {
 /// An application's `events`, around every tool call of one session.
 struct AppEvents {
     app: Arc<Loaded>,
+    registry: Arc<Registry>,
     session_id: String,
     depth: u32,
 }
@@ -241,7 +267,7 @@ impl ToolMiddleware for AppEvents {
         exec: &mut ToolExec,
         next: NextDispatch<'_>,
     ) -> ToolOutcome {
-        let Some(vm) = &self.app.vm else {
+        let Some(control) = self.registry.control() else {
             return next.run(call, exec).await;
         };
         let payload = json!({
@@ -250,23 +276,34 @@ impl ToolMiddleware for AppEvents {
             "session_id": self.session_id,
             "depth": self.depth,
         });
-        match vm.on_event("tool.before", &payload, exec.cancel()).await {
-            Ok(HookDecision::Proceed) => next.run(call, exec).await,
-            Ok(HookDecision::Block(reason)) => {
+        let call_id = uuid::Uuid::new_v4().simple().to_string();
+        let hook = HookCall {
+            app: self.app.id.clone(),
+            event: "tool.before".into(),
+            payload,
+            call_id: call_id.clone(),
+        };
+        let cancel = exec.cancel().clone();
+        let decision = cancellable(&control, &call_id, &cancel, control.hook(hook))
+            .await
+            .unwrap_or_else(|e| HookReply::Failed(e.message));
+        match decision {
+            HookReply::Proceed => next.run(call, exec).await,
+            HookReply::Block(reason) => {
                 tracing::info!(app = %self.app.id, tool = %call.name, %reason, "an application refused a tool call");
                 Ok(ToolAnswer::failure(format!(
                     "refused by the application `{}`: {reason}",
                     self.app.id
                 )))
             }
-            Ok(HookDecision::AddContext(note)) => {
+            HookReply::AddContext(note) => {
                 let mut answer = next.run(call, exec).await?;
                 answer
                     .text
                     .push_str(&format!("\n\n[{}] {note}", self.app.id));
                 Ok(answer)
             }
-            Err(failure) => {
+            HookReply::Failed(failure) => {
                 tracing::warn!(app = %self.app.id, tool = %call.name, %failure, "an application's event hook failed; the call goes on");
                 next.run(call, exec).await
             }

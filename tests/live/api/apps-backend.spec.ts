@@ -18,7 +18,7 @@ import { type Server, createServer } from "node:http";
 import { INVALID_PARAMS, INTERNAL_ERROR, METHOD_NOT_FOUND } from "@harnix/core/protocol";
 import { type Backend, type TestClient, connect, expect, sleep, test, topology } from "@harnix/testkit";
 
-import { SHOWCASE_ID, showcasePackage, startApps } from "./apps-host";
+import { SHOWCASE_CHATS, SHOWCASE_ID, showcasePackage, startApps } from "./apps-host";
 
 const TAGS = { tag: ["@feature:apps", "@layer:api"] };
 
@@ -92,7 +92,7 @@ test.describe("an application with a backend", () => {
     expect(rt).toMatchObject({ state: "running", world: "backend" });
     expect(rt.methods).toEqual(expect.arrayContaining([M("notes.add"), M("notes.list"), M("state"), M("session.start")]));
     expect(rt.topics).toEqual([M("notes"), M("heartbeat")]);
-    expect(rt.spaces).toEqual([SHOWCASE_ID]);
+    expect(rt.spaces).toEqual([SHOWCASE_ID, SHOWCASE_CHATS]);
     const registered = (await api.call("harnix.apps.list")).registered.find((r: any) => r.id === SHOWCASE_ID);
     expect(registered).toMatchObject({ by: "apps", hub: ["session.create", "harnix.send", "topic:harnix.sessions.status", "harnix.entries.append"] });
     // Reachable to this page like any method, and listed among the spaces.

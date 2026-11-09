@@ -23,6 +23,8 @@ import { type Backend, type LaunchOptions, type ModelMode, ROOT, launchFor, star
 const TARGET = join(ROOT, "target", "apps");
 export const SHOWCASE = join(ROOT, "examples", "apps", "showcase");
 export const SHOWCASE_ID = "example.showcase";
+/** The showcase's second space: the shell's session list, grouped as its backend answers. */
+export const SHOWCASE_CHATS = "example.showcase.chats";
 
 let built: { bin: string; pack: string } | null = null;
 
@@ -37,7 +39,7 @@ export function appsTools(): { bin: string; pack: string } {
   const cargo = (args: string[]) =>
     execFileSync("cargo", ["build", "--release", "--target-dir", TARGET, ...args], { cwd: ROOT, stdio: ["ignore", "ignore", "inherit"] });
   cargo(["-p", "harnix-cli", "--features", "apps"]);
-  cargo(["-p", "harnix-apps", "--features", "compile", "--bin", "harnix-app"]);
+  cargo(["-p", "harnix-app-package", "--features", "compile", "--bin", "harnix-app"]);
   built = { bin: join(TARGET, "release", "harnix"), pack: join(TARGET, "release", "harnix-app") };
   return built;
 }
@@ -84,10 +86,11 @@ export function showcasePackage(): { path: string; fingerprint: string } {
   return packed;
 }
 
-/** A backend of the apps binary with `[apps] enabled`, `dev` unless said otherwise; replaying
- *  unless given another mode. */
+/** A backend of the apps binary (or `bin`) with `[apps] enabled`, `dev` unless said otherwise;
+ *  replaying unless given another mode. */
 export function startApps(
   options: {
+    bin?: string;
     dev?: boolean;
     profile?: string;
     seed?: LaunchOptions["seed"];
@@ -96,7 +99,7 @@ export function startApps(
     topologies?: LaunchOptions["topologies"];
   } = {},
 ): Promise<Backend> {
-  const { bin } = appsTools();
+  const bin = options.bin ?? appsTools().bin;
   return startHarnix(
     launchFor(options.mode ?? "replay", {
       bin,
