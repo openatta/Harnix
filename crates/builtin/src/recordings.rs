@@ -18,9 +18,12 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::SystemTime;
 
 use base::interface::model::{ModelEvent, ToolDef};
 use base::interface::prompt::PromptBlock;
+use harnix_contract::sync::lock;
 use harnix_contract::{codes, RpcError};
 use serde_json::{json, Value};
 use telemetry::recorder::blob::{BlobId, BlobStore};
@@ -44,23 +47,16 @@ impl Builtin {
     /// `harnix.requestHeaders {instance?, session_id}` — the envelope timeline of this
     /// session's current run, oldest first, one entry per change.
     pub(crate) async fn request_headers(&self, params: Value) -> Result<Value, RpcError> {
-        let session_id = require_session_id(&params)?;
-        let instance = params
-            .get("instance")
-            .and_then(Value::as_str)
-            .unwrap_or(harnix_contract::SYSTEM_INSTANCE);
-        envelopes_in(&self.recording_dir(instance, &session_id)?)
+        let dir = self.recording_of(&params)?;
+        off_the_runtime(move || envelopes_in(&dir)).await
     }
     /// `harnix.system.trace {instance?, session_id}` — every model call of this session's current
     /// run, oldest first, each with what went in and what came out, and the tool calls it asked
     /// for with their results (found in the next call's messages). The system space's calls tab.
     pub(crate) async fn trace(&self, params: Value) -> Result<Value, RpcError> {
-        let session_id = require_session_id(&params)?;
-        let instance = params
-            .get("instance")
-            .and_then(Value::as_str)
-            .unwrap_or(harnix_contract::SYSTEM_INSTANCE);
-        trace_in(&self.recording_dir(instance, &session_id)?)
+        let dir = self.recording_of(&params)?;
+        let traces = self.traces.clone();
+        off_the_runtime(move || traces.trace(&dir)).await
     }
 
     /// `harnix.system.turns {instance?, session_id}` — the trace summed up per turn: how many calls,
@@ -68,28 +64,118 @@ impl Builtin {
     /// went in (by tokens, so one cold call is not hidden by warm ones), and how much the context
     /// grew since the turn before. The system space's per-turn tab.
     pub(crate) async fn turns(&self, params: Value) -> Result<Value, RpcError> {
-        let session_id = require_session_id(&params)?;
-        let instance = params
-            .get("instance")
-            .and_then(Value::as_str)
-            .unwrap_or(harnix_contract::SYSTEM_INSTANCE);
-        let trace = trace_in(&self.recording_dir(instance, &session_id)?)?;
-        let calls = trace["calls"].as_array().cloned().unwrap_or_default();
-        Ok(json!({"recording": trace["recording"], "turns": turns_of(&calls)}))
+        let dir = self.recording_of(&params)?;
+        let traces = self.traces.clone();
+        off_the_runtime(move || {
+            let trace = traces.trace(&dir)?;
+            let calls = trace["calls"].as_array().cloned().unwrap_or_default();
+            Ok(json!({"recording": trace["recording"], "turns": turns_of(&calls)}))
+        })
+        .await
     }
 
     /// `harnix.system.trace.call {instance?, session_id, index}` — one call in full: every system
     /// block, the tool catalog, the messages as sent, and the whole answer.
     pub(crate) async fn trace_call(&self, params: Value) -> Result<Value, RpcError> {
-        let session_id = require_session_id(&params)?;
+        let dir = self.recording_of(&params)?;
+        let index = params.get("index").and_then(Value::as_u64).ok_or_else(|| {
+            RpcError::invalid_params("`index` is the call's position in the trace")
+        })?;
+        off_the_runtime(move || call_in(&dir, index as usize)).await
+    }
+
+    /// The recording directory of `{instance?, session_id}`.
+    fn recording_of(&self, params: &Value) -> Result<PathBuf, RpcError> {
+        let session_id = require_session_id(params)?;
         let instance = params
             .get("instance")
             .and_then(Value::as_str)
             .unwrap_or(harnix_contract::SYSTEM_INSTANCE);
-        let index = params.get("index").and_then(Value::as_u64).ok_or_else(|| {
-            RpcError::invalid_params("`index` is the call's position in the trace")
-        })?;
-        call_in(&self.recording_dir(instance, &session_id)?, index as usize)
+        self.recording_dir(instance, &session_id)
+    }
+}
+
+/// Reading a recording is file work and JSON over all of it: done on the blocking pool, so a large
+/// one does not hold a runtime worker.
+async fn off_the_runtime(
+    f: impl FnOnce() -> Result<Value, RpcError> + Send + 'static,
+) -> Result<Value, RpcError> {
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| RpcError::new(codes::INTERNAL_ERROR, e.to_string()))?
+}
+
+/// How many recordings' traces are kept. Past it, the one asked about longest ago goes.
+const TRACES_KEPT: usize = 64;
+
+/// Each recording's trace, until its `calls.jsonl` changes size or time. The system space asks
+/// for the trace and the turns of the session it shows, again on every change; reading the
+/// recording is the expensive part of both.
+#[derive(Default)]
+pub(crate) struct Traces(Mutex<TraceCache>);
+
+#[derive(Default)]
+struct TraceCache {
+    by_file: HashMap<PathBuf, Kept>,
+    clock: u64,
+}
+
+struct Kept {
+    len: u64,
+    modified: Option<SystemTime>,
+    asked: u64,
+    trace: Value,
+}
+
+impl Traces {
+    /// The trace of the recording in `dir`: the kept one when its file has not changed. The lock
+    /// is not held while the recording is read.
+    fn trace(&self, dir: &Path) -> Result<Value, RpcError> {
+        let file = dir.join("calls.jsonl");
+        let stat = std::fs::metadata(&file).ok().map(|m| (m.len(), m.modified().ok()));
+        {
+            let mut cache = lock(&self.0);
+            cache.clock += 1;
+            let now = cache.clock;
+            match (stat, cache.by_file.get_mut(&file)) {
+                (Some((len, modified)), Some(kept)) if kept.len == len && kept.modified == modified => {
+                    kept.asked = now;
+                    return Ok(kept.trace.clone());
+                }
+                (None, _) => {
+                    cache.by_file.remove(&file);
+                }
+                _ => {}
+            }
+        }
+        let trace = trace_in(dir)?;
+        if let Some((len, modified)) = stat {
+            let mut cache = lock(&self.0);
+            let asked = cache.clock;
+            cache.by_file.insert(file, Kept { len, modified, asked, trace: trace.clone() });
+            if cache.by_file.len() > TRACES_KEPT {
+                if let Some(oldest) = cache.by_file.iter().min_by_key(|(_, k)| k.asked).map(|(f, _)| f.clone()) {
+                    cache.by_file.remove(&oldest);
+                }
+            }
+        }
+        Ok(trace)
+    }
+
+    #[cfg(test)]
+    fn kept(&self) -> usize {
+        lock(&self.0).by_file.len()
+    }
+}
+
+/// A session's recording, or `None` when it has none — the ordinary state of a session that has
+/// not called the model yet. One that is there and cannot be read is the same error to every
+/// reader.
+fn load(dir: &Path) -> Result<Option<reader::Recording>, RpcError> {
+    match reader::load(dir) {
+        Ok(recording) => Ok(Some(recording)),
+        Err(reader::ReadError::NotFound(_)) => Ok(None),
+        Err(e) => Err(RpcError::new(codes::INTERNAL_ERROR, format!("unreadable recording: {e}"))),
     }
 }
 
@@ -143,6 +229,24 @@ fn results(messages: &[Value]) -> std::collections::HashMap<String, (String, boo
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
                 found.insert(id.to_string(), (content.to_string(), error));
+            }
+        }
+    }
+    found
+}
+
+/// The results of the tool calls `ids`, from the call that sent them back. They are in its last
+/// messages, so its messages are read from the end and only until every one is found: a list row
+/// does not need the conversation's every message decoded.
+fn results_of(ids: &[&str], answering: &CallRecord, blobs: &BlobStore) -> HashMap<String, (String, bool)> {
+    let mut found = HashMap::new();
+    for id in answering.messages.iter().rev() {
+        if ids.iter().all(|i| found.contains_key(*i)) {
+            break;
+        }
+        if let Some(message) = read::<Value>(blobs, id) {
+            for (k, v) in results(std::slice::from_ref(&message)) {
+                found.entry(k).or_insert(v);
             }
         }
     }
@@ -321,40 +425,27 @@ fn turns_of(calls: &[Value]) -> Vec<Value> {
 }
 
 fn trace_in(dir: &std::path::Path) -> Result<Value, RpcError> {
-    let recording = match reader::load(dir) {
-        Ok(recording) => recording,
-        Err(reader::ReadError::NotFound(_)) => return Ok(json!({"recording": false, "calls": []})),
-        Err(e) => {
-            return Err(RpcError::new(
-                codes::INTERNAL_ERROR,
-                format!("unreadable recording: {e}"),
-            ))
-        }
+    let Some(recording) = load(dir)? else {
+        return Ok(json!({"recording": false, "calls": []}));
     };
     let blobs = BlobStore::new(dir);
     // Times only when every call record was found: otherwise they could be paired with the wrong call.
     let times = Some(timings(dir)).filter(|t| t.len() == recording.calls.len());
-    let messages: Vec<Vec<Value>> = recording
-        .calls
-        .iter()
-        .map(|call| {
-            call.request
-                .messages
-                .iter()
-                .filter_map(|id| read::<Value>(&blobs, id))
-                .collect()
-        })
-        .collect();
     let mut calls = Vec::new();
     for (index, call) in recording.calls.iter().enumerate() {
         let request = &call.request;
         let (text, thinking, tool_uses) = answer(&call.response);
         // A tool call's result is in the next turn call: the engine sends it back.
-        let next = recording.calls[index + 1..]
-            .iter()
-            .position(|c| c.request.purpose.is_none())
-            .map(|offset| results(&messages[index + 1 + offset]))
-            .unwrap_or_default();
+        let ids: Vec<&str> = tool_uses.iter().filter_map(|t| t["id"].as_str()).collect();
+        let next = if ids.is_empty() {
+            HashMap::new()
+        } else {
+            recording.calls[index + 1..]
+                .iter()
+                .find(|c| c.request.purpose.is_none())
+                .map(|answering| results_of(&ids, &answering.request, &blobs))
+                .unwrap_or_default()
+        };
         let tools: Vec<Value> = tool_uses
             .iter()
             .map(|tool| {
@@ -419,10 +510,10 @@ fn trace_in(dir: &std::path::Path) -> Result<Value, RpcError> {
 }
 
 fn call_in(dir: &std::path::Path, index: usize) -> Result<Value, RpcError> {
-    let recording =
-        reader::load(dir).map_err(|e| RpcError::not_found(format!("no recording: {e}")))?;
+    let recording = load(dir)?
+        .ok_or_else(|| RpcError::missing("this session has no recording: it has not called the model"))?;
     let call = recording.calls.get(index).ok_or_else(|| {
-        RpcError::not_found(format!("this run has {} calls", recording.calls.len()))
+        RpcError::missing(format!("this run has {} calls", recording.calls.len()))
     })?;
     let blobs = BlobStore::new(dir);
     let request = &call.request;
@@ -466,20 +557,11 @@ fn call_in(dir: &std::path::Path, index: usize) -> Result<Value, RpcError> {
 /// reports as `recording: false` rather than as an error, because it is the
 /// ordinary state of a session nobody has spoken to.
 fn envelopes_in(dir: &std::path::Path) -> Result<Value, RpcError> {
-    let recording = match reader::load(dir) {
-        Ok(recording) => recording,
-        Err(reader::ReadError::NotFound(_)) => {
-            return Ok(json!({
-                "recording": false, "headers": [], "calls": 0,
-                "auxiliary": 0, "damaged": 0,
-            }))
-        }
-        Err(e) => {
-            return Err(RpcError::new(
-                codes::INTERNAL_ERROR,
-                format!("unreadable recording: {e}"),
-            ))
-        }
+    let Some(recording) = load(dir)? else {
+        return Ok(json!({
+            "recording": false, "headers": [], "calls": 0,
+            "auxiliary": 0, "damaged": 0,
+        }));
     };
 
     let blobs = BlobStore::new(dir);
@@ -756,6 +838,33 @@ mod tests {
                 .expect("append");
             self.writer.flush().expect("flush");
         }
+    }
+
+    /// The trace is kept until the recording's file changes, and read again once it does; a
+    /// session with no recording is not kept at all. Every reader says the same of a recording
+    /// that is not there: none of them an error, or the one that asks for a call by index a
+    /// `NOT_FOUND` — not "there is no such method".
+    #[test]
+    fn a_trace_is_kept_until_its_recording_changes() {
+        let f = Fixture::new();
+        let traces = Traces::default();
+        f.call(0, "m-1", &[block("a", "scene")], &[], None);
+        let first = traces.trace(&f.dir()).unwrap();
+        assert_eq!(first["calls"].as_array().unwrap().len(), 1);
+        assert_eq!(traces.kept(), 1);
+        // Same file: the same answer, without reading it.
+        assert_eq!(traces.trace(&f.dir()).unwrap(), first);
+        f.call(1, "m-1", &[block("a", "scene")], &[], None);
+        assert_eq!(traces.trace(&f.dir()).unwrap()["calls"].as_array().unwrap().len(), 2);
+        assert_eq!(traces.kept(), 1);
+
+        let never = f.root.path().join("S-never");
+        assert_eq!(traces.trace(&never).unwrap()["recording"], json!(false));
+        assert_eq!(traces.kept(), 1, "a session with no recording is not kept");
+        let missing = call_in(&never, 0).unwrap_err();
+        assert_eq!(missing.code, codes::NOT_FOUND, "{missing:?}");
+        let past = call_in(&f.dir(), 2).unwrap_err();
+        assert_eq!((past.code, past.message.as_str()), (codes::NOT_FOUND, "this run has 2 calls"));
     }
 
     #[test]

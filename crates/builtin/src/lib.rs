@@ -66,7 +66,9 @@ pub struct Builtin {
     /// grant (settings writing a provider) applies to it alone.
     contexts: RwLock<HashMap<&'static str, ModuleContext>>,
     /// `harnix.system.usage`'s summaries, by recording, until the recording changes.
-    usage: std::sync::Mutex<usage::UsageCache>,
+    usage: Arc<std::sync::Mutex<usage::UsageCache>>,
+    /// The system space's traces, by recording, until the recording changes.
+    traces: Arc<recordings::Traces>,
 }
 
 /// The built-in modules: id, methods (full names), grants, disclosure.
@@ -236,7 +238,8 @@ impl Builtin {
             max_upload_bytes: harnix_contract::MAX_UPLOAD_BYTES,
             on_packages_changed: Mutex::new(None),
             contexts: RwLock::new(HashMap::new()),
-            usage: std::sync::Mutex::new(HashMap::new()),
+            usage: Default::default(),
+            traces: Default::default(),
         }))
     }
 
