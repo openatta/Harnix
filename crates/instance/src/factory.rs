@@ -12,6 +12,7 @@ use crate::engine::{self, EngineConfig};
 use crate::inproc::InProcessLink;
 use crate::link::EngineLink;
 use crate::profile::EngineProfile;
+use crate::servers::SharedServers;
 use crate::templates::{InstanceTemplate, TemplateCarrier};
 
 /// What is known about an instance without asking it. Only an in-process
@@ -26,6 +27,14 @@ pub struct Facts {
     pub scene: Option<String>,
     pub model: Option<String>,
     pub has_credentials: bool,
+}
+
+impl Facts {
+    /// Where the instance keeps its data, as the instance list and `hello` show it. What it holds
+    /// is this layer's to write: the hub reports the place, and never opens it.
+    pub fn root_label(&self) -> String {
+        self.data_root.display().to_string()
+    }
 }
 
 /// What an engine built in this process says about itself.
@@ -68,6 +77,13 @@ pub struct Factory {
     /// The tools those plugins register, which every scene of such an engine admits
     /// (`EngineContrib::admit_tools`).
     pub admitted_tools: Vec<String>,
+    /// The MCP servers every daemon this process spawns is configured with — a runtime
+    /// application's tools — written into each one's data root as it is built, and kept in line
+    /// with the set after (`servers.rs`). Shared with whoever sets them.
+    pub servers: Arc<SharedServers>,
+    /// The data root of the instance a template's `inherit_providers` inherits from: the
+    /// system instance's. `None`, nothing is inherited.
+    pub providers_from: Option<PathBuf>,
 }
 
 impl Factory {
@@ -81,6 +97,8 @@ impl Factory {
             credential,
             plugins: Vec::new(),
             admitted_tools: Vec::new(),
+            servers: Arc::default(),
+            providers_from: None,
         })
     }
 
@@ -112,6 +130,11 @@ impl Factory {
         template: Option<&InstanceTemplate>,
     ) -> anyhow::Result<Built> {
         std::fs::create_dir_all(&data_root)?;
+        if template.is_some_and(|t| t.inherit_providers) {
+            if let Err(e) = self.inherit(&data_root) {
+                tracing::warn!(instance = id, error = %e, "the inherited providers were not written");
+            }
+        }
         let reap_on_stop = template.is_some_and(|t| t.reap_on_stop);
         if reap_on_stop {
             crate::reap::engine_reaps(&data_root)?;
@@ -156,11 +179,14 @@ impl Factory {
                     }
                 }
                 argv.extend(args.iter().cloned());
-                let options = if reap_on_stop {
+                let mut options = if reap_on_stop {
                     SpawnOptions::default().reap_on_stop()
                 } else {
                     SpawnOptions::default()
                 };
+                // Before the daemon reads its settings: the servers it reaches this process's
+                // applications by, with a credential of its own.
+                options.servers = Some(self.servers.configure(id, &data_root));
                 let link: Arc<dyn EngineLink> = DaemonLink::start_with(DaemonSpec {
                     endpoint: Endpoint::Unix(socket),
                     spawn: Some(SpawnSpec {
@@ -210,6 +236,25 @@ impl Factory {
                     },
                 })
             }
+        }
+    }
+
+    /// `system`'s providers into the instance whose data `facts` describes; `Ok(true)` when its
+    /// settings changed and it should reload. For `harnix.instances.inheritProviders`, after the
+    /// settings page changed one; an instance built from a template that inherits got them as it
+    /// was built.
+    pub fn inherit_into(&self, facts: &Facts) -> std::io::Result<bool> {
+        // An instance that was never built (listed down) has no data root to write into.
+        if facts.data_root.as_os_str().is_empty() {
+            return Ok(false);
+        }
+        self.inherit(&facts.data_root)
+    }
+
+    fn inherit(&self, data_root: &Path) -> std::io::Result<bool> {
+        match &self.providers_from {
+            Some(from) => crate::inherit::merge(from, data_root),
+            None => Ok(false),
         }
     }
 }
@@ -304,5 +349,29 @@ fn create_private_dir(dir: &Path) -> std::io::Result<()> {
 impl Drop for Factory {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.socket_dir);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn providers_go_only_where_there_is_a_data_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let (system, instance) = (dir.path().join("system"), dir.path().join("instance"));
+        std::fs::create_dir_all(&system).unwrap();
+        std::fs::write(system.join("settings.json"), r#"{"providers": {"a": {"api_type": "anthropic"}}}"#).unwrap();
+        let mut factory = Factory::new(Arc::new(|_: &str| None)).unwrap();
+        let built = Facts {
+            data_root: instance.clone(),
+            ..Facts::default()
+        };
+        assert!(!factory.inherit_into(&built).unwrap(), "inherited with nowhere to inherit from");
+        factory.providers_from = Some(system);
+        assert!(factory.inherit_into(&built).unwrap());
+        assert!(instance.join("settings.json").is_file());
+        // An instance listed down was never built and has none: not the working directory's.
+        assert!(!factory.inherit_into(&Facts::default()).unwrap());
     }
 }

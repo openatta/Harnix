@@ -33,7 +33,7 @@
 //!
 //! Updating is in `update.rs`.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
@@ -72,8 +72,6 @@ pub struct Loaded {
     pub trust: Trust,
     /// Its `[[space]]` ids, in order: where a frame's new sessions land.
     pub backend_spaces: Vec<String>,
-    /// What a spawned daemon's MCP client presents for this application's endpoint.
-    pub token: String,
     /// `[inline]`, as the shell draws it (`harnix.apps.list` → `runtime.inline`).
     pub inline: Value,
 }
@@ -100,6 +98,10 @@ pub struct Registry {
     progress: RwLock<Option<OnProgress>>,
     listeners: Mutex<HashMap<String, Listener>>,
     control: OnceLock<Weak<dyn Control>>,
+    /// The credentials of the daemons this process spawned that are still there: what opens
+    /// `/apps/<id>/mcp` (`serve.rs`). One per daemon, issued as it is spawned and revoked when it
+    /// goes ([`Registry::issue_daemon_token`]).
+    daemon_tokens: Mutex<HashSet<String>>,
 }
 
 fn read<T>(l: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
@@ -137,6 +139,24 @@ impl Registry {
 
     fn remove(&self, id: &str) -> Option<Arc<Loaded>> {
         write(&self.apps).remove(id)
+    }
+
+    /// A credential for one daemon this process is about to spawn: what its MCP client presents
+    /// at every application's endpoint, until [`Self::revoke_daemon_token`].
+    pub fn issue_daemon_token(&self) -> String {
+        let token = uuid::Uuid::new_v4().simple().to_string();
+        lock(&self.daemon_tokens).insert(token.clone());
+        token
+    }
+
+    /// The daemon that held it has gone.
+    pub fn revoke_daemon_token(&self, token: &str) {
+        lock(&self.daemon_tokens).remove(token);
+    }
+
+    /// Whether `token` is a daemon's that is still there.
+    pub(crate) fn admits_daemon(&self, token: &str) -> bool {
+        !token.is_empty() && lock(&self.daemon_tokens).contains(token)
     }
 
     /// The host that runs what is listed here: what tool calls and hooks go to.
@@ -307,7 +327,8 @@ impl Runtime {
     }
 
     /// The MCP servers a spawned daemon is configured with: one per running application with
-    /// tools. Empty until the listener's address is known.
+    /// tools. Empty until the listener's address is known. Without a credential: each daemon is
+    /// written its own ([`Registry::issue_daemon_token`]) by whoever spawns it.
     pub fn mcp_servers(&self) -> Map<String, Value> {
         let Some(base) = read(&self.base).clone() else {
             return Map::new();
@@ -322,7 +343,6 @@ impl Runtime {
                     json!({
                         "type": "streamable_http",
                         "url": format!("{base}/apps/{}/mcp", app.id),
-                        "headers": {"Authorization": format!("Bearer {}", app.token)},
                     }),
                 )
             })
@@ -628,7 +648,6 @@ impl AppsRuntime for Runtime {
             surfaces: manifest.surfaces.clone(),
             trust: Trust::parse(&started.trust),
             backend_spaces: manifest.spaces.iter().map(|s| s.id.clone()).collect(),
-            token: uuid::Uuid::new_v4().simple().to_string(),
             inline: serde_json::to_value(&manifest.inline).unwrap_or(Value::Null),
         });
         tracing::debug!(app = %id, ui = loaded.ui.len(), "application served");

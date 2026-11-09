@@ -15,9 +15,9 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use harnix_contract::sync::{lock, read, write};
+use harnix_contract::sync::{lock, write};
 use harnix_contract::{codes, RpcError, Subject};
-use harnix_instance::link::{self, Carrier, DownLink, EngineLink, LinkStatus};
+use harnix_instance::link::{self, DownLink, EngineLink, LinkStatus};
 use harnix_instance::{Built, Facts, Factory, InstanceTemplate, Ledger, LedgerEntry, Owner};
 use serde_json::{json, Value};
 
@@ -208,36 +208,30 @@ impl Hub {
 
     async fn build_entry(&self, entry: &LedgerEntry) -> Built {
         let registry = self.registry.lock().await;
-        let down = |carrier: Carrier, reason: String| Built {
-            link: DownLink::new(carrier, reason) as Arc<dyn EngineLink>,
+        let down = |link: Arc<DownLink>| Built {
+            link: link as Arc<dyn EngineLink>,
             facts: Facts::default(),
         };
         let Some((template, declared_by)) = registry.templates.get(&entry.template) else {
-            return down(
-                Carrier::InProcess,
-                format!("its template `{}` no longer exists", entry.template),
-            );
+            return down(DownLink::without_template(format!(
+                "its template `{}` no longer exists",
+                entry.template
+            )));
         };
         for owner in [&entry.owner, declared_by] {
             if let Owner::Module(id) = owner {
                 if registry.disabled.contains(id) {
-                    return down(template.carrier.carrier(), format!("module `{id}` is disabled"));
+                    return down(DownLink::new(template.carrier.carrier(), format!("module `{id}` is disabled")));
                 }
             }
         }
         let root = match template.resolve(&entry.id, &entry.params, &registry.instances_dir) {
             Ok(root) => root,
-            Err(e) => return down(template.carrier.carrier(), e),
+            Err(e) => return down(DownLink::new(template.carrier.carrier(), e)),
         };
-        if template.inherit_providers {
-            self.inherit_into(&entry.id, &root);
-        }
-        if template.carrier.carrier() == Carrier::Spawn {
-            self.servers_into(&entry.id, &root);
-        }
         match registry.factory.build_template(&entry.id, template, root).await {
             Ok(built) => built,
-            Err(e) => down(template.carrier.carrier(), format!("{e:#}")),
+            Err(e) => down(DownLink::new(template.carrier.carrier(), format!("{e:#}"))),
         }
     }
 
@@ -409,12 +403,6 @@ impl Hub {
         let root = template
             .resolve(&name, &filled, &registry.instances_dir)
             .map_err(RpcError::invalid_params)?;
-        if template.inherit_providers {
-            self.inherit_into(&name, &root);
-        }
-        if template.carrier.carrier() == Carrier::Spawn {
-            self.servers_into(&name, &root);
-        }
         let built = registry
             .factory
             .build_template(&name, &template, root)
@@ -597,85 +585,38 @@ impl Hub {
         }
     }
 
-    /// The shared MCP servers into one spawned instance's global tier, before its daemon reads it.
-    fn servers_into(&self, instance: &str, root: &std::path::Path) {
-        let servers = read(&self.shared_servers).clone();
-        if let Err(e) = harnix_instance::servers::merge(root, &servers) {
-            tracing::warn!(instance, error = %e, "the shared MCP servers were not written");
-        }
-    }
-
-    /// Set the MCP servers every daemon this process spawns is configured with (a runtime
-    /// application's endpoint, `servers.rs`), and bring the ones running in line: each spawned
-    /// instance whose settings changed reloads them once it is ready. Answers without waiting
-    /// for the reloads.
-    pub async fn set_shared_servers(self: &Arc<Self>, servers: serde_json::Map<String, Value>) {
-        *write(&self.shared_servers) = servers.clone();
-        for slot in self.slots() {
-            if slot.link.carrier() != Carrier::Spawn {
-                continue;
-            }
-            match harnix_instance::servers::merge(&slot.facts.data_root, &servers) {
-                Ok(false) => {}
-                Ok(true) => {
-                    let hub = self.clone();
-                    tokio::spawn(async move {
-                        // A daemon still starting cannot take the call; it reads the file when it
-                        // is up only if it was not already past reading it, so wait and ask.
-                        let ready = hub
-                            .wait_ready(&slot.id, std::time::Duration::from_secs(60))
-                            .await;
-                        if ready.is_err() {
-                            tracing::warn!(instance = %slot.id, "shared MCP servers written; the instance was not ready to reload them");
-                            return;
-                        }
-                        if let Err(e) = slot.link.call("config.reload", json!({})).await {
-                            tracing::warn!(instance = %slot.id, error = %e.message, "shared MCP servers written, not reloaded");
-                        }
-                    });
-                }
-                Err(e) => tracing::warn!(instance = %slot.id, error = %e, "the shared MCP servers were not written"),
-            }
-        }
-    }
-
-    /// `system`'s providers into one instance's global tier, before its engine reads it.
-    fn inherit_into(&self, instance: &str, root: &std::path::Path) {
-        let Some(system) = self.slot(SYSTEM) else { return };
-        if let Err(e) = harnix_instance::inherit::merge(&system.facts.data_root, root) {
-            tracing::warn!(instance, error = %e, "the inherited providers were not written");
-        }
-    }
-
     /// `harnix.instances.inheritProviders`: `system`'s providers changed. Merge them into every
     /// instance whose template inherits them, and have each one that changed reload. The kernel's,
     /// and granted to the settings module, which calls it after each provider change (ipdrun-11).
     pub(crate) async fn inherit_providers(self: &Arc<Self>) -> Result<Value, RpcError> {
-        let Some(system) = self.slot(SYSTEM) else {
-            return Ok(json!({"reloaded": []}));
+        // Written under the registry's lock, as a build writes them: a build of an inheriting
+        // template meanwhile is before this or after it.
+        let changed: Vec<Arc<Slot>> = {
+            let registry = self.registry.lock().await;
+            let inheriting: HashSet<&str> = registry
+                .templates
+                .iter()
+                .filter(|(_, (t, _))| t.inherit_providers)
+                .map(|(id, _)| id.as_str())
+                .collect();
+            self.slots()
+                .into_iter()
+                .filter(|slot| slot.template.as_deref().is_some_and(|t| inheriting.contains(t)))
+                .filter(|slot| match registry.factory.inherit_into(&slot.facts) {
+                    Ok(changed) => changed,
+                    Err(e) => {
+                        tracing::warn!(instance = %slot.id, error = %e, "the inherited providers were not written");
+                        false
+                    }
+                })
+                .collect()
         };
-        let inheriting: HashSet<String> = self
-            .registry
-            .lock()
-            .await
-            .templates
-            .iter()
-            .filter(|(_, (t, _))| t.inherit_providers)
-            .map(|(id, _)| id.clone())
-            .collect();
         let mut reloaded = Vec::new();
-        for slot in self.slots() {
-            if !slot.template.as_ref().is_some_and(|t| inheriting.contains(t)) {
-                continue;
-            }
-            match harnix_instance::inherit::merge(&system.facts.data_root, &slot.facts.data_root) {
-                Ok(false) => {}
-                Ok(true) => match slot.link.call("config.reload", json!({})).await {
-                    Ok(_) => reloaded.push(slot.id.clone()),
-                    // Written already: it reads them when it is back.
-                    Err(e) => tracing::warn!(instance = %slot.id, error = %e.message, "inherited providers written, not reloaded"),
-                },
-                Err(e) => tracing::warn!(instance = %slot.id, error = %e, "the inherited providers were not written"),
+        for slot in changed {
+            match slot.link.call("config.reload", json!({})).await {
+                Ok(_) => reloaded.push(slot.id.clone()),
+                // Written already: it reads them when it is back.
+                Err(e) => tracing::warn!(instance = %slot.id, error = %e.message, "inherited providers written, not reloaded"),
             }
         }
         Ok(json!({"reloaded": reloaded}))
@@ -697,7 +638,7 @@ impl Hub {
             "status": slot.status(),
             "version": identity.get("version"),
             "protocol_version": identity.get("protocol_version"),
-            "data_root": slot.facts.data_root.display().to_string(),
+            "data_root": slot.facts.root_label(),
             "scenes": slot.facts.active_scenes,
             "pid": slot.link.pid(),
             "created_ms": slot.created_ms,

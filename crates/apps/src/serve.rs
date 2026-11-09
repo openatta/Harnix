@@ -12,9 +12,10 @@
 //!   they run in this process's VM. The smallest MCP server Agix's client (streamable HTTP) needs:
 //!   `initialize`, `ping`, `tools/list`, `tools/call`, answered as JSON; notifications accepted;
 //!   no server-sent stream (`GET` is 405). Admission is a peer on this machine — a daemon this
-//!   process spawned is one, and the listener may face a network — and then the application's own
-//!   token (`Authorization: Bearer …`), minted when it starts, gone when this process exits, and
-//!   written only into the settings of daemons this process spawned.
+//!   process spawned is one, and the listener may face a network — and then the credential of a
+//!   daemon this process spawned and that is still there (`Authorization: Bearer …`): one per
+//!   daemon, issued as it is spawned, written only into its settings, and revoked when it goes
+//!   (`Registry::issue_daemon_token`).
 //!
 //! The daemon's engine asks the person before each call, as for any MCP tool. What a call here
 //! does not get, against one from an in-process session: the calling session's project (no
@@ -141,16 +142,15 @@ async fn no_stream() -> Response {
         .into_response()
 }
 
-fn authorized(app: &Loaded, headers: &HeaderMap) -> bool {
+fn authorized(registry: &Registry, headers: &HeaderMap) -> bool {
     let given = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or_default();
-    // Not a timing oracle worth defending against on loopback, but it costs nothing to compare
-    // every byte.
-    let (a, b) = (given.as_bytes(), app.token.as_bytes());
-    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    // A set lookup: not a timing oracle worth defending against from this machine, the only
+    // place a peer is admitted from.
+    registry.admits_daemon(given)
 }
 
 fn answer(id: Value, result: Result<Value, (i64, String)>) -> Response {
@@ -171,10 +171,10 @@ async fn mcp(registry: Arc<Registry>, id: String, headers: HeaderMap, body: Byte
     let Some(app) = registry.get(&id) else {
         return (StatusCode::NOT_FOUND, "no such application is running").into_response();
     };
-    if !authorized(&app, &headers) {
+    if !authorized(&registry, &headers) {
         return (
             StatusCode::UNAUTHORIZED,
-            "this endpoint needs the application's token",
+            "this endpoint needs the credential of a daemon this process spawned",
         )
             .into_response();
     }

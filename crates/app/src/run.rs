@@ -192,17 +192,22 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         let credentials = credentials.clone();
         Arc::new(move |name: &str| credentials.get(name).ok().map(|s| s.expose().to_string()))
     };
-    #[allow(unused_mut)]
     let mut factory = Factory::new(resolve)?;
+    // A template that inherits providers inherits the system instance's.
+    factory.providers_from = Some(roots.engine.clone());
     // Every engine built in this process gives its sessions the running applications' tools; a
-    // spawned daemon reaches them over MCP instead (`set_shared_servers`, below).
+    // spawned daemon reaches them over MCP instead (`factory.servers`, set below), with a
+    // credential of its own that the runtime issues and revokes.
     #[cfg(feature = "apps")]
     let apps_plugin = app_runtime.as_ref().map(|r| r.plugin());
     #[cfg(feature = "apps")]
-    if let Some(plugin) = &apps_plugin {
+    if let (Some(runtime), Some(plugin)) = (&app_runtime, &apps_plugin) {
         factory.plugins.push(plugin.clone());
         factory.admitted_tools.push(harnix_apps::TOOL_PATTERN.to_string());
+        factory.servers.issue_with(Arc::new(DaemonTokens(runtime.registry())));
     }
+    #[cfg(feature = "apps")]
+    let shared_servers = factory.servers.clone();
     let instances_dir = roots.state.join("instances");
     let mut registry = Registry {
         templates: BTreeMap::new(),
@@ -663,9 +668,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
                 if runtime_modules {
                     ui_modules.set_apps(&hub, runtime.ui_contributions());
                 }
-                let hub = hub.clone();
-                let servers = runtime.mcp_servers();
-                tokio::spawn(async move { hub.set_shared_servers(servers).await });
+                shared_servers.set(runtime.mcp_servers());
             }
         };
         follow();
@@ -833,6 +836,21 @@ impl Signals {
             _ = tokio::signal::ctrl_c() => {}
             _ = self.terminate() => {}
         }
+    }
+}
+
+/// What issues and revokes the credential each daemon this process spawns presents at a runtime
+/// application's MCP endpoint: the application runtime, which serves them.
+#[cfg(feature = "apps")]
+struct DaemonTokens(Arc<harnix_apps::Registry>);
+
+#[cfg(feature = "apps")]
+impl harnix_instance::ServerTokens for DaemonTokens {
+    fn issue(&self) -> String {
+        self.0.issue_daemon_token()
+    }
+    fn revoke(&self, token: &str) {
+        self.0.revoke_daemon_token(token)
     }
 }
 

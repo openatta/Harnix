@@ -150,6 +150,97 @@ fn the_hub_does_not_know_about_connections() {
     );
 }
 
+/// The hub reaches an instance through an `EngineLink` and nothing else: it names no carrier,
+/// and it never opens an instance's data root (concept_and_architecture.md §3.1.1). What a carrier
+/// does differently — a spawned daemon's MCP servers, a template's inherited providers written into
+/// its settings — is the instance layer's. The dependency rules cannot say this, since the hub
+/// depends on that layer and `Carrier` is one of its types; the hub's code can.
+#[test]
+fn the_hub_names_no_carrier_and_opens_no_data_root() {
+    let forbidden = ["Carrier::", "DaemonLink", "InProcessLink", "data_root"];
+    let dir = workspace_root().join("crates/hub/src");
+    let mut offenders = Vec::new();
+    for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|e| e != "rs") {
+            continue;
+        }
+        let code = code_of(&std::fs::read_to_string(&path).unwrap_or_default());
+        for needle in forbidden {
+            if code.contains(needle) {
+                offenders.push(format!("{} names `{needle}`", path.display()));
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "the hub reached past `EngineLink` into a carrier or a data root:\n{}",
+        offenders.join("\n")
+    );
+}
+
+/// Rust source with its comments and the contents of its string literals blanked: what the code
+/// names, not what it says. A view the hub sends may well have a `"data_root"` key; the hub
+/// reading one may not.
+fn code_of(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '/' if chars.peek() == Some(&'/') => {
+                for c in chars.by_ref() {
+                    if c == '\n' {
+                        out.push('\n');
+                        break;
+                    }
+                }
+            }
+            '"' => {
+                out.push('"');
+                while let Some(c) = chars.next() {
+                    match c {
+                        '\\' => {
+                            chars.next();
+                        }
+                        '"' => break,
+                        _ => {}
+                    }
+                }
+                out.push('"');
+            }
+            // A char literal: `'"'` must not open a string. A lifetime (`'a`) has no closing quote
+            // two characters on, and is copied as it is.
+            '\'' => {
+                let rest: String = chars.clone().take(3).collect();
+                let mut it = rest.chars();
+                match (it.next(), it.next(), it.next()) {
+                    (Some('\\'), Some(_), Some('\'')) => {
+                        chars.nth(2);
+                        out.push_str("' '");
+                    }
+                    (Some(_), Some('\''), _) => {
+                        chars.nth(1);
+                        out.push_str("' '");
+                    }
+                    _ => out.push('\''),
+                }
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+#[test]
+fn code_of_sees_code_and_not_what_it_says() {
+    let code = code_of(
+        "let a = \"data_root\"; // DaemonLink\nlet b = facts.data_root; let q = '\"'; let e = \"\\\"Carrier::\";\nfn f<'a>(x: &'a str) {}",
+    );
+    assert!(code.contains("facts.data_root"), "{code}");
+    assert!(!code.contains("DaemonLink") && !code.contains("Carrier::") && !code.contains("\"data_root\""), "{code}");
+    assert!(code.contains("fn f<'a>(x: &'a str)"), "{code}");
+}
+
 /// The instance layer builds engines and links to them. It does not know
 /// the client-facing protocol exists.
 #[test]

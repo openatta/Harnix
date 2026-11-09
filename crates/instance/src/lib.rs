@@ -37,13 +37,13 @@ pub mod data_lock;
 mod daemon_link;
 pub mod engine;
 mod factory;
-pub mod inherit;
+mod inherit;
 mod inproc;
 pub mod link;
 pub mod profile;
 mod reap;
 mod serve;
-pub mod servers;
+mod servers;
 pub mod templates;
 
 pub use contrib::EngineContrib;
@@ -57,6 +57,7 @@ pub use factory::{engine_config, Built, Facts, Factory};
 pub use inproc::InProcessLink;
 pub use link::{Carrier, DownLink, EngineLink, LinkStatus};
 pub use profile::{EngineProfile, InstanceDecl, Profile, TemplateDecl, TransportProfile, UiProfile};
+pub use servers::{ServerTokens, SharedServers};
 pub use serve::{refuse_daemon, refusal_path, serve_daemon, serve_daemon_with, DaemonArgs, REFUSED_EXIT};
 pub use templates::{
     AttachTo, InstanceTemplate, InstanceTemplates, Ledger, LedgerEntry, Owner, TemplateCarrier,
