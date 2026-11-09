@@ -329,7 +329,7 @@ pub async fn serve_with(
                 let config = config.clone();
                 servers.push(tokio::spawn(async move {
                     axum_server::from_tcp_rustls(listener, config)
-                        .serve(router.into_make_service())
+                        .serve(router.into_make_service_with_connect_info::<SocketAddr>())
                         .await
                         .map_err(|e| anyhow::anyhow!("{e}"))
                 }));
@@ -338,7 +338,9 @@ pub async fn serve_with(
                 tracing::info!(%addr, "listening");
                 let router = router.clone();
                 servers.push(tokio::spawn(async move {
-                    axum::serve(listener, router)
+                    // Who each connection is from, for what is served to this machine only (a
+                    // runtime application's MCP endpoint).
+                    axum::serve(listener, router.into_make_service_with_connect_info::<SocketAddr>())
                         .into_future()
                         .await
                         .map_err(|e| anyhow::anyhow!("{e}"))

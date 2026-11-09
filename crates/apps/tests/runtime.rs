@@ -394,7 +394,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
     assert_eq!(centre["surface"]["sessions"], json!(ID));
     assert_eq!(
         centre["interface"],
-        json!({"hub": ["harnix.sessions"], "links": true, "trust": "unsigned", "title": "Showcase", "spaces": [ID, "example.showcase.chats"]})
+        json!({"hub": ["harnix.sessions", "session.get"], "links": true, "trust": "unsigned", "title": "Showcase", "spaces": [ID, "example.showcase.chats"]})
     );
     assert_eq!(rig.runtime.status(ID).await["frames"], json!(true));
     assert!(
@@ -415,7 +415,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
     std::fs::write(project.join("NOTES.md"), "the project's notes").unwrap();
     let tools = plugin.tools(&project);
     let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
-    for tool in ["echo", "count", "config", "read_project", "slow", "vetoed", "board"] {
+    for tool in ["echo", "count", "config", "read_project", "slow", "vetoed", "crash", "board"] {
         assert!(
             names.contains(&format!("app__example_showcase__{tool}").as_str()),
             "{names:?}"
@@ -541,7 +541,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
         .load(&rig.cx, &record, &rig.apps().join(ID))
         .await
         .unwrap();
-    assert_eq!(plugin.tools(&project).len(), 7);
+    assert_eq!(plugin.tools(&project).len(), 8);
     assert!(rig.skill("system").is_dir());
     // Out: what was placed elsewhere is taken back.
     rig.runtime.unload(&rig.cx, &record).await;

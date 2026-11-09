@@ -6,6 +6,7 @@
 mod common;
 
 use common::*;
+use harnix_app_host::HostOptions;
 use harnix_app_port::*;
 use serde_json::json;
 
@@ -21,7 +22,7 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
     assert!(at("install_agent example-showcase system") < at("switch_agent example-showcase on"));
     assert!(at("switch_agent") < at("register example.showcase"));
     assert!(at("register") < at("subscribe harnix.sessions.status"), "init ran after it was registered");
-    assert!(at("subscribe") < at("expose_tools 7"));
+    assert!(at("subscribe") < at("expose_tools 8"));
 
     let registration = rig.platform.registered.lock().unwrap()[0].clone();
     assert!(registration.methods.iter().any(|m| m.name == "state" && m.subjects == ["device", "module"]));
@@ -105,7 +106,10 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
         call_id: format!("h-{tool}"),
     };
     assert!(matches!(rig.control.hook(hook("app__example_showcase__vetoed")).await.unwrap(), HookReply::Block(_)));
+    // Another's tool is not its to see (`[events] tools = "own"`): no instance is even started.
+    let calls = rig.status().await["health"]["calls"].clone();
     assert_eq!(rig.control.hook(hook("Bash")).await.unwrap(), HookReply::Proceed);
+    assert_eq!(rig.status().await["health"]["calls"], calls, "the hook was not run for `Bash`");
 
     // Stopped: its tools withdrawn, then its names, its subscription given back, its agent side off;
     // a method answers that it is not running.
@@ -166,4 +170,57 @@ async fn what_does_not_start_is_undone_and_said() {
         .unwrap_err();
     assert!(err.message.contains("no such instance"), "{}", err.message);
     assert!(rig.platform.said("install_agent").is_empty());
+}
+
+/// The showcase with its hook told to refuse `Bash`, and `[events]` as `events` says.
+fn refusing_bash(events: &'static str) -> impl Fn(String) -> String {
+    move |m: String| m.replace("[events]\ntools = \"own\"", &format!("[events]\ntools = \"{events}\""))
+}
+
+fn blocked_bash(o: &mut HostOptions) {
+    o.config.insert(
+        ID.into(),
+        toml::Value::Table(toml::toml! { blocked_tool = "Bash" }),
+    );
+}
+
+async fn hook_for(rig: &Rig, tool: &str) -> HookReply {
+    rig.control
+        .hook(HookCall {
+            app: ID.into(),
+            event: "tool.before".into(),
+            payload: json!({"tool": tool, "input": {"command": "rm -rf /"}, "session_id": "s1", "depth": 0}),
+            call_id: format!("h-{tool}"),
+        })
+        .await
+        .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn its_hook_sees_every_tool_call_only_when_its_manifest_asks() {
+    let own = Rig::new(blocked_bash);
+    own.install(refusing_bash("own")).await;
+    assert_eq!(hook_for(&own, "Bash").await, HookReply::Proceed, "not its to see, so not its to refuse");
+
+    let all = Rig::new(blocked_bash);
+    all.install(refusing_bash("all")).await;
+    assert!(matches!(hook_for(&all, "Bash").await, HookReply::Block(_)));
+    assert_eq!(hook_for(&all, "Read").await, HookReply::Proceed);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn its_secret_is_the_profiles_never_the_processs() {
+    // This process has one by that name; the application is not given it.
+    std::env::set_var("SHOWCASE_TOKEN", "the-process-own");
+    let without = Rig::new(|_| {});
+    without.install(|m| m).await;
+    let state = without.platform.device_call("state", json!({})).await.unwrap();
+    assert_eq!((state["secret_set"].clone(), state["secret_length"].clone()), (json!(false), json!(0)));
+
+    let with = Rig::new(|o| {
+        o.secrets.insert(ID.into(), [("SHOWCASE_TOKEN".to_string(), "from-the-profile".to_string())].into());
+    });
+    with.install(|m| m).await;
+    let state = with.platform.device_call("state", json!({})).await.unwrap();
+    assert_eq!(state["secret_length"], json!("from-the-profile".len()));
 }

@@ -130,12 +130,21 @@ impl AppHandler for Forward {
     }
 }
 
+/// Values of an application's subscriptions waiting for the host. Past this the application is not
+/// keeping up with what it subscribed to, and dropping beats growing without bound; the host's own
+/// queue counts what it drops after this one.
+const TOPIC_QUEUE: usize = 256;
+
 /// The kernel's frames for an application's subscriptions, to the host in the order they came.
-struct TopicValues(mpsc::UnboundedSender<(String, Value)>);
+struct TopicValues {
+    app: String,
+    tx: mpsc::Sender<(String, Value)>,
+}
 
 impl TopicValues {
     fn new(app: &str, control: Weak<dyn Control>) -> Self {
-        let (tx, mut rx) = mpsc::unbounded_channel::<(String, Value)>();
+        let (tx, mut rx) = mpsc::channel::<(String, Value)>(TOPIC_QUEUE);
+        let name = app.to_string();
         let app = app.to_string();
         tokio::spawn(async move {
             while let Some((topic, value)) = rx.recv().await {
@@ -148,13 +157,17 @@ impl TopicValues {
                 let _ = control.deliver(value).await;
             }
         });
-        Self(tx)
+        Self { app: name, tx }
     }
 }
 
 impl AppTopicSink for TopicValues {
     fn deliver(&self, topic: &str, _params: &Value, value: &Value) {
-        let _ = self.0.send((topic.to_string(), value.clone()));
+        if let Err(mpsc::error::TrySendError::Full(_)) =
+            self.tx.try_send((topic.to_string(), value.clone()))
+        {
+            tracing::warn!(app = %self.app, %topic, "an application's topic queue is full; a value dropped");
+        }
     }
 
     fn ended(&self, topic: &str, _params: &Value, reason: &str) {

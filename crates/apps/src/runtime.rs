@@ -184,6 +184,8 @@ pub struct Options {
     pub dev: bool,
     /// `[apps.config]`, by application id.
     pub config: BTreeMap<String, toml::Value>,
+    /// `[apps.secrets]`, by application id: what `host.secret` reads.
+    pub secrets: BTreeMap<String, BTreeMap<String, String>>,
     /// What signatures are verified with: the built-in store key (`store::store_keys`) and the
     /// profile's `[apps.trusted_publishers]`.
     pub keys: Keys,
@@ -220,6 +222,7 @@ impl Runtime {
             HostOptions {
                 admission: admission.clone(),
                 config: options.config,
+                secrets: options.secrets,
                 idle: options.idle,
             },
             platform.clone(),

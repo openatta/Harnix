@@ -11,18 +11,21 @@
 //!   §5.1): a daemon is another process and has no VM, so its sessions call the tools here, and
 //!   they run in this process's VM. The smallest MCP server Agix's client (streamable HTTP) needs:
 //!   `initialize`, `ping`, `tools/list`, `tools/call`, answered as JSON; notifications accepted;
-//!   no server-sent stream (`GET` is 405). Admission is the application's own token
-//!   (`Authorization: Bearer …`), minted when it starts and written only into the settings of
-//!   daemons this process spawned.
+//!   no server-sent stream (`GET` is 405). Admission is a peer on this machine — a daemon this
+//!   process spawned is one, and the listener may face a network — and then the application's own
+//!   token (`Authorization: Bearer …`), minted when it starts, gone when this process exits, and
+//!   written only into the settings of daemons this process spawned.
 //!
 //! The daemon's engine asks the person before each call, as for any MCP tool. What a call here
 //! does not get, against one from an in-process session: the calling session's project (no
 //! `/project`), progress, and the application's `events` (they are the in-process sessions').
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::body::Bytes;
-use axum::extract::State;
+use axum::extract::{ConnectInfo, State};
+use axum::Extension;
 use axum::http::{header, HeaderMap, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::Router;
@@ -35,9 +38,10 @@ use crate::runtime::{Loaded, Registry};
 /// a module the page imports runs under the page's own). What a frame's page may load is its
 /// package's files and inline styles; it may not connect anywhere (`connect-src 'none'`: its data
 /// comes over the shell's bridge), submit a form anywhere, frame anything, or be framed by
-/// anything but this page. Its sandbox (`allow-scripts allow-forms`, no `allow-same-origin`)
-/// is the shell's; together they make it an opaque origin that cannot read the page's token,
-/// storage or cookies.
+/// anything but this page. Its sandbox (`allow-scripts`, no `allow-same-origin`) is the shell's;
+/// together they make it an opaque origin that cannot read the page's token, storage or cookies.
+/// Neither stops it navigating itself away, with what it was shown in the address: the shell
+/// empties a frame that does, and the installer is told (`disclosure.rs`, `frames`).
 pub const FRAME_CSP: &str =
     "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
      img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; frame-src 'none'; \
@@ -54,6 +58,7 @@ pub fn router(registry: Arc<Registry>) -> Router {
 
 async fn dispatch(
     State(registry): State<Arc<Registry>>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     method: Method,
     uri: Uri,
     headers: HeaderMap,
@@ -65,6 +70,14 @@ async fn dispatch(
     };
     let (id, rest) = (id.to_string(), rest.to_string());
     match (rest.as_str(), &method) {
+        // Its tools, for a daemon this process spawned: on this machine, always. Not a listener's
+        // peer from elsewhere, token or no token — a token is something that can leak, and being
+        // on the other side of a network is not.
+        ("mcp", _) if !on_this_machine(peer.as_ref().map(|Extension(ConnectInfo(addr))| *addr)) => (
+            StatusCode::FORBIDDEN,
+            "an application's tools are served to this machine only",
+        )
+            .into_response(),
         ("mcp", &Method::POST) => mcp(registry, id, headers, body).await,
         ("mcp", _) => no_stream().await,
         (file, &Method::GET) if file.starts_with("ui/") => {
@@ -96,6 +109,12 @@ async fn ui(registry: Arc<Registry>, id: String, file: String) -> Response {
             .into_response(),
         Err(_) => (StatusCode::NOT_FOUND, "not found").into_response(),
     }
+}
+
+/// Whether a request came from this machine. Unknown is not: a listener that does not say who
+/// its peer is serves nobody the tools.
+fn on_this_machine(peer: Option<SocketAddr>) -> bool {
+    peer.is_some_and(|addr| addr.ip().to_canonical().is_loopback())
 }
 
 fn content_type(file: &str) -> &'static str {
@@ -269,5 +288,21 @@ async fn call(registry: &Registry, app: &Loaded, params: &Value) -> Result<Value
             "content": [{"type": "text", "text": format!("{}: {}", app.id, e.message)}],
             "isError": true,
         })),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_this_machine_reaches_the_tools() {
+        let at = |s: &str| Some(s.parse::<SocketAddr>().unwrap());
+        assert!(on_this_machine(at("127.0.0.1:4000")));
+        assert!(on_this_machine(at("[::1]:4000")));
+        assert!(on_this_machine(at("[::ffff:127.0.0.1]:4000")));
+        assert!(!on_this_machine(at("192.168.1.20:4000")));
+        assert!(!on_this_machine(at("[2001:db8::1]:4000")));
+        assert!(!on_this_machine(None), "a peer nobody named is not this machine");
     }
 }
