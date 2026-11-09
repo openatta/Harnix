@@ -55,7 +55,6 @@ pub async fn serve_daemon_with(args: DaemonArgs, contrib: crate::EngineContrib) 
     .await?;
     let server = engine.server.clone();
     let listener = DaemonServer::bind_unix(&args.socket)?;
-    #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&args.socket, std::fs::Permissions::from_mode(0o600))?;

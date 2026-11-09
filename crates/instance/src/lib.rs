@@ -22,6 +22,12 @@
 //! `harnix_builtin::plugins`). Anything here that read a manifest would be a
 //! second truth about what an extension may do.
 
+// A daemon's unix socket, the session it leads (`setsid`), the `flock` on its data root: the
+// instance layer is built on unix, and says so once, here, rather than in fallbacks for a platform
+// nothing builds it for.
+#[cfg(not(unix))]
+compile_error!("harnix-instance builds on unix only (Linux and macOS are the ones exercised)");
+
 mod admit;
 mod attended;
 pub mod contrib;

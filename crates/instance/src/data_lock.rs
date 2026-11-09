@@ -90,18 +90,12 @@ fn read_pid(path: &Path) -> Option<u32> {
     text.trim().parse().ok()
 }
 
-#[cfg(unix)]
 fn try_lock(file: &File) -> bool {
     use std::os::unix::io::AsRawFd as _;
     // SAFETY: a valid descriptor for as long as `file` lives; `flock` touches nothing else.
     unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) == 0 }
 }
 
-/// No `flock` here: no lock, as before.
-#[cfg(not(unix))]
-fn try_lock(_file: &File) -> bool {
-    true
-}
 
 #[cfg(test)]
 mod tests {
@@ -140,7 +134,6 @@ mod tests {
 
     /// The link side: a daemon that gave up on the lock is not started again and again; the
     /// instance is down, with who holds its data root.
-    #[cfg(unix)]
     #[tokio::test]
     async fn a_daemon_that_cannot_have_the_lock_leaves_its_instance_down_saying_who() {
         use crate::link::{EngineLink as _, LinkStatus};

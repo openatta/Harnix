@@ -102,19 +102,33 @@ fn session_of(pid: i32) -> Option<i32> {
 #[cfg(target_os = "macos")]
 fn all_pids() -> Vec<i32> {
     // SAFETY: a null buffer asks for the count; the second call fills a buffer of that size (with
-    // room for processes started in between), and the answer says how many it wrote.
+    // room for processes started in between), and the answer says how many pids it wrote. A count,
+    // not bytes: libproc's `proc_listallpids` divides `proc_listpids`'s byte count by the size of
+    // a pid (`the_listing_counts_pids_not_bytes` pins it).
     unsafe {
         let n = libc::proc_listallpids(std::ptr::null_mut(), 0);
         if n <= 0 {
             return Vec::new();
         }
-        let mut pids = vec![0 as libc::pid_t; n as usize + 64];
-        let bytes = (pids.len() * std::mem::size_of::<libc::pid_t>()) as libc::c_int;
-        let got = libc::proc_listallpids(pids.as_mut_ptr().cast(), bytes);
-        if got <= 0 {
-            return Vec::new();
+        let mut room = n as usize + 64;
+        // A buffer it filled to the last slot may have been too small — more processes started
+        // between the two calls than the room left for them, which a busy machine does — and
+        // the pids that did not fit are missing, perhaps the very one being looked for. So a
+        // full answer is asked for again with twice the room, a few times.
+        let mut pids = Vec::new();
+        for _ in 0..4 {
+            pids = vec![0 as libc::pid_t; room];
+            let bytes = (pids.len() * std::mem::size_of::<libc::pid_t>()) as libc::c_int;
+            let got = libc::proc_listallpids(pids.as_mut_ptr().cast(), bytes);
+            if got <= 0 {
+                return Vec::new();
+            }
+            pids.truncate((got as usize).min(pids.len()));
+            if pids.len() < room {
+                break;
+            }
+            room *= 2;
         }
-        pids.truncate((got as usize).min(pids.len()));
         pids
     }
 }
@@ -126,8 +140,16 @@ fn session_of(pid: i32) -> Option<i32> {
     (sid > 0).then_some(sid)
 }
 
+/// Another unix: no way to list processes here, so nothing a daemon left is found. Said once,
+/// rather than reaping being a silent no-op.
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn all_pids() -> Vec<i32> {
+    static SAID: std::sync::Once = std::sync::Once::new();
+    SAID.call_once(|| {
+        tracing::warn!(
+            "this platform cannot list processes: what a stopped daemon leaves running is not ended (reap_on_stop)"
+        )
+    });
     Vec::new()
 }
 
@@ -239,5 +261,25 @@ mod tests {
     async fn this_process_never_reaps_its_own_session() {
         let own = own_session().unwrap();
         assert_eq!(reap_session(own, Duration::from_millis(10)).await, 0);
+    }
+
+    /// Every live process is listed once, this one and a child of it among them, and nothing
+    /// that is not a pid is: a listing read as bytes rather than pids would be cut to a quarter,
+    /// or padded with zeros.
+    #[test]
+    fn the_listing_counts_pids_not_bytes() {
+        if !cfg!(any(target_os = "linux", target_os = "macos")) {
+            return;
+        }
+        let mut child = std::process::Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let pids = all_pids();
+        let _ = child.kill();
+        let _ = child.wait();
+        let me = std::process::id() as i32;
+        assert!(pids.contains(&me), "this process is not listed");
+        assert!(pids.contains(&(child.id() as i32)), "its child is not listed");
+        assert!(pids.iter().filter(|&&p| p == 0).count() <= 1, "zeros past the end: {} pids", pids.len());
+        let unique: std::collections::BTreeSet<_> = pids.iter().collect();
+        assert_eq!(unique.len(), pids.len(), "a pid listed twice");
     }
 }
