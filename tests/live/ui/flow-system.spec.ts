@@ -87,6 +87,14 @@ test("into a flow: the left column is its context, its conversation in the middl
   // Beside it: the flow's details.
   await expect(page.locator("#secondary")).toHaveAttribute("data-key", "flow:example-review");
   await expect(page.locator('#secondary [data-testid="flow-diagram"]')).toBeVisible();
+  // The header, narrowed by the details, names the space alone — not half of what it is for — and
+  // the flow's buttons keep their words on one line.
+  expect((await page.locator("#head").boundingBox())!.width).toBeLessThan(720);
+  await expect(page.getByTestId("space-pill")).toBeVisible();
+  await expect(page.locator('[data-testid="space-pill"] .sub')).toBeHidden();
+  for (const button of ["flow-dry-start", "flow-start-open"]) {
+    expect((await page.locator(`#secondary [data-testid="${button}"]`).boundingBox())!.height, `${button} on one line`).toBeLessThan(34);
+  }
 
   // Back: the system tree, the console on the Flows tab, nothing beside it.
   await page.getByTestId("flow-back").click();

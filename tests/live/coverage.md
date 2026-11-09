@@ -16,7 +16,7 @@
 | 会话 space | `session-space` | 17 | 17 |
 | 项目 space | `projects` | — 项目 space 是会话 space 的另一种列法：会话仍属 sessions，API 面由 spaces 与 workspaces 覆盖 | 5 |
 | 外壳框架（固定部分、可去掉的内建 space、拖宽、头像） | `shell` | 2 | 32 |
-| 系统 space | `system` | 16 | 23 |
+| 系统 space | `system` | 16 | 27 |
 | 设置 | `settings` | 12 | 7 |
 | 运行期包与界面模块 v2 | `packages` | 13 | 2 |
 | 迁移 | `migrations` | 2 | — 迁移没有自己的界面；结果在诊断页（设置 · 诊断） |
@@ -24,13 +24,13 @@
 | 扩展条目 | `entries` | 5 | 3 |
 | 品牌与主题 | `brand` | 2 | 1 |
 | 流程（harnix-flow，xops-01、xops-02） | `flow` | 30 | 28 |
-| 运行期应用（登记与撤下、安装与卸载、启停、工具、agent 包、界面模块、隔离 iframe 里的界面与外壳的桥、MCP 端点、WASM 后端、系统 space 应用页签） | `apps` | 43 | 17 |
+| 运行期应用（登记与撤下、安装与卸载、启停、工具、agent 包、界面模块、隔离 iframe 里的界面与外壳的桥、MCP 端点、WASM 后端、系统 space 应用页签） | `apps` | 43 | 18 |
 | 应用商店（签名与副署、目录、按名字安装与升级、披露与同意、设置 · 应用） | `apps-store` | 8 | 4 |
 | 应用的声明式行内点与管理界面（工具行模板、流块卡片、命令候选、侧栏分组、披露弹窗、清空数据、左栏标记） | `apps-inline` | 4 | 6 |
 | 应用后端的闲置休眠（on-demand、冷启动、并发唤醒只起一个实例、订阅与定时器保持常驻、系统 space 应用页签） | `apps-idle` | 6 | 1 |
 | 应用构建 | `build` | — 在脚本层检查（check-pins、check-lock、sync-app-deps），不经协议 | — 构建没有界面 |
 | 桌面壳 | `desktop` | — 桌面壳不加协议面：webview 加载的就是服务端的页面 | — 桌面壳是模板（templates/desktop）：它不调 IPC 由 check-no-ipc.mjs 在 offline 层查，本机模式由它的 --smoke 查 |
-| **合计** | | **360** | **190** |
+| **合计** | | **360** | **195** |
 
 ## 已知缺口（`@gap`）
 

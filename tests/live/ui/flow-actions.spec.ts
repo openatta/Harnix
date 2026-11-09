@@ -11,7 +11,7 @@
  */
 
 import type { Page } from "@playwright/test";
-import { type Backend, expect, launchFor, startHarnix, test, topology } from "@harnix/testkit";
+import { type Backend, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
 import { open, openFlow, openRun, toFlows, watchConsole } from "./page";
 
@@ -79,12 +79,8 @@ async function handIn(page: Page, text: string): Promise<void> {
 }
 
 test("held, released, handed in, rejected, sent back, handed in again and confirmed: the run finishes", TAGS, async ({ page }) => {
-  // Found when the split-streams pass started offering split streams only. The hand-in form is drawn
-  // while its task is ready, or claimed and held by this panel (flow/src/StationPanel.tsx); over split
-  // streams the push that marks the task claimed can come before the claim's answer, so the form is
-  // dropped for that moment and drawn again empty, and the refusal it was about to show is lost. Over
-  // one connection the answer usually comes first, so there it fails only now and then.
-  test.fixme(topology() === "split_streams", "the hand-in form loses its refusal when the claim's push beats its answer");
+  // Over split streams the push that marks the task claimed comes before the claim's answer: the
+  // panel keeps the hand-in form through that (flow/src/StationPanel.tsx), so its refusal is shown.
   const errors = watchConsole(page);
   await startRun(page);
 
@@ -347,8 +343,7 @@ async function startRetry(page: Page): Promise<string> {
 }
 
 test("a hand-in held while it is refused shows its lease; given up, the task fails and is tried again", TAGS, async ({ page }) => {
-  // The same race as the first test's: deterministic over split streams, now and then over one connection.
-  test.fixme(topology() === "split_streams", "the hand-in form loses its refusal when the claim's push beats its answer");
+  // The same race as the first test's: the push that marks the task claimed first, its answer after.
   const errors = watchConsole(page);
   await startRetry(page);
   await station(page, "draft");

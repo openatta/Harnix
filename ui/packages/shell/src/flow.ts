@@ -17,8 +17,8 @@ import { t } from "@harnix/react";
 
 import { within, type App } from "./app.ts";
 import { hostFor } from "./host.ts";
-import { SYSTEM } from "./system.tsx";
-import { offerSystemFlows } from "./system-flows.ts";
+import { SYSTEM } from "./system/index.tsx";
+import { offerSystemFlows } from "./system/flows.ts";
 
 /** The method whose presence says the backend has the flow module. */
 export const FLOW_PROBE = "app.flow.defs";

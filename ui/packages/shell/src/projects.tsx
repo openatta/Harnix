@@ -8,6 +8,7 @@
  * claims the session space, and a new one started here runs in the open project.
  */
 
+import { useRef } from "react";
 import { useT } from "@harnix/react";
 
 import { type App, type ShellSession, type ShellState, type Workspace } from "./app.ts";
@@ -15,16 +16,26 @@ import { addWorkspaceDialog, workspaceMenu } from "./dialogs.tsx";
 import { Glyph } from "./glyph.tsx";
 import { useShell } from "./hooks.ts";
 import { menuBelow, menuPoint } from "./Menu.tsx";
+import { useRovingTabIndex } from "./roving.ts";
 import { SessionRow } from "./sessions.tsx";
 
 const PROJECTS = 5;
 const SESSIONS = 8;
+
+/** A tree item's parent: a project's conversation hangs under the project. */
+const parentOf = (item: HTMLElement) => (item.matches(".srow") ? item.closest(".project")?.querySelector<HTMLElement>(".prj") ?? null : null);
+/** A project opens and closes as a click on it does. */
+const toggle = (item: HTMLElement) => item.click();
 
 export function ProjectsSidebar({ app }: { app: App }) {
   const t = useT();
   const s = useShell(app);
   const all = Boolean(s.expanded["projects:more"]);
   const shown = all ? s.workspaces : s.workspaces.slice(0, PROJECTS);
+  // A tree, one Tab stop: Up and Down go along the projects and the open one's conversations, Right
+  // and Left open and close a project.
+  const tree = useRef<HTMLDivElement>(null);
+  const roving = useRovingTabIndex(tree, { items: '.prj, .pgroup .srow', orientation: "vertical", parentOf, toggle });
   return (
     <div className="projects" data-testid="projects">
       <div className="sec">
@@ -34,9 +45,11 @@ export function ProjectsSidebar({ app }: { app: App }) {
         </button>
       </div>
       {!s.workspaces.length ? <div className="empty">{t("projects.none")}</div> : null}
-      {shown.map((workspace) => (
-        <Project key={workspace.id} app={app} s={s} workspace={workspace} />
-      ))}
+      <div className="ptree" role="tree" aria-label={t("space.projects")} ref={tree} onKeyDown={roving.onKeyDown} onFocus={roving.onFocus}>
+        {shown.map((workspace) => (
+          <Project key={workspace.id} app={app} s={s} workspace={workspace} />
+        ))}
+      </div>
       {s.workspaces.length > PROJECTS ? (
         <button type="button" className="more-rows" onClick={() => app.set({ expanded: { ...s.expanded, "projects:more": !all } })}>
           {all ? t("sidebar.showLess") : t("projects.more", { count: s.workspaces.length - PROJECTS })}
@@ -58,11 +71,14 @@ function Project({ app, s, workspace }: { app: App; s: ShellState; workspace: Wo
   const menu = (event: { clientX?: number; clientY?: number; currentTarget: EventTarget | null }) =>
     workspaceMenu(app, workspace, { origin: event.currentTarget instanceof HTMLElement ? event.currentTarget : null, at: menuPoint(event) });
   return (
-    <div className="project" data-project={workspace.id} data-open={open}>
-      <div className="prj-row">
+    <div className="project" role="none" data-project={workspace.id} data-open={open}>
+      <div className="prj-row" role="none">
         <button
           type="button"
           className={`prj${open ? " on" : ""}`}
+          role="treeitem"
+          aria-level={1}
+          aria-selected={open}
           title={workspace.path}
           aria-expanded={open}
           onClick={() => {
@@ -94,7 +110,7 @@ function Project({ app, s, workspace }: { app: App; s: ShellState; workspace: Wo
         </button>
       </div>
       {open ? (
-        <div className="pgroup sel">
+        <div className="pgroup sel" role="group">
           {rows.map((row) => (
             <SessionRow key={row.session_id} app={app} s={s} session={row as ShellSession} nested />
           ))}
