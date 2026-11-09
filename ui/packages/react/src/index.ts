@@ -62,6 +62,7 @@ export {
   type LayerSpec,
   type UseLayer,
 } from "./layers";
+export { MenuBox, type MenuBoxProps } from "./menu";
 export {
   POINTS,
   Registry,

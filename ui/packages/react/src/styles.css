@@ -324,6 +324,8 @@
 /* 弹层（原型 .pop）："+"、选项、模型、上下文、"/" 命令、"@" 引用 */
 .hx-pop { position: absolute; left: 6px; bottom: calc(100% + 6px); z-index: 20; width: min(330px, calc(100% - 12px)); background: var(--hx-bg); border: 1px solid var(--hx-line); border-radius: 14px; box-shadow: var(--hx-shadow); padding: 6px; display: flex; flex-direction: column; gap: 1px; max-height: 340px; overflow: auto; }
 .hx-pop.right { left: auto; right: 6px; }
+/* A menu's box takes the focus only when it has no item to give it to: no ring for that. */
+.hx-pop:focus { outline: none; }
 .hx-pop-h { font-size: 11.5px; color: var(--hx-fg-faint); padding: 6px 8px 4px; letter-spacing: 0.06em; }
 .hx-pop-it { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 10px; align-items: center; text-align: left; border: 0; background: none; border-radius: 9px; padding: 7px 8px; width: 100%; }
 .hx-chat .hx-pop-it { color: var(--hx-fg); }

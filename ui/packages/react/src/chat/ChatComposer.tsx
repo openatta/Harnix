@@ -16,10 +16,14 @@
  * ＋ 里是这条消息能带的东西：文件、图片（给了 `upload`）、截图、`@` 引用、`/` 命令。
  * 模型：给了 `onModel` 就能换（列表来自 `models`，也能输入名字），否则只显示当前的。
  * 后端还不支持的（截图、语音）照原型画出来，但不可用，弹层里写明原因。
+ *
+ * The `+` and model pops are menus (`MenuBox`, as the shell's are): the focus goes to the first
+ * item, ↑/↓ and Home/End move, Escape or Tab closes, and the focus goes back to the button.
  */
 
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useStrings } from "../context";
+import { MenuBox } from "../menu";
 import type { SessionState } from "@harnix/core/state";
 import { readDraft, writeDraft } from "./drafts";
 import { compactTokens } from "./format";
@@ -162,6 +166,9 @@ export function ChatComposer(props: ChatComposerProps) {
   const [dropping, setDropping] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [customModel, setCustomModel] = useState("");
+  const plusButton = useRef<HTMLButtonElement>(null);
+  const modelButton = useRef<HTMLButtonElement>(null);
+  const closePop = useCallback(() => setPop(null), []);
   const mentionRequest = useRef(0);
   const running = props.running ?? state?.turn != null;
   const elsewhere = props.elsewhere ?? (!running && state?.session?.turn_state === "running");
@@ -546,7 +553,7 @@ export function ChatComposer(props: ChatComposerProps) {
             )}
           </div>
         ) : pop === "plus" ? (
-          <div className="hx-pop" role="menu" data-testid="conv-attach-menu">
+          <MenuBox label={strings.plusMenu} className="hx-pop" testId="conv-attach-menu" onClose={closePop} within={plusButton} returnTo={plusButton.current}>
             <div className="hx-pop-h">{strings.plusMenu}</div>
             <PopRow
               icon={<Icon.file />}
@@ -583,13 +590,21 @@ export function ChatComposer(props: ChatComposerProps) {
               onClick={insertSlash}
             />
             <div className="hx-pop-f">{props.upload ? strings.attachFootReady : strings.attachFoot}</div>
-          </div>
+          </MenuBox>
         ) : pop === "tools" && props.options ? (
           <div className="hx-pop" role="menu" data-testid="conv-options-menu">
             {props.options}
           </div>
         ) : pop === "model" && props.model && !props.modelUnset ? (
-          <div className="hx-pop right hx-models" role="menu" data-testid="conv-model-menu" aria-busy={switching}>
+          <MenuBox
+            label={strings.model}
+            className="hx-pop right hx-models"
+            testId="conv-model-menu"
+            busy={switching}
+            onClose={closePop}
+            within={modelButton}
+            returnTo={modelButton.current}
+          >
             <div className="hx-pop-h">{strings.model}</div>
             {modelChoices(props.model, props.models).map((option) => (
               <PopRow
@@ -613,6 +628,7 @@ export function ChatComposer(props: ChatComposerProps) {
               >
                 <input
                   data-testid="conv-model-custom"
+                  data-menu-field
                   value={customModel}
                   disabled={switching}
                   placeholder={strings.modelCustom}
@@ -622,7 +638,7 @@ export function ChatComposer(props: ChatComposerProps) {
               </form>
             ) : null}
             <div className="hx-pop-f">{props.onModel ? strings.modelFootSwitch : strings.modelFoot}</div>
-          </div>
+          </MenuBox>
         ) : pop === "ctx" && ring ? (
           <div className="hx-pop" role="menu" data-testid="conv-context-menu">
             <div className="hx-pop-h">{strings.context}</div>
@@ -684,11 +700,13 @@ export function ChatComposer(props: ChatComposerProps) {
         <div className="hx-cmp-bar">
           {props.attachments ? (
             <button
+              ref={plusButton}
               type="button"
               className={`hx-cmp-ic${pop === "plus" ? " on" : ""}`}
               data-testid="conv-attach"
               title={strings.attach}
               aria-label={strings.attach}
+              aria-haspopup="menu"
               aria-expanded={pop === "plus"}
               onClick={() => toggle("plus")}
             >
@@ -725,11 +743,13 @@ export function ChatComposer(props: ChatComposerProps) {
             </button>
           ) : props.model ? (
             <button
+              ref={modelButton}
               type="button"
               className={`hx-cmp-model${pop === "model" ? " on" : ""}`}
               data-testid="conv-model"
               title={strings.model}
               aria-label={strings.modelOf(props.model)}
+              aria-haspopup="menu"
               aria-expanded={pop === "model"}
               onClick={() => toggle("model")}
             >
@@ -804,7 +824,7 @@ function PopRow({
   onClick?: () => void;
 }) {
   return (
-    <button type="button" role="menuitem" className="hx-pop-it" data-testid={testId} disabled={disabled} onClick={onClick}>
+    <button type="button" role="menuitem" tabIndex={-1} className="hx-pop-it" data-testid={testId} disabled={disabled} onClick={onClick}>
       <span className="hx-pop-pi">{icon}</span>
       <span className="hx-pop-pt">
         <b>{title}</b>

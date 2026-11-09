@@ -175,6 +175,76 @@ test("a session's menu is worked by keyboard alone, and the focus comes back to 
   expect(await focused(page)).toBe("session-more");
 });
 
+test("the composer's + and model menus are worked by keyboard alone, like the shell's", SESSIONS, async ({ page }) => {
+  await open(page, URL);
+  await newSession(page, "says-ready");
+  const input = page.getByTestId("conv-input");
+
+  // `+`: a menu, the focus on its first item; Escape closes it and gives the focus back.
+  const plus = page.getByTestId("conv-attach");
+  await expect(plus).toHaveAttribute("aria-haspopup", "menu");
+  await plus.focus();
+  await page.keyboard.press("Enter");
+  const attach = page.getByTestId("conv-attach-menu");
+  await expect(attach).toHaveAttribute("role", "menu");
+  const items = attach.locator('[role="menuitem"]:not(:disabled)');
+  await expect(items.first()).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(attach).toHaveCount(0);
+  expect(await focused(page)).toBe("conv-attach");
+
+  // ↑/↓ go round, Home and End go to the ends, and Enter runs the item: `@` is inserted.
+  await page.keyboard.press("Enter");
+  await expect(items.first()).toBeFocused();
+  const count = await items.count();
+  expect(count, "the + menu has items to move between").toBeGreaterThan(1);
+  await page.keyboard.press("ArrowDown");
+  await expect(items.nth(1)).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(items.last()).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(items.first()).toBeFocused();
+  await page.keyboard.press("ArrowUp");
+  await expect(items.last()).toBeFocused();
+  await page.keyboard.press("Home");
+  await expect(items.first()).toBeFocused();
+  for (let i = 0; i < count && (await focused(page)) !== "conv-attach-mention"; i += 1) await page.keyboard.press("ArrowDown");
+  expect(await focused(page)).toBe("conv-attach-mention");
+  await page.keyboard.press("Enter");
+  await expect(attach).toHaveCount(0);
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue(/@$/);
+  await input.fill("");
+
+  // Tab closes a menu too, the focus back on what opened it.
+  await plus.focus();
+  await page.keyboard.press("Enter");
+  await expect(items.first()).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(attach).toHaveCount(0);
+  expect(await focused(page)).toBe("conv-attach");
+
+  // The model: the options, then the field for a name of one's own — reached with ↓ like an item.
+  const model = page.getByTestId("conv-model");
+  await expect(model).toHaveAttribute("aria-haspopup", "menu");
+  await model.focus();
+  await page.keyboard.press("Enter");
+  const models = page.getByTestId("conv-model-menu");
+  await expect(models).toHaveAttribute("role", "menu");
+  await expect(models.getByTestId("conv-model-option").first()).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(models).toHaveCount(0);
+  expect(await focused(page)).toBe("conv-model");
+  await page.keyboard.press("Enter");
+  await expect(models.getByTestId("conv-model-option").first()).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(models.getByTestId("conv-model-custom")).toBeFocused();
+  await page.keyboard.type("claude-keyboard-model");
+  await page.keyboard.press("Enter");
+  await expect(model).toContainText("claude-keyboard-model");
+  await expect(models).toHaveCount(0);
+});
+
 test("a right click opens the session's menu where it was clicked, not a dialog in the middle", SPACE, async ({ page }) => {
   await open(page, URL);
   const id = await newSession(page, "says-ready");
