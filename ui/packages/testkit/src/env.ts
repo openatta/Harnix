@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 /** The Harnix checkout: four levels above this file. */
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 
-/** Recorded model calls, replayed by position (design §13.3). */
+/** Recorded model calls, replayed by position (testing.md §6). */
 export const RECORDINGS = join(ROOT, "tests", "live", "fixtures", "recordings");
 
 /**

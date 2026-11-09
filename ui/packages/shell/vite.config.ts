@@ -1,5 +1,5 @@
 /**
- * One build of the whole interface (design §11.4): Harnix's shell and, for an application, its
+ * One build of the whole interface (harnix-sdk.md §22.5): Harnix's shell and, for an application, its
  * spaces' interface modules, into the directory the binary embeds.
  *
  *   HARNIX_UI_MODULES  the application's interface entry points, comma-separated absolute paths,
@@ -13,7 +13,7 @@
  * `script-src 'self'; style-src 'self'`. React is deduplicated: an application's modules and the
  * shell must share one copy, or hooks stop working.
  *
- * The one inline script is the import map (design §10.5, contribution API 2): an installed
+ * The one inline script is the import map (concept §5.8, contribution API 2): an installed
  * package's precompiled module imports `react`, `react-dom`, `react/jsx-runtime` and
  * `@harnix/react` by name, and the map sends each name to an entry of this same build — a facade
  * over the very module the shell runs on, so there is still one React on the page. The server

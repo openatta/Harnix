@@ -147,7 +147,7 @@ function yamlField(yaml: unknown, key: string): string | undefined {
 /**
  * The flow (or skill) a `flow-author` tool call acts on, from the call's input — what the
  * permission to run it is about. The engine asks "Allow flow_update?" whatever the tool says, so the
- * name has to come from here (xops-02 review #4). Null for any other tool. A name may arrive as
+ * name has to come from here. Null for any other tool. A name may arrive as
  * `<namespace>__flow_update`.
  */
 export function toolTarget(name: string | undefined, input: unknown): ToolTarget | null {

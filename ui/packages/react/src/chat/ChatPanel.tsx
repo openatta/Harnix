@@ -1,5 +1,5 @@
 /**
- * ChatPanel：唯一的会话组件（界面设计 §4.4 D:213——类目会话、条目会话、工位、集成页、⌘K 用同一个组件，
+ * ChatPanel：唯一的会话组件（类目会话、条目会话、工位、集成页、⌘K 用同一个组件，
  * 只是配置不同）。DOM 与类名照原型 docs/ui/prototype/ipdrun-prototype.html 的 chatPane / cliPane / composer
  * （加 hx- 前缀），样式是原型同名规则的移植（styles.css）：
  *
@@ -55,7 +55,7 @@ export interface ChatPanelProps {
   sessionId: string | null;
   /** 会话所在的实例；缺省 `system` */
   instance?: string;
-  /** 调用方所在的 space，每个调用都带上（设计 §8.5） */
+  /** 调用方所在的 space，每个调用都带上（概念与架构 §5.4） */
   space?: string;
   /** 发送时加进 `harnix.send` 的参数（例如 `@session` 引用）。要稳定的引用，否则会话会重开 */
   sendExtras?: (text: string) => Record<string, unknown>;
@@ -724,7 +724,7 @@ function ChatFlow({
           <FlowItem key={entry.block.key} block={entry.block} controller={controller} transcript={transcript} renderers={renderers} />
         ),
       )}
-      {/* 交给正在跑的一轮、还没进对话（IPDrun N-108）：待送达，送达后变成流里的一条人的话 */}
+      {/* 交给正在跑的一轮、还没进对话：待送达，送达后变成流里的一条人的话 */}
       {(state?.steering ?? []).map((item) => (
         <QueuedBubble
           key={`steer-${item.itemId}`}

@@ -5,7 +5,7 @@
  * `details.panel` — whose drawing is a frame (`frame.tsx`), registered under the application's id
  * like an installed module's. Modals open through the shell's dialog when a frame asks.
  *
- * When each is made and gone (the UI design's §3): a space's centre and left column when the space
+ * When each is made and gone (harnix-plugin.md §6.2): a space's centre and left column when the space
  * is first entered, its tabs when first selected — kept, hidden, while away (`keeper.tsx`) — and
  * gone when the application stops; a second panel, a settings section, a card, a modal for as long
  * as they are shown.

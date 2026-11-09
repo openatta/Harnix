@@ -1,5 +1,5 @@
 /**
- * Entries (design §7.6) go back between the messages they were written between, and each is one
+ * Entries (concept §3.2.1) go back between the messages they were written between, and each is one
  * block however it arrives — read with the history, or pushed while the page watches.
  */
 

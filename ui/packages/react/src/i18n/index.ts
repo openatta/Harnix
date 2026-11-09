@@ -1,5 +1,5 @@
 /**
- * 界面文案（设计 §10.1：只用 key，不写死文案）。两本词典的键相同、占位符相同，由测试守着；
+ * 界面文案（概念与架构 §5.9：只用 key，不写死文案）。两本词典的键相同、占位符相同，由测试守着；
  * 缺的键先回落英文，再回落成键本身，只告警一次。
  *
  * 语言的选择：localStorage `harnix.locale`，否则浏览器语言里第一个 `zh*` 就是简体中文，再否则英文。
@@ -40,7 +40,7 @@ function resolveInitial(): Locale {
 }
 
 /**
- * A module's language pack (design §10.5): keys it brings for its own text, merged into the
+ * A module's language pack (harnix-sdk.md §22.4.1): keys it brings for its own text, merged into the
  * dictionaries. Every key carries the module's namespace — `<owner>.` — so a pack can neither
  * rewrite the shell's text nor another module's; keys outside it are returned, not added.
  */

@@ -1,5 +1,5 @@
 /**
- * The station graph (component A, flow-design §17): one picture in two modes.
+ * The station graph: one picture in two modes.
  *
  * Definition mode (no run): each station shows its title, its work (executor kind, task count, `×N`
  * for `foreach`), its skill, its exit-condition kinds, and a marker when it names policies or

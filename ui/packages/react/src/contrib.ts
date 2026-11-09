@@ -1,5 +1,5 @@
 /**
- * 贡献点注册表（概念 §5.1、设计 §10.3）：界面上哪些地方可以由内建或运行期包填，以及怎么填。
+ * 贡献点注册表（概念 §5.6）：界面上哪些地方可以由内建或运行期包填，以及怎么填。
  *
  * v2 的八个点，都注册 React 组件：
  *
@@ -102,7 +102,7 @@ export function tabsOf(space: SpaceContribution | undefined): SpaceTab[] {
   return typeof tabs === "function" ? tabs() : (tabs ?? []);
 }
 
-/** A space as the interface draws it (design §8.1). Where its sessions land is the backend's. */
+/** A space as the interface draws it (concept §5.4). Where its sessions land is the backend's. */
 export interface SpaceContribution {
   id: string;
   /** A glyph name. */
@@ -305,7 +305,7 @@ export class Registry {
   }
 
   /**
-   * Token overrides (design §10.5): a module's colours for names the theme already has. A name the
+   * Token overrides (harnix-sdk.md §22.4.1): a module's colours for names the theme already has. A name the
    * theme does not declare is refused with the reason — a module adds no colours of its own — and
    * so is a value that reaches outside the page (`url(`). Not a contribution point: it draws
    * nothing. A later override of the same name wins, as a later registration does.
@@ -341,7 +341,7 @@ export class Registry {
     return Object.fromEntries([...this.overrides].map(([name, o]) => [name, o.value]));
   }
 
-  /** A module's language pack; keys outside `<owner>.` are refused (design §10.5). */
+  /** A module's language pack; keys outside `<owner>.` are refused (harnix-sdk.md §22.4.1). */
   strings(locale: Locale, dictionary: Record<string, string>, owner: string): void {
     for (const key of addStrings(locale, dictionary, owner)) {
       this.refuse({ point: "strings", owner, id: key, reason: `a key of ${owner}'s pack is \`${owner}.…\`` });

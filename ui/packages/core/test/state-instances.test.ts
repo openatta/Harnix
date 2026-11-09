@@ -1,5 +1,5 @@
 /**
- * Design §8.5, point 2: a session is `(instance, session)`. Two instances may each have a session
+ * Concept §5.4, point 2: a session is `(instance, session)`. Two instances may each have a session
  * `S1`; a controller for one never takes the other's events, and its calls name its own instance
  * and space.
  */

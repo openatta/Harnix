@@ -1,5 +1,5 @@
 /**
- * One station's details (component B, flow-design §17), in two tabs.
+ * One station's details, in two tabs.
  *
  * Definition: what the station is — its work, skill (with the body), scene, the output contract,
  * exit conditions (a gate with its title), rework targets, its rules and its permissions in the

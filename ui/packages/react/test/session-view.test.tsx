@@ -1,6 +1,6 @@
 /**
- * 会话视图的组件测试：真组件、假服务端（概念与架构 §7 的建议——界面测试不需要浏览器
- * 这一条，用 React 的组件测试替代假 DOM）。定位只用 data-testid / data-id / data-state。
+ * 会话视图的组件测试：真组件、假服务端，不开浏览器（单元测试，不算功能覆盖：
+ * testing.md §1）。定位只用 data-testid / data-id / data-state。
  */
 
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -126,7 +126,7 @@ describe("挂上与追赶", () => {
 
   it("一轮跑到一半时挂上（刷新）：这一轮已落盘的步骤不画两遍", async () => {
     serveTranscript();
-    // 中枢给的 history_total 是这一轮开始前的消息数（N-120）
+    // 中枢给的 history_total 是这一轮开始前的消息数
     server.handlers["harnix.attach"] = () => attached("S1", { history_total: 2, running_turn: "t2", seq: 10, replay: midTurnReplay });
     mount();
     await settle();

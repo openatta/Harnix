@@ -1,5 +1,5 @@
 /**
- * The contribution registry (concept §5.1): shape checks at registration, newest-first claims, a
+ * The contribution registry (concept §5.6): shape checks at registration, newest-first claims, a
  * failing contribution that costs only itself, and a point list that is the generated catalog's.
  */
 

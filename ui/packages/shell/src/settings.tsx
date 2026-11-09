@@ -880,7 +880,7 @@ export function Diagnostics({ app }: { app: App }) {
 }
 
 /**
- * How installed packages reach the interface (design §10.5): the contribution API this shell
+ * How installed packages reach the interface (concept §5.8): the contribution API this shell
  * speaks, whether runtime modules load at all, the import map they resolve `react` and
  * `@harnix/react` through and the CSP line that admits it, and what each package entry became.
  */

@@ -218,7 +218,7 @@ export function Disclosure({
   );
 }
 
-/** 工具调用的状态符号（界面设计 §8.2：✓ 完成、✕ 失败、● 运行中、⏸ 已中断） */
+/** 工具调用的状态符号（✓ 完成、✕ 失败、● 运行中、⏸ 已中断） */
 export const STATUS_GLYPH: Record<string, string> = { running: "●", ok: "✓", error: "✕", interrupted: "⏸" };
 
 /** 实时量到的耗时（从历史读回的没有） */

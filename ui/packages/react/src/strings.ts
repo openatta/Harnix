@@ -92,7 +92,7 @@ export interface HarnixUiStrings {
   copy: string;
   copied: string;
   queuedInFlow: string;
-  /** 交给正在跑的一轮、还没进对话（IPDrun N-108） */
+  /** 交给正在跑的一轮、还没进对话 */
   steerPending: string;
   /** 在这一轮的步骤边界进了对话 */
   steerDelivered: string;

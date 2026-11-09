@@ -1,6 +1,6 @@
 /**
  * The request envelope: what the model was sent minus the messages — the assembled system blocks,
- * the tool catalog, the call configuration (§6.4). `harnix.requestHeaders` folds the engine's
+ * the tool catalog, the call configuration (concept §6.4). `harnix.requestHeaders` folds the engine's
  * recording down to the points where it changed; each change becomes a row in the flow (a `custom`
  * block of type `request`), and the details pane shows it at full length.
  *

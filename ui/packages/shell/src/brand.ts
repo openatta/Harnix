@@ -1,5 +1,5 @@
 /**
- * The product's look (design §10.5): `[brand] name` in the page title, and the token overrides
+ * The product's look (harnix-sdk.md §8.6): `[brand] name` in the page title, and the token overrides
  * modules registered, set on `<html>` over the theme's values. An application changes its look
  * this way without forking `ui/`; the stylesheets themselves stay one set.
  *

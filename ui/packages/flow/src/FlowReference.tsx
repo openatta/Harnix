@@ -1,5 +1,5 @@
 /**
- * Reference (component C, flow-design §14, §17): what this application registered for definitions
+ * Reference: what this application registered for definitions
  * to name (the catalog, the dynamic layer), and the definition file's fields, read off the JSON
  * Schema the module generates from its Rust types (the static layer). The reference tab puts the
  * guide to flows above it (xops-03 §6); a definition is checked in the conversation.

@@ -1,5 +1,5 @@
 /**
- * A `flow-author` tool call that changes something, named by what it acts on (xops-02 review #4).
+ * A `flow-author` tool call that changes something, named by what it acts on.
  *
  * The permission card under it says only "Allow flow_update?": the engine replaces the tool's own
  * question with its generic one, so the card cannot say which flow. The row the call is drawn in —

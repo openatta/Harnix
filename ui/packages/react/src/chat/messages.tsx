@@ -90,7 +90,7 @@ export const UserBubble = memo(function UserBubble({ block }: { block: BlockOf<"
         data-state={block.steered ? "steered" : "done"}
         data-item={block.itemId}
       >
-        {/* 运行中送来、在这一轮的步骤边界进了对话（IPDrun N-108） */}
+        {/* 运行中送来、在这一轮的步骤边界进了对话 */}
         {block.steered ? (
           <div className="hx-cv-q hx-cv-steered" data-testid="conv-steered">
             <span>{strings.steerDelivered}</span>
@@ -121,7 +121,7 @@ export function QueuedBubble({
   id?: string;
   /** 那一行小字后面的按钮（例如撤回） */
   action?: ReactNode;
-  /** data-state：缺省 queued；交给正在跑的一轮、待送达的是 steering（IPDrun N-108） */
+  /** data-state：缺省 queued；交给正在跑的一轮、待送达的是 steering */
   state?: "queued" | "steering";
 }) {
   const strings = useStrings();
