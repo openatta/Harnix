@@ -648,7 +648,7 @@ impl<'a> M<'a> {
                 let r = self.st(sid);
                 for n in names {
                     if let Some(t) = r.task_mut(n) {
-                        // What it spent before stays spent (review #5).
+                        // What it spent before stays spent.
                         let usage = t.usage;
                         *t = TaskRec::new(n.clone(), t.item.take());
                         t.usage = usage;

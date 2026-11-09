@@ -117,7 +117,7 @@ where
         return false;
     };
     // In the main session a person may talk too: only the turns this task's messages start are
-    // its own (review #2). A resumed task's turn still running is taken as its own.
+    // its own. A resumed task's turn still running is taken as its own.
     let mut own = OwnTurns {
         main: turns.main,
         texts: vec![],

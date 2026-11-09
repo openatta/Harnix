@@ -31,7 +31,7 @@ use crate::kernel::run::{RunRecord, StationStatus, TaskStatus};
 /// through the session's permission rules without a classifier. The engine only ever tightens
 /// what a client asks for, so an instance set stricter keeps its own mode; one set to
 /// `bypassPermissions` — which ignores a session's rules — is held to this one instead, so the
-/// flow's answers to its questions still hold (xops-02 review #7).
+/// flow's answers to its questions still hold.
 pub const TASK_PERMISSION_MODE: &str = "acceptEdits";
 
 /// The entry a task's session is marked with when it is opened: what it was opened with

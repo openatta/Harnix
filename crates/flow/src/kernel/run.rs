@@ -478,7 +478,7 @@ impl RunRecord {
                     && t.asking.is_none()
                     && s.task_spec(&t.id).is_some_and(|spec| {
                         // A subflow's claim is the child's, an external one someone's outside:
-                        // the run waits on them (review #6).
+                        // the run waits on them.
                         !matches!(
                             spec.executor,
                             super::def::Executor::Subflow { .. } | super::def::Executor::External { .. }
