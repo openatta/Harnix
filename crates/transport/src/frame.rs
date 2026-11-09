@@ -2,7 +2,7 @@
 //!
 //! The socket hands over a text message and the split topology a POST body; from the bytes on it
 //! is this, so a frame over the ceiling, one that is not JSON and one with no method are refused
-//! in the same words under the same codes whichever topology carried them (§3.3), and an error
+//! in the same words under the same codes whichever topology carried them (concept §3.3), and an error
 //! reaches the client whole, `data` and all.
 
 use harnix_contract::{codes, RpcError};
@@ -26,7 +26,7 @@ impl Request {
     /// connection that carried the request. In a topology where the call and the frames it
     /// registers a watcher for travel on different connections, connection identity is the wrong
     /// answer, and quietly; taking it from the credential makes both topologies mean the same
-    /// thing here (§3.3.3, item 2).
+    /// thing here (concept §3.3.3, item 2).
     pub fn say_client(&mut self, client: ClientId) {
         if let Some(params) = self.params.as_object_mut() {
             params.insert("__client".into(), json!(client.0));

@@ -113,7 +113,7 @@ pub async fn rpc(
     // status — "failed to buffer the request body" — where the bidirectional
     // topology answers a JSON-RPC error naming the ceiling. One semantic, two
     // topologies: a limit that reads differently depending on which one is
-    // carrying it is the semantics leaking into the choice (§3.3).
+    // carrying it is the semantics leaking into the choice (concept §3.3).
     let mut request = match frame::parse_request(&raw) {
         Ok(request) => request,
         Err(Malformed { id, error }) => return Json(frame::error(id, &error)).into_response(),
@@ -145,7 +145,7 @@ pub async fn rpc(
 ///
 /// A separate endpoint because a download-only stream has no return path.
 /// Treating it as its own semantic is what lets every topology implement it
-/// hoharnixly instead of one of them growing a patch (§3.3.1).
+/// honestly instead of one of them growing a patch (concept §3.3.1).
 pub async fn respond(
     state: State<AppState>,
     headers: HeaderMap,

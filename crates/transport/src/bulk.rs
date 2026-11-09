@@ -3,7 +3,7 @@
 //! A one-shot grant is exchanged for a URL, the payload lands on disk, and
 //! what travels afterwards is a path. This holds in every topology, because
 //! what it prevents — one image filling the frame ceiling — is not a property
-//! of any of them (§3.3.3, fourth invariant).
+//! of any of them (concept §3.3.3, fourth invariant).
 
 use axum::body::Bytes;
 use axum::extract::{Query, State};

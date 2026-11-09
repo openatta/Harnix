@@ -1,7 +1,7 @@
 //! Who is allowed to open a channel at all.
 //!
 //! Two shapes, and which one applies is decided by where the listener is
-//! bound rather than by a setting (§6.3):
+//! bound rather than by a setting (concept §6.3):
 //!
 //! - **Loopback** — the per-process token. Binding to loopback keeps the
 //!   network out; the token keeps another page on this machine out, because a

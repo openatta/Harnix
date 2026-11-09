@@ -1,4 +1,4 @@
-//! One-time launch links, exchanged for a session cookie (IPDrun N-301).
+//! One-time launch links, exchanged for a session cookie.
 //!
 //! # Why the page token is not always enough
 //!
