@@ -220,7 +220,8 @@ kv 加 `/data`）；没起来的理由、最近一次错误、它的方法与主
 
 ## 9. 数据来源
 
-系统 space 只用公开的 hub 方法与主题，下面是它用到的全部。参数与返回的形状见 [SDK](harnix-sdk.md) §21。
+系统 space 只用公开的 hub 方法与主题，下面是它用到的全部。参数与返回写在各方法注册时的说明里：运行中的进程用 `harnix.reachable` /
+`harnix.diagnostics` 列出，代码在 `crates/hub/src/lib.rs` 与 `crates/builtin/src/`；[SDK](harnix-sdk.md) §21 是它们的分组索引。
 
 | 主题 | 参数 | 用在 |
 |---|---|---|
