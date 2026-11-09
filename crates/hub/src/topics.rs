@@ -174,7 +174,10 @@ impl crate::Hub {
             }
             let value = self.compute(&topic, &args).await?;
             let mut guard = self.inner.lock().await;
-            guard.topics.publish(key.clone(), args, value);
+            // A value computed afresh is news to whoever already watches it, as any publish is;
+            // the new subscriber has it in its reply.
+            let (to, frame) = guard.topics.publish(key.clone(), args, value);
+            guard.clients.send_many(&to, &frame).await;
             let value = guard.topics.subscribe(client, key);
             return Ok(json!({"topic": topic, "value": value}));
         }

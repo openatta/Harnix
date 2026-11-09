@@ -484,18 +484,17 @@ impl Hub {
     /// engine is, what scenes and commands exist there, every instance and
     /// the protocol it speaks, and the ceilings.
     async fn hello(&self) -> Result<Value, RpcError> {
-        let status = self
-            .call(SYSTEM, "daemon.status", json!({}))
-            .await
-            .unwrap_or(json!({}));
-        let scenes = self
-            .call(SYSTEM, "scene.list", json!({}))
-            .await
-            .unwrap_or(json!({}));
-        let commands = self
-            .call(SYSTEM, "commands.list", json!({}))
-            .await
-            .unwrap_or(json!({}));
+        // Once per connection, and none of the three waits on another.
+        let (status, scenes, commands) = tokio::join!(
+            self.call(SYSTEM, "daemon.status", json!({})),
+            self.call(SYSTEM, "scene.list", json!({})),
+            self.call(SYSTEM, "commands.list", json!({})),
+        );
+        let (status, scenes, commands) = (
+            status.unwrap_or(json!({})),
+            scenes.unwrap_or(json!({})),
+            commands.unwrap_or(json!({})),
+        );
         let system = self.slot(SYSTEM);
         let facts = system.as_ref().map(|s| s.facts.clone()).unwrap_or_default();
         let instances: Vec<Value> = self
