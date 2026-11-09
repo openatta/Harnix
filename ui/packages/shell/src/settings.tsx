@@ -26,7 +26,8 @@ let active = "general";
 
 export function openSettings(app: App, section?: string): void {
   if (section) active = section;
-  app.openModal({ title: t("settings.title"), wide: true, content: <Settings app={app} /> });
+  // Opened again while it is on top (`host.settings.open` from a section's frame), it is drawn anew in place.
+  app.openModal({ title: t("settings.title"), wide: true, key: "settings", content: <Settings app={app} /> });
 }
 
 function Settings({ app }: { app: App }) {

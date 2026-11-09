@@ -13,6 +13,7 @@ import { keyOf, type App, type ShellSession, type ShellState } from "./app.ts";
 import { sessionMenu } from "./dialogs.tsx";
 import { Glyph } from "./glyph.tsx";
 import { useShell } from "./hooks.ts";
+import { menuBelow, menuPoint } from "./Menu.tsx";
 
 const PAGE = 8;
 
@@ -174,35 +175,39 @@ export function SessionRow({ app, s, session, nested = false }: { app: App; s: S
   ]
     .filter(Boolean)
     .join(" · ");
+  const menu = (event: { clientX?: number; clientY?: number; currentTarget: EventTarget | null }) =>
+    sessionMenu(app, session, { origin: event.currentTarget instanceof HTMLElement ? event.currentTarget : null, at: menuPoint(event) });
+  // `⋯` is the row's sibling, not inside it: a button in a button is neither HTML nor reachable by Tab.
   return (
-    <button
-      type="button"
-      className={`srow${on ? " on" : ""}${nested ? " nested" : ""}`}
-      data-sid={session.session_id}
-      data-instance={instance}
-      title={tooltip}
-      onClick={() => app.open({ instance, sessionId: session.session_id })}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        sessionMenu(app, session);
-      }}
-    >
-      {running ? <span className="live" /> : null}
-      <span className="tt name">{session.name || t("sidebar.untitled")}</span>
-      <span className="meta time">{ago(session.last_active, t)}</span>
-      <span
-        role="button"
-        tabIndex={-1}
-        className="more"
-        title={t("sidebar.sessionActions")}
-        onClick={(e) => {
-          e.stopPropagation();
-          sessionMenu(app, session);
+    <div className={`srow-wrap${on ? " on" : ""}${nested ? " nested" : ""}`}>
+      <button
+        type="button"
+        className={`srow${on ? " on" : ""}${nested ? " nested" : ""}`}
+        data-sid={session.session_id}
+        data-instance={instance}
+        title={tooltip}
+        onClick={() => app.open({ instance, sessionId: session.session_id })}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          menu(e);
         }}
       >
+        {running ? <span className="live" /> : null}
+        <span className="tt name">{session.name || t("sidebar.untitled")}</span>
+        <span className="meta time">{ago(session.last_active, t)}</span>
+      </button>
+      <button
+        type="button"
+        className="more"
+        data-testid="session-more"
+        title={t("sidebar.sessionActions")}
+        aria-label={t("sidebar.sessionActions")}
+        aria-haspopup="menu"
+        onClick={(e) => sessionMenu(app, session, { origin: e.currentTarget, at: menuBelow(e.currentTarget) })}
+      >
         <Glyph name="more" className="glyph" />
-      </span>
-    </button>
+      </button>
+    </div>
   );
 }
 

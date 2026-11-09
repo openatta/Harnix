@@ -59,7 +59,7 @@ test("a project added by name is listed; renamed from its menu it says so; remov
   await expect(project).toBeVisible();
 
   await project.locator(".prj").click({ button: "right" });
-  await page.locator('#modal .menu-list button[data-item="rename"]').click();
+  await page.locator('[data-testid="project-menu"] [data-item="rename"]').click();
   const renamed = `${name}-renamed`;
   await page.locator("#modal input").fill(renamed);
   await page.locator("#modal .btn.primary").click();
@@ -67,7 +67,7 @@ test("a project added by name is listed; renamed from its menu it says so; remov
   await expect(after).toBeVisible();
 
   await after.locator(".prj").click({ button: "right" });
-  await page.locator('#modal .menu-list button[data-item="remove"]').click();
+  await page.locator('[data-testid="project-menu"] [data-item="remove"]').click();
   await expect(page.locator("#modal")).toHaveCount(0);
   await expect(page.getByTestId("projects").locator(".project", { hasText: renamed })).toHaveCount(0);
   expect(errors).toEqual([]);
@@ -114,7 +114,7 @@ test("the title opens the session's menu", SHELL, async ({ page }) => {
   await say(page, "Say exactly: fixture ready");
   await expect(reply(page)).toContainText(/fixture ready/i, { timeout: 30_000 });
   await page.getByTestId("head-title").click();
-  const menu = page.locator("#modal .menu-list");
+  const menu = page.getByTestId("session-menu");
   await expect(menu).toBeVisible();
   for (const item of ["rename", "fork", "archive", "export", "delete"]) await expect(menu.locator(`button[data-item="${item}"]`)).toBeVisible();
 });

@@ -26,7 +26,7 @@ const row = (page: Page, id: string) => page.locator(`#side .srow[data-sid="${id
 /** Right-click a session's row and pick an item of its menu. */
 async function fromMenu(page: Page, id: string, item: string): Promise<void> {
   await row(page, id).click({ button: "right" });
-  await page.locator(`#modal .menu-list button[data-item="${item}"]`).click();
+  await page.locator(`[data-testid="session-menu"] [data-item="${item}"]`).click();
 }
 
 /** A session that has had one replayed turn, listed in the sidebar. */
@@ -124,7 +124,7 @@ test("a new session from a project's menu: the dialog offers the active scenes, 
   await expect(page.locator("#main")).toHaveAttribute("data-space", "projects");
   const project = page.getByTestId("projects").locator(".project", { hasText: "dialog-" });
   await project.locator(".prj").click({ button: "right" });
-  await page.locator('#modal .menu-list button[data-item="new"]').click();
+  await page.locator('[data-testid="project-menu"] [data-item="new"]').click();
 
   const scene = page.getByTestId("new-scene");
   await expect(scene).toHaveValue("harnix");
@@ -157,7 +157,7 @@ test("a project's session is renamed and deleted from its menu in the projects s
   await expect(page.locator("#main")).toHaveAttribute("data-space", "projects");
   const project = page.getByTestId("projects").locator(".project", { hasText: "menu-" });
   await project.locator(".prj").click({ button: "right" });
-  await page.locator('#modal .menu-list button[data-item="new"]').click();
+  await page.locator('[data-testid="project-menu"] [data-item="new"]').click();
   await page.getByTestId("new-mode").selectOption({ index: 0 });
   await page.getByTestId("new-create").click();
   await expect(page.locator("#modal")).toHaveCount(0);

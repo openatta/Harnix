@@ -14,6 +14,7 @@ import { type App, type ShellSession, type ShellState, type Workspace } from "./
 import { addWorkspaceDialog, workspaceMenu } from "./dialogs.tsx";
 import { Glyph } from "./glyph.tsx";
 import { useShell } from "./hooks.ts";
+import { menuBelow, menuPoint } from "./Menu.tsx";
 import { SessionRow } from "./sessions.tsx";
 
 const PROJECTS = 5;
@@ -54,40 +55,44 @@ function Project({ app, s, workspace }: { app: App; s: ShellState; workspace: Wo
   const all = Boolean(s.expanded[`project:${workspace.id}`]);
   const rows = all ? sessions : sessions.slice(0, SESSIONS);
   const running = sessions.some((row) => s.running[`${row.instance ?? "system"}/${row.session_id}`]);
+  const menu = (event: { clientX?: number; clientY?: number; currentTarget: EventTarget | null }) =>
+    workspaceMenu(app, workspace, { origin: event.currentTarget instanceof HTMLElement ? event.currentTarget : null, at: menuPoint(event) });
   return (
     <div className="project" data-project={workspace.id} data-open={open}>
-      <button
-        type="button"
-        className={`prj${open ? " on" : ""}`}
-        title={workspace.path}
-        onClick={() => {
-          app.openProject(open ? null : workspace.id);
-          // A project opened afresh starts on its own empty conversation.
-          if (!open) app.open(null);
-        }}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          workspaceMenu(app, workspace);
-        }}
-      >
-        <Glyph name="chevronDown" className={`glyph chv${open ? " open" : ""}`} />
-        <Glyph name="folder" className="glyph" />
-        <span className="nm">{workspace.title ?? basename(workspace.path)}</span>
-        {running && !open ? <span className="live" /> : null}
-        <span className="c">{sessions.length}</span>
-        <span
-          role="button"
-          tabIndex={-1}
-          className="more"
-          title={t("sidebar.projectActions")}
-          onClick={(e) => {
-            e.stopPropagation();
-            workspaceMenu(app, workspace);
+      <div className="prj-row">
+        <button
+          type="button"
+          className={`prj${open ? " on" : ""}`}
+          title={workspace.path}
+          aria-expanded={open}
+          onClick={() => {
+            app.openProject(open ? null : workspace.id);
+            // A project opened afresh starts on its own empty conversation.
+            if (!open) app.open(null);
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            menu(e);
           }}
         >
+          <Glyph name="chevronDown" className={`glyph chv${open ? " open" : ""}`} />
+          <Glyph name="folder" className="glyph" />
+          <span className="nm">{workspace.title ?? basename(workspace.path)}</span>
+          {running && !open ? <span className="live" /> : null}
+          <span className="c">{sessions.length}</span>
+        </button>
+        <button
+          type="button"
+          className="more"
+          data-testid="project-more"
+          title={t("sidebar.projectActions")}
+          aria-label={t("sidebar.projectActions")}
+          aria-haspopup="menu"
+          onClick={(e) => workspaceMenu(app, workspace, { origin: e.currentTarget, at: menuBelow(e.currentTarget) })}
+        >
           <Glyph name="more" className="glyph" />
-        </span>
-      </button>
+        </button>
+      </div>
       {open ? (
         <div className="pgroup sel">
           {rows.map((row) => (

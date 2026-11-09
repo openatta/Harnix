@@ -169,7 +169,7 @@ test("a session renamed from its menu is renamed in the list", TAGS, async ({ pa
   const id = await newSession(page, "says-ready");
   const row = page.locator(`#side .srow[data-sid="${id}"]`);
   await row.click({ button: "right" });
-  await page.locator('#modal .menu-list button[data-item="rename"]').click();
+  await page.locator('[data-testid="session-menu"] [data-item="rename"]').click();
   const input = page.locator("#modal input");
   await input.fill("renamed in the test");
   await input.press("Enter");

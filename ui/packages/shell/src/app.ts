@@ -48,6 +48,13 @@ export interface Modal {
   title: string;
   content: ReactNode;
   wide?: boolean;
+  /** Opened again while it is on top, a modal with the same key takes its place rather than going over it. */
+  key?: string;
+}
+
+/** A modal on the shell's stack: what was opened, and which opening it was. */
+export interface OpenModal extends Modal {
+  readonly id: number;
 }
 
 export type ThemeChoice = "system" | "light" | "dark";
@@ -143,7 +150,10 @@ export interface ShellState {
   secondaryMaxBySpace: Record<string, boolean>;
   sidebar: "expanded" | "collapsed";
   banner: { text: string; tone?: "info" | "error" } | null;
-  modal: Modal | null;
+  /** The shell's dialogs, bottom first: each opened goes over the last, Escape closes the top one. */
+  modals: OpenModal[];
+  /** The one on top: `modals`' last, kept in step by `set`. */
+  modal: OpenModal | null;
   /** The page title's count prefix (`host.shell.badge`, ipdrun-33); null ⇒ none. */
   titleBadge: number | null;
   /** The line under the brand (`host.shell.context`, ipdrun-49); null ⇒ none. */
@@ -307,6 +317,7 @@ export class App {
       secondaryMaxBySpace: stored<Record<string, boolean>>(SECONDARY_MAX_KEY, {}),
       sidebar: "expanded",
       banner: null,
+      modals: [],
       modal: null,
       titleBadge: null,
       shellContext: null,
@@ -341,6 +352,7 @@ export class App {
     const before = this.state;
     const next = { ...this.state, ...change };
     next.current = next.currentBySpace[next.space] ?? null;
+    next.modal = next.modals[next.modals.length - 1] ?? null;
     this.state = next;
     for (const fn of [...this.listeners]) fn();
     if ((before.modal == null) !== (next.modal == null)) {
@@ -795,12 +807,29 @@ export class App {
     this.set({ banner: null });
   }
 
+  private modalIds = 0;
+
+  /**
+   * Open a dialog over what is on the page — over another dialog too: the shell's dialogs are a
+   * stack, and Escape, the veil and `closeModal()` take the top one off. Its focus, the inert page
+   * under it and the keys are the layers' (`layers.ts`).
+   */
   openModal(modal: Modal): void {
-    this.set({ modal });
+    const modals = this.state.modals;
+    const top = modals[modals.length - 1];
+    const open: OpenModal = { ...modal, id: ++this.modalIds };
+    this.set({ modals: modal.key && top?.key === modal.key ? [...modals.slice(0, -1), open] : [...modals, open] });
   }
 
-  closeModal(): void {
-    this.set({ modal: null });
+  /** Close the top dialog, or the one given (its id, or what `snapshot.modal` was). */
+  closeModal(which?: OpenModal | number): void {
+    const modals = this.state.modals;
+    if (which == null) {
+      if (modals.length) this.set({ modals: modals.slice(0, -1) });
+      return;
+    }
+    const id = typeof which === "number" ? which : which.id;
+    if (modals.some((m) => m.id === id)) this.set({ modals: modals.filter((m) => m.id !== id) });
   }
 
   /** `host.shell.badge`: a whole number above 0 is the title's prefix; anything else clears it. */

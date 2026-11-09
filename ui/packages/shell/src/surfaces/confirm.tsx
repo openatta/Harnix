@@ -4,13 +4,16 @@
  * if one is open (a settings section's frame may ask) — so no application can draw it, cover it
  * or answer it: its frames are inert while it is up, and it names who is asking.
  *
- * Keys are its while it is open: Escape answers no, and nothing else on the page sees it — the
- * listener is the page's first (registered when this module loads, before the shell's), which is
- * what keeps an Escape here from also closing the dialog underneath (ipdrun-38).
+ * It is a layer (`../layers.ts`) of the top rank: over every dialog whenever it came, the focus in
+ * it and back where it was after, and every key its while it is open — Escape answers no, and
+ * nothing else on the page hears any (ipdrun-38). Not by being the first listener on the page: the
+ * layers' one listener asks which layer is on top.
  */
 
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useRef, useSyncExternalStore } from "react";
 import { useT } from "@harnix/react";
+
+import { useLayer } from "../layers.ts";
 
 export interface Question {
   /** The application asking, by its title. */
@@ -66,50 +69,21 @@ export function onAsking(fn: () => void): () => void {
   return subscribe(fn);
 }
 
-if (typeof window !== "undefined") {
-  window.addEventListener(
-    "keydown",
-    (event) => {
-      const q = front();
-      if (!q) return;
-      const dialog = document.getElementById("hx-ask");
-      const inside = event.target instanceof Node && dialog?.contains(event.target);
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        q.answer(false);
-      } else if (!inside) {
-        // Not the page's while the question is up: back into the question.
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        dialog?.querySelector<HTMLButtonElement>("button")?.focus();
-      } else {
-        event.stopImmediatePropagation();
-      }
-    },
-    true,
-  );
-}
-
 /** The question in front, drawn over everything. */
 export function QuestionLayer() {
-  const t = useT();
   const q = useSyncExternalStore(subscribe, front);
+  return q ? <QuestionBox key={q.id} q={q} /> : null;
+}
+
+function QuestionBox({ q }: { q: Asked }) {
+  const t = useT();
+  const box = useRef<HTMLDivElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
-  const before = useRef<Element | null>(null);
-  useEffect(() => {
-    if (!q) return;
-    before.current = document.activeElement;
-    cancel.current?.focus();
-    return () => {
-      if (before.current instanceof HTMLElement && before.current.isConnected) before.current.focus();
-    };
-  }, [q]);
-  if (!q) return null;
+  useLayer(box, { rank: 1, close: () => q.answer(false), initial: () => cancel.current });
   const title = q.title?.trim() || (q.kind === "link" ? t("surface.link.title") : t("surface.confirm.title"));
   return (
     <div className="hx-ask-veil" data-testid="surface-question-veil">
-      <div id="hx-ask" role="alertdialog" aria-modal="true" aria-labelledby="hx-ask-title" data-testid="surface-question" data-kind={q.kind}>
+      <div ref={box} id="hx-ask" role="alertdialog" aria-modal="true" aria-labelledby="hx-ask-title" data-testid="surface-question" data-kind={q.kind}>
         <div className="hx-ask-who" data-testid="surface-question-app">
           {t("surface.confirm.asks", { app: q.app })}
         </div>

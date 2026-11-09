@@ -608,23 +608,23 @@
   opacity: 0.65;
 }
 
-#modal {
+:is(#modal, .hx-modal) {
   background: var(--surface);
   border-radius: 16px;
 }
 
-#modal.wide {
+:is(#modal, .hx-modal).wide {
   width: min(960px, calc(100vw - 32px));
 }
 
-#modal > .head .title {
+:is(#modal, .hx-modal) > .head .title {
   flex: 1 1 auto;
   min-width: 0;
   font-family: var(--font-serif);
   font-size: 18px;
 }
 
-#modal > .head .close {
+:is(#modal, .hx-modal) > .head .close {
   margin-left: auto;
 }
 

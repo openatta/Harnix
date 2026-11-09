@@ -9,7 +9,7 @@
  * IPDrun (D21).
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { errorText } from "@harnix/core";
 import type { SessionController, SessionState } from "@harnix/core/state";
 import {
@@ -31,11 +31,13 @@ import {
   type SpaceSecondary,
 } from "@harnix/react";
 
-import { ask, detailsWidthOf, keyOf, later, orderTabs, safeTabs, secondaryWidthOf, type App, type ShellState, type Widths } from "./app.ts";
+import { ask, detailsWidthOf, keyOf, later, orderTabs, safeTabs, secondaryWidthOf, type App, type OpenModal, type ShellState, type Widths } from "./app.ts";
 import { useBrand } from "./brand.ts";
 import { followEnvelopes } from "./envelope.tsx";
 import { Glyph } from "./glyph.tsx";
 import { sessionMenu } from "./dialogs.tsx";
+import { listenForLayers, modalUp, useLayer } from "./layers.ts";
+import { MenuHost, menuBelow } from "./Menu.tsx";
 import { openSettings } from "./settings.tsx";
 import { Sidebar, spacesOf } from "./Sidebar.tsx";
 import { SYSTEM, openInSystem, systemOffered } from "./system.tsx";
@@ -77,9 +79,12 @@ export function Shell({ app }: { app: App }) {
           <Main app={app} s={s} />
           {secondary && space ? <Secondary app={app} space={space} panel={secondary} max={app.secondaryMax(s)} /> : null}
         </div>
-        {space || s.detail ? <Details app={app} s={s} /> : <aside id="details" aria-hidden />}
+        {space || s.detail ? <Details app={app} s={s} /> : <aside id="details" aria-hidden inert />}
       </div>
       <ModalHost app={app} s={s} />
+      {/* Where a layer drawn outside its own place goes: an anchored menu, a dialog's own dialog. */}
+      <div id="layers" />
+      <MenuHost />
     </>
   );
 }
@@ -167,26 +172,18 @@ export function isDark(): boolean {
   return document.documentElement.dataset.theme === "dark";
 }
 
+/**
+ * The shell's keys. Escape belongs to the layers (`layers.ts`): their listener comes first and
+ * takes it while one is open. The shortcuts do nothing while a dialog is: what is under it is not
+ * the page's to act on.
+ */
 function useShortcuts(app: App) {
-  useEffect(() => {
-    // While the shell's modal is open, Escape is its: one from outside the modal (focus left on the
-    // page) closes it here, before any listener of a space sees it. One from inside goes through the
-    // modal's own handler (`ModalHost`), so what is in the modal can still take Escape first.
-    const onEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || !app.snapshot.modal) return;
-      if (event.target instanceof Node && document.getElementById("modal")?.contains(event.target)) return;
-      event.stopPropagation();
-      app.closeModal();
-    };
-    window.addEventListener("keydown", onEscape, true);
-    return () => window.removeEventListener("keydown", onEscape, true);
-  }, [app]);
+  useEffect(() => listenForLayers(), []);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (modalUp()) return;
       const mod = event.metaKey || event.ctrlKey;
-      if (event.key === "Escape" && app.snapshot.modal) {
-        app.closeModal();
-      } else if (mod && event.key.toLowerCase() === "k") {
+      if (mod && event.key.toLowerCase() === "k") {
         // `[shell] new_session = false` (ipdrun-46): ⌘K is not the shell's — left to the page.
         if (!app.startsSessions()) return;
         event.preventDefault();
@@ -587,7 +584,14 @@ function Header({
         </button>
       ) : null}
       {row && !overview ? (
-        <button type="button" className="title-btn" data-testid="head-title" title={t("sidebar.sessionActions")} onClick={() => sessionMenu(app, row)}>
+        <button
+          type="button"
+          className="title-btn"
+          data-testid="head-title"
+          title={t("sidebar.sessionActions")}
+          aria-haspopup="menu"
+          onClick={(e) => sessionMenu(app, row, { origin: e.currentTarget, at: menuBelow(e.currentTarget) })}
+        >
           <span className="title truncate">{name || t("sidebar.untitled")}</span>
           <Glyph name="chevronDown" className="glyph" />
         </button>
@@ -821,6 +825,7 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
       features={{ voice: false, contextRing: true, options: false }}
       renderers={{ flowBlocks, toolRows }}
     />
+
   );
 }
 
@@ -1054,7 +1059,8 @@ function Details({ app, s }: { app: App; s: ShellState }) {
   const current = app.shownTab(s);
   const shown = tabs.find((x) => x.id === current);
   return (
-    <aside id="details" aria-hidden={!app.detailsOpen(s)}>
+    // Closed it is zero wide, not gone: inert, or Tab would still walk through what is in it.
+    <aside id="details" aria-hidden={!app.detailsOpen(s)} inert={!app.detailsOpen(s)}>
       <Resizer app={app} column="details" />
       <div className="strip" data-tauri-drag-region="deep">
         <div className="tabs" role="tablist">
@@ -1115,39 +1121,67 @@ function Details({ app, s }: { app: App; s: ShellState }) {
 
 /* ── modal host ───────────────────────────────────────────────────────── */
 
+/**
+ * The shell's dialogs, a stack: the first over the page in `#veil`, each later one over the last in
+ * a veil of its own. Each is a layer (`layers.ts`): the focus is in the top one, what is under it is
+ * inert, and Escape or a click on its veil closes that one alone.
+ */
 function ModalHost({ app, s }: { app: App; s: ShellState }) {
-  const t = useT();
-  const modal = s.modal;
+  const [first, ...over] = s.modals;
   return (
-    <div
-      id="veil"
-      className={modal ? "on" : ""}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) app.closeModal();
-      }}
-    >
-      {modal ? (
+    <>
+      <div
+        id="veil"
+        className={first ? "on" : ""}
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget && first) app.closeModal(first);
+        }}
+      >
+        {first ? <ModalLayer key={first.id} app={app} modal={first} first /> : null}
+      </div>
+      {over.map((modal, i) => (
         <div
-          id="modal"
-          role="dialog"
-          aria-modal="true"
-          className={modal.wide ? "wide" : ""}
-          onKeyDown={(event) => {
-            // Escape closes the modal and goes no further: a space's key listener does not also act.
-            if (event.key !== "Escape") return;
-            event.stopPropagation();
-            app.closeModal();
+          key={modal.id}
+          className="hx-veil on"
+          style={{ zIndex: 41 + i }}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) app.closeModal(modal);
           }}
         >
-          <div className="head">
-            <span className="title">{modal.title}</span>
-            <button type="button" className="icon-btn close" title={t("common.close")} onClick={() => app.closeModal()}>
-              <Glyph name="close" className="glyph" />
-            </button>
-          </div>
-          {modal.content}
+          <ModalLayer app={app} modal={modal} />
         </div>
-      ) : null}
+      ))}
+    </>
+  );
+}
+
+function ModalLayer({ app, modal, first = false }: { app: App; modal: OpenModal; first?: boolean }) {
+  const t = useT();
+  const box = useRef<HTMLDivElement>(null);
+  const title = useId();
+  // Into the dialog's own fields and buttons first; its × only when it has nothing else.
+  const layer = useLayer(box, { close: () => app.closeModal(modal) });
+  return (
+    <div
+      ref={box}
+      id={first ? "modal" : undefined}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={title}
+      tabIndex={-1}
+      className={`hx-modal${modal.wide ? " wide" : ""}`}
+      data-testid="modal"
+      onKeyDown={layer.onKeyDown}
+    >
+      <div className="head">
+        <span className="title" id={title}>
+          {modal.title}
+        </span>
+        <button type="button" className="icon-btn close" title={t("common.close")} aria-label={t("common.close")} data-initial-skip onClick={() => app.closeModal(modal)}>
+          <Glyph name="close" className="glyph" />
+        </button>
+      </div>
+      {modal.content}
     </div>
   );
 }
