@@ -61,6 +61,29 @@ the topic `harnix.sessions.status`. Anything else — `overreach` tries `harnix.
 refused, on the record (`harnix.audit`, subject `module:example.showcase`), and listed in the
 system space's Apps tab with the application's VM health.
 
+## Resident, or idle
+
+The showcase's backend stays up while it runs: its manifest has no `[backend]`, which is
+`resident = "always"`, and it subscribes in `init` anyway. An application whose backend need not
+stay up says
+
+```toml
+[backend]
+resident = "on-demand"
+idle_secs = 600   # the default; 60 at the least
+```
+
+and its backend is stopped (its `stop` runs) once it has held no subscription, no timer and no call
+— a method, a tool call or its hook — for `idle_secs`. The system space's Apps tab and
+`harnix.apps.list` say `hibernating`, which is neither a fault nor a recycle. The next method call
+starts it again: `init` runs, what it kept in its key-value store is there (the board), and what it
+held in memory is not (the counter). Two calls at once start one instance. Its tools run in an
+instance of their own either way, so a tool call wakes nothing unless it calls the backend, as
+`board` does.
+
+The LIVE suites try this on the showcase itself, made on-demand in the test with
+`watch_sessions = false` (so `init` subscribes to nothing): `tests/live/api/apps-idle.spec.ts`.
+
 ## The interface, in frames
 
 Who signed the package decides where its interface runs: a publisher this Harnix trusts, in the

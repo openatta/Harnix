@@ -59,6 +59,10 @@ Rust 这边也拿它跑，分两层：
 `index.json`，经 `[apps] store = "file://…"` 给后端。mock 的发布者与商店密钥在 `tests/live/fixtures/store/`，只是测试钥。
 `harnix` 内置的是商店自己的公钥、profile 改不了，所以 mock 商店在它那里什么也装不上（套件也测这一条）；信 mock 商店的只有
 带 `apps` 编的 `harnix-testapp`（装配时经隐藏的 `AppBuilder::store_keys` 换成 mock 的钥），同样编在 `target/apps` 里。
+闲置休眠的套件（`api/apps-idle.spec.ts`、`ui/apps-idle.spec.ts`）在测试里把 showcase 改成 `[backend] resident = "on-demand"`
+（`watch_sessions = false`，`init` 不订阅），跑在带 `apps` 编的 `harnix-testapp` 上：清单的 `idle_secs` 最少一分钟，profile 改不了；
+只有测试应用经隐藏的 `AppBuilder::app_idle` 把它缩短，套件用环境变量 `HARNIX_TESTAPP_APP_IDLE_MS` 告诉它多短。Rust 这边
+`crates/app-host/tests/idle.rs` 用 `HostOptions::idle` 测同样的规则，`crates/wasm/tests/hibernate.rs` 测虚拟机这一层。
 签名、目录、披露的逻辑另有 Rust 单测（`crates/app-package/src/{signature,store,disclosure,publish}.rs`），装签名包、篡改、
 升级与升级失败的回滚在 `crates/apps/tests/signed.rs`。
 

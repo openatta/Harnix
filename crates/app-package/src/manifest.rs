@@ -97,6 +97,7 @@ const SECTIONS: &[&str] = &[
     "inline",
     "interface",
     "surface",
+    "backend",
 ];
 
 /// The capabilities there are.
@@ -120,6 +121,8 @@ pub struct Manifest {
     pub interface: Interface,
     /// `[[surface]]`: the regions of the shell its frames fill.
     pub surfaces: Vec<Surface>,
+    /// `[backend]`: whether its backend stays up, or is let go while idle.
+    pub backend: Backend,
 }
 
 /// One `[[method]]`: `app.<id>.<name>`, answered by the backend's `handle`.
@@ -224,6 +227,49 @@ pub struct Component {
     pub memory_mb: u32,
     #[serde(default = "default_timeout_ms")]
     pub timeout_ms: u64,
+}
+
+/// How a backend is kept: `always` up while the application runs, or `on-demand` — stopped once
+/// idle for `idle_secs` with nothing holding it (no subscription, no timer, no call), and started
+/// again by the next call.
+pub const RESIDENT: &[&str] = &["always", "on-demand"];
+/// `idle_secs` unless the manifest says.
+pub const DEFAULT_IDLE_SECS: u64 = 600;
+/// The shortest `idle_secs` a manifest may ask for: a backend started and stopped more often than
+/// this costs more than it saves.
+pub const MIN_IDLE_SECS: u64 = 60;
+pub const MAX_IDLE_SECS: u64 = 86_400;
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Backend {
+    #[serde(default = "default_resident")]
+    pub resident: String,
+    #[serde(default = "default_idle_secs")]
+    pub idle_secs: u64,
+}
+
+impl Default for Backend {
+    fn default() -> Self {
+        Self {
+            resident: default_resident(),
+            idle_secs: DEFAULT_IDLE_SECS,
+        }
+    }
+}
+
+impl Backend {
+    pub fn on_demand(&self) -> bool {
+        self.resident == RESIDENT[1]
+    }
+}
+
+fn default_resident() -> String {
+    RESIDENT[0].to_string()
+}
+
+fn default_idle_secs() -> u64 {
+    DEFAULT_IDLE_SECS
 }
 
 fn default_memory_mb() -> u32 {
@@ -349,6 +395,10 @@ impl Manifest {
             Some(v) => v.try_into().map_err(|e| field_error("[surface]]", e))?,
             None => Vec::new(),
         };
+        let backend: Backend = match section("backend") {
+            Some(v) => v.try_into().map_err(|e| field_error("backend", e))?,
+            None => Backend::default(),
+        };
         let manifest = Manifest {
             app,
             capabilities,
@@ -362,6 +412,7 @@ impl Manifest {
             inline,
             interface,
             surfaces,
+            backend,
         };
         manifest.check()?;
         Ok(manifest)
@@ -471,6 +522,25 @@ impl Manifest {
             }
         }
         let backend = self.component.as_ref().is_some_and(|c| c.world == WORLDS[1]);
+        if !RESIDENT.contains(&self.backend.resident.as_str()) {
+            return Err(format!(
+                "{MANIFEST}: `[backend] resident` is one of {}, not `{}`",
+                RESIDENT.join(", "),
+                self.backend.resident
+            ));
+        }
+        if !(MIN_IDLE_SECS..=MAX_IDLE_SECS).contains(&self.backend.idle_secs) {
+            return Err(format!(
+                "{MANIFEST}: `[backend] idle_secs` is {MIN_IDLE_SECS} to {MAX_IDLE_SECS}, not {}",
+                self.backend.idle_secs
+            ));
+        }
+        if !backend && self.backend != Backend::default() {
+            return Err(format!(
+                "{MANIFEST}: `[backend]` is a backend's: the component's world is `{}`",
+                WORLDS[1]
+            ));
+        }
         if !backend && (!self.methods.is_empty() || !self.topics.is_empty()) {
             return Err(format!(
                 "{MANIFEST}: `[[method]]` and `[[topic]]` are a backend's: the component's world is \
@@ -680,6 +750,37 @@ install_into = ["system"]
             m.config_with(Some(&json!({"greeting": "hi", "extra": true}))),
             json!({"greeting": "hi", "nested": {"a": 1}, "extra": true})
         );
+    }
+
+    #[test]
+    fn a_backend_stays_up_unless_it_says_it_may_idle() {
+        let backend = |section: &str| {
+            with(|m| {
+                format!(
+                    "{}\n{section}",
+                    m.replace("tools-app@0.1.0", "backend-app@0.1.0")
+                )
+            })
+        };
+        let m = backend("").unwrap();
+        assert_eq!(m.backend, Backend::default());
+        assert!(!m.backend.on_demand());
+        let m = backend("[backend]\nresident = \"on-demand\"\n").unwrap();
+        assert!(m.backend.on_demand());
+        assert_eq!(m.backend.idle_secs, DEFAULT_IDLE_SECS);
+        assert_eq!(backend("[backend]\nresident = \"on-demand\"\nidle_secs = 120\n").unwrap().backend.idle_secs, 120);
+        for (section, says) in [
+            ("[backend]\nresident = \"sometimes\"\n", "`[backend] resident`"),
+            ("[backend]\nidle_secs = 5\n", "`[backend] idle_secs` is 60"),
+            ("[backend]\nidle_secs = 100000\n", "`[backend] idle_secs`"),
+            ("[backend]\nidle = 5\n", "unknown field `idle`"),
+        ] {
+            let err = backend(section).unwrap_err();
+            assert!(err.contains(says), "{section}: {err}");
+        }
+        // A tools-only component has no backend to keep.
+        let err = with(|m| format!("{m}\n[backend]\nresident = \"on-demand\"\n")).unwrap_err();
+        assert!(err.contains("`[backend]` is a backend's"), "{err}");
     }
 
     #[test]

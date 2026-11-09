@@ -34,6 +34,7 @@ use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
 use crate::bridge::{failure_of, lock, Bridge, Method};
+use crate::idle::{self, Activity};
 use crate::placement::{self, Placed};
 
 /// What the product tells the host when it makes it.
@@ -43,6 +44,11 @@ pub struct HostOptions {
     pub admission: Admission,
     /// `[apps.config]`, by application id: set over each one's `[config]`.
     pub config: BTreeMap<String, toml::Value>,
+    /// How long every on-demand backend idles before it hibernates, in place of its manifest's
+    /// `idle_secs` (which is never under a minute). For a test application that needs to see one
+    /// hibernate; a product has no reason to, and a profile cannot.
+    #[doc(hidden)]
+    pub idle: Option<std::time::Duration>,
 }
 
 /// One application that is running.
@@ -56,6 +62,13 @@ struct Running {
     tools: Vec<harnix_wasm::ToolDef>,
     bridge: Arc<Bridge>,
     methods: BTreeMap<String, Method>,
+    /// Its calls in flight, for idling.
+    activity: Arc<Activity>,
+    /// `[backend] resident`, and how long it idles before it hibernates when that is `on-demand`.
+    resident: String,
+    idle: Option<std::time::Duration>,
+    /// Ends its idle watch.
+    watch: CancellationToken,
     /// What it declared, by full name: `app.<id>.<name>`.
     method_names: Vec<String>,
     topics: Vec<String>,
@@ -419,6 +432,17 @@ impl Host {
         let full = |name: &String| format!("app.{id}.{name}");
         let world = booted.vm.as_ref().map(|vm| world_name(vm.world()));
         let tools: Vec<ToolDef> = booted.tools.iter().map(tool_def).collect();
+        let backend = booted.vm.as_ref().filter(|vm| vm.world() == World::Backend);
+        let idle = backend.and(manifest.backend.on_demand().then(|| {
+            self.options
+                .idle
+                .unwrap_or(std::time::Duration::from_secs(manifest.backend.idle_secs))
+        }));
+        let activity = Arc::new(Activity::default());
+        let watch = CancellationToken::new();
+        if let (Some(vm), Some(idle)) = (backend, idle) {
+            idle::watch(vm, activity.clone(), idle, watch.clone());
+        }
         let running = Arc::new(Running {
             version: start.version.clone(),
             root: root.clone(),
@@ -427,6 +451,10 @@ impl Host {
             tools: booted.tools,
             bridge,
             methods,
+            activity,
+            resident: manifest.backend.resident.clone(),
+            idle,
+            watch,
             method_names: manifest.methods.iter().map(|m| full(&m.name)).collect(),
             topics: manifest.topics.iter().map(|t| full(&t.name)).collect(),
             spaces: manifest.spaces.iter().map(|s| s.id.clone()).collect(),
@@ -455,13 +483,20 @@ impl Host {
     fn status_of(&self, id: &str) -> Value {
         if let Some(app) = self.running(id) {
             let health = app.vm.as_ref().map(|vm| vm.health());
-            let (state, reason) = match health.as_ref().map(|h| &h.state) {
-                Some(VmState::Disabled { reason }) => ("faulted", Some(reason.clone())),
+            let (state, reason) = match health.as_ref() {
+                Some(harnix_wasm::HealthSnapshot {
+                    state: VmState::Disabled { reason },
+                    ..
+                }) => ("faulted", Some(reason.clone())),
+                // Not a fault: its backend was let go while idle, and the next call starts it.
+                Some(h) if h.hibernating => ("hibernating", None),
                 _ => ("running", None),
             };
             return json!({
                 "state": state,
                 "reason": reason,
+                "resident": app.resident,
+                "idle_ms": app.idle.map(|d| d.as_millis() as u64),
                 "world": app.vm.as_ref().map(|vm| vm.world()),
                 "methods": app.method_names,
                 "topics": app.topics,
@@ -551,6 +586,7 @@ impl Control for Host {
         let Some(app) = write(&self.apps).remove(id) else {
             return Ok(());
         };
+        app.watch.cancel();
         // Its tools first: a session built from here on has none of them.
         let none = Offer {
             app: id.clone(),
@@ -599,7 +635,10 @@ impl Control for Host {
         let Some(method) = app.methods.get(&call.method) else {
             return Err(RpcError::not_found(format!("`{full}` is not one of its methods")));
         };
-        let outcome = method.answer(app.vm.as_ref(), &call.caller, call.params).await;
+        let outcome = {
+            let _busy = app.activity.hold();
+            method.answer(app.vm.as_ref(), &call.caller, call.params).await
+        };
         app.bridge.stats.method(&call.method, outcome.as_ref().err());
         outcome
     }
@@ -624,6 +663,7 @@ impl Control for Host {
             return Err(RpcError::not_found(format!("`{}` has no component", call.app)));
         };
         let (cancel, _running) = self.cancellation(&call.call_id);
+        let _busy = app.activity.hold();
         let (sink, forwarded) = if call.progress {
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
             let (platform, app_id, tool, call_id) = (
@@ -685,6 +725,7 @@ impl Control for Host {
             return Ok(HookReply::Proceed);
         };
         let (cancel, _running) = self.cancellation(&call.call_id);
+        let _busy = app.activity.hold();
         Ok(match vm.on_event(&call.event, &call.payload, &cancel).await {
             Ok(HookDecision::Proceed) => HookReply::Proceed,
             Ok(HookDecision::Block(reason)) => HookReply::Block(reason),
@@ -704,6 +745,7 @@ impl Control for Host {
         let apps: Vec<(String, Arc<Running>)> = std::mem::take(&mut *write(&self.apps)).into_iter().collect();
         lock(&self.bridges).clear();
         for (id, app) in apps {
+            app.watch.cancel();
             if let Some(vm) = &app.vm {
                 vm.stop().await;
             }

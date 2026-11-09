@@ -36,6 +36,9 @@ interface Health {
   storage_limit_bytes?: number;
   subscriptions?: number;
   timers?: number;
+  /** An on-demand backend stopped while idle; the next call starts it again. */
+  hibernating?: boolean;
+  wakes?: number;
 }
 
 interface Refusal {
@@ -45,7 +48,7 @@ interface Refusal {
 }
 
 interface Runtime {
-  state: "running" | "faulted" | "stopped" | "failed";
+  state: "running" | "hibernating" | "faulted" | "stopped" | "failed";
   reason?: string | null;
   world?: string | null;
   methods?: string[];
@@ -75,8 +78,9 @@ export function appsOffered(app: App): boolean {
 
 const mb = (bytes?: number) => (bytes == null ? "—" : `${(bytes / 1048576).toFixed(bytes < 1048576 ? 2 : 0)} MB`);
 
-/** What the row's dot says: running, set aside after faulting, switched off, or did not start. */
-function stateOf(row: AppRow): "running" | "faulted" | "stopped" | "failed" {
+/** What the row's dot says: running, idle with its backend stopped until the next call, set aside
+ *  after faulting, switched off, or did not start. */
+function stateOf(row: AppRow): Runtime["state"] {
   if (!row.enabled) return "stopped";
   return row.runtime?.state ?? "stopped";
 }
@@ -94,7 +98,7 @@ export function AppsTab({ app }: { app: App }) {
       </div>
     );
   }
-  const dot: Record<string, string> = { running: "running", faulted: "waiting", stopped: "cold", failed: "waiting" };
+  const dot: Record<string, string> = { running: "running", hibernating: "cold", faulted: "waiting", stopped: "cold", failed: "waiting" };
   return (
     <div className="system-pane" data-testid="system-apps">
       <table className="frames">
@@ -117,7 +121,7 @@ export function AppsTab({ app }: { app: App }) {
             const state = stateOf(row);
             const rt = row.runtime;
             const h = rt?.health ?? undefined;
-            const backend = h?.world === "backend" ? (h.state === "running" ? "up" : "down") : null;
+            const backend = h?.world === "backend" ? (h.hibernating ? "asleep" : h.state === "running" ? "up" : "down") : null;
             const refused = rt?.calls?.refused ?? [];
             return (
               <Fragment key={row.id}>

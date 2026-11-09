@@ -189,6 +189,10 @@ pub struct Options {
     pub keys: Keys,
     /// `[apps] store`: the catalog's URL (`store::DEFAULT_STORE` when the profile names none).
     pub store: Option<String>,
+    /// How long an on-demand backend idles before it hibernates, in place of its `idle_secs`:
+    /// for a test application only (`AppBuilder::app_idle`).
+    #[doc(hidden)]
+    pub idle: Option<std::time::Duration>,
 }
 
 pub struct Runtime {
@@ -216,6 +220,7 @@ impl Runtime {
             HostOptions {
                 admission: admission.clone(),
                 config: options.config,
+                idle: options.idle,
             },
             platform.clone(),
         )?;

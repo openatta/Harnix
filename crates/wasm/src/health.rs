@@ -52,6 +52,7 @@ pub(crate) struct Counters {
     pub crashes: u32,
     pub rebuilds: u32,
     pub recycles: u32,
+    pub wakes: u32,
     pub dropped_deliveries: u64,
     pub last_error: Option<String>,
     /// When the backend last crashed: a crash older than the healthy period is forgiven.
@@ -92,4 +93,9 @@ pub struct HealthSnapshot {
     pub storage_limit_bytes: u64,
     pub subscriptions: usize,
     pub timers: usize,
+    /// An on-demand backend let go while idle (`AppVm::hibernate`); its tools still run.
+    pub hibernating: bool,
+    /// Times a hibernating backend was started again by a call into it. Not recycles: nothing
+    /// was abandoned, and nothing it kept in its storage was lost.
+    pub wakes: u32,
 }

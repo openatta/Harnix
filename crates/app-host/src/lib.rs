@@ -4,7 +4,8 @@
 //! and answers [`harnix_app_port::Control`]: putting an application's agent side in place,
 //! starting and stopping it, its health and calls, its methods (checked against their schemas,
 //! then queued for the resident backend), its tools (an instance per call, cancellable, with
-//! progress), its event hook, and the values of what its backend subscribed to. Everything it
+//! progress), its event hook, and the values of what its backend subscribed to. An on-demand
+//! backend hibernates while idle, and the next call starts it again (`idle.rs`). Everything it
 //! needs from outside is [`harnix_app_port::Platform`]: registering the application's names, what
 //! it does as itself (`host.call`, `publish`, `subscribe`), the agent engine its tools and agent
 //! package go to.
@@ -20,6 +21,7 @@
 mod bridge;
 mod host;
 pub mod http;
+mod idle;
 mod placement;
 
 pub use bridge::Stats;

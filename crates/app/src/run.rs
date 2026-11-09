@@ -104,6 +104,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
             config: profile.apps.config.clone(),
             keys: signing_keys(&profile.apps, app.store_keys.as_deref())?,
             store: profile.apps.store.clone(),
+            idle: app.app_idle,
         })?)
     } else {
         None
