@@ -5,13 +5,13 @@ import { useT } from "@harnix/react";
 
 import type { App } from "../app.ts";
 import { Connections } from "../dialogs.tsx";
+import { clock } from "../format.ts";
 import { useShell } from "../hooks.ts";
 import { Diagnostics } from "../settings.tsx";
 import { Agents } from "./agents.tsx";
 import { AppsTab, appsOffered } from "./apps.tsx";
 import { isActive, useAgentRows, useRunningTasks } from "./data.ts";
 import { systemFlows } from "./flows.ts";
-import { uptime } from "./format.ts";
 import type { ConsoleTab, InstanceRow, Process } from "./types.ts";
 import { useNow, useTopic, type View } from "./view.ts";
 
@@ -82,7 +82,7 @@ function Strip({ app, view }: { app: App; view: View }) {
     <div className="strip" data-testid="system-strip">
       {kpi("harnix", process?.harnix ?? "—", "Harnix")}
       {kpi("agix", process?.agix ?? "—", "Agix")}
-      {kpi("uptime", process?.uptime_secs != null ? uptime(process.uptime_secs + Math.floor((Date.now() - heard.current.at) / 1000)) : "—", tr("system.uptime"))}
+      {kpi("uptime", process?.uptime_secs != null ? clock(process.uptime_secs + Math.floor((Date.now() - heard.current.at) / 1000)) : "—", tr("system.uptime"))}
       {kpi("memory", process?.peak_rss_bytes ? `${Math.round(process.peak_rss_bytes / 1048576)} MB` : "—", tr("system.peakMemory"))}
       {kpi("threads", process?.threads != null ? String(process.threads) : "—", tr("system.threads"))}
       {kpi(

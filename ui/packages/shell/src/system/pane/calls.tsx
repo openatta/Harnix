@@ -6,7 +6,7 @@ import { Disclosure, clip, useT } from "@harnix/react";
 
 import type { App, SessionKey } from "../../app.ts";
 import { Glyph } from "../../glyph.tsx";
-import { messageText, tokens } from "../format.ts";
+import { messageText, usageText } from "../format.ts";
 import { locateInConversation } from "../navigate.ts";
 import type { TraceCall } from "../types.ts";
 import type { View } from "../view.ts";
@@ -124,7 +124,7 @@ export function CallsTab({ app, view, session }: { app: App; view: View; session
                     <span className="kd2">{call.purpose ? call.purpose : tr("system.step.model")}</span>
                     <b>#{call.index + 1}</b>
                     <span className="r">
-                      {call.model} · {tokens(call.usage)} · {call.duration_ms != null ? `${(call.duration_ms / 1000).toFixed(1)}s` : "—"}
+                      {call.model} · {usageText(call.usage)} · {call.duration_ms != null ? `${(call.duration_ms / 1000).toFixed(1)}s` : "—"}
                       {call.timing?.ttft_ms != null ? <span data-testid="call-ttft"> · {tr("system.ttft", { ms: call.timing.ttft_ms })}</span> : null}
                       {call.timing?.tokens_per_s != null ? ` · ${tr("system.rate", { rate: call.timing.tokens_per_s })}` : ""} · {call.stop_reason ?? call.outcome?.status}
                     </span>
@@ -317,7 +317,7 @@ function CallDetail({ app, session, call, previous, onBack }: { app: App; sessio
         </button>
       </div>
       <div className="cd-stats">
-        {tokens(call.usage)} · {call.duration_ms != null ? `${(call.duration_ms / 1000).toFixed(1)}s` : "—"} · {call.stop_reason ?? call.outcome?.status}
+        {usageText(call.usage)} · {call.duration_ms != null ? `${(call.duration_ms / 1000).toFixed(1)}s` : "—"} · {call.stop_reason ?? call.outcome?.status}
       </div>
       <div className="stabs" role="tablist">
         {(["input", "output"] as const).map((s) => (

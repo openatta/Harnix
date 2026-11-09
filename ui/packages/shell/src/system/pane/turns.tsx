@@ -5,7 +5,8 @@ import { errorText } from "@harnix/core";
 import { useT } from "@harnix/react";
 
 import type { App, SessionKey } from "../../app.ts";
-import { compact, tokens } from "../format.ts";
+import { compact } from "../../format.ts";
+import { usageText } from "../format.ts";
 import type { TraceCall, TurnRow } from "../types.ts";
 
 /**
@@ -101,7 +102,7 @@ export function TurnsTab({ app, session }: { app: App; session: SessionKey }) {
                         <td>{sec(call.timing?.ttft_ms)}</td>
                         <td>{sec(call.duration_ms)}</td>
                         <td>{call.tools.map((tool) => tool.name).join(", ") || "—"}</td>
-                        <td colSpan={2}>{tokens(call.usage)}</td>
+                        <td colSpan={2}>{usageText(call.usage)}</td>
                         <td>{call.timing?.tokens_per_s ?? "—"}</td>
                         <td />
                       </tr>

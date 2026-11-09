@@ -13,12 +13,10 @@ import { Fragment, useEffect, useState } from "react";
 import { useT } from "@harnix/react";
 
 import type { App } from "../app.ts";
+import { APPS_LIST, APPS_TOPIC } from "../constants.ts";
+import { megabytes } from "../format.ts";
 import { SurfaceCount, SurfaceDetail } from "../surfaces/status.tsx";
 import { topicsOf } from "../topics.ts";
-
-/** The topic, and the method whose presence says the process hosts applications at all. */
-export const APPS_TOPIC = "harnix.apps";
-const APPS_LIST = "harnix.apps.list";
 
 interface Health {
   world?: "tools" | "backend";
@@ -76,11 +74,9 @@ export function appsOffered(app: App): boolean {
   return app.snapshot.reachable.includes(APPS_LIST);
 }
 
-const mb = (bytes?: number) => (bytes == null ? "—" : `${(bytes / 1048576).toFixed(bytes < 1048576 ? 2 : 0)} MB`);
-
 /** What the row's dot says: running, idle with its backend stopped until the next call, set aside
  *  after faulting, switched off, or did not start. */
-function stateOf(row: AppRow): Runtime["state"] {
+function appState(row: AppRow): Runtime["state"] {
   if (!row.enabled) return "stopped";
   return row.runtime?.state ?? "stopped";
 }
@@ -118,7 +114,7 @@ export function AppsTab({ app }: { app: App }) {
         </thead>
         <tbody>
           {list.apps.map((row) => {
-            const state = stateOf(row);
+            const state = appState(row);
             const rt = row.runtime;
             const h = rt?.health ?? undefined;
             const backend = h?.world === "backend" ? (h.hibernating ? "asleep" : h.state === "running" ? "up" : "down") : null;
@@ -134,8 +130,8 @@ export function AppsTab({ app }: { app: App }) {
                   <td data-field="backend">{backend ? tr(`system.apps.backend.${backend}`) : "—"}</td>
                   <td data-field="recycles">{h ? `${h.recycles ?? 0} / ${h.rebuilds ?? 0}` : "—"}</td>
                   <td data-field="faults">{h ? `${h.faults ?? 0} · ${h.timeouts ?? 0}` : "—"}</td>
-                  <td data-field="memory">{h ? `${mb(h.memory_bytes)} / ${mb(h.memory_limit_bytes)}` : "—"}</td>
-                  <td data-field="storage">{h ? `${mb(h.storage_bytes)} / ${mb(h.storage_limit_bytes)}` : "—"}</td>
+                  <td data-field="memory">{h ? `${megabytes(h.memory_bytes)} / ${megabytes(h.memory_limit_bytes)}` : "—"}</td>
+                  <td data-field="storage">{h ? `${megabytes(h.storage_bytes)} / ${megabytes(h.storage_limit_bytes)}` : "—"}</td>
                   <td data-field="calls">{rt?.calls ? `${rt.calls.calls} · ${rt.calls.errors}` : "—"}</td>
                   <td data-field="refused">{refused.length}</td>
                   <td data-field="surfaces">

@@ -238,14 +238,6 @@ html.resizing #frame {
   color: var(--label-tertiary);
 }
 
-#side .prj .more {
-  display: none;
-}
-
-#side .prj:hover .more {
-  display: inline-flex;
-}
-
 /* The open project's conversations hang off a guide line: they belong to it. */
 #side .pgroup {
   margin: 0 0 4px 15px;

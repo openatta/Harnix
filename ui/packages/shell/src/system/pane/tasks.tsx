@@ -6,7 +6,7 @@ import { Disclosure, useT } from "@harnix/react";
 
 import { keyOf, type App, type SessionKey } from "../../app.ts";
 import { LIVE, OUTPUT_KEPT, STOP_ARM_MS, SYSTEM } from "../constants.ts";
-import { duration, taskLabel } from "../format.ts";
+import { taskDuration, taskLabel } from "../format.ts";
 import type { Task, Team } from "../types.ts";
 import { act, useSelection, useTopic, type View } from "../view.ts";
 import { Facts } from "./facts.tsx";
@@ -30,7 +30,7 @@ export function TasksTab({ app, view, session }: { app: App; view: View; session
             <span className="what truncate" title={taskLabel(task)}>
               {taskLabel(task)}
             </span>
-            <span className="when">{duration(task)}</span>
+            <span className="when">{taskDuration(task)}</span>
             {LIVE.has(task.status) ? (
               <StopTask onStop={() => void act(app, () => app.call("harnix.system.tasks.stop", { ...params, task_id: task.task_id }))} />
             ) : null}
@@ -270,7 +270,7 @@ function TaskDetail({ app, view, params, task }: { app: App; view: View; params:
     [tr("system.fact.agentType"), d.agent_type == null ? "" : String(d.agent_type)],
     [tr("system.fact.started"), when(task.started_ms)],
     [tr("system.fact.ended"), when(task.ended_ms)],
-    [tr("system.fact.duration"), duration(task)],
+    [tr("system.fact.duration"), taskDuration(task)],
   ];
   if (usage) {
     rows.push([

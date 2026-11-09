@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { clip, useT } from "@harnix/react";
 
 import { keyOf, type App, type SessionKey } from "../../app.ts";
-import { since } from "../../dialogs.tsx";
+import { since } from "../../format.ts";
 import { SYSTEM } from "../constants.ts";
 
 interface FrameRow {

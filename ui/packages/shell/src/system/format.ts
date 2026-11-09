@@ -1,38 +1,30 @@
-/** How the system space writes figures and labels: sizes, times, tokens, a message's text. */
+/**
+ * What the system space says of what it reads: an Agent's tokens, a call's usage, a task's label
+ * and how long it has run, a message's text. The plain writers of times and counts are the
+ * shell's (`../format.ts`).
+ */
 
 import { clip, t } from "@harnix/react";
 
+import { compact } from "../format.ts";
 import type { AgentUsage, Task, TraceCall } from "./types.ts";
 
-export function uptime(secs: number): string {
-  const h = Math.floor(secs / 3600);
-  const m = Math.floor((secs % 3600) / 60);
-  return h ? `${h}:${String(m).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}` : `${m}:${String(secs % 60).padStart(2, "0")}`;
-}
-
+/** Every token an Agent's run has used: what went in, from the cache or not, and what came out. */
 export function totalTokens(u: AgentUsage): number {
   return u.input_tokens + u.cache_read_tokens + u.cache_write_tokens + u.output_tokens;
 }
 
+/** The tokens of these Agents, split as the provider counts them. */
 export function tokenTip(u: AgentUsage[]): string {
   const sum = (k: keyof AgentUsage) => u.reduce((n, a) => n + Number(a[k] ?? 0), 0);
   return t("system.tokenTip", { input: sum("input_tokens"), read: sum("cache_read_tokens"), write: sum("cache_write_tokens"), output: sum("output_tokens") });
 }
 
-export function ms(n: number): string {
-  if (n < 1000) return `${n}ms`;
-  const secs = n / 1000;
-  return secs < 60 ? `${secs.toFixed(1)}s` : `${Math.floor(secs / 60)}m${String(Math.round(secs % 60)).padStart(2, "0")}s`;
-}
-
-export function tokens(usage: TraceCall["usage"]): string {
+/** One call's tokens in and out. */
+export function usageText(usage: TraceCall["usage"]): string {
   if (!usage) return "—";
   const input = (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0);
   return `in ${compact(input)} · out ${compact(usage.output_tokens ?? 0)}`;
-}
-
-export function compact(n: number): string {
-  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
 
 export function originLabel(origin: unknown): string {
@@ -69,7 +61,8 @@ export function taskLabel(task: Task): string {
   return clip(String(text), 120);
 }
 
-export function duration(task: Task): string {
+/** How long a task ran, or has run so far. */
+export function taskDuration(task: Task): string {
   if (!task.started_ms) return "";
   const secs = Math.max(0, Math.round(((task.ended_ms ?? Date.now()) - task.started_ms) / 1000));
   return secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m${String(secs % 60).padStart(2, "0")}s`;

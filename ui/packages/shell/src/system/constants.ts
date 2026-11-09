@@ -1,6 +1,6 @@
 /** The system space's names and limits, in one place. */
 
-export const SYSTEM = "system";
+export { SYSTEM } from "../constants.ts";
 
 export const OWNER = "builtin";
 

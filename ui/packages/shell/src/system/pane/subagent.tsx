@@ -6,7 +6,7 @@ import { clip, useT } from "@harnix/react";
 import type { App, SessionKey } from "../../app.ts";
 import { LIVE, SUB_PAGE, SYSTEM } from "../constants.ts";
 import { useAgentFacts } from "../data.ts";
-import { duration, messageText } from "../format.ts";
+import { messageText, taskDuration } from "../format.ts";
 import type { HistoryMessage, Task } from "../types.ts";
 import { useTopic, type View } from "../view.ts";
 import { Facts } from "./facts.tsx";
@@ -63,7 +63,7 @@ export function SubAgentOverview({ app, view, session, parent }: { app: App; vie
           [tr("system.fact.agentType"), d.agent_type == null ? "" : String(d.agent_type)],
           [tr("system.fact.what"), d.description == null ? "" : String(d.description)],
           [tr("system.fact.model"), own?.models.join(", ") ?? ""],
-          [tr("system.fact.duration"), task ? duration(task) : ""],
+          [tr("system.fact.duration"), task ? taskDuration(task) : ""],
         ].filter(([, v]) => v !== "") as [string, string][]}
       />
       <button type="button" className="btn sm outline wide" data-testid="agent-open-parent" onClick={() => view.select({ kind: "session", instance: session.instance, sessionId: parent })}>

@@ -6,10 +6,11 @@ import { useT } from "@harnix/react";
 import type { App, SessionKey } from "../../app.ts";
 import { confirmDialog, exportDialog, renameDialog } from "../../dialogs.tsx";
 import { Glyph } from "../../glyph.tsx";
+import { compact, millis } from "../../format.ts";
 import { useShell } from "../../hooks.ts";
 import { SYSTEM } from "../constants.ts";
 import { stateOf, stateSignature, useAgentFacts } from "../data.ts";
-import { compact, ms, totalTokens } from "../format.ts";
+import { totalTokens } from "../format.ts";
 import { openWhereItBelongs } from "../navigate.ts";
 import type { AgentRow, AgentUsage, Context, SessionRowView, TurnRow } from "../types.ts";
 import { act, useTopic, type View } from "../view.ts";
@@ -35,9 +36,9 @@ export function Stats({ own, turns }: { own: AgentUsage | undefined; turns: Turn
     ["total", tr("system.stat.total"), compact(input + output)],
     ["hit", tr("system.stat.cacheHit"), hit === null ? "—" : `${Math.round(hit * 100)}%`],
     ["rate", tr("system.stat.rate"), rate === null ? "—" : `${rate.toFixed(1)}/s`],
-    ["ttft", tr("system.stat.ttft"), ttfts.length ? ms(Math.round(ttfts.reduce((a, b) => a + b, 0) / ttfts.length)) : "—"],
-    ["model", tr("system.stat.time"), ms(own?.model_ms ?? sum((t) => t.model_ms))],
-    ["tool", tr("system.stat.toolTime"), turns.length ? ms(sum((t) => t.tool_ms)) : "—"],
+    ["ttft", tr("system.stat.ttft"), ttfts.length ? millis(Math.round(ttfts.reduce((a, b) => a + b, 0) / ttfts.length)) : "—"],
+    ["model", tr("system.stat.time"), millis(own?.model_ms ?? sum((t) => t.model_ms))],
+    ["tool", tr("system.stat.toolTime"), turns.length ? millis(sum((t) => t.tool_ms)) : "—"],
   ];
   return (
     <>
@@ -122,7 +123,7 @@ export function SessionOverview({ app, view, session }: { app: App; view: View; 
       <Stats own={own} turns={facts.turns} />
       {subs.length ? (
         <div className="note" data-testid="agent-subs">
-          {tr("system.subTotals", { count: subs.length, tokens: compact(subs.reduce((n, u) => n + totalTokens(u), 0)), time: ms(subs.reduce((n, u) => n + u.model_ms, 0)) })}
+          {tr("system.subTotals", { count: subs.length, tokens: compact(subs.reduce((n, u) => n + totalTokens(u), 0)), time: millis(subs.reduce((n, u) => n + u.model_ms, 0)) })}
         </div>
       ) : null}
       {space !== SYSTEM ? (

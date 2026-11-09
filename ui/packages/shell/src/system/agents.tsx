@@ -4,12 +4,12 @@ import { Fragment, useMemo, useState } from "react";
 import { clip, useT } from "@harnix/react";
 
 import type { App } from "../app.ts";
-import { since } from "../dialogs.tsx";
+import { compact, millis, since } from "../format.ts";
 import { Glyph } from "../glyph.tsx";
 import { useShell } from "../hooks.ts";
 import { PAGE, SYSTEM } from "./constants.ts";
 import { isActive, stateOf, useAgentRows, useGoals, useUsage } from "./data.ts";
-import { compact, duration, ms, taskLabel, tokenTip, totalTokens } from "./format.ts";
+import { taskDuration, taskLabel, tokenTip, totalTokens } from "./format.ts";
 import { TeamBoard } from "./pane/tasks.tsx";
 import type { AgentRow, AgentUsage, Goal, InstanceRow, Scope, Task, Team } from "./types.ts";
 import { isSelected, useNow, useSelection, useTopic, useTopicIf, type View } from "./view.ts";
@@ -160,7 +160,7 @@ function AgentItem({ app, view, row, usage, goal, turns, scope }: { app: App; vi
           {usage ? compact(tokens) : "—"}
         </span>
         <span className="stat" data-stat="time" title={tr("system.stat.time")}>
-          {usage ? ms(time) : "—"}
+          {usage ? millis(time) : "—"}
         </span>
         {row.turn_started_ms ? (
           <span className="el live" data-testid="system-agent-elapsed" title={tr("system.stat.elapsed")}>
@@ -212,7 +212,7 @@ function SubAgentRows({ view, instance, root, under, parent, depth }: { view: Vi
               <span className="act">{clip(label, 120)}</span>
               {u?.models[0] ? <span className="kd">{u.models[0]}</span> : null}
               <span className="stat" title={u ? tokenTip([u]) : ""}>{u ? compact(totalTokens(u)) : "—"}</span>
-              <span className="stat">{u ? ms(u.model_ms) : sub.task ? duration(sub.task) : "—"}</span>
+              <span className="stat">{u ? millis(u.model_ms) : sub.task ? taskDuration(sub.task) : "—"}</span>
             </div>
             <SubAgentRows view={view} instance={instance} root={root} under={under} parent={sub.id} depth={depth + 1} />
           </Fragment>
@@ -236,7 +236,7 @@ function TaskRow({ view, instance, sessionId, task, depth }: { view: View; insta
       <span className={`dot ${task.status}`} />
       <span className="nm">{tr(`system.task.${task.kind}`)}</span>
       <span className="act">{taskLabel(task)}</span>
-      <span className="el">{duration(task)}</span>
+      <span className="el">{taskDuration(task)}</span>
     </div>
   );
 }
