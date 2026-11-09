@@ -5,8 +5,9 @@
 > 系统 space 是 Harnix 的三部分之一（框架、[Harnix app](harnix-app.md)、系统 space），**始终在**，除非产品在
 > `[shell] spaces` 里去掉它。为什么是这个形状见 [概念与架构](concept_and_architecture.md) §5.5。用词照 [术语](glossary.md)。
 >
-> 本文照代码写：界面在 `ui/packages/shell/src/system.tsx`、`system-apps.tsx`、`system-flows.ts`、`flow.ts`，流程的界面在
-> `ui/packages/flow/src/`，后端在 `crates/builtin/src/system.rs` 与 `crates/hub`。对不上时以代码为准。
+> 本文照代码写：界面在 `ui/packages/shell/src/system/`（入口 `index.tsx`；中栏 `console.tsx`、`agents.tsx`，应用页签
+> `apps.tsx`，流程页签 `flows.ts`；右栏各页签在 `pane/`）和 `flow.ts`，流程的界面在 `ui/packages/flow/src/`，
+> 后端在 `crates/builtin/src/system.rs` 与 `crates/hub`。对不上时以代码为准。
 
 ---
 

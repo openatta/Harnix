@@ -12,9 +12,9 @@
 import { Fragment, useEffect, useState } from "react";
 import { useT } from "@harnix/react";
 
-import type { App } from "./app.ts";
-import { SurfaceCount, SurfaceDetail } from "./surfaces/status.tsx";
-import { topicsOf } from "./topics.ts";
+import type { App } from "../app.ts";
+import { SurfaceCount, SurfaceDetail } from "../surfaces/status.tsx";
+import { topicsOf } from "../topics.ts";
 
 /** The topic, and the method whose presence says the process hosts applications at all. */
 export const APPS_TOPIC = "harnix.apps";

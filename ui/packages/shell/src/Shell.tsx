@@ -40,7 +40,7 @@ import { listenForLayers, modalUp, useLayer } from "./layers.ts";
 import { MenuHost, menuBelow } from "./Menu.tsx";
 import { openSettings } from "./settings.tsx";
 import { Sidebar, spacesOf } from "./Sidebar.tsx";
-import { SYSTEM, openInSystem, systemOffered } from "./system.tsx";
+import { SYSTEM, openInSystem, systemOffered } from "./system/index.tsx";
 
 export function Shell({ app }: { app: App }) {
   const s = useSyncExternalStore(app.subscribe, app.getSnapshot);
