@@ -17,14 +17,17 @@
 //!   `[apps] dev = true`, the developer's door and nobody else's. All or nothing: a step that fails
 //!   undoes the ones before it.
 //! - `harnix.apps.catalog` — what the store (`[apps] store`) offers this Harnix, and what of it is
-//!   installed here.
+//!   installed here: an installed version the store has withdrawn (revoked, or older than its
+//!   `min_version`) is flagged there, and its record keeps the flag (`revoked`) for the list.
 //! - `harnix.apps.install {id, version?, consent?}` — from the store, by name: resolved, downloaded,
 //!   verified, and **disclosed** — the first call answers what the application would be granted and
 //!   a digest; the same call with `consent: <digest>` installs exactly that, or is disclosed afresh
 //!   if what would be installed has changed since. All or nothing.
-//! - `harnix.apps.update {id, version?, consent?}` — to the store's newest (or the given) version.
-//!   An update that asks for nothing more than the installed version had goes ahead; one that asks
-//!   for more lists only what it adds and waits for consent as `install` does. A failed update
+//! - `harnix.apps.update {id, version?, consent?, allow_downgrade?}` — to the store's newest (or the
+//!   given) version. An update that asks for nothing more than the installed version had goes
+//!   ahead; one that asks for more lists only what it adds and waits for consent as `install` does.
+//!   An older version than the installed one is refused unless `allow_downgrade: true`, and then
+//!   disclosed (`update.downgrade`) and consented to however little it asks for. A failed update
 //!   leaves the installed version as it was. Its data is kept.
 //! - `harnix.apps.enable {id}` / `harnix.apps.disable {id}` — flip a record's `enabled`, and start
 //!   or stop the application: new sessions have its tools, or do not. An enable that fails to start
@@ -37,7 +40,10 @@
 //! - The topic `harnix.apps` — the same value as `harnix.apps.list`, pushed whenever it changes:
 //!   what the system space's Apps tab draws (each application's VM health, its calls and errors,
 //!   the calls it was refused). Looked at once a second while the process runs, and pushed only
-//!   when something in it moved.
+//!   when something in it moved. A look is cheap: what each application's manifest describes is
+//!   kept by id and version; each one's status is asked again only when the runtime's
+//!   `generation` moved (or every [`RESYNC_EVERY`], for what a VM changes without saying); and
+//!   what it keeps is what its VM counted, not a walk of its directory.
 //!
 //! The record keeps how far the package was trusted (`parts.trust`: `store`, `trusted`,
 //! `unsigned`) and where it came from (`parts.source`: `store` or `file`), as the runtime verified
@@ -47,6 +53,7 @@
 //! names no WebAssembly. A build without it keeps the records and the switches and refuses to
 //! install, saying why.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -65,6 +72,10 @@ pub const TOPIC: &str = "apps";
 
 /// How often the list is looked at for a change to push.
 const WATCH_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// How often a look asks the runtime for every status although its generation did not move: for
+/// what a VM changes without passing through anything that counts (the memory it holds).
+pub const RESYNC_EVERY: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Every method this module adds.
 pub const METHODS: &[&str] = &[
@@ -92,7 +103,7 @@ pub const GRANTS: &[&str] = &[
 ];
 
 /// One install record.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct InstallRecord {
     pub id: String,
     pub version: String,
@@ -104,6 +115,32 @@ pub struct InstallRecord {
     /// instances, its skills): what uninstalling has to take back. Opaque here.
     #[serde(default, skip_serializing_if = "Value::is_null")]
     pub parts: Value,
+    /// Why the store withdrew this version, as its catalog said when it was last read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revoked: Option<String>,
+    /// Why it is switched off when nobody switched it off: an update failed and the version it
+    /// was to replace did not come back. Cleared when it starts again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// An update that did not happen, and what became of the version it was to replace.
+#[derive(Debug)]
+pub struct UpdateFailed {
+    pub error: RpcError,
+    /// `None`: the installed version was not touched. `Some(Ok(parts))`: it was taken down and put
+    /// back, and `parts` is what putting it back put where, which its record must say from now on.
+    /// `Some(Err(why))`: it did not come back.
+    pub restored: Option<Result<Value, String>>,
+}
+
+impl From<RpcError> for UpdateFailed {
+    fn from(error: RpcError) -> Self {
+        Self {
+            error,
+            restored: None,
+        }
+    }
 }
 
 /// What a package says it is, read before anything is written.
@@ -125,8 +162,11 @@ pub struct Disclosed {
     pub disclosure: Value,
     /// Changes when the package, its trust or the version it replaces does.
     pub digest: String,
-    /// An update that asks for more than the installed version had; an install always does.
+    /// An update that asks for more than the installed version had, or goes back to an older
+    /// one; an install always does.
     pub needs_consent: bool,
+    /// An update to an older version than the installed one.
+    pub downgrade: bool,
 }
 
 /// What loads, runs and removes applications. `harnix-apps` implements it, in a build with the
@@ -181,11 +221,15 @@ pub trait AppsRuntime: Send + Sync {
             disclosure: Value::Null,
             digest: String::new(),
             needs_consent: true,
+            downgrade: false,
         })
     }
 
-    /// What the store offers this Harnix.
-    async fn catalog(&self) -> Result<Value, RpcError> {
+    /// What the store offers this Harnix; `installed`, the version of each application installed
+    /// here (by id), which each of the catalog's applications says it has and flags as
+    /// `installed_revoked` (why) when the store withdrew it.
+    async fn catalog(&self, installed: &BTreeMap<String, String>) -> Result<Value, RpcError> {
+        let _ = installed;
         Err(RpcError::refused("this application runtime has no store"))
     }
 
@@ -198,23 +242,39 @@ pub trait AppsRuntime: Send + Sync {
     }
 
     /// Replace the installed version (`record`, stopped or running) with `package`, keeping its
-    /// data. On an error the installed version is as it was — running again if it was. Answers the
-    /// new record's `parts`, and a summary.
+    /// data. On an error the installed version is put back as it was — running again if it was —
+    /// and the failure says whether that worked ([`UpdateFailed::restored`]). Answers the new
+    /// record's `parts`, and a summary.
     async fn update(
         &self,
         cx: &ModuleContext,
         record: &InstallRecord,
         package: &Path,
         app_dir: &Path,
-    ) -> Result<(Value, Value), RpcError> {
+    ) -> Result<(Value, Value), UpdateFailed> {
         let _ = (cx, record, package, app_dir);
-        Err(RpcError::refused("this application runtime does not update applications"))
+        Err(RpcError::refused("this application runtime does not update applications").into())
     }
 
-    /// What an installed application is and asks for, from its own manifest.
+    /// What an installed application is and asks for, from its own manifest. Asked once per id
+    /// and version.
     fn describe(&self, record: &InstallRecord, app_dir: &Path) -> Value {
         let _ = (record, app_dir);
         Value::Null
+    }
+
+    /// A number that moves whenever [`status`](Self::status) of some application may answer
+    /// something else: what is looked at once a second asks for the statuses again only then.
+    /// `None`: the runtime cannot tell, and is asked every time.
+    fn generation(&self) -> Option<u64> {
+        None
+    }
+
+    /// What an application that is not running keeps under `app_dir`, in bytes; `None` when it is
+    /// not measured. (One that runs says so in its status: `health.storage_bytes`.)
+    fn data_bytes(&self, app_dir: &Path) -> Option<u64> {
+        let _ = app_dir;
+        None
     }
 }
 
@@ -234,6 +294,35 @@ struct Shared {
     serial: tokio::sync::Mutex<()>,
     /// What pushes `harnix.apps`, while the module runs.
     watcher: std::sync::Mutex<Option<tokio::task::AbortHandle>>,
+    /// What the last look was made of ([`snapshot`]).
+    looked: std::sync::Mutex<Looked>,
+}
+
+/// What the last look at the applications read, to read again only what may have changed.
+#[derive(Default)]
+struct Looked {
+    /// `describe`, by id and version: an unpacked version's manifest does not change under it.
+    described: std::collections::HashMap<(String, String), Value>,
+    /// The runtime's generation the statuses were read at, and when; `None`: read them again.
+    generation: Option<u64>,
+    at: Option<std::time::Instant>,
+    /// Each application's status, and what it keeps, as read then.
+    status: std::collections::HashMap<String, (Value, Option<u64>)>,
+}
+
+impl Shared {
+    fn looked(&self) -> std::sync::MutexGuard<'_, Looked> {
+        self.looked.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Something was done to the applications here: the next look reads everything of `id` again.
+    fn changed(&self, id: Option<&str>) {
+        let mut looked = self.looked();
+        looked.generation = None;
+        if let Some(id) = id {
+            looked.described.retain(|(of, _), _| of != id);
+        }
+    }
 }
 
 impl AppsModule {
@@ -245,6 +334,7 @@ impl AppsModule {
                 runtime: None,
                 serial: tokio::sync::Mutex::new(()),
                 watcher: std::sync::Mutex::new(None),
+                looked: std::sync::Mutex::default(),
             }),
         }
     }
@@ -268,6 +358,7 @@ impl AppsModule {
             runtime,
             serial: tokio::sync::Mutex::new(()),
             watcher: std::sync::Mutex::new(None),
+            looked: std::sync::Mutex::default(),
         };
         f(&mut shared);
         Self {
@@ -327,7 +418,7 @@ impl Module for AppsModule {
         let task = tokio::spawn(async move {
             let mut last = Value::Null;
             loop {
-                let now = snapshot(&shared, cx.apps().as_ref()).await;
+                let now = snapshot(&shared, cx.apps().as_ref(), false).await;
                 if now != last {
                     if let Err(e) = cx.events().publish(TOPIC, json!({}), &now).await {
                         tracing::warn!(error = %e.message, "harnix.apps was not published");
@@ -374,12 +465,24 @@ fn no_runtime() -> RpcError {
 #[async_trait::async_trait]
 impl Handler for AppsMethod {
     async fn call(&self, cx: CallContext, params: Value) -> Result<Value, RpcError> {
+        let id = params.get("id").and_then(Value::as_str).map(str::to_string);
+        let answer = self.answer(cx, params).await;
+        if !matches!(self.name, "harnix.apps.list" | "harnix.apps.catalog") {
+            self.shared.changed(id.as_deref());
+        }
+        answer
+    }
+}
+
+impl AppsMethod {
+    async fn answer(&self, cx: CallContext, params: Value) -> Result<Value, RpcError> {
         let shared = &self.shared;
         let module = cx.module();
         let host = module.apps();
         let runtime = shared.runtime.as_ref();
         match self.name {
-            "harnix.apps.list" => Ok(snapshot(shared, host.as_ref()).await),
+            // Asked: read afresh, but for what does not change under a version.
+            "harnix.apps.list" => Ok(snapshot(shared, host.as_ref(), true).await),
             "harnix.apps.installFile" => {
                 let runtime = runtime.ok_or_else(no_runtime)?;
                 let path = params
@@ -401,14 +504,26 @@ impl Handler for AppsMethod {
             }
             "harnix.apps.catalog" => {
                 let runtime = runtime.ok_or_else(no_runtime)?;
-                let mut catalog = runtime.catalog().await?;
                 let (installed, _) = read_all(&shared.dir);
-                if let Some(apps) = catalog.get_mut("apps").and_then(Value::as_array_mut) {
-                    for app in apps {
-                        let id = app["id"].as_str().unwrap_or_default().to_string();
-                        if let Some(record) = installed.iter().find(|r| r.id == id) {
-                            app["installed"] = json!(record.version);
+                let versions = installed.iter().map(|r| (r.id.clone(), r.version.clone())).collect();
+                let catalog = runtime.catalog(&versions).await?;
+                // What the store says of a version installed here stays with its record: the list
+                // shows it without asking the store.
+                let _serial = shared.serial.lock().await;
+                for app in catalog["apps"].as_array().into_iter().flatten() {
+                    let (Some(id), Some(version)) = (app["id"].as_str(), app["installed"].as_str()) else {
+                        continue;
+                    };
+                    let revoked = app["installed_revoked"].as_str().map(str::to_string);
+                    match read_one(&shared.dir, id) {
+                        Ok(mut record) if record.version == version && record.revoked != revoked => {
+                            if let Some(why) = &revoked {
+                                tracing::warn!(app = %id, %version, reason = %why, "the store has withdrawn an installed version");
+                            }
+                            record.revoked = revoked;
+                            write_one(&shared.dir, &record)?;
                         }
+                        _ => {}
                     }
                 }
                 Ok(catalog)
@@ -421,6 +536,7 @@ impl Handler for AppsMethod {
                 }
                 let version = params.get("version").and_then(Value::as_str);
                 let consent = params.get("consent").and_then(Value::as_str);
+                let allow_downgrade = params.get("allow_downgrade").and_then(Value::as_bool) == Some(true);
                 let updating = self.name == "harnix.apps.update";
                 let _serial = shared.serial.lock().await;
                 let installed = read_one(&shared.dir, &id).ok();
@@ -437,7 +553,7 @@ impl Handler for AppsMethod {
                 if installed.is_none() && shared.dir.join(&id).exists() {
                     refuse_installed(&shared.dir, &id)?;
                 }
-                let staging = shared.dir.join(STAGING).join(uuid_like());
+                let staging = shared.dir.join(STAGING).join(uuid::Uuid::new_v4().simple().to_string());
                 let outcome = async {
                     let package = runtime.fetch(&id, version, &staging).await?;
                     let app_dir = shared.dir.join(&id);
@@ -450,7 +566,7 @@ impl Handler for AppsMethod {
                     }
                     if let Some(record) = &installed {
                         // Without a version asked for, an update goes forward or nowhere.
-                        let behind = version.is_none() && !newer(&disclosed.info.version, &record.version);
+                        let behind = version.is_none() && disclosed.downgrade;
                         if record.version == disclosed.info.version || behind {
                             return Ok(json!({
                                 "id": id,
@@ -458,6 +574,15 @@ impl Handler for AppsMethod {
                                 "latest": disclosed.info.version,
                                 "up_to_date": true,
                             }));
+                        }
+                        // Back to an older version only when that is what was asked for: whoever
+                        // serves the store cannot make an update one.
+                        if disclosed.downgrade && !allow_downgrade {
+                            return Err(RpcError::refused(format!(
+                                "`{id}` {} is older than the installed {}: going back to it is asked for \
+                                 with `allow_downgrade: true`",
+                                disclosed.info.version, record.version
+                            )));
                         }
                     }
                     let consented = consent == Some(disclosed.digest.as_str());
@@ -501,7 +626,13 @@ impl Handler for AppsMethod {
                 if let Some(runtime) = runtime {
                     if enabled {
                         match runtime.load(module, &record, &shared.dir.join(&id)).await {
-                            Ok(summary) => started = summary,
+                            Ok(summary) => {
+                                started = summary;
+                                // Started again: whatever left it off is over.
+                                if record.reason.take().is_some() {
+                                    write_one(&shared.dir, &record)?;
+                                }
+                            }
                             Err(e) => {
                                 // What was asked for did not happen: it stays as it was.
                                 record.enabled = false;
@@ -533,12 +664,15 @@ impl Handler for AppsMethod {
                 let _serial = shared.serial.lock().await;
                 let record = read_one(&shared.dir, &id)?;
                 let app_dir = shared.dir.join(&id);
+                let status = match runtime {
+                    Some(r) => r.status(&id).await,
+                    None => Value::Null,
+                };
+                // What the list said it keeps, counted the same way.
+                let before = runtime.and_then(|r| kept_bytes(r.as_ref(), &status, &app_dir));
                 // Stopped around it: a backend's memory, or a store it has open, would outlive the
                 // files otherwise.
-                let running = match runtime {
-                    Some(r) if record.enabled => r.status(&id).await["state"] != json!("stopped"),
-                    _ => false,
-                };
+                let running = record.enabled && runtime.is_some() && status["state"] != json!("stopped");
                 if running {
                     if let Some(runtime) = runtime {
                         runtime.unload(module, &record).await;
@@ -555,12 +689,16 @@ impl Handler for AppsMethod {
                         };
                     }
                 }
-                let cleared = cleared.map_err(|e| internal(format!("{}: {e}", app_dir.display())))?;
-                tracing::info!(app = %id, bytes = cleared, "application data cleared");
+                cleared.map_err(|e| internal(format!("{}: {e}", app_dir.display())))?;
+                let after = match runtime {
+                    Some(r) => kept_bytes(r.as_ref(), &r.status(&id).await, &app_dir),
+                    None => None,
+                };
+                tracing::info!(app = %id, bytes = ?before, "application data cleared");
                 Ok(json!({
                     "id": id,
-                    "cleared_bytes": cleared,
-                    "data_bytes": data_bytes(&app_dir),
+                    "cleared_bytes": before,
+                    "data_bytes": after,
                     "restarted": running,
                     "started": started,
                 }))
@@ -592,31 +730,69 @@ impl Handler for AppsMethod {
 
 /// Every record (and the ones that do not read, with why), what the runtime says of each, and every
 /// application registered with the host now: `harnix.apps.list`, and the value of `harnix.apps`.
-async fn snapshot(shared: &Shared, host: Option<&AppHost>) -> Value {
+/// Each application's status (and what it keeps) is read again only when `fresh`, when the
+/// runtime's generation moved since the last look, or when that look is [`RESYNC_EVERY`] old; its
+/// description once per version.
+async fn snapshot(shared: &Shared, host: Option<&AppHost>, fresh: bool) -> Value {
     let runtime = shared.runtime.as_ref();
     let (installed, unreadable) = read_all(&shared.dir);
     let registered = host.map(|h| h.registered()).unwrap_or_default();
+    let generation = runtime.and_then(|r| r.generation());
+    let reuse = {
+        let looked = shared.looked();
+        !fresh
+            && generation.is_some()
+            && looked.generation == generation
+            && looked.at.is_some_and(|at| at.elapsed() < RESYNC_EVERY)
+    };
     let mut apps: Vec<Value> = Vec::with_capacity(installed.len());
+    let mut statuses = std::collections::HashMap::new();
     for r in &installed {
-        apps.push({
-            let live = registered.iter().find(|s| s.id == r.id);
-            let app_dir = shared.dir.join(&r.id);
-            let mut entry = json!({
-                "id": r.id,
-                "version": r.version,
-                "title": r.title,
-                "enabled": r.enabled,
-                "registered": live.is_some(),
-                "trust": r.parts.get("trust").cloned().unwrap_or(json!("unsigned")),
-                "source": r.parts.get("source").cloned().unwrap_or(json!("file")),
-                "data_bytes": data_bytes(&app_dir),
-            });
-            if let Some(runtime) = runtime {
-                entry["runtime"] = runtime.status(&r.id).await;
-                entry["app"] = runtime.describe(r, &app_dir);
+        let live = registered.iter().find(|s| s.id == r.id);
+        let app_dir = shared.dir.join(&r.id);
+        let cached = if reuse { shared.looked().status.get(&r.id).cloned() } else { None };
+        let (status, kept) = match (cached, runtime) {
+            (Some(cached), _) => cached,
+            (None, Some(runtime)) => {
+                let status = runtime.status(&r.id).await;
+                let kept = kept_bytes(runtime.as_ref(), &status, &app_dir);
+                (status, kept)
             }
-            entry
+            (None, None) => (Value::Null, None),
+        };
+        let mut entry = json!({
+            "id": r.id,
+            "version": r.version,
+            "title": r.title,
+            "enabled": r.enabled,
+            "registered": live.is_some(),
+            "trust": r.parts.get("trust").cloned().unwrap_or(json!("unsigned")),
+            "source": r.parts.get("source").cloned().unwrap_or(json!("file")),
+            "data_bytes": kept,
         });
+        if let Some(why) = &r.revoked {
+            entry["revoked"] = json!(why);
+        }
+        if let Some(why) = &r.reason {
+            entry["reason"] = json!(why);
+        }
+        if let Some(runtime) = runtime {
+            entry["runtime"] = status.clone();
+            entry["app"] = described(shared, runtime.as_ref(), r, &app_dir);
+        }
+        statuses.insert(r.id.clone(), (status, kept));
+        apps.push(entry);
+    }
+    {
+        let mut looked = shared.looked();
+        if !reuse {
+            looked.generation = generation;
+            looked.at = Some(std::time::Instant::now());
+        }
+        looked.status = statuses;
+        looked
+            .described
+            .retain(|(id, version), _| installed.iter().any(|r| r.id == *id && r.version == *version));
     }
     json!({
         "dir": shared.dir.display().to_string(),
@@ -627,29 +803,35 @@ async fn snapshot(shared: &Shared, host: Option<&AppHost>) -> Value {
     })
 }
 
-/// Whether a directory name can be an application id (the host's rule: dot-separated segments of
-/// lowercase letters, digits and `-`, each starting with a letter).
-pub fn valid_id(id: &str) -> bool {
-    id.len() <= 64
-        && id.split('.').all(|segment| {
-            let mut chars = segment.chars();
-            matches!(chars.next(), Some('a'..='z')) && chars.all(|c| matches!(c, 'a'..='z' | '0'..='9' | '-'))
-        })
+/// What an installed version's manifest describes, read once per id and version.
+fn described(shared: &Shared, runtime: &dyn AppsRuntime, record: &InstallRecord, app_dir: &Path) -> Value {
+    let key = (record.id.clone(), record.version.clone());
+    if let Some(described) = shared.looked().described.get(&key) {
+        return described.clone();
+    }
+    let described = runtime.describe(record, app_dir);
+    // One that does not read yet (being unpacked, or broken) is asked again next time.
+    if !described.is_null() {
+        shared.looked().described.insert(key, described.clone());
+    }
+    described
 }
+
+/// What an application keeps, in bytes: as its VM counts it against its quota while it runs
+/// (`health.storage_bytes`), measured on disk by the runtime when it does not.
+fn kept_bytes(runtime: &dyn AppsRuntime, status: &Value, app_dir: &Path) -> Option<u64> {
+    status["health"]["storage_bytes"]
+        .as_u64()
+        .or_else(|| runtime.data_bytes(app_dir))
+}
+
+/// Whether a directory name can be an application id: the rule a package's manifest is held to
+/// as well (`harnix_contract::apps`).
+pub use harnix_contract::apps::valid_id;
 
 /// Where downloads wait to be disclosed and installed: under the records' directory, so on the
 /// same disk, and skipped as not a record.
 const STAGING: &str = ".staging";
-
-fn uuid_like() -> String {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    format!("{}-{nanos}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed))
-}
 
 fn refuse_installed(dir: &Path, id: &str) -> Result<(), RpcError> {
     if read_one(dir, id).is_ok() || dir.join(id).exists() {
@@ -681,6 +863,7 @@ async fn install(
         title: info.title.clone(),
         enabled: true,
         parts,
+        ..InstallRecord::default()
     };
     if let Err(e) = write_one(&shared.dir, &record) {
         // The record is what makes it installed; without it, take the rest back.
@@ -712,7 +895,13 @@ async fn update(
     disclosed: &Disclosed,
 ) -> Result<Value, RpcError> {
     let app_dir = shared.dir.join(&record.id);
-    let (mut parts, summary) = runtime.update(module, record, path, &app_dir).await?;
+    let (mut parts, summary) = match runtime.update(module, record, path, &app_dir).await {
+        Ok(done) => done,
+        Err(failed) => {
+            settle_failed_update(&shared.dir, record, &disclosed.info.version, failed.restored);
+            return Err(failed.error);
+        }
+    };
     if parts.is_object() {
         parts["source"] = json!("store");
     }
@@ -722,13 +911,16 @@ async fn update(
         title: disclosed.info.title.clone(),
         enabled: record.enabled,
         parts,
+        // Another version: what the store said of the last one is not said of this.
+        ..InstallRecord::default()
     };
     write_one(&shared.dir, &next)?;
-    tracing::info!(app = %next.id, from = %record.version, to = %next.version, "application updated");
+    tracing::info!(app = %next.id, from = %record.version, to = %next.version, downgrade = disclosed.downgrade, "application updated");
     Ok(json!({
         "id": next.id,
         "version": next.version,
         "from": record.version,
+        "downgrade": disclosed.downgrade,
         "title": next.title,
         "enabled": next.enabled,
         "trust": disclosed.trust,
@@ -736,38 +928,41 @@ async fn update(
     }))
 }
 
-/// Whether the version `a` is after `b` (`x.y.z`, numerically; a pre-release before its release).
-fn newer(a: &str, b: &str) -> bool {
-    let split = |v: &str| {
-        let (core, pre) = v.split_once('-').map_or((v, None), |(c, p)| (c, Some(p.to_string())));
-        let nums: Vec<u64> = core.split('.').map(|n| n.parse().unwrap_or(0)).collect();
-        // A release sorts after every pre-release of it.
-        (nums, pre.is_none(), pre)
-    };
-    split(a) > split(b)
-}
-
-/// What an application keeps: its data directory and its key-value store.
-fn data_bytes(app_dir: &Path) -> u64 {
-    fn size(path: &Path) -> u64 {
-        let Ok(meta) = std::fs::symlink_metadata(path) else {
-            return 0;
-        };
-        if meta.is_dir() {
-            std::fs::read_dir(path)
-                .map(|entries| entries.flatten().map(|e| size(&e.path())).sum())
-                .unwrap_or(0)
-        } else {
-            meta.len()
+/// Make the record of an update that failed say what is installed now: the version put back, with
+/// what putting it back put where; or, when it did not come back, switched off and why — not
+/// "installed and enabled" over nothing that runs.
+fn settle_failed_update(dir: &Path, record: &InstallRecord, to: &str, restored: Option<Result<Value, String>>) {
+    let next = match restored {
+        None => return,
+        Some(Ok(mut parts)) => {
+            if parts.is_object() {
+                parts["source"] = record.parts.get("source").cloned().unwrap_or(json!("store"));
+            }
+            InstallRecord {
+                parts,
+                ..record.clone()
+            }
         }
+        Some(Err(why)) => {
+            tracing::error!(app = %record.id, from = %record.version, %to, error = %why, "after a failed update the installed version did not come back; it is switched off");
+            InstallRecord {
+                enabled: false,
+                reason: Some(format!(
+                    "the update to {to} failed, and {} did not come back: {why}",
+                    record.version
+                )),
+                ..record.clone()
+            }
+        }
+    };
+    if let Err(e) = write_one(dir, &next) {
+        tracing::error!(app = %record.id, error = %e.message, "the record of a failed update was not rewritten");
     }
-    size(&app_dir.join("data")) + size(&app_dir.join("kv"))
 }
 
-/// Delete what an application keeps (what `data_bytes` counts), leaving its directories in place
-/// and empty: how many bytes went.
-fn clear_data(app_dir: &Path) -> std::io::Result<u64> {
-    let before = data_bytes(app_dir);
+/// Delete what an application keeps — its data directory and its key-value store — leaving the
+/// directories in place and empty.
+fn clear_data(app_dir: &Path) -> std::io::Result<()> {
     for part in ["data", "kv"] {
         let dir = app_dir.join(part);
         match std::fs::remove_dir_all(&dir) {
@@ -776,7 +971,7 @@ fn clear_data(app_dir: &Path) -> std::io::Result<u64> {
             Err(e) => return Err(e),
         }
     }
-    Ok(before - data_bytes(app_dir).min(before))
+    Ok(())
 }
 
 fn internal(e: impl std::fmt::Display) -> RpcError {
@@ -875,24 +1070,9 @@ mod tests {
     }
 
     #[test]
-    fn versions_are_compared_as_numbers() {
-        assert!(newer("0.10.0", "0.2.0"));
-        assert!(newer("0.2.0", "0.2.0-rc.1"));
-        assert!(!newer("0.2.0", "0.2.0"));
-        assert!(!newer("0.1.9", "0.2.0"));
-    }
-
-    #[test]
-    fn what_an_application_keeps_is_counted_and_downloads_are_not_records() {
+    fn downloads_are_not_records() {
         let dir = tempfile::tempdir().unwrap();
-        let app = dir.path().join("acme.notes");
-        std::fs::create_dir_all(app.join("data/sub")).unwrap();
-        std::fs::create_dir_all(app.join("kv")).unwrap();
-        std::fs::create_dir_all(app.join("1.0.0")).unwrap();
-        std::fs::write(app.join("data/sub/a"), [0u8; 10]).unwrap();
-        std::fs::write(app.join("kv/b"), [0u8; 5]).unwrap();
-        std::fs::write(app.join("1.0.0/package-file"), [0u8; 100]).unwrap();
-        assert_eq!(data_bytes(&app), 15);
+        std::fs::create_dir_all(dir.path().join("acme.notes/1.0.0")).unwrap();
         std::fs::create_dir_all(dir.path().join(STAGING).join("x")).unwrap();
         let (records, unreadable) = read_all(dir.path());
         assert!(records.is_empty());
@@ -911,16 +1091,188 @@ mod tests {
         std::fs::write(app.join("kv/b"), [0u8; 5]).unwrap();
         std::fs::write(app.join("1.0.0/package-file"), [0u8; 100]).unwrap();
         std::fs::write(app.join(RECORD), "{}").unwrap();
-        assert_eq!(clear_data(&app).unwrap(), 15);
-        assert_eq!(data_bytes(&app), 0);
-        // The directories are there to be written again; the package and the record are untouched.
-        assert!(app.join("data").is_dir() && app.join("kv").is_dir());
+        clear_data(&app).unwrap();
+        // The directories are there to be written again, empty; the package and the record are
+        // untouched.
+        assert_eq!(std::fs::read_dir(app.join("data")).unwrap().count(), 0);
+        assert_eq!(std::fs::read_dir(app.join("kv")).unwrap().count(), 0);
         assert!(app.join("1.0.0/package-file").exists() && app.join(RECORD).exists());
         // Nothing kept, nothing to clear.
         let bare = dir.path().join("acme.bare");
         std::fs::create_dir_all(&bare).unwrap();
-        assert_eq!(clear_data(&bare).unwrap(), 0);
+        clear_data(&bare).unwrap();
         assert!(!bare.join("data").exists());
+    }
+
+    /// A runtime that counts what it is asked.
+    #[derive(Default)]
+    struct Counting {
+        generation: std::sync::atomic::AtomicU64,
+        statuses: std::sync::atomic::AtomicUsize,
+        described: std::sync::atomic::AtomicUsize,
+        measured: std::sync::atomic::AtomicUsize,
+        /// Whether its status has a VM's health.
+        health: std::sync::atomic::AtomicBool,
+    }
+
+    #[async_trait::async_trait]
+    impl AppsRuntime for Counting {
+        fn fingerprint(&self) -> String {
+            "fp".into()
+        }
+        fn inspect(&self, _: &Path) -> Result<PackageInfo, RpcError> {
+            unreachable!()
+        }
+        async fn install(&self, _: &ModuleContext, _: &Path, _: &Path) -> Result<(Value, Value), RpcError> {
+            unreachable!()
+        }
+        async fn load(&self, _: &ModuleContext, _: &InstallRecord, _: &Path) -> Result<Value, RpcError> {
+            unreachable!()
+        }
+        async fn unload(&self, _: &ModuleContext, _: &InstallRecord) {}
+        async fn uninstall(&self, _: &ModuleContext, _: &InstallRecord, _: &Path) -> Result<Value, RpcError> {
+            unreachable!()
+        }
+        async fn status(&self, _: &str) -> Value {
+            use std::sync::atomic::Ordering::SeqCst;
+            let n = self.statuses.fetch_add(1, SeqCst);
+            if self.health.load(SeqCst) {
+                json!({"state": "running", "n": n, "health": {"storage_bytes": 42}})
+            } else {
+                json!({"state": "stopped", "n": n})
+            }
+        }
+        async fn shutdown(&self) {}
+        fn describe(&self, _: &InstallRecord, _: &Path) -> Value {
+            self.described.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            json!({"publisher": "acme"})
+        }
+        fn generation(&self) -> Option<u64> {
+            Some(self.generation.load(std::sync::atomic::Ordering::SeqCst))
+        }
+        fn data_bytes(&self, _: &Path) -> Option<u64> {
+            self.measured.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Some(7)
+        }
+    }
+
+    #[tokio::test]
+    async fn a_look_reads_again_only_what_may_have_changed() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let dir = tempfile::tempdir().unwrap();
+        seed(dir.path(), "acme.notes", r#"{"id": "acme.notes", "version": "1.0.0", "enabled": true}"#);
+        let runtime = Arc::new(Counting::default());
+        runtime.health.store(true, SeqCst);
+        let module = AppsModule::new(dir.path().to_path_buf()).runtime(runtime.clone());
+        let shared = &module.shared;
+        let counts = || {
+            (
+                runtime.statuses.load(SeqCst),
+                runtime.described.load(SeqCst),
+                runtime.measured.load(SeqCst),
+            )
+        };
+
+        let first = snapshot(shared, None, false).await;
+        assert_eq!(first["apps"][0]["data_bytes"], json!(42), "what the VM counted");
+        assert_eq!(first["apps"][0]["app"]["publisher"], json!("acme"));
+        assert_eq!(counts(), (1, 1, 0));
+        // Nothing moved: nothing is asked, and the value is the same.
+        for _ in 0..5 {
+            assert_eq!(snapshot(shared, None, false).await, first);
+        }
+        assert_eq!(counts(), (1, 1, 0));
+        // The runtime's generation moved: its status is asked again, its manifest is not.
+        runtime.generation.fetch_add(1, SeqCst);
+        let moved = snapshot(shared, None, false).await;
+        assert_ne!(moved, first);
+        assert_eq!(counts(), (2, 1, 0));
+        // `harnix.apps.list` asks afresh; a method that changed something has the next look do so.
+        snapshot(shared, None, true).await;
+        assert_eq!(counts(), (3, 1, 0));
+        shared.changed(Some("acme.notes"));
+        snapshot(shared, None, false).await;
+        assert_eq!(counts(), (4, 2, 0));
+        // Not running: what it keeps is measured on disk, once per reading of its status.
+        runtime.health.store(false, SeqCst);
+        runtime.generation.fetch_add(1, SeqCst);
+        let stopped = snapshot(shared, None, false).await;
+        assert_eq!(stopped["apps"][0]["data_bytes"], json!(7));
+        snapshot(shared, None, false).await;
+        assert_eq!(counts(), (5, 2, 1));
+        // A new version is described anew.
+        seed(dir.path(), "acme.notes", r#"{"id": "acme.notes", "version": "1.1.0", "enabled": true}"#);
+        snapshot(shared, None, false).await;
+        assert_eq!(counts().1, 3);
+        // Without a generation, every look asks.
+        let unknowing = Arc::new(Unknowing(Counting::default()));
+        let plain = AppsModule::new(dir.path().to_path_buf()).runtime(unknowing.clone());
+        snapshot(&plain.shared, None, false).await;
+        snapshot(&plain.shared, None, false).await;
+        assert_eq!(unknowing.0.statuses.load(SeqCst), 2);
+    }
+
+    /// A runtime that cannot tell when its statuses change.
+    struct Unknowing(Counting);
+
+    #[async_trait::async_trait]
+    impl AppsRuntime for Unknowing {
+        fn fingerprint(&self) -> String {
+            self.0.fingerprint()
+        }
+        fn inspect(&self, p: &Path) -> Result<PackageInfo, RpcError> {
+            self.0.inspect(p)
+        }
+        async fn install(&self, cx: &ModuleContext, p: &Path, d: &Path) -> Result<(Value, Value), RpcError> {
+            self.0.install(cx, p, d).await
+        }
+        async fn load(&self, cx: &ModuleContext, r: &InstallRecord, d: &Path) -> Result<Value, RpcError> {
+            self.0.load(cx, r, d).await
+        }
+        async fn unload(&self, _: &ModuleContext, _: &InstallRecord) {}
+        async fn uninstall(&self, cx: &ModuleContext, r: &InstallRecord, d: &Path) -> Result<Value, RpcError> {
+            self.0.uninstall(cx, r, d).await
+        }
+        async fn status(&self, id: &str) -> Value {
+            self.0.status(id).await
+        }
+        async fn shutdown(&self) {}
+    }
+
+    #[test]
+    fn a_failed_update_leaves_a_record_of_what_is_installed() {
+        let dir = tempfile::tempdir().unwrap();
+        seed(dir.path(), "acme.notes", "{}");
+        let record = InstallRecord {
+            id: "acme.notes".into(),
+            version: "1.0.0".into(),
+            enabled: true,
+            parts: json!({"trust": "store", "source": "store", "agent": {"package": "old"}}),
+            ..InstallRecord::default()
+        };
+        write_one(dir.path(), &record).unwrap();
+        // Not touched: the record is not either.
+        settle_failed_update(dir.path(), &record, "2.0.0", None);
+        assert_eq!(read_one(dir.path(), "acme.notes").unwrap().parts, record.parts);
+        // Put back: with what putting it back put where.
+        settle_failed_update(
+            dir.path(),
+            &record,
+            "2.0.0",
+            Some(Ok(json!({"trust": "store", "agent": {"package": "again"}}))),
+        );
+        let back = read_one(dir.path(), "acme.notes").unwrap();
+        assert!(back.enabled && back.reason.is_none());
+        assert_eq!(back.parts["agent"]["package"], json!("again"));
+        assert_eq!(back.parts["source"], json!("store"));
+        // Gone: switched off, saying why.
+        settle_failed_update(dir.path(), &record, "2.0.0", Some(Err("no such instance".into())));
+        let gone = read_one(dir.path(), "acme.notes").unwrap();
+        assert!(!gone.enabled);
+        assert_eq!(
+            gone.reason.as_deref(),
+            Some("the update to 2.0.0 failed, and 1.0.0 did not come back: no such instance")
+        );
     }
 
     #[test]

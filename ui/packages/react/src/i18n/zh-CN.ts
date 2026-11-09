@@ -349,6 +349,7 @@ const zhCN: Record<string, string> = {
   "apps.cap.why.ui": "页面里的代码能看到页面看到的一切。",
   "apps.cap.why.agent": "模型会用到的技能与脚本。",
   "apps.updateKeeps": "已经给过它的其余能力照旧。",
+  "apps.downgrade": "这是回到旧版本（{from} → {version}）。旧版本可能有新版本修掉的问题，确定要回去再同意。",
   "apps.permissions": "权限",
   "apps.inlinePoints": "外壳照它的清单画的",
   "apps.inline.tool_row": "工具行",

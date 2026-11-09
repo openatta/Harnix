@@ -186,6 +186,7 @@ impl Rig {
             title: info.title,
             enabled: true,
             parts,
+            ..InstallRecord::default()
         })
     }
 }
@@ -393,15 +394,28 @@ async fn an_update_discloses_what_it_adds_keeps_the_data_and_undoes_itself_when_
             "install_into = [\"nowhere\"]",
         )
     });
-    let err = rig
+    let failed = rig
         .runtime
         .update(&rig.cx, &record, &broken, &app_dir)
         .await
         .unwrap_err();
-    assert!(err.message.contains("no such instance"), "{}", err.message);
+    assert!(failed.error.message.contains("no such instance"), "{}", failed.error.message);
     assert_eq!(rig.runtime.status(ID).await["state"], json!("running"));
     assert!(app_dir.join("0.1.0").is_dir());
     assert!(!app_dir.join("0.3.0").exists());
+    // Put back, with what putting it back put where: what the record says from now on.
+    let back = failed.restored.expect("it was taken down").expect("and came back");
+    assert_eq!(back["trust"], json!("store"));
+    assert_eq!(back["agent"]["package"], record.parts["agent"]["package"]);
+    let record = InstallRecord {
+        parts: back,
+        ..record
+    };
+    // A package that does not read is refused before anything is taken down.
+    let junk = rig.dir.path().join("junk.hxapp");
+    std::fs::write(&junk, b"not a zip").unwrap();
+    let untouched = rig.runtime.update(&rig.cx, &record, &junk, &app_dir).await.unwrap_err();
+    assert!(untouched.restored.is_none());
 
     let (parts, summary) = rig
         .runtime
@@ -429,4 +443,29 @@ async fn an_update_discloses_what_it_adds_keeps_the_data_and_undoes_itself_when_
         rig.runtime.describe(&updated, &app_dir)["capabilities"]["env"],
         json!(["SHOWCASE_TOKEN", "SHOWCASE_EXTRA"])
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_update_whose_installed_version_does_not_come_back_says_so() {
+    let rig = Rig::new(false);
+    let record = rig.install(&rig.package("v1", true, |m| m)).await.unwrap();
+    let app_dir = rig.apps().join(ID);
+    // Running, and changed on disk under it: it would not start again from these files.
+    let module = app_dir.join("0.1.0/ui/showcase.js");
+    std::fs::write(&module, format!("{}\n// changed\n", std::fs::read_to_string(&module).unwrap())).unwrap();
+    let broken = rig.package("v3-broken", true, |m| {
+        grow(m).replace("0.2.0", "0.3.0").replace(
+            "install_into = [\"system\"]",
+            "install_into = [\"nowhere\"]",
+        )
+    });
+    let failed = rig
+        .runtime
+        .update(&rig.cx, &record, &broken, &app_dir)
+        .await
+        .unwrap_err();
+    assert!(failed.error.message.contains("no such instance"), "{}", failed.error.message);
+    let why = failed.restored.expect("it was taken down").unwrap_err();
+    assert!(why.contains("`ui/showcase.js` is not the file that was signed"), "{why}");
+    assert_ne!(rig.runtime.status(ID).await["state"], json!("running"));
 }

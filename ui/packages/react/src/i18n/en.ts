@@ -351,6 +351,7 @@ const en: Record<string, string> = {
   "apps.cap.why.ui": "Code in the page sees what the page sees.",
   "apps.cap.why.agent": "Skills and scripts the model works with.",
   "apps.updateKeeps": "Everything else it was already granted stays as it was.",
+  "apps.downgrade": "This goes back to an older version ({from} → {version}). An older version may have a problem the newer one fixed: go back only if you mean to.",
   "apps.permissions": "Permissions",
   "apps.inlinePoints": "Drawn by the shell from its manifest",
   "apps.inline.tool_row": "Tool row",

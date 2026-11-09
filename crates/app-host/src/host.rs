@@ -15,11 +15,12 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use async_trait::async_trait;
-use harnix_app_package::acquire::{internal, refused, Admission};
-use harnix_app_package::manifest::{self, toml_to_json, Manifest, MANIFEST};
+use harnix_app_package::acquire::{self, internal, refused, Admission};
+use harnix_app_package::manifest::{self, toml_to_json, Manifest};
 use harnix_app_package::signature::{Trust, Verified};
 use harnix_app_port::{
     Control, HookCall, HookReply, MethodCall, MethodDecl, Offer, Place, Placement, Platform,
@@ -62,7 +63,8 @@ struct Running {
     /// How far its package was trusted when it started.
     trust: Trust,
     vm: Option<AppVm>,
-    tools: Vec<harnix_wasm::ToolDef>,
+    /// What its component listed, as the port carries it: converted once, when it started.
+    tools: Vec<ToolDef>,
     bridge: Arc<Bridge>,
     methods: BTreeMap<String, Method>,
     /// Its calls in flight, for idling.
@@ -86,7 +88,7 @@ struct Running {
 /// What starting an application's VM made.
 struct Booted {
     vm: Option<AppVm>,
-    tools: Vec<harnix_wasm::ToolDef>,
+    tools: Vec<ToolDef>,
 }
 
 /// The applications of one product (or, in an edition with a process per application, of that
@@ -104,6 +106,8 @@ pub struct Host {
     failed: Mutex<BTreeMap<String, String>>,
     /// Tool calls and hooks running, by their ids: what [`Control::cancel`] reaches.
     calls: Mutex<HashMap<String, CancellationToken>>,
+    /// See [`Host::generation`].
+    generation: Arc<AtomicU64>,
 }
 
 /// A running call's entry in [`Host::calls`], taken out however the call ends (a caller that goes
@@ -176,7 +180,22 @@ impl Host {
             bridges: Mutex::new(BTreeMap::new()),
             failed: Mutex::new(BTreeMap::new()),
             calls: Mutex::new(HashMap::new()),
+            generation: Arc::default(),
         }))
+    }
+
+    /// A number that moves whenever what [`Control::status`] answers may have: an application
+    /// started, stopped or failed; a method call, tool call, hook or delivered value ended; a
+    /// backend let go while idle; anything its bridge counts (what a backend does on its own,
+    /// through its timers, included). A product that shows the status asks again only when this
+    /// moved. What a VM changes without passing through any of these — the memory it holds — is
+    /// seen at the next move.
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Relaxed)
+    }
+
+    fn moved(&self) {
+        self.generation.fetch_add(1, Ordering::Relaxed);
     }
 
     /// The engine every VM runs on: what precompiled artifacts must have been compiled for
@@ -187,12 +206,6 @@ impl Host {
 
     fn running(&self, id: &str) -> Option<Arc<Running>> {
         read(&self.apps).get(id).cloned()
-    }
-
-    fn manifest_in(root: &Path) -> Result<Manifest, RpcError> {
-        let text = std::fs::read_to_string(root.join(MANIFEST))
-            .map_err(|e| internal(format!("{}: {e}", root.join(MANIFEST).display())))?;
-        Manifest::parse(&text).map_err(refused)
     }
 
     /// The registration of `manifest`'s names, and its methods' schemas compiled.
@@ -283,7 +296,7 @@ impl Host {
         app_dir: &Path,
         bridge: Arc<Bridge>,
         verified: &Verified,
-    ) -> Result<(Option<AppVm>, Vec<harnix_wasm::ToolDef>), RpcError> {
+    ) -> Result<(Option<AppVm>, Vec<ToolDef>), RpcError> {
         let Some(component) = &manifest.component else {
             return Ok((None, Vec::new()));
         };
@@ -403,14 +416,14 @@ impl Host {
                 unknown.join("`, `")
             )));
         }
-        Ok((Some(vm), tools))
+        Ok((Some(vm), tools.iter().map(tool_def).collect()))
     }
 
     /// Everything [`Control::start`] does but keeping why it failed.
     async fn start_app(&self, start: &Start) -> Result<Started, RpcError> {
         let id = &start.app;
         let root = start.app_dir.join(&start.version);
-        let manifest = Self::manifest_in(&root)?;
+        let manifest = acquire::manifest_in(&root)?;
         if &manifest.app.id != id || manifest.app.version != start.version {
             return Err(internal(format!(
                 "{} says it is `{}` {}, and the record `{id}` {}",
@@ -430,6 +443,7 @@ impl Host {
             manifest.topics.iter().map(|t| t.name.clone()),
             self.options.secrets.get(id).cloned().unwrap_or_default(),
             self.platform.clone(),
+            self.generation.clone(),
         );
         lock(&self.bridges).insert(id.clone(), bridge.clone());
         let booted = match self
@@ -447,7 +461,6 @@ impl Host {
         };
         let full = |name: &String| format!("app.{id}.{name}");
         let world = booted.vm.as_ref().map(|vm| world_name(vm.world()));
-        let tools: Vec<ToolDef> = booted.tools.iter().map(tool_def).collect();
         let backend = booted.vm.as_ref().filter(|vm| vm.world() == World::Backend);
         let idle = backend.and(manifest.backend.on_demand().then(|| {
             self.options
@@ -457,14 +470,14 @@ impl Host {
         let activity = Arc::new(Activity::default());
         let watch = CancellationToken::new();
         if let (Some(vm), Some(idle)) = (backend, idle) {
-            idle::watch(vm, activity.clone(), idle, watch.clone());
+            idle::watch(vm, activity.clone(), idle, watch.clone(), self.generation.clone());
         }
         let running = Arc::new(Running {
             version: start.version.clone(),
             root: root.clone(),
             trust: verified.trust,
             vm: booted.vm,
-            tools: booted.tools,
+            tools: booted.tools.clone(),
             bridge,
             methods,
             activity,
@@ -476,7 +489,8 @@ impl Host {
             spaces: manifest.spaces.iter().map(|s| s.id.clone()).collect(),
             hub: manifest.capabilities.hub.clone(),
             events_all: manifest.events.all(),
-            own_tools: tools
+            own_tools: booted
+                .tools
                 .iter()
                 .map(|t| harnix_app_package::tool_name(id, &t.name))
                 .collect(),
@@ -486,18 +500,18 @@ impl Host {
             title: manifest.app.title.clone(),
             version: start.version.clone(),
             component: running.vm.is_some(),
-            tools: tools.clone(),
+            tools: booted.tools.clone(),
         };
         write(&self.apps).insert(id.clone(), running);
         if let Err(e) = self.platform.expose_tools(offer).await {
             tracing::warn!(app = %id, error = %e.message, "its tools were not offered");
         }
-        tracing::info!(app = %id, tools = tools.len(), "application started");
+        tracing::info!(app = %id, tools = booted.tools.len(), "application started");
         Ok(Started {
             app: id.clone(),
             trust: verified.trust.as_str().to_string(),
             world,
-            tools,
+            tools: booted.tools,
         })
     }
 
@@ -593,10 +607,10 @@ impl Control for Host {
                 app: start.app.clone(),
                 trust: running.trust.as_str().to_string(),
                 world,
-                tools: running.tools.iter().map(tool_def).collect(),
+                tools: running.tools.clone(),
             });
         }
-        match self.start_app(&start).await {
+        let outcome = match self.start_app(&start).await {
             Ok(started) => {
                 lock(&self.failed).remove(&start.app);
                 Ok(started)
@@ -605,12 +619,15 @@ impl Control for Host {
                 lock(&self.failed).insert(start.app.clone(), e.message.clone());
                 Err(e)
             }
-        }
+        };
+        self.moved();
+        outcome
     }
 
     async fn stop(&self, stop: Stop) -> Result<(), RpcError> {
         let id = &stop.app;
         lock(&self.failed).remove(id);
+        self.moved();
         let Some(app) = write(&self.apps).remove(id) else {
             return Ok(());
         };
@@ -638,11 +655,13 @@ impl Control for Host {
             .await
             .ok();
         tracing::info!(app = %id, "application stopped");
+        self.moved();
         Ok(())
     }
 
     async fn forget(&self, app: String) -> Result<(), RpcError> {
         lock(&self.failed).remove(&app);
+        self.moved();
         Ok(())
     }
 
@@ -668,6 +687,7 @@ impl Control for Host {
             method.answer(app.vm.as_ref(), &call.caller, call.params).await
         };
         app.bridge.stats.method(&call.method, outcome.as_ref().err());
+        self.moved();
         outcome
     }
 
@@ -675,6 +695,7 @@ impl Control for Host {
         let bridge = lock(&self.bridges).get(&value.app).cloned();
         if let Some(bridge) = bridge {
             bridge.deliver(value.topic, value.value);
+            self.moved();
         }
         Ok(())
     }
@@ -736,6 +757,7 @@ impl Control for Host {
         if let Some(forwarded) = forwarded {
             let _ = forwarded.await;
         }
+        self.moved();
         Ok(match outcome {
             Ok(out) => ToolReply::Output {
                 content: out.content,
@@ -762,7 +784,9 @@ impl Control for Host {
         }
         let (cancel, _running) = self.cancellation(&call.call_id);
         let _busy = app.activity.hold();
-        Ok(match vm.on_event(&call.event, &call.payload, &cancel).await {
+        let decided = vm.on_event(&call.event, &call.payload, &cancel).await;
+        self.moved();
+        Ok(match decided {
             Ok(HookDecision::Proceed) => HookReply::Proceed,
             Ok(HookDecision::Block(reason)) => HookReply::Block(reason),
             Ok(HookDecision::AddContext(note)) => HookReply::AddContext(note),
@@ -787,6 +811,7 @@ impl Control for Host {
             }
             tracing::debug!(app = %id, %reason, "application stopped");
         }
+        self.moved();
         Ok(())
     }
 }

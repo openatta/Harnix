@@ -3,7 +3,8 @@
  *
  * The mock store is a directory (`file://…/index.json`) made here, from the showcase as
  * `apps-host.ts` packs it: signed by the mock publisher, countersigned by the mock store, listed by
- * `harnix-app index` — the same tools a real store and publisher use. Its keys are committed in
+ * `harnix-app index` and signed by the mock store again as a catalog (`harnix-app sign-index` after
+ * every edit) — the same tools a real store and publisher use. Its keys are committed in
  * `tests/live/fixtures/store/` (`*.key` secrets, `*.pub` public keys); they are test keys and
  * nothing else. A Harnix carries the store's own key built in and cannot be told another one by a
  * profile: only `harnix-testapp`, assembled with the mock store's key (`AppBuilder::store_keys`,
@@ -57,9 +58,10 @@ export interface MockStore {
   packages: Record<string, string>;
   /** The publisher-signed 0.1.0, which no store countersigned. */
   publisherOnly: string;
-  /** The index as made; `write` replaces what is served. */
+  /** The index as made (signed); `write` replaces what is served, signed again by the mock store
+   *  unless `sign: false`, and valid until `expires` when given (else for the tool's default). */
   index: any;
-  write(index: any): void;
+  write(index: any, options?: { sign?: boolean; expires?: string }): void;
   /** A package derived from a listed one, put under `packages/`: its path. */
   derive(version: string, name: string, edit: (entries: Entries) => void): string;
 }
@@ -94,7 +96,7 @@ export function mockStore(): MockStore {
     tool(["countersign", signed, "--key", key("mock-store.key"), "-o", listed]);
     packages[version] = listed;
   }
-  tool(["index", dir, "--name", "Mock store"]);
+  tool(["index", dir, "--name", "Mock store", "--key", key("mock-store.key")]);
   const indexPath = join(dir, "index.json");
   const index = JSON.parse(readFileSync(indexPath, "utf8"));
   return {
@@ -103,8 +105,11 @@ export function mockStore(): MockStore {
     packages,
     publisherOnly: join(staging, "0.1.0.signed.hxapp"),
     index,
-    write(next: any) {
-      writeFileSync(indexPath, JSON.stringify(next, null, 2));
+    write(next: any, options: { sign?: boolean; expires?: string } = {}) {
+      const { signature: _, ...unsigned } = next;
+      writeFileSync(indexPath, JSON.stringify(unsigned, null, 2));
+      if (options.sign === false) return;
+      tool(["sign-index", indexPath, "--key", key("mock-store.key"), ...(options.expires ? ["--expires", options.expires] : [])]);
     },
     derive(version: string, name: string, edit: (entries: Entries) => void): string {
       const entries = readZip(packages[version]);
@@ -114,6 +119,14 @@ export function mockStore(): MockStore {
       return path;
     },
   };
+}
+
+/** The index with `edit` made to the entry of `version`. */
+export function withVersion(index: any, version: string, edit: (v: any, app: any) => void): any {
+  const next = structuredClone(index);
+  const app = next.apps[0];
+  edit(app.versions.find((x: any) => x.version === version), app);
+  return next;
 }
 
 /** The index with `version`'s artifacts replaced. */

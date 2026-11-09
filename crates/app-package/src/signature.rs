@@ -89,7 +89,7 @@ impl PublicKey {
         hex::encode(self.0)
     }
 
-    fn verifies(&self, message: &[u8], signature_hex: &str) -> bool {
+    pub(crate) fn verifies(&self, message: &[u8], signature_hex: &str) -> bool {
         let Ok(signature) = hex::decode(signature_hex) else {
             return false;
         };
@@ -137,7 +137,7 @@ impl SecretKey {
         PublicKey(bytes)
     }
 
-    fn sign(&self, message: &[u8]) -> String {
+    pub(crate) fn sign(&self, message: &[u8]) -> String {
         hex::encode(self.pair.sign(message).as_ref())
     }
 }
@@ -472,8 +472,8 @@ pub fn of_zip(path: &Path) -> Result<(BTreeMap<String, String>, Option<Signature
                 "the package's entry {name:?} has a control character in its name"
             ));
         }
-        let mut bytes = Vec::new();
-        std::io::Read::read_to_end(&mut entry, &mut bytes).map_err(|e| format!("`{name}`: {e}"))?;
+        let declared = entry.size();
+        let bytes = crate::package::read_entry(&mut entry, declared, &name)?;
         if name == FILE {
             let text = String::from_utf8(bytes).map_err(|_| format!("{FILE} is not text"))?;
             signatures = Some(Signatures::parse(&text)?);

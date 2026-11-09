@@ -1,11 +1,12 @@
 /**
- * Runtime applications from a store: the catalog, installing by name with a disclosure and a
- * consent, the signed showcase running without dev mode, an update that asks for more and so asks
- * again, what is not what was signed refused — a signature, a file, a download, an engine — and
- * uninstalling taking everything with it. Against a mock store (`apps-store.ts`) that only
- * `harnix-testapp` built with `apps` trusts; then the same store against the apps binary, whose
- * built-in store key is not the mock's, so nothing from it installs — and a trusted publisher's
- * package that does.
+ * Runtime applications from a store: the catalog, believed only as the store signed it and until
+ * it expires; installing by name with a disclosure and a consent, the signed showcase running
+ * without dev mode, an update that asks for more and so asks again, what is not what was signed
+ * refused — a signature, a file, a download, an engine — a version the store withdrew not
+ * installed and flagged where it is, a downgrade only when asked for, and uninstalling taking
+ * everything with it. Against a mock store (`apps-store.ts`) that only `harnix-testapp` built
+ * with `apps` trusts; then the same store against the apps binary, whose built-in store key is not
+ * the mock's, so nothing from it is believed — and a trusted publisher's package that installs.
  */
 
 import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -15,7 +16,7 @@ import { INVALID_PARAMS, REFUSED } from "@harnix/core/protocol";
 import { type Backend, type TestClient, connect, expect, runTurn, test, topology } from "@harnix/testkit";
 
 import { SHOWCASE_ID, appsTools, showcasePackage } from "./apps-host";
-import { MOCK_PUBLISHER, type MockStore, appsTestApp, mockStore, sha256, startStore, withArtifacts } from "./apps-store";
+import { MOCK_PUBLISHER, STORE_FIXTURE, type MockStore, appsTestApp, mockStore, sha256, startStore, withArtifacts, withVersion } from "./apps-store";
 
 const TAGS = { tag: ["@feature:apps-store", "@layer:api"] };
 const TOOL = (name: string) => `app__example_showcase__${name}`;
@@ -82,6 +83,35 @@ test.describe("the store, trusted", () => {
     expect(app.capabilities.env).toEqual(["SHOWCASE_TOKEN", "SHOWCASE_EXTRA"]);
     // Nothing is installed by looking.
     expect((await api.call("harnix.apps.list")).apps).toEqual([]);
+  });
+
+  test("a catalog the store did not sign, or that has expired, is not believed", TAGS, async () => {
+    expect(store.index.signature?.key).toBe(readFileSync(join(STORE_FIXTURE, "mock-store.pub"), "utf8").trim());
+    expect(store.index.expires).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+    const refused = async (says: string) => {
+      for (const [method, params] of [
+        ["harnix.apps.catalog", {}],
+        ["harnix.apps.install", { id: SHOWCASE_ID, version: "0.1.0" }],
+      ] as const) {
+        const error = await api.refused(method, params);
+        expect(error?.code, method).toBe(REFUSED);
+        expect(error?.message, method).toContain(says);
+      }
+      expect((await api.call("harnix.apps.list")).apps).toEqual([]);
+    };
+    store.write(store.index, { sign: false });
+    await refused("the store's catalog is not signed");
+    store.write(store.index, { expires: "2020-01-01T00:00:00Z" });
+    await refused("the store's catalog expired at 2020-01-01T00:00:00Z");
+    // Signed, then changed by whoever serves it: a revocation taken out, a version slipped in.
+    store.write(withVersion(store.index, "0.1.0", (v) => (v.revoked = "it leaks the token")));
+    const served = JSON.parse(readFileSync(join(store.dir, "index.json"), "utf8"));
+    delete served.apps[0].versions.find((v: any) => v.version === "0.1.0").revoked;
+    writeFileSync(join(store.dir, "index.json"), JSON.stringify(served));
+    await refused("the store's catalog signature does not verify");
+    // Signed again by the store, it is believed again.
+    store.write(store.index);
+    expect((await api.call("harnix.apps.catalog")).apps[0].id).toBe(SHOWCASE_ID);
   });
 
   test("what is not what was signed is refused, and nothing of it stays", TAGS, async () => {
@@ -285,6 +315,47 @@ test.describe("the store, trusted", () => {
     expect(results(api, count)).toContain("count = 1");
     await api.call("harnix.apps.uninstall", { id: SHOWCASE_ID });
   });
+
+  test("a version the store withdrew is not installed, and is flagged where it is", TAGS, async () => {
+    await installByName(api, "0.1.0");
+    store.write(withVersion(store.index, "0.1.0", (v) => (v.revoked = "it leaks the token")));
+    const catalog = await api.call("harnix.apps.catalog");
+    expect(catalog.apps[0]).toMatchObject({ installed: "0.1.0", installed_revoked: "the store revoked it: it leaks the token", latest: "0.2.0" });
+    expect(catalog.apps[0].versions.find((v: any) => v.version === "0.1.0")).toMatchObject({ installable: false, revoked: "the store revoked it: it leaks the token" });
+    // Flagged, not stopped: the list says so without asking the store again.
+    expect((await api.call("harnix.apps.list")).apps[0]).toMatchObject({ version: "0.1.0", revoked: "the store revoked it: it leaks the token", runtime: { state: "running" } });
+    await api.call("harnix.apps.uninstall", { id: SHOWCASE_ID });
+    const error = await api.refused("harnix.apps.install", { id: SHOWCASE_ID, version: "0.1.0" });
+    expect(error?.code).toBe(REFUSED);
+    expect(error?.message).toContain("is not installed from this store: the store revoked it: it leaks the token");
+    // Older than the version the store supports from: the same.
+    store.write(withVersion(store.index, "0.1.0", (_v, app) => (app.min_version = "0.2.0")));
+    expect((await api.refused("harnix.apps.install", { id: SHOWCASE_ID, version: "0.1.0" }))?.message).toContain(
+      "the store supports `example.showcase` from 0.2.0 on",
+    );
+    expect((await api.call("harnix.apps.catalog")).apps[0]).toMatchObject({ min_version: "0.2.0", latest: "0.2.0" });
+    expect((await api.call("harnix.apps.list")).apps).toEqual([]);
+  });
+
+  test("a downgrade happens only when it is asked for, and is disclosed", TAGS, async () => {
+    await installByName(api, "0.2.0");
+    // Asked for by version and not allowed: refused, nothing done.
+    const error = await api.refused("harnix.apps.update", { id: SHOWCASE_ID, version: "0.1.0" });
+    expect(error?.code).toBe(REFUSED);
+    expect(error?.message).toContain("is older than the installed 0.2.0");
+    expect(error?.message).toContain("allow_downgrade: true");
+    expect((await api.call("harnix.apps.list")).apps[0].version).toBe("0.2.0");
+    // Allowed: it asks for less, and is consented to all the same.
+    const asked = await api.call("harnix.apps.update", { id: SHOWCASE_ID, version: "0.1.0", allow_downgrade: true });
+    expect(asked).toMatchObject({ consent: "required", version: "0.1.0" });
+    expect(asked.disclosure.update).toMatchObject({ from: "0.2.0", downgrade: true, needs_consent: true, added: [] });
+    const done = await api.call("harnix.apps.update", { id: SHOWCASE_ID, version: "0.1.0", allow_downgrade: true, consent: asked.digest });
+    expect(done).toMatchObject({ version: "0.1.0", from: "0.2.0", downgrade: true });
+    expect((await api.call("harnix.apps.list")).apps[0]).toMatchObject({ version: "0.1.0", runtime: { state: "running" } });
+    // Forward again, as any update.
+    expect(await api.call("harnix.apps.update", { id: SHOWCASE_ID })).toMatchObject({ consent: "required", version: "0.2.0" });
+    await api.call("harnix.apps.uninstall", { id: SHOWCASE_ID });
+  });
 });
 
 test.describe("the store, on a Harnix with only the store's own key", () => {
@@ -312,13 +383,18 @@ test.describe("the store, on a Harnix with only the store's own key", () => {
   });
   test.afterEach(() => api?.close());
 
-  test("the mock store's countersignature authorizes nothing here", TAGS, async () => {
+  test("the mock store's signatures authorize nothing here", TAGS, async () => {
     api = await connect(backend, { topology: topology() });
-    // It may be read; nothing from it installs.
-    expect((await api.call("harnix.apps.catalog")).apps[0].id).toBe(SHOWCASE_ID);
-    const error = await api.refused("harnix.apps.install", { id: SHOWCASE_ID, version: "0.1.0" });
-    expect(error?.code).toBe(REFUSED);
-    expect(error?.message).toContain("a store this Harnix does not trust");
+    // Its catalog is not believed, so nothing is installed from it by name.
+    for (const [method, params] of [
+      ["harnix.apps.catalog", {}],
+      ["harnix.apps.install", { id: SHOWCASE_ID, version: "0.1.0" }],
+    ] as const) {
+      const error = await api.refused(method, params);
+      expect(error?.code, method).toBe(REFUSED);
+      expect(error?.message, method).toContain("signed by a key this Harnix does not carry");
+    }
+    // Nor is its countersignature on a package from a file.
     expect((await api.refused("harnix.apps.installFile", { path: store.packages["0.1.0"] }))?.message).toContain(
       "a store this Harnix does not trust",
     );

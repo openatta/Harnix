@@ -56,6 +56,9 @@ pub use services::{
     AppHost, HttpFetcher, HttpRequest, HttpResponse, NoNetwork, ProgressSink, Services,
 };
 pub use spec::{host_of, AppDirs, AppSpec, Capabilities, FsGrant, Limits};
+/// How the files a quota counts are measured: for a host that reports what an application keeps
+/// while it is not running.
+pub use storage::dir_bytes;
 pub use vm::{
     AppError, AppVm, CallFailure, HookDecision, ToolDef, ToolOutput, WeakAppVm, World,
     HEALTHY_PERIOD, MAX_SUBSCRIPTIONS, MAX_TIMERS,

@@ -14,7 +14,7 @@ use harnix_contract::{codes, RpcError};
 use serde_json::{json, Value};
 
 use crate::disclosure;
-use crate::manifest::Manifest;
+use crate::manifest::{Manifest, MANIFEST};
 use crate::package;
 use crate::signature::{self, Keys, Signatures, Trust, Verified};
 use crate::store::{self, Store};
@@ -57,6 +57,8 @@ pub struct Disclosure {
     pub disclosure: Value,
     pub digest: String,
     pub needs_consent: bool,
+    /// It is older than the version it would replace.
+    pub downgrade: bool,
 }
 
 type Signed = Result<(BTreeMap<String, String>, Option<Signatures>), String>;
@@ -126,6 +128,7 @@ impl Admission {
         let bytes = std::fs::read(path).map_err(|e| refused(format!("{}: {e}", path.display())))?;
         let needs_consent =
             previous.is_none() || disclosure["update"]["needs_consent"] == json!(true);
+        let downgrade = disclosure["update"]["downgrade"] == json!(true);
         let app = inspected.manifest.app;
         Ok(Disclosure {
             id: app.id,
@@ -135,35 +138,43 @@ impl Admission {
             digest: disclosure::digest(&bytes, &verified, installed.map(|(version, _)| version)),
             disclosure,
             needs_consent,
+            downgrade,
         })
     }
 }
 
-fn store_at(url: Option<&str>) -> Result<Store, RpcError> {
-    Store::new(url.unwrap_or(store::DEFAULT_STORE)).map_err(refused)
+fn store_at(url: Option<&str>, keys: &Keys) -> Result<Store, RpcError> {
+    Store::new(url.unwrap_or(store::DEFAULT_STORE), keys.store.clone()).map_err(refused)
 }
 
 /// What the store at `url` (the default store when none) offers an engine whose fingerprint is
-/// `fingerprint`.
-pub async fn catalog(url: Option<&str>, fingerprint: &str) -> Result<Value, RpcError> {
-    let store = store_at(url)?;
+/// `fingerprint`, its catalog verified with the store keys of `keys`; `installed`, what is
+/// installed here (id → version), each flagged if the store has withdrawn it.
+pub async fn catalog(
+    url: Option<&str>,
+    keys: &Keys,
+    fingerprint: &str,
+    installed: &BTreeMap<String, String>,
+) -> Result<Value, RpcError> {
+    let store = store_at(url, keys)?;
     let index = store.index().await.map_err(refused)?;
-    let mut view = store::view(&index, fingerprint);
+    let mut view = store::view(&index, fingerprint, installed);
     view["store"] = json!(store.url());
     view["fingerprint"] = json!(fingerprint);
     Ok(view)
 }
 
 /// Resolve `id` (at `version`, or the newest this engine runs) in the store and download it into
-/// `staging`, checked against what the store lists.
+/// `staging`, checked against what the store's verified catalog lists.
 pub async fn fetch(
     url: Option<&str>,
+    keys: &Keys,
     id: &str,
     version: Option<&str>,
     fingerprint: &str,
     staging: &Path,
 ) -> Result<PathBuf, RpcError> {
-    let store = store_at(url)?;
+    let store = store_at(url, keys)?;
     let index = store.index().await.map_err(refused)?;
     let resolved = store
         .resolve(&index, id, version, fingerprint)
@@ -171,6 +182,15 @@ pub async fn fetch(
     let to = staging.join(format!("{id}-{}.hxapp", resolved.version.version));
     store.download(&resolved, &to).await.map_err(refused)?;
     Ok(to)
+}
+
+/// The manifest unpacked at `root`: what a host starts an installed version from. A file that
+/// cannot be read is this machine's problem; one that does not parse is the package's.
+pub fn manifest_in(root: &Path) -> Result<Manifest, RpcError> {
+    let path = root.join(MANIFEST);
+    let text =
+        std::fs::read_to_string(&path).map_err(|e| internal(format!("{}: {e}", path.display())))?;
+    Manifest::parse(&text).map_err(refused)
 }
 
 /// What an installed application is and asks for, from the manifest unpacked at `root`; null when

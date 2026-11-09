@@ -48,6 +48,27 @@ pub struct AgentPackage {
     pub version: String,
 }
 
+/// An entry, read whole, and refused if it inflates to more than the size it declares. What
+/// [`inspect`] adds up to bound a package is the sizes entries declare, and an inflater stops
+/// only where the compressed data does: so every read of an entry stops one byte past what it
+/// declared, and a package whose few kilobytes inflate to gigabytes is refused at that byte rather
+/// than held in memory or written to disk.
+pub(crate) fn read_entry(entry: &mut impl Read, declared: u64, name: &str) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::with_capacity(declared.min(1 << 20) as usize);
+    entry
+        .take(declared.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("`{name}`: {e}"))?;
+    if bytes.len() as u64 > declared {
+        return Err(oversized(name, declared));
+    }
+    Ok(bytes)
+}
+
+fn oversized(name: &str, declared: u64) -> String {
+    format!("the package's `{name}` inflates to more than the {declared} bytes it declares")
+}
+
 /// Read and check a package against an engine whose fingerprint is `fingerprint`.
 pub fn inspect(path: &Path, fingerprint: &str) -> Result<Inspected, String> {
     let file = File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -108,11 +129,9 @@ pub fn inspect(path: &Path, fingerprint: &str) -> Result<Inspected, String> {
         let mut entry = archive
             .by_name(name)
             .map_err(|_| format!("the package has no `{name}`"))?;
-        let mut text = String::new();
-        entry
-            .read_to_string(&mut text)
-            .map_err(|e| format!("`{name}`: {e}"))?;
-        Ok(text)
+        let declared = entry.size();
+        String::from_utf8(read_entry(&mut entry, declared, name)?)
+            .map_err(|_| format!("`{name}` is not UTF-8 text"))
     };
     let manifest = Manifest::parse(&read_text(&mut archive, MANIFEST)?)?;
 
@@ -217,10 +236,9 @@ pub fn manifest_of(path: &Path) -> Result<Manifest, String> {
     let mut entry = archive
         .by_name(MANIFEST)
         .map_err(|_| format!("the package has no `{MANIFEST}`"))?;
-    let mut text = String::new();
-    entry
-        .read_to_string(&mut text)
-        .map_err(|e| format!("`{MANIFEST}`: {e}"))?;
+    let declared = entry.size();
+    let text = String::from_utf8(read_entry(&mut entry, declared, MANIFEST)?)
+        .map_err(|_| format!("`{MANIFEST}` is not UTF-8 text"))?;
     Manifest::parse(&text)
 }
 
@@ -314,8 +332,13 @@ pub fn extract(path: &Path, dest: &Path) -> Result<(), String> {
         if let Some(parent) = out.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
         }
+        let declared = entry.size();
         let mut writer = File::create(&out).map_err(|e| format!("{}: {e}", out.display()))?;
-        std::io::copy(&mut entry, &mut writer).map_err(|e| format!("{}: {e}", out.display()))?;
+        let copied = std::io::copy(&mut (&mut entry).take(declared.saturating_add(1)), &mut writer)
+            .map_err(|e| format!("{}: {e}", out.display()))?;
+        if copied > declared {
+            return Err(oversized(&name, declared));
+        }
     }
     Ok(())
 }
@@ -658,5 +681,77 @@ api_version = 2
         assert!(pack(&app, None, &out)
             .unwrap_err()
             .contains("none was given"));
+    }
+
+    /// `entries` deflated, with `liar`'s uncompressed size rewritten to `declared` in its local
+    /// header and in the central directory: what a zip bomb looks like to a reader that trusts it.
+    pub fn lying_zip(dir: &Path, name: &str, entries: &[(&str, &[u8])], liar: &str, declared: u32) -> PathBuf {
+        let path = dir.join(format!("{name}.hxapp"));
+        let mut zip = zip::ZipWriter::new(File::create(&path).unwrap());
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        for (n, bytes) in entries {
+            zip.start_file(*n, options).unwrap();
+            zip.write_all(bytes).unwrap();
+        }
+        zip.finish().unwrap();
+        let mut bytes = std::fs::read(&path).unwrap();
+        // Each header's name follows its fixed part: 30 bytes in a local header, 46 in the
+        // central directory's; the uncompressed size is at 22 and 24 in them.
+        let headers = [(&[0x50u8, 0x4b, 0x03, 0x04][..], 30usize, 22usize), (&[0x50, 0x4b, 0x01, 0x02][..], 46, 24)];
+        let mut patched = 0;
+        for (signature, fixed, at) in headers {
+            for i in 0..bytes.len().saturating_sub(fixed) {
+                if &bytes[i..i + 4] != signature {
+                    continue;
+                }
+                let name_len_at = if fixed == 30 { 26 } else { 28 };
+                let name_len = u16::from_le_bytes([bytes[i + name_len_at], bytes[i + name_len_at + 1]]) as usize;
+                if bytes.get(i + fixed..i + fixed + name_len) == Some(liar.as_bytes()) {
+                    bytes[i + at..i + at + 4].copy_from_slice(&declared.to_le_bytes());
+                    patched += 1;
+                }
+            }
+        }
+        assert_eq!(patched, 2, "both of `{liar}`'s headers");
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    #[test]
+    fn an_entry_that_inflates_past_its_declared_size_is_refused_before_it_is_held() {
+        let dir = tempfile::tempdir().unwrap();
+        // 8 MiB of one byte deflates to a few kilobytes, and says it is 30 bytes.
+        let big = vec![b' '; 8 << 20];
+        let good = good(&[]);
+        let mut entries: Vec<(&str, &[u8])> = good
+            .iter()
+            .filter(|(n, _)| n != "ui/card.js")
+            .map(|(n, b)| (n.as_str(), b.as_slice()))
+            .collect();
+        entries.push(("ui/card.js", &big));
+        let path = lying_zip(dir.path(), "bomb", &entries, "ui/card.js", 30);
+        assert!(std::fs::metadata(&path).unwrap().len() < 1 << 20);
+        // What the archive says adds up; nothing is inflated to read it.
+        assert!(inspect(&path, FP).is_ok());
+        let err = crate::signature::of_zip(&path).unwrap_err();
+        assert!(err.contains("`ui/card.js` inflates to more than the 30 bytes it declares"), "{err}");
+        let out = dir.path().join("out");
+        let err = extract(&path, &out).unwrap_err();
+        assert!(err.contains("`ui/card.js` inflates to more than the 30 bytes it declares"), "{err}");
+        let written = std::fs::metadata(out.join("ui/card.js")).map(|m| m.len()).unwrap_or(0);
+        assert!(written <= 31, "{written} bytes were written");
+
+        // The manifest is read the same way.
+        let mut entries: Vec<(&str, &[u8])> = good
+            .iter()
+            .filter(|(n, _)| n != MANIFEST)
+            .map(|(n, b)| (n.as_str(), b.as_slice()))
+            .collect();
+        let padded = format!("{MANIFEST_TEXT}{}", " ".repeat(8 << 20));
+        entries.push((MANIFEST, padded.as_bytes()));
+        let path = lying_zip(dir.path(), "manifest-bomb", &entries, MANIFEST, 64);
+        let err = inspect(&path, FP).unwrap_err();
+        assert!(err.contains("inflates to more than the 64 bytes it declares"), "{err}");
     }
 }

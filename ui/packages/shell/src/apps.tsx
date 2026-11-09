@@ -70,7 +70,7 @@ interface Asked {
     lines?: Line[];
     ui_in_page?: boolean;
     inline?: Inline | null;
-    update?: { from: string; added: Line[] };
+    update?: { from: string; added: Line[]; downgrade?: boolean };
   };
 }
 
@@ -447,6 +447,11 @@ function Disclosure({
       <Row label={t("apps.signature")}>
         <Value tone={d.trust === "unsigned" ? "err" : "ok"}>{trust(d.trust)}</Value>
       </Row>
+      {update?.downgrade ? (
+        <div className="hint err" data-testid="app-downgrade">
+          {t("apps.downgrade", { from: update.from, version: asked.version })}
+        </div>
+      ) : null}
       <div className="hint">{update ? t("apps.asksMore") : t("apps.asks")}</div>
       <Lines lines={update ? update.added : d.lines ?? []} empty={t("apps.asksNothing")} />
       {update ? (

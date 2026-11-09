@@ -20,7 +20,7 @@ const MAX_ENTRIES: usize = 100_000;
 /// Bytes in regular files under `root`, symlinks not followed. Zero when it does not exist; `None`
 /// when it has more than [`MAX_ENTRIES`] entries — over the quota, whatever the bytes come to, or
 /// many small files would make the walk cheaper the more of them there are.
-pub(crate) fn dir_bytes(root: &Path) -> Option<u64> {
+pub fn dir_bytes(root: &Path) -> Option<u64> {
     dir_bytes_within(root, MAX_ENTRIES)
 }
 
