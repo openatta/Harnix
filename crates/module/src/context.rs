@@ -165,12 +165,12 @@ impl ModuleContext {
         self.shared.kernel.call(&self.subject(), method, params).await
     }
 
-    /// Drive sessions: create, send, interrupt, close, tap (design §6.1).
+    /// Drive sessions: create, send, interrupt, close, tap (concept §3.2).
     pub fn sessions(&self) -> crate::Sessions<'_> {
         crate::Sessions { cx: self }
     }
 
-    /// Build, ensure and stop instances from templates (design §5.2).
+    /// Build, ensure and stop instances from templates (concept §3.1.1).
     pub fn instances(&self) -> crate::Instances<'_> {
         crate::Instances { cx: self }
     }

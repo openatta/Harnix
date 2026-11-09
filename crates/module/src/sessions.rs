@@ -1,4 +1,4 @@
-//! Sessions and instances, from the server side (design §6.1, §5.2).
+//! Sessions and instances, from the server side (concept §3.2, §3.1.1).
 //!
 //! A module drives sessions the way a client does — through the hub, with
 //! the same queueing, interruption, settlement and broadcast — because these
@@ -282,7 +282,7 @@ impl Sessions<'_> {
     }
 
     /// Write an entry into the session's log: a card, a decision, a job's result — for people, never
-    /// for the model (design §7.6). It is filed under this module's namespace (`app.<id>`), reaches
+    /// for the model (concept §3.2.1). It is filed under this module's namespace (`app.<id>`), reaches
     /// whoever is watching the session at once, and stays through a refresh, a replay and a fork.
     /// The interface draws it with a `flow.block` contribution that claims `{ns, event}`.
     pub async fn append_entry(&self, session: &SessionRef, entry: Entry) -> Result<Value, RpcError> {
@@ -671,7 +671,7 @@ impl Settled {
 }
 
 /// The hub's side of a tap. It never waits: a full channel marks the tap
-/// behind and the frame is dropped (design §6.1).
+/// behind and the frame is dropped (concept §3.2).
 struct TapSink {
     tx: mpsc::Sender<Value>,
     lagged: Arc<AtomicBool>,
