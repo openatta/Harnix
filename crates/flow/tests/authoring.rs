@@ -12,7 +12,7 @@ use harnix_flow::*;
 use serde_json::{json, Value};
 
 fn me() -> Actor {
-    Actor::new("device", "d")
+    Actor::device("d")
 }
 
 const PLACED: &str = r#"

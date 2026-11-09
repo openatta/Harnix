@@ -962,7 +962,7 @@ permission_prompt_timeout_secs = 300   # 权限询问等人多久
 
 [transport]
 topologies = ["single_duplex"]  # 缺省；还有 "split_streams"（在代理后面时加上）、"request_only"
-host = "127.0.0.1"             # 非回环要 TLS 和配对过的设备
+host = "127.0.0.1"             # IP 字面量（不是主机名），启动时解析，不是地址就起不来；非回环要 TLS 和配对过的设备
 port = 4080
 launch_link = false            # true：令牌不进页面，浏览器凭一次性启动链接换 cookie
 extra_origins = []             # 回环之外允许的浏览器 Origin，例如 "https://192.168.1.20:4317"

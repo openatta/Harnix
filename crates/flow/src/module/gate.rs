@@ -20,7 +20,7 @@ pub(crate) async fn run_gate(sh: &Arc<Shared>, run: String, station: String, rou
     let rec = match engine.record(&run).await {
         Ok(r) => r,
         Err(e) => {
-            tracing::warn!(run, error = %e, "flow: gate not run");
+            tracing::warn!(run, error = %e, "gate not run");
             return;
         }
     };
@@ -70,11 +70,11 @@ pub(crate) async fn offer_result(
     loop {
         match engine.gate_result(run, station, round, gate, result.clone()).await {
             Err(FlowError::Conflict(why)) => {
-                tracing::warn!(run, station, gate, why, "flow: a gate's result met conflicts; offered again");
+                tracing::warn!(run, station, gate, why, "a gate's result met conflicts; offered again");
                 tokio::select! {
                     _ = tokio::time::sleep(wait) => {}
                     _ = stopping.cancelled() => {
-                        tracing::warn!(run, station, gate, "flow: a gate's result not recorded before stopping; the gate runs again at the next start");
+                        tracing::warn!(run, station, gate, "a gate's result not recorded before stopping; the gate runs again at the next start");
                         return Err(FlowError::Conflict(why));
                     }
                 }
@@ -292,7 +292,7 @@ mod tests {
                         subject: "s".into(),
                         ..Default::default()
                     },
-                    Actor::new("device", "d"),
+                    Actor::device("d"),
                 )
                 .await
                 .unwrap();
