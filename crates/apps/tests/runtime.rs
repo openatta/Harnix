@@ -354,7 +354,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
         !rig.kernel.called("config.reload").is_empty(),
         "the instance was not told to re-read"
     );
-    assert_eq!(rig.runtime.status(ID)["state"], json!("running"));
+    assert_eq!(rig.runtime.status(ID).await["state"], json!("running"));
     // Unsigned, its interface is its isolated surfaces: its in-page modules are listed as not
     // running, and nothing tells the page to import them.
     let ui = rig.runtime.ui_contributions();
@@ -396,7 +396,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
         centre["interface"],
         json!({"hub": ["harnix.sessions"], "links": true, "trust": "unsigned", "title": "Showcase", "spaces": [ID, "example.showcase.chats"]})
     );
-    assert_eq!(rig.runtime.status(ID)["frames"], json!(true));
+    assert_eq!(rig.runtime.status(ID).await["frames"], json!(true));
     assert!(
         rig.runtime.mcp_servers().is_empty(),
         "no listener yet, so nothing to point a daemon at"
@@ -569,7 +569,7 @@ async fn the_backend_is_registered_answers_its_methods_and_acts_only_as_far_as_i
     assert_eq!(topics, ["notes", "heartbeat"]);
     assert_eq!(spec.spaces[0].id, ID);
     assert!(spec.hub.contains(&"topic:harnix.sessions.status".to_string()));
-    let state = rig.runtime.status(ID);
+    let state = rig.runtime.status(ID).await;
     assert_eq!(state["world"], json!("backend"));
     assert_eq!(state["health"]["subscriptions"], json!(1), "init subscribed");
 
@@ -611,7 +611,7 @@ async fn the_backend_is_registered_answers_its_methods_and_acts_only_as_far_as_i
     assert_eq!(*apps.called.lock().unwrap(), ["session.create", "harnix.send"]);
     let over = apps.device_call(ID, "overreach", json!({})).await.unwrap();
     assert_eq!(over["refused"], json!(true));
-    let status = rig.runtime.status(ID);
+    let status = rig.runtime.status(ID).await;
     assert_eq!(status["calls"]["refused"][0]["method"], json!("harnix.apps.uninstall"));
 
     // A tool cannot see the backend's memory; it asks, as the application, and is answered.
@@ -671,7 +671,7 @@ async fn a_failed_install_is_undone_and_leaves_nothing_behind() {
         "the unpacked package was left behind"
     );
     assert!(!rig.skill("system").exists());
-    assert_eq!(rig.runtime.status(ID)["state"], json!("stopped"));
+    assert_eq!(rig.runtime.status(ID).await["state"], json!("stopped"));
 
     // An instance that is not there: refused before anything reaches the engine.
     let rig = Rig::new(true);

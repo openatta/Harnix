@@ -369,7 +369,7 @@ impl Manifest {
 
     fn check(&self) -> Result<(), Error> {
         let app = &self.app;
-        if !harnix_builtin::apps::valid_id(&app.id) || !app.id.contains('.') {
+        if !crate::valid_id(&app.id) || !app.id.contains('.') {
             return Err(format!(
                 "{MANIFEST}: `{}` is not an application id: `<publisher>.<name>`, dot-separated \
                  segments of lowercase letters, digits and `-`, each starting with a letter",
@@ -592,7 +592,7 @@ fn valid_version(v: &str) -> bool {
 }
 
 /// A relative path with no `..`, no root and no empty segment.
-pub(crate) fn safe_relative(path: &str) -> bool {
+pub fn safe_relative(path: &str) -> bool {
     !path.is_empty()
         && !path.starts_with('/')
         && !path.contains('\\')

@@ -3,7 +3,7 @@
 //! - `GET /apps/<id>/ui/<file>` — a running application's interface: the modules a trusted
 //!   publisher's runs in the page, same-origin, so the page can `import()` them like an installed
 //!   package's (`/plugins/<name>/ui/…`); and the pages (and their scripts, styles, images) the
-//!   shell's isolated frames load (`crate::surface`). Only files of an application that is
+//!   shell's isolated frames load (`harnix_app_package::surface`). Only files of an application that is
 //!   running, only under its `ui/`; like the page's own files, served without a credential. Every
 //!   one carries [`FRAME_CSP`]: a frame's page has no network, no plugins, no nested frames, and
 //!   loads only what its own package has.
@@ -26,9 +26,8 @@ use axum::extract::State;
 use axum::http::{header, HeaderMap, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::Router;
-use harnix_wasm::CallFailure;
+use harnix_app_port::{Failure, ToolCall, ToolReply};
 use serde_json::{json, Value};
-use tokio_util::sync::CancellationToken;
 
 use crate::runtime::{Loaded, Registry};
 
@@ -79,7 +78,7 @@ async fn ui(registry: Arc<Registry>, id: String, file: String) -> Response {
     let Some(app) = registry.get(&id) else {
         return (StatusCode::NOT_FOUND, "no such application is running").into_response();
     };
-    if !crate::manifest::safe_relative(&file) {
+    if !harnix_app_package::manifest::safe_relative(&file) {
         return (StatusCode::NOT_FOUND, "not found").into_response();
     }
     let path = app.root.join("ui").join(&file);
@@ -212,15 +211,16 @@ async fn mcp(registry: Arc<Registry>, id: String, headers: HeaderMap, body: Byte
                 tool
             }).collect::<Vec<_>>(),
         })),
-        "tools/call" => call(&app, &params).await,
+        "tools/call" => call(&registry, &app, &params).await,
         other => Err((-32601, format!("`{other}` is not served here"))),
     };
     answer(rpc_id, result)
 }
 
-async fn call(app: &Loaded, params: &Value) -> Result<Value, (i64, String)> {
-    let Some(vm) = &app.vm else {
-        return Err((-32601, format!("`{}` has no tools", app.id)));
+async fn call(registry: &Registry, app: &Loaded, params: &Value) -> Result<Value, (i64, String)> {
+    let control = match registry.control() {
+        Some(control) if app.component => control,
+        _ => return Err((-32601, format!("`{}` has no tools", app.id))),
     };
     let name = params
         .get("name")
@@ -233,32 +233,40 @@ async fn call(app: &Loaded, params: &Value) -> Result<Value, (i64, String)> {
         .get("arguments")
         .cloned()
         .unwrap_or_else(|| json!({}));
-    let call_id = uuid::Uuid::new_v4().simple().to_string();
+    let call = ToolCall {
+        app: app.id.clone(),
+        tool: name.to_string(),
+        input: arguments,
+        call_id: uuid::Uuid::new_v4().simple().to_string(),
+        project: None,
+        progress: false,
+    };
     // A client that goes away drops this future, and the call's instance with it.
-    match vm
-        .call_tool(
-            name,
-            &arguments,
-            &call_id,
-            None,
-            None,
-            &CancellationToken::new(),
-        )
-        .await
-    {
-        Ok(out) => {
+    match control.call_tool(call).await {
+        Ok(ToolReply::Output {
+            content,
+            structured,
+            is_error,
+        }) => {
             let mut result = json!({
-                "content": [{"type": "text", "text": out.content}],
-                "isError": out.is_error,
+                "content": [{"type": "text", "text": content}],
+                "isError": is_error,
             });
-            if let Some(structured) = out.structured {
+            if let Some(structured) = structured {
                 result["structuredContent"] = structured;
             }
             Ok(result)
         }
-        Err(CallFailure::Cancelled) => Err((-32800, "cancelled".into())),
-        Err(failure) => Ok(json!({
-            "content": [{"type": "text", "text": format!("{}: {failure}", app.id)}],
+        Ok(ToolReply::Failed {
+            failure: Failure::Cancelled,
+            ..
+        }) => Err((-32800, "cancelled".into())),
+        Ok(ToolReply::Failed { message, .. }) => Ok(json!({
+            "content": [{"type": "text", "text": format!("{}: {message}", app.id)}],
+            "isError": true,
+        })),
+        Err(e) => Ok(json!({
+            "content": [{"type": "text", "text": format!("{}: {}", app.id, e.message)}],
             "isError": true,
         })),
     }

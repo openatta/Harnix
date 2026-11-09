@@ -267,7 +267,7 @@ async fn countersigned_by_the_store_it_installs_and_runs_without_dev_mode() {
 
     let record = rig.install(&package).await.unwrap();
     assert_eq!(record.parts["trust"], json!("store"));
-    assert_eq!(rig.runtime.status(ID)["state"], json!("running"));
+    assert_eq!(rig.runtime.status(ID).await["state"], json!("running"));
 
     // A byte of the installed component changed on disk: it does not start again.
     rig.runtime.unload(&rig.cx, &record).await;
@@ -291,7 +291,7 @@ async fn countersigned_by_the_store_it_installs_and_runs_without_dev_mode() {
         "{}",
         err.message
     );
-    assert_eq!(rig.runtime.status(ID)["state"], json!("failed"));
+    assert_eq!(rig.runtime.status(ID).await["state"], json!("failed"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -343,7 +343,7 @@ async fn a_trusted_publisher_installs_without_the_store() {
         .await
         .unwrap();
     assert_eq!(record.parts["trust"], json!("trusted"));
-    assert_eq!(rig.runtime.status(ID)["state"], json!("running"));
+    assert_eq!(rig.runtime.status(ID).await["state"], json!("running"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -399,7 +399,7 @@ async fn an_update_discloses_what_it_adds_keeps_the_data_and_undoes_itself_when_
         .await
         .unwrap_err();
     assert!(err.message.contains("no such instance"), "{}", err.message);
-    assert_eq!(rig.runtime.status(ID)["state"], json!("running"));
+    assert_eq!(rig.runtime.status(ID).await["state"], json!("running"));
     assert!(app_dir.join("0.1.0").is_dir());
     assert!(!app_dir.join("0.3.0").exists());
 
@@ -419,7 +419,7 @@ async fn an_update_discloses_what_it_adds_keeps_the_data_and_undoes_itself_when_
         std::fs::read_to_string(app_dir.join("kv/kept")).unwrap(),
         "the application's own"
     );
-    assert_eq!(rig.runtime.status(ID)["state"], json!("running"));
+    assert_eq!(rig.runtime.status(ID).await["state"], json!("running"));
     let updated = InstallRecord {
         version: "0.2.0".into(),
         parts,

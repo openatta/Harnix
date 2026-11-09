@@ -441,9 +441,88 @@ fn the_wasm_runtime_depends_on_no_harnix_crate_and_nothing_of_agix() {
     }
 }
 
+/// One crate's `[dependencies]` (not its dev-dependencies), by name: whether each is optional.
+fn normal_dependencies(crate_dir: &str) -> std::collections::BTreeMap<String, bool> {
+    let manifest = workspace_root()
+        .join("crates")
+        .join(crate_dir)
+        .join("Cargo.toml");
+    let text = std::fs::read_to_string(&manifest)
+        .unwrap_or_else(|e| panic!("{}: {e}", manifest.display()));
+    let mut deps = std::collections::BTreeMap::new();
+    let mut in_deps = false;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_deps = line.starts_with("[dependencies]");
+            continue;
+        }
+        if !in_deps || line.starts_with('#') || line.is_empty() {
+            continue;
+        }
+        if let Some((name, rest)) = line.split_once('=') {
+            deps.insert(name.trim().to_string(), rest.contains("optional = true"));
+        }
+    }
+    deps
+}
+
+/// Agix's crates, by the names Harnix's crates know them by.
+const AGIX: &[&str] = &["daemon", "base", "model", "history", "scene", "telemetry", "runtime", "plugin"];
+
+/// Runtime applications are four layers, and each knows only those below it:
+///
+/// | crate | holds | may not reach |
+/// |---|---|---|
+/// | `harnix-app-package` | manifest, package, signatures, store, disclosure, the `harnix-app` tool | a VM, the kernel, Agix, an HTTP framework |
+/// | `harnix-app-port` | `Platform` and `Control`, and their serde types | anything but the contract |
+/// | `harnix-app-host` | lifecycle, registry, health, dispatch to the VM, idling | the kernel, the hub, Agix, an HTTP framework |
+/// | `harnix-apps` | the embedded glue: the port over the kernel, the Agix plugin, `/apps/<id>/…` | — |
+///
+/// So the package and the host are the same code in a product's process and in a process of an
+/// application's own, and the port between the host and whatever it runs in is all either side
+/// sees of the other.
+#[test]
+fn the_application_layers_reach_only_down() {
+    let forbidden_above = ["harnix-module", "harnix-hub", "harnix-builtin", "harnix-instance", "harnix-authz", "harnix-transport", "harnix-app", "harnix-apps", "axum", "wasmtime"];
+    for (dir, allowed) in [
+        ("app-package", &["harnix-contract", "harnix-wasm"][..]),
+        ("app-port", &["harnix-contract"][..]),
+        ("app-host", &["harnix-app-package", "harnix-app-port", "harnix-wasm"][..]),
+    ] {
+        for (name, optional) in normal_dependencies(dir) {
+            assert!(
+                !forbidden_above.contains(&name.as_str()) && !AGIX.contains(&name.as_str()),
+                "`{dir}` depends on `{name}`; it is below the kernel, Agix and HTTP"
+            );
+            if name.starts_with("harnix") {
+                assert!(allowed.contains(&name.as_str()), "`{dir}` depends on `{name}`; it may name {allowed:?}");
+            }
+            // The packing tool compiles components: only it, behind `compile`, links the engine.
+            if dir == "app-package" && name == "harnix-wasm" {
+                assert!(optional, "`app-package` links `harnix-wasm` only for the packing tool");
+            }
+        }
+    }
+    let port = normal_dependencies("app-port");
+    for name in port.keys() {
+        assert!(
+            ["harnix-contract", "async-trait", "serde", "serde_json"].contains(&name.as_str()),
+            "`app-port` depends on `{name}`: the boundary is serde types and async traits, nothing else"
+        );
+    }
+    let package = std::fs::read_to_string(workspace_root().join("crates/app-package/Cargo.toml")).unwrap();
+    assert!(
+        package.contains("\"dep:harnix-wasm\"") && package.contains("required-features = [\"compile\"]"),
+        "the packing tool, and only it, brings `harnix-wasm` into `app-package`"
+    );
+}
+
 /// The application runtime is reached through one door. `harnix-wasm` (the engine) is named by
-/// `harnix-apps` alone, and `harnix-apps` by the application layer alone, as an optional
-/// dependency behind its `apps` feature: a build that does not ask for applications links neither.
+/// the application host alone (and by the packing tool, behind its own feature), the host by the
+/// embedded glue alone, and the glue (`harnix-apps`) by the application layer alone, as an optional
+/// dependency behind its `apps` feature: a build that does not ask for applications links none of
+/// them.
 #[test]
 fn only_the_apps_feature_links_the_application_runtime() {
     let root = workspace_root().join("crates");
@@ -452,12 +531,26 @@ fn only_the_apps_feature_links_the_application_runtime() {
         if !entry.path().join("Cargo.toml").is_file() {
             continue;
         }
-        let deps = dependencies(&dir);
-        if deps.contains("harnix-wasm") {
-            assert_eq!(dir, "apps", "`{dir}` depends on `harnix-wasm`; only `harnix-apps` may");
+        let deps = normal_dependencies(&dir);
+        if let Some(optional) = deps.get("harnix-wasm") {
+            assert!(
+                dir == "app-host" || (dir == "app-package" && *optional),
+                "`{dir}` depends on `harnix-wasm`; only `harnix-app-host` may"
+            );
         }
-        if deps.contains("harnix-apps") {
+        if deps.contains_key("harnix-app-host") {
+            assert_eq!(dir, "apps", "`{dir}` depends on `harnix-app-host`; only `harnix-apps` may");
+        }
+        if deps.contains_key("harnix-apps") {
             assert_eq!(dir, "app", "`{dir}` depends on `harnix-apps`; only the application layer may");
+        }
+        for layer in ["harnix-app-package", "harnix-app-port"] {
+            if deps.contains_key(layer) {
+                assert!(
+                    ["app-host", "apps"].contains(&dir.as_str()),
+                    "`{dir}` depends on `{layer}`; only the host and the glue may"
+                );
+            }
         }
     }
     let manifest = std::fs::read_to_string(root.join("app/Cargo.toml")).unwrap();
@@ -549,6 +642,9 @@ fn every_harnix_dependency_resolves() {
         "testapp",
         "transport",
         "wasm",
+        "app-package",
+        "app-port",
+        "app-host",
         "apps",
     ];
     let known: BTreeSet<String> = crates

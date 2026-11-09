@@ -1423,6 +1423,56 @@ dependencies = [
 ]
 
 [[package]]
+name = "harnix-app-host"
+version = "0.4.1-2026110806"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "harnix-app-package",
+ "harnix-app-port",
+ "harnix-wasm",
+ "jsonschema",
+ "reqwest 0.12.28",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "toml",
+ "tracing",
+]
+
+[[package]]
+name = "harnix-app-package"
+version = "0.4.1-2026110806"
+dependencies = [
+ "anyhow",
+ "harnix-contract",
+ "harnix-wasm",
+ "hex",
+ "jsonschema",
+ "reqwest 0.12.28",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "toml",
+ "zip",
+]
+
+[[package]]
+name = "harnix-app-port"
+version = "0.4.1-2026110806"
+dependencies = [
+ "async-trait",
+ "harnix-contract",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "harnix-apps"
 version = "0.4.1-2026110806"
 dependencies = [
@@ -1430,18 +1480,15 @@ dependencies = [
  "async-trait",
  "axum",
  "base",
+ "harnix-app-host",
+ "harnix-app-package",
+ "harnix-app-port",
  "harnix-builtin",
  "harnix-contract",
  "harnix-module",
- "harnix-wasm",
  "hex",
- "jsonschema",
- "reqwest 0.12.28",
- "ring",
  "runtime",
- "serde",
  "serde_json",
- "sha2",
  "tempfile",
  "tokio",
  "tokio-util",

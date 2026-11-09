@@ -1,0 +1,36 @@
+[package]
+name = "harnix-app-host"
+version      = "0.4.1-2026110806"
+edition      = "2021"
+rust-version = "1.87"
+license      = "Apache-2.0"
+publish      = false
+description  = "Runs runtime applications: their VMs, lifecycle, health, methods, tools and topics, and idling"
+
+# The supervisor, between a product and the applications' VMs: it reads packages
+# (`harnix-app-package`), runs them (`harnix-wasm`), and reaches the product only through the port
+# (`harnix-app-port`). It names no kernel, no hub, nothing of Agix and no HTTP framework, so the
+# same host runs embedded in a product's process or in one of its own
+# (`crates/harnix/tests/layering.rs`).
+[dependencies]
+harnix-app-package = { workspace = true }
+harnix-app-port    = { workspace = true }
+harnix-wasm        = { workspace = true }
+anyhow      = { workspace = true }
+async-trait = { workspace = true }
+jsonschema  = { version = "0.49", default-features = false }
+reqwest     = { workspace = true }
+serde_json  = { workspace = true }
+tokio       = { workspace = true }
+tokio-util  = { workspace = true }
+toml        = { workspace = true }
+tracing     = { workspace = true }
+
+[features]
+default = []
+# Its tests compile a component for this engine (the showcase's, and the fixtures').
+compile = ["harnix-wasm/compile"]
+
+[dev-dependencies]
+harnix-app-port = { workspace = true, features = ["loopback"] }
+tempfile = { workspace = true }

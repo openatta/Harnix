@@ -1,0 +1,45 @@
+[package]
+name = "harnix-app-package"
+version      = "0.4.1-2026110806"
+edition      = "2021"
+rust-version = "1.87"
+license      = "Apache-2.0"
+publish      = false
+description  = "A runtime application as it is distributed: the manifest, the .hxapp package, its signatures, the store"
+
+# Distribution and trust, and nothing that runs: what a package says (`manifest`), what it holds
+# (`package`), who signed it (`signature`), where it comes from (`store`), what a person is shown
+# before consenting (`disclosure`), and the publisher's and the store's tools (`publish`, the
+# `harnix-app` binary). Both kinds of host read packages with it; it names no VM, no kernel, no
+# agent engine and no HTTP framework (`crates/harnix/tests/layering.rs`).
+[dependencies]
+harnix-contract = { workspace = true }
+hex         = { workspace = true }
+jsonschema  = { version = "0.49", default-features = false }
+reqwest     = { workspace = true }
+# ed25519 for packages' signatures; already linked for devices' (harnix-authz).
+ring        = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+sha2        = { workspace = true }
+toml        = { workspace = true }
+zip         = { workspace = true }
+# The packing tool alone: it builds the component and compiles it for this engine. Never part of
+# the product, which reads packages without it.
+anyhow      = { workspace = true, optional = true }
+harnix-wasm = { workspace = true, optional = true }
+
+[features]
+default = []
+# The author's packing tool (`harnix-app`): build the component, compile it for this engine, zip
+# the package. Links the compiler, so it is never part of the product.
+compile = ["dep:anyhow", "dep:harnix-wasm", "harnix-wasm/compile"]
+
+[[bin]]
+name = "harnix-app"
+path = "src/bin/harnix-app.rs"
+required-features = ["compile"]
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio    = { workspace = true }

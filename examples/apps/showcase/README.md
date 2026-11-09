@@ -102,7 +102,7 @@ You need the `wasm32-wasip2` target (`rustup target add wasm32-wasip2`) and the 
 which links the engine's compiler and so is never part of the product:
 
 ```sh
-cargo build --release -p harnix-apps --features compile --bin harnix-app --target-dir target/apps
+cargo build --release -p harnix-app-package --features compile --bin harnix-app --target-dir target/apps
 target/apps/release/harnix-app pack examples/apps/showcase --build -o showcase.hxapp
 ```
 
