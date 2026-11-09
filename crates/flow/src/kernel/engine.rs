@@ -156,7 +156,7 @@ impl Engine {
 
     /// [`crate::dispatched_work`] with this engine's view of how each scene hands in.
     pub fn dispatched_work(&self, rec: &RunRecord, now: u64) -> Vec<super::host::WorkItem> {
-        super::txn::dispatched_work_with(rec, self, now)
+        super::work::dispatched_work_with(rec, self, now)
     }
 
     pub fn with_authorizer(mut self, a: Arc<dyn Authorizer>) -> Self {

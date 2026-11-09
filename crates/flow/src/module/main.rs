@@ -69,7 +69,7 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
             return Ok(s);
         }
     }
-    let (placement, scene) = crate::kernel::txn::main_of(&rec, engine.main_scene());
+    let (placement, scene) = crate::kernel::work::main_of(&rec, engine.main_scene());
     let scene = scene.ok_or("the flow names no main scene and the module has none")?;
     let (space, instance) = place_at(sh, &placement, run).await?;
     let wanted = main_settings(&scene, &placement, placement.template_instance(run).as_deref());
