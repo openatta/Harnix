@@ -1,7 +1,3 @@
-  node templates/desktop/check-no-ipc.mjs || return 1
-  # Everything an app renames in it is a named constant its README lists.
-  echo "── desktop-rename ──"
-  node templates/desktop/check-rename.mjs || return 1
 #!/usr/bin/env bash
 # Every layer, in one command.
 #
