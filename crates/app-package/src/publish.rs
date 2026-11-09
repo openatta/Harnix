@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::Path;
 
 use serde_json::{json, Value};
@@ -28,11 +28,9 @@ fn entries(path: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
         if entry.is_dir() {
             continue;
         }
-        let mut bytes = Vec::new();
-        entry
-            .read_to_end(&mut bytes)
-            .map_err(|e| format!("`{}`: {e}", entry.name()))?;
-        out.push((entry.name().to_string(), bytes));
+        let (name, declared) = (entry.name().to_string(), entry.size());
+        let bytes = crate::package::read_entry(&mut entry, declared, &name)?;
+        out.push((name, bytes));
     }
     Ok(out)
 }

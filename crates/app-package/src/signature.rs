@@ -472,8 +472,8 @@ pub fn of_zip(path: &Path) -> Result<(BTreeMap<String, String>, Option<Signature
                 "the package's entry {name:?} has a control character in its name"
             ));
         }
-        let mut bytes = Vec::new();
-        std::io::Read::read_to_end(&mut entry, &mut bytes).map_err(|e| format!("`{name}`: {e}"))?;
+        let declared = entry.size();
+        let bytes = crate::package::read_entry(&mut entry, declared, &name)?;
         if name == FILE {
             let text = String::from_utf8(bytes).map_err(|_| format!("{FILE} is not text"))?;
             signatures = Some(Signatures::parse(&text)?);
