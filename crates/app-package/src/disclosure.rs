@@ -27,16 +27,29 @@ fn line(capability: &str, value: impl Into<Value>) -> Value {
 
 /// Every line a manifest asks for, in a fixed order; `agent`, whether the package has an agent
 /// package (the instances it goes into are a line each).
+///
+/// A `net` host on this machine or its network is `net_local`, not `net`: "it can reach the
+/// services on this machine" is what that line means, and it reads nothing like "it can reach
+/// api.example.com". `env` names secrets the profile gives it (`[apps.secrets."<id>"]`), never
+/// the process's environment. `events` is there when it is offered every tool call, not only its
+/// own tools'; `frames` when it has pages of its own, which run isolated but can navigate
+/// themselves away — and take with them what they were shown.
 pub fn lines(manifest: &Manifest, agent: bool) -> Vec<Value> {
     let caps = &manifest.capabilities;
     let mut out = Vec::new();
-    out.extend(caps.net.iter().map(|h| line("net", h.as_str())));
+    out.extend(caps.net.iter().map(|h| {
+        let kind = if crate::manifest::local_host(h) { "net_local" } else { "net" };
+        line(kind, h.as_str())
+    }));
     out.extend(caps.env.iter().map(|e| line("env", e.as_str())));
     if caps.storage_mb > 0 {
         out.push(line("storage_mb", caps.storage_mb));
     }
     out.extend(caps.hub.iter().map(|m| line("hub", m.as_str())));
     out.extend(caps.fs.iter().map(|p| line("fs", p.as_str())));
+    if manifest.component.is_some() && manifest.events.all() {
+        out.push(line("events", "all"));
+    }
     // The interface modules run in the page, with its rights: each is a line of its own.
     out.extend(
         manifest
@@ -63,6 +76,9 @@ pub fn lines(manifest: &Manifest, agent: bool) -> Vec<Value> {
     );
     if manifest.interface.links {
         out.push(line("links", true));
+    }
+    if manifest.surfaces.iter().any(|s| s.page.is_some()) {
+        out.push(line("frames", true));
     }
     if agent {
         out.extend(
@@ -121,6 +137,7 @@ pub fn disclose(
         "capabilities": {
             "net": caps.net, "env": caps.env, "storage_mb": caps.storage_mb, "hub": caps.hub, "fs": caps.fs,
         },
+        "events": manifest.events.tools,
         "lines": lines(manifest, agent),
         "component": manifest.component.as_ref().map(|c| json!({
             "world": c.world, "memory_mb": c.memory_mb, "timeout_ms": c.timeout_ms,
@@ -222,8 +239,37 @@ publisher = "acme"
     }
 
     #[test]
+    fn a_host_on_this_machine_and_every_tool_call_are_said_as_such() {
+        let local = manifest("net = [\"127.0.0.1\", \"api.example.com\", \"printer.local\"]", false);
+        let kinds: Vec<(String, String)> = lines(&local, false)
+            .iter()
+            .map(|l| (l["capability"].as_str().unwrap().into(), l["value"].as_str().unwrap().into()))
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                ("net_local".into(), "127.0.0.1".into()),
+                ("net".into(), "api.example.com".into()),
+                ("net_local".into(), "printer.local".into()),
+            ]
+        );
+        let tools = |events: &str| {
+            Manifest::parse(&format!(
+                "[app]\nid = \"acme.notes\"\nversion = \"1.0.0\"\nharnix_api = 1\npublisher = \"acme\"\n\n\
+                 [[component]]\nname = \"tools\"\nworld = \"harnix:app/tools-app@0.1.0\"\n{events}"
+            ))
+            .unwrap()
+        };
+        let own = tools("");
+        assert!(lines(&own, false).is_empty(), "its own tools' calls are not a capability");
+        let all = tools("\n[events]\ntools = \"all\"\n");
+        assert_eq!(lines(&all, false), [json!({"capability": "events", "value": "all"})]);
+        assert_eq!(added((&own, false), (&all, false)), [json!({"capability": "events", "value": "all"})]);
+    }
+
+    #[test]
     fn every_capability_is_a_line() {
-        let m = manifest("net = [\"h\"]\nenv = [\"E\"]\nstorage_mb = 3\nhub = [\"harnix.sessions\"]\nfs = [\"${project}\"]\n\n[interface]\nhub = [\"harnix.sessions\"]\nlinks = true", true);
+        let m = manifest("net = [\"h\"]\nenv = [\"E\"]\nstorage_mb = 3\nhub = [\"harnix.sessions\"]\nfs = [\"${project}\"]\n\n[interface]\nhub = [\"harnix.sessions\"]\nlinks = true\n\n[[surface]]\npoint = \"home.card\"\npage = \"card.html\"", true);
         let kinds: Vec<String> = lines(&m, true)
             .iter()
             .map(|l| l["capability"].as_str().unwrap().to_string())
@@ -239,6 +285,7 @@ publisher = "acme"
                 "ui",
                 "ui_hub",
                 "links",
+                "frames",
                 "agent"
             ]
         );

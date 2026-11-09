@@ -194,13 +194,16 @@ lto = true
 "#
     );
     let lib = r#"//! The application's tools: a `tools-app` component (`harnix:app`, wit/app.wit).
+//!
+//! To also see, and veto, the calls of these tools, build `tools-app-events` instead and implement
+//! `exports::harnix::app::events::Guest` (`on_event` answering `HookDecision::Proceed`,
+//! `Block(reason)` or `AddContext(note)`).
 
 wit_bindgen::generate!({
     path: "wit",
     world: "tools-app",
 });
 
-use exports::harnix::app::events::{Guest as Events, HookDecision};
 use exports::harnix::app::tools::{Guest as Tools, ToolDef, ToolOutput};
 use serde_json::{json, Value};
 
@@ -232,12 +235,6 @@ impl Tools for App {
                 is_error: true,
             },
         }
-    }
-}
-
-impl Events for App {
-    fn on_event(_event: String, _payload_json: String) -> HookDecision {
-        HookDecision::Allow
     }
 }
 

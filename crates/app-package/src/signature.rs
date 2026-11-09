@@ -415,7 +415,14 @@ pub fn verify(
                     store.key
                 ));
             }
-            return Ok(verified(Trust::Store));
+            // A publisher the profile trusts is trusted however its package came: through the
+            // store, every file but the compiled components the store added is the publisher's
+            // (`check_added`), and those the store vouches for.
+            return Ok(verified(if trusted_publisher {
+                Trust::Trusted
+            } else {
+                Trust::Store
+            }));
         }
         if trusted_publisher && covers_all {
             return Ok(verified(Trust::Trusted));
@@ -458,6 +465,13 @@ pub fn of_zip(path: &Path) -> Result<(BTreeMap<String, String>, Option<Signature
             continue;
         }
         let name = entry.name().to_string();
+        // One name, one line of what is signed (`payload`): a line break in a name would let one
+        // entry be read as two.
+        if name.chars().any(char::is_control) {
+            return Err(format!(
+                "the package's entry {name:?} has a control character in its name"
+            ));
+        }
         let mut bytes = Vec::new();
         std::io::Read::read_to_end(&mut entry, &mut bytes).map_err(|e| format!("`{name}`: {e}"))?;
         if name == FILE {
@@ -575,6 +589,43 @@ mod tests {
         // Through JSON and back, as it is kept in the package.
         let again = Signatures::parse(&countersigned.to_json()).unwrap();
         assert_eq!(again, countersigned);
+    }
+
+    #[test]
+    fn a_trusted_publisher_through_the_store_is_still_trusted() {
+        let (publisher, store) = (key(1), key(2));
+        let countersigned = Signatures::sign(APP, "acme", &publisher, files(false))
+            .countersign(APP, &store, files(true))
+            .unwrap();
+        let both = keys(&[&store], &[("acme", &publisher)]);
+        let verified = verify(Some(&countersigned), &files(true), APP, "acme", &both).unwrap();
+        assert_eq!(verified.trust, Trust::Trusted);
+        // The store's artifact is still checked against what the store signed.
+        assert!(verified
+            .check("wasm/tools.engine-1+x+abc.cwasm", b"compiled")
+            .is_ok());
+        // Another publisher of the same name through the same store is the store's.
+        let other = keys(&[&store], &[("acme", &key(9))]);
+        assert_eq!(
+            verify(Some(&countersigned), &files(true), APP, "acme", &other)
+                .unwrap()
+                .trust,
+            Trust::Store
+        );
+    }
+
+    #[test]
+    fn a_name_with_a_line_break_cannot_be_signed_into_two() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("p.hxapp");
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+        let forged = format!("ui/a.js\n{}  ui/b.js", sha256(b"b"));
+        zip.start_file(forged.as_str(), zip::write::SimpleFileOptions::default())
+            .unwrap();
+        std::io::Write::write_all(&mut zip, b"a").unwrap();
+        zip.finish().unwrap();
+        let err = of_zip(&path).unwrap_err();
+        assert!(err.contains("control character"), "{err}");
     }
 
     #[test]
