@@ -18,7 +18,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardE
 import { useConnection, useHello, useSession, useStrings } from "../context";
 import { usageTotals, type Block, type BlockOf, type SessionState } from "@harnix/core/state";
 import type { SessionController } from "@harnix/core/state";
-import { Agent, AskCard, ContextRow, ImageBlock, toolAsks } from "../components/blocks";
+import { Agent, AskCard, ContextRow, ImageBlock, toolAsks, type ToolAsks } from "../components/blocks";
 import { ConnectionBadge } from "../components/ConnectionBadge";
 import { ChatComposer, type Attached, type ComposerApi, type ContextRingConfig, type ModelOption } from "./ChatComposer";
 import { TOOL_NAMES, toolDisplayName } from "./format";
@@ -262,12 +262,15 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
   const [diffs, setDiffs] = useState({ collapsed: false, generation: 0 });
 
   const toolNames = useMemo(() => ({ ...TOOL_NAMES, ...props.toolNames }), [props.toolNames]);
-  const toolRows = props.renderers?.toolRows;
+  // Read when a card asks, not a dependency: an application hands a new array every draw.
+  const toolRows = useRef(props.renderers?.toolRows);
+  toolRows.current = props.renderers?.toolRows;
   const blocks = state?.blocks;
+  const lastAsks = useRef<{ key: string; names: Record<string, string>; tools: Block[]; asks: ToolAsks } | null>(null);
   const asks = useMemo(() => {
     // A call's name is its row's: the newest row that claims it and says one, else the display name.
     const title = (block: BlockOf<"tool">): string => {
-      for (const row of [...(toolRows ?? [])].reverse()) {
+      for (const row of [...(toolRows.current ?? [])].reverse()) {
         if (!row.title || !row.match(block)) continue;
         const said = row.title(block);
         if (said) return said;
@@ -275,8 +278,15 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
       }
       return toolDisplayName(block.name, toolNames);
     };
-    return toolAsks(blocks ?? [], title);
-  }, [blocks, toolRows, toolNames]);
+    // The same calls and the same open asks: the same value, so a streamed reply does not draw every row again.
+    const next = toolAsks(blocks ?? [], title);
+    const tools = (blocks ?? []).filter((b) => b.kind === "tool");
+    const key = [...next.awaiting].join("\n");
+    const prev = lastAsks.current;
+    if (prev && prev.key === key && prev.names === toolNames && prev.tools.length === tools.length && prev.tools.every((t, i) => t === tools[i])) return prev.asks;
+    lastAsks.current = { key, names: toolNames, tools, asks: next };
+    return next;
+  }, [blocks, toolNames]);
   const context = useMemo<ChatContextValue>(
     () => ({
       variant,
