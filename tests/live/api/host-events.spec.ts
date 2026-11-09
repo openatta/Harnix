@@ -53,7 +53,13 @@ async function hostEvents(client, match, timeout = 20_000) {
   return seen();
 }
 
-defineSuite("host-events", { feature: "sessions" }, {
+defineSuite("host-events", {
+  feature: "sessions",
+  gaps: {
+    "a client that arrives after the failure cannot learn about it":
+      "Agix: `mcp.status` reporting the servers that failed to connect, not only those that did",
+  },
+}, {
   tests: {
     "a process-level failure reaches a client that subscribed to nothing":
       async ({ client: { topology } }) => {

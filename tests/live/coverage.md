@@ -7,8 +7,8 @@
 | 功能模块 | id | API | 界面 |
 |---|---|---|---|
 | 握手与连接 | `connection` | 37 | 2 |
-| 授权与设备 | `authz` | 17 | 2 |
-| 会话与轮次 | `sessions` | 71 | 28 |
+| 授权与设备 | `authz` | 16 | 2 |
+| 会话与轮次 | `sessions` | 70 | 28 |
 | 无头会话 | `headless` | 4 | 1 |
 | 实例层 | `instances` | 29 | — 实例层没有自己的界面；界面上看实例是系统 space 的事（system） |
 | 模块契约 | `modules` | 18 | 1 |
@@ -30,4 +30,13 @@
 | 应用后端的闲置休眠（on-demand、冷启动、并发唤醒只起一个实例、订阅与定时器保持常驻、系统 space 应用页签） | `apps-idle` | 6 | 1 |
 | 应用构建 | `build` | — 在脚本层检查（check-pins、check-lock、sync-app-deps），不经协议 | — 构建没有界面 |
 | 桌面壳 | `desktop` | — 桌面壳不加协议面：webview 加载的就是服务端的页面 | — 桌面壳是模板（templates/desktop）：它不调 IPC 由 check-no-ipc.mjs 在 offline 层查，本机模式由它的 --smoke 查 |
-| **合计** | | **345** | **178** |
+| **合计** | | **343** | **178** |
+
+## 已知缺口（`@gap`）
+
+> 这些用例把已知的错误行为照原样钉住，不算覆盖。对应的修复合入后，改成正确的断言、去掉 `@gap`。
+
+| 功能模块 | 层 | 用例 | 等什么修 |
+|---|---|---|---|
+| `authz` | api | api/audit.spec.ts › audit › deleting a session takes its audit entry with it | a durable sink for session.delete that is not the deleted transcript (crates/app/src/audit_log.rs) |
+| `sessions` | api | api/host-events.spec.ts › host-events › a client that arrives after the failure cannot learn about it | Agix: `mcp.status` reporting the servers that failed to connect, not only those that did |

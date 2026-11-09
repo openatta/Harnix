@@ -109,13 +109,13 @@ test.describe("on", () => {
     expect(await api.call("harnix.system.tasks.stop", { ...s, task_id: "no-such-task" })).toEqual({ stopped: false });
     const unknown = await api.refused("harnix.system.tasks.output", { ...s, task_id: "no-such-task" });
     expect(unknown?.code, String(unknown)).toBe(-32018);
-    await api.call("harnix.system.compact", s).catch(() => undefined);
+    await api.call("harnix.system.compact", s);
     await api.call("harnix.system.clear", s);
     const context = await api.call("harnix.system.context", s);
     expect(context.messages.count).toBe(0);
 
     const { entries } = await api.call("harnix.audit", { limit: 200 });
-    for (const method of ["harnix.system.rename", "harnix.system.clear"]) {
+    for (const method of ["harnix.system.rename", "harnix.system.compact", "harnix.system.clear"]) {
       expect(entries.some((e: any) => e.method === method && e.decision === "allow"), method).toBe(true);
     }
     // And what it asked of the engine, as the system module.

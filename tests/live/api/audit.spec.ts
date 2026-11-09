@@ -61,7 +61,13 @@ async function auditFor(backend, match, timeout = 5000) {
   }
 }
 
-defineSuite("audit", { feature: "authz" }, {
+defineSuite("audit", {
+  feature: "authz",
+  gaps: {
+    "deleting a session takes its audit entry with it":
+      "a durable sink for session.delete that is not the deleted transcript (crates/app/src/audit_log.rs)",
+  },
+}, {
   tests: {
     "a refusal that named a session lands in that session's timeline":
       async ({ backend, client }) => {
