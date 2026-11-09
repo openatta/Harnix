@@ -1,7 +1,7 @@
 //! Where an audit entry ends up.
 //!
 //! `harnix_authz::Audit` keeps a bounded ring so the diagnostics page can show
-//! recent decisions, and a ring dies with the process. §6.5 asks for
+//! recent decisions, and a ring dies with the process. concept §6.5 asks for
 //! something else: decisions written into the **session timeline**, in order
 //! with every other entry, surviving load, fork and resume.
 //!

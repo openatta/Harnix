@@ -5,7 +5,7 @@
 //! methods, topics and routes, and the grants their manifests disclose); the
 //! diagnostics page lists the whole table. Everything not named anywhere is
 //! refused — the table is an allow-list, so a new method is unreachable until
-//! someone writes it down (§3.4).
+//! someone writes it down (concept §3.4).
 
 use harnix_authz::{MethodTable, Reach, ENGINE_REFUSALS, HUB_OWNED};
 
@@ -14,7 +14,7 @@ pub const APP_METHODS: &[&str] = &["harnix.contributions", "harnix.diagnostics",
 
 /// Looking into a session and changing its context: the kernel's, and a
 /// module's by grant. A device reaches them through the system space's own
-/// methods, which say what they are doing (design §9.3).
+/// methods, which say what they are doing (concept §5.5).
 pub const INSPECTION: &[&str] = &[
     "session.tasks",
     "session.stopTask",
@@ -54,7 +54,7 @@ pub fn table() -> MethodTable {
     table = table.allow(harnix_authz::REACHABLE, Reach::Device);
 
     // The instance tree, as whole values. Reading it is a device's: it is
-    // what the system space draws (design §6.3, §9).
+    // what the system space draws.
     for (name, _) in harnix_hub::HUB_TOPICS {
         table = table.allow(&harnix_authz::topic(name), Reach::Device);
     }
@@ -90,7 +90,7 @@ mod tests {
     }
 
     /// The engine trusts whoever reaches its dispatch. These would hand that
-    /// trust to a client (§3.4), so they are refused with a reason rather
+    /// trust to a client (concept §3.4), so they are refused with a reason rather
     /// than left unimplemented.
     #[test]
     fn credential_and_endpoint_methods_are_refused() {

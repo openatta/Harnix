@@ -1,4 +1,4 @@
-//! `harnix-app` — a process assembled from modules (design §7).
+//! `harnix-app` — a process assembled from modules (concept §3.1).
 //!
 //! ```no_run
 //! fn main() -> anyhow::Result<()> {
