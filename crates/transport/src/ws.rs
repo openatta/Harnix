@@ -16,12 +16,13 @@ use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use futures::{SinkExt, StreamExt};
-use harnix_contract::{codes, RpcError, Subject, Topology};
+use harnix_contract::{codes, RpcError, Topology};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use tracing::warn;
 
-use crate::handshake;
+use crate::frame::{self, Malformed, Request};
+use crate::handshake::{self, Refused};
 use crate::session::Ended;
 use crate::AppState;
 
@@ -155,242 +156,30 @@ fn frame_kind(frame: &str) -> &str {
 async fn connection(socket: WebSocket, state: AppState, peer: Peer) {
     // Bounded, like every queue a client has (`session::OUTBOUND_FRAMES`): replies wait for room,
     // frames from the hub do not — a full queue ends the client.
-    let (tx, mut outbound) = mpsc::channel::<String>(crate::session::OUTBOUND_FRAMES);
-    let (mut ws_sink, mut stream) = socket.split();
-    let conn = peer.conn;
+    let (tx, outbound) = mpsc::channel::<String>(crate::session::OUTBOUND_FRAMES);
+    let (ws_sink, mut stream) = socket.split();
     tracing::debug!(
-        conn,
+        conn = peer.conn,
         admitted_by = peer.admitted_by,
         origin = %peer.origin,
         user_agent = %peer.user_agent,
         "websocket upgraded"
     );
-
     // How the connection is closed when it is the server that closes it: a code and a reason the
     // client can act on, rather than the socket simply going.
-    let (close_with, mut closing) = tokio::sync::oneshot::channel::<CloseFrame>();
-    let pump = tokio::spawn(async move {
-        loop {
-            let frame = tokio::select! {
-                frame = outbound.recv() => frame,
-                close = &mut closing => {
-                    if let Ok(close) = close {
-                        let _ = ws_sink.send(Message::Close(Some(close))).await;
-                    }
-                    break;
-                }
-            };
-            let Some(frame) = frame else { break };
-            if tracing::enabled!(tracing::Level::TRACE) {
-                tracing::trace!(
-                    conn,
-                    kind = frame_kind(&frame),
-                    bytes = frame.len(),
-                    "frame out"
-                );
-            }
-            if ws_sink.send(Message::Text(frame.into())).await.is_err() {
-                break;
-            }
-        }
-        let _ = ws_sink.close().await;
-    });
+    let (close_with, closing) = tokio::sync::oneshot::channel::<CloseFrame>();
+    let pump = tokio::spawn(pump(ws_sink, outbound, closing, peer.conn));
 
-    // Nothing is established until the handshake. `credential` is what every
-    // later channel of this subject would carry; in this topology there is
-    // only one channel, so it never travels — but the *identity* comes from
-    // it either way, which is what keeps `__client` meaning the same thing in
-    // both topologies.
-    let mut established: Option<(String, Arc<crate::session::Established>)> = None;
-    // Changes when the handshake is over for a reason of the server's: its device revoked, its
-    // queue full, the process stopping. Then this connection closes, saying which.
-    let mut ended: Option<tokio::sync::watch::Receiver<Option<Ended>>> = None;
-    let mut why: Option<Ended> = None;
-    let permits = Arc::new(tokio::sync::Semaphore::new(MAX_IN_FLIGHT));
-
-    loop {
-        let message = tokio::select! {
-            message = stream.next() => message,
-            reason = ended_of(&mut ended) => {
-                why = Some(reason);
-                break;
-            }
-        };
-        let Some(Ok(message)) = message else { break };
-        let text = match message {
-            Message::Text(t) => t.to_string(),
-            Message::Close(_) => break,
-            _ => continue,
-        };
-        // Refused with the ceiling in the message, and the connection stays
-        // open. Letting it through would mean `hello` publishes a limit that
-        // nothing checks; dropping the connection instead would leave the
-        // client guessing at which frame did it.
-        if text.len() > harnix_contract::MAX_FRAME_BYTES {
-            let id = serde_json::from_str::<Value>(&text)
-                .ok()
-                .and_then(|v| v.get("id").cloned())
-                .unwrap_or(Value::Null);
-            let _ = tx
-                .send(error_frame(
-                    id,
-                    codes::INVALID_REQUEST,
-                    format!(
-                        "frame is {} bytes; the ceiling is {} — use the bulk channel",
-                        text.len(),
-                        harnix_contract::MAX_FRAME_BYTES
-                    ),
-                ))
-                .await;
-            continue;
-        }
-        let Ok(value) = serde_json::from_str::<Value>(&text) else {
-            let _ = tx.send(error_frame(Value::Null, codes::PARSE_ERROR, "invalid JSON")).await;
-            continue;
-        };
-        let id = value.get("id").cloned().unwrap_or(Value::Null);
-        let is_notification = value.get("id").is_none();
-        let Some(method) = value
-            .get("method")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-        else {
-            let _ = tx.send(error_frame(id, codes::INVALID_REQUEST, "missing method")).await;
-            continue;
-        };
-        let mut params = value.get("params").cloned().unwrap_or(json!({}));
-
-        if method == "harnix.handshake" {
-            if established.is_some() {
-                let _ = tx
-                    .send(error_frame(
-                        id,
-                        codes::HANDSHAKE_REFUSED,
-                        "already established; a negotiation held twice is one that \
-                         will eventually produce two answers",
-                    ))
-                    .await;
-                continue;
-            }
-            let mut body = params.clone();
-            if let Some(obj) = body.as_object_mut() {
-                obj.insert("token".into(), json!(state.config.token));
-            }
-            let device = match crate::admission::admit(
-                state.config.admission,
-                &state.config.token,
-                &state.devices,
-                &state.challenges,
-                &body,
-            )
-            .await
-            {
-                crate::admission::Verdict::Admit { device } => device,
-                crate::admission::Verdict::Refuse(reason) => {
-                    let _ = tx.send(error_frame(id, codes::HANDSHAKE_REFUSED, reason)).await;
-                    continue;
-                }
-            };
-            let subject = Subject::Device {
-                id: device.unwrap_or_else(|| harnix_contract::LOCAL_DEVICE.into()),
-            };
-            match handshake::negotiate(&params, &state.config.topologies, subject) {
-                Ok(negotiated) if negotiated.topology != Topology::SingleDuplex => {
-                    let _ = tx
-                        .send(error_frame(
-                            id,
-                            codes::HANDSHAKE_REFUSED,
-                            "this connection carries the single-duplex topology; \
-                             the split-streams one is established at POST /handshake",
-                        ))
-                        .await;
-                }
-                Ok(negotiated) => {
-                    // This connection's own sender, handed in: both faces are
-                    // carried here, so frames go straight down it. No queue to
-                    // drain and no task to drain it.
-                    let (credential, session) = state
-                        .sessions
-                        .establish(
-                            state.hub.as_ref(),
-                            negotiated.subject.clone(),
-                            negotiated.topology,
-                            Some(tx.clone()),
-                            &peer.user_agent,
-                        )
-                        .await;
-                    let mut body = handshake::accepted(&negotiated, &state.config.topologies);
-                    body["client"] = json!(session.client.0);
-                    // What a module route (`/apps/<id>/`) is presented with:
-                    // the same credential the split topology hands out.
-                    body["credential"] = json!(credential);
-                    tracing::info!(
-                        conn,
-                        client = session.client.0,
-                        admitted_by = peer.admitted_by,
-                        origin = %peer.origin,
-                        user_agent = %peer.user_agent,
-                        "single-duplex channel established"
-                    );
-                    ended = Some(session.ended());
-                    established = Some((credential, session));
-                    let _ = tx.send(ok_frame(id, body)).await;
-                }
-                Err(e) => {
-                    let _ = tx.send(error_frame(id, e.code, e.message)).await;
-                }
-            }
-            continue;
-        }
-
-        // Nothing before the handshake. Version and topology have to be
-        // settled before a call can mean anything.
-        let Some((_, session)) = established.as_ref() else {
-            let _ = tx
-                .send(error_frame(id, codes::HANDSHAKE_REFUSED, "call harnix.handshake first"))
-                .await;
-            continue;
-        };
-        let subject = session.subject.clone();
-
-        // Which client this is, from the credential the handshake produced —
-        // not from this socket. In a topology where the call and the frames
-        // it registers a watcher for arrive on different connections, socket
-        // identity is the wrong answer; taking it from the credential makes
-        // both topologies mean the same thing here (§3.3.3, item 2).
-        if let Some(obj) = params.as_object_mut() {
-            obj.insert("__client".into(), json!(session.client.0));
-        }
-
-        let Ok(permit) = permits.clone().try_acquire_owned() else {
-            if is_notification {
-                let n = DROPPED_NOTIFICATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                warn!(conn, method = %method, dropped = n, "client exceeded its in-flight budget; notification dropped");
-            } else {
-                let _ = tx.send(rpc_error_frame(id, &busy())).await;
-            }
-            continue;
-        };
-        let gate = state.gate.clone();
-        let reply = tx.clone();
-        tokio::spawn(async move {
-            let outcome = crate::call_settled(gate.as_ref(), &subject, &method, params).await;
-            if !is_notification {
-                let _ = reply
-                    .send(match outcome {
-                        Ok(result) => ok_frame(id, result),
-                        Err(e) => rpc_error_frame(id, &e),
-                    })
-                    .await;
-            }
-            drop(permit);
-        });
-    }
-
-    if let Some((credential, _)) = established {
-        state.sessions.end(state.hub.as_ref(), &credential).await;
-        tracing::info!(conn, ended = ?why, "single-duplex channel closed");
-    }
+    let mut connection = Connection {
+        state,
+        peer,
+        tx,
+        established: None,
+        ended: None,
+        permits: Arc::new(tokio::sync::Semaphore::new(MAX_IN_FLIGHT)),
+    };
+    let why = connection.read(&mut stream).await;
+    connection.end(why).await;
     match why.map(close_frame) {
         // Said, then given a moment to go out before the connection is dropped.
         Some(close) => {
@@ -398,6 +187,190 @@ async fn connection(socket: WebSocket, state: AppState, peer: Peer) {
             let _ = tokio::time::timeout(std::time::Duration::from_secs(2), pump).await;
         }
         None => pump.abort(),
+    }
+    // Only now: its sender is what kept the pump waiting for the close frame rather than finding
+    // the queue closed and going without one.
+    drop(connection);
+}
+
+/// Everything that goes down the socket, in order, until the queue closes or the server closes
+/// the connection with a reason.
+async fn pump(
+    mut ws_sink: futures::stream::SplitSink<WebSocket, Message>,
+    mut outbound: mpsc::Receiver<String>,
+    mut closing: tokio::sync::oneshot::Receiver<CloseFrame>,
+    conn: u64,
+) {
+    loop {
+        let frame = tokio::select! {
+            frame = outbound.recv() => frame,
+            close = &mut closing => {
+                if let Ok(close) = close {
+                    let _ = ws_sink.send(Message::Close(Some(close))).await;
+                }
+                break;
+            }
+        };
+        let Some(frame) = frame else { break };
+        if tracing::enabled!(tracing::Level::TRACE) {
+            tracing::trace!(
+                conn,
+                kind = frame_kind(&frame),
+                bytes = frame.len(),
+                "frame out"
+            );
+        }
+        if ws_sink.send(Message::Text(frame.into())).await.is_err() {
+            break;
+        }
+    }
+    let _ = ws_sink.close().await;
+}
+
+/// One connection's side of the protocol: its handshake, once there is one, and its calls.
+struct Connection {
+    state: AppState,
+    peer: Peer,
+    /// What goes down the socket.
+    tx: mpsc::Sender<String>,
+    /// Nothing is established until the handshake. The credential is what every later channel of
+    /// this subject would carry; in this topology there is only one channel, so it never travels
+    /// — but the *identity* comes from it either way, which is what keeps `__client` meaning the
+    /// same thing in both topologies.
+    established: Option<(String, Arc<crate::session::Established>)>,
+    /// Changes when the handshake is over for a reason of the server's: its device revoked, its
+    /// queue full, the process stopping. Then this connection closes, saying which.
+    ended: Option<tokio::sync::watch::Receiver<Option<Ended>>>,
+    permits: Arc<tokio::sync::Semaphore>,
+}
+
+impl Connection {
+    /// Read frames until the client goes (`None`) or the server ends the handshake (why).
+    async fn read(&mut self, stream: &mut futures::stream::SplitStream<WebSocket>) -> Option<Ended> {
+        loop {
+            let message = tokio::select! {
+                message = stream.next() => message,
+                reason = ended_of(&mut self.ended) => return Some(reason),
+            };
+            let Some(Ok(message)) = message else { return None };
+            let text = match message {
+                Message::Text(t) => t,
+                Message::Close(_) => return None,
+                _ => continue,
+            };
+            // A bad frame is refused and the connection stays open: dropping it instead would
+            // leave the client guessing at which frame did it.
+            match frame::parse_request(text.as_bytes()) {
+                Ok(request) if request.method == "harnix.handshake" => self.handshake(request).await,
+                Ok(request) => self.call(request).await,
+                Err(Malformed { id, error }) => self.send(frame::error(id, &error)).await,
+            }
+        }
+    }
+
+    async fn send(&self, frame: Value) {
+        let _ = self.tx.send(frame::text(&frame)).await;
+    }
+
+    async fn refuse(&self, id: Value, message: &str) {
+        self.send(frame::error(id, &RpcError::new(codes::HANDSHAKE_REFUSED, message)))
+            .await;
+    }
+
+    async fn handshake(&mut self, request: Request) {
+        if self.established.is_some() {
+            return self
+                .refuse(
+                    request.id,
+                    "already established; a negotiation held twice is one that \
+                     will eventually produce two answers",
+                )
+                .await;
+        }
+        // The upgrade was admitted by the token or a launch-link cookie; the handshake carries
+        // the token the same as the split topology's does.
+        let mut body = request.params;
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("token".into(), json!(self.state.config.token));
+        }
+        // This connection's own sender, handed in: both faces are carried here, so frames go
+        // straight down it. No queue to drain and no task to drain it.
+        let opened = handshake::establish_from_body(
+            &self.state,
+            &body,
+            Topology::SingleDuplex,
+            "this connection carries the single-duplex topology; \
+             the split-streams one is established at POST /handshake",
+            Some(self.tx.clone()),
+            &self.peer.user_agent,
+        )
+        .await;
+        match opened {
+            Ok(opened) => {
+                let peer = &self.peer;
+                tracing::info!(
+                    conn = peer.conn,
+                    client = opened.session.client.0,
+                    admitted_by = peer.admitted_by,
+                    origin = %peer.origin,
+                    user_agent = %peer.user_agent,
+                    "single-duplex channel established"
+                );
+                self.ended = Some(opened.session.ended());
+                self.established = Some((opened.credential, opened.session));
+                self.send(frame::ok(request.id, opened.answer)).await;
+            }
+            Err(Refused::NotAdmitted(reason)) => self.refuse(request.id, reason).await,
+            Err(Refused::Negotiation(e)) => self.send(frame::error(request.id, &e)).await,
+        }
+    }
+
+    async fn call(&self, mut request: Request) {
+        // Nothing before the handshake. Version and topology have to be
+        // settled before a call can mean anything.
+        let Some((_, session)) = self.established.as_ref() else {
+            return self.refuse(request.id, "call harnix.handshake first").await;
+        };
+        request.say_client(session.client);
+        let Ok(permit) = self.permits.clone().try_acquire_owned() else {
+            if request.is_notification {
+                let n = DROPPED_NOTIFICATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                warn!(conn = self.peer.conn, method = %request.method, dropped = n, "client exceeded its in-flight budget; notification dropped");
+            } else {
+                self.send(frame::error(request.id, &busy())).await;
+            }
+            return;
+        };
+        // A long request gets its own task, or it would hold up the read loop.
+        let gate = self.state.gate.clone();
+        let subject = session.subject.clone();
+        let reply = self.tx.clone();
+        tokio::spawn(async move {
+            let Request {
+                id,
+                is_notification,
+                method,
+                params,
+            } = request;
+            let outcome = crate::call_settled(gate.as_ref(), &subject, &method, params).await;
+            if !is_notification {
+                let frame = match outcome {
+                    Ok(result) => frame::ok(id, result),
+                    Err(e) => frame::error(id, &e),
+                };
+                let _ = reply.send(frame::text(&frame)).await;
+            }
+            drop(permit);
+        });
+    }
+
+    /// The handshake this connection carried, ended. The connection's own sender lives on until
+    /// it is dropped, so the reason it closes with still has a way out.
+    async fn end(&self, why: Option<Ended>) {
+        if let Some((credential, _)) = &self.established {
+            self.state.sessions.end(self.state.hub.as_ref(), credential).await;
+            tracing::info!(conn = self.peer.conn, ended = ?why, "single-duplex channel closed");
+        }
     }
 }
 
@@ -438,23 +411,4 @@ fn busy() -> RpcError {
         ),
         data: Some(json!({"max_in_flight": MAX_IN_FLIGHT})),
     }
-}
-
-fn ok_frame(id: Value, result: Value) -> String {
-    serde_json::to_string(&json!({"jsonrpc": "2.0", "id": id, "result": result}))
-        .unwrap_or_default()
-}
-
-/// An error from behind the gate, whole: `data` says what a client can act on (the space a
-/// session belongs to, the turn that is busy).
-fn rpc_error_frame(id: Value, error: &RpcError) -> String {
-    serde_json::to_string(&json!({"jsonrpc": "2.0", "id": id, "error": error})).unwrap_or_default()
-}
-
-fn error_frame(id: Value, code: i32, message: impl Into<String>) -> String {
-    serde_json::to_string(&json!({
-        "jsonrpc": "2.0", "id": id,
-        "error": {"code": code, "message": message.into()},
-    }))
-    .unwrap_or_default()
 }

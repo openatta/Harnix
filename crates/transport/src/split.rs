@@ -33,13 +33,15 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use futures::Stream;
-use harnix_contract::{codes, RpcError, Subject, Topology};
+use harnix_contract::{codes, RpcError, Topology};
 use serde_json::{json, Value};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 
+use crate::frame::{self, Malformed};
+use crate::handshake::{self, Refused};
 use crate::session::Face;
-use crate::{handshake, AppState};
+use crate::AppState;
 
 #[derive(serde::Deserialize)]
 pub struct Credential {
@@ -74,55 +76,28 @@ pub async fn establish(
             obj.insert("token".into(), json!(state.config.token));
         }
     }
-    let device = match crate::admission::admit(
-        state.config.admission,
-        &state.config.token,
-        &state.devices,
-        &state.challenges,
-        &body,
-    )
-    .await
-    {
-        crate::admission::Verdict::Admit { device } => device,
-        crate::admission::Verdict::Refuse(reason) => {
-            return (StatusCode::UNAUTHORIZED, reason).into_response()
-        }
-    };
-    let subject = Subject::Device {
-        id: device.unwrap_or_else(|| harnix_contract::LOCAL_DEVICE.into()),
-    };
-    let negotiated = match handshake::negotiate(&body, &state.config.topologies, subject) {
-        Ok(negotiated) => negotiated,
-        Err(e) => return rpc_error(e).into_response(),
-    };
-    if negotiated.topology != Topology::SplitStreams {
-        return rpc_error(RpcError::new(
-            codes::HANDSHAKE_REFUSED,
-            "this endpoint establishes the split-streams topology; \
-             the single-duplex one is established on its own connection",
-        ))
-        .into_response();
-    }
     // Neither face is subscribed yet: in this topology a client opts into
     // each stream by opening it, which is what makes a read-only client
     // possible at all.
-    let (credential, established) = state
-        .sessions
-        .establish(
-            state.hub.as_ref(),
-            negotiated.subject.clone(),
-            negotiated.topology,
-            None,
-            headers
-                .get(axum::http::header::USER_AGENT)
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or(""),
-        )
-        .await;
-    let mut answer = handshake::accepted(&negotiated, &state.config.topologies);
-    answer["credential"] = json!(credential);
-    answer["client"] = json!(established.client.0);
-    Json(answer).into_response()
+    let user_agent = headers
+        .get(axum::http::header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let opened = handshake::establish_from_body(
+        &state,
+        &body,
+        Topology::SplitStreams,
+        "this endpoint establishes the split-streams topology; \
+         the single-duplex one is established on its own connection",
+        None,
+        user_agent,
+    )
+    .await;
+    match opened {
+        Ok(opened) => Json(opened.answer).into_response(),
+        Err(Refused::NotAdmitted(reason)) => (StatusCode::UNAUTHORIZED, reason).into_response(),
+        Err(Refused::Negotiation(e)) => Json(frame::error(Value::Null, &e)).into_response(),
+    }
 }
 
 /// One request, one reply.
@@ -139,56 +114,30 @@ pub async fn rpc(
     // topology answers a JSON-RPC error naming the ceiling. One semantic, two
     // topologies: a limit that reads differently depending on which one is
     // carrying it is the semantics leaking into the choice (§3.3).
-    if raw.len() > harnix_contract::MAX_FRAME_BYTES {
-        return rpc_error(RpcError::new(
-            codes::INVALID_REQUEST,
-            format!(
-                "frame is {} bytes; the ceiling is {} — use the bulk channel",
-                raw.len(),
-                harnix_contract::MAX_FRAME_BYTES
-            ),
-        ))
-        .into_response();
-    }
-    let Ok(mut body) = serde_json::from_slice::<Value>(&raw) else {
-        return rpc_error(RpcError::new(codes::PARSE_ERROR, "invalid JSON")).into_response();
+    let mut request = match frame::parse_request(&raw) {
+        Ok(request) => request,
+        Err(Malformed { id, error }) => return Json(frame::error(id, &error)).into_response(),
     };
     // 401 with the JSON-RPC error as its body: a credential that is gone —
     // never issued, idle too long, its device revoked — is a matter of
     // admission, and a client reads the reason the same way either way.
     let Some(credential) = credential_of(&headers, &query) else {
-        return unauthorized(RpcError::new(codes::HANDSHAKE_REFUSED, "no credential"));
+        return unauthorized(request.id, RpcError::new(codes::HANDSHAKE_REFUSED, "no credential"));
     };
     let Some(established) = state.sessions.get(&credential) else {
-        return unauthorized(RpcError::new(
-            codes::HANDSHAKE_REFUSED,
-            "unknown credential; call /handshake first",
-        ));
+        return unauthorized(
+            request.id,
+            RpcError::new(codes::HANDSHAKE_REFUSED, "unknown credential; call /handshake first"),
+        );
     };
-    let Some(method) = body
-        .get("method")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-    else {
-        return rpc_error(RpcError::new(codes::INVALID_REQUEST, "missing method")).into_response();
-    };
-    let id = body.get("id").cloned().unwrap_or(Value::Null);
-    let mut params = body
-        .get_mut("params")
-        .map(Value::take)
-        .unwrap_or_else(|| json!({}));
+    // `harnix.attach` arrives here while the frames it registers a watcher
+    // for go out on a different socket entirely.
+    request.say_client(established.client);
 
-    // Which client this is, from the **credential** — not from this
-    // connection. `harnix.attach` arrives here while the frames it registers a
-    // watcher for go out on a different socket entirely, so connection
-    // identity would be the wrong answer, and quietly (§3.3.3, item 2).
-    if let Some(obj) = params.as_object_mut() {
-        obj.insert("__client".into(), json!(established.client.0));
-    }
-
-    match crate::call_settled(state.gate.as_ref(), &established.subject, &method, params).await {
-        Ok(result) => Json(json!({"jsonrpc": "2.0", "id": id, "result": result})).into_response(),
-        Err(e) => Json(json!({"jsonrpc": "2.0", "id": id, "error": e})).into_response(),
+    let id = request.id;
+    match crate::call_settled(state.gate.as_ref(), &established.subject, &request.method, request.params).await {
+        Ok(result) => Json(frame::ok(id, result)).into_response(),
+        Err(e) => Json(frame::error(id, &e)).into_response(),
     }
 }
 
@@ -273,12 +222,6 @@ where
         .into_response()
 }
 
-fn unauthorized(e: RpcError) -> Response {
-    (StatusCode::UNAUTHORIZED, rpc_error(e)).into_response()
-}
-
-fn rpc_error(e: RpcError) -> Json<Value> {
-    Json(
-        json!({"jsonrpc": "2.0", "id": Value::Null, "error": {"code": e.code, "message": e.message}}),
-    )
+fn unauthorized(id: Value, e: RpcError) -> Response {
+    (StatusCode::UNAUTHORIZED, Json(frame::error(id, &e))).into_response()
 }
