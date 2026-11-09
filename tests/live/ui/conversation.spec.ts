@@ -115,7 +115,6 @@ test("a queued message is edited in place, and keeps its place", TAGS, async ({ 
 });
 
 test("a compaction is a row of its own: told with its counts as it happens, and still there after a reload", TAGS, async ({ page }) => {
-  test.setTimeout(90_000);
   await open(page, URL);
   const id = await newSession(page, "many-turns");
   const replies = page.locator('[data-testid="conv-message"]', { hasText: /fixture ready/i });

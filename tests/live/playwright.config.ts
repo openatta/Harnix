@@ -34,7 +34,10 @@ export default defineConfig<{}, WorkerFixtures>({
     {
       name: "ui",
       testDir: "ui",
-      timeout: 30_000,
+      // Above every wait inside a test (their expects allow up to 30 s, a page opening 15 s more):
+      // a test that runs out of budget says "Test timeout exceeded", not what it was waiting for.
+      // Replay keeps it cheap — a wide budget costs nothing while the test is green.
+      timeout: 120_000,
       use: {
         ...devices["Desktop Chrome"],
         // A layout test that fails because a model was slow is a test people
