@@ -1,11 +1,11 @@
 /** The right column for a space: its sessions, every instance's. */
 
 import { useEffect, useState } from "react";
-import { errorText } from "@harnix/core";
 import { useT } from "@harnix/react";
 
 import type { App, SessionKey } from "../../app.ts";
 import { SYSTEM } from "../constants.ts";
+import { Failure } from "../failure.tsx";
 import type { SessionRowView } from "../types.ts";
 import type { View } from "../view.ts";
 
@@ -13,14 +13,14 @@ import type { View } from "../view.ts";
 export function SpaceSessions({ app, view, space, current }: { app: App; view: View; space: string; current: SessionKey | null }) {
   const tr = useT();
   const [rows, setRows] = useState<SessionRowView[] | null>(null);
-  const [failure, setFailure] = useState<string | null>(null);
+  const [failure, setFailure] = useState<unknown>(null);
   useEffect(() => {
     let alive = true;
     const load = () =>
       app
         .call<{ sessions: SessionRowView[] }>("harnix.sessions", { space: SYSTEM })
         .then((r) => alive && setRows((r.sessions ?? []).filter((row) => (row.space ?? "sessions") === space)))
-        .catch((e) => alive && setFailure(errorText(e)));
+        .catch((e) => alive && setFailure(e ?? "error"));
     void load();
     const off = app.client.onNotify((method) => {
       if (method === "harnix.turn_settled") void load();
@@ -30,7 +30,7 @@ export function SpaceSessions({ app, view, space, current }: { app: App; view: V
       off();
     };
   }, [app, space]);
-  if (failure) return <div className="empty">{failure}</div>;
+  if (failure) return <Failure error={failure} testId="system-space-failed" />;
   if (!rows) return null;
   const isCurrent = (row: SessionRowView) => current != null && row.session_id === current.sessionId && (row.instance ?? "system") === current.instance;
   const sorted = [...rows].sort((a, b) => Number(isCurrent(b)) - Number(isCurrent(a)) || String(b.last_active ?? "").localeCompare(String(a.last_active ?? "")));

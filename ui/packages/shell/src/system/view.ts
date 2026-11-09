@@ -1,11 +1,12 @@
 /** The system space's view: what is selected, and the hub topics that keep the page current. */
 
-import { useEffect, useState, useSyncExternalStore } from "react";
-import { errorText } from "@harnix/core";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import type { App, SessionKey } from "../app.ts";
 import { topicKey, topicsOf, type Topics } from "../topics.ts";
-import type { ConsoleTab, SessionRowView } from "./types.ts";
+import { PAGE } from "./constants.ts";
+import { failureText } from "./failure.tsx";
+import type { ConsoleTab, Scope, SessionRowView } from "./types.ts";
 
 /** Where this browser keeps the sessions that finished unseen, and how many at most. */
 const UNREAD_KEY = "harnix.system.unread";
@@ -28,6 +29,9 @@ export class View {
   private picked: Selection | null = null;
   /** The console's tab, kept while the page is open: back from a flow is back on the Flows tab. */
   consoleTab: ConsoleTab = "active";
+  /** Each Agents tab's search, filter and length, kept while the page is open: a tab left and
+   *  come back to is as it was. */
+  readonly agentLists: Record<Scope, AgentListState> = { active: { query: "", who: "all", limit: PAGE }, all: { query: "", who: "all", limit: PAGE } };
   /** A tool call to pick out in the calls tab, once: what a jump from the conversation asked for. */
   private tool: string | null = null;
   private readonly listeners = new Set<() => void>();
@@ -107,6 +111,20 @@ export class View {
     this.app.toggleDetails(true);
   }
 
+  /**
+   * The console's tab in front changes. The flows, the applications and the diagnostics have no
+   * row to pick for the right column: what was picked is let go, and the right column says what
+   * the tab is (`ConsoleAbout`), not what was picked on another tab.
+   */
+  showTab(id: ConsoleTab): void {
+    this.consoleTab = id;
+    if (id === "flows" || id === "apps" || id === "diagnostics") {
+      this.picked = null;
+      for (const fn of [...this.listeners]) fn();
+    }
+    this.app.set({ detail: null });
+  }
+
   watch(topic: string, params: Record<string, unknown> | undefined, fn: () => void): () => void {
     const key = topicKey(topic, params);
     const entry = this.values.get(key) ?? { value: undefined, readers: 0 };
@@ -129,8 +147,22 @@ export class View {
   }
 }
 
+/** How an Agents tab was left: its search, whose Agents, and how many of them are shown. */
+export interface AgentListState {
+  query: string;
+  who: "all" | "user" | "harnix";
+  limit: number;
+}
+
 export function useSelection(view: View): Selection | null {
   return useSyncExternalStore(view.subscribe, view.selected);
+}
+
+/** Whether `row` is what is selected: drawn again only when that changes, not on every pick. */
+export function useIsSelected(view: View, row: Selection): boolean {
+  const key = JSON.stringify(row);
+  const read = useCallback(() => isSelected(view.selected(), row), [view, key]);
+  return useSyncExternalStore(view.subscribe, read);
 }
 
 export function useTopic<T>(view: View, topic: string, params?: Record<string, unknown>): T | undefined {
@@ -140,14 +172,42 @@ export function useTopic<T>(view: View, topic: string, params?: Record<string, u
   return view.value(topic, params) as T | undefined;
 }
 
-/** Draw again every `every` ms while given: for clocks that count on their own. */
-export function useNow(every: number | null): void {
-  const [, bump] = useState(0);
-  useEffect(() => {
-    if (!every) return;
-    const timer = setInterval(() => bump((n) => n + 1), every);
-    return () => clearInterval(timer);
-  }, [every]);
+/** One clock per pace, shared: what reads every three seconds reads together, and a timer runs
+ *  only while something counts on it. */
+const clocks = new Map<number, { tick: number; listeners: Set<() => void>; timer: ReturnType<typeof setInterval> }>();
+
+function onTick(every: number, fn: () => void): () => void {
+  let clock = clocks.get(every);
+  if (!clock) {
+    const made: { tick: number; listeners: Set<() => void>; timer: ReturnType<typeof setInterval> } = {
+      tick: 0,
+      listeners: new Set(),
+      timer: setInterval(() => {
+        made.tick += 1;
+        for (const listener of [...made.listeners]) listener();
+      }, every),
+    };
+    clock = made;
+    clocks.set(every, clock);
+  }
+  const shared = clock;
+  shared.listeners.add(fn);
+  return () => {
+    shared.listeners.delete(fn);
+    if (shared.listeners.size || clocks.get(every) !== shared) return;
+    clearInterval(shared.timer);
+    clocks.delete(every);
+  };
+}
+
+/**
+ * How many beats the shared clock that goes every `every` ms has struck since something began
+ * reading it (0 while `every` is not given): what reads it is drawn again on each beat. Kept to the parts that change with it — a time on one row, not
+ * the list it is in.
+ */
+export function useTick(every: number | null): number {
+  const subscribe = useCallback((fn: () => void) => (every ? onTick(every, fn) : () => undefined), [every]);
+  return useSyncExternalStore(subscribe, () => (every ? (clocks.get(every)?.tick ?? 0) : 0));
 }
 
 /** `useTopic`, watching only while `on`. */
@@ -158,13 +218,13 @@ export function useTopicIf<T>(view: View, topic: string, params: Record<string, 
   return on ? (view.value(topic, params) as T | undefined) : undefined;
 }
 
-/** A call made from this space, with its failure said in the banner. */
+/** A call made from this space, with its failure said in the banner (in the page's words, `failure.tsx`). */
 export async function act(app: App, run: () => Promise<unknown>): Promise<boolean> {
   try {
     await run();
     return true;
   } catch (e) {
-    app.notice(errorText(e), "error");
+    app.notice(failureText(e), "error");
     return false;
   }
 }

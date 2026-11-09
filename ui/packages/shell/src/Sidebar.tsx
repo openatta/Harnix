@@ -218,6 +218,8 @@ function SpaceSessions({ app, s, listed }: { app: App; s: ShellState; listed?: S
   // Drawn again when an application starts or stops: its grouping comes and goes with it.
   const watch = appsOf(app);
   useSyncExternalStore(watch.subscribe, watch.getVersion);
+  // Read again when a turn settles, and when the shell's own list was read again (`refreshSessions`:
+  // a session made, renamed, archived or deleted) — not each time another listed one is opened.
   useEffect(() => {
     let alive = true;
     const load = () =>
@@ -233,7 +235,7 @@ function SpaceSessions({ app, s, listed }: { app: App; s: ShellState; listed?: S
       alive = false;
       off();
     };
-  }, [app, claim, s.current]);
+  }, [app, claim, s.sessions]);
   if (rows === null) return null;
   if (!rows.length) return <div className="empty">{t("sidebar.noSessions")}</div>;
   // the space leaves some out (its main conversation, which its entry opens): an empty result draws nothing

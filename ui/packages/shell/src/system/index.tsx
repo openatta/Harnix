@@ -22,7 +22,7 @@ import { t, type SpaceTab } from "@harnix/react";
 
 import type { App, SessionKey } from "../app.ts";
 import { OWNER, SYSTEM } from "./constants.ts";
-import { Console } from "./console.tsx";
+import { Console, ConsoleAbout } from "./console.tsx";
 import { InstanceList } from "./instances.tsx";
 import { CallsTab } from "./pane/calls.tsx";
 import { ContextTab } from "./pane/context.tsx";
@@ -90,7 +90,7 @@ export function registerSystem(app: App): void {
 /** The right column's tabs for what is selected: only the ones that apply. */
 function tabsFor(app: App, view: View): SpaceTab[] {
   const picked = view.selected();
-  if (!picked) return [];
+  if (!picked) return [{ id: "system.about", title: () => t("system.tab.about"), render: () => <ConsoleAbout app={app} view={view} /> }];
   if (picked.kind === "space") {
     return [{ id: "system.overview", title: () => t("system.tab.spaceSessions"), render: () => <SpaceSessions app={app} view={view} space={picked.space} current={picked.current ?? null} /> }];
   }

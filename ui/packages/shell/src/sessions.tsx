@@ -179,11 +179,13 @@ export function SessionRow({ app, s, session, nested = false }: { app: App; s: S
   const menu = (event: { clientX?: number; clientY?: number; currentTarget: EventTarget | null }) =>
     sessionMenu(app, session, { origin: event.currentTarget instanceof HTMLElement ? event.currentTarget : null, at: menuPoint(event) });
   // `⋯` is the row's sibling, not inside it: a button in a button is neither HTML nor reachable by Tab.
+  // Nested under a project it is an item of the projects' tree.
   return (
-    <div className={`srow-wrap${on ? " on" : ""}${nested ? " nested" : ""}`}>
+    <div className={`srow-wrap${on ? " on" : ""}${nested ? " nested" : ""}`} role={nested ? "none" : undefined}>
       <button
         type="button"
         className={`srow${on ? " on" : ""}${nested ? " nested" : ""}`}
+        {...(nested ? { role: "treeitem", "aria-level": 2, "aria-selected": on } : {})}
         data-sid={session.session_id}
         data-instance={instance}
         title={tooltip}

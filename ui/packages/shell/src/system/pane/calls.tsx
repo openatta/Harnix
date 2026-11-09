@@ -1,11 +1,11 @@
 /** The calls tab: every model call, what went in and what came out. */
 
 import { useEffect, useRef, useState } from "react";
-import { errorText } from "@harnix/core";
 import { Disclosure, clip, useT } from "@harnix/react";
 
 import type { App, SessionKey } from "../../app.ts";
 import { Glyph } from "../../glyph.tsx";
+import { Failure } from "../failure.tsx";
 import { messageText, usageText } from "../format.ts";
 import { locateInConversation } from "../navigate.ts";
 import type { TraceCall } from "../types.ts";
@@ -22,7 +22,7 @@ export function CallsTab({ app, view, session }: { app: App; view: View; session
   // A jump from the conversation names a tool call: the call that asked for it is picked out.
   const [focus] = useState(() => view.takeTool());
   const [calls, setCalls] = useState<TraceCall[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [range, setRange] = useState<[number, number] | null>(null);
@@ -35,7 +35,7 @@ export function CallsTab({ app, view, session }: { app: App; view: View; session
       app
         .call<{ calls?: TraceCall[] }>("harnix.system.trace", { instance: session.instance, session_id: session.sessionId })
         .then((r) => alive && (setCalls(r.calls ?? []), setError(null)))
-        .catch((e) => alive && setError(errorText(e)));
+        .catch((e) => alive && setError(e ?? "error"));
     void load();
     const off = app.client.onNotify((method, params) => {
       if (method === "harnix.turn_settled" && params.session_id === session.sessionId) void load();
@@ -51,7 +51,7 @@ export function CallsTab({ app, view, session }: { app: App; view: View; session
   useEffect(() => {
     if (focus && calls) list.current?.querySelector(`[data-tool="${CSS.escape(focus)}"]`)?.scrollIntoView({ block: "center" });
   }, [focus, calls]);
-  if (error) return <div className="empty">{error}</div>;
+  if (error) return <Failure error={error} testId="system-calls-failed" />;
   if (!calls) return null;
   if (open !== null) {
     const previous = calls.filter((c) => c.index < open && !c.purpose).pop() ?? null;
@@ -281,13 +281,13 @@ function CallDetail({ app, session, call, previous, onBack }: { app: App; sessio
   const [data, setData] = useState<CallDetailData | null>(null);
   const [before, setBefore] = useState<CallDetailData | null>(null);
   const [compare, setCompare] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   useEffect(() => {
     const target = { instance: session.instance, session_id: session.sessionId };
     void app
       .call<CallDetailData>("harnix.system.trace.call", { ...target, index: call.index })
       .then(setData)
-      .catch((e) => setError(errorText(e)));
+      .catch((e) => setError(e ?? "error"));
     if (previous)
       void app
         .call<CallDetailData>("harnix.system.trace.call", { ...target, index: previous.index })
@@ -326,7 +326,7 @@ function CallDetail({ app, session, call, previous, onBack }: { app: App; sessio
           </button>
         ))}
       </div>
-      {error ? <div className="empty">{error}</div> : null}
+      {error ? <Failure error={error} /> : null}
       {data && compare && before ? <CallDiff before={before} after={data} /> : null}
       {data && side === "input" ? (
         <div data-testid="call-input">

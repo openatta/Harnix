@@ -1,11 +1,12 @@
 /** The turns tab: a row per turn, opened into its calls. */
 
 import { Fragment, useEffect, useState } from "react";
-import { errorText } from "@harnix/core";
 import { useT } from "@harnix/react";
 
 import type { App, SessionKey } from "../../app.ts";
 import { compact } from "../../format.ts";
+import { rowKeys } from "../../roving.ts";
+import { Failure } from "../failure.tsx";
 import { usageText } from "../format.ts";
 import type { TraceCall, TurnRow } from "../types.ts";
 
@@ -18,7 +19,7 @@ import type { TraceCall, TurnRow } from "../types.ts";
 export function TurnsTab({ app, session }: { app: App; session: SessionKey }) {
   const tr = useT();
   const [data, setData] = useState<{ turns: TurnRow[]; calls: TraceCall[] } | null>(null);
-  const [failure, setFailure] = useState<string | null>(null);
+  const [failure, setFailure] = useState<unknown>(null);
   const [mode, setMode] = useState<"delta" | "total">("delta");
   const [open, setOpen] = useState<Set<number>>(new Set());
   useEffect(() => {
@@ -27,7 +28,7 @@ export function TurnsTab({ app, session }: { app: App; session: SessionKey }) {
     const load = () =>
       Promise.all([app.call<{ turns?: TurnRow[] }>("harnix.system.turns", target), app.call<{ calls?: TraceCall[] }>("harnix.system.trace", target)])
         .then(([t, c]) => alive && (setData({ turns: t.turns ?? [], calls: c.calls ?? [] }), setFailure(null)))
-        .catch((e) => alive && setFailure(errorText(e)));
+        .catch((e) => alive && setFailure(e ?? "error"));
     void load();
     const off = app.client.onNotify((method, params) => {
       if (method === "harnix.turn_settled" && params.session_id === session.sessionId) void load();
@@ -37,7 +38,7 @@ export function TurnsTab({ app, session }: { app: App; session: SessionKey }) {
       off();
     };
   }, [app, session.instance, session.sessionId]);
-  if (failure) return <div className="empty">{failure}</div>;
+  if (failure) return <Failure error={failure} testId="system-turns-failed" />;
   if (!data) return null;
   if (!data.turns.length) return <div className="empty">{tr("system.noCalls")}</div>;
   const sec = (ms?: number | null) => (ms != null ? `${(ms / 1000).toFixed(1)}s` : "—");
@@ -72,10 +73,19 @@ export function TurnsTab({ app, session }: { app: App; session: SessionKey }) {
             <th>{mode === "delta" ? tr("system.turns.contextDelta") : tr("system.turns.context")}</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody data-rows="">
           {data.turns.map((row) => (
             <Fragment key={row.turn}>
-              <tr className="turn-row" data-testid="turn-row" data-turn={row.turn} onClick={() => toggle(row.turn)}>
+              <tr
+                className="turn-row"
+                data-testid="turn-row"
+                data-turn={row.turn}
+                data-row=""
+                tabIndex={0}
+                aria-expanded={open.has(row.turn)}
+                onClick={() => toggle(row.turn)}
+                onKeyDown={rowKeys(() => toggle(row.turn), { open: open.has(row.turn), set: () => toggle(row.turn) })}
+              >
                 <td>{row.turn}</td>
                 <td>
                   {row.calls.length}

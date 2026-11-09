@@ -1,11 +1,12 @@
 /** A session's goal in the right column, and what may be done with it from here. */
 
 import { useState } from "react";
-import { errorText } from "@harnix/core";
 import { useT } from "@harnix/react";
 
 import type { App, SessionKey } from "../../app.ts";
 import { Body, confirmDialog, Foot } from "../../dialogs.tsx";
+import { failureText } from "../failure.tsx";
+import { goalState } from "../format.ts";
 import type { Goal } from "../types.ts";
 import { act } from "../view.ts";
 
@@ -45,15 +46,18 @@ export function GoalBlock({ app, session, goal, changed }: { app: App; session: 
   }
   const reason = typeof goal.blocked_reason === "string" ? goal.blocked_reason : goal.blocked_reason?.message;
   const running = goal.phase === "active" && goal.armed;
+  // One word for how it stands: an ongoing goal the engine opens no rounds for is stalled, not
+  // "ongoing" and "inactive" side by side.
+  const state = goalState(goal);
   return (
-    <div className="goal" data-testid="agent-goal" data-phase={goal.phase} data-armed={goal.armed ? "" : undefined}>
+    <div className="goal" data-testid="agent-goal" data-phase={goal.phase} data-goal={state} data-armed={goal.armed ? "" : undefined}>
       <div className="label">
         {tr("system.goal")}
-        <span className={`kd phase ${goal.phase}`}>{tr(`system.goal.${goal.phase}`)}</span>
-        {goal.phase === "active" && !goal.armed ? <span className="kd">{tr("system.goal.disarmed")}</span> : null}
+        <span className={`kd phase ${state}`} data-testid="agent-goal-state">{tr(`system.goal.${state}`)}</span>
       </div>
       <div className="objective">{goal.objective}</div>
-      <div className="note">
+      {state === "stalled" ? <div className="note" data-testid="agent-goal-stalled">{tr("system.goal.stalledNote")}</div> : null}
+      <div className="note" title={tr("system.goal.roundsHint")}>
         {tr("system.goal.rounds", { count: goal.rounds_started, of: goal.max_rounds })}
         {reason ? ` · ${reason}` : ""}
       </div>
@@ -102,7 +106,7 @@ function GoalForm({ goal, save, cancel }: { goal: Goal | null; save: (objective:
     try {
       await save(objective.trim(), n);
     } catch (e) {
-      setError(errorText(e));
+      setError(failureText(e));
     }
   };
   return (
@@ -115,7 +119,9 @@ function GoalForm({ goal, save, cancel }: { goal: Goal | null; save: (objective:
         <div className="field">
           <label>{tr("system.goal.maxRounds")}</label>
           <input type="text" inputMode="numeric" data-testid="goal-rounds" value={rounds} onChange={(e) => setRounds(e.target.value)} />
-          <div className="hint">{tr(goal ? "system.goal.editHint" : "system.goal.setHint")}</div>
+          <div className="hint" data-testid="goal-rounds-hint">
+            {tr("system.goal.roundsHint")} {tr(goal ? "system.goal.editHint" : "system.goal.setHint")}
+          </div>
         </div>
         {error ? <div className="hint err" data-testid="goal-error">{error}</div> : null}
       </Body>

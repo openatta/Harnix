@@ -1,11 +1,11 @@
 /** The tasks tab: a session's tasks and teams, a task's detail, its output followed as it comes. */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { errorText } from "@harnix/core";
 import { Disclosure, useT } from "@harnix/react";
 
 import { keyOf, type App, type SessionKey } from "../../app.ts";
 import { LIVE, OUTPUT_KEPT, STOP_ARM_MS, SYSTEM } from "../constants.ts";
+import { failureText } from "../failure.tsx";
 import { taskDuration, taskLabel } from "../format.ts";
 import type { Task, Team } from "../types.ts";
 import { act, useSelection, useTopic, type View } from "../view.ts";
@@ -24,13 +24,22 @@ export function TasksTab({ app, view, session }: { app: App; view: View; session
       <TeamBoard teams={listed?.teams ?? []} tasks={tasks} />
       {tasks.map((task) => (
         <div key={task.task_id} className={`task${task.task_id === chosen ? " on" : ""}`} data-kind={task.kind} data-status={task.status}>
-          <div className="task-h" onClick={() => view.select({ kind: "task", instance: session.instance, sessionId: session.sessionId, taskId: task.task_id })}>
-            <span className={`dot ${task.status}`} />
-            <span className="kind">{tr(`system.task.${task.kind}`)}</span>
-            <span className="what truncate" title={taskLabel(task)}>
-              {taskLabel(task)}
-            </span>
-            <span className="when">{taskDuration(task)}</span>
+          <div className="task-h">
+            {/* The task is picked by its own button; stopping it is the one beside, not inside. */}
+            <button
+              type="button"
+              className="task-pick"
+              data-testid="task-pick"
+              aria-expanded={task.task_id === chosen}
+              onClick={() => view.select({ kind: "task", instance: session.instance, sessionId: session.sessionId, taskId: task.task_id })}
+            >
+              <span className={`dot ${task.status}`} />
+              <span className="kind">{tr(`system.task.${task.kind}`)}</span>
+              <span className="what truncate" title={taskLabel(task)}>
+                {taskLabel(task)}
+              </span>
+              <span className="when">{taskDuration(task)}</span>
+            </button>
             {LIVE.has(task.status) ? (
               <StopTask onStop={() => void act(app, () => app.call("harnix.system.tasks.stop", { ...params, task_id: task.task_id }))} />
             ) : null}
@@ -59,7 +68,7 @@ export function TaskMessage({ app, params, task }: { app: App; params: { instanc
       setSaid(r.delivered ? { ok: true, text: tr("system.message.delivered") } : { ok: false, text: tr("system.message.notDelivered", { reason: r.reason ?? "" }) });
       if (r.delivered) setText("");
     } catch (e) {
-      setSaid({ ok: false, text: errorText(e) });
+      setSaid({ ok: false, text: failureText(e) });
     }
   };
   return (

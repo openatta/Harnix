@@ -1,13 +1,13 @@
 /** The context tab: what the next call carries, and the messages. */
 
 import { useEffect, useState } from "react";
-import { errorText } from "@harnix/core";
 import { Disclosure, clip, useT } from "@harnix/react";
 
 import type { App, SessionKey } from "../../app.ts";
 import { renameDialog } from "../../dialogs.tsx";
 import { Glyph } from "../../glyph.tsx";
 import { SYSTEM } from "../constants.ts";
+import { Failure } from "../failure.tsx";
 import { isPlainText, messageText, originLabel } from "../format.ts";
 import type { Context, HistoryMessage } from "../types.ts";
 import { act, type View } from "../view.ts";
@@ -17,7 +17,7 @@ export function ContextTab({ app, view, session }: { app: App; view: View; sessi
   const tr = useT();
   const [context, setContext] = useState<Context | null>(null);
   const [history, setHistory] = useState<{ messages: HistoryMessage[]; total: number } | null>(null);
-  const [failure, setFailure] = useState<string | null>(null);
+  const [failure, setFailure] = useState<unknown>(null);
   const [round, setRound] = useState(0);
   const target = { instance: session.instance, session_id: session.sessionId };
   useEffect(() => {
@@ -35,7 +35,7 @@ export function ContextTab({ app, view, session }: { app: App; view: View; sessi
         setHistory({ messages: page.messages ?? [], total: page.total });
         setFailure(null);
       } catch (e) {
-        if (alive) setFailure(errorText(e));
+        if (alive) setFailure(e ?? "error");
       }
     };
     void load();
@@ -47,7 +47,7 @@ export function ContextTab({ app, view, session }: { app: App; view: View; sessi
       off();
     };
   }, [app, session.instance, session.sessionId, round]);
-  if (failure) return <div className="empty" data-testid="system-context-failed">{failure}</div>;
+  if (failure) return <Failure error={failure} testId="system-context-failed" />;
   if (!context) return null;
   const total = history?.total ?? 0;
   const again = () => setRound((n) => n + 1);

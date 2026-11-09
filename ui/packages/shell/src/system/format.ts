@@ -67,3 +67,12 @@ export function taskDuration(task: Task): string {
   const secs = Math.max(0, Math.round(((task.ended_ms ?? Date.now()) - task.started_ms) / 1000));
   return secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m${String(secs % 60).padStart(2, "0")}s`;
 }
+
+/**
+ * How a goal stands, as said: its phase, except that an ongoing goal the engine is not opening
+ * rounds for (`armed` false: a round ended by a cancel, an error or a budget, or the session was
+ * restored) is `stalled` — waiting for a person to resume it — rather than ongoing.
+ */
+export function goalState(goal: { phase: string; armed: boolean }): string {
+  return goal.phase === "active" && !goal.armed ? "stalled" : goal.phase;
+}

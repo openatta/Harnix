@@ -6,7 +6,7 @@ import { t } from "@harnix/react";
 import type { App, SessionKey } from "../app.ts";
 import { LIVE, RUNNING_USAGE_EVERY, USAGE_BATCH } from "./constants.ts";
 import type { AgentRow, AgentUsage, Context, Goal, InstanceRow, SessionRowView, Task, TurnRow } from "./types.ts";
-import { useNow, type View } from "./view.ts";
+import { useTick, type View } from "./view.ts";
 
 /** Every instance's main Agents, kept current by the instances' session lists. */
 export function useAgentRows(view: View, instances: InstanceRow[]): AgentRow[] {
@@ -17,10 +17,22 @@ export function useAgentRows(view: View, instances: InstanceRow[]): AgentRow[] {
     const offs = ids.map((instance) => view.watch("harnix.instances.sessions", { instance }, () => bump((n) => n + 1)));
     return () => offs.forEach((off) => off());
   }, [view, joined]);
-  return ids.flatMap((instance) => {
-    const rows = (view.value("harnix.instances.sessions", { instance }) as { sessions?: SessionRowView[] } | undefined)?.sessions ?? [];
-    return rows.map((row) => ({ ...row, instance, key: `${instance}/${row.session_id}` }));
-  });
+  return ids.flatMap((instance) => rowsOf(instance, view.value("harnix.instances.sessions", { instance })));
+}
+
+/** Each pushed session list's rows, made once: a row is the same object until its list is pushed
+ *  again, so a row that did not change is not drawn again. */
+const made = new WeakMap<object, AgentRow[]>();
+
+function rowsOf(instance: string, value: unknown): AgentRow[] {
+  const listed = value as { sessions?: SessionRowView[] } | undefined;
+  if (!listed || typeof listed !== "object") return [];
+  let rows = made.get(listed);
+  if (!rows) {
+    rows = (listed.sessions ?? []).map((row) => ({ ...row, instance, key: `${instance}/${row.session_id}` }));
+    made.set(listed, rows);
+  }
+  return rows;
 }
 
 /** An Agent doing something, or loaded and ready to: a turn, a queue, a question, a task, or in memory. */
@@ -57,18 +69,26 @@ export function stateSignature(row: AgentRow): string {
 
 /**
  * What each of these sessions' Agents has used. Read when a row first shows, and again for a row
- * whose pushed state changed (a turn began or ended, a task, a question) — no clock. While a turn
- * runs its calls land in the recording one by one, so a running row is read again as its turn goes.
+ * whose pushed state changed (a turn began or ended, a task, a question). While a turn runs its
+ * calls land in the recording one by one with nothing pushed for each, so a running row is read
+ * again on the shared three-second beat — the one the Agent pane reads on too.
  */
 export function useUsage(app: App, rows: AgentRow[]): Record<string, AgentUsage[]> {
   const [usage, setUsage] = useState<Record<string, AgentUsage[]>>({});
   const seen = useRef(new Map<string, string>());
   const joined = rows.map(signature).join(",");
   const running = rows.some((row) => row.running || row.tasks);
-  useNow(running ? RUNNING_USAGE_EVERY : null);
-  const tick = running ? Math.floor(Date.now() / RUNNING_USAGE_EVERY) : 0;
+  const tick = useTick(running ? RUNNING_USAGE_EVERY : null);
+  // An answer is kept however late it comes, while the list is drawn: a read slower than the beat
+  // is not thrown away by the next one.
+  const alive = useRef(true);
   useEffect(() => {
-    let alive = true;
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  useEffect(() => {
     const changed = rows.filter((row) => seen.current.get(row.key) !== signature(row) || row.running || row.tasks);
     for (const row of changed) seen.current.set(row.key, signature(row));
     const by = new Map<string, string[]>();
@@ -79,7 +99,7 @@ export function useUsage(app: App, rows: AgentRow[]): Record<string, AgentUsage[
           void app
             .call<{ sessions: Record<string, { agents: AgentUsage[] }> }>("harnix.system.usage", { instance, session_ids: ids.slice(at, at + USAGE_BATCH) })
             .then((answer) => {
-              if (!alive) return;
+              if (!alive.current) return;
               setUsage((now) => {
                 const next = { ...now };
                 for (const [id, value] of Object.entries(answer.sessions)) next[`${instance}/${id}`] = value.agents;
@@ -91,9 +111,6 @@ export function useUsage(app: App, rows: AgentRow[]): Record<string, AgentUsage[
       }
     };
     load();
-    return () => {
-      alive = false;
-    };
   }, [app, joined, tick]);
   return usage;
 }
@@ -146,11 +163,15 @@ export function splitKey(key: string): [string, string] {
 
 /**
  * What the Agent pane reads: its figures this run, its turns, the context of its next call and its
- * goal — again whenever one of its turns settles, and every few seconds while it is busy. A part
+ * goal — again whenever one of its turns settles, and on the shared three-second beat while it is
+ * busy (the Agents list reads its rows' figures on the same beat). A part
  * that cannot be read (a session not in memory has no context to inspect) is left out, not an error.
  */
 export function useAgentFacts(app: App, session: SessionKey, busy: boolean, round: unknown = 0) {
   const [facts, setFacts] = useState<{ usage: AgentUsage[] | null; turns: TurnRow[]; context: Context | null; goal: Goal | null }>({ usage: null, turns: [], context: null, goal: null });
+  // A running turn's calls land one by one with nothing pushed for each: read again while it runs.
+  const tick = useTick(busy ? RUNNING_USAGE_EVERY : null);
+  const reload = useRef<() => void>(() => undefined);
   useEffect(() => {
     let alive = true;
     const target = { instance: session.instance, session_id: session.sessionId };
@@ -165,17 +186,19 @@ export function useAgentFacts(app: App, session: SessionKey, busy: boolean, roun
       if (!alive) return;
       setFacts({ usage: usage?.sessions[session.sessionId]?.agents ?? null, turns: turns?.turns ?? [], context, goal: goal?.goal ?? null });
     };
+    reload.current = () => void load();
     void load();
     const off = app.client.onNotify((method, params) => {
       if (method === "harnix.turn_settled" && params.session_id === session.sessionId) void load();
     });
-    // A running turn's calls land one by one with nothing pushed for each: read again while it runs.
-    const timer = busy ? setInterval(() => void load(), RUNNING_USAGE_EVERY) : undefined;
     return () => {
       alive = false;
       off();
-      clearInterval(timer);
+      reload.current = () => undefined;
     };
   }, [app, session.instance, session.sessionId, busy, round]);
+  useEffect(() => {
+    if (tick) reload.current();
+  }, [tick]);
   return facts;
 }
