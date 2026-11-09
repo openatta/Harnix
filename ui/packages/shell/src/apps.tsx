@@ -20,12 +20,11 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { errorText } from "@harnix/core";
-import { useT } from "@harnix/react";
+import { useLayer, useT } from "@harnix/react";
 
 import type { App } from "./app.ts";
 import { fileSize } from "./format.ts";
 import { appsOf, type Inline } from "./inline/index.tsx";
-import { useLayer } from "./layers.ts";
 import { Row, Section, Value, useReload } from "./settings.tsx";
 
 interface Line {
@@ -158,7 +157,7 @@ function InlinePoints({ inline }: { inline: Inline | null | undefined }) {
 
 /**
  * A modal over the settings (which are the shell's modal already): a layer of its own over them
- * (`layers.ts`) — the focus in it, the settings under it inert, Escape closing only this one. Drawn
+ * (`@harnix/react`'s `layers.ts`) — the focus in it, the settings under it inert, Escape closing only this one. Drawn
  * in the page's layers, not inside the settings, which go inert under it.
  */
 function Dialog({ testId, label, onClose, children, actions }: { testId: string; label: string; onClose: () => void; children: ReactNode; actions: ReactNode }) {

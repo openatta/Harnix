@@ -48,6 +48,21 @@ export { markdown, escapeHtml } from "./markdown";
 export { zhCN, en, uiStrings, type HarnixUiStrings } from "./strings";
 export { Icon } from "./chat/icons";
 export {
+  focusables,
+  isTop,
+  layersVersion,
+  listenForLayers,
+  modalUp,
+  popLayer,
+  pushLayer,
+  subscribeLayers,
+  topLayer,
+  useLayer,
+  type Layer,
+  type LayerSpec,
+  type UseLayer,
+} from "./layers";
+export {
   POINTS,
   Registry,
   Contributed,

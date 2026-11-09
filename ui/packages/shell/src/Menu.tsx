@@ -1,6 +1,6 @@
 /**
  * The shell's menus: the avatar's, a session's, a project's. One kind, anchored to what opened it —
- * a button, a row, the pointer of a right click — and not a dialog: it is a layer (`layers.ts`), so
+ * a button, a row, the pointer of a right click — and not a dialog: it is a layer (`@harnix/react`'s `layers.ts`), so
  * Escape closes it first and a dialog opening closes it, but the page under it stays live.
  *
  * `role="menu"`; the focus goes to its first item, ↑/↓ (and Home/End) move between items, Enter
@@ -11,9 +11,9 @@
 
 import { useLayoutEffect, useRef, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import { useLayer } from "@harnix/react";
 
 import { Glyph } from "./glyph.tsx";
-import { useLayer } from "./layers.ts";
 
 export interface MenuEntry {
   /** Its `data-item`: what a test or an application finds it by. */

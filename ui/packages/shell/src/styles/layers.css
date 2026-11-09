@@ -1,5 +1,5 @@
 /* The page's layers: the dialogs stacked over each other, the menus, and `⋯` beside its row.
- * See `layers.ts` and `Menu.tsx`. */
+ * See `@harnix/react`'s `layers.ts`, and `Menu.tsx`. */
 
 /* ── dialogs ─────────────────────────────────────────────────────────── */
 

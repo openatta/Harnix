@@ -6,7 +6,7 @@
 > 新建会话、按时间看会话、按项目管理会话。它是用框架自己的公开接口做的一个小应用，也是模式 1 最小的例子。
 > 以前叫「空应用」「最小应用」。别和 crate `harnix-app`（`crates/app`）、插件打包工具 `harnix-app` 混：那两个是代码里的名字。用词照 [术语](glossary.md)。
 >
-> 本文照代码写：界面在 `ui/packages/shell/src/builtins.tsx`、`sessions.tsx`、`projects.tsx`、`dialogs.tsx`、`Menu.tsx`、`layers.ts`、`Shell.tsx`，后端在
+> 本文照代码写：界面在 `ui/packages/shell/src/builtins.tsx`、`sessions.tsx`、`projects.tsx`、`dialogs.tsx`、`Menu.tsx`、`Shell.tsx`（层与菜单的底子在 `ui/packages/react/src/layers.ts`），后端在
 > `crates/builtin/src/`（`sessions` 那一组），profile 在 `crates/instance/src/profile.rs`。对不上时以代码为准。
 
 ---

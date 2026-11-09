@@ -29,7 +29,10 @@ import {
   ChatComposer,
   ChatPanel,
   Contributed,
+  listenForLayers,
+  modalUp,
   t,
+  useLayer,
   useRegistry,
   useT,
   ComposerNote,
@@ -52,7 +55,6 @@ import { referencesIn, sessionMentions, useCommands, withContributed } from "./c
 import { followEnvelopes } from "./envelope.tsx";
 import { Glyph } from "./glyph.tsx";
 import { sessionMenu } from "./dialogs.tsx";
-import { listenForLayers, modalUp, useLayer } from "./layers.ts";
 import { MenuHost, menuBelow } from "./Menu.tsx";
 import { useRovingTabIndex } from "./roving.ts";
 import { openSettings } from "./settings.tsx";
@@ -182,7 +184,7 @@ const DETAILS = byId("details");
  * At 960px and below (Helm §1) the sidebar is the rail, and the toggle, the rail's entry or ⌘\
  * open it as a drawer over the page; an open right column is a drawer from the right (unless the
  * profile keeps it beside, `narrow_details`, and there is room). Each drawer is a layer
- * (`layers.ts`) that is not modal: Escape closes the top one and the page stays live. A veil under
+ * (`@harnix/react`'s `layers.ts`) that is not modal: Escape closes the top one and the page stays live. A veil under
  * them closes them on a click, and the sidebar's drawer closes once a session or a space is picked
  * in it.
  */
@@ -259,7 +261,7 @@ export function isDark(): boolean {
 }
 
 /**
- * The shell's keys. Escape belongs to the layers (`layers.ts`): their listener comes first and
+ * The shell's keys. Escape belongs to the layers (`@harnix/react`'s `layers.ts`): their listener comes first and
  * takes it while one is open. The shortcuts do nothing while a dialog is: what is under it is not
  * the page's to act on.
  */
@@ -1130,7 +1132,7 @@ function Details({ app, s }: { app: App; s: ShellState }) {
 
 /**
  * The shell's dialogs, a stack: the first over the page in `#veil`, each later one over the last in
- * a veil of its own. Each is a layer (`layers.ts`): the focus is in the top one, what is under it is
+ * a veil of its own. Each is a layer (`@harnix/react`'s `layers.ts`): the focus is in the top one, what is under it is
  * inert, and Escape or a click on its veil closes that one alone.
  */
 function ModalHost({ app, s }: { app: App; s: ShellState }) {

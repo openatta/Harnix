@@ -4,16 +4,15 @@
  * if one is open (a settings section's frame may ask) — so no application can draw it, cover it
  * or answer it: its frames are inert while it is up, and it names who is asking.
  *
- * It is a layer (`../layers.ts`) of the top rank: over every dialog whenever it came, the focus in
+ * It is a layer (`@harnix/react`'s `layers.ts`) of the top rank: over every dialog whenever it came, the focus in
  * it and back where it was after, and every key its while it is open — Escape answers no, and
  * nothing else on the page hears any (ipdrun-38). Not by being the first listener on the page: the
  * layers' one listener asks which layer is on top.
  */
 
 import { useRef, useSyncExternalStore } from "react";
-import { useT } from "@harnix/react";
+import { useLayer, useT } from "@harnix/react";
 
-import { useLayer } from "../layers.ts";
 
 export interface Question {
   /** The application asking, by its title. */

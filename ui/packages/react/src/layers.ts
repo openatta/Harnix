@@ -11,7 +11,7 @@
  *   dialogs below — is inert meanwhile, and the shell's shortcuts do nothing (`modalUp()`).
  * - **A menu is a layer, not a modal one.** Escape closes it first, and the page stays live; a
  *   dialog opening closes it.
- * - **The shell's question ranks over everything** (`surfaces/confirm.tsx`), whenever it came: while
+ * - **The shell's question ranks over everything** (the shell's `surfaces/confirm.tsx`), whenever it came: while
  *   it is up the page hears no key at all.
  */
 
