@@ -116,11 +116,6 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
       )}
       <SpaceList app={app} s={s} />
       {space ? <div className="sep chats-sep" role="separator" data-testid="sessions-sep" /> : null}
-      {space ? (
-        <button type="button" className="nav rail-entry" data-testid="rail-sessions" title={t("sidebar.showSessions")} aria-label={t("sidebar.showSessions")} onClick={toggle}>
-          <Glyph name="list" className="glyph" />
-        </button>
-      ) : null}
       <div id="sessions" className="chats" data-space={s.space}>
         {space?.sidebar ? (
           <Contributed registry={registry} point="space" contribution={space}>
@@ -130,6 +125,12 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
           <SpaceSessions app={app} s={s} listed={space.listSession} />
         ) : null}
       </div>
+      {/* On the rail, where the column folded away: it opens it again (narrow, as a drawer). */}
+      {space ? (
+        <button type="button" className="nav rail-entry" data-testid="rail-sessions" title={t("sidebar.showSessions")} aria-label={t("sidebar.showSessions")} onClick={toggle}>
+          <Glyph name="list" className="glyph" />
+        </button>
+      ) : null}
       <Bottom app={app} s={s} />
     </aside>
   );
