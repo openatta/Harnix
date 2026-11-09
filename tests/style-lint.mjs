@@ -135,5 +135,42 @@ for (const [theme, tokens] of Object.entries(themes)) {
 if (unreadable.length) fail(`text tokens under 4.5:1 — ${unreadable.join("; ")}`);
 else ok(`${measured} text/background token pairs, every one at least 4.5:1`);
 
+/* ── the words on the screen are the glossary's ─────────────────────────── */
+// docs/glossary.md: one word, one meaning. A word it retired, or one it says not to mix up, does
+// not come back through a dictionary. The values only — a key, a comment or a code name may keep
+// an old spelling.
+const BANNED = [
+  [/子 ?agent/, "子 Agent"],
+  [/执行器/, "执行者 (Executor)"],
+  [/出站条件/, "出口条件 (ExitCond)"],
+  [/工位/, "站 (Station)"],
+  [/配套/, "件 (a pack's parts)"],
+  [/等批准|待审批|等审批/, "待批准 (an open permission ask)"],
+  [/模拟运行/, "试运行 (dry run)"],
+  [/空应用|最小应用/, "Harnix app"],
+  [/\b(?:[Ee]mpty|[Mm]inimal) application\b/, "Harnix app"],
+  [/\bAttaCore\b/, "Agix"],
+  [/\bsub agent\b|\bsubagent\b/i, "Sub-agent"],
+  [/\b(?:Does|Will) not take\b/, "say what happens: not loaded"],
+];
+const dictionaries = [
+  join(packages, "react", "src", "i18n", "en.ts"),
+  join(packages, "react", "src", "i18n", "zh-CN.ts"),
+  join(packages, "flow", "src", "strings.ts"),
+];
+const offTerm = [];
+let words = 0;
+for (const path of dictionaries) {
+  const body = readFileSync(path, "utf8");
+  for (const [, key, value] of body.matchAll(/^\s+"([^"]+)":\s*("(?:[^"\\]|\\.)*"),?$/gm)) {
+    words += 1;
+    const text = JSON.parse(value);
+    for (const [word, instead] of BANNED) if (word.test(text)) offTerm.push(`${rel(path)} ${key}: "${text.match(word)[0]}" — the glossary says ${instead}`);
+  }
+}
+if (offTerm.length) fail(`words the glossary does not use: ${offTerm.slice(0, 8).join("; ")}`);
+else if (words < 500) fail(`only ${words} dictionary entries read: has the dictionaries' shape changed?`);
+else ok(`${words} dictionary entries, none in a word the glossary retired (${BANNED.length} checked)`);
+
 console.log(process.exitCode ? "\nSTYLE LINT FAILED" : "\nSTYLE LINT PASSED");
 process.exit(process.exitCode || 0);

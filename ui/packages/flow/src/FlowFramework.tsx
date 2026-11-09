@@ -14,7 +14,7 @@
  */
 
 import { useId, type KeyboardEvent, type ReactNode } from "react";
-import { useLocale, useT } from "@harnix/react";
+import { useT } from "@harnix/react";
 
 import { GUIDE_GROUPS, type GuideGroup } from "./model";
 
@@ -34,8 +34,8 @@ interface Element {
   y: number;
   w: number;
   h: number;
-  /** The guide row's term: en, zh. */
-  term: [string, string] | null;
+  /** Whether a guide row is about it: its term is `flowui.fw.<id>.term`, in the page's language. */
+  term: boolean;
   /** A chip: a smaller, filled box. */
   chip?: boolean;
 }
@@ -44,30 +44,30 @@ const W = 360;
 
 /** The elements, top to bottom. */
 const ELEMENTS: Element[] = [
-  { id: "pack", group: 5, x: 10, y: 10, w: 160, h: 40, term: ["The pack and its parts", "流程包与件"] },
-  { id: "authoring", group: 5, x: 190, y: 10, w: 160, h: 40, term: ["Flow conversation / general conversation", "流程会话 / 通用会话"] },
-  { id: "flow", group: 1, x: 90, y: 74, w: 180, h: 34, term: ["Flow", "流程"] },
-  { id: "run", group: 2, x: 10, y: 134, w: 210, h: 40, term: ["Run", "运行"] },
-  { id: "hook", group: 4, x: 240, y: 134, w: 110, h: 40, term: ["Hook", "钩子"] },
-  { id: "s1", group: 1, x: 150, y: 196, w: 60, h: 24, term: ["Station", "站"] },
-  { id: "s2", group: 1, x: 80, y: 240, w: 60, h: 24, term: ["Station", "站"] },
-  { id: "s3", group: 1, x: 220, y: 240, w: 60, h: 24, term: ["Station", "站"] },
-  { id: "s4", group: 1, x: 150, y: 284, w: 60, h: 24, term: ["Station", "站"] },
-  { id: "work", group: 1, x: 18, y: 352, w: 176, h: 152, term: ["Work", "工作"] },
-  { id: "task", group: 1, x: 30, y: 378, w: 152, h: 24, term: ["Task", "任务"], chip: true },
-  { id: "executor", group: 2, x: 30, y: 414, w: 152, h: 24, term: ["Executor", "执行器"], chip: true },
-  { id: "main", group: 2, x: 30, y: 448, w: 74, h: 20, term: ["Main session / main Agent", "主会话 / 主 Agent"], chip: true },
-  { id: "sub", group: 2, x: 108, y: 448, w: 74, h: 20, term: ["Sub-agent", "子 Agent"], chip: true },
-  { id: "program", group: 4, x: 30, y: 474, w: 74, h: 20, term: ["The application's capabilities", "应用的能力"], chip: true },
-  { id: "external", group: 4, x: 108, y: 474, w: 74, h: 20, term: ["External task", "外部任务"], chip: true },
-  { id: "rule", group: 3, x: 206, y: 372, w: 138, h: 40, term: ["Rule", "规则"] },
-  { id: "permission", group: 3, x: 206, y: 424, w: 138, h: 40, term: ["Permission", "权限"] },
-  { id: "exit", group: 1, x: 18, y: 520, w: 326, h: 64, term: ["Exit condition", "出站条件"] },
-  { id: "output", group: 1, x: 28, y: 548, w: 98, h: 26, term: ["Output contract", "输出契约"], chip: true },
-  { id: "gate", group: 3, x: 132, y: 548, w: 98, h: 26, term: ["Gate", "门禁"], chip: true },
-  { id: "confirm", group: 3, x: 236, y: 548, w: 98, h: 26, term: ["A person's decision", "人的确认"], chip: true },
-  { id: "capabilities", group: 4, x: 10, y: 612, w: 170, h: 40, term: ["The application's capabilities", "应用的能力"] },
-  { id: "outside", group: 4, x: 190, y: 612, w: 160, h: 40, term: ["External task", "外部任务"] },
+  { id: "pack", group: 5, x: 10, y: 10, w: 160, h: 40, term: true },
+  { id: "authoring", group: 5, x: 190, y: 10, w: 160, h: 40, term: true },
+  { id: "flow", group: 1, x: 90, y: 74, w: 180, h: 34, term: true },
+  { id: "run", group: 2, x: 10, y: 134, w: 210, h: 40, term: true },
+  { id: "hook", group: 4, x: 240, y: 134, w: 110, h: 40, term: true },
+  { id: "s1", group: 1, x: 150, y: 196, w: 60, h: 24, term: true },
+  { id: "s2", group: 1, x: 80, y: 240, w: 60, h: 24, term: true },
+  { id: "s3", group: 1, x: 220, y: 240, w: 60, h: 24, term: true },
+  { id: "s4", group: 1, x: 150, y: 284, w: 60, h: 24, term: true },
+  { id: "work", group: 1, x: 18, y: 352, w: 176, h: 152, term: true },
+  { id: "task", group: 1, x: 30, y: 378, w: 152, h: 24, term: true, chip: true },
+  { id: "executor", group: 2, x: 30, y: 414, w: 152, h: 24, term: true, chip: true },
+  { id: "main", group: 2, x: 30, y: 448, w: 74, h: 20, term: true, chip: true },
+  { id: "sub", group: 2, x: 108, y: 448, w: 74, h: 20, term: true, chip: true },
+  { id: "program", group: 4, x: 30, y: 474, w: 74, h: 20, term: true, chip: true },
+  { id: "external", group: 4, x: 108, y: 474, w: 74, h: 20, term: true, chip: true },
+  { id: "rule", group: 3, x: 206, y: 372, w: 138, h: 40, term: true },
+  { id: "permission", group: 3, x: 206, y: 424, w: 138, h: 40, term: true },
+  { id: "exit", group: 1, x: 18, y: 520, w: 326, h: 64, term: true },
+  { id: "output", group: 1, x: 28, y: 548, w: 98, h: 26, term: true, chip: true },
+  { id: "gate", group: 3, x: 132, y: 548, w: 98, h: 26, term: true, chip: true },
+  { id: "confirm", group: 3, x: 236, y: 548, w: 98, h: 26, term: true, chip: true },
+  { id: "capabilities", group: 4, x: 10, y: 612, w: 170, h: 40, term: true },
+  { id: "outside", group: 4, x: 190, y: 612, w: 160, h: 40, term: true },
 ];
 
 /** The opened station's frame. */
@@ -107,9 +107,8 @@ export interface FlowFrameworkProps {
 
 export function FlowFramework({ onPick }: FlowFrameworkProps) {
   const t = useT();
-  const zh = useLocale().startsWith("zh");
   const marker = `hx-fw-arrow-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
-  const pick = (e: Element) => onPick?.({ id: e.id, group: e.group, term: e.term ? e.term[zh ? 1 : 0] : null });
+  const pick = (e: Element) => onPick?.({ id: e.id, group: e.group, term: e.term ? t(`flowui.fw.${e.id}.term`) : null });
   const key = (e: Element) => (ev: KeyboardEvent) => {
     if (ev.key === "Enter" || ev.key === " ") {
       ev.preventDefault();
@@ -207,7 +206,7 @@ export function FlowFramework({ onPick }: FlowFrameworkProps) {
         </text>
         {GUIDE_GROUPS.map((g, i) => {
           const y = LEGEND_Y + 4 + i * 20;
-          const e: Element = { id: `group-${g}`, group: g, x: 10, y, w: 340, h: 16, term: null };
+          const e: Element = { id: `group-${g}`, group: g, x: 10, y, w: 340, h: 16, term: false };
           return (
             <g
               key={g}

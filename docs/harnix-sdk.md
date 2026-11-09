@@ -1335,7 +1335,7 @@ api_version = 2
 ## 23. 流程模块：`harnix-flow`、`@harnix/flow`
 
 可选模块：应用 `.module(harnix_flow::Flow::builder()….build())` 才有；Harnix app `harnix` 注册了它（`crates/cli/src/main.rs`）。
-对象与写法（站、执行器、出站条件、规则、策略与权限、门禁、钩子……）见流程指南 `crates/flow/docs/guide.zh-CN.md`
+对象与写法（站、执行者、出口条件、规则、策略与权限、门禁、钩子……）见流程指南 `crates/flow/docs/guide.zh-CN.md`
 （系统 space 里流程的参考页就是它，`app.flow.guide {lang}` 也给它）。
 
 | 构建器 | 意思 |
