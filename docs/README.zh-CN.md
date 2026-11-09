@@ -85,7 +85,7 @@ agix/             Agix（子模块）
 ## 在 Harnix 上二开
 
 复制 `templates/app`，把 `harnix/` 加成唯一的子模块（`git submodule update --init --recursive` 带上 Harnix 依赖的一切），
-照 [二开指南](harnix-sdk.md) 做；每个接口都列在 [SDK 参考](harnix-sdk-reference.md) 里。应用只认 Harnix——crate `harnix`、
+照 [SDK](harnix-sdk.md) 做：前半是指南，后半是它用到的每个接口。应用只认 Harnix——crate `harnix`、
 `@harnix/*` 的包——问题与需求都提 Harnix 的 issue。`examples/hello-app` 是一个完整的应用：两个 space、自己的实例、一个带结果卡片的
 长任务、自己的 HTTP 路由和 WebSocket、一张审批卡片、自己的品牌。
 
@@ -142,9 +142,8 @@ spaces = ["sessions", "projects"]   # 保留哪些自带的 space（不写就全
 | 文档 | 讲什么 |
 |---|---|
 | [概念与架构](concept_and_architecture.md) | Harnix 是什么、由哪些部分组成、每条边界为什么在那儿 |
-| [二开指南](harnix-sdk.md) | 怎么在上面做应用 |
+| [SDK](harnix-sdk.md) | 用 Rust 在上面做应用：指南，以及每个类型、方法、profile 键、开关、目录、主题 |
 | [应用开发](app-development.md) | 三种模式与三种产品形态（应用、嵌入版、桌面版）：资源、安全、目标市场，运行期应用怎么写 |
-| [SDK 参考](harnix-sdk-reference.md) | 每个类型、方法、profile 键、开关、目录、主题 |
 | [贡献点](contribution_points.md) | 界面的贡献点，由代码生成 |
 | [测试](testing.md) | 测试分层、LIVE 测试、录像、覆盖表 |
 | [术语](glossary.md) | 用词，一个词一个意思 |

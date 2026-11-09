@@ -5,7 +5,7 @@
 > 用词照 [术语](glossary.md)：「应用」是在 Harnix 上做出来的产品；装进应用里的叫**运行期应用**，也就是常说的「插件 APP」。
 > 「插件」在本仓库只指 Agix 的包，所以文档里不用这个词称呼运行期应用。
 >
-> 模式 1 的接口在 [二开指南](harnix-sdk.md)、[SDK 参考](harnix-sdk-reference.md)、[贡献点](contribution_points.md)。
+> 模式 1 的接口在 [SDK](harnix-sdk.md)、[贡献点](contribution_points.md)。
 
 ## 0. 一句话
 
@@ -93,7 +93,7 @@
 
 ## 7. 模式 1：用 Rust 做产品
 
-已有，接口在 [二开指南](harnix-sdk.md)、[SDK 参考](harnix-sdk-reference.md)、[贡献点](contribution_points.md)。要点：
+已有，接口在 [SDK](harnix-sdk.md)、[贡献点](contribution_points.md)。要点：
 
 - 应用仓库就是自己的 crate 加上 `harnix` 依赖，用 `AppBuilder` 装配。能装配的有：
   - 编译期模块（trait `Module`：方法、主题、路由、数据迁移）；

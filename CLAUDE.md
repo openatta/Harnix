@@ -39,7 +39,7 @@ crate 自己的 `Cargo.toml` 里，不从 workspace 继承（应用把这些 cra
 ## 开发
 
 - `docs/` 只放架构与二开的文档：架构与理由在 `docs/concept_and_architecture.md`，用词照 `docs/glossary.md`，
-  二开接口在 `docs/harnix-sdk.md`、`docs/harnix-sdk-reference.md`，应用的三种做法（模式 1 / 2 / 3）在 `docs/app-development.md`，贡献点 `docs/contribution_points.md`，测试 `docs/testing.md`。
+  二开指南与接口在 `docs/harnix-sdk.md`，应用的三种做法（模式 1 / 2 / 3）在 `docs/app-development.md`，贡献点 `docs/contribution_points.md`，测试 `docs/testing.md`。
   版本迁移写在 `docs/migrations/<x.y.z>.md`（要应用动手的版本各写一份，登记在 `docs/migrations/README.md` 的表里）：只在本地，
   已在 `.gitignore`，不提交。
   过程（计划、进度、设计记录）不进 `docs/`。下游项目的需求在 GitHub issue 里记（每个项目一个标签），

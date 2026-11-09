@@ -96,8 +96,7 @@ agix/             Agix (submodule)
 ## Building on Harnix
 
 Copy `templates/app`, add `harnix/` as its one submodule (`git submodule update --init --recursive` brings
-what Harnix is built on), and follow the [SDK guide](docs/harnix-sdk.md); every interface is listed in the
-[SDK reference](docs/harnix-sdk-reference.md). An application names only Harnix — the crate `harnix`, the
+what Harnix is built on), and follow the [SDK](docs/harnix-sdk.md): a guide, then every interface it uses. An application names only Harnix — the crate `harnix`, the
 `@harnix/*` packages — and takes its problems and requests to Harnix's issues.
 `examples/hello-app` is a complete application: two spaces, its own instance, a long job with a result
 card, its own HTTP route and WebSocket, an approval card and a brand.
@@ -155,9 +154,8 @@ it); the engine's in `~/.agix/`; projects in `~/Documents/`, with nothing hidden
 | Document | For |
 |---|---|
 | [docs/concept_and_architecture.md](docs/concept_and_architecture.md) | What Harnix is, its parts, and why each boundary is where it is |
-| [docs/harnix-sdk.md](docs/harnix-sdk.md) | Building an application: the guide |
+| [docs/harnix-sdk.md](docs/harnix-sdk.md) | Building an application in Rust: the guide, then every type, method, profile key, flag, directory and topic |
 | [docs/app-development.md](docs/app-development.md) | Three modes and three product forms (applications, embedded, desktop): resources, security, target markets, and writing a runtime application |
-| [docs/harnix-sdk-reference.md](docs/harnix-sdk-reference.md) | Every type, method, profile key, flag, directory and topic |
 | [docs/contribution_points.md](docs/contribution_points.md) | The interface's contribution points, generated from the code |
 | [docs/testing.md](docs/testing.md) | The test layers, the LIVE suites, recordings, the coverage table |
 | [docs/glossary.md](docs/glossary.md) | The words, used one way |

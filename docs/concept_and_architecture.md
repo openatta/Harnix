@@ -6,7 +6,7 @@
 | 要找的 | 在哪 |
 |---|---|
 | 一个词是什么意思 | [术语](glossary.md)。本文照它用词 |
-| 怎么在 Harnix 上做应用 | [二开指南](harnix-sdk.md)；签名、profile 键、方法与主题的清单在 [SDK 参考](harnix-sdk-reference.md) |
+| 怎么在 Harnix 上做应用 | [SDK](harnix-sdk.md)：前半是指南，后半是签名、profile 键、方法与主题的清单 |
 | 贡献点的完整目录 | [contribution_points.md](contribution_points.md)，由代码生成 |
 | 测试怎么跑、怎么写 | [testing.md](testing.md) |
 | 下游项目提的需求 | [GitHub issue](https://github.com/openatta/Harnix/issues)，每个项目一个标签；代码里的编号（`ipdrun-NN`、`xops-NN`……）对照见 [issues](issues/README.md) |
@@ -462,7 +462,7 @@ fn main() -> anyhow::Result<()> {
 
 一个模块可以贡献：给 `system` 实例的原生贡献（`engine()`）、自己的实例模板（`templates()`）、后端侧的
 space 声明（`spaces()`：默认实例、场景）、`app.<id>.*` 方法（带 schema 与主体声明）、宿主主题、
-`/apps/<id>/` 路由，以及 `migrate` / `start` / `stop`。完整的接口见 [SDK 参考](harnix-sdk-reference.md)。
+`/apps/<id>/` 路由，以及 `migrate` / `start` / `stop`。完整的接口见 [SDK](harnix-sdk.md) §17。
 
 **原生贡献只有两条路**：给 `system` 的走 `engine()`，给自己实例的走进程内模板带的 `EngineContrib`。多个
 模块的 `SessionCustomizer` 由 Harnix 按注册顺序组合，Agix 不用改。

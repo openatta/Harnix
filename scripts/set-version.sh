@@ -16,5 +16,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 for manifest in "$root"/crates/*/Cargo.toml; do
   perl -pi -e "s/^version(\s*)= \"[^\"]*\"/version\$1= \"$version\"/" "$manifest"
 done
+# The SDK's version table names the current release (tests/crate-metadata.mjs checks it).
+perl -pi -e "s/^\\| Harnix 版本 \\| \`[^\`]*\` \\|/| Harnix 版本 | \`$version\` |/" "$root/docs/harnix-sdk.md"
 (cd "$root" && cargo update -w)
 echo "every crate is now $version"

@@ -6,6 +6,8 @@
 // Cargo.toml). The check is what keeps "they agree" true without the
 // inheritance that used to guarantee it.
 //
+// The SDK document's version table says the same version as the crates.
+//
 // And each Harnix release stands on exactly one Agix release: the submodule is
 // pinned to a commit that carries an `Agix-v…` tag, and is checked out there,
 // so the Cargo.lock written from it is the pinned one.
@@ -39,6 +41,15 @@ for (const [key, values] of Object.entries(seen)) {
 }
 if (seen.license && [...seen.license.values()].some((v) => v !== '"Apache-2.0"')) {
   fail("every crate is Apache-2.0");
+}
+// The SDK's version table names the release it describes; a release that forgets it leaves the
+// document quoting an old one as current. `scripts/set-version.sh` rewrites that cell with the crates.
+const version = [...(seen.version?.values() ?? [])][0]?.replace(/"/g, "");
+const sdk = readFileSync(join(root, "docs", "harnix-sdk.md"), "utf8");
+const documented = sdk.match(/^\| Harnix 版本 \| `([^`]+)` \|/m)?.[1];
+if (!documented) fail("docs/harnix-sdk.md has no `| Harnix 版本 | `…` |` row in its version table");
+else if (version && documented !== version) {
+  fail(`docs/harnix-sdk.md says Harnix ${documented}; the crates are ${version} (scripts/set-version.sh)`);
 }
 const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
 const pinned = git("ls-files", "-s", "agix").split(/\s+/)[1];
