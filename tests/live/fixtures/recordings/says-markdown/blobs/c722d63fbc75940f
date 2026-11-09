@@ -1,0 +1,1 @@
+{"role":"user","content":[{"type":"text","text":"Reply with exactly the following markdown, and nothing else: \"Here it is:\", then a sh code block containing \"echo fixture ready\", then a table with the header row \"| name | value |\" and the row \"| answer | fixture ready |\", then \"See [the docs](https://example.com/docs).\""}]}

@@ -48,6 +48,13 @@ export interface LaunchOptions {
    * ledger and data are still there. What `Backend.restart` passes.
    */
   scratch?: string;
+  /**
+   * Run in exactly this directory, emptied first, rather than a temporary one: for a backend whose
+   * requests must match a recording byte for byte (see `STRICT_ROOT`). Held for as long as the
+   * backend lives — a lock beside it makes another run (another checkout's) wait its turn — and
+   * `SHELL` is fixed, since the prompt names that too.
+   */
+  fixedScratch?: string;
 }
 
 export interface Backend {
@@ -160,6 +167,44 @@ export async function gone(pid: number, within = 3_000): Promise<boolean> {
   return !alive(pid);
 }
 
+/* ── replay divergences ───────────────────────────────────────────────── */
+//
+// Outside `--strict` a replayed call whose request no longer matches its recording is played back
+// anyway and the engine logs "diverges from recording". Every backend's log is read for that line
+// as it is written, so a fixture can fail the test it happened in (`HARNIX_REPLAY_REPORT=1`).
+
+const divergences: string[] = [];
+
+/** How many divergences the backends of this process have logged so far. */
+export function divergenceCount(): number {
+  return divergences.length;
+}
+
+/** The divergences logged since `count`. */
+export function divergencesSince(count: number): string[] {
+  return divergences.slice(count);
+}
+
+/** Watch a backend's output for divergence reports: the line, and the indented lines under it. */
+function watchDivergences(): (chunk: string) => void {
+  let partial = "";
+  let open: number | null = null;
+  return (chunk) => {
+    const lines = (partial + chunk).split("\n");
+    partial = lines.pop() ?? "";
+    for (const line of lines) {
+      if (line.includes("diverges from recording")) {
+        divergences.push(line.trim());
+        open = divergences.length - 1;
+      } else if (open !== null && /^\s+\S/.test(line)) {
+        divergences[open] += `\n  ${line.trim()}`;
+      } else {
+        open = null;
+      }
+    }
+  };
+}
+
 /* ── leaks ────────────────────────────────────────────────────────────── */
 //
 // A run that is interrupted — Ctrl-C, a worker that crashes, a `beforeAll` that throws after
@@ -215,15 +260,47 @@ async function removeTree(dir: string): Promise<void> {
   }
 }
 
+/** Hold `dir` for this process: wait while another live process holds it. */
+async function holdDir(dir: string): Promise<() => void> {
+  const lock = `${dir}.lock`;
+  mkdirSync(dirname(lock), { recursive: true });
+  for (const deadline = Date.now() + 600_000; ; ) {
+    try {
+      mkdirSync(lock);
+      writeFileSync(join(lock, "pid"), String(process.pid));
+      return () => rmSync(lock, { recursive: true, force: true });
+    } catch (e: any) {
+      if (e?.code !== "EEXIST") throw e;
+      let holder = 0;
+      try {
+        holder = Number(readFileSync(join(lock, "pid"), "utf8"));
+      } catch {
+        /* being written, or left half-made */
+      }
+      if (holder && !alive(holder)) rmSync(lock, { recursive: true, force: true });
+      else if (Date.now() > deadline) throw new Error(`${dir} is held by process ${holder || "?"} (${lock})`);
+      else await sleep(250);
+    }
+  }
+}
+
 export async function startHarnix(options: LaunchOptions = {}): Promise<Backend> {
   const bin = binary(options.bin);
   const port = options.port ?? (await freePort());
   const reused = options.scratch !== undefined;
+  let release = () => {};
+  if (options.fixedScratch && !reused) {
+    release = await holdDir(options.fixedScratch);
+    rmSync(options.fixedScratch, { recursive: true, force: true });
+    mkdirSync(options.fixedScratch, { recursive: true });
+  }
   // The real path: on macOS `tmpdir()` is `/var/…`, a link to `/private/var/…`, and the engine's
   // working directory is the real one. Handing it the other spelling of the same folder made it read
   // that project's history twice, and list every session past its in-memory cap twice (an Agix
   // `session.list` defect: `.local/agix-issue-08-session-list-duplicates.md`).
-  const scratch = options.scratch ?? realpathSync(mkdtempSync(join(tmpdir(), "harnix-live-")));
+  const scratch =
+    options.scratch ??
+    realpathSync(options.fixedScratch ?? mkdtempSync(join(tmpdir(), "harnix-live-")));
   if (!reused) options.seed?.(scratch);
   const project = makeProject(scratch);
   const home = join(scratch, "home");
@@ -258,6 +335,7 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
     env: {
       ...process.env,
       HOME: home,
+      ...(options.fixedScratch ? { SHELL: "/bin/zsh" } : {}),
       ...options.env,
       RUST_LOG: process.env.HARNIX_TEST_LOG || "warn",
     },
@@ -269,8 +347,15 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
   running.add(child);
   child.on("exit", () => running.delete(child));
   let log = "";
-  child.stdout?.on("data", (d) => (log += d));
-  child.stderr?.on("data", (d) => (log += d));
+  const diverged = watchDivergences();
+  child.stdout?.on("data", (d) => {
+    log += d;
+    diverged(String(d));
+  });
+  child.stderr?.on("data", (d) => {
+    log += d;
+    diverged(String(d));
+  });
   let exited: number | null = null;
   child.on("exit", (code) => (exited = code ?? -1));
 
@@ -285,6 +370,7 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
   for (;;) {
     if (exited !== null) {
       if (!reused) rmSync(scratch, { recursive: true, force: true });
+      release();
       throw new Error(`harnix exited (${exited}) before it was up:\n${log}`);
     }
     try {
@@ -298,6 +384,7 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
     }
     if (Date.now() > deadline) {
       endGroup(child, "SIGKILL");
+      release();
       throw new Error(`harnix did not start in 60s:\n${log}`);
     }
     await sleep(150);
@@ -337,6 +424,7 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
       } catch (e: any) {
         if (!["ENOTEMPTY", "EBUSY", "EPERM"].includes(e?.code)) throw e;
       }
+      release();
     },
     async dispose() {
       if (exited === null) {
@@ -354,6 +442,7 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
         }
       }
       await removeTree(scratch);
+      release();
     },
     halt,
     async restart() {

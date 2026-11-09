@@ -177,7 +177,7 @@ run_clippy()  {
 run_offline() {
   # No backend, no model, no browser: the checks that should never be the
   # slow ones.
-  for t in crate-metadata app-scripts style-lint readme-pairing; do
+  for t in crate-metadata app-scripts style-lint readme-pairing recordings; do
     echo "── $t ──"
     node "tests/$t.mjs" || return 1
   done
@@ -215,6 +215,9 @@ live() { HARNIX_BIN="$root/target/release/harnix" node tests/live/run.mjs "$@"; 
 # No flag is the replayed mode. `--no-model` is a third thing — neither a
 # provider nor a fixture — under which four suites skip themselves, so a run
 # that used it looked like the deterministic one and covered a good deal less.
+# The recordings made against a real model replay strictly in it
+# (api/strict-replay.spec.ts, `@strict`): the rest replay by position, and a
+# request that no longer matches one of those fails there.
 run_api() {
   for topology in single_duplex split_streams; do
     echo "── replayed · $topology ──"

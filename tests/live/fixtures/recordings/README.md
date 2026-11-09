@@ -9,12 +9,25 @@ Recorded with `harnix` in its ordinary mode (recording is always on — §6.4);
 played back with `--replay-dir`, which is an **operator's** flag. A client
 cannot ask for replay, and outside replay the fixture name means nothing.
 
+Two kinds. **Recorded** ones were made by `record-fixture.mjs` against a real
+model, in the `harnix` scene the suites replay in: `says-ready`,
+`calls-a-tool`, `asks-permission`, `runs-a-while`, `says-markdown`,
+`spawns-agent` (with its sub-agent's calls, as a second session). Their
+requests are this build's, byte for byte, and `api/strict-replay.spec.ts`
+replays each strictly. **Hand-made** ones (the rest) were edited from another
+recording: their responses are what the test needs, their requests are the
+recording they were copied from, so they replay by position only.
+
+`node tests/recordings.mjs` (the `offline` layer) checks that every name a test
+replays is a directory here and that every directory here is replayed by
+something.
+
 | Fixture | What it exercises |
 |---|---|
-| `says-ready` | The plain path: one turn, text out, no tools |
-| `calls-a-tool` | A `Bash` tool call — the tool row, its result, the details pane |
-| `asks-permission` | A `Bash` call that needs permission — the ask, the broadcast, the answer |
-| `spawns-agent` | An `Agent` call: a sub-agent that is a task of its session, not a session in the list |
+| `says-ready` | The plain path: one turn, text out ("fixture ready"), no tools. Recorded |
+| `calls-a-tool` | A `Bash` tool call (`echo harnix-fixture`) — the tool row, its result, the details pane. Recorded |
+| `asks-permission` | A `Bash` call that needs permission (`rm -f /tmp/harnix-fixture-probe`) — the ask, the broadcast, the answer. Recorded |
+| `spawns-agent` | An `Agent` call: a sub-agent that is a task of its session, not a session in the list. Recorded, the sub-agent's calls as a second session |
 | `sets-a-goal` | A `GoalCreate` call (objective "Keep the fixture tests green"), then "Goal set.": a session with a goal. The engine opens the next round itself; the recording has nothing for it, the round fails and the goal is left ongoing but disarmed. Made from `calls-a-tool` by hand: the tool, its input and the text differ |
 | `runs-a-team` | Two sessions: the parent calls `TeamCreate` (team `ui-team`, one stage, member `alpha` — a `code`-scene tool, shown only with `execution.team_enabled`), the member says "alpha here", the parent "Team done.". Replay binds live sessions to recorded ones in the order they first call, so the member is a session of its own here. Made by hand from `calls-a-tool`'s request and blobs |
 | `messages-a-subagent` | Two sessions: the parent starts a background `Agent`, which runs ten seconds of Bash (`perl`, as in `runs-a-while`) and then says "sub-agent done"; the parent says "Started it in the background.". A sub-agent still in its turn, to be told something (`messageTask`). Made the same way |
@@ -29,7 +42,7 @@ cannot ask for replay, and outside replay the fixture name means nothing.
 | `flow-author-unfocused` | xops-02: a `flow-author` conversation calls `flow_update` with no flow selected (and is told to ask for a selection) |
 | `flow-author-edit` | xops-02: three `flow-author` turns — `flow_schema`, `flow_validate`, `flow_create` · `flow_show`, `flow_update`, `flow_dry_run` · `flow_delete` — back to back, as in `flow-shared` |
 | `flow-ui-edit` | xops-02 §7, the flow space in the browser: one `flow-author` turn — `flow_show`, then `flow_update {flow: example-review, yaml}` with the empty application's `example-review` retitled "Example: reviewed in conversation" and then a line of text. Made from `flow-author-unfocused` by hand |
-| `runs-a-while` | A `Bash` call that waits four seconds (in `perl`: the engine refuses a `sleep` of 2 s or more): a turn that is still running when something is steered into it (ipdrun-13). Made the same way |
+| `runs-a-while` | A `Bash` call that waits four seconds (in `perl`: the engine refuses a `sleep` of 2 s or more), then "waited": a turn that is still running when something is steered into it (ipdrun-13). Recorded |
 | `many-turns` | `says-ready`'s one call sixty times over: a session long enough to compact (eight turns), whichever call comes next — a turn, a memory extraction, a compaction's summary — answered the same. Made by `python3` from `says-ready`, sequence numbers renumbered |
 | `streams-output` | A `Monitor` call (a `code`-scene tool) whose command prints a line every quarter second for ten seconds: a running task whose output grows. Made from `leaves-a-process` by hand: the tool's name and input differ |
 | `app-echo`, `app-count`, `app-config`, `app-read-project`, `app-vetoed` | The showcase application (`examples/apps/showcase`): one call to its tool `app__example_showcase__<tool>` — `echo {text: showcase-echo-42}`, `count {key: visits}`, `config {}`, `read_project {path: README.md}`, `vetoed {}` — then a line of text. Made by a script from `calls-a-native-tool`'s request blobs: only the tool, its input and the text are its own |
@@ -38,24 +51,34 @@ cannot ask for replay, and outside replay the fixture name means nothing.
 | `app-board` | The showcase's `board {}`: its tool that asks the backend for its state with `host.call` (`tests/live/api/apps-backend.spec.ts`), then a line of text. Made from `app-echo` by a script: only the tool, its input and the text differ |
 | `app-backend-session` | One call, text only: "The showcase's backend started this conversation." — the session the showcase's backend creates and prompts (`session.start`). Made from `app-echo`'s first request by a script |
 | `app-mcp-echo` | A spawned daemon's session calls `mcp__app-example_showcase__echo {text: showcase-over-mcp}` — the showcase's tool over its MCP endpoint — then a line of text. Made the same way |
-| `says-markdown` | `says-ready` with its reply's text replaced by markdown: a `sh` code block, a table and a link — what the conversation draws of a reply. Made from `says-ready` by hand: only the text differs |
+| `says-markdown` | A reply in markdown: a `sh` code block, a table and a link — what the conversation draws of a reply. Recorded |
 
 ## Re-recording one
 
 ```sh
-# with a model configured in .env
-node tests/live/record-fixture.mjs <name> "<the prompt>"
+# with a model configured in .env; the message is the one in api/strict-replay.spec.ts
+node tests/live/record-fixture.mjs <name> "<the message>"
+node tests/live/record-fixture.mjs --scene code <name> "<the message>"   # another scene
 ```
+
+It records in `/tmp/harnix-fixture/<name>` (`STRICT_ROOT` in `@harnix/testkit`),
+not a temporary directory, and copies the session — with any sub-agent it
+started — here. A new recorded fixture gets a row in `STRICT` in
+`api/strict-replay.spec.ts`.
 
 ## Two things they cannot be
 
-**They are not strict.** Replay can compare the live request against the
-recorded one and fail on any difference, and that would be the better test —
-except the assembled prompt carries **today's date** and **absolute paths**,
-so a strict fixture stops matching the morning after it was recorded, and on
-any checkout at a different path. Divergences are reported instead. Making
-strict possible needs the engine's `environment` seam to be settable by a
-host; it is filed.
+**They are not strict everywhere.** The assembled prompt names the working
+directory, the memory and scratchpad directories, the operating system and
+the shell. The date is not a problem (the engine dates a replayed session by
+its recording), but a session in a temporary directory matches nothing but
+itself. So the recorded ones replay strictly only as
+`api/strict-replay.spec.ts` replays them: in the directory they were recorded
+in, with `SHELL=/bin/zsh`, on macOS. Every other suite replays by position,
+and a divergence there is played back and logged; `HARNIX_REPLAY_REPORT=1`
+fails the test it happened in instead (a diagnostic: outside the fixed
+directory every call diverges on the paths). A host-settable `environment`
+seam in the engine would lift this; it is filed.
 
 **They are not a model.** A fixture answers the prompt it was recorded
 against. Change what the test sends and the recorded response is still what

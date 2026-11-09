@@ -16,7 +16,7 @@ import type { Topology } from "@harnix/core/protocol";
 
 import { type TestClient, connect, coverage } from "./api.ts";
 import { type ModelMode, ROOT, hasModel, loadEnv, modelMode, topology } from "./env.ts";
-import { type Backend, type LaunchOptions, startHarnix } from "./launcher.ts";
+import { type Backend, type LaunchOptions, divergenceCount, divergencesSince, startHarnix } from "./launcher.ts";
 
 export { topology };
 
@@ -68,6 +68,7 @@ export interface WorkerFixtures {
 
 export interface TestFixtures {
   api: TestClient;
+  replayReport: void;
 }
 
 export const test = base.extend<TestFixtures, WorkerFixtures>({
@@ -112,6 +113,20 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       );
     },
     { scope: "worker", auto: true },
+  ],
+
+  // `HARNIX_REPLAY_REPORT=1`: a replayed call that diverged from its recording fails the test it
+  // happened in, though it was played back. Stricter than reading logs, gentler than `--strict`,
+  // which fails the call itself: the test still runs to the end and says what else differed.
+  replayReport: [
+    async ({}, use) => {
+      const from = divergenceCount();
+      await use();
+      if (process.env.HARNIX_REPLAY_REPORT !== "1") return;
+      const found = divergencesSince(from);
+      if (found.length) throw new Error(`${found.length} replayed call(s) diverged from their recording:\n${found.join("\n")}`);
+    },
+    { auto: true },
   ],
 
   api: async ({ harnix }, use) => {

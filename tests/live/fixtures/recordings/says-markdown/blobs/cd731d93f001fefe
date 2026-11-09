@@ -1,0 +1,1 @@
+{"role":"user","content":[{"type":"text","text":"用 3-5 个词概括以下对话的主题，只输出标题不要任何解释：\nReply with exactly the following markdown, and nothing else: \"Here it is:\", then a sh code block containing \"echo fixture ready\", then a table with the header row \"| name | value |\" and the row \"| answer | fixture ready |\", then \"See [the docs](https://example.com/docs).\""}]}

@@ -13,6 +13,16 @@ export const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", ".
 export const RECORDINGS = join(ROOT, "tests", "live", "fixtures", "recordings");
 
 /**
+ * Where a backend runs whose model requests have to be byte for byte the recorded ones: the
+ * prompt names the directories the engine works in (the project, the memory, the scratchpad),
+ * so a recording made in a temporary directory matches nothing but itself. `record-fixture.mjs`
+ * records in `<STRICT_ROOT>/<recording>` and the strict suite replays there
+ * (`LaunchOptions.fixedScratch`). The prompt also names the operating system: these replay
+ * strictly only where they were recorded, on macOS.
+ */
+export const STRICT_ROOT = "/tmp/harnix-fixture";
+
+/**
  * Read `.env` the way a shell would.
  *
  * Tests that need a model are skipped without one rather than failed: a
