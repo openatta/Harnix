@@ -338,6 +338,38 @@ async fn an_unknown_credential_is_unauthorized() {
     assert_eq!(stream.status(), 401);
 }
 
+/// The split topology reads the frame before the credential (`docs/harnix-sdk.md` §21.1): a frame
+/// with no method, or that is not JSON, is refused whatever the credential, and a credential that is
+/// missing or unknown is a 401 whose body still answers under the request's id.
+#[tokio::test]
+async fn the_split_topology_reads_the_frame_before_the_credential() {
+    let served = serve(Admission::Token).await;
+    let http = client();
+    let post = |query: &'static str, body: String| {
+        let http = http.clone();
+        let url = format!("{}/rpc{query}", served.base);
+        async move {
+            let response = http.post(url).header("content-type", "application/json").body(body).send().await.unwrap();
+            (response.status().as_u16(), response.json::<Value>().await.unwrap())
+        }
+    };
+    let no_method = json!({"jsonrpc": "2.0", "id": 7, "params": {}}).to_string();
+    for query in ["", "?token=no-such-credential"] {
+        let (status, body) = post(query, no_method.clone()).await;
+        assert_eq!((status, body["id"].clone()), (200, json!(7)), "{query}: {body}");
+        assert_eq!(body["error"]["code"], harnix_contract::codes::INVALID_REQUEST, "{body}");
+        let (status, body) = post(query, "{not json".into()).await;
+        assert_eq!((status, body["id"].clone()), (200, Value::Null), "{query}: {body}");
+        assert_eq!(body["error"]["code"], harnix_contract::codes::PARSE_ERROR, "{body}");
+    }
+    let ping = json!({"jsonrpc": "2.0", "id": 8, "method": "harnix.ping", "params": {}}).to_string();
+    for query in ["", "?token=no-such-credential"] {
+        let (status, body) = post(query, ping.clone()).await;
+        assert_eq!((status, body["id"].clone()), (401, json!(8)), "{query}: {body}");
+        assert_eq!(body["error"]["code"], harnix_contract::codes::HANDSHAKE_REFUSED, "{body}");
+    }
+}
+
 /// Shutting down: the listener stops accepting, open channels are told and
 /// end, and the server returns — an open event stream does not hold it up.
 #[tokio::test]

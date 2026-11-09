@@ -13,6 +13,7 @@
 //! `AppsRuntime` hands in; nothing here reaches it before the module has.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, RwLock, Weak};
 
 use async_trait::async_trait;
@@ -159,25 +160,35 @@ const TOPIC_QUEUE: usize = 256;
 struct TopicValues {
     app: String,
     tx: mpsc::Sender<(String, Value)>,
+    /// What a full queue dropped, all told.
+    dropped: AtomicU64,
 }
 
 impl TopicValues {
     fn new(app: &str, control: Weak<dyn Control>) -> Self {
         let (tx, mut rx) = mpsc::channel::<(String, Value)>(TOPIC_QUEUE);
         let name = app.to_string();
-        let app = app.to_string();
         tokio::spawn(async move {
             while let Some((topic, value)) = rx.recv().await {
                 let Some(control) = control.upgrade() else { break };
                 let value = TopicValue {
-                    app: app.clone(),
+                    app: name.clone(),
                     topic,
                     value,
                 };
                 let _ = control.deliver(value).await;
             }
         });
-        Self { app: name, tx }
+        Self::onto(app, tx)
+    }
+
+    /// Onto `tx`, whoever takes from it.
+    fn onto(app: &str, tx: mpsc::Sender<(String, Value)>) -> Self {
+        Self {
+            app: app.to_string(),
+            tx,
+            dropped: AtomicU64::new(0),
+        }
     }
 }
 
@@ -186,7 +197,8 @@ impl AppTopicSink for TopicValues {
         if let Err(mpsc::error::TrySendError::Full(_)) =
             self.tx.try_send((topic.to_string(), value.clone()))
         {
-            tracing::warn!(app = %self.app, %topic, "an application's topic queue is full; a value dropped");
+            let dropped = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;
+            tracing::warn!(app = %self.app, %topic, dropped, "an application's topic queue is full; a value dropped");
         }
     }
 
@@ -324,6 +336,27 @@ mod tests {
         assert_eq!(with_chain(json!({"x": 1}), "app.acme.x", Vec::new(), apps.iter()), json!({"x": 1}));
         // What a caller made up is no chain.
         assert!(take_chain(&mut json!({"__chain": "acme"})).is_empty());
+    }
+
+    /// A subscription's values the host does not take fast enough: past the queue they are
+    /// dropped and counted, never waited for — the kernel publishes on, and what is queued keeps
+    /// its order.
+    #[test]
+    fn values_past_the_topic_queue_are_dropped_and_counted() {
+        let (tx, mut rx) = mpsc::channel(TOPIC_QUEUE);
+        let sink = TopicValues::onto("acme.notes", tx);
+        for n in 0..TOPIC_QUEUE + 3 {
+            sink.deliver("harnix.sessions.status", &Value::Null, &json!(n));
+        }
+        assert_eq!(sink.dropped.load(Ordering::Relaxed), 3);
+        for n in 0..TOPIC_QUEUE {
+            assert_eq!(rx.try_recv().unwrap(), ("harnix.sessions.status".to_string(), json!(n)));
+        }
+        assert!(rx.try_recv().is_err(), "a value past the queue was kept");
+        // Room again: the next value is taken.
+        sink.deliver("harnix.sessions.status", &Value::Null, &json!("again"));
+        assert_eq!(rx.try_recv().unwrap().1, json!("again"));
+        assert_eq!(sink.dropped.load(Ordering::Relaxed), 3);
     }
 
     #[test]

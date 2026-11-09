@@ -222,6 +222,20 @@ fn the_event_stream_gives_frames_across_slow_writes_and_idles_between_them() {
     assert_eq!(ended.kind, ErrorKind::Transport);
 }
 
+/// An event that is not a JSON frame is skipped: the read goes on to the next frame, rather than
+/// answering as though the wait had run out.
+#[test]
+fn an_event_that_is_not_json_is_skipped() {
+    let frame = json!({"method": "harnix.topic", "params": {"topic": "t"}}).to_string();
+    let (url, _seen) = serve(vec![
+        handshake_ok(),
+        chunked(200, vec!["data: not json\n\n".into(), "data: {\"half\":\n\n".into(), format!("data: {frame}\n\n")]),
+    ]);
+    let client = Client::connect(&url, "tok").unwrap();
+    let mut events = client.events(Face::Host, Duration::from_secs(5)).unwrap();
+    assert_eq!(events.next().unwrap(), StreamItem::Frame(serde_json::from_str(&frame).unwrap()));
+}
+
 #[test]
 fn a_stream_refused_for_its_credential_is_unauthenticated() {
     let (url, _seen) = serve(vec![handshake_ok(), plain(401, json!("unknown credential"))]);

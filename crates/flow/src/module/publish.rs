@@ -29,7 +29,7 @@ pub(crate) async fn publish_runs(sh: &Arc<Shared>, runs: &BTreeSet<String>, list
         if let Ok(rec) = engine.record(run).await {
             sh.prune_bindings(run, |b| binding_current(&rec, b));
             if let Err(e) = events.publish("run", json!({"run": run}), view(rec)).await {
-                tracing::warn!(run, error = %e, "flow: run not published");
+                tracing::warn!(run, error = %e, "run not published");
             }
         }
     }
@@ -46,7 +46,7 @@ pub(crate) async fn publish_runs(sh: &Arc<Shared>, runs: &BTreeSet<String>, list
         Ok(list) => {
             let _ = events.publish("runs", json!({}), &list).await;
         }
-        Err(e) => tracing::warn!(error = %e, "flow: runs not listed"),
+        Err(e) => tracing::warn!(error = %e, "runs not listed"),
     }
 }
 
@@ -103,7 +103,7 @@ pub(crate) async fn publish_defs(sh: &Arc<Shared>) {
     };
     let list = defs_list(engine.packs().as_ref());
     if let Err(e) = cx.events().publish("defs", json!({}), &list).await {
-        tracing::warn!(error = %e, "flow: defs not published");
+        tracing::warn!(error = %e, "defs not published");
     }
 }
 
@@ -117,7 +117,7 @@ pub(crate) async fn publish_focus(sh: &Arc<Shared>, instance: &str, session_id: 
         .publish("focus", params, json!({"flow": flow}))
         .await
     {
-        tracing::warn!(error = %e, "flow: focus not published");
+        tracing::warn!(error = %e, "focus not published");
     }
 }
 
@@ -135,14 +135,14 @@ pub(crate) async fn publish_dry(sh: &Arc<Shared>, run: Option<&str>) {
         for id in sandbox.runs_of(&root).await {
             if let Ok(v) = sandbox.get(&id).await {
                 if let Err(e) = events.publish("run", json!({"run": id}), v).await {
-                    tracing::warn!(run = id, error = %e, "flow: dry run not published");
+                    tracing::warn!(run = id, error = %e, "dry run not published");
                 }
             }
         }
     }
     let list = sandbox.list().await;
     if let Err(e) = events.publish("dry_runs", json!({}), &list).await {
-        tracing::warn!(error = %e, "flow: dry runs not listed");
+        tracing::warn!(error = %e, "dry runs not listed");
     }
 }
 

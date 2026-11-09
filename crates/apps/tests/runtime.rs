@@ -14,6 +14,7 @@ use base::interface::tool::{PermissionDecision, ProgressCallback, ProgressSender
 use base::interface::tool_middleware::{dispatch_through, ToolAnswer, ToolCall};
 use harnix_apps::{AppsBridge, Options, Runtime};
 use harnix_builtin::apps::{AppsRuntime, InstallRecord};
+use harnix_contract::sync::lock;
 use harnix_contract::{RpcError, Subject};
 use harnix_module::apps::AppRuntime;
 use harnix_module::{
@@ -73,7 +74,7 @@ struct FakeApps {
 
 impl FakeApps {
     fn spec(&self, id: &str) -> Option<AppSpec> {
-        self.specs.lock().unwrap().iter().find(|s| s.id == id).cloned()
+        lock(&self.specs).iter().find(|s| s.id == id).cloned()
     }
 
     async fn device_call(&self, id: &str, method: &str, params: Value) -> Result<Value, RpcError> {
@@ -95,17 +96,17 @@ impl AppRuntime for FakeApps {
             hub: spec.hub.clone(),
             since_ms: 0,
         };
-        self.specs.lock().unwrap().push(spec);
+        lock(&self.specs).push(spec);
         Ok(summary)
     }
     async fn withdraw(&self, _by: &str, id: &str) -> Result<AppWithdrawn, RpcError> {
-        let mut specs = self.specs.lock().unwrap();
+        let mut specs = lock(&self.specs);
         let before = specs.len();
         specs.retain(|s| s.id != id);
         if specs.len() == before {
             return Err(RpcError::invalid_params("not registered"));
         }
-        self.withdrawn.lock().unwrap().push(id.into());
+        lock(&self.withdrawn).push(id.into());
         Ok(AppWithdrawn {
             id: id.into(),
             methods: vec![],
@@ -115,7 +116,7 @@ impl AppRuntime for FakeApps {
         })
     }
     async fn publish(&self, _by: &str, id: &str, topic: &str, _params: Value, value: Value) -> Result<(), RpcError> {
-        self.published.lock().unwrap().push((format!("app.{id}.{topic}"), value));
+        lock(&self.published).push((format!("app.{id}.{topic}"), value));
         Ok(())
     }
     fn registered(&self) -> Vec<AppSummary> {
@@ -130,7 +131,7 @@ impl AppRuntime for FakeApps {
         if !spec.hub.iter().any(|h| h == method) {
             return Err(RpcError::refused(format!("`module:{id}` may not call `{method}`: not in its `hub`")));
         }
-        self.called.lock().unwrap().push(method.into());
+        lock(&self.called).push(method.into());
         Ok(json!({"session_id": "s-from-the-backend"}))
     }
     async fn subscribe_as(&self, _by: &str, id: &str, topic: &str, _params: Value) -> Result<Value, RpcError> {
@@ -331,7 +332,7 @@ struct Progress(Mutex<Vec<String>>);
 
 impl ProgressCallback for Progress {
     fn on_progress(&self, _id: &str, data: &str) {
-        self.0.lock().unwrap().push(data.to_string());
+        lock(&self.0).push(data.to_string());
     }
 }
 
@@ -475,7 +476,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
         .unwrap();
     assert!(!out.is_error);
     assert_eq!(
-        *progress.0.lock().unwrap(),
+        *lock(&progress.0),
         ["step 1 of 3", "step 2 of 3", "step 3 of 3"]
     );
     let cancelled = ctx();
@@ -514,7 +515,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
             call,
             tokio_util::sync::CancellationToken::new(),
             move |_cancel| {
-                seen.lock().unwrap().push(name.to_string());
+                lock(&seen).push(name.to_string());
                 async { Ok(ToolAnswer::text("ran")) }
             },
         )
@@ -529,7 +530,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
             );
         }
     }
-    assert_eq!(*ran.lock().unwrap(), ["Bash"], "the refused call ran");
+    assert_eq!(*lock(&ran), ["Bash"], "the refused call ran");
 
     // Off: no tools, no modules, no MCP server, the agent package and the skill switched off.
     rig.runtime.unload(&rig.cx, &record).await;
@@ -584,12 +585,12 @@ async fn the_backend_is_registered_answers_its_methods_and_acts_only_as_far_as_i
     let listed = apps.device_call(ID, "notes.list", json!({})).await.unwrap();
     assert_eq!(listed["notes"][0]["by"], json!("device:d1"), "the backend is told who called");
     for _ in 0..50 {
-        if apps.published.lock().unwrap().len() >= 2 {
+        if lock(&apps.published).len() >= 2 {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
-    let counts: Vec<Value> = apps.published.lock().unwrap().iter().map(|(_, v)| v["count"].clone()).collect();
+    let counts: Vec<Value> = lock(&apps.published).iter().map(|(_, v)| v["count"].clone()).collect();
     assert_eq!(counts, [json!(1), json!(2)]);
 
     // What it subscribed to in `init` reached `on-topic`, once the VM was up to take it.
@@ -609,7 +610,7 @@ async fn the_backend_is_registered_answers_its_methods_and_acts_only_as_far_as_i
         .await
         .unwrap();
     assert_eq!(started["session_id"], json!("s-from-the-backend"));
-    assert_eq!(*apps.called.lock().unwrap(), ["session.create", "harnix.send"]);
+    assert_eq!(*lock(&apps.called), ["session.create", "harnix.send"]);
     let over = apps.device_call(ID, "overreach", json!({})).await.unwrap();
     assert_eq!(over["refused"], json!(true));
     let status = rig.runtime.status(ID).await;
@@ -636,7 +637,7 @@ async fn the_backend_is_registered_answers_its_methods_and_acts_only_as_far_as_i
     let held = spec.methods.iter().find(|m| m.name == "notes.list").unwrap().clone();
     drop(spec);
     rig.runtime.unload(&rig.cx, &record).await;
-    assert_eq!(*apps.withdrawn.lock().unwrap(), [ID]);
+    assert_eq!(*lock(&apps.withdrawn), [ID]);
     let gone = held.handler.call(&Subject::Kernel, json!({})).await.unwrap_err();
     assert_eq!(gone.code, harnix_contract::codes::INTERNAL_ERROR);
     let failure = gone.data.unwrap()["failure"].clone();

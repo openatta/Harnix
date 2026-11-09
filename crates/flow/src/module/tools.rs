@@ -257,7 +257,7 @@ fn bound(sh: &Shared, cx: &ToolContext) -> Result<Binding, ToolResult> {
 }
 
 fn agent(b: &Binding, cx: &ToolContext) -> Actor {
-    Actor::new("agent", format!("{}/{}", b.instance, cx.session_id))
+    Actor::agent(format!("{}/{}", b.instance, cx.session_id))
 }
 
 fn pretty(v: &Value) -> String {

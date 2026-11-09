@@ -120,7 +120,7 @@ fn enqueue(sh: &Arc<Shared>, d: Delivery) {
         match tx.try_send(d) {
             Ok(()) => return,
             Err(mpsc::error::TrySendError::Full(d)) => {
-                tracing::warn!(hook = name, event = d.kind, "flow: a hook's queue is full; a delivery is dropped");
+                tracing::warn!(hook = name, event = d.kind, "a hook's queue is full; a delivery is dropped");
                 set_status(sh, &name, json!({"at": now_ms(), "event": d.kind, "run": d.run, "status": "dropped",
                     "error": format!("more than {QUEUE_KEPT} deliveries waiting")}));
                 return;
@@ -150,7 +150,7 @@ async fn work(sh: Arc<Shared>, name: String, mut rx: mpsc::Receiver<Delivery>) {
         reqwest::Client::builder().timeout(TIMEOUT).no_proxy().build(),
     );
     let (Ok(world), Ok(local)) = clients else {
-        tracing::warn!("flow: hooks have no HTTP client");
+        tracing::warn!("hooks have no HTTP client");
         return;
     };
     loop {
@@ -208,7 +208,7 @@ async fn work(sh: Arc<Shared>, name: String, mut rx: mpsc::Receiver<Delivery>) {
                 status["code"] = json!(code);
             }
             Err(e) => {
-                tracing::warn!(hook = d.hook.name, event = d.kind, error = %e, "flow: hook not delivered");
+                tracing::warn!(hook = d.hook.name, event = d.kind, error = %e, "hook not delivered");
                 status["status"] = json!("failed");
                 status["error"] = json!(e);
             }

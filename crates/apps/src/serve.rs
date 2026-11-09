@@ -14,8 +14,8 @@
 //!   no server-sent stream (`GET` is 405). Admission is a peer on this machine — a daemon this
 //!   process spawned is one, and the listener may face a network — and then the credential of a
 //!   daemon this process spawned and that is still there (`Authorization: Bearer …`): one per
-//!   daemon, issued as it is spawned, written only into its settings, and revoked when it goes
-//!   (`Registry::issue_daemon_token`).
+//!   daemon process, issued before it is spawned, written only into its settings, and revoked when
+//!   the process goes — one its link starts again reads a new one (`Registry::issue_daemon_token`).
 //!
 //! The daemon's engine asks the person before each call, as for any MCP tool. What a call here
 //! does not get, against one from an in-process session: the calling session's project (no

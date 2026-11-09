@@ -1061,7 +1061,7 @@ impl Tool for AuthorTool {
                     None => None,
                 };
                 let who = match answered.as_deref().and_then(|a| a.strip_prefix("device:")) {
-                    Some(device) => Actor::new("device", device),
+                    Some(device) => Actor::device(device),
                     None => Actor::new(CONVERSATION_KIND, format!("{instance}/{session}")),
                 };
                 let station = str_of(&input, "station").unwrap_or_default().to_string();

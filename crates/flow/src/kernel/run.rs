@@ -39,12 +39,19 @@ impl Actor {
     pub fn agent(session: impl Into<String>) -> Self {
         Self::new(AGENT_KIND, session)
     }
+
+    /// A person, through a paired device (`id`: the device).
+    pub fn device(device: impl Into<String>) -> Self {
+        Self::new(DEVICE_KIND, device)
+    }
 }
 
 /// The kind of [`Actor::flow`]: the kernel and the host's dispatcher acting for it.
 pub const FLOW_KIND: &str = "flow";
 /// The kind of [`Actor::agent`]: a session task's own session, through the host's tools.
 pub const AGENT_KIND: &str = "agent";
+/// The kind of [`Actor::device`]: a person, through the device that called.
+pub const DEVICE_KIND: &str = "device";
 
 impl std::fmt::Display for Actor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -701,7 +701,7 @@ impl Module for Flow {
             t.abort();
         }
         if !self.sh.stop_tasks(STOP_GRACE).await {
-            tracing::warn!(left = self.sh.tasks.len(), "flow: tasks still running after the stop's grace");
+            tracing::warn!(left = self.sh.tasks.len(), "tasks still running after the stop's grace");
         }
     }
 }

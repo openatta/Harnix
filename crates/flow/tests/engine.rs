@@ -5,7 +5,6 @@ mod common;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use common::*;
 use harnix_flow::kernel::refs::station_output;
 use harnix_flow::*;
@@ -861,44 +860,22 @@ async fn gate_results_are_per_round() {
 
 // ── commit, authorization, pinning ───────────────────────────────────────────
 
-/// A store that reports a conflict for the next `n` commits.
-struct Flaky {
-    inner: MemStore,
-    conflicts: AtomicUsize,
-}
-
-#[async_trait]
-impl RunStore for Flaky {
-    async fn alloc_id(&self, flow: &str) -> std::result::Result<String, StoreError> {
-        self.inner.alloc_id(flow).await
-    }
-    async fn load(&self, run: &str) -> std::result::Result<Option<RunRecord>, StoreError> {
-        self.inner.load(run).await
-    }
-    async fn list(&self, q: &RunQuery) -> std::result::Result<Vec<RunSummary>, StoreError> {
-        self.inner.list(q).await
-    }
-    async fn commit(&self, cs: &ChangeSet) -> std::result::Result<(), StoreError> {
-        if self
-            .conflicts
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
-            .is_ok()
-        {
-            return Err(StoreError::Conflict("injected".into()));
+/// A store that reports a conflict for the next `n` commits, `n` being what the counter holds.
+fn flaky() -> (Arc<Hooked<MemStore>>, Arc<AtomicUsize>) {
+    let conflicts = Arc::new(AtomicUsize::new(0));
+    let left = conflicts.clone();
+    let store = Hooked::new(MemStore::new()).check_commits(move |_| {
+        match left.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1)) {
+            Ok(_) => Err(StoreError::Conflict("injected".into())),
+            Err(_) => Ok(()),
         }
-        self.inner.commit(cs).await
-    }
-    async fn history(&self, run: &str) -> std::result::Result<Vec<History>, StoreError> {
-        self.inner.history(run).await
-    }
+    });
+    (Arc::new(store), conflicts)
 }
 
 #[tokio::test]
 async fn a_conflict_yields_no_events_and_a_retry_yields_them_once() {
-    let store = Arc::new(Flaky {
-        inner: MemStore::new(),
-        conflicts: AtomicUsize::new(0),
-    });
+    let (store, conflicts) = flaky();
     let eng =
         Engine::new(store.clone(), Arc::new(all_packs())).with_clock(Arc::new(FixedClock(T0)));
     let o = eng
@@ -914,7 +891,7 @@ async fn a_conflict_yields_no_events_and_a_retry_yields_them_once() {
         .unwrap();
     let run = o.value["run"].as_str().unwrap().to_string();
 
-    store.conflicts.store(100, Ordering::SeqCst);
+    conflicts.store(100, Ordering::SeqCst);
     let r = eng.confirm(&run, "a", true, None, me()).await;
     assert!(matches!(r, Err(FlowError::Conflict(_))), "{r:?}");
     assert_eq!(
@@ -923,7 +900,7 @@ async fn a_conflict_yields_no_events_and_a_retry_yields_them_once() {
     );
     let before = eng.history(&run).await.unwrap().len();
 
-    store.conflicts.store(2, Ordering::SeqCst);
+    conflicts.store(2, Ordering::SeqCst);
     let o = eng.confirm(&run, "a", true, None, me()).await.unwrap();
     assert_eq!(
         kinds(&o)

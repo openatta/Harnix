@@ -190,7 +190,7 @@ where
                 Ok(o) => apply(sh, Some(&key.run), o).await,
                 Err(FlowError::Contract(m)) => problem = Some(m),
                 Err(e) => {
-                    tracing::debug!(run = key.run, error = %e, "flow: structured output not taken");
+                    tracing::debug!(run = key.run, error = %e, "structured output not taken");
                     return false;
                 }
             }
@@ -536,7 +536,7 @@ mod tests {
                     subject: "s".into(),
                     ..Default::default()
                 },
-                Actor::new("device", "d"),
+                Actor::device("d"),
             )
             .await
             .unwrap();
@@ -745,7 +745,7 @@ mod tests {
         let cancel = async {
             tokio::time::sleep(Duration::from_secs(1)).await;
             t.engine
-                .cancel(&t.key.run, "no longer wanted", Actor::new("device", "d"))
+                .cancel(&t.key.run, "no longer wanted", Actor::device("d"))
                 .await
                 .unwrap();
         };

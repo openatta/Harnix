@@ -157,6 +157,38 @@ async fn mem_store_meets_the_contract() {
     contract(&MemStore::new()).await;
 }
 
+/// A store over another, with nothing of its own: the one underneath, call for call.
+#[tokio::test]
+async fn a_hooked_store_meets_the_contract() {
+    contract(&Hooked::new(MemStore::new())).await;
+}
+
+/// Its own ids, and its own look at each commit: what it refuses never reaches the store under it.
+#[tokio::test]
+async fn a_hooked_store_allocates_its_own_ids_and_refuses_what_its_check_refuses() {
+    let s = Hooked::new(MemStore::new())
+        .ids(|flow| format!("dry-{flow}"))
+        .check_commits(|cs| match cs.records.iter().any(|(r, _)| r.subject == "refused") {
+            true => Err(StoreError::Other("refused".into())),
+            false => Ok(()),
+        });
+    assert_eq!(s.alloc_id("demo").await.unwrap(), "dry-demo");
+    let refused = ChangeSet {
+        records: vec![(record("demo-1", "demo", "refused", 1, 10), None)],
+        history: vec![hist("demo-1", 1, "create")],
+    };
+    assert_eq!(s.commit(&refused).await, Err(StoreError::Other("refused".into())));
+    assert_eq!(s.inner().load("demo-1").await.unwrap(), None);
+    assert!(s.inner().history("demo-1").await.unwrap().is_empty());
+    let taken = ChangeSet {
+        records: vec![(record("demo-1", "demo", "x", 1, 10), None)],
+        history: vec![hist("demo-1", 1, "create")],
+    };
+    s.commit(&taken).await.unwrap();
+    assert_eq!(s.load("demo-1").await.unwrap().unwrap().subject, "x");
+    assert_eq!(s.history("demo-1").await.unwrap().len(), 1);
+}
+
 #[tokio::test]
 async fn file_store_meets_the_contract() {
     let dir = tempfile::tempdir().unwrap();

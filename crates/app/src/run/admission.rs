@@ -83,7 +83,7 @@ pub(super) fn admit(
             records.iter().map(|r| r.manifest.id.clone()),
         );
         let _ = kernel.apps.set(Arc::new(apps));
-        tracing::info!("[apps] enabled: this process hosts runtime applications");
+        tracing::info!("this process hosts runtime applications");
     }
     Admission {
         diagnostics,

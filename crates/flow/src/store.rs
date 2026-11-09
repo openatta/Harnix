@@ -1,4 +1,5 @@
-//! Two [`RunStore`]s: [`MemStore`] for tests, [`FileStore`] for a directory.
+//! Two [`RunStore`]s: [`MemStore`] for tests, [`FileStore`] for a directory; and [`Hooked`], one
+//! over another that allocates ids its own way or looks at each commit first.
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -85,6 +86,85 @@ impl RunStore for MemStore {
 
     async fn history(&self, run: &str) -> Result<Vec<History>, StoreError> {
         Ok(self.lock()?.history.get(run).cloned().unwrap_or_default())
+    }
+}
+
+// ── over another ─────────────────────────────────────────────────────────────
+
+/// What [`Hooked`] allocates a run id with, given the flow.
+type IdSource = Box<dyn Fn(&str) -> String + Send + Sync>;
+/// What [`Hooked`] asks before each commit: an error refuses the commit, and the store under it
+/// is not told.
+type CommitCheck = Box<dyn Fn(&ChangeSet) -> Result<(), StoreError> + Send + Sync>;
+
+/// A store over another that hands it every call, except that it may allocate ids its own way
+/// ([`Hooked::ids`]: a dry run's, which start `dry-`) and look at each commit first
+/// ([`Hooked::check_commits`]: a test's store that conflicts or fails on purpose). One wrapper
+/// for those, rather than a hand-written pass-through of every method for each.
+pub struct Hooked<S> {
+    inner: S,
+    ids: Option<IdSource>,
+    check: Option<CommitCheck>,
+}
+
+impl<S: RunStore> Hooked<S> {
+    pub fn new(inner: S) -> Self {
+        Self {
+            inner,
+            ids: None,
+            check: None,
+        }
+    }
+
+    /// Allocate run ids with `ids` (given the flow) instead of the store underneath. They must
+    /// not repeat.
+    pub fn ids(mut self, ids: impl Fn(&str) -> String + Send + Sync + 'static) -> Self {
+        self.ids = Some(Box::new(ids));
+        self
+    }
+
+    /// Ask `check` before each commit; what it refuses is not committed, and the commit answers
+    /// its error.
+    pub fn check_commits(
+        mut self,
+        check: impl Fn(&ChangeSet) -> Result<(), StoreError> + Send + Sync + 'static,
+    ) -> Self {
+        self.check = Some(Box::new(check));
+        self
+    }
+
+    /// The store underneath.
+    pub fn inner(&self) -> &S {
+        &self.inner
+    }
+}
+
+#[async_trait]
+impl<S: RunStore> RunStore for Hooked<S> {
+    async fn alloc_id(&self, flow: &str) -> Result<String, StoreError> {
+        match &self.ids {
+            Some(ids) => Ok(ids(flow)),
+            None => self.inner.alloc_id(flow).await,
+        }
+    }
+
+    async fn load(&self, run: &str) -> Result<Option<RunRecord>, StoreError> {
+        self.inner.load(run).await
+    }
+
+    async fn list(&self, q: &RunQuery) -> Result<Vec<RunSummary>, StoreError> {
+        self.inner.list(q).await
+    }
+
+    async fn commit(&self, cs: &ChangeSet) -> Result<(), StoreError> {
+        if let Some(check) = &self.check {
+            check(cs)?;
+        }
+        self.inner.commit(cs).await
+    }
+
+    async fn history(&self, run: &str) -> Result<Vec<History>, StoreError> {
+        self.inner.history(run).await
     }
 }
 

@@ -91,6 +91,9 @@ pub struct TransportProfile {
     /// Topologies this deployment serves. A client picks one at handshake;
     /// anything else is refused with a reason rather than downgraded.
     pub topologies: Vec<Topology>,
+    /// The address to bind: an IP literal (`127.0.0.1`, `::1`, `0.0.0.0`), not a host name. A
+    /// string because the profile is a file; it is parsed as the process starts, and one that is
+    /// not an address stops the start, naming it.
     pub host: String,
     pub port: u16,
     /// Keep the token out of the page: a browser is admitted by a one-time

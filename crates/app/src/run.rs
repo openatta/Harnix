@@ -266,7 +266,9 @@ struct Basis {
 impl Basis {
     fn read(cli: &Cli) -> anyhow::Result<Self> {
         let profile = cli::resolve_profile(cli)?;
-        let host: IpAddr = profile.transport.host.parse()?;
+        let host: IpAddr = profile.transport.host.parse().map_err(|e| {
+            anyhow::anyhow!("[transport] host = {:?} is not an IP address: {e}", profile.transport.host)
+        })?;
         // A non-loopback bind needs TLS, and `harnix_transport::serve` refuses it
         // without. Refused at the point of binding rather than here, so every
         // caller of that function inherits the rule instead of remembering it.

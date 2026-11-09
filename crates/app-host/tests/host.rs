@@ -8,6 +8,7 @@ mod common;
 use common::*;
 use harnix_app_host::HostOptions;
 use harnix_app_port::*;
+use harnix_contract::sync::lock;
 use serde_json::json;
 
 #[tokio::test(flavor = "multi_thread")]
@@ -17,14 +18,14 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
     assert_eq!(parts["agent"]["instances"], json!(["system"]));
     assert_eq!(parts["skills"]["system"], json!(["showcase-tour"]));
     // In order: the agent side put in place, switched on with it, then its names, then its tools.
-    let said = rig.platform.said.lock().unwrap().clone();
+    let said = lock(&rig.platform.said).clone();
     let at = |what: &str| said.iter().position(|s| s.starts_with(what)).unwrap_or_else(|| panic!("{what}: {said:?}"));
     assert!(at("install_agent example-showcase system") < at("switch_agent example-showcase on"));
     assert!(at("switch_agent") < at("register example.showcase"));
     assert!(at("register") < at("subscribe harnix.sessions.status"), "init ran after it was registered");
     assert!(at("subscribe") < at("expose_tools 8"));
 
-    let registration = rig.platform.registered.lock().unwrap()[0].clone();
+    let registration = lock(&rig.platform.registered)[0].clone();
     assert!(registration.methods.iter().any(|m| m.name == "state" && m.subjects == ["device", "module"]));
     assert_eq!(registration.topics, ["notes", "heartbeat", "fetched"]);
     assert_eq!(registration.spaces[0].id, ID);
@@ -40,8 +41,8 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
     assert_eq!(bad.code, codes::INVALID_PARAMS);
     let listed = rig.platform.device_call("notes.list", json!({})).await.unwrap();
     assert_eq!(listed["notes"][0]["by"], json!("device:d1"));
-    eventually("both notes published", async || rig.platform.published.lock().unwrap().len() >= 2).await;
-    let counts: Vec<_> = rig.platform.published.lock().unwrap().iter().map(|(_, v)| v["count"].clone()).collect();
+    eventually("both notes published", async || lock(&rig.platform.published).len() >= 2).await;
+    let counts: Vec<_> = lock(&rig.platform.published).iter().map(|(_, v)| v["count"].clone()).collect();
     assert_eq!(counts, [json!(1), json!(2)]);
     // The value its subscription answered with reached `on-topic`; a later one is delivered.
     eventually("the first value", async || {
@@ -84,7 +85,7 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
         other => panic!("{other:?}"),
     }
     rig.control.call_tool(tool("slow", json!({"steps": 3, "ms": 10}), "c2")).await.unwrap();
-    assert_eq!(*rig.platform.progress.lock().unwrap(), ["step 1 of 3", "step 2 of 3", "step 3 of 3"]);
+    assert_eq!(*lock(&rig.platform.progress), ["step 1 of 3", "step 2 of 3", "step 3 of 3"]);
     let control = rig.control.clone();
     let slow = tokio::spawn(async move { control.call_tool(tool("slow", json!({"steps": 100, "ms": 200}), "c3")).await });
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
@@ -114,7 +115,7 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
     // Stopped: its tools withdrawn, then its names, its subscription given back, its agent side off;
     // a method answers that it is not running.
     rig.control.stop(Stop { app: ID.into(), parts: parts.clone() }).await.unwrap();
-    assert!(rig.platform.offers.lock().unwrap().last().unwrap().tools.is_empty());
+    assert!(lock(&rig.platform.offers).last().unwrap().tools.is_empty());
     assert_eq!(rig.platform.said("withdraw"), ["withdraw example.showcase"]);
     assert_eq!(rig.platform.said("unsubscribe"), ["unsubscribe harnix.sessions.status"]);
     assert_eq!(rig.platform.said("switch_agent example-showcase off").len(), 1);
@@ -234,6 +235,16 @@ fn blocked_bash(o: &mut HostOptions) {
     );
 }
 
+/// Another application's tool, by the name a session knows it by.
+const OTHERS_TOOL: &str = "app__example_other__echo";
+
+fn blocked_others_tool(o: &mut HostOptions) {
+    o.config.insert(
+        ID.into(),
+        toml::Value::Table(toml::toml! { blocked_tool = "app__example_other__echo" }),
+    );
+}
+
 async fn hook_for(rig: &Rig, tool: &str) -> HookReply {
     rig.control
         .hook(HookCall {
@@ -256,6 +267,16 @@ async fn its_hook_sees_every_tool_call_only_when_its_manifest_asks() {
     all.install(refusing_bash("all")).await;
     assert!(matches!(hook_for(&all, "Bash").await, HookReply::Block(_)));
     assert_eq!(hook_for(&all, "Read").await, HookReply::Proceed);
+
+    // Another application's tool is not its own either: the same as a built-in one.
+    let own = Rig::new(blocked_others_tool);
+    own.install(refusing_bash("own")).await;
+    let calls = own.status().await["health"]["calls"].clone();
+    assert_eq!(hook_for(&own, OTHERS_TOOL).await, HookReply::Proceed, "another application's tool was its to refuse");
+    assert_eq!(own.status().await["health"]["calls"], calls, "the hook ran for another application's tool");
+    let all = Rig::new(blocked_others_tool);
+    all.install(refusing_bash("all")).await;
+    assert!(matches!(hook_for(&all, OTHERS_TOOL).await, HookReply::Block(_)));
 }
 
 #[tokio::test(flavor = "multi_thread")]

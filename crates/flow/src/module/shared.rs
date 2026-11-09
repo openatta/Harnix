@@ -254,7 +254,7 @@ impl Shared {
             let ok = std::fs::write(&tmp, serde_json::to_vec_pretty(&*g).unwrap_or_default())
                 .and_then(|_| std::fs::rename(&tmp, path));
             if let Err(e) = ok {
-                tracing::warn!(path = %path.display(), error = %e, "flow: conversations not saved");
+                tracing::warn!(path = %path.display(), error = %e, "conversations not saved");
             }
         }
     }
@@ -286,7 +286,7 @@ impl Shared {
         let ok = std::fs::write(&tmp, serde_json::to_vec_pretty(m).unwrap_or_default())
             .and_then(|_| std::fs::rename(&tmp, path));
         if let Err(e) = ok {
-            tracing::warn!(path = %path.display(), error = %e, "flow: instance ledger not saved");
+            tracing::warn!(path = %path.display(), error = %e, "instance ledger not saved");
         }
     }
 

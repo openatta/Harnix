@@ -46,7 +46,7 @@ pub(crate) async fn apply(sh: &Arc<Shared>, hint: Option<&str>, o: Outcome) {
             let (sh2, run) = (sh.clone(), e.run.clone());
             sh.spawn(async move {
                 if let Err(why) = super::main::ensure_main(&sh2, &run).await {
-                    tracing::warn!(run, why, "flow: no main session");
+                    tracing::warn!(run, why, "no main session");
                 }
             });
         }
@@ -83,7 +83,7 @@ pub(crate) async fn settle(sh: &Arc<Shared>, run: &str, what: &str, r: crate::Re
             true
         }
         Err(e) => {
-            tracing::debug!(run, what, error = %e, "flow: not applied");
+            tracing::debug!(run, what, error = %e, "not applied");
             false
         }
     }
@@ -95,9 +95,9 @@ pub(crate) async fn stop_run_instances(sh: &Arc<Shared>, run: &str) {
     let Some(cx) = sh.cx.get() else { return };
     for name in sh.take_instances(run) {
         match cx.instances().stop(&name).await {
-            Ok(_) => tracing::debug!(run, instance = name, "flow: the run's instance stopped"),
+            Ok(_) => tracing::debug!(run, instance = name, "the run's instance stopped"),
             Err(e) => {
-                tracing::info!(run, instance = name, error = %e, "flow: the run's instance not stopped")
+                tracing::info!(run, instance = name, error = %e, "the run's instance not stopped")
             }
         }
     }
@@ -135,7 +135,7 @@ pub(crate) async fn recover(sh: &Arc<Shared>) {
     {
         Ok(l) => l,
         Err(e) => {
-            tracing::warn!(error = %e, "flow: runs to recover could not be listed");
+            tracing::warn!(error = %e, "runs to recover could not be listed");
             return;
         }
     };
@@ -151,7 +151,7 @@ pub(crate) async fn recover(sh: &Arc<Shared>) {
         let (sh2, run) = (sh.clone(), s.id.clone());
         sh.spawn(async move {
             if let Err(why) = super::main::ensure_main(&sh2, &run).await {
-                tracing::warn!(run, why, "flow: no main session after a restart");
+                tracing::warn!(run, why, "no main session after a restart");
             }
         });
     }
@@ -175,7 +175,7 @@ pub(crate) async fn tick_loop(sh: Arc<Shared>) {
                     apply(&sh, None, o).await;
                 }
             }
-            Err(e) => tracing::warn!(error = %e, "flow: tick failed"),
+            Err(e) => tracing::warn!(error = %e, "tick failed"),
         }
     }
 }
@@ -283,7 +283,7 @@ async fn run_work(sh: Arc<Shared>, w: WorkItem, resume: bool) {
             if let Some(cx) = sh.cx.get() {
                 let _ = cx.sessions().interrupt(&s).await;
                 if let Err(e) = cx.sessions().close(&s).await {
-                    tracing::debug!(session, error = %e, "flow: session not closed");
+                    tracing::debug!(session, error = %e, "session not closed");
                 }
             }
         }
@@ -345,7 +345,7 @@ async fn program_task(
         }
         (None, _) => Err(format!("no programs are registered to run {step}")),
         (_, Err(e)) => {
-            tracing::warn!(run, error = %e, "flow: program not run");
+            tracing::warn!(run, error = %e, "program not run");
             return;
         }
     };
@@ -360,7 +360,7 @@ async fn program_task(
                 // gone, is not a failed attempt.
                 Err(FlowError::Contract(m)) => fail(sh, key, token, &m).await,
                 Err(e) => {
-                    tracing::debug!(run, station, task, error = %e, "flow: program output not taken")
+                    tracing::debug!(run, station, task, error = %e, "program output not taken")
                 }
             }
         }
