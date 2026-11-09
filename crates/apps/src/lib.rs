@@ -22,6 +22,7 @@
 //! Only a build with the `apps` feature links this crate, and through it the host and
 //! `harnix-wasm`.
 
+mod agent;
 mod platform;
 mod plugin;
 mod runtime;

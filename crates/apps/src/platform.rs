@@ -1,5 +1,5 @@
-//! The host's [`Kernel`] and [`Agent`], over this process's kernel and its Agix: what an
-//! application embedded here is lent.
+//! The host's [`Kernel`], over this process's kernel: what an application embedded here is lent.
+//! (Its [`harnix_app_port::Agent`], this process's Agix, is `agent.rs`.)
 //!
 //! - **Its names** are registered with the kernel's application host
 //!   (`harnix_module::AppHost`), under the `apps` module: each `[[method]]` a row in the
@@ -8,24 +8,17 @@
 //! - **What it does as itself** — `host.call`, `publish`, `subscribe` — goes through that
 //!   registration, as `module:<id>`: the kernel admits, grants and audits. The values of what it
 //!   subscribed to go back to the host ([`Control::deliver`]), in order.
-//! - **Its agent side** is this process's Agix: its agent package installed into the instances its
-//!   manifest names (`plugin.install` and friends), its skills copied into each one's skills
-//!   directory, marked as its own, and its tools in every session built here ([`crate::AppsPlugin`]
-//!   reads what [`Agent::expose_tools`] offered).
 //!
 //! The kernel is reached through the `apps` module's context, which every call of the
 //! `AppsRuntime` hands in; nothing here reaches it before the module has.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, RwLock, Weak};
 
 use async_trait::async_trait;
 use harnix_app_package::acquire::{internal, refused};
-use harnix_app_package::package;
 use harnix_app_port::{
-    Agent, AgentInstall, AgentRef, AgentSwitch, CallAs, Control, Kernel, MethodCall, Offer,
-    Progress, Publish, Registration, Skills, Subscription, TopicValue,
+    CallAs, Control, Kernel, MethodCall, Progress, Publish, Registration, Subscription, TopicValue,
 };
 use harnix_contract::{codes, RpcError, Subject};
 use harnix_module::{
@@ -35,9 +28,6 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 use crate::runtime::Registry;
-
-/// What marks a skill directory as an application's, inside an instance's skills directory.
-const SKILL_MARK: &str = ".harnix-app";
 
 fn read<T>(l: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
     l.read().unwrap_or_else(|e| e.into_inner())
@@ -55,7 +45,7 @@ pub struct KernelPlatform {
     control: OnceLock<Weak<dyn Control>>,
     /// Each registered application's registration.
     handles: RwLock<BTreeMap<String, AppHandle>>,
-    registry: Arc<Registry>,
+    pub(crate) registry: Arc<Registry>,
 }
 
 impl KernelPlatform {
@@ -80,7 +70,7 @@ impl KernelPlatform {
         }
     }
 
-    fn cx(&self) -> Result<ModuleContext, RpcError> {
+    pub(crate) fn cx(&self) -> Result<ModuleContext, RpcError> {
         read(&self.cx)
             .clone()
             .ok_or_else(|| internal("the `apps` module has not reached the application runtime yet"))
@@ -93,12 +83,6 @@ impl KernelPlatform {
                 format!("`{app}` is not registered with this process's application host"),
             )
         })
-    }
-
-    fn skills_dir(cx: &ModuleContext, instance: &str) -> Result<PathBuf, RpcError> {
-        cx.instance(instance)
-            .map(|h| h.data_root.join("skills"))
-            .ok_or_else(|| refused(format!("there is no instance `{instance}`")))
     }
 }
 
@@ -277,106 +261,6 @@ impl Kernel for KernelPlatform {
 
     async fn progress(&self, p: Progress) -> Result<(), RpcError> {
         self.registry.told(&p.call_id, &p.text);
-        Ok(())
-    }
-}
-
-#[async_trait]
-impl Agent for KernelPlatform {
-
-    async fn has_instance(&self, instance: String) -> Result<bool, RpcError> {
-        Ok(self.cx()?.instance(&instance).is_some())
-    }
-
-    async fn install_agent(&self, a: AgentInstall) -> Result<Value, RpcError> {
-        let params = json!({
-            "name": a.name,
-            "version": a.version,
-            "download_url": format!("file://{}", a.archive.display()),
-            "instance": a.instance,
-        });
-        let answer = self.cx()?.call("plugin.install", params).await?;
-        Ok(answer.get("disclosure").cloned().unwrap_or(answer))
-    }
-
-    async fn uninstall_agent(&self, a: AgentRef) -> Result<(), RpcError> {
-        let params = json!({"name": a.name, "version": a.version, "instance": a.instance});
-        self.cx()?.call("plugin.uninstall", params).await.map(|_| ())
-    }
-
-    async fn switch_agent(&self, s: AgentSwitch) -> Result<(), RpcError> {
-        let method = if s.on { "plugin.enable" } else { "plugin.disable" };
-        self.cx()?
-            .call(method, json!({"name": s.name, "instance": s.instance}))
-            .await
-            .map(|_| ())
-    }
-
-    /// Copy `<source>/<name>/` into the instance's skills directory, marked as the application's.
-    /// A directory of that name that is not the application's is somebody else's skill, and
-    /// refuses it.
-    async fn place_skills(&self, s: Skills) -> Result<(), RpcError> {
-        let (id, instance) = (&s.app, &s.instance);
-        let dir = Self::skills_dir(&self.cx()?, instance)?;
-        for name in &s.names {
-            let target = dir.join(name);
-            if target.exists()
-                && std::fs::read_to_string(target.join(SKILL_MARK))
-                    .ok()
-                    .as_deref()
-                    != Some(id.as_str())
-            {
-                return Err(refused(format!(
-                    "the instance `{instance}` has a skill `{name}` of its own; `{id}` would replace it"
-                )));
-            }
-            let _ = std::fs::remove_dir_all(&target);
-            let source = s.source.join(name);
-            let mut files = Vec::new();
-            package::walk(&source, &source, &mut files)
-                .map_err(|e| internal(format!("{}: {e}", source.display())))?;
-            for (relative, path) in files {
-                let to = target.join(&relative);
-                if let Some(parent) = to.parent() {
-                    std::fs::create_dir_all(parent)
-                        .map_err(|e| internal(format!("{}: {e}", parent.display())))?;
-                }
-                std::fs::copy(&path, &to).map_err(|e| internal(format!("{}: {e}", to.display())))?;
-            }
-            std::fs::write(target.join(SKILL_MARK), id).map_err(|e| internal(e.to_string()))?;
-        }
-        Ok(())
-    }
-
-    /// Remove the skills marked as the application's, and nothing else.
-    async fn remove_skills(&self, s: Skills) -> Result<(), RpcError> {
-        let Ok(dir) = Self::skills_dir(&self.cx()?, &s.instance) else {
-            return Ok(());
-        };
-        for name in &s.names {
-            let target = dir.join(name);
-            if std::fs::read_to_string(target.join(SKILL_MARK))
-                .ok()
-                .as_deref()
-                == Some(s.app.as_str())
-            {
-                if let Err(e) = std::fs::remove_dir_all(&target) {
-                    tracing::warn!(app = %s.app, skill = %name, error = %e, "a skill was not removed");
-                }
-            }
-        }
-        Ok(())
-    }
-
-    async fn reload_instance(&self, instance: String) -> Result<(), RpcError> {
-        self.cx()?
-            .call("config.reload", json!({"instance": instance}))
-            .await
-            .map(|_| ())
-    }
-
-    async fn expose_tools(&self, offer: Offer) -> Result<(), RpcError> {
-        self.registry.offer(offer);
         Ok(())
     }
 }
