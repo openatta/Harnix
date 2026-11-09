@@ -277,7 +277,7 @@ Harnix 只管什么时候迁、失败了怎么办，不管用什么迁。数据�
 
 ### 6.1 给 `system` 加原生工具和场景
 
-原生工具、场景、prompt 块的类型都从 `harnix::agent` 取，内置场景从 `harnix::scenes` 取，不用另加依赖：
+原生工具、场景、prompt 块的类型都从 `harnix::agent` 取，内置场景从 `harnix::scenes` 取，Rust 写的 Agix 插件从 `harnix::plugin` 取，不用另加依赖：
 
 | 要写什么 | 类型 |
 |---|---|
@@ -285,6 +285,7 @@ Harnix 只管什么时候迁、失败了怎么办，不管用什么迁。数据�
 | 场景 | `harnix::agent::interface::scene::{Scene, ScenePromptContext, TokenBudget}` |
 | prompt 块 | `harnix::agent::interface::prompt::PromptBlock` |
 | 包一个内置场景 | `harnix::scenes::harnix::HarnixScene`（缺省）、`harnix::scenes::code::CodeScene`、`harnix::scenes::mini::MiniScene` |
+| Rust 写的 Agix 插件（`EngineContrib::plugin`） | `harnix::plugin::{Plugin, Registrar, PluginSession}` |
 
 完整的例子是 `crates/testapp` 的 `NativeScene` 和 `FixedTool`。
 
@@ -666,8 +667,8 @@ r.strings('zh-CN', { 'hello-app.greeter': '问候' }, 'hello-app');
 - **升级 Harnix**：bump `harnix/` 子仓 → `git submodule update --init --recursive` → `sync-app-deps` →
   `check-pins`、`check-lock` → 跑测试。0.4.z 里协议与模块 API 只做加法，升 z 不该打破你。
 - **从旧布局迁过来**（应用根下还有自己的 `agix/` 子仓的）：`git submodule deinit -f agix && git rm agix`，
-  `git -C harnix submodule update --init agix`，再跑 `sync-app-deps`、`check-pins`；代码里的 `base::…`、`scene::…`
-  换成 `harnix::agent::…`、`harnix::scenes::…`，应用 crate 的依赖里删掉 `base`、`scene` 等。迁移之前两个脚本照常工作，只多一条告警。
+  `git -C harnix submodule update --init agix`，再跑 `sync-app-deps`、`check-pins`；代码里的 `base::…`、`scene::…`、`runtime::plugin::…`
+  换成 `harnix::agent::…`、`harnix::scenes::…`、`harnix::plugin::…`，应用 crate 的依赖里删掉 `base`、`scene` 等。迁移之前两个脚本照常工作，只多一条告警。
 - **公共改动**：直接在你的 `harnix/` 子仓里开分支 → 回推 Harnix → 合并、打标签 → 你 bump 子仓。
   不许有长期补丁：子仓指针只能指向上游存在的提交。
 - **桌面壳**：复制 `harnix/templates/desktop`，改名字、图标，把你的二进制打成 sidecar。本机模式
@@ -758,12 +759,12 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 |---|---|---|---|
 | Harnix 版本 | `0.4.1-2026110806` | 各 crate 的 `Cargo.toml`；`harnix::HARNIX_VERSION` | 每次发布（`scripts/set-version.sh` 连这一格一起改，`tests/crate-metadata.mjs` 查它和 crate 一致） |
 | 模块 API | `1` | `harnix::MODULE_API_VERSION` | 模块契约有模块看得见的变化。**编译期**检查：`Module::API_VERSION` 不等就编译不过。模块的路由是 `axum::Router`（`harnix::axum` 重导出），所以**axum 的大版本是它的一部分**：模块 API 1 = axum 0.8，升 axum 的大版本就是升模块 API。契约里还露着 Agix 的类型（`EngineContrib::customize_session` 的 `Builder` 与 `SessionCtx`、`InstanceHandle` 里的历史存储），它们随 Agix 变而这个数不动：靠的是一个 Harnix 发布只对一个 Agix 发布（升 Agix 就是出一个新的 Harnix 发布），见下一行 |
-| `harnix::agent`、`harnix::scenes` | 随 Agix | 就是 Agix 的 `base` 与 `scene` crate，原样重导出 | 随它带的 Agix 变：Agix 改一个 `Tool` 的签名，写了原生工具的应用就要改。**不在**模块 API 只做加法的承诺之内。升 Harnix 时看它的发布说明里的 Agix 一行 |
+| `harnix::agent`、`harnix::scenes`、`harnix::plugin` | 随 Agix | 就是 Agix 的 `base` 与 `scene` crate、`runtime::plugin` 模块，原样重导出 | 随它带的 Agix 变：Agix 改一个 `Tool` 的签名，写了原生工具的应用就要改。**不在**模块 API 只做加法的承诺之内。升 Harnix 时看它的发布说明里的 Agix 一行 |
 | 贡献点 API | `2` | `harnix::CONTRIB_API_VERSION`；`harnix.hello` 里也有 | 贡献点的契约变了。2：运行期包的界面模块是预编译的 ES 模块，从页面的 import map 拿 React；**React 的大版本是它的一部分** |
 | 协议 | `4` | `harnix_contract::PROTOCOL_VERSION` | 握手比对，不一致拒绝（`HANDSHAKE_REFUSED`） |
 | 应用接口（插件 APP） | `1` | `harnix-app.toml` 的 `[app] harnix_api`；`harnix_app_package::HARNIX_API` | 插件 APP 的契约（WIT world 与清单）有破坏性变化。见 [插件](harnix-plugin.md) §13 |
 
-`<app> --version` 打印上面全部，加上引擎的版本。0.4.z 内协议与模块 API 只做加法；`harnix::agent`、`harnix::scenes` 与契约里露出的 Agix 类型除外。
+`<app> --version` 打印上面全部，加上引擎的版本。0.4.z 内协议与模块 API 只做加法；`harnix::agent`、`harnix::scenes`、`harnix::plugin` 与契约里露出的 Agix 类型除外。
 这张表的五个数由 `tests/crate-metadata.mjs` 对着代码里的常量查。
 
 ---
@@ -850,7 +851,7 @@ pub trait Module: Send + Sync + 'static {
 | `InstanceTemplates` | `t.add(InstanceTemplate::new(id, carrier).data_root(pattern).param(name).ui().max(n).inherit_providers().reap_on_stop().native(\|e\| …))`。全名 `<模块 id>.<模板 id>`。实例的 id 就是建它时给的 `name`，全进程唯一；名字和参数只能是字母、数字、`-`、`_`、`.`，不能以 `.` 开头。`data_root` 默认 `{name}`，可用 `{name}` 和声明过的参数，在 `~/.<product_id>/instances/` 下；建过的实例记在 `instances.json`。`.ui()`：界面能按它建（只填 `param` 放开的参数）。`.max(n)`：至多 n 台。`inherit_providers()`：这个模板的实例也看得到 `system` 的 provider（设置页配的）——建实例时、以及每次 `harnix.settings.setProvider` 之后，Harnix 把它们并进实例数据根的 `settings.json`（0600）再让它 `config.reload`；Harnix 写过哪些 id 记在 `.inherited-providers.json`，只动这些，实例自己配的同名 provider 不覆盖。`.reap_on_stop()`（ipdrun-07，缺省关）：停下或重启时收掉会话留下的进程。spawn 的 daemon 自成一个会话（`setsid`），它退出、被杀、崩溃或看护重启时，Harnix 把还留在这个会话里的进程 TERM、等 1.5 s、KILL；两种载体都在实例的全局设置层打开引擎的 `sandbox.reap_process_groups`（正常退出时引擎自己先收，进程内实例只有这一半）。daemon 在自己的会话里收不到终端的 Ctrl-C，退出照旧跟着 stdin 关闭走；自己 `setsid` 出去的进程收不到；实例视图带 `reap: true`。`.native(\|e\| …)`（ipdrun-10）：两种载体都有的原生贡献。进程内模板把它并在 `contrib` 之后；spawn 模板（`program` 为 `None`）的 daemon 带 `--template <全名>` 起来，照装配顺序对每个应用模块调一次 `templates()`（不调 `start`、不开任何方法），在自己进程里再调一遍闭包；找不到这个模板以 78 退出、实例 `down`、理由写明。模板贡献的场景要在 `EngineProfile.scenes` 里列出才在实例上启用 |
 | `TemplateCarrier` | `InProcess { engine, contrib }`（只有模块的模板能带原生贡献）、`Spawn { engine, program: Option<PathBuf>, args }`（`None` = 本二进制的 `daemon` 子命令）、`Attach(AttachTo { socket, tcp, token })` |
 | `harnix::agent`、`harnix::scenes` | 写 Agent 侧要的类型，应用不另加依赖。`agent::tool::{Tool, ToolContext, ToolResult, ProgressSender}`、`agent::error::ToolError`（原生工具）；`agent::interface::scene::{Scene, ScenePromptContext, TokenBudget}`（场景）；`agent::interface::prompt::PromptBlock`（prompt 块）；`scenes::harnix::HarnixScene`（缺省场景）、`scenes::code::CodeScene`、`scenes::mini::MiniScene`。路径与引擎的模块一一对应 |
-| `EngineContrib` | `.scene(Arc<dyn Scene>)`、`.customize_session(\|builder, cx\| …)`（按注册顺序组合）、`.plugin(Arc<dyn Plugin>)`（一个 Rust 写的 Agix 插件，类型是 Agix 的 `runtime::plugin::Plugin`，`harnix` 不重导出它：和 customizer 不同，Agix 在会话委派出去的每个子 Agent、团队成员、后台任务里也登记它）、`.admit_tools(pattern)`（这台实例的每个场景都放进会话的工具，不管场景自己的工具表：`prefix*` 或全名；给上面的插件登记的工具用，否则带工具表的场景会把它们去掉）、`.credentials(Arc<dyn CredentialSource>)`（第一个给的生效）、`.extend(other)` |
+| `EngineContrib` | `.scene(Arc<dyn Scene>)`、`.customize_session(\|builder, cx\| …)`（按注册顺序组合）、`.plugin(Arc<dyn Plugin>)`（一个 Rust 写的 Agix 插件，类型是 `harnix::plugin::Plugin`，即 Agix 的 `runtime::plugin::Plugin` 原样重导出：和 customizer 不同，Agix 在会话委派出去的每个子 Agent、团队成员、后台任务里也登记它）、`.admit_tools(pattern)`（这台实例的每个场景都放进会话的工具，不管场景自己的工具表：`prefix*` 或全名；给上面的插件登记的工具用，否则带工具表的场景会把它们去掉）、`.credentials(Arc<dyn CredentialSource>)`（第一个给的生效）、`.extend(other)` |
 | `PromptMiddleware`、`PromptCall`、`PromptDecision`、`PromptDelivery`、`PromptAttachment`、`PromptAttachmentKind` | prompt 中间件（ipdrun-13），从 `harnix` / `harnix_module` 导出：`customize_session(\|b, _\| b.prompt_middleware(Arc::new(…)))`。设置层 hook 之后、按注册顺序跑；开一轮时 `Block` 让这一轮以 `stopped_by_hook` 结束、不调模型，steer 时 `Block` 发 `user_message_refused` 事件。消息带的附件要看就实现 `inspect_with_attachments`（缺省交给 `inspect`），附件经只读的 `PromptAttachment`（类型 `PromptAttachmentKind`）给出；steer 的消息不带附件 |
 | `EngineProfile` | `scene = "harnix"`、`scenes = []`、`model = "claude-sonnet-4-6"`、`max_tokens = 2000`、`session_cap = 32`、`session_idle_timeout_secs = 3600`、`permission_prompt_timeout_secs = 300`（括号里是默认值） |
 

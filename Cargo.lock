@@ -1388,6 +1388,7 @@ dependencies = [
  "harnix-authz",
  "harnix-contract",
  "harnix-module",
+ "runtime",
  "scene",
  "serde",
  "serde_json",

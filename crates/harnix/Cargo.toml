@@ -23,10 +23,13 @@ harnix-app       = { workspace = true }
 harnix-module    = { workspace = true }
 harnix-contract  = { workspace = true }
 harnix-authz     = { workspace = true }
-# The engine's interfaces, re-exported as `harnix::agent` and `harnix::scenes`: an application
-# names only this crate.
+# The engine's interfaces, re-exported as `harnix::agent`, `harnix::scenes` and `harnix::plugin`:
+# an application names only this crate.
 base        = { workspace = true }
 scene       = { workspace = true }
+# Agix's Rust plugin (`runtime::plugin`), re-exported as `harnix::plugin`: what
+# `EngineContrib::plugin` takes.
+runtime     = { workspace = true }
 async-trait = { workspace = true }
 anyhow      = { workspace = true }
 axum        = { workspace = true }
