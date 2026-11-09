@@ -51,7 +51,8 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
    * controls slide in. Reduced motion skips to the end. */
   const toggle = () => {
     const still = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (still) {
+    // Narrow, the toggle opens a drawer over the page: nothing to fade, nothing lands.
+    if (still || app.snapshot.narrow) {
       app.toggleSidebar();
       return;
     }
@@ -74,8 +75,17 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
     app.open(null);
   };
   const icon = s.hello?.shell?.brand?.icon;
+  const open = app.sidebarShown(s) === "expanded";
   const collapse = (
-    <button type="button" className="ib collapse" title={t("app.collapseSidebar")} onClick={toggle}>
+    <button
+      type="button"
+      className="ib collapse"
+      data-testid="sidebar-toggle"
+      title={open ? t("app.collapseSidebar") : t("app.expandSidebar")}
+      aria-label={open ? t("app.collapseSidebar") : t("app.expandSidebar")}
+      aria-expanded={open}
+      onClick={toggle}
+    >
       <Glyph name="panel" className="glyph" />
     </button>
   );
@@ -107,6 +117,11 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
       )}
       <SpaceList app={app} s={s} />
       {space ? <div className="sep chats-sep" role="separator" data-testid="sessions-sep" /> : null}
+      {space ? (
+        <button type="button" className="nav rail-entry" data-testid="rail-sessions" title={t("sidebar.showSessions")} aria-label={t("sidebar.showSessions")} onClick={toggle}>
+          <Glyph name="list" className="glyph" />
+        </button>
+      ) : null}
       <div id="sessions" className="chats" data-space={s.space}>
         {space?.sidebar ? (
           <Contributed registry={registry} point="space" contribution={space}>

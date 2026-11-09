@@ -743,6 +743,10 @@ const zhCN: Record<string, string> = {
   "time.today": "今天",
   "time.week": "近 7 天",
 
+  // ── 窄窗口：从轨上展开侧栏 ─────────────────────────────────────────────
+  "app.expandSidebar": "展开侧栏（⌘\\）",
+  "sidebar.showSessions": "显示会话列表（⌘\\）",
+
   // ── 会话组件（@harnix/react 的 HarnixUiStrings） ──────────────────────────
   "chat.untitled": "未命名会话",
   "chat.connOpen": "已连接",

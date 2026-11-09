@@ -1037,7 +1037,7 @@ spaces = ["sessions", "projects", "system", "flow"]   # 留哪些内建 space；
                                # 去掉 system 时它的方法一起撤：谁也声称不了系统 space，也不能跨 space 操作
 model_switch = false           # true：加 harnix.sessions.setModel，没有系统 space 也能在输入框换模型（只限调用方声称的 space 的会话）
 new_session = true             # false：整个外壳不画「新会话」、⌘K 不归外壳（每个 space 都这样；space 自己的 newSession 照旧叠加）；只是界面
-narrow_details = "over"        # ≤ 960 宽时打开的右栏：over（缺省）盖住中区（按最大化）；beside 三栏并排（左栏收成 rail、右栏变窄），< 720 仍按最大化
+narrow_details = "over"        # ≤ 960 宽时打开的右栏：over（缺省）是从右边盖住中区的抽屉；beside 三栏并排（左栏收成 rail、右栏变窄），< 720 仍是抽屉
 
 [ui]
 dir = "…"                      # 从这个目录出界面（同 --ui-dir）；不写用编进二进制的

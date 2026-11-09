@@ -492,6 +492,15 @@
   background: var(--state-error);
 }
 
+/* The rail's way back to the column it folded: the front space's sessions (narrow, in a drawer). */
+#side .rail-entry {
+  display: none;
+}
+
+#frame[data-sidebar="collapsed"] #side .rail-entry {
+  display: flex;
+}
+
 /* The rail: icons only. */
 #frame[data-sidebar="collapsed"] #side .lbl,
 #frame[data-sidebar="collapsed"] #side .sec,

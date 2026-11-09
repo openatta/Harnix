@@ -14,6 +14,7 @@ export const ICON: Record<string, string> = {
   stop: wrap(`<rect x="7" y="7" width="10" height="10" rx="2"/>`),
   attach: wrap(`<path d="M21 11.5 12.5 20a5 5 0 0 1-7-7l8.5-8.5a3.5 3.5 0 0 1 5 5L10.5 18a2 2 0 0 1-3-3l8-8"/>`),
   panel: wrap(`<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>`),
+  list: wrap(`<path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/>`),
   details: wrap(`<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>`),
   close: wrap(`<path d="M6 6l12 12M18 6L6 18"/>`),
   maximize: wrap(`<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>`),

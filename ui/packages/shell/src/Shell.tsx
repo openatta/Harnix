@@ -9,7 +9,20 @@
  * IPDrun (D21).
  */
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+} from "react";
 import { errorText } from "@harnix/core";
 import type { SessionController, SessionState } from "@harnix/core/state";
 import {
@@ -49,6 +62,7 @@ export function Shell({ app }: { app: App }) {
   useBrand(app);
   // The right column's bounds, and a width given as a share, follow the window.
   useWindowWidth();
+  const narrow = useNarrow(app, s);
   // Runs after every child has drawn: whoever waits for this state to be on the page can go on.
   useEffect(() => app.drew());
   const space = spacesOf(app).find((c) => c.id === s.space);
@@ -58,7 +72,8 @@ export function Shell({ app }: { app: App }) {
       <Banner app={app} s={s} />
       <div
         id="frame"
-        data-sidebar={s.sidebar}
+        data-sidebar={app.sidebarShown(s)}
+        data-drawer={s.narrow && s.drawer ? "" : undefined}
         data-narrow={app.narrowDetails() === "beside" ? "beside" : undefined}
         data-details={app.detailsOpen(s) ? "open" : "closed"}
         data-details-max={app.detailsOpen(s) && s.detailsMax ? "" : undefined}
@@ -72,6 +87,7 @@ export function Shell({ app }: { app: App }) {
             "--secondary-width": `${secondaryWidthOf(s, secondary?.width)}px`,
           } as CSSProperties
         }
+        onKeyDown={narrow.onKeyDown}
       >
         <Sidebar app={app} s={s} />
         <Resizer app={app} column="side" />
@@ -80,6 +96,7 @@ export function Shell({ app }: { app: App }) {
           {secondary && space ? <Secondary app={app} space={space} panel={secondary} max={app.secondaryMax(s)} /> : null}
         </div>
         {space || s.detail ? <Details app={app} s={s} /> : <aside id="details" aria-hidden inert />}
+        {narrow.veil ? <div className="drawer-veil" data-testid="drawer-veil" aria-hidden="true" onClick={narrow.closeTop} /> : null}
       </div>
       <ModalHost app={app} s={s} />
       {/* Where a layer drawn outside its own place goes: an anchored menu, a dialog's own dialog. */}
@@ -126,6 +143,71 @@ function Resizer({ app, column }: { app: App; column: keyof Widths }) {
       onDoubleClick={() => app.setWidth(column, null)}
     />
   );
+}
+
+/* ── narrow windows ───────────────────────────────────────────────────── */
+
+/** Whether a media query matches, as the window changes. */
+function useMedia(query: string): boolean {
+  const matches = () => typeof matchMedia === "function" && matchMedia(query).matches;
+  const [on, setOn] = useState(matches);
+  useEffect(() => {
+    if (typeof matchMedia !== "function") return;
+    const list = matchMedia(query);
+    const change = () => setOn(list.matches);
+    change();
+    list.addEventListener("change", change);
+    return () => list.removeEventListener("change", change);
+  }, [query]);
+  return on;
+}
+
+/** A ref to an element the frame draws somewhere below it, found when it is asked for. */
+function byId(id: string): RefObject<HTMLElement | null> {
+  return {
+    get current() {
+      return document.getElementById(id);
+    },
+  } as RefObject<HTMLElement | null>;
+}
+
+const SIDE = byId("side");
+const DETAILS = byId("details");
+
+/**
+ * At 960px and below (Helm §1) the sidebar is the rail, and the toggle, the rail's entry or ⌘\
+ * open it as a drawer over the page; an open right column is a drawer from the right (unless the
+ * profile keeps it beside, `narrow_details`, and there is room). Each drawer is a layer
+ * (`layers.ts`) that is not modal: Escape closes the top one and the page stays live. A veil under
+ * them closes them on a click, and the sidebar's drawer closes once a session or a space is picked
+ * in it.
+ */
+function useNarrow(app: App, s: ShellState): { veil: boolean; closeTop: () => void; onKeyDown: (event: ReactKeyboardEvent) => void } {
+  const narrow = useMedia("(max-width: 960px)");
+  const roomy = useMedia("(min-width: 720px)");
+  useLayoutEffect(() => app.setNarrow(narrow), [app, narrow]);
+  const drawer = s.narrow && s.drawer;
+  const over = s.narrow && app.detailsOpen(s) && !s.detailsMax && !(app.narrowDetails() === "beside" && roomy);
+  const side = useLayer(SIDE, { open: drawer, modal: false, close: () => app.closeDrawer() });
+  const details = useLayer(DETAILS, { open: over, modal: false, close: () => app.toggleDetails(false) });
+  // Picked in the drawer: what was picked is what the person wants to see now.
+  const picked = `${s.space}\n${s.current ? keyOf(s.current.instance, s.current.sessionId) : ""}`;
+  const last = useRef(picked);
+  useEffect(() => {
+    if (last.current === picked) return;
+    last.current = picked;
+    app.closeDrawer();
+  }, [app, picked]);
+  return {
+    veil: drawer || over,
+    closeTop: () => (drawer ? app.closeDrawer() : app.toggleDetails(false)),
+    // Escape inside a drawer that nothing in it took (a layer's own handler; see `useLayer`).
+    onKeyDown: (event) => {
+      const target = event.target as Node;
+      if (drawer && SIDE.current?.contains(target)) side.onKeyDown(event);
+      else if (over && DETAILS.current?.contains(target)) details.onKeyDown(event);
+    },
+  };
 }
 
 /* ── theme and keys ───────────────────────────────────────────────────── */

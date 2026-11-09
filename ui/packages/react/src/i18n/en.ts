@@ -745,6 +745,10 @@ const en: Record<string, string> = {
   "time.today": "Today",
   "time.week": "Last 7 days",
 
+  // ── narrow windows: the rail opens the sidebar ──────────────────────────
+  "app.expandSidebar": "Expand sidebar (⌘\\)",
+  "sidebar.showSessions": "Show the sessions (⌘\\)",
+
   // ── the conversation components (@harnix/react's HarnixUiStrings) ──────────
   "chat.untitled": "Untitled session",
   "chat.connOpen": "Connected",
