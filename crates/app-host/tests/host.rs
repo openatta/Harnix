@@ -235,6 +235,16 @@ fn blocked_bash(o: &mut HostOptions) {
     );
 }
 
+/// Another application's tool, by the name a session knows it by.
+const OTHERS_TOOL: &str = "app__example_other__echo";
+
+fn blocked_others_tool(o: &mut HostOptions) {
+    o.config.insert(
+        ID.into(),
+        toml::Value::Table(toml::toml! { blocked_tool = "app__example_other__echo" }),
+    );
+}
+
 async fn hook_for(rig: &Rig, tool: &str) -> HookReply {
     rig.control
         .hook(HookCall {
@@ -257,6 +267,16 @@ async fn its_hook_sees_every_tool_call_only_when_its_manifest_asks() {
     all.install(refusing_bash("all")).await;
     assert!(matches!(hook_for(&all, "Bash").await, HookReply::Block(_)));
     assert_eq!(hook_for(&all, "Read").await, HookReply::Proceed);
+
+    // Another application's tool is not its own either: the same as a built-in one.
+    let own = Rig::new(blocked_others_tool);
+    own.install(refusing_bash("own")).await;
+    let calls = own.status().await["health"]["calls"].clone();
+    assert_eq!(hook_for(&own, OTHERS_TOOL).await, HookReply::Proceed, "another application's tool was its to refuse");
+    assert_eq!(own.status().await["health"]["calls"], calls, "the hook ran for another application's tool");
+    let all = Rig::new(blocked_others_tool);
+    all.install(refusing_bash("all")).await;
+    assert!(matches!(hook_for(&all, OTHERS_TOOL).await, HookReply::Block(_)));
 }
 
 #[tokio::test(flavor = "multi_thread")]
