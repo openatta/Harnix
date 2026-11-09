@@ -26,13 +26,14 @@ import type {
   ResultOf,
   CallError,
 } from "../protocol/frames.ts";
-import { CONTRIB_API_VERSION, PROTOCOL_VERSION, type Topology } from "../protocol/generated/contract.ts";
+import { CONTRIB_API_VERSION, HANDSHAKE_REFUSED, PROTOCOL_VERSION, type Topology } from "../protocol/generated/contract.ts";
 import {
   connectSplit,
   type EventSourceCtor,
   type FetchLike,
   type IncomingFrame,
   type SplitCarrier,
+  type SplitState,
 } from "./split.ts";
 
 /** 浏览器 `WebSocket` 的最小子集，测试可以换成假的。 */
@@ -326,8 +327,15 @@ export class HarnixClient {
     return url.toString();
   }
 
-  /** 拓扑二：服务端不提供单双向流时。只从一个点名了拓扑的拒绝（或从未打开的连接）走到这里。 */
-  private async connectSplitStreams(reason: string): Promise<void> {
+  /**
+   * 拓扑二：服务端不提供单双向流时。只从一个点名了拓扑的拒绝（或从未打开的连接）走到这里。
+   *
+   * `again` is a reconnect of a split client whose handshake was lost: then only a handshake the
+   * server refused (`HANDSHAKE_REFUSED`) is final; a server that is not up yet, or that does not
+   * know this token (it restarted with a new one), is tried again, with the token fetched anew —
+   * what the duplex path does when its socket will not reopen.
+   */
+  private async connectSplitStreams(reason: string, again = false): Promise<void> {
     if (!this.speaks.includes("split_streams") || !this.fetchImpl || !this.EventSourceImpl) {
       this.refused = true;
       this.negotiatedValue = null;
@@ -343,7 +351,9 @@ export class HarnixClient {
         fetch: this.fetchImpl,
         EventSource: this.EventSourceImpl,
         onFrame: (frame) => this.dispatch(frame),
-        onStatus: (state, face) => this.setStatus(state, face),
+        onStatus: (state, face) => {
+          if (this.carrier === carrier) this.splitStatus(state, face);
+        },
       });
       if (this.closedByUser) {
         carrier.close();
@@ -351,12 +361,69 @@ export class HarnixClient {
       }
       this.carrier = carrier;
       this.negotiatedValue = carrier.negotiated;
+      this.attempt = 0;
       this.setStatus("open");
     } catch (e) {
+      if (again && !this.closedByUser && (e as { code?: unknown } | null)?.code !== HANDSHAKE_REFUSED) {
+        this.retrySplit();
+        return;
+      }
       this.refused = true;
       this.negotiatedValue = null;
       this.setStatus("incompatible", errorText(e) || reason);
     }
+  }
+
+  /** What the split streams report (`SplitState`), as this client's status. */
+  private splitStatus(state: SplitState, face: string): void {
+    if (state === "degraded") {
+      this.setStatus("degraded", face);
+      return;
+    }
+    if (state === "reopened") {
+      // A reconnect in all but the handshake: what listens for "open" attaches and subscribes again,
+      // and gets back what the gap lost.
+      this.setStatus("connecting", face);
+      this.setStatus("open");
+      return;
+    }
+    // Lost: this handshake is over. A new one, as the duplex path reconnects.
+    this.carrier?.close();
+    this.carrier = null;
+    this.setStatus("closed", face);
+    this.retrySplit();
+  }
+
+  /** Handshake again on split streams after a backoff; a token fetched anew first, if it can be. */
+  private retrySplit(): void {
+    if (this.closedByUser || this.refused) return;
+    this.attempt = Math.min(this.attempt + 1, 6);
+    this.failedSinceOpen += 1;
+    const again = () => {
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        if (this.closedByUser || this.refused) return;
+        this.setStatus("connecting");
+        void this.connectSplitStreams("split streams lost", true);
+      }, this.backoff(this.attempt));
+    };
+    if (!this.refreshToken) {
+      again();
+      return;
+    }
+    void this.refreshToken()
+      .then((token) => {
+        if (token && token !== this.token) {
+          this.token = token;
+          return true;
+        }
+        return false;
+      })
+      .catch(() => false)
+      .then((renewed) => {
+        if (!renewed && this.failedSinceOpen >= TOKEN_STALE_AFTER && !this.closedByUser) this.setStatus("closed", TOKEN_STALE);
+        again();
+      });
   }
 
   private connectDuplex(): void {

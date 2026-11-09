@@ -6,7 +6,7 @@
 
 | 功能模块 | id | API | 界面 |
 |---|---|---|---|
-| 握手与连接 | `connection` | 39 | 2 |
+| 握手与连接 | `connection` | 39 | 3 |
 | 授权与设备 | `authz` | 18 | 2 |
 | 会话与轮次 | `sessions` | 76 | 31 |
 | 无头会话 | `headless` | 4 | 1 |
@@ -30,7 +30,7 @@
 | 应用后端的闲置休眠（on-demand、冷启动、并发唤醒只起一个实例、订阅与定时器保持常驻、系统 space 应用页签） | `apps-idle` | 6 | 1 |
 | 应用构建 | `build` | — 在脚本层检查（check-pins、check-lock、sync-app-deps），不经协议 | — 构建没有界面 |
 | 桌面壳 | `desktop` | — 桌面壳不加协议面：webview 加载的就是服务端的页面 | — 桌面壳是模板（templates/desktop）：它不调 IPC 由 check-no-ipc.mjs 在 offline 层查，本机模式由它的 --smoke 查 |
-| **合计** | | **360** | **190** |
+| **合计** | | **360** | **191** |
 
 ## 已知缺口（`@gap`）
 

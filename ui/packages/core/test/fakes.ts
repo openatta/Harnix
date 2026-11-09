@@ -115,11 +115,17 @@ export class FakeSplit {
   sources: FakeEventSource[] = [];
   handshake: unknown = { ...handshakeOk("split_streams"), credential: "cred-1" };
   rpc: Answer = () => ({});
+  /** How many handshakes fail as a server that is not up does, before they are answered again. */
+  down = 0;
 
   readonly fetch = async (input: string, init?: RequestInit): Promise<Response> => {
     const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null;
     this.requests.push({ url: input, body, keepalive: init?.keepalive });
     const path = new URL(input).pathname;
+    if (path === "/handshake" && this.down > 0) {
+      this.down -= 1;
+      throw new TypeError("fetch failed");
+    }
     if (path === "/handshake") return json(this.handshake);
     const method = String(body?.method ?? "");
     const result = this.rpc(method, (body?.params ?? {}) as Record<string, unknown>);
@@ -133,6 +139,8 @@ export class FakeSplit {
     return class implements EventSourceLike {
       onmessage: ((event: { data: string }) => void) | null = null;
       onerror: ((event: unknown) => void) | null = null;
+      onopen: ((event: unknown) => void) | null = null;
+      readyState = 1;
       closed = false;
       constructor(public url: string) {
         split.sources.push(new FakeEventSource(this));
@@ -145,14 +153,26 @@ export class FakeSplit {
 }
 
 export class FakeEventSource {
-  constructor(readonly es: EventSourceLike & { url: string; closed: boolean }) {}
+  constructor(readonly es: EventSourceLike & { url: string; closed: boolean; readyState: number }) {}
   get url() {
     return this.es.url;
   }
   push(method: string, params: Record<string, unknown>) {
     this.es.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method, params }) });
   }
+  /** The stream dropped; the browser is reopening it. */
   fail() {
+    this.es.readyState = 0;
+    this.es.onerror?.({});
+  }
+  /** Reopened after a drop. */
+  reopen() {
+    this.es.readyState = 1;
+    this.es.onopen?.({});
+  }
+  /** Refused for good (the server does not know the credential): the browser gives up. */
+  lose() {
+    this.es.readyState = 2;
     this.es.onerror?.({});
   }
 }

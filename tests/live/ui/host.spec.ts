@@ -505,10 +505,9 @@ test("icons: a space's own icon, by its owner's name, drawn in the shell's frame
 });
 
 test("after the backend restarts on its port with a new token, the open page reconnects by itself", { tag: ["@feature:connection", "@layer:ui"] }, async ({ page }) => {
-  // Found when the split-streams pass started offering split streams only: the client asks for a new
-  // token only when its duplex socket fails to reopen (core/src/client/client.ts), so over split
-  // streams the page keeps the old one.
-  test.fixme(topology() === "split_streams", "the client does not refresh its token on split streams");
+  // Over split streams the restarted backend refuses the old credential's streams for good, and
+  // the client handshakes again with the token fetched anew, as the duplex path does when its
+  // socket will not reopen (core/src/client/client.ts).
   const first = await startHarnix(launchFor("replay"));
   let backend = first;
   try {
@@ -524,6 +523,35 @@ test("after the backend restarts on its port with a new token, the open page rec
   } finally {
     await backend.dispose();
   }
+});
+
+test("a split-streams page whose session stream dropped catches up on what it missed once the stream is back", { tag: ["@feature:connection", "@layer:ui"] }, async ({ page, api }) => {
+  test.skip(topology() !== "split_streams", "a stream that drops and reopens is the split-streams topology's");
+  await open(page, URL);
+  const id = await newSession(page, "says-ready");
+  const credential = await page.evaluate(() => (window as any).harnix.client.negotiated.credential as string);
+  // The page's session stream cannot come back until this is lifted: the browser keeps retrying.
+  await page.route("**/events/session**", (route) => route.abort());
+  // Opening the face again takes it over, and the page's stream ends; this reader goes at once, so
+  // what the server sends meanwhile reaches no stream at all.
+  const thief = new AbortController();
+  const stream = new globalThis.URL(`/events/session?token=${encodeURIComponent(credential)}`, URL);
+  const took = await fetch(stream, { signal: thief.signal });
+  expect(took.headers.get("content-type")).toContain("text/event-stream");
+  thief.abort();
+  await expect.poll(() => page.evaluate(() => (window as any).harnix.client.status)).toBe("degraded");
+
+  await say(page, "Say exactly: fixture ready");
+  // The turn runs and settles while the page has no session stream: its reply went nowhere.
+  await expect
+    .poll(async () => JSON.stringify(await api.call("session.history", { session_id: id })), { timeout: 30_000 })
+    .toMatch(/fixture ready/i);
+  await expect(page.locator('[data-testid="conv-message"]', { hasText: /fixture ready/i })).toHaveCount(0);
+
+  await page.unroute("**/events/session**");
+  // Back, and caught up: the page attaches again and draws the turn it missed.
+  await expect(page.locator("#conn")).toHaveAttribute("data-state", "open", { timeout: 20_000 });
+  await expect(reply(page)).toContainText(/fixture ready/i, { timeout: 20_000 });
 });
 
 test("newSession: false: no New session button, no ⌘K, no composer that creates a session, no heading; the others keep them", SHELL, async ({ page }) => {

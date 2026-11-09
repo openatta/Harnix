@@ -8,7 +8,7 @@
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { SPACE_MISMATCH } from "@harnix/core/protocol";
-import { type Backend, connect, expect, launchFor, startHarnix, test, topology } from "@harnix/testkit";
+import { type Backend, connect, expect, launchFor, sleep, startHarnix, test, topology } from "@harnix/testkit";
 
 const BRAND = { tag: ["@feature:brand", "@layer:api"] };
 const SHELL = { tag: ["@feature:shell", "@layer:api"] };
@@ -80,9 +80,6 @@ test("a product keeps the built-in spaces it names; without the system space its
 });
 
 test("harnix.process: versions, uptime, peak memory, and every connected user", SHELL, async () => {
-  // Found when the split-streams pass started speaking split streams: closing a client's streams does
-  // not end its connection there, so it stays listed. K6 (split credentials never released) is that.
-  test.fixme(topology() === "split_streams", "K6: a split-streams client that closes stays in harnix.process");
   const backend = await startHarnix(launchFor("replay"));
   try {
     const one = await connect(backend);
@@ -94,7 +91,17 @@ test("harnix.process: versions, uptime, peak memory, and every connected user", 
     expect(process.connections.length).toBeGreaterThanOrEqual(2);
     for (const c of process.connections) expect(c).toMatchObject({ device: expect.any(String), topology: expect.any(String), since_ms: expect.any(Number) });
     two.close();
-    await expect.poll(async () => (await one.call("harnix.process")).connections.length).toBe(process.connections.length - 1);
+    if (topology() === "split_streams") {
+      // A split-streams client says nothing when it goes: closing its streams looks the same as
+      // streams that dropped and are being reopened (a proxy's timeout, a laptop asleep), and its
+      // handshake has to outlive that or the page loses its subscriptions. So it is listed until
+      // the transport's idle sweep ends it — streams closed and no `/rpc` for SPLIT_IDLE, five
+      // minutes (crates/transport/src/session.rs, whose unit test covers the sweep).
+      await sleep(500);
+      expect((await one.call("harnix.process")).connections.length).toBe(process.connections.length);
+    } else {
+      await expect.poll(async () => (await one.call("harnix.process")).connections.length).toBe(process.connections.length - 1);
+    }
     one.close();
   } finally {
     await backend.dispose();
