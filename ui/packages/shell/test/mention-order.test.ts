@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { withContributed } from "../src/Shell";
+import { withContributed } from "../src/commands";
 import { scriptedApp, space } from "./scripted";
 
 const files = Array.from({ length: 25 }, (_, i) => ({ id: `f${i}.md`, insert: `@f${i}.md ` }));
