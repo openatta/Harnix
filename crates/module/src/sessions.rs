@@ -18,6 +18,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use harnix_contract::sync::lock;
 use harnix_contract::{Channel, Frame, FrameSink, RpcError};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
@@ -658,14 +659,14 @@ struct Settled(Arc<std::sync::Mutex<VecDeque<Value>>>);
 
 impl Settled {
     fn hold(&self, frame: Value) {
-        let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut held = lock(&self.0);
         if held.len() < SETTLED_HELD {
             held.push_back(frame);
         }
     }
 
     fn pop(&self) -> Option<Value> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).pop_front()
+        lock(&self.0).pop_front()
     }
 }
 

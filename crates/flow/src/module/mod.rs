@@ -42,6 +42,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use base::interface::scene::Scene;
+use harnix_contract::sync::lock;
 use harnix_module::{
     EngineContrib, EventRegistry, InstanceTemplate, InstanceTemplates, Manifest, MethodRegistry,
     Module, ModuleContext, SpaceDecl, SpaceRegistry,
@@ -611,7 +612,7 @@ impl Module for Flow {
     }
 
     async fn start(&self, cx: ModuleContext) -> anyhow::Result<()> {
-        let spec = self.store.lock().unwrap_or_else(|e| e.into_inner()).take();
+        let spec = lock(&self.store).take();
         let store: Arc<dyn RunStore> = match spec {
             Some(StoreSpec::Ready(s)) => s,
             Some(StoreSpec::Lazy(make)) => make(cx.data_dir()),
@@ -623,12 +624,7 @@ impl Module for Flow {
         self.sh.load_ledger(cx.data_dir().join("instances.json"));
         self.sh
             .load_flow_sessions(cx.data_dir().join("sessions.json"));
-        if let Some(make) = self
-            .lazy_packs
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take()
-        {
+        if let Some(make) = lock(&self.lazy_packs).take() {
             let _ = self.packs.inner.set(make(cx.data_dir()));
         }
         let packs: Arc<dyn Packs> = self.packs.clone();
@@ -686,7 +682,7 @@ impl Module for Flow {
         });
         let sh = self.sh.clone();
         let tick = tokio::spawn(async move { dispatch::tick_loop(sh).await });
-        *self.sh.tick.lock().unwrap_or_else(|e| e.into_inner()) = Some(tick);
+        *lock(&self.sh.tick) = Some(tick);
         Ok(())
     }
 
@@ -694,13 +690,7 @@ impl Module for Flow {
         self.sh
             .stopping
             .store(true, std::sync::atomic::Ordering::SeqCst);
-        if let Some(t) = self
-            .sh
-            .tick
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take()
-        {
+        if let Some(t) = lock(&self.sh.tick).take() {
             t.abort();
         }
     }

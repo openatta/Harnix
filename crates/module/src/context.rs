@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
+use harnix_contract::sync::{read, write};
 use harnix_contract::{RpcError, Subject};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -229,18 +230,11 @@ impl ModuleContext {
     }
 
     pub fn provide_arc<T: Send + Sync + 'static>(&self, value: Arc<T>) {
-        self.shared
-            .state
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(TypeId::of::<T>(), value);
+        write(&self.shared.state).insert(TypeId::of::<T>(), value);
     }
 
     pub fn state<T: Send + Sync + 'static>(&self) -> Result<Arc<T>, RpcError> {
-        self.shared
-            .state
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
+        read(&self.shared.state)
             .get(&TypeId::of::<T>())
             .cloned()
             .and_then(|v| v.downcast::<T>().ok())

@@ -12,6 +12,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
 use serde_json::{json, Value};
 
@@ -25,7 +26,7 @@ impl Hub {
     pub(crate) fn refresh(self: &Arc<Self>, topic: &str, params: Value) {
         let marker = (topic.to_string(), params.to_string());
         {
-            let mut pending = self.refreshing.lock().unwrap_or_else(|e| e.into_inner());
+            let mut pending = lock(&self.refreshing);
             if !pending.insert(marker.clone()) {
                 return;
             }
@@ -34,10 +35,7 @@ impl Hub {
         let topic = topic.to_string();
         tokio::spawn(async move {
             tokio::time::sleep(COALESCE).await;
-            hub.refreshing
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .remove(&marker);
+            lock(&hub.refreshing).remove(&marker);
             let watched = {
                 let guard = hub.inner.lock().await;
                 guard

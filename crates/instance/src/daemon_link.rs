@@ -22,6 +22,7 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
+use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
@@ -370,7 +371,7 @@ impl DaemonLink {
                  run a daemon built from the same Agix"
             )));
         }
-        *self.identity.lock().unwrap_or_else(|e| e.into_inner()) = json!({
+        *lock(&self.identity) = json!({
             "version": identity.get("version"),
             "protocol_version": theirs,
             "capabilities": identity.get("capabilities"),
@@ -397,11 +398,7 @@ impl DaemonLink {
             let id = frame.get("id").and_then(Value::as_u64);
             match id {
                 Some(id) if frame.get("method").is_none() => {
-                    let waiter = self
-                        .pending
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .remove(&id);
+                    let waiter = lock(&self.pending).remove(&id);
                     if let Some(waiter) = waiter {
                         let _ = waiter.send(reply(frame));
                     }
@@ -418,12 +415,7 @@ impl DaemonLink {
 
     async fn disconnect(&self) {
         *self.writer.lock().await = None;
-        let waiting: Vec<_> = self
-            .pending
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .drain()
-            .collect();
+        let waiting: Vec<_> = lock(&self.pending).drain().collect();
         let status = self.status.borrow().clone();
         for (_, waiter) in waiting {
             let _ = waiter.send(Err(link::unavailable(&status)));
@@ -433,10 +425,7 @@ impl DaemonLink {
     async fn raw_call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
-        self.pending
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(id, tx);
+        lock(&self.pending).insert(id, tx);
         let mut line = serde_json::to_string(
             &json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}),
         )
@@ -450,10 +439,7 @@ impl DaemonLink {
             }
         };
         if !written {
-            self.pending
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .remove(&id);
+            lock(&self.pending).remove(&id);
             return Err(link::unavailable(&self.status.borrow()));
         }
         rx.await
@@ -526,10 +512,7 @@ impl EngineLink for DaemonLink {
     }
 
     fn take_events(&self) -> Option<EventReceiver> {
-        self.events_rx
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take()
+        lock(&self.events_rx).take()
     }
 
     /// Replies and events come off one socket in the order the daemon wrote
@@ -545,10 +528,7 @@ impl EngineLink for DaemonLink {
     }
 
     fn identity(&self) -> Value {
-        self.identity
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
+        lock(&self.identity).clone()
     }
 
     fn carrier(&self) -> Carrier {

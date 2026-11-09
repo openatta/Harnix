@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, OnceLock};
 
+use harnix_contract::sync::lock;
 use harnix_module::{ModuleContext, RpcError, SessionRef};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
@@ -121,10 +122,6 @@ pub const AGENTS_KEPT: usize = 256;
 
 /// How many conversations' focus is remembered.
 pub const FOCUS_KEPT: usize = 1024;
-
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
-}
 
 impl Shared {
     pub fn new(cfg: Config, events: broadcast::Sender<Event>) -> Self {

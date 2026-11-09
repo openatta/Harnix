@@ -50,6 +50,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock};
 
+use harnix_contract::sync::{lock, read, write};
 use harnix_contract::{codes, FrameSink, Gate, RpcError, Subject};
 use serde_json::{json, Value};
 use tokio::sync::{oneshot, Mutex, RwLock};
@@ -295,20 +296,11 @@ impl Hub {
     }
 
     pub(crate) fn slot(&self, instance: &str) -> Option<Arc<Slot>> {
-        self.instances
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(instance)
-            .cloned()
+        read(&self.instances).get(instance).cloned()
     }
 
     pub(crate) fn slots(&self) -> Vec<Arc<Slot>> {
-        self.instances
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .values()
-            .cloned()
-            .collect()
+        read(&self.instances).values().cloned().collect()
     }
 
     /// Which instance a call means: the one it names, or `system`. One that
@@ -362,27 +354,16 @@ impl Hub {
             .next_barrier
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
-        self.barriers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(id, tx);
+        lock(&self.barriers).insert(id, tx);
         slot.link.mark(id).await;
         // Bounded, because a link that went down between the reply and the
         // mark will never route it; settling late beats never settling.
         let _ = tokio::time::timeout(std::time::Duration::from_secs(10), rx).await;
-        self.barriers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(&id);
+        lock(&self.barriers).remove(&id);
     }
 
     pub(crate) fn barrier_reached(&self, id: u64) {
-        if let Some(tx) = self
-            .barriers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(&id)
-        {
+        if let Some(tx) = lock(&self.barriers).remove(&id) {
             let _ = tx.send(());
         }
     }
@@ -399,15 +380,12 @@ impl Hub {
 
     /// What a client is, as the transport saw it at handshake: shown in the system space.
     pub fn describe_client(&self, id: ClientId, description: Value) {
-        self.described
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(id, description);
+        lock(&self.described).insert(id, description);
     }
 
     /// The shell's part of hello: brand, built-in spaces, runtime modules.
     pub fn set_shell(&self, shell: Value) {
-        *self.shell.write().unwrap_or_else(|e| e.into_inner()) = shell;
+        *write(&self.shell) = shell;
     }
 
     /// `harnix.process` as a topic: its memory, threads and connections change without an event to
@@ -428,20 +406,13 @@ impl Hub {
 
     /// The process's own facts for `harnix.process`.
     pub fn set_process(&self, process: Value) {
-        *self.process.write().unwrap_or_else(|e| e.into_inner()) = process;
+        *write(&self.process) = process;
     }
 
     /// Versions, uptime, memory and who is connected: the system space's strip.
     fn process(&self) -> Value {
-        let mut out = self
-            .process
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
-        let connections: Vec<Value> = self
-            .described
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+        let mut out = read(&self.process).clone();
+        let connections: Vec<Value> = lock(&self.described)
             .iter()
             .map(|(id, d)| {
                 let mut d = d.clone();
@@ -462,10 +433,7 @@ impl Hub {
     }
 
     pub async fn remove_client(&self, id: ClientId) {
-        self.described
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(&id);
+        lock(&self.described).remove(&id);
         let mut guard = self.inner.lock().await;
         guard.clients.remove(id);
         guard.topics.forget(id);
@@ -531,7 +499,7 @@ impl Hub {
             // each one and the module decides what it registers, so grouping
             // by point here would be a shape nothing reads.
             "contributions": self.ui_contributions.read().await.clone(),
-            "shell": self.shell.read().unwrap_or_else(|e| e.into_inner()).clone(),
+            "shell": read(&self.shell).clone(),
             "limits": self.limits.clone(),
         }))
     }
@@ -624,7 +592,7 @@ impl Hub {
             if let (Subject::Device { id }, Some(Value::String(tool_use)), Some(session)) =
                 (subject, tool_use, params.get("session_id").and_then(Value::as_str))
             {
-                let mut kept = self.answerers.lock().unwrap_or_else(|e| e.into_inner());
+                let mut kept = lock(&self.answerers);
                 if kept.len() == ANSWERERS_KEPT {
                     kept.pop_front();
                 }
@@ -681,7 +649,7 @@ impl Hub {
                 .ok_or_else(|| RpcError::invalid_params(format!("missing {k}")))
         };
         let key = (field("session_id")?, field("tool_use_id")?);
-        let mut kept = self.answerers.lock().unwrap_or_else(|e| e.into_inner());
+        let mut kept = lock(&self.answerers);
         let who = kept
             .iter()
             .position(|(k, _)| *k == key)

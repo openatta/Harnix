@@ -22,6 +22,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use harnix_contract::sync::{lock, read, write};
 use harnix_contract::{codes, DefaultInstance, RpcError, SpaceDecl, Subject, SESSIONS_SPACE, SYSTEM_SPACE};
 use harnix_instance::Owner;
 use serde::{Deserialize, Serialize};
@@ -229,14 +230,14 @@ impl Hub {
     /// Add a space at runtime (see [`Spaces::add_runtime`]); the
     /// `harnix.spaces` topic is pushed to whoever watches it.
     pub fn add_space(self: &Arc<Self>, decl: SpaceDecl) -> Result<(), String> {
-        self.spaces.lock().unwrap_or_else(|e| e.into_inner()).add_runtime(decl)?;
+        lock(&self.spaces).add_runtime(decl)?;
         self.refresh(crate::SPACES_TOPIC, json!({}));
         Ok(())
     }
 
     /// Remove a space added at runtime, and push `harnix.spaces`.
     pub fn remove_space(self: &Arc<Self>, id: &str) -> bool {
-        let removed = self.spaces.lock().unwrap_or_else(|e| e.into_inner()).remove_runtime(id);
+        let removed = lock(&self.spaces).remove_runtime(id);
         if removed {
             self.refresh(crate::SPACES_TOPIC, json!({}));
         }
@@ -244,19 +245,14 @@ impl Hub {
     }
 
     pub fn set_audit(&self, hook: AuditHook) {
-        *self.audit.write().unwrap_or_else(|e| e.into_inner()) = Some(hook);
+        *write(&self.audit) = Some(hook);
     }
 
     /// The space a call claims, which must be one this application has — the system space only
     /// while the profile keeps it (design §9.1).
     pub(crate) fn claimed(&self, params: &Value) -> Result<String, RpcError> {
         let space = claimed_space(params);
-        if !self
-            .spaces
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .exists(&space)
-        {
+        if !lock(&self.spaces).exists(&space) {
             return Err(RpcError::new(
                 codes::SPACE_MISMATCH,
                 format!("there is no space `{space}` in this application"),
@@ -270,7 +266,7 @@ impl Hub {
         let Some(claimed) = params.get("space").and_then(Value::as_str) else {
             return Ok(());
         };
-        let spaces = self.spaces.lock().unwrap_or_else(|e| e.into_inner());
+        let spaces = lock(&self.spaces);
         if !spaces.exists(claimed) {
             return Err(RpcError::new(
                 codes::SPACE_MISMATCH,
@@ -284,7 +280,7 @@ impl Hub {
         drop(spaces);
         if claimed == SYSTEM_SPACE {
             if bound != SYSTEM_SPACE {
-                if let Some(hook) = self.audit.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
+                if let Some(hook) = read(&self.audit).as_ref() {
                     hook(subject, method, &format!("{}/{}", key.0, key.1), &bound);
                 }
             }
@@ -308,7 +304,7 @@ impl Hub {
     pub(crate) async fn place(self: &std::sync::Arc<Self>, params: &mut Value) -> Result<String, RpcError> {
         let space = claimed_space(params);
         let (decl, built) = {
-            let spaces = self.spaces.lock().unwrap_or_else(|e| e.into_inner());
+            let spaces = lock(&self.spaces);
             if !spaces.exists(&space) {
                 return Err(RpcError::new(codes::SPACE_MISMATCH, format!("there is no space `{space}` in this application")));
             }
@@ -337,8 +333,8 @@ impl Hub {
                 None => {
                     let name = format!("space-{space}");
                     self.build_owned(&template, &name, Owner::Space(space.clone())).await?;
-                    self.spaces.lock().unwrap_or_else(|e| e.into_inner()).ledger.instances.insert(space.clone(), name.clone());
-                    self.spaces.lock().unwrap_or_else(|e| e.into_inner()).save();
+                    lock(&self.spaces).ledger.instances.insert(space.clone(), name.clone());
+                    lock(&self.spaces).save();
                     name
                 }
             },
@@ -370,7 +366,7 @@ impl Hub {
             .ok_or_else(|| RpcError::invalid_params("missing space"))?
             .to_string();
         {
-            let spaces = self.spaces.lock().unwrap_or_else(|e| e.into_inner());
+            let spaces = lock(&self.spaces);
             if space == SYSTEM_SPACE || !spaces.exists(&space) {
                 return Err(RpcError::new(codes::SPACE_MISMATCH, format!("there is no space `{space}` to move a session to")));
             }
@@ -398,19 +394,19 @@ impl Hub {
 
     /// What the system space creates is its own (design §9.1).
     pub(crate) fn bind_space(&self, key: &SessionKey, space: &str) {
-        self.spaces.lock().unwrap_or_else(|e| e.into_inner()).bind(key, space);
+        lock(&self.spaces).bind(key, space);
     }
 
     /// Who started a new session: a device is a person; a module or the kernel is Harnix itself.
     pub(crate) fn note_starter(&self, key: &SessionKey, subject: &Subject) {
         if !matches!(subject, Subject::Device { .. }) {
-            self.spaces.lock().unwrap_or_else(|e| e.into_inner()).mark_harnix(key);
+            lock(&self.spaces).mark_harnix(key);
         }
     }
 
     /// `"harnix"` for a session a module or the kernel started, `"user"` otherwise.
     pub(crate) fn starter_of(&self, key: &SessionKey) -> &'static str {
-        if self.spaces.lock().unwrap_or_else(|e| e.into_inner()).started_by_harnix(key) {
+        if lock(&self.spaces).started_by_harnix(key) {
             "harnix"
         } else {
             "user"
@@ -418,11 +414,11 @@ impl Hub {
     }
 
     pub(crate) fn unbind_space(&self, key: &SessionKey) {
-        self.spaces.lock().unwrap_or_else(|e| e.into_inner()).unbind(key);
+        lock(&self.spaces).unbind(key);
     }
 
     pub(crate) fn space_of(&self, key: &SessionKey) -> String {
-        self.spaces.lock().unwrap_or_else(|e| e.into_inner()).bound(key).to_string()
+        lock(&self.spaces).bound(key).to_string()
     }
 
     /// `harnix.sessions { space }`: a space's sessions, across the instances it uses; the system
@@ -431,7 +427,7 @@ impl Hub {
         let instances: Vec<String> = if space == SYSTEM_SPACE {
             self.slots().iter().map(|s| s.id.clone()).collect()
         } else {
-            self.spaces.lock().unwrap_or_else(|e| e.into_inner()).instances_of(space).into_iter().collect()
+            lock(&self.spaces).instances_of(space).into_iter().collect()
         };
         let mut rows = Vec::new();
         for instance in instances {
@@ -452,7 +448,7 @@ impl Hub {
 
     /// `harnix.spaces.list`: every space the backend knows, with where its sessions land.
     pub(crate) fn spaces_view(&self) -> Value {
-        let spaces = self.spaces.lock().unwrap_or_else(|e| e.into_inner());
+        let spaces = lock(&self.spaces);
         let mut list: Vec<Value> = spaces
             .decls
             .values()
