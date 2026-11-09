@@ -748,6 +748,7 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
   const toolRows = registry.at("tool.row").map((c) => ({
     id: c.id,
     match: c.match,
+    title: c.title,
     render: (block: Parameters<typeof c.render>[0]) => (
       <Contributed registry={registry} point="tool.row" contribution={c}>
         {c.render(block)}

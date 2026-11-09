@@ -40,6 +40,8 @@ export interface HarnixUiStrings {
   toolResult: string;
   toolError: string;
   toolRunning: string;
+  /** A call a permission prompt is open for. */
+  toolAwaiting: string;
   toolFailed: string;
   result: string;
   image: string;
@@ -173,6 +175,7 @@ export const zhCN: HarnixUiStrings = {
   toolResult: "结果",
   toolError: "错误",
   toolRunning: "运行中…",
+  toolAwaiting: "待批准",
   toolFailed: "失败",
   result: "结果",
   image: "[图片]",
@@ -303,6 +306,7 @@ export const en: HarnixUiStrings = {
   toolResult: "Result",
   toolError: "Error",
   toolRunning: "running…",
+  toolAwaiting: "awaiting approval",
   toolFailed: "failed",
   result: "Result",
   image: "[image]",

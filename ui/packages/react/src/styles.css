@@ -272,6 +272,7 @@
 .hx-ask-done { opacity: 0.75; }
 .hx-ask-head { font-weight: 600; }
 .hx-ask-msg { color: var(--hx-fg-soft); }
+.hx-ask-args { font: 12.5px/1.5 var(--hx-mono); color: var(--hx-fg-soft); }
 .hx-ask-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .hx-countdown { font-size: 12px; color: var(--hx-fg-faint); margin-left: auto; }
 .hx-agent { border-left: 2px solid var(--hx-line); padding-left: 10px; }

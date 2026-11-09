@@ -16,12 +16,12 @@
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { useConnection, useHello, useSession, useStrings } from "../context";
-import { usageTotals, type Block, type SessionState } from "@harnix/core/state";
+import { usageTotals, type Block, type BlockOf, type SessionState } from "@harnix/core/state";
 import type { SessionController } from "@harnix/core/state";
-import { Agent, AskCard, ContextRow, ImageBlock } from "../components/blocks";
+import { Agent, AskCard, ContextRow, ImageBlock, toolAsks } from "../components/blocks";
 import { ConnectionBadge } from "../components/ConnectionBadge";
 import { ChatComposer, type Attached, type ComposerApi, type ContextRingConfig, type ModelOption } from "./ChatComposer";
-import { TOOL_NAMES } from "./format";
+import { TOOL_NAMES, toolDisplayName } from "./format";
 import { Icon } from "./icons";
 import {
   AssistantHead,
@@ -262,6 +262,21 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
   const [diffs, setDiffs] = useState({ collapsed: false, generation: 0 });
 
   const toolNames = useMemo(() => ({ ...TOOL_NAMES, ...props.toolNames }), [props.toolNames]);
+  const toolRows = props.renderers?.toolRows;
+  const blocks = state?.blocks;
+  const asks = useMemo(() => {
+    // A call's name is its row's: the newest row that claims it and says one, else the display name.
+    const title = (block: BlockOf<"tool">): string => {
+      for (const row of [...(toolRows ?? [])].reverse()) {
+        if (!row.title || !row.match(block)) continue;
+        const said = row.title(block);
+        if (said) return said;
+        break;
+      }
+      return toolDisplayName(block.name, toolNames);
+    };
+    return toolAsks(blocks ?? [], title);
+  }, [blocks, toolRows, toolNames]);
   const context = useMemo<ChatContextValue>(
     () => ({
       variant,
@@ -270,8 +285,9 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
       diffsCollapsed: diffs.collapsed,
       diffGeneration: diffs.generation,
       toolSummary: props.renderers?.toolSummary,
+      asks,
     }),
-    [variant, toolNames, props.ids, diffs, props.renderers?.toolSummary],
+    [variant, toolNames, props.ids, diffs, props.renderers?.toolSummary, asks],
   );
 
   // 应用自己发送（send / interrupt 给了）：一轮由服务端发起，客户端看到的是"别处在跑"，照样算在跑、能停

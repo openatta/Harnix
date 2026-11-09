@@ -42,7 +42,7 @@ export {
 export { SessionView, type SessionViewProps } from "./components/SessionView";
 export { SessionList, type SessionListProps } from "./components/SessionList";
 export { ConnectionBadge } from "./components/ConnectionBadge";
-export { BuiltinToolRow, Disclosure, STATUS_GLYPH, ToolDetails, argumentSummary, clip, type ToolRowContribution, type UserRowContribution } from "./components/blocks";
+export { BuiltinToolRow, Disclosure, STATUS_GLYPH, ToolDetails, argumentSummary, clip, toolAsks, useToolState, type ToolAsks, type ToolRowContribution, type UserRowContribution } from "./components/blocks";
 export { lineDiff, hunks, type DiffLine } from "./diff";
 export { markdown, escapeHtml } from "./markdown";
 export { zhCN, en, type HarnixUiStrings } from "./strings";

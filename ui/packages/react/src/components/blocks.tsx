@@ -13,7 +13,7 @@ import type { Decision } from "@harnix/core";
 import { useStrings } from "../context";
 import { duration, toolArgs, toolDisplayName } from "../chat/format";
 import { useChat } from "../chat/types";
-import type { AskAnswer, BlockOf } from "@harnix/core/state";
+import type { AskAnswer, Block, BlockOf } from "@harnix/core/state";
 import type { SessionController } from "@harnix/core/state";
 
 /** 截断，并说明截掉了多少。 */
@@ -40,6 +40,57 @@ export interface ToolRowContribution {
   id: string;
   match(block: BlockOf<"tool">): boolean;
   render(block: BlockOf<"tool">): ReactNode;
+  /** The name its row gives the tool: the permission card asking about that call says the same. */
+  title?(block: BlockOf<"tool">): string | null | undefined;
+}
+
+/* ── the calls waiting on a person ────────────────────────────────────── */
+
+/** The tool calls of a session, by id, and the ones a permission prompt is open for. */
+export interface ToolAsks {
+  /** Tool ids with an unanswered prompt: their rows say "awaiting approval", not "running". */
+  awaiting: ReadonlySet<string>;
+  /** The call a prompt is about (`tool_use_id`). */
+  tool(id: string | undefined): BlockOf<"tool"> | undefined;
+  /** The name a call's row gives its tool. */
+  title(block: BlockOf<"tool">): string;
+}
+
+/**
+ * Which calls wait on a person. A prompt names its call (`tool_use_id`); one from an engine that
+ * does not is matched to the newest running call of the tool it names.
+ */
+export function toolAsks(blocks: readonly Block[], title: (block: BlockOf<"tool">) => string): ToolAsks {
+  const tools = new Map<string, BlockOf<"tool">>();
+  const awaiting = new Set<string>();
+  for (const block of blocks) {
+    if (block.kind === "tool") tools.set(block.id, block);
+    else if (block.kind === "ask" && !block.answered) {
+      const id = block.prompt.tool_use_id;
+      if (id && tools.has(id)) awaiting.add(id);
+      else if (!id && block.prompt.tool_name) {
+        const running = [...tools.values()].filter((t) => t.status === "running" && t.name === block.prompt.tool_name).pop();
+        if (running) awaiting.add(running.id);
+      }
+    }
+  }
+  return { awaiting, tool: (id) => (id ? tools.get(id) : undefined), title };
+}
+
+/** A tool row's state and what it says at its end: waiting on a person, running, failed, stopped, or how long it took. */
+export function useToolState(block: BlockOf<"tool">): { state: string; tail: string } {
+  const strings = useStrings();
+  const { asks } = useChat();
+  if (block.status === "running" && asks?.awaiting.has(block.id)) return { state: "awaiting", tail: strings.toolAwaiting };
+  const tail =
+    block.status === "running"
+      ? strings.toolRunning
+      : block.status === "error"
+        ? strings.toolFailed
+        : block.status === "interrupted"
+          ? strings.toolInterrupted
+          : toolDuration(block);
+  return { state: block.status, tail };
 }
 
 /**
@@ -155,21 +206,13 @@ export function toolDuration(block: BlockOf<"tool">): string {
 
 /** 内建的工具行（会话的样子：一行高，点开看输入与结果）：认领一切工具，排在注册表最后。转录用 TranscriptToolRow。 */
 export const BuiltinToolRow = memo(function BuiltinToolRow({ block }: { block: BlockOf<"tool"> }) {
-  const strings = useStrings();
   const { toolNames } = useChat();
-  const tail =
-    block.status === "running"
-      ? strings.toolRunning
-      : block.status === "error"
-        ? strings.toolFailed
-        : block.status === "interrupted"
-          ? strings.toolInterrupted
-          : toolDuration(block);
+  const { state, tail } = useToolState(block);
   return (
     <Disclosure
       testId="conv-tool"
       id={block.id}
-      state={block.status}
+      state={state}
       summary={
         <>
           <span className={`hx-status hx-status-${block.status}`} aria-hidden>
@@ -220,13 +263,17 @@ function Labelled({ label, testId, children }: { label: string; testId: string; 
 
 export const AskCard = memo(function AskCard({ block, controller }: { block: BlockOf<"ask">; controller: SessionController }) {
   const strings = useStrings();
+  const { asks, toolNames } = useChat();
   const left = useCountdown(block.deadline, !block.answered);
   useEffect(() => {
     if (!block.answered && left <= 0) controller.expire(block.key);
   }, [block.answered, block.key, controller, left]);
 
   const prompt = block.prompt;
-  const tool = prompt.tool_name ?? "";
+  // The call it asks about: named as its row names it, with its arguments in one line.
+  const call = asks?.tool(prompt.tool_use_id);
+  const tool = call && asks ? asks.title(call) : prompt.tool_name ? toolDisplayName(prompt.tool_name, toolNames) : "";
+  const args = call ? toolArgs(call.input) : "";
   const give = (decision: Decision) => void controller.answer(block.key, decision);
   const answered: Record<AskAnswer, string> = {
     allow: strings.permDecisionAllow,
@@ -249,6 +296,11 @@ export const AskCard = memo(function AskCard({ block, controller }: { block: Blo
       <div className="hx-ask-head">
         {block.answered ? strings.permAnswered(answered[block.answered], tool) : strings.permRequest(tool)}
       </div>
+      {args ? (
+        <div className="hx-ask-args hx-truncate" data-testid="conv-ask-args" title={prompt.tool_name}>
+          {args}
+        </div>
+      ) : null}
       {prompt.message ? <div className="hx-ask-msg">{prompt.message}</div> : null}
       {prompt.paths?.length ? <pre className="hx-pre">{prompt.paths.join("\n")}</pre> : null}
       {block.answered ? null : (
