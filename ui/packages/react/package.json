@@ -2,7 +2,7 @@
   "name": "@harnix/react",
   "version": "0.3.1",
   "private": true,
-  "description": "Harnix's React layer: the conversation components (from IPDrun's nest-ui, D21), the contribution registry, useNest(), i18n, tokens, icons.",
+  "description": "Harnix's React layer: the conversation components (from IPDrun's nest-ui), the contribution registry, useNest(), i18n, tokens, icons.",
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
