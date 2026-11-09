@@ -292,7 +292,7 @@ async fn connection(socket: WebSocket, state: AppState, peer: Peer) {
                 }
             };
             let subject = Subject::Device {
-                id: device.unwrap_or_else(|| "local".into()),
+                id: device.unwrap_or_else(|| harnix_contract::LOCAL_DEVICE.into()),
             };
             match handshake::negotiate(&params, &state.config.topologies, subject) {
                 Ok(negotiated) if negotiated.topology != Topology::SingleDuplex => {

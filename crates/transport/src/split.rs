@@ -89,7 +89,7 @@ pub async fn establish(
         }
     };
     let subject = Subject::Device {
-        id: device.unwrap_or_else(|| "local".into()),
+        id: device.unwrap_or_else(|| harnix_contract::LOCAL_DEVICE.into()),
     };
     let negotiated = match handshake::negotiate(&body, &state.config.topologies, subject) {
         Ok(negotiated) => negotiated,
