@@ -1,5 +1,5 @@
 /**
- * Daemon instances (design §5.7): an Agix in another process is an instance
+ * Daemon instances (concept §3.1.1): an Agix in another process is an instance
  * that can go away and come back.
  *
  * Killed, it is `degraded` rather than gone; the daemon this Harnix spawned

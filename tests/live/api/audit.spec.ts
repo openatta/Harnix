@@ -1,4 +1,4 @@
-// The audit trail — the one promise in §6.5 that nothing was checking.
+// The audit trail — the one promise in concept §6.5 that nothing was checking.
 //
 // Decisions worth going back for are written into the session's own timeline
 // as engine extension entries, under one namespace the engine never parses.

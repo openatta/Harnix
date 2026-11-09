@@ -4,7 +4,7 @@
  * Turns are replayed from recorded fixtures, so the model does the same thing every run: the same
  * tool, the same arguments, the same permission ask. What is under test is everything between a
  * keystroke and a pixel — and the parity list the React shell had to meet before the old interface
- * could go (design §10.2).
+ * could go.
  */
 
 import { type Backend, dropSessions, expect, test } from "@harnix/testkit";

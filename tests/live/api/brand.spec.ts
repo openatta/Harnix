@@ -1,5 +1,5 @@
 /**
- * What a product says about itself (design §10.5, M8-0, M8-4): `[brand]` — its name, its icon, and
+ * What a product says about itself (concept §5.10): `[brand]` — its name, its icon, and
  * the id its own directory is named after — and `[shell] spaces`, which of the built-in spaces it
  * keeps. Plus `harnix.process`, the system space's strip: versions, uptime, memory, and who is
  * connected.

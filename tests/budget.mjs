@@ -115,7 +115,7 @@ try {
 //
 // Size and startup can be measured from a file. Resident memory, latency and
 // idle CPU cannot: they are properties of a live process, and the whole point
-// of the numbers in §7.2 is that this has to fit on a small machine while
+// of the numbers in concept §7.2 is that this has to fit on a small machine while
 // serving somebody. So the rest of this file starts a real backend against a
 // throwaway directory and measures it.
 
@@ -148,7 +148,7 @@ if (live) {
   }
 }
 
-/* ── each in-process instance (design §10.6) ──────────────────────────── */
+/* ── each in-process instance (concept §7.2) ──────────────────────────── */
 //
 // The same process idle twice: with `system` only, and with four more
 // in-process instances declared in its profile. The difference over four is

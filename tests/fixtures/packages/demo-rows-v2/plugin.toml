@@ -1,6 +1,6 @@
 # A package whose interface module is written against contribution API 2: a precompiled ES module
 # that brings no React of its own. `react/jsx-runtime` and `@harnix/react` resolve through the
-# page's import map to the copies the shell runs on (design §10.5).
+# page's import map to the copies the shell runs on (concept §5.8).
 [plugin]
 name = "demo-rows-v2"
 version = "1.0.0"

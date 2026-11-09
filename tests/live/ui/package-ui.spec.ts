@@ -1,5 +1,5 @@
 /**
- * An installed package's interface module in the browser (design §10.5, M8-1, M8-2): the v2 module
+ * An installed package's interface module in the browser (concept §5.8): the v2 module
  * is imported through the page's import map, registers on the shell's own React, draws its row in
  * the conversation with words from its own language pack — and the page's CSP, which admits the
  * import map by its hash alone, reports nothing. The v1 package beside it changes nothing on the

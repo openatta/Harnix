@@ -1,5 +1,5 @@
 /**
- * Entries (design §7.6): what a module writes into a session's log for people — a card, a
+ * Entries (concept §3.2.1): what a module writes into a session's log for people — a card, a
  * decision, a job's result. It is in the log, so a refresh, a replay and a fork all see it; it is
  * never the model's; a module writes only under its own namespace, and a device writes none.
  *

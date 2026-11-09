@@ -1,5 +1,5 @@
 /**
- * The instance layer (design §2, §5): `system`, an instance in this process
+ * The instance layer (concept §3, §3.1.1): `system`, an instance in this process
  * and one in a daemon, side by side — each with sessions of its own and
  * nothing of the others'.
  *

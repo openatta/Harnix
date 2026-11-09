@@ -269,7 +269,7 @@ defineSuite("sessions", { feature: "sessions" }, {
       }
       // Provenance is the point: a command contributed by a package and one
       // the engine ships are different things to show, and `source` is the
-      // only thing that separates them (§2.3).
+      // only thing that separates them (concept §2.3).
       assert(commands.some((c) => c.source === "builtin"), "nothing is builtin");
     },
 

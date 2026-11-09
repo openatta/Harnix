@@ -1,4 +1,4 @@
-// The coverage table, from the tests' own tags (design §13.4).
+// The coverage table, from the tests' own tags (testing.md §7).
 //
 //   node coverage.mjs           write coverage.md
 //   node coverage.mjs --check   fail if coverage.md is stale, or a row is

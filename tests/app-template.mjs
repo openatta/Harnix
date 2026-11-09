@@ -1,11 +1,12 @@
-// `templates/app` builds, offline, as a fresh application would (M2-10).
+// `templates/app` builds, offline, as a fresh application would.
 //
 // The template is copied into a scratch directory with `harnix/` beside it
 // (a link to this checkout, which brings the engine as `harnix/agix`), the
 // dependency block is generated, and the application is built with
-// `--offline`: a layout that needed the network to resolve the engine (design
-// §11.2's first row) fails here rather than in someone's CI. Then the binary
-// is asked its versions, and the lock file is compared with Harnix's.
+// `--offline`: a layout that needed the network to resolve the engine (a git
+// dependency, even one patched to a path) fails here rather than in
+// someone's CI. Then the binary is asked its versions, and the lock file is
+// compared with Harnix's.
 
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdtempSync, rmSync, symlinkSync, copyFileSync } from "node:fs";

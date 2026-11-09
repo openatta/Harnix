@@ -1,5 +1,5 @@
 /**
- * Migrations (design §7.3, D29): Harnix decides when and what happens on
+ * Migrations (concept §4.2): Harnix decides when and what happens on
  * failure; the module decides how. In order, before `start`; a failure
  * disables that module alone.
  */

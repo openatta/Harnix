@@ -1,5 +1,5 @@
 /**
- * The module contract (design §7), through a real application binary.
+ * The module contract (concept §4.2), through a real application binary.
  *
  * A module's methods are rows in the authorization table with the
  * principals it declared: nothing is open by default, a device reaches only

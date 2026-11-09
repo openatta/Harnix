@@ -1,8 +1,8 @@
 /**
- * The system space in the browser (design §9.2, M8-0): the instances on the left, the console in
+ * The system space in the browser (concept §5.5): the instances on the left, the console in
  * the centre — the process at a glance, what is running, the diagnostics — and whatever is picked
  * there inspected on the right: an instance, or a session's facts and operations, every model call
- * with its input and output, its context, its tasks, its frames. The operations of §9.3 take effect
+ * with its input and output, its context, its tasks, its frames. The operations on a session (system-space.md §8.2) take effect
  * where the session belongs and are seen by whoever else is watching it.
  *
  * Three instances (the instance suites' profile: `system`, `side` in process, `ci` a spawned

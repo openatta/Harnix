@@ -1,4 +1,4 @@
-// The functional modules, as rows (design §4.3), and what each layer owes.
+// The functional modules, as rows (testing.md §7), and what each layer owes.
 //
 // Every test carries `@feature:<id>` and `@layer:api|ui`. `coverage.mjs`
 // counts them into `coverage.md`; a row that is zero on a layer must say why
