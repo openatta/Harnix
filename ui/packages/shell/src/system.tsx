@@ -3,8 +3,10 @@
  *
  * Its three columns: on the left, the instances; in the centre, the console — the process at a
  * glance, then the Agents (the active ones, or all of them: each main Agent on a row with its
- * sub-agents, tasks, tokens and model time, opened into its sub-agents and tasks) and the
- * diagnostics; on the right, whatever was picked there:
+ * sub-agents, tasks, tokens and model time, opened into its sub-agents and tasks), the flows
+ * where the backend has the flow module (a flow clicked there is a space of its own shown inside
+ * this one: `system-flows.ts`), the applications, and the diagnostics; on the right, whatever was
+ * picked there:
  * an instance's facts and its restart, or a session's facts and operations, every model call with
  * what went in and what came out, the context the next call will carry, its tasks, and its frames
  * as they arrive. There is no conversation here: the system space looks at sessions, it does not
