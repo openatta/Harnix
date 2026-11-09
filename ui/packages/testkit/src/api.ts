@@ -99,9 +99,14 @@ export async function connect(
   exercised.add("harnix.handshake");
   const handshake = await client.ready();
   if (sources.length) {
-    // Both faces attached before anything is sent.
+    // Both faces attached before anything is sent: the server answers a stream's request only
+    // once it has registered the reader, so there is nothing to wait out after that.
     await Promise.all(sources.map((s) => s.opened));
-    await sleep(50);
+    const refused = sources.filter((s) => !s.attached);
+    if (refused.length) {
+      client.close();
+      throw new Error(`the server did not take ${refused.length} of the event streams: ${refused.map((s) => s.refusal).join(", ")}`);
+    }
   }
 
   const call = async (method: string, params?: unknown) => {

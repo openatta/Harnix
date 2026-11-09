@@ -2,9 +2,12 @@
  * An `EventSource` for node, on `fetch`.
  *
  * Node has no `EventSource` of its own on every version this runs on, and the
- * client takes one by injection anyway. `opened` resolves once the stream is
- * attached: a frame sent before that is a frame this reader never sees, so a
- * test waits for it before doing anything.
+ * client takes one by injection anyway. `opened` resolves once the server has
+ * answered the request for the stream, and `attached` says whether it took it.
+ * The server registers the reader before it answers (`stream_for` in
+ * `crates/transport/src/split.rs` subscribes, then responds), so an attached
+ * stream sees every frame sent after `opened`: a test waits for it before
+ * doing anything.
  */
 
 import type { EventSourceLike } from "@harnix/core/client";
@@ -13,6 +16,10 @@ export class FetchEventSource implements EventSourceLike {
   onmessage: ((event: { data: string }) => void) | null = null;
   onerror: ((event: unknown) => void) | null = null;
   readonly opened: Promise<void>;
+  /** The server answered 200 with a body: this reader is subscribed. */
+  attached = false;
+  /** What the server said instead, when it did not take the stream. */
+  refusal = "";
   private readonly abort = new AbortController();
 
   constructor(url: string) {
@@ -24,9 +31,11 @@ export class FetchEventSource implements EventSourceLike {
   private async run(url: string, open: () => void): Promise<void> {
     try {
       const response = await fetch(url, { signal: this.abort.signal });
+      this.attached = response.ok && Boolean(response.body);
+      if (!this.attached) this.refusal = `HTTP ${response.status}`;
       open();
-      if (!response.ok || !response.body) {
-        this.onerror?.(new Error(`HTTP ${response.status}`));
+      if (!this.attached || !response.body) {
+        this.onerror?.(new Error(this.refusal));
         return;
       }
       const reader = response.body.getReader();
@@ -49,6 +58,7 @@ export class FetchEventSource implements EventSourceLike {
         }
       }
     } catch (e) {
+      if (!this.refusal && !this.attached) this.refusal = String(e);
       open();
       if (!this.abort.signal.aborted) this.onerror?.(e);
     }

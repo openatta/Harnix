@@ -160,6 +160,44 @@ export async function gone(pid: number, within = 3_000): Promise<boolean> {
   return !alive(pid);
 }
 
+/* ── leaks ────────────────────────────────────────────────────────────── */
+//
+// A run that is interrupted — Ctrl-C, a worker that crashes, a `beforeAll` that throws after
+// `startHarnix` — must not leave backends running on ports nobody knows. Every backend is started
+// in a process group of its own and kept here until it exits; when this process exits, each group
+// is told to end, which takes whatever the backend spawned (a daemon, a tool's process) with it.
+
+const running = new Set<ChildProcess>();
+let guarded = false;
+
+function endGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+  if (!child.pid) return;
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    /* already gone */
+  }
+}
+
+function guardLeaks(): void {
+  if (guarded) return;
+  guarded = true;
+  process.on("exit", () => {
+    for (const child of running) endGroup(child, "SIGTERM");
+  });
+  // A signal ends node without an `exit` event unless somebody listens. Where nobody else does (a
+  // script, not a Playwright worker), end the backends and then let the signal do what it would.
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+    if (process.listenerCount(signal) > 0) continue;
+    const onSignal = () => {
+      for (const child of running) endGroup(child, "SIGTERM");
+      process.removeListener(signal, onSignal);
+      process.kill(process.pid, signal);
+    };
+    process.on(signal, onSignal);
+  }
+}
+
 /** How long `dispose()` lets a backend finish before it is killed: the backend's own shutdown is
  *  bounded by 10 s, so this is past it. */
 const DISPOSE_GRACE_MS = 15_000;
@@ -224,7 +262,12 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
       RUST_LOG: process.env.HARNIX_TEST_LOG || "warn",
     },
     stdio: ["ignore", "pipe", "pipe"],
+    // Its own process group, so what it spawns can be ended with it (see `guardLeaks`).
+    detached: true,
   });
+  guardLeaks();
+  running.add(child);
+  child.on("exit", () => running.delete(child));
   let log = "";
   child.stdout?.on("data", (d) => (log += d));
   child.stderr?.on("data", (d) => (log += d));
@@ -254,7 +297,7 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
       /* not up yet */
     }
     if (Date.now() > deadline) {
-      child.kill();
+      endGroup(child, "SIGKILL");
       throw new Error(`harnix did not start in 60s:\n${log}`);
     }
     await sleep(150);
@@ -305,11 +348,8 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
         }
         const late = await Promise.race([gone.then(() => false), sleep(DISPOSE_GRACE_MS).then(() => true)]);
         if (late && exited === null) {
-          try {
-            child.kill("SIGKILL");
-          } catch {
-            /* gone meanwhile */
-          }
+          // The whole group: what a backend that would not stop had spawned goes with it.
+          endGroup(child, "SIGKILL");
           await gone;
         }
       }
