@@ -41,12 +41,13 @@ function Settings({ app }: { app: App }) {
     <Reload.Provider value={{ version, reload: () => setVersion((v) => v + 1) }}>
       <Body>
         <div className="settings-body">
-          <div className="settings-nav">
+          <div className="settings-nav" data-testid="settings-nav">
             {sections.map((s) => (
               <button
                 type="button"
                 key={s.id}
                 data-section={s.id}
+                data-state={s.id === section?.id ? "current" : undefined}
                 className={`nav-item${s.id === section?.id ? " on" : ""}`}
                 onClick={() => {
                   active = s.id;
@@ -57,7 +58,7 @@ function Settings({ app }: { app: App }) {
               </button>
             ))}
           </div>
-          <div className="settings-page" key={`${section?.id}-${version}`}>
+          <div className="settings-page" data-testid="settings-page" key={`${section?.id}-${version}`}>
             {section ? (
               <Contributed registry={registry} point="settings.section" contribution={section}>
                 {section.render()}
@@ -127,7 +128,9 @@ export function Section<T>({ title, load, children }: { title: string; load: () 
         {!state ? (
           <div className="hint">{t("common.loading")}</div>
         ) : state.error !== undefined ? (
-          <div className="hint err">{state.error}</div>
+          <div className="hint err" data-testid="settings-failed">
+            {state.error}
+          </div>
         ) : (
           children(state.data as T)
         )}
@@ -442,7 +445,7 @@ function ProviderCard({
       .catch((e: unknown) => app.notice(t("settings.writeFailed", { error: errorText(e) }), "error"));
   const models = [provider.default_model, ...(provider.models ?? [])].filter((m, i, all): m is string => Boolean(m) && all.indexOf(m) === i);
   return (
-    <div className={`provider-card${isDefault ? " default" : ""}`} data-provider={id}>
+    <div className={`provider-card${isDefault ? " default" : ""}`} data-provider={id} data-state={isDefault ? "default" : undefined}>
       <div className="pc-head">
         <span className="pc-name">{id}</span>
         <span className="pill">{t(apiTypeOf(provider).label)}</span>

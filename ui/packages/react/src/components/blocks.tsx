@@ -243,7 +243,9 @@ export const BuiltinToolRow = memo(function BuiltinToolRow({ block }: { block: B
           <span className="hx-tool-name" data-testid="conv-tool-name" title={block.name}>
             {toolDisplayName(block.name, toolNames)}
           </span>
-          <span className="hx-tool-arg">{toolArgs(block.input)}</span>
+          <span className="hx-tool-arg" data-testid="conv-tool-args">
+            {toolArgs(block.input)}
+          </span>
         </>
       }
       tail={tail}

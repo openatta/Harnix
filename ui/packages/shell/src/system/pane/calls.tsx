@@ -115,6 +115,8 @@ export function CallsTab({ app, view, session }: { app: App; view: View; session
                   className={`step k-model${failed(call) && call.outcome?.status === "error" ? " bad" : ""}${focus && call.tools.some((tool) => tool.id === focus) ? " on" : ""}`}
                   data-call={call.index}
                   data-testid="system-call"
+                  data-state={failed(call) && call.outcome?.status === "error" ? "failed" : undefined}
+                  data-located={focus && call.tools.some((tool) => tool.id === focus) ? "true" : undefined}
                   onClick={() => {
                     scroll.current = list.current?.scrollTop ?? 0;
                     setOpen(call.index);
@@ -136,7 +138,14 @@ export function CallsTab({ app, view, session }: { app: App; view: View; session
                   </div>
                 </button>
                 {call.tools.map((tool) => (
-                  <div key={tool.id} className={`step k-tool nested${tool.is_error ? " bad" : ""}${tool.id === focus ? " on" : ""}`} data-tool={tool.id}>
+                  <div
+                    key={tool.id}
+                    className={`step k-tool nested${tool.is_error ? " bad" : ""}${tool.id === focus ? " on" : ""}`}
+                    data-testid="system-call-tool"
+                    data-tool={tool.id}
+                    data-state={tool.is_error ? "failed" : undefined}
+                    data-located={tool.id === focus ? "true" : undefined}
+                  >
                     <div className="l1">
                       <span className="kd2">{tr("system.step.tool")}</span>
                       <b>{tool.name}</b>

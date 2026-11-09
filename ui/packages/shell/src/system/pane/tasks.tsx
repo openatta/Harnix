@@ -23,7 +23,14 @@ export function TasksTab({ app, view, session }: { app: App; view: View; session
     <div className="system-pane tasks" data-testid="system-tasks">
       <TeamBoard teams={listed?.teams ?? []} tasks={tasks} />
       {tasks.map((task) => (
-        <div key={task.task_id} className={`task${task.task_id === chosen ? " on" : ""}`} data-kind={task.kind} data-status={task.status}>
+        <div
+          key={task.task_id}
+          className={`task${task.task_id === chosen ? " on" : ""}`}
+          data-testid="system-task"
+          data-state={task.task_id === chosen ? "current" : undefined}
+          data-kind={task.kind}
+          data-status={task.status}
+        >
           <div className="task-h">
             {/* The task is picked by its own button; stopping it is the one beside, not inside. */}
             <button

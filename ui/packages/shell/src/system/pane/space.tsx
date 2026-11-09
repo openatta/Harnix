@@ -46,6 +46,7 @@ export function SpaceSessions({ app, view, space, current }: { app: App; view: V
               type="button"
               key={`${instance}/${row.session_id}`}
               className={`srow sub${isCurrent(row) ? " on" : ""}`}
+              data-testid="space-session"
               data-sid={row.session_id}
               data-instance={instance}
               data-current={isCurrent(row) ? "true" : undefined}

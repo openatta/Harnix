@@ -45,7 +45,11 @@ function SearchBox({ app, s }: { app: App; s: ShellState }) {
     }
   };
   return (
-    <div className={`s-tools section-head${search.active || search.query ? " searching" : ""}`}>
+    <div
+      className={`s-tools section-head${search.active || search.query ? " searching" : ""}`}
+      data-testid="session-search"
+      data-state={search.active || search.query ? "searching" : "idle"}
+    >
       <label className="s-search">
         <Glyph name="search" className="glyph" />
         <input
@@ -88,6 +92,7 @@ function SessionList({ app, s }: { app: App; s: ShellState }) {
             type="button"
             key={hit.session_id}
             className="srow hit"
+            data-testid="session-hit"
             data-sid={hit.session_id}
             onClick={() => app.open({ instance: "system", sessionId: hit.session_id })}
           >
@@ -186,6 +191,8 @@ export function SessionRow({ app, s, session, nested = false }: { app: App; s: S
         type="button"
         className={`srow${on ? " on" : ""}${nested ? " nested" : ""}`}
         {...(nested ? { role: "treeitem", "aria-level": 2, "aria-selected": on } : {})}
+        data-testid="session-row"
+        data-state={on ? "current" : undefined}
         data-sid={session.session_id}
         data-instance={instance}
         title={tooltip}

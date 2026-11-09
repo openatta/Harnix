@@ -162,7 +162,7 @@ function SpaceList({ app, s }: { app: App; s: ShellState }) {
   const spaces = spacesOf(app).filter((c) => c.id !== SYSTEM && c.place !== "bottom" && !c.within);
   if (!spaces.length) return null;
   return (
-    <nav className="spaces" aria-label="spaces">
+    <nav className="spaces" aria-label="spaces" data-testid="space-list">
       {spaces.map((space, i) => (
         <Fragment key={space.id}>
           {/* Two neighbours of different groups (`group`, unset counts as ""): a line between. */}
@@ -186,6 +186,7 @@ function SpaceEntry({ app, s, space }: { app: App; s: ShellState; space: SpaceCo
     <button
       type="button"
       className={`nav space${on ? " on" : ""}${why !== null ? " disabled" : ""}`}
+      data-testid="space-entry"
       data-space={space.id}
       data-disabled={why !== null ? "" : undefined}
       aria-disabled={why !== null ? true : undefined}
@@ -286,7 +287,7 @@ function Bottom({ app, s }: { app: App; s: ShellState }) {
   const below = spacesOf(app).filter((c) => c.id !== SYSTEM && c.place === "bottom" && !c.within);
   const running = Object.keys(s.running).length;
   return (
-    <div className="l-bottom foot">
+    <div className="l-bottom foot" data-testid="sidebar-foot">
       {below.map((space) => (
         <SpaceEntry key={space.id} app={app} s={s} space={space} />
       ))}
@@ -294,6 +295,7 @@ function Bottom({ app, s }: { app: App; s: ShellState }) {
         <button
           type="button"
           className={`nav space${lit(app, s, SYSTEM) ? " on" : ""}`}
+          data-testid="space-entry"
           data-space={SYSTEM}
           title={system.title()}
           aria-pressed={lit(app, s, SYSTEM)}

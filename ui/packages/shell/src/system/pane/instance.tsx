@@ -94,6 +94,7 @@ function InstanceSessions({ view, instance }: { view: View; instance: string }) 
           type="button"
           key={row.session_id}
           className="srow sub"
+          data-testid="instance-session"
           data-sid={row.session_id}
           data-instance={instance}
           title={[row.name, row.scene, row.project_root].filter(Boolean).join(" · ")}

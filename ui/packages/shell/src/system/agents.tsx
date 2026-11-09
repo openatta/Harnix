@@ -167,7 +167,7 @@ const AgentItem = memo(function AgentItem({ app, view, row, usage, goal, turning
   const select = () => view.select({ kind: "session", instance: row.instance, sessionId: row.session_id });
   const goalIs = goal ? goalState(goal) : null;
   return (
-    <div className={`tgroup${expanded ? " open" : ""}`} role="rowgroup" data-sid={row.session_id} data-instance={row.instance} data-state={state.dot}>
+    <div className={`tgroup${expanded ? " open" : ""}`} role="rowgroup" data-testid="system-agent-group" data-sid={row.session_id} data-instance={row.instance} data-state={state.dot}>
       <div
         className={`tr agent${selected ? " on" : ""}`}
         role="row"

@@ -255,7 +255,7 @@ export const ThinkRow = memo(function ThinkRow({ block }: { block: BlockOf<"thin
           <Icon.down />
         </span>
       </button>
-      {open ? <div className="hx-cv-thtext hx-md" dangerouslySetInnerHTML={{ __html: markdown(block.text) }} /> : null}
+      {open ? <div className="hx-cv-thtext hx-md" data-testid="conv-think-text" dangerouslySetInnerHTML={{ __html: markdown(block.text) }} /> : null}
     </>
   );
 });

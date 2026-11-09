@@ -302,6 +302,7 @@ function Banner({ app, s }: { app: App; s: ShellState }) {
     <div
       id="banner"
       className={s.banner ? "on" : ""}
+      data-state={s.banner ? "open" : "closed"}
       data-tone={s.banner?.tone}
       role={error ? "alert" : "status"}
       aria-live={error ? "assertive" : "polite"}
@@ -360,7 +361,7 @@ function Main({ app, s }: { app: App; s: ShellState }) {
   }
   const empty = !s.current;
   return (
-    <section id="main" className={empty ? "empty" : ""} data-space={s.space}>
+    <section id="main" className={empty ? "empty" : ""} data-space={s.space} data-state={empty ? "empty" : "open"}>
       <Header app={app} s={s} session={session} onBack={center !== "chat" ? () => setTalking(false) : null} onTalk={null} />
       {s.current ? (
         <Conversation key={keyOf(s.current.instance, s.current.sessionId)} app={app} s={s} onController={setController} />
@@ -1275,6 +1276,7 @@ function ModalHost({ app, s }: { app: App; s: ShellState }) {
       <div
         id="veil"
         className={first ? "on" : ""}
+        data-state={first ? "open" : "closed"}
         onMouseDown={(event) => {
           if (event.target === event.currentTarget && first) app.closeModal(first);
         }}
