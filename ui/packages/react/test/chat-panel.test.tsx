@@ -291,7 +291,7 @@ describe("消息流", () => {
   });
 });
 
-describe("立即送达（IPDrun N-108）", () => {
+describe("立即送达：待送达、已送达与退回队列", () => {
   it("交给正在跑的一轮：流的末尾待送达 → 送达后成为已送达的人的话；退回则去掉，转为队列里的排队", async () => {
     server.handlers["harnix.attach"] = () => attached("S1", { running_turn: "t1" });
     mount({ variant: "transcript" });

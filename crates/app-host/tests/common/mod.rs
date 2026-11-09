@@ -11,6 +11,7 @@ use harnix_app_host::{Host, HostOptions};
 use harnix_app_package::acquire::Admission;
 use harnix_app_port::rpc::Loopback;
 use harnix_app_port::*;
+use harnix_contract::sync::lock;
 use serde_json::{json, Value};
 
 pub const ID: &str = "example.showcase";
@@ -59,7 +60,7 @@ pub struct FakePlatform {
 
 impl FakePlatform {
     fn say(&self, what: String) {
-        self.said.lock().unwrap().push(what);
+        lock(&self.said).push(what);
     }
 
     pub fn said(&self, prefix: &str) -> Vec<String> {
@@ -102,12 +103,12 @@ impl FakePlatform {
 impl Kernel for FakePlatform {
     async fn register(&self, r: Registration) -> Result<(), RpcError> {
         self.say(format!("register {}", r.app));
-        self.registered.lock().unwrap().push(r);
+        lock(&self.registered).push(r);
         Ok(())
     }
     async fn withdraw(&self, app: String) -> Result<(), RpcError> {
         self.say(format!("withdraw {app}"));
-        self.registered.lock().unwrap().retain(|r| r.app != app);
+        lock(&self.registered).retain(|r| r.app != app);
         Ok(())
     }
     async fn call(&self, c: CallAs) -> Result<Value, RpcError> {
@@ -141,7 +142,7 @@ impl Kernel for FakePlatform {
         Ok(json!({"session_id": "s-from-the-backend"}))
     }
     async fn publish(&self, p: Publish) -> Result<(), RpcError> {
-        self.published.lock().unwrap().push((p.topic, p.value));
+        lock(&self.published).push((p.topic, p.value));
         Ok(())
     }
     async fn subscribe(&self, s: Subscription) -> Result<Value, RpcError> {
@@ -156,7 +157,7 @@ impl Kernel for FakePlatform {
         Ok(())
     }
     async fn progress(&self, p: Progress) -> Result<(), RpcError> {
-        self.progress.lock().unwrap().push(p.text);
+        lock(&self.progress).push(p.text);
         Ok(())
     }
 }
@@ -196,7 +197,7 @@ impl Agent for FakePlatform {
     }
     async fn expose_tools(&self, offer: Offer) -> Result<(), RpcError> {
         self.say(format!("expose_tools {}", offer.tools.len()));
-        self.offers.lock().unwrap().push(offer);
+        lock(&self.offers).push(offer);
         Ok(())
     }
 }
