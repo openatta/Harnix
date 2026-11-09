@@ -351,7 +351,7 @@ describe("一轮", () => {
     await settle();
     act(() => {
       server.event("S2", { kind: "tool_use", id: "e1", name: "app__acme__echo", input: { text: "hi" } });
-      server.event("S2", { kind: "prompt", prompt_type: "permission", prompt_id: "p2", tool_name: "app__acme__echo", tool_use_id: "e1" });
+      server.event("S2", { kind: "prompt", prompt_type: "permission", prompt_id: "p2", tool_name: "app__acme__echo", tool_use_id: "e1", message: "Allow app__acme__echo?" });
     });
     expect(screen.getByTestId("conv-ask").getAttribute("aria-label")).toContain("Acme echo");
     expect(screen.getByTestId("conv-ask").textContent).not.toContain("app__acme__echo");

@@ -274,6 +274,8 @@ export const AskCard = memo(function AskCard({ block, controller }: { block: Blo
   const call = asks?.tool(prompt.tool_use_id);
   const tool = call && asks ? asks.title(call) : prompt.tool_name ? toolDisplayName(prompt.tool_name, toolNames) : "";
   const args = call ? toolArgs(call.input) : "";
+  // The engine's own line names the tool by its wire name ("Allow app__acme__echo?"): the card says the one name.
+  const message = prompt.message && prompt.tool_name && tool ? prompt.message.split(prompt.tool_name).join(tool) : prompt.message;
   const give = (decision: Decision) => void controller.answer(block.key, decision);
   const answered: Record<AskAnswer, string> = {
     allow: strings.permDecisionAllow,
@@ -301,7 +303,7 @@ export const AskCard = memo(function AskCard({ block, controller }: { block: Blo
           {args}
         </div>
       ) : null}
-      {prompt.message ? <div className="hx-ask-msg">{prompt.message}</div> : null}
+      {message ? <div className="hx-ask-msg">{message}</div> : null}
       {prompt.paths?.length ? <pre className="hx-pre">{prompt.paths.join("\n")}</pre> : null}
       {block.answered ? null : (
         <div className="hx-ask-actions">
