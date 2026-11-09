@@ -364,6 +364,7 @@ function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app:
         attachments
         voice={false}
         model={picked?.id ?? engineModel}
+        modelUnset={!ready}
         models={models}
         onModel={switchable ? setPicked : undefined}
         draftKey={`new:${space}:${variant}`}
@@ -839,6 +840,7 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
           ) : undefined
         }
         model={model}
+        modelUnset={!ready}
         models={models}
         onModel={switchable ? onModel : undefined}
         features={{ voice: false, contextRing: true, options: false }}

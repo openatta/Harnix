@@ -136,6 +136,8 @@ export interface ChatComposerProps {
   attachments: boolean;
   voice: boolean;
   model: string | null;
+  /** No model is configured: the model button says so and is disabled, instead of naming one a turn would not reach. */
+  modelUnset?: boolean;
   /** 模型菜单里可选的模型 */
   models?: readonly ModelOption[];
   /** 换模型；给了菜单才可选（列表里的，或输入的名字）。reject ⇒ 没换（调用方自己报错） */
@@ -586,7 +588,7 @@ export function ChatComposer(props: ChatComposerProps) {
           <div className="hx-pop" role="menu" data-testid="conv-options-menu">
             {props.options}
           </div>
-        ) : pop === "model" && props.model ? (
+        ) : pop === "model" && props.model && !props.modelUnset ? (
           <div className="hx-pop right hx-models" role="menu" data-testid="conv-model-menu" aria-busy={switching}>
             <div className="hx-pop-h">{strings.model}</div>
             {modelChoices(props.model, props.models).map((option) => (
@@ -716,7 +718,12 @@ export function ChatComposer(props: ChatComposerProps) {
           ) : null}
           <span className="hx-spacer" />
           {props.tools}
-          {props.model ? (
+          {props.modelUnset ? (
+            <button type="button" className="hx-cmp-model" data-testid="conv-model" data-state="unset" disabled title={strings.modelUnsetHint} aria-label={strings.modelUnsetHint}>
+              <Icon.cube />
+              <span>{strings.modelUnset}</span>
+            </button>
+          ) : props.model ? (
             <button
               type="button"
               className={`hx-cmp-model${pop === "model" ? " on" : ""}`}

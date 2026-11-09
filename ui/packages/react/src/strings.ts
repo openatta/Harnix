@@ -106,6 +106,9 @@ export interface HarnixUiStrings {
   attach: string;
   voice: string;
   model: string;
+  /** The model button when no model is configured. */
+  modelUnset: string;
+  modelUnsetHint: string;
   needsBackend: string;
   contextUsage: (tokens: number, max: number | null) => string;
   retry: string;
@@ -234,6 +237,8 @@ export const zhCN: HarnixUiStrings = {
   attach: "添加文件或引用",
   voice: "语音输入",
   model: "模型",
+  modelUnset: "未配置",
+  modelUnsetHint: "还没有配置模型：在设置里加一个",
   needsBackend: "后端还不支持",
   contextUsage: (tokens, max) =>
     max ? `上下文 ${tokens.toLocaleString()} / ${max.toLocaleString()} tokens（${Math.round((tokens / max) * 100)}%）` : `上下文 ${tokens.toLocaleString()} tokens`,
@@ -362,6 +367,8 @@ export const en: HarnixUiStrings = {
   attach: "Add files or references",
   voice: "Voice input",
   model: "Model",
+  modelUnset: "Not configured",
+  modelUnsetHint: "No model is configured yet: add one in Settings",
   needsBackend: "Not supported by the backend yet",
   contextUsage: (tokens, max) =>
     max ? `Context ${tokens.toLocaleString()} / ${max.toLocaleString()} tokens (${Math.round((tokens / max) * 100)}%)` : `Context ${tokens.toLocaleString()} tokens`,

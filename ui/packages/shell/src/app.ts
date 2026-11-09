@@ -555,8 +555,10 @@ export class App {
     return Object.keys(providers.providers).length > 0 || hello?.engine?.has_credentials === true;
   }
 
-  /** The model a new session runs on: the default provider's, else the engine's. */
+  /** The model a new session runs on: the default provider's, else the engine's; none while no
+   *  model is configured (`modelReady()`), whatever name the engine started with. */
   defaultModel(): string | null {
+    if (!this.modelReady()) return null;
     const { providers, hello } = this.state;
     const chosen = providers?.default_provider ? providers.providers[providers.default_provider] : undefined;
     return chosen?.default_model || (typeof hello?.engine?.model === "string" ? hello.engine.model : null);

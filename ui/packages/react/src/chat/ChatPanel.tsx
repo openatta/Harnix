@@ -120,6 +120,8 @@ export interface ChatPanelProps {
   sendMode?: "stop" | "separate";
   /** 底栏的模型（原型 .cmp-model）；缺省取 harnix.hello 的 engine.model */
   model?: string;
+  /** No model is configured: the button says so, disabled (see ChatComposer's `modelUnset`). */
+  modelUnset?: boolean;
   /** 模型菜单里可选的模型（见 ChatComposer 的 `models`） */
   models?: readonly ModelOption[];
   /** 换模型；给了模型菜单才可选 */
@@ -451,6 +453,7 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
             attachments={features.attachments !== false}
             voice={features.voice !== false}
             model={model}
+            modelUnset={props.modelUnset}
             models={props.models}
             onModel={props.onModel}
             tools={props.composerTools}
