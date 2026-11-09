@@ -18,8 +18,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
 use async_trait::async_trait;
-use harnix_app_package::acquire::{internal, refused, Admission};
-use harnix_app_package::manifest::{self, toml_to_json, Manifest, MANIFEST};
+use harnix_app_package::acquire::{self, internal, refused, Admission};
+use harnix_app_package::manifest::{self, toml_to_json, Manifest};
 use harnix_app_package::signature::{Trust, Verified};
 use harnix_app_port::{
     Control, HookCall, HookReply, MethodCall, MethodDecl, Offer, Place, Placement, Platform,
@@ -62,7 +62,8 @@ struct Running {
     /// How far its package was trusted when it started.
     trust: Trust,
     vm: Option<AppVm>,
-    tools: Vec<harnix_wasm::ToolDef>,
+    /// What its component listed, as the port carries it: converted once, when it started.
+    tools: Vec<ToolDef>,
     bridge: Arc<Bridge>,
     methods: BTreeMap<String, Method>,
     /// Its calls in flight, for idling.
@@ -86,7 +87,7 @@ struct Running {
 /// What starting an application's VM made.
 struct Booted {
     vm: Option<AppVm>,
-    tools: Vec<harnix_wasm::ToolDef>,
+    tools: Vec<ToolDef>,
 }
 
 /// The applications of one product (or, in an edition with a process per application, of that
@@ -189,12 +190,6 @@ impl Host {
         read(&self.apps).get(id).cloned()
     }
 
-    fn manifest_in(root: &Path) -> Result<Manifest, RpcError> {
-        let text = std::fs::read_to_string(root.join(MANIFEST))
-            .map_err(|e| internal(format!("{}: {e}", root.join(MANIFEST).display())))?;
-        Manifest::parse(&text).map_err(refused)
-    }
-
     /// The registration of `manifest`'s names, and its methods' schemas compiled.
     fn declare(manifest: &Manifest) -> Result<(Registration, BTreeMap<String, Method>), RpcError> {
         let id = &manifest.app.id;
@@ -283,7 +278,7 @@ impl Host {
         app_dir: &Path,
         bridge: Arc<Bridge>,
         verified: &Verified,
-    ) -> Result<(Option<AppVm>, Vec<harnix_wasm::ToolDef>), RpcError> {
+    ) -> Result<(Option<AppVm>, Vec<ToolDef>), RpcError> {
         let Some(component) = &manifest.component else {
             return Ok((None, Vec::new()));
         };
@@ -403,14 +398,14 @@ impl Host {
                 unknown.join("`, `")
             )));
         }
-        Ok((Some(vm), tools))
+        Ok((Some(vm), tools.iter().map(tool_def).collect()))
     }
 
     /// Everything [`Control::start`] does but keeping why it failed.
     async fn start_app(&self, start: &Start) -> Result<Started, RpcError> {
         let id = &start.app;
         let root = start.app_dir.join(&start.version);
-        let manifest = Self::manifest_in(&root)?;
+        let manifest = acquire::manifest_in(&root)?;
         if &manifest.app.id != id || manifest.app.version != start.version {
             return Err(internal(format!(
                 "{} says it is `{}` {}, and the record `{id}` {}",
@@ -447,7 +442,6 @@ impl Host {
         };
         let full = |name: &String| format!("app.{id}.{name}");
         let world = booted.vm.as_ref().map(|vm| world_name(vm.world()));
-        let tools: Vec<ToolDef> = booted.tools.iter().map(tool_def).collect();
         let backend = booted.vm.as_ref().filter(|vm| vm.world() == World::Backend);
         let idle = backend.and(manifest.backend.on_demand().then(|| {
             self.options
@@ -464,7 +458,7 @@ impl Host {
             root: root.clone(),
             trust: verified.trust,
             vm: booted.vm,
-            tools: booted.tools,
+            tools: booted.tools.clone(),
             bridge,
             methods,
             activity,
@@ -476,7 +470,8 @@ impl Host {
             spaces: manifest.spaces.iter().map(|s| s.id.clone()).collect(),
             hub: manifest.capabilities.hub.clone(),
             events_all: manifest.events.all(),
-            own_tools: tools
+            own_tools: booted
+                .tools
                 .iter()
                 .map(|t| harnix_app_package::tool_name(id, &t.name))
                 .collect(),
@@ -486,18 +481,18 @@ impl Host {
             title: manifest.app.title.clone(),
             version: start.version.clone(),
             component: running.vm.is_some(),
-            tools: tools.clone(),
+            tools: booted.tools.clone(),
         };
         write(&self.apps).insert(id.clone(), running);
         if let Err(e) = self.platform.expose_tools(offer).await {
             tracing::warn!(app = %id, error = %e.message, "its tools were not offered");
         }
-        tracing::info!(app = %id, tools = tools.len(), "application started");
+        tracing::info!(app = %id, tools = booted.tools.len(), "application started");
         Ok(Started {
             app: id.clone(),
             trust: verified.trust.as_str().to_string(),
             world,
-            tools,
+            tools: booted.tools,
         })
     }
 
@@ -593,7 +588,7 @@ impl Control for Host {
                 app: start.app.clone(),
                 trust: running.trust.as_str().to_string(),
                 world,
-                tools: running.tools.iter().map(tool_def).collect(),
+                tools: running.tools.clone(),
             });
         }
         match self.start_app(&start).await {

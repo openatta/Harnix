@@ -14,7 +14,7 @@ use harnix_contract::{codes, RpcError};
 use serde_json::{json, Value};
 
 use crate::disclosure;
-use crate::manifest::Manifest;
+use crate::manifest::{Manifest, MANIFEST};
 use crate::package;
 use crate::signature::{self, Keys, Signatures, Trust, Verified};
 use crate::store::{self, Store};
@@ -171,6 +171,15 @@ pub async fn fetch(
     let to = staging.join(format!("{id}-{}.hxapp", resolved.version.version));
     store.download(&resolved, &to).await.map_err(refused)?;
     Ok(to)
+}
+
+/// The manifest unpacked at `root`: what a host starts an installed version from. A file that
+/// cannot be read is this machine's problem; one that does not parse is the package's.
+pub fn manifest_in(root: &Path) -> Result<Manifest, RpcError> {
+    let path = root.join(MANIFEST);
+    let text =
+        std::fs::read_to_string(&path).map_err(|e| internal(format!("{}: {e}", path.display())))?;
+    Manifest::parse(&text).map_err(refused)
 }
 
 /// What an installed application is and asks for, from the manifest unpacked at `root`; null when

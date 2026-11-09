@@ -23,17 +23,9 @@ pub mod signature;
 pub mod store;
 pub mod surface;
 
-/// Whether `id` can be an application's id: dot-separated segments of lowercase letters, digits
-/// and `-`, each starting with a letter. The install records' rule too
-/// (`harnix_builtin::apps::valid_id`, which `harnix-apps` checks agrees).
-pub fn valid_id(id: &str) -> bool {
-    id.len() <= 64
-        && id.split('.').all(|segment| {
-            let mut chars = segment.chars();
-            matches!(chars.next(), Some('a'..='z'))
-                && chars.all(|c| matches!(c, 'a'..='z' | '0'..='9' | '-'))
-        })
-}
+/// Whether `id` can be an application's id: the install records' rule too, which is why it is the
+/// contract's.
+pub use harnix_contract::apps::valid_id;
 
 /// Every application tool's name in a session matches this: what each scene of an instance that
 /// offers them has to admit besides its own tool list.

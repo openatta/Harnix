@@ -39,7 +39,7 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 
 use harnix_app_host::{Host, HostOptions};
 use harnix_app_package::acquire::{self, internal, refused, Admission};
-use harnix_app_package::manifest::{Interface, Manifest, Surface, Title, UiEntry, MANIFEST};
+use harnix_app_package::manifest::{Interface, Manifest, Surface, Title, UiEntry};
 use harnix_app_package::package;
 use harnix_app_package::signature::{Keys, Trust};
 use harnix_app_port::{Control, Offer, Place, Start, Stop, ToolDef, Unplace};
@@ -323,12 +323,6 @@ impl Runtime {
             .collect()
     }
 
-    pub(crate) fn manifest_in(root: &Path) -> Result<Manifest, RpcError> {
-        let text = std::fs::read_to_string(root.join(MANIFEST))
-            .map_err(|e| internal(format!("{}: {e}", root.join(MANIFEST).display())))?;
-        Manifest::parse(&text).map_err(refused)
-    }
-
     /// What the host says of it, and what of its interface this process serves.
     pub async fn status_of(&self, id: &str) -> Value {
         let mut status = self
@@ -601,7 +595,7 @@ impl AppsRuntime for Runtime {
             })
             .await?;
         let root = app_dir.join(&record.version);
-        let manifest = match Self::manifest_in(&root) {
+        let manifest = match acquire::manifest_in(&root) {
             Ok(manifest) => manifest,
             Err(e) => {
                 self.unload(cx, record).await;
@@ -717,20 +711,5 @@ impl AppsRuntime for Runtime {
 
     fn describe(&self, record: &InstallRecord, app_dir: &Path) -> Value {
         acquire::describe(&app_dir.join(&record.version))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    /// The install records and the manifest agree on what an id is.
-    #[test]
-    fn an_id_is_the_same_to_the_records_and_the_manifest() {
-        for id in ["acme.notes", "a", "a-1.b2", "Acme.notes", "acme..notes", "1acme", "acme.notes_x", ""] {
-            assert_eq!(
-                harnix_app_package::valid_id(id),
-                harnix_builtin::apps::valid_id(id),
-                "{id:?}"
-            );
-        }
     }
 }

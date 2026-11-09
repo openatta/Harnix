@@ -437,7 +437,7 @@ impl Handler for AppsMethod {
                 if installed.is_none() && shared.dir.join(&id).exists() {
                     refuse_installed(&shared.dir, &id)?;
                 }
-                let staging = shared.dir.join(STAGING).join(uuid_like());
+                let staging = shared.dir.join(STAGING).join(uuid::Uuid::new_v4().simple().to_string());
                 let outcome = async {
                     let package = runtime.fetch(&id, version, &staging).await?;
                     let app_dir = shared.dir.join(&id);
@@ -627,29 +627,13 @@ async fn snapshot(shared: &Shared, host: Option<&AppHost>) -> Value {
     })
 }
 
-/// Whether a directory name can be an application id (the host's rule: dot-separated segments of
-/// lowercase letters, digits and `-`, each starting with a letter).
-pub fn valid_id(id: &str) -> bool {
-    id.len() <= 64
-        && id.split('.').all(|segment| {
-            let mut chars = segment.chars();
-            matches!(chars.next(), Some('a'..='z')) && chars.all(|c| matches!(c, 'a'..='z' | '0'..='9' | '-'))
-        })
-}
+/// Whether a directory name can be an application id: the rule a package's manifest is held to
+/// as well (`harnix_contract::apps`).
+pub use harnix_contract::apps::valid_id;
 
 /// Where downloads wait to be disclosed and installed: under the records' directory, so on the
 /// same disk, and skipped as not a record.
 const STAGING: &str = ".staging";
-
-fn uuid_like() -> String {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    format!("{}-{nanos}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed))
-}
 
 fn refuse_installed(dir: &Path, id: &str) -> Result<(), RpcError> {
     if read_one(dir, id).is_ok() || dir.join(id).exists() {
