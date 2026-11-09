@@ -48,7 +48,7 @@ crate 自己的 `Cargo.toml` 里，不从 workspace 继承（应用把这些 cra
   过程（计划、进度、设计记录）不进 `docs/`。下游项目的需求在 GitHub issue 里记（每个项目一个标签），
   `docs/issues/README.md` 只是代码里的编号与 issue 的对照表。0.4 的设计记录与路线已从仓库移出，在 git 历史里；
   代码注释不引用它们，也不引用审查的轮次：写一行理由，或指向这里的文档（`concept §3.2`、`harnix-sdk.md §17.6`），
-  `tests/style-lint.mjs` 拦「设计 §」「design §」「review #」「roadmap M」。
+  `tests/style-lint.mjs` 拦「设计 §」「design §」「review #」「review G2」这类审查编号、「roadmap M」。
 - 改了 `README.md` 或 `docs/README.zh-CN.md`，两边一起改，再 `node tests/readme-pairing.mjs --write`。
 - 开始一个新的里程碑，要维护者明确说开始。
 - 界面照 `../Helm/docs/design/11-gui-workbench-v0.1.md` 的工作台框架；Harnix 本身做薄，产品面是应用的 space。
