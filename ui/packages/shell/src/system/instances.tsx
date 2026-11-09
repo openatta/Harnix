@@ -24,6 +24,7 @@ export function InstanceList({ app, view }: { app: App; view: View }) {
             type="button"
             key={instance.id}
             className={`srow inst${isSelected(picked, { kind: "instance", instance: instance.id }) ? " on" : ""}`}
+            data-testid="system-tree-instance"
             data-instance={instance.id}
             data-state={instance.status.state}
             title={instance.status.reason ?? instance.status.state}

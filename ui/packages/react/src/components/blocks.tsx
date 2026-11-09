@@ -11,7 +11,7 @@
 import { memo, useEffect, useState, type ReactNode } from "react";
 import type { Decision } from "@harnix/core";
 import { useStrings } from "../context";
-import { duration, toolArgs, toolDisplayName } from "../chat/format";
+import { TOOL_NAMES, duration, toolArgs, toolDisplayName } from "../chat/format";
 import { useChat } from "../chat/types";
 import type { AskAnswer, Block, BlockOf } from "@harnix/core/state";
 import type { SessionController } from "@harnix/core/state";
@@ -75,6 +75,28 @@ export function toolAsks(blocks: readonly Block[], title: (block: BlockOf<"tool"
     }
   }
   return { awaiting, tool: (id) => (id ? tools.get(id) : undefined), title };
+}
+
+/** A call's name as its row says it: the newest row that claims it and says one, else the display name. */
+export function rowTitle(
+  block: BlockOf<"tool">,
+  rows: readonly Pick<ToolRowContribution, "match" | "title">[] | undefined,
+  names: Record<string, string> = TOOL_NAMES,
+): string {
+  for (const row of [...(rows ?? [])].reverse()) {
+    if (!row.title || !row.match(block)) continue;
+    const said = row.title(block);
+    if (said) return said;
+    break;
+  }
+  return toolDisplayName(block.name, names);
+}
+
+/** The tool a prompt asks about, named as its call's row names it; "" when it names none. */
+export function askedTool(prompt: BlockOf<"ask">["prompt"], asks: ToolAsks | undefined, names: Record<string, string> = TOOL_NAMES): string {
+  const call = asks?.tool(prompt.tool_use_id);
+  if (call && asks) return asks.title(call);
+  return prompt.tool_name ? toolDisplayName(prompt.tool_name, names) : "";
 }
 
 /** A tool row's state and what it says at its end: waiting on a person, running, failed, stopped, or how long it took. */
@@ -221,7 +243,9 @@ export const BuiltinToolRow = memo(function BuiltinToolRow({ block }: { block: B
           <span className="hx-tool-name" data-testid="conv-tool-name" title={block.name}>
             {toolDisplayName(block.name, toolNames)}
           </span>
-          <span className="hx-tool-arg">{toolArgs(block.input)}</span>
+          <span className="hx-tool-arg" data-testid="conv-tool-args">
+            {toolArgs(block.input)}
+          </span>
         </>
       }
       tail={tail}
@@ -272,7 +296,7 @@ export const AskCard = memo(function AskCard({ block, controller }: { block: Blo
   const prompt = block.prompt;
   // The call it asks about: named as its row names it, with its arguments in one line.
   const call = asks?.tool(prompt.tool_use_id);
-  const tool = call && asks ? asks.title(call) : prompt.tool_name ? toolDisplayName(prompt.tool_name, toolNames) : "";
+  const tool = askedTool(prompt, asks, toolNames);
   const args = call ? toolArgs(call.input) : "";
   // The engine's own line names the tool by its wire name ("Allow app__acme__echo?"): the card says the one name.
   const message = prompt.message && prompt.tool_name && tool ? prompt.message.split(prompt.tool_name).join(tool) : prompt.message;

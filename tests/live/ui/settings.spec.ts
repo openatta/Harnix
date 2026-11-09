@@ -9,7 +9,7 @@
 import type { Page } from "@playwright/test";
 import { type Backend, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
-import { open, openSettings } from "./page";
+import { open, openSettings, settingsSection } from "./page";
 
 const TAGS = { tag: ["@feature:settings", "@layer:ui"] };
 const AUTHZ = { tag: ["@feature:authz", "@layer:ui"] };
@@ -25,7 +25,7 @@ test.afterAll(async () => { await backend?.dispose(); });
 
 async function section(page: Page, id: string): Promise<void> {
   await openSettings(page);
-  await page.locator(`.settings-nav [data-section="${id}"]`).click();
+  await settingsSection(page, id).click();
 }
 
 /** What the engine's settings say about providers, read the way the page reads them. */
@@ -53,7 +53,7 @@ test("a provider is added, edited, made the default and deleted from Settings ·
   const first = list.locator('[data-provider="first"]');
   await expect(first).toBeVisible();
   await expect(first).toContainText("model-one");
-  await expect(page.locator(".settings-page")).not.toContainText("sk-live-test-first");
+  await expect(page.getByTestId("settings-page")).not.toContainText("sk-live-test-first");
   expect((await providers(page)).providers.first.default_model).toBe("model-one");
 
   // Edit it: the key is kept when the field is left empty.
@@ -73,8 +73,8 @@ test("a provider is added, edited, made the default and deleted from Settings ·
   const second = list.locator('[data-provider="second"]');
   await expect(second).toBeVisible();
   await second.getByTestId("provider-default").click();
-  await expect(second).toHaveClass(/default/);
-  await expect(first).not.toHaveClass(/default/);
+  await expect(second).toHaveAttribute("data-state", "default");
+  await expect(first).not.toHaveAttribute("data-state", "default");
   expect((await providers(page)).default_provider).toBe("second");
 
   // Delete asks once more on the same button; then it is gone.
@@ -94,7 +94,7 @@ test("a paired device is listed in Settings · Devices and revoked from there", 
     return paired.device.id as string;
   });
   await section(page, "devices");
-  await expect(page.locator(".settings-page")).toContainText("the test laptop");
+  await expect(page.getByTestId("settings-page")).toContainText("the test laptop");
   const revoke = page.locator(`[data-testid="device-revoke"][data-device="${device}"]`);
   // It asks first: dismissed, nothing happens.
   page.once("dialog", (d) => void d.dismiss());

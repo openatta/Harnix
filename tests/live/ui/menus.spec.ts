@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import type { Page } from "@playwright/test";
 import { dropSessions, expect, test } from "@harnix/testkit";
 
-import { newSession, open, reply, say } from "./page";
+import { newSession, open, reply, say, sessionRow, spaceEntry } from "./page";
 
 const SESSIONS = { tag: ["@feature:sessions", "@layer:ui"] };
 const SPACE = { tag: ["@feature:session-space", "@layer:ui"] };
@@ -26,7 +26,7 @@ test.afterEach(async ({ api }) => {
   await dropSessions(api);
 });
 
-const row = (page: Page, id: string) => page.locator(`#side .srow[data-sid="${id}"]`);
+const row = sessionRow;
 
 /** Right-click a session's row and pick an item of its menu. */
 async function fromMenu(page: Page, id: string, item: string): Promise<void> {
@@ -99,7 +99,7 @@ test("delete asks first; cancelled it keeps the session, confirmed it removes it
   const id = await withTurn(page);
   await fromMenu(page, id, "delete");
   await expect(page.getByTestId("confirm")).toBeVisible();
-  await page.locator("#modal .btn.outline").first().click();
+  await page.getByTestId("confirm-cancel").click();
   await expect(row(page, id)).toBeVisible();
 
   await fromMenu(page, id, "delete");
@@ -125,10 +125,10 @@ test("a new session from a project's menu: the dialog offers the active scenes, 
     await app.refreshSessions();
     return made.path as string;
   });
-  await page.locator('#side .spaces [data-space="projects"]').click();
+  await spaceEntry(page, "projects").click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", "projects");
-  const project = page.getByTestId("projects").locator(".project", { hasText: "dialog-" });
-  await project.locator(".prj").click({ button: "right" });
+  const project = page.getByTestId("projects").locator("[data-project]", { hasText: "dialog-" });
+  await project.getByRole("treeitem", { level: 1 }).click({ button: "right" });
   await page.locator('[data-testid="project-menu"] [data-item="new"]').click();
 
   const scene = page.getByTestId("new-scene");
@@ -158,23 +158,23 @@ test("a project's session is renamed and deleted from its menu in the projects s
     await app.call("harnix.projects.create", { name: `menu-${Date.now()}` });
     await app.refreshSessions();
   });
-  await page.locator('#side .spaces [data-space="projects"]').click();
+  await spaceEntry(page, "projects").click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", "projects");
-  const project = page.getByTestId("projects").locator(".project", { hasText: "menu-" });
-  await project.locator(".prj").click({ button: "right" });
+  const project = page.getByTestId("projects").locator("[data-project]", { hasText: "menu-" });
+  await project.getByRole("treeitem", { level: 1 }).click({ button: "right" });
   await page.locator('[data-testid="project-menu"] [data-item="new"]').click();
   await page.getByTestId("new-mode").selectOption({ index: 0 });
   await page.getByTestId("new-create").click();
   await expect(page.locator("#modal")).toHaveCount(0);
   const id = await page.evaluate(() => (window as any).harnix.app.snapshot.current?.sessionId as string);
   expect(id).toBeTruthy();
-  if ((await project.getAttribute("data-open")) !== "true") await project.locator(".prj").click();
+  if ((await project.getAttribute("data-open")) !== "true") await project.getByRole("treeitem", { level: 1 }).click();
   await expect(row(page, id)).toBeVisible();
 
   // The row is the session space's session: its menu claims that space, not the projects one.
   await fromMenu(page, id, "rename");
   await page.locator("#modal input").fill("renamed in a project");
-  await page.locator("#modal .btn.primary").click();
+  await page.getByTestId("rename-save").click();
   await expect(row(page, id)).toContainText("renamed in a project");
   await expect(page.locator("#banner")).not.toContainText(/SPACE_MISMATCH|another space|-31003/);
 

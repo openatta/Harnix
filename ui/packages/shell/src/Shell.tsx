@@ -24,7 +24,7 @@ import {
   type RefObject,
 } from "react";
 import { errorText } from "@harnix/core";
-import type { SessionController, SessionState } from "@harnix/core/state";
+import type { BlockOf, SessionController, SessionState } from "@harnix/core/state";
 import {
   ChatComposer,
   ChatPanel,
@@ -33,6 +33,9 @@ import {
   useRegistry,
   useT,
   ComposerNote,
+  askedTool,
+  rowTitle,
+  toolAsks,
   type Attached,
   type ChatCommand,
   type ChatIds,
@@ -42,6 +45,7 @@ import {
   type ModelOption,
   type SpaceContribution,
   type SpaceSecondary,
+  type ToolRowContribution,
 } from "@harnix/react";
 
 import { ask, detailsWidthOf, keyOf, later, orderTabs, safeTabs, secondaryWidthOf, type App, type OpenModal, type ShellState, type Widths } from "./app.ts";
@@ -298,6 +302,7 @@ function Banner({ app, s }: { app: App; s: ShellState }) {
     <div
       id="banner"
       className={s.banner ? "on" : ""}
+      data-state={s.banner ? "open" : "closed"}
       data-tone={s.banner?.tone}
       role={error ? "alert" : "status"}
       aria-live={error ? "assertive" : "polite"}
@@ -356,7 +361,7 @@ function Main({ app, s }: { app: App; s: ShellState }) {
   }
   const empty = !s.current;
   return (
-    <section id="main" className={empty ? "empty" : ""} data-space={s.space}>
+    <section id="main" className={empty ? "empty" : ""} data-space={s.space} data-state={empty ? "empty" : "open"}>
       <Header app={app} s={s} session={session} onBack={center !== "chat" ? () => setTalking(false) : null} onTalk={null} />
       {s.current ? (
         <Conversation key={keyOf(s.current.instance, s.current.sessionId)} app={app} s={s} onController={setController} />
@@ -931,29 +936,33 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
         features={{ voice: false, contextRing: true, options: false }}
         renderers={{ flowBlocks, toolRows }}
       />
-      <AskAnnouncer state={sessionState} />
+      <AskAnnouncer state={sessionState} toolRows={toolRows} />
     </>
   );
 }
 
 /**
  * An ask arriving is said aloud on its own, once: the card is in the flow's log, which a reader is
- * not told about at once, and a turn waits on it.
+ * not told about at once, and a turn waits on it. It names the tool as the card does: by its call's
+ * row (`tool.row`'s `title`), not by its wire name. The name is read at each draw, as the card's is:
+ * an application's rows can register after its first ask has arrived.
  */
-function AskAnnouncer({ state }: { state: SessionState | null }) {
+function AskAnnouncer({ state, toolRows }: { state: SessionState | null; toolRows: readonly ToolRowContribution[] }) {
   const t = useT();
   const heard = useRef(new Set<string>());
-  const [said, setSaid] = useState("");
-  const asks = state?.blocks.filter((b) => b.kind === "ask" && !b.answered) ?? [];
+  const [said, setSaid] = useState<BlockOf<"ask">["prompt"] | null>(null);
+  const blocks = state?.blocks ?? [];
+  const asks = blocks.filter((b) => b.kind === "ask" && !b.answered);
   const fresh = asks.find((b) => b.kind === "ask" && !heard.current.has(b.prompt.prompt_id));
   useEffect(() => {
     if (!fresh || fresh.kind !== "ask") return;
     heard.current.add(fresh.prompt.prompt_id);
-    setSaid(t("layers.askAnnounce", { tool: fresh.prompt.tool_name || t("layers.askAnnounceTool") }));
-  }, [fresh, t]);
+    setSaid(fresh.prompt);
+  }, [fresh]);
+  const tool = said && asks.length ? askedTool(said, toolAsks(blocks, (block) => rowTitle(block, toolRows))) : "";
   return (
     <div className="sr-only" role="alert" data-testid="ask-announce">
-      {asks.length ? said : ""}
+      {said && asks.length ? t("layers.askAnnounce", { tool: tool || t("layers.askAnnounceTool") }) : ""}
     </div>
   );
 }
@@ -1267,6 +1276,7 @@ function ModalHost({ app, s }: { app: App; s: ShellState }) {
       <div
         id="veil"
         className={first ? "on" : ""}
+        data-state={first ? "open" : "closed"}
         onMouseDown={(event) => {
           if (event.target === event.currentTarget && first) app.closeModal(first);
         }}

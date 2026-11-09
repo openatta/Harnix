@@ -140,7 +140,9 @@ function ToolRow({ app, block }: { app: App; block: BlockOf<"tool"> }) {
           <span className="hx-tool-name" data-testid="conv-tool-name" title={block.name}>
             {toolDisplayName(block.name, TOOL_NAMES)}
           </span>
-          <span className="hx-tool-arg">{toolArgs(block.input)}</span>
+          <span className="hx-tool-arg" data-testid="conv-tool-args">
+            {toolArgs(block.input)}
+          </span>
         </>
       }
       tail={tail}

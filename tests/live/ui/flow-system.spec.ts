@@ -14,7 +14,7 @@
 import type { Page } from "@playwright/test";
 import { type Backend, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
-import { open, openFlow, toFlows, watchConsole } from "./page";
+import { connected, open, openFlow, spaceEntry, toFlows, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:flow", "@layer:ui"] };
 
@@ -36,16 +36,16 @@ async function current(page: Page): Promise<string | null> {
   return page.evaluate(() => ((window as any).harnix.app.snapshot.current?.sessionId as string | undefined) ?? null);
 }
 
-const systemEntry = (page: Page) => page.locator('#side .l-bottom [data-space="system"]');
+const systemEntry = (page: Page) => page.getByTestId("sidebar-foot").locator('[data-testid="space-entry"][data-space="system"]');
 
 test("no Flows space among the spaces: the system console has a Flows tab, after all and before diagnostics; active stays the first", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, backend.url);
-  await expect(page.locator('#side .spaces [data-space="sessions"]')).toBeVisible();
+  await expect(spaceEntry(page, "sessions")).toBeVisible();
   await expect(page.locator('#side [data-space="flow"]')).toHaveCount(0);
 
   await systemEntry(page).click();
-  const tabs = page.locator('[data-testid="system-console"] .stabs [data-tab]');
+  const tabs = page.getByTestId("system-console").getByRole("tablist").first().getByRole("tab");
   await expect(tabs.first()).toHaveAttribute("data-tab", "active");
   await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
   const order = await tabs.evaluateAll((els) => els.map((el) => el.getAttribute("data-tab")));
@@ -54,7 +54,7 @@ test("no Flows space among the spaces: the system console has a Flows tab, after
   if (order.includes("apps")) expect(order.indexOf("flows")).toBeLessThan(order.indexOf("apps"));
 
   // The strip stays at the top; the flows and the runs under the tabs.
-  await page.locator('[data-testid="system-console"] [data-tab="flows"]').click();
+  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="flows"]').click();
   await expect(page.getByTestId("system-strip")).toBeVisible();
   await expect(page.getByTestId("flow-def-example-review")).toBeVisible();
   await expect(page.getByTestId("flow-runs-toolbar")).toBeVisible();
@@ -78,7 +78,7 @@ test("into a flow: the left column is its context, its conversation in the middl
   await expect(page.getByTestId("flow-context-runs")).toBeAttached();
   // Still the system space as far as the left column's entries go.
   await expect(systemEntry(page)).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator('#side .spaces [aria-pressed="true"]')).toHaveCount(0);
+  await expect(page.getByTestId("space-list").getByRole("button", { pressed: true })).toHaveCount(0);
 
   // The middle: its own conversation, the line over the composer naming it.
   await expect.poll(() => current(page)).toBe(own);
@@ -101,7 +101,7 @@ test("into a flow: the left column is its context, its conversation in the middl
   await expect(page.locator("#main")).toHaveAttribute("data-space", "system");
   await expect(page.getByTestId("system-tree")).toBeVisible();
   await expect(page.getByTestId("flow-context")).toHaveCount(0);
-  await expect(page.locator('[data-testid="system-console"] [data-tab="flows"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-testid="system-console"] [role="tab"][data-tab="flows"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.getByTestId("system-flows")).toBeVisible();
   await expect(page.locator("#secondary")).toHaveCount(0);
 
@@ -138,7 +138,7 @@ test("an old flow session kept as the front one still opens on load", TAGS, asyn
     localStorage.setItem("harnix.space.current", JSON.stringify({ flow: { instance: "system", sessionId } }));
   }, own);
   await page.reload();
-  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
+  await connected(page);
   await expect(page.locator("#main")).toHaveAttribute("data-space", "flow");
   await expect.poll(() => current(page)).toBe(own);
   await expect(page.getByTestId("conv-input")).toBeEnabled();

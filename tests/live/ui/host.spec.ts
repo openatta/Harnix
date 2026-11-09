@@ -11,7 +11,7 @@
 import type { Page } from "@playwright/test";
 import { dropSessions, expect, launchFor, startHarnix, test, topology } from "@harnix/testkit";
 
-import { newSession, open, reply, say, watchConsole } from "./page";
+import { newSession, open, reply, say, sessionRow, watchConsole } from "./page";
 
 const SHELL = { tag: ["@feature:shell", "@layer:ui"] };
 
@@ -158,9 +158,9 @@ test("useCurrentSession: the right column follows the session picked in the left
   });
   await inSpace(page, "follows");
   const shown = page.getByTestId("current-session");
-  await page.locator(`#side .srow[data-sid="${first}"]`).click();
+  await sessionRow(page, first).click();
   await expect(shown).toHaveText(first);
-  await page.locator(`#side .srow[data-sid="${second}"]`).click();
+  await sessionRow(page, second).click();
   await expect(shown).toHaveText(second);
   expect(errors).toEqual([]);
 });
@@ -193,16 +193,16 @@ test("settings.open opens the panel at a section, a built-in one too, and the fi
     app.registry.register("space", { id: "configured", icon: "settings", title: () => "Configured", sessions: "sessions" }, "test");
   });
   await inSpace(page, "configured");
-  const on = page.locator(".settings-nav .nav-item.on");
+  const on = page.getByTestId("settings-nav").locator('[data-state="current"]');
   await page.evaluate(() => (window as any).harnix.host.settings.open("probe"));
   await expect(on).toHaveText("Probe");
-  await expect(page.locator(".settings-page")).toContainText("the probe's settings");
+  await expect(page.getByTestId("settings-page")).toContainText("the probe's settings");
   await page.keyboard.press("Escape");
   await page.evaluate(() => (window as any).harnix.host.settings.open("models"));
   await expect(on).toHaveText(/Models|模型/);
   await page.keyboard.press("Escape");
   await page.evaluate(() => (window as any).harnix.host.settings.open("nope"));
-  await expect(on).toHaveText(await page.locator(".settings-nav .nav-item").first().innerText());
+  await expect(on).toHaveText(await page.getByTestId("settings-nav").getByRole("button").first().innerText());
 });
 
 test("badge: a space's entry shows its count, not when it is zero, also on the rail; one that throws is noted", SHELL, async ({ page }) => {
@@ -227,7 +227,7 @@ test("badge: a space's entry shows its count, not when it is zero, also on the r
   });
   await expect(entry.getByTestId("space-badge")).toHaveText("1");
   await expect(entry.getByTestId("space-badge")).toHaveAttribute("aria-label", /Counted.*1/);
-  await page.locator("#side .collapse").click();
+  await page.getByTestId("sidebar-toggle").click();
   await expect(page.locator("#frame")).toHaveAttribute("data-sidebar", "collapsed");
   await expect(entry.getByTestId("space-badge")).toBeVisible();
   await expect(page.locator('#side [data-space="broken"]')).toBeVisible();

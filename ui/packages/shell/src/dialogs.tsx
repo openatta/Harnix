@@ -88,7 +88,7 @@ export function DirectoryPicker({ app, onPick }: { app: App; onPick: (path: stri
           </span>
         ))}
         <span> </span>
-        <button type="button" className="btn sm outline" onClick={() => onPick(listing.path)}>
+        <button type="button" className="btn sm outline" data-testid="picker-use" onClick={() => onPick(listing.path)}>
           {t("dialog.useThisDirectory")}
         </button>
       </div>
@@ -274,7 +274,7 @@ function AddWorkspace({ app }: { app: App }) {
         <button type="button" className="btn outline" onClick={() => app.closeModal()}>
           {t("common.cancel")}
         </button>
-        <button type="button" className="btn primary" onClick={() => void add()}>
+        <button type="button" className="btn primary" data-testid="project-add" onClick={() => void add()}>
           {t("common.add")}
         </button>
       </Foot>
@@ -319,7 +319,7 @@ function Rename({ app, current, save }: { app: App; current: string; save: (titl
         <button type="button" className="btn outline" onClick={() => app.closeModal()}>
           {t("common.cancel")}
         </button>
-        <button type="button" className="btn primary" onClick={() => void commit()}>
+        <button type="button" className="btn primary" data-testid="rename-save" onClick={() => void commit()}>
           {t("common.save")}
         </button>
       </Foot>
@@ -336,7 +336,7 @@ export function confirmDialog(app: App, message: string, confirm: () => Promise<
           <div>{message}</div>
         </Body>
         <Foot>
-          <button type="button" className="btn outline" onClick={() => app.closeModal()}>
+          <button type="button" className="btn outline" data-testid="confirm-cancel" onClick={() => app.closeModal()}>
             {t("common.cancel")}
           </button>
           <button type="button" className="btn primary" data-testid="confirm" onClick={() => void attempt(app, confirm)}>

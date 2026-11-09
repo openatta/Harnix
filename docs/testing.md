@@ -154,6 +154,10 @@ test("a new session is idle and in the list", TAGS, async ({ api }) => {
 
 界面测试拿 `page` 和 `harnix`：`await page.goto(harnix.url)`。
 
+界面测试按元素是什么来找，不按它画成什么样：用 `data-testid`、角色（`getByRole`：外壳的菜单、树、页签、对话框都有角色）、
+数据属性。状态读 `data-state`（或 `aria-selected`、`aria-pressed` 这类 ARIA 属性），不读 `.on` 这类样式类：改了外壳的样式，
+行为没变的测试不该跟着坏。常用的几个在 `tests/live/ui/page.ts`：`connected`、`spaceEntry`、`sessionRow`、`settingsSection`、`tab`。
+
 要一个配置不同的后端（种子数据、只开一种拓扑、带某个 profile 段），在用例里
 `startHarnix({ seed, topologies, profile })`，用完 `await backend.dispose()`（等进程退出再删目录；`stop()` 不等，已标 `@deprecated`）。
 

@@ -12,7 +12,7 @@
 import type { Page } from "@playwright/test";
 import { dropSessions, expect, test } from "@harnix/testkit";
 
-import { newSession, open, reply, say } from "./page";
+import { newSession, open, reply, say, sessionRow } from "./page";
 
 const SHELL = { tag: ["@feature:shell", "@layer:ui"] };
 
@@ -26,7 +26,7 @@ test.afterEach(async ({ api }) => {
 });
 
 const frame = (page: Page) => page.locator("#frame");
-const row = (page: Page, id: string) => page.locator(`#side .srow[data-sid="${id}"]`);
+const row = sessionRow;
 const current = (page: Page) => page.evaluate(() => ((window as any).harnix.app.snapshot.current?.sessionId as string | undefined) ?? null);
 
 /** What of the rail is drawn outside it, and the text it shows: neither should there be. */
@@ -64,7 +64,7 @@ for (const width of [900, 600]) {
       await twoSessions(page);
       await expect(frame(page)).toHaveAttribute("data-sidebar", "collapsed");
       await expect(page.getByTestId("rail-sessions")).toBeVisible();
-      await expect(page.locator("#side .srow").first()).toBeHidden();
+      await expect(page.locator('[data-testid="session-row"]').first()).toBeHidden();
       const seen = await leaks(page);
       expect(seen.width).toBeLessThanOrEqual(57);
       expect(seen.out).toEqual([]);
@@ -73,7 +73,7 @@ for (const width of [900, 600]) {
       // (720px), at the gutter once it is not (the old 24px clearance put it at 48).
       const { gutter, room } = await page.getByTestId("conv-input").evaluate((input) => {
         const main = document.getElementById("main")!.getBoundingClientRect();
-        return { gutter: Math.round(input.closest(".hx-cmp")!.getBoundingClientRect().left - main.left), room: main.width };
+        return { gutter: Math.round(input.closest('[data-testid="conv-composer"]')!.getBoundingClientRect().left - main.left), room: main.width };
       });
       expect(gutter).toBeLessThanOrEqual(Math.max(32, (room - 720) / 2 + 8));
     });

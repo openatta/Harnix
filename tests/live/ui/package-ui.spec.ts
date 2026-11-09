@@ -61,10 +61,10 @@ test("package-ui: the diagnostics list each entry, the import map and the CSP th
   await open(page, backend.url);
   await page.getByTestId("avatar").click();
   await page.getByTestId("open-settings").click();
-  await page.locator(".settings-nav .nav-item", { hasText: /Diagnostics|诊断/ }).click();
+  await page.getByTestId("settings-nav").getByRole("button", { name: /Diagnostics|诊断/ }).click();
   await expect(page.getByTestId("import-map")).toContainText("@harnix/react");
   await expect(page.getByTestId("csp")).toContainText("'sha256-");
-  const page_ = page.locator(".settings-page");
+  const page_ = page.getByTestId("settings-page");
   await expect(page_).toContainText("demo-rows-v2");
   await expect(page_).toContainText("这一条不生效");
 });

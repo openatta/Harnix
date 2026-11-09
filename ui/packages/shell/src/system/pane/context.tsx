@@ -119,7 +119,7 @@ export function ContextTab({ app, view, session }: { app: App; view: View; sessi
           const droppable = origin === "user" || origin === "steer" || origin === "command" || origin === "tool_result";
           const editable = (origin === "user" || origin === "steer") && isPlainText(message.content);
           return (
-            <div key={message.seq} className="message" data-seq={message.seq} data-origin={origin}>
+            <div key={message.seq} className="message" data-testid="system-message" data-seq={message.seq} data-origin={origin}>
               <span className="seq">{message.seq}</span>
               <span className="origin">{origin}</span>
               <span className="text truncate" title={text}>

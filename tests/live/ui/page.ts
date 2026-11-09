@@ -4,9 +4,13 @@
  * Sessions are created from inside the page through `window.harnix.app` — the same `session.create`
  * the new-session dialog sends, with the fixture's name, which only means something because the
  * backend was started in replay.
+ *
+ * Elements are found by what they are, not by how they are drawn: a `data-testid`, a role, a data
+ * attribute. A state is read from `data-state` (or ARIA), never from a style class such as `.on`:
+ * restyling the shell must not break a test whose behaviour did not change.
  */
 
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { expect } from "@harnix/testkit";
 
 /** Console errors are failures: a page that throws while still looking right is the failure a
@@ -26,8 +30,27 @@ export function watchConsole(page: Page): string[] {
 
 export async function open(page: Page, url: string): Promise<void> {
   await page.goto(url);
-  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
+  await connected(page);
 }
+
+/** The page is connected: the avatar says so (`data-state` is the client's status). */
+export async function connected(page: Page): Promise<void> {
+  await expect(page.locator('[data-testid="avatar"][data-state="open"]')).toBeVisible({ timeout: 15_000 });
+}
+
+/* ── the shell's parts, found by name ────────────────────────────────── */
+
+/** A space's entry in the left column (the top list or the bottom), by the space's id. */
+export const spaceEntry = (page: Page, space: string): Locator => page.locator(`[data-testid="space-entry"][data-space="${space}"]`);
+
+/** A session's row in the left column; the open one has `data-state="current"`. */
+export const sessionRow = (page: Page, sessionId: string): Locator => page.locator(`[data-testid="session-row"][data-sid="${sessionId}"]`);
+
+/** A section's entry in the settings' navigation; the shown one has `data-state="current"`. */
+export const settingsSection = (page: Page, section: string): Locator => page.getByTestId("settings-nav").locator(`[data-section="${section}"]`);
+
+/** A tab of a tab strip (`role="tab"`), by its `data-tab`. */
+export const tab = (scope: Page | Locator, id: string): Locator => scope.locator(`[role="tab"][data-tab="${id}"]`);
 
 /** Create a session replaying `fixture`, open it, and return its id. */
 /** Without a project root the session is in the engine's own working directory — the test project. */
@@ -68,16 +91,16 @@ export function reply(page: Page) {
 export async function openSettings(page: Page): Promise<void> {
   await page.getByTestId("avatar").click();
   await page.getByTestId("open-settings").click();
-  await expect(page.locator(".settings-nav")).toBeVisible();
+  await expect(page.getByTestId("settings-nav")).toBeVisible();
 }
 
 /* ── the flows, in the system space ──────────────────────────────────── */
 
 /** The system space's Flows tab, from wherever the page is: the flows, then every run. */
 export async function toFlows(page: Page): Promise<void> {
-  await page.locator('#side button[data-space="system"]').click();
+  await spaceEntry(page, "system").click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", "system");
-  await page.locator('[data-testid="system-console"] [data-tab="flows"]').click();
+  await tab(page.getByTestId("system-console"), "flows").click();
   await expect(page.getByTestId("system-flows")).toBeVisible();
 }
 
@@ -101,6 +124,6 @@ export async function openRun(page: Page, run: string): Promise<void> {
 /** The reference, the right column's one tab inside a flow. */
 export async function flowReference(page: Page): Promise<void> {
   if ((await page.locator("#frame").getAttribute("data-details")) !== "open") await page.getByTestId("details-toggle").click();
-  await page.locator('#details [data-tab="flow.reference"]').click();
+  await tab(page.locator("#details"), "flow.reference").click();
   await expect(page.getByTestId("flow-reference-tab")).toBeVisible();
 }

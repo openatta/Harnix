@@ -15,7 +15,7 @@ import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { type Backend, ROOT, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
-import { open, reply, say, watchConsole } from "./page";
+import { connected, open, reply, say, sessionRow, spaceEntry, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:spaces", "@layer:ui"] };
 const PROJECTS = { tag: ["@feature:projects", "@layer:ui"] };
@@ -37,7 +37,7 @@ test.beforeAll(async () => {
 test.afterAll(async () => { await backend?.dispose(); });
 
 async function inSpace(page: Page, space: string): Promise<void> {
-  await page.locator(`#side .spaces [data-space="${space}"]`).click();
+  await spaceEntry(page, space).click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", space);
 }
 
@@ -52,10 +52,10 @@ async function startReplaying(page: Page): Promise<{ instance: string; sessionId
 test("the application's spaces are listed, each with its own title", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, backend.url);
-  const ids = await page.locator("#side .spaces .space").evaluateAll((nodes) => nodes.map((n) => (n as HTMLElement).dataset.space));
+  const ids = await page.getByTestId("space-list").getByTestId("space-entry").evaluateAll((nodes) => nodes.map((n) => (n as HTMLElement).dataset.space));
   expect(ids).toEqual(["sessions", "projects", "greeter", "notes"]);
   // The system space is entered from the bottom, beside the avatar.
-  await expect(page.locator('#side .l-bottom [data-space="system"]')).toBeVisible();
+  await expect(page.getByTestId("sidebar-foot").locator('[data-testid="space-entry"][data-space="system"]')).toBeVisible();
   await inSpace(page, "greeter");
   await expect(page.getByTestId("space-pill")).toContainText("Greeter");
   expect(errors).toEqual([]);
@@ -89,12 +89,12 @@ test("each space keeps its own session and draft; coming back restores them", TA
 
   await inSpace(page, "greeter");
   await expect(page.getByTestId("conv-input")).toHaveValue("half a greeting");
-  await expect(page.locator(`#side .srow[data-sid="${greeter.sessionId}"]`)).toHaveClass(/on/);
+  await expect(sessionRow(page, greeter.sessionId)).toHaveAttribute("data-state", "current");
   // The notes message is not here.
   await expect(page.locator('[data-testid="conv-message"]')).toHaveCount(0);
 
   await inSpace(page, "notes");
-  await expect(page.locator(`#side .srow[data-sid="${notes.sessionId}"]`)).toHaveClass(/on/);
+  await expect(sessionRow(page, notes.sessionId)).toHaveAttribute("data-state", "current");
   await expect(reply(page)).toContainText(/fixture ready/i);
 });
 
@@ -155,7 +155,7 @@ test("a space's tab calls its module, and the home cards under a new conversatio
   await open(page, backend.url);
   await inSpace(page, "greeter");
   await page.getByTestId("details-toggle").click();
-  await page.locator('#details .tabs [data-tab="greet"]').click();
+  await page.locator('#details [role="tab"][data-tab="greet"]').click();
   await page.getByTestId("greet").click();
   await expect(page.getByTestId("greeting")).toContainText(/hello, world \(\d+\)/);
   await inSpace(page, "sessions");
@@ -175,14 +175,14 @@ test("the projects space lists the session space's conversations by project, one
   });
   await inSpace(page, "projects");
   const projects = page.getByTestId("projects");
-  const alpha = projects.locator(".project", { hasText: "alpha-" });
-  const beta = projects.locator(".project", { hasText: "beta-" });
-  await alpha.locator(".prj").click();
+  const alpha = projects.locator("[data-project]", { hasText: "alpha-" });
+  const beta = projects.locator("[data-project]", { hasText: "beta-" });
+  await alpha.getByRole("treeitem", { level: 1 }).click();
   await expect(alpha).toHaveAttribute("data-open", "true");
   // A conversation started here runs in the open project, and is listed under it.
   await page.getByTestId("conv-input").fill("Say exactly: fixture ready");
   await page.getByTestId("conv-input").press("Enter");
-  await expect(alpha.locator(".pgroup .srow")).toHaveCount(1, { timeout: 15_000 });
+  await expect(alpha.getByRole("treeitem", { level: 2 })).toHaveCount(1, { timeout: 15_000 });
   const root = await page.evaluate(() => {
     const { app } = (window as any).harnix;
     const key = app.snapshot.current;
@@ -190,9 +190,9 @@ test("the projects space lists the session space's conversations by project, one
   });
   expect(roots).toContain(root);
   // Opening the other closes this one.
-  await beta.locator(".prj").click();
+  await beta.getByRole("treeitem", { level: 1 }).click();
   await expect(alpha).toHaveAttribute("data-open", "false");
-  await expect(alpha.locator(".pgroup")).toHaveCount(0);
+  await expect(alpha.getByRole("group")).toHaveCount(0);
 });
 
 test("brand: the product's name, icon, colours and words, without a fork of ui/", BRAND, async ({ page }) => {
@@ -211,12 +211,12 @@ test("brand: the product's name, icon, colours and words, without a fork of ui/"
     await expect(page.locator("#side .brand img.brand-icon")).toHaveAttribute("src", "/brand/icon.svg");
     const accent = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim());
     expect(accent.toLowerCase()).toBe("#2f6fb3");
-    await expect(page.locator('#side .spaces [data-space="greeter"]')).toContainText("Greeter");
+    await expect(spaceEntry(page, "greeter")).toContainText("Greeter");
     // The module's language pack follows the language.
     await page.getByTestId("avatar").click();
     await page.getByTestId("menu-language").click();
     const zh = await page.evaluate(() => document.documentElement.lang);
-    await expect(page.locator('#side .spaces [data-space="greeter"]')).toContainText(zh === "en" ? "Greeter" : "问候");
+    await expect(spaceEntry(page, "greeter")).toContainText(zh === "en" ? "Greeter" : "问候");
     expect(branded.state.endsWith("/.hello-app")).toBe(true);
     expect(errors).toEqual([]);
   } finally {
@@ -232,7 +232,7 @@ test("entry-card: a long job's progress arrives on its topic, and its result is 
   await inSpace(page, "greeter");
   const key = await startReplaying(page);
   await page.getByTestId("details-toggle").click();
-  await page.locator('#details .tabs [data-tab="greet"]').click();
+  await page.locator('#details [role="tab"][data-tab="greet"]').click();
   await page.getByTestId("job-start").click();
   await expect(page.getByTestId("job-progress")).toHaveAttribute("data-finished", "true", { timeout: 15_000 });
   await expect(page.getByTestId("job-progress")).toContainText("20/20");
@@ -241,7 +241,7 @@ test("entry-card: a long job's progress arrives on its topic, and its result is 
 
   // It is in the session's log: a refresh draws it again, once.
   await page.reload();
-  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
+  await connected(page);
   await expect(page.locator("#main")).toHaveAttribute("data-space", "greeter");
   await expect(page.getByTestId("job-done-card")).toHaveCount(1);
 
@@ -257,7 +257,7 @@ test("a module's own link: its route and its socket, with the host's credential"
   await open(page, backend.url);
   await inSpace(page, "greeter");
   await page.getByTestId("details-toggle").click();
-  await page.locator('#details .tabs [data-tab="greet"]').click();
+  await page.locator('#details [role="tab"][data-tab="greet"]').click();
   await page.getByTestId("route-fetch").click();
   await expect(page.getByTestId("route-said")).toHaveText("200 hello from the greeter's own route");
   await page.getByTestId("route-echo").click();
@@ -300,7 +300,7 @@ test("an approval: two people see one card, and the first answer stands", APPROV
   await other.evaluate((key) => (window as any).harnix.app.open(key), key);
 
   await page.getByTestId("details-toggle").click();
-  await page.locator('#details .tabs [data-tab="greet"]').click();
+  await page.locator('#details [role="tab"][data-tab="greet"]').click();
   await page.getByTestId("approval-request").click();
   const mine = page.getByTestId("approval-card");
   const theirs = other.getByTestId("approval-card");
@@ -348,7 +348,7 @@ test("an approval nobody answers is a no, and a module cannot answer for a perso
 
   // Still there, decided, after a refresh: the card and its decision are in the session's log.
   await page.reload();
-  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
+  await connected(page);
   await expect(page.locator(`[data-testid="approval-card"][data-ticket="${quick.id}"]`)).toHaveAttribute("data-state", "rejected");
   await expect(page.locator(`[data-testid="approval-decided"][data-ticket="${quick.id}"]`)).toHaveCount(1);
 });

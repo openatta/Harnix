@@ -9,7 +9,7 @@
 import type { Page } from "@playwright/test";
 import { type Backend, dropSessions, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
-import { newSession, open, reply, say, watchConsole } from "./page";
+import { newSession, open, reply, say, settingsSection, spaceEntry, watchConsole } from "./page";
 
 const SHELL = { tag: ["@feature:session-space", "@layer:ui"] };
 const PROJECTS = { tag: ["@feature:projects", "@layer:ui"] };
@@ -26,7 +26,7 @@ test.afterEach(async ({ api }) => {
 });
 
 async function toProjects(page: Page): Promise<void> {
-  await page.locator('#side .spaces [data-space="projects"]').click();
+  await spaceEntry(page, "projects").click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", "projects");
 }
 
@@ -47,7 +47,7 @@ test("the avatar's menu cycles the theme and opens About", SHELL, async ({ page 
 
   await page.getByTestId("avatar").click();
   await page.getByTestId("menu-about").click();
-  await expect(page.locator('.settings-nav [data-section="about"]')).toHaveClass(/\bon\b/);
+  await expect(settingsSection(page, "about")).toHaveAttribute("data-state", "current");
   expect(errors).toEqual([]);
 });
 
@@ -57,24 +57,24 @@ test("a project added by name is listed; renamed from its menu it says so; remov
   await toProjects(page);
   const name = `added-${Date.now()}`;
   await page.getByTestId("add-project").click();
-  await page.locator("#modal .field").first().locator("input").fill(name);
-  await page.locator("#modal .btn.primary").click();
+  await page.getByRole("dialog").getByRole("textbox").first().fill(name);
+  await page.getByTestId("project-add").click();
   await expect(page.locator("#modal")).toHaveCount(0);
-  const project = page.getByTestId("projects").locator(".project", { hasText: name });
+  const project = page.getByTestId("projects").locator("[data-project]", { hasText: name });
   await expect(project).toBeVisible();
 
-  await project.locator(".prj").click({ button: "right" });
+  await project.getByRole("treeitem", { level: 1 }).click({ button: "right" });
   await page.locator('[data-testid="project-menu"] [data-item="rename"]').click();
   const renamed = `${name}-renamed`;
   await page.locator("#modal input").fill(renamed);
-  await page.locator("#modal .btn.primary").click();
-  const after = page.getByTestId("projects").locator(".project", { hasText: renamed });
+  await page.getByTestId("rename-save").click();
+  const after = page.getByTestId("projects").locator("[data-project]", { hasText: renamed });
   await expect(after).toBeVisible();
 
-  await after.locator(".prj").click({ button: "right" });
+  await after.getByRole("treeitem", { level: 1 }).click({ button: "right" });
   await page.locator('[data-testid="project-menu"] [data-item="remove"]').click();
   await expect(page.locator("#modal")).toHaveCount(0);
-  await expect(page.getByTestId("projects").locator(".project", { hasText: renamed })).toHaveCount(0);
+  await expect(page.getByTestId("projects").locator("[data-project]", { hasText: renamed })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
@@ -96,7 +96,7 @@ test("a project added by picking its directory: walked into, used, listed by its
     await app.refreshSessions();
   }, made);
   await toProjects(page);
-  await expect(page.getByTestId("projects").locator(".project", { hasText: made.split("/").pop()! })).toHaveCount(0);
+  await expect(page.getByTestId("projects").locator("[data-project]", { hasText: made.split("/").pop()! })).toHaveCount(0);
 
   await page.getByTestId("add-project").click();
   const picker = page.locator("#modal .picker");
@@ -105,11 +105,11 @@ test("a project added by picking its directory: walked into, used, listed by its
   expect(rest.length, `${made} is under ${start}`).toBeGreaterThan(0);
   for (const part of rest) await picker.locator(".list .entry", { hasText: part }).first().click();
   await expect(picker.locator(".crumbs")).toContainText(rest[rest.length - 1]!);
-  await picker.locator(".crumbs .btn").click();
+  await page.getByTestId("picker-use").click();
   await expect(page.locator("#modal .picked")).toHaveText(made);
-  await page.locator("#modal .btn.primary").click();
+  await page.getByTestId("project-add").click();
   await expect(page.locator("#modal")).toHaveCount(0);
-  await expect(page.getByTestId("projects").locator(".project", { hasText: made.split("/").pop()! })).toBeVisible();
+  await expect(page.getByTestId("projects").locator("[data-project]", { hasText: made.split("/").pop()! })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -154,7 +154,7 @@ test.describe("without a model", () => {
     await expect(model).toBeDisabled();
     await expect(model).toHaveText(/Not configured|未配置/);
     await page.getByTestId("model-setup-open").click();
-    await expect(page.locator('.settings-nav [data-section="models"]')).toHaveClass(/\bon\b/);
+    await expect(settingsSection(page, "models")).toHaveAttribute("data-state", "current");
     await expect(page.getByTestId("providers-none")).toBeVisible();
   });
 });

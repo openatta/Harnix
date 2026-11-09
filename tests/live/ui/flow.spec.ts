@@ -28,7 +28,7 @@
 import type { Page } from "@playwright/test";
 import { type Backend, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
-import { flowReference, open, openFlow, reply, say, toFlows, watchConsole } from "./page";
+import { flowReference, open, openFlow, reply, say, spaceEntry, toFlows, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:flow", "@layer:ui"] };
 
@@ -415,11 +415,11 @@ test("a profile that drops the flows in [shell] spaces does not get them", TAGS,
   try {
     const errors = watchConsole(page);
     await open(page, without.url);
-    await expect(page.locator('#side .spaces [data-space="sessions"]')).toBeVisible();
+    await expect(spaceEntry(page, "sessions")).toBeVisible();
     await expect(page.locator('#side [data-space="flow"]')).toHaveCount(0);
     await page.locator('#side button[data-space="system"]').click();
     await expect(page.getByTestId("system-console")).toBeVisible();
-    await expect(page.locator('[data-testid="system-console"] [data-tab="flows"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="system-console"] [role="tab"][data-tab="flows"]')).toHaveCount(0);
     // The module is still there; only the interface leaves it out.
     expect(await page.evaluate(() => (window as any).harnix.app.snapshot.reachable.includes("app.flow.defs"))).toBe(true);
     expect(errors).toEqual([]);
@@ -434,9 +434,9 @@ test("a profile that keeps the flows but not the system space gets them as a spa
     const errors = watchConsole(page);
     await open(page, alone.url);
     await expect(page.locator('#side button[data-space="system"]')).toHaveCount(0);
-    await page.locator('#side .spaces [data-space="flow"]').click();
+    await spaceEntry(page, "flow").click();
     await expect(page.locator("#main")).toHaveAttribute("data-space", "flow");
-    await page.locator('#details [data-tab="flow.flows"]').click();
+    await page.locator('#details [role="tab"][data-tab="flow.flows"]').click();
     await page.getByTestId("flow-def-example-review").click();
     await expect(page.locator('#secondary [data-testid="flow-detail"]')).toHaveAttribute("data-flow", "example-review");
     await expect.poll(() => current(page)).toBe(await conversationOf(page, "example-review"));
