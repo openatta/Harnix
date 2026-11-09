@@ -204,12 +204,7 @@ fn take_in(c: &mut Catalog, def: &FlowDef, packs: &dyn Packs) {
                 }
             }
         }
-        let specs = match s.work() {
-            Work::None => vec![],
-            Work::One(t) | Work::Foreach { task: t, .. } => vec![t],
-            Work::Tasks(ts) => ts,
-        };
-        for t in specs {
+        for t in s.task_specs() {
             match t.executor {
                 Executor::Program { step } => {
                     c.steps.insert(step);

@@ -31,19 +31,6 @@ pub(crate) fn task_work(
     let (guarded, submit_scenes, main_scene) = (&eng.guarded, &eng.submit_scenes, eng.main_scene.as_deref());
     let workspace = eng.workspace(&rec.id);
     let ctx = context_in(rec, item.as_ref(), Some(tid), workspace.as_ref().and_then(|p| p.to_str()));
-    let resolve_params = |params: &BTreeMap<String, String>| -> BTreeMap<String, String> {
-        params
-            .iter()
-            .map(|(k, v)| {
-                let r = match resolve_str(v, &ctx) {
-                    Value::String(s) => s,
-                    Value::Null => String::new(),
-                    v => v.to_string(),
-                };
-                (k.clone(), r)
-            })
-            .collect()
-    };
     let session_key = match &spec.executor {
         Executor::Agent { .. } => Some(MAIN_SESSION_KEY.to_string()),
         e @ Executor::Session { .. } => match e.binding().unwrap_or(SessionBinding::New) {
@@ -76,7 +63,7 @@ pub(crate) fn task_work(
     };
     let (placement, delivery, scene) = match &spec.executor {
         e if e.in_main() => {
-            let (placement, scene) = main_placement(rec, main_scene, &resolve_params);
+            let (placement, scene) = main_placement(rec, main_scene, &ctx);
             (Some(placement), Some(Delivery::FlowSubmit), scene)
         }
         Executor::Session {
@@ -94,7 +81,7 @@ pub(crate) fn task_work(
                 provider: provider.clone(),
                 instance: instance.clone(),
                 template: template.clone(),
-                params: resolve_params(params),
+                params: resolve_params(params, &ctx),
                 space: space.clone(),
             }),
             Some(if submit_scenes.contains(scene) {
@@ -156,34 +143,33 @@ pub(crate) fn task_work(
     }
 }
 
-/// Template parameters, references resolved.
-type ResolveParams<'a> = dyn Fn(&BTreeMap<String, String>) -> BTreeMap<String, String> + 'a;
+/// Template parameters, their references resolved against `ctx`.
+fn resolve_params(params: &BTreeMap<String, String>, ctx: &Value) -> BTreeMap<String, String> {
+    params
+        .iter()
+        .map(|(k, v)| {
+            let r = match resolve_str(v, ctx) {
+                Value::String(s) => s,
+                Value::Null => String::new(),
+                v => v.to_string(),
+            };
+            (k.clone(), r)
+        })
+        .collect()
+}
 
 /// [`main_placement`] with `params` resolved against the run (no item, no task).
 pub(crate) fn main_of(rec: &RunRecord, main_scene: Option<&str>) -> (Placement, Option<String>) {
     let ctx = context_in(rec, None, None, None);
-    let resolve_params = |params: &BTreeMap<String, String>| -> BTreeMap<String, String> {
-        params
-            .iter()
-            .map(|(k, v)| {
-                let r = match resolve_str(v, &ctx) {
-                    Value::String(s) => s,
-                    Value::Null => String::new(),
-                    v => v.to_string(),
-                };
-                (k.clone(), r)
-            })
-            .collect()
-    };
-    main_placement(rec, main_scene, &resolve_params)
+    main_placement(rec, main_scene, &ctx)
 }
 
-/// Where the run's main session goes and its scene: the flow's `main`, its `params` resolved,
-/// and the module's main scene when it names none (`None`: there is none).
+/// Where the run's main session goes and its scene: the flow's `main`, its `params` resolved
+/// against `ctx`, and the module's main scene when it names none (`None`: there is none).
 pub(crate) fn main_placement(
     rec: &RunRecord,
     main_scene: Option<&str>,
-    resolve_params: &ResolveParams<'_>,
+    ctx: &Value,
 ) -> (Placement, Option<String>) {
     let m = rec.def.main.clone().unwrap_or_default();
     (
@@ -192,7 +178,7 @@ pub(crate) fn main_placement(
             provider: m.provider,
             instance: m.instance,
             template: m.template,
-            params: resolve_params(&m.params),
+            params: resolve_params(&m.params, ctx),
             space: m.space,
         },
         m.scene.or_else(|| main_scene.map(String::from)),

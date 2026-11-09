@@ -630,11 +630,7 @@ impl<'a> M<'a> {
         r.rounds_total += 1;
 
         let work = st.work();
-        let specs: Vec<TaskSpec> = match &work {
-            Work::None => vec![],
-            Work::One(t) | Work::Foreach { task: t, .. } => vec![t.clone()],
-            Work::Tasks(ts) => ts.clone(),
-        };
+        let specs = work.clone().into_specs();
         for skill in specs.iter().filter_map(|t| t.skill.as_ref()) {
             if let Some((_, digest)) = self.eng.packs.skill(skill) {
                 self.st(sid).skill_digest.insert(skill.clone(), digest);

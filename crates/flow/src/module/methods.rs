@@ -19,7 +19,7 @@ use super::{dispatch, publish};
 use super::rpc_error;
 use super::shared::Shared;
 use crate::dryrun::{is_dry, StartIn as DryStartIn};
-use crate::kernel::def::{definition_schema, Work};
+use crate::kernel::def::definition_schema;
 use crate::kernel::engine::{CreateIn, Engine};
 use crate::kernel::host::Packs;
 use crate::kernel::protocol;
@@ -1039,12 +1039,7 @@ fn def_info(engine: &Engine, packs: &dyn Packs, name: &str) -> Answer {
     let mut stations = BTreeMap::new();
     let pinned = crate::kernel::parts::pin(&def, packs);
     for s in &def.stations {
-        let specs = match s.work() {
-            Work::None => vec![],
-            Work::One(t) => vec![t],
-            Work::Tasks(ts) => ts,
-            Work::Foreach { task, .. } => vec![task],
-        };
+        let specs = s.task_specs();
         let permissions = crate::kernel::parts::permissions_of(&def, s, &pinned.policies);
         stations.insert(
             s.id.clone(),

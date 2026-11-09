@@ -416,12 +416,7 @@ pub(crate) fn parts_used(packs: &dyn Packs, def: &FlowDef) -> Value {
             .insert(name.to_string(), packs.part(kind, name).map(|(t, _)| t));
     };
     for s in &def.stations {
-        let specs = match s.work() {
-            Work::None => vec![],
-            Work::One(t) | Work::Foreach { task: t, .. } => vec![t],
-            Work::Tasks(ts) => ts,
-        };
-        for t in specs {
+        for t in s.task_specs() {
             if let Some(k) = t.skill {
                 put(PartKind::Skill, &k);
             }
