@@ -182,7 +182,7 @@ fn find(identifier: &str, exe_dir: &Path) -> Result<Option<PathBuf>, String> {
 }
 
 /// A remote Harnix is reached over TLS: it refuses to listen anywhere but
-/// loopback without it (design §6.3), so an `http://` address of another host
+/// loopback without it (concept §6.3), so an `http://` address of another host
 /// is a mistake to report now rather than a connection that cannot work.
 fn remote_url(text: &str) -> Result<Url, String> {
     let url = Url::parse(text).map_err(|e| format!("[remote] url「{text}」不是地址：{e}"))?;

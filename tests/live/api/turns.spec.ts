@@ -18,7 +18,7 @@ const assert = (cond, message) => { if (!cond) throw new Error(message); };
  * turn that settles **with an error** is a real result — the hub did its job
  * and the failure is in the answer — so that is left to the caller. A turn
  * that never settles at all means the upstream stopped answering, which is a
- * fact about the provider and not about this code. §7.4 names that case
+ * fact about the provider and not about this code. Concept §7.4 names that case
  * exactly: an upstream that hangs rather than erroring. Reporting it red
  * would make the suite fail for something it does not test, and reporting it
  * green would be worse.
@@ -269,7 +269,7 @@ defineSuite("turns", { feature: "sessions" }, {
           } catch {
             // A settlement that never arrives is two different facts, and
             // guessing which would make this suite red for the provider's
-            // behaviour (§7.4). So ask: a session still running is an
+            // behaviour (concept §7.4). So ask: a session still running is an
             // upstream that hung, and a session sitting idle with a
             // settlement missing is a queue that did not drain — which is
             // the thing this test is actually about.

@@ -9,7 +9,7 @@
 //
 // Every host event this build produces comes from connecting MCP servers, and
 // that happens once, at startup: `mcp.addServer` is refused here on purpose
-// (§3.4), so **no client can provoke one**. The only way to see the channel
+// (concept §3.4), so **no client can provoke one**. The only way to see the channel
 // carry anything is to start a process that will emit one — a server pointed
 // at a command that does not exist — and watch.
 //
@@ -144,7 +144,7 @@ defineSuite("host-events", {
         // state: `mcp.status` lists servers that connected, so a server that
         // never did is absent rather than broken. A tab opened a minute later
         // sees a healthy process. Catching up on a session's events is what
-        // the hub's buffer is for (§3.2); there is no equivalent for
+        // the hub's buffer is for (concept §3.2); there is no equivalent for
         // process-level facts, and the engine's own status call is where one
         // would naturally live.
         //

@@ -8,7 +8,7 @@
 //!
 //! The engine allows one turn per session at a time and refuses a second
 //! rather than queueing. That constraint is the engine's business and should
-//! not reach the user unchanged, so the queue is here (§3.2, point 4).
+//! not reach the user unchanged, so the queue is here (concept §3.2, point 4).
 
 use std::sync::Arc;
 
@@ -116,7 +116,7 @@ impl Hub {
         // reasonable for the engine and wrong for a client: a mistyped id
         // came back as a settled turn, with the transcript in a session under
         // an id the caller had never seen and could not ask for again, and a
-        // model call spent on it. The hub owns turns (§3.2), so refusing here
+        // model call spent on it. The hub owns turns (concept §3.2), so refusing here
         // is the hub's to do.
         let info = self
             .call(&key.0, "session.get", json!({"session_id": &session_id}))
@@ -409,7 +409,7 @@ impl Hub {
         // a self-contained directory for whoever owns the session to remove,
         // and deleting the session is that moment. Closing is not: the
         // conversation can be reopened, and what the model saw should still
-        // be there (§6.4).
+        // be there (concept §6.4).
         let recordings = self.slot(&key.0).and_then(|s| s.facts.recordings_root.clone());
         if let (true, Some(root)) = (method == "session.delete", recordings) {
             let dir = root.join(&session_id);
@@ -474,7 +474,7 @@ impl Hub {
 
     /// The queue is pushed **whole**, never as a delta. A merge bug only shows
     /// up in one order of arrival, and that order is not one tests reliably
-    /// produce (§3.2).
+    /// produce (concept §3.2).
     async fn push_queue(&self, key: &SessionKey, watchers: &[crate::ClientId], items: Vec<Value>) {
         let (instance, session_id) = (&key.0, key.1.as_str());
         self.fan_out(

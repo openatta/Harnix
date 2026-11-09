@@ -1,5 +1,5 @@
 /**
- * Sessions driven from the server side (design §6.1): a module creates
+ * Sessions driven from the server side (concept §3.2): a module creates
  * sessions, each with a model of its own, and sends into them through the
  * hub — the same queue, settlement and broadcast a client gets.
  *

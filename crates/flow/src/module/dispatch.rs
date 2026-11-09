@@ -89,7 +89,7 @@ pub(crate) async fn settle(sh: &Arc<Shared>, run: &str, what: &str, r: crate::Re
     }
 }
 
-/// Stop the instances the module made for `run` under its own names (xops-02 review #6): a
+/// Stop the instances the module made for `run` under its own names: a
 /// spawned daemon per run would otherwise outlive it, and a template's `max` run out.
 pub(crate) async fn stop_run_instances(sh: &Arc<Shared>, run: &str) {
     let Some(cx) = sh.cx.get() else { return };

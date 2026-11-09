@@ -14,6 +14,34 @@
 
 ---
 
+## 0. 快速开始：从零到装上（开发模式）
+
+一个只有一个工具的插件 APP，在本机一个开了模式 2 的 Harnix 上装起来。每一步的命令与选项见 §10。
+
+```sh
+# 一次：打包工具（带编译器）与 WASM 目标
+cargo build --release -p harnix-app-package --features compile --bin harnix-app
+rustup target add wasm32-wasip2
+
+# 1. 起一个应用：清单、一个带工具 hello 的 tools-app 组件（component/）、README
+harnix-app new acme-notes --id acme.notes
+# 2. 编组件，并为这个引擎编好（build/ 下的 .wasm、.cwasm）
+harnix-app build acme-notes
+# 3. 打包：acme.notes-0.1.0.hxapp（未签名）
+harnix-app pack acme-notes --build
+
+# 4. 一个带 apps 编的 Harnix，开着模式 2 与开发模式（未签名的包只在开发模式下能装）
+cargo build --release -p harnix-cli --features apps
+printf '[apps]\nenabled = true\ndev = true\n' > dev.toml
+./target/release/harnix --profile dev.toml
+```
+
+5. 从任何客户端（或测试里的 `connect(backend)`，§11）：`harnix.apps.installFile {"path": "/abs/path/acme.notes-0.1.0.hxapp"}`。
+   答 `{id, version, trust: "unsigned", …}`；新建的会话里就有工具 `app__acme_notes__hello`，每次调用先问人。
+6. 改了代码：`harnix.apps.uninstall {"id": "acme.notes"}`，再 `pack`、`installFile`。要发布：签名（§8）、交给商店（§9）。
+
+要后端（方法、主题、定时器）就把清单的 `world` 换成 `backend-app`、实现 `backend`（§4 的例子）；要界面加 `ui/` 与 `[[surface]]`（§6）。
+
 # 第一部分：指南
 
 ## 1. 一个插件 APP 是什么
@@ -28,17 +56,17 @@
 | 界面 | `ui/`：iframe 里的页面，经桥借外壳的手；外壳照清单画的行内点；受信发布者另可以带进页面的模块 | 浏览器（§6） |
 | 清单 | `harnix-app.toml`：它是什么、要什么能力、有哪些方法与主题、界面放在哪 | 安装时读、给人看（§3） |
 
-**一个应用一台虚拟机，只在主进程里。** 「虚拟机」是一个边界，不是一个进程：
+**模式 2 里，一个应用一台虚拟机，只在主进程里**（模式 3 里它在应用自己的进程里，[应用开发](app-development.md) §10）。「虚拟机」是一个边界，不是一个进程：
 
 | 这台虚拟机里有 | 说明 |
 |---|---|
 | 组件 | 应用的 `.cwasm`，加载、链接一次；整个进程共用一个 wasmtime `Engine` |
-| 常驻实例（后端） | 一个长期存活的实例：应用的状态、订阅、定时器都在这里；方法调用排队串行进入 |
-| 调用实例（工具与事件） | 每次工具调用、每次事件新建一个，用完即弃：并发安全，坏一次不连累后端；看不到后端的内存，要状态就 `host.call` 自己后端的方法 |
+| 常驻 Store（后端） | 一个长期存活的 wasmtime `Store`：应用的状态、订阅、定时器都在这里；方法调用排队串行进入 |
+| 调用 Store（工具与事件） | 每次工具调用、每次事件新建一个，用完即弃：并发安全，坏一次不连累后端；看不到后端的内存，要状态就 `host.call` 自己后端的方法 |
 | 资源账 | 内存、单次调用的时间、存储按应用记账；一个工具连续出错只停那个工具，后端重建后再崩才停用整台 |
 
 spawn 出来的 daemon 实例不起虚拟机：它的会话经这个应用的 MCP 端点（`/apps/<id>/mcp`）回到主进程那一台执行。所以在任何拓扑下
-一个应用只有一台虚拟机、一份状态。
+一个应用只有一台虚拟机、一份状态。本节下面说的「主进程」「产品的实例」都是模式 2 的样子；作者能观察到的两种模式的不同只有那一张表。
 
 **数据只走 Harnix 的通道。** 应用的界面和它的虚拟机之间没有自己的连接：
 
@@ -129,7 +157,7 @@ world = "harnix:app/backend-app@0.1.0"   # 或 harnix:app/tools-app@0.1.0
 memory_mb = 64                   # 1–4096，缺省 64
 timeout_ms = 30000               # 100–600000，缺省 30000
 
-[backend]                        # 只有 backend-app 能写
+[backend]                        # 非缺省的值只有 backend-app 能写
 resident = "on-demand"           # always（缺省）| on-demand
 idle_secs = 600                  # 60–86400，缺省 600
 ```
@@ -143,7 +171,7 @@ tools = "own"                    # own（缺省）：只有它自己的工具；
 - `backend-app`：另有常驻的后端，答方法、推主题、跑定时器、订 hub 的主题，也照样给工具与事件。
 - `[backend] resident = "on-demand"`：后端闲置满 `idle_secs`、又没有东西拿着它时卸下，下一次调用冷启动（`init` 重跑，状态从 kv 回来），
   系统 space 显示「休眠中」。「拿着它」是：有订阅、有定时器、有排队的投递、有在途的调用（方法、工具调用、事件钩子都算）。
-  工具调用本来就是临时实例，不受影响。
+  工具调用本来就各在自己的调用 Store 里，不受影响。
 - `[events] tools = "all"` 是一项能力：它会看到每一次工具调用的名字与参数（`Bash` 的命令、`Write` 的文件内容……），装的时候进披露。
   缺省的 `own` 只看到自己工具的调用，不算能力，不进披露。
 
@@ -236,11 +264,64 @@ world backend-app-events { include backend-app; export events; }
 `events` 是可选的导出：用不着观察工具调用的组件用前两个，清单的 `world` 也只写这两个之一（导出了 `events` 的组件仍是那个 world，
 宿主从组件的导出里认出它）。
 
-| 导出 | 函数 | 在哪个实例里 |
+| 导出 | 函数 | 在哪个 Store 里 |
 |---|---|---|
-| `tools` | `list-tools() -> list<tool-def>`、`call-tool(name, input-json, call-id) -> tool-output` | 每次调用一个临时实例 |
-| `events`（可选） | `on-event(event, payload-json) -> hook-decision`：`proceed`、`block(理由)`、`add-context(一段话)` | 每次一个临时实例 |
-| `backend` | `init(config-json)`、`handle(method, params-json, caller-json) -> result<string, app-error>`、`on-topic(topic, value-json)`、`on-timer(id)`、`stop()` | 常驻实例 |
+| `tools` | `list-tools() -> list<tool-def>`、`call-tool(name, input-json, call-id) -> tool-output` | 每次调用一个调用 Store |
+| `events`（可选） | `on-event(event, payload-json) -> hook-decision`：`proceed`、`block(理由)`、`add-context(一段话)` | 每次一个调用 Store |
+| `backend` | `init(config-json)`、`handle(method, params-json, caller-json) -> result<string, app-error>`、`on-topic(topic, value-json)`、`on-timer(id)`、`stop()` | 常驻 Store |
+
+一个后端组件的样子（清单写 `world = "harnix:app/backend-app@0.1.0"`，声明了方法 `notes.add` 与主题 `notes`；完整的见 showcase 的
+`component/src/lib.rs`）：
+
+```rust
+wit_bindgen::generate!({ path: "wit", world: "backend-app" });   // wit/ 是 harnix-app new 拷来的 app.wit
+
+use exports::harnix::app::backend::{AppError, Guest as Backend};
+use exports::harnix::app::tools::{Guest as Tools, ToolDef, ToolOutput};
+use harnix::app::host;
+use serde_json::{json, Value};
+
+struct App;
+
+fn fail(code: i32, message: String) -> AppError {
+    AppError { code, message, data_json: None }
+}
+
+impl Backend for App {
+    fn init(_config: String) -> Result<(), String> { Ok(()) }
+
+    // app.acme.notes.<method>；参数已对清单的 schema 校验过，调用方已过准入
+    fn handle(method: String, params: String, _caller: String) -> Result<String, AppError> {
+        let params: Value = serde_json::from_str(&params).unwrap_or(Value::Null);
+        match method.as_str() {
+            "notes.add" => {
+                // 读不了是错误，不当作空的：当作空的再写回去，就把读不了的那份覆盖了
+                let stored = host::kv_get("notes").map_err(|e| fail(2, e))?;
+                let mut notes: Vec<Value> = stored.and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+                notes.push(params["text"].clone());
+                host::kv_set("notes", &serde_json::to_vec(&notes).unwrap()).map_err(|e| fail(2, e))?;
+                // 主题 app.acme.notes.notes：推整值
+                let _ = host::publish("notes", &json!({ "notes": notes }).to_string());
+                Ok(json!({ "count": notes.len() }).to_string())
+            }
+            other => Err(fail(-32601, format!("no method `{other}`"))),
+        }
+    }
+
+    fn on_topic(_topic: String, _value: String) {}
+    fn on_timer(_id: String) {}
+    fn stop() {}
+}
+
+impl Tools for App {
+    fn list_tools() -> Vec<ToolDef> { Vec::new() }
+    fn call_tool(name: String, _input: String, _call_id: String) -> ToolOutput {
+        ToolOutput { content: format!("no tool `{name}`"), structured: None, is_error: true }
+    }
+}
+
+export!(App);
+```
 
 **宿主函数**（`interface host`，每一个都是查能力的地方）：`log`、`now-ms`、`config`、`progress`、`http-request`（`net`）、`secret`（`env`）、
 `kv-get` / `kv-set` / `kv-delete`（`storage_mb`）、`call`（`hub`）、`publish`、`subscribe` / `unsubscribe`（只后端，`hub`）、`set-timer` /
@@ -249,9 +330,10 @@ world backend-app-events { include backend-app; export events; }
 
 **规矩**：
 
-- **`handle` 要快。** 一个后端的调用串行进入：等着宿主（`call`、`http-request`）的 `handle` 仍然占着实例。慢活拆成「发起」加
-  「定时器或主题回报」。排队等后端的调用也只等 `timeout_ms`：到时还轮不到，答「busy」（`failure: "unavailable"`，`health.queue_timeouts` 计一次）。
-- **超时换实例。** 超过 `timeout_ms` 的调用被放弃，后端实例随之换成新的（`init` 重跑，内存里的状态丢失，`health.recycles` 计一次）：
+- **`handle` 要快。** 一个后端的调用串行进入：等着宿主（`call`、`http-request`）的 `handle` 仍然占着常驻 Store。慢活拆成「发起」加
+  「定时器或主题回报」：方法只记下要做什么、`set-timer`、立刻答一个任务号，定时器里做，结果 `publish` 到一个主题（showcase 的 `fetch`
+  就是这样写的）。调用方不必等，一次调用也不会因为等宿主超时、把后端换掉；定时器里的活照样占着后端，所以大的活分几次定时器做。排队等后端的调用也只等 `timeout_ms`：到时还轮不到，答「busy」（`failure: "unavailable"`，`health.queue_timeouts` 计一次）。
+- **超时换 Store。** 超过 `timeout_ms` 的调用被放弃，常驻 Store 随之换成新的（`init` 重跑，内存里的状态丢失，`health.recycles` 计一次）：
   停在半路的代码不能信它留下的状态是一致的。
 - **崩溃重建一次，再崩搁置。** 后端陷阱后重建一次；再崩就把应用置于一旁（`faulted`）：记录仍是启用的，方法答「不可用」，
   停用再启用会重起。健康运行 10 分钟后出错计数清零。
@@ -259,11 +341,11 @@ world backend-app-events { include backend-app; export events; }
   别的工具、后端、界面照常。工具的输入来自模型（和注入进会话的东西），它出的错不能连累更多。事件钩子的陷阱不计（钩子失败本来就放行）。
   停用再启用会把它放回来。
 - **`/data` 也受 `storage_mb` 管。** 文件经 WASI 写，宿主看不见写入，所以每次调用后量一次目录（不在异步线程上量；条目超过 10 万算超额）。
-  超了之后，新的实例看到的 `/data` 只读（还能删）；常驻的后端也一样：它的文件越过配额，常驻实例就像超时那样换掉，换来的那个 `/data`
+  超了之后，新的 Store 看到的 `/data` 只读（还能删）；常驻的后端也一样：它的文件越过配额，常驻 Store 就像超时那样换掉，换来的那个 `/data`
   只读（`health.storage_recycles` 计一次）；删回配额以内，再换一次，又能写。
-- **要留下的状态放 kv。** 内存里的状态随时可能因为换实例、重建或休眠而丢掉。kv 按应用分、后端与工具共用、有上限、卸载即删。
+- **要留下的状态放 kv。** 内存里的状态随时可能因为换 Store、重建或休眠而丢掉。kv 按应用分、后端与工具共用、有上限、卸载即删。
   `kv-get` 答 `result<option<…>>`：`none` 是这个键没有值，错误是存储读不了——两者不一样，别把读不了当空的写回去。
-- **工具与事件的实例不 `init`。** 它们要的应用状态，向后端 `host.call` 要；配置用 `host.config()` 读。
+- **调用 Store 不 `init`。** 它们要的应用状态，向后端 `host.call` 要；配置用 `host.config()` 读。
 - **工具的权限照常。** `tool-def.read-only` 只用于调度，宿主不因为组件说自己无害就放宽权限。
 
 **稳定性**：在一个 `harnix_api` 之内，函数与类型只增不改（新函数是这个包的补丁版本，老组件照样链接）；**已有记录的字段与变体的分支冻结**
@@ -271,6 +353,8 @@ world backend-app-events { include backend-app; export events; }
 （`params-json`、`caller-json`、`config-json`、`payload-json`），那里只加字段、不认识的字段忽略。别的变化是新的 `harnix_api`。
 
 ## 5. Agent 部分
+
+下面是模式 2 的样子：Agix 插件装进产品的实例。模式 3 里它装在应用自己的进程里，产品的实例经 MCP 用它的工具（[应用开发](app-development.md) §10）。
 
 - **`agent/` 是一个 Agix 插件**：`plugin.toml` 加 skill、agent 类型、场景、QuickJS 脚本。安装时打包成一个 zip，经引擎的
   `plugin.install` 装进 `[agent] install_into` 列出的每台实例，随应用启停（`plugin.enable` / `disable`），卸载时撤掉。
@@ -280,13 +364,13 @@ world backend-app-events { include backend-app; export events; }
   不是隔离边界：它的信任来自签名（§7），不来自沙箱。
 - **工具名**：会话里叫 `app__<id>__<tool>`，id 里的 `.` 换成 `_`（模型 API 的工具名只收字母、数字、`_`、`-`，id 里没有 `_`，所以一一对应），
   例如 `app__acme_notes__search`；全名至多 64 个字符。spawn 的 daemon 经 MCP 看到的是 `mcp__app-<id>__<tool>`（同样换 `_`）。
-- **每会话登记**：Harnix 的 Rust 插件 `AppsPlugin` 在每个会话建起时登记当下在跑的应用的工具。新装的应用，新会话马上有；已有的会话在
+- **每会话登记**：Harnix 的 Rust 插件 `AppsBridge` 在每个会话建起时登记当下在跑的应用的工具。新装的应用，新会话马上有；已有的会话在
   下次重建时才有。子 Agent 带着父会话的插件构建，所以也有。
 - **权限**：应用的工具每次调用都先问人（「应用 X 想跑它的工具 Y」），宿主的权限处理照常。
 - **`events`**：应用的事件钩子包在会话的工具调用外面（`tool.before`），可以放行、拒绝、加一段可归属的话；钩子自己失败时放行。
   它看到哪些调用由清单的 `[events]` 定：缺省只有它自己的工具；`tools = "all"` 是每一次（连同输入），装的时候披露。
   加的话只挂在它自己工具的结果上，至多 2000 字：下载来的包不能往模型调的每个工具的结果里写东西。
-  `tool.before` 的 payload 是 `{tool, input, session_id, depth}`（`tool` 是会话里的名字，`app__…`）。
+  事件名与 payload 的形状见 §15。
 - **进度**：工具调用里的 `host.progress(call-id, text)` 推到主题 `harnix.apps.progress`，界面在那一行工具上显示。
 - **spawn 的 daemon**：经 `/apps/<id>/mcp` 用应用的工具。端点只答本机的对端（监听开在网络上时，别处来的请求有令牌也答 403），
   再看 daemon 的凭据：每台 spawn 的 daemon 一个，建它时发，只写进它自己的 MCP 配置；它停了、重启了或彻底起不来，凭据即作废。
@@ -353,6 +437,11 @@ const off = app.subscribe("app.acme.notes.notes", {}, (value) => draw(value));
 if (await app.confirm("Delete every note?", { danger: true })) await app.call("app.acme.notes.notes.clear");
 app.onEnv((env) => (document.documentElement.dataset.theme = env.theme));
 ```
+
+`vendor/harnix-app-sdk.js` 是 `@harnix/app-sdk` 构建出的经典脚本（`pnpm --filter @harnix/app-sdk build`，产物
+`ui/packages/app-sdk/dist/harnix-app-sdk.js`，全局 `HarnixApp`），不打包的页面把它拷进自己的 `ui/`；`@harnix/ui-kit` 一样
+（`dist/harnix-ui-kit.js`、`harnix-ui-kit.css`）。打包的页面直接 `import` 包。showcase 带着这三份（`ui/frame/vendor/`），
+`node tests/app-ui-vendored.mjs --write` 重新构建并拷过去。
 
 连上之后它自己做的：答外壳的心跳；外壳按内容定高度的面（`home.card`、设置节、模态框）报高度；把外壳的键交给外壳；把页面没接住的错误
 报给外壳的诊断。全部方法见 §20。
@@ -541,7 +630,7 @@ Harnix 自己怎么测插件 APP（宿主核心的回环、商店的 mock 钥、
 | `… memory_mb` | int | 64 | 1–4096 |
 | `… timeout_ms` | int | 30000 | 100–600000 |
 | `[events] tools` | string | `own` | `own` 或 `all`；只在有组件时；`all` 进披露 |
-| `[backend] resident` | string | `always` | `always` 或 `on-demand`；只有 backend-app |
+| `[backend] resident` | string | `always` | `always` 或 `on-demand`；不是缺省值时只有 backend-app 能写 |
 | `[backend] idle_secs` | int | 600 | 60–86400 |
 | `[[method]] name` | string | 必填 | 点分，字母、数字、`_`、`-`，至多 128，唯一；只有 backend-app |
 | `… subject` | string 或 [string] | `"device"` | `device`、`module`、`kernel` |
@@ -602,6 +691,15 @@ interface host {
 | `app-error` | `code`（应用自定，原样转给调用方）、`message`、`data-json` |
 
 `handle` 的 `caller-json` 是 `{kind, id, subject}`（例如 `subject: "device:d1"`）；hub 已经准入过。
+
+**`on-event` 收到的事件**（导出了 `events` 的组件；看到哪些调用由清单的 `[events] tools` 定，§3.3）：
+
+| `event` | 什么时候 | `payload-json` | 答 |
+|---|---|---|---|
+| `tool.before` | 会话的一次工具调用执行之前（模式 2：在产品的进程内实例里；spawn 的 daemon 里没有，§5） | `{tool, input, session_id, depth}`：`tool` 是会话里的名字（自己的是 `app__<id>__<工具>`）；`input` 是调用的参数；`depth` 是子 Agent 的层数（0 是会话自己） | `proceed` 照常；`block(理由)` 这次调用不执行，模型收到「refused by the application `<id>`: 理由」；`add-context(话)` 照常执行，话（至多 2000 字）附在结果后面，只对它自己的工具。钩子陷阱、超时都当 `proceed` |
+
+`[events] tools = "own"`（缺省）只给它自己工具的调用；`"all"` 给每个会话的每一次工具调用，是一项要进披露的能力（§3.3、§9）。今天只有这一个事件；
+以后加的事件名照样列在这里，所以组件对不认识的事件答 `proceed`。
 
 ## 16. `harnix.apps.*`
 
@@ -676,7 +774,7 @@ interface host {
 | 设备（页面、外壳） | `app.<id>.<方法>`，`subject` 含 `device` 的 | 授权表，和编译期模块的方法同一个准入点、同一套审计 |
 | 任何模块 | `subject` 含 `module` 的 | 同上 |
 | 内核 | 都能 | |
-| 应用自己（`module:<id>`） | 自己的全部方法；`hub` 能力列出的方法与主题（`topic:`） | 登记时 `hub` 的条目像模块的 grant 一样写进授权表（指向别的应用 `app.*` 的跳过，由那个应用的 `subject` 决定）；没列的答 `REFUSED`「it is not in the application's `hub` capability」，记审计，进 `calls.refused` |
+| 应用自己（`module:<id>`） | 自己的全部方法；`hub` 能力列出的方法与主题（`topic:`） | 授权表：登记时 `hub` 的条目像模块的 grant 一样写进表（指向别的应用 `app.*` 的跳过，由那个应用的 `subject` 决定），并且这个主体**只**到它们与自己的名字——设备能调的、任何模块能调的，没列就不给。表一次给出答案；没列的答 `REFUSED`「not in the application's `hub` capability」，记审计，进 `calls.refused` |
 | 应用的界面（iframe） | 自己的 `app.<id>.*`，`[interface] hub` 列出的（白名单里的） | 外壳先对清单查名字、按限定收窄到它自己 space 的会话（§6.3），再由 hub 当作设备准入 |
 | 会话（Agent） | 不直接调方法；用应用的工具 | Agix 的权限，一律先问人 |
 
@@ -698,7 +796,8 @@ greeting = "hi"
 ACME_TOKEN = "…"
 ```
 
-每一段都拒绝不认识的键；钥写错了进程起不来，并说是哪个发布者。缺省商店是 `https://store.harnix.dev/index.json`（占位），内置的商店公钥是
+`[apps]` 与 `[apps.trusted_publishers]` 拒绝不认识的键；`[apps.config."<id>"]`、`[apps.secrets."<id>"]` 下的键由应用自己定。
+带 `apps` 的构建、`[apps] enabled = true` 时，受信发布者的钥写错了进程起不来，并说是哪个发布者（不然一个笔误就是悄悄地谁也不信）。缺省商店是 `https://store.harnix.dev/index.json`（占位），内置的商店公钥是
 `harnix_app_package::store::STORE_KEYS`。cargo feature `apps` 不开时，`[apps] enabled = true` 也只有记录与开关（§16）。
 
 ## 20. 桥：`harnix-ui-bridge@1` 与 `HarnixApp`
@@ -748,7 +847,7 @@ ACME_TOKEN = "…"
 | `failure` | 什么时候 |
 |---|---|
 | `stopped` | 应用没在跑 |
-| `timed_out` | 超过 `timeout_ms`；后端实例换掉 |
+| `timed_out` | 超过 `timeout_ms`；常驻 Store 换掉 |
 | `cancelled` | 调用被取消 |
 | `faulted` | 应用的代码陷阱 |
 | `unavailable` | 应用被置于一旁（「`<id>` is disabled: …」）；排队等后端超过 `timeout_ms`（「busy: …」）；或这次调用会重入一个正在等它自己的后端 |

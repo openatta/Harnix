@@ -1,5 +1,5 @@
 /**
- * The flows and their runs (flow-design §17, "运行列表"): the definitions this application has, a
+ * The flows and their runs: the definitions this application has, a
  * form to start a run of one, and the runs from the `app.<module>.runs` topic, filtered by flow,
  * status and subject.
  */

@@ -1,4 +1,4 @@
-// @ts-nocheck — moved over from JavaScript unchanged (M1-6); new suites are typed.
+// @ts-nocheck — moved over from JavaScript unchanged; new suites are typed.
 // The one admission point.
 //
 // Everything not written down is refused, and everything refused says why.

@@ -4,7 +4,7 @@
  * Each one gets everything of its own: HOME, data root, engine root, project,
  * port, recordings. A test that inherits yesterday's sessions — or a
  * developer's memories under `~/.agix` — is a test whose failures depend on
- * what somebody did yesterday (IPDrun N-003).
+ * what somebody did yesterday.
  */
 
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
@@ -95,7 +95,7 @@ export interface Backend {
  * repository. The engine keeps per-project state inside the project, so
  * running against the checkout made the tests depend on a developer's own
  * sessions — one remembered fact put a memory-recall call in front of every
- * turn and every fixture played back one call out of step (N-003).
+ * turn and every fixture played back one call out of step.
  */
 export function makeProject(scratch: string): string {
   const project = join(scratch, "project");

@@ -1,4 +1,4 @@
-//! A module's own HTTP and WebSocket, under `/apps/<id>/` (design §7.7).
+//! A module's own HTTP and WebSocket, under `/apps/<id>/` (concept §3.3.5).
 //!
 //! Same origin as the interface, admitted by the same token or device
 //! credential, decided in the authorization table as `route:<id>` and

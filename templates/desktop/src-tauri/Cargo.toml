@@ -1,4 +1,4 @@
-# The desktop shell: a window around a Harnix app (design §12).
+# The desktop shell: a window around a Harnix app (concept §5.11).
 #
 # Its own workspace, on purpose. The shell links Tauri and the platform's
 # webview, the app links Agix; neither needs the other's dependency tree, and
@@ -19,9 +19,9 @@ description = "A Tauri 2 window around a Harnix app: local (child process) or re
 tauri-build = { version = "=2.7.4", features = [] }
 
 [dependencies]
-# No plugins. The design allows tray, window, notification, updater,
-# single-instance and log (§12) — add them when the app wants them, Rust side
-# only; none of them carries the app's traffic.
+# No plugins. Tray, window, notification, updater, single-instance and log
+# would be fine — add them when the app wants them, Rust side only; none of
+# them carries the app's traffic.
 tauri = { version = "=2.12.5", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

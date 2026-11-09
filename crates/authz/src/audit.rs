@@ -188,7 +188,7 @@ mod tests {
         })
         .join();
         assert!(audit.ring.is_poisoned());
-        let subject = Subject::Device { id: "local".into() };
+        let subject = Subject::Device { id: harnix_contract::LOCAL_DEVICE.into() };
         audit.record(&subject, "harnix.ping", Decision::Allow, None, None);
         assert_eq!(audit.recent(1)[0].method, "harnix.ping");
     }

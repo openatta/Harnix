@@ -1,5 +1,5 @@
 /**
- * The two dictionaries (design §10.1: keys, never literal copy): the same keys, the same
+ * The two dictionaries (concept §5.9: keys, never literal copy): the same keys, the same
  * placeholders per key, nothing blank — so switching language can never show a key or lose a value.
  */
 

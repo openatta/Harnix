@@ -3,7 +3,7 @@
 //! **Harnix does not install anything, and does not run anything.** The package
 //! format, the fetch, the checksum, the unpack, the cache layout, the
 //! disclosure and the lifecycle are Agix's — one package, one manifest,
-//! one install, one disclosure (§2.2). What is here is a reader: given what
+//! one install, one disclosure (concept §2.2). What is here is a reader: given what
 //! the engine says is installed, find its unpacked directory and pick out the
 //! one section the engine has no opinion about.
 //!
@@ -112,7 +112,7 @@ pub fn read(root: &Path, name: &str, version: &str, enabled: bool) -> Option<Con
                 // refused **here**, at install, rather than imported and left to
                 // fail inside `activate()`. The second way produces a panel that
                 // silently does not appear, which is the failure mode with no
-                // symptom (§2.4).
+                // symptom (concept §2.4).
                 let declared = entry.api_version.unwrap_or(1);
                 if declared != CONTRIB_API_VERSION {
                     inert.push(format!(
@@ -198,7 +198,7 @@ pub async fn discover(cx: &harnix_module::ModuleContext) -> Vec<Contributions> {
         Err(e) => {
             // A build without the package layer answers `PLUGINS_DISABLED`
             // and nothing is installed, which is a fact rather than a
-            // failure — see §4.5.
+            // failure — see concept §4.4.
             tracing::debug!(reason = %e.message, "no installed packages to read");
             Vec::new()
         }

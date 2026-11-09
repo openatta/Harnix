@@ -7,7 +7,7 @@
 //!
 //! Bulk still goes around this connection, always. That is not a property of
 //! this topology; it is what stops one image from filling the frame ceiling
-//! (§3.3.3, fourth invariant).
+//! (concept §3.3.3, fourth invariant).
 
 use std::sync::Arc;
 

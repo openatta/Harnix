@@ -1,4 +1,4 @@
-//! The hub's only view of an instance (design §5.3).
+//! The hub's only view of an instance (concept §3.1.1).
 //!
 //! Two carriers implement [`EngineLink`] — an engine in this process
 //! ([`crate::InProcessLink`]) and an Agix daemon in another

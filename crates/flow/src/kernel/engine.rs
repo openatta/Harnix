@@ -533,7 +533,7 @@ impl Engine {
     }
 
     /// Give back a dispatched claim nothing was done under (a task that waited for its session
-    /// while the run was paused, review #4): the task is ready again, the attempt not counted,
+    /// while the run was paused): the task is ready again, the attempt not counted,
     /// and it is dispatched again once the run goes on.
     pub async fn requeue(&self, run: &str, station: &str, task: &str, token: &str) -> Result<Outcome> {
         transact!(self, Actor::flow("dispatch"), |t| {

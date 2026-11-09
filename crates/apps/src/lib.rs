@@ -9,7 +9,7 @@
 //! (`harnix_builtin::apps`) drives to install, start, stop and remove one; the rest of the process
 //! reaches what is running through three things it hands out:
 //!
-//! - [`AppsPlugin`], an Agix plugin for every in-process instance's assembly: the running
+//! - [`AppsBridge`], an Agix plugin for every in-process instance's assembly: the running
 //!   applications' tools in each session built, and their `events` as a middleware on its tool
 //!   calls.
 //! - [`serve::router`], for the listener's `/apps/<id>/…`: the interface — modules for the page,
@@ -34,7 +34,7 @@
 //! | `serve.rs` | product | `/apps/<id>/ui` (the frames' pages, under their CSP) and `/apps/<id>/mcp` (the tools, for a spawned daemon) |
 //! | `platform.rs` | product | the port's `Kernel` over this process's kernel: registering, calling, publishing and subscribing as `module:<id>` |
 //! | `agent.rs` | VM | the port's `Agent`: the agent package, skills and tools into this process's Agix — the application process's own Agix there |
-//! | `plugin.rs` | VM | `AppsPlugin`, the tools and events in the sessions of the Agix beside the VM |
+//! | `plugin.rs` | VM | `AppsBridge`, the tools and events in the sessions of the Agix beside the VM |
 //!
 //! The `Control` this crate drives, `harnix_app_host::Host`, is the VM side's too: called in place
 //! here, over the link there.
@@ -49,5 +49,5 @@ mod update;
 pub use harnix_app_package::{
     acquire, disclosure, inline, manifest, package, publish, signature, store, surface,
 };
-pub use plugin::{AppsPlugin, NAME as PLUGIN_NAME};
+pub use plugin::{AppsBridge, NAME as PLUGIN_NAME};
 pub use runtime::{server_name, tool_name, Loaded, Options, Registry, Runtime, TOOL_PATTERN};

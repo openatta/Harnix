@@ -1,6 +1,6 @@
 //! Transport: a set of channel semantics, not a connection topology.
 //!
-//! **The semantics are fixed; the topology is a choice** (§3.3). Different
+//! **The semantics are fixed; the topology is a choice** (concept §3.3). Different
 //! deployments want different things from a connection: at the edge on a weak
 //! link, one fewer connection is one fewer reconnect and heartbeat; behind a
 //! reverse proxy, letting requests go over ordinary HTTP buys the middleware,
@@ -11,7 +11,7 @@
 //! So this layer maps five semantics — unary, session events, host events,
 //! out-of-band answers, bulk — onto whichever topology was negotiated, and
 //! everything below it is written in terms of the semantics. That is what
-//! makes §3.3.3's fifth invariant checkable: adding a topology changes this
+//! makes concept §3.3.3's fifth invariant checkable: adding a topology changes this
 //! crate and nothing under it.
 //!
 //! It does not know what a session is. It moves frames, checks an origin,
@@ -69,7 +69,7 @@ pub struct Config {
     /// on this machine out. Off loopback the token is **not** enough — it is
     /// one secret shared by every device, so it cannot be revoked for one of
     /// them — and a paired device signing a server-chosen challenge is
-    /// required as well (§6.3).
+    /// required as well (concept §6.3).
     pub admission: Admission,
     pub max_upload_bytes: usize,
     /// How a browser comes to hold what admits it: the token
@@ -266,7 +266,7 @@ pub(crate) fn assemble(
             // never reaches the check that names it, and the caller gets the
             // framework's plain-text "failed to buffer the request body"
             // where the other topology answers a JSON-RPC error. One
-            // semantic, two topologies (§3.3).
+            // semantic, two topologies (concept §3.3).
             .route("/rpc", post(split::rpc).layer(over_ceiling()))
             .route("/respond", post(split::respond).layer(over_ceiling()))
             .route("/events/session", get(split::session_events))
@@ -380,7 +380,7 @@ pub(crate) fn origin_allowed(headers: &axum::http::HeaderMap, extra: &[String]) 
 ///
 /// A non-loopback bind without TLS is refused here, at the point of binding.
 /// Not a default that can be turned off, not a warning — the path does not
-/// exist (§6.3). Anything reachable from a network carries a fully-tooled
+/// exist (concept §6.3). Anything reachable from a network carries a fully-tooled
 /// agent and a live model credential, and "it was only for a minute" is how
 /// every one of those gets exposed.
 pub async fn serve(addrs: &[SocketAddr], router: Router, tls: Option<Tls>) -> anyhow::Result<()> {
@@ -581,7 +581,7 @@ mod origin_tests {
         assert!(!origin_allowed(&from("https://192.168.1.20:4317"), &[]));
     }
 
-    /// (N-601)
+    /// An extra origin is matched whole, not as a prefix of a longer host.
     #[test]
     fn extra_origins_match_whole() {
         let extra = vec!["https://192.168.1.20:4317".to_string()];

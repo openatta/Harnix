@@ -1,5 +1,5 @@
 /**
- * The interface's `useNest()` host (design §10.4), built from the app: calls limited to what this
+ * The interface's `useNest()` host (concept §5.6), built from the app: calls limited to what this
  * page may reach, topics by name, the open session, the spaces, the composer, the right column,
  * the settings panel.
  *

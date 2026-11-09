@@ -82,7 +82,7 @@ test.describe("an application with a backend", () => {
     const rt = await runtime(api);
     expect(rt).toMatchObject({ state: "running", world: "backend" });
     expect(rt.methods).toEqual(expect.arrayContaining([M("notes.add"), M("notes.list"), M("state"), M("session.start")]));
-    expect(rt.topics).toEqual([M("notes"), M("heartbeat")]);
+    expect(rt.topics).toEqual([M("notes"), M("heartbeat"), M("fetched")]);
     expect(rt.spaces).toEqual([SHOWCASE_ID, SHOWCASE_CHATS]);
     const registered = (await api.call("harnix.apps.list")).registered.find((r: any) => r.id === SHOWCASE_ID);
     expect(registered).toMatchObject({ by: "apps", hub: ["session.create", "harnix.send", "topic:harnix.sessions.status", "harnix.entries.append"] });
@@ -153,14 +153,25 @@ test.describe("an application with a backend", () => {
   });
 
   test("it reaches the network at the hosts its net lists, and nowhere else", TAGS, async () => {
-    const fetched = await api.call(M("fetch"), { url: `${served}/ping` });
-    expect(fetched).toEqual({ status: 200, body: "hello from the test server, /ping" });
+    // A request is slow work: the method starts it and answers with a job at once, and what came of
+    // it is published on `fetched` (harnix-plugin.md §4, `handle` is quick).
+    await api.call("harnix.subscribe", { topic: M("fetched") });
+    const outcome = async (url: string) => {
+      const started = await api.call(M("fetch"), { url });
+      expect(started).toMatchObject({ job: expect.any(Number), url, started: true });
+      const frame = await api.waitFor(
+        (f) => f.method === "harnix.topic" && f.params.topic === M("fetched") && f.params.value?.job === started.job,
+        { describe: `the outcome of fetch job ${started.job}` },
+      );
+      return frame.params.value;
+    };
+    expect(await outcome(`${served}/ping`)).toMatchObject({ status: 200, body: "hello from the test server, /ping" });
     expect(proxied).toEqual(["api.showcase.test"]);
-    // The backend's own error, passed through as it gave it; and nothing reached for it.
+    // The host's refusal, as the backend got it; and nothing reached for it.
     for (const host of ["elsewhere.showcase.test", "127.0.0.1"]) {
-      const elsewhere = await api.refused(M("fetch"), { url: `http://${host}/ping` });
-      expect(elsewhere?.code).toBe(4);
-      expect(elsewhere?.message).toContain(`\`${host}\` is not in this application's \`net\` capability`);
+      const elsewhere = await outcome(`http://${host}/ping`);
+      expect(elsewhere.status).toBeUndefined();
+      expect(elsewhere.error).toContain(`\`${host}\` is not in this application's \`net\` capability`);
     }
     expect(proxied).toHaveLength(1);
   });

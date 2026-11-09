@@ -1,5 +1,5 @@
 /**
- * Tasks (design §2): work that belongs to a session and runs beyond it —
+ * Tasks (concept §3): work that belongs to a session and runs beyond it —
  * here, a sub-agent. A sub-agent is its parent's task, listed by
  * `harnix.sessions.tasks` and pushed whole on the topic of that name; it is
  * not a session of its own in the instance's list.

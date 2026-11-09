@@ -6,7 +6,7 @@
 //
 // An application's workspace takes `harnix/crates/*` in as members, so
 // Harnix's crates resolve `xxx = { workspace = true }` against the
-// *application's* `[workspace.dependencies]` (design §11.2). Harnix's own
+// *application's* `[workspace.dependencies]`. Harnix's own
 // table is the one source of truth; this copies it into a marked block in
 // the application's root Cargo.toml with every path rebased on the
 // application's root — `crates/x` becomes `harnix/crates/x`, and Harnix's

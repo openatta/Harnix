@@ -1,5 +1,5 @@
 /**
- * The system space's backend (design §9): any instance's sessions inspected and acted on through
+ * The system space's backend (concept §5.5): any instance's sessions inspected and acted on through
  * `harnix.system.*` and the hub's own methods claiming the system space — and none of it there
  * when the profile turns the space off: the methods leave the authorization table, the space
  * stops existing, and nothing can claim it.

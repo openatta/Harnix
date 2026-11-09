@@ -58,11 +58,11 @@ pub struct Point {
 
 /// The eight points the interface is built out of.
 ///
-/// The number is part of the design (§5.2): a seventh is an argument to be
-/// made, not a commit to be pushed. Every one of them is drawn by a built-in
+/// The number is part of the design (concept §5.6): a ninth is an argument to
+/// be made, not a commit to be pushed. Every one of them is drawn by a built-in
 /// registration **and asked for by the shell**, which is what makes the count
 /// honest — a seam nothing uses is not a seam, it is a line in this list.
-/// There was a seventh for a while, and it was exactly that.
+/// It has happened: five of the seven points there were once went unasked.
 pub const POINTS: &[Point] = &[
     Point {
         id: "space",
@@ -155,14 +155,14 @@ pub fn render_markdown() -> String {
 mod tests {
     use super::*;
 
-    /// Eight, and adding one is a decision (§5.2).
+    /// Eight, and adding one is a decision (concept §5.6).
     #[test]
     fn the_interface_has_eight_points() {
         assert_eq!(POINTS.len(), 8);
     }
 
     /// Nothing here may fire per streaming delta — the whole reason frequency
-    /// is stated in the contract (§4.4).
+    /// is stated in the contract (concept §5.6).
     #[test]
     fn no_point_follows_the_stream() {
         for p in POINTS {

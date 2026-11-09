@@ -44,7 +44,7 @@ fn write_devices(path: &std::path::Path, devices: &[harnix_authz::Device]) -> st
     std::fs::rename(&temp, path)
 }
 
-/// Write the token readable by its owner only (IPDrun N-302).
+/// Write the token readable by its owner only.
 ///
 /// The token admits a client to everything a person at this machine can do;
 /// with launch links it is also what mints them. The default umask leaves a

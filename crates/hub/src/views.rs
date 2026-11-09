@@ -1,4 +1,4 @@
-//! The instance tree as whole values (design §6.3).
+//! The instance tree as whole values (concept §3.2).
 //!
 //! Four of the hub's own topics, each also answered once by a method of the
 //! same shape: every instance; one instance's top-level sessions; one

@@ -10,7 +10,7 @@ by name (`tests/live/api/apps-store.spec.ts`, `tests/live/ui/apps-store.spec.ts`
 | Part | Where | What it shows |
 |---|---|---|
 | Manifest | `harnix-app.toml` | the id; the capabilities it asks for (`storage_mb`, `fs`, `net`, `env`, `hub`); one `backend-app` component; its `[[method]]`s (with a params schema), `[[topic]]`s and two `[[space]]`s (its board, and its chats); `[config]`; its interface module; its isolated interface (`[interface]`, `[[surface]]`); where its agent package goes; and what the shell draws for it inline (`[inline]`, below) |
-| Backend | `component/` (Rust, `wasm32-wasip2`), `backend` | one resident instance: a board of notes in the key-value store (`notes.add` / `list` / `clear`, published on the `notes` topic), a counter in its own memory (`counter.bump`), a timer that publishes `heartbeat` (`timer.start`), `fetch` (`host.http-request`, to the one host in `net`), `session.start` (creates a session in its space and sends it a prompt, as `module:example.showcase`), `overreach` (a call its `hub` does not list), `state`, `card.post` (a card in a session's flow), `complete` (its commands' candidates), `sessions.group` (its space's groups), and `spin` / `crash` (a timeout recycles the instance; a crash rebuilds it once, a second sets the application aside). `init` subscribes to `harnix.sessions.status` |
+| Backend | `component/` (Rust, `wasm32-wasip2`), `backend` | one resident instance: a board of notes in the key-value store (`notes.add` / `list` / `clear`, published on the `notes` topic), a counter in its own memory (`counter.bump`), a timer that publishes `heartbeat` (`timer.start`), `fetch` (slow work started, then reported: it answers with a job at once, and a timer makes the request — `host.http-request`, to the one host in `net` — and publishes it on `fetched`), `session.start` (creates a session in its space and sends it a prompt, as `module:example.showcase`), `overreach` (a call its `hub` does not list), `state`, `card.post` (a card in a session's flow), `complete` (its commands' candidates), `sessions.group` (its space's groups), and `spin` / `crash` (a timeout recycles the instance; a crash rebuilds it once, a second sets the application aside). `init` subscribes to `harnix.sessions.status` |
 | Tools | `component/`, `tools` | `echo`, `count` (key-value storage), `config` (`host.config()`), `read_project` (the session's project, read-only), `slow` (progress, cancellation), `vetoed`, `crash` (a trap: three in a row set that tool aside, and only it), `board` (the backend's state, asked for with `host.call`: a tool's instance cannot see the backend's memory) |
 | Event hook | `component/` (`events`, `[events]`) | refuses the tool its configuration names (`blocked_tool`); offered the calls of its own tools only, as `[events] tools = "own"` says |
 | Agent package | `agent/plugin.toml` | a QuickJS `prompt.block` (`scripts/block.js`) and an agent type, `showcase-guide` |
@@ -53,8 +53,14 @@ session>"}` puts a card in that session's flow.
 under its token (they are declared for `device`), and the application itself always may (its
 `board` tool asks `state`). `state` is also open to modules. The params of `notes.add`,
 `timer.start`, `fetch` and `session.start` are checked against the schema in the manifest before
-the backend sees them. A client subscribes to `app.example.showcase.notes` and
-`app.example.showcase.heartbeat` with `harnix.subscribe`.
+the backend sees them. A client subscribes to `app.example.showcase.notes`,
+`app.example.showcase.heartbeat` and `app.example.showcase.fetched` with `harnix.subscribe`.
+
+`fetch` is the shape for work that waits on something slow. A backend's calls come in one at a
+time, and a `handle` waiting on the host still holds the backend; made inside `handle`, the request
+would keep its caller waiting as long as the host takes, and past `timeout_ms` the backend is
+recycled. So `fetch` only arms a timer and answers `{job, url, started}`; the timer makes the
+request and publishes `{job, url, status, body}`, or `{job, url, error}`, on `fetched`.
 
 What the backend does as itself is admitted against its `hub`: `session.create`, `harnix.send`, and
 the topic `harnix.sessions.status`. Anything else — `overreach` tries `harnix.apps.uninstall` — is

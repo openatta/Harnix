@@ -98,7 +98,7 @@ pub(super) fn admit(
 fn audit(hub: &Arc<Hub>, history: Option<Arc<dyn history::store::HistoryStore>>) -> Arc<Audit> {
     let audit = Arc::new(Audit::default());
     {
-        // The system space reaching across spaces: allowed, and on the record (D17).
+        // The system space reaching across spaces: allowed, and on the record (concept §5.4).
         let audit = audit.clone();
         hub.set_audit(Arc::new(move |subject, method, session, owner| {
             tracing::info!(subject = %subject.label(), method, session, owner, "the system space acted on another space's session");
@@ -110,7 +110,7 @@ fn audit(hub: &Arc<Hub>, history: Option<Arc<dyn history::store::HistoryStore>>)
     }
     // Decisions worth going back for land in the session timeline, as engine
     // extension entries — in order with everything else, and skippable by
-    // anything that does not know what they are (§6.5). The ring stays for
+    // anything that does not know what they are (concept §6.5). The ring stays for
     // the diagnostics page.
     if let Some(store) = history {
         audit.set_sink(Box::new(audit_log::TimelineAudit::new(store)));

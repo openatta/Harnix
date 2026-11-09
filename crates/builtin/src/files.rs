@@ -1,7 +1,7 @@
 //! Directories, projects, and upload grants — the file-facing methods.
 //!
 //! Registered through the interface's own registry, like everything else
-//! this product draws (§5.5).
+//! this product draws (concept §3).
 
 use std::path::PathBuf;
 

@@ -1,4 +1,4 @@
-// The application scripts catch the drift they exist for (roadmap M2-10).
+// The application scripts catch the drift they exist for.
 //
 // Each one is shown a drift made on purpose, in a scratch directory, and has
 // to say so: sync-app-deps a hand-edited block, check-lock a version that

@@ -1,7 +1,7 @@
 //! Standing the engine up, in this process.
 //!
 //! The engine is linked as a library and called in-process: no socket, no
-//! handshake, no subprocess to supervise (§9). This does what `agixd`'s
+//! handshake, no subprocess to supervise (concept §9). This does what `agixd`'s
 //! `main.rs` does — resolve scenes, load the settings tiers, build the model
 //! client and the `SessionPool` — and stops before the part that binds
 //! listeners. What it hands back is a `DaemonServer` whose `dispatch_public`
@@ -13,7 +13,7 @@
 //!
 //! The engine root is **passed in**, never read from this process's
 //! environment: otherwise one process could not serve two roots, and the
-//! state would sit somewhere the caller cannot see (§3.1).
+//! state would sit somewhere the caller cannot see (concept §3.1).
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -265,7 +265,7 @@ pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
             transcripts,
             permission: None,
             // Modules contribute through the customizer; Agix plugins (the
-            // applications' tools, `AppsPlugin`) are registered in delegates too.
+            // applications' tools, `AppsBridge`) are registered in delegates too.
             plugins: config.contrib.plugins.clone(),
             customize_session: config.contrib.composed(),
             mcp_oauth_resolver: None,

@@ -1,8 +1,8 @@
 # LIVE 覆盖表
 
 > 生成的，不要手改：`pnpm --filter @harnix/live-tests coverage`。来源是每个用例的 `@feature`、`@layer`
-> 标签；行与说明见 `features.mjs`，行的定义见[设计 §4.3](../../docs/harnix-0.4-design-and-plan.md)。
-> `0 · Mx` 是那个里程碑会补上的，`—` 是这一层不适用。
+> 标签；行（功能模块）与每一行的说明见 `features.mjs`。
+> `0 · <何时>` 是还欠着、写明了何时补上的，`—` 是这一层不适用。
 
 | 功能模块 | id | API | 界面 |
 |---|---|---|---|

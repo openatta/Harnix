@@ -1,7 +1,7 @@
 //! What a handshake establishes, and what every channel of it shares.
 //!
-//! **A credential belongs to the subject, not to a connection** (§3.3.3, item
-//! 2). One handshake produces one credential and one client identity; every
+//! **A credential belongs to the subject, not to a connection** (concept
+//! §3.3.3, item 2). One handshake produces one credential and one client identity; every
 //! channel opened afterwards carries that credential rather than negotiating
 //! again. In the single-duplex topology that is one connection holding all
 //! five semantics; in split streams it is three connections holding one
@@ -17,9 +17,10 @@
 //!
 //! # Every queue is bounded
 //!
-//! The hub hands a frame to a [`Downstream`] and does not wait: it fans out
-//! under its own lock, so a downstream that blocked would block every other
-//! client with it. A queue that never refuses is how one stuck reader — a
+//! The hub hands a frame to a [`Downstream`] and does not wait: it sends every
+//! frame in one order, one recipient after another, so a downstream that
+//! blocked would hold up every other client behind it (`FrameSink::deliver`
+//! must return at once). A queue that never refuses is how one stuck reader — a
 //! background tab, a proxy holding a connection open with nobody behind it —
 //! grows this process without limit. So each queue holds [`OUTBOUND_FRAMES`],
 //! and a full one ends the client: `deliver` answers `false`, the hub stops
@@ -559,7 +560,7 @@ mod tests {
         let (hub, sessions) = (hub(), Sessions::default());
         let (tx, _wire) = mpsc::channel(OUTBOUND_FRAMES);
         let (credential, established) = sessions
-            .establish(&*hub, device("local"), Topology::SingleDuplex, Some(tx), "test")
+            .establish(&*hub, device(harnix_contract::LOCAL_DEVICE), Topology::SingleDuplex, Some(tx), "test")
             .await;
         for _ in 0..OUTBOUND_FRAMES {
             assert!(established.sink.deliver(Frame::host("f".into())).await);
@@ -584,7 +585,7 @@ mod tests {
         let (hub, sessions) = (hub(), Sessions::default());
         let (tx, wire) = mpsc::channel(8);
         let (_, established) = sessions
-            .establish(&*hub, device("local"), Topology::SingleDuplex, Some(tx), "test")
+            .establish(&*hub, device(harnix_contract::LOCAL_DEVICE), Topology::SingleDuplex, Some(tx), "test")
             .await;
         drop(wire);
         assert!(!established.sink.deliver(Frame::host("x".into())).await);

@@ -2,7 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "types": ["node"],
-    // The suites moved over from plain JavaScript unchanged (M1-6), so they
+    // The suites moved over from plain JavaScript unchanged, so they
     // are checked for what they call, not annotated parameter by parameter.
     "strict": false,
     "noImplicitAny": false,

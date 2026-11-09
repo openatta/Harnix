@@ -1,5 +1,5 @@
 /**
- * @harnix/react —— 会话的 React 组件（设计 §4.2、M4-3）。对话主干来自 IPDrun 的 nest-ui（D21，Apache-2.0）：
+ * @harnix/react —— 会话的 React 组件（概念与架构 §5.2）。对话主干来自 IPDrun 的 nest-ui（Apache-2.0）：
  * 对话、工具行、权限卡、markdown、diff、队列、草稿；语音、上下文环、快捷回复这类产品面留在 IPDrun。
  * 样式在 `@harnix/react/styles.css`，只用 CSS 变量（令牌），明暗两套。
  *

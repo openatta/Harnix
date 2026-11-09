@@ -41,7 +41,7 @@ export interface Suite {
 }
 
 export interface SuiteMeta {
-  /** The functional module (design §4.3) this suite covers: `@feature:<id>`. */
+  /** The functional module (testing.md §7) this suite covers: `@feature:<id>`. */
   feature: string;
   /** Per-test overrides, for a suite whose tests belong to more than one. */
   features?: Record<string, string>;

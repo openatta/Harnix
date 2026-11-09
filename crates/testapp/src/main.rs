@@ -303,7 +303,7 @@ impl Module for Duplicate {
 
 /* ── fleet ─────────────────────────────────────────────────────────────── */
 
-/// Instances and sessions from the server side (design §5.2, §6.1).
+/// Instances and sessions from the server side (concept §3.2, §3.1.1).
 ///
 /// At start it makes sure its own in-process instance exists — a different
 /// scene from `system`, which is enough to tell the two apart — and opens

@@ -114,7 +114,7 @@ pub(crate) struct Shared {
     agents_seq: std::sync::atomic::AtomicU64,
     /// What the dispatcher sent a main session for a task and has not seen start yet: session id
     /// → (the message's text, the task's binding). The turn whose `user_message` is that text is
-    /// the task's; every other turn of the session is a person's (xops-03 review #2).
+    /// the task's; every other turn of the session is a person's.
     sent: Mutex<HashMap<String, Vec<(String, Binding)>>>,
     /// Each hook's last delivery (xops-04 §5): hook → `{at, event, status, error?}`.
     pub hook_status: Mutex<BTreeMap<String, serde_json::Value>>,

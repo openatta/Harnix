@@ -1,5 +1,5 @@
 /**
- * Spaces (design §8.3, §8.5): a session belongs to one space from its creation, and a call that
+ * Spaces (concept §5.4): a session belongs to one space from its creation, and a call that
  * claims a space is checked against that — on the server, not only in the interface. The system
  * space is the exception, and each time it reaches across a space it is on the record.
  *

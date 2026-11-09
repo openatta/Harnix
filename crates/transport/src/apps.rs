@@ -1,4 +1,4 @@
-//! Module routes, `/apps/<id>/…` (design §7.7).
+//! Module routes, `/apps/<id>/…` (concept §3.3.5).
 //!
 //! A module's own HTTP and WebSocket, served from this listener so they are
 //! same-origin with the interface. Transport does not know what a module is:

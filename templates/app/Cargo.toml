@@ -4,7 +4,7 @@
 # Harnix's crates are members of *this* workspace, so they resolve their
 # dependencies against the table below; the engine's crates resolve against
 # its own Cargo.toml, which is why `harnix/agix` is excluded rather than a
-# member (design §11.2).
+# member (harnix-sdk.md §3).
 [workspace]
 resolver = "2"
 members = ["app", "harnix/crates/*"]

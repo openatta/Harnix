@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The desktop shell carries no business traffic (design §12, D5): the page
+// The desktop shell carries no business traffic (concept §5.11): the page
 // talks to its server over HTTP/WS, exactly as in a browser, and the shell
 // only manages the window, the child process and its config. This fails when
 // something that would open a second channel appears in the shell's code or
@@ -106,7 +106,7 @@ for (const name of statSync(capabilities, { throwIfNoEntry: false })?.isDirector
 if (found > 0) {
   console.error(
     `\n${found} finding(s). The page reaches its server over HTTP/WS only; ` +
-      "the shell gets no IPC beyond dragging its window (design §12).",
+      "the shell gets no IPC beyond dragging its window (concept §5.11).",
   );
   process.exit(1);
 }

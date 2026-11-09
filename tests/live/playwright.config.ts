@@ -1,5 +1,5 @@
 /**
- * The LIVE suites, one runner (design §13.1).
+ * The LIVE suites, one runner (testing.md §1).
  *
  *   pnpm live                         both projects, replayed
  *   pnpm live --project api           the API suites alone

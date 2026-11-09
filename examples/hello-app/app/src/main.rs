@@ -6,7 +6,7 @@
 //! | `notes` | a space (`ui/`) | — | the `system` instance |
 //!
 //! The greeter also shows the two channels for what a call and a topic do not fit
-//! (docs/harnix-sdk.md §9): a long job whose progress is a topic with a parameter
+//! (docs/harnix-sdk.md §9, §10.2): a long job whose progress is a topic with a parameter
 //! (`count_to`, `app.greeter.job { job_id }`), and the module's own link under
 //! `/apps/greeter/` — an HTTP route and a WebSocket.
 //!

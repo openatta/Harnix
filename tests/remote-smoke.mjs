@@ -1,6 +1,6 @@
 // The whole remote path, once: pair, connect, be admitted, be revoked.
 //
-// Each step is a rule from §6.3, and each one is checked by doing it rather
+// Each step is a rule from concept §6.3, and each one is checked by doing it rather
 // than by reading the code that implements it:
 //
 //   * a reachable listener refuses the token alone
@@ -70,7 +70,7 @@ const handshake = (extra) =>
   const { status, text } = await handshake({});
   if (status === 200) {
     // Not a failure — a listener this test cannot say anything about. On a
-    // loopback bind the token *is* the whole story (§6.3), so admission,
+    // loopback bind the token *is* the whole story (concept §6.3), so admission,
     // challenges and revocation all have nothing to gate and every check
     // below would report a security property as broken when it was simply
     // never in play.

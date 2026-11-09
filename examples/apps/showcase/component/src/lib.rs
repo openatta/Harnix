@@ -13,7 +13,7 @@
 //! | `counter.bump` | state in the instance's own memory, which a recycled instance loses |
 //! | `state` | what the backend knows: what its tools ask it for, with `host.call` |
 //! | `timer.start {ms, times?}` | `host.set-timer`: each firing publishes `heartbeat` |
-//! | `fetch {url}` | `host.http-request`, to a host in `net` only |
+//! | `fetch {url}` | slow work started, then reported: a job at once; a timer makes the request (`host.http-request`, to a host in `net` only) and publishes it on `fetched` |
 //! | `session.start {message, …}` | driving the agent: `session.create` and `harnix.send`, as `module:example.showcase` |
 //! | `overreach` | a call its `hub` does not list: refused, and on the record |
 //! | `spin`, `crash` | what a timeout and a trap do to the instance |
@@ -73,6 +73,9 @@ struct Memory {
     status_seen: u64,
     running_sessions: u64,
     started_ms: u64,
+    /// The last `fetch` job started, and the URL of each one still to run, by job.
+    fetch_job: u64,
+    fetching: Vec<(u64, String)>,
 }
 
 static MEMORY: Mutex<Option<Memory>> = Mutex::new(None);
@@ -232,12 +235,19 @@ impl Backend for Showcase {
                 json!({"armed": true, "ms": ms, "times": times})
             }
             "fetch" => {
-                let url = params["url"].as_str().unwrap_or_default();
-                let response = host::http_request("GET", url, &[], None).map_err(|e| error(4, e))?;
-                json!({
-                    "status": response.status,
-                    "body": String::from_utf8_lossy(&response.body),
-                })
+                // A request takes as long as the host does. Made here, the caller would wait that
+                // long, and a call past `timeout_ms` recycles the backend. So the method starts the
+                // job and answers; a timer makes the request and publishes what came of it on
+                // `fetched`. (The timer holds the backend while it runs, as a call would: work longer
+                // than one request is split over several firings.)
+                let url = params["url"].as_str().unwrap_or_default().to_string();
+                let job = memory(|m| {
+                    m.fetch_job += 1;
+                    m.fetching.push((m.fetch_job, url.clone()));
+                    m.fetch_job
+                });
+                host::set_timer(&format!("fetch:{job}"), 0).map_err(|e| error(3, e))?;
+                json!({"job": job, "url": url, "started": true})
             }
             "session.start" => {
                 // The agent, driven by the application: a session of its own, and a prompt.
@@ -338,6 +348,10 @@ impl Backend for Showcase {
     }
 
     fn on_timer(id: String) {
+        if let Some(job) = id.strip_prefix("fetch:").and_then(|j| j.parse::<u64>().ok()) {
+            fetched(job);
+            return;
+        }
         if id != "tick" {
             return;
         }
@@ -358,6 +372,26 @@ impl Backend for Showcase {
     fn stop() {
         host::log("info", "the showcase's backend stopped");
     }
+}
+
+/// Run the `fetch` job `job` and publish what came of it: the response, or the host's refusal.
+fn fetched(job: u64) {
+    let Some(url) = memory(|m| {
+        let at = m.fetching.iter().position(|(j, _)| *j == job)?;
+        Some(m.fetching.remove(at).1)
+    }) else {
+        return;
+    };
+    let value = match host::http_request("GET", &url, &[], None) {
+        Ok(response) => json!({
+            "job": job,
+            "url": url,
+            "status": response.status,
+            "body": String::from_utf8_lossy(&response.body),
+        }),
+        Err(e) => json!({"job": job, "url": url, "error": e}),
+    };
+    let _ = host::publish("fetched", &value.to_string());
 }
 
 fn tool(name: &str, description: &str, schema: Value, read_only: bool) -> ToolDef {

@@ -96,7 +96,7 @@ pub(super) async fn serve(
             tls: tls.clone(),
             // Decided by where this listens, not by a setting. A reachable
             // listener needs a paired device; loopback does not have one to
-            // ask for yet, and does not need one (§6.3).
+            // ask for yet, and does not need one (concept §6.3).
             admission: if host.is_loopback() {
                 harnix_transport::Admission::Token
             } else {

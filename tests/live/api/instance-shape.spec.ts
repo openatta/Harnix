@@ -1,5 +1,5 @@
 /**
- * The protocol's shape from 0.4 on (design §5.6, roadmap M2-8): a session
+ * The protocol's shape from 0.4 on: a session
  * is `(instance, session)`. Methods take `instance` (absent means `system`),
  * frames always carry it, and an instance that does not exist is refused by
  * name rather than quietly meaning `system`.

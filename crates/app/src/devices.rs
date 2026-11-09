@@ -123,7 +123,7 @@ impl Handler for DeviceMethods {
                 let removed = self.devices.revoke(&id);
                 // Immediately, and all of its channels — a credential belongs
                 // to the subject, not to a connection, so there is no such
-                // thing as revoking one of them (§3.3.3, item 2).
+                // thing as revoking one of them (concept §6.3).
                 if removed {
                     (self.disconnect)(&id);
                 }

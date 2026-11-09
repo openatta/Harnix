@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build hello-app as an application is built (design §11.4): the checks, then the interface with
+# Build hello-app as an application is built (docs/harnix-sdk.md §11): the checks, then the interface with
 # this application's modules compiled in, then the binary embedding that interface.
 set -euo pipefail
 cd "$(dirname "$0")/.."

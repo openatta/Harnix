@@ -1,4 +1,4 @@
-//! `AppsPlugin`: the running applications' tools in every session an in-process instance builds.
+//! `AppsBridge`: the running applications' tools in every session an in-process instance builds.
 //!
 //! An Agix plugin (`runtime::plugin::Plugin`) in the instance's assembly. Agix registers it each
 //! time it builds a session — sub-agents, team members and background tasks included — and it
@@ -46,7 +46,9 @@ pub const NAME: &str = "harnix-apps";
 /// The longest note an application's hook may add to a tool's result, in characters.
 pub const MAX_NOTE: usize = 2000;
 
-pub struct AppsPlugin {
+/// The bridge between the running plugin apps and an instance's sessions. It is an Agix plugin,
+/// which is why `plugin` in this crate's code means Agix's kind and never a plugin app.
+pub struct AppsBridge {
     registry: Arc<Registry>,
 }
 
@@ -69,7 +71,7 @@ pub(crate) async fn cancellable<T>(
     }
 }
 
-impl AppsPlugin {
+impl AppsBridge {
     pub fn new(registry: Arc<Registry>) -> Self {
         Self { registry }
     }
@@ -114,7 +116,7 @@ impl AppsPlugin {
     }
 }
 
-impl Plugin for AppsPlugin {
+impl Plugin for AppsBridge {
     fn name(&self) -> &str {
         NAME
     }

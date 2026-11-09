@@ -88,7 +88,7 @@ impl Builtin {
             // Not an empty list. "This build carries no plugin subsystem" and
             // "nothing is installed" are different facts, and a client that
             // cannot tell them apart sends someone looking for a package that
-            // could never load (§4.5).
+            // could never load (concept §4.4).
             Err(e) => Ok(json!({
                 "plugins": [],
                 "contributes": [],

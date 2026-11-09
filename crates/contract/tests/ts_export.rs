@@ -4,7 +4,7 @@
 //! committed; `scripts/check.sh` regenerates it into a scratch directory
 //! (`HARNIX_TS_OUT`) and fails on any difference, so a type changed on one
 //! side and not the other is a red check rather than a refused handshake
-//! (design §4.2).
+//! (concept §5.2).
 //!
 //! One file rather than ts-rs's file per type: the set is small, and one file
 //! is one diff to read.

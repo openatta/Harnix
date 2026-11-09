@@ -1,11 +1,11 @@
 /**
- * Spaces in the browser (design §8), against `examples/hello-app` — an application built the way
+ * Spaces in the browser (concept §5.4), against `examples/hello-app` — an application built the way
  * applications are, with two spaces of its own beside Harnix's built-in ones:
  *
  *   greeter  a tab and a home card, a backend module, its own in-process instance
  *   notes    interface and Agent only, on `system`
  *
- * The invariant under test is the correspondence of §8.5: whatever space is in front, the centre,
+ * The invariant under test is the one between the front space and its session: whatever space is in front, the centre,
  * the composer and the right column show and act on that space's own session, and coming back to
  * a space restores the one it had.
  */

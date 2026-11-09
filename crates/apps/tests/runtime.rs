@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use base::interface::tool::{PermissionDecision, ProgressCallback, ProgressSender, ToolContext};
 use base::interface::tool_middleware::{dispatch_through, ToolAnswer, ToolCall};
-use harnix_apps::{AppsPlugin, Options, Runtime};
+use harnix_apps::{AppsBridge, Options, Runtime};
 use harnix_builtin::apps::{AppsRuntime, InstallRecord};
 use harnix_contract::{RpcError, Subject};
 use harnix_module::apps::AppRuntime;
@@ -410,7 +410,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
     );
 
     // A session's view: every tool, namespaced, and every one asks.
-    let plugin = AppsPlugin::new(rig.runtime.registry());
+    let plugin = AppsBridge::new(rig.runtime.registry());
     let project = rig.dir.path().join("project");
     std::fs::create_dir_all(&project).unwrap();
     std::fs::write(project.join("NOTES.md"), "the project's notes").unwrap();
@@ -567,7 +567,7 @@ async fn the_backend_is_registered_answers_its_methods_and_acts_only_as_far_as_i
         assert!(names.contains(&name), "{names:?}");
     }
     let topics: Vec<&str> = spec.topics.iter().map(|t| t.name.as_str()).collect();
-    assert_eq!(topics, ["notes", "heartbeat"]);
+    assert_eq!(topics, ["notes", "heartbeat", "fetched"]);
     assert_eq!(spec.spaces[0].id, ID);
     assert!(spec.hub.contains(&"topic:harnix.sessions.status".to_string()));
     let state = rig.runtime.status(ID).await;
@@ -616,7 +616,7 @@ async fn the_backend_is_registered_answers_its_methods_and_acts_only_as_far_as_i
     assert_eq!(status["calls"]["refused"][0]["method"], json!("harnix.apps.uninstall"));
 
     // A tool cannot see the backend's memory; it asks, as the application, and is answered.
-    let plugin = AppsPlugin::new(rig.runtime.registry());
+    let plugin = AppsBridge::new(rig.runtime.registry());
     let project = rig.dir.path().join("project");
     std::fs::create_dir_all(&project).unwrap();
     let board = plugin

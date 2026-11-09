@@ -1,6 +1,6 @@
 /**
  * The inline points runtime applications declare (`[inline]` in a manifest), drawn by the shell
- * (UI design §4): no code of the application's runs in the page for any of them. What the shell
+ * (harnix-plugin.md §6.5): no code of the application's runs in the page for any of them. What the shell
  * registers for an application goes through the same points a module's registrations do, signed
  * with the application's id, so the diagnostics name it and a later registration still wins:
  *

@@ -29,7 +29,7 @@ pub(super) struct AppsWiring {
     /// The Agix plugin that gives a session the applications' tools: one, for every engine built
     /// in this process (what `Runtime::plugin` makes).
     #[cfg(feature = "apps")]
-    plugin: Option<Arc<harnix_apps::AppsPlugin>>,
+    plugin: Option<Arc<harnix_apps::AppsBridge>>,
     /// Every spawned daemon's MCP servers, which follow what is running: set when the factory is.
     #[cfg(feature = "apps")]
     servers: Option<Arc<harnix_instance::SharedServers>>,
@@ -51,7 +51,7 @@ impl AppsWiring {
                 idle: app.app_idle,
             })?;
             return Ok(Self {
-                plugin: Some(Arc::new(harnix_apps::AppsPlugin::new(runtime.registry()))),
+                plugin: Some(Arc::new(harnix_apps::AppsBridge::new(runtime.registry()))),
                 runtime: Some(runtime),
                 servers: None,
             });

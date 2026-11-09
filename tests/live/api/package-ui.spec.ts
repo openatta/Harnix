@@ -1,5 +1,5 @@
 /**
- * Installed packages' interface modules (design §10.5, M8-1–M8-3), against the real installer.
+ * Installed packages' interface modules (concept §5.8), against the real installer.
  *
  *   demo-rows     its `[[ui]]` is contribution API 1: the entry does not take, with the reason,
  *                 and nothing of it is offered to the page

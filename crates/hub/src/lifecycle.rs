@@ -1,5 +1,5 @@
 //! What an instance tells the hub without being asked, and how the hub
-//! recovers when it stops being told (design §5.7).
+//! recovers when it stops being told (concept §3.1.1).
 //!
 //! One router per instance reads the link's event stream in order. Session
 //! frames go to the session's buffer and watchers; `daemon.event` updates

@@ -1,8 +1,8 @@
-//! The system space's backend (design §9): looking into and acting on any instance's sessions.
+//! The system space's backend: looking into and acting on any instance's sessions.
 //!
 //! Every method here is one engine call made as the `system` module, through the same admission
 //! point a device goes through — so each is decided by the table and on the audit trail, and none
-//! is a private channel. What Agix does not offer is not offered here either (§9.3).
+//! is a private channel. What Agix does not offer is not offered here either (concept §5.5).
 
 use harnix_contract::RpcError;
 use serde_json::{json, Value};

@@ -37,8 +37,11 @@ pub(crate) struct DaemonCommand {
     pub max_tokens: u32,
     #[arg(long, default_value_t = EngineProfile::default().session_cap)]
     pub session_cap: usize,
+    /// How long a session may sit idle before its runner is let go, in seconds (the profile's
+    /// `session_idle_timeout_secs`; the flag keeps the name Agix's daemon gives it).
     #[arg(long, default_value_t = EngineProfile::default().session_idle_timeout_secs)]
     pub session_idle_timeout: u64,
+    /// How long a permission ask waits for a person, in seconds (`permission_prompt_timeout_secs`).
     #[arg(long, default_value_t = EngineProfile::default().permission_prompt_timeout_secs)]
     pub permission_prompt_timeout: u64,
     /// Exit when stdin closes: how a spawned daemon follows its parent out.

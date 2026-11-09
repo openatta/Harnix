@@ -3,7 +3,7 @@
 //! Protocol version, contribution API version and topology are settled once.
 //! A mismatch is refused with a sentence saying which side is out of date —
 //! never downgraded, because a half-compatible client produces bug reports
-//! nobody can act on (§5.1).
+//! nobody can act on (concept §5.1.1).
 //!
 //! In a multi-channel topology the later channels carry the credential this
 //! produced rather than negotiating again. A negotiation held twice is one

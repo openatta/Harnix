@@ -6,7 +6,7 @@
  * side column is dragged wider or narrower, and remembers it.
  *
  * What is inside the conversation column is `ChatPanel`, the conversation trunk shared with
- * IPDrun (D21).
+ * IPDrun.
  */
 
 import {
@@ -792,7 +792,7 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
   const projectRoot = s.sessions.find((r) => r.session_id === current.sessionId)?.project_root ?? null;
   const filesAsked = useRef(0);
   // `@` offers the project's files and — after `@session:` — sessions of any space, which go to
-  // the turn as a copy of what was said in them (design §8.3: sessions do not cross spaces;
+  // the turn as a copy of what was said in them (concept §5.4: sessions do not cross spaces;
   // references do).
   const mention = useMemo(() => {
     return async (query: string): Promise<MentionItem[]> => {

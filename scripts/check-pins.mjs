@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// An application's pin (design §11.3).
+// An application's pin (harnix-sdk.md §11).
 //
 //   node harnix/scripts/check-pins.mjs [app-root] [--release]
 //
@@ -13,7 +13,7 @@
 // | a commit no remote has                 | failure                                  |
 //
 // And `harnix/` itself must point at a commit a Harnix remote has: no
-// long-lived patches in an application (§11.5). An application still on the
+// long-lived patches in an application. An application still on the
 // old layout (its own `agix/` beside `harnix/`) is judged the same way on that
 // checkout, and told to move.
 

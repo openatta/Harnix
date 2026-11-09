@@ -1,4 +1,4 @@
-//! Where instances come from (design §5.2, §5.4).
+//! Where instances come from (concept §3.1.1).
 //!
 //! Two sources and no third: instances the profile declares, and instances
 //! built from a template. A template is part of assembly — registered at
@@ -105,7 +105,7 @@ impl TemplateCarrier {
     }
 }
 
-/// A daemon somebody else runs, serving only this Harnix (design §5.7).
+/// A daemon somebody else runs, serving only this Harnix (concept §3.1.1).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AttachTo {
@@ -128,7 +128,8 @@ pub struct InstanceTemplate {
     pub data_root: String,
     /// Parameters besides `name` a caller may fill.
     pub params: Vec<String>,
-    /// Whether the interface may build from it (D18).
+    /// Whether the interface may build from it: a device fills only `params`, so nothing that
+    /// should stay the template's own is ever a device's to choose.
     pub ui: bool,
     pub max: Option<usize>,
     /// Whether its instances see the providers configured for `system` — the settings page's —

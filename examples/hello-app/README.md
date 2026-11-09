@@ -15,7 +15,7 @@ scripts/build.sh            # checks, the interface with ui/ compiled in, then t
 target/release/hello-app --profile profiles/hello.toml
 ```
 
-The build sets three variables (design §11.4): `HARNIX_UI_MODULES` names `ui/src/index.tsx` for the
+The build sets three variables (harnix-sdk.md §22.5): `HARNIX_UI_MODULES` names `ui/src/index.tsx` for the
 shell build, `HARNIX_UI_OUT` puts that build in `target/ui`, and `HARNIX_UI_DIST` makes the binary
 embed it instead of Harnix's own interface.
 

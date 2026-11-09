@@ -1,5 +1,5 @@
 /**
- * The system space (design §9): what this process runs, and the hands to act on it.
+ * The system space (concept §5.5): what this process runs, and the hands to act on it.
  *
  * Its three columns: on the left, the instances; in the centre, the console — the process at a
  * glance, then the Agents (the active ones, or all of them: each main Agent on a row with its
@@ -15,7 +15,7 @@
  * Registered only when the backend offers the system methods (`[shell] spaces` keeps `system`),
  * and built on the public calls alone: `harnix.system.*` for what the engine keeps behind the
  * system module, `session.*` and `harnix.instances.*` claiming the system space for the rest —
- * every one of them audited. What Agix does not offer has no tab here (§9.3).
+ * every one of them audited. What Agix does not offer has no tab here.
  */
 
 import { t, type SpaceTab } from "@harnix/react";

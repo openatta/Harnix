@@ -1,5 +1,5 @@
 /**
- * Headless sessions in the browser (design §6.1, §9.2): sessions a module drives from the server
+ * Headless sessions in the browser (concept §3.2, §5.5): sessions a module drives from the server
  * side are ordinary sessions, so the system space's tree shows them under their instance, and
  * opening one shows everything the module made it say.
  */

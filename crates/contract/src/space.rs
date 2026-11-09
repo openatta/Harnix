@@ -1,4 +1,4 @@
-//! A space, as the backend knows it (design §8): an id, the instance its new sessions land on, and
+//! A space, as the backend knows it (concept §5.4): an id, the instance its new sessions land on, and
 //! the scene they start in. What a space looks like is the interface's; which sessions belong to it
 //! is the hub's ledger.
 
@@ -10,7 +10,7 @@ pub const SESSIONS_SPACE: &str = "sessions";
 /// The projects view: interface only. Its sessions are the session space's, listed by project.
 pub const PROJECTS_SPACE: &str = "projects";
 /// The debugging face: sees and acts on every space's sessions, and every time it reaches across
-/// a space that is audited (D17).
+/// a space that is audited (concept §5.4).
 pub const SYSTEM_SPACE: &str = "system";
 
 /// Where a space's new sessions land when the caller names no instance.

@@ -1,6 +1,6 @@
 //! Host topics: named whole-value snapshots, optionally per parameter set.
 //!
-//! The hub's half of design §7.5. Who may subscribe to what is decided by
+//! The hub's half of host topics (concept §3.2). Who may subscribe to what is decided by
 //! the authorizer before a subscribe reaches here; this keeps the current
 //! value of every `(topic, params)` that has one, hands it to a subscriber
 //! on arrival, and pushes each new value to the subscribers of exactly that

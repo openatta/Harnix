@@ -1,7 +1,7 @@
 //! Workspaces, session titles, view preferences, and search.
 //!
 //! Registered through the interface's own registry, like everything else
-//! this product draws (§5.5).
+//! this product draws (concept §3).
 
 use std::collections::HashMap;
 
@@ -162,9 +162,9 @@ impl Builtin {
         Ok(json!({"workspaces": workspaces}))
     }
 
-    /// A title the user typed. The engine has no `session.rename`, so this is
-    /// an overlay: `harnix.sessions` prefers it over the engine's generated name
-    /// and nothing else in the system sees it.
+    /// A title the user typed, kept as an overlay: `harnix.sessions` prefers it over the
+    /// engine's name and nothing else in the system sees it. The engine's own name is changed
+    /// by `session.rename`, which the system space calls (`harnix.system.rename`).
     pub(crate) async fn session_rename(&self, params: Value) -> Result<Value, RpcError> {
         let session_id = require_session_id(&params)?;
         self.session_must_exist(&session_id).await?;
@@ -233,7 +233,7 @@ impl Builtin {
     /// Content search across sessions.
     ///
     /// Ordering comes from `session.list` (most recent first); the scan itself
-    /// reads the transcript store directly — see `harnix_engine::search` for why
+    /// reads the transcript store directly — see `crate::search` for why
     /// this does not page `session.history`.
     pub(crate) async fn search(&self, params: Value) -> Result<Value, RpcError> {
         let query = require_str(&params, "query")?;

@@ -1,5 +1,5 @@
 /**
- * An application's interface in isolated frames (the UI design's §3, §5, §8): the showcase
+ * An application's interface in isolated frames (harnix-plugin.md §6): the showcase
  * (`examples/apps/showcase`), installed unsigned under `[apps] dev`, draws every surface it
  * declares in a sandboxed frame of its own (`ui/frame/`, on `@harnix/app-sdk` and
  * `@harnix/ui-kit`), and does everything through the shell's bridge.

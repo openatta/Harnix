@@ -130,7 +130,7 @@ fn brand_icon(profile: &Profile, profile_path: Option<&Path>) -> Option<PathBuf>
 }
 
 /// What the shell is told at hello: the brand, which built-in spaces this product keeps,
-/// whether installed packages' interface modules load (design §10.5), and whether it starts new
+/// whether installed packages' interface modules load (concept §5.8), and whether it starts new
 /// sessions at all (`new_session`, ipdrun-46).
 fn shell(profile: &Profile, roots: &Roots, has_icon: bool) -> Value {
     json!({
@@ -145,7 +145,7 @@ fn shell(profile: &Profile, roots: &Roots, has_icon: bool) -> Value {
         "narrow_details": profile.shell.narrow_details.as_str(),
         "state_dir": roots.state.display().to_string(),
         "projects_dir": roots.projects.display().to_string(),
-        // Whose process this is: the avatar's name. One process, one person (design §2).
+        // Whose process this is: the avatar's name. One process, one person (concept §10).
         "user": std::env::var("USER").or_else(|_| std::env::var("USERNAME")).ok(),
     })
 }

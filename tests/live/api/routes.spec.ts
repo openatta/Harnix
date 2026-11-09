@@ -1,5 +1,5 @@
 /**
- * Module routes, `/apps/<id>/` (design §7.7): same origin, admitted by the
+ * Module routes, `/apps/<id>/` (concept §3.3.5): same origin, admitted by the
  * same token or credential, decided in the authorization table, refused
  * before the module's code runs.
  */

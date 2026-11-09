@@ -74,7 +74,7 @@ M8 去掉 HOME 之后它没有内建注册了，外壳在新对话的输入框�
 
 插件 APP（[插件](harnix-plugin.md)）不加新的贡献点：外壳照它的清单，替它往这八个点上注册，注册的 owner 是应用的 id。
 
-**面**（`[[surface]] point`，画在隔离的 iframe 里）：
+**面**（`[[surface]] point`，画在隔离的 iframe 里；iframe 的沙箱、CSP 与面的生命周期见 [插件](harnix-plugin.md) §6.2）：
 
 | 面 | 落在哪个贡献点上 |
 |---|---|

@@ -1,5 +1,5 @@
 /**
- * @harnix/testkit —— LIVE 测试（设计 §13）：起真的 harnix，经 @harnix/core 说协议，从 Playwright 驱动。
+ * @harnix/testkit —— LIVE 测试（testing.md）：起真的 harnix，经 @harnix/core 说协议，从 Playwright 驱动。
  */
 
 export { ROOT, RECORDINGS, STRICT_ROOT, type ModelMode, hasModel, loadEnv, modelMode, sleep } from "./env.ts";

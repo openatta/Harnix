@@ -4,7 +4,7 @@
  *
  * Built on the client under test rather than beside it, so the API suites
  * exercise the same handshake, topology fallback and error shapes the
- * interface does (design §13.2).
+ * interface does.
  */
 
 import { HarnixClient } from "@harnix/core/client";

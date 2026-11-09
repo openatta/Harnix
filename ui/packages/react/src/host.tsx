@@ -1,5 +1,5 @@
 /**
- * `useNest()` — what a contribution may do (design §10.4). The interface provides it; a
+ * `useNest()` — what a contribution may do (concept §5.6). The interface provides it; a
  * contribution's component calls it.
  *
  * Deliberately not here: the connection. A contribution calls methods and subscribes to topics by
@@ -124,7 +124,7 @@ export interface NestHost {
     onChange(fn: (open: boolean) => void): () => void;
   };
   /**
-   * A module's own link (design §7.7): its routes under `/apps/<module>/`, same-origin, with the
+   * A module's own link (concept §3.3.5): its routes under `/apps/<module>/`, same-origin, with the
    * credential put on by the host. Paths cannot leave the module's prefix. These links do not get
    * the guarantees of `call` and `subscribe` — topology independence, catching up by `seq`.
    */

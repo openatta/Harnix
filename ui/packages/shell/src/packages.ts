@@ -1,5 +1,5 @@
 /**
- * Installed packages' interface modules (design §10.5, contribution API 2).
+ * Installed packages' interface modules (concept §5.8, contribution API 2).
  *
  * A v2 module is a precompiled ES module the page imports from its own origin
  * (`/plugins/<package>/ui/<file>`, or `/apps/<id>/ui/<file>` for a runtime application's). It brings no React of its own: `react`, `react-dom`,

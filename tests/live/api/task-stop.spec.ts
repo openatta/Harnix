@@ -1,5 +1,5 @@
 /**
- * A task that outlives its turn (design §2): a Monitor printing a line every quarter second for ten
+ * A task that outlives its turn (concept §3): a Monitor printing a line every quarter second for ten
  * seconds (`streams-output`), started by a turn that ends at once. The session's row counts it as
  * running while no turn is, `harnix.system.tasks.stop` stops it, and both topics say so without
  * being asked — to a client that is no longer watching the conversation, as the system space is not.

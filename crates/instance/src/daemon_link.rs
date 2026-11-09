@@ -1,4 +1,4 @@
-//! An Agix daemon in another process, behind [`EngineLink`] (design §5.7).
+//! An Agix daemon in another process, behind [`EngineLink`] (concept §3.1.1).
 //!
 //! Newline-delimited JSON-RPC over a unix socket, or loopback TCP with the
 //! daemon's token. The link either attaches to a daemon somebody else runs or

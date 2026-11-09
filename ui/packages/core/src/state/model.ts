@@ -1,7 +1,7 @@
 /**
  * 会话的状态与归约：把线上的东西变成对话流里的块。
  *
- * 来自 IPDrun nest-ui（D21），原本移植自旧界面的归约部分，改成纯函数、不可变更新：
+ * 来自 IPDrun nest-ui，原本移植自旧界面的归约部分，改成纯函数、不可变更新：
  * 每个块有稳定的 `key`，变了的块换成新对象、没变的保持同一引用，React 只重画引用变了的
  * 那几个——对应原版的 `rev` 计数，一千个 text_delta 只碰一个节点。
  *
@@ -37,7 +37,7 @@ export type ToolStatus = "running" | "ok" | "error" | "interrupted";
  * 从历史读回来的块没有这些（transcript 不带时间），界面就不显示耗时。
  */
 export type Block =
-  /** `steered`：运行中送来、在这一轮的步骤边界进了对话（IPDrun N-108；历史里是 origin "steer"）。 */
+  /** `steered`：运行中送来、在这一轮的步骤边界进了对话（历史里是 origin "steer"）。 */
   | { key: number; kind: "user"; text: string; itemId?: string; at?: number; steered?: boolean }
   | { key: number; kind: "assistant"; text: string; streaming: boolean; at?: number }
   | { key: number; kind: "think"; text: string; streaming?: boolean; startedAt?: number; endedAt?: number }
@@ -86,7 +86,7 @@ export interface AgentLine {
 export type BlockOf<K extends Block["kind"]> = Extract<Block, { kind: K }>;
 
 /**
- * 交给正在跑的那一轮、还没进对话的话（IPDrun N-108，on_busy: "steer"）：画在流的末尾"待送达"，
+ * 交给正在跑的那一轮、还没进对话的话（on_busy: "steer"）：画在流的末尾"待送达"，
  * 进了对话（user_message_delivered）变成那个位置上的一条人的话；本轮在那之前结束（user_messages_returned）
  * 就从这里去掉——中枢把它排回队首，队列快照里会有它。
  */
@@ -110,7 +110,7 @@ export interface SessionState {
   turn: { turnId: string } | null;
   /** 队列：整值快照，不做增量合并。 */
   queue: QueueItem[];
-  /** 待送达：交给了正在跑的一轮、还没进对话的话（IPDrun N-108）。 */
+  /** 待送达：交给了正在跑的一轮、还没进对话的话。 */
   steering: SteerItem[];
   usage: Usage | null;
   /** 上下文占用：最近一次调过模型的那一轮的 `turn_complete.context`（attach 时取 `session.get` 的）。 */
@@ -213,7 +213,7 @@ export function addCustom(state: SessionState, type: string, data: unknown, at?:
 }
 
 /**
- * An entry the application wrote into the session's log (Agix `session.appendEntry`, design §7.6): for
+ * An entry the application wrote into the session's log (Agix `session.appendEntry`, concept §3.2.1): for
  * people, never for the model. `at` is how many messages come before it, in `session.history`'s
  * coordinates. It becomes a `custom` block of type `entry`, which a `flow.block` contribution draws.
  */
@@ -238,7 +238,7 @@ export function note(state: SessionState, text: string, tone: NoteTone = "info")
 
 /**
  * 被取消的工具调用的结果：引擎取消工具时回一个以 "cancelled" 开头的错误结果。是人（或别的客户端、服务端代人）
- * 中断了这一轮，不是工具失败——标"已中断"（界面设计 §8.2）。中断可能不经这个页面（工位的中断走服务端），
+ * 中断了这一轮，不是工具失败——标"已中断"。中断可能不经这个页面（工位的中断走服务端），
  * 刷新后从历史读回来也一样，所以按结果本身认，不只看 interrupting。
  */
 export function isCancelledResult(text: string): boolean {
@@ -387,7 +387,7 @@ export function applyEvent(state: SessionState, event: EngineEvent, options: App
     case "user_message": {
       const message = event as { text?: string; item_id?: string; delivery?: string };
       const text = String(message.text ?? "");
-      // 交给正在跑的一轮（IPDrun N-108）：不是新的一轮，也还不在对话里——先画在末尾"待送达"
+      // 交给正在跑的一轮：不是新的一轮，也还不在对话里——先画在末尾"待送达"
       if (message.delivery === "steer") {
         if (!message.item_id || state.steering.some((s) => s.itemId === message.item_id)) return state;
         return { ...state, steering: [...state.steering, { itemId: message.item_id, text }] };

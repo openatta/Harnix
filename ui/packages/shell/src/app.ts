@@ -4,7 +4,7 @@
  * 一份不可变快照，`subscribe` / `getSnapshot` 对上 `useSyncExternalStore`。会话本身的状态不在这里：
  * 它在 `@harnix/core/state` 的控制器里，`ChatPanel` 打开会话时建。这里只记"开的是哪个"。
  *
- * 会话的全名是 `(instance, session)`，而且属于一个 space（设计 §8.5）：没有全局的「当前会话」，记的是
+ * 会话的全名是 `(instance, session)`，而且属于一个 space（概念与架构 §5.4）：没有全局的「当前会话」，记的是
  * 每个 space 各自的当前会话；前台 space 换了，中区、输入框、右栏就换成那个 space 自己的那一项，切回来
  * 恢复它记住的。外壳发出的每个会话调用都带上前台 space，中枢对着账本核对。
  */

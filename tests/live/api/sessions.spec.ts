@@ -185,8 +185,8 @@ defineSuite("sessions", { feature: "sessions" }, {
     "the hub's session list is the engine's, with whether a turn is running":
       async ({ client }) => {
         const created = await client.call("session.create", {});
-        // The engine's list carries each session's scene and project root
-        // (N-002). The hub used to write those down itself because the engine
+        // The engine's list carries each session's scene and project root.
+        // The hub used to write those down itself because the engine
         // did not; now it must pass the engine's through, not keep a second
         // copy that could disagree.
         const engine = await client.call("session.list", {});
@@ -269,7 +269,7 @@ defineSuite("sessions", { feature: "sessions" }, {
       }
       // Provenance is the point: a command contributed by a package and one
       // the engine ships are different things to show, and `source` is the
-      // only thing that separates them (§2.3).
+      // only thing that separates them (concept §2.3).
       assert(commands.some((c) => c.source === "builtin"), "nothing is builtin");
     },
 

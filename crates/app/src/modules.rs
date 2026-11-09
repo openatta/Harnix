@@ -1,4 +1,4 @@
-//! The module lifecycle, in the order design §7.3 gives it.
+//! The module lifecycle, in the order concept §3.1 gives it.
 //!
 //! Registration, migration and start each happen to every module in the
 //! order the application listed them. A module that fails at any of them is

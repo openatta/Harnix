@@ -1,4 +1,4 @@
-//! The compile-time module contract (design §7).
+//! The compile-time module contract (concept §4.2).
 //!
 //! A **module** is source the application author links in: a space's
 //! backend, a product's domain service, one of Harnix's own built-ins. It is
@@ -12,7 +12,7 @@
 //! A module never gets the hub's internals or an engine link. Its
 //! [`ModuleContext`] calls through the same admission point a device does,
 //! as `Subject::Module(id)`, so a module cannot go around the hub by accident
-//! (design §14: a structural guard against mistakes).
+//! (concept §6.2: a structural guard against mistakes).
 //!
 //! The interface's contribution points (`catalog`) live here too: the
 //! front-end half of the same contract.
@@ -96,12 +96,19 @@ impl SpaceRegistry {
 ///
 /// assert_api::<Old>();
 /// ```
+///
+/// What this number does not cover: the Agix types the contract hands through as they are — the
+/// session `Builder` and `SessionCtx` a customizer gets, the history store on an
+/// [`InstanceHandle`] — and `harnix::agent` / `harnix::scenes`, which are Agix's crates. They
+/// change with Agix and this stays put; what keeps that safe is that a Harnix release carries
+/// exactly one Agix release (`docs/harnix-sdk.md` §16). Routes are an `axum::Router`, so axum's
+/// major version is part of the contract: 1 is axum 0.8.
 pub const MODULE_API_VERSION: u32 = 1;
 
 /// One compile-time module. Every function but `manifest` has a default, so
 /// a module implements only the parts it has.
 ///
-/// Order of calls (design §7.3): the registration functions, once each, in
+/// Order of calls (concept §3.1): the registration functions, once each, in
 /// the order modules were added; then `migrate`; then — once the instances
 /// exist — `start`. A module whose registration conflicts, whose `migrate`
 /// fails or whose `start` fails is disabled with its methods, topics and
@@ -117,12 +124,12 @@ pub trait Module: Send + Sync + 'static {
     /// through a session customizer, a credential source.
     fn engine(&self, _engine: &mut EngineContrib) {}
 
-    /// Templates this module builds its own instances from (design §5.2).
+    /// Templates this module builds its own instances from (concept §3.1.1).
     /// Ids get the module's id as a prefix (`<id>.<template>`); an
     /// in-process template may carry native contributions of its own.
     fn templates(&self, _templates: &mut InstanceTemplates) {}
 
-    /// The spaces this module is the backend of (design §8): where their new sessions land and in
+    /// The spaces this module is the backend of (concept §5.4): where their new sessions land and in
     /// what scene. What they look like is the interface's.
     fn spaces(&self, _spaces: &mut SpaceRegistry) {}
 

@@ -66,7 +66,7 @@ export interface Hello {
   scenes: Scene[];
   commands: unknown[];
   contributions: unknown[];
-  /** What this product is and keeps (design §10.5): its brand, the built-in spaces it keeps of
+  /** What this product is and keeps (concept §5.10): its brand, the built-in spaces it keeps of
    *  `sessions` / `projects` / `system`, whether packages' interface modules load. */
   shell?: {
     spaces?: string[];
@@ -143,7 +143,7 @@ export interface QueueItem {
   attachments?: unknown;
 }
 
-/** hub 缓冲区里的一帧：`seq` 是唯一的追赶锚（§3.3.3）。 */
+/** hub 缓冲区里的一帧：`seq` 是唯一的追赶锚（概念与架构 §3.3.3）。 */
 export interface ReplayFrame {
   seq: number;
   turn_id: string;
@@ -154,7 +154,7 @@ export interface AttachResult {
   instance: string;
   session: SessionInfo;
   /**
-   * 读历史读到这里为止，其后由 `replay` 接上（IPDrun N-120）。一轮在跑时是这一轮开始前的消息数：引擎每一步开始前
+   * 读历史读到这里为止，其后由 `replay` 接上。一轮在跑时是这一轮开始前的消息数：引擎每一步开始前
    * 落盘，正在跑的一轮已有一部分在 transcript 里，而缓冲区里是它的全部。
    */
   history_total: number;
@@ -214,7 +214,7 @@ export interface HistoryPage {
 export type SendResult =
   | { turn_id: string; item_id?: string; queued?: false }
   | { queued: true; item: QueueItem }
-  /** on_busy: "steer" 且本轮在接收：交给了正在跑的那一轮（IPDrun N-108），送达看 user_message_delivered。 */
+  /** on_busy: "steer" 且本轮在接收：交给了正在跑的那一轮，送达看 user_message_delivered。 */
   | { steered: true; item: QueueItem; into_turn_id: string };
 
 /** 权限提问的回答（daemon_rpc_protocol §4.7）。 */
@@ -228,22 +228,22 @@ export type Decision =
 export interface UserMessageEvent {
   kind: "user_message";
   text: string;
-  /** 这条消息在中枢队列里的编号（与 harnix.send 应答、harnix.queue 里的 item_id 对应；IPDrun N-103）。 */
+  /** 这条消息在中枢队列里的编号（与 harnix.send 应答、harnix.queue 里的 item_id 对应）。 */
   item_id?: string;
   /**
-   * "steer"：交给了正在跑的这一轮（IPDrun N-108），还没进对话——它不开新的一轮；进了对话时来一帧
+   * "steer"：交给了正在跑的这一轮，还没进对话——它不开新的一轮；进了对话时来一帧
    * user_message_delivered，本轮在那之前结束则来 user_messages_returned（中枢把它排到队首）。
    */
   delivery?: "steer";
 }
-/** 运行中送来的消息（on_busy: "steer"）在步骤边界加进了对话，模型下一次调用会读到；`item_id` 是中枢补的（IPDrun N-108）。 */
+/** 运行中送来的消息（on_busy: "steer"）在步骤边界加进了对话，模型下一次调用会读到；`item_id` 是中枢补的。 */
 export interface UserMessageDeliveredEvent {
   kind: "user_message_delivered";
   message_id: string;
   content?: string;
   item_id?: string;
 }
-/** 运行中送来、但本轮结束前没读到的消息：不在 transcript 里；中枢把它们排回队首（IPDrun N-108）。 */
+/** 运行中送来、但本轮结束前没读到的消息：不在 transcript 里；中枢把它们排回队首。 */
 export interface UserMessagesReturnedEvent {
   kind: "user_messages_returned";
   messages: { message_id: string; content?: string }[];
@@ -382,7 +382,7 @@ export type EngineEvent =
 
 /* ── 方法表 ───────────────────────────────────────────────────────────── */
 
-/** 一个会话的地址：`instance` 省略即 `system`（设计 §5.6）。 */
+/** 一个会话的地址：`instance` 省略即 `system`。 */
 export interface SessionKey {
   instance?: string;
   session_id: string;
@@ -431,7 +431,7 @@ export interface Methods {
     params: SessionKey & {
       message: string;
       attachments?: unknown[];
-      /** queue：排队到本轮结束；reject：忙就拒绝；interrupt：中断本轮、丢掉排着的再跑这条；steer：当前步骤结束后送进正在跑的这一轮（N-108）。 */
+      /** queue：排队到本轮结束；reject：忙就拒绝；interrupt：中断本轮、丢掉排着的再跑这条；steer：当前步骤结束后送进正在跑的这一轮。 */
       on_busy?: "queue" | "reject" | "interrupt" | "steer";
       /** `@session` 引用：中枢把每个会话说过的话作为一段文本附上。 */
       references?: { instance?: string; session_id: string }[];

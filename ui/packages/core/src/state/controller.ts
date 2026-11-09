@@ -1,15 +1,15 @@
 /**
  * 一个打开的会话：attach、追赶、接事件、发送、中断、回答提问、撤回排队。
  *
- * 来自 IPDrun nest-ui（D21）。不依赖 React：状态是一份不可变快照，`subscribe` / `getSnapshot`
+ * 来自 IPDrun nest-ui。不依赖 React：状态是一份不可变快照，`subscribe` / `getSnapshot`
  * 正好对上 `useSyncExternalStore`，测试里也能直接驱动。
  *
- * 会话的全名是 `(instance, session)`：每个调用都带 `instance`，每条通知都按两者过滤（设计 §5.6）。
+ * 会话的全名是 `(instance, session)`：每个调用都带 `instance`，每条通知都按两者过滤。
  *
  * 追赶的顺序（概念与架构 §3.2、§3.3.3）：attach 拿到 seq、队列与缓冲区快照 → 读历史 →
  * 应用重放与挂起的提问 → 之后只收 `seq` 大于已见值的 `harnix.event`。断线重连后再 attach 一次，
  * 就是"刷新不丢内容"；中枢推 `harnix.session_resync`（实例重连、订阅被引擎丢掉）时也一样。一轮的每一部分只从一边来：一轮在跑时 `history_total` 是它开始前的
- * 消息数（中枢 N-120），这一轮全部来自重放。
+ * 消息数，这一轮全部来自重放。
  */
 
 import { errorText, type HarnixClient } from "../client/index.ts";
@@ -48,7 +48,7 @@ export interface SessionStrings {
   answerFailed(reason: string): string;
 }
 
-/** 没有 `instance` 的调用与通知都是 `system` 的（设计 §5.6）。 */
+/** 没有 `instance` 的调用与通知都是 `system` 的。 */
 export const SYSTEM_INSTANCE = "system";
 
 const HISTORY_PAGE = 200;
@@ -59,7 +59,7 @@ export interface SessionControllerOptions {
   client: HarnixClient;
   /** 缺省 `system`。 */
   instance?: string;
-  /** 调用方所在的 space：每个调用都带上，中枢对着账本核对（设计 §8.5）。缺省不带。 */
+  /** 调用方所在的 space：每个调用都带上，中枢对着账本核对（概念与架构 §5.4）。缺省不带。 */
   space?: string;
   /** 发送时加进 `harnix.send` 的参数（例如 `@session` 引用），按这条消息算。 */
   extras?: (text: string) => Record<string, unknown>;

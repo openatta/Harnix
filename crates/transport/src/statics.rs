@@ -4,7 +4,7 @@
 //! **The interface ships inside the binary.** One artifact to install, and no
 //! way to end up running a page and a backend that disagree — they are
 //! compiled together. `--ui-dir` replaces it with a directory on disk, which
-//! is how a different interface becomes a flag instead of a rebuild (§5.1),
+//! is how a different interface becomes a flag instead of a rebuild (concept §5.1),
 //! and how the front end is worked on: edit, reload, no recompile.
 //! `--headless` serves neither.
 //!
@@ -46,7 +46,7 @@ fn embedded(path: &str) -> Option<&'static [u8]> {
 /// Frames are this origin's only (`frame-src 'self'`): a runtime application's isolated
 /// interface, `/apps/<id>/ui/…`, sandboxed by the shell and served under a policy of its own.
 ///
-/// The one inline thing is the page's import map (design §10.5), which a browser accepts only
+/// The one inline thing is the page's import map (concept §5.8), which a browser accepts only
 /// inline. It is allowed by its own hash and nothing else ([`page_csp`]); no `'unsafe-inline'`,
 /// no `'unsafe-eval'`. The token travels in a `<meta>` tag.
 pub const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; \

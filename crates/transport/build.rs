@@ -1,6 +1,6 @@
 //! The interface is compiled into the binary from a built `dist` directory: Harnix's own
-//! `ui/dist`, or the one an application built with its spaces in it (`HARNIX_UI_DIST`, design
-//! §11.4). Without it this crate does not build, and says what to run — an empty interface embedded
+//! `ui/dist`, or the one an application built with its spaces in it (`HARNIX_UI_DIST`,
+//! harnix-sdk.md §22.5). Without it this crate does not build, and says what to run — an empty interface embedded
 //! silently would be a binary that serves a blank page.
 
 use std::path::{Path, PathBuf};

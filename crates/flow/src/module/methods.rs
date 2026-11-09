@@ -4,7 +4,7 @@
 //!
 //! A run whose id starts `dry-` is a dry run's (xops-02 §5): `get`, `history` and every action on
 //! a run reach the sandbox for it, and what the action produced is queued there, not carried
-//! out. Writing flows (`save`, `delete`, `skill.save`, `skill.delete`) needs writable packs.
+//! out. Writing flows (`save`, `delete`, `part.save`, `part.delete`) needs writable packs.
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -296,7 +296,7 @@ pub(crate) async fn flow_session(
             scene: Some(super::AUTHOR_SCENE.to_string()),
             // Every tool that changes something is asked of the person, every time: an `ask` rule
             // outranks an `allow` one ("always allow" included), so an approval stays a person's
-            // decision (review #3).
+            // decision.
             permission_rules: Some(super::author::ask_rules()),
             recording: sh.cfg.conversation_recording.as_ref().and_then(|f| f(flow)),
             ..Default::default()
