@@ -1362,7 +1362,7 @@ api_version = 2
 运行——`start`、`cancel`、`pause`、`resume`、`confirm`、`force`、`rework`、`retry`、`release`、`proposal`；外部任务——`claim`、
 `heartbeat`、`submit`、`fail`；对话——`session {flow?}`、`focus`；试运行——`dry_run.start` / `step` / `run` / `list`。
 错误码按类：没有这个运行、站、任务或流程答 `NOT_FOUND`；不合运行的状态或契约答 `INVALID_PARAMS`；租约不是你的、
-版本已经往前走答 `CONFLICT`；`data.flow` 是内核自己的类别。
+版本已经往前走答 `CONFLICT`；`data.flow` 是内核自己的类别。`heartbeat` 只续租约：不进运行的历史，也不重发 `app.flow.runs`。
 主题：`app.flow.runs`、`app.flow.run {run}`、`app.flow.defs`、`app.flow.focus {instance, session_id}`、`app.flow.dry_runs`。每个方法的参数与返回写在它注册时的说明里（`harnix.reachable` 列出）。
 
 界面：外壳在后端有流程模块时自己把流程放进系统 space（`registerSystemFlows(registry, { host, within: "system" })`：控制台多一个「流程」页，

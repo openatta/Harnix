@@ -146,7 +146,7 @@ pub(crate) async fn apply(sh: &Arc<Shared>, hint: Option<&str>, o: Outcome) {
     if let Some(h) = hint {
         runs.insert(h.to_string());
     }
-    publish(sh, &runs).await;
+    publish_runs(sh, &runs, !o.bookkeeping).await;
     super::hooks::notify(sh, &o.events).await;
     for w in o.work {
         spawn_work(sh, w, false);
@@ -181,6 +181,11 @@ async fn settle(sh: &Arc<Shared>, run: &str, what: &str, r: crate::Result<Outcom
 
 /// The newest snapshot of each run, and the list; bindings of claims that are over dropped.
 pub(crate) async fn publish(sh: &Arc<Shared>, runs: &BTreeSet<String>) {
+    publish_runs(sh, runs, true).await;
+}
+
+/// [`publish`]; the list only when `list` — not after bookkeeping, which changes no summary.
+async fn publish_runs(sh: &Arc<Shared>, runs: &BTreeSet<String>, list: bool) {
     let (Some(engine), Some(cx)) = (sh.engine.get(), sh.cx.get()) else {
         return;
     };
@@ -193,6 +198,9 @@ pub(crate) async fn publish(sh: &Arc<Shared>, runs: &BTreeSet<String>) {
                 tracing::warn!(run, error = %e, "flow: run not published");
             }
         }
+    }
+    if !list {
+        return;
     }
     match engine
         .list(RunQuery {
