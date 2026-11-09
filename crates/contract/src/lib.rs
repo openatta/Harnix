@@ -29,6 +29,10 @@ pub use subject::Subject;
 /// `[engine]` (concept §3).
 pub const SYSTEM_INSTANCE: &str = "system";
 
+/// The device a client admitted by the per-process token alone is: on a loopback listener there
+/// is no paired device to name, and every such client is the one person at this machine.
+pub const LOCAL_DEVICE: &str = "local";
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

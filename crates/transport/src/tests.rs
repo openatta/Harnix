@@ -69,6 +69,11 @@ impl Gate for Echo {
         if method == "test.panic" {
             panic!("a handler that panics");
         }
+        if method == "test.busy" {
+            let mut e = RpcError::new(harnix_contract::codes::BUSY, "a turn is running");
+            e.data = Some(json!({"turn": "t1"}));
+            return Err(e);
+        }
         Ok(json!({"subject": subject, "method": method}))
     }
 }
@@ -399,4 +404,63 @@ async fn a_call_that_panics_is_answered_with_an_error() {
     let reply: Value = serde_json::from_str(&reply).unwrap();
     assert_eq!(reply["id"], 2);
     assert_eq!(reply["error"]["code"], harnix_contract::codes::INTERNAL_ERROR, "{reply}");
+}
+
+/// A frame refused before the gate, and an error from behind it, read the same on both
+/// topologies: the same code, message and id, and `data` whole.
+#[tokio::test]
+async fn both_topologies_refuse_and_answer_alike() {
+    let served = serve(Admission::Token).await;
+    let http = client();
+    let credential = split_handshake(&http, &served.base, json!({})).await;
+    let split = |frame: Value| {
+        let http = http.clone();
+        let url = format!("{}/rpc?token={credential}", served.base);
+        async move { http.post(url).json(&frame).send().await.unwrap().json::<Value>().await.unwrap() }
+    };
+
+    let (mut socket, _) = tokio_tungstenite::connect_async(&served.ws).await.unwrap();
+    let handshake = json!({"jsonrpc": "2.0", "id": 1, "method": "harnix.handshake", "params": hello("single_duplex", json!({}))});
+    socket.send(tokio_tungstenite::tungstenite::Message::text(handshake.to_string())).await.unwrap();
+    socket.next().await.unwrap().unwrap();
+    let mut duplex = async |frame: Value| -> Value {
+        socket.send(tokio_tungstenite::tungstenite::Message::text(frame.to_string())).await.unwrap();
+        let reply = tokio::time::timeout(std::time::Duration::from_secs(5), socket.next())
+            .await
+            .expect("no answer")
+            .unwrap()
+            .unwrap();
+        serde_json::from_str(&reply.into_text().unwrap()).unwrap()
+    };
+
+    let no_method = json!({"jsonrpc": "2.0", "id": 5, "params": {}});
+    let (a, b) = (split(no_method.clone()).await, duplex(no_method).await);
+    assert_eq!(a, b);
+    assert_eq!(a["id"], 5);
+    assert_eq!(a["error"]["code"], harnix_contract::codes::INVALID_REQUEST);
+
+    let busy = json!({"jsonrpc": "2.0", "id": 6, "method": "test.busy", "params": {}});
+    let (a, b) = (split(busy.clone()).await, duplex(busy).await);
+    assert_eq!(a, b);
+    assert_eq!(a["error"]["data"]["turn"], "t1", "{a}");
+
+    // A handshake for the other topology is refused on each, saying where it is established.
+    let wrong = http
+        .post(format!("{}/handshake", served.base))
+        .json(&hello("single_duplex", json!({})))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_eq!(wrong["error"]["code"], harnix_contract::codes::HANDSHAKE_REFUSED, "{wrong}");
+    assert!(wrong["error"]["message"].as_str().unwrap().contains("own connection"), "{wrong}");
+    let (mut other, _) = tokio_tungstenite::connect_async(&served.ws).await.unwrap();
+    let handshake = json!({"jsonrpc": "2.0", "id": 9, "method": "harnix.handshake", "params": hello("split_streams", json!({}))});
+    other.send(tokio_tungstenite::tungstenite::Message::text(handshake.to_string())).await.unwrap();
+    let refused: Value = serde_json::from_str(&other.next().await.unwrap().unwrap().into_text().unwrap()).unwrap();
+    assert_eq!(refused["id"], 9);
+    assert_eq!(refused["error"]["code"], harnix_contract::codes::HANDSHAKE_REFUSED, "{refused}");
+    assert!(refused["error"]["message"].as_str().unwrap().contains("POST /handshake"), "{refused}");
 }

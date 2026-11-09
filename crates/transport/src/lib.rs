@@ -20,6 +20,7 @@
 mod admission;
 mod apps;
 mod bulk;
+mod frame;
 mod handshake;
 mod launch;
 mod session;
