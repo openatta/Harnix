@@ -12,7 +12,7 @@ import type { Topology } from "@harnix/core/protocol";
 
 import { FetchEventSource } from "./eventsource.ts";
 import type { Backend } from "./launcher.ts";
-import { sleep } from "./env.ts";
+import { sleep, topology as topologyOfRun } from "./env.ts";
 
 /** One server-initiated frame, as a suite sees it. */
 export interface Frame {
@@ -67,9 +67,10 @@ export interface TestClient {
   close(): void;
 }
 
+/** Connect to `backend`, speaking `topology` — this run's (`HARNIX_TOPOLOGY`) unless told otherwise. */
 export async function connect(
   backend: Backend,
-  { topology = "single_duplex" }: { topology?: Topology } = {},
+  { topology = topologyOfRun() }: { topology?: Topology } = {},
 ): Promise<TestClient> {
   const sources: FetchEventSource[] = [];
   const client = new HarnixClient({

@@ -15,12 +15,26 @@ import { test as base } from "@playwright/test";
 import type { Topology } from "@harnix/core/protocol";
 
 import { type TestClient, connect, coverage } from "./api.ts";
-import { type ModelMode, ROOT, hasModel, loadEnv, modelMode } from "./env.ts";
+import { type ModelMode, ROOT, hasModel, loadEnv, modelMode, topology } from "./env.ts";
 import { type Backend, type LaunchOptions, startHarnix } from "./launcher.ts";
 
-/** The topology the API suites speak this run: `HARNIX_TOPOLOGY`, duplex by default. */
-export function topology(): Topology {
-  return process.env.HARNIX_TOPOLOGY === "split_streams" ? "split_streams" : "single_duplex";
+export { topology };
+
+/**
+ * An interface test's backend offers only this run's topology, so the page has to get there by
+ * itself: a page prefers one duplex connection, and offered both it would speak duplex in the
+ * split-streams run too. An API test picks its own topology (`connect`), and some of them open
+ * the other topology's door on purpose, so an API backend keeps both.
+ */
+function servedForRun(): Topology[] | undefined {
+  if (!process.env.HARNIX_TOPOLOGY) return undefined;
+  let project = "";
+  try {
+    project = test.info().project.name;
+  } catch {
+    /* outside a test or hook: not an interface test's backend */
+  }
+  return project === "ui" ? [topology()] : undefined;
 }
 
 /**
@@ -41,6 +55,7 @@ export function launchFor(mode: ModelMode, extra: LaunchOptions = {}): LaunchOpt
     // compiled in, so a front-end change is tested without rebuilding the binary.
     uiDir: join(ROOT, "ui", "dist"),
     ...extra,
+    topologies: extra.topologies ?? servedForRun(),
     env: { ...(model ? env : { ANTHROPIC_API_KEY: "live-tests-no-model" }), ...extra.env },
   };
 }
@@ -61,9 +76,8 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 
   harnix: [
     async ({ mode }, use, workerInfo) => {
-      // The interface picks its own topology, so the backend offers only the one under test: a page
-      // told to prefer one duplex connection has to fall back to split streams when that is all
-      // there is.
+      // The interface picks its own topology, so its backend offers only the one under test (see
+      // `servedForRun`; a worker fixture has no test to ask, so the project is read here).
       const only = workerInfo.project.name === "ui" && process.env.HARNIX_TOPOLOGY ? [topology()] : undefined;
       const backend = await startHarnix(launchFor(mode, only ? { topologies: only } : {}));
       await use(backend);

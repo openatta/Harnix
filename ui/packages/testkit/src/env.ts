@@ -51,4 +51,12 @@ export function modelMode(): ModelMode {
   return asked === "live" || asked === "none" ? asked : "replay";
 }
 
+/**
+ * The topology this run is about: `HARNIX_TOPOLOGY`, duplex by default. `scripts/check.sh` runs
+ * each LIVE layer once per topology, so whatever a test speaks without saying otherwise is this.
+ */
+export function topology(): "single_duplex" | "split_streams" {
+  return process.env.HARNIX_TOPOLOGY === "split_streams" ? "split_streams" : "single_duplex";
+}
+
 export const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));

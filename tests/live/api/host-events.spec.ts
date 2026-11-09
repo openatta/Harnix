@@ -56,7 +56,7 @@ async function hostEvents(client, match, timeout = 20_000) {
 defineSuite("host-events", { feature: "sessions" }, {
   tests: {
     "a process-level failure reaches a client that subscribed to nothing":
-      async ({ topology }) => {
+      async ({ client: { topology } }) => {
         const backend = await startBackend({
           env: { ANTHROPIC_API_KEY: "host-events" },
           seed: seedFailingMcp,
@@ -80,7 +80,7 @@ defineSuite("host-events", { feature: "sessions" }, {
         }
       },
 
-    "a host event is a broadcast, not a subscription": async ({ topology }) => {
+    "a host event is a broadcast, not a subscription": async ({ client: { topology } }) => {
       const backend = await startBackend({
         env: { ANTHROPIC_API_KEY: "host-events" },
         seed: seedFailingMcp,
@@ -103,7 +103,7 @@ defineSuite("host-events", { feature: "sessions" }, {
     },
 
     "the host face carries host events and the session face does not":
-      async ({ topology }) => {
+      async ({ client: { topology } }) => {
         // Only split streams can be wrong about this: there, the two kinds
         // travel on two separate downloads, and a host event delivered on the
         // session face would mean a read-only client watching one
@@ -131,7 +131,7 @@ defineSuite("host-events", { feature: "sessions" }, {
       },
 
     "a client that arrives after the failure cannot learn about it":
-      async ({ topology }) => {
+      async ({ client: { topology } }) => {
         // Not an assertion that this is right — it is the gap, written down.
         //
         // The failure is announced once, on a channel, and nothing holds the
