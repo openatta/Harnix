@@ -275,7 +275,9 @@ impl Host {
     ) -> Result<Booted, RpcError> {
         let id = &manifest.app.id;
         self.kernel.register(registration).await?;
-        match self.start_vm(manifest, root, app_dir, bridge.clone(), verified).await {
+        // `init` holds the backend as a method call does.
+        let started = self.start_vm(manifest, root, app_dir, bridge.clone(), verified);
+        match crate::bridge::waiting_in(Vec::new(), id, started).await {
             Ok((vm, tools)) => {
                 if let Some(vm) = &vm {
                     bridge.started(vm);
@@ -674,6 +676,21 @@ impl Control for Host {
 
     async fn call_method(&self, call: MethodCall) -> Result<Value, RpcError> {
         let full = format!("app.{}.{}", call.app, call.method);
+        // Its backend is waiting on this very call, a hop or several back: refused now rather
+        // than left to wait for itself until the timeout recycles it. Said by the call itself, so
+        // it holds whatever carried it here; the VM's own check is for a call that stayed on one
+        // task.
+        if call.chain.contains(&call.app) {
+            return Err(crate::bridge::unavailable(
+                &call.app,
+                &full,
+                &format!(
+                    "would re-enter the backend of `{}`, which is waiting on this very call",
+                    call.app
+                ),
+                harnix_app_port::Failure::Unavailable.as_str(),
+            ));
+        }
         let Some(app) = self.running(&call.app) else {
             return Err(crate::bridge::unavailable(
                 &call.app,
@@ -687,7 +704,8 @@ impl Control for Host {
         };
         let outcome = {
             let _busy = app.activity.hold();
-            method.answer(app.vm.as_ref(), &call.caller, call.params).await
+            let answer = method.answer(app.vm.as_ref(), &call.caller, call.params);
+            crate::bridge::waiting_in(call.chain, &call.app, answer).await
         };
         app.bridge.stats.method(&call.method, outcome.as_ref().err());
         self.moved();

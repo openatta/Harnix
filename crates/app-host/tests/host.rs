@@ -128,6 +128,56 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
     assert_eq!(rig.platform.said("uninstall_agent"), ["uninstall_agent example-showcase system"]);
 }
 
+/// A backend whose `host.call` comes back into its own method — routed by the product through
+/// another task, as a link between processes would carry it, so nothing of the calling task comes
+/// along — is refused at once by the chain the call carries, not left to wait on itself until the
+/// timeout recycles it. Its tools still reach it: a tool runs in an instance of its own.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_routed_back_into_its_own_waiting_backend_is_refused_across_the_wire() {
+    let rig = Rig::new(|_| {});
+    rig.install(|m| m).await;
+    rig.platform.reroute.set("state".into()).unwrap();
+    let began = std::time::Instant::now();
+    // `overreach` calls out, and answers with what it was told.
+    let answer = rig.platform.device_call("overreach", json!({})).await.unwrap();
+    assert_eq!(answer["refused"], json!(true), "{answer}");
+    let message = answer["message"].as_str().unwrap();
+    assert!(message.contains("would re-enter the backend of `example.showcase`"), "{message}");
+    assert!(began.elapsed() < std::time::Duration::from_secs(4), "it waited for itself: {:?}", began.elapsed());
+    // Not recycled: the backend answers as it did, its memory with it.
+    let status = rig.status().await;
+    assert_eq!(status["health"]["recycles"], json!(0), "{status}");
+    rig.platform.device_call("state", json!({})).await.unwrap();
+
+    // A tool's call into its backend carries no chain, and goes through.
+    let board = ToolCall {
+        app: ID.into(),
+        tool: "board".into(),
+        input: json!({}),
+        call_id: "b1".into(),
+        project: None,
+        progress: false,
+    };
+    match rig.control.call_tool(board).await.unwrap() {
+        ToolReply::Output { content, .. } => assert!(content.contains("the board has"), "{content}"),
+        other => panic!("{other:?}"),
+    }
+
+    // And a chain that already holds the application is refused before its backend is asked.
+    let refused = rig
+        .control
+        .call_method(MethodCall {
+            app: ID.into(),
+            method: "state".into(),
+            caller: Subject::Module { id: "acme.other".into() },
+            params: json!({}),
+            chain: vec![ID.into(), "acme.other".into()],
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(refused.data.unwrap()["failure"], json!("unavailable"));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn what_does_not_start_is_undone_and_said() {
     // Unsigned, where unsigned code does not run: refused before the agent side is switched on.

@@ -200,7 +200,7 @@ mod tests {
             Err(RpcError::refused(format!("{app} was never here")))
         }
         async fn call(&self, c: CallAs) -> Result<Value, RpcError> {
-            Ok(serde_json::json!({"called": c.method, "params": c.params}))
+            Ok(serde_json::json!({"called": c.method, "params": c.params, "chain": c.chain}))
         }
         async fn publish(&self, _: Publish) -> Result<(), RpcError> {
             Ok(())
@@ -267,10 +267,12 @@ mod tests {
                 app: "acme.notes".into(),
                 method: "harnix.send".into(),
                 params: serde_json::json!({"n": 1}),
+                chain: vec!["acme.notes".into()],
             })
             .await
             .unwrap();
         assert_eq!(answer["params"]["n"], serde_json::json!(1));
+        assert_eq!(answer["chain"], serde_json::json!(["acme.notes"]), "the call chain crosses the wire");
         assert!(agent.has_instance("system".into()).await.unwrap());
         assert!(!agent.has_instance("other".into()).await.unwrap());
         let refused = wire.withdraw("acme.notes".into()).await.unwrap_err();

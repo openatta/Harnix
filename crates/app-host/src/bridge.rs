@@ -55,6 +55,26 @@ pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+tokio::task_local! {
+    /// The applications whose resident backends the current task is inside, outermost first, as
+    /// this host knows it: each method call it answers is run in one, and a `host.call` made from
+    /// inside carries it ([`CallAs::chain`]) — over whatever link the kernel is behind, where no
+    /// task-local reaches.
+    static WAITING: Vec<String>;
+}
+
+/// Run `f`, a call that holds `app`'s backend, inside `chain` and `app`.
+pub(crate) async fn waiting_in<F: std::future::Future>(mut chain: Vec<String>, app: &str, f: F) -> F::Output {
+    chain.push(app.to_string());
+    WAITING.scope(chain, f).await
+}
+
+/// The chain a `host.call` made now carries: none outside a call that holds a backend (a tool's
+/// own instance, a timer).
+fn waiting() -> Vec<String> {
+    WAITING.try_with(Clone::clone).unwrap_or_default()
+}
+
 /// What one application did, as the system space shows it. Every count it makes bumps the host's
 /// generation (`Host::generation`): what the application does on its own — a timer's work, what
 /// it publishes — moves it as much as a call does.
@@ -234,13 +254,15 @@ impl Bridge {
 impl AppHost for Bridge {
     async fn call(&self, _app: &str, method: &str, params: Value) -> Result<Value, String> {
         // On the same task, so a call that routes back into this backend is recognized by the VM
-        // and refused rather than waiting for itself.
+        // and refused rather than waiting for itself; and carrying the chain of backends it is
+        // inside, so the host recognizes it too when the route went through another task.
         let outcome = self
             .kernel
             .call(CallAs {
                 app: self.app.clone(),
                 method: method.to_string(),
                 params,
+                chain: waiting(),
             })
             .await;
         self.stats.hub(method, &outcome);

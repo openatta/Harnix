@@ -93,9 +93,50 @@ struct Forward {
     control: Weak<dyn Control>,
 }
 
+/// Where a call's chain (`CallAs::chain`) rides from [`KernelPlatform::call`] to [`Forward`]: in
+/// its params, as the transport's `__client` does, since all the kernel carries between the two is
+/// a subject and params. Put there only for a call into a registered application's method, and
+/// taken out before its backend sees them. Whoever else sets it can only have its own call
+/// refused.
+const CHAIN: &str = "__chain";
+
+/// `params` with `chain` in them for a call of `method`, when that is one of `apps`' methods.
+fn with_chain<'a>(
+    mut params: Value,
+    method: &str,
+    chain: Vec<String>,
+    mut apps: impl Iterator<Item = &'a String>,
+) -> Value {
+    let into_app = method
+        .strip_prefix("app.")
+        .is_some_and(|rest| apps.any(|id| rest.strip_prefix(id.as_str()).is_some_and(|r| r.starts_with('.'))));
+    if chain.is_empty() || !into_app {
+        return params;
+    }
+    if params.is_null() {
+        params = json!({});
+    }
+    // Params that are not an object have nowhere to carry it: such a call is left to the VM's
+    // own check, and to the backend's timeout.
+    if let Some(obj) = params.as_object_mut() {
+        obj.insert(CHAIN.into(), json!(chain));
+    }
+    params
+}
+
+/// The chain a call came with, taken out of its params.
+fn take_chain(params: &mut Value) -> Vec<String> {
+    params
+        .as_object_mut()
+        .and_then(|obj| obj.remove(CHAIN))
+        .and_then(|chain| serde_json::from_value(chain).ok())
+        .unwrap_or_default()
+}
+
 #[async_trait]
 impl AppHandler for Forward {
-    async fn call(&self, caller: &Subject, params: Value) -> Result<Value, RpcError> {
+    async fn call(&self, caller: &Subject, mut params: Value) -> Result<Value, RpcError> {
+        let chain = take_chain(&mut params);
         let Some(control) = self.control.upgrade() else {
             let mut e = RpcError::new(
                 codes::INTERNAL_ERROR,
@@ -110,6 +151,7 @@ impl AppHandler for Forward {
                 method: self.name.clone(),
                 caller: caller.clone(),
                 params,
+                chain,
             })
             .await
     }
@@ -242,7 +284,9 @@ impl Kernel for KernelPlatform {
     }
 
     async fn call(&self, call: CallAs) -> Result<Value, RpcError> {
-        self.handle(&call.app)?.call(&call.method, call.params).await
+        let handle = self.handle(&call.app)?;
+        let params = with_chain(call.params, &call.method, call.chain, read(&self.handles).keys());
+        handle.call(&call.method, params).await
     }
 
     async fn publish(&self, p: Publish) -> Result<(), RpcError> {
@@ -268,6 +312,26 @@ impl Kernel for KernelPlatform {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_calls_chain_rides_into_an_applications_method_and_nowhere_else() {
+        let apps = ["acme.notes".to_string(), "acme".to_string()];
+        let chain = || vec!["acme.notes".to_string()];
+        // Into a registered application's method: carried, and taken out again whole.
+        let mut params = with_chain(json!({"x": 1}), "app.acme.notes.list", chain(), apps.iter());
+        assert_eq!(params, json!({"x": 1, "__chain": ["acme.notes"]}));
+        assert_eq!(take_chain(&mut params), chain());
+        assert_eq!(params, json!({"x": 1}), "the backend sees its own params only");
+        assert_eq!(with_chain(Value::Null, "app.acme.x", chain(), apps.iter()), json!({"__chain": ["acme.notes"]}));
+        // A kernel method, a compiled-in module's (`app.probe.*`), a name that only shares a
+        // prefix, or no chain at all: untouched.
+        for method in ["harnix.send", "app.probe.echo", "app.acmeish.x"] {
+            assert_eq!(with_chain(json!({"x": 1}), method, chain(), apps.iter()), json!({"x": 1}), "{method}");
+        }
+        assert_eq!(with_chain(json!({"x": 1}), "app.acme.x", Vec::new(), apps.iter()), json!({"x": 1}));
+        // What a caller made up is no chain.
+        assert!(take_chain(&mut json!({"__chain": "acme"})).is_empty());
+    }
 
     #[test]
     fn a_subject_is_one_of_three_or_the_registration_is_refused() {

@@ -70,6 +70,11 @@ pub struct CallAs {
     pub app: String,
     pub method: String,
     pub params: Value,
+    /// The applications whose resident backends are waiting on this call, outermost first — `app`
+    /// last, when it is its backend that calls. Routed into one of their methods, the call comes
+    /// back as [`MethodCall::chain`], and is refused rather than left waiting for itself.
+    #[serde(default)]
+    pub chain: Vec<String>,
 }
 
 /// `host.publish`, on one of the application's `[[topic]]`s.
@@ -173,9 +178,10 @@ pub trait Kernel: Send + Sync {
     /// Take them back. Calls queued for them are answered that the application stopped.
     async fn withdraw(&self, app: String) -> Result<(), RpcError>;
 
-    /// `host.call`, as `module:<app>`. Routed back into the same application, it is answered by
-    /// [`Control::call_method`] — which a backend waiting on this very call refuses rather than
-    /// deadlock, so long as the platform awaits the routed call where it was asked.
+    /// `host.call`, as `module:<app>`. Routed into an application's method, it is answered by
+    /// [`Control::call_method`] with the call's [`CallAs::chain`] as its [`MethodCall::chain`]:
+    /// a backend already waiting on the call — however many hops back, over whatever carried it —
+    /// refuses it rather than deadlock.
     async fn call(&self, call: CallAs) -> Result<Value, RpcError>;
     /// `host.publish`, in the order the backend published.
     async fn publish(&self, publish: Publish) -> Result<(), RpcError>;
@@ -275,6 +281,11 @@ pub struct MethodCall {
     pub method: String,
     pub caller: Subject,
     pub params: Value,
+    /// The applications whose resident backends are waiting on this call, outermost first: the
+    /// [`CallAs::chain`] of the `host.call` it was routed from, or none. A call whose chain holds
+    /// its own application is one its backend is already waiting on, and is refused.
+    #[serde(default)]
+    pub chain: Vec<String>,
 }
 
 /// A value on a topic the application subscribed to.
@@ -376,7 +387,8 @@ pub trait Control: Send + Sync {
     async fn status(&self, app: String) -> Result<Value, RpcError>;
 
     /// Answer one of its methods with its backend: params checked against the declared schema,
-    /// then queued for `handle`.
+    /// then queued for `handle`. Refused at once when [`MethodCall::chain`] holds the
+    /// application: its backend is waiting on this very call.
     async fn call_method(&self, call: MethodCall) -> Result<Value, RpcError>;
     /// Hand its backend a value on a topic it subscribed to, in the order they come.
     async fn deliver(&self, value: TopicValue) -> Result<(), RpcError>;

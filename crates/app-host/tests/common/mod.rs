@@ -51,6 +51,10 @@ pub struct FakePlatform {
     pub offers: Mutex<Vec<Offer>>,
     /// The host, as the kernel reaches it: across the loopback too.
     pub control: OnceLock<Arc<dyn Control>>,
+    /// When set, a call the application makes that its `hub` lists is answered by this method of
+    /// its own instead, called from another task: a product that routes it back into the
+    /// application over a link, where nothing of the calling task comes along.
+    pub reroute: OnceLock<String>,
 }
 
 impl FakePlatform {
@@ -88,6 +92,7 @@ impl FakePlatform {
                 method: method.into(),
                 caller: Subject::Device { id: "d1".into() },
                 params,
+                chain: Vec::new(),
             })
             .await
     }
@@ -114,8 +119,20 @@ impl Kernel for FakePlatform {
                     method: own.into(),
                     caller: Subject::Module { id: c.app.clone() },
                     params: c.params,
+                    chain: c.chain,
                 })
                 .await;
+        }
+        if let Some(own) = self.reroute.get() {
+            let control = self.control.get().unwrap().clone();
+            let call = MethodCall {
+                app: c.app.clone(),
+                method: own.clone(),
+                caller: Subject::Module { id: c.app.clone() },
+                params: json!({}),
+                chain: c.chain,
+            };
+            return tokio::spawn(async move { control.call_method(call).await }).await.unwrap();
         }
         if !self.hub(&c.app).contains(&c.method) {
             return Err(RpcError::refused(format!("`module:{}` may not call `{}`", c.app, c.method)));
