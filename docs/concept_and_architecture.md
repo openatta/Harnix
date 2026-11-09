@@ -571,6 +571,8 @@ Harnix 不定义它的包格式、不校验、不解包、不判定能力。它�
    交给引擎。插件 APP 的 `agent/` 也走 `plugin.install`，由 `apps` 模块替它装进声明的实例。
 2. **读包里引擎不关心的那一段**——`[[ui]]`（§5.8）。**包在哪由引擎说**：`plugin.list` 的条目带 `root`，
    Harnix 只读那下面的 `plugin.toml`，自己不拼任何路径，引擎的缓存布局因此仍然是引擎的。
+   插件 APP 的 `agent/` 另有一个读者：装包之前，`harnix-app-package` 从它的 `plugin.toml` 读 `[plugin]` 的 `name` 和
+   `version`，是要请 `plugin.install` 装成的名字，此外一个键也不读（`layering.rs` 查这两处）。
 
 **生命周期走 `harnix.plugins.*`，引擎自己那几个名字不开。** 装、卸、启、停都是引擎干的活，这一层不加判断
 也不发明参数；它加的是后面那一步：任何改变「装了什么」的调用之后重读一遍，因为 Harnix 在服务每个包的

@@ -108,6 +108,14 @@ fn the_hub_does_not_know_about_connections() {
         ],
         "it speaks to `dyn FrameSink`, which is all it may learn about a downstream",
     );
+    // Nor does it name the engine's crate: it reaches an instance through an `EngineLink`, and
+    // the engine's error codes that a link carries come from the instance layer
+    // (`harnix_instance::engine_codes`).
+    assert_ignorant_of(
+        "hub",
+        &["daemon"],
+        "an instance is an `EngineLink` to the hub, whichever carrier is behind it",
+    );
 }
 
 /// The instance layer builds engines and links to them. It does not know
@@ -167,6 +175,7 @@ fn the_builtins_use_only_the_public_module_api() {
             "harnix-authz",
             "harnix-instance",
             "harnix-app",
+            "harnix-transport",
             "daemon",
         ],
         "a built-in is a module, and a module reaches the process only through its context",
@@ -620,6 +629,46 @@ fn harnix_reads_only_its_own_manifest_section() {
             "packages.rs names `{needle}`, which is the engine's half of the manifest"
         );
     }
+}
+
+/// The same rule's second reader. A plugin application's `agent/` is an Agix package, installed
+/// by `plugin.install` under the name and version its `plugin.toml` gives; `harnix-app-package`
+/// reads those two keys of `[plugin]` and nothing else of the engine's manifest.
+#[test]
+fn a_plugin_applications_agent_package_is_read_for_its_name_and_version_only() {
+    let path = workspace_root().join("crates/app-package/src/package.rs");
+    let text = std::fs::read_to_string(&path).expect("package.rs");
+    // Code only, and not the tests: they write whole manifests to read them back.
+    let code: String = text[..text.find("#[cfg(test)]").unwrap_or(text.len())]
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let start = code.find("fn agent_package(").expect("the agent package's reader");
+    let end = start + code[start..].find("\n}").expect("its closing brace");
+    let reader = &code[start..end];
+    let quoted = |within: &str, call: &str| -> BTreeSet<String> {
+        within
+            .match_indices(call)
+            .filter_map(|(at, _)| {
+                let rest = &within[at + call.len()..];
+                rest.strip_prefix('"')?.split('"').next().map(str::to_string)
+            })
+            .collect()
+    };
+    assert_eq!(quoted(reader, ".get("), BTreeSet::from(["plugin".to_string()]), "a table besides `[plugin]` is read");
+    assert_eq!(
+        quoted(reader, "field("),
+        BTreeSet::from(["name".to_string(), "version".to_string()]),
+        "a key of `[plugin]` besides name and version is read"
+    );
+    // And that reader is the only place the file parses TOML: anything else reading the
+    // manifest would be a second truth about what an extension is.
+    let outside = format!("{}{}", &code[..start], &code[end..]);
+    assert!(
+        !outside.contains("toml::"),
+        "package.rs parses TOML outside `agent_package`; the engine's manifest is the engine's"
+    );
 }
 
 /// Every crate that depends on a Harnix crate depends on one that exists, and

@@ -52,6 +52,8 @@ pub use harnix_instance::profile::EngineProfile;
 pub use harnix_instance::templates::{AttachTo, InstanceTemplate, InstanceTemplates, TemplateCarrier};
 pub use harnix_instance::EngineContrib;
 pub use harnix_authz::Principal;
+/// A module that issues upload grants answers the upload route through this.
+pub use harnix_contract::BulkStore;
 pub use harnix_contract::{DefaultInstance, RpcError, SpaceDecl, Subject};
 
 /// What a module declares in `spaces()`.

@@ -10,7 +10,6 @@ description  = "Harnix's own contributions, through the same points a plugin use
 [dependencies]
 harnix-contract = { workspace = true }
 harnix-module   = { workspace = true }
-harnix-transport = { workspace = true }
 base        = { workspace = true }
 history     = { workspace = true }
 telemetry   = { workspace = true }

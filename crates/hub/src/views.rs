@@ -154,7 +154,7 @@ impl Hub {
         let mut value = match result {
             Ok(v) => v,
             // Not in memory: nothing of it is running.
-            Err(e) if e.code == daemon::rpc::codes::SESSION_NOT_FOUND => {
+            Err(e) if e.code == harnix_instance::engine_codes::SESSION_NOT_FOUND => {
                 json!({"active": false, "tasks": []})
             }
             Err(e) => return Err(e),

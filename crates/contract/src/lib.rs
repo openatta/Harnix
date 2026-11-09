@@ -7,7 +7,7 @@
 //! transport does not know what a session is, authorization does not know
 //! what a frame looks like, the hub does not know what HTTP is.
 //!
-//! Nothing here executes anything. It is types, two traits and a version —
+//! Nothing here executes anything. It is types, three traits and a version —
 //! and [`sync`], the one way the kernel takes a lock.
 
 pub mod frame;
@@ -129,4 +129,22 @@ pub mod codes {
 pub trait Gate: Send + Sync {
     async fn call(&self, subject: &Subject, method: &str, params: Value)
         -> Result<Value, RpcError>;
+}
+
+/// Who issued an upload grant and where it lands.
+///
+/// Transport serves the upload route and asks through this; a module that issues grants answers
+/// it. Here rather than in either, because transport may not know what a module is and a module
+/// may not reach transport: uploads belong to a contribution, not to the kernel.
+#[async_trait::async_trait]
+pub trait BulkStore: Send + Sync {
+    /// Claim a grant: where the bytes go, and the ceiling that grant was
+    /// issued under. `None` means never issued, or already spent.
+    ///
+    /// The ceiling travels with the grant rather than being one number for
+    /// the route, because the two things that use this channel do not have
+    /// the same limit — a file attachment and an extension package are
+    /// different sizes of thing, and each is advertised at its own number by
+    /// the method that issues it.
+    async fn claim(&self, token: &str) -> Option<(std::path::PathBuf, usize)>;
 }

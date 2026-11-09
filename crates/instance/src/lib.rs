@@ -37,6 +37,10 @@ mod serve;
 pub mod templates;
 
 pub use contrib::EngineContrib;
+/// The engine's own error codes (`session not found`, `turn in progress`, …), for a layer above
+/// that has to tell them apart: they are part of what a link carries, so whoever holds a link
+/// reads them from here rather than from the engine's crate.
+pub use daemon::rpc::codes as engine_codes;
 pub use daemon_link::{DaemonLink, DaemonSpec, Endpoint, SpawnOptions, SpawnSpec};
 pub use engine::{build as build_engine, Engine, EngineConfig};
 pub use factory::{engine_config, Built, Facts, Factory};

@@ -375,7 +375,7 @@ impl Builtin {
 /// Uploads are a module's business, not the kernel's, so transport asks
 /// through a trait rather than knowing whose they are.
 #[async_trait::async_trait]
-impl harnix_transport::BulkStore for Builtin {
+impl harnix_module::BulkStore for Builtin {
     async fn claim(&self, token: &str) -> Option<(PathBuf, usize)> {
         self.claim_upload(token).await
     }

@@ -837,7 +837,7 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 | 名字 | 现在 | 在哪 | 什么时候升 |
 |---|---|---|---|
 | Harnix 版本 | `0.4.1-2026110806` | 各 crate 的 `Cargo.toml`；`harnix::HARNIX_VERSION` | 每次发布（`scripts/set-version.sh` 连这一格一起改，`tests/crate-metadata.mjs` 查它和 crate 一致） |
-| 模块 API | `1` | `harnix::MODULE_API_VERSION` | 模块契约有模块看得见的变化。**编译期**检查：`Module::API_VERSION` 不等就编译不过 |
+| 模块 API | `1` | `harnix::MODULE_API_VERSION` | 模块契约有模块看得见的变化。**编译期**检查：`Module::API_VERSION` 不等就编译不过。模块的路由是 `axum::Router`（`harnix::axum` 重导出），所以**axum 的大版本是它的一部分**：模块 API 1 = axum 0.8，升 axum 的大版本就是升模块 API |
 | 贡献点 API | `2` | `harnix::CONTRIB_API_VERSION`；`harnix.hello` 里也有 | 贡献点的契约变了。2：运行期包的界面模块是预编译的 ES 模块，从页面的 import map 拿 React；**React 的大版本是它的一部分** |
 | 协议 | `4` | `harnix_contract::PROTOCOL_VERSION` | 握手比对，不一致拒绝（`HANDSHAKE_REFUSED`） |
 | 应用接口（插件 APP） | `1` | `harnix-app.toml` 的 `[app] harnix_api`；`harnix_app_package::HARNIX_API` | 插件 APP 的契约（WIT world 与清单）有破坏性变化。见 [插件](harnix-plugin.md) §13 |
