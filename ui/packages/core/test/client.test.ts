@@ -225,6 +225,78 @@ describe("分离流回退", () => {
     expect(client.status).toBe("incompatible");
   });
 
+  it("a face that reopens after a drop is caught up on: the client says open again, as after a reconnect", async () => {
+    const server = new FakeServer();
+    const split = new FakeSplit();
+    const { client } = makeClient(server, split, { speaks: ["split_streams"] });
+    client.connect();
+    await client.ready();
+    const seen: string[] = [];
+    client.onStatus((status) => seen.push(status));
+    split.sources[0]!.fail();
+    split.sources[1]!.fail();
+    split.sources[0]!.reopen();
+    expect(seen).toEqual(["degraded", "degraded"]);
+    split.sources[1]!.reopen();
+    // Frames sent in the gap reached no stream: whatever listens for "open" attaches and subscribes again.
+    expect(seen).toEqual(["degraded", "degraded", "connecting", "open"]);
+    expect(split.requests.filter((r) => r.url.endsWith("/handshake"))).toHaveLength(1);
+    client.close();
+  });
+
+  it("a stream the server refused for good: a new handshake, with the token fetched again", async () => {
+    vi.useFakeTimers();
+    try {
+      const server = new FakeServer();
+      const split = new FakeSplit();
+      let page = "tok en";
+      const { client } = makeClient(server, split, { speaks: ["split_streams"], refreshToken: async () => page });
+      client.connect();
+      await client.ready();
+      // The backend restarted with a new token: the old credential is unknown, and so is the old token.
+      page = "new token";
+      split.handshake = { ...split.handshake as object, credential: "cred-2" };
+      split.sources[1]!.lose();
+      expect(client.status).toBe("closed");
+      await vi.runAllTimersAsync();
+      expect(client.status).toBe("open");
+      const handshakes = split.requests.filter((r) => r.url.endsWith("/handshake"));
+      expect(handshakes.map((h) => h.body?.token)).toEqual(["tok en", "new token"]);
+      expect(split.sources.slice(2).map((s) => s.url)).toEqual([
+        expect.stringContaining("token=cred-2"),
+        expect.stringContaining("token=cred-2"),
+      ]);
+      expect(split.sources.slice(0, 2).every((s) => s.es.closed)).toBe(true);
+      client.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a new handshake the server is not up for yet is tried again; one it refuses is final", async () => {
+    vi.useFakeTimers();
+    try {
+      const server = new FakeServer();
+      const split = new FakeSplit();
+      const { client } = makeClient(server, split, { speaks: ["split_streams"] });
+      client.connect();
+      await client.ready();
+      split.down = 2;
+      split.sources[0]!.lose();
+      await vi.runAllTimersAsync();
+      expect(client.status).toBe("open");
+      expect(split.requests.filter((r) => r.url.endsWith("/handshake"))).toHaveLength(4);
+
+      split.handshake = { error: { code: -31001, message: "protocol version 4 is not 5" } };
+      split.sources.at(-1)!.lose();
+      await vi.runAllTimersAsync();
+      expect(client.status).toBe("incompatible");
+      expect(client.detail).toContain("protocol version");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("首选分离流时直接走它", async () => {
     const server = new FakeServer();
     const split = new FakeSplit();

@@ -22,6 +22,14 @@
 //! `harnix_builtin::plugins`). Anything here that read a manifest would be a
 //! second truth about what an extension may do.
 
+// A daemon's unix socket, the session it leads (`setsid`), the `flock` on its data root: the
+// instance layer is built on unix, and says so once, here, rather than in fallbacks for a platform
+// nothing builds it for.
+#[cfg(not(unix))]
+compile_error!("harnix-instance builds on unix only (Linux and macOS are the ones exercised)");
+
+#[macro_use]
+mod delegate;
 mod admit;
 mod attended;
 pub mod contrib;
@@ -37,6 +45,10 @@ mod serve;
 pub mod templates;
 
 pub use contrib::EngineContrib;
+/// The engine's own error codes (`session not found`, `turn in progress`, …), for a layer above
+/// that has to tell them apart: they are part of what a link carries, so whoever holds a link
+/// reads them from here rather than from the engine's crate.
+pub use daemon::rpc::codes as engine_codes;
 pub use daemon_link::{DaemonLink, DaemonSpec, Endpoint, SpawnOptions, SpawnSpec};
 pub use engine::{build as build_engine, Engine, EngineConfig};
 pub use factory::{engine_config, Built, Facts, Factory};

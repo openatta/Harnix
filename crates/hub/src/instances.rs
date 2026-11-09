@@ -15,6 +15,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use harnix_contract::sync::{lock, read, write};
 use harnix_contract::{codes, RpcError, Subject};
 use harnix_instance::link::{self, Carrier, DownLink, EngineLink, LinkStatus};
 use harnix_instance::{Built, Facts, Factory, InstanceTemplate, Ledger, LedgerEntry, Owner};
@@ -35,7 +36,7 @@ pub struct Slot {
 
 impl Slot {
     pub(crate) async fn stop(&self) {
-        for task in self.tasks.lock().unwrap_or_else(|e| e.into_inner()).drain(..) {
+        for task in lock(&self.tasks).drain(..) {
             task.abort();
         }
         self.link.shutdown().await;
@@ -175,12 +176,8 @@ impl Hub {
                 hub.refresh("harnix.instances", json!({}));
             }
         }));
-        *slot.tasks.lock().unwrap_or_else(|e| e.into_inner()) = tasks;
-        let previous = self
-            .instances
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(id.to_string(), slot);
+        *lock(&slot.tasks) = tasks;
+        let previous = write(&self.instances).insert(id.to_string(), slot);
         if let Some(previous) = previous {
             previous.stop().await;
         }
@@ -546,11 +543,7 @@ impl Hub {
     }
 
     async fn remove_instance(self: &Arc<Self>, instance: &str) {
-        let removed = self
-            .instances
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(instance);
+        let removed = write(&self.instances).remove(instance);
         if let Some(slot) = removed {
             slot.stop().await;
         }
@@ -606,7 +599,7 @@ impl Hub {
 
     /// The shared MCP servers into one spawned instance's global tier, before its daemon reads it.
     fn servers_into(&self, instance: &str, root: &std::path::Path) {
-        let servers = self.shared_servers.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let servers = read(&self.shared_servers).clone();
         if let Err(e) = crate::servers::merge(root, &servers) {
             tracing::warn!(instance, error = %e, "the shared MCP servers were not written");
         }
@@ -617,7 +610,7 @@ impl Hub {
     /// instance whose settings changed reloads them once it is ready. Answers without waiting
     /// for the reloads.
     pub async fn set_shared_servers(self: &Arc<Self>, servers: serde_json::Map<String, Value>) {
-        *self.shared_servers.write().unwrap_or_else(|e| e.into_inner()) = servers.clone();
+        *write(&self.shared_servers) = servers.clone();
         for slot in self.slots() {
             if slot.link.carrier() != Carrier::Spawn {
                 continue;

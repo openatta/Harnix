@@ -9,10 +9,7 @@
 
 use std::sync::Arc;
 
-use base::context::config::PathStyle;
-use base::interface::prompt::PromptBlock;
-use base::interface::scene::{ExecutionParams, ReminderContext, Scene, ScenePromptContext, TokenBudget};
-use base::tool::Tool;
+use base::interface::scene::Scene;
 
 pub struct Admitting {
     inner: Arc<dyn Scene>,
@@ -32,19 +29,12 @@ impl Admitting {
     }
 }
 
-impl Scene for Admitting {
-    fn id(&self) -> &str {
-        self.inner.id()
-    }
-    fn name(&self) -> &str {
-        self.inner.name()
-    }
-    fn description(&self) -> &str {
-        self.inner.description()
-    }
-    fn build_system_prompt(&self, ctx: &ScenePromptContext) -> Vec<PromptBlock> {
-        self.inner.build_system_prompt(ctx)
-    }
+delegate_scene!(Admitting => inner; [
+    id, name, description, build_system_prompt, requires_project, supports_team, extra_tools,
+    token_budget, build_system_reminder, build_session_context, disallowed_tools, deferred_tools,
+    path_style, interactive, bundled_skills, modules, disabled_modules, permits_module,
+    execution_params, auto_name_session, session_name_prompt, memory_extraction_prompt,
+];
     fn tools(&self) -> Vec<String> {
         let mut tools = self.inner.tools();
         if !tools.is_empty() {
@@ -52,64 +42,10 @@ impl Scene for Admitting {
         }
         tools
     }
-    fn requires_project(&self) -> bool {
-        self.inner.requires_project()
-    }
-    fn supports_team(&self) -> bool {
-        self.inner.supports_team()
-    }
-    fn extra_tools(&self) -> Vec<Arc<dyn Tool>> {
-        self.inner.extra_tools()
-    }
-    fn token_budget(&self) -> TokenBudget {
-        self.inner.token_budget()
-    }
-    fn build_system_reminder(&self, ctx: &ReminderContext) -> String {
-        self.inner.build_system_reminder(ctx)
-    }
-    fn build_session_context(&self, ctx: &ScenePromptContext) -> String {
-        self.inner.build_session_context(ctx)
-    }
-    fn disallowed_tools(&self) -> Vec<String> {
-        self.inner.disallowed_tools()
-    }
     fn permits_tool(&self, name: &str) -> bool {
         self.inner.permits_tool(name) || (self.admits(name) && !self.inner.tools().is_empty())
     }
-    fn deferred_tools(&self) -> Vec<String> {
-        self.inner.deferred_tools()
-    }
-    fn path_style(&self) -> PathStyle {
-        self.inner.path_style()
-    }
-    fn interactive(&self) -> bool {
-        self.inner.interactive()
-    }
-    fn bundled_skills(&self) -> Vec<String> {
-        self.inner.bundled_skills()
-    }
-    fn modules(&self) -> Option<Vec<String>> {
-        self.inner.modules()
-    }
-    fn disabled_modules(&self) -> Vec<String> {
-        self.inner.disabled_modules()
-    }
-    fn permits_module(&self, id: &str) -> bool {
-        self.inner.permits_module(id)
-    }
-    fn execution_params(&self) -> ExecutionParams {
-        self.inner.execution_params()
-    }
-    fn auto_name_session(&self) -> bool {
-        self.inner.auto_name_session()
-    }
-    fn session_name_prompt(&self, first_message: &str) -> Option<String> {
-        self.inner.session_name_prompt(first_message)
-    }
-    fn memory_extraction_prompt(&self) -> Option<String> {
-        self.inner.memory_extraction_prompt()
-    }
-}
+);
 
 #[cfg(test)]
 mod tests {

@@ -263,8 +263,8 @@ impl Downstream {
 impl FrameSink for Downstream {
     async fn deliver(&self, frame: Frame) -> bool {
         match frame.channel {
-            Channel::SessionEvents => self.put(Face::Session, frame.payload),
-            Channel::HostEvents => self.put(Face::Host, frame.payload),
+            Channel::SessionEvents => self.put(Face::Session, frame.payload.to_string()),
+            Channel::HostEvents => self.put(Face::Host, frame.payload.to_string()),
             // Unary replies travel back on the request that asked; bulk goes
             // around every channel. Neither reaches a sink.
             _ => true,

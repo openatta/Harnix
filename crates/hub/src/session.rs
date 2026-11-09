@@ -3,7 +3,7 @@
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 
-use daemon::rpc::codes as engine_codes;
+use harnix_instance::engine_codes;
 use harnix_contract::{Frame, RpcError};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
@@ -131,9 +131,10 @@ impl SessionState {
 
 /// Assign a seq, buffer for catch-up, fold the projections, fan out.
 ///
-/// Sequence assignment, buffering and fan-out happen under one lock, so a
-/// client attaching between two frames either finds a frame in its replay
-/// snapshot or receives it live — never both, never neither.
+/// Sequence assignment, buffering and the choice of recipients happen under
+/// one lock, so a client attaching between two frames either finds a frame in
+/// its replay snapshot or receives it live — never both, never neither. The
+/// sending itself happens after the lock, in seq order (`send_after`).
 pub(crate) async fn route_event(inner: &Arc<Mutex<Inner>>, instance: &str, params: Value) {
     let Some(session_id) = params.get("session_id").and_then(Value::as_str) else {
         return;
@@ -190,7 +191,8 @@ pub(crate) async fn route_event(inner: &Arc<Mutex<Inner>>, instance: &str, param
                 json!({"instance": instance, "session_id": session_id, "seq": seq, "turn_id": turn_id, "event": event}),
             ),
         );
-        guard.clients.send_many(&watchers, &frame).await;
+        let out = guard.clients.to_many(&watchers, frame);
+        crate::send_after(guard, [out]).await;
     }
 }
 
@@ -414,7 +416,8 @@ impl Hub {
 
     pub(crate) async fn fan_out(&self, watchers: &[ClientId], frame: Frame) {
         let guard = self.inner.lock().await;
-        guard.clients.send_many(watchers, &frame).await;
+        let out = guard.clients.to_many(watchers, frame);
+        crate::send_after(guard, [out]).await;
     }
 }
 

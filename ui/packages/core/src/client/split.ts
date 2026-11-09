@@ -14,8 +14,26 @@ import type { Negotiated, CallError } from "../protocol/frames.ts";
 export interface EventSourceLike {
   onmessage: ((event: { data: string }) => void) | null;
   onerror: ((event: unknown) => void) | null;
+  /** Its stream (re)opened. */
+  onopen?: ((event: unknown) => void) | null;
+  /** 0 connecting, 1 open, 2 closed — for good: an error answer (a credential the server does not know) is not retried. */
+  readonly readyState?: number;
   close(): void;
 }
+
+/** `EventSource.CLOSED`: the browser gave up on the stream and will not reopen it. */
+const CLOSED = 2;
+
+/**
+ * What the streams are doing, as the client needs to know it:
+ * - `degraded`: one face's stream dropped, and the browser is reopening it; the other is unaffected.
+ * - `reopened`: every face is open again after a drop. Frames the server sent meanwhile had no
+ *   stream to go to and are lost (the server keeps no queue for a face nobody reads), so the client
+ *   catches up — attaches and subscribes again — as after a reconnect.
+ * - `lost`: a face's stream closed for good (the server refused it: a credential it does not know,
+ *   such as after a restart). This handshake is over; a new one is needed.
+ */
+export type SplitState = "degraded" | "reopened" | "lost";
 export type EventSourceCtor = new (url: string) => EventSourceLike;
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
@@ -44,7 +62,7 @@ export interface SplitOptions {
   fetch: FetchLike;
   EventSource: EventSourceCtor;
   onFrame(frame: IncomingFrame): void;
-  onStatus(state: "degraded", face: string): void;
+  onStatus(state: SplitState, face: string): void;
 }
 
 /** 读一个应答体；不是 JSON 的（比如 401 的纯文本理由）当作错误消息。 */
@@ -79,6 +97,9 @@ export async function connectSplit(options: SplitOptions): Promise<SplitCarrier>
   const negotiated = handshake as unknown as Negotiated;
   const credential = String(negotiated.credential ?? "");
   const readers: EventSourceLike[] = [];
+  // The faces whose stream dropped and has not reopened yet.
+  const dropped = new Set<string>();
+  let lost = false;
 
   // 两个面分开开：它们是两个订阅，看侧栏的客户端不该收所有会话的正文。
   for (const face of ["session", "host"]) {
@@ -90,8 +111,22 @@ export async function connectSplit(options: SplitOptions): Promise<SplitCarrier>
         // 保活注释，或本构建不认识的帧。
       }
     };
+    // Back after a drop: once every face is, what was sent in the gap has to be caught up on.
+    source.onopen = () => {
+      if (dropped.delete(face) && dropped.size === 0 && !lost) onStatus("reopened", face);
+    };
     // 一个面断了不等于连接断了：另一个照常，这一个由 EventSource 自己重连。
-    source.onerror = () => onStatus("degraded", face);
+    // One the browser will not reopen is the handshake gone, not a drop.
+    source.onerror = () => {
+      if (lost) return;
+      if (source.readyState === CLOSED) {
+        lost = true;
+        onStatus("lost", face);
+        return;
+      }
+      dropped.add(face);
+      onStatus("degraded", face);
+    };
     readers.push(source);
   }
 

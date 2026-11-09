@@ -9,6 +9,7 @@
 use std::sync::{Arc, Mutex};
 
 use daemon::rpc::{Client, FrameSink, RpcRequest, RpcResponse, Sink};
+use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, watch};
@@ -61,7 +62,7 @@ impl EngineLink for InProcessLink {
     }
 
     fn take_events(&self) -> Option<EventReceiver> {
-        self.events.lock().unwrap_or_else(|e| e.into_inner()).take()
+        lock(&self.events).take()
     }
 
     /// Through the engine's own queue for this connection, which is first in,

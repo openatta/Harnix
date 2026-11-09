@@ -42,6 +42,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use base::interface::scene::Scene;
+use harnix_contract::sync::lock;
 use harnix_module::{
     EngineContrib, EventRegistry, InstanceTemplate, InstanceTemplates, Manifest, MethodRegistry,
     Module, ModuleContext, SpaceDecl, SpaceRegistry,
@@ -611,7 +612,7 @@ impl Module for Flow {
     }
 
     async fn start(&self, cx: ModuleContext) -> anyhow::Result<()> {
-        let spec = self.store.lock().unwrap_or_else(|e| e.into_inner()).take();
+        let spec = lock(&self.store).take();
         let store: Arc<dyn RunStore> = match spec {
             Some(StoreSpec::Ready(s)) => s,
             Some(StoreSpec::Lazy(make)) => make(cx.data_dir()),
@@ -623,12 +624,7 @@ impl Module for Flow {
         self.sh.load_ledger(cx.data_dir().join("instances.json"));
         self.sh
             .load_flow_sessions(cx.data_dir().join("sessions.json"));
-        if let Some(make) = self
-            .lazy_packs
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take()
-        {
+        if let Some(make) = lock(&self.lazy_packs).take() {
             let _ = self.packs.inner.set(make(cx.data_dir()));
         }
         let packs: Arc<dyn Packs> = self.packs.clone();
@@ -680,43 +676,44 @@ impl Module for Flow {
         dispatch::publish_defs(&self.sh).await;
         dispatch::publish_dry(&self.sh, None).await;
         let sh = self.sh.clone();
-        tokio::spawn(async move {
+        self.sh.spawn(async move {
             dispatch::stop_stale_instances(&sh).await;
             dispatch::recover(&sh).await
         });
         let sh = self.sh.clone();
-        let tick = tokio::spawn(async move { dispatch::tick_loop(sh).await });
-        *self.sh.tick.lock().unwrap_or_else(|e| e.into_inner()) = Some(tick);
+        let tick = self.sh.spawn(async move { dispatch::tick_loop(sh).await });
+        *lock(&self.sh.tick) = Some(tick);
         Ok(())
     }
 
+    /// Every task told to stop, and waited for a little: the module can say when it is quiet.
+    /// Runs are not cancelled; the next start recovers their work.
     async fn stop(&self) {
-        self.sh
-            .stopping
-            .store(true, std::sync::atomic::Ordering::SeqCst);
-        if let Some(t) = self
-            .sh
-            .tick
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take()
-        {
+        if let Some(t) = lock(&self.sh.tick).take() {
             t.abort();
+        }
+        if !self.sh.stop_tasks(STOP_GRACE).await {
+            tracing::warn!(left = self.sh.tasks.len(), "flow: tasks still running after the stop's grace");
         }
     }
 }
 
-/// A kernel error as a method answers it: `data.flow` is the kernel's code
-/// (`not_found`, `invalid`, `denied`, `lease`, `conflict`, `store`).
+/// How long stopping waits for the module's tasks to notice.
+const STOP_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// A kernel error as a method answers it: the code by kind — `NOT_FOUND` for no such run, station,
+/// task or flow; `INVALID_PARAMS` for a request that does not fit the run or the contract;
+/// `REFUSED`; `CONFLICT` for a lease that is not the caller's or revisions that moved on;
+/// `INTERNAL_ERROR` for the store — and `data.flow` the kernel's own (`not_found`, `invalid`,
+/// `contract`, `denied`, `lease`, `conflict`, `store`).
 pub fn rpc_error(e: FlowError) -> harnix_module::RpcError {
     use harnix_contract::codes;
     let code = match &e {
         FlowError::Denied(_) => codes::REFUSED,
-        FlowError::NotFound(_)
-        | FlowError::Invalid(_)
-        | FlowError::Contract(_)
-        | FlowError::Lease(_) => codes::INVALID_PARAMS,
-        FlowError::Conflict(_) => codes::BUSY,
+        FlowError::NotFound(_) => codes::NOT_FOUND,
+        FlowError::Invalid(_) | FlowError::Contract(_) => codes::INVALID_PARAMS,
+        // Someone else's claim, or a run that moved on between the read and the write.
+        FlowError::Lease(_) | FlowError::Conflict(_) => codes::CONFLICT,
         FlowError::Store(_) => codes::INTERNAL_ERROR,
     };
     let mut err = harnix_module::RpcError::new(code, e.to_string());
@@ -727,6 +724,21 @@ pub fn rpc_error(e: FlowError) -> harnix_module::RpcError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A client tells "no such run" from "that run cannot do this now" from "the lease is not
+    /// yours" by the code, not by reading `data.flow`.
+    #[test]
+    fn kernel_errors_answer_codes_by_kind() {
+        use harnix_contract::codes;
+        let code = |e| rpc_error(e).code;
+        assert_eq!(code(FlowError::NotFound("run r".into())), codes::NOT_FOUND);
+        assert_eq!(code(FlowError::Invalid("paused".into())), codes::INVALID_PARAMS);
+        assert_eq!(code(FlowError::Contract("output".into())), codes::INVALID_PARAMS);
+        assert_eq!(code(FlowError::Lease("not yours".into())), codes::CONFLICT);
+        assert_eq!(code(FlowError::Conflict("revs".into())), codes::CONFLICT);
+        assert_eq!(code(FlowError::Denied("no".into())), codes::REFUSED);
+        assert_eq!(rpc_error(FlowError::Lease("x".into())).data, Some(json!({"flow": "lease"})));
+    }
 
     fn catalog_packs(inner: MemPacks, templates: &[&str]) -> CatalogPacks {
         let packs = CatalogPacks {

@@ -166,10 +166,28 @@ impl Files {
         }
     }
 
+    /// Write to a temp file, flush it to disk, rename it over `path`: after a power cut the file
+    /// is the old one or the new one, never empty. The directory is flushed too when the file is
+    /// new — a rename over an existing file leaves a whole file there either way.
     fn write_atomic(&self, path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
+        let new = !path.exists();
         let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
-        std::fs::write(&tmp, bytes).map_err(other)?;
-        std::fs::rename(&tmp, path).map_err(other)
+        let mut f = std::fs::File::create(&tmp).map_err(other)?;
+        f.write_all(bytes).map_err(other)?;
+        flush(&f).map_err(other)?;
+        drop(f);
+        std::fs::rename(&tmp, path).map_err(other)?;
+        if new {
+            self.sync_dir()?;
+        }
+        Ok(())
+    }
+
+    /// Flush the directory itself, which is where a rename or a new file is recorded.
+    fn sync_dir(&self) -> Result<(), StoreError> {
+        std::fs::File::open(&self.dir)
+            .and_then(|d| flush(&d))
+            .map_err(other)
     }
 
     fn ensure_dir(&self) -> Result<(), StoreError> {
@@ -204,8 +222,14 @@ impl Files {
             if name == COUNTERS || id.contains(".tmp-") {
                 continue;
             }
-            if let Some(r) = self.read_record(id)? {
-                all.insert(r.id.clone(), r.summary());
+            // One record that does not read — a crash's leftover, a file someone edited — is
+            // that run's problem: listing every other run goes on.
+            match self.read_record(id) {
+                Ok(Some(r)) => {
+                    all.insert(r.id.clone(), r.summary());
+                }
+                Ok(None) => {}
+                Err(e) => tracing::warn!(run = id, dir = %self.dir.display(), error = %e, "a run record that does not read is left out"),
             }
         }
         Ok(all)
@@ -271,12 +295,20 @@ impl Files {
             buf.push('\n');
         }
         for (run, lines) in by_run {
+            let path = self.history_path(run);
+            let new = !path.exists();
             let mut f = std::fs::OpenOptions::new()
                 .create(true)
+                .read(true)
                 .append(true)
-                .open(self.history_path(run))
+                .open(&path)
                 .map_err(other)?;
+            cut_torn_tail(&mut f).map_err(other)?;
             f.write_all(lines.as_bytes()).map_err(other)?;
+            flush(&f).map_err(other)?;
+            if new {
+                self.sync_dir()?;
+            }
         }
         Ok(())
     }
@@ -290,11 +322,78 @@ impl Files {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
             Err(e) => return Err(other(e)),
         };
-        text.lines()
-            .filter(|l| !l.trim().is_empty())
-            .map(|l| serde_json::from_str(l).map_err(other))
-            .collect()
+        let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+        let mut out = Vec::with_capacity(lines.len());
+        for (n, line) in lines.iter().enumerate() {
+            match serde_json::from_str(line) {
+                Ok(h) => out.push(h),
+                // The last line, half written when the process stopped: what came before stands.
+                // The next commit cuts it off before appending.
+                Err(e) if n + 1 == lines.len() && !text.ends_with('\n') => {
+                    tracing::warn!(run, error = %e, "the history's last line was cut short; it is left out");
+                }
+                Err(e) => return Err(other(e)),
+            }
+        }
+        Ok(out)
     }
+}
+
+/// Hand a file's writes to the drive: `fsync(2)`.
+///
+/// Not `File::sync_all` on macOS, where std makes it `F_FULLFSYNC`, which also empties the drive's
+/// own cache: about 10 ms a call against a fraction of one, and a commit makes two or three under
+/// the store's process-wide lock. That made commits slow enough that concurrent ones on a run
+/// used up their retries and a gate's result was lost. Plain `fsync` is what Linux's gives and
+/// what SQLite does by default.
+fn flush(f: &std::fs::File) -> std::io::Result<()> {
+    #[cfg(target_vendor = "apple")]
+    {
+        use std::os::unix::io::AsRawFd as _;
+        // SAFETY: a valid descriptor for as long as `f` lives; fsync touches nothing else.
+        if unsafe { libc::fsync(f.as_raw_fd()) } == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    {
+        f.sync_data()
+    }
+}
+
+/// A history file whose last line has no newline was cut short mid-append: drop that partial
+/// line, so the next append starts on a line of its own instead of running into it.
+fn cut_torn_tail(f: &mut std::fs::File) -> std::io::Result<()> {
+    use std::io::{Read, Seek, SeekFrom};
+    let len = f.metadata()?.len();
+    if len == 0 {
+        return Ok(());
+    }
+    let mut last = [0u8; 1];
+    f.seek(SeekFrom::Start(len - 1))?;
+    f.read_exact(&mut last)?;
+    if last[0] == b'\n' {
+        return Ok(());
+    }
+    // Back to the newline before the torn line, a block at a time.
+    let mut end = len;
+    let mut keep = 0;
+    let mut block = vec![0u8; 4096];
+    while end > 0 {
+        let start = end.saturating_sub(block.len() as u64);
+        let part = &mut block[..(end - start) as usize];
+        f.seek(SeekFrom::Start(start))?;
+        f.read_exact(part)?;
+        if let Some(at) = part.iter().rposition(|b| *b == b'\n') {
+            keep = start + at as u64 + 1;
+            break;
+        }
+        end = start;
+    }
+    tracing::warn!(cut = len - keep, "a history line cut short is dropped before the next append");
+    f.set_len(keep)
 }
 
 fn guard() -> Result<std::sync::MutexGuard<'static, ()>, StoreError> {

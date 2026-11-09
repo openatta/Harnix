@@ -11,9 +11,11 @@
 //! reliable answer to "is one running already, and where", for a desktop shell or a command-line
 //! tool. The lock is advisory (`flock`) and goes with the process, however it ends.
 
-use std::fs::{File, OpenOptions};
-use std::io::{Read as _, Seek as _, Write as _};
+use std::fs::File;
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
+
+use harnix_instance::data_lock::FileLock;
 
 use serde_json::{json, Value};
 
@@ -21,7 +23,7 @@ use serde_json::{json, Value};
 pub const LOCK_FILE: &str = "harnix.lock";
 
 pub(crate) struct StateLock {
-    file: File,
+    lock: FileLock,
     path: PathBuf,
 }
 
@@ -32,14 +34,7 @@ impl StateLock {
             .map_err(|e| anyhow::anyhow!("the state directory {}: {e}", state.display()))?;
         let path = state.join(LOCK_FILE);
         // Not truncated on open: until the lock is ours, what is in it is the holder's.
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&path)
-            .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
-        if !try_lock(&file) {
+        let Some(lock) = FileLock::take(&path).map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))? else {
             let holder = read_holder(&path);
             let pid = holder
                 .get("pid")
@@ -56,8 +51,8 @@ impl StateLock {
                  (HARNIX_STATE_DIR or another [brand] product_id gives a second one its own)",
                 state.display()
             );
-        }
-        let lock = Self { file, path };
+        };
+        let lock = Self { lock, path };
         lock.write(None);
         Ok(lock)
     }
@@ -69,13 +64,7 @@ impl StateLock {
 
     fn write(&self, url: Option<&str>) {
         let body = json!({"pid": std::process::id(), "url": url}).to_string();
-        let mut file = &self.file;
-        let written = file
-            .set_len(0)
-            .and_then(|()| file.rewind())
-            .and_then(|()| file.write_all(body.as_bytes()))
-            .and_then(|()| file.flush());
-        if let Err(e) = written {
+        if let Err(e) = self.lock.say(body.as_bytes()) {
             tracing::warn!(path = %self.path.display(), error = %e, "could not write the lock file");
         }
     }
@@ -86,19 +75,6 @@ fn read_holder(path: &Path) -> Value {
     let mut text = String::new();
     let _ = File::open(path).and_then(|mut f| f.read_to_string(&mut text));
     serde_json::from_str(&text).unwrap_or(Value::Null)
-}
-
-#[cfg(unix)]
-fn try_lock(file: &File) -> bool {
-    use std::os::unix::io::AsRawFd as _;
-    // SAFETY: a valid descriptor for as long as `file` lives; `flock` touches nothing else.
-    unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) == 0 }
-}
-
-/// No `flock` here: the lock is not taken, as before.
-#[cfg(not(unix))]
-fn try_lock(_file: &File) -> bool {
-    true
 }
 
 #[cfg(test)]

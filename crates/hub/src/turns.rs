@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use daemon::rpc::codes as engine_codes;
+use harnix_instance::engine_codes;
 use harnix_contract::{Frame, RpcError, Subject};
 use serde_json::{json, Value};
 

@@ -28,7 +28,47 @@ pub fn lock_path(data_root: &Path, instance: &str) -> PathBuf {
 
 /// The lock, held for as long as this lives.
 pub struct DaemonLock {
-    _file: File,
+    _lock: FileLock,
+}
+
+/// An exclusive advisory lock (`flock`) on a file, held for as long as this lives and let go
+/// with its process however that ends. What the file says is the holder's to write. The daemon's
+/// lock here and the application's on its state directory are both one of these.
+pub struct FileLock {
+    file: File,
+}
+
+impl FileLock {
+    /// Take the lock on `path`, creating the file if need be — not truncating it: until the lock
+    /// is ours, what it says is the holder's. `None` when somebody else holds it.
+    pub fn take(path: &Path) -> std::io::Result<Option<Self>> {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)?;
+        Ok(try_lock(&file).then_some(Self { file }))
+    }
+
+    /// Whether somebody holds the lock on `path` now: taken for a moment to find out, and let go.
+    /// A file that is not there is held by nobody.
+    pub fn is_held(path: &Path) -> bool {
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)
+            .is_ok_and(|file| !try_lock(&file))
+    }
+
+    /// Replace what the file says.
+    pub fn say(&self, body: &[u8]) -> std::io::Result<()> {
+        let mut handle = &self.file;
+        handle.set_len(0)?;
+        handle.rewind()?;
+        handle.write_all(body)?;
+        handle.flush()
+    }
 }
 
 /// Somebody else has it: the pid they wrote, when they wrote one.
@@ -53,21 +93,10 @@ pub async fn acquire(path: &Path, wait: Duration) -> std::io::Result<Result<Daem
     }
     let started = Instant::now();
     loop {
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(path)?;
-        if try_lock(&file) {
-            let mut handle = &file;
-            handle.set_len(0)?;
-            handle.rewind()?;
-            handle.write_all(std::process::id().to_string().as_bytes())?;
-            handle.flush()?;
-            return Ok(Ok(DaemonLock { _file: file }));
+        if let Some(lock) = FileLock::take(path)? {
+            lock.say(std::process::id().to_string().as_bytes())?;
+            return Ok(Ok(DaemonLock { _lock: lock }));
         }
-        drop(file);
         if started.elapsed() >= wait {
             return Ok(Err(Held { pid: read_pid(path) }));
         }
@@ -77,11 +106,7 @@ pub async fn acquire(path: &Path, wait: Duration) -> std::io::Result<Result<Daem
 
 /// Whether somebody holds the lock now, and who. Takes it for a moment to find out, and lets go.
 pub fn holder(path: &Path) -> Option<Held> {
-    let file = OpenOptions::new().read(true).write(true).open(path).ok()?;
-    if try_lock(&file) {
-        return None;
-    }
-    Some(Held { pid: read_pid(path) })
+    FileLock::is_held(path).then(|| Held { pid: read_pid(path) })
 }
 
 fn read_pid(path: &Path) -> Option<u32> {
@@ -90,17 +115,10 @@ fn read_pid(path: &Path) -> Option<u32> {
     text.trim().parse().ok()
 }
 
-#[cfg(unix)]
 fn try_lock(file: &File) -> bool {
     use std::os::unix::io::AsRawFd as _;
     // SAFETY: a valid descriptor for as long as `file` lives; `flock` touches nothing else.
     unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) == 0 }
-}
-
-/// No `flock` here: no lock, as before.
-#[cfg(not(unix))]
-fn try_lock(_file: &File) -> bool {
-    true
 }
 
 #[cfg(test)]
@@ -140,7 +158,6 @@ mod tests {
 
     /// The link side: a daemon that gave up on the lock is not started again and again; the
     /// instance is down, with who holds its data root.
-    #[cfg(unix)]
     #[tokio::test]
     async fn a_daemon_that_cannot_have_the_lock_leaves_its_instance_down_saying_who() {
         use crate::link::{EngineLink as _, LinkStatus};

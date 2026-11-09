@@ -22,6 +22,7 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
+use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
@@ -85,6 +86,15 @@ const START_TIMEOUT: Duration = Duration::from_secs(60);
 const QUICK_EXIT: Duration = Duration::from_secs(5);
 const QUICK_EXITS_ALLOWED: u32 = 5;
 const MAX_BACKOFF: Duration = Duration::from_secs(5);
+/// How long a call waits for its reply before the link stops waiting. Generous: an ordinary call
+/// answers in milliseconds and the slowest (an install that fetches a package) in seconds, so a
+/// call past this is a daemon that stopped answering or a reader stuck behind a hub that stopped
+/// reading — and from here the two look the same. Either way the caller is told the instance is
+/// unavailable rather than left waiting for good. A turn is the exception ([`LASTS_A_TURN`]).
+const CALL_TIMEOUT: Duration = Duration::from_secs(300);
+/// Calls that last as long as the turn they run: no link-level timeout. A turn that ends is
+/// reported on the event stream too, and a link that is lost drains them with the rest.
+const LASTS_A_TURN: &[&str] = &["session.run_turn"];
 
 type Writer = Box<dyn AsyncWrite + Send + Unpin>;
 type Pending = HashMap<u64, oneshot::Sender<Result<Value, RpcError>>>;
@@ -102,6 +112,7 @@ pub struct DaemonLink {
     pid: AtomicU32,
     cancel: CancellationToken,
     reap: bool,
+    call_timeout: Duration,
 }
 
 impl DaemonLink {
@@ -114,6 +125,10 @@ impl DaemonLink {
     /// [`DaemonLink::start`], with what [`SpawnOptions`] asks of a spawned daemon. An attached one
     /// ignores them.
     pub fn start_with(spec: DaemonSpec, options: SpawnOptions) -> Arc<Self> {
+        Self::launch(spec, options, CALL_TIMEOUT)
+    }
+
+    fn launch(spec: DaemonSpec, options: SpawnOptions, call_timeout: Duration) -> Arc<Self> {
         let reap = options.reap_on_stop && spec.spawn.is_some();
         let (events_tx, events_rx) = mpsc::channel(link::EVENT_CAPACITY);
         let (status, _) = watch::channel(LinkStatus::Starting);
@@ -130,6 +145,7 @@ impl DaemonLink {
             pid: AtomicU32::new(0),
             cancel: CancellationToken::new(),
             reap,
+            call_timeout,
         });
         tokio::spawn(this.clone().supervise());
         this
@@ -216,11 +232,13 @@ impl DaemonLink {
             tracing::info!(endpoint = ?self.spec.endpoint, "daemon link ready");
 
             tokio::select! {
-                _ = lost.cancelled() => {}
+                // A shutdown closes the connection too: it is the shutdown, not a loss.
+                biased;
                 _ = self.cancel.cancelled() => {
                     reading.abort();
                     return;
                 }
+                _ = lost.cancelled() => {}
             }
             self.disconnect().await;
             if started.elapsed() >= QUICK_EXIT {
@@ -239,16 +257,27 @@ impl DaemonLink {
         *backoff = (*backoff * 2).min(MAX_BACKOFF);
     }
 
+    /// Lost, and being found again — unless the link is being shut down, whose `Down` stands.
+    /// Checked under the status's own lock: `shutdown` cancels before it says `Down`, so a
+    /// degrade that raced it either lands first and is overwritten, or sees the cancel.
     fn degrade(&self, reason: String) {
-        let since_ms = match &*self.status.borrow() {
-            LinkStatus::Degraded { since_ms, .. } => *since_ms,
-            _ => link::now_ms(),
-        };
-        self.status
-            .send_replace(LinkStatus::Degraded { since_ms, reason });
+        self.status.send_if_modified(|status| {
+            if self.cancel.is_cancelled() {
+                return false;
+            }
+            let since_ms = match status {
+                LinkStatus::Degraded { since_ms, .. } => *since_ms,
+                _ => link::now_ms(),
+            };
+            *status = LinkStatus::Degraded { since_ms, reason };
+            true
+        });
     }
 
     fn down(&self, reason: String) {
+        if self.cancel.is_cancelled() {
+            return;
+        }
         tracing::error!(endpoint = ?self.spec.endpoint, %reason, "daemon link down");
         self.status.send_replace(LinkStatus::Down { reason });
     }
@@ -370,7 +399,7 @@ impl DaemonLink {
                  run a daemon built from the same Agix"
             )));
         }
-        *self.identity.lock().unwrap_or_else(|e| e.into_inner()) = json!({
+        *lock(&self.identity) = json!({
             "version": identity.get("version"),
             "protocol_version": theirs,
             "capabilities": identity.get("capabilities"),
@@ -397,11 +426,7 @@ impl DaemonLink {
             let id = frame.get("id").and_then(Value::as_u64);
             match id {
                 Some(id) if frame.get("method").is_none() => {
-                    let waiter = self
-                        .pending
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .remove(&id);
+                    let waiter = lock(&self.pending).remove(&id);
                     if let Some(waiter) = waiter {
                         let _ = waiter.send(reply(frame));
                     }
@@ -418,12 +443,7 @@ impl DaemonLink {
 
     async fn disconnect(&self) {
         *self.writer.lock().await = None;
-        let waiting: Vec<_> = self
-            .pending
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .drain()
-            .collect();
+        let waiting: Vec<_> = lock(&self.pending).drain().collect();
         let status = self.status.borrow().clone();
         for (_, waiter) in waiting {
             let _ = waiter.send(Err(link::unavailable(&status)));
@@ -433,10 +453,7 @@ impl DaemonLink {
     async fn raw_call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
-        self.pending
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(id, tx);
+        lock(&self.pending).insert(id, tx);
         let mut line = serde_json::to_string(
             &json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}),
         )
@@ -450,14 +467,28 @@ impl DaemonLink {
             }
         };
         if !written {
-            self.pending
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .remove(&id);
+            lock(&self.pending).remove(&id);
             return Err(link::unavailable(&self.status.borrow()));
         }
-        rx.await
-            .unwrap_or_else(|_| Err(link::unavailable(&self.status.borrow())))
+        if LASTS_A_TURN.contains(&method) {
+            return rx
+                .await
+                .unwrap_or_else(|_| Err(link::unavailable(&self.status.borrow())));
+        }
+        match tokio::time::timeout(self.call_timeout, rx).await {
+            Ok(reply) => reply.unwrap_or_else(|_| Err(link::unavailable(&self.status.borrow()))),
+            Err(_) => {
+                lock(&self.pending).remove(&id);
+                tracing::warn!(endpoint = ?self.spec.endpoint, method, "the daemon did not answer in time");
+                Err(RpcError::new(
+                    harnix_contract::codes::INSTANCE_UNAVAILABLE,
+                    format!(
+                        "the instance did not answer `{method}` within {}s",
+                        self.call_timeout.as_secs()
+                    ),
+                ))
+            }
+        }
     }
 
     async fn stop_child(&self) {
@@ -526,10 +557,7 @@ impl EngineLink for DaemonLink {
     }
 
     fn take_events(&self) -> Option<EventReceiver> {
-        self.events_rx
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take()
+        lock(&self.events_rx).take()
     }
 
     /// Replies and events come off one socket in the order the daemon wrote
@@ -545,10 +573,7 @@ impl EngineLink for DaemonLink {
     }
 
     fn identity(&self) -> Value {
-        self.identity
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
+        lock(&self.identity).clone()
     }
 
     fn carrier(&self) -> Carrier {
@@ -621,5 +646,219 @@ mod tests {
         assert!(down.contains("declares no template `t`"), "{down}");
         assert!(down.contains("refused to start"), "{down}");
         link.shutdown().await;
+    }
+
+    use tokio::net::{TcpListener, UnixListener};
+
+    /// One connection to a daemon of the test's own: it answers the handshake, then hands every
+    /// other request to the test.
+    struct Fake<S> {
+        lines: tokio::io::Lines<BufReader<tokio::io::ReadHalf<S>>>,
+        writer: tokio::io::WriteHalf<S>,
+    }
+
+    impl<S: tokio::io::AsyncRead + tokio::io::AsyncWrite> Fake<S> {
+        async fn accept(stream: S) -> Self {
+            let (r, w) = tokio::io::split(stream);
+            let mut fake = Fake { lines: BufReader::new(r).lines(), writer: w };
+            loop {
+                let (id, method) = fake.request().await.expect("the handshake");
+                let result = match method.as_str() {
+                    "daemon.auth" | "daemon.subscribeEvents" => json!({}),
+                    "daemon.ping" => json!({"version": "test", "protocol_version": link::expected_protocol()}),
+                    other => panic!("`{other}` before the handshake was over"),
+                };
+                fake.answer(id, result).await;
+                if method == "daemon.subscribeEvents" {
+                    return fake;
+                }
+            }
+        }
+
+        /// The next request: its id and method. `None` when the link hung up.
+        async fn request(&mut self) -> Option<(u64, String)> {
+            let line = self.lines.next_line().await.ok()??;
+            let v: Value = serde_json::from_str(&line).unwrap();
+            Some((v["id"].as_u64().unwrap(), v["method"].as_str().unwrap().to_string()))
+        }
+
+        async fn answer(&mut self, id: u64, result: Value) {
+            let mut line = json!({"jsonrpc": "2.0", "id": id, "result": result}).to_string();
+            line.push('\n');
+            self.writer.write_all(line.as_bytes()).await.unwrap();
+        }
+    }
+
+    fn attach(socket: &std::path::Path, call_timeout: Duration) -> Arc<DaemonLink> {
+        DaemonLink::launch(
+            DaemonSpec { endpoint: Endpoint::Unix(socket.to_path_buf()), spawn: None },
+            SpawnOptions::default(),
+            call_timeout,
+        )
+    }
+
+    async fn until(link: &DaemonLink, what: &str, pred: impl Fn(&LinkStatus) -> bool) -> LinkStatus {
+        let mut status = link.status();
+        tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                let now = status.borrow_and_update().clone();
+                if pred(&now) {
+                    return now;
+                }
+                status.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("never {what}: {:?}", link.status().borrow()))
+    }
+
+    fn unavailable(r: &Result<Value, RpcError>) -> bool {
+        matches!(r, Err(e) if e.code == harnix_contract::codes::INSTANCE_UNAVAILABLE)
+    }
+
+    /// The daemon goes away and comes back: the link reconnects by itself, and writes
+    /// `harnix.reconnected` into the event stream, so the hub knows its subscriptions are gone.
+    #[tokio::test]
+    async fn a_lost_daemon_is_found_again_and_the_hub_is_told() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("d.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let link = attach(&socket, CALL_TIMEOUT);
+        let mut events = link.take_events().unwrap();
+
+        let first = Fake::accept(listener.accept().await.unwrap().0).await;
+        until(&link, "ready", LinkStatus::is_ready).await;
+        drop(first);
+        until(&link, "degraded", |s| matches!(s, LinkStatus::Degraded { .. })).await;
+
+        let _second = Fake::accept(listener.accept().await.unwrap().0).await;
+        until(&link, "ready again", LinkStatus::is_ready).await;
+        let frame = tokio::time::timeout(Duration::from_secs(5), events.recv()).await.unwrap().unwrap();
+        assert_eq!(frame["method"], link::RECONNECTED);
+        link.shutdown().await;
+    }
+
+    /// Calls waiting for their replies when the connection drops are answered at once, as
+    /// unavailable — not left waiting for a reply that will never come.
+    #[tokio::test]
+    async fn calls_in_flight_when_the_connection_drops_are_drained_as_unavailable() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("d.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let link = attach(&socket, CALL_TIMEOUT);
+        let mut fake = Fake::accept(listener.accept().await.unwrap().0).await;
+        until(&link, "ready", LinkStatus::is_ready).await;
+
+        let calls: Vec<_> = (0..3)
+            .map(|_| {
+                let link = link.clone();
+                tokio::spawn(async move { link.call("session.list", json!({})).await })
+            })
+            .collect();
+        for _ in 0..3 {
+            assert_eq!(fake.request().await.unwrap().1, "session.list");
+        }
+        drop(fake);
+        for call in calls {
+            let r = tokio::time::timeout(Duration::from_secs(5), call).await.expect("left waiting").unwrap();
+            assert!(unavailable(&r), "{r:?}");
+        }
+        link.shutdown().await;
+    }
+
+    /// A daemon that takes a call and never answers it: past the link's timeout the caller is told
+    /// the instance is unavailable. A turn is not timed: it lasts as long as it lasts.
+    #[tokio::test]
+    async fn a_call_the_daemon_never_answers_is_answered_unavailable_after_the_timeout() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("d.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let link = attach(&socket, Duration::from_millis(300));
+        let mut fake = Fake::accept(listener.accept().await.unwrap().0).await;
+        until(&link, "ready", LinkStatus::is_ready).await;
+
+        let r = link.call("session.list", json!({})).await;
+        assert!(unavailable(&r), "{r:?}");
+        assert!(r.unwrap_err().message.contains("did not answer `session.list`"));
+        assert!(lock(&link.pending).iter().all(|(_, w)| !w.is_closed()), "the timed-out waiter is gone");
+        fake.request().await.unwrap();
+
+        let turn = {
+            let link = link.clone();
+            tokio::spawn(async move { link.call("session.run_turn", json!({})).await })
+        };
+        let (id, method) = fake.request().await.unwrap();
+        assert_eq!(method, "session.run_turn");
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        assert!(!turn.is_finished(), "a turn was timed out like a call");
+        fake.answer(id, json!({"done": true})).await;
+        assert_eq!(turn.await.unwrap().unwrap(), json!({"done": true}));
+        link.shutdown().await;
+    }
+
+    /// A spawned daemon that keeps exiting soon after the link reached it is started again only
+    /// so many times; then the instance is down, saying why, instead of looping.
+    #[tokio::test]
+    async fn a_daemon_that_keeps_exiting_quickly_is_not_started_again_and_again() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let accepted = Arc::new(AtomicU32::new(0));
+        let serving = {
+            let accepted = accepted.clone();
+            tokio::spawn(async move {
+                loop {
+                    let (stream, _) = listener.accept().await.unwrap();
+                    accepted.fetch_add(1, Ordering::SeqCst);
+                    tokio::spawn(async move {
+                        // Readiness probes connect and go: only a link's connection says anything.
+                        let mut peek = [0u8; 1];
+                        if stream.peek(&mut peek).await.unwrap_or(0) == 0 {
+                            return;
+                        }
+                        let fake = Fake::accept(stream).await;
+                        // The daemon "exits" a moment after the link reached it.
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        drop(fake);
+                    });
+                }
+            })
+        };
+        let link = DaemonLink::start(DaemonSpec {
+            endpoint: Endpoint::Tcp { addr, token: "t".into() },
+            spawn: Some(SpawnSpec {
+                program: "/bin/sh".into(),
+                args: vec!["-c".into(), "exit 0".into()],
+                env: Vec::new(),
+                lock: None,
+            }),
+        });
+        let down = until(&link, "down", |s| matches!(s, LinkStatus::Down { .. })).await;
+        let LinkStatus::Down { reason } = down else { unreachable!() };
+        assert!(reason.contains(&format!("{QUICK_EXITS_ALLOWED} times in a row")), "{reason}");
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let after = accepted.load(Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(accepted.load(Ordering::SeqCst), after, "still being started after it was down");
+        serving.abort();
+        link.shutdown().await;
+    }
+
+    /// Shutting down while the connection is closing ends `Down`, never `Degraded`: the loss is
+    /// the shutdown's own, and nothing reconnects afterwards.
+    #[tokio::test]
+    async fn a_link_shut_down_while_its_connection_closes_stays_down() {
+        for _ in 0..10 {
+            let dir = tempfile::tempdir().unwrap();
+            let socket = dir.path().join("d.sock");
+            let listener = UnixListener::bind(&socket).unwrap();
+            let link = attach(&socket, CALL_TIMEOUT);
+            let fake = Fake::accept(listener.accept().await.unwrap().0).await;
+            until(&link, "ready", LinkStatus::is_ready).await;
+            let (_, ()) = tokio::join!(link.shutdown(), async { drop(fake) });
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            assert_eq!(*link.status().borrow(), LinkStatus::Down { reason: "stopped".into() });
+            let reconnect = tokio::time::timeout(Duration::from_millis(300), listener.accept()).await;
+            assert!(reconnect.is_err(), "a stopped link connected again");
+        }
     }
 }

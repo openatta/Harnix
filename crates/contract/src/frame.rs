@@ -52,8 +52,8 @@ pub struct Frame {
     pub channel: Channel,
     /// The session this belongs to, for [`Channel::SessionEvents`].
     pub session_id: Option<String>,
-    /// JSON-RPC notification, already serialized.
-    pub payload: String,
+    /// JSON-RPC notification, already serialized. Shared: a frame is cloned once per recipient.
+    pub payload: std::sync::Arc<str>,
 }
 
 impl Frame {
@@ -61,7 +61,7 @@ impl Frame {
         Self {
             channel: Channel::HostEvents,
             session_id: None,
-            payload,
+            payload: payload.into(),
         }
     }
 
@@ -69,7 +69,7 @@ impl Frame {
         Self {
             channel: Channel::SessionEvents,
             session_id: Some(session_id.into()),
-            payload,
+            payload: payload.into(),
         }
     }
 }
@@ -81,6 +81,11 @@ impl Frame {
 /// `false` means the downstream is gone and may be dropped.
 #[async_trait::async_trait]
 pub trait FrameSink: Send + Sync {
+    /// Take one frame. **Must return at once**: queue it, or refuse it, but never wait for room
+    /// or for the far side. The hub sends every frame in one order, one recipient after another,
+    /// so a downstream that waits holds up every frame behind it for every client. A downstream
+    /// that cannot keep up answers `false` (gone), and its client catches up when it comes back.
+    /// It must not call into the hub either.
     async fn deliver(&self, frame: Frame) -> bool;
 
     /// Whether this downstream subscribes to a channel at all. A client

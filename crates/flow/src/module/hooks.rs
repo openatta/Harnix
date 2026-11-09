@@ -23,6 +23,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use harnix_contract::sync::lock;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
@@ -113,7 +114,7 @@ pub(crate) fn body_of(h: &HookDef, e: &Event, flow: &str, run: &Value) -> Value 
 }
 
 fn enqueue(sh: &Arc<Shared>, d: Delivery) {
-    let mut queues = sh.hook_queues.0.lock().unwrap_or_else(|e| e.into_inner());
+    let mut queues = lock(&sh.hook_queues.0);
     let name = d.hook.name.clone();
     if let Some(tx) = queues.get(&name) {
         match tx.try_send(d) {
@@ -134,15 +135,12 @@ fn enqueue(sh: &Arc<Shared>, d: Delivery) {
     let (tx, rx) = mpsc::channel(QUEUE_KEPT);
     let _ = tx.try_send(d);
     queues.insert(name.clone(), tx);
-    let sh = sh.clone();
-    tokio::spawn(async move { work(sh, name, rx).await });
+    let sh2 = sh.clone();
+    sh.spawn(async move { work(sh2, name, rx).await });
 }
 
 fn set_status(sh: &Shared, hook: &str, v: Value) {
-    sh.hook_status
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .insert(hook.to_string(), v);
+    lock(&sh.hook_status).insert(hook.to_string(), v);
 }
 
 async fn work(sh: Arc<Shared>, name: String, mut rx: mpsc::Receiver<Delivery>) {
@@ -156,12 +154,16 @@ async fn work(sh: Arc<Shared>, name: String, mut rx: mpsc::Receiver<Delivery>) {
         return;
     };
     loop {
-        let d = match tokio::time::timeout(IDLE, rx.recv()).await {
+        let next = tokio::select! {
+            next = tokio::time::timeout(IDLE, rx.recv()) => next,
+            _ = sh.cancel.cancelled() => return,
+        };
+        let d = match next {
             Ok(Some(d)) => d,
             Ok(None) => return,
             Err(_) => {
                 // Nothing for a while: go, unless something came in meanwhile.
-                let mut queues = sh.hook_queues.0.lock().unwrap_or_else(|e| e.into_inner());
+                let mut queues = lock(&sh.hook_queues.0);
                 rx.close();
                 match rx.try_recv() {
                     Ok(d) => {
@@ -189,10 +191,10 @@ async fn work(sh: Arc<Shared>, name: String, mut rx: mpsc::Receiver<Delivery>) {
             match (&r, BACKOFF.get(tries - 1)) {
                 (Ok(_), _) | (Err(_), None) => break r,
                 (Err(_), Some(wait)) => {
-                    if sh.stopping() {
-                        return;
+                    tokio::select! {
+                        _ = tokio::time::sleep(*wait) => {}
+                        _ = sh.cancel.cancelled() => return,
                     }
-                    tokio::time::sleep(*wait).await;
                 }
             }
         };
@@ -322,7 +324,7 @@ fn now_ms() -> u64 {
 
 /// The hooks of the pack with each one's last delivery, for `app.flow.hooks`.
 pub(crate) fn listing(sh: &Shared, hooks: &[HookDef]) -> Vec<Value> {
-    let status = sh.hook_status.lock().unwrap_or_else(|e| e.into_inner());
+    let status = lock(&sh.hook_status);
     hooks
         .iter()
         .map(|h| {

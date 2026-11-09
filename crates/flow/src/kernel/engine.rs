@@ -740,7 +740,7 @@ impl Engine {
         lease_ms: u64,
         by: Actor,
     ) -> Result<Outcome> {
-        transact!(self, by.clone(), |t| {
+        let outcome = transact!(self, by.clone(), |t| {
             t.load(run).await?;
             let now = t.fx.now;
             let holder = {
@@ -771,14 +771,11 @@ impl Engine {
             if let Some(l) = m.task_mut(station, task).and_then(|x| x.lease.as_mut()) {
                 l.until = until;
             }
-            m.log(
-                "heartbeat",
-                Some(station),
-                Some(task),
-                json!({"until": until}),
-            );
+            // Not in the history: a claim renews itself every third of its lease for as long as
+            // the task works, and a line each time grew the file without telling anyone anything.
             Ok(json!({"until": until}))
-        })
+        });
+        outcome.map(|o| Outcome { bookkeeping: true, ..o })
     }
 
     /// Hand in a task's output, checked against the station's contract. A task may hand in

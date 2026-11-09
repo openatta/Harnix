@@ -225,6 +225,26 @@ async fn a_resubmission_needs_a_live_lease_and_a_heartbeat_extends_it() {
     assert_eq!(task(&h, &run, "s", "s").await.output, Some(json!({"v": 3})));
 }
 
+/// A heartbeat moves the lease and nothing else: it is no line in the run's history, and its
+/// outcome says it is bookkeeping, so the host does not send the list of runs again for it.
+#[tokio::test]
+async fn a_heartbeat_is_bookkeeping_and_leaves_no_history() {
+    let h = harness(packs_all());
+    let (run, _) = start(&h, "ext").await;
+    let c = h.eng.claim(&run, "sign", "sign", me(), 1000).await.unwrap();
+    assert!(!c.bookkeeping, "a claim changes the run");
+    let token = c.value["token"].as_str().unwrap().to_string();
+    let before = h.eng.history(&run).await.unwrap().len();
+    for _ in 0..3 {
+        h.clock.advance(300);
+        let hb = h.eng.heartbeat(&run, "sign", "sign", &token, 1000, me()).await.unwrap();
+        assert!(hb.bookkeeping);
+        assert!(hb.events.is_empty() && hb.work.is_empty(), "{hb:?}");
+    }
+    assert_eq!(h.eng.history(&run).await.unwrap().len(), before);
+    assert_eq!(task(&h, &run, "sign", "sign").await.lease.unwrap().until, T0 + 900 + 1000);
+}
+
 #[tokio::test]
 async fn leases_are_capped_and_never_overflow() {
     let h = harness(packs_all());

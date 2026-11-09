@@ -615,4 +615,9 @@ pub struct Outcome {
     pub value: Value,
     pub events: Vec<Event>,
     pub work: Vec<WorkItem>,
+    /// Bookkeeping only: a claim's lease moved on and nothing else did. Nothing in a run's
+    /// summary changed, so a host that publishes the list of runs need not again. A heartbeat's,
+    /// every `lease / 3` for every claimed task.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub bookkeeping: bool,
 }

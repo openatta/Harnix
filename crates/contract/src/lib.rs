@@ -7,7 +7,7 @@
 //! transport does not know what a session is, authorization does not know
 //! what a frame looks like, the hub does not know what HTTP is.
 //!
-//! Nothing here executes anything. It is types, two traits and a version —
+//! Nothing here executes anything. It is types, three traits and a version —
 //! and [`sync`], the one way the kernel takes a lock.
 
 pub mod frame;
@@ -56,8 +56,20 @@ impl RpcError {
         Self::new(codes::INVALID_PARAMS, message)
     }
 
+    /// `METHOD_NOT_FOUND`: there is no such *method* (or topic). For a thing a method names that
+    /// does not exist, [`RpcError::missing`].
     pub fn not_found(message: impl Into<String>) -> Self {
         Self::new(codes::METHOD_NOT_FOUND, message)
+    }
+
+    /// `NOT_FOUND`: the method exists and what it was asked about does not.
+    pub fn missing(message: impl Into<String>) -> Self {
+        Self::new(codes::NOT_FOUND, message)
+    }
+
+    /// `CONFLICT`: what the call acts on is not in the state the call needs any more.
+    pub fn conflict(message: impl Into<String>) -> Self {
+        Self::new(codes::CONFLICT, message)
     }
 
     pub fn refused(message: impl Into<String>) -> Self {
@@ -119,6 +131,16 @@ pub mod codes {
     /// Nothing was done; send it again once one of the others has answered. `data.max_in_flight`
     /// says the number.
     pub const BUSY: i32 = -31005;
+    /// The method exists and the thing it was asked about does not: a session with no recording,
+    /// a call past the end of one, a run, a workspace, a topic a module never declared. Distinct
+    /// from `METHOD_NOT_FOUND`, which is about the method: a client that read "no recording yet"
+    /// as "this server has no such method" drew the wrong page. `INSTANCE_NOT_FOUND` stays the
+    /// answer for an instance.
+    pub const NOT_FOUND: i32 = -31006;
+    /// The thing the call acts on changed under it, and the call cannot apply now: a flow task's
+    /// lease that is not the caller's any more, a run whose stored revision moved on. Read it
+    /// again before trying again.
+    pub const CONFLICT: i32 = -31007;
 }
 
 /// The process's single admission point.
@@ -129,4 +151,22 @@ pub mod codes {
 pub trait Gate: Send + Sync {
     async fn call(&self, subject: &Subject, method: &str, params: Value)
         -> Result<Value, RpcError>;
+}
+
+/// Who issued an upload grant and where it lands.
+///
+/// Transport serves the upload route and asks through this; a module that issues grants answers
+/// it. Here rather than in either, because transport may not know what a module is and a module
+/// may not reach transport: uploads belong to a contribution, not to the kernel.
+#[async_trait::async_trait]
+pub trait BulkStore: Send + Sync {
+    /// Claim a grant: where the bytes go, and the ceiling that grant was
+    /// issued under. `None` means never issued, or already spent.
+    ///
+    /// The ceiling travels with the grant rather than being one number for
+    /// the route, because the two things that use this channel do not have
+    /// the same limit — a file attachment and an extension package are
+    /// different sizes of thing, and each is advertised at its own number by
+    /// the method that issues it.
+    async fn claim(&self, token: &str) -> Option<(std::path::PathBuf, usize)>;
 }

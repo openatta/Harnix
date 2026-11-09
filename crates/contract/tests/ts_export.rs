@@ -88,6 +88,16 @@ fn export_the_protocol_types() {
             "BUSY",
             codes::BUSY,
         ),
+        (
+            "Harnix: the method exists and the thing it was asked about does not (no recording, no such run). Not `METHOD_NOT_FOUND`, which is about the method.",
+            "NOT_FOUND",
+            codes::NOT_FOUND,
+        ),
+        (
+            "Harnix: what the call acts on changed under it (a lease that is not the caller's, a revision that moved on); read it again before trying again.",
+            "CONFLICT",
+            codes::CONFLICT,
+        ),
     ] {
         out += &constant(docs, name, value);
     }

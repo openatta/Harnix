@@ -28,6 +28,21 @@ pub struct Facts {
     pub has_credentials: bool,
 }
 
+/// What an engine built in this process says about itself.
+impl From<&crate::Engine> for Facts {
+    fn from(engine: &crate::Engine) -> Self {
+        Self {
+            data_root: engine.data_root.clone(),
+            recordings_root: Some(engine.recordings_root.clone()),
+            history: engine.history.clone(),
+            active_scenes: engine.active_scenes.clone(),
+            scene: Some(engine.scene.clone()),
+            model: Some(engine.model.clone()),
+            has_credentials: engine.has_credentials,
+        }
+    }
+}
+
 /// What a credential name resolves to.
 pub type Resolve = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
@@ -114,15 +129,7 @@ impl Factory {
                     contrib.admit_tools(pattern.clone());
                 }
                 let engine = engine::build(engine_config(engine, &data_root, contrib)).await?;
-                let facts = Facts {
-                    data_root: engine.data_root.clone(),
-                    recordings_root: Some(engine.recordings_root.clone()),
-                    history: engine.history.clone(),
-                    active_scenes: engine.active_scenes.clone(),
-                    scene: Some(engine.scene.clone()),
-                    model: Some(engine.model.clone()),
-                    has_credentials: engine.has_credentials,
-                };
+                let facts = Facts::from(&engine);
                 let link: Arc<dyn EngineLink> = InProcessLink::start(engine).await;
                 Ok(Built { link, facts })
             }
@@ -289,11 +296,8 @@ fn short_name(id: &str) -> String {
 
 fn create_private_dir(dir: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
-    }
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
     Ok(())
 }
 

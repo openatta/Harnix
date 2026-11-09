@@ -49,26 +49,6 @@ pub struct EngineConfig {
     pub contrib: crate::EngineContrib,
 }
 
-impl Default for EngineConfig {
-    fn default() -> Self {
-        Self {
-            scene: "harnix".to_string(),
-            scenes: Vec::new(),
-            model: "claude-sonnet-4-6".to_string(),
-            max_tokens: 2000,
-            session_cap: 32,
-            session_idle_timeout_secs: 3600,
-            permission_prompt_timeout_secs: 300,
-            data_root: std::env::var_os("HOME")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join(".agix"),
-            cwd: None,
-            contrib: crate::EngineContrib::default(),
-        }
-    }
-}
-
 pub struct Engine {
     pub server: Arc<DaemonServer>,
     /// The root this engine was built on, for reporting.

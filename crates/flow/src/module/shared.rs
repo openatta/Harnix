@@ -2,12 +2,14 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, OnceLock};
 
+use harnix_contract::sync::lock;
 use harnix_module::{ModuleContext, RpcError, SessionRef};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 
 use crate::dryrun::Sandbox;
 use crate::kernel::engine::Engine;
@@ -80,7 +82,11 @@ pub(crate) struct Shared {
     session_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Topic publishes in order: each reads the newest snapshot under it.
     pub publish: tokio::sync::Mutex<()>,
-    pub stopping: AtomicBool,
+    /// Every task the module starts, so stopping can wait for them; and what tells them to stop.
+    /// A run is not cancelled by either — `recover` takes up its work at the next start — the
+    /// tasks only stop waiting on it.
+    pub tasks: TaskTracker,
+    pub cancel: CancellationToken,
     pub tick: Mutex<Option<JoinHandle<()>>>,
     /// Accepting proposals one at a time, so one is never accepted twice.
     pub proposals: Arc<tokio::sync::Mutex<()>>,
@@ -122,10 +128,6 @@ pub const AGENTS_KEPT: usize = 256;
 /// How many conversations' focus is remembered.
 pub const FOCUS_KEPT: usize = 1024;
 
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
-}
-
 impl Shared {
     pub fn new(cfg: Config, events: broadcast::Sender<Event>) -> Self {
         Self {
@@ -137,7 +139,8 @@ impl Shared {
             active: Mutex::new(HashMap::new()),
             session_locks: Mutex::new(HashMap::new()),
             publish: tokio::sync::Mutex::new(()),
-            stopping: AtomicBool::new(false),
+            tasks: TaskTracker::new(),
+            cancel: CancellationToken::new(),
             tick: Mutex::new(None),
             proposals: Arc::default(),
             sandbox: OnceLock::new(),
@@ -391,7 +394,22 @@ impl Shared {
     }
 
     pub fn stopping(&self) -> bool {
-        self.stopping.load(std::sync::atomic::Ordering::SeqCst)
+        self.cancel.is_cancelled()
+    }
+
+    /// Start one of the module's tasks: tracked, so [`Shared::stop_tasks`] waits for it.
+    pub fn spawn<F>(&self, task: F) -> JoinHandle<()>
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        self.tasks.spawn(task)
+    }
+
+    /// Tell every task to stop, and wait for them up to `grace`. True when all of them did.
+    pub async fn stop_tasks(&self, grace: std::time::Duration) -> bool {
+        self.cancel.cancel();
+        self.tasks.close();
+        tokio::time::timeout(grace, self.tasks.wait()).await.is_ok()
     }
 
     pub fn binding(&self, session_id: &str) -> Option<Binding> {
@@ -643,5 +661,30 @@ mod tests {
         assert_eq!(session_name(&s), "system/abc");
         assert_eq!(session_ref("system/abc"), s);
         assert_eq!(session_ref("abc"), s, "a bare id is on system");
+    }
+
+    /// Stopping waits for the module's tasks, and each of them stops waiting on what it waited
+    /// for — here a turn that never settles — rather than on its next timer.
+    #[tokio::test]
+    async fn stopping_ends_every_task_and_waits_for_them() {
+        let sh = Arc::new(shared());
+        for _ in 0..3 {
+            let sh2 = sh.clone();
+            sh.spawn(async move {
+                tokio::select! {
+                    _ = std::future::pending::<()>() => {}
+                    _ = sh2.cancel.cancelled() => {}
+                }
+            });
+        }
+        let started = std::time::Instant::now();
+        assert!(sh.stop_tasks(std::time::Duration::from_secs(5)).await);
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        assert!(sh.stopping());
+
+        // One that will not stop is waited for only so long.
+        let stuck = Arc::new(shared());
+        stuck.spawn(std::future::pending());
+        assert!(!stuck.stop_tasks(std::time::Duration::from_millis(100)).await);
     }
 }

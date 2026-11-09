@@ -121,7 +121,7 @@ impl Builtin {
         });
         match updated {
             Some(workspace) => Ok(json!({"workspace": workspace})),
-            None => Err(RpcError::new(codes::INVALID_PARAMS, "unknown workspace")),
+            None => Err(RpcError::missing("unknown workspace")),
         }
     }
 
@@ -146,7 +146,7 @@ impl Builtin {
         });
         match workspaces {
             Some(workspaces) => Ok(json!({"workspaces": workspaces})),
-            None => Err(RpcError::new(codes::INVALID_PARAMS, "unknown workspace")),
+            None => Err(RpcError::missing("unknown workspace")),
         }
     }
 

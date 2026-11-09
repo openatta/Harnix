@@ -144,14 +144,16 @@ impl crate::Hub {
         let mut guard = self.inner.lock().await;
         let told = guard.topics.withdraw(name);
         let mut count = 0;
+        let mut out = Vec::new();
         for (clients, params) in told {
             count += clients.len();
             let frame = Frame::host(notification(
                 TOPIC_ENDED,
                 json!({"topic": name, "params": params, "reason": reason}),
             ));
-            guard.clients.send_many(&clients, &frame).await;
+            out.push(guard.clients.to_many(&clients, frame));
         }
+        crate::send_after(guard, out).await;
         count
     }
 
@@ -177,8 +179,9 @@ impl crate::Hub {
             // A value computed afresh is news to whoever already watches it, as any publish is;
             // the new subscriber has it in its reply.
             let (to, frame) = guard.topics.publish(key.clone(), args, value);
-            guard.clients.send_many(&to, &frame).await;
+            let out = guard.clients.to_many(&to, frame);
             let value = guard.topics.subscribe(client, key);
+            crate::send_after(guard, [out]).await;
             return Ok(json!({"topic": topic, "value": value}));
         }
         let mut guard = self.inner.lock().await;

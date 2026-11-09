@@ -88,7 +88,7 @@ impl Events {
     pub async fn publish(&self, topic: &str, params: Value, value: impl Serialize) -> Result<(), RpcError> {
         let name = format!("{}{topic}", self.prefix);
         let Some(decl) = self.topics.iter().find(|t| t.name == name) else {
-            return Err(RpcError::not_found(format!("`{name}` is not a topic this module declared")));
+            return Err(RpcError::missing(format!("`{name}` is not a topic this module declared")));
         };
         let params = normalize(params, &decl.params)?;
         let value = serde_json::to_value(value)

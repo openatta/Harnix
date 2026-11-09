@@ -13,22 +13,9 @@ use tracing::warn;
 
 use crate::AppState;
 
-/// Who issued the grant and where it lands.
-///
-/// A trait so transport does not have to know that uploads belong to a
-/// contribution rather than to the kernel.
-#[async_trait::async_trait]
-pub trait BulkStore: Send + Sync {
-    /// Claim a grant: where the bytes go, and the ceiling that grant was
-    /// issued under. `None` means never issued, or already spent.
-    ///
-    /// The ceiling travels with the grant rather than being one number for
-    /// the route, because the two things that use this channel do not have
-    /// the same limit — a file attachment and an extension package are
-    /// different sizes of thing, and each is advertised at its own number by
-    /// the method that issues it.
-    async fn claim(&self, token: &str) -> Option<(std::path::PathBuf, usize)>;
-}
+/// Who issued the grant and where it lands: the contract's, so that a module claims uploads
+/// without naming this crate.
+pub use harnix_contract::BulkStore;
 
 /// What the route will buffer. Above every ceiling any grant is issued
 /// under, so the refusal comes from the check that knows which grant this is

@@ -46,10 +46,11 @@ pub use replay::{MAX_BYTES as REPLAY_MAX_BYTES, MAX_FRAMES as REPLAY_MAX_FRAMES}
 pub use spaces::{AuditHook, Spaces};
 pub use topics::TOPIC_ENDED;
 
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock};
 
+use harnix_contract::sync::{lock, read, write};
 use harnix_contract::{codes, FrameSink, Gate, RpcError, Subject};
 use serde_json::{json, Value};
 use tokio::sync::{oneshot, Mutex, RwLock};
@@ -139,6 +140,9 @@ pub(crate) type SessionKey = (String, String);
 #[derive(Default)]
 struct Inner {
     clients: Clients,
+    /// Sends what was decided under this lock after it is released, in the order decided
+    /// ([`send_after`]).
+    dispatch: clients::Dispatch,
     sessions: HashMap<SessionKey, SessionState>,
     topics: topics::Topics,
     /// In replay, which recording each session was created to play. The
@@ -162,9 +166,9 @@ pub struct Hub {
     next_client: AtomicU64,
     barriers: StdMutex<HashMap<u64, oneshot::Sender<()>>>,
     next_barrier: AtomicU64,
-    /// Topic values waiting to be recomputed, so a burst of changes costs one
-    /// computation rather than one each.
-    refreshing: StdMutex<HashSet<(String, String)>>,
+    /// Topic values being recomputed, so a burst of changes costs one
+    /// computation rather than one each, and an older one never lands last.
+    refreshing: StdMutex<views::Refreshes>,
     /// Interface modules from installed packages, told to a client at hello.
     /// Held here rather than resolved per call because it changes when a
     /// package is installed, not when someone asks.
@@ -223,7 +227,7 @@ impl Hub {
             next_client: AtomicU64::new(1),
             barriers: StdMutex::new(HashMap::new()),
             next_barrier: AtomicU64::new(1),
-            refreshing: StdMutex::new(HashSet::new()),
+            refreshing: StdMutex::new(views::Refreshes::default()),
             ui_contributions: RwLock::new(json!([])),
             shell: StdRwLock::new(json!({})),
             answerers: StdMutex::new(VecDeque::new()),
@@ -282,7 +286,18 @@ impl Hub {
     /// Publish the whole current value of a topic for one parameter set,
     /// and push it to that set's subscribers.
     pub async fn publish(&self, topic: &str, params: Value, value: Value) {
-        let mut guard = self.inner.lock().await;
+        let guard = self.inner.lock().await;
+        self.publish_locked(guard, topic, params, value).await;
+    }
+
+    /// [`Hub::publish`], with the hub's lock already taken.
+    pub(crate) async fn publish_locked(
+        &self,
+        mut guard: tokio::sync::MutexGuard<'_, Inner>,
+        topic: &str,
+        params: Value,
+        value: Value,
+    ) {
         let key = match guard.topics.key(topic, &params) {
             Ok(key) => key,
             Err(e) => {
@@ -291,24 +306,16 @@ impl Hub {
             }
         };
         let (to, frame) = guard.topics.publish(key, params, value);
-        guard.clients.send_many(&to, &frame).await;
+        let out = guard.clients.to_many(&to, frame);
+        send_after(guard, [out]).await;
     }
 
     pub(crate) fn slot(&self, instance: &str) -> Option<Arc<Slot>> {
-        self.instances
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(instance)
-            .cloned()
+        read(&self.instances).get(instance).cloned()
     }
 
     pub(crate) fn slots(&self) -> Vec<Arc<Slot>> {
-        self.instances
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .values()
-            .cloned()
-            .collect()
+        read(&self.instances).values().cloned().collect()
     }
 
     /// Which instance a call means: the one it names, or `system`. One that
@@ -362,27 +369,16 @@ impl Hub {
             .next_barrier
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
-        self.barriers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(id, tx);
+        lock(&self.barriers).insert(id, tx);
         slot.link.mark(id).await;
         // Bounded, because a link that went down between the reply and the
         // mark will never route it; settling late beats never settling.
         let _ = tokio::time::timeout(std::time::Duration::from_secs(10), rx).await;
-        self.barriers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(&id);
+        lock(&self.barriers).remove(&id);
     }
 
     pub(crate) fn barrier_reached(&self, id: u64) {
-        if let Some(tx) = self
-            .barriers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(&id)
-        {
+        if let Some(tx) = lock(&self.barriers).remove(&id) {
             let _ = tx.send(());
         }
     }
@@ -399,15 +395,12 @@ impl Hub {
 
     /// What a client is, as the transport saw it at handshake: shown in the system space.
     pub fn describe_client(&self, id: ClientId, description: Value) {
-        self.described
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(id, description);
+        lock(&self.described).insert(id, description);
     }
 
     /// The shell's part of hello: brand, built-in spaces, runtime modules.
     pub fn set_shell(&self, shell: Value) {
-        *self.shell.write().unwrap_or_else(|e| e.into_inner()) = shell;
+        *write(&self.shell) = shell;
     }
 
     /// `harnix.process` as a topic: its memory, threads and connections change without an event to
@@ -428,20 +421,13 @@ impl Hub {
 
     /// The process's own facts for `harnix.process`.
     pub fn set_process(&self, process: Value) {
-        *self.process.write().unwrap_or_else(|e| e.into_inner()) = process;
+        *write(&self.process) = process;
     }
 
     /// Versions, uptime, memory and who is connected: the system space's strip.
     fn process(&self) -> Value {
-        let mut out = self
-            .process
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
-        let connections: Vec<Value> = self
-            .described
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+        let mut out = read(&self.process).clone();
+        let connections: Vec<Value> = lock(&self.described)
             .iter()
             .map(|(id, d)| {
                 let mut d = d.clone();
@@ -462,10 +448,7 @@ impl Hub {
     }
 
     pub async fn remove_client(&self, id: ClientId) {
-        self.described
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(&id);
+        lock(&self.described).remove(&id);
         let mut guard = self.inner.lock().await;
         guard.clients.remove(id);
         guard.topics.forget(id);
@@ -531,7 +514,7 @@ impl Hub {
             // each one and the module decides what it registers, so grouping
             // by point here would be a shape nothing reads.
             "contributions": self.ui_contributions.read().await.clone(),
-            "shell": self.shell.read().unwrap_or_else(|e| e.into_inner()).clone(),
+            "shell": read(&self.shell).clone(),
             "limits": self.limits.clone(),
         }))
     }
@@ -624,7 +607,7 @@ impl Hub {
             if let (Subject::Device { id }, Some(Value::String(tool_use)), Some(session)) =
                 (subject, tool_use, params.get("session_id").and_then(Value::as_str))
             {
-                let mut kept = self.answerers.lock().unwrap_or_else(|e| e.into_inner());
+                let mut kept = lock(&self.answerers);
                 if kept.len() == ANSWERERS_KEPT {
                     kept.pop_front();
                 }
@@ -681,7 +664,7 @@ impl Hub {
                 .ok_or_else(|| RpcError::invalid_params(format!("missing {k}")))
         };
         let key = (field("session_id")?, field("tool_use_id")?);
-        let mut kept = self.answerers.lock().unwrap_or_else(|e| e.into_inner());
+        let mut kept = lock(&self.answerers);
         let who = kept
             .iter()
             .position(|(k, _)| *k == key)
@@ -845,6 +828,21 @@ pub(crate) fn new_id(prefix: &str) -> String {
     format!("{prefix}-{}", uuid::Uuid::new_v4().simple())
 }
 
+/// Release the hub's lock, then send what was decided under it; return once it is sent.
+///
+/// Handed to the dispatcher while the lock is still held, so frames leave in the order their
+/// seqs were given, whichever task decided them. The lock is not held while they are sent: a
+/// downstream that takes its time holds up the frames behind it and nothing else of the hub
+/// (and `FrameSink::deliver` must return at once in any case).
+async fn send_after(
+    guard: tokio::sync::MutexGuard<'_, Inner>,
+    out: impl IntoIterator<Item = clients::Outgoing>,
+) {
+    let sent = guard.dispatch.submit(out.into_iter().collect());
+    drop(guard);
+    let _ = sent.await;
+}
+
 pub(crate) fn is_code(result: &Result<Value, RpcError>, code: i32) -> bool {
     matches!(result, Err(e) if e.code == code)
 }
@@ -951,5 +949,59 @@ mod recording_tests {
             json!({"mode": "record"}),
             "outside replay strictness means nothing"
         );
+    }
+}
+
+#[cfg(test)]
+mod sending_tests {
+    use super::*;
+    use harnix_contract::Frame;
+    use std::time::Duration;
+
+    /// Takes every frame, in order; holds the first up until `release` is notified.
+    struct Slow {
+        seen: StdMutex<Vec<String>>,
+        release: tokio::sync::Notify,
+    }
+
+    #[async_trait::async_trait]
+    impl FrameSink for Slow {
+        async fn deliver(&self, frame: Frame) -> bool {
+            if lock(&self.seen).is_empty() {
+                self.release.notified().await;
+            }
+            lock(&self.seen).push(frame.payload.to_string());
+            true
+        }
+    }
+
+    /// A downstream that takes its time holds up the frames behind it, not the hub's state: the
+    /// lock is free while it waits, and what it is sent arrives in the order it was decided.
+    #[tokio::test]
+    async fn a_slow_downstream_does_not_hold_the_hub() {
+        let inner = Arc::new(Mutex::new(Inner::default()));
+        let slow = Arc::new(Slow { seen: StdMutex::new(Vec::new()), release: tokio::sync::Notify::new() });
+        inner.lock().await.clients.insert(ClientId(1), slow.clone());
+
+        let mut sending = Vec::new();
+        for n in 0..3 {
+            let inner = inner.clone();
+            sending.push(tokio::spawn(async move {
+                let guard = inner.lock().await;
+                let out = guard.clients.to_many(&[ClientId(1)], Frame::host(format!("f{n}")));
+                send_after(guard, [out]).await;
+            }));
+            // Each decided before the next: the order the frames must arrive in.
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let free = tokio::time::timeout(Duration::from_secs(1), inner.lock()).await;
+        assert!(free.is_ok(), "the hub's lock was held while a downstream waited");
+        drop(free);
+        assert!(lock(&slow.seen).is_empty());
+        slow.release.notify_one();
+        for s in sending {
+            s.await.unwrap();
+        }
+        assert_eq!(*lock(&slow.seen), ["f0", "f1", "f2"]);
     }
 }

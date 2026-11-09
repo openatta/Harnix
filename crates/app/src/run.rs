@@ -264,15 +264,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         model = %engine.model,
         "engine ready (in-process)"
     );
-    let system_facts = Facts {
-        data_root: engine.data_root.clone(),
-        recordings_root: Some(engine.recordings_root.clone()),
-        history: engine.history.clone(),
-        active_scenes: engine.active_scenes.clone(),
-        scene: Some(engine.scene.clone()),
-        model: Some(engine.model.clone()),
-        has_credentials: engine.has_credentials,
-    };
+    let system_facts = Facts::from(&engine);
     let history = engine.history.clone();
     let system_link: Arc<dyn EngineLink> = InProcessLink::start(engine).await;
 

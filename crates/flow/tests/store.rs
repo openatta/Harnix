@@ -282,3 +282,58 @@ async fn file_store_lists_from_an_index_its_commits_keep_current() {
         3
     );
 }
+
+/// A crash between the record's rename and its fsync could leave a zero-byte `<id>.json` behind.
+/// That one run does not read; every other run is still listed — the engine's tick, recovery and
+/// `app.flow.list` all start from `list()`.
+#[tokio::test]
+async fn a_record_of_zero_bytes_is_left_out_of_the_list_and_the_rest_are_listed() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = FileStore::new(dir.path());
+    let a = record("demo-1", "demo", "x", 1, 10);
+    s.commit(&ChangeSet { records: vec![(a, None)], history: vec![] })
+        .await
+        .unwrap();
+    std::fs::write(dir.path().join("demo-2.json"), b"").unwrap();
+
+    // A fresh store reads the directory.
+    let fresh = FileStore::new(dir.path());
+    let listed = fresh.list(&RunQuery::default()).await.unwrap();
+    assert_eq!(listed.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["demo-1"]);
+    assert!(fresh.load("demo-2").await.is_err(), "the broken one is an error of its own");
+}
+
+/// The process stopped halfway through appending a history line. What came before still reads,
+/// and the next commit's line does not run into the torn one.
+#[tokio::test]
+async fn a_history_whose_last_line_was_cut_short_still_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = FileStore::new(dir.path());
+    let a = record("demo-1", "demo", "x", 1, 10);
+    s.commit(&ChangeSet {
+        records: vec![(a.clone(), None)],
+        history: vec![hist("demo-1", 1, "create"), hist("demo-1", 2, "claim")],
+    })
+    .await
+    .unwrap();
+    let path = dir.path().join("demo-1.history.jsonl");
+    let mut text = std::fs::read_to_string(&path).unwrap();
+    let whole = serde_json::to_string(&hist("demo-1", 3, "submit")).unwrap();
+    text.push_str(&whole[..whole.len() / 2]);
+    std::fs::write(&path, &text).unwrap();
+
+    let seqs = |h: Vec<History>| h.iter().map(|h| h.seq).collect::<Vec<_>>();
+    assert_eq!(seqs(s.history("demo-1").await.unwrap()), [1, 2]);
+
+    let mut a2 = a.clone();
+    a2.rev = 2;
+    s.commit(&ChangeSet { records: vec![(a2, Some(1))], history: vec![hist("demo-1", 4, "pass")] })
+        .await
+        .unwrap();
+    assert_eq!(seqs(s.history("demo-1").await.unwrap()), [1, 2, 4]);
+    assert!(std::fs::read_to_string(&path).unwrap().ends_with('\n'));
+
+    // A line that does not read in the middle is still an error: that is not a torn append.
+    std::fs::write(&path, format!("{{\"half\n{whole}\n")).unwrap();
+    assert!(s.history("demo-1").await.is_err());
+}

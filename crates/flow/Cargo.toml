@@ -14,7 +14,7 @@ name = "harnix_flow"
 # The Harnix module (`Flow`): sessions, programs, native tools, methods, topics. Off, the crate is
 # the pure kernel with its stores and packs and links nothing of Harnix or Agix.
 default = ["module"]
-module  = ["dep:harnix-module", "dep:harnix-contract", "dep:base", "dep:scene", "dep:tracing", "dep:anyhow", "dep:reqwest"]
+module  = ["dep:harnix-module", "dep:harnix-contract", "dep:base", "dep:scene", "dep:anyhow", "dep:reqwest", "dep:tokio-util"]
 
 [dependencies]
 serde       = { workspace = true }
@@ -27,12 +27,17 @@ schemars    = "1"
 jsonschema  = { version = "0.49", default-features = false }
 # FileStore's disk work on the blocking pool; the module's tasks and timers.
 tokio       = { workspace = true }
+# What the file store skips, said rather than swallowed.
+tracing     = { workspace = true }
+# The file store's flush to disk (`fsync`) on macOS.
+libc        = { workspace = true }
+# The module's tasks, tracked and told to stop.
+tokio-util  = { workspace = true, optional = true }
 harnix-module   = { workspace = true, optional = true }
 harnix-contract = { workspace = true, optional = true }
 base            = { workspace = true, optional = true }
 # Agix's harnix scene: what `flow-author` wraps unless the application gives another.
 scene           = { workspace = true, optional = true }
-tracing         = { workspace = true, optional = true }
 anyhow          = { workspace = true, optional = true }
 # Hooks' webhooks (xops-04 §5).
 reqwest         = { workspace = true, optional = true }

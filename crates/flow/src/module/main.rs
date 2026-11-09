@@ -175,10 +175,10 @@ pub(crate) async fn watch(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: boo
         sh.unwatch(&s.session_id);
         return;
     };
-    let (sh, run, s) = (sh.clone(), run.to_string(), s.clone());
-    tokio::spawn(async move {
-        watch_loop(&sh, &run, &s, main, tap).await;
-        sh.unwatch(&s.session_id);
+    let (sh2, run, s) = (sh.clone(), run.to_string(), s.clone());
+    sh.spawn(async move {
+        watch_loop(&sh2, &run, &s, main, tap).await;
+        sh2.unwatch(&s.session_id);
     });
 }
 
@@ -217,6 +217,7 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: bool, mut
     loop {
         let ev = tokio::select! {
             ev = tap.next() => ev,
+            _ = sh.cancel.cancelled() => return,
             _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
                 // A run that is over stops being watched.
                 if sh.stopping() || !run_active(sh, run).await {
