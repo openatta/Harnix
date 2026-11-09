@@ -48,7 +48,7 @@ pub struct SessionSpec {
     pub model: Option<String>,
     pub permission_mode: Option<String>,
     pub permission_rules: Option<Value>,
-    /// A JSON Schema the session's structured output must satisfy (N-107).
+    /// A JSON Schema the session's structured output must satisfy.
     pub output_schema: Option<Value>,
     /// Which recording to play, when the process runs in replay. Ignored
     /// otherwise.

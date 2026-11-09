@@ -128,7 +128,8 @@ pub struct InstanceTemplate {
     pub data_root: String,
     /// Parameters besides `name` a caller may fill.
     pub params: Vec<String>,
-    /// Whether the interface may build from it (D18).
+    /// Whether the interface may build from it: a device fills only `params`, so nothing that
+    /// should stay the template's own is ever a device's to choose.
     pub ui: bool,
     pub max: Option<usize>,
     /// Whether its instances see the providers configured for `system` — the settings page's —

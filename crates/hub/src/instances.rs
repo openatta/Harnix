@@ -84,7 +84,7 @@ fn builder_of(subject: &Subject, space: &str, template: &InstanceTemplate, decla
             ))),
             _ => Ok(Owner::Module(id.clone())),
         },
-        // The interface builds only from what is opened to it (D18); the system space, the
+        // The interface builds only from what is opened to it (`ui` templates); the system space, the
         // debugging face, from any template.
         Subject::Device { .. } if space == harnix_contract::SYSTEM_SPACE => {
             Ok(Owner::Space(space.to_string()))

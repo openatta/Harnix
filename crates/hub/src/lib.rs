@@ -354,7 +354,7 @@ impl Hub {
     ///
     /// `run_turn`'s reply can overtake the turn's last events, so without
     /// this a turn could be settled while `turn_complete` was still on its
-    /// way, and watchers would see the settlement first (IPDrun N-105).
+    /// way, and watchers would see the settlement first.
     pub(crate) async fn barrier(&self, instance: &str) {
         let Some(slot) = self.slot(instance) else {
             return;
