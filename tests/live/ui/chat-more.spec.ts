@@ -88,7 +88,8 @@ test("a reply is copied whole; regenerating is shown but not offered", TAGS, asy
 
 test("what the model thought is a row of its own, opened on a click", TAGS, async ({ page }) => {
   await open(page, URL);
-  await oneTurn(page);
+  // A recording with the model's thinking in it: the recorded ones have none (their provider streams no thinking text).
+  await oneTurn(page, "thinks-first");
   const think = page.getByTestId("conv-think").first();
   await expect(think).toHaveAttribute("data-state", "done");
   await expect(think).toHaveAttribute("aria-expanded", "false");

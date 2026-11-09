@@ -51,6 +51,7 @@ something.
 | `app-board` | The showcase's `board {}`: its tool that asks the backend for its state with `host.call` (`tests/live/api/apps-backend.spec.ts`), then a line of text. Made from `app-echo` by a script: only the tool, its input and the text differ |
 | `app-backend-session` | One call, text only: "The showcase's backend started this conversation." — the session the showcase's backend creates and prompts (`session.start`). Made from `app-echo`'s first request by a script |
 | `app-mcp-echo` | A spawned daemon's session calls `mcp__app-example_showcase__echo {text: showcase-over-mcp}` — the showcase's tool over its MCP endpoint — then a line of text. Made the same way |
+| `thinks-first` | "fixture ready" after a line of thinking that names it: the thinking row. The `says-ready` of before it was recorded again (Agix 0.1.0, the `code` scene), kept as it was because the provider of the recorded ones streams no thinking text. Hand-made in that sense: its requests are another scene's |
 | `says-markdown` | A reply in markdown: a `sh` code block, a table and a link — what the conversation draws of a reply. Recorded |
 
 ## Re-recording one
