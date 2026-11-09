@@ -47,6 +47,10 @@ scripts/prune.sh                 # 清构建缓存：增量缓存全删，超过
 拒跑并说明，免得跑到一半在某一层报出一个看不出原因的错。cargo 只增不删，每个里程碑、每次发布之后跑一次
 `scripts/prune.sh`。**不要跑 `cargo test --workspace`**：会连带跑吸收进来的 Agix crate，Agix 的测试在 Agix 里跑。
 
+流程会话任务的判轮（发任务、没交就催一次、退回修正、任务结束时打断还在跑的轮、重启后接着做）在 `rust` 层里测：
+`crates/flow/src/module/turns.rs` 的循环读一串帧、经一个 trait 发消息和打断，测试拿真内核配一份按脚本出帧的会话，一轮一轮看；
+`command` 门禁和门禁结果碰上提交冲突的情况在 `crates/flow/src/module/gate.rs`。LIVE 的 `ui/flow*.spec.ts` 看的是同一段逻辑过整个后端。
+
 ## 3. 跑 LIVE
 
 ```sh
