@@ -1,4 +1,4 @@
-//! A space, as the backend knows it (design §8): an id, the instance its new sessions land on, and
+//! A space, as the backend knows it (concept §5.4): an id, the instance its new sessions land on, and
 //! the scene they start in. What a space looks like is the interface's; which sessions belong to it
 //! is the hub's ledger.
 

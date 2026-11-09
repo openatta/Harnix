@@ -1,14 +1,14 @@
 //! Who is calling.
 //!
-//! Three subjects (design D27). Installed code is **not** one of them: an
+//! Three subjects (concept §3.4). Installed code is **not** one of them: an
 //! extension runs inside Agix, under Agix's capability gate, and never
 //! reaches this process's method surface. A `Plugin` variant here would be a
-//! second place deciding what an extension may do (§4.1).
+//! second place deciding what an extension may do.
 //!
 //! A `Module` is a compile-time module — source the application author linked
 //! in, trusted like the kernel. It is a subject of its own anyway, so the
 //! table can say which module may call what and the audit can say which one
-//! did: that is a guard against mistakes, not against the module (design §14).
+//! did: that is a guard against mistakes, not against the module (concept §6.2).
 //!
 //! A runtime application acting as itself is a `Module` too, by its
 //! application id — a package's code, not the author's, and so not trusted

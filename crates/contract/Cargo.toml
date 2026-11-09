@@ -16,5 +16,5 @@ ts-rs       = { workspace = true, optional = true }
 [features]
 # TypeScript declarations for `@harnix/core/protocol`. Off in every build that
 # ships: only `tests/ts_export.rs` turns it on, so ts-rs is never linked into
-# the binary and costs the size budget nothing (design §4.2, §10.6).
+# the binary and costs the size budget nothing (concept §7.2).
 ts = ["dep:ts-rs"]

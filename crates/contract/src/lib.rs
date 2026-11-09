@@ -26,7 +26,7 @@ pub use space::{DefaultInstance, SpaceDecl, PROJECTS_SPACE, SESSIONS_SPACE, SYST
 pub use subject::Subject;
 
 /// The instance every process has: the engine built from the profile's
-/// `[engine]` (design §2).
+/// `[engine]` (concept §3).
 pub const SYSTEM_INSTANCE: &str = "system";
 
 use serde::{Deserialize, Serialize};
@@ -122,7 +122,7 @@ pub mod codes {
     /// The session does not belong to the space (or instance) the caller
     /// claimed. A guard against a client's bug sending into the wrong
     /// product surface — not a security boundary: the claim is the caller's
-    /// own (design §8.5, §14).
+    /// own (concept §5.4, §6.2).
     pub const SPACE_MISMATCH: i32 = -31003;
     /// The instance exists and cannot be reached right now: a daemon that is
     /// restarting, or one that refused this Harnix (protocol version). The

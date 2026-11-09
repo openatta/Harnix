@@ -27,7 +27,7 @@ pub const PROTOCOL_VERSION: u32 = 4;
 /// 2: a contribution is a precompiled ES module that imports `react`, `react-dom`,
 /// `react/jsx-runtime` and `@harnix/react` from the page's import map rather than bringing its
 /// own. React's major version is therefore part of this contract: a new React major is a new
-/// version here (design §10.5).
+/// version here.
 pub const CONTRIB_API_VERSION: u32 = 2;
 
 /// How the five channel semantics are carried.
@@ -89,7 +89,7 @@ pub const MAX_IN_FLIGHT: usize = 16;
 /// Published so a client knows when to stop inlining and use the bulk
 /// semantic instead, and **enforced at both ingresses** — a ceiling nobody
 /// checks is not a ceiling, it is a number in a handshake that the first
-/// large paste disproves (§2.5). Anything above this is refused with the
+/// large paste disproves (concept §2.5). Anything above this is refused with the
 /// limit in the message, rather than closing the connection under the
 /// client with no explanation.
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
