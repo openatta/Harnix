@@ -6,7 +6,9 @@ English | [简体中文](docs/README.zh-CN.md)
 Harnix is one Rust binary: the Agent engine, the web server, the application's own modules and its
 interface, compiled together. Harnix supplies what such a product needs and cannot sensibly build
 alone — sessions held by the server, engine instances, authorization, transport, the shell and its
-spaces, a system view, an optional flow engine — and stays thin, so the product is the application's.
+spaces, a system view, an optional flow engine, and a host for plugin apps that run sandboxed in
+WebAssembly — and stays thin, so the product is the application's. Harnix itself is that framework,
+a minimal application built on it (the sessions and projects spaces) and the system space.
 
 ![Harnix](docs/images/harnix.png)
 
@@ -24,7 +26,7 @@ cargo build --release
 ```
 
 Rust 1.87 or newer, Node with pnpm. `--recurse-submodules` matters: Agix lives at `agix/`. What runs
-is the empty application: Harnix's built-in spaces — sessions, projects, flows, the system.
+is the minimal application and the system space: sessions, projects, and the system with the flows in it.
 
 No environment variable is required. With no model configured it still starts and says so:
 **Set up a model** (or the avatar → **Settings → Models & credentials**) adds providers — Anthropic or
@@ -32,7 +34,7 @@ OpenAI-compatible APIs, one of them the default — kept in `~/.agix/settings.js
 browser or the logs. `ANTHROPIC_AUTH_TOKEN` (plus an optional `ANTHROPIC_BASE_URL`) works too.
 
 To look around with data in it: `scripts/harnix-demo.sh start` (also `stop`, `restart`, `status`)
-runs the empty application in a directory of its own (`~/harnix-demo`) with demo flows, runs and
+runs the minimal application in a directory of its own (`~/harnix-demo`) with demo flows, runs and
 conversations; delete the directory to start over.
 
 ## Architecture
@@ -47,6 +49,8 @@ conversations; delete the directory to start over.
  │             turn ownership, queue, steer, interrupt, headless taps, topics
  │ modules     compiled in: methods app.<id>.*, topics, routes, native tools and scenes,
  │             instance templates, spaces — builtin ones written against the same contract
+ │ plugin apps optional (`apps`): installed packages, one WebAssembly VM each, admitted as
+ │             module:<id>; their interface in isolated frames
  │ instances   Agix engines behind one link: in process, spawned daemons, attached;
  │             from templates, isolated, kept in a ledger across restarts
  └──────────────────────┬──────────────────────────────────────────────────┘
@@ -59,10 +63,15 @@ conversations; delete the directory to start over.
   application's own modules drive sessions through one set of semantics.
 - **Modules are compiled in, not plugged in.** A `harnix::Module` declares what it contributes and
   gets a context, not the hub's internals. One that fails to migrate or start is disabled alone, with
-  the reason on the diagnostics page. Plugins belong to Agix; Harnix runs nothing from a package.
+  the reason on the diagnostics page.
+- **Plugins run sandboxed.** A plugin app is a signed package — a WebAssembly backend and tools, an
+  Agix plugin for the agent side, an interface in isolated frames — that asks for each capability in
+  its manifest. Harnix runs a package's code only in that sandbox; the QuickJS an Agix plugin brings
+  runs in the engine and is trusted by its signature.
 - **The interface is three columns per space**: a space's own left column, a centre that is the
   conversation unless it says otherwise (with an optional second side panel beside it), and its own
-  right tabs. Harnix's spaces are examples a product keeps or drops.
+  right tabs. Harnix's spaces — the minimal application's two and the system space — are examples a
+  product keeps or drops.
 - **Cards in the conversation**: a module writes extension entries into a session's log — they
   survive a refresh, a replay and a fork, and the model never sees them.
 - **Flows** (`harnix-flow`, optional): a graph of stations that moves one subject through work done
@@ -83,12 +92,18 @@ crates/authz      admission and audit
 crates/builtin    Harnix's own features, as modules on the public contract
 crates/contract   the types those layers hand each other
 crates/flow       the optional flow module, harnix-flow
-crates/cli        the `harnix` binary: the empty application, with the flow module
+crates/wasm       harnix-wasm: the WebAssembly runtime, the one place wasmtime is linked
+crates/app-package, app-port, app-host, apps
+                  plugin apps: package and signatures, the port, the host core, the embedded glue
+crates/client     the light client an application's own tools link
+crates/cli        the `harnix` binary: the minimal application, with the flow module
 crates/testapp    an application for the tests
 ui/packages/      @harnix/core (protocol, client, session state), @harnix/react (conversation,
-                  contribution registry, i18n, tokens), @harnix/shell, @harnix/flow, @harnix/testkit
+                  contribution registry, i18n, tokens), @harnix/shell, @harnix/flow, @harnix/testkit,
+                  @harnix/app-sdk and @harnix/ui-kit (a plugin app's page in its frame)
 templates/        app (a new application), desktop (the Tauri shell)
 examples/hello-app  an application built the way applications are
+examples/apps/showcase  a plugin app with one of everything
 tests/live/       the LIVE suites: Playwright Test against the real binary
 agix/             Agix (submodule)
 ```
@@ -116,11 +131,12 @@ What you write, and where it goes:
 
 | You want | You write | See |
 |---|---|---|
-| Backend behaviour | a `harnix::Module`: methods, topics, routes, native tools, scenes, templates | [SDK guide](docs/harnix-sdk.md) |
+| Backend behaviour | a `harnix::Module`: methods, topics, routes, native tools, scenes, templates | [SDK](docs/harnix-sdk.md) |
 | An interface of your own | a space and contributions (`spaces/*/ui`, built into the shell) | [contribution points](docs/contribution_points.md) |
-| Your look | `[brand]`, theme tokens, language packs | [SDK guide](docs/harnix-sdk.md) |
+| Your look | `[brand]`, theme tokens, language packs | [SDK](docs/harnix-sdk.md) |
 | Agents that follow a process | flows: stations, skills, rules, policies, gates, hooks | the guide in the system space's flows, `crates/flow/docs/guide.*.md` |
 | A desktop app | `templates/desktop` (Tauri 2, local or remote) | `templates/desktop/README.md` |
+| Let others add to your product | a plugin app: a signed package with a WebAssembly backend, an Agix plugin, an isolated interface | [plugins](docs/harnix-plugin.md) |
 | Tests against the real binary | `@harnix/testkit`: replayed model calls, API and browser suites | [testing](docs/testing.md) |
 
 A profile says what the process is; flags override it:
@@ -153,11 +169,14 @@ it); the engine's in `~/.agix/`; projects in `~/Documents/`, with nothing hidden
 
 | Document | For |
 |---|---|
-| [docs/concept_and_architecture.md](docs/concept_and_architecture.md) | What Harnix is, its parts, and why each boundary is where it is |
-| [docs/harnix-sdk.md](docs/harnix-sdk.md) | Building an application in Rust: the guide, then every type, method, profile key, flag, directory and topic |
-| [docs/app-development.md](docs/app-development.md) | Three modes and three product forms (applications, embedded, desktop): resources, security, target markets, and writing a runtime application |
+| [docs/concept_and_architecture.md](docs/concept_and_architecture.md) | What Harnix is — framework, minimal application, system space — its parts, and why each boundary is where it is |
+| [docs/app-development.md](docs/app-development.md) | The overview: three modes and three product forms (applications, embedded, desktop), their resources, security and markets, how to choose, how the code is layered |
+| [docs/harnix-sdk.md](docs/harnix-sdk.md) | Mode 1, building an application in Rust: the guide, then every type, method, profile key, flag, directory and topic |
+| [docs/harnix-plugin.md](docs/harnix-plugin.md) | Modes 2 and 3, writing a plugin app: package, manifest, WIT, interface, trust, store, tools, tests; then its interfaces |
+| [docs/harnix-app.md](docs/harnix-app.md) | The minimal application: the sessions and projects spaces, their profile knobs, how they are built |
+| [docs/system-space.md](docs/system-space.md) | The system space: agents, flows, apps, diagnostics, the inspector, and where each reads from |
 | [docs/contribution_points.md](docs/contribution_points.md) | The interface's contribution points, generated from the code |
-| [docs/testing.md](docs/testing.md) | The test layers, the LIVE suites, recordings, the coverage table |
+| [docs/testing.md](docs/testing.md) | The LIVE test framework: the check layers, the runner and topologies, recordings, the coverage table, testkit for applications |
 | [docs/glossary.md](docs/glossary.md) | The words, used one way |
 
 *The documents are written in Chinese.* Requests from applications built on Harnix are

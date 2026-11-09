@@ -2,10 +2,10 @@
 
 Harnix 的界面由八个具名的贡献点拼起来（0.4 的 v2：在 v1 的六个之上加了 `space` 与 `home.card`）。
 
-**这不是给第三方代码用的扩展面。** 扩展 agent 是 Agix 的事——脚本、插件、manifest、
-能力门控、沙箱、披露，全在那边；Harnix 不跑包里的任何东西，只读包里的 `[[ui]]` 一段，把那几个
-预编译的 ES 模块发给浏览器（[概念](concept_and_architecture.md) §5.7，产品可以用
-`[ui] runtime_modules = false` 整个关掉）。这些点存在的理由是别的：让界面不是一堆 switch。工具行、流块、详情面板、
+**这首先不是给第三方代码用的扩展面。** 扩展 agent 是 Agix 的事——脚本、manifest、能力门控、沙箱、披露，全在那边；
+Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发给浏览器，与页面同级（[概念](concept_and_architecture.md) §5.8，产品可以用
+`[ui] runtime_modules = false` 整个关掉）。插件 APP 的界面也落在这些点上，但商店的插件不直接注册：它的面与行内点由外壳照清单替它注册
+（见文末）。这些点存在的理由是别的：让界面不是一堆 switch。工具行、流块、详情面板、
 侧栏分组、命令、设置节，每一样都是一次具名注册，外壳问注册表而不是自己认识每一种情况。
 换一整套界面因此是换一批注册，不是改一堆分支。
 
@@ -70,9 +70,37 @@ M8 去掉 HOME 之后它没有内建注册了，外壳在新对话的输入框�
 不写死文案**（写死文案让整个界面在切换语言后变成两种语言）。`tests/style-lint.mjs` 与
 `ui/packages/react/test/i18n.test.ts` 检查词典这一半（两本键相同、占位符相同、不留空），`tests/style-lint.mjs` 检查令牌这一半。
 
-## 装插件
+## 插件 APP 落在哪些点上
 
-插件是 Agix 的，不出现在这份目录里，也不出现在界面上。Harnix 在这件事上只做一件
+插件 APP（[插件](harnix-plugin.md)）不加新的贡献点：外壳照它的清单，替它往这八个点上注册，注册的 owner 是应用的 id。
+
+**面**（`[[surface]] point`，画在隔离的 iframe 里）：
+
+| 面 | 落在哪个贡献点上 |
+|---|---|
+| 清单写 `space` | `space`：它的入口与中区（`overview`；`center = "chat"` 时中区是对话） |
+| 清单写 `space.sidebar` | 那个 `space` 的 `sidebar()` |
+| 清单写 `space.tab` | 那个 `space` 的 `tabs` 里的一页 |
+| 清单写 `space.secondary` | 那个 `space` 的 `secondary()` |
+| 清单写 `details.panel` | `details.panel`，只认它自己 `kinds` 的项 |
+| 清单写 `settings.section` | `settings.section` |
+| 清单写 `home.card` | `home.card`（自动高度） |
+| 清单写 `modal` | 不是贡献点：外壳的对话框，页面经桥的 `openModal` 打开 |
+
+**行内点**（`[inline]`，外壳用自己的组件照声明画，不跑插件的代码）：
+
+| 行内点 | 落在哪个贡献点上 |
+|---|---|
+| 清单写 `tool_row` | `tool.row`：它的某个工具那一行 |
+| 清单写 `flow_block` | `flow.block`：它写的某种扩展条目画成卡片，按钮调它的方法 |
+| 清单写 `command` | `command`：候选来自它的后端方法 `complete` |
+| 清单写 `sidebar_group` | `sidebar.group`：只分组它自己 space 的会话列表 |
+
+受信发布者的插件 APP 另可以带进页面的 `[[ui]]` 模块，和 Agix 插件的界面模块一样直接注册。
+
+## 装 Agix 插件
+
+Agix 插件是引擎的，不出现在这份目录里。Harnix 在这件事上只做一件
 Agix 有意不做的事：**收文件**——`plugin.install` 自己去取 URL，没有上传通道，而一个人
 的包在自己笔记本上、后端在另一台机器上时就没有路可走。`harnix.plugins.upload` /
 `harnix.plugins.install` 就是那条路，别的全部转手给引擎，包括它装完之后回的那份披露。
