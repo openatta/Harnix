@@ -1,7 +1,7 @@
 /**
  * `harnix-ui-bridge@1`: what an application's isolated frame and the shell say to each other.
  *
- * The shell makes the frame (`sandbox="allow-scripts allow-forms"`, an opaque origin, no network)
+ * The shell makes the frame (`sandbox="allow-scripts"`, an opaque origin, no network)
  * and, when its page has loaded, hands it one end of a `MessageChannel` — the only window message
  * of the protocol (`Connect`), sent once, to that frame alone. Everything after goes over the
  * port: requests (answered by a response with the same `id`), responses, and events (answered by
@@ -213,10 +213,34 @@ export function inDialog(point: SurfacePoint): boolean {
   return point === "modal" || point === "settings.section";
 }
 
+/** How the shell narrows a call through a name `[interface] hub` lists: `open`, passed on as asked;
+ *  `space`, about a space's sessions — only the application's own (`space` filled in when left
+ *  out); `session`, about one session (`session_id`, `instance`) — only one in its own spaces. */
+export type HubScope = "open" | "space" | "session";
+
+/** Everything `[interface] hub` may list (`topic:<name>` for a topic), and how each is narrowed.
+ *  An allowlist: the backend's `surface.rs` has the same table, refuses a manifest that lists
+ *  anything else, and checks this one agrees. */
+export const FRAME_HUB: Readonly<Record<string, HubScope>> = {
+  "harnix.sessions": "space",
+  "harnix.send": "session",
+  "harnix.sessions.tasks": "session",
+  "session.get": "session",
+  "session.history": "session",
+  "session.entries": "session",
+  "session.interrupt": "session",
+  "harnix.spaces.list": "open",
+  "scene.list": "open",
+  "topic:harnix.sessions.tasks": "session",
+  "topic:harnix.spaces": "open",
+};
+
 /** Whether a frame of application `app` may call `name` (or subscribe to it, with `topic`): the
  *  application's own `app.<id>.*`, or a name its `[interface] hub` lists (`topic:<name>` for a
- *  topic). The shell decides with this; the backend's `surface.rs` states the same rule. */
+ *  topic) that `FRAME_HUB` has. The shell decides with this, then narrows the call by the name's
+ *  scope; the backend's `surface.rs` states the same rule. */
 export function admits(app: string, hub: readonly string[], name: string, topic: boolean): boolean {
   if (name.startsWith(`app.${app}.`)) return true;
-  return hub.includes(topic ? `topic:${name}` : name);
+  const listed = topic ? `topic:${name}` : name;
+  return hub.includes(listed) && Object.hasOwn(FRAME_HUB, listed);
 }

@@ -5,9 +5,11 @@
  * never half a white panel.
  *
  * The `<iframe>` is made here by hand, not by React, so its `sandbox` is set before it has a
- * `src`: `allow-scripts allow-forms`, and nothing else — no `allow-same-origin` (an opaque origin:
- * the page's token, storage and cookies are out of reach), no top navigation, no popups (a web
- * page opens through the bridge's `openLink`, which the shell asks the person about).
+ * `src`: `allow-scripts`, and nothing else — no `allow-same-origin` (an opaque origin: the page's
+ * token, storage and cookies are out of reach), no forms (its policy has `form-action 'none'`
+ * anyway), no top navigation, no popups (a web page opens through the bridge's `openLink`, which
+ * the shell asks the person about). The frame can still navigate itself: the bridge empties it
+ * when it does (`bridge.ts`).
  */
 
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -81,7 +83,7 @@ export function SurfaceView({
     if (!live || !at || !decl.frame) return;
     if (!surfaces.get(key)) surfaces.set({ key, app: decl.app, point: decl.point, id: decl.id, state: "loading" });
     const iframe = document.createElement("iframe");
-    iframe.setAttribute("sandbox", "allow-scripts allow-forms");
+    iframe.setAttribute("sandbox", "allow-scripts");
     iframe.setAttribute("referrerpolicy", "no-referrer");
     iframe.setAttribute("title", title);
     iframe.className = "hx-frame";
