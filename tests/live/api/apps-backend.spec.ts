@@ -233,11 +233,17 @@ test.describe("an application with a backend", () => {
 
   test("disabled: its names are gone, a queued call is told why, its subscribers are told it ended", TAGS, async () => {
     await api.call("harnix.subscribe", { topic: M("notes") });
-    // One call holding the backend, one queued behind it, then the switch.
+    // One call holding the backend, one queued behind it, then the switch. The backend is held
+    // once a quick call made after the spin goes unanswered for a second (the spin holds it for
+    // five, its timeout): that call is the one queued. One that answers came before the spin.
     const spinning = api.refused(M("spin"));
-    await sleep(300);
-    const queued = api.refused(M("notes.list"));
-    await sleep(200);
+    let queued: Promise<any> | undefined;
+    for (const deadline = Date.now() + 20_000; !queued; ) {
+      const probe = api.refused(M("notes.list"));
+      const held = await Promise.race([probe.then(() => false), sleep(1_000).then(() => true)]);
+      if (held) queued = probe;
+      else if (Date.now() > deadline) throw new Error("the spin never held the backend");
+    }
     await api.call("harnix.apps.disable", { id: SHOWCASE_ID });
     const waiting = await queued;
     expect(waiting?.code).toBe(INTERNAL_ERROR);
