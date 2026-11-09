@@ -16,10 +16,10 @@ use std::path::Path;
 use serde_json::{json, Map, Value};
 
 /// The record of what was written, beside the instance's own settings.
-pub(crate) const RECORD: &str = ".harnix-servers.json";
+pub const RECORD: &str = ".harnix-servers.json";
 
 /// Bring one instance's `mcp_servers` in line with `servers`. `Ok(true)` when it changed.
-pub(crate) fn merge(instance_root: &Path, servers: &Map<String, Value>) -> std::io::Result<bool> {
+pub fn merge(instance_root: &Path, servers: &Map<String, Value>) -> std::io::Result<bool> {
     let settings_path = instance_root.join("settings.json");
     let record_path = instance_root.join(RECORD);
     let mut settings = read(&settings_path)?;

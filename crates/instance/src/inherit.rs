@@ -17,10 +17,10 @@ use std::path::Path;
 use serde_json::{json, Map, Value};
 
 /// The record of what was inherited, beside the instance's own settings.
-pub(crate) const RECORD: &str = ".inherited-providers.json";
+pub const RECORD: &str = ".inherited-providers.json";
 
 /// Bring one instance's global tier in line with `system`'s providers. `Ok(true)` when it changed.
-pub(crate) fn merge(system_root: &Path, instance_root: &Path) -> std::io::Result<bool> {
+pub fn merge(system_root: &Path, instance_root: &Path) -> std::io::Result<bool> {
     let upstream = read(&system_root.join("settings.json"))?;
     let settings_path = instance_root.join("settings.json");
     let record_path = instance_root.join(RECORD);

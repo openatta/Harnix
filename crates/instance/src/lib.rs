@@ -37,11 +37,13 @@ pub mod data_lock;
 mod daemon_link;
 pub mod engine;
 mod factory;
+pub mod inherit;
 mod inproc;
 pub mod link;
 pub mod profile;
 mod reap;
 mod serve;
+pub mod servers;
 pub mod templates;
 
 pub use contrib::EngineContrib;

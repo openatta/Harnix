@@ -600,7 +600,7 @@ impl Hub {
     /// The shared MCP servers into one spawned instance's global tier, before its daemon reads it.
     fn servers_into(&self, instance: &str, root: &std::path::Path) {
         let servers = read(&self.shared_servers).clone();
-        if let Err(e) = crate::servers::merge(root, &servers) {
+        if let Err(e) = harnix_instance::servers::merge(root, &servers) {
             tracing::warn!(instance, error = %e, "the shared MCP servers were not written");
         }
     }
@@ -615,7 +615,7 @@ impl Hub {
             if slot.link.carrier() != Carrier::Spawn {
                 continue;
             }
-            match crate::servers::merge(&slot.facts.data_root, &servers) {
+            match harnix_instance::servers::merge(&slot.facts.data_root, &servers) {
                 Ok(false) => {}
                 Ok(true) => {
                     let hub = self.clone();
@@ -642,7 +642,7 @@ impl Hub {
     /// `system`'s providers into one instance's global tier, before its engine reads it.
     fn inherit_into(&self, instance: &str, root: &std::path::Path) {
         let Some(system) = self.slot(SYSTEM) else { return };
-        if let Err(e) = crate::inherit::merge(&system.facts.data_root, root) {
+        if let Err(e) = harnix_instance::inherit::merge(&system.facts.data_root, root) {
             tracing::warn!(instance, error = %e, "the inherited providers were not written");
         }
     }
@@ -668,7 +668,7 @@ impl Hub {
             if !slot.template.as_ref().is_some_and(|t| inheriting.contains(t)) {
                 continue;
             }
-            match crate::inherit::merge(&system.facts.data_root, &slot.facts.data_root) {
+            match harnix_instance::inherit::merge(&system.facts.data_root, &slot.facts.data_root) {
                 Ok(false) => {}
                 Ok(true) => match slot.link.call("config.reload", json!({})).await {
                     Ok(_) => reloaded.push(slot.id.clone()),

@@ -29,11 +29,9 @@
 //! and that is all it ever learns about the other side.
 
 mod clients;
-mod inherit;
 mod instances;
 mod lifecycle;
 mod replay;
-mod servers;
 mod session;
 mod spaces;
 mod topics;
