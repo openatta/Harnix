@@ -19,6 +19,12 @@
  *
  * The wiring needs the host; it starts with `attach(host)` — `registerFlowSpace` does that when it
  * is given one, and every part of the space does it when it is drawn.
+ *
+ * Shown inside another space (`within`, `registerSystemFlows`): there is no right-column list to
+ * follow. A flow's context is entered from the other space's page (`enter`) and left for it
+ * (`leave`); in its left column the flow's conversation and its runs are picked, and the last pick
+ * says what the middle and the panel beside it show, as the tab in front does otherwise. Coming to
+ * the front by another way (a session opened there, the page loaded on it) keeps the session open.
  */
 
 import type { HostSessionRef as SessionRef, NestHost } from "@harnix/react";
@@ -57,18 +63,29 @@ export class FlowSpaceState {
   private switching = 0;
   /** This space was in front when last looked. */
   private front = false;
+  /** Shown inside another space: the panel beside the conversation was closed, until the next pick. */
+  private shut = false;
+  /** The general conversation is being opened: the focus of the session it replaces says nothing. */
+  private opening = false;
   readonly tabs: StateTabs;
+  /** The space this one is shown inside, if it is (no right-column list then); null otherwise. */
+  readonly within: string | null;
 
   /**
    * @param space the interface space this state belongs to: sessions of other spaces are not ours.
    * @param module the flow module's id (`app.<module>.*`).
+   * @param options `within`: the space this one is shown inside.
    */
   constructor(
     readonly space = "flow",
     readonly module = "flow",
     tabs?: StateTabs,
+    options: { within?: string } = {},
   ) {
     this.tabs = tabs ?? { flows: `${space}.flows`, runs: `${space}.runs`, reference: `${space}.reference` };
+    this.within = options.within ?? null;
+    // Inside another space, what was picked last stands for the tab: the flow's conversation first.
+    if (this.within) this.tab = this.tabs.flows;
   }
 
   readonly subscribe = (fn: () => void): (() => void) => {
@@ -92,6 +109,10 @@ export class FlowSpaceState {
       this.follow();
     });
     this.front = host.spaces.current() === this.space;
+    if (this.within) {
+      this.follow();
+      return;
+    }
     this.tab = host.details?.tab?.() ?? null;
     host.details?.onTab?.((tab) => {
       if (tab === this.tab) return;
@@ -115,6 +136,12 @@ export class FlowSpaceState {
     const arrived = front && !this.front;
     this.front = front;
     if (!arrived) return;
+    if (this.within) {
+      // Not by `enter`: what is open stays; with nothing open, the selection's conversation.
+      this.changed();
+      if (!host.session.current()) void this.centre();
+      return;
+    }
     this.tab = host.details?.tab?.() ?? this.tab;
     this.changed();
     void this.centre();
@@ -123,15 +150,52 @@ export class FlowSpaceState {
   /** A flow chosen in the flows tab: shown, and its conversation opened in the middle. */
   selectFlow(flow: string | null): void {
     const same = this.value.flow === flow;
+    this.picked(this.tabs.flows);
     this.set({ flow, run: null, station: same ? this.value.station : null });
     void this.centre(this.tabs.flows);
   }
 
   /** A run chosen in the runs tab: shown, and its main session opened in the middle. */
   showRun(run: string | null): void {
+    this.picked(this.tabs.runs);
     // The station stays picked: the same station of another run.
     this.set({ ...this.value, run });
     void this.centre(this.tabs.runs);
+  }
+
+  /** Inside another space a pick is the tab: what the middle and the panel follow. */
+  private picked(tab: string): void {
+    if (!this.within) return;
+    this.tab = tab;
+    this.shut = false;
+  }
+
+  /**
+   * Into this space from the one it is shown inside: `flow`'s context (null: the general
+   * conversation's), `run` shown if given, brought to the front with the middle on it.
+   */
+  async enter(flow: string | null, run: string | null = null): Promise<void> {
+    const host = this.host;
+    if (!host) return;
+    const same = this.value.flow === flow;
+    this.tab = run ? this.tabs.runs : this.tabs.flows;
+    this.shut = false;
+    // Selected before the switch: whatever draws on arrival already reads it.
+    this.set({ flow, run, station: same ? this.value.station : null });
+    if (host.spaces.current() !== this.space) await host.spaces.switch(this.space);
+    this.front = host.spaces.current() === this.space;
+    await this.centre();
+  }
+
+  /** Back to the space this one is shown inside; nothing when it is not shown inside one. */
+  async leave(): Promise<void> {
+    if (this.within && this.host) await this.host.spaces.switch(this.within);
+  }
+
+  /** Bring a list to the front after showing something there: the right column's tab, where there
+   *  is one; inside another space the list is the left column's, always in view. */
+  openList(tab: string): void {
+    if (!this.within) this.host?.details?.open(tab);
   }
 
   pick(station: string | null): void {
@@ -141,7 +205,7 @@ export class FlowSpaceState {
   /** The right column's tab: the shell's, while this space is in front; else as last seen. */
   tabNow(): string | null {
     const host = this.host;
-    if (host && host.spaces.current() === this.space) {
+    if (host && !this.within && host.spaces.current() === this.space) {
       const now = host.details?.tab?.();
       if (typeof now === "string") this.tab = now;
     }
@@ -150,6 +214,7 @@ export class FlowSpaceState {
 
   /** What the second side panel shows now: the selection of the tab in front; null for none. */
   detail(): FlowDetailOf | null {
+    if (this.shut) return null;
     const tab = this.tabNow();
     if (tab === this.tabs.flows && this.value.flow) return { kind: "flow", flow: this.value.flow };
     if (tab === this.tabs.runs && this.value.run) return { kind: "run", run: this.value.run };
@@ -158,6 +223,12 @@ export class FlowSpaceState {
 
   /** The second side panel was closed: what it showed is no longer selected; the middle stays. */
   closeDetail(): void {
+    if (this.within) {
+      // The left column still says what the context is: only the panel goes.
+      this.shut = true;
+      this.changed();
+      return;
+    }
     const tab = this.tabNow();
     if (tab === this.tabs.runs) this.set({ ...this.value, run: null });
     else if (tab === this.tabs.flows) this.set({ flow: null, run: this.value.run, station: null });
@@ -173,11 +244,22 @@ export class FlowSpaceState {
 
   /** The general conversation, opened in the middle; null when it could not be. */
   async openGeneral(): Promise<SessionRef | null> {
-    const generation = ++this.switching;
-    const ref = await this.conversation(null);
-    if (!ref || generation !== this.switching) return ref;
-    await this.open(ref);
-    return ref;
+    this.opening = true;
+    try {
+      if (this.within && this.host) {
+        // The general conversation's context, entered if it is not in front.
+        this.picked(this.tabs.flows);
+        this.set({ flow: null, run: null, station: null });
+        if (this.host.spaces.current() !== this.space) await this.host.spaces.switch(this.space);
+      }
+      const generation = ++this.switching;
+      const ref = await this.conversation(null);
+      if (!ref || generation !== this.switching) return ref;
+      await this.open(ref);
+      return ref;
+    } finally {
+      this.opening = false;
+    }
   }
 
   /**
@@ -269,7 +351,7 @@ export class FlowSpaceState {
       const before = this.remembered;
       const flow = (v as Focus | null)?.flow ?? null;
       this.remembered = flow;
-      if (flow !== null && this.value.flow === null && this.value.run === null) {
+      if (flow !== null && this.value.flow === null && this.value.run === null && !this.opening) {
         // The general conversation created a flow and became its own.
         this.set({ flow, run: null, station: null });
       } else if (flow === null && before && before === this.value.flow && this.value.run === null) {
