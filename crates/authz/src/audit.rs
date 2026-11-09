@@ -12,6 +12,7 @@
 
 use std::sync::Mutex;
 
+use harnix_contract::sync::lock;
 use harnix_contract::Subject;
 use serde::Serialize;
 
@@ -115,7 +116,7 @@ impl Audit {
     }
 
     pub fn set_sink(&self, sink: Box<dyn AuditSink>) {
-        *self.sink.lock().unwrap() = Some(sink);
+        *lock(&self.sink) = Some(sink);
     }
 
     pub fn record(
@@ -155,10 +156,10 @@ impl Audit {
     }
 
     fn push(&self, entry: AuditEntry) {
-        if let Some(sink) = self.sink.lock().unwrap().as_ref() {
+        if let Some(sink) = lock(&self.sink).as_ref() {
             sink.append(&entry);
         }
-        let mut ring = self.ring.lock().unwrap();
+        let mut ring = lock(&self.ring);
         if ring.len() == self.capacity {
             ring.pop_front();
         }
@@ -166,7 +167,29 @@ impl Audit {
     }
 
     pub fn recent(&self, limit: usize) -> Vec<AuditEntry> {
-        let ring = self.ring.lock().unwrap();
+        let ring = lock(&self.ring);
         ring.iter().rev().take(limit).cloned().collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A panic while the ring was held does not turn every later call into a second panic: the
+    /// next decision is still recorded and read back.
+    #[test]
+    fn a_poisoned_ring_still_records() {
+        let audit = std::sync::Arc::new(Audit::with_capacity(4));
+        let held = audit.clone();
+        let _ = std::thread::spawn(move || {
+            let _ring = held.ring.lock().unwrap();
+            panic!("while holding the ring");
+        })
+        .join();
+        assert!(audit.ring.is_poisoned());
+        let subject = Subject::Device { id: "local".into() };
+        audit.record(&subject, "harnix.ping", Decision::Allow, None, None);
+        assert_eq!(audit.recent(1)[0].method, "harnix.ping");
     }
 }

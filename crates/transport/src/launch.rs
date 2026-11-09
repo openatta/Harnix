@@ -38,6 +38,8 @@ use axum::extract::{Path, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 
+use harnix_contract::sync::lock;
+
 use crate::AppState;
 
 /// The cookie's name.
@@ -70,7 +72,7 @@ impl LaunchLinks {
     /// Mint one link code.
     pub fn mint(&self, now: SystemTime) -> String {
         let code = secret();
-        let mut codes = self.codes.lock().unwrap();
+        let mut codes = lock(&self.codes);
         codes.retain(|_, expires| now <= *expires);
         codes.insert(code.clone(), now + LINK_TTL);
         code
@@ -79,18 +81,18 @@ impl LaunchLinks {
     /// Spend a code. `None` for unknown, expired and already used alike —
     /// telling them apart tells a prober which guesses were closer.
     pub fn redeem(&self, code: &str, now: SystemTime) -> Option<String> {
-        let expires = self.codes.lock().unwrap().remove(code)?;
+        let expires = lock(&self.codes).remove(code)?;
         if now > expires {
             return None;
         }
         let session = secret();
-        self.sessions.lock().unwrap().insert(session.clone());
+        lock(&self.sessions).insert(session.clone());
         Some(session)
     }
 
     /// Whether this request carries a session cookie this process issued.
     pub fn admits(&self, headers: &HeaderMap) -> bool {
-        let sessions = self.sessions.lock().unwrap();
+        let sessions = lock(&self.sessions);
         cookie_values(headers, COOKIE).any(|value| sessions.contains(value))
     }
 }

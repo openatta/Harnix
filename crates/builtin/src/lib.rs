@@ -31,6 +31,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
+use harnix_contract::sync::{read, write};
 use harnix_contract::RpcError;
 use harnix_module::{
     CallContext, Handler, InstanceHandle, Manifest, MethodRegistry, Module, ModuleContext,
@@ -289,9 +290,7 @@ impl Builtin {
     }
 
     fn context(&self, id: &str) -> Option<ModuleContext> {
-        self.contexts
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
+        read(&self.contexts)
             .get(id)
             .cloned()
     }
@@ -314,18 +313,14 @@ impl Builtin {
 
     /// One instance's facts.
     pub(crate) fn instance(&self, id: &str) -> Option<InstanceHandle> {
-        self.contexts
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
+        read(&self.contexts)
             .values()
             .find_map(|cx| cx.instance(id))
     }
 
     /// The `system` instance's facts: where its data is, what it runs.
     pub(crate) fn system(&self) -> InstanceHandle {
-        self.contexts
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
+        read(&self.contexts)
             .values()
             .find_map(|cx| cx.instance(harnix_contract::SYSTEM_INSTANCE))
             .expect("a built-in method ran before any built-in module started")
@@ -418,10 +413,7 @@ impl Module for BuiltinModule {
     }
 
     async fn start(&self, cx: ModuleContext) -> anyhow::Result<()> {
-        self.builtin
-            .contexts
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
+        write(&self.builtin.contexts)
             .insert(self.part.id, cx);
         Ok(())
     }

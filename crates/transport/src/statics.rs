@@ -20,6 +20,7 @@ use std::sync::RwLock;
 use axum::extract::State;
 use axum::http::{header, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
+use harnix_contract::sync::{read, write};
 use include_dir::{include_dir, Dir};
 
 use crate::AppState;
@@ -118,14 +119,14 @@ impl StaticFace {
     }
 
     pub fn set_brand_icon(&self, icon: Option<PathBuf>) {
-        *self.brand_icon.write().unwrap() = icon;
+        *write(&self.brand_icon) = icon;
     }
 
     /// Replace what is being served. Called at assembly and again after an
     /// install, because a package that needed a restart to appear is a
     /// package nobody will believe installed.
     pub fn set_packages(&self, packages: BTreeMap<String, PathBuf>) {
-        *self.packages.write().unwrap() = packages;
+        *write(&self.packages) = packages;
     }
 
     pub fn serves_anything(&self) -> bool {
@@ -176,7 +177,7 @@ impl StaticFace {
         }
 
         if clean == BRAND_ICON_PATH.trim_start_matches('/') {
-            let icon = self.brand_icon.read().unwrap().clone()?;
+            let icon = read(&self.brand_icon).clone()?;
             return read_file(&icon).map(|b| (b, "image/svg+xml"));
         }
 
@@ -188,7 +189,7 @@ impl StaticFace {
             if file.contains("..") || name.contains('/') {
                 return None;
             }
-            let dir = self.packages.read().unwrap().get(name).cloned()?;
+            let dir = read(&self.packages).get(name).cloned()?;
             return read_file(&dir.join("ui").join(file)).map(|b| (b, content_type(file)));
         }
 

@@ -30,6 +30,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
+use harnix_contract::sync::lock;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -112,7 +113,7 @@ impl Devices {
     /// is independent of the code — see [`Pending`] for why that matters.
     pub fn begin_pairing(&self, code: &str, label: impl Into<String>, now: SystemTime) -> String {
         let handle = format!("pair-{}", uuid_like(code, now));
-        self.pending.lock().unwrap().insert(
+        lock(&self.pending).insert(
             handle.clone(),
             Pending {
                 code_hash: hash(code),
@@ -133,7 +134,7 @@ impl Devices {
         stamp: &str,
     ) -> Result<Device, PairError> {
         let guess = hash(code);
-        let mut pending = self.pending.lock().unwrap();
+        let mut pending = lock(&self.pending);
         pending.retain(|_, p| now <= p.expires);
 
         // Constant-time over the hashes, so a comparison that stops early
@@ -168,36 +169,34 @@ impl Devices {
             paired_at: stamp.to_string(),
             last_seen: None,
         };
-        self.paired
-            .lock()
-            .unwrap()
+        lock(&self.paired)
             .insert(device.id.clone(), device.clone());
         Ok(device)
     }
 
     pub fn list(&self) -> Vec<Device> {
-        let mut all: Vec<Device> = self.paired.lock().unwrap().values().cloned().collect();
+        let mut all: Vec<Device> = lock(&self.paired).values().cloned().collect();
         all.sort_by(|a, b| a.paired_at.cmp(&b.paired_at));
         all
     }
 
     pub fn get(&self, id: &str) -> Option<Device> {
-        self.paired.lock().unwrap().get(id).cloned()
+        lock(&self.paired).get(id).cloned()
     }
 
     /// Forget a device. Its channels are ended by the caller, which is the
     /// only layer that knows there are channels.
     pub fn revoke(&self, id: &str) -> bool {
-        self.paired.lock().unwrap().remove(id).is_some()
+        lock(&self.paired).remove(id).is_some()
     }
 
     pub fn is_paired(&self, id: &str) -> bool {
-        self.paired.lock().unwrap().contains_key(id)
+        lock(&self.paired).contains_key(id)
     }
 
     /// Drop pairing windows that nobody used.
     pub fn sweep(&self, now: SystemTime) {
-        self.pending.lock().unwrap().retain(|_, p| now <= p.expires);
+        lock(&self.pending).retain(|_, p| now <= p.expires);
     }
 }
 

@@ -20,6 +20,7 @@ use std::collections::BTreeMap;
 
 use harnix_authz::{Audit, Authorizer, Devices};
 use harnix_builtin::Builtin;
+use harnix_contract::sync::{lock, write};
 use harnix_contract::{Gate, Topology};
 use harnix_hub::{Hub, HubConfig, HubGate, Registry};
 use harnix_instance::link::{now_ms, DownLink, EngineLink};
@@ -527,10 +528,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
             }
         }
     }
-    *diagnostics
-        .modules
-        .write()
-        .unwrap_or_else(|e| e.into_inner()) = records.iter().map(|r| r.status.clone()).collect();
+    *write(&diagnostics.modules) = records.iter().map(|r| r.status.clone()).collect();
 
     // ── 6. Serve ────────────────────────────────────────────────────────
     let token = uuid::Uuid::new_v4().simple().to_string();
@@ -924,13 +922,13 @@ struct UiModules {
 
 impl UiModules {
     fn set_packages(self: &Arc<Self>, hub: &Arc<Hub>, modules: Vec<serde_json::Value>) {
-        self.lists.lock().unwrap_or_else(|e| e.into_inner()).0 = modules;
+        lock(&self.lists).0 = modules;
         self.publish(hub);
     }
 
     #[cfg_attr(not(feature = "apps"), allow(dead_code))]
     fn set_apps(self: &Arc<Self>, hub: &Arc<Hub>, modules: Vec<serde_json::Value>) {
-        self.lists.lock().unwrap_or_else(|e| e.into_inner()).1 = modules;
+        lock(&self.lists).1 = modules;
         self.publish(hub);
     }
 
@@ -940,7 +938,7 @@ impl UiModules {
         let (hub, this) = (hub.clone(), self.clone());
         tokio::spawn(async move {
             let all: Vec<serde_json::Value> = {
-                let lists = this.lists.lock().unwrap_or_else(|e| e.into_inner());
+                let lists = lock(&this.lists);
                 lists.0.iter().chain(&lists.1).cloned().collect()
             };
             hub.set_ui_contributions(json!(all)).await;

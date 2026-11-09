@@ -35,6 +35,7 @@ pub use table::{
 
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+use harnix_contract::sync::{read, write};
 use harnix_contract::{Gate, RpcError, Subject};
 use serde_json::Value;
 
@@ -62,11 +63,11 @@ impl Authorizer {
     }
 
     pub fn table(&self) -> RwLockReadGuard<'_, MethodTable> {
-        self.table.read().unwrap_or_else(|e| e.into_inner())
+        read(&self.table)
     }
 
     pub fn table_mut(&self) -> RwLockWriteGuard<'_, MethodTable> {
-        self.table.write().unwrap_or_else(|e| e.into_inner())
+        write(&self.table)
     }
 
     /// Put a runtime application's names in the table, all or none, and put
