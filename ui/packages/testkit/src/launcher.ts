@@ -330,6 +330,14 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
     ...(options.replay && options.replayStrict ? ["--replay-strict"] : []),
     ...(options.args ?? []),
   ];
+  // `~/.<product_id>`: `[brand] product_id` in the profile names it, `harnix` otherwise.
+  const product = /product_id\s*=\s*"([a-z][a-z0-9-]*)"/.exec(options.profile ?? "")?.[1] ?? "harnix";
+  const state = join(home, `.${product}`);
+  const tokenFile = join(state, "token");
+  // A restart finds the last run's token; it is rewritten before serving. Removed before the process
+  // starts, not after: removed after, it could take the new process's token with it, and the wait
+  // below would wait for a file that never comes back.
+  if (reused) rmSync(tokenFile, { force: true });
   const child: ChildProcess = spawn(bin, args, {
     cwd: project,
     env: {
@@ -360,12 +368,6 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
   child.on("exit", (code) => (exited = code ?? -1));
 
   const url = `http://127.0.0.1:${port}/`;
-  // `~/.<product_id>`: `[brand] product_id` in the profile names it, `harnix` otherwise.
-  const product = /product_id\s*=\s*"([a-z][a-z0-9-]*)"/.exec(options.profile ?? "")?.[1] ?? "harnix";
-  const state = join(home, `.${product}`);
-  const tokenFile = join(state, "token");
-  // A restart finds the last run's token; it is rewritten before serving.
-  if (reused) rmSync(tokenFile, { force: true });
   const deadline = Date.now() + 60_000;
   for (;;) {
     if (exited !== null) {
