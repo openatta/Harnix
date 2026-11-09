@@ -8,18 +8,13 @@
 
 use std::sync::Arc;
 
-use base::context::config::PathStyle;
-use base::interface::prompt::PromptBlock;
-use base::interface::scene::{
-    ExecutionParams, ReminderContext, Scene, ScenePromptContext, TokenBudget,
-};
-use base::tool::Tool;
+use base::interface::scene::Scene;
 
 /// The id it is served under: the built-in one's.
 pub const ATTENDED_SCENE: &str = "harnix";
 
 /// A base scene that is attended.
-pub struct Attended(Arc<dyn Scene>);
+pub struct Attended(pub(crate) Arc<dyn Scene>);
 
 impl Attended {
     /// Agix's `harnix` scene, attended.
@@ -28,80 +23,17 @@ impl Attended {
     }
 }
 
-impl Scene for Attended {
-    fn id(&self) -> &str {
-        self.0.id()
-    }
-    fn name(&self) -> &str {
-        self.0.name()
-    }
-    fn description(&self) -> &str {
-        self.0.description()
-    }
-    fn build_system_prompt(&self, ctx: &ScenePromptContext) -> Vec<PromptBlock> {
-        self.0.build_system_prompt(ctx)
-    }
-    fn tools(&self) -> Vec<String> {
-        self.0.tools()
-    }
-    fn requires_project(&self) -> bool {
-        self.0.requires_project()
-    }
-    fn supports_team(&self) -> bool {
-        self.0.supports_team()
-    }
-    fn extra_tools(&self) -> Vec<Arc<dyn Tool>> {
-        self.0.extra_tools()
-    }
-    fn token_budget(&self) -> TokenBudget {
-        self.0.token_budget()
-    }
-    fn build_system_reminder(&self, ctx: &ReminderContext) -> String {
-        self.0.build_system_reminder(ctx)
-    }
-    fn build_session_context(&self, ctx: &ScenePromptContext) -> String {
-        self.0.build_session_context(ctx)
-    }
-    fn disallowed_tools(&self) -> Vec<String> {
-        self.0.disallowed_tools()
-    }
-    fn permits_tool(&self, name: &str) -> bool {
-        self.0.permits_tool(name)
-    }
-    fn deferred_tools(&self) -> Vec<String> {
-        self.0.deferred_tools()
-    }
-    fn path_style(&self) -> PathStyle {
-        self.0.path_style()
-    }
+delegate_scene!(Attended => 0; [
+    id, name, description, build_system_prompt, tools, requires_project, supports_team,
+    extra_tools, token_budget, build_system_reminder, build_session_context, disallowed_tools,
+    permits_tool, deferred_tools, path_style, bundled_skills, modules, disabled_modules,
+    permits_module, execution_params, auto_name_session, session_name_prompt,
+    memory_extraction_prompt,
+];
     fn interactive(&self) -> bool {
         true
     }
-    fn bundled_skills(&self) -> Vec<String> {
-        self.0.bundled_skills()
-    }
-    fn modules(&self) -> Option<Vec<String>> {
-        self.0.modules()
-    }
-    fn disabled_modules(&self) -> Vec<String> {
-        self.0.disabled_modules()
-    }
-    fn permits_module(&self, id: &str) -> bool {
-        self.0.permits_module(id)
-    }
-    fn execution_params(&self) -> ExecutionParams {
-        self.0.execution_params()
-    }
-    fn auto_name_session(&self) -> bool {
-        self.0.auto_name_session()
-    }
-    fn session_name_prompt(&self, first_message: &str) -> Option<String> {
-        self.0.session_name_prompt(first_message)
-    }
-    fn memory_extraction_prompt(&self) -> Option<String> {
-        self.0.memory_extraction_prompt()
-    }
-}
+);
 
 #[cfg(test)]
 mod tests {

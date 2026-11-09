@@ -28,6 +28,8 @@
 #[cfg(not(unix))]
 compile_error!("harnix-instance builds on unix only (Linux and macOS are the ones exercised)");
 
+#[macro_use]
+mod delegate;
 mod admit;
 mod attended;
 pub mod contrib;

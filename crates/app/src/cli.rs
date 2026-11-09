@@ -5,7 +5,7 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 
 use clap::{CommandFactory, FromArgMatches, Parser};
-use harnix_instance::Profile;
+use harnix_instance::{EngineProfile, Profile};
 
 #[derive(clap::Subcommand, Debug)]
 pub(crate) enum Command {
@@ -27,19 +27,19 @@ pub(crate) struct DaemonCommand {
     pub data_root: PathBuf,
     #[arg(long)]
     pub socket: PathBuf,
-    #[arg(long, default_value = "harnix")]
+    #[arg(long, default_value_t = EngineProfile::default().scene)]
     pub scene: String,
     #[arg(long, value_delimiter = ',')]
     pub scenes: Vec<String>,
-    #[arg(long, default_value = "claude-sonnet-4-6")]
+    #[arg(long, default_value_t = EngineProfile::default().model)]
     pub model: String,
-    #[arg(long, default_value = "2000")]
+    #[arg(long, default_value_t = EngineProfile::default().max_tokens)]
     pub max_tokens: u32,
-    #[arg(long, default_value = "32")]
+    #[arg(long, default_value_t = EngineProfile::default().session_cap)]
     pub session_cap: usize,
-    #[arg(long, default_value = "3600")]
+    #[arg(long, default_value_t = EngineProfile::default().session_idle_timeout_secs)]
     pub session_idle_timeout: u64,
-    #[arg(long, default_value = "300")]
+    #[arg(long, default_value_t = EngineProfile::default().permission_prompt_timeout_secs)]
     pub permission_prompt_timeout: u64,
     /// Exit when stdin closes: how a spawned daemon follows its parent out.
     #[arg(long)]
