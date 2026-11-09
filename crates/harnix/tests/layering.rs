@@ -21,30 +21,62 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
-/// Direct dependencies of one Harnix crate, by name.
+/// Every workspace crate's declared dependencies, as cargo itself reads the manifests:
+/// `cargo metadata --no-deps`, which resolves nothing and so needs no network. Read off the
+/// manifest's text instead, a dependency written as `[dependencies.x]`, or under
+/// `[target.'cfg(unix)'.dependencies]`, went past every rule here.
+fn metadata() -> &'static serde_json::Value {
+    static METADATA: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+    METADATA.get_or_init(|| {
+        let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+        let out = std::process::Command::new(cargo)
+            .args(["metadata", "--no-deps", "--offline", "--format-version", "1"])
+            .current_dir(workspace_root())
+            .output()
+            .expect("cargo metadata runs");
+        assert!(out.status.success(), "cargo metadata: {}", String::from_utf8_lossy(&out.stderr));
+        serde_json::from_slice(&out.stdout).expect("cargo metadata's JSON")
+    })
+}
+
+/// One dependency as a manifest declares it: the name the crate knows it by, its kind
+/// (`None` for a normal one, `dev`, `build`), and whether it is optional.
+struct Dependency {
+    name: String,
+    kind: Option<String>,
+    optional: bool,
+}
+
+/// What `crates/<crate_dir>/Cargo.toml` declares, in every section and for every target.
+fn declared(crate_dir: &str) -> Vec<Dependency> {
+    let canonical = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let manifest = canonical(&workspace_root().join("crates").join(crate_dir).join("Cargo.toml"));
+    let package = metadata()["packages"]
+        .as_array()
+        .expect("packages")
+        .iter()
+        .find(|p| p["manifest_path"].as_str().map(|m| canonical(Path::new(m))) == Some(manifest.clone()))
+        .unwrap_or_else(|| panic!("{} is not a workspace member", manifest.display()));
+    package["dependencies"]
+        .as_array()
+        .expect("dependencies")
+        .iter()
+        .map(|d| Dependency {
+            // A renamed dependency is known by its key (`foo = { package = "bar" }` is `foo`).
+            name: d["rename"].as_str().or(d["name"].as_str()).unwrap_or_default().to_string(),
+            kind: d["kind"].as_str().map(str::to_string),
+            optional: d["optional"].as_bool().unwrap_or(false),
+        })
+        .collect()
+}
+
+/// Direct dependencies of one Harnix crate, by name: normal and dev, for every target.
 fn dependencies(crate_dir: &str) -> BTreeSet<String> {
-    let manifest = workspace_root()
-        .join("crates")
-        .join(crate_dir)
-        .join("Cargo.toml");
-    let text = std::fs::read_to_string(&manifest)
-        .unwrap_or_else(|e| panic!("{}: {e}", manifest.display()));
-    let mut names = BTreeSet::new();
-    let mut in_deps = false;
-    for line in text.lines() {
-        let line = line.trim();
-        if line.starts_with('[') {
-            in_deps = line.starts_with("[dependencies]") || line.starts_with("[dev-dependencies]");
-            continue;
-        }
-        if !in_deps || line.starts_with('#') || line.is_empty() {
-            continue;
-        }
-        if let Some((name, _)) = line.split_once('=') {
-            names.insert(name.trim().to_string());
-        }
-    }
-    names
+    declared(crate_dir)
+        .into_iter()
+        .filter(|d| d.kind.as_deref() != Some("build"))
+        .map(|d| d.name)
+        .collect()
 }
 
 fn assert_ignorant_of(crate_dir: &str, forbidden: &[&str], because: &str) {
@@ -450,30 +482,14 @@ fn the_wasm_runtime_depends_on_no_harnix_crate_and_nothing_of_agix() {
     }
 }
 
-/// One crate's `[dependencies]` (not its dev-dependencies), by name: whether each is optional.
+/// One crate's normal dependencies (not its dev- or build-dependencies), for every target, by
+/// name: whether each is optional.
 fn normal_dependencies(crate_dir: &str) -> std::collections::BTreeMap<String, bool> {
-    let manifest = workspace_root()
-        .join("crates")
-        .join(crate_dir)
-        .join("Cargo.toml");
-    let text = std::fs::read_to_string(&manifest)
-        .unwrap_or_else(|e| panic!("{}: {e}", manifest.display()));
-    let mut deps = std::collections::BTreeMap::new();
-    let mut in_deps = false;
-    for line in text.lines() {
-        let line = line.trim();
-        if line.starts_with('[') {
-            in_deps = line.starts_with("[dependencies]");
-            continue;
-        }
-        if !in_deps || line.starts_with('#') || line.is_empty() {
-            continue;
-        }
-        if let Some((name, rest)) = line.split_once('=') {
-            deps.insert(name.trim().to_string(), rest.contains("optional = true"));
-        }
-    }
-    deps
+    declared(crate_dir)
+        .into_iter()
+        .filter(|d| d.kind.is_none())
+        .map(|d| (d.name, d.optional))
+        .collect()
 }
 
 /// Agix's crates, by the names Harnix's crates know them by.
@@ -669,6 +685,18 @@ fn a_plugin_applications_agent_package_is_read_for_its_name_and_version_only() {
         !outside.contains("toml::"),
         "package.rs parses TOML outside `agent_package`; the engine's manifest is the engine's"
     );
+}
+
+/// The rules read what cargo reads: kind and optionality come from cargo, not from which
+/// section a line happened to sit under.
+#[test]
+fn dependencies_are_read_as_cargo_reads_them() {
+    let flow = declared("flow");
+    let module = flow.iter().find(|d| d.name == "harnix-module").expect("flow names harnix-module");
+    assert!(module.optional && module.kind.is_none(), "an optional normal dependency");
+    assert!(flow.iter().any(|d| d.name == "tempfile" && d.kind.as_deref() == Some("dev")));
+    assert!(normal_dependencies("flow").get("harnix-module") == Some(&true));
+    assert!(!normal_dependencies("flow").contains_key("tempfile"), "a dev-dependency is not normal");
 }
 
 /// Every crate that depends on a Harnix crate depends on one that exists, and
