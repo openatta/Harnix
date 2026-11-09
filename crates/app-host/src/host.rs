@@ -6,7 +6,7 @@
 //! 2. Its signatures are verified over its files as they are now: what is on disk may not be what
 //!    was installed. Unsigned, it starts only where the product runs unsigned code.
 //! 3. Its agent package and skills are switched on in the instances the install put them in.
-//! 4. It is registered with the platform — its methods, topics and spaces, under `app.<id>.*`,
+//! 4. It is registered with the kernel — its methods, topics and spaces, under `app.<id>.*`,
 //!    and its `hub` capability — then its component loaded (refused if it was compiled for another
 //!    engine, or its bytes are not the ones signed), its VM started (a backend's `init` runs, and
 //!    may already publish, call and subscribe), its tools listed and offered.
@@ -23,10 +23,11 @@ use harnix_app_package::acquire::{self, internal, refused, Admission};
 use harnix_app_package::manifest::{self, toml_to_json, Manifest};
 use harnix_app_package::signature::{Trust, Verified};
 use harnix_app_port::{
-    Control, HookCall, HookReply, MethodCall, MethodDecl, Offer, Place, Placement, Platform,
+    Agent, Control, HookCall, HookReply, Kernel, MethodCall, MethodDecl, Offer, Place, Placement,
     Progress, Registration, RpcError, SpaceDecl, Start, Started, Stop, ToolCall, ToolDef,
     ToolReply, TopicValue, Unplace,
 };
+use harnix_contract::sync::{lock, read, write};
 use harnix_wasm::{
     AppSpec, AppVm, Capabilities, FsGrant, HookDecision, HttpFetcher, Limits, ProgressSink,
     VmState, WasmEngine, World,
@@ -34,7 +35,7 @@ use harnix_wasm::{
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
-use crate::bridge::{failure_of, lock, Bridge, Method};
+use crate::bridge::{failure_of, Bridge, Method};
 use crate::idle::{self, Activity};
 use crate::placement::{self, Placed};
 
@@ -95,7 +96,8 @@ struct Booted {
 /// process): one VM each, every VM on one engine.
 pub struct Host {
     engine: WasmEngine,
-    platform: Arc<dyn Platform>,
+    kernel: Arc<dyn Kernel>,
+    agent: Arc<dyn Agent>,
     options: HostOptions,
     http: Arc<dyn HttpFetcher>,
     apps: RwLock<BTreeMap<String, Arc<Running>>>,
@@ -123,14 +125,6 @@ impl Drop for CallEntry<'_> {
     }
 }
 
-fn read<T>(l: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
-    l.read().unwrap_or_else(|e| e.into_inner())
-}
-
-fn write<T>(l: &RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
-    l.write().unwrap_or_else(|e| e.into_inner())
-}
-
 fn tool_def(t: &harnix_wasm::ToolDef) -> ToolDef {
     ToolDef {
         name: t.name.clone(),
@@ -150,7 +144,7 @@ fn world_name(world: World) -> String {
     .to_string()
 }
 
-/// A tool call's `host.progress`, in order, to the platform: the sink is called on the VM's side
+/// A tool call's `host.progress`, in order, to the kernel: the sink is called on the VM's side
 /// and does not wait, so it queues for one task that does — boundedly, dropping (and counting)
 /// what a tool says faster than it can be told.
 struct ProgressQueue {
@@ -169,11 +163,13 @@ impl ProgressSink for ProgressQueue {
 }
 
 impl Host {
-    /// A host whose applications reach the product through `platform`.
-    pub fn new(options: HostOptions, platform: Arc<dyn Platform>) -> anyhow::Result<Arc<Self>> {
+    /// A host whose applications reach the product through `kernel`, and whose agent side goes to
+    /// `agent`.
+    pub fn new(options: HostOptions, kernel: Arc<dyn Kernel>, agent: Arc<dyn Agent>) -> anyhow::Result<Arc<Self>> {
         Ok(Arc::new(Self {
             engine: WasmEngine::new()?,
-            platform,
+            kernel,
+            agent,
             options,
             http: Arc::new(crate::http::Http::new()),
             apps: RwLock::new(BTreeMap::new()),
@@ -271,8 +267,10 @@ impl Host {
         verified: &Verified,
     ) -> Result<Booted, RpcError> {
         let id = &manifest.app.id;
-        self.platform.register(registration).await?;
-        match self.start_vm(manifest, root, app_dir, bridge.clone(), verified).await {
+        self.kernel.register(registration).await?;
+        // `init` holds the backend as a method call does.
+        let started = self.start_vm(manifest, root, app_dir, bridge.clone(), verified);
+        match crate::bridge::waiting_in(Vec::new(), id, started).await {
             Ok((vm, tools)) => {
                 if let Some(vm) = &vm {
                     bridge.started(vm);
@@ -280,7 +278,7 @@ impl Host {
                 Ok(Booted { vm, tools })
             }
             Err(e) => {
-                if let Err(w) = self.platform.withdraw(id.clone()).await {
+                if let Err(w) = self.kernel.withdraw(id.clone()).await {
                     tracing::debug!(app = %id, error = %w.message, "a registration was not taken back");
                 }
                 Err(e)
@@ -437,12 +435,12 @@ impl Host {
         // installed.
         let verified = self.options.admission.admit_root(&root, &manifest)?;
         let (registration, methods) = Self::declare(&manifest)?;
-        placement::switch(self.platform.as_ref(), id, &root, &start.parts, true).await?;
+        placement::switch(self.agent.as_ref(), id, &root, &start.parts, true).await?;
         let bridge = Bridge::new(
             id,
             manifest.topics.iter().map(|t| t.name.clone()),
             self.options.secrets.get(id).cloned().unwrap_or_default(),
-            self.platform.clone(),
+            self.kernel.clone(),
             self.generation.clone(),
         );
         lock(&self.bridges).insert(id.clone(), bridge.clone());
@@ -453,7 +451,7 @@ impl Host {
             Ok(booted) => booted,
             Err(e) => {
                 lock(&self.bridges).remove(id);
-                placement::switch(self.platform.as_ref(), id, &root, &start.parts, false)
+                placement::switch(self.agent.as_ref(), id, &root, &start.parts, false)
                     .await
                     .ok();
                 return Err(e);
@@ -503,7 +501,7 @@ impl Host {
             tools: booted.tools.clone(),
         };
         write(&self.apps).insert(id.clone(), running);
-        if let Err(e) = self.platform.expose_tools(offer).await {
+        if let Err(e) = self.agent.expose_tools(offer).await {
             tracing::warn!(app = %id, error = %e.message, "its tools were not offered");
         }
         tracing::info!(app = %id, tools = booted.tools.len(), "application started");
@@ -578,14 +576,14 @@ impl Control for Host {
     async fn place(&self, place: Place) -> Result<Placement, RpcError> {
         let root = place.app_dir.join(&place.version);
         let mut placed = Placed::default();
-        match placement::place(&self.platform, &root, &place.app_dir, &mut placed).await {
+        match placement::place(&self.agent, &root, &place.app_dir, &mut placed).await {
             Ok(()) => Ok(Placement {
                 parts: placed.parts(),
                 disclosure: placed.disclosure,
             }),
             Err(e) => {
                 tracing::warn!(app = %place.app, error = %e.message, "placing it failed; undoing it");
-                placed.undo(self.platform.as_ref(), &place.app).await;
+                placed.undo(self.agent.as_ref(), &place.app).await;
                 Err(e)
             }
         }
@@ -593,7 +591,7 @@ impl Control for Host {
 
     async fn unplace(&self, unplace: Unplace) -> Result<Value, RpcError> {
         let placed = Placed::of(&unplace.parts);
-        placed.undo(self.platform.as_ref(), &unplace.app).await;
+        placed.undo(self.agent.as_ref(), &unplace.app).await;
         Ok(json!({
             "agent": placed.agent.as_ref().map(|(package, _, instances)| json!({"package": package, "instances": instances})),
             "skills": placed.skills,
@@ -640,18 +638,18 @@ impl Control for Host {
             component: false,
             tools: Vec::new(),
         };
-        let _ = self.platform.expose_tools(none).await;
+        let _ = self.agent.expose_tools(none).await;
         // Then its names: a call decided from here is unknown. (The product has usually withdrawn
         // them already; then there is nothing left to take.) Calls queued behind the backend are
         // answered that it stopped.
-        if self.platform.withdraw(id.clone()).await.is_ok() {
+        if self.kernel.withdraw(id.clone()).await.is_ok() {
             tracing::debug!(app = %id, "registration withdrawn");
         }
         lock(&self.bridges).remove(id);
         if let Some(vm) = &app.vm {
             vm.stop().await;
         }
-        placement::switch(self.platform.as_ref(), id, &app.root, &stop.parts, false)
+        placement::switch(self.agent.as_ref(), id, &app.root, &stop.parts, false)
             .await
             .ok();
         tracing::info!(app = %id, "application stopped");
@@ -671,6 +669,21 @@ impl Control for Host {
 
     async fn call_method(&self, call: MethodCall) -> Result<Value, RpcError> {
         let full = format!("app.{}.{}", call.app, call.method);
+        // Its backend is waiting on this very call, a hop or several back: refused now rather
+        // than left to wait for itself until the timeout recycles it. Said by the call itself, so
+        // it holds whatever carried it here; the VM's own check is for a call that stayed on one
+        // task.
+        if call.chain.contains(&call.app) {
+            return Err(crate::bridge::unavailable(
+                &call.app,
+                &full,
+                &format!(
+                    "would re-enter the backend of `{}`, which is waiting on this very call",
+                    call.app
+                ),
+                harnix_app_port::Failure::Unavailable.as_str(),
+            ));
+        }
         let Some(app) = self.running(&call.app) else {
             return Err(crate::bridge::unavailable(
                 &call.app,
@@ -684,7 +697,8 @@ impl Control for Host {
         };
         let outcome = {
             let _busy = app.activity.hold();
-            method.answer(app.vm.as_ref(), &call.caller, call.params).await
+            let answer = method.answer(app.vm.as_ref(), &call.caller, call.params);
+            crate::bridge::waiting_in(call.chain, &call.app, answer).await
         };
         app.bridge.stats.method(&call.method, outcome.as_ref().err());
         self.moved();
@@ -715,8 +729,8 @@ impl Control for Host {
         let _busy = app.activity.hold();
         let (sink, forwarded) = if call.progress {
             let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(crate::bridge::QUEUE);
-            let (platform, app_id, tool, call_id) = (
-                self.platform.clone(),
+            let (kernel, app_id, tool, call_id) = (
+                self.kernel.clone(),
                 call.app.clone(),
                 call.tool.clone(),
                 call.call_id.clone(),
@@ -729,7 +743,7 @@ impl Control for Host {
                         call_id: call_id.clone(),
                         text,
                     };
-                    let _ = platform.progress(progress).await;
+                    let _ = kernel.progress(progress).await;
                 }
             });
             let queue = ProgressQueue {

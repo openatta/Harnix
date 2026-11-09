@@ -69,6 +69,9 @@ pub struct SpawnOptions {
     /// (ipdrun-07). The daemon then no longer gets the terminal signals sent to this process's
     /// group; its exit follows stdin closing, as it always did.
     pub reap_on_stop: bool,
+    /// Its part of the shared MCP servers (`servers.rs`): reloaded through this link, and its
+    /// credential revoked when the daemon goes.
+    pub(crate) servers: Option<Arc<crate::servers::Configured>>,
 }
 
 impl SpawnOptions {
@@ -113,6 +116,7 @@ pub struct DaemonLink {
     cancel: CancellationToken,
     reap: bool,
     call_timeout: Duration,
+    servers: Option<Arc<crate::servers::Configured>>,
 }
 
 impl DaemonLink {
@@ -130,6 +134,7 @@ impl DaemonLink {
 
     fn launch(spec: DaemonSpec, options: SpawnOptions, call_timeout: Duration) -> Arc<Self> {
         let reap = options.reap_on_stop && spec.spawn.is_some();
+        let servers = options.servers.filter(|_| spec.spawn.is_some());
         let (events_tx, events_rx) = mpsc::channel(link::EVENT_CAPACITY);
         let (status, _) = watch::channel(LinkStatus::Starting);
         let this = Arc::new(Self {
@@ -146,7 +151,11 @@ impl DaemonLink {
             cancel: CancellationToken::new(),
             reap,
             call_timeout,
+            servers,
         });
+        if let Some(servers) = &this.servers {
+            servers.attach(&this);
+        }
         tokio::spawn(this.clone().supervise());
         this
     }
@@ -280,6 +289,15 @@ impl DaemonLink {
         }
         tracing::error!(endpoint = ?self.spec.endpoint, %reason, "daemon link down");
         self.status.send_replace(LinkStatus::Down { reason });
+        self.gone();
+    }
+
+    /// The daemon is not coming back on this link: what it presented to this process's servers
+    /// admits nothing any more.
+    fn gone(&self) {
+        if let Some(servers) = &self.servers {
+            servers.revoke();
+        }
     }
 
     /// Make sure the child runs. True when one had exited and this started
@@ -597,6 +615,7 @@ impl EngineLink for DaemonLink {
 
     async fn shutdown(&self) {
         self.cancel.cancel();
+        self.gone();
         self.disconnect().await;
         self.stop_child().await;
         self.status.send_replace(LinkStatus::Down {

@@ -1,7 +1,7 @@
-//! An application's agent side, put in place and switched with it, through the platform: its
+//! An application's agent side, put in place and switched with it, through the agent engine: its
 //! agent package installed into each instance its manifest names (`[agent] install_into`), its
 //! skills placed in each one's skills directory, and both switched on and off with the
-//! application. Where those instances are is the platform's business: the product's own, for an
+//! application. Where those instances are is the [`Agent`]'s business: the product's own, for an
 //! application embedded in its process; the application's own process's, otherwise.
 
 use std::collections::BTreeMap;
@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use harnix_app_package::acquire::{internal, refused};
 use harnix_app_package::package;
-use harnix_app_port::{AgentInstall, AgentRef, AgentSwitch, Platform, RpcError, Skills};
+use harnix_app_port::{AgentInstall, AgentRef, AgentSwitch, Agent, RpcError, Skills};
 use serde_json::{json, Value};
 
 /// What installing put in place, as the record keeps it (its `parts`).
@@ -57,9 +57,9 @@ impl Placed {
     }
 
     /// Take it all back, as far as it goes.
-    pub(crate) async fn undo(&self, platform: &dyn Platform, id: &str) {
+    pub(crate) async fn undo(&self, engine: &dyn Agent, id: &str) {
         for (instance, names) in &self.skills {
-            let _ = platform
+            let _ = engine
                 .remove_skills(Skills {
                     app: id.to_string(),
                     instance: instance.clone(),
@@ -67,7 +67,7 @@ impl Placed {
                     names: names.clone(),
                 })
                 .await;
-            reload(platform, instance).await;
+            reload(engine, instance).await;
         }
         if let Some((package, version, instances)) = &self.agent {
             for instance in instances {
@@ -77,7 +77,7 @@ impl Placed {
                     version: version.clone(),
                     instance: instance.clone(),
                 };
-                if let Err(e) = platform.uninstall_agent(agent).await {
+                if let Err(e) = engine.uninstall_agent(agent).await {
                     tracing::warn!(app = %id, %instance, error = %e.message, "the agent package was not uninstalled");
                 }
             }
@@ -86,8 +86,8 @@ impl Placed {
 }
 
 /// An instance re-reads its configuration — its skills directory included.
-async fn reload(platform: &dyn Platform, instance: &str) {
-    if let Err(e) = platform.reload_instance(instance.to_string()).await {
+async fn reload(engine: &dyn Agent, instance: &str) {
+    if let Err(e) = engine.reload_instance(instance.to_string()).await {
         tracing::warn!(%instance, error = %e.message, "the instance did not reload");
     }
 }
@@ -96,7 +96,7 @@ async fn reload(platform: &dyn Platform, instance: &str) {
 /// its skills into each one's skills directory. What was put where is written to `placed` as it is
 /// done, so that a failure takes back exactly that.
 pub(crate) async fn place(
-    platform: &Arc<dyn Platform>,
+    engine: &Arc<dyn Agent>,
     root: &Path,
     app_dir: &Path,
     placed: &mut Placed,
@@ -106,7 +106,7 @@ pub(crate) async fn place(
     let id = manifest.app.id.clone();
     let targets = &manifest.agent.install_into;
     for target in targets {
-        if !platform.has_instance(target.clone()).await? {
+        if !engine.has_instance(target.clone()).await? {
             return Err(refused(format!(
                 "`{id}` installs its agent package into `{target}`, and there is no such instance"
             )));
@@ -126,7 +126,7 @@ pub(crate) async fn place(
                 archive: zip.clone(),
                 instance: target.clone(),
             };
-            match platform.install_agent(install).await {
+            match engine.install_agent(install).await {
                 Ok(disclosure) => {
                     // What the engine says the package puts in front of the model: the installer
                     // shows it.
@@ -157,7 +157,7 @@ pub(crate) async fn place(
             placed
                 .skills
                 .insert(target.clone(), inspected.skills.clone());
-            platform
+            engine
                 .place_skills(Skills {
                     app: id.clone(),
                     instance: target.clone(),
@@ -165,7 +165,7 @@ pub(crate) async fn place(
                     names: inspected.skills.clone(),
                 })
                 .await?;
-            reload(platform.as_ref(), target).await;
+            reload(engine.as_ref(), target).await;
         }
     }
     Ok(())
@@ -174,7 +174,7 @@ pub(crate) async fn place(
 /// The agent package and skills, in the instances the install put them in: switched on (or off)
 /// with the application.
 pub(crate) async fn switch(
-    platform: &dyn Platform,
+    engine: &dyn Agent,
     id: &str,
     root: &Path,
     parts: &Value,
@@ -189,7 +189,7 @@ pub(crate) async fn switch(
                 instance: instance.clone(),
                 on,
             };
-            if let Err(e) = platform.switch_agent(switch).await {
+            if let Err(e) = engine.switch_agent(switch).await {
                 if on {
                     return Err(refused(format!(
                         "`{id}`'s agent package could not be switched on in `{instance}`: {}",
@@ -209,11 +209,11 @@ pub(crate) async fn switch(
                 names: strings(names),
             };
             if on {
-                platform.place_skills(skills).await?;
+                engine.place_skills(skills).await?;
             } else {
-                let _ = platform.remove_skills(skills).await;
+                let _ = engine.remove_skills(skills).await;
             }
-            reload(platform, instance).await;
+            reload(engine, instance).await;
         }
     }
     Ok(())

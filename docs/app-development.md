@@ -160,7 +160,12 @@ Harnix 本身是**框架 + Harnix app + 系统 space**：Harnix app（会话 spa
   - 一个二进制，由应用宿主核心、harnix-wasm、Agix 和端口的 RPC 适配器组成。
   - 启动时拿到：包目录、链接地址与令牌、数据目录、已经同意过的能力。
   - 产品其它实例的会话要用这个应用的工具时，经 MCP 到这个进程。
-- **链接**：用 Harnix 现有的协议（模块自有链接）。同机走 Unix 套接字，跨机走 TLS 加配对（复用 remote 层）。
+- **链接**：用 Harnix 现有的协议（模块自有链接）。线上走的是端口的 `Kernel` 与 `Control`；`Agent` 是应用进程自己的 Agix，就在应用宿主
+  旁边，不过线。**第一版只做同机**：走 Unix 套接字，端口上的路径照路径传（解包后的包、应用目录、Agent 包的压缩档都由应用宿主自己读），
+  所以两边必须在同一台机器上。跨机要把这些文件本身搬过线，不在第一版的端口里。
+- **调用链随调用过线**：应用以自己身份的调用（`CallAs`）带着正在等它的那些后端的链，转进某个应用的方法时原样成为 `MethodCall` 的链；
+  链里已经有这个应用，说明它的后端正等着这次调用，应用宿主当场拒绝，而不是等到超时把后端换掉。模式 2 里虚拟机自己也认得出
+  同一个 task 上的重入，那是本地的快路径；过了线、换了 task，靠的是这条链。
 - **应用进程崩了**：
   - 只有这个应用的方法答 `unavailable`。
   - 它的会话随进程恢复，靠 Agix 的持久化。
@@ -193,10 +198,10 @@ Harnix 本身是**框架 + Harnix app + 系统 space**：Harnix app（会话 spa
 |---|---|---|---|---|---|---|
 | 内核与模块 | `harnix`、`harnix-app`、`harnix-module`、hub、authz、transport、instance… | 骨架、模块契约、装配 | — | ✔ | ✔ | ✔（产品侧） |
 | 分发与信任 | `harnix-app-package` | 清单、包、签名、目录与下载、披露、发布工具 `harnix-app` | `harnix-contract`；`harnix-wasm` 只在 feature `compile` 下（打包工具要编译器） | | ✔ | ✔（产品侧） |
-| 边界 | `harnix-app-port` | `Platform`（应用宿主要外面做的，15 个方法）与 `Control`（外面要应用宿主做的，12 个方法）；`rpc` 层把两边编成 JSON，feature `loopback` 带一个回环适配器 | `harnix-contract`；外部只有 serde、serde_json、async-trait | | ✔ | ✔ |
+| 边界 | `harnix-app-port` | 应用宿主要外面做的分两半：`Kernel`（产品的：登记、调用、发布、订阅、进度，7 个方法）与 `Agent`（Agent 引擎的：装包、技能、工具，8 个方法）；外面要应用宿主做的是 `Control`（12 个方法）；`rpc` 层把三者编成 JSON，feature `loopback` 带一个回环适配器 | `harnix-contract`；外部只有 serde、serde_json、async-trait | | ✔ | ✔ |
 | 虚拟机 | `harnix-wasm` | wasmtime 的引擎、实例、健康、记账、休眠；feature `compile` 带 Cranelift | 无（叶子） | | ✔ | ✔（应用进程侧） |
-| 应用宿主核心 | `harnix-app-host` | 生命周期、注册表、健康、分派、进度、休眠；`host.http-request` 用的 HTTP 客户端 | package、port、wasm | | ✔ | ✔（应用进程侧） |
-| 粘合（嵌入） | `harnix-apps` | 端口的进程内实现、给 Agix 的 Rust 插件 `AppsPlugin`、`/apps/<id>/ui` 与 `/apps/<id>/mcp`、`apps` 内建模块的运行时 | app-host、app-package、app-port、builtin、contract、module，以及 Agix | | ✔ | |
+| 应用宿主核心 | `harnix-app-host` | 生命周期、注册表、健康、分派、进度、休眠；`host.http-request` 用的 HTTP 客户端 | contract、package、port、wasm | | ✔ | ✔（应用进程侧） |
+| 粘合（嵌入） | `harnix-apps` | 端口的进程内实现、给 Agix 的 Rust 插件 `AppsPlugin`、`/apps/<id>/ui` 与 `/apps/<id>/mcp`、`apps` 内建模块的运行时。模式 3 里分到链接两边：产品侧是 `runtime.rs`、`update.rs`（装、起、升级、卸与回滚）、`serve.rs`、`platform.rs`（`Kernel`）；虚拟机侧是 `agent.rs`（`Agent`）、`plugin.rs`（`AppsPlugin`），以及它驱动的 `Control`，即应用宿主本身。逐个文件见这个 crate 的模块文档 | app-host、app-package、app-port、builtin、contract、module，以及 Agix | | ✔ | |
 | 粘合（模式 3，只有设计） | `harnix-app-proc` 加上产品侧的端口服务与监护器 | | | | | ✔ |
 | 前端 | 外壳、桥、`@harnix/app-sdk`、`@harnix/ui-kit`、行内点 | | | ✔ | ✔ | ✔（完全一样） |
 

@@ -1,6 +1,6 @@
-//! A host with nothing of a product around it: a fake platform that keeps what it was told and
-//! answers what the showcase asks of it, and the port between them carried through JSON both ways
-//! (`harnix_app_port::rpc::Loopback`), as it would be over a link.
+//! A host with nothing of a product around it: a fake kernel and agent engine that keep what they
+//! were told and answer what the showcase asks of them, and the port between them carried through
+//! JSON both ways (`harnix_app_port::rpc::Loopback`), as it would be over a link.
 #![allow(dead_code)]
 
 use std::path::{Path, PathBuf};
@@ -41,7 +41,7 @@ pub fn showcase_wasm() -> Vec<u8> {
         .clone()
 }
 
-/// What the platform was asked, in order, as `"<method> <detail>"`.
+/// What the kernel and the agent engine were asked, in order, as `"<method> <detail>"`.
 #[derive(Default)]
 pub struct FakePlatform {
     pub said: Mutex<Vec<String>>,
@@ -49,8 +49,12 @@ pub struct FakePlatform {
     pub published: Mutex<Vec<(String, Value)>>,
     pub progress: Mutex<Vec<String>>,
     pub offers: Mutex<Vec<Offer>>,
-    /// The host, as the platform reaches it: across the loopback too.
+    /// The host, as the kernel reaches it: across the loopback too.
     pub control: OnceLock<Arc<dyn Control>>,
+    /// When set, a call the application makes that its `hub` lists is answered by this method of
+    /// its own instead, called from another task: a product that routes it back into the
+    /// application over a link, where nothing of the calling task comes along.
+    pub reroute: OnceLock<String>,
 }
 
 impl FakePlatform {
@@ -88,13 +92,14 @@ impl FakePlatform {
                 method: method.into(),
                 caller: Subject::Device { id: "d1".into() },
                 params,
+                chain: Vec::new(),
             })
             .await
     }
 }
 
 #[async_trait]
-impl Platform for FakePlatform {
+impl Kernel for FakePlatform {
     async fn register(&self, r: Registration) -> Result<(), RpcError> {
         self.say(format!("register {}", r.app));
         self.registered.lock().unwrap().push(r);
@@ -114,8 +119,20 @@ impl Platform for FakePlatform {
                     method: own.into(),
                     caller: Subject::Module { id: c.app.clone() },
                     params: c.params,
+                    chain: c.chain,
                 })
                 .await;
+        }
+        if let Some(own) = self.reroute.get() {
+            let control = self.control.get().unwrap().clone();
+            let call = MethodCall {
+                app: c.app.clone(),
+                method: own.clone(),
+                caller: Subject::Module { id: c.app.clone() },
+                params: json!({}),
+                chain: c.chain,
+            };
+            return tokio::spawn(async move { control.call_method(call).await }).await.unwrap();
         }
         if !self.hub(&c.app).contains(&c.method) {
             return Err(RpcError::refused(format!("`module:{}` may not call `{}`", c.app, c.method)));
@@ -138,6 +155,14 @@ impl Platform for FakePlatform {
         self.say(format!("unsubscribe {}", s.topic));
         Ok(())
     }
+    async fn progress(&self, p: Progress) -> Result<(), RpcError> {
+        self.progress.lock().unwrap().push(p.text);
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl Agent for FakePlatform {
     async fn has_instance(&self, instance: String) -> Result<bool, RpcError> {
         Ok(instance == "system")
     }
@@ -174,10 +199,6 @@ impl Platform for FakePlatform {
         self.offers.lock().unwrap().push(offer);
         Ok(())
     }
-    async fn progress(&self, p: Progress) -> Result<(), RpcError> {
-        self.progress.lock().unwrap().push(p.text);
-        Ok(())
-    }
 }
 
 pub struct Rig {
@@ -200,7 +221,7 @@ impl Rig {
             ..HostOptions::default()
         };
         options(&mut host_options);
-        let host = Host::new(host_options, Loopback::platform(platform.clone())).unwrap();
+        let host = Host::new(host_options, Loopback::kernel(platform.clone()), Loopback::agent(platform.clone())).unwrap();
         let control: Arc<dyn Control> = Loopback::control(host.clone());
         let _ = platform.control.set(control.clone());
         Rig {

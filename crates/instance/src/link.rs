@@ -52,9 +52,9 @@ impl LinkStatus {
     }
 }
 
-/// Which carrier, for the instance list. The hub branches on it once: a daemon it spawned is the
-/// one kind of instance that is another process of this machine's, and so the one that reaches
-/// this process's runtime applications over MCP rather than directly (`set_shared_servers`).
+/// Which carrier, for the instance list. The hub reports it and never branches on it: what differs
+/// between carriers — a spawned daemon reaching this process's runtime applications over MCP, say
+/// (`servers.rs`) — is the carrier's own doing, in this layer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Carrier {
@@ -153,6 +153,11 @@ impl DownLink {
     pub fn new(carrier: Carrier, reason: String) -> std::sync::Arc<Self> {
         let (status, _) = watch::channel(LinkStatus::Down { reason });
         std::sync::Arc::new(Self { status, carrier })
+    }
+
+    /// One whose template is gone, and with it what carrier it had: listed as in-process.
+    pub fn without_template(reason: String) -> std::sync::Arc<Self> {
+        Self::new(Carrier::InProcess, reason)
     }
 }
 

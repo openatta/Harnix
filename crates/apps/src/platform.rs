@@ -1,4 +1,5 @@
-//! The host's [`Platform`], over this process's kernel: what an application embedded here is lent.
+//! The host's [`Kernel`], over this process's kernel: what an application embedded here is lent.
+//! (Its [`harnix_app_port::Agent`], this process's Agix, is `agent.rs`.)
 //!
 //! - **Its names** are registered with the kernel's application host
 //!   (`harnix_module::AppHost`), under the `apps` module: each `[[method]]` a row in the
@@ -7,25 +8,19 @@
 //! - **What it does as itself** — `host.call`, `publish`, `subscribe` — goes through that
 //!   registration, as `module:<id>`: the kernel admits, grants and audits. The values of what it
 //!   subscribed to go back to the host ([`Control::deliver`]), in order.
-//! - **Its agent side** is this process's Agix: its agent package installed into the instances its
-//!   manifest names (`plugin.install` and friends), its skills copied into each one's skills
-//!   directory, marked as its own, and its tools in every session built here ([`crate::AppsPlugin`]
-//!   reads what [`Platform::expose_tools`] offered).
 //!
 //! The kernel is reached through the `apps` module's context, which every call of the
 //! `AppsRuntime` hands in; nothing here reaches it before the module has.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, RwLock, Weak};
 
 use async_trait::async_trait;
 use harnix_app_package::acquire::{internal, refused};
-use harnix_app_package::package;
 use harnix_app_port::{
-    AgentInstall, AgentRef, AgentSwitch, CallAs, Control, MethodCall, Offer, Platform, Progress,
-    Publish, Registration, Skills, Subscription, TopicValue,
+    CallAs, Control, Kernel, MethodCall, Progress, Publish, Registration, Subscription, TopicValue,
 };
+use harnix_contract::sync::{read, write};
 use harnix_contract::{codes, RpcError, Subject};
 use harnix_module::{
     AppHandle, AppHandler, AppMethod, AppTopic, AppTopicSink, ModuleContext, Principal,
@@ -35,17 +30,6 @@ use tokio::sync::mpsc;
 
 use crate::runtime::Registry;
 
-/// What marks a skill directory as an application's, inside an instance's skills directory.
-const SKILL_MARK: &str = ".harnix-app";
-
-fn read<T>(l: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
-    l.read().unwrap_or_else(|e| e.into_inner())
-}
-
-fn write<T>(l: &RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
-    l.write().unwrap_or_else(|e| e.into_inner())
-}
-
 pub struct KernelPlatform {
     /// The `apps` module's context, from the first call it made.
     cx: RwLock<Option<ModuleContext>>,
@@ -54,7 +38,7 @@ pub struct KernelPlatform {
     control: OnceLock<Weak<dyn Control>>,
     /// Each registered application's registration.
     handles: RwLock<BTreeMap<String, AppHandle>>,
-    registry: Arc<Registry>,
+    pub(crate) registry: Arc<Registry>,
 }
 
 impl KernelPlatform {
@@ -79,7 +63,7 @@ impl KernelPlatform {
         }
     }
 
-    fn cx(&self) -> Result<ModuleContext, RpcError> {
+    pub(crate) fn cx(&self) -> Result<ModuleContext, RpcError> {
         read(&self.cx)
             .clone()
             .ok_or_else(|| internal("the `apps` module has not reached the application runtime yet"))
@@ -93,12 +77,6 @@ impl KernelPlatform {
             )
         })
     }
-
-    fn skills_dir(cx: &ModuleContext, instance: &str) -> Result<PathBuf, RpcError> {
-        cx.instance(instance)
-            .map(|h| h.data_root.join("skills"))
-            .ok_or_else(|| refused(format!("there is no instance `{instance}`")))
-    }
 }
 
 /// One `[[method]]` as the kernel has it: answered by the host.
@@ -108,9 +86,50 @@ struct Forward {
     control: Weak<dyn Control>,
 }
 
+/// Where a call's chain (`CallAs::chain`) rides from [`KernelPlatform::call`] to [`Forward`]: in
+/// its params, as the transport's `__client` does, since all the kernel carries between the two is
+/// a subject and params. Put there only for a call into a registered application's method, and
+/// taken out before its backend sees them. Whoever else sets it can only have its own call
+/// refused.
+const CHAIN: &str = "__chain";
+
+/// `params` with `chain` in them for a call of `method`, when that is one of `apps`' methods.
+fn with_chain<'a>(
+    mut params: Value,
+    method: &str,
+    chain: Vec<String>,
+    mut apps: impl Iterator<Item = &'a String>,
+) -> Value {
+    let into_app = method
+        .strip_prefix("app.")
+        .is_some_and(|rest| apps.any(|id| rest.strip_prefix(id.as_str()).is_some_and(|r| r.starts_with('.'))));
+    if chain.is_empty() || !into_app {
+        return params;
+    }
+    if params.is_null() {
+        params = json!({});
+    }
+    // Params that are not an object have nowhere to carry it: such a call is left to the VM's
+    // own check, and to the backend's timeout.
+    if let Some(obj) = params.as_object_mut() {
+        obj.insert(CHAIN.into(), json!(chain));
+    }
+    params
+}
+
+/// The chain a call came with, taken out of its params.
+fn take_chain(params: &mut Value) -> Vec<String> {
+    params
+        .as_object_mut()
+        .and_then(|obj| obj.remove(CHAIN))
+        .and_then(|chain| serde_json::from_value(chain).ok())
+        .unwrap_or_default()
+}
+
 #[async_trait]
 impl AppHandler for Forward {
-    async fn call(&self, caller: &Subject, params: Value) -> Result<Value, RpcError> {
+    async fn call(&self, caller: &Subject, mut params: Value) -> Result<Value, RpcError> {
+        let chain = take_chain(&mut params);
         let Some(control) = self.control.upgrade() else {
             let mut e = RpcError::new(
                 codes::INTERNAL_ERROR,
@@ -125,6 +144,7 @@ impl AppHandler for Forward {
                 method: self.name.clone(),
                 caller: caller.clone(),
                 params,
+                chain,
             })
             .await
     }
@@ -200,7 +220,7 @@ fn principals(app: &str, method: &str, subjects: &[String]) -> Result<Vec<Princi
 }
 
 #[async_trait]
-impl Platform for KernelPlatform {
+impl Kernel for KernelPlatform {
     async fn register(&self, r: Registration) -> Result<(), RpcError> {
         // Before anything is registered, and whether or not there is a host to register with.
         for m in &r.methods {
@@ -257,7 +277,9 @@ impl Platform for KernelPlatform {
     }
 
     async fn call(&self, call: CallAs) -> Result<Value, RpcError> {
-        self.handle(&call.app)?.call(&call.method, call.params).await
+        let handle = self.handle(&call.app)?;
+        let params = with_chain(call.params, &call.method, call.chain, read(&self.handles).keys());
+        handle.call(&call.method, params).await
     }
 
     async fn publish(&self, p: Publish) -> Result<(), RpcError> {
@@ -274,102 +296,6 @@ impl Platform for KernelPlatform {
         self.handle(&s.app)?.unsubscribe(&s.topic, s.params).await
     }
 
-    async fn has_instance(&self, instance: String) -> Result<bool, RpcError> {
-        Ok(self.cx()?.instance(&instance).is_some())
-    }
-
-    async fn install_agent(&self, a: AgentInstall) -> Result<Value, RpcError> {
-        let params = json!({
-            "name": a.name,
-            "version": a.version,
-            "download_url": format!("file://{}", a.archive.display()),
-            "instance": a.instance,
-        });
-        let answer = self.cx()?.call("plugin.install", params).await?;
-        Ok(answer.get("disclosure").cloned().unwrap_or(answer))
-    }
-
-    async fn uninstall_agent(&self, a: AgentRef) -> Result<(), RpcError> {
-        let params = json!({"name": a.name, "version": a.version, "instance": a.instance});
-        self.cx()?.call("plugin.uninstall", params).await.map(|_| ())
-    }
-
-    async fn switch_agent(&self, s: AgentSwitch) -> Result<(), RpcError> {
-        let method = if s.on { "plugin.enable" } else { "plugin.disable" };
-        self.cx()?
-            .call(method, json!({"name": s.name, "instance": s.instance}))
-            .await
-            .map(|_| ())
-    }
-
-    /// Copy `<source>/<name>/` into the instance's skills directory, marked as the application's.
-    /// A directory of that name that is not the application's is somebody else's skill, and
-    /// refuses it.
-    async fn place_skills(&self, s: Skills) -> Result<(), RpcError> {
-        let (id, instance) = (&s.app, &s.instance);
-        let dir = Self::skills_dir(&self.cx()?, instance)?;
-        for name in &s.names {
-            let target = dir.join(name);
-            if target.exists()
-                && std::fs::read_to_string(target.join(SKILL_MARK))
-                    .ok()
-                    .as_deref()
-                    != Some(id.as_str())
-            {
-                return Err(refused(format!(
-                    "the instance `{instance}` has a skill `{name}` of its own; `{id}` would replace it"
-                )));
-            }
-            let _ = std::fs::remove_dir_all(&target);
-            let source = s.source.join(name);
-            let mut files = Vec::new();
-            package::walk(&source, &source, &mut files)
-                .map_err(|e| internal(format!("{}: {e}", source.display())))?;
-            for (relative, path) in files {
-                let to = target.join(&relative);
-                if let Some(parent) = to.parent() {
-                    std::fs::create_dir_all(parent)
-                        .map_err(|e| internal(format!("{}: {e}", parent.display())))?;
-                }
-                std::fs::copy(&path, &to).map_err(|e| internal(format!("{}: {e}", to.display())))?;
-            }
-            std::fs::write(target.join(SKILL_MARK), id).map_err(|e| internal(e.to_string()))?;
-        }
-        Ok(())
-    }
-
-    /// Remove the skills marked as the application's, and nothing else.
-    async fn remove_skills(&self, s: Skills) -> Result<(), RpcError> {
-        let Ok(dir) = Self::skills_dir(&self.cx()?, &s.instance) else {
-            return Ok(());
-        };
-        for name in &s.names {
-            let target = dir.join(name);
-            if std::fs::read_to_string(target.join(SKILL_MARK))
-                .ok()
-                .as_deref()
-                == Some(s.app.as_str())
-            {
-                if let Err(e) = std::fs::remove_dir_all(&target) {
-                    tracing::warn!(app = %s.app, skill = %name, error = %e, "a skill was not removed");
-                }
-            }
-        }
-        Ok(())
-    }
-
-    async fn reload_instance(&self, instance: String) -> Result<(), RpcError> {
-        self.cx()?
-            .call("config.reload", json!({"instance": instance}))
-            .await
-            .map(|_| ())
-    }
-
-    async fn expose_tools(&self, offer: Offer) -> Result<(), RpcError> {
-        self.registry.offer(offer);
-        Ok(())
-    }
-
     async fn progress(&self, p: Progress) -> Result<(), RpcError> {
         self.registry.told(&p.call_id, &p.text);
         Ok(())
@@ -379,6 +305,26 @@ impl Platform for KernelPlatform {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_calls_chain_rides_into_an_applications_method_and_nowhere_else() {
+        let apps = ["acme.notes".to_string(), "acme".to_string()];
+        let chain = || vec!["acme.notes".to_string()];
+        // Into a registered application's method: carried, and taken out again whole.
+        let mut params = with_chain(json!({"x": 1}), "app.acme.notes.list", chain(), apps.iter());
+        assert_eq!(params, json!({"x": 1, "__chain": ["acme.notes"]}));
+        assert_eq!(take_chain(&mut params), chain());
+        assert_eq!(params, json!({"x": 1}), "the backend sees its own params only");
+        assert_eq!(with_chain(Value::Null, "app.acme.x", chain(), apps.iter()), json!({"__chain": ["acme.notes"]}));
+        // A kernel method, a compiled-in module's (`app.probe.*`), a name that only shares a
+        // prefix, or no chain at all: untouched.
+        for method in ["harnix.send", "app.probe.echo", "app.acmeish.x"] {
+            assert_eq!(with_chain(json!({"x": 1}), method, chain(), apps.iter()), json!({"x": 1}), "{method}");
+        }
+        assert_eq!(with_chain(json!({"x": 1}), "app.acme.x", Vec::new(), apps.iter()), json!({"x": 1}));
+        // What a caller made up is no chain.
+        assert!(take_chain(&mut json!({"__chain": "acme"})).is_empty());
+    }
 
     #[test]
     fn a_subject_is_one_of_three_or_the_registration_is_refused() {

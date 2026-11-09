@@ -3,8 +3,8 @@
 //! The settings page writes providers into the `system` instance's global tier; an instance built
 //! from a template has a data root, and so a global tier, of its own, and saw none of them. A
 //! template that says `inherit_providers` has `system`'s providers merged into its instances' global
-//! tier — when an instance is built, and every time the settings page changes a provider — and the
-//! instance reloads.
+//! tier — by the factory when an instance is built, and every time the settings page changes a
+//! provider ([`crate::Factory::inherit_into`]) — and the instance reloads.
 //!
 //! Merged into the global tier because Agix has three tiers (global, scene, project) and no fourth
 //! to stack a read-only "upstream" under them. So Harnix records which provider ids it wrote, in
@@ -93,7 +93,7 @@ pub(crate) fn merge(system_root: &Path, instance_root: &Path) -> std::io::Result
     Ok(changed)
 }
 
-fn read(path: &Path) -> std::io::Result<Value> {
+pub(crate) fn read(path: &Path) -> std::io::Result<Value> {
     match std::fs::read(path) {
         Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| {
             std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{}: {e}", path.display()))

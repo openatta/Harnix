@@ -10,7 +10,7 @@
  * the call runs here.
  */
 
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -297,7 +297,7 @@ carrier = "spawn"
     expect(asks.length, "the daemon asked first").toBeGreaterThanOrEqual(1);
     expect(results(api, s)).toContain("showcase-over-mcp");
 
-    // The endpoint is the application's token's alone.
+    // The endpoint opens to a spawned daemon's credential alone: not the page's token.
     const url = `${backend.url.replace(/\/$/, "")}/apps/${SHOWCASE_ID}/mcp`;
     const anonymous = await fetch(url, {
       method: "POST",
@@ -306,6 +306,38 @@ carrier = "spawn"
     });
     expect(anonymous.status, "the page's token opened the MCP endpoint").toBe(401);
     expect((await fetch(url)).status).toBe(405);
+  });
+
+  test("a spawned daemon's credential is its own, and stops opening the endpoint when the daemon goes", TAGS, async () => {
+    const url = `${backend.url.replace(/\/$/, "")}/apps/${SHOWCASE_ID}/mcp`;
+    const list = (authorization: string) =>
+      fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      });
+    const { instances } = await api.call("harnix.instances.list");
+    const root = instances.find((i: any) => i.id === "far").data_root;
+    const bearer = (): string | undefined => {
+      const settings = JSON.parse(readFileSync(join(root, "settings.json"), "utf8"));
+      return settings.mcp_servers?.[MCP_SERVER]?.headers?.Authorization;
+    };
+    const before = bearer();
+    expect(before).toMatch(/^Bearer [0-9a-f]{32}$/);
+    expect(before, "the daemon was given the page's token").not.toBe(`Bearer ${backend.token}`);
+    expect((await list(before!)).status).toBe(200);
+
+    // Restarted: the daemon that held it is gone, and with it what it presented.
+    await api.call("harnix.instances.restart", { instance: "far", space: "system" });
+    expect((await list(before!)).status, "a daemon that is gone still opened the endpoint").toBe(401);
+    const after = bearer();
+    expect(after).toMatch(/^Bearer [0-9a-f]{32}$/);
+    expect(after).not.toBe(before);
+    expect((await list(after!)).status).toBe(200);
+    // And the new daemon reaches the tools with it.
+    await expect
+      .poll(async () => JSON.stringify(await api.call("mcp.status", { instance: "far" }).catch((e) => e)), { timeout: 60_000, intervals: [500] })
+      .toContain(`"name":"${MCP_SERVER}","tool_count":${TOOLS.length}`);
   });
 
   test("disabled: a new session has none of it, and enabled it is back", TAGS, async () => {

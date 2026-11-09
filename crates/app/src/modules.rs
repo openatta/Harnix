@@ -103,9 +103,14 @@ impl Record {
     }
 
     pub fn disable(&mut self, phase: &'static str, reason: String, table: &mut MethodTable) {
+        table.retract(&self.declared);
+        self.disabled(phase, reason);
+    }
+
+    /// [`Record::disable`] once the table is the authorizer's, which retracts its names itself.
+    pub fn disabled(&mut self, phase: &'static str, reason: String) {
         tracing::error!(module = %self.manifest.id, phase, %reason, "module disabled");
         self.enabled.store(false, Ordering::Release);
-        table.retract(&self.declared);
         self.status.enabled = false;
         self.status.phase = Some(phase);
         self.status.reason = Some(reason);

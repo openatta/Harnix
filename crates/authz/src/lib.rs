@@ -11,6 +11,17 @@
 //! subject of its own, so the table says what each one may call and the
 //! audit says which one did. The kernel is this binary.
 //!
+//! A runtime application acting as itself is a module subject too,
+//! `module:<id>`, with one difference the table holds rather than anyone in
+//! front of it: it is a runtime principal, which reaches only what its `hub`
+//! capability lists, and its own names ([`MethodTable::reach_only`]). Trust
+//! by origin: code that came in a package does not reach what every module
+//! may just because a rule opens it to every module.
+//!
+//! Every change to the table after assembly goes through [`Authorizer`],
+//! which puts it on the record: an application's names declared and
+//! withdrawn, a grant made and revoked, a failed module's names retracted.
+//!
 //! Module routes (`/apps/<id>/`) and host topics are decided here too, as
 //! entries in the same table — one admission point for every surface.
 //!
@@ -30,7 +41,7 @@ pub use devices::challenge as devices_challenge;
 pub use devices::{tokens_equal, Device, Devices, PairError, Persist, PAIRING_TTL};
 pub use table::{
     apps_overlap, route, topic, valid_app_id, MethodTable, Principal, Reach, Rule, TableError,
-    ENGINE_REFUSALS, HUB_OWNED,
+    ENGINE_REFUSALS, HUB_OWNED, OUTSIDE_HUB,
 };
 
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -66,21 +77,32 @@ impl Authorizer {
         read(&self.table)
     }
 
-    pub fn table_mut(&self) -> RwLockWriteGuard<'_, MethodTable> {
+    /// Written only here, where every change is audited.
+    pub(crate) fn table_mut(&self) -> RwLockWriteGuard<'_, MethodTable> {
         write(&self.table)
     }
 
-    /// Put a runtime application's names in the table, all or none, and put
-    /// on the record who did: one `declare` entry per name, or one `refuse`
-    /// entry naming the first name that did not take. See
-    /// [`MethodTable::declare_app`] for what is refused.
+    /// Put a runtime application's names in the table, all or none, and make
+    /// its subject a runtime principal reaching `hub` and its own names
+    /// ([`MethodTable::reach_only`]) — in one write. Put on the record who did:
+    /// one `declare` entry per name, or one `refuse` entry naming the first
+    /// name that did not take. See [`MethodTable::declare_app`] for what is
+    /// refused.
     pub fn declare_app(
         &self,
         by: &Subject,
         app: &str,
         rows: &[(String, Vec<Principal>)],
+        hub: &[String],
     ) -> Result<(), TableError> {
-        let result = self.table_mut().declare_app(app, rows);
+        let result = {
+            let mut table = self.table_mut();
+            let declared = table.declare_app(app, rows);
+            if declared.is_ok() {
+                table.reach_only(app, hub.iter().cloned());
+            }
+            declared
+        };
         match &result {
             Ok(()) => {
                 for (name, _) in rows {
@@ -102,7 +124,8 @@ impl Authorizer {
     }
 
     /// Take a runtime application's names back out, and put each on the
-    /// record. A call decided after this returns is decided as unknown.
+    /// record. A call decided after this returns is decided as unknown, and the
+    /// application itself reaches nothing.
     pub fn withdraw_app(&self, by: &Subject, app: &str) -> Vec<String> {
         let names = self.table_mut().withdraw_app(app);
         for name in &names {
@@ -110,6 +133,33 @@ impl Authorizer {
                 .record_change(by, name, Change::Withdraw, Some("withdrawn with its runtime application"));
         }
         names
+    }
+
+    /// Open one existing entry to one module ([`MethodTable::grant`]), and put
+    /// it on the record under `by`, with `why`.
+    pub fn grant(&self, by: &Subject, method: &str, module: &str, why: &'static str) -> Result<(), TableError> {
+        let granted = self.table_mut().grant(method, module);
+        match &granted {
+            Ok(()) => self.audit.record_change(by, method, Change::Grant, Some(why)),
+            Err(e) => self.audit.record_change(by, method, Change::Refuse, Some(change_refusal(e))),
+        }
+        granted
+    }
+
+    /// Take back what [`Authorizer::grant`] gave `module` ([`MethodTable::revoke`]),
+    /// on the record under `by`, with `why`.
+    pub fn revoke(&self, by: &Subject, method: &str, module: &str, why: &'static str) {
+        self.table_mut().revoke(method, module);
+        self.audit.record_change(by, method, Change::Revoke, Some(why));
+    }
+
+    /// Take a module's names back out after assembly — it failed to start
+    /// ([`MethodTable::retract`]) — each on the record under `by`, with `why`.
+    pub fn retract(&self, by: &Subject, names: &[String], why: &'static str) {
+        self.table_mut().retract(names);
+        for name in names {
+            self.audit.record_change(by, name, Change::Withdraw, Some(why));
+        }
     }
 
     /// Methods this subject may call, for a client that wants to grey out
@@ -149,7 +199,7 @@ fn change_refusal(e: &TableError) -> &'static str {
         TableError::Taken(_) => "the name is already in the authorization table",
         TableError::Namespace(_) => "outside the application's own namespace",
         TableError::Overlap { .. } => "the application id overlaps names already in the authorization table",
-        TableError::HubOwned(_) | TableError::Unknown(_) => "not a name a runtime application may declare",
+        TableError::HubOwned(_) | TableError::Unknown(_) => "not a name that may be declared or granted",
     }
 }
 
@@ -171,7 +221,7 @@ pub const REACHABLE: &str = "harnix.reachable";
 
 /// The two methods whose decision depends on what they name: a topic is
 /// subscribed to only if the subject reaches `topic:<name>`.
-const SUBSCRIBE: &[&str] = &["harnix.subscribe", "harnix.unsubscribe"];
+const SUBSCRIBE: &[&str] = table::DECIDED_BY_TOPIC;
 
 #[async_trait::async_trait]
 impl Gate for Authorizer {

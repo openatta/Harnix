@@ -289,8 +289,8 @@ world backend-app-events { include backend-app; export events; }
   `tool.before` 的 payload 是 `{tool, input, session_id, depth}`（`tool` 是会话里的名字，`app__…`）。
 - **进度**：工具调用里的 `host.progress(call-id, text)` 推到主题 `harnix.apps.progress`，界面在那一行工具上显示。
 - **spawn 的 daemon**：经 `/apps/<id>/mcp` 用应用的工具。端点只答本机的对端（监听开在网络上时，别处来的请求有令牌也答 403），
-  再看这个应用的令牌（每次启动重发，进程退出即作废，只写进 spawn 的 daemon 的 MCP 配置）。那边没有 `/project`、没有进度、没有事件钩子；
-  daemon 的引擎照常在每次调用前问人。
+  再看 daemon 的凭据：每台 spawn 的 daemon 一个，建它时发，只写进它自己的 MCP 配置；它停了、重启了或彻底起不来，凭据即作废。
+  那边没有 `/project`、没有进度、没有事件钩子；daemon 的引擎照常在每次调用前问人。
 
 ## 6. 界面
 
@@ -771,7 +771,7 @@ ACME_TOKEN = "…"
 | 后端 space、界面 space | `<id>` 或 `<id>.<名字>` |
 | 会话里的工具 | `app__<id 的 . 换成 _>__<工具>`，例如 `app__acme_notes__search` |
 | spawn 的 daemon 里的工具 | `mcp__app-<id 的 . 换成 _>__<工具>` |
-| MCP 端点 | `POST /apps/<id>/mcp`（只答本机的对端；`Authorization: Bearer <令牌>`；`initialize`、`ping`、`tools/list`、`tools/call`） |
+| MCP 端点 | `POST /apps/<id>/mcp`（只答本机的对端；`Authorization: Bearer <daemon 的凭据>`；`initialize`、`ping`、`tools/list`、`tools/call`） |
 | 界面文件 | `/apps/<id>/ui/<路径>` |
 | 详情项的种类 | `<id>.<名字>` |
 | 扩展条目的命名空间 | `app.<id>` |

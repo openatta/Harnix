@@ -1429,6 +1429,7 @@ dependencies = [
  "async-trait",
  "harnix-app-package",
  "harnix-app-port",
+ "harnix-contract",
  "harnix-wasm",
  "jsonschema",
  "reqwest 0.12.28",

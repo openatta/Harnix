@@ -1,27 +1,35 @@
 //! The boundary between a runtime application's host and the product around it.
 //!
 //! The host (`harnix-app-host`) runs applications: their VMs, their lifecycle, their methods,
-//! tools and topics. What it needs from the product is [`Platform`]; what the product asks of it
-//! is [`Control`]. Nothing else crosses:
+//! tools and topics. What it needs from outside is two things, [`Kernel`] and [`Agent`]; what the
+//! product asks of it is [`Control`]. Nothing else crosses:
 //!
 //! - every method is async, and takes one serde value and answers one (or an [`RpcError`]);
 //! - no reference, closure or handle crosses. What would be a callback is a call the other way:
 //!   a value on a topic the application subscribed to is [`Control::deliver`], a tool call's
-//!   progress is [`Platform::progress`], cancelling one is [`Control::cancel`] with the call's id;
-//! - the agent side is behind it too: installing an application's agent package and skills, and
-//!   offering its tools to sessions, are the platform's ([`Platform::install_agent`],
-//!   [`Platform::place_skills`], [`Platform::expose_tools`]), because in an edition where each
-//!   application runs in a process of its own, the agent engine its tools are offered to is that
-//!   process's, not the product's.
+//!   progress is [`Kernel::progress`], cancelling one is [`Control::cancel`] with the call's id.
 //!
-//! So the same host runs embedded in the product's process (`harnix-apps` implements `Platform`
-//! over the kernel and calls `Control` in place) or in a process of its own, with the two traits
-//! carried over a link. [`rpc`] is the shape of that: each method a name and a JSON value; under
-//! the `loopback` feature, [`rpc::Loopback`] puts every call through it, which is what the host's
-//! tests run behind.
+//! The two traits the host needs are two because they are two sides in an edition where each
+//! application runs in a process of its own:
 //!
-//! Paths cross as paths: both sides of this boundary are on one machine, and what a path names
-//! (an unpacked package, an application's directory) is the host's to read.
+//! - [`Kernel`] is the product's: registering the application's names, what it does as itself
+//!   (`host.call`, `publish`, `subscribe`), a tool call's progress. Carried over the link to the
+//!   product, wherever the host runs.
+//! - [`Agent`] is the agent engine the application's agent package, skills and tools go to:
+//!   installing them, switching them, offering its tools to sessions. Embedded, that is the
+//!   product's Agix; in a process of its own, the application's own, beside the host — never over
+//!   the link.
+//!
+//! So the same host runs embedded in the product's process (`harnix-apps` implements both over
+//! the kernel and this process's Agix, and calls `Control` in place) or in a process of its own,
+//! with `Kernel` and `Control` carried over a link. [`rpc`] is the shape of that: each method a
+//! name and a JSON value; under the `loopback` feature, [`rpc::Loopback`] puts every call through
+//! it, which is what the host's tests run behind.
+//!
+//! **One machine, in this first version.** Paths cross as paths: what a path names (an unpacked
+//! package, an application's directory, an agent package's archive) is the host's to read, and
+//! the host and the product are on the same machine. A link between machines would carry those
+//! files rather than their names, and is not part of this version of the port.
 
 use std::path::PathBuf;
 
@@ -32,15 +40,15 @@ use serde_json::Value;
 
 pub mod rpc;
 
-/* ── what the host asks of the platform ─────────────────────────────── */
+/* ── what the host asks of the kernel and the agent engine ───────────── */
 
-/// An application's names in the product: what [`Platform::register`] declares.
+/// An application's names in the product: what [`Kernel::register`] declares.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Registration {
     pub app: String,
     /// `[[method]]`: `app.<id>.<name>`, each answered by [`Control::call_method`].
     pub methods: Vec<MethodDecl>,
-    /// `[[topic]]`: `app.<id>.<name>`, published by [`Platform::publish`].
+    /// `[[topic]]`: `app.<id>.<name>`, published by [`Kernel::publish`].
     pub topics: Vec<String>,
     /// `[[space]]`.
     pub spaces: Vec<SpaceDecl>,
@@ -62,6 +70,11 @@ pub struct CallAs {
     pub app: String,
     pub method: String,
     pub params: Value,
+    /// The applications whose resident backends are waiting on this call, outermost first — `app`
+    /// last, when it is its backend that calls. Routed into one of their methods, the call comes
+    /// back as [`MethodCall::chain`], and is refused rather than left waiting for itself.
+    #[serde(default)]
+    pub chain: Vec<String>,
 }
 
 /// `host.publish`, on one of the application's `[[topic]]`s.
@@ -151,13 +164,13 @@ pub struct Progress {
     pub text: String,
 }
 
-/// What the host needs from the product it runs in.
+/// What the host needs from the product it runs in: the kernel.
 ///
 /// The product admits, grants and audits what an application does as itself (`module:<id>`); the
 /// host has already checked the application's own declarations (its `[[topic]]`s, its `net`)
 /// before it asks.
 #[async_trait]
-pub trait Platform: Send + Sync {
+pub trait Kernel: Send + Sync {
     /// Declare the application's methods, topics and spaces, and its `hub` capability. A product
     /// that hosts no applications' names accepts this and declares nothing; what the application
     /// then does as itself is refused.
@@ -165,9 +178,10 @@ pub trait Platform: Send + Sync {
     /// Take them back. Calls queued for them are answered that the application stopped.
     async fn withdraw(&self, app: String) -> Result<(), RpcError>;
 
-    /// `host.call`, as `module:<app>`. Routed back into the same application, it is answered by
-    /// [`Control::call_method`] — which a backend waiting on this very call refuses rather than
-    /// deadlock, so long as the platform awaits the routed call where it was asked.
+    /// `host.call`, as `module:<app>`. Routed into an application's method, it is answered by
+    /// [`Control::call_method`] with the call's [`CallAs::chain`] as its [`MethodCall::chain`]:
+    /// a backend already waiting on the call — however many hops back, over whatever carried it —
+    /// refuses it rather than deadlock.
     async fn call(&self, call: CallAs) -> Result<Value, RpcError>;
     /// `host.publish`, in the order the backend published.
     async fn publish(&self, publish: Publish) -> Result<(), RpcError>;
@@ -176,6 +190,13 @@ pub trait Platform: Send + Sync {
     async fn subscribe(&self, subscription: Subscription) -> Result<Value, RpcError>;
     async fn unsubscribe(&self, subscription: Subscription) -> Result<(), RpcError>;
 
+    /// A tool call's progress, for whoever started it ([`ToolCall::call_id`]).
+    async fn progress(&self, progress: Progress) -> Result<(), RpcError>;
+}
+
+/// What the host needs from the agent engine its applications' agent side goes to.
+#[async_trait]
+pub trait Agent: Send + Sync {
     /// Whether the agent engine has this instance, for `[agent] install_into`.
     async fn has_instance(&self, instance: String) -> Result<bool, RpcError>;
     /// Install the application's agent package: answers what the engine discloses of it.
@@ -192,9 +213,6 @@ pub trait Platform: Send + Sync {
     async fn reload_instance(&self, instance: String) -> Result<(), RpcError>;
     /// Offer the application's tools to sessions built from now on (or withdraw them: no tools).
     async fn expose_tools(&self, offer: Offer) -> Result<(), RpcError>;
-
-    /// A tool call's progress, for whoever started it ([`ToolCall::call_id`]).
-    async fn progress(&self, progress: Progress) -> Result<(), RpcError>;
 }
 
 /* ── what the product asks of the host ──────────────────────────────── */
@@ -263,6 +281,11 @@ pub struct MethodCall {
     pub method: String,
     pub caller: Subject,
     pub params: Value,
+    /// The applications whose resident backends are waiting on this call, outermost first: the
+    /// [`CallAs::chain`] of the `host.call` it was routed from, or none. A call whose chain holds
+    /// its own application is one its backend is already waiting on, and is refused.
+    #[serde(default)]
+    pub chain: Vec<String>,
 }
 
 /// A value on a topic the application subscribed to.
@@ -279,7 +302,7 @@ pub struct ToolCall {
     pub app: String,
     pub tool: String,
     pub input: Value,
-    /// Names the call for [`Control::cancel`] and its [`Platform::progress`].
+    /// Names the call for [`Control::cancel`] and its [`Kernel::progress`].
     pub call_id: String,
     /// The calling session's project, for a manifest that asks for `${project}`.
     pub project: Option<PathBuf>,
@@ -351,7 +374,7 @@ pub trait Control: Send + Sync {
     async fn unplace(&self, unplace: Unplace) -> Result<Value, RpcError>;
 
     /// Start an installed application: its signatures verified over its files as they are now,
-    /// its agent package and skills switched on, its names registered ([`Platform::register`]),
+    /// its agent package and skills switched on, its names registered ([`Kernel::register`]),
     /// its VM started, its tools listed and offered. A step that fails undoes the ones before it,
     /// and the reason is kept for [`Control::status`].
     async fn start(&self, start: Start) -> Result<Started, RpcError>;
@@ -364,7 +387,8 @@ pub trait Control: Send + Sync {
     async fn status(&self, app: String) -> Result<Value, RpcError>;
 
     /// Answer one of its methods with its backend: params checked against the declared schema,
-    /// then queued for `handle`.
+    /// then queued for `handle`. Refused at once when [`MethodCall::chain`] holds the
+    /// application: its backend is waiting on this very call.
     async fn call_method(&self, call: MethodCall) -> Result<Value, RpcError>;
     /// Hand its backend a value on a topic it subscribed to, in the order they come.
     async fn deliver(&self, value: TopicValue) -> Result<(), RpcError>;

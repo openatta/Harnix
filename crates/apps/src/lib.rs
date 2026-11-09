@@ -4,10 +4,10 @@
 //! An application is a package (`.hxapp`, [`package`]; everything about packages is
 //! `harnix-app-package`, re-exported here). It runs in a `harnix_app_host::Host`, one VM per
 //! application in this process, which this crate drives through the host's `Control` and lends
-//! the process through its `Platform` (`platform.rs`: the kernel's application host, Agix's
-//! instances). [`Runtime`] is what the `apps` built-in module (`harnix_builtin::apps`) drives to
-//! install, start, stop and remove one; the rest of the process reaches what is running through
-//! three things it hands out:
+//! the process through its `Kernel` (`platform.rs`: the kernel's application host) and its
+//! `Agent` (`agent.rs`: Agix's instances). [`Runtime`] is what the `apps` built-in module
+//! (`harnix_builtin::apps`) drives to install, start, stop and remove one; the rest of the process
+//! reaches what is running through three things it hands out:
 //!
 //! - [`AppsPlugin`], an Agix plugin for every in-process instance's assembly: the running
 //!   applications' tools in each session built, and their `events` as a middleware on its tool
@@ -21,7 +21,25 @@
 //!
 //! Only a build with the `apps` feature links this crate, and through it the host and
 //! `harnix-wasm`.
+//!
+//! # Which side each file is on
+//!
+//! Embedded, the product and the application's VM are one process, and this crate is the glue
+//! between them. In an edition with a process per application they are two, and its files fall on
+//! either side of the link (`docs/app-development.md` §9):
+//!
+//! | file | side | what it is |
+//! |---|---|---|
+//! | `runtime.rs`, `update.rs` | product | installing, starting, updating, removing: unpack, `Control::place`, `Control::start`, the rollback; what is running, for the rest |
+//! | `serve.rs` | product | `/apps/<id>/ui` (the frames' pages, under their CSP) and `/apps/<id>/mcp` (the tools, for a spawned daemon) |
+//! | `platform.rs` | product | the port's `Kernel` over this process's kernel: registering, calling, publishing and subscribing as `module:<id>` |
+//! | `agent.rs` | VM | the port's `Agent`: the agent package, skills and tools into this process's Agix — the application process's own Agix there |
+//! | `plugin.rs` | VM | `AppsPlugin`, the tools and events in the sessions of the Agix beside the VM |
+//!
+//! The `Control` this crate drives, `harnix_app_host::Host`, is the VM side's too: called in place
+//! here, over the link there.
 
+mod agent;
 mod platform;
 mod plugin;
 mod runtime;
