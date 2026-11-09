@@ -45,6 +45,7 @@ use harnix_app_package::package;
 use harnix_app_package::signature::{Keys, Trust};
 use harnix_app_port::{Control, Offer, Place, Start, Stop, ToolDef, Unplace};
 use harnix_builtin::apps::{AppsRuntime, Disclosed, InstallRecord, PackageInfo, UpdateFailed};
+use harnix_contract::sync::{lock, read, write};
 use harnix_contract::RpcError;
 use harnix_module::ModuleContext;
 use serde_json::{json, Map, Value};
@@ -102,18 +103,6 @@ pub struct Registry {
     /// `/apps/<id>/mcp` (`serve.rs`). One per daemon, issued as it is spawned and revoked when it
     /// goes ([`Registry::issue_daemon_token`]).
     daemon_tokens: Mutex<HashSet<String>>,
-}
-
-fn read<T>(l: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
-    l.read().unwrap_or_else(|e| e.into_inner())
-}
-
-fn write<T>(l: &RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
-    l.write().unwrap_or_else(|e| e.into_inner())
-}
-
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 impl Registry {

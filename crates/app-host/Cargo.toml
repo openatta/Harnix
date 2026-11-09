@@ -9,10 +9,12 @@ description  = "Runs runtime applications: their VMs, lifecycle, health, methods
 
 # The supervisor, between a product and the applications' VMs: it reads packages
 # (`harnix-app-package`), runs them (`harnix-wasm`), and reaches the product only through the port
-# (`harnix-app-port`). It names no kernel, no hub, nothing of Agix and no HTTP framework, so the
+# (`harnix-app-port`); of the product's own crates it names only the contract (for its lock
+# helpers, `harnix_contract::sync`). It names no kernel, no hub, nothing of Agix and no HTTP framework, so the
 # same host runs embedded in a product's process or in one of its own
 # (`crates/harnix/tests/layering.rs`).
 [dependencies]
+harnix-contract    = { workspace = true }
 harnix-app-package = { workspace = true }
 harnix-app-port    = { workspace = true }
 harnix-wasm        = { workspace = true }

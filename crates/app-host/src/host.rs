@@ -27,6 +27,7 @@ use harnix_app_port::{
     Progress, Registration, RpcError, SpaceDecl, Start, Started, Stop, ToolCall, ToolDef,
     ToolReply, TopicValue, Unplace,
 };
+use harnix_contract::sync::{lock, read, write};
 use harnix_wasm::{
     AppSpec, AppVm, Capabilities, FsGrant, HookDecision, HttpFetcher, Limits, ProgressSink,
     VmState, WasmEngine, World,
@@ -34,7 +35,7 @@ use harnix_wasm::{
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
-use crate::bridge::{failure_of, lock, Bridge, Method};
+use crate::bridge::{failure_of, Bridge, Method};
 use crate::idle::{self, Activity};
 use crate::placement::{self, Placed};
 
@@ -122,14 +123,6 @@ impl Drop for CallEntry<'_> {
     fn drop(&mut self) {
         lock(&self.host.calls).remove(&self.id);
     }
-}
-
-fn read<T>(l: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
-    l.read().unwrap_or_else(|e| e.into_inner())
-}
-
-fn write<T>(l: &RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
-    l.write().unwrap_or_else(|e| e.into_inner())
 }
 
 fn tool_def(t: &harnix_wasm::ToolDef) -> ToolDef {

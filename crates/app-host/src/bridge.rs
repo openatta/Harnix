@@ -34,6 +34,7 @@ use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot};
 
 use harnix_app_port::codes;
+use harnix_contract::sync::lock;
 
 /// Refused calls kept per application for the system space.
 const REFUSALS_KEPT: usize = 20;
@@ -49,10 +50,6 @@ fn now_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
-}
-
-pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 tokio::task_local! {

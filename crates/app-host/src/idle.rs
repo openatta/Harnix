@@ -15,10 +15,9 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use harnix_contract::sync::lock;
 use harnix_wasm::{AppVm, VmState};
 use tokio_util::sync::CancellationToken;
-
-use crate::bridge::lock;
 
 /// What one application has in flight, and when the last of it ended.
 pub(crate) struct Activity {

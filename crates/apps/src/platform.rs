@@ -20,6 +20,7 @@ use harnix_app_package::acquire::{internal, refused};
 use harnix_app_port::{
     CallAs, Control, Kernel, MethodCall, Progress, Publish, Registration, Subscription, TopicValue,
 };
+use harnix_contract::sync::{read, write};
 use harnix_contract::{codes, RpcError, Subject};
 use harnix_module::{
     AppHandle, AppHandler, AppMethod, AppTopic, AppTopicSink, ModuleContext, Principal,
@@ -28,14 +29,6 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 use crate::runtime::Registry;
-
-fn read<T>(l: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
-    l.read().unwrap_or_else(|e| e.into_inner())
-}
-
-fn write<T>(l: &RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
-    l.write().unwrap_or_else(|e| e.into_inner())
-}
 
 pub struct KernelPlatform {
     /// The `apps` module's context, from the first call it made.

@@ -604,7 +604,7 @@ fn the_application_layers_reach_only_down() {
     for (dir, allowed) in [
         ("app-package", &["harnix-contract", "harnix-wasm"][..]),
         ("app-port", &["harnix-contract"][..]),
-        ("app-host", &["harnix-app-package", "harnix-app-port", "harnix-wasm"][..]),
+        ("app-host", &["harnix-contract", "harnix-app-package", "harnix-app-port", "harnix-wasm"][..]),
     ] {
         for (name, optional) in normal_dependencies(dir) {
             assert!(
