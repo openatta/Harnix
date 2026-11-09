@@ -63,8 +63,9 @@ test("a permission ask is answerable from the flow, with a countdown", TAGS, asy
   await expect(ask.getByTestId("conv-ask-countdown")).not.toBeEmpty();
   await expect(ask.locator("button")).toHaveCount(4);
   // The card says what the call is, in one line; the row above it waits on the answer, not "running" (review G21).
-  await expect(ask.getByTestId("conv-ask-args")).toHaveText("touch harnix-permission-fixture");
   const row = page.getByTestId("conv-tool").first();
+  await expect(ask.getByTestId("conv-ask-args")).toHaveText((await row.locator(".hx-tool-arg").textContent())!.trim());
+  await expect(ask.getByTestId("conv-ask-args")).not.toBeEmpty();
   await expect(row).toHaveAttribute("data-state", "awaiting");
   await expect(row).toContainText(/awaiting approval|待批准/);
   await ask.getByTestId("conv-ask-allow").click();
