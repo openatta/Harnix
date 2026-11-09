@@ -569,6 +569,15 @@ function signature(row: AgentRow): string {
 }
 
 /**
+ * `signature` without `last_active`, for the Agent pane: reading a session's context or turns
+ * touches its `last_active`, so a pane that read again on that change would read for ever — and
+ * a read in flight can bring a session being deleted back into the engine's list.
+ */
+function stateSignature(row: AgentRow): string {
+  return [row.key, row.running, row.turn_started_ms, row.tasks, row.queued, row.waiting].join("|");
+}
+
+/**
  * What each of these sessions' Agents has used. Read when a row first shows, and again for a row
  * whose pushed state changed (a turn began or ended, a task, a question) — no clock. While a turn
  * runs its calls land in the recording one by one, so a running row is read again as its turn goes.
@@ -1393,7 +1402,7 @@ function SessionOverview({ app, view, session }: { app: App; view: View; session
   const busy = Boolean(agent && (turns.has(agent.key) || agent.running || agent.tasks));
   const [round, setRound] = useState(0);
   // Read again whenever the row's pushed state says something happened, or an action here changed it.
-  const facts = useAgentFacts(app, session, busy, `${round}|${agent ? signature(agent) : ""}|${JSON.stringify(row?.goal ?? null)}`);
+  const facts = useAgentFacts(app, session, busy, `${round}|${agent ? stateSignature(agent) : ""}|${JSON.stringify(row?.goal ?? null)}`);
   const own = facts.usage?.find((u) => u.session_id === session.sessionId);
   const subs = (facts.usage ?? []).filter((u) => u.session_id !== session.sessionId);
   const model = facts.context?.model ?? own?.models.join(", ") ?? "";

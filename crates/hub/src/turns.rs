@@ -385,7 +385,7 @@ impl Hub {
     }
 
     pub(crate) async fn close_or_delete(
-        &self,
+        self: &Arc<Self>,
         method: &str,
         params: Value,
     ) -> Result<Value, RpcError> {
@@ -400,6 +400,11 @@ impl Hub {
         if method == "session.delete" {
             self.unbind_space(&key);
         }
+        // The engine's own events about it came while it was still being taken down: a view
+        // computed for them may have listed it still. Now that the engine has answered, and what
+        // the hub kept of it is gone, the views are computed once more.
+        self.refresh("harnix.instances.sessions", json!({"instance": key.0}));
+        self.refresh("harnix.instances", json!({}));
         // The recorder keeps no retention policy and says so — a recording is
         // a self-contained directory for whoever owns the session to remove,
         // and deleting the session is that moment. Closing is not: the
