@@ -175,10 +175,11 @@ else if (words < 500) fail(`only ${words} dictionary entries read: has the dicti
 else ok(`${words} dictionary entries, none in a word the glossary retired (${BANNED.length} checked)`);
 
 /* ── comments cite what a reader can open ───────────────────────────────── */
-// The 0.4 design record, its roadmap and its review rounds left the repository (CLAUDE.md); a
-// comment that cites `design §7.3` or `review #4` sends the reader nowhere. A comment says its
-// reason, or names a document that is here: `concept §3.2`, `harnix-sdk.md §17.6`. And the words
-// the glossary retired do not come back in the code by another door.
+// The 0.4 design record, its roadmap and its review rounds left the repository (CLAUDE.md), and
+// so do the reports of a review; a comment that cites `design §7.3`, `review #4` or a review's
+// finding (`review G2`) sends the reader nowhere. A comment says its reason, or names a document
+// that is here: `concept §3.2`, `harnix-sdk.md §17.6`. And the words the glossary retired do not
+// come back in the code by another door.
 const tracked = execFileSync("git", ["ls-files", "-z", "--", "crates", "examples", "templates", "ui/packages", "tests", "scripts"], {
   cwd: root,
   encoding: "utf8",
@@ -188,6 +189,7 @@ const CITATIONS = [
   [new RegExp("设计 ?" + "§"), "the design record (设计 §x)"],
   [new RegExp("[Dd]esign " + "§"), "the design record (design §x)"],
   [new RegExp("review " + "#\\d"), "a review round (review #N)"],
+  [new RegExp("\\breview " + "[A-Z]+\\d"), "a review finding (review G2)"],
 ];
 const RETIRED = [
   [new RegExp("roadmap " + "M"), "the roadmap (roadmap Mx-y)"],

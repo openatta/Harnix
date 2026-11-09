@@ -1,5 +1,5 @@
 /**
- * The system space's keyboard and clocks (review G3, G16): a tab strip is one Tab stop its arrows
+ * The system space's keyboard and clocks: a tab strip is one Tab stop its arrows
  * move along; a row picked by a click is picked by Enter too; and the parts that read on a beat
  * share one clock per beat, the list around them not drawn again.
  */

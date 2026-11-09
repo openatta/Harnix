@@ -1,4 +1,4 @@
-/** A team's counts are said as whole phrases in each language, not a state and a number side by side (review G15). */
+/** A team's counts are said as whole phrases in each language, not a state and a number side by side. */
 
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";

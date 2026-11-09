@@ -55,7 +55,7 @@ test("a tool's row is drawn as its manifest says", TAGS, async ({ page }) => {
   await say(page, "Use the showcase's echo tool");
   const ask = page.getByTestId("conv-ask").last();
   await expect(ask).toBeVisible({ timeout: 30_000 });
-  // The card names the tool as its row does, not by its wire name (review G7).
+  // The card names the tool as its row does, not by its wire name.
   await expect(ask).toContainText(/Showcase echo|示例应用回声/);
   await expect(ask).not.toContainText("app__");
   // Said aloud by the same name.

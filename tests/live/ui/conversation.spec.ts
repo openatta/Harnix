@@ -62,7 +62,7 @@ test("a permission ask is answerable from the flow, with a countdown", TAGS, asy
   await expect(ask).toBeVisible({ timeout: 30_000 });
   await expect(ask.getByTestId("conv-ask-countdown")).not.toBeEmpty();
   await expect(ask.locator("button")).toHaveCount(4);
-  // The card says what the call is, in one line; the row above it waits on the answer, not "running" (review G21).
+  // The card says what the call is, in one line; the row above it waits on the answer, not "running".
   const row = page.getByTestId("conv-tool").first();
   await expect(ask.getByTestId("conv-ask-args")).toHaveText((await row.getByTestId("conv-tool-args").textContent())!.trim());
   await expect(ask.getByTestId("conv-ask-args")).not.toBeEmpty();

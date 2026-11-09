@@ -1,7 +1,7 @@
 /**
  * Narrow windows. `[shell] narrow_details` (ipdrun-50): the frame says which narrow layout the
  * profile asked for; the stylesheet does the rest. The sidebar's state at 960px and below is the
- * shell's to say (review G2): the rail, or the drawer the person opened, over a wide choice kept.
+ * shell's to say: the rail, or the drawer the person opened, over a wide choice kept.
  */
 
 import { afterEach, describe, expect, it } from "vitest";

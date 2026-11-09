@@ -66,7 +66,7 @@
 .hx-conn-incompatible .hx-dot { background: var(--hx-danger); }
 
 /* ── 会话组件（ChatPanel）────────────────────────────────────────────
- * 逐条移植自原型 docs/ui/prototype/ipdrun-prototype.html 的「会话组件（类目、条目、工位、集成、⌘K 共用）」与
+ * 逐条移植自 IPDrun 的界面原型（IPDrun 仓库的 docs/ui/prototype/ipdrun-prototype.html，不在本仓库）的「会话组件（类目、条目、工位、集成、⌘K 共用）」与
  * 「工位转录：编程助手式」两节（.chat .chead .msgs .cv-* .cli .cc-* .cmp-* .pop-* …），类名加 hx- 前缀，
  * 令牌换成 --hx-*；数值（间距、字号、圆角、阴影、尺寸）不改。原型同一个类写了两遍的（.chead .msgs .cli），
  * 这里是两遍叠起来的结果。 */
