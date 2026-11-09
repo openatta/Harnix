@@ -213,6 +213,8 @@ test("the right column is a tab strip with no title bar: it maximizes over the c
   await expect(details.locator(".strip .tabs [role=tab]").first()).toBeVisible();
   await expect(details.locator(".head")).toHaveCount(0);
   await expect.poll(async () => (await details.boundingBox())?.width ?? 0).toBeGreaterThan(300);
+  // Measured once the columns have settled: past 300 the opening transition may still be running.
+  await page.locator("#frame").evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
   const normal = (await details.boundingBox())!.width;
   await page.getByTestId("details-max").click();
   await expect.poll(async () => (await details.boundingBox())!.width).toBeGreaterThan(normal + 300);
