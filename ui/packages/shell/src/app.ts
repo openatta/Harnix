@@ -244,7 +244,7 @@ export function within<T>(promise: Promise<T>, ms: number): Promise<T | typeof T
  * A session list with each session once — a defence, not the fix. Agix's `session.list` lists a
  * session it has let go of (past `session_cap`) once per project it has served, and counts a folder
  * reached under two spellings (macOS's `/var/…` and `/private/var/…`) as two projects, so such a
- * session comes back twice (Agix issue draft `.local/agix-issue-08-session-list-duplicates.md`).
+ * session comes back twice (openatta/Agix#23).
  * Harnix's tests hand the engine real paths; a person may still give a linked one. Two rows with
  * one key would draw two entries for one session.
  */

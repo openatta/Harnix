@@ -4,7 +4,7 @@
  * The engine lists the sessions it holds, then reads the rest from each project's history it has
  * served, and does not skip what that reading already gave. A project reached under two spellings
  * of one folder — macOS's `/var/…` and `/private/var/…` — was read twice, so each session it had
- * let go of came back twice (Agix, `.local/agix-issue-08-session-list-duplicates.md`). The testkit
+ * let go of came back twice (openatta/Agix#23). The testkit
  * now hands the engine real paths; this keeps it so.
  */
 
