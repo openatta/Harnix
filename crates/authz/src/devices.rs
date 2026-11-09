@@ -22,7 +22,8 @@
 //!
 //! # Revocation is immediate and total
 //!
-//! A credential belongs to the subject, not to a connection (§3.3.3, item 2),
+//! A credential belongs to the subject, not to a connection
+//! (concept_and_architecture.md §6.3),
 //! so revoking a device ends **all** of its channels at once rather than
 //! whichever one happens to be noticed next.
 

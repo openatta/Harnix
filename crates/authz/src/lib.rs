@@ -5,7 +5,7 @@
 //! by anyone remembering to write a rule.
 //!
 //! Three kinds of subject, judged differently (concept_and_architecture.md
-//! §3.4, design D27). A device is a person, and in a single-user process the
+//! §3.4). A device is a person, and in a single-user process the
 //! answer to "may this person do it" is nearly always yes. A module is code
 //! the application author linked in: trusted like the kernel, and still a
 //! subject of its own, so the table says what each one may call and the

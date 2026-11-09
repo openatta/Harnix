@@ -497,7 +497,7 @@ fn valid_short_name(name: &str) -> bool {
 /// The engine methods that change credentials, repoint model endpoints, or
 /// hand the caller the process itself. Refused to devices always, with the
 /// reason written out — the engine trusts whoever reaches its dispatch, and
-/// in this process that is the hub (§3.4). A module may be granted one by
+/// in this process that is the hub (concept §3.4). A module may be granted one by
 /// name in its manifest (the settings module writes providers); the grant is
 /// on the diagnostics page.
 ///
