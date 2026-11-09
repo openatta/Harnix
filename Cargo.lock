@@ -1569,6 +1569,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base",
+ "futures",
  "harnix-contract",
  "harnix-module",
  "jsonschema",

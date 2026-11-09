@@ -511,11 +511,11 @@ pub fn session_ref(name: &str) -> SessionRef {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn shared() -> Shared {
-        let (tx, _) = broadcast::channel(4);
+impl Shared {
+    /// What a module shares before it starts, given nothing: no programs, gates or recordings,
+    /// command gates off, a minute's lease. A test sets the engine; there is no context.
+    pub(crate) fn for_tests() -> Self {
+        let (tx, _) = broadcast::channel(16);
         Shared::new(
             Config {
                 space: "flow".into(),
@@ -536,6 +536,15 @@ mod tests {
             },
             tx,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn shared() -> Shared {
+        Shared::for_tests()
     }
 
     fn key(round: u32) -> TaskKey {

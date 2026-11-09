@@ -11,35 +11,21 @@
 //! waiting for its turn keeps its claim alive. A session is bound to a task only while no turn of
 //! anyone else's is running in it, and a task that is over while its turn still runs interrupts
 //! that turn and waits for it to settle before the session goes to the next task.
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
-use harnix_module::{OnBusy, SessionRef, SessionSpec, Tap};
+use futures::Stream;
+use harnix_module::{OnBusy, SessionRef, SessionSpec, Tap, TapEvent};
 use serde_json::{json, Value};
 
-use super::dispatch::{apply, dispatcher, fail, renew, renew_every, settle, settle_quiet};
+use super::dispatch::{dispatcher, fail, renew, renew_every, settle};
 use super::shared::{session_name, session_ref, Binding, Shared, TaskKey};
+use super::turns::{carry, wait_turn, Frame, TaskSession, Turns, Waited};
 use crate::kernel::host::{Delivery, Placement};
 use crate::kernel::parts::asked_tools;
-use crate::kernel::protocol::{ask_rules, task_message, STRUCTURED_OUTPUT_TOOL};
-use crate::kernel::run::{CheckStatus, RunRecord, StationStatus, TaskStatus};
-use crate::kernel::FlowError;
-
-/// How long a task that is over waits for the turn it interrupted to settle.
-const SETTLE_AFTER_INTERRUPT: Duration = Duration::from_secs(30);
-
-/// What a session is told when a turn ends and its task is still not handed in (`flow_submit`).
-pub const NUDGE: &str = "Your flow task is not handed in yet. Call `flow_submit` with an output \
-     that satisfies the contract in the flow protocol above (`flow_state` shows what is still \
-     missing). If you cannot do the task, say why and use `flow_propose`.";
-
-/// The same, for a session that hands in by structured output.
-pub const NUDGE_STRUCTURED: &str = "Your flow task is not handed in yet. Call the \
-     `StructuredOutput` tool with an output that satisfies the contract in the flow protocol \
-     above. If you cannot do the task, say why.";
-
-/// How many times an output the station still judges unmet is sent back to be fixed.
-const CORRECTIONS: u32 = 2;
+use crate::kernel::protocol::{ask_rules, task_message};
+use crate::kernel::run::{RunRecord, StationStatus, TaskStatus};
 
 /// The permission mode a task's session asks for: the most permissive one that still goes
 /// through the session's permission rules without a classifier. The engine only ever tightens
@@ -128,7 +114,7 @@ pub(crate) fn standing_of(rec: &RunRecord, key: &TaskKey, token: &str) -> Standi
     }
 }
 
-async fn standing(sh: &Shared, key: &TaskKey, token: &str) -> Standing {
+pub(crate) async fn standing(sh: &Shared, key: &TaskKey, token: &str) -> Standing {
     let Ok(engine) = sh.engine() else {
         return Standing::Gone;
     };
@@ -209,16 +195,6 @@ pub(crate) async fn place_at(
         None => None,
     };
     Ok((space, instance))
-}
-
-/// How the wait for a turn ended.
-enum Waited {
-    /// The turn's settlement (`harnix.turn_settled` params).
-    Settled(Value),
-    /// The claim is no longer ours.
-    Superseded,
-    /// The session is gone from the hub.
-    Gone,
 }
 
 /// The session lock's key: tasks sharing a session share it. A task with a session of its
@@ -412,7 +388,7 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
     if running && !resume {
         // Someone else's turn — the task before, a person: it ends before this task binds,
         // and its settlement is read here, not taken for this task's.
-        match wait_turn(sh, &mut tap, key, &job.token).await {
+        match wait_turn(sh, &mut Box::pin(settlements_of(&mut tap)), key, &job.token).await {
             Waited::Settled(_) => {}
             Waited::Superseded | Waited::Gone => return,
         }
@@ -443,18 +419,81 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
             permissions: job.permissions.clone(),
         },
     );
-    let still_running = carry(sh, job, &session, &mut tap, resume, resume && running).await;
-    if still_running && !sh.stopping() {
-        // The task is over while its turn runs on: stop that turn before the session is
-        // anyone else's, so nothing it does lands under the next task.
-        let _ = sessions.interrupt(&session).await;
-        let _ = tokio::time::timeout(SETTLE_AFTER_INTERRUPT, tap.next_settled()).await;
-    }
+    let turns = Turns {
+        main: job.main,
+        delivery: job.delivery,
+        message: (!resume).then(|| task_message_of(sh, job)),
+        resumed_running: resume && running,
+    };
+    let hub = HubSession {
+        sh,
+        session: &session,
+        binding: sh.binding(&session.session_id),
+    };
+    // A main session's turns are told apart by the messages that start them, so its task reads
+    // every frame; a session of the task's own needs only how each turn ended.
+    let mut read: Pin<Box<dyn Stream<Item = Frame> + Send + '_>> = if job.main {
+        Box::pin(frames_of(&mut tap))
+    } else {
+        Box::pin(settlements_of(&mut tap))
+    };
+    carry(sh, key, &job.token, turns, &hub, &mut read).await;
     // Handed in: the binding stays, so the session can hand in again until the station
     // passes (publishing drops it then). Otherwise it goes now.
     if standing(sh, key, &job.token).await != Standing::Submitted {
         sh.unbind(&session.session_id, &job.token);
     }
+}
+
+/// The session a task's turns are carried in, through the hub.
+struct HubSession<'a> {
+    sh: &'a Shared,
+    session: &'a SessionRef,
+    /// The task the session is bound to: what a main session's turns are told apart by.
+    binding: Option<Binding>,
+}
+
+#[async_trait::async_trait]
+impl TaskSession for HubSession<'_> {
+    async fn send(&self, text: &str) -> Result<(), String> {
+        if let Some(b) = self.binding.clone() {
+            self.sh.note_sent(&self.session.session_id, text, b);
+        }
+        let cx = self.sh.cx.get().ok_or("the flow module has not started")?;
+        cx.sessions()
+            .send(self.session, text, OnBusy::Queue)
+            .await
+            .map(|_| ())
+            .map_err(|e| e.message)
+    }
+    async fn interrupt(&self) {
+        if let Some(cx) = self.sh.cx.get() {
+            let _ = cx.sessions().interrupt(self.session).await;
+        }
+    }
+}
+
+/// Every frame of a tap, what was missed in a gap caught up first.
+fn frames_of(tap: &mut Tap) -> impl Stream<Item = Frame> + Send + '_ {
+    futures::stream::unfold(tap, |tap| async move {
+        loop {
+            match tap.next().await? {
+                TapEvent::Frame(f) => return Some((f, tap)),
+                TapEvent::Lagged { .. } => {
+                    let _ = tap.catch_up().await;
+                }
+            }
+        }
+    })
+}
+
+/// How each of a tap's turns ended, as `harnix.turn_settled` frames: a tap that fell behind
+/// still has them ([`Tap::next_settled`]).
+fn settlements_of(tap: &mut Tap) -> impl Stream<Item = Frame> + Send + '_ {
+    futures::stream::unfold(tap, |tap| async move {
+        let params = tap.next_settled().await?;
+        Some((json!({"method": "harnix.turn_settled", "params": params}), tap))
+    })
 }
 
 async fn turn_running(sh: &Shared, session: &SessionRef) -> bool {
@@ -473,279 +512,6 @@ async fn turn_running(sh: &Shared, session: &SessionRef) -> bool {
     .is_some_and(|s| s != "idle")
 }
 
-/// Send the task, then judge after every turn until it is in, over, or failed. Returns
-/// whether a turn may still be running.
-async fn carry(
-    sh: &Arc<Shared>,
-    job: &SessionJob,
-    session: &SessionRef,
-    tap: &mut Tap,
-    resume: bool,
-    resumed_running: bool,
-) -> bool {
-    let (Ok(engine), Some(cx)) = (sh.engine(), sh.cx.get()) else {
-        return false;
-    };
-    let key = &job.key;
-    // In the main session a person may talk too: only the turns this task's messages start are
-    // its own (review #2). A resumed task's turn still running is taken as its own.
-    let mut own = OwnTurns {
-        main: job.main,
-        texts: vec![],
-        turns: Default::default(),
-        any_next: resumed_running,
-    };
-    let binding = sh.binding(&session.session_id);
-    let send = |text: String| {
-        if let Some(b) = binding.clone() {
-            sh.note_sent(&session.session_id, &text, b);
-        }
-        let sessions = cx.sessions();
-        async move { sessions.send(session, &text, OnBusy::Queue).await }
-    };
-    // A resumed task whose session is idle had its turn cut off: judge it as a turn that ended.
-    let mut running = resumed_running;
-    if !resume {
-        let message = task_message_of(sh, job);
-        own.texts.push(message.clone());
-        if let Err(e) = send(message).await {
-            fail(
-                sh,
-                key,
-                &job.token,
-                &format!("the task was not sent: {}", e.message),
-            )
-            .await;
-            return false;
-        }
-        running = true;
-    }
-    let mut nudged = false;
-    let mut corrections = 0;
-    loop {
-        let mut handed: Option<Value> = None;
-        if running {
-            match wait_own_turn(sh, tap, key, &job.token, &mut own).await {
-                Waited::Settled(params) => {
-                    handed = params
-                        .pointer("/outcome/structured_output")
-                        .filter(|v| !v.is_null())
-                        .cloned();
-                    // A main session's turns are counted by its watch (xops-03 §4).
-                    if let (false, Some(u)) = (
-                        job.main,
-                        params.pointer("/outcome/usage").filter(|u| u.is_object()),
-                    ) {
-                        let r = engine
-                            .account(
-                                &key.run,
-                                Some((&key.station, &key.task)),
-                                crate::kernel::run::Usage::of_turn(u),
-                            )
-                            .await;
-                        settle_quiet(sh, &key.run, r).await;
-                    }
-                }
-                Waited::Superseded => return true,
-                Waited::Gone => {
-                    if !sh.stopping() && standing(sh, key, &job.token).await == Standing::Claimed {
-                        fail(sh, key, &job.token, "the session went away").await;
-                    }
-                    return false;
-                }
-            }
-        }
-        if sh.stopping() {
-            return false;
-        }
-        // A structured output is the turn's hand-in, whichever way the session was told to hand
-        // in: the dispatcher submits it under the task's claim.
-        let mut problem: Option<String> = None;
-        if let Some(output) = handed {
-            let r = engine
-                .submit(
-                    &key.run,
-                    &key.station,
-                    &key.task,
-                    &job.token,
-                    output,
-                    dispatcher(),
-                )
-                .await;
-            match r {
-                Ok(o) => apply(sh, Some(&key.run), o).await,
-                Err(FlowError::Contract(m)) => problem = Some(m),
-                Err(e) => {
-                    tracing::debug!(run = key.run, error = %e, "flow: structured output not taken");
-                    return false;
-                }
-            }
-        }
-        settle(sh, &key.run, "evaluate", engine.evaluate(&key.run).await).await;
-        match standing(sh, key, &job.token).await {
-            Standing::Gone => return false,
-            Standing::Submitted => {
-                // Handed in, and judged: a station unmet on a check that failed (a `tool`
-                // exit, say) is the output's to fix — the session is told what, and hands in
-                // again. One waiting on a gate, a person or other tasks is not.
-                if job.delivery == Delivery::StructuredOutput && corrections < CORRECTIONS {
-                    if let Some(missing) = failed_checks(sh, key).await {
-                        corrections += 1;
-                        let text = format!(
-                            "The flow took your output, but station `{}` is not passed: {missing}. \
-                             Fix the output and hand it in again with `{STRUCTURED_OUTPUT_TOOL}`.",
-                            key.station
-                        );
-                        own.texts.push(text.clone());
-                        if renew(sh, key, &job.token).await && send(text).await.is_ok() {
-                            running = true;
-                            continue;
-                        }
-                    }
-                }
-                return false;
-            }
-            Standing::Claimed => {}
-        }
-        if let Some(m) = problem {
-            // Not taken: what is wrong goes back, as a turn of its own (it does not count as
-            // the nudge).
-            if corrections < CORRECTIONS && renew(sh, key, &job.token).await {
-                corrections += 1;
-                let text = format!(
-                    "The flow did not take your output: {m}. Fix it and hand it in again with \
-                     `{STRUCTURED_OUTPUT_TOOL}`."
-                );
-                own.texts.push(text.clone());
-                if send(text).await.is_ok() {
-                    running = true;
-                    continue;
-                }
-            }
-        }
-        if !renew(sh, key, &job.token).await {
-            return false;
-        }
-        if nudged {
-            fail(
-                sh,
-                key,
-                &job.token,
-                "the session ended a turn twice without handing the task in",
-            )
-            .await;
-            return false;
-        }
-        nudged = true;
-        let nudge = match job.delivery {
-            Delivery::FlowSubmit => NUDGE,
-            Delivery::StructuredOutput => NUDGE_STRUCTURED,
-        };
-        own.texts.push(nudge.to_string());
-        if let Err(e) = send(nudge.to_string()).await {
-            fail(
-                sh,
-                key,
-                &job.token,
-                &format!("the reminder was not sent: {}", e.message),
-            )
-            .await;
-            return false;
-        }
-        running = true;
-    }
-}
-
-/// Which turns of a session are a task's: those its messages started (in the main session), or
-/// every one (a session of its own).
-struct OwnTurns {
-    main: bool,
-    /// The texts sent and not seen start yet.
-    texts: Vec<String>,
-    turns: std::collections::HashSet<String>,
-    /// The next settlement is the task's whatever started it (a resumed task's running turn).
-    any_next: bool,
-}
-
-/// [`wait_turn`] for a task: in the main session, the next settlement of a turn one of its own
-/// messages started — a person's turns in between are not the task's.
-async fn wait_own_turn(
-    sh: &Arc<Shared>,
-    tap: &mut Tap,
-    key: &TaskKey,
-    token: &str,
-    own: &mut OwnTurns,
-) -> Waited {
-    if !own.main {
-        return wait_turn(sh, tap, key, token).await;
-    }
-    let every = renew_every(sh);
-    loop {
-        let next = tokio::select! {
-            next = tokio::time::timeout(every, tap.next()) => next,
-            _ = sh.cancel.cancelled() => return Waited::Superseded,
-        };
-        let frame = match next {
-            Ok(Some(harnix_module::TapEvent::Frame(f))) => f,
-            Ok(Some(harnix_module::TapEvent::Lagged { .. })) => {
-                let _ = tap.catch_up().await;
-                continue;
-            }
-            Ok(None) => return Waited::Gone,
-            Err(_) => {
-                if sh.stopping() || !renew(sh, key, token).await {
-                    return Waited::Superseded;
-                }
-                continue;
-            }
-        };
-        let turn = frame
-            .pointer("/params/turn_id")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        match frame.get("method").and_then(Value::as_str) {
-            Some("harnix.event") => {
-                let text = frame
-                    .pointer("/params/event")
-                    .filter(|e| e.get("kind").and_then(Value::as_str) == Some("user_message"))
-                    .and_then(|e| e.get("text"))
-                    .and_then(Value::as_str);
-                if let Some(i) = text.and_then(|t| own.texts.iter().position(|x| x == t)) {
-                    own.texts.remove(i);
-                    own.turns.insert(turn);
-                }
-            }
-            Some("harnix.turn_settled")
-                if own.turns.remove(&turn) || std::mem::take(&mut own.any_next) =>
-            {
-                return Waited::Settled(frame.get("params").cloned().unwrap_or(Value::Null));
-            }
-            _ => {}
-        }
-    }
-}
-
-/// The next settled turn, renewing the claim while it runs.
-async fn wait_turn(sh: &Arc<Shared>, tap: &mut Tap, key: &TaskKey, token: &str) -> Waited {
-    let every = renew_every(sh);
-    loop {
-        let next = tokio::select! {
-            next = tokio::time::timeout(every, tap.next_settled()) => next,
-            _ = sh.cancel.cancelled() => return Waited::Superseded,
-        };
-        match next {
-            Ok(Some(p)) => return Waited::Settled(p),
-            Ok(None) => return Waited::Gone,
-            Err(_) => {
-                if sh.stopping() || !renew(sh, key, token).await {
-                    return Waited::Superseded;
-                }
-            }
-        }
-    }
-}
-
 /// What a session task last opened its session with, from the session's own entry.
 async fn recorded_settings(sh: &Shared, s: &SessionRef) -> Option<Value> {
     let cx = sh.cx.get()?;
@@ -755,58 +521,6 @@ async fn recorded_settings(sh: &Shared, s: &SessionRef) -> Option<Value> {
         .rev()
         .find(|e| e.get("event").and_then(Value::as_str) == Some(SESSION_SETTINGS))
         .and_then(|e| e.get("payload").cloned())
-}
-
-/// The station's failed checks that are this task's output to fix: `None` when nothing failed
-/// that the session can fix (it waits for a gate, a person or other tasks, or it passed).
-async fn failed_checks(sh: &Shared, key: &TaskKey) -> Option<String> {
-    let engine = sh.engine().ok()?;
-    let v = engine.get(&key.run).await.ok()?;
-    corrections_for(&v, &key.station, &key.task)
-}
-
-/// What a task's session is told to fix, from its station's view: the parts of a failed `output`
-/// check about this task, and a failed `tool` check when the task is its station's only one
-/// (the tool judges the station, so with several tasks it is no one task's to fix). A gate, a
-/// confirmation, another task's failure is never the session's.
-pub(crate) fn corrections_for(v: &crate::RunView, station: &str, task: &str) -> Option<String> {
-    let st = v.record.stations.get(station)?;
-    if st.status != StationStatus::Unmet {
-        return None;
-    }
-    let only = v
-        .record
-        .def
-        .station(station)
-        .is_some_and(|s| matches!(s.work(), crate::Work::One(_)));
-    let mine = format!("task {task}: ");
-    let mut out = vec![];
-    for c in v
-        .unmet
-        .get(station)?
-        .iter()
-        .filter(|c| c.status == CheckStatus::Fail)
-    {
-        match c.kind.as_str() {
-            "output" => {
-                let parts: Vec<&str> = c
-                    .detail
-                    .split("; ")
-                    .filter(|p| p.starts_with(&mine))
-                    .collect();
-                if !parts.is_empty() {
-                    out.push(format!("{} ({})", c.label, parts.join("; ")));
-                }
-            }
-            "gate" if only => out.push(if c.detail.is_empty() {
-                c.label.clone()
-            } else {
-                format!("{} ({})", c.label, c.detail)
-            }),
-            _ => {}
-        }
-    }
-    (!out.is_empty()).then(|| out.join("; "))
 }
 
 /// The protocol layer, the rules, then the skill.
@@ -894,64 +608,6 @@ mod tests {
         };
         let m = settings_of("harnix", Delivery::StructuredOutput, Some(&schema), &model, None);
         assert_eq!(settings_differ(&a, &m), ["model"]);
-    }
-
-    #[test]
-    fn only_what_the_session_can_fix_is_sent_back_to_it() {
-        use crate::{CheckRec, CheckStatus, RunView};
-        let view = |work: &str, checks: Vec<CheckRec>| -> RunView {
-            let rec: RunRecord = serde_json::from_value(json!({
-                "id": "r", "flow": "f", "def_digest": "d", "subject": "s", "status": "active",
-                "rev": 1, "created_at": 0, "created_by": {"kind": "x", "id": "y"},
-                "def": serde_yaml::from_str::<Value>(work).unwrap(),
-                "stations": {"a": {"status": "unmet", "round": 1}}
-            }))
-            .unwrap();
-            RunView {
-                record: rec,
-                unmet: [("a".to_string(), checks)].into(),
-                phase: None,
-            }
-        };
-        let check = |kind: &str, detail: &str| CheckRec {
-            cond: Some(0),
-            kind: kind.into(),
-            label: kind.into(),
-            round: 1,
-            status: CheckStatus::Fail,
-            detail: detail.into(),
-            at: 0,
-        };
-        let one = "{name: f, stations: [{id: a, executor: {kind: session, scene: harnix}, skill: s, output: {type: object}, exit: [{kind: output}]}]}";
-        let many = "{name: f, stations: [{id: a, tasks: [{id: x, executor: {kind: session, scene: harnix}, skill: s}, {id: y, executor: {kind: external}}], output: {type: object}, exit: [{kind: output}]}]}";
-        // Its own output: yes; another task's part of the same check: no.
-        let v = view(
-            many,
-            vec![check("output", "task x: missing n; task y: no output")],
-        );
-        assert_eq!(
-            corrections_for(&v, "a", "x").unwrap(),
-            "output (task x: missing n)"
-        );
-        assert_eq!(
-            corrections_for(&v, "a", "y").unwrap(),
-            "output (task y: no output)"
-        );
-        // A confirmation, another task failing: never the session's.
-        let v = view(
-            one,
-            vec![
-                check("task", "failed"),
-                check("confirm", ""),
-            ],
-        );
-        assert_eq!(corrections_for(&v, "a", "a"), None);
-        // A gate judges the station: its only task's to fix, nobody's among several.
-        assert!(corrections_for(&view(one, vec![check("gate", "total is 2")]), "a", "a").is_some());
-        assert_eq!(
-            corrections_for(&view(many, vec![check("gate", "total is 2")]), "a", "x"),
-            None
-        );
     }
 
     #[test]

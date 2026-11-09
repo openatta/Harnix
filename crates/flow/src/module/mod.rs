@@ -6,7 +6,8 @@
 //! shared.rs    what the module, its tools and its dispatcher share
 //! dispatch.rs  carrying out an Outcome: events, programs, and every work item handed on
 //! publish.rs   the topics: `run`, `runs`, `defs`, `focus`, `dry_runs`
-//! session.rs   a session task: placing, opening and binding its session, judging each turn
+//! session.rs   a session task: placing, opening and binding its session
+//! turns.rs     a session task's turns: sending, judging, correcting, nudging, interrupting
 //! gate.rs      a gate's work item; `command` gates
 //! tools.rs     the scene wrappers: flow-* (flow_state, flow_submit, flow_propose), structured-*
 //! author.rs    flow-author: writing flows in conversation (xops-02 §4)
@@ -43,6 +44,7 @@ mod publish;
 mod session;
 mod shared;
 mod tools;
+mod turns;
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
