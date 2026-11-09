@@ -5,14 +5,14 @@
 //! separately drift, and a drifting ABI fails at call time rather than at
 //! build time.
 //!
-//! Generated for the `backend-app` world, a superset of `tools-app`. A
-//! component of either world is driven through its exported interfaces one
-//! by one (`GuestIndices`), so one set of bindings serves both, and an
-//! interface a component does not export is simply absent.
+//! Generated for the `backend-app-events` world, a superset of every other. A
+//! component of any world is driven through its exported interfaces one by one
+//! (`GuestIndices`), so one set of bindings serves them all, and an interface a
+//! component does not export — `events`, most often — is simply absent.
 
 wasmtime::component::bindgen!({
     path: "wit",
-    world: "backend-app",
+    world: "backend-app-events",
     // Host functions do real I/O (a hub call, an HTTP request), so a guest
     // calling one must be able to suspend instead of blocking a runtime
     // thread. That makes every export a future too.

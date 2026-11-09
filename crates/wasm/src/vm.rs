@@ -223,6 +223,35 @@ enum Delivery {
     Timer(String),
 }
 
+/// Which kind of short-lived call is being judged: a tool's faults count against that tool, an
+/// event's and a listing's against nothing (`health.rs`).
+#[derive(Clone, Copy)]
+enum Transient<'a> {
+    Tool(&'a str),
+    Event(&'a str),
+    List,
+}
+
+impl Transient<'_> {
+    fn what(&self) -> &str {
+        match self {
+            Self::Tool(name) | Self::Event(name) => name,
+            Self::List => "list-tools",
+        }
+    }
+}
+
+/// Why the resident instance is being replaced, for the counter it goes on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Replaced {
+    /// A call was abandoned at its deadline.
+    Recycle,
+    /// It crashed.
+    Rebuild,
+    /// Its files crossed the storage quota (`storage.rs`).
+    Storage,
+}
+
 /// How a call into the component ended, before it is judged.
 enum Abort {
     TimedOut,
@@ -294,7 +323,7 @@ impl AppVm {
         wasmtime_wasi::p2::add_to_linker_async(&mut linker)
             .map_err(wasm_err)
             .context("adding WASI to the linker")?;
-        crate::bindings::BackendApp::add_to_linker::<_, HasSelf<AppState>>(&mut linker, |s| s)
+        crate::bindings::BackendAppEvents::add_to_linker::<_, HasSelf<AppState>>(&mut linker, |s| s)
             .map_err(wasm_err)
             .context("adding the harnix:app host interface to the linker")?;
         let pre = linker
@@ -337,7 +366,7 @@ impl AppVm {
             healthy_ms: AtomicU64::new(HEALTHY_PERIOD.as_millis() as u64),
             pending: AtomicU64::new(0),
         });
-        shared.measure();
+        shared.measure().await;
         let inner = Arc::new(Inner {
             shared,
             tools: tools::GuestIndices::new(&pre).ok(),
@@ -393,7 +422,10 @@ impl AppVm {
         };
         let outcome = with_deadline(call, inner.timeout, Some(cancel)).await;
         let refused = store.data().limiter.refused();
-        let tools = inner.settle_transient(outcome, started, refused, "list-tools")?;
+        drop(store);
+        let tools = inner
+            .settle_transient(outcome, started, refused, Transient::List)
+            .await?;
         Ok(tools.into_iter().map(ToolDef::from).collect())
     }
 
@@ -413,6 +445,7 @@ impl AppVm {
         let inner = &self.inner;
         let idx = inner.export(&inner.tools, "tools")?;
         inner.shared.admit()?;
+        inner.shared.tool_admitted(name)?;
         let input = input.to_string();
         let mut store = inner.store(Role::Transient, progress, project)?;
         let mut started = false;
@@ -426,7 +459,10 @@ impl AppVm {
         };
         let outcome = with_deadline(call, inner.timeout, Some(cancel)).await;
         let refused = store.data().limiter.refused();
-        let out = inner.settle_transient(outcome, started, refused, name)?;
+        drop(store);
+        let out = inner
+            .settle_transient(outcome, started, refused, Transient::Tool(name))
+            .await?;
         Ok(ToolOutput {
             structured: out.structured.and_then(|s| match serde_json::from_str(&s) {
                 Ok(v) => Some(v),
@@ -465,8 +501,10 @@ impl AppVm {
         };
         let outcome = with_deadline(call, inner.timeout, Some(cancel)).await;
         let refused = store.data().limiter.refused();
+        drop(store);
         Ok(inner
-            .settle_transient(outcome, started, refused, event)?
+            .settle_transient(outcome, started, refused, Transient::Event(event))
+            .await?
             .into())
     }
 
@@ -474,7 +512,10 @@ impl AppVm {
     /// `caller` describes who called; the hub has already admitted the call.
     ///
     /// The outer `Result` is whether the backend answered; the inner one is
-    /// its answer. Calls queue behind each other and behind deliveries.
+    /// its answer. Calls queue behind each other and behind deliveries, for at
+    /// most the timeout: a call that cannot get the backend by then is answered
+    /// `busy` ([`CallFailure::Unavailable`]) rather than waiting behind every
+    /// call queued before it.
     pub async fn handle(
         &self,
         method: &str,
@@ -491,7 +532,19 @@ impl AppVm {
         }
         inner.shared.admit()?;
         let (params, caller) = (params.to_string(), caller.to_string());
-        let mut guard = inner.resident.lock().await;
+        let mut guard = match tokio::time::timeout(inner.timeout, inner.resident.lock()).await {
+            Ok(guard) => guard,
+            Err(_) => {
+                // Stopped or set aside while it waited: that is the answer, not that it is busy.
+                inner.shared.admit()?;
+                lock(&inner.shared.counters).queue_timeouts += 1;
+                return Err(CallFailure::Unavailable(format!(
+                    "busy: the backend of `{}` did not come free within its timeout ({} ms) for `{method}`",
+                    inner.shared.app,
+                    inner.timeout.as_millis()
+                )));
+            }
+        };
         inner.shared.admit()?;
         inner.wake(&mut guard).await?;
         let Some(resident) = guard.as_mut() else {
@@ -577,9 +630,12 @@ impl AppVm {
             calls: c.calls,
             faults: c.faults,
             timeouts: c.timeouts,
-            consecutive_faults: c.consecutive_faults,
+            consecutive_faults: c.streaks.values().copied().max().unwrap_or(0),
+            tools_aside: c.aside.clone(),
             rebuilds: c.rebuilds,
             recycles: c.recycles,
+            storage_recycles: c.storage_recycles,
+            queue_timeouts: c.queue_timeouts,
             dropped_deliveries: c.dropped_deliveries,
             last_error: c.last_error.clone(),
             memory_bytes: shared.memory.used(),
@@ -743,16 +799,17 @@ impl Inner {
 
     /// Judge a transient call. `started` is whether instantiation finished,
     /// so the guest's own code was running; `refused` whether the store was
-    /// denied memory.
-    fn settle_transient<T>(
-        self: &Arc<Self>,
+    /// denied memory. Its store is gone: what it wrote is measured now.
+    async fn settle_transient<T>(
+        &self,
         outcome: Result<T, Abort>,
         started: bool,
         refused: bool,
-        what: &str,
+        call: Transient<'_>,
     ) -> Result<T, CallFailure> {
         let shared = &self.shared;
-        shared.measure();
+        shared.measure().await;
+        let what = call.what();
         // Could not even be instantiated because the application's other
         // instances hold its memory: the component did nothing wrong.
         if let (Err(Abort::Failed(_)), false, true) = (&outcome, started, refused) {
@@ -766,7 +823,9 @@ impl Inner {
         c.calls += 1;
         match outcome {
             Ok(v) => {
-                c.consecutive_faults = 0;
+                if let Transient::Tool(name) = call {
+                    c.streaks.remove(name);
+                }
                 Ok(v)
             }
             Err(Abort::Cancelled) => Err(CallFailure::Cancelled),
@@ -778,14 +837,16 @@ impl Inner {
             Err(Abort::Failed(e)) => {
                 let message = self.describe(&e, refused);
                 c.faults += 1;
-                c.consecutive_faults += 1;
                 c.last_error = Some(format!("`{what}`: {message}"));
-                if c.consecutive_faults >= FAULT_LIMIT {
-                    drop(c);
-                    shared.disable(format!(
-                        "{FAULT_LIMIT} consecutive faults, the last in `{what}`: {message}"
-                    ));
-                    self.release_resident_later();
+                // Only a tool's faults are held against anything, and only against that tool.
+                if let Transient::Tool(name) = call {
+                    let streak = c.streaks.entry(name.to_string()).or_default();
+                    *streak += 1;
+                    if *streak >= FAULT_LIMIT {
+                        let reason = format!("{FAULT_LIMIT} consecutive faults, the last: {message}");
+                        tracing::error!(app = %shared.app, tool = name, %reason, "tool set aside");
+                        c.aside.insert(name.to_string(), reason);
+                    }
                 }
                 Err(CallFailure::Faulted(message))
             }
@@ -793,7 +854,9 @@ impl Inner {
     }
 
     /// Judge a call into the resident instance, replacing the instance when
-    /// it can no longer be trusted.
+    /// it can no longer be trusted — or when its files crossed the storage
+    /// quota, so that the instance that takes over has `/data` as the quota
+    /// now says.
     async fn settle_resident<T>(
         &self,
         guard: &mut tokio::sync::MutexGuard<'_, Option<Resident>>,
@@ -801,23 +864,24 @@ impl Inner {
         what: &str,
     ) -> Result<T, CallFailure> {
         let shared = &self.shared;
-        shared.measure();
+        shared.measure().await;
         let refused = guard
             .as_ref()
             .is_some_and(|r| r.store.data().limiter.refused());
         let healthy = Duration::from_millis(shared.healthy_ms.load(Ordering::Relaxed));
-        let crash = {
+        // `Err(None)`: abandoned at its deadline; `Err(Some(..))`: a crash, and how many in a row.
+        let judged = {
             let mut c = lock(&shared.counters);
             c.calls += 1;
             match outcome {
-                Ok(v) => return Ok(v),
+                Ok(v) => Ok(v),
                 Err(Abort::Cancelled) => return Err(CallFailure::Cancelled),
                 Err(Abort::TimedOut) => {
                     c.timeouts += 1;
                     c.last_error = Some(format!(
                         "`{what}` exceeded its timeout; the backend was restarted"
                     ));
-                    None
+                    Err(None)
                 }
                 Err(Abort::Failed(e)) => {
                     let message = self.describe(&e, refused);
@@ -829,20 +893,28 @@ impl Inner {
                     c.faults += 1;
                     c.crashes += 1;
                     c.last_error = Some(format!("`{what}`: {message}"));
-                    Some((message, c.crashes))
+                    Err(Some((message, c.crashes)))
                 }
             }
         };
-        match crash {
-            None => {
-                self.replace_resident(guard, false).await;
+        match judged {
+            Ok(v) => {
+                if self.storage_moved(guard) {
+                    tracing::warn!(app = %shared.app, full = shared.storage_full(),
+                        "the backend's files crossed its storage quota; replacing its instance");
+                    self.replace_resident(guard, Replaced::Storage).await;
+                }
+                Ok(v)
+            }
+            Err(None) => {
+                self.replace_resident(guard, Replaced::Recycle).await;
                 Err(CallFailure::TimedOut)
             }
-            Some((message, 1)) => {
-                self.replace_resident(guard, true).await;
+            Err(Some((message, 1))) => {
+                self.replace_resident(guard, Replaced::Rebuild).await;
                 Err(CallFailure::Faulted(message))
             }
-            Some((message, _)) => {
+            Err(Some((message, _))) => {
                 shared.disable(format!(
                     "the backend crashed again after being rebuilt, in `{what}`: {message}"
                 ));
@@ -853,13 +925,23 @@ impl Inner {
         }
     }
 
-    /// Drop the resident instance and start a fresh one. `after_crash`
-    /// decides which counter it goes on; a fresh instance that will not start
+    /// Whether the resident instance's `/data` no longer matches the quota: writable while the
+    /// application is over it, or read-only while it has room again.
+    fn storage_moved(&self, guard: &tokio::sync::MutexGuard<'_, Option<Resident>>) -> bool {
+        let full = self.shared.storage_full();
+        guard
+            .as_ref()
+            .and_then(|r| r.store.data().over_quota)
+            .is_some_and(|was| was != full)
+    }
+
+    /// Drop the resident instance and start a fresh one. `why` decides
+    /// which counter it goes on; a fresh instance that will not start
     /// disables the application.
     async fn replace_resident(
         &self,
         guard: &mut tokio::sync::MutexGuard<'_, Option<Resident>>,
-        after_crash: bool,
+        why: Replaced,
     ) {
         **guard = None;
         self.shared.release_bindings().await;
@@ -871,30 +953,17 @@ impl Inner {
             Ok(resident) => {
                 **guard = Some(resident);
                 let mut c = lock(&self.shared.counters);
-                if after_crash {
-                    c.rebuilds += 1;
-                } else {
-                    c.recycles += 1;
+                match why {
+                    Replaced::Rebuild => c.rebuilds += 1,
+                    Replaced::Recycle => c.recycles += 1,
+                    Replaced::Storage => c.storage_recycles += 1,
                 }
-                tracing::warn!(app = %self.shared.app, after_crash, "backend instance replaced");
+                tracing::warn!(app = %self.shared.app, ?why, "backend instance replaced");
             }
             Err(f) => self
                 .shared
                 .disable(format!("the backend could not be restarted: {f}")),
         }
-    }
-
-    /// Release a disabled application's resident instance without making the
-    /// caller wait for whatever call holds it now.
-    fn release_resident_later(self: &Arc<Self>) {
-        if self.world != World::Backend {
-            return;
-        }
-        let inner = self.clone();
-        tokio::spawn(async move {
-            inner.resident.lock().await.take();
-            inner.shared.release_bindings().await;
-        });
     }
 
     async fn deliver(&self, delivery: Delivery) {
@@ -960,14 +1029,37 @@ impl Shared {
     /// Bytes the application keeps: its key-value store, and its files under `${data}` as last
     /// measured.
     pub(crate) fn storage_used(&self) -> u64 {
-        self.services.kv.used_bytes() + self.data_bytes.load(Ordering::Relaxed)
+        self.services
+            .kv
+            .used_bytes()
+            .saturating_add(self.data_bytes.load(Ordering::Relaxed))
     }
 
-    /// Measure the files under `${data}` again: after anything that could have written them.
-    fn measure(&self) {
-        if let Some(dir) = &self.data_dir {
-            self.data_bytes
-                .store(crate::storage::dir_bytes(dir), Ordering::Relaxed);
+    /// Measure the files under `${data}` again: after anything that could have written them, on a
+    /// thread that may block. A directory past the walk's limit counts as the whole quota.
+    async fn measure(&self) {
+        let Some(dir) = self.data_dir.clone() else {
+            return;
+        };
+        let measured = tokio::task::spawn_blocking(move || crate::storage::dir_bytes(&dir))
+            .await
+            .unwrap_or(None);
+        let bytes = measured.unwrap_or_else(|| {
+            tracing::warn!(app = %self.app, "its data directory has more entries than are counted; \
+                taken as over its quota");
+            self.caps.storage_bytes
+        });
+        self.data_bytes.store(bytes, Ordering::Relaxed);
+    }
+
+    /// Whether the tool `name` may be called: not one set aside for faulting.
+    fn tool_admitted(&self, name: &str) -> Result<(), CallFailure> {
+        match lock(&self.counters).aside.get(name) {
+            None => Ok(()),
+            Some(reason) => Err(CallFailure::Unavailable(format!(
+                "the tool `{name}` of `{}` is set aside: {reason}",
+                self.app
+            ))),
         }
     }
 

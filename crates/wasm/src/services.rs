@@ -38,11 +38,14 @@ pub trait AppHost: Send + Sync {
 
     async fn unsubscribe(&self, app: &str, topic: &str, params: &Value);
 
-    /// `host.secret`, for a name the application declared in `env`. Reads
-    /// the process environment unless the host keeps secrets elsewhere.
+    /// `host.secret`, for a name the application declared in `env`: what the
+    /// person running it gave *it* under that name. Never the process's own
+    /// environment — a name is not a grant of whatever this process happens
+    /// to hold under it (its model key, say). A host that keeps no secrets
+    /// for its applications gives none.
     fn secret(&self, app: &str, key: &str) -> Option<String> {
-        let _ = app;
-        std::env::var(key).ok()
+        let _ = (app, key);
+        None
     }
 }
 

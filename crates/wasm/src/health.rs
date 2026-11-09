@@ -7,12 +7,19 @@
 //! something has to decide the application is broken and stop asking — and
 //! say so, in the system space, where whoever installed it can see why.
 //!
-//! Two rules, because the two kinds of instance fail differently:
+//! Three rules, because the three kinds of call fail differently and cost
+//! different things:
 //!
-//! - **Tool calls and events**: [`FAULT_LIMIT`] consecutive faults disable
-//!   the application. Only faults count — a timeout or a cancellation says
-//!   something about the work or the user, not about the component — and an
-//!   error *result* is the component answering, so it resets the streak.
+//! - **A tool**: [`FAULT_LIMIT`] consecutive faults of one tool set *that tool*
+//!   aside; the application's other tools, its backend and its interface go on.
+//!   A tool's input comes from the model, which retries — and from whatever was
+//!   injected into the conversation — so a fault there must not be able to take
+//!   down more than the tool it happened in. Only faults count: a timeout or a
+//!   cancellation says something about the work or the user, not about the
+//!   component, and an error *result* is the component answering, so it resets
+//!   the tool's streak.
+//! - **An event**: not counted towards anything. A hook that fails lets the
+//!   call through already, so it has nothing to stop retrying.
 //! - **The backend**: a trap loses the instance and the state in it. It is
 //!   rebuilt once; a second crash disables the application, because a backend
 //!   that crashes again after a clean start is not going to be saved by a
@@ -23,7 +30,7 @@
 use crate::World;
 use serde::Serialize;
 
-/// Consecutive tool or event faults before the application is set aside.
+/// Consecutive faults of one tool before that tool is set aside.
 /// Three rather than one: a fault can come from an input the component
 /// mishandles, and one bad argument should not cost the user the tool.
 pub const FAULT_LIMIT: u32 = 3;
@@ -48,10 +55,15 @@ pub(crate) struct Counters {
     pub calls: u64,
     pub faults: u64,
     pub timeouts: u64,
-    pub consecutive_faults: u32,
+    /// Each tool's current run of faults.
+    pub streaks: std::collections::HashMap<String, u32>,
+    /// The tools set aside, and why.
+    pub aside: std::collections::BTreeMap<String, String>,
     pub crashes: u32,
     pub rebuilds: u32,
     pub recycles: u32,
+    pub storage_recycles: u32,
+    pub queue_timeouts: u64,
     pub wakes: u32,
     pub dropped_deliveries: u64,
     pub last_error: Option<String>,
@@ -72,12 +84,22 @@ pub struct HealthSnapshot {
     pub faults: u64,
     /// Calls abandoned at their deadline.
     pub timeouts: u64,
+    /// The longest run of faults any one tool is on now.
     pub consecutive_faults: u32,
+    /// Tools set aside after [`FAULT_LIMIT`] consecutive faults, and why. The rest of the
+    /// application runs on; only starting a new VM brings them back.
+    pub tools_aside: std::collections::BTreeMap<String, String>,
     /// Times the backend was rebuilt after a crash (at most one).
     pub rebuilds: u32,
     /// Times the backend was replaced after a call was abandoned at its
     /// deadline. Its in-memory state went with it, and `init` ran again.
     pub recycles: u32,
+    /// Times the backend was replaced because its files under `/data` crossed its
+    /// `storage_mb`: over it, so that what it writes from then on is refused; or back under it,
+    /// so that it may write again. Its in-memory state went with it, as in a recycle.
+    pub storage_recycles: u32,
+    /// Method calls answered `busy` because the backend did not come free within the timeout.
+    pub queue_timeouts: u64,
     /// Topic values and timer firings dropped because the backend's queue
     /// was full.
     pub dropped_deliveries: u64,

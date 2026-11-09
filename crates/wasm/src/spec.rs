@@ -41,7 +41,8 @@ pub struct Capabilities {
     /// Hosts `http-request` may reach, matched exactly and case-insensitively.
     /// No suffix rules: an application that wants a subdomain names it.
     pub net: Vec<String>,
-    /// Environment variables `secret` may read, matched exactly.
+    /// The names `secret` may read, matched exactly: secrets the host keeps for the application
+    /// (Harnix: the profile's `[apps.secrets."<id>"]`), not the process's environment.
     pub env: Vec<String>,
     /// Ceiling on the key-value store, keys and values both counted.
     pub storage_bytes: u64,

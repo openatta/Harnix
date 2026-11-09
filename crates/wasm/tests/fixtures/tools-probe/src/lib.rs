@@ -5,7 +5,7 @@
 
 wit_bindgen::generate!({
     path: "../../../wit",
-    world: "tools-app",
+    world: "tools-app-events",
 });
 
 use exports::harnix::app::events::{Guest as Events, HookDecision};
@@ -142,8 +142,11 @@ impl Tools for Probe {
 }
 
 impl Events for Probe {
-    /// Blocks any use of the tool `forbidden`; annotates `note` events.
+    /// Blocks any use of the tool `forbidden`; annotates `note` events; traps on `explode`.
     fn on_event(event: String, payload: String) -> HookDecision {
+        if event == "explode" {
+            panic!("asked to explode");
+        }
         if event == "tool.before" && field(&payload, "tool").as_deref() == Some("forbidden") {
             return HookDecision::Block("`forbidden` is not allowed here".into());
         }

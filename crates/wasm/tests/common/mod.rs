@@ -117,6 +117,8 @@ pub struct MockHost {
     pub unsubscribed: Mutex<Vec<String>>,
     /// Set by a test that wants `call` to route back into a VM.
     pub route_to: OnceLock<AppVm>,
+    /// What `secret` gives, by name.
+    pub secrets: Mutex<HashMap<String, String>>,
 }
 
 impl MockHost {
@@ -172,6 +174,10 @@ impl AppHost for MockHost {
 
     async fn unsubscribe(&self, _app: &str, topic: &str, _params: &Value) {
         self.unsubscribed.lock().unwrap().push(topic.into());
+    }
+
+    fn secret(&self, _app: &str, key: &str) -> Option<String> {
+        self.secrets.lock().unwrap().get(key).cloned()
     }
 }
 
