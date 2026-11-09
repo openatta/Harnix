@@ -1,11 +1,11 @@
-# The example application (docs/harnix-sdk.md §3, roadmap M5-7), laid out as an application is:
+# The example application (docs/harnix-sdk.md §3), laid out as an application is:
 # `harnix/` beside it — here a link to this checkout.
 #
 # `harnix/` is the one submodule, and it brings the engine (`harnix/agix`).
 # Harnix's crates are members of *this* workspace, so they resolve their
 # dependencies against the table below; the engine's crates resolve against
 # its own Cargo.toml, which is why `harnix/agix` is excluded rather than a
-# member (design §11.2).
+# member.
 [workspace]
 resolver = "2"
 members = ["app", "harnix/crates/*"]

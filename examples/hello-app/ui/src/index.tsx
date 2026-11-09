@@ -10,7 +10,7 @@
  * state comes from the `app.greeter.approvals` topic, and the buttons call `app.greeter.approve`,
  * which only a person may.
  *
- * Its look is its own without a fork of `ui/` (design §10.5): the profile's `[brand]` names the
+ * Its look is its own without a fork of `ui/` (docs/harnix-sdk.md §8.6): the profile's `[brand]` names the
  * product, and here the module overrides the accent tokens and brings its words as a language pack
  * whose keys carry its name.
  */
