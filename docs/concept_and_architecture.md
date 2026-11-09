@@ -545,14 +545,14 @@ space 声明（`spaces()`：默认实例、场景）、`app.<id>.*` 方法（带
 
 **分层**：内核不建会话、不碰磁盘、不知道谁是用户——存储、授权、应用的程序与检查都由应用以 trait 交进来，
 所以同一个内核也跑在试运行的沙箱里（外面的一切模拟）。模块把内核接到 Harnix：会话、原生工具（`flow_submit`、
-`flow_state`、`flow_propose`）、作者 scene `flow-author`、方法与主题、流程 space。
+`flow_state`、`flow_propose`）、作者 scene `flow-author`、方法与主题、系统 space 里的流程界面。
 
 **每个时间点只有一处能拦**：干活过程中是**权限**——流程会话对受限工具和权限提到的工具都 `ask`，模块按这一轮所属
 任务的权限判（`deny` > `ask` > `allow`，`ask` 留给人）；出站时是**出站条件**——输出契约、门禁（`tool` / `command` /
 `host`）、人的确认。**规则**与 skill 只告诉 Agent，不拦。**钩子**是旁观者：不写在流程里，从不阻塞运行。
 
 **不进 Harnix 的**：审批策略（几个人批、批与做不能是同一人）归应用——流程把 `who` 交给应用的授权方。
-对象与写法见流程 space 的参考页（`crates/flow/docs/guide.*.md`）。
+对象与写法见系统 space 里流程的参考页（`crates/flow/docs/guide.*.md`）。
 
 ---
 

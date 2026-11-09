@@ -1,5 +1,5 @@
 /**
- * A proposal in the flow space: a station's session proposed to send the work back (`flow_propose`),
+ * A proposal in a flow, inside the system space: a station's session proposed to send the work back (`flow_propose`),
  * and the person sees it as a card in that session — accepts it, which reworks the run once and
  * leaves a line saying so, or dismisses the one the next round makes.
  *
@@ -12,7 +12,7 @@ import type { Page } from "@playwright/test";
 import { type Backend, expect, test } from "@harnix/testkit";
 
 import { startTestApp } from "../api/testapp";
-import { open, watchConsole } from "./page";
+import { flowReference, open, openFlow, openRun, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:flow", "@layer:ui"] };
 
@@ -43,10 +43,7 @@ const panel = (page: Page) => page.locator('#secondary [data-testid="flow-statio
 
 /** Open the `propose` station's session of the round showing, from the station's panel. */
 async function openProposeSession(page: Page, run: string): Promise<void> {
-  await page.locator('#side .spaces [data-space="flow"]').click();
-  await page.locator('#details [data-tab="flow.runs"]').click();
-  const row = page.getByTestId(`flow-run-${run}`);
-  if ((await row.getAttribute("aria-current")) !== "true") await row.click();
+  await openRun(page, run);
   const showing = (await panel(page).count()) ? await panel(page).getAttribute("data-station") : null;
   if (showing !== "propose") await page.getByTestId("flow-node-propose").click();
   await expect(panel(page)).toHaveAttribute("data-station", "propose");
@@ -102,9 +99,7 @@ test("a task held on a person's answer says what it asked and why, until it is a
   const held = await until(page, run, (r) => !!r.stations.edit?.tasks?.[0]?.asking);
   const task = held.stations.edit.tasks[0];
 
-  await page.locator('#side .spaces [data-space="flow"]').click();
-  await page.locator('#details [data-tab="flow.runs"]').click();
-  await page.getByTestId(`flow-run-${run}`).click();
+  await openRun(page, run);
   await page.getByTestId("flow-node-edit").click();
   await expect(panel(page)).toHaveAttribute("data-station", "edit");
   const asking = panel(page).getByTestId(`flow-asking-${task.id}`);
@@ -126,9 +121,8 @@ test("a task held on a person's answer says what it asked and why, until it is a
 
 test("the reference tab says whether command gates run here", TAGS, async ({ page }) => {
   await open(page, backend.url);
-  await page.locator('#side .spaces [data-space="flow"]').click();
-  await page.locator('#details [data-tab="flow.reference"]').click();
-  await expect(page.getByTestId("flow-reference-tab")).toBeVisible();
+  await openFlow(page, "demo-propose");
+  await flowReference(page);
   // The test application turns them on.
   await expect(page.getByTestId("flow-catalog-command-gates")).toBeVisible();
   const on = await page.evaluate(async () => (await (window as any).harnix.app.call("app.flow.catalog", {})).command_gates);

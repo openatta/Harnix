@@ -6,7 +6,7 @@
 
 import { expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
-import { newSession, open, openSettings, say, watchConsole } from "./page";
+import { flowReference, newSession, open, openFlow, openSettings, say, toFlows, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:session-space", "@layer:ui"] };
 const SETTINGS = { tag: ["@feature:settings", "@layer:ui"] };
@@ -297,7 +297,7 @@ test("with every built-in space removed, the frame is the chrome alone and says 
   }
 });
 
-test("at a phone's width nothing scrolls sideways: a conversation, the system space, the flow space", TAGS, async ({ page }) => {
+test("at a phone's width nothing scrolls sideways: a conversation, the system space, a flow in it", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await open(page, URL);
@@ -313,6 +313,13 @@ test("at a phone's width nothing scrolls sideways: a conversation, the system sp
     // Polled: the columns animate into place when a space opens its right column.
     await expect.poll(sideways, { message: `the ${space} space` }).toBeLessThanOrEqual(0);
   }
+  // A flow entered, its details beside the conversation.
+  await page.evaluate(() => (window as any).harnix.app.switchSpace("system"));
+  await page.locator('[data-testid="system-console"] [data-tab="flows"]').click();
+  await expect.poll(sideways, { message: "the Flows tab" }).toBeLessThanOrEqual(0);
+  await page.getByTestId("flow-def-example-review").click();
+  await expect(page.getByTestId("flow-context")).toHaveAttribute("data-flow", "example-review");
+  await expect.poll(sideways, { message: "a flow" }).toBeLessThanOrEqual(0);
   expect(errors).toEqual([]);
 });
 
@@ -338,30 +345,32 @@ test("in Chinese the system space has no string left untranslated or showing its
   await page.keyboard.press("Escape");
 });
 
-test("in Chinese the flow space has no string left untranslated or showing its key", SETTINGS, async ({ page }) => {
+test("in Chinese the flows have no string left untranslated or showing its key", SETTINGS, async ({ page }) => {
   await open(page, URL);
   await openSettings(page);
   await page.getByTestId("settings-language").selectOption("zh-CN");
   await page.keyboard.press("Escape");
-  await page.locator('#side .spaces [data-space="flow"]').click();
-  await expect(page.locator("#main")).toHaveAttribute("data-space", "flow");
+  await toFlows(page);
+  await expect(page.locator('[data-testid="system-console"] [data-tab="flows"]')).toHaveText("流程");
   const leaked = () =>
     page.evaluate(() => {
       const text = document.body.innerText;
       // The flow interface's strings are `flowui.*`; a key that is drawn is one without a translation.
       return text.match(/\bflowui\.[a-z][\w.]*[a-z]\b/g) ?? [];
     });
-  for (const tab of ["flows", "runs", "reference"]) {
-    const button = page.locator(`#details [data-tab="flow.${tab}"]`);
-    await expect(button, `the ${tab} tab's title`).toHaveText(/[一-鿿]/);
-    await button.click();
-    expect(await leaked(), `the ${tab} tab`).toEqual([]);
-  }
-  await page.locator('#details [data-tab="flow.flows"]').click();
-  await page.getByTestId("flow-def-example-review").click();
-  await expect(page.locator('#secondary [data-testid="flow-detail"]')).toBeVisible();
-  expect(await leaked(), "a flow's details").toEqual([]);
+  expect(await leaked(), "the Flows tab").toEqual([]);
+  await openFlow(page, "example-review");
+  expect(await leaked(), "a flow's context and details").toEqual([]);
+  await expect(page.getByTestId("flow-back")).toHaveText(/[一-鿿]/);
   await expect(page.locator('#secondary [data-testid="flow-detail"]')).toContainText(/[一-鿿]/);
+  await flowReference(page);
+  await expect(page.locator('#details [data-tab="flow.reference"]')).toHaveText(/[一-鿿]/);
+  expect(await leaked(), "the reference").toEqual([]);
+  // The general conversation's context.
+  await toFlows(page);
+  await page.getByTestId("flow-add").click();
+  await expect(page.getByTestId("flow-context-title")).toHaveText("通用会话");
+  expect(await leaked(), "the general conversation").toEqual([]);
   await openSettings(page);
   await page.getByTestId("settings-language").selectOption("system");
 });

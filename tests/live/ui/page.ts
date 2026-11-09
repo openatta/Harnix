@@ -70,3 +70,37 @@ export async function openSettings(page: Page): Promise<void> {
   await page.getByTestId("open-settings").click();
   await expect(page.locator(".settings-nav")).toBeVisible();
 }
+
+/* ── the flows, in the system space ──────────────────────────────────── */
+
+/** The system space's Flows tab, from wherever the page is: the flows, then every run. */
+export async function toFlows(page: Page): Promise<void> {
+  await page.locator('#side button[data-space="system"]').click();
+  await expect(page.locator("#main")).toHaveAttribute("data-space", "system");
+  await page.locator('[data-testid="system-console"] [data-tab="flows"]').click();
+  await expect(page.getByTestId("system-flows")).toBeVisible();
+}
+
+/** Into a flow from the Flows tab: the left column its context, its details beside its conversation. */
+export async function openFlow(page: Page, flow: string): Promise<void> {
+  await toFlows(page);
+  await page.getByTestId(`flow-def-${flow}`).click();
+  await expect(page.locator("#main")).toHaveAttribute("data-space", "flow");
+  await expect(page.getByTestId("flow-context")).toHaveAttribute("data-flow", flow);
+  await expect(page.locator('#secondary [data-testid="flow-detail"]')).toHaveAttribute("data-flow", flow);
+}
+
+/** Into a run's flow from the Flows tab, the run shown beside its main session. */
+export async function openRun(page: Page, run: string): Promise<void> {
+  await toFlows(page);
+  await page.getByTestId(`flow-run-${run}`).click();
+  await expect(page.locator("#main")).toHaveAttribute("data-space", "flow");
+  await expect(page.locator('#secondary [data-testid="flow-run-detail"]')).toHaveAttribute("data-run", run);
+}
+
+/** The reference, the right column's one tab inside a flow. */
+export async function flowReference(page: Page): Promise<void> {
+  if ((await page.locator("#frame").getAttribute("data-details")) !== "open") await page.getByTestId("details-toggle").click();
+  await page.locator('#details [data-tab="flow.reference"]').click();
+  await expect(page.getByTestId("flow-reference-tab")).toBeVisible();
+}

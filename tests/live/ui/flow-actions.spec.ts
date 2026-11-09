@@ -1,5 +1,5 @@
 /**
- * What a person does to a run from the flow space's station panel and run header: let a held station
+ * What a person does to a run from a flow's station panel and run header, inside the system space: let a held station
  * in, hand an external task in, reject a confirmation, send work back (rework), confirm, and cancel a
  * run with a reason.
  *
@@ -13,7 +13,7 @@
 import type { Page } from "@playwright/test";
 import { type Backend, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
-import { open, watchConsole } from "./page";
+import { open, openFlow, openRun, toFlows, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:flow", "@layer:ui"] };
 
@@ -43,7 +43,7 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => { await backend?.dispose(); });
 
-/** The flow space, a run of `ui-actions` started, and its details beside the conversation. */
+/** A run of `ui-actions` started, entered from the system space's Flows tab: its details beside the conversation. */
 async function startRun(page: Page): Promise<string> {
   await open(page, backend.url);
   const run = await page.evaluate(async (yaml) => {
@@ -51,11 +51,7 @@ async function startRun(page: Page): Promise<string> {
     await app.call("app.flow.save", { yaml });
     return (await app.call("app.flow.start", { flow: "ui-actions", subject: "the page" })).run as string;
   }, FLOW);
-  await page.locator('#side .spaces [data-space="flow"]').click();
-  await expect(page.locator("#main")).toHaveAttribute("data-space", "flow");
-  await page.locator('#details [data-tab="flow.runs"]').click();
-  await page.getByTestId(`flow-run-${run}`).click();
-  await expect(page.locator('#secondary [data-testid="flow-run-detail"]')).toHaveAttribute("data-run", run);
+  await openRun(page, run);
   return run;
 }
 
@@ -163,14 +159,6 @@ const PAIR = [
   "    rework_to: [pair]",
 ].join("\n");
 
-/** Into the flow space, a flow's details picked in the flows tab. */
-async function pickFlow(page: Page, flow: string): Promise<void> {
-  await page.locator('#side .spaces [data-space="flow"]').click();
-  await expect(page.locator("#main")).toHaveAttribute("data-space", "flow");
-  await page.locator('#details [data-tab="flow.flows"]').click();
-  await page.getByTestId(`flow-def-${flow}`).click();
-  await expect(page.locator('#secondary [data-testid="flow-detail"]')).toHaveAttribute("data-flow", flow);
-}
 
 test("a station's panel says its state and, on its definition tab, its work, contract and exits; the run says what and whose", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
@@ -222,9 +210,7 @@ test("work sent back to a station of two tasks names which of them go again", TA
       throw new Error(JSON.stringify(e));
     }
   }, PAIR);
-  await page.locator('#side .spaces [data-space="flow"]').click();
-  await page.locator('#details [data-tab="flow.runs"]').click();
-  await page.getByTestId(`flow-run-${run}`).click();
+  await openRun(page, run);
   for (const task of ["x", "y"]) {
     await station(page, "pair");
     await panel(page).getByTestId(`flow-hand-in-${task}`).click();
@@ -254,7 +240,7 @@ test("a run started from a flow's details: what it is about, a title and inputs,
   const errors = watchConsole(page);
   await open(page, backend.url);
   await page.evaluate((yaml) => (window as any).harnix.app.call("app.flow.save", { yaml }), FLOW);
-  await pickFlow(page, "ui-actions");
+  await openFlow(page, "ui-actions");
   await page.getByTestId("flow-start-open").click();
   const form = page.getByTestId("flow-start-form");
   await expect(form).toBeVisible();
@@ -280,7 +266,7 @@ test("a run started from a flow's details: what it is about, a title and inputs,
   expect(errors).toEqual([]);
 });
 
-test("the runs tab narrowed to one flow's runs", TAGS, async ({ page }) => {
+test("the runs narrowed to one flow's: by the filter, and inside the flow", TAGS, async ({ page }) => {
   await open(page, backend.url);
   const [a, b] = await page.evaluate(
     async ([one, two]) => {
@@ -294,8 +280,7 @@ test("the runs tab narrowed to one flow's runs", TAGS, async ({ page }) => {
     },
     [FLOW, PAIR],
   );
-  await page.locator('#side .spaces [data-space="flow"]').click();
-  await page.locator('#details [data-tab="flow.runs"]').click();
+  await toFlows(page);
   await expect(page.getByTestId(`flow-run-${a}`)).toBeVisible();
   await expect(page.getByTestId(`flow-run-${b}`)).toBeVisible();
   await page.getByTestId("flow-filter-flow").selectOption("ui-pair");
@@ -303,6 +288,11 @@ test("the runs tab narrowed to one flow's runs", TAGS, async ({ page }) => {
   await expect(page.getByTestId(`flow-run-${b}`)).toBeVisible();
   await page.getByTestId("flow-filter-flow").selectOption("");
   await expect(page.getByTestId(`flow-run-${a}`)).toBeVisible();
+  // Inside a flow, the left column lists that flow's runs alone.
+  await openFlow(page, "ui-pair");
+  const mine = page.getByTestId("flow-context-runs");
+  await expect(mine.getByTestId(`flow-run-${b}`)).toBeVisible();
+  await expect(mine.getByTestId(`flow-run-${a}`)).toHaveCount(0);
 });
 
 test("a flow broken by a part taken from it says what is wrong, and cannot be started", TAGS, async ({ page }) => {
@@ -314,8 +304,9 @@ test("a flow broken by a part taken from it says what is wrong, and cannot be st
     await app.call("app.flow.save", { yaml: "name: ui-ruled\nrules: [ui-mine]\nstations: [{id: a, exit: [{kind: confirm}]}]" });
     await app.call("app.flow.part.delete", { kind: "rule", name: "ui-mine" });
   });
-  await pickFlow(page, "ui-ruled");
+  await toFlows(page);
   await expect(page.getByTestId("flow-def-ui-ruled")).toHaveAttribute("data-valid", "false");
+  await openFlow(page, "ui-ruled");
   await expect(page.getByTestId("flow-def-problems")).toContainText("ui-mine");
   await expect(page.getByTestId("flow-start-open")).toBeDisabled();
   // Its definition is still read in full.
@@ -345,10 +336,7 @@ async function startRetry(page: Page): Promise<string> {
     await app.call("app.flow.save", { yaml });
     return (await app.call("app.flow.start", { flow: "ui-retry", subject: "again" })).run as string;
   }, RETRY);
-  await page.locator('#side .spaces [data-space="flow"]').click();
-  await page.locator('#details [data-tab="flow.runs"]').click();
-  await page.getByTestId(`flow-run-${run}`).click();
-  await expect(page.locator('#secondary [data-testid="flow-run-detail"]')).toHaveAttribute("data-run", run);
+  await openRun(page, run);
   return run;
 }
 
@@ -378,7 +366,7 @@ test("marks on the diagrams: a guarded station on the flow's; a forced one on th
   const errors = watchConsole(page);
   await open(page, backend.url);
   await page.evaluate((yaml) => (window as any).harnix.app.call("app.flow.save", { yaml }), RETRY);
-  await pickFlow(page, "ui-retry");
+  await openFlow(page, "ui-retry");
   await expect(page.locator('#secondary [data-testid="flow-diagram"]').getByTestId("flow-guarded-approve")).toBeAttached();
   await expect(page.locator('#secondary [data-testid="flow-diagram"]').getByTestId("flow-guarded-draft")).toHaveCount(0);
 
