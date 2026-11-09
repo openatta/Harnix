@@ -40,8 +40,8 @@ pub struct Workspace {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SessionMeta {
-    /// Title the user typed. Agix has no `session.rename`, so a rename
-    /// lives here until it does.
+    /// Title the user typed, an overlay over the engine's name in this product's session
+    /// list. The engine's own name is `session.rename`'s (the system space's rename).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     #[serde(default)]

@@ -2,13 +2,13 @@
 //!
 //! What the model was sent, minus the messages: the assembled system blocks,
 //! the whole tool catalog, and the call configuration. Agix does not send
-//! this over the wire — it writes every call to a recording
-//! (`agix/docs/recorder_design.md`), and this crate reads that directory.
+//! this over the wire — it writes every call to a recording (Agix's
+//! `telemetry::recorder`), and this crate reads that directory.
 //!
 //! Reading files rather than receiving frames is what makes the envelope
 //! survive a reload: the browser can ask for it at any point, including for a
-//! session whose turns ran in a previous process. The cost is the boundary in
-//! §4 — a recording covers the current *run* of a session, because the writer
+//! session whose turns ran in a previous process. The cost is a boundary:
+//! a recording covers the current *run* of a session, because the writer
 //! truncates when a resumed session makes its first call.
 //!
 //! Only turn calls are folded into the timeline. Compaction, memory extraction

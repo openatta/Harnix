@@ -4,10 +4,10 @@
 //! directory picker, uploads, the settings page and the request envelope are
 //! **not kernel**. None of them is the hub, the transport, authorization or
 //! assembly; every one is a judgement about how this product behaves, and
-//! §2.1 draws the line exactly there.
+//! concept §2.1 draws the line exactly there.
 //!
 //! So they live here, as compile-time modules registered through the same
-//! contract an application's modules use (design §7). This crate depends on
+//! contract an application's modules use (concept §4.2). This crate depends on
 //! `harnix-module`'s public API and on nothing inside the hub; a test in the
 //! app holds it to that.
 //!
@@ -75,7 +75,7 @@ pub struct Builtin {
 ///
 /// Every one registers through the public module contract, the same one an
 /// application's module uses. If the built-ins could not be built out of it,
-/// the contract would not be worth believing (§5.5); delete this crate and
+/// the contract would not be worth believing (concept §3); delete this crate and
 /// the kernel still runs, with fewer methods and no special cases.
 const PARTS: &[Part] = &[
     Part {
@@ -150,7 +150,7 @@ const PARTS: &[Part] = &[
 ];
 
 /// The system space's backend: registered only when the profile keeps it on, so turning it off
-/// takes its methods out of the authorization table rather than only out of sight (design §9.1).
+/// takes its methods out of the authorization table rather than only out of sight (concept §5.5).
 const SYSTEM: Part = Part {
     id: "system",
     disclosure: "系统 space：看任何实例的会话与任务、读调用信封与上下文、任务的输出、会话的用量；给在跑的子 Agent 发话；设定、暂停、继续、编辑、清除会话的目标；压缩、清空、换模型、改名、改写或删除消息、停止任务。每次操作写审计",
