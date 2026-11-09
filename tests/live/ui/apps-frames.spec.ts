@@ -78,7 +78,7 @@ test.describe("an application in isolated frames", () => {
     // In a frame, not in the page: nothing of it is in the shell's document.
     await expect(page.locator('[data-testid="showcase-board"]')).toHaveCount(0);
     const iframe = page.locator(`iframe.hx-frame[data-app="${SHOWCASE_ID}"][data-point="space"]`);
-    await expect(iframe).toHaveAttribute("sandbox", "allow-scripts");
+    await expect(iframe).toHaveAttribute("sandbox", "allow-scripts allow-forms");
     await expect(iframe).toHaveAttribute("src", `/apps/${SHOWCASE_ID}/ui/frame/index.html`);
 
     await frame.getByTestId("showcase-note-input").fill("from the frame");

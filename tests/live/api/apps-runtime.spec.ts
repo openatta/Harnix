@@ -325,7 +325,7 @@ carrier = "spawn"
     // The daemon is told of the endpoint once this process listens; it connects in the background.
     await expect
       .poll(async () => JSON.stringify(await api.call("mcp.status", { instance: "far" }).catch((e) => e)), { timeout: 60_000, intervals: [500] })
-      .toContain(`"name":"${MCP_SERVER}","tool_count":7`);
+      .toContain(`"name":"${MCP_SERVER}","tool_count":${TOOLS.length}`);
     const s = await session(api, "app-mcp-echo", "far");
     const { settled, asks } = await turn(api, s, "Use the showcase's echo tool over MCP");
     expect(settled.params.error, JSON.stringify(settled.params.error)).toBeUndefined();

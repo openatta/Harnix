@@ -92,8 +92,8 @@ page (`ui/showcase.js`); anyone else — the store, or nobody — in isolated fr
 under `[interface]`.
 
 `ui/frame/index.html` is every surface: the shell tells it which one it is when it connects, and
-`surfaces.js` draws that one. Each frame is sandboxed (`allow-scripts`: an opaque origin, no
-storage, no cookies, the page's token out of reach) and served under a policy with
+`surfaces.js` draws that one. Each frame is sandboxed (`allow-scripts allow-forms`: an opaque
+origin, no storage, no cookies, the page's token out of reach) and served under a policy with
 `connect-src 'none'`, so everything goes through the shell's bridge (`harnix-ui-bridge@1`):
 
 | On the board | What it does through the bridge |

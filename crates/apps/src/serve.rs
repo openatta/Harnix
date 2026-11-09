@@ -38,8 +38,10 @@ use crate::runtime::{Loaded, Registry};
 /// a module the page imports runs under the page's own). What a frame's page may load is its
 /// package's files and inline styles; it may not connect anywhere (`connect-src 'none'`: its data
 /// comes over the shell's bridge), submit a form anywhere, frame anything, or be framed by
-/// anything but this page. Its sandbox (`allow-scripts`, no `allow-same-origin`) is the shell's;
-/// together they make it an opaque origin that cannot read the page's token, storage or cookies.
+/// anything but this page. Its sandbox (`allow-scripts allow-forms`, no `allow-same-origin`) is the
+/// shell's; together they make it an opaque origin that cannot read the page's token, storage or
+/// cookies. (`allow-forms` is for a form's `submit` event, which never fires without it; where a
+/// form may submit to is `form-action 'none'`.)
 /// Neither stops it navigating itself away, with what it was shown in the address: the shell
 /// empties a frame that does, and the installer is told (`disclosure.rs`, `frames`).
 pub const FRAME_CSP: &str =

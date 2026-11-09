@@ -321,8 +321,9 @@ world backend-app-events { include backend-app; export events; }
 | `home.card` | 新对话输入框下的一张卡（自动高度） | 空页显示它 | 离开 |
 | `modal` | 外壳画的对话框（`openModal`） | 打开 | 关上 |
 
-- **iframe**：`sandbox="allow-scripts"`，不给 `allow-same-origin`（不透明源，读不到页面的令牌、存储与 cookie），不给
-  `allow-forms`（CSP 本来就是 `form-action 'none'`）、`allow-popups`、`allow-top-navigation`（外链只经 `openLink`）。
+- **iframe**：`sandbox="allow-scripts allow-forms"`，不给 `allow-same-origin`（不透明源，读不到页面的令牌、存储与 cookie），不给
+  `allow-popups`、`allow-top-navigation`（外链只经 `openLink`）。`allow-forms` 不是多余的：没有它，表单的 `submit` 事件根本不触发，
+  页面自己的表单就收不了输入；表单能提交到哪里由 CSP 的 `form-action 'none'` 管（哪里都不能）。
 - **iframe 能自己导航走。** 沙箱与 CSP 都挡不住页面 `location = "https://…"` 把自己换掉，地址里可以带着它拿到的数据：所以
   `net = []` **不等于**「数据出不去」——它经桥拿到的、后端推给它的，都可能这样带出去。外壳在 iframe 第二次加载时立刻把它清空（`about:blank`），
   记一次界面失败（应用页签、诊断里都看得到），但那时请求已经发出去了。装的时候，有页面的应用披露里有这一行（`frames`）。

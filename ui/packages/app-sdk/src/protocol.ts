@@ -1,7 +1,7 @@
 /**
  * `harnix-ui-bridge@1`: what an application's isolated frame and the shell say to each other.
  *
- * The shell makes the frame (`sandbox="allow-scripts"`, an opaque origin, no network)
+ * The shell makes the frame (`sandbox="allow-scripts allow-forms"`, an opaque origin, no network)
  * and, when its page has loaded, hands it one end of a `MessageChannel` — the only window message
  * of the protocol (`Connect`), sent once, to that frame alone. Everything after goes over the
  * port: requests (answered by a response with the same `id`), responses, and events (answered by

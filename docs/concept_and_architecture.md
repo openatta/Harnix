@@ -848,7 +848,7 @@ create`，自动绑定前台 space）、实例（列、建、停，按可达方�
 **对话始终是外壳的。** 商店的插件不能替换对话的画法，只能经声明给某种块、某个工具指定样子。一个 space 的左栏也只有一种：外壳的会话列表
 （可以声明分组），或插件自己的面。
 
-**iframe 的边界**：`sandbox="allow-scripts"`，不给 `allow-same-origin`（不透明源，读不到页面的令牌、存储与 cookie），不给弹窗与顶层导航；
+**iframe 的边界**：`sandbox="allow-scripts allow-forms"`，不给 `allow-same-origin`（不透明源，读不到页面的令牌、存储与 cookie），不给弹窗与顶层导航；
 内容从 `/apps/<id>/ui/` 来，CSP `connect-src 'none'`：页面不能联网，数据只走桥。
 
 **桥**（`harnix-ui-bridge@1`）：外壳经 `MessageChannel` 交给 iframe 一个端口（不是 `window.postMessage` 广播），页面一侧用 `@harnix/app-sdk`。
