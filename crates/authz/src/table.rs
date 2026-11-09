@@ -112,7 +112,20 @@ pub struct MethodTable {
     /// with the application that owns each. Everything not in here was put in
     /// the table at assembly and is never touched by [`MethodTable::withdraw_app`].
     runtime: BTreeMap<String, String>,
+    /// Runtime principals: the applications whose subject (`module:<id>`) reaches
+    /// only what is listed here — its `hub` capability — and its own names
+    /// ([`MethodTable::reach_only`]). An application that was withdrawn stays
+    /// one, listing nothing.
+    reach: BTreeMap<String, BTreeSet<String>>,
 }
+
+/// Why a runtime application, acting as itself, is refused a name it did not list.
+pub const OUTSIDE_HUB: &str = "not in the application's `hub` capability";
+
+/// The methods decided by what they name rather than by themselves: subscribing
+/// to a topic is decided as `topic:<name>`, so a runtime principal reaches these
+/// whatever it listed, and the topic decides.
+pub(crate) const DECIDED_BY_TOPIC: &[&str] = &["harnix.subscribe", "harnix.unsubscribe"];
 
 /// Why a grant or a declaration did not take.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -158,6 +171,7 @@ impl MethodTable {
         Self {
             entries: BTreeMap::new(),
             runtime: BTreeMap::new(),
+            reach: BTreeMap::new(),
         }
     }
 
@@ -263,7 +277,39 @@ impl MethodTable {
             self.runtime.remove(name);
             self.entries.remove(name);
         }
+        if let Some(listed) = self.reach.get_mut(app) {
+            listed.clear();
+        }
         names
+    }
+
+    /// Make `app`'s subject a runtime principal: `module:<app>` reaches the names
+    /// in `listed` (its `hub` capability: methods, and topics as `topic:<name>`)
+    /// and its own (`app.<app>.*`, `topic:app.<app>.*`), and nothing else, whatever
+    /// a rule opens to every module. Replaces what it listed before.
+    ///
+    /// What is listed is still decided by its rule, as for any module: a name a
+    /// device may call is open to it, one refused to devices only if it was
+    /// granted it ([`MethodTable::grant`]), another application's only if that
+    /// application declared it for modules. So the table answers in one place
+    /// what an application may do as itself.
+    pub fn reach_only(&mut self, app: &str, listed: impl IntoIterator<Item = String>) {
+        self.reach.insert(app.to_string(), listed.into_iter().collect());
+    }
+
+    /// Whether `module:<id>` may even ask for `name`: `false` only for a runtime
+    /// principal and a name outside what it listed and its own.
+    fn within_reach(&self, id: &str, name: &str) -> bool {
+        let Some(listed) = self.reach.get(id) else {
+            return true;
+        };
+        // `app.<id>.<name>`, whole segments: `app.acme.notes.x` is not `acme`'s.
+        let own = |name: &str| {
+            name.strip_prefix("app.")
+                .and_then(|n| n.strip_prefix(id))
+                .is_some_and(|rest| rest.starts_with('.'))
+        };
+        listed.contains(name) || own(name) || name.strip_prefix(TOPIC).is_some_and(own) || DECIDED_BY_TOPIC.contains(&name)
     }
 
     /// The runtime application that declared this name, if one did.
@@ -334,6 +380,13 @@ impl MethodTable {
     }
 
     pub fn decide(&self, subject: &Subject, method: &str) -> Decision {
+        // Before whether it exists: an application asking for something it did
+        // not list is told that, not whether the name is there.
+        if let Subject::Module { id } = subject {
+            if !self.within_reach(id, method) {
+                return Decision::Refuse(OUTSIDE_HUB);
+            }
+        }
         let Some(rule) = self.entries.get(method) else {
             return Decision::Unknown;
         };
@@ -732,6 +785,60 @@ mod tests {
         assert_eq!(t.decide(&module("settings"), "settings.write"), Decision::Allow, "another grant stays");
         t.revoke("harnix.hello", "acme.notes");
         assert_eq!(t.decide(&module("acme.notes"), "harnix.hello"), Decision::Allow);
+    }
+
+    #[test]
+    fn a_runtime_principal_reaches_what_it_listed_and_its_own_and_nothing_more() {
+        let mut t = assembled()
+            .allow("settings.write", Reach::Refused("not for devices"))
+            .allow("session.create", Reach::Device)
+            .allow("harnix.subscribe", Reach::Device)
+            .allow(&topic("harnix.sessions.status"), Reach::Device)
+            .allow(&topic("harnix.process"), Reach::Device);
+        let own = vec![Principal::Device, Principal::Module("acme.notes".into())];
+        t.declare_app(
+            "acme.notes",
+            &[("app.acme.notes.echo".into(), own.clone()), ("topic:app.acme.notes.ticks".into(), own)],
+        )
+        .unwrap();
+        t.declare_app("acme.todo", &[("app.acme.todo.list".into(), vec![Principal::AnyModule])]).unwrap();
+        t.reach_only(
+            "acme.notes",
+            ["session.create", "settings.write", "topic:harnix.sessions.status", "app.acme.todo.list"].map(String::from),
+        );
+        let me = module("acme.notes");
+        // Open to every module, and listed.
+        assert_eq!(t.decide(&me, "session.create"), Decision::Allow);
+        // Open to every module, not listed: what the table alone used to let it reach.
+        assert_eq!(t.decide(&me, "harnix.hello"), Decision::Refuse(OUTSIDE_HUB));
+        assert_eq!(t.decide(&me, "nothing.here"), Decision::Refuse(OUTSIDE_HUB), "told whether it exists");
+        // Listed, refused to devices: only once it is granted.
+        assert!(matches!(t.decide(&me, "settings.write"), Decision::Refuse(r) if r != OUTSIDE_HUB));
+        t.grant("settings.write", "acme.notes").unwrap();
+        assert_eq!(t.decide(&me, "settings.write"), Decision::Allow);
+        // Its own names, unlisted; one it did not declare is unknown like any other.
+        assert_eq!(t.decide(&me, "app.acme.notes.echo"), Decision::Allow);
+        assert_eq!(t.decide(&me, "app.acme.notes.nope"), Decision::Unknown);
+        assert_eq!(t.decide(&me, &topic("app.acme.notes.ticks")), Decision::Allow);
+        // Another application's, listed, as that one declared it.
+        assert_eq!(t.decide(&me, "app.acme.todo.list"), Decision::Allow);
+        // Topics: subscribing is decided by the topic.
+        assert_eq!(t.decide(&me, "harnix.subscribe"), Decision::Allow);
+        assert_eq!(t.decide(&me, &topic("harnix.sessions.status")), Decision::Allow);
+        assert_eq!(t.decide(&me, &topic("harnix.process")), Decision::Refuse(OUTSIDE_HUB));
+        // So what it is told it reaches is what it reaches.
+        assert_eq!(
+            t.reachable(&me),
+            ["app.acme.notes.echo", "app.acme.todo.list", "harnix.subscribe", "session.create", "settings.write"]
+        );
+        assert_eq!(t.reachable_topics(&me), ["app.acme.notes.ticks", "harnix.sessions.status"]);
+        // A compiled-in module is not narrowed by any of this.
+        assert_eq!(t.decide(&module("probe"), "harnix.hello"), Decision::Allow);
+
+        // Withdrawn, it stays a runtime principal and reaches nothing at all.
+        t.withdraw_app("acme.notes");
+        assert_eq!(t.decide(&me, "session.create"), Decision::Refuse(OUTSIDE_HUB));
+        assert!(t.reachable(&me).iter().all(|m| DECIDED_BY_TOPIC.contains(m)), "{:?}", t.reachable(&me));
     }
 
     #[test]

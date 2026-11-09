@@ -9,6 +9,12 @@
 //! in, trusted like the kernel. It is a subject of its own anyway, so the
 //! table can say which module may call what and the audit can say which one
 //! did: that is a guard against mistakes, not against the module (design §14).
+//!
+//! A runtime application acting as itself is a `Module` too, by its
+//! application id — a package's code, not the author's, and so not trusted
+//! like one: the authorization table holds it to what its manifest's `hub`
+//! lists (`harnix_authz::MethodTable::reach_only`). It is still the one
+//! subject, so the table and the audit see it where they see every module.
 
 use serde::{Deserialize, Serialize};
 
@@ -23,7 +29,7 @@ pub enum Subject {
     /// user on one machine — not a tenant.
     Device { id: String },
     /// A compile-time module, by its manifest id, calling through its
-    /// `ModuleContext`.
+    /// `ModuleContext`; or a runtime application acting as itself, by its id.
     Module { id: String },
 }
 

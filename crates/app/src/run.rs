@@ -521,7 +521,8 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
                     }
                 }
                 app_gate.unbind(&record.declared);
-                record.disable("start", format!("{e:#}"), &mut authorizer.table_mut());
+                authorizer.retract(&harnix_contract::Subject::Kernel, &record.declared, "its module did not start");
+                record.disabled("start", format!("{e:#}"));
                 hub.module_disabled(&record.manifest.id).await;
                 if !record.status.scenes.is_empty() {
                     record.status.note = Some(format!(
