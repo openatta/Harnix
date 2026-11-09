@@ -1086,6 +1086,11 @@ quote_api_key = { credential = "helm/quote-api" }
 握手拿到的 `credential`：`Authorization: Bearer …` 或 `?credential=`；回环上也认进程令牌和启动链接的
 cookie。一帧最大 16 MiB，一次上传最大 32 MiB。
 
+`split_streams` 的 `/rpc`、`/respond` 一个请求一个答，答的是 JSON-RPC 帧，和 `/ws` 上同一请求的答一样：`id` 是请求的
+`id`（读不出时为 `null`），错误带 `code`、`message` 和 `data`。先读帧、后认凭据：超过上限的帧（-32600，消息里写上限）、
+不是 JSON 的（-32700）、没有 `method` 的（-32600）答 HTTP 200 和错误帧，带不带凭据都一样；帧读得出、凭据缺了或不认识
+（进程重启过、闲置太久、设备被撤销）答 HTTP 401，正文仍是错误帧（`HANDSHAKE_REFUSED`，-31001），也带请求的 `id`。
+
 ### 21.2 方法
 
 **权威清单在运行时**：`harnix.reachable` 列出当前主体能调的；`harnix.diagnostics` 列出全部（含主体、
