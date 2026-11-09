@@ -11,12 +11,11 @@
 // are the recorded ones. Changing one does not change what comes back — see
 // `fixtures/recordings/README.md`.
 
-import { connect, defineSuite, finish, inconclusive } from "@harnix/testkit";
-
-const assert = (cond, message) => { if (!cond) throw new Error(message); };
+import type { AttachResult } from "@harnix/core/protocol";
+import { type TestClient, assert, connect, defineSuite, finish, inconclusive } from "@harnix/testkit";
 
 /** A session bound to one fixture, and the prompt it was recorded with. */
-async function replaying(client, fixture, message) {
+async function replaying(client: TestClient, fixture: string, message: string): Promise<string> {
   const created = await client.call("session.create", {
     scene: "harnix",
     project_root: client.project,
@@ -27,7 +26,7 @@ async function replaying(client, fixture, message) {
   return created.session_id;
 }
 
-const settled = (client, sessionId) => client.waitFor(
+const settled = (client: TestClient, sessionId: string) => client.waitFor(
   (f) => f.method === "harnix.turn_settled" && f.params.session_id === sessionId,
   { timeout: 60_000, describe: "the replayed turn to settle" },
 );
@@ -168,7 +167,7 @@ defineSuite("agent", { feature: "sessions" }, {
       // Without this a session looks stuck while it walks towards a silent
       // refusal — the engine denies an unanswered ask after its timeout.
       const late = await connect(backend, { topology: client.topology });
-      const attached = await late.call("harnix.attach", { session_id: session });
+      const attached: AttachResult = await late.call("harnix.attach", { session_id: session });
       assert(attached.pending_prompts.length >= 1, "a late client was not told what is waiting");
       assert(
         attached.pending_prompts.some((p) => p.prompt_id === ask.params.event.prompt_id),

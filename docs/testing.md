@@ -31,7 +31,7 @@ scripts/prune.sh                 # 清构建缓存：增量缓存全删，超过
 | `rust` | Harnix 各 crate 的 `cargo test`；`harnix-wasm`、`harnix-app-host`、`harnix-apps` 各带 `compile` 再跑一遍；`harnix-app` 带 `apps` 再跑一遍 | — |
 | `clippy` | 同样的 crate 与 feature，`-D warnings`、`--no-deps` | — |
 | `offline` | `tests/crate-metadata.mjs`（版本、许可、Agix 钉，以及 SDK 文档写的版本）、`app-scripts`、`style-lint`、`readme-pairing`、`recordings`（录像名两头都对得上，§6）；桌面壳的 `check-no-ipc`、`check-rename` | — |
-| `frontend` | 各包的 typecheck 与 Vitest；协议类型对着 Rust 重新生成再比；覆盖表 `--check`；插件 APP 带的 SDK 与 ui-kit 是否最新（`tests/app-ui-vendored.mjs`） | — |
+| `frontend` | 各包的 typecheck（含 `tests/live`，与各包一样 `strict`）与 Vitest；协议类型对着 Rust 重新生成再比；覆盖表 `--check`；插件 APP 带的 SDK 与 ui-kit 是否最新（`tests/app-ui-vendored.mjs`） | — |
 | `api` | LIVE 的 `api` project，回放，两种拓扑；`HARNIX_COVERAGE_GATE=1`（§7）；真录的录像在其中严格回放（`strict-replay.spec.ts`，§3） | — |
 | `template` | 把 `templates/app` 拷出去，当一个新应用离线构建（`target/template`） | — |
 | `live` | `api` project 连真模型，两种拓扑 | `.env` 里有模型凭据 |

@@ -1,14 +1,11 @@
-// @ts-nocheck — moved over from JavaScript unchanged; new suites are typed.
 // The handshake, and what happens without one.
 //
 // Nothing may be called before it, and a mismatch is refused with a reason
 // rather than downgraded — a half-compatible client produces bug reports
 // nobody can act on.
 
-import { connect, defineSuite } from "@harnix/testkit";
-import { PROTOCOL_VERSION, CONTRIB_API_VERSION } from "@harnix/core/protocol";
-
-const assert = (cond, message) => { if (!cond) throw new Error(message); };
+import { type Backend, assert, connect, defineSuite } from "@harnix/testkit";
+import { PROTOCOL_VERSION, CONTRIB_API_VERSION, type CallError } from "@harnix/core/protocol";
 
 defineSuite("handshake", { feature: "connection" }, {
   tests: {
@@ -40,7 +37,7 @@ defineSuite("handshake", { feature: "connection" }, {
       const ws = new WebSocket(
         `ws://127.0.0.1:${backend.port}/ws?token=${encodeURIComponent(backend.token)}`);
       await new Promise((r) => { ws.onopen = r; });
-      const answer = await new Promise((resolve) => {
+      const answer = await new Promise<{ error?: CallError }>((resolve) => {
         ws.onmessage = (e) => resolve(JSON.parse(e.data));
         ws.send(JSON.stringify({ jsonrpc: "2.0", method: "harnix.hello", params: {}, id: 1 }));
       });
@@ -76,7 +73,7 @@ defineSuite("handshake", { feature: "connection" }, {
   },
 });
 
-async function rawHandshake(backend, overrides) {
+async function rawHandshake(backend: Backend, overrides: Record<string, unknown>) {
   const body = {
     token: backend.token, protocol_version: PROTOCOL_VERSION, contrib_api_version: CONTRIB_API_VERSION,
     topology: "single_duplex", ...overrides,

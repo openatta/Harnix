@@ -106,7 +106,7 @@ test("a tap nobody reads holds nothing up, and catches up when read", TAGS, asyn
 
   const drained = await api.call("app.fleet.drain", { catch_up: true });
   expect(drained.lagged.length, "the tap was told it fell behind").toBeGreaterThan(0);
-  expect(drained.lagged[0]).toBeLessThan(sentToClient.at(-1).params.seq);
+  expect(drained.lagged[0]).toBeLessThan(sentToClient.at(-1)!.params.seq);
   // What the buffer no longer has, the transcript does: the turn settled,
   // and history covers it.
   expect(drained.history_total).toBeGreaterThanOrEqual(2);

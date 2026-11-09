@@ -10,8 +10,7 @@
 // `tests/package-e2e.mjs` runs the whole path with a real package.
 
 import { METHOD_NOT_FOUND, REFUSED } from "@harnix/core/protocol";
-import { defineSuite } from "@harnix/testkit";
-const assert = (cond, message) => { if (!cond) throw new Error(message); };
+import { assert, defineSuite } from "@harnix/testkit";
 
 defineSuite("plugins", { feature: "packages" }, {
   tests: {
@@ -68,7 +67,7 @@ defineSuite("plugins", { feature: "packages" }, {
         // its own paths would still happily report finds.
         const result = await client.call("harnix.plugins.list");
         for (const c of result.contributes) {
-          const listed = result.plugins.find((p) => p.name === c.plugin);
+          const listed = result.plugins.find((p: { name: string }) => p.name === c.plugin);
           assert(listed, `${c.plugin} contributes but is not installed`);
           assert(c.root === listed.root, `${c.plugin} read from ${c.root}, engine says ${listed.root}`);
         }

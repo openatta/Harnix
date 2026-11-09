@@ -5,9 +5,8 @@
 // that asked for it, and its result reaches every client watching — including
 // one that arrived halfway through.
 
-import { connect, defineSuite, finish, inconclusive, sleep } from "@harnix/testkit";
-
-const assert = (cond, message) => { if (!cond) throw new Error(message); };
+import type { HistoryMessage } from "@harnix/core/protocol";
+import { type Frame, type TestClient, assert, connect, defineSuite, finish, inconclusive, sleep } from "@harnix/testkit";
 
 /** Say something short and wait for it to settle.
  *
@@ -23,7 +22,7 @@ const assert = (cond, message) => { if (!cond) throw new Error(message); };
  * would make the suite fail for something it does not test, and reporting it
  * green would be worse.
  */
-async function turn(client, sessionId, message, timeout = 180_000) {
+async function turn(client: TestClient, sessionId: string, message: string, timeout = 180_000): Promise<Frame> {
   await client.call("harnix.send", { session_id: sessionId, message });
   try {
     return await client.waitFor(
@@ -91,12 +90,12 @@ defineSuite("turns", { feature: "sessions" }, {
       do {
         history = await client.call("session.history",
           { session_id: created.session_id, offset: 0, limit: 50 });
-        if (history.messages.some((m) => m.role === "assistant")) break;
+        if (history.messages.some((m: HistoryMessage) => m.role === "assistant")) break;
         await sleep(250);
       } while (Date.now() < deadline);
 
       assert(history.total >= 2, `${history.total} messages after one exchange`);
-      const roles = history.messages.map((m) => m.role);
+      const roles = history.messages.map((m: HistoryMessage) => m.role);
       assert(roles.includes("user"), `roles are ${roles.join(", ")}`);
       assert(roles.includes("assistant"),
         `the assistant reply never reached the transcript; roles are ${roles.join(", ")}`);

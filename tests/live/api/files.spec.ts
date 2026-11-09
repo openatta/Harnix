@@ -4,9 +4,7 @@
 // under `$HOME` or an explicitly configured root, and refuses everything
 // else. A picker that can be walked out of is a file browser.
 
-import { defineSuite } from "@harnix/testkit";
-
-const assert = (cond, message) => { if (!cond) throw new Error(message); };
+import { assert, defineSuite } from "@harnix/testkit";
 
 defineSuite("files", { feature: "session-space" }, {
   tests: {
@@ -40,14 +38,14 @@ defineSuite("files", { feature: "session-space" }, {
       const created = await client.call("harnix.projects.create", { name });
       assert(created.path?.endsWith(name), `created ${created.path}`);
       const listing = await client.call("harnix.listDirectory", {});
-      assert(listing.entries.some((e) => e.name === name), "the new project is not listed");
+      assert(listing.entries.some((e: { name: string }) => e.name === name), "the new project is not listed");
     },
 
     "file mentions resolve inside a project": async ({ backend, client }) => {
       const result = await client.call("harnix.files",
         { project_root: client.project, query: "Cargo" });
       assert(Array.isArray(result.files), "no file list");
-      assert(result.files.some((f) => f.path.includes("Cargo")), "Cargo.toml was not found");
+      assert(result.files.some((f: { path: string }) => f.path.includes("Cargo")), "Cargo.toml was not found");
     },
 
     "an upload grant is one-shot and the payload lands on disk": async ({ client, backend }) => {

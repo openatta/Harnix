@@ -5,9 +5,13 @@
 // itself. `tests/remote-smoke.mjs` checks that a reachable listener actually
 // demands it.
 
-import { defineSuite } from "@harnix/testkit";
+import { assert, defineSuite } from "@harnix/testkit";
 
-const assert = (cond, message) => { if (!cond) throw new Error(message); };
+/** A row of `harnix.devices.list`. */
+interface Device {
+  id: string;
+  [key: string]: unknown;
+}
 
 defineSuite("devices", { feature: "authz" }, {
   tests: {
@@ -39,12 +43,12 @@ defineSuite("devices", { feature: "authz" }, {
       assert(again, "the same code paired a second device");
 
       const { devices } = await client.call("harnix.devices.list");
-      assert(devices.some((d) => d.id === paired.device.id), "the paired device is not listed");
+      assert(devices.some((d: Device) => d.id === paired.device.id), "the paired device is not listed");
 
       const revoked = await client.call("harnix.devices.revoke", { device_id: paired.device.id });
       assert(revoked.revoked === true, "revoking reported nothing");
       const after = await client.call("harnix.devices.list");
-      assert(!after.devices.some((d) => d.id === paired.device.id), "the device survived revocation");
+      assert(!after.devices.some((d: Device) => d.id === paired.device.id), "the device survived revocation");
     },
 
     "a code that was never issued is refused the same way as a spent one": async ({ client }) => {

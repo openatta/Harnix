@@ -1,4 +1,3 @@
-// @ts-nocheck — moved over from JavaScript unchanged; new suites are typed.
 // The one admission point.
 //
 // Everything not written down is refused, and everything refused says why.
@@ -6,8 +5,7 @@
 // cannot tell them apart reports the wrong bug.
 
 import { METHOD_NOT_FOUND, REFUSED } from "@harnix/core/protocol";
-import { defineSuite } from "@harnix/testkit";
-const assert = (cond, message) => { if (!cond) throw new Error(message); };
+import { assert, defineSuite } from "@harnix/testkit";
 
 defineSuite("authz", { feature: "authz" }, {
   tests: {
@@ -35,12 +33,13 @@ defineSuite("authz", { feature: "authz" }, {
     },
 
     "the hub's own semantics are not reachable around it": async ({ client }) => {
-      for (const [method, expect] of [
+      const reachedBy: [string, RegExp][] = [
         ["session.run_turn", /harnix\.send/],
         ["session.subscribe", /harnix\.attach/],
         ["session.unsubscribe", /harnix\.detach/],
         ["daemon.subscribeEvents", /host events/i],
-      ]) {
+      ];
+      for (const [method, expect] of reachedBy) {
         const e = await client.refused(method, {});
         assert(e, `${method} was allowed`);
         assert(expect.test(e.message), `${method}: says "${e.message}"`);

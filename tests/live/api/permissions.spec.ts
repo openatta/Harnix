@@ -16,9 +16,8 @@
 // So the mode is set here, and the inconclusive message no longer claims to
 // know something it cannot see.
 
-import { connect, defineSuite, finish, inconclusive } from "@harnix/testkit";
-
-const assert = (cond, message) => { if (!cond) throw new Error(message); };
+import type { AttachResult } from "@harnix/core/protocol";
+import { type Frame, assert, connect, defineSuite, finish, inconclusive } from "@harnix/testkit";
 
 defineSuite("permissions", { feature: "sessions" }, {
   // Superseded by `13-agent`, which does this against a recorded fixture and
@@ -49,7 +48,7 @@ defineSuite("permissions", { feature: "sessions" }, {
           + "Do this now. Do not describe it, do not ask, just call the tool.",
       });
 
-      let ask = null;
+      let ask: Frame;
       try {
         ask = await client.waitFor(
           (f) => f.method === "harnix.event"
@@ -104,7 +103,7 @@ defineSuite("permissions", { feature: "sessions" }, {
           + "Do this now. Do not describe it, do not ask, just call the tool.",
       });
 
-      let ask = null;
+      let ask: Frame;
       try {
         ask = await client.waitFor(
           (f) => f.method === "harnix.event" && f.params.event.kind === "prompt",
@@ -117,7 +116,7 @@ defineSuite("permissions", { feature: "sessions" }, {
       // A client opening the session now has to be told what is waiting, or
       // the session looks stuck while it walks towards a silent refusal.
       const late = await connect(backend, { topology: client.topology });
-      const attached = await late.call("harnix.attach", { session_id: created.session_id });
+      const attached: AttachResult = await late.call("harnix.attach", { session_id: created.session_id });
       assert(attached.pending_prompts.length >= 1,
         "a late client was not told about the unanswered ask");
       assert(attached.pending_prompts.some((p) => p.prompt_id === ask.params.event.prompt_id),
