@@ -14,7 +14,7 @@ import type { Page } from "@playwright/test";
 import { type Backend, type TestClient, connect, expect, test, topology } from "@harnix/testkit";
 
 import { SHOWCASE_CHATS, SHOWCASE_ID, showcasePackage, startApps } from "../api/apps-host";
-import { newSession, open, openSettings, reply, say, watchConsole } from "./page";
+import { newSession, open, openSettings, reply, say, settingsSection, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:apps-inline", "@layer:ui"] };
 
@@ -168,14 +168,14 @@ test("its chats space's sessions are grouped as its backend answers", TAGS, asyn
   await expect(cards.locator(`[data-sid="${plain!.session_id}"]`)).toHaveCount(0);
   // Its first space's left column is its own frame: nothing of the shell's list, grouped or not.
   await page.locator(`#side [data-space="${SHOWCASE_ID}"]`).click();
-  await expect(page.locator(`iframe.hx-frame[data-app="${SHOWCASE_ID}"][data-point="space.sidebar"]`)).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator(`[data-testid="surface-frame"][data-app="${SHOWCASE_ID}"][data-point="space.sidebar"]`)).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('#sessions [data-testid="space-group"]')).toHaveCount(0);
 });
 
 async function applications(page: Page): Promise<void> {
   await openSettings(page);
-  await page.locator('.settings-nav [data-section="apps"]').click();
-  await expect(page.locator(".settings-page")).toBeVisible();
+  await settingsSection(page, "apps").click();
+  await expect(page.getByTestId("settings-page")).toBeVisible();
 }
 
 test("its space carries the application mark, which the settings turn off and on", TAGS, async ({ page }) => {
@@ -220,7 +220,7 @@ test("Settings → Applications shows its permissions, and clears what it keeps"
   // Escape closes the question, and only the question.
   await page.keyboard.press("Escape");
   await expect(asked).toHaveCount(0);
-  await expect(page.locator(".settings-page")).toBeVisible();
+  await expect(page.getByTestId("settings-page")).toBeVisible();
   expect((await withApi((api) => api.call(M("notes.list")))).notes.length).toBeGreaterThan(0);
 
   await row.getByTestId("app-clear").click();

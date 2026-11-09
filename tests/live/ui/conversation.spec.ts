@@ -10,7 +10,7 @@
 import { type Backend, dropSessions, expect, test } from "@harnix/testkit";
 
 import { startTestApp } from "../api/testapp";
-import { newSession, open, reply, say, watchConsole } from "./page";
+import { connected, newSession, open, reply, say, sessionRow, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:sessions", "@layer:ui"] };
 
@@ -64,7 +64,7 @@ test("a permission ask is answerable from the flow, with a countdown", TAGS, asy
   await expect(ask.locator("button")).toHaveCount(4);
   // The card says what the call is, in one line; the row above it waits on the answer, not "running" (review G21).
   const row = page.getByTestId("conv-tool").first();
-  await expect(ask.getByTestId("conv-ask-args")).toHaveText((await row.locator(".hx-tool-arg").textContent())!.trim());
+  await expect(ask.getByTestId("conv-ask-args")).toHaveText((await row.getByTestId("conv-tool-args").textContent())!.trim());
   await expect(ask.getByTestId("conv-ask-args")).not.toBeEmpty();
   await expect(row).toHaveAttribute("data-state", "awaiting");
   await expect(row).toContainText(/awaiting approval|待批准/);
@@ -141,7 +141,7 @@ test("a compaction is a row of its own: told with its counts as it happens, and 
   await expect(live).toContainText(/\d+ (条 )?→ \d+/);
 
   await page.reload();
-  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
+  await connected(page);
   await page.evaluate((sid) => (window as any).harnix.app.open({ instance: "system", sessionId: sid }), id);
   // From the transcript: the messages the compaction put in place of the older ones.
   await expect(page.getByTestId("conv-compact").filter({ hasText: /压缩后的消息|Compacted message/ }).first()).toBeVisible({ timeout: 15_000 });
@@ -216,7 +216,7 @@ test("a draft is kept per session, and kept through a disconnect", TAGS, async (
   await page.getByTestId("conv-input").fill("half a thought");
   await newSession(page, "says-ready");
   await expect(page.getByTestId("conv-input")).toHaveValue("");
-  await page.locator(`#side .srow[data-sid="${first}"]`).click();
+  await sessionRow(page, first).click();
   await expect(page.getByTestId("conv-input")).toHaveValue("half a thought");
   // Offline: nothing can be sent, and nothing typed is lost.
   await page.evaluate(() => (window as unknown as { harnix: { client: { close(): void } } }).harnix.client.close());
@@ -231,8 +231,8 @@ test("a session reopens from the sidebar after a reload, with its history", TAGS
   await say(page, "Say exactly: fixture ready");
   await expect(reply(page)).toContainText(/fixture ready/i, { timeout: 30_000 });
   await page.reload();
-  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
-  await page.locator(`#side .srow[data-sid="${id}"]`).click();
+  await connected(page);
+  await sessionRow(page, id).click();
   await expect(reply(page)).toContainText(/fixture ready/i);
   await expect(page.locator('[data-testid="conv-message"]').first()).toContainText("Say exactly: fixture ready");
 });

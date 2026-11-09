@@ -11,7 +11,7 @@ import { cpSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { dropSessions, expect, RECORDINGS, ROOT, test } from "@harnix/testkit";
 
-import { newSession, open, reply, say, watchConsole } from "./page";
+import { connected, newSession, open, reply, say, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:sessions", "@layer:ui"] };
 
@@ -95,7 +95,7 @@ test("what the model thought is a row of its own, opened on a click", TAGS, asyn
   await expect(think).toHaveAttribute("aria-expanded", "false");
   await think.click();
   await expect(think).toHaveAttribute("aria-expanded", "true");
-  await expect(page.locator(".hx-cv-thtext").first()).toContainText(/fixture ready/i);
+  await expect(page.getByTestId("conv-think-text").first()).toContainText(/fixture ready/i);
 });
 
 test("a reply's markdown is drawn: a code block, a table, a link", TAGS, async ({ page }) => {
@@ -127,7 +127,7 @@ test("an image sent along is drawn with the message when the session is opened a
     }, id);
   await expect.poll(running, { timeout: 30_000 }).toBe(false);
   await page.reload();
-  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
+  await connected(page);
   await page.evaluate((sid) => (window as any).harnix.app.open({ instance: "system", sessionId: sid }), id);
   await expect(page.getByTestId("conv-image").first()).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("conv-image").first().locator("img")).toHaveAttribute("src", /^(data:image|blob:|\/)/);
@@ -152,7 +152,7 @@ test("what the model was sent apart from the messages is a row of its own, read 
   // A replayed session records nothing of its own: the envelope is read from a recording put in its place.
   cpSync(join(RECORDINGS, "calls-a-tool"), join(SCRATCH, "agix", "recordings", id), { recursive: true });
   await page.reload();
-  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
+  await connected(page);
   await page.evaluate((sid) => (window as any).harnix.app.open({ instance: "system", sessionId: sid }), id);
   const row = page.getByTestId("conv-request").first();
   await expect(row).toBeVisible({ timeout: 15_000 });

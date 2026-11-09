@@ -28,12 +28,12 @@ import { open, watchConsole } from "./page";
 const TAGS = { tag: ["@feature:apps", "@layer:ui"] };
 const SPACE = SHOWCASE_ID;
 
-const frameOf = (page: Page, point: string): FrameLocator => page.frameLocator(`iframe.hx-frame[data-app="${SHOWCASE_ID}"][data-point="${point}"]`);
+const frameOf = (page: Page, point: string): FrameLocator => page.frameLocator(`[data-testid="surface-frame"][data-app="${SHOWCASE_ID}"][data-point="${point}"]`);
 const surfaceOf = (page: Page, point: string) => page.locator(`[data-testid="surface"][data-app="${SHOWCASE_ID}"][data-point="${point}"]`);
 
 /** The frame itself, to look inside it as its own page would. */
 async function frameHandle(page: Page, point: string): Promise<Frame> {
-  const handle = await page.locator(`iframe.hx-frame[data-app="${SHOWCASE_ID}"][data-point="${point}"]`).elementHandle();
+  const handle = await page.locator(`[data-testid="surface-frame"][data-app="${SHOWCASE_ID}"][data-point="${point}"]`).elementHandle();
   const frame = await handle!.contentFrame();
   return frame!;
 }
@@ -77,7 +77,7 @@ test.describe("an application in isolated frames", () => {
     const frame = await board(page);
     // In a frame, not in the page: nothing of it is in the shell's document.
     await expect(page.locator('[data-testid="showcase-board"]')).toHaveCount(0);
-    const iframe = page.locator(`iframe.hx-frame[data-app="${SHOWCASE_ID}"][data-point="space"]`);
+    const iframe = page.locator(`[data-testid="surface-frame"][data-app="${SHOWCASE_ID}"][data-point="space"]`);
     await expect(iframe).toHaveAttribute("sandbox", "allow-scripts allow-forms");
     await expect(iframe).toHaveAttribute("src", `/apps/${SHOWCASE_ID}/ui/frame/index.html`);
 
@@ -113,7 +113,7 @@ test.describe("an application in isolated frames", () => {
     expect(noted).toEqual([expect.objectContaining({ owner: SHOWCASE_ID, id: "harnix.apps.list" })]);
 
     await toSpace(page, "system");
-    await page.locator('[data-testid="system-console"] [data-tab="apps"]').click();
+    await page.locator('[data-testid="system-console"] [role="tab"][data-tab="apps"]').click();
     const row = page.locator(`[data-testid="system-app"][data-app="${SHOWCASE_ID}"]`);
     await expect(row.locator('[data-field="surfaces"]')).toHaveText(/^\d+ · 0$/, { timeout: 15_000 });
     await row.click();
@@ -184,7 +184,7 @@ test.describe("an application in isolated frames", () => {
     const surface = surfaceOf(page, "space");
     // The frame's `src`, as the shell sets it from here on.
     await page.evaluate((app) => {
-      const iframe = document.querySelector(`iframe.hx-frame[data-app="${app}"][data-point="space"]`)!;
+      const iframe = document.querySelector(`[data-testid="surface-frame"][data-app="${app}"][data-point="space"]`)!;
       const srcs: (string | null)[] = ((window as any).srcs = []);
       new MutationObserver(() => srcs.push(iframe.getAttribute("src"))).observe(iframe, { attributes: true, attributeFilter: ["src"] });
     }, SHOWCASE_ID);
@@ -194,7 +194,7 @@ test.describe("an application in isolated frames", () => {
     await expect(surface).toHaveAttribute("data-state", "failed", { timeout: 10_000 });
     await expect(surface.getByTestId("surface-reason")).toContainText(/navigated|跳转/);
     expect(await page.evaluate(() => (window as any).srcs)).toContain("about:blank");
-    await expect(page.locator(`iframe.hx-frame[data-app="${SHOWCASE_ID}"][data-point="space"]`)).toHaveCount(0);
+    await expect(page.locator(`[data-testid="surface-frame"][data-app="${SHOWCASE_ID}"][data-point="space"]`)).toHaveCount(0);
     // Where it went was never reached: the page's own `frame-src 'self'` keeps a frame's navigation
     // to this origin, so what it carried in the address goes nowhere else.
     await page.waitForTimeout(500);
@@ -203,7 +203,7 @@ test.describe("an application in isolated frames", () => {
     const failures = await page.evaluate(() => (window as any).harnix.app.registry.refusals().filter((r: any) => r.point === "surface" && r.owner === "example.showcase"));
     expect(failures.length).toBeGreaterThanOrEqual(1);
     await toSpace(page, "system");
-    await page.locator('[data-testid="system-console"] [data-tab="apps"]').click();
+    await page.locator('[data-testid="system-console"] [role="tab"][data-tab="apps"]').click();
     const row = page.locator(`[data-testid="system-app"][data-app="${SHOWCASE_ID}"]`);
     await expect(row.locator('[data-field="surfaces"]')).toHaveText(/ · 1$/, { timeout: 15_000 });
   });
@@ -297,7 +297,7 @@ test.describe("an application in isolated frames", () => {
     }
     await expect(surface).toHaveAttribute("data-state", "aside", { timeout: 10_000 });
     await expect(surface.getByTestId("surface-aside")).toBeVisible();
-    await expect(page.locator(`iframe.hx-frame[data-app="${SHOWCASE_ID}"][data-point="space"]`)).toHaveCount(0);
+    await expect(page.locator(`[data-testid="surface-frame"][data-app="${SHOWCASE_ID}"][data-point="space"]`)).toHaveCount(0);
     // In the diagnostics too (the same failure once: the registry keeps each reason once).
     const failures = await page.evaluate(() => (window as any).harnix.app.registry.refusals().filter((r: any) => r.point === "surface" && r.owner === "example.showcase"));
     expect(failures.length).toBeGreaterThanOrEqual(1);
@@ -321,7 +321,7 @@ test.describe("an application in isolated frames", () => {
     const modal = frameOf(page, "modal");
     await modal.getByTestId("showcase-compose-text").click({ timeout: 15_000 });
     await page.keyboard.press("Escape");
-    await expect(page.locator("#veil")).not.toHaveClass(/on/);
+    await expect(page.locator("#veil")).toHaveAttribute("data-state", "closed");
     await expect(escapes).toHaveText("1");
 
     // The shell's question over the board: Escape answers it, and goes nowhere else.
@@ -339,7 +339,7 @@ test.describe("an application in isolated frames", () => {
     await expect(settings.getByTestId("showcase-state")).toBeVisible({ timeout: 15_000 });
     await settings.getByTestId("showcase-state").click();
     await page.keyboard.press("Escape");
-    await expect(page.locator("#veil")).not.toHaveClass(/on/);
+    await expect(page.locator("#veil")).toHaveAttribute("data-state", "closed");
     await expect(escapes).toHaveText("1");
   });
 
@@ -351,7 +351,7 @@ test.describe("an application in isolated frames", () => {
     const modal = frameOf(page, "modal");
     await modal.getByTestId("showcase-compose-text").fill("from the modal");
     await modal.getByTestId("showcase-compose-pin").click();
-    await expect(page.locator("#veil")).not.toHaveClass(/on/);
+    await expect(page.locator("#veil")).toHaveAttribute("data-state", "closed");
     await expect(frame.getByTestId("showcase-note")).toHaveText(["from the frame", "from another client", "from the modal"]);
 
     await frame.getByTestId("showcase-notify").click();
@@ -362,11 +362,11 @@ test.describe("an application in isolated frames", () => {
     const question = page.getByTestId("surface-question");
     await expect(question).toBeVisible();
     await expect(page.getByTestId("surface-question-app")).toContainText(/Showcase|示例应用/);
-    expect(await page.locator(`iframe.hx-frame[data-app="${SHOWCASE_ID}"][data-point="space"]`).evaluate((f) => (f as HTMLIFrameElement).inert)).toBe(true);
+    expect(await page.locator(`[data-testid="surface-frame"][data-app="${SHOWCASE_ID}"][data-point="space"]`).evaluate((f) => (f as HTMLIFrameElement).inert)).toBe(true);
     await page.getByTestId("surface-question-yes").click();
     await expect(frame.getByTestId("showcase-confirmed")).toHaveText("yes");
     await expect(frame.getByTestId("showcase-notes-empty")).toBeVisible();
-    expect(await page.locator(`iframe.hx-frame[data-app="${SHOWCASE_ID}"][data-point="space"]`).evaluate((f) => (f as HTMLIFrameElement).inert)).toBe(false);
+    expect(await page.locator(`[data-testid="surface-frame"][data-app="${SHOWCASE_ID}"][data-point="space"]`).evaluate((f) => (f as HTMLIFrameElement).inert)).toBe(false);
   });
 
   test("a theme change reaches the frame", TAGS, async ({ page }) => {
@@ -387,14 +387,14 @@ test.describe("an application in isolated frames", () => {
     await open(page, backend.url);
     const frame = await board(page);
     await frame.getByTestId("showcase-scratch").fill("kept while away");
-    await page.locator(`iframe.hx-frame[data-app="${SHOWCASE_ID}"][data-point="space"]`).evaluate((f) => ((f as any).__mark = "same"));
+    await page.locator(`[data-testid="surface-frame"][data-app="${SHOWCASE_ID}"][data-point="space"]`).evaluate((f) => ((f as any).__mark = "same"));
     await toSpace(page, "sessions");
     // Hidden, not gone.
     await expect(page.locator(`[data-testid="surface-kept"][data-point="space"]`)).toBeHidden();
-    await expect(page.locator(`iframe.hx-frame[data-app="${SHOWCASE_ID}"][data-point="space"]`)).toHaveCount(1);
+    await expect(page.locator(`[data-testid="surface-frame"][data-app="${SHOWCASE_ID}"][data-point="space"]`)).toHaveCount(1);
     await toSpace(page, SPACE);
     await expect(frame.getByTestId("showcase-scratch")).toHaveValue("kept while away");
-    expect(await page.locator(`iframe.hx-frame[data-app="${SHOWCASE_ID}"][data-point="space"]`).evaluate((f) => (f as any).__mark)).toBe("same");
+    expect(await page.locator(`[data-testid="surface-frame"][data-app="${SHOWCASE_ID}"][data-point="space"]`).evaluate((f) => (f as any).__mark)).toBe("same");
 
     // The left column: the space's notes and sessions; a new session lands in the space.
     const side = frameOf(page, "space.sidebar");
@@ -446,7 +446,7 @@ test.describe("an application in isolated frames", () => {
     await open(page, backend.url);
     const frame = await board(page);
     await expect(frame.getByTestId("showcase-board")).toBeVisible();
-    const iframe = page.locator(`iframe.hx-frame[data-app="${SHOWCASE_ID}"][data-point="space"]`);
+    const iframe = page.locator(`[data-testid="surface-frame"][data-app="${SHOWCASE_ID}"][data-point="space"]`);
     await iframe.evaluate((f) => ((f as any).__mark = "before"));
     const api = await connect(backend);
     let dir: string;
@@ -495,7 +495,7 @@ test.describe("who signed it decides where it runs", () => {
       await toSpace(page, SPACE);
       // In the page: the module's board, on the shell's React, and no frame at all.
       await expect(page.getByTestId("showcase-board")).toBeVisible({ timeout: 15_000 });
-      await expect(page.locator("iframe.hx-frame")).toHaveCount(0);
+      await expect(page.locator('[data-testid="surface-frame"]')).toHaveCount(0);
 
       await api.call("harnix.apps.uninstall", { id: SHOWCASE_ID });
       const isolated = trusted("isolated", (m) => m.replace("[interface]\n", "[interface]\nisolate = true\n"));

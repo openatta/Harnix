@@ -36,7 +36,7 @@ test.afterAll(async () => {
  * it is resolved and another when it is clicked.
  */
 async function runningTask(page: Page, sid: string) {
-  const any = page.locator(`[data-testid="system-agents"] .tgroup[data-sid="${sid}"] [data-task][data-status="running"]`).first();
+  const any = page.locator(`[data-testid="system-agents"] [data-testid="system-agent-group"][data-sid="${sid}"] [data-task][data-status="running"]`).first();
   await expect(any).toBeVisible({ timeout: 15_000 });
   const id = (await any.getAttribute("data-task"))!;
   return page.locator(`[data-testid="system-agents"] [data-task="${id}"]`);
@@ -69,7 +69,7 @@ test("system-tasks: a running task's output grows in the tasks tab and, followed
   // at different moments of it.
   const width = async (selector: string) => (await page.locator(selector).first().boundingBox())!.width;
   await expect
-    .poll(async () => (await width('[data-testid="task-output-text"]')) / (await width('[data-testid="system-tasks"] .task.on')), { timeout: 5_000 })
+    .poll(async () => (await width('[data-testid="task-output-text"]')) / (await width('[data-testid="system-task"][data-state="current"]')), { timeout: 5_000 })
     .toBeGreaterThan(0.8);
   // The task's own detail: what it is, how it stands.
   const detail = page.getByTestId("system-task");
@@ -114,7 +114,7 @@ test("system-tasks: a task that outlives its turn is listed as running, and is s
   const row = await runningTask(page, sid);
   const id = (await row.getAttribute("data-task"))!;
   await row.click();
-  const task = page.locator('[data-testid="system-tasks"] .task.on');
+  const task = page.locator('[data-testid="system-task"][data-state="current"]');
   await expect(task).toHaveAttribute("data-status", "running");
   // As DSH has it: the first press arms the button, the second stops.
   await task.getByTestId("task-stop").click();
@@ -137,7 +137,7 @@ test("system-teams: a team's stage and members are drawn under its Agent and on 
   await expect(page.locator('[data-testid="conv-message"]', { hasText: "Team done." })).toBeVisible({ timeout: 30_000 });
 
   await page.locator('#side [data-space="system"]').click();
-  const row = page.locator(`[data-testid="system-agents"] .tgroup[data-sid="${id}"]`);
+  const row = page.locator(`[data-testid="system-agents"] [data-testid="system-agent-group"][data-sid="${id}"]`);
   await row.getByTestId("system-agent-toggle").click();
   const team = row.locator('[data-testid="team-board"] .team[data-team="ui-team"]');
   await expect(team).toHaveAttribute("data-status", "completed", { timeout: 15_000 });
@@ -145,7 +145,7 @@ test("system-teams: a team's stage and members are drawn under its Agent and on 
   await expect(team.locator('.member[data-member="alpha"]')).toHaveAttribute("data-status", "done");
   // And on the Agent's tasks tab.
   await row.getByTestId("system-agent").click();
-  await page.locator('#details .tabs [data-tab="system.tasks"]').click();
+  await page.locator('#details [role="tab"][data-tab="system.tasks"]').click();
   await expect(page.locator('[data-testid="system-tasks"] [data-testid="team-board"] .team[data-team="ui-team"]')).toBeVisible();
 });
 
@@ -161,7 +161,7 @@ test("system-tasks: a running sub-agent is told something from its own detail, a
   await ask.getByTestId("conv-ask-allow").click();
 
   await page.locator('#side [data-space="system"]').click();
-  const row = page.locator(`[data-testid="system-agents"] .tgroup[data-sid="${id}"]`);
+  const row = page.locator(`[data-testid="system-agents"] [data-testid="system-agent-group"][data-sid="${id}"]`);
   const sub = row.getByTestId("system-subagent").first();
   // A row with a task running opens by itself; open it only if it has not.
   const toggle = row.getByTestId("system-agent-toggle");

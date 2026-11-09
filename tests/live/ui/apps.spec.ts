@@ -43,7 +43,7 @@ test("an application's card is drawn in its frame, signed with its id; its modul
   await expect
     .poll(() => page.evaluate(() => (window as any).harnix.app.registry.at("home.card").map((c: any) => c.owner)), { timeout: 15_000 })
     .toContain(SHOWCASE_ID);
-  const frame = page.frameLocator(`iframe.hx-frame[data-app="${SHOWCASE_ID}"][data-point="home.card"]`);
+  const frame = page.frameLocator(`[data-testid="surface-frame"][data-app="${SHOWCASE_ID}"][data-point="home.card"]`);
   const card = frame.getByTestId("showcase-card");
   await expect(card).toBeVisible({ timeout: 15_000 });
   await expect(card).toContainText(/Seven tools|七个工具/);
@@ -63,7 +63,7 @@ test("its space: the board calls the backend, and draws what the backend's topic
   const errors = watchConsole(page);
   await open(page, backend.url);
   await toSpace(page, SHOWCASE_ID);
-  const frame = page.frameLocator(`iframe.hx-frame[data-app="${SHOWCASE_ID}"][data-point="space"]`);
+  const frame = page.frameLocator(`[data-testid="surface-frame"][data-app="${SHOWCASE_ID}"][data-point="space"]`);
   const board = frame.getByTestId("showcase-board");
   await expect(board).toBeVisible({ timeout: 15_000 });
   await expect(frame.getByTestId("showcase-note")).toHaveCount(0);
@@ -102,7 +102,7 @@ test("the system space's Apps tab shows the application's VM, its calls and its 
   await open(page, backend.url);
   await page.locator('#side [data-space="system"]:not(#sessions)').click();
   await expect(page.getByTestId("system-console")).toBeVisible();
-  await page.locator('[data-testid="system-console"] [data-tab="apps"]').click();
+  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="apps"]').click();
   const row = page.locator(`[data-testid="system-app"][data-app="${SHOWCASE_ID}"]`);
   await expect(row).toHaveAttribute("data-state", "running", { timeout: 15_000 });
   await expect(row.locator('[data-field="backend"]')).toHaveText(/Up|运行中/);
@@ -118,7 +118,7 @@ test("the Apps tab in Chinese: a header never breaks a word, the table fits its 
   await page.addInitScript(() => localStorage.setItem("harnix.locale", "zh-CN"));
   await open(page, backend.url);
   await page.locator('#side [data-space="system"]:not(#sessions)').click();
-  await page.locator('[data-testid="system-console"] [data-tab="apps"]').click();
+  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="apps"]').click();
   const table = page.locator('[data-testid="system-apps"] table');
   const row = page.locator(`[data-testid="system-app"][data-app="${SHOWCASE_ID}"]`);
   await expect(row).toBeVisible({ timeout: 15_000 });
@@ -152,9 +152,9 @@ test("disabled, its card is gone from the page", TAGS, async ({ page }) => {
   await expect(page.locator("#hero")).toBeVisible();
   const owners = await page.evaluate(() => (window as any).harnix.app.registry.at("home.card").map((c: any) => c.owner));
   expect(owners).not.toContain(SHOWCASE_ID);
-  await expect(page.locator(`iframe.hx-frame[data-app="${SHOWCASE_ID}"]`)).toHaveCount(0);
+  await expect(page.locator(`[data-testid="surface-frame"][data-app="${SHOWCASE_ID}"]`)).toHaveCount(0);
   // And the Apps tab says it is off.
   await page.locator('#side [data-space="system"]:not(#sessions)').click();
-  await page.locator('[data-testid="system-console"] [data-tab="apps"]').click();
+  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="apps"]').click();
   await expect(page.locator(`[data-testid="system-app"][data-app="${SHOWCASE_ID}"]`)).toHaveAttribute("data-state", "stopped", { timeout: 15_000 });
 });

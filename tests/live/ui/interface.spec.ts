@@ -6,7 +6,7 @@
 
 import { dropSessions, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
-import { flowReference, newSession, open, openFlow, openSettings, say, toFlows, watchConsole } from "./page";
+import { connected, flowReference, newSession, open, openFlow, openSettings, say, sessionRow, settingsSection, toFlows, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:session-space", "@layer:ui"] };
 const SETTINGS = { tag: ["@feature:settings", "@layer:ui"] };
@@ -55,7 +55,7 @@ test("text is readable in both themes, and the theme button switches between the
     expect(background, theme).not.toBe("rgba(0, 0, 0, 0)");
   }
   await page.reload();
-  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
+  await connected(page);
   const before = await page.evaluate(() => document.documentElement.dataset.theme);
   await page.getByTestId("theme-toggle").click();
   await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).not.toBe(before);
@@ -75,7 +75,7 @@ test("the theme chosen in settings applies at once, survives a reload, and follo
   expect(await body(), "the two themes paint the page differently").not.toBe(dark);
 
   await page.reload();
-  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
+  await connected(page);
   await expect.poll(theme).toBe("light");
 
   // Back to the system's: the page follows what the system prefers.
@@ -100,7 +100,7 @@ test("the settings panel opens, every section draws, and the panel keeps one siz
   const errors = watchConsole(page);
   await open(page, URL);
   await openSettings(page);
-  const items = page.locator(".settings-nav .nav-item");
+  const items = page.getByTestId("settings-nav").getByRole("button");
   expect(await items.count()).toBeGreaterThan(4);
   const size = async () => {
     const box = (await page.locator("#modal").boundingBox())!;
@@ -111,13 +111,13 @@ test("the settings panel opens, every section draws, and the panel keeps one siz
   const first = await size();
   for (let i = 0; i < (await items.count()); i += 1) {
     await items.nth(i).click();
-    await expect(items.nth(i)).toHaveClass(/on/);
-    await expect(page.locator(".settings-page")).toBeVisible();
-    await expect(page.locator(".settings-page .hint.err")).toHaveCount(0);
+    await expect(items.nth(i)).toHaveAttribute("data-state", "current");
+    await expect(page.getByTestId("settings-page")).toBeVisible();
+    await expect(page.getByTestId("settings-page").getByTestId("settings-failed")).toHaveCount(0);
     expect(await size(), `section ${i}`).toBe(first);
   }
   await page.keyboard.press("Escape");
-  await expect(page.locator("#veil")).not.toHaveClass(/on/);
+  await expect(page.locator("#veil")).toHaveAttribute("data-state", "closed");
   expect(errors).toEqual([]);
 });
 
@@ -127,7 +127,7 @@ test("the language switches everything at once, and comes back", SETTINGS, async
   const language = page.getByTestId("settings-language");
   await language.selectOption("en");
   await expect(page.locator("#new")).toContainText("New session");
-  await expect(page.locator(".settings-nav .nav-item").first()).toHaveText("General");
+  await expect(page.getByTestId("settings-nav").getByRole("button").first()).toHaveText("General");
   await language.selectOption("zh-CN");
   await expect(page.locator("#new")).toContainText("新会话");
   await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
@@ -136,9 +136,9 @@ test("the language switches everything at once, and comes back", SETTINGS, async
 
 test("the sidebar collapses to a rail and back", TAGS, async ({ page }) => {
   await open(page, URL);
-  await page.locator("#side .collapse").click();
+  await page.getByTestId("sidebar-toggle").click();
   await expect(page.locator("#frame")).toHaveAttribute("data-sidebar", "collapsed");
-  await page.locator("#side .collapse").click();
+  await page.getByTestId("sidebar-toggle").click();
   await expect(page.locator("#frame")).toHaveAttribute("data-sidebar", "expanded");
   await page.keyboard.press(process.platform === "darwin" ? "Meta+\\" : "Control+\\");
   await expect(page.locator("#frame")).toHaveAttribute("data-sidebar", "collapsed");
@@ -147,32 +147,32 @@ test("the sidebar collapses to a rail and back", TAGS, async ({ page }) => {
 test("a new conversation starts empty, and its first message makes it and lists it", TAGS, async ({ page }) => {
   await open(page, URL);
   await page.locator("#new").click();
-  await expect(page.locator("#main")).toHaveClass(/empty/);
+  await expect(page.locator("#main")).toHaveAttribute("data-state", "empty");
   await page.getByTestId("conv-input").fill("Say exactly: fixture ready");
   await page.getByTestId("conv-input").press("Enter");
-  await expect(page.locator("#main")).not.toHaveClass(/empty/);
-  await expect(page.locator("#side .srow.on")).toBeVisible();
+  await expect(page.locator("#main")).toHaveAttribute("data-state", "open");
+  await expect(page.locator('[data-testid="session-row"][data-state="current"]')).toBeVisible();
 });
 
 test("search filters the list by name, and Enter searches the transcripts", TAGS, async ({ page }) => {
   await open(page, URL);
   const id = await newSession(page, "says-ready");
   await say(page, "Say exactly: fixture ready");
-  await expect(page.locator(`#side .srow[data-sid="${id}"]`)).toBeVisible();
+  await expect(sessionRow(page, id)).toBeVisible();
   await page.locator("#search").fill("no session is called this");
-  await expect(page.locator(".section-head")).toHaveClass(/searching/);
-  await expect(page.locator(`#side .srow[data-sid="${id}"]`)).toHaveCount(0);
+  await expect(page.getByTestId("session-search")).toHaveAttribute("data-state", "searching");
+  await expect(sessionRow(page, id)).toHaveCount(0);
   await page.locator("#search").fill("fixture");
   await page.locator("#search").press("Enter");
-  await expect(page.locator("#side .srow.hit").first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-testid="session-hit"]').first()).toBeVisible({ timeout: 10_000 });
   await page.locator("#search").press("Escape");
-  await expect(page.locator(".section-head")).not.toHaveClass(/searching/);
+  await expect(page.getByTestId("session-search")).toHaveAttribute("data-state", "idle");
 });
 
 test("a session renamed from its menu is renamed in the list", TAGS, async ({ page }) => {
   await open(page, URL);
   const id = await newSession(page, "says-ready");
-  const row = page.locator(`#side .srow[data-sid="${id}"]`);
+  const row = sessionRow(page, id);
   await row.click({ button: "right" });
   await page.locator('[data-testid="session-menu"] [data-item="rename"]').click();
   const input = page.locator("#modal input");
@@ -185,10 +185,10 @@ test("a session renamed from its menu is renamed in the list", TAGS, async ({ pa
 test("a device is paired from settings with a code shown once, counting down", { tag: ["@feature:authz", "@layer:ui"] }, async ({ page }) => {
   await open(page, URL);
   await openSettings(page);
-  await page.locator('.settings-nav [data-section="devices"]').click();
-  await page.locator(".settings-page button", { hasText: /pair|配对/i }).last().click();
+  await settingsSection(page, "devices").click();
+  await page.getByTestId("settings-page").locator("button", { hasText: /pair|配对/i }).last().click();
   await expect(page.locator(".pairing-code")).toHaveText(/\S{4,}/);
-  await expect(page.locator(".settings-page")).toContainText(/\d+:\d{2}/);
+  await expect(page.getByTestId("settings-page")).toContainText(/\d+:\d{2}/);
 });
 
 const SHELL = { tag: ["@feature:shell", "@layer:ui"] };
@@ -205,7 +205,7 @@ test("the side columns are dragged wider, remember it, and a double-click puts t
   await page.mouse.up();
   await expect.poll(async () => (await side.boundingBox())!.width).toBeGreaterThan(before + 40);
   await page.reload();
-  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
+  await connected(page);
   await expect.poll(async () => (await side.boundingBox())!.width).toBeGreaterThan(before + 40);
   await page.getByTestId("resize-side").dblclick();
   await expect.poll(async () => Math.round((await side.boundingBox())!.width)).toBe(Math.round(before));
@@ -215,7 +215,7 @@ test("the right column is a tab strip with no title bar: it maximizes over the c
   await open(page, URL);
   await page.getByTestId("details-toggle").click();
   const details = page.locator("#details");
-  await expect(details.locator(".strip .tabs [role=tab]").first()).toBeVisible();
+  await expect(details.locator('[role="tab"]').first()).toBeVisible();
   await expect(details.locator(".head")).toHaveCount(0);
   await expect.poll(async () => (await details.boundingBox())?.width ?? 0).toBeGreaterThan(300);
   // Measured once the columns have settled: past 300 the opening transition may still be running.
@@ -257,7 +257,7 @@ test("in the desktop shell on macOS the top bars leave the traffic lights room a
     await expect(page.locator(bar)).toHaveAttribute("data-tauri-drag-region", "deep");
   }
   // The lights end 80px in, centred in the 52px band; the toggle is right of them, open or rail.
-  const toggle = page.locator("#tl-tools .collapse");
+  const toggle = page.getByTestId("sidebar-toggle");
   const at = async () => (await toggle.boundingBox())!;
   expect((await at()).x).toBeGreaterThanOrEqual(88);
   await toggle.click();
@@ -272,7 +272,7 @@ test("in the desktop shell on macOS the top bars leave the traffic lights room a
 test("outside the desktop shell there is no window chrome to make room for", SHELL, async ({ page }) => {
   await open(page, URL);
   await expect(page.locator("html")).not.toHaveAttribute("data-chrome", "overlay");
-  expect((await page.locator("#side .l-top .collapse").boundingBox())!.y).toBeLessThan(40);
+  expect((await page.getByTestId("sidebar-toggle").boundingBox())!.y).toBeLessThan(40);
 });
 
 test("the avatar is the settings: its ring says the connection, its menu opens settings and switches", SHELL, async ({ page }) => {
@@ -286,7 +286,7 @@ test("the avatar is the settings: its ring says the connection, its menu opens s
   await page.keyboard.press("Escape");
   await avatar.click();
   await page.getByTestId("open-settings").click();
-  await expect(page.locator(".settings-nav")).toBeVisible();
+  await expect(page.getByTestId("settings-nav")).toBeVisible();
   await page.keyboard.press("Escape");
   // Gone, and the ring says so.
   await page.evaluate(() => (window as any).harnix.client.close());
@@ -298,7 +298,7 @@ test("with every built-in space removed, the frame is the chrome alone and says 
   try {
     await open(page, bare.url);
     await expect(page.getByTestId("no-spaces")).toBeVisible();
-    await expect(page.locator("#side .spaces")).toHaveCount(0);
+    await expect(page.getByTestId("space-list")).toHaveCount(0);
     await expect(page.locator('#side [data-space="system"]')).toHaveCount(0);
     await expect(page.getByTestId("avatar")).toBeVisible();
   } finally {
@@ -324,7 +324,7 @@ test("at a phone's width nothing scrolls sideways: a conversation, the system sp
   }
   // A flow entered, its details beside the conversation.
   await page.evaluate(() => (window as any).harnix.app.switchSpace("system"));
-  await page.locator('[data-testid="system-console"] [data-tab="flows"]').click();
+  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="flows"]').click();
   await expect.poll(sideways, { message: "the Flows tab" }).toBeLessThanOrEqual(0);
   await page.getByTestId("flow-def-example-review").click();
   await expect(page.getByTestId("flow-context")).toHaveAttribute("data-flow", "example-review");
@@ -343,7 +343,7 @@ test("in Chinese the system space has no string left untranslated or showing its
   // names (`harnix.system.context`) are not keys: a dot before is not a key's start.
   const leaked = () => page.evaluate(() => document.body.innerText.match(/(?<![\w.])system\.[a-z][\w.]*[a-z]\b/g) ?? []);
   for (const tab of ["active", "all"]) {
-    const button = page.locator(`[data-testid="system-console"] [data-tab="${tab}"]`);
+    const button = page.locator(`[data-testid="system-console"] [role="tab"][data-tab="${tab}"]`);
     await expect(button, `the ${tab} tab's title`).toHaveText(/[一-鿿]/);
     await button.click();
     expect(await leaked(), `the ${tab} tab`).toEqual([]);
@@ -360,7 +360,7 @@ test("in Chinese the flows have no string left untranslated or showing its key",
   await page.getByTestId("settings-language").selectOption("zh-CN");
   await page.keyboard.press("Escape");
   await toFlows(page);
-  await expect(page.locator('[data-testid="system-console"] [data-tab="flows"]')).toHaveText("流程");
+  await expect(page.locator('[data-testid="system-console"] [role="tab"][data-tab="flows"]')).toHaveText("流程");
   const leaked = () =>
     page.evaluate(() => {
       const text = document.body.innerText;
@@ -373,7 +373,7 @@ test("in Chinese the flows have no string left untranslated or showing its key",
   await expect(page.getByTestId("flow-back")).toHaveText(/[一-鿿]/);
   await expect(page.locator('#secondary [data-testid="flow-detail"]')).toContainText(/[一-鿿]/);
   await flowReference(page);
-  await expect(page.locator('#details [data-tab="flow.reference"]')).toHaveText(/[一-鿿]/);
+  await expect(page.locator('#details [role="tab"][data-tab="flow.reference"]')).toHaveText(/[一-鿿]/);
   expect(await leaked(), "the reference").toEqual([]);
   // The general conversation's context.
   await toFlows(page);

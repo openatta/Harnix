@@ -12,7 +12,7 @@ import type { Page } from "@playwright/test";
 import { type Backend, expect, test } from "@harnix/testkit";
 
 import { startTestApp } from "../api/testapp";
-import { flowReference, open, openFlow, openRun, watchConsole } from "./page";
+import { connected, flowReference, open, openFlow, openRun, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:flow", "@layer:ui"] };
 
@@ -73,7 +73,7 @@ test("a proposal is a card in its session: accepted once, it reworks the run and
 
   // Opened again, the session says the proposal was taken up, and by whom.
   await page.reload();
-  await expect(page.locator("#conn.on")).toBeVisible({ timeout: 15_000 });
+  await connected(page);
   const [instance, sessionId] = firstSession.split("/");
   await page.evaluate(({ instance, sessionId }) => (window as any).harnix.app.open({ instance, sessionId }, { switchSpace: true }), { instance, sessionId });
   await expect(page.getByTestId("flow-proposal-handled")).toBeVisible({ timeout: 15_000 });
@@ -134,7 +134,7 @@ test("a station's session is Harnix's own: in the system space's all tab it is m
   const record = await until(page, run, (r) => Boolean(r.stations.propose?.tasks?.[0]?.session));
   const [instance, sid] = (record.stations.propose.tasks[0].session as string).split("/");
   await page.locator('#side [data-space="system"]').click();
-  await page.locator('[data-testid="system-console"] [data-tab="all"]').click();
-  const row = page.locator(`[data-testid="system-agents"] .tgroup[data-instance="${instance}"][data-sid="${sid}"]`);
+  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="all"]').click();
+  const row = page.locator(`[data-testid="system-agents"] [data-testid="system-agent-group"][data-instance="${instance}"][data-sid="${sid}"]`);
   await expect(row.getByTestId("system-agent-harnix")).toBeVisible({ timeout: 15_000 });
 });

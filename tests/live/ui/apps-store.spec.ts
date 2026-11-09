@@ -13,7 +13,7 @@ import { type Backend, connect, expect, test, topology } from "@harnix/testkit";
 
 import { SHOWCASE_ID } from "../api/apps-host";
 import { type MockStore, appsTestApp, mockStore, startStore } from "../api/apps-store";
-import { open, openSettings, watchConsole } from "./page";
+import { open, openSettings, settingsSection, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:apps-store", "@layer:ui"] };
 
@@ -35,8 +35,8 @@ test.afterAll(async () => {
 
 async function applications(page: Page): Promise<void> {
   await openSettings(page);
-  await page.locator('.settings-nav [data-section="apps"]').click();
-  await expect(page.locator(".settings-page")).toBeVisible();
+  await settingsSection(page, "apps").click();
+  await expect(page.getByTestId("settings-page")).toBeVisible();
 }
 
 const listed = async () => {
@@ -85,7 +85,7 @@ test("the store's application is installed through its disclosure, and only thro
   // Escape closes it, and only it: the settings stay.
   await page.keyboard.press("Escape");
   await expect(disclosure).toHaveCount(0);
-  await expect(page.locator(".settings-page")).toBeVisible();
+  await expect(page.getByTestId("settings-page")).toBeVisible();
   // Cancelled: still nothing.
   await offered.getByTestId("app-install").click();
   await disclosure.getByRole("button", { name: /Cancel|取消/ }).click();

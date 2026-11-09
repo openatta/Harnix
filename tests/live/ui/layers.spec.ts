@@ -12,7 +12,7 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "@harnix/testkit";
 
-import { newSession, open, openSettings, say } from "./page";
+import { newSession, open, openSettings, say, sessionRow, spaceEntry } from "./page";
 
 const SHELL = { tag: ["@feature:shell", "@layer:ui"] };
 const SESSIONS = { tag: ["@feature:sessions", "@layer:ui"] };
@@ -23,7 +23,7 @@ test.beforeEach(({ harnix }) => {
   URL = harnix.url;
 });
 
-const row = (page: Page, id: string) => page.locator(`#side .srow[data-sid="${id}"]`);
+const row = sessionRow;
 /** What has the focus, by its `data-testid` (or its tag when it has none). */
 const focused = (page: Page) => page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.testid ?? document.activeElement?.tagName ?? null);
 const focusIn = (page: Page, selector: string) => page.evaluate((s) => !!document.activeElement?.closest(s), selector);
@@ -60,7 +60,7 @@ test("an ask's default answer is drawn in the accent, not white on white", SESSI
 
 test("the focus goes into a dialog, goes round inside it, and comes back to what opened it", SHELL, async ({ page }) => {
   await open(page, URL);
-  await page.locator('#side .spaces [data-space="projects"]').click();
+  await spaceEntry(page, "projects").click();
   const add = page.getByTestId("add-project");
   await add.focus();
   await page.keyboard.press("Enter");
@@ -74,7 +74,7 @@ test("the focus goes into a dialog, goes round inside it, and comes back to what
   // Back past its first stop goes round to its last, and forward from there to its first.
   await page.keyboard.press("Shift+Tab");
   await page.keyboard.press("Shift+Tab");
-  expect(await page.evaluate(() => document.activeElement === document.querySelector("#modal .foot .btn.primary"))).toBe(true);
+  expect(await page.evaluate(() => document.activeElement === document.querySelector('#modal [data-testid="project-add"]'))).toBe(true);
   await page.keyboard.press("Tab");
   expect(await focusIn(page, "#modal")).toBe(true);
   for (let i = 0; i < 12; i += 1) {
@@ -98,12 +98,12 @@ test("Escape closes the top layer only: a dialog over the settings, then the set
   expect(await focusIn(page, '[data-testid="modal"]:not(#modal)')).toBe(true);
   await page.keyboard.press("Escape");
   await expect(dialogs).toHaveCount(1);
-  await expect(page.locator(".settings-nav")).toBeVisible();
+  await expect(page.getByTestId("settings-nav")).toBeVisible();
   await expect(page.locator("#modal")).not.toHaveAttribute("inert", "");
   expect(await focusIn(page, "#modal")).toBe(true);
   await page.keyboard.press("Escape");
   await expect(dialogs).toHaveCount(0);
-  await expect(page.locator("#veil")).not.toHaveClass(/on/);
+  await expect(page.locator("#veil")).toHaveAttribute("data-state", "closed");
 });
 
 test("the shortcuts leave a dialog alone: ⌘K and ⌘/ do nothing while one is open", SHELL, async ({ page }) => {
@@ -115,7 +115,7 @@ test("the shortcuts leave a dialog alone: ⌘K and ⌘/ do nothing while one is 
   await page.keyboard.press("ControlOrMeta+/");
   expect(await current()).toBe(id);
   expect(await focusIn(page, "#modal")).toBe(true);
-  await expect(page.locator(".settings-nav")).toBeVisible();
+  await expect(page.getByTestId("settings-nav")).toBeVisible();
 
   // Closed, they are the shell's again.
   await page.keyboard.press("Escape");
@@ -184,7 +184,7 @@ test("a right click opens the session's menu where it was clicked, not a dialog 
   await page.mouse.click(point.x, point.y, { button: "right" });
   const menu = page.getByTestId("session-menu");
   await expect(menu).toBeVisible();
-  await expect(page.locator("#veil")).not.toHaveClass(/on/);
+  await expect(page.locator("#veil")).toHaveAttribute("data-state", "closed");
   await expect(page.locator("#modal")).toHaveCount(0);
   const at = (await menu.boundingBox())!;
   expect(Math.abs(at.x - point.x), "opened at the pointer").toBeLessThan(2);
@@ -222,11 +222,11 @@ test("the banner is a live region, and its notices queue", SHELL, async ({ page 
   await expect(banner).toHaveAttribute("role", "status");
   await expect(banner).toContainText("first of two");
   await expect(page.getByTestId("banner-waiting")).toBeVisible();
-  await banner.locator(".close").click();
+  await banner.getByRole("button").click();
   await expect(banner).toHaveAttribute("role", "alert");
   await expect(banner).toContainText("second of two");
-  await banner.locator(".close").click();
-  await expect(banner).not.toHaveClass(/on/);
+  await banner.getByRole("button").click();
+  await expect(banner).toHaveAttribute("data-state", "closed");
 });
 
 test("an ask's arrival is said aloud on its own, once", SESSIONS, async ({ page }) => {
