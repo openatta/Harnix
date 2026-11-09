@@ -16,7 +16,7 @@ import { type AddressInfo } from "node:net";
 import { type Server, createServer } from "node:http";
 
 import { INVALID_PARAMS, INTERNAL_ERROR, METHOD_NOT_FOUND } from "@harnix/core/protocol";
-import { type Backend, type TestClient, connect, expect, sleep, test, topology } from "@harnix/testkit";
+import { type Backend, type TestClient, connect, expect, runTurn, sleep, test, topology } from "@harnix/testkit";
 
 import { SHOWCASE_CHATS, SHOWCASE_ID, showcasePackage, startApps } from "./apps-host";
 
@@ -31,27 +31,6 @@ const audit = async (api: TestClient) => (await api.call("harnix.audit", { limit
 const runtime = async (api: TestClient) => (await api.call("harnix.apps.list")).apps.find((a: any) => a.id === SHOWCASE_ID).runtime;
 const topicValues = (api: TestClient, topic: string) =>
   api.events.filter((f) => f.method === "harnix.topic" && f.params.topic === topic).map((f) => f.params.value);
-
-/** Send, permit every ask, and wait for the turn to settle. */
-async function turn(api: TestClient, s: Session, message: string): Promise<any> {
-  const sent = await api.call("harnix.send", { ...s, message });
-  const answered = new Set<string>();
-  const deadline = Date.now() + 60_000;
-  for (;;) {
-    const settled = api.events.find(
-      (f) => f.method === "harnix.turn_settled" && f.params.session_id === s.session_id && (!sent.turn_id || f.params.turn_id === sent.turn_id),
-    );
-    if (settled) return settled;
-    for (const f of api.events) {
-      if (f.method !== "harnix.event" || f.params.event?.kind !== "prompt" || f.params.session_id !== s.session_id) continue;
-      if (answered.has(f.params.event.prompt_id)) continue;
-      answered.add(f.params.event.prompt_id);
-      await api.call("session.respondToPrompt", { ...s, prompt_id: f.params.event.prompt_id, decision: { type: "permit" } });
-    }
-    if (Date.now() > deadline) throw new Error(`the turn "${message}" did not settle`);
-    await sleep(50);
-  }
-}
 
 test.describe("an application with a backend", () => {
   test.describe.configure({ mode: "serial" });
@@ -149,7 +128,7 @@ test.describe("an application with a backend", () => {
     const created = await api.call("session.create", { instance: "system", project_root: api.project, options: { recorder: { name: "app-board" } } });
     const s = { instance: "system", session_id: created.session_id };
     await api.call("harnix.attach", s);
-    const settled = await turn(api, s, "What is on the showcase's board?");
+    const settled = (await runTurn(api, s, "What is on the showcase's board?")).settled;
     expect(settled.params.error).toBeUndefined();
     const results = JSON.stringify(api.eventsOfKind("tool_result", s.session_id));
     expect(results).toContain("the board has 1 notes; the counter is at 1");

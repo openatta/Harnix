@@ -12,7 +12,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { type Backend, binary, connect, expect, freePort, sleep, test } from "@harnix/testkit";
+import { type Backend, alive, binary, connect, expect, freePort, sleep, test } from "@harnix/testkit";
 
 import { runOn, until } from "./instances";
 import { startTestApp } from "./testapp";
@@ -81,15 +81,6 @@ test("after the holder is killed outright, the next one starts at once", TAGS, a
     await next.dispose();
   }
 });
-
-function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 test("killed and started again at once, an instance's new daemon follows the old one out",
   { tag: ["@feature:instances", "@layer:api"] }, async () => {

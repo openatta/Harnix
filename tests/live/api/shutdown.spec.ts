@@ -11,7 +11,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { type Backend, expect, sleep, test } from "@harnix/testkit";
+import { type Backend, alive, expect, sleep, test } from "@harnix/testkit";
 
 import { startTestApp } from "./testapp";
 
@@ -19,15 +19,6 @@ const TAGS = { tag: ["@feature:modules", "@layer:api"] };
 
 /** The `lifecycle` module's data directory: where its `stop` leaves its marks. */
 const marks = (backend: Backend) => join(backend.state, "modules", "lifecycle");
-
-function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 test.describe.configure({ mode: "serial" });
 

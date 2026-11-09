@@ -12,7 +12,7 @@
  * - Dry runs: the kernel in a sandbox, everything outside mocked — no session is opened.
  */
 
-import { type Backend, type TestClient, connect, expect, test } from "@harnix/testkit";
+import { type Backend, type TestClient, connect, expect, runTurn, test } from "@harnix/testkit";
 
 import { startTestApp } from "./testapp";
 
@@ -41,31 +41,14 @@ async function author(fixture: string): Promise<string> {
   return created.session_id;
 }
 
-const permitted = new Set<string>();
+/** Every ask the turns raised, permitted. */
 const asks: any[] = [];
 
 /** One turn, permitting every ask it raises; its settlement. */
 async function turn(session_id: string, message: string): Promise<any> {
-  const sent = await api.call("harnix.send", { session_id, message });
-  for (;;) {
-    const f = await api.waitFor(
-      (f) =>
-        (f.method === "harnix.turn_settled" && f.params.turn_id === sent.turn_id) ||
-        (f.method === "harnix.event" &&
-          f.params.session_id === session_id &&
-          f.params.event?.kind === "prompt" &&
-          !permitted.has(f.params.event.prompt_id)),
-      { timeout: 60_000, describe: "the turn to settle, or an ask" },
-    );
-    if (f.method === "harnix.turn_settled") return f.params;
-    permitted.add(f.params.event.prompt_id);
-    asks.push(f.params.event);
-    await api.call("session.respondToPrompt", {
-      session_id,
-      prompt_id: f.params.event.prompt_id,
-      decision: { type: "permit" },
-    });
-  }
+  const { settled, asks: raised } = await runTurn(api, { session_id }, message, { timeout: 60_000 });
+  asks.push(...raised.map((a) => a.event));
+  return settled.params;
 }
 
 /** Every tool result of a session, by the tool that was called. */
@@ -139,7 +122,7 @@ test("a flow-author conversation creates a flow (and selects it), shows, changes
   expect(await topic("focus", { instance: "system", session_id: session })).toEqual({ flow: null });
   // Each tool that changes something was asked about (create, update, delete here; the update
   // without a selection before): the person in the conversation decides.
-  expect(permitted.size).toBeGreaterThanOrEqual(4);
+  expect(asks.length).toBeGreaterThanOrEqual(4);
   // Each ask is about a call that names its flow: what the person approves is that flow. (The
   // engine shows its own "Allow <tool>?", so the card reads the flow from the call's input.)
   expect(asks.map((a) => a.tool_name)).toEqual(expect.arrayContaining(["flow_create", "flow_update", "flow_delete"]));

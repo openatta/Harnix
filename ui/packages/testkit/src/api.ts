@@ -190,6 +190,55 @@ export async function finish(client: TestClient, sessionId: string): Promise<voi
   }
 }
 
+/** Asks some turn already answered, per client: a later turn does not answer one again. */
+const answeredBy = new WeakMap<TestClient, Set<string>>();
+
+/**
+ * One turn: send `message`, answer every permission ask it raises with `decision`, and wait for
+ * the turn to settle.
+ *
+ * The asks answered are the ones this client is shown after the send, a sub-agent's included —
+ * those come in under the sub-agent's own session. What it returns: the settlement frame and the
+ * `harnix.event` params of every ask it answered, in order.
+ */
+export async function runTurn(
+  api: TestClient,
+  session: { session_id: string; instance?: string },
+  message: string,
+  { decision = "permit", timeout = 90_000 }: { decision?: string; timeout?: number } = {},
+): Promise<{ settled: Frame; asks: any[] }> {
+  const answered = answeredBy.get(api) ?? new Set<string>();
+  answeredBy.set(api, answered);
+  const from = api.events.length;
+  const sent = await api.call("harnix.send", { ...session, message });
+  const asks: any[] = [];
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    const settled = api.events.find(
+      (f) => f.method === "harnix.turn_settled" && f.params.session_id === session.session_id
+        && (!sent?.turn_id || f.params.turn_id === sent.turn_id),
+    );
+    if (settled) return { settled, asks };
+    for (const f of api.events.slice(from)) {
+      if (f.method !== "harnix.event" || f.params.event?.kind !== "prompt") continue;
+      const id = f.params.event.prompt_id;
+      if (answered.has(id)) continue;
+      answered.add(id);
+      asks.push(f.params);
+      await api.call("session.respondToPrompt", {
+        instance: f.params.instance ?? session.instance,
+        session_id: f.params.session_id,
+        prompt_id: id,
+        decision: decision === "deny" ? { type: "deny", reason: "not now" } : { type: decision },
+      });
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`the turn "${message}" did not settle in ${timeout / 1000}s; asks so far: ${JSON.stringify(asks)}`);
+    }
+    await sleep(50);
+  }
+}
+
 /**
  * A test that could not reach what it was trying to reach — distinct from a
  * pass. A permission test whose model never reached for a tool has not shown

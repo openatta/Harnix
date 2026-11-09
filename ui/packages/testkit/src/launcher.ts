@@ -143,6 +143,23 @@ export async function freePort(): Promise<number> {
   });
 }
 
+/** Whether a process is still there (signal 0 asks without sending anything). */
+export function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Wait up to `within` ms for a process to be gone; whether it is. */
+export async function gone(pid: number, within = 3_000): Promise<boolean> {
+  const deadline = Date.now() + within;
+  while (alive(pid) && Date.now() < deadline) await sleep(100);
+  return !alive(pid);
+}
+
 /** How long `dispose()` lets a backend finish before it is killed: the backend's own shutdown is
  *  bounded by 10 s, so this is past it. */
 const DISPOSE_GRACE_MS = 15_000;
