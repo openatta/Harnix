@@ -319,11 +319,20 @@ impl Builtin {
     }
 
     /// The `system` instance's facts: where its data is, what it runs.
-    pub(crate) fn system(&self) -> InstanceHandle {
+    ///
+    /// An error rather than a panic before any built-in module has started: methods are bound
+    /// before `start`, so a module ordered ahead of the built-ins that calls one while it starts
+    /// reaches here first, and a panic there took its whole call with it.
+    pub(crate) fn system(&self) -> Result<InstanceHandle, RpcError> {
         read(&self.contexts)
             .values()
             .find_map(|cx| cx.instance(harnix_contract::SYSTEM_INSTANCE))
-            .expect("a built-in method ran before any built-in module started")
+            .ok_or_else(|| {
+                RpcError::new(
+                    harnix_contract::codes::INTERNAL_ERROR,
+                    "the built-in modules have not started yet",
+                )
+            })
     }
 
     async fn dispatch(&self, name: &str, params: Value) -> Result<Value, RpcError> {
@@ -464,5 +473,22 @@ pub(crate) fn default_title(path: Option<&str>) -> String {
             .unwrap_or(path)
             .to_string(),
         None => "无项目".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    /// A built-in method reached before any built-in module started answers an error; it used to
+    /// panic, taking the caller's whole call with it.
+    #[tokio::test]
+    async fn a_method_before_start_is_an_error_not_a_panic() {
+        let dir = tempfile::tempdir().unwrap();
+        let builtin = super::Builtin::new(dir.path().join("state"), dir.path().join("projects")).unwrap();
+        assert!(builtin.system().is_err());
+        let e = builtin.settings_describe(json!({})).await.unwrap_err();
+        assert_eq!(e.code, harnix_contract::codes::INTERNAL_ERROR);
+        assert!(builtin.settings_set(json!({"tier": "global", "key": "model.max_tokens", "value": 4000})).await.is_err());
     }
 }

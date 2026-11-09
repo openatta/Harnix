@@ -197,8 +197,13 @@ impl Kernel for ProcessKernel {
             })
         };
         let hub = self.hub.clone();
+        // A tap can be dropped where there is no runtime — a module's state torn down on a thread
+        // of its own, or after the runtime is gone — and `tokio::spawn` there panics. With no
+        // runtime there is no hub left to tell either.
         let on_drop = Box::new(move || {
-            tokio::spawn(async move { hub.remove_client(client).await });
+            if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                runtime.spawn(async move { hub.remove_client(client).await });
+            }
         });
         Ok(Tap::new(parts, attached, reattach, on_drop))
     }

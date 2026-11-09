@@ -237,7 +237,7 @@ impl Builtin {
     /// this does not page `session.history`.
     pub(crate) async fn search(&self, params: Value) -> Result<Value, RpcError> {
         let query = require_str(&params, "query")?;
-        let Some(store) = self.system().history else {
+        let Some(store) = self.system()?.history else {
             return Err(RpcError::new(
                 codes::INTERNAL_ERROR,
                 "this engine has no transcript store",
