@@ -272,6 +272,11 @@ export async function runTurn(
   }
 }
 
+/** A suite's own check: fails with `message` unless `cond` holds, and narrows `cond` after it. */
+export function assert(cond: unknown, message: string): asserts cond {
+  if (!cond) throw new Error(message);
+}
+
 /**
  * A test that could not reach what it was trying to reach — distinct from a
  * pass. A permission test whose model never reached for a tool has not shown
@@ -280,6 +285,6 @@ export async function runTurn(
  * with the reason attached.
  */
 export class Inconclusive extends Error {}
-export const inconclusive = (reason: string): never => {
+export function inconclusive(reason: string): never {
   throw new Inconclusive(reason);
-};
+}

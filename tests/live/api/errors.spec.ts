@@ -1,4 +1,3 @@
-// @ts-nocheck — moved over from JavaScript unchanged; new suites are typed.
 // The error surface, which is most of the surface.
 //
 // A method that has only ever answered has never had its arguments checked,
@@ -19,13 +18,11 @@
 //      different answers; so are "missing id" and "that scene needs a
 //      project". A client that cannot tell them apart reports the wrong bug.
 
-import { INVALID_PARAMS, METHOD_NOT_FOUND, REFUSED } from "@harnix/core/protocol";
-import { defineSuite, finish, inconclusive } from "@harnix/testkit";
-
-const assert = (cond, message) => { if (!cond) throw new Error(message); };
+import { INVALID_PARAMS, METHOD_NOT_FOUND, REFUSED, type Scene } from "@harnix/core/protocol";
+import { assert, defineSuite, finish, inconclusive } from "@harnix/testkit";
 
 /** Harnix's band is everything above the reserved one. */
-const isHostCode = (code) => code > -32000;
+const isHostCode = (code: number) => code > -32000;
 
 defineSuite("errors", { feature: "connection" }, {
   tests: {
@@ -33,7 +30,7 @@ defineSuite("errors", { feature: "connection" }, {
       // Each of these has a `require_str` on the way in. What is checked is
       // that the answer names the argument — an "invalid params" with no
       // subject sends whoever hit it reading source.
-      const cases = [
+      const cases: [string, Record<string, unknown>, string][] = [
         ["harnix.workspaces.update", {}, "id"],
         ["harnix.workspaces.remove", {}, "id"],
         ["harnix.workspaces.reorder", {}, "id"],
@@ -117,7 +114,7 @@ defineSuite("errors", { feature: "connection" }, {
         // when it is not there.
         for (const method of ["session.fork", "session.interrupt", "session.resume",
                               "harnix.sessions.rename", "harnix.sessions.archive"]) {
-          const params = { session_id: missing };
+          const params: Record<string, unknown> = { session_id: missing };
           if (method === "harnix.sessions.rename") params.name = "x";
           if (method === "harnix.sessions.archive") params.archived = true;
           if (method === "session.resume") params.scene = "harnix";
@@ -181,7 +178,7 @@ defineSuite("errors", { feature: "connection" }, {
     "a scene that needs a project says so rather than failing later":
       async ({ client }) => {
         const { scenes } = await client.call("scene.list");
-        const needsProject = scenes.find((s) => s.requires_project && s.active);
+        const needsProject = scenes.find((s: Scene) => s.requires_project && s.active);
         if (!needsProject) inconclusive("no active scene here needs a project");
         const e = await client.refused("session.create",
           { scene: needsProject.scene, project_root: null });
@@ -191,7 +188,7 @@ defineSuite("errors", { feature: "connection" }, {
 
     "a scene that is not active is refused by name": async ({ client }) => {
       const { scenes } = await client.call("scene.list");
-      const inactive = scenes.find((s) => !s.active);
+      const inactive = scenes.find((s: Scene) => !s.active);
       if (!inactive) inconclusive("every scene here is active");
       const e = await client.refused("session.create", { scene: inactive.scene });
       assert(e, `creating in inactive scene ${inactive.scene} succeeded`);

@@ -884,7 +884,7 @@ export class App {
   /**
    * Open a dialog over what is on the page — over another dialog too: the shell's dialogs are a
    * stack, and Escape, the veil and `closeModal()` take the top one off. Its focus, the inert page
-   * under it and the keys are the layers' (`layers.ts`).
+   * under it and the keys are the layers' (`@harnix/react`'s `layers.ts`).
    */
   openModal(modal: Modal): void {
     const modals = this.state.modals;

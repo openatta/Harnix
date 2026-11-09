@@ -66,7 +66,7 @@
 .hx-conn-incompatible .hx-dot { background: var(--hx-danger); }
 
 /* ── 会话组件（ChatPanel）────────────────────────────────────────────
- * 逐条移植自原型 docs/ui/prototype/ipdrun-prototype.html 的「会话组件（类目、条目、工位、集成、⌘K 共用）」与
+ * 逐条移植自 IPDrun 的界面原型（IPDrun 仓库的 docs/ui/prototype/ipdrun-prototype.html，不在本仓库）的「会话组件（类目、条目、工位、集成、⌘K 共用）」与
  * 「工位转录：编程助手式」两节（.chat .chead .msgs .cv-* .cli .cc-* .cmp-* .pop-* …），类名加 hx- 前缀，
  * 令牌换成 --hx-*；数值（间距、字号、圆角、阴影、尺寸）不改。原型同一个类写了两遍的（.chead .msgs .cli），
  * 这里是两遍叠起来的结果。 */
@@ -324,6 +324,8 @@
 /* 弹层（原型 .pop）："+"、选项、模型、上下文、"/" 命令、"@" 引用 */
 .hx-pop { position: absolute; left: 6px; bottom: calc(100% + 6px); z-index: 20; width: min(330px, calc(100% - 12px)); background: var(--hx-bg); border: 1px solid var(--hx-line); border-radius: 14px; box-shadow: var(--hx-shadow); padding: 6px; display: flex; flex-direction: column; gap: 1px; max-height: 340px; overflow: auto; }
 .hx-pop.right { left: auto; right: 6px; }
+/* A menu's box takes the focus only when it has no item to give it to: no ring for that. */
+.hx-pop:focus { outline: none; }
 .hx-pop-h { font-size: 11.5px; color: var(--hx-fg-faint); padding: 6px 8px 4px; letter-spacing: 0.06em; }
 .hx-pop-it { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 10px; align-items: center; text-align: left; border: 0; background: none; border-radius: 9px; padding: 7px 8px; width: 100%; }
 .hx-chat .hx-pop-it { color: var(--hx-fg); }

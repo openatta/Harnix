@@ -21,20 +21,28 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { REFUSED } from "@harnix/core/protocol";
-import { defineSuite, finish, sleep } from "@harnix/testkit";
-
-const assert = (cond, message) => { if (!cond) throw new Error(message); };
+import { type Backend, assert, defineSuite, finish, sleep } from "@harnix/testkit";
 
 const NS = "harnix.audit";
 
+/** An audit entry: a transcript line of `kind: "extension"` filed under `NS`. */
+interface AuditEntry {
+  kind: "extension";
+  ns: typeof NS;
+  event: string;
+  session_id: string;
+  payload: { method: string; subject: string; reason?: string; [key: string]: unknown };
+  [key: string]: unknown;
+}
+
 /** Every entry in every transcript this backend has written. */
-function entries(backend) {
+function entries(backend: Backend): Record<string, unknown>[] {
   const root = join(backend.scratch, "agix", "projects");
-  const out = [];
-  let projects = [];
+  const out: Record<string, unknown>[] = [];
+  let projects: string[] = [];
   try { projects = readdirSync(root); } catch { return out; }
   for (const project of projects) {
-    let files = [];
+    let files: string[] = [];
     try { files = readdirSync(join(root, project)); } catch { continue; }
     for (const file of files.filter((f) => f.endsWith(".jsonl"))) {
       const text = readFileSync(join(root, project, file), "utf8");
@@ -47,11 +55,12 @@ function entries(backend) {
   return out;
 }
 
-const audit = (backend) => entries(backend).filter((e) => e.kind === "extension" && e.ns === NS);
+const audit = (backend: Backend) =>
+  entries(backend).filter((e): e is AuditEntry => e.kind === "extension" && e.ns === NS);
 
 /** Writes are fire-and-forget, on purpose: an audit write must never be able
  *  to fail a call or slow one down. So it is waited for, not assumed. */
-async function auditFor(backend, match, timeout = 5000) {
+async function auditFor(backend: Backend, match: (entry: AuditEntry) => boolean, timeout = 5000): Promise<AuditEntry[]> {
   const deadline = Date.now() + timeout;
   for (;;) {
     const found = audit(backend).filter(match);

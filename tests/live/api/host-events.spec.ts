@@ -18,15 +18,13 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { connect, defineSuite, startBackend } from "@harnix/testkit";
-
-const assert = (cond, message) => { if (!cond) throw new Error(message); };
+import { type Frame, type TestClient, assert, connect, defineSuite, startBackend } from "@harnix/testkit";
 
 const SERVER = "a-server-that-cannot-start";
 
 /** Settings the engine reads at startup, naming an MCP server whose command
  *  does not exist. Connecting it fails, and failing emits the event. */
-function seedFailingMcp(scratch) {
+function seedFailingMcp(scratch: string): void {
   const agix = join(scratch, "agix");
   mkdirSync(agix, { recursive: true });
   writeFileSync(join(agix, "settings.json"), JSON.stringify({
@@ -44,11 +42,11 @@ function seedFailingMcp(scratch) {
 }
 
 /** Host events already delivered, plus any that arrive within `timeout`. */
-async function hostEvents(client, match, timeout = 20_000) {
+async function hostEvents(client: TestClient, match: (frame: Frame) => boolean, timeout = 20_000): Promise<Frame[]> {
   const seen = () => client.events.filter(
-    (f) => f.method === "harnix.host_event" && (!match || match(f)));
+    (f) => f.method === "harnix.host_event" && match(f));
   if (seen().length) return seen();
-  await client.waitFor((f) => f.method === "harnix.host_event" && (!match || match(f)),
+  await client.waitFor((f) => f.method === "harnix.host_event" && match(f),
     { timeout, describe: "a host event" }).catch(() => {});
   return seen();
 }
@@ -97,7 +95,8 @@ defineSuite("host-events", {
         // process-level facts go to everyone who is connected.
         const first = await connect(backend, { topology });
         const second = await connect(backend, { topology });
-        for (const [name, client] of [["first", first], ["second", second]]) {
+        const clients: [string, TestClient][] = [["first", first], ["second", second]];
+        for (const [name, client] of clients) {
           const found = await hostEvents(client, (f) => f.params?.kind === "mcp_connect_failed");
           assert(found.length, `the ${name} client, which subscribed to nothing, was not told`);
         }
@@ -163,7 +162,7 @@ defineSuite("host-events", {
           // A second client, connecting after the announcement it missed.
           const late = await connect(backend, { topology });
           const { servers } = await late.call("mcp.status");
-          assert(!servers.some((s) => s.name === SERVER),
+          assert(!servers.some((s: { name: string }) => s.name === SERVER),
             "mcp.status now reports the failed server — good; assert the row instead of this");
           const missed = late.events.filter((f) => f.method === "harnix.host_event");
           assert(!missed.length, "host events are replayed to late clients — assert that instead");

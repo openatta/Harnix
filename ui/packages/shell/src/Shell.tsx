@@ -29,7 +29,10 @@ import {
   ChatComposer,
   ChatPanel,
   Contributed,
+  listenForLayers,
+  modalUp,
   t,
+  useLayer,
   useRegistry,
   useT,
   ComposerNote,
@@ -37,9 +40,7 @@ import {
   rowTitle,
   toolAsks,
   type Attached,
-  type ChatCommand,
   type ChatIds,
-  type CommandContext,
   type ComposerApi,
   type MentionItem,
   type ModelOption,
@@ -50,10 +51,10 @@ import {
 
 import { ask, detailsWidthOf, keyOf, later, orderTabs, safeTabs, secondaryWidthOf, type App, type OpenModal, type ShellState, type Widths } from "./app.ts";
 import { useBrand } from "./brand.ts";
+import { referencesIn, sessionMentions, useCommands, withContributed } from "./commands.ts";
 import { followEnvelopes } from "./envelope.tsx";
 import { Glyph } from "./glyph.tsx";
 import { sessionMenu } from "./dialogs.tsx";
-import { listenForLayers, modalUp, useLayer } from "./layers.ts";
 import { MenuHost, menuBelow } from "./Menu.tsx";
 import { useRovingTabIndex } from "./roving.ts";
 import { openSettings } from "./settings.tsx";
@@ -183,7 +184,7 @@ const DETAILS = byId("details");
  * At 960px and below (Helm §1) the sidebar is the rail, and the toggle, the rail's entry or ⌘\
  * open it as a drawer over the page; an open right column is a drawer from the right (unless the
  * profile keeps it beside, `narrow_details`, and there is room). Each drawer is a layer
- * (`layers.ts`) that is not modal: Escape closes the top one and the page stays live. A veil under
+ * (`@harnix/react`'s `layers.ts`) that is not modal: Escape closes the top one and the page stays live. A veil under
  * them closes them on a click, and the sidebar's drawer closes once a session or a space is picked
  * in it.
  */
@@ -260,7 +261,7 @@ export function isDark(): boolean {
 }
 
 /**
- * The shell's keys. Escape belongs to the layers (`layers.ts`): their listener comes first and
+ * The shell's keys. Escape belongs to the layers (`@harnix/react`'s `layers.ts`): their listener comes first and
  * takes it while one is open. The shortcuts do nothing while a dialog is: what is under it is not
  * the page's to act on.
  */
@@ -978,141 +979,6 @@ function globalIds(app: App, space: { id: string; owner: string }, ids: ChatIds 
   return { ...ids, pattern: new RegExp(ids.pattern.source, `${ids.pattern.flags}g`) };
 }
 
-/** `@session:<instance>/<id>` in a message: the sessions it refers to. */
-function referencesIn(text: string): Record<string, unknown> {
-  const references = [...text.matchAll(/@session:([\w.-]+)\/([\w-]+)/g)].map((m) => ({ instance: m[1], session_id: m[2] }));
-  return references.length ? { references } : {};
-}
-
-/** Sessions of every space whose name matches, for `@session:`. */
-async function sessionMentions(app: App, query: string): Promise<MentionItem[]> {
-  const { instances } = await app.call<{ instances: { id: string; status: { state: string } }[] }>("harnix.instances.list", {});
-  const q = query.toLowerCase();
-  const items: MentionItem[] = [];
-  for (const instance of instances.filter((i) => i.status.state === "ready")) {
-    const { sessions } = await app
-      .call<{ sessions: { session_id: string; name?: string | null; space?: string }[] }>("harnix.sessions", { instance: instance.id })
-      .catch(() => ({ sessions: [] }));
-    for (const row of sessions) {
-      const name = row.name || row.session_id;
-      if (q && !name.toLowerCase().includes(q) && !row.session_id.startsWith(q)) continue;
-      items.push({
-        id: `session:${instance.id}/${row.session_id}`,
-        label: `${name} · ${row.space ?? "sessions"}`,
-        insert: `@session:${instance.id}/${row.session_id} `,
-      });
-    }
-  }
-  return items.slice(0, 20);
-}
-
-/** Where the composer is: the front space and its open session (`CommandContext`). */
-function commandContext(app: App): CommandContext {
-  const current = app.snapshot.current;
-  return { space: app.snapshot.space, session: current ? { instance: current.instance, sessionId: current.sessionId } : null };
-}
-
-/** The `command` contributions a menu asks: `/` for those without a trigger. */
-function commandsFor(app: App, trigger: "/" | "@") {
-  return app.registry.at("command").filter((c) => (c.trigger ?? "/") === trigger);
-}
-
-/**
- * The `/` menu: every `/` contribution's candidates for an empty query, in order, asked again when
- * the registry, the engine's commands, the front space or its session change (`ctx` follows them).
- * The front space's `hideCommands` leave out other owners' commands of those names, so its own
- * command of the same name is the one listed; the first of a name wins otherwise.
- */
-function useCommands(app: App): ChatCommand[] {
-  const registry = useRegistry(app.registry);
-  const hello = useSyncExternalStore(app.subscribe, () => app.snapshot.hello);
-  const front = useSyncExternalStore(app.subscribe, () => app.snapshot.space);
-  const current = useSyncExternalStore(app.subscribe, () => app.snapshot.current);
-  const [commands, setCommands] = useState<ChatCommand[]>([]);
-  useEffect(() => {
-    let alive = true;
-    const ctx = commandContext(app);
-    const space = spacesOf(app).find((c) => c.id === ctx.space);
-    const hidden = new Set(space?.hideCommands ?? []);
-    const asked = commandsFor(app, "/");
-    void Promise.all(
-      asked.map((c) =>
-        Promise.resolve()
-          .then(() => c.complete("", ctx))
-          .catch((e: unknown) => {
-            registry.fail("command", c, e);
-            return [];
-          }),
-      ),
-    ).then((lists) => {
-      if (!alive) return;
-      const seen = new Set<string>();
-      const out: ChatCommand[] = [];
-      lists.forEach((list, i) => {
-        const contribution = asked[i]!;
-        for (const candidate of list) {
-          const name = candidate.replacement.replace(/^\//, "").trim();
-          if (!name || seen.has(name)) continue;
-          if (hidden.has(name) && contribution.owner !== space?.owner) continue;
-          seen.add(name);
-          const run = candidate.run;
-          out.push({
-            name,
-            description: candidate.description,
-            ...(run
-              ? {
-                  run: () =>
-                    Promise.resolve()
-                      .then(() => run.call(candidate, ctx))
-                      .catch((e: unknown) => app.notice(errorText(e), "error")),
-                }
-              : {}),
-          });
-        }
-      });
-      setCommands(out.slice(0, 200));
-    });
-    return () => {
-      alive = false;
-    };
-  }, [app, registry, hello, front, current, registry.getVersion()]);
-  return commands;
-}
-
-/** At most this many `@` candidates, the shell's own and the contributions' together. */
-const MENTIONS_MAX = 20;
-/** A contribution slower than this loses its `@` candidates for this keystroke. */
-const MENTION_WAIT_MS = 1500;
-
-/**
- * The `@` menu: the shell's own candidates (files, `@session:`) first, then each `@` contribution's
- * for the same query, in order of registration — or those first, when the front space says
- * `mention: { first: "contributed" }`. One that throws or is slow loses its own.
- */
-export async function withContributed(app: App, query: string, own: MentionItem[]): Promise<MentionItem[]> {
-  const asked = commandsFor(app, "@");
-  if (!asked.length) return own;
-  const ctx = commandContext(app);
-  const lists = await Promise.all(
-    asked.map((c) =>
-      Promise.race([
-        Promise.resolve().then(() => c.complete(query, ctx)),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`no answer in ${MENTION_WAIT_MS} ms`)), MENTION_WAIT_MS)),
-      ]).catch((e: unknown) => {
-        app.registry.fail("command", c, e);
-        return [];
-      }),
-    ),
-  );
-  const contributed = lists.flat().map((candidate, i) => ({
-    id: candidate.label || candidate.replacement || String(i),
-    label: candidate.description,
-    insert: candidate.replacement,
-  }));
-  const first = spacesOf(app).find((c) => c.id === app.snapshot.space)?.mention?.first;
-  return (first === "contributed" ? [...contributed, ...own] : [...own, ...contributed]).slice(0, MENTIONS_MAX);
-}
-
 function dataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1266,7 +1132,7 @@ function Details({ app, s }: { app: App; s: ShellState }) {
 
 /**
  * The shell's dialogs, a stack: the first over the page in `#veil`, each later one over the last in
- * a veil of its own. Each is a layer (`layers.ts`): the focus is in the top one, what is under it is
+ * a veil of its own. Each is a layer (`@harnix/react`'s `layers.ts`): the focus is in the top one, what is under it is
  * inert, and Escape or a click on its veil closes that one alone.
  */
 function ModalHost({ app, s }: { app: App; s: ShellState }) {

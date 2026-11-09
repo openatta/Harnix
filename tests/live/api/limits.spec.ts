@@ -12,12 +12,10 @@
 // So these are slow and allocate. That is the cost of testing a limit: you
 // have to reach it.
 
-import { BUSY, CONTRIB_API_VERSION, INVALID_PARAMS, PROTOCOL_VERSION } from "@harnix/core/protocol";
-import { defineSuite, finish } from "@harnix/testkit";
+import { BUSY, CONTRIB_API_VERSION, INVALID_PARAMS, PROTOCOL_VERSION, type Hello } from "@harnix/core/protocol";
+import { assert, defineSuite, finish } from "@harnix/testkit";
 
 import { startTestApp } from "./testapp";
-
-const assert = (cond, message) => { if (!cond) throw new Error(message); };
 
 defineSuite("limits", { feature: "connection" }, {
   tests: {
@@ -140,20 +138,22 @@ defineSuite("limits", { feature: "connection" }, {
       try {
         const ws = new WebSocket(`ws://127.0.0.1:${backend.port}/ws?token=${encodeURIComponent(backend.token)}`);
         await new Promise((r) => { ws.onopen = r; });
-        const answers = new Map();
-        const settled = new Map();
+        // What came back for each id: a result, or BUSY saying what the limit is.
+        const answers = new Map<number, { id: number; result?: unknown; error?: { code: number; data?: { max_in_flight?: number } } }>();
+        const settled = new Map<number, () => void>();
         ws.onmessage = (e) => {
           const frame = JSON.parse(e.data);
           if (frame.id !== undefined) { answers.set(frame.id, frame); settled.get(frame.id)?.(); }
         };
-        const send = (id, method, params) => new Promise((resolve) => {
+        const send = (id: number, method: string, params: unknown) => new Promise<void>((resolve) => {
           settled.set(id, resolve);
           ws.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
         });
         await send(0, "harnix.handshake",
           { protocol_version: PROTOCOL_VERSION, contrib_api_version: CONTRIB_API_VERSION, topology: "single_duplex" });
-        const { result: hello } = await send(1, "harnix.hello", {}).then(() => answers.get(1));
-        assert(hello.limits.max_in_flight === 16, `max_in_flight is ${hello.limits.max_in_flight}`);
+        const hello = await send(1, "harnix.hello", {}).then(() => answers.get(1)?.result as Hello);
+        const limit = hello.limits?.max_in_flight;
+        assert(limit === 16, `max_in_flight is ${limit}`);
 
         const n = 40;
         const ids = Array.from({ length: n }, (_, i) => 100 + i);
@@ -166,13 +166,14 @@ defineSuite("limits", { feature: "connection" }, {
         let slept = 0, busy = 0;
         for (const id of ids) {
           const frame = answers.get(id);
+          assert(frame, `no answer to ${id}`);
           if (frame.result) { slept += 1; continue; }
-          assert(frame.error.code === BUSY, `answered ${JSON.stringify(frame.error)}`);
-          assert(frame.error.data?.max_in_flight === hello.limits.max_in_flight,
+          assert(frame.error?.code === BUSY, `answered ${JSON.stringify(frame.error)}`);
+          assert(frame.error.data?.max_in_flight === limit,
             `BUSY carries ${JSON.stringify(frame.error.data)}`);
           busy += 1;
         }
-        assert(slept >= 1 && slept <= hello.limits.max_in_flight, `${slept} ran`);
+        assert(slept >= 1 && slept <= limit, `${slept} ran`);
         assert(busy === n - slept, `${busy} refused, ${slept} ran`);
       } finally {
         await backend.dispose();

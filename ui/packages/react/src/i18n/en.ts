@@ -314,6 +314,7 @@ const en: Record<string, string> = {
   "apps.disable": "Disable",
   "apps.update": "Check for update",
   "apps.updateTo": "Update to {version}…",
+  "apps.downgradeTo": "Go back to {version}…",
   "apps.upToDate": "{name} is up to date",
   "apps.uninstall": "Uninstall",
   "apps.uninstallConfirm": "Uninstall {name}? Its data goes with it.",

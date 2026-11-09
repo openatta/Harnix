@@ -4,9 +4,8 @@
 // are folded back in by the hub, and a session it has never opened reports
 // null rather than a guess. That honesty is what is checked here.
 
-import { defineSuite, finish } from "@harnix/testkit";
-
-const assert = (cond, message) => { if (!cond) throw new Error(message); };
+import type { Scene, SessionRow } from "@harnix/core/protocol";
+import { assert, defineSuite, finish } from "@harnix/testkit";
 
 defineSuite("sessions", { feature: "sessions" }, {
   tests: {
@@ -46,7 +45,7 @@ defineSuite("sessions", { feature: "sessions" }, {
       const created = await client.call("session.create", {});
       await client.call("harnix.attach", { session_id: created.session_id });
       const { sessions } = await client.call("harnix.sessions");
-      const row = sessions.find((s) => s.session_id === created.session_id);
+      const row = sessions.find((s: SessionRow) => s.session_id === created.session_id);
       assert(row, "the created session is not listed");
       // `SessionInfo` upstream carries neither; the hub writes down what it
       // saw at create and attach time.
@@ -125,7 +124,7 @@ defineSuite("sessions", { feature: "sessions" }, {
         const orphans = await client.call("session.list",
           { include_children: true, parent_session_id: created.session_id });
         assert(Array.isArray(orphans.sessions), "filtering by parent broke the list");
-        assert(!orphans.sessions.some((r) => r.session_id === created.session_id),
+        assert(!orphans.sessions.some((r: SessionRow) => r.session_id === created.session_id),
           "a session was returned as its own child");
         await finish(client, created.session_id);
       },
@@ -190,13 +189,13 @@ defineSuite("sessions", { feature: "sessions" }, {
         // did not; now it must pass the engine's through, not keep a second
         // copy that could disagree.
         const engine = await client.call("session.list", {});
-        const raw = engine.sessions.find((s) => s.session_id === created.session_id);
+        const raw = engine.sessions.find((s: SessionRow) => s.session_id === created.session_id);
         assert(raw, "the engine does not list the session it just created");
         assert("project_root" in raw && "scene" in raw, "the engine's list lost scene or project root");
 
         await client.call("harnix.attach", { session_id: created.session_id });
         const { sessions } = await client.call("harnix.sessions");
-        const listed = sessions.find((s) => s.session_id === created.session_id);
+        const listed = sessions.find((s: SessionRow) => s.session_id === created.session_id);
         assert(listed.project_root === raw.project_root, "the hub's project root differs from the engine's");
         assert(listed.scene === raw.scene, "the hub's scene differs from the engine's");
         assert(listed.running === false, "a session with no turn is listed as running");
@@ -231,7 +230,7 @@ defineSuite("sessions", { feature: "sessions" }, {
       // it exercises the path without changing what this process is for every
       // test that runs after it. Not swallowed — a refusal here means the
       // method is broken, and `.catch(() => {})` was hiding exactly that.
-      const active = scenes.find((s) => s.active) ?? scenes[0];
+      const active = scenes.find((s: Scene) => s.active) ?? scenes[0];
       const reactivated = await client.call("scene.activate", { scene: active.scene });
       assert(reactivated, "activating an already-active scene returned nothing");
 

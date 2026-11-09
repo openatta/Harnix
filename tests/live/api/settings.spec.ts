@@ -7,8 +7,7 @@
 // showing one of them and being wrong half the time.
 
 import { METHOD_NOT_FOUND, REFUSED } from "@harnix/core/protocol";
-import { defineSuite } from "@harnix/testkit";
-const assert = (cond, message) => { if (!cond) throw new Error(message); };
+import { assert, defineSuite } from "@harnix/testkit";
 
 defineSuite("settings", { feature: "settings" }, {
   tests: {

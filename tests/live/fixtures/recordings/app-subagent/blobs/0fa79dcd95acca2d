@@ -1,0 +1,1 @@
+{"role":"user","content":[{"type":"text","text":"You are the showcase guide. Try the showcase application's tools one at a time — `echo` with a\nshort greeting, then `config`, then `count` — and report in one line each what came back. Do not\nuse any other tool.\n\n\nTask: Call the showcase's echo tool with the text showcase-sub-7 and say what it answered."}]}

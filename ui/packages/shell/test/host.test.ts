@@ -181,7 +181,7 @@ describe("instances", () => {
             ? { stopped: "x" }
             : {};
     const host = hostFor(app);
-    // These read typed fields: with `Promise<unknown>` they do not compile (review G20).
+    // These read typed fields: with `Promise<unknown>` they do not compile.
     const listed: string[] = (await host.instances.list()).instances.map((i) => i.id);
     const active: boolean = (await host.instances.tasks("system", "s1")).active;
     const stopped: string = (await host.instances.stop("x")).stopped;

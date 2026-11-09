@@ -1,5 +1,5 @@
 /**
- * A narrow window (Helm §1; review G2), at 900px and at 600px, against a real backend with turns
+ * A narrow window (Helm §1), at 900px and at 600px, against a real backend with turns
  * replayed.
  *
  * At 960px and below the sidebar is the rail: nothing of its column shows in it or spills out of

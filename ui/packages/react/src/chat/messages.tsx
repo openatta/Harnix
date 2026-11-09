@@ -1,5 +1,5 @@
 /**
- * 对话流里的消息：逐个对应原型 docs/ui/prototype/ipdrun-prototype.html 的 msgItem / typingHTML / cliLine / diffHTML，
+ * 对话流里的消息：逐个对应 IPDrun 的界面原型（IPDrun 仓库的 docs/ui/prototype/ipdrun-prototype.html，不在本仓库）的 msgItem / typingHTML / cliLine / diffHTML，
  * DOM 结构与类名照原型（加 hx- 前缀），样式在 styles.css 的同名规则里。
  *
  *   你的话     .cv-u > .cv-ub：右侧浅底圆角气泡；编号是 chip；排队中的在气泡里多一行 .q

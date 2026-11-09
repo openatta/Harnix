@@ -7,9 +7,7 @@
 // The recording directory is never served over HTTP — it is read through an
 // authorized method that folds it into a view.
 
-import { defineSuite, finish, inconclusive } from "@harnix/testkit";
-
-const assert = (cond, message) => { if (!cond) throw new Error(message); };
+import { assert, defineSuite, finish, inconclusive } from "@harnix/testkit";
 
 defineSuite("recordings", { feature: "sessions" }, {
   // Live only: the subject is the recording being *written*, and a replaying

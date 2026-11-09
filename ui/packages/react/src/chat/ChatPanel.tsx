@@ -1,6 +1,6 @@
 /**
  * ChatPanel：唯一的会话组件（类目会话、条目会话、工位、集成页、⌘K 用同一个组件，
- * 只是配置不同）。DOM 与类名照原型 docs/ui/prototype/ipdrun-prototype.html 的 chatPane / cliPane / composer
+ * 只是配置不同）。DOM 与类名照 IPDrun 的界面原型（IPDrun 仓库的 docs/ui/prototype/ipdrun-prototype.html，不在本仓库）的 chatPane / cliPane / composer
  * （加 hx- 前缀），样式是原型同名规则的移植（styles.css）：
  *
  *   .chat

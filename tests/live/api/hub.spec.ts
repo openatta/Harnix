@@ -1,4 +1,3 @@
-// @ts-nocheck — moved over from JavaScript unchanged; new suites are typed.
 // The invariants the hub exists for.
 //
 // These are the ones that cannot be checked from the interface side, because
@@ -9,9 +8,8 @@
 // Everything here works without a model by driving the queue and the
 // watcher registry directly; the turn-shaped versions are in `05-turns`.
 
-import { connect, defineSuite, finish, inconclusive } from "@harnix/testkit";
-
-const assert = (cond, message) => { if (!cond) throw new Error(message); };
+import type { EngineEvent, QueueItem, ReplayFrame } from "@harnix/core/protocol";
+import { type TestClient, assert, connect, defineSuite, finish, inconclusive } from "@harnix/testkit";
 
 defineSuite("hub", { feature: "sessions" }, {
   tests: {
@@ -45,7 +43,8 @@ defineSuite("hub", { feature: "sessions" }, {
       await second.call("harnix.attach", { session_id: created.session_id });
 
       await client.call("harnix.send", { session_id: created.session_id, message: "seen by both" });
-      for (const [who, c] of [["the sender", client], ["the second client", second]]) {
+      const watchers: [string, TestClient][] = [["the sender", client], ["the second client", second]];
+      for (const [who, c] of watchers) {
         await c.waitFor(
           (f) => f.method === "harnix.event"
             && f.params.session_id === created.session_id
@@ -80,7 +79,7 @@ defineSuite("hub", { feature: "sessions" }, {
       // model answered: replayed turns settle in about 300ms, so on the
       // slower topology the turn was already done and the correct answer read
       // as a failure.
-      const replayed = attached.replay.map((f) => f.event).filter((e) => e.kind === "user_message");
+      const replayed = attached.replay.map((f: ReplayFrame) => f.event).filter((e: EngineEvent) => e.kind === "user_message");
       const inHistory = attached.history_total > 0;
       assert(
         replayed.length > 0 || inHistory,
@@ -139,7 +138,7 @@ defineSuite("hub", { feature: "sessions" }, {
 
         const after = await client.call("harnix.queue.remove",
           { session_id: created.session_id, item_id: queued.item.item_id });
-        assert(!after.items.some((i) => i.item_id === queued.item.item_id),
+        assert(!after.items.some((i: QueueItem) => i.item_id === queued.item.item_id),
           "the removed item is still queued");
       }
       await finish(client, created.session_id);

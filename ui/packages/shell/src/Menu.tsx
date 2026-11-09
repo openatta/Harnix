@@ -1,19 +1,15 @@
 /**
- * The shell's menus: the avatar's, a session's, a project's. One kind, anchored to what opened it —
- * a button, a row, the pointer of a right click — and not a dialog: it is a layer (`layers.ts`), so
- * Escape closes it first and a dialog opening closes it, but the page under it stays live.
- *
- * `role="menu"`; the focus goes to its first item, ↑/↓ (and Home/End) move between items, Enter
- * or a click runs one and closes the menu, Escape or Tab closes it, and the focus goes back to what
- * opened it. A click outside closes it and leaves the focus where the click put it. An item that
- * has to be confirmed opens its dialog after the menu has closed.
+ * The shell's menus: the avatar's, a session's, a project's. Their box, keys and layer are
+ * `@harnix/react`'s `MenuBox`, which the composer's menus use too; this draws the items, and opens
+ * one at a point over the page. Enter or a click runs an item and closes the menu; an item that has
+ * to be confirmed opens its dialog after the menu has closed.
  */
 
-import { useLayoutEffect, useRef, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import { MenuBox } from "@harnix/react";
 
 import { Glyph } from "./glyph.tsx";
-import { useLayer } from "./layers.ts";
 
 export interface MenuEntry {
   /** Its `data-item`: what a test or an application finds it by. */
@@ -49,61 +45,8 @@ export interface MenuProps {
 }
 
 export function Menu({ label, items, onClose, at, title, className, testId, within, returnTo }: MenuProps) {
-  const box = useRef<HTMLDivElement>(null);
-  // Opened at a point, it stays in the window: moved up or left where it would go past an edge.
-  // Placed before it is pushed as a layer, which puts the focus in it.
-  useLayoutEffect(() => {
-    const el = box.current;
-    if (!at || !el) return;
-    const { width, height } = el.getBoundingClientRect();
-    el.style.left = `${Math.max(8, Math.min(at.x, window.innerWidth - width - 8))}px`;
-    el.style.top = `${at.y + height > window.innerHeight - 8 ? Math.max(8, at.y - height) : at.y}px`;
-  }, [at?.x, at?.y]);
-  const layer = useLayer(box, {
-    modal: false,
-    close: onClose,
-    returnTo,
-    initial: (el) => el.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)'),
-  });
-  useLayoutEffect(() => {
-    const away = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (box.current?.contains(target) || within?.current?.contains(target)) return;
-      layer.quiet();
-      onClose();
-    };
-    window.addEventListener("mousedown", away, true);
-    return () => window.removeEventListener("mousedown", away, true);
-  }, [onClose]);
-
-  const keys = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    const all = [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') ?? [])];
-    const at = all.indexOf(document.activeElement as HTMLElement);
-    const go = (i: number) => {
-      event.preventDefault();
-      all[(i + all.length) % all.length]?.focus();
-    };
-    if (event.key === "ArrowDown") go(at + 1);
-    else if (event.key === "ArrowUp") go(at < 0 ? -1 : at - 1);
-    else if (event.key === "Home") go(0);
-    else if (event.key === "End") go(-1);
-    else if (event.key === "Tab") {
-      event.preventDefault();
-      onClose();
-    } else layer.onKeyDown(event);
-  };
-
   const menu = (
-    <div
-      ref={box}
-      role="menu"
-      aria-label={label}
-      tabIndex={-1}
-      className={`hx-menu${at ? " anchored" : ""}${className ? ` ${className}` : ""}`}
-      data-testid={testId}
-      style={at ? { left: at.x, top: at.y } : undefined}
-      onKeyDown={keys}
-    >
+    <MenuBox label={label} onClose={onClose} at={at} className={className} testId={testId} within={within} returnTo={returnTo}>
       {title ? <div className="hx-menu-title">{title}</div> : null}
       {items.map((item) => (
         <button
@@ -128,7 +71,7 @@ export function Menu({ label, items, onClose, at, title, className, testId, with
           {item.value}
         </button>
       ))}
-    </div>
+    </MenuBox>
   );
   return at ? createPortal(menu, document.getElementById("layers") ?? document.body) : menu;
 }

@@ -3,7 +3,8 @@
  * catalog offers the showcase; "Install" shows what it asks for — a modal over the settings, every
  * capability a sentence — and installs nothing until the disclosure's own button is pressed; installed, it is listed as countersigned by the store with
  * its switches; switched off and on; updated, with only what the new version adds shown and asked
- * for; uninstalled, gone from the list and back on offer.
+ * for; taken back to an older version only by name, disclosed as a downgrade; uninstalled, gone
+ * from the list and back on offer.
  */
 
 import type { Page } from "@playwright/test";
@@ -148,6 +149,33 @@ test("an update shows only what it adds, and waits for its own consent", TAGS, a
   await page.getByTestId("app-consent").click();
   await expect(installed).toHaveAttribute("data-version", "0.2.0", { timeout: 30_000 });
   expect((await listed())[0]).toMatchObject({ version: "0.2.0", trust: "store" });
+});
+
+test("the store's newest older than the installed: going back is named as such, and disclosed as a downgrade", TAGS, async ({ page }) => {
+  // 0.2.0 is installed (the test above); the store takes it back, so its newest is 0.1.0.
+  expect((await listed())[0].version).toBe("0.2.0");
+  const pulled = structuredClone(store.index);
+  pulled.apps[0].versions = pulled.apps[0].versions.filter((v: { version: string }) => v.version !== "0.2.0");
+  store.write(pulled);
+  try {
+    await open(page, backend.url);
+    await applications(page);
+    const installed = page.locator(`[data-testid="app-installed"][data-app="${SHOWCASE_ID}"]`);
+    const back = installed.getByTestId("app-update");
+    await expect(back).toHaveAttribute("data-direction", "back");
+    await expect(back).toContainText(/Go back to 0\.1\.0|回到 0\.1\.0/);
+    await back.click();
+    const disclosure = page.getByTestId("app-disclosure");
+    // The row that says what going back means, and nothing done until it is consented to.
+    await expect(disclosure.getByTestId("app-downgrade")).toContainText(/0\.2\.0 → 0\.1\.0/);
+    await expect(disclosure.getByTestId("app-downgrade")).toContainText(/older version|旧版本/);
+    expect((await listed())[0].version).toBe("0.2.0");
+    await page.getByTestId("app-consent").click();
+    await expect(installed).toHaveAttribute("data-version", "0.1.0", { timeout: 30_000 });
+    expect((await listed())[0]).toMatchObject({ version: "0.1.0", trust: "store" });
+  } finally {
+    store.write(store.index);
+  }
 });
 
 test("uninstalled from its row: gone, and on offer again", TAGS, async ({ page }) => {

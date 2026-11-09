@@ -1,0 +1,1 @@
+{"role":"user","content":[{"type":"text","text":"Use the app__example_showcase__read_project tool with the path README.md. Call the tool now; do not answer in prose first. When it returns, reply with exactly: That is the project's README."}]}

@@ -1,0 +1,1 @@
+{"role":"user","content":[{"type":"text","text":"<system-reminder>\nYou have called app__example_showcase__crash with the same input 3 times this turn. Look at what it returned: it will not change by asking again. Change approach, or stop and tell the user what you know and where you are stuck.\n</system-reminder>"}]}

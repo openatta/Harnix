@@ -8,9 +8,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { defineSuite, finish, inconclusive } from "@harnix/testkit";
+import type { SessionRow } from "@harnix/core/protocol";
+import { assert, defineSuite, finish, inconclusive } from "@harnix/testkit";
 
-const assert = (cond, message) => { if (!cond) throw new Error(message); };
+/** A row of `harnix.workspaces.list`. */
+interface Workspace {
+  id: string;
+  [key: string]: unknown;
+}
 
 defineSuite("workspaces", { feature: "session-space" }, {
   tests: {
@@ -43,8 +48,8 @@ defineSuite("workspaces", { feature: "session-space" }, {
         // and creating a second one on a path that already has one hands back
         // the existing row. Three creates on the same path make one
         // workspace, which is a list too short to reorder.
-        const ids = [];
-        const dirs = [];
+        const ids: string[] = [];
+        const dirs: string[] = [];
         for (const name of ["reorder-a", "reorder-b", "reorder-c"]) {
           const dir = mkdtempSync(join(tmpdir(), `harnix-${name}-`));
           dirs.push(dir);
@@ -53,7 +58,7 @@ defineSuite("workspaces", { feature: "session-space" }, {
           ids.push(made.workspace.id);
         }
         const order = () => client.call("harnix.workspaces.list")
-          .then(({ workspaces }) => workspaces.map((w) => w.id).filter((i) => ids.includes(i)));
+          .then(({ workspaces }) => workspaces.map((w: Workspace) => w.id).filter((i: string) => ids.includes(i)));
 
         const [a, b, c] = ids;
         assert((await order()).join() === [a, b, c].join(), "the three did not start in order");
@@ -81,9 +86,9 @@ defineSuite("workspaces", { feature: "session-space" }, {
       },
 
     "reordering something that is not there changes nothing": async ({ client }) => {
-      const before = (await client.call("harnix.workspaces.list")).workspaces.map((w) => w.id);
+      const before = (await client.call("harnix.workspaces.list")).workspaces.map((w: Workspace) => w.id);
       const e = await client.refused("harnix.workspaces.reorder", { id: "no-such-workspace" });
-      const after = (await client.call("harnix.workspaces.list")).workspaces.map((w) => w.id);
+      const after = (await client.call("harnix.workspaces.list")).workspaces.map((w: Workspace) => w.id);
       assert(before.join() === after.join(),
         `the list changed: ${before.join()} → ${after.join()}`);
       if (e) assert(e.message, "refused without saying why");
@@ -139,7 +144,7 @@ defineSuite("workspaces", { feature: "session-space" }, {
 
       const { sessions } = await client.call("harnix.sessions");
       const notes = await client.call("harnix.workspaces.list");
-      const row = sessions.find((s) => s.session_id === created.session_id);
+      const row = sessions.find((s: SessionRow) => s.session_id === created.session_id);
       assert(row, "the session is not in the hub's list");
       assert(notes.sessions[row.session_id], "the two lists do not share a key");
       assert("project_root" in row, "the hub's row carries no project root to join a workspace on");
@@ -165,7 +170,7 @@ defineSuite("workspaces", { feature: "session-space" }, {
         let hit = null;
         for (let i = 0; i < 50 && !hit; i += 1) {
           const { hits } = await client.call("harnix.search", { query: "fixture ready" });
-          hit = hits.find((h) => h.session_id === created.session_id);
+          hit = hits.find((h: { session_id: string }) => h.session_id === created.session_id);
           if (!hit) await new Promise((r) => setTimeout(r, 100));
         }
         assert(hit, "the session that said it is not among the hits");
