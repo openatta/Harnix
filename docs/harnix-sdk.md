@@ -3,7 +3,7 @@
 > 读者：在 Harnix 上做产品的人（Helm、IPDrun、Grabix，以及以后的应用）。
 >
 > 这是**模式 1** 的文档：用 Rust 把 Harnix 装配成一个产品。三种模式怎么选见 [应用开发](app-development.md)；
-> 往产品里装的插件 APP（模式 2 / 3）怎么写见 [插件](harnix-plugin.md)；Harnix 自带的最小应用见 [最小应用](harnix-app.md)，
+> 往产品里装的插件 APP（模式 2 / 3）怎么写见 [插件](harnix-plugin.md)；Harnix 自带的 Harnix app 见 [Harnix app](harnix-app.md)，
 > 系统 space 见 [系统 space](system-space.md)。
 >
 > 分两部分。**第一部分（§1–§14）是指南**：怎么做、为什么。**第二部分（§16 起）是接口清单**：每个类型、方法、
@@ -16,8 +16,8 @@
 
 ## 1. Harnix 是什么
 
-**Harnix 是 Agent 应用的公共底座**：一个框架，加上用这个框架做的一个最小应用（会话 space、项目 space）和一个
-始终在的系统 space。你做的产品是框架上的另一个应用，和最小应用同一种做法，只是更大。你的应用只认 Harnix：仓库里一个子仓 `harnix/`，代码里一个 crate
+**Harnix 是 Agent 应用的公共底座**：一个框架，加上用这个框架做的一个 Harnix app（会话 space、项目 space）和一个
+始终在的系统 space。你做的产品是框架上的另一个应用，和 Harnix app 同一种做法，只是更大。你的应用只认 Harnix：仓库里一个子仓 `harnix/`，代码里一个 crate
 `harnix`（前端是 `@harnix/*` 的包）。Agent 引擎是 Harnix 带进来的，你不单独引入它、不钉它的版本，也不直接找它。
 
 | 层 | 管什么 | 你要不要改它 |
@@ -63,7 +63,7 @@ Harnix 进程
 | 例子 | 放哪 | 为什么 |
 |---|---|---|
 | 交易、关注组、需求规格、工位、xflow | 应用 | 领域的东西 |
-| 通用的流程引擎：站、任务、出口条件、返工、租约 | Harnix 的可选 crate `harnix-flow`，应用注册才有 | IPDrun、XOps 两份实现是同一个形状（xops-01）；流程**定义**和领域的站仍在应用里。站的会话可落到任一实例、模板实例、space 与模型，经结构化输出交付、经权限规则限写；流程包可写、可在系统 space 里流程的对话里编写、可试运行（xops-02）。最小应用 `harnix` 自带它；`harnix` 库不带——二开应用要 `.module(Flow::builder()…build())` |
+| 通用的流程引擎：站、任务、出口条件、返工、租约 | Harnix 的可选 crate `harnix-flow`，应用注册才有 | IPDrun、XOps 两份实现是同一个形状（xops-01）；流程**定义**和领域的站仍在应用里。站的会话可落到任一实例、模板实例、space 与模型，经结构化输出交付、经权限规则限写；流程包可写、可在系统 space 里流程的对话里编写、可试运行（xops-02）。Harnix app `harnix` 自带它；`harnix` 库不带——二开应用要 `.module(Flow::builder()…build())` |
 | sqlite 运行态、git 原语、代码扫描 | 应用 | 模块自己选库、自己管数据 |
 | 批准卡（交易要人点头） | 应用 | 模块契约够用，做法见 §10.1 |
 | MCP 服务端、角色令牌 | 应用（0.4 内） | 0.4 之后 Harnix 再做，见 §10.4 |
@@ -172,8 +172,8 @@ runtime_modules = false          # 不加载运行期包的界面模块（见 §
    `git submodule update --init --recursive`。
 2. 跑 `node harnix/scripts/sync-app-deps.mjs .`，再跑 `node harnix/scripts/check-pins.mjs .`。
 3. `scripts/build.sh`，然后 `./target/release/<app> --profile profiles/<app>.toml`。
-4. 打开启动链接，看到的是框架自带的部分：最小应用的会话、项目两个 space（[最小应用](harnix-app.md)），底部的系统 space
-   （[系统 space](system-space.md)），头像即设置。系统 space 里的「流程」页只在后端注册了流程模块时出现：最小应用 `harnix`
+4. 打开启动链接，看到的是框架自带的部分：Harnix app 的会话、项目两个 space（[Harnix app](harnix-app.md)），底部的系统 space
+   （[系统 space](system-space.md)），头像即设置。系统 space 里的「流程」页只在后端注册了流程模块时出现：Harnix app `harnix`
    注册了，你的应用 `.module(Flow…)` 了才有。
 5. 在 `spaces/` 下加第一个 space，在 `app/src/main.rs` 里 `.module(...)` 加上它；它的界面入口
    `spaces/<x>/ui/src/index.tsx` 由模板的 `scripts/build.sh` 自动接进构建（§8.2）。
@@ -1292,8 +1292,8 @@ export function register(r: Registry, host: NestHost): void
 
 一个 space 就是三栏：左栏中段是它的 `sidebar()`，中区默认是对话（`center`），右栏是它的 `tabs`。不随
 space 变的只有：顶部的标识、新建对话、搜索；底部的头像（就是设置入口，外圈颜色表示连接状态；点开是
-设置、主题、语言、关于、连接详情）。两边的栏都能拖宽度。内建的 space——最小应用的会话（按时间）、项目（树，
-一次展开一个），以及系统（入口在底部）——都是用例，`[shell] spaces` 决定留哪些（[最小应用](harnix-app.md)、[系统 space](system-space.md)）。
+设置、主题、语言、关于、连接详情）。两边的栏都能拖宽度。内建的 space——Harnix app 的会话（按时间）、项目（树，
+一次展开一个），以及系统（入口在底部）——都是用例，`[shell] spaces` 决定留哪些（[Harnix app](harnix-app.md)、[系统 space](system-space.md)）。
 
 ### 22.5 构建
 
@@ -1334,7 +1334,7 @@ api_version = 2
 
 ## 23. 流程模块：`harnix-flow`、`@harnix/flow`
 
-可选模块：应用 `.module(harnix_flow::Flow::builder()….build())` 才有；最小应用 `harnix` 注册了它（`crates/cli/src/main.rs`）。
+可选模块：应用 `.module(harnix_flow::Flow::builder()….build())` 才有；Harnix app `harnix` 注册了它（`crates/cli/src/main.rs`）。
 对象与写法（站、执行器、出站条件、规则、策略与权限、门禁、钩子……）见流程指南 `crates/flow/docs/guide.zh-CN.md`
 （系统 space 里流程的参考页就是它，`app.flow.guide {lang}` 也给它）。
 

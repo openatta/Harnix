@@ -1,4 +1,4 @@
-//! `harnix` — the empty application: the built-ins, and the flow module (xops-02 §6).
+//! `harnix` — the Harnix app: the built-ins, and the flow module (xops-02 §6).
 //!
 //! An application's own binary is the built-ins with its modules added (`templates/app`); an
 //! application that wants flows registers `harnix_flow::Flow` itself, as this one does.
@@ -33,7 +33,7 @@ fn example() -> MemPacks {
         .policy(EXAMPLE_POLICY)
 }
 
-/// The flow module as the empty application registers it.
+/// The flow module as the Harnix app registers it.
 pub fn flow() -> Flow {
     Flow::builder()
         .packs_with(|dir| {

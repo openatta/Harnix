@@ -11,7 +11,7 @@
 //! ```
 //!
 //! The `harnix` binary is exactly that with no modules of its own — the
-//! empty application. An application's binary is the same call with its
+//! Harnix app. An application's binary is the same call with its
 //! modules added; nothing about the kernel changes between the two.
 //!
 //! What is fixed and what is chosen: the start order (profile → register →

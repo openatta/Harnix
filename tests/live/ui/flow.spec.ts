@@ -1,5 +1,5 @@
 /**
- * The flows in the browser (xops-03 §6), against the empty application — the `harnix` binary,
+ * The flows in the browser (xops-03 §6), against the Harnix app — the `harnix` binary,
  * which has the flow module, served the shell as built (`ui/dist`): they are the shell's own, in
  * the system space.
  *

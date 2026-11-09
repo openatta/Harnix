@@ -128,7 +128,7 @@ async fn main() {
         eprintln!("usage: demo_seed <pack dir> <runs dir>");
         std::process::exit(2);
     };
-    // The empty application's catalog: its wrapped scenes, command gates on.
+    // The Harnix app's catalog: its wrapped scenes, command gates on.
     let catalog = MemPacks::new().main_scene("flow-harnix").command_gates();
     let packs = DirPacks::new([pack.clone()]).with_builtin(catalog);
     let now = std::time::SystemTime::now()

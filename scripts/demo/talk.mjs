@@ -1,4 +1,4 @@
-// Say the demo's conversations to the empty application running under --replay-dir (xops-04 §8).
+// Say the demo's conversations to the Harnix app running under --replay-dir (xops-04 §8).
 //
 //   node scripts/demo/talk.mjs <url> <token file> <conversations.json>
 //

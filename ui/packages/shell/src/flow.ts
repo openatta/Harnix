@@ -5,7 +5,7 @@
  * they are the flow space of their own, as before (`registerFlowSpace`).
  *
  * What the page knows at start tells it: `harnix.reachable` lists `app.flow.defs` when the module
- * is registered (under the id `flow`, as the empty application and the SDK's builder do), and the
+ * is registered (under the id `flow`, as the Harnix app and the SDK's builder do), and the
  * space whose conversations run the module's `flow-author` scene is the one in
  * `harnix.spaces.list` with that scene — `flow` unless the application renamed it. Either way the
  * interface space has that id, so its conversations are claimed for their own backend space and a

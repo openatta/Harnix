@@ -3,7 +3,7 @@
  * in, hand an external task in, reject a confirmation, send work back (rework), confirm, and cancel a
  * run with a reason.
  *
- * The flow is saved by the test (the empty application's packs are writable) and has no session
+ * The flow is saved by the test (the Harnix app's packs are writable) and has no session
  * station, so nothing here calls a model:
  *
  *   draft    held on entry; an external task whose output hands it in

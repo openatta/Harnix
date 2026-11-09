@@ -9,7 +9,7 @@
 | 三种做法与三种产品形态，怎么选 | [应用开发](app-development.md) |
 | 用 Rust 在 Harnix 上做应用（模式 1） | [SDK](harnix-sdk.md)：前半是指南，后半是签名、profile 键、方法与主题的清单 |
 | 写一个插件 APP（模式 2 / 3） | [插件](harnix-plugin.md) |
-| Harnix 自带的最小应用、系统 space | [最小应用](harnix-app.md)、[系统 space](system-space.md) |
+| Harnix 自带的 Harnix app、系统 space | [Harnix app](harnix-app.md)、[系统 space](system-space.md) |
 | 贡献点的完整目录 | [contribution_points.md](contribution_points.md)，由代码生成 |
 | 测试怎么跑、怎么写 | [testing.md](testing.md) |
 | 下游项目提的需求 | [GitHub issue](https://github.com/openatta/Harnix/issues)，每个项目一个标签；代码里的编号（`ipdrun-NN`、`xops-NN`……）对照见 [issues](issues/README.md) |
@@ -37,11 +37,11 @@ Harnix 建立在 [Agix](https://github.com/openatta/agix) 之上。引擎相关�
 | 部分 | 是什么 | 在哪讲 |
 |---|---|---|
 | **框架** | 骨架（传输、授权、中枢、装配）、实例层、模块契约、外壳与贡献点、插件 APP 的宿主 | 本文 |
-| **最小应用** | 会话 space 与项目 space：新建会话、按时间看会话、按项目管理会话。用框架自己的公开接口做的一个小应用 | [最小应用](harnix-app.md) |
+| **Harnix app** | 会话 space 与项目 space：新建会话、按时间看会话、按项目管理会话。用框架自己的公开接口做的一个小应用 | [Harnix app](harnix-app.md) |
 | **系统 space** | 始终在的调试面：按进程、实例、会话、任务看见并操作一切；应用开发的工具链（流程）也在这里 | §5.5、[系统 space](system-space.md) |
 
-Harnix 自己发布的二进制 `harnix` 就是这三部分，再注册了流程模块。一个产品是框架上的另一个应用，和最小应用同一种做法，
-只是更大；它用 `[shell] spaces` 决定留不留最小应用的两个 space 和系统 space。
+Harnix 自己发布的二进制 `harnix` 就是这三部分，再注册了流程模块。一个产品是框架上的另一个应用，和 Harnix app 同一种做法，
+只是更大；它用 `[shell] spaces` 决定留不留 Harnix app 的两个 space 和系统 space。
 
 这条分工是硬的，两个方向都是：
 
@@ -82,7 +82,7 @@ Harnix 自己发布的二进制 `harnix` 就是这三部分，再注册了流程
 实现；等两份实现证明是同一个形状，再考虑收进来。Helm、IPDrun 的需求是**输入**，不是必须满足的清单。
 
 背后是维护者定下的一条：**Harnix 自己保持薄、容易改造。** 一个什么都带的底座，每个应用都要先学会
-关掉它不要的那些；一个薄的底座，应用只学它要的那些。内建的东西因此也都做成可以去掉的：最小应用的
+关掉它不要的那些；一个薄的底座，应用只学它要的那些。内建的东西因此也都做成可以去掉的：Harnix app 的
 两个 space 与系统 space（`[shell] spaces`，§5.3、§5.5）、Agix 插件的界面模块（`[ui] runtime_modules`，§5.8）、插件 APP（cargo feature
 `apps` 与 `[apps] enabled`，§4.3）都有开关。
 
@@ -234,7 +234,7 @@ Harnix 进程
 ```text
  浏览器（同一份产物；Tauri 只是装它的窗口）
  ┌──────────────────────────────────────────────────────────────────┐
- │ @harnix/shell  外壳：固定外框、space 切换、设置；最小应用与系统 space     │
+ │ @harnix/shell  外壳：固定外框、space 切换、设置；Harnix app 与系统 space     │
  │ 应用的 space    应用自己的 React 组件，只依赖 @harnix/react              │
  │ 插件 APP 的界面 隔离 iframe 里的页面，经桥（@harnix/app-sdk）借外壳的手   │
  │ @harnix/react  贡献注册表、useNest()、i18n、令牌；对话组件 ChatPanel 等     │
@@ -489,7 +489,7 @@ Harnix 的传输层发出，与界面**同源**，准入走同一套（同一份
 **一个产品开模式 2 或模式 3，不同时开**：两种模式对「插件的 Agent 在哪」答案不同，模式 2 的宿主要链 wasmtime、模式 3 的不链。
 **包对模式中立**：同一个 `.hxapp` 在嵌入版、桌面版、各个应用里都能装，商店只有一种包。
 
-由此有三种产品形态：**应用**一般是模式 1 + 2；**Harnix 嵌入版**是最小应用 + 模式 2，给资源紧的设备与边缘；**Harnix 桌面版**是最小应用 +
+由此有三种产品形态：**应用**一般是模式 1 + 2；**Harnix 嵌入版**是 Harnix app + 模式 2，给资源紧的设备与边缘；**Harnix 桌面版**是 Harnix app +
 模式 3，我们自己的发布（只有设计）。资源、安全、目标市场的比较在 [应用开发](app-development.md) §3–§5。
 
 ### 4.2 编译期模块
@@ -700,16 +700,16 @@ API」是同一条。
 左右两栏都能拖宽并记在本地；窄屏时先把左栏收成图标栏，再把两侧都变成抽屉。一个 space 可以 `within` 另一个：不列在左栏，
 由代码进入，在前台时点亮外层的入口（系统 space 里的流程就是这样）。
 
-**Harnix 自带的 space 是最小应用的两个加系统 space，都只是用例和默认值**，产品用 profile 的 `[shell] spaces` 选留哪几个（默认都留）：
+**Harnix 自带的 space 是 Harnix app 的两个加系统 space，都只是用例和默认值**，产品用 profile 的 `[shell] spaces` 选留哪几个（默认都留）：
 
 | space | 属于 | 左 | 中 | 右 | 后端 |
 |---|---|---|---|---|---|
-| **会话** | 最小应用 | 全部会话，按时间分组（`sidebar.group`，应用可以换），带搜索 | 对话 | 详情 | 后端的 `sessions` space |
-| **项目** | 最小应用 | 一棵树：项目（工作区）一次只展开一个，它的会话挂在下面 | 对话；新建的会话跑在展开的项目里 | 详情 | **同一个**后端 `sessions` space（`SpaceContribution.sessions = "sessions"`） |
+| **会话** | Harnix app | 全部会话，按时间分组（`sidebar.group`，应用可以换），带搜索 | 对话 | 详情 | 后端的 `sessions` space |
+| **项目** | Harnix app | 一棵树：项目（工作区）一次只展开一个，它的会话挂在下面 | 对话；新建的会话跑在展开的项目里 | 详情 | **同一个**后端 `sessions` space（`SpaceContribution.sessions = "sessions"`） |
 | **系统** | 系统 space | 实例列表 | 控制台（`center: "hidden"`），不持有对话 | 选中项的检查器 | 后端的 `system` space（§5.5） |
 
-去掉一个 space，它的入口就不注册；去掉「会话」，剩下的第一个成为默认；去掉「系统」，底部的入口和它的方法一起没了。最小应用怎么用框架
-做出来的见 [最小应用](harnix-app.md)。
+去掉一个 space，它的入口就不注册；去掉「会话」，剩下的第一个成为默认；去掉「系统」，底部的入口和它的方法一起没了。Harnix app 怎么用框架
+做出来的见 [Harnix app](harnix-app.md)。
 
 **项目 space 是界面上的一个视图，不是第二个会话集合。** 「按时间看」和「按项目看」是同一批会话的两种排法；如果它们是两个后端 space，
 同一个会话就得属于两个 space，而会话按 space 绑定是不变量（§5.4）。所以界面 space 可以用 `sessions` 指向另一个后端 space：两个界面视图，
@@ -1049,7 +1049,7 @@ transcript、会话记忆、录像（每次模型调用的完整输入，含系�
 | 反向代理后面 | 内网，代理终结 TLS | 独立静态服务（`ui export`） | 分离流 |
 | 一堆节点 / 自动化 | 每节点一个进程，`--headless` | 无，或一份共用界面 | 纯请求 |
 
-**Harnix 嵌入版**就是为这一节做的：最小应用加系统 space，开模式 2，装少量受控的插件 APP。插件 APP 不多一个进程：每个应用一台虚拟机，
+**Harnix 嵌入版**就是为这一节做的：Harnix app 加系统 space，开模式 2，装少量受控的插件 APP。插件 APP 不多一个进程：每个应用一台虚拟机，
 常驻开销是它后端实例的线性内存（清单的 `memory_mb` 封顶，通常几 MB），整个进程共用一个 wasmtime 引擎；`on-demand` 的后端闲置时卸下。
 产品构建不带编译器，只反序列化商店编好的产物，所以带插件 APP 的二进制只比默认的大几 MB。资源与安全的取舍见 [应用开发](app-development.md) §3–§4。
 

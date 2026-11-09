@@ -1,10 +1,10 @@
-# Harnix 最小应用
+# Harnix app
 
 > 读者：用 Harnix 自己的二进制 `harnix` 的人；在 Harnix 上做应用、想看「用框架做一个应用最少要什么」的人；决定自己的产品留不留这两个 space 的人。
 >
-> Harnix 是三部分：**框架**、**最小应用**、**系统 space**（[系统 space](system-space.md)）。最小应用就是会话 space 与项目 space：
+> Harnix 是三部分：**框架**、**Harnix app**、**系统 space**（[系统 space](system-space.md)）。Harnix app 就是会话 space 与项目 space：
 > 新建会话、按时间看会话、按项目管理会话。它是用框架自己的公开接口做的一个小应用，也是模式 1 最小的例子。
-> 以前叫「空应用」。用词照 [术语](glossary.md)。
+> 以前叫「空应用」「最小应用」。别和 crate `harnix-app`（`crates/app`）、插件打包工具 `harnix-app` 混：那两个是代码里的名字。用词照 [术语](glossary.md)。
 >
 > 本文照代码写：界面在 `ui/packages/shell/src/builtins.tsx`、`sessions.tsx`、`projects.tsx`、`dialogs.tsx`、`Shell.tsx`，后端在
 > `crates/builtin/src/`（`sessions` 那一组），profile 在 `crates/instance/src/profile.rs`。对不上时以代码为准。
@@ -26,7 +26,7 @@
 不变量（[概念与架构](concept_and_architecture.md) §5.4），如果它们是两个后端 space，同一个会话就得属于两个 space。所以项目 space
 写 `sessions: "sessions"`：两个界面视图，一个后端归属。外壳每次会话调用带的是 `sessions`，不是 `projects`。
 
-Harnix 自己发布的二进制 `harnix`（`crates/cli`）就是框架加最小应用加系统 space，再注册了流程模块：
+Harnix 自己发布的二进制 `harnix`（`crates/cli`）就是框架加 Harnix app 加系统 space，再注册了流程模块：
 
 ```rust
 fn main() -> anyhow::Result<()> {
@@ -76,7 +76,7 @@ fn main() -> anyhow::Result<()> {
   space 里的 space 时，先换到第一个能对话的 space。⌘\ 收起左栏，⌘/ 聚焦输入框。
 - **新对话的空页**：问候（按钟点是早上、下午、晚上）、这个 space 的 `subtitle()`、输入框、`suggestions()` 的建议（点了就建会话
   并发出）、`notice()`，下面是 `home.card` 的卡片。**第一次发出时才建会话**：`session.create`（带前台 space 的归属，项目 space 里带项目的
-  目录），然后 `harnix.send`。最小应用的两个 space 不给建议、提示与卡片；应用的模块与插件 APP 可以给 `home.card`。
+  目录），然后 `harnix.send`。Harnix app 的两个 space 不给建议、提示与卡片；应用的模块与插件 APP 可以给 `home.card`。
 - **新会话对话框**（从项目菜单进来）：场景（启用的场景，引擎缺省的在前）、权限模式（`default`、`acceptEdits`、`plan`、
   `bypassPermissions`）、项目目录（`harnix.recentProjects` 给的最近目录，或不带项目），可以浏览目录。
 - **换模型**：会话的模型菜单在有 `harnix.sessions.setModel`（`[shell] model_switch = true`）时用它，否则用系统 space 的
@@ -134,7 +134,7 @@ icon = "brand/icon.svg"   # SVG，相对 profile；服务在 /brand/icon.svg
 product_id = "harnix"     # 程序自己的目录 ~/.<product_id>；小写字母、数字、-，字母开头；不写是 harnix
 ```
 
-最小应用的项目在 `--data-dir`（`$HARNIX_DATA_DIR`，缺省 `~/Documents`）里，工作区登记、标题、归档、偏好在 `~/.<product_id>/` 的账本里，
+Harnix app 的项目在 `--data-dir`（`$HARNIX_DATA_DIR`，缺省 `~/Documents`）里，工作区登记、标题、归档、偏好在 `~/.<product_id>/` 的账本里，
 对话在引擎的目录（`~/.agix/`）里。
 
 ### 6.3 `harnix.hello` 里的 `shell`
@@ -145,7 +145,7 @@ product_id = "harnix"     # 程序自己的目录 ~/.<product_id>；小写字母
 
 ## 7. 它是怎么用框架做的
 
-最小应用是模式 1 最小的例子：一个后端模块、两个界面 space、一个贡献，用的都是二开应用也用的接口。
+Harnix app 是模式 1 最小的例子：一个后端模块、两个界面 space、一个贡献，用的都是二开应用也用的接口。
 
 | 部分 | 用了什么 | 二开应用对应的做法 |
 |---|---|---|
@@ -160,5 +160,5 @@ product_id = "harnix"     # 程序自己的目录 ~/.<product_id>；小写字母
 （两个包的 `exports` 不放别的路径），space 经公开的注册表注册；但两个左栏是外壳自己的组件，用的是外壳内部的状态对象，
 不是模块拿到的 `NestHost`，这一侧也没有测试盯着「只用公开 API」。
 
-**要一个不同的最小应用**：不 fork 外壳，在自己的产品里用 `[shell] spaces` 去掉这两个 space，注册自己的 space 顶替
+**要一个不同的 Harnix app**：不 fork 外壳，在自己的产品里用 `[shell] spaces` 去掉这两个 space，注册自己的 space 顶替
 （[SDK](harnix-sdk.md) §4、§8）。

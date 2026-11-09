@@ -40,7 +40,7 @@ crate 自己的 `Cargo.toml` 里，不从 workspace 继承（应用把这些 cra
 
 - `docs/` 只放架构与二开的文档：架构与理由在 `docs/concept_and_architecture.md`，用词照 `docs/glossary.md`，
   三种做法（模式 1 / 2 / 3）与产品形态的总览在 `docs/app-development.md`，模式 1 的指南与接口在 `docs/harnix-sdk.md`，
-  插件 APP（模式 2 / 3）在 `docs/harnix-plugin.md`，最小应用在 `docs/harnix-app.md`，系统 space 在 `docs/system-space.md`，
+  插件 APP（模式 2 / 3）在 `docs/harnix-plugin.md`，Harnix app 在 `docs/harnix-app.md`，系统 space 在 `docs/system-space.md`，
   贡献点 `docs/contribution_points.md`（表由代码生成），LIVE 测试框架 `docs/testing.md`。
   `docs/harnix-sdk.md` 的版本表写着当前版本，`scripts/set-version.sh` 连它一起改，`tests/crate-metadata.mjs` 查。
   版本迁移写在 `docs/migrations/<x.y.z>.md`（要应用动手的版本各写一份，登记在 `docs/migrations/README.md` 的表里）：只在本地，

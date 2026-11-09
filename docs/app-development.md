@@ -6,18 +6,18 @@
 > 代码里叫 `apps`。Agix 的包叫 **Agix 插件**（运行期包），它可以是插件 APP 的一部分。
 >
 > 这是总览。模式 1 怎么做在 [SDK](harnix-sdk.md)；插件 APP 怎么写（模式 2 / 3 共用）在 [插件](harnix-plugin.md)；Harnix 自带的
-> 最小应用与系统 space 在 [最小应用](harnix-app.md)、[系统 space](system-space.md)。
+> Harnix app 与系统 space 在 [Harnix app](harnix-app.md)、[系统 space](system-space.md)。
 
 ## 0. 一句话
 
 **用 Rust 做产品（模式 1），再选一种方式往产品里装插件 APP：嵌在产品进程里（模式 2），或者每个插件一个进程（模式 3）。**
 
-Harnix 本身是**框架 + 最小应用 + 系统 space**：最小应用（会话 space、项目 space）就是用框架做的一个模式 1 的小应用，系统 space 始终在。
+Harnix 本身是**框架 + Harnix app + 系统 space**：Harnix app（会话 space、项目 space）就是用框架做的一个模式 1 的小应用，系统 space 始终在。
 由此有三种产品形态：
 
 - **应用**（IPDrun、Grabix 这类）：一般是模式 1 + 2。
-- **Harnix 嵌入版**：最小应用 + 模式 2，给资源紧的设备与边缘部署。
-- **Harnix 桌面版**：我们自己发布的 Harnix，最小应用 + 模式 3（只有设计）。
+- **Harnix 嵌入版**：Harnix app + 模式 2，给资源紧的设备与边缘部署。
+- **Harnix 桌面版**：我们自己发布的 Harnix，Harnix app + 模式 3（只有设计）。
 
 ## 1. 三种模式
 
@@ -34,8 +34,8 @@ Harnix 本身是**框架 + 最小应用 + 系统 space**：最小应用（会话
 | 形态 | 组成 | 状态 | 一句话 |
 |---|---|---|---|
 | **应用**（IPDrun、Grabix…） | 模式 1，一般再开模式 2 | 模式 1 在用；模式 2 开发中 | 产品方用 Rust 做领域能力，再让精选的插件 APP 在进程内扩展它 |
-| **Harnix 嵌入版** | 框架 + [最小应用](harnix-app.md) + [系统 space](system-space.md)，开模式 2 | 开发中 | 资源紧的设备与边缘部署：一个进程，省内存，装少量受控的插件 APP |
-| **Harnix 桌面版** | 框架 + 最小应用 + 系统 space，开模式 3 | 只有设计；在那之前 Harnix 自己的二进制 `harnix` 就是最小应用，可以开模式 2 | 资源宽的桌面：开放的应用商店，第三方插件各自一个进程，强隔离 |
+| **Harnix 嵌入版** | 框架 + [Harnix app](harnix-app.md) + [系统 space](system-space.md)，开模式 2 | 开发中 | 资源紧的设备与边缘部署：一个进程，省内存，装少量受控的插件 APP |
+| **Harnix 桌面版** | 框架 + Harnix app + 系统 space，开模式 3 | 只有设计；在那之前 Harnix 自己的二进制 `harnix` 就是 Harnix app，可以开模式 2 | 资源宽的桌面：开放的应用商店，第三方插件各自一个进程，强隔离 |
 
 两条约束：
 

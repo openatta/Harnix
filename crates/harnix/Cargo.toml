@@ -10,7 +10,7 @@ description  = "Agix, assembled into a product — the crate an application depe
 [lib]
 path = "src/lib.rs"
 
-# The empty application's binary, `harnix`, is `crates/cli` (`harnix-cli`): it registers the
+# The Harnix app's binary, `harnix`, is `crates/cli` (`harnix-cli`): it registers the
 # flow module, which a library user must not be made to compile (xops-02 §6).
 
 [features]
