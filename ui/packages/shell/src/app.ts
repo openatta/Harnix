@@ -539,8 +539,9 @@ export class App {
     const here = spaces.find((c) => c.id === this.state.space);
     if (here && disabledOf(this.registry, here) === null) return;
     // The stored space is gone or cannot be entered for now (ipdrun-48): the first that can, by
-    // order; when none can, stay where we are if that space is still here, else the first.
-    const space = (spaces.find((c) => disabledOf(this.registry, c) === null) ?? here ?? spaces[0])!.id;
+    // order — one shown inside another (`within`) is not landed on by itself; when none can, stay
+    // where we are if that space is still here, else the first.
+    const space = (spaces.find((c) => !c.within && disabledOf(this.registry, c) === null) ?? here ?? spaces[0])!.id;
     if (space !== this.state.space) this.set({ space });
   }
 
