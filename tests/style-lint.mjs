@@ -2,10 +2,12 @@
 //
 // A rule that never matches is invisible to every other test — which is how
 // an unsized glyph once shipped as a plus sign the height of its button.
-// These are the cheap invariants that would have caught it.
+// These are the cheap invariants that would have caught it. The last one is
+// about words rather than styles: what the comments cite, and the retired names.
 //
 //   node tests/style-lint.mjs
 
+import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -171,6 +173,53 @@ for (const path of dictionaries) {
 if (offTerm.length) fail(`words the glossary does not use: ${offTerm.slice(0, 8).join("; ")}`);
 else if (words < 500) fail(`only ${words} dictionary entries read: has the dictionaries' shape changed?`);
 else ok(`${words} dictionary entries, none in a word the glossary retired (${BANNED.length} checked)`);
+
+/* ── comments cite what a reader can open ───────────────────────────────── */
+// The 0.4 design record, its roadmap and its review rounds left the repository (CLAUDE.md); a
+// comment that cites `design §7.3` or `review #4` sends the reader nowhere. A comment says its
+// reason, or names a document that is here: `concept §3.2`, `harnix-sdk.md §17.6`. And the words
+// the glossary retired do not come back in the code by another door.
+const tracked = execFileSync("git", ["ls-files", "-z", "--", "crates", "examples", "templates", "ui/packages", "tests", "scripts"], {
+  cwd: root,
+  encoding: "utf8",
+}).split("\0").filter(Boolean);
+const textual = /\.(rs|toml|ts|tsx|mjs|js|css|html|json|sh|py|wit|yaml|yml|md)$/;
+const CITATIONS = [
+  [new RegExp("设计 ?" + "§"), "the design record (设计 §x)"],
+  [new RegExp("[Dd]esign " + "§"), "the design record (design §x)"],
+  [new RegExp("review " + "#\\d"), "a review round (review #N)"],
+];
+const RETIRED = [
+  [new RegExp("roadmap " + "M"), "the roadmap (roadmap Mx-y)"],
+  [new RegExp("[Ee]mpty " + "application"), "the empty application — the Harnix app"],
+  [new RegExp("空" + "应用"), "空应用 — Harnix app"],
+];
+const cited = [];
+let read = 0;
+for (const file of tracked) {
+  if (file === "tests/style-lint.mjs" || !textual.test(file) || file.includes("/recordings/") && file.endsWith(".jsonl")) continue;
+  let body;
+  try {
+    body = readFileSync(join(root, file), "utf8");
+  } catch {
+    continue; // listed but not on disk: a deleted file not yet committed
+  }
+  read += 1;
+  const rules = file.startsWith("crates/") || file.startsWith("examples/") ? [...CITATIONS, ...RETIRED] : CITATIONS;
+  const lines = body.split("\n");
+  lines.forEach((line, i) => {
+    for (const [pattern, what] of rules) if (pattern.test(line)) cited.push(`${file}:${i + 1} cites ${what}`);
+  });
+  // A citation a comment wraps (`design` at the end of one line, `§11.4` at the start of the next).
+  const joined = body.replace(/\s*\n\s*(?:\/\/[!/]?|\*|#)?\s*/g, " ");
+  for (const [pattern, what] of rules) {
+    const global = new RegExp(pattern.source, "g");
+    const wrapped = (joined.match(global) ?? []).length - lines.filter((l) => pattern.test(l)).length;
+    if (wrapped > 0) cited.push(`${file} cites ${what} across a line break`);
+  }
+}
+if (cited.length) fail(`citations a reader cannot follow, or retired words:\n  ${cited.join("\n  ")}`);
+else ok(`${read} source files, none citing the removed design record or using a retired word`);
 
 console.log(process.exitCode ? "\nSTYLE LINT FAILED" : "\nSTYLE LINT PASSED");
 process.exit(process.exitCode || 0);
