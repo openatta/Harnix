@@ -32,6 +32,15 @@ const report = JSON.parse(listed.stdout);
 
 const counts = new Map(FEATURES.map((f) => [f.id, { api: 0, ui: 0 }]));
 const problems = [];
+// A test that is skipped or `fixme` where it is declared covers nothing, and one tagged `@gap`
+// pins a known defect as it is (it passes while the defect is there): neither counts as
+// coverage. The skipped are counted; the gaps are listed under the table, so the table says
+// what is known to be wrong.
+let skipped = 0;
+const gaps = [];
+const notRun = (spec) =>
+  (spec.tests ?? []).some((t) => t.expectedStatus === "skipped" ||
+    (t.annotations ?? []).some((a) => a.type === "skip" || a.type === "fixme"));
 (function walk(suite, path) {
   for (const spec of suite.specs ?? []) {
     const tags = spec.tags ?? [];
@@ -41,6 +50,12 @@ const problems = [];
     if (!feature || !layer) problems.push(`untagged: ${where}`);
     else if (!counts.has(feature)) problems.push(`unknown feature \`${feature}\`: ${where}`);
     else if (!LAYERS.includes(layer)) problems.push(`unknown layer \`${layer}\`: ${where}`);
+    else if (notRun(spec)) skipped += 1;
+    else if (tags.includes("gap")) {
+      const why = (spec.tests ?? []).flatMap((t) => t.annotations ?? []).find((a) => a.type === "gap")?.description;
+      if (!why) problems.push(`@gap without a \`gap\` annotation saying what fixes it: ${where}`);
+      gaps.push({ feature, layer, where, why: why ?? "" });
+    }
     else counts.get(feature)[layer] += 1;
   }
   for (const child of suite.suites ?? []) walk(child, [...path, child.title]);
@@ -57,6 +72,8 @@ const cell = (f, layer) => {
   return "**0**";
 };
 
+const cellText = (text) => text.replace(/\|/g, "\\|");
+
 const total = { api: 0, ui: 0 };
 for (const c of counts.values()) for (const l of LAYERS) total[l] += c[l];
 
@@ -72,6 +89,19 @@ const lines = [
   ...FEATURES.map((f) => `| ${f.name} | \`${f.id}\` | ${cell(f, "api")} | ${cell(f, "ui")} |`),
   `| **合计** | | **${total.api}** | **${total.ui}** |`,
   "",
+  ...(skipped ? [`声明处就跳过（\`skip\`、\`fixme\`）、不算覆盖的用例：${skipped} 个。`, ""] : []),
+  ...(gaps.length
+    ? [
+        "## 已知缺口（`@gap`）",
+        "",
+        "> 这些用例把已知的错误行为照原样钉住，不算覆盖。对应的修复合入后，改成正确的断言、去掉 `@gap`。",
+        "",
+        "| 功能模块 | 层 | 用例 | 等什么修 |",
+        "|---|---|---|---|",
+        ...gaps.map((g) => `| \`${g.feature}\` | ${g.layer} | ${cellText(g.where)} | ${cellText(g.why)} |`),
+        "",
+      ]
+    : []),
 ];
 const table = lines.join("\n");
 const path = join(here, "coverage.md");
@@ -88,12 +118,12 @@ if (check) {
     console.error(problems.map((p) => `  ${p}`).join("\n"));
     process.exit(1);
   }
-  console.log(`coverage.md is current: ${total.api} API and ${total.ui} interface tests`);
+  console.log(`coverage.md is current: ${total.api} API and ${total.ui} interface tests, ${gaps.length} known gaps`);
 } else {
   writeFileSync(path, table);
   if (problems.length) {
     console.error(problems.map((p) => `  ${p}`).join("\n"));
     process.exit(1);
   }
-  console.log(`wrote coverage.md: ${total.api} API and ${total.ui} interface tests`);
+  console.log(`wrote coverage.md: ${total.api} API and ${total.ui} interface tests, ${gaps.length} known gaps`);
 }

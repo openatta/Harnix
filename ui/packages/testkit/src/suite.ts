@@ -45,6 +45,12 @@ export interface SuiteMeta {
   feature: string;
   /** Per-test overrides, for a suite whose tests belong to more than one. */
   features?: Record<string, string>;
+  /**
+   * Tests that pin a known defect as it is — green while it is there — by title, each with what
+   * fixes it. Tagged `@gap`: the coverage table lists them apart and does not count them. When
+   * the fix lands, the test asserts the right behaviour and leaves this list.
+   */
+  gaps?: Record<string, string>;
 }
 
 export function defineSuite(name: string, meta: SuiteMeta, suite: Suite): void {
@@ -68,7 +74,12 @@ export function defineSuite(name: string, meta: SuiteMeta, suite: Suite): void {
 
     for (const [title, run] of Object.entries(suite.tests)) {
       const feature = meta.features?.[title] ?? meta.feature;
-      test(title, { tag: [`@feature:${feature}`, "@layer:api"] }, async ({ harnix, mode }) => {
+      const gap = meta.gaps?.[title];
+      const details = {
+        tag: [`@feature:${feature}`, "@layer:api", ...(gap ? ["@gap"] : [])],
+        annotation: gap ? [{ type: "gap", description: gap }] : [],
+      };
+      test(title, details, async ({ harnix, mode }) => {
         const backend = own ?? harnix;
         const client = await connect(backend, { topology: topology() });
         try {

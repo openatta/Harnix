@@ -224,7 +224,15 @@ node tests/live/coverage.mjs --check               # scripts/check.sh 跑的就�
 - `coverage.md` 和标签算出来的不一样（删了一个用例、加了一个没重新生成）；
 - 用例没带标签，或者标了不存在的 `feature`；
 - 某一行在某一层是零，`features.mjs` 里又没写 `na`（不适用，写理由）或 `pending`（哪个里程碑补）；
-- 一行已经有用例了，还标着 `pending`。
+- 一行已经有用例了，还标着 `pending`；
+- 一个 `@gap` 用例没写等什么修。
+
+不算覆盖的两种：
+
+- 声明处就 `test.skip`、`test.fixme` 的用例不计数，表下面只写个数（运行时才跳的，`--list` 看不到，照常计数）。
+- **钉住已知缺口**的用例打 `@gap`：它把一个已知的错误行为照原样断言（缺口在时它绿），好让修好那天它红。它不计进行里，
+  在表下面「已知缺口」一节单列，带着等什么修。`defineSuite` 的套件在 meta 里写 `gaps: { "<用例名>": "<等什么修>" }`；
+  直接用 `test` 的写 `tag: ["@gap", …]` 加 `annotation: { type: "gap", description: "<等什么修>" }`。修好之后改成正确的断言、去掉 `@gap`。
 
 ### API 方法覆盖
 
