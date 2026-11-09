@@ -6,7 +6,8 @@
 // Cargo.toml). The check is what keeps "they agree" true without the
 // inheritance that used to guarantee it.
 //
-// The SDK document's version table says the same version as the crates.
+// The SDK document's version table says the same version as the crates, and
+// the same contract versions as the code.
 //
 // And each Harnix release stands on exactly one Agix release: the submodule is
 // pinned to a commit that carries an `Agix-v…` tag, and is checked out there,
@@ -51,6 +52,25 @@ if (!documented) fail("docs/harnix-sdk.md has no `| Harnix 版本 | `…` |` row
 else if (version && documented !== version) {
   fail(`docs/harnix-sdk.md says Harnix ${documented}; the crates are ${version} (scripts/set-version.sh)`);
 }
+// The other four cells are constants in the code, and nothing rewrites them: a bump that forgets
+// the table leaves an application reading the old contract as current.
+const constants = [
+  ["模块 API", "crates/module/src/lib.rs", "MODULE_API_VERSION"],
+  ["贡献点 API", "crates/contract/src/handshake.rs", "CONTRIB_API_VERSION"],
+  ["协议", "crates/contract/src/handshake.rs", "PROTOCOL_VERSION"],
+  ["应用接口（插件 APP）", "crates/app-package/src/manifest.rs", "HARNIX_API"],
+];
+for (const [row, file, name] of constants) {
+  const code = readFileSync(join(root, file), "utf8").match(new RegExp(`pub const ${name}: u32 = (\\d+);`))?.[1];
+  const cell = sdk.match(new RegExp(`^\\| ${row} \\| \`([^\`]+)\` \\|`, "m"))?.[1];
+  if (!code) fail(`${file} no longer defines \`pub const ${name}: u32\``);
+  else if (!cell) fail(`docs/harnix-sdk.md has no \`| ${row} | \`…\` |\` row in its version table`);
+  else if (cell !== code) fail(`docs/harnix-sdk.md says ${row} ${cell}; ${name} is ${code} (${file})`);
+}
+// Module API 1 is axum 0.8: a module's routes are an axum::Router, so the table names the major.
+const axum = readFileSync(join(root, "Cargo.toml"), "utf8").match(/^axum\s*=\s*\{\s*version\s*=\s*"([^"]+)"/m)?.[1];
+const axumDoc = sdk.match(/模块 API \d+ = axum ([\d.]+)/)?.[1];
+if (axum && axumDoc !== axum) fail(`docs/harnix-sdk.md pairs the module API with axum ${axumDoc}; Cargo.toml has ${axum}`);
 const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
 const pinned = git("ls-files", "-s", "agix").split(/\s+/)[1];
 const checkedOut = git("-C", "agix", "rev-parse", "HEAD");
