@@ -3,8 +3,10 @@
  *
  * Its three columns: on the left, the instances; in the centre, the console — the process at a
  * glance, then the Agents (the active ones, or all of them: each main Agent on a row with its
- * sub-agents, tasks, tokens and model time, opened into its sub-agents and tasks) and the
- * diagnostics; on the right, whatever was picked there:
+ * sub-agents, tasks, tokens and model time, opened into its sub-agents and tasks), the flows
+ * where the backend has the flow module (a flow clicked there is a space of its own shown inside
+ * this one: `system-flows.ts`), the applications, and the diagnostics; on the right, whatever was
+ * picked there:
  * an instance's facts and its restart, or a session's facts and operations, every model call with
  * what went in and what came out, the context the next call will carry, its tasks, and its frames
  * as they arrive. There is no conversation here: the system space looks at sessions, it does not
@@ -26,6 +28,7 @@ import { Glyph } from "./glyph.tsx";
 import { useShell } from "./hooks.ts";
 import { Diagnostics } from "./settings.tsx";
 import { AppsTab, appsOffered } from "./system-apps.tsx";
+import { systemFlows } from "./system-flows.ts";
 import { topicKey, topicsOf, type Topics } from "./topics.ts";
 
 export const SYSTEM = "system";
@@ -209,6 +212,8 @@ function tabsFor(app: App, view: View): SpaceTab[] {
  */
 class View {
   private picked: Selection | null = null;
+  /** The console's tab, kept while the page is open: back from a flow is back on the Flows tab. */
+  consoleTab: ConsoleTab = "active";
   /** A tool call to pick out in the calls tab, once: what a jump from the conversation asked for. */
   private tool: string | null = null;
   private readonly listeners = new Set<() => void>();
@@ -404,13 +409,21 @@ interface Process {
 }
 
 type Scope = "active" | "all";
+type ConsoleTab = Scope | "flows" | "apps" | "diagnostics";
 
 function Console({ app, view }: { app: App; view: View }) {
   const tr = useT();
-  const [tab, setTab] = useState<Scope | "apps" | "diagnostics">("active");
-  const tabs: [Scope | "apps" | "diagnostics", string][] = [
+  const [tab, setShown] = useState<ConsoleTab>(view.consoleTab);
+  const setTab = (id: ConsoleTab) => {
+    view.consoleTab = id;
+    setShown(id);
+  };
+  // The flows, where the backend has the flow module: the application's toolchain.
+  const flows = systemFlows(app);
+  const tabs: [ConsoleTab, string][] = [
     ["active", tr("system.agents.active")],
     ["all", tr("system.agents.all")],
+    ...(flows ? [["flows", flows.title()] as [ConsoleTab, string]] : []),
     // The runtime applications, where this process hosts them.
     ...(appsOffered(app) ? [["apps", tr("system.apps")] as ["apps", string]] : []),
     ["diagnostics", tr("system.diagnostics")],
@@ -429,6 +442,8 @@ function Console({ app, view }: { app: App; view: View }) {
         <div className="system-diagnostics settings-page"><Diagnostics app={app} /></div>
       ) : tab === "apps" ? (
         <AppsTab app={app} />
+      ) : tab === "flows" ? (
+        <div className="system-pane system-flows">{flows?.render() ?? null}</div>
       ) : (
         <Agents key={tab} app={app} view={view} scope={tab} />
       )}

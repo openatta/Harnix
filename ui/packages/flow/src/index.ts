@@ -2,7 +2,8 @@
  * @harnix/flow — the flow module's interface (xops-01 §7, xops-02 §7, xops-03 §6, flow-design §17).
  *
  * Only `@harnix/react`. The components work wherever `useNest()` does; `registerFlowSpace()` puts
- * them together as one space, which the shell registers itself when the backend has the module. The wire shapes are in `types.ts`, in one place.
+ * them together as one space, `registerSystemFlows()` inside the system space instead — what the
+ * shell registers itself when the backend has the module. The wire shapes are in `types.ts`, in one place.
  */
 
 import "./flow.css";
@@ -109,7 +110,8 @@ export { RunList, StartForm, type RunListProps } from "./RunList";
 export { FlowReference, type FlowReferenceProps } from "./FlowReference";
 export { ProposalCard, type ProposalCardProps } from "./ProposalCard";
 export { FlowToolRow, ToolTargetLine } from "./ToolTarget";
-export { registerFlowSpace, type FlowSpace, type FlowSpaceOptions } from "./space";
+export { registerFlowSpace, registerSystemFlows, type FlowSpace, type FlowSpaceOptions, type SystemFlowsOptions, type SystemFlowsView } from "./space";
+export { FlowContext, SystemFlows } from "./context";
 export { FlowSpaceState, type FlowDetailOf, type FlowSelection, type StateTabs } from "./state";
 export { revealInGuide } from "./tabs";
 export { DryControls, EmptyConversation, FlowDetail, FlowSecondary, FlowsTab, FocusNotice, GuideView, PhaseBadge, ReferenceTab, RunDetail, RunsTab, useSelection, type FlowTabs } from "./tabs";

@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { NestProvider, Registry, setLocale, type HostSessionRef, type NestHost } from "@harnix/react";
 
 import { toolTarget } from "../src/model";
-import { registerFlowSpace } from "../src/space";
+import { registerFlowSpace, registerSystemFlows } from "../src/space";
 import { ToolTargetLine } from "../src/ToolTarget";
 import { FlowSpaceState } from "../src/state";
 import { StationPanel } from "../src/StationPanel";
@@ -123,7 +123,13 @@ function fakeHost(answers: Record<string, unknown> = {}) {
         setCurrent(ref);
       }),
     },
-    spaces: { current: () => front },
+    spaces: {
+      current: () => front,
+      switch: vi.fn(async (id: string) => {
+        front = id;
+        for (const fn of [...changes]) fn(current);
+      }),
+    },
     details: {
       open: vi.fn(),
       tab: () => tab,
@@ -853,5 +859,118 @@ describe("a changing tool call names what it acts on", () => {
     registerFlowSpace(r);
     const entry = { kind: "custom", type: "entry", data: { id: "e", ns: "app.flow", event: "session_settings", payload: { scene: "flow-harnix" }, at: 0 } } as never;
     expect(r.claim("flow.block", entry)).toBe(null);
+  });
+});
+
+describe("inside the system space (registerSystemFlows)", () => {
+  /** The flows registered inside the system space, the system space in front. */
+  function inSystem(answers: Record<string, unknown> = {}) {
+    const fake = fakeHost({ "app.flow.session": conversations, ...answers });
+    act(() => fake.open(null, "system"));
+    const r = new Registry();
+    const flows = registerSystemFlows(r, { host: fake.host });
+    return { fake, r, flows, space: r.at("space")[0]! };
+  }
+
+  it("is a space shown inside the system space: its left column a flow's context, the reference its one right tab", () => {
+    const { flows, space } = inSystem();
+    expect(space).toMatchObject({ id: "flow", within: "system", center: "chat", details: "closed" });
+    expect(typeof space.sidebar).toBe("function");
+    expect((space.tabs as { id: string }[]).map((x) => x.id)).toEqual(["flow.reference"]);
+    expect(flows.within).toBe("system");
+    expect(flows.state.within).toBe("system");
+  });
+
+  it("entered on a flow from the system space: brought to the front, its own conversation in the middle, its details beside; left, back", async () => {
+    const { fake, flows, space } = inSystem();
+    await act(() => flows.state.enter("example-review"));
+    await settle();
+    expect(fake.host.spaces.switch).toHaveBeenCalledWith("flow");
+    expect(ids(fake.opened)).toEqual(["f-example-review"]);
+    expect(space.secondary?.()?.key).toBe("flow:example-review");
+    await act(() => flows.state.leave());
+    expect(fake.host.spaces.switch).toHaveBeenLastCalledWith("system");
+  });
+
+  it("in the left column a run is picked, then the flow's conversation; closing the panel keeps the flow; the right column is never asked for a list", async () => {
+    const { fake, flows, space } = inSystem({ "app.flow.get": { record: { id: "r-1", flow: "example-review", session_keys: { "@main": "system/main-1" } } } });
+    await act(() => flows.state.enter("example-review", "r-1"));
+    await settle();
+    expect(fake.opened.at(-1)).toEqual({ instance: "system", sessionId: "main-1" });
+    expect(space.secondary?.()?.key).toBe("run:r-1");
+    space.secondary?.()?.onClose?.();
+    expect(space.secondary?.()).toBeNull();
+    expect(flows.state.get()).toMatchObject({ flow: "example-review", run: "r-1" });
+    flows.state.selectFlow("example-review");
+    await settle();
+    expect(ids(fake.opened).at(-1)).toBe("f-example-review");
+    expect(space.secondary?.()?.key).toBe("flow:example-review");
+    flows.state.openList(flows.tabs.runs);
+    expect(fake.host.details.open).not.toHaveBeenCalled();
+  });
+
+  it("brought to the front another way, the open session stays and its flow is the context", async () => {
+    const fake = fakeHost({ "app.flow.session": conversations });
+    act(() => fake.open({ instance: "system", sessionId: "f-example-review" }, "flow"));
+    const flows = registerSystemFlows(new Registry(), { host: fake.host });
+    flows.state.lookFront();
+    await settle();
+    expect(fake.opened).toEqual([]);
+    act(() => fake.push("app.flow.focus", { instance: "system", session_id: "f-example-review" }, { flow: "example-review" }));
+    expect(flows.state.get().flow).toBe("example-review");
+  });
+
+  it("the general conversation opened from a flow is the context, whatever the conversation it replaces says", async () => {
+    const { fake, flows } = inSystem();
+    await act(() => flows.state.enter("example-review"));
+    await settle();
+    const opening = flows.state.openGeneral();
+    // The flow's own conversation, still followed until the general one is open, says its flow.
+    act(() => fake.push("app.flow.focus", { instance: "system", session_id: "f-example-review" }, { flow: "example-review" }));
+    await act(async () => void (await opening));
+    expect(ids(fake.opened).at(-1)).toBe("general");
+    expect(flows.state.get().flow).toBe(null);
+  });
+
+  it("the left column: the way back, the flow's name, its conversation and its own runs", async () => {
+    const { fake, flows, r } = inSystem();
+    fake.push("app.flow.defs", {}, DEFS);
+    fake.push("app.flow.runs", {}, [
+      { id: "example-review-1", flow: "example-review", subject: "repo", status: "active", created_at: 2 },
+      { id: "broken-1", flow: "broken", subject: "x", status: "active", created_at: 1 },
+    ]);
+    await act(() => flows.state.enter("example-review"));
+    const space = r.at("space")[0]!;
+    render(<NestProvider host={fake.host}>{space.sidebar!()}</NestProvider>);
+    await settle();
+    expect(screen.getByTestId("flow-context").getAttribute("data-flow")).toBe("example-review");
+    expect(screen.getByTestId("flow-context-title").textContent).toBe("Example: review and approve");
+    expect(screen.getByTestId("flow-context-conversation").getAttribute("aria-current")).toBe("true");
+    expect(screen.getByTestId("flow-run-example-review-1")).toBeTruthy();
+    expect(screen.queryByTestId("flow-run-broken-1")).toBeNull();
+    fireEvent.click(screen.getByTestId("flow-back"));
+    await settle();
+    expect(fake.host.spaces.switch).toHaveBeenLastCalledWith("system");
+  });
+
+  it("on the system space's page: the flows and the runs; a click enters the flow, not a toggle", async () => {
+    const { fake, flows } = inSystem();
+    fake.push("app.flow.defs", {}, DEFS);
+    fake.push("app.flow.runs", {}, [{ id: "example-review-1", flow: "example-review", subject: "repo", status: "active", created_at: 2 }]);
+    render(<NestProvider host={fake.host}>{flows.render()}</NestProvider>);
+    await settle();
+    expect(screen.getByTestId("system-flows")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("flow-run-example-review-1"));
+    await settle();
+    expect(flows.state.get()).toMatchObject({ flow: "example-review", run: "example-review-1" });
+    expect(fake.host.spaces.switch).toHaveBeenCalledWith("flow");
+    // Clicked again from the system space: entered again, not let go of.
+    act(() => fake.open(null, "system"));
+    fireEvent.click(screen.getByTestId("flow-def-example-review"));
+    await settle();
+    expect(flows.state.get()).toMatchObject({ flow: "example-review", run: null });
+    fireEvent.click(screen.getByTestId("flow-def-example-review"));
+    await settle();
+    expect(flows.state.get().flow).toBe("example-review");
   });
 });

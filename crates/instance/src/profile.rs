@@ -98,14 +98,15 @@ pub struct TransportProfile {
 }
 
 /// The built-in spaces, all optional: a product keeps the ones it wants as they are. `flow` is the
-/// flow module's space (xops-02 §7): the interface draws it only when the backend has that module.
+/// flow module's interface (xops-02 §7), drawn only when the backend has that module: inside the
+/// system space when that is kept, else as a space of its own.
 pub const BUILTIN_SPACES: &[&str] = &["sessions", "projects", "system", "flow"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ShellProfile {
     /// Which built-in spaces to keep, of `sessions`, `projects`, `system`, `flow`. All of them when
-    /// absent (`flow` is drawn only where the flow module is registered).
+    /// absent (`flow` is drawn only where the flow module is registered, inside `system` if kept).
     /// Without `system`, its methods go too: no client can claim the system space, and none can act
     /// across spaces.
     pub spaces: Vec<String>,

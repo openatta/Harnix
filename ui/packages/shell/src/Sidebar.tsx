@@ -7,7 +7,9 @@
  * The avatar is the settings: its ring says how this page is connected, hovering says to what,
  * and a click opens the menu. The system space, when kept, is entered from the bottom rather than
  * listed with the others: it is about the process, not one of the product's surfaces. A space
- * that says `place: "bottom"` (something global, not a surface) sits there too, above it.
+ * that says `place: "bottom"` (something global, not a surface) sits there too, above it. One shown
+ * inside another (`within`, the flows inside the system space) is not listed: the other's entry is
+ * lit while it is in front.
  */
 
 import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -26,6 +28,11 @@ export const SYSTEM = "system";
 /** The spaces, in order. */
 export function spacesOf(app: App) {
   return [...app.registry.at("space")].sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
+}
+
+/** Whether `space`'s entry is lit: it is in front, or the one in front is shown inside it (`within`). */
+function lit(app: App, s: ShellState, space: string): boolean {
+  return s.space === space || app.registry.at("space").find((c) => c.id === s.space)?.within === space;
 }
 
 /** The product's name: `[brand] name`, else Harnix's own. */
@@ -58,8 +65,8 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
   // A new conversation needs a space with a conversation: the front one if it has one, else the
   // first that does.
   const startNew = async () => {
-    if (space?.center === "hidden" || space?.id === SYSTEM) {
-      const talking = spacesOf(app).find((c) => c.id !== SYSTEM && c.center !== "hidden" && disabledOf(app.registry, c) === null);
+    if (space?.center === "hidden" || space?.id === SYSTEM || space?.within) {
+      const talking = spacesOf(app).find((c) => c.id !== SYSTEM && !c.within && c.center !== "hidden" && disabledOf(app.registry, c) === null);
       if (!talking) return;
       await app.switchSpace(talking.id);
     }
@@ -136,7 +143,7 @@ function ContextLine({ s }: { s: ShellState }) {
 
 function SpaceList({ app, s }: { app: App; s: ShellState }) {
   useRegistry(app.registry);
-  const spaces = spacesOf(app).filter((c) => c.id !== SYSTEM && c.place !== "bottom");
+  const spaces = spacesOf(app).filter((c) => c.id !== SYSTEM && c.place !== "bottom" && !c.within);
   if (!spaces.length) return null;
   return (
     <nav className="spaces" aria-label="spaces">
@@ -158,15 +165,16 @@ function SpaceEntry({ app, s, space }: { app: App; s: ShellState; space: SpaceCo
   // `disabled()` (ipdrun-48): greyed, says why on hover, and a click does nothing. Not the `disabled`
   // attribute: a disabled button shows no tooltip in every browser.
   const why = disabledOf(app.registry, space);
+  const on = lit(app, s, space.id);
   return (
     <button
       type="button"
-      className={`nav space${space.id === s.space ? " on" : ""}${why !== null ? " disabled" : ""}`}
+      className={`nav space${on ? " on" : ""}${why !== null ? " disabled" : ""}`}
       data-space={space.id}
       data-disabled={why !== null ? "" : undefined}
       aria-disabled={why !== null ? true : undefined}
       title={why ?? space.title()}
-      aria-pressed={space.id === s.space}
+      aria-pressed={on}
       onClick={() => {
         if (disabledOf(app.registry, space) !== null) return;
         if (space.id === s.space && space.reenter) {
@@ -257,7 +265,7 @@ function Bottom({ app, s }: { app: App; s: ShellState }) {
   const t = useT();
   useRegistry(app.registry);
   const system = spacesOf(app).find((c) => c.id === SYSTEM);
-  const below = spacesOf(app).filter((c) => c.id !== SYSTEM && c.place === "bottom");
+  const below = spacesOf(app).filter((c) => c.id !== SYSTEM && c.place === "bottom" && !c.within);
   const running = Object.keys(s.running).length;
   return (
     <div className="l-bottom foot">
@@ -267,10 +275,10 @@ function Bottom({ app, s }: { app: App; s: ShellState }) {
       {system ? (
         <button
           type="button"
-          className={`nav space${s.space === SYSTEM ? " on" : ""}`}
+          className={`nav space${lit(app, s, SYSTEM) ? " on" : ""}`}
           data-space={SYSTEM}
           title={system.title()}
-          aria-pressed={s.space === SYSTEM}
+          aria-pressed={lit(app, s, SYSTEM)}
           onClick={() => void app.switchSpace(SYSTEM)}
         >
           <Glyph name={system.icon} className="glyph" />

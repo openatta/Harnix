@@ -57,7 +57,7 @@ Harnix 进程
 | 例子 | 放哪 | 为什么 |
 |---|---|---|
 | 交易、关注组、需求规格、工位、xflow | 应用 | 领域的东西 |
-| 通用的流程引擎：站、任务、出口条件、返工、租约 | Harnix 的可选 crate `harnix-flow`，应用注册才有 | IPDrun、XOps 两份实现是同一个形状（xops-01）；流程**定义**和领域的站仍在应用里。站的会话可落到任一实例、模板实例、space 与模型，经结构化输出交付、经权限规则限写；流程包可写、可在流程 space 的对话里编写、可试运行（xops-02）。空应用 `harnix` 自带它；`harnix` 库不带——二开应用要 `.module(Flow::builder()…build())` |
+| 通用的流程引擎：站、任务、出口条件、返工、租约 | Harnix 的可选 crate `harnix-flow`，应用注册才有 | IPDrun、XOps 两份实现是同一个形状（xops-01）；流程**定义**和领域的站仍在应用里。站的会话可落到任一实例、模板实例、space 与模型，经结构化输出交付、经权限规则限写；流程包可写、可在系统 space 里流程的对话里编写、可试运行（xops-02）。空应用 `harnix` 自带它；`harnix` 库不带——二开应用要 `.module(Flow::builder()…build())` |
 | sqlite 运行态、git 原语、代码扫描 | 应用 | 模块自己选库、自己管数据 |
 | 批准卡（交易要人点头） | 应用 | 模块契约够用，做法见 §10.1 |
 | MCP 服务端、角色令牌 | 应用（0.4 内） | 0.4 之后 Harnix 再做，见 §10.4 |
@@ -123,7 +123,7 @@ icon = "brand/helm.svg"          # 相对 profile
 product_id = "helm"              # 程序自己的配置与状态放 ~/.helm（不配就是 ~/.harnix），见 §5.4
 
 [shell]
-spaces = ["sessions", "projects"]   # 留哪些内建 space：这里去掉了系统 space（产品里一般关掉调试面）与流程 space
+spaces = ["sessions", "projects"]   # 留哪些内建 space：这里去掉了系统 space（产品里一般关掉调试面）与其中的流程
 # new_session = false            # 不写是 true；false：哪个 space 都不画「新会话」、⌘K 不新建（会话由应用自己建）
 # narrow_details = "beside"      # 不写是 over；beside：≤ 960 宽时右栏不盖住中区，三栏并排
 
@@ -166,7 +166,7 @@ runtime_modules = false          # 不加载运行期包的界面模块（见 §
    `git submodule update --init --recursive`。
 2. 跑 `node harnix/scripts/sync-app-deps.mjs .`，再跑 `node harnix/scripts/check-pins.mjs .`。
 3. `scripts/build.sh`，然后 `./target/release/<app> --profile profiles/<app>.toml`。
-4. 打开启动链接，看到空应用：会话、项目、流程、系统四个内建 space，头像即设置（流程 space 只在后端注册了流程模块时出现，
+4. 打开启动链接，看到空应用：会话、项目、系统三个内建 space，头像即设置（系统 space 里的「流程」只在后端注册了流程模块时出现，
    空应用 `harnix` 注册了；你的应用 `.module(Flow…)` 了才有）。
 5. 在 `spaces/` 下加第一个 space，在 `app/src/main.rs` 里 `.module(...)` 加上它；它的界面入口
    `spaces/<x>/ui/src/index.tsx` 由模板的 `scripts/build.sh` 自动接进构建（§8.2）。
@@ -548,17 +548,18 @@ r.register('flow.block', {
 | 右栏 | `tabs`：数组，或随选中项变的函数 | 只有详情页 |
 
 不随 space 变的只有外壳的固定部分：顶部的标识、新建对话、搜索，底部的头像（设置入口，外圈表示连接）。
-Harnix 自带的 space——会话、项目、系统，以及后端有流程模块时的流程（`flow`）——都是用例，你的产品用
+Harnix 自带的 space——会话、项目、系统（后端有流程模块时流程在它里面，`flow`）——都是用例，你的产品用
 `[shell] spaces` 决定留哪些；Harnix 本身做薄，产品面都是你的 space。
 
-流程 space（xops-02 §7、xops-03 §6，`@harnix/flow` 的 `registerFlowSpace()`，外壳自己注册）：外壳启动时 `harnix.reachable`
-里有 `app.flow.defs` 就有它，id 取 `harnix.spaces.list` 里 scene 为 `flow-author` 的那个（缺省 `flow`）；`[shell] spaces`
-里的 `flow` 指它。**右栏选中什么，中区就是它的会话**：流程页选中流程 → 这条流程自己的对话（`app.flow.session {flow}`，
-Agent 在里面改它、试运行、启动、操作它的运行，改动类操作要批准）；运行页选中运行 → 它的主会话；什么都没选 → 通用会话。
-右栏三页「流程 / 运行 / 参考」只呈现、不编辑定义：流程页有添加、筛选、排序与只读 YAML；运行页列出所有流程的运行与试运行，
-带状态（暂停中转圈）、耗时、token，详情里暂停 / 恢复 / 取消、站的确认等操作、子 Agent 与任务；参考页是流程指南
-（`app.flow.guide`）加本应用目录与字段表。自己编外壳的应用照 `ui/packages/flow/demo/register.tsx` 调
-`registerFlowSpace(registry, {host})`。
+流程（xops-02 §7、xops-03 §6，`@harnix/flow`，外壳自己注册）是开发应用的工具链，在系统 space 里（`registerSystemFlows()`）：
+外壳启动时 `harnix.reachable` 里有 `app.flow.defs` 就有它，界面 space 的 id 取 `harnix.spaces.list` 里 scene 为 `flow-author`
+的那个（缺省 `flow`），`within` 系统、不列出；`[shell] spaces` 里的 `flow` 指它（没有 `system` 时它是单独的流程 space，
+`registerFlowSpace()`）。系统控制台的「流程」页列出流程与所有流程的运行和试运行（添加、筛选、排序，只呈现、不编辑定义）；
+点一条流程（或一条运行），**左栏变成这条流程的上下文**：返回系统、流程名、它自己的对话、它的运行。左栏选中什么，中区就是它的
+会话：它的对话（`app.flow.session {flow}`，Agent 在里面改它、试运行、启动、操作它的运行，改动类操作要批准）、运行 → 它的主会话；
+添加流程在通用会话里。选中的流程或运行的详情在中区旁边（流程图、定义、配套、只读 YAML；运行带状态、耗时、token，暂停 / 恢复 /
+取消、站的确认等操作、子 Agent 与任务）；右栏是参考页：流程指南（`app.flow.guide`）加本应用目录与字段表。自己编外壳的应用照
+`ui/packages/flow/demo/register.tsx` 调 `registerFlowSpace(registry, {host})`，或 `registerSystemFlows`。
 
 流程模块的构建器（`Flow::builder()`）里与 xops-03 有关的：`.main_scene(id)`（主会话缺省 scene，给的是
 `.scene(...)` 的 id，包装成 `flow-<id>`；不给是第一个，一个 scene 都不给时流程用内置的 `harnix`、`code`、`mini`，主会话在 `flow-harnix`）、`.main_recording(|run| …)`（回放时主会话用哪份录像）。主会话的

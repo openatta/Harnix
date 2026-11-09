@@ -76,6 +76,12 @@ interface TabProps {
   tabs: FlowTabs;
 }
 
+/** A list drawn on another space's page (the system console): a row clicked goes there with it. */
+interface ListProps extends TabProps {
+  /** Given: a click calls it with the row instead of selecting (or letting go of) it here. */
+  onPick?: (id: string, flow: string) => void;
+}
+
 export function useSelection(state: FlowSpaceState): FlowSelection {
   const nest = useNest();
   useEffect(() => {
@@ -141,7 +147,7 @@ export function FocusNotice({ state, session }: { state: FlowSpaceState; session
 
 type FlowSort = "name" | "title";
 
-export function FlowsTab({ state, tabs }: TabProps) {
+export function FlowsTab({ state, tabs, onPick }: ListProps) {
   const t = useT();
   const nest = useNest();
   const sel = useSelection(state);
@@ -206,7 +212,7 @@ export function FlowsTab({ state, tabs }: TabProps) {
                 data-origin={d.origin ?? undefined}
                 data-valid={d.valid === false ? "false" : "true"}
                 aria-current={sel.flow === d.name ? "true" : undefined}
-                onClick={() => state.selectFlow(sel.flow === d.name ? null : d.name)}
+                onClick={() => (onPick ? onPick(d.name, d.name) : state.selectFlow(sel.flow === d.name ? null : d.name))}
               >
                 <span className="hx-flow-row-title">
                   {d.title || d.name}
@@ -367,7 +373,7 @@ export function FlowDetail({ state, tabs, flow, summary, station }: TabProps & {
             setStarting(false);
             if (run) {
               state.showRun(run);
-              nest.details.open(tabs.runs);
+              state.openList(tabs.runs);
             }
           }}
         />
@@ -452,7 +458,7 @@ function useDryStart(state: FlowSpaceState, tabs: FlowTabs) {
     try {
       const id = runIdOf(await nest.call(methodName(state.module, "dry_run.start"), { flow }));
       if (id) {
-        nest.details.open(tabs.runs);
+        state.openList(tabs.runs);
         state.showRun(id);
       }
     } catch (e) {
@@ -479,7 +485,7 @@ interface Row {
 
 type RunSort = "start" | "duration" | "tokens";
 
-export function RunsTab({ state }: TabProps) {
+export function RunsTab({ state, onPick }: ListProps) {
   const t = useT();
   const sel = useSelection(state);
   const defs = useDefs(state.module);
@@ -571,7 +577,7 @@ export function RunsTab({ state }: TabProps) {
                 data-phase={r.phase.state}
                 data-dry={r.dry ? "true" : undefined}
                 aria-current={sel.run === r.id ? "true" : undefined}
-                onClick={() => state.showRun(sel.run === r.id ? null : r.id)}
+                onClick={() => (onPick ? onPick(r.id, r.flow) : state.showRun(sel.run === r.id ? null : r.id))}
               >
                 <span className="hx-flow-row-title">
                   <PhaseBadge phase={r.phase} />

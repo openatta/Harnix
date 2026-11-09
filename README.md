@@ -120,7 +120,7 @@ What you write, and where it goes:
 | Backend behaviour | a `harnix::Module`: methods, topics, routes, native tools, scenes, templates | [SDK guide](docs/harnix-sdk.md) |
 | An interface of your own | a space and contributions (`spaces/*/ui`, built into the shell) | [contribution points](docs/contribution_points.md) |
 | Your look | `[brand]`, theme tokens, language packs | [SDK guide](docs/harnix-sdk.md) |
-| Agents that follow a process | flows: stations, skills, rules, policies, gates, hooks | the guide in the flow space, `crates/flow/docs/guide.*.md` |
+| Agents that follow a process | flows: stations, skills, rules, policies, gates, hooks | the guide in the system space's flows, `crates/flow/docs/guide.*.md` |
 | A desktop app | `templates/desktop` (Tauri 2, local or remote) | `templates/desktop/README.md` |
 | Tests against the real binary | `@harnix/testkit`: replayed model calls, API and browser suites | [testing](docs/testing.md) |
 

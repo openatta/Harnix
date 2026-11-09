@@ -204,7 +204,8 @@ product_id = "helm"            # 程序自己的目录 ~/.helm（§4）；小写
 
 [shell]
 spaces = ["sessions", "projects", "system", "flow"]   # 留哪些内建 space；不写是都留，[] 是一个不留
-                               # flow：流程 space，只在后端注册了流程模块时出现（xops-02 §7）
+                               # flow：流程，只在后端注册了流程模块时出现（xops-02 §7）；留着 system 时在系统 space 里
+                               # （控制台的「流程」页，不列为 space），没有 system 时是一个单独的流程 space
                                # 去掉 system 时它的方法一起撤：谁也声称不了系统 space，也不能跨 space 操作
 model_switch = false           # true：加 harnix.sessions.setModel，没有系统 space 也能在输入框换模型（只限调用方声称的 space 的会话）
 new_session = true             # false：整个外壳不画「新会话」、⌘K 不归外壳（每个 space 都这样；space 自己的 newSession 照旧叠加）；只是界面
@@ -393,7 +394,7 @@ export function register(r: Registry, host: NestHost): void
 
 | 点 | 形状（必需的加粗） |
 |---|---|
-| `space` | **`id`**、**`icon`**、**`title()`**、`order`、`place: "top" \| "bottom"`（默认 top；bottom 列在左栏底部、系统之上，给全局而非业务面的入口）、`group`（顶部列表里的组名：按 `order` 相邻的两个组不同就在中间画分隔线，不写算 ""；不重排）、`details: "open" \| "closed"`（首次进入时右栏开合，默认 closed；之后每个 space 各记各的）、`center: "chat" \| "minimized" \| "hidden"`（默认 chat）、`sidebar()`（左栏中段）、`overview()`（中区不是对话时）、`tabs: [{ id, title(), render(), align? }]` 或返回它的函数（随选中项变；`align: "end"` 的页签排在条的右端，给不常用的）、`sessions`（列哪个后端 space 的会话，默认自己的 id）、`subtitle()`、`suggestions()`、`notice()`、`placeholder()`；可选的 `badge()`（左栏角标）、`disabled()`（返回一句话 ⇒ 入口灰掉、点不动、悬停是这句话，`spaces.switch` 到它不切；落地时存着的灰着就落到第一个没灰的；前台的后来灰了不自动换走）、`readOnly(session)`、`pinned(session)`、`composerNotice(session)`、`ids()`、`composer: { steer }`、`hideCommands: string[]`、`mention: { first: "contributed" \| "files" }`（`@` 菜单里谁的候选在前，默认外壳自己的）、`tab()`（本 space 当前的右栏页签：带到前台与 `redraw()` 时读，是它的页签就选中）、`listSession(session)`（返回 false ⇒ 这个会话不列在左栏）、`reenter()`（前台 space 的入口被再点一次）、`newSession`（false ⇒ 没有「新会话」）、`headerActions(session)`（标题栏里自己的操作）、`detailsWidth`（右栏缺省宽度：px，小于 1 时是窗口的比例，如 0.45；至少 320；右栏在哪个 space 都能拖到窗口的 70%，同时给中区留 400）、`emptyConversation(session)`（会话还没有消息时画在转录顶部的说明）、`secondary()`（**二级栏**：`{ key, title(), render(), onClose?(), width? }`，返回非空就在中区对话旁边打开；能拖宽（300–760，缺省 440）、能最大化 / 还原（按 space 记住）、能关——关时调 `onClose`，space 放掉选中项再 `redraw()`；返回空就收起），每次画时读，抛错只丢那一样 |
+| `space` | **`id`**、**`icon`**、**`title()`**、`order`、`place: "top" \| "bottom"`（默认 top；bottom 列在左栏底部、系统之上，给全局而非业务面的入口）、`group`（顶部列表里的组名：按 `order` 相邻的两个组不同就在中间画分隔线，不写算 ""；不重排）、`within`（另一个 space 的 id：这个 space 显示在它里面——不列在左栏，由代码 `host.spaces.switch` 进入〔如从那个 space 的页面〕，在前台时点亮那个 space 的入口；系统 space 里的流程就是）、`details: "open" \| "closed"`（首次进入时右栏开合，默认 closed；之后每个 space 各记各的）、`center: "chat" \| "minimized" \| "hidden"`（默认 chat）、`sidebar()`（左栏中段）、`overview()`（中区不是对话时）、`tabs: [{ id, title(), render(), align? }]` 或返回它的函数（随选中项变；`align: "end"` 的页签排在条的右端，给不常用的）、`sessions`（列哪个后端 space 的会话，默认自己的 id）、`subtitle()`、`suggestions()`、`notice()`、`placeholder()`；可选的 `badge()`（左栏角标）、`disabled()`（返回一句话 ⇒ 入口灰掉、点不动、悬停是这句话，`spaces.switch` 到它不切；落地时存着的灰着就落到第一个没灰的；前台的后来灰了不自动换走）、`readOnly(session)`、`pinned(session)`、`composerNotice(session)`、`ids()`、`composer: { steer }`、`hideCommands: string[]`、`mention: { first: "contributed" \| "files" }`（`@` 菜单里谁的候选在前，默认外壳自己的）、`tab()`（本 space 当前的右栏页签：带到前台与 `redraw()` 时读，是它的页签就选中）、`listSession(session)`（返回 false ⇒ 这个会话不列在左栏）、`reenter()`（前台 space 的入口被再点一次）、`newSession`（false ⇒ 没有「新会话」）、`headerActions(session)`（标题栏里自己的操作）、`detailsWidth`（右栏缺省宽度：px，小于 1 时是窗口的比例，如 0.45；至少 320；右栏在哪个 space 都能拖到窗口的 70%，同时给中区留 400）、`emptyConversation(session)`（会话还没有消息时画在转录顶部的说明）、`secondary()`（**二级栏**：`{ key, title(), render(), onClose?(), width? }`，返回非空就在中区对话旁边打开；能拖宽（300–760，缺省 440）、能最大化 / 还原（按 space 记住）、能关——关时调 `onClose`，space 放掉选中项再 `redraw()`；返回空就收起），每次画时读，抛错只丢那一样 |
 | `home.card` | **`id`**、**`render()`**、`title()`、`order`：画在新对话的输入框下面 |
 | `tool.row` | **`id`**、**`match(toolBlock)`**、**`render(toolBlock)`** |
 | `details.panel` | **`id`**、**`match(item)`**、**`render(item)`**、`title(item)`；`item = { kind, name?, … }`，由 `host.reveal(item)` 打开 |
@@ -489,7 +490,7 @@ api_version = 2
 
 可选模块：应用 `.module(harnix_flow::Flow::builder()….build())` 才有；空应用注册了它（`crates/cli/src/main.rs`）。
 对象与写法（站、执行器、出站条件、规则、策略与权限、门禁、钩子……）见流程指南 `crates/flow/docs/guide.zh-CN.md`
-（流程 space 的参考页就是它，`app.flow.guide {lang}` 也给它）。
+（系统 space 里流程的参考页就是它，`app.flow.guide {lang}` 也给它）。
 
 | 构建器 | 意思 |
 |---|---|
@@ -511,7 +512,10 @@ api_version = 2
 `heartbeat`、`submit`、`fail`；对话——`session {flow?}`、`focus`；试运行——`dry_run.start` / `step` / `run` / `list`。
 主题：`app.flow.runs`、`app.flow.run {run}`、`app.flow.defs`、`app.flow.focus {instance, session_id}`、`app.flow.dry_runs`。每个方法的参数与返回写在它注册时的说明里（`harnix.reachable` 列出）。
 
-界面：外壳在后端有流程模块时自己注册流程 space；自己编外壳的应用调 `registerFlowSpace(registry, { host })`。
+界面：外壳在后端有流程模块时自己把流程放进系统 space（`registerSystemFlows(registry, { host, within: "system" })`：控制台多一个「流程」页，
+点一条流程，左栏变成这条流程的上下文——返回、它的会话、它的运行；界面 space 的 id 仍是流程会话所在的后端 space，`within` 系统、不列出），
+没有系统 space 时注册单独的流程 space；自己编外壳的应用调 `registerFlowSpace(registry, { host })`，或 `registerSystemFlows` 再把它返回的
+`render()` 画在自己的页面上。
 
 ## 7. 测试：`@harnix/testkit`
 

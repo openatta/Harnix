@@ -2,7 +2,7 @@
   "name": "@harnix/flow",
   "version": "0.1.0",
   "private": true,
-  "description": "The flow module's interface (xops-01 §7, xops-02 §7): the station graph, station details, run list, reference and validation, the proposal card, and registerFlowSpace() — the shell's built-in flow space.",
+  "description": "The flow module's interface (xops-01 §7, xops-02 §7): the station graph, station details, run list, reference and validation, the proposal card, registerSystemFlows() — the flows inside the shell's system space — and registerFlowSpace(), a flow space of their own.",
   "license": "Apache-2.0",
   "type": "module",
   "exports": {

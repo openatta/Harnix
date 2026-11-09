@@ -5,7 +5,7 @@
  *
  * | 点 | 形状 | 怎么用 |
  * |---|---|---|
- * | `space` | `id`、`icon`、`title()`、`place?`、`details?`、`center`、`sidebar?()`、`overview?()`、`tabs?` | 全部，按 `order` 再按注册顺序 |
+ * | `space` | `id`、`icon`、`title()`、`place?`、`within?`、`details?`、`center`、`sidebar?()`、`overview?()`、`tabs?` | 全部，按 `order` 再按注册顺序 |
  * | `home.card` | `id`、`render()`、`title?()` | 全部，按 `order` 再按注册顺序 |
  * | `tool.row` | `match(tool块)`、`render(tool块)` | 后注册的先认领 |
  * | `details.panel` | `match(item)`、`render(item)`、`title?(item)` | 后注册的先认领 |
@@ -116,6 +116,10 @@ export interface SpaceContribution {
    *  `order`) whose groups differ. Undefined counts as "", so with no space naming one nothing
    *  changes. Grouping does not reorder: keep a group's spaces together through `order`. */
   group?: string;
+  /** Another space's id: this one is shown inside it rather than listed — not in the left column's
+   *  list, entered by code (`host.spaces.switch`, say from that space's page), and while it is in
+   *  front that space's entry is lit. The flows inside the system space are one. */
+  within?: string;
   /** The right column when this space is first entered; afterwards each space keeps its own. */
   details?: "open" | "closed";
   /** What the centre shows: the conversation, the overview with the conversation as a bar under
