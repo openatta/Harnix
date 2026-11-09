@@ -394,31 +394,6 @@
   display: none;
 }
 
-#side .srow .more {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  display: none;
-  place-items: center;
-  color: var(--label-caption);
-  flex: none;
-}
-
-#side .srow .more .glyph {
-  width: 15px;
-  height: 15px;
-}
-
-#side .srow:hover .more,
-#side .srow.on .more {
-  display: grid;
-}
-
-#side .srow .more:hover {
-  background: var(--interactive-hover);
-  color: var(--label-primary);
-}
-
 #side .srow .live {
   width: 7px;
   height: 7px;
