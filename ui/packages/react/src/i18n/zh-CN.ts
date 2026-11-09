@@ -312,6 +312,7 @@ const zhCN: Record<string, string> = {
   "apps.disable": "停用",
   "apps.update": "检查更新",
   "apps.updateTo": "更新到 {version}…",
+  "apps.downgradeTo": "回到 {version}…",
   "apps.upToDate": "{name} 已是最新",
   "apps.uninstall": "卸载",
   "apps.uninstallConfirm": "卸载 {name}？它的数据会一起删除。",

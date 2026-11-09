@@ -78,6 +78,18 @@ interface Pending {
   method: "harnix.apps.install" | "harnix.apps.update";
   asked: Asked;
   version?: string;
+  /** Back to an older version, which the person chose by name: asked and consented to as such. */
+  downgrade?: boolean;
+}
+
+/** `a` is an older version than `b`: compared part by part as numbers, a pre-release ignored. */
+export function older(a: string, b: string): boolean {
+  const parts = (v: string) => v.split("-")[0]!.split(".").map((n) => Number(n) || 0);
+  const [x, y] = [parts(a), parts(b)];
+  for (let i = 0; i < Math.max(x.length, y.length); i += 1) {
+    if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) < (y[i] ?? 0);
+  }
+  return false;
 }
 
 /** A question asked before something that cannot be undone. */
@@ -193,11 +205,11 @@ export function AppsSettings({ app }: { app: App }) {
 
   const fail = (e: unknown) => app.notice(errorText(e), "error");
   /** Ask; a disclosure waits for the person, anything else is done. */
-  const ask = async (method: Pending["method"], id: string, version?: string) => {
+  const ask = async (method: Pending["method"], id: string, version?: string, downgrade?: boolean) => {
     setBusy(true);
     try {
-      const asked = await app.call<Asked>(method, { id, version });
-      if (asked.consent === "required") setPending({ method, asked, version });
+      const asked = await app.call<Asked>(method, { id, version, ...(downgrade ? { allow_downgrade: true } : {}) });
+      if (asked.consent === "required") setPending({ method, asked, version, downgrade });
       else {
         if (asked.up_to_date) app.notice(t("apps.upToDate", { name: id }));
         reload();
@@ -212,7 +224,12 @@ export function AppsSettings({ app }: { app: App }) {
     if (!pending) return;
     setBusy(true);
     try {
-      const done = await app.call<Asked>(pending.method, { id: pending.asked.id, version: pending.version, consent: pending.asked.digest });
+      const done = await app.call<Asked>(pending.method, {
+        id: pending.asked.id,
+        version: pending.version,
+        consent: pending.asked.digest,
+        ...(pending.downgrade ? { allow_downgrade: true } : {}),
+      });
       // Something changed since it was shown: show what it is now.
       if (done.consent === "required") setPending({ ...pending, asked: done });
       else {
@@ -279,7 +296,11 @@ export function AppsSettings({ app }: { app: App }) {
           return (
             <>
               {apps.map((a) => {
-                const newer = latest[a.id] && latest[a.id] !== a.version ? latest[a.id] : null;
+                const listed = latest[a.id] && latest[a.id] !== a.version ? latest[a.id]! : null;
+                // The store's newest is older than this one (it took the newer back): going there is
+                // a choice of its own, named as one, and disclosed as a downgrade.
+                const back = listed && older(listed, a.version) ? listed : null;
+                const newer = back ? null : listed;
                 const name = a.title || a.id;
                 const state = a.enabled ? (a.runtime?.state ?? "stopped") : "stopped";
                 const hint = [a.id, trust(a.trust), t(`apps.state.${state}`)];
@@ -308,9 +329,22 @@ export function AppsSettings({ app }: { app: App }) {
                         {a.enabled ? t("apps.disable") : t("apps.enable")}
                       </button>
                       {a.source === "store" ? (
-                        <button type="button" className="btn sm outline" data-testid="app-update" disabled={busy} onClick={() => void ask("harnix.apps.update", a.id)}>
-                          {newer ? t("apps.updateTo", { version: newer }) : t("apps.update")}
-                        </button>
+                        back ? (
+                          <button
+                            type="button"
+                            className="btn sm outline"
+                            data-testid="app-update"
+                            data-direction="back"
+                            disabled={busy}
+                            onClick={() => void ask("harnix.apps.update", a.id, back, true)}
+                          >
+                            {t("apps.downgradeTo", { version: back })}
+                          </button>
+                        ) : (
+                          <button type="button" className="btn sm outline" data-testid="app-update" disabled={busy} onClick={() => void ask("harnix.apps.update", a.id)}>
+                            {newer ? t("apps.updateTo", { version: newer }) : t("apps.update")}
+                          </button>
+                        )
                       ) : null}
                       <button
                         type="button"
