@@ -15,7 +15,7 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use super::dispatch;
+use super::{dispatch, publish};
 use super::rpc_error;
 use super::shared::Shared;
 use crate::dryrun::{is_dry, StartIn as DryStartIn};
@@ -222,7 +222,7 @@ async fn change(sh: &Arc<Shared>, run: Option<&str>, r: crate::Result<crate::Out
     match run {
         Some(run) if in_sandbox(sh, run).await => {
             sh.sandbox()?.absorb(run, o).await.map_err(rpc_error)?;
-            dispatch::publish_dry(sh, Some(run)).await;
+            publish::publish_dry(sh, Some(run)).await;
         }
         _ => dispatch::apply(sh, run, o).await,
     }
@@ -254,7 +254,7 @@ async fn engine_of(sh: &Shared, run: &str) -> Result<Arc<Engine>, RpcError> {
 /// After the packs changed: the `defs` topic, and the focus of conversations on a flow that is
 /// gone.
 async fn packs_changed(sh: &Arc<Shared>, flow: Option<&str>) {
-    dispatch::publish_defs(sh).await;
+    publish::publish_defs(sh).await;
     if let (Some(flow), Ok(engine)) = (flow, sh.engine()) {
         let gone = engine.packs().flow(flow).is_none();
         // A flow that is gone has no conversation any more (the session stays, as history).
@@ -265,7 +265,7 @@ async fn packs_changed(sh: &Arc<Shared>, flow: Option<&str>) {
             if gone {
                 sh.set_focus(&i, &s, None);
             }
-            dispatch::publish_focus(sh, &i, &s).await;
+            publish::publish_focus(sh, &i, &s).await;
         }
     }
 }
@@ -315,7 +315,7 @@ pub(crate) async fn flow_session(
             json!({"instance": s.instance, "session_id": s.session_id, "name": name}),
         )
         .await;
-    dispatch::publish_focus(sh, &s.instance, &s.session_id).await;
+    publish::publish_focus(sh, &s.instance, &s.session_id).await;
     Ok(s)
 }
 
@@ -448,7 +448,7 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         packs,
         "defs",
         "the flows on offer, as the `defs` topic has them: [{name, title, digest, origin, valid}]",
-        |_, packs, _, _: Value| async move { Ok(Value::Array(dispatch::defs_list(packs.as_ref()))) },
+        |_, packs, _, _: Value| async move { Ok(Value::Array(publish::defs_list(packs.as_ref()))) },
     );
     method(
         m,
@@ -627,7 +627,7 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
                 return Ok(json!({"flow": own}));
             }
             sh.set_focus(&p.instance, &p.session_id, flow.clone());
-            dispatch::publish_focus(&sh, &p.instance, &p.session_id).await;
+            publish::publish_focus(&sh, &p.instance, &p.session_id).await;
             Ok(json!({"flow": flow}))
         },
     );
@@ -724,7 +724,7 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         |sh, _, cx, p: DryStartIn| async move {
             let sandbox = sh.sandbox()?;
             let run = sandbox.start(p, device(&cx)).await.map_err(rpc_error)?;
-            dispatch::publish_dry(&sh, Some(&run)).await;
+            publish::publish_dry(&sh, Some(&run)).await;
             Ok(json!({"run": run}))
         },
     );
@@ -736,7 +736,7 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         "take a dry run's next work item: {run} → {run, steps, pending, status}",
         |sh, _, _, p: RunIn| async move {
             let progress = sh.sandbox()?.step(&p.run).await.map_err(rpc_error)?;
-            dispatch::publish_dry(&sh, Some(&p.run)).await;
+            publish::publish_dry(&sh, Some(&p.run)).await;
             to_value(progress)
         },
     );
@@ -748,7 +748,7 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         "take a dry run's work until it is over or waits for a person: {run} → {run, steps, pending, status}",
         |sh, _, _, p: RunIn| async move {
             let progress = sh.sandbox()?.run(&p.run).await.map_err(rpc_error)?;
-            dispatch::publish_dry(&sh, Some(&p.run)).await;
+            publish::publish_dry(&sh, Some(&p.run)).await;
             to_value(progress)
         },
     );

@@ -32,7 +32,7 @@ use base::interface::scene::{
 use base::tool::{PermissionDecision, ProgressSender, Tool, ToolContext, ToolResult};
 use serde_json::{json, Value};
 
-use super::dispatch;
+use super::{dispatch, publish};
 use super::shared::Shared;
 use crate::dryrun::StartIn;
 use crate::kernel::def::{definition_schema, FlowDef, Work};
@@ -620,7 +620,7 @@ impl Tool for AuthorTool {
         let target = || target_flow(&input, focus.as_deref());
         match self.name {
             TOOL_LIST => text(json!({
-                "flows": dispatch::defs_list(packs.as_ref()),
+                "flows": publish::defs_list(packs.as_ref()),
                 "current": focus,
                 "writable": packs.writable(),
             })),
@@ -743,10 +743,10 @@ impl Tool for AuthorTool {
                 }
                 if let Some(m) = failed {
                     restore_parts(packs.as_ref(), &before, &saved_parts);
-                    dispatch::publish_defs(sh).await;
+                    publish::publish_defs(sh).await;
                     return error(format!("{m} (nothing this call wrote was kept)"));
                 }
-                dispatch::publish_defs(sh).await;
+                publish::publish_defs(sh).await;
                 if let (true, Some(n)) = (creating, name) {
                     match sh.flow_of_session(&instance, &session) {
                         // The general conversation becomes the new flow's own; the next one
@@ -768,7 +768,7 @@ impl Tool for AuthorTool {
                             out["current"] = json!(n);
                         }
                     }
-                    dispatch::publish_focus(sh, &instance, &session).await;
+                    publish::publish_focus(sh, &instance, &session).await;
                 }
                 text(out)
             }
@@ -779,7 +779,7 @@ impl Tool for AuthorTool {
                 };
                 match engine.delete_flow(&name, by).await {
                     Ok(v) => {
-                        dispatch::publish_defs(sh).await;
+                        publish::publish_defs(sh).await;
                         if packs.flow(&name).is_none() {
                             sh.set_flow_session(&name, None);
                         }
@@ -787,7 +787,7 @@ impl Tool for AuthorTool {
                             if packs.flow(&name).is_none() {
                                 sh.set_focus(&i, &s, None);
                             }
-                            dispatch::publish_focus(sh, &i, &s).await;
+                            publish::publish_focus(sh, &i, &s).await;
                         }
                         text(v)
                     }
@@ -802,7 +802,7 @@ impl Tool for AuthorTool {
                 };
                 match engine.save_part(kind, name, body, by).await {
                     Ok(v) => {
-                        dispatch::publish_defs(sh).await;
+                        publish::publish_defs(sh).await;
                         text(v)
                     }
                     Err(e) => error(format!("not saved: {e}")),
@@ -815,7 +815,7 @@ impl Tool for AuthorTool {
                 };
                 match engine.delete_part(kind, name, by).await {
                     Ok(v) => {
-                        dispatch::publish_defs(sh).await;
+                        publish::publish_defs(sh).await;
                         text(v)
                     }
                     Err(e) => error(format!("not deleted: {e}")),
@@ -846,7 +846,7 @@ impl Tool for AuthorTool {
                     Err(e) => return error(format!("the dry run did not start: {e}")),
                 };
                 let progress = sandbox.run(&run).await;
-                dispatch::publish_dry(sh, Some(&run)).await;
+                publish::publish_dry(sh, Some(&run)).await;
                 let progress = match progress {
                     Ok(p) => p,
                     Err(e) => return error(e.to_string()),
