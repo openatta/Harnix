@@ -20,6 +20,7 @@ use std::collections::BTreeMap;
 
 use harnix_authz::{Audit, Authorizer, Devices};
 use harnix_builtin::Builtin;
+use harnix_contract::sync::{lock, write};
 use harnix_contract::{Gate, Topology};
 use harnix_hub::{Hub, HubConfig, HubGate, Registry};
 use harnix_instance::link::{now_ms, DownLink, EngineLink};
@@ -111,7 +112,10 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     };
 
     // ── 2. Register ─────────────────────────────────────────────────────
-    let paired = Arc::new(Devices::default());
+    // The devices paired before, read back: pairing carries trust across once, not once per start.
+    let paired = Arc::new(load_devices(&roots.state.join(DEVICES_FILE))?);
+    // The transport's channels, once it exists (step 6): what revoking a device ends.
+    let channels: Arc<OnceLock<harnix_transport::Channels>> = Arc::new(OnceLock::new());
     let mut entries = Vec::new();
     let builtin = if app.builtins {
         let builtin = Builtin::new(roots.state.clone(), roots.projects.clone())?;
@@ -141,9 +145,13 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         // Revoking is wired to the transport's session registry, because
         // ending a device's channels needs the layer that knows there are
         // channels. Nothing above transport ever learns there were.
-        let disconnect = Arc::new(|id: &str| {
-            tracing::info!(device = id, "revoked; its channels are being closed");
-        });
+        let disconnect = {
+            let channels = channels.clone();
+            Arc::new(move |id: &str| {
+                let ended = channels.get().map_or(0, |c| c.revoke_device(id));
+                tracing::info!(device = id, channels = ended, "revoked; its channels are closed");
+            })
+        };
         entries.push(Entry {
             module: Box::new(devices::DevicesModule::new(paired.clone(), disconnect)),
             namespace: Namespace::Kernel,
@@ -527,10 +535,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
             }
         }
     }
-    *diagnostics
-        .modules
-        .write()
-        .unwrap_or_else(|e| e.into_inner()) = records.iter().map(|r| r.status.clone()).collect();
+    *write(&diagnostics.modules) = records.iter().map(|r| r.status.clone()).collect();
 
     // ── 6. Serve ────────────────────────────────────────────────────────
     let token = uuid::Uuid::new_v4().simple().to_string();
@@ -579,7 +584,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         .map(|b| b.max_upload_bytes())
         .unwrap_or(harnix_contract::MAX_UPLOAD_BYTES);
     let runtime_modules = profile.ui.runtime_modules;
-    let (router, statics) = harnix_transport::router(
+    let (router, statics, transport) = harnix_transport::router(
         gate,
         hub.clone(),
         bulk,
@@ -615,6 +620,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     );
 
     statics.set_brand_icon(brand_icon);
+    let _ = channels.set(transport.clone());
 
     // Both loopback families, or exactly what was asked for. `localhost`
     // resolves to `::1` first in every current browser, so a v4-only listener
@@ -700,8 +706,13 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
             kernel.listen.send_replace(Some(harnix_module::Listen { addrs: bound, url }));
         }
     };
-    let server = tokio::spawn(async move {
-        harnix_transport::serve_with(&addrs, router, tls, told).await
+    // Shutting down stops the listener first (below), so it is handed the signal here.
+    let (stop_serving, serving_stops) = tokio::sync::oneshot::channel::<()>();
+    let mut server = tokio::spawn(async move {
+        harnix_transport::serve_with(&addrs, router, tls, told, async move {
+            let _ = serving_stops.await;
+        })
+        .await
     });
     println!(
         "\n  {} → {scheme}://{addr}/\n  token → {}\n  topology → {}\n",
@@ -754,7 +765,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     // the process on the spot, and no module's `stop` ran.
     let mut signals = Signals::install()?;
     tokio::select! {
-        result = server => { result??; }
+        result = &mut server => { result??; }
         _ = tokio::signal::ctrl_c() => println!("shutting down…"),
         _ = signals.terminate() => println!("terminated; shutting down…"),
         _ = orphaned => println!("stdin closed; the parent is gone — shutting down…"),
@@ -765,6 +776,19 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         .join("uploads")
         .join(std::process::id().to_string());
     let shutdown = async {
+        // Outside in. The listener stops taking connections and every open channel is told and
+        // closed, so nothing reaches a module once it is stopping: a page that reconnected in the
+        // grace period used to call modules that had already stopped. Then the modules, then the
+        // hub under them.
+        let _ = stop_serving.send(());
+        transport.end_all().await;
+        if !server.is_finished() {
+            match (&mut server).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => tracing::warn!(error = %e, "the listener did not stop cleanly"),
+                Err(e) => tracing::warn!(error = %e, "the listener's task ended badly"),
+            }
+        }
         // Modules stop in reverse: a later module may depend on an earlier one.
         for record in records.iter().rev().filter(|r| r.is_enabled()) {
             record.module.stop().await;
@@ -827,6 +851,47 @@ fn down(carrier: harnix_instance::Carrier, reason: String) -> Built {
     }
 }
 
+/// The paired devices, beside the token in the state directory.
+const DEVICES_FILE: &str = "devices.json";
+
+/// The devices paired before this start, and every change written back.
+///
+/// A file that is not there is no devices. One that does not parse is set aside as
+/// `devices.json.broken` and the node starts with none — on a reachable listener it then prints a
+/// pairing code, which is the one way back in. One that cannot be read stops the start: taken as
+/// empty, the next change would write over it.
+fn load_devices(path: &std::path::Path) -> anyhow::Result<Devices> {
+    let paired: Vec<harnix_authz::Device> = match std::fs::read(path) {
+        Ok(bytes) => match serde_json::from_slice(&bytes) {
+            Ok(paired) => paired,
+            Err(e) => {
+                let broken = path.with_extension("json.broken");
+                tracing::warn!(error = %e, kept = %broken.display(), "the paired devices could not be read; starting with none");
+                std::fs::rename(path, &broken)?;
+                Vec::new()
+            }
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => anyhow::bail!("could not read {}: {e}", path.display()),
+    };
+    let file = path.to_path_buf();
+    Ok(Devices::new(paired).persist_with(Box::new(move |devices| {
+        if let Err(e) = write_devices(&file, devices) {
+            tracing::warn!(error = %e, file = %file.display(), "could not write the paired devices");
+        }
+    })))
+}
+
+/// Replace the devices file whole, readable by its owner only: it holds no secret — public keys —
+/// but it decides who is let in, so it is kept like the token.
+fn write_devices(path: &std::path::Path, devices: &[harnix_authz::Device]) -> std::io::Result<()> {
+    let body = serde_json::to_vec_pretty(devices)?;
+    let temp = path.with_extension("json.tmp");
+    let _ = std::fs::remove_file(&temp);
+    write_private(&temp, &body)?;
+    std::fs::rename(&temp, path)
+}
+
 /// Write the token readable by its owner only (IPDrun N-302).
 ///
 /// The token admits a client to everything a person at this machine can do;
@@ -834,6 +899,11 @@ fn down(carrier: harnix_instance::Carrier, reason: String) -> Built {
 /// fresh file readable by every account. An existing file is narrowed too,
 /// since `create` does not change the mode of a file that is already there.
 fn write_token(path: &std::path::Path, token: &str) -> std::io::Result<()> {
+    write_private(path, token.as_bytes())
+}
+
+/// Write `bytes` to a file only its owner can read, narrowing a file that is already there.
+fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write as _;
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
@@ -845,7 +915,7 @@ fn write_token(path: &std::path::Path, token: &str) -> std::io::Result<()> {
             std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
         }
     }
-    options.open(path)?.write_all(token.as_bytes())
+    options.open(path)?.write_all(bytes)
 }
 
 /// The bulk store of an application built without the built-ins: nothing
@@ -924,13 +994,13 @@ struct UiModules {
 
 impl UiModules {
     fn set_packages(self: &Arc<Self>, hub: &Arc<Hub>, modules: Vec<serde_json::Value>) {
-        self.lists.lock().unwrap_or_else(|e| e.into_inner()).0 = modules;
+        lock(&self.lists).0 = modules;
         self.publish(hub);
     }
 
     #[cfg_attr(not(feature = "apps"), allow(dead_code))]
     fn set_apps(self: &Arc<Self>, hub: &Arc<Hub>, modules: Vec<serde_json::Value>) {
-        self.lists.lock().unwrap_or_else(|e| e.into_inner()).1 = modules;
+        lock(&self.lists).1 = modules;
         self.publish(hub);
     }
 
@@ -940,7 +1010,7 @@ impl UiModules {
         let (hub, this) = (hub.clone(), self.clone());
         tokio::spawn(async move {
             let all: Vec<serde_json::Value> = {
-                let lists = this.lists.lock().unwrap_or_else(|e| e.into_inner());
+                let lists = lock(&this.lists);
                 lists.0.iter().chain(&lists.1).cloned().collect()
             };
             hub.set_ui_contributions(json!(all)).await;
@@ -976,4 +1046,56 @@ fn signing_keys(
         trusted.insert(publisher.clone(), keys);
     }
     Ok(harnix_apps::signature::Keys { store, trusted })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn device(id: &str) -> harnix_authz::Device {
+        harnix_authz::Device {
+            id: id.into(),
+            label: "laptop".into(),
+            public_key: "pk".into(),
+            paired_at: "1".into(),
+            last_seen: None,
+        }
+    }
+
+    /// Paired devices survive a restart, in a file only the owner can read; a broken one is set
+    /// aside rather than trusted or written over.
+    #[test]
+    fn paired_devices_are_kept_across_starts() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(DEVICES_FILE);
+        assert!(load_devices(&path).unwrap().list().is_empty(), "no file is no devices");
+
+        let devices = load_devices(&path).unwrap();
+        devices.begin_pairing("ABC123", "laptop", std::time::SystemTime::now());
+        let paired = devices
+            .complete_pairing("ABC123", "pk", std::time::SystemTime::now(), "1")
+            .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "{mode:o}");
+        }
+        let again = load_devices(&path).unwrap();
+        assert!(again.is_paired(&paired.id));
+        assert!(again.revoke(&paired.id));
+        assert!(load_devices(&path).unwrap().list().is_empty(), "the revocation was kept");
+
+        write_devices(&path, &[device("dev-a")]).unwrap();
+        assert!(load_devices(&path).unwrap().is_paired("dev-a"));
+
+        std::fs::write(&path, "not json").unwrap();
+        assert!(load_devices(&path).unwrap().list().is_empty());
+        assert!(path.with_extension("json.broken").exists());
+
+        // Unreadable — a directory where the file should be — stops the start.
+        std::fs::remove_file(&path).ok();
+        std::fs::create_dir(&path).unwrap();
+        assert!(load_devices(&path).is_err());
+    }
 }

@@ -81,11 +81,12 @@ impl Builtin {
         // succeed: a settings page opened with no session is the ordinary
         // case, and it used to answer every field `null` — a write made and
         // then read back as nothing, with the error swallowed on the way.
+        let default_scene = self.system()?.active_scenes.first().cloned();
         let scene = params
             .get("scene")
             .and_then(Value::as_str)
             .map(str::to_string)
-            .or_else(|| self.system().active_scenes.first().cloned());
+            .or(default_scene);
         let project_root = params
             .get("project_root")
             .and_then(Value::as_str)
@@ -213,7 +214,7 @@ impl Builtin {
         // The same default as `describe`, for the same reason: a write with
         // no scene would otherwise resolve no tier path and be refused for a
         // reason that has nothing to do with what was asked.
-        let default_scene = self.system().active_scenes.first().cloned();
+        let default_scene = self.system()?.active_scenes.first().cloned();
         let scene = params
             .get("scene")
             .and_then(Value::as_str)
@@ -239,9 +240,7 @@ impl Builtin {
             ));
         };
 
-        let mut document = read_document(&path)?;
-        set_path(&mut document, &key, value);
-        write_document(&path, &document)?;
+        set_in_file(&path, &key, value)?;
 
         let reloaded = self.call("settings", "config.reload", json!({}))
             .await
@@ -268,6 +267,7 @@ impl Builtin {
                 "provider_id: letters, digits, `-`, `_` and `.`",
             ));
         }
+        self.system()?;
         let Some(path) = self.tier_path("global", None, None) else {
             return Err(RpcError::new(codes::INTERNAL_ERROR, "no global tier"));
         };
@@ -308,7 +308,8 @@ impl Builtin {
         scene: Option<&str>,
         project_root: Option<&str>,
     ) -> Option<PathBuf> {
-        let root = self.system().data_root;
+        // Every caller has already asked for `system()` and been answered.
+        let root = self.system().ok()?.data_root;
         match tier {
             "global" => Some(root.join("settings.json")),
             "scene" => scene.map(|scene| root.join("scenes").join(scene).join("settings.json")),
@@ -469,7 +470,19 @@ fn patch_providers(
     Ok(())
 }
 
+/// Set one key in a tier's settings.json, keeping everything else in it.
+fn set_in_file(path: &std::path::Path, key: &str, value: Value) -> Result<(), RpcError> {
+    let mut document = read_document(path)?;
+    set_path(&mut document, key, value);
+    write_document(path, &document)
+}
+
 /// A tier's settings.json, or an empty document when the file is not there.
+///
+/// Only *not there* is empty. Every caller writes the document back, so a
+/// read that failed for any other reason — permissions, a disk error —
+/// taken as empty would have been written back as a tier holding the one key
+/// just set, its providers and credentials gone.
 fn read_document(path: &std::path::Path) -> Result<Value, RpcError> {
     match std::fs::read(path) {
         Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| {
@@ -478,7 +491,11 @@ fn read_document(path: &std::path::Path) -> Result<Value, RpcError> {
                 format!("{} is not valid JSON: {e}", path.display()),
             )
         }),
-        Err(_) => Ok(json!({})),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(json!({})),
+        Err(e) => Err(RpcError::new(
+            codes::INTERNAL_ERROR,
+            format!("could not read {}: {e}", path.display()),
+        )),
     }
 }
 
@@ -553,6 +570,38 @@ mod tests {
         assert!(patch_providers(&mut document, "a", false, Some(&json!({"api_type": "anthropic", "shell": "x"})), None).is_err());
         assert!(patch_providers(&mut document, "a", false, Some(&json!({"api_type": "anthropic"})), Some("zz")).is_err());
         assert!(!valid_provider_id("a b"));
+    }
+
+    /// A tier that cannot be read is an error, and the file is left as it
+    /// was — not replaced by a document holding only the key being set.
+    #[test]
+    fn an_unreadable_tier_is_not_overwritten() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let original = r#"{"providers":{"a":{"api_type":"anthropic","api_key":"k"}}}"#;
+        std::fs::write(&path, original).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+            // Root reads it anyway; then there is nothing to show here.
+            if std::fs::read(&path).is_err() {
+                assert!(set_in_file(&path, "model.max_tokens", json!(4000)).is_err());
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+                assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+            } else {
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+            }
+        }
+        // A read that fails for another reason than "not there" — here, a directory where the
+        // file should be — is an error too, wherever this runs.
+        let not_a_file = dir.path().join("scene");
+        std::fs::create_dir(&not_a_file).unwrap();
+        assert!(read_document(&not_a_file).is_err());
+        // And a file that is not there is an empty tier, written with the one key.
+        let fresh = dir.path().join("fresh.json");
+        set_in_file(&fresh, "model.max_tokens", json!(4000)).unwrap();
+        assert_eq!(read_document(&fresh).unwrap(), json!({"model": {"max_tokens": 4000}}));
     }
 
     #[test]

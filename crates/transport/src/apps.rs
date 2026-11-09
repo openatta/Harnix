@@ -97,13 +97,14 @@ async fn subject_of(state: &AppState, headers: &HeaderMap, query: &str) -> Optio
         })
     };
     for credential in [bearer.clone(), param("credential")].into_iter().flatten() {
-        if let Some(established) = state.sessions.get(&credential).await {
+        if let Some(established) = state.sessions.get(&credential) {
             return Some(established.subject.clone());
         }
     }
     if state.config.admission == Admission::Token {
         let token = state.config.token.as_str();
-        let by_token = bearer.as_deref() == Some(token) || param("token").as_deref() == Some(token);
+        let is_token = |t: Option<String>| t.is_some_and(|t| harnix_authz::tokens_equal(&t, token));
+        let by_token = is_token(bearer) || is_token(param("token"));
         if by_token || state.config.links.admits(headers) {
             return Some(Subject::Device { id: "local".into() });
         }

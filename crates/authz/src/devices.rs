@@ -30,6 +30,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
+use harnix_contract::sync::lock;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -91,17 +92,43 @@ impl std::fmt::Display for PairError {
     }
 }
 
+/// Where the paired devices are written whenever they change: the whole
+/// list, sorted as [`Devices::list`] gives it. The application decides where
+/// (its state directory, beside the token); this crate keeps no files.
+pub type Persist = Box<dyn Fn(&[Device]) + Send + Sync>;
+
 #[derive(Default)]
 pub struct Devices {
     paired: Mutex<HashMap<String, Device>>,
     pending: Mutex<HashMap<String, Pending>>,
+    persist: Option<Persist>,
 }
 
 impl Devices {
+    /// The devices paired before this process started, as the last one wrote
+    /// them. Pairing carries trust across **once**: a node that forgot its
+    /// devices on every restart had every operator pairing again, with the
+    /// code sitting in the scrollback each time.
     pub fn new(paired: Vec<Device>) -> Self {
         Self {
             paired: Mutex::new(paired.into_iter().map(|d| (d.id.clone(), d)).collect()),
             pending: Mutex::new(HashMap::new()),
+            persist: None,
+        }
+    }
+
+    /// Write the list out through `persist` whenever it changes: a device
+    /// paired, revoked, or seen again.
+    pub fn persist_with(mut self, persist: Persist) -> Self {
+        self.persist = Some(persist);
+        self
+    }
+
+    /// Hand the list to `persist`, under the lock that changed it, so two
+    /// changes cannot be written out of order.
+    fn changed(&self, paired: &HashMap<String, Device>) {
+        if let Some(persist) = &self.persist {
+            persist(&sorted(paired));
         }
     }
 
@@ -112,7 +139,7 @@ impl Devices {
     /// is independent of the code — see [`Pending`] for why that matters.
     pub fn begin_pairing(&self, code: &str, label: impl Into<String>, now: SystemTime) -> String {
         let handle = format!("pair-{}", uuid_like(code, now));
-        self.pending.lock().unwrap().insert(
+        lock(&self.pending).insert(
             handle.clone(),
             Pending {
                 code_hash: hash(code),
@@ -133,7 +160,7 @@ impl Devices {
         stamp: &str,
     ) -> Result<Device, PairError> {
         let guess = hash(code);
-        let mut pending = self.pending.lock().unwrap();
+        let mut pending = lock(&self.pending);
         pending.retain(|_, p| now <= p.expires);
 
         // Constant-time over the hashes, so a comparison that stops early
@@ -168,37 +195,60 @@ impl Devices {
             paired_at: stamp.to_string(),
             last_seen: None,
         };
-        self.paired
-            .lock()
-            .unwrap()
-            .insert(device.id.clone(), device.clone());
+        let mut paired = lock(&self.paired);
+        paired.insert(device.id.clone(), device.clone());
+        self.changed(&paired);
         Ok(device)
     }
 
     pub fn list(&self) -> Vec<Device> {
-        let mut all: Vec<Device> = self.paired.lock().unwrap().values().cloned().collect();
-        all.sort_by(|a, b| a.paired_at.cmp(&b.paired_at));
-        all
+        sorted(&lock(&self.paired))
+    }
+
+    /// A device proved itself at `now`: what the list shows as last seen.
+    pub fn seen(&self, id: &str, now: SystemTime) {
+        let mut paired = lock(&self.paired);
+        let Some(device) = paired.get_mut(id) else { return };
+        device.last_seen = Some(stamp(now));
+        self.changed(&paired);
     }
 
     pub fn get(&self, id: &str) -> Option<Device> {
-        self.paired.lock().unwrap().get(id).cloned()
+        lock(&self.paired).get(id).cloned()
     }
 
     /// Forget a device. Its channels are ended by the caller, which is the
     /// only layer that knows there are channels.
     pub fn revoke(&self, id: &str) -> bool {
-        self.paired.lock().unwrap().remove(id).is_some()
+        let mut paired = lock(&self.paired);
+        let removed = paired.remove(id).is_some();
+        if removed {
+            self.changed(&paired);
+        }
+        removed
     }
 
     pub fn is_paired(&self, id: &str) -> bool {
-        self.paired.lock().unwrap().contains_key(id)
+        lock(&self.paired).contains_key(id)
     }
 
     /// Drop pairing windows that nobody used.
     pub fn sweep(&self, now: SystemTime) {
-        self.pending.lock().unwrap().retain(|_, p| now <= p.expires);
+        lock(&self.pending).retain(|_, p| now <= p.expires);
     }
+}
+
+fn sorted(paired: &HashMap<String, Device>) -> Vec<Device> {
+    let mut all: Vec<Device> = paired.values().cloned().collect();
+    all.sort_by(|a, b| a.paired_at.cmp(&b.paired_at).then_with(|| a.id.cmp(&b.id)));
+    all
+}
+
+/// Seconds since the epoch, as `paired_at` is written.
+fn stamp(now: SystemTime) -> String {
+    now.duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs().to_string())
+        .unwrap_or_else(|_| "0".into())
 }
 
 /// A handle that does not depend on the code. Derived rather than random so
@@ -225,7 +275,21 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    // `black_box`, so the fold is not turned back into a comparison that
+    // stops at the first difference.
+    std::hint::black_box(a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y))) == 0
+}
+
+/// Is this the token? Compared in time that does not depend on how much of
+/// it was right.
+///
+/// `==` on two strings stops at the first byte that differs, so how long a
+/// refusal took says how long a prefix of the guess was right — on a
+/// reachable listener, enough to recover the token a byte at a time. Both
+/// sides are hashed first, so the comparison is over two equal lengths and
+/// says nothing about the token's length either.
+pub fn tokens_equal(given: &str, expected: &str) -> bool {
+    constant_time_eq(&Sha256::digest(given.as_bytes()), &Sha256::digest(expected.as_bytes()))
 }
 
 #[cfg(test)]
@@ -297,6 +361,41 @@ mod tests {
         );
     }
 
+    /// Every change is written out, and what was written reads back as the
+    /// same devices.
+    #[test]
+    fn changes_are_persisted_and_read_back() {
+        let written: std::sync::Arc<Mutex<Vec<Vec<Device>>>> = Default::default();
+        let sink = written.clone();
+        let devices = Devices::default().persist_with(Box::new(move |list| lock(&sink).push(list.to_vec())));
+        devices.begin_pairing("ABC123", "laptop", now());
+        let device = devices.complete_pairing("ABC123", "pk", now(), "t0").unwrap();
+        devices.seen(&device.id, now());
+        assert_eq!(lock(&written).len(), 2);
+        let last = lock(&written).last().cloned().unwrap();
+        assert_eq!(last[0].last_seen.as_deref(), Some("1700000000"));
+
+        // A restart: the list as written is the list paired.
+        let json = serde_json::to_string(&last).unwrap();
+        let again = Devices::new(serde_json::from_str(&json).unwrap());
+        assert!(again.is_paired(&device.id));
+        assert_eq!(again.get(&device.id).unwrap().public_key, "pk");
+
+        assert!(devices.revoke(&device.id));
+        assert!(lock(&written).last().unwrap().is_empty());
+        // Revoking nothing writes nothing.
+        assert!(!devices.revoke(&device.id));
+        assert_eq!(lock(&written).len(), 3);
+    }
+
+    #[test]
+    fn tokens_compare_whole() {
+        assert!(tokens_equal("abc123", "abc123"));
+        assert!(!tokens_equal("abc124", "abc123"));
+        assert!(!tokens_equal("abc12", "abc123"));
+        assert!(!tokens_equal("", "abc123"));
+    }
+
     #[test]
     fn revoking_forgets_the_device() {
         let devices = Devices::default();
@@ -321,6 +420,16 @@ pub mod challenge {
     /// Bytes a challenge is made of. Enough that guessing one is not a
     /// strategy; small enough to fit in a query parameter.
     pub const LEN: usize = 32;
+
+    /// A fresh challenge, from the system's randomness. `None` only if the
+    /// system has none to give, which is a refusal rather than a weaker
+    /// challenge.
+    pub fn fresh() -> Option<[u8; LEN]> {
+        use ring::rand::SecureRandom as _;
+        let mut bytes = [0u8; LEN];
+        ring::rand::SystemRandom::new().fill(&mut bytes).ok()?;
+        Some(bytes)
+    }
 
     /// Does this signature prove possession of the key that was paired?
     ///

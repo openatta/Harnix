@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::ws::{close_code, CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -22,6 +22,7 @@ use tokio::sync::mpsc;
 use tracing::warn;
 
 use crate::handshake;
+use crate::session::Ended;
 use crate::AppState;
 
 /// In-flight requests per connection.
@@ -69,7 +70,11 @@ pub async fn upgrade(
     // Or a launch-link session cookie, which a browser sends on
     // a same-site upgrade by itself — the page under launch links has no
     // token to put in the query.
-    let admitted_by = if query.token.as_deref() == Some(state.config.token.as_str()) {
+    let token_ok = query
+        .token
+        .as_deref()
+        .is_some_and(|t| harnix_authz::tokens_equal(t, &state.config.token));
+    let admitted_by = if token_ok {
         "token"
     } else if state.config.links.admits(&headers) {
         "cookie"
@@ -148,7 +153,9 @@ fn frame_kind(frame: &str) -> &str {
 }
 
 async fn connection(socket: WebSocket, state: AppState, peer: Peer) {
-    let (tx, mut outbound) = mpsc::unbounded_channel::<String>();
+    // Bounded, like every queue a client has (`session::OUTBOUND_FRAMES`): replies wait for room,
+    // frames from the hub do not — a full queue ends the client.
+    let (tx, mut outbound) = mpsc::channel::<String>(crate::session::OUTBOUND_FRAMES);
     let (mut ws_sink, mut stream) = socket.split();
     let conn = peer.conn;
     tracing::debug!(
@@ -159,8 +166,21 @@ async fn connection(socket: WebSocket, state: AppState, peer: Peer) {
         "websocket upgraded"
     );
 
+    // How the connection is closed when it is the server that closes it: a code and a reason the
+    // client can act on, rather than the socket simply going.
+    let (close_with, mut closing) = tokio::sync::oneshot::channel::<CloseFrame>();
     let pump = tokio::spawn(async move {
-        while let Some(frame) = outbound.recv().await {
+        loop {
+            let frame = tokio::select! {
+                frame = outbound.recv() => frame,
+                close = &mut closing => {
+                    if let Ok(close) = close {
+                        let _ = ws_sink.send(Message::Close(Some(close))).await;
+                    }
+                    break;
+                }
+            };
+            let Some(frame) = frame else { break };
             if tracing::enabled!(tracing::Level::TRACE) {
                 tracing::trace!(
                     conn,
@@ -182,9 +202,21 @@ async fn connection(socket: WebSocket, state: AppState, peer: Peer) {
     // it either way, which is what keeps `__client` meaning the same thing in
     // both topologies.
     let mut established: Option<(String, Arc<crate::session::Established>)> = None;
+    // Changes when the handshake is over for a reason of the server's: its device revoked, its
+    // queue full, the process stopping. Then this connection closes, saying which.
+    let mut ended: Option<tokio::sync::watch::Receiver<Option<Ended>>> = None;
+    let mut why: Option<Ended> = None;
     let permits = Arc::new(tokio::sync::Semaphore::new(MAX_IN_FLIGHT));
 
-    while let Some(Ok(message)) = stream.next().await {
+    loop {
+        let message = tokio::select! {
+            message = stream.next() => message,
+            reason = ended_of(&mut ended) => {
+                why = Some(reason);
+                break;
+            }
+        };
+        let Some(Ok(message)) = message else { break };
         let text = match message {
             Message::Text(t) => t.to_string(),
             Message::Close(_) => break,
@@ -199,19 +231,21 @@ async fn connection(socket: WebSocket, state: AppState, peer: Peer) {
                 .ok()
                 .and_then(|v| v.get("id").cloned())
                 .unwrap_or(Value::Null);
-            let _ = tx.send(error_frame(
-                id,
-                codes::INVALID_REQUEST,
-                format!(
-                    "frame is {} bytes; the ceiling is {} — use the bulk channel",
-                    text.len(),
-                    harnix_contract::MAX_FRAME_BYTES
-                ),
-            ));
+            let _ = tx
+                .send(error_frame(
+                    id,
+                    codes::INVALID_REQUEST,
+                    format!(
+                        "frame is {} bytes; the ceiling is {} — use the bulk channel",
+                        text.len(),
+                        harnix_contract::MAX_FRAME_BYTES
+                    ),
+                ))
+                .await;
             continue;
         }
         let Ok(value) = serde_json::from_str::<Value>(&text) else {
-            let _ = tx.send(error_frame(Value::Null, codes::PARSE_ERROR, "invalid JSON"));
+            let _ = tx.send(error_frame(Value::Null, codes::PARSE_ERROR, "invalid JSON")).await;
             continue;
         };
         let id = value.get("id").cloned().unwrap_or(Value::Null);
@@ -221,19 +255,21 @@ async fn connection(socket: WebSocket, state: AppState, peer: Peer) {
             .and_then(Value::as_str)
             .map(str::to_string)
         else {
-            let _ = tx.send(error_frame(id, codes::INVALID_REQUEST, "missing method"));
+            let _ = tx.send(error_frame(id, codes::INVALID_REQUEST, "missing method")).await;
             continue;
         };
         let mut params = value.get("params").cloned().unwrap_or(json!({}));
 
         if method == "harnix.handshake" {
             if established.is_some() {
-                let _ = tx.send(error_frame(
-                    id,
-                    codes::HANDSHAKE_REFUSED,
-                    "already established; a negotiation held twice is one that \
-                     will eventually produce two answers",
-                ));
+                let _ = tx
+                    .send(error_frame(
+                        id,
+                        codes::HANDSHAKE_REFUSED,
+                        "already established; a negotiation held twice is one that \
+                         will eventually produce two answers",
+                    ))
+                    .await;
                 continue;
             }
             let mut body = params.clone();
@@ -251,7 +287,7 @@ async fn connection(socket: WebSocket, state: AppState, peer: Peer) {
             {
                 crate::admission::Verdict::Admit { device } => device,
                 crate::admission::Verdict::Refuse(reason) => {
-                    let _ = tx.send(error_frame(id, codes::HANDSHAKE_REFUSED, reason));
+                    let _ = tx.send(error_frame(id, codes::HANDSHAKE_REFUSED, reason)).await;
                     continue;
                 }
             };
@@ -260,28 +296,29 @@ async fn connection(socket: WebSocket, state: AppState, peer: Peer) {
             };
             match handshake::negotiate(&params, &state.config.topologies, subject) {
                 Ok(negotiated) if negotiated.topology != Topology::SingleDuplex => {
-                    let _ = tx.send(error_frame(
-                        id,
-                        codes::HANDSHAKE_REFUSED,
-                        "this connection carries the single-duplex topology; \
-                         the split-streams one is established at POST /handshake",
-                    ));
+                    let _ = tx
+                        .send(error_frame(
+                            id,
+                            codes::HANDSHAKE_REFUSED,
+                            "this connection carries the single-duplex topology; \
+                             the split-streams one is established at POST /handshake",
+                        ))
+                        .await;
                 }
                 Ok(negotiated) => {
                     // This connection's own sender, handed in: both faces are
                     // carried here, so frames go straight down it. No queue to
                     // drain and no task to drain it.
-                    let (credential, session, sink) = state
+                    let (credential, session) = state
                         .sessions
                         .establish(
-                            &state.hub,
+                            state.hub.as_ref(),
                             negotiated.subject.clone(),
                             negotiated.topology,
                             Some(tx.clone()),
                             &peer.user_agent,
                         )
                         .await;
-                    let _ = sink;
                     let mut body = handshake::accepted(&negotiated, &state.config.topologies);
                     body["client"] = json!(session.client.0);
                     // What a module route (`/apps/<id>/`) is presented with:
@@ -295,11 +332,12 @@ async fn connection(socket: WebSocket, state: AppState, peer: Peer) {
                         user_agent = %peer.user_agent,
                         "single-duplex channel established"
                     );
+                    ended = Some(session.ended());
                     established = Some((credential, session));
-                    let _ = tx.send(ok_frame(id, body));
+                    let _ = tx.send(ok_frame(id, body)).await;
                 }
                 Err(e) => {
-                    let _ = tx.send(error_frame(id, e.code, e.message));
+                    let _ = tx.send(error_frame(id, e.code, e.message)).await;
                 }
             }
             continue;
@@ -308,11 +346,9 @@ async fn connection(socket: WebSocket, state: AppState, peer: Peer) {
         // Nothing before the handshake. Version and topology have to be
         // settled before a call can mean anything.
         let Some((_, session)) = established.as_ref() else {
-            let _ = tx.send(error_frame(
-                id,
-                codes::HANDSHAKE_REFUSED,
-                "call harnix.handshake first",
-            ));
+            let _ = tx
+                .send(error_frame(id, codes::HANDSHAKE_REFUSED, "call harnix.handshake first"))
+                .await;
             continue;
         };
         let subject = session.subject.clone();
@@ -331,29 +367,66 @@ async fn connection(socket: WebSocket, state: AppState, peer: Peer) {
                 let n = DROPPED_NOTIFICATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                 warn!(conn, method = %method, dropped = n, "client exceeded its in-flight budget; notification dropped");
             } else {
-                let _ = tx.send(rpc_error_frame(id, &busy()));
+                let _ = tx.send(rpc_error_frame(id, &busy())).await;
             }
             continue;
         };
         let gate = state.gate.clone();
         let reply = tx.clone();
         tokio::spawn(async move {
-            let outcome = gate.call(&subject, &method, params).await;
+            let outcome = crate::call_settled(gate.as_ref(), &subject, &method, params).await;
             if !is_notification {
-                let _ = reply.send(match outcome {
-                    Ok(result) => ok_frame(id, result),
-                    Err(e) => rpc_error_frame(id, &e),
-                });
+                let _ = reply
+                    .send(match outcome {
+                        Ok(result) => ok_frame(id, result),
+                        Err(e) => rpc_error_frame(id, &e),
+                    })
+                    .await;
             }
             drop(permit);
         });
     }
 
     if let Some((credential, _)) = established {
-        state.sessions.end(&state.hub, &credential).await;
-        tracing::info!(conn, "single-duplex channel closed");
+        state.sessions.end(state.hub.as_ref(), &credential).await;
+        tracing::info!(conn, ended = ?why, "single-duplex channel closed");
     }
-    pump.abort();
+    match why.map(close_frame) {
+        // Said, then given a moment to go out before the connection is dropped.
+        Some(close) => {
+            let _ = close_with.send(close);
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(2), pump).await;
+        }
+        None => pump.abort(),
+    }
+}
+
+/// The reason, once the handshake this connection carries is over; never, before there is one.
+async fn ended_of(ended: &mut Option<tokio::sync::watch::Receiver<Option<Ended>>>) -> Ended {
+    let Some(rx) = ended else {
+        return std::future::pending().await;
+    };
+    match rx.wait_for(Option::is_some).await {
+        Ok(why) => why.unwrap_or(Ended::Closed),
+        // The handshake's sender is held for as long as it is; gone is over.
+        Err(_) => Ended::Closed,
+    }
+}
+
+/// What the client is told when the server ends its connection.
+fn close_frame(why: Ended) -> CloseFrame {
+    let (code, reason) = match why {
+        // Policy: this device may no longer connect. Reconnecting will be refused.
+        Ended::Revoked => (close_code::POLICY, "this device was revoked"),
+        // Try again: reconnecting catches up from the hub's buffer.
+        Ended::Overflowed => (close_code::AGAIN, "too far behind; reconnect to catch up"),
+        Ended::ShuttingDown => (close_code::AWAY, "the server is shutting down"),
+        Ended::Closed => (close_code::NORMAL, "closed"),
+    };
+    CloseFrame {
+        code,
+        reason: reason.into(),
+    }
 }
 
 /// The answer to one request over the in-flight cap.

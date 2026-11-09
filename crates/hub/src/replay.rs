@@ -43,7 +43,9 @@ pub struct Buffer {
 
 impl Buffer {
     pub fn push(&mut self, seq: u64, turn_id: &str, event: &Value) {
+        // A merge grows the last frame, so it is held to the same ceiling as a new one.
         if self.merge_delta(seq, turn_id, event) || self.merge_tool_args(seq, turn_id, event) {
+            self.trim();
             return;
         }
         if event.get("kind").and_then(Value::as_str) == Some("tool_use") {
@@ -56,6 +58,11 @@ impl Buffer {
             event: event.clone(),
         });
         self.bytes += bytes;
+        self.trim();
+    }
+
+    /// Drop the oldest frames until both ceilings hold.
+    fn trim(&mut self) {
         while self.frames.len() > MAX_FRAMES || self.bytes > MAX_BYTES {
             let Some(dropped) = self.frames.pop_front() else {
                 break;
@@ -159,6 +166,21 @@ mod tests {
 
     fn delta(text: &str) -> Value {
         json!({"kind": "text_delta", "text": text})
+    }
+
+    /// Merging into the last frame is held to the byte ceiling too: one call's arguments
+    /// streamed a few bytes at a time used to grow past it unchecked.
+    #[test]
+    fn merged_bytes_count_against_the_ceiling() {
+        let mut b = Buffer::default();
+        b.push(1, "t", &delta("first"));
+        let part = "x".repeat(64 * 1024);
+        let args = json!({"kind": "tool_args_delta", "id": "c", "partial_json": part});
+        for seq in 2..(2 + (MAX_BYTES / part.len()) as u64 + 8) {
+            b.push(seq, "t", &args);
+        }
+        assert!(b.bytes <= MAX_BYTES, "{} bytes kept", b.bytes);
+        assert!(b.truncated);
     }
 
     #[test]

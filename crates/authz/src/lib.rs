@@ -27,7 +27,7 @@ mod table;
 
 pub use audit::{Audit, AuditEntry, AuditSink, Change, Decision};
 pub use devices::challenge as devices_challenge;
-pub use devices::{Device, Devices, PairError, PAIRING_TTL};
+pub use devices::{tokens_equal, Device, Devices, PairError, Persist, PAIRING_TTL};
 pub use table::{
     apps_overlap, route, topic, valid_app_id, MethodTable, Principal, Reach, Rule, TableError,
     ENGINE_REFUSALS, HUB_OWNED,
@@ -35,6 +35,7 @@ pub use table::{
 
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+use harnix_contract::sync::{read, write};
 use harnix_contract::{Gate, RpcError, Subject};
 use serde_json::Value;
 
@@ -62,11 +63,11 @@ impl Authorizer {
     }
 
     pub fn table(&self) -> RwLockReadGuard<'_, MethodTable> {
-        self.table.read().unwrap_or_else(|e| e.into_inner())
+        read(&self.table)
     }
 
     pub fn table_mut(&self) -> RwLockWriteGuard<'_, MethodTable> {
-        self.table.write().unwrap_or_else(|e| e.into_inner())
+        write(&self.table)
     }
 
     /// Put a runtime application's names in the table, all or none, and put

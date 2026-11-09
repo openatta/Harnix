@@ -7,12 +7,14 @@
 //! transport does not know what a session is, authorization does not know
 //! what a frame looks like, the hub does not know what HTTP is.
 //!
-//! Nothing here executes anything. It is types, two traits and a version.
+//! Nothing here executes anything. It is types, two traits and a version —
+//! and [`sync`], the one way the kernel takes a lock.
 
 pub mod frame;
 pub mod handshake;
 pub mod space;
 pub mod subject;
+pub mod sync;
 
 pub use frame::{Channel, Frame, FrameSink};
 pub use handshake::{

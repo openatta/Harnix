@@ -81,9 +81,10 @@ pub struct Store {
 
 impl Store {
     /// Resolve the root and load what is there. A missing file is an empty
-    /// state; an unreadable or unparsable one is backed up and replaced,
-    /// because refusing to start over a corrupt preferences file would be a
-    /// worse trade than losing the grouping.
+    /// state; an unparsable one is backed up and replaced, because refusing
+    /// to start over a corrupt preferences file would be a worse trade than
+    /// losing the grouping. One that cannot be *read* is an error: taken as
+    /// empty, the next write would replace a file that was fine.
     pub fn open(root: PathBuf) -> anyhow::Result<Self> {
         std::fs::create_dir_all(&root)?;
         let file = root.join("state.json");
@@ -97,7 +98,8 @@ impl Store {
                     HarnixState::default()
                 }
             },
-            Err(_) => HarnixState::default(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => HarnixState::default(),
+            Err(e) => anyhow::bail!("could not read {}: {e}", file.display()),
         };
         Ok(Self { root, file, state })
     }
@@ -148,4 +150,23 @@ impl Store {
 
 pub fn new_workspace_id() -> String {
     format!("w-{}", uuid::Uuid::new_v4().simple())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A state file that cannot be read stops the open, and is not replaced.
+    #[test]
+    fn an_unreadable_state_file_is_an_error_not_an_empty_state() {
+        let dir = tempfile::tempdir().unwrap();
+        // A directory where the file should be: a read that fails, as root or not.
+        std::fs::create_dir(dir.path().join("state.json")).unwrap();
+        assert!(Store::open(dir.path().to_path_buf()).is_err());
+        assert!(dir.path().join("state.json").is_dir());
+
+        let fresh = tempfile::tempdir().unwrap();
+        let store = Store::open(fresh.path().to_path_buf()).expect("a missing file is an empty state");
+        assert!(store.state().workspaces.is_empty());
+    }
 }

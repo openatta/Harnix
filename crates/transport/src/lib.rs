@@ -25,11 +25,14 @@ mod launch;
 mod session;
 mod split;
 mod statics;
+#[cfg(test)]
+mod tests;
 mod ws;
 
 pub use apps::{AppRoutes, RouteGate};
 pub use bulk::BulkStore;
 pub use launch::{BrowserAdmission, LaunchLinks, LINK_TTL};
+pub use session::{OUTBOUND_FRAMES, SPLIT_IDLE};
 pub use statics::{page_csp, Face, StaticFace, BRAND_ICON_PATH, CSP};
 pub use ws::dropped_notifications;
 
@@ -126,7 +129,8 @@ pub struct Tls {
 #[derive(Clone)]
 pub(crate) struct AppState {
     pub gate: Arc<dyn Gate>,
-    pub hub: Arc<harnix_hub::Hub>,
+    /// The hub, as far as this layer knows it: where clients are registered.
+    pub hub: Arc<dyn session::ClientRegistry>,
     pub bulk: Arc<dyn BulkStore>,
     pub config: Arc<Config>,
     pub statics: Arc<StaticFace>,
@@ -139,6 +143,52 @@ pub(crate) struct AppState {
     pub route_gate: apps::SharedGate,
 }
 
+/// The channels this transport has open, for what has to end them from
+/// outside: revoking a device, and shutting down.
+///
+/// A credential belongs to the subject, so a device's channels are found by
+/// subject — every connection and every split credential it holds — and not
+/// by whichever one happens to be noticed next.
+#[derive(Clone)]
+pub struct Channels {
+    sessions: Arc<session::Sessions>,
+    hub: Arc<dyn session::ClientRegistry>,
+}
+
+impl Channels {
+    /// End every channel the device holds, before this returns: its
+    /// credentials are refused from now on, its connections are told they
+    /// were revoked and close, its event streams end. Forgetting its clients
+    /// in the hub follows on a task. Returns how many handshakes ended.
+    pub fn revoke_device(&self, id: &str) -> usize {
+        let clients = self.sessions.end_subject(&harnix_contract::Subject::Device { id: id.into() });
+        self.forget(clients)
+    }
+
+    /// End every channel, for a process on its way out.
+    pub async fn end_all(&self) {
+        for client in self.sessions.end_all() {
+            self.hub.remove_client(client).await;
+        }
+    }
+
+    fn forget(&self, clients: Vec<harnix_hub::ClientId>) -> usize {
+        let count = clients.len();
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            let hub = self.hub.clone();
+            runtime.spawn(async move {
+                for client in clients {
+                    hub.remove_client(client).await;
+                }
+            });
+        }
+        count
+    }
+}
+
+/// How often idle split-streams handshakes are looked for.
+const SWEEP_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
+
 pub fn router(
     gate: Arc<dyn Gate>,
     hub: Arc<harnix_hub::Hub>,
@@ -146,7 +196,19 @@ pub fn router(
     devices: Arc<harnix_authz::Devices>,
     config: Config,
     extensions: Extensions,
-) -> (Router, Arc<StaticFace>) {
+) -> (Router, Arc<StaticFace>, Channels) {
+    assemble(gate, hub, bulk, devices, config, extensions)
+}
+
+/// [`router`], against any registry of clients.
+pub(crate) fn assemble(
+    gate: Arc<dyn Gate>,
+    hub: Arc<dyn session::ClientRegistry>,
+    bulk: Arc<dyn BulkStore>,
+    devices: Arc<harnix_authz::Devices>,
+    config: Config,
+    extensions: Extensions,
+) -> (Router, Arc<StaticFace>, Channels) {
     let statics = Arc::new(StaticFace::new(config.face.clone()));
     let topologies = config.topologies.clone();
     let state = AppState {
@@ -159,6 +221,10 @@ pub fn router(
         devices,
         challenges: Arc::new(admission::Challenges::default()),
         route_gate: extensions.route_gate,
+    };
+    let channels = Channels {
+        sessions: state.sessions.clone(),
+        hub: state.hub.clone(),
     };
     // Bulk is registered once and is identical in every topology: it is not a
     // property of any of them, it is what stops one image from filling the
@@ -191,6 +257,7 @@ pub fn router(
         .route("/auth/link", post(launch::create))
         .route("/auth/{code}", get(launch::redeem));
     if topologies.contains(&Topology::SplitStreams) {
+        sweep_idle(&channels);
         router = router
             .route("/handshake", post(split::establish))
             // Deliberately *above* the frame ceiling, for the same reason
@@ -209,7 +276,59 @@ pub fn router(
         router = router.fallback(get(statics::serve));
     }
     let face = state.statics.clone();
-    (router.with_state(state), face)
+    (router.with_state(state), face, channels)
+}
+
+/// End split-streams handshakes nobody uses any more (`session::SPLIT_IDLE`), every
+/// [`SWEEP_EVERY`], for as long as the transport is there.
+fn sweep_idle(channels: &Channels) {
+    let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
+    let sessions = Arc::downgrade(&channels.sessions);
+    let hub = Arc::downgrade(&channels.hub);
+    runtime.spawn(async move {
+        loop {
+            tokio::time::sleep(SWEEP_EVERY).await;
+            let (Some(sessions), Some(hub)) = (sessions.upgrade(), hub.upgrade()) else {
+                return;
+            };
+            let ended = sessions
+                .sweep(hub.as_ref(), std::time::Instant::now(), session::SPLIT_IDLE)
+                .await;
+            if ended > 0 {
+                tracing::debug!(ended, "idle split-streams handshakes ended");
+            }
+        }
+    });
+}
+
+/// One call through the gate, answered whatever happens behind it.
+///
+/// A panic behind the gate used to take the request with it: on the socket the
+/// task that would have replied was simply gone, on HTTP the connection was cut,
+/// and either way the client held a promise that never settled. It is answered
+/// as an internal error instead, and logged.
+pub(crate) async fn call_settled(
+    gate: &dyn Gate,
+    subject: &harnix_contract::Subject,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, harnix_contract::RpcError> {
+    use futures::FutureExt as _;
+    match std::panic::AssertUnwindSafe(gate.call(subject, method, params))
+        .catch_unwind()
+        .await
+    {
+        Ok(outcome) => outcome,
+        Err(_) => {
+            tracing::error!(method, "a call panicked behind the gate");
+            Err(harnix_contract::RpcError::new(
+                harnix_contract::codes::INTERNAL_ERROR,
+                format!("`{method}` failed inside the server; its log says where"),
+            ))
+        }
+    }
 }
 
 /// A body limit high enough that Harnix's own frame check is the one that
@@ -264,17 +383,29 @@ pub(crate) fn origin_allowed(headers: &axum::http::HeaderMap, extra: &[String]) 
 /// agent and a live model credential, and "it was only for a minute" is how
 /// every one of those gets exposed.
 pub async fn serve(addrs: &[SocketAddr], router: Router, tls: Option<Tls>) -> anyhow::Result<()> {
-    serve_with(addrs, router, tls, |_| {}).await
+    serve_with(addrs, router, tls, |_| {}, std::future::pending()).await
 }
 
 /// [`serve`], telling `bound` where it listens once every listener is bound: the real addresses,
 /// with the port the system chose when one was asked for as 0. Later addresses asking for port 0
 /// take the port the first one got, so both loopback families answer on one port.
+///
+/// # Stopping
+///
+/// When `shutdown` resolves, every listener stops accepting, and this returns once the requests
+/// already in flight have answered. A long-lived one — an event stream, which never answers — is
+/// the caller's to end first ([`Channels::end_all`]); the caller bounds the wait. That order is the
+/// point: a process that stopped its modules while its listener still took requests handed a
+/// reconnecting page to modules that had stopped.
+///
+/// A listener that fails, or stops without being asked to, is an error, and this returns it at
+/// once: the process must not report success while it no longer serves.
 pub async fn serve_with(
     addrs: &[SocketAddr],
     router: Router,
     tls: Option<Tls>,
     bound: impl FnOnce(Vec<SocketAddr>) + Send,
+    shutdown: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> anyhow::Result<()> {
     use std::future::IntoFuture;
 
@@ -307,7 +438,13 @@ pub async fn serve_with(
         None => None,
     };
 
-    let mut servers = Vec::new();
+    // One signal, every listener: each waits on its own copy.
+    let (stop, stopping) = tokio::sync::watch::channel(false);
+    let stopped = |mut rx: tokio::sync::watch::Receiver<bool>| async move {
+        let _ = rx.wait_for(|s| *s).await;
+    };
+
+    let mut servers = tokio::task::JoinSet::new();
     let mut listening: Vec<SocketAddr> = Vec::new();
     for asked in addrs {
         let mut addr = *asked;
@@ -327,22 +464,34 @@ pub async fn serve_with(
                 let listener = listener.into_std()?;
                 let router = router.clone();
                 let config = config.clone();
-                servers.push(tokio::spawn(async move {
+                let handle = axum_server::Handle::new();
+                let graceful = handle.clone();
+                let until = stopped(stopping.clone());
+                tokio::spawn(async move {
+                    until.await;
+                    graceful.graceful_shutdown(None);
+                });
+                let addr = *addr;
+                servers.spawn(async move {
                     axum_server::from_tcp_rustls(listener, config)
+                        .handle(handle)
                         .serve(router.into_make_service())
                         .await
-                        .map_err(|e| anyhow::anyhow!("{e}"))
-                }));
+                        .map_err(|e| anyhow::anyhow!("{addr}: {e}"))
+                });
             }
             (None, Ok(listener)) => {
                 tracing::info!(%addr, "listening");
                 let router = router.clone();
-                servers.push(tokio::spawn(async move {
+                let until = stopped(stopping.clone());
+                let addr = *addr;
+                servers.spawn(async move {
                     axum::serve(listener, router)
+                        .with_graceful_shutdown(until)
                         .into_future()
                         .await
-                        .map_err(|e| anyhow::anyhow!("{e}"))
-                }));
+                        .map_err(|e| anyhow::anyhow!("{addr}: {e}"))
+                });
             }
             (_, Err(e)) if addr.is_ipv6() => {
                 tracing::warn!(%addr, error = %e, "no IPv6 listener; IPv4 only")
@@ -354,8 +503,22 @@ pub async fn serve_with(
         anyhow::bail!("no listener could be bound");
     }
     bound(listening);
-    for server in servers {
-        let _ = server.await;
+    tokio::spawn(async move {
+        shutdown.await;
+        let _ = stop.send(true);
+    });
+    while let Some(joined) = servers.join_next().await {
+        let outcome = joined
+            .map_err(|e| anyhow::anyhow!("a listener's task ended: {e}"))
+            .and_then(|served| served);
+        match outcome {
+            Ok(()) if *stopping.borrow() => {}
+            Ok(()) => anyhow::bail!("a listener stopped without being asked to"),
+            Err(e) => {
+                tracing::error!(error = %e, "a listener failed");
+                return Err(e);
+            }
+        }
     }
     Ok(())
 }
@@ -374,9 +537,15 @@ mod serve_tests {
         ];
         let (tx, rx) = tokio::sync::oneshot::channel();
         let server = tokio::spawn(async move {
-            super::serve_with(&addrs, axum::Router::new(), None, move |bound| {
-                let _ = tx.send(bound);
-            })
+            super::serve_with(
+                &addrs,
+                axum::Router::new(),
+                None,
+                move |bound| {
+                    let _ = tx.send(bound);
+                },
+                std::future::pending(),
+            )
             .await
         });
         let bound = rx.await.expect("told where it listens");

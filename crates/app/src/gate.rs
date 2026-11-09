@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, RwLock};
 
 use harnix_authz::Authorizer;
+use harnix_contract::sync::{read, write};
 use harnix_contract::{Gate, RpcError, Subject};
 use harnix_hub::Hub;
 use harnix_module::{
@@ -49,16 +50,14 @@ impl AppGate {
     }
 
     pub fn bind(&self, name: &str, handler: Arc<dyn Handler>, cx: ModuleContext) {
-        self.methods
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
+        write(&self.methods)
             .insert(name.to_string(), Bound::Module(handler, cx));
     }
 
     /// Bind a runtime application's method. Never replaces anything: a name
     /// already bound is refused (`false`), whoever bound it.
     pub fn bind_app(&self, name: &str, handler: Arc<dyn AppHandler>) -> bool {
-        let mut methods = self.methods.write().unwrap_or_else(|e| e.into_inner());
+        let mut methods = write(&self.methods);
         if methods.contains_key(name) {
             return false;
         }
@@ -67,16 +66,14 @@ impl AppGate {
     }
 
     pub fn unbind(&self, names: &[String]) {
-        let mut methods = self.methods.write().unwrap_or_else(|e| e.into_inner());
+        let mut methods = write(&self.methods);
         for name in names {
             methods.remove(name);
         }
     }
 
     fn bound(&self, name: &str) -> Option<Bound> {
-        self.methods
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
+        read(&self.methods)
             .get(name)
             .cloned()
     }
@@ -200,8 +197,13 @@ impl Kernel for ProcessKernel {
             })
         };
         let hub = self.hub.clone();
+        // A tap can be dropped where there is no runtime — a module's state torn down on a thread
+        // of its own, or after the runtime is gone — and `tokio::spawn` there panics. With no
+        // runtime there is no hub left to tell either.
         let on_drop = Box::new(move || {
-            tokio::spawn(async move { hub.remove_client(client).await });
+            if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                runtime.spawn(async move { hub.remove_client(client).await });
+            }
         });
         Ok(Tap::new(parts, attached, reattach, on_drop))
     }
@@ -236,7 +238,7 @@ pub(crate) struct Diagnostics {
 
 impl Diagnostics {
     fn report(&self) -> Value {
-        let modules = self.modules.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let modules = read(&self.modules).clone();
         json!({
             "versions": self.versions,
             "modules": modules,
@@ -250,7 +252,7 @@ impl Diagnostics {
     /// The shape `harnix.contributions` has always had: every method the
     /// modules registered, and what did not take.
     fn contributions(&self) -> Value {
-        let modules = self.modules.read().unwrap_or_else(|e| e.into_inner());
+        let modules = read(&self.modules);
         let methods: Vec<&String> = modules
             .iter()
             .filter(|m| m.enabled)

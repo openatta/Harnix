@@ -266,7 +266,7 @@ fn main() -> anyhow::Result<()> {
 | `routes` | 注册 | `/apps/<id>/` 下的 HTTP 与 WS |
 | `migrate` | 启动，`start` 之前 | 你自己的数据迁移 |
 | `start` | 启动，实例建好之后 | 拿 `ModuleContext`，起你的服务 |
-| `stop` | 退出（SIGINT、SIGTERM、`--exit-with-stdin` 下 stdin 关闭）或停用 | 收尾；倒序调。整个收尾（各模块的 `stop`，再到实例）最多 `harnix::SHUTDOWN_GRACE`（10 s），超了或收尾中再来一次信号，进程直接退出 |
+| `stop` | 退出（SIGINT、SIGTERM、`--exit-with-stdin` 下 stdin 关闭）或停用 | 收尾；倒序调。调到它时监听已经停了、连接都已关掉，不会再有调用进来。整个收尾（停监听，各模块的 `stop`，再到实例）最多 `harnix::SHUTDOWN_GRACE`（10 s），超了或收尾中再来一次信号，进程直接退出 |
 
 **启动顺序**：注册 → 按顺序 `migrate` → 建实例 → 按顺序 `start` → 开始服务。
 
@@ -1115,7 +1115,7 @@ quote_api_key = { credential = "helm/quote-api" }
 | 路径 | 是什么 |
 |---|---|
 | `~/.agix/` | 引擎：设置分层、transcript、记忆、技能、录像。和 `agixd` 共用 |
-| `~/.<product_id>/`（不配 `[brand]` 就是 `~/.harnix/`；`HARNIX_STATE_DIR` 可挪） | 程序自己的配置与状态：`token`、`state.json`（工作区、会话标题、偏好、设备）、`spaces.json`、`instances.json`、`instances/<data_root>/`（按模板建的实例的数据根）、`modules/<id>/`（`ctx.data_dir()`）、`apps/<应用 id>/`（插件 APP：安装记录 `install.json`、解开的包、`data/`、`kv/`，`[apps] enabled` 时；见 [插件](harnix-plugin.md) §23）、`uploads/<pid>/`、`harnix.lock`（进程活着就持有的独占锁，内容 `{"pid", "url"}`，`url` 在监听后写上：一个状态目录只能有一个进程，第二个启动时报「`<目录>` is in use by pid N (url)」并以非零退出） |
+| `~/.<product_id>/`（不配 `[brand]` 就是 `~/.harnix/`；`HARNIX_STATE_DIR` 可挪） | 程序自己的配置与状态：`token`、`devices.json`（配对过的设备，与 `token` 一样只有属主可读；重启后仍在）、`state.json`（工作区、会话标题、偏好）、`spaces.json`、`instances.json`、`instances/<data_root>/`（按模板建的实例的数据根）、`modules/<id>/`（`ctx.data_dir()`）、`apps/<应用 id>/`（插件 APP：安装记录 `install.json`、解开的包、`data/`、`kv/`，`[apps] enabled` 时；见 [插件](harnix-plugin.md) §23）、`uploads/<pid>/`、`harnix.lock`（进程活着就持有的独占锁，内容 `{"pid", "url"}`，`url` 在监听后写上：一个状态目录只能有一个进程，第二个启动时报「`<目录>` is in use by pid N (url)」并以非零退出） |
 | `~/Documents/` | 只放项目：选项目从这里开始，新建项目建在这里。Documents 里不放隐藏目录 |
 | `<项目>/.agix/` | 项目自己的数据与配置**一律**放这里（引擎的项目层设置也在这），不开 `<项目>/.<产品>/` |
 | `~/Documents/.harnix/`（0.4.0-2026102602 及以前） | **不迁移、不读**。升级后旧的令牌、工作区分组、实例账本都从空开始 |
