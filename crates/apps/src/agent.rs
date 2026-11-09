@@ -2,7 +2,7 @@
 //!
 //! Its agent package is installed into the instances its manifest names (`plugin.install` and
 //! friends), its skills are copied into each one's skills directory, marked as its own, and its
-//! tools are in every session built here ([`crate::AppsPlugin`] reads what
+//! tools are in every session built here ([`crate::AppsBridge`] reads what
 //! [`Agent::expose_tools`] offered). Reached, like the kernel, through the `apps` module's context.
 
 use std::path::PathBuf;

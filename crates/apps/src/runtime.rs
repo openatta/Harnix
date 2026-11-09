@@ -262,9 +262,9 @@ impl Runtime {
         self.registry.clone()
     }
 
-    /// The Agix plugin an in-process instance's assembly carries ([`crate::AppsPlugin`]).
+    /// The Agix plugin an in-process instance's assembly carries ([`crate::AppsBridge`]).
     pub fn plugin(&self) -> Arc<dyn runtime::plugin::Plugin> {
-        Arc::new(crate::AppsPlugin::new(self.registry.clone()))
+        Arc::new(crate::AppsBridge::new(self.registry.clone()))
     }
 
     /// The engine the applications run on.

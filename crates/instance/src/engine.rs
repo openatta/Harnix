@@ -265,7 +265,7 @@ pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
             transcripts,
             permission: None,
             // Modules contribute through the customizer; Agix plugins (the
-            // applications' tools, `AppsPlugin`) are registered in delegates too.
+            // applications' tools, `AppsBridge`) are registered in delegates too.
             plugins: config.contrib.plugins.clone(),
             customize_session: config.contrib.composed(),
             mcp_oauth_resolver: None,

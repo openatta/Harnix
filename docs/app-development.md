@@ -201,7 +201,7 @@ Harnix 本身是**框架 + Harnix app + 系统 space**：Harnix app（会话 spa
 | 边界 | `harnix-app-port` | 应用宿主要外面做的分两半：`Kernel`（产品的：登记、调用、发布、订阅、进度，7 个方法）与 `Agent`（Agent 引擎的：装包、技能、工具，8 个方法）；外面要应用宿主做的是 `Control`（12 个方法）；`rpc` 层把三者编成 JSON，feature `loopback` 带一个回环适配器 | `harnix-contract`；外部只有 serde、serde_json、async-trait | | ✔ | ✔ |
 | 虚拟机 | `harnix-wasm` | wasmtime 的引擎、实例、健康、记账、休眠；feature `compile` 带 Cranelift | 无（叶子） | | ✔ | ✔（应用进程侧） |
 | 应用宿主核心 | `harnix-app-host` | 生命周期、注册表、健康、分派、进度、休眠；`host.http-request` 用的 HTTP 客户端 | contract、package、port、wasm | | ✔ | ✔（应用进程侧） |
-| 粘合（嵌入） | `harnix-apps` | 端口的进程内实现、给 Agix 的 Rust 插件 `AppsPlugin`、`/apps/<id>/ui` 与 `/apps/<id>/mcp`、`apps` 内建模块的运行时。模式 3 里分到链接两边：产品侧是 `runtime.rs`、`update.rs`（装、起、升级、卸与回滚）、`serve.rs`、`platform.rs`（`Kernel`）；虚拟机侧是 `agent.rs`（`Agent`）、`plugin.rs`（`AppsPlugin`），以及它驱动的 `Control`，即应用宿主本身。逐个文件见这个 crate 的模块文档 | app-host、app-package、app-port、builtin、contract、module，以及 Agix | | ✔ | |
+| 粘合（嵌入） | `harnix-apps` | 端口的进程内实现、给 Agix 的 Rust 插件 `AppsBridge`、`/apps/<id>/ui` 与 `/apps/<id>/mcp`、`apps` 内建模块的运行时。模式 3 里分到链接两边：产品侧是 `runtime.rs`、`update.rs`（装、起、升级、卸与回滚）、`serve.rs`、`platform.rs`（`Kernel`）；虚拟机侧是 `agent.rs`（`Agent`）、`plugin.rs`（`AppsBridge`），以及它驱动的 `Control`，即应用宿主本身。逐个文件见这个 crate 的模块文档 | app-host、app-package、app-port、builtin、contract、module，以及 Agix | | ✔ | |
 | 粘合（模式 3，只有设计） | `harnix-app-proc` 加上产品侧的端口服务与监护器 | | | | | ✔ |
 | 前端 | 外壳、桥、`@harnix/app-sdk`、`@harnix/ui-kit`、行内点 | | | ✔ | ✔ | ✔（完全一样） |
 
