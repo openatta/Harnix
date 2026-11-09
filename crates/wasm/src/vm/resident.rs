@@ -1,7 +1,8 @@
 //! The resident backend instance: started, woken from hibernation, judged after every call into
 //! it, and replaced when it can no longer be trusted.
 
-use super::{holding, lock, with_deadline, Abort, CallFailure, Inner};
+use super::{holding, with_deadline, Abort, CallFailure, Inner};
+use crate::sync::lock;
 use crate::bindings::exports::harnix::app::backend;
 use crate::state::{AppState, Role};
 use std::sync::atomic::Ordering;

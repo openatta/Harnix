@@ -1,7 +1,8 @@
 //! What a resident instance holds on the host — its subscriptions and timers — and undoing it
 //! when that instance ends.
 
-use super::{deliver::Delivery, lock, Shared};
+use super::{deliver::Delivery, Shared};
+use crate::sync::lock;
 use serde_json::Value;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;

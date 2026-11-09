@@ -52,6 +52,7 @@ use crate::engine::{wasm_err, AppComponent, WasmEngine};
 use crate::health::{Counters, HealthSnapshot, VmState, FAULT_LIMIT};
 use crate::spec::{AppSpec, Resolved};
 use crate::state::{AppState, MemoryAccount, Role};
+use crate::sync::lock;
 use crate::{ProgressSink, Services};
 use anyhow::{anyhow, Context};
 use deliver::{drain, Delivery, DELIVERY_QUEUE};
@@ -61,7 +62,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task::AbortHandle;
@@ -209,10 +210,6 @@ async fn with_deadline<T>(
         result = call => result.map_err(Abort::Failed),
         _ = tokio::time::sleep(timeout) => Err(Abort::TimedOut),
     }
-}
-
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 impl AppVm {

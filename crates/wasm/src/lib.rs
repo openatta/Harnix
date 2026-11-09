@@ -46,6 +46,7 @@ mod services;
 mod spec;
 mod state;
 mod storage;
+mod sync;
 mod vm;
 
 pub use bindings::WIT_PACKAGE;

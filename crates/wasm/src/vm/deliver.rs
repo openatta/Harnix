@@ -1,7 +1,8 @@
 //! Topic values and timer firings for the resident backend: queued, bounded, and drained in order
 //! by one worker task per VM.
 
-use super::{holding, lock, with_deadline, Inner, Shared};
+use super::{holding, with_deadline, Inner, Shared};
+use crate::sync::lock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Weak;
 use tokio::sync::mpsc;

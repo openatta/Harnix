@@ -11,7 +11,9 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::Mutex;
+
+use crate::sync::lock;
 
 /// The longest key, in bytes. Bounded so that [`FileKv`] can use the key
 /// itself (hex-encoded) as a file name on every common filesystem.
@@ -85,10 +87,6 @@ fn admit(used: u64, old: Option<u64>, new: Option<u64>, quota: u64) -> Result<u6
         });
     }
     Ok(after)
-}
-
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// Storage that lives as long as the process: for tests, and for a host
