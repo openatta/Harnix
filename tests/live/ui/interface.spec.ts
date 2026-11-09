@@ -212,14 +212,15 @@ test("the side columns are dragged wider, remember it, and a double-click puts t
 });
 
 test("the right column is a tab strip with no title bar: it maximizes over the centre, restores, and closes", SHELL, async ({ page }) => {
+  // Widths are compared, so the columns are measured where they end up: with no 300 ms transition,
+  // a slow moment cannot catch one part way and compare the restored width against that.
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await open(page, URL);
   await page.getByTestId("details-toggle").click();
   const details = page.locator("#details");
   await expect(details.locator('[role="tab"]').first()).toBeVisible();
   await expect(details.locator(".head")).toHaveCount(0);
   await expect.poll(async () => (await details.boundingBox())?.width ?? 0).toBeGreaterThan(300);
-  // Measured once the columns have settled: past 300 the opening transition may still be running.
-  await page.locator("#frame").evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
   const normal = (await details.boundingBox())!.width;
   await page.getByTestId("details-max").click();
   await expect.poll(async () => (await details.boundingBox())!.width).toBeGreaterThan(normal + 300);
