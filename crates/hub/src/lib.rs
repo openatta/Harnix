@@ -46,7 +46,7 @@ pub use replay::{MAX_BYTES as REPLAY_MAX_BYTES, MAX_FRAMES as REPLAY_MAX_FRAMES}
 pub use spaces::{AuditHook, Spaces};
 pub use topics::TOPIC_ENDED;
 
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock};
 
@@ -163,9 +163,9 @@ pub struct Hub {
     next_client: AtomicU64,
     barriers: StdMutex<HashMap<u64, oneshot::Sender<()>>>,
     next_barrier: AtomicU64,
-    /// Topic values waiting to be recomputed, so a burst of changes costs one
-    /// computation rather than one each.
-    refreshing: StdMutex<HashSet<(String, String)>>,
+    /// Topic values being recomputed, so a burst of changes costs one
+    /// computation rather than one each, and an older one never lands last.
+    refreshing: StdMutex<views::Refreshes>,
     /// Interface modules from installed packages, told to a client at hello.
     /// Held here rather than resolved per call because it changes when a
     /// package is installed, not when someone asks.
@@ -224,7 +224,7 @@ impl Hub {
             next_client: AtomicU64::new(1),
             barriers: StdMutex::new(HashMap::new()),
             next_barrier: AtomicU64::new(1),
-            refreshing: StdMutex::new(HashSet::new()),
+            refreshing: StdMutex::new(views::Refreshes::default()),
             ui_contributions: RwLock::new(json!([])),
             shell: StdRwLock::new(json!({})),
             answerers: StdMutex::new(VecDeque::new()),
@@ -283,7 +283,18 @@ impl Hub {
     /// Publish the whole current value of a topic for one parameter set,
     /// and push it to that set's subscribers.
     pub async fn publish(&self, topic: &str, params: Value, value: Value) {
-        let mut guard = self.inner.lock().await;
+        let guard = self.inner.lock().await;
+        self.publish_locked(guard, topic, params, value).await;
+    }
+
+    /// [`Hub::publish`], with the hub's lock already taken.
+    pub(crate) async fn publish_locked(
+        &self,
+        mut guard: tokio::sync::MutexGuard<'_, Inner>,
+        topic: &str,
+        params: Value,
+        value: Value,
+    ) {
         let key = match guard.topics.key(topic, &params) {
             Ok(key) => key,
             Err(e) => {

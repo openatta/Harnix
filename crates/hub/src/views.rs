@@ -9,6 +9,7 @@
 //! — a turn's lifecycle touches three of these at once. Nobody subscribed,
 //! nothing is computed.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -21,21 +22,81 @@ use crate::{Hub, SessionKey};
 /// How long changes are gathered before a value is recomputed.
 const COALESCE: Duration = Duration::from_millis(40);
 
+/// A topic value (topic, params) being recomputed.
+pub(crate) type Marker = (String, String);
+
+/// The recomputations of each topic value, so a burst of changes costs one and an older one
+/// never lands after a newer one.
+///
+/// Two recomputations of one value can overlap: the second change arrives after the first's
+/// window closed and while its computation (an RPC into the engine) is still out. The two then
+/// race to publish, and the one that read the engine first could publish last — a deleted
+/// session listed again, and nothing to correct it until the next change. So each computation is
+/// numbered when it starts, and publishes only if no later one has started since.
+#[derive(Default)]
+pub(crate) struct Refreshes {
+    by_value: HashMap<Marker, Refresh>,
+}
+
+#[derive(Default)]
+struct Refresh {
+    /// A recomputation is waiting out its window: another change joins it.
+    waiting: bool,
+    /// The number of the newest computation that has started.
+    started: u64,
+    /// How many have started and not finished.
+    running: u32,
+}
+
+impl Refreshes {
+    /// A change arrived. True when it opens a window; false when one is already open and the
+    /// change joins it.
+    pub(crate) fn want(&mut self, marker: &Marker) -> bool {
+        let r = self.by_value.entry(marker.clone()).or_default();
+        !std::mem::replace(&mut r.waiting, true)
+    }
+
+    /// The window closed and the computation starts: its number.
+    pub(crate) fn start(&mut self, marker: &Marker) -> u64 {
+        let r = self.by_value.entry(marker.clone()).or_default();
+        r.waiting = false;
+        r.started += 1;
+        r.running += 1;
+        r.started
+    }
+
+    /// The computation numbered `generation` is done: whether it may publish — no later one has
+    /// started. A value nothing is recomputing any more is forgotten.
+    pub(crate) fn finish(&mut self, marker: &Marker, generation: u64) -> bool {
+        let Some(r) = self.by_value.get_mut(marker) else {
+            return true;
+        };
+        let newest = r.started == generation;
+        r.running = r.running.saturating_sub(1);
+        if r.running == 0 && !r.waiting {
+            self.by_value.remove(marker);
+        }
+        newest
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.by_value.len()
+    }
+}
+
 impl Hub {
     /// Recompute a hub topic soon, if anyone is subscribed to it.
     pub(crate) fn refresh(self: &Arc<Self>, topic: &str, params: Value) {
-        let marker = (topic.to_string(), params.to_string());
-        {
-            let mut pending = lock(&self.refreshing);
-            if !pending.insert(marker.clone()) {
-                return;
-            }
+        let marker: Marker = (topic.to_string(), params.to_string());
+        if !lock(&self.refreshing).want(&marker) {
+            return;
         }
         let hub = self.clone();
         let topic = topic.to_string();
         tokio::spawn(async move {
             tokio::time::sleep(COALESCE).await;
-            lock(&hub.refreshing).remove(&marker);
+            let generation = lock(&hub.refreshing).start(&marker);
             let watched = {
                 let guard = hub.inner.lock().await;
                 guard
@@ -43,12 +104,22 @@ impl Hub {
                     .key(&topic, &params)
                     .is_ok_and(|key| guard.topics.has_subscribers(&key))
             };
-            if !watched {
+            let value = if watched {
+                Some(hub.compute(&topic, &params).await)
+            } else {
+                None
+            };
+            // Decided and published under the hub's lock, which every publish takes: a later
+            // computation that started meanwhile publishes after this one or instead of it.
+            let guard = hub.inner.lock().await;
+            if !lock(&hub.refreshing).finish(&marker, generation) {
+                tracing::debug!(topic, "a later recomputation is out; this one is dropped");
                 return;
             }
-            match hub.compute(&topic, &params).await {
-                Ok(value) => hub.publish(&topic, params, value).await,
-                Err(e) => tracing::debug!(topic, error = %e.message, "topic not recomputed"),
+            match value {
+                Some(Ok(value)) => hub.publish_locked(guard, &topic, params, value).await,
+                Some(Err(e)) => tracing::debug!(topic, error = %e.message, "topic not recomputed"),
+                None => {}
             }
         });
     }
@@ -216,5 +287,55 @@ impl Hub {
             .collect();
         rows.sort_by_key(|row| row.to_string());
         json!({"sessions": rows})
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn marker() -> Marker {
+        ("harnix.instances.sessions".into(), r#"{"instance":"system"}"#.into())
+    }
+
+    /// The race behind a deleted session that stayed listed: A starts, B starts while A's call
+    /// is out, B publishes, then A finishes with what it read before the delete. A is dropped.
+    #[test]
+    fn an_older_recomputation_does_not_publish_over_a_newer_one() {
+        let mut r = Refreshes::default();
+        let m = marker();
+        assert!(r.want(&m));
+        let a = r.start(&m);
+        assert!(r.want(&m), "A's window is closed, so a change opens another");
+        let b = r.start(&m);
+        assert!(r.finish(&m, b), "the newest publishes");
+        assert!(!r.finish(&m, a), "the older one, finishing last, does not");
+        assert_eq!(r.len(), 0, "nothing is recomputing it: forgotten");
+    }
+
+    #[test]
+    fn changes_inside_one_window_cost_one_recomputation() {
+        let mut r = Refreshes::default();
+        let m = marker();
+        assert!(r.want(&m));
+        assert!(!r.want(&m));
+        assert!(!r.want(&m));
+        let a = r.start(&m);
+        assert!(r.finish(&m, a));
+        assert_eq!(r.len(), 0);
+    }
+
+    /// One that finished before the next started publishes, and the next publishes after it.
+    #[test]
+    fn recomputations_that_do_not_overlap_all_publish() {
+        let mut r = Refreshes::default();
+        let m = marker();
+        r.want(&m);
+        let a = r.start(&m);
+        r.want(&m);
+        assert!(r.finish(&m, a), "the next is still in its window, not started");
+        let b = r.start(&m);
+        assert!(r.finish(&m, b));
+        assert_eq!(r.len(), 0);
     }
 }
