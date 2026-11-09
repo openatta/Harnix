@@ -30,16 +30,32 @@
 //! The VM records them, and when that instance ends — replaced, rebuilt,
 //! stopped, disabled — undoes them, so the host never has to know which
 //! instance is current.
+//!
+//! ```text
+//! mod.rs       AppVm: starting, the calls into it, stopping, hibernating; deadlines, re-entry
+//! types.rs     what callers see: World, ToolDef, ToolOutput, HookDecision, AppError, CallFailure
+//! resident.rs  the resident instance: started, woken, judged after a call, replaced
+//! bindings.rs  its subscriptions and timers on the host, and undoing them
+//! deliver.rs   topic values and timer firings, queued and drained in order
+//! ```
+
+mod bindings;
+mod deliver;
+mod resident;
+mod types;
+
+pub use bindings::{MAX_SUBSCRIPTIONS, MAX_TIMERS};
+pub use types::{AppError, CallFailure, HookDecision, ToolDef, ToolOutput, World};
 
 use crate::bindings::exports::harnix::app::{backend, events, tools};
-use crate::bindings::harnix::app::types as wit;
 use crate::engine::{wasm_err, AppComponent, WasmEngine};
 use crate::health::{Counters, HealthSnapshot, VmState, FAULT_LIMIT};
 use crate::spec::{AppSpec, Resolved};
 use crate::state::{AppState, MemoryAccount, Role};
 use crate::{ProgressSink, Services};
 use anyhow::{anyhow, Context};
-use serde::Serialize;
+use deliver::{drain, Delivery, DELIVERY_QUEUE};
+use resident::Resident;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::future::Future;
@@ -53,16 +69,6 @@ use tokio_util::sync::CancellationToken;
 use wasmtime::component::{HasSelf, InstancePre, Linker};
 use wasmtime::Store;
 
-/// Timers one backend instance may have armed at once.
-pub const MAX_TIMERS: usize = 64;
-/// Hub subscriptions one backend instance may hold at once.
-pub const MAX_SUBSCRIPTIONS: usize = 64;
-/// Topic values and timer firings waiting for the backend. Past this the
-/// backend is not keeping up, and dropping (and counting) beats growing
-/// without bound.
-const DELIVERY_QUEUE: usize = 256;
-/// Longer than this is a timer that will not survive a restart anyway.
-const MAX_TIMER_DELAY: Duration = Duration::from_secs(30 * 24 * 3600);
 /// JSON-RPC's "internal error", for a backend answer that is not JSON.
 const INTERNAL_ERROR: i32 = -32603;
 /// How long a backend has to run without crashing for a crash before it to stop counting: past
@@ -72,82 +78,6 @@ const INTERNAL_ERROR: i32 = -32603;
 pub const HEALTHY_PERIOD: Duration = Duration::from_secs(10 * 60);
 
 static NEXT_VM: AtomicU64 = AtomicU64::new(1);
-
-/// The `harnix:app` world a component implements.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum World {
-    /// Tools and events only.
-    Tools,
-    /// A resident backend, plus tools and events.
-    Backend,
-}
-
-/// One tool a component exports.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct ToolDef {
-    pub name: String,
-    pub description: String,
-    pub doc: Option<String>,
-    /// JSON Schema, as the component wrote it.
-    pub input_schema: String,
-    pub read_only: bool,
-    pub concurrency_safe: bool,
-}
-
-/// A tool's result. `is_error` is the tool answering that it failed; a trap
-/// is a [`CallFailure`] instead.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct ToolOutput {
-    pub content: String,
-    pub structured: Option<Value>,
-    pub is_error: bool,
-}
-
-/// What a component answers to a lifecycle event.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "decision", content = "text", rename_all = "snake_case")]
-pub enum HookDecision {
-    Proceed,
-    Block(String),
-    AddContext(String),
-}
-
-/// A method's failure as the application reports it, for its caller.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct AppError {
-    pub code: i32,
-    pub message: String,
-    pub data: Option<Value>,
-}
-
-/// Why a call produced no answer from the component.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CallFailure {
-    /// The call outlived the application's `timeout_ms`.
-    TimedOut,
-    /// The caller withdrew (a cancelled turn, a closing session).
-    Cancelled,
-    /// The component trapped, ran out of memory, or could not be run.
-    Faulted(String),
-    /// The call was not made: the application is stopped or disabled, its
-    /// component does not export what was asked for, or the call would have
-    /// deadlocked. Never counted against the application.
-    Unavailable(String),
-}
-
-impl std::fmt::Display for CallFailure {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::TimedOut => write!(f, "the application's call exceeded its timeout"),
-            Self::Cancelled => write!(f, "the application's call was cancelled"),
-            Self::Faulted(e) => write!(f, "the application failed: {e}"),
-            Self::Unavailable(e) => write!(f, "the application cannot take this call: {e}"),
-        }
-    }
-}
-
-impl std::error::Error for CallFailure {}
 
 /// One application's VM. Cheap to clone; every clone is the same VM.
 ///
@@ -186,10 +116,6 @@ struct Inner {
     hibernating: std::sync::atomic::AtomicBool,
 }
 
-struct Resident {
-    store: Store<AppState>,
-    guest: backend::Guest,
-}
 
 /// The parts every store of the application reaches: what host functions
 /// need, and what outlives any one instance.
@@ -218,10 +144,6 @@ pub(crate) struct Shared {
     pending: AtomicU64,
 }
 
-enum Delivery {
-    Topic { topic: String, value_json: String },
-    Timer(String),
-}
 
 /// Which kind of short-lived call is being judged: a tool's faults count against that tool, an
 /// event's and a listing's against nothing (`health.rs`).
@@ -241,16 +163,6 @@ impl Transient<'_> {
     }
 }
 
-/// Why the resident instance is being replaced, for the counter it goes on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Replaced {
-    /// A call was abandoned at its deadline.
-    Recycle,
-    /// It crashed.
-    Rebuild,
-    /// Its files crossed the storage quota (`storage.rs`).
-    Storage,
-}
 
 /// How a call into the component ended, before it is judged.
 enum Abort {
@@ -694,16 +606,6 @@ impl AppVm {
     }
 }
 
-/// The backend's delivery worker: one task per VM, so topic values and
-/// timers reach the backend in the order they came. Holds the VM weakly; it
-/// ends when the VM is dropped and the queue closes.
-async fn drain(vm: Weak<Inner>, mut queue: mpsc::Receiver<Delivery>) {
-    while let Some(delivery) = queue.recv().await {
-        let Some(inner) = vm.upgrade() else { break };
-        inner.deliver(delivery).await;
-    }
-}
-
 impl Inner {
     fn export<'a, T>(&self, idx: &'a Option<T>, interface: &str) -> Result<&'a T, CallFailure> {
         idx.as_ref().ok_or_else(|| {
@@ -732,58 +634,6 @@ impl Inner {
         Ok(store)
     }
 
-    /// A fresh resident instance with `init` run on it.
-    async fn instantiate_resident(&self) -> Result<Resident, CallFailure> {
-        let idx = self.export(&self.backend, "backend")?;
-        let mut store = self.store(Role::Backend, None, None)?;
-        let call = async {
-            let instance = self.pre.instantiate_async(&mut store).await?;
-            let guest = idx.load(&mut store, &instance)?;
-            let init = guest
-                .call_init(&mut store, &self.shared.config_json)
-                .await?;
-            Ok((guest, init))
-        };
-        let outcome = holding(self.shared.vm_id, with_deadline(call, self.timeout, None)).await;
-        let failure = match outcome {
-            Ok((guest, Ok(()))) => return Ok(Resident { store, guest }),
-            Ok((_, Err(why))) => CallFailure::Faulted(format!("`init` refused: {why}")),
-            Err(Abort::Failed(e)) => {
-                CallFailure::Faulted(self.describe(&e, store.data().limiter.refused()))
-            }
-            Err(Abort::TimedOut) => CallFailure::TimedOut,
-            Err(Abort::Cancelled) => CallFailure::Cancelled,
-        };
-        // Whatever `init` managed to subscribe or arm before it failed.
-        drop(store);
-        self.shared.release_bindings().await;
-        Err(failure)
-    }
-
-    /// A hibernating backend, started again for the call holding `guard`: `init` runs. One that
-    /// will not start sets the application aside. Calls waiting behind this one find it started.
-    async fn wake(
-        &self,
-        guard: &mut tokio::sync::MutexGuard<'_, Option<Resident>>,
-    ) -> Result<(), CallFailure> {
-        if guard.is_some() || !self.hibernating.load(Ordering::Acquire) {
-            return Ok(());
-        }
-        match self.instantiate_resident().await {
-            Ok(resident) => {
-                **guard = Some(resident);
-                self.hibernating.store(false, Ordering::Release);
-                lock(&self.shared.counters).wakes += 1;
-                tracing::info!(app = %self.shared.app, "backend woken");
-                Ok(())
-            }
-            Err(f) => {
-                self.shared
-                    .disable(format!("the backend did not start again after hibernating: {f}"));
-                Err(f)
-            }
-        }
-    }
 
     /// A trap's message, or the memory limit when that is what caused it.
     fn describe(&self, e: &wasmtime::Error, refused: bool) -> String {
@@ -851,163 +701,6 @@ impl Inner {
                 Err(CallFailure::Faulted(message))
             }
         }
-    }
-
-    /// Judge a call into the resident instance, replacing the instance when
-    /// it can no longer be trusted — or when its files crossed the storage
-    /// quota, so that the instance that takes over has `/data` as the quota
-    /// now says.
-    async fn settle_resident<T>(
-        &self,
-        guard: &mut tokio::sync::MutexGuard<'_, Option<Resident>>,
-        outcome: Result<T, Abort>,
-        what: &str,
-    ) -> Result<T, CallFailure> {
-        let shared = &self.shared;
-        shared.measure().await;
-        let refused = guard
-            .as_ref()
-            .is_some_and(|r| r.store.data().limiter.refused());
-        let healthy = Duration::from_millis(shared.healthy_ms.load(Ordering::Relaxed));
-        // `Err(None)`: abandoned at its deadline; `Err(Some(..))`: a crash, and how many in a row.
-        let judged = {
-            let mut c = lock(&shared.counters);
-            c.calls += 1;
-            match outcome {
-                Ok(v) => Ok(v),
-                Err(Abort::Cancelled) => return Err(CallFailure::Cancelled),
-                Err(Abort::TimedOut) => {
-                    c.timeouts += 1;
-                    c.last_error = Some(format!(
-                        "`{what}` exceeded its timeout; the backend was restarted"
-                    ));
-                    Err(None)
-                }
-                Err(Abort::Failed(e)) => {
-                    let message = self.describe(&e, refused);
-                    // A crash long enough ago is forgiven: this one is a first one again.
-                    if c.last_crash.is_some_and(|at| at.elapsed() >= healthy) {
-                        c.crashes = 0;
-                    }
-                    c.last_crash = Some(std::time::Instant::now());
-                    c.faults += 1;
-                    c.crashes += 1;
-                    c.last_error = Some(format!("`{what}`: {message}"));
-                    Err(Some((message, c.crashes)))
-                }
-            }
-        };
-        match judged {
-            Ok(v) => {
-                if self.storage_moved(guard) {
-                    tracing::warn!(app = %shared.app, full = shared.storage_full(),
-                        "the backend's files crossed its storage quota; replacing its instance");
-                    self.replace_resident(guard, Replaced::Storage).await;
-                }
-                Ok(v)
-            }
-            Err(None) => {
-                self.replace_resident(guard, Replaced::Recycle).await;
-                Err(CallFailure::TimedOut)
-            }
-            Err(Some((message, 1))) => {
-                self.replace_resident(guard, Replaced::Rebuild).await;
-                Err(CallFailure::Faulted(message))
-            }
-            Err(Some((message, _))) => {
-                shared.disable(format!(
-                    "the backend crashed again after being rebuilt, in `{what}`: {message}"
-                ));
-                **guard = None;
-                shared.release_bindings().await;
-                Err(CallFailure::Faulted(message))
-            }
-        }
-    }
-
-    /// Whether the resident instance's `/data` no longer matches the quota: writable while the
-    /// application is over it, or read-only while it has room again.
-    fn storage_moved(&self, guard: &tokio::sync::MutexGuard<'_, Option<Resident>>) -> bool {
-        let full = self.shared.storage_full();
-        guard
-            .as_ref()
-            .and_then(|r| r.store.data().over_quota)
-            .is_some_and(|was| was != full)
-    }
-
-    /// Drop the resident instance and start a fresh one. `why` decides
-    /// which counter it goes on; a fresh instance that will not start
-    /// disables the application.
-    async fn replace_resident(
-        &self,
-        guard: &mut tokio::sync::MutexGuard<'_, Option<Resident>>,
-        why: Replaced,
-    ) {
-        **guard = None;
-        self.shared.release_bindings().await;
-        // Stopping (or set aside) meanwhile: nothing is to run in it any more.
-        if self.shared.admit().is_err() {
-            return;
-        }
-        match self.instantiate_resident().await {
-            Ok(resident) => {
-                **guard = Some(resident);
-                let mut c = lock(&self.shared.counters);
-                match why {
-                    Replaced::Rebuild => c.rebuilds += 1,
-                    Replaced::Recycle => c.recycles += 1,
-                    Replaced::Storage => c.storage_recycles += 1,
-                }
-                tracing::warn!(app = %self.shared.app, ?why, "backend instance replaced");
-            }
-            Err(f) => self
-                .shared
-                .disable(format!("the backend could not be restarted: {f}")),
-        }
-    }
-
-    async fn deliver(&self, delivery: Delivery) {
-        // However it ends: queued, then delivered or dropped.
-        struct Delivered<'a>(&'a AtomicU64);
-        impl Drop for Delivered<'_> {
-            fn drop(&mut self) {
-                self.0.fetch_sub(1, Ordering::AcqRel);
-            }
-        }
-        let _delivered = Delivered(&self.shared.pending);
-        if self.shared.admit().is_err() {
-            return;
-        }
-        let mut guard = self.resident.lock().await;
-        if self.shared.admit().is_err() {
-            return;
-        }
-        if self.wake(&mut guard).await.is_err() {
-            return;
-        }
-        let Some(resident) = guard.as_mut() else {
-            return;
-        };
-        let vm_id = self.shared.vm_id;
-        let (what, outcome) = match &delivery {
-            Delivery::Topic { topic, value_json } => {
-                let call = resident
-                    .guest
-                    .call_on_topic(&mut resident.store, topic, value_json);
-                (
-                    format!("on-topic {topic}"),
-                    holding(vm_id, with_deadline(call, self.timeout, None)).await,
-                )
-            }
-            Delivery::Timer(id) => {
-                let call = resident.guest.call_on_timer(&mut resident.store, id);
-                (
-                    format!("on-timer {id}"),
-                    holding(vm_id, with_deadline(call, self.timeout, None)).await,
-                )
-            }
-        };
-        let _ = self.settle_resident(&mut guard, outcome, &what).await;
     }
 }
 
@@ -1082,166 +775,6 @@ impl Shared {
         if *state == VmState::Running {
             tracing::error!(app = %self.app, %reason, "application disabled");
             *state = VmState::Disabled { reason };
-        }
-    }
-
-    fn enqueue(&self, delivery: Delivery) {
-        self.pending.fetch_add(1, Ordering::AcqRel);
-        if let Err(e) = self.deliveries.try_send(delivery) {
-            self.pending.fetch_sub(1, Ordering::AcqRel);
-            if let mpsc::error::TrySendError::Full(_) = e {
-                lock(&self.counters).dropped_deliveries += 1;
-                tracing::warn!(app = %self.app, "backend delivery queue full; dropped");
-            }
-        }
-    }
-
-    /// `host.subscribe`, after the role check.
-    pub(crate) async fn subscribe(&self, topic: &str, params: Value) -> Result<(), String> {
-        {
-            let subs = lock(&self.subscriptions);
-            if subs.iter().any(|(t, p)| t == topic && *p == params) {
-                return Ok(());
-            }
-            if subs.len() >= MAX_SUBSCRIPTIONS {
-                return Err(format!(
-                    "this backend already holds {MAX_SUBSCRIPTIONS} subscriptions"
-                ));
-            }
-        }
-        self.services
-            .host
-            .subscribe(&self.app, topic, &params)
-            .await?;
-        lock(&self.subscriptions).push((topic.to_string(), params));
-        Ok(())
-    }
-
-    pub(crate) async fn unsubscribe(&self, topic: &str, params: Value) {
-        let removed = {
-            let mut subs = lock(&self.subscriptions);
-            let before = subs.len();
-            subs.retain(|(t, p)| !(t == topic && *p == params));
-            subs.len() != before
-        };
-        if removed {
-            self.services
-                .host
-                .unsubscribe(&self.app, topic, &params)
-                .await;
-        }
-    }
-
-    /// `host.set-timer`, after the role check.
-    pub(crate) fn arm_timer(self: &Arc<Self>, id: String, after: Duration) -> Result<(), String> {
-        let after = after.min(MAX_TIMER_DELAY);
-        let mut timers = lock(&self.timers);
-        if !timers.contains_key(&id) && timers.len() >= MAX_TIMERS {
-            return Err(format!(
-                "this backend already has {MAX_TIMERS} timers armed"
-            ));
-        }
-        let generation = self.timer_generation.fetch_add(1, Ordering::Relaxed);
-        let shared = Arc::downgrade(self);
-        let fired = id.clone();
-        let task = tokio::spawn(async move {
-            tokio::time::sleep(after).await;
-            if let Some(shared) = shared.upgrade() {
-                shared.fire(&fired, generation);
-            }
-        });
-        if let Some((_, previous)) = timers.insert(id, (generation, task.abort_handle())) {
-            previous.abort();
-        }
-        Ok(())
-    }
-
-    pub(crate) fn cancel_timer(&self, id: &str) {
-        if let Some((_, task)) = lock(&self.timers).remove(id) {
-            task.abort();
-        }
-    }
-
-    fn fire(&self, id: &str, generation: u64) {
-        {
-            let mut timers = lock(&self.timers);
-            // Re-armed since this one was set: the newer arming wins.
-            if timers.get(id).map(|(g, _)| *g) != Some(generation) {
-                return;
-            }
-            timers.remove(id);
-        }
-        self.enqueue(Delivery::Timer(id.to_string()));
-    }
-
-    /// Undo everything the resident instance held on the host.
-    async fn release_bindings(&self) {
-        for (_, (_, task)) in lock(&self.timers).drain() {
-            task.abort();
-        }
-        let subs = std::mem::take(&mut *lock(&self.subscriptions));
-        for (topic, params) in subs {
-            self.services
-                .host
-                .unsubscribe(&self.app, &topic, &params)
-                .await;
-        }
-    }
-}
-
-impl Drop for Shared {
-    /// A VM dropped without [`AppVm::stop`] still gives back what it held.
-    fn drop(&mut self) {
-        for (_, (_, task)) in lock(&self.timers).drain() {
-            task.abort();
-        }
-        let subs = std::mem::take(&mut *lock(&self.subscriptions));
-        if subs.is_empty() {
-            return;
-        }
-        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-            let (host, app) = (self.services.host.clone(), self.app.clone());
-            runtime.spawn(async move {
-                for (topic, params) in subs {
-                    host.unsubscribe(&app, &topic, &params).await;
-                }
-            });
-        }
-    }
-}
-
-impl From<wit::ToolDef> for ToolDef {
-    fn from(t: wit::ToolDef) -> Self {
-        Self {
-            name: t.name,
-            description: t.description,
-            doc: t.doc,
-            input_schema: t.input_schema,
-            read_only: t.read_only,
-            concurrency_safe: t.concurrency_safe,
-        }
-    }
-}
-
-impl From<wit::HookDecision> for HookDecision {
-    fn from(d: wit::HookDecision) -> Self {
-        match d {
-            wit::HookDecision::Proceed => Self::Proceed,
-            wit::HookDecision::Block(why) => Self::Block(why),
-            wit::HookDecision::AddContext(text) => Self::AddContext(text),
-        }
-    }
-}
-
-impl From<wit::AppError> for AppError {
-    fn from(e: wit::AppError) -> Self {
-        Self {
-            code: e.code,
-            message: e.message,
-            // Detail that is not JSON is still detail; keep it as a string.
-            data: e
-                .data_json
-                .map(|d| serde_json::from_str(&d).unwrap_or(Value::String(d))),
         }
     }
 }
