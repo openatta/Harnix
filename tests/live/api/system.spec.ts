@@ -294,7 +294,8 @@ test.describe("on", () => {
     expect(turn.model_ms).toBe(times[0]!.duration + times[1]!.duration);
     expect(turn.tool_ms).toBe(times[1]!.sent - (times[0]!.sent + times[0]!.duration));
     expect(turn.ttft_ms).toBe(calls[0].timing.ttft_ms);
-    const out = calls.reduce((n: number, c: any) => n + (c.usage?.output_tokens ?? 0), 0);
+    // The turn's own calls: a recording also holds the calls beside it (its title, the memory extraction).
+    const out = turn.calls.reduce((n: number, i: number) => n + (calls[i].usage?.output_tokens ?? 0), 0);
     expect(turn.output_tokens).toBe(out);
     expect(turn.cache_hit === null || (turn.cache_hit >= 0 && turn.cache_hit <= 1)).toBe(true);
     expect((await api.refused("harnix.system.turns", {}))?.code).toBe(INVALID_PARAMS);

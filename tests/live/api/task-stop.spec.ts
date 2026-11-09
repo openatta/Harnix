@@ -96,10 +96,12 @@ test("a task's output is followed by offset: each read starts where the last end
       .toBe("running");
     const read = (extra: object = {}) => api.call("harnix.system.tasks.output", { ...s, task_id: monitor.task_id, ...extra });
 
-    // From the start, then onward from wherever the last read ended, three times over.
+    // From the start, then onward from wherever the last read ended: three times over at least, and
+    // until there are three lines — on a loaded machine the counter can be slower than its clock.
     let text = "";
     let next = 0;
-    for (let i = 0; i < 3; i += 1) {
+    const deadline = Date.now() + 15_000;
+    for (let i = 0; i < 3 || (text.split("\n").filter(Boolean).length <= 2 && Date.now() < deadline); i += 1) {
       const slice = await read({ from_byte: next });
       expect(slice.from_byte, `read ${i} starts where the last ended`).toBe(next);
       expect(slice.dropped).toBe(0);
