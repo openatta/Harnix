@@ -96,6 +96,13 @@ impl SpaceRegistry {
 ///
 /// assert_api::<Old>();
 /// ```
+///
+/// What this number does not cover: the Agix types the contract hands through as they are — the
+/// session `Builder` and `SessionCtx` a customizer gets, the history store on an
+/// [`InstanceHandle`] — and `harnix::agent` / `harnix::scenes`, which are Agix's crates. They
+/// change with Agix and this stays put; what keeps that safe is that a Harnix release carries
+/// exactly one Agix release (`docs/harnix-sdk.md` §16). Routes are an `axum::Router`, so axum's
+/// major version is part of the contract: 1 is axum 0.8.
 pub const MODULE_API_VERSION: u32 = 1;
 
 /// One compile-time module. Every function but `manifest` has a default, so
