@@ -69,8 +69,8 @@ pub struct SpawnOptions {
     /// (ipdrun-07). The daemon then no longer gets the terminal signals sent to this process's
     /// group; its exit follows stdin closing, as it always did.
     pub reap_on_stop: bool,
-    /// Its part of the shared MCP servers (`servers.rs`): reloaded through this link, and its
-    /// credential revoked when the daemon goes.
+    /// Its part of the shared MCP servers (`servers.rs`): reloaded through this link, its
+    /// credential renewed when the link starts the daemon again and revoked when it goes for good.
     pub(crate) servers: Option<Arc<crate::servers::Configured>>,
 }
 
@@ -317,6 +317,11 @@ impl DaemonLink {
                     if self.reap {
                         let old = self.pid.load(Ordering::Relaxed) as i32;
                         crate::reap::reap_session(old, crate::reap::REAP_GRACE).await;
+                    }
+                    // What the exited process presented to this process's servers admits nothing
+                    // now; the one about to start reads a credential of its own.
+                    if let Some(servers) = &self.servers {
+                        servers.renew();
                     }
                 }
             }
@@ -858,6 +863,82 @@ mod tests {
         let after = accepted.load(Ordering::SeqCst);
         tokio::time::sleep(Duration::from_millis(500)).await;
         assert_eq!(accepted.load(Ordering::SeqCst), after, "still being started after it was down");
+        serving.abort();
+        link.shutdown().await;
+    }
+
+    /// Each process the link starts presents a credential of its own to this process's servers:
+    /// one that exited is revoked as the next is started with a new one, and the last is revoked
+    /// once the link gives up.
+    #[tokio::test]
+    async fn a_daemon_started_again_reads_a_new_credential_and_the_old_one_is_revoked() {
+        #[derive(Default)]
+        struct Kept(StdMutex<Vec<String>>, AtomicU32);
+        impl crate::ServerTokens for Kept {
+            fn issue(&self) -> String {
+                let token = format!("t{}", self.1.fetch_add(1, Ordering::SeqCst));
+                lock(&self.0).push(token.clone());
+                token
+            }
+            fn revoke(&self, token: &str) {
+                lock(&self.0).retain(|t| t != token);
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        let seen = dir.path().join("seen");
+        let kept = Arc::new(Kept::default());
+        let shared = Arc::new(crate::SharedServers::default());
+        shared.issue_with(kept.clone());
+        shared.set([("app-x".to_string(), json!({"type": "remote", "url": "x"}))].into_iter().collect());
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let serving = tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                tokio::spawn(async move {
+                    let mut peek = [0u8; 1];
+                    if stream.peek(&mut peek).await.unwrap_or(0) == 0 {
+                        return;
+                    }
+                    let fake = Fake::accept(stream).await;
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    drop(fake);
+                });
+            }
+        });
+        let options = SpawnOptions { servers: Some(shared.configure("a", &root)), ..Default::default() };
+        // The daemon notes which credential its settings carry, and exits.
+        let script = format!(
+            "grep -o 'Bearer t[0-9]*' '{}' >> '{}'; exit 0",
+            root.join("settings.json").display(),
+            seen.display()
+        );
+        let link = DaemonLink::start_with(
+            DaemonSpec {
+                endpoint: Endpoint::Tcp { addr, token: "t".into() },
+                spawn: Some(SpawnSpec {
+                    program: "/bin/sh".into(),
+                    args: vec!["-c".into(), script],
+                    env: Vec::new(),
+                    lock: None,
+                }),
+            },
+            options,
+        );
+        until(&link, "down", |s| matches!(s, LinkStatus::Down { .. })).await;
+        let seen = std::fs::read_to_string(&seen).unwrap();
+        let read: Vec<&str> = seen.lines().collect();
+        assert!(read.len() >= 2, "{read:?}");
+        for (n, line) in read.iter().enumerate() {
+            assert_eq!(*line, format!("Bearer t{n}"), "each start reads a credential of its own: {read:?}");
+        }
+        assert!(
+            lock(&kept.0).is_empty(),
+            "a credential still admits after the link gave up"
+        );
         serving.abort();
         link.shutdown().await;
     }

@@ -308,7 +308,7 @@ carrier = "spawn"
     expect((await fetch(url)).status).toBe(405);
   });
 
-  test("a spawned daemon's credential is its own, and stops opening the endpoint when the daemon goes", TAGS, async () => {
+  test("a spawned daemon's credential is its own, and stops opening the endpoint when the daemon goes or is started again", TAGS, async () => {
     const url = `${backend.url.replace(/\/$/, "")}/apps/${SHOWCASE_ID}/mcp`;
     const list = (authorization: string) =>
       fetch(url, {
@@ -334,6 +334,17 @@ carrier = "spawn"
     expect(after).toMatch(/^Bearer [0-9a-f]{32}$/);
     expect(after).not.toBe(before);
     expect((await list(after!)).status).toBe(200);
+
+    // Killed: its link starts another process, which reads a credential of its own; the killed
+    // one's opens nothing any more.
+    const pid = (await api.call("harnix.instances.list")).instances.find((i: any) => i.id === "far").pid;
+    expect(pid).toBeGreaterThan(0);
+    process.kill(pid, "SIGKILL");
+    await expect.poll(() => bearer(), { timeout: 60_000, intervals: [250] }).not.toBe(after);
+    const again = bearer();
+    expect(again).toMatch(/^Bearer [0-9a-f]{32}$/);
+    expect((await list(after!)).status, "a killed daemon's credential still opened the endpoint").toBe(401);
+    expect((await list(again!)).status).toBe(200);
     // And the new daemon reaches the tools with it.
     await expect
       .poll(async () => JSON.stringify(await api.call("mcp.status", { instance: "far" }).catch((e) => e)), { timeout: 60_000, intervals: [500] })
