@@ -170,6 +170,25 @@ describe("spaces", () => {
   });
 });
 
+describe("instances", () => {
+  it("answer what the protocol says, typed: no cast to read a row", async () => {
+    client.answer = (method) =>
+      method === "harnix.instances.list"
+        ? { instances: [{ id: "system", carrier: "in_process", status: { state: "ready" } }] }
+        : method === "harnix.sessions.tasks"
+          ? { active: false, tasks: [] }
+          : method === "harnix.instances.stop"
+            ? { stopped: "x" }
+            : {};
+    const host = hostFor(app);
+    // These read typed fields: with `Promise<unknown>` they do not compile (review G20).
+    const listed: string[] = (await host.instances.list()).instances.map((i) => i.id);
+    const active: boolean = (await host.instances.tasks("system", "s1")).active;
+    const stopped: string = (await host.instances.stop("x")).stopped;
+    expect([listed, active, stopped]).toEqual([["system"], false, "x"]);
+  });
+});
+
 describe("subscribe", () => {
   it("counts subscribers of one topic: one subscribe, one unsubscribe, the rest keep hearing", async () => {
     const one = hostFor(app, "one");

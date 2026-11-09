@@ -1266,7 +1266,7 @@ export function register(r: Registry, host: NestHost): void
 | `details.open(tab?) / close() / isOpen() / tab() / onTab(fn)` | 右栏开合与选中页签（`tab` 是前台 space 的页签 id，或 `"details"`）。经 `open(tab)` 选的页签按 space 记着；人点的换 space 后回到第一个（同以前；space 写了 `tab()` 时也记着） |
 | `redraw()` | 让外壳重读前台 space 的函数（`tabs()`、`badge()`…），不动注册表版本 |
 | `settings.open(section?)` | 打开设置面板的一节；内建的 id：`general`、`scenes`、`models`、`mcp`、`plugins`、`devices`、`diagnostics`、`about`；没有这一节时打开第一节 |
-| `instances.list() / sessions(instance) / tasks(instance, sessionId) / create(template, name, params?) / stop(instance)` | — |
+| `instances.list() / sessions(instance) / tasks(instance, sessionId) / create(template, name, params?) / stop(instance)` | 答的是协议里对应方法的结果，类型取自 `@harnix/core` 的 `Methods`：`{ instances: InstanceRow[] }`、`{ instance, sessions: SessionRow[] }`、`{ active, tasks: TaskRow[] }`、`InstanceRow`、`{ stopped }` |
 | `composer.insert(text, { session? })` | 不给 `session`：插进页上的输入框（同以前）。给了：那个会话的输入框在页上就插进去，不在就替它存着（再插接在后面），它挂上时放进去 |
 | `modal.isOpen() / onChange(fn)` | 外壳自己的模态层开着没有；开合变了通知，返回退订。模态层是一个栈：对话框上再开一个是叠在上面，不算开合。开着时 Esc 只关最上面一个，不再传到 document / window 上的监听；⌘K、⌘\、⌘/ 不生效；对话框下面的页面是 inert 的 |
 | `shell.badge(n)` | 页面标题前缀 `(n) `：n 取整、> 0 才带；null / 0 去掉（ipdrun-33） |
