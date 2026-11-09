@@ -82,7 +82,7 @@ test.describe("an application with a backend", () => {
     const rt = await runtime(api);
     expect(rt).toMatchObject({ state: "running", world: "backend" });
     expect(rt.methods).toEqual(expect.arrayContaining([M("notes.add"), M("notes.list"), M("state"), M("session.start")]));
-    expect(rt.topics).toEqual([M("notes"), M("heartbeat")]);
+    expect(rt.topics).toEqual([M("notes"), M("heartbeat"), M("fetched")]);
     expect(rt.spaces).toEqual([SHOWCASE_ID, SHOWCASE_CHATS]);
     const registered = (await api.call("harnix.apps.list")).registered.find((r: any) => r.id === SHOWCASE_ID);
     expect(registered).toMatchObject({ by: "apps", hub: ["session.create", "harnix.send", "topic:harnix.sessions.status", "harnix.entries.append"] });
