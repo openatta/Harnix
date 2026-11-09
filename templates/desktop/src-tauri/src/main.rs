@@ -1,4 +1,4 @@
-//! A desktop window around a Harnix app (design §12).
+//! A desktop window around a Harnix app (concept §5.11).
 //!
 //! The shell owns three things: the window, the child process (local mode)
 //! and its configuration. Everything the app does — every call, every event,

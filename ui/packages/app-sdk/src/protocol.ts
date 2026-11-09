@@ -157,7 +157,7 @@ export interface FrameRequests {
   /** Open Settings, on one of the application's sections. */
   "settings.open": { params: { section?: string }; result: null };
   "composer.insert": { params: { text: string }; result: null };
-  /** A badge on the application's space entry; null or 0 clears it. */
+  /** A badge on the application's space entry; null, 0 or "" clears it. */
   badge: { params: { value: string | number | null }; result: null };
   /** A line the shell shows, under the application's name. */
   notify: { params: { text: string; level?: "info" | "error" }; result: null };
