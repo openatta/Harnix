@@ -1,7 +1,8 @@
 /**
- * The modal dialogs: new session, add project, rename, the session and workspace menus, confirm,
- * and the directory picker they share. Each opens through `App.openModal` and renders its own
- * `.body` and `.foot`, so a dialog's buttons can read the dialog's state.
+ * The modal dialogs: new session, add project, rename, confirm, and the directory picker they
+ * share; and the session and workspace menus, which open those. Each dialog opens through
+ * `App.openModal` and renders its own `.body` and `.foot`, so a dialog's buttons can read the
+ * dialog's state.
  */
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -10,6 +11,7 @@ import { t, useT } from "@harnix/react";
 
 import type { App, ShellSession, Workspace } from "./app.ts";
 import { Glyph } from "./glyph.tsx";
+import { openMenu, type MenuEntry } from "./Menu.tsx";
 
 export function Body({ children }: { children: ReactNode }) {
   return <div className="body">{children}</div>;
@@ -432,172 +434,126 @@ function ExportForm({ app, target }: { app: App; target: ExportTarget }) {
 
 /* ── menus ────────────────────────────────────────────────────────────── */
 
-function MenuItem({ id, icon, label, sub, danger, onClick }: { id?: string; icon: string; label: string; sub?: string; danger?: boolean; onClick: () => void }) {
-  return (
-    <button type="button" className={danger ? "danger" : ""} data-item={id ?? icon} onClick={onClick}>
-      <Glyph name={icon} className="glyph" />
-      <span>
-        {label}
-        {sub ? <span className="sub">{sub}</span> : null}
-      </span>
-    </button>
-  );
+/** Where a menu was opened from: the element the focus goes back to, and the point it opens at. */
+export interface MenuOrigin {
+  origin: HTMLElement | null;
+  at: { x: number; y: number };
 }
 
-export function sessionMenu(app: App, session: ShellSession): void {
+/**
+ * A session's menu, anchored where it was opened (its row, `⋯`, the title). Only what has to be
+ * confirmed opens a dialog.
+ */
+export function sessionMenu(app: App, session: ShellSession, from: MenuOrigin): void {
   // The backend space its sessions belong to, not the front one: the projects space lists the
   // session space's sessions.
   const key = { instance: session.instance ?? "system", session_id: session.session_id, space: app.claim() };
   const reopen = (sessionId: string) => app.open({ instance: key.instance, sessionId });
-  app.openModal({
-    title: session.name || t("sidebar.untitled"),
-    content: (
-      <>
-        <Body>
-          <div className="picked">{session.session_id}</div>
-          <div className="menu-list">
-            <MenuItem
-              icon="chat"
-              id="open"
-              label={t("common.open")}
-              onClick={() => {
-                app.closeModal();
-                reopen(session.session_id);
-              }}
-            />
-            <MenuItem
-              icon="edit"
-              id="rename"
-              label={t("common.rename")}
-              onClick={() => renameDialog(app, t("dialog.renameSession"), session.name, (title) => app.call("harnix.sessions.rename", { ...key, title }))}
-            />
-            <MenuItem
-              icon="archive"
-              id="archive"
-              label={session.archived ? t("dialog.unarchive") : t("dialog.archive")}
-              sub={t("dialog.archiveHint")}
-              onClick={async () => {
-                if (await attempt(app, () => app.call("harnix.sessions.archive", { ...key, archived: !session.archived }))) {
-                  app.closeModal();
-                  void app.refreshSessions();
-                }
-              }}
-            />
-            <MenuItem
-              icon="fork"
-              id="fork"
-              label={t("dialog.fork")}
-              onClick={() =>
-                void attempt(
-                  app,
-                  async () => {
-                    const forked = await app.call<{ session_id: string }>("session.fork", key);
-                    app.closeModal();
-                    await app.refreshSessions();
-                    reopen(forked.session_id);
-                  },
-                  (error) => t("dialog.forkFailed", { error }),
-                )
-              }
-            />
-            <MenuItem
-              icon="download"
-              id="export"
-              label={t("dialog.export")}
-              onClick={() => exportDialog(app, key)}
-            />
-            <MenuItem
-              icon="archive"
-              id="close"
-              label={t("dialog.closeSession")}
-              sub={t("dialog.closeSessionHint")}
-              onClick={() =>
-                void attempt(
-                  app,
-                  async () => {
-                    await app.call("session.close", key);
-                    app.closeModal();
-                    void app.refreshSessions();
-                  },
-                  (error) => t("dialog.closeFailed", { error }),
-                )
-              }
-            />
-            <MenuItem
-              icon="trash"
-              danger
-              id="delete"
-              label={t("dialog.deleteSession")}
-              sub={t("dialog.deleteSessionHint")}
-              onClick={() =>
-                void attempt(
-                  app,
-                  async () => {
-                    const plan = await app.call<{ sidechains_deleted?: number }>("session.delete", { ...key, dry_run: true });
-                    confirmDialog(app, t("dialog.deleteConfirm", { count: plan.sidechains_deleted ?? 0 }), async () => {
-                      await app.call("session.delete", key);
-                      app.closeModal();
-                      app.forget({ instance: key.instance, sessionId: key.session_id });
-                      void app.refreshSessions();
-                    });
-                  },
-                  (error) => t("dialog.deleteFailed", { error }),
-                )
-              }
-            />
-          </div>
-        </Body>
-        <CloseFoot app={app} />
-      </>
-    ),
-  });
+  const items: MenuEntry[] = [
+    { id: "open", icon: "chat", label: t("common.open"), run: () => reopen(session.session_id) },
+    {
+      id: "rename",
+      icon: "edit",
+      label: t("common.rename"),
+      run: () => renameDialog(app, t("dialog.renameSession"), session.name, (title) => app.call("harnix.sessions.rename", { ...key, title })),
+    },
+    {
+      id: "archive",
+      icon: "archive",
+      label: session.archived ? t("dialog.unarchive") : t("dialog.archive"),
+      sub: t("dialog.archiveHint"),
+      run: () =>
+        void attempt(app, () => app.call("harnix.sessions.archive", { ...key, archived: !session.archived })).then((ok) => {
+          if (ok) void app.refreshSessions();
+        }),
+    },
+    {
+      id: "fork",
+      icon: "fork",
+      label: t("dialog.fork"),
+      run: () =>
+        void attempt(
+          app,
+          async () => {
+            const forked = await app.call<{ session_id: string }>("session.fork", key);
+            await app.refreshSessions();
+            reopen(forked.session_id);
+          },
+          (error) => t("dialog.forkFailed", { error }),
+        ),
+    },
+    { id: "export", icon: "download", label: t("dialog.export"), run: () => exportDialog(app, key) },
+    {
+      id: "close",
+      icon: "archive",
+      label: t("dialog.closeSession"),
+      sub: t("dialog.closeSessionHint"),
+      run: () =>
+        void attempt(
+          app,
+          async () => {
+            await app.call("session.close", key);
+            void app.refreshSessions();
+          },
+          (error) => t("dialog.closeFailed", { error }),
+        ),
+    },
+    {
+      id: "delete",
+      icon: "trash",
+      danger: true,
+      label: t("dialog.deleteSession"),
+      sub: t("dialog.deleteSessionHint"),
+      run: () =>
+        void attempt(
+          app,
+          async () => {
+            const plan = await app.call<{ sidechains_deleted?: number }>("session.delete", { ...key, dry_run: true });
+            confirmDialog(app, t("dialog.deleteConfirm", { count: plan.sidechains_deleted ?? 0 }), async () => {
+              await app.call("session.delete", key);
+              app.closeModal();
+              app.forget({ instance: key.instance, sessionId: key.session_id });
+              void app.refreshSessions();
+            });
+          },
+          (error) => t("dialog.deleteFailed", { error }),
+        ),
+    },
+  ];
+  const name = session.name || t("sidebar.untitled");
+  openMenu({ label: t("sidebar.sessionActions"), title: name, items, at: from.at, returnTo: from.origin, testId: "session-menu", className: "session-menu" });
 }
 
-export function workspaceMenu(app: App, workspace: Workspace): void {
-  app.openModal({
+/** A project's menu, anchored where it was opened. */
+export function workspaceMenu(app: App, workspace: Workspace, from: MenuOrigin): void {
+  const items: MenuEntry[] = [
+    { id: "new", icon: "plus", label: t("dialog.newSessionHere"), run: () => void newSessionDialog(app, workspace.path) },
+    {
+      id: "rename",
+      icon: "edit",
+      label: t("common.rename"),
+      run: () => renameDialog(app, t("dialog.renameProject"), workspace.title, (title) => app.call("harnix.workspaces.update", { id: workspace.id, title })),
+    },
+    {
+      id: "remove",
+      icon: "trash",
+      danger: true,
+      label: t("dialog.removeGroup"),
+      sub: t("dialog.removeGroupHint"),
+      run: () =>
+        void attempt(app, () => app.call("harnix.workspaces.remove", { id: workspace.id })).then((ok) => {
+          if (ok) void app.refreshSessions();
+        }),
+    },
+  ];
+  openMenu({
+    label: t("sidebar.projectActions"),
     title: workspace.title ?? workspace.path,
-    content: (
-      <>
-        <Body>
-          <div className="picked">{workspace.path || t("dialog.noProject")}</div>
-          <div className="menu-list">
-            <MenuItem
-              icon="plus"
-              id="new"
-              label={t("dialog.newSessionHere")}
-              onClick={() => {
-                app.closeModal();
-                void newSessionDialog(app, workspace.path);
-              }}
-            />
-            <MenuItem
-              icon="edit"
-              id="rename"
-              label={t("common.rename")}
-              onClick={() =>
-                renameDialog(app, t("dialog.renameProject"), workspace.title, (title) =>
-                  app.call("harnix.workspaces.update", { id: workspace.id, title }),
-                )
-              }
-            />
-            <MenuItem
-              icon="trash"
-              danger
-              id="remove"
-              label={t("dialog.removeGroup")}
-              sub={t("dialog.removeGroupHint")}
-              onClick={async () => {
-                if (await attempt(app, () => app.call("harnix.workspaces.remove", { id: workspace.id }))) {
-                  app.closeModal();
-                  void app.refreshSessions();
-                }
-              }}
-            />
-          </div>
-        </Body>
-        <CloseFoot app={app} />
-      </>
-    ),
+    items,
+    at: from.at,
+    returnTo: from.origin,
+    testId: "project-menu",
+    className: "project-menu",
   });
 }
 

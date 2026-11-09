@@ -97,6 +97,10 @@
 .hx-chat .hx-btn { border: 1px solid var(--hx-line); background: var(--hx-bg); border-radius: 6px; padding: 6px 12px; white-space: nowrap; font-size: inherit; }
 .hx-chat .hx-btn:hover:not(:disabled) { border-color: var(--hx-fg-faint); background: var(--hx-bg); }
 .hx-chat .hx-btn:disabled { opacity: 0.45; }
+/* The primary button keeps its fill inside the conversation too: `.hx-chat .hx-btn` above outranks
+   `.hx-btn-primary`, and without these the default answer of an ask was white on white. */
+.hx-chat .hx-btn-primary { border-color: var(--hx-accent); background: var(--hx-accent); color: var(--hx-accent-fg); }
+.hx-chat .hx-btn-primary:hover:not(:disabled) { border-color: var(--hx-accent); background: var(--hx-accent); filter: brightness(1.08); }
 .hx-chat .hx-btn-xs { padding: 1px 7px; font-size: 12px; }
 .hx-chat .hx-btn-ghost { border-color: transparent; background: none; color: var(--hx-accent); }
 .hx-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; border-radius: 4px; padding: 1px 7px; white-space: nowrap; background: var(--hx-bg-sunk); color: var(--hx-fg-soft); font-weight: inherit; }

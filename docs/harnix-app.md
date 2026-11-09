@@ -6,7 +6,7 @@
 > 新建会话、按时间看会话、按项目管理会话。它是用框架自己的公开接口做的一个小应用，也是模式 1 最小的例子。
 > 以前叫「空应用」「最小应用」。别和 crate `harnix-app`（`crates/app`）、插件打包工具 `harnix-app` 混：那两个是代码里的名字。用词照 [术语](glossary.md)。
 >
-> 本文照代码写：界面在 `ui/packages/shell/src/builtins.tsx`、`sessions.tsx`、`projects.tsx`、`dialogs.tsx`、`Shell.tsx`，后端在
+> 本文照代码写：界面在 `ui/packages/shell/src/builtins.tsx`、`sessions.tsx`、`projects.tsx`、`dialogs.tsx`、`Menu.tsx`、`layers.ts`、`Shell.tsx`，后端在
 > `crates/builtin/src/`（`sessions` 那一组），profile 在 `crates/instance/src/profile.rs`。对不上时以代码为准。
 
 ---
@@ -45,7 +45,8 @@ fn main() -> anyhow::Result<()> {
 - **分组**：问 `sidebar.group` 的注册，最后注册的那个生效。内建的是 `builtin.time`（「按时间」）：今天、近 7 天、更早，按最近活动排，
   空的组不画。应用注册自己的 `sidebar.group` 就换掉它。
 - 每组先列 16 条，「显示更多 N」。归档的默认不列，「已归档 N」切换，记在偏好里（`harnix.prefs.set {key: "showArchived"}`）。
-- 每行：在跑的点、名字（没有就是「未命名会话」）、多久之前。点了打开；右键或 `⋯` 是会话菜单（§5）。
+- 每行：在跑的点、名字（没有就是「未命名会话」）、多久之前。点了打开；右键或 `⋯` 是会话菜单（§5）。`⋯` 是行旁边的另一个按钮：
+  Tab 从行走到它，回车打开菜单。
 
 **数据**：`harnix.sessions {space: "sessions"}` 列会话，`harnix.workspaces.list` 列项目，外壳把两者按 `project_root` 拼起来
 （标题、归档、属于哪个项目）；谁在跑来自主题 `harnix.sessions.status`。
@@ -73,7 +74,7 @@ fn main() -> anyhow::Result<()> {
 ## 4. 新建会话
 
 - **左栏顶上的「新会话」**（⌘K）：不建会话，只打开新对话的空页。前台是系统 space、`center: "hidden"` 的 space 或嵌在别的
-  space 里的 space 时，先换到第一个能对话的 space。⌘\ 收起左栏，⌘/ 聚焦输入框。
+  space 里的 space 时，先换到第一个能对话的 space。⌘\ 收起左栏，⌘/ 聚焦输入框。对话框开着时这三个键都不生效。
 - **新对话的空页**：问候（按钟点是早上、下午、晚上）、这个 space 的 `subtitle()`、输入框、`suggestions()` 的建议（点了就建会话
   并发出）、`notice()`，下面是 `home.card` 的卡片。**第一次发出时才建会话**：`session.create`（带前台 space 的归属，项目 space 里带项目的
   目录），然后 `harnix.send`。Harnix app 的两个 space 不给建议、提示与卡片；应用的模块与插件 APP 可以给 `home.card`。
@@ -88,7 +89,9 @@ fn main() -> anyhow::Result<()> {
 
 ## 5. 会话菜单
 
-右键一行、`⋯`，或会话标题：
+右键一行、`⋯`，或会话标题。它是在那里打开的菜单，不是对话框：右键时在指针处，`⋯` 与标题在按钮下面。焦点落在第一项，
+↑ / ↓ 换项，回车选，Esc 或 Tab 关掉，焦点回到打开它的地方；点菜单外面也关。只有要再问一次的项（删除）或要填东西的项
+（重命名、导出）才开对话框。项目菜单（§3）一样。
 
 | 项 | 方法 | 说明 |
 |---|---|---|
@@ -101,6 +104,14 @@ fn main() -> anyhow::Result<()> {
 | 删除 | `session.delete` | 先试删一次看连带几条侧链会话，确认后删；连同录像 |
 
 两个 space 里的菜单一样：项目 space 列的是会话 space 的会话，所以菜单的调用都声明会话 space（`app.claim()`），不是前台的项目 space。
+
+**层与提示**。外壳画在页面上面的东西是一个栈：对话框（对话框里再开的对话框叠在上面）、菜单、外壳替插件 APP 问的确认（总在最上面）。
+
+- **焦点**：对话框打开时焦点移进去，Tab 只在里面转，关上后回到打开它的地方；它下面的页面与对话框是 inert 的。
+- **Esc 只关最上面一层**：先关菜单，再关最上面的对话框；确认开着时 Esc 答「否」，页面别处一个键都收不到。
+- **输入框里的 Esc**：先关弹层（`/`、`@`、＋、模型）；一轮在跑时，第一次 Esc 只提示「再按一次中断」，几秒内再按一次才中断。
+- **横幅的提示排队**：一次显示一条，后面还有几条会写出来；普通的 6 秒后自己走，错误 12 秒，要重新加载页面这类状态一直在。
+  横幅是播报区（错误 `role=alert`，其余 `role=status`）；对话里来了权限询问，也单独播报一句「需要批准：工具名」。
 
 ## 6. profile
 

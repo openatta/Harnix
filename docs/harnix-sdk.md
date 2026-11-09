@@ -1268,7 +1268,7 @@ export function register(r: Registry, host: NestHost): void
 | `settings.open(section?)` | 打开设置面板的一节；内建的 id：`general`、`scenes`、`models`、`mcp`、`plugins`、`devices`、`diagnostics`、`about`；没有这一节时打开第一节 |
 | `instances.list() / sessions(instance) / tasks(instance, sessionId) / create(template, name, params?) / stop(instance)` | — |
 | `composer.insert(text, { session? })` | 不给 `session`：插进页上的输入框（同以前）。给了：那个会话的输入框在页上就插进去，不在就替它存着（再插接在后面），它挂上时放进去 |
-| `modal.isOpen() / onChange(fn)` | 外壳自己的模态层开着没有；开合变了通知，返回退订。开着时 Esc 只关模态层，不再传到冒泡阶段的 document / window 监听 |
+| `modal.isOpen() / onChange(fn)` | 外壳自己的模态层开着没有；开合变了通知，返回退订。模态层是一个栈：对话框上再开一个是叠在上面，不算开合。开着时 Esc 只关最上面一个，不再传到 document / window 上的监听；⌘K、⌘\、⌘/ 不生效；对话框下面的页面是 inert 的 |
 | `shell.badge(n)` | 页面标题前缀 `(n) `：n 取整、> 0 才带；null / 0 去掉（ipdrun-33） |
 | `shell.context(c \| null)` | 左栏品牌下面一行应用的上下文，`c = { label, title?, tone?: "active" \| "muted", onClick? }`（类型 `ShellContext`）：`active` 前面一个圆点，`muted` 浅色字，`title` 是悬停提示，给了 `onClick` 是按钮；每次调用替换上一次，null 或空 `label` 去掉；不随 space 变，收成图标条时不画（ipdrun-49） |
 | `space(moduleId).fetch(path, init?) / socket(path)` | 模块自有链接 |

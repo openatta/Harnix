@@ -1,0 +1,152 @@
+/* The page's layers: the dialogs stacked over each other, the menus, and `⋯` beside its row.
+ * See `layers.ts` and `Menu.tsx`. */
+
+/* ── dialogs ─────────────────────────────────────────────────────────── */
+
+/* A dialog takes the focus as a box when it has nothing else to give it to: no ring for that. */
+.hx-modal:focus,
+.apps-dialog:focus {
+  outline: none;
+}
+
+/* ── menus ───────────────────────────────────────────────────────────── */
+
+.hx-menu:focus {
+  outline: none;
+}
+
+/* Opened at a point: over the page, under any dialog (whose veil is 40). */
+.hx-menu.anchored {
+  position: fixed;
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 4px;
+  border: 1px solid var(--border-l1);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+}
+
+.hx-menu.anchored .hx-menu-title {
+  padding: 6px 10px 4px;
+  overflow: hidden;
+  color: var(--label-tertiary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hx-menu.anchored button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  color: var(--label-primary);
+  font-size: 13px;
+  text-align: left;
+}
+
+.hx-menu.anchored button .glyph {
+  flex: none;
+  width: 15px;
+  height: 15px;
+}
+
+.hx-menu .hx-menu-label {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.hx-menu .hx-menu-label .sub {
+  color: var(--label-caption);
+  font-size: 11px;
+}
+
+.hx-menu.anchored button:hover,
+.hx-menu.anchored button:focus-visible {
+  background: var(--interactive-hover);
+  outline: none;
+}
+
+.hx-menu.anchored button.danger:hover,
+.hx-menu.anchored button.danger:focus-visible {
+  background: var(--interactive-hover-danger);
+  color: var(--state-error);
+}
+
+/* The avatar's menu is drawn where `frame.css` puts it; its items get the keyboard's highlight too. */
+#side .avatar-menu button:focus-visible {
+  background: var(--interactive-hover);
+  outline: none;
+}
+
+#side .avatar-menu .hx-menu-label {
+  flex-direction: row;
+}
+
+/* ── `⋯` beside a session's row and a project's ──────────────────────── */
+
+#side .srow-wrap,
+#side .prj-row {
+  position: relative;
+}
+
+#side .srow-wrap > .more,
+#side .prj-row > .more {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--label-caption);
+  transform: translateY(-50%);
+}
+
+#side .srow-wrap > .more .glyph,
+#side .prj-row > .more .glyph {
+  width: 15px;
+  height: 15px;
+}
+
+/* Shown on the row under the pointer, the open one, and wherever the focus is: Tab reaches it. */
+#side .srow-wrap:is(:hover, :focus-within, .on) > .more,
+#side .prj-row:is(:hover, :focus-within) > .more {
+  display: grid;
+}
+
+#side .srow-wrap > .more:hover,
+#side .prj-row > .more:hover {
+  background: var(--interactive-hover);
+  color: var(--label-primary);
+}
+
+/* Room for it, and the time makes way as it did when it was inside the row. */
+#side .srow-wrap:is(:hover, :focus-within, .on) > .srow,
+#side .prj-row:is(:hover, :focus-within) > .prj {
+  padding-right: 34px;
+}
+
+#side .srow-wrap:is(:hover, :focus-within) > .srow .meta {
+  display: none;
+}
+
+#side .srow-wrap:is(:hover, :focus-within) > .srow {
+  background: var(--interactive-hover);
+  color: var(--label-primary);
+}
+
+/* ── the banner ─────────────────────────────────────────────────────── */
+
+#banner .waiting {
+  flex: none;
+  opacity: 0.75;
+}

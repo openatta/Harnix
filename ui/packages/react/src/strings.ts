@@ -75,6 +75,8 @@ export interface HarnixUiStrings {
   thoughtFor: (seconds: number) => string;
   working: string;
   escToInterrupt: string;
+  /** The first Escape of a running turn: the second interrupts it. */
+  escAgainToInterrupt: string;
   copy: string;
   copied: string;
   queuedInFlow: string;
@@ -204,6 +206,7 @@ export const zhCN: HarnixUiStrings = {
   thoughtFor: (seconds) => `思考了 ${seconds} 秒`,
   working: "工作中…",
   escToInterrupt: "Esc 中断",
+  escAgainToInterrupt: "再按一次 Esc 中断这一轮",
   copy: "复制",
   copied: "已复制",
   queuedInFlow: "排队中 · 当前步骤结束后送达",
@@ -331,6 +334,7 @@ export const en: HarnixUiStrings = {
   thoughtFor: (seconds) => `Thought for ${seconds}s`,
   working: "Working…",
   escToInterrupt: "Esc to interrupt",
+  escAgainToInterrupt: "Press Esc again to interrupt the turn",
   copy: "Copy",
   copied: "Copied",
   queuedInFlow: "Queued · delivered when this step ends",

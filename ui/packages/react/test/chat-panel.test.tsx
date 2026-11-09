@@ -120,7 +120,7 @@ describe("发送", () => {
     expect(server.called("harnix.send")[0]!.params).toMatchObject({ message: "还缺哪些边界条款？", on_busy: "queue" });
   });
 
-  it("运行中、没有输入：发送键是停止（Esc 同效）；有输入时是发送（插话进队列）", async () => {
+  it("运行中、没有输入：发送键是停止；有输入时是发送（插话进队列）；Esc 先提示，再按一次才中断", async () => {
     server.handlers["harnix.attach"] = () => attached("S1", { running_turn: "t1" });
     const interrupt = vi.fn();
     mount({ interrupt });
@@ -131,8 +131,13 @@ describe("发送", () => {
     type("插一句");
     expect(screen.queryByTestId("conv-interrupt")).toBeNull();
     expect((screen.getByTestId("conv-send") as HTMLButtonElement).disabled).toBe(false);
+    // The first Escape only says what the next one does: one Escape too many does not stop the turn.
+    fireEvent.keyDown(input(), { key: "Escape" });
+    expect(interrupt).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("conv-esc-hint").getAttribute("role")).toBe("status");
     fireEvent.keyDown(input(), { key: "Escape" });
     expect(interrupt).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId("conv-esc-hint")).toBeNull();
   });
 
   it("草稿按 draftKey 各自保留：卸载、换键再回来仍在；发出去即清掉", async () => {
@@ -459,6 +464,21 @@ describe("菜单", () => {
     fireEvent.keyDown(input(), { key: "Enter" });
     expect(input().value).toBe("/compact ");
     expect(screen.queryByTestId("conv-menu")).toBeNull();
+  });
+
+  it("/ 的候选随 ↑/↓ 换，输入框用 aria-activedescendant 指着选中的那一项（焦点留在输入框里）", async () => {
+    mount({ commands: [{ name: "compact" }, { name: "clear" }] });
+    await settle();
+    type("/c");
+    const menu = screen.getByTestId("conv-menu");
+    const items = within(menu).getAllByTestId("conv-menu-item");
+    expect(input().getAttribute("aria-controls")).toBe(menu.id);
+    expect(input().getAttribute("aria-activedescendant")).toBe(items[0]!.id);
+    fireEvent.keyDown(input(), { key: "ArrowDown" });
+    expect(input().getAttribute("aria-activedescendant")).toBe(items[1]!.id);
+    expect(items[1]!.getAttribute("aria-selected")).toBe("true");
+    fireEvent.keyDown(input(), { key: "Escape" });
+    expect(input().getAttribute("aria-activedescendant")).toBeNull();
   });
 
   it("带 run 的命令选中即执行：输入框清空、不发送；不带 run 的照旧插入", async () => {

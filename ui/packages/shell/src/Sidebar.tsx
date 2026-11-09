@@ -20,6 +20,7 @@ import { ask, disabledOf, keyOf, uniqueSessions, type App, type ShellSession, ty
 import { connectionDialog } from "./dialogs.tsx";
 import { Glyph } from "./glyph.tsx";
 import { AppMark, GroupedSessions, appsOf, groupingOf } from "./inline/index.tsx";
+import { Menu, type MenuEntry } from "./Menu.tsx";
 import { SessionRow } from "./sessions.tsx";
 import { openSettings } from "./settings.tsx";
 
@@ -317,21 +318,37 @@ function Avatar({ app, s }: { app: App; s: ShellState }) {
           ? t("conn.incompatible")
           : t("conn.closed");
   const tooltip = [label, app.client.topology ?? "", location.host, s.hello?.engine?.model ?? ""].filter(Boolean).join(" · ");
-  const menu = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!s.menu) return;
-    const away = (event: MouseEvent) => {
-      if (!menu.current?.contains(event.target as Node)) app.toggleMenu(false);
-    };
-    window.addEventListener("mousedown", away);
-    return () => window.removeEventListener("mousedown", away);
-  }, [app, s.menu]);
-  const pick = (run: () => void) => () => {
-    app.toggleMenu(false);
-    run();
-  };
+  const wrap = useRef<HTMLDivElement>(null);
+  const items: MenuEntry[] = [
+    { id: "settings", icon: "settings", label: t("app.settings"), testId: "open-settings", run: () => openSettings(app) },
+    {
+      id: "theme",
+      icon: "moon",
+      label: t("app.theme"),
+      testId: "menu-theme",
+      value: <span className="mval">{t(`settings.theme.${s.theme}`)}</span>,
+      run: () => app.setTheme(nextTheme(s.theme)),
+    },
+    {
+      id: "language",
+      icon: "globe",
+      label: t("settings.language"),
+      testId: "menu-language",
+      value: <span className="mval">{currentLocale() === "en" ? "English" : "中文"}</span>,
+      run: () => setLocale(currentLocale() === "en" ? "zh-CN" : "en"),
+    },
+    { id: "about", icon: "info", label: t("settings.nav.about"), testId: "menu-about", run: () => openSettings(app, "about") },
+    {
+      id: "connection",
+      icon: "link",
+      label: t("avatar.connection"),
+      testId: "menu-connection",
+      value: <span className={`mval dot ${ring}`} />,
+      run: () => connectionDialog(app),
+    },
+  ];
   return (
-    <div className="me-wrap" ref={menu}>
+    <div className="me-wrap" ref={wrap}>
       <button
         type="button"
         id="conn"
@@ -347,33 +364,7 @@ function Avatar({ app, s }: { app: App; s: ShellState }) {
         <span className="avatar">{initials(user)}</span>
         <span className="lbl truncate">{user}</span>
       </button>
-      {s.menu ? (
-        <div className="menu avatar-menu" role="menu" data-testid="avatar-menu">
-          <button type="button" role="menuitem" data-testid="open-settings" onClick={pick(() => openSettings(app))}>
-            <Glyph name="settings" className="glyph" />
-            {t("app.settings")}
-          </button>
-          <button type="button" role="menuitem" data-testid="menu-theme" onClick={pick(() => app.setTheme(nextTheme(s.theme)))}>
-            <Glyph name="moon" className="glyph" />
-            {t("app.theme")}
-            <span className="mval">{t(`settings.theme.${s.theme}`)}</span>
-          </button>
-          <button type="button" role="menuitem" data-testid="menu-language" onClick={pick(() => setLocale(currentLocale() === "en" ? "zh-CN" : "en"))}>
-            <Glyph name="globe" className="glyph" />
-            {t("settings.language")}
-            <span className="mval">{currentLocale() === "en" ? "English" : "中文"}</span>
-          </button>
-          <button type="button" role="menuitem" data-testid="menu-about" onClick={pick(() => openSettings(app, "about"))}>
-            <Glyph name="info" className="glyph" />
-            {t("settings.nav.about")}
-          </button>
-          <button type="button" role="menuitem" data-testid="menu-connection" onClick={pick(() => connectionDialog(app))}>
-            <Glyph name="link" className="glyph" />
-            {t("avatar.connection")}
-            <span className={`mval dot ${ring}`} />
-          </button>
-        </div>
-      ) : null}
+      {s.menu ? <Menu label={user} items={items} className="menu avatar-menu" testId="avatar-menu" within={wrap} onClose={() => app.toggleMenu(false)} /> : null}
     </div>
   );
 }

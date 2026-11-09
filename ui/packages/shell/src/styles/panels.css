@@ -89,7 +89,7 @@
 }
 
 /* ── modal ───────────────────────────────────────────────────────────── */
-#veil {
+:is(#veil, .hx-veil) {
   position: fixed;
   inset: 0;
   z-index: 40;
@@ -101,11 +101,11 @@
   backdrop-filter: blur(2px);
 }
 
-#veil.on {
+:is(#veil, .hx-veil).on {
   display: flex;
 }
 
-#modal {
+:is(#modal, .hx-modal) {
   display: flex;
   flex-direction: column;
   width: 560px;
@@ -125,21 +125,21 @@
   }
 }
 
-#modal .head {
+:is(#modal, .hx-modal) .head {
   flex: none;
   padding: 16px 18px 10px;
   font-size: 15px;
   font-weight: 600;
 }
 
-#modal .body {
+:is(#modal, .hx-modal) .body {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   padding: 0 18px 4px;
 }
 
-#modal .foot {
+:is(#modal, .hx-modal) .foot {
   flex: none;
   display: flex;
   gap: 8px;
@@ -276,14 +276,14 @@
 /* ── settings ────────────────────────────────────────────────────────── */
 /* One size whichever section is shown: the panel does not jump as the nav is clicked. The nav
    stays put and the page scrolls inside it. */
-#modal:has(.settings-body),
-#modal.wide:has(.settings-body) {
+:is(#modal, .hx-modal):has(.settings-body),
+:is(#modal, .hx-modal).wide:has(.settings-body) {
   width: min(880px, calc(100vw - 32px));
   height: min(640px, calc(100vh - 48px));
   max-height: none;
 }
 
-#modal .body:has(> .settings-body) {
+:is(#modal, .hx-modal) .body:has(> .settings-body) {
   display: flex;
   overflow: hidden;
   padding-bottom: 0;
