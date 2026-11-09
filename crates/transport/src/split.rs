@@ -35,9 +35,10 @@ use axum::Json;
 use futures::Stream;
 use harnix_contract::{codes, RpcError, Subject, Topology};
 use serde_json::{json, Value};
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 
+use crate::session::Face;
 use crate::{handshake, AppState};
 
 #[derive(serde::Deserialize)]
@@ -105,10 +106,10 @@ pub async fn establish(
     // Neither face is subscribed yet: in this topology a client opts into
     // each stream by opening it, which is what makes a read-only client
     // possible at all.
-    let (credential, established, _) = state
+    let (credential, established) = state
         .sessions
         .establish(
-            &state.hub,
+            state.hub.as_ref(),
             negotiated.subject.clone(),
             negotiated.topology,
             None,
@@ -152,15 +153,17 @@ pub async fn rpc(
     let Ok(mut body) = serde_json::from_slice::<Value>(&raw) else {
         return rpc_error(RpcError::new(codes::PARSE_ERROR, "invalid JSON")).into_response();
     };
+    // 401 with the JSON-RPC error as its body: a credential that is gone —
+    // never issued, idle too long, its device revoked — is a matter of
+    // admission, and a client reads the reason the same way either way.
     let Some(credential) = credential_of(&headers, &query) else {
-        return rpc_error(RpcError::new(codes::HANDSHAKE_REFUSED, "no credential")).into_response();
+        return unauthorized(RpcError::new(codes::HANDSHAKE_REFUSED, "no credential"));
     };
-    let Some(established) = state.sessions.get(&credential).await else {
-        return rpc_error(RpcError::new(
+    let Some(established) = state.sessions.get(&credential) else {
+        return unauthorized(RpcError::new(
             codes::HANDSHAKE_REFUSED,
             "unknown credential; call /handshake first",
-        ))
-        .into_response();
+        ));
     };
     let Some(method) = body
         .get("method")
@@ -183,7 +186,7 @@ pub async fn rpc(
         obj.insert("__client".into(), json!(established.client.0));
     }
 
-    match state.gate.call(&established.subject, &method, params).await {
+    match crate::call_settled(state.gate.as_ref(), &established.subject, &method, params).await {
         Ok(result) => Json(json!({"jsonrpc": "2.0", "id": id, "result": result})).into_response(),
         Err(e) => Json(json!({"jsonrpc": "2.0", "id": id, "error": e})).into_response(),
     }
@@ -221,11 +224,6 @@ pub async fn host_events(
     stream_for(state, headers, query, Face::Host).await
 }
 
-enum Face {
-    Session,
-    Host,
-}
-
 async fn stream_for(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -235,27 +233,32 @@ async fn stream_for(
     let Some(credential) = credential_of(&headers, &query) else {
         return (StatusCode::UNAUTHORIZED, "no credential").into_response();
     };
-    let Some(established) = state.sessions.get(&credential).await else {
+    // Opening the stream *is* the subscription: this is where a read-only
+    // client says which face it wants. One reader per face: opening it again
+    // — the browser's own reconnect — replaces the one before, whose stream
+    // ends, rather than splitting frames between two readers.
+    let (Some(established), Some(receiver)) =
+        (state.sessions.get(&credential), state.sessions.open(&credential, face))
+    else {
         return (StatusCode::UNAUTHORIZED, "unknown credential").into_response();
     };
-    // Opening the stream *is* the subscription: this is where a read-only
-    // client says which face it wants.
-    let is_session = matches!(face, Face::Session);
-    state.sessions.subscribe(&credential, is_session).await;
-    let slot = if is_session {
-        &established.session_events
-    } else {
-        &established.host_events
-    };
-
-    // One reader per face. A second is refused rather than silently splitting
-    // the frames between two readers, which would lose half of them to each.
-    let Some(receiver) = slot.lock().await.take() else {
-        return (StatusCode::CONFLICT, "this stream already has a reader").into_response();
-    };
-    let stream = UnboundedReceiverStream::new(receiver)
-        .map(|payload| Ok::<Event, Infallible>(Event::default().data(payload)));
+    // When the stream goes, its handshake is still in use as of now: the
+    // idle clock starts here, not at the last `/rpc`.
+    let open = Touch(established);
+    let stream = ReceiverStream::new(receiver).map(move |payload| {
+        let _ = &open;
+        Ok::<Event, Infallible>(Event::default().data(payload))
+    });
     sse(stream)
+}
+
+/// Marks its handshake used when it is dropped, with the stream it rides in.
+struct Touch(std::sync::Arc<crate::session::Established>);
+
+impl Drop for Touch {
+    fn drop(&mut self) {
+        self.0.touch();
+    }
 }
 
 fn sse<S>(stream: S) -> Response
@@ -268,6 +271,10 @@ where
     Sse::new(stream)
         .keep_alive(KeepAlive::default())
         .into_response()
+}
+
+fn unauthorized(e: RpcError) -> Response {
+    (StatusCode::UNAUTHORIZED, rpc_error(e)).into_response()
 }
 
 fn rpc_error(e: RpcError) -> Json<Value> {

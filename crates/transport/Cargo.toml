@@ -30,3 +30,6 @@ bytes       = { workspace = true }
 
 [dev-dependencies]
 ring = { workspace = true }
+reqwest = { workspace = true }
+# A WebSocket client for the single-duplex tests; the version axum already links.
+tokio-tungstenite = "0.29"

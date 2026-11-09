@@ -114,6 +114,8 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     // ── 2. Register ─────────────────────────────────────────────────────
     // The devices paired before, read back: pairing carries trust across once, not once per start.
     let paired = Arc::new(load_devices(&roots.state.join(DEVICES_FILE))?);
+    // The transport's channels, once it exists (step 6): what revoking a device ends.
+    let channels: Arc<OnceLock<harnix_transport::Channels>> = Arc::new(OnceLock::new());
     let mut entries = Vec::new();
     let builtin = if app.builtins {
         let builtin = Builtin::new(roots.state.clone(), roots.projects.clone())?;
@@ -143,9 +145,13 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         // Revoking is wired to the transport's session registry, because
         // ending a device's channels needs the layer that knows there are
         // channels. Nothing above transport ever learns there were.
-        let disconnect = Arc::new(|id: &str| {
-            tracing::info!(device = id, "revoked; its channels are being closed");
-        });
+        let disconnect = {
+            let channels = channels.clone();
+            Arc::new(move |id: &str| {
+                let ended = channels.get().map_or(0, |c| c.revoke_device(id));
+                tracing::info!(device = id, channels = ended, "revoked; its channels are closed");
+            })
+        };
         entries.push(Entry {
             module: Box::new(devices::DevicesModule::new(paired.clone(), disconnect)),
             namespace: Namespace::Kernel,
@@ -578,7 +584,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         .map(|b| b.max_upload_bytes())
         .unwrap_or(harnix_contract::MAX_UPLOAD_BYTES);
     let runtime_modules = profile.ui.runtime_modules;
-    let (router, statics) = harnix_transport::router(
+    let (router, statics, transport) = harnix_transport::router(
         gate,
         hub.clone(),
         bulk,
@@ -614,6 +620,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     );
 
     statics.set_brand_icon(brand_icon);
+    let _ = channels.set(transport.clone());
 
     // Both loopback families, or exactly what was asked for. `localhost`
     // resolves to `::1` first in every current browser, so a v4-only listener
@@ -699,8 +706,13 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
             kernel.listen.send_replace(Some(harnix_module::Listen { addrs: bound, url }));
         }
     };
-    let server = tokio::spawn(async move {
-        harnix_transport::serve_with(&addrs, router, tls, told).await
+    // Shutting down stops the listener first (below), so it is handed the signal here.
+    let (stop_serving, serving_stops) = tokio::sync::oneshot::channel::<()>();
+    let mut server = tokio::spawn(async move {
+        harnix_transport::serve_with(&addrs, router, tls, told, async move {
+            let _ = serving_stops.await;
+        })
+        .await
     });
     println!(
         "\n  {} → {scheme}://{addr}/\n  token → {}\n  topology → {}\n",
@@ -753,7 +765,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     // the process on the spot, and no module's `stop` ran.
     let mut signals = Signals::install()?;
     tokio::select! {
-        result = server => { result??; }
+        result = &mut server => { result??; }
         _ = tokio::signal::ctrl_c() => println!("shutting down…"),
         _ = signals.terminate() => println!("terminated; shutting down…"),
         _ = orphaned => println!("stdin closed; the parent is gone — shutting down…"),
@@ -764,6 +776,19 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         .join("uploads")
         .join(std::process::id().to_string());
     let shutdown = async {
+        // Outside in. The listener stops taking connections and every open channel is told and
+        // closed, so nothing reaches a module once it is stopping: a page that reconnected in the
+        // grace period used to call modules that had already stopped. Then the modules, then the
+        // hub under them.
+        let _ = stop_serving.send(());
+        transport.end_all().await;
+        if !server.is_finished() {
+            match (&mut server).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => tracing::warn!(error = %e, "the listener did not stop cleanly"),
+                Err(e) => tracing::warn!(error = %e, "the listener's task ended badly"),
+            }
+        }
         // Modules stop in reverse: a later module may depend on an earlier one.
         for record in records.iter().rev().filter(|r| r.is_enabled()) {
             record.module.stop().await;

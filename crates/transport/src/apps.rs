@@ -97,7 +97,7 @@ async fn subject_of(state: &AppState, headers: &HeaderMap, query: &str) -> Optio
         })
     };
     for credential in [bearer.clone(), param("credential")].into_iter().flatten() {
-        if let Some(established) = state.sessions.get(&credential).await {
+        if let Some(established) = state.sessions.get(&credential) {
             return Some(established.subject.clone());
         }
     }
