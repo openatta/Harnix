@@ -179,6 +179,10 @@ Playwright 会把这些用例的位置记成 `suite.ts`（`test()` 在那里调�
 - `eventsOfKind(kind, sessionId)`、`text(sessionId)`：收到了什么。
 - `handshake`、`project`、`backend`。
 
+客户端之外，testkit 还给：`runTurn(api, session, message, { decision, timeout })`（发一句、用 `decision` 答这轮里的每个
+权限提问，子 Agent 的也算、答过的不再答，等结算；返回结算帧和答过的提问）；`alive(pid)`、`gone(pid, within)`；
+`dropSessions(api)`（见「收尾」）。
+
 每个用例**自己一个客户端**。事件日志是按客户端记的，共用一个时，一个用例能匹配到前一个用例产生
 的帧，有两个用例就这样隔一次绿一次红。
 
