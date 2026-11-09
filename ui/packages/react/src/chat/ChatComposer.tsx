@@ -729,7 +729,7 @@ export function ChatComposer(props: ChatComposerProps) {
               className={`hx-cmp-model${pop === "model" ? " on" : ""}`}
               data-testid="conv-model"
               title={strings.model}
-              aria-label={`${strings.model}：${props.model}`}
+              aria-label={strings.modelOf(props.model)}
               aria-expanded={pop === "model"}
               onClick={() => toggle("model")}
             >

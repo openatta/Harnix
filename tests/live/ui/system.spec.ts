@@ -286,7 +286,7 @@ test("system-agents: an Agent waiting on its permission ask says so, first in th
   const first = page.locator('[data-testid="system-agents"] .tgroup').first();
   await expect(first).toHaveAttribute("data-sid", id, { timeout: 10_000 });
   await expect(first).toHaveAttribute("data-state", "waiting");
-  await expect(first.locator(".act")).toHaveText(/Approval|等批准/);
+  await expect(first.locator(".act")).toHaveText(/Approval|待批准/);
   await expect(page.locator('[data-testid="system-strip"] [data-kpi="waiting"] .v')).toHaveText("1");
   // Answered from its own conversation, it waits on nobody.
   await page.locator('#side [data-space="sessions"]').click();
