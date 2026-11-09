@@ -394,7 +394,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
     assert_eq!(centre["surface"]["sessions"], json!(ID));
     assert_eq!(
         centre["interface"],
-        json!({"hub": ["harnix.sessions"], "links": true, "trust": "unsigned", "title": "Showcase", "spaces": [ID]})
+        json!({"hub": ["harnix.sessions"], "links": true, "trust": "unsigned", "title": "Showcase", "spaces": [ID, "example.showcase.chats"]})
     );
     assert_eq!(rig.runtime.status(ID)["frames"], json!(true));
     assert!(

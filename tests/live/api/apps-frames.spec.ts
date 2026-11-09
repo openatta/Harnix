@@ -17,7 +17,7 @@ import { join } from "node:path";
 
 import { type Backend, type TestClient, connect, expect, test } from "@harnix/testkit";
 
-import { SHOWCASE_ID, appsTools, showcasePackage, startApps, variant } from "./apps-host";
+import { SHOWCASE_CHATS, SHOWCASE_ID, appsTools, showcasePackage, startApps, variant } from "./apps-host";
 import { MOCK_PUBLISHER, STORE_FIXTURE } from "./apps-store";
 
 const TAGS = { tag: ["@feature:apps", "@layer:api"] };
@@ -71,13 +71,15 @@ test.describe("unsigned, under [apps] dev", () => {
     expect(refused.map((c: any) => c.refused)).toEqual(["showcase.js", "showcase.js"]);
     expect(refused[0].reason).toContain("trusted publisher");
     const listed = surfaces(hello);
-    expect(listed.map((c: any) => c.point)).toEqual(["space", "space.sidebar", "space.tab", "space.secondary", "details.panel", "home.card", "settings.section", "modal"]);
+    expect(listed.map((c: any) => c.point)).toEqual(["space", "space.sidebar", "space.tab", "space.secondary", "details.panel", "home.card", "settings.section", "modal", "space"]);
     const centre = listed[0];
     expect(centre).toMatchObject({
       frame: `/apps/${SHOWCASE_ID}/ui/frame/index.html`,
       surface: { id: "space", space: SHOWCASE_ID, sessions: SHOWCASE_ID, icon: "file", center: "hidden", title: { en: "Showcase", "zh-CN": "示例应用" } },
-      interface: { hub: ["harnix.sessions"], links: true, trust: "unsigned", spaces: [SHOWCASE_ID] },
+      interface: { hub: ["harnix.sessions"], links: true, trust: "unsigned", spaces: [SHOWCASE_ID, SHOWCASE_CHATS] },
     });
+    // The second space has no page: its centre is the conversation, its left column the shell's list.
+    expect(listed.at(-1)).toMatchObject({ frame: null, surface: { space: SHOWCASE_CHATS, sessions: SHOWCASE_CHATS, center: "chat" } });
     const runtime = (await api.call("harnix.apps.list")).apps[0].runtime;
     expect(runtime.frames).toBe(true);
     expect(runtime.surfaces).toContain("space.tab:heartbeat");
@@ -172,7 +174,7 @@ test.describe("signed by a publisher this Harnix trusts", () => {
     expect((await api.call("harnix.apps.installFile", { path: isolated })).trust).toBe("trusted");
     const hello = await api.call("harnix.hello");
     expect(modules(hello)).toEqual([]);
-    expect(surfaces(hello).length).toBe(8);
+    expect(surfaces(hello).length).toBe(9);
     expect(surfaces(hello)[0].interface.trust).toBe("trusted");
     await api.call("harnix.apps.uninstall", { id: SHOWCASE_ID });
   });

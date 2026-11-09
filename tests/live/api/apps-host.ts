@@ -23,6 +23,8 @@ import { type Backend, type LaunchOptions, type ModelMode, ROOT, launchFor, star
 const TARGET = join(ROOT, "target", "apps");
 export const SHOWCASE = join(ROOT, "examples", "apps", "showcase");
 export const SHOWCASE_ID = "example.showcase";
+/** The showcase's second space: the shell's session list, grouped as its backend answers. */
+export const SHOWCASE_CHATS = "example.showcase.chats";
 
 let built: { bin: string; pack: string } | null = null;
 

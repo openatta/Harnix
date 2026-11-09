@@ -4,7 +4,8 @@
  * `[[inline.tool_row]]` says; a card its backend appends to a session is drawn as its
  * `[[inline.flow_block]]` says, and its buttons call the backend (asking first where it says so),
  * with what came back shown in the card; the composer's `/` and `@` menus offer the backend's
- * candidates; its space's sessions are grouped as the backend answers. Its space in the left column
+ * candidates; its chats space's sessions are grouped as the backend answers (its first space draws
+ * its own left column, which no grouping reaches). Its space in the left column
  * carries the application mark, which the settings turn off and on; and Settings → Applications
  * clears what it keeps.
  */
@@ -12,7 +13,7 @@
 import type { Page } from "@playwright/test";
 import { type Backend, type TestClient, connect, expect, test, topology } from "@harnix/testkit";
 
-import { SHOWCASE_ID, showcasePackage, startApps } from "../api/apps-host";
+import { SHOWCASE_CHATS, SHOWCASE_ID, showcasePackage, startApps } from "../api/apps-host";
 import { newSession, open, openSettings, reply, say, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:apps-inline", "@layer:ui"] };
@@ -133,11 +134,11 @@ test("the composer's menus offer the backend's candidates", TAGS, async ({ page 
   expect(errors).toEqual([]);
 });
 
-test("its space's sessions are grouped as its backend answers", TAGS, async ({ page }) => {
+test("its chats space's sessions are grouped as its backend answers", TAGS, async ({ page }) => {
   const [carded, plain] = await withApi(async (api) => {
     const made: { instance: string; session_id: string }[] = [];
     for (let i = 0; i < 2; i += 1) {
-      const created = await api.call("session.create", { space: SHOWCASE_ID, options: { recorder: { name: "says-ready" } } });
+      const created = await api.call("session.create", { space: SHOWCASE_CHATS, options: { recorder: { name: "says-ready" } } });
       const s = { instance: created.instance, session_id: created.session_id };
       await api.call("harnix.attach", s);
       await api.call("harnix.send", { ...s, message: "Say exactly: fixture ready" });
@@ -148,8 +149,8 @@ test("its space's sessions are grouped as its backend answers", TAGS, async ({ p
     return made;
   });
   await open(page, backend.url);
-  await page.locator(`#side [data-space="${SHOWCASE_ID}"]`).click();
-  await expect(page.locator("#main")).toHaveAttribute("data-space", SHOWCASE_ID);
+  await page.locator(`#side [data-space="${SHOWCASE_CHATS}"]`).click();
+  await expect(page.locator("#main")).toHaveAttribute("data-space", SHOWCASE_CHATS);
   const cards = page.locator('#sessions [data-testid="space-group"][data-group="m:cards"]');
   await expect(cards).toBeVisible({ timeout: 15_000 });
   await expect(cards).toContainText(/With a card|有卡片的/);
@@ -158,6 +159,10 @@ test("its space's sessions are grouped as its backend answers", TAGS, async ({ p
   await expect(other).toContainText(/Without a card|没有卡片的/);
   await expect(other.locator(`[data-sid="${plain!.session_id}"]`)).toBeVisible();
   await expect(cards.locator(`[data-sid="${plain!.session_id}"]`)).toHaveCount(0);
+  // Its first space's left column is its own frame: nothing of the shell's list, grouped or not.
+  await page.locator(`#side [data-space="${SHOWCASE_ID}"]`).click();
+  await expect(page.locator(`iframe.hx-frame[data-app="${SHOWCASE_ID}"][data-point="space.sidebar"]`)).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('#sessions [data-testid="space-group"]')).toHaveCount(0);
 });
 
 async function applications(page: Page): Promise<void> {
