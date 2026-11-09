@@ -74,18 +74,6 @@ pub const TOOL_REWORK: &str = "flow_rework";
 pub const TOOL_RETRY: &str = "flow_retry";
 pub const TOOL_RELEASE: &str = "flow_release";
 
-/// The tools that act on a run of the current flow (xops-03 §5).
-pub const RUN_TOOLS: [&str; 8] = [
-    TOOL_PAUSE,
-    TOOL_RESUME,
-    TOOL_CANCEL,
-    TOOL_CONFIRM,
-    TOOL_FORCE,
-    TOOL_REWORK,
-    TOOL_RETRY,
-    TOOL_RELEASE,
-];
-
 /// The flow guide (xops-03 §6): what `flow_guide` gives and the reference tab shows.
 pub const GUIDE_EN: &str = include_str!("../../docs/guide.en.md");
 pub const GUIDE_ZH: &str = include_str!("../../docs/guide.zh-CN.md");
@@ -97,38 +85,281 @@ pub const CONVERSATION_KIND: &str = "conversation";
 /// A flow conversation's permission rules: `ask` for each authoring tool that changes something.
 pub fn ask_rules() -> Value {
     Value::Array(
-        AUTHOR_TOOLS
+        TOOLS
             .iter()
-            .filter(|(_, read_only)| !read_only)
-            .map(|(name, _)| json!({"source": "session", "behavior": "ask", "tool_name": name}))
+            .filter(|t| t.ask.is_some())
+            .map(|t| json!({"source": "session", "behavior": "ask", "tool_name": t.name}))
             .collect(),
     )
 }
 
-/// Every authoring tool, and whether it is read-only.
-pub const AUTHOR_TOOLS: [(&str, bool); 22] = [
-    (TOOL_LIST, true),
-    (TOOL_SHOW, true),
-    (TOOL_SCHEMA, true),
-    (TOOL_VALIDATE, true),
-    (TOOL_CREATE, false),
-    (TOOL_UPDATE, false),
-    (TOOL_DELETE, false),
-    (TOOL_PART_SET, false),
-    (TOOL_PART_DELETE, false),
-    (TOOL_DRY_RUN, true),
-    (TOOL_START, false),
-    (TOOL_GUIDE, true),
-    (TOOL_RUNS, true),
-    (TOOL_RUN, true),
-    (TOOL_PAUSE, false),
-    (TOOL_RESUME, false),
-    (TOOL_CANCEL, false),
-    (TOOL_CONFIRM, false),
-    (TOOL_FORCE, false),
-    (TOOL_REWORK, false),
-    (TOOL_RETRY, false),
-    (TOOL_RELEASE, false),
+/// Every authoring tool, and whether it is read-only: [`TOOLS`], as names.
+pub const AUTHOR_TOOLS: [(&str, bool); TOOLS.len()] = {
+    let mut out = [("", false); TOOLS.len()];
+    let mut i = 0;
+    while i < TOOLS.len() {
+        out[i] = (TOOLS[i].name, TOOLS[i].ask.is_none());
+        i += 1;
+    }
+    out
+};
+
+/// One authoring tool, everything about it but its code. [`TOOLS`] is the one place a tool is
+/// listed: its name, what the model is told of it, its input, what the person is asked, and which
+/// arm of [`AuthorTool::call`] runs it.
+pub(crate) struct ToolSpec {
+    pub name: &'static str,
+    pub description: &'static str,
+    /// Its input's JSON Schema.
+    pub schema: fn() -> Value,
+    /// What the person is asked to let the agent do, from the call's input. `None`: the tool is
+    /// read-only, and runs without asking.
+    pub ask: Option<fn(&Value) -> String>,
+    does: Does,
+}
+
+/// Which arm of [`AuthorTool::call`] a tool is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Does {
+    List,
+    Show,
+    Schema,
+    Validate,
+    Save { creating: bool },
+    Delete,
+    PartSet,
+    PartDelete,
+    DryRun,
+    Start,
+    Guide,
+    Runs,
+    Run,
+    /// A run tool: it acts on a run of the current flow (xops-03 §5).
+    Act(Act),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Act {
+    Pause,
+    Resume,
+    Cancel,
+    Confirm,
+    Force,
+    Rework,
+    Retry,
+    Release,
+}
+
+/// A name from a tool's input, for the question: `` `name` ``, or nothing.
+fn named(input: &Value, k: &str) -> String {
+    input
+        .get(k)
+        .and_then(Value::as_str)
+        .map(|n| format!(" `{n}`"))
+        .unwrap_or_default()
+}
+
+/// A part's kind from a tool's input, for the question.
+fn kind_named(input: &Value) -> &str {
+    input.get("kind").and_then(Value::as_str).unwrap_or("part")
+}
+
+fn flow_named() -> Value {
+    json!({"type": "string", "description": "the flow this acts on, by name: the current one, as flow_show or flow_list gave it"})
+}
+
+fn parts_given() -> Value {
+    json!({"type": "array", "description": "parts saved with the flow", "items": {
+        "type": "object", "required": ["kind", "name", "text"], "properties": {
+            "kind": {"enum": ["skill", "rule", "policy", "gate", "hook"]},
+            "name": {"type": "string"}, "text": {"type": "string"}}}})
+}
+
+fn no_input() -> Value {
+    json!({"type": "object", "properties": {}})
+}
+
+fn run_named() -> Value {
+    json!({"type": "object", "required": ["run"], "properties": {"run": {"type": "string"}}})
+}
+
+/// Every authoring tool, in the order the model is offered them.
+pub(crate) const TOOLS: &[ToolSpec] = &[
+    ToolSpec {
+        name: TOOL_LIST,
+        description: "The flows on offer: name, title, origin (builtin, override, user) and whether each is valid; and which one is current.",
+        schema: no_input,
+        ask: None,
+        does: Does::List,
+    },
+    ToolSpec {
+        name: TOOL_SHOW,
+        description: "The current flow (the one the user selected): its YAML, the texts of the parts it uses (skills, rules, policies, gates), the hooks over it, its problems, and its stations in brief.",
+        schema: no_input,
+        ask: None,
+        does: Does::Show,
+    },
+    ToolSpec {
+        name: TOOL_SCHEMA,
+        description: "The JSON Schemas of a flow definition and of policies, gates and hooks, and the names this application offers (scenes, steps, checks, tools, templates, instances, spaces, models, guarded tools, and the parts on offer by kind).",
+        schema: no_input,
+        ask: None,
+        does: Does::Schema,
+    },
+    ToolSpec {
+        name: TOOL_VALIDATE,
+        description: "Every problem of a flow definition text (YAML), without saving anything. An empty list: it is valid.",
+        schema: || json!({"type": "object", "required": ["yaml"], "properties": {"yaml": {"type": "string"}}}),
+        ask: None,
+        does: Does::Validate,
+    },
+    ToolSpec {
+        name: TOOL_CREATE,
+        description: "Create a new flow from its YAML (and, optionally, parts it uses: [{kind: skill|rule|policy|gate, name, text}]). Everything is validated first and nothing is saved if anything has problems. It becomes the current flow.",
+        schema: || json!({"type": "object", "required": ["yaml"], "properties": {"yaml": {"type": "string"}, "parts": parts_given()}}),
+        ask: Some(|input| {
+            let created = input
+                .get("yaml")
+                .and_then(Value::as_str)
+                .and_then(|y| FlowDef::parse(y).ok())
+                .map(|d| format!(" `{}`", d.name))
+                .unwrap_or_default();
+            format!("create the flow{created}")
+        }),
+        does: Does::Save { creating: true },
+    },
+    ToolSpec {
+        name: TOOL_UPDATE,
+        description: "Change the current flow, named in `flow`: its YAML (same name), and/or parts ([{kind, name, text}]). Validated first; nothing is saved if anything has problems. Runs already started keep their definition.",
+        schema: || json!({"type": "object", "required": ["flow"], "properties": {"flow": flow_named(), "yaml": {"type": "string"}, "parts": parts_given()}}),
+        ask: Some(|input| format!("change the flow{}", named(input, "flow"))),
+        does: Does::Save { creating: false },
+    },
+    ToolSpec {
+        name: TOOL_DELETE,
+        description: "Delete the current flow, named in `flow`. For a built-in flow, this deletes the saved override and the built-in version is back.",
+        schema: || json!({"type": "object", "required": ["flow"], "properties": {"flow": flow_named()}}),
+        ask: Some(|input| format!("delete the flow{}", named(input, "flow"))),
+        does: Does::Delete,
+    },
+    ToolSpec {
+        name: TOOL_PART_SET,
+        description: "Create or change a part of the pack: a skill (its SKILL.md), a rule (markdown, first `# ` heading its title), a policy, a gate or a hook (YAML; its `name` the same). Checked first; the flows it breaks are listed.",
+        schema: || json!({"type": "object", "required": ["kind", "name", "text"], "properties": {"kind": {"enum": ["skill", "rule", "policy", "gate", "hook"]}, "name": {"type": "string"}, "text": {"type": "string"}}}),
+        ask: Some(|input| format!("save the {}{}", kind_named(input), named(input, "name"))),
+        does: Does::PartSet,
+    },
+    ToolSpec {
+        name: TOOL_PART_DELETE,
+        description: "Delete a saved part (a built-in one: its override, and the built-in one is back).",
+        schema: || json!({"type": "object", "required": ["kind", "name"], "properties": {"kind": {"enum": ["skill", "rule", "policy", "gate", "hook"]}, "name": {"type": "string"}}}),
+        ask: Some(|input| format!("delete the {}{}", kind_named(input), named(input, "name"))),
+        does: Does::PartDelete,
+    },
+    ToolSpec {
+        name: TOOL_DRY_RUN,
+        description: "Dry-run the current flow, named in `flow`: the real kernel, everything outside mocked (no session, no program, no model, no command). Runs until it ends or waits for a person, and returns the path it took. `mocks`: {stations: {id: output}, gates: {gate: false} (command and host gates), tools: {tool: result} (what tool gates get)}.",
+        schema: || json!({"type": "object", "required": ["flow"], "properties": {
+            "flow": flow_named(),
+            "inputs": {"type": "object"},
+            "mocks": {"type": "object", "properties": {
+                "stations": {"type": "object"}, "gates": {"type": "object"}, "tools": {"type": "object"}}}}}),
+        ask: None,
+        does: Does::DryRun,
+    },
+    ToolSpec {
+        name: TOOL_START,
+        description: "Start a real run of the current flow, named in `flow`, for a subject. Only when the user asks for it.",
+        schema: || json!({"type": "object", "required": ["flow", "subject"], "properties": {
+            "flow": flow_named(),
+            "subject": {"type": "string"}, "inputs": {"type": "object"}, "title": {"type": "string"}}}),
+        ask: Some(|input| format!("start a run of the flow{} for{}", named(input, "flow"), named(input, "subject"))),
+        does: Does::Start,
+    },
+    ToolSpec {
+        name: TOOL_GUIDE,
+        description: "The guide to flows: the objects (flow, station, work, task, executor, exit condition, rule, policy and permission, gate, hook, run, main session, sub-agent, lease, rework, dry run), what they mean, and how to define a flow, with examples. `lang`: en or zh-CN.",
+        schema: || json!({"type": "object", "properties": {"lang": {"enum": ["en", "zh-CN"]}}}),
+        ask: None,
+        does: Does::Guide,
+    },
+    ToolSpec {
+        name: TOOL_RUNS,
+        description: "The runs of the current flow, newest first: id, title, what each is doing (phase), when it started, its tokens.",
+        schema: no_input,
+        ask: None,
+        does: Does::Runs,
+    },
+    ToolSpec {
+        name: TOOL_RUN,
+        description: "One run of the current flow: each station's status, time and tokens, what it waits for, its tasks.",
+        schema: run_named,
+        ask: None,
+        does: Does::Run,
+    },
+    ToolSpec {
+        name: TOOL_PAUSE,
+        description: "Pause a run of the current flow: what is in hand finishes, nothing new starts. Only when the user asks.",
+        schema: run_named,
+        ask: Some(|input| format!("pause the run{}", named(input, "run"))),
+        does: Does::Act(Act::Pause),
+    },
+    ToolSpec {
+        name: TOOL_RESUME,
+        description: "Resume a paused run of the current flow. Only when the user asks.",
+        schema: run_named,
+        ask: Some(|input| format!("resume the run{}", named(input, "run"))),
+        does: Does::Act(Act::Resume),
+    },
+    ToolSpec {
+        name: TOOL_CANCEL,
+        description: "Cancel a run of the current flow, with a reason. Only when the user asks.",
+        schema: || json!({"type": "object", "required": ["run", "reason"], "properties": {"run": {"type": "string"}, "reason": {"type": "string"}}}),
+        ask: Some(|input| format!("cancel the run{}", named(input, "run"))),
+        does: Does::Act(Act::Cancel),
+    },
+    ToolSpec {
+        name: TOOL_CONFIRM,
+        description: "Confirm a station of a run of the current flow (`pass`: true passes, false rejects), with an optional reason. Only when the user asks: their approval is the confirmation.",
+        schema: || json!({"type": "object", "required": ["run", "station", "pass"], "properties": {"run": {"type": "string"}, "station": {"type": "string"}, "pass": {"type": "boolean"}, "reason": {"type": "string"}}}),
+        ask: Some(|input| {
+            format!(
+                "{} station{} of the run{}",
+                if input.get("pass").and_then(Value::as_bool) == Some(false) { "reject" } else { "confirm" },
+                named(input, "station"),
+                named(input, "run")
+            )
+        }),
+        does: Does::Act(Act::Confirm),
+    },
+    ToolSpec {
+        name: TOOL_FORCE,
+        description: "Pass a station of a run by force, with a reason, whatever is not met. Only when the user asks.",
+        schema: || json!({"type": "object", "required": ["run", "station", "reason"], "properties": {"run": {"type": "string"}, "station": {"type": "string"}, "reason": {"type": "string"}}}),
+        ask: Some(|input| format!("force station{} of the run{}", named(input, "station"), named(input, "run"))),
+        does: Does::Act(Act::Force),
+    },
+    ToolSpec {
+        name: TOOL_REWORK,
+        description: "Send a run of the current flow back to station `to` (optionally only `tasks`), with a reason. Only when the user asks.",
+        schema: || json!({"type": "object", "required": ["run", "to", "reason"], "properties": {"run": {"type": "string"}, "to": {"type": "string"}, "tasks": {"type": "array", "items": {"type": "string"}}, "reason": {"type": "string"}}}),
+        ask: Some(|input| format!("send the run{} back to{}", named(input, "run"), named(input, "to"))),
+        does: Does::Act(Act::Rework),
+    },
+    ToolSpec {
+        name: TOOL_RETRY,
+        description: "Put a failed task of a run back to work with a fresh retry budget. Only when the user asks.",
+        schema: || json!({"type": "object", "required": ["run", "station", "task"], "properties": {"run": {"type": "string"}, "station": {"type": "string"}, "task": {"type": "string"}}}),
+        ask: Some(|input| format!("retry task{} of the run{}", named(input, "task"), named(input, "run"))),
+        does: Does::Act(Act::Retry),
+    },
+    ToolSpec {
+        name: TOOL_RELEASE,
+        description: "Release a held station of a run. Only when the user asks.",
+        schema: || json!({"type": "object", "required": ["run", "station"], "properties": {"run": {"type": "string"}, "station": {"type": "string"}}}),
+        ask: Some(|input| format!("release station{} of the run{}", named(input, "station"), named(input, "run"))),
+        does: Does::Act(Act::Release),
+    },
 ];
 
 /// The system prompt block `flow-author` adds.
@@ -198,7 +429,7 @@ impl Scene for AuthorScene {
     fn tools(&self) -> Vec<String> {
         let mut tools = self.inner.tools();
         if !tools.is_empty() {
-            tools.extend(AUTHOR_TOOLS.iter().map(|(n, _)| n.to_string()));
+            tools.extend(TOOLS.iter().map(|t| t.name.to_string()));
         }
         tools
     }
@@ -210,10 +441,9 @@ impl Scene for AuthorScene {
     }
     fn extra_tools(&self) -> Vec<Arc<dyn Tool>> {
         let mut tools = self.inner.extra_tools();
-        for (name, read_only) in AUTHOR_TOOLS {
+        for spec in TOOLS {
             tools.push(Arc::new(AuthorTool {
-                name,
-                read_only,
+                spec,
                 sh: self.sh.clone(),
             }));
         }
@@ -229,7 +459,7 @@ impl Scene for AuthorScene {
         self.inner.disallowed_tools()
     }
     fn permits_tool(&self, name: &str) -> bool {
-        AUTHOR_TOOLS.iter().any(|(n, _)| *n == name) || self.inner.permits_tool(name)
+        TOOLS.iter().any(|t| t.name == name) || self.inner.permits_tool(name)
     }
     fn deferred_tools(&self) -> Vec<String> {
         self.inner.deferred_tools()
@@ -337,10 +567,9 @@ fn restore_parts(packs: &dyn Packs, before: &[((PartKind, String), Option<String
 
 type ToolOut = Result<ToolResult, base::error::ToolError>;
 
-/// One authoring tool: which one is its name.
+/// One authoring tool: its row of [`TOOLS`].
 struct AuthorTool {
-    name: &'static str,
-    read_only: bool,
+    spec: &'static ToolSpec,
     sh: Arc<Shared>,
 }
 
@@ -473,129 +702,26 @@ fn stations_of(def: &FlowDef) -> Vec<Value> {
 #[async_trait::async_trait]
 impl Tool for AuthorTool {
     fn name(&self) -> &str {
-        self.name
+        self.spec.name
     }
     fn description(&self) -> &str {
-        match self.name {
-            TOOL_LIST => "The flows on offer: name, title, origin (builtin, override, user) and whether each is valid; and which one is current.",
-            TOOL_SHOW => "The current flow (the one the user selected): its YAML, the texts of the parts it uses (skills, rules, policies, gates), the hooks over it, its problems, and its stations in brief.",
-            TOOL_SCHEMA => "The JSON Schemas of a flow definition and of policies, gates and hooks, and the names this application offers (scenes, steps, checks, tools, templates, instances, spaces, models, guarded tools, and the parts on offer by kind).",
-            TOOL_VALIDATE => "Every problem of a flow definition text (YAML), without saving anything. An empty list: it is valid.",
-            TOOL_CREATE => "Create a new flow from its YAML (and, optionally, parts it uses: [{kind: skill|rule|policy|gate, name, text}]). Everything is validated first and nothing is saved if anything has problems. It becomes the current flow.",
-            TOOL_UPDATE => "Change the current flow, named in `flow`: its YAML (same name), and/or parts ([{kind, name, text}]). Validated first; nothing is saved if anything has problems. Runs already started keep their definition.",
-            TOOL_DELETE => "Delete the current flow, named in `flow`. For a built-in flow, this deletes the saved override and the built-in version is back.",
-            TOOL_PART_SET => "Create or change a part of the pack: a skill (its SKILL.md), a rule (markdown, first `# ` heading its title), a policy, a gate or a hook (YAML; its `name` the same). Checked first; the flows it breaks are listed.",
-            TOOL_PART_DELETE => "Delete a saved part (a built-in one: its override, and the built-in one is back).",
-            TOOL_DRY_RUN => "Dry-run the current flow, named in `flow`: the real kernel, everything outside mocked (no session, no program, no model, no command). Runs until it ends or waits for a person, and returns the path it took. `mocks`: {stations: {id: output}, gates: {gate: false} (command and host gates), tools: {tool: result} (what tool gates get)}.",
-            TOOL_START => "Start a real run of the current flow, named in `flow`, for a subject. Only when the user asks for it.",
-            TOOL_GUIDE => "The guide to flows: the objects (flow, station, work, task, executor, exit condition, rule, policy and permission, gate, hook, run, main session, sub-agent, lease, rework, dry run), what they mean, and how to define a flow, with examples. `lang`: en or zh-CN.",
-            TOOL_RUNS => "The runs of the current flow, newest first: id, title, what each is doing (phase), when it started, its tokens.",
-            TOOL_RUN => "One run of the current flow: each station's status, time and tokens, what it waits for, its tasks.",
-            TOOL_PAUSE => "Pause a run of the current flow: what is in hand finishes, nothing new starts. Only when the user asks.",
-            TOOL_RESUME => "Resume a paused run of the current flow. Only when the user asks.",
-            TOOL_CANCEL => "Cancel a run of the current flow, with a reason. Only when the user asks.",
-            TOOL_CONFIRM => "Confirm a station of a run of the current flow (`pass`: true passes, false rejects), with an optional reason. Only when the user asks: their approval is the confirmation.",
-            TOOL_FORCE => "Pass a station of a run by force, with a reason, whatever is not met. Only when the user asks.",
-            TOOL_REWORK => "Send a run of the current flow back to station `to` (optionally only `tasks`), with a reason. Only when the user asks.",
-            TOOL_RETRY => "Put a failed task of a run back to work with a fresh retry budget. Only when the user asks.",
-            TOOL_RELEASE => "Release a held station of a run. Only when the user asks.",
-            _ => "",
-        }
+        self.spec.description
     }
     fn input_schema(&self) -> Value {
-        let parts = json!({"type": "array", "description": "parts saved with the flow", "items": {
-            "type": "object", "required": ["kind", "name", "text"], "properties": {
-                "kind": {"enum": ["skill", "rule", "policy", "gate", "hook"]},
-                "name": {"type": "string"}, "text": {"type": "string"}}}});
-        match self.name {
-            TOOL_VALIDATE => {
-                json!({"type": "object", "required": ["yaml"], "properties": {"yaml": {"type": "string"}}})
-            }
-            TOOL_CREATE => {
-                json!({"type": "object", "required": ["yaml"], "properties": {"yaml": {"type": "string"}, "parts": parts}})
-            }
-            TOOL_UPDATE => {
-                json!({"type": "object", "required": ["flow"], "properties": {"flow": {"type": "string", "description": "the flow this acts on, by name: the current one, as flow_show or flow_list gave it"}, "yaml": {"type": "string"}, "parts": parts}})
-            }
-            TOOL_DELETE => {
-                json!({"type": "object", "required": ["flow"], "properties": {"flow": {"type": "string", "description": "the flow this acts on, by name: the current one, as flow_show or flow_list gave it"}}})
-            }
-            TOOL_PART_SET => {
-                json!({"type": "object", "required": ["kind", "name", "text"], "properties": {"kind": {"enum": ["skill", "rule", "policy", "gate", "hook"]}, "name": {"type": "string"}, "text": {"type": "string"}}})
-            }
-            TOOL_PART_DELETE => {
-                json!({"type": "object", "required": ["kind", "name"], "properties": {"kind": {"enum": ["skill", "rule", "policy", "gate", "hook"]}, "name": {"type": "string"}}})
-            }
-            TOOL_DRY_RUN => json!({"type": "object", "required": ["flow"], "properties": {
-                "flow": {"type": "string", "description": "the flow this acts on, by name: the current one, as flow_show or flow_list gave it"},
-                "inputs": {"type": "object"},
-                "mocks": {"type": "object", "properties": {
-                    "stations": {"type": "object"}, "gates": {"type": "object"}, "tools": {"type": "object"}}}}}),
-            TOOL_START => json!({"type": "object", "required": ["flow", "subject"], "properties": {
-                "flow": {"type": "string", "description": "the flow this acts on, by name: the current one, as flow_show or flow_list gave it"},
-                "subject": {"type": "string"}, "inputs": {"type": "object"}, "title": {"type": "string"}}}),
-            TOOL_GUIDE => json!({"type": "object", "properties": {"lang": {"enum": ["en", "zh-CN"]}}}),
-            TOOL_RUN | TOOL_PAUSE | TOOL_RESUME => json!({"type": "object", "required": ["run"], "properties": {"run": {"type": "string"}}}),
-            TOOL_CANCEL => json!({"type": "object", "required": ["run", "reason"], "properties": {"run": {"type": "string"}, "reason": {"type": "string"}}}),
-            TOOL_CONFIRM => json!({"type": "object", "required": ["run", "station", "pass"], "properties": {"run": {"type": "string"}, "station": {"type": "string"}, "pass": {"type": "boolean"}, "reason": {"type": "string"}}}),
-            TOOL_FORCE => json!({"type": "object", "required": ["run", "station", "reason"], "properties": {"run": {"type": "string"}, "station": {"type": "string"}, "reason": {"type": "string"}}}),
-            TOOL_REWORK => json!({"type": "object", "required": ["run", "to", "reason"], "properties": {"run": {"type": "string"}, "to": {"type": "string"}, "tasks": {"type": "array", "items": {"type": "string"}}, "reason": {"type": "string"}}}),
-            TOOL_RETRY => json!({"type": "object", "required": ["run", "station", "task"], "properties": {"run": {"type": "string"}, "station": {"type": "string"}, "task": {"type": "string"}}}),
-            TOOL_RELEASE => json!({"type": "object", "required": ["run", "station"], "properties": {"run": {"type": "string"}, "station": {"type": "string"}}}),
-            _ => json!({"type": "object", "properties": {}}),
-        }
+        (self.spec.schema)()
     }
     fn is_read_only(&self, _: &Value) -> bool {
-        self.read_only
+        self.spec.ask.is_none()
     }
     fn is_concurrency_safe(&self, _: &Value) -> bool {
-        self.read_only
+        self.spec.ask.is_none()
     }
     /// What changes something is asked about: the person is in the conversation.
     async fn check_permissions(&self, input: &Value, _: &ToolContext) -> PermissionDecision {
-        if self.read_only {
-            return PermissionDecision::allow();
+        match self.spec.ask {
+            None => PermissionDecision::allow(),
+            Some(what) => PermissionDecision::ask(format!("Let the agent {}?", what(input))),
         }
-        let named = |k: &str| {
-            input
-                .get(k)
-                .and_then(Value::as_str)
-                .map(|n| format!(" `{n}`"))
-                .unwrap_or_default()
-        };
-        let created = input
-            .get("yaml")
-            .and_then(Value::as_str)
-            .and_then(|y| FlowDef::parse(y).ok())
-            .map(|d| format!(" `{}`", d.name))
-            .unwrap_or_default();
-        let what = match self.name {
-            TOOL_CREATE => format!("create the flow{created}"),
-            TOOL_UPDATE => format!("change the flow{}", named("flow")),
-            TOOL_DELETE => format!("delete the flow{}", named("flow")),
-            TOOL_PART_SET => format!("save the {}{}", input.get("kind").and_then(Value::as_str).unwrap_or("part"), named("name")),
-            TOOL_PART_DELETE => format!("delete the {}{}", input.get("kind").and_then(Value::as_str).unwrap_or("part"), named("name")),
-            TOOL_START => format!(
-                "start a run of the flow{} for{}",
-                named("flow"),
-                named("subject")
-            ),
-            TOOL_PAUSE => format!("pause the run{}", named("run")),
-            TOOL_RESUME => format!("resume the run{}", named("run")),
-            TOOL_CANCEL => format!("cancel the run{}", named("run")),
-            TOOL_CONFIRM => format!(
-                "{} station{} of the run{}",
-                if input.get("pass").and_then(Value::as_bool) == Some(false) { "reject" } else { "confirm" },
-                named("station"),
-                named("run")
-            ),
-            TOOL_FORCE => format!("force station{} of the run{}", named("station"), named("run")),
-            TOOL_REWORK => format!("send the run{} back to{}", named("run"), named("to")),
-            TOOL_RETRY => format!("retry task{} of the run{}", named("task"), named("run")),
-            TOOL_RELEASE => format!("release station{} of the run{}", named("station"), named("run")),
-            other => other.to_string(),
-        };
-        PermissionDecision::ask(format!("Let the agent {what}?"))
     }
     async fn call(&self, input: Value, cx: ToolContext, _p: ProgressSender) -> ToolOut {
         let sh = &self.sh;
@@ -613,24 +739,24 @@ impl Tool for AuthorTool {
         // What changes or runs a flow names it, and acts only if it is still the current one:
         // the person approved that flow, not whatever is selected when the call runs.
         let target = || target_flow(&input, focus.as_deref());
-        match self.name {
-            TOOL_LIST => text(json!({
+        match self.spec.does {
+            Does::List => text(json!({
                 "flows": publish::defs_list(packs.as_ref()),
                 "current": focus,
                 "writable": packs.writable(),
             })),
-            TOOL_SCHEMA => text(json!({
+            Does::Schema => text(json!({
                 "definition": definition_schema(),
                 "parts": part_schemas(),
                 "catalog": catalog_json(packs.as_ref()),
             })),
-            TOOL_VALIDATE => {
+            Does::Validate => {
                 let Some(yaml) = str_of(&input, "yaml") else {
                     return error("give the definition as `yaml`");
                 };
                 text(json!({"problems": validate_yaml(yaml, packs.as_ref())}))
             }
-            TOOL_SHOW => {
+            Does::Show => {
                 let Ok(name) = need_focus() else {
                     return error(NO_FOCUS);
                 };
@@ -646,8 +772,7 @@ impl Tool for AuthorTool {
                     "parts": used["parts"], "hooks": used["hooks"],
                 }))
             }
-            TOOL_CREATE | TOOL_UPDATE => {
-                let creating = self.name == TOOL_CREATE;
+            Does::Save { creating } => {
                 let current = match (creating, target()) {
                     (true, _) => None,
                     (false, Ok(f)) => Some(f),
@@ -767,7 +892,7 @@ impl Tool for AuthorTool {
                 }
                 text(out)
             }
-            TOOL_DELETE => {
+            Does::Delete => {
                 let name = match target() {
                     Ok(n) => n,
                     Err(m) => return error(m),
@@ -789,7 +914,7 @@ impl Tool for AuthorTool {
                     Err(e) => error(format!("not deleted: {e}")),
                 }
             }
-            TOOL_PART_SET => {
+            Does::PartSet => {
                 let kind = str_of(&input, "kind").and_then(PartKind::parse);
                 let (Some(kind), Some(name), Some(body)) = (kind, str_of(&input, "name"), str_of(&input, "text"))
                 else {
@@ -803,7 +928,7 @@ impl Tool for AuthorTool {
                     Err(e) => error(format!("not saved: {e}")),
                 }
             }
-            TOOL_PART_DELETE => {
+            Does::PartDelete => {
                 let kind = str_of(&input, "kind").and_then(PartKind::parse);
                 let (Some(kind), Some(name)) = (kind, str_of(&input, "name")) else {
                     return error("give the part's `kind` and `name`");
@@ -816,7 +941,7 @@ impl Tool for AuthorTool {
                     Err(e) => error(format!("not deleted: {e}")),
                 }
             }
-            TOOL_DRY_RUN => {
+            Does::DryRun => {
                 let name = match target() {
                     Ok(n) => n,
                     Err(m) => return error(m),
@@ -861,7 +986,7 @@ impl Tool for AuthorTool {
                     "stations": stations, "waiting": view.get("unmet"),
                 }))
             }
-            TOOL_START => {
+            Does::Start => {
                 let name = match target() {
                     Ok(n) => n,
                     Err(m) => return error(m),
@@ -890,11 +1015,11 @@ impl Tool for AuthorTool {
                     Err(e) => error(format!("not started: {e}")),
                 }
             }
-            TOOL_GUIDE => {
+            Does::Guide => {
                 let zh = str_of(&input, "lang").is_some_and(|l| l.starts_with("zh"));
                 Ok(ToolResult::text(if zh { GUIDE_ZH } else { GUIDE_EN }.to_string()))
             }
-            TOOL_RUNS => {
+            Does::Runs => {
                 let Ok(name) = need_focus() else {
                     return error(NO_FOCUS);
                 };
@@ -910,14 +1035,14 @@ impl Tool for AuthorTool {
                     Err(e) => error(e.to_string()),
                 }
             }
-            TOOL_RUN => {
+            Does::Run => {
                 let run = match run_of_focus(&engine, &input, focus.as_deref()).await {
                     Ok(r) => r,
                     Err(m) => return error(m),
                 };
                 text(run_detail(&run, engine.clock().now_ms()))
             }
-            t if RUN_TOOLS.contains(&t) => {
+            Does::Act(act) => {
                 let rec = match run_of_focus(&engine, &input, focus.as_deref()).await {
                     Ok(r) => r,
                     Err(m) => return error(m),
@@ -941,24 +1066,24 @@ impl Tool for AuthorTool {
                 };
                 let station = str_of(&input, "station").unwrap_or_default().to_string();
                 let reason = str_of(&input, "reason").map(String::from);
-                let r = match t {
-                    TOOL_PAUSE => engine.pause(&run, who).await,
-                    TOOL_RESUME => engine.resume(&run, who).await,
-                    TOOL_CANCEL => {
+                let r = match act {
+                    Act::Pause => engine.pause(&run, who).await,
+                    Act::Resume => engine.resume(&run, who).await,
+                    Act::Cancel => {
                         engine
                             .cancel(&run, reason.as_deref().unwrap_or("cancelled in conversation"), who)
                             .await
                     }
-                    TOOL_CONFIRM => {
+                    Act::Confirm => {
                         let pass = input.get("pass").and_then(Value::as_bool).unwrap_or(true);
                         engine.confirm(&run, &station, pass, reason.as_deref(), who).await
                     }
-                    TOOL_FORCE => {
+                    Act::Force => {
                         engine
                             .force(&run, &station, reason.as_deref().unwrap_or("forced in conversation"), who)
                             .await
                     }
-                    TOOL_REWORK => {
+                    Act::Rework => {
                         let to = str_of(&input, "to").unwrap_or_default();
                         let tasks: Option<Vec<String>> = input
                             .get("tasks")
@@ -968,11 +1093,11 @@ impl Tool for AuthorTool {
                             .rework(&run, to, tasks, reason.as_deref().unwrap_or("sent back in conversation"), who)
                             .await
                     }
-                    TOOL_RETRY => {
+                    Act::Retry => {
                         let task = str_of(&input, "task").unwrap_or_default();
                         engine.retry(&run, &station, task, who).await
                     }
-                    _ => engine.release(&run, &station, who).await,
+                    Act::Release => engine.release(&run, &station, who).await,
                 };
                 match r {
                     Ok(o) => {
@@ -984,7 +1109,6 @@ impl Tool for AuthorTool {
                     Err(e) => error(format!("not done: {e}")),
                 }
             }
-            other => error(format!("no tool {other}")),
         }
     }
 }
@@ -1100,9 +1224,37 @@ mod tests {
         );
         // What decides for a person is asked of the person every time (xops-03 §5): none of
         // the run tools is read-only.
-        for t in RUN_TOOLS {
-            assert!(AUTHOR_TOOLS.iter().any(|(n, r)| *n == t && !*r), "{t}");
+        let acts: Vec<&ToolSpec> = TOOLS.iter().filter(|t| matches!(t.does, Does::Act(_))).collect();
+        assert_eq!(acts.len(), 8);
+        for t in acts {
+            assert!(t.ask.is_some(), "{}", t.name);
         }
+    }
+
+    /// The table is the one list: every name once, each with its words, an input schema and,
+    /// when it changes something, a question that names what it acts on.
+    #[test]
+    fn every_tool_is_one_row_of_the_table() {
+        let mut names: Vec<&str> = TOOLS.iter().map(|t| t.name).collect();
+        assert_eq!(AUTHOR_TOOLS.map(|(n, _)| n).to_vec(), names, "the public list is the table's");
+        names.sort();
+        names.dedup();
+        assert_eq!(names.len(), TOOLS.len(), "no name twice");
+        let input = json!({"flow": "f", "run": "r-1", "station": "s", "name": "n", "kind": "rule", "yaml": "name: f\nstations: []"});
+        for t in TOOLS {
+            assert!(t.name.starts_with("flow_") && !t.description.is_empty(), "{}", t.name);
+            assert_eq!((t.schema)()["type"], "object", "{}", t.name);
+            if let Some(ask) = t.ask {
+                let q = ask(&input);
+                assert!(q.contains('`'), "{}: {q}", t.name);
+            }
+        }
+        let rules = ask_rules();
+        assert_eq!(
+            rules.as_array().unwrap().len(),
+            AUTHOR_TOOLS.iter().filter(|(_, r)| !r).count(),
+            "a conversation asks about every tool that changes something, and only those"
+        );
     }
 
     #[test]
