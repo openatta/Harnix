@@ -501,6 +501,11 @@
   display: flex;
 }
 
+/* With the column folded away nothing takes the height: the system entry and the avatar stay at the foot. */
+#frame[data-sidebar="collapsed"] #side .l-bottom {
+  margin-top: auto;
+}
+
 /* The rail: icons only. */
 #frame[data-sidebar="collapsed"] #side .lbl,
 #frame[data-sidebar="collapsed"] #side .sec,
