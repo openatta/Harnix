@@ -1,4 +1,4 @@
-//! Starting a process, in the order design §7.3 gives.
+//! Starting a process, in this order (concept §3.1).
 //!
 //! 1. Read the profile.
 //! 2. **Register** every module, in order: its manifest and what it declares.
