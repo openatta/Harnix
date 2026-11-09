@@ -7,8 +7,8 @@
 //!   running, only under its `ui/`; like the page's own files, served without a credential. Every
 //!   one carries [`FRAME_CSP`]: a frame's page has no network, no plugins, no nested frames, and
 //!   loads only what its own package has.
-//! - `POST /apps/<id>/mcp` — the application's tools for a daemon this process spawned (design
-//!   §5.1): a daemon is another process and has no VM, so its sessions call the tools here, and
+//! - `POST /apps/<id>/mcp` — the application's tools for a daemon this process spawned (concept
+//!   §4.3): a daemon is another process and has no VM, so its sessions call the tools here, and
 //!   they run in this process's VM. The smallest MCP server Agix's client (streamable HTTP) needs:
 //!   `initialize`, `ping`, `tools/list`, `tools/call`, answered as JSON; notifications accepted;
 //!   no server-sent stream (`GET` is 405). Admission is a peer on this machine — a daemon this
