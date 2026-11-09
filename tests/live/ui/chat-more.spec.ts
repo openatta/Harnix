@@ -9,7 +9,7 @@
 
 import { cpSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, RECORDINGS, ROOT, test } from "@harnix/testkit";
+import { dropSessions, expect, RECORDINGS, ROOT, test } from "@harnix/testkit";
 
 import { newSession, open, reply, say, watchConsole } from "./page";
 
@@ -20,6 +20,11 @@ let SCRATCH = "";
 test.beforeEach(({ harnix }) => {
   URL = harnix.url;
   SCRATCH = harnix.scratch;
+});
+// The worker's backend is shared by every file that uses it: a test leaves no session behind
+// for the next one to count.
+test.afterEach(async ({ api }) => {
+  await dropSessions(api);
 });
 
 /** A conversation with one replayed turn behind it. */
@@ -83,7 +88,8 @@ test("a reply is copied whole; regenerating is shown but not offered", TAGS, asy
 
 test("what the model thought is a row of its own, opened on a click", TAGS, async ({ page }) => {
   await open(page, URL);
-  await oneTurn(page);
+  // A recording with the model's thinking in it: the recorded ones have none (their provider streams no thinking text).
+  await oneTurn(page, "thinks-first");
   const think = page.getByTestId("conv-think").first();
   await expect(think).toHaveAttribute("data-state", "done");
   await expect(think).toHaveAttribute("aria-expanded", "false");

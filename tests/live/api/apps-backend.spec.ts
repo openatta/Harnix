@@ -20,7 +20,7 @@ import { type AddressInfo } from "node:net";
 import { type Server, createServer } from "node:http";
 
 import { INVALID_PARAMS, INTERNAL_ERROR, METHOD_NOT_FOUND } from "@harnix/core/protocol";
-import { type Backend, type TestClient, connect, expect, sleep, test, topology } from "@harnix/testkit";
+import { type Backend, type TestClient, connect, expect, runTurn, sleep, test, topology } from "@harnix/testkit";
 
 import { SHOWCASE_CHATS, SHOWCASE_ID, showcasePackage, startApps } from "./apps-host";
 
@@ -35,27 +35,6 @@ const audit = async (api: TestClient) => (await api.call("harnix.audit", { limit
 const runtime = async (api: TestClient) => (await api.call("harnix.apps.list")).apps.find((a: any) => a.id === SHOWCASE_ID).runtime;
 const topicValues = (api: TestClient, topic: string) =>
   api.events.filter((f) => f.method === "harnix.topic" && f.params.topic === topic).map((f) => f.params.value);
-
-/** Send, permit every ask, and wait for the turn to settle. */
-async function turn(api: TestClient, s: Session, message: string): Promise<any> {
-  const sent = await api.call("harnix.send", { ...s, message });
-  const answered = new Set<string>();
-  const deadline = Date.now() + 60_000;
-  for (;;) {
-    const settled = api.events.find(
-      (f) => f.method === "harnix.turn_settled" && f.params.session_id === s.session_id && (!sent.turn_id || f.params.turn_id === sent.turn_id),
-    );
-    if (settled) return settled;
-    for (const f of api.events) {
-      if (f.method !== "harnix.event" || f.params.event?.kind !== "prompt" || f.params.session_id !== s.session_id) continue;
-      if (answered.has(f.params.event.prompt_id)) continue;
-      answered.add(f.params.event.prompt_id);
-      await api.call("session.respondToPrompt", { ...s, prompt_id: f.params.event.prompt_id, decision: { type: "permit" } });
-    }
-    if (Date.now() > deadline) throw new Error(`the turn "${message}" did not settle`);
-    await sleep(50);
-  }
-}
 
 test.describe("an application with a backend", () => {
   test.describe.configure({ mode: "serial" });
@@ -161,7 +140,7 @@ test.describe("an application with a backend", () => {
     const created = await api.call("session.create", { instance: "system", project_root: api.project, options: { recorder: { name: "app-board" } } });
     const s = { instance: "system", session_id: created.session_id };
     await api.call("harnix.attach", s);
-    const settled = await turn(api, s, "What is on the showcase's board?");
+    const settled = (await runTurn(api, s, "What is on the showcase's board?")).settled;
     expect(settled.params.error).toBeUndefined();
     const results = JSON.stringify(api.eventsOfKind("tool_result", s.session_id));
     expect(results).toContain("the board has 1 notes; the counter is at 1");
@@ -271,11 +250,17 @@ test.describe("an application with a backend", () => {
 
   test("disabled: its names are gone, a queued call is told why, its subscribers are told it ended", TAGS, async () => {
     await api.call("harnix.subscribe", { topic: M("notes") });
-    // One call holding the backend, one queued behind it, then the switch.
+    // One call holding the backend, one queued behind it, then the switch. The backend is held
+    // once a quick call made after the spin goes unanswered for a second (the spin holds it for
+    // five, its timeout): that call is the one queued. One that answers came before the spin.
     const spinning = api.refused(M("spin"));
-    await sleep(300);
-    const queued = api.refused(M("notes.list"));
-    await sleep(200);
+    let queued: Promise<any> | undefined;
+    for (const deadline = Date.now() + 20_000; !queued; ) {
+      const probe = api.refused(M("notes.list"));
+      const held = await Promise.race([probe.then(() => false), sleep(1_000).then(() => true)]);
+      if (held) queued = probe;
+      else if (Date.now() > deadline) throw new Error("the spin never held the backend");
+    }
     await api.call("harnix.apps.disable", { id: SHOWCASE_ID });
     const waiting = await queued;
     expect(waiting?.code).toBe(INTERNAL_ERROR);

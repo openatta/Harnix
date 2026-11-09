@@ -1,0 +1,1 @@
+{"role":"user","content":[{"type":"text","text":"\nYou are a general-purpose AI coding agent. Execute the user's request thoroughly.\nUse tools to read, edit, and search code. Report findings clearly.\nFocus on correctness and completeness.\n\nTask: Run ls in the current directory and reply with the file names only."}]}

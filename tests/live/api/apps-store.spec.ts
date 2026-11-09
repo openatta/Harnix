@@ -12,7 +12,7 @@ import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "no
 import { join } from "node:path";
 
 import { INVALID_PARAMS, REFUSED } from "@harnix/core/protocol";
-import { type Backend, type TestClient, connect, expect, sleep, test, topology } from "@harnix/testkit";
+import { type Backend, type TestClient, connect, expect, runTurn, test, topology } from "@harnix/testkit";
 
 import { SHOWCASE_ID, appsTools, showcasePackage } from "./apps-host";
 import { MOCK_PUBLISHER, type MockStore, appsTestApp, mockStore, sha256, startStore, withArtifacts } from "./apps-store";
@@ -32,28 +32,6 @@ async function session(api: TestClient, recording: string): Promise<Session> {
   const s = { instance: "system", session_id: created.session_id };
   await api.call("harnix.attach", s);
   return s;
-}
-
-/** Send, permit every ask, and wait for the turn to settle. */
-async function turn(api: TestClient, s: Session, message: string): Promise<any> {
-  const sent = await api.call("harnix.send", { ...s, message });
-  const answered = new Set<string>();
-  const deadline = Date.now() + 90_000;
-  for (;;) {
-    const settled = api.events.find(
-      (f) => f.method === "harnix.turn_settled" && f.params.session_id === s.session_id && (!sent.turn_id || f.params.turn_id === sent.turn_id),
-    );
-    if (settled) return settled;
-    for (const f of api.events) {
-      if (f.method !== "harnix.event" || f.params.event?.kind !== "prompt" || f.params.session_id !== s.session_id) continue;
-      const id = f.params.event.prompt_id;
-      if (answered.has(id)) continue;
-      answered.add(id);
-      await api.call("session.respondToPrompt", { ...s, prompt_id: id, decision: { type: "permit" } });
-    }
-    if (Date.now() > deadline) throw new Error(`the turn "${message}" did not settle`);
-    await sleep(50);
-  }
 }
 
 const results = (api: TestClient, s: Session) => JSON.stringify(api.eventsOfKind("tool_result", s.session_id));
@@ -251,11 +229,11 @@ test.describe("the store, trusted", () => {
 
   test("the signed showcase runs without dev mode", TAGS, async () => {
     const echo = await session(api, "app-echo");
-    const settled = await turn(api, echo, "Use the showcase's echo tool");
+    const settled = (await runTurn(api, echo, "Use the showcase's echo tool")).settled;
     expect(settled.params.error, JSON.stringify(settled.params.error)).toBeUndefined();
     expect(results(api, echo)).toContain("showcase-echo-42");
     const count = await session(api, "app-count");
-    await turn(api, count, "count");
+    await runTurn(api, count, "count");
     expect(results(api, count)).toContain("count = 1");
     expect((await api.call("harnix.apps.list")).apps[0].data_bytes, "the count is kept").toBeGreaterThan(0);
   });
@@ -283,7 +261,7 @@ test.describe("the store, trusted", () => {
     expect(existsSync(join(backend.state, "apps", SHOWCASE_ID, "0.1.0")), "the old version's files").toBe(false);
     // Its data came along: the count goes on.
     const count = await session(api, "app-count");
-    await turn(api, count, "count");
+    await runTurn(api, count, "count");
     expect(results(api, count)).toContain("count = 2");
     // Nothing newer: nothing to do.
     expect(await api.call("harnix.apps.update", { id: SHOWCASE_ID })).toMatchObject({ up_to_date: true, version: "0.2.0" });
@@ -303,7 +281,7 @@ test.describe("the store, trusted", () => {
     // Installed again, it starts from nothing: the count with it.
     await installByName(api, "0.1.0");
     const count = await session(api, "app-count");
-    await turn(api, count, "count");
+    await runTurn(api, count, "count");
     expect(results(api, count)).toContain("count = 1");
     await api.call("harnix.apps.uninstall", { id: SHOWCASE_ID });
   });
@@ -357,7 +335,7 @@ test.describe("the store, on a Harnix with only the store's own key", () => {
     expect(installed).toMatchObject({ id: SHOWCASE_ID, trust: "trusted", source: "file" });
     expect((await api.call("harnix.apps.list")).apps[0]).toMatchObject({ trust: "trusted", runtime: { state: "running" } });
     const echo = await session(api, "app-echo");
-    await turn(api, echo, "Use the showcase's echo tool");
+    await runTurn(api, echo, "Use the showcase's echo tool");
     expect(results(api, echo)).toContain("showcase-echo-42");
     // A record that says it is trusted is checked again at every start: a changed file stops it.
     await api.call("harnix.apps.disable", { id: SHOWCASE_ID });

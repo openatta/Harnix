@@ -8,7 +8,7 @@
 
 import { readFileSync } from "node:fs";
 import type { Page } from "@playwright/test";
-import { expect, test } from "@harnix/testkit";
+import { dropSessions, expect, test } from "@harnix/testkit";
 
 import { newSession, open, reply, say } from "./page";
 
@@ -19,6 +19,11 @@ const PROJECTS = { tag: ["@feature:projects", "@layer:ui"] };
 let URL = "";
 test.beforeEach(({ harnix }) => {
   URL = harnix.url;
+});
+// The worker's backend is shared by every file that uses it: a test leaves no session behind
+// for the next one to count.
+test.afterEach(async ({ api }) => {
+  await dropSessions(api);
 });
 
 const row = (page: Page, id: string) => page.locator(`#side .srow[data-sid="${id}"]`);

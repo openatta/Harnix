@@ -4,7 +4,7 @@
  * the conversation: the sidebar, search, the settings panel, the theme, the language.
  */
 
-import { expect, launchFor, startHarnix, test } from "@harnix/testkit";
+import { dropSessions, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
 import { flowReference, newSession, open, openFlow, openSettings, say, toFlows, watchConsole } from "./page";
 
@@ -15,6 +15,11 @@ const CONNECTION = { tag: ["@feature:connection", "@layer:ui"] };
 let URL = "";
 test.beforeEach(({ harnix }) => {
   URL = harnix.url;
+});
+// The worker's backend is shared by every file that uses it: a test leaves no session behind
+// for the next one to count.
+test.afterEach(async ({ api }) => {
+  await dropSessions(api);
 });
 
 test("the page loads, connects, and lays out its columns", CONNECTION, async ({ page }) => {
@@ -295,7 +300,7 @@ test("with every built-in space removed, the frame is the chrome alone and says 
     await expect(page.locator('#side [data-space="system"]')).toHaveCount(0);
     await expect(page.getByTestId("avatar")).toBeVisible();
   } finally {
-    bare.stop();
+    await bare.dispose();
   }
 });
 

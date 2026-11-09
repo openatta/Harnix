@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"tool_use","id":"call_00_ET_PTQuaGHxyo5H5M4Ndt0K9775","name":"Bash","input":{"command":"echo harnix-fixture","description":"Echo fixture string"}}]}

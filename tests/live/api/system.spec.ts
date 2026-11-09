@@ -109,13 +109,13 @@ test.describe("on", () => {
     expect(await api.call("harnix.system.tasks.stop", { ...s, task_id: "no-such-task" })).toEqual({ stopped: false });
     const unknown = await api.refused("harnix.system.tasks.output", { ...s, task_id: "no-such-task" });
     expect(unknown?.code, String(unknown)).toBe(-32018);
-    await api.call("harnix.system.compact", s).catch(() => undefined);
+    await api.call("harnix.system.compact", s);
     await api.call("harnix.system.clear", s);
     const context = await api.call("harnix.system.context", s);
     expect(context.messages.count).toBe(0);
 
     const { entries } = await api.call("harnix.audit", { limit: 200 });
-    for (const method of ["harnix.system.rename", "harnix.system.clear"]) {
+    for (const method of ["harnix.system.rename", "harnix.system.compact", "harnix.system.clear"]) {
       expect(entries.some((e: any) => e.method === method && e.decision === "allow"), method).toBe(true);
     }
     // And what it asked of the engine, as the system module.
@@ -294,7 +294,8 @@ test.describe("on", () => {
     expect(turn.model_ms).toBe(times[0]!.duration + times[1]!.duration);
     expect(turn.tool_ms).toBe(times[1]!.sent - (times[0]!.sent + times[0]!.duration));
     expect(turn.ttft_ms).toBe(calls[0].timing.ttft_ms);
-    const out = calls.reduce((n: number, c: any) => n + (c.usage?.output_tokens ?? 0), 0);
+    // The turn's own calls: a recording also holds the calls beside it (its title, the memory extraction).
+    const out = turn.calls.reduce((n: number, i: number) => n + (calls[i].usage?.output_tokens ?? 0), 0);
     expect(turn.output_tokens).toBe(out);
     expect(turn.cache_hit === null || (turn.cache_hit >= 0 && turn.cache_hit <= 1)).toBe(true);
     expect((await api.refused("harnix.system.turns", {}))?.code).toBe(INVALID_PARAMS);

@@ -77,7 +77,9 @@ async function splitStreams() {
   // only one of them and never have the other queued for it at all.
   const readers = [];
   for (const [face, sink] of [["session", events], ["host", events]]) {
+    // The server registers the reader before it answers, so once this is answered the face is attached.
     const response = await fetch(`${base}/events/${face}?token=${encodeURIComponent(credential)}`);
+    if (!response.ok) throw new Error(`the ${face} face was refused: HTTP ${response.status}`);
     const reader = response.body.getReader();
     readers.push(reader);
     (async () => {
@@ -101,8 +103,6 @@ async function splitStreams() {
       } catch { /* closed */ }
     })();
   }
-  // Give both streams a moment to be attached before anything is sent.
-  await sleep(120);
 
   let id = 1;
   const call = async (method, params) => {
@@ -152,18 +152,22 @@ async function drive(client) {
   // A session, an attach, and a send — the attach is the interesting one:
   // in split streams it registers a watcher for a stream that is not this
   // request's connection.
-  const created = await client.call("session.create", { project_root: null, scene: "harnix" })
-    .catch(() => client.call("session.create", {}));
+  // Not retried another way when refused: a refusal on one topology only is what this compares.
+  const created = await client.call("session.create", { project_root: null, scene: "harnix" });
   out.created = typeof created.session_id === "string";
   const attached = await client.call("harnix.attach", { session_id: created.session_id });
   out.attachShape = Object.keys(attached).sort().join(",");
 
-  await client.call("harnix.send", { session_id: created.session_id, message: "hello" })
-    .catch(() => {});
-  // Long enough for the user_message frame the hub synthesises to arrive.
-  await sleep(600);
-  out.sawOwnMessage = client.events.some((f) =>
-    f.method === "harnix.event" && f.params?.event?.kind === "user_message");
+  try {
+    await client.call("harnix.send", { session_id: created.session_id, message: "hello" });
+    out.send = "accepted";
+  } catch (e) {
+    out.send = `${e.code}:${e.message}`;
+  }
+  // Until the user_message frame the hub synthesises arrives, or long enough that it will not.
+  const own = () => client.events.some((f) => f.method === "harnix.event" && f.params?.event?.kind === "user_message");
+  for (const deadline = Date.now() + 10_000; !own() && Date.now() < deadline; ) await sleep(50);
+  out.sawOwnMessage = own();
 
   await client.call("session.delete", { session_id: created.session_id }).catch(() => {});
   return out;

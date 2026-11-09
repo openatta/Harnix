@@ -12,7 +12,7 @@ import type { Topology } from "@harnix/core/protocol";
 
 import { FetchEventSource } from "./eventsource.ts";
 import type { Backend } from "./launcher.ts";
-import { sleep } from "./env.ts";
+import { sleep, topology as topologyOfRun } from "./env.ts";
 
 /** One server-initiated frame, as a suite sees it. */
 export interface Frame {
@@ -67,9 +67,10 @@ export interface TestClient {
   close(): void;
 }
 
+/** Connect to `backend`, speaking `topology` — this run's (`HARNIX_TOPOLOGY`) unless told otherwise. */
 export async function connect(
   backend: Backend,
-  { topology = "single_duplex" }: { topology?: Topology } = {},
+  { topology = topologyOfRun() }: { topology?: Topology } = {},
 ): Promise<TestClient> {
   const sources: FetchEventSource[] = [];
   const client = new HarnixClient({
@@ -98,9 +99,14 @@ export async function connect(
   exercised.add("harnix.handshake");
   const handshake = await client.ready();
   if (sources.length) {
-    // Both faces attached before anything is sent.
+    // Both faces attached before anything is sent: the server answers a stream's request only
+    // once it has registered the reader, so there is nothing to wait out after that.
     await Promise.all(sources.map((s) => s.opened));
-    await sleep(50);
+    const refused = sources.filter((s) => !s.attached);
+    if (refused.length) {
+      client.close();
+      throw new Error(`the server did not take ${refused.length} of the event streams: ${refused.map((s) => s.refusal).join(", ")}`);
+    }
   }
 
   const call = async (method: string, params?: unknown) => {
@@ -186,6 +192,83 @@ export async function finish(client: TestClient, sessionId: string): Promise<voi
     await client.call("session.delete", { session_id: sessionId }).catch(() => {});
   } catch {
     /* cleanup never fails a test */
+  }
+}
+
+/**
+ * Every session on `client`'s backend, of every instance and space, stopped and removed — as
+ * `finish` does for one. For tests that share a backend: what one test leaves behind (a turn
+ * still on an ask, a list one row longer) is not the next test's to count. Never throws.
+ */
+export async function dropSessions(client: TestClient): Promise<void> {
+  try {
+    const { instances } = await client.call("harnix.instances.list");
+    for (const { id: instance } of instances ?? []) {
+      const { sessions } = await client.call("harnix.instances.sessions", { instance }).catch(() => ({ sessions: [] }));
+      for (const { session_id, running } of sessions ?? []) {
+        const ref = { instance, session_id };
+        if (running) {
+          // This client watches none of them, so it is asked rather than told when the turn settles.
+          await client.call("session.interrupt", ref).catch(() => {});
+          const still = async () =>
+            ((await client.call("harnix.instances.sessions", { instance }).catch(() => ({ sessions: [] }))).sessions ?? [])
+              .some((s: any) => s.session_id === session_id && s.running);
+          for (const deadline = Date.now() + 20_000; Date.now() < deadline && (await still()); ) await sleep(100);
+        }
+        await client.call("session.delete", ref).catch(() => {});
+      }
+    }
+  } catch {
+    /* cleanup never fails a test */
+  }
+}
+
+/** Asks some turn already answered, per client: a later turn does not answer one again. */
+const answeredBy = new WeakMap<TestClient, Set<string>>();
+
+/**
+ * One turn: send `message`, answer every permission ask it raises with `decision`, and wait for
+ * the turn to settle.
+ *
+ * The asks answered are the ones this client is shown after the send, a sub-agent's included —
+ * those come in under the sub-agent's own session. What it returns: the settlement frame and the
+ * `harnix.event` params of every ask it answered, in order.
+ */
+export async function runTurn(
+  api: TestClient,
+  session: { session_id: string; instance?: string },
+  message: string,
+  { decision = "permit", timeout = 90_000 }: { decision?: string; timeout?: number } = {},
+): Promise<{ settled: Frame; asks: any[] }> {
+  const answered = answeredBy.get(api) ?? new Set<string>();
+  answeredBy.set(api, answered);
+  const from = api.events.length;
+  const sent = await api.call("harnix.send", { ...session, message });
+  const asks: any[] = [];
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    const settled = api.events.find(
+      (f) => f.method === "harnix.turn_settled" && f.params.session_id === session.session_id
+        && (!sent?.turn_id || f.params.turn_id === sent.turn_id),
+    );
+    if (settled) return { settled, asks };
+    for (const f of api.events.slice(from)) {
+      if (f.method !== "harnix.event" || f.params.event?.kind !== "prompt") continue;
+      const id = f.params.event.prompt_id;
+      if (answered.has(id)) continue;
+      answered.add(id);
+      asks.push(f.params);
+      await api.call("session.respondToPrompt", {
+        instance: f.params.instance ?? session.instance,
+        session_id: f.params.session_id,
+        prompt_id: id,
+        decision: decision === "deny" ? { type: "deny", reason: "not now" } : { type: decision },
+      });
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`the turn "${message}" did not settle in ${timeout / 1000}s; asks so far: ${JSON.stringify(asks)}`);
+    }
+    await sleep(50);
   }
 }
 

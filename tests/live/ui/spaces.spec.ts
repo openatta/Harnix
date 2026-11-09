@@ -34,7 +34,7 @@ test.beforeAll(async () => {
   test.skip(!existsSync(BIN) || !existsSync(join(UI, "index.html")), "examples/hello-app is not built: examples/hello-app/scripts/build.sh");
   backend = await startHarnix(launchFor("replay", { bin: BIN, uiDir: UI }));
 });
-test.afterAll(() => backend?.stop());
+test.afterAll(async () => { await backend?.dispose(); });
 
 async function inSpace(page: Page, space: string): Promise<void> {
   await page.locator(`#side .spaces [data-space="${space}"]`).click();
@@ -220,7 +220,7 @@ test("brand: the product's name, icon, colours and words, without a fork of ui/"
     expect(branded.state.endsWith("/.hello-app")).toBe(true);
     expect(errors).toEqual([]);
   } finally {
-    branded.stop();
+    await branded.dispose();
   }
 });
 

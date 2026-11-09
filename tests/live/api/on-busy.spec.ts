@@ -51,14 +51,17 @@ test("interrupt stops the running turn, drops the queue behind it, and runs next
     );
     expect(settled.params.turn_id).toBe(first.turn_id);
     // What was queued is gone; the interrupting message went in front and runs next.
-    const snapshots = api.events.slice(mark).filter((f) => f.method === "harnix.queue" && f.params.session_id === session_id);
-    expect(snapshots.length).toBeGreaterThan(0);
-    expect(snapshots[0].params.items.map((i: any) => i.message ?? i.text)).not.toContain("queued behind it");
     const started = await api.waitFor(
       (f) => f.method === "harnix.event" && f.params.session_id === session_id
         && f.params.event.kind === "user_message" && f.params.event.text === "instead of all that",
       { timeout: 30_000, describe: "the interrupting message to start its turn" },
     );
+    // The queue as it ended up, not the first snapshot after `mark`: over split streams a frame can
+    // arrive after the answer to a later call, so the snapshot that added "queued behind it" may
+    // come in after the interrupting send was answered.
+    const snapshots = api.events.slice(mark).filter((f) => f.method === "harnix.queue" && f.params.session_id === session_id);
+    expect(snapshots.length).toBeGreaterThan(0);
+    expect(snapshots.at(-1)!.params.items.map((i: any) => i.message ?? i.text)).not.toContain("queued behind it");
     expect(started.params.turn_id).not.toBe(first.turn_id);
     expect(api.events.some((f) => f.method === "harnix.event" && f.params.event?.kind === "user_message"
       && f.params.event.text === "queued behind it"), "the dropped message ran").toBe(false);
@@ -99,11 +102,14 @@ test("a queued message is edited in place before it runs; one that has gone is r
       [first.item.item_id, "as edited"],
       [second.item.item_id, "behind it"],
     ]);
+    // The edit's own push: over split streams the pushes of the two sends before it can still be
+    // arriving after `mark`, so the first snapshot after it is not necessarily this one.
     const pushed = await api.waitFor(
-      (f) => f.method === "harnix.queue" && f.params.session_id === session_id && api.events.indexOf(f) >= mark,
-      { describe: "the queue pushed whole to whoever watches" },
+      (f) => f.method === "harnix.queue" && f.params.session_id === session_id && api.events.indexOf(f) >= mark
+        && f.params.items[0]?.message === "as edited",
+      { describe: "the edited queue pushed whole to whoever watches" },
     );
-    expect(pushed.params.items[0].message).toBe("as edited");
+    expect(pushed.params.items.map((i: any) => i.message)).toEqual(["as edited", "behind it"]);
     expect((await api.refused("harnix.queue.edit", { session_id, item_id: first.item.item_id, message: "  " }))?.code).toBe(INVALID);
 
     await api.call("harnix.queue.remove", { session_id, item_id: second.item.item_id });

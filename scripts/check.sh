@@ -51,9 +51,11 @@ fi
 # The template is built as a fresh application, outside this workspace's profiles.
 export CARGO_PROFILE_DEV_DEBUG=line-tables-only
 
-# Ports chosen above everything the suites use themselves (4269–4291).
-PORT_UI=4360
-PORT_TLS=4361
+# A port the system says is free, asked for when it is needed: a fixed one clashes with another
+# checkout's run on the same machine.
+free_port() {
+  node -e 'const s=require("net").createServer();s.listen(0,"127.0.0.1",()=>{const p=s.address().port;s.close(()=>console.log(p))})'
+}
 
 CRATES=(-p harnix -p harnix-cli -p harnix-app -p harnix-instance -p harnix-authz -p harnix-builtin
         -p harnix-client -p harnix-contract -p harnix-flow -p harnix-module -p harnix-hub -p harnix-transport
@@ -82,8 +84,20 @@ failed=0
 bold() { printf '\033[1m%s\033[0m\n' "$1"; }
 record() { results+=("$1|$2|$3"); [ "$2" = "FAIL" ] && failed=$((failed + 1)); return 0; }
 
+# The tests Playwright passed on a retry (`retries` in tests/live/playwright.config.ts), from its
+# summary: "  N flaky" and then one indented line per test.
+flaky_tests() {
+  sed 's/\x1b\[[0-9;]*m//g' "$1" | awk '
+    /^  [0-9]+ flaky$/ { on = 1; next }
+    on && /^    \[/ { sub(/^    /, ""); print; next }
+    { on = 0 }'
+}
+flaky=()
+
 # Run a layer. Its output goes to a file and is shown only when it fails —
-# a passing run should say one line, or nobody reads any of them.
+# a passing run should say one line, or nobody reads any of them. A test that
+# passed only on its retry is not a failure, but it is said, here and in the
+# summary: a retry that hides a test going bad is worse than no retry.
 layer() {
   local name="$1"; shift
   if [ -n "$ONLY" ] && [ "$ONLY" != "$name" ]; then return 0; fi
@@ -92,8 +106,17 @@ layer() {
   local started=$SECONDS
   if "$@" > "$log" 2>&1; then
     local took=$((SECONDS - started))
-    printf 'ok   (%ss)\n' "$took"
-    record "$name" "ok" "${took}s"
+    local shaky; shaky="$(flaky_tests "$log")"
+    if [ -n "$shaky" ]; then
+      local n; n=$(printf '%s\n' "$shaky" | wc -l | tr -d ' ')
+      printf 'ok   (%ss, %s flaky)\n' "$took" "$n"
+      printf '%s\n' "$shaky" | sed 's/^/      flaky: /'
+      while IFS= read -r t; do flaky+=("$name|$t"); done <<< "$shaky"
+      record "$name" "ok" "${took}s, $n flaky"
+    else
+      printf 'ok   (%ss)\n' "$took"
+      record "$name" "ok" "${took}s"
+    fi
   else
     printf 'FAIL\n'
     sed 's/^/      | /' "$log" | tail -30
@@ -160,7 +183,7 @@ run_clippy()  {
 run_offline() {
   # No backend, no model, no browser: the checks that should never be the
   # slow ones.
-  for t in crate-metadata app-scripts style-lint readme-pairing; do
+  for t in crate-metadata app-scripts style-lint readme-pairing recordings; do
     echo "── $t ──"
     node "tests/$t.mjs" || return 1
   done
@@ -198,6 +221,9 @@ live() { HARNIX_BIN="$root/target/release/harnix" node tests/live/run.mjs "$@"; 
 # No flag is the replayed mode. `--no-model` is a third thing — neither a
 # provider nor a fixture — under which four suites skip themselves, so a run
 # that used it looked like the deterministic one and covered a good deal less.
+# The recordings made against a real model replay strictly in it
+# (api/strict-replay.spec.ts, `@strict`): the rest replay by position, and a
+# request that no longer matches one of those fails there.
 run_api() {
   for topology in single_duplex split_streams; do
     echo "── replayed · $topology ──"
@@ -243,6 +269,7 @@ EOF
 }
 
 run_interface() {
+  PORT_UI="$(free_port)"
   start_backend || return 1
   local token; token="$(cat "$scratch/state/token")"
   echo "── topology-parity ──"; node tests/topology-parity.mjs "$PORT_UI" "$token" || return 1
@@ -250,6 +277,7 @@ run_interface() {
 }
 
 run_remote() {
+  PORT_TLS="$(free_port)"
   # Bound to 0.0.0.0 rather than an interface address: the test connects to
   # 127.0.0.1, and admission has to see a non-loopback bind. Both are true of
   # `0.0.0.0`, and nothing else satisfies them at once.
@@ -334,6 +362,11 @@ for row in "${results[@]}"; do
     skipped) printf '  \033[33m%-12s --\033[0m   %s\n' "$name" "$detail" ;;
   esac
 done
+if [ "${#flaky[@]}" -gt 0 ]; then
+  echo
+  bold "flaky — passed on a retry; not failures, but look at them"
+  for row in "${flaky[@]}"; do printf '  %-12s %s\n' "${row%%|*}" "${row#*|}"; done
+fi
 echo
 if [ "$failed" -gt 0 ]; then
   bold "$failed layer(s) failed"

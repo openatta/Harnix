@@ -58,8 +58,9 @@ test("system-tasks: a running task's output grows in the tasks tab and, followed
   await expect(detail.locator(".facts")).toContainText(/Running|运行中/);
   const lines = async () => ((await text.textContent()) ?? "").split("\n").filter((l) => l.startsWith("line-")).length;
   const first = await lines();
-  // Long enough to overflow the box (it holds about seventeen lines), so following has to scroll.
-  await expect.poll(lines, { timeout: 15_000 }).toBeGreaterThanOrEqual(Math.max(first + 3, 25));
+  // Long enough to overflow the box (it holds about seventeen lines), so following has to scroll. The
+  // counter prints four lines a second, and slower on a loaded machine: it gets the time it needs.
+  await expect.poll(lines, { timeout: 30_000 }).toBeGreaterThanOrEqual(Math.max(first + 3, 25));
   expect(await text.evaluate((el) => el.scrollHeight > el.clientHeight), "the output overflows its box").toBe(true);
   // Read piece by piece from where the last read ended: the lines in order, none twice.
   const seen = ((await text.textContent()) ?? "").split("\n").filter((l) => l.startsWith("line-"));

@@ -30,9 +30,9 @@ scripts/prune.sh                 # 清构建缓存：增量缓存全删，超过
 | `build` | `pnpm install --frozen-lockfile`、外壳构建；`harnix-cli` 与 `harnix-testapp` 的发布构建；带 `apps` 的 `harnix`、打包工具 `harnix-app`、带 `apps` 的 `harnix-testapp`，都编在 `target/apps`；`examples/hello-app` 照应用的方式构建 | — |
 | `rust` | Harnix 各 crate 的 `cargo test`；`harnix-wasm`、`harnix-app-host`、`harnix-apps` 各带 `compile` 再跑一遍；`harnix-app` 带 `apps` 再跑一遍 | — |
 | `clippy` | 同样的 crate 与 feature，`-D warnings`、`--no-deps` | — |
-| `offline` | `tests/crate-metadata.mjs`（版本、许可、Agix 钉，以及 SDK 文档写的版本）、`app-scripts`、`style-lint`、`readme-pairing`；桌面壳的 `check-no-ipc`、`check-rename` | — |
+| `offline` | `tests/crate-metadata.mjs`（版本、许可、Agix 钉，以及 SDK 文档写的版本）、`app-scripts`、`style-lint`、`readme-pairing`、`recordings`（录像名两头都对得上，§6）；桌面壳的 `check-no-ipc`、`check-rename` | — |
 | `frontend` | 各包的 typecheck 与 Vitest；协议类型对着 Rust 重新生成再比；覆盖表 `--check`；插件 APP 带的 SDK 与 ui-kit 是否最新（`tests/app-ui-vendored.mjs`） | — |
-| `api` | LIVE 的 `api` project，回放，两种拓扑；`HARNIX_COVERAGE_GATE=1`（§7） | — |
+| `api` | LIVE 的 `api` project，回放，两种拓扑；`HARNIX_COVERAGE_GATE=1`（§7）；真录的录像在其中严格回放（`strict-replay.spec.ts`，§3） | — |
 | `template` | 把 `templates/app` 拷出去，当一个新应用离线构建（`target/template`） | — |
 | `live` | `api` project 连真模型，两种拓扑 | `.env` 里有模型凭据 |
 | `browser` | LIVE 的 `ui` project，两种拓扑（后端只给这一种，页面得自己走过去） | chromium（`pnpm install:browser`） |
@@ -81,12 +81,24 @@ scripts/prune.sh                       # 清构建缓存：增量缓存全删，
 | live | 刷新录像、冒烟 | `--live`（`HARNIX_MODEL=live`），读 `.env` |
 | 无模型 | 没有录像的机器 | `--no-model`。它看着像回放模式，覆盖却少得多，别误用 |
 
-回放缺省是非严格的：请求与录下的不一样只报告、不失败。`pnpm live --strict`（`HARNIX_REPLAY_STRICT=1`，即
-`harnix serve --replay-dir <目录> --replay-strict`、testkit 的 `replayStrict: true`）让不一样的那次调用失败（ipdrun-45）：
-改了提示词、工具表或场景之后，用它找出该重录的录像。引擎给回放的会话按录像开录那天定日期（Agix ipdrun-06），
-所以严格回放不会隔天就红；路径要应用自己保持稳定（固定的根目录，或文件工具的相对路径）。
+回放缺省按位置、非严格：请求与录下的不一样照样放回去，只在后端日志里记一行 `diverges from recording`。严格回放
+（`harnix serve --replay-dir <目录> --replay-strict`、testkit 的 `replayStrict: true`、`pnpm live --strict` 即
+`HARNIX_REPLAY_STRICT=1`）让不一样的那次调用失败（ipdrun-45）。引擎给回放的会话按录像开录那天定日期（Agix ipdrun-06），
+日期不是问题；但拼出来的提示词写着工作目录、记忆与 scratchpad 的目录、操作系统和 shell，而每个后端都在自己的临时目录里，
+所以对一般的用例，严格回放每一次调用都对不上。
 
-`ui` project 永远回放：一个布局测试因为模型慢了而失败，大家就学会了无视它。
+**真录的那几份照严格回放跑**：`api/strict-replay.spec.ts`（`@strict`）把 `record-fixture.mjs` 录的每一份
+（`says-ready`、`calls-a-tool`、`asks-permission`、`runs-a-while`、`says-markdown`、`spawns-agent`）在录的那个目录
+（`/tmp/harnix-fixture/<名字>`，testkit 的 `STRICT_ROOT` 与 `fixedScratch`；目录旁边有锁，另一个检出的运行会等）、
+用录的那句话、`SHELL=/bin/zsh` 重放，强制严格。它在 `api` 层里，两种拓扑都跑；提示词写着操作系统，所以只在 macOS 上跑，
+别处跳过。它红了，就是这个构建发给模型的东西变了（提示词、工具表、场景参数）：照 §6 重录，再看用它的用例断言的东西还在不在。
+
+`HARNIX_REPLAY_REPORT=1`：任何一次回放的调用和录像对不上，就让它所在的用例失败（照样放回去、跑完）。在固定目录之外
+每次调用都在路径上对不上，所以它是诊断用的：看一个改动让哪些请求变了，不进 `check.sh`。
+
+`ui` project 永远回放：一个布局测试因为模型慢了而失败，大家就学会了无视它。它的预算是每个用例 120 s（里面的等待最长 30 s，
+开页面再 15 s），失败的用例再跑一次（`retries: 1`）：第二次过了算 flaky，不算失败，但 `scripts/check.sh` 在那一层和汇总里
+逐条列出来；两次都失败才是失败。
 
 标着 `replayed: true` 的 API 套件在 live 模式下也自己起一个回放的后端：它的价值就是每次在同一处
 调同一个工具，对着真模型就成了另一个同名的测试。标着 `needsLiveModel` 的只在 `--live` 下跑
@@ -139,7 +151,7 @@ test("a new session is idle and in the list", TAGS, async ({ api }) => {
 界面测试拿 `page` 和 `harnix`：`await page.goto(harnix.url)`。
 
 要一个配置不同的后端（种子数据、只开一种拓扑、带某个 profile 段），在用例里
-`startHarnix({ seed, topologies, profile })`，用完 `stop()`。
+`startHarnix({ seed, topologies, profile })`，用完 `await backend.dispose()`（等进程退出再删目录；`stop()` 不等，已标 `@deprecated`）。
 
 ### 0.3 迁过来的：`defineSuite`
 
@@ -167,6 +179,10 @@ Playwright 会把这些用例的位置记成 `suite.ts`（`test()` 在那里调�
 - `eventsOfKind(kind, sessionId)`、`text(sessionId)`：收到了什么。
 - `handshake`、`project`、`backend`。
 
+客户端之外，testkit 还给：`runTurn(api, session, message, { decision, timeout })`（发一句、用 `decision` 答这轮里的每个
+权限提问，子 Agent 的也算、答过的不再答，等结算；返回结算帧和答过的提问）；`alive(pid)`、`gone(pid, within)`；
+`dropSessions(api)`（见「收尾」）。
+
 每个用例**自己一个客户端**。事件日志是按客户端记的，共用一个时，一个用例能匹配到前一个用例产生
 的帧，有两个用例就这样隔一次绿一次红。
 
@@ -174,6 +190,9 @@ Playwright 会把这些用例的位置记成 `suite.ts`（`test()` 在那里调�
 
 起过一轮的用例都以 `finish(client, sessionId)` 结束：中断，**等结算**，再删除。删一个还在跑的
 会话，引擎会继续为一个不存在的东西干活，下一个用例来买单。
+
+共用 worker 后端（`harnix` 夹具）的界面用例在 `afterEach` 里 `dropSessions(api)`：后端上每个实例、每个 space 的会话都停下、删掉，
+上一个用例留在提问上的会话、多出来的一行列表，不归下一个用例数。
 
 ### 三种结果，不是两种
 
@@ -183,13 +202,20 @@ Playwright 会把这些用例的位置记成 `suite.ts`（`test()` 在那里调�
 ## 6. 录像
 
 ```sh
-node tests/live/record-fixture.mjs <名字> "<提示词>"    # 需要 .env
+node tests/live/record-fixture.mjs <名字> "<提示词>"                 # 需要 .env；harnix 场景
+node tests/live/record-fixture.mjs --scene code <名字> "<提示词>"    # 别的场景
 ```
 
-起一个 headless 的 harnix，在独立项目里建会话，发提示词，所有权限提问一律允许（否则工具调用的
-录像停在提问那里），轮结束后把录像拷到 `tests/live/fixtures/recordings/<名字>/`。用例建会话时带
-`options: { recorder: { name: "<名字>" } }`，回放模式下的后端就取这一份；不在回放模式时这个名字被
-忽略，调的是真模型。
+用套件自己的 `startHarnix` 与 `connect` 起后端（同一个二进制、`HARNIX_BIN`、同样的参数与目录布局），在
+`/tmp/harnix-fixture/<名字>` 里建会话，发提示词，所有权限提问一律允许（否则工具调用的录像停在提问那里），轮结束后
+停掉后端，把录像拷到 `tests/live/fixtures/recordings/<名字>/`；会话起过子 Agent 的，子 Agent 的调用作为第二个会话
+并进同一份。用例建会话时带 `options: { recorder: { name: "<名字>" } }`，回放模式下的后端就取这一份；不在回放模式时
+这个名字被忽略，调的是真模型。录完在 `api/strict-replay.spec.ts` 的 `STRICT` 里加一行（名字和那句提示词），
+在 `recordings/README.md` 的表里加一行。
+
+`node tests/recordings.mjs`（`offline` 层）查两件事：用例回放的每个名字（`recorder: { name }`、`join(RECORDINGS, …)`、
+参数名是 `fixture`/`recording` 的辅助函数收到的字面量、`harnix-testapp` 给流程会话起的 `flow-…`）都是一个录像目录；
+每个录像目录都有东西回放它（被点名，或者是某个流程站点的 `flow-<站点>`）。
 
 录像按位置回放。每个后端都有自己的数据根、HOME 和项目，全局记忆与 telemetry 不会串进来（N-003）。
 隔离以后回放仍然错位（同一轮里可选的旁路调用时有时无），就向 Agix 提「按调用种类匹配」，不在
@@ -204,8 +230,8 @@ Harnix 侧绕过。
 2. 改 `calls.jsonl` 里属于它自己的那几行：`tool_args_chunks` 的 `args`（工具输入的 JSON 文本）、`kind: "tool_use"` 那一块的 `name` 与 `input`、
    `text_chunks` 的 `texts`（最后那句话）。插件 APP 的工具名是 `app__<id 的 . 换成 _>__<工具>`，spawn 的实例里是
    `mcp__app-<id 的 . 换成 _>__<工具>`。
-3. `blobs/` 里是请求的内容（按哈希存）。缺省回放按位置、不严格，请求和录下的不一样只报告，所以 blob 可以原样留着；要 `--strict` 也过，
-   就得真录一份。
+3. `blobs/` 里是请求的内容（按哈希存）。缺省回放按位置、不严格，请求和录下的不一样只记日志，所以 blob 可以原样留着。手做的录像
+   严格回放过不了，也不进 `strict-replay.spec.ts`；要它也过，就得用 `record-fixture.mjs` 真录一份。
 4. 在 `recordings/README.md` 的表里加一行：它演示什么、从哪一份改出来、改了什么。
 5. 用例建会话时带 `options: { recorder: { name: "<名字>" } }`。
 
@@ -224,7 +250,15 @@ node tests/live/coverage.mjs --check               # scripts/check.sh 跑的就�
 - `coverage.md` 和标签算出来的不一样（删了一个用例、加了一个没重新生成）；
 - 用例没带标签，或者标了不存在的 `feature`；
 - 某一行在某一层是零，`features.mjs` 里又没写 `na`（不适用，写理由）或 `pending`（哪个里程碑补）；
-- 一行已经有用例了，还标着 `pending`。
+- 一行已经有用例了，还标着 `pending`；
+- 一个 `@gap` 用例没写等什么修。
+
+不算覆盖的两种：
+
+- 声明处就 `test.skip`、`test.fixme` 的用例不计数，表下面只写个数（运行时才跳的，`--list` 看不到，照常计数）。
+- **钉住已知缺口**的用例打 `@gap`：它把一个已知的错误行为照原样断言（缺口在时它绿），好让修好那天它红。它不计进行里，
+  在表下面「已知缺口」一节单列，带着等什么修。`defineSuite` 的套件在 meta 里写 `gaps: { "<用例名>": "<等什么修>" }`；
+  直接用 `test` 的写 `tag: ["@gap", …]` 加 `annotation: { type: "gap", description: "<等什么修>" }`。修好之后改成正确的断言、去掉 `@gap`。
 
 ### API 方法覆盖
 

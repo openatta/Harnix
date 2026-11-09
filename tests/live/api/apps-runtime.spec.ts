@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { REFUSED } from "@harnix/core/protocol";
-import { type Backend, type TestClient, connect, expect, modelMode, sleep, test, topology } from "@harnix/testkit";
+import { type Backend, type TestClient, connect, expect, modelMode, runTurn, sleep, test, topology } from "@harnix/testkit";
 
 import { SHOWCASE_ID, showcasePackage, startApps, variant } from "./apps-host";
 
@@ -28,9 +28,6 @@ const BLOCK_MARKER = "showcase-block-7d21";
 
 type Session = { instance: string; session_id: string };
 
-/** Asks answered by any turn so far, so a later turn does not answer an old one again. */
-const handled = new Set<string>();
-
 async function session(api: TestClient, recording: string, instance = "system"): Promise<Session> {
   const created = await api.call("session.create", {
     instance,
@@ -40,38 +37,6 @@ async function session(api: TestClient, recording: string, instance = "system"):
   const s = { instance, session_id: created.session_id };
   await api.call("harnix.attach", s);
   return s;
-}
-
-/** Send, answer every permission ask with `decision`, and wait for the turn to settle. */
-async function turn(api: TestClient, s: Session, message: string, decision = "permit"): Promise<{ settled: any; asks: any[] }> {
-  const asks: any[] = [];
-  const sent = await api.call("harnix.send", { ...s, message });
-  const answered = new Set<string>();
-  const deadline = Date.now() + 90_000;
-  for (;;) {
-    const settled = api.events.find(
-      (f) => f.method === "harnix.turn_settled" && f.params.session_id === s.session_id
-        && (!sent.turn_id || f.params.turn_id === sent.turn_id),
-    );
-    if (settled) return { settled, asks };
-    for (const f of api.events) {
-      if (f.method !== "harnix.event" || f.params.event?.kind !== "prompt") continue;
-      const prompt = f.params.event;
-      // Every ask this client sees while the turn runs: a sub-agent's comes in under its own id.
-      if (answered.has(prompt.prompt_id) || handled.has(prompt.prompt_id)) continue;
-      answered.add(prompt.prompt_id);
-      handled.add(prompt.prompt_id);
-      asks.push(f.params);
-      await api.call("session.respondToPrompt", {
-        instance: f.params.instance ?? s.instance,
-        session_id: f.params.session_id,
-        prompt_id: prompt.prompt_id,
-        decision: decision === "deny" ? { type: "deny", reason: "not now" } : { type: decision },
-      });
-    }
-    if (Date.now() > deadline) throw new Error(`the turn "${message}" did not settle; asks so far: ${JSON.stringify(asks)}`);
-    await sleep(50);
-  }
 }
 
 const results = (api: TestClient, s: Session) => JSON.stringify(api.eventsOfKind("tool_result", s.session_id));
@@ -211,7 +176,7 @@ carrier = "spawn"
     ];
     for (const [recording, tool, answer] of cases) {
       const s = await session(api, recording);
-      const { settled, asks } = await turn(api, s, `Use the showcase's ${tool} tool`);
+      const { settled, asks } = await runTurn(api, s, `Use the showcase's ${tool} tool`);
       expect(settled.params.error, `${tool}: ${JSON.stringify(settled.params.error)}`).toBeUndefined();
       expect(asks.length, `${tool} asked`).toBeGreaterThanOrEqual(1);
       expect(JSON.stringify(asks[0]), tool).toContain(TOOL(tool));
@@ -220,28 +185,28 @@ carrier = "spawn"
     }
     // The configuration is the manifest's, with the profile's set over it.
     const config = await session(api, "app-config");
-    await turn(api, config, "again");
+    await runTurn(api, config, "again");
     expect(results(api, config)).toContain("app__example_showcase__vetoed");
     // The count is kept by the application, not by the call.
     const again = await session(api, "app-count");
-    await turn(api, again, "count again");
+    await runTurn(api, again, "count again");
     expect(results(api, again)).toContain("count = 2");
   });
 
   test("refused when asked: the tool does not run", TAGS, async () => {
     const s = await session(api, "app-count");
-    const { asks } = await turn(api, s, "count, and be refused", "deny");
+    const { asks } = await runTurn(api, s, "count, and be refused", { decision: "deny" });
     expect(asks.length).toBeGreaterThanOrEqual(1);
     expect(results(api, s)).not.toContain("count = ");
     const counted = await session(api, "app-count");
-    await turn(api, counted, "count");
+    await runTurn(api, counted, "count");
     expect(results(api, counted), "the refused call counted").toContain("count = 3");
   });
 
   test("its progress is pushed while it works", TAGS, async () => {
     await api.call("harnix.subscribe", { topic: "harnix.apps.progress" });
     const s = await session(api, "app-slow");
-    const { settled } = await turn(api, s, "Use the slow tool");
+    const { settled } = await runTurn(api, s, "Use the slow tool");
     expect(settled.params.error).toBeUndefined();
     const steps = api.events
       .filter((f) => f.method === "harnix.topic" && f.params.topic === "harnix.apps.progress"
@@ -285,7 +250,7 @@ carrier = "spawn"
 
   test("its event hook refuses the tool its configuration names", TAGS, async () => {
     const s = await session(api, "app-vetoed");
-    await turn(api, s, "Use the vetoed tool");
+    await runTurn(api, s, "Use the vetoed tool");
     const out = results(api, s);
     expect(out).toContain(`refused by the application \`${SHOWCASE_ID}\``);
     expect(out).toContain("blocked_tool");
@@ -313,7 +278,7 @@ carrier = "spawn"
 
   test("a sub-agent of the application's own agent type uses its tool", TAGS, async () => {
     const s = await session(api, "app-subagent");
-    const { settled, asks } = await turn(api, s, "Have a sub-agent call the showcase's echo tool");
+    const { settled, asks } = await runTurn(api, s, "Have a sub-agent call the showcase's echo tool");
     expect(settled.params.error, JSON.stringify(settled.params.error)).toBeUndefined();
     expect(JSON.stringify(asks), "the sub-agent's call asked").toContain(TOOL("echo"));
     expect(api.text(s.session_id)).toContain("The sub-agent used the showcase's tool.");
@@ -327,7 +292,7 @@ carrier = "spawn"
       .poll(async () => JSON.stringify(await api.call("mcp.status", { instance: "far" }).catch((e) => e)), { timeout: 60_000, intervals: [500] })
       .toContain(`"name":"${MCP_SERVER}","tool_count":${TOOLS.length}`);
     const s = await session(api, "app-mcp-echo", "far");
-    const { settled, asks } = await turn(api, s, "Use the showcase's echo tool over MCP");
+    const { settled, asks } = await runTurn(api, s, "Use the showcase's echo tool over MCP");
     expect(settled.params.error, JSON.stringify(settled.params.error)).toBeUndefined();
     expect(asks.length, "the daemon asked first").toBeGreaterThanOrEqual(1);
     expect(results(api, s)).toContain("showcase-over-mcp");
@@ -381,7 +346,7 @@ carrier = "spawn"
     // And it installs again, from nothing: the count starts over.
     await api.call("harnix.apps.installFile", { path: showcasePackage().path });
     const s = await session(api, "app-count");
-    await turn(api, s, "count");
+    await runTurn(api, s, "count");
     expect(results(api, s)).toContain("count = 1");
     await api.call("harnix.apps.uninstall", { id: SHOWCASE_ID });
   });
@@ -410,7 +375,7 @@ test.describe("an application, against the model", () => {
       const created = await api.call("session.create", { project_root: api.project });
       const s = { instance: "system", session_id: created.session_id };
       await api.call("harnix.attach", s);
-      await turn(api, s, "Say exactly: ready");
+      await runTurn(api, s, "Say exactly: ready");
       const { headers } = await api.call("harnix.requestHeaders", s);
       const envelope = JSON.stringify(headers);
       expect(envelope).toContain(BLOCK_MARKER);

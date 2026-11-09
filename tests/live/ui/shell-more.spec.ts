@@ -7,7 +7,7 @@
  */
 
 import type { Page } from "@playwright/test";
-import { type Backend, expect, launchFor, startHarnix, test } from "@harnix/testkit";
+import { type Backend, dropSessions, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
 import { newSession, open, reply, say, watchConsole } from "./page";
 
@@ -18,6 +18,11 @@ const SETTINGS = { tag: ["@feature:settings", "@layer:ui"] };
 let URL = "";
 test.beforeEach(({ harnix }) => {
   URL = harnix.url;
+});
+// The worker's backend is shared by every file that uses it: a test leaves no session behind
+// for the next one to count.
+test.afterEach(async ({ api }) => {
+  await dropSessions(api);
 });
 
 async function toProjects(page: Page): Promise<void> {

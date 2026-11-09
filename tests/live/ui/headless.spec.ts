@@ -16,7 +16,7 @@ let backend: Backend;
 test.beforeAll(async () => {
   backend = await startTestApp();
 });
-test.afterAll(() => backend?.stop());
+test.afterAll(async () => { await backend?.dispose(); });
 
 test("a module's headless sessions are in the instance tree, and open like any other", TAGS, async ({ page }) => {
   await open(page, backend.url);

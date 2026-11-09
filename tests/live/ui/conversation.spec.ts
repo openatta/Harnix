@@ -7,7 +7,7 @@
  * could go (design §10.2).
  */
 
-import { type Backend, expect, test } from "@harnix/testkit";
+import { type Backend, dropSessions, expect, test } from "@harnix/testkit";
 
 import { startTestApp } from "../api/testapp";
 import { newSession, open, reply, say, watchConsole } from "./page";
@@ -19,6 +19,11 @@ let PROJECT = "";
 test.beforeEach(({ harnix }) => {
   URL = harnix.url;
   PROJECT = harnix.project;
+});
+// The worker's backend is shared by every file that uses it: a test leaves no session behind
+// for the next one to count.
+test.afterEach(async ({ api }) => {
+  await dropSessions(api);
 });
 
 test("typing a message and pressing Enter puts it in the flow, and the reply after it", TAGS, async ({ page }) => {
@@ -115,7 +120,6 @@ test("a queued message is edited in place, and keeps its place", TAGS, async ({ 
 });
 
 test("a compaction is a row of its own: told with its counts as it happens, and still there after a reload", TAGS, async ({ page }) => {
-  test.setTimeout(90_000);
   await open(page, URL);
   const id = await newSession(page, "many-turns");
   const replies = page.locator('[data-testid="conv-message"]', { hasText: /fixture ready/i });

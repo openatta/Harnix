@@ -92,7 +92,6 @@ test("a proposal is a card in its session: accepted once, it reworks the run and
 });
 
 test("a task held on a person's answer says what it asked and why, until it is answered", TAGS, async ({ page }) => {
-  test.setTimeout(120_000);
   const errors = watchConsole(page);
   await open(page, backend.url);
   const run = await page.evaluate(async () => (await (window as any).harnix.app.call("app.flow.start", { flow: "demo-asked", subject: "repo" })).run as string);
@@ -130,7 +129,6 @@ test("the reference tab says whether command gates run here", TAGS, async ({ pag
 });
 
 test("a station's session is Harnix's own: in the system space's all tab it is marked so", TAGS, async ({ page }) => {
-  test.setTimeout(120_000);
   await open(page, backend.url);
   const run = await page.evaluate(async () => (await (window as any).harnix.app.call("app.flow.start", { flow: "demo-propose", subject: "marked" })).run as string);
   const record = await until(page, run, (r) => Boolean(r.stations.propose?.tasks?.[0]?.session));

@@ -175,7 +175,7 @@ defineSuite("limits", { feature: "connection" }, {
         assert(slept >= 1 && slept <= hello.limits.max_in_flight, `${slept} ran`);
         assert(busy === n - slept, `${busy} refused, ${slept} ran`);
       } finally {
-        backend.stop();
+        await backend.dispose();
       }
     },
 

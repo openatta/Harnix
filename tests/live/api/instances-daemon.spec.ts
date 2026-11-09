@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { type Backend, type TestClient, connect, expect, sleep, test } from "@harnix/testkit";
+import { type Backend, type TestClient, alive, connect, expect, gone, sleep, test } from "@harnix/testkit";
 
 import { runOn, until } from "./instances";
 import { startTestApp } from "./testapp";
@@ -43,15 +43,6 @@ function fakeDaemon(socket: string): Server {
   });
   server.listen(socket);
   return server;
-}
-
-function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 let dir: string;
@@ -185,12 +176,6 @@ async function permit(api: TestClient, instance: string, sessionId: string): Pro
     prompt_id: ask.params.event.prompt_id,
     decision: { type: "permit" },
   });
-}
-
-async function gone(pid: number, within = 3_000): Promise<boolean> {
-  const deadline = Date.now() + within;
-  while (alive(pid) && Date.now() < deadline) await sleep(100);
-  return !alive(pid);
 }
 
 test("reap_on_stop: stopping the instance ends what its sessions left running (ipdrun-07)", TAGS, async () => {

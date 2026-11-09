@@ -48,13 +48,20 @@ export interface LaunchOptions {
    * ledger and data are still there. What `Backend.restart` passes.
    */
   scratch?: string;
+  /**
+   * Run in exactly this directory, emptied first, rather than a temporary one: for a backend whose
+   * requests must match a recording byte for byte (see `STRICT_ROOT`). Held for as long as the
+   * backend lives — a lock beside it makes another run (another checkout's) wait its turn — and
+   * `SHELL` is fixed, since the prompt names that too.
+   */
+  fixedScratch?: string;
 }
 
 export interface Backend {
   port: number;
   url: string;
   token: string;
-  /** Everything this process owns; removed by `stop`. */
+  /** Everything this process owns; removed by `dispose`. */
   scratch: string;
   /** The program's own directory, `$HOME/.<product_id>`: token, ledgers, modules' data. */
   state: string;
@@ -66,7 +73,10 @@ export interface Backend {
   /**
    * End the process and remove everything it owned. Does not wait for the process to exit, so a
    * backend still finishing (its modules' `stop`, the engine writing out) can race the removal and
-   * leave part of the directory behind; that is not an error here. In a teardown use `dispose()`.
+   * leave part of the directory behind, and the next backend starts while this one is still
+   * shutting down.
+   *
+   * @deprecated Use `await dispose()`. Kept so a suite written against it still runs.
    */
   stop(): void;
   /**
@@ -140,6 +150,99 @@ export async function freePort(): Promise<number> {
   });
 }
 
+/** Whether a process is still there (signal 0 asks without sending anything). */
+export function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Wait up to `within` ms for a process to be gone; whether it is. */
+export async function gone(pid: number, within = 3_000): Promise<boolean> {
+  const deadline = Date.now() + within;
+  while (alive(pid) && Date.now() < deadline) await sleep(100);
+  return !alive(pid);
+}
+
+/* ── replay divergences ───────────────────────────────────────────────── */
+//
+// Outside `--strict` a replayed call whose request no longer matches its recording is played back
+// anyway and the engine logs "diverges from recording". Every backend's log is read for that line
+// as it is written, so a fixture can fail the test it happened in (`HARNIX_REPLAY_REPORT=1`).
+
+const divergences: string[] = [];
+
+/** How many divergences the backends of this process have logged so far. */
+export function divergenceCount(): number {
+  return divergences.length;
+}
+
+/** The divergences logged since `count`. */
+export function divergencesSince(count: number): string[] {
+  return divergences.slice(count);
+}
+
+/** Watch a backend's output for divergence reports: the line, and the indented lines under it. */
+function watchDivergences(): (chunk: string) => void {
+  let partial = "";
+  let open: number | null = null;
+  return (chunk) => {
+    const lines = (partial + chunk).split("\n");
+    partial = lines.pop() ?? "";
+    for (const line of lines) {
+      if (line.includes("diverges from recording")) {
+        divergences.push(line.trim());
+        open = divergences.length - 1;
+      } else if (open !== null && /^\s+\S/.test(line)) {
+        divergences[open] += `\n  ${line.trim()}`;
+      } else {
+        open = null;
+      }
+    }
+  };
+}
+
+/* ── leaks ────────────────────────────────────────────────────────────── */
+//
+// A run that is interrupted — Ctrl-C, a worker that crashes, a `beforeAll` that throws after
+// `startHarnix` — must not leave backends running on ports nobody knows. Every backend is started
+// in a process group of its own and kept here until it exits; when this process exits, each group
+// is told to end, which takes whatever the backend spawned (a daemon, a tool's process) with it.
+
+const running = new Set<ChildProcess>();
+let guarded = false;
+
+function endGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+  if (!child.pid) return;
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    /* already gone */
+  }
+}
+
+function guardLeaks(): void {
+  if (guarded) return;
+  guarded = true;
+  process.on("exit", () => {
+    for (const child of running) endGroup(child, "SIGTERM");
+  });
+  // A signal ends node without an `exit` event unless somebody listens. Where nobody else does (a
+  // script, not a Playwright worker), end the backends and then let the signal do what it would.
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+    if (process.listenerCount(signal) > 0) continue;
+    const onSignal = () => {
+      for (const child of running) endGroup(child, "SIGTERM");
+      process.removeListener(signal, onSignal);
+      process.kill(process.pid, signal);
+    };
+    process.on(signal, onSignal);
+  }
+}
+
 /** How long `dispose()` lets a backend finish before it is killed: the backend's own shutdown is
  *  bounded by 10 s, so this is past it. */
 const DISPOSE_GRACE_MS = 15_000;
@@ -157,15 +260,47 @@ async function removeTree(dir: string): Promise<void> {
   }
 }
 
+/** Hold `dir` for this process: wait while another live process holds it. */
+async function holdDir(dir: string): Promise<() => void> {
+  const lock = `${dir}.lock`;
+  mkdirSync(dirname(lock), { recursive: true });
+  for (const deadline = Date.now() + 600_000; ; ) {
+    try {
+      mkdirSync(lock);
+      writeFileSync(join(lock, "pid"), String(process.pid));
+      return () => rmSync(lock, { recursive: true, force: true });
+    } catch (e: any) {
+      if (e?.code !== "EEXIST") throw e;
+      let holder = 0;
+      try {
+        holder = Number(readFileSync(join(lock, "pid"), "utf8"));
+      } catch {
+        /* being written, or left half-made */
+      }
+      if (holder && !alive(holder)) rmSync(lock, { recursive: true, force: true });
+      else if (Date.now() > deadline) throw new Error(`${dir} is held by process ${holder || "?"} (${lock})`);
+      else await sleep(250);
+    }
+  }
+}
+
 export async function startHarnix(options: LaunchOptions = {}): Promise<Backend> {
   const bin = binary(options.bin);
   const port = options.port ?? (await freePort());
   const reused = options.scratch !== undefined;
+  let release = () => {};
+  if (options.fixedScratch && !reused) {
+    release = await holdDir(options.fixedScratch);
+    rmSync(options.fixedScratch, { recursive: true, force: true });
+    mkdirSync(options.fixedScratch, { recursive: true });
+  }
   // The real path: on macOS `tmpdir()` is `/var/…`, a link to `/private/var/…`, and the engine's
   // working directory is the real one. Handing it the other spelling of the same folder made it read
   // that project's history twice, and list every session past its in-memory cap twice (an Agix
   // `session.list` defect: `.local/agix-issue-08-session-list-duplicates.md`).
-  const scratch = options.scratch ?? realpathSync(mkdtempSync(join(tmpdir(), "harnix-live-")));
+  const scratch =
+    options.scratch ??
+    realpathSync(options.fixedScratch ?? mkdtempSync(join(tmpdir(), "harnix-live-")));
   if (!reused) options.seed?.(scratch);
   const project = makeProject(scratch);
   const home = join(scratch, "home");
@@ -195,33 +330,49 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
     ...(options.replay && options.replayStrict ? ["--replay-strict"] : []),
     ...(options.args ?? []),
   ];
+  // `~/.<product_id>`: `[brand] product_id` in the profile names it, `harnix` otherwise.
+  const product = /product_id\s*=\s*"([a-z][a-z0-9-]*)"/.exec(options.profile ?? "")?.[1] ?? "harnix";
+  const state = join(home, `.${product}`);
+  const tokenFile = join(state, "token");
+  // A restart finds the last run's token; it is rewritten before serving. Removed before the process
+  // starts, not after: removed after, it could take the new process's token with it, and the wait
+  // below would wait for a file that never comes back.
+  if (reused) rmSync(tokenFile, { force: true });
   const child: ChildProcess = spawn(bin, args, {
     cwd: project,
     env: {
       ...process.env,
       HOME: home,
+      ...(options.fixedScratch ? { SHELL: "/bin/zsh" } : {}),
       ...options.env,
       RUST_LOG: process.env.HARNIX_TEST_LOG || "warn",
     },
     stdio: ["ignore", "pipe", "pipe"],
+    // Its own process group, so what it spawns can be ended with it (see `guardLeaks`).
+    detached: true,
   });
+  guardLeaks();
+  running.add(child);
+  child.on("exit", () => running.delete(child));
   let log = "";
-  child.stdout?.on("data", (d) => (log += d));
-  child.stderr?.on("data", (d) => (log += d));
+  const diverged = watchDivergences();
+  child.stdout?.on("data", (d) => {
+    log += d;
+    diverged(String(d));
+  });
+  child.stderr?.on("data", (d) => {
+    log += d;
+    diverged(String(d));
+  });
   let exited: number | null = null;
   child.on("exit", (code) => (exited = code ?? -1));
 
   const url = `http://127.0.0.1:${port}/`;
-  // `~/.<product_id>`: `[brand] product_id` in the profile names it, `harnix` otherwise.
-  const product = /product_id\s*=\s*"([a-z][a-z0-9-]*)"/.exec(options.profile ?? "")?.[1] ?? "harnix";
-  const state = join(home, `.${product}`);
-  const tokenFile = join(state, "token");
-  // A restart finds the last run's token; it is rewritten before serving.
-  if (reused) rmSync(tokenFile, { force: true });
   const deadline = Date.now() + 60_000;
   for (;;) {
     if (exited !== null) {
       if (!reused) rmSync(scratch, { recursive: true, force: true });
+      release();
       throw new Error(`harnix exited (${exited}) before it was up:\n${log}`);
     }
     try {
@@ -234,7 +385,8 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
       /* not up yet */
     }
     if (Date.now() > deadline) {
-      child.kill();
+      endGroup(child, "SIGKILL");
+      release();
       throw new Error(`harnix did not start in 60s:\n${log}`);
     }
     await sleep(150);
@@ -274,6 +426,7 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
       } catch (e: any) {
         if (!["ENOTEMPTY", "EBUSY", "EPERM"].includes(e?.code)) throw e;
       }
+      release();
     },
     async dispose() {
       if (exited === null) {
@@ -285,15 +438,13 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
         }
         const late = await Promise.race([gone.then(() => false), sleep(DISPOSE_GRACE_MS).then(() => true)]);
         if (late && exited === null) {
-          try {
-            child.kill("SIGKILL");
-          } catch {
-            /* gone meanwhile */
-          }
+          // The whole group: what a backend that would not stop had spawned goes with it.
+          endGroup(child, "SIGKILL");
           await gone;
         }
       }
       await removeTree(scratch);
+      release();
     },
     halt,
     async restart() {

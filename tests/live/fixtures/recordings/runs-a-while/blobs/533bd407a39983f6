@@ -1,0 +1,1 @@
+{"role":"user","content":[{"type":"text","text":"Use the Bash tool right now to run exactly: perl -e \"select(undef, undef, undef, 4)\"; echo waited. Call the tool. When it returns, reply with exactly one word: waited"}]}

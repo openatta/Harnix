@@ -22,7 +22,6 @@ import { connect, defineSuite, startBackend } from "@harnix/testkit";
 
 const assert = (cond, message) => { if (!cond) throw new Error(message); };
 
-const PORT = 4276;
 const SERVER = "a-server-that-cannot-start";
 
 /** Settings the engine reads at startup, naming an MCP server whose command
@@ -54,12 +53,17 @@ async function hostEvents(client, match, timeout = 20_000) {
   return seen();
 }
 
-defineSuite("host-events", { feature: "sessions" }, {
+defineSuite("host-events", {
+  feature: "sessions",
+  gaps: {
+    "a client that arrives after the failure cannot learn about it":
+      "Agix: `mcp.status` reporting the servers that failed to connect, not only those that did",
+  },
+}, {
   tests: {
     "a process-level failure reaches a client that subscribed to nothing":
-      async ({ topology }) => {
+      async ({ client: { topology } }) => {
         const backend = await startBackend({
-          port: PORT,
           env: { ANTHROPIC_API_KEY: "host-events" },
           seed: seedFailingMcp,
         });
@@ -78,13 +82,12 @@ defineSuite("host-events", { feature: "sessions" }, {
             `no reason on the event: ${JSON.stringify(event)}`);
           client.close();
         } finally {
-          backend.stop();
+          await backend.dispose();
         }
       },
 
-    "a host event is a broadcast, not a subscription": async ({ topology }) => {
+    "a host event is a broadcast, not a subscription": async ({ client: { topology } }) => {
       const backend = await startBackend({
-        port: PORT + 1,
         env: { ANTHROPIC_API_KEY: "host-events" },
         seed: seedFailingMcp,
       });
@@ -101,12 +104,12 @@ defineSuite("host-events", { feature: "sessions" }, {
         first.close();
         second.close();
       } finally {
-        backend.stop();
+        await backend.dispose();
       }
     },
 
     "the host face carries host events and the session face does not":
-      async ({ topology }) => {
+      async ({ client: { topology } }) => {
         // Only split streams can be wrong about this: there, the two kinds
         // travel on two separate downloads, and a host event delivered on the
         // session face would mean a read-only client watching one
@@ -115,7 +118,6 @@ defineSuite("host-events", { feature: "sessions" }, {
         // thing the split exists to disprove.
         if (topology !== "split_streams") return;
         const backend = await startBackend({
-          port: PORT + 2,
           env: { ANTHROPIC_API_KEY: "host-events" },
           seed: seedFailingMcp,
         });
@@ -130,12 +132,12 @@ defineSuite("host-events", { feature: "sessions" }, {
           assert(!misrouted.length, "a host event arrived as a session event");
           client.close();
         } finally {
-          backend.stop();
+          await backend.dispose();
         }
       },
 
     "a client that arrives after the failure cannot learn about it":
-      async ({ topology }) => {
+      async ({ client: { topology } }) => {
         // Not an assertion that this is right — it is the gap, written down.
         //
         // The failure is announced once, on a channel, and nothing holds the
@@ -149,7 +151,6 @@ defineSuite("host-events", { feature: "sessions" }, {
         // Filed against Agix. When `mcp.status` reports servers that
         // failed, this test should assert the row rather than its absence.
         const backend = await startBackend({
-          port: PORT + 3,
           env: { ANTHROPIC_API_KEY: "host-events" },
           seed: seedFailingMcp,
         });
@@ -169,7 +170,7 @@ defineSuite("host-events", { feature: "sessions" }, {
           witness.close();
           late.close();
         } finally {
-          backend.stop();
+          await backend.dispose();
         }
       },
   },

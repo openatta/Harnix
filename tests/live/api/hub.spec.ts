@@ -20,8 +20,7 @@ defineSuite("hub", { feature: "sessions" }, {
       // events nor its settlement — frames go to watchers, and it would not
       // be one.
       const created = await client.call("session.create", {});
-      await client.call("harnix.send", { session_id: created.session_id, message: "hello" })
-        .catch(() => {});
+      await client.call("harnix.send", { session_id: created.session_id, message: "hello" });
       const own = await client.waitFor(
         (f) => f.method === "harnix.event"
           && f.params.session_id === created.session_id
@@ -45,8 +44,7 @@ defineSuite("hub", { feature: "sessions" }, {
       await client.call("harnix.attach", { session_id: created.session_id });
       await second.call("harnix.attach", { session_id: created.session_id });
 
-      await client.call("harnix.send", { session_id: created.session_id, message: "seen by both" })
-        .catch(() => {});
+      await client.call("harnix.send", { session_id: created.session_id, message: "seen by both" });
       for (const [who, c] of [["the sender", client], ["the second client", second]]) {
         await c.waitFor(
           (f) => f.method === "harnix.event"
@@ -62,8 +60,7 @@ defineSuite("hub", { feature: "sessions" }, {
 
     "a client that attaches late catches up exactly once": async ({ backend, client }) => {
       const created = await client.call("session.create", {});
-      await client.call("harnix.send", { session_id: created.session_id, message: "before you arrived" })
-        .catch(() => {});
+      await client.call("harnix.send", { session_id: created.session_id, message: "before you arrived" });
       await client.waitFor((f) => f.method === "harnix.event"
         && f.params.event.kind === "user_message", { describe: "the first message" });
 
@@ -106,8 +103,7 @@ defineSuite("hub", { feature: "sessions" }, {
       const created = await client.call("session.create", {});
       await client.call("harnix.attach", { session_id: created.session_id });
       for (const text of ["one", "two", "three"]) {
-        await client.call("harnix.send", { session_id: created.session_id, message: text })
-          .catch(() => {});
+        await client.call("harnix.send", { session_id: created.session_id, message: text });
       }
       await client.waitFor((f) => f.method === "harnix.event"
         && f.params.event.kind === "user_message" && f.params.event.text === "one",
@@ -124,8 +120,7 @@ defineSuite("hub", { feature: "sessions" }, {
     "a send during a turn queues instead of failing": async ({ client }) => {
       const created = await client.call("session.create", {});
       await client.call("harnix.attach", { session_id: created.session_id });
-      await client.call("harnix.send", { session_id: created.session_id, message: "first" })
-        .catch(() => {});
+      await client.call("harnix.send", { session_id: created.session_id, message: "first" });
       // The engine allows one turn per session and refuses a second. That
       // constraint is the engine's business, and it should not reach the user
       // unchanged — so the second send queues.
@@ -152,8 +147,7 @@ defineSuite("hub", { feature: "sessions" }, {
 
     "asking to be rejected instead of queued is honoured": async ({ client }) => {
       const created = await client.call("session.create", {});
-      await client.call("harnix.send", { session_id: created.session_id, message: "first" })
-        .catch(() => {});
+      await client.call("harnix.send", { session_id: created.session_id, message: "first" });
       const second = await client.refused("harnix.send",
         { session_id: created.session_id, message: "second", on_busy: "reject" });
       if (!second) {
@@ -167,10 +161,9 @@ defineSuite("hub", { feature: "sessions" }, {
     "interrupting abandons the queue behind it": async ({ client }) => {
       const created = await client.call("session.create", {});
       await client.call("harnix.attach", { session_id: created.session_id });
-      await client.call("harnix.send", { session_id: created.session_id, message: "first" })
-        .catch(() => {});
+      await client.call("harnix.send", { session_id: created.session_id, message: "first" });
       await client.call("harnix.send",
-        { session_id: created.session_id, message: "queued", on_busy: "queue" }).catch(() => {});
+        { session_id: created.session_id, message: "queued", on_busy: "queue" });
       // Stopping is a decision about the whole session, not just the running
       // turn: otherwise the user presses stop and the next message starts.
       await client.call("session.interrupt", { session_id: created.session_id });
