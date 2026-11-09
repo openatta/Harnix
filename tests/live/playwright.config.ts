@@ -38,6 +38,10 @@ export default defineConfig<{}, WorkerFixtures>({
       // a test that runs out of budget says "Test timeout exceeded", not what it was waiting for.
       // Replay keeps it cheap — a wide budget costs nothing while the test is green.
       timeout: 120_000,
+      // One more try, so one slow moment on a loaded machine does not fail the layer — and the
+      // test that needed it is reported as flaky (scripts/check.sh lists them), not passed. Two
+      // failures in a row are a failure.
+      retries: 1,
       use: {
         ...devices["Desktop Chrome"],
         // A layout test that fails because a model was slow is a test people

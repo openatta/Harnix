@@ -195,6 +195,34 @@ export async function finish(client: TestClient, sessionId: string): Promise<voi
   }
 }
 
+/**
+ * Every session on `client`'s backend, of every instance and space, stopped and removed — as
+ * `finish` does for one. For tests that share a backend: what one test leaves behind (a turn
+ * still on an ask, a list one row longer) is not the next test's to count. Never throws.
+ */
+export async function dropSessions(client: TestClient): Promise<void> {
+  try {
+    const { instances } = await client.call("harnix.instances.list");
+    for (const { id: instance } of instances ?? []) {
+      const { sessions } = await client.call("harnix.instances.sessions", { instance }).catch(() => ({ sessions: [] }));
+      for (const { session_id, running } of sessions ?? []) {
+        const ref = { instance, session_id };
+        if (running) {
+          // This client watches none of them, so it is asked rather than told when the turn settles.
+          await client.call("session.interrupt", ref).catch(() => {});
+          const still = async () =>
+            ((await client.call("harnix.instances.sessions", { instance }).catch(() => ({ sessions: [] }))).sessions ?? [])
+              .some((s: any) => s.session_id === session_id && s.running);
+          for (const deadline = Date.now() + 20_000; Date.now() < deadline && (await still()); ) await sleep(100);
+        }
+        await client.call("session.delete", ref).catch(() => {});
+      }
+    }
+  } catch {
+    /* cleanup never fails a test */
+  }
+}
+
 /** Asks some turn already answered, per client: a later turn does not answer one again. */
 const answeredBy = new WeakMap<TestClient, Set<string>>();
 

@@ -9,7 +9,7 @@
  */
 
 import type { Page } from "@playwright/test";
-import { expect, launchFor, startHarnix, test } from "@harnix/testkit";
+import { dropSessions, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
 import { newSession, open, reply, say, watchConsole } from "./page";
 
@@ -18,6 +18,11 @@ const SHELL = { tag: ["@feature:shell", "@layer:ui"] };
 let URL = "";
 test.beforeEach(({ harnix }) => {
   URL = harnix.url;
+});
+// The worker's backend is shared by every file that uses it: a test leaves no session behind
+// for the next one to count.
+test.afterEach(async ({ api }) => {
+  await dropSessions(api);
 });
 
 /** Bring a space to the front the way a person does: its entry in the left column. */

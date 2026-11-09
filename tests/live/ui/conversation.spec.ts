@@ -7,7 +7,7 @@
  * could go (design §10.2).
  */
 
-import { type Backend, expect, test } from "@harnix/testkit";
+import { type Backend, dropSessions, expect, test } from "@harnix/testkit";
 
 import { startTestApp } from "../api/testapp";
 import { newSession, open, reply, say, watchConsole } from "./page";
@@ -19,6 +19,11 @@ let PROJECT = "";
 test.beforeEach(({ harnix }) => {
   URL = harnix.url;
   PROJECT = harnix.project;
+});
+// The worker's backend is shared by every file that uses it: a test leaves no session behind
+// for the next one to count.
+test.afterEach(async ({ api }) => {
+  await dropSessions(api);
 });
 
 test("typing a message and pressing Enter puts it in the flow, and the reply after it", TAGS, async ({ page }) => {

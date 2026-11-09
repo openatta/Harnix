@@ -84,8 +84,20 @@ failed=0
 bold() { printf '\033[1m%s\033[0m\n' "$1"; }
 record() { results+=("$1|$2|$3"); [ "$2" = "FAIL" ] && failed=$((failed + 1)); return 0; }
 
+# The tests Playwright passed on a retry (`retries` in tests/live/playwright.config.ts), from its
+# summary: "  N flaky" and then one indented line per test.
+flaky_tests() {
+  sed 's/\x1b\[[0-9;]*m//g' "$1" | awk '
+    /^  [0-9]+ flaky$/ { on = 1; next }
+    on && /^    \[/ { sub(/^    /, ""); print; next }
+    { on = 0 }'
+}
+flaky=()
+
 # Run a layer. Its output goes to a file and is shown only when it fails —
-# a passing run should say one line, or nobody reads any of them.
+# a passing run should say one line, or nobody reads any of them. A test that
+# passed only on its retry is not a failure, but it is said, here and in the
+# summary: a retry that hides a test going bad is worse than no retry.
 layer() {
   local name="$1"; shift
   if [ -n "$ONLY" ] && [ "$ONLY" != "$name" ]; then return 0; fi
@@ -94,8 +106,17 @@ layer() {
   local started=$SECONDS
   if "$@" > "$log" 2>&1; then
     local took=$((SECONDS - started))
-    printf 'ok   (%ss)\n' "$took"
-    record "$name" "ok" "${took}s"
+    local shaky; shaky="$(flaky_tests "$log")"
+    if [ -n "$shaky" ]; then
+      local n; n=$(printf '%s\n' "$shaky" | wc -l | tr -d ' ')
+      printf 'ok   (%ss, %s flaky)\n' "$took" "$n"
+      printf '%s\n' "$shaky" | sed 's/^/      flaky: /'
+      while IFS= read -r t; do flaky+=("$name|$t"); done <<< "$shaky"
+      record "$name" "ok" "${took}s, $n flaky"
+    else
+      printf 'ok   (%ss)\n' "$took"
+      record "$name" "ok" "${took}s"
+    fi
   else
     printf 'FAIL\n'
     sed 's/^/      | /' "$log" | tail -30
@@ -332,6 +353,11 @@ for row in "${results[@]}"; do
     skipped) printf '  \033[33m%-12s --\033[0m   %s\n' "$name" "$detail" ;;
   esac
 done
+if [ "${#flaky[@]}" -gt 0 ]; then
+  echo
+  bold "flaky — passed on a retry; not failures, but look at them"
+  for row in "${flaky[@]}"; do printf '  %-12s %s\n' "${row%%|*}" "${row#*|}"; done
+fi
 echo
 if [ "$failed" -gt 0 ]; then
   bold "$failed layer(s) failed"

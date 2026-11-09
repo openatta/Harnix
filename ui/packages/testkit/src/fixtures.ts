@@ -92,7 +92,9 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     async ({ harnix }, use, workerInfo) => {
       await use();
       const seen = coverage();
-      if (!seen.called.length) return;
+      // The interface suites call a few methods to clean up after themselves; that is not the API
+      // coverage this counts.
+      if (workerInfo.project.name !== "api" || !seen.called.length) return;
       let reachable: string[] = [];
       try {
         // The topology the backend offers: an interface suite's backend may serve only one.

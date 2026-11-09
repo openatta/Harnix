@@ -9,7 +9,7 @@
 
 import { cpSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, RECORDINGS, ROOT, test } from "@harnix/testkit";
+import { dropSessions, expect, RECORDINGS, ROOT, test } from "@harnix/testkit";
 
 import { newSession, open, reply, say, watchConsole } from "./page";
 
@@ -20,6 +20,11 @@ let SCRATCH = "";
 test.beforeEach(({ harnix }) => {
   URL = harnix.url;
   SCRATCH = harnix.scratch;
+});
+// The worker's backend is shared by every file that uses it: a test leaves no session behind
+// for the next one to count.
+test.afterEach(async ({ api }) => {
+  await dropSessions(api);
 });
 
 /** A conversation with one replayed turn behind it. */
