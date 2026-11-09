@@ -3,7 +3,7 @@
 
     scripts/demo/recordings.py <conversations.json> <template recording> <workspaces dir> <out dir>
 
-Each conversation becomes one recording, named as the empty application names a flow session's
+Each conversation becomes one recording, named as the Harnix app names a flow session's
 under --replay-dir: `flow-conversation-<flow>`, `flow-conversation` (the general one),
 `flow-run-<run>` (a run's main session). Every model call answers one step: a text, a tool call,
 or a text then a tool call; a turn's last step is a text. After each turn comes the call the

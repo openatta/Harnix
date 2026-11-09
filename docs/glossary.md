@@ -12,12 +12,12 @@
 | 术语 | 代码 | 意思 |
 |---|---|---|
 | **Agix**（原 AttaCore） | `agix/` | Agent 引擎。会话怎么跑、工具怎么派发、上下文怎么压缩，都是它的事。Harnix 带着它；应用只经 `harnix::agent`、`harnix::scenes` 用到它的类型，问题与需求提给 Harnix |
-| **Harnix**（原 Nest） | `harnix` | Agix 应用的公共底座：**框架 + 最小应用 + 系统 space**。框架是骨架（中枢、授权、传输、装配）、实例层、模块契约、外壳与贡献点、插件 APP 的宿主 |
-| **框架** | `harnix` crate、`@harnix/*` | Harnix 里除了最小应用与系统 space 的一切：应用在它上面做 |
+| **Harnix**（原 Nest） | `harnix` | Agix 应用的公共底座：**框架 + Harnix app + 系统 space**。框架是骨架（中枢、授权、传输、装配）、实例层、模块契约、外壳与贡献点、插件 APP 的宿主 |
+| **框架** | `harnix` crate、`@harnix/*` | Harnix 里除了 Harnix app 与系统 space 的一切：应用在它上面做 |
 | **应用** | app | 在 Harnix 上做出来的产品，例如 Helm、IPDrun。一个应用 = 一个二进制 + 一份界面产物 |
-| **最小应用** | 会话 space、项目 space；二进制 `harnix`（`crates/cli`） | 用框架自己的公开接口做的一个小应用：新建会话、按时间看会话、按项目管理会话。Harnix 自己发布的二进制 `harnix` 就是框架 + 最小应用 + 系统 space，再注册了流程模块。以前叫「空应用」，不再用这个词。见 [最小应用](harnix-app.md) |
-| **嵌入版** | — | Harnix 的一种产品形态：最小应用 + 系统 space，开模式 2。给资源紧的设备与边缘部署 |
-| **桌面版** | — | Harnix 的另一种产品形态，我们自己的发布：最小应用 + 系统 space，开模式 3（只有设计） |
+| **Harnix app** | 会话 space、项目 space；二进制 `harnix`（`crates/cli`） | 用框架自己的公开接口做的一个小应用：新建会话、按时间看会话、按项目管理会话。Harnix 自己发布的二进制 `harnix` 就是框架 + Harnix app + 系统 space，再注册了流程模块。以前叫「空应用」「Harnix app」，不再用这个词。见 [Harnix app](harnix-app.md) |
+| **嵌入版** | — | Harnix 的一种产品形态：Harnix app + 系统 space，开模式 2。给资源紧的设备与边缘部署 |
+| **桌面版** | — | Harnix 的另一种产品形态，我们自己的发布：Harnix app + 系统 space，开模式 3（只有设计） |
 | **二开** | — | 在 Harnix 上做应用，不 fork Harnix |
 | **骨架** | — | 传输、授权、中枢、装配四件事。写死，不可插拔 |
 | **profile** | `profiles/*.toml` | 一份声明式配置：场景、provider、界面、拓扑、实例、模块配置段 |
@@ -92,7 +92,7 @@
 | **条目** | entry | space 左栏里用户新建的东西，例如项目 space 的项目（工作区）、Helm 的关注组。存在账本里 |
 | **前台 space** | — | 当前显示的 space。中区、输入框、右栏只操作它自己的会话 |
 | **默认实例** | `instance = …` | space 里新建会话默认落在哪台实例 |
-| **内建 space** | `[shell] spaces` | 最小应用的会话 space（按时间）与项目 space（按项目，列的是会话 space 的会话），以及系统 space。都是用例，产品决定留哪些 |
+| **内建 space** | `[shell] spaces` | Harnix app 的会话 space（按时间）与项目 space（按项目，列的是会话 space 的会话），以及系统 space。都是用例，产品决定留哪些 |
 | **固定部分** | — | 外壳里不随 space 变的东西：顶部的标识、新建对话、搜索，底部的头像（设置入口，外圈表示连接）。其余都是 space 的 |
 | **令牌覆盖** | `r.tokens` | 模块改主题已有令牌的值；不能新增令牌名 |
 | **语言包** | `r.strings` | 模块带的文案；key 以模块 id 开头 |
@@ -111,7 +111,7 @@
   `harnix.apps.*`，Agix 插件是 `plugin.*`、`harnix.plugins.*`。
 - 「应用」是在 Harnix 上做出来的产品（模式 1 的那个二进制）；装进应用里的叫「插件 APP」，不叫「应用」。代码里的 `app.<id>.*`、
   `AppSpec`、`harnix-app` 这些名字两边都用，看上下文。
-- 「空应用」不再用，说「最小应用」。
+- 「空应用」「最小应用」不再用，说「Harnix app」。它和 crate `harnix-app`（`crates/app`）、插件打包工具 `harnix-app` 不是一回事。
 - 「功能模块」是开发计划的单位（设计文档 §4.3 的一行），不是代码里的东西。
 
 ## 5. 授权与安全

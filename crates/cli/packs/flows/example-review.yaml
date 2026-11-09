@@ -2,7 +2,7 @@ name: example-review
 title: "Example: review and approve"
 description: >-
   The run's main Agent reviews the subject and lists what it finds; a person approves, or sends
-  it back. Built into the empty application: save a changed copy and it overrides this one.
+  it back. Built into the Harnix app: save a changed copy and it overrides this one.
 stations:
   - id: review
     title: Review

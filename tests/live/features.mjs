@@ -54,7 +54,7 @@ export const FEATURES = [
   },
 ];
 
-// Methods a client may call (`harnix.reachable` on the empty application) that no API test calls,
+// Methods a client may call (`harnix.reachable` on the Harnix app) that no API test calls,
 // each with why. Under `HARNIX_COVERAGE_GATE=1` (what `scripts/check.sh` sets for a whole `api`
 // run) the global teardown fails on a reachable method that is neither called nor listed here,
 // and on an entry here that a test now calls — the same two rules as the rows above.

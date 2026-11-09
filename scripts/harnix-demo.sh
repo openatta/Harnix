@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the empty application by hand, in a directory of its own.
+# Run the Harnix app by hand, in a directory of its own.
 #
 #   scripts/harnix-demo.sh start | stop | restart | status
 #
@@ -17,7 +17,7 @@
 # waiting for an external hand-in — made by the real kernel (`crates/flow/examples/demo_seed.rs`);
 # and conversations in each flow's conversation, the general one and each run's main session,
 # said once to the application under --replay-dir (`scripts/demo/conversations.json`). None has
-# work in hand, so nothing calls a model until you act. The empty application ships none of it.
+# work in hand, so nothing calls a model until you act. The Harnix app ships none of it.
 #
 #   HARNIX_DEMO_DIR    where it keeps everything (default ~/harnix-demo)
 #   HARNIX_DEMO_PORT   the port (default 4080)

@@ -1,5 +1,5 @@
 /**
- * Where the flows are: in the system space, against the empty application (which has the flow
+ * Where the flows are: in the system space, against the Harnix app (which has the flow
  * module). They are the application's toolchain, not one of its surfaces, so no Flows space is
  * listed among the spaces: the system console has a Flows tab, and a flow clicked there makes the
  * left column that flow's — its name, the way back, its conversation, its runs — with its

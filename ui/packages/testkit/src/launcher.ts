@@ -18,7 +18,7 @@ import type { Topology } from "@harnix/core/protocol";
 import { RECORDINGS, ROOT, sleep } from "./env.ts";
 
 export interface LaunchOptions {
-  /** Which binary: `harnix` (the empty application), another bin of this workspace, or an absolute
+  /** Which binary: `harnix` (the Harnix app), another bin of this workspace, or an absolute
    *  path to an application built on its own. */
   bin?: string;
   /** A fixed port. Without one, a free port is picked. */

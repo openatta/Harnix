@@ -5,7 +5,7 @@ edition      = "2021"
 rust-version = "1.87"
 license      = "Apache-2.0"
 publish      = false
-description  = "The empty application, `harnix`: the built-ins and the flow module (xops-02 §6)"
+description  = "The Harnix app, `harnix`: the built-ins and the flow module (xops-02 §6)"
 
 # The binary lives here, not in `crates/harnix`, so an application that depends on the `harnix`
 # library does not compile `harnix-flow` for a binary it never builds (`tests/layering.rs`).

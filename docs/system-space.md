@@ -2,7 +2,7 @@
 
 > 读者：在 Harnix 上做应用、要知道「系统 space 里看得到什么、它从哪读」的人；给系统 space 加东西的人。
 >
-> 系统 space 是 Harnix 的三部分之一（框架、[最小应用](harnix-app.md)、系统 space），**始终在**，除非产品在
+> 系统 space 是 Harnix 的三部分之一（框架、[Harnix app](harnix-app.md)、系统 space），**始终在**，除非产品在
 > `[shell] spaces` 里去掉它。为什么是这个形状见 [概念与架构](concept_and_architecture.md) §5.5。用词照 [术语](glossary.md)。
 >
 > 本文照代码写：界面在 `ui/packages/shell/src/system.tsx`、`system-apps.tsx`、`system-flows.ts`、`flow.ts`，流程的界面在
@@ -90,7 +90,7 @@
 
 ## 5. 流程
 
-流程是 Harnix 内置的应用开发工具链（模块 `harnix-flow`，界面 `@harnix/flow`），后端注册了流程模块才有这个页签：最小应用
+流程是 Harnix 内置的应用开发工具链（模块 `harnix-flow`，界面 `@harnix/flow`），后端注册了流程模块才有这个页签：Harnix app
 `harnix` 注册了，二开应用 `.module(Flow::builder()…build())` 了才有。流程是什么、怎么写见流程指南（`crates/flow/docs/guide.*.md`，
 这里右栏的「参考」就是它）。
 

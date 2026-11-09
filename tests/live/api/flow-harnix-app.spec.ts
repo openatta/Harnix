@@ -1,5 +1,5 @@
 /**
- * The empty application, `harnix`, has the flow module (xops-02 §6): an example flow built in,
+ * The Harnix app, `harnix`, has the flow module (xops-02 §6): an example flow built in,
  * a writable layer in the module's data directory, the flow space whose conversations run
  * `flow-author`, and no programs, gates or tools of an application's.
  *
@@ -25,7 +25,7 @@ test.beforeEach(async () => {
 });
 test.afterEach(() => api?.close());
 
-test("the empty application says it has flows: its methods, its space, its example", TAGS, async () => {
+test("the Harnix app says it has flows: its methods, its space, its example", TAGS, async () => {
   const { methods } = await api.call("harnix.reachable");
   for (const m of ["app.flow.defs", "app.flow.save", "app.flow.focus", "app.flow.dry_run.start"]) {
     expect(methods).toContain(m);

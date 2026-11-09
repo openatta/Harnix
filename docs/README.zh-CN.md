@@ -5,7 +5,7 @@
 **[Agix](https://github.com/openatta/agix) 应用的公共底座。** 在 Harnix 上做的应用是一个 Rust 二进制：Agent 引擎、
 Web 服务、应用自己的模块和界面编译在一起。这类产品需要、又不值得各自去造的东西由 Harnix 提供——由服务端持有的会话、
 引擎实例、授权、传输、外壳与 space、系统视图、可选的流程引擎，以及跑在 WebAssembly 沙箱里的插件 APP 的宿主——它自己保持薄，
-产品是应用自己的。Harnix 本身就是这个框架、用它做的一个最小应用（会话 space 与项目 space），加上系统 space。
+产品是应用自己的。Harnix 本身就是这个框架、用它做的一个 Harnix app（会话 space 与项目 space），加上系统 space。
 
 ![Harnix](images/harnix.png)
 
@@ -21,7 +21,7 @@ cargo build --release
 ./target/release/harnix                              # → http://127.0.0.1:4080/
 ```
 
-需要 Rust 1.87 以上、Node 和 pnpm。`--recurse-submodules` 不能少：Agix 在 `agix/`。跑起来的是最小应用与系统 space：
+需要 Rust 1.87 以上、Node 和 pnpm。`--recurse-submodules` 不能少：Agix 在 `agix/`。跑起来的是 Harnix app 与系统 space：
 会话、项目，以及带着流程的系统。
 
 不需要任何环境变量。没配模型也能启动，页面会提示：**配置模型**（或头像 → **设置 → 模型与凭据**）添加 provider——
@@ -29,7 +29,7 @@ Anthropic 或兼容 OpenAI 的 API，其中一个是缺省——存在 `~/.agix/
 `ANTHROPIC_AUTH_TOKEN`（可加 `ANTHROPIC_BASE_URL`）也行。
 
 想看带数据的样子：`scripts/harnix-demo.sh start`（还有 `stop`、`restart`、`status`）在单独的目录（`~/harnix-demo`）里
-跑最小应用，带示例流程、运行和会话；删掉这个目录就从头来。
+跑 Harnix app，带示例流程、运行和会话；删掉这个目录就从头来。
 
 ## 架构
 
@@ -59,7 +59,7 @@ Anthropic 或兼容 OpenAI 的 API，其中一个是缺省——存在 `~/.agix/
 - **插件跑在沙箱里。** 一个插件 APP 是一个签了名的包——WebAssembly 的后端与工具、Agent 一侧的 Agix 插件、隔离 iframe 里的界面——
   它要的每一项能力都写在清单里。Harnix 只在这个沙箱里执行包里的代码；Agix 插件带的 QuickJS 在引擎里跑，按签名信任。
 - **界面按 space 分三栏**：space 自己的左栏、中区（缺省是对话，旁边可以开二级栏）、space 自己的右栏页签。
-  Harnix 自带的 space——最小应用的两个与系统 space——都是例子，产品自己决定留哪些。
+  Harnix 自带的 space——Harnix app 的两个与系统 space——都是例子，产品自己决定留哪些。
 - **对话里的卡片**：模块往会话日志里写扩展条目——刷新、回放、分叉都在，模型看不见。
 - **流程**（`harnix-flow`，可选）：一张站的图，带着一个对象走过由运行的主 Agent、子 Agent、应用代码或外部完成的工作；
   每次工具调用按流程的权限判，每一站按出站条件和门禁判，钩子把进度告诉别的系统。
@@ -81,7 +81,7 @@ crates/wasm       harnix-wasm：WebAssembly 运行时，唯一链 wasmtime 的�
 crates/app-package、app-port、app-host、apps
                   插件 APP：包与签名、端口、宿主核心、嵌入的粘合
 crates/client     应用自己的工具链接的轻量客户端
-crates/cli        `harnix` 二进制：最小应用，带流程模块
+crates/cli        `harnix` 二进制：Harnix app，带流程模块
 crates/testapp    给测试用的应用
 ui/packages/      @harnix/core（协议、客户端、会话状态）、@harnix/react（对话、贡献注册表、i18n、tokens）、
                   @harnix/shell、@harnix/flow、@harnix/testkit，
@@ -153,11 +153,11 @@ spaces = ["sessions", "projects"]   # 保留哪些自带的 space（不写就全
 
 | 文档 | 讲什么 |
 |---|---|
-| [概念与架构](concept_and_architecture.md) | Harnix 是什么——框架、最小应用、系统 space——由哪些部分组成、每条边界为什么在那儿 |
+| [概念与架构](concept_and_architecture.md) | Harnix 是什么——框架、Harnix app、系统 space——由哪些部分组成、每条边界为什么在那儿 |
 | [应用开发](app-development.md) | 总览：三种模式与三种产品形态（应用、嵌入版、桌面版），它们的资源、安全、目标市场，怎么选，代码怎么分层 |
 | [SDK](harnix-sdk.md) | 模式 1，用 Rust 在上面做应用：指南，以及每个类型、方法、profile 键、开关、目录、主题 |
 | [插件](harnix-plugin.md) | 模式 2 / 3，写一个插件 APP：包、清单、WIT、界面、信任、商店、工具、测试，以及它的接口 |
-| [最小应用](harnix-app.md) | 最小应用：会话 space 与项目 space，它们的 profile 开关，怎么做出来的 |
+| [Harnix app](harnix-app.md) | Harnix app：会话 space 与项目 space，它们的 profile 开关，怎么做出来的 |
 | [系统 space](system-space.md) | 系统 space：Agent、流程、应用、诊断、检查器，以及每一样从哪读 |
 | [贡献点](contribution_points.md) | 界面的贡献点，由代码生成 |
 | [测试](testing.md) | LIVE 测试框架：检查的分层、运行器与拓扑、录像、覆盖表、给应用用的 testkit |
