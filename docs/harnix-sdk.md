@@ -969,7 +969,7 @@ pub trait Module: Send + Sync + 'static {
 
 ### 17.7 错误：`RpcError`、`harnix::codes`
 
-`RpcError::new(code, msg)`、`::invalid_params`、`::not_found`、`::refused`。
+`RpcError::new(code, msg)`、`::invalid_params`、`::not_found`（没有这个**方法**，-32601）、`::missing`（`NOT_FOUND`）、`::conflict`（`CONFLICT`）、`::refused`。
 
 | 码 | 名字 | 含义 |
 |---|---|---|
@@ -980,6 +980,8 @@ pub trait Module: Send + Sync + 'static {
 | -31003 | `SPACE_MISMATCH` | 会话不属于调用方声称的 space。**防 bug，不是权限** |
 | -31004 | `INSTANCE_UNAVAILABLE` | 实例在，但现在够不着（daemon 重启中、协议版本不符） |
 | -31005 | `BUSY` | 这条单双向连接上已有 `limits.max_in_flight`（16）个请求没答；这一个没执行，等一个答了再发。`data.max_in_flight` 是那个数 |
+| -31006 | `NOT_FOUND` | 方法在，问的那样东西不在：会话还没有录像、录像里没有第 n 次调用、没有这个工作区、没有这个流程运行、模块发布了自己没声明的主题。和 -32601（没有这个**方法**）分开。实例不在仍是 `INSTANCE_NOT_FOUND` |
+| -31007 | `CONFLICT` | 要动的东西已经变了，这次调用现在做不成：流程任务的租约不是你的了、运行的版本已经往前走。重读再试 |
 
 引擎的错误码原样透传（例如会话不存在是 -32000）。
 
@@ -1359,6 +1361,8 @@ api_version = 2
 `parts {kind}`、`part`、`hooks`、`guide`、`sessions {run}`；写流程与件——`save`、`delete`、`part.save`、`part.delete`；
 运行——`start`、`cancel`、`pause`、`resume`、`confirm`、`force`、`rework`、`retry`、`release`、`proposal`；外部任务——`claim`、
 `heartbeat`、`submit`、`fail`；对话——`session {flow?}`、`focus`；试运行——`dry_run.start` / `step` / `run` / `list`。
+错误码按类：没有这个运行、站、任务或流程答 `NOT_FOUND`；不合运行的状态或契约答 `INVALID_PARAMS`；租约不是你的、
+版本已经往前走答 `CONFLICT`；`data.flow` 是内核自己的类别。
 主题：`app.flow.runs`、`app.flow.run {run}`、`app.flow.defs`、`app.flow.focus {instance, session_id}`、`app.flow.dry_runs`。每个方法的参数与返回写在它注册时的说明里（`harnix.reachable` 列出）。
 
 界面：外壳在后端有流程模块时自己把流程放进系统 space（`registerSystemFlows(registry, { host, within: "system" })`：控制台多一个「流程」页，

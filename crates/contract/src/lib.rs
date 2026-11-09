@@ -56,8 +56,20 @@ impl RpcError {
         Self::new(codes::INVALID_PARAMS, message)
     }
 
+    /// `METHOD_NOT_FOUND`: there is no such *method* (or topic). For a thing a method names that
+    /// does not exist, [`RpcError::missing`].
     pub fn not_found(message: impl Into<String>) -> Self {
         Self::new(codes::METHOD_NOT_FOUND, message)
+    }
+
+    /// `NOT_FOUND`: the method exists and what it was asked about does not.
+    pub fn missing(message: impl Into<String>) -> Self {
+        Self::new(codes::NOT_FOUND, message)
+    }
+
+    /// `CONFLICT`: what the call acts on is not in the state the call needs any more.
+    pub fn conflict(message: impl Into<String>) -> Self {
+        Self::new(codes::CONFLICT, message)
     }
 
     pub fn refused(message: impl Into<String>) -> Self {
@@ -119,6 +131,16 @@ pub mod codes {
     /// Nothing was done; send it again once one of the others has answered. `data.max_in_flight`
     /// says the number.
     pub const BUSY: i32 = -31005;
+    /// The method exists and the thing it was asked about does not: a session with no recording,
+    /// a call past the end of one, a run, a workspace, a topic a module never declared. Distinct
+    /// from `METHOD_NOT_FOUND`, which is about the method: a client that read "no recording yet"
+    /// as "this server has no such method" drew the wrong page. `INSTANCE_NOT_FOUND` stays the
+    /// answer for an instance.
+    pub const NOT_FOUND: i32 = -31006;
+    /// The thing the call acts on changed under it, and the call cannot apply now: a flow task's
+    /// lease that is not the caller's any more, a run whose stored revision moved on. Read it
+    /// again before trying again.
+    pub const CONFLICT: i32 = -31007;
 }
 
 /// The process's single admission point.

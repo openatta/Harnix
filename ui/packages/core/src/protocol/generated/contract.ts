@@ -32,6 +32,10 @@ export const SPACE_MISMATCH = -31003;
 export const INSTANCE_UNAVAILABLE = -31004;
 /** Harnix: this connection already has `limits.max_in_flight` requests unanswered; send it again once one answers. */
 export const BUSY = -31005;
+/** Harnix: the method exists and the thing it was asked about does not (no recording, no such run). Not `METHOD_NOT_FOUND`, which is about the method. */
+export const NOT_FOUND = -31006;
+/** Harnix: what the call acts on changed under it (a lease that is not the caller's, a revision that moved on); read it again before trying again. */
+export const CONFLICT = -31007;
 
 /**
  * How the five channel semantics are carried.

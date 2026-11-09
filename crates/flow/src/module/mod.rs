@@ -696,17 +696,19 @@ impl Module for Flow {
     }
 }
 
-/// A kernel error as a method answers it: `data.flow` is the kernel's code
-/// (`not_found`, `invalid`, `denied`, `lease`, `conflict`, `store`).
+/// A kernel error as a method answers it: the code by kind — `NOT_FOUND` for no such run, station,
+/// task or flow; `INVALID_PARAMS` for a request that does not fit the run or the contract;
+/// `REFUSED`; `CONFLICT` for a lease that is not the caller's or revisions that moved on;
+/// `INTERNAL_ERROR` for the store — and `data.flow` the kernel's own (`not_found`, `invalid`,
+/// `contract`, `denied`, `lease`, `conflict`, `store`).
 pub fn rpc_error(e: FlowError) -> harnix_module::RpcError {
     use harnix_contract::codes;
     let code = match &e {
         FlowError::Denied(_) => codes::REFUSED,
-        FlowError::NotFound(_)
-        | FlowError::Invalid(_)
-        | FlowError::Contract(_)
-        | FlowError::Lease(_) => codes::INVALID_PARAMS,
-        FlowError::Conflict(_) => codes::BUSY,
+        FlowError::NotFound(_) => codes::NOT_FOUND,
+        FlowError::Invalid(_) | FlowError::Contract(_) => codes::INVALID_PARAMS,
+        // Someone else's claim, or a run that moved on between the read and the write.
+        FlowError::Lease(_) | FlowError::Conflict(_) => codes::CONFLICT,
         FlowError::Store(_) => codes::INTERNAL_ERROR,
     };
     let mut err = harnix_module::RpcError::new(code, e.to_string());
@@ -717,6 +719,21 @@ pub fn rpc_error(e: FlowError) -> harnix_module::RpcError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A client tells "no such run" from "that run cannot do this now" from "the lease is not
+    /// yours" by the code, not by reading `data.flow`.
+    #[test]
+    fn kernel_errors_answer_codes_by_kind() {
+        use harnix_contract::codes;
+        let code = |e| rpc_error(e).code;
+        assert_eq!(code(FlowError::NotFound("run r".into())), codes::NOT_FOUND);
+        assert_eq!(code(FlowError::Invalid("paused".into())), codes::INVALID_PARAMS);
+        assert_eq!(code(FlowError::Contract("output".into())), codes::INVALID_PARAMS);
+        assert_eq!(code(FlowError::Lease("not yours".into())), codes::CONFLICT);
+        assert_eq!(code(FlowError::Conflict("revs".into())), codes::CONFLICT);
+        assert_eq!(code(FlowError::Denied("no".into())), codes::REFUSED);
+        assert_eq!(rpc_error(FlowError::Lease("x".into())).data, Some(json!({"flow": "lease"})));
+    }
 
     fn catalog_packs(inner: MemPacks, templates: &[&str]) -> CatalogPacks {
         let packs = CatalogPacks {

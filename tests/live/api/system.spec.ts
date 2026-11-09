@@ -11,7 +11,7 @@
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { INVALID_PARAMS, METHOD_NOT_FOUND, REFUSED, SPACE_MISMATCH } from "@harnix/core/protocol";
+import { INVALID_PARAMS, METHOD_NOT_FOUND, NOT_FOUND, REFUSED, SPACE_MISMATCH } from "@harnix/core/protocol";
 import { type Backend, RECORDINGS, type TestClient, connect, expect, test } from "@harnix/testkit";
 
 import { until } from "./instances";
@@ -223,7 +223,12 @@ test.describe("on", () => {
     expect(full.input.messages.length).toBe(agent.input.messages);
     expect(full.input.model).toBe(agent.model);
     expect((await api.refused("harnix.system.trace.call", s))?.code).toBe(INVALID_PARAMS);
-    expect(await api.refused("harnix.system.trace.call", { ...s, index: 10_000 })).toBeTruthy();
+    // A thing that is not there is NOT_FOUND, not "there is no such method".
+    expect((await api.refused("harnix.system.trace.call", { ...s, index: 10_000 }))?.code).toBe(NOT_FOUND);
+    const fresh = await api.call("session.create", { space: "sessions" });
+    const unrecorded = { instance: fresh.instance, session_id: fresh.session_id };
+    expect((await api.refused("harnix.system.trace.call", { ...unrecorded, index: 0 }))?.code, "no recording yet").toBe(NOT_FOUND);
+    expect((await api.call("harnix.system.trace", unrecorded)).recording).toBe(false);
 
     const calls = await api.call("harnix.system.calls", s);
     expect(calls.recording).toBe(true);
