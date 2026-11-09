@@ -2,43 +2,45 @@
 
 > 状态：**模式 1 已有应用在用**（IPDrun、Grabix）；**模式 2 在开发与测试中**（开关 `apps` 关着时，构建与今天一样）；**模式 3 只有设计**，还没有代码。
 >
-> 用词照 [术语](glossary.md)：「应用」是在 Harnix 上做出来的产品；装进应用里的叫**运行期应用**，也就是常说的「插件 APP」。
-> 「插件」在本仓库只指 Agix 的包，所以文档里不用这个词称呼运行期应用。
+> 用词照 [术语](glossary.md)：「应用」是在 Harnix 上做出来的产品；装进应用里跑的叫**插件 APP**（运行期应用），单说「插件」就是它，
+> 代码里叫 `apps`。Agix 的包叫 **Agix 插件**（运行期包），它可以是插件 APP 的一部分。
 >
-> 模式 1 的接口在 [SDK](harnix-sdk.md)、[贡献点](contribution_points.md)。
+> 这是总览。模式 1 怎么做在 [SDK](harnix-sdk.md)；插件 APP 怎么写（模式 2 / 3 共用）在 [插件](harnix-plugin.md)；Harnix 自带的
+> 最小应用与系统 space 在 [最小应用](harnix-app.md)、[系统 space](system-space.md)。
 
 ## 0. 一句话
 
-**用 Rust 做产品（模式 1），再选一种方式往产品里装运行期应用：嵌在产品进程里（模式 2），或者每个应用一个进程（模式 3）。**
+**用 Rust 做产品（模式 1），再选一种方式往产品里装插件 APP：嵌在产品进程里（模式 2），或者每个插件一个进程（模式 3）。**
 
+Harnix 本身是**框架 + 最小应用 + 系统 space**：最小应用（会话 space、项目 space）就是用框架做的一个模式 1 的小应用，系统 space 始终在。
 由此有三种产品形态：
 
 - **应用**（IPDrun、Grabix 这类）：一般是模式 1 + 2。
-- **Harnix 嵌入版**：为嵌入式部署做的，用模式 2。
-- **Harnix 桌面版**：我们自己发布的 Harnix，用模式 3。
+- **Harnix 嵌入版**：最小应用 + 模式 2，给资源紧的设备与边缘部署。
+- **Harnix 桌面版**：我们自己发布的 Harnix，最小应用 + 模式 3（只有设计）。
 
 ## 1. 三种模式
 
-| | 模式 1：单一应用 | 模式 2：运行期应用，嵌入 | 模式 3：运行期应用，独立进程 |
+| | 模式 1：单一应用 | 模式 2：插件 APP，嵌入 | 模式 3：插件 APP，独立进程 |
 |---|---|---|---|
 | 状态 | 已有应用在用 | 开发与测试中 | 只有设计 |
-| 是什么 | 用 Rust 把 Harnix 装配成一个产品 | 运行期应用跑在产品进程里，每个应用一台 WASM 虚拟机 | 每个运行期应用一个进程：应用宿主 + WASM 虚拟机 + 应用自己的 Agix，经 RPC 连产品 |
+| 是什么 | 用 Rust 把 Harnix 装配成一个产品 | 插件 APP 跑在产品进程里，每个插件一台 WASM 虚拟机 | 每个插件 APP 一个进程：应用宿主 + WASM 虚拟机 + 它自己的 Agix，经 RPC 连产品 |
 | 谁写 | 产品方 | 应用作者（第三方也可以） | 同模式 2 |
-| 用什么写 | Rust：编译期模块、Agix 原生工具与场景、前端的编译期 space | 应用包 `.hxapp`：WASM 组件（WIT `harnix:app`）+ Agix 包（QuickJS、skill、agent 类型）+ 界面（iframe 页面与声明式行内点） | 同模式 2，**同一个包** |
+| 用什么写 | Rust：编译期模块、Agix 原生工具与场景、前端的编译期 space | 应用包 `.hxapp`：WASM 组件（WIT `harnix:app`）+ Agix 插件（QuickJS、skill、agent 类型）+ 界面（iframe 页面与声明式行内点） | 同模式 2，**同一个包** |
 | 分发 | 随产品发布 | 应用商店：发布者签名 + 商店副署，预编译 `.cwasm` | 同模式 2 |
 
 ## 2. 三种产品形态
 
 | 形态 | 组成 | 状态 | 一句话 |
 |---|---|---|---|
-| **应用**（IPDrun、Grabix…） | 模式 1，一般再开模式 2 | 模式 1 在用；模式 2 开发中 | 产品方用 Rust 做领域能力，再让精选的运行期应用在进程内扩展它 |
-| **Harnix 嵌入版** | 模式 1（[空应用](glossary.md)，只带内建模块）+ 模式 2 | 开发中 | 资源紧的设备与边缘部署：一个进程，省内存，装少量受控的运行期应用 |
-| **Harnix 桌面版** | 模式 1（空应用）+ 模式 3 | 只有设计；在那之前 Harnix 自己的二进制是空应用，可以开模式 2 | 资源宽的桌面：开放的应用商店，第三方应用各自一个进程，强隔离 |
+| **应用**（IPDrun、Grabix…） | 模式 1，一般再开模式 2 | 模式 1 在用；模式 2 开发中 | 产品方用 Rust 做领域能力，再让精选的插件 APP 在进程内扩展它 |
+| **Harnix 嵌入版** | 框架 + [最小应用](harnix-app.md) + [系统 space](system-space.md)，开模式 2 | 开发中 | 资源紧的设备与边缘部署：一个进程，省内存，装少量受控的插件 APP |
+| **Harnix 桌面版** | 框架 + 最小应用 + 系统 space，开模式 3 | 只有设计；在那之前 Harnix 自己的二进制 `harnix` 就是最小应用，可以开模式 2 | 资源宽的桌面：开放的应用商店，第三方插件各自一个进程，强隔离 |
 
 两条约束：
 
 - **一个产品开模式 2 或模式 3，不同时开。** 两种模式对「应用的 Agent 在哪」答案不同（§10）；模式 2 的宿主要链 wasmtime，模式 3 的宿主不链。
-  落法是两个互斥的 cargo feature，同时开就 `compile_error!`，profile 不能切换。
+  落法是两个互斥的 cargo feature，profile 不能切换。今天只有模式 2 的 `apps`；模式 3 的 feature 立项时加，与它同时开就 `compile_error!`。
 - **应用包对模式中立。** 同一个 `.hxapp` 在嵌入版、桌面版、各个应用里都能装。商店只有一种包，作者只写一遍。
 
 云端部署（多租户托管）是模式 3 的延伸：在模式 3 上再加租户、计量与编排，见 §9.5。
@@ -63,9 +65,9 @@
 | 信任来源 | 出身：编进二进制，内核级信任，产品方负责审查 | 签名：商店副署（store）、受信发布者（trusted）；未签名只在开发模式跑 | 同模式 2 |
 | 后端代码 | 原生 Rust，什么都能做 | WASM 沙箱：内存安全；没有环境里的文件与网络，`net` 精确主机、`env` 名单、`fs` 预开目录、`storage_mb` 上限，逐项在宿主函数里查 | 同模式 2，外加进程级隔离，可以再套操作系统沙箱（seccomp、sandbox-exec、AppContainer）或容器 |
 | 对 Harnix 的调用 | 模块的 grants | 以 `module:<id>` 经授权表；只到清单 `hub` 列出的，被拒的记审计 | 同模式 2，在产品侧检查 |
-| Agent 部分（QuickJS、skill） | 原生，可信 | **弱点**：Agix 包装进产品的实例，QuickJS 在实例共用的 Agix 里跑，看得到那个实例里其它会话的事件；它的信任来自签名，不来自沙箱（QuickJS 只限资源，不是隔离边界） | 在应用自己的 Agix 里跑，只看得到这个应用自己的会话 |
+| Agent 部分（QuickJS、skill） | 原生，可信 | **弱点**：Agix 插件装进产品的实例，QuickJS 在实例共用的 Agix 里跑，看得到那个实例里其它会话的事件；它的信任来自签名，不来自沙箱（QuickJS 只限资源，不是隔离边界） | 在应用自己的 Agix 里跑，只看得到这个应用自己的会话 |
 | 界面 | 进页面，可信 | 商店与未签名的进隔离的 iframe（不透明源、`sandbox`、CSP `connect-src 'none'`），只经桥用外壳给的子集；受信发布者可以进页面 | 同模式 2，前端完全一样 |
-| 故障 | 产品自己的 | 虚拟机的陷阱、超时、内存超限被接住，只停这一个应用；**但** wasmtime 或宿主函数的 bug、Agix 包里的问题会波及整个产品进程 | 只影响这个应用进程；监护器退避重启 |
+| 故障 | 产品自己的 | 虚拟机的陷阱、超时、内存超限被接住，只停这一个应用；**但** wasmtime 或宿主函数的 bug、Agix 插件里的问题会波及整个产品进程 | 只影响这个应用进程；监护器退避重启 |
 | 数据 | 产品自己的 | 每个应用自己的 kv 与 `/data`，卸载即删；同一个进程，靠代码边界分开 | 每个应用自己的数据目录，可以落到不同的系统用户或卷 |
 
 **一句话**：模式 2 的隔离靠 WASM 沙箱、授权表与签名，挡得住「应用越权」，挡不住「宿主出 bug」，也不隔开 Agent 部分；模式 3 加上进程边界，三样都隔开。
@@ -74,7 +76,7 @@
 
 | 形态 | 给谁 | 典型场景 | 为什么是这个模式 |
 |---|---|---|---|
-| **应用**（1 + 2） | 做垂直产品的团队（ISV、企业内部平台） | 领域产品（如 IPDrun、Grabix），产品方自己定、自己审的一批运行期应用，或者自己的应用商店 | 领域能力要原生 Rust（模式 1）；扩展是精选的、可信度高，进程内最省、协作最方便（模式 2） |
+| **应用**（1 + 2） | 做垂直产品的团队（ISV、企业内部平台） | 领域产品（如 IPDrun、Grabix），产品方自己定、自己审的一批插件 APP，或者自己的应用商店 | 领域能力要原生 Rust（模式 1）；扩展是精选的、可信度高，进程内最省、协作最方便（模式 2） |
 | **Harnix 嵌入版**（1 + 2） | 设备与边缘的集成方 | 工控机、边缘盒子、一体机与展示终端、离线现场，单租户 | 内存与盘紧、常常只有一个进程的预算；应用少而受控，弱隔离的风险可以接受 |
 | **Harnix 桌面版**（1 + 3） | 个人与团队用户，以及给他们写应用的第三方开发者 | 桌面上的通用 Agent 工作台加开放的应用商店 | 资源宽；应用来自许多发布者、可信度参差，要进程级隔离；一个应用崩了不能拖垮整个桌面 |
 | 云端（3 的延伸，未定） | 托管服务 | 多租户 | 进程或容器隔离是多租户的前提 |
@@ -85,10 +87,10 @@
   - 领域能力用模式 1 写。
   - 要让别人往产品里加东西：应用由你挑选、资源要省，开模式 2；面向开放商店、要强隔离，等模式 3。
   - 二者择一，构建时定。
-- **写运行期应用的**：
+- **写插件 APP的**：
   - 只写一个应用包，不用关心宿主是嵌入版、桌面版还是某个应用，只有 §10 那条规矩例外。
-  - 要原生代码、或者要进内核的能力，就不是运行期应用该做的事：找产品方做成模式 1 的模块，或者给 Harnix 提 issue。
-- **原生代码只走模式 1。** 运行期应用在模式 2 和 3 里都只有 WASM 与 QuickJS。
+  - 要原生代码、或者要进内核的能力，就不是插件 APP该做的事：找产品方做成模式 1 的模块，或者给 Harnix 提 issue。
+- **原生代码只走模式 1。** 插件 APP在模式 2 和 3 里都只有 WASM 与 QuickJS。
   - 模式 3 有了进程隔离，看起来可以放原生二进制，但不放：放了包就不能在模式 2 里跑，而且签名、审核与跨平台都要另起一套。
 
 ## 7. 模式 1：用 Rust 做产品
@@ -102,107 +104,29 @@
   - 前端的编译期 space 与贡献点；
   - 品牌与 profile。
 - 信任按出身：编进二进制的都是内建，可以用全部贡献点与全部宿主 API。
-- 要装运行期应用时开 feature `apps`（模式 2）；模式 3 的 feature（设计中）与 `apps` 互斥。开了之后，profile 的 `[apps]` 照 §8 配。
+- 要装插件 APP 时开 feature `apps`（模式 2）；模式 3 的 feature（设计中）与 `apps` 互斥。开了之后，profile 的 `[apps]` 照 [插件](harnix-plugin.md) §19 配。
 - 产品可以给自己的应用商店换公钥与地址（`[apps] store`、受信发布者），也可以不开商店，只用 `installFile`（开发模式）。
 
-## 8. 运行期应用：两种模式共用的开发方式
+## 8. 插件 APP：两种模式共用的写法
 
-### 8.1 包与清单
-
-`.hxapp`（zip）的内容：
-
-| 部分 | 作用 |
-|---|---|
-| `harnix-app.toml` | 清单 |
-| `wasm/<组件>.<指纹>.cwasm` | 后端或工具组件：由商店预编译，指纹含 `cpu=baseline` |
-| `agent/` | Agix 包：QuickJS 脚本、agent 类型、skill |
-| `ui/` | iframe 页面与资源；受信发布者可以带进页面的模块 |
-| `SIGNATURES` | 每个文件的 sha256，带发布者签名与商店副署 |
-
-清单各节只增不改，未知的节与字段按名字拒：
-
-| 节 | 内容 |
-|---|---|
-| `[app]` | id、version、`harnix_api`、title、publisher |
-| `[capabilities]` | `net`（精确主机）、`env`、`storage_mb`、`fs`（`${project}` 只读、`${data}`）、`hub`（以 `module:<id>` 能调的方法与 `topic:` 主题） |
-| `[[component]]` | world `tools-app` 或 `backend-app`；`memory_mb`、`timeout_ms` |
-| `[backend]` | `resident = "always" \| "on-demand"`、`idle_secs`（闲置休眠） |
-| `[[method]]` / `[[topic]]` / `[[space]]` | 后端的方法（`subject`、内联的 params schema）、主题、space |
-| `[config]` | 缺省配置；profile 的 `[apps.config."<id>"]` 可以盖过它 |
-| `[interface]`、`[[surface]]` | iframe 的面（8 个点）、界面能调的 `harnix.*` 与 `session.*`（`hub`）、`links`、`isolate` |
-| `[inline]` | 声明式行内点：`tool_row`、`flow_block`、`command`、`sidebar_group`。一个 space 的左栏要么是外壳的会话列表（可以分组），要么是应用的 `space.sidebar` 面，不能两样都要 |
-| `[[ui]]` | 进页面的模块，只对受信发布者生效 |
-| `[agent]` | `install_into`；它在两种模式里的意思见 §10 |
-
-### 8.2 后端：WIT `harnix:app@0.1.0`
-
-- **world `tools-app`**：
-  - 函数：`list-tools`、`call-tool`、事件钩子。
-  - 每次工具调用一个临时实例。
-- **world `backend-app`**：
-  - 函数：`init`、`handle`、`on-topic`、`on-timer`、`stop`。
-  - 一个常驻实例，调用串行排队。
-  - 超时：换掉实例，`init` 重跑。
-  - 崩溃：重建一次，再崩就停用。
-- **宿主函数**：`call`、`publish`、`subscribe` / `unsubscribe`、`set-timer`、kv、`http-request`、`secret`、`config`。每个都在调用时按清单的能力检查。
-- **规矩**：
-  - `handle` 要快，慢活拆成「发起」加「定时器或主题回报」。
-  - 要保留的状态放进 kv：内存里的状态随时可能因为换实例或休眠而丢失。
-  - 记录类型冻结，以后只增加函数。
-
-### 8.3 Agent 部分
-
-- Agix 包里有 QuickJS 脚本、agent 类型与 skill。脚本挂在 Agix 的扩展点上，没有 I/O；它的信任来自签名（§4）。
-- 应用的工具在会话里叫 `app__<id>__<tool>`，经 MCP 时叫 `mcp__app-<id>__<tool>`。
-
-### 8.4 界面
-
-- **面**：
-  - 共 8 个点：space 中区、左栏中段、右栏页签、二级栏、设置节、新对话卡、模态框、`details.panel`。
-  - 每个面一个 iframe：不透明源、`sandbox="allow-scripts allow-forms"`、CSP `connect-src 'none'`。
-  - 外壳给每个面画外框，并处理它的失败。
-- **桥 `harnix-ui-bridge@1`**（经 `MessageChannel`）：
-  - 能调的只有自己的 `app.<id>.*`，加上 `[interface] hub` 列出的少数名字。
-  - 外壳动作都由外壳去做：打开会话、通知、确认、复制、打开链接、上传。`confirm` 由外壳来画，应用伪造不了。
-- **`@harnix/app-sdk`**：连接、心跳、自动高度，带 mock 宿主。
-- **`@harnix/ui-kit`**：外壳的令牌加基础组件，主题与语言实时跟随。
-- **行内点**：只有声明，由外壳照着画，不跑应用的代码。
-
-### 8.5 信任、分发与开发流程
-
-- **信任等级**：
-  - `store`：商店副署；
-  - `trusted`：profile 里配的受信发布者签全了；
-  - `unsigned`：只在 `[apps] dev = true` 时跑。
-- **验签**：
-  - 解包前验一次。
-  - 每次启动时，对盘上的文件再验一次。
-  - `.cwasm` 读入时按签名的 sha256 比对，通过后才反序列化。
-- **安装**分两步：
-  1. 第一次调用返回披露与 digest，不安装。
-  2. 带上同意的 digest 再调一次，才装。
-
-  升级时只列出新版多出来的能力。
-- **工具 `harnix-app`**：
-  - 作者用：`new`、`build`（基线 CPU）、`keygen`、`sign`、`verify`、`pack`、`fingerprint`。
-  - 商店用：`countersign`、`index`。
-- **测试**：
-  - 界面用 `@harnix/app-sdk` 的 mock 宿主做单测。
-  - 后端在开发模式下用 `installFile` 装上，再写 LIVE。
-  - `examples/apps/showcase` 是什么都有的样例。
+在 [插件](harnix-plugin.md)：包与清单的每一节、WIT 与宿主函数、Agent 部分、界面（面、桥、`@harnix/app-sdk`、`@harnix/ui-kit`、行内点）、
+信任等级、签名、商店与同意、`harnix-app` 工具、测试，以及它们的接口清单。两种模式下这些完全一样；作者能观察到的不同只在 §10。
 
 ## 9. 两种宿主的运行时
 
 ### 9.1 模式 2（开发与测试中）
 
 - **虚拟机**：每个应用一台 WASM 虚拟机，只在主进程里，每个进程一台，共用一个 `Engine`。
-- **应用的 Agent**：Agix 包装进 `install_into` 列出的产品实例。子 Agent 与产品的其它会话共用那个实例的 Agix，只靠上下文隔离。
+- **应用的 Agent**：Agix 插件装进 `install_into` 列出的产品实例。子 Agent 与产品的其它会话共用那个实例的 Agix，只靠上下文隔离。
 - **spawn 出来的 daemon** 不起虚拟机，经 `/apps/<id>/mcp` 回到主进程执行。这样应用的状态只有一份。
-- **闲置休眠**：`on-demand` 的应用同时满足下面几条，就卸下后端，下一次调用时冷启动：
+- **闲置休眠**：`[backend] resident = "on-demand"` 的应用同时满足下面几条，就卸下后端，下一次调用时冷启动（`init` 重跑，状态从 kv 回来）：
   - 没有订阅；
   - 没有定时器；
-  - 没有在途调用；
-  - 闲置满 `idle_secs`。
+  - 没有排队的投递（主题值、定时器的触发）；
+  - 没有在途的调用：方法调用、工具调用、事件钩子都算；
+  - 闲置满 `idle_secs`（缺省 600 秒，60–86400）。
+
+  工具调用跑在自己的临时实例里，不唤醒后端，除非它 `host.call` 后端。
 
 ### 9.2 模式 3：结构（只有设计）
 
@@ -213,7 +137,7 @@
                                   应用进程 app-proc（每个应用一个）
                                   ├─ 应用宿主核心（与模式 2 同一份）
                                   ├─ harnix-wasm（同一份）
-                                  └─ 应用自己的 Agix：装它的 Agix 包和工具
+                                  └─ 应用自己的 Agix：装它的 Agix 插件和工具
 ```
 
 ### 9.3 产品的职责：通道与旁路管理
@@ -255,7 +179,7 @@
 
 | 方面 | 模式 2 | 模式 3 |
 |---|---|---|
-| `[agent] install_into` | 把 Agix 包装进列出的产品实例；那些实例里的会话直接用它的工具 | Agix 包装在应用进程里；列出的实例经 MCP 用它的工具 |
+| `[agent] install_into` | 把 Agix 插件装进列出的产品实例；那些实例里的会话直接用它的工具 | Agix 插件装在应用进程里；列出的实例经 MCP 用它的工具 |
 | 应用自己的会话（它的 space 里的） | 在产品的实例里 | 在应用进程里，由产品路由 |
 | 崩溃的影响 | 见 §4 | 只影响这个应用 |
 | 资源上限 | 每台虚拟机记账 | 每个进程记账 |
@@ -265,19 +189,31 @@
 
 ## 11. 共享代码与分层
 
-| 层 | crate | 模式 1 | 模式 2 | 模式 3 |
-|---|---|---|---|---|
-| 内核与模块 | `harnix`、`harnix-module`、hub、authz… | ✔ | ✔ | ✔（产品侧） |
-| 分发与信任 | `harnix-app-package` | | ✔ | ✔（产品侧） |
-| 边界 | `harnix-app-port`：`Platform`（应用宿主要外面做的）和 `Control`（外面要应用宿主做的），都是可以搬上 RPC 的形状 | | ✔ | ✔ |
-| 虚拟机 | `harnix-wasm` | | ✔ | ✔（应用进程侧） |
-| 应用宿主核心 | `harnix-app-host`：生命周期、注册表、健康、休眠、分派 | | ✔ | ✔（应用进程侧） |
-| 粘合 | `harnix-apps`：端口的进程内实现、Agix 插件、`/apps/<id>/ui`、`/mcp` | | ✔ | |
-| 粘合（模式 3，设计） | `harnix-app-proc` 加上产品侧的端口服务与监护器 | | | ✔ |
-| 前端 | 外壳、桥、`@harnix/app-sdk`、`@harnix/ui-kit`、行内点 | ✔ | ✔ | ✔（完全一样） |
+| 层 | crate | 管什么 | 依赖（Harnix 内） | 模式 1 | 模式 2 | 模式 3 |
+|---|---|---|---|---|---|---|
+| 内核与模块 | `harnix`、`harnix-app`、`harnix-module`、hub、authz、transport、instance… | 骨架、模块契约、装配 | — | ✔ | ✔ | ✔（产品侧） |
+| 分发与信任 | `harnix-app-package` | 清单、包、签名、目录与下载、披露、发布工具 `harnix-app` | `harnix-contract`；`harnix-wasm` 只在 feature `compile` 下（打包工具要编译器） | | ✔ | ✔（产品侧） |
+| 边界 | `harnix-app-port` | `Platform`（应用宿主要外面做的，15 个方法）与 `Control`（外面要应用宿主做的，12 个方法）；`rpc` 层把两边编成 JSON，feature `loopback` 带一个回环适配器 | `harnix-contract`；外部只有 serde、serde_json、async-trait | | ✔ | ✔ |
+| 虚拟机 | `harnix-wasm` | wasmtime 的引擎、实例、健康、记账、休眠；feature `compile` 带 Cranelift | 无（叶子） | | ✔ | ✔（应用进程侧） |
+| 应用宿主核心 | `harnix-app-host` | 生命周期、注册表、健康、分派、进度、休眠；`host.http-request` 用的 HTTP 客户端 | package、port、wasm | | ✔ | ✔（应用进程侧） |
+| 粘合（嵌入） | `harnix-apps` | 端口的进程内实现、给 Agix 的 Rust 插件 `AppsPlugin`、`/apps/<id>/ui` 与 `/apps/<id>/mcp`、`apps` 内建模块的运行时 | app-host、app-package、app-port、builtin、contract、module，以及 Agix | | ✔ | |
+| 粘合（模式 3，只有设计） | `harnix-app-proc` 加上产品侧的端口服务与监护器 | | | | | ✔ |
+| 前端 | 外壳、桥、`@harnix/app-sdk`、`@harnix/ui-kit`、行内点 | | | ✔ | ✔ | ✔（完全一样） |
 
-这些边界由测试守着：
+feature 的链：`harnix-cli` / `harnix-testapp` 的 `apps` → `harnix/apps` → `harnix-app/apps` → 可选依赖 `harnix-apps`。不开 `apps` 的构建里
+这几个 crate 一个都不链，二进制与今天一样。
 
-- 分发与信任、边界、应用宿主核心这三层，不依赖内核、hub、Agix 和 HTTP 框架（layering 测试）。
-- 只有 `harnix-wasm` 链 wasmtime。
-- 端口要过一遍 JSON 回环测试，证明它能搬上 RPC。
+- **HTTP**：宿主核心带的是一个 HTTP **客户端**（`reqwest`，给 `host.http-request`：不跟随重定向、60 秒超时、16 MiB 上限、回环不走代理），
+  分发层也用它下载目录与包；HTTP **框架**（axum）只在嵌入的粘合层里。
+- **编译器**：产品构建不带 Cranelift。`harnix-app-package` 的 `compile` 拉上 `harnix-wasm/compile`，只给打包工具 `harnix-app`（它的
+  `required-features = ["compile"]`）和测试用。
+
+这些边界由 `crates/harnix/tests/layering.rs` 守着：
+
+- 分发与信任、边界、应用宿主核心这三层，不依赖 module、hub、builtin、instance、authz、transport、app、apps、axum、wasmtime 和 Agix 的任何 crate；
+  各自的 Harnix 依赖就是上表那几样，`harnix-app-package` 对 `harnix-wasm` 的依赖必须是可选的，`harnix-app-port` 的依赖不超出
+  contract、async-trait、serde、serde_json。
+- 只有 `harnix-wasm` 链 wasmtime；它自己不依赖任何 Harnix crate，也不依赖 Agix。
+- 应用运行时只经 `apps` feature 进来：`harnix-wasm` 只出现在 app-host（和 app-package 的可选依赖）里，`harnix-app-host` 只在 apps 里，
+  `harnix-apps` 只在 `harnix-app` 里且是可选的。
+- 端口要过一遍 JSON 回环（`cargo test -p harnix-app-host --features compile`：两个方向的每次调用都编码再解码），证明它能搬上 RPC。
