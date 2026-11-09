@@ -16,12 +16,12 @@
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { useConnection, useHello, useSession, useStrings } from "../context";
-import { usageTotals, type Block, type SessionState } from "@harnix/core/state";
+import { usageTotals, type Block, type BlockOf, type SessionState } from "@harnix/core/state";
 import type { SessionController } from "@harnix/core/state";
-import { Agent, AskCard, ContextRow, ImageBlock } from "../components/blocks";
+import { Agent, AskCard, ContextRow, ImageBlock, toolAsks, type ToolAsks } from "../components/blocks";
 import { ConnectionBadge } from "../components/ConnectionBadge";
 import { ChatComposer, type Attached, type ComposerApi, type ContextRingConfig, type ModelOption } from "./ChatComposer";
-import { TOOL_NAMES } from "./format";
+import { TOOL_NAMES, toolDisplayName } from "./format";
 import { Icon } from "./icons";
 import {
   AssistantHead,
@@ -120,6 +120,8 @@ export interface ChatPanelProps {
   sendMode?: "stop" | "separate";
   /** 底栏的模型（原型 .cmp-model）；缺省取 harnix.hello 的 engine.model */
   model?: string;
+  /** No model is configured: the button says so, disabled (see ChatComposer's `modelUnset`). */
+  modelUnset?: boolean;
   /** 模型菜单里可选的模型（见 ChatComposer 的 `models`） */
   models?: readonly ModelOption[];
   /** 换模型；给了模型菜单才可选 */
@@ -260,6 +262,31 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
   const [diffs, setDiffs] = useState({ collapsed: false, generation: 0 });
 
   const toolNames = useMemo(() => ({ ...TOOL_NAMES, ...props.toolNames }), [props.toolNames]);
+  // Read when a card asks, not a dependency: an application hands a new array every draw.
+  const toolRows = useRef(props.renderers?.toolRows);
+  toolRows.current = props.renderers?.toolRows;
+  const blocks = state?.blocks;
+  const lastAsks = useRef<{ key: string; names: Record<string, string>; tools: Block[]; asks: ToolAsks } | null>(null);
+  const asks = useMemo(() => {
+    // A call's name is its row's: the newest row that claims it and says one, else the display name.
+    const title = (block: BlockOf<"tool">): string => {
+      for (const row of [...(toolRows.current ?? [])].reverse()) {
+        if (!row.title || !row.match(block)) continue;
+        const said = row.title(block);
+        if (said) return said;
+        break;
+      }
+      return toolDisplayName(block.name, toolNames);
+    };
+    // The same calls and the same open asks: the same value, so a streamed reply does not draw every row again.
+    const next = toolAsks(blocks ?? [], title);
+    const tools = (blocks ?? []).filter((b) => b.kind === "tool");
+    const key = [...next.awaiting].join("\n");
+    const prev = lastAsks.current;
+    if (prev && prev.key === key && prev.names === toolNames && prev.tools.length === tools.length && prev.tools.every((t, i) => t === tools[i])) return prev.asks;
+    lastAsks.current = { key, names: toolNames, tools, asks: next };
+    return next;
+  }, [blocks, toolNames]);
   const context = useMemo<ChatContextValue>(
     () => ({
       variant,
@@ -268,8 +295,9 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
       diffsCollapsed: diffs.collapsed,
       diffGeneration: diffs.generation,
       toolSummary: props.renderers?.toolSummary,
+      asks,
     }),
-    [variant, toolNames, props.ids, diffs, props.renderers?.toolSummary],
+    [variant, toolNames, props.ids, diffs, props.renderers?.toolSummary, asks],
   );
 
   // 应用自己发送（send / interrupt 给了）：一轮由服务端发起，客户端看到的是"别处在跑"，照样算在跑、能停
@@ -451,6 +479,7 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
             attachments={features.attachments !== false}
             voice={features.voice !== false}
             model={model}
+            modelUnset={props.modelUnset}
             models={props.models}
             onModel={props.onModel}
             tools={props.composerTools}

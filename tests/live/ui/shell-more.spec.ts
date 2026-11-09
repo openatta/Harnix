@@ -148,6 +148,11 @@ test.describe("without a model", () => {
     await open(page, bare.url);
     const note = page.getByTestId("model-setup");
     await expect(note).toBeVisible();
+    // The model button agrees with the note: no model named, nothing to pick (review G8).
+    const model = page.getByTestId("conv-model");
+    await expect(model).toHaveAttribute("data-state", "unset");
+    await expect(model).toBeDisabled();
+    await expect(model).toHaveText(/Not configured|未配置/);
     await page.getByTestId("model-setup-open").click();
     await expect(page.locator('.settings-nav [data-section="models"]')).toHaveClass(/\bon\b/);
     await expect(page.getByTestId("providers-none")).toBeVisible();

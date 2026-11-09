@@ -27,7 +27,7 @@ import { topicsOf } from "../topics.ts";
 import { appsOf, toolNames, type CommandDecl, type RuntimeApp } from "./apps.ts";
 import { InlineCard, type Entry } from "./Card.tsx";
 import { localized, words, type Text } from "./template.ts";
-import { InlineToolRow } from "./ToolRow.tsx";
+import { InlineToolRow, inlineTitle } from "./ToolRow.tsx";
 
 export { GroupedSessions, groupingOf } from "./Grouping.tsx";
 export { appsOf, type Inline } from "./apps.ts";
@@ -75,6 +75,7 @@ function register(app: App, a: RuntimeApp): [Point, string][] {
       id,
       match: (block) => rows.has(block.name),
       render: (block) => <InlineToolRow app={app} owner={a} decl={rows.get(block.name)!} block={block} />,
+      title: (block) => inlineTitle(rows.get(block.name)!, block),
     };
     if (r.register("tool.row", contribution, a.id)) made.push(["tool.row", id]);
   }

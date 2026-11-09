@@ -1037,7 +1037,7 @@ spaces = ["sessions", "projects", "system", "flow"]   # 留哪些内建 space；
                                # 去掉 system 时它的方法一起撤：谁也声称不了系统 space，也不能跨 space 操作
 model_switch = false           # true：加 harnix.sessions.setModel，没有系统 space 也能在输入框换模型（只限调用方声称的 space 的会话）
 new_session = true             # false：整个外壳不画「新会话」、⌘K 不归外壳（每个 space 都这样；space 自己的 newSession 照旧叠加）；只是界面
-narrow_details = "over"        # ≤ 960 宽时打开的右栏：over（缺省）盖住中区（按最大化）；beside 三栏并排（左栏收成 rail、右栏变窄），< 720 仍按最大化
+narrow_details = "over"        # ≤ 960 宽时打开的右栏：over（缺省）是从右边盖住中区的抽屉；beside 三栏并排（左栏收成 rail、右栏变窄），< 720 仍是抽屉
 
 [ui]
 dir = "…"                      # 从这个目录出界面（同 --ui-dir）；不写用编进二进制的
@@ -1226,7 +1226,7 @@ export function register(r: Registry, host: NestHost): void
 |---|---|
 | `space` | **`id`**、**`icon`**、**`title()`**、`order`、`place: "top" \| "bottom"`（默认 top；bottom 列在左栏底部、系统之上，给全局而非业务面的入口）、`group`（顶部列表里的组名：按 `order` 相邻的两个组不同就在中间画分隔线，不写算 ""；不重排）、`within`（另一个 space 的 id：这个 space 显示在它里面——不列在左栏，由代码 `host.spaces.switch` 进入〔如从那个 space 的页面〕，在前台时点亮那个 space 的入口；系统 space 里的流程就是）、`details: "open" \| "closed"`（首次进入时右栏开合，默认 closed；之后每个 space 各记各的）、`center: "chat" \| "minimized" \| "hidden"`（默认 chat）、`sidebar()`（左栏中段）、`overview()`（中区不是对话时）、`tabs: [{ id, title(), render(), align? }]` 或返回它的函数（随选中项变；`align: "end"` 的页签排在条的右端，给不常用的）、`sessions`（列哪个后端 space 的会话，默认自己的 id）、`subtitle()`、`suggestions()`、`notice()`、`placeholder()`；可选的 `badge()`（左栏角标）、`disabled()`（返回一句话 ⇒ 入口灰掉、点不动、悬停是这句话，`spaces.switch` 到它不切；落地时存着的灰着就落到第一个没灰的；前台的后来灰了不自动换走）、`readOnly(session)`、`pinned(session)`、`composerNotice(session)`、`ids()`、`composer: { steer }`、`hideCommands: string[]`、`mention: { first: "contributed" \| "files" }`（`@` 菜单里谁的候选在前，默认外壳自己的）、`tab()`（本 space 当前的右栏页签：带到前台与 `redraw()` 时读，是它的页签就选中）、`listSession(session)`（返回 false ⇒ 这个会话不列在左栏）、`reenter()`（前台 space 的入口被再点一次）、`newSession`（false ⇒ 没有「新会话」）、`headerActions(session)`（标题栏里自己的操作）、`detailsWidth`（右栏缺省宽度：px，小于 1 时是窗口的比例，如 0.45；至少 320；右栏在哪个 space 都能拖到窗口的 70%，同时给中区留 400）、`emptyConversation(session)`（会话还没有消息时画在转录顶部的说明）、`secondary()`（**二级栏**：`{ key, title(), render(), onClose?(), width? }`，返回非空就在中区对话旁边打开；能拖宽（300–760，缺省 440）、能最大化 / 还原（按 space 记住）、能关——关时调 `onClose`，space 放掉选中项再 `redraw()`；返回空就收起），每次画时读，抛错只丢那一样 |
 | `home.card` | **`id`**、**`render()`**、`title()`、`order`：画在新对话的输入框下面 |
-| `tool.row` | **`id`**、**`match(toolBlock)`**、**`render(toolBlock)`** |
+| `tool.row` | **`id`**、**`match(toolBlock)`**、**`render(toolBlock)`**、`title(toolBlock)`（这一行给工具起的名字：问这次调用的权限卡用同一个名字，不写就用工具的显示名） |
 | `details.panel` | **`id`**、**`match(item)`**、**`render(item)`**、`title(item)`；`item = { kind, name?, … }`，由 `host.reveal(item)` 打开 |
 | `flow.block` | **`id`**、**`match(block)`**、**`render(block)`**：对话流里的块，先于内建的匹配 |
 | `sidebar.group` | **`id`**、**`group(sessions)`** → `[{ key, title, hint?, workspace?, rows }]`、`label()` |
@@ -1266,7 +1266,7 @@ export function register(r: Registry, host: NestHost): void
 | `details.open(tab?) / close() / isOpen() / tab() / onTab(fn)` | 右栏开合与选中页签（`tab` 是前台 space 的页签 id，或 `"details"`）。经 `open(tab)` 选的页签按 space 记着；人点的换 space 后回到第一个（同以前；space 写了 `tab()` 时也记着） |
 | `redraw()` | 让外壳重读前台 space 的函数（`tabs()`、`badge()`…），不动注册表版本 |
 | `settings.open(section?)` | 打开设置面板的一节；内建的 id：`general`、`scenes`、`models`、`mcp`、`plugins`、`devices`、`diagnostics`、`about`；没有这一节时打开第一节 |
-| `instances.list() / sessions(instance) / tasks(instance, sessionId) / create(template, name, params?) / stop(instance)` | — |
+| `instances.list() / sessions(instance) / tasks(instance, sessionId) / create(template, name, params?) / stop(instance)` | 答的是协议里对应方法的结果，类型取自 `@harnix/core` 的 `Methods`：`{ instances: InstanceRow[] }`、`{ instance, sessions: SessionRow[] }`、`{ active, tasks: TaskRow[] }`、`InstanceRow`、`{ stopped }` |
 | `composer.insert(text, { session? })` | 不给 `session`：插进页上的输入框（同以前）。给了：那个会话的输入框在页上就插进去，不在就替它存着（再插接在后面），它挂上时放进去 |
 | `modal.isOpen() / onChange(fn)` | 外壳自己的模态层开着没有；开合变了通知，返回退订。模态层是一个栈：对话框上再开一个是叠在上面，不算开合。开着时 Esc 只关最上面一个，不再传到 document / window 上的监听；⌘K、⌘\、⌘/ 不生效；对话框下面的页面是 inert 的 |
 | `shell.badge(n)` | 页面标题前缀 `(n) `：n 取整、> 0 才带；null / 0 去掉（ipdrun-33） |
@@ -1335,7 +1335,7 @@ api_version = 2
 ## 23. 流程模块：`harnix-flow`、`@harnix/flow`
 
 可选模块：应用 `.module(harnix_flow::Flow::builder()….build())` 才有；Harnix app `harnix` 注册了它（`crates/cli/src/main.rs`）。
-对象与写法（站、执行器、出站条件、规则、策略与权限、门禁、钩子……）见流程指南 `crates/flow/docs/guide.zh-CN.md`
+对象与写法（站、执行者、出口条件、规则、策略与权限、门禁、钩子……）见流程指南 `crates/flow/docs/guide.zh-CN.md`
 （系统 space 里流程的参考页就是它，`app.flow.guide {lang}` 也给它）。
 
 | 构建器 | 意思 |

@@ -9,7 +9,7 @@
  */
 
 import type { Block, BlockOf } from "@harnix/core/state";
-import { Disclosure, STATUS_GLYPH, ToolDetails, t, toolArgs, toolDisplayName, TOOL_NAMES, type DetailItem, type SidebarGroup } from "@harnix/react";
+import { Disclosure, STATUS_GLYPH, ToolDetails, t, toolArgs, toolDisplayName, TOOL_NAMES, useToolState, type DetailItem, type SidebarGroup } from "@harnix/react";
 
 import type { App, ShellSession } from "./app.ts";
 import { Labelled, RequestPanel, RequestRow, type RequestBlock } from "./envelope.tsx";
@@ -126,13 +126,12 @@ export async function registerBuiltins(app: App): Promise<void> {
 /* ── tool rows ────────────────────────────────────────────────────────── */
 
 function ToolRow({ app, block }: { app: App; block: BlockOf<"tool"> }) {
-  const tail =
-    block.status === "running" ? t("flow.toolRunning") : block.status === "error" ? t("flow.toolFailed") : block.status === "interrupted" ? t("flow.interrupted") : undefined;
+  const { state, tail } = useToolState(block);
   return (
     <Disclosure
       testId="conv-tool"
       id={block.id}
-      state={block.status}
+      state={state}
       summary={
         <>
           <span className={`hx-status hx-status-${block.status}`} aria-hidden>

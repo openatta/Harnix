@@ -55,6 +55,11 @@ export function addStrings(locale: Locale, strings: Record<string, string>, owne
 }
 
 export function t(key: string, vars?: Record<string, unknown>): string {
+  return translate(locale, key, vars);
+}
+
+/** `t` in a given language rather than the page's. */
+export function translate(locale: Locale, key: string, vars?: Record<string, unknown>): string {
   let text = DICTIONARIES[locale][key] ?? DICTIONARIES.en[key];
   if (text === undefined) {
     if (!warned.has(key)) {

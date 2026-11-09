@@ -218,7 +218,13 @@ export interface SpaceContribution {
 export interface Contributions {
   space: SpaceContribution;
   "home.card": { id: string; render(): ReactNode; title?(): string; order?: number };
-  "tool.row": { id: string; match(block: BlockOf<"tool">): boolean; render(block: BlockOf<"tool">): ReactNode };
+  "tool.row": {
+    id: string;
+    match(block: BlockOf<"tool">): boolean;
+    render(block: BlockOf<"tool">): ReactNode;
+    /** The name the row gives the tool; the permission card asking about the call says the same. */
+    title?(block: BlockOf<"tool">): string | null | undefined;
+  };
   "details.panel": { id: string; match(item: DetailItem): boolean; render(item: DetailItem): ReactNode; title?(item: DetailItem): string };
   "flow.block": { id: string; match(block: Block): boolean; render(block: Block): ReactNode };
   "sidebar.group": { id: string; group(sessions: SessionRow[]): SidebarGroup[]; label?(): string };

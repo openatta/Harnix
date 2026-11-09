@@ -480,7 +480,7 @@ describe("运行", () => {
     expect(screen.getByTestId("flow-run-dry-example-review-1").dataset.dry).toBe("true");
     expect(screen.getByTestId("flow-run-example-review-2").dataset.phase).toBe("pausing");
     expect(screen.getByTestId("flow-run-example-review-2").querySelector(".hx-flow-spin")).toBeTruthy();
-    expect(screen.getByTestId("flow-run-example-review-1").textContent).toContain("Waiting · to be confirmed");
+    expect(screen.getByTestId("flow-run-example-review-1").textContent).toContain("Waiting to be confirmed");
     expect(screen.getByTestId("flow-run-example-review-1").textContent).toContain("1.5k tokens");
     // No "start" or "add" here.
     expect(screen.queryByTestId("flow-start-open")).toBeNull();
