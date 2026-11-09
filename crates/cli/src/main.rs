@@ -92,7 +92,9 @@ mod tests {
             assert!(problems.is_empty(), "{yaml}\n{problems:?}");
             n += 1;
         }
-        assert_eq!(n, 4);
+        // However many the demo has: every file there is a flow these packs read, and there is one.
+        assert!(n > 0, "the demo has no flows");
+        assert_eq!(n, packs.flows().len(), "{:?}", packs.flows());
     }
 
     #[test]
