@@ -118,7 +118,7 @@ impl Seed {
 }
 
 fn person() -> Actor {
-    Actor::new("device", "demo")
+    Actor::device("demo")
 }
 
 #[tokio::main(flavor = "current_thread")]

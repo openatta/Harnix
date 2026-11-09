@@ -11,11 +11,12 @@
 //! data root holds is not the hub's business, and an instance built in this process, or a daemon
 //! somebody else runs, has none. [`SharedServers`] is the set, and the daemons configured with it.
 //!
-//! **Each daemon presents a credential of its own.** [`ServerTokens`] issues one when its link is
-//! made, written into each entry as `Authorization: Bearer …`; when the daemon goes — its instance
-//! stopped, restarted, or down for good — that credential is revoked, and the file it was written
-//! into opens nothing any more. A daemon its link starts again after a crash is the same daemon,
-//! with the same settings, and keeps it.
+//! **Each daemon process presents a credential of its own.** [`ServerTokens`] issues one before the
+//! process is spawned, written into each entry as `Authorization: Bearer …`; when the process goes,
+//! that credential is revoked, and the file it was written into opens nothing any more. Going is any
+//! way out: its instance stopped or restarted (a new link, a new credential), its link down for
+//! good, or the process exited and its link about to start it again — the process started then
+//! reads a new credential, written over the old one before it is spawned.
 //!
 //! Written the way inherited providers are (`inherit.rs`): Harnix records which entries it wrote,
 //! in `<data root>/.harnix-servers.json`, and only ever adds, changes or removes those. An entry
@@ -89,13 +90,14 @@ impl SharedServers {
 
     /// One daemon about to be spawned with its data in `root`: its credential issued, and the
     /// servers written into its settings before it reads them.
-    pub(crate) fn configure(&self, instance: &str, root: &Path) -> Arc<Configured> {
+    pub(crate) fn configure(self: &Arc<Self>, instance: &str, root: &Path) -> Arc<Configured> {
         let mut inner = lock(&self.inner);
         let configured = Arc::new(Configured {
             instance: instance.to_string(),
             root: root.to_path_buf(),
-            token: inner.tokens.as_ref().map(|t| t.issue()),
+            token: Mutex::new(inner.tokens.as_ref().map(|t| t.issue())),
             tokens: inner.tokens.clone(),
+            shared: Arc::downgrade(self),
             revoked: AtomicBool::new(false),
             link: OnceLock::new(),
         });
@@ -106,14 +108,18 @@ impl SharedServers {
     }
 }
 
-/// One spawned daemon's part of [`SharedServers`]: where its settings are, the credential it
-/// presents, and its link, to reload through. Held by the link; the credential is revoked when the
-/// daemon goes, and at the latest when this is dropped.
+/// One spawned daemon's part of [`SharedServers`]: where its settings are, the credential its
+/// process presents, and its link, to reload through. Held by the link; the credential is revoked
+/// when the process goes ([`Configured::renew`] when the link starts another), and at the latest
+/// when this is dropped.
 pub(crate) struct Configured {
     instance: String,
     root: PathBuf,
-    token: Option<String>,
+    /// The credential of the process running now, or about to be spawned.
+    token: Mutex<Option<String>>,
     tokens: Option<Arc<dyn ServerTokens>>,
+    /// The set, read again when the credential is renewed.
+    shared: Weak<SharedServers>,
     revoked: AtomicBool,
     link: OnceLock<Weak<DaemonLink>>,
 }
@@ -131,11 +137,12 @@ impl Configured {
 
     /// `servers`, each presenting this daemon's credential.
     fn entries(&self, servers: &Map<String, Value>) -> Map<String, Value> {
+        let token = lock(&self.token).clone();
         servers
             .iter()
             .map(|(name, config)| {
                 let mut config = config.clone();
-                if let (Some(token), Some(entry)) = (&self.token, config.as_object_mut()) {
+                if let (Some(token), Some(entry)) = (&token, config.as_object_mut()) {
                     let headers = entry.entry("headers").or_insert_with(|| json!({}));
                     if let Some(headers) = headers.as_object_mut() {
                         headers.insert("Authorization".into(), json!(format!("Bearer {token}")));
@@ -176,14 +183,38 @@ impl Configured {
         });
     }
 
-    /// The daemon has gone: its credential admits nothing any more. Once.
+    /// The daemon has gone, and its link with it: its credential admits nothing any more. Once.
     pub(crate) fn revoke(&self) {
         if self.revoked.swap(true, Ordering::AcqRel) {
             return;
         }
-        if let (Some(tokens), Some(token)) = (&self.tokens, &self.token) {
-            tokens.revoke(token);
+        // Under the credential's lock, after the flag: a renewal that got there first is revoked
+        // here too, and one that comes after sees the flag.
+        if let (Some(tokens), Some(token)) = (&self.tokens, lock(&self.token).take()) {
+            tokens.revoke(&token);
         }
+    }
+
+    /// The daemon's process exited and its link is about to start another: the one that exited
+    /// presented a credential that admits nothing any more, and the one about to start reads a
+    /// new one, written into its settings before it is spawned.
+    pub(crate) fn renew(&self) {
+        let (Some(tokens), Some(shared)) = (&self.tokens, self.shared.upgrade()) else {
+            return;
+        };
+        // In the order `SharedServers::set` takes them, so a change of the set meanwhile is
+        // written with one credential or the other, never the old one after this.
+        let inner = lock(&shared.inner);
+        {
+            let mut token = lock(&self.token);
+            if self.revoked.load(Ordering::Acquire) {
+                return;
+            }
+            if let Some(old) = token.replace(tokens.issue()) {
+                tokens.revoke(&old);
+            }
+        }
+        self.write(&inner.servers);
     }
 }
 
@@ -317,7 +348,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (a, b) = (dir.path().join("a"), dir.path().join("b"));
         let kept = Arc::new(Kept::default());
-        let shared = SharedServers::default();
+        let shared = Arc::new(SharedServers::default());
         shared.issue_with(kept.clone());
         shared.set(servers(&["app-x"]));
 
@@ -344,6 +375,34 @@ mod tests {
         assert!(settings(&b)["mcp_servers"].get("app-x").is_none());
         drop(second);
         assert!(lock(&kept.live).is_empty(), "dropped, and its credential still admitted");
+    }
+
+    /// A daemon whose process exited and is started again by its link: the process that exited
+    /// presented a credential that admits nothing now, and the one started reads a new one. Gone
+    /// for good afterwards, the new one is revoked too, and a renewal then issues nothing.
+    #[test]
+    fn a_daemon_started_again_presents_a_new_credential() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("a");
+        let kept = Arc::new(Kept::default());
+        let shared = Arc::new(SharedServers::default());
+        shared.issue_with(kept.clone());
+        shared.set(servers(&["app-x"]));
+        let daemon = shared.configure("a", &root);
+        assert_eq!(bearer(&root, "app-x"), json!("Bearer t0"));
+
+        daemon.renew();
+        assert_eq!(bearer(&root, "app-x"), json!("Bearer t1"), "the process started again reads the old credential");
+        assert_eq!(*lock(&kept.live), ["t1"], "the exited process's credential still admits");
+        // A change of the set afterwards carries the new one.
+        shared.set(servers(&["app-x", "app-y"]));
+        assert_eq!(bearer(&root, "app-y"), json!("Bearer t1"));
+
+        daemon.revoke();
+        assert!(lock(&kept.live).is_empty());
+        daemon.renew();
+        assert!(lock(&kept.live).is_empty(), "a daemon gone for good was issued a credential");
+        assert_eq!(bearer(&root, "app-x"), json!("Bearer t1"), "a daemon gone for good was written to");
     }
 
     #[test]

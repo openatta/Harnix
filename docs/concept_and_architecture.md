@@ -328,8 +328,8 @@ space）。账本记按模板建的实例；**重启后一律由 Harnix 按账�
 在已收到的帧后面放一个标记，等它从事件流里出来——等的是「已经路由」，不只是「已经收到」，否则
 `turn_settled` 会超车本轮最后的事件）、链接状态（`Starting / Ready / Degraded / Down`）。三种实现：
 进程内、daemon、`DownLink`（建不起来的实例）。中枢的代码里不出现「是不是远程」的分支。
-载体之间不同的地方是载体自己的事，在实例层里：spawn 出来的 daemon 要配上本进程插件 APP 的 MCP 端点（每台 daemon 一个自己的凭据，
-daemon 停了、重启了或起不来就作废，见 [插件](harnix-plugin.md) §5），继承 provider 的模板要把 `system` 的 provider 写进新实例的
+载体之间不同的地方是载体自己的事，在实例层里：spawn 出来的 daemon 要配上本进程插件 APP 的 MCP 端点（每个 daemon 进程一个自己的凭据，
+进程停了、退出了或起不来就作废，链路再拉起的进程拿新的，见 [插件](harnix-plugin.md) §5），继承 provider 的模板要把 `system` 的 provider 写进新实例的
 设置——这些都由实例层在建实例时写进它的数据根，之后集合变了也由它跟上。中枢只报告数据根在哪，从不打开它；`layering.rs` 在中枢的
 源码上断言它不提载体（`Carrier::`、`DaemonLink`、`InProcessLink`）也不碰 `data_root`。
 

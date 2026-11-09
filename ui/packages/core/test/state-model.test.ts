@@ -169,7 +169,7 @@ describe("归约", () => {
   });
 });
 
-describe("立即送达：交给正在跑的一轮（IPDrun N-108）", () => {
+describe("立即送达：交给正在跑的一轮，赶不上的退回队首", () => {
   const steer = { kind: "user_message", text: "插一句", item_id: "q-2", delivery: "steer" };
 
   it("待送达不成块、不开新的一轮；user_message_delivered 时在此刻的位置成一条已送达的人的话", () => {

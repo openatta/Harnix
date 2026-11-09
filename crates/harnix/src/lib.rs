@@ -34,7 +34,8 @@
 //!
 //! What is here is a re-export: the application builder (`harnix-app`), the
 //! module contract (`harnix-module`), and the agent side an application
-//! builds on — native tools, scenes, prompt blocks ([`agent`], [`scenes`]).
+//! builds on — native tools, scenes, prompt blocks, Agix plugins ([`agent`], [`scenes`],
+//! [`plugin`]).
 //! An application depends on this crate alone. See `docs/harnix-sdk.md`.
 
 /// The agent side an application builds on: a native tool (`agent::tool::Tool`), a scene
@@ -45,6 +46,11 @@ pub use ::base as agent;
 /// The built-in scenes: `scenes::harnix::HarnixScene` (the default), `scenes::code::CodeScene`,
 /// `scenes::mini::MiniScene`.
 pub use ::scene as scenes;
+/// An Agix plugin, written in Rust, for [`EngineContrib::plugin`]: `plugin::Plugin` (its name and
+/// what it registers for each session, sub-agents included), the `plugin::Registrar` it registers
+/// with, the `plugin::PluginSession` it is told about. Agix's own type, under this crate's name; in
+/// code, `plugin` is always this (a runtime application is an `app`).
+pub use ::runtime::plugin;
 
 pub use async_trait::async_trait;
 pub use axum;

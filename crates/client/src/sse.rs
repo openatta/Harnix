@@ -78,7 +78,8 @@ impl EventStream {
     }
 
     /// The next frame, or [`StreamItem::Idle`] when the wait ran out; an error when the stream
-    /// ended (the process went away) — open it again after connecting again.
+    /// ended (the process went away) — open it again after connecting again. An event whose data
+    /// is not JSON is skipped.
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Result<StreamItem, ClientError> {
         loop {
@@ -97,11 +98,12 @@ impl EventStream {
                 if self.data.is_empty() {
                     continue;
                 }
-                let data = std::mem::take(&mut self.data);
-                return Ok(match serde_json::from_str(&data) {
-                    Ok(frame) => StreamItem::Frame(frame),
-                    Err(_) => StreamItem::Idle,
-                });
+                // Every event the server sends is one JSON frame. One that is not is no frame, and
+                // not the wait running out either: it is left out, and the read goes on.
+                match serde_json::from_str(&std::mem::take(&mut self.data)) {
+                    Ok(frame) => return Ok(StreamItem::Frame(frame)),
+                    Err(_) => continue,
+                }
             }
             if let Some(rest) = text.strip_prefix("data:") {
                 if !self.data.is_empty() {

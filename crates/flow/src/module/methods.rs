@@ -28,7 +28,7 @@ use crate::kernel::validate::validate;
 use crate::kernel::FlowError;
 
 fn device(cx: &CallContext) -> Actor {
-    Actor::new("device", cx.device().unwrap_or("unknown"))
+    Actor::device(cx.device().unwrap_or("unknown"))
 }
 
 #[derive(Deserialize)]
@@ -345,7 +345,7 @@ async fn run_sessions(cx: &CallContext, rec: &crate::RunRecord) -> Answer {
     let listed = module.call("session.tasks", target.clone()).await;
 
     if let Err(e) = &listed {
-        tracing::warn!(run = rec.id, error = %e.message, "flow: a main session's tasks not listed");
+        tracing::warn!(run = rec.id, error = %e.message, "a main session's tasks not listed");
     }
     let tasks: Vec<Value> = listed
         .ok()
@@ -662,7 +662,7 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
             // running) is given it now.
             if rec.main_session().is_none() {
                 if let Err(why) = super::main::ensure_main(&sh, &p.run).await {
-                    tracing::warn!(run = p.run, why, "flow: no main session");
+                    tracing::warn!(run = p.run, why, "no main session");
                 }
                 rec = engine(&sh)?.record(&p.run).await.map_err(rpc_error)?;
             }
@@ -1019,7 +1019,7 @@ async fn accepted(cx: &CallContext, a: Accept, action: &str) {
         json!({"entry": p.entry, "action": action, "by": by}),
     );
     if let Err(e) = cx.module().sessions().append_entry(&session, entry).await {
-        tracing::warn!(entry = p.entry, error = %e, "flow: a proposal's acceptance not recorded");
+        tracing::warn!(entry = p.entry, error = %e, "a proposal's acceptance not recorded");
     }
 }
 

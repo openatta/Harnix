@@ -287,7 +287,7 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
                 opened = Some((s, is_own));
                 break;
             }
-            Err(e) => tracing::info!(session = name, error = %e, "flow: session gone"),
+            Err(e) => tracing::info!(session = name, error = %e, "session gone"),
         }
     }
     let resume = job.resume && opened.as_ref().is_some_and(|(_, own)| *own);
@@ -357,7 +357,7 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
                 Ok(s) => {
                     let entry = harnix_module::Entry::new(SESSION_SETTINGS, wanted.clone());
                     if let Err(e) = sessions.append_entry(&s, entry).await {
-                        tracing::warn!(error = %e, "flow: a session's settings not recorded");
+                        tracing::warn!(error = %e, "a session's settings not recorded");
                     }
                     s
                 }
@@ -531,11 +531,11 @@ fn task_message_of(sh: &Shared, job: &SessionJob) -> String {
             match engine.packs().rule(name) {
                 Some((text, digest)) => {
                     if pinned.as_ref().is_some_and(|d| *d != digest) {
-                        tracing::warn!(rule = name, "flow: the rule changed since the station was entered");
+                        tracing::warn!(rule = name, "the rule changed since the station was entered");
                     }
                     rules.push((name.clone(), text));
                 }
-                None => tracing::warn!(rule = name, "flow: rule not found"),
+                None => tracing::warn!(rule = name, "rule not found"),
             }
         }
     }
@@ -546,12 +546,12 @@ fn task_message_of(sh: &Shared, job: &SessionJob) -> String {
                 if job.skill_digest.as_ref().is_some_and(|d| *d != digest) {
                     tracing::warn!(
                         skill = name,
-                        "flow: the skill changed since the station was entered"
+                        "the skill changed since the station was entered"
                     );
                 }
                 skill = Some((name.clone(), body));
             }
-            None => tracing::warn!(skill = name, "flow: skill not found"),
+            None => tracing::warn!(skill = name, "skill not found"),
         }
     }
     task_message(
@@ -691,7 +691,7 @@ stations:
                     subject: "s".into(),
                     ..Default::default()
                 },
-                Actor::new("device", "d"),
+                Actor::device("d"),
             )
             .await
             .unwrap();
@@ -715,7 +715,7 @@ stations:
             "analyze",
             Some(vec!["a".into()]),
             "again",
-            Actor::new("device", "d"),
+            Actor::device("d"),
         )
         .await
         .unwrap();

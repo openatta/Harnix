@@ -669,7 +669,9 @@ impl Module for Fleet {
                 };
                 match cx.sessions().open(instance, session_id).await {
                     Ok(session) => sessions.push(session),
-                    Err(e) => tracing_warn(&format!("{session_id}: {}", e.message)),
+                    Err(e) => {
+                        tracing::warn!(session = session_id, error = %e.message, "a headless session did not reopen")
+                    }
                 }
             }
         }
@@ -679,10 +681,6 @@ impl Module for Fleet {
         });
         Ok(())
     }
-}
-
-fn tracing_warn(message: &str) {
-    eprintln!("fleet: a headless session did not reopen: {message}");
 }
 
 /* ── lifecycle ─────────────────────────────────────────────────────────── */

@@ -366,8 +366,15 @@ pub(crate) fn origin_allowed(headers: &axum::http::HeaderMap, extra: &[String]) 
         .split('/')
         .next()
         .unwrap_or("");
-    let host = host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host);
-    matches!(host, "localhost" | "127.0.0.1" | "[::1]" | "::1")
+    // An IPv6 literal is bracketed, and its own colons are not a port's: `[::1]`, `[::1]:4317`.
+    let host = match host.strip_prefix('[') {
+        Some(v6) => match v6.split_once(']') {
+            Some((addr, rest)) if rest.is_empty() || rest.starts_with(':') => addr,
+            _ => return false,
+        },
+        None => host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host),
+    };
+    matches!(host, "localhost" | "127.0.0.1" | "::1")
 }
 
 /// Serve on every given address, sharing one router.
@@ -562,6 +569,40 @@ mod serve_tests {
 }
 
 #[cfg(test)]
+mod listener_failure_tests {
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use std::time::Duration;
+
+    /// A listener that cannot be bound — its port taken — is an error the caller gets back at
+    /// once: not a hang, not a panic, and nothing reported as bound.
+    #[tokio::test]
+    async fn a_port_already_taken_is_an_error_not_a_hang() {
+        let taken = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), taken.local_addr().unwrap().port());
+        let mut told = false;
+        let served = tokio::time::timeout(
+            Duration::from_secs(10),
+            super::serve_with(&[addr], axum::Router::new(), None, |_| told = true, std::future::pending()),
+        )
+        .await
+        .expect("a bind that failed left the caller waiting");
+        let e = served.expect_err("a port already taken was served");
+        assert!(e.to_string().contains(&format!("could not bind {addr}")), "{e:#}");
+        assert!(!told, "a listener that was never bound was reported as bound");
+    }
+
+    /// A network-facing address without TLS is refused before anything is bound.
+    #[tokio::test]
+    async fn a_plaintext_remote_is_refused_before_binding() {
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
+        let e = super::serve_with(&[addr], axum::Router::new(), None, |_| {}, std::future::pending())
+            .await
+            .expect_err("a plaintext remote was served");
+        assert!(e.to_string().contains("no TLS material was given"), "{e:#}");
+    }
+}
+
+#[cfg(test)]
 mod origin_tests {
     use super::origin_allowed;
     use axum::http::{header, HeaderMap, HeaderValue};
@@ -579,6 +620,21 @@ mod origin_tests {
         assert!(origin_allowed(&from("http://localhost:9"), &[]));
         assert!(origin_allowed(&from("http://[::1]:4317"), &[]));
         assert!(!origin_allowed(&from("https://192.168.1.20:4317"), &[]));
+    }
+
+    /// Without a port, as a browser sends the origin of a page on the scheme's own port: an IPv6
+    /// literal's colons are not taken for one.
+    #[test]
+    fn loopback_without_a_port() {
+        assert!(origin_allowed(&from("http://localhost"), &[]));
+        assert!(origin_allowed(&from("http://127.0.0.1"), &[]));
+        assert!(origin_allowed(&from("http://[::1]"), &[]));
+        assert!(origin_allowed(&from("https://[::1]"), &[]));
+        // Another address, or something that only starts like the loopback one: not loopback.
+        assert!(!origin_allowed(&from("http://[::2]"), &[]));
+        assert!(!origin_allowed(&from("http://[::1]evil.example"), &[]));
+        assert!(!origin_allowed(&from("http://[::1"), &[]));
+        assert!(!origin_allowed(&from("http://::1"), &[]));
     }
 
     /// An extra origin is matched whole, not as a prefix of a longer host.

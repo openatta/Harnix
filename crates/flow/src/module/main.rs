@@ -141,7 +141,7 @@ fn write_agent_type(workspace: &std::path::Path, main_scene: &str) {
         )
     });
     if let Err(e) = ok {
-        tracing::warn!(error = %e, "flow: the sub-agent type not written");
+        tracing::warn!(error = %e, "the sub-agent type not written");
     }
 }
 
@@ -475,7 +475,7 @@ async fn answer(
         .await
     {
         let tool = prompt.get("tool_name").and_then(Value::as_str).unwrap_or("");
-        tracing::warn!(tool, error = %e.message, "flow: a session's question not answered");
+        tracing::warn!(tool, error = %e.message, "a session's question not answered");
     }
     false
 }
