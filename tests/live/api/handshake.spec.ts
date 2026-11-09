@@ -1,4 +1,4 @@
-// @ts-nocheck — moved over from JavaScript unchanged (M1-6); new suites are typed.
+// @ts-nocheck — moved over from JavaScript unchanged; new suites are typed.
 // The handshake, and what happens without one.
 //
 // Nothing may be called before it, and a mismatch is refused with a reason

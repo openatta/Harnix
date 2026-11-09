@@ -1,4 +1,4 @@
-// @ts-nocheck — moved over from JavaScript unchanged (M1-6); new suites are typed.
+// @ts-nocheck — moved over from JavaScript unchanged; new suites are typed.
 // The invariants the hub exists for.
 //
 // These are the ones that cannot be checked from the interface side, because

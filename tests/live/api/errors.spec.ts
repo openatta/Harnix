@@ -1,4 +1,4 @@
-// @ts-nocheck — moved over from JavaScript unchanged (M1-6); new suites are typed.
+// @ts-nocheck — moved over from JavaScript unchanged; new suites are typed.
 // The error surface, which is most of the surface.
 //
 // A method that has only ever answered has never had its arguments checked,

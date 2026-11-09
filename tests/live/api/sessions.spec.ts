@@ -185,8 +185,8 @@ defineSuite("sessions", { feature: "sessions" }, {
     "the hub's session list is the engine's, with whether a turn is running":
       async ({ client }) => {
         const created = await client.call("session.create", {});
-        // The engine's list carries each session's scene and project root
-        // (N-002). The hub used to write those down itself because the engine
+        // The engine's list carries each session's scene and project root.
+        // The hub used to write those down itself because the engine
         // did not; now it must pass the engine's through, not keep a second
         // copy that could disagree.
         const engine = await client.call("session.list", {});
