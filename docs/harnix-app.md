@@ -128,7 +128,7 @@ new_session = true        # false：整个外壳不画「新会话」、⌘K 不
 narrow_details = "over"   # ≤ 960 宽时打开的右栏：over 是盖住中区的抽屉；beside 三栏并排（< 720 仍是抽屉）
 ```
 
-每一段都拒绝不认识的键；`spaces` 里写了不是内建 space 的名字，进程起不来并说是哪一个。
+`[shell]` 拒绝不认识的键；`spaces` 里写了不是内建 space 的名字，进程起不来并说是哪一个。
 
 | `spaces` 里的名字 | 去掉之后 |
 |---|---|
@@ -176,3 +176,8 @@ Harnix app 是模式 1 最小的例子：一个后端模块、两个界面 space
 
 **要一个不同的 Harnix app**：不 fork 外壳，在自己的产品里用 `[shell] spaces` 去掉这两个 space，注册自己的 space 顶替
 （[SDK](harnix-sdk.md) §4、§8）。
+
+**它的后端随框架一起链进来，只能藏、不能去。** 会话 space 的后端是自带模块（`with_builtins()`）里 `sessions` 那一组，和设置、
+Agix 插件、录像同在一处，全要或全不要；`[shell] spaces` 去掉的只是界面。所以一个想要自己会话模型的产品（比如不要「工作区 = 目录」）
+仍然扛着 `harnix.workspaces.*`、`harnix.projects.create`、`harnix.listDirectory`，它们对设备可见（`harnix.reachable` 里有）。
+把这一组拆成可以不注册的模块是以后的里程碑。

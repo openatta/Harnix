@@ -15,7 +15,7 @@
 | **Harnix**（原 Nest） | `harnix` | Agix 应用的公共底座：**框架 + Harnix app + 系统 space**。框架是骨架（中枢、授权、传输、装配）、实例层、模块契约、外壳与贡献点、插件 APP 的宿主 |
 | **框架** | `harnix` crate、`@harnix/*` | Harnix 里除了 Harnix app 与系统 space 的一切：应用在它上面做 |
 | **应用** | app | 在 Harnix 上做出来的产品，例如 Helm、IPDrun。一个应用 = 一个二进制 + 一份界面产物 |
-| **Harnix app** | 会话 space、项目 space；二进制 `harnix`（`crates/cli`） | 用框架自己的公开接口做的一个小应用：新建会话、按时间看会话、按项目管理会话。Harnix 自己发布的二进制 `harnix` 就是框架 + Harnix app + 系统 space，再注册了流程模块。以前叫「空应用」「Harnix app」，不再用这个词。见 [Harnix app](harnix-app.md) |
+| **Harnix app** | 会话 space、项目 space；二进制 `harnix`（`crates/cli`） | 用框架自己的公开接口做的一个小应用：新建会话、按时间看会话、按项目管理会话。Harnix 自己发布的二进制 `harnix` 就是框架 + Harnix app + 系统 space，再注册了流程模块。以前叫「空应用」「最小应用」，不再用这两个词。见 [Harnix app](harnix-app.md) |
 | **嵌入版** | — | Harnix 的一种产品形态：Harnix app + 系统 space，开模式 2。给资源紧的设备与边缘部署 |
 | **桌面版** | — | Harnix 的另一种产品形态，我们自己的发布：Harnix app + 系统 space，开模式 3（只有设计） |
 | **二开** | — | 在 Harnix 上做应用，不 fork Harnix |
@@ -24,6 +24,19 @@
 | **账本** | `~/.<product_id>/` | 程序自己的持久状态：设备、工作区、会话与 space 的绑定、按模板建的实例。不是会话内容。默认 `~/.harnix/` |
 | **产品 id** | `[brand] product_id` | 决定程序自己的目录 `~/.<product_id>`；同一台机器上的两个产品不共用令牌和账本 |
 | **品牌** | `[brand]` | 产品名、图标、产品 id；配色和文案由模块的令牌覆盖与语言包给 |
+
+**「app」在名字里的意思**：代码与路径里的 `app` 不是一个词，是几个名字碰巧都带着它。每个名字只有一个意思：
+
+| 名字 | 指什么 |
+|---|---|
+| 应用（产品） | 在 Harnix 上做出来的产品，模式 1 的那个二进制：Helm、IPDrun |
+| `harnix-app`（crate，`crates/app`） | 装配：把模块装成一个进程的 `App::builder()`。应用经 `harnix` crate 用它 |
+| `harnix-app`（命令行，`crates/app-package` 的 bin） | 插件 APP 作者与商店用的打包工具：`new`、`build`、`pack`、`sign`…… |
+| `app.<id>.*` | 方法与主题的命名空间。编译期模块的（`<id>` 是模块 id）与插件 APP 的（`<id>` 是应用 id）共用一个，名字不许重叠，编译进来的优先 |
+| `/apps/<id>/` | HTTP 路径：模块的自有链接（`/apps/<模块 id>/…`）；插件 APP 的界面与 MCP 端点（`/apps/<应用 id>/ui/…`、`/apps/<应用 id>/mcp`） |
+| `harnix-apps`（crate）、`harnix.apps.*`、`apps` 内建模块、cargo feature `apps`、`[apps]` | 插件 APP 的运行时、管它的方法、开它的开关 |
+| `.hxapp`、`harnix-app.toml` | 应用包与它的清单：一个插件 APP 的分发单位 |
+| Harnix app | Harnix 自带的小应用：会话 space、项目 space，二进制 `harnix` |
 
 ## 2. 运行时四层
 
@@ -43,7 +56,7 @@
 
 **别混**：
 
-- 「实例」**只**指 Agix 实例。space 左栏里用户新建的东西叫**条目**，不叫实例。
+- 「实例」**只**指 Agix 实例。space 左栏里用户新建的东西叫**条目**，不叫实例；插件 APP 的虚拟机里的是 **Store**（§4），也不叫实例。
 - 「子 Agent」是一种**任务**，不是实例，也不是顶层会话。
 - 「Agent」单独出现时指「space 的 Agent 部分」（§4）或泛指模型侧行为，不指实例。
 
@@ -80,14 +93,18 @@
 | **界面模块** | `[[ui]]` | Agix 插件（或受信发布者的插件 APP）里给浏览器加载的预编译 ES 模块（贡献点 API 2：从页面的 import map 拿 React）。页面级信任；`[ui] runtime_modules = false` 时 Agix 插件的一律不加载 |
 | **应用包** | `.hxapp`、`harnix-app.toml` | 插件 APP 的分发单位：清单、预编译的 `.cwasm`、`agent/`（一个 Agix 插件）、`ui/`、`SIGNATURES`。对模式中立：同一个包在模式 2、3 里都能装 |
 | **清单** | `harnix-app.toml` | 插件 APP 是什么、要什么能力、有哪些方法、主题、space、面与行内点。严格读，未知的节与字段按名拒；也是装前给人看的披露 |
-| **模式 1 / 2 / 3** | 模式 2：cargo feature `apps` + `[apps] enabled` | 在 Harnix 上做应用的三种做法：1 用 Rust 做产品；2 插件 APP 嵌在产品进程里，每个插件一台 WASM 虚拟机；3 每个插件 APP 一个进程（只有设计）。一个产品开 2 或 3，不同时开。见 [应用开发](app-development.md) |
-| **虚拟机** | `AppVm`，`harnix-wasm` | 一个插件 APP 在主进程里的那一台 WASM「虚拟机」：一个边界，不是一个进程。里面是常驻的后端实例与每次工具调用的临时实例 |
+| **模式 1 / 2 / 3** | 模式 2：cargo feature `apps` + `[apps] enabled` | 在 Harnix 上做应用的三种做法：1 用 Rust 做产品；2 插件 APP 嵌在产品进程里，每个插件一台 WASM 虚拟机；3 每个插件 APP 一个进程（只有设计）。第一版一个产品开 2 或 3，不同时开（今天的简化，不是原则）。见 [应用开发](app-development.md) |
+| **虚拟机** | `AppVm`，`harnix-wasm` | 一个插件 APP 在主进程里的那一台 WASM「虚拟机」：一个边界，不是一个进程。里面是常驻 Store 与每次工具调用、每次事件的调用 Store |
+| **常驻 Store** / **调用 Store** | wasmtime 的 `Store` | 组件跑在里面的那份内存与状态。常驻 Store 是后端：长期存活，状态、订阅、定时器在这里，方法调用排队串行进入；超时、越过配额时换一个新的。调用 Store 每次工具调用、每次事件新建一个，用完即弃 |
+| **AppsBridge** | `harnix_apps::AppsBridge` | Harnix 给每台进程内实例装的一个 Agix 插件：把在跑的插件 APP 的工具与事件钩子登记进每个会话。代码里的 `plugin` 只指 Agix 插件，所以它叫 bridge |
 | **信任等级** | `parts.trust`：`store` / `trusted` / `unsigned` | 插件 APP 由签名定的出身：商店副署、受信发布者签全、未签名（只在开发模式） |
 | **休眠** | `hibernating`，`[backend] resident = "on-demand"` | `on-demand` 的插件 APP 后端闲置、没有东西拿着它时被卸下，下一次调用冷启动；系统 space 显示「休眠中」。不是故障 |
 | **面** | surface，`[[surface]]` | 外壳的一块区域，插件 APP 的页面画在里面的一个隔离 iframe 里：space 的中区、左栏中段、右栏页签、二级栏，详情面板、设置节、新对话卡、模态框，共 8 个点 |
 | **行内点** | `[inline]` | 插件 APP 在外壳自己的视图里声明的样子：工具行、流块卡片、命令、侧栏分组。外壳照声明画，不跑插件的代码 |
 | **桥** | `harnix-ui-bridge@1`，`@harnix/app-sdk` | 插件 APP 的 iframe 与外壳之间的协议：一个 `MessageChannel` 端口上的请求、应答与事件。iframe 只能经它请外壳去做清单允许的事 |
-| **space** | `space` | 左栏（`sidebar()`）+ 中区（默认是对话，`center`）+ 右栏（`tabs`）合起来，原子注册。会话按 space 绑定 |
+| **space** | `space` | 总称：一块产品面。分两半，各有各的声明，用同一个 id 对上；单说 space 时看上下文是哪一半，要分清就说下面两个词 |
+| **界面 space** | 贡献点 `space`，`[[surface]] point = "space"` | 外壳里的那块：左栏（`sidebar()`）+ 中区（默认是对话，`center`）+ 右栏（`tabs`）合起来，原子注册 |
+| **后端 space** | `SpaceDecl`、清单的 `[[space]]`、`harnix.spaces.list`、`SPACE_MISMATCH` | 会话的归属：在它里面建的会话落在哪台实例、用哪个场景，会话永远属于建它的 space（账本 `spaces.json`）。两个界面 space 可以列同一个后端 space 的会话（项目 space 列的是会话 space 的）；只有界面没有后端的也行 |
 | **部分** | — | 一个 space 的三个组成：**前端部分**（React，或插件 APP 的面）、**后端部分**（一个模块，或插件 APP 的后端）、**Agent 部分**（原生 Rust 贡献或 Agix 插件）。任意组合 |
 | **条目** | entry | space 左栏里用户新建的东西，例如项目 space 的项目（工作区）、Helm 的关注组。存在账本里 |
 | **前台 space** | — | 当前显示的 space。中区、输入框、右栏只操作它自己的会话 |
@@ -99,7 +116,7 @@
 | **系统 space** | `system` | Harnix 三部分之一，始终在（除非 `[shell] spaces` 去掉它）的调试面：按实例 → 会话 → 任务看一切、能操作，可以观看与操作任何 space 的会话；流程与插件 APP 的状态也在这里。见 [系统 space](system-space.md) |
 | **贡献点** | contribution point | 前端的接缝。v2 共 8 个：`space`、`home.card`、`tool.row`、`flow.block`、`details.panel`、`sidebar.group`、`command`、`settings.section`。插件 APP 的面与行内点落在它们上面 |
 | **宿主 API** | `useNest()` | 前端代码拿到的全部能力。拿不到 Harnix 自己的连接 |
-| **原生贡献** | `EngineContrib` | 模块交给进程内实例的东西：场景、原生工具、`SessionCustomizer`、凭据源 |
+| **原生贡献** | `EngineContrib` | 模块交给进程内实例的东西：场景、原生工具、`SessionCustomizer`、Rust 写的 Agix 插件、凭据源 |
 | **自有链接** | `/apps/<id>/` | 模块自己的 HTTP / WS 路由。同源、同一套授权，但不享受 Harnix 通道的保证 |
 | **扩展条目** | extension entry | 模块往会话时间线写的、只给人看的条目，由 `flow.block` 画出来 |
 
@@ -109,16 +126,17 @@
   Agix 插件里的界面段叫「界面模块」。
 - 单说「插件」指插件 APP。Agix 的包要说「Agix 插件」或「运行期包」，不单说「插件」。代码名不变：插件 APP 在代码里是 `apps`、
   `harnix.apps.*`，Agix 插件是 `plugin.*`、`harnix.plugins.*`。
-- 「应用」是在 Harnix 上做出来的产品（模式 1 的那个二进制）；装进应用里的叫「插件 APP」，不叫「应用」。代码里的 `app.<id>.*`、
-  `AppSpec`、`harnix-app` 这些名字两边都用，看上下文。
+- 「应用」是在 Harnix 上做出来的产品（模式 1 的那个二进制）；装进应用里的叫「插件 APP」，不叫「应用」。名字里带 `app` 的各指什么，
+  见 §1 末的表。
 - 「空应用」「最小应用」不再用，说「Harnix app」。它和 crate `harnix-app`（`crates/app`）、插件打包工具 `harnix-app` 不是一回事。
-- 「功能模块」是开发计划的单位（设计文档 §4.3 的一行），不是代码里的东西。
+- 「功能模块」是 LIVE 覆盖表的一行（`tests/live/features.mjs`），不是代码里的东西。
 
 ## 5. 授权与安全
 
 | 术语 | 代码 | 意思 |
 |---|---|---|
-| **主体** | principal | 授权判定的「谁」：`Kernel`、`Module(id)`、`Device`。插件 APP 以 `module:<应用 id>` 行事，不是另一类主体 |
+| **主体** | `Subject` | 一次调用的调用方：`Kernel`、`Module { id }`、`Device { id }`，记审计时写成 `kernel`、`module:<id>`、`device:<id>`。插件 APP 以 `module:<应用 id>` 行事，不是另一类主体，但授权表只放它到清单 `hub` 列出的 |
+| **Principal** | `Principal` | 声明一个方法、路由、主题**给谁用**：`Device`、`Module(id)`、`AnyModule`、`Kernel`。是表里的一行写给哪类主体，不是调用方本身 |
 | **设备** | `Device` | 一个配对过的客户端，或本机带 token 的页面。代表一个人 |
 | **授权表** | — | 主体 × 方法 / 路由，默认拒绝。Harnix 唯一的准入点 |
 | **透传白名单** | `PASSTHROUGH` | 设备可以经 Harnix 调到的 Agix 方法 |
@@ -138,7 +156,7 @@
 | **LIVE 测试** | `tests/live/` | 对着真的 `harnix` 二进制跑的功能测试：API 层和 Playwright 层 |
 | **录像 / 回放** | recording / replay | 引擎记下的模型调用；测试默认按位置重放 |
 | **live 模式** | `--live` | 连真实模型服务跑测试，可以写回录像 |
-| **里程碑** | M0…M9 | 0.4 的十个里程碑；代码注释里的任务编号写成 `M3-4` |
+| **里程碑** | M0…M9 | 0.4 的十个里程碑。路线与设计记录已移出仓库（在 git 历史里），代码注释不引用它们的编号 |
 
 ## 7. 流程（可选模块 `harnix-flow`）
 

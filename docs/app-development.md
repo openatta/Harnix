@@ -39,8 +39,10 @@ Harnix 本身是**框架 + Harnix app + 系统 space**：Harnix app（会话 spa
 
 两条约束：
 
-- **一个产品开模式 2 或模式 3，不同时开。** 两种模式对「应用的 Agent 在哪」答案不同（§10）；模式 2 的宿主要链 wasmtime，模式 3 的宿主不链。
-  落法是两个互斥的 cargo feature，profile 不能切换。今天只有模式 2 的 `apps`；模式 3 的 feature 立项时加，与它同时开就 `compile_error!`。
+- **第一版一个产品开模式 2 或模式 3，不同时开。** 这是今天的简化，不是原则。「插件的 Agent 在哪」（§10）是每个插件 APP 的属性，
+  链不链 wasmtime 是构建的属性；一个产品完全可以让自家的插件 APP 进程内跑（省、快、可信）、商店装的第三方各起一个进程（隔离），
+  端口本来就是按插件设计的（`Control::place` / `start` 一个插件一次）。先按产品二选一，是因为模式 3 的监护器与按插件定落点的商店都还没有；
+  以后可能按插件选落点，那时 §10 的规矩照样成立。今天只有模式 2 的 `apps` feature，代码里没有强制这一条。
 - **应用包对模式中立。** 同一个 `.hxapp` 在嵌入版、桌面版、各个应用里都能装。商店只有一种包，作者只写一遍。
 
 云端部署（多租户托管）是模式 3 的延伸：在模式 3 上再加租户、计量与编排，见 §9.5。
@@ -50,8 +52,8 @@ Harnix 本身是**框架 + Harnix app + 系统 space**：Harnix app（会话 spa
 | | 模式 1 | 模式 2 | 模式 3 |
 |---|---|---|---|
 | 二进制 | 默认构建约 37 MB | 加 wasmtime 后约 43 MB（`budget` 层上限 52 MB） | 产品侧不链 wasmtime；另有一个应用进程的二进制 app-proc（wasmtime + Agix） |
-| 每个应用的常驻开销 | — | 一个常驻实例的线性内存：以清单的 `memory_mb` 封顶，通常几 MB；整个进程共用一个 `Engine`，`.cwasm` 代码按文件映射 | 一个进程：Agix 运行时、异步运行时、虚拟机，**估计**十几到几十 MB（立项时实测） |
-| 工具调用 | 进程内 | 每次一个临时实例，用完即弃 | 同模式 2，在应用进程里；产品其它实例的会话经 MCP 调用，多一跳 |
+| 每个应用的常驻开销 | — | 常驻 Store 的线性内存：以清单的 `memory_mb` 封顶，通常几 MB；整个进程共用一个 `Engine`，`.cwasm` 代码按文件映射 | 一个进程：Agix 运行时、异步运行时、虚拟机，**估计**十几到几十 MB（立项时实测） |
+| 工具调用 | 进程内 | 每次一个调用 Store，用完即弃 | 同模式 2，在应用进程里；产品其它实例的会话经 MCP 调用，多一跳 |
 | 闲着的时候 | — | `resident = "on-demand"` 的应用闲置后卸下后端，下一次调用冷启动（毫秒级） | 监护器可以把闲着的应用进程停掉，下一次调用再拉起（百毫秒到秒级，立项时测） |
 | 上限与记账 | 产品自己的 | 每台虚拟机：内存、单次调用时间（epoch 中断）、存储（kv + `/data`）；一个工具连续出错只停那个工具，后端再崩停用 | 进程级：可以加 cgroup / 作业对象；存储、网络出口各自记 |
 | 规模感 | — | 几个到二十来个应用，合计几十到一两百 MB | 每个应用一个进程，内存随应用数线性增长 |
@@ -126,7 +128,7 @@ Harnix 本身是**框架 + Harnix app + 系统 space**：Harnix app（会话 spa
   - 没有在途的调用：方法调用、工具调用、事件钩子都算；
   - 闲置满 `idle_secs`（缺省 600 秒，60–86400）。
 
-  工具调用跑在自己的临时实例里，不唤醒后端，除非它 `host.call` 后端。
+  工具调用跑在自己的调用 Store 里，不唤醒后端，除非它 `host.call` 后端。
 
 ### 9.2 模式 3：结构（只有设计）
 
@@ -197,9 +199,10 @@ Harnix 本身是**框架 + Harnix app + 系统 space**：Harnix app（会话 spa
 | 层 | crate | 管什么 | 依赖（Harnix 内） | 模式 1 | 模式 2 | 模式 3 |
 |---|---|---|---|---|---|---|
 | 内核与模块 | `harnix`、`harnix-app`、`harnix-module`、hub、authz、transport、instance… | 骨架、模块契约、装配 | — | ✔ | ✔ | ✔（产品侧） |
+| 内核侧的插件 APP | `crates/module/src/apps.rs`（契约：`AppSpec`、`AppHost`）、`crates/app/src/apps.rs`（内核的实现：登记、撤销、以应用的身份调用）、`crates/builtin/src/apps.rs`（内建模块 `apps`：`harnix.apps.*`、安装记录） | 运行期的方法、主题、space 进出授权表与中枢；管插件 APP 的方法 | 内核各 crate | | ✔ | ✔（产品侧） |
 | 分发与信任 | `harnix-app-package` | 清单、包、签名、目录与下载、披露、发布工具 `harnix-app` | `harnix-contract`；`harnix-wasm` 只在 feature `compile` 下（打包工具要编译器） | | ✔ | ✔（产品侧） |
 | 边界 | `harnix-app-port` | 应用宿主要外面做的分两半：`Kernel`（产品的：登记、调用、发布、订阅、进度，7 个方法）与 `Agent`（Agent 引擎的：装包、技能、工具，8 个方法）；外面要应用宿主做的是 `Control`（12 个方法）；`rpc` 层把三者编成 JSON，feature `loopback` 带一个回环适配器 | `harnix-contract`；外部只有 serde、serde_json、async-trait | | ✔ | ✔ |
-| 虚拟机 | `harnix-wasm` | wasmtime 的引擎、实例、健康、记账、休眠；feature `compile` 带 Cranelift | 无（叶子） | | ✔ | ✔（应用进程侧） |
+| 虚拟机 | `harnix-wasm` | wasmtime 的引擎、Store、健康、记账、休眠；feature `compile` 带 Cranelift | 无（叶子） | | ✔ | ✔（应用进程侧） |
 | 应用宿主核心 | `harnix-app-host` | 生命周期、注册表、健康、分派、进度、休眠；`host.http-request` 用的 HTTP 客户端 | contract、package、port、wasm | | ✔ | ✔（应用进程侧） |
 | 粘合（嵌入） | `harnix-apps` | 端口的进程内实现、给 Agix 的 Rust 插件 `AppsBridge`、`/apps/<id>/ui` 与 `/apps/<id>/mcp`、`apps` 内建模块的运行时。模式 3 里分到链接两边：产品侧是 `runtime.rs`、`update.rs`（装、起、升级、卸与回滚）、`serve.rs`、`platform.rs`（`Kernel`）；虚拟机侧是 `agent.rs`（`Agent`）、`plugin.rs`（`AppsBridge`），以及它驱动的 `Control`，即应用宿主本身。逐个文件见这个 crate 的模块文档 | app-host、app-package、app-port、builtin、contract、module，以及 Agix | | ✔ | |
 | 粘合（模式 3，只有设计） | `harnix-app-proc` 加上产品侧的端口服务与监护器 | | | | | ✔ |
