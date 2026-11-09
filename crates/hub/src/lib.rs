@@ -140,6 +140,9 @@ pub(crate) type SessionKey = (String, String);
 #[derive(Default)]
 struct Inner {
     clients: Clients,
+    /// Sends what was decided under this lock after it is released, in the order decided
+    /// ([`send_after`]).
+    dispatch: clients::Dispatch,
     sessions: HashMap<SessionKey, SessionState>,
     topics: topics::Topics,
     /// In replay, which recording each session was created to play. The
@@ -303,7 +306,8 @@ impl Hub {
             }
         };
         let (to, frame) = guard.topics.publish(key, params, value);
-        guard.clients.send_many(&to, &frame).await;
+        let out = guard.clients.to_many(&to, frame);
+        send_after(guard, [out]).await;
     }
 
     pub(crate) fn slot(&self, instance: &str) -> Option<Arc<Slot>> {
@@ -824,6 +828,21 @@ pub(crate) fn new_id(prefix: &str) -> String {
     format!("{prefix}-{}", uuid::Uuid::new_v4().simple())
 }
 
+/// Release the hub's lock, then send what was decided under it; return once it is sent.
+///
+/// Handed to the dispatcher while the lock is still held, so frames leave in the order their
+/// seqs were given, whichever task decided them. The lock is not held while they are sent: a
+/// downstream that takes its time holds up the frames behind it and nothing else of the hub
+/// (and `FrameSink::deliver` must return at once in any case).
+async fn send_after(
+    guard: tokio::sync::MutexGuard<'_, Inner>,
+    out: impl IntoIterator<Item = clients::Outgoing>,
+) {
+    let sent = guard.dispatch.submit(out.into_iter().collect());
+    drop(guard);
+    let _ = sent.await;
+}
+
 pub(crate) fn is_code(result: &Result<Value, RpcError>, code: i32) -> bool {
     matches!(result, Err(e) if e.code == code)
 }
@@ -930,5 +949,59 @@ mod recording_tests {
             json!({"mode": "record"}),
             "outside replay strictness means nothing"
         );
+    }
+}
+
+#[cfg(test)]
+mod sending_tests {
+    use super::*;
+    use harnix_contract::Frame;
+    use std::time::Duration;
+
+    /// Takes every frame, in order; holds the first up until `release` is notified.
+    struct Slow {
+        seen: StdMutex<Vec<String>>,
+        release: tokio::sync::Notify,
+    }
+
+    #[async_trait::async_trait]
+    impl FrameSink for Slow {
+        async fn deliver(&self, frame: Frame) -> bool {
+            if lock(&self.seen).is_empty() {
+                self.release.notified().await;
+            }
+            lock(&self.seen).push(frame.payload.to_string());
+            true
+        }
+    }
+
+    /// A downstream that takes its time holds up the frames behind it, not the hub's state: the
+    /// lock is free while it waits, and what it is sent arrives in the order it was decided.
+    #[tokio::test]
+    async fn a_slow_downstream_does_not_hold_the_hub() {
+        let inner = Arc::new(Mutex::new(Inner::default()));
+        let slow = Arc::new(Slow { seen: StdMutex::new(Vec::new()), release: tokio::sync::Notify::new() });
+        inner.lock().await.clients.insert(ClientId(1), slow.clone());
+
+        let mut sending = Vec::new();
+        for n in 0..3 {
+            let inner = inner.clone();
+            sending.push(tokio::spawn(async move {
+                let guard = inner.lock().await;
+                let out = guard.clients.to_many(&[ClientId(1)], Frame::host(format!("f{n}")));
+                send_after(guard, [out]).await;
+            }));
+            // Each decided before the next: the order the frames must arrive in.
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let free = tokio::time::timeout(Duration::from_secs(1), inner.lock()).await;
+        assert!(free.is_ok(), "the hub's lock was held while a downstream waited");
+        drop(free);
+        assert!(lock(&slow.seen).is_empty());
+        slow.release.notify_one();
+        for s in sending {
+            s.await.unwrap();
+        }
+        assert_eq!(*lock(&slow.seen), ["f0", "f1", "f2"]);
     }
 }

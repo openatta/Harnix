@@ -137,7 +137,8 @@ impl Hub {
         }
         let out = Frame::host(notification("harnix.host_event", params));
         let guard = self.inner.lock().await;
-        guard.clients.broadcast(&out).await;
+        let out = guard.clients.to_all(out);
+        crate::send_after(guard, [out]).await;
     }
 
     /// A turn the hub did not start — a scheduled one, or one the hub lost
