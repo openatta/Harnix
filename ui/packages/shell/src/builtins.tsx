@@ -19,7 +19,7 @@ import { ProjectsSidebar } from "./projects.tsx";
 import { SessionsSidebar } from "./sessions.tsx";
 import { builtinSections } from "./settings.tsx";
 import { startInline } from "./inline/index.tsx";
-import { openInSystem, registerSystem, systemOffered } from "./system.tsx";
+import { openInSystem, registerSystem, systemOffered } from "./system/index.tsx";
 
 const OWNER = "builtin";
 

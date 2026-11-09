@@ -8,6 +8,7 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { Page } from "@playwright/test";
 
 import { type Backend, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
@@ -28,6 +29,19 @@ test.afterAll(async () => {
   await backend?.dispose();
 });
 
+/**
+ * The running task of session `sid` in the Agents list, found by its own id. Another session's
+ * task (an earlier test's monitor still counting) can be listed too, and the list orders its rows
+ * by how they stand, which changes as turns end: a locator by position can point at one row when
+ * it is resolved and another when it is clicked.
+ */
+async function runningTask(page: Page, sid: string) {
+  const any = page.locator(`[data-testid="system-agents"] .tgroup[data-sid="${sid}"] [data-task][data-status="running"]`).first();
+  await expect(any).toBeVisible({ timeout: 15_000 });
+  const id = (await any.getAttribute("data-task"))!;
+  return page.locator(`[data-testid="system-agents"] [data-task="${id}"]`);
+}
+
 test("system-tasks: a running task's output grows in the tasks tab and, followed, stays scrolled to its end", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, backend.url);
@@ -40,18 +54,23 @@ test("system-tasks: a running task's output grows in the tasks tab and, followed
   await expect(ask).toBeVisible({ timeout: 30_000 });
   await ask.getByTestId("conv-ask-allow").click();
 
+  const sid = await page.evaluate(() => (window as any).harnix.app.snapshot.current?.sessionId as string);
+
   await page.locator('#side [data-space="system"]').click();
   await expect(page.getByTestId("system-console")).toBeVisible();
-  const row = page.locator('[data-testid="system-agents"] [data-task][data-status="running"]').first();
-  await expect(row).toBeVisible({ timeout: 15_000 });
+  const row = await runningTask(page, sid);
   await row.click();
 
   const text = page.getByTestId("task-output-text");
   await expect(text).toContainText("line-1");
   await expect(page.getByTestId("task-follow")).toBeChecked();
   // The output is under the task's header, as wide as the task — not squeezed in beside it.
+  // Measured once the right column has finished opening: while it slides open the two are measured
+  // at different moments of it.
   const width = async (selector: string) => (await page.locator(selector).first().boundingBox())!.width;
-  expect(await width('[data-testid="task-output-text"]')).toBeGreaterThan(0.8 * (await width('[data-testid="system-tasks"] .task.on')));
+  await expect
+    .poll(async () => (await width('[data-testid="task-output-text"]')) / (await width('[data-testid="system-tasks"] .task.on')), { timeout: 5_000 })
+    .toBeGreaterThan(0.8);
   // The task's own detail: what it is, how it stands.
   const detail = page.getByTestId("system-task");
   await expect(detail.locator(".facts")).toContainText(/Monitor|监视器/);
@@ -87,10 +106,12 @@ test("system-tasks: a task that outlives its turn is listed as running, and is s
   // The turn ends long before the monitor does: what is running is the task alone.
   await expect(page.getByTestId("conv-send")).toBeVisible({ timeout: 30_000 });
 
+  const sid = await page.evaluate(() => (window as any).harnix.app.snapshot.current?.sessionId as string);
+
   await page.locator('#side [data-space="system"]').click();
-  await expect(page.locator('[data-testid="system-strip"] [data-kpi="tasks"] .v')).toHaveText("1", { timeout: 15_000 });
-  const row = page.locator('[data-testid="system-agents"] [data-task][data-status="running"]').first();
-  await expect(row).toBeVisible({ timeout: 15_000 });
+  // The first test's monitor may still be counting: this session's task is the one looked for.
+  await expect(page.locator('[data-testid="system-strip"] [data-kpi="tasks"] .v')).not.toHaveText("0", { timeout: 15_000 });
+  const row = await runningTask(page, sid);
   const id = (await row.getAttribute("data-task"))!;
   await row.click();
   const task = page.locator('[data-testid="system-tasks"] .task.on');

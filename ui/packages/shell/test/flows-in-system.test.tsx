@@ -12,7 +12,7 @@ import { HarnixUiProvider } from "@harnix/react";
 import type { App } from "../src/app";
 import { registerFlow } from "../src/flow";
 import { Shell } from "../src/Shell";
-import { systemFlows } from "../src/system-flows";
+import { systemFlows } from "../src/system/flows";
 import { scriptedApp, space, tick } from "./scripted";
 
 afterEach(cleanup);

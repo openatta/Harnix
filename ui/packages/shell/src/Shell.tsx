@@ -51,9 +51,10 @@ import { Glyph } from "./glyph.tsx";
 import { sessionMenu } from "./dialogs.tsx";
 import { listenForLayers, modalUp, useLayer } from "./layers.ts";
 import { MenuHost, menuBelow } from "./Menu.tsx";
+import { useRovingTabIndex } from "./roving.ts";
 import { openSettings } from "./settings.tsx";
 import { Sidebar, spacesOf } from "./Sidebar.tsx";
-import { SYSTEM, openInSystem, systemOffered } from "./system.tsx";
+import { SYSTEM, openInSystem, systemOffered } from "./system/index.tsx";
 
 export function Shell({ app }: { app: App }) {
   const s = useSyncExternalStore(app.subscribe, app.getSnapshot);
@@ -702,7 +703,8 @@ function Header({
       <div className="meta">
         {space ? (
           <span className="pill acc" data-testid="space-pill">
-            {space.subtitle ? `${space.title()} · ${space.subtitle()}` : space.title()}
+            {space.title()}
+            {space.subtitle ? <span className="sub"> · {space.subtitle()}</span> : null}
           </span>
         ) : null}
         {!overview && scene ? <span className="pill">{scene}</span> : null}
@@ -1185,17 +1187,22 @@ function Details({ app, s }: { app: App; s: ShellState }) {
   // with what is selected: a tab that went falls back to the first.
   const current = app.shownTab(s);
   const shown = tabs.find((x) => x.id === current);
+  // One Tab stop for the strip; the arrows go along it.
+  const strip = useRef<HTMLDivElement>(null);
+  const roving = useRovingTabIndex(strip, { items: '[role="tab"]', orientation: "horizontal", activate: true });
   return (
     // Closed it is zero wide, not gone: inert, or Tab would still walk through what is in it.
     <aside id="details" aria-hidden={!app.detailsOpen(s)} inert={!app.detailsOpen(s)}>
       <Resizer app={app} column="details" />
       <div className="strip" data-tauri-drag-region="deep">
-        <div className="tabs" role="tablist">
+        <div className="tabs" role="tablist" ref={strip} onKeyDown={roving.onKeyDown} onFocus={roving.onFocus}>
           {tabs.map((x) => (
             <button
               type="button"
               role="tab"
               key={x.id}
+              id={`details-tab-${x.id}`}
+              aria-controls="details-panel"
               data-tab={x.id}
               data-align={x.id === firstEnd ? "end" : undefined}
               aria-selected={current === x.id}
@@ -1206,7 +1213,7 @@ function Details({ app, s }: { app: App; s: ShellState }) {
             </button>
           ))}
           {item || !tabs.length ? (
-            <button type="button" role="tab" data-tab="details" aria-selected={current === "details"} className={current === "details" ? "on" : ""} onClick={() => setTab("details")}>
+            <button type="button" role="tab" id="details-tab-details" aria-controls="details-panel" data-tab="details" aria-selected={current === "details"} className={current === "details" ? "on" : ""} onClick={() => setTab("details")}>
               {item && !tabs.length ? (panel?.title?.(item) ?? item.name ?? t("details.title")) : t("details.title")}
             </button>
           ) : null}
@@ -1227,7 +1234,7 @@ function Details({ app, s }: { app: App; s: ShellState }) {
           </button>
         </div>
       </div>
-      <div className="body">
+      <div className="body" role="tabpanel" id="details-panel" aria-labelledby={`details-tab-${shown ? shown.id : "details"}`}>
         {shown && space ? (
           <Contributed registry={registry} point="space" contribution={space}>
             {shown.render()}

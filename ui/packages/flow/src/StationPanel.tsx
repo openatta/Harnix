@@ -254,6 +254,17 @@ function RunTab({ station: s, view, module }: { station: Station; view: RunView;
       else delete next[task];
       return next;
     });
+  // External tasks whose hand-in is under way here: claimed, or being claimed. The push that marks
+  // a task claimed can come before the claim's answer (always over split streams), and a form
+  // dropped for that moment would be drawn again empty, the refusal it was about to show lost.
+  const [handing, setHanding] = useState<Record<string, true>>({});
+  const handingIn = (task: string, on: boolean) =>
+    setHanding((h) => {
+      const next = { ...h };
+      if (on) next[task] = true;
+      else delete next[task];
+      return next;
+    });
 
   // The station's history, read again whenever the run changes.
   useEffect(() => {
@@ -478,8 +489,16 @@ function RunTab({ station: s, view, module }: { station: Station; view: RunView;
                         </details>
                       ) : null}
                       {/* A held station's tasks are ready but cannot be claimed until it is let in. */}
-                      {executorOf(s, task.id)?.kind === "external" && rec.status !== "held" && (task.status === "ready" || (task.status === "claimed" && held[task.id])) ? (
-                        <HandIn module={module} run={run.id} station={s.id} task={task.id} held={held[task.id] ?? null} onHeld={(c) => hold(task.id, c)} />
+                      {executorOf(s, task.id)?.kind === "external" && rec.status !== "held" && (task.status === "ready" || (task.status === "claimed" && (held[task.id] || handing[task.id]))) ? (
+                        <HandIn
+                          module={module}
+                          run={run.id}
+                          station={s.id}
+                          task={task.id}
+                          held={held[task.id] ?? null}
+                          onHeld={(c) => hold(task.id, c)}
+                          onHanding={(on) => handingIn(task.id, on)}
+                        />
                       ) : null}
                       {task.output !== undefined && task.output !== null ? (
                         <details className="hx-flow-details">
@@ -568,7 +587,24 @@ interface Claim {
  * until the claim lapses (it then goes back to ready by itself), or given up now (recorded as a
  * failed attempt, which can be retried).
  */
-function HandIn({ module, run, station, task, held, onHeld }: { module: string; run: string; station: string; task: string; held: Claim | null; onHeld(claim: Claim | null): void }) {
+function HandIn({
+  module,
+  run,
+  station,
+  task,
+  held,
+  onHeld,
+  onHanding,
+}: {
+  module: string;
+  run: string;
+  station: string;
+  task: string;
+  held: Claim | null;
+  onHeld(claim: Claim | null): void;
+  /** The hand-in is under way (true) or over (false): the panel keeps this form while it is. */
+  onHanding(on: boolean): void;
+}) {
   const t = useT();
   const nest = useNest();
   const [open, setOpen] = useState(held !== null);
@@ -586,6 +622,7 @@ function HandIn({ module, run, station, task, held, onHeld }: { module: string; 
     }
     setBusy(true);
     setError(null);
+    onHanding(true);
     let claim = live;
     try {
       if (!claim) {
@@ -599,6 +636,7 @@ function HandIn({ module, run, station, task, held, onHeld }: { module: string; 
       setError(errorText(e));
     } finally {
       setBusy(false);
+      onHanding(false);
     }
   };
   const giveUp = async () => {

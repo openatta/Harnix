@@ -22,6 +22,7 @@ import { useSyncExternalStore } from "react";
 import { t, type CommandCandidate, type CommandContext, type Contributions, type Point } from "@harnix/react";
 
 import type { App } from "../app.ts";
+import { APPS_LIST, APPS_TOPIC } from "../constants.ts";
 import { topicsOf } from "../topics.ts";
 import { appsOf, toolNames, type CommandDecl, type RuntimeApp } from "./apps.ts";
 import { InlineCard, type Entry } from "./Card.tsx";
@@ -30,9 +31,6 @@ import { InlineToolRow, inlineTitle } from "./ToolRow.tsx";
 
 export { GroupedSessions, groupingOf } from "./Grouping.tsx";
 export { appsOf, type Inline } from "./apps.ts";
-
-const APPS_TOPIC = "harnix.apps";
-const APPS_LIST = "harnix.apps.list";
 
 /** Start following the applications, once this page can (`harnix.apps.list` is reachable). */
 export function startInline(app: App): void {
@@ -48,12 +46,12 @@ export function startInline(app: App): void {
       const running = new Map(watch.running().map((a) => [a.id, a]));
       for (const [id, was] of made) {
         const now = running.get(id);
-        if (now && keyOf(now) === was.key) continue;
+        if (now && declared(now) === was.key) continue;
         for (const [point, cid] of was.ids) app.registry.unregister(point, cid, id);
         made.delete(id);
       }
       for (const a of running.values()) {
-        if (!made.has(a.id)) made.set(a.id, { key: keyOf(a), ids: register(app, a) });
+        if (!made.has(a.id)) made.set(a.id, { key: declared(a), ids: register(app, a) });
       }
     });
   };
@@ -61,7 +59,8 @@ export function startInline(app: App): void {
   start();
 }
 
-function keyOf(a: RuntimeApp): string {
+/** What `a` declares, as one string: when it changes, its registrations are made again. */
+function declared(a: RuntimeApp): string {
   return JSON.stringify([a.title, a.inline]);
 }
 

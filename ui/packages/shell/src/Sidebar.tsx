@@ -17,14 +17,13 @@ import { createPortal } from "react-dom";
 import { Contributed, setLocale, currentLocale, useRegistry, useT, type SpaceContribution } from "@harnix/react";
 
 import { ask, disabledOf, keyOf, uniqueSessions, type App, type ShellSession, type ShellState } from "./app.ts";
+import { SYSTEM } from "./constants.ts";
 import { connectionDialog } from "./dialogs.tsx";
 import { Glyph } from "./glyph.tsx";
 import { AppMark, GroupedSessions, appsOf, groupingOf } from "./inline/index.tsx";
 import { Menu, type MenuEntry } from "./Menu.tsx";
 import { SessionRow } from "./sessions.tsx";
 import { openSettings } from "./settings.tsx";
-
-export const SYSTEM = "system";
 
 /** The spaces, in order. */
 export function spacesOf(app: App) {
@@ -234,6 +233,8 @@ function SpaceSessions({ app, s, listed }: { app: App; s: ShellState; listed?: S
   // Drawn again when an application starts or stops: its grouping comes and goes with it.
   const watch = appsOf(app);
   useSyncExternalStore(watch.subscribe, watch.getVersion);
+  // Read again when a turn settles, and when the shell's own list was read again (`refreshSessions`:
+  // a session made, renamed, archived or deleted) — not each time another listed one is opened.
   useEffect(() => {
     let alive = true;
     const load = () =>
@@ -249,7 +250,7 @@ function SpaceSessions({ app, s, listed }: { app: App; s: ShellState; listed?: S
       alive = false;
       off();
     };
-  }, [app, claim, s.current]);
+  }, [app, claim, s.sessions]);
   if (rows === null) return null;
   if (!rows.length) return <div className="empty">{t("sidebar.noSessions")}</div>;
   // the space leaves some out (its main conversation, which its entry opens): an empty result draws nothing
