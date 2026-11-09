@@ -757,7 +757,7 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 
 | 名字 | 现在 | 在哪 | 什么时候升 |
 |---|---|---|---|
-| Harnix 版本 | `0.4.1-2026110806` | 各 crate 的 `Cargo.toml`；`harnix::HARNIX_VERSION` | 每次发布（`scripts/set-version.sh` 连这一格一起改，`tests/crate-metadata.mjs` 查它和 crate 一致） |
+| Harnix 版本 | `0.4.2-2026110901` | 各 crate 的 `Cargo.toml`；`harnix::HARNIX_VERSION` | 每次发布（`scripts/set-version.sh` 连这一格一起改，`tests/crate-metadata.mjs` 查它和 crate 一致） |
 | 模块 API | `1` | `harnix::MODULE_API_VERSION` | 模块契约有模块看得见的变化。**编译期**检查：`Module::API_VERSION` 不等就编译不过。模块的路由是 `axum::Router`（`harnix::axum` 重导出），所以**axum 的大版本是它的一部分**：模块 API 1 = axum 0.8，升 axum 的大版本就是升模块 API。契约里还露着 Agix 的类型（`EngineContrib::customize_session` 的 `Builder` 与 `SessionCtx`、`InstanceHandle` 里的历史存储），它们随 Agix 变而这个数不动：靠的是一个 Harnix 发布只对一个 Agix 发布（升 Agix 就是出一个新的 Harnix 发布），见下一行 |
 | `harnix::agent`、`harnix::scenes`、`harnix::plugin` | 随 Agix | 就是 Agix 的 `base` 与 `scene` crate、`runtime::plugin` 模块，原样重导出 | 随它带的 Agix 变：Agix 改一个 `Tool` 的签名，写了原生工具的应用就要改。**不在**模块 API 只做加法的承诺之内。升 Harnix 时看它的发布说明里的 Agix 一行 |
 | 贡献点 API | `2` | `harnix::CONTRIB_API_VERSION`；`harnix.hello` 里也有 | 贡献点的契约变了。2：运行期包的界面模块是预编译的 ES 模块，从页面的 import map 拿 React；**React 的大版本是它的一部分** |

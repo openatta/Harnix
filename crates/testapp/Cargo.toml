@@ -1,6 +1,6 @@
 [package]
 name = "harnix-testapp"
-version      = "0.4.1-2026110806"
+version      = "0.4.2-2026110901"
 edition      = "2021"
 rust-version = "1.87"
 license      = "Apache-2.0"
