@@ -69,12 +69,13 @@ for (const width of [900, 600]) {
       expect(seen.width).toBeLessThanOrEqual(57);
       expect(seen.out).toEqual([]);
       expect(seen.text).toBe("");
-      // The conversation keeps the width, with 16px gutters.
-      const gutter = await page.getByTestId("conv-input").evaluate((input) => {
+      // The conversation keeps the width, with 16px gutters: centred while it is wider than its column
+      // (720px), at the gutter once it is not (the old 24px clearance put it at 48).
+      const { gutter, room } = await page.getByTestId("conv-input").evaluate((input) => {
         const main = document.getElementById("main")!.getBoundingClientRect();
-        return Math.round(input.closest(".hx-cmp")!.getBoundingClientRect().left - main.left);
+        return { gutter: Math.round(input.closest(".hx-cmp")!.getBoundingClientRect().left - main.left), room: main.width };
       });
-      expect(gutter).toBeLessThanOrEqual(32);
+      expect(gutter).toBeLessThanOrEqual(Math.max(32, (room - 720) / 2 + 8));
     });
 
     test("the rail's entry opens the sessions in a drawer; one picked there opens, and the drawer closes", SHELL, async ({ page }) => {
