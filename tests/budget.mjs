@@ -15,7 +15,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
-import { makeProject } from "../ui/packages/testkit/src/launcher.ts";
+import { freePort, makeProject } from "../ui/packages/testkit/src/launcher.ts";
 import { dirname, join } from "node:path";
 import { PROTOCOL_VERSION, CONTRIB_API_VERSION } from "../ui/packages/core/src/protocol/generated/contract.ts";
 
@@ -172,7 +172,8 @@ async function measureInstances(root) {
   const bin = join(root, "target", "release", "harnix");
   statSync(bin);
   const EXTRA = 4;
-  const idle = async (extra, port) => {
+  const idle = async (extra) => {
+    const port = await freePort();
     const scratch = mkdtempSync(join(tmpdir(), "harnix-budget-i-"));
     const profile = join(scratch, "profile.toml");
     writeFileSync(profile, Array.from({ length: extra },
@@ -198,8 +199,8 @@ async function measureInstances(root) {
       rmSync(scratch, { recursive: true, force: true });
     }
   };
-  const base = await idle(0, 4292);
-  const more = await idle(EXTRA, 4293);
+  const base = await idle(0);
+  const more = await idle(EXTRA);
   return Math.max(0, more - base) / EXTRA;
 }
 
@@ -218,7 +219,7 @@ async function measureLive(root) {
   const bin = join(root, "target", "release", "harnix");
   statSync(bin);
   const scratch = mkdtempSync(join(tmpdir(), "harnix-budget-"));
-  const port = 4291;
+  const port = await freePort();
   const child = spawn(
     bin,
     ["--port", String(port), "--headless",

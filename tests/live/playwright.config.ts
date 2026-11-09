@@ -15,8 +15,10 @@ import { defineConfig, devices } from "@playwright/test";
 import type { WorkerFixtures } from "@harnix/testkit";
 
 export default defineConfig<{}, WorkerFixtures>({
-  // One worker: the API suites count coverage per process and several share
-  // fixed ports for backends of their own.
+  // One worker, for load rather than for anything shared: every backend picks a free port and
+  // each worker writes its own share of the coverage. A worker starts a backend, many suites
+  // start more of their own, and every one is an engine with threads of its own; two workers on
+  // one machine made the deadlines measure the machine instead of the code.
   workers: 1,
   fullyParallel: false,
   globalTeardown: "./teardown.ts",

@@ -22,7 +22,6 @@ import { connect, defineSuite, startBackend } from "@harnix/testkit";
 
 const assert = (cond, message) => { if (!cond) throw new Error(message); };
 
-const PORT = 4276;
 const SERVER = "a-server-that-cannot-start";
 
 /** Settings the engine reads at startup, naming an MCP server whose command
@@ -59,7 +58,6 @@ defineSuite("host-events", { feature: "sessions" }, {
     "a process-level failure reaches a client that subscribed to nothing":
       async ({ topology }) => {
         const backend = await startBackend({
-          port: PORT,
           env: { ANTHROPIC_API_KEY: "host-events" },
           seed: seedFailingMcp,
         });
@@ -78,13 +76,12 @@ defineSuite("host-events", { feature: "sessions" }, {
             `no reason on the event: ${JSON.stringify(event)}`);
           client.close();
         } finally {
-          backend.stop();
+          await backend.dispose();
         }
       },
 
     "a host event is a broadcast, not a subscription": async ({ topology }) => {
       const backend = await startBackend({
-        port: PORT + 1,
         env: { ANTHROPIC_API_KEY: "host-events" },
         seed: seedFailingMcp,
       });
@@ -101,7 +98,7 @@ defineSuite("host-events", { feature: "sessions" }, {
         first.close();
         second.close();
       } finally {
-        backend.stop();
+        await backend.dispose();
       }
     },
 
@@ -115,7 +112,6 @@ defineSuite("host-events", { feature: "sessions" }, {
         // thing the split exists to disprove.
         if (topology !== "split_streams") return;
         const backend = await startBackend({
-          port: PORT + 2,
           env: { ANTHROPIC_API_KEY: "host-events" },
           seed: seedFailingMcp,
         });
@@ -130,7 +126,7 @@ defineSuite("host-events", { feature: "sessions" }, {
           assert(!misrouted.length, "a host event arrived as a session event");
           client.close();
         } finally {
-          backend.stop();
+          await backend.dispose();
         }
       },
 
@@ -149,7 +145,6 @@ defineSuite("host-events", { feature: "sessions" }, {
         // Filed against Agix. When `mcp.status` reports servers that
         // failed, this test should assert the row rather than its absence.
         const backend = await startBackend({
-          port: PORT + 3,
           env: { ANTHROPIC_API_KEY: "host-events" },
           seed: seedFailingMcp,
         });
@@ -169,7 +164,7 @@ defineSuite("host-events", { feature: "sessions" }, {
           witness.close();
           late.close();
         } finally {
-          backend.stop();
+          await backend.dispose();
         }
       },
   },

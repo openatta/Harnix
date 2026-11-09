@@ -51,9 +51,11 @@ fi
 # The template is built as a fresh application, outside this workspace's profiles.
 export CARGO_PROFILE_DEV_DEBUG=line-tables-only
 
-# Ports chosen above everything the suites use themselves (4269–4291).
-PORT_UI=4360
-PORT_TLS=4361
+# A port the system says is free, asked for when it is needed: a fixed one clashes with another
+# checkout's run on the same machine.
+free_port() {
+  node -e 'const s=require("net").createServer();s.listen(0,"127.0.0.1",()=>{const p=s.address().port;s.close(()=>console.log(p))})'
+}
 
 CRATES=(-p harnix -p harnix-cli -p harnix-app -p harnix-instance -p harnix-authz -p harnix-builtin
         -p harnix-client -p harnix-contract -p harnix-flow -p harnix-module -p harnix-hub -p harnix-transport
@@ -237,6 +239,7 @@ EOF
 }
 
 run_interface() {
+  PORT_UI="$(free_port)"
   start_backend || return 1
   local token; token="$(cat "$scratch/state/token")"
   echo "── topology-parity ──"; node tests/topology-parity.mjs "$PORT_UI" "$token" || return 1
@@ -244,6 +247,7 @@ run_interface() {
 }
 
 run_remote() {
+  PORT_TLS="$(free_port)"
   # Bound to 0.0.0.0 rather than an interface address: the test connects to
   # 127.0.0.1, and admission has to see a non-loopback bind. Both are true of
   # `0.0.0.0`, and nothing else satisfies them at once.
