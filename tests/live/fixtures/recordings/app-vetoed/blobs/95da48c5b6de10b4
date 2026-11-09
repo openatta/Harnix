@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"thinking","text":"The user asks to call a tool named app__example_showcase__vetoed. Let me call it now.","signature":"b79d5fb7-7467-4e54-a20d-0716074b7505"},{"type":"tool_use","id":"call_00_NpcOpKkXuFuT40zjI4P96868","name":"app__example_showcase__vetoed","input":{}}]}

@@ -1,0 +1,1 @@
+{"role":"user","content":[{"type":"text","text":"<system-reminder>\n## Available Skills\n\nCurrent as of this turn; it overrides anything said earlier about which skills exist.\n\n- **skillify**: Turn a recently-executed workflow into a reusable SKILL.md. After a multi-step task that the user might run again — capture the playbook.\n\n</system-reminder>"}]}

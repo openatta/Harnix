@@ -1,0 +1,1 @@
+{"role":"user","content":[{"type":"text","text":"Use the Bash tool to run exactly: tail -f /dev/null >/dev/null 2>&1 & echo \"PID=$!\" Call the tool now; do not answer in prose first. When it returns, reply with exactly: started"}]}

@@ -1,0 +1,1 @@
+{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_00_ET_kHiDiNKMUkub7zXnXzHH6078","content":"{\"blocked_tool\":\"app__example_showcase__vetoed\",\"greeting\":\"hello from the profile\",\"watch_sessions\":true}","is_error":false}]}

@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"tool_use","id":"call_00_ET_57bljIADkI88WivIkbvq5024","name":"TeamCreate","input":{"agents":[{"label":"alpha","prompt":"Say exactly: alpha here"}],"name":"ui-team"}}]}

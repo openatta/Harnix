@@ -1,0 +1,1 @@
+{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_00_NpcOpKkXuFuT40zjI4P96868","content":"refused by the application `example.showcase`: `app__example_showcase__vetoed` is refused by the showcase's event hook (its `blocked_tool`)","is_error":true}]}

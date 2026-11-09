@@ -1,0 +1,1 @@
+{"role":"user","content":[{"type":"text","text":"Use the TeamCreate tool exactly once to run a team named ui-team with one member labelled alpha, whose prompt is 'Say exactly: alpha here'. When the team is done, reply with exactly: Team done."}]}

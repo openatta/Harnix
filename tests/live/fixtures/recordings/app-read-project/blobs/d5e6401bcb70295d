@@ -1,0 +1,1 @@
+{"role":"user","content":[{"type":"text","text":"用 3-5 个词概括以下对话的主题，只输出标题不要任何解释：\nUse the app__example_showcase__read_project tool with the path README.md. Call the tool now; do not answer in prose first. When it returns, reply with exactly: That is the project's README."}]}

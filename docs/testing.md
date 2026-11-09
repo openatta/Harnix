@@ -92,7 +92,8 @@ scripts/prune.sh                       # 清构建缓存：增量缓存全删，
 所以对一般的用例，严格回放每一次调用都对不上。
 
 **真录的那几份照严格回放跑**：`api/strict-replay.spec.ts`（`@strict`）把 `record-fixture.mjs` 录的每一份
-（`says-ready`、`calls-a-tool`、`asks-permission`、`runs-a-while`、`says-markdown`、`spawns-agent`）在录的那个目录
+（`api/recorded.ts` 的 `RECORDED`：每份怎么录的——那句话、场景、后端，插件 APP 的那几份在带 apps 的二进制上、装着 showcase；
+请求里带着工具当场编出来的 pid、任务 id 的三份写明 `varies`，只按位置回放）照录的那样起后端，在录的那个目录
 （`/tmp/harnix-fixture/<名字>`，testkit 的 `STRICT_ROOT` 与 `fixedScratch`；目录旁边有锁，另一个检出的运行会等）、
 用录的那句话、`SHELL=/bin/zsh` 重放，强制严格。它在 `api` 层里，两种拓扑都跑；提示词写着操作系统，所以只在 macOS 上跑，
 别处跳过。它红了，就是这个构建发给模型的东西变了（提示词、工具表、场景参数）：照 §6 重录，再看用它的用例断言的东西还在不在。
@@ -210,6 +211,7 @@ Playwright 会把这些用例的位置记成 `suite.ts`（`test()` 在那里调�
 ## 6. 录像
 
 ```sh
+node tests/live/record-fixture.mjs <名字>                            # 需要 .env；api/recorded.ts 里的一份，照它写的录
 node tests/live/record-fixture.mjs <名字> "<提示词>"                 # 需要 .env；harnix 场景
 node tests/live/record-fixture.mjs --scene code <名字> "<提示词>"    # 别的场景
 ```
@@ -218,8 +220,8 @@ node tests/live/record-fixture.mjs --scene code <名字> "<提示词>"    # 别�
 `/tmp/harnix-fixture/<名字>` 里建会话，发提示词，所有权限提问一律允许（否则工具调用的录像停在提问那里），轮结束后
 停掉后端，把录像拷到 `tests/live/fixtures/recordings/<名字>/`；会话起过子 Agent 的，子 Agent 的调用作为第二个会话
 并进同一份。用例建会话时带 `options: { recorder: { name: "<名字>" } }`，回放模式下的后端就取这一份；不在回放模式时
-这个名字被忽略，调的是真模型。录完在 `api/strict-replay.spec.ts` 的 `STRICT` 里加一行（名字和那句提示词），
-在 `recordings/README.md` 的表里加一行。
+这个名字被忽略，调的是真模型。录完在 `api/recorded.ts` 的 `RECORDED` 里加一行（名字、那句提示词，以及场景、后端这些
+和缺省不一样的），在 `recordings/README.md` 的表里加一行。`RECORDED` 里已有的，`record-fixture.mjs <名字>` 照它写的重录。
 
 `node tests/recordings.mjs`（`offline` 层）查两件事：用例回放的每个名字（`recorder: { name }`、`join(RECORDINGS, …)`、
 参数名是 `fixture`/`recording` 的辅助函数收到的字面量、`harnix-testapp` 给流程会话起的 `flow-…`）都是一个录像目录；
@@ -231,8 +233,8 @@ Harnix 侧绕过。
 
 ### 手做一份录像
 
-插件 APP、原生工具这类录像大多是手做的：真模型不一定肯调那个工具，而测试要的只是「模型调了这个工具、然后说了一句话」。照已有的
-`app-*` 做（`tests/live/fixtures/recordings/README.md` 里每一份都写了是从哪一份改出来的）：
+会话不是 `record-fixture.mjs` 建的（模板实例、spawn 的 daemon、流程站点、应用后端建的会话），或者测试要的回答真模型给不出来的，
+录像是手做的（`recordings/README.md` 表下写了每份为什么）。照已有的 `app-*` 做（`tests/live/fixtures/recordings/README.md` 里每一份都写了是从哪一份改出来的）：
 
 1. 拷一份结构相同的：一次工具调用加一句话的，从 `calls-a-native-tool` 或 `app-echo` 拷；两个会话的（子 Agent），从 `app-subagent` 拷。
 2. 改 `calls.jsonl` 里属于它自己的那几行：`tool_args_chunks` 的 `args`（工具输入的 JSON 文本）、`kind: "tool_use"` 那一块的 `name` 与 `input`、

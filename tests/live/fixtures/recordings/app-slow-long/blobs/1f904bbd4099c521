@@ -1,0 +1,1 @@
+{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_00_ET_lou5efVprAoLkjo8ep2l3517","content":"example.showcase: the application's call exceeded its timeout","is_error":true}]}

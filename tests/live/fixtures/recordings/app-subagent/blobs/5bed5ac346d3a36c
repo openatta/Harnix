@@ -1,0 +1,1 @@
+{"role":"user","content":[{"type":"text","text":"用 3-5 个词概括以下对话的主题，只输出标题不要任何解释：\nUse the Agent tool exactly once, with the subagent_type showcase-guide, the description 'try the showcase' and the prompt 'Call the showcase's echo tool with the text showcase-sub-7 and say what it answered.' When it returns, reply with exactly: The sub-agent used the showcase's tool."}]}
