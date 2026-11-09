@@ -1,4 +1,4 @@
-//! Which space a session belongs to (design §8.3, §8.5).
+//! Which space a session belongs to (concept §5.4).
 //!
 //! A session is bound to one space when it is created and never moves. The binding is Harnix's own
 //! record — the engine knows nothing of spaces — kept in `.harnix/spaces.json` beside the instance
@@ -16,7 +16,7 @@
 //! space is refused with `SPACE_MISMATCH`, naming the space it does belong to. The system space is
 //! the one exception — it sees and acts on every space's sessions — and each time it reaches across
 //! one, that is audited. This guards against a client's bug sending into the wrong product surface;
-//! it is not a security boundary: the claim is the caller's own (§14).
+//! it is not a security boundary: the claim is the caller's own (concept §6.2).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -249,7 +249,7 @@ impl Hub {
     }
 
     /// The space a call claims, which must be one this application has — the system space only
-    /// while the profile keeps it (design §9.1).
+    /// while the profile keeps it (concept §5.5).
     pub(crate) fn claimed(&self, params: &Value) -> Result<String, RpcError> {
         let space = claimed_space(params);
         if !lock(&self.spaces).exists(&space) {
@@ -392,7 +392,7 @@ impl Hub {
         Ok(json!({"space": space, "from": from, "moved": true}))
     }
 
-    /// What the system space creates is its own (design §9.1).
+    /// What the system space creates is its own.
     pub(crate) fn bind_space(&self, key: &SessionKey, space: &str) {
         lock(&self.spaces).bind(key, space);
     }
@@ -471,7 +471,7 @@ impl Hub {
     }
 
     /// A referenced session's transcript, as a text attachment for a turn in another space
-    /// (`@session`, design §2): what crosses is a copy of what was said, not the session.
+    /// (`@session`, concept §5.4): what crosses is a copy of what was said, not the session.
     pub(crate) async fn reference(&self, reference: &Value) -> Result<Value, RpcError> {
         let key = self.key_of(reference)?;
         let info = self.call(&key.0, "session.get", json!({"session_id": key.1})).await?;

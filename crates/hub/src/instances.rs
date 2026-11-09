@@ -1,5 +1,5 @@
 //! The instance table: what is running, where it came from, who owns it
-//! (design §5.4, §5.5).
+//! (concept §3.1.1).
 //!
 //! Each instance is a [`Slot`] — its link and what is known about it — and a
 //! router task that reads the link's one event stream for as long as the
@@ -548,7 +548,7 @@ impl Hub {
     }
 
     /// A module was disabled after its instances were built: they stop with
-    /// it, and stay in the ledger to come back when it does (design §5.5).
+    /// it, and stay in the ledger to come back when it does (concept §3.1.1).
     pub async fn module_disabled(self: &Arc<Self>, module: &str) {
         let owned: Vec<Arc<Slot>> = {
             let mut registry = self.registry.lock().await;

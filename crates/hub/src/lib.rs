@@ -5,7 +5,7 @@
 //! > **The hub subscribes before any client does.**
 //!
 //! From that come four things, none of which would justify a layer alone and
-//! all of which together do (§3.2):
+//! all of which together do (concept §3.2):
 //!
 //! 1. **Refreshing loses nothing.** Half a turn is in the buffer, and does
 //!    not depend on the engine re-sending it.
@@ -21,8 +21,8 @@
 //!
 //! A session is `(instance, session)`, and the hub reaches each instance
 //! through an [`EngineLink`] without knowing which carrier is behind it
-//! (design §5.3). Its callers are of two kinds with one set of semantics:
-//! clients, and the server side — the kernel and modules (design §6.1).
+//! (concept §3.1.1). Its callers are of two kinds with one set of semantics:
+//! clients, and the server side — the kernel and modules (concept §3.2).
 //!
 //! This layer knows nothing about HTTP, TLS, connections or topology. It
 //! speaks to `dyn FrameSink`, which is "a downstream that can take frames",
@@ -112,7 +112,7 @@ pub const HUB_METHODS: &[&str] = &[
     "harnix.process",
 ];
 
-/// The hub's own topics: the instance tree as whole values (design §6.3).
+/// The hub's own topics: the instance tree as whole values (concept §3.2).
 /// Each with the parameters it is subscribed by.
 pub const HUB_TOPICS: &[(&str, &[&str])] = &[
     ("harnix.instances", &[]),
@@ -132,7 +132,7 @@ pub const SPACES_TOPIC: &str = "harnix.spaces";
 pub use harnix_contract::SYSTEM_INSTANCE as SYSTEM;
 
 /// A session's full name. Two instances may each have a session `s1`; they
-/// are different sessions (design §5.6).
+/// are different sessions.
 pub(crate) type SessionKey = (String, String);
 
 #[derive(Default)]
@@ -668,7 +668,7 @@ impl Hub {
     }
 
     /// `harnix.entries.append {instance, session_id, event, payload}`: an entry in the session's log,
-    /// for people and never for the model (design §7.6). A module writes under its own namespace,
+    /// for people and never for the model (concept §3.2.1). A module writes under its own namespace,
     /// `app.<id>`, so no module can write another's; the kernel names one. A person's words are
     /// `harnix.send`, so a device writes none.
     async fn append_entry(&self, subject: &Subject, params: Value) -> Result<Value, RpcError> {
@@ -768,7 +768,7 @@ pub(crate) fn require_session_id(params: &Value) -> Result<String, RpcError> {
 /// the `session.resume` behind an attach.
 ///
 /// Without a recording there is no answer to "what did the model actually
-/// see", and that question is not optional (§6.4). No `dir` is named: the
+/// see", and that question is not optional (concept §6.4). No `dir` is named: the
 /// engine resolves the root from settings and assembly resolves the same way
 /// for reading, so there is one answer rather than two.
 ///

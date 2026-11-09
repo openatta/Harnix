@@ -3,7 +3,7 @@
 //! A client here is a `dyn FrameSink` and nothing more. Whether that is one
 //! bidirectional connection, two download-only streams or a poll queue is the
 //! transport's business — and the fact that this file cannot tell is what
-//! makes §3.3.3's fifth invariant ("adding a topology does not touch the hub")
+//! makes concept §3.3.3's fifth invariant ("adding a topology does not touch the hub")
 //! checkable rather than aspirational.
 
 use std::collections::{HashMap, HashSet};
@@ -48,7 +48,7 @@ impl Clients {
 
     /// A frame for everyone. Only for host events: a client watching the sidebar
     /// must not receive every session's body just to learn which one is
-    /// running (§3.3.1).
+    /// running (concept §3.3.1).
     pub fn to_all(&self, frame: Frame) -> Outgoing {
         debug_assert_eq!(frame.channel, Channel::HostEvents);
         let to = self.sinks.iter().map(|(id, sink)| (*id, sink.clone())).collect();
