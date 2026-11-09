@@ -126,7 +126,7 @@ fn authorization_does_not_know_what_a_frame_looks_like() {
 
 /// The hub owns sessions. It does not know about HTTP, TLS, connections or
 /// topology — which is what lets a second topology be added without touching
-/// it (§3.3.3, fifth invariant).
+/// it (concept §3.3.3, fifth invariant).
 #[test]
 fn the_hub_does_not_know_about_connections() {
     assert_ignorant_of(
@@ -252,7 +252,7 @@ fn the_instance_layer_does_not_know_the_client_protocol_exists() {
     );
 }
 
-/// A module never gets the hub or an engine link (design §5.3, §14). The
+/// A module never gets the hub or an engine link (concept §3.1.1, §4.2). The
 /// contract it is written against cannot hand it one, because the crate that
 /// defines the contract cannot name either.
 #[test]
@@ -265,7 +265,7 @@ fn the_module_contract_cannot_reach_the_hub() {
     // It does depend on the instance layer, for templates and native
     // contributions — and that crate also holds the links. The contract may
     // name the first and never the second: a module holding a link could run
-    // a turn the hub never subscribed to (design §5.3).
+    // a turn the hub never subscribed to.
     let dir = workspace_root().join("crates/module/src");
     let mut offenders = Vec::new();
     for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
@@ -287,7 +287,7 @@ fn the_module_contract_cannot_reach_the_hub() {
 }
 
 /// The built-ins are modules, written against the public module contract and
-/// nothing else (design §3.1, roadmap M2-3). If they could not be built out of
+/// nothing else (concept §3). If they could not be built out of
 /// it, the contract would not be worth believing.
 #[test]
 fn the_builtins_use_only_the_public_module_api() {
@@ -442,7 +442,7 @@ fn the_client_knows_only_the_contract() {
 
 /// Neither the hub nor the authorizer may name a topology.
 ///
-/// This is §3.3.3's fifth invariant, in the only form that survives: "adding
+/// This is concept §3.3.3's fifth invariant, in the only form that survives: "adding
 /// a topology does not touch these two layers" is a statement about a diff,
 /// and a diff needs a baseline nobody has six months from now. What does not
 /// expire is that these layers cannot *say* any of these words — the hub
@@ -683,7 +683,7 @@ fn only_the_apps_feature_links_the_application_runtime() {
 
 /// Harnix reads exactly one section of a package manifest.
 ///
-/// This is §2.2 in the only form that survives a rewrite. "Harnix has no plugin
+/// This is concept §2.2 in the only form that survives a rewrite. "Harnix has no plugin
 /// system" is a sentence; what makes it true is that nothing here parses the
 /// engine's half of a manifest — no payloads, no capabilities, no scene, no
 /// agent types — and nothing runs what a package brought.
