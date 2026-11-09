@@ -367,7 +367,7 @@ app.onEnv((env) => (document.documentElement.dataset.theme = env.theme));
   |---|---|
   | `harnix.sessions` | 只列它自己的 space：`space` 不写就填它的，写了别的 space 就拒 |
   | `harnix.send`、`harnix.sessions.tasks`、`session.get`、`session.history`、`session.entries`、`session.interrupt`、`topic:harnix.sessions.tasks` | `session_id`（加 `instance`）要是它自己 space 里的会话，外壳先查一遍 |
-  | `harnix.spaces.list`、`scene.list`、`topic:harnix.spaces` | 不涉及哪个会话，原样 |
+  | `harnix.spaces.list`、`topic:harnix.spaces` | 不涉及哪个会话，原样 |
 
 - **会话**：只在应用自己的 space 里：`session.create` 建的会话归它的第一个 `[[space]]`，`session.open` 只开它自己 space 的会话；
   经 `call` 打会话的名字同样只到它自己 space 的会话（上表）。

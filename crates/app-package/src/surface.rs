@@ -97,7 +97,6 @@ pub const FRAME_HUB: &[(&str, Scope)] = &[
     ("session.entries", Scope::Session),
     ("session.interrupt", Scope::Session),
     ("harnix.spaces.list", Scope::Open),
-    ("scene.list", Scope::Open),
     ("topic:harnix.sessions.tasks", Scope::Session),
     ("topic:harnix.spaces", Scope::Open),
 ];

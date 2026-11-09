@@ -21,7 +21,6 @@ var HarnixApp = (function(exports) {
     "session.entries": "session",
     "session.interrupt": "session",
     "harnix.spaces.list": "open",
-    "scene.list": "open",
     "topic:harnix.sessions.tasks": "session",
     "topic:harnix.spaces": "open"
   };
