@@ -15,9 +15,12 @@ description = "One of everything an application can bring: a backend with method
 storage_mb = 1
 # A tool call sees the calling session's project, read-only, at /project (`read_project`).
 fs = ["${project}"]
-# `fetch` may reach this host and no other. The LIVE suite serves it on loopback.
-net = ["127.0.0.1"]
-# What `state` reports as `secret_set`, through `host.secret`.
+# `fetch` may reach this host and no other. (The LIVE suite answers for it, through a proxy: a host
+# on this machine — `127.0.0.1`, `localhost` — is one the installer is warned about, and the store
+# does not countersign.)
+net = ["api.showcase.test"]
+# What `state` reports as `secret_set`, through `host.secret`: the secret the profile gives it,
+# [apps.secrets."example.showcase"] SHOWCASE_TOKEN = "…" — never this process's environment.
 env = ["SHOWCASE_TOKEN"]
 # What the backend may do as `module:example.showcase`: start a session and send it a prompt
 # (`session.start`), watch which sessions are running, and put a card in a session's flow
@@ -30,6 +33,11 @@ world = "harnix:app/backend-app@0.1.0"
 memory_mb = 32
 # A call longer than this is abandoned, and the backend replaced (`spin` shows it).
 timeout_ms = 5000
+
+# Its event hook is offered the calls of its own tools: the default, written out. `tools = "all"`
+# would be every tool call of every session, with its input — which the installer would be told.
+[events]
+tools = "own"
 
 # The backend's methods: app.example.showcase.<name>. Callable by the page (a device) unless said
 # otherwise; always by the application itself (the `board` tool asks `state`).
@@ -160,8 +168,10 @@ api_version = 2
 # goes through the shell's bridge: its own app.example.showcase.* methods and topics, and what is
 # listed here.
 [interface]
-# Besides its own names: the session list (the left column counts the space's sessions).
-hub = ["harnix.sessions"]
+# Besides its own names: the session list (the left column counts the space's sessions), and a
+# session's details. Each only as far as the showcase's own spaces: `harnix.sessions` lists those,
+# and `session.get` is refused a session in any other.
+hub = ["harnix.sessions", "session.get"]
 # The card links to the showcase's README; the shell asks before it opens.
 links = true
 

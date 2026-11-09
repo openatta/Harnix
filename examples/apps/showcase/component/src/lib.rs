@@ -34,14 +34,16 @@
 //! | `read_project {path}` | the calling session's project, read-only, at `/project` |
 //! | `slow {steps?, ms?}` | progress while it runs (`host.progress`), and being cancelled |
 //! | `vetoed` | nothing: the event hook below refuses every call to it |
+//! | `crash` | a trap: three in a row set the tool aside, and the backend and the other tools go on |
 //! | `board` | the backend's state, asked of it with `host.call` — a tool cannot see its memory |
 //!
-//! The `events` export sees every tool call of a session that has the application — not only
-//! its own tools — and refuses the one its configuration names (`blocked_tool`).
+//! The `events` export (the `backend-app-events` world) sees the calls of the showcase's own tools
+//! — the manifest's `[events]` says no more — and refuses the one its configuration names
+//! (`blocked_tool`).
 
 wit_bindgen::generate!({
     path: "../../../../crates/wasm/wit",
-    world: "backend-app",
+    world: "backend-app-events",
 });
 
 use exports::harnix::app::backend::{AppError, Guest as Backend};
@@ -92,8 +94,17 @@ fn config() -> Value {
     serde_json::from_str(&host::config()).unwrap_or(Value::Null)
 }
 
+/// What the store holds under `key`: nothing there reads as nothing, and so does storage that
+/// would not read — logged, since the next write over it is the one that would lose it.
+fn stored(key: &str) -> Option<Vec<u8>> {
+    host::kv_get(key).unwrap_or_else(|e| {
+        host::log("error", &format!("reading `{key}`: {e}"));
+        None
+    })
+}
+
 fn notes() -> Vec<Value> {
-    host::kv_get(NOTES)
+    stored(NOTES)
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .unwrap_or_default()
 }
@@ -107,7 +118,7 @@ fn save(notes: &[Value]) -> Result<(), AppError> {
 }
 
 fn carded() -> Vec<String> {
-    host::kv_get(CARDS)
+    stored(CARDS)
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .unwrap_or_default()
 }
@@ -166,6 +177,8 @@ fn state() -> Value {
         "running_sessions": running,
         "started_ms": started,
         "secret_set": host::secret("SHOWCASE_TOKEN").is_some(),
+        // How long it is, so a test can tell the profile's from anything else of that name.
+        "secret_length": host::secret("SHOWCASE_TOKEN").map_or(0, |s| s.len()),
     })
 }
 
@@ -411,6 +424,7 @@ impl Tools for Showcase {
                 true,
             ),
             tool("vetoed", "A tool the showcase's own event hook refuses", object(json!({}), &[]), true),
+            tool("crash", "Trap, every time: three in a row set this tool aside, and nothing else", object(json!({}), &[]), true),
             tool(
                 "board",
                 "What the showcase's backend holds now: its notes, its counter, its timer",
@@ -429,11 +443,14 @@ impl Tools for Showcase {
             }
             "count" => {
                 let key = format!("count:{}", input["key"].as_str().unwrap_or("visits"));
-                let n = host::kv_get(&key)
-                    .and_then(|v| String::from_utf8(v).ok())
-                    .and_then(|s| s.parse::<u64>().ok())
-                    .unwrap_or(0)
-                    + 1;
+                let n = match host::kv_get(&key) {
+                    Ok(v) => v
+                        .and_then(|v| String::from_utf8(v).ok())
+                        .and_then(|s| s.parse::<u64>().ok())
+                        .unwrap_or(0),
+                    // Not "none yet": counting from 0 again would overwrite what is there.
+                    Err(e) => return failure(format!("could not count: {e}")),
+                } + 1;
                 match host::kv_set(&key, n.to_string().as_bytes()) {
                     Ok(()) => answer(format!("count = {n}"), Some(json!({"count": n}))),
                     Err(e) => failure(format!("could not count: {e}")),
@@ -466,6 +483,7 @@ impl Tools for Showcase {
                 "the event hook let this through, and it should not have",
                 None,
             ),
+            "crash" => panic!("the showcase's crash tool crashes"),
             // This instance is not the backend's: what the backend holds, it has to ask for.
             "board" => match host::call(&format!("app.{ID}.state"), "{}") {
                 Ok(state) => {

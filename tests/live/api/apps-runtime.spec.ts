@@ -22,7 +22,7 @@ import { SHOWCASE_ID, showcasePackage, startApps, variant } from "./apps-host";
 const TAGS = { tag: ["@feature:apps", "@layer:api"] };
 
 const TOOL = (name: string) => `app__example_showcase__${name}`;
-const TOOLS = ["echo", "count", "config", "read_project", "slow", "vetoed", "board"].map(TOOL);
+const TOOLS = ["echo", "count", "config", "read_project", "slow", "vetoed", "crash", "board"].map(TOOL);
 const MCP_SERVER = "app-example_showcase";
 const BLOCK_MARKER = "showcase-block-7d21";
 
@@ -292,6 +292,25 @@ carrier = "spawn"
     expect(out).not.toContain("should not have");
   });
 
+  test("a tool that keeps trapping is set aside, and only it: the backend, its other tools and its interface go on", TAGS, async () => {
+    const s = await session(api, "app-crash");
+    const { settled, asks } = await turn(api, s, "Use the showcase's crash tool until it stops");
+    expect(settled.params.error, JSON.stringify(settled.params.error)).toBeUndefined();
+    expect(asks.length, "each call asked").toBeGreaterThanOrEqual(3);
+    expect(api.text(s.session_id)).toContain("The showcase's crash tool failed three times.");
+    const runtime = (await api.call("harnix.apps.list")).apps[0].runtime;
+    expect(runtime.state).toBe("running");
+    expect(Object.keys(runtime.health.tools_aside)).toEqual(["crash"]);
+    expect(runtime.health.tools_aside.crash).toContain("3 consecutive faults");
+    expect(runtime.health).toMatchObject({ state: "running", rebuilds: 0, recycles: 0 });
+    // Its backend answers, its other tools run, and its interface is still offered.
+    expect((await api.call(`app.${SHOWCASE_ID}.notes.list`)).notes).toEqual(expect.any(Array));
+    const echo = await session(api, "app-echo");
+    await turn(api, echo, "Use the showcase's echo tool");
+    expect(results(api, echo)).toContain("showcase-echo-42");
+    expect(JSON.stringify((await api.call("harnix.hello")).contributions ?? [])).toContain(`/apps/${SHOWCASE_ID}/ui/frame/index.html`);
+  });
+
   test("a sub-agent of the application's own agent type uses its tool", TAGS, async () => {
     const s = await session(api, "app-subagent");
     const { settled, asks } = await turn(api, s, "Have a sub-agent call the showcase's echo tool");
@@ -422,5 +441,70 @@ test.describe("an application, with [apps] dev off", () => {
     expect(error?.message).toContain("[apps] dev = true");
     expect((await api.call("harnix.apps.list")).apps).toEqual([]);
     expect((await api.call("harnix.apps.list")).runtime).toMatchObject({ dev: false });
+  });
+});
+
+test.describe("its event hook, as far as its manifest's [events]", () => {
+  test.describe.configure({ mode: "serial" });
+
+  let backend: Backend;
+  let api: TestClient;
+  let scratch: string;
+
+  test.beforeAll(async () => {
+    showcasePackage();
+    scratch = mkdtempSync(join(tmpdir(), "hx-apps-events-"));
+    // Its hook told to refuse a built-in tool: what it may not see, it cannot refuse.
+    backend = await startApps({ profile: `\n[apps.config."${SHOWCASE_ID}"]\nblocked_tool = "Bash"\n` });
+  });
+  test.afterAll(async () => {
+    await backend?.dispose();
+    if (scratch) rmSync(scratch, { recursive: true, force: true });
+  });
+  test.beforeEach(async () => {
+    api = await connect(backend, { topology: topology() });
+  });
+  test.afterEach(() => api?.close());
+
+  const bash = async () => {
+    const s = await session(api, "calls-a-tool");
+    await turn(api, s, "Run echo harnix-fixture");
+    return results(api, s);
+  };
+
+  test("own, the default: another's tool call is not its to see, and the installer is told nothing of it", TAGS, async () => {
+    await api.call("harnix.apps.installFile", { path: showcasePackage().path });
+    const app = (await api.call("harnix.apps.list")).apps[0].app;
+    expect(app.lines.map((l: any) => l.capability)).not.toContain("events");
+    const out = await bash();
+    expect(out).toContain("harnix-fixture");
+    expect(out).not.toContain("refused by the application");
+    await api.call("harnix.apps.uninstall", { id: SHOWCASE_ID });
+  });
+
+  test("a host on this machine is told as one", TAGS, async () => {
+    const local = variant(join(scratch, "local.hxapp"), (entries) => {
+      const manifest = entries.get("harnix-app.toml")!.toString("utf8");
+      entries.set("harnix-app.toml", Buffer.from(manifest.replace('net = ["api.showcase.test"]', 'net = ["127.0.0.1", "api.showcase.test"]')));
+    });
+    await api.call("harnix.apps.installFile", { path: local });
+    const lines = (await api.call("harnix.apps.list")).apps[0].app.lines;
+    expect(lines).toContainEqual({ capability: "net_local", value: "127.0.0.1" });
+    expect(lines).toContainEqual({ capability: "net", value: "api.showcase.test" });
+    await api.call("harnix.apps.uninstall", { id: SHOWCASE_ID });
+  });
+
+  test("all: every tool call of every session, and the installer is told so", TAGS, async () => {
+    const all = variant(join(scratch, "all.hxapp"), (entries) => {
+      const manifest = entries.get("harnix-app.toml")!.toString("utf8");
+      entries.set("harnix-app.toml", Buffer.from(manifest.replace('[events]\ntools = "own"', '[events]\ntools = "all"')));
+    });
+    await api.call("harnix.apps.installFile", { path: all });
+    const app = (await api.call("harnix.apps.list")).apps[0].app;
+    expect(app.lines).toContainEqual({ capability: "events", value: "all" });
+    const out = await bash();
+    expect(out).toContain(`refused by the application \`${SHOWCASE_ID}\``);
+    expect(out).not.toContain("harnix-fixture\\n");
+    await api.call("harnix.apps.uninstall", { id: SHOWCASE_ID });
   });
 });
