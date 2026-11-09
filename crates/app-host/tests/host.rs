@@ -26,7 +26,7 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
 
     let registration = rig.platform.registered.lock().unwrap()[0].clone();
     assert!(registration.methods.iter().any(|m| m.name == "state" && m.subjects == ["device", "module"]));
-    assert_eq!(registration.topics, ["notes", "heartbeat"]);
+    assert_eq!(registration.topics, ["notes", "heartbeat", "fetched"]);
     assert_eq!(registration.spaces[0].id, ID);
     let status = rig.status().await;
     assert_eq!((status["state"].clone(), status["world"].clone()), (json!("running"), json!("backend")));

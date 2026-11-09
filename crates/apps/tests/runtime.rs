@@ -567,7 +567,7 @@ async fn the_backend_is_registered_answers_its_methods_and_acts_only_as_far_as_i
         assert!(names.contains(&name), "{names:?}");
     }
     let topics: Vec<&str> = spec.topics.iter().map(|t| t.name.as_str()).collect();
-    assert_eq!(topics, ["notes", "heartbeat"]);
+    assert_eq!(topics, ["notes", "heartbeat", "fetched"]);
     assert_eq!(spec.spaces[0].id, ID);
     assert!(spec.hub.contains(&"topic:harnix.sessions.status".to_string()));
     let state = rig.runtime.status(ID).await;
