@@ -102,7 +102,9 @@ fn resolve_scene(
     })
 }
 
-fn active_scenes(scene: &str, scenes: &[String]) -> Vec<String> {
+/// The scenes an engine serves: its default and the others it was given, once each and sorted.
+/// The same for one built here and one spawned with the same profile (`factory.rs`).
+pub(crate) fn active_scenes(scene: &str, scenes: &[String]) -> Vec<String> {
     let mut all: Vec<String> = std::iter::once(scene.to_string())
         .chain(scenes.iter().cloned())
         .collect();
@@ -288,4 +290,17 @@ pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
         model: model_name,
         has_credentials,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::active_scenes;
+
+    #[test]
+    fn the_active_scenes_are_the_default_and_the_others_once_each() {
+        let others = ["mini".to_string(), "code".to_string(), "mini".to_string()];
+        assert_eq!(active_scenes("harnix", &others), ["code", "harnix", "mini"]);
+        assert_eq!(active_scenes("code", &["code".to_string()]), ["code"]);
+        assert_eq!(active_scenes("harnix", &[]), ["harnix"]);
+    }
 }

@@ -225,42 +225,22 @@ const GATE_OUTPUT_KEPT: usize = 2000;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kernel::host::{ChangeSet, Gates, RunStore, StoreError, WorkItem};
-    use crate::kernel::run::{Actor, CheckStatus, History, RunQuery, RunSummary, StationStatus};
-    use crate::{CreateIn, ManualClock, MemPacks, MemStore};
+    use crate::kernel::host::{Gates, RunStore, StoreError, WorkItem};
+    use crate::kernel::run::{Actor, CheckStatus, StationStatus};
+    use crate::{CreateIn, Hooked, ManualClock, MemPacks, MemStore};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    /// A store whose next `n` commits conflict.
-    #[derive(Default)]
-    struct Flaky {
-        inner: MemStore,
-        conflicts: AtomicUsize,
-    }
-
-    #[async_trait::async_trait]
-    impl RunStore for Flaky {
-        async fn alloc_id(&self, flow: &str) -> Result<String, StoreError> {
-            self.inner.alloc_id(flow).await
-        }
-        async fn load(&self, run: &str) -> Result<Option<RunRecord>, StoreError> {
-            self.inner.load(run).await
-        }
-        async fn list(&self, q: &RunQuery) -> Result<Vec<RunSummary>, StoreError> {
-            self.inner.list(q).await
-        }
-        async fn commit(&self, cs: &ChangeSet) -> Result<(), StoreError> {
-            if self
-                .conflicts
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
-                .is_ok()
-            {
-                return Err(StoreError::Conflict("injected".into()));
+    /// A store whose next `n` commits conflict, `n` being what the counter holds.
+    fn flaky() -> (Arc<Hooked<MemStore>>, Arc<AtomicUsize>) {
+        let conflicts = Arc::new(AtomicUsize::new(0));
+        let left = conflicts.clone();
+        let store = Hooked::new(MemStore::new()).check_commits(move |_| {
+            match left.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1)) {
+                Ok(_) => Err(StoreError::Conflict("injected".into())),
+                Err(_) => Ok(()),
             }
-            self.inner.commit(cs).await
-        }
-        async fn history(&self, run: &str) -> Result<Vec<History>, StoreError> {
-            self.inner.history(run).await
-        }
+        });
+        (Arc::new(store), conflicts)
     }
 
     /// The application's checks: every one passes.
@@ -403,11 +383,11 @@ mod tests {
     /// More conflicts than one operation retries: the result is offered again, not dropped.
     #[tokio::test(start_paused = true)]
     async fn a_gates_result_outlasts_more_conflicts_than_one_commit_retries() {
-        let store = Arc::new(Flaky::default());
+        let (store, conflicts) = flaky();
         let g = Gated::new("{name: lint, kind: host}", store.clone(), |sh| sh.cfg.gates = Some(Arc::new(Passes))).await;
-        store.conflicts.store(3 * crate::DEFAULT_RETRIES - 1, Ordering::SeqCst);
+        conflicts.store(3 * crate::DEFAULT_RETRIES - 1, Ordering::SeqCst);
         g.run_it().await;
-        assert_eq!(store.conflicts.load(Ordering::SeqCst), 0);
+        assert_eq!(conflicts.load(Ordering::SeqCst), 0);
         let (station, check, _) = g.judged().await;
         assert_eq!((station, check), (StationStatus::Passed, CheckStatus::Pass));
     }
@@ -416,15 +396,15 @@ mod tests {
     /// start hands it out again.
     #[tokio::test(start_paused = true)]
     async fn a_gates_result_not_recorded_before_stopping_runs_again_at_the_next_start() {
-        let store = Arc::new(Flaky::default());
+        let (store, conflicts) = flaky();
         let g = Gated::new("{name: lint, kind: host}", store.clone(), |sh| sh.cfg.gates = Some(Arc::new(Passes))).await;
-        store.conflicts.store(usize::MAX, Ordering::SeqCst);
+        conflicts.store(usize::MAX, Ordering::SeqCst);
         let stop = async {
             tokio::time::sleep(Duration::from_secs(60)).await;
             g.sh.cancel.cancel();
         };
         tokio::join!(g.run_it(), stop);
-        store.conflicts.store(0, Ordering::SeqCst);
+        conflicts.store(0, Ordering::SeqCst);
         let (_, check, _) = g.judged().await;
         assert_eq!(check, CheckStatus::Wait);
         let rec = g.engine.record(&g.run).await.unwrap();

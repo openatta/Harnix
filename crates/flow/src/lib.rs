@@ -64,4 +64,4 @@ pub use kernel::{FlowError, Result};
 #[cfg(feature = "module")]
 pub use module::{builtin_scenes, Flow, FlowBuilder, FlowHandle};
 pub use packs::{DirPacks, MemPacks};
-pub use store::{FileStore, MemStore};
+pub use store::{FileStore, Hooked, MemStore};

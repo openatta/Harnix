@@ -200,7 +200,7 @@ impl Factory {
                     link,
                     facts: Facts {
                         data_root,
-                        active_scenes: scenes_of(engine),
+                        active_scenes: crate::engine::active_scenes(&engine.scene, &engine.scenes),
                         scene: Some(engine.scene.clone()),
                         model: Some(engine.model.clone()),
                             ..Facts::default()
@@ -319,15 +319,6 @@ fn daemon_args(engine: &EngineProfile, data_root: &Path, socket: &Path) -> Vec<S
         argv.push(engine.scenes.join(","));
     }
     argv
-}
-
-fn scenes_of(engine: &EngineProfile) -> Vec<String> {
-    let mut all: Vec<String> = std::iter::once(engine.scene.clone())
-        .chain(engine.scenes.iter().cloned())
-        .collect();
-    all.sort();
-    all.dedup();
-    all
 }
 
 /// Instance ids can be 64 characters; socket names should not be.

@@ -7,7 +7,6 @@ mod common;
 
 use std::sync::{Arc, Mutex};
 
-use async_trait::async_trait;
 use common::*;
 use harnix_flow::*;
 use serde_json::json;
@@ -410,41 +409,18 @@ async fn recursive_subflows_are_refused_and_nesting_is_capped() {
     );
 }
 
-/// A store whose commits fail for one run.
-struct Flaky {
-    inner: Arc<MemStore>,
-    bad: Mutex<Option<String>>,
-}
-
-#[async_trait]
-impl RunStore for Flaky {
-    async fn alloc_id(&self, flow: &str) -> std::result::Result<String, StoreError> {
-        self.inner.alloc_id(flow).await
-    }
-    async fn load(&self, run: &str) -> std::result::Result<Option<RunRecord>, StoreError> {
-        self.inner.load(run).await
-    }
-    async fn list(&self, q: &RunQuery) -> std::result::Result<Vec<RunSummary>, StoreError> {
-        self.inner.list(q).await
-    }
-    async fn commit(&self, cs: &ChangeSet) -> std::result::Result<(), StoreError> {
-        let bad = self.bad.lock().unwrap().clone();
-        if cs.records.iter().any(|(r, _)| Some(&r.id) == bad.as_ref()) {
-            return Err(StoreError::Other("disk on fire".into()));
-        }
-        self.inner.commit(cs).await
-    }
-    async fn history(&self, run: &str) -> std::result::Result<Vec<History>, StoreError> {
-        self.inner.history(run).await
-    }
-}
-
 #[tokio::test]
 async fn a_run_that_fails_to_tick_does_not_stop_the_others() {
-    let flaky = Arc::new(Flaky {
-        inner: Arc::new(MemStore::new()),
-        bad: Mutex::new(None),
-    });
+    // A store whose commits fail for one run.
+    let bad: Arc<Mutex<Option<String>>> = Arc::default();
+    let failing = bad.clone();
+    let flaky = Arc::new(Hooked::new(MemStore::new()).check_commits(move |cs| {
+        let bad = failing.lock().unwrap().clone();
+        match cs.records.iter().any(|(r, _)| Some(&r.id) == bad.as_ref()) {
+            true => Err(StoreError::Other("disk on fire".into())),
+            false => Ok(()),
+        }
+    }));
     let clock = Arc::new(ManualClock::new(T0));
     let eng = Engine::new(flaky.clone(), Arc::new(packs_all())).with_clock(clock.clone());
     let mut runs = vec![];
@@ -465,7 +441,7 @@ async fn a_run_that_fails_to_tick_does_not_stop_the_others() {
         runs.push(run);
     }
     // Newest first: the first run ticked is the second created.
-    *flaky.bad.lock().unwrap() = Some(runs[1].clone());
+    *bad.lock().unwrap() = Some(runs[1].clone());
     clock.advance(5000);
     let ticked = eng
         .tick()

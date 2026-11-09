@@ -31,13 +31,13 @@ use serde_json::{json, Map, Value};
 use crate::kernel::def::{Executor, ExitCond, FlowDef, Work};
 use crate::kernel::engine::{view, CreateIn, Engine};
 use crate::kernel::host::{
-    Catalog, ChangeSet, GateResult, Outcome, Packs, RunStore, StoreError, Tools, WorkItem,
+    Catalog, GateResult, Outcome, Packs, RunStore, Tools, WorkItem,
 };
 use crate::kernel::protocol::task_message;
-use crate::kernel::run::{Actor, History, RunQuery, RunRecord, RunStatus, RunSummary};
+use crate::kernel::run::{Actor, RunQuery, RunRecord, RunStatus};
 use crate::kernel::schema::minimal;
 use crate::kernel::{FlowError, Result};
-use crate::store::MemStore;
+use crate::store::{Hooked, MemStore};
 
 /// The prefix of every dry run's id (and its children's). No flow may be named with it
 /// (validation), so a real run's id never has it.
@@ -134,32 +134,6 @@ struct MockTools(BTreeMap<String, Value>);
 impl Tools for MockTools {
     async fn call(&self, tool: &str, _: &Value) -> std::result::Result<Value, String> {
         Ok(self.0.get(tool).cloned().unwrap_or_else(|| json!({})))
-    }
-}
-
-/// A [`MemStore`] whose ids start `dry-` and never repeat across the sandbox.
-struct DryStore {
-    inner: MemStore,
-    seq: Arc<AtomicU64>,
-}
-
-#[async_trait]
-impl RunStore for DryStore {
-    async fn alloc_id(&self, flow: &str) -> std::result::Result<String, StoreError> {
-        let n = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
-        Ok(format!("{PREFIX}{flow}-{n}"))
-    }
-    async fn load(&self, run: &str) -> std::result::Result<Option<RunRecord>, StoreError> {
-        self.inner.load(run).await
-    }
-    async fn list(&self, q: &RunQuery) -> std::result::Result<Vec<RunSummary>, StoreError> {
-        self.inner.list(q).await
-    }
-    async fn commit(&self, cs: &ChangeSet) -> std::result::Result<(), StoreError> {
-        self.inner.commit(cs).await
-    }
-    async fn history(&self, run: &str) -> std::result::Result<Vec<History>, StoreError> {
-        self.inner.history(run).await
     }
 }
 
@@ -298,7 +272,8 @@ struct DryRun {
     flow: String,
     created_at: u64,
     engine: Arc<Engine>,
-    store: Arc<DryStore>,
+    /// Over a [`MemStore`], with ids that start `dry-` and never repeat across the sandbox.
+    store: Arc<Hooked<MemStore>>,
     mocks: Mocks,
     queue: VecDeque<WorkItem>,
     /// (run, station, task) → what its session would have been sent.
@@ -367,10 +342,11 @@ impl Sandbox {
             base: self.packs.clone(),
             extra,
         });
-        let store = Arc::new(DryStore {
-            inner: MemStore::new(),
-            seq: self.seq.clone(),
-        });
+        let seq = self.seq.clone();
+        let store = Arc::new(Hooked::new(MemStore::new()).ids(move |flow| {
+            let n = seq.fetch_add(1, Ordering::SeqCst) + 1;
+            format!("{PREFIX}{flow}-{n}")
+        }));
         let mut engine = Engine::new(store.clone(), packs)
             .with_tools(Arc::new(MockTools(input.mocks.tools.clone())))
             .with_guarded(self.cfg.guarded.clone())
