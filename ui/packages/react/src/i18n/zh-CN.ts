@@ -322,6 +322,11 @@ const zhCN: Record<string, string> = {
   "banner.replayTruncated": "这一轮的前半段无法回放（缓冲已截断）；本轮结束后会自动补全",
   "banner.dismiss": "关闭提示",
 
+  // ── 层：对话框、菜单、提示 ──────────────────────────────────────────
+  "layers.noticesWaiting": "还有 {count} 条",
+  "layers.askAnnounce": "需要批准：{tool}",
+  "layers.askAnnounceTool": "一次工具调用",
+
   // ── 错误 ─────────────────────────────────────────────────────────────
   "error.notConnected": "尚未连接",
   "error.unknown": "未知错误",

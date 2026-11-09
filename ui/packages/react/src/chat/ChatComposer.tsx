@@ -11,13 +11,14 @@
  * 这是所有输入的标准件：会话里的、新会话首页的、应用自己的，都用它。没有会话时 `state` 给 null。
  *
  * 发送只有一条路：打字发送、快捷回复、选中的命令都经 `send`（应用给的，或 controller.send）。
- * 运行中且没有输入时发送键变成停止（工位里是"中断当前步骤"，Esc 同效）。
+ * 运行中且没有输入时发送键变成停止（工位里是"中断当前步骤"）。Esc 先关弹层；没有弹层时，第一次 Esc 只提示"再按一次中断"，
+ * 几秒内再按一次才中断——关掉弹层的那一下，不会连着把这一轮也停了。
  * ＋ 里是这条消息能带的东西：文件、图片（给了 `upload`）、截图、`@` 引用、`/` 命令。
  * 模型：给了 `onModel` 就能换（列表来自 `models`，也能输入名字），否则只显示当前的。
  * 后端还不支持的（截图、语音）照原型画出来，但不可用，弹层里写明原因。
  */
 
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useStrings } from "../context";
 import type { SessionState } from "@harnix/core/state";
 import { readDraft, writeDraft } from "./drafts";
@@ -26,6 +27,8 @@ import { Icon } from "./icons";
 import type { ChatCommand, MentionItem, QuickReply } from "./types";
 
 const QUICK_MAX = 4;
+/** How long the first Escape of a running turn waits for the second, which interrupts it. */
+const ESC_AGAIN_MS = 3000;
 
 interface MenuItem {
   id: string;
@@ -160,6 +163,17 @@ export function ChatComposer(props: ChatComposerProps) {
   const mentionRequest = useRef(0);
   const running = props.running ?? state?.turn != null;
   const elsewhere = props.elsewhere ?? (!running && state?.session?.turn_state === "running");
+  // Escape once while a turn runs: armed, and said so; again within the time: interrupted.
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const timer = setTimeout(() => setArmed(false), ESC_AGAIN_MS);
+    return () => clearTimeout(timer);
+  }, [armed]);
+  useEffect(() => {
+    if (!running) setArmed(false);
+  }, [running]);
+  const listId = useId();
 
   // 草稿：每次改动记下
   const draftKey = props.draftKey;
@@ -378,8 +392,21 @@ export function ChatComposer(props: ChatComposerProps) {
       setPop(null);
     } else if (event.key === "Escape" && running) {
       event.preventDefault();
-      props.interrupt();
+      if (armed) {
+        setArmed(false);
+        props.interrupt();
+      } else setArmed(true);
     }
+  };
+
+  /** Escape in an open pop (on one of its buttons, its input): it closes, and the focus is back in the input. */
+  const onPopKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Escape" || event.target === input.current || (!pop && !menu)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setPop(null);
+    setMenu(null);
+    input.current?.focus();
   };
 
   const addFiles = (files: Iterable<File>) => {
@@ -408,6 +435,11 @@ export function ChatComposer(props: ChatComposerProps) {
     <div className="hx-cmp" data-testid="conv-composer" data-state={running ? "running" : props.disabled ? "disabled" : "idle"}>
       {props.notice}
       {props.guard}
+      {armed ? (
+        <div className="hx-cmp-note" role="status" data-testid="conv-esc-hint">
+          <span>{strings.escAgainToInterrupt}</span>
+        </div>
+      ) : null}
       {elsewhere ? (
         <div className="hx-cmp-note" data-testid="conv-status" data-state="elsewhere">
           <span className="hx-spark" aria-hidden />
@@ -433,6 +465,7 @@ export function ChatComposer(props: ChatComposerProps) {
       <div
         className={`hx-cmp-box${dropping ? " dropping" : ""}`}
         ref={box}
+        onKeyDown={onPopKey}
         onDragOver={(event) => {
           if (!props.upload || !event.dataTransfer?.types.includes("Files")) return;
           event.preventDefault();
@@ -482,12 +515,13 @@ export function ChatComposer(props: ChatComposerProps) {
           </div>
         ) : null}
         {menu ? (
-          <div className="hx-pop" role="listbox" data-testid="conv-menu" data-kind={menu.kind}>
+          <div className="hx-pop" role="listbox" id={listId} data-testid="conv-menu" data-kind={menu.kind}>
             <div className="hx-pop-h">{menu.kind === "/" ? strings.commands : strings.mentions}</div>
             {menu.items.length ? (
               menu.items.map((item, i) => (
                 <button
                   key={item.id}
+                  id={`${listId}-${i}`}
                   type="button"
                   role="option"
                   aria-selected={i === menu.index}
@@ -626,6 +660,11 @@ export function ChatComposer(props: ChatComposerProps) {
           disabled={props.disabled}
           readOnly={sending}
           aria-label={props.placeholder}
+          // The focus stays in the input while `/` or `@` offers: a reader is told which offer is the
+          // chosen one, as ↑/↓ move it.
+          aria-autocomplete={props.commands?.length || props.mention ? "list" : undefined}
+          aria-controls={menu ? listId : undefined}
+          aria-activedescendant={menu && menu.items.length ? `${listId}-${menu.index}` : undefined}
           placeholder={props.placeholder}
           onChange={(event) => {
             setText(event.target.value);

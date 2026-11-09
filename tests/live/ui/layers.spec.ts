@@ -5,7 +5,8 @@
  * What is under test is what a layer owes the person in front of it: the focus goes into a dialog,
  * stays there, and comes back to where it was; Escape closes only the top layer; the shortcuts
  * leave a dialog alone; a menu opens where it was asked for, not as a dialog in the middle of the
- * page, and can be worked without a mouse. And the default answer of an ask can be seen.
+ * page, and can be worked without a mouse; what the banner says, and an ask arriving, is said aloud.
+ * And the default answer of an ask can be seen.
  */
 
 import type { Page } from "@playwright/test";
@@ -194,4 +195,47 @@ test("a right click opens the session's menu where it was clicked, not a dialog 
   // A click elsewhere closes it.
   await page.locator("#main").click({ position: { x: 10, y: 200 } });
   await expect(menu).toHaveCount(0);
+});
+
+test("a turn is not stopped by one Escape too many: the first says what the second does", SESSIONS, async ({ page }) => {
+  await open(page, URL);
+  await asking(page);
+  const input = page.getByTestId("conv-input");
+  await input.focus();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("conv-esc-hint")).toBeVisible();
+  await expect(page.getByTestId("conv-esc-hint")).toHaveAttribute("role", "status");
+  await expect(page.getByTestId("conv-ask")).toHaveAttribute("data-state", "pending");
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("conv-note").last()).toContainText(/已中断|interrupted/i, { timeout: 20_000 });
+  await expect(page.getByTestId("conv-esc-hint")).toHaveCount(0);
+});
+
+test("the banner is a live region, and its notices queue", SHELL, async ({ page }) => {
+  await open(page, URL);
+  const banner = page.locator("#banner");
+  await page.evaluate(() => {
+    const { app } = (window as any).harnix;
+    app.notice("first of two");
+    app.notice("second of two", "error");
+  });
+  await expect(banner).toHaveAttribute("role", "status");
+  await expect(banner).toContainText("first of two");
+  await expect(page.getByTestId("banner-waiting")).toBeVisible();
+  await banner.locator(".close").click();
+  await expect(banner).toHaveAttribute("role", "alert");
+  await expect(banner).toContainText("second of two");
+  await banner.locator(".close").click();
+  await expect(banner).not.toHaveClass(/on/);
+});
+
+test("an ask's arrival is said aloud on its own, once", SESSIONS, async ({ page }) => {
+  await open(page, URL);
+  await asking(page);
+  const said = page.getByTestId("ask-announce");
+  await expect(said).toHaveAttribute("role", "alert");
+  await expect(said).toContainText("Bash");
+  await page.getByTestId("conv-ask").getByTestId("conv-ask-allow").click();
+  await expect(page.getByTestId("conv-ask")).toHaveAttribute("data-state", "answered");
+  await expect(said).toBeEmpty();
 });

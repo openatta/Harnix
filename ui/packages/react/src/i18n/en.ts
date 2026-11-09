@@ -324,6 +324,11 @@ const en: Record<string, string> = {
   "banner.replayTruncated": "The first part of this turn cannot be replayed (buffer truncated); it fills in when the turn ends",
   "banner.dismiss": "Dismiss",
 
+  // ── layers: dialogs, menus, notices ─────────────────────────────────
+  "layers.noticesWaiting": "+{count} more",
+  "layers.askAnnounce": "Approval needed: {tool}",
+  "layers.askAnnounceTool": "a tool call",
+
   // ── errors ────────────────────────────────────────────────────────────
   "error.notConnected": "Not connected",
   "error.unknown": "Unknown error",

@@ -203,15 +203,33 @@ function useShortcuts(app: App) {
 
 /* ── banner ───────────────────────────────────────────────────────────── */
 
+/**
+ * The notice in front, and how many wait behind it. A live region: a reader hears an error at
+ * once (`alert`), anything else when it is free to (`status`).
+ */
 function Banner({ app, s }: { app: App; s: ShellState }) {
   const t = useT();
+  const error = s.banner?.tone === "error";
+  const waiting = s.notices.length - 1;
   return (
-    <div id="banner" className={s.banner ? "on" : ""} data-tone={s.banner?.tone}>
+    <div
+      id="banner"
+      className={s.banner ? "on" : ""}
+      data-tone={s.banner?.tone}
+      role={error ? "alert" : "status"}
+      aria-live={error ? "assertive" : "polite"}
+      aria-atomic="true"
+    >
       {s.banner ? (
         <>
           <Glyph name="alert" className="glyph" />
           <span className="text">{s.banner.text}</span>
-          <button type="button" className="icon-btn close" title={t("banner.dismiss")} onClick={() => app.dismissBanner()}>
+          {waiting > 0 ? (
+            <span className="waiting" data-testid="banner-waiting">
+              {t("layers.noticesWaiting", { count: waiting })}
+            </span>
+          ) : null}
+          <button type="button" className="icon-btn close" title={t("banner.dismiss")} aria-label={t("banner.dismiss")} onClick={() => app.dismissBanner()}>
             <Glyph name="close" className="glyph" />
           </button>
         </>
@@ -770,62 +788,86 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
     ) : undefined;
 
   return (
-    <ChatPanel
-      sessionId={current.sessionId}
-      instance={current.instance}
-      space={app.claim(s.space)}
-      sendExtras={referencesIn}
-      onController={bind}
-      header={false}
-      placeholder={spacesOf(app).find((c) => c.id === s.space)?.placeholder?.() ?? t("composer.placeholder")}
-      hint={t("composer.hint")}
-      disabled={s.connection !== "open" && s.connection !== "degraded"}
-      draftKey={keyOf(current.instance, current.sessionId)}
-      commands={commands}
-      mention={mention}
-      upload={upload}
-      composer={bindComposer}
-      notice={notice}
-      readOnly={readOnly || undefined}
-      pinned={
-        (pinned != null && pinned !== false) || (emptyHint != null && emptyHint !== false) ? (
-          space ? (
-            <Contributed registry={registry} point="space" contribution={space}>
-              {pinned != null && pinned !== false ? pinned : null}
-              {emptyHint != null && emptyHint !== false ? (
-                <div className="empty-conversation" data-testid="empty-conversation">
-                  {emptyHint}
-                </div>
-              ) : null}
-            </Contributed>
+    <>
+      <ChatPanel
+        sessionId={current.sessionId}
+        instance={current.instance}
+        space={app.claim(s.space)}
+        sendExtras={referencesIn}
+        onController={bind}
+        header={false}
+        placeholder={spacesOf(app).find((c) => c.id === s.space)?.placeholder?.() ?? t("composer.placeholder")}
+        hint={t("composer.hint")}
+        disabled={s.connection !== "open" && s.connection !== "degraded"}
+        draftKey={keyOf(current.instance, current.sessionId)}
+        commands={commands}
+        mention={mention}
+        upload={upload}
+        composer={bindComposer}
+        notice={notice}
+        readOnly={readOnly || undefined}
+        pinned={
+          (pinned != null && pinned !== false) || (emptyHint != null && emptyHint !== false) ? (
+            space ? (
+              <Contributed registry={registry} point="space" contribution={space}>
+                {pinned != null && pinned !== false ? pinned : null}
+                {emptyHint != null && emptyHint !== false ? (
+                  <div className="empty-conversation" data-testid="empty-conversation">
+                    {emptyHint}
+                  </div>
+                ) : null}
+              </Contributed>
+            ) : undefined
           ) : undefined
-        ) : undefined
-      }
-      ids={ids}
-      onBusy={steerable && steer ? "steer" : undefined}
-      composerTools={
-        steerable ? (
-          <button
-            type="button"
-            role="switch"
-            className={`hx-cmp-model steer${steer ? " on" : ""}`}
-            data-testid="conv-steer"
-            aria-checked={steer}
-            disabled={!running}
-            title={t("composer.steerHint")}
-            onClick={toggleSteer}
-          >
-            {t("composer.steer")}
-          </button>
-        ) : undefined
-      }
-      model={model}
-      models={models}
-      onModel={switchable ? onModel : undefined}
-      features={{ voice: false, contextRing: true, options: false }}
-      renderers={{ flowBlocks, toolRows }}
-    />
+        }
+        ids={ids}
+        onBusy={steerable && steer ? "steer" : undefined}
+        composerTools={
+          steerable ? (
+            <button
+              type="button"
+              role="switch"
+              className={`hx-cmp-model steer${steer ? " on" : ""}`}
+              data-testid="conv-steer"
+              aria-checked={steer}
+              disabled={!running}
+              title={t("composer.steerHint")}
+              onClick={toggleSteer}
+            >
+              {t("composer.steer")}
+            </button>
+          ) : undefined
+        }
+        model={model}
+        models={models}
+        onModel={switchable ? onModel : undefined}
+        features={{ voice: false, contextRing: true, options: false }}
+        renderers={{ flowBlocks, toolRows }}
+      />
+      <AskAnnouncer state={sessionState} />
+    </>
+  );
+}
 
+/**
+ * An ask arriving is said aloud on its own, once: the card is in the flow's log, which a reader is
+ * not told about at once, and a turn waits on it.
+ */
+function AskAnnouncer({ state }: { state: SessionState | null }) {
+  const t = useT();
+  const heard = useRef(new Set<string>());
+  const [said, setSaid] = useState("");
+  const asks = state?.blocks.filter((b) => b.kind === "ask" && !b.answered) ?? [];
+  const fresh = asks.find((b) => b.kind === "ask" && !heard.current.has(b.prompt.prompt_id));
+  useEffect(() => {
+    if (!fresh || fresh.kind !== "ask") return;
+    heard.current.add(fresh.prompt.prompt_id);
+    setSaid(t("layers.askAnnounce", { tool: fresh.prompt.tool_name || t("layers.askAnnounceTool") }));
+  }, [fresh, t]);
+  return (
+    <div className="sr-only" role="alert" data-testid="ask-announce">
+      {asks.length ? said : ""}
+    </div>
   );
 }
 

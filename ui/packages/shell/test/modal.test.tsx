@@ -1,10 +1,10 @@
 /**
  * The page's layers (`layers.ts`): the shell's dialogs are a stack — the focus in the top one, the
  * page under it inert, Escape closing that one alone, the shortcuts quiet — and `host.modal`
- * (ipdrun-38) says when the stack opens and closes. A menu is a layer too.
+ * (ipdrun-38) says when the stack opens and closes. The banner's notices queue and go by themselves.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render } from "@testing-library/react";
 import type { HarnixClient } from "@harnix/core";
 import { HarnixUiProvider } from "@harnix/react";
@@ -17,6 +17,7 @@ import { scriptedApp } from "./scripted";
 afterEach(() => {
   act(() => closeMenu());
   cleanup();
+  vi.useRealTimers();
 });
 
 function key(target: EventTarget, k: string, extra: KeyboardEventInit = {}) {
@@ -186,5 +187,49 @@ describe("modal", () => {
     act(() => (document.activeElement as HTMLElement).click());
     expect(ran).toEqual(["c"]);
     expect(openedMenu()).toBeNull();
+  });
+});
+
+describe("notices", () => {
+  it("queue: one in front at a time, the next when it is dismissed; the same line is not queued twice", () => {
+    const { app } = scriptedApp();
+    app.notice("one");
+    app.notice("two", "error");
+    app.notice("two", "error");
+    expect(app.snapshot.banner).toEqual({ text: "one", tone: "info" });
+    expect(app.snapshot.notices).toHaveLength(2);
+    app.dismissBanner();
+    expect(app.snapshot.banner).toEqual({ text: "two", tone: "error" });
+    app.dismissBanner();
+    expect(app.snapshot.banner).toBeNull();
+  });
+
+  it("go by themselves, an error later than the rest; a sticky one stays", () => {
+    vi.useFakeTimers();
+    const { app } = scriptedApp();
+    app.notice("saved");
+    app.notice("failed", "error");
+    vi.advanceTimersByTime(6_000);
+    expect(app.snapshot.banner?.text).toBe("failed");
+    vi.advanceTimersByTime(6_000);
+    expect(app.snapshot.banner?.text).toBe("failed");
+    vi.advanceTimersByTime(6_000);
+    expect(app.snapshot.banner).toBeNull();
+    app.notice("reload the page", "error", { sticky: true });
+    vi.advanceTimersByTime(60_000);
+    expect(app.snapshot.banner?.text).toBe("reload the page");
+  });
+
+  it("the banner is a live region: an error is an alert, anything else a status", () => {
+    const app = mount();
+    const banner = document.getElementById("banner")!;
+    act(() => app.notice("saved"));
+    expect(banner.getAttribute("role")).toBe("status");
+    act(() => {
+      app.dismissBanner();
+      app.notice("failed", "error");
+    });
+    expect(banner.getAttribute("role")).toBe("alert");
+    expect(banner.textContent).toContain("failed");
   });
 });

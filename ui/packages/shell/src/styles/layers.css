@@ -143,3 +143,10 @@
   background: var(--interactive-hover);
   color: var(--label-primary);
 }
+
+/* ── the banner ─────────────────────────────────────────────────────── */
+
+#banner .waiting {
+  flex: none;
+  opacity: 0.75;
+}

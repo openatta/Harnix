@@ -57,6 +57,17 @@ export interface OpenModal extends Modal {
   readonly id: number;
 }
 
+/** One line of the banner: info goes by itself after a while, an error stays longer. */
+export interface Notice {
+  text: string;
+  tone?: "info" | "error";
+}
+
+/** How long a notice stays in front before the next takes its place; a sticky one stays. */
+const NOTICE_MS = { info: 6_000, error: 12_000 } as const;
+/** At most this many wait behind the one shown: a burst of failures is not a queue to read through. */
+const NOTICE_QUEUE = 5;
+
 export type ThemeChoice = "system" | "light" | "dark";
 
 /** One configured model provider, as `harnix.settings.describe` reads it (the key redacted). */
@@ -149,7 +160,10 @@ export interface ShellState {
   /** A space's second side panel takes the whole centre, per space; remembered (xops-04 §7). */
   secondaryMaxBySpace: Record<string, boolean>;
   sidebar: "expanded" | "collapsed";
-  banner: { text: string; tone?: "info" | "error" } | null;
+  /** The notice in front: `notices[0]`, kept in step by `set`. */
+  banner: Notice | null;
+  /** What the banner has to say, in order: the one in front first. */
+  notices: Notice[];
   /** The shell's dialogs, bottom first: each opened goes over the last, Escape closes the top one. */
   modals: OpenModal[];
   /** The one on top: `modals`' last, kept in step by `set`. */
@@ -317,6 +331,7 @@ export class App {
       secondaryMaxBySpace: stored<Record<string, boolean>>(SECONDARY_MAX_KEY, {}),
       sidebar: "expanded",
       banner: null,
+      notices: [],
       modals: [],
       modal: null,
       titleBadge: null,
@@ -353,7 +368,9 @@ export class App {
     const next = { ...this.state, ...change };
     next.current = next.currentBySpace[next.space] ?? null;
     next.modal = next.modals[next.modals.length - 1] ?? null;
+    next.banner = next.notices[0] ?? null;
     this.state = next;
+    if (before.banner !== next.banner) this.timeNotice(next.banner);
     for (const fn of [...this.listeners]) fn();
     if ((before.modal == null) !== (next.modal == null)) {
       for (const fn of [...this.modalListeners]) fn(next.modal != null);
@@ -464,12 +481,13 @@ export class App {
     this.client.onStatus((status, detail) => {
       this.set({ connection: status });
       if (status === "open") {
-        if (this.state.banner?.text === t("conn.restarted")) this.dismissBanner();
+        const restarted = t("conn.restarted");
+        if (this.state.notices.some((n) => n.text === restarted)) this.set({ notices: this.state.notices.filter((n) => n.text !== restarted) });
         void this.boot();
       }
       // Reconnecting, and no new token to be had: only a reload gets this page back.
-      if (status === "closed" && detail === TOKEN_STALE) this.notice(t("conn.restarted"), "error");
-      if (status === "incompatible") this.notice(t("banner.incompatible", { reason: detail ?? "" }), "error");
+      if (status === "closed" && detail === TOKEN_STALE) this.notice(t("conn.restarted"), "error", { sticky: true });
+      if (status === "incompatible") this.notice(t("banner.incompatible", { reason: detail ?? "" }), "error", { sticky: true });
     });
     this.client.onNotify((method, params) => this.handle(method, params));
     this.client.connect();
@@ -648,7 +666,7 @@ export class App {
   open(key: SessionKey | null, space = this.state.space): void {
     const currentBySpace = { ...this.state.currentBySpace, [space]: key };
     remember(CURRENT_KEY, currentBySpace);
-    this.set({ currentBySpace, banner: null });
+    this.set({ currentBySpace, notices: [] });
   }
 
   /**
@@ -799,12 +817,37 @@ export class App {
     this.set({ sidebar: this.state.sidebar === "expanded" ? "collapsed" : "expanded" });
   }
 
-  notice(text: string, tone: "info" | "error" = "info"): void {
-    this.set({ banner: { text, tone } });
+  /**
+   * Say something in the banner. Notices queue: one at a time, each in front for a while (an error
+   * longer) unless `sticky` — said of a state the page stays in until it changes, such as a backend
+   * that has to be reloaded. The same line already waiting is not queued twice.
+   */
+  notice(text: string, tone: "info" | "error" = "info", options: { sticky?: boolean } = {}): void {
+    const queued = this.state.notices;
+    if (queued.some((n) => n.text === text && (n.tone ?? "info") === tone)) return;
+    const notice: Notice = { text, tone };
+    if (options.sticky) this.sticky.add(notice);
+    // Over the cap, the oldest waiting goes; the one in front stays until its time is up.
+    const waiting = [...queued.slice(1), notice].slice(-NOTICE_QUEUE);
+    this.set({ notices: queued.length ? [queued[0]!, ...waiting] : [notice] });
   }
 
+  /** The notice in front goes; the next, if any, takes its place. */
   dismissBanner(): void {
-    this.set({ banner: null });
+    this.set({ notices: this.state.notices.slice(1) });
+  }
+
+  private readonly sticky = new WeakSet<Notice>();
+  private noticeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** The notice now in front goes by itself after its time, if it is still the one in front then. */
+  private timeNotice(front: Notice | null): void {
+    if (this.noticeTimer) clearTimeout(this.noticeTimer);
+    this.noticeTimer = null;
+    if (!front || this.sticky.has(front)) return;
+    this.noticeTimer = setTimeout(() => {
+      if (this.state.banner === front) this.dismissBanner();
+    }, NOTICE_MS[front.tone ?? "info"]);
   }
 
   private modalIds = 0;
