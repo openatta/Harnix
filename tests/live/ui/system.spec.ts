@@ -324,7 +324,9 @@ test("system-calls: every model call with what went in and what came out, and it
   await expect(calls.first().locator(".l2 .in")).toContainText(/system \d+/);
   await expect(page.locator('#details .step.k-tool[data-tool]').first()).toContainText("Agent");
   await page.locator('#details [data-filter="tools"]').click();
-  await expect(calls).toHaveCount(1);
+  // The calls that called a tool: the parent's Agent call, and the sub-agent's call to list the files
+  // (the recording holds the sub-agent as a second session).
+  await expect(calls).toHaveCount(2);
   await page.locator('#details [data-filter="all"]').click();
 
   await calls.nth(1).click();
@@ -583,7 +585,8 @@ test("system-timeline: calls on a time line, searched and narrowed by a stretch 
   const rows = page.getByTestId("turn-row");
   await expect(rows).toHaveCount(1);
   await rows.first().click();
-  await expect(page.getByTestId("turn-step")).toHaveCount(2);
+  // Its calls: the parent's two, and the two of the sub-agent it started (a second session in the recording).
+  await expect(page.getByTestId("turn-step")).toHaveCount(4);
   await page.getByTestId("turns-total").click();
   await expect(page.getByTestId("turn-context").first()).not.toHaveText("—");
   expect(errors).toEqual([]);
@@ -593,19 +596,23 @@ test("system-calls: a failed call is one click away, and listed alone on asking"
   const errors = watchConsole(page);
   await open(page, backend.url);
   const sid = await sessionWithTurn(page, "system");
-  // `calls-a-tool`, its last call failed as an overloaded provider would have failed it.
+  // `calls-a-tool`, the turn's second call (the one after the tool) failed as an overloaded provider
+  // would have failed it. The recording also holds the calls beside the turn (its title, the memory).
   const dir = join(backend.scratch, "agix", "recordings", sid);
   cpSync(join(RECORDINGS, "calls-a-tool"), dir, { recursive: true });
   const lines = readFileSync(join(dir, "calls.jsonl"), "utf8").trimEnd().split("\n");
-  const last = lines.map((line) => JSON.parse(line).type).lastIndexOf("end");
-  lines[last] = JSON.stringify({ ...JSON.parse(lines[last]!), outcome: { status: "error", error: "overloaded" } });
+  const records = lines.map((line) => JSON.parse(line));
+  const second = records.filter((r) => r.type === "call" && !r.purpose)[1].seq;
+  const at = records.findIndex((r) => r.type === "end" && r.call === second);
+  lines[at] = JSON.stringify({ ...records[at], outcome: { status: "error", error: "overloaded" } });
   writeFileSync(join(dir, "calls.jsonl"), lines.join("\n") + "\n");
+  const all = records.filter((r) => r.type === "call").length;
 
   await toSystem(page);
   await pick(page, "system", sid);
   await tab(page, "calls");
   const calls = page.getByTestId("system-call");
-  await expect(calls).toHaveCount(2);
+  await expect(calls).toHaveCount(all);
   await expect(calls.nth(1)).toHaveClass(/\bbad\b/);
   await expect(calls.nth(0)).not.toHaveClass(/\bbad\b/);
 
@@ -616,7 +623,7 @@ test("system-calls: a failed call is one click away, and listed alone on asking"
   await expect(calls).toHaveCount(1);
   await expect(calls.first()).toHaveAttribute("data-call", "0");
   await page.locator('#details [data-filter="all"]').click();
-  await expect(calls).toHaveCount(2);
+  await expect(calls).toHaveCount(all);
 
   await page.getByTestId("jump-to-failure").click();
   await expect(page.locator('#details [data-testid="system-call"][data-call="1"]')).toBeInViewport();
