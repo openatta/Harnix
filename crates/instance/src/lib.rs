@@ -1,5 +1,5 @@
 //! The instance layer: engines, and the links the hub reaches them through
-//! (design §5).
+//! (concept §3.1.1).
 //!
 //! An instance is one Agix engine — one session pool with its own data root,
 //! settings, providers, MCP connections, plugins and scenes. This crate

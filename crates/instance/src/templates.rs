@@ -1,4 +1,4 @@
-//! Where instances come from (design §5.2, §5.4).
+//! Where instances come from (concept §3.1.1).
 //!
 //! Two sources and no third: instances the profile declares, and instances
 //! built from a template. A template is part of assembly — registered at
@@ -105,7 +105,7 @@ impl TemplateCarrier {
     }
 }
 
-/// A daemon somebody else runs, serving only this Harnix (design §5.7).
+/// A daemon somebody else runs, serving only this Harnix (concept §3.1.1).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AttachTo {

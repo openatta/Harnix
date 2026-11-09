@@ -90,7 +90,7 @@ impl EngineContrib {
     /// The same contributions, with every customizer skipped while
     /// `enabled` is false. A module that fails to start after the instance
     /// was built cannot take its scenes back out of the pool, but its
-    /// customizer stops being applied to new sessions (design §7.3).
+    /// customizer stops being applied to new sessions (concept §3.1).
     pub fn gated(mut self, enabled: Arc<std::sync::atomic::AtomicBool>) -> Self {
         self.customizers = self
             .customizers

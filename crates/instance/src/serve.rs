@@ -1,4 +1,4 @@
-//! `harnix daemon`: this binary as an Agix daemon (design §5.1).
+//! `harnix daemon`: this binary as an Agix daemon (concept §3.1.1).
 //!
 //! The binary links Agix already, so a spawned instance needs no second
 //! executable, and its protocol version is this build's by construction. It

@@ -3,14 +3,14 @@
 //! A profile names the scenes, the providers, the interface bundle and the
 //! transport topology. Assembly does what it says and nothing more, and
 //! nothing can rewrite it while the process runs — whatever could rewrite
-//! this would be deciding what this process is (§3.1, §10).
+//! this would be deciding what this process is (concept §3.1, §10).
 //!
 //! Extensions are not named here. Scripts are configured in Agix's own
 //! settings tiers and plugins are installed through Agix's own
 //! installer; a second place to declare them would be a second truth.
 //!
 //! Changing shape is a configuration change, not a fork. That is the first of
-//! the three levels of customization (§8) and the one that costs no code.
+//! the levels of customization (concept §8) and the one that costs no code.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -39,7 +39,7 @@ pub struct Profile {
     pub apps: AppsProfile,
     /// `[modules.<id>]`: each compile-time module's own section, handed to
     /// it as written. Secrets are references (`{ credential = "…" }`),
-    /// never values (design §7.4).
+    /// never values (concept §4.2).
     pub modules: BTreeMap<String, toml::Value>,
 }
 
@@ -178,11 +178,12 @@ pub struct BrandProfile {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct UiProfile {
-    /// Where the built interface is. `None` serves no static face at all —
-    /// the `--headless` shape, for a pure RPC node (§3.3.4, §5.1).
+    /// A built interface on disk, served in place of the one compiled in. `None` serves the
+    /// embedded one; no static face at all is `--headless`, for a pure RPC node (concept
+    /// §3.3.4, §5.1).
     pub dir: Option<PathBuf>,
     /// Whether installed packages' `[[ui]]` modules load. Off, none does: a package is then
-    /// the engine's alone (design §10.5).
+    /// the engine's alone (concept §5.8).
     pub runtime_modules: bool,
 }
 
@@ -348,7 +349,7 @@ impl Default for TransportProfile {
     fn default() -> Self {
         Self {
             // One bidirectional connection, which is the edge default: out
-            // there a connection costs more than middleware does (§7.2).
+            // there a connection costs more than middleware does (concept §7.2).
             // A deployment behind a proxy adds `split_streams` and gets the
             // proxy's middleware back.
             topologies: vec![Topology::SingleDuplex],
