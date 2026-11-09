@@ -146,6 +146,38 @@ test("a new session from a project's menu: the dialog offers the active scenes, 
   await expect.poll(made, { timeout: 15_000 }).toEqual({ project_root: path, scene: "harnix" });
 });
 
+test("a project's session is renamed and deleted from its menu in the projects space, which claims the session space", PROJECTS, async ({ page }) => {
+  await open(page, URL);
+  await page.evaluate(async () => {
+    const { app } = (window as any).harnix;
+    await app.call("harnix.projects.create", { name: `menu-${Date.now()}` });
+    await app.refreshSessions();
+  });
+  await page.locator('#side .spaces [data-space="projects"]').click();
+  await expect(page.locator("#main")).toHaveAttribute("data-space", "projects");
+  const project = page.getByTestId("projects").locator(".project", { hasText: "menu-" });
+  await project.locator(".prj").click({ button: "right" });
+  await page.locator('#modal .menu-list button[data-item="new"]').click();
+  await page.getByTestId("new-mode").selectOption({ index: 0 });
+  await page.getByTestId("new-create").click();
+  await expect(page.locator("#modal")).toHaveCount(0);
+  const id = await page.evaluate(() => (window as any).harnix.app.snapshot.current?.sessionId as string);
+  expect(id).toBeTruthy();
+  if ((await project.getAttribute("data-open")) !== "true") await project.locator(".prj").click();
+  await expect(row(page, id)).toBeVisible();
+
+  // The row is the session space's session: its menu claims that space, not the projects one.
+  await fromMenu(page, id, "rename");
+  await page.locator("#modal input").fill("renamed in a project");
+  await page.locator("#modal .btn.primary").click();
+  await expect(row(page, id)).toContainText("renamed in a project");
+  await expect(page.locator("#banner")).not.toContainText(/SPACE_MISMATCH|another space|-31003/);
+
+  await fromMenu(page, id, "delete");
+  await page.getByTestId("confirm").click();
+  await expect(row(page, id)).toHaveCount(0);
+});
+
 test("a session is exported from its menu: markdown to read, or the engine's archive without the recording unless asked", SPACE, async ({ page }) => {
   await open(page, URL);
   const id = await withTurn(page);

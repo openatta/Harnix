@@ -445,7 +445,9 @@ function MenuItem({ id, icon, label, sub, danger, onClick }: { id?: string; icon
 }
 
 export function sessionMenu(app: App, session: ShellSession): void {
-  const key = { instance: session.instance ?? "system", session_id: session.session_id, space: app.snapshot.space };
+  // The backend space its sessions belong to, not the front one: the projects space lists the
+  // session space's sessions.
+  const key = { instance: session.instance ?? "system", session_id: session.session_id, space: app.claim() };
   const reopen = (sessionId: string) => app.open({ instance: key.instance, sessionId });
   app.openModal({
     title: session.name || t("sidebar.untitled"),

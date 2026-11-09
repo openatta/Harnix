@@ -100,6 +100,8 @@ fn main() -> anyhow::Result<()> {
 | 关闭 | `session.close` | 放掉运行时，历史留着，还能重开 |
 | 删除 | `session.delete` | 先试删一次看连带几条侧链会话，确认后删；连同录像 |
 
+两个 space 里的菜单一样：项目 space 列的是会话 space 的会话，所以菜单的调用都声明会话 space（`app.claim()`），不是前台的项目 space。
+
 ## 6. profile
 
 ### 6.1 `[shell]`
