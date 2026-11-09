@@ -272,6 +272,11 @@ export async function runTurn(
   }
 }
 
+/** A suite's own check: fails with `message` unless `cond` holds, and narrows `cond` after it. */
+export function assert(cond: unknown, message: string): asserts cond {
+  if (!cond) throw new Error(message);
+}
+
 /**
  * A test that could not reach what it was trying to reach — distinct from a
  * pass. A permission test whose model never reached for a tool has not shown
@@ -279,13 +284,7 @@ export async function runTurn(
  * would train people to ignore red. The suite adapter turns it into a skip
  * with the reason attached.
  */
-/** A suite's own check: fails with `message` unless `cond` holds, and narrows `cond` after it. */
-export function assert(cond: unknown, message: string): asserts cond {
-  if (!cond) throw new Error(message);
-}
-
 export class Inconclusive extends Error {}
-/** The test could not show what it is about (no model reached for the tool): skipped, saying why. */
 export function inconclusive(reason: string): never {
   throw new Inconclusive(reason);
 }
