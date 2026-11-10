@@ -29,9 +29,11 @@
 //! and that is all it ever learns about the other side.
 
 mod clients;
+mod engine_rows;
 mod instances;
 mod lifecycle;
 mod replay;
+mod rows;
 mod session;
 mod spaces;
 mod topics;
@@ -39,7 +41,9 @@ mod turns;
 mod views;
 
 pub use clients::ClientId;
+pub use engine_rows::{ENGINE_REFUSALS, HUB_OWNED};
 pub use instances::{Registry, Slot};
+pub use rows::{HubCell, HubRow, HUB_TOPICS};
 pub use replay::{MAX_BYTES as REPLAY_MAX_BYTES, MAX_FRAMES as REPLAY_MAX_FRAMES};
 pub use spaces::{AuditHook, Spaces};
 pub use topics::TOPIC_ENDED;
@@ -49,78 +53,15 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock};
 
 use harnix_contract::sync::{lock, read, write};
-use harnix_contract::{codes, FrameSink, Gate, RpcError, Subject};
+use harnix_contract::{codes, FrameSink, RpcError, Subject};
 use serde_json::{json, Value};
 use tokio::sync::{oneshot, Mutex, RwLock};
 
 use clients::Clients;
 use session::SessionState;
 
-/// Engine methods a client may send through untouched.
-///
-/// An allow-list, not a deny-list: the engine trusts whoever reaches its
-/// dispatch, and in this build that is the hub. What is not named here is not
-/// reachable — see `harnix_authz`, which is where the decision is actually made.
-pub const PASSTHROUGH: &[&str] = &[
-    "session.create",
-    "session.list",
-    "session.get",
-    "session.history",
-    "session.entries",
-    "session.fork",
-    "session.resume",
-    "session.respondToPrompt",
-    "scene.list",
-    "scene.describe",
-    "scene.activate",
-    "commands.list",
-    "mcp.status",
-    "plugin.list",
-    "daemon.status",
-    "daemon.ping",
-    "daemon.doctor",
-];
-
 /// How many answered permission prompts the hub keeps for `harnix.prompts.answerer`.
-const ANSWERERS_KEPT: usize = 1024;
-
-/// The hub's own methods. Named here so `harnix_authz` can open them and the
-/// generated method catalog can list them without tracing dispatch.
-pub const HUB_METHODS: &[&str] = &[
-    "harnix.hello",
-    "harnix.sessions",
-    "harnix.attach",
-    "harnix.detach",
-    "harnix.send",
-    "harnix.queue.remove",
-    "harnix.queue.edit",
-    "harnix.subscribe",
-    "harnix.unsubscribe",
-    "harnix.instances.list",
-    "harnix.instances.templates",
-    "harnix.instances.sessions",
-    "harnix.instances.create",
-    "harnix.instances.ensure",
-    "harnix.instances.stop",
-    "harnix.instances.restart",
-    "harnix.instances.wait",
-    "harnix.sessions.tasks",
-    "harnix.entries.append",
-    "harnix.sessions.move",
-    "harnix.prompts.answerer",
-    "harnix.spaces.list",
-    "harnix.process",
-];
-
-/// The hub's own topics: the instance tree as whole values (concept §3.2).
-/// Each with the parameters it is subscribed by.
-pub const HUB_TOPICS: &[(&str, &[&str])] = &[
-    ("harnix.instances", &[]),
-    ("harnix.instances.sessions", &["instance"]),
-    ("harnix.sessions.tasks", &["instance", "session_id"]),
-    ("harnix.sessions.status", &[]),
-    ("harnix.process", &[]),
-];
+pub(crate) const ANSWERERS_KEPT: usize = 1024;
 
 /// `harnix.spaces`: the same value as `harnix.spaces.list`, pushed when a
 /// space is added or removed at runtime. Declared only where something can
@@ -399,7 +340,7 @@ impl Hub {
 
     /// `harnix.process` as a topic: its memory, threads and connections change without an event to
     /// say so, so it is computed again every few seconds — only while someone watches it.
-    fn tick_process(self: &Arc<Self>) {
+    pub(crate) fn tick_process(self: &Arc<Self>) {
         if self.process_ticking.swap(true, std::sync::atomic::Ordering::SeqCst) {
             return;
         }
@@ -419,7 +360,7 @@ impl Hub {
     }
 
     /// Versions, uptime, memory and who is connected: the system space's strip.
-    fn process(&self) -> Value {
+    pub(crate) fn process(&self) -> Value {
         let mut out = read(&self.process).clone();
         let connections: Vec<Value> = lock(&self.described)
             .iter()
@@ -460,7 +401,7 @@ impl Hub {
     /// What a client is told once, after the handshake: what the `system`
     /// engine is, what scenes and commands exist there, every instance and
     /// the protocol it speaks, and the ceilings.
-    async fn hello(&self) -> Result<Value, RpcError> {
+    pub(crate) async fn hello(&self) -> Result<Value, RpcError> {
         // Once per connection, and none of the three waits on another.
         let (status, scenes, commands) = tokio::join!(
             self.call(SYSTEM, "daemon.status", json!({})),
@@ -513,140 +454,11 @@ impl Hub {
         }))
     }
 
-    /// Dispatch one already-authorized call.
-    ///
-    /// The hub's own semantics first, then the engine. Module methods never
-    /// reach here: the application answers those above the hub, and their
-    /// names cannot collide with these — the authorization table refuses a
-    /// name already taken.
-    async fn dispatch(
-        self: &Arc<Self>,
-        subject: &Subject,
-        method: &str,
-        params: Value,
-    ) -> Result<Value, RpcError> {
-        if spaces::CHECKED.contains(&method) {
-            self.check_space(subject, method, &params)?;
-        }
-        match method {
-            "harnix.hello" => return self.hello().await,
-            "harnix.process" => return Ok(self.process()),
-            "harnix.subscribe" => {
-                if params.get("topic").and_then(Value::as_str) == Some("harnix.process") {
-                    self.tick_process();
-                }
-                return self.subscribe(subject, params).await;
-            }
-            "harnix.unsubscribe" => return self.unsubscribe(subject, params).await,
-            "harnix.sessions" if params.get("space").is_some() => {
-                return self.space_sessions(&self.claimed(&params)?).await;
-            }
-            "harnix.sessions" | "harnix.instances.sessions" => {
-                let instance = self.instance_of(&params)?;
-                return self.sessions_view(&instance).await;
-            }
-            "harnix.spaces.list" => return Ok(self.spaces_view()),
-            "harnix.instances.list" => return Ok(self.instances_view()),
-            "harnix.instances.templates" => return Ok(self.templates_view(subject, &params).await),
-            "harnix.instances.create" => return self.create_instance(subject, params, false).await,
-            "harnix.instances.ensure" => return self.create_instance(subject, params, true).await,
-            "harnix.instances.stop" => return self.stop_instance(subject, params).await,
-            "harnix.instances.restart" => return self.restart_instance(subject, params).await,
-            "harnix.instances.wait" => return self.wait_instance(params).await,
-            "harnix.instances.inheritProviders" => return self.inherit_providers().await,
-            "harnix.sessions.tasks" => {
-                let key = self.key_of(&params)?;
-                return self.tasks_view(&key).await;
-            }
-            "harnix.entries.append" => return self.append_entry(subject, params).await,
-            "harnix.sessions.move" => return self.move_session(subject, params).await,
-            "harnix.prompts.answerer" => return self.answerer(subject, &params),
-            "harnix.attach" => return self.attach(subject, params).await,
-            "harnix.detach" => return self.detach(subject, params).await,
-            "harnix.send" => return self.send(subject, params).await,
-            "harnix.queue.remove" => return self.queue_remove(params).await,
-            "harnix.queue.edit" => return self.queue_edit(params).await,
-            "session.interrupt" => return self.interrupt(params).await,
-            "session.close" | "session.delete" => {
-                return self.close_or_delete(method, params).await
-            }
-            "session.create" => return self.create(subject, params).await,
-            "session.fork" => {
-                let key = self.key_of(&params)?;
-                let space = params
-                    .get("space")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-                    .unwrap_or_else(|| self.space_of(&key));
-                let forked = self.call(&key.0, method, without_instance(params)).await?;
-                if let Some(sid) = forked.get("session_id").and_then(Value::as_str) {
-                    let new = (key.0.clone(), sid.to_string());
-                    self.bind_space(&new, &space);
-                    self.note_starter(&new, subject);
-                }
-                self.refresh("harnix.instances.sessions", json!({"instance": key.0}));
-                return Ok(forked);
-            }
-            _ => {}
-        }
-        // A device reaches the engine only through the passthrough list. A
-        // module or the kernel reaches what the authorizer let through — a
-        // grant (the settings module writing a provider) is decided there,
-        // not re-decided here.
-        let device = matches!(subject, Subject::Device { .. });
-        let mut params = params;
-        if method == "session.respondToPrompt" {
-            // The engine does not take who answered; the hub keeps it for the tool's audit.
-            let tool_use = params.as_object_mut().and_then(|o| o.remove("tool_use_id"));
-            if let (Subject::Device { id }, Some(Value::String(tool_use)), Some(session)) =
-                (subject, tool_use, params.get("session_id").and_then(Value::as_str))
-            {
-                let mut kept = lock(&self.answerers);
-                if kept.len() == ANSWERERS_KEPT {
-                    kept.pop_front();
-                }
-                kept.push_back(((session.to_string(), tool_use), format!("device:{id}")));
-            }
-        }
-        if PASSTHROUGH.contains(&method) || (!device && is_engine_method(method)) {
-            let instance = self.instance_of(&params)?;
-            let session_of_call = params.get("session_id").and_then(Value::as_str).map(str::to_string);
-            let prompt = (method == "session.respondToPrompt")
-                .then(|| {
-                    let field = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_string);
-                    field("session_id").zip(field("prompt_id"))
-                })
-                .flatten();
-            let answer = self
-                .call(&instance, method, without_instance(params))
-                .await?;
-            if matches!(method, "session.goal" | "session.setGoal" | "session.updateGoal") {
-                if let (Some(goal), Some(session)) = (answer.get("goal"), session_of_call.as_ref()) {
-                    self.goal_heard(&(instance.clone(), session.clone()), goal.clone()).await;
-                }
-            }
-            if let Some((session, prompt_id)) = prompt {
-                self.answered(&(instance.clone(), session), |p| {
-                    p.get("prompt_id").and_then(Value::as_str) == Some(prompt_id.as_str())
-                })
-                .await;
-            }
-            // What the session list shows changed; the engine sends no event for it.
-            if RELISTED.contains(&method) {
-                self.refresh("harnix.instances.sessions", json!({"instance": instance}));
-            }
-            return Ok(answer);
-        }
-        Err(RpcError::not_found(format!(
-            "`{method}` is not a method of this process"
-        )))
-    }
-
     /// `harnix.prompts.answerer {session_id, tool_use_id}`: the device that answered that tool's
     /// permission prompt, once (it is forgotten on reading); `null` when no device answered it
     /// (the session's permission mode let it run) or the answer was pushed out. For the
     /// application's audit; a device cannot ask (helm-01).
-    fn answerer(&self, subject: &Subject, params: &Value) -> Result<Value, RpcError> {
+    pub(crate) fn answerer(&self, subject: &Subject, params: &Value) -> Result<Value, RpcError> {
         if matches!(subject, Subject::Device { .. }) {
             return Err(RpcError::new(codes::REFUSED, "answerers are for the application's audit"));
         }
@@ -671,7 +483,7 @@ impl Hub {
     /// for people and never for the model (concept §3.2.1). A module writes under its own namespace,
     /// `app.<id>`, so no module can write another's; the kernel names one. A person's words are
     /// `harnix.send`, so a device writes none.
-    async fn append_entry(&self, subject: &Subject, params: Value) -> Result<Value, RpcError> {
+    pub(crate) async fn append_entry(&self, subject: &Subject, params: Value) -> Result<Value, RpcError> {
         let key = self.key_of(&params)?;
         let ns = match subject {
             Subject::Module { id } => format!("app.{id}"),
@@ -707,38 +519,20 @@ impl Hub {
     }
 }
 
-/// The hub is the thing behind the gate. Authorization decides; this answers.
-///
-/// A separate type rather than `impl Gate for Hub`, because every method here
-/// needs the `Arc` — a turn outlives the call that started it, which is the
-/// whole point of the hub owning turns.
-pub struct HubGate(pub Arc<Hub>);
-
+/// The transport registers its clients here.
 #[async_trait::async_trait]
-impl Gate for HubGate {
-    async fn call(
-        &self,
-        subject: &Subject,
-        method: &str,
-        params: Value,
-    ) -> Result<Value, RpcError> {
-        self.0.dispatch(subject, method, params).await
+impl harnix_kernel::ClientRegistry for Hub {
+    async fn add_client(&self, sink: Arc<dyn FrameSink>) -> ClientId {
+        Hub::add_client(self, sink).await
     }
-}
 
-/// Engine methods after which an instance's session list reads differently.
-const RELISTED: &[&str] = &[
-    "session.rename",
-    "session.clear",
-    "session.compact",
-    "session.dropMessages",
-    "session.editMessage",
-];
+    fn describe_client(&self, id: ClientId, description: Value) {
+        Hub::describe_client(self, id, description)
+    }
 
-/// Whether a name is in one of the engine's namespaces, so a module's grant
-/// can reach it. `harnix.*` and `app.*` never are.
-fn is_engine_method(method: &str) -> bool {
-    !method.starts_with("harnix.") && !method.starts_with("app.") && method.contains('.')
+    async fn remove_client(&self, id: ClientId) {
+        Hub::remove_client(self, id).await
+    }
 }
 
 /// The engine has no notion of instances or spaces; the names are Harnix's.

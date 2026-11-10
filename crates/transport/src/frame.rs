@@ -6,7 +6,6 @@
 //! reaches the client whole, `data` and all.
 
 use harnix_contract::{codes, RpcError};
-use harnix_hub::ClientId;
 use serde_json::{json, Value};
 
 /// One JSON-RPC request, read.
@@ -19,19 +18,6 @@ pub(crate) struct Request {
     pub method: String,
     /// `{}` when the frame had none.
     pub params: Value,
-}
-
-impl Request {
-    /// Say which client this is, from the credential the handshake produced — not from the
-    /// connection that carried the request. In a topology where the call and the frames it
-    /// registers a watcher for travel on different connections, connection identity is the wrong
-    /// answer, and quietly; taking it from the credential makes both topologies mean the same
-    /// thing here (concept §3.3.3, item 2).
-    pub fn say_client(&mut self, client: ClientId) {
-        if let Some(params) = self.params.as_object_mut() {
-            params.insert("__client".into(), json!(client.0));
-        }
-    }
 }
 
 /// A frame refused before it is a request, with the id it is answered under (null when there was
@@ -143,15 +129,6 @@ mod tests {
         let e = parse_request(big.as_bytes()).unwrap_err();
         assert_eq!((e.id, e.error.code), (json!(3), codes::INVALID_REQUEST));
         assert!(e.error.message.contains(&harnix_contract::MAX_FRAME_BYTES.to_string()), "{}", e.error.message);
-    }
-
-    /// The client is said in the params, over whatever the client put there itself.
-    #[test]
-    fn the_client_is_said_from_the_credential() {
-        let mut request =
-            parse_request(br#"{"jsonrpc":"2.0","id":1,"method":"harnix.attach","params":{"__client":99}}"#).unwrap();
-        request.say_client(ClientId(4));
-        assert_eq!(request.params["__client"], json!(4));
     }
 
     /// An error's `data` goes out with it; one without is just code and message.

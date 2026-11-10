@@ -13,7 +13,7 @@
 use std::sync::Arc;
 
 use harnix_instance::engine_codes;
-use harnix_contract::{Frame, RpcError, Subject};
+use harnix_contract::{Frame, RpcError};
 use serde_json::{json, Value};
 
 use crate::session::QueueItem;
@@ -49,7 +49,7 @@ impl OnBusy {
 impl Hub {
     pub(crate) async fn send(
         self: &Arc<Self>,
-        _subject: &Subject,
+        cx: &harnix_kernel::CallContext,
         params: Value,
     ) -> Result<Value, RpcError> {
         let key = self.key_of(&params)?;
@@ -79,11 +79,7 @@ impl Hub {
         // Sending implies watching. A client that skipped `harnix.attach` would
         // otherwise get neither the turn's events nor its settlement — frames
         // go to watchers, and it would not be one.
-        if let Some(client) = params
-            .get("__client")
-            .and_then(Value::as_u64)
-            .map(crate::ClientId)
-        {
+        if let Some(client) = cx.client {
             let mut guard = self.inner.lock().await;
             guard
                 .sessions

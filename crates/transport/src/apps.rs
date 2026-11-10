@@ -2,7 +2,7 @@
 //!
 //! A module's own HTTP and WebSocket, served from this listener so they are
 //! same-origin with the interface. Transport does not know what a module is:
-//! it is handed routers by id and a [`RouteGate`] to ask, and does the two
+//! it is handed routers by id and a [`RouteDecider`] to ask, and does the two
 //! things only it can — find out who the request is from, and refuse before
 //! the module's code runs.
 //!
@@ -17,15 +17,10 @@ use axum::extract::Request;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use harnix_contract::{RpcError, Subject};
+use harnix_contract::Subject;
+use harnix_kernel::RouteDecider;
 
 use crate::{Admission, AppState};
-
-/// Decides whether a subject may reach a module's routes. Implemented by the
-/// application, over the authorization table.
-pub trait RouteGate: Send + Sync {
-    fn decide(&self, subject: &Subject, module: &str, path: &str) -> Result<(), RpcError>;
-}
 
 /// One module's router, to be served at `/apps/<id>/`.
 pub struct AppRoutes {
@@ -73,7 +68,7 @@ async fn guard(state: AppState, module: String, req: Request, next: Next) -> Res
     let Some(gate) = state.route_gate.as_ref() else {
         return (StatusCode::NOT_FOUND, "no module routes here").into_response();
     };
-    if let Err(e) = gate.decide(&subject, &module, req.uri().path()) {
+    if let Err(e) = gate.decide_route(&subject, &module, req.uri().path()) {
         let status = if e.code == harnix_contract::codes::REFUSED {
             StatusCode::FORBIDDEN
         } else {
@@ -114,4 +109,4 @@ async fn subject_of(state: &AppState, headers: &HeaderMap, query: &str) -> Optio
     None
 }
 
-pub(crate) type SharedGate = Option<Arc<dyn RouteGate>>;
+pub(crate) type SharedGate = Option<Arc<dyn RouteDecider>>;

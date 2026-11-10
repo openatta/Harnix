@@ -10,6 +10,7 @@ description  = "The compile-time module contract: Module, its registries, Module
 [dependencies]
 harnix-contract = { workspace = true }
 harnix-authz    = { workspace = true }
+harnix-kernel   = { workspace = true }
 harnix-instance = { workspace = true }
 base        = { workspace = true }
 history     = { workspace = true }

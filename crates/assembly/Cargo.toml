@@ -10,6 +10,8 @@ description  = "App::builder(): a Harnix process assembled from compile-time mod
 [dependencies]
 harnix-instance  = { workspace = true }
 harnix-authz     = { workspace = true }
+harnix-kernel    = { workspace = true }
+harnix-router    = { workspace = true }
 harnix-builtin   = { workspace = true }
 harnix-contract  = { workspace = true }
 harnix-module    = { workspace = true }

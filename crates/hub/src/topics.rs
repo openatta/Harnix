@@ -164,10 +164,10 @@ impl crate::Hub {
     /// published value: nothing recomputes them while nobody watches.
     pub(crate) async fn subscribe(
         &self,
-        subject: &harnix_contract::Subject,
+        cx: &harnix_kernel::CallContext,
         params: Value,
     ) -> Result<Value, RpcError> {
-        let client = crate::session::client_of(subject, &params)?;
+        let client = crate::session::client_of(cx)?;
         let (topic, args) = topic_params(&params)?;
         let key = self.inner.lock().await.topics.key(&topic, &args)?;
         if crate::HUB_TOPICS.iter().any(|(name, _)| *name == topic) || topic == crate::SPACES_TOPIC {
@@ -220,10 +220,10 @@ impl crate::Hub {
 
     pub(crate) async fn unsubscribe(
         &self,
-        subject: &harnix_contract::Subject,
+        cx: &harnix_kernel::CallContext,
         params: Value,
     ) -> Result<Value, RpcError> {
-        let client = crate::session::client_of(subject, &params)?;
+        let client = crate::session::client_of(cx)?;
         let (topic, args) = topic_params(&params)?;
         let mut guard = self.inner.lock().await;
         let key = guard.topics.key(&topic, &args)?;

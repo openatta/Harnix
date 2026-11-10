@@ -1,7 +1,7 @@
 //! The runtime-application host: what lets names into the process after it started.
 //!
-//! Everything else in this crate puts names in the authorization table once,
-//! at assembly. This is the one path that does so later, and it is narrow on
+//! Everything else in this crate puts rows in the route table once, at
+//! assembly. This is the one path that does so later, and it is narrow on
 //! purpose (`[apps] enabled`; `harnix_module::apps` for the contract):
 //!
 //! **Registering** one application is all or nothing, one at a time (a
@@ -13,27 +13,24 @@
 //!
 //! 1. its topics are declared in the hub and its spaces added — invisible to
 //!    a client so far, since subscribing is decided by the table;
-//! 2. its handlers are bound in the gate above the hub — unreachable so far
-//!    for the same reason, and binding never replaces a name already bound;
-//! 3. its names go in the table, in one write. From here a call is admitted.
+//! 2. its rows go in the table, each with its handler, in one write. From
+//!    here a call is admitted.
 //!
-//! A failure at any step undoes the earlier ones. So a name the table admits
+//! A failure at either step undoes the earlier one. So a name the table admits
 //! always has its handler and its topic behind it.
 //!
-//! **Withdrawing** goes the other way: the names leave the table first (one
+//! **Withdrawing** goes the other way: the rows leave the table first (one
 //! write; a call decided after it is unknown, `-32601`, like a name never
-//! declared), then the handlers leave the gate (a call already running holds
-//! its own reference and finishes; one admitted in the instant between is
-//! answered not-found by the gate, never handed to the hub), then each
-//! subscriber of its topics is sent `harnix.topic_ended` and the topics are
-//! gone, then its spaces leave `harnix.spaces.list` (pushed on
+//! declared; a call already running holds its own handler and finishes),
+//! then each subscriber of its topics is sent `harnix.topic_ended` and the
+//! topics are gone, then its spaces leave `harnix.spaces.list` (pushed on
 //! `harnix.spaces`).
 //!
 //! Every name declared, withdrawn or refused is an audit entry under the
 //! subject of the module that hosts the application, with the time.
 //!
 //! **Acting as itself.** An application reaches the rest of the process as
-//! `module:<id>` (`call_as`, `subscribe_as`): through the authorizer, like any
+//! `module:<id>` (`call_as`, `subscribe_as`): through the router, like any
 //! module, and only to what its `hub` lists — method names, topics as
 //! `topic:<name>` — plus its own `app.<id>.*`, which it is always declared
 //! for. The `hub` entries are checked at registration exactly as a compiled-in
@@ -53,15 +50,18 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
-use harnix_authz::{apps_overlap, topic, valid_app_id, Authorizer, Change};
+use harnix_authz::{access_for, Change};
 use harnix_contract::sync::lock;
-use harnix_contract::{Channel, Frame, FrameSink, Gate, RpcError, SpaceDecl, Subject};
+use harnix_contract::{Channel, Frame, FrameSink, RpcError, SpaceDecl, Subject};
 use harnix_hub::Hub;
+use harnix_kernel::{CallContext, Chain, ClientId, Dispatch, Owner};
 use harnix_module::apps::AppRuntime;
 use harnix_module::{AppSpec, AppSummary, AppTopic, AppTopicSink, AppWithdrawn, Principal};
+use harnix_router::names::{app_name, apps_overlap, names_an_application, topic, valid_app_id};
+use harnix_router::{Row, Router, TableError};
 use serde_json::{json, Value};
 
-use crate::gate::AppGate;
+use crate::gate::RuntimeMethod;
 
 /// What an application's topics and spaces are kept in: the hub, or a
 /// stand-in in the tests.
@@ -108,7 +108,7 @@ impl Surfaces for HubSurfaces {
         Some(self.0.add_client(sink).await.0)
     }
     async fn remove_client(&self, client: u64) {
-        self.0.remove_client(harnix_hub::ClientId(client)).await
+        self.0.remove_client(ClientId(client)).await
     }
 }
 
@@ -153,8 +153,7 @@ impl FrameSink for TopicFrames {
 const HUB_GRANT: &str = "the application's `hub` capability";
 
 pub(crate) struct Apps {
-    authorizer: Arc<Authorizer>,
-    gate: Arc<AppGate>,
+    router: Arc<Router>,
     surfaces: Arc<dyn Surfaces>,
     /// Every compiled-in module's id, enabled or not: no application may
     /// take one, or nest under one, even where the module has no names in
@@ -165,8 +164,8 @@ pub(crate) struct Apps {
 }
 
 /// Refused, audited under `by`, as `REFUSED` with the reason.
-fn refuse(authorizer: &Authorizer, by: &Subject, name: &str, why: &'static str, message: String) -> RpcError {
-    authorizer.audit().record_change(by, name, Change::Refuse, Some(why));
+fn refuse(router: &Router, by: &Subject, name: &str, why: &'static str, message: String) -> RpcError {
+    router.audit().record_change(by, name, Change::Refuse, Some(why));
     RpcError::refused(message)
 }
 
@@ -194,15 +193,9 @@ fn normalize(params: Value, declared: &[String]) -> Result<Value, RpcError> {
 }
 
 impl Apps {
-    pub fn new(
-        authorizer: Arc<Authorizer>,
-        gate: Arc<AppGate>,
-        surfaces: Arc<dyn Surfaces>,
-        reserved: impl IntoIterator<Item = String>,
-    ) -> Self {
+    pub fn new(router: Arc<Router>, surfaces: Arc<dyn Surfaces>, reserved: impl IntoIterator<Item = String>) -> Self {
         Self {
-            authorizer,
-            gate,
+            router,
             surfaces,
             reserved: reserved.into_iter().collect(),
             live: Mutex::new(BTreeMap::new()),
@@ -214,8 +207,7 @@ impl Apps {
         lock(&self.live)
     }
 
-    async fn undo(&self, topics: &[String], spaces: &[String], methods: &[String]) {
-        self.gate.unbind(methods);
+    async fn undo(&self, topics: &[String], spaces: &[String]) {
         for id in spaces {
             self.surfaces.remove_space(id);
         }
@@ -231,8 +223,8 @@ impl AppRuntime for Apps {
         let _serial = self.serial.lock().await;
         let host = Subject::Module { id: by.to_string() };
         let id = spec.id.clone();
-        let all = format!("app.{id}.*");
-        let az = &self.authorizer;
+        let all = app_name(&id, "*");
+        let az = &*self.router;
         if !valid_app_id(&id) {
             return Err(refuse(
                 az,
@@ -276,7 +268,7 @@ impl AppRuntime for Apps {
         // Another application's names are left to that application's principals.
         let mut to_grant = Vec::new();
         for name in &spec.hub {
-            if name.starts_with("app.") || name.starts_with("topic:app.") {
+            if names_an_application(name) {
                 continue;
             }
             match az.table().check_grant(name, &id) {
@@ -294,24 +286,27 @@ impl AppRuntime for Apps {
             }
         }
 
-        let methods: Vec<String> = spec.methods.iter().map(|m| format!("app.{id}.{}", m.name)).collect();
-        let topics: Vec<String> = spec.topics.iter().map(|t| format!("app.{id}.{}", t.name)).collect();
+        let methods: Vec<String> = spec.methods.iter().map(|m| app_name(&id, &m.name)).collect();
+        let topics: Vec<String> = spec.topics.iter().map(|t| app_name(&id, &t.name)).collect();
         // The application itself always reaches its own names: its tools ask its backend.
         let with_self = |principals: &[Principal]| {
             let mut principals = principals.to_vec();
             principals.push(Principal::Module(id.clone()));
-            principals
+            access_for(&principals)
         };
-        let rows: Vec<(String, Vec<Principal>)> = spec
+        let rows: Vec<Row> = spec
             .methods
             .iter()
             .zip(&methods)
-            .map(|(m, name)| (name.clone(), with_self(&m.principals)))
-            .chain(spec.topics.iter().zip(&topics).map(|(t, name)| (topic(name), with_self(&t.principals))))
+            .map(|(m, name)| {
+                Row::method(name.clone(), with_self(&m.principals), Arc::new(RuntimeMethod(m.handler.clone())))
+                    .describe(m.description.clone())
+            })
+            .chain(spec.topics.iter().zip(&topics).map(|(t, name)| Row::topic(name, with_self(&t.principals))))
             .collect();
-        if let Err(e) = az.table().check_app(&id, &rows) {
+        if let Err(e) = az.table().check_app(&id, rows.iter().map(Row::name)) {
             let name = match &e {
-                harnix_authz::TableError::Taken(n) | harnix_authz::TableError::Namespace(n) => n.clone(),
+                TableError::Taken(n) | TableError::Namespace(n) => n.clone(),
                 _ => all.clone(),
             };
             return Err(refuse(az, &host, &name, "the authorization table refused it", e.to_string()));
@@ -322,7 +317,7 @@ impl AppRuntime for Apps {
         let mut declared_topics = Vec::new();
         for (t, name) in spec.topics.iter().zip(&topics) {
             if !self.surfaces.declare_topic(name, t.params.clone()).await {
-                self.undo(&declared_topics, &[], &[]).await;
+                self.undo(&declared_topics, &[]).await;
                 return Err(refuse(az, &host, &topic(name), "the topic exists", format!("there is already a topic `{name}`")));
             }
             declared_topics.push(name.clone());
@@ -330,25 +325,17 @@ impl AppRuntime for Apps {
         let mut added_spaces = Vec::new();
         for space in &spec.spaces {
             if let Err(reason) = self.surfaces.add_space(space.clone()) {
-                self.undo(&declared_topics, &added_spaces, &[]).await;
+                self.undo(&declared_topics, &added_spaces).await;
                 return Err(refuse(az, &host, &format!("space:{}", space.id), "the space was refused", reason));
             }
             added_spaces.push(space.id.clone());
         }
-        // 2. Handlers: unreachable until the table says otherwise.
-        let mut bound = Vec::new();
-        for (m, name) in spec.methods.iter().zip(&methods) {
-            if !self.gate.bind_app(name, m.handler.clone()) {
-                self.undo(&declared_topics, &added_spaces, &bound).await;
-                return Err(refuse(az, &host, name, "the name is bound already", format!("`{name}` is served already")));
-            }
-            bound.push(name.clone());
-        }
-        // 3. The table, in one write: its names, and its subject a runtime principal reaching
-        //    its `hub` and nothing more. Audited there. Then what that lists and devices may not
-        //    reach is granted to it: only ever opening what it may already ask for.
-        if let Err(e) = az.declare_app(&host, &id, &rows, &spec.hub) {
-            self.undo(&declared_topics, &added_spaces, &bound).await;
+        // 2. The table, in one write: its rows with their handlers, and its subject a runtime
+        //    principal reaching its `hub` and nothing more. Audited there. Then what that lists
+        //    and devices may not reach is granted to it: only ever opening what it may already
+        //    ask for.
+        if let Err(e) = az.install_app(&host, &id, rows, &spec.hub) {
+            self.undo(&declared_topics, &added_spaces).await;
             return Err(RpcError::refused(e.to_string()));
         }
         for space in &added_spaces {
@@ -401,16 +388,16 @@ impl AppRuntime for Apps {
         };
         // The table first: from here a call is decided as unknown, and what it was granted is
         // closed to it again.
-        self.authorizer.withdraw_app(&host, id);
+        self.router
+            .withdraw(&host, &Owner::extension(id), "withdrawn with its runtime application");
         let me = Subject::Module { id: id.to_string() };
         for name in &granted {
-            self.authorizer.revoke(&me, name, id, "withdrawn with its runtime application");
+            self.router.revoke(&me, name, id, "withdrawn with its runtime application");
         }
         // Its own subscriptions end with it; the hub forgets the client's.
         if let Some(client) = client {
             self.surfaces.remove_client(client).await;
         }
-        self.gate.unbind(&summary.methods);
         let reason = format!("the application `{id}` was withdrawn");
         let mut ended = 0;
         for name in &summary.topics {
@@ -418,7 +405,7 @@ impl AppRuntime for Apps {
         }
         for space in &summary.spaces {
             self.surfaces.remove_space(space);
-            self.authorizer.audit().record_change(
+            self.router.audit().record_change(
                 &host,
                 &format!("space:{space}"),
                 Change::Withdraw,
@@ -445,7 +432,7 @@ impl AppRuntime for Apps {
             let Some(decl) = app.topics.iter().find(|t| t.name == topic) else {
                 return Err(RpcError::not_found(format!("`app.{id}.{topic}` is not a topic this application declared")));
             };
-            (format!("app.{id}.{topic}"), normalize(params, &decl.params)?)
+            (app_name(id, topic), normalize(params, &decl.params)?)
         };
         self.surfaces.publish(&name, params, value).await;
         Ok(())
@@ -455,15 +442,16 @@ impl AppRuntime for Apps {
         self.live().values().map(|l| l.summary.clone()).collect()
     }
 
-    async fn call_as(&self, by: &str, id: &str, method: &str, mut params: Value) -> Result<Value, RpcError> {
-        let me = Subject::Module { id: id.to_string() };
+    async fn call_as(&self, by: &str, id: &str, method: &str, params: Value) -> Result<Value, RpcError> {
+        self.call_chained(by, id, method, params, Chain::default()).await
+    }
+
+    async fn call_chained(&self, by: &str, id: &str, method: &str, params: Value, chain: Chain) -> Result<Value, RpcError> {
         // Whether it may is the table's; whether `by` speaks for it is this.
         self.registered_by(by, id)?;
-        // Never a connection's: the application cannot stand in for one.
-        if let Some(obj) = params.as_object_mut() {
-            obj.remove("__client");
-        }
-        self.authorizer.call(&me, method, params).await
+        // On no connection: the application cannot stand in for one.
+        let cx = CallContext::root(Subject::Module { id: id.to_string() }, None).chained(chain);
+        self.router.call(cx, method, params).await
     }
 
     async fn subscribe_as(&self, by: &str, id: &str, name: &str, params: Value) -> Result<Value, RpcError> {
@@ -491,41 +479,47 @@ impl Apps {
         let Some(client) = self.registered_by(by, id)? else {
             return Err(RpcError::refused(format!("`{id}` was registered without anywhere for topic values to go")));
         };
-        self.authorizer
-            .call(&me, method, json!({"topic": name, "params": params, "__client": client}))
-            .await
+        let cx = CallContext::root(me, Some(ClientId(client)));
+        self.router.call(cx, method, json!({"topic": name, "params": params})).await
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::RwLock;
 
-    use harnix_authz::{Audit, MethodTable, Reach, OUTSIDE_HUB};
-    use harnix_contract::{codes, Gate};
+    use harnix_authz::Audit;
+    use harnix_contract::codes;
+    use harnix_kernel::{Access, Handler, KernelPart, Rpc};
+    use harnix_router::{RouteTable, OUTSIDE_HUB};
     use serde_json::json;
 
     use super::*;
-    use crate::gate::Diagnostics;
 
-    /// What sits below the gate. No `app.*` name may ever reach it.
+    /// One call a kernel row answered: who called what, with what, as which client.
+    type Answered = (String, String, Value, Option<ClientId>);
+
+    /// What the kernel's rows answer with, here.
     #[derive(Default)]
     struct Below {
-        app_calls: AtomicUsize,
-        /// Every call that reached below, with its subject and params.
-        seen: Mutex<Vec<(String, String, Value)>>,
+        calls: AtomicUsize,
+        seen: Mutex<Vec<Answered>>,
     }
 
+    struct BelowRow(Arc<Below>, &'static str);
+
     #[async_trait::async_trait]
-    impl Gate for Below {
-        async fn call(&self, s: &Subject, method: &str, p: Value) -> Result<Value, RpcError> {
-            if method.starts_with("app.") {
-                self.app_calls.fetch_add(1, Ordering::SeqCst);
-            }
-            lock(&self.seen).push((s.label(), method.to_string(), p));
-            Ok(json!({"below": method}))
+    impl Handler for BelowRow {
+        async fn call(&self, cx: CallContext, p: Value) -> Rpc<Value> {
+            self.0.calls.fetch_add(1, Ordering::SeqCst);
+            lock(&self.0.seen).push((cx.subject.label(), self.1.to_string(), p, cx.client));
+            Ok(json!({"below": self.1}))
         }
+    }
+
+    /// One call, made with nothing else to its name.
+    async fn call(router: &Router, subject: &Subject, method: &str, params: Value) -> Result<Value, RpcError> {
+        router.call(CallContext::root(subject.clone(), None), method, params).await
     }
 
     #[derive(Default)]
@@ -582,7 +576,7 @@ mod tests {
 
     struct World {
         apps: Arc<Apps>,
-        az: Arc<Authorizer>,
+        az: Arc<Router>,
         below: Arc<Below>,
         stub: Arc<Stub>,
     }
@@ -592,37 +586,33 @@ mod tests {
     }
 
     /// One process: the hub's methods, and a compiled-in module `probe` whose `app.probe.echo`
-    /// is in the table and bound.
+    /// is in the table.
     fn world() -> World {
         let below = Arc::new(Below::default());
-        let audit = Arc::new(Audit::default());
-        let diagnostics = Arc::new(Diagnostics {
-            versions: json!({}),
-            modules: RwLock::new(Vec::new()),
-            unknown_sections: Vec::new(),
-            authorizer: std::sync::OnceLock::new(),
-        });
-        let gate = Arc::new(AppGate::new(below.clone(), diagnostics, audit.clone()));
-        let table = MethodTable::new()
-            .allow("harnix.hello", Reach::Device)
-            .allow("app.probe.echo", Reach::Device)
-            .allow("harnix.subscribe", Reach::Device)
-            .allow("harnix.unsubscribe", Reach::Device)
-            .allow("session.create", Reach::Device)
-            .allow("settings.write", Reach::Refused("not for devices"))
-            .allow("harnix.turn", Reach::HubOwned("the hub's"))
-            .allow(&topic("harnix.sessions.status"), Reach::Device)
-            .allow(&topic("harnix.process"), Reach::Kernel);
-        let compiled: Arc<dyn harnix_module::AppHandler> = Arc::new(Fixed(json!("the compiled-in probe")));
-        assert!(gate.bind_app("app.probe.echo", compiled));
-        let az = Arc::new(Authorizer::new(table, gate.clone(), audit));
+        let row = |name: &'static str, access: Access| Row::method(name, access, Arc::new(BelowRow(below.clone(), name)));
+        let mut table = RouteTable::new();
+        table
+            .install(
+                &Owner::Kernel(KernelPart::Hub),
+                vec![
+                    row("harnix.hello", Access::device()),
+                    row("harnix.subscribe", Access::device()),
+                    row("harnix.unsubscribe", Access::device()),
+                    row("session.create", Access::device()),
+                    row("settings.write", Access::refused("not for devices")),
+                    Row::closed("harnix.turn", Access::hub_owned("the hub's")),
+                    Row::topic("harnix.sessions.status", Access::device()),
+                    Row::topic("harnix.process", Access::kernel()),
+                ],
+            )
+            .unwrap();
+        let compiled = Arc::new(RuntimeMethod(Arc::new(Fixed(json!("the compiled-in probe")))));
+        table
+            .install(&Owner::extension("probe"), vec![Row::method("app.probe.echo", Access::device(), compiled)])
+            .unwrap();
+        let az = Arc::new(Router::new(table, Arc::new(Audit::default())));
         let stub = Arc::new(Stub::default());
-        let apps = Arc::new(Apps::new(
-            az.clone(),
-            gate,
-            stub.clone(),
-            ["probe".to_string(), "quiet".to_string()],
-        ));
+        let apps = Arc::new(Apps::new(az.clone(), stub.clone(), ["probe".to_string(), "quiet".to_string()]));
         World { apps, az, below, stub }
     }
 
@@ -653,13 +643,13 @@ mod tests {
         assert_eq!(summary.topics, vec!["app.fake.ticks"]);
         assert_eq!(summary.spaces, vec!["fake"]);
 
-        let answer = w.az.call(&device(), "app.fake.echo", json!({"x": 1, "__client": 7})).await.unwrap();
-        assert_eq!(answer["params"], json!({"x": 1}), "the transport's stamp is taken off");
+        let answer = call(&w.az, &device(), "app.fake.echo", json!({"x": 1})).await.unwrap();
+        assert_eq!(answer["params"], json!({"x": 1}));
         assert_eq!(answer["caller"], json!({"kind": "device", "id": "d1"}));
         // Only who it was declared for.
-        let refused = w.az.call(&device(), "app.fake.internal", json!({})).await.unwrap_err();
+        let refused = call(&w.az, &device(), "app.fake.internal", json!({})).await.unwrap_err();
         assert_eq!(refused.code, codes::REFUSED);
-        assert_eq!(w.az.call(&Subject::Kernel, "app.fake.internal", json!({})).await.unwrap(), json!("kernel only"));
+        assert_eq!(call(&w.az, &Subject::Kernel, "app.fake.internal", json!({})).await.unwrap(), json!("kernel only"));
         assert!(w.az.reachable(&device()).contains(&"app.fake.echo".to_string()));
 
         // On the record: who declared what, and when.
@@ -679,11 +669,11 @@ mod tests {
         );
         assert!(lock(&w.stub.spaces).is_empty());
 
-        // Refused afterwards like a name that never existed, and never handed below.
-        let gone = w.az.call(&device(), "app.fake.echo", json!({})).await.unwrap_err();
+        // Refused afterwards like a name that never existed, and never handed to anything else.
+        let gone = call(&w.az, &device(), "app.fake.echo", json!({})).await.unwrap_err();
         assert_eq!(gone.code, codes::METHOD_NOT_FOUND);
         assert!(!w.az.reachable(&device()).contains(&"app.fake.echo".to_string()));
-        assert_eq!(w.below.app_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(w.below.calls.load(Ordering::SeqCst), 0);
         let withdrew: Vec<_> = w.az.audit().recent(80).into_iter().filter(|e| e.decision == "withdraw").collect();
         assert_eq!(withdrew.len(), 4);
         assert!(w.apps.registered().is_empty());
@@ -717,18 +707,18 @@ mod tests {
             .topic_sink(heard.clone());
         w.apps.register("host", spec).await.unwrap();
 
-        // Listed, and open to every module anyway: through the authorizer, as `module:acme.notes`,
-        // and never with a connection's stamp.
+        // Listed, and open to every module anyway: through the router, as `module:acme.notes`,
+        // and never on a connection.
         assert_eq!(
-            w.apps.call_as("host", "acme.notes", "session.create", json!({"__client": 9, "x": 1})).await.unwrap(),
+            w.apps.call_as("host", "acme.notes", "session.create", json!({"x": 1})).await.unwrap(),
             json!({"below": "session.create"})
         );
-        let (subject, _, params) = lock(&w.below.seen).last().cloned().unwrap();
+        let (subject, _, params, client) = lock(&w.below.seen).last().cloned().unwrap();
         assert_eq!(subject, "module:acme.notes");
-        assert_eq!(params, json!({"x": 1}));
+        assert_eq!((params, client), (json!({"x": 1}), None));
         // Listed and refused to devices: granted to it, and to nobody else.
         assert!(w.apps.call_as("host", "acme.notes", "settings.write", json!({})).await.is_ok());
-        assert_eq!(w.az.call(&me("other"), "settings.write", json!({})).await.unwrap_err().code, codes::REFUSED);
+        assert_eq!(call(&w.az, &me("other"), "settings.write", json!({})).await.unwrap_err().code, codes::REFUSED);
         // Its own methods, unlisted and declared for devices only.
         assert_eq!(
             w.apps.call_as("host", "acme.notes", "app.acme.notes.echo", json!({"y": 2})).await.unwrap()["caller"],
@@ -741,10 +731,10 @@ mod tests {
         let entry = w.az.audit().recent(100).into_iter().find(|e| e.method == "harnix.hello").unwrap();
         assert_eq!((entry.subject.as_str(), entry.decision), ("module:acme.notes", "refuse"));
         assert_eq!(entry.reason, Some(OUTSIDE_HUB));
-        // The same answer through the authorizer directly: there is no other door to go around.
-        assert_eq!(w.az.call(&me("acme.notes"), "harnix.hello", json!({})).await.unwrap_err().code, codes::REFUSED);
+        // The same answer through the router directly: there is no other door to go around.
+        assert_eq!(call(&w.az, &me("acme.notes"), "harnix.hello", json!({})).await.unwrap_err().code, codes::REFUSED);
         // And what it is told it reaches is exactly that.
-        let reach = w.apps.call_as("host", "acme.notes", harnix_authz::REACHABLE, json!({})).await.unwrap();
+        let reach = w.apps.call_as("host", "acme.notes", harnix_router::REACHABLE, json!({})).await.unwrap();
         assert_eq!(
             reach["methods"],
             json!(["app.acme.notes.echo", "app.acme.notes.internal", "harnix.subscribe", "harnix.unsubscribe", "session.create", "settings.write"])
@@ -755,9 +745,10 @@ mod tests {
 
         // Subscribing: a listed topic, through its own client of the hub; an unlisted one refused.
         w.apps.subscribe_as("host", "acme.notes", "harnix.sessions.status", json!({})).await.unwrap();
-        let (subject, method, params) = lock(&w.below.seen).last().cloned().unwrap();
+        let (subject, method, params, client) = lock(&w.below.seen).last().cloned().unwrap();
         assert_eq!((subject.as_str(), method.as_str()), ("module:acme.notes", "harnix.subscribe"));
-        assert_eq!(params, json!({"topic": "harnix.sessions.status", "params": {}, "__client": 101}));
+        assert_eq!(params, json!({"topic": "harnix.sessions.status", "params": {}}));
+        assert_eq!(client, Some(ClientId(101)), "as its own client of the hub");
         assert_eq!(
             w.apps.subscribe_as("host", "acme.notes", "harnix.process", json!({})).await.unwrap_err().code,
             codes::REFUSED
@@ -782,10 +773,40 @@ mod tests {
         // Withdrawn: the grant is closed, the client removed, and nothing more is called as it.
         w.apps.withdraw("host", "acme.notes").await.unwrap();
         assert_eq!(lock(&w.stub.removed).as_slice(), [101]);
-        assert_eq!(w.az.call(&me("acme.notes"), "settings.write", json!({})).await.unwrap_err().code, codes::REFUSED);
+        assert_eq!(call(&w.az, &me("acme.notes"), "settings.write", json!({})).await.unwrap_err().code, codes::REFUSED);
         assert_eq!(w.apps.call_as("host", "acme.notes", "session.create", json!({})).await.unwrap_err().code, codes::INVALID_PARAMS);
         let changes: Vec<_> = w.az.audit().recent(200).into_iter().filter(|e| e.method == "settings.write").map(|e| e.decision).collect();
         assert!(changes.contains(&"grant") && changes.contains(&"revoke"), "{changes:?}");
+    }
+
+    /// The extensions waiting on a call an application makes as itself reach the application
+    /// method it calls, beside its params: what that method's host refuses re-entry by.
+    #[tokio::test]
+    async fn a_calls_chain_reaches_the_application_method_it_calls() {
+        struct Chained;
+        #[async_trait::async_trait]
+        impl harnix_module::AppHandler for Chained {
+            async fn call(&self, _caller: &Subject, _params: Value) -> Result<Value, RpcError> {
+                Ok(Value::Null)
+            }
+            async fn call_in(&self, cx: &CallContext, _params: Value) -> Result<Value, RpcError> {
+                Ok(json!(cx.chain.extensions().collect::<Vec<_>>()))
+            }
+        }
+        let w = world();
+        let todo = AppSpec::new("acme.todo").method_with(harnix_module::AppMethod {
+            name: "list".into(),
+            principals: vec![Principal::AnyModule],
+            description: String::new(),
+            handler: Arc::new(Chained),
+        });
+        w.apps.register("host", todo).await.unwrap();
+        w.apps.register("host", fake("acme.notes").hub(["app.acme.todo.list"])).await.unwrap();
+        let waiting = Chain::of_extensions(["acme.notes"]);
+        let answer = w.apps.call_chained("host", "acme.notes", "app.acme.todo.list", json!({}), waiting).await.unwrap();
+        assert_eq!(answer, json!(["acme.notes"]));
+        // A call nobody waits on carries none.
+        assert_eq!(w.apps.call_as("host", "acme.notes", "app.acme.todo.list", json!({})).await.unwrap(), json!([]));
     }
 
     #[tokio::test]
@@ -812,7 +833,7 @@ mod tests {
             assert!(e.message.contains("compiled-in"), "{id}: {}", e.message);
         }
         // The compiled-in method is still the compiled-in one.
-        assert_eq!(w.az.call(&device(), "app.probe.echo", json!({})).await.unwrap(), json!("the compiled-in probe"));
+        assert_eq!(call(&w.az, &device(), "app.probe.echo", json!({})).await.unwrap(), json!("the compiled-in probe"));
 
         // Twice, or nested in a registered one.
         w.apps.register("host", fake("acme.notes")).await.unwrap();
@@ -840,13 +861,12 @@ mod tests {
         assert_eq!(lock(&w.stub.topics).keys().collect::<Vec<_>>(), ["app.acme.notes.ticks"]);
         assert_eq!(lock(&w.stub.spaces).iter().collect::<Vec<_>>(), ["acme.notes"]);
         assert_eq!(
-            w.az.call(&device(), "app.taken.m", json!({})).await.unwrap_err().code,
+            call(&w.az, &device(), "app.taken.m", json!({})).await.unwrap_err().code,
             codes::METHOD_NOT_FOUND
         );
         assert_eq!(w.apps.registered().len(), 1);
         let refusals = w.az.audit().recent(100).into_iter().filter(|e| e.decision == "refuse").count();
         assert_eq!(refusals, 12);
-        assert_eq!(w.below.app_calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
@@ -894,11 +914,11 @@ mod tests {
         };
         w.apps.register("host", spec).await.unwrap();
         let az = w.az.clone();
-        let in_flight = tokio::spawn(async move { az.call(&device(), "app.slow.wait", json!({})).await });
+        let in_flight = tokio::spawn(async move { call(&az, &device(), "app.slow.wait", json!({})).await });
         started.await.unwrap();
         w.apps.withdraw("host", "slow").await.unwrap();
         assert_eq!(
-            w.az.call(&device(), "app.slow.wait", json!({})).await.unwrap_err().code,
+            call(&w.az, &device(), "app.slow.wait", json!({})).await.unwrap_err().code,
             codes::METHOD_NOT_FOUND
         );
         release.notify_one();
@@ -906,7 +926,7 @@ mod tests {
     }
 
     /// Registering, withdrawing and calling at once: every call is answered by the application
-    /// or is not found — never refused for the wrong reason, never handed below the gate — and
+    /// or is not found — never refused for the wrong reason, never handed to another row — and
     /// when it is over the table holds exactly what assembly put in.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn registering_withdrawing_and_calling_at_once() {
@@ -932,19 +952,19 @@ mod tests {
             tasks.push(tokio::spawn(async move {
                 for _ in 0..2000 {
                     let method = format!("app.race{}.echo", n % 2);
-                    match az.call(&device(), &method, json!({"n": n})).await {
+                    match call(&az, &device(), &method, json!({"n": n})).await {
                         Ok(v) => assert_eq!(v["params"]["n"], json!(n)),
                         Err(e) => assert_eq!(e.code, codes::METHOD_NOT_FOUND, "{}", e.message),
                     }
                     // The compiled-in method never moves.
-                    assert_eq!(az.call(&device(), "app.probe.echo", json!({})).await.unwrap(), json!("the compiled-in probe"));
+                    assert_eq!(call(&az, &device(), "app.probe.echo", json!({})).await.unwrap(), json!("the compiled-in probe"));
                 }
             }));
         }
         for task in tasks {
             task.await.unwrap();
         }
-        assert_eq!(w.below.app_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(w.below.calls.load(Ordering::SeqCst), 0);
         assert_eq!(w.az.table().len(), rows_before);
         assert!(w.apps.registered().is_empty());
         assert!(lock(&w.stub.topics).is_empty());

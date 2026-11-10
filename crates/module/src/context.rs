@@ -25,6 +25,11 @@ use crate::events::{Events, TopicDecl};
 pub trait Kernel: Send + Sync {
     /// One call through the admission point, as `subject`.
     async fn call(&self, subject: &Subject, method: &str, params: Value) -> Result<Value, RpcError>;
+    /// One call through the admission point, made as `cx` says: its subject, and the call it was
+    /// made while handling. A kernel that keeps no such record answers it as [`Kernel::call`].
+    async fn call_in(&self, cx: harnix_kernel::CallContext, method: &str, params: Value) -> Result<Value, RpcError> {
+        self.call(&cx.subject, method, params).await
+    }
     /// Publish a whole-value snapshot on a topic.
     async fn publish(&self, topic: &str, params: Value, value: Value);
     /// Facts about one instance.
@@ -160,9 +165,11 @@ impl ModuleContext {
     }
 
     /// Call any method this module may reach, as `Subject::Module(id)`. The
-    /// same admission point a device goes through, and the same audit.
+    /// same admission point a device goes through, and the same audit. A call
+    /// made while answering one is [`CallContext::call`], which says so.
     pub async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
-        self.shared.kernel.call(&self.subject(), method, params).await
+        let cx = harnix_kernel::CallContext::root(self.subject(), None);
+        self.shared.kernel.call_in(cx, method, params).await
     }
 
     /// Drive sessions: create, send, interrupt, close, tap (concept §3.2).
@@ -251,29 +258,36 @@ impl ModuleContext {
     }
 }
 
-/// What a handler is handed: who is calling, and its module's context.
+/// What a handler is handed: the call — who is making it — and its module's context.
 #[derive(Clone)]
 pub struct CallContext {
-    subject: Subject,
+    call: harnix_kernel::CallContext,
     module: ModuleContext,
 }
 
 impl CallContext {
     #[doc(hidden)]
-    pub fn new(subject: Subject, module: ModuleContext) -> Self {
-        Self { subject, module }
+    pub fn new(call: harnix_kernel::CallContext, module: ModuleContext) -> Self {
+        Self { call, module }
     }
 
     pub fn subject(&self) -> &Subject {
-        &self.subject
+        &self.call.subject
     }
 
     /// The paired device behind this call, when it came from one.
     pub fn device(&self) -> Option<&str> {
-        match &self.subject {
+        match &self.call.subject {
             Subject::Device { id } => Some(id),
             _ => None,
         }
+    }
+
+    /// Call a method as this module while answering this call: decided and audited like
+    /// [`ModuleContext::call`], and on the record as made within this call.
+    pub async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
+        let cx = self.call.child(self.module.id(), false);
+        self.module.kernel().call_in(cx, method, params).await
     }
 
     pub fn module(&self) -> &ModuleContext {

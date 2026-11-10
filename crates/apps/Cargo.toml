@@ -19,6 +19,7 @@ harnix-package = { workspace = true }
 harnix-wasm-port    = { workspace = true }
 harnix-builtin  = { workspace = true }
 harnix-contract = { workspace = true }
+harnix-kernel   = { workspace = true }
 harnix-module   = { workspace = true }
 base        = { workspace = true }
 runtime     = { workspace = true }

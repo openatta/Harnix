@@ -10,7 +10,7 @@ description  = "Channel semantics over a chosen topology: frames, handshake, sta
 [dependencies]
 harnix-contract = { workspace = true }
 harnix-authz    = { workspace = true }
-harnix-hub      = { workspace = true }
+harnix-kernel   = { workspace = true }
 async-trait   = { workspace = true }
 axum        = { workspace = true }
 include_dir = { workspace = true }

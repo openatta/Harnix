@@ -71,6 +71,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     let register::Registered {
         mut records,
         mut table,
+        behind,
         held,
     } = register::register(builtins, app_modules, profile, &basis.roots, &apps)?;
 
@@ -102,15 +103,17 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         &apps,
     )
     .await?;
+    // The hub's rows have been in the route table since registration; from here they answer.
+    let _ = behind.hub.set(hub.clone());
 
     // ── Admission ───────────────────────────────────────────────────────
     let admission = admission::admit(
         &hub,
         table,
+        &behind,
         &records,
         history,
-        &profile.modules,
-        profile.apps.enabled,
+        profile,
         admission::Identity {
             name: &name,
             version: &version,

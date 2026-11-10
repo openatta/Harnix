@@ -48,6 +48,12 @@ use serde_json::Value;
 #[async_trait::async_trait]
 pub trait AppHandler: Send + Sync {
     async fn call(&self, caller: &Subject, params: Value) -> Result<Value, RpcError>;
+
+    /// The same, with the whole call: what a handler that needs more than the caller reads —
+    /// the extensions already waiting on it, for one.
+    async fn call_in(&self, cx: &harnix_kernel::CallContext, params: Value) -> Result<Value, RpcError> {
+        self.call(&cx.subject, params).await
+    }
 }
 
 struct FnHandler<F>(F);
@@ -226,6 +232,20 @@ pub trait AppRuntime: Send + Sync {
         Err(RpcError::refused(format!("this host does not let applications call `{method}`")))
     }
 
+    /// [`AppRuntime::call_as`], made while the extensions in `chain` wait on it: what a method of
+    /// an application that answers one call at a time is told, to refuse re-entry.
+    async fn call_chained(
+        &self,
+        by: &str,
+        id: &str,
+        method: &str,
+        params: Value,
+        chain: harnix_kernel::Chain,
+    ) -> Result<Value, RpcError> {
+        let _ = chain;
+        self.call_as(by, id, method, params).await
+    }
+
     /// Subscribe as `module:<id>`, if its `hub` lists `topic:<topic>` (or the
     /// topic is its own); values go to its [`AppSpec::topic_sink`]. Answers
     /// the topic's current value.
@@ -310,6 +330,14 @@ impl AppHandle {
     /// any call; a refusal is `REFUSED` and on the record too.
     pub async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
         self.host.runtime.call_as(&self.host.by, &self.id, method, params).await
+    }
+
+    /// [`AppHandle::call`], made while the extensions in `chain` wait on it.
+    pub async fn call_chained(&self, method: &str, params: Value, chain: harnix_kernel::Chain) -> Result<Value, RpcError> {
+        self.host
+            .runtime
+            .call_chained(&self.host.by, &self.id, method, params, chain)
+            .await
     }
 
     /// Subscribe to a hub topic as the application: only `topic:<name>`

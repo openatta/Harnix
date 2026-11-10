@@ -16,7 +16,9 @@ members = [
     "crates/ext/flow",
     "crates/harnix",
     "crates/hub",
+    "crates/kernel",
     "crates/module",
+    "crates/router",
     "crates/testapp",
     "crates/transport",
     "crates/wasm",
@@ -36,10 +38,11 @@ members = [
 # The dependency direction is one-way and each layer is ignorant of the one
 # above it; `tests/layering.rs` asserts it rather than leaving it to review.
 #
-#   app ─→ transport ─→ authz ─┐
-#     └───→ builtin ──→ hub ────┴─→ contract        (pure types, no deps)
+#   assembly ─→ router ─→ authz ─→ kernel ─→ contract (pure types, no deps)
+#     ├───→ transport ─→ authz, kernel                 (no hub, no router: it calls a `Dispatch`)
+#     └───→ builtin ──→ hub ─→ kernel
 #                        └────→ instance → Agix
-#   module ─→ instance, authz, contract
+#   module ─→ instance, authz, kernel, contract
 #   client ─→ contract                               (a process's own clients: CLI, tests, desktop shell)
 #   wasm                                             (applications' WebAssembly; a leaf: the host
 #                                                     implements its traits, and only it names wasmtime)
@@ -66,6 +69,8 @@ harnix-contract  = { path = "crates/contract" }
 harnix-ext-flow    = { path = "crates/ext/flow" }
 harnix-module    = { path = "crates/module" }
 harnix-hub       = { path = "crates/hub" }
+harnix-kernel    = { path = "crates/kernel" }
+harnix-router    = { path = "crates/router" }
 harnix-transport = { path = "crates/transport" }
 harnix-wasm      = { path = "crates/wasm" }
 

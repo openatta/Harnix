@@ -3,16 +3,18 @@
 //! Registration, migration and start each happen to every module in the
 //! order the application listed them. A module that fails at any of them is
 //! disabled — its methods, topics and route taken back out of the
-//! authorization table, its customizer no longer applied — and the rest
+//! route table, its customizer no longer applied — and the rest
 //! carry on. Why it was disabled is kept for the diagnostics page: "my space
 //! does nothing" needs an answer, not a guess.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
-use harnix_authz::{route, topic, MethodTable, Principal, Rule};
+use harnix_authz::{access_for, Principal};
+use harnix_kernel::Owner;
+use harnix_router::{Row, RouteTable};
 use harnix_module::manifest::check_id;
 use harnix_module::{
     EngineContrib, ErasedModule, EventRegistry, InstanceTemplate, InstanceTemplates, Manifest,
@@ -89,8 +91,11 @@ pub(crate) struct Record {
     pub templates: Vec<InstanceTemplate>,
     pub spaces: Vec<harnix_module::SpaceDecl>,
     pub enabled: Arc<AtomicBool>,
-    /// Every name this module put in the authorization table.
-    pub declared: Vec<String>,
+    /// The context its methods are answered with, once it is started.
+    pub cx: Arc<OnceLock<ModuleContext>>,
+    /// Whether its rows went in the table. One refused before they did — a second module with an
+    /// id already taken — has nothing to withdraw, and the rows under that id are the other's.
+    pub installed: bool,
     pub config: Value,
     pub data_dir: PathBuf,
     pub status: ModuleStatus,
@@ -102,12 +107,19 @@ impl Record {
         self.enabled.load(Ordering::Acquire)
     }
 
-    pub fn disable(&mut self, phase: &'static str, reason: String, table: &mut MethodTable) {
-        table.retract(&self.declared);
+    /// Its rows' owner in the route table.
+    pub fn owner(&self) -> Owner {
+        Owner::extension(self.manifest.id.clone())
+    }
+
+    pub fn disable(&mut self, phase: &'static str, reason: String, table: &mut RouteTable) {
+        if self.installed {
+            table.withdraw(&self.owner());
+        }
         self.disabled(phase, reason);
     }
 
-    /// [`Record::disable`] once the table is the authorizer's, which retracts its names itself.
+    /// [`Record::disable`] once the table is the router's, which withdraws its rows itself.
     pub fn disabled(&mut self, phase: &'static str, reason: String) {
         tracing::error!(module = %self.manifest.id, phase, %reason, "module disabled");
         self.enabled.store(false, Ordering::Release);
@@ -142,7 +154,7 @@ pub(crate) fn native_of(
 /// the table. A conflict disables the module that came second.
 pub(crate) fn register(
     entries: Vec<Entry>,
-    table: &mut MethodTable,
+    table: &mut RouteTable,
     sections: &BTreeMap<String, toml::Value>,
     state_root: &Path,
 ) -> Vec<Record> {
@@ -222,7 +234,8 @@ pub(crate) fn register(
             templates,
             spaces,
             enabled,
-            declared: Vec::new(),
+            cx: Arc::new(OnceLock::new()),
+            installed: false,
             config,
             data_dir: state_root.join("modules").join(&id),
             status,
@@ -249,30 +262,29 @@ pub(crate) fn register(
     records
 }
 
-/// Put one module's methods, topics, route and grants in the table. On the
-/// first conflict, stop: the caller disables the module and retracts what
-/// was already declared.
-fn declare(record: &mut Record, table: &mut MethodTable) -> Result<(), String> {
-    for method in &record.methods {
-        table
-            .declare(&method.name, Rule::for_principals(&method.principals))
-            .map_err(|e| e.to_string())?;
-        record.declared.push(method.name.clone());
-    }
-    for t in &record.topics {
-        let name = topic(&t.name);
-        table
-            .declare(&name, Rule::for_principals(&t.principals))
-            .map_err(|e| e.to_string())?;
-        record.declared.push(name);
-    }
+/// Put one module's methods, topics and route in the table, all or none, and then its grants.
+/// On a conflict the caller disables the module, which withdraws whatever of it went in.
+fn declare(record: &mut Record, table: &mut RouteTable) -> Result<(), String> {
+    let mut rows: Vec<Row> = record
+        .methods
+        .iter()
+        .map(|method| {
+            let handler = Arc::new(crate::gate::ModuleMethod {
+                handler: method.handler.clone(),
+                cx: record.cx.clone(),
+                name: method.name.clone(),
+            });
+            Row::method(method.name.clone(), access_for(&method.principals), handler)
+                .schema(method.schema.clone())
+                .describe(method.description.clone())
+        })
+        .collect();
+    rows.extend(record.topics.iter().map(|t| Row::topic(&t.name, access_for(&t.principals))));
     if let Some(r) = &record.route {
-        let name = route(&record.manifest.id);
-        table
-            .declare(&name, Rule::for_principals(&r.principals))
-            .map_err(|e| e.to_string())?;
-        record.declared.push(name);
+        rows.push(Row::route(&record.manifest.id, access_for(&r.principals)));
     }
+    table.install(&record.owner(), rows).map_err(|e| e.to_string())?;
+    record.installed = true;
     for grant in &record.manifest.grants {
         table.grant(grant, &record.manifest.id).map_err(|e| e.to_string())?;
     }
@@ -280,7 +292,7 @@ fn declare(record: &mut Record, table: &mut MethodTable) -> Result<(), String> {
 }
 
 /// Migrate every enabled module, in order.
-pub(crate) async fn migrate(records: &mut [Record], table: &mut MethodTable) {
+pub(crate) async fn migrate(records: &mut [Record], table: &mut RouteTable) {
     for record in records.iter_mut().filter(|r| r.is_enabled()) {
         if let Err(e) = std::fs::create_dir_all(&record.data_dir) {
             let reason = format!("its data directory {}: {e}", record.data_dir.display());
@@ -324,4 +336,46 @@ fn principals_label(principals: &[Principal]) -> Vec<String> {
             Principal::Module(id) => format!("module:{id}"),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use harnix_contract::Subject;
+    use harnix_module::{Module, RpcError};
+
+    use super::*;
+
+    struct Probe(&'static str);
+
+    #[async_trait::async_trait]
+    impl Module for Probe {
+        const API_VERSION: u32 = harnix_module::MODULE_API_VERSION;
+
+        fn manifest(&self) -> Manifest {
+            Manifest::new("probe", self.0)
+        }
+
+        fn methods(&self, methods: &mut MethodRegistry) {
+            methods
+                .method("echo", Principal::Device)
+                .raw(|_cx, params| async move { Ok::<_, RpcError>(params) });
+        }
+    }
+
+    /// A second module with an id already taken is refused, and the first keeps its rows: the
+    /// refusal withdraws only what the refused one put in, which is nothing.
+    #[test]
+    fn a_module_refused_for_its_id_takes_nothing_of_the_others() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut table = RouteTable::new();
+        let entries = ["0.0.1", "9.9.9"]
+            .into_iter()
+            .map(|v| Entry { module: Box::new(Probe(v)), namespace: Namespace::App })
+            .collect();
+        let records = register(entries, &mut table, &BTreeMap::new(), dir.path());
+        assert!(records[0].is_enabled());
+        assert!(!records[1].is_enabled());
+        let device = Subject::Device { id: "d".into() };
+        assert_eq!(table.decide(&device, "app.probe.echo"), harnix_authz::Decision::Allow);
+    }
 }
