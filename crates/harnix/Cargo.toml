@@ -19,9 +19,16 @@ default = []
 apps = ["harnix-assembly/apps"]
 # `harnix::agix`: Agix's own types, for what `harnix::engine` does not say. Not stable.
 agix = ["dep:harnix-engine", "harnix-engine/agix"]
+# `harnix::testing`: a product's route table without starting it, and a process started without
+# its listener. Not stable.
+testing = []
+# `harnix::ext::http::axum`: an `axum::Router` as an extension's route. Not stable.
+axum = ["harnix-ext/axum"]
 
 [dependencies]
 harnix-assembly       = { workspace = true }
+# The extension interface, re-exported as `harnix::ext`.
+harnix-ext       = { workspace = true }
 harnix-module    = { workspace = true }
 harnix-contract  = { workspace = true }
 harnix-authz     = { workspace = true }
@@ -35,3 +42,13 @@ anyhow      = { workspace = true }
 axum        = { workspace = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }
+
+[dev-dependencies]
+# The Harnix app's default assembly, whose route table `tests/method_table.rs` pins.
+harnix-ext-flow = { workspace = true }
+tempfile        = { workspace = true }
+tokio           = { workspace = true }
+
+[[test]]
+name = "method_table"
+required-features = ["testing"]

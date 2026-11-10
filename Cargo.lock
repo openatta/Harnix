@@ -1388,9 +1388,13 @@ dependencies = [
  "harnix-contract",
  "harnix-engine",
  "harnix-engine-api",
+ "harnix-ext",
+ "harnix-ext-flow",
  "harnix-module",
  "serde",
  "serde_json",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

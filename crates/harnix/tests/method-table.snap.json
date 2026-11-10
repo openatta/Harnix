@@ -9,7 +9,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.cancel",
@@ -23,7 +23,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.catalog",
@@ -37,7 +37,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.claim",
@@ -51,7 +51,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.confirm",
@@ -65,7 +65,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.def",
@@ -79,7 +79,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.defs",
@@ -93,7 +93,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.delete",
@@ -107,7 +107,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.dry_run.list",
@@ -121,7 +121,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.dry_run.run",
@@ -135,7 +135,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.dry_run.start",
@@ -149,7 +149,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.dry_run.step",
@@ -163,7 +163,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.fail",
@@ -177,7 +177,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.focus",
@@ -191,7 +191,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.force",
@@ -205,7 +205,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.get",
@@ -219,7 +219,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.guide",
@@ -233,7 +233,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.heartbeat",
@@ -247,7 +247,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.history",
@@ -261,7 +261,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.hooks",
@@ -275,7 +275,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.list",
@@ -289,7 +289,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.part",
@@ -303,7 +303,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.part.delete",
@@ -317,7 +317,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.part.save",
@@ -331,7 +331,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.parts",
@@ -345,7 +345,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.pause",
@@ -359,7 +359,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.proposal",
@@ -373,7 +373,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.release",
@@ -387,7 +387,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.resume",
@@ -401,7 +401,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.retry",
@@ -415,7 +415,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.rework",
@@ -429,7 +429,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.save",
@@ -443,7 +443,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.schema",
@@ -457,7 +457,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.session",
@@ -471,7 +471,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.sessions",
@@ -485,7 +485,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.start",
@@ -499,7 +499,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.submit",
@@ -513,7 +513,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "app.flow.validate",
@@ -529,7 +529,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "commands.list",
@@ -540,14 +540,14 @@
         "device": false,
         "engine": false,
         "extensions": [
-          "settings"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "config.get"
+          "engine.config.read"
         ],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "config.get",
@@ -558,14 +558,14 @@
         "device": false,
         "engine": false,
         "extensions": [
-          "settings"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "config.getProvider"
+          "engine.config.read"
         ],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "config.getProvider",
@@ -576,14 +576,14 @@
         "device": false,
         "engine": false,
         "extensions": [
-          "settings"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "config.reload"
+          "engine.config.write"
         ],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "config.reload",
@@ -593,13 +593,15 @@
       "access": {
         "device": false,
         "engine": false,
-        "extensions": [],
+        "extensions": [
+          "*"
+        ],
         "hub_owned": false,
         "refused": "changing provider credentials or base_url would point model traffic elsewhere",
         "requires": [
-          "config.set"
+          "engine.config.write"
         ],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "config.set",
@@ -609,13 +611,15 @@
       "access": {
         "device": false,
         "engine": false,
-        "extensions": [],
+        "extensions": [
+          "*"
+        ],
         "hub_owned": false,
         "refused": "changing provider credentials or base_url would point model traffic elsewhere",
         "requires": [
-          "config.setProvider"
+          "engine.config.write"
         ],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "config.setProvider",
@@ -625,13 +629,15 @@
       "access": {
         "device": false,
         "engine": false,
-        "extensions": [],
+        "extensions": [
+          "*"
+        ],
         "hub_owned": false,
         "refused": "changing provider credentials or base_url would point model traffic elsewhere",
         "requires": [
-          "config.update"
+          "engine.config.write"
         ],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "config.update",
@@ -647,7 +653,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "daemon.doctor",
@@ -663,7 +669,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "daemon.ping",
@@ -677,7 +683,7 @@
         "hub_owned": true,
         "refused": "the process is stopped by whoever started it, not over its own protocol",
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "daemon.shutdown",
@@ -693,7 +699,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "daemon.status",
@@ -707,7 +713,7 @@
         "hub_owned": true,
         "refused": "host events are the hub's to fan out",
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "daemon.subscribeEvents",
@@ -723,7 +729,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "harnix.attach",
@@ -739,11 +745,11 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.audit",
-      "owner": "kernel:app"
+      "owner": "kernel:assembly"
     },
     {
       "access": {
@@ -755,11 +761,11 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.contributions",
-      "owner": "kernel:app"
+      "owner": "kernel:assembly"
     },
     {
       "access": {
@@ -771,7 +777,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "harnix.detach",
@@ -785,7 +791,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.devices.list",
@@ -799,7 +805,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.devices.pair.begin",
@@ -813,7 +819,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.devices.pair.complete",
@@ -827,7 +833,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.devices.revoke",
@@ -843,11 +849,11 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.diagnostics",
-      "owner": "kernel:app"
+      "owner": "kernel:assembly"
     },
     {
       "access": {
@@ -859,7 +865,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "harnix.entries.append",
@@ -875,7 +881,23 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "harnix.extensions",
+      "owner": "kernel:assembly"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.files",
@@ -891,11 +913,11 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.hello",
-      "owner": "kernel:hub"
+      "owner": "kernel:assembly"
     },
     {
       "access": {
@@ -907,11 +929,11 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.instances.create",
-      "owner": "kernel:hub"
+      "owner": "kernel:instances"
     },
     {
       "access": {
@@ -923,29 +945,29 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.instances.ensure",
-      "owner": "kernel:hub"
+      "owner": "kernel:instances"
     },
     {
       "access": {
         "device": false,
         "engine": false,
         "extensions": [
-          "settings"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "harnix.instances.inheritProviders"
+          "engine.config.write"
         ],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.instances.inheritProviders",
-      "owner": "engine"
+      "owner": "kernel:instances"
     },
     {
       "access": {
@@ -957,11 +979,11 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.instances.list",
-      "owner": "kernel:hub"
+      "owner": "kernel:instances"
     },
     {
       "access": {
@@ -973,11 +995,11 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.instances.restart",
-      "owner": "kernel:hub"
+      "owner": "kernel:instances"
     },
     {
       "access": {
@@ -989,7 +1011,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.instances.sessions",
@@ -1005,11 +1027,11 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.instances.stop",
-      "owner": "kernel:hub"
+      "owner": "kernel:instances"
     },
     {
       "access": {
@@ -1021,11 +1043,11 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.instances.templates",
-      "owner": "kernel:hub"
+      "owner": "kernel:instances"
     },
     {
       "access": {
@@ -1037,11 +1059,11 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.instances.wait",
-      "owner": "kernel:hub"
+      "owner": "kernel:instances"
     },
     {
       "access": {
@@ -1053,7 +1075,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.listDirectory",
@@ -1069,7 +1091,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.plugins.disable",
@@ -1085,7 +1107,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.plugins.enable",
@@ -1101,7 +1123,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.plugins.install",
@@ -1117,7 +1139,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.plugins.list",
@@ -1133,7 +1155,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.plugins.reload",
@@ -1149,7 +1171,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.plugins.uninstall",
@@ -1165,7 +1187,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.plugins.upload",
@@ -1181,7 +1203,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.prefs.set",
@@ -1197,11 +1219,11 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.process",
-      "owner": "kernel:hub"
+      "owner": "kernel:assembly"
     },
     {
       "access": {
@@ -1213,7 +1235,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.projects.create",
@@ -1229,7 +1251,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.prompts.answerer",
@@ -1245,7 +1267,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "harnix.queue.edit",
@@ -1261,7 +1283,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "harnix.queue.remove",
@@ -1277,11 +1299,11 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.reachable",
-      "owner": "kernel:authz"
+      "owner": "kernel:router"
     },
     {
       "access": {
@@ -1293,7 +1315,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.recentProjects",
@@ -1309,7 +1331,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.requestHeaders",
@@ -1325,7 +1347,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.search",
@@ -1341,7 +1363,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "harnix.send",
@@ -1357,7 +1379,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "space"
       },
       "kind": "method",
       "name": "harnix.sessions",
@@ -1373,7 +1395,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.sessions.archive",
@@ -1389,7 +1411,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.sessions.export",
@@ -1405,7 +1427,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.sessions.move",
@@ -1421,7 +1443,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.sessions.rename",
@@ -1437,7 +1459,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "harnix.sessions.tasks",
@@ -1453,7 +1475,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.settings.describe",
@@ -1469,7 +1491,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.settings.set",
@@ -1485,7 +1507,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.settings.setProvider",
@@ -1501,7 +1523,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.spaces.list",
@@ -1517,7 +1539,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.subscribe",
@@ -1533,7 +1555,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.system.calls",
@@ -1549,7 +1571,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.system.clear",
@@ -1565,7 +1587,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.system.compact",
@@ -1581,7 +1603,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.system.context",
@@ -1597,7 +1619,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.system.goal",
@@ -1613,7 +1635,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.system.goal.set",
@@ -1629,7 +1651,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.system.goal.update",
@@ -1645,7 +1667,71 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "harnix.system.instances.create",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "harnix.system.instances.restart",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "harnix.system.instances.stop",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "harnix.system.instances.templates",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.system.messages.drop",
@@ -1661,7 +1747,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.system.messages.edit",
@@ -1677,7 +1763,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.system.model",
@@ -1693,7 +1779,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.system.rename",
@@ -1709,7 +1795,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.system.tasks.message",
@@ -1725,7 +1811,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.system.tasks.output",
@@ -1741,7 +1827,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.system.tasks.stop",
@@ -1757,7 +1843,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.system.trace",
@@ -1773,7 +1859,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.system.trace.call",
@@ -1789,7 +1875,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.system.turns",
@@ -1805,7 +1891,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.system.usage",
@@ -1821,7 +1907,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.unsubscribe",
@@ -1837,7 +1923,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.upload.begin",
@@ -1853,7 +1939,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.workspaces.create",
@@ -1869,7 +1955,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.workspaces.list",
@@ -1885,7 +1971,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.workspaces.remove",
@@ -1901,7 +1987,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.workspaces.reorder",
@@ -1917,7 +2003,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "harnix.workspaces.update",
@@ -1930,10 +2016,8 @@
         "extensions": [],
         "hub_owned": false,
         "refused": "config import runs outside the disclosure this layer is for",
-        "requires": [
-          "import.list"
-        ],
-        "scope": null
+        "requires": [],
+        "scope": "open"
       },
       "kind": "method",
       "name": "import.list",
@@ -1946,10 +2030,8 @@
         "extensions": [],
         "hub_owned": false,
         "refused": "config import runs outside the disclosure this layer is for",
-        "requires": [
-          "import.run"
-        ],
-        "scope": null
+        "requires": [],
+        "scope": "open"
       },
       "kind": "method",
       "name": "import.run",
@@ -1959,13 +2041,15 @@
       "access": {
         "device": false,
         "engine": false,
-        "extensions": [],
+        "extensions": [
+          "*"
+        ],
         "hub_owned": false,
         "refused": "adding an MCP server is equivalent to installing a tool that runs subprocesses",
         "requires": [
-          "mcp.addServer"
+          "engine.mcp"
         ],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "mcp.addServer",
@@ -1981,7 +2065,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "mcp.status",
@@ -1992,14 +2076,14 @@
         "device": false,
         "engine": false,
         "extensions": [
-          "packages"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "plugin.disable"
+          "engine.plugins"
         ],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "plugin.disable",
@@ -2010,14 +2094,14 @@
         "device": false,
         "engine": false,
         "extensions": [
-          "packages"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "plugin.enable"
+          "engine.plugins"
         ],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "plugin.enable",
@@ -2028,14 +2112,14 @@
         "device": false,
         "engine": false,
         "extensions": [
-          "packages"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "plugin.install"
+          "engine.plugins"
         ],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "plugin.install",
@@ -2046,13 +2130,12 @@
         "device": true,
         "engine": false,
         "extensions": [
-          "*",
-          "packages"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "plugin.list",
@@ -2063,14 +2146,14 @@
         "device": false,
         "engine": false,
         "extensions": [
-          "packages"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "plugin.reload"
+          "engine.plugins"
         ],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "plugin.reload",
@@ -2081,14 +2164,14 @@
         "device": false,
         "engine": false,
         "extensions": [
-          "packages"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "plugin.uninstall"
+          "engine.plugins"
         ],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "plugin.uninstall",
@@ -2104,7 +2187,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "scene.activate",
@@ -2120,7 +2203,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "scene.describe",
@@ -2136,7 +2219,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "scene.list",
@@ -2147,14 +2230,14 @@
         "device": false,
         "engine": false,
         "extensions": [
-          "system"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "session.clear"
+          "engine.control"
         ],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.clear",
@@ -2170,7 +2253,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.close",
@@ -2181,14 +2264,14 @@
         "device": false,
         "engine": false,
         "extensions": [
-          "system"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "session.compact"
+          "engine.control"
         ],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.compact",
@@ -2204,7 +2287,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "space"
       },
       "kind": "method",
       "name": "session.create",
@@ -2220,7 +2303,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.delete",
@@ -2231,14 +2314,14 @@
         "device": false,
         "engine": false,
         "extensions": [
-          "system"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "session.dropMessages"
+          "engine.control"
         ],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.dropMessages",
@@ -2249,14 +2332,14 @@
         "device": false,
         "engine": false,
         "extensions": [
-          "system"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "session.editMessage"
+          "engine.control"
         ],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.editMessage",
@@ -2272,7 +2355,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.entries",
@@ -2283,14 +2366,14 @@
         "device": false,
         "engine": false,
         "extensions": [
-          "sessions"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "session.export"
+          "engine.export"
         ],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.export",
@@ -2306,7 +2389,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.fork",
@@ -2322,7 +2405,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.get",
@@ -2333,14 +2416,14 @@
         "device": false,
         "engine": false,
         "extensions": [
-          "system"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "session.goal"
+          "engine.inspect"
         ],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.goal",
@@ -2356,7 +2439,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.history",
@@ -2367,14 +2450,14 @@
         "device": false,
         "engine": false,
         "extensions": [
-          "system"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "session.inspectContext"
+          "engine.inspect"
         ],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.inspectContext",
@@ -2390,7 +2473,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.interrupt",
@@ -2406,7 +2489,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "session.list",
@@ -2417,14 +2500,14 @@
         "device": false,
         "engine": false,
         "extensions": [
-          "system"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "session.messageTask"
+          "engine.control"
         ],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.messageTask",
@@ -2435,15 +2518,14 @@
         "device": false,
         "engine": false,
         "extensions": [
-          "flow",
-          "system"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "session.rename"
+          "engine.control"
         ],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.rename",
@@ -2459,7 +2541,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.respondToPrompt",
@@ -2475,7 +2557,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.resume",
@@ -2489,7 +2571,7 @@
         "hub_owned": true,
         "refused": "use harnix.send — the hub owns turns, so closing a tab cannot lose one",
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "session.run_turn",
@@ -2500,14 +2582,14 @@
         "device": false,
         "engine": false,
         "extensions": [
-          "system"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "session.setGoal"
+          "engine.control"
         ],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.setGoal",
@@ -2518,14 +2600,14 @@
         "device": false,
         "engine": false,
         "extensions": [
-          "system"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "session.setModel"
+          "engine.control"
         ],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.setModel",
@@ -2536,14 +2618,14 @@
         "device": false,
         "engine": false,
         "extensions": [
-          "system"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "session.stopTask"
+          "engine.control"
         ],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.stopTask",
@@ -2557,7 +2639,7 @@
         "hub_owned": true,
         "refused": "use harnix.attach — the hub subscribes before any client does",
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "session.subscribe",
@@ -2568,14 +2650,14 @@
         "device": false,
         "engine": false,
         "extensions": [
-          "system"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "session.taskOutput"
+          "engine.inspect"
         ],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.taskOutput",
@@ -2586,14 +2668,14 @@
         "device": false,
         "engine": false,
         "extensions": [
-          "flow"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "session.tasks"
+          "engine.inspect"
         ],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.tasks",
@@ -2607,7 +2689,7 @@
         "hub_owned": true,
         "refused": "use harnix.detach — the hub owns subscriptions",
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "method",
       "name": "session.unsubscribe",
@@ -2618,14 +2700,14 @@
         "device": false,
         "engine": false,
         "extensions": [
-          "system"
+          "*"
         ],
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "session.updateGoal"
+          "engine.control"
         ],
-        "scope": null
+        "scope": "session"
       },
       "kind": "method",
       "name": "session.updateGoal",
@@ -2641,7 +2723,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "topic",
       "name": "app.flow.defs",
@@ -2657,7 +2739,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "topic",
       "name": "app.flow.dry_runs",
@@ -2673,7 +2755,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "topic",
       "name": "app.flow.focus",
@@ -2689,7 +2771,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "topic",
       "name": "app.flow.run",
@@ -2705,7 +2787,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "topic",
       "name": "app.flow.runs",
@@ -2721,11 +2803,11 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "topic",
       "name": "harnix.instances",
-      "owner": "kernel:hub"
+      "owner": "kernel:instances"
     },
     {
       "access": {
@@ -2737,7 +2819,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "topic",
       "name": "harnix.instances.sessions",
@@ -2753,11 +2835,11 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "topic",
       "name": "harnix.process",
-      "owner": "kernel:hub"
+      "owner": "kernel:assembly"
     },
     {
       "access": {
@@ -2769,7 +2851,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "topic",
       "name": "harnix.sessions.status",
@@ -2785,7 +2867,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": null
+        "scope": "open"
       },
       "kind": "topic",
       "name": "harnix.sessions.tasks",
