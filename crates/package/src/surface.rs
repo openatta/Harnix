@@ -11,7 +11,7 @@
 //! isolate = true                 # a trusted publisher's interface in frames too (see below)
 //! hub = ["harnix.sessions", "harnix.send"]
 //!                                # what a frame may call and subscribe to beyond its own
-//!                                # app.<id>.*: names of FRAME_HUB, `topic:` for topics
+//!                                # app.<id>.*: `harnix.*` or `session.*`, `topic:` for topics
 //! links = true                   # may ask the shell to open a web page (confirmed each time)
 //!
 //! [[surface]]
@@ -61,52 +61,6 @@ pub const POINTS: &[&str] = &[
     "modal",
 ];
 
-/// How the shell narrows a call a frame makes through a name its `[interface] hub` lists.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Scope {
-    /// Says nothing of any session or application: passed on as asked.
-    Open,
-    /// About the sessions of a space: only of the application's own (`[[space]]`). The shell
-    /// fills `space` in when it is left out, and refuses another.
-    Space,
-    /// About one session (`session_id`, and `instance`): only one in a space of the
-    /// application's own. The shell looks it up before passing the call on.
-    Session,
-}
-
-impl Scope {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Open => "open",
-            Self::Space => "space",
-            Self::Session => "session",
-        }
-    }
-}
-
-/// Everything `[interface] hub` may list — anything else is refused when the manifest is read —
-/// and how the shell narrows each. An allowlist: the page's connection reaches a great deal (it
-/// is a device's), and a frame is the application's, which is not the person's. The shell has the
-/// same table (`FRAME_HUB` in `@harnix/app-sdk/protocol`); a test checks they agree.
-pub const FRAME_HUB: &[(&str, Scope)] = &[
-    ("harnix.sessions", Scope::Space),
-    ("harnix.send", Scope::Session),
-    ("harnix.sessions.tasks", Scope::Session),
-    ("session.get", Scope::Session),
-    ("session.history", Scope::Session),
-    ("session.entries", Scope::Session),
-    ("session.interrupt", Scope::Session),
-    ("harnix.spaces.list", Scope::Open),
-    ("topic:harnix.sessions.tasks", Scope::Session),
-    ("topic:harnix.spaces", Scope::Open),
-];
-
-/// How a frame's call through `name` (`topic:<name>` for a topic) is narrowed; `None` when no
-/// frame may be given it.
-pub fn scope_of(name: &str) -> Option<Scope> {
-    FRAME_HUB.iter().find(|(n, _)| *n == name).map(|(_, s)| *s)
-}
-
 /// Shell-side methods a frame is never given, whatever its `hub` says: installing and configuring
 /// this Harnix, its devices and its other instances, uploading (the bridge proxies uploads), and
 /// the page's own subscriptions (the bridge's `subscribe` is the way).
@@ -135,8 +89,9 @@ pub struct Interface {
     #[serde(default)]
     pub isolate: bool,
     /// What a frame may call and subscribe to (`topic:<name>`) beyond the application's own
-    /// `app.<id>.*`: names of [`FRAME_HUB`]. Admitted as the page — a device — by the hub, after
-    /// the shell has checked the name against this list and narrowed the call ([`Scope`]).
+    /// `app.<id>.*`. The page's calls through it carry the application's id, and the router takes
+    /// what a device may do, what this lists, and the row's scope: the application's own spaces
+    /// and their sessions.
     #[serde(default)]
     pub hub: Vec<String>,
     /// The bridge's `openLink`: the shell asks the person, then opens the page outside.
@@ -232,13 +187,6 @@ pub fn check(id: &str, interface: &Interface, surfaces: &[Surface]) -> Result<()
             return Err(format!(
                 "{MANIFEST}: `{entry}` in `[interface] hub` is the shell's own (`{never}…`): an \
                  application's frame is never given it"
-            ));
-        }
-        if scope_of(entry).is_none() {
-            return Err(format!(
-                "{MANIFEST}: `{entry}` in `[interface] hub` is not one a frame may be given; it may \
-                 list {}",
-                FRAME_HUB.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", ")
             ));
         }
     }
@@ -514,30 +462,16 @@ mod tests {
         assert!(hub("harnix.apps.uninstall").contains("the shell's own"));
         assert!(hub("harnix.subscribe").contains("the shell's own"));
         assert!(hub("topic:harnix.settings.changed").contains("the shell's own"));
-        // An allowlist: what it does not list is not given, even of the families it may reach.
-        for entry in ["session.create", "session.delete", "harnix.entries.append", "topic:harnix.sessions.status"] {
-            assert!(hub(entry).contains("not one a frame may be given"), "{entry}");
-        }
+        // Beyond the families and the shell's own, what a frame is given is the router's to
+        // narrow, row by row.
         check(
             ID,
             &Interface {
-                hub: FRAME_HUB.iter().map(|(n, _)| n.to_string()).collect(),
+                hub: ["harnix.sessions", "session.get", "session.create", "topic:harnix.spaces"].map(String::from).to_vec(),
                 ..Interface::default()
             },
             &[],
         )
         .unwrap();
-    }
-
-    #[test]
-    fn the_shell_narrows_frames_by_the_same_table() {
-        let protocol = include_str!("../../../ui/packages/app-sdk/src/protocol.ts");
-        let start = protocol.find("export const FRAME_HUB").expect("FRAME_HUB in protocol.ts");
-        let table = &protocol[start..start + protocol[start..].find("};").unwrap()];
-        for (name, scope) in FRAME_HUB {
-            let entry = format!("\"{name}\": \"{}\"", scope.as_str());
-            assert!(table.contains(&entry), "protocol.ts's FRAME_HUB lacks {entry}");
-        }
-        assert_eq!(table.matches("\": \"").count(), FRAME_HUB.len(), "the same names, no more");
     }
 }
