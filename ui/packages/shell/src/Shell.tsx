@@ -245,7 +245,7 @@ function useTheme(choice: ShellState["theme"]) {
     query.addEventListener("change", change);
     return () => query.removeEventListener("change", change);
   }, []);
-  const theme = choice === "system" ? (dark ? "dark" : "light") : choice;
+  const theme = choice === "auto" ? (dark ? "dark" : "light") : choice;
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     const meta = document.querySelector('meta[name="theme-color"]');

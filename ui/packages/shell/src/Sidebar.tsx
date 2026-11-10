@@ -390,7 +390,7 @@ function Avatar({ app, s }: { app: App; s: ShellState }) {
 }
 
 function nextTheme(theme: ShellState["theme"]): ShellState["theme"] {
-  return theme === "system" ? "light" : theme === "light" ? "dark" : "system";
+  return theme === "auto" ? "light" : theme === "light" ? "dark" : "auto";
 }
 
 function initials(name: string): string {

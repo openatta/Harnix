@@ -111,7 +111,8 @@ export function tabsOf(space: SpaceContribution | undefined): SpaceTab[] {
 /** A badge on a space's entry: a number or a very short text; nothing for null, undefined, 0, "". */
 export type Badge = string | number | null | undefined;
 
-/** What a session action is asked about: a session, or one tool call in it. */
+/** What a session action is asked about: a session, or one tool call in it. `space` is the interface
+ *  space it is asked in (a space's `sessions` says which backend space that lists). */
 export type ActionTarget =
   | { kind: "session"; session: SessionRef; space: string }
   | { kind: "tool"; session: SessionRef; space: string; toolUseId: string; tool: string };
@@ -147,8 +148,9 @@ export interface SpaceContribution {
   sidebar?: {
     /** Under the space list: its entries. The space's own sessions when absent. */
     render?(): ReactNode;
-    /** The left column's search box changed while this space is in front ("" when cleared). */
-    search?(q: string): void;
+    /** The left column's search box, drawn by the shell while this space is in front and gives
+     *  `search`: its text as it changes ("" when cleared), and `submit` when Enter was pressed. */
+    search?(q: string, submit?: boolean): void;
     /** With no `render()`: false leaves a session out of the space's list (say its main
      *  conversation, which its entry already opens). Absent, or a throw, lists it. */
     listSession?(session: SessionRef): boolean;
@@ -191,6 +193,9 @@ export interface SpaceContribution {
     headerActions?(session: SessionRef | null): ReactNode;
     /** False: no way to start a conversation here (no "New session", no composer that creates one). */
     newSession?: boolean;
+    /** What a conversation started here is created with (say, the project open in the space): read
+     *  each time one is, under what the caller gave. */
+    newSessionDefaults?(): { project_root?: string | null; scene?: string } | undefined;
     placeholder?(): string;
     /** A line under the title: what this space is for. */
     subtitle?(): string;

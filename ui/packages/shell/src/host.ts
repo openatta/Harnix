@@ -12,7 +12,9 @@ import { MAIN_INSTANCE } from "@harnix/core/state";
 import { t, type HostSessionRef as SessionRef, type HostApi } from "@harnix/react";
 
 import { disabledOf, later, orderTabs, safeTabs, type App } from "./app.ts";
+import { sessionMenu } from "./dialogs.tsx";
 import { hostDialogs } from "./host-dialogs.tsx";
+import { menuBelow } from "./Menu.tsx";
 import { revealEntry } from "./reveal.ts";
 import { openSettings } from "./settings.tsx";
 import { topicsOf } from "./topics.ts";
@@ -77,6 +79,12 @@ export function hostFor(app: App, owner = "page"): HostApi {
         return { instance: current.instance ?? MAIN_INSTANCE, sessionId: current.sessionId };
       },
       onChange: (fn) => app.onCurrent(fn),
+      isOpen: (ref) => Object.values(app.snapshot.currentBySpace).some((k) => k != null && k.instance === ref.instance && k.sessionId === ref.sessionId),
+      menu(ref, anchor) {
+        const origin = anchor instanceof HTMLElement ? anchor : null;
+        const at = anchor instanceof Element ? menuBelow(anchor) : anchor;
+        sessionMenu(app, { instance: ref.instance, session_id: ref.sessionId, name: ref.name ?? null }, { origin, at });
+      },
     },
     spaces: {
       switch: switchTo,
@@ -119,6 +127,7 @@ export function hostFor(app: App, owner = "page"): HostApi {
     shell: {
       badge: (n) => app.setTitleBadge(n),
       context: (c) => app.setShellContext(c),
+      notice: (text, tone) => app.notice(text, tone === "error" ? "error" : "info"),
     },
     modal: {
       isOpen: () => app.snapshot.modal != null,

@@ -68,7 +68,7 @@ const NOTICE_MS = { info: 6_000, error: 12_000 } as const;
 /** At most this many wait behind the one shown: a burst of failures is not a queue to read through. */
 const NOTICE_QUEUE = 5;
 
-export type ThemeChoice = "system" | "light" | "dark";
+export type ThemeChoice = "auto" | "light" | "dark";
 
 /** One configured model provider, as `settings.describe` reads it (the key redacted). */
 export interface Provider {
@@ -302,9 +302,9 @@ export function later(fn: () => void): void {
 function storedTheme(): ThemeChoice {
   try {
     const value = localStorage.getItem(THEME_KEY);
-    return value === "light" || value === "dark" ? value : "system";
+    return value === "light" || value === "dark" ? value : "auto";
   } catch {
-    return "system";
+    return "auto";
   }
 }
 
@@ -957,7 +957,7 @@ export class App {
 
   setTheme(choice: ThemeChoice): void {
     try {
-      if (choice === "system") localStorage.removeItem(THEME_KEY);
+      if (choice === "auto") localStorage.removeItem(THEME_KEY);
       else localStorage.setItem(THEME_KEY, choice);
     } catch {
       /* private mode: the choice does not survive a reload */

@@ -212,7 +212,7 @@ function General({ app }: { app: App }) {
         <Select
           testId="settings-theme"
           options={[
-            ["system", t("settings.theme.system")],
+            ["auto", t("settings.theme.auto")],
             ["light", t("settings.theme.light")],
             ["dark", t("settings.theme.dark")],
           ]}
@@ -227,7 +227,7 @@ function General({ app }: { app: App }) {
         <Select
           testId="settings-language"
           options={[
-            ["system", t("settings.language.system")],
+            ["auto", t("settings.language.auto")],
             ["zh-CN", "简体中文"],
             ["en", "English"],
           ]}

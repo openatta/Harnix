@@ -435,14 +435,22 @@ export interface MenuOrigin {
   at: { x: number; y: number };
 }
 
+/** The session a menu is about: where it is, and the name it shows. */
+export interface MenuSession {
+  instance: string;
+  session_id: string;
+  name?: string | null;
+}
+
 /**
  * A session's menu, anchored where it was opened (its row, `⋯`, the title). Only what has to be
- * confirmed opens a dialog.
+ * confirmed opens a dialog. The shell's own items use the kernel's methods; what an extension
+ * offers on a session (archiving, exporting, opening it elsewhere) comes from `session.action`.
  */
-export function sessionMenu(app: App, session: ShellSession, from: MenuOrigin): void {
-  // The backend space its sessions belong to, not the front one: the projects space lists the
-  // session space's sessions.
-  const key = { instance: session.instance ?? "system", session_id: session.session_id, space: app.claim() };
+export function sessionMenu(app: App, session: MenuSession, from: MenuOrigin): void {
+  // The backend space the front space lists, not its id: the projects space lists the session
+  // space's sessions.
+  const key = { instance: session.instance, session_id: session.session_id, space: app.claim() };
   const reopen = (sessionId: string) => app.open({ instance: key.instance, sessionId });
   const items: MenuEntry[] = [
     { id: "open", icon: "chat", label: t("common.open"), run: () => reopen(session.session_id) },
@@ -451,16 +459,6 @@ export function sessionMenu(app: App, session: ShellSession, from: MenuOrigin): 
       icon: "edit",
       label: t("common.rename"),
       run: () => renameDialog(app, t("dialog.renameSession"), session.name, (title) => app.call("harnix.session.rename", { ...key, title })),
-    },
-    {
-      id: "archive",
-      icon: "archive",
-      label: session.archived ? t("dialog.unarchive") : t("dialog.archive"),
-      sub: t("dialog.archiveHint"),
-      run: () =>
-        void attempt(app, () => app.call("harnix-app.sessions.archive", { ...key, archived: !session.archived })).then((ok) => {
-          if (ok) void app.refreshSessions();
-        }),
     },
     {
       id: "fork",
@@ -477,7 +475,6 @@ export function sessionMenu(app: App, session: ShellSession, from: MenuOrigin): 
           (error) => t("dialog.forkFailed", { error }),
         ),
     },
-    { id: "export", icon: "download", label: t("dialog.export"), run: () => exportDialog(app, key) },
     {
       id: "close",
       icon: "archive",

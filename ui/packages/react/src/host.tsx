@@ -91,6 +91,16 @@ export interface HostApi {
     /** The front space's current session changed (opened, created, closed, deleted, another space in
      *  front). Not called again for the same session. Returns the unsubscribe. */
     onChange(fn: (current: SessionRef | null) => void): () => void;
+    /** Whether a space on this page has the session open: a page that attached a session only to
+     *  look at it leaves it attached when it stops, rather than taking it from the conversation. */
+    isOpen(ref: SessionRef): boolean;
+    /**
+     * The shell's menu for a session — its own items (open, rename, fork, close, delete) and every
+     * `session.action` at `menu` — anchored at an element or a point. For a package that lists
+     * sessions in its own column: its rows open the same menu the title bar does. `name` is what
+     * the menu shows and renaming starts from.
+     */
+    menu(ref: SessionRef & { name?: string | null }, anchor: Element | { x: number; y: number }): void;
   };
   spaces: {
     /** Bring this space to the front, with its own current session; settles once it is drawn.
@@ -140,6 +150,9 @@ export interface HostApi {
     /** One line under the brand in the left column, the same in every space; null (or an empty
      *  label) ⇒ none. Each call replaces the last (ipdrun-49). */
     context(c: ShellContext | null): void;
+    /** A line in the shell's banner: an error stays longer. The same line already waiting is not
+     *  queued twice. */
+    notice(text: string, tone?: "info" | "error"): void;
   };
   modal: {
     /** The shell's own modal layer (settings, dialogs) is open. */
