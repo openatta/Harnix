@@ -311,7 +311,7 @@ test.describe("a message a module refuses", () => {
     await open(page, app.url);
     await page.evaluate(() => {
       const { app } = (window as any).harnix;
-      app.registry.register("space", { id: "steered", icon: "chat", title: () => "Steered", sessions: "sessions", composer: { steer: true } }, "test");
+      app.registry.register("space", { id: "steered", icon: "chat", title: () => "Steered", sessions: "sessions", conversation: { composer: { steer: true } } }, "test");
     });
     await page.locator('#side [data-space="steered"]').click();
     await expect(page.locator("#main")).toHaveAttribute("data-space", "steered");
