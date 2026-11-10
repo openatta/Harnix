@@ -60,7 +60,7 @@ free_port() {
 CRATES=(-p harnix -p harnix-cli -p harnix-assembly -p harnix-instance -p harnix-authz -p harnix-builtin
         -p harnix-client -p harnix-contract -p harnix-ext-flow -p harnix-module -p harnix-hub -p harnix-transport
         -p harnix-testapp -p harnix-wasm -p harnix-package -p harnix-wasm-port -p harnix-wasm-host
-        -p harnix-apps -p harnix-supervise)
+        -p harnix-apps -p harnix-supervise -p harnix-proc)
 
 # The build that hosts runtime applications: `harnix` with the `apps` feature, which links the
 # application runtime and its WebAssembly engine; the author's packing tool; and the test
@@ -163,14 +163,16 @@ run_build() {
 # behind the port carried through JSON (`harnix-wasm-port`'s loopback), and for `harnix-apps`, the
 # embedded glue, whose tests install it as the `apps` module does; and the application layer once
 # more with `apps`, which is the only build its wiring of them is in. The port once more with
-# `socket`: the extension wire, carried over a socket pair.
+# `socket`: the extension wire, carried over a socket pair. The test application once more with
+# `proc`: itself re-executed as an extension process, running the showcase behind the wire.
 run_rust()    {
   cargo test "${CRATES[@]}" || return 1
   cargo test -p harnix-wasm-port --features socket || return 1
   cargo test -p harnix-wasm --features compile || return 1
   cargo test -p harnix-wasm-host --features compile || return 1
   cargo test -p harnix-apps --features compile || return 1
-  cargo test -p harnix-assembly --features apps
+  cargo test -p harnix-assembly --features apps || return 1
+  cargo test -p harnix-testapp --features proc --test ext_proc
 }
 # `--no-deps` matters: without it `-D warnings` is applied to the Agix
 # submodule too, and this script goes red for lints in code this repository
@@ -179,7 +181,8 @@ run_clippy()  {
   cargo clippy "${CRATES[@]}" --all-targets --no-deps -- -D warnings || return 1
   cargo clippy -p harnix-wasm -p harnix-package -p harnix-wasm-host -p harnix-apps -p harnix-wasm-port --all-targets \
     --features harnix-wasm/compile,harnix-package/compile,harnix-wasm-host/compile,harnix-apps/compile,harnix-wasm-port/socket --no-deps -- -D warnings || return 1
-  cargo clippy -p harnix-assembly -p harnix-cli --all-targets --features harnix-assembly/apps,harnix-cli/apps --no-deps -- -D warnings
+  cargo clippy -p harnix-assembly -p harnix-cli --all-targets --features harnix-assembly/apps,harnix-cli/apps --no-deps -- -D warnings || return 1
+  cargo clippy -p harnix-testapp --all-targets --features proc --no-deps -- -D warnings
 }
 
 run_offline() {

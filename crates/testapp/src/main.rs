@@ -20,6 +20,9 @@
 //! application can do; and with `HARNIX_TESTAPP_APP_IDLE_MS` set, it hibernates an on-demand
 //! application's backend after that much idle rather than its `idle_secs`.
 //!
+//! Built with `proc`, it is also an extension process: `harnix-testapp ext-proc …` runs one
+//! extension package behind the extension wire, as a product in mode 3 starts it.
+//!
 //! `probe` also refuses, before it reaches the model, any message with `blocked-word` in it (a prompt
 //! middleware on every session of `system`), and `fleet` has two templates with the same native
 //! contributions — a scene with a tool of its own, a marked system prompt, the same refusal — one
@@ -67,6 +70,8 @@ fn main() -> anyhow::Result<()> {
         Some(ms) => builder.app_idle(Duration::from_millis(ms)),
         None => builder,
     };
+    #[cfg(feature = "proc")]
+    let builder = builder.child_entry("ext-proc", harnix_proc::entry);
     builder.run()
 }
 

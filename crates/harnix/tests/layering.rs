@@ -630,7 +630,8 @@ fn the_application_layers_reach_only_down() {
 
 /// The application runtime is reached through one door. `harnix-wasm` (the engine) is named by
 /// the application host alone (and by the packing tool, behind its own feature), the host by the
-/// embedded glue alone, and the glue (`harnix-apps`) by the application layer alone, as an optional
+/// embedded glue and the extension process (`harnix-proc`, which only a product built with `proc`
+/// links), and the glue (`harnix-apps`) by the application layer alone, as an optional
 /// dependency behind its `apps` feature: a build that does not ask for applications links none of
 /// them.
 #[test]
@@ -649,7 +650,10 @@ fn only_the_apps_feature_links_the_application_runtime() {
             );
         }
         if deps.contains_key("harnix-wasm-host") {
-            assert_eq!(dir, "apps", "`{dir}` depends on `harnix-wasm-host`; only `harnix-apps` may");
+            assert!(
+                ["apps", "proc"].contains(&dir.as_str()),
+                "`{dir}` depends on `harnix-wasm-host`; only `harnix-apps` and `harnix-proc` may"
+            );
         }
         if deps.contains_key("harnix-apps") {
             assert_eq!(dir, "assembly", "`{dir}` depends on `harnix-apps`; only the application layer may");
@@ -657,8 +661,8 @@ fn only_the_apps_feature_links_the_application_runtime() {
         for layer in ["harnix-package", "harnix-wasm-port"] {
             if deps.contains_key(layer) {
                 assert!(
-                    ["wasm-host", "apps"].contains(&dir.as_str()),
-                    "`{dir}` depends on `{layer}`; only the host and the glue may"
+                    ["wasm-host", "apps", "proc"].contains(&dir.as_str()),
+                    "`{dir}` depends on `{layer}`; only the host, the glue and the extension process may"
                 );
             }
         }
@@ -809,6 +813,7 @@ fn every_harnix_dependency_resolves() {
         "wasm-host",
         "apps",
         "supervise",
+        "proc",
     ];
     let known: BTreeSet<String> = crates
         .iter()
@@ -1284,7 +1289,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P9"]
     fn l18_proc() {
         depends(PROC, &[WASM_HOST, WASM, WASM_PORT, PACKAGE, ENGINE_API, ENGINE], &[], &[]);
     }
