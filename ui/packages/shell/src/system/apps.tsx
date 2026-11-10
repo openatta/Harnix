@@ -86,7 +86,7 @@ export function AppsTab({ app }: { app: App }) {
   const tr = useT();
   const [list, setList] = useState<AppsList | undefined>(undefined);
   const [open, setOpen] = useState<string | null>(null);
-  useEffect(() => topicsOf(app.client).subscribe(APPS_TOPIC, {}, (value) => setList((value as AppsList | null) ?? undefined)), [app]);
+  useEffect(() => topicsOf(app.conn).subscribe(APPS_TOPIC, {}, (value) => setList((value as AppsList | null) ?? undefined)), [app]);
   if (!list) return <div className="system-pane" data-testid="system-apps">{tr("system.apps.loading")}</div>;
   if (!list.apps.length) {
     return (

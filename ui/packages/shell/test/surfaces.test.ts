@@ -24,7 +24,7 @@ class Client {
     this.calls.push({ method, params });
     return Promise.resolve(method === "harnix.topics.subscribe" ? { value: null } : { ok: method });
   }
-  onNotify(): () => void {
+  onNotification(): () => void {
     return () => undefined;
   }
   onStatus(): () => void {

@@ -288,7 +288,7 @@ export class FrameBridge {
         if (this.disposed) return null;
         const sub = this.nextSub++;
         // Asked as the application, as its calls are: the server narrows it the same way.
-        const off = await topicsOf(app.client).subscribeAs(iface.id, topic, params, (value) =>
+        const off = await topicsOf(app.conn).subscribeAs(iface.id, topic, params, (value) =>
           this.send({ kind: "event", name: "topic", data: { sub, value } satisfies ShellEvents["topic"] }),
         );
         if (this.disposed) {

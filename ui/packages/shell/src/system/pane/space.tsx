@@ -22,7 +22,7 @@ export function SpaceSessions({ app, view, space, current }: { app: App; view: V
         .then((r) => alive && setRows((r.sessions ?? []).filter((row) => (row.space ?? "sessions") === space)))
         .catch((e) => alive && setFailure(e ?? "error"));
     void load();
-    const off = app.client.onNotify((method) => {
+    const off = app.conn.onNotification((method) => {
       if (method === "harnix.turn_settled") void load();
     });
     return () => {

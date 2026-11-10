@@ -117,7 +117,7 @@ describe("a space's sessions in the left column", () => {
         ? { sessions: [{ session_id: "s1", instance: "main", name: "one" }, { session_id: "s2", instance: "main", name: "two" }] }
         : {};
     render(
-      <HarnixUiProvider client={app.client as HarnixClient}>
+      <HarnixUiProvider client={app.conn as HarnixClient}>
         <Shell app={app} />
       </HarnixUiProvider>,
     );

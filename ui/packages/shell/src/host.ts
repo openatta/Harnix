@@ -42,7 +42,7 @@ export function hostFor(app: App, owner = "page"): HostApi {
   return {
     call,
     subscribe(topic, params, fn) {
-      return topicsOf(app.client).subscribe(topic, params ?? {}, fn);
+      return topicsOf(app.conn).subscribe(topic, params ?? {}, fn);
     },
     session: {
       current: () => {
@@ -126,25 +126,25 @@ export function hostFor(app: App, owner = "page"): HostApi {
     },
     redraw: () => app.redraw(),
     ext: (id) => ({
-      fetch: (path, init) => app.client.appFetch(id, path, init),
-      socket: (path) => app.client.appSocket(id, path) as unknown as WebSocket,
+      fetch: (path, init) => app.conn.appFetch(id, path, init),
+      socket: (path) => app.conn.appSocket(id, path) as unknown as WebSocket,
     }),
     reveal: (item) => app.showDetail(item),
     t,
     events: {
       onTurnSettled: (fn) =>
-        app.client.onNotify((method, params) => {
+        app.conn.onNotification((method, params) => {
           if (method === "harnix.turn_settled") fn(params as unknown as Notifications["harnix.turn_settled"]);
         }),
       onSessionEvent: (ref, fn) =>
-        app.client.onNotify((method, params) => {
+        app.conn.onNotification((method, params) => {
           if (method !== "harnix.event") return;
           const frame = params as unknown as Notifications["harnix.event"];
           if (frame.instance !== ref.instance || frame.session_id !== ref.sessionId) return;
           fn({ raw: frame.event, parsed: parseSessionEvent(frame.event), trust: frame.trust === "extension" ? "extension" : "product" });
         }),
       onHostEvent: (fn) =>
-        app.client.onNotify((method, params) => {
+        app.conn.onNotification((method, params) => {
           if (method === "harnix.host_event") fn(params as unknown as Notifications["harnix.host_event"]);
         }),
     },

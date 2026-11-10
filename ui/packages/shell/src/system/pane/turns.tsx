@@ -30,7 +30,7 @@ export function TurnsTab({ app, session }: { app: App; session: SessionKey }) {
         .then(([t, c]) => alive && (setData({ turns: t.turns ?? [], calls: c.calls ?? [] }), setFailure(null)))
         .catch((e) => alive && setFailure(e ?? "error"));
     void load();
-    const off = app.client.onNotify((method, params) => {
+    const off = app.conn.onNotification((method, params) => {
       if (method === "harnix.turn_settled" && params.session_id === session.sessionId) void load();
     });
     return () => {

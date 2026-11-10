@@ -25,7 +25,7 @@ export class ScriptedClient {
       return Promise.reject(e);
     }
   }
-  onNotify(fn: Listener): () => void {
+  onNotification(fn: Listener): () => void {
     this.notify.add(fn);
     return () => this.notify.delete(fn);
   }

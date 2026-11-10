@@ -88,7 +88,7 @@ export function followEnvelopes(app: App, controller: SessionController): () => 
     if (!loading && wasLoading) void read();
     wasLoading = loading;
   });
-  const offNotify = app.client.onNotify((method, params) => {
+  const offNotify = app.conn.onNotification((method, params) => {
     if (method !== "harnix.event" || params.session_id !== controller.sessionId) return;
     if ((params.instance ?? "main") !== controller.instance) return;
     const kind = (params.event as { kind?: string } | undefined)?.kind;

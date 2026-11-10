@@ -18,7 +18,7 @@ function frameOf(shell: Hello["shell"]): HTMLElement {
   const { app } = scriptedApp();
   app.set({ hello: { shell } as unknown as Hello });
   const { container } = render(
-    <HarnixUiProvider client={app.client as HarnixClient}>
+    <HarnixUiProvider client={app.conn as HarnixClient}>
       <Shell app={app} />
     </HarnixUiProvider>,
   );
@@ -66,7 +66,7 @@ describe("the sidebar in a narrow window", () => {
   it("draws the frame as the app says, and a space picked in the drawer closes it", async () => {
     const { app } = scriptedApp();
     const { container } = render(
-      <HarnixUiProvider client={app.client as HarnixClient}>
+      <HarnixUiProvider client={app.conn as HarnixClient}>
         <Shell app={app} />
       </HarnixUiProvider>,
     );

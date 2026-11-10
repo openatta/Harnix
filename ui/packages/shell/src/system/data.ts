@@ -188,7 +188,7 @@ export function useAgentFacts(app: App, session: SessionKey, busy: boolean, roun
     };
     reload.current = () => void load();
     void load();
-    const off = app.client.onNotify((method, params) => {
+    const off = app.conn.onNotification((method, params) => {
       if (method === "harnix.turn_settled" && params.session_id === session.sessionId) void load();
     });
     return () => {

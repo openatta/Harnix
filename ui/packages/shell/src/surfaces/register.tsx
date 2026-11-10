@@ -226,7 +226,7 @@ interface Listed {
 function follow(app: App, ids: Set<string>): void {
   if (!app.snapshot.reachable.includes("harnix.apps.list")) return;
   const revs = new Map<string, string>();
-  topicsOf(app.client).subscribe("harnix.apps", {}, (value) => {
+  topicsOf(app.conn).subscribe("harnix.apps", {}, (value) => {
     for (const row of (value as Listed | null)?.apps ?? []) {
       if (!ids.has(row.id)) continue;
       const running = Boolean(row.enabled) && row.runtime?.state === "running";

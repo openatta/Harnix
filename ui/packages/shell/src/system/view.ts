@@ -46,7 +46,7 @@ export class View {
   private readonly wasRunning = new Map<string, Set<string>>();
 
   constructor(private readonly app: App) {
-    this.table = topicsOf(app.client);
+    this.table = topicsOf(app.conn);
     try {
       for (const key of JSON.parse(localStorage.getItem(UNREAD_KEY) ?? "[]") as string[]) this.unread.add(key);
     } catch {

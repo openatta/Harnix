@@ -41,7 +41,7 @@ export function startInline(app: App): void {
     off();
     const watch = appsOf(app);
     const made = new Map<string, { key: string; ids: [Point, string][] }>();
-    topicsOf(app.client).subscribe(APPS_TOPIC, {}, (value) => {
+    topicsOf(app.conn).subscribe(APPS_TOPIC, {}, (value) => {
       watch.take(value);
       const running = new Map(watch.running().map((a) => [a.id, a]));
       for (const [id, was] of made) {

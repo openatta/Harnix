@@ -110,7 +110,7 @@ export class SessionController {
   start(): void {
     if (this.offs.length) return;
     this.stopped = false;
-    this.offs.push(this.client.onNotify((method, params) => this.handle(method, params)));
+    this.offs.push(this.client.onNotification((method, params) => this.handle(method, params)));
     // 重连后重新 attach：断线期间跑完或还在跑的那一轮，从中枢的缓冲区与历史补齐。
     this.offs.push(
       this.client.onStatus((status) => {

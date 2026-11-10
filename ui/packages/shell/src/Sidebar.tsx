@@ -247,7 +247,7 @@ function SpaceSessions({ app, s, listed }: { app: App; s: ShellState; listed?: N
         .then((r) => alive && setRows(uniqueSessions(r.sessions).sort((a, b) => String(b.last_active ?? "").localeCompare(String(a.last_active ?? "")))))
         .catch(() => alive && setRows([]));
     void load();
-    const off = app.client.onNotify((method) => {
+    const off = app.conn.onNotification((method) => {
       if (method === "harnix.turn_settled") void load();
     });
     return () => {
@@ -338,7 +338,7 @@ function Avatar({ app, s }: { app: App; s: ShellState }) {
         : s.connection === "incompatible"
           ? t("conn.incompatible")
           : t("conn.closed");
-  const tooltip = [label, app.client.topology ?? "", location.host, s.hello?.engine?.model ?? ""].filter(Boolean).join(" · ");
+  const tooltip = [label, app.conn.topology ?? "", location.host, s.hello?.engine?.model ?? ""].filter(Boolean).join(" · ");
   const wrap = useRef<HTMLDivElement>(null);
   const items: MenuEntry[] = [
     { id: "settings", icon: "settings", label: t("app.settings"), testId: "open-settings", run: () => openSettings(app) },

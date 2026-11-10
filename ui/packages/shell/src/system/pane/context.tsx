@@ -39,7 +39,7 @@ export function ContextTab({ app, view, session }: { app: App; view: View; sessi
       }
     };
     void load();
-    const off = app.client.onNotify((method, params) => {
+    const off = app.conn.onNotification((method, params) => {
       if (method === "harnix.turn_settled" && params.session_id === session.sessionId) void load();
     });
     return () => {

@@ -229,7 +229,7 @@ function TaskOutput({ app, params, task }: { app: App; params: { instance: strin
       }
     };
     const target = { instance: params.instance, session_id: params.session_id, space: SYSTEM };
-    const off = app.client.onNotify((method, p) => {
+    const off = app.conn.onNotification((method, p) => {
       if (stopped || method !== "harnix.event" || p.session_id !== params.session_id) return;
       const event = (p.event ?? {}) as { kind?: string; task_id?: string; task?: { task_id?: string }; appended?: string; from_byte?: number; next_byte?: number };
       if (event.kind === "task_progress" && event.task_id === task.task_id && next !== null) {

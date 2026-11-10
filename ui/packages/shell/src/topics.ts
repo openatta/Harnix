@@ -51,7 +51,7 @@ export class Topics {
   private readonly leaving = new Map<string, Promise<unknown>>();
 
   constructor(private readonly client: HarnixClient) {
-    client.onNotify((method, frame) => {
+    client.onNotification((method, frame) => {
       if (method !== "harnix.topic") return;
       const entry = this.entries.get(topicKey(String(frame.topic), frame.params));
       if (entry) this.deliver(entry, frame.value);

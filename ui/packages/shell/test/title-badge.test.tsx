@@ -16,7 +16,7 @@ describe("title badge", () => {
   it("puts the count in front of the title the shell writes, and takes it off again", () => {
     const { app } = scriptedApp();
     render(
-      <HarnixUiProvider client={app.client as HarnixClient}>
+      <HarnixUiProvider client={app.conn as HarnixClient}>
         <Shell app={app} />
       </HarnixUiProvider>,
     );

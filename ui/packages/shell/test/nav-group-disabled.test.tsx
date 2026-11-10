@@ -15,7 +15,7 @@ afterEach(cleanup);
 
 function draw(app: App) {
   return render(
-    <HarnixUiProvider client={app.client as HarnixClient}>
+    <HarnixUiProvider client={app.conn as HarnixClient}>
       <Shell app={app} />
     </HarnixUiProvider>,
   );

@@ -190,7 +190,7 @@ test("an action the module refuses says why, in the panel", TAGS, async ({ page 
   await station(page, "draft");
   // The module refuses this one release as it would a stale one: the panel shows the refusal.
   await page.evaluate(() => {
-    const client = (window as any).harnix.app.client;
+    const client = (window as any).harnix.app.conn;
     const call = client.call.bind(client);
     client.call = (method: string, params: unknown) =>
       method === "flow.release" ? Promise.reject(new Error("the station is not held any more")) : call(method, params);

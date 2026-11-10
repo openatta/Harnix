@@ -309,7 +309,7 @@ function storedTheme(): ThemeChoice {
 }
 
 export class App {
-  readonly client: HarnixClient;
+  readonly conn: HarnixClient;
   readonly registry: Registry;
   private state: ShellState;
   private readonly listeners = new Set<() => void>();
@@ -321,7 +321,7 @@ export class App {
   private interfaces: ((app: App, view: UiView) => Promise<void>) | null = null;
 
   constructor(client: HarnixClient, registry: Registry) {
-    this.client = client;
+    this.conn = client;
     this.registry = registry;
     const space = stored<string>(SPACE_KEY, "sessions");
     const currentBySpace = stored<Record<string, SessionKey | null>>(CURRENT_KEY, {});
@@ -501,7 +501,7 @@ export class App {
   start(activate: (app: App) => void | Promise<void>, follow?: (app: App, view: UiView) => Promise<void>): void {
     this.builtins = activate;
     this.interfaces = follow ?? null;
-    this.client.onStatus((status, detail) => {
+    this.conn.onStatus((status, detail) => {
       this.set({ connection: status });
       if (status === "open") {
         const restarted = t("conn.restarted");
@@ -512,26 +512,26 @@ export class App {
       if (status === "closed" && detail === TOKEN_STALE) this.notice(t("conn.restarted"), "error", { sticky: true });
       if (status === "incompatible") this.notice(t("banner.incompatible", { reason: detail ?? "" }), "error", { sticky: true });
     });
-    this.client.onNotify((method, params) => this.handle(method, params));
-    this.client.connect();
+    this.conn.onNotification((method, params) => this.handle(method, params));
+    this.conn.connect();
   }
 
   private async boot(): Promise<void> {
     try {
-      const hello = (await this.client.call("harnix.hello", {})) as Hello;
+      const hello = (await this.conn.call("harnix.hello", {})) as Hello;
       this.set({ hello, extensions: hello.extensions ?? this.state.extensions });
       if (!this.booted) {
         this.booted = true;
         // Not waited for past a bound: the rest of the start (sessions, the front space) does not hang
         // on it. Late, it is taken when it comes; what was registered meanwhile went without it.
-        const asked = this.client.call("harnix.reachable", {}).catch(() => ({ methods: [] })) as Promise<{ methods?: string[] }>;
+        const asked = this.conn.call("harnix.reachable", {}).catch(() => ({ methods: [] })) as Promise<{ methods?: string[] }>;
         const reachable = await within(asked, BOOT_WAIT_MS);
         if (reachable === TIMED_OUT) void asked.then((r) => this.set({ reachable: r.methods ?? [] }));
         else this.set({ reachable: reachable.methods ?? [] });
         void this.refreshProviders();
         // Through the page's counted table: a space subscribing to the same topic and leaving again
         // does not take it from the shell.
-        topicsOf(this.client).subscribe("harnix.sessions.status", {}, (value) => this.applyStatus(value));
+        topicsOf(this.conn).subscribe("harnix.sessions.status", {}, (value) => this.applyStatus(value));
         // Awaited: a built-in space the backend has to be asked about (the flow space) is there
         // before the stored front space is looked for.
         // Bounded too (`within`): a built-in that asks the backend and never hears back does not stop
@@ -553,7 +553,7 @@ export class App {
   private uiChain: Promise<void> = Promise.resolve();
 
   private followUi(): void {
-    topicsOf(this.client).subscribe("harnix.ui", {}, (value) => {
+    topicsOf(this.conn).subscribe("harnix.ui", {}, (value) => {
       const view = value as UiView | null;
       if (!view || !Array.isArray(view.extensions)) return;
       const before = this.state.extensions;
@@ -576,7 +576,7 @@ export class App {
   /** Ask `harnix.reachable` again: a runtime application registered since the start adds methods. */
   async refreshReachable(): Promise<void> {
     try {
-      const r = (await this.client.call("harnix.reachable", {})) as { methods?: string[] };
+      const r = (await this.conn.call("harnix.reachable", {})) as { methods?: string[] };
       this.set({ reachable: r.methods ?? [] });
     } catch {
       // What was known stays.
@@ -587,7 +587,7 @@ export class App {
   async refreshProviders(): Promise<void> {
     if (!this.state.reachable.includes("settings.describe")) return;
     const scene = this.state.hello?.engine?.active_scenes?.[0];
-    const described = await this.client
+    const described = await this.conn
       .call("settings.describe", { scene, project_root: null })
       .catch(() => null);
     const providers = (described as { providers?: Partial<Providers> } | null)?.providers;
@@ -647,7 +647,7 @@ export class App {
   private handle(method: string, params: Record<string, unknown>): void {
     if (method === "harnix.event" && (params.event as { kind?: string } | undefined)?.kind === "skills_changed") {
       // The command list is the engine's; a skill installed mid-session adds one.
-      void this.client
+      void this.conn
         .call("engine.commands.list", {})
         .then((r) => {
           const hello = this.state.hello;
@@ -677,8 +677,8 @@ export class App {
     const mine = ++this.refreshes;
     try {
       const [listed, spaces] = await Promise.all([
-        this.client.call("harnix.sessions.list", { space: "sessions" }) as Promise<{ sessions: SessionRow[] }>,
-        this.client
+        this.conn.call("harnix.sessions.list", { space: "sessions" }) as Promise<{ sessions: SessionRow[] }>,
+        this.conn
           .call("harnix-app.workspaces.list", {})
           .catch(() => ({ workspaces: [], prefs: {}, sessions: {} })) as Promise<{
           workspaces: Workspace[];
@@ -736,7 +736,7 @@ export class App {
     const key = this.state.currentBySpace[space];
     if (!key) return;
     try {
-      await this.client.call("engine.session.get", { space: this.claim(space), instance: key.instance, session_id: key.sessionId });
+      await this.conn.call("engine.session.get", { space: this.claim(space), instance: key.instance, session_id: key.sessionId });
     } catch {
       if (this.state.currentBySpace[space] === key) this.open(null, space);
     }
@@ -760,7 +760,7 @@ export class App {
       const workspace = this.state.workspaces.find((w) => w.id === this.state.project);
       if (workspace) params = { ...params, project_root: workspace.path };
     }
-    const created = (await this.client.call("harnix.session.create", { ...params, space: this.claim(space) })) as { session_id: string; instance?: string };
+    const created = (await this.conn.call("harnix.session.create", { ...params, space: this.claim(space) })) as { session_id: string; instance?: string };
     const key = { instance: created.instance ?? MAIN_INSTANCE, sessionId: created.session_id };
     await this.refreshSessions();
     this.open(key, space);
@@ -968,12 +968,12 @@ export class App {
   /** A same-origin path with this page's credential on it: for what the browser fetches itself
    *  and cannot be given a header, such as a package's module (`import()`). */
   credentialed(path: string): string {
-    return this.client.withToken(path);
+    return this.conn.withToken(path);
   }
 
   /** 一次调用；失败时说出来并把错误交回去。 */
   async call<T = unknown>(method: string, params?: unknown): Promise<T> {
-    return (await this.client.call(method, params)) as T;
+    return (await this.conn.call(method, params)) as T;
   }
 
   /** 上传一个文件：先要一张票，再把文件原样 POST 过去（`harnix.bulk.upload`）。 */

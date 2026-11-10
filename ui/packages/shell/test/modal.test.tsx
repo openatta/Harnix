@@ -29,7 +29,7 @@ function key(target: EventTarget, k: string, extra: KeyboardEventInit = {}) {
 function mount() {
   const { app } = scriptedApp();
   render(
-    <HarnixUiProvider client={app.client as HarnixClient}>
+    <HarnixUiProvider client={app.conn as HarnixClient}>
       <Shell app={app} />
     </HarnixUiProvider>,
   );

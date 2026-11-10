@@ -29,7 +29,7 @@ export function FramesTab({ app, session }: { app: App; session: SessionKey }) {
   useEffect(() => {
     const target = { instance: session.instance, session_id: session.sessionId };
     let alive = true;
-    const off = app.client.onNotify((method, params) => {
+    const off = app.conn.onNotification((method, params) => {
       if (!alive || pausedRef.current || params.session_id !== session.sessionId) return;
       if (params.instance !== undefined && params.instance !== session.instance) return;
       const event = (params.event ?? {}) as { kind?: string };

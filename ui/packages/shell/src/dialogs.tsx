@@ -625,7 +625,7 @@ function ConnectionBody({ app }: { app: App }) {
         </div>
         <div className="fact">
           <dt>{t("avatar.topology")}</dt>
-          <dd>{app.client.topology ?? ""}</dd>
+          <dd>{app.conn.topology ?? ""}</dd>
         </div>
         <div className="fact">
           <dt>{t("avatar.address")}</dt>
