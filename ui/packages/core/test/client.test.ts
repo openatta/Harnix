@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CONTRIB_API_VERSION, HarnixClient, PROTOCOL_VERSION, TOKEN_STALE, tokenFromDocument, tokenFromPage, type ConnectionStatus } from "../src/index.ts";
+import { CONTRIB_API_VERSION, ENGINE_PROTOCOLS, HarnixClient, PROTOCOL_VERSION, TOKEN_STALE, engineProtocolRefusal, parseSessionEvent, tokenFromDocument, tokenFromPage, type ConnectionStatus } from "../src/index.ts";
 import { FakeServer, FakeSplit, RpcFailure, settle } from "./fakes.ts";
 
 const BASE = "http://127.0.0.1:4287";
@@ -434,5 +434,41 @@ describe("在途上限", () => {
     const outcomes = await Promise.all(calls);
     expect(outcomes.every((e) => (e as { message?: string }).message === "connection closed")).toBe(true);
     client.close();
+  });
+});
+
+describe("引擎协议", () => {
+  it("hello 里的 engine_protocol 认不出：拒绝并说明，停在 incompatible，不再重连", async () => {
+    const server = new FakeServer();
+    server.answer = (method) =>
+      method === "harnix.handshake" ? { topology: "single_duplex" } : method === "harnix.hello" ? { engine_protocol: 99 } : undefined;
+    const { client } = makeClient(server);
+    client.connect();
+    await client.ready();
+    await expect(client.call("harnix.hello")).rejects.toMatchObject({ message: expect.stringContaining("protocol 99") });
+    expect(client.status).toBe("incompatible");
+    expect(client.detail).toContain("protocol 99");
+  });
+
+  it("认得的、没说的照常", () => {
+    expect(engineProtocolRefusal({ engine_protocol: ENGINE_PROTOCOLS[0] })).toBeNull();
+    expect(engineProtocolRefusal({})).toBeNull();
+    expect(engineProtocolRefusal({ engine_protocol: 2 })).toContain("protocol 2");
+  });
+
+  it("解析视图：认得的照意思读，认不出的是 other", () => {
+    expect(parseSessionEvent({ kind: "text_delta", text: "hi" })).toEqual({ kind: "text", text: "hi" });
+    expect(parseSessionEvent({ kind: "tool_result", id: "t1", is_error: true })).toEqual({ kind: "tool_result", toolUseId: "t1", isError: true });
+    expect(parseSessionEvent({ kind: "brand_new" })).toEqual({ kind: "other", raw: "brand_new" });
+    expect(parseSessionEvent(null)).toEqual({ kind: "other", raw: "" });
+  });
+});
+
+describe("带凭据的地址", () => {
+  it("一个同源路径带上令牌；没有令牌（启动链接的 cookie）原样", () => {
+    const { client } = makeClient(new FakeServer());
+    expect(client.withToken("/apps/plugins/ui/pkg/rows.js")).toBe("/apps/plugins/ui/pkg/rows.js?token=tok+en");
+    const { client: cookie } = makeClient(new FakeServer(), undefined, { token: "" });
+    expect(cookie.withToken("/apps/plugins/ui/pkg/rows.js")).toBe("/apps/plugins/ui/pkg/rows.js");
   });
 });

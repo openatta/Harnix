@@ -71,15 +71,19 @@ impl UiModules {
         }
     }
 
-    /// `hello.extensions`: every extension, enabled or not, without its interface — what the
-    /// shell activates its compiled-in UI packages by, before the first draw.
+    /// `hello.extensions`: every extension, enabled or not — what the shell activates its
+    /// compiled-in UI packages by, before the first draw. Of its interface only `bundle`, the UI
+    /// package it is drawn by when that is not its own id.
     pub fn extensions(&self) -> Value {
         json!(self
             .entries()
             .into_iter()
             .map(|mut e| {
                 if let Some(obj) = e.as_object_mut() {
-                    obj.remove("ui");
+                    let bundle = obj.remove("ui").and_then(|ui| ui.get("bundle").cloned());
+                    if let Some(bundle) = bundle {
+                        obj.insert("bundle".into(), bundle);
+                    }
                 }
                 e
             })
