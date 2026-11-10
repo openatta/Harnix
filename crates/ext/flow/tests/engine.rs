@@ -1076,7 +1076,7 @@ async fn dispatched_work_rebuilds_what_the_dispatcher_holds() {
             "analyze",
             "m1",
             &m1.token,
-            "system/s-1",
+            "main/s-1",
             None,
             Actor::flow("dispatch"),
         )
@@ -1104,7 +1104,7 @@ async fn dispatched_work_rebuilds_what_the_dispatcher_holds() {
                 assert_eq!(token, t0, "the same claim, not a new one");
                 assert_eq!(protocol, p0);
                 if task == "m1" {
-                    assert_eq!(session.as_deref(), Some("system/s-1"));
+                    assert_eq!(session.as_deref(), Some("main/s-1"));
                 }
             }
             _ => unreachable!(),

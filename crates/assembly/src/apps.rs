@@ -781,7 +781,7 @@ mod tests {
         let reach = w.apps.call_as("host", "acme.notes", harnix_router::REACHABLE, json!({})).await.unwrap();
         assert_eq!(
             reach["methods"],
-            json!(["app.acme.notes.echo", "app.acme.notes.internal", "harnix.topics.subscribe", "harnix.topics.unsubscribe", "harnix.session.create"])
+            json!(["app.acme.notes.echo", "app.acme.notes.internal", "harnix.session.create", "harnix.topics.subscribe", "harnix.topics.unsubscribe"])
         );
         assert_eq!(reach["topics"], json!(["app.acme.notes.ticks", "harnix.sessions.status"]));
         // Only the module that registered it speaks for it.

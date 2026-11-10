@@ -1,5 +1,5 @@
 //! The route table the Harnix app serves, pinned: every method, topic and route, who owns it and
-//! who may reach it, and the aliases. `tests/live/api/method-table.spec.ts` reads the same file from
+//! who may reach it. `tests/live/api/method-table.spec.ts` reads the same file from
 //! a running process.
 //!
 //! A change here is a change of what a client may call: `HARNIX_UPDATE_SNAPSHOTS=1` writes the

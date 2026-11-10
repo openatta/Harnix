@@ -667,9 +667,9 @@ mod tests {
             instance: "main".into(),
             session_id: "abc".into(),
         };
-        assert_eq!(session_name(&s), "system/abc");
-        assert_eq!(session_ref("system/abc"), s);
-        assert_eq!(session_ref("abc"), s, "a bare id is on system");
+        assert_eq!(session_name(&s), "main/abc");
+        assert_eq!(session_ref("main/abc"), s);
+        assert_eq!(session_ref("abc"), s, "a bare id is on main");
     }
 
     /// Stopping waits for the module's tasks, and each of them stops waiting on what it waited

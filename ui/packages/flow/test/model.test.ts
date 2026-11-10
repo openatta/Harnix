@@ -342,7 +342,7 @@ describe("what a run is doing and what it spent (xops-03)", () => {
   });
 
   it("finds the main session under @main", () => {
-    expect(mainSessionOf({ session_keys: { "@main": "box/m1", run: "system/x" } })).toEqual({ instance: "box", sessionId: "m1" });
+    expect(mainSessionOf({ session_keys: { "@main": "box/m1", run: "main/x" } })).toEqual({ instance: "box", sessionId: "m1" });
     expect(mainSessionOf({ session_keys: {} })).toBe(null);
   });
 

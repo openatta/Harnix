@@ -271,22 +271,18 @@ mod debugger {
 mod unlinked {
     use super::*;
 
-    /// The table's rows and aliases, as text, one each.
-    fn table(modules: Modules) -> (Vec<Value>, Vec<Value>) {
+    /// The table's rows, as text, one each.
+    fn table(modules: Modules) -> Vec<Value> {
         let r = registered(true, modules).unwrap();
-        let snapshot = r.router.snapshot();
-        let rows = snapshot["rows"].as_array().cloned().unwrap_or_default();
-        let aliases = snapshot["aliases"].as_array().cloned().unwrap_or_default();
-        (rows, aliases)
+        r.router.snapshot()["rows"].as_array().cloned().unwrap_or_default()
     }
 
-    /// Not linking an extension changes the kernel by nothing: what is missing is its own rows,
-    /// and the old names that answered as them.
+    /// Not linking an extension changes the kernel by nothing: what is missing is its own rows.
     #[test]
     fn without_an_extension_only_its_rows_differ() {
         for ext in ["harnix-app", "system", "observability", "settings", "plugins", "devices", "flow"] {
-            let (all_rows, all_aliases) = table(first_party(""));
-            let (rows, aliases) = table(first_party(ext));
+            let all_rows = table(first_party(""));
+            let rows = table(first_party(ext));
             let owner = format!("ext:{ext}");
             let missing: Vec<&Value> = all_rows.iter().filter(|row| !rows.contains(row)).collect();
             assert!(!missing.is_empty(), "{ext} has no rows");
@@ -294,12 +290,6 @@ mod unlinked {
                 assert!(row["owner"] == owner, "without {ext}, {row} is missing");
             }
             assert!(rows.iter().all(|row| all_rows.contains(row)), "without {ext}, a row appeared");
-            for alias in all_aliases.iter().filter(|a| !aliases.contains(a)) {
-                let new = alias["to"].as_str().unwrap_or_default();
-                let new = new.strip_prefix("topic:").unwrap_or(new);
-                assert!(new.starts_with(&format!("{ext}.")), "without {ext}, the alias {alias} is missing");
-            }
-            assert!(aliases.iter().all(|a| all_aliases.contains(a)), "without {ext}, an alias appeared");
         }
     }
 }
