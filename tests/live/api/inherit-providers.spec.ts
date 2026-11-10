@@ -39,15 +39,15 @@ test.afterEach(() => api?.close());
 
 /** The provider ids an instance's engine has, as it says. */
 async function providerIds(instance: string): Promise<string[]> {
-  const answer = await api.call("app.fleet.providers", { instance });
+  const answer = await api.call("fleet.providers", { instance });
   return Object.keys(answer.providers ?? {});
 }
 
 const CONFIG = { api_type: "anthropic", api_key: "sk-inherited", default_model: "m-1" };
 
 test("an inheriting instance sees a provider the moment it is set, and loses it when deleted", TAGS, async () => {
-  await api.call("app.fleet.ensure_many", { template: "fleet.heir", name: "heir-1", count: 1 });
-  await api.call("app.fleet.ensure_many", { template: "fleet.side", name: "plain-1", count: 1 });
+  await api.call("fleet.ensure_many", { template: "fleet.heir", name: "heir-1", count: 1 });
+  await api.call("fleet.ensure_many", { template: "fleet.side", name: "plain-1", count: 1 });
   expect(await providerIds("heir-1")).not.toContain("hx-check");
 
   const added = await api.call("settings.setProvider", { provider_id: "hx-check", config: CONFIG });
@@ -65,7 +65,7 @@ test("an inheriting instance sees a provider the moment it is set, and loses it 
 
 test("an inheriting instance built later starts with what is there", TAGS, async () => {
   await api.call("settings.setProvider", { provider_id: "hx-early", config: CONFIG });
-  await api.call("app.fleet.ensure_many", { template: "fleet.heir", name: "heir-2", count: 1 });
+  await api.call("fleet.ensure_many", { template: "fleet.heir", name: "heir-2", count: 1 });
   expect(await providerIds("heir-2")).toContain("hx-early");
   await api.call("settings.setProvider", { provider_id: "hx-early", delete: true });
 });

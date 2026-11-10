@@ -38,7 +38,7 @@ test.beforeAll(async () => {
   });
   const api = await connect(backend, { topology: topology() });
   try {
-    await api.call("harnix.apps.installFile", { path });
+    await api.call("packages.installFile", { path });
   } finally {
     api.close();
   }
@@ -61,7 +61,7 @@ test("the Apps tab shows a hibernating backend, and a call waking it", TAGS, asy
 
   const api = await connect(backend, { topology: topology() });
   try {
-    await api.call(`app.${SHOWCASE_ID}.state`);
+    await api.call(`${SHOWCASE_ID}.state`);
   } finally {
     api.close();
   }

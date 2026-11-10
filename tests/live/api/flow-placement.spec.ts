@@ -110,7 +110,7 @@ test("sessions on an in-process and a spawned template instance hand in by struc
   expect(inFleet).toContain(ref(local.session).session_id);
   const inFlow = (await api.call("harnix.sessions.list", { space: "flow" })).sessions.map((s: any) => s.session_id);
   expect(inFlow).toContain(ref(remote.session).session_id);
-  expect((await api.call("app.fleet.model", ref(local.session))).model).toBe("flow-demo-model");
+  expect((await api.call("fleet.model", ref(local.session))).model).toBe("flow-demo-model");
 
   await api.call("flow.confirm", { run, station: "approve", pass: true });
   await until(run, (v) => v.record.status === "finished", "the run finishes");

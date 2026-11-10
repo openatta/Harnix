@@ -44,7 +44,7 @@ type Session = { instance: string; session_id: string };
 
 /** A session in the native scene, on an instance of `template` named `name`. */
 async function nativeSession(template: string, name: string, recording: string): Promise<Session> {
-  const s = await api.call("app.fleet.native_session", {
+  const s = await api.call("fleet.native_session", {
     template,
     name,
     scene: "probe-native",
@@ -77,7 +77,7 @@ for (const [carrier, template] of [["spawn", "fleet.native-spawn"], ["in_process
     const results = JSON.stringify(api.eventsOfKind("tool_result", s.session_id));
     expect(results).toContain(NATIVE_ANSWER);
 
-    const context = await api.call("app.fleet.context", s);
+    const context = await api.call("fleet.context", s);
     expect(JSON.stringify(context)).toContain(NATIVE_MARKER);
   });
 

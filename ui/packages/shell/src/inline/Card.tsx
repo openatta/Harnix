@@ -36,7 +36,7 @@ export function InlineCard({ app, owner, decl, entry }: { app: App; owner: Runti
   const run = async (button: ButtonDecl) => {
     setBusy(true);
     try {
-      const result = await app.call(`app.${owner.id}.${button.method}`, fillValue(button.params ?? {}, scope));
+      const result = await app.call(`${owner.id}.${button.method}`, fillValue(button.params ?? {}, scope));
       setDone(button.done ? say(button.done, { ...scope, result }) : t("apps.command.done", { command: say(button.label, scope) }));
       setError(null);
     } catch (e) {

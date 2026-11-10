@@ -3,7 +3,7 @@
  * decision, a job's result. It is in the log, so a refresh, a replay and a fork all see it; it is
  * never the model's; a module writes only under its own namespace, and a device writes none.
  *
- * `app.probe.note` (crates/testapp) writes one as the `probe` module and lists the module's own.
+ * `probe.note` (crates/testapp) writes one as the `probe` module and lists the module's own.
  */
 
 import { REFUSED } from "@harnix/core/protocol";
@@ -45,7 +45,7 @@ test("a module's entry lands where it was written, under its own name, and watch
   // After the transcript as it stands: the turn's two messages, behind whatever the engine put at
   // the start of the conversation (the session's context, its skills).
   const { total } = await api.call("engine.session.history", s);
-  const { written, mine } = await api.call("app.probe.note", { ...s, event: "job_done", payload: { title: "entry-marker-41" } });
+  const { written, mine } = await api.call("probe.note", { ...s, event: "job_done", payload: { title: "entry-marker-41" } });
   expect(written).toMatchObject({ ns: "app.probe", event: "job_done", at: total, payload: { title: "entry-marker-41" } });
   expect(mine.map((e: any) => e.id)).toEqual([written.id]);
 
@@ -63,7 +63,7 @@ test("a module's entry lands where it was written, under its own name, and watch
 test("the model never sees an entry", TAGS, async () => {
   const s = await oneTurn();
   const before = (await api.call("engine.session.history", s)).total;
-  await api.call("app.probe.note", { ...s, event: "secret_card", payload: { title: "entry-marker-77" } });
+  await api.call("probe.note", { ...s, event: "secret_card", payload: { title: "entry-marker-77" } });
   const history = await api.call("engine.session.history", s);
   expect(history.total, "an entry is not a message").toBe(before);
   expect(JSON.stringify(history.messages)).not.toContain("entry-marker-77");
@@ -74,7 +74,7 @@ test("the model never sees an entry", TAGS, async () => {
 
 test("a fork of the whole session keeps its entries; one cut before them does not", TAGS, async () => {
   const s = await oneTurn();
-  await api.call("app.probe.note", { ...s, event: "after_the_turn", payload: {} });
+  await api.call("probe.note", { ...s, event: "after_the_turn", payload: {} });
   const whole = await api.call("harnix.session.fork", s);
   const kept = await api.call("engine.session.entries", { instance: s.instance, session_id: whole.session_id });
   expect(kept.entries.map((e: any) => e.event)).toEqual(["after_the_turn"]);
@@ -85,7 +85,7 @@ test("a fork of the whole session keeps its entries; one cut before them does no
 
 test("an entry outlives the session leaving memory, and a fresh client reads it back", TAGS, async () => {
   const s = await oneTurn();
-  await api.call("app.probe.note", { ...s, event: "before_close", payload: {} });
+  await api.call("probe.note", { ...s, event: "before_close", payload: {} });
   await api.call("harnix.session.close", s);
   const other = await connect(backend);
   try {
@@ -102,7 +102,7 @@ test("a device writes no entries, and a module none outside its namespace", TAGS
   const error = await api.refused("harnix.session.entries.append", { ...s, event: "forged", payload: {} });
   expect(error?.code).toBe(REFUSED);
   // Even naming one: the hub decides the namespace, not the caller.
-  await api.call("app.probe.call", {
+  await api.call("probe.call", {
     method: "harnix.session.entries.append",
     params: { ...s, ns: "app.other", event: "claimed", payload: {} },
   });

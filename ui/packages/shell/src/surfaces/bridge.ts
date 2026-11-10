@@ -12,7 +12,7 @@
  * the frame shares the page's thread, a page that hangs hangs the shell with it.
  *
  * Everything the frame asks is done by the shell, and only what its application's manifest lets
- * it ask for: methods and topics of its own (`app.<id>.*`) and in its `[interface] calls`, sessions
+ * it ask for: methods and topics of its own (`<id>.*`) and in its `[interface] calls`, sessions
  * of its own space, items of its own kinds, its own modals and settings sections. Every call and
  * every subscription goes out carrying the application's id (`"$ext"`): the server takes what the
  * page may do, what the interface lists and the row's scope, and narrows it to the application's
@@ -276,7 +276,7 @@ export class FrameBridge {
         if (!admits(iface.id, iface.calls, name, false)) this.refuse(name, t("surface.why.notListed"));
         // Tagged with the application: the server narrows the call to what its interface may do
         // too, whatever this side let through. Its own names are its own, wherever.
-        const own = name.startsWith(`app.${iface.id}.`);
+        const own = name.startsWith(`${iface.id}.`);
         const params = own ? ((p.params ?? {}) as Record<string, unknown>) : await this.narrow(name, p.params ?? {}, true);
         return app.call(name, { ...params, $ext: iface.id });
       }

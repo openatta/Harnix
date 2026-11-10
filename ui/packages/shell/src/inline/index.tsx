@@ -8,12 +8,12 @@
  * - `flow.block` — the entries it appends to a session whose event is a declared kind, as cards
  *   (`Card.tsx`);
  * - `command` — its `/` commands and `@` sources, whose candidates its backend's
- *   `app.<id>.complete` answers; a `/` candidate may name one of its methods, which choosing it
+ *   `<id>.complete` answers; a `/` candidate may name one of its methods, which choosing it
  *   runs. The menus are the shell's, as they are for every command;
  * - `sidebar.group` — not a registration: one of its spaces' left column, grouped as declared
  *   (`Grouping.tsx`). The product's own lists keep their grouping.
  *
- * Followed from `harnix.apps`: an application that starts has its points drawn, one that stops or
+ * Followed from `packages.list`: an application that starts has its points drawn, one that stops or
  * is updated has them taken back (and registered afresh), without the page being reloaded.
  */
 
@@ -32,7 +32,7 @@ import { InlineToolRow, inlineTitle } from "./ToolRow.tsx";
 export { GroupedSessions, groupingOf } from "./Grouping.tsx";
 export { appsOf, type Inline } from "./apps.ts";
 
-/** Start following the applications, once this page can (`harnix.apps.list` is reachable). */
+/** Start following the applications, once this page can (`packages.list` is reachable). */
 export function startInline(app: App): void {
   let started = false;
   const start = () => {
@@ -82,7 +82,7 @@ function register(app: App, a: RuntimeApp): [Point, string][] {
   const kinds = new Map((a.inline.flow_block ?? []).map((decl) => [decl.kind, decl]));
   if (kinds.size) {
     const id = "inline.flow_block";
-    const ns = `app.${a.id}`;
+    const ns = `${a.id}`;
     const entryOf = (block: Block): Entry | null => {
       if (block.kind !== "custom" || (block as BlockOf<"custom">).type !== "entry") return null;
       const entry = (block as BlockOf<"custom">).data as Entry | null;
@@ -120,7 +120,7 @@ function command(app: App, a: RuntimeApp, decl: CommandDecl): Contributions["com
     id: `inline.command.${decl.trigger}${decl.name}`,
     trigger: decl.trigger,
     async complete(query: string, ctx?: CommandContext): Promise<CommandCandidate[]> {
-      const answer = await app.call<{ candidates?: Candidate[] } | null>(`app.${a.id}.complete`, {
+      const answer = await app.call<{ candidates?: Candidate[] } | null>(`${a.id}.complete`, {
         trigger: decl.trigger,
         name: decl.name,
         query,
@@ -145,7 +145,7 @@ function command(app: App, a: RuntimeApp, decl: CommandDecl): Contributions["com
         if (decl.trigger === "/" && typeof method === "string" && method) {
           const params = c.call?.params && typeof c.call.params === "object" ? c.call.params : {};
           candidate.run = async () => {
-            await app.call(`app.${a.id}.${method}`, params);
+            await app.call(`${a.id}.${method}`, params);
             app.notice(localized(c.done) || t("apps.command.done", { command: replacement.trim() }));
           };
         }

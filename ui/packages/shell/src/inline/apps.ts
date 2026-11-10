@@ -1,6 +1,6 @@
 /**
- * The runtime applications this page knows of, from the `apps` module's topic `harnix.apps` (the
- * value of `harnix.apps.list`, pushed when it changes): which are installed and how far each is
+ * The runtime applications this page knows of, from the `apps` module's topic `packages.list` (the
+ * value of `packages.list`, pushed when it changes): which are installed and how far each is
  * trusted — what the left column's mark says — and, for each one running, the inline points its
  * manifest declares (`runtime.inline`), which the shell draws for it.
  *
@@ -82,7 +82,7 @@ interface Listed {
 }
 
 /** What the reader chose about the mark: `off` hides it. */
-const MARK_KEY = "harnix.apps.mark";
+const MARK_KEY = "packages.mark";
 
 export class AppsWatch {
   private apps = new Map<string, RuntimeApp>();
@@ -90,7 +90,7 @@ export class AppsWatch {
   private version = 0;
   private hidden = readMark();
 
-  /** A value of `harnix.apps`. */
+  /** A value of `packages.list`. */
   take(value: unknown): void {
     const listed = ((value as { apps?: Listed[] } | null)?.apps ?? []).filter((a) => a && typeof a.id === "string");
     this.apps = new Map(

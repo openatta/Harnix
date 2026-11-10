@@ -51,7 +51,7 @@ test("a settled turn says how it ended, as its turn_complete did", TAGS, async (
 });
 
 test("a tap that fell behind still has the settlement, with its outcome", TAGS, async () => {
-  const answer = await api.call("app.fleet.settle_behind", {
+  const answer = await api.call("fleet.settle_behind", {
     project_root: api.project,
     recording: "says-ready",
     message: "Say exactly: fixture ready",

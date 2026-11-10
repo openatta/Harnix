@@ -114,7 +114,7 @@ describe("following harnix.ui", () => {
       plugin: "acme.notes",
       point: "space",
       api_version: 3,
-      frame: "/apps/acme.notes/ui/a.html",
+      frame: "/ext/acme.notes/ui/a.html",
       surface: { id: "space", space: "acme.notes", title: { en: "Notes" }, center: "hidden" },
       interface: { calls: [], links: false, trust: "store", title: "Notes", spaces: ["acme.notes"] },
     };

@@ -9,7 +9,7 @@
  *
  * The showcase is packed once per change to its sources (or to the WIT, or to the tools): its
  * component built for wasm32-wasip2, compiled for this binary's engine, zipped with its manifest,
- * `agent/` and `ui/`. The package is cached under `target/apps/showcase/`.
+ * `agent/` and `ui/`. The package is cached under `target/ext/showcase/`.
  */
 
 import { execFileSync } from "node:child_process";
@@ -107,8 +107,7 @@ export function startApps(
       env: options.env,
       topologies: options.topologies,
       profile: `
-[apps]
-enabled = true
+[ext.packages]
 dev = ${options.dev ?? true}
 ${options.profile ?? ""}`,
     }),

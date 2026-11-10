@@ -360,12 +360,12 @@ test("tasks sharing the run's session take turns in it, each handing in under it
 });
 
 test("only a device may drive a flow: another module is refused", TAGS, async () => {
-  const start = await api.refused("app.probe.call", {
+  const start = await api.refused("probe.call", {
     method: "flow.start",
     params: { flow: "demo-linear", subject: "repo" },
   });
   expect(start?.code).toBe(REFUSED);
-  const read = await api.refused("app.probe.call", { method: "flow.list", params: {} });
+  const read = await api.refused("probe.call", { method: "flow.list", params: {} });
   expect(read?.code).toBe(REFUSED);
 });
 

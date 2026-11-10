@@ -82,7 +82,7 @@ async function listed(id: string): Promise<any[]> {
 }
 
 test("eight ensures of one name at once, from a module, are one in-process instance", TAGS, async () => {
-  const { answers } = await api.call("app.fleet.ensure_many", { template: "fleet.side", name: "par-side", count: 8 });
+  const { answers } = await api.call("fleet.ensure_many", { template: "fleet.side", name: "par-side", count: 8 });
   expect(answers).toHaveLength(8);
   for (const a of answers) expect(a, JSON.stringify(a)).toEqual({ id: "par-side" });
   expect(await listed("par-side")).toHaveLength(1);
@@ -119,7 +119,7 @@ test("ensure with wait: ready answers once the daemon is up, and a session follo
 });
 
 test("a module's ensure_ready is followed by a session at once", TAGS, async () => {
-  const answer = await api.call("app.fleet.ready_session", { template: "worker", name: "module-worker" });
+  const answer = await api.call("fleet.ready_session", { template: "worker", name: "module-worker" });
   expect(answer.status.state).toBe("ready");
   expect(answer.session_id).toBeTruthy();
   expect(answer.waited.state).toBe("ready");

@@ -9,7 +9,7 @@
  *
  * The frame never gets the page's token, its connection, its DOM, or another application's
  * names: it asks, and the shell does — what the application's manifest lets it ask for (its own
- * `app.<id>.*` and its `[interface] calls`), and nothing else. Both sides import these types, so
+ * `<id>.*` and its `[interface] calls`), and nothing else. Both sides import these types, so
  * this file is the protocol's definition.
  */
 
@@ -136,7 +136,7 @@ export interface Welcome {
 /** What a frame asks of the shell: `params`, and what the response's `result` is. */
 export interface FrameRequests {
   hello: { params: { sdk: string }; result: Welcome };
-  /** A method: the application's own `app.<id>.*`, or one its `[interface] calls` lists. */
+  /** A method: the application's own `<id>.*`, or one its `[interface] calls` lists. */
   call: { params: { method: string; params?: unknown }; result: unknown };
   /** A topic, the same way (`topic:<name>` in the calls). Values arrive as `topic` events. */
   subscribe: { params: { topic: string; params?: unknown }; result: { sub: number } };
@@ -214,11 +214,11 @@ export function inDialog(point: SurfacePoint): boolean {
 }
 
 /** Whether a frame of extension `ext` may call `name` (or subscribe to it, with `topic`): the
- *  application's own `app.<id>.*`, or a name its `[interface] calls` lists (`topic:<name>` for a
+ *  application's own `<id>.*`, or a name its `[interface] calls` lists (`topic:<name>` for a
  *  topic). What it may then do with it is the server's to narrow: every call and subscription a
  *  frame makes carries the application's id, and the router takes what the page may do, what the
  *  interface lists and the row's scope. */
 export function admits(ext: string, calls: readonly string[], name: string, topic: boolean): boolean {
-  if (name.startsWith(`app.${ext}.`)) return true;
+  if (name.startsWith(`${ext}.`)) return true;
   return calls.includes(topic ? `topic:${name}` : name);
 }

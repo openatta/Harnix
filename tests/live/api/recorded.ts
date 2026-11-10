@@ -118,11 +118,10 @@ export async function backendFor(entry: Recorded, base: LaunchOptions, launch: (
         ...own,
         bin: appsTools().bin,
         profile: `
-[apps]
-enabled = true
+[ext.packages]
 dev = true
 
-[apps.config."${SHOWCASE_ID}"]
+[ext."${SHOWCASE_ID}"]
 greeting = "hello from the profile"
 ${entry.profile ?? ""}`,
       }
@@ -137,7 +136,7 @@ ${entry.profile ?? ""}`,
  * starts something lasting — that, until it is done. Answers the session and the settlement.
  */
 export async function play(api: TestClient, entry: Recorded, recorder?: string): Promise<{ session_id: string; settled: any }> {
-  if (entry.apps) await api.call("harnix.apps.installFile", { path: showcasePackage().path });
+  if (entry.apps) await api.call("packages.installFile", { path: showcasePackage().path });
   if (entry.settings) {
     mkdirSync(join(api.project, ".agix"), { recursive: true });
     writeFileSync(join(api.project, ".agix", "settings.json"), JSON.stringify(entry.settings));

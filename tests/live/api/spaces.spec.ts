@@ -160,7 +160,7 @@ test("with the system space turned off, nobody may claim it", TAGS, async () => 
 test("a module moves a session to another space, where it is listed alone; a space it cannot go to is refused (ipdrun-51)", TAGS, async () => {
   const mine = await createIn("sessions");
   const move = (params: Record<string, unknown>) =>
-    api.call("app.probe.call", { method: "harnix.session.move", params: { ...mine, ...params } });
+    api.call("probe.call", { method: "harnix.session.move", params: { ...mine, ...params } });
   expect(await move({ space: "projects" })).toEqual({ space: "projects", from: "sessions", moved: true });
   const listed = async (space: string) =>
     (await api.call("harnix.sessions.list", { space })).sessions.map((r: any) => r.session_id);
@@ -174,10 +174,10 @@ test("a module moves a session to another space, where it is listed alone; a spa
   // Not to the system space, nor to a name no space can have (a well-formed one is a space — one
   // may live only in the interface).
   for (const space of ["system", "not a space!"]) {
-    const refused = await api.refused("app.probe.call", { method: "harnix.session.move", params: { ...mine, space } });
+    const refused = await api.refused("probe.call", { method: "harnix.session.move", params: { ...mine, space } });
     expect(refused?.code, space).toBe(SPACE_MISMATCH);
   }
-  expect(await api.refused("app.probe.call", { method: "harnix.session.move", params: { ...mine, session_id: "no-such-session", space: "sessions" } })).toBeTruthy();
+  expect(await api.refused("probe.call", { method: "harnix.session.move", params: { ...mine, session_id: "no-such-session", space: "sessions" } })).toBeTruthy();
 });
 
 test("moving a session to another space is the application's: a device is refused (ipdrun-51)", TAGS, async () => {

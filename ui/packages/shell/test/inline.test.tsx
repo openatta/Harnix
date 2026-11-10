@@ -1,6 +1,6 @@
 /**
  * What runtime applications declare inline (`src/inline/`): the templates fill from what is drawn
- * and nothing else, and what the shell registers for an application follows `harnix.apps` — in
+ * and nothing else, and what the shell registers for an application follows `packages.list` — in
  * when it runs, out when it stops, afresh when it changes.
  */
 

@@ -1,6 +1,6 @@
 /**
  * Runtime applications, stage four: a WebAssembly backend. The showcase (`examples/apps/showcase`)
- * is a `backend-ext`: one resident instance in this process, its methods `app.example.showcase.*`
+ * is a `backend-ext`: one resident instance in this process, its methods `example.showcase.*`
  * in the authorization table, its topics pushed like any host topic, its space listed — and what
  * it does as itself (`ext:example.showcase`) admitted against its manifest's `calls` and audited.
  *
@@ -26,13 +26,13 @@ import { SHOWCASE_CHATS, SHOWCASE_ID, showcasePackage, startApps } from "./packa
 
 const TAGS = { tag: ["@feature:apps", "@layer:api"] };
 
-const M = (name: string) => `app.${SHOWCASE_ID}.${name}`;
+const M = (name: string) => `${SHOWCASE_ID}.${name}`;
 const ME = `ext:${SHOWCASE_ID}`;
 
 type Session = { instance: string; session_id: string };
 
 const audit = async (api: TestClient) => (await api.call("harnix.audit", { limit: 1000 })).entries as any[];
-const runtime = async (api: TestClient) => (await api.call("harnix.apps.list")).apps.find((a: any) => a.id === SHOWCASE_ID).runtime;
+const runtime = async (api: TestClient) => (await api.call("packages.list")).apps.find((a: any) => a.id === SHOWCASE_ID).runtime;
 const topicValues = (api: TestClient, topic: string) =>
   api.events.filter((f) => f.method === "harnix.topic" && f.params.topic === topic).map((f) => f.params.value);
 
@@ -60,11 +60,11 @@ test.describe("an application with a backend", () => {
     const proxy = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     backend = await startApps({
       env: { SHOWCASE_TOKEN: "from-the-process-environment", HTTP_PROXY: proxy, http_proxy: proxy, NO_PROXY: "127.0.0.1,localhost,::1", no_proxy: "127.0.0.1,localhost,::1" },
-      profile: `\n[apps.secrets."${SHOWCASE_ID}"]\nSHOWCASE_TOKEN = "set-for-the-suite"\n`,
+      profile: `\n[ext.packages.secrets."${SHOWCASE_ID}"]\nSHOWCASE_TOKEN = "set-for-the-suite"\n`,
     });
     const client = await connect(backend);
     try {
-      await client.call("harnix.apps.installFile", { path: showcasePackage().path });
+      await client.call("packages.installFile", { path: showcasePackage().path });
     } finally {
       client.close();
     }
@@ -84,7 +84,7 @@ test.describe("an application with a backend", () => {
     expect(rt.methods).toEqual(expect.arrayContaining([M("notes.add"), M("notes.list"), M("state"), M("session.start")]));
     expect(rt.topics).toEqual([M("notes"), M("heartbeat"), M("fetched")]);
     expect(rt.spaces).toEqual([SHOWCASE_ID, SHOWCASE_CHATS]);
-    const registered = (await api.call("harnix.apps.list")).registered.find((r: any) => r.id === SHOWCASE_ID);
+    const registered = (await api.call("packages.list")).registered.find((r: any) => r.id === SHOWCASE_ID);
     expect(registered).toMatchObject({ by: "apps", calls: ["harnix.session.create", "harnix.session.send", "topic:harnix.sessions.status", "harnix.session.entries.append"] });
     // Reachable to this page like any method, and listed among the spaces.
     const reachable = await api.call("harnix.reachable");
@@ -201,23 +201,23 @@ test.describe("an application with a backend", () => {
   });
 
   test("a call beyond its hub capability is refused, and on the record", TAGS, async () => {
-    await api.call("harnix.topics.subscribe", { topic: "harnix.apps" });
+    await api.call("harnix.topics.subscribe", { topic: "packages.list" });
     const answer = await api.call(M("overreach"));
     expect(answer.refused).toBe(true);
     expect(answer.message).toContain("not in the application's `calls` capability");
-    const entry = (await audit(api)).find((e) => e.subject === ME && e.method === "harnix.apps.uninstall");
+    const entry = (await audit(api)).find((e) => e.subject === ME && e.method === "packages.uninstall");
     expect(entry).toMatchObject({ decision: "refuse", reason: "not in the application's `calls` capability" });
     // Nothing happened, and the system space has it among the refusals.
     const rt = await runtime(api);
     expect(rt.state).toBe("running");
-    expect(rt.calls.refused[0]).toMatchObject({ method: "harnix.apps.uninstall" });
-    // Pushed on `harnix.apps` too, without being asked.
+    expect(rt.calls.refused[0]).toMatchObject({ method: "packages.uninstall" });
+    // Pushed on `packages.list` too, without being asked.
     await expect
       .poll(() => {
-        const last = topicValues(api, "harnix.apps").at(-1);
+        const last = topicValues(api, "packages.list").at(-1);
         return JSON.stringify(last?.apps?.find((a: any) => a.id === SHOWCASE_ID)?.runtime?.calls?.refused ?? []);
       }, { timeout: 10_000 })
-      .toContain("harnix.apps.uninstall");
+      .toContain("packages.uninstall");
   });
 
   test("a call that outlives its timeout recycles the backend: init again, memory gone, storage kept", TAGS, async () => {
@@ -255,7 +255,7 @@ test.describe("an application with a backend", () => {
     expect(after?.message).toContain("disabled");
 
     // Enabling it again starts it again, from nothing but its storage.
-    const on = await api.call("harnix.apps.enable", { id: SHOWCASE_ID });
+    const on = await api.call("packages.enable", { id: SHOWCASE_ID });
     expect(on.runtime).toMatchObject({ state: "running" });
     expect((await runtime(api)).health).toMatchObject({ rebuilds: 0, recycles: 0 });
     expect((await api.call(M("notes.list"))).notes).toHaveLength(1);
@@ -274,7 +274,7 @@ test.describe("an application with a backend", () => {
       if (held) queued = probe;
       else if (Date.now() > deadline) throw new Error("the spin never held the backend");
     }
-    await api.call("harnix.apps.disable", { id: SHOWCASE_ID });
+    await api.call("packages.disable", { id: SHOWCASE_ID });
     const waiting = await queued;
     expect(waiting?.code).toBe(EXTENSION_UNAVAILABLE);
     expect(waiting?.message).toContain("stopped");
@@ -287,19 +287,19 @@ test.describe("an application with a backend", () => {
     }
     expect((await api.call("harnix.reachable")).methods).not.toContain(M("notes.list"));
     expect(JSON.stringify(await api.call("harnix.spaces.list"))).not.toContain(`"${SHOWCASE_ID}"`);
-    expect((await api.call("harnix.apps.list")).registered).toEqual([]);
+    expect((await api.call("packages.list")).registered).toEqual([]);
     expect(await api.refused("harnix.topics.subscribe", { topic: M("notes") }), "its topic is unknown now").not.toBeNull();
 
     // And back.
-    await api.call("harnix.apps.enable", { id: SHOWCASE_ID });
+    await api.call("packages.enable", { id: SHOWCASE_ID });
     expect((await api.call(M("notes.list"))).notes).toHaveLength(1);
   });
 
   test("uninstalled: its names and its storage go with it", TAGS, async () => {
-    await api.call("harnix.apps.uninstall", { id: SHOWCASE_ID });
+    await api.call("packages.uninstall", { id: SHOWCASE_ID });
     expect((await api.refused(M("notes.list")))?.code).toBe(METHOD_NOT_FOUND);
-    await api.call("harnix.apps.installFile", { path: showcasePackage().path });
+    await api.call("packages.installFile", { path: showcasePackage().path });
     expect((await api.call(M("notes.list"))).notes, "a fresh install starts with an empty board").toEqual([]);
-    await api.call("harnix.apps.uninstall", { id: SHOWCASE_ID });
+    await api.call("packages.uninstall", { id: SHOWCASE_ID });
   });
 });

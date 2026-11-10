@@ -35,7 +35,7 @@ class Client {
 
 const IFACE: AppInterface = { id: "acme.notes", title: "Notes", trust: "store", calls: ["harnix.sessions.list"], links: false, spaces: ["acme.notes"], surfaces: [] };
 const decl = (point: SurfaceDecl["point"], id: string = point): SurfaceDecl => ({
-  app: "acme.notes", point, id, frame: "/apps/acme.notes/ui/a.html", title: null, space: point.startsWith("space") ? "acme.notes" : null, sessions: "acme.notes", icon: null, order: null, center: null, kinds: [], wide: false,
+  app: "acme.notes", point, id, frame: "/ext/acme.notes/ui/a.html", title: null, space: point.startsWith("space") ? "acme.notes" : null, sessions: "acme.notes", icon: null, order: null, center: null, kinds: [], wide: false,
 });
 
 /** An iframe as far as the bridge sees one: load events, and a window to hand a port to. */
@@ -133,15 +133,15 @@ describe("a frame's bridge", () => {
     f.load();
     const frame = framePort(f.handed[0]!.port);
     await frame.ask("hello");
-    expect((await frame.ask("call", { method: "app.acme.notes.list" })).result).toEqual({ ok: "app.acme.notes.list" });
+    expect((await frame.ask("call", { method: "acme.notes.list" })).result).toEqual({ ok: "acme.notes.list" });
     expect((await frame.ask("call", { method: "harnix.sessions.list", params: { space: "acme.notes" } })).result).toEqual({ ok: "harnix.sessions.list" });
-    const refused = await frame.ask("call", { method: "harnix.apps.uninstall", params: { id: "acme.notes" } });
+    const refused = await frame.ask("call", { method: "packages.uninstall", params: { id: "acme.notes" } });
     expect(refused.error).toMatchObject({ code: "refused" });
-    expect(client.calls.map((c) => c.method)).not.toContain("harnix.apps.uninstall");
+    expect(client.calls.map((c) => c.method)).not.toContain("packages.uninstall");
     const topic = await frame.ask("subscribe", { topic: "harnix.sessions.status" });
     expect(topic.error?.code).toBe("refused");
-    expect(surfaces.summary("acme.notes").refused.map((r) => r.name)).toEqual(expect.arrayContaining(["harnix.apps.uninstall", "harnix.sessions.status"]));
-    expect(app.registry.refusals().filter((r) => r.point === "bridge").map((r) => r.id)).toEqual(["harnix.apps.uninstall", "harnix.sessions.status"]);
+    expect(surfaces.summary("acme.notes").refused.map((r) => r.name)).toEqual(expect.arrayContaining(["packages.uninstall", "harnix.sessions.status"]));
+    expect(app.registry.refusals().filter((r) => r.point === "bridge").map((r) => r.id)).toEqual(["packages.uninstall", "harnix.sessions.status"]);
     // What is not a request at all.
     expect((await frame.ask("frobnicate")).error?.code).toBe("unknown");
   });
@@ -232,8 +232,8 @@ describe("what hello says", () => {
     const { apps, refused } = interfacesOf({
       contributions: [
         { plugin: "acme.notes", point: "home.card", api_version: 2, refused: "card.js", reason: "in the page" },
-        { plugin: "acme.notes", point: "space", api_version: 2, frame: "/apps/acme.notes/ui/a.html", surface: { id: "space", space: "acme.notes", title: { en: "Notes" } }, interface: { calls: ["harnix.sessions.list"], links: true, trust: "store", title: "Notes", spaces: ["acme.notes"] } },
-        { plugin: "acme.notes", point: "home.card", api_version: 2, frame: "/apps/other.app/ui/x.html", surface: { id: "card" }, interface: {} },
+        { plugin: "acme.notes", point: "space", api_version: 2, frame: "/ext/acme.notes/ui/a.html", surface: { id: "space", space: "acme.notes", title: { en: "Notes" } }, interface: { calls: ["harnix.sessions.list"], links: true, trust: "store", title: "Notes", spaces: ["acme.notes"] } },
+        { plugin: "acme.notes", point: "home.card", api_version: 2, frame: "/ext/other.app/ui/x.html", surface: { id: "card" }, interface: {} },
         { plugin: "pkg", point: "space", api_version: 2, module: "/plugins/pkg/ui/x.js" },
       ],
     });
@@ -241,7 +241,7 @@ describe("what hello says", () => {
     expect(apps).toHaveLength(1);
     expect(apps[0]).toMatchObject({ id: "acme.notes", calls: ["harnix.sessions.list"], links: true });
     expect(apps[0]!.surfaces.map((s) => [s.point, s.frame])).toEqual([
-      ["space", "/apps/acme.notes/ui/a.html"],
+      ["space", "/ext/acme.notes/ui/a.html"],
       ["home.card", null],
     ]);
   });

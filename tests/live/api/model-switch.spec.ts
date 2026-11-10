@@ -34,7 +34,7 @@ test("with model_switch, a space changes its own session's model", TAGS, async (
     const session = { instance: created.instance, session_id: created.session_id };
     await api.call("harnix.session.setModel", { ...session, space: "fleet", model: "switched-model" });
     // `engine.session.get` does not carry the model; the engine's context does.
-    expect((await api.call("app.fleet.model", session)).model).toBe("switched-model");
+    expect((await api.call("fleet.model", session)).model).toBe("switched-model");
   } finally {
     api.close();
   }

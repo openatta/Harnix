@@ -1,20 +1,20 @@
 // The showcase's interface module: contribution API 2, like an installed package's [[ui]].
 //
-// Served from `/apps/example.showcase/ui/showcase.js` and imported by the page; `react` and
+// Served from `/ext/example.showcase/ui/showcase.js` and imported by the page; `react` and
 // `@harnix/react` resolve through the page's import map to the shell's own copies. Everything it
 // registers is signed with the application's id, so its strings are `example.showcase.…`.
 //
 // Two things: a `home.card`, and the showcase's space (`[[space]]` in its manifest), whose centre
 // is the backend's board. The board talks to the backend only through the page's own connection:
-// it calls `app.example.showcase.*` methods and subscribes to the backend's topics, admitted and
+// it calls `example.showcase.*` methods and subscribes to the backend's topics, admitted and
 // audited like any other call this page makes.
 import { useEffect, useState } from "react";
 import { jsx, jsxs } from "react/jsx-runtime";
 import { useNest } from "@harnix/react";
 
 const ID = "example.showcase";
-const method = (name) => `app.${ID}.${name}`;
-const topic = (name) => `app.${ID}.${name}`;
+const method = (name) => `${ID}.${name}`;
+const topic = (name) => `${ID}.${name}`;
 
 function Card() {
   const host = useNest();

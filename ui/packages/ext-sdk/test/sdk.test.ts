@@ -38,12 +38,12 @@ describe("the bridge", () => {
   });
 
   it("calls its own methods, and is refused another's, with the reason", async () => {
-    const { host, app } = await connected({ methods: { "app.acme.notes.list": () => ({ notes: ["a"] }) }, calls: ["harnix.sessions.list"] });
-    expect(await app.call("app.acme.notes.list")).toEqual({ notes: ["a"] });
-    const refused = await app.call("harnix.apps.uninstall", { id: "acme.notes" }).catch((e: unknown) => e);
+    const { host, app } = await connected({ methods: { "acme.notes.list": () => ({ notes: ["a"] }) }, calls: ["harnix.sessions.list"] });
+    expect(await app.call("acme.notes.list")).toEqual({ notes: ["a"] });
+    const refused = await app.call("packages.uninstall", { id: "acme.notes" }).catch((e: unknown) => e);
     expect(refused).toBeInstanceOf(BridgeError);
     expect((refused as BridgeError).code).toBe("refused");
-    expect(host.refused.map((r) => r.name)).toEqual(["harnix.apps.uninstall"]);
+    expect(host.refused.map((r) => r.name)).toEqual(["packages.uninstall"]);
     // A name in the calls goes through to the host (which has no such method here: a failure, not a refusal).
     const failed = (await app.call("harnix.sessions.list").catch((e: unknown) => e)) as BridgeError;
     expect(failed.code).toBe("failed");
@@ -52,15 +52,15 @@ describe("the bridge", () => {
   it("follows a topic until it unsubscribes, and is refused a topic not its own", async () => {
     const { host, app } = await connected();
     const seen: unknown[] = [];
-    const off = app.subscribe("app.acme.notes.changed", {}, (v) => seen.push(v));
+    const off = app.subscribe("acme.notes.changed", {}, (v) => seen.push(v));
     await off.ready;
-    host.publish("app.acme.notes.changed", { n: 1 });
-    host.publish("app.acme.other.changed", { n: 9 });
+    host.publish("acme.notes.changed", { n: 1 });
+    host.publish("acme.other.changed", { n: 9 });
     await tick();
     expect(seen).toEqual([{ n: 1 }]);
     off();
     await tick();
-    host.publish("app.acme.notes.changed", { n: 2 });
+    host.publish("acme.notes.changed", { n: 2 });
     await tick();
     expect(seen).toEqual([{ n: 1 }]);
     expect(host.requests.some((r) => r.method === "unsubscribe")).toBe(true);
@@ -217,8 +217,8 @@ describe("keys", () => {
 
 describe("what a frame may reach", () => {
   it("is its own names and its calls, nothing like them", () => {
-    expect(admits("acme.notes", [], "app.acme.notes.list", false)).toBe(true);
-    expect(admits("acme.notes", [], "app.acme.notesx.list", false)).toBe(false);
+    expect(admits("acme.notes", [], "acme.notes.list", false)).toBe(true);
+    expect(admits("acme.notes", [], "acme.notesx.list", false)).toBe(false);
     expect(admits("acme.notes", ["harnix.sessions.list"], "harnix.sessions.list", false)).toBe(true);
     expect(admits("acme.notes", ["harnix.sessions.list"], "harnix.sessions.list", true)).toBe(false);
     expect(admits("acme.notes", ["topic:harnix.session.tasks"], "harnix.session.tasks", true)).toBe(true);
@@ -227,7 +227,7 @@ describe("what a frame may reach", () => {
   it("is what the calls list, as a method or as a topic, and the server narrows the rest", () => {
     expect(admits("acme.notes", ["topic:harnix.sessions.status"], "harnix.sessions.status", true)).toBe(true);
     expect(admits("acme.notes", ["topic:harnix.sessions.status"], "harnix.sessions.status", false)).toBe(false);
-    expect(admits("acme.notes", [], "harnix.apps.list", false)).toBe(false);
+    expect(admits("acme.notes", [], "packages.list", false)).toBe(false);
   });
 });
 

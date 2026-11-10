@@ -467,8 +467,8 @@ describe("引擎协议", () => {
 describe("带凭据的地址", () => {
   it("一个同源路径带上令牌；没有令牌（启动链接的 cookie）原样", () => {
     const { client } = makeClient(new FakeServer());
-    expect(client.withToken("/apps/plugins/ui/pkg/rows.js")).toBe("/apps/plugins/ui/pkg/rows.js?token=tok+en");
+    expect(client.withToken("/ext/plugins/ui/pkg/rows.js")).toBe("/ext/plugins/ui/pkg/rows.js?token=tok+en");
     const { client: cookie } = makeClient(new FakeServer(), undefined, { token: "" });
-    expect(cookie.withToken("/apps/plugins/ui/pkg/rows.js")).toBe("/apps/plugins/ui/pkg/rows.js");
+    expect(cookie.withToken("/ext/plugins/ui/pkg/rows.js")).toBe("/ext/plugins/ui/pkg/rows.js");
   });
 });

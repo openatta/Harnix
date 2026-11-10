@@ -15,7 +15,7 @@ export interface AppInterface {
   id: string;
   title: string | null;
   trust: string;
-  /** `[interface] calls`: what its frames may reach beyond `app.<id>.*`. */
+  /** `[interface] calls`: what its frames may reach beyond `<id>.*`. */
   calls: string[];
   links: boolean;
   /** Its backend spaces (`[[space]]`), in order: where its frames' new sessions land. */
@@ -28,7 +28,7 @@ export interface SurfaceDecl {
   app: string;
   point: SurfacePoint;
   id: string;
-  /** Its page, `/apps/<id>/ui/<page>`; null for a space whose centre is the conversation. */
+  /** Its page, `/ext/<id>/ui/<page>`; null for a space whose centre is the conversation. */
   frame: string | null;
   title: Record<string, string> | null;
   space: string | null;
@@ -84,7 +84,7 @@ export function interfacesOf(view: Pick<UiView, "contributions">): { apps: AppIn
       apps.set(id, app);
     }
     // A frame is only ever this application's own files.
-    const frame = typeof entry.frame === "string" && entry.frame.startsWith(`/apps/${id}/ui/`) ? entry.frame : null;
+    const frame = typeof entry.frame === "string" && entry.frame.startsWith(`/ext/${id}/ui/`) ? entry.frame : null;
     app.surfaces.push({
       app: id,
       point: entry.point as SurfacePoint,

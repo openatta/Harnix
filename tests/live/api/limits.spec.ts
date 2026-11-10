@@ -157,7 +157,7 @@ defineSuite("limits", { feature: "connection" }, {
 
         const n = 40;
         const ids = Array.from({ length: n }, (_, i) => 100 + i);
-        const all = Promise.all(ids.map((id) => send(id, "app.probe.sleep", { ms: 400 })));
+        const all = Promise.all(ids.map((id) => send(id, "probe.sleep", { ms: 400 })));
         const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error(
           `${n - [...answers.keys()].filter((id) => id >= 100).length} of ${n} never answered`)), 10_000));
         await Promise.race([all, timeout]);
