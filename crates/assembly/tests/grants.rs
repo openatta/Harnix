@@ -278,30 +278,22 @@ mod unlinked {
     }
 
     /// Not linking an extension changes the kernel by nothing: what is missing is its own rows,
-    /// the old names that answered as them, and the topics moving to its own.
+    /// and the old names that answered as them.
     #[test]
     fn without_an_extension_only_its_rows_differ() {
-        let first_party_ids: [(&str, &[&str]); 6] = [
-            ("harnix-app", &[]),
-            ("system", &["harnix.process"]),
-            ("observability", &[]),
-            ("settings", &[]),
-            ("plugins", &[]),
-            ("devices", &[]),
-        ];
-        for (ext, moving) in first_party_ids {
+        for ext in ["harnix-app", "system", "observability", "settings", "plugins", "devices"] {
             let (all_rows, all_aliases) = table(first_party(""));
             let (rows, aliases) = table(first_party(ext));
             let owner = format!("ext:{ext}");
             let missing: Vec<&Value> = all_rows.iter().filter(|row| !rows.contains(row)).collect();
             assert!(!missing.is_empty(), "{ext} has no rows");
             for row in &missing {
-                let name = row["name"].as_str().unwrap_or_default();
-                assert!(row["owner"] == owner || moving.contains(&name), "without {ext}, {row} is missing");
+                assert!(row["owner"] == owner, "without {ext}, {row} is missing");
             }
             assert!(rows.iter().all(|row| all_rows.contains(row)), "without {ext}, a row appeared");
             for alias in all_aliases.iter().filter(|a| !aliases.contains(a)) {
                 let new = alias["to"].as_str().unwrap_or_default();
+                let new = new.strip_prefix("topic:").unwrap_or(new);
                 assert!(new.starts_with(&format!("{ext}.")), "without {ext}, the alias {alias} is missing");
             }
             assert!(aliases.iter().all(|a| all_aliases.contains(a)), "without {ext}, an alias appeared");

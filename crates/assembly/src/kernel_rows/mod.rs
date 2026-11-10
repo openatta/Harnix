@@ -25,10 +25,6 @@ use crate::gate::{Behind, Diagnostics};
 pub(crate) use hello::Hello;
 pub(crate) use ui::{UiModules, UiTopic, UI};
 
-/// `harnix.process`, the topic: `system.process`'s value under the name its callers still use
-/// (`crate::aliases`).
-pub(crate) const PROCESS: &str = "harnix.process";
-
 /// One of the three methods this layer answers.
 struct Answer(Arc<OnceLock<Arc<Diagnostics>>>, fn(&Diagnostics, Value) -> Value);
 

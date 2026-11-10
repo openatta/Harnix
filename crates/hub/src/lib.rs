@@ -241,9 +241,9 @@ impl Hub {
                 return;
             }
         };
-        let (to, frame) = guard.topics.publish(key, params, value);
-        let out = guard.clients.to_many(&to, frame);
-        send_after(guard, [out]).await;
+        let told = guard.topics.publish(key, params, value);
+        let out: Vec<_> = told.into_iter().map(|(to, frame)| guard.clients.to_many(&to, frame)).collect();
+        send_after(guard, out).await;
     }
 
     /// What the registry knows of a listed instance: whose it is. Asked holding none of the hub's

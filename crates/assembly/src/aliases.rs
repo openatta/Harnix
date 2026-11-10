@@ -5,8 +5,7 @@
 //! Filled as Harnix's own extensions take names under their ids; emptied, and this file deleted,
 //! once every caller says the new names.
 
-use harnix_kernel::{Access, KernelPart, Owner};
-use harnix_router::{Row, RouteTable};
+use harnix_router::RouteTable;
 
 /// Old name → new name.
 const ALIASES: &[(&str, &str)] = &[
@@ -71,9 +70,8 @@ const ALIASES: &[(&str, &str)] = &[
     ("harnix.system.instances.templates", "system.instances.templates"),
 ];
 
-/// Old topic → new topic. A topic's pushes carry its name, so an old one cannot answer as the new
-/// one's row: it stays a topic of its own, the kernel's, with the same value, while the new one is
-/// there.
+/// Old topic → new topic: decided as the new one's row, and watched in the hub by the old name,
+/// told under it.
 const TOPICS: &[(&str, &str)] = &[("harnix.process", "system.process")];
 
 /// Every alias whose new name is in the table: one whose extension is not linked here, or is
@@ -84,15 +82,16 @@ pub(crate) fn install(table: &mut RouteTable) -> anyhow::Result<()> {
             table.alias(old, new).map_err(|e| anyhow::anyhow!("the alias `{old}` → `{new}`: {e}"))?;
         }
     }
-    let topics: Vec<Row> = TOPICS
-        .iter()
-        .filter(|(_, new)| table.row(&harnix_router::topic(new)).is_some())
-        .map(|(old, _)| Row::topic(old, Access::device()))
-        .collect();
-    table
-        .install(&Owner::Kernel(KernelPart::Assembly), topics)
-        .map_err(|e| anyhow::anyhow!("the moving topics: {e}"))?;
+    for (old, new) in topics(table) {
+        let (old, new) = (harnix_router::topic(old), harnix_router::topic(new));
+        table.alias(&old, &new).map_err(|e| anyhow::anyhow!("the alias `{old}` → `{new}`: {e}"))?;
+    }
     Ok(())
+}
+
+/// The moving topics whose new name is in the table: what the hub is told to watch by both names.
+pub(crate) fn topics(table: &RouteTable) -> Vec<(&'static str, &'static str)> {
+    TOPICS.iter().copied().filter(|(_, new)| table.row(&harnix_router::topic(new)).is_some()).collect()
 }
 
 /// Which of the shell's own spaces it draws, as it reads them from `hello` until it activates its

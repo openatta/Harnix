@@ -15,7 +15,7 @@ use super::wiring::AppsWiring;
 use crate::cli::Cli;
 use crate::gate::Behind;
 use crate::host::Record;
-use crate::kernel_rows::{Hello, UiModules, UiTopic, PROCESS, UI};
+use crate::kernel_rows::{Hello, UiModules, UiTopic, UI};
 use crate::paths::Roots;
 use crate::process::Process;
 use crate::profile::Profile;
@@ -43,6 +43,7 @@ pub(super) async fn assemble(
     instances: Instances,
     apps: &AppsWiring,
     behind: &Behind,
+    moving: &[(&str, &str)],
 ) -> anyhow::Result<Assembled> {
     let Instances {
         registry,
@@ -103,8 +104,7 @@ pub(super) async fn assemble(
     });
     apps.process(&mut process);
     let process = Arc::new(Process::new(process, hub.clone()));
-    let _ = behind.process.set(process.clone());
-    hub.serve_topic(PROCESS, Vec::new(), process).await;
+    let _ = behind.process.set(process);
     registry.add(harnix_hub::SYSTEM, system, Owner::Kernel).await;
     for (id, built) in fixed {
         registry.add(&id, built, Owner::Kernel).await;
@@ -120,6 +120,9 @@ pub(super) async fn assemble(
                 hub.declare_topic(topic.name(), topic.params().to_vec()).await;
             }
         }
+    }
+    for (old, new) in moving {
+        hub.alias_topic(old, new).await;
     }
     Ok(Assembled {
         hub,
