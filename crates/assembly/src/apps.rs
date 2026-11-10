@@ -7,14 +7,15 @@
 //! **Registering** one application is all or nothing, one at a time (a
 //! registration or withdrawal holds `serial` throughout). Checked first —
 //! nothing is written by a refusal, and every refusal is audited — the id
-//! must be well formed and overlap no compiled-in module (by id, whether or
-//! not it has names in the table) and no registered application; then the
-//! table's own check (namespace, names taken). Then, in this order:
+//! must be well formed and overlap no registered id: a compiled-in module's,
+//! enabled or not, keeps its namespace and the application fails
+//! `namespace_taken`; nor may it start with a reserved word. Then the table's
+//! own check (namespace, names taken). Then, in this order:
 //!
 //! 1. its topics are declared in the hub and its spaces added — invisible to
 //!    a client so far, since subscribing is decided by the table;
-//! 2. its rows go in the table, each with its handler, in one write. From
-//!    here a call is admitted.
+//! 2. its consent is written in the grants, and its rows go in the table,
+//!    each with its handler, in one write. From here a call is admitted.
 //!
 //! A failure at either step undoes the earlier one. So a name the table admits
 //! always has its handler and its topic behind it.
@@ -30,24 +31,20 @@
 //! subject of the module that hosts the application, with the time.
 //!
 //! **Acting as itself.** An application reaches the rest of the process as
-//! `module:<id>` (`call_as`, `subscribe_as`): through the router, like any
-//! module, and only to what its `hub` lists — method names, topics as
-//! `topic:<name>` — plus its own `app.<id>.*`, which it is always declared
-//! for. The `hub` entries are checked at registration exactly as a compiled-in
-//! module's manifest grants are (an unknown name or one the hub owns refuses
-//! the registration). The table holds the rest, in one place: its subject is
-//! a runtime principal, which reaches what its `hub` lists and its own names
-//! and nothing else — every module may call what every device may, and an
-//! application is not every module — and what its `hub` lists that is refused
-//! to devices is granted to it. Both are written, and audited, in the step
-//! its names go in the table; withdrawing takes them back. A refusal is the
-//! table's, audited under the application's subject like any other.
+//! `ext:<id>` (`call_as`, `subscribe_as`): through the router, like any
+//! extension, but trusted by consent — only to what its `hub` lists (method
+//! names, topics as `topic:<name>`) and its own `app.<id>.*`, each row as far
+//! as it is open to extensions, and a row about a space or a session only in
+//! its own space. Its `hub` entries are checked at registration (an unknown
+//! name or one the hub owns refuses it); listing a row that requires a
+//! capability opens nothing, since a package holds none of the kernel's.
+//! Withdrawing takes its consent back.
 //!
 //! Its subscriptions are one client of the hub per application, made at
 //! registration when it gives a topic sink and removed at withdrawal; what the
 //! hub pushes that client goes to the sink.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use harnix_authz::{access_for, Change};
@@ -57,7 +54,9 @@ use harnix_hub::Hub;
 use harnix_kernel::{CallContext, Chain, ClientId, Dispatch, Owner};
 use harnix_module::apps::AppRuntime;
 use harnix_module::{AppSpec, AppSummary, AppTopic, AppTopicSink, AppWithdrawn, Principal};
-use harnix_router::names::{app_name, apps_overlap, names_an_application, topic, valid_app_id};
+use harnix_contract::s1::{PackageCarrier, Trust};
+use harnix_kernel::GrantTable;
+use harnix_router::names::{app_name, names_an_application, topic, valid_app_id};
 use harnix_router::{Row, Router, TableError};
 use serde_json::{json, Value};
 
@@ -115,9 +114,6 @@ impl Surfaces for HubSurfaces {
 struct Live {
     summary: AppSummary,
     topics: Vec<AppTopic>,
-    /// The entries of its `hub` capability that were opened to it at registration, to be
-    /// closed again at withdrawal (the rest were open to every module anyway).
-    granted: Vec<String>,
     /// Its subscriptions' client of the hub, when it gave a topic sink.
     client: Option<u64>,
 }
@@ -149,16 +145,11 @@ impl FrameSink for TopicFrames {
     }
 }
 
-/// Why a grant to an application is on the record.
-const HUB_GRANT: &str = "the application's `hub` capability";
-
 pub(crate) struct Apps {
     router: Arc<Router>,
     surfaces: Arc<dyn Surfaces>,
-    /// Every compiled-in module's id, enabled or not: no application may
-    /// take one, or nest under one, even where the module has no names in
-    /// the table.
-    reserved: BTreeSet<String>,
+    /// Where an application's consent is written, and its interface's.
+    grants: Arc<GrantTable>,
     live: Mutex<BTreeMap<String, Live>>,
     serial: tokio::sync::Mutex<()>,
 }
@@ -171,6 +162,11 @@ fn ext_of(id: &str) -> harnix_contract::ExtId {
 /// The subject a checked id acts as.
 fn subject_of(id: &str) -> Subject {
     Subject::extension(ext_of(id))
+}
+
+/// A refusal on the record under `by`, with why.
+fn router_audit(router: &Router, by: &Subject, name: &str, why: &'static str) {
+    router.audit().record_change(by, name, Change::Refuse, Some(why));
 }
 
 /// Refused, audited under `by`, as `REFUSED` with the reason.
@@ -203,11 +199,11 @@ fn normalize(params: Value, declared: &[String]) -> Result<Value, RpcError> {
 }
 
 impl Apps {
-    pub fn new(router: Arc<Router>, surfaces: Arc<dyn Surfaces>, reserved: impl IntoIterator<Item = String>) -> Self {
+    pub fn new(router: Arc<Router>, surfaces: Arc<dyn Surfaces>, grants: Arc<GrantTable>) -> Self {
         Self {
             router,
             surfaces,
-            reserved: reserved.into_iter().collect(),
+            grants,
             live: Mutex::new(BTreeMap::new()),
             serial: tokio::sync::Mutex::new(()),
         }
@@ -244,23 +240,16 @@ impl AppRuntime for Apps {
                 format!("`{id}` is not an application id: dot-separated lowercase segments, each starting with a letter"),
             ));
         }
-        if let Some(module) = self.reserved.iter().find(|m| apps_overlap(&id, m)) {
-            return Err(refuse(
-                az,
-                &host,
-                &all,
-                "the id overlaps a compiled-in module",
-                format!("the application id `{id}` overlaps the compiled-in module `{module}`, whose names keep precedence"),
+        // Its id: free of every registered one — compiled-in modules, enabled or not, and the
+        // applications registered — and not under a reserved word. A compiled-in module's names
+        // keep precedence: the application is the one refused, saying who has its namespace.
+        if let Err(TableError::NamespaceTaken { by: taken, .. }) = az.table().check_app(&id, std::iter::empty()) {
+            router_audit(az, &host, &all, "namespace_taken");
+            let mut e = RpcError::refused(format!(
+                "the application id `{id}` overlaps `{taken}`, which is registered already and keeps its names"
             ));
-        }
-        if let Some(other) = self.live().keys().find(|other| apps_overlap(&id, other)).cloned() {
-            return Err(refuse(
-                az,
-                &host,
-                &all,
-                "the id overlaps a registered application",
-                format!("the application id `{id}` overlaps `{other}`, which is registered"),
-            ));
+            e.data = Some(json!({"failure": "namespace_taken", "by": taken}));
+            return Err(e);
         }
         for space in &spec.spaces {
             if space.id != id && !space.id.starts_with(&format!("{id}.")) {
@@ -274,25 +263,21 @@ impl AppRuntime for Apps {
             }
         }
 
-        // Its `hub`, as a module's manifest grants: names that exist and are not the hub's own.
-        // Another application's names are left to that application's principals.
-        let mut to_grant = Vec::new();
+        // Its `hub` is its consent: names that exist and are not the hub's own. Another
+        // application's names are left to that application's principals. What a name requires
+        // beyond that it does not hold: a package holds none of the kernel's capabilities.
         for name in &spec.hub {
             if names_an_application(name) {
                 continue;
             }
-            match az.table().check_grant(name, &id) {
-                Ok(true) => to_grant.push(name.clone()),
-                Ok(false) => {}
-                Err(e) => {
-                    return Err(refuse(
-                        az,
-                        &host,
-                        name,
-                        "the application's `hub` names what cannot be granted",
-                        format!("`{id}`'s `hub` capability: {e}"),
-                    ))
-                }
+            if let Err(e) = az.table().check_listed(name) {
+                return Err(refuse(
+                    az,
+                    &host,
+                    name,
+                    "the application's `hub` names what it may not reach",
+                    format!("`{id}`'s `hub` capability: {e}"),
+                ));
             }
         }
 
@@ -340,21 +325,17 @@ impl AppRuntime for Apps {
             }
             added_spaces.push(space.id.clone());
         }
-        // 2. The table, in one write: its rows with their handlers, and its subject a runtime
-        //    principal reaching its `hub` and nothing more. Audited there. Then what that lists
-        //    and devices may not reach is granted to it: only ever opening what it may already
-        //    ask for.
-        if let Err(e) = az.install_app(&host, &id, rows, &spec.hub) {
+        // 2. Its consent, then the table in one write: its rows with their handlers. Audited
+        //    there. From here its subject reaches its `hub` and its own names, narrowed to its
+        //    own space, and nothing more.
+        self.grants.set(ext_of(&id), [], Trust::consent(spec.hub.iter().cloned(), PackageCarrier::Wasm));
+        if let Err(e) = az.install_app(&host, &id, rows) {
+            self.grants.remove(&ext_of(&id));
             self.undo(&declared_topics, &added_spaces).await;
             return Err(RpcError::refused(e.to_string()));
         }
         for space in &added_spaces {
             az.audit().record_change(&host, &format!("space:{space}"), Change::Declare, Some("declared by a runtime application"));
-        }
-        let me = subject_of(&id);
-        for name in &to_grant {
-            // Checked above, under the same serial lock: nothing else writes grants since.
-            let _ = az.grant(&me, name, &id, HUB_GRANT);
         }
         let client = match &spec.topic_sink {
             Some(sink) => self.surfaces.add_client(Arc::new(TopicFrames(sink.clone()))).await,
@@ -376,7 +357,6 @@ impl AppRuntime for Apps {
             Live {
                 summary: summary.clone(),
                 topics: spec.topics,
-                granted: to_grant,
                 client,
             },
         );
@@ -386,7 +366,7 @@ impl AppRuntime for Apps {
     async fn withdraw(&self, by: &str, id: &str) -> Result<AppWithdrawn, RpcError> {
         let _serial = self.serial.lock().await;
         let host = subject_of(by);
-        let (summary, granted, client) = match self.live().get(id) {
+        let (summary, client) = match self.live().get(id) {
             None => return Err(RpcError::invalid_params(format!("no application `{id}` is registered"))),
             Some(live) if live.summary.by != by => {
                 return Err(RpcError::refused(format!(
@@ -394,16 +374,13 @@ impl AppRuntime for Apps {
                     live.summary.by
                 )))
             }
-            Some(live) => (live.summary.clone(), live.granted.clone(), live.client),
+            Some(live) => (live.summary.clone(), live.client),
         };
-        // The table first: from here a call is decided as unknown, and what it was granted is
-        // closed to it again.
+        // The table first: from here a call is decided as unknown; then its consent, so it reaches
+        // nothing as itself.
         self.router
             .withdraw(&host, &Owner::extension(ext_of(id)), "withdrawn with its runtime application");
-        let me = subject_of(id);
-        for name in &granted {
-            self.router.revoke(&me, name, id, "withdrawn with its runtime application");
-        }
+        self.grants.remove(&ext_of(id));
         // Its own subscriptions end with it; the hub forgets the client's.
         if let Some(client) = client {
             self.surfaces.remove_client(client).await;
@@ -471,6 +448,14 @@ impl AppRuntime for Apps {
     async fn unsubscribe_as(&self, by: &str, id: &str, name: &str, params: Value) -> Result<(), RpcError> {
         self.watch(by, id, name, params, "harnix.unsubscribe").await.map(|_| ())
     }
+
+    fn frame(&self, by: &str, id: &str, calls: Option<Vec<String>>) -> Result<(), RpcError> {
+        let ext = harnix_contract::ExtId::parse(id).map_err(|e| RpcError::invalid_params(e.to_string()))?;
+        let change = if calls.is_some() { Change::Declare } else { Change::Withdraw };
+        self.router.audit().record_change(&subject_of(by), &format!("frame:{id}"), change, Some("its interface in frames"));
+        self.grants.set_frame(&ext, calls.map(|c| c.into_iter().collect()));
+        Ok(())
+    }
 }
 
 impl Apps {
@@ -496,6 +481,7 @@ impl Apps {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use harnix_authz::Audit;
@@ -620,9 +606,15 @@ mod tests {
         table
             .install(&Owner::extension(harnix_contract::ExtId::parse("probe").unwrap()), vec![Row::method("app.probe.echo", Access::device(), compiled)])
             .unwrap();
-        let az = Arc::new(Router::new(table, Arc::new(Audit::default())));
+        // A compiled-in module with no names in the table still has its id.
+        table.register(&ext_of("quiet"), harnix_router::IdKind::Native).unwrap();
+        let grants = Arc::new(GrantTable::new());
+        for native in ["probe", "quiet", "host", "other"] {
+            grants.set(ext_of(native), [], Trust::Origin);
+        }
+        let az = Arc::new(Router::new(table, grants.clone(), Arc::new(Audit::default())));
         let stub = Arc::new(Stub::default());
-        let apps = Arc::new(Apps::new(az.clone(), stub.clone(), ["probe".to_string(), "quiet".to_string()]));
+        let apps = Arc::new(Apps::new(az.clone(), stub.clone(), grants));
         World { apps, az, below, stub }
     }
 
@@ -726,8 +718,10 @@ mod tests {
         let (subject, _, params, client) = lock(&w.below.seen).last().cloned().unwrap();
         assert_eq!(subject, "ext:acme.notes");
         assert_eq!((params, client), (json!({"x": 1}), None));
-        // Listed and refused to devices: granted to it, and to nobody else.
-        assert!(w.apps.call_as("host", "acme.notes", "settings.write", json!({})).await.is_ok());
+        // Listed, and refused to devices: a package holds none of the kernel's capabilities, so
+        // listing it opens nothing.
+        let e = w.apps.call_as("host", "acme.notes", "settings.write", json!({})).await.unwrap_err();
+        assert_eq!(e.code, codes::REFUSED);
         assert_eq!(call(&w.az, &me("other"), "settings.write", json!({})).await.unwrap_err().code, codes::REFUSED);
         // Its own methods, unlisted and declared for devices only.
         assert_eq!(
@@ -747,7 +741,7 @@ mod tests {
         let reach = w.apps.call_as("host", "acme.notes", harnix_router::REACHABLE, json!({})).await.unwrap();
         assert_eq!(
             reach["methods"],
-            json!(["app.acme.notes.echo", "app.acme.notes.internal", "harnix.subscribe", "harnix.unsubscribe", "session.create", "settings.write"])
+            json!(["app.acme.notes.echo", "app.acme.notes.internal", "harnix.subscribe", "harnix.unsubscribe", "session.create"])
         );
         assert_eq!(reach["topics"], json!(["app.acme.notes.ticks", "harnix.sessions.status"]));
         // Only the module that registered it speaks for it.
@@ -780,13 +774,12 @@ mod tests {
         assert_eq!(lock(&heard.1).as_slice(), ["app.x.t: gone"]);
         assert!(!client.wants(Channel::SessionEvents));
 
-        // Withdrawn: the grant is closed, the client removed, and nothing more is called as it.
+        // Withdrawn: its consent is gone, the client removed, and nothing more is called as it.
         w.apps.withdraw("host", "acme.notes").await.unwrap();
         assert_eq!(lock(&w.stub.removed).as_slice(), [101]);
-        assert_eq!(call(&w.az, &me("acme.notes"), "settings.write", json!({})).await.unwrap_err().code, codes::REFUSED);
+        let e = call(&w.az, &me("acme.notes"), "session.create", json!({})).await.unwrap_err();
+        assert_eq!((e.code, e.message.as_str()), (codes::REFUSED, harnix_router::UNREGISTERED));
         assert_eq!(w.apps.call_as("host", "acme.notes", "session.create", json!({})).await.unwrap_err().code, codes::INVALID_PARAMS);
-        let changes: Vec<_> = w.az.audit().recent(200).into_iter().filter(|e| e.method == "settings.write").map(|e| e.decision).collect();
-        assert!(changes.contains(&"grant") && changes.contains(&"revoke"), "{changes:?}");
     }
 
     /// The extensions waiting on a call an application makes as itself reach the application
@@ -837,11 +830,13 @@ mod tests {
     async fn collisions_are_refused_and_leave_nothing_behind() {
         let w = world();
         // A compiled-in module's id, with names in the table or not, or nested under one.
-        for id in ["probe", "probe.sub", "quiet", "quiet.x"] {
+        for (id, by) in [("probe", "probe"), ("probe.sub", "probe"), ("quiet", "quiet"), ("quiet.x", "quiet")] {
             let e = w.apps.register("host", fake(id)).await.unwrap_err();
             assert_eq!(e.code, codes::REFUSED, "{id}");
-            assert!(e.message.contains("compiled-in"), "{id}: {}", e.message);
+            assert_eq!(e.data, Some(json!({"failure": "namespace_taken", "by": by})), "{id}: {}", e.message);
         }
+        // Nor under a reserved word.
+        assert_eq!(w.apps.register("host", fake("engine.notes")).await.unwrap_err().data.unwrap()["failure"], "namespace_taken");
         // The compiled-in method is still the compiled-in one.
         assert_eq!(call(&w.az, &device(), "app.probe.echo", json!({})).await.unwrap(), json!("the compiled-in probe"));
 
@@ -876,7 +871,7 @@ mod tests {
         );
         assert_eq!(w.apps.registered().len(), 1);
         let refusals = w.az.audit().recent(100).into_iter().filter(|e| e.decision == "refuse").count();
-        assert_eq!(refusals, 12);
+        assert_eq!(refusals, 13);
     }
 
     #[tokio::test]

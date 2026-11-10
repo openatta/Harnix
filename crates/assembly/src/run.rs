@@ -61,6 +61,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         version,
         builtins,
         modules: app_modules,
+        granted,
         credentials,
         app_hosts,
         ..
@@ -73,7 +74,8 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         mut table,
         behind,
         held,
-    } = register::register(builtins, app_modules, profile, &basis.roots, &apps)?;
+        grants,
+    } = register::register(builtins, app_modules.into_iter().zip(granted).collect(), profile, &basis.roots, &apps)?;
 
     // ── 3. Migrate ──────────────────────────────────────────────────────
     modules::migrate(&mut records, &mut table).await;
@@ -101,6 +103,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         &records,
         instances,
         &apps,
+        grants.clone(),
     )
     .await?;
     // The hub's rows have been in the route table since registration; from here they answer.
@@ -110,6 +113,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     let admission = admission::admit(
         &hub,
         table,
+        grants,
         &behind,
         &records,
         history,

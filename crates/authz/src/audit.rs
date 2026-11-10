@@ -66,6 +66,9 @@ pub struct AuditEntry {
     /// device, a module calling while it answers. The audit reads as a tree.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent: Option<u64>,
+    /// The extension whose page in a frame made a device's call: `ext:<id>`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub via: Option<String>,
 }
 
 /// What a runtime change to the table was, as an entry's `decision`.
@@ -144,6 +147,7 @@ impl Audit {
             at_ms: None,
             call_id: None,
             parent: None,
+            via: None,
         });
     }
 
@@ -165,6 +169,7 @@ impl Audit {
             at_ms: None,
             call_id: Some(cx.call_id.get()),
             parent: cx.parent.map(|p| p.get()),
+            via: cx.on_behalf_of.as_ref().map(|ext| format!("ext:{ext}")),
         });
     }
 
@@ -185,6 +190,7 @@ impl Audit {
             at_ms: Some(at_ms),
             call_id: None,
             parent: None,
+            via: None,
         });
     }
 

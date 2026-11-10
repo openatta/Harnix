@@ -33,7 +33,7 @@ mod state_lock;
 use std::ffi::OsString;
 use std::sync::Arc;
 
-use harnix_module::{Credentials, ErasedModule, Module};
+use harnix_module::{Capability, Credentials, ErasedModule, Module};
 
 pub use devices::DevicesModule;
 pub use modules::{MethodStatus, ModuleStatus, Namespace};
@@ -55,6 +55,7 @@ impl App {
             version: HARNIX_VERSION.into(),
             builtins: false,
             modules: Vec::new(),
+            granted: Vec::new(),
             credentials: None,
             args: None,
             app_hosts: Vec::new(),
@@ -74,6 +75,8 @@ pub struct AppBuilder {
     pub(crate) version: String,
     pub(crate) builtins: bool,
     pub(crate) modules: Vec<Box<dyn ErasedModule>>,
+    /// What each of `modules` was granted, in the same order.
+    pub(crate) granted: Vec<Vec<Capability>>,
     pub(crate) credentials: Option<Arc<dyn Credentials>>,
     pub(crate) args: Option<Vec<OsString>>,
     pub(crate) app_hosts: Vec<String>,
@@ -121,6 +124,19 @@ impl AppBuilder {
     pub fn module<M: Module>(mut self, module: M) -> Self {
         harnix_module::assert_api::<M>();
         self.modules.push(Box::new(module));
+        self.granted.push(Vec::new());
+        self
+    }
+
+    /// Grant the module added last these capabilities: `.module(Fleet).grant([caps::ENGINE_INSPECT])`.
+    ///
+    /// Checked when the process starts, which refuses to start, naming the module and the
+    /// capability, when a module is not granted all it `requires`, or is granted what it neither
+    /// requires nor lists as `optional`, or what nobody defines for native extensions. Without a
+    /// module before it, this panics: the assembly is the program, and that is a mistake in it.
+    pub fn grant(mut self, caps: impl IntoIterator<Item = Capability>) -> Self {
+        let last = self.granted.last_mut().expect("`grant` follows the `module` it grants to");
+        last.extend(caps);
         self
     }
 

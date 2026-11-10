@@ -51,7 +51,9 @@ pub use harnix_instance::templates::{AttachTo, InstanceTemplate, InstanceTemplat
 pub use harnix_authz::Principal;
 /// A module that issues upload grants answers the upload route through this.
 pub use harnix_contract::BulkStore;
-pub use harnix_contract::{DefaultInstance, RpcError, SpaceDecl, Subject};
+pub use harnix_contract::{DefaultInstance, ExtId, RpcError, SpaceDecl, Subject};
+/// Privileges: the kernel's catalogue (`caps::ENGINE_INSPECT`, …), and a module's own.
+pub use harnix_contract::s1::{caps, Capability, CapabilitySpec};
 
 /// What a module declares in `spaces()`.
 #[derive(Default)]

@@ -36,7 +36,7 @@ use std::sync::{Arc, RwLock};
 use harnix_contract::sync::{read, write};
 use harnix_contract::RpcError;
 use harnix_module::{
-    CallContext, Handler, InstanceHandle, Manifest, MethodRegistry, Module, ModuleContext,
+    caps, CallContext, Capability, Handler, InstanceHandle, Manifest, MethodRegistry, Module, ModuleContext,
     Principal,
 };
 use serde_json::Value;
@@ -72,7 +72,7 @@ pub struct Builtin {
     readers: Arc<recordings::Readers>,
 }
 
-/// The built-in modules: id, methods (full names), grants, disclosure.
+/// The built-in modules: id, methods (full names), the capabilities each requires, disclosure.
 ///
 /// Every one registers through the public module contract, the same one an
 /// application's module uses. If the built-ins could not be built out of it,
@@ -99,7 +99,7 @@ const PARTS: &[Part] = &[
             m("harnix.projects.create", |b, p| Box::pin(async move { b.projects_create(p).await })),
             m("harnix.upload.begin", |b, p| Box::pin(async move { b.upload_begin(p).await })),
         ],
-        grants: &["session.export"],
+        requires: &[caps::ENGINE_EXPORT],
     },
     Part {
         id: "settings",
@@ -109,14 +109,9 @@ const PARTS: &[Part] = &[
             m("harnix.settings.set", |b, p| Box::pin(async move { b.settings_set(p).await })),
             m("harnix.settings.setProvider", |b, p| Box::pin(async move { b.settings_set_provider(p).await })),
         ],
-        // `harnix.instances.inheritProviders` is the hub's, not the engine's: after a provider
-        // changes, the instances whose template inherits `system`'s get it too (ipdrun-11).
-        grants: &[
-            "config.get",
-            "config.getProvider",
-            "config.reload",
-            "harnix.instances.inheritProviders",
-        ],
+        // Reading the settings, reloading them, and — `harnix.instances.inheritProviders` — handing
+        // a changed provider to the instances whose template inherits `system`'s (ipdrun-11).
+        requires: &[caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE],
     },
     Part {
         id: "packages",
@@ -133,14 +128,7 @@ const PARTS: &[Part] = &[
             m("harnix.plugins.reload", |b, p| Box::pin(async move { b.plugins_manage("plugin.reload", p).await })),
             m("harnix.plugins.list", |b, p| Box::pin(async move { b.plugins_list(p).await })),
         ],
-        grants: &[
-            "plugin.list",
-            "plugin.install",
-            "plugin.uninstall",
-            "plugin.enable",
-            "plugin.disable",
-            "plugin.reload",
-        ],
+        requires: &[caps::ENGINE_PLUGINS],
     },
     Part {
         id: "recordings",
@@ -148,7 +136,7 @@ const PARTS: &[Part] = &[
         methods: &[
             m("harnix.requestHeaders", |b, p| Box::pin(async move { b.request_headers(p).await })),
         ],
-        grants: &[],
+        requires: &[],
     },
 ];
 
@@ -177,21 +165,7 @@ const SYSTEM: Part = Part {
         m("harnix.system.goal.set", |b, p| Box::pin(async move { b.system_call("harnix.system.goal.set", p).await })),
         m("harnix.system.goal.update", |b, p| Box::pin(async move { b.system_call("harnix.system.goal.update", p).await })),
     ],
-    grants: &[
-        "session.inspectContext",
-        "session.stopTask",
-        "session.messageTask",
-        "session.taskOutput",
-        "session.dropMessages",
-        "session.editMessage",
-        "session.compact",
-        "session.clear",
-        "session.setModel",
-        "session.rename",
-        "session.goal",
-        "session.setGoal",
-        "session.updateGoal",
-    ],
+    requires: &[caps::INSTANCES_ADMIN, caps::ENGINE_INSPECT, caps::ENGINE_CONTROL],
 };
 
 /// Changing a session's model from the composer when the system space is gone: registered only
@@ -200,7 +174,7 @@ const MODEL: Part = Part {
     id: "model",
     disclosure: "换会话的模型：只在调用方声称的 space 自己的会话上（[shell] model_switch）",
     methods: &[m("harnix.sessions.setModel", |b, p| Box::pin(async move { b.session_set_model(p).await }))],
-    grants: &["session.setModel"],
+    requires: &[caps::ENGINE_CONTROL],
 };
 
 /// Every method the built-ins contribute, the system space's included.
@@ -212,13 +186,12 @@ pub fn methods() -> Vec<&'static str> {
         .collect()
 }
 
-/// Engine methods a built-in calls that no device may: granted to the one module that needs
-/// each.
-pub fn engine_methods() -> Vec<&'static str> {
-    let mut all: Vec<&'static str> = PARTS
+/// Every capability a built-in requires.
+pub fn capabilities() -> Vec<Capability> {
+    let mut all: Vec<Capability> = PARTS
         .iter()
         .chain([&SYSTEM, &MODEL])
-        .flat_map(|p| p.grants.iter().copied())
+        .flat_map(|p| p.requires.iter().cloned())
         .collect();
     all.sort();
     all.dedup();
@@ -354,7 +327,7 @@ struct Part {
     id: &'static str,
     disclosure: &'static str,
     methods: &'static [Method],
-    grants: &'static [&'static str],
+    requires: &'static [Capability],
 }
 
 /// What answers one built-in method: a function of the built-ins' state and the params.
@@ -381,12 +354,9 @@ impl Module for BuiltinModule {
     const API_VERSION: u32 = harnix_module::MODULE_API_VERSION;
 
     fn manifest(&self) -> Manifest {
-        let mut manifest =
-            Manifest::new(self.part.id, env!("CARGO_PKG_VERSION")).disclosure(self.part.disclosure);
-        for grant in self.part.grants {
-            manifest = manifest.grant(*grant);
-        }
-        manifest
+        Manifest::new(self.part.id, env!("CARGO_PKG_VERSION"))
+            .disclosure(self.part.disclosure)
+            .requires(self.part.requires.iter().cloned())
     }
 
     fn methods(&self, registry: &mut MethodRegistry) {

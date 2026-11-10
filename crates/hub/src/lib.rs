@@ -135,6 +135,8 @@ pub struct Hub {
     prompt_timeout_secs: u64,
     spaces: StdMutex<Spaces>,
     audit: StdRwLock<Option<AuditHook>>,
+    /// What each extension holds: who may act on an instance it does not own.
+    grants: Arc<dyn harnix_kernel::GrantBook>,
 }
 
 pub struct HubConfig {
@@ -143,6 +145,8 @@ pub struct HubConfig {
     pub prompt_timeout_secs: u64,
     pub registry: Registry,
     pub spaces: Spaces,
+    /// What each extension holds, as the extension host wrote it.
+    pub grants: Arc<dyn harnix_kernel::GrantBook>,
 }
 
 impl Hub {
@@ -174,6 +178,7 @@ impl Hub {
             prompt_timeout_secs: config.prompt_timeout_secs,
             spaces: StdMutex::new(config.spaces),
             audit: StdRwLock::new(None),
+            grants: config.grants,
         })
     }
 

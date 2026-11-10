@@ -264,7 +264,6 @@
       "harnix.sessions",
       "harnix.subscribe",
       "harnix.unsubscribe",
-      "plugin.install",
       "session.interrupt"
     ],
     "topics": [

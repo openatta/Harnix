@@ -3,11 +3,11 @@
 use std::sync::{Arc, OnceLock};
 
 use harnix_authz::Devices;
-use harnix_kernel::{Access, KernelPart, Owner};
+use harnix_kernel::{Access, GrantTable, KernelPart, Owner};
 use harnix_router::{Row, RouteTable};
 use harnix_builtin::Builtin;
 use harnix_instance::Profile;
-use harnix_module::ErasedModule;
+use harnix_module::{Capability, ErasedModule};
 
 use super::state_files::{load_devices, DEVICES_FILE};
 use super::wiring::AppsWiring;
@@ -25,6 +25,8 @@ pub(super) struct Registered {
     pub table: RouteTable,
     pub behind: Behind,
     pub held: Held,
+    /// What each module was granted, and how far each extension is trusted.
+    pub grants: Arc<GrantTable>,
 }
 
 /// What the built-ins hold that serving needs.
@@ -38,9 +40,20 @@ pub(super) struct Held {
     pub channels: Arc<OnceLock<harnix_transport::Channels>>,
 }
 
+/// The built-ins are granted what they require: `with_builtins` is the application asking for them
+/// as Harnix ships them.
+fn granted_as_required(module: Box<dyn ErasedModule>) -> Entry {
+    let granted = module.manifest().requires;
+    Entry {
+        module,
+        namespace: Namespace::Kernel,
+        granted,
+    }
+}
+
 pub(super) fn register(
     builtins: bool,
-    app_modules: Vec<Box<dyn ErasedModule>>,
+    app_modules: Vec<(Box<dyn ErasedModule>, Vec<Capability>)>,
     profile: &Profile,
     roots: &Roots,
     apps: &AppsWiring,
@@ -54,20 +67,14 @@ pub(super) fn register(
             profile.shell.keeps(harnix_contract::SYSTEM_SPACE),
             profile.shell.model_switch,
         ) {
-            entries.push(Entry {
-                module: Box::new(module),
-                namespace: Namespace::Kernel,
-            });
+            entries.push(granted_as_required(Box::new(module)));
         }
         // Runtime applications' install records and switches: only when this process hosts them.
         if profile.apps.enabled {
             let module = apps.apps_module(
                 harnix_builtin::apps::AppsModule::new(roots.state.join("apps")).dev(profile.apps.dev),
             );
-            entries.push(Entry {
-                module: Box::new(module),
-                namespace: Namespace::Kernel,
-            });
+            entries.push(granted_as_required(Box::new(module)));
         }
         // Revoking is wired to the transport's session registry, because
         // ending a device's channels needs the layer that knows there are
@@ -79,18 +86,16 @@ pub(super) fn register(
                 tracing::info!(device = id, channels = ended, "revoked; its channels are closed");
             })
         };
-        entries.push(Entry {
-            module: Box::new(devices::DevicesModule::new(paired.clone(), disconnect)),
-            namespace: Namespace::Kernel,
-        });
+        entries.push(granted_as_required(Box::new(devices::DevicesModule::new(paired.clone(), disconnect))));
         Some(builtin)
     } else {
         None
     };
-    for module in app_modules {
+    for (module, granted) in app_modules {
         entries.push(Entry {
             module,
             namespace: Namespace::App,
+            granted,
         });
     }
     let behind = Behind::default();
@@ -104,10 +109,12 @@ pub(super) fn register(
             .map_err(|e| anyhow::anyhow!("{e}"))?;
     }
     apps.rows(&mut table)?;
-    let records = modules::register(entries, &mut table, &profile.modules, &roots.state);
+    let grants = Arc::new(GrantTable::new());
+    let records = modules::register(entries, &mut table, &grants, &profile.modules, &roots.state)?;
     Ok(Registered {
         records,
         table,
+        grants,
         behind,
         held: Held {
             builtin,

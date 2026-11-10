@@ -221,6 +221,7 @@ impl Diagnostics {
 #[cfg(test)]
 mod tests {
     use harnix_authz::{access_for, Audit, Principal};
+    use harnix_contract::s1::{PackageCarrier, Trust};
     use harnix_router::Row;
 
     use super::*;
@@ -236,17 +237,15 @@ mod tests {
     /// `tests/live/api/method-table.spec.ts`, into the same file.
     #[tokio::test]
     async fn a_runtime_applications_reach_is_the_snapshots() {
-        let router = Router::new(crate::methods::table(&Behind::default()), Arc::new(Audit::default()));
+        let grants = Arc::new(harnix_kernel::GrantTable::new());
+        let router = Router::new(crate::methods::table(&Behind::default()), grants.clone(), Arc::new(Audit::default()));
         let id = "snapshot-app";
         let hub: Vec<String> = ["harnix.sessions", "harnix.send", "session.interrupt", "topic:harnix.sessions.status", "plugin.install"]
             .iter()
             .map(|s| s.to_string())
             .collect();
-        for name in &hub {
-            if router.table().check_grant(name, id) == Ok(true) {
-                let _ = router.grant(&Subject::Kernel, name, id, "its `hub` capability");
-            }
-        }
+        let ext = harnix_contract::ExtId::parse(id).unwrap();
+        grants.set(ext, [], Trust::consent(hub, PackageCarrier::Wasm));
         struct Nothing;
         #[async_trait::async_trait]
         impl Handler for Nothing {
@@ -260,7 +259,7 @@ mod tests {
             Row::method(format!("app.{id}.internal"), own(&[Principal::Kernel, Principal::Module(id.into())]), Arc::new(Nothing)),
             Row::topic(&format!("app.{id}.ticks"), own(&[Principal::Module(id.into())])),
         ];
-        router.install_app(&Subject::Kernel, id, rows, &hub).unwrap();
+        router.install_app(&Subject::Kernel, id, rows).unwrap();
 
         let me = Subject::extension(harnix_contract::ExtId::parse(id).unwrap());
         let reach = router.call(CallContext::root(me, None), harnix_router::REACHABLE, json!({})).await.unwrap();

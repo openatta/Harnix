@@ -213,6 +213,7 @@ pub(crate) const CHECKED: &[&str] = &[
     "harnix.detach",
     "harnix.send",
     "harnix.queue.remove",
+    "harnix.queue.edit",
     "harnix.sessions.tasks",
     "session.get",
     "session.history",

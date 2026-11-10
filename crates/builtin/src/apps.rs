@@ -61,7 +61,7 @@ use std::sync::Arc;
 
 use harnix_contract::{codes, RpcError};
 use harnix_module::{
-    AppHost, CallContext, EventRegistry, Handler, Manifest, MethodRegistry, Module, ModuleContext, Principal,
+    caps, AppHost, CallContext, Capability, EventRegistry, Handler, Manifest, MethodRegistry, Module, ModuleContext, Principal,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -114,17 +114,10 @@ pub fn methods() -> impl Iterator<Item = &'static str> {
     METHODS.iter().map(|m| m.name)
 }
 
-/// Engine methods the runtime calls as this module: installing an application's agent package
-/// into the instances it names, switching it with the application, and having an instance re-read
-/// its skills.
-pub const GRANTS: &[&str] = &[
-    "plugin.install",
-    "plugin.uninstall",
-    "plugin.enable",
-    "plugin.disable",
-    "plugin.list",
-    "config.reload",
-];
+/// What the runtime does as this module: installing an application's agent package into the
+/// instances it names and switching it with the application (`plugin.*`), and having an instance
+/// re-read its skills (`config.reload`).
+pub const REQUIRES: &[Capability] = &[caps::ENGINE_PLUGINS, caps::ENGINE_CONFIG_WRITE];
 
 /// One install record.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -396,14 +389,11 @@ impl Module for AppsModule {
     const API_VERSION: u32 = harnix_module::MODULE_API_VERSION;
 
     fn manifest(&self) -> Manifest {
-        let mut manifest = Manifest::new(MODULE_ID, env!("CARGO_PKG_VERSION")).disclosure(
+        Manifest::new(MODULE_ID, env!("CARGO_PKG_VERSION")).disclosure(
             "运行期应用：读写安装记录（<状态目录>/apps/），安装、启停、卸载应用；把应用的 agent 包装进实例、\
              技能写进实例的技能目录；经宿主登记、撤下应用的方法、主题与 space",
-        );
-        for grant in GRANTS {
-            manifest = manifest.grant(*grant);
-        }
-        manifest
+        )
+        .requires(REQUIRES.iter().cloned())
     }
 
     fn methods(&self, registry: &mut MethodRegistry) {
@@ -1316,10 +1306,8 @@ mod tests {
     }
 
     #[test]
-    fn the_module_asks_for_the_engine_methods_the_runtime_calls() {
+    fn the_module_asks_for_what_the_runtime_does() {
         let manifest = AppsModule::new(PathBuf::from("/nowhere")).dev(true).manifest();
-        for grant in GRANTS {
-            assert!(manifest.grants.iter().any(|g| g == grant), "{grant} is not granted");
-        }
+        assert_eq!(manifest.requires, REQUIRES);
     }
 }

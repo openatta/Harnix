@@ -34,6 +34,7 @@ pub(super) async fn assemble(
     records: &[Record],
     instances: Instances,
     apps: &AppsWiring,
+    grants: Arc<harnix_kernel::GrantTable>,
 ) -> anyhow::Result<Assembled> {
     let Instances {
         registry,
@@ -64,6 +65,7 @@ pub(super) async fn assemble(
         prompt_timeout_secs: profile.engine.permission_prompt_timeout_secs,
         registry,
         spaces,
+        grants,
     });
     hub.set_replay_strict(cli.replay_strict);
     let brand_icon = brand_icon(profile, cli.profile.as_deref());

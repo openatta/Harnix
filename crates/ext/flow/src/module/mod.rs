@@ -52,6 +52,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use harnix_contract::sync::lock;
 use harnix_engine_api::{BuiltinArgs, Interaction, SceneBase, SceneLayer};
 use harnix_module::{
+    caps,
     EngineContrib, EventRegistry, InstanceTemplate, InstanceTemplates, Manifest, MethodRegistry,
     Module, ModuleContext, SpaceDecl, SpaceRegistry,
 };
@@ -584,8 +585,7 @@ impl Module for Flow {
             )
             // Naming a run's main session and a flow's conversation; a main session's
             // sub-agents and other tasks (xops-03).
-            .grant("session.rename")
-            .grant("session.tasks")
+            .requires([caps::ENGINE_CONTROL, caps::ENGINE_INSPECT])
     }
 
     /// On `system`: the wrapped scenes and `flow-author`.

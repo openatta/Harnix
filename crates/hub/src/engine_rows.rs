@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use harnix_contract::sync::lock;
 use harnix_contract::{RpcError, Subject};
+use harnix_contract::s1::{caps, Capability, RowScope};
 use harnix_kernel::{Access, Owner, Rpc};
 use serde_json::{json, Value};
 
@@ -24,61 +25,60 @@ enum After {
     Relisted,
 }
 
-/// Passed through for any device.
-const DEVICE: &[&str] = &[
-    "session.list",
-    "session.get",
-    "session.history",
-    "session.entries",
-    "session.resume",
-    "scene.list",
-    "scene.describe",
-    "scene.activate",
-    "commands.list",
-    "mcp.status",
-    "plugin.list",
-    "daemon.status",
-    "daemon.ping",
-    "daemon.doctor",
+/// Passed through for any device, with what each acts on.
+const DEVICE: &[(&str, RowScope)] = &[
+    ("session.list", RowScope::Open),
+    ("session.get", RowScope::Session),
+    ("session.history", RowScope::Session),
+    ("session.entries", RowScope::Session),
+    ("session.resume", RowScope::Session),
+    ("scene.list", RowScope::Open),
+    ("scene.describe", RowScope::Open),
+    ("scene.activate", RowScope::Open),
+    ("commands.list", RowScope::Open),
+    ("mcp.status", RowScope::Open),
+    ("plugin.list", RowScope::Open),
+    ("daemon.status", RowScope::Open),
+    ("daemon.ping", RowScope::Open),
+    ("daemon.doctor", RowScope::Open),
 ];
 
-/// The kernel's, and a module's by grant — what a built-in calls on a person's behalf and no
-/// device calls directly: looking into a session and changing its context (a device reaches
-/// those through the system space's own methods, which say what they are doing, concept §5.5),
-/// reading settings, managing packages. Reaching Agix's own `plugin.install` and friends is not
-/// opened to devices, because changing what is installed changes what this host serves, and
-/// going around the host would leave a disabled package's interface module still being served
-/// with nothing to notice it.
-const BY_GRANT: &[(&str, After)] = &[
-    ("session.tasks", After::Nothing),
-    ("session.taskOutput", After::Nothing),
-    ("session.inspectContext", After::Nothing),
-    ("session.stopTask", After::Nothing),
-    ("session.messageTask", After::Nothing),
-    ("session.dropMessages", After::Relisted),
-    ("session.editMessage", After::Relisted),
-    ("session.compact", After::Relisted),
-    ("session.clear", After::Relisted),
-    ("session.rename", After::Relisted),
-    ("session.setModel", After::Nothing),
-    ("session.goal", After::Goal),
-    ("session.setGoal", After::Goal),
-    ("session.updateGoal", After::Goal),
-    ("session.export", After::Nothing),
-    ("config.get", After::Nothing),
-    ("config.getProvider", After::Nothing),
-    ("config.reload", After::Nothing),
-    ("plugin.install", After::Nothing),
-    ("plugin.uninstall", After::Nothing),
-    ("plugin.enable", After::Nothing),
-    ("plugin.disable", After::Nothing),
-    ("plugin.reload", After::Nothing),
+/// What no device calls directly, open to the kernel and an extension holding the capability:
+/// looking into a session and changing its context (a device reaches those through the system
+/// space's own methods, which say what they are doing), reading settings, managing packages.
+/// Reaching Agix's own `plugin.install` and friends is not opened to devices, because changing
+/// what is installed changes what this host serves, and going around the host would leave a
+/// disabled package's interface module still being served with nothing to notice it.
+const BY_CAPABILITY: &[(&str, Capability, After)] = &[
+    ("session.tasks", caps::ENGINE_INSPECT, After::Nothing),
+    ("session.taskOutput", caps::ENGINE_INSPECT, After::Nothing),
+    ("session.inspectContext", caps::ENGINE_INSPECT, After::Nothing),
+    ("session.goal", caps::ENGINE_INSPECT, After::Goal),
+    ("session.stopTask", caps::ENGINE_CONTROL, After::Nothing),
+    ("session.messageTask", caps::ENGINE_CONTROL, After::Nothing),
+    ("session.dropMessages", caps::ENGINE_CONTROL, After::Relisted),
+    ("session.editMessage", caps::ENGINE_CONTROL, After::Relisted),
+    ("session.compact", caps::ENGINE_CONTROL, After::Relisted),
+    ("session.clear", caps::ENGINE_CONTROL, After::Relisted),
+    ("session.rename", caps::ENGINE_CONTROL, After::Relisted),
+    ("session.setModel", caps::ENGINE_CONTROL, After::Nothing),
+    ("session.setGoal", caps::ENGINE_CONTROL, After::Goal),
+    ("session.updateGoal", caps::ENGINE_CONTROL, After::Goal),
+    ("session.export", caps::ENGINE_EXPORT, After::Nothing),
+    ("config.get", caps::ENGINE_CONFIG_READ, After::Nothing),
+    ("config.getProvider", caps::ENGINE_CONFIG_READ, After::Nothing),
+    ("config.reload", caps::ENGINE_CONFIG_WRITE, After::Nothing),
+    ("plugin.install", caps::ENGINE_PLUGINS, After::Nothing),
+    ("plugin.uninstall", caps::ENGINE_PLUGINS, After::Nothing),
+    ("plugin.enable", caps::ENGINE_PLUGINS, After::Nothing),
+    ("plugin.disable", caps::ENGINE_PLUGINS, After::Nothing),
+    ("plugin.reload", caps::ENGINE_PLUGINS, After::Nothing),
 ];
 
 /// The engine methods that change credentials, repoint model endpoints, or hand the caller the
 /// process itself. Refused to devices always, with the reason written out — the engine trusts
-/// whoever reaches its dispatch, and in this process that is the hub (concept §3.4). A module may
-/// be granted one by name in its manifest; the grant is on the diagnostics page.
+/// whoever reaches its dispatch, and in this process that is the hub (concept §3.4). The kernel may
+/// call one, and an extension holding the capability beside it; `None` is the kernel alone.
 ///
 /// `plugin.*` is deliberately **not** in this list. Installing a plugin runs code, but one
 /// process serves one user and a device is that person: the question this layer really answers
@@ -88,25 +88,29 @@ const BY_GRANT: &[(&str, After)] = &[
 ///
 /// `mcp.addServer` stays refused, and the difference is the point: it configures a
 /// subprocess-spawning tool with no manifest, no capability declaration and no disclosure at all.
-pub const ENGINE_REFUSALS: &[(&str, &str)] = &[
+pub const ENGINE_REFUSALS: &[(&str, &str, Option<Capability>)] = &[
     (
         "config.setProvider",
         "changing provider credentials or base_url would point model traffic elsewhere",
+        Some(caps::ENGINE_CONFIG_WRITE),
     ),
     (
         "config.set",
         "changing provider credentials or base_url would point model traffic elsewhere",
+        Some(caps::ENGINE_CONFIG_WRITE),
     ),
     (
         "config.update",
         "changing provider credentials or base_url would point model traffic elsewhere",
+        Some(caps::ENGINE_CONFIG_WRITE),
     ),
     (
         "mcp.addServer",
         "adding an MCP server is equivalent to installing a tool that runs subprocesses",
+        Some(caps::ENGINE_MCP),
     ),
-    ("import.run", "config import runs outside the disclosure this layer is for"),
-    ("import.list", "config import runs outside the disclosure this layer is for"),
+    ("import.run", "config import runs outside the disclosure this layer is for", None),
+    ("import.list", "config import runs outside the disclosure this layer is for", None),
 ];
 
 /// What the hub owns. Refused to everyone, the kernel and every module included, and never
@@ -145,25 +149,36 @@ pub(crate) fn rows(hub: &HubCell) -> Vec<HubRow> {
         HubRow::Method {
             name: "session.create",
             owner: Owner::Engine,
-            access: Access::device(),
+            access: Access::device().scoped(RowScope::Space),
             handler: Some(answer(hub, "session.create", |h, cx, p| async move { h.create(&cx.subject, p).await })),
         },
         HubRow::Method {
             name: "session.fork",
             owner: Owner::Engine,
-            access: Access::device(),
+            access: Access::device().scoped(RowScope::Session),
             handler: Some(answer(hub, "session.fork", |h, cx, p| async move { h.fork(&cx.subject, p).await })),
         },
         HubRow::Method {
             name: "session.respondToPrompt",
             owner: Owner::Engine,
-            access: Access::device(),
+            access: Access::device().scoped(RowScope::Session),
             handler: Some(answer(hub, "session.respondToPrompt", |h, cx, p| async move { h.respond(&cx.subject, p).await })),
         },
     ];
-    rows.extend(DEVICE.iter().map(|name| engine(hub, name, Access::device(), After::Nothing)));
-    rows.extend(BY_GRANT.iter().map(|(name, after)| engine(hub, name, Access::kernel(), *after)));
-    rows.extend(ENGINE_REFUSALS.iter().map(|(name, why)| engine(hub, name, Access::refused(why), After::Nothing)));
+    rows.extend(DEVICE.iter().map(|(name, scope)| engine(hub, name, Access::device().scoped(*scope), After::Nothing)));
+    rows.extend(BY_CAPABILITY.iter().map(|(name, cap, after)| {
+        // A session's inside, read, changed or exported: one session each.
+        let on_a_session = [caps::ENGINE_INSPECT, caps::ENGINE_CONTROL, caps::ENGINE_EXPORT].contains(cap);
+        let scope = if on_a_session { RowScope::Session } else { RowScope::Open };
+        engine(hub, name, Access::capability(cap.clone()).scoped(scope), *after)
+    }));
+    rows.extend(ENGINE_REFUSALS.iter().map(|(name, why, cap)| {
+        let access = match cap {
+            Some(cap) => Access::capability(cap.clone()).refusing(why),
+            None => Access::refused(why),
+        };
+        engine(hub, name, access, After::Nothing)
+    }));
     rows.extend(HUB_OWNED.iter().map(|(name, why)| HubRow::Method {
         name,
         owner: Owner::Kernel(harnix_kernel::KernelPart::Hub),

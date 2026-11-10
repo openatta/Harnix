@@ -32,6 +32,7 @@ pub(super) struct Identity<'a> {
 pub(super) fn admit(
     hub: &Arc<Hub>,
     table: RouteTable,
+    grants: Arc<harnix_kernel::GrantTable>,
     behind: &Behind,
     records: &[Record],
     history: Option<Arc<dyn history::store::HistoryStore>>,
@@ -54,7 +55,7 @@ pub(super) fn admit(
         unknown_sections: unknown_sections(sections, records),
         router: OnceLock::new(),
     });
-    let router = Arc::new(Router::new(table, audit));
+    let router = Arc::new(Router::new(table, grants.clone(), audit));
     let _ = diagnostics.router.set(Arc::downgrade(&router));
     let _ = behind.diagnostics.set(diagnostics.clone());
     let kernel = Arc::new(ProcessKernel {
@@ -68,13 +69,9 @@ pub(super) fn admit(
     });
     let _ = kernel.router.set(router.clone());
     if apps_enabled {
-        // Every compiled-in module's id is reserved, enabled or not: a runtime application never
-        // takes one, or nests under one.
-        let apps = crate::apps::Apps::new(
-            router.clone(),
-            Arc::new(crate::apps::HubSurfaces(hub.clone())),
-            records.iter().map(|r| r.manifest.id.clone()),
-        );
+        // Every compiled-in module's id was registered in the table, enabled or not: a runtime
+        // application never takes one, or nests under one.
+        let apps = crate::apps::Apps::new(router.clone(), Arc::new(crate::apps::HubSurfaces(hub.clone())), grants);
         let _ = kernel.apps.set(Arc::new(apps));
         tracing::info!("this process hosts runtime applications");
     }
