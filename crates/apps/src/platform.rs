@@ -223,7 +223,7 @@ impl Kernel for KernelPlatform {
             .cloned()
             .ok_or_else(|| internal("this platform is lent to no application host"))?;
         let mut spec = harnix_module::AppSpec::new(r.app.clone())
-            .hub(r.hub.clone())
+            .calls(r.calls.clone())
             .topic_sink(Arc::new(TopicValues::new(&r.app, control.clone())));
         for m in r.methods {
             let principals = principals(&r.app, &m.name, &m.subjects)?;

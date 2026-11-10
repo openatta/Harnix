@@ -20,15 +20,15 @@
 
 ```sh
 # 一次：打包工具（带编译器）与 WASM 目标
-cargo build --release -p harnix-package --features compile --bin harnix-app
+cargo build --release -p harnix-package --features compile --bin harnix-pack
 rustup target add wasm32-wasip2
 
-# 1. 起一个应用：清单、一个带工具 hello 的 tools-app 组件（component/）、README
-harnix-app new acme-notes --id acme.notes
+# 1. 起一个应用：清单、一个带工具 hello 的 tools-ext 组件（component/）、README
+harnix-pack new acme-notes --id acme.notes
 # 2. 编组件，并为这个引擎编好（build/ 下的 .wasm、.cwasm）
-harnix-app build acme-notes
-# 3. 打包：acme.notes-0.1.0.hxapp（未签名）
-harnix-app pack acme-notes --build
+harnix-pack build acme-notes
+# 3. 打包：acme.notes-0.1.0.hxext（未签名）
+harnix-pack pack acme-notes --build
 
 # 4. 一个带 apps 编的 Harnix，开着模式 2 与开发模式（未签名的包只在开发模式下能装）
 cargo build --release -p harnix-cli --features apps
@@ -36,11 +36,11 @@ printf '[apps]\nenabled = true\ndev = true\n' > dev.toml
 ./target/release/harnix --profile dev.toml
 ```
 
-5. 从任何客户端（或测试里的 `connect(backend)`，§11）：`harnix.apps.installFile {"path": "/abs/path/acme.notes-0.1.0.hxapp"}`。
-   答 `{id, version, trust: "unsigned", …}`；新建的会话里就有工具 `app__acme_notes__hello`，每次调用先问人。
+5. 从任何客户端（或测试里的 `connect(backend)`，§11）：`harnix.apps.installFile {"path": "/abs/path/acme.notes-0.1.0.hxext"}`。
+   答 `{id, version, trust: "unsigned", …}`；新建的会话里就有工具 `ext__acme_notes__hello`，每次调用先问人。
 6. 改了代码：`harnix.apps.uninstall {"id": "acme.notes"}`，再 `pack`、`installFile`。要发布：签名（§8）、交给商店（§9）。
 
-要后端（方法、主题、定时器）就把清单的 `world` 换成 `backend-app`、实现 `backend`（§4 的例子）；要界面加 `ui/` 与 `[[surface]]`（§6）。
+要后端（方法、主题、定时器）就把清单的 `world` 换成 `backend-ext`、实现 `backend`（§4 的例子）；要界面加 `ui/` 与 `[[surface]]`（§6）。
 
 # 第一部分：指南
 
@@ -51,10 +51,10 @@ printf '[apps]\nenabled = true\ndev = true\n' > dev.toml
 
 | 部分 | 是什么 | 在哪跑 |
 |---|---|---|
-| 后端与工具 | 一个 WASM 组件（WIT `harnix:app@0.1.0`）：常驻的后端（方法、主题、定时器、订阅），给 Agent 的工具，工具调用的观察与否决 | Harnix 主进程里的 wasmtime，每个应用一台虚拟机（§4） |
+| 后端与工具 | 一个 WASM 组件（WIT `harnix:ext@1.0.0`）：常驻的后端（方法、主题、定时器、订阅），给 Agent 的工具，工具调用的观察与否决 | Harnix 主进程里的 wasmtime，每个应用一台虚拟机（§4） |
 | Agent 能力 | `agent/`：一个 Agix 插件（skill、agent 类型、场景、QuickJS 脚本） | 装进产品声明的实例里，在 Agix 里跑（§5） |
 | 界面 | `ui/`：iframe 里的页面，经桥借外壳的手；外壳照清单画的行内点；受信发布者另可以带进页面的模块 | 浏览器（§6） |
-| 清单 | `harnix-app.toml`：它是什么、要什么能力、有哪些方法与主题、界面放在哪 | 安装时读、给人看（§3） |
+| 清单 | `harnix-ext.toml`：它是什么、要什么能力、有哪些方法与主题、界面放在哪 | 安装时读、给人看（§3） |
 
 **模式 2 里，一个应用一台虚拟机，只在主进程里**（模式 3 里它在应用自己的进程里，[应用开发](app-development.md) §10）。「虚拟机」是一个边界，不是一个进程：
 
@@ -72,7 +72,7 @@ spawn 出来的 daemon 实例不起虚拟机：它的会话经这个应用的 MC
 
 ```text
 应用的界面（隔离 iframe，connect-src 'none'）
-   │ 桥：MessageChannel，harnix-ui-bridge@1
+   │ 桥：MessageChannel，harnix-ui-bridge@2
    ▼
 外壳 ── 页面的 Harnix 连接（两种拓扑同一套协议）──▶ 准入 ──▶ hub ──▶ apps 模块 ──▶ 后端 handle()
    ▲                                                                                  │
@@ -84,17 +84,17 @@ spawn 出来的 daemon 实例不起虚拟机：它的会话经这个应用的 MC
 | 界面调自己的方法 | iframe `call("app.<id>.notes.list")` → 桥 → 外壳 → 页面的连接 → 准入 → `backend.handle` | 外壳按清单过滤名字；hub 按设备准入、记审计 |
 | 应用推界面 | `host.publish("notes", v)` → 主题 `app.<id>.notes` → 外壳 → 桥 → iframe | 只能推自己声明的主题 |
 | 应用驱动 Agent | `host.call("harnix.session.create" / "harnix.session.send", …)` → 准入 → hub → Agix | 主体 `module:<id>`，只到清单 `hub` 列出的 |
-| Agent 用应用的工具 | 模型调 `app__<id>__<tool>` → Agix 的权限（一律先问人）→ 新建调用实例 `call-tool`；spawn 的实例经 MCP | 权限照常；宿主函数按能力查 |
+| Agent 用应用的工具 | 模型调 `ext__<id>__<tool>` → Agix 的权限（一律先问人）→ 新建调用实例 `call-tool`；spawn 的实例经 MCP | 权限照常；宿主函数按能力查 |
 | 应用听引擎的动静 | `host.subscribe("harnix.sessions.status")` → `backend.on-topic`；要否决工具调用，用 `events` | 可订的主题按 `hub` 能力；`events` 缺省只看到自己工具的调用（`[events]`） |
 
 **会话不直接调 `app.<id>.*`。** Agent 用的是应用的工具；工具要后端的状态，就 `host.call` 自己的方法。
 
 ## 2. 包
 
-`.hxapp` 是一个 zip，解包前整个读一遍，有一样不对就拒，一个字节都不写：
+`.hxext` 是一个 zip，解包前整个读一遍，有一样不对就拒，一个字节都不写：
 
 ```text
-harnix-app.toml                     清单（§3）
+harnix-ext.toml                     清单（§3）
 ui/…                                iframe 的页面与资源；受信发布者另可以带进页面的 ES 模块
 agent/plugin.toml, agent/…          一个 Agix 插件；agent/skills/<名字>/SKILL.md 在它旁边
 wasm/<name>.wasm                    组件，可移植（可选；产品跑不了它，只反序列化编好的产物）
@@ -110,7 +110,7 @@ SIGNATURES                          每个文件的 sha256，发布者签名与�
 Harnix 与 Agix 一一对应地发布，wasmtime 只在 Harnix 发布时变，所以商店为每个 wasmtime 版本编一遍。没有匹配指纹的产物就装不上。
 反序列化只用于可信的产物，所以**先验签、再按签名里的 sha256 比对读进来的字节，才反序列化**。
 
-## 3. 清单 `harnix-app.toml`
+## 3. 清单 `harnix-ext.toml`
 
 **严格读。** 应用能有的一切都是下面的一节或一个字段，别的按名字拒：清单也是安装时给人看的东西，一行没人读的字是白给人看的——
 或者是有人以为已经给出去的一项能力。节与字段只增不改。完整的字段表见 §14。
@@ -153,11 +153,11 @@ fs = ["${data}", "${project}"]   # ${data}：自己的数据目录 /data，读�
 ```toml
 [[component]]                    # 至多一个
 name = "notes"                   # wasm/<name>.<指纹>.cwasm
-world = "harnix:app/backend-app@0.1.0"   # 或 harnix:app/tools-app@0.1.0
+world = "harnix:ext/backend-ext@1.0.0"   # 或 harnix:ext/tools-ext@1.0.0
 memory_mb = 64                   # 1–4096，缺省 64
 timeout_ms = 30000               # 100–600000，缺省 30000
 
-[backend]                        # 非缺省的值只有 backend-app 能写
+[backend]                        # 非缺省的值只有 backend-ext 能写
 resident = "on-demand"           # always（缺省）| on-demand
 idle_secs = 600                  # 60–86400，缺省 600
 ```
@@ -167,8 +167,8 @@ idle_secs = 600                  # 60–86400，缺省 600
 tools = "own"                    # own（缺省）：只有它自己的工具；all：每个会话的每一次工具调用，连同输入
 ```
 
-- `tools-app`：给 Agent 工具、观察与否决事件，自己不留状态（kv 除外）。
-- `backend-app`：另有常驻的后端，答方法、推主题、跑定时器、订 hub 的主题，也照样给工具与事件。
+- `tools-ext`：给 Agent 工具、观察与否决事件，自己不留状态（kv 除外）。
+- `backend-ext`：另有常驻的后端，答方法、推主题、跑定时器、订 hub 的主题，也照样给工具与事件。
 - `[backend] resident = "on-demand"`：后端闲置满 `idle_secs`、又没有东西拿着它时卸下，下一次调用冷启动（`init` 重跑，状态从 kv 回来），
   系统 space 显示「休眠中」。「拿着它」是：有订阅、有定时器、有排队的投递、有在途的调用（方法、工具调用、事件钩子都算）。
   工具调用本来就各在自己的调用 Store 里，不受影响。
@@ -195,7 +195,7 @@ scene = "harnix"                 # 可选：新会话的场景
 instance = "main"              # 可选：一台已有的实例
 ```
 
-方法与主题只有 `backend-app` 能声明。方法、主题、space 在应用启动时登记进授权表、方法路由与 `harnix.spaces.list`，
+方法与主题只有 `backend-ext` 能声明。方法、主题、space 在应用启动时登记进授权表、方法路由与 `harnix.spaces.list`，
 停用或卸载时撤下：之后的调用答 `-32601`（和从没有过一样），在途的照常做完，主题的订阅者收到 `harnix.topic_ended`。
 名字与任何编译期模块或已登记的应用重叠就拒，编译进来的优先。space 长什么样由界面给（§6）。
 
@@ -250,15 +250,15 @@ api_version = 2
 install_into = ["main"]        # agent/ 装进哪些实例：system，或安装时已经存在的实例的 id；缺省 ["main"]
 ```
 
-## 4. 后端：WIT `harnix:app@0.1.0`
+## 4. 后端：WIT `harnix:ext@1.0.0`
 
-组件对着 `crates/wasm/wit/app.wit` 写（`harnix-app new` 拷一份到 `component/wit/app.wit`）。两个 world，各有一个带 `events` 的版本：
+组件对着 `crates/wasm/wit/ext.wit` 写（`harnix-pack new` 拷一份到 `component/wit/ext.wit`）。两个 world，各有一个带 `events` 的版本：
 
 ```wit
-world tools-app          { import host; export tools; }
-world backend-app        { import host; export backend; export tools; }
-world tools-app-events   { include tools-app; export events; }
-world backend-app-events { include backend-app; export events; }
+world tools-ext          { import host; export tools; }
+world backend-ext        { import host; export backend; export tools; }
+world tools-ext-events   { include tools-ext; export events; }
+world backend-ext-events { include backend-ext; export events; }
 ```
 
 `events` 是可选的导出：用不着观察工具调用的组件用前两个，清单的 `world` 也只写这两个之一（导出了 `events` 的组件仍是那个 world，
@@ -270,11 +270,11 @@ world backend-app-events { include backend-app; export events; }
 | `events`（可选） | `on-event(event, payload-json) -> hook-decision`：`proceed`、`block(理由)`、`add-context(一段话)` | 每次一个调用 Store |
 | `backend` | `init(config-json)`、`handle(method, params-json, caller-json) -> result<string, app-error>`、`on-topic(topic, value-json)`、`on-timer(id)`、`stop()` | 常驻 Store |
 
-一个后端组件的样子（清单写 `world = "harnix:app/backend-app@0.1.0"`，声明了方法 `notes.add` 与主题 `notes`；完整的见 showcase 的
+一个后端组件的样子（清单写 `world = "harnix:ext/backend-ext@1.0.0"`，声明了方法 `notes.add` 与主题 `notes`；完整的见 showcase 的
 `component/src/lib.rs`）：
 
 ```rust
-wit_bindgen::generate!({ path: "wit", world: "backend-app" });   // wit/ 是 harnix-app new 拷来的 app.wit
+wit_bindgen::generate!({ path: "wit", world: "backend-ext" });   // wit/ 是 harnix-pack new 拷来的 ext.wit
 
 use exports::harnix::app::backend::{AppError, Guest as Backend};
 use exports::harnix::app::tools::{Guest as Tools, ToolDef, ToolOutput};
@@ -362,8 +362,8 @@ export!(App);
   已经在那里，就拒。拷完让实例重读设置。
 - **QuickJS 脚本**挂在 Agix 的扩展点上，没有 I/O，和应用的虚拟机之间**没有通道**：要有逻辑的钩子，写成 WASM 的 `events`。QuickJS 只限资源，
   不是隔离边界：它的信任来自签名（§7），不来自沙箱。
-- **工具名**：会话里叫 `app__<id>__<tool>`，id 里的 `.` 换成 `_`（模型 API 的工具名只收字母、数字、`_`、`-`，id 里没有 `_`，所以一一对应），
-  例如 `app__acme_notes__search`；全名至多 64 个字符。spawn 的 daemon 经 MCP 看到的是 `mcp__app-<id>__<tool>`（同样换 `_`）。
+- **工具名**：会话里叫 `ext__<id>__<tool>`，id 里的 `.` 换成 `_`（模型 API 的工具名只收字母、数字、`_`、`-`，id 里没有 `_`，所以一一对应），
+  例如 `ext__acme_notes__search`；全名至多 64 个字符。spawn 的 daemon 经 MCP 看到的是 `mcp__ext-<id>__<tool>`（同样换 `_`）。
 - **每会话登记**：Harnix 的 Rust 插件 `AppsBridge` 在每个会话建起时登记当下在跑的应用的工具。新装的应用，新会话马上有；已有的会话在
   下次重建时才有。子 Agent 带着父会话的插件构建，所以也有。
 - **权限**：应用的工具每次调用都先问人（「应用 X 想跑它的工具 Y」），宿主的权限处理照常。
@@ -422,25 +422,25 @@ export!(App);
 - **键盘**：外壳的快捷键（⌘K、⌘\、⌘/）在 iframe 里按下也交给外壳；在外壳的对话框（模态框、设置节）里，Esc 也交给外壳；外壳的
   对话框开着时，iframe 一个键都收不到（整个 inert）。所以一个键只落在一处。
 
-### 6.3 桥与 `@harnix/app-sdk`
+### 6.3 桥与 `@harnix/ext-sdk`
 
 页面加载完，外壳经 `postMessage` 交给它一个 `MessageChannel` 端口（只此一次、只给这个 frame），之后一切走端口：请求、应答、事件。
-页面先说 `hello`，外壳答它是哪个面、外观、它的 space 当前的会话。协议的定义就是 `ui/packages/app-sdk/src/protocol.ts`（两边都 import 它）。
+页面先说 `hello`，外壳答它是哪个面、外观、它的 space 当前的会话。协议的定义就是 `ui/packages/ext-sdk/src/protocol.ts`（两边都 import 它）。
 
-`@harnix/app-sdk` 是页面一侧的小 SDK，不依赖框架：
+`@harnix/ext-sdk` 是页面一侧的小 SDK，不依赖框架：
 
 ```js
-// <script src="vendor/harnix-app-sdk.js"></script> 把 SDK 放在 window.HarnixApp；打包的页面 import { connect } from "@harnix/app-sdk"
-const app = await HarnixApp.connect();                         // 等外壳的端口，hello
+// <script src="vendor/harnix-ext-sdk.js"></script> 把 SDK 放在 window.HarnixExt；打包的页面 import { connect } from "@harnix/ext-sdk"
+const app = await HarnixExt.connect();                         // 等外壳的端口，hello
 const notes = await app.call("app.acme.notes.notes.list");
 const off = app.subscribe("app.acme.notes.notes", {}, (value) => draw(value));
 if (await app.confirm("Delete every note?", { danger: true })) await app.call("app.acme.notes.notes.clear");
 app.onEnv((env) => (document.documentElement.dataset.theme = env.theme));
 ```
 
-`vendor/harnix-app-sdk.js` 是 `@harnix/app-sdk` 构建出的经典脚本（`pnpm --filter @harnix/app-sdk build`，产物
-`ui/packages/app-sdk/dist/harnix-app-sdk.js`，全局 `HarnixApp`），不打包的页面把它拷进自己的 `ui/`；`@harnix/ui-kit` 一样
-（`dist/harnix-ui-kit.js`、`harnix-ui-kit.css`）。打包的页面直接 `import` 包。showcase 带着这三份（`ui/frame/vendor/`），
+`vendor/harnix-ext-sdk.js` 是 `@harnix/ext-sdk` 构建出的经典脚本（`pnpm --filter @harnix/ext-sdk build`，产物
+`ui/packages/ext-sdk/dist/harnix-ext-sdk.js`，全局 `HarnixExt`），不打包的页面把它拷进自己的 `ui/`；`@harnix/ext-kit` 一样
+（`dist/harnix-ext-kit.js`、`harnix-ext-kit.css`）。打包的页面直接 `import` 包。showcase 带着这三份（`ui/frame/vendor/`），
 `node tests/app-ui-vendored.mjs --write` 重新构建并拷过去。
 
 连上之后它自己做的：答外壳的心跳；外壳按内容定高度的面（`home.card`、设置节、模态框）报高度；把外壳的键交给外壳；把页面没接住的错误
@@ -465,7 +465,7 @@ app.onEnv((env) => (document.documentElement.dataset.theme = env.theme));
   `confirm` 是外壳画的对话框，应用造不出假的确认；`openLink` 要 `[interface] links`，每次先问人；`upload` 由外壳代传，答落盘路径，给下一条消息当附件。
 - **被拒**的请求答 `refused`，记进系统 space 应用页签的「最近被拒的界面请求」，也进设置 → 诊断。
 
-### 6.4 `@harnix/ui-kit`
+### 6.4 `@harnix/ext-kit`
 
 外壳的令牌（颜色、间距、圆角、字号）加几样基础部件（按钮、输入、字段、表格、卡片、空态、加载、提示）的 CSS 与轻量的 DOM 函数，
 打进应用自己的包里；`follow(app)` 让主题与语言跟着外壳变。用不用 React 随便，它不依赖 React。showcase 带着两者构建出的文件
@@ -515,7 +515,7 @@ app.onEnv((env) => (document.documentElement.dataset.theme = env.theme));
 - **商店**查过发布者、为它服务的每个引擎编好组件，再副署整张表——连同发布者的签名，以及它加的编译产物（它只能加这些）。
 
 多一个文件、少一个、改了一个，都拒，并说是哪一个。`.cwasm` 读进来准备加载时，按签名里的 sha256 再比一次：反序列化的正是签过的。
-`harnix-app keygen / sign / verify / countersign`（§10）做这些。
+`harnix-pack keygen / sign / verify / countersign`（§10）做这些。
 
 ## 9. 商店与同意
 
@@ -550,18 +550,18 @@ app.onEnv((env) => (document.documentElement.dataset.theme = env.theme));
 
 ## 10. `harnix-app` 工具
 
-作者与商店用的命令行（`cargo build --release -p harnix-package --features compile --bin harnix-app`，带编译器）：
+作者与商店用的命令行（`cargo build --release -p harnix-package --features compile --bin harnix-pack`，带编译器）：
 
 | 命令 | 做什么 |
 |---|---|
-| `new <目录> --id <发布者.名字> [--title <t>]` | 起一个应用：清单、一个带一个工具 `hello` 的 `tools-app` 组件（`component/`，WIT 在 `component/wit/app.wit`）、README；`build` 层每次都把它编一遍 |
+| `new <目录> --id <发布者.名字> [--title <t>]` | 起一个应用：清单、一个带一个工具 `hello` 的 `tools-ext` 组件（`component/`，WIT 在 `component/wit/ext.wit`）、README；`build` 层每次都把它编一遍 |
 | `build <应用目录> [-o <目录>]` | 在 `component/` 里 `cargo build --release --target wasm32-wasip2`，再为这个引擎编译（基线 CPU）到 `build/`；打印 `.wasm`、`.cwasm` 与指纹 |
-| `pack <应用目录> [--wasm <组件>] [--build] [-o <out.hxapp>]` | 打包：清单、`ui/`、`agent/`、组件的两种形式；缺省 `<id>-<version>.hxapp` |
+| `pack <应用目录> [--wasm <组件>] [--build] [-o <out.hxext>]` | 打包：清单、`ui/`、`agent/`、组件的两种形式；缺省 `<id>-<version>.hxext` |
 | `keygen <钥文件>` | 生成 ed25519 钥：文件里是私钥（0600，不覆盖），打印公钥 hex |
 | `sign <包> --key <钥文件> [-o <out>]` | 以发布者签每一个文件 |
 | `verify <包> [--store-key <hex>]… [--trust <发布者>=<hex>]…` | 验，打印 id、版本与信任等级 |
 | `countersign <包> --key <商店钥> [--artifact <x.cwasm>]… [-o <out>]` | 商店用：查发布者的签名，加编译产物，副署 |
-| `index <商店目录> --key <商店钥> [--name <名字>] [--days <天数>]` | 商店用：从 `packages/*.hxapp` 写出 `index.json`，签好，`--days` 天后过期（缺省 14） |
+| `index <商店目录> --key <商店钥> [--name <名字>] [--days <天数>]` | 商店用：从 `packages/*.hxext` 写出 `index.json`，签好，`--days` 天后过期（缺省 14） |
 | `sign-index <index.json> --key <商店钥> [--days <天数> \| --expires <时间>]` | 商店用：改过目录（撤一个版本、提高 `min_version`）之后重签；没改也要在过期前重签再发 |
 | `fingerprint` | 打印这个引擎的指纹 |
 
@@ -571,10 +571,10 @@ app.onEnv((env) => (document.documentElement.dataset.theme = env.theme));
 
 | 测什么 | 怎么测 |
 |---|---|
-| 界面页面 | `@harnix/app-sdk/mock` 的 `createMockHost({ app, point, hub, methods, requests, … })`：页面 `connect({ port: host.port })`，脱离 Harnix 单测；`host.requests`、`host.refused`、`host.publish(…)`、`host.setEnv(…)` |
-| 组件 | 照 Rust 的单测写；`harnix-app build` 出产物 |
-| 整个应用对着真的产品 | LIVE：带 `apps` 编的二进制，profile 加 `[apps] enabled = true`、`dev = true`，`harnix.apps.installFile {path}` 装你的 `.hxapp`，再像任何客户端一样调它的方法、订它的主题、建会话让 Agent 用它的工具 |
-| Agent 用工具的那一轮 | 手做的录像：模型调 `app__<id>__<tool>`，见 [测试](testing.md) §6 |
+| 界面页面 | `@harnix/ext-sdk/mock` 的 `createMockHost({ app, point, hub, methods, requests, … })`：页面 `connect({ port: host.port })`，脱离 Harnix 单测；`host.requests`、`host.refused`、`host.publish(…)`、`host.setEnv(…)` |
+| 组件 | 照 Rust 的单测写；`harnix-pack build` 出产物 |
+| 整个应用对着真的产品 | LIVE：带 `apps` 编的二进制，profile 加 `[apps] enabled = true`、`dev = true`，`harnix.apps.installFile {path}` 装你的 `.hxext`，再像任何客户端一样调它的方法、订它的主题、建会话让 Agent 用它的工具 |
+| Agent 用工具的那一轮 | 手做的录像：模型调 `ext__<id>__<tool>`，见 [测试](testing.md) §6 |
 
 ```ts
 import { startHarnix, connect } from "@harnix/testkit";
@@ -585,7 +585,7 @@ const backend = await startHarnix({
   replay: true,
 });
 const api = await connect(backend);
-await api.call("harnix.apps.installFile", { path: "/abs/path/acme.notes-0.1.0.hxapp" });
+await api.call("harnix.apps.installFile", { path: "/abs/path/acme.notes-0.1.0.hxext" });
 await api.call("app.acme.notes.notes.add", { text: "hi" });
 ```
 
@@ -606,10 +606,10 @@ Harnix 自己怎么测插件 APP（宿主核心的回环、商店的 mock 钥、
 | 名字 | 现在 | 在哪 | 什么时候升 |
 |---|---|---|---|
 | 应用接口 | `1` | 清单的 `[app] harnix_api`；`harnix_package::HARNIX_API` | 破坏性的变化（改签名、删函数、新的必需导出）。不等就拒装 |
-| WIT 包 | `harnix:app@0.1.0` | `crates/wasm/wit/app.wit` | 只增函数时升补丁版本；老组件照样链接 |
-| 桥 | `harnix-ui-bridge@1` | `@harnix/app-sdk/protocol` 的 `PROTOCOL` | 协议有不兼容的变化 |
-| SDK | `0.1.0` | `@harnix/app-sdk` 的 `SDK_VERSION`，`hello` 时带给外壳 | |
-| 签名 / 目录格式 | `harnix-app-signatures@1` / `harnix-store-index@1` | `SIGNATURES` / `index.json` 的 `format` | |
+| WIT 包 | `harnix:ext@1.0.0` | `crates/wasm/wit/ext.wit` | 只增函数时升补丁版本；老组件照样链接 |
+| 桥 | `harnix-ui-bridge@2` | `@harnix/ext-sdk/protocol` 的 `PROTOCOL` | 协议有不兼容的变化 |
+| SDK | `0.1.0` | `@harnix/ext-sdk` 的 `SDK_VERSION`，`hello` 时带给外壳 | |
+| 签名 / 目录格式 | `harnix-ext-signatures@1` / `harnix-store-index@1` | `SIGNATURES` / `index.json` 的 `format` | |
 
 ## 14. 清单字段
 
@@ -627,17 +627,17 @@ Harnix 自己怎么测插件 APP（宿主核心的回环、商店的 mock 钥、
 | `[capabilities] fs` | [string] | `[]` | 以 `${data}` 或 `${project}` 开头 |
 | `[[component]]` | 表数组 | 无 | 至多一个 |
 | `… name` | string | 必填 | 小写字母、数字、`-`，至多 64 |
-| `… world` | string | 必填 | `harnix:app/tools-app@0.1.0` 或 `harnix:app/backend-app@0.1.0` |
+| `… world` | string | 必填 | `harnix:ext/tools-ext@1.0.0` 或 `harnix:ext/backend-ext@1.0.0` |
 | `… memory_mb` | int | 64 | 1–4096 |
 | `… timeout_ms` | int | 30000 | 100–600000 |
 | `[events] tools` | string | `own` | `own` 或 `all`；只在有组件时；`all` 进披露 |
-| `[backend] resident` | string | `always` | `always` 或 `on-demand`；不是缺省值时只有 backend-app 能写 |
+| `[backend] resident` | string | `always` | `always` 或 `on-demand`；不是缺省值时只有 backend-ext 能写 |
 | `[backend] idle_secs` | int | 600 | 60–86400 |
-| `[[method]] name` | string | 必填 | 点分，字母、数字、`_`、`-`，至多 128，唯一；只有 backend-app |
+| `[[method]] name` | string | 必填 | 点分，字母、数字、`_`、`-`，至多 128，唯一；只有 backend-ext |
 | `… subject` | string 或 [string] | `"device"` | `device`、`module`、`kernel` |
 | `… description` | string | 无 | |
 | `… params` | 表 | 无 | 一份 JSON Schema（写成 TOML） |
-| `[[topic]] name`、`description` | string | | 同方法名的规则；只有 backend-app |
+| `[[topic]] name`、`description` | string | | 同方法名的规则；只有 backend-ext |
 | `[[space]] id` | string | 必填 | 应用的 id 或 `<id>.<名字>`，唯一 |
 | `… scene`、`instance` | string | 无 | |
 | `[config]` | 表 | `{}` | 任意；profile 的 `[apps.config."<id>"]` 按顶层键覆盖 |
@@ -697,7 +697,7 @@ interface host {
 
 | `event` | 什么时候 | `payload-json` | 答 |
 |---|---|---|---|
-| `tool.before` | 会话的一次工具调用执行之前（模式 2：在产品的进程内实例里；spawn 的 daemon 里没有，§5） | `{tool, input, session_id, depth}`：`tool` 是会话里的名字（自己的是 `app__<id>__<工具>`）；`input` 是调用的参数；`depth` 是子 Agent 的层数（0 是会话自己） | `proceed` 照常；`block(理由)` 这次调用不执行，模型收到「refused by the application `<id>`: 理由」；`add-context(话)` 照常执行，话（至多 2000 字）附在结果后面，只对它自己的工具。钩子陷阱、超时都当 `proceed` |
+| `tool.before` | 会话的一次工具调用执行之前（模式 2：在产品的进程内实例里；spawn 的 daemon 里没有，§5） | `{tool, input, session_id, depth}`：`tool` 是会话里的名字（自己的是 `ext__<id>__<工具>`）；`input` 是调用的参数；`depth` 是子 Agent 的层数（0 是会话自己） | `proceed` 照常；`block(理由)` 这次调用不执行，模型收到「refused by the application `<id>`: 理由」；`add-context(话)` 照常执行，话（至多 2000 字）附在结果后面，只对它自己的工具。钩子陷阱、超时都当 `proceed` |
 
 `[events] tools = "own"`（缺省）只给它自己工具的调用；`"all"` 给每个会话的每一次工具调用，是一项要进披露的能力（§3.3、§9）。今天只有这一个事件；
 以后加的事件名照样列在这里，所以组件对不认识的事件答 `proceed`。
@@ -751,7 +751,7 @@ interface host {
 | `world` | `tools` 或 `backend` |
 | `calls` | `{calls, errors, methods: [{name, calls, errors}], hub_calls, published, dropped: {publishes, topic_values, progress}, recent_errors: [{method, code, message, at_ms}], refused: [{method, reason, at_ms}]}`，两个列表新的在前，各留 20；`dropped` 是队列满了丢掉的（每条队列至多 256） |
 | `health` | `app`、`world`、`state`（`running` / `stopped` / `disabled` 加 `reason`）、`calls`、`faults`、`timeouts`、`consecutive_faults`（哪个工具眼下连续出错最多的次数）、`tools_aside`（被放在一旁的工具 → 为什么）、`rebuilds`、`recycles`、`storage_recycles`、`queue_timeouts`、`dropped_deliveries`、`last_error`、`memory_bytes`、`memory_peak_bytes`、`memory_limit_bytes`、`storage_bytes`、`storage_files_bytes`、`storage_limit_bytes`、`subscriptions`、`timers`、`hibernating`、`wakes` |
-| `tools` | 会话里的名字（`app__…`）、组件里的名字、说明 |
+| `tools` | 会话里的名字（`ext__…`）、组件里的名字、说明 |
 | `ui`、`frames`、`surfaces` | 进页面的模块（`/apps/<id>/ui/<模块>`）、是否进 iframe、面（`<点>:<id>`） |
 | `ui_rev` | 开发模式下 `ui/` 的版本，变了外壳重新加载 iframe |
 | `mcp` | `/apps/<id>/mcp` |
@@ -762,7 +762,7 @@ interface host {
 | 主题 | 参数 | 值 | 什么时候推 |
 |---|---|---|---|
 | `harnix.apps` | — | 同 `harnix.apps.list` | 后端每秒看一次运行期的代际号（宿主每次启停、调用结束、投递、休眠、计数都让它动），动了才重读各应用的状态，没动也至多 10 秒重读一次（虚拟机自己变的，比如内存）；清单的描述按（id, 版本）缓存，`data_bytes` 用虚拟机量过的 `storage_bytes`，不再每秒走盘。变了才推；设备与模块可订 |
-| `harnix.apps.progress` | — | `{app, tool, session_id, tool_use_id, text}`（`tool` 是 `app__…` 全名） | 进程内会话的工具调用每次 `host.progress`；只在带运行时的构建里 |
+| `harnix.apps.progress` | — | `{app, tool, session_id, tool_use_id, text}`（`tool` 是 `ext__…` 全名） | 进程内会话的工具调用每次 `host.progress`；只在带运行时的构建里 |
 | `harnix.spaces` | — | 同 `harnix.spaces.list` | 插件 APP 加减 space 时；只在 `[apps] enabled` 时有 |
 | `app.<id>.<主题>` | 无 | 后端 `host.publish` 的值 | 设备与模块可订 |
 
@@ -801,15 +801,15 @@ ACME_TOKEN = "…"
 带 `apps` 的构建、`[apps] enabled = true` 时，受信发布者的钥写错了进程起不来，并说是哪个发布者（不然一个笔误就是悄悄地谁也不信）。缺省商店是 `https://store.harnix.dev/index.json`（占位），内置的商店公钥是
 `harnix_package::store::STORE_KEYS`。cargo feature `apps` 不开时，`[apps] enabled = true` 也只有记录与开关（§16）。
 
-## 20. 桥：`harnix-ui-bridge@1` 与 `HarnixApp`
+## 20. 桥：`harnix-ui-bridge@2` 与 `HarnixExt`
 
 消息三种：`{kind: "request", id, method, params?}`、`{kind: "response", id, result? | error?}`、`{kind: "event", name, data?}`。
 
-**页面请外壳的**（`HarnixApp` 上的方法 → 桥的请求）：
+**页面请外壳的**（`HarnixExt` 上的方法 → 桥的请求）：
 
 | 方法 | 请求 | 答 |
 |---|---|---|
-| `connect(options?)` | `hello {sdk}` | `HarnixApp`；`options`：`port`（测试给 mock 的）、`timeoutMs`（缺省 10000）、`autoHeight`、`keys`（缺省 true） |
+| `connect(options?)` | `hello {sdk}` | `HarnixExt`；`options`：`port`（测试给 mock 的）、`timeoutMs`（缺省 10000）、`autoHeight`、`keys`（缺省 true） |
 | `surface`、`env` | — | 它是哪个面：`{app, point, id, space, params, autoHeight, links}`；外观：`{theme, tokens, locale, narrow, visible, modal}` |
 | `onEnv(fn)`、`onParams(fn)` | — | 外观变了；模态框、二级栏、详情面板拿到新的参数 |
 | `call(method, params?)` | `call` | 方法的结果 |
@@ -833,7 +833,7 @@ ACME_TOKEN = "…"
 **页面发给外壳的事件**：`resize {height}`、`key {key, code, meta, ctrl, shift, alt}`、`close {result?}`、`error {message}`。
 **外壳发给页面的**：请求 `ping`（心跳，答 `pong`）；事件 `env`、`topic {sub, value}`、`topic.end {sub, reason}`、`session {current}`、`params {params}`。
 
-**mock 宿主**（`@harnix/app-sdk/mock`）：`createMockHost({app, point, id, space, params, autoHeight, links, hub, env, current, methods, requests})` →
+**mock 宿主**（`@harnix/ext-sdk/mock`）：`createMockHost({app, point, id, space, params, autoHeight, links, hub, env, current, methods, requests})` →
 `{port, requests, events, refused, env, publish(topic, value), setEnv(change), setCurrent(ref), setParams(params), ping(), next(name), close()}`。
 
 ## 21. 错误
@@ -869,8 +869,8 @@ ACME_TOKEN = "…"
 | 应用 id | `<发布者>.<名字>`，例如 `acme.notes` |
 | 方法、主题 | `app.<id>.<名字>`，例如 `app.acme.notes.notes.list` |
 | 后端 space、界面 space | `<id>` 或 `<id>.<名字>` |
-| 会话里的工具 | `app__<id 的 . 换成 _>__<工具>`，例如 `app__acme_notes__search` |
-| spawn 的 daemon 里的工具 | `mcp__app-<id 的 . 换成 _>__<工具>` |
+| 会话里的工具 | `ext__<id 的 . 换成 _>__<工具>`，例如 `ext__acme_notes__search` |
+| spawn 的 daemon 里的工具 | `mcp__ext-<id 的 . 换成 _>__<工具>` |
 | MCP 端点 | `POST /apps/<id>/mcp`（只答本机的对端；`Authorization: Bearer <daemon 的凭据>`；`initialize`、`ping`、`tools/list`、`tools/call`） |
 | 界面文件 | `/apps/<id>/ui/<路径>` |
 | 详情项的种类 | `<id>.<名字>` |
@@ -888,4 +888,4 @@ ACME_TOKEN = "…"
 ```
 
 `data/` 与 `kv/` 都算 `storage_mb`；卸载时整个目录删掉。引擎指纹另在 `system.process` 的 `apps_engine`、`harnix.apps.list` 的
-`runtime.fingerprint` 里，`harnix-app fingerprint` 打印它。
+`runtime.fingerprint` 里，`harnix-pack fingerprint` 打印它。

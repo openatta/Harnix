@@ -12,7 +12,7 @@
 //!
 //! - `harnix.apps.list` — every record (and the ones that do not read, with why), what the runtime
 //!   says of each, and every application registered with the host now, by whichever module.
-//! - `harnix.apps.installFile {path}` — install a local `.hxapp`. A signed one (by the store, or by
+//! - `harnix.apps.installFile {path}` — install a local `.hxext`. A signed one (by the store, or by
 //!   a publisher the profile trusts) is verified and installed; an unsigned one only with
 //!   `[apps] dev = true`, the developer's door and nobody else's. All or nothing: a step that fails
 //!   undoes the ones before it.

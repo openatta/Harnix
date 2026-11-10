@@ -11,7 +11,7 @@
 import type { Page } from "@playwright/test";
 import { type Backend, connect, expect, test } from "@harnix/testkit";
 
-import { SHOWCASE_ID, showcasePackage, startApps } from "../api/apps-host";
+import { SHOWCASE_ID, showcasePackage, startApps } from "../api/packages-host";
 import { open, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:apps", "@layer:ui"] };

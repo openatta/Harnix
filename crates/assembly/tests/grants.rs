@@ -47,7 +47,7 @@ fn system_caps() -> [Capability; 4] {
 }
 
 fn id(s: &str) -> ExtId {
-    ExtId::parse(s).unwrap()
+    ExtId::native(s).or_else(|_| ExtId::package(s)).unwrap()
 }
 
 /// A debugger an application writes itself: the system space's powers, as optional
@@ -463,7 +463,7 @@ mod names {
         let r = registered(true, first_party("").with(Asks("acme", vec![], vec![]), [])).unwrap();
         // Under a native id, by whole segments: refused, saying whose it is.
         assert_eq!(taken_by(package(&r, "acme.notes")).as_deref(), Some("acme"));
-        assert_eq!(taken_by(package(&r, "acme")).as_deref(), Some("acme"));
+        assert!(package(&r, "acme").is_err(), "one segment is a native id, not a package's");
         // A built-in's id is a native id like any other.
         assert_eq!(taken_by(package(&r, "settings.extra")).as_deref(), Some("settings"));
         // Only by whole segments.
@@ -474,7 +474,7 @@ mod names {
     fn a_packages_first_segment_is_not_a_reserved_word() {
         let r = registered(false, Modules::default()).unwrap();
         for word in harnix_contract::s1::RESERVED {
-            assert!(taken_by(package(&r, &format!("{word}.notes"))).is_some(), "{word}");
+            assert!(package(&r, &format!("{word}.notes")).is_err(), "{word}");
         }
         assert!(package(&r, "example.showcase").is_ok());
     }
@@ -483,10 +483,11 @@ mod names {
     fn packages_do_not_overlap_each_other_and_a_name_is_the_longest_ids() {
         let r = registered(false, Modules::default()).unwrap();
         package(&r, "acme.notes").unwrap();
-        assert_eq!(taken_by(package(&r, "acme.notes.pro")).as_deref(), Some("acme.notes"));
+        assert_eq!(taken_by(package(&r, "acme.notes")).as_deref(), Some("acme.notes"));
+        assert!(package(&r, "acme.notes.pro").is_err(), "a package's id has two segments");
         assert!(package(&r, "acme.todo").is_ok(), "a sibling shares no names");
         // Withdrawn, its id is free again.
         r.router.withdraw(&Subject::Kernel, &harnix_kernel::Owner::extension(id("acme.notes")), "a test");
-        assert!(package(&r, "acme.notes.pro").is_ok());
+        assert!(package(&r, "acme.notes").is_ok());
     }
 }

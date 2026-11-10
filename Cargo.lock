@@ -1768,6 +1768,7 @@ name = "harnix-package"
 version = "0.4.2-2026110901"
 dependencies = [
  "anyhow",
+ "async-trait",
  "harnix-contract",
  "harnix-wasm",
  "hex",

@@ -73,7 +73,7 @@ fn main() -> anyhow::Result<()> {
         // The mock store's key, instead of the one built in: only a test application says this.
         .store_keys([MOCK_STORE_KEY.trim()]);
     // An on-demand application's backend idles this long here, so a suite sees it hibernate
-    // (`tests/live/api/apps-idle.spec.ts`); a manifest's `idle_secs` is never under a minute.
+    // (`tests/live/api/packages-idle.spec.ts`); a manifest's `idle_secs` is never under a minute.
     let builder = match std::env::var("HARNIX_TESTAPP_APP_IDLE_MS").ok().and_then(|ms| ms.parse().ok()) {
         Some(ms) => builder.app_idle(Duration::from_millis(ms)),
         None => builder,

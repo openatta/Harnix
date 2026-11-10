@@ -6,7 +6,7 @@
 //! one disabled now is not (a session already built keeps what it was built with until it is
 //! rebuilt). Per application:
 //!
-//! - each tool the host offered for it, as `app__<id>__<tool>`. A call runs in an instance of its
+//! - each tool the host offered for it, as `ext__<id>__<tool>`. A call runs in an instance of its
 //!   own (`Control::call_tool`), with the calling session's project as its read-only `/project`
 //!   when the manifest asks for `${project}`; `host.progress` goes to the tool's progress and to
 //!   the host's `harnix.apps.progress` topic, and cancelling the turn stops it
@@ -283,14 +283,14 @@ mod tests {
     #[test]
     fn a_note_goes_on_its_own_tools_results_only_and_only_so_long() {
         assert_eq!(
-            note_for("acme.notes", "app__acme_notes__search", "seen").as_deref(),
+            note_for("acme.notes", "ext__acme_notes__search", "seen").as_deref(),
             Some("\n\n[acme.notes] seen")
         );
-        for tool in ["Bash", "app__acme_other__search", "app__acme_notesx__search"] {
+        for tool in ["Bash", "ext__acme_other__search", "ext__acme_notesx__search"] {
             assert_eq!(note_for("acme.notes", tool, "seen"), None, "{tool}");
         }
         let long = "x".repeat(MAX_NOTE + 10);
-        let note = note_for("acme.notes", "app__acme_notes__search", &long).unwrap();
+        let note = note_for("acme.notes", "ext__acme_notes__search", &long).unwrap();
         assert_eq!(note.chars().filter(|c| *c == 'x').count(), MAX_NOTE);
         assert!(note.ends_with('…'));
     }

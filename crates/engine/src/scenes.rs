@@ -119,14 +119,14 @@ mod tests {
 
     #[test]
     fn a_listed_scene_admits_the_hosts_tools_and_nothing_else_changes() {
-        let scenes = host_scenes(&[], &["app__*".into()], &"main".into()).unwrap();
+        let scenes = host_scenes(&[], &["ext__*".into()], &"main".into()).unwrap();
         let harnix = scenes.iter().find(|s| s.id() == ATTENDED_SCENE).unwrap();
         let plain = build(&attended(), &[], &"main".into()).unwrap();
-        assert!(!plain.permits_tool("app__acme_notes__search"));
-        assert!(harnix.permits_tool("app__acme_notes__search"));
+        assert!(!plain.permits_tool("ext__acme_notes__search"));
+        assert!(harnix.permits_tool("ext__acme_notes__search"));
         assert!(harnix.permits_tool("Bash") && harnix.permits_tool("mcp__github__x"));
         assert!(!harnix.permits_tool("plugin__other__x"));
-        assert!(harnix.tools().contains(&"app__*".to_string()));
+        assert!(harnix.tools().contains(&"ext__*".to_string()));
         assert_eq!((harnix.id(), harnix.interactive()), (plain.id(), plain.interactive()));
         let mut ids: Vec<&str> = scenes.iter().map(|s| s.id()).collect();
         ids.sort();

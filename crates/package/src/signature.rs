@@ -10,9 +10,9 @@
 //!
 //! ```json
 //! {
-//!   "format": "harnix-app-signatures@1",
-//!   "files": {"harnix-app.toml": "<sha256>", "wasm/tools.<engine>.cwasm": "<sha256>", …},
-//!   "publisher": {"id": "acme", "key": "<hex>", "files": ["harnix-app.toml", …], "signature": "<hex>"},
+//!   "format": "harnix-ext-signatures@1",
+//!   "files": {"harnix-ext.toml": "<sha256>", "wasm/tools.<engine>.cwasm": "<sha256>", …},
+//!   "publisher": {"id": "acme", "key": "<hex>", "files": ["harnix-ext.toml", …], "signature": "<hex>"},
 //!   "store": {"key": "<hex>", "signature": "<hex>"}
 //! }
 //! ```
@@ -35,7 +35,7 @@ use sha2::{Digest, Sha256};
 
 /// The file, at the package's root. Not in its own list.
 pub const FILE: &str = "SIGNATURES";
-pub const FORMAT: &str = "harnix-app-signatures@1";
+pub const FORMAT: &str = "harnix-ext-signatures@1";
 
 /// How far a package is trusted, as its install record keeps it: what runs it without dev mode,
 /// and (later) whether its interface runs in the page or in an isolated frame.
@@ -515,7 +515,7 @@ mod tests {
 
     fn files(cwasm: bool) -> BTreeMap<String, String> {
         let mut files = BTreeMap::from([
-            ("harnix-app.toml".to_string(), sha256(b"manifest")),
+            ("harnix-ext.toml".to_string(), sha256(b"manifest")),
             ("ui/notes.js".to_string(), sha256(b"module")),
             ("wasm/tools.wasm".to_string(), sha256(b"portable")),
         ]);
@@ -617,7 +617,7 @@ mod tests {
     #[test]
     fn a_name_with_a_line_break_cannot_be_signed_into_two() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("p.hxapp");
+        let path = dir.path().join("p.hxext");
         let mut zip = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
         let forged = format!("ui/a.js\n{}  ui/b.js", sha256(b"b"));
         zip.start_file(forged.as_str(), zip::write::SimpleFileOptions::default())

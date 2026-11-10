@@ -1,5 +1,5 @@
 /**
- * The shell's end of one frame's bridge (`harnix-ui-bridge@1`, `@harnix/app-sdk/protocol`).
+ * The shell's end of one frame's bridge (`harnix-ui-bridge@2`, `@harnix/ext-sdk/protocol`).
  *
  * The frame is handed a `MessageChannel` port once, when its page first loads, and that port is
  * the only thing the shell listens to for it: no window message is ever read. A second load is
@@ -12,7 +12,7 @@
  * the frame shares the page's thread, a page that hangs hangs the shell with it.
  *
  * Everything the frame asks is done by the shell, and only what its application's manifest lets
- * it ask for: methods and topics of its own (`app.<id>.*`) and in its `[interface] hub`, sessions
+ * it ask for: methods and topics of its own (`app.<id>.*`) and in its `[interface] calls`, sessions
  * of its own space, items of its own kinds, its own modals and settings sections. Every call and
  * every subscription goes out carrying the application's id (`"$ext"`): the server takes what the
  * page may do, what the interface lists and the row's scope, and narrows it to the application's
@@ -40,7 +40,7 @@ import {
   type SessionRef,
   type ShellEvents,
   type Welcome,
-} from "@harnix/app-sdk/protocol";
+} from "@harnix/ext-sdk/protocol";
 
 import type { App } from "../app.ts";
 import { openSettings } from "../settings.tsx";
@@ -209,7 +209,7 @@ export class FrameBridge {
   }
 
   /**
-   * A call or subscription through a name of `[interface] hub`, as the page draws it: it claims
+   * A call or subscription through a name of `[interface] calls`, as the page draws it: it claims
    * one of the application's own spaces (its first, when it names none) — what the server narrows
    * by — and a session it names must be in one of them. The server decides; this keeps a frame
    * from reaching what the page would not show it.
@@ -259,7 +259,7 @@ export class FrameBridge {
         this.host.ready();
         return {
           surface: {
-            app: iface.id,
+            ext: iface.id,
             point: decl.point,
             id: decl.id,
             space: decl.space,
@@ -273,7 +273,7 @@ export class FrameBridge {
       }
       case "call": {
         const name = text("method", 200);
-        if (!admits(iface.id, iface.hub, name, false)) this.refuse(name, t("surface.why.notListed"));
+        if (!admits(iface.id, iface.calls, name, false)) this.refuse(name, t("surface.why.notListed"));
         // Tagged with the application: the server narrows the call to what its interface may do
         // too, whatever this side let through. Its own names are its own, wherever.
         const own = name.startsWith(`app.${iface.id}.`);
@@ -282,7 +282,7 @@ export class FrameBridge {
       }
       case "subscribe": {
         const topic = text("topic", 200);
-        if (!admits(iface.id, iface.hub, topic, true)) this.refuse(topic, t("surface.why.notListed"));
+        if (!admits(iface.id, iface.calls, topic, true)) this.refuse(topic, t("surface.why.notListed"));
         // A topic's params are its key: nothing is added to them, only checked.
         const params = await this.narrow(topic, p.params ?? {}, false);
         if (this.disposed) return null;

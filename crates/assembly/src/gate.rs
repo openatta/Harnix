@@ -267,7 +267,7 @@ mod tests {
     }
 
     /// What a runtime application's subject reaches, on the kernel's table: its own names, what
-    /// its `hub` lists and the table lets through, and nothing else. The table is installed as
+    /// its `calls` lists and the table lets through, and nothing else. The table is installed as
     /// `Apps::register` does it, and the answer is `harnix.reachable` asked as the application.
     /// The device's and a compiled-in module's reach are read from a running process by
     /// `tests/live/api/method-table.spec.ts`, into the same file.
@@ -275,12 +275,12 @@ mod tests {
     async fn a_runtime_applications_reach_is_the_snapshots() {
         let grants = Arc::new(harnix_kernel::GrantTable::new());
         let router = Router::new(crate::kernel_rows::table(&Behind::default()), grants.clone(), Arc::new(Audit::default()));
-        let id = "snapshot-app";
+        let id = "acme.snapshot";
         let hub: Vec<String> = ["harnix.sessions.list", "harnix.session.send", "harnix.session.interrupt", "topic:harnix.sessions.status", "engine.plugin.install"]
             .iter()
             .map(|s| s.to_string())
             .collect();
-        let ext = harnix_contract::ExtId::parse(id).unwrap();
+        let ext = harnix_contract::ExtId::package(id).unwrap();
         grants.set(ext, [], Trust::consent(hub, PackageCarrier::Wasm));
         struct Nothing;
         #[async_trait::async_trait]
@@ -297,7 +297,7 @@ mod tests {
         ];
         router.install_app(&Subject::Kernel, id, rows).unwrap();
 
-        let me = Subject::extension(harnix_contract::ExtId::parse(id).unwrap());
+        let me = Subject::extension(harnix_contract::ExtId::package(id).unwrap());
         let reach = router.call(CallContext::root(me, None), harnix_router::REACHABLE, json!({})).await.unwrap();
         let mut methods: Vec<String> = serde_json::from_value(reach["methods"].clone()).unwrap();
         let mut topics: Vec<String> = serde_json::from_value(reach["topics"].clone()).unwrap();

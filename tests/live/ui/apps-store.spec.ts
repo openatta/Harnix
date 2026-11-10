@@ -1,5 +1,5 @@
 /**
- * Settings → Applications in the browser, against the mock store (`../api/apps-store.ts`): the
+ * Settings → Applications in the browser, against the mock store (`../api/packages-store.ts`): the
  * catalog offers the showcase; "Install" shows what it asks for — a modal over the settings, every
  * capability a sentence — and installs nothing until the disclosure's own button is pressed; installed, it is listed as countersigned by the store with
  * its switches; switched off and on; updated, with only what the new version adds shown and asked
@@ -12,11 +12,11 @@ import { rmSync } from "node:fs";
 
 import { type Backend, connect, expect, test, topology } from "@harnix/testkit";
 
-import { SHOWCASE_ID } from "../api/apps-host";
-import { type MockStore, appsTestApp, mockStore, startStore } from "../api/apps-store";
+import { SHOWCASE_ID } from "../api/packages-host";
+import { type MockStore, appsTestApp, mockStore, startStore } from "../api/packages-store";
 import { open, openSettings, settingsSection, watchConsole } from "./page";
 
-const TAGS = { tag: ["@feature:apps-store", "@layer:ui"] };
+const TAGS = { tag: ["@feature:packages-store", "@layer:ui"] };
 
 let store: MockStore;
 let backend: Backend;
@@ -67,7 +67,7 @@ test("the store's application is installed through its disclosure, and only thro
   await expect(disclosure).toBeFocused();
   await expect(disclosure).toContainText(/Showcase 0\.2\.0/);
   await expect(disclosure.locator('[data-capability="net"]').first()).toContainText(/Reach the host|访问主机/);
-  await expect(disclosure.locator('[data-capability="hub"]', { hasText: "sessions.status" })).toContainText(/Watch the topic|订阅主题/);
+  await expect(disclosure.locator('[data-capability="calls"]', { hasText: "sessions.status" })).toContainText(/Watch the topic|订阅主题/);
   await expect(disclosure.locator('[data-capability="fs"]')).toContainText(/project, without changing it|项目（只读）/);
   // Where its secret comes from, and what its pages can do, said plainly.
   await expect(disclosure.locator('[data-capability="env"]').first()).toContainText(/secret your profile gives it|profile 给它的秘密/);

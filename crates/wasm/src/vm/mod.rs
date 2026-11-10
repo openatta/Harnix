@@ -47,7 +47,7 @@ mod types;
 pub use bindings::{MAX_SUBSCRIPTIONS, MAX_TIMERS};
 pub use types::{AppError, CallFailure, HookDecision, ToolDef, ToolOutput, World};
 
-use crate::bindings::exports::harnix::app::{backend, events, tools};
+use crate::bindings::exports::harnix::ext::{backend, events, tools};
 use crate::engine::{wasm_err, AppComponent, WasmEngine};
 use crate::health::{Counters, HealthSnapshot, VmState, FAULT_LIMIT};
 use crate::spec::{AppSpec, Resolved};
@@ -225,6 +225,49 @@ impl AppVm {
         services: Services,
     ) -> anyhow::Result<AppVm> {
         let app = spec.id.clone();
+        let (inner, queue) = Self::link(engine, component, spec, services).await?;
+        if inner.world == World::Backend {
+            let resident = inner
+                .instantiate_resident()
+                .await
+                .map_err(|f| anyhow!("starting the backend of `{app}`: {f}"))?;
+            *inner.resident.lock().await = Some(resident);
+            tokio::spawn(drain(Arc::downgrade(&inner), queue));
+        }
+        Ok(AppVm { inner })
+    }
+
+    /// The tools `component` lists, without starting it: linked with nothing granted and nothing to
+    /// call, so a backend's `init` does not run. What the packing tool checks the manifest's
+    /// `[[tool]]` against.
+    pub async fn listed_tools(
+        engine: &WasmEngine,
+        component: &AppComponent,
+        services: Services,
+    ) -> anyhow::Result<Vec<ToolDef>> {
+        let spec = AppSpec {
+            id: "example.listing".into(),
+            capabilities: Default::default(),
+            limits: crate::Limits::default(),
+            dirs: Default::default(),
+            config: serde_json::Value::Null,
+        };
+        let (inner, _) = Self::link(engine, component, spec, services).await?;
+        AppVm { inner }
+            .list_tools(&CancellationToken::new())
+            .await
+            .map_err(|e| anyhow!("listing the component's tools: {e}"))
+    }
+
+    /// Link the component and build what a start and a listing share, short of the backend's
+    /// resident instance.
+    async fn link(
+        engine: &WasmEngine,
+        component: &AppComponent,
+        spec: AppSpec,
+        services: Services,
+    ) -> anyhow::Result<(Arc<Inner>, mpsc::Receiver<Delivery>)> {
+        let app = spec.id.clone();
         let caps = Resolved::resolve(&spec.capabilities, &spec.dirs)
             .with_context(|| format!("resolving the capabilities of `{app}`"))?;
 
@@ -232,9 +275,9 @@ impl AppVm {
         wasmtime_wasi::p2::add_to_linker_async(&mut linker)
             .map_err(wasm_err)
             .context("adding WASI to the linker")?;
-        crate::bindings::BackendAppEvents::add_to_linker::<_, HasSelf<AppState>>(&mut linker, |s| s)
+        crate::bindings::BackendExtEvents::add_to_linker::<_, HasSelf<AppState>>(&mut linker, |s| s)
             .map_err(wasm_err)
-            .context("adding the harnix:app host interface to the linker")?;
+            .context("adding the harnix:ext host interface to the linker")?;
         let pre = linker
             .instantiate_pre(&component.component)
             .map_err(wasm_err)
@@ -245,7 +288,7 @@ impl AppVm {
             World::Backend => Some(
                 backend::GuestIndices::new(&pre)
                     .map_err(wasm_err)
-                    .with_context(|| format!("`{app}` does not match harnix:app/backend"))?,
+                    .with_context(|| format!("`{app}` does not match harnix:ext/backend"))?,
             ),
             World::Tools => None,
         };
@@ -287,15 +330,7 @@ impl AppVm {
             resident: tokio::sync::Mutex::new(None),
             hibernating: std::sync::atomic::AtomicBool::new(false),
         });
-        if world == World::Backend {
-            let resident = inner
-                .instantiate_resident()
-                .await
-                .map_err(|f| anyhow!("starting the backend of `{app}`: {f}"))?;
-            *inner.resident.lock().await = Some(resident);
-            tokio::spawn(drain(Arc::downgrade(&inner), queue));
-        }
-        Ok(AppVm { inner })
+        Ok((inner, queue))
     }
 
     pub fn app(&self) -> &str {
@@ -607,7 +642,7 @@ impl Inner {
     fn export<'a, T>(&self, idx: &'a Option<T>, interface: &str) -> Result<&'a T, CallFailure> {
         idx.as_ref().ok_or_else(|| {
             CallFailure::Unavailable(format!(
-                "`{}` does not export harnix:app/{interface}",
+                "`{}` does not export harnix:ext/{interface}",
                 self.shared.app
             ))
         })

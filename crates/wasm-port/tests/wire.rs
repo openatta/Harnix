@@ -250,7 +250,7 @@ async fn every_port_method_crosses_the_wire_its_own_way() {
             }],
             topics: vec!["notes".into()],
             spaces: vec![SpaceDecl::new(EXT)],
-            hub: vec![],
+            calls: vec![],
         })
         .await
         .unwrap();

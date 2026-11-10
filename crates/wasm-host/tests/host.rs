@@ -20,7 +20,7 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
     // In order: the agent side put in place, switched on with it, then its names, then its tools.
     let said = lock(&rig.platform.said).clone();
     let at = |what: &str| said.iter().position(|s| s.starts_with(what)).unwrap_or_else(|| panic!("{what}: {said:?}"));
-    assert!(at("install_agent example-showcase system") < at("switch_agent example-showcase on"));
+    assert!(at("install_agent example-showcase main") < at("switch_agent example-showcase on"));
     assert!(at("switch_agent") < at("register example.showcase"));
     assert!(at("register") < at("subscribe harnix.sessions.status"), "init ran after it was registered");
     assert!(at("subscribe") < at("expose_tools 8"));
@@ -32,7 +32,7 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
     let status = rig.status().await;
     assert_eq!((status["state"].clone(), status["world"].clone()), (json!("running"), json!("backend")));
     assert_eq!(status["health"]["subscriptions"], json!(1));
-    assert_eq!(status["tools"][0]["name"], json!("app__example_showcase__echo"));
+    assert_eq!(status["tools"][0]["name"], json!("ext__example_showcase__echo"));
 
     // Methods: the schema first, then the backend; its topic published in order; who called it.
     assert_eq!(rig.platform.device_call("notes.add", json!({"text": "one"})).await.unwrap(), json!({"count": 1}));
@@ -106,7 +106,7 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
         payload: json!({"tool": tool, "input": {}, "session_id": "s1", "depth": 0}),
         call_id: format!("h-{tool}"),
     };
-    assert!(matches!(rig.control.hook(hook("app__example_showcase__vetoed")).await.unwrap(), HookReply::Block(_)));
+    assert!(matches!(rig.control.hook(hook("ext__example_showcase__vetoed")).await.unwrap(), HookReply::Block(_)));
     // Another's tool is not its to see (`[events] tools = "own"`): no instance is even started.
     let calls = rig.status().await["health"]["calls"].clone();
     assert_eq!(rig.control.hook(hook("Bash")).await.unwrap(), HookReply::Proceed);
@@ -126,7 +126,7 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
     // Taken back.
     let taken = rig.control.unplace(Unplace { app: ID.into(), parts }).await.unwrap();
     assert_eq!(taken["agent"]["package"], json!("example-showcase"));
-    assert_eq!(rig.platform.said("uninstall_agent"), ["uninstall_agent example-showcase system"]);
+    assert_eq!(rig.platform.said("uninstall_agent"), ["uninstall_agent example-showcase main"]);
 }
 
 /// A backend whose `host.call` comes back into its own method — routed by the product through
@@ -170,7 +170,7 @@ async fn a_call_routed_back_into_its_own_waiting_backend_is_refused_across_the_w
         .call_method(MethodCall {
             app: ID.into(),
             method: "state".into(),
-            caller: Subject::extension(harnix_contract::ExtId::parse("acme.other").unwrap()),
+            caller: Subject::extension(harnix_contract::ExtId::package("acme.other").unwrap()),
             params: json!({}),
             chain: vec![ID.into(), "acme.other".into()],
         })
@@ -197,7 +197,7 @@ async fn what_does_not_start_is_undone_and_said() {
     rig.control.forget(ID.into()).await.unwrap();
     assert_eq!(rig.status().await["state"], json!("stopped"));
 
-    // A tool row for a tool the component does not have: started, found out, and taken back.
+    // A tool row for a tool the manifest does not declare: started, found out, and taken back.
     let rig = Rig::new(|_| {});
     let version = rig.unpack(|m| m.replace("tool = \"count\"", "tool = \"counted\""));
     let parts = json!({"agent": {"package": "example-showcase", "version": "0.1.0", "instances": ["main"]}});
@@ -206,14 +206,32 @@ async fn what_does_not_start_is_undone_and_said() {
         .start(Start { app: ID.into(), version, app_dir: rig.app_dir(), parts })
         .await
         .unwrap_err();
-    assert!(err.message.contains("does not list as a tool"), "{}", err.message);
+    assert!(err.message.contains("does not declare as a `[[tool]]`"), "{}", err.message);
     assert_eq!(rig.platform.said("withdraw"), ["withdraw example.showcase"]);
     assert_eq!(rig.platform.said("switch_agent example-showcase off").len(), 1);
     assert!(rig.platform.said("expose_tools").is_empty());
 
+    // A manifest that declares a tool the component does not list, or describes one differently:
+    // the manifest is what was consented to, so the component is the one refused.
+    for edit in [
+        |m: String| m.replace("name = \"count\"", "name = \"counter\""),
+        |m: String| m.replace("Say `text` back, exactly", "Say something else back"),
+    ] {
+        let rig = Rig::new(|_| {});
+        let version = rig.unpack(edit);
+        let parts = json!({"agent": {"package": "example-showcase", "version": "0.1.0", "instances": ["main"]}});
+        let err = rig
+            .control
+            .start(Start { app: ID.into(), version, app_dir: rig.app_dir(), parts })
+            .await
+            .unwrap_err();
+        assert!(err.message.contains("does not provide the tools its manifest declares"), "{}", err.message);
+        assert!(rig.platform.said("expose_tools").is_empty());
+    }
+
     // An instance that is not there: refused by name before anything reaches the agent engine.
     let rig = Rig::new(|_| {});
-    let version = rig.unpack(|m| m.replace("install_into = [\"system\"]", "install_into = [\"nowhere\"]"));
+    let version = rig.unpack(|m| m.replace("install_into = [\"main\"]", "install_into = [\"nowhere\"]"));
     let err = rig
         .control
         .place(Place { app: ID.into(), app_dir: rig.app_dir(), version })
@@ -236,12 +254,12 @@ fn blocked_bash(o: &mut HostOptions) {
 }
 
 /// Another application's tool, by the name a session knows it by.
-const OTHERS_TOOL: &str = "app__example_other__echo";
+const OTHERS_TOOL: &str = "ext__example_other__echo";
 
 fn blocked_others_tool(o: &mut HostOptions) {
     o.config.insert(
         ID.into(),
-        toml::Value::Table(toml::toml! { blocked_tool = "app__example_other__echo" }),
+        toml::Value::Table(toml::toml! { blocked_tool = "ext__example_other__echo" }),
     );
 }
 

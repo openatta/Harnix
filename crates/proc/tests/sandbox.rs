@@ -61,7 +61,7 @@ impl Layout {
         // This extension: its consent record, its package, its run directory.
         let ext = state.join("ext").join(ID);
         write(&ext.join("install.json"), r#"{"calls": []}"#);
-        write(&ext.join("0.1.0/harnix-app.toml"), "[app]\n");
+        write(&ext.join("0.1.0/harnix-ext.toml"), "[app]\n");
         write(&ext.join("0.1.0/ui/index.html"), "<p>");
         for dir in ["data", "kv", "engine", "work", "home", "tmp"] {
             std::fs::create_dir_all(ext.join("run").join(dir)).unwrap();

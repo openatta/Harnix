@@ -46,15 +46,11 @@ pub(crate) fn is_surface(name: &str) -> bool {
     topic_of(name).is_some() || route_of(name).is_some()
 }
 
-/// Whether an id can name a runtime application: one or more dot-separated segments of lowercase
-/// letters, digits and `-`, each starting with a letter (`fake`, `acme.notes`); at most 64
-/// characters. It becomes a method prefix (`app.<id>.`), a directory name and a space id.
+/// Whether an id can name a runtime application: a package's, `<publisher>.<name>` with the
+/// first segment not reserved ([`ExtId::package`]). It becomes a method prefix (`app.<id>.`), a
+/// directory name and a space id.
 pub fn valid_app_id(id: &str) -> bool {
-    id.len() <= 64
-        && id.split('.').all(|segment| {
-            let mut chars = segment.chars();
-            matches!(chars.next(), Some('a'..='z')) && chars.all(|c| matches!(c, 'a'..='z' | '0'..='9' | '-'))
-        })
+    ExtId::package(id).is_ok()
 }
 
 /// Whether `prefix` begins `name` by whole segments: `acme` begins `acme.notes`, not `acmeish`.
@@ -108,7 +104,7 @@ pub(crate) fn short_app_name<'a>(app: &str, name: &'a str) -> Option<&'a str> {
         .filter(|short| valid_short_name(short))
 }
 
-/// Whether a name in an application's `hub` belongs to an application, and so is that
+/// Whether a name in an application's `calls` belongs to an application, and so is that
 /// application's to admit rather than a grant to check.
 pub fn names_an_application(name: &str) -> bool {
     name.starts_with("app.") || topic_of(name).is_some_and(|t| t.starts_with("app."))
@@ -139,7 +135,7 @@ mod tests {
 
     #[test]
     fn a_name_is_the_longest_whole_segment_prefixs() {
-        let ids: Vec<ExtId> = ["acme", "acme.notes", "flow"].iter().map(|s| ExtId::parse(s).unwrap()).collect();
+        let ids: Vec<ExtId> = ["acme", "acme.notes", "flow"].iter().map(|s| ExtId::native(s).or_else(|_| ExtId::package(s)).unwrap()).collect();
         assert_eq!(owner_of("acme.notes.list", &ids).map(ExtId::as_str), Some("acme.notes"));
         assert_eq!(owner_of("acme.todo.list", &ids).map(ExtId::as_str), Some("acme"));
         assert_eq!(owner_of("acmeish.x", &ids), None);

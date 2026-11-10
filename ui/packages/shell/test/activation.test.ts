@@ -116,7 +116,7 @@ describe("following harnix.ui", () => {
       api_version: 3,
       frame: "/apps/acme.notes/ui/a.html",
       surface: { id: "space", space: "acme.notes", title: { en: "Notes" }, center: "hidden" },
-      interface: { hub: [], links: false, trust: "store", title: "Notes", spaces: ["acme.notes"] },
+      interface: { calls: [], links: false, trust: "store", title: "Notes", spaces: ["acme.notes"] },
     };
     await followSurfaces(app, { contributions: [entry] });
     expect(app.registry.at("space").map((c) => [c.id, c.owner, c.center?.mode])).toEqual([["acme.notes", "acme.notes", "hidden"]]);
@@ -181,7 +181,7 @@ describe("the host API", () => {
     expect(subs.every((c) => c.params.$ext === "acme.notes")).toBe(true);
     expect(topics.count("harnix.spaces", {})).toBe(1);
     client.answer = () => {
-      throw { code: -31000, message: "not in the extension interface's `hub`" };
+      throw { code: -31000, message: "not in the extension interface's `calls`" };
     };
     await expect(topics.subscribeAs("acme.notes", "harnix.instances", {}, () => undefined)).rejects.toMatchObject({ code: -31000 });
     expect(topics.count("harnix.instances", {})).toBe(0);

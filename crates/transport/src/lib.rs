@@ -326,7 +326,7 @@ fn on_behalf_of(
     };
     let id = ext
         .as_str()
-        .and_then(|s| harnix_contract::ExtId::parse(s).ok())
+        .and_then(|s| harnix_contract::ExtId::package(s).ok())
         .ok_or_else(|| harnix_contract::RpcError::invalid_params(format!("`{ON_BEHALF_OF}` is not an extension id")))?;
     cx.on_behalf_of = Some(id);
     Ok((cx, params))

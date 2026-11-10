@@ -1,7 +1,7 @@
 //! The WebAssembly runtime for Harnix applications.
 //!
 //! An application's backend logic and its agent tools are WebAssembly
-//! components (the `harnix:app` world in `wit/app.wit`). This crate is the
+//! components (the `harnix:ext` world in `wit/ext.wit`). This crate is the
 //! whole of the boundary between them and Harnix: it owns the one wasmtime
 //! engine a process has, loads the precompiled artifacts the store ships, and
 //! runs each application in its own [`AppVm`].

@@ -1,9 +1,9 @@
 // The showcase's interface in isolated frames: every surface it declares, drawn by this one page.
 //
-// `HarnixApp` (vendor/harnix-app-sdk.js, @harnix/app-sdk) is its only way out: the shell's
+// `HarnixExt` (vendor/harnix-ext-sdk.js, @harnix/ext-sdk) is its only way out: the shell's
 // bridge. It calls the backend's methods and follows its topics there, asks the shell for a
 // modal, a confirmation, a notice, a link, a session — and is refused what its manifest does not
-// list. `HarnixKit` (vendor/harnix-ui-kit.js, @harnix/ui-kit) gives it the shell's look, and
+// list. `HarnixKit` (vendor/harnix-ext-kit.js, @harnix/ext-kit) gives it the shell's look, and
 // follows the shell's theme and language.
 //
 // The board's buttons each show one thing the bridge does; the LIVE suite
@@ -13,12 +13,12 @@
 
 (async () => {
   const { h, button, input, card, empty, alert, render, follow } = HarnixKit;
-  const app = await HarnixApp.connect();
+  const app = await HarnixExt.connect();
   // The connected bridge, for the LIVE suite to ask the shell for what no button does — and be
   // refused what its manifest does not let it ask for. Nothing else reads it.
   window.showcaseBridge = app;
   follow(app);
-  const ID = app.surface.app;
+  const ID = app.surface.ext;
   const method = (name) => `app.${ID}.${name}`;
   const root = document.getElementById("root");
   root.className = "";

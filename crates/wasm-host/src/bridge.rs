@@ -11,14 +11,14 @@
 //!   here, then the call queues for the resident backend's `handle`.
 //! - **Its topics** (`[[topic]]`) are the only ones `host.publish` reaches, in the order the
 //!   backend published them.
-//! - **Its `hub` capability** is what `host.call` and `host.subscribe` may reach as
+//! - **Its `calls` capability** is what `host.call` and `host.subscribe` may reach as
 //!   `module:<id>`; the kernel decides, grants and audits. Whatever it refuses is kept here too,
 //!   for the system space.
 //! - **Its spaces** (`[[space]]`) are listed with every other.
 //!
 //! Who may call an application's methods, then: whoever its manifest names — `device` (the
 //! default) is every paired device and so the page, under its token, `module` every module (a
-//! compiled-in module, or another application whose `hub` lists the method), `kernel` the product
+//! compiled-in module, or another application whose `calls` list the method), `kernel` the product
 //! itself — and always the application itself, whose tools reach their backend that way. A session
 //! does not call methods: the agent uses the application's tools, and a tool that needs the
 //! backend's state asks for it with `host.call`.

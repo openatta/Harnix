@@ -1,7 +1,7 @@
 //! Runtime applications embedded in this process: installing them, and their tools in every
 //! session — the glue between the application host and the rest of Harnix.
 //!
-//! An application is a package (`.hxapp`, [`package`]; everything about packages is
+//! An application is a package (`.hxext`, [`package`]; everything about packages is
 //! `harnix-package`, re-exported here). It runs in a `harnix_wasm_host::Host`, one VM per
 //! application in this process, which this crate drives through the host's `Control` and lends
 //! the process through its `Kernel` (`platform.rs`: the kernel's application host) and its

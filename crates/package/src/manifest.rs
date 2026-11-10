@@ -1,4 +1,4 @@
-//! `harnix-app.toml`: what an application is, and what it asks for.
+//! `harnix-ext.toml`: what an extension package is, and what it asks for.
 //!
 //! Read strictly. Everything an application may have is a section or a field below; anything else
 //! is refused with its name, because a manifest is also what the installer shows a person, and a
@@ -9,7 +9,7 @@
 //! [app]
 //! id = "acme.showcase"          # <publisher>.<name>; dot-separated lowercase segments
 //! version = "0.1.0"
-//! harnix_api = 1                # the application interface's major version
+//! harnix_api = 2                # the extension interface's major version
 //! title = "Showcase"            # optional
 //! publisher = "acme"            # the id's first segment
 //! description = "…"             # optional
@@ -18,21 +18,30 @@
 //! net = ["api.example.com"]     # hosts `http-request` may reach, exactly
 //! env = ["SHOWCASE_TOKEN"]      # what `secret` may read
 //! storage_mb = 1                # the key-value store's ceiling
-//! hub = ["harnix.session.create", "topic:harnix.sessions.status"]
+//! calls = ["harnix.session.create", "topic:harnix.sessions.status"]
 //!                               # what it may call (methods) and subscribe to (`topic:<name>`) as
-//!                               # `module:<id>`; its own `app.<id>.*` needs no entry
+//!                               # `ext:<id>`; its own `app.<id>.*` needs no entry
 //! fs = ["${data}", "${project}"]# ${data} read-write; ${project} read-only, tool calls only
 //!
 //! [[component]]                 # at most one
 //! name = "tools"                # wasm/<name>.<engine fingerprint>.cwasm
-//! world = "harnix:app/tools-app@0.1.0"   # or harnix:app/backend-app@0.1.0
+//! world = "harnix:ext/tools-ext@1.0.0"   # or harnix:ext/backend-ext@1.0.0
 //! memory_mb = 64
 //! timeout_ms = 30000
+//!
+//! [[tool]]                      # every tool the component provides, and only those: what the
+//! name = "echo"                 #   installer shows is what the host registers (`ext__<id>__<name>`),
+//! description = "Echo a text"   #   and `harnix-pack build` checks the component lists the same
+//! doc = "…"                     # optional: the long usage guide, fetched on demand
+//! read_only = true              # optional, false: declared for scheduling only
+//! concurrency_safe = true       # optional, false
+//! [tool.input_schema]           # JSON Schema of its input, an object
+//! type = "object"
 //!
 //! [events]                      # what its `events` export is offered (when it has one)
 //! tools = "own"                 # own (the default): its own tools' calls; all: every tool call
 //!
-//! [[method]]                    # app.<id>.<name>, answered by the backend (`backend-app` only)
+//! [[method]]                    # app.<id>.<name>, answered by the backend (`backend-ext` only)
 //! name = "notes.add"
 //! subject = "device"            # who may call it: device (the default), module, kernel, or a list
 //! description = "…"             # optional
@@ -40,7 +49,7 @@
 //! type = "object"
 //! required = ["text"]
 //!
-//! [[topic]]                     # app.<id>.<name>, published by the backend (`backend-app` only)
+//! [[topic]]                     # app.<id>.<name>, published by the backend (`backend-ext` only)
 //! name = "notes"
 //!
 //! [[space]]                     # a backend space: where its sessions land
@@ -57,7 +66,7 @@
 //! api_version = 3
 //!
 //! [interface]                   # the interface in isolated frames (`surface.rs`)
-//! hub = ["harnix.sessions.list"]     # beyond app.<id>.*, what a frame may call
+//! calls = ["harnix.sessions.list"]   # beyond app.<id>.*, what a frame may call
 //!
 //! [[surface]]                   # a region of the shell a frame fills
 //! point = "space"
@@ -80,17 +89,18 @@ use serde_json::Value;
 use crate::inline::Inline;
 pub use crate::surface::{Interface, Surface, Title};
 
-/// The application interface this build implements: `[app] harnix_api`.
-pub const HARNIX_API: u32 = 1;
+/// The extension interface this build implements: `[app] harnix_api`.
+pub const HARNIX_API: u32 = 2;
 
 /// The file name, at the package's root.
-pub const MANIFEST: &str = "harnix-app.toml";
+pub const MANIFEST: &str = "harnix-ext.toml";
 
 /// The sections a manifest may have.
 const SECTIONS: &[&str] = &[
     "app",
     "capabilities",
     "component",
+    "tool",
     "config",
     "ui",
     "agent",
@@ -105,13 +115,15 @@ const SECTIONS: &[&str] = &[
 ];
 
 /// The capabilities there are.
-const CAPABILITIES: &[&str] = &["net", "env", "storage_mb", "hub", "fs"];
+const CAPABILITIES: &[&str] = &["net", "env", "storage_mb", "calls", "fs"];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Manifest {
     pub app: App,
     pub capabilities: Capabilities,
     pub component: Option<Component>,
+    /// `[[tool]]`: every tool the component provides.
+    pub tools: Vec<Tool>,
     /// `[config]`, as JSON.
     pub config: Value,
     pub ui: Vec<UiEntry>,
@@ -251,13 +263,13 @@ pub struct Capabilities {
     #[serde(default)]
     pub storage_mb: u32,
     #[serde(default)]
-    pub hub: Vec<String>,
+    pub calls: Vec<String>,
     #[serde(default)]
     pub fs: Vec<String>,
 }
 
 /// The two worlds a component may implement, by the names a manifest writes.
-pub const WORLDS: &[&str] = &["harnix:app/tools-app@0.1.0", "harnix:app/backend-app@0.1.0"];
+pub const WORLDS: &[&str] = &["harnix:ext/tools-ext@1.0.0", "harnix:ext/backend-ext@1.0.0"];
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -268,6 +280,36 @@ pub struct Component {
     pub memory_mb: u32,
     #[serde(default = "default_timeout_ms")]
     pub timeout_ms: u64,
+}
+
+/// One `[[tool]]`: a tool the component provides, as a session sees it (`ext__<id>__<name>`).
+///
+/// The manifest is the authority: it is what the installer shows and what the host registers, and a
+/// component that lists other tools is refused rather than believed.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Tool {
+    /// Letters, digits, `_` and `-`; unique among the package's.
+    pub name: String,
+    /// One line: it ships in the model's tool list on every call.
+    pub description: String,
+    /// The long usage guide, fetched on demand rather than sent every turn.
+    #[serde(default)]
+    pub doc: Option<String>,
+    /// JSON Schema of the tool's input, written as TOML.
+    pub input_schema: toml::Value,
+    /// Declared for scheduling only: the host does not relax permissions for it.
+    #[serde(default)]
+    pub read_only: bool,
+    #[serde(default)]
+    pub concurrency_safe: bool,
+}
+
+impl Tool {
+    /// The input schema as the JSON text the component's `tool-def` carries.
+    pub fn input_schema_json(&self) -> String {
+        toml_to_json(&self.input_schema).to_string()
+    }
 }
 
 /// How a backend is kept: `always` up while the application runs, or `on-demand` — stopped once
@@ -412,6 +454,10 @@ impl Manifest {
             Some(v) => v.try_into().map_err(|e| field_error("agent", e))?,
             None => Agent::default(),
         };
+        let tools: Vec<Tool> = match section("tool") {
+            Some(v) => v.try_into().map_err(|e| field_error("[tool]]", e))?,
+            None => Vec::new(),
+        };
         let methods: Vec<Method> = match section("method") {
             Some(v) => v.try_into().map_err(|e| field_error("[method]]", e))?,
             None => Vec::new(),
@@ -448,6 +494,7 @@ impl Manifest {
             app,
             capabilities,
             component: components.into_iter().next(),
+            tools,
             config,
             ui,
             agent,
@@ -506,11 +553,11 @@ impl Manifest {
                 ));
             }
         }
-        for entry in &caps.hub {
+        for entry in &caps.calls {
             let name = entry.strip_prefix("topic:").unwrap_or(entry);
             if !valid_dotted(name) {
                 return Err(format!(
-                    "{MANIFEST}: `{entry}` in `hub` is not a method name, or `topic:` and a topic's"
+                    "{MANIFEST}: `{entry}` in `calls` is not a method name, or `topic:` and a topic's"
                 ));
             }
         }
@@ -550,6 +597,7 @@ impl Manifest {
                 return Err(format!("{MANIFEST}: `timeout_ms` is 100 to 600000"));
             }
         }
+        self.check_tools()?;
         for entry in &self.ui {
             if entry.api_version != harnix_contract::CONTRIB_API_VERSION {
                 return Err(format!(
@@ -665,6 +713,46 @@ impl Manifest {
             }
         }
         self.inline.check(self)
+    }
+
+    fn check_tools(&self) -> Result<(), Error> {
+        if !self.tools.is_empty() && self.component.is_none() {
+            return Err(format!("{MANIFEST}: `[[tool]]` is a component's: this one has none"));
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        for tool in &self.tools {
+            let full = crate::tool_name(&self.app.id, &tool.name);
+            let name_ok = !tool.name.is_empty()
+                && tool.name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                && full.len() <= 64
+                && seen.insert(tool.name.as_str());
+            if !name_ok {
+                return Err(format!(
+                    "{MANIFEST}: the tool `{}` cannot be offered: a tool's name is letters, digits, \
+                     `_` and `-`, unique, `{full}` at most 64 characters",
+                    tool.name
+                ));
+            }
+            if tool.description.trim().is_empty() || tool.description.contains('\n') {
+                return Err(format!(
+                    "{MANIFEST}: the tool `{}`'s `description` is one line",
+                    tool.name
+                ));
+            }
+            let schema = toml_to_json(&tool.input_schema);
+            if !schema.is_object() || jsonschema::meta::validate(&schema).is_err() {
+                return Err(format!(
+                    "{MANIFEST}: the tool `{}`'s `input_schema` is not a JSON Schema object",
+                    tool.name
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// The names of the tools it declares.
+    pub fn tool_names(&self) -> Vec<String> {
+        self.tools.iter().map(|t| t.name.clone()).collect()
     }
 
     /// `[config]`, with `overrides` set over it key by key.
@@ -788,7 +876,7 @@ mod tests {
 [app]
 id = "acme.showcase"
 version = "0.1.0"
-harnix_api = 1
+harnix_api = 2
 title = "Showcase"
 publisher = "acme"
 
@@ -798,7 +886,7 @@ fs = ["${project}"]
 
 [[component]]
 name = "tools"
-world = "harnix:app/tools-app@0.1.0"
+world = "harnix:ext/tools-ext@1.0.0"
 timeout_ms = 5000
 
 [config]
@@ -843,7 +931,7 @@ install_into = ["main"]
             with(|m| {
                 format!(
                     "{}\n{section}",
-                    m.replace("tools-app@0.1.0", "backend-app@0.1.0")
+                    m.replace("tools-ext@1.0.0", "backend-ext@1.0.0")
                 )
             })
         };
@@ -881,7 +969,7 @@ install_into = ["main"]
             let err = with(|m| format!("{m}\n{section}")).unwrap_err();
             assert!(err.contains(says), "{section}: {err}");
         }
-        let none = "[app]\nid = \"a.b\"\nversion = \"1.0.0\"\nharnix_api = 1\npublisher = \"a\"\n\n[events]\ntools = \"all\"\n";
+        let none = "[app]\nid = \"a.b\"\nversion = \"1.0.0\"\nharnix_api = 2\npublisher = \"a\"\n\n[events]\ntools = \"all\"\n";
         assert!(Manifest::parse(none).unwrap_err().contains("a component's"));
     }
 
@@ -906,7 +994,7 @@ install_into = ["main"]
     #[test]
     fn the_least_an_application_can_be() {
         let m = Manifest::parse(
-            "[app]\nid = \"a.b\"\nversion = \"1.0.0-rc.1\"\nharnix_api = 1\npublisher = \"a\"\n",
+            "[app]\nid = \"a.b\"\nversion = \"1.0.0-rc.1\"\nharnix_api = 2\npublisher = \"a\"\n",
         )
         .unwrap();
         assert!(m.component.is_none() && m.ui.is_empty());
@@ -927,12 +1015,12 @@ install_into = ["main"]
             (format!("{GOOD}\n[[topic]]\nname = \"t\"\n"), "are a backend's"),
             (GOOD.replace("title = \"Showcase\"", "title = \"S\"\ncolour = \"red\""), "unknown field `colour`"),
             (GOOD.replace("timeout_ms = 5000", "timeout_ms = 5000\nthreads = 4"), "unknown field `threads`"),
-            (GOOD.replace("harnix_api = 1", "harnix_api = 2"), "implements 1"),
+            (GOOD.replace("harnix_api = 2", "harnix_api = 3"), "implements 2"),
             (GOOD.replace("acme.showcase", "Acme.Showcase"), "not an application id"),
             (GOOD.replace("\"acme.showcase\"", "\"showcase\""), "not an application id"),
             (GOOD.replace("publisher = \"acme\"", "publisher = \"other\""), "first segment"),
             (GOOD.replace("0.1.0", "one"), "not a version"),
-            (GOOD.replace("tools-app@0.1.0", "tools@0.1.0"), "world is one of"),
+            (GOOD.replace("tools-ext@1.0.0", "tools@0.1.0"), "world is one of"),
             (GOOD.replace("fs = [\"${project}\"]", "fs = [\"/etc\"]"), "must start with"),
             (
                 GOOD.replace("storage_mb = 1", "storage_mb = 0")
@@ -943,7 +1031,7 @@ install_into = ["main"]
             (GOOD.replace("api_version = 3", "api_version = 2"), "contribution API 2"),
             (GOOD.replace("showcase.js", "../escape.js"), "under ui/"),
             (GOOD.replace("[app]", "[app]\n").replace("id = ", "ident = "), "in `[app]`"),
-            (format!("{GOOD}\n[[component]]\nname = \"two\"\nworld = \"harnix:app/tools-app@0.1.0\"\n"), "one component"),
+            (format!("{GOOD}\n[[component]]\nname = \"two\"\nworld = \"harnix:ext/tools-ext@1.0.0\"\n"), "one component"),
             ("not = [toml".to_string(), "not valid TOML"),
             ("[capabilities]\n".to_string(), "`[app]` is missing"),
         ];
@@ -981,7 +1069,7 @@ scene = "harnix"
     fn backend(extra: &str) -> String {
         format!(
             "{}\n{BACKEND}\n{extra}",
-            GOOD.replace("tools-app@0.1.0", "backend-app@0.1.0")
+            GOOD.replace("tools-ext@1.0.0", "backend-ext@1.0.0")
         )
     }
 
@@ -997,11 +1085,42 @@ scene = "harnix"
         );
         assert_eq!(m.topics[0].name, "notes");
         assert_eq!(m.spaces[0].scene.as_deref(), Some("harnix"));
-        let hub = backend("").replace(
+        let calls = backend("").replace(
             "storage_mb = 1",
-            "storage_mb = 1\nhub = [\"harnix.session.create\", \"topic:harnix.sessions.status\"]",
+            "storage_mb = 1\ncalls = [\"harnix.session.create\", \"topic:harnix.sessions.status\"]",
         );
-        assert_eq!(Manifest::parse(&hub).unwrap().capabilities.hub.len(), 2);
+        assert_eq!(Manifest::parse(&calls).unwrap().capabilities.calls.len(), 2);
+    }
+
+    const TOOL: &str = "\n[[tool]]\nname = \"echo\"\ndescription = \"Echo a text\"\nread_only = true\n\n\
+                        [tool.input_schema]\ntype = \"object\"\n";
+
+    #[test]
+    fn the_tools_are_the_manifests() {
+        let m = Manifest::parse(&format!("{GOOD}{TOOL}")).unwrap();
+        assert_eq!(m.tool_names(), ["echo"]);
+        let tool = &m.tools[0];
+        assert!(tool.read_only && !tool.concurrency_safe && tool.doc.is_none());
+        assert_eq!(serde_json::from_str::<Value>(&tool.input_schema_json()).unwrap(), json!({"type": "object"}));
+        assert!(Manifest::parse(GOOD).unwrap().tools.is_empty());
+
+        let cases: Vec<(String, &str)> = vec![
+            (format!("{GOOD}{TOOL}{TOOL}"), "cannot be offered"),
+            (format!("{GOOD}{}", TOOL.replace("\"echo\"", "\"bad name\"")), "cannot be offered"),
+            (format!("{GOOD}{}", TOOL.replace("\"Echo a text\"", "\"two\\nlines\"")), "one line"),
+            (format!("{GOOD}{}", TOOL.replace("type = \"object\"", "type = 7")), "not a JSON Schema"),
+            (format!("{GOOD}{}", TOOL.replace("read_only = true", "colour = 1")), "unknown field `colour`"),
+            (format!("{GOOD}{}", TOOL.replace("\n[tool.input_schema]\ntype = \"object\"", "")), "input_schema"),
+            (
+                GOOD.replace("[[component]]\nname = \"tools\"\nworld = \"harnix:ext/tools-ext@1.0.0\"\ntimeout_ms = 5000\n", "")
+                    + TOOL,
+                "a component's",
+            ),
+        ];
+        for (text, says) in cases {
+            let err = Manifest::parse(&text).err().unwrap_or_else(|| panic!("accepted: {says}"));
+            assert!(err.contains(says), "wanted `{says}`, got: {err}");
+        }
     }
 
     #[test]
@@ -1017,8 +1136,8 @@ scene = "harnix"
             (backend("[[space]]\nid = \"acme.showcase\"\n"), "once"),
             (backend("[[space]]\nid = \"acme.showcase.x\"\ncolour = 1\n"), "unknown field"),
             (
-                backend("").replace("storage_mb = 1", "storage_mb = 1\nhub = [\"bad name\"]"),
-                "in `hub`",
+                backend("").replace("storage_mb = 1", "storage_mb = 1\ncalls = [\"bad name\"]"),
+                "in `calls`",
             ),
         ];
         for (text, says) in cases {

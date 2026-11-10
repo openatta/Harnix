@@ -3,7 +3,7 @@
 
 use super::{holding, with_deadline, Abort, CallFailure, Inner};
 use crate::sync::lock;
-use crate::bindings::exports::harnix::app::backend;
+use crate::bindings::exports::harnix::ext::backend;
 use crate::state::{AppState, Role};
 use std::sync::atomic::Ordering;
 use std::time::Duration;

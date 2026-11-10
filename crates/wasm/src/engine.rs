@@ -195,7 +195,7 @@ impl AppComponent {
         Ok(Self { component, world })
     }
 
-    /// Which `harnix:app` world the component implements. The installer
+    /// Which `harnix:ext` world the component implements. The installer
     /// compares it with the manifest's claim.
     pub fn world(&self) -> crate::World {
         self.world
@@ -213,7 +213,7 @@ fn world_of(engine: &Engine, component: &Component) -> Result<crate::World> {
         .map(|(name, _)| name.to_string())
         .collect();
     let exports_interface = |interface: &str| {
-        let prefix = format!("harnix:app/{interface}@0.1.");
+        let prefix = format!("harnix:ext/{interface}@1.0.");
         exports.iter().any(|e| e.starts_with(&prefix))
     };
     if exports_interface("backend") {
@@ -222,8 +222,8 @@ fn world_of(engine: &Engine, component: &Component) -> Result<crate::World> {
         Ok(crate::World::Tools)
     } else {
         bail!(
-            "the component implements neither `harnix:app/backend` nor `harnix:app/tools` \
-             at 0.1 (it exports: {})",
+            "the component implements neither `harnix:ext/backend` nor `harnix:ext/tools` \
+             at 1.0 (it exports: {})",
             if exports.is_empty() {
                 "nothing".to_string()
             } else {

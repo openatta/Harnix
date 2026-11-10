@@ -48,7 +48,7 @@ pub fn access_for(principals: &[Principal]) -> Access {
             Principal::Device => access.with_device(),
             Principal::Kernel => access,
             Principal::AnyModule => access.with_extensions(),
-            Principal::Module(id) => match ExtId::parse(id) {
+            Principal::Module(id) => match ExtId::native(id).or_else(|_| ExtId::package(id)) {
                 Ok(id) => access.with_extension(id),
                 Err(_) => access,
             },
@@ -128,7 +128,7 @@ mod tests {
     }
 
     fn id(s: &str) -> ExtId {
-        ExtId::parse(s).unwrap()
+        ExtId::native(s).or_else(|_| ExtId::package(s)).unwrap()
     }
 
     fn ext(s: &str) -> Subject {

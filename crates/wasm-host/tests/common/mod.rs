@@ -52,7 +52,7 @@ pub struct FakePlatform {
     pub offers: Mutex<Vec<Offer>>,
     /// The host, as the kernel reaches it: across the loopback too.
     pub control: OnceLock<Arc<dyn Control>>,
-    /// When set, a call the application makes that its `hub` lists is answered by this method of
+    /// When set, a call the application makes that its `calls` lists is answered by this method of
     /// its own instead, called from another task: a product that routes it back into the
     /// application over a link, where nothing of the calling task comes along.
     pub reroute: OnceLock<String>,
@@ -73,13 +73,13 @@ impl FakePlatform {
             .collect()
     }
 
-    fn hub(&self, app: &str) -> Vec<String> {
+    fn calls_of(&self, app: &str) -> Vec<String> {
         self.registered
             .lock()
             .unwrap()
             .iter()
             .find(|r| r.app == app)
-            .map(|r| r.hub.clone())
+            .map(|r| r.calls.clone())
             .unwrap_or_default()
     }
 
@@ -118,7 +118,7 @@ impl Kernel for FakePlatform {
                 .call_method(MethodCall {
                     app: c.app.clone(),
                     method: own.into(),
-                    caller: Subject::extension(harnix_contract::ExtId::parse(&c.app).unwrap()),
+                    caller: Subject::extension(harnix_contract::ExtId::package(&c.app).unwrap()),
                     params: c.params,
                     chain: c.chain,
                 })
@@ -129,13 +129,13 @@ impl Kernel for FakePlatform {
             let call = MethodCall {
                 app: c.app.clone(),
                 method: own.clone(),
-                caller: Subject::extension(harnix_contract::ExtId::parse(&c.app).unwrap()),
+                caller: Subject::extension(harnix_contract::ExtId::package(&c.app).unwrap()),
                 params: json!({}),
                 chain: c.chain,
             };
             return tokio::spawn(async move { control.call_method(call).await }).await.unwrap();
         }
-        if !self.hub(&c.app).contains(&c.method) {
+        if !self.calls_of(&c.app).contains(&c.method) {
             return Err(RpcError::refused(format!("`module:{}` may not call `{}`", c.app, c.method)));
         }
         self.say(format!("call {}", c.method));
@@ -146,8 +146,8 @@ impl Kernel for FakePlatform {
         Ok(())
     }
     async fn subscribe(&self, s: Subscription) -> Result<Value, RpcError> {
-        if !self.hub(&s.app).contains(&format!("topic:{}", s.topic)) {
-            return Err(RpcError::refused("not in its `hub`"));
+        if !self.calls_of(&s.app).contains(&format!("topic:{}", s.topic)) {
+            return Err(RpcError::refused("not in its `calls`"));
         }
         self.say(format!("subscribe {}", s.topic));
         Ok(json!({"topic": s.topic, "value": {"sessions": [{"session_id": "a"}]}}))
@@ -234,7 +234,7 @@ impl Rig {
     }
 
     pub fn app_dir(&self) -> PathBuf {
-        self.dir.path().join("apps").join(ID)
+        self.dir.path().join("ext").join(ID)
     }
 
     /// The showcase with `edit` applied to its manifest, packed for this engine and unpacked where
@@ -245,11 +245,11 @@ impl Rig {
         for part in ["ui", "agent"] {
             copy_tree(&source.join(part), &app.join(part));
         }
-        let manifest = edit(std::fs::read_to_string(source.join("harnix-app.toml")).unwrap());
-        std::fs::write(app.join("harnix-app.toml"), &manifest).unwrap();
+        let manifest = edit(std::fs::read_to_string(source.join("harnix-ext.toml")).unwrap());
+        std::fs::write(app.join("harnix-ext.toml"), &manifest).unwrap();
         let wasm = showcase_wasm();
         let cwasm = self.host.engine().compile(&wasm).unwrap();
-        let out = self.dir.path().join("showcase.hxapp");
+        let out = self.dir.path().join("showcase.hxext");
         let artifact = harnix_package::package::Artifact {
             fingerprint: self.host.engine().fingerprint(),
             cwasm: &cwasm,

@@ -60,7 +60,7 @@ fn showcase_package() -> &'static Path {
             &[("CARGO_TARGET_DIR", &target)],
         );
         let wasm = target.join("wasm32-wasip2/release/showcase_tools.wasm");
-        let out = tmp.join("ext-proc-showcase.hxapp");
+        let out = tmp.join("ext-proc-showcase.hxext");
         let (wasm, out_s) = (wasm.to_str().unwrap(), out.to_str().unwrap());
         cargo(
             &root(),
@@ -129,7 +129,7 @@ impl Kernel for Product {
                 .call_method(MethodCall {
                     app: ID.into(),
                     method: own.into(),
-                    caller: Subject::extension(harnix::ExtId::parse(ID).unwrap()),
+                    caller: Subject::extension(harnix::ExtId::package(ID).unwrap()),
                     params: c.params,
                     chain: c.chain,
                 })

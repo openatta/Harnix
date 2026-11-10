@@ -166,7 +166,7 @@ impl AppHost for MockHost {
 
     async fn subscribe(&self, _app: &str, topic: &str, _params: &Value) -> Result<(), String> {
         if topic == "forbidden.topic" {
-            return Err("not in the `hub` capability".into());
+            return Err("not in the `calls` capability".into());
         }
         self.subscribed.lock().unwrap().push(topic.into());
         Ok(())

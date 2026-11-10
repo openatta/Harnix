@@ -263,8 +263,8 @@
   },
   "plugin_app": {
     "methods": [
-      "app.snapshot-app.echo",
-      "app.snapshot-app.internal",
+      "app.acme.snapshot.echo",
+      "app.acme.snapshot.internal",
       "harnix.session.interrupt",
       "harnix.session.send",
       "harnix.sessions.list",
@@ -272,7 +272,7 @@
       "harnix.topics.unsubscribe"
     ],
     "topics": [
-      "app.snapshot-app.ticks",
+      "app.acme.snapshot.ticks",
       "harnix.sessions.status"
     ]
   }

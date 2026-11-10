@@ -157,7 +157,7 @@ pub struct RouteTable {
 }
 
 /// Why a package, acting as itself, is refused a name its consent does not list.
-pub const OUTSIDE_HUB: &str = "not in the application's `hub` capability";
+pub const OUTSIDE_HUB: &str = "not in the application's `calls` capability";
 
 /// Why an extension nothing registered is refused everything: one withdrawn, or never there.
 pub const UNREGISTERED: &str = "not a registered extension";
@@ -331,7 +331,7 @@ impl RouteTable {
     /// On any refusal nothing was written.
     pub fn install_app(&mut self, app: &str, rows: Vec<Row>) -> Result<(), TableError> {
         self.check_app(app, rows.iter().map(Row::name))?;
-        let id = ExtId::parse(app).map_err(|_| TableError::Namespace(app.to_string()))?;
+        let id = ExtId::package(app).map_err(|_| TableError::Namespace(app.to_string()))?;
         self.register(&id, IdKind::Package)?;
         if let Err(e) = self.install(&Owner::extension(id.clone()), rows) {
             self.extensions.remove(&id);
@@ -343,7 +343,7 @@ impl RouteTable {
     /// What [`RouteTable::install_app`] would refuse, without writing anything: for a caller
     /// that has more to set up before the rows go in.
     pub fn check_app<'a>(&self, app: &str, names: impl IntoIterator<Item = &'a str>) -> Result<(), TableError> {
-        let Ok(id) = ExtId::parse(app) else {
+        let Ok(id) = ExtId::package(app) else {
             return Err(TableError::Namespace(app.to_string()));
         };
         let mut scratch = RouteTable {
@@ -498,7 +498,7 @@ mod tests {
     }
 
     fn id(s: &str) -> ExtId {
-        ExtId::parse(s).unwrap()
+        ExtId::native(s).or_else(|_| ExtId::package(s)).unwrap()
     }
 
     fn device() -> Subject {
@@ -669,23 +669,23 @@ mod tests {
     fn a_runtime_application_declares_and_withdraws_its_own_names() {
         let mut t = assembled();
         let g = natives();
-        t.install_app("fake", rows(&["app.fake.echo", "topic:app.fake.ticks"])).unwrap();
-        assert_eq!(t.decide(&device(), &g, "app.fake.echo"), Decision::Allow);
-        assert_eq!(t.reachable_topics(&device(), &g), vec!["app.fake.ticks", "app.probe.counter"]);
-        assert_eq!(t.registered(&id("fake")), Some(IdKind::Package));
-        assert!(t.owns(&id("fake"), "app.fake.echo"));
-        assert!(!t.owns(&id("fake"), "app.probe.echo"));
+        t.install_app("acme.fake", rows(&["app.acme.fake.echo", "topic:app.acme.fake.ticks"])).unwrap();
+        assert_eq!(t.decide(&device(), &g, "app.acme.fake.echo"), Decision::Allow);
+        assert_eq!(t.reachable_topics(&device(), &g), vec!["app.acme.fake.ticks", "app.probe.counter"]);
+        assert_eq!(t.registered(&id("acme.fake")), Some(IdKind::Package));
+        assert!(t.owns(&id("acme.fake"), "app.acme.fake.echo"));
+        assert!(!t.owns(&id("acme.fake"), "app.probe.echo"));
 
-        let mut withdrawn = t.withdraw(&ext("fake"));
+        let mut withdrawn = t.withdraw(&ext("acme.fake"));
         withdrawn.sort();
-        assert_eq!(withdrawn, vec!["app.fake.echo", "topic:app.fake.ticks"]);
+        assert_eq!(withdrawn, vec!["app.acme.fake.echo", "topic:app.acme.fake.ticks"]);
         // Refused afterwards exactly like a name nobody declared.
-        assert_eq!(t.decide(&device(), &g, "app.fake.echo"), Decision::Unknown);
-        assert_eq!(t.decide(&device(), &g, &topic("app.fake.ticks")), Decision::Unknown);
-        assert_eq!(t.registered(&id("fake")), None, "its id is free again");
+        assert_eq!(t.decide(&device(), &g, "app.acme.fake.echo"), Decision::Unknown);
+        assert_eq!(t.decide(&device(), &g, &topic("app.acme.fake.ticks")), Decision::Unknown);
+        assert_eq!(t.registered(&id("acme.fake")), None, "its id is free again");
         // What assembly put in is untouched.
         assert_eq!(t.decide(&device(), &g, "app.probe.echo"), Decision::Allow);
-        assert!(t.withdraw(&ext("fake")).is_empty());
+        assert!(t.withdraw(&ext("acme.fake")).is_empty());
     }
 
     #[test]
@@ -697,21 +697,21 @@ mod tests {
             "harnix.session.create",
             "engine.config.setProvider",
             "app.other.echo",
-            "app.fake",
-            "app.fake.",
-            "app.fake..x",
-            "app.fake.a b",
-            "route:fake",
+            "app.acme.fake",
+            "app.acme.fake.",
+            "app.acme.fake..x",
+            "app.acme.fake.a b",
+            "route:acme.fake",
             "topic:harnix.instances",
             "topic:app.other.ticks",
         ] {
             assert!(
-                matches!(t.install_app("fake", rows(&[name])), Err(TableError::Namespace(_))),
+                matches!(t.install_app("acme.fake", rows(&[name])), Err(TableError::Namespace(_))),
                 "{name} was accepted"
             );
         }
         assert!(
-            matches!(t.install_app("fake", vec![Row::route("fake", Access::device())]), Err(TableError::Namespace(_))),
+            matches!(t.install_app("acme.fake", vec![Row::route("acme.fake", Access::device())]), Err(TableError::Namespace(_))),
             "a route was accepted"
         );
         for id in ["", "Fake", "1fake", "fake.", ".fake", "fa_ke", "fake..x"] {
@@ -719,7 +719,7 @@ mod tests {
         }
         // Nothing was written by any of the refusals.
         assert_eq!(t.decide(&device(), &natives(), "harnix.hello"), Decision::Allow);
-        assert_eq!(t.registered(&super::ExtId::parse("fake").unwrap()), None);
+        assert_eq!(t.registered(&super::ExtId::package("acme.fake").unwrap()), None);
     }
 
     #[test]
@@ -730,25 +730,27 @@ mod tests {
             TableError::NamespaceTaken { by, .. } => taken(&by),
             other => other,
         };
-        // The same id as a compiled-in module, one nested in it, one known only by its route.
-        assert_eq!(t.install_app("probe", rows(&["app.probe.new"])).map_err(by), Err(taken("probe")));
+        // The same id as a compiled-in module is not a package's id at all; one nested in it, one
+        // known only by its route are.
+        assert!(matches!(t.install_app("probe", rows(&["app.probe.new"])), Err(TableError::Namespace(_))));
         assert_eq!(t.install_app("probe.sub", rows(&["app.probe.sub.x"])).map_err(by), Err(taken("probe")));
-        assert_eq!(t.install_app("routed", rows(&["app.routed.x"])).map_err(by), Err(taken("routed")));
+        assert_eq!(t.install_app("routed.x", rows(&["app.routed.x.y"])).map_err(by), Err(taken("routed")));
         // A native id registered with no rows at all — a disabled module — counts as much.
         t.register(&id("quiet"), IdKind::Native).unwrap();
         assert_eq!(t.install_app("quiet.notes", rows(&["app.quiet.notes.x"])).map_err(by), Err(taken("quiet")));
-        // Reserved first segments.
+        // Reserved first segments are not a package's id, and so never reach the table.
         for word in RESERVED_WORDS {
             let pkg = format!("{word}.notes");
-            assert!(matches!(t.register(&id(&pkg), IdKind::Package), Err(TableError::NamespaceTaken { .. })), "{pkg}");
+            assert!(ExtId::package(&pkg).is_err(), "{pkg}");
+            assert!(matches!(t.install_app(&pkg, rows(&[])), Err(TableError::Namespace(_))), "{pkg}");
         }
         // The compiled-in method is still the compiled-in one.
         assert_eq!(t.decide(&device(), &natives(), "app.probe.echo"), Decision::Allow);
         // And withdrawing a compiled-in module, which only assembly does, never takes an
         // application's names, nor frees the module's id.
-        t.install_app("fake", rows(&["app.fake.echo"])).unwrap();
+        t.install_app("acme.fake", rows(&["app.acme.fake.echo"])).unwrap();
         t.withdraw(&ext("probe"));
-        assert_eq!(t.decide(&device(), &natives(), "app.fake.echo"), Decision::Allow);
+        assert_eq!(t.decide(&device(), &natives(), "app.acme.fake.echo"), Decision::Allow);
         assert_eq!(t.decide(&device(), &natives(), "app.probe.echo"), Decision::Unknown);
         assert_eq!(t.registered(&id("probe")), Some(IdKind::Native));
     }
@@ -773,10 +775,10 @@ mod tests {
         let mut t = assembled();
         t.install_app("acme.notes", rows(&["app.acme.notes.list"])).unwrap();
         assert!(matches!(t.install_app("acme.notes", rows(&["app.acme.notes.other"])), Err(TableError::NamespaceTaken { .. })));
-        assert!(matches!(t.install_app("acme", rows(&["app.acme.x"])), Err(TableError::NamespaceTaken { .. })));
+        assert!(matches!(t.install_app("acme", rows(&["app.acme.x"])), Err(TableError::Namespace(_))), "one segment is a native id");
         assert!(matches!(
             t.install_app("acme.notes.pro", rows(&["app.acme.notes.pro.x"])),
-            Err(TableError::NamespaceTaken { .. })
+            Err(TableError::Namespace(_))
         ));
         // A sibling shares no names.
         t.install_app("acme.todo", rows(&["app.acme.todo.list"])).unwrap();
@@ -790,15 +792,15 @@ mod tests {
         let mut t = assembled();
         let g = natives();
         assert_eq!(
-            t.install_app("fake", rows(&["app.fake.a", "app.fake.a"])),
-            Err(TableError::Taken("app.fake.a".into()))
+            t.install_app("acme.fake", rows(&["app.acme.fake.a", "app.acme.fake.a"])),
+            Err(TableError::Taken("app.acme.fake.a".into()))
         );
         assert_eq!(
-            t.install_app("fake", rows(&["app.fake.a", "harnix.hello"])),
+            t.install_app("acme.fake", rows(&["app.acme.fake.a", "harnix.hello"])),
             Err(TableError::Namespace("harnix.hello".into()))
         );
-        assert_eq!(t.decide(&device(), &g, "app.fake.a"), Decision::Unknown);
-        assert_eq!(t.registered(&id("fake")), None);
+        assert_eq!(t.decide(&device(), &g, "app.acme.fake.a"), Decision::Unknown);
+        assert_eq!(t.registered(&id("acme.fake")), None);
         // Nor does one owner's batch take half its names.
         assert_eq!(
             t.install(&kernel(), rows(&["harnix.new", "harnix.hello"])),
@@ -853,7 +855,7 @@ mod tests {
         // So what it is told it reaches is what it reaches.
         assert_eq!(
             t.reachable(&me, &g),
-            ["app.acme.notes.echo", "app.acme.todo.list", "harnix.topics.subscribe", "harnix.session.create"]
+            ["app.acme.notes.echo", "app.acme.todo.list", "harnix.session.create", "harnix.topics.subscribe"]
         );
         assert_eq!(t.reachable_topics(&me, &g), ["app.acme.notes.ticks", "harnix.sessions.status"]);
         // A compiled-in module is not narrowed by any of this.

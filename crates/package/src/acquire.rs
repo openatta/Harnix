@@ -179,7 +179,7 @@ pub async fn fetch(
     let resolved = store
         .resolve(&index, id, version, fingerprint)
         .map_err(refused)?;
-    let to = staging.join(format!("{id}-{}.hxapp", resolved.version.version));
+    let to = staging.join(format!("{id}-{}.hxext", resolved.version.version));
     store.download(&resolved, &to).await.map_err(refused)?;
     Ok(to)
 }
@@ -205,7 +205,7 @@ pub fn describe(root: &Path) -> Value {
         "publisher": manifest.app.publisher,
         "description": manifest.app.description,
         "capabilities": {
-            "net": caps.net, "env": caps.env, "storage_mb": caps.storage_mb, "hub": caps.hub, "fs": caps.fs,
+            "net": caps.net, "env": caps.env, "storage_mb": caps.storage_mb, "calls": caps.calls, "fs": caps.fs,
         },
         "events": manifest.events.tools,
         "lines": disclosure::lines(manifest, inspected.agent.is_some()),

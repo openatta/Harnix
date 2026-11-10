@@ -115,8 +115,8 @@ scripts/prune.sh                       # 清构建缓存：增量缓存全删，
 ui/packages/core/            @harnix/core：协议类型（生成）、协议客户端、会话状态；Vitest
 ui/packages/react/           @harnix/react：对话组件、贡献注册表、i18n、令牌；Vitest（jsdom）
 ui/packages/shell/           @harnix/shell：界面本身；Vitest，构建到 ui/dist
-ui/packages/app-sdk/         @harnix/app-sdk：应用界面在隔离 iframe 里的一侧（桥 harnix-ui-bridge@1、mock 宿主）；Vitest
-ui/packages/ui-kit/          @harnix/ui-kit：iframe 里的外壳令牌与基础组件；Vitest
+ui/packages/ext-sdk/         @harnix/ext-sdk：应用界面在隔离 iframe 里的一侧（桥 harnix-ui-bridge@2、mock 宿主）；Vitest
+ui/packages/ext-kit/          @harnix/ext-kit：iframe 里的外壳令牌与基础组件；Vitest
 ui/packages/testkit/         @harnix/testkit
   src/launcher.ts            startHarnix：独立的 HOME、数据根、引擎根、项目、端口、拓扑、回放目录
   src/api.ts                 connect：基于 @harnix/core/client 的测试客户端；finish、inconclusive；覆盖计数
@@ -241,8 +241,8 @@ Harnix 侧绕过。
 
 1. 拷一份结构相同的：一次工具调用加一句话的，从 `calls-a-native-tool` 或 `app-echo` 拷；两个会话的（子 Agent），从 `app-subagent` 拷。
 2. 改 `calls.jsonl` 里属于它自己的那几行：`tool_args_chunks` 的 `args`（工具输入的 JSON 文本）、`kind: "tool_use"` 那一块的 `name` 与 `input`、
-   `text_chunks` 的 `texts`（最后那句话）。插件 APP 的工具名是 `app__<id 的 . 换成 _>__<工具>`，spawn 的实例里是
-   `mcp__app-<id 的 . 换成 _>__<工具>`。
+   `text_chunks` 的 `texts`（最后那句话）。插件 APP 的工具名是 `ext__<id 的 . 换成 _>__<工具>`，spawn 的实例里是
+   `mcp__ext-<id 的 . 换成 _>__<工具>`。
 3. `blobs/` 里是请求的内容（按哈希存）。缺省回放按位置、不严格，请求和录下的不一样只记日志，所以 blob 可以原样留着。手做的录像
    严格回放过不了，也不进 `strict-replay.spec.ts`；要它也过，就得用 `record-fixture.mjs` 真录一份。
 4. 在 `recordings/README.md` 的表里加一行：它演示什么、从哪一份改出来、改了什么。
@@ -298,10 +298,10 @@ node tests/live/coverage.mjs --check               # scripts/check.sh 跑的就�
 | 东西 | 在哪 |
 |---|---|
 | 带 `apps` 的 `harnix` | `cargo build --release -p harnix-cli --features apps --target-dir target/apps`；`scripts/check.sh` 编好后经 `HARNIX_APPS_BIN` 告诉套件，单跑时套件自己编（`tests/live/api/apps-host.ts`） |
-| 打包工具 `harnix-app` | 同一个目录，`-p harnix-package --features compile --bin harnix-app` |
+| 打包工具 `harnix-app` | 同一个目录，`-p harnix-package --features compile --bin harnix-pack` |
 | 带 `apps` 的 `harnix-testapp` | 同一个目录；信 mock 商店、能缩短休眠的只有它（见下面的隐藏钩子） |
-| 示例应用 | `examples/apps/showcase`：测试开始时编组件（`wasm32-wasip2`）、为这个引擎编译、打成 `.hxapp`，按源码哈希缓存在 `target/apps/showcase/` |
-| mock 商店 | `tests/live/api/apps-store.ts` 在临时目录里用 `harnix-app sign` / `countersign` / `index` 把 showcase 做成两个版本（0.2.0 多要几项能力）、写出 `index.json`，经 `[apps] store = "file://…"` 给后端；mock 的发布者与商店密钥在 `tests/live/fixtures/store/`，只是测试钥 |
+| 示例应用 | `examples/apps/showcase`：测试开始时编组件（`wasm32-wasip2`）、为这个引擎编译、打成 `.hxext`，按源码哈希缓存在 `target/apps/showcase/` |
+| mock 商店 | `tests/live/api/packages-store.ts` 在临时目录里用 `harnix-pack sign` / `countersign` / `index` 把 showcase 做成两个版本（0.2.0 多要几项能力）、写出 `index.json`，经 `[apps] store = "file://…"` 给后端；mock 的发布者与商店密钥在 `tests/live/fixtures/store/`，只是测试钥 |
 
 **Rust 这边**：
 
@@ -319,7 +319,7 @@ node tests/live/coverage.mjs --check               # scripts/check.sh 跑的就�
 
 - iframe 的套件装 showcase：未签名、商店签的界面画在沙箱 iframe 里，受信发布者的进页面，`[interface] isolate = true` 时同一个应用也进 iframe
   （套件用 mock 发布者的钥匙现签一份）。iframe 里的东西用 `page.frameLocator` 找，看它自己的世界（存储、令牌、网络）用 `frame.evaluate`。
-- `@harnix/app-sdk` 与 `@harnix/ui-kit` 有自己的 Vitest（SDK 带 mock 宿主）；showcase 带着两者构建出的文件（`ui/frame/vendor/`），
+- `@harnix/ext-sdk` 与 `@harnix/ext-kit` 有自己的 Vitest（SDK 带 mock 宿主）；showcase 带着两者构建出的文件（`ui/frame/vendor/`），
   `node tests/app-ui-vendored.mjs` 在 `frontend` 层查它们是不是最新的（`--write` 重新生成）。
 - 休眠的套件在测试里把 showcase 改成 `[backend] resident = "on-demand"`（`watch_sessions = false`，`init` 不订阅），跑在带 `apps` 的
   `harnix-testapp` 上。
@@ -347,7 +347,7 @@ node tests/live/coverage.mjs --check               # scripts/check.sh 跑的就�
 - **收尾**：`await backend.dispose()`（等进程退出再删目录），不要用 `stop()`；起过一轮的用例以 `finish(client, sessionId)` 结束。
 - **组件测试**：`link:` 进来的 `@harnix/react` 会从 `harnix/` 那边解析 `react`，vitest 里写 `resolve: { dedupe: ["react", "react-dom"] }`。
 
-写插件 APP 的人测法一样：`bin` 指带 `apps` 的二进制，profile 加 `[apps] enabled = true`、`dev = true`，`harnix.apps.installFile` 装自己的 `.hxapp`
+写插件 APP 的人测法一样：`bin` 指带 `apps` 的二进制，profile 加 `[apps] enabled = true`、`dev = true`，`harnix.apps.installFile` 装自己的 `.hxext`
 （[插件](harnix-plugin.md) §11）。
 
 ## 10. 协议类型

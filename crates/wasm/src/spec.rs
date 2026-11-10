@@ -33,7 +33,7 @@ pub struct AppSpec {
 
 /// The manifest's `[capabilities]`, as agreed to at install.
 ///
-/// `hub` (which hub methods and topics the application may use) is not here:
+/// `calls` (which hub methods and topics the application may use) is not here:
 /// it is the hub's admission that enforces it, against the subject
 /// `module:<app id>`, exactly as for a compiled-in module's grants.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

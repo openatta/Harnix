@@ -61,8 +61,8 @@ pub struct Registration {
     pub topics: Vec<String>,
     /// `[[space]]`.
     pub spaces: Vec<SpaceDecl>,
-    /// What the application may reach as itself (`[capabilities] hub`).
-    pub hub: Vec<String>,
+    /// What the application may reach as itself (`[capabilities] calls`).
+    pub calls: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,7 +180,7 @@ pub struct Progress {
 /// before it asks.
 #[async_trait]
 pub trait Kernel: Send + Sync {
-    /// Declare the application's methods, topics and spaces, and its `hub` capability. A product
+    /// Declare the application's methods, topics and spaces, and its `calls` capability. A product
     /// that hosts no applications' names accepts this and declares nothing; what the application
     /// then does as itself is refused.
     async fn register(&self, registration: Registration) -> Result<(), RpcError>;

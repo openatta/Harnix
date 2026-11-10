@@ -1,10 +1,10 @@
-//! The showcase's component: a `backend-app` (`harnix:app`, `crates/wasm/wit/app.wit`) — a
+//! The showcase's component: a `backend-ext` (`harnix:ext`, `crates/wasm/wit/ext.wit`) — a
 //! resident backend, and the agent's tools, each tool call in an instance of its own.
 //!
 //! # The backend
 //!
 //! One instance for the whole process, started with the application (`init`) and stopped with it
-//! (`stop`). Its methods are `app.example.showcase.<name>`, declared in `harnix-app.toml`:
+//! (`stop`). Its methods are `app.example.showcase.<name>`, declared in `harnix-ext.toml`:
 //!
 //! | method | shows |
 //! |---|---|
@@ -15,13 +15,13 @@
 //! | `timer.start {ms, times?}` | `host.set-timer`: each firing publishes `heartbeat` |
 //! | `fetch {url}` | slow work started, then reported: a job at once; a timer makes the request (`host.http-request`, to a host in `net` only) and publishes it on `fetched` |
 //! | `session.start {message, space, …}` | driving the agent: `harnix.session.create` and `harnix.session.send` in its own space, as `ext:example.showcase` |
-//! | `overreach` | a call its `hub` does not list: refused, and on the record |
+//! | `overreach` | a call its `calls` does not list: refused, and on the record |
 //! | `spin`, `crash` | what a timeout and a trap do to the instance |
 //! | `card.post {session_id, space, …}` | an entry in the flow of a session of its own space (`harnix.session.entries.append`), which the shell draws as the manifest's card |
 //! | `complete {trigger, name, query}` | the candidates of its `/showcase` command and its `@notes` source |
 //! | `sessions.group {space, sessions}` | how its space's left column groups sessions: those it put a card in, and the rest |
 //!
-//! It subscribes to `harnix.sessions.status` in `init` (listed in its `hub` as
+//! It subscribes to `harnix.sessions.status` in `init` (listed in its `calls` as
 //! `topic:harnix.sessions.status`) and counts what arrives at `on-topic`.
 //!
 //! # The tools
@@ -37,19 +37,19 @@
 //! | `crash` | a trap: three in a row set the tool aside, and the backend and the other tools go on |
 //! | `board` | the backend's state, asked of it with `host.call` — a tool cannot see its memory |
 //!
-//! The `events` export (the `backend-app-events` world) sees the calls of the showcase's own tools
+//! The `events` export (the `backend-ext-events` world) sees the calls of the showcase's own tools
 //! — the manifest's `[events]` says no more — and refuses the one its configuration names
 //! (`blocked_tool`).
 
 wit_bindgen::generate!({
     path: "../../../../crates/wasm/wit",
-    world: "backend-app-events",
+    world: "backend-ext-events",
 });
 
-use exports::harnix::app::backend::{AppError, Guest as Backend};
-use exports::harnix::app::events::{Guest as Events, HookDecision};
-use exports::harnix::app::tools::{Guest as Tools, ToolDef, ToolOutput};
-use harnix::app::host;
+use exports::harnix::ext::backend::{ExtError, Guest as Backend};
+use exports::harnix::ext::events::{Guest as Events, HookDecision};
+use exports::harnix::ext::tools::{Guest as Tools, ToolDef, ToolOutput};
+use harnix::ext::host;
 use serde_json::{json, Value};
 use std::sync::Mutex;
 
@@ -85,8 +85,8 @@ fn memory<T>(f: impl FnOnce(&mut Memory) -> T) -> T {
     f(guard.get_or_insert_with(Memory::default))
 }
 
-fn error(code: i32, message: impl Into<String>) -> AppError {
-    AppError {
+fn error(code: i32, message: impl Into<String>) -> ExtError {
+    ExtError {
         code,
         message: message.into(),
         data_json: None,
@@ -113,7 +113,7 @@ fn notes() -> Vec<Value> {
 }
 
 /// Keep the notes and tell whoever watches the `notes` topic.
-fn save(notes: &[Value]) -> Result<(), AppError> {
+fn save(notes: &[Value]) -> Result<(), ExtError> {
     let bytes = serde_json::to_vec(notes).unwrap_or_default();
     host::kv_set(NOTES, &bytes).map_err(|e| error(2, e))?;
     let _ = host::publish("notes", &json!({"notes": notes, "count": notes.len()}).to_string());
@@ -203,7 +203,7 @@ impl Backend for Showcase {
         Ok(())
     }
 
-    fn handle(method: String, params: String, caller: String) -> Result<String, AppError> {
+    fn handle(method: String, params: String, caller: String) -> Result<String, ExtError> {
         let params: Value = serde_json::from_str(&params).unwrap_or(Value::Null);
         let answer = match method.as_str() {
             "notes.add" => {
@@ -275,7 +275,7 @@ impl Backend for Showcase {
                 })
             }
             "overreach" => {
-                // Its `hub` does not list this; the answer is the refusal, as the backend got it.
+                // Its `calls` do not list this; the answer is the refusal, as the backend got it.
                 match host::call("harnix.apps.uninstall", &json!({"id": ID}).to_string()) {
                     Ok(answer) => json!({"refused": false, "answer": answer}),
                     Err(refusal) => json!({"refused": true, "message": refusal}),

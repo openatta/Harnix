@@ -46,7 +46,7 @@ pub fn lines(manifest: &Manifest, agent: bool) -> Vec<Value> {
     if caps.storage_mb > 0 {
         out.push(line("storage_mb", caps.storage_mb));
     }
-    out.extend(caps.hub.iter().map(|m| line("hub", m.as_str())));
+    out.extend(caps.calls.iter().map(|m| line("calls", m.as_str())));
     out.extend(caps.fs.iter().map(|p| line("fs", p.as_str())));
     if manifest.component.is_some() && manifest.events.all() {
         out.push(line("events", "all"));
@@ -71,9 +71,9 @@ pub fn lines(manifest: &Manifest, agent: bool) -> Vec<Value> {
     out.extend(
         manifest
             .interface
-            .hub
+            .calls
             .iter()
-            .map(|m| line("ui_hub", m.as_str())),
+            .map(|m| line("ui_calls", m.as_str())),
     );
     if manifest.interface.links {
         out.push(line("links", true));
@@ -136,7 +136,7 @@ pub fn disclose(
         "trust": verified.trust.as_str(),
         "publisher_key": verified.publisher_key.map(|k| k.hex()),
         "capabilities": {
-            "net": caps.net, "env": caps.env, "storage_mb": caps.storage_mb, "hub": caps.hub, "fs": caps.fs,
+            "net": caps.net, "env": caps.env, "storage_mb": caps.storage_mb, "calls": caps.calls, "fs": caps.fs,
         },
         "events": manifest.events.tools,
         "lines": lines(manifest, agent),
@@ -174,7 +174,7 @@ pub fn disclose(
 pub fn digest(package: &[u8], verified: &Verified, replaces: Option<&str>) -> String {
     sha256(
         format!(
-            "harnix-app-consent@1\n{}\n{}\n{}\n",
+            "harnix-ext-consent@1\n{}\n{}\n{}\n",
             sha256(package),
             verified.trust,
             replaces.unwrap_or("-")
@@ -193,7 +193,7 @@ mod tests {
 [app]
 id = "acme.notes"
 version = "1.0.0"
-harnix_api = 1
+harnix_api = 2
 publisher = "acme"
 
 [capabilities]
@@ -286,8 +286,8 @@ publisher = "acme"
         );
         let tools = |events: &str| {
             Manifest::parse(&format!(
-                "[app]\nid = \"acme.notes\"\nversion = \"1.0.0\"\nharnix_api = 1\npublisher = \"acme\"\n\n\
-                 [[component]]\nname = \"tools\"\nworld = \"harnix:app/tools-app@0.1.0\"\n{events}"
+                "[app]\nid = \"acme.notes\"\nversion = \"1.0.0\"\nharnix_api = 2\npublisher = \"acme\"\n\n\
+                 [[component]]\nname = \"tools\"\nworld = \"harnix:ext/tools-ext@1.0.0\"\n{events}"
             ))
             .unwrap()
         };
@@ -300,7 +300,7 @@ publisher = "acme"
 
     #[test]
     fn every_capability_is_a_line() {
-        let m = manifest("net = [\"h\"]\nenv = [\"E\"]\nstorage_mb = 3\nhub = [\"harnix.sessions.list\"]\nfs = [\"${project}\"]\n\n[interface]\nhub = [\"harnix.sessions.list\"]\nlinks = true\n\n[[surface]]\npoint = \"home.card\"\npage = \"card.html\"", true);
+        let m = manifest("net = [\"h\"]\nenv = [\"E\"]\nstorage_mb = 3\ncalls = [\"harnix.sessions.list\"]\nfs = [\"${project}\"]\n\n[interface]\ncalls = [\"harnix.sessions.list\"]\nlinks = true\n\n[[surface]]\npoint = \"home.card\"\npage = \"card.html\"", true);
         let kinds: Vec<String> = lines(&m, true)
             .iter()
             .map(|l| l["capability"].as_str().unwrap().to_string())
@@ -311,10 +311,10 @@ publisher = "acme"
                 "net",
                 "env",
                 "storage_mb",
-                "hub",
+                "calls",
                 "fs",
                 "ui",
-                "ui_hub",
+                "ui_calls",
                 "links",
                 "frames",
                 "agent"

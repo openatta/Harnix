@@ -6,16 +6,16 @@
 //!   "format": "harnix-store-index@1",
 //!   "name": "…",
 //!   "expires": "2026-12-01T00:00:00Z",
-//!   "apps": [{
+//!   "packages": [{
 //!     "id": "acme.notes", "title": "Notes", "publisher": "acme", "description": "…",
 //!     "min_version": "1.1.0",
 //!     "versions": [{
 //!       "version": "1.2.0",
-//!       "harnix_api": 1,
+//!       "harnix_api": 2,
 //!       "capabilities": {"net": ["api.acme.com"], …},
 //!       "signatures": {"publisher": "<key>", "store": "<key>"},
 //!       "revoked": "why, when the store withdrew it",
-//!       "artifacts": {"<engine fingerprint>": {"url": "packages/acme.notes-1.2.0.<engine>.hxapp", "sha256": "…", "size": 12345}}
+//!       "artifacts": {"<engine fingerprint>": {"url": "packages/acme.notes-1.2.0.<engine>.hxext", "sha256": "…", "size": 12345}}
 //!     }]
 //!   }],
 //!   "signature": {"key": "<store key>", "signature": "<hex>"}
@@ -92,7 +92,7 @@ pub struct Index {
     #[serde(default)]
     pub expires: String,
     #[serde(default)]
-    pub apps: Vec<CatalogApp>,
+    pub packages: Vec<CatalogApp>,
     /// The store's, over everything else in it ([`sign_catalog`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature: Option<CatalogSignature>,
@@ -401,7 +401,7 @@ impl Store {
         fingerprint: &str,
     ) -> Result<Resolved, String> {
         let app = index
-            .apps
+            .packages
             .iter()
             .find(|a| a.id == id)
             .ok_or_else(|| format!("the store has no application `{id}`"))?;
@@ -423,7 +423,7 @@ impl Store {
                     })?;
                 if v.harnix_api != HARNIX_API {
                     return Err(format!(
-                        "`{id}` {wanted} is written for application interface {} and this Harnix \
+                        "`{id}` {wanted} is written for extension interface {} and this Harnix \
                          implements {HARNIX_API}",
                         v.harnix_api
                     ));
@@ -440,7 +440,7 @@ impl Store {
                 .max_by(|a, b| compare_versions(&a.version, &b.version))
                 .ok_or_else(|| {
                     format!(
-                        "the store has no version of `{id}` for application interface {HARNIX_API}"
+                        "the store has no version of `{id}` for extension interface {HARNIX_API}"
                     )
                 })?,
         };
@@ -499,7 +499,7 @@ impl Store {
 /// did (`installed_revoked`).
 pub fn view(index: &Index, fingerprint: &str, installed: &BTreeMap<String, String>) -> Value {
     let apps: Vec<Value> = index
-        .apps
+        .packages
         .iter()
         .map(|app| {
             let mut versions: Vec<&CatalogVersion> = app.versions.iter().collect();
@@ -625,14 +625,14 @@ mod tests {
         Index::parse(
             json!({
                 "format": INDEX_FORMAT,
-                "apps": [{
+                "packages": [{
                     "id": "acme.notes", "publisher": "acme",
                     "versions": [
-                        {"version": "1.0.0", "harnix_api": 1, "artifacts": {fingerprint: {"url": "p/1.0.0.hxapp", "sha256": "aa"}}},
-                        {"version": "1.10.0", "harnix_api": 1, "artifacts": {"engine-0+elsewhere+0": {"url": "p/1.10.0.hxapp", "sha256": "bb"}}},
-                        {"version": "1.2.0", "harnix_api": 1, "artifacts": {fingerprint: {"url": "https://cdn.example.com/1.2.0.hxapp", "sha256": "cc"}}},
-                        {"version": "2.0.0", "harnix_api": 2, "artifacts": {fingerprint: {"url": "p/2.0.0.hxapp", "sha256": "dd"}}},
-                        {"version": "1.3.0-rc.1", "harnix_api": 1, "artifacts": {"*": {"url": "p/any.hxapp", "sha256": "ee"}}}
+                        {"version": "1.0.0", "harnix_api": 2, "artifacts": {fingerprint: {"url": "p/1.0.0.hxext", "sha256": "aa"}}},
+                        {"version": "1.10.0", "harnix_api": 2, "artifacts": {"engine-0+elsewhere+0": {"url": "p/1.10.0.hxext", "sha256": "bb"}}},
+                        {"version": "1.2.0", "harnix_api": 2, "artifacts": {fingerprint: {"url": "https://cdn.example.com/1.2.0.hxext", "sha256": "cc"}}},
+                        {"version": "2.0.0", "harnix_api": 3, "artifacts": {fingerprint: {"url": "p/2.0.0.hxext", "sha256": "dd"}}},
+                        {"version": "1.3.0-rc.1", "harnix_api": 2, "artifacts": {"*": {"url": "p/any.hxext", "sha256": "ee"}}}
                     ]
                 }]
             })
@@ -668,11 +668,11 @@ mod tests {
         let r = store
             .resolve(&index, "acme.notes", Some("1.0.0"), fp)
             .unwrap();
-        assert_eq!(r.url.as_str(), "file:///srv/store/p/1.0.0.hxapp");
+        assert_eq!(r.url.as_str(), "file:///srv/store/p/1.0.0.hxext");
         let r = store
             .resolve(&index, "acme.notes", Some("1.2.0"), fp)
             .unwrap();
-        assert_eq!(r.url.as_str(), "https://cdn.example.com/1.2.0.hxapp");
+        assert_eq!(r.url.as_str(), "https://cdn.example.com/1.2.0.hxext");
         // An application with no component has one package for every engine.
         let r = store
             .resolve(&index, "acme.notes", Some("1.3.0-rc.1"), fp)
@@ -682,7 +682,7 @@ mod tests {
         let err = store
             .resolve(&index, "acme.notes", Some("2.0.0"), fp)
             .unwrap_err();
-        assert!(err.contains("application interface 2"), "{err}");
+        assert!(err.contains("extension interface 3"), "{err}");
         assert!(store
             .resolve(&index, "acme.notes", Some("9.9.9"), fp)
             .unwrap_err()
@@ -718,16 +718,16 @@ mod tests {
         assert!(Store::new("https://store.example.com/index.json", vec![]).is_ok());
         let store = Store::new("file:///srv/store/index.json", vec![]).unwrap();
         let mut index = index("fp");
-        index.apps[0].versions[0]
+        index.packages[0].versions[0]
             .artifacts
             .get_mut("fp")
             .unwrap()
-            .url = "http://plain.example.com/x.hxapp".into();
+            .url = "http://plain.example.com/x.hxext".into();
         assert!(store
             .resolve(&index, "acme.notes", Some("1.0.0"), "fp")
             .unwrap_err()
             .contains("https://"));
-        assert!(Index::parse(br#"{"format": "other@9", "apps": []}"#)
+        assert!(Index::parse(br#"{"format": "other@9", "packages": []}"#)
             .unwrap_err()
             .contains("harnix-store-index@1"));
     }
@@ -735,26 +735,26 @@ mod tests {
     #[tokio::test]
     async fn a_download_is_the_package_the_index_lists_or_nothing() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("pkg.hxapp"), b"the package").unwrap();
+        std::fs::write(dir.path().join("pkg.hxext"), b"the package").unwrap();
         let index_url = Url::from_file_path(dir.path().join("index.json")).unwrap();
         let store = Store::new(index_url.as_str(), vec![]).unwrap();
         let resolved = |sha: &str| Resolved {
-            app: index("fp").apps[0].clone(),
-            version: index("fp").apps[0].versions[0].clone(),
+            app: index("fp").packages[0].clone(),
+            version: index("fp").packages[0].versions[0].clone(),
             artifact: Artifact {
-                url: "pkg.hxapp".into(),
+                url: "pkg.hxext".into(),
                 sha256: sha.into(),
                 size: None,
             },
-            url: index_url.join("pkg.hxapp").unwrap(),
+            url: index_url.join("pkg.hxext").unwrap(),
         };
-        let to = dir.path().join("staging/pkg.hxapp");
+        let to = dir.path().join("staging/pkg.hxext");
         store
             .download(&resolved(&sha256(b"the package")), &to)
             .await
             .unwrap();
         assert_eq!(std::fs::read(&to).unwrap(), b"the package");
-        let other = dir.path().join("staging/other.hxapp");
+        let other = dir.path().join("staging/other.hxext");
         let err = store
             .download(&resolved(&sha256(b"something else")), &other)
             .await
@@ -786,7 +786,7 @@ mod tests {
         let now = at("2026-11-09T12:00:00Z");
         let bytes = signed("2026-11-10T00:00:00Z", &store);
         let verified = Index::verify(&bytes, &keys, now).unwrap();
-        assert_eq!(verified.apps[0].id, "acme.notes");
+        assert_eq!(verified.packages[0].id, "acme.notes");
 
         // The same catalog with its keys in another order and other whitespace is the same catalog.
         let mut reordered: serde_json::Map<String, Value> = serde_json::Map::new();
@@ -809,7 +809,7 @@ mod tests {
         assert!(err.contains("a key this Harnix does not carry"), "{err}");
         // Changed after it was signed: a revocation dropped, an expiry pushed back.
         for edit in [
-            |v: &mut Value| v["apps"][0]["versions"][0]["revoked"] = json!("a hole"),
+            |v: &mut Value| v["packages"][0]["versions"][0]["revoked"] = json!("a hole"),
             |v: &mut Value| v["expires"] = json!("2099-01-01T00:00:00Z"),
         ] {
             let mut changed: Value = serde_json::from_slice(&bytes).unwrap();
@@ -830,18 +830,18 @@ mod tests {
         let store = Store::new("file:///srv/store/index.json", vec![]).unwrap();
         let mut index = index(fp);
         // 1.2.0 revoked; nothing before 1.0.0 supported, which withdraws an older one installed.
-        index.apps[0].versions[2].revoked = Some("it leaks the token".into());
-        index.apps[0].versions[1].revoked = Some("never built for this engine".into());
-        index.apps[0].min_version = Some("1.0.0".into());
+        index.packages[0].versions[2].revoked = Some("it leaks the token".into());
+        index.packages[0].versions[1].revoked = Some("never built for this engine".into());
+        index.packages[0].min_version = Some("1.0.0".into());
         let err = store.resolve(&index, "acme.notes", Some("1.2.0"), fp).unwrap_err();
         assert!(err.contains("the store revoked it: it leaks the token"), "{err}");
         // The newest is the newest not withdrawn.
         let r = store.resolve(&index, "acme.notes", None, fp).unwrap();
         assert_eq!(r.version.version, "1.3.0-rc.1");
-        index.apps[0].min_version = Some("1.4.0".into());
+        index.packages[0].min_version = Some("1.4.0".into());
         let err = store.resolve(&index, "acme.notes", Some("1.3.0-rc.1"), fp).unwrap_err();
         assert!(err.contains("supports `acme.notes` from 1.4.0 on"), "{err}");
-        index.apps[0].min_version = Some("1.0.0".into());
+        index.packages[0].min_version = Some("1.0.0".into());
 
         let installed = BTreeMap::from([("acme.notes".to_string(), "1.2.0".to_string())]);
         let shown = view(&index, fp, &installed);

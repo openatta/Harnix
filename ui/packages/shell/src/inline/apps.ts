@@ -168,5 +168,5 @@ export function appsOf(app: App): AppsWatch {
 /** The names a session knows an application's tool by: in this process, and in a spawned daemon. */
 export function toolNames(id: string, tool: string): string[] {
   const flat = id.replace(/\./g, "_");
-  return [`app__${flat}__${tool}`, `mcp__app-${flat}__${tool}`];
+  return [`ext__${flat}__${tool}`, `mcp__ext-${flat}__${tool}`];
 }
