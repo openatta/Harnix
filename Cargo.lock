@@ -1650,11 +1650,18 @@ name = "harnix-testapp"
 version = "0.4.2-2026110901"
 dependencies = [
  "anyhow",
+ "async-trait",
  "futures",
  "harnix",
  "harnix-ext-flow",
+ "harnix-package",
+ "harnix-proc",
+ "harnix-supervise",
+ "harnix-wasm-port",
+ "libc",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
 ]
