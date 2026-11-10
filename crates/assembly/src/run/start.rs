@@ -12,7 +12,7 @@ use crate::host::{lifecycle, Record};
 /// Start each extension with its context. One that fails is disabled with the reason, and takes
 /// what it bound and registered with it; the rest start anyway.
 pub(super) async fn start(records: &mut [Record], admission: &Admission, credentials: &Arc<dyn Credentials>) {
-    let Admission { router, kernel, diagnostics, seats, .. } = admission;
+    let Admission { router, kernel, diagnostics, seats, ui, .. } = admission;
     let failed = lifecycle::start(records, seats, kernel, credentials).await;
     for record in records.iter().filter(|r| failed.iter().any(|f| f == r.manifest.id())) {
         let id = record.manifest.id();
@@ -32,4 +32,6 @@ pub(super) async fn start(records: &mut [Record], admission: &Admission, credent
         kernel.instances.module_disabled(id).await;
     }
     *write(&diagnostics.extensions) = records.iter().map(|r| r.status.clone()).collect();
+    // Which are enabled is settled: a page that connected meanwhile is told.
+    ui.changed();
 }

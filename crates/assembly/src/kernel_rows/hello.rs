@@ -1,17 +1,17 @@
 //! `harnix.hello`: what a client is told once, after the handshake — what the `system` engine is,
 //! what scenes and commands exist there, every instance and the protocol it speaks, the ceilings,
-//! the shell's part, and the interface modules the packages and applications contribute.
+//! the shell's part, and every extension (what the shell activates its UI packages by).
 //!
 //! The assembly's to answer: it is the one layer that knows all of it.
 
-use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use harnix_contract::sync::lock;
 use harnix_hub::{Hub, SYSTEM};
 use harnix_instance::InstanceRegistry;
 use harnix_kernel::Rpc;
 use serde_json::{json, Value};
+
+use super::UiModules;
 
 pub(crate) struct Hello {
     pub hub: Arc<Hub>,
@@ -61,43 +61,15 @@ impl Hello {
             "permission_prompt_timeout_secs": self.prompt_timeout_secs,
             "scenes": scenes.get("scenes").cloned().unwrap_or(json!([])),
             "commands": commands.get("commands").cloned().unwrap_or(json!([])),
-            // Interface modules the installed packages contribute, flat and
-            // in load order. An array, not a map by point: the client imports
-            // each one and the module decides what it registers, so grouping
-            // by point here would be a shape nothing reads.
-            "contributions": self.ui.all(),
+            // What a client fills in when it names none: the instance, and the space (none until
+            // a product names one).
+            "defaults": { "instance": SYSTEM, "space": Value::Null },
+            // Every extension and whether it is enabled: the shell activates the UI packages
+            // compiled into it by this, before its first draw. What changes later, and the
+            // interface modules to load, are `harnix.ui`'s.
+            "extensions": self.ui.extensions(),
             "shell": self.shell,
             "limits": self.limits,
         }))
-    }
-}
-
-/// The interface modules the page is told at hello: the running applications', and what each
-/// extension publishes while it runs (the installed packages' are `plugins`'). Sources that
-/// change apart, told as one list. Replaced at assembly and again after an install: a package
-/// that needed a reload to appear is a package nobody will believe installed.
-#[derive(Default)]
-pub(crate) struct UiModules {
-    lists: Mutex<(Vec<Value>, BTreeMap<String, Vec<Value>>)>,
-}
-
-impl UiModules {
-    #[cfg_attr(not(feature = "apps"), allow(dead_code))]
-    pub fn set_apps(&self, modules: Vec<Value>) {
-        lock(&self.lists).0 = modules;
-    }
-
-    /// What one extension publishes, in place of what it published before.
-    pub fn set_extension(&self, ext: &str, modules: Vec<Value>) {
-        let mut lists = lock(&self.lists);
-        match modules.is_empty() {
-            true => lists.1.remove(ext),
-            false => lists.1.insert(ext.to_string(), modules),
-        };
-    }
-
-    fn all(&self) -> Value {
-        let lists = lock(&self.lists);
-        json!(lists.0.iter().chain(lists.1.values().flatten()).cloned().collect::<Vec<_>>())
     }
 }

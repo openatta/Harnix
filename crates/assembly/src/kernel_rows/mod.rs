@@ -8,6 +8,7 @@
 //! unreachable until someone writes it down (concept §3.4).
 
 mod hello;
+mod ui;
 
 use std::future::Future;
 use std::sync::{Arc, OnceLock};
@@ -21,7 +22,8 @@ use serde_json::{json, Value};
 
 use crate::gate::{Behind, Diagnostics};
 
-pub(crate) use hello::{Hello, UiModules};
+pub(crate) use hello::Hello;
+pub(crate) use ui::{UiModules, UiTopic, UI};
 
 /// `harnix.process`, a method and a topic of the same value.
 pub(crate) const PROCESS: &str = "harnix.process";
@@ -109,6 +111,10 @@ pub fn table(behind: &Behind) -> RouteTable {
             late(&behind.process, |p: Arc<crate::process::Process>| async move { Ok(p.view()) }),
         ),
         Row::topic(PROCESS, Access::device()),
+        // What the page draws for whom, and the modules it loads: a method, and a topic pushed on
+        // every change.
+        Row::method(UI, Access::device(), late(&behind.hello, |h: Arc<Hello>| async move { Ok(h.ui.view()) })),
+        Row::topic(UI, Access::device()),
         Row::method("harnix.contributions", Access::device(), answer(|d, _| d.contributions())),
         // Every extension, and why one does nothing: what a person asks first.
         Row::method("harnix.extensions", Access::device(), answer(|d, _| d.list())),

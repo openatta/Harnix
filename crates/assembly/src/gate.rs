@@ -209,6 +209,32 @@ impl Diagnostics {
         json!({ "extensions": out })
     }
 
+    /// Each extension as `harnix.ui` tells the page of it: its id, trust, carrier, version, whether
+    /// it is enabled, and what it declared of its interface. One registered while the process runs
+    /// is enabled for as long as it is registered.
+    pub(crate) fn ui_entries(&self) -> Vec<Value> {
+        let mut out: Vec<Value> = read(&self.extensions)
+            .iter()
+            .map(|e| {
+                json!({
+                    "id": e.id,
+                    "trust": e.trust,
+                    "carrier": e.carrier,
+                    "version": e.version,
+                    "enabled": e.enabled,
+                    "ui": e.ui,
+                })
+            })
+            .collect();
+        if let Some(apps) = self.dynamic.get() {
+            use harnix_module::apps::AppRuntime;
+            out.extend(apps.registered().into_iter().map(|a| {
+                json!({ "id": a.id, "trust": "consent", "carrier": "wasm", "version": null, "enabled": true, "ui": null })
+            }));
+        }
+        out
+    }
+
     /// The shape `harnix.contributions` has always had: every method the
     /// extensions registered, and what did not take.
     pub(crate) fn contributions(&self) -> Value {
