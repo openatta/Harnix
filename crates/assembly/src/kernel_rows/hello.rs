@@ -4,6 +4,7 @@
 //!
 //! The assembly's to answer: it is the one layer that knows all of it.
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use harnix_contract::sync::lock;
@@ -71,13 +72,13 @@ impl Hello {
     }
 }
 
-/// The interface modules the page is told at hello: the installed packages', and the running
-/// applications'. Two sources that change apart, told as one list. Replaced at assembly and
-/// again after an install: a package that needed a reload to appear is a package nobody will
-/// believe installed.
+/// The interface modules the page is told at hello: the installed packages', the running
+/// applications', and what each extension publishes while it runs. Sources that change apart,
+/// told as one list. Replaced at assembly and again after an install: a package that needed a
+/// reload to appear is a package nobody will believe installed.
 #[derive(Default)]
 pub(crate) struct UiModules {
-    lists: Mutex<(Vec<Value>, Vec<Value>)>,
+    lists: Mutex<(Vec<Value>, Vec<Value>, BTreeMap<String, Vec<Value>>)>,
 }
 
 impl UiModules {
@@ -90,8 +91,17 @@ impl UiModules {
         lock(&self.lists).1 = modules;
     }
 
+    /// What one extension publishes, in place of what it published before.
+    pub fn set_extension(&self, ext: &str, modules: Vec<Value>) {
+        let mut lists = lock(&self.lists);
+        match modules.is_empty() {
+            true => lists.2.remove(ext),
+            false => lists.2.insert(ext.to_string(), modules),
+        };
+    }
+
     fn all(&self) -> Value {
         let lists = lock(&self.lists);
-        json!(lists.0.iter().chain(&lists.1).cloned().collect::<Vec<_>>())
+        json!(lists.0.iter().chain(&lists.1).chain(lists.2.values().flatten()).cloned().collect::<Vec<_>>())
     }
 }

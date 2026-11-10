@@ -16,7 +16,7 @@ use harnix_contract::{ExtId, RpcError, Subject};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use crate::credentials::Credentials;
+use harnix_ext::Credentials;
 use crate::events::{Events, TopicDecl};
 
 /// The process side of a module's context: implemented by the application,
@@ -136,7 +136,7 @@ impl ModuleContext {
         &self.shared.id
     }
 
-    /// `[modules.<id>]`, deserialized. An absent section is an empty table,
+    /// `[ext.<id>]`, deserialized. An absent section is an empty table,
     /// so a config type whose fields all have defaults always reads.
     pub fn config<T: DeserializeOwned>(&self) -> anyhow::Result<T> {
         let value = match &self.shared.config {
@@ -144,7 +144,7 @@ impl ModuleContext {
             other => other.clone(),
         };
         serde_json::from_value(value)
-            .map_err(|e| anyhow::anyhow!("[modules.{}]: {e}", self.shared.id))
+            .map_err(|e| anyhow::anyhow!("[ext.{}]: {e}", self.shared.id))
     }
 
     /// The section as it was written.
@@ -261,33 +261,29 @@ impl ModuleContext {
 /// What a handler is handed: the call — who is making it — and its module's context.
 #[derive(Clone)]
 pub struct CallContext {
-    call: harnix_kernel::CallContext,
+    call: harnix_ext::Call,
     module: ModuleContext,
 }
 
 impl CallContext {
     #[doc(hidden)]
-    pub fn new(call: harnix_kernel::CallContext, module: ModuleContext) -> Self {
+    pub fn new(call: harnix_ext::Call, module: ModuleContext) -> Self {
         Self { call, module }
     }
 
     pub fn subject(&self) -> &Subject {
-        &self.call.subject
+        self.call.subject()
     }
 
     /// The paired device behind this call, when it came from one.
     pub fn device(&self) -> Option<&str> {
-        match &self.call.subject {
-            Subject::Device { id } => Some(id),
-            _ => None,
-        }
+        self.call.device()
     }
 
     /// Call a method as this module while answering this call: decided and audited like
     /// [`ModuleContext::call`], and on the record as made within this call.
     pub async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
-        let cx = self.call.child(&self.module.shared.ext, false);
-        self.module.kernel().call_in(cx, method, params).await
+        self.call.call(method, params).await
     }
 
     pub fn module(&self) -> &ModuleContext {

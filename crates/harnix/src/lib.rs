@@ -32,8 +32,9 @@
 //! }
 //! ```
 //!
-//! What is here is a re-export: the application builder (`harnix-assembly`), the
-//! module contract (`harnix-module`), and what a module gives the engine — tools, tool providers,
+//! What is here is a re-export: the application builder (`harnix-assembly`), the extension
+//! interface ([`ext`]), the module contract (`harnix-module`, read as extensions while Harnix's own
+//! move onto the interface), and what an extension gives the engine — tools, tool providers,
 //! hooks, scene layers, prompt gates ([`engine`]).
 //! An application depends on this crate alone. See `docs/harnix-sdk.md`.
 
@@ -41,6 +42,18 @@
 /// for every session (`engine::ToolProvider`), a hook before a call (`engine::ToolHook`), a scene
 /// as a layer over another (`engine::SceneLayer`), a gate on messages (`engine::PromptGate`).
 pub use harnix_engine_api as engine;
+
+/// The extension interface: [`ext::Extension`], its registrar and descriptor, its context.
+/// Stable within 0.5.z: it only grows.
+pub use harnix_ext as ext;
+
+/// A product's route table without starting it ([`testing::describe`]), and a process started
+/// without its listener ([`testing::Kernel`]): the real router and hub, an engine that replays.
+/// **Not stable**.
+#[cfg(feature = "testing")]
+pub mod testing {
+    pub use harnix_assembly::testing::{describe, Kernel};
+}
 
 /// Agix itself, for what [`engine`] does not say: its crates, a raw session customizer
 /// (`agix::RawHooks::raw_hook`), an Agix scene as a layer's base (`agix::RawScenes::raw`).
@@ -52,8 +65,9 @@ pub mod agix {
 
 pub use async_trait::async_trait;
 pub use axum;
-pub use harnix_assembly::{App, AppBuilder, ModuleStatus, Namespace, HARNIX_VERSION, SHUTDOWN_GRACE};
+pub use harnix_assembly::{App, AppBuilder, ExtensionSlot, ExtensionStatus, Namespace, HARNIX_VERSION, SHUTDOWN_GRACE};
 pub use harnix_contract::s1::{caps, Capability, CapabilitySpec, ExtId};
+pub use harnix_ext::{Extension, ExtensionSet, EXT_API_VERSION};
 pub use harnix_contract::{codes, RpcError, Subject, SYSTEM_INSTANCE};
 pub use harnix_module::{
     AppHandle, AppHandler, AppHost, AppMethod, AppSpec, AppSummary, AppTopic, AppWithdrawn, AttachTo, Attachment, SendOptions, CallContext, CredentialRef, Credentials, EngineContrib, EngineProfile, Entry,

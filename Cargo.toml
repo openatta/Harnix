@@ -17,8 +17,10 @@ members = [
     "crates/contract",
     "crates/engine",
     "crates/engine-api",
+    "crates/ext/api",
     "crates/ext/flow",
     "crates/harnix",
+    "crates/host-api",
     "crates/hub",
     "crates/kernel",
     "crates/module",
@@ -77,7 +79,9 @@ harnix-client    = { path = "crates/client" }
 harnix-contract  = { path = "crates/contract" }
 harnix-engine    = { path = "crates/engine" }
 harnix-engine-api = { path = "crates/engine-api" }
+harnix-ext       = { path = "crates/ext/api" }
 harnix-ext-flow    = { path = "crates/ext/flow" }
+harnix-host-api  = { path = "crates/host-api" }
 harnix-module    = { path = "crates/module" }
 harnix-hub       = { path = "crates/hub" }
 harnix-kernel    = { path = "crates/kernel" }
@@ -119,6 +123,10 @@ futures = "0.3"
 async-trait = "0.1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
 bytes = "1"
+# The extension interface's HTTP routes are `http` 1.x, so axum's major version is not part of it.
+http = "1"
+http-body-util = "0.1"
+tower = { version = "0.5", default-features = false, features = ["util"] }
 axum = { version = "0.8", features = ["ws"] }
 # TLS for the listener. rustls is already in the graph via reqwest, so the
 # marginal cost against the binary-size budget is small.

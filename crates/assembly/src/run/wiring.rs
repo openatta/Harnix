@@ -11,7 +11,9 @@ use std::sync::Arc;
 use harnix_router::RouteTable;
 use harnix_hub::Hub;
 use harnix_engine_api::EngineContribution;
-use harnix_instance::{Factory, Profile};
+use harnix_instance::Factory;
+
+use crate::profile::Profile;
 use serde_json::Value;
 
 use crate::kernel_rows::UiModules;
@@ -24,7 +26,7 @@ pub(super) const APPS_PROGRESS_TOPIC: &str = "harnix.apps.progress";
 /// The application runtime, when this build has one and the profile asks for it, and what the
 /// steps of a start connect to it.
 #[derive(Clone, Default)]
-pub(super) struct AppsWiring {
+pub(crate) struct AppsWiring {
     #[cfg(feature = "apps")]
     runtime: Option<Arc<harnix_apps::Runtime>>,
     /// The tool provider that gives a session the applications' tools: one, for every engine
@@ -196,7 +198,7 @@ impl harnix_instance::ServerTokens for DaemonTokens {
 /// does not read stops the start, naming it: a typo here would otherwise quietly trust nobody.
 #[cfg(feature = "apps")]
 fn signing_keys(
-    apps: &harnix_instance::profile::AppsProfile,
+    apps: &crate::profile::AppsProfile,
     store: Option<&[String]>,
 ) -> anyhow::Result<harnix_apps::signature::Keys> {
     use harnix_apps::signature::PublicKey;

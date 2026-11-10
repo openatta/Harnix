@@ -1,8 +1,9 @@
 //! The kernel's half of the route table.
 //!
 //! Reading this file, the hub's rows and the instance registry's answers "what can a client
-//! call" for everything the kernel itself answers. Modules add their own rows at registration (their methods, topics and
-//! routes, and the grants their manifests disclose); the diagnostics page lists the whole table.
+//! call" for everything the kernel itself answers. Extensions add their own rows at registration
+//! (their methods, topics and routes, and the grants their manifests disclose); the diagnostics
+//! page lists the whole table.
 //! Everything not named anywhere is refused — the table is an allow-list, so a new method is
 //! unreachable until someone writes it down (concept §3.4).
 
@@ -109,6 +110,8 @@ pub fn table(behind: &Behind) -> RouteTable {
         ),
         Row::topic(PROCESS, Access::device()),
         Row::method("harnix.contributions", Access::device(), answer(|d, _| d.contributions())),
+        // Every extension, and why one does nothing: what a person asks first.
+        Row::method("harnix.extensions", Access::device(), answer(|d, _| d.list())),
         Row::method("harnix.diagnostics", Access::device(), answer(|d, _| d.report())),
         // The decisions the router recorded, newest first: what the system space shows as its
         // audit, and what a test reads instead of transcript files.

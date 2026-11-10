@@ -74,6 +74,8 @@ pub struct InstanceFacts {
     pub template: Option<String>,
     /// What its engine is: data root, scenes, model, recordings.
     pub engine: Facts,
+    /// Whose engine it is: the product's, or an extension's own.
+    pub trust: InstanceTrust,
 }
 
 /// One instance: what it is, and what stops it. Its link is the hub's to use: the slot keeps only
@@ -124,6 +126,7 @@ impl Slot {
             owner: self.owner.clone(),
             template: self.template.clone(),
             engine: self.facts.clone(),
+            trust: self.trust.clone(),
         }
     }
 }

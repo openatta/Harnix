@@ -24,3 +24,8 @@ default = []
 # `cargo build -p harnix-cli --features apps`: a `harnix` that can host runtime applications.
 # Its own target directory keeps the default build's untouched (scripts/check.sh).
 apps = ["harnix/apps"]
+
+[dev-dependencies]
+# `harnix::testing::describe`: the route table this binary serves, pinned by `tests/method_table.rs`.
+harnix = { workspace = true, features = ["testing"] }
+serde_json = { workspace = true }

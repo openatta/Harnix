@@ -803,8 +803,10 @@ fn every_harnix_dependency_resolves() {
         "contract",
         "engine",
         "engine-api",
+        "ext/api",
         "ext/flow",
         "harnix",
+        "host-api",
         "hub",
         "kernel",
         "module",
@@ -824,6 +826,8 @@ fn every_harnix_dependency_resolves() {
         .map(|c| {
             if *c == "harnix" {
                 "harnix".to_string()
+            } else if *c == "ext/api" {
+                "harnix-ext".to_string()
             } else {
                 format!("harnix-{}", c.replace('/', "-"))
             }
@@ -1244,13 +1248,11 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P10"]
     fn l12_ext() {
         depends(EXT, &[CONTRACT, KERNEL, ENGINE_API], &agix_and(&[ENGINE, "wasmtime"]), &["axum"]);
     }
 
     #[test]
-    #[ignore = "0.5.0：P10"]
     fn l13_host_api() {
         depends(HOST_API, &[CONTRACT, EXT, ENGINE_API], &agix_and(&[KERNEL, ENGINE]), &[]);
     }
@@ -1380,7 +1382,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P10"]
     fn l25_the_host_api_is_the_assemblys_and_the_host_components() {
         only_used_by(HOST_API, &[ASSEMBLY, PACKAGES, CARRIER_WASM, CARRIER_PROC], &[]);
         assert!(member_names().iter().any(|n| n == HOST_API), "`{HOST_API}` does not exist (yet)");
@@ -1554,7 +1555,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P10"]
     fn c06_the_extension_interface_hides_nothing_and_names_no_agix() {
         assert_interface_crate_is_clean(EXT);
     }
@@ -1596,6 +1596,25 @@ mod rules {
         let mut expected = vec![ENGINE.to_string(), FACADE.to_string()];
         expected.sort();
         assert_eq!(seen, expected, "`pub mod agix` is in the engine and the facade, and nowhere else");
+    }
+
+    /// The engine interface's two unstable doors — an engine's own scene as a layer's base, an
+    /// engine's own hook — are opened by the `agix` escape hatch alone; the extension host passes
+    /// on hooks it was given, switched off with their extension, and opens nothing.
+    #[test]
+    fn c08_the_engine_interfaces_unstable_doors_are_the_escape_hatchs() {
+        let allowed = ["crates/engine/src/agix.rs", "crates/assembly/src/host/contribution.rs"];
+        let mut offenders = Vec::new();
+        for name in member_names() {
+            for (path, text) in sources(&name) {
+                let code = lex(&text, false).replace(' ', "");
+                let opens = ["SceneBase::foreign(", ".foreign_hook(", ".foreign_hook_while("].iter().any(|n| code.contains(n));
+                if opens && !allowed.iter().any(|a| rel(&path) == *a) {
+                    offenders.push(format!("{} opens an unstable door of the engine interface", rel(&path)));
+                }
+            }
+        }
+        assert!(offenders.is_empty(), "\n{}", offenders.join("\n"));
     }
 
     #[test]
@@ -1705,7 +1724,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P10"]
     fn c13_the_kernel_is_named_only_inside_the_extension_interfaces_internal_module() {
         let dir = crate_dir(EXT).join("src");
         assert!(dir.join("internal").is_dir() || dir.join("internal.rs").is_file(), "`internal` does not exist (yet)");
@@ -1856,7 +1874,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P10"]
     fn c14_the_extension_interface_and_the_host_api_are_non_exhaustive() {
         assert_non_exhaustive(sources(EXT));
         assert_non_exhaustive(sources(HOST_API));
@@ -1873,7 +1890,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P10"]
     fn c15_the_extension_interface_has_no_feature_gated_members() {
         assert_no_feature_gated_members(sources(EXT));
     }

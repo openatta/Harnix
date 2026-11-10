@@ -9,6 +9,7 @@
 
 use std::fmt::Write as _;
 
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PointKind {
     /// Contribute a named, ordered, removable thing.
@@ -21,6 +22,7 @@ pub enum PointKind {
 
 /// The order of magnitude a point fires at. This is a constraint, not
 /// decoration: it decides whether a point is open, and to what.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Frequency {
     PerProcess,
@@ -31,6 +33,16 @@ pub enum Frequency {
     PerBlockChange,
     /// When the user's selection or a panel's input changes.
     PerInteraction,
+}
+
+impl PointKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PointKind::Register => "注册",
+            PointKind::Fold => "折叠",
+            PointKind::Render => "呈现",
+        }
+    }
 }
 
 impl Frequency {
@@ -45,6 +57,7 @@ impl Frequency {
     }
 }
 
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy)]
 pub struct Point {
     pub id: &'static str,
@@ -133,11 +146,7 @@ pub fn render_markdown() -> String {
     out.push_str("| 贡献点 | 类型 | 贡献什么 | 求值时机 | 频率 |\n");
     out.push_str("|---|---|---|---|---|\n");
     for p in POINTS {
-        let kind = match p.kind {
-            PointKind::Register => "注册",
-            PointKind::Fold => "折叠",
-            PointKind::Render => "呈现",
-        };
+        let kind = p.kind.as_str();
         let _ = writeln!(
             out,
             "| `{}` | {} | {} | {} | {} |",

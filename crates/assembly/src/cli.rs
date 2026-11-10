@@ -5,7 +5,9 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 
 use clap::{CommandFactory, FromArgMatches, Parser};
-use harnix_instance::{EngineProfile, Profile};
+use harnix_instance::EngineProfile;
+
+use crate::profile::Profile;
 
 #[derive(clap::Subcommand, Debug)]
 pub(crate) enum Command {
@@ -223,10 +225,12 @@ pub(crate) fn versions(_app: &str, app_version: &str) -> (String, String) {
         "{app_version}\n\
          harnix {}\n\
          agix {agix}\n\
+         extension API {}\n\
          module API {}\n\
          contribution API {}\n\
          protocol {}",
         crate::HARNIX_VERSION,
+        harnix_ext::EXT_API_VERSION,
         harnix_module::MODULE_API_VERSION,
         harnix_contract::CONTRIB_API_VERSION,
         harnix_contract::PROTOCOL_VERSION,
@@ -265,13 +269,13 @@ pub(crate) fn resolve_profile(cli: &Cli) -> anyhow::Result<Profile> {
         profile.transport.host = host.to_string();
     }
     if let Some(scene) = &cli.scene {
-        profile.engine.scene = scene.clone();
+        profile.instances.engine.scene = scene.clone();
     }
     if !cli.scenes.is_empty() {
-        profile.engine.scenes = cli.scenes.clone();
+        profile.instances.engine.scenes = cli.scenes.clone();
     }
     if let Some(model) = &cli.model {
-        profile.engine.model = model.clone();
+        profile.instances.engine.model = model.clone();
     }
     if let Some(dir) = &cli.ui_dir {
         profile.ui.dir = Some(dir.clone());

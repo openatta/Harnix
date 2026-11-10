@@ -1,23 +1,30 @@
-//! Where a module's secrets come from.
+//! Where an extension's secrets come from.
 //!
 //! A profile never holds a secret, only a reference to one:
 //!
 //! ```toml
-//! [modules.watchlist]
+//! [ext.watchlist]
 //! quote_api_key = { credential = "helm/quote-api" }
 //! ```
 //!
-//! The application decides what answers a reference — the system keychain,
-//! a vault, the environment — by handing `App::builder().credentials(..)` a
-//! [`Credentials`]. The default reads the environment.
+//! The product decides what answers a reference — the system keychain, a vault, the
+//! environment — by handing `App::builder().credentials(..)` a [`Credentials`]. The default reads
+//! the environment.
 
 use harnix_engine_api::Secret;
 use serde::Deserialize;
 
 /// A reference to a secret, as written in a profile.
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct CredentialRef {
     pub credential: String,
+}
+
+impl CredentialRef {
+    pub fn new(credential: impl Into<String>) -> Self {
+        Self { credential: credential.into() }
+    }
 }
 
 pub trait Credentials: Send + Sync {

@@ -1388,6 +1388,7 @@ dependencies = [
  "harnix-contract",
  "harnix-engine",
  "harnix-engine-api",
+ "harnix-ext",
  "harnix-module",
  "serde",
  "serde_json",
@@ -1425,6 +1426,7 @@ version = "0.4.2-2026110901"
 dependencies = [
  "anyhow",
  "async-trait",
+ "axum",
  "clap",
  "harnix-apps",
  "harnix-authz",
@@ -1432,12 +1434,15 @@ dependencies = [
  "harnix-contract",
  "harnix-engine",
  "harnix-engine-api",
+ "harnix-ext",
+ "harnix-host-api",
  "harnix-hub",
  "harnix-instance",
  "harnix-kernel",
  "harnix-module",
  "harnix-router",
  "harnix-transport",
+ "http-body-util",
  "libc",
  "serde",
  "serde_json",
@@ -1492,6 +1497,7 @@ dependencies = [
  "anyhow",
  "harnix",
  "harnix-ext-flow",
+ "serde_json",
 ]
 
 [[package]]
@@ -1551,6 +1557,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "harnix-ext"
+version = "0.4.2-2026110901"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "bytes",
+ "harnix",
+ "harnix-contract",
+ "harnix-engine-api",
+ "harnix-kernel",
+ "http",
+ "http-body-util",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tower",
+ "tracing",
+]
+
+[[package]]
 name = "harnix-ext-flow"
 version = "0.4.2-2026110901"
 dependencies = [
@@ -1573,6 +1601,19 @@ dependencies = [
  "tokio-util",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "harnix-host-api"
+version = "0.4.2-2026110901"
+dependencies = [
+ "async-trait",
+ "harnix-contract",
+ "harnix-engine-api",
+ "harnix-ext",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -1635,6 +1676,7 @@ dependencies = [
  "harnix-authz",
  "harnix-contract",
  "harnix-engine-api",
+ "harnix-ext",
  "harnix-instance",
  "harnix-kernel",
  "serde",

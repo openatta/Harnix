@@ -1,4 +1,4 @@
-//! Step 4: the instances — `system`, with the native contributions of the modules still enabled;
+//! Step 4: the instances — `system`, with the native contributions of the extensions still enabled;
 //! the profile's `[[instances]]`; and the registry the ledger's are built from later.
 
 use std::collections::BTreeMap;
@@ -8,13 +8,14 @@ use std::sync::Arc;
 use harnix_router::RouteTable;
 use harnix_engine_api::InstanceCarrier;
 use harnix_instance::{
-    Built, DownLink, EngineConfig, Factory, Facts, HistoryStore, Ledger, Owner, Profile, Recording, RegistryConfig,
+    Built, DownLink, EngineConfig, Factory, Facts, HistoryStore, Ledger, Owner, Recording, RegistryConfig,
 };
-use harnix_module::Credentials;
+use harnix_ext::Credentials;
 
 use super::wiring::AppsWiring;
-use crate::modules::{self, Record};
+use crate::host::{lifecycle, Record};
 use crate::paths::Roots;
+use crate::profile::Profile;
 
 /// What the instance registry is made with: its templates and ledger, and the instances that
 /// are there from the start.
@@ -40,18 +41,19 @@ pub(super) async fn build(
 ) -> anyhow::Result<Instances> {
     let mut registry = registry(profile, roots, records, table, credentials, apps, recording, grants)?;
 
+    let engine_profile = &profile.instances.engine;
     let engine = harnix_instance::build_engine(EngineConfig {
-        scene: profile.engine.scene.clone(),
-        scenes: profile.engine.scenes.clone(),
-        model: profile.engine.model.clone(),
-        max_tokens: profile.engine.max_tokens,
-        session_cap: profile.engine.session_cap,
-        session_idle_timeout_secs: profile.engine.session_idle_timeout_secs,
-        permission_prompt_timeout_secs: profile.engine.permission_prompt_timeout_secs,
+        scene: engine_profile.scene.clone(),
+        scenes: engine_profile.scenes.clone(),
+        model: engine_profile.model.clone(),
+        max_tokens: engine_profile.max_tokens,
+        session_cap: engine_profile.session_cap,
+        session_idle_timeout_secs: engine_profile.session_idle_timeout_secs,
+        permission_prompt_timeout_secs: engine_profile.permission_prompt_timeout_secs,
         data_root: roots.engine.clone(),
         cwd: None,
         contrib: {
-            let mut contrib = modules::engine_contrib(records);
+            let mut contrib = lifecycle::main_contribution(records);
             apps.engine(&mut contrib);
             contrib
         },
@@ -75,7 +77,8 @@ pub(super) async fn build(
 }
 
 /// The factory every instance is built with and the templates it builds from: the profile's,
-/// then each module's in order. A module whose template takes an id already taken is disabled.
+/// then each extension's in order. An extension whose template takes an id already taken is
+/// disabled.
 fn registry(
     profile: &Profile,
     roots: &Roots,
@@ -94,6 +97,10 @@ fn registry(
     // A template that inherits providers inherits the system instance's.
     factory.providers_from = Some(roots.engine.clone());
     factory.recording = recording;
+    // What the extensions give every engine built in this process.
+    let (providers, admitted) = lifecycle::everywhere(records);
+    factory.providers.extend(providers);
+    factory.admitted.extend(admitted);
     apps.factory(&mut factory);
     let mut registry = RegistryConfig {
         templates: BTreeMap::new(),
@@ -103,24 +110,25 @@ fn registry(
         disabled: records
             .iter()
             .filter(|r| !r.is_enabled())
-            .map(|r| r.manifest.id.clone())
+            .map(|r| r.manifest.id().to_string())
             .collect(),
         fixed: BTreeMap::new(),
         grants,
     };
-    for decl in &profile.instance_templates {
+    for decl in &profile.instances.instance_templates {
         let template = decl.template()?;
         registry
             .add_template(template, Owner::Kernel)
             .map_err(anyhow::Error::msg)?;
     }
-    // A disabled module's templates are registered too, so what was built
-    // from them is listed as down because of that module rather than as
+    // A disabled extension's templates are registered too, so what was built
+    // from them is listed as down because of that extension rather than as
     // built from a template that does not exist.
     for record in records.iter_mut() {
-        for template in record.templates.clone() {
+        let templates = record.descriptor.as_ref().map(|d| d.templates().to_vec()).unwrap_or_default();
+        for template in templates {
             if let Err(reason) =
-                registry.add_template(template, Owner::Module(record.manifest.id.clone()))
+                registry.add_template(template, Owner::Module(record.manifest.id().to_string()))
             {
                 if record.is_enabled() {
                     record.disable("registration", reason, table);
@@ -137,7 +145,7 @@ fn registry(
 /// process.
 async fn fixed(profile: &Profile, registry: &mut RegistryConfig) -> anyhow::Result<Vec<(String, Built)>> {
     let mut fixed = Vec::new();
-    for decl in &profile.instances {
+    for decl in &profile.instances.instances {
         check_id(&decl.id)?;
         let root = instance_root(&registry.instances_dir, decl.data_root.as_deref(), &decl.id);
         let built = match decl.carrier() {

@@ -7,12 +7,9 @@
 import { type Backend, launchFor, startHarnix } from "@harnix/testkit";
 
 export const PROBE_PROFILE = `
-[modules.probe]
+[ext.probe]
 greeting = "hi there"
 key = { credential = "probe/key" }
-
-[modules.nobody]
-anything = 1
 `;
 
 export function startTestApp(
