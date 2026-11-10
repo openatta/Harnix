@@ -1,0 +1,27 @@
+[package]
+name = "harnix-proc"
+version      = "0.4.2-2026110901"
+edition      = "2021"
+rust-version = "1.87"
+license      = "Apache-2.0"
+publish      = false
+description  = "An extension process: the product re-executed as `ext-proc`, its host and VM behind the extension wire"
+
+# A library, not a program: the product links it and re-executes itself as `<product> ext-proc`,
+# so the extension process is the same build as the product that started it. It runs the host
+# (`harnix-wasm-host`) and reaches the product only over the extension wire (`harnix-wasm-port`'s
+# `socket`); of the product's skeleton it names nothing (`crates/harnix/tests/layering.rs`).
+[dependencies]
+harnix-package   = { workspace = true }
+harnix-wasm-host = { workspace = true }
+harnix-wasm-port = { workspace = true, features = ["socket"] }
+anyhow      = { workspace = true }
+async-trait = { workspace = true }
+libc        = { workspace = true }
+serde_json  = { workspace = true }
+tokio       = { workspace = true }
+tracing     = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

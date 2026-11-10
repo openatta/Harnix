@@ -5,6 +5,7 @@ members = [
     "crates/assembly",
     "crates/wasm-host",
     "crates/package",
+    "crates/proc",
     "crates/wasm-port",
     "crates/apps",
     "crates/instance",
@@ -48,6 +49,9 @@ members = [
 #                                                     manifest, package, signatures, store)
 #   wasm-port ─→ contract                             (the host's boundary: Platform and Control)
 #   wasm-host ─→ package, wasm-port, wasm          (the supervisor: lifecycle, dispatch, idling)
+#   proc ─→ wasm-host, wasm-port, package          (an extension process: `<product> ext-proc`, the
+#                                                     host behind the extension wire; a library the
+#                                                     product links and re-executes itself as)
 #   apps ─→ wasm-host, builtin, module, Agix          (the embedded glue: the port over the kernel,
 #                                                     the Agix plugin, /apps/<id>/…; only a build
 #                                                     with the `apps` feature links any of these)
@@ -57,6 +61,7 @@ harnix           = { path = "crates/harnix" }
 harnix-assembly  = { path = "crates/assembly" }
 harnix-wasm-host = { path = "crates/wasm-host" }
 harnix-package   = { path = "crates/package" }
+harnix-proc      = { path = "crates/proc" }
 harnix-wasm-port = { path = "crates/wasm-port" }
 harnix-apps      = { path = "crates/apps" }
 harnix-instance  = { path = "crates/instance" }
