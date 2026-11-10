@@ -1404,6 +1404,7 @@ dependencies = [
  "base",
  "harnix-builtin",
  "harnix-contract",
+ "harnix-kernel",
  "harnix-module",
  "harnix-package",
  "harnix-wasm-host",
@@ -1435,7 +1436,9 @@ dependencies = [
  "harnix-contract",
  "harnix-hub",
  "harnix-instance",
+ "harnix-kernel",
  "harnix-module",
+ "harnix-router",
  "harnix-transport",
  "history",
  "serde",
@@ -1452,9 +1455,9 @@ dependencies = [
 name = "harnix-authz"
 version = "0.4.2-2026110901"
 dependencies = [
- "async-trait",
  "base64 0.22.1",
  "harnix-contract",
+ "harnix-kernel",
  "hex",
  "ring",
  "serde",
@@ -1547,6 +1550,7 @@ dependencies = [
  "async-trait",
  "harnix-contract",
  "harnix-instance",
+ "harnix-kernel",
  "libc",
  "serde",
  "serde_json",
@@ -1582,6 +1586,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "harnix-kernel"
+version = "0.4.2-2026110901"
+dependencies = [
+ "async-trait",
+ "harnix-contract",
+ "serde_json",
+ "tokio-util",
+]
+
+[[package]]
 name = "harnix-module"
 version = "0.4.2-2026110901"
 dependencies = [
@@ -1592,6 +1606,7 @@ dependencies = [
  "harnix-authz",
  "harnix-contract",
  "harnix-instance",
+ "harnix-kernel",
  "history",
  "serde",
  "serde_json",
@@ -1633,6 +1648,18 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "harnix-router"
+version = "0.4.2-2026110901"
+dependencies = [
+ "async-trait",
+ "harnix-authz",
+ "harnix-contract",
+ "harnix-kernel",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -1679,7 +1706,7 @@ dependencies = [
  "futures",
  "harnix-authz",
  "harnix-contract",
- "harnix-hub",
+ "harnix-kernel",
  "include_dir",
  "reqwest 0.12.28",
  "ring",

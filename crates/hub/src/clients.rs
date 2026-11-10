@@ -13,8 +13,7 @@ use harnix_contract::sync::lock;
 use harnix_contract::{Channel, Frame, FrameSink};
 use tokio::sync::{mpsc, oneshot};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ClientId(pub u64);
+pub use harnix_kernel::ClientId;
 
 #[derive(Default)]
 pub struct Clients {

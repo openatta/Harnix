@@ -18,11 +18,9 @@ pub(super) async fn start(
     hub: &Arc<Hub>,
 ) {
     let Admission {
-        app_gate,
-        authorizer,
+        router,
         kernel,
         diagnostics,
-        ..
     } = admission;
     for record in records.iter_mut() {
         if !record.is_enabled() {
@@ -37,11 +35,9 @@ pub(super) async fn start(
             kernel.clone(),
             record.topics.clone(),
         );
-        // Bound before `start`, so a module that calls its own methods while
-        // starting reaches them; unbound again if it fails.
-        for method in &record.methods {
-            app_gate.bind(&method.name, method.handler.clone(), cx.clone());
-        }
+        // Its methods are answered from before `start`, so a module that calls its own methods
+        // while starting reaches them; withdrawn again if it fails.
+        let _ = record.cx.set(cx.clone());
         match record.module.start(cx.clone()).await {
             Ok(()) => record.context = Some(cx),
             Err(e) => {
@@ -56,8 +52,9 @@ pub(super) async fn start(
                         }
                     }
                 }
-                app_gate.unbind(&record.declared);
-                authorizer.retract(&harnix_contract::Subject::Kernel, &record.declared, "its module did not start");
+                if record.installed {
+                    router.withdraw(&harnix_contract::Subject::Kernel, &record.owner(), "its module did not start");
+                }
                 record.disabled("start", format!("{e:#}"));
                 hub.module_disabled(&record.manifest.id).await;
                 if !record.status.scenes.is_empty() {

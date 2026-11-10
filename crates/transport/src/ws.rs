@@ -17,6 +17,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use futures::{SinkExt, StreamExt};
 use harnix_contract::{codes, RpcError, Topology};
+use harnix_kernel::CallContext;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use tracing::warn;
@@ -235,8 +236,8 @@ struct Connection {
     tx: mpsc::Sender<String>,
     /// Nothing is established until the handshake. The credential is what every later channel of
     /// this subject would carry; in this topology there is only one channel, so it never travels
-    /// — but the *identity* comes from it either way, which is what keeps `__client` meaning the
-    /// same thing in both topologies.
+    /// — but the *identity* comes from it either way, which is what keeps a call's client meaning
+    /// the same thing in both topologies.
     established: Option<(String, Arc<crate::session::Established>)>,
     /// Changes when the handshake is over for a reason of the server's: its device revoked, its
     /// queue full, the process stopping. Then this connection closes, saying which.
@@ -325,13 +326,12 @@ impl Connection {
         }
     }
 
-    async fn call(&self, mut request: Request) {
+    async fn call(&self, request: Request) {
         // Nothing before the handshake. Version and topology have to be
         // settled before a call can mean anything.
         let Some((_, session)) = self.established.as_ref() else {
             return self.refuse(request.id, "call harnix.handshake first").await;
         };
-        request.say_client(session.client);
         let Ok(permit) = self.permits.clone().try_acquire_owned() else {
             if request.is_notification {
                 let n = DROPPED_NOTIFICATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
@@ -343,7 +343,11 @@ impl Connection {
         };
         // A long request gets its own task, or it would hold up the read loop.
         let gate = self.state.gate.clone();
-        let subject = session.subject.clone();
+        // Which client this is, from the credential the handshake produced — not from the
+        // connection that carried the request: in a topology where a call and the frames it
+        // registers a watcher for travel on different connections, connection identity is the
+        // wrong answer, and quietly (concept §3.3.3, item 2).
+        let cx = CallContext::root(session.subject.clone(), Some(session.client));
         let reply = self.tx.clone();
         tokio::spawn(async move {
             let Request {
@@ -352,7 +356,7 @@ impl Connection {
                 method,
                 params,
             } = request;
-            let outcome = crate::call_settled(gate.as_ref(), &subject, &method, params).await;
+            let outcome = crate::call_settled(gate.as_ref(), cx, &method, params).await;
             if !is_notification {
                 let frame = match outcome {
                     Ok(result) => frame::ok(id, result),

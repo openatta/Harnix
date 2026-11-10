@@ -14,6 +14,7 @@ use std::sync::Mutex;
 
 use harnix_contract::sync::lock;
 use harnix_contract::Subject;
+use harnix_kernel::CallContext;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -58,6 +59,13 @@ pub struct AuditEntry {
     /// carries none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub at_ms: Option<u64>,
+    /// The call decided, by the id this process gave it: on a decision about a call.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<u64>,
+    /// The call it was made while handling, when it was made by one: an extension acting for a
+    /// device, a module calling while it answers. The audit reads as a tree.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<u64>,
 }
 
 /// What a runtime change to the table was, as an entry's `decision`.
@@ -134,6 +142,29 @@ impl Audit {
             reason,
             session,
             at_ms: None,
+            call_id: None,
+            parent: None,
+        });
+    }
+
+    /// A decision about one call: [`Audit::record`], with the call's id and its parent's.
+    pub fn record_call(
+        &self,
+        cx: &CallContext,
+        method: &str,
+        decision: Decision,
+        reason: Option<&'static str>,
+        session: Option<String>,
+    ) {
+        self.push(AuditEntry {
+            subject: cx.subject.label(),
+            method: method.to_string(),
+            decision: decision.as_str(),
+            reason,
+            session,
+            at_ms: None,
+            call_id: Some(cx.call_id.get()),
+            parent: cx.parent.map(|p| p.get()),
         });
     }
 
@@ -152,6 +183,8 @@ impl Audit {
             reason,
             session: None,
             at_ms: Some(at_ms),
+            call_id: None,
+            parent: None,
         });
     }
 
@@ -191,5 +224,22 @@ mod tests {
         let subject = Subject::Device { id: harnix_contract::LOCAL_DEVICE.into() };
         audit.record(&subject, "harnix.ping", Decision::Allow, None, None);
         assert_eq!(audit.recent(1)[0].method, "harnix.ping");
+    }
+
+    /// A call's entry says which call it was and which call it was made in.
+    #[test]
+    fn a_call_is_recorded_with_its_id_and_its_parent() {
+        let audit = Audit::default();
+        let root = CallContext::root(Subject::Device { id: "d".into() }, None);
+        let child = root.child("system", false);
+        audit.record_call(&root, "harnix.system.compact", Decision::Allow, None, None);
+        audit.record_call(&child, "session.compact", Decision::Allow, None, None);
+        let [inner, outer] = [&audit.recent(2)[0], &audit.recent(2)[1]];
+        assert_eq!(outer.call_id, Some(root.call_id.get()));
+        assert_eq!(outer.parent, None);
+        assert_eq!(inner.parent, outer.call_id);
+        assert_eq!(inner.subject, "module:system");
+        let json = serde_json::to_value(outer).unwrap();
+        assert!(json.get("parent").is_none(), "{json}");
     }
 }

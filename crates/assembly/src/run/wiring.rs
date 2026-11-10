@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use harnix_authz::MethodTable;
+use harnix_router::RouteTable;
 use harnix_hub::Hub;
 use harnix_instance::{EngineContrib, Factory, Profile};
 use serde_json::Value;
@@ -71,13 +71,18 @@ impl AppsWiring {
         module
     }
 
-    /// A running application's tool calls, step by step, as their components report them.
-    pub fn allow(&self, table: MethodTable) -> MethodTable {
+    /// A running application's tool calls, step by step, as their components report them: the
+    /// hub's topic.
+    #[cfg_attr(not(feature = "apps"), allow(unused_variables))]
+    pub fn rows(&self, table: &mut RouteTable) -> anyhow::Result<()> {
         #[cfg(feature = "apps")]
         if self.runtime.is_some() {
-            return table.allow(&harnix_authz::topic(APPS_PROGRESS_TOPIC), harnix_authz::Reach::Device);
+            let progress = harnix_router::Row::topic(APPS_PROGRESS_TOPIC, harnix_kernel::Access::device());
+            table
+                .install(&harnix_kernel::Owner::Kernel(harnix_kernel::KernelPart::Hub), vec![progress])
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
         }
-        table
+        Ok(())
     }
 
     /// Every engine built in this process gives its sessions the running applications' tools; a

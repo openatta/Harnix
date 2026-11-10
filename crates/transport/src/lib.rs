@@ -30,7 +30,7 @@ mod statics;
 mod tests;
 mod ws;
 
-pub use apps::{AppRoutes, RouteGate};
+pub use apps::AppRoutes;
 pub use bulk::BulkStore;
 pub use launch::{BrowserAdmission, LaunchLinks, LINK_TTL};
 pub use session::{OUTBOUND_FRAMES, SPLIT_IDLE};
@@ -42,7 +42,8 @@ use std::sync::Arc;
 
 use axum::routing::{get, post};
 use axum::Router;
-use harnix_contract::{Gate, Topology};
+use harnix_contract::Topology;
+use harnix_kernel::{CallContext, ClientRegistry, Dispatch, RouteDecider};
 
 #[derive(Clone)]
 pub struct Config {
@@ -97,7 +98,7 @@ pub struct Config {
 #[derive(Default)]
 pub struct Extensions {
     pub apps: Vec<AppRoutes>,
-    pub route_gate: Option<Arc<dyn RouteGate>>,
+    pub route_gate: Option<Arc<dyn RouteDecider>>,
     /// What answers `/apps/<id>/…` for an id no module took: the runtime applications'
     /// own paths (their interface modules, the MCP endpoint a spawned daemon reaches their tools
     /// through). Handed the request whole, path and all, and it does its own admission — none of
@@ -129,9 +130,10 @@ pub struct Tls {
 
 #[derive(Clone)]
 pub(crate) struct AppState {
-    pub gate: Arc<dyn Gate>,
+    /// Every call goes here: the route table, deciding first.
+    pub gate: Arc<dyn Dispatch>,
     /// The hub, as far as this layer knows it: where clients are registered.
-    pub hub: Arc<dyn session::ClientRegistry>,
+    pub hub: Arc<dyn ClientRegistry>,
     pub bulk: Arc<dyn BulkStore>,
     pub config: Arc<Config>,
     pub statics: Arc<StaticFace>,
@@ -153,7 +155,7 @@ pub(crate) struct AppState {
 #[derive(Clone)]
 pub struct Channels {
     sessions: Arc<session::Sessions>,
-    hub: Arc<dyn session::ClientRegistry>,
+    hub: Arc<dyn ClientRegistry>,
 }
 
 impl Channels {
@@ -173,7 +175,7 @@ impl Channels {
         }
     }
 
-    fn forget(&self, clients: Vec<harnix_hub::ClientId>) -> usize {
+    fn forget(&self, clients: Vec<harnix_kernel::ClientId>) -> usize {
         let count = clients.len();
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             let hub = self.hub.clone();
@@ -191,8 +193,8 @@ impl Channels {
 const SWEEP_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
 
 pub fn router(
-    gate: Arc<dyn Gate>,
-    hub: Arc<harnix_hub::Hub>,
+    gate: Arc<dyn Dispatch>,
+    hub: Arc<dyn ClientRegistry>,
     bulk: Arc<dyn BulkStore>,
     devices: Arc<harnix_authz::Devices>,
     config: Config,
@@ -203,8 +205,8 @@ pub fn router(
 
 /// [`router`], against any registry of clients.
 pub(crate) fn assemble(
-    gate: Arc<dyn Gate>,
-    hub: Arc<dyn session::ClientRegistry>,
+    gate: Arc<dyn Dispatch>,
+    hub: Arc<dyn ClientRegistry>,
     bulk: Arc<dyn BulkStore>,
     devices: Arc<harnix_authz::Devices>,
     config: Config,
@@ -304,20 +306,20 @@ fn sweep_idle(channels: &Channels) {
     });
 }
 
-/// One call through the gate, answered whatever happens behind it.
+/// One call through the route table, answered whatever happens behind it.
 ///
 /// A panic behind the gate used to take the request with it: on the socket the
 /// task that would have replied was simply gone, on HTTP the connection was cut,
 /// and either way the client held a promise that never settled. It is answered
 /// as an internal error instead, and logged.
 pub(crate) async fn call_settled(
-    gate: &dyn Gate,
-    subject: &harnix_contract::Subject,
+    gate: &dyn Dispatch,
+    cx: CallContext,
     method: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, harnix_contract::RpcError> {
     use futures::FutureExt as _;
-    match std::panic::AssertUnwindSafe(gate.call(subject, method, params))
+    match std::panic::AssertUnwindSafe(gate.call(cx, method, params))
         .catch_unwind()
         .await
     {

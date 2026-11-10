@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use harnix_authz::MethodTable;
+use harnix_router::RouteTable;
 use harnix_hub::Registry;
 use harnix_instance::link::{DownLink, EngineLink};
 use harnix_instance::{Built, EngineConfig, Factory, Facts, InProcessLink, Ledger, Owner, Profile};
@@ -31,7 +31,7 @@ pub(super) async fn build(
     profile: &Profile,
     roots: &Roots,
     records: &mut [Record],
-    table: &mut MethodTable,
+    table: &mut RouteTable,
     credentials: &Arc<dyn Credentials>,
     apps: &mut AppsWiring,
 ) -> anyhow::Result<Instances> {
@@ -78,7 +78,7 @@ fn registry(
     profile: &Profile,
     roots: &Roots,
     records: &mut [Record],
-    table: &mut MethodTable,
+    table: &mut RouteTable,
     credentials: &Arc<dyn Credentials>,
     apps: &mut AppsWiring,
 ) -> anyhow::Result<Registry> {

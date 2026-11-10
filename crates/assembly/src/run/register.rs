@@ -2,7 +2,9 @@
 
 use std::sync::{Arc, OnceLock};
 
-use harnix_authz::{Devices, MethodTable};
+use harnix_authz::Devices;
+use harnix_kernel::{Access, KernelPart, Owner};
+use harnix_router::{Row, RouteTable};
 use harnix_builtin::Builtin;
 use harnix_instance::Profile;
 use harnix_module::ErasedModule;
@@ -10,15 +12,18 @@ use harnix_module::ErasedModule;
 use super::state_files::{load_devices, DEVICES_FILE};
 use super::wiring::AppsWiring;
 use crate::devices;
+use crate::gate::Behind;
 use crate::methods;
 use crate::modules::{self, Entry, Namespace, Record};
 use crate::paths::Roots;
 
-/// What registering produced: the modules' records and the authorization table they declared
-/// into, and what serving needs later.
+/// What registering produced: the modules' records and the route table they declared into,
+/// what the kernel's rows in it are answered by once that is built, and what serving needs
+/// later.
 pub(super) struct Registered {
     pub records: Vec<Record>,
-    pub table: MethodTable,
+    pub table: RouteTable,
+    pub behind: Behind,
     pub held: Held,
 }
 
@@ -88,17 +93,22 @@ pub(super) fn register(
             namespace: Namespace::App,
         });
     }
-    let mut table = methods::table();
+    let behind = Behind::default();
+    let mut table = methods::table(&behind);
     if profile.apps.enabled {
         // What changes the list of spaces after assembly is a runtime application; only then is
         // there anything to watch.
-        table = table.allow(&harnix_authz::topic(harnix_hub::SPACES_TOPIC), harnix_authz::Reach::Device);
+        let spaces = Row::topic(harnix_hub::SPACES_TOPIC, Access::device());
+        table
+            .install(&Owner::Kernel(KernelPart::Hub), vec![spaces])
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
     }
-    table = apps.allow(table);
+    apps.rows(&mut table)?;
     let records = modules::register(entries, &mut table, &profile.modules, &roots.state);
     Ok(Registered {
         records,
         table,
+        behind,
         held: Held {
             builtin,
             paired,

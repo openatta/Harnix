@@ -1,0 +1,18 @@
+[package]
+name = "harnix-router"
+version      = "0.4.2-2026110901"
+edition      = "2021"
+rust-version = "1.87"
+license      = "Apache-2.0"
+publish      = false
+description  = "The one route table: every method, topic and route a row with its owner, access and handler"
+
+[dependencies]
+harnix-contract = { workspace = true }
+harnix-kernel   = { workspace = true }
+harnix-authz    = { workspace = true }
+async-trait = { workspace = true }
+serde_json  = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

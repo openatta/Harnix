@@ -24,9 +24,11 @@ harnix-authz     = { path = "harnix/crates/authz" }
 harnix-builtin   = { path = "harnix/crates/builtin" }
 harnix-client    = { path = "harnix/crates/client" }
 harnix-contract  = { path = "harnix/crates/contract" }
-harnix-ext-flow = { path = "harnix/crates/ext/flow" }
+harnix-ext-flow    = { path = "harnix/crates/ext/flow" }
 harnix-module    = { path = "harnix/crates/module" }
 harnix-hub       = { path = "harnix/crates/hub" }
+harnix-kernel    = { path = "harnix/crates/kernel" }
+harnix-router    = { path = "harnix/crates/router" }
 harnix-transport = { path = "harnix/crates/transport" }
 harnix-wasm      = { path = "harnix/crates/wasm" }
 daemon    = { path = "harnix/agix/daemon" }

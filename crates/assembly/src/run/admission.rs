@@ -1,27 +1,23 @@
-//! Admission: the one gate every call goes through, the audit it keeps, and the kernel the
-//! modules are handed when they start.
+//! Admission: the router every call goes through, the audit it keeps, and the kernel the modules
+//! are handed when they start.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock, RwLock};
 
-use harnix_authz::{Audit, Authorizer, MethodTable};
-use harnix_contract::Gate;
-use harnix_hub::{Hub, HubGate};
+use harnix_authz::Audit;
+use harnix_hub::Hub;
+use harnix_router::{RouteTable, Router};
 use serde_json::json;
 
 use crate::audit_log;
-use crate::gate::{AppGate, Diagnostics, ProcessKernel};
+use crate::gate::{Behind, Diagnostics, ProcessKernel};
 use crate::modules::Record;
 
-/// The gate, in the layers it is made of, and what is handed to the modules.
+/// The router, and what is handed to the modules.
 pub(super) struct Admission {
     pub diagnostics: Arc<Diagnostics>,
-    /// The modules' own methods, bound as each one starts.
-    pub app_gate: Arc<AppGate>,
-    /// The authorization table, deciding before anything is called.
-    pub authorizer: Arc<Authorizer>,
-    /// What the transport calls: the authorizer.
-    pub gate: Arc<dyn Gate>,
+    /// The route table, deciding every call and handing it to its row: what the transport calls.
+    pub router: Arc<Router>,
     pub kernel: Arc<ProcessKernel>,
 }
 
@@ -35,13 +31,14 @@ pub(super) struct Identity<'a> {
 
 pub(super) fn admit(
     hub: &Arc<Hub>,
-    table: MethodTable,
+    table: RouteTable,
+    behind: &Behind,
     records: &[Record],
     history: Option<Arc<dyn history::store::HistoryStore>>,
-    sections: &BTreeMap<String, toml::Value>,
-    apps_enabled: bool,
+    profile: &harnix_instance::Profile,
     identity: Identity<'_>,
 ) -> Admission {
+    let (sections, apps_enabled) = (&profile.modules, profile.apps.enabled);
     let audit = audit(hub, history);
     let (short, _) = crate::cli::versions(identity.name, identity.version);
     let diagnostics = Arc::new(Diagnostics {
@@ -55,18 +52,13 @@ pub(super) fn admit(
         }),
         modules: RwLock::new(Vec::new()),
         unknown_sections: unknown_sections(sections, records),
-        authorizer: OnceLock::new(),
+        router: OnceLock::new(),
     });
-    let app_gate = Arc::new(AppGate::new(
-        Arc::new(HubGate(hub.clone())),
-        diagnostics.clone(),
-        audit.clone(),
-    ));
-    let authorizer = Arc::new(Authorizer::new(table, app_gate.clone(), audit.clone()));
-    let gate: Arc<dyn Gate> = authorizer.clone();
-    let _ = diagnostics.authorizer.set(Arc::downgrade(&authorizer));
+    let router = Arc::new(Router::new(table, audit));
+    let _ = diagnostics.router.set(Arc::downgrade(&router));
+    let _ = behind.diagnostics.set(diagnostics.clone());
     let kernel = Arc::new(ProcessKernel {
-        gate: OnceLock::new(),
+        router: OnceLock::new(),
         apps: OnceLock::new(),
         app_hosts: std::iter::once(harnix_builtin::apps::MODULE_ID.to_string())
             .chain(identity.app_hosts.iter().cloned())
@@ -74,13 +66,12 @@ pub(super) fn admit(
         hub: hub.clone(),
         listen: tokio::sync::watch::channel(None).0,
     });
-    let _ = kernel.gate.set(gate.clone());
+    let _ = kernel.router.set(router.clone());
     if apps_enabled {
         // Every compiled-in module's id is reserved, enabled or not: a runtime application never
         // takes one, or nests under one.
         let apps = crate::apps::Apps::new(
-            authorizer.clone(),
-            app_gate.clone(),
+            router.clone(),
             Arc::new(crate::apps::HubSurfaces(hub.clone())),
             records.iter().map(|r| r.manifest.id.clone()),
         );
@@ -89,9 +80,7 @@ pub(super) fn admit(
     }
     Admission {
         diagnostics,
-        app_gate,
-        authorizer,
-        gate,
+        router,
         kernel,
     }
 }

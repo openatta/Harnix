@@ -14,7 +14,6 @@ use super::wiring::AppsWiring;
 use super::Basis;
 use crate::cli::Cli;
 use crate::devices;
-use crate::gate::Routes;
 use crate::modules::Record;
 
 /// A process that serves: the listeners' task, how to stop it, and the channels it has open.
@@ -80,12 +79,12 @@ pub(super) async fn serve(
     let runtime_modules = profile.ui.runtime_modules;
     let mut extensions = harnix_transport::Extensions {
         apps: module_routes,
-        route_gate: Some(Arc::new(Routes(admission.authorizer.clone()))),
+        route_gate: Some(admission.router.clone()),
         runtime_apps: None,
     };
     apps.routes(&mut extensions);
     let (router, statics, channels) = harnix_transport::router(
-        admission.gate.clone(),
+        admission.router.clone(),
         hub.clone(),
         bulk,
         held.paired.clone(),

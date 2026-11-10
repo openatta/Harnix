@@ -16,11 +16,12 @@ use harnix_contract::RpcError;
 use harnix_module::{CallContext, Handler, Manifest, MethodRegistry, Module, Principal};
 use serde_json::{json, Value};
 
+/// Its methods, by their names inside the namespace a built-in registers under (`harnix.`).
 pub const METHODS: &[&str] = &[
-    "harnix.devices.list",
-    "harnix.devices.pair.begin",
-    "harnix.devices.pair.complete",
-    "harnix.devices.revoke",
+    "devices.list",
+    "devices.pair.begin",
+    "devices.pair.complete",
+    "devices.revoke",
 ];
 
 /// Characters a pairing code is drawn from.
@@ -58,7 +59,7 @@ impl Module for DevicesModule {
     fn methods(&self, registry: &mut MethodRegistry) {
         for name in METHODS {
             registry
-                .method(name.strip_prefix("harnix.").unwrap_or(name), Principal::Device)
+                .method(name, Principal::Device)
                 .allow(Principal::Kernel)
                 .with(Arc::new(DeviceMethods {
                     devices: self.devices.clone(),
@@ -81,9 +82,9 @@ impl Handler for DeviceMethods {
         let now = SystemTime::now();
         self.devices.sweep(now);
         match self.name {
-            "harnix.devices.list" => Ok(json!({"devices": self.devices.list()})),
+            "devices.list" => Ok(json!({"devices": self.devices.list()})),
 
-            "harnix.devices.pair.begin" => {
+            "devices.pair.begin" => {
                 let label = params
                     .get("label")
                     .and_then(Value::as_str)
@@ -100,7 +101,7 @@ impl Handler for DeviceMethods {
                 }))
             }
 
-            "harnix.devices.pair.complete" => {
+            "devices.pair.complete" => {
                 let code = require(&params, "code")?;
                 let public_key = require(&params, "public_key")?;
                 let stamp = stamp(now);
@@ -118,7 +119,7 @@ impl Handler for DeviceMethods {
                 }
             }
 
-            "harnix.devices.revoke" => {
+            "devices.revoke" => {
                 let id = require(&params, "device_id")?;
                 let removed = self.devices.revoke(&id);
                 // Immediately, and all of its channels — a credential belongs

@@ -9,6 +9,7 @@ description  = "The session hub: subscription, replay, seq, turn ownership, queu
 
 [dependencies]
 harnix-contract = { workspace = true }
+harnix-kernel   = { workspace = true }
 harnix-instance = { workspace = true }
 tokio       = { workspace = true }
 serde       = { workspace = true }

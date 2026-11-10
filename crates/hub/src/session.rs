@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use harnix_instance::engine_codes;
 use harnix_contract::{Frame, RpcError};
+use harnix_kernel::CallContext;
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
@@ -207,12 +208,12 @@ impl Hub {
     /// buffer holds.
     pub(crate) async fn attach(
         &self,
-        subject: &harnix_contract::Subject,
+        cx: &CallContext,
         params: Value,
     ) -> Result<Value, RpcError> {
         let key = self.key_of(&params)?;
         let (instance, session_id) = (key.0.clone(), key.1.clone());
-        let client = client_of(subject, &params)?;
+        let client = client_of(cx)?;
 
         // `session.get` reads the transcript, so it answers for a cold session
         // too — and it is where the scene comes from, which a resume needs.
@@ -324,11 +325,11 @@ impl Hub {
 
     pub(crate) async fn detach(
         &self,
-        subject: &harnix_contract::Subject,
+        cx: &CallContext,
         params: Value,
     ) -> Result<Value, RpcError> {
         let key = self.key_of(&params)?;
-        let client = client_of(subject, &params)?;
+        let client = client_of(cx)?;
         let mut guard = self.inner.lock().await;
         if let Some(state) = guard.sessions.get_mut(&key) {
             state.watchers.remove(&client);
@@ -424,22 +425,15 @@ impl Hub {
 /// Which client this call is on behalf of.
 ///
 /// Watching is per-client, and a subject may have several. The transport
-/// stamps the id onto the params; nothing else may set it, which is why a
-/// missing one is an error rather than a default.
-pub(crate) fn client_of(
-    subject: &harnix_contract::Subject,
-    params: &Value,
-) -> Result<ClientId, RpcError> {
-    params
-        .get("__client")
-        .and_then(Value::as_u64)
-        .map(ClientId)
-        .ok_or_else(|| {
-            RpcError::invalid_params(format!(
-                "{} called a watching method outside a client connection",
-                subject.label()
-            ))
-        })
+/// says which connection a call came on; nothing else may, which is why a
+/// call that came on none is an error rather than a default.
+pub(crate) fn client_of(cx: &CallContext) -> Result<ClientId, RpcError> {
+    cx.client.ok_or_else(|| {
+        RpcError::invalid_params(format!(
+            "{} called a watching method outside a client connection",
+            cx.subject.label()
+        ))
+    })
 }
 
 /// A `session.get` answer's compaction count; zero when it does not say.
