@@ -295,7 +295,7 @@ node tests/live/coverage.mjs --check               # scripts/check.sh 跑的就�
 | 东西 | 在哪 |
 |---|---|
 | 带 `apps` 的 `harnix` | `cargo build --release -p harnix-cli --features apps --target-dir target/apps`；`scripts/check.sh` 编好后经 `HARNIX_APPS_BIN` 告诉套件，单跑时套件自己编（`tests/live/api/apps-host.ts`） |
-| 打包工具 `harnix-app` | 同一个目录，`-p harnix-app-package --features compile --bin harnix-app` |
+| 打包工具 `harnix-app` | 同一个目录，`-p harnix-package --features compile --bin harnix-app` |
 | 带 `apps` 的 `harnix-testapp` | 同一个目录；信 mock 商店、能缩短休眠的只有它（见下面的隐藏钩子） |
 | 示例应用 | `examples/apps/showcase`：测试开始时编组件（`wasm32-wasip2`）、为这个引擎编译、打成 `.hxapp`，按源码哈希缓存在 `target/apps/showcase/` |
 | mock 商店 | `tests/live/api/apps-store.ts` 在临时目录里用 `harnix-app sign` / `countersign` / `index` 把 showcase 做成两个版本（0.2.0 多要几项能力）、写出 `index.json`，经 `[apps] store = "file://…"` 给后端；mock 的发布者与商店密钥在 `tests/live/fixtures/store/`，只是测试钥 |
@@ -309,7 +309,7 @@ node tests/live/coverage.mjs --check               # scripts/check.sh 跑的就�
   `harnix-app-port` 的回环适配器（feature `loopback`）用 `serde_json` 编码再解码，证明这条边界能搬上 RPC。
 - `cargo test -p harnix-apps --features compile`：嵌入的粘合层，照 `apps` 模块那样装、用、停、卸，和装到一半失败的回滚；装签名包、篡改、
   升级与升级失败的回滚在 `crates/apps/tests/signed.rs`。
-- 签名、目录、披露的逻辑另有单测（`crates/app-package/src/{signature,store,disclosure,publish}.rs`）；休眠的规则在
+- 签名、目录、披露的逻辑另有单测（`crates/package/src/{signature,store,disclosure,publish}.rs`）；休眠的规则在
   `crates/app-host/tests/idle.rs`（`HostOptions::idle`）与 `crates/wasm/tests/hibernate.rs`。
 
 **LIVE 这边**（都在 `tests/live/{api,ui}/apps*.spec.ts`）：装与运行时、后端、商店、iframe、行内点、休眠，API 与界面各一份，两种拓扑都跑。

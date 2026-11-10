@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, RwLock, Weak};
 
 use async_trait::async_trait;
-use harnix_app_package::acquire::{internal, refused};
+use harnix_package::acquire::{internal, refused};
 use harnix_app_port::{
     CallAs, Control, Kernel, MethodCall, Progress, Publish, Registration, Subscription, TopicValue,
 };

@@ -10,7 +10,7 @@
 //! names, what it does as itself (`host.call`, `publish`, `subscribe`), a tool call's progress —
 //! and [`harnix_app_port::Agent`], the agent engine its tools and agent package go to.
 //!
-//! It reads packages with `harnix-app-package` and nothing else of the product: no kernel, no
+//! It reads packages with `harnix-package` and nothing else of the product: no kernel, no
 //! hub, no agent engine, no HTTP framework. So the same host runs embedded in a product's process
 //! (`harnix-apps` lends it both over the kernel and this process's Agix) or in a process of its
 //! own, with the kernel carried over a link and an agent engine of its own; its tests run it

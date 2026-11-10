@@ -19,9 +19,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use async_trait::async_trait;
-use harnix_app_package::acquire::{self, internal, refused, Admission};
-use harnix_app_package::manifest::{self, toml_to_json, Manifest};
-use harnix_app_package::signature::{Trust, Verified};
+use harnix_package::acquire::{self, internal, refused, Admission};
+use harnix_package::manifest::{self, toml_to_json, Manifest};
+use harnix_package::signature::{Trust, Verified};
 use harnix_app_port::{
     Agent, Control, HookCall, HookReply, Kernel, MethodCall, MethodDecl, Offer, Place, Placement,
     Progress, Registration, RpcError, SpaceDecl, Start, Started, Stop, ToolCall, ToolDef,
@@ -386,7 +386,7 @@ impl Host {
         };
         let mut seen = std::collections::BTreeSet::new();
         for tool in &tools {
-            let full = harnix_app_package::tool_name(id, &tool.name);
+            let full = harnix_package::tool_name(id, &tool.name);
             let ok = !tool.name.is_empty()
                 && tool
                     .name
@@ -490,7 +490,7 @@ impl Host {
             own_tools: booted
                 .tools
                 .iter()
-                .map(|t| harnix_app_package::tool_name(id, &t.name))
+                .map(|t| harnix_package::tool_name(id, &t.name))
                 .collect(),
         });
         let offer = Offer {
@@ -537,7 +537,7 @@ impl Host {
                 "hub": app.hub,
                 "calls": app.bridge.stats.report(),
                 "tools": app.tools.iter().map(|t| json!({
-                    "name": harnix_app_package::tool_name(id, &t.name),
+                    "name": harnix_package::tool_name(id, &t.name),
                     "tool": t.name,
                     "description": t.description,
                 })).collect::<Vec<_>>(),

@@ -16,7 +16,7 @@ exclude = ["harnix/agix", "harnix/crates/testapp"]
 harnix           = { path = "harnix/crates/harnix" }
 harnix-app       = { path = "harnix/crates/app" }
 harnix-app-host  = { path = "harnix/crates/app-host" }
-harnix-app-package = { path = "harnix/crates/app-package" }
+harnix-package = { path = "harnix/crates/package" }
 harnix-app-port  = { path = "harnix/crates/app-port" }
 harnix-apps      = { path = "harnix/crates/apps" }
 harnix-instance  = { path = "harnix/crates/instance" }

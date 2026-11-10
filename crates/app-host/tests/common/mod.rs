@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use async_trait::async_trait;
 use harnix_app_host::{Host, HostOptions};
-use harnix_app_package::acquire::Admission;
+use harnix_package::acquire::Admission;
 use harnix_app_port::rpc::Loopback;
 use harnix_app_port::*;
 use harnix_contract::sync::lock;
@@ -250,15 +250,15 @@ impl Rig {
         let wasm = showcase_wasm();
         let cwasm = self.host.engine().compile(&wasm).unwrap();
         let out = self.dir.path().join("showcase.hxapp");
-        let artifact = harnix_app_package::package::Artifact {
+        let artifact = harnix_package::package::Artifact {
             fingerprint: self.host.engine().fingerprint(),
             cwasm: &cwasm,
             wasm: Some(&wasm),
         };
-        harnix_app_package::package::pack(&app, Some(artifact), &out).unwrap();
-        let parsed = harnix_app_package::manifest::Manifest::parse(&manifest).unwrap();
+        harnix_package::package::pack(&app, Some(artifact), &out).unwrap();
+        let parsed = harnix_package::manifest::Manifest::parse(&manifest).unwrap();
         let version = parsed.app.version;
-        harnix_app_package::package::extract(&out, &self.app_dir().join(&version)).unwrap();
+        harnix_package::package::extract(&out, &self.app_dir().join(&version)).unwrap();
         version
     }
 

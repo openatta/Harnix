@@ -59,7 +59,7 @@ free_port() {
 
 CRATES=(-p harnix -p harnix-cli -p harnix-app -p harnix-instance -p harnix-authz -p harnix-builtin
         -p harnix-client -p harnix-contract -p harnix-flow -p harnix-module -p harnix-hub -p harnix-transport
-        -p harnix-testapp -p harnix-wasm -p harnix-app-package -p harnix-app-port -p harnix-app-host
+        -p harnix-testapp -p harnix-wasm -p harnix-package -p harnix-app-port -p harnix-app-host
         -p harnix-apps)
 
 # The build that hosts runtime applications: `harnix` with the `apps` feature, which links the
@@ -142,7 +142,7 @@ run_build() {
   pnpm --filter @harnix/shell build || return 1
   cargo build --release -p harnix-cli -p harnix-testapp || return 1
   cargo build --release -p harnix-cli --features apps --target-dir "$APPS_TARGET" || return 1
-  cargo build --release -p harnix-app-package --features compile --bin harnix-app --target-dir "$APPS_TARGET" || return 1
+  cargo build --release -p harnix-package --features compile --bin harnix-app --target-dir "$APPS_TARGET" || return 1
   # What an author starts from builds: `harnix-app new`, then `build`. Its component's target
   # directory is kept between runs, so only the first is slow.
   local scaffold="$scratch/scaffold"
@@ -175,8 +175,8 @@ run_rust()    {
 # does not own. Harnix's own crates are held to zero warnings.
 run_clippy()  {
   cargo clippy "${CRATES[@]}" --all-targets --no-deps -- -D warnings || return 1
-  cargo clippy -p harnix-wasm -p harnix-app-package -p harnix-app-host -p harnix-apps --all-targets \
-    --features harnix-wasm/compile,harnix-app-package/compile,harnix-app-host/compile,harnix-apps/compile --no-deps -- -D warnings || return 1
+  cargo clippy -p harnix-wasm -p harnix-package -p harnix-app-host -p harnix-apps --all-targets \
+    --features harnix-wasm/compile,harnix-package/compile,harnix-app-host/compile,harnix-apps/compile --no-deps -- -D warnings || return 1
   cargo clippy -p harnix-app -p harnix-cli --all-targets --features harnix-app/apps,harnix-cli/apps --no-deps -- -D warnings
 }
 

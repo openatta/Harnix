@@ -15,9 +15,9 @@
 
 use std::path::Path;
 
-use harnix_app_package::acquire::{internal, refused};
-use harnix_app_package::package;
-use harnix_app_package::signature::Trust;
+use harnix_package::acquire::{internal, refused};
+use harnix_package::package;
+use harnix_package::signature::Trust;
 use harnix_builtin::apps::{AppsRuntime, InstallRecord, UpdateFailed};
 use harnix_module::ModuleContext;
 use serde_json::{json, Value};

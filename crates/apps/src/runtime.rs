@@ -11,7 +11,7 @@
 //!
 //! # Installing, in order, and backwards on a failure
 //!
-//! 1. The package is read and checked (`harnix_app_package::package`), and its signatures
+//! 1. The package is read and checked (`harnix_package::package`), and its signatures
 //!    verified before anything of it is unpacked.
 //! 2. It is unpacked to `<apps>/<id>/<version>/`.
 //! 3. Its agent package and skills are put in place by the host (`Control::place`): its `agent/`
@@ -39,10 +39,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 
 use harnix_app_host::{Host, HostOptions};
-use harnix_app_package::acquire::{self, internal, refused, Admission};
-use harnix_app_package::manifest::{Interface, Manifest, Surface, Title, UiEntry};
-use harnix_app_package::package;
-use harnix_app_package::signature::{Keys, Trust};
+use harnix_package::acquire::{self, internal, refused, Admission};
+use harnix_package::manifest::{Interface, Manifest, Surface, Title, UiEntry};
+use harnix_package::package;
+use harnix_package::signature::{Keys, Trust};
 use harnix_app_port::{Control, Offer, Place, Start, Stop, ToolDef, Unplace};
 use harnix_builtin::apps::{AppsRuntime, Disclosed, InstallRecord, PackageInfo, UpdateFailed};
 use harnix_contract::sync::{lock, read, write};
@@ -51,7 +51,7 @@ use harnix_module::ModuleContext;
 use serde_json::{json, Map, Value};
 
 use crate::platform::KernelPlatform;
-pub use harnix_app_package::{server_name, tool_name, TOOL_PATTERN};
+pub use harnix_package::{server_name, tool_name, TOOL_PATTERN};
 
 /// One application that is running.
 pub struct Loaded {
@@ -306,7 +306,7 @@ impl Runtime {
     /// The interface of every running application, as the page is told it at hello: a trusted
     /// publisher's `[[ui]]` modules, which the page imports; everyone else's (and a trusted one
     /// that asked for it) as its surfaces, which the shell draws as isolated frames
-    /// (`harnix_app_package::surface`). A module that will not run is listed as such, with why, so
+    /// (`harnix_package::surface`). A module that will not run is listed as such, with why, so
     /// the page can say so in its diagnostics.
     pub fn ui_contributions(&self) -> Vec<Value> {
         self.registry
@@ -435,7 +435,7 @@ pub(crate) fn summary(fingerprint: &str, parts: &Value, disclosure: &Value, star
 
 /// Whether a running application's interface is drawn in frames rather than imported into the page.
 fn frames(app: &Loaded) -> bool {
-    harnix_app_package::surface::runs_in_frames(app.trust, &app.interface, !app.ui.is_empty())
+    harnix_package::surface::runs_in_frames(app.trust, &app.interface, !app.ui.is_empty())
 }
 
 /// What the page is told of one running application's interface (`Runtime::ui_contributions`).

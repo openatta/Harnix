@@ -2,7 +2,7 @@
 //! session — the glue between the application host and the rest of Harnix.
 //!
 //! An application is a package (`.hxapp`, [`package`]; everything about packages is
-//! `harnix-app-package`, re-exported here). It runs in a `harnix_app_host::Host`, one VM per
+//! `harnix-package`, re-exported here). It runs in a `harnix_app_host::Host`, one VM per
 //! application in this process, which this crate drives through the host's `Control` and lends
 //! the process through its `Kernel` (`platform.rs`: the kernel's application host) and its
 //! `Agent` (`agent.rs`: Agix's instances). [`Runtime`] is what the `apps` built-in module
@@ -46,7 +46,7 @@ mod runtime;
 pub mod serve;
 mod update;
 
-pub use harnix_app_package::{
+pub use harnix_package::{
     acquire, disclosure, inline, manifest, package, publish, signature, store, surface,
 };
 pub use plugin::{AppsBridge, NAME as PLUGIN_NAME};

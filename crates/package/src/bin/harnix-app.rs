@@ -38,8 +38,8 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
-use harnix_app_package::manifest::{Manifest, MANIFEST};
-use harnix_app_package::signature::{self, Keys, PublicKey, SecretKey};
+use harnix_package::manifest::{Manifest, MANIFEST};
+use harnix_package::signature::{self, Keys, PublicKey, SecretKey};
 
 const USAGE: &str =
     "usage: harnix-app new <dir> --id <publisher.name> | build <app dir> [-o <dir>] \
@@ -172,7 +172,7 @@ world = "harnix:app/tools-app@0.1.0"
 memory_mb = 32
 timeout_ms = 20000
 "#,
-        api = harnix_app_package::manifest::HARNIX_API,
+        api = harnix_package::manifest::HARNIX_API,
     );
     // Validated as it would be installed, so a scaffold that would be refused is never written.
     Manifest::parse(&manifest).map_err(anyhow::Error::msg)?;
@@ -329,12 +329,12 @@ fn pack(args: &[String]) -> Result<()> {
     };
     let artifact = compiled
         .as_ref()
-        .map(|cwasm| harnix_app_package::package::Artifact {
+        .map(|cwasm| harnix_package::package::Artifact {
             fingerprint: engine.fingerprint(),
             cwasm,
             wasm: portable.as_deref(),
         });
-    harnix_app_package::package::pack(dir, artifact, &out).map_err(anyhow::Error::msg)?;
+    harnix_package::package::pack(dir, artifact, &out).map_err(anyhow::Error::msg)?;
     println!("{}", out.display());
     println!("{}", engine.fingerprint());
     Ok(())
@@ -395,7 +395,7 @@ fn sign(args: &[String]) -> Result<()> {
         .one(&["-o", "--out"])
         .map(PathBuf::from)
         .unwrap_or_else(|| package.to_path_buf());
-    let signed = harnix_app_package::publish::sign(package, &key, &out).map_err(anyhow::Error::msg)?;
+    let signed = harnix_package::publish::sign(package, &key, &out).map_err(anyhow::Error::msg)?;
     println!("{}", out.display());
     println!("{} {}", signed.publisher.id, signed.publisher.key);
     Ok(())
@@ -415,7 +415,7 @@ fn countersign(args: &[String]) -> Result<()> {
         .map(PathBuf::from)
         .collect();
     let refs: Vec<&Path> = artifacts.iter().map(PathBuf::as_path).collect();
-    let signed = harnix_app_package::publish::countersign(package, &key, &refs, &out)
+    let signed = harnix_package::publish::countersign(package, &key, &refs, &out)
         .map_err(anyhow::Error::msg)?;
     println!("{}", out.display());
     println!("store {}", signed.store.map(|s| s.key).unwrap_or_default());
@@ -426,7 +426,7 @@ fn verify(args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["--store-key", "--trust"], &[])?;
     let package = args.positional("package")?;
     let mut keys = Keys {
-        store: harnix_app_package::store::store_keys(),
+        store: harnix_package::store::store_keys(),
         ..Keys::default()
     };
     let given: Vec<&str> = args.all("--store-key");
@@ -446,7 +446,7 @@ fn verify(args: &[String]) -> Result<()> {
             .push(PublicKey::parse(key).map_err(anyhow::Error::msg)?);
     }
     let (files, signatures) = signature::of_zip(package).map_err(anyhow::Error::msg)?;
-    let manifest = harnix_app_package::package::manifest_of(package).map_err(anyhow::Error::msg)?;
+    let manifest = harnix_package::package::manifest_of(package).map_err(anyhow::Error::msg)?;
     let app = &manifest.app;
     let verified = signature::verify(
         signatures.as_ref(),
@@ -463,7 +463,7 @@ fn verify(args: &[String]) -> Result<()> {
 /// `--days <n>`: how long a catalog signed now is believed.
 fn valid_for(args: &Args) -> Result<std::time::Duration> {
     match args.one(&["--days"]) {
-        None => Ok(harnix_app_package::publish::CATALOG_VALID),
+        None => Ok(harnix_package::publish::CATALOG_VALID),
         Some(days) => {
             let days: u64 = days.parse().with_context(|| format!("--days {days}: a number of days"))?;
             Ok(std::time::Duration::from_secs(days * 24 * 3600))
@@ -475,7 +475,7 @@ fn index(args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["--name", "--key", "--days"], &[])?;
     let store = args.positional("store directory")?;
     let key = read_key(args.one(&["--key"]).context("--key <store key file>")?)?;
-    let index = harnix_app_package::publish::index(store, args.one(&["--name"]), &key, valid_for(&args)?)
+    let index = harnix_package::publish::index(store, args.one(&["--name"]), &key, valid_for(&args)?)
         .map_err(anyhow::Error::msg)?;
     println!("{}", store.join("index.json").display());
     for app in &index.apps {
@@ -502,12 +502,12 @@ fn sign_index(args: &[String]) -> Result<()> {
     let key = read_key(args.one(&["--key"]).context("--key <store key file>")?)?;
     let expires = match args.one(&["--expires"]) {
         Some(at) => {
-            let secs = harnix_app_package::store::parse_utc(at).map_err(anyhow::Error::msg)?;
+            let secs = harnix_package::store::parse_utc(at).map_err(anyhow::Error::msg)?;
             std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs)
         }
         None => std::time::SystemTime::now() + valid_for(&args)?,
     };
-    let index = harnix_app_package::publish::sign_index(path, &key, expires).map_err(anyhow::Error::msg)?;
+    let index = harnix_package::publish::sign_index(path, &key, expires).map_err(anyhow::Error::msg)?;
     println!("{} {}", path.display(), index.expires);
     Ok(())
 }

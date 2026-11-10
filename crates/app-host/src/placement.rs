@@ -8,8 +8,8 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use harnix_app_package::acquire::{internal, refused};
-use harnix_app_package::package;
+use harnix_package::acquire::{internal, refused};
+use harnix_package::package;
 use harnix_app_port::{AgentInstall, AgentRef, AgentSwitch, Agent, RpcError, Skills};
 use serde_json::{json, Value};
 

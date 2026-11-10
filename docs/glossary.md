@@ -31,7 +31,7 @@
 |---|---|
 | 应用（产品） | 在 Harnix 上做出来的产品，模式 1 的那个二进制：Helm、IPDrun |
 | `harnix-app`（crate，`crates/app`） | 装配：把模块装成一个进程的 `App::builder()`。应用经 `harnix` crate 用它 |
-| `harnix-app`（命令行，`crates/app-package` 的 bin） | 插件 APP 作者与商店用的打包工具：`new`、`build`、`pack`、`sign`…… |
+| `harnix-app`（命令行，`crates/package` 的 bin） | 插件 APP 作者与商店用的打包工具：`new`、`build`、`pack`、`sign`…… |
 | `app.<id>.*` | 方法与主题的命名空间。编译期模块的（`<id>` 是模块 id）与插件 APP 的（`<id>` 是应用 id）共用一个，名字不许重叠，编译进来的优先 |
 | `/apps/<id>/` | HTTP 路径：模块的自有链接（`/apps/<模块 id>/…`）；插件 APP 的界面与 MCP 端点（`/apps/<应用 id>/ui/…`、`/apps/<应用 id>/mcp`） |
 | `harnix-apps`（crate）、`harnix.apps.*`、`apps` 内建模块、cargo feature `apps`、`[apps]` | 插件 APP 的运行时、管它的方法、开它的开关 |

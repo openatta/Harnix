@@ -58,7 +58,7 @@ const constants = [
   ["模块 API", "crates/module/src/lib.rs", "MODULE_API_VERSION"],
   ["贡献点 API", "crates/contract/src/handshake.rs", "CONTRIB_API_VERSION"],
   ["协议", "crates/contract/src/handshake.rs", "PROTOCOL_VERSION"],
-  ["应用接口（插件 APP）", "crates/app-package/src/manifest.rs", "HARNIX_API"],
+  ["应用接口（插件 APP）", "crates/package/src/manifest.rs", "HARNIX_API"],
 ];
 for (const [row, file, name] of constants) {
   const code = readFileSync(join(root, file), "utf8").match(new RegExp(`pub const ${name}: u32 = (\\d+);`))?.[1];
