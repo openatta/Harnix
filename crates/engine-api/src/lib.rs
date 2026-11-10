@@ -15,6 +15,7 @@ pub mod gate;
 pub mod provider;
 pub mod readers;
 pub mod scene;
+pub mod template;
 pub mod tool;
 
 pub use contribution::{EngineContribution, ForeignHook};
@@ -22,5 +23,6 @@ pub use credentials::{CredentialSource, Secret};
 pub use gate::{Delivery, PromptDecision, PromptFacts, PromptGate};
 pub use provider::{HookDecision, SessionFacts, ToolCallFacts, ToolHook, ToolProvider};
 pub use scene::{BaseKind, BuiltinArgs, Interaction, LayerParts, PromptText, SceneBase, SceneFacts, SceneLayer};
+pub use template::{AttachTo, EngineProfile, InstanceTemplate, TemplateCarrier};
 pub use tool::{Cancel, CancelGuard, Permission, Progress, Tool, ToolCx, ToolError, ToolOutput, ToolSpec};
 pub use harnix_contract::{ChainLink, SessionRef};

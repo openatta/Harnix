@@ -16,6 +16,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use harnix_contract::Topology;
+pub use harnix_engine_api::template::EngineProfile;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -69,20 +70,6 @@ pub struct AppsProfile {
     /// `env` capability declares. Only these: a declared name is never looked up in this
     /// process's environment, which holds the product's own keys.
     pub secrets: BTreeMap<String, BTreeMap<String, String>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct EngineProfile {
-    /// Default scene for `session.create`, and the scope its state lives under.
-    pub scene: String,
-    /// Scenes activated on top of the default.
-    pub scenes: Vec<String>,
-    pub model: String,
-    pub max_tokens: u32,
-    pub session_cap: usize,
-    pub session_idle_timeout_secs: u64,
-    pub permission_prompt_timeout_secs: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -273,10 +260,7 @@ fn carrier_of(
 ) -> anyhow::Result<crate::templates::TemplateCarrier> {
     use crate::templates::TemplateCarrier;
     Ok(match kind {
-        CarrierKind::InProcess => TemplateCarrier::InProcess {
-            engine: engine.clone(),
-            contrib: harnix_engine_api::EngineContribution::default(),
-        },
+        CarrierKind::InProcess => TemplateCarrier::InProcess { engine: engine.clone() },
         CarrierKind::Spawn => TemplateCarrier::Spawn {
             engine: engine.clone(),
             program: program.clone(),
@@ -320,31 +304,15 @@ impl TemplateDecl {
             &self.attach,
         )
         .map_err(|e| anyhow::anyhow!("[[instance_templates]] `{}`: {e}", self.id))?;
-        Ok(crate::templates::InstanceTemplate {
-            id: self.id.clone(),
-            carrier,
-            data_root: self.data_root.clone(),
-            params: self.params.clone(),
-            ui: self.ui,
-            max: self.max,
-            inherit_providers: self.inherit_providers,
-            reap_on_stop: self.reap_on_stop,
-            native: None,
-        })
-    }
-}
-
-impl Default for EngineProfile {
-    fn default() -> Self {
-        Self {
-            scene: "harnix".into(),
-            scenes: Vec::new(),
-            model: "claude-sonnet-4-6".into(),
-            max_tokens: 2000,
-            session_cap: 32,
-            session_idle_timeout_secs: 3600,
-            permission_prompt_timeout_secs: 300,
+        let mut template = crate::templates::InstanceTemplate::new(self.id.clone(), carrier).data_root(self.data_root.clone());
+        for param in &self.params {
+            template = template.param(param.clone());
         }
+        template.ui = self.ui;
+        template.max = self.max;
+        template.inherit_providers = self.inherit_providers;
+        template.reap_on_stop = self.reap_on_stop;
+        Ok(template)
     }
 }
 

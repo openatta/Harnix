@@ -65,16 +65,7 @@ impl Module for Greeter {
     }
 
     fn templates(&self, t: &mut InstanceTemplates) {
-        t.add(InstanceTemplate::new(
-            "desk",
-            TemplateCarrier::InProcess {
-                engine: EngineProfile {
-                    scene: "harnix".into(),
-                    ..EngineProfile::default()
-                },
-                contrib: EngineContrib::new(),
-            },
-        ));
+        t.add(InstanceTemplate::in_process("desk", EngineProfile::new().scene("harnix")));
     }
 
     fn spaces(&self, s: &mut SpaceRegistry) {

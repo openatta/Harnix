@@ -143,7 +143,7 @@ pub(crate) fn native_of(
         module.templates(&mut templates);
         if let Some(template) = templates.into_list().into_iter().find(|t| t.id == name) {
             return template
-                .native_contrib()
+                .contribution()
                 .ok_or_else(|| format!("the template `{id}` has no native contributions to build"));
         }
     }

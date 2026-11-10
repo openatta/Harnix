@@ -140,11 +140,8 @@ impl Factory {
             crate::reap::engine_reaps(&data_root)?;
         }
         match carrier {
-            TemplateCarrier::InProcess { engine, contrib } => {
-                let mut contrib = contrib.clone();
-                if let Some(native) = template.and_then(InstanceTemplate::native_contrib) {
-                    contrib.extend(native);
-                }
+            TemplateCarrier::InProcess { engine } => {
+                let mut contrib = template.and_then(InstanceTemplate::contribution).unwrap_or_default();
                 for provider in &self.providers {
                     contrib.provider(provider.clone());
                 }
@@ -173,7 +170,7 @@ impl Factory {
                 // Only this binary's daemon knows how to build the template's native contributions
                 // again (ipdrun-10).
                 if program.is_none() {
-                    if let Some(template) = template.filter(|t| t.native.is_some()) {
+                    if let Some(template) = template.filter(|t| t.contribute.is_some()) {
                         argv.push("--template".into());
                         argv.push(template.id.clone());
                     }
@@ -236,6 +233,7 @@ impl Factory {
                     },
                 })
             }
+            _ => anyhow::bail!("instance `{id}`: a carrier this build does not know"),
         }
     }
 

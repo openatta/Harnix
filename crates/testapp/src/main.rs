@@ -384,52 +384,12 @@ impl Module for Fleet {
     }
 
     fn templates(&self, t: &mut InstanceTemplates) {
-        t.add(InstanceTemplate::new(
-            "side",
-            TemplateCarrier::InProcess {
-                engine: EngineProfile {
-                    scene: "harnix".into(),
-                    ..EngineProfile::default()
-                },
-                contrib: EngineContrib::new(),
-            },
-        ));
+        t.add(InstanceTemplate::in_process("side", EngineProfile::new().scene("harnix")));
         // Its instances see the settings page's providers (ipdrun-11).
-        t.add(
-            InstanceTemplate::new(
-                "heir",
-                TemplateCarrier::InProcess {
-                    engine: EngineProfile {
-                        scene: "harnix".into(),
-                        ..EngineProfile::default()
-                    },
-                    contrib: EngineContrib::new(),
-                },
-            )
-            .inherit_providers(),
-        );
+        t.add(InstanceTemplate::in_process("heir", EngineProfile::new().scene("harnix")).inherit_providers());
         // The same native contributions, carried two ways (ipdrun-10).
-        t.add(
-            InstanceTemplate::new(
-                "native-spawn",
-                TemplateCarrier::Spawn {
-                    engine: native_engine(),
-                    program: None,
-                    args: Vec::new(),
-                },
-            )
-            .native(native),
-        );
-        t.add(
-            InstanceTemplate::new(
-                "native-local",
-                TemplateCarrier::InProcess {
-                    engine: native_engine(),
-                    contrib: EngineContrib::new(),
-                },
-            )
-            .native(native),
-        );
+        t.add(InstanceTemplate::spawn("native-spawn", native_engine()).contribute(native));
+        t.add(InstanceTemplate::in_process("native-local", native_engine()).contribute(native));
     }
 
     /// A space whose sessions land on this module's own instance.
@@ -812,10 +772,7 @@ fn native(e: &mut EngineContrib) {
 
 /// The engine of `fleet`'s native templates: their scene is active beside the default one.
 fn native_engine() -> EngineProfile {
-    EngineProfile {
-        scenes: vec![NATIVE_SCENE.into()],
-        ..EngineProfile::default()
-    }
+    EngineProfile::new().scenes([NATIVE_SCENE])
 }
 
 /// Answers [`NATIVE_ANSWER`], whatever it is asked.

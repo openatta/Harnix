@@ -65,14 +65,16 @@ impl DaemonCommand {
         harnix_instance::DaemonArgs {
             data_root: self.data_root.clone(),
             socket: self.socket.clone(),
-            engine: harnix_instance::EngineProfile {
-                scene: self.scene.clone(),
-                scenes: self.scenes.clone(),
-                model: self.model.clone(),
-                max_tokens: self.max_tokens,
-                session_cap: self.session_cap,
-                session_idle_timeout_secs: self.session_idle_timeout,
-                permission_prompt_timeout_secs: self.permission_prompt_timeout,
+            engine: {
+                let mut engine = harnix_instance::EngineProfile::new()
+                    .scene(&self.scene)
+                    .scenes(self.scenes.clone())
+                    .model(&self.model);
+                engine.max_tokens = self.max_tokens;
+                engine.session_cap = self.session_cap;
+                engine.session_idle_timeout_secs = self.session_idle_timeout;
+                engine.permission_prompt_timeout_secs = self.permission_prompt_timeout;
+                engine
             },
             exit_with_stdin: self.exit_with_stdin,
             instance: self.instance.clone(),

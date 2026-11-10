@@ -295,11 +295,7 @@ fn structured(e: &mut EngineContrib) {
 
 /// The engine of the flow module's templates: `structured-harnix` active beside the default.
 fn template_engine() -> EngineProfile {
-    EngineProfile {
-        scene: "harnix".into(),
-        scenes: vec!["structured-harnix".into()],
-        ..EngineProfile::default()
-    }
+    EngineProfile::new().scene("harnix").scenes(["structured-harnix"])
 }
 
 /// What the flow module is registered with in `harnix-testapp`.
@@ -307,25 +303,10 @@ pub fn module() -> Flow {
     Flow::builder()
         .store_with(|dir| FileStore::new(dir.join("runs")))
         .template(
-            InstanceTemplate::new(
-                "local",
-                TemplateCarrier::InProcess {
-                    engine: template_engine(),
-                    contrib: EngineContrib::new(),
-                },
-            )
-            .native(structured),
+            InstanceTemplate::in_process("local", template_engine()).contribute(structured),
         )
         .template(
-            InstanceTemplate::new(
-                "remote",
-                TemplateCarrier::Spawn {
-                    engine: template_engine(),
-                    program: None,
-                    args: Vec::new(),
-                },
-            )
-            .native(structured),
+            InstanceTemplate::spawn("remote", template_engine()).contribute(structured),
         )
         .packs_with(|dir| harnix_ext_flow::DirPacks::writable(dir.join("packs")).with_builtin(packs()))
         .programs(DemoPrograms)
