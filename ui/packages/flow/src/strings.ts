@@ -19,7 +19,8 @@ const en: Record<string, string> = {
   "flowui.tab.flows": "Flows",
   "flowui.tab.runs": "Runs",
   "flowui.tab.reference": "Reference",
-  // Inside the system space: a flow's context in the left column.
+  // Inside the system space: the console's tab, and a flow's context in the left column.
+  "flowui.about.flows": "The flows this application defines, and their runs. A flow or a run opened here becomes a space of its own inside this one, with its details on the right.",
   "flowui.context.back": "Back to the system",
   "flowui.context.general": "General conversation",
   "flowui.context.own": "The flow's own conversation",
@@ -404,7 +405,8 @@ const zhCN: Record<string, string> = {
   "flowui.tab.flows": "流程",
   "flowui.tab.runs": "运行",
   "flowui.tab.reference": "参考",
-  // 在系统 space 里：左栏是一条流程的上下文。
+  // 在系统 space 里：控制台的页签，左栏是一条流程的上下文。
+  "flowui.about.flows": "这个应用定义的流程和它们的运行。在这里打开一个流程或一次运行，它就成为系统 space 里的一个 space，详情在右栏。",
   "flowui.context.back": "返回系统",
   "flowui.context.general": "通用会话",
   "flowui.context.own": "这条流程自己的会话",
