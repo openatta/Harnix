@@ -145,6 +145,8 @@ impl Hub {
                 return;
             }
             state.running_turn = Some(turn_id.to_string());
+            // On behalf of no call this process made.
+            self.turns.start(instance, session_id, Default::default());
             state.turn_started_ms = Some(crate::now_ms());
             state.external = true;
             state.compacted = false;

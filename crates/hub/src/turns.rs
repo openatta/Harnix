@@ -47,6 +47,18 @@ impl OnBusy {
     }
 }
 
+/// What a send is on behalf of: the calls its own call is, and the extension that made it held on
+/// that call — a turn it starts that calls back into that extension finds it waiting, while it is.
+fn sent_on_behalf_of(cx: &harnix_kernel::CallContext) -> harnix_kernel::Chain {
+    match &cx.subject {
+        harnix_contract::Subject::Extension { id } => {
+            let own = vec![harnix_kernel::ChainLink::new(id.as_str(), cx.call_id.to_string())];
+            cx.chain.union(&own.into())
+        }
+        _ => cx.chain.clone(),
+    }
+}
+
 impl Hub {
     pub(crate) async fn send(
         self: &Arc<Self>,
@@ -76,6 +88,7 @@ impl Hub {
             item_id: new_id("q"),
             message,
             attachments: json!(attachments),
+            chain: sent_on_behalf_of(cx),
         };
         // Sending implies watching. A client that skipped `harnix.session.attach` would
         // otherwise get neither the turn's events nor its settlement — frames
@@ -167,6 +180,8 @@ impl Hub {
     /// steer into a queued turn of its own, whose call then lasts that
     /// turn — so the answer is waited for briefly and the call left to run.
     async fn steer(self: &Arc<Self>, key: &SessionKey, item: QueueItem) -> Result<Value, RpcError> {
+        // The running turn reads it, so the turn is on behalf of its calls too.
+        self.turns.join(&key.0, &key.1, &item.chain);
         let turn_id = new_id("t");
         let linked = self.engine(&key.0)?;
         let (session, input) = (key.1.clone(), TurnInput::steer(turn_id.clone(), item.message));
@@ -243,6 +258,8 @@ impl Hub {
         let (seq, event, watchers) = {
             let mut guard = self.inner.lock().await;
             let state = guard.sessions.entry(key.clone()).or_default();
+            // A turn is on behalf of the item that started it, and not of the one before it.
+            self.turns.start(instance, session_id, item.chain.clone());
             state.running_turn = Some(turn_id.clone());
             state.turn_started_ms = Some(crate::now_ms());
             state.external = false;
@@ -295,6 +312,7 @@ impl Hub {
                 return None;
             }
             state.running_turn = None;
+            self.turns.settle(instance, session_id);
             state.turn_started_ms = None;
             state.external = false;
             state.pending_prompts.clear();
@@ -532,6 +550,26 @@ fn outcome_of(complete: &Completion, answer: &crate::session::Answer) -> Value {
 mod outcome_tests {
     use super::*;
     use harnix_engine_api::events::{Fragment, Joins, SessionEventKind};
+
+    #[test]
+    fn a_send_is_on_behalf_of_its_calls_chain_and_its_sender() {
+        use harnix_contract::{ExtId, Subject};
+        use harnix_kernel::{CallContext, ChainLink};
+        let device = CallContext::root(Subject::Device { id: "d".into() }, None);
+        assert!(sent_on_behalf_of(&device).is_empty(), "a device holds nothing");
+        let notes = ExtId::package("acme.notes").unwrap();
+        let held = device.child(&ExtId::package("acme.todo").unwrap(), true).child(&notes, false);
+        let chain = sent_on_behalf_of(&held);
+        let links: Vec<_> = chain.links().iter().map(|l| (l.ext().to_string(), l.call().to_string())).collect();
+        assert_eq!(
+            links,
+            [
+                ("acme.todo".to_string(), device.call_id.to_string()),
+                ("acme.notes".to_string(), held.call_id.to_string()),
+            ]
+        );
+        assert!(chain.links().contains(&ChainLink::new("acme.notes", held.call_id.to_string())));
+    }
 
     #[test]
     fn the_outcome_is_the_points_of_the_completion() {

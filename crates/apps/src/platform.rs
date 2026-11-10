@@ -23,7 +23,7 @@ use harnix_wasm_port::{
 };
 use harnix_contract::sync::{read, write};
 use harnix_contract::{codes, RpcError, Subject};
-use harnix_kernel::{CallContext, Chain};
+use harnix_kernel::{CallContext, Chain, ChainLink};
 use harnix_module::{
     AppHandle, AppHandler, AppMethod, AppTopic, AppTopicSink, ModuleContext, Principal,
 };
@@ -264,7 +264,7 @@ impl Kernel for KernelPlatform {
     async fn call(&self, call: CallAs) -> Result<Value, RpcError> {
         let handle = self.handle(&call.app)?;
         handle
-            .call_chained(&call.method, call.params, Chain::of_extensions(call.chain))
+            .call_chained(&call.method, call.params, Chain::from(call.chain.iter().map(|e| ChainLink::new(e.as_str(), "")).collect::<Vec<_>>()))
             .await
     }
 

@@ -13,6 +13,8 @@
 //! - **The instance seam** ([`InstanceObserver`], [`InstanceBook`]): what the instance registry
 //!   tells the hub and what the hub asks it, and the lock order between them
 //!   ([`instances::holding`]).
+//! - **A turn's chain** ([`TurnChains`]): which calls a running turn is on behalf of, written by
+//!   the hub and read by the tools its session calls.
 //! - **An extension's seat** ([`seat::Seat`]): the kernel's services an extension's context
 //!   reaches the process through, handed to its declarations by the extension host
 //!   ([`seat::Seated`]).
@@ -27,6 +29,7 @@ pub mod instances;
 mod owner;
 pub mod seat;
 mod topics;
+mod turns;
 
 pub use grants::{holds, GrantBook, GrantTable};
 /// How far a row is open, in the extension interface's own words.
@@ -36,6 +39,7 @@ pub use clients::{ClientId, ClientRegistry};
 pub use instances::{InstanceBook, InstanceObserver, InstanceTrust, Listed};
 pub use owner::{KernelPart, Owner};
 pub use topics::{TopicChanged, TopicSource};
+pub use turns::TurnChains;
 
 use harnix_contract::{RpcError, Subject};
 

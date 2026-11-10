@@ -110,6 +110,7 @@ impl Rig {
         let hub = Hub::new(HubConfig {
             instances: instances.clone(),
             spaces: harnix_hub::Spaces::load(root.join("state/spaces.json"), Vec::new(), Default::default()).unwrap(),
+            turns: Default::default(),
         });
         instances.observe(hub.clone());
         let (hub_cell, instance_cell): (HubCell, RegistryCell) = Default::default();

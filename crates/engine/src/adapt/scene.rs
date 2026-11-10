@@ -13,7 +13,7 @@ use base::interface::scene::{ExecutionParams, ReminderContext, Scene, ScenePromp
 use harnix_engine_api::scene::SessionContext;
 use harnix_engine_api::{SceneFacts, SceneLayer};
 
-use super::tool::AgixTool;
+use super::tool::{AgixTool, Site};
 
 /// A layer, built over the scene its base resolved to.
 pub(crate) struct Layered {
@@ -34,8 +34,8 @@ pub(crate) struct Layered {
 }
 
 impl Layered {
-    /// `layer` over `base`, its tools called by sessions of `instance`'s engine.
-    pub(crate) fn new(layer: &SceneLayer, base: Arc<dyn Scene>, instance: &Arc<str>) -> Self {
+    /// `layer` over `base`, its tools called by sessions of `site`'s engine.
+    pub(crate) fn new(layer: &SceneLayer, base: Arc<dyn Scene>, site: &Arc<Site>) -> Self {
         let p = layer.parts();
         let fill = |pattern: Option<&str>, own: &str| match pattern {
             Some(pattern) => pattern.replace("{base}", own),
@@ -50,7 +50,7 @@ impl Layered {
                 .iter()
                 .map(|t| if t.is_cached() { PromptBlock::system_cached(t.text()) } else { PromptBlock::system(t.text()) })
                 .collect(),
-            tools: p.tools.iter().map(|t| Arc::new(AgixTool::new(t.clone(), instance.clone())) as Arc<dyn base::tool::Tool>).collect(),
+            tools: p.tools.iter().map(|t| Arc::new(AgixTool::new(t.clone(), site.clone())) as Arc<dyn base::tool::Tool>).collect(),
             tool_names: p.tools.iter().map(|t| t.spec().name().to_string()).collect(),
             admitted: p.admitted.to_vec(),
             undisallowed: p.undisallowed.to_vec(),
@@ -263,7 +263,7 @@ mod tests {
     /// would answer differently here.
     #[test]
     fn a_layer_that_says_nothing_is_its_base() {
-        let s = Layered::new(&SceneLayer::new("{base}", SceneBase::builtin("odd")), odd(), &"main".into());
+        let s = Layered::new(&SceneLayer::new("{base}", SceneBase::builtin("odd")), odd(), &Site::bare("main"));
         let (a, b): (&dyn Scene, &dyn Scene) = (&s, &Odd);
         assert_eq!((a.id(), a.name(), a.description()), (b.id(), b.name(), b.description()));
         assert_eq!(a.build_system_prompt(&ctx()).len(), 1);
@@ -293,7 +293,7 @@ mod tests {
             .requires_project(false)
             .auto_name(false)
             .name_prompt(None);
-        let s = Layered::new(&layer, odd(), &"main".into());
+        let s = Layered::new(&layer, odd(), &Site::bare("main"));
         assert_eq!((s.id(), s.name(), s.description()), ("structured-odd", "Odd (structured)", "unlike the defaults"));
         let blocks = s.build_system_prompt(&ctx());
         assert_eq!(blocks.len(), 2);
@@ -328,10 +328,10 @@ mod tests {
                 TokenBudget { compact_threshold: 0, compact_keep_recent: 0 }
             }
         }
-        let s = Layered::new(&SceneLayer::new("{base}", SceneBase::builtin("open")).admit("ext__*"), Arc::new(Open), &"main".into());
+        let s = Layered::new(&SceneLayer::new("{base}", SceneBase::builtin("open")).admit("ext__*"), Arc::new(Open), &Site::bare("main"));
         assert!(s.tools().is_empty(), "an open list stays open");
         assert!(s.permits_tool("ext__acme__x") && s.permits_tool("Bash"));
-        let listed = Layered::new(&SceneLayer::new("{base}", SceneBase::builtin("odd")).admit("ext__*"), odd(), &"main".into());
+        let listed = Layered::new(&SceneLayer::new("{base}", SceneBase::builtin("odd")).admit("ext__*"), odd(), &Site::bare("main"));
         assert!(listed.permits_tool("ext__acme__x") && !Odd.permits_tool("ext__acme__x"));
         assert!(!listed.permits_tool("plugin__other__x"));
     }
