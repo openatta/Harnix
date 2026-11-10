@@ -1418,19 +1418,36 @@ mod rules {
         "observability",
     ];
 
-    fn first_party_literals() -> Vec<String> {
-        FIRST_PARTY_IDS.iter().map(|id| format!("\"{id}\"")).collect()
+    /// `code` without the places an id is a JSON field or a path component, not a space or an
+    /// extension: `.get("sessions")`, `json!({"sessions": …})`, `.join("projects")`.
+    fn without_field_names(code: &str, id: &str) -> String {
+        let quoted = format!("\"{id}\"");
+        let forms = [
+            (format!(".get({quoted})"), ".get()"),
+            (format!(".get_mut({quoted})"), ".get_mut()"),
+            (format!(".insert({quoted}"), ".insert("),
+            (format!(".join({quoted})"), ".join()"),
+            (format!("{quoted}:"), ":"),
+        ];
+        forms.iter().fold(code.to_string(), |code, (form, bare)| code.replace(form.as_str(), bare))
     }
 
     fn assert_knows_no_first_party(scope: &[&str]) {
-        let literals = first_party_literals();
-        let needles: Vec<&str> = literals.iter().map(String::as_str).collect();
-        // The development-period alias table names them by necessity; it goes with the aliases.
-        says_nothing_of(scope, &needles, true, &|p| p.ends_with("assembly/src/aliases.rs") || p.ends_with("src/aliases.rs"));
+        let mut offenders = Vec::new();
+        for krate in scope {
+            for (path, text) in sources(krate) {
+                let code = lex(&text, true);
+                for id in FIRST_PARTY_IDS {
+                    if without_field_names(&code, id).contains(&format!("\"{id}\"")) {
+                        offenders.push(format!("{} says `\"{id}\"`", rel(&path)));
+                    }
+                }
+            }
+        }
+        assert!(offenders.is_empty(), "\n{}", offenders.join("\n"));
     }
 
     #[test]
-    #[ignore = "0.5.0：P4"]
     fn c01_the_skeleton_knows_no_first_party_extension_but_the_assembly() {
         let scope: Vec<&str> = SKELETON.iter().copied().filter(|c| *c != ASSEMBLY).collect();
         assert_knows_no_first_party(&scope);
@@ -1438,7 +1455,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P13"]
     fn c01_the_assembly_knows_none_either() {
         assert_knows_no_first_party(&[ASSEMBLY]);
     }
@@ -1497,7 +1513,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P13"]
     fn c04_the_hub_knows_no_carrier_no_data_root_and_no_agix_name() {
         says_nothing_of(
             &[HUB],
@@ -1914,7 +1929,7 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P13"]
+    #[ignore = "0.5.0：P15"]
     fn c17_no_shim_and_no_alias_table_is_left() {
         let members = member_names();
         assert!(!members.iter().any(|n| n == "harnix-module"), "the `harnix-module` shim is still a crate");
