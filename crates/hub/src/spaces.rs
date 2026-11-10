@@ -30,8 +30,7 @@ use harnix_instance::Owner;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::instances::claimed_space;
-use crate::{Hub, SessionKey, SYSTEM};
+use crate::{claimed_space, Hub, SessionKey, SYSTEM};
 
 /// Told about every act across spaces by a call claiming a `cross_space` space: who, which
 /// method, which session, and the space the session belongs to.
@@ -178,7 +177,7 @@ impl Spaces {
     /// Whether a call may claim this space. A space with no backend — only an interface and an
     /// Agent — is declared nowhere here and takes the defaults; one the product turned off is
     /// nobody's to claim.
-    fn exists(&self, space: &str) -> bool {
+    pub(crate) fn exists(&self, space: &str) -> bool {
         if self.withheld.contains(space) {
             return false;
         }

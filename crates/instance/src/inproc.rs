@@ -54,6 +54,11 @@ impl InProcessLink {
 #[async_trait::async_trait]
 impl EngineLink for InProcessLink {
     async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
+        // Stopping or stopped: a call now would start work the engine is being asked to end.
+        let status = self.status.borrow().clone();
+        if !status.is_ready() {
+            return Err(link::unavailable(&status));
+        }
         recording::recorded(self.recorder.get(), method, params, |params| async move {
             let req: RpcRequest = serde_json::from_value(json!({
                 "jsonrpc": "2.0", "method": method, "params": params, "id": 0,
@@ -96,11 +101,13 @@ impl EngineLink for InProcessLink {
     }
 
     async fn shutdown(&self) {
-        self.engine.server.drop_connection(self.client.id()).await;
-        self.engine.shutdown().await;
+        // Down first: what is still sending through this link — a hub's queued turn — is told the
+        // instance is unavailable rather than starting a session the engine then waits out.
         self.status.send_replace(LinkStatus::Down {
             reason: "stopped".into(),
         });
+        self.engine.server.drop_connection(self.client.id()).await;
+        self.engine.shutdown().await;
     }
 }
 

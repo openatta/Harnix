@@ -14,7 +14,7 @@ use harnix_engine_api::EngineContribution;
 use harnix_instance::{Factory, Profile};
 use serde_json::Value;
 
-use super::packages::UiModules;
+use crate::kernel_rows::UiModules;
 use crate::AppBuilder;
 
 /// The topic a running application's tool calls report their progress on (`host.progress`).
@@ -146,18 +146,17 @@ impl AppsWiring {
     /// endpoint each. Both follow what is running, from the start (the enabled applications were
     /// started with the `apps` module) to every enable, disable, install and uninstall.
     #[cfg_attr(not(feature = "apps"), allow(unused_variables))]
-    pub fn follow(&self, hub: &Arc<Hub>, ui_modules: &Arc<UiModules>, runtime_modules: bool) {
+    pub fn follow(&self, ui_modules: &Arc<UiModules>, runtime_modules: bool) {
         #[cfg(feature = "apps")]
         if let (Some(runtime), Some(servers)) = (&self.runtime, &self.servers) {
             let follow = {
                 let runtime = Arc::downgrade(runtime);
-                let hub = hub.clone();
                 let ui_modules = ui_modules.clone();
                 let servers = servers.clone();
                 move || {
                     let Some(runtime) = runtime.upgrade() else { return };
                     if runtime_modules {
-                        ui_modules.set_apps(&hub, runtime.ui_contributions());
+                        ui_modules.set_apps(runtime.ui_contributions());
                     }
                     servers.set(runtime.mcp_servers());
                 }

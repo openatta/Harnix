@@ -7,8 +7,11 @@
 //! pair. A late subscriber therefore never needs a delta it missed.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 
+use harnix_contract::sync::{lock, read, write};
 use harnix_contract::{Frame, RpcError};
+use harnix_kernel::TopicSource;
 use serde_json::{json, Value};
 
 use crate::clients::ClientId;
@@ -127,6 +130,17 @@ impl Topics {
 pub const TOPIC_ENDED: &str = "harnix.topic_ended";
 
 impl crate::Hub {
+    /// Serve a computed topic: declared, and computed by `source` whenever someone subscribes
+    /// and whenever it may have changed. For the kernel's own topics; none can be withdrawn.
+    pub async fn serve_topic(&self, name: &str, params: Vec<String>, source: Arc<dyn TopicSource>) {
+        write(&self.sources).insert(name.to_string(), source);
+        self.inner.lock().await.topics.declare(name, params);
+    }
+
+    pub(crate) fn source(&self, topic: &str) -> Option<Arc<dyn TopicSource>> {
+        read(&self.sources).get(topic).cloned()
+    }
+
     /// Declare a topic after assembly — a runtime application's. Refused
     /// (`false`) for a name already declared, the hub's own included.
     pub async fn declare_runtime_topic(&self, name: &str, params: Vec<String>) -> bool {
@@ -138,7 +152,7 @@ impl crate::Hub {
     /// held; the topic's values are dropped. The hub's own topics cannot be
     /// withdrawn. Returns how many subscriptions were ended.
     pub async fn withdraw_topic(&self, name: &str, reason: &str) -> usize {
-        if crate::HUB_TOPICS.iter().any(|(own, _)| *own == name) || name == crate::SPACES_TOPIC {
+        if self.source(name).is_some() {
             return 0;
         }
         let mut guard = self.inner.lock().await;
@@ -160,21 +174,22 @@ impl crate::Hub {
     /// `harnix.subscribe { topic, params? }` → `{ value }`: the current value
     /// now, every later one as `harnix.topic`.
     ///
-    /// The hub's own topics are computed now rather than taken from the last
-    /// published value: nothing recomputes them while nobody watches.
+    /// A computed topic is computed now rather than taken from the last
+    /// published value: nothing recomputes it while nobody watches.
     pub(crate) async fn subscribe(
-        &self,
+        self: &Arc<Self>,
         cx: &harnix_kernel::CallContext,
         params: Value,
     ) -> Result<Value, RpcError> {
         let client = crate::session::client_of(cx)?;
         let (topic, args) = topic_params(&params)?;
         let key = self.inner.lock().await.topics.key(&topic, &args)?;
-        if crate::HUB_TOPICS.iter().any(|(name, _)| *name == topic) || topic == crate::SPACES_TOPIC {
-            if topic == "harnix.sessions.tasks" {
-                self.watch_tasks(&args).await;
+        if let Some(source) = self.source(&topic) {
+            source.on_subscribe(&args).await;
+            if let Some(every) = source.every() {
+                self.tick(&topic, &args, every);
             }
-            let value = self.compute(&topic, &args).await?;
+            let value = source.compute(&args).await?;
             let mut guard = self.inner.lock().await;
             // A value computed afresh is news to whoever already watches it, as any publish is;
             // the new subscriber has it in its reply.
@@ -189,10 +204,28 @@ impl crate::Hub {
         Ok(json!({"topic": topic, "value": value}))
     }
 
+    /// Compute a topic value again every `every`, from now on, if anyone watches it then: for a
+    /// value that changes without anything to say so. One clock per value.
+    fn tick(self: &Arc<Self>, topic: &str, params: &Value, every: std::time::Duration) {
+        let marker: crate::views::Marker = (topic.to_string(), params.to_string());
+        if !lock(&self.ticking).insert(marker) {
+            return;
+        }
+        let hub = Arc::downgrade(self);
+        let (topic, params) = (topic.to_string(), params.clone());
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(every).await;
+                let Some(hub) = hub.upgrade() else { return };
+                hub.refresh(&topic, params.clone());
+            }
+        });
+    }
+
     /// Task events travel on the session's own stream, so watching a
     /// session's tasks needs the hub subscribed to it — if it is in memory.
     /// A cold session runs no tasks, and is not resumed just to be watched.
-    async fn watch_tasks(&self, args: &Value) {
+    pub(crate) async fn watch_tasks(&self, args: &Value) {
         let Ok(key) = self.key_of(args) else {
             return;
         };

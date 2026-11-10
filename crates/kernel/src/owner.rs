@@ -34,15 +34,13 @@ impl Owner {
         }
     }
 
-    /// How the method table names it. The assembly's and the router's rows go by the names the
-    /// table has always been published under (`kernel:app`, `kernel:authz`), so that what a
-    /// client was told about a row does not move when the code behind it does.
+    /// How the method table names it: the part of the kernel that answers it.
     pub fn label(&self) -> String {
         match self {
             Owner::Kernel(KernelPart::Hub) => "kernel:hub".into(),
             Owner::Kernel(KernelPart::Instances) => "kernel:instances".into(),
-            Owner::Kernel(KernelPart::Assembly) => "kernel:app".into(),
-            Owner::Kernel(KernelPart::Router) => "kernel:authz".into(),
+            Owner::Kernel(KernelPart::Assembly) => "kernel:assembly".into(),
+            Owner::Kernel(KernelPart::Router) => "kernel:router".into(),
             Owner::Engine => "engine".into(),
             Owner::Extension(id) => format!("ext:{id}"),
         }

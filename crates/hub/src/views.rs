@@ -1,8 +1,9 @@
-//! The instance tree as whole values (concept §3.2).
+//! The sessions as whole values (concept §3.2).
 //!
-//! Four of the hub's own topics, each also answered once by a method of the
-//! same shape: every instance; one instance's top-level sessions; one
-//! session's tasks; and what every session is doing right now.
+//! The hub's own topics, each also answered once by a method of the same
+//! shape: one instance's top-level sessions; one session's tasks; what every
+//! session is doing right now; and the spaces. The instance list is the
+//! registry's, served through the hub like any computed topic.
 //!
 //! A value is computed when somebody subscribes and again when something it
 //! reads changes, at most once per short window however many changes arrive
@@ -10,11 +11,12 @@
 //! nothing is computed.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use harnix_contract::sync::lock;
-use harnix_contract::RpcError;
+use harnix_contract::{codes, RpcError};
+use harnix_kernel::{Rpc, TopicSource};
 use serde_json::{json, Value};
 
 use crate::{Hub, SessionKey};
@@ -85,8 +87,55 @@ impl Refreshes {
     }
 }
 
+/// One of the hub's own topics, computed by the hub.
+struct Own {
+    hub: Weak<Hub>,
+    topic: &'static str,
+}
+
+/// What computes the hub's own topic `topic`.
+pub(crate) fn own(hub: &Weak<Hub>, topic: &str) -> Arc<dyn TopicSource> {
+    let topic = crate::HUB_TOPICS
+        .iter()
+        .map(|(name, _)| *name)
+        .chain([crate::SPACES_TOPIC])
+        .find(|name| *name == topic)
+        .expect("one of the hub's own topics");
+    Arc::new(Own { hub: hub.clone(), topic })
+}
+
+#[async_trait::async_trait]
+impl TopicSource for Own {
+    async fn compute(&self, params: &Value) -> Rpc<Value> {
+        let hub = self
+            .hub
+            .upgrade()
+            .ok_or_else(|| RpcError::new(codes::INTERNAL_ERROR, "the hub is gone"))?;
+        match self.topic {
+            "harnix.instances.sessions" => {
+                let instance = hub.instance_of(params)?;
+                hub.sessions_view(&instance).await
+            }
+            "harnix.sessions.tasks" => {
+                let key = hub.key_of(params)?;
+                hub.tasks_view(&key).await
+            }
+            "harnix.sessions.status" => Ok(hub.status_view().await),
+            crate::SPACES_TOPIC => Ok(hub.spaces_view()),
+            other => Err(RpcError::not_found(format!("`{other}` is not the hub's"))),
+        }
+    }
+
+    /// Watching a session's tasks keeps the hub subscribed to the session.
+    async fn on_subscribe(&self, params: &Value) {
+        if let (Some(hub), "harnix.sessions.tasks") = (self.hub.upgrade(), self.topic) {
+            hub.watch_tasks(params).await;
+        }
+    }
+}
+
 impl Hub {
-    /// Recompute a hub topic soon, if anyone is subscribed to it.
+    /// Recompute a computed topic soon, if anyone is subscribed to it.
     pub(crate) fn refresh(self: &Arc<Self>, topic: &str, params: Value) {
         let marker: Marker = (topic.to_string(), params.to_string());
         if !lock(&self.refreshing).want(&marker) {
@@ -104,10 +153,10 @@ impl Hub {
                     .key(&topic, &params)
                     .is_ok_and(|key| guard.topics.has_subscribers(&key))
             };
-            let value = if watched {
-                Some(hub.compute(&topic, &params).await)
-            } else {
-                None
+            let value = match (watched, hub.source(&topic)) {
+                (true, Some(source)) => Some(source.compute(&params).await),
+                (true, None) => Some(Err(RpcError::not_found(format!("`{topic}` is not computed here")))),
+                (false, _) => None,
             };
             // Decided and published under the hub's lock, which every publish takes: a later
             // computation that started meanwhile publishes after this one or instead of it.
@@ -122,31 +171,6 @@ impl Hub {
                 None => {}
             }
         });
-    }
-
-    /// The current value of one of the hub's topics; `None` for a topic
-    /// somebody else publishes.
-    pub(crate) async fn compute(&self, topic: &str, params: &Value) -> Result<Value, RpcError> {
-        match topic {
-            "harnix.instances" => Ok(self.instances_view()),
-            "harnix.instances.sessions" => {
-                let instance = self.instance_of(params)?;
-                self.sessions_view(&instance).await
-            }
-            "harnix.sessions.tasks" => {
-                let key = self.key_of(params)?;
-                self.tasks_view(&key).await
-            }
-            "harnix.sessions.status" => Ok(self.status_view().await),
-            "harnix.process" => Ok(self.process()),
-            crate::SPACES_TOPIC => Ok(self.spaces_view()),
-            _ => Err(RpcError::not_found(format!("`{topic}` is not the hub's"))),
-        }
-    }
-
-    pub(crate) fn instances_view(&self) -> Value {
-        let list: Vec<Value> = self.slots().iter().map(|s| self.instance_view(s)).collect();
-        json!({"instances": list})
     }
 
     /// One instance's top-level sessions — sub-agents are their parent's

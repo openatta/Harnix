@@ -11,7 +11,8 @@
 //!   the router).
 //! - **A restart does not strand a send.** A send during a restart answers; the instance that comes
 //!   back routes the next turn.
-//! - **Nothing panics**, the lock-order assertions of a debug build included, in a task or out.
+//! - **Nothing panics**, the lock-order assertions of a debug build included, in a task or out:
+//!   the registry calls the hub holding none of its locks, and the hub the registry none of its.
 //!
 //! The engines are real and built in this process; no model is called: the hub is started in
 //! replay with no recordings, so each turn ends at its first model call.
@@ -23,8 +24,11 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use harnix_contract::{Frame, FrameSink, Subject};
-use harnix_hub::{Hub, HubCell, HubConfig, HubRow, Registry};
-use harnix_instance::{EngineProfile, Factory, InstanceTemplate, Ledger, Owner};
+use harnix_hub::{Hub, HubCell, HubConfig, HubRow};
+use harnix_instance::{
+    EngineProfile, Factory, InstanceRegistry, InstanceRow, InstanceTemplate, Ledger, Owner, Recording,
+    RegistryCell, RegistryConfig, INSTANCES_TOPIC,
+};
 use harnix_kernel::{CallContext, ClientId, Handler};
 use serde_json::{json, Value};
 
@@ -72,10 +76,11 @@ impl Sink {
     }
 }
 
-/// A hub with one template, `work`, whose instances are engines built in this process, and its
-/// rows by name.
+/// A registry with one template, `work`, whose instances are engines built in this process; the
+/// hub observing it; and their rows by name.
 struct Rig {
     hub: Arc<Hub>,
+    instances: Arc<InstanceRegistry>,
     rows: HashMap<&'static str, Arc<dyn Handler>>,
     _dir: tempfile::TempDir,
 }
@@ -87,29 +92,39 @@ impl Rig {
         let root = dir.path();
         let replay = root.join("recordings");
         std::fs::create_dir_all(&replay).unwrap();
-        let mut registry = Registry {
+        let mut config = RegistryConfig {
             templates: Default::default(),
             ledger: Ledger::load(root.join("state/instances.json")).unwrap(),
             factory: Factory::new(Arc::new(|_: &str| None)).unwrap(),
             instances_dir: root.join("instances"),
             disabled: Default::default(),
             fixed: Default::default(),
+            recording: Recording::new(Some(replay)),
+            grants: Arc::new(harnix_kernel::GrantTable::new()),
         };
-        registry
+        config
             .add_template(InstanceTemplate::in_process("work", EngineProfile::new()).max(64), Owner::Kernel)
             .unwrap();
+        let instances = InstanceRegistry::new(config);
         let hub = Hub::new(HubConfig {
-            replay_from: Some(replay),
-            limits: limits(),
-            prompt_timeout_secs: 60,
-            registry,
+            instances: instances.clone(),
             spaces: harnix_hub::Spaces::load(root.join("state/spaces.json"), Vec::new(), Default::default()).unwrap(),
-            grants: Arc::new(harnix_kernel::GrantTable::new()),
         });
-        let cell: HubCell = Arc::new(OnceLock::new());
-        let rows = handlers(Hub::rows(&cell));
-        let _ = cell.set(hub.clone());
-        Self { hub, rows, _dir: dir }
+        let (hub_cell, instance_cell): (HubCell, RegistryCell) = Default::default();
+        let mut rows = handlers(Hub::rows(&hub_cell));
+        rows.extend(InstanceRegistry::rows(&instance_cell).into_iter().filter_map(|row| match row {
+            InstanceRow::Method { name, handler, .. } => Some((name, handler)),
+            InstanceRow::Topic { .. } => None,
+        }));
+        let _ = hub_cell.set(hub.clone());
+        let _ = instance_cell.set(instances.clone());
+        hub.serve_topic(INSTANCES_TOPIC, Vec::new(), InstanceRegistry::topic(&instance_cell)).await;
+        Self { hub, instances, rows, _dir: dir }
+    }
+
+    async fn shutdown(&self) {
+        self.hub.shutdown().await;
+        self.instances.shutdown().await;
     }
 
     async fn call(&self, cx: CallContext, method: &str, params: Value) -> Result<Value, harnix_contract::RpcError> {
@@ -162,15 +177,6 @@ impl Rig {
     }
 }
 
-fn limits() -> harnix_contract::Limits {
-    harnix_contract::Limits {
-        max_frame_bytes: harnix_contract::MAX_FRAME_BYTES,
-        max_upload_bytes: harnix_contract::MAX_UPLOAD_BYTES,
-        replay_max_frames: harnix_hub::REPLAY_MAX_FRAMES,
-        max_in_flight: harnix_contract::MAX_IN_FLIGHT,
-    }
-}
-
 fn handlers(rows: Vec<HubRow>) -> HashMap<&'static str, Arc<dyn Handler>> {
     rows.into_iter()
         .filter_map(|row| match row {
@@ -220,7 +226,7 @@ async fn concurrent_ensures_build_each_name_once() {
     let ledger = ledger_ids(rig._dir.path());
     assert_eq!(ledger.iter().filter(|id| *id == "shared").count(), 1, "{ledger:?}");
     assert_eq!(ledger.len(), 9, "{ledger:?}");
-    rig.hub.shutdown().await;
+    rig.shutdown().await;
     rig.assert_no_panic();
 }
 
@@ -257,7 +263,7 @@ async fn an_instance_is_routed_as_soon_as_it_is_listed() {
     for w in watchers {
         w.await.unwrap();
     }
-    rig.hub.shutdown().await;
+    rig.shutdown().await;
     rig.assert_no_panic();
 }
 
@@ -277,7 +283,7 @@ async fn concurrent_sessions_on_one_instance_all_settle() {
     for t in turns {
         t.await.unwrap();
     }
-    rig.hub.shutdown().await;
+    rig.shutdown().await;
     rig.assert_no_panic();
 }
 
@@ -323,7 +329,7 @@ async fn sends_during_a_restart_answer_and_the_instance_comes_back_routed() {
         let (cx, sink) = rig.client().await;
         rig.turn(&cx, &sink, "phoenix").await;
     }
-    rig.hub.shutdown().await;
+    rig.shutdown().await;
     rig.assert_no_panic();
 }
 
@@ -356,6 +362,6 @@ async fn stops_and_ensures_of_one_name_keep_the_list_and_the_ledger_in_step() {
         let (cx, sink) = rig.client().await;
         rig.turn(&cx, &sink, "flicker").await;
     }
-    rig.hub.shutdown().await;
+    rig.shutdown().await;
     rig.assert_no_panic();
 }

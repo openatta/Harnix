@@ -3,7 +3,6 @@
 use std::sync::Arc;
 
 use harnix_contract::sync::write;
-use harnix_hub::Hub;
 use harnix_module::{Credentials, ModuleContext};
 
 use super::admission::Admission;
@@ -15,7 +14,6 @@ pub(super) async fn start(
     records: &mut [Record],
     admission: &Admission,
     credentials: &Arc<dyn Credentials>,
-    hub: &Arc<Hub>,
 ) {
     let Admission {
         router,
@@ -56,7 +54,7 @@ pub(super) async fn start(
                     router.withdraw(&harnix_contract::Subject::Kernel, &record.owner(), "its module did not start");
                 }
                 record.disabled("start", format!("{e:#}"));
-                hub.module_disabled(&record.manifest.id).await;
+                kernel.instances.module_disabled(&record.manifest.id).await;
                 if !record.status.scenes.is_empty() {
                     record.status.note = Some(format!(
                         "its scenes ({}) stay in the system instance until the next start; \

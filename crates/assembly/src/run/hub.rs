@@ -1,24 +1,30 @@
-//! The hub, made from the instances and the modules' declarations: what it reports at hello,
-//! the spaces it serves, the topics it carries.
+//! The instance registry and the hub, made from the instances and the modules' declarations:
+//! the instances the hub is handed, the spaces it serves, the topics it carries, and what a
+//! client is told at hello.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use harnix_hub::{Hub, HubConfig};
 use harnix_instance::link::now_ms;
-use harnix_instance::{Owner, Profile};
+use harnix_instance::{InstanceRegistry, Owner, Profile, INSTANCES_TOPIC};
 use serde_json::{json, Value};
 
 use super::instances::Instances;
 use super::wiring::AppsWiring;
 use crate::cli::Cli;
+use crate::gate::Behind;
+use crate::kernel_rows::{Hello, UiModules, PROCESS};
 use crate::modules::Record;
 use crate::paths::Roots;
+use crate::process::Process;
 
 /// The hub, with its instances added and its topics declared.
 pub(super) struct Assembled {
     pub hub: Arc<Hub>,
+    pub instances: Arc<InstanceRegistry>,
+    /// The interface modules a client is told of at hello, as packages and applications change.
+    pub ui: Arc<UiModules>,
     /// The system instance's history: where audit entries are filed.
     pub history: Option<Arc<dyn history::store::HistoryStore>>,
     /// The brand's icon on disk, resolved against the profile: what the transport serves at
@@ -26,6 +32,7 @@ pub(super) struct Assembled {
     pub brand_icon: Option<PathBuf>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn assemble(
     cli: &Cli,
     profile: &Profile,
@@ -34,7 +41,7 @@ pub(super) async fn assemble(
     records: &[Record],
     instances: Instances,
     apps: &AppsWiring,
-    grants: Arc<harnix_kernel::GrantTable>,
+    behind: &Behind,
 ) -> anyhow::Result<Assembled> {
     let Instances {
         registry,
@@ -60,17 +67,24 @@ pub(super) async fn assemble(
         .into_iter()
         .collect();
     let spaces = harnix_hub::Spaces::load(roots.state.join("spaces.json"), declared_spaces(records), withheld)?;
+    let registry = InstanceRegistry::new(registry);
     let hub = Hub::new(HubConfig {
-        replay_from: cli.replay_dir.clone(),
-        limits,
-        prompt_timeout_secs: profile.engine.permission_prompt_timeout_secs,
-        registry,
+        instances: registry.clone(),
         spaces,
-        grants,
     });
-    hub.set_replay_strict(cli.replay_strict);
+    // The rows have been in the route table since registration; from here they answer.
+    let _ = behind.instances.set(registry.clone());
+    hub.serve_topic(INSTANCES_TOPIC, Vec::new(), InstanceRegistry::topic(&behind.instances)).await;
     let brand_icon = brand_icon(profile, cli.profile.as_deref());
-    hub.set_shell(shell(profile, roots, brand_icon.is_some()));
+    let ui = Arc::new(UiModules::default());
+    let _ = behind.hello.set(Arc::new(Hello {
+        hub: hub.clone(),
+        instances: registry.clone(),
+        limits: serde_json::to_value(limits).unwrap_or(json!({})),
+        prompt_timeout_secs: profile.engine.permission_prompt_timeout_secs,
+        shell: shell(profile, roots, brand_icon.is_some()),
+        ui: ui.clone(),
+    }));
     let (name, version) = app;
     let mut process = json!({
         "app": { "name": name, "version": version },
@@ -79,15 +93,14 @@ pub(super) async fn assemble(
         "started_ms": now_ms(),
     });
     apps.process(&mut process);
-    hub.set_process(process);
-    let started = now_ms();
-    hub.add_instance(harnix_hub::SYSTEM, system, None, BTreeMap::new(), Owner::Kernel, started)
-        .await;
+    let process = Arc::new(Process::new(process, hub.clone()));
+    let _ = behind.process.set(process.clone());
+    hub.serve_topic(PROCESS, Vec::new(), process).await;
+    registry.add(harnix_hub::SYSTEM, system, Owner::Kernel).await;
     for (id, built) in fixed {
-        hub.add_instance(&id, built, None, BTreeMap::new(), Owner::Kernel, started)
-            .await;
+        registry.add(&id, built, Owner::Kernel).await;
     }
-    hub.restore().await;
+    registry.restore().await;
     if profile.apps.enabled {
         hub.declare_spaces_topic().await;
     }
@@ -99,6 +112,8 @@ pub(super) async fn assemble(
     }
     Ok(Assembled {
         hub,
+        instances: registry,
+        ui,
         history,
         brand_icon,
     })

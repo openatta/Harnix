@@ -1441,6 +1441,7 @@ dependencies = [
  "harnix-router",
  "harnix-transport",
  "history",
+ "libc",
  "serde",
  "serde_json",
  "tempfile",
