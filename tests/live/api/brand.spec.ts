@@ -61,14 +61,15 @@ test("without a brand the state is ~/.harnix, and a product id that is not a nam
   await expect(startHarnix(launchFor("replay", { profile: '\n[brand]\nproduct_id = "../etc"\n' }))).rejects.toThrow(/product_id/);
 });
 
-test("a product keeps the built-in spaces it names; without the system space its methods go too", SHELL, async () => {
-  const backend = await startHarnix(launchFor("replay", { profile: '\n[shell]\nspaces = ["sessions"]\n' }));
+test("a product switches off the extensions whose spaces it does not want, and their methods go too", SHELL, async () => {
+  const backend = await startHarnix(launchFor("replay", { profile: '\n[extensions]\noff = ["system", "flow"]\n' }));
   try {
     const api = await connect(backend);
     const { shell } = await api.call("harnix.hello");
-    expect(shell.spaces).toEqual(["sessions"]);
+    expect(shell.spaces).toEqual(["sessions", "projects"]);
     const reachable = (await api.call("harnix.reachable")).methods as string[];
-    expect(reachable.some((m) => m.startsWith("harnix.system."))).toBe(false);
+    expect(reachable.some((m) => m.startsWith("system."))).toBe(false);
+    expect(reachable).not.toContain("harnix.system.compact");
     const created = await api.call("session.create", { space: "sessions" });
     const refused = await api.refused("harnix.attach", { instance: created.instance, session_id: created.session_id, space: "system" });
     expect(refused?.code).toBe(SPACE_MISMATCH);
@@ -76,7 +77,7 @@ test("a product keeps the built-in spaces it names; without the system space its
   } finally {
     await backend.dispose();
   }
-  await expect(startHarnix(launchFor("replay", { profile: '\n[shell]\nspaces = ["home"]\n' }))).rejects.toThrow(/home/);
+  await expect(startHarnix(launchFor("replay", { profile: '\n[shell]\nspaces = ["sessions"]\n' }))).rejects.toThrow(/spaces/);
 });
 
 test("harnix.process: versions, uptime, peak memory, and every connected user", SHELL, async () => {

@@ -17,6 +17,7 @@ fn snapshot_path() -> PathBuf {
 fn the_harnix_app() -> harnix::AppBuilder {
     harnix::App::builder()
         .with_builtins()
+        .extensions(harnix::first_party::standard())
         .module(harnix_ext_flow::Flow::builder().build())
         .grant([harnix::caps::ENGINE_CONTROL, harnix::caps::ENGINE_INSPECT])
 }

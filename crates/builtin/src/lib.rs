@@ -20,7 +20,6 @@ pub mod search;
 pub mod store;
 mod system;
 
-pub use system::SYSTEM_SPACE;
 pub mod workspaces;
 
 use std::collections::HashMap;
@@ -33,7 +32,7 @@ use harnix_contract::sync::{read, write};
 use harnix_contract::RpcError;
 use harnix_module::{
     caps, CallContext, Capability, Handler, InstanceHandle, Manifest, MethodRegistry, Module, ModuleContext,
-    Principal, SpaceDecl, SpaceRegistry,
+    Principal,
 };
 use serde_json::Value;
 use tokio::sync::Mutex;
@@ -89,35 +88,6 @@ const PARTS: &[Part] = &[
     },
 ];
 
-/// The system space's backend: registered only when the profile keeps it on, so turning it off
-/// takes its methods out of the authorization table rather than only out of sight (concept §5.5).
-const SYSTEM: Part = Part {
-    id: "system",
-    disclosure: "系统 space：看任何实例的会话与任务、读上下文、任务的输出；给在跑的子 Agent 发话；设定、暂停、继续、编辑、清除会话的目标；压缩、清空、换模型、改名、改写或删除消息、停止任务。每次操作写审计",
-    methods: &[
-        mc("harnix.system.context", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.context", p).await })),
-        mc("harnix.system.tasks.stop", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.tasks.stop", p).await })),
-        mc("harnix.system.tasks.message", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.tasks.message", p).await })),
-        mc("harnix.system.tasks.output", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.tasks.output", p).await })),
-        mc("harnix.system.messages.drop", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.messages.drop", p).await })),
-        mc("harnix.system.messages.edit", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.messages.edit", p).await })),
-        mc("harnix.system.compact", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.compact", p).await })),
-        mc("harnix.system.clear", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.clear", p).await })),
-        mc("harnix.system.model", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.model", p).await })),
-        mc("harnix.system.rename", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.rename", p).await })),
-        mc("harnix.system.goal", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.goal", p).await })),
-        mc("harnix.system.goal.set", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.goal.set", p).await })),
-        mc("harnix.system.goal.update", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.goal.update", p).await })),
-        // Stopping, restarting and building any instance, for the system space's instance pane:
-        // the hub lets an extension holding `instances.admin` do that, and a device none of it.
-        mc("harnix.system.instances.stop", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.instances.stop", p).await })),
-        mc("harnix.system.instances.restart", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.instances.restart", p).await })),
-        mc("harnix.system.instances.create", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.instances.create", p).await })),
-        mc("harnix.system.instances.templates", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.instances.templates", p).await })),
-    ],
-    requires: &[caps::INSTANCES_ADMIN, caps::ENGINE_INSPECT, caps::ENGINE_CONTROL],
-};
-
 /// Changing a session's model from the composer when the system space is gone: registered only
 /// with `[shell] model_switch = true`, and scoped to the space the caller claims (ipdrun-12).
 const MODEL: Part = Part {
@@ -127,11 +97,11 @@ const MODEL: Part = Part {
     requires: &[caps::ENGINE_CONTROL],
 };
 
-/// Every method the built-ins contribute, the system space's included.
+/// Every method the built-ins contribute.
 pub fn methods() -> Vec<&'static str> {
     PARTS
         .iter()
-        .chain([&SYSTEM, &MODEL])
+        .chain([&MODEL])
         .flat_map(|p| p.methods.iter().map(|m| m.name))
         .collect()
 }
@@ -140,7 +110,7 @@ pub fn methods() -> Vec<&'static str> {
 pub fn capabilities() -> Vec<Capability> {
     let mut all: Vec<Capability> = PARTS
         .iter()
-        .chain([&SYSTEM, &MODEL])
+        .chain([&MODEL])
         .flat_map(|p| p.requires.iter().cloned())
         .collect();
     all.sort();
@@ -166,17 +136,11 @@ impl Builtin {
         }))
     }
 
-    /// The built-in modules, in the order they register; the system space's last, when it is on.
-    pub fn modules(self: &Arc<Self>, system_space: bool) -> Vec<BuiltinModule> {
-        self.modules_with(system_space, false)
-    }
-
-    /// [`Builtin::modules`], and `harnix.sessions.setModel` with `model_switch`
-    /// (`[shell] model_switch`).
-    pub fn modules_with(self: &Arc<Self>, system_space: bool, model_switch: bool) -> Vec<BuiltinModule> {
+    /// The built-in modules, in the order they register, and `harnix.sessions.setModel` with
+    /// `model_switch` (`[shell] model_switch`).
+    pub fn modules_with(self: &Arc<Self>, model_switch: bool) -> Vec<BuiltinModule> {
         PARTS
             .iter()
-            .chain(system_space.then_some(&SYSTEM))
             .chain(model_switch.then_some(&MODEL))
             .map(|part| BuiltinModule {
                 builtin: self.clone(),
@@ -264,13 +228,8 @@ struct Part {
 
 type Answering = Pin<Box<dyn Future<Output = Result<Value, RpcError>> + Send>>;
 
-/// What answers one built-in method: a function of the built-ins' state and the params, or — for
-/// what calls on while it answers, so those calls are this one's children — of the call too.
-#[derive(Clone, Copy)]
-enum Answer {
-    Plain(fn(Arc<Builtin>, Value) -> Answering),
-    Within(fn(Arc<Builtin>, CallContext, Value) -> Answering),
-}
+/// What answers one built-in method: a function of the built-ins' state and the params.
+type Answer = fn(Arc<Builtin>, Value) -> Answering;
 
 /// One built-in method: its full name, and what answers it.
 struct Method {
@@ -279,11 +238,7 @@ struct Method {
 }
 
 const fn m(name: &'static str, answer: fn(Arc<Builtin>, Value) -> Answering) -> Method {
-    Method { name, answer: Answer::Plain(answer) }
-}
-
-const fn mc(name: &'static str, answer: fn(Arc<Builtin>, CallContext, Value) -> Answering) -> Method {
-    Method { name, answer: Answer::Within(answer) }
+    Method { name, answer }
 }
 
 /// One built-in module.
@@ -316,13 +271,6 @@ impl Module for BuiltinModule {
         }
     }
 
-    /// The system space is the system module's: it reaches across spaces.
-    fn spaces(&self, spaces: &mut SpaceRegistry) {
-        if self.part.id == SYSTEM.id {
-            spaces.add(SpaceDecl::new(SYSTEM_SPACE).cross_space());
-        }
-    }
-
     async fn start(&self, cx: ModuleContext) -> anyhow::Result<()> {
         write(&self.builtin.contexts)
             .insert(self.part.id, cx);
@@ -338,11 +286,8 @@ struct Bound {
 
 #[async_trait::async_trait]
 impl Handler for Bound {
-    async fn call(&self, cx: CallContext, params: Value) -> Result<Value, RpcError> {
-        match self.answer {
-            Answer::Plain(f) => f(self.builtin.clone(), params).await,
-            Answer::Within(f) => f(self.builtin.clone(), cx, params).await,
-        }
+    async fn call(&self, _cx: CallContext, params: Value) -> Result<Value, RpcError> {
+        (self.answer)(self.builtin.clone(), params).await
     }
 }
 

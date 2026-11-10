@@ -1389,6 +1389,7 @@ dependencies = [
  "harnix-engine",
  "harnix-engine-api",
  "harnix-ext",
+ "harnix-ext-system",
  "harnix-module",
  "serde",
  "serde_json",
@@ -1439,6 +1440,7 @@ dependencies = [
  "harnix-ext-observability",
  "harnix-ext-plugins",
  "harnix-ext-settings",
+ "harnix-ext-system",
  "harnix-host-api",
  "harnix-hub",
  "harnix-instance",
@@ -1650,6 +1652,15 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tracing",
+]
+
+[[package]]
+name = "harnix-ext-system"
+version = "0.4.2-2026110901"
+dependencies = [
+ "async-trait",
+ "harnix-ext",
+ "serde_json",
 ]
 
 [[package]]

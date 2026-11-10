@@ -86,10 +86,7 @@ pub(super) fn register(
     let mut entries = Vec::new();
     let builtin = if builtins {
         let builtin = Builtin::new(roots.state.clone(), roots.projects.clone())?;
-        for module in builtin.modules_with(
-            profile.shell.keeps(harnix_builtin::SYSTEM_SPACE),
-            profile.shell.model_switch,
-        ) {
+        for module in builtin.modules_with(profile.shell.model_switch) {
             entries.push(granted_as_required(Box::new(module)));
         }
         // Runtime applications' install records and switches: only when this process hosts them.

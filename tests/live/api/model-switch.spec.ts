@@ -17,7 +17,7 @@ test.describe.configure({ mode: "serial" });
 
 let backend: Backend;
 test.beforeAll(async () => {
-  backend = await startTestApp({ profile: "\n[shell]\nspaces = []\nmodel_switch = true\n" });
+  backend = await startTestApp({ profile: "\n[shell]\nmodel_switch = true\n[extensions]\noff = [\"system\"]\n" });
 });
 test.afterAll(async () => {
   await backend?.dispose();
@@ -56,7 +56,7 @@ test("claiming one space for another space's session is refused", TAGS, async ()
 });
 
 test("without the line, nothing is added", TAGS, async () => {
-  const plain = await startTestApp({ profile: "\n[shell]\nspaces = []\n" });
+  const plain = await startTestApp({ profile: "\n[extensions]\noff = [\"system\"]\n" });
   try {
     const api = await connect(plain);
     const { methods } = await api.call("harnix.reachable");

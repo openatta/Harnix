@@ -115,6 +115,14 @@ pub mod testing {
             self.0.push(Entry { added: Added::Extension(Box::new(e)), granted: granted.into_iter().collect() });
             self
         }
+
+        /// Every extension of `set`, each granted what the set says.
+        pub fn extensions(mut self, set: harnix_ext::ExtensionSet) -> Self {
+            for (e, granted) in set.into_parts() {
+                self.0.push(Entry { added: Added::Extension(e), granted });
+            }
+            self
+        }
     }
 
     /// Register Harnix's built-ins (when `builtins`) and `modules` under a default profile, with

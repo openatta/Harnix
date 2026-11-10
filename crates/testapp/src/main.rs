@@ -55,6 +55,7 @@ fn main() -> anyhow::Result<()> {
     let builder = harnix::App::builder()
         .name("harnix-testapp", "0.0.1")
         .with_builtins()
+        .extensions(harnix::first_party::standard())
         .module(Probe)
         .module(Peer)
         .module(FailsStart)

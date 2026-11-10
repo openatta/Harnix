@@ -120,7 +120,7 @@ test("@session references carry another space's conversation into a turn", TAGS,
 });
 
 test("with the system space turned off, nobody may claim it", TAGS, async () => {
-  const off = await startTestApp({ profile: "\n[shell]\nspaces = [\"sessions\", \"projects\"]\n" });
+  const off = await startTestApp({ profile: "\n[extensions]\noff = [\"system\"]\n" });
   try {
     const client = await connect(off);
     const created = await client.call("session.create", { space: "sessions" });

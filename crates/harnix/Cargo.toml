@@ -14,7 +14,9 @@ path = "src/lib.rs"
 # flow module, which a library user must not be made to compile (xops-02 §6).
 
 [features]
-default = []
+default = ["first-party"]
+# `harnix::first_party`: Harnix's own extensions, each granted what Harnix grants it.
+first-party = ["dep:harnix-ext-system"]
 # Runtime applications (`harnix-assembly`'s `apps`): see crates/assembly/Cargo.toml.
 apps = ["harnix-assembly/apps"]
 # `harnix::agix`: Agix's own types, for what `harnix::engine` does not say. Not stable.
@@ -35,6 +37,8 @@ harnix-authz     = { workspace = true }
 # What a module gives the engine, re-exported as `harnix::engine`: an application names only this
 # crate.
 harnix-engine-api = { workspace = true }
+# Harnix's own extensions (`first-party`).
+harnix-ext-system = { workspace = true, optional = true }
 # Only for `harnix::agix`.
 harnix-engine     = { workspace = true, optional = true }
 async-trait = { workspace = true }

@@ -5,7 +5,8 @@
 //! Filled as Harnix's own extensions take names under their ids; emptied, and this file deleted,
 //! once every caller says the new names.
 
-use harnix_router::RouteTable;
+use harnix_kernel::{Access, KernelPart, Owner};
+use harnix_router::{Row, RouteTable};
 
 /// Old name → new name.
 const ALIASES: &[(&str, &str)] = &[
@@ -30,7 +31,31 @@ const ALIASES: &[(&str, &str)] = &[
     ("harnix.devices.pair.begin", "devices.pair.begin"),
     ("harnix.devices.pair.complete", "devices.pair.complete"),
     ("harnix.devices.revoke", "devices.revoke"),
+    // system
+    ("harnix.process", "system.process"),
+    ("harnix.system.context", "system.context"),
+    ("harnix.system.messages.drop", "system.messages.drop"),
+    ("harnix.system.messages.edit", "system.messages.edit"),
+    ("harnix.system.tasks.stop", "system.tasks.stop"),
+    ("harnix.system.tasks.message", "system.tasks.message"),
+    ("harnix.system.tasks.output", "system.tasks.output"),
+    ("harnix.system.compact", "system.compact"),
+    ("harnix.system.clear", "system.clear"),
+    ("harnix.system.model", "system.model"),
+    ("harnix.system.rename", "system.rename"),
+    ("harnix.system.goal", "system.goal"),
+    ("harnix.system.goal.set", "system.goal.set"),
+    ("harnix.system.goal.update", "system.goal.update"),
+    ("harnix.system.instances.stop", "system.instances.stop"),
+    ("harnix.system.instances.restart", "system.instances.restart"),
+    ("harnix.system.instances.create", "system.instances.create"),
+    ("harnix.system.instances.templates", "system.instances.templates"),
 ];
+
+/// Old topic → new topic. A topic's pushes carry its name, so an old one cannot answer as the new
+/// one's row: it stays a topic of its own, the kernel's, with the same value, while the new one is
+/// there.
+const TOPICS: &[(&str, &str)] = &[("harnix.process", "system.process")];
 
 /// Every alias whose new name is in the table: one whose extension is not linked here, or is
 /// switched off, has nothing to answer as.
@@ -40,5 +65,27 @@ pub(crate) fn install(table: &mut RouteTable) -> anyhow::Result<()> {
             table.alias(old, new).map_err(|e| anyhow::anyhow!("the alias `{old}` → `{new}`: {e}"))?;
         }
     }
+    let topics: Vec<Row> = TOPICS
+        .iter()
+        .filter(|(_, new)| table.row(&harnix_router::topic(new)).is_some())
+        .map(|(old, _)| Row::topic(old, Access::device()))
+        .collect();
+    table
+        .install(&Owner::Kernel(KernelPart::Assembly), topics)
+        .map_err(|e| anyhow::anyhow!("the moving topics: {e}"))?;
     Ok(())
+}
+
+/// Which of the shell's own spaces it draws, as it reads them from `hello` until it activates its
+/// interface packages by the extensions there: the spaces the enabled extensions declare, and the
+/// projects view beside the session space.
+pub(crate) fn shell_spaces(declared: &[String]) -> Vec<String> {
+    let mut spaces = Vec::new();
+    for id in declared {
+        spaces.push(id.clone());
+        if id == "sessions" {
+            spaces.push("projects".to_string());
+        }
+    }
+    spaces
 }

@@ -410,8 +410,8 @@ test("the reference, in the right column inside a flow: the guide, the catalog a
   expect(errors).toEqual([]);
 });
 
-test("a profile that drops the flows in [shell] spaces does not get them", TAGS, async ({ page }) => {
-  const without = await startHarnix(launchFor("replay", { profile: '\n[shell]\nspaces = ["sessions", "projects", "system"]\n' }));
+test("a profile that switches the flows off does not get them", TAGS, async ({ page }) => {
+  const without = await startHarnix(launchFor("replay", { profile: '\n[extensions]\noff = ["flow"]\n' }));
   try {
     const errors = watchConsole(page);
     await open(page, without.url);
@@ -420,8 +420,8 @@ test("a profile that drops the flows in [shell] spaces does not get them", TAGS,
     await page.locator('#side button[data-space="system"]').click();
     await expect(page.getByTestId("system-console")).toBeVisible();
     await expect(page.locator('[data-testid="system-console"] [role="tab"][data-tab="flows"]')).toHaveCount(0);
-    // The module is still there; only the interface leaves it out.
-    expect(await page.evaluate(() => (window as any).harnix.app.snapshot.reachable.includes("app.flow.defs"))).toBe(true);
+    // Switched off, its methods go with its interface.
+    expect(await page.evaluate(() => (window as any).harnix.app.snapshot.reachable.includes("app.flow.defs"))).toBe(false);
     expect(errors).toEqual([]);
   } finally {
     await without.dispose();
@@ -429,7 +429,7 @@ test("a profile that drops the flows in [shell] spaces does not get them", TAGS,
 });
 
 test("a profile that keeps the flows but not the system space gets them as a space of their own, as before", TAGS, async ({ page }) => {
-  const alone = await startHarnix(launchFor("replay", { profile: '\n[shell]\nspaces = ["sessions", "flow"]\n' }));
+  const alone = await startHarnix(launchFor("replay", { profile: '\n[extensions]\noff = ["system"]\n' }));
   try {
     const errors = watchConsole(page);
     await open(page, alone.url);

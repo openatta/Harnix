@@ -11,7 +11,10 @@ use harnix_assembly::testing::{register, Modules, Registered};
 use harnix_contract::s1::{caps, Capability, CapabilitySpec, ExtId, PackageCarrier, Trust};
 use harnix_contract::{codes, RpcError, Subject};
 use harnix_kernel::{Access, CallContext, Dispatch, GrantBook, Handler, Rpc};
-use harnix_module::{Manifest, MethodRegistry, Module, Principal, SpaceDecl, SpaceRegistry};
+use harnix_ext::{Extension, Registrar};
+use harnix_ext_system::System;
+use harnix_ext::SpaceDecl;
+use harnix_module::{Manifest, MethodRegistry, Module, Principal};
 use harnix_router::{Row, TableError};
 use serde_json::{json, Value};
 
@@ -33,9 +36,9 @@ const SYSTEM_SPACE_ACTS: &[&str] = &[
     "session.updateGoal",
 ];
 
-/// The system module's three capabilities.
-fn system_caps() -> [Capability; 3] {
-    [caps::INSTANCES_ADMIN, caps::ENGINE_INSPECT, caps::ENGINE_CONTROL]
+/// The system space's four capabilities.
+fn system_caps() -> [Capability; 4] {
+    [caps::INSTANCES_ADMIN, caps::ENGINE_INSPECT, caps::ENGINE_CONTROL, caps::PROCESS_OBSERVE]
 }
 
 fn id(s: &str) -> ExtId {
@@ -47,15 +50,15 @@ fn id(s: &str) -> ExtId {
 struct Debugger;
 
 #[async_trait::async_trait]
-impl Module for Debugger {
-    const API_VERSION: u32 = harnix_module::MODULE_API_VERSION;
+impl Extension for Debugger {
+    type Config = ();
 
-    fn manifest(&self) -> Manifest {
-        Manifest::new("debugger", "0.0.1").optional(system_caps())
+    fn manifest(&self) -> harnix_ext::Manifest {
+        harnix_ext::Manifest::new("debugger", "0.0.1").optional(system_caps())
     }
 
-    fn spaces(&self, spaces: &mut SpaceRegistry) {
-        spaces.add(SpaceDecl::new("debugger").cross_space());
+    fn register(&self, r: &mut Registrar<'_, ()>) {
+        r.space(SpaceDecl::new("debugger").cross_space());
     }
 }
 
@@ -150,9 +153,9 @@ mod capabilities {
 
     #[test]
     fn an_optional_capability_may_go_ungranted() {
-        let r = registered(false, Modules::default().with(Debugger, [])).unwrap();
+        let r = registered(false, Modules::default().extension(Debugger, [])).unwrap();
         assert!(r.extensions[0].granted.is_empty());
-        assert_eq!(r.extensions[0].optional.len(), 3);
+        assert_eq!(r.extensions[0].optional.len(), 4);
     }
 
     #[tokio::test]
@@ -191,9 +194,9 @@ mod capabilities {
 
     #[test]
     fn the_built_ins_hold_what_they_require_and_nothing_else() {
-        let r = registered(true, Modules::default()).unwrap();
+        let r = registered(true, Modules::default().extension(System, system_caps())).unwrap();
         let system = r.extensions.iter().find(|m| m.id == "system").unwrap();
-        assert_eq!(system.granted, ["instances.admin", "engine.inspect", "engine.control"]);
+        assert_eq!(system.granted, ["instances.admin", "engine.inspect", "engine.control", "process.observe"]);
         for status in &r.extensions {
             assert_eq!(status.granted, status.requires, "{}", status.id);
         }
@@ -209,7 +212,7 @@ mod debugger {
     /// system space does to another space's sessions: nothing about it is first-party.
     #[tokio::test]
     async fn granted_the_system_modules_capabilities_it_does_what_the_system_space_does() {
-        let r = registered(false, Modules::default().with(Debugger, system_caps())).unwrap();
+        let r = registered(false, Modules::default().extension(Debugger, system_caps())).unwrap();
         for method in SYSTEM_SPACE_ACTS {
             let e = call(&r, Subject::extension(id("debugger")), method, json!({"session_id": "s"})).await.unwrap_err();
             assert_eq!(e.code, codes::INTERNAL_ERROR, "{method} was not let through: {e}");
@@ -219,7 +222,7 @@ mod debugger {
 
     #[tokio::test]
     async fn ungranted_every_one_of_them_is_refused_and_says_what_is_missing() {
-        let r = registered(false, Modules::default().with(Debugger, [])).unwrap();
+        let r = registered(false, Modules::default().extension(Debugger, [])).unwrap();
         for method in SYSTEM_SPACE_ACTS {
             let e = call(&r, Subject::extension(id("debugger")), method, json!({"session_id": "s"})).await.unwrap_err();
             let cap = r.router.table().row(method).and_then(|row| row.access().requirement().cloned()).unwrap();
@@ -229,6 +232,51 @@ mod debugger {
         for method in SYSTEM_SPACE_ACTS {
             let e = call(&r, Subject::device("d"), method, json!({"space": "debugger"})).await.unwrap_err();
             assert_eq!(e.code, codes::REFUSED, "{method}");
+        }
+    }
+}
+
+mod unlinked {
+    use super::*;
+
+    /// The first-party extensions, each granted what Harnix grants it, but `without`.
+    fn first_party(without: &str) -> Modules {
+        let mut modules = Modules::default();
+        if without != "system" {
+            modules = modules.extension(System, system_caps());
+        }
+        modules
+    }
+
+    /// The table's rows and aliases, as text, one each.
+    fn table(modules: Modules) -> (Vec<Value>, Vec<Value>) {
+        let r = registered(true, modules).unwrap();
+        let snapshot = r.router.snapshot();
+        let rows = snapshot["rows"].as_array().cloned().unwrap_or_default();
+        let aliases = snapshot["aliases"].as_array().cloned().unwrap_or_default();
+        (rows, aliases)
+    }
+
+    /// Not linking an extension changes the kernel by nothing: what is missing is its own rows,
+    /// the old names that answered as them, and the topics moving to its own.
+    #[test]
+    fn without_an_extension_only_its_rows_differ() {
+        for (ext, moving) in [("system", &["harnix.process"][..])] {
+            let (all_rows, all_aliases) = table(first_party(""));
+            let (rows, aliases) = table(first_party(ext));
+            let owner = format!("ext:{ext}");
+            let missing: Vec<&Value> = all_rows.iter().filter(|row| !rows.contains(row)).collect();
+            assert!(!missing.is_empty(), "{ext} has no rows");
+            for row in &missing {
+                let name = row["name"].as_str().unwrap_or_default();
+                assert!(row["owner"] == owner || moving.contains(&name), "without {ext}, {row} is missing");
+            }
+            assert!(rows.iter().all(|row| all_rows.contains(row)), "without {ext}, a row appeared");
+            for alias in all_aliases.iter().filter(|a| !aliases.contains(a)) {
+                let new = alias["to"].as_str().unwrap_or_default();
+                assert!(new.starts_with(&format!("{ext}.")), "without {ext}, the alias {alias} is missing");
+            }
+            assert!(aliases.iter().all(|a| all_aliases.contains(a)), "without {ext}, an alias appeared");
         }
     }
 }

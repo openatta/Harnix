@@ -47,6 +47,25 @@ pub use harnix_engine_api as engine;
 /// Stable within 0.5.z: it only grows.
 pub use harnix_ext as ext;
 
+/// Harnix's own extensions, each granted what Harnix grants it: the source is Harnix's own grant
+/// list. A product adds the set (`App::builder().extensions(harnix::first_party::standard())`), or
+/// the ones it wants, each by its type.
+#[cfg(feature = "first-party")]
+pub mod first_party {
+    use harnix_contract::s1::caps;
+    use harnix_ext::ExtensionSet;
+
+    pub use harnix_ext_system::System;
+
+    /// Every first-party extension, in the order they register.
+    pub fn standard() -> ExtensionSet {
+        ExtensionSet::new().with(
+            System,
+            [caps::INSTANCES_ADMIN, caps::ENGINE_INSPECT, caps::ENGINE_CONTROL, caps::PROCESS_OBSERVE],
+        )
+    }
+}
+
 /// A product's route table without starting it ([`testing::describe`]), and a process started
 /// without its listener ([`testing::Kernel`]): the real router and hub, an engine that replays.
 /// **Not stable**.

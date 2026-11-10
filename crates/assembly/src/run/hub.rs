@@ -63,12 +63,16 @@ pub(super) async fn assemble(
         replay_max_frames: harnix_hub::REPLAY_MAX_FRAMES,
         max_in_flight: harnix_contract::MAX_IN_FLIGHT,
     };
-    // Turned off, the system space is nobody's to claim: without it nothing reaches across spaces.
-    let withheld = (!profile.shell.keeps(harnix_builtin::SYSTEM_SPACE))
-        .then(|| harnix_builtin::SYSTEM_SPACE.to_string())
-        .into_iter()
+    // A switched-off extension's spaces are nobody's to claim: without `system` nothing reaches
+    // across spaces.
+    let withheld = records
+        .iter()
+        .filter(|r| !r.is_enabled())
+        .filter_map(|r| r.descriptor.as_ref())
+        .flat_map(|d| d.spaces().iter().map(|s| s.id.clone()))
         .collect();
-    let spaces = harnix_hub::Spaces::load(roots.state.join("spaces.json"), declared_spaces(records), withheld)?;
+    let declared = declared_spaces(records);
+    let spaces = harnix_hub::Spaces::load(roots.state.join("spaces.json"), declared.clone(), withheld)?;
     let registry = InstanceRegistry::new(registry);
     let hub = Hub::new(HubConfig {
         instances: registry.clone(),
@@ -88,7 +92,7 @@ pub(super) async fn assemble(
         instances: registry.clone(),
         limits: serde_json::to_value(limits).unwrap_or(json!({})),
         prompt_timeout_secs: profile.instances.engine.permission_prompt_timeout_secs,
-        shell: shell(profile, roots, brand_icon.is_some()),
+        shell: shell(profile, roots, brand_icon.is_some(), &shown(records, &declared)),
         ui: ui.clone(),
     }));
     let (name, version) = app;
@@ -154,12 +158,22 @@ fn brand_icon(profile: &Profile, profile_path: Option<&Path>) -> Option<PathBuf>
     })
 }
 
-/// What the shell is told at hello: the brand, which built-in spaces this product keeps,
-/// whether installed packages' interface modules load (concept §5.8), and whether it starts new
-/// sessions at all (`new_session`, ipdrun-46).
-fn shell(profile: &Profile, roots: &Roots, has_icon: bool) -> Value {
+/// The spaces the shell draws of its own: what the enabled extensions are the backend of, and the
+/// session space while it is the built-in `sessions` part's.
+fn shown(records: &[Record], declared: &[harnix_contract::SpaceDecl]) -> Vec<String> {
+    let mut ids: Vec<String> = declared.iter().map(|d| d.id.clone()).collect();
+    if records.iter().any(|r| r.is_enabled() && r.manifest.id() == "sessions") && !ids.iter().any(|i| i == "sessions") {
+        ids.insert(0, "sessions".to_string());
+    }
+    crate::aliases::shell_spaces(&ids)
+}
+
+/// What the shell is told at hello: the brand, which of its own spaces there are, whether
+/// installed packages' interface modules load (concept §5.8), and whether it starts new sessions
+/// at all (`new_session`, ipdrun-46).
+fn shell(profile: &Profile, roots: &Roots, has_icon: bool, spaces: &[String]) -> Value {
     json!({
-        "spaces": profile.shell.spaces,
+        "spaces": spaces,
         "brand": {
             "name": profile.brand.name,
             "icon": has_icon.then_some(harnix_transport::BRAND_ICON_PATH),
@@ -202,9 +216,9 @@ mod tests {
             state: "/s".into(),
         };
         let profile = Profile::default();
-        assert_eq!(shell(&profile, &roots, false)["brand"]["icon"], Value::Null);
-        assert_eq!(shell(&profile, &roots, true)["brand"]["icon"], harnix_transport::BRAND_ICON_PATH);
-        assert_eq!(shell(&profile, &roots, false)["brand"]["product_id"], "harnix");
-        assert_eq!(shell(&profile, &roots, false)["state_dir"], "/s");
+        assert_eq!(shell(&profile, &roots, false, &[])["brand"]["icon"], Value::Null);
+        assert_eq!(shell(&profile, &roots, true, &[])["brand"]["icon"], harnix_transport::BRAND_ICON_PATH);
+        assert_eq!(shell(&profile, &roots, false, &[])["brand"]["product_id"], "harnix");
+        assert_eq!(shell(&profile, &roots, false, &[])["state_dir"], "/s");
     }
 }

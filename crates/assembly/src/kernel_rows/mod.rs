@@ -25,7 +25,8 @@ use crate::gate::{Behind, Diagnostics};
 pub(crate) use hello::Hello;
 pub(crate) use ui::{UiModules, UiTopic, UI};
 
-/// `harnix.process`, a method and a topic of the same value.
+/// `harnix.process`, the topic: `system.process`'s value under the name its callers still use
+/// (`crate::aliases`).
 pub(crate) const PROCESS: &str = "harnix.process";
 
 /// One of the three methods this layer answers.
@@ -105,12 +106,6 @@ pub fn table(behind: &Behind) -> RouteTable {
     };
     let assembly_rows = vec![
         Row::method("harnix.hello", Access::device(), late(&behind.hello, |h: Arc<Hello>| async move { h.answer().await })),
-        Row::method(
-            PROCESS,
-            Access::device(),
-            late(&behind.process, |p: Arc<crate::process::Process>| async move { Ok(p.view()) }),
-        ),
-        Row::topic(PROCESS, Access::device()),
         // What the page draws for whom, and the modules it loads: a method, and a topic pushed on
         // every change.
         Row::method(UI, Access::device(), late(&behind.hello, |h: Arc<Hello>| async move { Ok(h.ui.view()) })),
