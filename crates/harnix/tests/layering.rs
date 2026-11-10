@@ -806,7 +806,9 @@ fn every_harnix_dependency_resolves() {
         "ext/flow",
         "harnix",
         "hub",
+        "kernel",
         "module",
+        "router",
         "testapp",
         "transport",
         "wasm",
@@ -1184,7 +1186,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P2"]
     fn l02_kernel() {
         depends(KERNEL, &[CONTRACT], &agix_and(&["axum", "http"]), &[]);
     }
@@ -1195,13 +1196,11 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P2"]
     fn l04_router() {
         depends(ROUTER, &[CONTRACT, KERNEL, AUTHZ], &agix_and(&["axum"]), &[]);
     }
 
     #[test]
-    #[ignore = "0.5.0：P2"]
     fn l05_transport() {
         let forbidden = agix_and(&[ROUTER, HUB, INSTANCE, ENGINE, ENGINE_API]);
         depends(TRANSPORT, &[CONTRACT, KERNEL, AUTHZ], &forbidden, &[]);
@@ -1394,7 +1393,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P2"]
     fn l25_the_router_is_the_assemblys_alone() {
         only_used_by(ROUTER, &[ASSEMBLY], &[]);
         assert!(member_names().iter().any(|n| n == ROUTER), "`{ROUTER}` does not exist (yet)");
@@ -1459,7 +1457,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P2"]
     fn c02_nothing_dispatches_on_a_name_prefix() {
         let needles = [
             "starts_with(\"app.\")",
@@ -1472,7 +1469,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P2"]
     fn c03_the_private_call_channels_are_gone() {
         let needles = ["__client", "__chain"];
         let mut offenders = Vec::new();
@@ -1528,7 +1524,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P2"]
     fn c05_no_topology_is_named_by_the_hub_the_router_or_the_authorizer() {
         let needles = [
             "single_duplex", "split_streams", "request_only", "SingleDuplex", "SplitStreams", "RequestOnly",
