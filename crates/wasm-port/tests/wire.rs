@@ -469,13 +469,13 @@ fn a_hello_of_another_build_says_how_it_differs() {
         ext: EXT.into(),
         version: "0.5.0".into(),
         agix_version: Some("0.3.9".into()),
-        engine: "wasmtime-47-aarch64".into(),
+        engine: "engine-47-aarch64".into(),
         harnix_api: 2,
         pid: 1,
     };
     let same = Hello { pid: 99, ..ours.clone() };
     assert_eq!(same.differs(&ours), None, "who and which pid are not the build");
-    let other = Hello { engine: "wasmtime-47-x86_64".into(), ..ours.clone() };
+    let other = Hello { engine: "engine-47-x86_64".into(), ..ours.clone() };
     assert!(other.differs(&ours).unwrap().contains("VM engine"));
     let older = Hello { version: "0.4.2".into(), ..ours.clone() };
     assert!(older.differs(&ours).unwrap().contains("Harnix 0.4.2"));

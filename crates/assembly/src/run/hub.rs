@@ -11,7 +11,6 @@ use harnix_instance::{HistoryStore, InstanceRegistry, Owner, INSTANCES_TOPIC};
 use serde_json::{json, Value};
 
 use super::instances::Instances;
-use super::wiring::AppsWiring;
 use crate::cli::Cli;
 use crate::gate::Behind;
 use crate::host::Record;
@@ -41,7 +40,6 @@ pub(super) async fn assemble(
     app: (&str, &str),
     records: &[Record],
     instances: Instances,
-    apps: &AppsWiring,
     behind: &Behind,
 ) -> anyhow::Result<Assembled> {
     let Instances {
@@ -97,13 +95,12 @@ pub(super) async fn assemble(
         ui: ui.clone(),
     }));
     let (name, version) = app;
-    let mut process = json!({
+    let process = json!({
         "app": { "name": name, "version": version },
         "harnix": crate::HARNIX_VERSION,
         "agix": harnix_engine::identity().version,
         "started_ms": now_ms(),
     });
-    apps.process(&mut process);
     let process = Arc::new(Process::new(process, hub.clone()));
     let _ = behind.process.set(process);
     registry.add(harnix_hub::MAIN, main, Owner::Kernel).await;
@@ -112,7 +109,6 @@ pub(super) async fn assemble(
     }
     registry.restore().await;
     hub.declare_spaces_topic().await;
-    apps.hub(&hub).await;
     for d in records.iter().filter(|r| r.is_enabled()).filter_map(|r| r.descriptor.as_ref()) {
         for topic in d.topics() {
             if topic.is_computed() {

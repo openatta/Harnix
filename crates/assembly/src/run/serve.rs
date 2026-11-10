@@ -7,10 +7,8 @@ use harnix_contract::Topology;
 use harnix_hub::Hub;
 
 use super::admission::Admission;
-use crate::kernel_rows::UiModules;
 use super::register::Held;
 use super::state_files::write_token;
-use super::wiring::AppsWiring;
 use super::Basis;
 use crate::cli::Cli;
 use crate::pairing;
@@ -32,10 +30,8 @@ pub(super) async fn serve(
     held: &Held,
     records: &[Record],
     hub: &Arc<Hub>,
-    ui_modules: &Arc<UiModules>,
     admission: &Admission,
     brand_icon: Option<std::path::PathBuf>,
-    apps: &AppsWiring,
 ) -> anyhow::Result<Serving> {
     let Basis {
         profile,
@@ -58,25 +54,24 @@ pub(super) async fn serve(
     } else {
         harnix_transport::BrowserAdmission::PageToken
     };
-    let module_routes: Vec<harnix_transport::AppRoutes> = records
+    let routes: Vec<harnix_transport::ExtRoutes> = records
         .iter()
         .filter(|r| r.is_enabled())
         .filter_map(|r| r.descriptor.as_ref())
         .filter(|d| !d.routes().is_empty())
-        .map(|d| harnix_transport::AppRoutes {
+        .map(|d| harnix_transport::ExtRoutes {
             id: d.id().to_string(),
             router: crate::host::routes::router(d.routes().to_vec()),
         })
         .collect();
     let bulk: Arc<dyn harnix_transport::BulkStore> = admission.seats.bulk.clone();
     let max_upload_bytes = harnix_contract::MAX_UPLOAD_BYTES;
-    let runtime_modules = profile.ui.runtime_modules;
-    let mut extensions = harnix_transport::Extensions {
-        apps: module_routes,
+    let extensions = harnix_transport::Extensions {
+        routes,
         route_gate: Some(admission.router.clone()),
-        runtime_apps: None,
+        packages: admission.dynamic.as_ref().map(|host| host.routes.router()),
+        engines: Some(admission.engines.clone()),
     };
-    apps.routes(&mut extensions);
     let (router, statics, channels) = harnix_transport::router(
         admission.router.clone(),
         hub.clone(),
@@ -108,7 +103,6 @@ pub(super) async fn serve(
 
     let addrs = listen_addrs(host, profile.transport.port);
     let addr = addrs[0];
-    apps.follow(ui_modules, runtime_modules);
 
     // Before anything is served: a reachable node with no paired device has
     // no way to acquire one, because pairing is a method and methods need
@@ -120,19 +114,16 @@ pub(super) async fn serve(
     } else {
         "http"
     };
-    // Where it listens, once it does: to the modules (ipdrun-14) and into the lock file (ipdrun-09).
+    // Where it listens, once it does: to the extensions (ipdrun-14) and into the lock file
+    // (ipdrun-09).
     let told = {
-        let kernel = admission.kernel.clone();
         let listen = admission.listen.clone();
         let state_lock = state_lock.clone();
-        let apps = apps.clone();
         move |bound: Vec<SocketAddr>| {
             let Some(first) = bound.first() else { return };
             let url = format!("{scheme}://{first}/");
             state_lock.listening(&url);
-            apps.listening(&url);
-            listen.send_replace(Some(harnix_kernel::seat::Listening { addrs: bound.clone(), url: url.clone() }));
-            kernel.listen.send_replace(Some(harnix_module::Listen { addrs: bound, url }));
+            listen.send_replace(Some(harnix_kernel::seat::Listening { addrs: bound, url }));
         }
     };
     // Shutting down stops the listener first, so it is handed the signal here.

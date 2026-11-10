@@ -10,7 +10,7 @@
  * gone when the application stops; a second panel, a settings section, a card, a modal for as long
  * as they are shown.
  *
- * The application's state follows `harnix.apps`: one that stops loses its frames, and an unsigned
+ * The application's state follows `packages.list`: one that stops loses its frames, and an unsigned
  * one under `[apps] dev = true` whose `ui/` changed (`runtime.ui_rev`) has its frames reloaded.
  */
 
@@ -224,9 +224,9 @@ interface Listed {
 
 /** Follow the applications' state: frames go with a stopped application, reload with a changed `ui/`. */
 function follow(app: App, ids: Set<string>): void {
-  if (!app.snapshot.reachable.includes("harnix.apps.list")) return;
+  if (!app.snapshot.reachable.includes("packages.list")) return;
   const revs = new Map<string, string>();
-  topicsOf(app.conn).subscribe("harnix.apps", {}, (value) => {
+  topicsOf(app.conn).subscribe("packages.list", {}, (value) => {
     for (const row of (value as Listed | null)?.apps ?? []) {
       if (!ids.has(row.id)) continue;
       const running = Boolean(row.enabled) && row.runtime?.state === "running";

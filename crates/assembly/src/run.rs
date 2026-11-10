@@ -4,18 +4,18 @@
 //! 2. **Register** every extension, in order: its manifest and what it declares.
 //! 3. **Migrate** every extension, in order.
 //! 4. **Build the instances**: `main`, with the native contributions of the
-//!    modules still enabled; the profile's `[[instances]]`; and what the
+//!    extensions still enabled; the profile's `[[instances]]`; and what the
 //!    ledger says was built from templates.
-//! 5. **Start** every module, in order.
+//! 5. **Start** every extension, in order.
 //! 6. Serve.
 //!
-//! A module that fails at 2, 3 or 5 is disabled and everything else goes on;
-//! `harnix.diagnostics` says which one and why. Every decision here is either
-//! a flag or a profile line; none of them is buried.
+//! An extension that fails at 2, 3 or 5 is disabled and everything else goes
+//! on; `harnix.diagnostics` says which one and why. Every decision here is
+//! either a flag or a profile line; none of them is buried.
 //!
 //! Each step is a function of its own, in `run/`, returning what the next ones need; `run()`
-//! is the order. What the `apps` feature adds to a step is asked of [`wiring::AppsWiring`], the
-//! one place that feature is compiled in or out.
+//! is the order. Nothing here depends on which carriers are linked: a package carrier is an
+//! extension's, and reaches the process the way any extension does.
 
 mod admission;
 mod hub;
@@ -24,7 +24,6 @@ mod register;
 mod serve;
 mod start;
 mod state_files;
-mod wiring;
 
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -37,12 +36,10 @@ use crate::paths::{RootArgs, Roots};
 use crate::profile::Profile;
 use crate::state_lock::StateLock;
 use crate::AppBuilder;
-use wiring::AppsWiring;
 
 /// Step 2 alone, for [`crate::testing`]: the built-ins (or not) and these extensions registered
 /// into the kernel's table under `profile`, with the grants they were given.
 pub(crate) fn register_only(
-    builtins: bool,
     entries: Vec<Entry>,
     profile: &Profile,
     state: &std::path::Path,
@@ -53,7 +50,7 @@ pub(crate) fn register_only(
         state: state.join("state"),
     };
     std::fs::create_dir_all(&roots.state)?;
-    let registered = register::register(builtins, entries, profile, &roots, &AppsWiring::default())?;
+    let registered = register::register(entries, profile, &roots)?;
     let statuses = registered.records.iter().map(|r| r.status.clone()).collect();
     Ok((registered.table, registered.grants, statuses))
 }
@@ -64,22 +61,19 @@ pub(crate) struct Started {
     pub records: Vec<Record>,
     pub hub: Arc<harnix_hub::Hub>,
     pub instances: Arc<harnix_instance::InstanceRegistry>,
-    pub ui: Arc<crate::kernel_rows::UiModules>,
     pub brand_icon: Option<std::path::PathBuf>,
     pub held: register::Held,
     pub admission: admission::Admission,
-    pub apps: AppsWiring,
 }
 
 /// Steps 2 to 5: register, migrate, the instances, the hub and admission, start.
 pub(crate) async fn start_process(app: AppBuilder, cli: &Cli, basis: &Basis) -> anyhow::Result<Started> {
-    let mut apps = AppsWiring::new(&basis.profile, &app)?;
-    let AppBuilder { name, version, builtins, entries, credentials, app_hosts, .. } = app;
+    let AppBuilder { name, version, entries, credentials, .. } = app;
     let profile = &basis.profile;
 
     // ── 2. Register ─────────────────────────────────────────────────────
-    let register::Registered { mut records, mut table, behind, held, grants, dynamic } =
-        register::register(builtins, entries, profile, &basis.roots, &apps)?;
+    let register::Registered { mut records, mut table, behind, held, grants, dynamic, package_sections } =
+        register::register(entries, profile, &basis.roots)?;
 
     // ── 3. Migrate ──────────────────────────────────────────────────────
     lifecycle::migrate(&mut records, &mut table).await;
@@ -90,21 +84,22 @@ pub(crate) async fn start_process(app: AppBuilder, cli: &Cli, basis: &Basis) -> 
     // back as this says.
     let recording = harnix_instance::Recording::new(cli.replay_dir.clone());
     recording.set_strict(cli.replay_strict);
+    // What a daemon this process spawns presents when it calls back: issued before any is.
+    let engines = Arc::new(harnix_authz::EngineCredentials::default());
     let instances = instances::build(
         profile,
         &basis.roots,
         &mut records,
         &mut table,
         &credentials,
-        &mut apps,
+        &engines,
         recording,
         grants.clone(),
     )
     .await?;
     let servers = instances.registry.factory.servers.clone();
     let hub::Assembled { hub, instances, ui, history, brand_icon } =
-        hub::assemble(cli, profile, &basis.roots, (&name, &version), &records, instances, &apps, &behind)
-            .await?;
+        hub::assemble(cli, profile, &basis.roots, (&name, &version), &records, instances, &behind).await?;
     // The hub's rows have been in the route table since registration; from here they answer.
     let _ = behind.hub.set(hub.clone());
 
@@ -123,15 +118,17 @@ pub(crate) async fn start_process(app: AppBuilder, cli: &Cli, basis: &Basis) -> 
             servers,
             state_root: basis.roots.state.clone(),
             projects_root: basis.roots.projects.clone(),
-            apps_enabled: profile.apps.enabled,
             dynamic,
+            runtime_modules: profile.ui.runtime_modules,
+            package_sections,
+            engines,
         },
-        admission::Identity { name: &name, version: &version, app_hosts: &app_hosts },
+        admission::Identity { name: &name, version: &version },
     );
 
     // ── 5. Start ────────────────────────────────────────────────────────
-    start::start(&mut records, &admission, &credentials).await;
-    Ok(Started { name, records, hub, instances, ui, brand_icon, held, admission, apps })
+    start::start(&mut records, &admission).await;
+    Ok(Started { name, records, hub, instances, brand_icon, held, admission })
 }
 
 pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
@@ -159,10 +156,8 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         &started.held,
         &started.records,
         &started.hub,
-        &started.ui,
         &started.admission,
         started.brand_icon.clone(),
-        &started.apps,
     )
     .await?;
     // SIGTERM is how a service manager, a desktop shell, `kill` and a test harness ask a process to
@@ -269,7 +264,7 @@ async fn subcommand(cli: &Cli, app: &AppBuilder) -> Option<anyhow::Result<()>> {
         Some(Command::Daemon(daemon)) => {
             let contrib = match &daemon.template {
                 None => harnix_engine_api::EngineContribution::default(),
-                Some(id) => match lifecycle::native_of(&app.entries.iter().map(|e| &e.added).collect::<Vec<_>>(), id) {
+                Some(id) => match lifecycle::native_of(&app.entries.iter().map(|e| e.ext.as_ref()).collect::<Vec<_>>(), id) {
                     Ok(contrib) => contrib,
                     Err(reason) => harnix_instance::refuse_daemon(&daemon.socket, &reason),
                 },

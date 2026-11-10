@@ -1,20 +1,21 @@
 //! What the host does for a host component: registering extensions while the process runs,
-//! configuring spawned daemons' tool endpoints, and — with the process carrier — starting and
-//! adopting extension processes.
+//! configuring spawned daemons' tool endpoints, telling the page what it runs, and — with the
+//! process carrier — starting and adopting extension processes.
 //!
 //! A runtime registration takes the same host path a native extension's does: a descriptor,
 //! seated, its rows in the one table. What the host checks of it is its structure (a package's
-//! consent is the component's record, which the host never sees); everything after that is what
-//! the runtime-application host already does for one — its names, its topics, its spaces, its
-//! consent, in one write, undone on any refusal.
+//! consent is the component's record, which the host never sees); everything after that is the
+//! packages' table's ([`crate::package_table`]) — its names, its topics, its spaces, its consent,
+//! in one write, undone on any refusal — and its routes go where the transport finds the
+//! packages' paths ([`PackageRoutes`]).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, RwLock};
 
 use harnix_contract::s1::{caps, CallMeta, Capability, ExtId, PackageCarrier, Trust};
 use harnix_contract::sync::{lock, read, write};
 use harnix_contract::{codes, RpcError};
-use harnix_ext::ExtensionDescriptor;
+use harnix_ext::{ExtensionDescriptor, RouteDecl};
 use harnix_host_api::{
     AdoptSpec, Availability, ChildHandle, ChildRequest, DynamicRegistrar, DynamicRegistry, ExtensionSummary, HostApi,
     RegisteredExtension, TopicSink, ToolEndpoint, Withdrawn,
@@ -22,36 +23,115 @@ use harnix_host_api::{
 use harnix_instance::SharedServers;
 use harnix_kernel::seat::Seated;
 use harnix_kernel::{CallContext, Chain, Handler, Rpc};
-use harnix_module::apps::AppRuntime;
-use harnix_module::{AppTopic, AppTopicSink};
-use harnix_router::names::{app_name, valid_app_id};
+use harnix_router::names::{full_name, valid_package_id};
 use harnix_router::{Row, Router};
 use serde_json::{json, Value};
 
 use super::seat::Seats;
-use crate::apps::{Apps, Package};
+use crate::kernel_rows::UiModules;
+use crate::package_table::{Package, PackageTable, PackageTopic};
+
+/// The prefixes a carrier serves a package under: its interface's files, and its tool endpoint.
+pub(crate) const CARRIER_ROUTES: &[&str] = &["ui", "mcp"];
 
 /// The host's side of every host component's pipes.
 pub(crate) struct DynamicHost {
-    pub apps: Arc<Apps>,
+    pub packages: Arc<PackageTable>,
     pub router: Arc<Router>,
     pub seats: Arc<Seats>,
     pub servers: Arc<SharedServers>,
     /// Where a registered extension's directory is made.
     pub state_root: std::path::PathBuf,
+    /// What `harnix.ui` tells; `false` when `[ui] runtime_modules` keeps packages' modules out.
+    pub ui: Arc<UiModules>,
+    pub runtime_modules: bool,
+    /// The profile's `[ext."<package id>"]` sections.
+    pub sections: BTreeMap<String, Value>,
+    pub routes: Arc<PackageRoutes>,
     /// What each component shares with every spawned daemon, merged.
     shared: Mutex<BTreeMap<ExtId, Vec<ToolEndpoint>>>,
 }
 
+/// What [`DynamicHost`] is made of besides the packages' table.
+pub(crate) struct DynamicParts {
+    pub router: Arc<Router>,
+    pub seats: Arc<Seats>,
+    pub servers: Arc<SharedServers>,
+    pub state_root: std::path::PathBuf,
+    pub ui: Arc<UiModules>,
+    pub runtime_modules: bool,
+    pub sections: BTreeMap<String, Value>,
+}
+
 impl DynamicHost {
-    pub fn new(
-        apps: Arc<Apps>,
-        router: Arc<Router>,
-        seats: Arc<Seats>,
-        servers: Arc<SharedServers>,
-        state_root: std::path::PathBuf,
-    ) -> Arc<Self> {
-        Arc::new(Self { apps, router, seats, servers, state_root, shared: Mutex::new(BTreeMap::new()) })
+    pub fn new(packages: Arc<PackageTable>, parts: DynamicParts) -> Arc<Self> {
+        let DynamicParts { router, seats, servers, state_root, ui, runtime_modules, sections } = parts;
+        Arc::new(Self {
+            packages,
+            router,
+            seats,
+            servers,
+            state_root,
+            ui,
+            runtime_modules,
+            sections,
+            routes: Arc::default(),
+            shared: Mutex::new(BTreeMap::new()),
+        })
+    }
+}
+
+/// The packages' routes, by id: what the transport hands `/ext/<id>/…` for an id no native
+/// extension took. A package's are its carrier's — its interface's files, served as the page's
+/// own are, to frames that hold no credential; its tool endpoint, which admits only an engine this
+/// process spawned — and a directory of its files, which a device reaches.
+#[derive(Default)]
+pub(crate) struct PackageRoutes(RwLock<BTreeMap<String, Vec<RouteDecl>>>);
+
+impl PackageRoutes {
+    fn set(&self, id: &str, routes: Vec<RouteDecl>) {
+        let mut all = write(&self.0);
+        match routes.is_empty() {
+            true => all.remove(id),
+            false => all.insert(id.to_string(), routes),
+        };
+    }
+
+    /// The router the transport mounts under `/ext/`: each request to the route of the package
+    /// its path names.
+    pub fn router(self: &Arc<Self>) -> axum::Router {
+        let routes = self.clone();
+        axum::Router::new().fallback(move |req: axum::extract::Request| {
+            let routes = routes.clone();
+            async move { routes.serve(req).await }
+        })
+    }
+
+    async fn serve(&self, mut req: axum::extract::Request) -> axum::response::Response {
+        let not_found = || {
+            let mut response = axum::response::Response::new(axum::body::Body::from("no extension serves this path"));
+            *response.status_mut() = axum::http::StatusCode::NOT_FOUND;
+            response
+        };
+        let path = req.uri().path().strip_prefix("/ext/").unwrap_or_default().to_string();
+        let Some((id, rest)) = path.split_once('/') else { return not_found() };
+        let Some(routes) = read(&self.0).get(id).cloned() else { return not_found() };
+        // A directory of its files is a device's to read, like a native extension's.
+        let device = matches!(req.extensions().get::<harnix_contract::Subject>(), Some(harnix_contract::Subject::Device { .. }));
+        let routes: Vec<RouteDecl> = routes.into_iter().filter(|r| r.static_dir().is_none() || device).collect();
+        let rest = format!("/{rest}");
+        match rest.parse::<axum::http::Uri>() {
+            Ok(uri) => *req.uri_mut() = with_query(uri, req.uri().query()),
+            Err(_) => return not_found(),
+        }
+        super::routes::serve(&routes, req).await
+    }
+}
+
+fn with_query(uri: axum::http::Uri, query: Option<&str>) -> axum::http::Uri {
+    match query {
+        Some(q) => format!("{}?{q}", uri.path()).parse().unwrap_or(uri),
+        None => uri,
     }
 }
 
@@ -95,6 +175,15 @@ impl HostApi for HostFor {
     }
 
     fn release(&self, _id: &ExtId) {}
+
+    fn publish_ui(&self, entries: Vec<Value>) {
+        let entries = if self.host.runtime_modules { entries } else { Vec::new() };
+        self.host.ui.set_extension(self.by.as_str(), entries);
+    }
+
+    fn package_sections(&self) -> BTreeMap<String, Value> {
+        self.host.sections.clone()
+    }
 }
 
 struct RegistryFor {
@@ -111,12 +200,12 @@ fn structure(rule: &str) -> RpcError {
 
 /// What the host checks of a descriptor registered while the process runs: that it is a
 /// package's, and asks nothing a package may not.
-fn check(d: &ExtensionDescriptor, caps: &[Capability], router: &Router) -> Rpc<()> {
+pub(crate) fn check(d: &ExtensionDescriptor, caps: &[Capability], router: &Router) -> Rpc<()> {
     let id = d.id().as_str();
     if !matches!(d.trust(), Trust::Consent { .. }) {
         return Err(structure("its trust is not consent"));
     }
-    if !valid_app_id(id) {
+    if !valid_package_id(id) {
         return Err(structure("its id is not a package's"));
     }
     if d.spaces().iter().any(|s| s.cross_space) {
@@ -125,8 +214,8 @@ fn check(d: &ExtensionDescriptor, caps: &[Capability], router: &Router) -> Rpc<(
     if d.engine().is_some() || d.engine_everywhere().is_some() || !d.templates().is_empty() {
         return Err(structure("a package gives no engine contribution and no instance template"));
     }
-    if d.routes().iter().any(|r| r.static_dir().is_none()) {
-        return Err(structure("a package's routes are directories of its files"));
+    if d.routes().iter().any(|r| r.static_dir().is_none() && !CARRIER_ROUTES.contains(&r.prefix().trim_matches('/'))) {
+        return Err(structure("a package's routes are a directory of its files and its carrier's (`ui`, `mcp`)"));
     }
     let table = router.table();
     for cap in caps {
@@ -135,13 +224,13 @@ fn check(d: &ExtensionDescriptor, caps: &[Capability], router: &Router) -> Rpc<(
         }
     }
     for name in d.trust().calls().into_iter().flatten() {
-        if harnix_router::names::names_an_application(name) {
-            continue;
-        }
         if let Some(row) = table.row(name) {
             if row.access().requirement().is_some() {
                 return Err(structure(&format!("`{name}` takes a capability, which a consent cannot list")));
             }
+        }
+        if let Err(why) = table.open_to_package(d.id(), name) {
+            return Err(structure(&format!("`{name}` is {why}, which a consent cannot list")));
         }
     }
     if !d.ui().modules().is_empty() && !caps.contains(&caps::UI_PAGE) {
@@ -150,7 +239,7 @@ fn check(d: &ExtensionDescriptor, caps: &[Capability], router: &Router) -> Rpc<(
     if !d.ui().points().is_empty() {
         return Err(structure("a package defines no contribution point"));
     }
-    let mut tools = std::collections::BTreeSet::new();
+    let mut tools = BTreeSet::new();
     for tool in d.tools() {
         if !tools.insert(session_tool_name(id, tool.name())) {
             return Err(structure(&format!("two tools are called `{}`", tool.name())));
@@ -167,16 +256,13 @@ fn session_tool_name(id: &str, tool: &str) -> String {
 #[async_trait::async_trait]
 impl DynamicRegistry for RegistryFor {
     async fn register(&self, d: ExtensionDescriptor, caps: Vec<Capability>) -> Rpc<Arc<dyn RegisteredExtension>> {
-        let audit = |name: &str, why: &'static str| {
+        if let Err(e) = check(&d, &caps, &self.host.router) {
             self.host.router.audit().record_change(
                 &harnix_contract::Subject::extension(self.by.clone()),
-                name,
+                &full_name(d.id().as_str(), "*"),
                 harnix_authz::Change::Refuse,
-                Some(why),
+                Some("a runtime descriptor that is not a package's"),
             );
-        };
-        if let Err(e) = check(&d, &caps, &self.host.router) {
-            audit(&app_name(d.id().as_str(), "*"), "a runtime descriptor that is not a package's");
             return Err(e);
         }
         let id = d.id().clone();
@@ -187,7 +273,7 @@ impl DynamicRegistry for RegistryFor {
         let data_dir = self.host.state_root.join("ext").join(id.as_str()).join("data");
         d.seat(self.host.seats.seat(&id, &Value::Null, &data_dir));
         let availability = Arc::new(RwLock::new(Availability::Starting));
-        let prefix = format!("app.{id}.");
+        let prefix = format!("{id}.");
         let rows: Vec<Row> = d
             .methods()
             .iter()
@@ -197,19 +283,18 @@ impl DynamicRegistry for RegistryFor {
             })
             .chain(d.topics().iter().map(|t| Row::topic(t.name(), t.access().clone())))
             .collect();
-        let topics: Vec<AppTopic> = d
+        let topics: Vec<PackageTopic> = d
             .topics()
             .iter()
-            .map(|t| AppTopic {
+            .map(|t| PackageTopic {
                 name: t.name().strip_prefix(&prefix).unwrap_or(t.name()).to_string(),
                 params: t.params().to_vec(),
-                principals: Vec::new(),
             })
             .collect();
         let sinks = Arc::new(Sinks::default());
         let summary = self
             .host
-            .apps
+            .packages
             .install(
                 self.by.as_str(),
                 Package {
@@ -224,11 +309,11 @@ impl DynamicRegistry for RegistryFor {
                 },
             )
             .await?;
+        self.host.routes.set(id.as_str(), d.routes().to_vec());
         Ok(Arc::new(Registered {
             host: self.host.clone(),
             by: self.by.clone(),
             id,
-            carrier,
             availability,
             sinks,
             since_ms: summary.since_ms,
@@ -237,13 +322,13 @@ impl DynamicRegistry for RegistryFor {
 
     fn registered(&self) -> Vec<ExtensionSummary> {
         self.host
-            .apps
+            .packages
             .registered()
             .into_iter()
             .filter_map(|a| {
                 let id = ExtId::package(&a.id).ok()?;
                 let by = ExtId::native(&a.by).or_else(|_| ExtId::package(&a.by)).ok()?;
-                Some(ExtensionSummary::new(&id, &by, PackageCarrier::Wasm, a.since_ms).names(a.methods, a.topics, a.spaces))
+                Some(ExtensionSummary::new(&id, &by, a.carrier, a.since_ms).names(a.methods, a.topics, a.spaces))
             })
             .collect()
     }
@@ -275,7 +360,7 @@ impl Handler for Gate {
 #[derive(Default)]
 struct Sinks(Mutex<BTreeMap<String, Arc<dyn TopicSink>>>);
 
-impl AppTopicSink for Sinks {
+impl TopicSink for Sinks {
     fn deliver(&self, topic: &str, params: &Value, value: &Value) {
         if let Some(sink) = lock(&self.0).get(topic).cloned() {
             sink.deliver(topic, params, value);
@@ -293,8 +378,6 @@ struct Registered {
     host: Arc<DynamicHost>,
     by: ExtId,
     id: ExtId,
-    #[allow(dead_code)]
-    carrier: PackageCarrier,
     availability: Arc<RwLock<Availability>>,
     sinks: Arc<Sinks>,
     #[allow(dead_code)]
@@ -309,31 +392,39 @@ impl RegisteredExtension for Registered {
 
     async fn call(&self, meta: CallMeta, method: &str, params: Value) -> Rpc<Value> {
         // Of what the call says about itself, the extensions waiting on it are kept, each with the
-        // call it is held on: what a host refuses re-entry by while that call is running.
+        // call it is held on — what a host refuses re-entry by while that call is running — and
+        // its deadline, as a bound this call is held to at the latest. Its id and its parent are
+        // this process's to issue.
+        let deadline = meta.deadline().map(harnix_kernel::Deadline);
         let chain = Chain::from(meta.into_links());
-        self.host.apps.call_chained(self.by.as_str(), self.id.as_str(), method, params, chain).await
+        self.host.packages.call_chained(self.by.as_str(), self.id.as_str(), method, params, chain, deadline).await
     }
 
     async fn publish(&self, topic: &str, params: Value, value: Value) -> Rpc<()> {
-        self.host.apps.publish(self.by.as_str(), self.id.as_str(), topic, params, value).await
+        self.host.packages.publish(self.by.as_str(), self.id.as_str(), topic, params, value).await
     }
 
     async fn subscribe(&self, topic: &str, params: Value, sink: Arc<dyn TopicSink>) -> Rpc<Value> {
         lock(&self.sinks.0).insert(topic.to_string(), sink);
-        self.host.apps.subscribe_as(self.by.as_str(), self.id.as_str(), topic, params).await
+        self.host.packages.subscribe_as(self.by.as_str(), self.id.as_str(), topic, params).await
     }
 
     async fn unsubscribe(&self, topic: &str, params: Value) -> Rpc<()> {
         lock(&self.sinks.0).remove(topic);
-        self.host.apps.unsubscribe_as(self.by.as_str(), self.id.as_str(), topic, params).await
+        self.host.packages.unsubscribe_as(self.by.as_str(), self.id.as_str(), topic, params).await
     }
 
     fn mark(&self, availability: Availability) {
         *write(&self.availability) = availability;
     }
 
+    fn frame(&self, calls: Option<BTreeSet<String>>) -> Rpc<()> {
+        self.host.packages.frame(self.by.as_str(), self.id.as_str(), calls)
+    }
+
     async fn withdraw(&self) -> Rpc<Withdrawn> {
-        let gone = self.host.apps.withdraw(self.by.as_str(), self.id.as_str()).await?;
+        self.host.routes.set(self.id.as_str(), Vec::new());
+        let gone = self.host.packages.withdraw(self.by.as_str(), self.id.as_str()).await?;
         Ok(Withdrawn::new(gone.methods, gone.topics, gone.spaces, gone.subscriptions_ended))
     }
 }

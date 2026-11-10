@@ -36,10 +36,10 @@ test("a failed migration disables that module alone", TAGS, async () => {
     expect(failed.enabled).toBe(false);
     expect(failed.phase).toBe("migration");
     expect(failed.reason).toContain("on purpose");
-    expect(await api.refused("app.fails-migrate.ping", {})).toBeTruthy();
+    expect(await api.refused("fails-migrate.ping", {})).toBeTruthy();
     // The modules after it in the list started.
     expect((await moduleStatus(api, "probe")).enabled).toBe(true);
-    expect((await api.call("app.probe.echo", { text: "up" })).text).toBe("up");
+    expect((await api.call("probe.echo", { text: "up" })).text).toBe("up");
     api.close();
   } finally {
     await backend.dispose();

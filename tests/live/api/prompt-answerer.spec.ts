@@ -2,7 +2,7 @@
 // tool_use_id with its answer, the hub keeps the answering device and strips
 // the field before the engine, and a module reads it once for its own audit.
 //
-// `app.probe.call` (crates/testapp) calls a method as the `probe` module.
+// `probe.call` (crates/testapp) calls a method as the `probe` module.
 
 import { REFUSED } from "@harnix/core/protocol";
 import { type Backend, type TestClient, connect, expect, test } from "@harnix/testkit";
@@ -50,7 +50,7 @@ test("a module learns once which device answered a tool's prompt; a device canno
   });
 
   const read = () =>
-    api.call("app.probe.call", {
+    api.call("probe.call", {
       method: "harnix.session.answerer",
       params: { session_id: s.session_id, tool_use_id: toolUse },
     });

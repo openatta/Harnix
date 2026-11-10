@@ -43,7 +43,7 @@ async function applications(page: Page): Promise<void> {
 const listed = async () => {
   const api = await connect(backend, { topology: topology() });
   try {
-    return (await api.call("harnix.apps.list")).apps as any[];
+    return (await api.call("packages.list")).apps as any[];
   } finally {
     api.close();
   }
@@ -122,9 +122,9 @@ test("an update shows only what it adds, and waits for its own consent", TAGS, a
   // From 0.1.0, installed (and consented to) by a client: the page only updates it.
   const api = await connect(backend, { topology: topology() });
   try {
-    await api.call("harnix.apps.uninstall", { id: SHOWCASE_ID });
-    const asked = await api.call("harnix.apps.install", { id: SHOWCASE_ID, version: "0.1.0" });
-    await api.call("harnix.apps.install", { id: SHOWCASE_ID, version: "0.1.0", consent: asked.digest });
+    await api.call("packages.uninstall", { id: SHOWCASE_ID });
+    const asked = await api.call("packages.install", { id: SHOWCASE_ID, version: "0.1.0" });
+    await api.call("packages.install", { id: SHOWCASE_ID, version: "0.1.0", consent: asked.digest });
   } finally {
     api.close();
   }

@@ -19,10 +19,12 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-// `crates/ext/<id>` holds the first-party extensions; the directory itself is no crate.
+// `crates/ext/<id>` holds the first-party extensions and `crates/carrier/<name>` the carriers;
+// those directories themselves are no crate.
+const nested = ["ext", "carrier"];
 const crates = readdirSync(join(root, "crates"))
-  .filter((c) => c !== "ext")
-  .concat(readdirSync(join(root, "crates", "ext")).map((c) => `ext/${c}`));
+  .filter((c) => !nested.includes(c))
+  .concat(nested.flatMap((dir) => readdirSync(join(root, "crates", dir)).map((c) => `${dir}/${c}`)));
 const field = (text, key) => text.match(new RegExp(`^${key}\\s*=\\s*(.+)$`, "m"))?.[1].trim();
 
 let failed = false;
@@ -59,7 +61,6 @@ else if (version && documented !== version) {
 // the table leaves an application reading the old contract as current.
 const constants = [
   ["扩展 API", "crates/ext/api/src/lib.rs", "EXT_API_VERSION"],
-  ["模块 API", "crates/module/src/lib.rs", "MODULE_API_VERSION"],
   ["贡献点 API", "crates/contract/src/handshake.rs", "CONTRIB_API_VERSION"],
   ["协议", "crates/contract/src/handshake.rs", "PROTOCOL_VERSION"],
   ["扩展包接口", "crates/package/src/manifest.rs", "HARNIX_API"],
@@ -72,10 +73,6 @@ for (const [row, file, name] of constants) {
   else if (!cell) fail(`docs/harnix-sdk.md has no \`| ${row} | \`…\` |\` row in its version table`);
   else if (cell !== code) fail(`docs/harnix-sdk.md says ${row} ${cell}; ${name} is ${code} (${file})`);
 }
-// Module API 1 is axum 0.8: a module's routes are an axum::Router, so the table names the major.
-const axum = readFileSync(join(root, "Cargo.toml"), "utf8").match(/^axum\s*=\s*\{\s*version\s*=\s*"([^"]+)"/m)?.[1];
-const axumDoc = sdk.match(/模块 API \d+ = axum ([\d.]+)/)?.[1];
-if (axum && axumDoc !== axum) fail(`docs/harnix-sdk.md pairs the module API with axum ${axumDoc}; Cargo.toml has ${axum}`);
 const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
 const pinned = git("ls-files", "-s", "agix").split(/\s+/)[1];
 const checkedOut = git("-C", "agix", "rev-parse", "HEAD");

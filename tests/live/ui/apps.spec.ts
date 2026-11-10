@@ -26,7 +26,7 @@ test.beforeAll(async () => {
   backend = await startApps();
   const api = await connect(backend);
   try {
-    await api.call("harnix.apps.installFile", { path });
+    await api.call("packages.installFile", { path });
   } finally {
     api.close();
   }
@@ -76,7 +76,7 @@ test("its space: the board calls the backend, and draws what the backend's topic
   // Another client's note arrives the same way, without the page asking.
   const api = await connect(backend);
   try {
-    await api.call(`app.${SHOWCASE_ID}.notes.add`, { text: "from another client" });
+    await api.call(`${SHOWCASE_ID}.notes.add`, { text: "from another client" });
   } finally {
     api.close();
   }
@@ -95,7 +95,7 @@ test("the system space's Apps tab shows the application's VM, its calls and its 
   const api = await connect(backend);
   try {
     // Something refused to show.
-    expect((await api.call(`app.${SHOWCASE_ID}.overreach`)).refused).toBe(true);
+    expect((await api.call(`${SHOWCASE_ID}.overreach`)).refused).toBe(true);
   } finally {
     api.close();
   }
@@ -110,8 +110,8 @@ test("the system space's Apps tab shows the application's VM, its calls and its 
   await expect(row.locator('[data-field="calls"]')).not.toHaveText("—");
   await row.click();
   const detail = page.locator(`[data-testid="system-app-detail"][data-app="${SHOWCASE_ID}"]`);
-  await expect(detail.getByTestId("system-app-refusal")).toContainText("harnix.apps.uninstall");
-  await expect(detail).toContainText(`app.${SHOWCASE_ID}.notes.add`);
+  await expect(detail.getByTestId("system-app-refusal")).toContainText("packages.uninstall");
+  await expect(detail).toContainText(`${SHOWCASE_ID}.notes.add`);
 });
 
 test("the Apps tab in Chinese: a header never breaks a word, the table fits its column, the VM's figures in the row opened", TAGS, async ({ page }) => {
@@ -144,7 +144,7 @@ test("the Apps tab in Chinese: a header never breaks a word, the table fits its 
 test("disabled, its card is gone from the page", TAGS, async ({ page }) => {
   const api = await connect(backend);
   try {
-    await api.call("harnix.apps.disable", { id: SHOWCASE_ID });
+    await api.call("packages.disable", { id: SHOWCASE_ID });
   } finally {
     api.close();
   }

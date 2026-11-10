@@ -88,6 +88,10 @@ impl TopicSource for TopicDecl {
 pub(crate) struct CallInner(CallContext);
 
 impl CallInner {
+    pub(crate) fn meta(&self) -> harnix_contract::s1::CallMeta {
+        self.0.meta()
+    }
+
     pub(crate) fn subject(&self) -> &Subject {
         &self.0.subject
     }

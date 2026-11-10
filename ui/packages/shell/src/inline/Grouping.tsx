@@ -89,7 +89,7 @@ export function GroupedSessions({ app, s, rule, rows }: { app: App; s: ShellStat
     let alive = true;
     const sessions = rows.map((r) => ({ session_id: r.session_id, instance: r.instance, name: r.name ?? null, scene: r.scene ?? null, status: r.status ?? null, last_active: r.last_active ?? null }));
     app
-      .call(`app.${owner.id}.${decl.method}`, { space, sessions })
+      .call(`${owner.id}.${decl.method}`, { space, sessions })
       .then((value) => alive && setAnswer({ ids, value }))
       .catch((e: unknown) => {
         if (!alive) return;

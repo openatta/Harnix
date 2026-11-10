@@ -1,0 +1,40 @@
+[package]
+name = "harnix-carrier-wasm"
+version      = "0.4.2-2026110901"
+edition      = "2021"
+rust-version = "1.87"
+license      = "Apache-2.0"
+publish      = false
+description  = "Packages in the product's process: each one's WebAssembly in a VM here, registered as an extension, its tools in every session"
+
+# The carrier the `packages` component runs packages on in this process (mode 2): the host core
+# (`harnix-wasm-host`) and its port lent over the package's extension handle and the component's
+# context, the tool provider every engine built here carries, and the package's routes
+# (`/ext/<id>/ui`, `/ext/<id>/mcp`). Only a build with the `wasm` feature links it, and through it
+# the WebAssembly engine.
+[dependencies]
+harnix-wasm-host  = { workspace = true }
+harnix-wasm-port  = { workspace = true }
+harnix-package    = { workspace = true }
+harnix-host-api   = { workspace = true }
+harnix-ext        = { workspace = true }
+async-trait = { workspace = true }
+base64      = { workspace = true }
+http        = { workspace = true }
+http-body-util = { workspace = true }
+serde_json  = { workspace = true }
+tokio       = { workspace = true }
+tokio-util  = { workspace = true }
+toml        = { workspace = true }
+tracing     = { workspace = true }
+uuid        = { workspace = true }
+
+[features]
+default = []
+# Its tests compile the showcase's component for this engine.
+compile = ["harnix-wasm-host/compile"]
+
+[dev-dependencies]
+tempfile = { workspace = true }
+hex      = { workspace = true }
+zip      = { workspace = true }

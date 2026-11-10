@@ -12,7 +12,7 @@
 //!
 //! It reads packages with `harnix-package` and nothing else of the product: no kernel, no
 //! hub, no agent engine, no HTTP framework. So the same host runs embedded in a product's process
-//! (`harnix-apps` lends it both over the kernel and this process's Agix) or in a process of its
+//! (`harnix-carrier-wasm` lends it both over an extension's handle and context) or in a process of its
 //! own, with the kernel carried over a link and an agent engine of its own; its tests run it
 //! through `harnix_wasm_port::rpc::Loopback`.
 //!
@@ -27,6 +27,8 @@ mod placement;
 
 pub use bridge::Stats;
 pub use host::{Host, HostOptions};
+/// What an application's HTTP is handed to, for a product that sends it itself.
+pub use harnix_wasm::{HttpFetcher, HttpRequest, HttpResponse};
 /// The engine every VM of a host runs on (`Host::engine`).
 pub use harnix_wasm::WasmEngine;
 

@@ -159,6 +159,12 @@ pub struct RouteTable {
 /// Why a package, acting as itself, is refused a name its consent does not list.
 pub const OUTSIDE_HUB: &str = "not in the application's `calls` capability";
 
+/// Why a package's page in a frame is refused another package's names.
+pub const ANOTHER_PACKAGES: &str = "another package's names are that package's own";
+
+/// Why a package, or its page in a frame, is refused a native extension's row not open to it.
+pub const NOT_FOR_PACKAGES: &str = "a first-party row that is not open to packages";
+
 /// Why an extension nothing registered is refused everything: one withdrawn, or never there.
 pub const UNREGISTERED: &str = "not a registered extension";
 
@@ -172,8 +178,8 @@ pub enum TableError {
     HubOwned(String),
     /// Nothing by that name exists to be listed.
     Unknown(String),
-    /// A runtime application's name that is not in its own namespace (`app.<id>.<name>`,
-    /// `topic:app.<id>.<name>`), or an id that cannot be one.
+    /// A package's name that is not in its own namespace (`<id>.<name>`, `topic:<id>.<name>`), or
+    /// an id that cannot be one.
     Namespace(String),
     /// The id overlaps one registered already — the same id, one nested in the other, or a
     /// package whose first segment is a native extension's or a reserved word. `by` is who has it.
@@ -195,7 +201,7 @@ impl std::fmt::Display for TableError {
             TableError::Unknown(name) => write!(f, "`{name}` is not a method this process knows"),
             TableError::Namespace(name) => write!(
                 f,
-                "`{name}` is not a name a runtime application may declare: only `app.<its id>.<name>` and its topics"
+                "`{name}` is not a name a package may declare: only `<its id>.<name>` and its topics"
             ),
             TableError::NamespaceTaken { id, by } => {
                 write!(f, "the id `{id}` overlaps `{by}`, which is registered already (namespace_taken)")
@@ -285,9 +291,7 @@ impl RouteTable {
     }
 
     /// Whether `id` may own `row`: the hub's are nobody's to declare, a route is under its own id,
-    /// and a name in an extension namespace is the longest registered id's it starts with. A
-    /// native extension's names outside one (`harnix.*`) are the assembly's to vouch for until
-    /// every name is under its owner's id.
+    /// and every other name is the longest registered id's it starts with.
     fn check_owner(&self, id: &ExtId, row: &Row) -> Result<(), TableError> {
         if row.access.is_hub_owned() {
             return Err(TableError::HubOwned(row.name.clone()));
@@ -298,16 +302,12 @@ impl RouteTable {
                 false => Err(TableError::NotOwner { name: row.name.clone(), owner: routed.to_string() }),
             };
         }
-        match names::extension_part(&row.name) {
-            Some(part) => match names::owner_of(part, self.extensions.keys()) {
-                Some(owner) if owner == id => Ok(()),
-                other => Err(TableError::NotOwner {
-                    name: row.name.clone(),
-                    owner: other.map_or_else(|| "nobody".to_string(), ToString::to_string),
-                }),
-            },
-            None if self.registered(id) == Some(IdKind::Package) => Err(TableError::Namespace(row.name.clone())),
-            None => Ok(()),
+        match names::owner_of(names::extension_part(&row.name), self.extensions.keys()) {
+            Some(owner) if owner == id => Ok(()),
+            other => Err(TableError::NotOwner {
+                name: row.name.clone(),
+                owner: other.map_or_else(|| "nobody".to_string(), ToString::to_string),
+            }),
         }
     }
 
@@ -315,22 +315,21 @@ impl RouteTable {
         self.rows.contains_key(name)
     }
 
-    /// Install one runtime application's rows, all or none, registering its id as a package's.
+    /// Install one package's rows, all or none, registering its id as a package's.
     ///
     /// The only way anything enters the table after assembly. Conservative on purpose, because
     /// a row here is what a client may reach:
     ///
-    /// - every name is in the application's own namespace — a method `app.<app>.<name>` or a
-    ///   topic `topic:app.<app>.<name>`, nothing else (no `harnix.*`, no routes, no engine
-    ///   method);
-    /// - the id may not overlap any id registered — a compiled-in module, enabled or not, or
-    ///   another runtime application — so one cannot add names inside another's namespace;
-    /// - a name already present is refused (compiled-in names keep precedence: they were there
+    /// - every name is in the package's own namespace — a method `<id>.<name>` or a topic
+    ///   `topic:<id>.<name>`, nothing else (no `harnix.*`, no routes, no engine method);
+    /// - the id may not overlap any id registered — a native extension's, enabled or not, or
+    ///   another package's — so one cannot add names inside another's namespace;
+    /// - a name already present is refused (native names keep precedence: they were there
     ///   first).
     ///
     /// On any refusal nothing was written.
-    pub fn install_app(&mut self, app: &str, rows: Vec<Row>) -> Result<(), TableError> {
-        self.check_app(app, rows.iter().map(Row::name))?;
+    pub fn install_package(&mut self, app: &str, rows: Vec<Row>) -> Result<(), TableError> {
+        self.check_package(app, rows.iter().map(Row::name))?;
         let id = ExtId::package(app).map_err(|_| TableError::Namespace(app.to_string()))?;
         self.register(&id, IdKind::Package)?;
         if let Err(e) = self.install(&Owner::extension(id.clone()), rows) {
@@ -340,9 +339,9 @@ impl RouteTable {
         Ok(())
     }
 
-    /// What [`RouteTable::install_app`] would refuse, without writing anything: for a caller
+    /// What [`RouteTable::install_package`] would refuse, without writing anything: for a caller
     /// that has more to set up before the rows go in.
-    pub fn check_app<'a>(&self, app: &str, names: impl IntoIterator<Item = &'a str>) -> Result<(), TableError> {
+    pub fn check_package<'a>(&self, app: &str, names: impl IntoIterator<Item = &'a str>) -> Result<(), TableError> {
         let Ok(id) = ExtId::package(app) else {
             return Err(TableError::Namespace(app.to_string()));
         };
@@ -354,7 +353,7 @@ impl RouteTable {
         scratch.register(&id, IdKind::Package)?;
         let mut seen = BTreeSet::new();
         for name in names {
-            if names::short_app_name(app, name).is_none() {
+            if names::short_name(app, name).is_none() {
                 return Err(TableError::Namespace(name.to_string()));
             }
             if self.taken(name) || !seen.insert(name) {
@@ -366,8 +365,8 @@ impl RouteTable {
 
     /// Take every row `owner` installed back out, and say which. Another owner's rows are never
     /// touched, whatever they are called. From the moment this returns, a call to one of them is
-    /// decided as unknown — the same answer as a name nobody ever installed. A runtime
-    /// application's id is free again.
+    /// decided as unknown — the same answer as a name nobody ever installed. A package's id is
+    /// free again.
     pub fn withdraw(&mut self, owner: &Owner) -> Vec<String> {
         let names: Vec<String> = self
             .rows
@@ -398,6 +397,40 @@ impl RouteTable {
         Ok(())
     }
 
+    /// Whether a name a package lists in its consent is another package's: shaped as one
+    /// (`<publisher>.<name>.<method>`) and not under a native extension's id. That package admits
+    /// it, when it is there; it need not be yet.
+    pub fn names_a_package(&self, name: &str) -> bool {
+        let Some(id) = names::package_part(name) else { return false };
+        let first = id.split('.').next().unwrap_or(id);
+        !self
+            .extensions
+            .iter()
+            .any(|(ext, kind)| *kind == IdKind::Native && names::whole_prefix(ext.as_str(), first))
+    }
+
+    /// Whether a package — as itself, or through its pages in frames — may be let at the row
+    /// `name`, whatever else it holds: not a native extension's row that is not open to it. What a
+    /// native extension opens to devices alone is a first-party power (the system space's, for
+    /// one) that a package's consent or its frames never borrow.
+    pub fn open_to_package(&self, pkg: &ExtId, name: &str) -> Result<(), &'static str> {
+        let Some(entry) = self.rows.get(name) else { return Ok(()) };
+        let Some(owner) = entry.owner.extension_id() else { return Ok(()) };
+        match self.registered(owner) {
+            Some(IdKind::Native) if owner != pkg && !entry.row.access.opens_extension(pkg) => Err(NOT_FOR_PACKAGES),
+            _ => Ok(()),
+        }
+    }
+
+    /// Whether the row `name` is a package's other than `pkg`: what a page in a frame is never
+    /// given, though its package may call it as itself.
+    pub fn another_packages(&self, pkg: &ExtId, name: &str) -> bool {
+        self.rows
+            .get(name)
+            .and_then(|entry| entry.owner.extension_id())
+            .is_some_and(|owner| owner != pkg && self.registered(owner) == Some(IdKind::Package))
+    }
+
     /// Whether `ext` owns the row `name` stands for.
     pub fn owns(&self, ext: &ExtId, name: &str) -> bool {
         self.rows
@@ -426,7 +459,7 @@ impl RouteTable {
                 None => return Decision::Refuse(UNREGISTERED),
                 Some(trust) => {
                     if let Some(calls) = trust.calls() {
-                        let own = self.owns(id, name) || names::in_app_namespace(id.as_str(), name);
+                        let own = self.owns(id, name) || names::in_namespace(id.as_str(), name);
                         let listed = own || calls.contains(name) || DECIDED_BY_TOPIC.contains(&name);
                         if !listed {
                             return Decision::Refuse(OUTSIDE_HUB);
@@ -571,8 +604,8 @@ mod tests {
         assert!(matches!(t.decide(&Subject::Kernel, &g, "engine.session.run_turn"), Decision::Refuse(_)));
         assert_eq!(t.check_listed("engine.session.run_turn"), Err(TableError::HubOwned("engine.session.run_turn".into())));
         assert_eq!(
-            t.install(&ext("x"), vec![Row::closed("app.x.turn", Access::hub_owned("mine"))]),
-            Err(TableError::HubOwned("app.x.turn".into()))
+            t.install(&ext("x"), vec![Row::closed("x.turn", Access::hub_owned("mine"))]),
+            Err(TableError::HubOwned("x.turn".into()))
         );
     }
 
@@ -583,11 +616,11 @@ mod tests {
         t.register(&billing, IdKind::Native).unwrap();
         let charge = Capability::new("billing.charge");
         assert_eq!(
-            t.install(&ext("billing"), vec![method("app.billing.charge", Access::capability(charge.clone()))]),
+            t.install(&ext("billing"), vec![method("billing.charge", Access::capability(charge.clone()))]),
             Err(TableError::Capability("billing.charge".into()))
         );
         t.define(&billing, CapabilitySpec::new("billing.charge", "charge a card")).unwrap();
-        t.install(&ext("billing"), vec![method("app.billing.charge", Access::capability(charge.clone()))]).unwrap();
+        t.install(&ext("billing"), vec![method("billing.charge", Access::capability(charge.clone()))]).unwrap();
         // Only under its own id, and once.
         assert!(t.define(&billing, CapabilitySpec::new("billing.charge", "again")).is_err());
         assert!(t.define(&billing, CapabilitySpec::new("engine.billing", "not its")).is_err());
@@ -595,8 +628,8 @@ mod tests {
 
         let g = natives();
         g.set(id("shop"), [charge], Trust::Origin);
-        assert_eq!(t.decide(&module("shop"), &g, "app.billing.charge"), Decision::Allow);
-        assert!(matches!(t.decide(&module("other"), &g, "app.billing.charge"), Decision::Refuse(_)));
+        assert_eq!(t.decide(&module("shop"), &g, "billing.charge"), Decision::Allow);
+        assert!(matches!(t.decide(&module("other"), &g, "billing.charge"), Decision::Refuse(_)));
     }
 
     #[test]
@@ -605,19 +638,19 @@ mod tests {
         t.install(
             &ext("w"),
             vec![
-                method("app.w.list", access_for(&[Principal::Device, Principal::Module("trade".into())])),
-                method("app.w.internal", access_for(&[Principal::Kernel])),
+                method("w.list", access_for(&[Principal::Device, Principal::Module("trade".into())])),
+                method("w.internal", access_for(&[Principal::Kernel])),
             ],
         )
         .unwrap();
         let g = natives();
-        assert_eq!(t.decide(&device(), &g, "app.w.list"), Decision::Allow);
-        assert_eq!(t.decide(&module("trade"), &g, "app.w.list"), Decision::Allow);
-        assert!(matches!(t.decide(&module("other"), &g, "app.w.list"), Decision::Refuse(_)));
-        assert!(matches!(t.decide(&device(), &g, "app.w.internal"), Decision::Refuse(_)));
+        assert_eq!(t.decide(&device(), &g, "w.list"), Decision::Allow);
+        assert_eq!(t.decide(&module("trade"), &g, "w.list"), Decision::Allow);
+        assert!(matches!(t.decide(&module("other"), &g, "w.list"), Decision::Refuse(_)));
+        assert!(matches!(t.decide(&device(), &g, "w.internal"), Decision::Refuse(_)));
         assert_eq!(
-            t.install(&ext("w"), vec![method("app.w.list", Access::kernel())]),
-            Err(TableError::Taken("app.w.list".into()))
+            t.install(&ext("w"), vec![method("w.list", Access::kernel())]),
+            Err(TableError::Taken("w.list".into()))
         );
     }
 
@@ -628,13 +661,13 @@ mod tests {
             &ext("w"),
             vec![
                 Row::route("w", access_for(&[Principal::Device])),
-                Row::topic("app.w.groups", access_for(&[Principal::Device])),
+                Row::topic("w.groups", access_for(&[Principal::Device])),
             ],
         )
         .unwrap();
         let g = natives();
         assert!(t.reachable(&device(), &g).is_empty());
-        assert_eq!(t.reachable_topics(&device(), &g), vec!["app.w.groups"]);
+        assert_eq!(t.reachable_topics(&device(), &g), vec!["w.groups"]);
         assert_eq!(t.decide(&device(), &g, &route("w")), Decision::Allow);
         // A route under another's id is not its to serve.
         assert!(matches!(t.install(&ext("v"), vec![Row::route("w2", Access::device())]), Err(TableError::NotOwner { .. })));
@@ -656,8 +689,8 @@ mod tests {
         t.install(
             &ext("probe"),
             vec![
-                method("app.probe.echo", access_for(&[Principal::Device])),
-                Row::topic("app.probe.counter", access_for(&[Principal::Device])),
+                method("probe.echo", access_for(&[Principal::Device])),
+                Row::topic("probe.counter", access_for(&[Principal::Device])),
             ],
         )
         .unwrap();
@@ -666,56 +699,56 @@ mod tests {
     }
 
     #[test]
-    fn a_runtime_application_declares_and_withdraws_its_own_names() {
+    fn a_package_declares_and_withdraws_its_own_names() {
         let mut t = assembled();
         let g = natives();
-        t.install_app("acme.fake", rows(&["app.acme.fake.echo", "topic:app.acme.fake.ticks"])).unwrap();
-        assert_eq!(t.decide(&device(), &g, "app.acme.fake.echo"), Decision::Allow);
-        assert_eq!(t.reachable_topics(&device(), &g), vec!["app.acme.fake.ticks", "app.probe.counter"]);
+        t.install_package("acme.fake", rows(&["acme.fake.echo", "topic:acme.fake.ticks"])).unwrap();
+        assert_eq!(t.decide(&device(), &g, "acme.fake.echo"), Decision::Allow);
+        assert_eq!(t.reachable_topics(&device(), &g), vec!["acme.fake.ticks", "probe.counter"]);
         assert_eq!(t.registered(&id("acme.fake")), Some(IdKind::Package));
-        assert!(t.owns(&id("acme.fake"), "app.acme.fake.echo"));
-        assert!(!t.owns(&id("acme.fake"), "app.probe.echo"));
+        assert!(t.owns(&id("acme.fake"), "acme.fake.echo"));
+        assert!(!t.owns(&id("acme.fake"), "probe.echo"));
 
         let mut withdrawn = t.withdraw(&ext("acme.fake"));
         withdrawn.sort();
-        assert_eq!(withdrawn, vec!["app.acme.fake.echo", "topic:app.acme.fake.ticks"]);
+        assert_eq!(withdrawn, vec!["acme.fake.echo", "topic:acme.fake.ticks"]);
         // Refused afterwards exactly like a name nobody declared.
-        assert_eq!(t.decide(&device(), &g, "app.acme.fake.echo"), Decision::Unknown);
-        assert_eq!(t.decide(&device(), &g, &topic("app.acme.fake.ticks")), Decision::Unknown);
+        assert_eq!(t.decide(&device(), &g, "acme.fake.echo"), Decision::Unknown);
+        assert_eq!(t.decide(&device(), &g, &topic("acme.fake.ticks")), Decision::Unknown);
         assert_eq!(t.registered(&id("acme.fake")), None, "its id is free again");
         // What assembly put in is untouched.
-        assert_eq!(t.decide(&device(), &g, "app.probe.echo"), Decision::Allow);
+        assert_eq!(t.decide(&device(), &g, "probe.echo"), Decision::Allow);
         assert!(t.withdraw(&ext("acme.fake")).is_empty());
     }
 
     #[test]
-    fn a_runtime_application_stays_in_its_namespace() {
+    fn a_package_stays_in_its_namespace() {
         let mut t = assembled();
         for name in [
             "harnix.hello",
             "harnix.apps.list",
             "harnix.session.create",
             "engine.config.setProvider",
-            "app.other.echo",
-            "app.acme.fake",
-            "app.acme.fake.",
-            "app.acme.fake..x",
-            "app.acme.fake.a b",
+            "other.echo",
+            "acme.fake",
+            "acme.fake.",
+            "acme.fake..x",
+            "acme.fake.a b",
             "route:acme.fake",
             "topic:harnix.instances",
-            "topic:app.other.ticks",
+            "topic:other.ticks",
         ] {
             assert!(
-                matches!(t.install_app("acme.fake", rows(&[name])), Err(TableError::Namespace(_))),
+                matches!(t.install_package("acme.fake", rows(&[name])), Err(TableError::Namespace(_))),
                 "{name} was accepted"
             );
         }
         assert!(
-            matches!(t.install_app("acme.fake", vec![Row::route("acme.fake", Access::device())]), Err(TableError::Namespace(_))),
+            matches!(t.install_package("acme.fake", vec![Row::route("acme.fake", Access::device())]), Err(TableError::Namespace(_))),
             "a route was accepted"
         );
         for id in ["", "Fake", "1fake", "fake.", ".fake", "fa_ke", "fake..x"] {
-            assert!(matches!(t.install_app(id, rows(&[])), Err(TableError::Namespace(_))), "`{id}` accepted");
+            assert!(matches!(t.install_package(id, rows(&[])), Err(TableError::Namespace(_))), "`{id}` accepted");
         }
         // Nothing was written by any of the refusals.
         assert_eq!(t.decide(&device(), &natives(), "harnix.hello"), Decision::Allow);
@@ -732,26 +765,26 @@ mod tests {
         };
         // The same id as a compiled-in module is not a package's id at all; one nested in it, one
         // known only by its route are.
-        assert!(matches!(t.install_app("probe", rows(&["app.probe.new"])), Err(TableError::Namespace(_))));
-        assert_eq!(t.install_app("probe.sub", rows(&["app.probe.sub.x"])).map_err(by), Err(taken("probe")));
-        assert_eq!(t.install_app("routed.x", rows(&["app.routed.x.y"])).map_err(by), Err(taken("routed")));
+        assert!(matches!(t.install_package("probe", rows(&["probe.new"])), Err(TableError::Namespace(_))));
+        assert_eq!(t.install_package("probe.sub", rows(&["probe.sub.x"])).map_err(by), Err(taken("probe")));
+        assert_eq!(t.install_package("routed.x", rows(&["routed.x.y"])).map_err(by), Err(taken("routed")));
         // A native id registered with no rows at all — a disabled module — counts as much.
         t.register(&id("quiet"), IdKind::Native).unwrap();
-        assert_eq!(t.install_app("quiet.notes", rows(&["app.quiet.notes.x"])).map_err(by), Err(taken("quiet")));
+        assert_eq!(t.install_package("quiet.notes", rows(&["quiet.notes.x"])).map_err(by), Err(taken("quiet")));
         // Reserved first segments are not a package's id, and so never reach the table.
         for word in RESERVED_WORDS {
             let pkg = format!("{word}.notes");
             assert!(ExtId::package(&pkg).is_err(), "{pkg}");
-            assert!(matches!(t.install_app(&pkg, rows(&[])), Err(TableError::Namespace(_))), "{pkg}");
+            assert!(matches!(t.install_package(&pkg, rows(&[])), Err(TableError::Namespace(_))), "{pkg}");
         }
         // The compiled-in method is still the compiled-in one.
-        assert_eq!(t.decide(&device(), &natives(), "app.probe.echo"), Decision::Allow);
+        assert_eq!(t.decide(&device(), &natives(), "probe.echo"), Decision::Allow);
         // And withdrawing a compiled-in module, which only assembly does, never takes an
         // application's names, nor frees the module's id.
-        t.install_app("acme.fake", rows(&["app.acme.fake.echo"])).unwrap();
+        t.install_package("acme.fake", rows(&["acme.fake.echo"])).unwrap();
         t.withdraw(&ext("probe"));
-        assert_eq!(t.decide(&device(), &natives(), "app.acme.fake.echo"), Decision::Allow);
-        assert_eq!(t.decide(&device(), &natives(), "app.probe.echo"), Decision::Unknown);
+        assert_eq!(t.decide(&device(), &natives(), "acme.fake.echo"), Decision::Allow);
+        assert_eq!(t.decide(&device(), &natives(), "probe.echo"), Decision::Unknown);
         assert_eq!(t.registered(&id("probe")), Some(IdKind::Native));
     }
 
@@ -762,29 +795,29 @@ mod tests {
         let mut t = RouteTable::new();
         t.register(&id("acme"), IdKind::Native).unwrap();
         // `acme` owns what is under it; nobody owns what is under no one.
-        t.install(&ext("acme"), rows(&["app.acme.list"])).unwrap();
+        t.install(&ext("acme"), rows(&["acme.list"])).unwrap();
         assert_eq!(
-            t.install(&ext("other"), rows(&["app.acme.more"])),
-            Err(TableError::NotOwner { name: "app.acme.more".into(), owner: "acme".into() })
+            t.install(&ext("other"), rows(&["acme.more"])),
+            Err(TableError::NotOwner { name: "acme.more".into(), owner: "acme".into() })
         );
-        assert!(matches!(t.install(&ext("other"), rows(&["app.nobody.x"])), Err(TableError::NotOwner { .. })));
+        assert!(matches!(t.install(&ext("other"), rows(&["nobody.x"])), Err(TableError::NotOwner { .. })));
     }
 
     #[test]
-    fn runtime_applications_do_not_overlap_each_other() {
+    fn packages_do_not_overlap_each_other() {
         let mut t = assembled();
-        t.install_app("acme.notes", rows(&["app.acme.notes.list"])).unwrap();
-        assert!(matches!(t.install_app("acme.notes", rows(&["app.acme.notes.other"])), Err(TableError::NamespaceTaken { .. })));
-        assert!(matches!(t.install_app("acme", rows(&["app.acme.x"])), Err(TableError::Namespace(_))), "one segment is a native id");
+        t.install_package("acme.notes", rows(&["acme.notes.list"])).unwrap();
+        assert!(matches!(t.install_package("acme.notes", rows(&["acme.notes.other"])), Err(TableError::NamespaceTaken { .. })));
+        assert!(matches!(t.install_package("acme", rows(&["acme.x"])), Err(TableError::Namespace(_))), "one segment is a native id");
         assert!(matches!(
-            t.install_app("acme.notes.pro", rows(&["app.acme.notes.pro.x"])),
+            t.install_package("acme.notes.pro", rows(&["acme.notes.pro.x"])),
             Err(TableError::Namespace(_))
         ));
         // A sibling shares no names.
-        t.install_app("acme.todo", rows(&["app.acme.todo.list"])).unwrap();
+        t.install_package("acme.todo", rows(&["acme.todo.list"])).unwrap();
         // Once withdrawn, the id is free again.
         t.withdraw(&ext("acme.notes"));
-        t.install_app("acme.notes", rows(&["app.acme.notes.list"])).unwrap();
+        t.install_package("acme.notes", rows(&["acme.notes.list"])).unwrap();
     }
 
     #[test]
@@ -792,14 +825,14 @@ mod tests {
         let mut t = assembled();
         let g = natives();
         assert_eq!(
-            t.install_app("acme.fake", rows(&["app.acme.fake.a", "app.acme.fake.a"])),
-            Err(TableError::Taken("app.acme.fake.a".into()))
+            t.install_package("acme.fake", rows(&["acme.fake.a", "acme.fake.a"])),
+            Err(TableError::Taken("acme.fake.a".into()))
         );
         assert_eq!(
-            t.install_app("acme.fake", rows(&["app.acme.fake.a", "harnix.hello"])),
+            t.install_package("acme.fake", rows(&["acme.fake.a", "harnix.hello"])),
             Err(TableError::Namespace("harnix.hello".into()))
         );
-        assert_eq!(t.decide(&device(), &g, "app.acme.fake.a"), Decision::Unknown);
+        assert_eq!(t.decide(&device(), &g, "acme.fake.a"), Decision::Unknown);
         assert_eq!(t.registered(&id("acme.fake")), None);
         // Nor does one owner's batch take half its names.
         assert_eq!(
@@ -824,15 +857,15 @@ mod tests {
         )
         .unwrap();
         let own = access_for(&[Principal::Device, Principal::Module("acme.notes".into())]);
-        t.install_app(
+        t.install_package(
             "acme.notes",
-            vec![method("app.acme.notes.echo", own.clone()), Row::topic("app.acme.notes.ticks", own)],
+            vec![method("acme.notes.echo", own.clone()), Row::topic("acme.notes.ticks", own)],
         )
         .unwrap();
-        t.install_app("acme.todo", vec![method("app.acme.todo.list", access_for(&[Principal::AnyModule]))]).unwrap();
+        t.install_package("acme.todo", vec![method("acme.todo.list", access_for(&[Principal::AnyModule]))]).unwrap();
         let g = grants(
             &["probe"],
-            &[("acme.notes", &["harnix.session.create", "settings.write", "topic:harnix.sessions.status", "app.acme.todo.list"])],
+            &[("acme.notes", &["harnix.session.create", "settings.write", "topic:harnix.sessions.status", "acme.todo.list"])],
         );
         let me = module("acme.notes");
         // Open to every extension, and listed.
@@ -843,11 +876,11 @@ mod tests {
         // Listed, and requiring a capability: a package holds none of the kernel's.
         assert!(matches!(t.decide(&me, &g, "settings.write"), Decision::Refuse(r) if r != OUTSIDE_HUB));
         // Its own names, unlisted; one it did not declare is unknown like any other.
-        assert_eq!(t.decide(&me, &g, "app.acme.notes.echo"), Decision::Allow);
-        assert_eq!(t.decide(&me, &g, "app.acme.notes.nope"), Decision::Unknown);
-        assert_eq!(t.decide(&me, &g, &topic("app.acme.notes.ticks")), Decision::Allow);
+        assert_eq!(t.decide(&me, &g, "acme.notes.echo"), Decision::Allow);
+        assert_eq!(t.decide(&me, &g, "acme.notes.nope"), Decision::Unknown);
+        assert_eq!(t.decide(&me, &g, &topic("acme.notes.ticks")), Decision::Allow);
         // Another application's, listed, as that one declared it.
-        assert_eq!(t.decide(&me, &g, "app.acme.todo.list"), Decision::Allow);
+        assert_eq!(t.decide(&me, &g, "acme.todo.list"), Decision::Allow);
         // Topics: subscribing is decided by the topic.
         assert_eq!(t.decide(&me, &g, "harnix.topics.subscribe"), Decision::Allow);
         assert_eq!(t.decide(&me, &g, &topic("harnix.sessions.status")), Decision::Allow);
@@ -855,9 +888,9 @@ mod tests {
         // So what it is told it reaches is what it reaches.
         assert_eq!(
             t.reachable(&me, &g),
-            ["app.acme.notes.echo", "app.acme.todo.list", "harnix.session.create", "harnix.topics.subscribe"]
+            ["acme.notes.echo", "acme.todo.list", "harnix.session.create", "harnix.topics.subscribe"]
         );
-        assert_eq!(t.reachable_topics(&me, &g), ["app.acme.notes.ticks", "harnix.sessions.status"]);
+        assert_eq!(t.reachable_topics(&me, &g), ["acme.notes.ticks", "harnix.sessions.status"]);
         // A compiled-in module is not narrowed by any of this.
         assert_eq!(t.decide(&module("probe"), &g, "harnix.hello"), Decision::Allow);
         // Listing: what exists and the hub does not own.
@@ -869,11 +902,11 @@ mod tests {
     #[test]
     fn rows_are_installed_and_withdrawn_by_owner() {
         let mut t = assembled();
-        assert_eq!(t.owner("app.probe.echo"), Some(&ext("probe")));
+        assert_eq!(t.owner("probe.echo"), Some(&ext("probe")));
         assert_eq!(t.owner("harnix.hello"), Some(&kernel()));
         let mut gone = t.withdraw(&ext("probe"));
         gone.sort();
-        assert_eq!(gone, ["app.probe.echo", "topic:app.probe.counter"]);
+        assert_eq!(gone, ["probe.echo", "topic:probe.counter"]);
         assert_eq!(t.owner("route:routed"), Some(&ext("routed")));
         assert_eq!(t.decide(&device(), &natives(), "harnix.hello"), Decision::Allow);
     }

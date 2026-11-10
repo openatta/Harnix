@@ -1,12 +1,12 @@
 //! A subcommand this binary is re-executed as (`<product> ext-proc …`) runs its entry before the
-//! product does anything: no profile read, no state lock taken, no module assembled.
+//! product does anything: no profile read, no state lock taken, no extension assembled.
 
 use std::ffi::OsString;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use harnix_assembly::App;
-use harnix_module::{Manifest, MethodRegistry, Module};
+use harnix_ext::{Extension, Manifest, Registrar};
 
 static ENTERED: Mutex<Vec<Vec<OsString>>> = Mutex::new(Vec::new());
 static ASSEMBLED: AtomicBool = AtomicBool::new(false);
@@ -20,19 +20,20 @@ fn failing(_args: Vec<OsString>) -> anyhow::Result<()> {
     anyhow::bail!("the entry's own error")
 }
 
-/// A module that says when it is asked what it is: what assembling the product would do first.
+/// An extension that says when it is asked what it is: what assembling the product would do
+/// first.
 struct Watched;
 
 #[async_trait::async_trait]
-impl Module for Watched {
-    const API_VERSION: u32 = harnix_module::MODULE_API_VERSION;
+impl Extension for Watched {
+    type Config = ();
 
     fn manifest(&self) -> Manifest {
         ASSEMBLED.store(true, Ordering::SeqCst);
         Manifest::new("watched", "0.0.1")
     }
 
-    fn methods(&self, _methods: &mut MethodRegistry) {
+    fn register(&self, _r: &mut Registrar<'_, ()>) {
         ASSEMBLED.store(true, Ordering::SeqCst);
     }
 }
@@ -51,8 +52,8 @@ fn ext_proc_runs_its_entry_and_nothing_of_the_product() {
     let missing = dir.path().join("missing.toml");
     let missing = missing.to_str().unwrap();
     App::builder()
-        .with_builtins()
-        .module(Watched)
+        .extension(Watched)
+        .ungranted()
         .child_entry("ext-proc", ext_proc)
         .args(args(&["product", "ext-proc", "--ext", "a.b", "--wire-fd", "3", "--profile", missing]))
         .run()

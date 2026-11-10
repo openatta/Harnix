@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use harnix::engine::{SessionFacts, Tool, ToolProvider};
-use harnix::EngineContrib;
+use harnix::engine::EngineContribution as EngineContrib;
 
 struct Quiet;
 

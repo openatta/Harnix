@@ -291,7 +291,7 @@ export class HarnixClient {
   /* ── 模块自有链接 ───────────────────────────────────────────────── */
 
   /**
-   * 模块 `module` 自己的 HTTP 路由（概念与架构 §3.3.5）：同源的 `/apps/<module>/<path>`，凭据由这里带上。
+   * 模块 `module` 自己的 HTTP 路由（概念与架构 §3.3.5）：同源的 `/ext/<module>/<path>`，凭据由这里带上。
    * `path` 走不出这个模块的前缀——`..`、别的来源一律拒绝，模块代码拼不出别的地址。
    */
   async appFetch(module: string, path: string, init: RequestInit = {}): Promise<Response> {
@@ -312,8 +312,8 @@ export class HarnixClient {
   }
 
   private appUrl(module: string, path: string): URL {
-    if (!/^[a-z][a-z0-9_-]*$/.test(module)) throw new Error(`not a module id: ${module}`);
-    const prefix = `/apps/${module}/`;
+    if (!/^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9-]*)?$/.test(module)) throw new Error(`not an extension id: ${module}`);
+    const prefix = `/ext/${module}/`;
     if (/^[a-z][a-z0-9+.-]*:|^[\\/]{2}|\\/.test(path)) throw new Error(`not a path of module ${module}: ${path}`);
     const relative = path.replace(/^\/+/, "");
     const base = new URL(this.baseUrl);

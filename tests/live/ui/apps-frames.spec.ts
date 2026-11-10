@@ -1,6 +1,6 @@
 /**
  * An application's interface in isolated frames (harnix-plugin.md §6): the showcase
- * (`examples/apps/showcase`), installed unsigned under `[apps] dev`, draws every surface it
+ * (`examples/apps/showcase`), installed unsigned under `[ext.packages] dev`, draws every surface it
  * declares in a sandboxed frame of its own (`ui/frame/`, on `@harnix/ext-sdk` and
  * `@harnix/ext-kit`), and does everything through the shell's bridge.
  *
@@ -62,7 +62,7 @@ test.describe("an application in isolated frames", () => {
     backend = await startApps();
     const api = await connect(backend);
     try {
-      await api.call("harnix.apps.installFile", { path });
+      await api.call("packages.installFile", { path });
     } finally {
       api.close();
     }
@@ -79,7 +79,7 @@ test.describe("an application in isolated frames", () => {
     await expect(page.locator('[data-testid="showcase-board"]')).toHaveCount(0);
     const iframe = page.locator(`[data-testid="surface-frame"][data-app="${SHOWCASE_ID}"][data-point="space"]`);
     await expect(iframe).toHaveAttribute("sandbox", "allow-scripts allow-forms");
-    await expect(iframe).toHaveAttribute("src", `/apps/${SHOWCASE_ID}/ui/frame/index.html`);
+    await expect(iframe).toHaveAttribute("src", `/ext/${SHOWCASE_ID}/ui/frame/index.html`);
 
     await frame.getByTestId("showcase-note-input").fill("from the frame");
     await frame.getByTestId("showcase-note-add").click();
@@ -88,7 +88,7 @@ test.describe("an application in isolated frames", () => {
     // Another client's note arrives on the topic, without the frame asking.
     const api = await connect(backend);
     try {
-      await api.call(`app.${SHOWCASE_ID}.notes.add`, { text: "from another client" });
+      await api.call(`${SHOWCASE_ID}.notes.add`, { text: "from another client" });
     } finally {
       api.close();
     }
@@ -108,9 +108,9 @@ test.describe("an application in isolated frames", () => {
     const frame = await board(page);
     await frame.getByTestId("showcase-overreach").click();
     await expect(frame.getByTestId("showcase-refused")).toContainText("refused");
-    await expect(frame.getByTestId("showcase-refused")).toContainText("harnix.apps.list");
+    await expect(frame.getByTestId("showcase-refused")).toContainText("packages.list");
     const noted = await page.evaluate(() => (window as any).harnix.app.registry.refusals().filter((r: any) => r.point === "bridge"));
-    expect(noted).toEqual([expect.objectContaining({ owner: SHOWCASE_ID, id: "harnix.apps.list" })]);
+    expect(noted).toEqual([expect.objectContaining({ owner: SHOWCASE_ID, id: "packages.list" })]);
 
     await toSpace(page, "system");
     await page.locator('[data-testid="system-console"] [role="tab"][data-tab="apps"]').click();
@@ -118,13 +118,13 @@ test.describe("an application in isolated frames", () => {
     await expect(row.locator('[data-field="surfaces"]')).toHaveText(/^\d+ · 0$/, { timeout: 15_000 });
     await row.click();
     const detail = page.locator(`[data-testid="system-app-detail"][data-app="${SHOWCASE_ID}"]`);
-    await expect(detail.getByTestId("system-app-bridge-refusal")).toContainText("harnix.apps.list");
+    await expect(detail.getByTestId("system-app-bridge-refusal")).toContainText("packages.list");
     await expect(detail.locator('[data-testid="system-app-surface"][data-point="space"]')).toHaveAttribute("data-state", "ready");
 
     // And in Settings → Diagnostics, with the other refusals.
     await page.evaluate(() => (window as any).harnix.host.settings.open("diagnostics"));
     await page.locator('[data-section="diagnostics"]').click();
-    await expect(page.locator("#modal")).toContainText("harnix.apps.list");
+    await expect(page.locator("#modal")).toContainText("packages.list");
   });
 
   test("what its hub lists reaches its own space's sessions, and no other", TAGS, async ({ page }) => {
@@ -270,7 +270,7 @@ test.describe("an application in isolated frames", () => {
     expect(violations.some((v) => /connect-src/.test(v))).toBe(true);
 
     // What it is served with, said by the server.
-    const response = await fetch(`${backend.url.replace(/\/$/, "")}/apps/${SHOWCASE_ID}/ui/frame/index.html`);
+    const response = await fetch(`${backend.url.replace(/\/$/, "")}/ext/${SHOWCASE_ID}/ui/frame/index.html`);
     const csp = response.headers.get("content-security-policy") ?? "";
     expect(response.headers.get("content-type")).toContain("text/html");
     for (const directive of ["default-src 'none'", "script-src 'self'", "connect-src 'none'", "frame-ancestors 'self'", "form-action 'none'"]) {
@@ -442,7 +442,7 @@ test.describe("an application in isolated frames", () => {
     expect(popups).toBe(0);
   });
 
-  test("under [apps] dev, a change to its files reloads its frames", TAGS, async ({ page }) => {
+  test("under [ext.packages] dev, a change to its files reloads its frames", TAGS, async ({ page }) => {
     await open(page, backend.url);
     const frame = await board(page);
     await expect(frame.getByTestId("showcase-board")).toBeVisible();
@@ -451,7 +451,7 @@ test.describe("an application in isolated frames", () => {
     const api = await connect(backend);
     let dir: string;
     try {
-      dir = (await api.call("harnix.apps.list")).dir;
+      dir = (await api.call("packages.list")).dir;
     } finally {
       api.close();
     }
@@ -480,7 +480,7 @@ test.describe("who signed it decides where it runs", () => {
     test.setTimeout(600_000);
     showcasePackage();
     scratch = mkdtempSync(join(tmpdir(), "hx-frames-"));
-    backend = await startApps({ dev: false, profile: `\n[apps.trusted_publishers]\nexample = ["${MOCK_PUBLISHER}"]\n` });
+    backend = await startApps({ dev: false, profile: `\n[ext.packages.trusted_publishers]\nexample = ["${MOCK_PUBLISHER}"]\n` });
   });
   test.afterAll(async () => {
     await backend?.dispose();
@@ -490,16 +490,16 @@ test.describe("who signed it decides where it runs", () => {
   test("a trusted publisher's interface runs in the page, and the same application in frames when it asks", TAGS, async ({ page }) => {
     const api = await connect(backend);
     try {
-      expect((await api.call("harnix.apps.installFile", { path: trusted("in-page", (m) => m) })).trust).toBe("trusted");
+      expect((await api.call("packages.installFile", { path: trusted("in-page", (m) => m) })).trust).toBe("trusted");
       await open(page, backend.url);
       await toSpace(page, SPACE);
       // In the page: the module's board, on the shell's React, and no frame at all.
       await expect(page.getByTestId("showcase-board")).toBeVisible({ timeout: 15_000 });
       await expect(page.locator('[data-testid="surface-frame"]')).toHaveCount(0);
 
-      await api.call("harnix.apps.uninstall", { id: SHOWCASE_ID });
+      await api.call("packages.uninstall", { id: SHOWCASE_ID });
       const isolated = trusted("isolated", (m) => m.replace("[interface]\n", "[interface]\nisolate = true\n"));
-      expect((await api.call("harnix.apps.installFile", { path: isolated })).trust).toBe("trusted");
+      expect((await api.call("packages.installFile", { path: isolated })).trust).toBe("trusted");
       await open(page, backend.url);
       await board(page);
       await expect(page.locator('[data-testid="showcase-board"]')).toHaveCount(0);

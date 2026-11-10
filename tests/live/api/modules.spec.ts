@@ -30,51 +30,51 @@ test.beforeEach(async () => {
 test.afterEach(() => api?.close());
 
 test("a method declared for devices answers a device", TAGS, async () => {
-  const answer = await api.call("app.probe.echo", { text: "hello" });
+  const answer = await api.call("probe.echo", { text: "hello" });
   expect(answer.text).toBe("hello");
   expect(answer.from.kind).toBe("device");
 });
 
 test("its params are checked against its type", TAGS, async () => {
-  const error = await api.refused("app.probe.echo", { nope: 1 });
+  const error = await api.refused("probe.echo", { nope: 1 });
   expect(error?.code).toBe(INVALID_PARAMS);
 });
 
 test("a method declared only for the kernel is refused to a device", TAGS, async () => {
-  const error = await api.refused("app.probe.internal", {});
+  const error = await api.refused("probe.internal", {});
   expect(error?.code).toBe(REFUSED);
   const { methods } = await api.call("harnix.reachable");
-  expect(methods).toContain("app.probe.echo");
-  expect(methods).not.toContain("app.probe.internal");
-  expect(methods).not.toContain("app.probe.for_peer");
+  expect(methods).toContain("probe.echo");
+  expect(methods).not.toContain("probe.internal");
+  expect(methods).not.toContain("probe.for_peer");
 });
 
 test("one module reaches another only where it was named", TAGS, async () => {
   // peer → probe.for_peer: declared for Module(peer).
-  const allowed = await api.call("app.peer.relay", { method: "app.probe.for_peer" });
+  const allowed = await api.call("peer.relay", { method: "probe.for_peer" });
   expect(allowed.caller).toEqual({ kind: "extension", id: "peer" });
   // peer → probe.internal: the kernel's only.
-  const refused = await api.refused("app.peer.relay", { method: "app.probe.internal" });
+  const refused = await api.refused("peer.relay", { method: "probe.internal" });
   expect(refused?.code).toBe(REFUSED);
   // probe → probe.for_peer: declared for peer, not for probe itself.
-  const self = await api.refused("app.probe.call", { method: "app.probe.for_peer", params: {} });
+  const self = await api.refused("probe.call", { method: "probe.for_peer", params: {} });
   expect(self?.code).toBe(REFUSED);
 });
 
 test("a module calls the kernel's methods through the same door", TAGS, async () => {
-  const sessions = await api.call("app.probe.call", { method: "harnix.sessions.list", params: {} });
+  const sessions = await api.call("probe.call", { method: "harnix.sessions.list", params: {} });
   expect(Array.isArray(sessions.sessions)).toBe(true);
   // And what the hub owns stays the hub's, for a module too.
-  const turn = await api.refused("app.probe.call", { method: "engine.session.run_turn", params: {} });
+  const turn = await api.refused("probe.call", { method: "engine.session.run_turn", params: {} });
   expect(turn?.code).toBe(REFUSED);
   // A device may not write a provider; the settings module was granted it,
   // this one was not.
-  const provider = await api.refused("app.probe.call", { method: "engine.config.setProvider", params: {} });
+  const provider = await api.refused("probe.call", { method: "engine.config.setProvider", params: {} });
   expect(provider?.code).toBe(REFUSED);
 });
 
 test("config comes from its section, secrets through the credential source", TAGS, async () => {
-  const config = await api.call("app.probe.config");
+  const config = await api.call("probe.config");
   expect(config.greeting).toBe("hi there");
   expect(config.key).toEqual({ Ok: "12 chars" });
   expect(config.data_dir).toMatch(/modules[\\/]probe$/);
@@ -85,7 +85,7 @@ test("a failed start disables that module and nothing else", TAGS, async () => {
   expect(status.enabled).toBe(false);
   expect(status.phase).toBe("start");
   expect(status.reason).toContain("on purpose");
-  const error = await api.refused("app.fails-start.ping", {});
+  const error = await api.refused("fails-start.ping", {});
   expect(error?.code).toBe(METHOD_NOT_FOUND);
   // Everything registered after it is up.
   expect((await moduleStatus(api, "peer")).enabled).toBe(true);
@@ -97,7 +97,7 @@ test("a second module with a taken id is refused at registration", TAGS, async (
   expect(second.enabled).toBe(false);
   expect(second.phase).toBe("registration");
   // The first one's method is still the first one's.
-  expect((await api.call("app.probe.echo", { text: "x" })).text).toBe("x");
+  expect((await api.call("probe.echo", { text: "x" })).text).toBe("x");
 });
 
 test("the diagnostics page says what is there and what is not", TAGS, async () => {
@@ -110,30 +110,30 @@ test("the diagnostics page says what is there and what is not", TAGS, async () =
   expect(settings.namespace).toBe("kernel");
   expect(settings.granted).toContain("engine.config.write");
   const probe = await moduleStatus(api, "probe");
-  const echo = probe.methods.find((m: any) => m.name === "app.probe.echo");
+  const echo = probe.methods.find((m: any) => m.name === "probe.echo");
   expect(echo.principals).toEqual(["device"]);
   expect(echo.schema.required).toEqual(["text"]);
 });
 
 test("a topic hands a subscriber the current value, then every new one", TAGS, async () => {
-  const first = await api.call("harnix.topics.subscribe", { topic: "app.probe.counter" });
+  const first = await api.call("harnix.topics.subscribe", { topic: "probe.counter" });
   expect(first.value).toEqual({ n: 0 });
-  await api.call("app.probe.bump");
+  await api.call("probe.bump");
   const pushed = await api.waitFor(
-    (f) => f.method === "harnix.topic" && f.params.topic === "app.probe.counter" && f.params.value.n === 1,
+    (f) => f.method === "harnix.topic" && f.params.topic === "probe.counter" && f.params.value.n === 1,
     { describe: "the counter's new value" },
   );
   expect(pushed.params.value).toEqual({ n: 1 });
 });
 
 test("a parameterised topic is one value per parameter set", TAGS, async () => {
-  const missing = await api.refused("harnix.topics.subscribe", { topic: "app.probe.job" });
+  const missing = await api.refused("harnix.topics.subscribe", { topic: "probe.job" });
   expect(missing?.code).toBe(INVALID_PARAMS);
-  await api.call("harnix.topics.subscribe", { topic: "app.probe.job", params: { job_id: "a" } });
-  await api.call("app.probe.bump", { job_id: "b" });
-  await api.call("app.probe.bump", { job_id: "a" });
+  await api.call("harnix.topics.subscribe", { topic: "probe.job", params: { job_id: "a" } });
+  await api.call("probe.bump", { job_id: "b" });
+  await api.call("probe.bump", { job_id: "a" });
   const seen = await api.waitFor(
-    (f) => f.method === "harnix.topic" && f.params.topic === "app.probe.job",
+    (f) => f.method === "harnix.topic" && f.params.topic === "probe.job",
     { describe: "job a" },
   );
   expect(seen.params.params).toEqual({ job_id: "a" });
@@ -141,13 +141,13 @@ test("a parameterised topic is one value per parameter set", TAGS, async () => {
 });
 
 test("a topic declared for the kernel is not a device's to subscribe to", TAGS, async () => {
-  const error = await api.refused("harnix.topics.subscribe", { topic: "app.probe.secret" });
+  const error = await api.refused("harnix.topics.subscribe", { topic: "probe.secret" });
   expect(error?.code).toBe(REFUSED);
-  const unknown = await api.refused("harnix.topics.subscribe", { topic: "app.probe.nothing" });
+  const unknown = await api.refused("harnix.topics.subscribe", { topic: "probe.nothing" });
   expect(unknown?.code).toBe(METHOD_NOT_FOUND);
   const { topics } = await api.call("harnix.reachable");
-  expect(topics).toContain("app.probe.counter");
-  expect(topics).not.toContain("app.probe.secret");
+  expect(topics).toContain("probe.counter");
+  expect(topics).not.toContain("probe.secret");
 });
 
 test("a module learns where the process listens, once it does", TAGS, async () => {

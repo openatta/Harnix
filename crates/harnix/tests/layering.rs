@@ -252,84 +252,6 @@ fn the_instance_layer_does_not_know_the_client_protocol_exists() {
     );
 }
 
-/// A module never gets the hub or an engine link (concept §3.1.1, §4.2). The
-/// contract it is written against cannot hand it one, because the crate that
-/// defines the contract cannot name either.
-#[test]
-fn the_module_contract_cannot_reach_the_hub() {
-    assert_ignorant_of(
-        "module",
-        &["harnix-hub", "harnix-transport", "harnix-assembly", "daemon"],
-        "a module calls through the admission point like everyone else",
-    );
-    // It does depend on the instance layer, for templates and native
-    // contributions — and that crate also holds the links. The contract may
-    // name the first and never the second: a module holding a link could run
-    // a turn the hub never subscribed to.
-    let dir = workspace_root().join("crates/module/src");
-    let mut offenders = Vec::new();
-    for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
-        let text = std::fs::read_to_string(entry.path()).unwrap_or_default();
-        for needle in [
-            "EngineLink",
-            "InProcessLink",
-            "DaemonLink",
-            "DownLink",
-            "Factory",
-            "build_engine",
-        ] {
-            if text.contains(needle) {
-                offenders.push(format!("{} names `{needle}`", entry.path().display()));
-            }
-        }
-    }
-    assert!(offenders.is_empty(), "{}", offenders.join("\n"));
-}
-
-/// The built-ins are modules, written against the public module contract and
-/// nothing else (concept §3). If they could not be built out of
-/// it, the contract would not be worth believing.
-#[test]
-fn the_builtins_use_only_the_public_module_api() {
-    assert_ignorant_of(
-        "builtin",
-        &[
-            "harnix-hub",
-            "harnix-authz",
-            "harnix-instance",
-            "harnix-assembly",
-            "harnix-transport",
-            "daemon",
-        ],
-        "a built-in is a module, and a module reaches the process only through its context",
-    );
-    // And not through the doors the application itself uses to drive a
-    // module: those are public for the application's sake, hidden from docs,
-    // and a built-in using one would be a built-in with a private channel.
-    let dir = workspace_root().join("crates/builtin/src");
-    let mut offenders = Vec::new();
-    for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
-        let text = std::fs::read_to_string(entry.path()).unwrap_or_default();
-        for needle in [
-            "ModuleContext::new",
-            "CallContext::new",
-            "MethodRegistry::new",
-            "EventRegistry::new",
-            "RouteRegistry::new",
-            "ErasedModule",
-            "into_decls",
-            "Tap::new",
-            "Tap::channel",
-            "TapParts",
-        ] {
-            if text.contains(needle) {
-                offenders.push(format!("{} uses `{needle}`", entry.path().display()));
-            }
-        }
-    }
-    assert!(offenders.is_empty(), "{}", offenders.join("\n"));
-}
-
 /// The flow extension (xops-01) is an optional extension an application adds, written against
 /// the extension interface like every first-party one: that interface (and the engine's words it
 /// re-exports) and third-party crates. Never a layer below it, never Agix, and never the doors
@@ -580,14 +502,14 @@ const AGIX: &[&str] = &["daemon", "base", "model", "history", "scene", "telemetr
 /// | `harnix-package` | manifest, package, signatures, store, disclosure, the `harnix-app` tool | a VM, the kernel, Agix, an HTTP framework |
 /// | `harnix-wasm-port` | `Platform` and `Control`, and their serde types | anything but the contract |
 /// | `harnix-wasm-host` | lifecycle, registry, health, dispatch to the VM, idling | the kernel, the hub, Agix, an HTTP framework |
-/// | `harnix-apps` | the embedded glue: the port over the kernel, the Agix plugin, `/apps/<id>/…` | — |
+/// | `harnix-carrier-wasm` | packages in this process: the port over an extension handle and context, their tools, `/ext/<id>/…` | — |
 ///
 /// So the package and the host are the same code in a product's process and in a process of an
 /// application's own, and the port between the host and whatever it runs in is all either side
 /// sees of the other.
 #[test]
 fn the_application_layers_reach_only_down() {
-    let forbidden_above = ["harnix-module", "harnix-hub", "harnix-builtin", "harnix-instance", "harnix-authz", "harnix-transport", "harnix-assembly", "harnix-apps", "axum", "wasmtime"];
+    let forbidden_above = ["harnix-hub", "harnix-instance", "harnix-authz", "harnix-transport", "harnix-assembly", "harnix-carrier-wasm", "axum", "wasmtime"];
     for (dir, allowed) in [
         ("package", &["harnix-contract", "harnix-wasm"][..]),
         ("wasm-port", &["harnix-contract"][..]),
@@ -612,57 +534,6 @@ fn the_application_layers_reach_only_down() {
     assert!(
         package.contains("\"dep:harnix-wasm\"") && package.contains("required-features = [\"compile\"]"),
         "the packing tool, and only it, brings `harnix-wasm` into `package`"
-    );
-}
-
-/// The application runtime is reached through one door. `harnix-wasm` (the engine) is named by
-/// the application host alone (and by the packing tool, behind its own feature), the host by the
-/// embedded glue and the extension process (`harnix-proc`, which only a product built with `proc`
-/// links), and the glue (`harnix-apps`) by the application layer alone, as an optional
-/// dependency behind its `apps` feature: a build that does not ask for applications links none of
-/// them.
-#[test]
-fn only_the_apps_feature_links_the_application_runtime() {
-    let root = workspace_root().join("crates");
-    for entry in std::fs::read_dir(&root).into_iter().flatten().flatten() {
-        let dir = entry.file_name().to_string_lossy().to_string();
-        if !entry.path().join("Cargo.toml").is_file() {
-            continue;
-        }
-        let deps = normal_dependencies(&dir);
-        if let Some(optional) = deps.get("harnix-wasm") {
-            assert!(
-                dir == "wasm-host" || (dir == "package" && *optional),
-                "`{dir}` depends on `harnix-wasm`; only `harnix-wasm-host` may"
-            );
-        }
-        if deps.contains_key("harnix-wasm-host") {
-            assert!(
-                ["apps", "proc"].contains(&dir.as_str()),
-                "`{dir}` depends on `harnix-wasm-host`; only `harnix-apps` and `harnix-proc` may"
-            );
-        }
-        if deps.contains_key("harnix-apps") {
-            assert_eq!(dir, "assembly", "`{dir}` depends on `harnix-apps`; only the application layer may");
-        }
-        for layer in ["harnix-package", "harnix-wasm-port"] {
-            if deps.contains_key(layer) {
-                assert!(
-                    ["wasm-host", "apps", "proc"].contains(&dir.as_str()),
-                    "`{dir}` depends on `{layer}`; only the host, the glue and the extension process may"
-                );
-            }
-        }
-    }
-    let manifest = std::fs::read_to_string(root.join("assembly/Cargo.toml")).unwrap();
-    let line = manifest
-        .lines()
-        .find(|l| l.starts_with("harnix-apps"))
-        .expect("harnix-assembly names harnix-apps");
-    assert!(line.contains("optional = true"), "`{line}`: harnix-apps must be optional");
-    assert!(
-        manifest.contains("apps = [\"dep:harnix-apps\"]"),
-        "harnix-assembly's `apps` feature is what brings the runtime in"
     );
 }
 
@@ -784,7 +655,7 @@ fn every_harnix_dependency_resolves() {
         "assembly",
         "instance",
         "authz",
-        "builtin",
+        "carrier/wasm",
         "cli",
         "client",
         "contract",
@@ -795,6 +666,7 @@ fn every_harnix_dependency_resolves() {
         "ext/flow",
         "ext/harnix-app",
         "ext/observability",
+        "ext/packages",
         "ext/plugins",
         "ext/settings",
         "ext/system",
@@ -802,7 +674,6 @@ fn every_harnix_dependency_resolves() {
         "host-api",
         "hub",
         "kernel",
-        "module",
         "router",
         "testapp",
         "transport",
@@ -810,7 +681,6 @@ fn every_harnix_dependency_resolves() {
         "package",
         "wasm-port",
         "wasm-host",
-        "apps",
         "supervise",
         "proc",
     ];
@@ -1232,7 +1102,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P15"]
     fn l11_assembly() {
         let allowed = [
             CONTRACT, KERNEL, AUTHZ, ROUTER, TRANSPORT, HUB, INSTANCE, ENGINE_API, ENGINE, EXT, HOST_API, SUPERVISE,
@@ -1260,14 +1129,12 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P12"]
     fn l15_packages() {
         let forbidden = agix_and(&[CARRIER_WASM, CARRIER_PROC, WASM, WASM_HOST]);
         depends(PACKAGES, &[EXT, HOST_API, PACKAGE], &forbidden, &[]);
     }
 
     #[test]
-    #[ignore = "0.5.0：P15"]
     fn l16_carrier_wasm() {
         depends(CARRIER_WASM, &[EXT, HOST_API, WASM_HOST, WASM_PORT, PACKAGE], &agix_and(&[]), &[]);
     }
@@ -1353,7 +1220,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P15"]
     fn l25_the_wasm_runtime_is_reached_through_the_host() {
         only_used_by(WASM, &[WASM_HOST, PROC, PACKAGE], &[PACKAGE]);
         only_used_by(WASM_HOST, &[CARRIER_WASM, PROC], &[]);
@@ -1375,7 +1241,8 @@ mod rules {
 
     #[test]
     fn l25_the_host_api_is_the_assemblys_and_the_host_components() {
-        only_used_by(HOST_API, &[ASSEMBLY, PACKAGES, CARRIER_WASM, CARRIER_PROC], &[]);
+        // And the test application's, whose fake host registers a package as `packages` does.
+        only_used_by(HOST_API, &[ASSEMBLY, PACKAGES, CARRIER_WASM, CARRIER_PROC, TESTAPP], &[]);
         assert!(member_names().iter().any(|n| n == HOST_API), "`{HOST_API}` does not exist (yet)");
     }
 
@@ -1573,7 +1440,7 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P12"]
+    #[ignore = "0.5.0：P19"]
     fn c07_extensions_and_host_components_reach_neither_agix_nor_the_kernel() {
         let owned = host_components_and_first_party();
         let scope: Vec<&str> = owned.iter().map(String::as_str).collect();
@@ -1625,7 +1492,7 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P15"]
+    #[ignore = "0.5.0：P19"]
     fn c09_only_the_facade_and_the_cli_switch_on_a_carrier() {
         let mut scope: Vec<String> = SKELETON.iter().map(|s| s.to_string()).collect();
         scope.extend([EXT, HOST_API].iter().map(|s| s.to_string()));
@@ -1717,7 +1584,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P15"]
     fn c12_every_workspace_crate_is_known_and_every_dependency_resolves() {
         let members = member_names();
         for name in &members {
@@ -1929,7 +1795,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P15"]
     fn c17_no_shim_and_no_alias_table_is_left() {
         let members = member_names();
         assert!(!members.iter().any(|n| n == "harnix-module"), "the `harnix-module` shim is still a crate");

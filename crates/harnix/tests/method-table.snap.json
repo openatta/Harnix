@@ -4,9 +4,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -20,9 +18,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -36,9 +32,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -52,9 +46,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -1394,9 +1386,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -1410,9 +1400,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -1426,9 +1414,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -1442,9 +1428,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -1458,9 +1442,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -1474,9 +1456,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -1490,9 +1470,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -1506,9 +1484,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -1522,9 +1498,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -1538,9 +1512,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -1554,9 +1526,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -1570,9 +1540,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -1586,9 +1554,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -1602,9 +1568,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2196,9 +2160,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2212,9 +2174,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2228,9 +2188,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2244,9 +2202,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2260,9 +2216,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2276,9 +2230,133 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "packages.catalog",
+      "owner": "ext:packages"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "packages.clearData",
+      "owner": "ext:packages"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "packages.disable",
+      "owner": "ext:packages"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "packages.enable",
+      "owner": "ext:packages"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "packages.install",
+      "owner": "ext:packages"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "packages.installFile",
+      "owner": "ext:packages"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "packages.list",
+      "owner": "ext:packages"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "packages.uninstall",
+      "owner": "ext:packages"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "packages.update",
+      "owner": "ext:packages"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2292,9 +2370,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2308,9 +2384,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2324,9 +2398,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2340,9 +2412,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2356,9 +2426,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2372,9 +2440,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2388,9 +2454,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2404,9 +2468,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2420,9 +2482,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2436,9 +2496,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2452,9 +2510,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2468,9 +2524,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2484,9 +2538,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2500,9 +2552,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2516,9 +2566,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2532,9 +2580,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2548,9 +2594,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2564,9 +2608,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2580,9 +2622,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2596,9 +2636,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2612,9 +2650,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2628,9 +2664,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2644,9 +2678,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2660,9 +2692,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2676,9 +2706,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2692,9 +2720,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2708,9 +2734,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2724,9 +2748,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -2911,6 +2933,34 @@
       "kind": "topic",
       "name": "harnix.ui",
       "owner": "kernel:assembly"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "topic",
+      "name": "packages.list",
+      "owner": "ext:packages"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "topic",
+      "name": "packages.progress",
+      "owner": "ext:packages"
     },
     {
       "access": {

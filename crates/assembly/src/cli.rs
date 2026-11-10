@@ -226,12 +226,10 @@ pub(crate) fn versions(_app: &str, app_version: &str) -> (String, String) {
          harnix {}\n\
          agix {agix}\n\
          extension API {}\n\
-         module API {}\n\
          contribution API {}\n\
          protocol {}",
         crate::HARNIX_VERSION,
         harnix_ext::EXT_API_VERSION,
-        harnix_module::MODULE_API_VERSION,
         harnix_contract::CONTRIB_API_VERSION,
         harnix_contract::PROTOCOL_VERSION,
     );

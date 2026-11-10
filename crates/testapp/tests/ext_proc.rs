@@ -134,7 +134,7 @@ impl Kernel for Product {
     }
     async fn call(&self, meta: CallMeta, c: CallAs) -> Result<Value, RpcError> {
         self.metas.lock().unwrap().push(meta.clone());
-        let own = match c.method.strip_prefix(&format!("app.{ID}.")) {
+        let own = match c.method.strip_prefix(&format!("{ID}.")) {
             Some(own) => Some((own.to_string(), c.params.clone())),
             None => self.reroute.get().map(|own| (own.clone(), json!({}))),
         };

@@ -65,8 +65,8 @@ impl Extension for HarnixApp {
 
     fn register(&self, r: &mut Registrar<'_, Config>) {
         r.space(SpaceDecl::new(SESSIONS_SPACE).default_space());
-        let open = Access::device;
-        let session = || Access::device().scoped(RowScope::Session);
+        let open = || Access::kernel().with_device();
+        let session = || Access::kernel().with_device().scoped(RowScope::Session);
         r.method("workspaces.list").access(open()).raw(|c, _| with(c, |a, _| async move { a.workspaces_list().await }));
         r.method("workspaces.create").access(open()).raw(|c, p| with(c, |a, _| async move { a.workspaces_create(p).await }));
         r.method("workspaces.update").access(open()).raw(|c, p| with(c, |a, _| async move { a.workspaces_update(p).await }));

@@ -1,7 +1,7 @@
 /**
  * Interface modules that come with what is installed (concept §5.8, contribution API 3): an engine
- * package's `[[ui]]` modules, which the `plugins` extension serves at `/apps/plugins/ui/<package>/
- * <file>`, and a runtime application's at `/apps/<id>/ui/<file>`. `harnix.ui` lists them, and
+ * package's `[[ui]]` modules, which the `plugins` extension serves at `/ext/plugins/ui/<package>/
+ * <file>`, and a runtime application's at `/ext/<id>/ui/<file>`. `harnix.ui` lists them, and
  * this follows it: a module that appears is imported and registers; one whose package goes takes
  * everything it registered with it, as one batch.
  *
@@ -65,7 +65,7 @@ export async function followModules(app: App, view: UiView): Promise<void> {
       continue;
     }
     // Only this origin's module routes.
-    if (!module.startsWith("/apps/")) continue;
+    if (!module.startsWith("/ext/")) continue;
     listed.set(module, owner);
   }
   // Gone: its package takes back everything it registered, once none of its modules is left.

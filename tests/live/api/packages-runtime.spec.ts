@@ -63,7 +63,7 @@ test.describe("an application, installed from a file", () => {
     scratch = mkdtempSync(join(tmpdir(), "hx-apps-"));
     backend = await startApps({
       profile: `
-[apps.config."${SHOWCASE_ID}"]
+[ext."${SHOWCASE_ID}"]
 greeting = "hello from the profile"
 
 [[instances]]
@@ -106,14 +106,14 @@ carrier = "spawn"
     ];
     for (const [name, says, edit] of cases) {
       const path = variant(join(scratch, `${name}.hxext`), edit);
-      const error = await api.refused("harnix.apps.installFile", { path });
+      const error = await api.refused("packages.installFile", { path });
       expect(error?.code, name).toBe(REFUSED);
       expect(error?.message, name).toContain(says);
       if (name === "other-engine") expect(error?.message, name).toContain(fingerprint);
     }
-    expect((await api.refused("harnix.apps.installFile", { path: join(scratch, "missing.hxext") }))?.code).toBe(REFUSED);
-    expect((await api.refused("harnix.apps.installFile", {}))?.message).toContain("missing path");
-    const listed = await api.call("harnix.apps.list");
+    expect((await api.refused("packages.installFile", { path: join(scratch, "missing.hxext") }))?.code).toBe(REFUSED);
+    expect((await api.refused("packages.installFile", {}))?.message).toContain("missing path");
+    const listed = await api.call("packages.list");
     expect(listed.apps).toEqual([]);
     expect(listed.runtime).toMatchObject({ fingerprint, dev: true });
     const plugins = (await api.call("engine.plugin.list")).plugins.map((p: any) => p.name);
@@ -123,14 +123,14 @@ carrier = "spawn"
 
   test("installed: its agent package, its skill, its tools and its interface module, at once", TAGS, async () => {
     const { path, fingerprint } = showcasePackage();
-    const installed = await api.call("harnix.apps.installFile", { path });
+    const installed = await api.call("packages.installFile", { path });
     expect(installed).toMatchObject({ id: SHOWCASE_ID, version: "0.1.0", title: "Showcase", enabled: true });
     expect(installed.installed).toMatchObject({
       fingerprint,
       agent: { package: "example-showcase", instances: ["main"] },
       skills: { main: ["showcase-tour"] },
     });
-    const listed = (await api.call("harnix.apps.list")).apps;
+    const listed = (await api.call("packages.list")).apps;
     expect(listed).toHaveLength(1);
     expect(listed[0]).toMatchObject({ id: SHOWCASE_ID, enabled: true, runtime: { state: "running" } });
     expect(listed[0].runtime.tools.map((t: any) => t.name).sort()).toEqual([...TOOLS].sort());
@@ -143,18 +143,18 @@ carrier = "spawn"
     const plugin = (await api.call("engine.plugin.list")).plugins.find((p: any) => p.name === "example-showcase");
     expect(plugin, "the agent package is installed in system").toBeTruthy();
     expect(plugin.enabled).not.toBe(false);
-    expect((await api.refused("harnix.apps.installFile", { path }))?.message).toContain("installed already");
+    expect((await api.refused("packages.installFile", { path }))?.message).toContain("installed already");
 
     // The interface module is served beside the page. Unsigned, the application's interface is
     // its isolated frames: those are what a client is told (apps-frames.spec.ts has the rest).
-    const module = await fetch(`${backend.url.replace(/\/$/, "")}/apps/${SHOWCASE_ID}/ui/showcase.js`);
+    const module = await fetch(`${backend.url.replace(/\/$/, "")}/ext/${SHOWCASE_ID}/ui/showcase.js`);
     expect(module.status).toBe(200);
     expect(module.headers.get("content-type")).toContain("javascript");
     expect(await module.text()).toContain("example.showcase.card");
-    expect((await fetch(`${backend.url.replace(/\/$/, "")}/apps/${SHOWCASE_ID}/ui/../harnix-ext.toml`)).status).toBe(404);
+    expect((await fetch(`${backend.url.replace(/\/$/, "")}/ext/${SHOWCASE_ID}/ui/../harnix-ext.toml`)).status).toBe(404);
     await expect
       .poll(async () => JSON.stringify((await api.call("harnix.ui")).contributions ?? []), { timeout: 10_000 })
-      .toContain(`/apps/${SHOWCASE_ID}/ui/frame/index.html`);
+      .toContain(`/ext/${SHOWCASE_ID}/ui/frame/index.html`);
     // What a store has to compile for, for this process to run it.
     expect(JSON.stringify(await api.call("system.process"))).toContain(fingerprint);
   });
@@ -204,12 +204,12 @@ carrier = "spawn"
   });
 
   test("its progress is pushed while it works", TAGS, async () => {
-    await api.call("harnix.topics.subscribe", { topic: "harnix.apps.progress" });
+    await api.call("harnix.topics.subscribe", { topic: "packages.progress" });
     const s = await session(api, "app-slow");
     const { settled } = await runTurn(api, s, "Use the slow tool");
     expect(settled.params.error).toBeUndefined();
     const steps = api.events
-      .filter((f) => f.method === "harnix.topic" && f.params.topic === "harnix.apps.progress"
+      .filter((f) => f.method === "harnix.topic" && f.params.topic === "packages.progress"
         && f.params.value?.session_id === s.session_id)
       .map((f) => f.params.value);
     expect(steps.map((v) => v.text)).toEqual(["step 1 of 3", "step 2 of 3", "step 3 of 3"]);
@@ -218,7 +218,7 @@ carrier = "spawn"
   });
 
   test("cancelled while it works, it stops, and the application goes on", TAGS, async () => {
-    await api.call("harnix.topics.subscribe", { topic: "harnix.apps.progress" });
+    await api.call("harnix.topics.subscribe", { topic: "packages.progress" });
     const s = await session(api, "app-slow-long");
     await api.call("harnix.session.send", { ...s, message: "Use the slow tool for a long while" });
     const ask = await api.waitFor(
@@ -227,7 +227,7 @@ carrier = "spawn"
     );
     await api.call("harnix.session.respond", { ...s, prompt_id: ask.params.event.prompt_id, decision: { type: "permit" } });
     await api.waitFor(
-      (f) => f.method === "harnix.topic" && f.params.topic === "harnix.apps.progress"
+      (f) => f.method === "harnix.topic" && f.params.topic === "packages.progress"
         && f.params.value?.session_id === s.session_id && f.params.value?.text === "step 2 of 100",
       { timeout: 30_000, describe: "the slow tool under way" },
     );
@@ -243,7 +243,7 @@ carrier = "spawn"
     await sleep(1000);
     const after = api.events.filter((f) => f.method === "harnix.topic" && f.params.value?.session_id === s.session_id).length;
     expect(after, "the call went on after the turn was cancelled").toBe(seen);
-    const runtime = (await api.call("harnix.apps.list")).apps[0].runtime;
+    const runtime = (await api.call("packages.list")).apps[0].runtime;
     expect(runtime.state).toBe("running");
     expect(runtime.health.consecutive_faults).toBe(0);
   });
@@ -263,17 +263,17 @@ carrier = "spawn"
     expect(settled.params.error, JSON.stringify(settled.params.error)).toBeUndefined();
     expect(asks.length, "each call asked").toBeGreaterThanOrEqual(3);
     expect(api.text(s.session_id)).toContain("The showcase's crash tool failed three times.");
-    const runtime = (await api.call("harnix.apps.list")).apps[0].runtime;
+    const runtime = (await api.call("packages.list")).apps[0].runtime;
     expect(runtime.state).toBe("running");
     expect(Object.keys(runtime.health.tools_aside)).toEqual(["crash"]);
     expect(runtime.health.tools_aside.crash).toContain("3 consecutive faults");
     expect(runtime.health).toMatchObject({ state: "running", rebuilds: 0, recycles: 0 });
     // Its backend answers, its other tools run, and its interface is still offered.
-    expect((await api.call(`app.${SHOWCASE_ID}.notes.list`)).notes).toEqual(expect.any(Array));
+    expect((await api.call(`${SHOWCASE_ID}.notes.list`)).notes).toEqual(expect.any(Array));
     const echo = await session(api, "app-echo");
     await runTurn(api, echo, "Use the showcase's echo tool");
     expect(results(api, echo)).toContain("showcase-echo-42");
-    expect(JSON.stringify((await api.call("harnix.ui")).contributions ?? [])).toContain(`/apps/${SHOWCASE_ID}/ui/frame/index.html`);
+    expect(JSON.stringify((await api.call("harnix.ui")).contributions ?? [])).toContain(`/ext/${SHOWCASE_ID}/ui/frame/index.html`);
   });
 
   test("a sub-agent of the application's own agent type uses its tool", TAGS, async () => {
@@ -298,7 +298,7 @@ carrier = "spawn"
     expect(results(api, s)).toContain("showcase-over-mcp");
 
     // The endpoint opens to a spawned daemon's credential alone: not the page's token.
-    const url = `${backend.url.replace(/\/$/, "")}/apps/${SHOWCASE_ID}/mcp`;
+    const url = `${backend.url.replace(/\/$/, "")}/ext/${SHOWCASE_ID}/mcp`;
     const anonymous = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${backend.token}` },
@@ -309,7 +309,7 @@ carrier = "spawn"
   });
 
   test("a spawned daemon's credential is its own, and stops opening the endpoint when the daemon goes or is started again", TAGS, async () => {
-    const url = `${backend.url.replace(/\/$/, "")}/apps/${SHOWCASE_ID}/mcp`;
+    const url = `${backend.url.replace(/\/$/, "")}/ext/${SHOWCASE_ID}/mcp`;
     const list = (authorization: string) =>
       fetch(url, {
         method: "POST",
@@ -352,46 +352,46 @@ carrier = "spawn"
   });
 
   test("disabled: a new session has none of it, and enabled it is back", TAGS, async () => {
-    const off = await api.call("harnix.apps.disable", { id: SHOWCASE_ID });
+    const off = await api.call("packages.disable", { id: SHOWCASE_ID });
     expect(off).toMatchObject({ id: SHOWCASE_ID, enabled: false, runtime: { state: "stopped" } });
     const { text, tools } = await context(api);
     for (const tool of TOOLS) expect(tools.length ? tools : [text], tool).not.toContain(tool);
     expect(text).not.toContain(BLOCK_MARKER);
     expect(JSON.stringify(await api.call("engine.commands.list", { instance: "main" }))).not.toContain("showcase-tour");
-    expect((await fetch(`${backend.url.replace(/\/$/, "")}/apps/${SHOWCASE_ID}/ui/showcase.js`)).status).toBe(404);
+    expect((await fetch(`${backend.url.replace(/\/$/, "")}/ext/${SHOWCASE_ID}/ui/showcase.js`)).status).toBe(404);
     const plugin = (await api.call("engine.plugin.list")).plugins.find((p: any) => p.name === "example-showcase");
     expect(plugin?.enabled).toBe(false);
     await expect
       .poll(async () => JSON.stringify(await api.call("engine.mcp.status", { instance: "far" }).catch(() => "")), { timeout: 60_000, intervals: [500] })
       .not.toContain(MCP_SERVER);
 
-    const on = await api.call("harnix.apps.enable", { id: SHOWCASE_ID });
+    const on = await api.call("packages.enable", { id: SHOWCASE_ID });
     expect(on).toMatchObject({ enabled: true, runtime: { state: "running" } });
     const back = await context(api);
     expect(back.tools.length ? back.tools : back.text).toContain(TOOL("echo"));
     expect(back.text).toContain(BLOCK_MARKER);
-    expect((await fetch(`${backend.url.replace(/\/$/, "")}/apps/${SHOWCASE_ID}/ui/showcase.js`)).status).toBe(200);
+    expect((await fetch(`${backend.url.replace(/\/$/, "")}/ext/${SHOWCASE_ID}/ui/showcase.js`)).status).toBe(200);
   });
 
   test("uninstalled: everything it brought goes, its data with it", TAGS, async () => {
-    const removed = await api.call("harnix.apps.uninstall", { id: SHOWCASE_ID });
+    const removed = await api.call("packages.uninstall", { id: SHOWCASE_ID });
     expect(removed).toMatchObject({ id: SHOWCASE_ID, uninstalled: true, removed: { agent: { package: "example-showcase" } } });
-    expect((await api.call("harnix.apps.list")).apps).toEqual([]);
+    expect((await api.call("packages.list")).apps).toEqual([]);
     expect((await api.call("engine.plugin.list")).plugins.map((p: any) => p.name)).not.toContain("example-showcase");
     expect(JSON.stringify(await api.call("engine.commands.list", { instance: "main" }))).not.toContain("showcase-tour");
     const { text, tools } = await context(api);
     expect(tools.length ? tools : [text]).not.toContain(TOOL("echo"));
     expect(text).not.toContain(BLOCK_MARKER);
     expect(existsSync(join(backend.state, "apps", SHOWCASE_ID)), "its directory, data and all").toBe(false);
-    expect((await fetch(`${backend.url.replace(/\/$/, "")}/apps/${SHOWCASE_ID}/ui/showcase.js`)).status).toBe(404);
-    expect((await api.refused("harnix.apps.uninstall", { id: SHOWCASE_ID }))?.message).toContain("no application");
+    expect((await fetch(`${backend.url.replace(/\/$/, "")}/ext/${SHOWCASE_ID}/ui/showcase.js`)).status).toBe(404);
+    expect((await api.refused("packages.uninstall", { id: SHOWCASE_ID }))?.message).toContain("no application");
 
     // And it installs again, from nothing: the count starts over.
-    await api.call("harnix.apps.installFile", { path: showcasePackage().path });
+    await api.call("packages.installFile", { path: showcasePackage().path });
     const s = await session(api, "app-count");
     await runTurn(api, s, "count");
     expect(results(api, s)).toContain("count = 1");
-    await api.call("harnix.apps.uninstall", { id: SHOWCASE_ID });
+    await api.call("packages.uninstall", { id: SHOWCASE_ID });
   });
 });
 
@@ -404,7 +404,7 @@ test.describe("an application, against the model", () => {
     backend = await startApps({ mode: "live" });
     const client = await connect(backend);
     try {
-      await client.call("harnix.apps.installFile", { path: showcasePackage().path });
+      await client.call("packages.installFile", { path: showcasePackage().path });
     } finally {
       client.close();
     }
@@ -429,7 +429,7 @@ test.describe("an application, against the model", () => {
   });
 });
 
-test.describe("an application, with [apps] dev off", () => {
+test.describe("an application, with [ext.packages] dev off", () => {
   let backend: Backend;
   let api: TestClient;
 
@@ -444,11 +444,11 @@ test.describe("an application, with [apps] dev off", () => {
   test.afterEach(() => api?.close());
 
   test("an unsigned package is not installed from a file", TAGS, async () => {
-    const error = await api.refused("harnix.apps.installFile", { path: showcasePackage().path });
+    const error = await api.refused("packages.installFile", { path: showcasePackage().path });
     expect(error?.code).toBe(REFUSED);
-    expect(error?.message).toContain("[apps] dev = true");
-    expect((await api.call("harnix.apps.list")).apps).toEqual([]);
-    expect((await api.call("harnix.apps.list")).runtime).toMatchObject({ dev: false });
+    expect(error?.message).toContain("[ext.packages] dev = true");
+    expect((await api.call("packages.list")).apps).toEqual([]);
+    expect((await api.call("packages.list")).runtime).toMatchObject({ dev: false });
   });
 });
 
@@ -463,7 +463,7 @@ test.describe("its event hook, as far as its manifest's [events]", () => {
     showcasePackage();
     scratch = mkdtempSync(join(tmpdir(), "hx-apps-events-"));
     // Its hook told to refuse a built-in tool: what it may not see, it cannot refuse.
-    backend = await startApps({ profile: `\n[apps.config."${SHOWCASE_ID}"]\nblocked_tool = "Bash"\n` });
+    backend = await startApps({ profile: `\n[ext."${SHOWCASE_ID}"]\nblocked_tool = "Bash"\n` });
   });
   test.afterAll(async () => {
     await backend?.dispose();
@@ -481,13 +481,13 @@ test.describe("its event hook, as far as its manifest's [events]", () => {
   };
 
   test("own, the default: another's tool call is not its to see, and the installer is told nothing of it", TAGS, async () => {
-    await api.call("harnix.apps.installFile", { path: showcasePackage().path });
-    const app = (await api.call("harnix.apps.list")).apps[0].app;
+    await api.call("packages.installFile", { path: showcasePackage().path });
+    const app = (await api.call("packages.list")).apps[0].app;
     expect(app.lines.map((l: any) => l.capability)).not.toContain("events");
     const out = await bash();
     expect(out).toContain("harnix-fixture");
     expect(out).not.toContain("refused by the application");
-    await api.call("harnix.apps.uninstall", { id: SHOWCASE_ID });
+    await api.call("packages.uninstall", { id: SHOWCASE_ID });
   });
 
   test("a host on this machine is told as one", TAGS, async () => {
@@ -495,11 +495,11 @@ test.describe("its event hook, as far as its manifest's [events]", () => {
       const manifest = entries.get("harnix-ext.toml")!.toString("utf8");
       entries.set("harnix-ext.toml", Buffer.from(manifest.replace('net = ["api.showcase.test"]', 'net = ["127.0.0.1", "api.showcase.test"]')));
     });
-    await api.call("harnix.apps.installFile", { path: local });
-    const lines = (await api.call("harnix.apps.list")).apps[0].app.lines;
+    await api.call("packages.installFile", { path: local });
+    const lines = (await api.call("packages.list")).apps[0].app.lines;
     expect(lines).toContainEqual({ capability: "net_local", value: "127.0.0.1" });
     expect(lines).toContainEqual({ capability: "net", value: "api.showcase.test" });
-    await api.call("harnix.apps.uninstall", { id: SHOWCASE_ID });
+    await api.call("packages.uninstall", { id: SHOWCASE_ID });
   });
 
   test("all: every tool call of every session, and the installer is told so", TAGS, async () => {
@@ -507,12 +507,12 @@ test.describe("its event hook, as far as its manifest's [events]", () => {
       const manifest = entries.get("harnix-ext.toml")!.toString("utf8");
       entries.set("harnix-ext.toml", Buffer.from(manifest.replace('[events]\ntools = "own"', '[events]\ntools = "all"')));
     });
-    await api.call("harnix.apps.installFile", { path: all });
-    const app = (await api.call("harnix.apps.list")).apps[0].app;
+    await api.call("packages.installFile", { path: all });
+    const app = (await api.call("packages.list")).apps[0].app;
     expect(app.lines).toContainEqual({ capability: "events", value: "all" });
     const out = await bash();
     expect(out).toContain(`refused by the application \`${SHOWCASE_ID}\``);
     expect(out).not.toContain("harnix-fixture\\n");
-    await api.call("harnix.apps.uninstall", { id: SHOWCASE_ID });
+    await api.call("packages.uninstall", { id: SHOWCASE_ID });
   });
 });

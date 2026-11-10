@@ -6,7 +6,7 @@
  * refused. With the applications' settings section (`apps.tsx`), the shell's until the packages
  * extension's UI package draws them.
  *
- * Fed by the `apps` module's topic `harnix.apps` (the same value as `harnix.apps.list`, pushed
+ * Fed by the `apps` module's topic `packages.list` (the same value as `packages.list`, pushed
  * when it changes), so it stays current without asking. Offered only where that module runs:
  * `[apps] enabled`.
  */

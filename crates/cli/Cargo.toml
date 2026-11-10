@@ -14,16 +14,16 @@ name = "harnix"
 path = "src/main.rs"
 
 [dependencies]
-harnix      = { workspace = true, features = ["flow"] }
-harnix-ext-flow = { workspace = true }
+harnix      = { workspace = true }
+harnix-ext-flow = { workspace = true, optional = true }
 anyhow      = { workspace = true }
 
-
 [features]
-default = []
-# `cargo build -p harnix-cli --features apps`: a `harnix` that can host runtime applications.
-# Its own target directory keeps the default build's untouched (scripts/check.sh).
-apps = ["harnix/apps"]
+# The Harnix app as it ships: its own extensions, flows, and packages in this process.
+default = ["wasm", "flow"]
+# Packages, run in this process's WebAssembly (mode 2).
+wasm = ["harnix/wasm"]
+flow = ["harnix/flow", "dep:harnix-ext-flow"]
 
 [dev-dependencies]
 # `harnix::testing::describe`: the route table this binary serves, pinned by `tests/method_table.rs`.

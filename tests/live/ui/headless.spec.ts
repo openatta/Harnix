@@ -22,7 +22,7 @@ test("a module's headless sessions are in the instance tree, and open like any o
   await open(page, backend.url);
   const started: string[] = await page.evaluate(async (root) => {
     const { app } = (window as any).harnix;
-    const result = await app.call("app.fleet.headless", {
+    const result = await app.call("fleet.headless", {
       count: 2,
       project_root: root,
       recording: "says-ready",

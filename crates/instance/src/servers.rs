@@ -1,8 +1,8 @@
-//! MCP servers this process offers the daemons it spawns (a runtime application's tools).
+//! MCP servers this process offers the daemons it spawns (a package's tools).
 //!
-//! A runtime application runs in one VM, in this process. An instance built in this process reaches
-//! its tools directly; a daemon this process spawned is another process, and reaches them over MCP
-//! instead — an endpoint per application, served by this process. What goes into the daemon is a
+//! A package runs in one VM, in this process. An instance built in this process reaches its tools
+//! directly; a daemon this process spawned is another process, and reaches them over MCP instead —
+//! an endpoint per package, served by this process. What goes into the daemon is a
 //! set of `mcp_servers` entries in its global tier: written before it is spawned, and again (with
 //! a `config.reload`) whenever the set changes — an application enabled, disabled, installed or
 //! removed — or this process learns where it listens.
@@ -44,8 +44,8 @@ const READY_WAIT: Duration = Duration::from_secs(60);
 /// Who mints the credential a spawned daemon presents to the servers, and forgets it when the
 /// daemon goes: whoever serves them.
 pub trait ServerTokens: Send + Sync {
-    /// A credential for one daemon, admitted from now on.
-    fn issue(&self) -> String;
+    /// A credential for one daemon of `instance`, admitted from now on as that instance's engine.
+    fn issue(&self, instance: &str) -> String;
     /// That daemon has gone: its credential admits nothing any more.
     fn revoke(&self, token: &str);
 }
@@ -96,7 +96,7 @@ impl SharedServers {
         let configured = Arc::new(Configured {
             instance: instance.to_string(),
             root: root.to_path_buf(),
-            token: Mutex::new(inner.tokens.as_ref().map(|t| t.issue())),
+            token: Mutex::new(inner.tokens.as_ref().map(|t| t.issue(instance))),
             tokens: inner.tokens.clone(),
             shared: Arc::downgrade(self),
             revoked: AtomicBool::new(false),
@@ -211,7 +211,7 @@ impl Configured {
             if self.revoked.load(Ordering::Acquire) {
                 return;
             }
-            if let Some(old) = token.replace(tokens.issue()) {
+            if let Some(old) = token.replace(tokens.issue(&self.instance)) {
                 tokens.revoke(&old);
             }
         }
@@ -330,7 +330,7 @@ mod tests {
     }
 
     impl ServerTokens for Kept {
-        fn issue(&self) -> String {
+        fn issue(&self, _instance: &str) -> String {
             let token = format!("t{}", self.next.fetch_add(1, Ordering::Relaxed));
             lock(&self.live).push(token.clone());
             token

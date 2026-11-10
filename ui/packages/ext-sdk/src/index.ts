@@ -3,9 +3,9 @@
  *
  * ```js
  * const app = await HarnixExt.connect();          // or: import { connect } from "@harnix/ext-sdk"
- * const notes = await app.call("app.acme.notes.list");
- * const off = app.subscribe("app.acme.notes.changed", {}, (value) => draw(value));
- * if (await app.confirm("Delete every note?", { danger: true })) await app.call("app.acme.notes.clear");
+ * const notes = await app.call("acme.notes.list");
+ * const off = app.subscribe("acme.notes.changed", {}, (value) => draw(value));
+ * if (await app.confirm("Delete every note?", { danger: true })) await app.call("acme.notes.clear");
  * app.onEnv((env) => document.documentElement.dataset.theme = env.theme);
  * ```
  *
@@ -183,7 +183,7 @@ export class HarnixExt {
 
   /* ── data ── */
 
-  /** A method: the application's own `app.<id>.*`, or one its `[interface] calls` lists. */
+  /** A method: the application's own `<id>.*`, or one its `[interface] calls` lists. */
   call<T = unknown>(method: string, params?: unknown): Promise<T> {
     return this.request("call", { method, params }) as Promise<T>;
   }

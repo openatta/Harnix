@@ -1,7 +1,7 @@
 /**
  * Runtime applications, stage six (b): the inline points a manifest declares — `[[inline.tool_row]]`,
  * `[[inline.flow_block]]`, `[[inline.command]]`, `[[inline.sidebar_group]]` — which the shell draws
- * from the manifest alone, and `harnix.apps.clearData`.
+ * from the manifest alone, and `packages.clearData`.
  *
  * A manifest whose inline points do not hold together is refused by name, and nothing of it stays.
  * The showcase's, installed, are listed for the shell (`runtime.inline`) and disclosed where the
@@ -21,9 +21,9 @@ import { SHOWCASE_CHATS, SHOWCASE_ID, showcasePackage, startApps, variant } from
 
 const TAGS = { tag: ["@feature:packages-inline", "@layer:api"] };
 
-const M = (name: string) => `app.${SHOWCASE_ID}.${name}`;
+const M = (name: string) => `${SHOWCASE_ID}.${name}`;
 
-const listed = async (api: TestClient) => (await api.call("harnix.apps.list")).apps.find((a: any) => a.id === SHOWCASE_ID);
+const listed = async (api: TestClient) => (await api.call("packages.list")).apps.find((a: any) => a.id === SHOWCASE_ID);
 
 /** A session with one replayed turn: its log exists, so an entry has somewhere to go. */
 async function oneTurn(api: TestClient, space?: string): Promise<{ instance: string; session_id: string }> {
@@ -82,15 +82,15 @@ test.describe("an application's inline points and its data", () => {
     ];
     for (const [name, says, change] of cases) {
       const path = variant(join(scratch, `${name}.hxext`), change);
-      const error = await api.refused("harnix.apps.installFile", { path });
+      const error = await api.refused("packages.installFile", { path });
       expect(error?.code, name).toBe(REFUSED);
       expect(error?.message, name).toContain(says);
     }
-    expect((await api.call("harnix.apps.list")).apps).toEqual([]);
+    expect((await api.call("packages.list")).apps).toEqual([]);
   });
 
   test("installed, they are listed for the shell, and disclosed where they tell it something", TAGS, async () => {
-    await api.call("harnix.apps.installFile", { path: showcasePackage().path });
+    await api.call("packages.installFile", { path: showcasePackage().path });
     const app = await listed(api);
     const inline = app.runtime.inline;
     expect(inline.tool_row.map((r: any) => [r.tool, r.collapsed])).toEqual([
@@ -108,9 +108,9 @@ test.describe("an application's inline points and its data", () => {
     const lines = app.app.lines.filter((l: any) => l.capability === "inline").map((l: any) => l.value);
     expect(lines).toEqual(["command /showcase", "command @notes", `sidebar.group ${SHOWCASE_CHATS}`]);
     // Stopped, nothing is drawn for it.
-    await api.call("harnix.apps.disable", { id: SHOWCASE_ID });
+    await api.call("packages.disable", { id: SHOWCASE_ID });
     expect((await listed(api)).runtime.inline).toBeUndefined();
-    await api.call("harnix.apps.enable", { id: SHOWCASE_ID });
+    await api.call("packages.enable", { id: SHOWCASE_ID });
     expect((await listed(api)).runtime.inline).toEqual(inline);
   });
 
@@ -127,14 +127,14 @@ test.describe("an application's inline points and its data", () => {
     const carded = await oneTurn(api, SHOWCASE_CHATS);
     const plain = await oneTurn(api, SHOWCASE_CHATS);
     const posted = await api.call(M("card.post"), { ...carded, space: SHOWCASE_CHATS, title: "inline-card-17" });
-    expect(posted.appended).toMatchObject({ ns: `app.${SHOWCASE_ID}`, event: "card", payload: { title: "inline-card-17", notes: 2 } });
+    expect(posted.appended).toMatchObject({ ns: `${SHOWCASE_ID}`, event: "card", payload: { title: "inline-card-17", notes: 2 } });
     const pushed = await api.waitFor(
       (f) => f.method === "harnix.event" && f.params.session_id === carded.session_id && f.params.event?.kind === "extension_entry",
       { describe: "the card's entry to be pushed" },
     );
     expect(pushed.params.event.entry.event).toBe("card");
     const { entries } = await api.call("engine.session.entries", carded);
-    expect(entries.map((e: any) => [e.ns, e.event])).toEqual([[`app.${SHOWCASE_ID}`, "card"]]);
+    expect(entries.map((e: any) => [e.ns, e.event])).toEqual([[`${SHOWCASE_ID}`, "card"]]);
     // Only through its `calls`: a session in which the entry is appended is still the session's.
     // Claiming no space of its own, the backend is refused before the session is even looked for.
     expect([INVALID_PARAMS, REFUSED]).toContain((await api.refused(M("card.post"), { title: "no session" }))?.code);
@@ -152,7 +152,7 @@ test.describe("an application's inline points and its data", () => {
     expect((await api.call(M("notes.list"))).notes.length).toBeGreaterThan(0);
     const before = (await listed(api)).data_bytes;
     expect(before).toBeGreaterThan(0);
-    const cleared = await api.call("harnix.apps.clearData", { id: SHOWCASE_ID });
+    const cleared = await api.call("packages.clearData", { id: SHOWCASE_ID });
     expect(cleared).toMatchObject({ id: SHOWCASE_ID, cleared_bytes: before, data_bytes: 0, restarted: true });
     const after = await listed(api);
     expect(after).toMatchObject({ enabled: true, version: "0.1.0", data_bytes: 0, runtime: { state: "running" } });
@@ -160,17 +160,17 @@ test.describe("an application's inline points and its data", () => {
     // Started again: its memory went too.
     expect((await api.call(M("counter.bump"))).counter).toBe(1);
     // On the record, as something that cannot be undone.
-    const audited = (await api.call("harnix.audit", { limit: 1000 })).entries.filter((e: any) => e.method === "harnix.apps.clearData");
+    const audited = (await api.call("harnix.audit", { limit: 1000 })).entries.filter((e: any) => e.method === "packages.clearData");
     expect(audited.length).toBeGreaterThanOrEqual(1);
     // Disabled, it is cleared and stays off.
     await api.call(M("notes.add"), { text: "kept while off" });
-    await api.call("harnix.apps.disable", { id: SHOWCASE_ID });
-    expect(await api.call("harnix.apps.clearData", { id: SHOWCASE_ID })).toMatchObject({ data_bytes: 0, restarted: false });
+    await api.call("packages.disable", { id: SHOWCASE_ID });
+    expect(await api.call("packages.clearData", { id: SHOWCASE_ID })).toMatchObject({ data_bytes: 0, restarted: false });
     expect((await listed(api)).enabled).toBe(false);
-    await api.call("harnix.apps.enable", { id: SHOWCASE_ID });
+    await api.call("packages.enable", { id: SHOWCASE_ID });
     expect((await api.call(M("notes.list"))).notes).toEqual([]);
 
-    expect((await api.refused("harnix.apps.clearData", { id: "nobody.here" }))?.code).toBe(INVALID_PARAMS);
-    expect((await api.refused("harnix.apps.clearData", {}))?.message).toContain("missing id");
+    expect((await api.refused("packages.clearData", { id: "nobody.here" }))?.code).toBe(INVALID_PARAMS);
+    expect((await api.refused("packages.clearData", {}))?.message).toContain("missing id");
   });
 });

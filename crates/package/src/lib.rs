@@ -7,14 +7,16 @@
 //! [`store`] (the catalog, and downloading from it), [`acquire`] (verifying a package or an
 //! unpacked one against the keys a process trusts, disclosing it, fetching it), [`disclosure`]
 //! (what a person is shown and consents to), [`publish`] (the publisher's and the store's tools,
-//! and the `harnix-pack` binary under the `compile` feature).
+//! and the `harnix-pack` binary under the `compile` feature), and [`egress`] (where its HTTP may
+//! go, decided on the product's side).
 //!
-//! Nothing here runs anything. The host that runs an application (`harnix-wasm-host`) and the
-//! product that installs it (`harnix-apps`, for an application embedded in the product's process)
-//! both read packages with this, so a package means the same to either.
+//! Nothing here runs anything. The host that runs a package (`harnix-wasm-host`) and the product
+//! that installs it (`harnix-ext-packages`, and the carrier it runs on) all read packages with
+//! this, so a package means the same to each.
 
 pub mod acquire;
 pub mod disclosure;
+pub mod egress;
 pub mod inline;
 pub mod manifest;
 pub mod package;

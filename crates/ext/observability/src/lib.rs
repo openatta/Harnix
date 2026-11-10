@@ -31,14 +31,14 @@ impl Extension for Observability {
 
     fn register(&self, r: &mut Registrar<'_, ()>) {
         r.method("trace")
-            .access(Access::device())
+            .access(Access::kernel().with_device())
             .describe("every model call of a session's current run, oldest first, with its tool calls and their results")
             .raw(|call, params| async move {
                 let (reader, session) = recording_of(&call, &params)?;
                 answer(reader.calls(&session).await)
             });
         r.method("trace.call")
-            .access(Access::device())
+            .access(Access::kernel().with_device())
             .describe("one model call in full: the system blocks, the tool catalog, the messages as sent, the answer")
             .raw(|call, params| async move {
                 let (reader, session) = recording_of(&call, &params)?;
@@ -49,18 +49,18 @@ impl Extension for Observability {
                 answer(reader.call(&session, index as usize).await)
             });
         r.method("turns")
-            .access(Access::device())
+            .access(Access::kernel().with_device())
             .describe("the trace summed up per turn: time to first token, tokens, the cache's share, the context's growth")
             .raw(|call, params| async move {
                 let (reader, session) = recording_of(&call, &params)?;
                 answer(reader.turns(&session).await)
             });
         r.method("usage")
-            .access(Access::device())
+            .access(Access::kernel().with_device())
             .describe("what each Agent of each session has used")
             .raw(|call, params| async move { usage(&call, &params).await });
         r.method("calls")
-            .access(Access::device())
+            .access(Access::kernel().with_device())
             .describe("the request envelope's timeline of a session's current run, one entry per change")
             .raw(|call, params| async move {
                 let (reader, session) = recording_of(&call, &params)?;

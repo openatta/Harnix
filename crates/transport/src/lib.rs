@@ -18,7 +18,7 @@
 //! serves a static face if there is one, and takes uploads.
 
 mod admission;
-mod apps;
+mod ext_mount;
 mod bulk;
 mod frame;
 mod handshake;
@@ -30,7 +30,7 @@ mod statics;
 mod tests;
 mod ws;
 
-pub use apps::AppRoutes;
+pub use ext_mount::ExtRoutes;
 pub use bulk::BulkStore;
 pub use launch::{BrowserAdmission, LaunchLinks, LINK_TTL};
 pub use session::{OUTBOUND_FRAMES, SPLIT_IDLE};
@@ -97,13 +97,16 @@ pub struct Config {
 /// routes, and who decides who reaches them.
 #[derive(Default)]
 pub struct Extensions {
-    pub apps: Vec<AppRoutes>,
+    pub routes: Vec<ExtRoutes>,
     pub route_gate: Option<Arc<dyn RouteDecider>>,
-    /// What answers `/apps/<id>/…` for an id no module took: the runtime applications'
-    /// own paths (their interface modules, the MCP endpoint a spawned daemon reaches their tools
-    /// through). Handed the request whole, path and all, and it does its own admission — none of
-    /// what it serves is reached with a device's credential. Without one those paths are 404.
-    pub runtime_apps: Option<Router>,
+    /// What answers `/ext/<id>/…` for an id no native extension took: the packages' own paths
+    /// (their interface files, the tool endpoint a spawned daemon reaches their tools through).
+    /// Handed the request whole, path and all, with the subject it was admitted as, if any, in its
+    /// extensions. Without one those paths are 404.
+    pub packages: Option<Router>,
+    /// The credentials of the engines this process spawned: a request presenting one is
+    /// admitted as `Subject::Engine`.
+    pub engines: Option<Arc<harnix_authz::EngineCredentials>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -143,7 +146,8 @@ pub(crate) struct AppState {
     pub sessions: Arc<session::Sessions>,
     pub devices: Arc<harnix_authz::Devices>,
     pub challenges: Arc<admission::Challenges>,
-    pub route_gate: apps::SharedGate,
+    pub route_gate: ext_mount::SharedGate,
+    pub engines: Option<Arc<harnix_authz::EngineCredentials>>,
 }
 
 /// The channels this transport has open, for what has to end them from
@@ -224,6 +228,7 @@ pub(crate) fn assemble(
         devices,
         challenges: Arc::new(admission::Challenges::default()),
         route_gate: extensions.route_gate,
+        engines: extensions.engines.clone(),
     };
     let channels = Channels {
         sessions: state.sessions.clone(),
@@ -274,7 +279,7 @@ pub(crate) fn assemble(
             .route("/events/session", get(split::session_events))
             .route("/events/host", get(split::host_events));
     }
-    router = apps::mount(router, &state, extensions.apps, extensions.runtime_apps);
+    router = ext_mount::mount(router, &state, extensions.routes, extensions.packages);
     if state.statics.serves_anything() {
         router = router.fallback(get(statics::serve));
     }

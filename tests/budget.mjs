@@ -27,23 +27,14 @@ const KB = 1024;
 /** The table. Changing a number here is the only way to change the gate. */
 const BUDGET = [
   {
-    name: "backend binary (default build)",
-    limit: 48 * MB,
-    unit: (n) => `${(n / MB).toFixed(1)} MB`,
-    // The script carrier costs about a megabyte; the WebAssembly one costs
-    // about twenty, and the two are mutually exclusive upstream. This number
-    // is for the build that carries scripts.
-    measure: () => statSync(join(root, "target", "release", "harnix")).size,
-  },
-  {
-    name: "backend binary (apps build)",
+    name: "backend binary (default build, with wasmtime)",
     limit: 52 * MB,
     unit: (n) => `${(n / MB).toFixed(1)} MB`,
-    // `--features apps`, built into target/apps by scripts/check.sh: the application runtime and
-    // its WebAssembly engine, runtime only — no compiler, which is what keeps it small (it
-    // measured 41.0 MB against the default build's 37.3 MB, 2026-11-08). The default build's
-    // limit plus four megabytes: room for the runtime, and none for a compiler creeping in.
-    measure: () => statSync(join(root, "target", "apps", "release", "harnix")).size,
+    // `harnix-cli`'s default features carry packages in this process (`wasm`): their runtime and
+    // its WebAssembly engine, runtime only — no compiler, which is what keeps it small (the build
+    // with the runtime measured 41.0 MB against 37.3 MB without, 2026-11-08). The build without a
+    // carrier's limit plus four megabytes: room for the runtime, and none for a compiler.
+    measure: () => statSync(join(root, "target", "release", "harnix")).size,
   },
   {
     name: "interface (gzipped, as embedded)",

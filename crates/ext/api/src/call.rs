@@ -79,6 +79,13 @@ impl Call {
         self.inner.cancelled().await
     }
 
+    /// What this call says of itself to another process or a host component: its id, the call it
+    /// was made in, the extensions waiting on it, its deadline. Each a hint to whoever receives
+    /// it.
+    pub fn meta(&self) -> crate::CallMeta {
+        self.inner.meta()
+    }
+
     pub fn deadline(&self) -> Option<Deadline> {
         self.inner.deadline()
     }

@@ -1,99 +1,97 @@
-//! `fakehost` — a module that hosts a fake runtime application through the kernel's app host
-//! (`ModuleContext::apps`), so the LIVE suites can drive runtime registration without WASM.
+//! `fakehost` — an extension that registers a fake package through the host's registrar
+//! (`HostServices`, granted `extensions.manage`), the way the `packages` component does, so the
+//! LIVE suites can drive runtime registration without WASM.
 //!
-//! `app.fakehost.register {id}` registers an application `<id>` with:
+//! `fakehost.register {id}` registers a package `<id>` with:
 //!
 //! | name | who | does |
 //! |---|---|---|
-//! | `app.<id>.echo` | device | answers `{params, caller}` and publishes `{params}` on `app.<id>.ticks` |
-//! | `app.<id>.slow {ms}` | device | answers after `ms` milliseconds: a call in flight across a withdrawal |
-//! | `app.<id>.internal` | kernel | refused to a device |
-//! | topic `app.<id>.ticks` | device, module | what `echo` published last |
-//! | space `<id>` | — | on `system` |
+//! | `<id>.echo` | device | answers `{params, caller}` and publishes `{params}` on `<id>.ticks` |
+//! | `<id>.slow {ms}` | device | answers after `ms` milliseconds: a call in flight across a withdrawal |
+//! | `<id>.internal` | kernel | refused to a device |
+//! | topic `<id>.ticks` | device, extensions | what `echo` published last |
+//! | space `<id>` | — | on `main` |
 //!
-//! `app.fakehost.unregister {id}` withdraws it. With `[apps] enabled = false` there is no host and
-//! both are refused.
+//! `fakehost.unregister {id}` withdraws it.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use harnix::prelude::*;
-use harnix::{AppHandle, AppHost, AppSpec, Subject};
+use harnix::{DescriptorBuilder, ExtId};
+use harnix_host_api::{ExtensionHandle, HostServices};
 use serde_json::{json, Value};
 
 pub struct FakeHost;
 
 #[derive(Default)]
-struct Registered(Mutex<BTreeMap<String, AppHandle>>);
-
-fn host(cx: &CallContext) -> Result<AppHost, RpcError> {
-    cx.module()
-        .apps()
-        .ok_or_else(|| RpcError::refused("this process hosts no runtime applications ([apps] enabled = false)"))
-}
+struct Registered(Mutex<BTreeMap<String, ExtensionHandle>>);
 
 fn id_of(p: &Value) -> Result<String, RpcError> {
-    p["id"]
-        .as_str()
-        .map(str::to_string)
-        .ok_or_else(|| RpcError::invalid_params("missing id"))
+    p["id"].as_str().map(str::to_string).ok_or_else(|| RpcError::invalid_params("missing id"))
 }
 
-fn spec(id: &str, handle: Arc<Mutex<Option<AppHandle>>>) -> AppSpec {
-    AppSpec::new(id)
-        .method("echo", &[Principal::Device], move |caller: Subject, params: Value| {
-            let handle = handle.lock().unwrap().clone();
-            async move {
-                if let Some(handle) = handle {
-                    handle.publish("ticks", json!({}), json!({"params": params})).await?;
-                }
-                Ok(json!({"params": params, "caller": caller}))
+/// The fake package's descriptor; `handle` is where its own handle lands once it is registered.
+fn descriptor(id: &ExtId, handle: Arc<Mutex<Option<ExtensionHandle>>>) -> harnix::ext::ExtensionDescriptor {
+    let manifest = Manifest::new(id.as_str(), "0.0.1");
+    let mut d = DescriptorBuilder::new(id.clone(), manifest, harnix::ext::Trust::consent(Vec::<String>::new(), harnix::ext::PackageCarrier::Wasm));
+    let own = Access::device().with_extension(id.clone());
+    d.method(&format!("{id}.echo")).access(own.clone()).raw(move |call, params| {
+        let handle = handle.lock().unwrap().clone();
+        async move {
+            if let Some(handle) = handle {
+                handle.publish("ticks", json!({}), json!({"params": params})).await?;
             }
-        })
-        .method("slow", &[Principal::Device], |_caller, params: Value| async move {
-            let ms = params["ms"].as_u64().unwrap_or(500).min(10_000);
-            tokio::time::sleep(Duration::from_millis(ms)).await;
-            Ok(json!({"slept": ms}))
-        })
-        .method("internal", &[Principal::Kernel], |_caller, _params| async move { Ok(json!({"internal": true})) })
-        .topic("ticks", &[])
-        .space(SpaceDecl::new(id).instance(harnix::MAIN_INSTANCE))
+            Ok(json!({"params": params, "caller": call.subject()}))
+        }
+    });
+    d.method(&format!("{id}.slow")).access(own).raw(|_call, params| async move {
+        let ms = params["ms"].as_u64().unwrap_or(500).min(10_000);
+        tokio::time::sleep(Duration::from_millis(ms)).await;
+        Ok(json!({"slept": ms}))
+    });
+    d.method(&format!("{id}.internal")).access(Access::kernel()).raw(|_call, _params| async move { Ok(json!({"internal": true})) });
+    d.topic(&format!("{id}.ticks"));
+    d.space(SpaceDecl::new(id.as_str()).instance(harnix::MAIN_INSTANCE));
+    d.build()
 }
 
 #[harnix::async_trait]
-impl Module for FakeHost {
-    const API_VERSION: u32 = harnix::MODULE_API_VERSION;
+impl Extension for FakeHost {
+    type Config = ();
 
     fn manifest(&self) -> Manifest {
-        Manifest::new("fakehost", "0.0.1").disclosure("registers a fake runtime application, for the tests")
+        Manifest::new("fakehost", "0.0.1")
+            .disclosure("registers a fake package, for the tests")
+            .requires([harnix::caps::EXTENSIONS_MANAGE])
     }
 
-    fn methods(&self, m: &mut MethodRegistry) {
-        m.method("register", Principal::Device)
-            .describe("registers the fake application `id` with the app host")
-            .handler(|cx: CallContext, p: Value| async move {
-                let host = host(&cx)?;
-                let id = id_of(&p)?;
+    fn register(&self, r: &mut Registrar<'_, ()>) {
+        r.method("register").access(Access::device()).describe("registers the fake package `id` with the host").raw(
+            |call, p| async move {
+                let host = call.ext().service::<HostServices>()?;
+                let id = ExtId::package(&id_of(&p)?).map_err(|e| RpcError::invalid_params(e.to_string()))?;
                 let slot = Arc::new(Mutex::new(None));
-                let handle = host.register(spec(&id, slot.clone())).await?;
+                let handle = host.registrar().register(descriptor(&id, slot.clone()), Vec::new()).await?;
+                handle.mark(harnix_host_api::Availability::Ready);
                 *slot.lock().unwrap() = Some(handle.clone());
-                cx.state::<Registered>()?.0.lock().unwrap().insert(id.clone(), handle);
-                let summary = host.registered().into_iter().find(|s| s.id == id);
+                call.state::<Registered>()?.0.lock().unwrap().insert(id.to_string(), handle);
+                let summary = host.registrar().registered().into_iter().find(|s| s.id() == id.as_str());
                 Ok(json!(summary))
-            });
-        m.method("unregister", Principal::Device)
-            .describe("withdraws the fake application `id`")
-            .handler(|cx: CallContext, p: Value| async move {
-                let host = host(&cx)?;
-                let id = id_of(&p)?;
-                let withdrawn = host.withdraw(&id).await?;
-                cx.state::<Registered>()?.0.lock().unwrap().remove(&id);
-                Ok(json!(withdrawn))
-            });
+            },
+        );
+        r.method("unregister").access(Access::device()).describe("withdraws the fake package `id`").raw(|call, p| async move {
+            let id = id_of(&p)?;
+            let handle = call.state::<Registered>()?.0.lock().unwrap().remove(&id);
+            let Some(handle) = handle else {
+                return Err(RpcError::invalid_params(format!("no package `{id}` is registered by this extension")));
+            };
+            Ok(json!(handle.withdraw().await?))
+        });
     }
 
-    async fn start(&self, cx: ModuleContext) -> anyhow::Result<()> {
+    async fn start(&self, cx: ExtensionContext) -> anyhow::Result<()> {
         cx.provide(Registered::default());
         Ok(())
     }

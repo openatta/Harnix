@@ -7,7 +7,7 @@
  * - a goal heard in an engine answer lands on the session's row;
  * - a method after which the session list reads differently pushes the list again.
  *
- * `app.probe.call` (crates/testapp) calls a method as the `probe` module.
+ * `probe.call` (crates/testapp) calls a method as the `probe` module.
  */
 
 import { REFUSED } from "@harnix/core/protocol";
@@ -60,7 +60,7 @@ test("the device that answered a prompt is kept once for a module, and dropped f
   await expect.poll(async () => (await row(s))?.waiting ?? null, { timeout: 10_000 }).toBeNull();
 
   const read = () =>
-    api.call("app.probe.call", {
+    api.call("probe.call", {
       method: "harnix.session.answerer",
       params: { session_id: s.session_id, tool_use_id: toolUse },
     });

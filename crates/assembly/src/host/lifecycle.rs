@@ -4,19 +4,18 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
-use harnix_contract::s1::{Capability, ExtId, Trust};
+use harnix_contract::s1::{caps, Capability, ExtId, Trust};
 use harnix_engine_api::{EngineContribution, ToolProvider};
-use harnix_ext::{ExtensionDescriptor, Manifest, MigrateContext};
+use harnix_ext::{ErasedExtension, ExtensionDescriptor, Manifest, MigrateContext};
 use harnix_kernel::seat::Seated;
 use harnix_kernel::GrantTable;
-use harnix_module::shim;
 use harnix_router::{IdKind, Row, RouteTable};
 use serde_json::Value;
 
 use super::seat::Seats;
-use super::{Added, Entry, ExtensionStatus, Record};
+use super::{Entry, ExtensionStatus, Record};
 
 /// Every extension's id and the capabilities each defines, before any row goes in (a row may
 /// require what an extension after it defines); then what each was granted, checked against what
@@ -66,7 +65,8 @@ fn check_grants(entries: &[(Manifest, Vec<Capability>)], table: &mut RouteTable)
 /// Register every extension: its manifest and descriptor read, its rows put in the table, what
 /// it was granted put in `grants`. A conflict or a configuration that does not read disables the
 /// extension; a grant that does not hold, or a profile section no extension here owns, refuses
-/// the start.
+/// the start — but for a section named with a package's id where an extension may register
+/// packages (`extensions.manage`): that one is the packages' configuration.
 pub(crate) fn register(
     entries: Vec<Entry>,
     table: &mut RouteTable,
@@ -76,10 +76,14 @@ pub(crate) fn register(
     state_root: &Path,
 ) -> anyhow::Result<Vec<Record>> {
     let manifests: Vec<(Manifest, Vec<Capability>)> =
-        entries.iter().map(|e| (e.added.manifest(), e.granted.clone())).collect();
+        entries.iter().map(|e| (e.ext.manifest(), e.granted.clone())).collect();
     check_grants(&manifests, table)?;
-    let ownerless: Vec<&String> =
-        sections.keys().filter(|id| !manifests.iter().any(|(m, _)| m.id() == id.as_str())).collect();
+    let hosts_packages = manifests.iter().any(|(_, granted)| granted.contains(&caps::EXTENSIONS_MANAGE));
+    let ownerless: Vec<&String> = sections
+        .keys()
+        .filter(|id| !manifests.iter().any(|(m, _)| m.id() == id.as_str()))
+        .filter(|id| !(hosts_packages && ExtId::package(id).is_ok()))
+        .collect();
     if !ownerless.is_empty() {
         let list: Vec<String> = ownerless.iter().map(|id| format!("[ext.{id}]")).collect();
         anyhow::bail!("the profile's {} names no extension of this product", list.join(", "));
@@ -87,21 +91,13 @@ pub(crate) fn register(
     let mut records: Vec<Record> = Vec::new();
     for (entry, (manifest, granted)) in entries.into_iter().zip(manifests) {
         let raw = manifest.id().to_string();
-        let namespace = match &entry.added {
-            Added::Module { namespace, .. } => Some(*namespace),
-            Added::Extension(_) => None,
-        };
-        let data_dir = match namespace {
-            Some(_) => state_root.join("modules").join(&raw),
-            None => state_root.join("ext").join(&raw).join("data"),
-        };
+        let data_dir = state_root.join("ext").join(&raw).join("data");
         let mut record = Record {
-            added: entry.added,
-            status: ExtensionStatus::new(&manifest, namespace, &granted),
+            ext: entry.ext,
+            status: ExtensionStatus::new(&manifest, &granted),
             manifest,
             id: None,
             descriptor: None,
-            module: None,
             config: sections.get(&raw).cloned().unwrap_or(Value::Null),
             data_dir,
             enabled: Arc::new(AtomicBool::new(true)),
@@ -125,27 +121,17 @@ pub(crate) fn register(
         if off.contains(&raw) {
             // What it declares is read, and nothing of it installed: the spaces it would have been
             // the backend of are then nobody's to claim.
-            if let Added::Extension(e) = &record.added {
-                record.descriptor = e.register(&id, &record.config).ok();
-            }
+            record.descriptor = record.ext.register(&id, &record.config).ok();
             record.disabled("assembly", "switched off in the profile's [extensions] off".to_string());
             records.push(record);
             continue;
         }
-        let descriptor = match &record.added {
-            Added::Extension(e) => match e.register(&id, &record.config) {
-                Ok(d) => d,
-                Err(e) => {
-                    record.disabled("configuration", e.to_string());
-                    records.push(record);
-                    continue;
-                }
-            },
-            Added::Module { module, namespace } => {
-                let slot: shim::ModuleSlot = Arc::new(OnceLock::new());
-                let d = shim::describe(module.as_ref(), &id, &namespace.prefix(&raw), &slot);
-                record.module = Some(slot);
-                d
+        let descriptor = match record.ext.register(&id, &record.config) {
+            Ok(d) => d,
+            Err(e) => {
+                record.disabled("configuration", e.to_string());
+                records.push(record);
+                continue;
             }
         };
         record.status.declared(&descriptor);
@@ -212,20 +198,8 @@ pub(crate) async fn migrate(records: &mut [Record], table: &mut RouteTable) {
             record.disable("migration", reason, table);
             continue;
         }
-        let applied = match &record.added {
-            Added::Extension(e) => {
-                let cx = MigrateContext::new(record.id.clone().expect("checked"), record.data_dir.clone(), record.config.clone());
-                e.migrate(&cx).await.map(|r| r.steps().to_vec())
-            }
-            Added::Module { module, .. } => {
-                let cx = harnix_module::MigrateContext {
-                    id: record.manifest.id().to_string(),
-                    data_dir: record.data_dir.clone(),
-                    config: record.config.clone(),
-                };
-                module.migrate(&cx).await.map(|r| r.applied)
-            }
-        };
+        let cx = MigrateContext::new(record.id.clone().expect("checked"), record.data_dir.clone(), record.config.clone());
+        let applied = record.ext.migrate(&cx).await.map(|r| r.steps().to_vec());
         match applied {
             Ok(steps) => {
                 if !steps.is_empty() {
@@ -269,45 +243,12 @@ pub(crate) fn everywhere(records: &[Record]) -> (Vec<Arc<dyn ToolProvider>>, Vec
 /// Start each enabled extension, in order, seated first. One that fails is disabled with the
 /// reason, and takes what it registered with it; the rest start anyway. Answers the ids that
 /// failed.
-pub(crate) async fn start(
-    records: &mut [Record],
-    seats: &Seats,
-    legacy: &Arc<crate::gate::ProcessKernel>,
-    credentials: &Arc<dyn harnix_ext::Credentials>,
-) -> Vec<String> {
+pub(crate) async fn start(records: &mut [Record], seats: &Seats) -> Vec<String> {
     let mut failed = Vec::new();
     for record in records.iter_mut().filter(|r| r.is_enabled()) {
         let (Some(id), Some(d)) = (record.id.clone(), record.descriptor.as_ref()) else { continue };
         d.seat(seats.seat(&id, &record.config, &record.data_dir));
-        let started = match &record.added {
-            Added::Extension(e) => e.start(d.context().expect("seated just now")).await,
-            Added::Module { module, namespace } => {
-                let topics = d
-                    .topics()
-                    .iter()
-                    .map(|t| harnix_module::TopicDecl {
-                        name: t.name().to_string(),
-                        params: t.params().to_vec(),
-                        principals: Vec::new(),
-                    })
-                    .collect();
-                let cx = harnix_module::ModuleContext::new(
-                    id.as_str(),
-                    &namespace.prefix(id.as_str()),
-                    record.config.clone(),
-                    record.data_dir.clone(),
-                    credentials.clone(),
-                    legacy.clone(),
-                    topics,
-                );
-                // Its methods answer from before `start`, so a module that calls its own while
-                // starting reaches them; withdrawn again if it fails.
-                if let Some(slot) = &record.module {
-                    let _ = slot.set(cx.clone());
-                }
-                module.start(cx).await
-            }
-        };
+        let started = record.ext.start(d.context().expect("seated just now")).await;
         if let Err(e) = started {
             record.disabled("start", format!("{e:#}"));
             failed.push(id.to_string());
@@ -326,28 +267,20 @@ pub(crate) async fn start(
 /// Stop the enabled extensions in reverse: a later one may depend on an earlier one.
 pub(crate) async fn stop(records: &[Record]) {
     for record in records.iter().rev().filter(|r| r.is_enabled()) {
-        match &record.added {
-            Added::Extension(e) => e.stop().await,
-            Added::Module { module, .. } => module.stop().await,
-        }
+        record.ext.stop().await;
     }
 }
 
 /// A spawned daemon's native contributions: the template `id` names, found among the product's
 /// extensions in order — their declarations read, nothing started.
-pub(crate) fn native_of(entries: &[&Added], id: &str) -> Result<EngineContribution, String> {
-    for added in entries {
-        let manifest = added.manifest();
+pub(crate) fn native_of(entries: &[&dyn ErasedExtension], id: &str) -> Result<EngineContribution, String> {
+    for e in entries {
+        let manifest = e.manifest();
         let Ok(ext) = ExtId::native(manifest.id()) else { continue };
         if !id.starts_with(&format!("{ext}.")) {
             continue;
         }
-        let d = match added {
-            Added::Extension(e) => e.register(&ext, &Value::Null).map_err(|e| e.to_string())?,
-            Added::Module { module, namespace } => {
-                shim::describe(module.as_ref(), &ext, &namespace.prefix(ext.as_str()), &Arc::new(OnceLock::new()))
-            }
-        };
+        let d = e.register(&ext, &Value::Null).map_err(|e| e.to_string())?;
         if let Some(template) = d.templates().iter().find(|t| t.id == id) {
             return template
                 .contribution()
@@ -380,7 +313,7 @@ mod tests {
     }
 
     fn entry(e: impl Extension) -> Entry {
-        Entry { added: Added::Extension(Box::new(e)), granted: Vec::new() }
+        Entry { ext: Box::new(e), granted: Vec::new() }
     }
 
     /// A second extension with an id already taken is refused, and the first keeps its rows: the

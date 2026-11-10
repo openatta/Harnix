@@ -1,4 +1,4 @@
-//! Step 2: every extension registered, in order — the built-ins first, then the product's.
+//! Step 2: every extension registered, in the order the product listed them.
 
 use std::sync::{Arc, OnceLock};
 
@@ -6,13 +6,12 @@ use harnix_authz::Devices;
 use harnix_contract::s1::caps;
 use harnix_kernel::{Access, GrantTable, KernelPart, Owner};
 use harnix_router::{Row, RouteTable};
-use harnix_module::ErasedModule;
+use serde_json::Value;
 
 use super::state_files::{load_devices, DEVICES_FILE};
-use super::wiring::AppsWiring;
 use crate::pairing;
 use crate::gate::Behind;
-use crate::host::{lifecycle, Added, Entry, Namespace, Record};
+use crate::host::{lifecycle, Entry, Record};
 use crate::kernel_rows;
 use crate::paths::Roots;
 use crate::profile::Profile;
@@ -30,6 +29,8 @@ pub(super) struct Registered {
     /// Whether anything may register extensions while the process runs: then the spaces can
     /// change after assembly, and there is a topic to watch them on.
     pub dynamic: bool,
+    /// The profile's `[ext."<package id>"]` sections, for the component that registers packages.
+    pub package_sections: std::collections::BTreeMap<String, Value>,
 }
 
 /// What registering holds that serving needs.
@@ -43,23 +44,7 @@ pub(crate) struct Held {
     pub devices: Arc<pairing::DeviceBook>,
 }
 
-/// The built-ins are granted what they require: `with_builtins` is the product asking for them
-/// as Harnix ships them.
-fn granted_as_required(module: Box<dyn ErasedModule>) -> Entry {
-    let granted = module.manifest().requires;
-    Entry {
-        added: Added::Module { module, namespace: Namespace::Kernel },
-        granted,
-    }
-}
-
-pub(super) fn register(
-    builtins: bool,
-    product: Vec<Entry>,
-    profile: &Profile,
-    roots: &Roots,
-    apps: &AppsWiring,
-) -> anyhow::Result<Registered> {
+pub(super) fn register(entries: Vec<Entry>, profile: &Profile, roots: &Roots) -> anyhow::Result<Registered> {
     let paired = Arc::new(load_devices(&roots.state.join(DEVICES_FILE))?);
     let channels: Arc<OnceLock<harnix_transport::Channels>> = Arc::new(OnceLock::new());
     // Revoking is wired to the transport's session registry, because
@@ -73,28 +58,26 @@ pub(super) fn register(
         })
     };
     let book = Arc::new(pairing::DeviceBook::new(paired.clone(), disconnect));
-    let mut entries = Vec::new();
-    // Runtime applications' install records and switches: only when this process hosts them.
-    if builtins && profile.apps.enabled {
-        let module = apps.apps_module(
-            harnix_builtin::apps::AppsModule::new(roots.state.join("apps")).dev(profile.apps.dev),
-        );
-        entries.push(granted_as_required(Box::new(module)));
-    }
-    entries.extend(product);
     let behind = Behind::default();
     let mut table = kernel_rows::table(&behind);
     if profile.shell.model_switch {
         let (owner, row) = kernel_rows::hub_row(harnix_hub::Hub::model_switch_row(&behind.hub));
         table.install(&owner, vec![row]).map_err(|e| anyhow::anyhow!("{e}"))?;
     }
-    apps.rows(&mut table)?;
     let grants = Arc::new(GrantTable::new());
     let records = lifecycle::register(entries, &mut table, &grants, &profile.ext, &profile.extensions.off, &roots.state)?;
     // Whether anything may register extensions while the process runs, and so change the spaces
     // after assembly.
-    let dynamic = profile.apps.enabled
-        || records.iter().any(|r| r.is_enabled() && r.status.granted.iter().any(|c| c == caps::EXTENSIONS_MANAGE.as_str()));
+    let dynamic =
+        records.iter().any(|r| r.is_enabled() && r.status.granted.iter().any(|c| c == caps::EXTENSIONS_MANAGE.as_str()));
+    // What no linked extension owns and is named as a package is that component's: the
+    // registration let it through only where there is one.
+    let package_sections = profile
+        .ext
+        .iter()
+        .filter(|(id, _)| !records.iter().any(|r| r.manifest.id() == id.as_str()))
+        .map(|(id, section)| (id.clone(), section.clone()))
+        .collect();
     // The spaces are every extension's: a client learns them from this topic, whoever is linked.
     let spaces = Row::topic(harnix_hub::SPACES_TOPIC, Access::device());
     table.install(&Owner::Kernel(KernelPart::Hub), vec![spaces]).map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -103,6 +86,7 @@ pub(super) fn register(
         table,
         grants,
         dynamic,
+        package_sections,
         behind,
         held: Held {
             paired,
@@ -124,29 +108,6 @@ mod tests {
         }
     }
 
-    fn ids(registered: &Registered) -> Vec<String> {
-        registered.records.iter().map(|r| r.manifest.id().to_string()).collect()
-    }
-
-    /// The `apps` module registers only where the profile enables runtime applications, and before
-    /// the application's own.
-    #[test]
-    fn apps_registers_only_when_enabled() {
-        let dir = tempfile::tempdir().unwrap();
-        let roots = roots(dir.path());
-        std::fs::create_dir_all(&roots.state).unwrap();
-        let mut profile = Profile::default();
-
-        let registered = register(true, Vec::new(), &profile, &roots, &AppsWiring::default()).unwrap();
-        assert!(ids(&registered).is_empty());
-
-        profile.apps.enabled = true;
-        let registered = register(true, Vec::new(), &profile, &roots, &AppsWiring::default()).unwrap();
-        assert_eq!(ids(&registered), [harnix_builtin::apps::MODULE_ID]);
-        let registered = register(false, Vec::new(), &profile, &roots, &AppsWiring::default()).unwrap();
-        assert!(ids(&registered).is_empty());
-    }
-
     /// `harnix.session.setModel` is in the table only with `[shell] model_switch`.
     #[test]
     fn the_model_switch_is_a_row_only_when_written() {
@@ -154,10 +115,10 @@ mod tests {
         let roots = roots(dir.path());
         std::fs::create_dir_all(&roots.state).unwrap();
         let mut profile = Profile::default();
-        let registered = register(true, Vec::new(), &profile, &roots, &AppsWiring::default()).unwrap();
+        let registered = register(Vec::new(), &profile, &roots).unwrap();
         assert!(registered.table.row("harnix.session.setModel").is_none());
         profile.shell.model_switch = true;
-        let registered = register(true, Vec::new(), &profile, &roots, &AppsWiring::default()).unwrap();
+        let registered = register(Vec::new(), &profile, &roots).unwrap();
         assert!(registered.table.row("harnix.session.setModel").is_some());
     }
 }

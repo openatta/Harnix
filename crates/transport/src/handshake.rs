@@ -112,7 +112,7 @@ pub(crate) async fn establish_from_body(
         .await;
     let mut answer = accepted(&negotiated, &config.topologies);
     answer["client"] = json!(session.client.0);
-    // What a module route (`/apps/<id>/`) is presented with, in either topology.
+    // What an extension route (`/ext/<id>/`) is presented with, in either topology.
     answer["credential"] = json!(credential);
     Ok(Opened {
         credential,

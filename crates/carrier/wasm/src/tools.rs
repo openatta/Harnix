@@ -1,15 +1,15 @@
-//! `AppsBridge`: the running applications' tools in every session an in-process instance builds.
+//! `WasmTools`: the running packages' tools in every session an in-process instance builds.
 //!
-//! A tool provider (`harnix_engine_api::ToolProvider`) of the instance's engine. The engine asks it
-//! each time it builds a session — sub-agents, team members and background tasks included — and it
-//! registers what is running *then*: an application enabled now is in the next session built, and
-//! one disabled now is not (a session already built keeps what it was built with until it is
-//! rebuilt). Per application:
+//! A tool provider (`harnix_ext::engine::ToolProvider`) the component gives every engine built in
+//! this process (`engine_everywhere`). The engine asks it each time it builds a session —
+//! sub-agents, team members and background tasks included — and it registers what is running
+//! *then*: a package enabled now is in the next session built, and one disabled now is not (a
+//! session already built keeps what it was built with until it is rebuilt). Per package:
 //!
 //! - each tool the host offered for it, as `ext__<id>__<tool>`. A call runs in an instance of its
 //!   own (`Control::call_tool`), with the calling session's project as its read-only `/project`
 //!   when the manifest asks for `${project}`; `host.progress` goes to the tool's progress and to
-//!   the host's `harnix.apps.progress` topic, and cancelling the turn stops it
+//!   the component's `packages.progress` topic, and cancelling the turn stops it
 //!   (`Control::cancel`). **Every call asks first**: a tool's `read-only` claim is the component's
 //!   own word, so it schedules calls and decides nothing about permission.
 //! - its `events` export, as a hook before each of the session's tool calls: offered
@@ -18,31 +18,31 @@
 //!   decides) — it may let the call through, refuse it, or add a note to its result. A note goes
 //!   on the result of one of its own tools only, and only so long ([`MAX_NOTE`]): a downloaded
 //!   package does not get to write into the result of every tool the model calls. It cannot change
-//!   the call. A hook that fails lets the call through: an application's fault is not the user's.
+//!   the call. A hook that fails lets the call through: a package's fault is not the user's.
 
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use harnix_contract::codes;
-use harnix_engine_api::{
+use harnix_ext::codes;
+use harnix_ext::engine::{
     Cancel, HookDecision, Permission, SessionFacts, Tool, ToolCallFacts, ToolCx, ToolError, ToolHook, ToolOutput,
     ToolProvider, ToolSpec,
 };
 use harnix_wasm_port::{CallMeta, Control, Failure, HookCall, HookReply, ToolDef, ToolReply};
 use serde_json::{json, Value};
 
-use crate::runtime::{Loaded, Registry};
+use crate::registry::{Loaded, Registry};
 
 /// The provider's name in every session.
-pub const NAME: &str = "harnix-apps";
+pub const NAME: &str = "harnix-packages";
 
 /// The longest note an application's hook may add to a tool's result, in characters.
 pub const MAX_NOTE: usize = 2000;
 
-/// The bridge between the running plugin apps and an instance's sessions: a provider of the
+/// The running packages' tools and hooks, for an instance's sessions: a provider of the
 /// instance's engine.
-pub struct AppsBridge {
+pub struct WasmTools {
     registry: Arc<Registry>,
 }
 
@@ -65,7 +65,7 @@ pub(crate) async fn cancellable<T>(
     }
 }
 
-impl AppsBridge {
+impl WasmTools {
     pub fn new(registry: Arc<Registry>) -> Self {
         Self { registry }
     }
@@ -102,7 +102,7 @@ impl AppsBridge {
         tools
     }
 
-    /// The hooks for one session: each running application's `events`.
+    /// The hooks for one session: each running package's `events`.
     pub fn hooks_for(&self, session_id: &str, depth: u32) -> Vec<Arc<dyn ToolHook>> {
         self.registry
             .loaded()
@@ -120,7 +120,7 @@ impl AppsBridge {
     }
 }
 
-impl ToolProvider for AppsBridge {
+impl ToolProvider for WasmTools {
     fn name(&self) -> &str {
         NAME
     }
@@ -134,7 +134,7 @@ impl ToolProvider for AppsBridge {
     }
 }
 
-/// One application tool, as a session has it.
+/// One package's tool, as a session has it.
 struct AppTool {
     spec: ToolSpec,
     def: ToolDef,
@@ -152,7 +152,7 @@ impl Tool for AppTool {
 
     fn permission(&self, _: &Value) -> Permission {
         Permission::Ask(format!(
-            "The application `{}` wants to run its tool `{}`",
+            "The package `{}` wants to run its tool `{}`",
             self.app.title.as_deref().unwrap_or(&self.app.id),
             self.def.name
         ))
@@ -213,7 +213,7 @@ impl Tool for AppTool {
     }
 }
 
-/// An application's `events`, before every tool call of one session.
+/// A package's `events`, before every tool call of one session.
 struct AppEvents {
     app: Arc<Loaded>,
     registry: Arc<Registry>,
@@ -221,10 +221,10 @@ struct AppEvents {
     depth: u32,
 }
 
-/// What a note of the application `app` adds to the result of `tool`: nothing for a tool not its
-/// own, and at most [`MAX_NOTE`] characters, under its name.
+/// What a note of the package `app` adds to the result of `tool`: nothing for a tool not its own,
+/// and at most [`MAX_NOTE`] characters, under its name.
 fn note_for(app: &str, tool: &str, note: &str) -> Option<String> {
-    if !tool.starts_with(&crate::tool_name(app, "")) {
+    if !tool.starts_with(&crate::registry::tool_name(app, "")) {
         return None;
     }
     let cut = note.chars().count() > MAX_NOTE;
@@ -260,18 +260,18 @@ impl ToolHook for AppEvents {
         match decision {
             HookReply::Proceed => HookDecision::Proceed,
             HookReply::Block(reason) => {
-                tracing::info!(app = %self.app.id, tool = %call.name(), %reason, "an application refused a tool call");
-                HookDecision::Block(format!("refused by the application `{}`: {reason}", self.app.id))
+                tracing::info!(package = %self.app.id, tool = %call.name(), %reason, "a package refused a tool call");
+                HookDecision::Block(format!("refused by the package `{}`: {reason}", self.app.id))
             }
             HookReply::AddContext(note) => match note_for(&self.app.id, call.name(), &note) {
                 Some(note) => HookDecision::AddContext(note),
                 None => {
-                    tracing::debug!(app = %self.app.id, tool = %call.name(), "a note for another's tool; left out");
+                    tracing::debug!(package = %self.app.id, tool = %call.name(), "a note for another's tool; left out");
                     HookDecision::Proceed
                 }
             },
             HookReply::Failed(failure) => {
-                tracing::warn!(app = %self.app.id, tool = %call.name(), %failure, "an application's event hook failed; the call goes on");
+                tracing::warn!(package = %self.app.id, tool = %call.name(), %failure, "a package's event hook failed; the call goes on");
                 HookDecision::Proceed
             }
         }

@@ -1,0 +1,33 @@
+[package]
+name = "harnix-ext-packages"
+version      = "0.4.2-2026110901"
+edition      = "2021"
+rust-version = "1.87"
+license      = "Apache-2.0"
+publish      = false
+description  = "Packages: installing, disclosing, switching and removing them, each registered as an extension on the carrier the profile names"
+
+[lib]
+name = "harnix_ext_packages"
+
+# A host component: an extension in shape, which also reaches the host's pipes
+# (`harnix-host-api`) to register packages while the process runs. What a package is and how far
+# it is trusted is `harnix-package`'s; what runs it is a carrier's. It names no VM.
+[dependencies]
+harnix-ext      = { workspace = true }
+harnix-host-api = { workspace = true }
+harnix-package  = { workspace = true }
+anyhow      = { workspace = true }
+async-trait = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+toml        = { workspace = true }
+tokio       = { workspace = true }
+tracing     = { workspace = true }
+uuid        = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+# `tests/lifecycle.rs` runs the component on `harnix::testing::Kernel`, on the carrier in this
+# process: the real router, hub and host.
+harnix         = { workspace = true, features = ["testing", "wasm"] }

@@ -27,7 +27,7 @@ fn under(prefix: &str, path: &str) -> bool {
     path == prefix || path.strip_prefix(prefix).is_some_and(|rest| rest.starts_with('/'))
 }
 
-async fn serve(routes: &[RouteDecl], req: axum::extract::Request) -> axum::response::Response {
+pub(crate) async fn serve(routes: &[RouteDecl], req: axum::extract::Request) -> axum::response::Response {
     let path = req.uri().path().to_string();
     let Some(route) = routes.iter().filter(|r| under(r.prefix(), &path)).max_by_key(|r| r.prefix().len()) else {
         let mut response = axum::response::Response::new(axum::body::Body::from("no route here"));

@@ -26,8 +26,9 @@ first-party = [
     "dep:harnix-ext-plugins",
     "dep:harnix-ext-devices",
 ]
-# Runtime applications (`harnix-assembly`'s `apps`): see crates/assembly/Cargo.toml.
-apps = ["harnix-assembly/apps"]
+# Packages in this process (mode 2): `harnix::first_party::packages()`, the component that installs
+# packages and registers each as an extension, on the WebAssembly carrier, whose engine it links.
+wasm = ["first-party", "dep:harnix-ext-packages", "dep:harnix-carrier-wasm"]
 # `harnix::agix`: Agix's own types, for what `harnix::engine` does not say. Not stable.
 agix = ["dep:harnix-engine", "harnix-engine/agix"]
 # `harnix::testing`: a product's route table without starting it, and a process started without
@@ -40,7 +41,6 @@ axum = ["harnix-ext/axum"]
 harnix-assembly       = { workspace = true }
 # The extension interface, re-exported as `harnix::ext`.
 harnix-ext       = { workspace = true }
-harnix-module    = { workspace = true }
 harnix-contract  = { workspace = true }
 harnix-authz     = { workspace = true }
 # What a module gives the engine, re-exported as `harnix::engine`: an application names only this
@@ -54,6 +54,9 @@ harnix-ext-observability = { workspace = true, optional = true }
 harnix-ext-settings      = { workspace = true, optional = true }
 harnix-ext-plugins       = { workspace = true, optional = true }
 harnix-ext-devices       = { workspace = true, optional = true }
+# Packages (`wasm`): the host component, and the carrier that runs them in this process.
+harnix-ext-packages      = { workspace = true, optional = true }
+harnix-carrier-wasm      = { workspace = true, optional = true }
 # Only for `harnix::agix`.
 harnix-engine     = { workspace = true, optional = true }
 async-trait = { workspace = true }

@@ -14,7 +14,7 @@
  * An update that asks for nothing more is done without asking. Clearing and uninstalling ask in a
  * modal of their own too.
  *
- * Registered only when the backend hosts applications (`harnix.apps.list` is reachable).
+ * Registered only when the backend hosts applications (`packages.list` is reachable).
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
@@ -73,7 +73,7 @@ interface Asked {
 
 /** What a person is asked to agree to, and how to go ahead. */
 interface Pending {
-  method: "harnix.apps.install" | "harnix.apps.update";
+  method: "packages.install" | "packages.update";
   asked: Asked;
   version?: string;
   /** Back to an older version, which the person chose by name: asked and consented to as such. */
@@ -287,7 +287,7 @@ export function AppsSettings({ app }: { app: App }) {
       <SettingsRow label={t("apps.mark")} hint={t("apps.markHint")}>
         <input type="checkbox" data-testid="apps-mark-toggle" checked={watch.marked()} onChange={(e) => watch.setMarked(e.target.checked)} />
       </SettingsRow>
-      <SettingsSection title={t("apps.installed")} load={() => app.call<{ apps?: Installed[] }>("harnix.apps.list", {})}>
+      <SettingsSection title={t("apps.installed")} load={() => app.call<{ apps?: Installed[] }>("packages.list", {})}>
         {(data) => {
           const apps = data.apps ?? [];
           if (!apps.length) return <div className="hint">{t("apps.none")}</div>;
@@ -322,7 +322,7 @@ export function AppsSettings({ app }: { app: App }) {
                         className="btn sm outline"
                         data-testid="app-toggle"
                         disabled={busy}
-                        onClick={() => void act(a.enabled ? "harnix.apps.disable" : "harnix.apps.enable", { id: a.id })}
+                        onClick={() => void act(a.enabled ? "packages.disable" : "packages.enable", { id: a.id })}
                       >
                         {a.enabled ? t("apps.disable") : t("apps.enable")}
                       </button>
@@ -334,12 +334,12 @@ export function AppsSettings({ app }: { app: App }) {
                             data-testid="app-update"
                             data-direction="back"
                             disabled={busy}
-                            onClick={() => void ask("harnix.apps.update", a.id, back, true)}
+                            onClick={() => void ask("packages.update", a.id, back, true)}
                           >
                             {t("apps.downgradeTo", { version: back })}
                           </button>
                         ) : (
-                          <button type="button" className="btn sm outline" data-testid="app-update" disabled={busy} onClick={() => void ask("harnix.apps.update", a.id)}>
+                          <button type="button" className="btn sm outline" data-testid="app-update" disabled={busy} onClick={() => void ask("packages.update", a.id)}>
                             {newer ? t("apps.updateTo", { version: newer }) : t("apps.update")}
                           </button>
                         )
@@ -355,7 +355,7 @@ export function AppsSettings({ app }: { app: App }) {
                             title: t("apps.uninstall"),
                             message: t("apps.uninstallConfirm", { name }),
                             confirm: t("apps.uninstall"),
-                            run: () => app.call("harnix.apps.uninstall", { id: a.id }),
+                            run: () => app.call("packages.uninstall", { id: a.id }),
                           })
                         }
                       >
@@ -385,7 +385,7 @@ export function AppsSettings({ app }: { app: App }) {
                             message: t("apps.clearDataConfirm", { name, size: fileSize(a.data_bytes) }),
                             confirm: t("apps.clearData"),
                             run: async () => {
-                              const done = await app.call<{ cleared_bytes?: number }>("harnix.apps.clearData", { id: a.id });
+                              const done = await app.call<{ cleared_bytes?: number }>("packages.clearData", { id: a.id });
                               app.notice(t("apps.cleared", { name, size: fileSize(done.cleared_bytes) }));
                             },
                           })
@@ -404,7 +404,7 @@ export function AppsSettings({ app }: { app: App }) {
       <SettingsSection
         title={t("apps.store")}
         load={() =>
-          app.call<{ name?: string | null; store?: string; apps?: CatalogApp[] }>("harnix.apps.catalog", {}).then((catalog) => {
+          app.call<{ name?: string | null; store?: string; apps?: CatalogApp[] }>("packages.catalog", {}).then((catalog) => {
             setLatest(Object.fromEntries((catalog.apps ?? []).filter((c) => c.latest).map((c) => [c.id, c.latest as string])));
             return catalog;
           })
@@ -420,7 +420,7 @@ export function AppsSettings({ app }: { app: App }) {
                   {c.installed ? (
                     <SettingsValue tone="ok">{t("apps.installedVersion", { version: c.installed })}</SettingsValue>
                   ) : c.installable ? (
-                    <button type="button" className="btn sm outline" data-testid="app-install" disabled={busy} onClick={() => void ask("harnix.apps.install", c.id)}>
+                    <button type="button" className="btn sm outline" data-testid="app-install" disabled={busy} onClick={() => void ask("packages.install", c.id)}>
                       {t("apps.install")}
                     </button>
                   ) : (
@@ -453,7 +453,7 @@ function Disclosure({
   const { asked } = pending;
   const d = asked.disclosure ?? {};
   const name = d.title || asked.id;
-  const update = pending.method === "harnix.apps.update" ? d.update : undefined;
+  const update = pending.method === "packages.update" ? d.update : undefined;
   const title = update ? t("apps.askUpdate", { name, from: update.from, version: asked.version }) : t("apps.askInstall", { name, version: asked.version });
   return (
     <Dialog

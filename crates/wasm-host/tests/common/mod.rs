@@ -137,7 +137,7 @@ impl Kernel for FakePlatform {
         lock(&self.metas).push(meta.clone());
         let caller = Subject::extension(harnix_contract::ExtId::package(&c.app).unwrap());
         let began = std::time::Instant::now();
-        let routed_back = if let Some(own) = c.method.strip_prefix(&format!("app.{}.", c.app)) {
+        let routed_back = if let Some(own) = c.method.strip_prefix(&format!("{}.", c.app)) {
             let control = self.control.get().unwrap().clone();
             let call = MethodCall { app: c.app.clone(), method: own.into(), caller, params: c.params };
             Some(control.call_method(routed(&meta), call).await)

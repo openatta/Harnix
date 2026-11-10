@@ -8,16 +8,16 @@
  *
  * const host = createMockHost({
  *   ext: "acme.notes",
- *   methods: { "app.acme.notes.list": () => ({ notes: [] }) },
+ *   methods: { "acme.notes.list": () => ({ notes: [] }) },
  * });
  * const app = await connect({ port: host.port });
- * expect(await app.call("app.acme.notes.list")).toEqual({ notes: [] });
- * host.publish("app.acme.notes.changed", { notes: [{ text: "hi" }] });   // to its subscribers
+ * expect(await app.call("acme.notes.list")).toEqual({ notes: [] });
+ * host.publish("acme.notes.changed", { notes: [{ text: "hi" }] });   // to its subscribers
  * host.setEnv({ theme: "dark" });                                        // as the shell pushes it
  * expect(host.requests.map((r) => r.method)).toContain("call");
  * ```
  *
- * It refuses what the shell would — a method or topic outside the application's own `app.<id>.*`
+ * It refuses what the shell would — a method or topic outside the application's own `<id>.*`
  * and the `calls` it is given — so a page's tests see the same refusals the shell gives it. Each
  * request is recorded (`requests`), and so is each event the page sent (`events`).
  */

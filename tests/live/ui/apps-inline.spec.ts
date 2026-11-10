@@ -18,7 +18,7 @@ import { newSession, open, openSettings, reply, say, settingsSection, watchConso
 
 const TAGS = { tag: ["@feature:packages-inline", "@layer:ui"] };
 
-const M = (name: string) => `app.${SHOWCASE_ID}.${name}`;
+const M = (name: string) => `${SHOWCASE_ID}.${name}`;
 
 let backend: Backend;
 
@@ -28,7 +28,7 @@ test.beforeAll(async () => {
   test.setTimeout(600_000);
   const { path } = showcasePackage();
   backend = await startApps({ topologies: process.env.HARNIX_TOPOLOGY ? [topology()] : undefined });
-  await withApi((api) => api.call("harnix.apps.installFile", { path }));
+  await withApi((api) => api.call("packages.installFile", { path }));
 });
 test.afterAll(async () => { await backend?.dispose(); });
 

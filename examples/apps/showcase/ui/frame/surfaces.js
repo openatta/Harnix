@@ -19,7 +19,7 @@
   window.showcaseBridge = app;
   follow(app);
   const ID = app.surface.ext;
-  const method = (name) => `app.${ID}.${name}`;
+  const method = (name) => `${ID}.${name}`;
   const root = document.getElementById("root");
   root.className = "";
   root.removeAttribute("role");
@@ -96,7 +96,7 @@
       notes = r.notes ?? [];
       onChange(notes);
     });
-    app.subscribe(`app.${ID}.notes`, {}, (v) => {
+    app.subscribe(`${ID}.notes`, {}, (v) => {
       notes = v?.notes ?? [];
       onChange(notes);
     });
@@ -186,7 +186,7 @@
             button(s("overreach"), {
               testid: "showcase-overreach",
               onClick: () =>
-                app.call("harnix.apps.list").then(
+                app.call("packages.list").then(
                   () => render(refused, alert("not refused", { testid: "showcase-refused" })),
                   (e) => render(refused, alert(errorOf(e), { testid: "showcase-refused" })),
                 ),
@@ -230,7 +230,7 @@
       void app.badge(notes.length || null);
       drawNotes();
     });
-    app.subscribe(`app.${ID}.heartbeat`, {}, (v) => (ticks.textContent = String(v?.ticks ?? "")));
+    app.subscribe(`${ID}.heartbeat`, {}, (v) => (ticks.textContent = String(v?.ticks ?? "")));
     build();
   }
 
@@ -275,7 +275,7 @@
   /* ── the right column's tab ── */
   function heartbeatTab() {
     let ticks = "";
-    app.subscribe(`app.${ID}.heartbeat`, {}, (v) => ((ticks = String(v?.ticks ?? "")), draw()));
+    app.subscribe(`${ID}.heartbeat`, {}, (v) => ((ticks = String(v?.ticks ?? "")), draw()));
     app.onEnv(() => draw());
     function draw() {
       render(

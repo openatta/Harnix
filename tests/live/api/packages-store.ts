@@ -52,7 +52,7 @@ const tool = (args: string[]) => execFileSync(appsTools().pack, args, { encoding
 
 export interface MockStore {
   dir: string;
-  /** `[apps] store`. */
+  /** `[ext.packages] store`. */
   url: string;
   /** The packages as listed: by version. */
   packages: Record<string, string>;
@@ -148,8 +148,7 @@ export function startStore(
       bin: options.bin ?? appsTestApp(),
       topologies: options.topologies,
       profile: `
-[apps]
-enabled = true
+[ext.packages]
 dev = ${options.dev ?? false}
 store = "${store.url}"
 ${options.profile ?? ""}`,

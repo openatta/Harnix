@@ -173,7 +173,7 @@ test.describe("on", () => {
     const mine = await oneTurn(api, "sessions");
     expect(await row(mine.instance, mine.session_id)).toMatchObject({ started_by: "user", waiting: null });
 
-    const { started: [own] } = await api.call("app.fleet.headless", { count: 1, project_root: api.project, recording: "says-ready" });
+    const { started: [own] } = await api.call("fleet.headless", { count: 1, project_root: api.project, recording: "says-ready" });
     expect((await row(own.instance, own.session_id))?.started_by).toBe("harnix");
 
     // A turn held on its permission ask waits on a person; answered, it does not.
@@ -351,7 +351,7 @@ test.describe("on", () => {
     const s = await oneTurn(api, "fleet");
     await api.call("system.model", { ...s, model: "claude-haiku-5-5" });
     // What the fleet module's own session handle reads back: the engine's model for the session.
-    expect((await api.call("app.fleet.model", s)).model).toBe("claude-haiku-5-5");
+    expect((await api.call("fleet.model", s)).model).toBe("claude-haiku-5-5");
     expect((await api.refused("system.model", { ...s, session_id: "no-such-session", model: "x" }))).toBeTruthy();
   });
 

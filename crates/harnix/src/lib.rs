@@ -7,41 +7,39 @@
 //! struct Hello;
 //!
 //! #[harnix::async_trait]
-//! impl Module for Hello {
-//!     const API_VERSION: u32 = harnix::MODULE_API_VERSION;
+//! impl Extension for Hello {
+//!     type Config = ();
 //!
 //!     fn manifest(&self) -> Manifest {
 //!         Manifest::new("hello", "0.1.0").disclosure("says hello")
 //!     }
 //!
-//!     fn methods(&self, m: &mut MethodRegistry) {
-//!         // app.hello.greet, for a paired device
-//!         m.method("greet", Principal::Device)
-//!             .handler(|_cx: CallContext, p: serde_json::Value| async move {
-//!                 Ok(format!("hello, {}", p["name"].as_str().unwrap_or("you")))
-//!             });
+//!     fn register(&self, r: &mut Registrar<'_, ()>) {
+//!         // hello.greet, for a paired device
+//!         r.method("greet").access(Access::device()).raw(|_call, p| async move {
+//!             Ok(serde_json::json!(format!("hello, {}", p["name"].as_str().unwrap_or("you"))))
+//!         });
 //!     }
 //! }
 //!
 //! fn main() -> anyhow::Result<()> {
 //!     harnix::App::builder()
 //!         .name("hello-app", "0.1.0")
-//!         .with_builtins()
 //!         .extensions(harnix::first_party::standard())
-//!         .module(Hello)
+//!         .extension(Hello)
+//!         .ungranted()
 //!         .run()
 //! }
 //! ```
 //!
 //! What is here is a re-export: the application builder (`harnix-assembly`), the extension
-//! interface ([`ext`]), the module contract (`harnix-module`, read as extensions while Harnix's own
-//! move onto the interface), and what an extension gives the engine — tools, tool providers,
-//! hooks, scene layers, prompt gates ([`engine`]).
+//! interface ([`ext`]), Harnix's own extensions ([`first_party`]), and what an extension gives the
+//! engine — tools, tool providers, hooks, scene layers, prompt gates ([`engine`]).
 //! An application depends on this crate alone. See `docs/harnix-sdk.md`.
 
-/// What a module gives the engine, in Harnix's words: a tool (`engine::Tool`), a provider of tools
-/// for every session (`engine::ToolProvider`), a hook before a call (`engine::ToolHook`), a scene
-/// as a layer over another (`engine::SceneLayer`), a gate on messages (`engine::PromptGate`).
+/// What an extension gives the engine, in Harnix's words: a tool (`engine::Tool`), a provider of
+/// tools for every session (`engine::ToolProvider`), a hook before a call (`engine::ToolHook`), a
+/// scene as a layer over another (`engine::SceneLayer`), a gate on messages (`engine::PromptGate`).
 pub use harnix_engine_api as engine;
 
 /// The extension interface: [`ext::Extension`], its registrar and descriptor, its context.
@@ -65,6 +63,27 @@ pub mod first_party {
 
     #[cfg(feature = "flow")]
     pub use harnix_ext_flow::Flow;
+
+    #[cfg(feature = "wasm")]
+    pub use harnix_ext_packages::Packages;
+
+    /// What the `packages` component is granted: registering packages as extensions, installing
+    /// their agent packages, and having an instance re-read its skills.
+    #[cfg(feature = "wasm")]
+    pub const PACKAGES_GRANTS: [harnix_contract::s1::Capability; 3] =
+        [caps::EXTENSIONS_MANAGE, caps::ENGINE_PLUGINS, caps::ENGINE_CONFIG_WRITE];
+
+    /// The `packages` component, running packages in this process (mode 2).
+    #[cfg(feature = "wasm")]
+    pub fn packages() -> Packages {
+        Packages::new().carrier(harnix_carrier_wasm::carrier())
+    }
+
+    /// [`standard`], and `packages` as the product configured it.
+    #[cfg(feature = "wasm")]
+    pub fn standard_with(packages: Packages) -> ExtensionSet {
+        standard().with(packages, PACKAGES_GRANTS)
+    }
 
     /// What the flow extension is granted: naming the sessions it opens, a main session's tasks.
     #[cfg(feature = "flow")]
@@ -110,27 +129,22 @@ pub mod agix {
 
 pub use async_trait::async_trait;
 pub use axum;
-pub use harnix_assembly::{App, AppBuilder, ExtensionSlot, ExtensionStatus, Namespace, HARNIX_VERSION, SHUTDOWN_GRACE};
+pub use harnix_assembly::{App, AppBuilder, ExtensionSlot, ExtensionStatus, HARNIX_VERSION, SHUTDOWN_GRACE};
 pub use harnix_contract::s1::{caps, Capability, CapabilitySpec, ExtId};
-pub use harnix_ext::{Extension, ExtensionSet, EXT_API_VERSION};
 pub use harnix_contract::{codes, RpcError, Subject, MAIN_INSTANCE};
-pub use harnix_module::{
-    AppHandle, AppHandler, AppHost, AppMethod, AppSpec, AppSummary, AppTopic, AppWithdrawn, AttachTo, Attachment, SendOptions, CallContext, CredentialRef, Credentials, EngineContrib, EngineProfile, Entry,
-    EnvCredentials, EventRegistry, Events, Handler, InstanceHandle, InstanceTemplate,
-    InstanceTemplates, Instances, Listen, Manifest, MethodRegistry, MigrateContext,
-    MigrationReport, Module, ModuleContext, OnBusy, Principal, RouteRegistry, Secret, SessionRef, SessionSpec,
-    Sessions, SpaceDecl, SpaceRegistry, Tap, TapEvent, TemplateCarrier, CONTRIB_API_VERSION,
-    MODULE_API_VERSION, SETTLED_HELD, TAP_CAPACITY,
+pub use harnix_ext::{
+    Access, Attachment, Call, CredentialRef, Credentials, DescriptorBuilder, Entry, EnvCredentials, Extension,
+    ExtensionContext, ExtensionSet, Manifest, MigrateContext, MigrationReport, OnBusy, Registrar, RowScope,
+    SendOptions, SessionRef, SessionSpec, SpaceDecl, Tap, TapEvent, CONTRIB_API_VERSION, EXT_API_VERSION,
+    SETTLED_HELD, TAP_CAPACITY,
 };
 
-/// Everything a module's source usually needs.
+/// Everything an extension's source usually needs.
 pub mod prelude {
     pub use crate::async_trait;
+    pub use crate::engine::{EngineProfile, InstanceTemplate};
     pub use crate::{
-        CallContext, CredentialRef, EngineContrib, EngineProfile, Entry, EventRegistry,
-        InstanceTemplate,
-        InstanceTemplates, Manifest, MethodRegistry, MigrateContext, MigrationReport, Module,
-        ModuleContext, OnBusy, Principal, RouteRegistry, RpcError, SessionRef, SessionSpec,
-        SpaceDecl, SpaceRegistry, TapEvent, TemplateCarrier,
+        Access, Call, CredentialRef, Entry, Extension, ExtensionContext, Manifest, MigrateContext, MigrationReport,
+        OnBusy, Registrar, RowScope, RpcError, SessionRef, SessionSpec, SpaceDecl, TapEvent,
     };
 }
