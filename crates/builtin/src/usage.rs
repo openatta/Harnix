@@ -5,14 +5,7 @@
 //!
 //! Like the trace, it covers the session's current run (see `recordings.rs`).
 
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
-
-use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
-use harnix_engine::readers::RecordingsDir;
-use harnix_engine_api::readers::Recordings;
 use serde_json::{json, Value};
 
 use crate::Builtin;
@@ -20,17 +13,7 @@ use crate::Builtin;
 /// How many sessions one call may ask about.
 const MAX_SESSIONS: usize = 200;
 
-/// The usage readers, by recordings root.
-pub(crate) type UsageCache = HashMap<PathBuf, Arc<RecordingsDir>>;
-
 impl Builtin {
-    /// The reader the usage figures of an instance's recordings are folded and kept by.
-    fn usage_reader(&self, instance: &str) -> Result<Arc<dyn Recordings>, RpcError> {
-        let root = self.recordings_root(instance)?;
-        let reader = lock(&self.usage).entry(root.clone()).or_insert_with(|| Arc::new(RecordingsDir::new(root))).clone();
-        Ok(reader)
-    }
-
     /// `harnix.system.usage {instance?, session_ids}` → `{sessions: {<id>: {recording, agents}}}`;
     /// `agents` is the session's own figures first, then each sub-agent's with its parent.
     pub(crate) async fn usage(&self, params: Value) -> Result<Value, RpcError> {
@@ -56,7 +39,7 @@ impl Builtin {
         let out = if ids.is_empty() {
             serde_json::Map::new()
         } else {
-            let reader = self.usage_reader(instance)?;
+            let reader = self.recordings(instance)?;
             let read = reader.usage(&ids).await.map_err(crate::recordings::read_error)?;
             read.into_iter()
                 .map(|(id, usage)| (id, serde_json::to_value(usage).unwrap_or(Value::Null)))

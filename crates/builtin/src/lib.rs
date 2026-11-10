@@ -67,10 +67,9 @@ pub struct Builtin {
     /// built-in makes goes out as that module, so the audit names it and a
     /// grant (settings writing a provider) applies to it alone.
     contexts: RwLock<HashMap<&'static str, ModuleContext>>,
-    /// `harnix.system.usage`'s summaries, by recording, until the recording changes.
-    usage: Arc<std::sync::Mutex<usage::UsageCache>>,
-    /// The system space's traces, by recording, until the recording changes.
-    traces: Arc<recordings::Traces>,
+    /// The engine's recordings readers, one per recordings root: the traces and usage figures
+    /// they read are kept until a recording changes.
+    readers: Arc<recordings::Readers>,
 }
 
 /// The built-in modules: id, methods (full names), grants, disclosure.
@@ -242,8 +241,7 @@ impl Builtin {
             max_upload_bytes: harnix_contract::MAX_UPLOAD_BYTES,
             on_packages_changed: Mutex::new(None),
             contexts: RwLock::new(HashMap::new()),
-            usage: Default::default(),
-            traces: Default::default(),
+            readers: Default::default(),
         }))
     }
 

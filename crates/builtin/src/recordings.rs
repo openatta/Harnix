@@ -36,7 +36,7 @@ impl Builtin {
     /// The reader of an instance's recordings: one per root, kept, so what it read is kept too.
     pub(crate) fn recordings(&self, instance: &str) -> Result<Arc<dyn Recordings>, RpcError> {
         let root = self.recordings_root(instance)?;
-        Ok(self.traces.reader(&root))
+        Ok(self.readers.reader(&root))
     }
 
     /// `harnix.requestHeaders {instance?, session_id}` — the envelope timeline of this
@@ -99,9 +99,9 @@ pub(crate) fn read_error(e: ReadError) -> RpcError {
 
 /// The recordings readers, by root.
 #[derive(Default)]
-pub(crate) struct Traces(Mutex<HashMap<PathBuf, Arc<RecordingsDir>>>);
+pub(crate) struct Readers(Mutex<HashMap<PathBuf, Arc<RecordingsDir>>>);
 
-impl Traces {
+impl Readers {
     fn reader(&self, root: &Path) -> Arc<dyn Recordings> {
         lock(&self.0)
             .entry(root.to_path_buf())
