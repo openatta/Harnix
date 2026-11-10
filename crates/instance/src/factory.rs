@@ -73,10 +73,10 @@ pub struct Factory {
     /// Tool providers every engine built in this process gets — the in-process
     /// carrier's alone: a daemon is another process, and what it should have
     /// of this one's reaches it another way (an application's tools, over MCP).
-    pub plugins: Vec<Arc<dyn harnix_engine_api::ToolProvider>>,
+    pub providers: Vec<Arc<dyn harnix_engine_api::ToolProvider>>,
     /// The tools those providers give, which every scene of such an engine admits
     /// (`EngineContribution::admit_everywhere`).
-    pub admitted_tools: Vec<String>,
+    pub admitted: Vec<String>,
     /// The MCP servers every daemon this process spawns is configured with — a runtime
     /// application's tools — written into each one's data root as it is built, and kept in line
     /// with the set after (`servers.rs`). Shared with whoever sets them.
@@ -95,8 +95,8 @@ impl Factory {
             program,
             socket_dir,
             credential,
-            plugins: Vec::new(),
-            admitted_tools: Vec::new(),
+            providers: Vec::new(),
+            admitted: Vec::new(),
             servers: Arc::default(),
             providers_from: None,
         })
@@ -141,15 +141,15 @@ impl Factory {
         }
         match carrier {
             TemplateCarrier::InProcess { engine, contrib } => {
-                let mut contrib = crate::EngineContrib::from(contrib.clone());
+                let mut contrib = contrib.clone();
                 if let Some(native) = template.and_then(InstanceTemplate::native_contrib) {
                     contrib.extend(native);
                 }
-                for plugin in &self.plugins {
-                    contrib.plugin(plugin.clone());
+                for provider in &self.providers {
+                    contrib.provider(provider.clone());
                 }
-                for pattern in &self.admitted_tools {
-                    contrib.admit_tools(pattern.clone());
+                for pattern in &self.admitted {
+                    contrib.admit_everywhere(pattern);
                 }
                 let engine = engine::build(engine_config(engine, &data_root, contrib)).await?;
                 let facts = Facts::from(&engine);
@@ -276,7 +276,7 @@ fn loopback_without_proxy() -> Vec<(String, String)> {
         .collect()
 }
 
-pub fn engine_config(engine: &EngineProfile, data_root: &Path, contrib: crate::EngineContrib) -> EngineConfig {
+pub fn engine_config(engine: &EngineProfile, data_root: &Path, contrib: harnix_engine_api::EngineContribution) -> EngineConfig {
     EngineConfig {
         scene: engine.scene.clone(),
         scenes: engine.scenes.clone(),

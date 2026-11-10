@@ -263,7 +263,7 @@ impl Runtime {
     }
 
     /// The tool provider an in-process instance's engine carries ([`crate::AppsBridge`]).
-    pub fn plugin(&self) -> Arc<dyn harnix_engine_api::ToolProvider> {
+    pub fn provider(&self) -> Arc<dyn harnix_engine_api::ToolProvider> {
         Arc::new(crate::AppsBridge::new(self.registry.clone()))
     }
 

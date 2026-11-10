@@ -2,11 +2,10 @@
 //!
 //! What extensions give an engine is written in `harnix-engine-api`'s terms — tools, providers,
 //! hooks, scene layers, prompt gates, a credential source. This crate turns each into Agix's own
-//! (`adapt`), gathers them (`EngineContrib`), and stands the engine up in this process
+//! (`adapt`), and stands the engine up in this process
 //! ([`build`]). The instance layer builds engines with it and keeps the links to them.
 
 mod adapt;
-pub mod contrib;
 pub mod engine;
 mod hooks;
 pub mod readers;
@@ -17,6 +16,5 @@ pub mod timeline;
 #[cfg(feature = "agix")]
 pub mod agix;
 
-pub use contrib::EngineContrib;
 pub use engine::{active_scenes, build, Engine, EngineConfig};
 pub use hooks::RawHook;

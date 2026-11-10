@@ -42,7 +42,7 @@ pub mod templates;
 
 /// The engine itself, built in this process: `harnix-engine`'s, under the names this layer has
 /// always given it.
-pub use harnix_engine::{contrib, engine, EngineContrib};
+pub use harnix_engine::engine;
 /// The engine's own error codes (`session not found`, `turn in progress`, …), for a layer above
 /// that has to tell them apart: they are part of what a link carries, so whoever holds a link
 /// reads them from here rather than from the engine's crate.

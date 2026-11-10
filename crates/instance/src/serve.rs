@@ -54,7 +54,7 @@ pub async fn serve_daemon_with(
         }
         None => None,
     };
-    let engine = crate::engine::build(engine_config(&args.engine, &args.data_root, contrib.into()))
+    let engine = crate::engine::build(engine_config(&args.engine, &args.data_root, contrib))
     .await?;
     let server = engine.server.clone();
     let listener = DaemonServer::bind_unix(&args.socket)?;

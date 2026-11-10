@@ -45,7 +45,7 @@ pub struct EngineConfig {
     /// to choose it, any more than to choose the data root.
     pub cwd: Option<PathBuf>,
     /// What extensions contribute natively, and the host's own providers.
-    pub contrib: crate::EngineContrib,
+    pub contrib: harnix_engine_api::EngineContribution,
 }
 
 pub struct Engine {
@@ -113,7 +113,7 @@ pub fn active_scenes(scene: &str, scenes: &[String]) -> Vec<String> {
 }
 
 pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
-    let contrib = config.contrib.contribution();
+    let contrib = &config.contrib;
     let host_scenes = crate::scenes::host_scenes(contrib.scenes(), contrib.admitted())?;
     let scene = resolve_scene(&config.scene, &host_scenes)?;
     let scope = scene.id().to_string();

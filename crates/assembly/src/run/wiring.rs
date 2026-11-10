@@ -10,7 +10,8 @@ use std::sync::Arc;
 
 use harnix_router::RouteTable;
 use harnix_hub::Hub;
-use harnix_instance::{EngineContrib, Factory, Profile};
+use harnix_engine_api::EngineContribution;
+use harnix_instance::{Factory, Profile};
 use serde_json::Value;
 
 use super::packages::UiModules;
@@ -26,10 +27,10 @@ pub(super) const APPS_PROGRESS_TOPIC: &str = "harnix.apps.progress";
 pub(super) struct AppsWiring {
     #[cfg(feature = "apps")]
     runtime: Option<Arc<harnix_apps::Runtime>>,
-    /// The Agix plugin that gives a session the applications' tools: one, for every engine built
-    /// in this process (what `Runtime::plugin` makes).
+    /// The tool provider that gives a session the applications' tools: one, for every engine
+    /// built in this process (what `Runtime::provider` makes).
     #[cfg(feature = "apps")]
-    plugin: Option<Arc<harnix_apps::AppsBridge>>,
+    provider: Option<Arc<harnix_apps::AppsBridge>>,
     /// Every spawned daemon's MCP servers, which follow what is running: set when the factory is.
     #[cfg(feature = "apps")]
     servers: Option<Arc<harnix_instance::SharedServers>>,
@@ -37,7 +38,7 @@ pub(super) struct AppsWiring {
 
 impl AppsWiring {
     /// Made before anything is registered: the `apps` module drives the runtime, and the
-    /// instances built after carry its plugin.
+    /// instances built after carry its tool provider.
     #[cfg_attr(not(feature = "apps"), allow(unused_variables))]
     pub fn new(profile: &Profile, app: &AppBuilder) -> anyhow::Result<Self> {
         #[cfg(feature = "apps")]
@@ -51,7 +52,7 @@ impl AppsWiring {
                 idle: app.app_idle,
             })?;
             return Ok(Self {
-                plugin: Some(Arc::new(harnix_apps::AppsBridge::new(runtime.registry()))),
+                provider: Some(Arc::new(harnix_apps::AppsBridge::new(runtime.registry()))),
                 runtime: Some(runtime),
                 servers: None,
             });
@@ -91,9 +92,9 @@ impl AppsWiring {
     #[cfg_attr(not(feature = "apps"), allow(unused_variables))]
     pub fn factory(&mut self, factory: &mut Factory) {
         #[cfg(feature = "apps")]
-        if let (Some(runtime), Some(plugin)) = (&self.runtime, &self.plugin) {
-            factory.plugins.push(plugin.clone());
-            factory.admitted_tools.push(harnix_apps::TOOL_PATTERN.to_string());
+        if let (Some(runtime), Some(provider)) = (&self.runtime, &self.provider) {
+            factory.providers.push(provider.clone());
+            factory.admitted.push(harnix_apps::TOOL_PATTERN.to_string());
             factory.servers.issue_with(Arc::new(DaemonTokens(runtime.registry())));
             self.servers = Some(factory.servers.clone());
         }
@@ -101,10 +102,10 @@ impl AppsWiring {
 
     /// The system instance's engine, which is built in this process: the same tools.
     #[cfg_attr(not(feature = "apps"), allow(unused_variables))]
-    pub fn engine(&self, contrib: &mut EngineContrib) {
+    pub fn engine(&self, contrib: &mut EngineContribution) {
         #[cfg(feature = "apps")]
-        if let Some(plugin) = &self.plugin {
-            contrib.plugin(plugin.clone()).admit_tools(harnix_apps::TOOL_PATTERN);
+        if let Some(provider) = &self.provider {
+            contrib.provider(provider.clone()).admit_everywhere(harnix_apps::TOOL_PATTERN);
         }
     }
 
