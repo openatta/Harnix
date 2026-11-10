@@ -7,7 +7,7 @@
 
 import { createRoot } from "react-dom/client";
 import { HarnixClient, tokenFromDocument, tokenFromPage } from "@harnix/core";
-import { HarnixUiProvider, NestProvider, Registry, currentLocale, en, useLocale, zhCN } from "@harnix/react";
+import { HarnixUiProvider, HostProvider, Registry, currentLocale, en, useLocale, zhCN } from "@harnix/react";
 
 import "@harnix/react/tokens.css";
 import "@harnix/react/styles.css";
@@ -45,9 +45,9 @@ function Root() {
   const hello = app.snapshot.hello;
   return (
     <HarnixUiProvider client={client} strings={locale === "en" ? en : zhCN} promptTimeoutSecs={hello?.limits?.prompt_timeout_secs}>
-      <NestProvider host={host}>
+      <HostProvider host={host}>
         <Shell app={app} />
-      </NestProvider>
+      </HostProvider>
     </HarnixUiProvider>
   );
 }

@@ -1,5 +1,5 @@
 /**
- * `useNest()` — what a contribution may do (concept §5.6). The interface provides it; a
+ * `useHost()` — what a contribution may do (concept §5.6). The interface provides it; a
  * contribution's component calls it.
  *
  * Deliberately not here: the connection. A contribution calls methods and subscribes to topics by
@@ -34,7 +34,7 @@ export interface ShellContext {
   onClick?: () => void;
 }
 
-export interface NestHost {
+export interface HostApi {
   /** One call, if `harnix.reachable` lists it; refused here otherwise. */
   call<T = unknown>(method: string, params?: unknown): Promise<T>;
   /** A host topic's whole values, now and on every change. Returns the unsubscribe. */
@@ -137,21 +137,21 @@ export interface NestHost {
   t: Translate;
 }
 
-const NestContext = createContext<NestHost | null>(null);
+const HostContext = createContext<HostApi | null>(null);
 
-export function NestProvider({ host, children }: { host: NestHost; children: ReactNode }) {
-  return <NestContext.Provider value={host}>{children}</NestContext.Provider>;
+export function HostProvider({ host, children }: { host: HostApi; children: ReactNode }) {
+  return <HostContext.Provider value={host}>{children}</HostContext.Provider>;
 }
 
-export function useNest(): NestHost {
-  const host = useContext(NestContext);
-  if (!host) throw new Error("@harnix/react: useNest() needs a <NestProvider> above it");
+export function useHost(): HostApi {
+  const host = useContext(HostContext);
+  if (!host) throw new Error("@harnix/react: useHost() needs a <HostProvider> above it");
   return host;
 }
 
 /** The front space's current session, kept up to date: `session.current()` and `session.onChange`. */
 export function useCurrentSession(): SessionRef | null {
-  const host = useNest();
+  const host = useHost();
   const [current, setCurrent] = useState<SessionRef | null>(() => host.session.current());
   useEffect(() => {
     setCurrent(host.session.current());

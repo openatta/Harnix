@@ -82,4 +82,4 @@ export {
 } from "./contrib";
 export { t, translate, useT, useLocale, setLocale, currentLocale, localeChoice, addStrings, DICTIONARIES, type Locale, type LocaleChoice, type Translate } from "./i18n/index";
 export type { FlowBlockContribution } from "./chat/types";
-export { NestProvider, useCurrentSession, useNest, type NestHost, type SessionRef as HostSessionRef, type ShellContext } from "./host";
+export { HostProvider, useCurrentSession, useHost, type HostApi, type SessionRef as HostSessionRef, type ShellContext } from "./host";

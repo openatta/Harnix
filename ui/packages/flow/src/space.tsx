@@ -22,7 +22,7 @@
  */
 
 import type { ReactNode } from "react";
-import { t as translate, type HostSessionRef, type NestHost, type Registry, type SpaceContribution } from "@harnix/react";
+import { t as translate, type HostSessionRef, type HostApi, type Registry, type SpaceContribution } from "@harnix/react";
 
 import { FlowContext, SystemFlows } from "./context";
 
@@ -47,7 +47,7 @@ export interface FlowSpaceOptions {
   /** The owner the contributions are registered as; "flowui" by default. */
   owner?: string;
   /** Given: the middle follows the selection from now on, not only once the space is first drawn. */
-  host?: NestHost;
+  host?: HostApi;
 }
 
 export interface FlowSpace {

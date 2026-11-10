@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { useNest, useT } from "@harnix/react";
+import { useHost, useT } from "@harnix/react";
 
 import { errorText } from "./hooks";
 import { methodName } from "./model";
@@ -37,7 +37,7 @@ export interface ProposalCardProps {
 
 export function ProposalCard({ id, proposal, module = "flow" }: ProposalCardProps) {
   const t = useT();
-  const nest = useNest();
+  const nest = useHost();
   useSyncExternalStore(subscribe, () => version);
   const [state, setState] = useState<"open" | "busy" | "accepted">("open");
   const [error, setError] = useState<string | null>(null);

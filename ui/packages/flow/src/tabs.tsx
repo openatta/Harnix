@@ -22,7 +22,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { useLocale, useNest, useT, type HostSessionRef as SessionRef } from "@harnix/react";
+import { useLocale, useHost, useT, type HostSessionRef as SessionRef } from "@harnix/react";
 
 import { FlowFramework, type FrameworkPick } from "./FlowFramework";
 import { FlowGraph } from "./FlowGraph";
@@ -83,7 +83,7 @@ interface ListProps extends TabProps {
 }
 
 export function useSelection(state: FlowSpaceState): FlowSelection {
-  const nest = useNest();
+  const nest = useHost();
   useEffect(() => {
     state.attach(nest);
     // Drawn: the space is in front, whether or not a session change said so.
@@ -108,7 +108,7 @@ function useNow(live: boolean): number {
 }
 
 /** Open the general conversation and start its composer with `text`. */
-async function startInGeneral(state: FlowSpaceState, nest: ReturnType<typeof useNest>, text: string): Promise<void> {
+async function startInGeneral(state: FlowSpaceState, nest: ReturnType<typeof useHost>, text: string): Promise<void> {
   const ref = await state.openGeneral();
   if (ref) nest.composer.insert(text, { session: ref });
 }
@@ -149,7 +149,7 @@ type FlowSort = "name" | "title";
 
 export function FlowsTab({ state, tabs, onPick }: ListProps) {
   const t = useT();
-  const nest = useNest();
+  const nest = useHost();
   const sel = useSelection(state);
   const defs = useDefs(state.module);
   const [origin, setOrigin] = useState("");
@@ -333,7 +333,7 @@ function StationSummary({ def, s, info, picked, onPick }: { def: FlowDef; s: Sta
 
 export function FlowDetail({ state, tabs, flow, summary, station }: TabProps & { flow: string; summary: DefSummary | undefined; station: string | null }) {
   const t = useT();
-  const nest = useNest();
+  const nest = useHost();
   // Read again whenever the list says the flow changed: the conversation saved it.
   const info = useMethod<DefInfo>(state.module, "def", { name: flow }, summary?.digest);
   const def = info.value?.def;
@@ -449,7 +449,7 @@ export function FlowDetail({ state, tabs, flow, summary, station }: TabProps & {
 
 /** Start a dry run of a flow and show it in the runs tab. */
 function useDryStart(state: FlowSpaceState, tabs: FlowTabs) {
-  const nest = useNest();
+  const nest = useHost();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const run = async (flow: string) => {
@@ -638,7 +638,7 @@ export function RunDetail({ state, run, station }: { state: FlowSpaceState; run:
 
 function RunHead({ view, module }: { view: RunView; module: string }) {
   const t = useT();
-  const nest = useNest();
+  const nest = useHost();
   const run = view.record;
   const active = run.status === "active";
   const now = useNow(active);
@@ -716,7 +716,7 @@ function RunHead({ view, module }: { view: RunView; module: string }) {
 /** The run's sub-agents and tasks (`sessions {run}`): each opens in the middle. */
 function RunSessionsList({ module, run, rev }: { module: string; run: string; rev: number }) {
   const t = useT();
-  const nest = useNest();
+  const nest = useHost();
   const sessions = useMethod<RunSessions>(module, "sessions", { run }, rev);
   const v = sessions.value;
   const main = asRef(v?.main);
@@ -819,7 +819,7 @@ function RunSessionsList({ module, run, rev }: { module: string; run: string; re
 /** A dry run's hands: take the next piece of work, or everything up to a person. */
 export function DryControls({ module, run, status }: { module: string; run: string; status: RunStatus }) {
   const t = useT();
-  const nest = useNest();
+  const nest = useHost();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [last, setLast] = useState<DryProgress | null>(null);
@@ -908,7 +908,7 @@ export function revealInGuide(root: HTMLElement, pick: FrameworkPick): HTMLEleme
  *  new flow in the general conversation. */
 export function GuideView({ state, guide, error }: { state: FlowSpaceState; guide: Guide | null; error?: string | null }) {
   const t = useT();
-  const nest = useNest();
+  const nest = useHost();
   const sections = useMemo(() => (guide ? guideSections(guideBlocks(guide.text)) : []), [guide]);
   let example = 0;
   const part = (b: GuideBlock, i: number, group: GuideGroup | null, overview: boolean) => {

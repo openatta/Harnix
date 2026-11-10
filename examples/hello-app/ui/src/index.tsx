@@ -16,9 +16,9 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { useNest, type NestHost, type Registry } from "@harnix/react";
+import { useHost, type HostApi, type Registry } from "@harnix/react";
 
-export function register(r: Registry, host: NestHost): void {
+export function register(r: Registry, host: HostApi): void {
   // The brand's colour: existing token names only — a module adds no colours of its own.
   r.tokens({ "--accent": "#2f6fb3", "--accent-soft": "rgba(47, 111, 179, 0.12)", "--accent-line": "rgba(47, 111, 179, 0.4)" }, "hello-app");
   r.strings("en", { "hello-app.greeter": "Greeter", "hello-app.greet": "Greet", "hello-app.notes": "Notes" }, "hello-app");
@@ -101,7 +101,7 @@ interface Ticket {
 
 /** The ticket as written, kept current by the session's approvals topic. */
 function ApprovalCard({ entry }: { entry: GreeterEntry }) {
-  const nest = useNest();
+  const nest = useHost();
   const written = entry.payload as unknown as Ticket;
   const [ticket, setTicket] = useState<Ticket>(written);
   const [refused, setRefused] = useState<string | null>(null);
@@ -146,7 +146,7 @@ function DecisionLine({ entry }: { entry: GreeterEntry }) {
 }
 
 function GreetTab() {
-  const nest = useNest();
+  const nest = useHost();
   const [name, setName] = useState("world");
   const [answer, setAnswer] = useState<string | null>(null);
   return (
@@ -178,7 +178,7 @@ function GreetTab() {
 
 /** A long job: the call answers with an id at once, the progress arrives on `app.greeter.job`. */
 function Job() {
-  const nest = useNest();
+  const nest = useHost();
   const [job, setJob] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number; finished: boolean } | null>(null);
   useEffect(() => (job ? nest.subscribe("app.greeter.job", { job_id: job }, (v) => setProgress(v as typeof progress)) : undefined), [nest, job]);
@@ -207,7 +207,7 @@ function Job() {
 
 /** Ask, in the open conversation, for a person's approval. */
 function RequestApproval() {
-  const nest = useNest();
+  const nest = useHost();
   const ask = () => {
     const session = nest.session.current();
     if (!session) return;
@@ -226,7 +226,7 @@ function RequestApproval() {
 
 /** The module's own link: a route and a WebSocket under `/apps/greeter/`, the credential the host's. */
 function OwnLink() {
-  const nest = useNest();
+  const nest = useHost();
   const [said, setSaid] = useState<string | null>(null);
   const [echoed, setEchoed] = useState<string | null>(null);
   const socket = useRef<WebSocket | null>(null);
@@ -259,7 +259,7 @@ function OwnLink() {
 }
 
 function GreetedCard() {
-  const nest = useNest();
+  const nest = useHost();
   const [count, setCount] = useState<number | null>(null);
   useEffect(() => nest.subscribe("app.greeter.greeted", undefined, (v) => setCount((v as { count?: number } | null)?.count ?? 0)), [nest]);
   return <div data-testid="greeted-count">{count === null ? "…" : `${count} greeted`}</div>;

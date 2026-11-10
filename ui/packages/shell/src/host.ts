@@ -1,5 +1,5 @@
 /**
- * The interface's `useNest()` host (concept §5.6), built from the app: calls limited to what this
+ * The interface's `useHost()` host (concept §5.6), built from the app: calls limited to what this
  * page may reach, topics by name, the open session, the spaces, the composer, the right column,
  * the settings panel.
  *
@@ -7,14 +7,14 @@
  */
 
 import { SYSTEM_INSTANCE } from "@harnix/core/state";
-import { t, type HostSessionRef as SessionRef, type NestHost } from "@harnix/react";
+import { t, type HostSessionRef as SessionRef, type HostApi } from "@harnix/react";
 
 import { disabledOf, later, orderTabs, safeTabs, type App } from "./app.ts";
 import { revealEntry } from "./reveal.ts";
 import { openSettings } from "./settings.tsx";
 import { topicsOf } from "./topics.ts";
 
-export function hostFor(app: App, owner = "page"): NestHost {
+export function hostFor(app: App, owner = "page"): HostApi {
   const listed = (method: string) => {
     const reachable = app.snapshot.reachable;
     return !reachable.length || reachable.includes(method) || method.startsWith("harnix.subscribe") || method.startsWith("harnix.unsubscribe");
@@ -63,7 +63,7 @@ export function hostFor(app: App, owner = "page"): NestHost {
           await opened;
           return revealEntry(app, { instance: ref.instance, sessionId: ref.sessionId }, key);
         })();
-      }) as NestHost["session"]["open"],
+      }) as HostApi["session"]["open"],
       reveal: async (key) => {
         const current = app.snapshot.current;
         return current ? revealEntry(app, current, key) : false;

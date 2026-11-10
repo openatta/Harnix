@@ -4,14 +4,14 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { useNest } from "@harnix/react";
+import { useHost } from "@harnix/react";
 
 import { defsOf, defsTopic, dryRunsOf, dryRunsTopic, methodName, runTopic } from "./model";
 import type { DefSummary, DryRunSummary, FlowMethod, RunView } from "./types";
 
 /** A topic's latest value; undefined until the first arrives, or while `params` is null. */
 export function useTopic<T>(topic: string, params: Record<string, unknown> | null): T | undefined {
-  const nest = useNest();
+  const nest = useHost();
   const [value, setValue] = useState<T | undefined>(undefined);
   const key = params ? JSON.stringify(params) : null;
   useEffect(() => {
@@ -58,7 +58,7 @@ export interface Loaded<T> {
  * does (a digest, a revision: what says the answer is stale); null params: not called.
  */
 export function useMethod<T>(module: string, name: FlowMethod, params: Record<string, unknown> | null, again?: unknown): Loaded<T> {
-  const nest = useNest();
+  const nest = useHost();
   const [value, setValue] = useState<T | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);

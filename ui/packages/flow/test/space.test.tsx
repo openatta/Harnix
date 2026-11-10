@@ -8,7 +8,7 @@
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { NestProvider, Registry, setLocale, type HostSessionRef, type NestHost } from "@harnix/react";
+import { HostProvider, Registry, setLocale, type HostSessionRef, type HostApi } from "@harnix/react";
 
 import { toolTarget } from "../src/model";
 import { registerFlowSpace, registerSystemFlows } from "../src/space";
@@ -141,7 +141,7 @@ function fakeHost(answers: Record<string, unknown> = {}) {
     composer: { insert: vi.fn((text: string, options?: unknown) => inserted.push([text, options])) },
     redraw: vi.fn(),
     t: (k: string) => k,
-  } as unknown as NestHost;
+  } as unknown as HostApi;
   return {
     host,
     calls,
@@ -265,9 +265,9 @@ describe("the line over the composer", () => {
     fake.push("app.flow.defs", {}, DEFS);
     const state = new FlowSpaceState();
     render(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <FocusNotice state={state} session={{ instance: "system", sessionId: "s1" }} />
-      </NestProvider>,
+      </HostProvider>,
     );
     const notice = screen.getByTestId("flow-focus-notice");
     expect(notice.dataset.flow).toBe("");
@@ -318,9 +318,9 @@ describe("the line over the composer", () => {
     fake.push("app.flow.defs", {}, DEFS);
     const state = new FlowSpaceState();
     const r = render(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <EmptyConversation state={state} session={{ instance: "system", sessionId: "s1" }} />
-      </NestProvider>,
+      </HostProvider>,
     );
     expect(screen.getByTestId("flow-empty-conversation").dataset.kind).toBe("general");
     act(() => fake.push("app.flow.focus", { instance: "system", session_id: "s1" }, { flow: "example-review" }));
@@ -328,9 +328,9 @@ describe("the line over the composer", () => {
     expect(screen.getByTestId("flow-empty-conversation").textContent).toContain("Example: review and approve");
     // Another session than this space's open one: nothing.
     r.rerender(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <EmptyConversation state={state} session={{ instance: "system", sessionId: "other" }} />
-      </NestProvider>,
+      </HostProvider>,
     );
     expect(screen.queryByTestId("flow-empty-conversation")).toBeNull();
   });
@@ -344,9 +344,9 @@ describe("流程", () => {
     fake.push("app.flow.defs", {}, [...DEFS, { name: "alpha", title: "Zed", digest: "z", origin: "override", valid: true }]);
     const state = new FlowSpaceState();
     render(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <FlowsTab state={state} tabs={TABS} />
-      </NestProvider>,
+      </HostProvider>,
     );
     const names = () => [...screen.getByTestId("flow-def-list").querySelectorAll("button")].map((b) => b.dataset.testid);
     expect(names()).toEqual(["flow-def-alpha", "flow-def-broken", "flow-def-example-review"]);
@@ -378,10 +378,10 @@ describe("流程", () => {
     fake.push("app.flow.defs", {}, DEFS);
     const state = new FlowSpaceState();
     render(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <FlowsTab state={state} tabs={TABS} />
         <FlowSecondary state={state} tabs={TABS} />
-      </NestProvider>,
+      </HostProvider>,
     );
     expect(screen.getByTestId("flow-pick-hint")).toBeTruthy();
     expect(screen.queryByTestId("flow-detail")).toBeNull();
@@ -421,10 +421,10 @@ describe("流程", () => {
     const state = new FlowSpaceState();
     state.selectFlow("example-review");
     render(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <FlowsTab state={state} tabs={TABS} />
         <FlowSecondary state={state} tabs={TABS} />
-      </NestProvider>,
+      </HostProvider>,
     );
     await settle();
     const reads = () => fake.calls.filter(([m]) => m === "app.flow.def").length;
@@ -470,9 +470,9 @@ describe("运行", () => {
     const state = new FlowSpaceState();
     state.selectFlow("example-review");
     render(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <RunsTab state={state} tabs={TABS} />
-      </NestProvider>,
+      </HostProvider>,
     );
     const rows = () => [...screen.getByTestId("flow-run-list").querySelectorAll("button")].map((b) => b.dataset.testid!.replace("flow-run-", ""));
     // The selected flow does not filter the runs: every flow's are here.
@@ -514,10 +514,10 @@ describe("运行", () => {
     fake.tab("flow.runs");
     const state = new FlowSpaceState();
     render(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <RunsTab state={state} tabs={TABS} />
         <FlowSecondary state={state} tabs={TABS} />
-      </NestProvider>,
+      </HostProvider>,
     );
     expect(screen.getByTestId("flow-run-pick-hint")).toBeTruthy();
     fireEvent.click(screen.getByTestId("flow-run-example-review-1"));
@@ -558,10 +558,10 @@ describe("运行", () => {
     fake.tab("flow.runs");
     const state = new FlowSpaceState();
     render(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <RunsTab state={state} tabs={TABS} />
         <FlowSecondary state={state} tabs={TABS} />
-      </NestProvider>,
+      </HostProvider>,
     );
     fireEvent.click(screen.getByTestId("flow-run-example-review-1"));
     expect(screen.getByTestId("flow-run-phase").dataset.phase).toBe("paused");
@@ -589,9 +589,9 @@ describe("参考", () => {
     const fake = fakeHost({ "app.flow.guide": () => ({ text: GROUPED, lang: "en" }), "app.flow.catalog": {}, "app.flow.schema": {} });
     const state = new FlowSpaceState();
     render(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <ReferenceTab state={state} />
-      </NestProvider>,
+      </HostProvider>,
     );
     await settle();
     const fw = screen.getByTestId("flow-framework");
@@ -630,9 +630,9 @@ describe("参考", () => {
     const state = new FlowSpaceState();
     state.attach(fake.host);
     render(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <ReferenceTab state={state} />
-      </NestProvider>,
+      </HostProvider>,
     );
     await settle();
     expect(fake.calls).toContainEqual(["app.flow.guide", { lang: "en" }]);
@@ -659,9 +659,9 @@ describe("a dry run's controls", () => {
       "app.flow.dry_run.run": { run: "dry-x-1", steps: [], pending: 0, status: "active" },
     });
     render(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <DryControls module="flow" run="dry-x-1" status="active" />
-      </NestProvider>,
+      </HostProvider>,
     );
     await act(async () => fireEvent.click(screen.getByTestId("flow-dry-step")));
     expect(fake.calls).toContainEqual(["app.flow.dry_run.step", { run: "dry-x-1" }]);
@@ -675,9 +675,9 @@ describe("a dry run's controls", () => {
   it("are off once the dry run is over", () => {
     const fake = fakeHost();
     render(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <DryControls module="flow" run="dry-x-1" status="finished" />
-      </NestProvider>,
+      </HostProvider>,
     );
     expect((screen.getByTestId("flow-dry-step") as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByTestId("flow-dry-run") as HTMLButtonElement).disabled).toBe(true);
@@ -688,9 +688,9 @@ describe("a station in a dry run", () => {
   it("shows the message a session task's session would have been sent", () => {
     const fake = fakeHost();
     render(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <StationPanel station="review" def={DEF} view={DRY} />
-      </NestProvider>,
+      </HostProvider>,
     );
     expect(screen.getByTestId("flow-preview-review").textContent).toContain("flow-harnix · flow_submit");
     expect(screen.getByTestId("flow-preview-message-review").textContent).toContain("## Skill `review`");
@@ -702,9 +702,9 @@ describe("a station in a dry run", () => {
     };
     const fake = fakeHost({ "app.flow.claim": { token: "tok", until: 1 } });
     render(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <StationPanel station="sign" def={DEF} view={ready} />
-      </NestProvider>,
+      </HostProvider>,
     );
     fireEvent.click(screen.getByTestId("flow-hand-in-sign"));
     fireEvent.change(screen.getByTestId("flow-hand-in-output-sign"), { target: { value: '{"signed": true}' } });
@@ -718,9 +718,9 @@ describe("a station in a dry run", () => {
     // A session task offers no hand-in.
     cleanup();
     render(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <StationPanel station="review" def={DEF} view={DRY} />
-      </NestProvider>,
+      </HostProvider>,
     );
     expect(screen.queryByTestId("flow-hand-in-review")).toBeNull();
   });
@@ -731,9 +731,9 @@ describe("a station in a dry run", () => {
     };
     const fake = fakeHost();
     render(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <StationPanel station="sign" def={DEF} view={held} />
-      </NestProvider>,
+      </HostProvider>,
     );
     expect(screen.queryByTestId("flow-hand-in-sign")).toBeNull();
   });
@@ -751,18 +751,18 @@ describe("a hand-in the module refuses", () => {
       "app.flow.submit": () => (refuse ? Promise.reject(new Error("the output does not match the contract")) : null),
     });
     const { rerender } = render(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <StationPanel station="sign" def={DEF} view={ready("ready")} />
-      </NestProvider>,
+      </HostProvider>,
     );
     fireEvent.click(screen.getByTestId("flow-hand-in-sign"));
     await act(async () => fireEvent.click(screen.getByTestId("flow-hand-in-submit-sign")));
     expect(screen.getByTestId("flow-hand-in-error-sign").textContent).toContain("does not match");
     // The task is now claimed (by this panel): the form stays, with the claim shown.
     rerender(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <StationPanel station="sign" def={DEF} view={ready("claimed")} />
-      </NestProvider>,
+      </HostProvider>,
     );
     expect(screen.getByTestId("flow-hand-in-held-sign")).toBeTruthy();
     expect(screen.getByTestId("flow-hand-in-submit-sign").textContent).toBe("Hand in again");
@@ -780,16 +780,16 @@ describe("a hand-in the module refuses", () => {
       "app.flow.submit": () => Promise.reject(new Error("no")),
     });
     const { rerender } = render(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <StationPanel station="sign" def={DEF} view={ready("ready")} />
-      </NestProvider>,
+      </HostProvider>,
     );
     fireEvent.click(screen.getByTestId("flow-hand-in-sign"));
     await act(async () => fireEvent.click(screen.getByTestId("flow-hand-in-submit-sign")));
     rerender(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <StationPanel station="sign" def={DEF} view={ready("claimed")} />
-      </NestProvider>,
+      </HostProvider>,
     );
     await act(async () => fireEvent.click(screen.getByTestId("flow-hand-in-give-up-sign")));
     expect(fake.calls.find(([m]) => m === "app.flow.fail")?.[1]).toMatchObject({ run: "dry-example-review-1", station: "sign", task: "sign", token: "tok" });
@@ -825,10 +825,10 @@ describe("a changing tool call names what it acts on", () => {
     expect(r.claim("tool.row", block("flow_show", {}))).toBe(null);
     const fake = fakeHost();
     render(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <ToolTargetLine target={toolTarget("flow_update", { flow: "example-review" })!} />
         <ToolTargetLine target={toolTarget("flow_create", { yaml: "name: authored\ntitle: Authored here" })!} />
-      </NestProvider>,
+      </HostProvider>,
     );
     const [update, create] = screen.getAllByTestId("flow-tool-target");
     expect(update!.dataset.flow).toBe("example-review");
@@ -836,9 +836,9 @@ describe("a changing tool call names what it acts on", () => {
     expect(create!.textContent).toBe("Creates the flow authored (Authored here)");
     cleanup();
     render(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <ToolTargetLine target={toolTarget("flow_part_set", { kind: "policy", name: "read-only", text: "x" })!} />
-      </NestProvider>,
+      </HostProvider>,
     );
     expect(screen.getByTestId("flow-tool-target").textContent).toBe("Writes the policy read-only");
     expect(screen.getByTestId("flow-tool-target").dataset.kind).toBe("policy");
@@ -846,9 +846,9 @@ describe("a changing tool call names what it acts on", () => {
     expect(r.claim("tool.row", block("flow_pause", { run: "r-1" }))?.id).toBe("flow.author-tool");
     cleanup();
     render(
-      <NestProvider host={fake.host}>
+      <HostProvider host={fake.host}>
         <ToolTargetLine target={toolTarget("flow_confirm", { run: "r-1", station: "sign", pass: false })!} />
-      </NestProvider>,
+      </HostProvider>,
     );
     expect(screen.getByTestId("flow-tool-target").dataset.run).toBe("r-1");
     expect(screen.getByTestId("flow-tool-target").textContent).toBe("Rejects sign of the run r-1");
@@ -941,7 +941,7 @@ describe("inside the system space (registerSystemFlows)", () => {
     ]);
     await act(() => flows.state.enter("example-review"));
     const space = r.at("space")[0]!;
-    render(<NestProvider host={fake.host}>{space.sidebar!()}</NestProvider>);
+    render(<HostProvider host={fake.host}>{space.sidebar!()}</HostProvider>);
     await settle();
     expect(screen.getByTestId("flow-context").getAttribute("data-flow")).toBe("example-review");
     expect(screen.getByTestId("flow-context-title").textContent).toBe("Example: review and approve");
@@ -957,7 +957,7 @@ describe("inside the system space (registerSystemFlows)", () => {
     const { fake, flows } = inSystem();
     fake.push("app.flow.defs", {}, DEFS);
     fake.push("app.flow.runs", {}, [{ id: "example-review-1", flow: "example-review", subject: "repo", status: "active", created_at: 2 }]);
-    render(<NestProvider host={fake.host}>{flows.render()}</NestProvider>);
+    render(<HostProvider host={fake.host}>{flows.render()}</HostProvider>);
     await settle();
     expect(screen.getByTestId("system-flows")).toBeTruthy();
     fireEvent.click(screen.getByTestId("flow-run-example-review-1"));

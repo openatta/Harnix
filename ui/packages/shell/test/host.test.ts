@@ -1,5 +1,5 @@
 /**
- * The host a contribution is handed (`useNest()`), against a scripted client: the current session's
+ * The host a contribution is handed (`useHost()`), against a scripted client: the current session's
  * notifications, the right column's tabs, bringing a space to the front, and topics counted across
  * every subscriber on the page.
  */

@@ -1,5 +1,5 @@
 /**
- * What a space can do through its host (`useNest()`) and what it can say about itself
+ * What a space can do through its host (`useHost()`) and what it can say about itself
  * (`SpaceContribution`), in a real browser against a real backend.
  *
  * The spaces here are registered from inside the page, on the shell's own registry, the way a

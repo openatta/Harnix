@@ -27,7 +27,7 @@
  * the front by another way (a session opened there, the page loaded on it) keeps the session open.
  */
 
-import type { HostSessionRef as SessionRef, NestHost } from "@harnix/react";
+import type { HostSessionRef as SessionRef, HostApi } from "@harnix/react";
 
 import { focusTopic, isDryRun, mainSessionOf, methodName } from "./model";
 import type { FlowConversation, Focus, RunView } from "./types";
@@ -51,7 +51,7 @@ export interface StateTabs {
 export class FlowSpaceState {
   private value: FlowSelection = { flow: null, run: null, station: null };
   private readonly listeners = new Set<() => void>();
-  private host: NestHost | null = null;
+  private host: HostApi | null = null;
   /** `instance/session_id` of the session the topic is followed for. */
   private followed: string | null = null;
   private unfollow: (() => void) | null = null;
@@ -101,7 +101,7 @@ export class FlowSpaceState {
   }
 
   /** Start following; the first host wins, later calls do nothing. */
-  attach(host: NestHost): void {
+  attach(host: HostApi): void {
     if (this.host) return;
     this.host = host;
     host.session.onChange(() => {

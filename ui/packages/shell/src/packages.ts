@@ -15,7 +15,7 @@
 
 import type { Hello } from "@harnix/core";
 import { CONTRIB_API_VERSION } from "@harnix/core/protocol";
-import { t, type Locale, type NestHost, type Registry } from "@harnix/react";
+import { t, type Locale, type HostApi, type Registry } from "@harnix/react";
 
 import type { App } from "./app.ts";
 import { hostFor } from "./host.ts";
@@ -55,7 +55,7 @@ export async function loadPackages(app: App, hello: Hello): Promise<void> {
     if (!(module.startsWith("/plugins/") || module.startsWith("/apps/")) || loaded.has(module)) continue;
     loaded.add(module);
     try {
-      const imported = (await import(/* @vite-ignore */ module)) as { register?: (r: Registry, host: NestHost) => void };
+      const imported = (await import(/* @vite-ignore */ module)) as { register?: (r: Registry, host: HostApi) => void };
       if (typeof imported.register !== "function") throw new Error(t("contrib.noRegister"));
       imported.register(signed(app.registry, owner), hostFor(app, owner));
     } catch (e) {
