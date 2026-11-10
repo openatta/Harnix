@@ -17,8 +17,8 @@
 //! Providers are written the same way, into the global tier. The engine's `engine.config.setProvider`
 //! writes the project tier of a working directory, which is wherever the process happened to be
 //! started — a provider added from the settings page would be gone the next time it was started
-//! from somewhere else — so it is used only for what it is good at here: refusing a provider
-//! entry the engine would not read, and saying why.
+//! from somewhere else — so the engine is asked only what it is good at here: whether it would
+//! read the entry (`EngineView::validate_provider`), and why not.
 
 use std::path::PathBuf;
 
@@ -109,7 +109,7 @@ fn require_str(params: &Value, key: &str) -> Rpc<String> {
 }
 
 /// The instance whose settings these are, and where its tiers are written.
-fn system(call: &Call) -> Rpc<harnix_ext::EngineView> {
+fn main_engine(call: &Call) -> Rpc<harnix_ext::EngineView> {
     call.ext()
         .engine(MAIN_INSTANCE)
         .ok_or_else(|| RpcError::new(codes::INTERNAL_ERROR, "the engine has not started yet"))
@@ -117,7 +117,7 @@ fn system(call: &Call) -> Rpc<harnix_ext::EngineView> {
 
 /// The settings.json a tier writes to, if that tier exists here.
 fn tier_path(call: &Call, tier: &str, scene: Option<&str>, project_root: Option<&str>) -> Rpc<Option<PathBuf>> {
-    let files = system(call)?.config_files()?;
+    let files = main_engine(call)?.config_files()?;
     Ok(match tier {
         "global" => Some(files.global()),
         "scene" => scene.map(|scene| files.scene(scene)),
@@ -132,7 +132,7 @@ async fn describe(call: &Call, params: Value) -> Rpc<Value> {
     // default rather than sending a request that cannot succeed: a settings page opened with no
     // session is the ordinary case, and it used to answer every field `null` — a write made and
     // then read back as nothing, with the error swallowed on the way.
-    let default_scene = system(call)?.active_scenes().first().cloned();
+    let default_scene = main_engine(call)?.active_scenes().first().cloned();
     let scene = params.get("scene").and_then(Value::as_str).map(str::to_string).or(default_scene);
     let project_root = params.get("project_root").and_then(Value::as_str).map(str::to_string);
 
@@ -253,7 +253,7 @@ async fn set(call: &Call, params: Value) -> Rpc<Value> {
     // The same default as `describe`, for the same reason: a write with no scene would otherwise
     // resolve no tier path and be refused for a reason that has nothing to do with what was
     // asked.
-    let default_scene = system(call)?.active_scenes().first().cloned();
+    let default_scene = main_engine(call)?.active_scenes().first().cloned();
     let scene = params.get("scene").and_then(Value::as_str).or(default_scene.as_deref());
     let project_root = params.get("project_root").and_then(Value::as_str);
 
@@ -302,7 +302,9 @@ async fn set_provider(call: &Call, params: Value) -> Rpc<Value> {
         params.get("default_provider").and_then(Value::as_str),
     )?;
     if let (false, Some(config)) = (delete, params.get("config")) {
-        engine_accepts(call, config).await?;
+        main_engine(call)?
+            .validate_provider(config)?
+            .map_err(RpcError::invalid_params)?;
     }
     write_document(&path, &document)?;
 
@@ -322,26 +324,6 @@ async fn set_provider(call: &Call, params: Value) -> Rpc<Value> {
         "reloaded_instances": inherited,
         "providers": providers,
     }))
-}
-
-/// Whether the engine can read this provider patch: it is the one that knows what a provider
-/// entry is, and `engine.config.setProvider` refuses what it cannot read, saying why. The patch is
-/// handed to it for a project of this extension's own, which is removed again — what is kept is
-/// the global tier's, written here.
-async fn engine_accepts(call: &Call, config: &Value) -> Rpc<()> {
-    let scratch = call.ext().data_dir().join("provider-check");
-    let asked = call
-        .call(
-            "engine.config.setProvider",
-            json!({"provider_id": "check", "config": config, "project_root": scratch.display().to_string()}),
-        )
-        .await;
-    if let Err(e) = std::fs::remove_dir_all(&scratch) {
-        if e.kind() != std::io::ErrorKind::NotFound {
-            tracing::warn!(error = %e, "the provider check's scratch directory was not removed");
-        }
-    }
-    asked.map(|_| ())
 }
 
 fn kind_name(kind: Kind) -> &'static str {
@@ -414,7 +396,7 @@ fn valid_provider_id(id: &str) -> bool {
 }
 
 /// Apply one provider change to a settings document, refusing what a settings page may not write.
-/// Whether the engine can read the entry is its own to say: see `engine_accepts`.
+/// Whether the engine can read the entry is its own to say: see `EngineView::validate_provider`.
 fn patch_providers(
     document: &mut Value,
     provider_id: &str,
