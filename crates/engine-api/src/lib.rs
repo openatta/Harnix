@@ -13,6 +13,7 @@ pub mod contribution;
 pub mod credentials;
 pub mod gate;
 pub mod provider;
+pub mod readers;
 pub mod scene;
 pub mod tool;
 

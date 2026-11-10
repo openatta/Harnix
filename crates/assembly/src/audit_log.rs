@@ -21,11 +21,8 @@
 //! looking for afterwards: a refusal, a device paired or revoked, an
 //! extension installed. Routine allows stay in the ring.
 
-use std::sync::Arc;
-
 use harnix_authz::{AuditEntry, AuditSink};
-use history::entry::LogEntry;
-use history::store::HistoryStore;
+use harnix_engine::timeline::Timeline;
 
 /// The namespace these entries are filed under. One key, opaque to the
 /// engine, and the thing that makes them skippable by anything that does not
@@ -33,7 +30,6 @@ use history::store::HistoryStore;
 const NS: &str = "harnix.audit";
 
 pub struct TimelineAudit {
-    store: Arc<dyn HistoryStore>,
     /// Which session an entry belongs to.
     ///
     /// Authorization decides about a *subject and a method*; it has no idea
@@ -43,15 +39,12 @@ pub struct TimelineAudit {
     /// the ring alone when there is not — a device being paired belongs to no
     /// conversation, and inventing one for it would be worse than not having
     /// it in a transcript.
-    handle: tokio::runtime::Handle,
+    timeline: Timeline,
 }
 
 impl TimelineAudit {
-    pub fn new(store: Arc<dyn HistoryStore>) -> Self {
-        Self {
-            store,
-            handle: tokio::runtime::Handle::current(),
-        }
+    pub fn new(timeline: Timeline) -> Self {
+        Self { timeline }
     }
 }
 
@@ -61,33 +54,19 @@ impl AuditSink for TimelineAudit {
         if entry.decision == "allow" && !is_consequential(&entry.method) {
             return;
         }
-        // A session id that does not parse is one that was never real — a
-        // typo in a call that was refused, most likely. There is nowhere to
-        // file that, and inventing somewhere would be worse than the ring.
-        let Some(session) = entry
-            .session
-            .as_deref()
-            .and_then(|s| base::session::SessionId::parse(s).ok())
-        else {
+        // A session id that does not parse is one that was never real — a typo in a call that
+        // was refused, most likely. There is nowhere to file that, and inventing somewhere would
+        // be worse than the ring. The write is fire and forget: an audit write must never be able
+        // to fail a call, and it must never be able to slow one down either.
+        let Some(session) = entry.session.as_deref() else {
             return;
         };
-        let record = LogEntry::Extension {
-            ns: NS.to_string(),
-            event: entry.decision.to_string(),
-            payload: serde_json::json!({
-                "subject": entry.subject,
-                "method": entry.method,
-                "reason": entry.reason,
-            }),
-        };
-        let store = self.store.clone();
-        // Fire and forget: an audit write must never be able to fail a call,
-        // and it must never be able to slow one down either.
-        self.handle.spawn(async move {
-            if let Err(e) = store.append(session, record).await {
-                tracing::warn!(error = %e, "audit entry not written to the timeline");
-            }
+        let payload = serde_json::json!({
+            "subject": entry.subject,
+            "method": entry.method,
+            "reason": entry.reason,
         });
+        self.timeline.append(session, NS, entry.decision, payload);
     }
 }
 

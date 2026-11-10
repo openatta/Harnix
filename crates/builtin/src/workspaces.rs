@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 
 use harnix_contract::{codes, RpcError};
+use harnix_engine_api::readers::Transcripts;
 use serde_json::{json, Value};
 
 use crate::store::{new_workspace_id, Workspace};
@@ -233,7 +234,7 @@ impl Builtin {
     /// Content search across sessions.
     ///
     /// Ordering comes from `session.list` (most recent first); the scan itself
-    /// reads the transcript store directly — see `crate::search` for why
+    /// reads the transcript store directly — see `harnix_engine::readers` for why
     /// this does not page `session.history`.
     pub(crate) async fn search(&self, params: Value) -> Result<Value, RpcError> {
         let query = require_str(&params, "query")?;
@@ -260,7 +261,9 @@ impl Builtin {
         if let Some(limit) = params.get("limit").and_then(Value::as_u64) {
             limits.max_hits = (limit as usize).clamp(1, limits.max_hits);
         }
-        let outcome = crate::search::search(store.as_ref(), &sessions, &query, &limits).await;
+        let outcome = harnix_engine::readers::TranscriptStore::new(store)
+            .search(&sessions, &query, &limits)
+            .await;
 
         // Titles live here, not in the transcript.
         let titles = {

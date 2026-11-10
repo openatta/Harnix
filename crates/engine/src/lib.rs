@@ -9,7 +9,10 @@ mod adapt;
 pub mod contrib;
 pub mod engine;
 mod hooks;
+pub mod readers;
 pub mod scenes;
+pub mod settings;
+pub mod timeline;
 
 #[cfg(feature = "agix")]
 pub mod agix;
