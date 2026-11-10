@@ -1579,6 +1579,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "harnix-ext-devices"
+version = "0.4.2-2026110901"
+dependencies = [
+ "async-trait",
+ "harnix-ext",
+ "serde_json",
+]
+
+[[package]]
 name = "harnix-ext-flow"
 version = "0.4.2-2026110901"
 dependencies = [
@@ -1601,6 +1610,42 @@ dependencies = [
  "tokio-util",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "harnix-ext-observability"
+version = "0.4.2-2026110901"
+dependencies = [
+ "async-trait",
+ "harnix-ext",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "harnix-ext-plugins"
+version = "0.4.2-2026110901"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "harnix-ext",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml",
+ "tracing",
+]
+
+[[package]]
+name = "harnix-ext-settings"
+version = "0.4.2-2026110901"
+dependencies = [
+ "async-trait",
+ "harnix-ext",
+ "serde_json",
+ "tempfile",
+ "tracing",
 ]
 
 [[package]]

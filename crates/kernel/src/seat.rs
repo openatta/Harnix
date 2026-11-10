@@ -46,6 +46,8 @@ pub struct InstanceView {
     pub trust: InstanceTrust,
     /// Where its engine looks for skills.
     pub skills_dir: PathBuf,
+    /// Where its engine's global and scene settings tiers are written.
+    pub settings_root: PathBuf,
     /// An `Arc<dyn harnix_engine_api::readers::Recordings>`, when the instance keeps recordings.
     pub recordings: Option<Arc<dyn Any + Send + Sync>>,
     /// An `Arc<dyn harnix_engine_api::readers::Transcripts>`, when its transcripts can be read here.

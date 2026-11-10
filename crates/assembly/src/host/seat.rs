@@ -81,15 +81,26 @@ impl TopicPublisher for HubTopics {
 
 /// Instances as facts: what the instance registry knows of each, and the readers of what its
 /// engine writes down.
-pub(crate) struct InstanceViews(pub Arc<InstanceRegistry>);
+pub(crate) struct InstanceViews {
+    instances: Arc<InstanceRegistry>,
+    /// One recordings reader per root, kept: what a reader folded (the usage figures) is kept
+    /// until a recording changes, and a reader made for every view would keep nothing.
+    readers: Mutex<HashMap<PathBuf, Arc<RecordingsDir>>>,
+}
+
+impl InstanceViews {
+    pub fn new(instances: Arc<InstanceRegistry>) -> Self {
+        Self { instances, readers: Mutex::new(HashMap::new()) }
+    }
+}
 
 impl InstanceService for InstanceViews {
     fn view(&self, id: &str) -> Option<InstanceView> {
-        let listed = self.0.facts(id)?;
+        let listed = self.instances.facts(id)?;
         let (facts, trust) = (listed.engine, listed.trust);
-        let recordings: Arc<dyn Recordings> = Arc::new(RecordingsDir::new(
-            facts.recordings_root.clone().unwrap_or_else(|| facts.data_root.join("recordings")),
-        ));
+        let root = facts.recordings_root.clone().unwrap_or_else(|| facts.data_root.join("recordings"));
+        let recordings: Arc<dyn Recordings> =
+            lock(&self.readers).entry(root.clone()).or_insert_with(|| Arc::new(RecordingsDir::new(root))).clone();
         let transcripts = facts
             .history
             .clone()
@@ -100,6 +111,7 @@ impl InstanceService for InstanceViews {
             model: facts.model.clone().unwrap_or_default(),
             trust,
             skills_dir: facts.data_root.join("skills"),
+            settings_root: facts.data_root.clone(),
             recordings: Some(Arc::new(recordings)),
             transcripts,
         })

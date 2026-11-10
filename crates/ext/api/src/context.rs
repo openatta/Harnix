@@ -149,6 +149,25 @@ impl SkillsDir {
     }
 }
 
+/// Where an instance's engine keeps the settings tiers an extension that edits them writes: the
+/// global tier and each scene's. The project tier is the project's own, `<project>/.agix/`.
+#[derive(Debug, Clone)]
+pub struct ConfigFiles {
+    root: PathBuf,
+}
+
+impl ConfigFiles {
+    /// The global tier's `settings.json`.
+    pub fn global(&self) -> PathBuf {
+        self.root.join("settings.json")
+    }
+
+    /// One scene's tier's `settings.json`.
+    pub fn scene(&self, scene: &str) -> PathBuf {
+        self.root.join("scenes").join(scene).join("settings.json")
+    }
+}
+
 /// A read-only view of one instance. Not a way to call it: that is a method, through
 /// [`ExtensionContext::call`].
 #[derive(Clone)]
@@ -188,6 +207,12 @@ impl EngineView {
         self.view
             .transcripts()
             .ok_or_else(|| crate::RpcError::missing(format!("`{}`'s transcripts cannot be read here", self.instance())))
+    }
+
+    /// Where its engine's settings tiers are written. Needs `engine.config.write`.
+    pub fn config_files(&self) -> Rpc<ConfigFiles> {
+        self.ext.require(&caps::ENGINE_CONFIG_WRITE)?;
+        Ok(ConfigFiles { root: self.view.0.settings_root.clone() })
     }
 
     /// Where its engine looks for skills. Needs `engine.plugins`.

@@ -1,0 +1,24 @@
+[package]
+name = "harnix-ext-plugins"
+version      = "0.4.2-2026110901"
+edition      = "2021"
+rust-version = "1.87"
+license      = "Apache-2.0"
+publish      = false
+description  = "Plugins: receive a package file, ask the engine to install it, serve and publish what it contributes to the interface"
+
+[lib]
+name = "harnix_ext_plugins"
+
+[dependencies]
+harnix-ext  = { workspace = true }
+async-trait = { workspace = true }
+serde_json  = { workspace = true }
+anyhow      = { workspace = true }
+serde       = { workspace = true }
+toml        = { workspace = true }
+tokio       = { workspace = true }
+tracing     = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

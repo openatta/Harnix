@@ -108,7 +108,7 @@ pub(super) fn admit(
         grants: grants.clone(),
         clients: hub.clone(),
         topics: Arc::new(HubTopics(hub.clone())),
-        instances: Arc::new(InstanceViews(instances.clone())),
+        instances: Arc::new(InstanceViews::new(instances.clone())),
         process: Arc::new(ProcessView(behind.process.clone())),
         bulk: Arc::new(HostUploads::new(
             parts.state_root.join("uploads").join(std::process::id().to_string()).join("ext"),
