@@ -51,6 +51,9 @@ pub struct HostOptions {
     /// hibernate; a product has no reason to, and a profile cannot.
     #[doc(hidden)]
     pub idle: Option<std::time::Duration>,
+    /// Where applications' HTTP goes out, when the product decides their `net` on its side too;
+    /// this process's network otherwise.
+    pub http: Option<Arc<dyn HttpFetcher>>,
 }
 
 /// One application that is running.
@@ -203,8 +206,8 @@ impl Host {
             engine: WasmEngine::new()?,
             kernel,
             agent,
+            http: options.http.clone().unwrap_or_else(|| Arc::new(crate::http::Http::new())),
             options,
-            http: Arc::new(crate::http::Http::new()),
             apps: RwLock::new(BTreeMap::new()),
             bridges: Mutex::new(BTreeMap::new()),
             failed: Mutex::new(BTreeMap::new()),

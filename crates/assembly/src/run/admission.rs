@@ -1,6 +1,5 @@
-//! Admission: the router every call goes through, the audit it keeps, what the extensions are
-//! seated with when they start, and the kernel a module is handed while modules are read through
-//! their shim.
+//! Admission: the router every call goes through, the audit it keeps, and what the extensions are
+//! seated with when they start.
 
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, RwLock};
@@ -13,8 +12,8 @@ use serde_json::json;
 
 use crate::audit_log;
 use crate::pairing::DeviceBook;
-use crate::gate::{Behind, Diagnostics, ProcessKernel};
-use crate::host::dynamic::DynamicHost;
+use crate::gate::{Behind, Diagnostics};
+use crate::host::dynamic::{DynamicHost, DynamicParts};
 use crate::host::seat::{
     HostServicesRegistry, HostUploads, HubTopics, InstanceViews, ProcessView, Seats, Secrets, UiEntries,
 };
@@ -25,26 +24,25 @@ pub(crate) struct Admission {
     pub diagnostics: Arc<Diagnostics>,
     /// The route table, deciding every call and handing it to its row: what the transport calls.
     pub router: Arc<Router>,
-    /// What a module's context reaches the process through.
-    pub kernel: Arc<ProcessKernel>,
+    /// The instances, for what the start step tells them of an extension that did not start.
+    pub instances: Arc<harnix_instance::InstanceRegistry>,
     /// What an extension's context does.
     pub seats: Arc<Seats>,
     /// Where the listener is, once it is bound: told to every extension's context.
     pub listen: Arc<tokio::sync::watch::Sender<Option<Listening>>>,
     /// The host components' pipes, when anything may register extensions while the process runs.
     /// Held here for as long as the process runs: what hands them out holds them weakly.
-    #[allow(dead_code)]
     pub dynamic: Option<Arc<DynamicHost>>,
+    /// The credentials of the engines this process spawned, which the transport admits.
+    pub engines: Arc<harnix_authz::EngineCredentials>,
     /// What `harnix.ui` tells: pushed again once every extension has started.
     pub ui: Arc<UiModules>,
 }
 
-/// Who this process is, for diagnostics and the application host.
+/// Who this process is, for diagnostics.
 pub(super) struct Identity<'a> {
     pub name: &'a str,
     pub version: &'a str,
-    /// The modules besides the `apps` built-in that are handed the runtime-application host.
-    pub app_hosts: &'a [String],
 }
 
 /// What the extensions' seats are made from, besides the router.
@@ -56,10 +54,13 @@ pub(super) struct Parts {
     pub state_root: PathBuf,
     /// Where projects live (`--data-dir`).
     pub projects_root: PathBuf,
-    /// Whether the legacy runtime-application host is on (`[apps] enabled`).
-    pub apps_enabled: bool,
     /// Whether anything may register extensions while the process runs.
     pub dynamic: bool,
+    /// `[ui] runtime_modules`: whether packages' interfaces reach the page.
+    pub runtime_modules: bool,
+    /// The profile's `[ext."<package id>"]` sections.
+    pub package_sections: std::collections::BTreeMap<String, serde_json::Value>,
+    pub engines: Arc<harnix_authz::EngineCredentials>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -81,7 +82,6 @@ pub(super) fn admit(
             "harnix": crate::HARNIX_VERSION,
             "agix": harnix_engine::about(),
             "ext_api": harnix_ext::EXT_API_VERSION,
-            "module_api": harnix_module::MODULE_API_VERSION,
             "contribution_api": harnix_contract::CONTRIB_API_VERSION,
             "protocol": harnix_contract::PROTOCOL_VERSION,
         }),
@@ -92,17 +92,6 @@ pub(super) fn admit(
     let router = Arc::new(Router::new(table, grants.clone(), audit));
     let _ = diagnostics.router.set(Arc::downgrade(&router));
     let _ = behind.diagnostics.set(diagnostics.clone());
-    let kernel = Arc::new(ProcessKernel {
-        router: OnceLock::new(),
-        apps: OnceLock::new(),
-        app_hosts: std::iter::once(harnix_builtin::apps::MODULE_ID.to_string())
-            .chain(identity.app_hosts.iter().cloned())
-            .collect(),
-        hub: hub.clone(),
-        instances: instances.clone(),
-        listen: tokio::sync::watch::channel(None).0,
-    });
-    let _ = kernel.router.set(router.clone());
     let (listen, listening) = tokio::sync::watch::channel(None);
     let listen = Arc::new(listen);
     let mut dynamic = None;
@@ -125,26 +114,38 @@ pub(super) fn admit(
         listen: listening,
         projects_dir: parts.projects_root.clone(),
     });
-    if parts.apps_enabled || parts.dynamic {
+    if parts.dynamic {
         // Every linked extension's id was registered in the table, enabled or not: one registered
         // while the process runs never takes one, or nests under one.
-        let apps = Arc::new(crate::apps::Apps::new(router.clone(), Arc::new(crate::apps::HubSurfaces(hub.clone())), grants));
-        if parts.apps_enabled {
-            let _ = kernel.apps.set(apps.clone());
-            tracing::info!("this process hosts runtime applications");
-        }
-        let host = DynamicHost::new(apps.clone(), router.clone(), seats.clone(), parts.servers, parts.state_root);
+        let packages = Arc::new(crate::package_table::PackageTable::new(
+            router.clone(),
+            Arc::new(crate::package_table::HubSurfaces(hub.clone())),
+            grants,
+        ));
+        let host = DynamicHost::new(
+            packages.clone(),
+            DynamicParts {
+                router: router.clone(),
+                seats: seats.clone(),
+                servers: parts.servers,
+                state_root: parts.state_root,
+                ui: parts.ui.clone(),
+                runtime_modules: parts.runtime_modules,
+                sections: parts.package_sections,
+            },
+        );
         services.set(&host);
-        let _ = diagnostics.dynamic.set(apps);
+        let _ = diagnostics.dynamic.set(packages);
         dynamic = Some(host);
     }
     Admission {
         diagnostics,
         router,
-        kernel,
+        instances: instances.clone(),
         seats,
         listen,
         dynamic,
+        engines: parts.engines,
         ui: parts.ui,
     }
 }

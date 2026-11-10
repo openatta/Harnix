@@ -241,26 +241,6 @@ mod tests {
         }
     }
 
-    /// Every capability a built-in requires is the kernel's, and opens a row: what its manifest
-    /// asks for is something.
-    #[test]
-    fn every_capability_a_built_in_requires_opens_a_kernel_row() {
-        let table = table(&Behind::default());
-        let snapshot = harnix_router::Router::new(table, Arc::new(harnix_kernel::GrantTable::new()), Arc::new(Audit::default())).snapshot();
-        let required: Vec<&str> = snapshot["rows"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|row| row["access"]["requires"][0].as_str())
-            .collect();
-        for cap in harnix_builtin::apps::REQUIRES {
-            assert!(harnix_contract::s1::caps::kernel(cap).is_some(), "{cap} is not the kernel's");
-            if *cap != harnix_contract::s1::caps::INSTANCES_ADMIN {
-                assert!(required.contains(&cap.as_str()), "no row requires {cap}");
-            }
-        }
-    }
-
     /// A row the kernel installed before what answers it was up says so, rather than answering
     /// nothing or panicking.
     #[tokio::test]

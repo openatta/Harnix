@@ -289,7 +289,7 @@ summary: how many findings of each severity, and the one that matters most.
 ";
 
 /// The scene a template's session hands in from: harnix, with `StructuredOutput` allowed.
-fn structured(e: &mut EngineContrib) {
+fn structured(e: &mut harnix::engine::EngineContribution) {
     e.scene(structured_scene(SceneBase::builtin("harnix")));
 }
 

@@ -6,8 +6,6 @@ use harnix_ext::ExtensionDescriptor;
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use super::Namespace;
-
 /// One extension, as the diagnostics page lists it.
 #[derive(Debug, Clone, Serialize)]
 pub struct ExtensionStatus {
@@ -17,9 +15,6 @@ pub struct ExtensionStatus {
     pub trust: &'static str,
     /// `native`, `wasm` or `process`.
     pub carrier: &'static str,
-    /// A module read through its shim: where its names live.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub namespace: Option<Namespace>,
     pub enabled: bool,
     /// Where it was disabled: `assembly`, `registration`, `configuration`, `migration` or `start`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -67,14 +62,13 @@ pub struct MethodStatus {
 
 impl ExtensionStatus {
     /// What its manifest says, before anything of it is read.
-    pub fn new(manifest: &harnix_ext::Manifest, namespace: Option<Namespace>, granted: &[Capability]) -> Self {
+    pub fn new(manifest: &harnix_ext::Manifest, granted: &[Capability]) -> Self {
         let names = |caps: &[Capability]| caps.iter().map(ToString::to_string).collect();
         Self {
             id: manifest.id().to_string(),
             version: manifest.version().to_string(),
             trust: "origin",
             carrier: "native",
-            namespace,
             enabled: true,
             phase: None,
             reason: None,

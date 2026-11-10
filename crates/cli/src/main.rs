@@ -1,7 +1,8 @@
-//! `harnix` — the Harnix app: the built-ins, and the flow module (xops-02 §6).
+//! `harnix` — the Harnix app: Harnix's own extensions, flows, and packages in this process.
 //!
-//! An application's own binary is the built-ins with its modules added (`templates/app`); an
-//! application that wants flows registers `harnix_ext_flow::Flow` itself, as this one does.
+//! An application's own binary is Harnix's extensions with its own added (`templates/app`); an
+//! application that wants flows registers `harnix_ext_flow::Flow` itself, as this one does, and
+//! one that runs packages adds `harnix::first_party::packages()`.
 //!
 //! The flow module here has no programs, checks or tools of an application — a flow that names
 //! one does not validate (a dry run still goes through it: there everything is mocked). Command
@@ -13,17 +14,23 @@
 //! on `flow-harnix` unless its flow names another, in a directory of the run's own. Run under
 //! `--replay-dir`, the flow sessions replay recordings named after their run or flow.
 
+#[cfg(feature = "flow")]
 use harnix_ext_flow::{DirPacks, Flow, MemPacks};
 
+#[cfg(feature = "flow")]
 /// The example flow built into the binary: a session reviews the subject, a person approves.
 pub const EXAMPLE_FLOW: &str = include_str!("../packs/flows/example-review.yaml");
+#[cfg(feature = "flow")]
 /// The skill its session works from.
 pub const EXAMPLE_SKILL: &str = include_str!("../packs/skills/review/SKILL.md");
+#[cfg(feature = "flow")]
 /// The rule it keeps.
 pub const EXAMPLE_RULE: &str = include_str!("../packs/rules/review-honest.md");
+#[cfg(feature = "flow")]
 /// The policy it works under.
 pub const EXAMPLE_POLICY: &str = include_str!("../packs/policies/read-only.yaml");
 
+#[cfg(feature = "flow")]
 /// The example's flow and parts.
 fn example() -> MemPacks {
     MemPacks::new()
@@ -33,6 +40,7 @@ fn example() -> MemPacks {
         .policy(EXAMPLE_POLICY)
 }
 
+#[cfg(feature = "flow")]
 /// The flow module as the Harnix app registers it.
 pub fn flow() -> Flow {
     Flow::builder()
@@ -54,14 +62,21 @@ pub fn flow() -> Flow {
         .build()
 }
 
-fn main() -> anyhow::Result<()> {
-    harnix::App::builder()
-        .with_builtins()
-        .extensions(harnix::first_party::standard_with_flow(flow()))
-        .run()
+/// Harnix's own extensions, as this build has them.
+pub fn extensions() -> harnix::ExtensionSet {
+    let set = harnix::first_party::standard();
+    #[cfg(feature = "flow")]
+    let set = set.with(flow(), harnix::first_party::FLOW_GRANTS);
+    #[cfg(feature = "wasm")]
+    let set = set.with(harnix::first_party::packages(), harnix::first_party::PACKAGES_GRANTS);
+    set
 }
 
-#[cfg(test)]
+fn main() -> anyhow::Result<()> {
+    harnix::App::builder().extensions(extensions()).run()
+}
+
+#[cfg(all(test, feature = "flow"))]
 mod tests {
     use super::*;
     use harnix_ext_flow::{validate_yaml, Packs};

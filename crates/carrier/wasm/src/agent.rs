@@ -1,38 +1,37 @@
-//! The host's [`Agent`], over this process's Agix: an embedded application's agent side.
+//! The host's [`Agent`], over the component's context: a package's agent side, in this process's
+//! instances.
 //!
-//! Its agent package is installed into the instances its manifest names (`engine.plugin.install` and
-//! friends), its skills are copied into each one's skills directory, marked as its own, and its
-//! tools are in every session built here ([`crate::AppsBridge`] reads what
-//! [`Agent::expose_tools`] offered). Reached, like the kernel, through the `apps` module's context.
+//! Its agent package is installed into the instances its manifest names (`engine.plugin.install`
+//! and friends, as the component), its skills are copied into each one's skills directory, marked
+//! as its own, and its tools are in every session built here ([`crate::WasmTools`] reads what
+//! [`Agent::expose_tools`] offered).
 
 use std::path::PathBuf;
 
 use async_trait::async_trait;
+use harnix_ext::RpcError;
+use harnix_ext::ExtensionContext;
 use harnix_package::acquire::{internal, refused};
 use harnix_package::package;
 use harnix_wasm_port::{Agent, AgentInstall, AgentRef, AgentSwitch, Offer, Skills};
-use harnix_contract::RpcError;
-use harnix_module::ModuleContext;
 use serde_json::{json, Value};
 
-use crate::platform::KernelPlatform;
+use crate::kernel::CarrierKernel;
 
-/// What marks a skill directory as an application's, inside an instance's skills directory.
+/// What marks a skill directory as a package's, inside an instance's skills directory.
 const SKILL_MARK: &str = ".harnix-app";
 
-impl KernelPlatform {
-    fn skills_dir(cx: &ModuleContext, instance: &str) -> Result<PathBuf, RpcError> {
-        cx.instance(instance)
-            .map(|h| h.data_root.join("skills"))
-            .ok_or_else(|| refused(format!("there is no instance `{instance}`")))
+impl CarrierKernel {
+    fn skills_dir(cx: &ExtensionContext, instance: &str) -> Result<PathBuf, RpcError> {
+        let engine = cx.engine(instance).ok_or_else(|| refused(format!("there is no instance `{instance}`")))?;
+        Ok(engine.skills()?.path().to_path_buf())
     }
 }
 
 #[async_trait]
-impl Agent for KernelPlatform {
-
+impl Agent for CarrierKernel {
     async fn has_instance(&self, instance: String) -> Result<bool, RpcError> {
-        Ok(self.cx()?.instance(&instance).is_some())
+        Ok(self.cx()?.engine(&instance).is_some())
     }
 
     async fn install_agent(&self, a: AgentInstall) -> Result<Value, RpcError> {
@@ -59,9 +58,8 @@ impl Agent for KernelPlatform {
             .map(|_| ())
     }
 
-    /// Copy `<source>/<name>/` into the instance's skills directory, marked as the application's.
-    /// A directory of that name that is not the application's is somebody else's skill, and
-    /// refuses it.
+    /// Copy `<source>/<name>/` into the instance's skills directory, marked as the package's. A
+    /// directory of that name that is not the package's is somebody else's skill, and refuses it.
     async fn place_skills(&self, s: Skills) -> Result<(), RpcError> {
         let (id, instance) = (&s.app, &s.instance);
         let dir = Self::skills_dir(&self.cx()?, instance)?;
@@ -95,7 +93,7 @@ impl Agent for KernelPlatform {
         Ok(())
     }
 
-    /// Remove the skills marked as the application's, and nothing else.
+    /// Remove the skills marked as the package's, and nothing else.
     async fn remove_skills(&self, s: Skills) -> Result<(), RpcError> {
         let Ok(dir) = Self::skills_dir(&self.cx()?, &s.instance) else {
             return Ok(());
@@ -108,7 +106,7 @@ impl Agent for KernelPlatform {
                 == Some(s.app.as_str())
             {
                 if let Err(e) = std::fs::remove_dir_all(&target) {
-                    tracing::warn!(app = %s.app, skill = %name, error = %e, "a skill was not removed");
+                    tracing::warn!(package = %s.app, skill = %name, error = %e, "a skill was not removed");
                 }
             }
         }

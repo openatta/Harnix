@@ -159,7 +159,7 @@ pub struct RouteTable {
 /// Why a package, acting as itself, is refused a name its consent does not list.
 pub const OUTSIDE_HUB: &str = "not in the application's `calls` capability";
 
-/// Why a package, or its page in a frame, is refused another package's names.
+/// Why a package's page in a frame is refused another package's names.
 pub const ANOTHER_PACKAGES: &str = "another package's names are that package's own";
 
 /// Why a package, or its page in a frame, is refused a native extension's row not open to it.
@@ -410,20 +410,25 @@ impl RouteTable {
     }
 
     /// Whether a package — as itself, or through its pages in frames — may be let at the row
-    /// `name`, whatever else it holds: not another package's, and not a native extension's row
-    /// that is not open to it. What a native extension opens to devices alone is a first-party
-    /// power (the system space's, for one) that a package's consent or its frames never borrow.
+    /// `name`, whatever else it holds: not a native extension's row that is not open to it. What a
+    /// native extension opens to devices alone is a first-party power (the system space's, for
+    /// one) that a package's consent or its frames never borrow.
     pub fn open_to_package(&self, pkg: &ExtId, name: &str) -> Result<(), &'static str> {
         let Some(entry) = self.rows.get(name) else { return Ok(()) };
         let Some(owner) = entry.owner.extension_id() else { return Ok(()) };
-        if owner == pkg {
-            return Ok(());
-        }
         match self.registered(owner) {
-            Some(IdKind::Package) => Err(ANOTHER_PACKAGES),
-            Some(IdKind::Native) if !entry.row.access.opens_extension(pkg) => Err(NOT_FOR_PACKAGES),
+            Some(IdKind::Native) if owner != pkg && !entry.row.access.opens_extension(pkg) => Err(NOT_FOR_PACKAGES),
             _ => Ok(()),
         }
+    }
+
+    /// Whether the row `name` is a package's other than `pkg`: what a page in a frame is never
+    /// given, though its package may call it as itself.
+    pub fn another_packages(&self, pkg: &ExtId, name: &str) -> bool {
+        self.rows
+            .get(name)
+            .and_then(|entry| entry.owner.extension_id())
+            .is_some_and(|owner| owner != pkg && self.registered(owner) == Some(IdKind::Package))
     }
 
     /// Whether `ext` owns the row `name` stands for.

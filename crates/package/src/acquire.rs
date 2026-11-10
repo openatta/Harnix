@@ -5,7 +5,7 @@
 //! A package is verified before anything of it is unpacked ([`Admission::admit_zip`]), and an
 //! installed one again, over its files as they are on disk, every time it starts
 //! ([`Admission::admit_root`]). Unsigned code goes no further than this unless the process trusts
-//! it (`[apps] dev = true`).
+//! it (`[ext.packages] dev = true`).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -44,6 +44,26 @@ impl Trust {
 pub struct Admission {
     pub keys: Keys,
     pub dev: bool,
+}
+
+/// The keys a process verifies packages with: the store's (`store_hex`, or the one built in), and
+/// the trusted publishers', each in hex. A key that does not read is named: a typo here would
+/// otherwise quietly trust nobody.
+pub fn keys(store_hex: Option<&[String]>, trusted_hex: &BTreeMap<String, Vec<String>>) -> Result<Keys, String> {
+    use crate::signature::PublicKey;
+    let store = match store_hex {
+        Some(keys) => keys.iter().map(|k| PublicKey::parse(k)).collect::<Result<Vec<_>, _>>()?,
+        None => store::store_keys(),
+    };
+    let mut trusted = BTreeMap::new();
+    for (publisher, keys) in trusted_hex {
+        let keys = keys
+            .iter()
+            .map(|k| PublicKey::parse(k).map_err(|e| format!("trusted_publishers.{publisher}: {e}")))
+            .collect::<Result<Vec<_>, _>>()?;
+        trusted.insert(publisher.clone(), keys);
+    }
+    Ok(Keys { store, trusted })
 }
 
 /// A package file, disclosed: what it is, how far it is trusted, what it asks for, and the digest

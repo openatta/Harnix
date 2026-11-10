@@ -40,7 +40,7 @@ fn embedded(path: &str) -> Option<&'static [u8]> {
 /// same host and port.
 ///
 /// Frames are this origin's only (`frame-src 'self'`): a runtime application's isolated
-/// interface, `/apps/<id>/ui/…`, sandboxed by the shell and served under a policy of its own.
+/// interface, `/ext/<id>/ui/…`, sandboxed by the shell and served under a policy of its own.
 ///
 /// The one inline thing is the page's import map (concept §5.8), which a browser accepts only
 /// inline. It is allowed by its own hash and nothing else ([`page_csp`]); no `'unsafe-inline'`,

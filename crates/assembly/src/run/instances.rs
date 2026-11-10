@@ -12,7 +12,6 @@ use harnix_instance::{
 };
 use harnix_ext::Credentials;
 
-use super::wiring::AppsWiring;
 use crate::host::{lifecycle, Record};
 use crate::paths::Roots;
 use crate::profile::Profile;
@@ -35,11 +34,11 @@ pub(super) async fn build(
     records: &mut [Record],
     table: &mut RouteTable,
     credentials: &Arc<dyn Credentials>,
-    apps: &mut AppsWiring,
+    engines: &Arc<harnix_authz::EngineCredentials>,
     recording: Arc<Recording>,
     grants: Arc<dyn harnix_kernel::GrantBook>,
 ) -> anyhow::Result<Instances> {
-    let mut registry = registry(profile, roots, records, table, credentials, apps, recording, grants)?;
+    let mut registry = registry(profile, roots, records, table, credentials, engines, recording, grants)?;
 
     let engine_profile = &profile.instances.engine;
     let engine = harnix_instance::build_engine(EngineConfig {
@@ -54,11 +53,7 @@ pub(super) async fn build(
         cwd: None,
         instance: harnix_contract::MAIN_INSTANCE.to_string(),
         chains: registry.factory.chains(),
-        contrib: {
-            let mut contrib = lifecycle::main_contribution(records);
-            apps.engine(&mut contrib);
-            contrib
-        },
+        contrib: lifecycle::main_contribution(records),
     })
     .await?;
     tracing::info!(
@@ -87,7 +82,7 @@ fn registry(
     records: &mut [Record],
     table: &mut RouteTable,
     credentials: &Arc<dyn Credentials>,
-    apps: &mut AppsWiring,
+    engines: &Arc<harnix_authz::EngineCredentials>,
     recording: Arc<Recording>,
     grants: Arc<dyn harnix_kernel::GrantBook>,
 ) -> anyhow::Result<RegistryConfig> {
@@ -103,7 +98,8 @@ fn registry(
     let (providers, admitted) = lifecycle::everywhere(records);
     factory.providers.extend(providers);
     factory.admitted.extend(admitted);
-    apps.factory(&mut factory);
+    // A daemon reaches the packages' tools over HTTP, presenting a credential of its own.
+    factory.servers.issue_with(Arc::new(EngineTokens(engines.clone())));
     let mut registry = RegistryConfig {
         templates: BTreeMap::new(),
         ledger: Ledger::load(roots.state.join("kernel").join("instances.json"))?,
@@ -205,5 +201,19 @@ mod tests {
         let dir = Path::new("/state/instances");
         assert_eq!(instance_root(dir, None, "worker"), dir.join("worker"));
         assert_eq!(instance_root(dir, Some("shared"), "worker"), dir.join("shared"));
+    }
+}
+
+/// What issues and revokes the credential each daemon this process spawns presents at a package's
+/// tool endpoint, as its instance's engine.
+struct EngineTokens(Arc<harnix_authz::EngineCredentials>);
+
+impl harnix_instance::ServerTokens for EngineTokens {
+    fn issue(&self, instance: &str) -> String {
+        self.0.issue_engine(instance)
+    }
+
+    fn revoke(&self, token: &str) {
+        self.0.revoke(token)
     }
 }

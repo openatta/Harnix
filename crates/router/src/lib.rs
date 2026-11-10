@@ -159,6 +159,9 @@ impl Router {
         if !allowed {
             return Decision::Refuse(OUTSIDE_FRAME);
         }
+        if table.another_packages(ext, &row) {
+            return Decision::Refuse(ANOTHER_PACKAGES);
+        }
         match table.open_to_package(ext, &row) {
             Ok(()) => Decision::Allow,
             Err(why) => Decision::Refuse(why),

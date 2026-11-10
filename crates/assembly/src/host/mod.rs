@@ -1,13 +1,13 @@
 //! The extension host: what turns the extensions a product lists into a running process.
 //!
-//! An extension comes as a descriptor whatever made it: a native extension's `register`, a
-//! module read through its shim, a package's descriptor registered while the process runs
-//! ([`dynamic`]). The host checks the grants, installs each descriptor's rows in the route table,
-//! its topics and spaces in the hub, its routes in the transport, its engine contribution and
-//! templates in the instances; seats it — hands its declarations the kernel's services, through
-//! which its context reaches the process ([`seat`]) — and drives its lifecycle ([`lifecycle`]).
-//! An extension that fails at any step is disabled with everything it declared, and the rest go
-//! on; the diagnostics and `harnix.extensions` say which and why ([`status`]).
+//! An extension comes as a descriptor whatever made it: a native extension's `register`, or a
+//! package's descriptor registered while the process runs ([`dynamic`]). The host checks the
+//! grants, installs each descriptor's rows in the route table, its topics and spaces in the hub,
+//! its routes in the transport, its engine contribution and templates in the instances; seats it
+//! — hands its declarations the kernel's services, through which its context reaches the process
+//! ([`seat`]) — and drives its lifecycle ([`lifecycle`]). An extension that fails at any step is
+//! disabled with everything it declared, and the rest go on; the diagnostics and
+//! `harnix.extensions` say which and why ([`status`]).
 
 pub(crate) mod contribution;
 pub(crate) mod dynamic;
@@ -23,63 +23,24 @@ use std::sync::Arc;
 use harnix_contract::s1::{Capability, ExtId};
 use harnix_ext::{ErasedExtension, ExtensionDescriptor, Manifest};
 use harnix_kernel::Owner;
-use harnix_module::shim::ModuleSlot;
-use harnix_module::ErasedModule;
 use harnix_router::RouteTable;
-use serde::Serialize;
 use serde_json::Value;
 
 pub use status::{ExtensionStatus, MethodStatus};
 
-/// Where a module's names live, while modules are still read through their shim.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Namespace {
-    /// A built-in: `harnix.*`.
-    Kernel,
-    /// An application's module: `app.<id>.*`.
-    App,
-}
-
-impl Namespace {
-    fn prefix(self, id: &str) -> String {
-        match self {
-            Namespace::Kernel => "harnix.".to_string(),
-            Namespace::App => format!("app.{id}."),
-        }
-    }
-}
-
-/// What a product added: an extension, or a module read through its shim.
-pub(crate) enum Added {
-    Extension(Box<dyn ErasedExtension>),
-    Module { module: Box<dyn ErasedModule>, namespace: Namespace },
-}
-
-impl Added {
-    pub fn manifest(&self) -> Manifest {
-        match self {
-            Added::Extension(e) => e.manifest(),
-            Added::Module { module, .. } => module.manifest().to_ext(),
-        }
-    }
-}
-
 /// One extension the product added, with what it is granted.
 pub(crate) struct Entry {
-    pub added: Added,
+    pub ext: Box<dyn ErasedExtension>,
     pub granted: Vec<Capability>,
 }
 
 /// One extension, through every step of the start.
 pub(crate) struct Record {
-    pub added: Added,
+    pub ext: Box<dyn ErasedExtension>,
     pub manifest: Manifest,
     /// `None` for an id that is not one: refused at registration.
     pub id: Option<ExtId>,
     pub descriptor: Option<ExtensionDescriptor>,
-    /// A module's own context, once it is started.
-    pub module: Option<ModuleSlot>,
     /// Its section of the profile, as written.
     pub config: Value,
     pub data_dir: PathBuf,
@@ -89,7 +50,6 @@ pub(crate) struct Record {
     pub installed: bool,
     pub status: ExtensionStatus,
 }
-
 impl Record {
     pub fn is_enabled(&self) -> bool {
         self.enabled.load(Ordering::Acquire)

@@ -53,6 +53,16 @@ pub trait HostApi: Send + Sync {
 
     /// Let go of what was adopted for `id`.
     fn release(&self, id: &ExtId);
+
+    /// The interface entries of the extensions this component runs, as the page is told them in
+    /// `harnix.ui`: a trusted package's modules, every other one's frames. Replaces what this
+    /// component published before, and pushes `harnix.ui`.
+    fn publish_ui(&self, entries: Vec<Value>);
+
+    /// The profile's `[ext."<id>"]` sections no linked extension owns and whose id is a package's:
+    /// each package's configuration over its manifest's `[config]`. One for a package that is not
+    /// installed is this component's to report.
+    fn package_sections(&self) -> BTreeMap<String, Value>;
 }
 
 /// One MCP endpoint a spawned daemon is configured with: its server name, and its URL.
@@ -224,9 +234,9 @@ impl AdoptSpec {
 /// component's, and the host never sees it — and refuses, writing nothing and on the record, a
 /// descriptor that is not a package's: trust other than consent, names outside its own, an engine
 /// contribution, a template, a route that is not a directory or its carrier's tool endpoint, a
-/// capability only a native extension may hold, a listed call to a row the hub owns or one that
-/// takes a capability, an interface module without `ui.page`, a contribution point, two tools by
-/// one name.
+/// capability only a native extension may hold, a listed call to a row the hub owns, one that
+/// takes a capability or a first-party row not open to packages, an interface module without
+/// `ui.page`, a contribution point, two tools by one name.
 #[derive(Clone)]
 pub struct DynamicRegistrar {
     inner: Arc<dyn DynamicRegistry>,
@@ -265,6 +275,7 @@ pub trait RegisteredExtension: Send + Sync {
     async fn subscribe(&self, topic: &str, params: Value, sink: Arc<dyn TopicSink>) -> Rpc<Value>;
     async fn unsubscribe(&self, topic: &str, params: Value) -> Rpc<()>;
     fn mark(&self, availability: Availability);
+    fn frame(&self, calls: Option<BTreeSet<String>>) -> Rpc<()>;
     async fn withdraw(&self) -> Rpc<Withdrawn>;
 }
 
@@ -304,6 +315,13 @@ impl ExtensionHandle {
     /// `EXTENSION_UNAVAILABLE` with why.
     pub fn mark(&self, availability: Availability) {
         self.inner.mark(availability)
+    }
+
+    /// What its pages in frames may call besides its own names (`[interface] calls`), or `None`
+    /// for no interface in frames: the router holds a frame's calls to this, whatever the page
+    /// asks the shell for. Refused, setting nothing, when it lists what a package may not reach.
+    pub fn frame(&self, calls: Option<BTreeSet<String>>) -> Rpc<()> {
+        self.inner.frame(calls)
     }
 
     pub async fn withdraw(&self) -> Rpc<Withdrawn> {
@@ -449,10 +467,68 @@ pub enum StopReason {
     Faulted(String),
 }
 
+/// What the component's configuration says its carriers run packages under: told each carrier
+/// as it registers, before anything starts.
+#[derive(Debug, Clone, Default)]
+pub struct CarrierSettings {
+    dev: bool,
+    store_keys: Option<Vec<String>>,
+    trusted_publishers: BTreeMap<String, Vec<String>>,
+    idle: Option<std::time::Duration>,
+}
+
+impl CarrierSettings {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Unsigned code runs (`[ext.packages] dev`).
+    pub fn dev(mut self, dev: bool) -> Self {
+        self.dev = dev;
+        self
+    }
+
+    /// The store's keys (hex ed25519) in place of the one built in: a test application's.
+    pub fn store_keys(mut self, keys: Vec<String>) -> Self {
+        self.store_keys = Some(keys);
+        self
+    }
+
+    /// `[ext.packages.trusted_publishers]`: a publisher's id and its keys (hex ed25519).
+    pub fn trusted_publishers(mut self, publishers: BTreeMap<String, Vec<String>>) -> Self {
+        self.trusted_publishers = publishers;
+        self
+    }
+
+    /// How long every on-demand backend idles before it is let go, in place of its manifest's:
+    /// a test application's.
+    pub fn idle(mut self, idle: Option<std::time::Duration>) -> Self {
+        self.idle = idle;
+        self
+    }
+
+    pub fn is_dev(&self) -> bool {
+        self.dev
+    }
+
+    pub fn store_key_list(&self) -> Option<&[String]> {
+        self.store_keys.as_deref()
+    }
+
+    pub fn trusted(&self) -> &BTreeMap<String, Vec<String>> {
+        &self.trusted_publishers
+    }
+
+    pub fn idle_for(&self) -> Option<std::time::Duration> {
+        self.idle
+    }
+}
+
 /// What a carrier gives every engine built in this process, and the routes it serves under its
 /// component's id: gathered by the host component, which declares them as its own.
 #[derive(Default)]
 pub struct CarrierRegistrar<'a> {
+    settings: CarrierSettings,
     providers: Vec<Arc<dyn ToolProvider>>,
     admitted: Vec<String>,
     routes: Vec<(String, Arc<dyn RouteHandler>)>,
@@ -460,8 +536,13 @@ pub struct CarrierRegistrar<'a> {
 }
 
 impl CarrierRegistrar<'_> {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(settings: CarrierSettings) -> Self {
+        Self { settings, ..Self::default() }
+    }
+
+    /// What it runs packages under.
+    pub fn settings(&self) -> &CarrierSettings {
+        &self.settings
     }
 
     /// Tools for every session of every engine built in this process.
@@ -509,7 +590,10 @@ pub trait Carrier: Send + Sync + 'static {
 
     fn register(&self, r: &mut CarrierRegistrar<'_>);
 
-    /// Start one package: answers what runs, whose handlers its descriptor gets.
+    /// Start one package, putting its agent package and skills in place first when its record
+    /// says nothing is. Its descriptor — the carrier's handlers over its manifest and its consent
+    /// — is registered through `host`'s registrar while it starts, before its own start code runs:
+    /// that code already acts as it.
     async fn start(&self, host: &dyn HostApi, cx: &ExtensionContext, app: Installed) -> Rpc<Running>;
 
     async fn stop(&self, id: &ExtId, why: StopReason);
@@ -648,22 +732,29 @@ impl Installed {
     }
 }
 
-/// What a carrier answers for a package it started: the descriptor's handlers are its, and the
-/// component registers that descriptor.
+/// What a carrier answers for a package it started: what it put in place outside its directory,
+/// for its record, and what to tell whoever asked.
 pub struct Running {
-    descriptor: ExtensionDescriptor,
+    placed: Value,
+    summary: Value,
 }
 
 impl Running {
-    pub fn new(descriptor: ExtensionDescriptor) -> Self {
-        Self { descriptor }
+    pub fn new(placed: Value, summary: Value) -> Self {
+        Self { placed, summary }
     }
 
-    pub fn descriptor(&self) -> &ExtensionDescriptor {
-        &self.descriptor
+    /// What its record's `parts` say from now on: its agent package and in which instances, its
+    /// skills.
+    pub fn placed(&self) -> &Value {
+        &self.placed
     }
 
-    pub fn into_descriptor(self) -> ExtensionDescriptor {
-        self.descriptor
+    pub fn summary(&self) -> &Value {
+        &self.summary
+    }
+
+    pub fn into_parts(self) -> (Value, Value) {
+        (self.placed, self.summary)
     }
 }

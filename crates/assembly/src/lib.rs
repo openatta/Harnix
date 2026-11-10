@@ -4,7 +4,6 @@
 //! fn main() -> anyhow::Result<()> {
 //!     harnix_assembly::App::builder()
 //!         .name("helm", env!("CARGO_PKG_VERSION"))
-//!         .with_builtins()
 //!         // .extension(watchlist::Watchlist::default()).grant([caps::ENGINE_INSPECT])
 //!         .run()
 //! }
@@ -19,13 +18,13 @@
 //! transport, the extension host. What a product chooses: its name and version, its
 //! extensions, their order and what each is granted, and where secrets come from.
 
-mod apps;
 mod audit_log;
 mod cli;
 mod pairing;
 mod gate;
 mod host;
 mod kernel_rows;
+mod package_table;
 mod paths;
 mod process;
 mod profile;
@@ -37,17 +36,16 @@ use std::sync::Arc;
 
 use harnix_contract::s1::Capability;
 use harnix_ext::{Credentials, Extension, ExtensionSet};
-use harnix_module::Module;
 
-use host::{Added, Entry};
+use host::Entry;
 
-pub use host::{ExtensionStatus, MethodStatus, Namespace};
+pub use host::{ExtensionStatus, MethodStatus};
 
 /// The version of Harnix this binary was built with.
 pub const HARNIX_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// How long the shutdown after SIGINT, SIGTERM or a closed stdin (`--exit-with-stdin`) may take:
-/// every module's `stop`, then the instances. Past it the process logs that and exits anyway, as
+/// every extension's `stop`, then the instances. Past it the process logs that and exits anyway, as
 /// it does on a second signal (ipdrun-02).
 pub const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -58,13 +56,9 @@ impl App {
         AppBuilder {
             name: "harnix".into(),
             version: HARNIX_VERSION.into(),
-            builtins: false,
             entries: Vec::new(),
             credentials: None,
             args: None,
-            app_hosts: Vec::new(),
-            store_keys: None,
-            app_idle: None,
             child_entries: Vec::new(),
         }
     }
@@ -80,13 +74,12 @@ pub mod testing {
     use harnix_contract::{RpcError, Subject};
     use harnix_ext::{Extension, ExtensionContext};
     use harnix_kernel::{CallContext, Dispatch};
-    use harnix_module::Module;
     use serde_json::Value;
 
     pub use harnix_kernel::GrantTable;
     pub use harnix_router::Router;
 
-    use crate::host::{Added, Entry, Namespace};
+    use crate::host::Entry;
 
     /// The extensions registered, and the router over the kernel's rows and theirs. Nothing behind
     /// the kernel's rows is up: a call the router lets through to one answers `INTERNAL_ERROR`, and
@@ -98,47 +91,47 @@ pub mod testing {
         pub extensions: Vec<crate::ExtensionStatus>,
     }
 
-    /// Extensions and modules to register, each with what it is granted.
+    /// Extensions to register, each with what it is granted.
     #[derive(Default)]
-    pub struct Modules(Vec<Entry>);
+    pub struct Linked(Vec<Entry>);
 
-    impl Modules {
-        pub fn with<M: Module>(mut self, module: M, granted: impl IntoIterator<Item = Capability>) -> Self {
-            harnix_module::assert_api::<M>();
-            let added = Added::Module { module: Box::new(module), namespace: Namespace::App };
-            self.0.push(Entry { added, granted: granted.into_iter().collect() });
-            self
-        }
-
+    impl Linked {
         pub fn extension<E: Extension>(mut self, e: E, granted: impl IntoIterator<Item = Capability>) -> Self {
-            self.0.push(Entry { added: Added::Extension(Box::new(e)), granted: granted.into_iter().collect() });
+            self.0.push(Entry { ext: Box::new(e), granted: granted.into_iter().collect() });
             self
         }
 
         /// Every extension of `set`, each granted what the set says.
         pub fn extensions(mut self, set: harnix_ext::ExtensionSet) -> Self {
             for (e, granted) in set.into_parts() {
-                self.0.push(Entry { added: Added::Extension(e), granted });
+                self.0.push(Entry { ext: e, granted });
             }
             self
         }
     }
 
-    /// Register Harnix's built-ins (when `builtins`) and `modules` under a default profile, with
-    /// state in `state`. An error is the start refused.
-    pub fn register(builtins: bool, modules: Modules, state: &std::path::Path) -> anyhow::Result<Registered> {
+    /// Register `linked` under a default profile, with state in `state`. An error is the start
+    /// refused.
+    pub fn register(linked: Linked, state: &std::path::Path) -> anyhow::Result<Registered> {
         let (table, grants, extensions) =
-            crate::run::register_only(builtins, modules.0, &crate::profile::Profile::default(), state)?;
+            crate::run::register_only(linked.0, &crate::profile::Profile::default(), state)?;
         let router = Arc::new(Router::new(table, grants.clone(), Arc::new(harnix_authz::Audit::default())));
         Ok(Registered { router, grants, extensions })
+    }
+
+    impl Registered {
+        /// What the host checks of a package's descriptor registered while the process runs,
+        /// against these rows: `Ok` where it would go on to install it.
+        pub fn check_package(&self, d: &harnix_ext::ExtensionDescriptor, caps: &[Capability]) -> Result<(), RpcError> {
+            crate::host::dynamic::check(d, caps, &self.router)
+        }
     }
 
     /// The route table a product would serve, without starting anything: every row, in the shape
     /// the method-table snapshot pins.
     pub fn describe(app: crate::AppBuilder) -> anyhow::Result<Value> {
         let dir = tempfile_dir()?;
-        let (table, grants, _) =
-            crate::run::register_only(app.builtins, app.entries, &crate::profile::Profile::default(), &dir)?;
+        let (table, grants, _) = crate::run::register_only(app.entries, &crate::profile::Profile::default(), &dir)?;
         let snapshot = Router::new(table, grants, Arc::new(harnix_authz::Audit::default())).snapshot();
         let _ = std::fs::remove_dir_all(&dir);
         Ok(snapshot)
@@ -160,9 +153,14 @@ pub mod testing {
 
     impl Kernel {
         pub async fn start(app: crate::AppBuilder, dir: &std::path::Path) -> anyhow::Result<Self> {
+            Self::start_with(app, dir, None).await
+        }
+
+        /// [`Kernel::start`], under this profile.
+        pub async fn start_with(app: crate::AppBuilder, dir: &std::path::Path, profile: Option<&str>) -> anyhow::Result<Self> {
             let replay = dir.join("recordings");
             std::fs::create_dir_all(&replay)?;
-            let args: Vec<std::ffi::OsString> = vec![
+            let mut args: Vec<std::ffi::OsString> = vec![
                 "harnix-test".into(),
                 "--headless".into(),
                 "--agix-dir".into(),
@@ -172,6 +170,11 @@ pub mod testing {
                 "--replay-dir".into(),
                 replay.into(),
             ];
+            if let Some(profile) = profile {
+                let path = dir.join("profile.toml");
+                std::fs::write(&path, profile)?;
+                args.extend(["--profile".into(), path.into()]);
+            }
             let cli = crate::cli::parse(&app.name, &app.version, Some(args));
             let basis = crate::run::Basis::read(&cli)?;
             let started = crate::run::start_process(app, &cli, &basis).await?;
@@ -214,14 +217,10 @@ pub type ChildEntry = fn(Vec<OsString>) -> anyhow::Result<()>;
 pub struct AppBuilder {
     pub(crate) name: String,
     pub(crate) version: String,
-    pub(crate) builtins: bool,
-    /// The product's extensions and modules, in order, each with what it is granted.
+    /// The product's extensions, in order, each with what it is granted.
     pub(crate) entries: Vec<Entry>,
     pub(crate) credentials: Option<Arc<dyn Credentials>>,
     pub(crate) args: Option<Vec<OsString>>,
-    pub(crate) app_hosts: Vec<String>,
-    pub(crate) store_keys: Option<Vec<String>>,
-    pub(crate) app_idle: Option<std::time::Duration>,
     pub(crate) child_entries: Vec<(String, ChildEntry)>,
 }
 
@@ -251,50 +250,19 @@ impl AppBuilder {
         self
     }
 
-    /// What is left of Harnix's built-in modules: `apps`, runtime applications' install records,
-    /// where the profile enables them (`[apps] enabled`). Registered before the application's.
-    /// Harnix's own extensions are `harnix::first_party::standard()`.
-    pub fn with_builtins(mut self) -> Self {
-        self.builtins = true;
-        self
-    }
-
     /// Add a native extension. The order extensions are added is the order they register,
     /// migrate and start. What it is granted follows: `.extension(e).grant([..])`, or
     /// `.ungranted()` for none.
     pub fn extension<E: Extension>(mut self, e: E) -> ExtensionSlot {
-        self.entries.push(Entry { added: Added::Extension(Box::new(e)), granted: Vec::new() });
+        self.entries.push(Entry { ext: Box::new(e), granted: Vec::new() });
         ExtensionSlot { builder: self }
     }
 
     /// Add every extension of `set`, each granted what the set says, in its order.
     pub fn extensions(mut self, set: ExtensionSet) -> Self {
         for (e, granted) in set.into_parts() {
-            self.entries.push(Entry { added: Added::Extension(e), granted });
+            self.entries.push(Entry { ext: e, granted });
         }
-        self
-    }
-
-    /// Add a module, read as an extension through its shim, its names as they were
-    /// (`app.<id>.*`). A module written against another `MODULE_API_VERSION` does not compile.
-    pub fn module<M: Module>(mut self, module: M) -> Self {
-        harnix_module::assert_api::<M>();
-        self.entries.push(Entry {
-            added: Added::Module { module: Box::new(module), namespace: host::Namespace::App },
-            granted: Vec::new(),
-        });
-        self
-    }
-
-    /// Grant the module added last these capabilities: `.module(Fleet).grant([caps::ENGINE_INSPECT])`.
-    ///
-    /// Checked when the process starts, which refuses to start, naming the extension and the
-    /// capability, when one is not granted all it `requires`, or is granted what it neither
-    /// requires nor lists as `optional`, or what nobody defines for native extensions. Without a
-    /// module before it, this panics: the assembly is the program, and that is a mistake in it.
-    pub fn grant(mut self, caps: impl IntoIterator<Item = Capability>) -> Self {
-        let last = self.entries.last_mut().expect("`grant` follows the `module` it grants to");
-        last.granted.extend(caps);
         self
     }
 
@@ -302,42 +270,6 @@ impl AppBuilder {
     /// resolved. The environment by default.
     pub fn credentials(mut self, source: impl Credentials + 'static) -> Self {
         self.credentials = Some(Arc::new(source));
-        self
-    }
-
-    /// Hand the runtime-application host to this module as well as to the `apps` built-in.
-    ///
-    /// For a test application whose module fakes an application host (`harnix-testapp`'s
-    /// `fakehost`); a product has no reason to. Without `[apps] enabled` there is no host to hand.
-    #[doc(hidden)]
-    pub fn app_host(mut self, module: impl Into<String>) -> Self {
-        self.app_hosts.push(module.into());
-        self
-    }
-
-    /// Verify store-countersigned applications with these keys (hex ed25519) instead of the
-    /// store's own, built in.
-    ///
-    /// For a test application that installs from a mock store (`harnix-testapp`); a product has no
-    /// reason to, and a profile cannot. Without the `apps` feature there is nothing to verify.
-    #[doc(hidden)]
-    pub fn store_keys<I, T>(mut self, keys: I) -> Self
-    where
-        I: IntoIterator<Item = T>,
-        T: Into<String>,
-    {
-        self.store_keys = Some(keys.into_iter().map(Into::into).collect());
-        self
-    }
-
-    /// Hibernate every on-demand runtime application's backend after this much idle, in place of
-    /// its manifest's `idle_secs` (never under a minute).
-    ///
-    /// For a test application that needs to see one hibernate (`harnix-testapp`); a product has no
-    /// reason to, and a profile cannot. Without the `apps` feature there is nothing to idle.
-    #[doc(hidden)]
-    pub fn app_idle(mut self, idle: std::time::Duration) -> Self {
-        self.app_idle = Some(idle);
         self
     }
 

@@ -16,9 +16,11 @@
 //!
 //! This layer does not know what a frame looks like or which channel carried it.
 
+mod admission;
 mod audit;
 mod devices;
 
+pub use admission::EngineCredentials;
 pub use audit::{Audit, AuditEntry, AuditSink, Change, Decision};
 pub use devices::challenge as devices_challenge;
 pub use devices::{tokens_equal, Device, Devices, PairError, Persist, PAIRING_TTL};

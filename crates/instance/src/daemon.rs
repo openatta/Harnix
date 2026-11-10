@@ -549,7 +549,7 @@ mod tests {
         #[derive(Default)]
         struct Kept(StdMutex<Vec<String>>, AtomicU32);
         impl crate::ServerTokens for Kept {
-            fn issue(&self) -> String {
+            fn issue(&self, _instance: &str) -> String {
                 let token = format!("t{}", self.1.fetch_add(1, Ordering::SeqCst));
                 lock(&self.0).push(token.clone());
                 token

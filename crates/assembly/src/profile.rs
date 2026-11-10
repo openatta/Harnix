@@ -2,7 +2,7 @@
 //!
 //! The assembly reads the whole file and hands each section to its owner: `[engine]`,
 //! `[[instances]]` and `[[instance_templates]]` to the instance layer; `[transport]`, `[brand]`,
-//! `[shell]`, `[ui]`, `[extensions]` and `[apps]` are read here; `[ext.<id>]` is the extension
+//! `[shell]`, `[ui]` and `[extensions]` are read here; `[ext.<id>]` is the extension
 //! `<id>`'s, read as its own configuration type. A section nobody owns, and a key its owner does
 //! not read, stop the start, naming it: a profile that quietly does not mean what it says is the
 //! failure this file exists to avoid. Nothing can rewrite it while the process runs.
@@ -26,7 +26,7 @@ enum Owner {
 }
 
 /// The sections the assembly reads itself, on its own and the transport's behalf.
-const ASSEMBLY_SECTIONS: &[&str] = &["transport", "brand", "shell", "ui", "extensions", "apps"];
+const ASSEMBLY_SECTIONS: &[&str] = &["transport", "brand", "shell", "ui", "extensions"];
 
 /// The extensions' sections, `[ext.<id>]`.
 const EXT: &str = "ext";
@@ -53,7 +53,6 @@ pub(crate) struct Profile {
     pub shell: ShellProfile,
     pub ui: UiProfile,
     pub extensions: ExtensionsProfile,
-    pub apps: AppsProfile,
     /// `[ext.<id>]`, as written: each handed to the extension `<id>`, which reads it as its own
     /// configuration. One no extension here owns stops the start when the extensions are known.
     pub ext: BTreeMap<String, Value>,
@@ -74,8 +73,7 @@ impl Profile {
                     "brand" => profile.brand = read(&section, value)?,
                     "shell" => profile.shell = read(&section, value)?,
                     "ui" => profile.ui = read(&section, value)?,
-                    "extensions" => profile.extensions = read(&section, value)?,
-                    _ => profile.apps = read(&section, value)?,
+                    _ => profile.extensions = read(&section, value)?,
                 },
                 Some(Owner::Extensions) => {
                     let toml::Value::Table(sections) = value else {
@@ -131,34 +129,6 @@ pub(crate) struct ExtensionsProfile {
     /// The space a call that claims none is checked as, in place of the one an extension
     /// declared the default: one an enabled extension declares.
     pub default_space: Option<String>,
-}
-
-/// `[apps]`: runtime applications — methods, topics and spaces under `app.<id>.*` that enter the
-/// process after it started (the `apps` built-in module, `harnix.apps.*`).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub(crate) struct AppsProfile {
-    /// Off unless written. Off, nothing of it exists: no `harnix.apps.*`, no host a module can
-    /// register through, no `harnix.spaces` topic — the authorization table is what assembly made
-    /// it and nothing else, for the life of the process.
-    pub enabled: bool,
-    /// `harnix.apps.installFile` installs an unsigned package from a file, and an unsigned
-    /// application starts. For developing an application: nothing vouches for such a package.
-    pub dev: bool,
-    /// The store's catalog (`https://…/index.json`, or `file://` on this machine). Unset, the one
-    /// built in. Whatever it lists, a package installs only with a valid signature.
-    pub store: Option<String>,
-    /// `[apps.trusted_publishers]`: a publisher's id (the first segment of its applications' ids)
-    /// and the ed25519 public keys (hex) that sign as it. A package such a key signed in full is
-    /// installed and run without the store's countersignature, as `trusted`.
-    pub trusted_publishers: BTreeMap<String, Vec<String>>,
-    /// `[apps.config."<id>"]`: set over an application's own `[config]` defaults, key by key —
-    /// what `host.config()` and its backend's `init` are handed.
-    pub config: BTreeMap<String, toml::Value>,
-    /// `[apps.secrets."<id>"]`: the secrets an application's `host.secret` reads, by the names its
-    /// `env` capability declares. Only these: a declared name is never looked up in this
-    /// process's environment, which holds the product's own keys.
-    pub secrets: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -244,8 +214,8 @@ pub(crate) struct UiProfile {
     /// embedded one; no static face at all is `--headless`, for a pure RPC node (concept
     /// §3.3.4, §5.1).
     pub dir: Option<PathBuf>,
-    /// Whether installed packages' `[[ui]]` modules load. Off, none does: a package is then
-    /// the engine's alone (concept §5.8).
+    /// Whether packages' interfaces reach the page — a trusted one's modules, every other one's
+    /// frames. Off, none does.
     pub runtime_modules: bool,
 }
 
