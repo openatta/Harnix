@@ -184,6 +184,35 @@ pub(crate) struct Cli {
     pub exit_with_stdin: bool,
 }
 
+/// Subcommands Harnix starts this binary as, which a build may not have an entry for: with what
+/// each answers then, rather than an unknown subcommand.
+const CHILD_ENTRIES: &[(&str, &str)] = &[(
+    "ext-proc",
+    "this build has no extension processes (it was built without the `proc` feature)",
+)];
+
+/// Whether `name` is one of the command line's own subcommands.
+pub(crate) fn is_subcommand(name: &str) -> bool {
+    Cli::command().find_subcommand(name).is_some()
+}
+
+/// The child entry this process was started as, run: `None` when it was started as the product.
+/// Read from the bare arguments, before anything else: the program, then the entry's name.
+pub(crate) fn child_entry(app: &crate::AppBuilder) -> Option<anyhow::Result<()>> {
+    let mut args = match &app.args {
+        Some(args) => args.clone(),
+        None => std::env::args_os().collect(),
+    };
+    let name = args.get(1)?.to_str()?.to_string();
+    if let Some((_, entry)) = app.child_entries.iter().find(|(n, _)| *n == name) {
+        return Some(entry(args.split_off(2)));
+    }
+    CHILD_ENTRIES
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, why)| Err(anyhow::anyhow!("`{name}`: {why}")))
+}
+
 /// What `--version` prints: every version a bug report needs.
 pub(crate) fn versions(_app: &str, app_version: &str) -> (String, String) {
     let agix = daemon::discovery::identity();

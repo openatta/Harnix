@@ -60,9 +60,14 @@ impl App {
             app_hosts: Vec::new(),
             store_keys: None,
             app_idle: None,
+            child_entries: Vec::new(),
         }
     }
 }
+
+/// What a subcommand this binary is re-executed as runs instead of the product: its arguments,
+/// those after its name.
+pub type ChildEntry = fn(Vec<OsString>) -> anyhow::Result<()>;
 
 pub struct AppBuilder {
     pub(crate) name: String,
@@ -74,6 +79,7 @@ pub struct AppBuilder {
     pub(crate) app_hosts: Vec<String>,
     pub(crate) store_keys: Option<Vec<String>>,
     pub(crate) app_idle: Option<std::time::Duration>,
+    pub(crate) child_entries: Vec<(String, ChildEntry)>,
 }
 
 impl AppBuilder {
@@ -161,8 +167,25 @@ impl AppBuilder {
         self
     }
 
+    /// Run `entry` instead of the product when this binary is started as `<program> <name> …`.
+    ///
+    /// How a process the product starts is the product's own build: an extension process is
+    /// `<product> ext-proc`. The subcommand is dispatched before anything else — no profile is
+    /// read, no state lock taken, nothing assembled, no runtime built — and `entry` gets the
+    /// arguments after the name. A name the command line already has (`daemon`, `ui`) panics.
+    pub fn child_entry(mut self, name: impl Into<String>, entry: ChildEntry) -> Self {
+        let name = name.into();
+        assert!(!cli::is_subcommand(&name), "`{name}` is a subcommand of the product itself");
+        self.child_entries.retain(|(n, _)| *n != name);
+        self.child_entries.push((name, entry));
+        self
+    }
+
     /// Start and serve until interrupted.
     pub fn run(self) -> anyhow::Result<()> {
+        if let Some(done) = cli::child_entry(&self) {
+            return done;
+        }
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()?
