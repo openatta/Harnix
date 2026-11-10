@@ -263,7 +263,7 @@ async fn an_extension_reaches_the_process_through_the_interface_alone() {
     assert!(cx.process().unwrap().uptime_secs().is_some());
     let grant = cx.bulk().grant(1024).unwrap();
     assert!(!grant.token().is_empty() && grant.max_bytes() == 1024 && grant.path().parent().unwrap().is_dir());
-    cx.ui().publish(vec![UiEntry::new("home.card", "/apps/probe/files/card.js", 2)]);
+    cx.ui().publish(vec![UiEntry::new("home.card", "/apps/probe/files/card.js", harnix_ext::CONTRIB_API_VERSION)]);
     let devices = cx.devices().unwrap();
     assert!(devices.list()["devices"].is_array());
     let pairing = devices.pair_begin("phone");
