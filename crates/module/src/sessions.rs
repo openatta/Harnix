@@ -25,12 +25,7 @@ use tokio::sync::mpsc;
 
 use crate::context::ModuleContext;
 
-/// A session's full name.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct SessionRef {
-    pub instance: String,
-    pub session_id: String,
-}
+pub use harnix_contract::SessionRef;
 
 /// What a new session is. Everything but the instance is optional and
 /// falls back to the instance's defaults.
