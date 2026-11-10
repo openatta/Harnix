@@ -1441,6 +1441,7 @@ dependencies = [
  "harnix-router",
  "harnix-transport",
  "history",
+ "libc",
  "serde",
  "serde_json",
  "tempfile",
@@ -1585,7 +1586,6 @@ dependencies = [
  "harnix-contract",
  "harnix-instance",
  "harnix-kernel",
- "libc",
  "serde",
  "serde_json",
  "tempfile",
@@ -1604,6 +1604,7 @@ dependencies = [
  "harnix-contract",
  "harnix-engine",
  "harnix-engine-api",
+ "harnix-kernel",
  "harnix-supervise",
  "history",
  "libc",
@@ -1624,6 +1625,7 @@ dependencies = [
  "async-trait",
  "harnix-contract",
  "serde_json",
+ "tokio",
  "tokio-util",
 ]
 

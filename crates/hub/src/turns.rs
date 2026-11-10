@@ -93,11 +93,11 @@ impl Hub {
         // runs once the instance is back and its sessions are resynced. A
         // send is not refused for a hiccup the user cannot see.
         let ready = self
-            .slot(&key.0)
-            .is_some_and(|slot| slot.link.status().borrow().is_ready());
+            .linked(&key.0)
+            .is_some_and(|linked| linked.link.status().borrow().is_ready());
         if !ready {
             if on_busy == OnBusy::Reject {
-                let status = self.slot(&key.0).map(|s| s.status());
+                let status = self.linked(&key.0).map(|l| l.link.status().borrow().clone());
                 return Err(harnix_instance::link::unavailable(
                     &status.unwrap_or(harnix_instance::LinkStatus::Starting),
                 ));
@@ -406,7 +406,7 @@ impl Hub {
         // and deleting the session is that moment. Closing is not: the
         // conversation can be reopened, and what the model saw should still
         // be there (concept §6.4).
-        let recordings = self.slot(&key.0).and_then(|s| s.facts.recordings_root.clone());
+        let recordings = self.slot(&key.0).and_then(|s| s.engine.recordings_root);
         if let (true, Some(root)) = (method == "session.delete", recordings) {
             let dir = root.join(&session_id);
             if dir.is_dir() {

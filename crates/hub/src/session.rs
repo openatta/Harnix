@@ -7,11 +7,10 @@ use harnix_instance::engine_codes;
 use harnix_contract::{Frame, RpcError};
 use harnix_kernel::CallContext;
 use serde_json::{json, Value};
-use tokio::sync::Mutex;
 
 use crate::clients::ClientId;
 use crate::replay::Buffer;
-use crate::{notification, without_instance, Hub, Inner, SessionKey};
+use crate::{notification, without_instance, Hub, InnerLock, SessionKey};
 
 pub(crate) struct QueueItem {
     pub item_id: String,
@@ -136,7 +135,7 @@ impl SessionState {
 /// one lock, so a client attaching between two frames either finds a frame in
 /// its replay snapshot or receives it live — never both, never neither. The
 /// sending itself happens after the lock, in seq order (`send_after`).
-pub(crate) async fn route_event(inner: &Arc<Mutex<Inner>>, instance: &str, params: Value) {
+pub(crate) async fn route_event(inner: &Arc<InnerLock>, instance: &str, params: Value) {
     let Some(session_id) = params.get("session_id").and_then(Value::as_str) else {
         return;
     };
@@ -296,15 +295,8 @@ impl Hub {
             if let Some(root) = info.get("project_root").filter(|r| !r.is_null()) {
                 resume["project_root"] = root.clone();
             }
-            if let Some(name) = self.inner.lock().await.recordings.get(key).cloned() {
-                resume["options"] = json!({"recorder": {"name": name}});
-            }
-            // A resumed session records too, or its next turn would be
-            // the one turn with no envelope. Nothing is written until it
-            // makes a call, so reopening a conversation just to read it
-            // leaves the previous run's recording intact.
-            self.call(instance, "session.resume", self.recording(resume))
-                .await?;
+            // Recorded as every resume is, by the link (`harnix_instance::recording`).
+            self.call(instance, "session.resume", resume).await?;
             resp = self
                 .call(instance, "session.subscribe", json!({"session_id": session_id}))
                 .await;
@@ -351,7 +343,8 @@ impl Hub {
         self.refresh("harnix.instances.sessions", json!({"instance": key.0}));
     }
 
-    /// Intercepted so the new session records (see `with_recording`).
+    /// Intercepted for where the new session lands and who started it. It records as every
+    /// session does, by the link (`harnix_instance::recording`).
     pub(crate) async fn create(
         self: &std::sync::Arc<Self>,
         subject: &harnix_contract::Subject,
@@ -359,30 +352,9 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let space = self.place(&mut params).await?;
         let instance = self.instance_of(&params)?;
-        let named = params
-            .get("options")
-            .and_then(|o| o.get("recorder"))
-            .and_then(|r| r.get("name"))
-            .and_then(Value::as_str)
-            .map(str::to_string);
         let mut created = self
-            .call(
-                &instance,
-                "session.create",
-                self.recording(without_instance(params)),
-            )
+            .call(&instance, "session.create", without_instance(params))
             .await?;
-        if let (Some(name), Some(_), Some(sid)) = (
-            named,
-            self.replay_from(),
-            created.get("session_id").and_then(Value::as_str),
-        ) {
-            self.inner
-                .lock()
-                .await
-                .recordings
-                .insert((instance.clone(), sid.to_string()), name);
-        }
         if let Some(sid) = created.get("session_id").and_then(Value::as_str) {
             let key = (instance.clone(), sid.to_string());
             self.bind_space(&key, &space);

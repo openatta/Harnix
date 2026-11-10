@@ -13,7 +13,7 @@ use super::state_files::{load_devices, DEVICES_FILE};
 use super::wiring::AppsWiring;
 use crate::devices;
 use crate::gate::Behind;
-use crate::methods;
+use crate::kernel_rows;
 use crate::modules::{self, Entry, Namespace, Record};
 use crate::paths::Roots;
 
@@ -99,7 +99,7 @@ pub(super) fn register(
         });
     }
     let behind = Behind::default();
-    let mut table = methods::table(&behind);
+    let mut table = kernel_rows::table(&behind);
     if profile.apps.enabled {
         // What changes the list of spaces after assembly is a runtime application; only then is
         // there anything to watch.

@@ -22,6 +22,9 @@ use crate::modules::ModuleStatus;
 #[derive(Clone, Default)]
 pub(crate) struct Behind {
     pub hub: HubCell,
+    pub instances: harnix_instance::RegistryCell,
+    pub hello: Arc<OnceLock<Arc<crate::kernel_rows::Hello>>>,
+    pub process: Arc<OnceLock<Arc<crate::process::Process>>>,
     pub diagnostics: Arc<OnceLock<Arc<Diagnostics>>>,
 }
 
@@ -64,6 +67,8 @@ pub(crate) struct ProcessKernel {
     /// application's fake host).
     pub app_hosts: std::collections::BTreeSet<String>,
     pub hub: Arc<Hub>,
+    /// What a module's read-only handle on an instance is made from.
+    pub instances: Arc<harnix_instance::InstanceRegistry>,
     /// Where the listener is, once it is bound (ipdrun-14).
     pub listen: tokio::sync::watch::Sender<Option<Listen>>,
 }
@@ -94,7 +99,7 @@ impl Kernel for ProcessKernel {
     }
 
     fn instance(&self, id: &str) -> Option<InstanceHandle> {
-        let facts = self.hub.facts(id)?;
+        let facts = self.instances.facts(id)?.engine;
         Some(InstanceHandle {
             id: id.to_string(),
             recordings_root: facts
@@ -238,7 +243,7 @@ mod tests {
     #[tokio::test]
     async fn a_runtime_applications_reach_is_the_snapshots() {
         let grants = Arc::new(harnix_kernel::GrantTable::new());
-        let router = Router::new(crate::methods::table(&Behind::default()), grants.clone(), Arc::new(Audit::default()));
+        let router = Router::new(crate::kernel_rows::table(&Behind::default()), grants.clone(), Arc::new(Audit::default()));
         let id = "snapshot-app";
         let hub: Vec<String> = ["harnix.sessions", "harnix.send", "session.interrupt", "topic:harnix.sessions.status", "plugin.install"]
             .iter()

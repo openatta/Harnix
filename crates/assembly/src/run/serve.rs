@@ -7,7 +7,8 @@ use harnix_contract::Topology;
 use harnix_hub::Hub;
 
 use super::admission::Admission;
-use super::packages::{apply_packages, UiModules};
+use super::packages::apply_packages;
+use crate::kernel_rows::UiModules;
 use super::register::Held;
 use super::state_files::write_token;
 use super::wiring::AppsWiring;
@@ -32,6 +33,7 @@ pub(super) async fn serve(
     held: &Held,
     records: &mut [Record],
     hub: &Arc<Hub>,
+    ui_modules: &Arc<UiModules>,
     admission: &Admission,
     brand_icon: Option<std::path::PathBuf>,
     apps: &AppsWiring,
@@ -114,29 +116,26 @@ pub(super) async fn serve(
 
     let addrs = listen_addrs(host, profile.transport.port);
     let addr = addrs[0];
-    let ui_modules = Arc::new(UiModules::default());
     if let Some(builtin) = &held.builtin {
         // What the installed packages contribute to this side, resolved once
         // before anything is served. A package installed later refreshes
         // this — one that needed a restart to appear is one nobody will
         // believe installed.
         apply_packages(
-            hub,
             &statics,
             builtin.contributions().await,
             runtime_modules,
-            &ui_modules,
+            ui_modules,
         );
-        let hub = hub.clone();
         let statics = statics.clone();
         let ui_modules = ui_modules.clone();
         builtin
             .on_packages_changed(move |contributions| {
-                apply_packages(&hub, &statics, contributions, runtime_modules, &ui_modules);
+                apply_packages(&statics, contributions, runtime_modules, &ui_modules);
             })
             .await;
     }
-    apps.follow(hub, &ui_modules, runtime_modules);
+    apps.follow(ui_modules, runtime_modules);
 
     // Before anything is served: a reachable node with no paired device has
     // no way to acquire one, because pairing is a method and methods need

@@ -6,19 +6,20 @@ use std::path::Path;
 use std::sync::Arc;
 
 use harnix_router::RouteTable;
-use harnix_hub::Registry;
 use harnix_instance::link::{DownLink, EngineLink};
-use harnix_instance::{Built, EngineConfig, Factory, Facts, InProcessLink, Ledger, Owner, Profile};
+use harnix_instance::{
+    Built, EngineConfig, Factory, Facts, InProcessLink, Ledger, Owner, Profile, Recording, RegistryConfig,
+};
 use harnix_module::Credentials;
 
 use super::wiring::AppsWiring;
 use crate::modules::{self, Record};
 use crate::paths::Roots;
 
-/// What the hub is made with: the registry templates build from, and the instances that are
-/// there from the start.
+/// What the instance registry is made with: its templates and ledger, and the instances that
+/// are there from the start.
 pub(super) struct Instances {
-    pub registry: Registry,
+    pub registry: RegistryConfig,
     /// The system instance, built in this process from the profile's `[engine]`.
     pub system: Built,
     /// The system instance's history: where audit entries are filed.
@@ -34,8 +35,10 @@ pub(super) async fn build(
     table: &mut RouteTable,
     credentials: &Arc<dyn Credentials>,
     apps: &mut AppsWiring,
+    recording: Arc<Recording>,
+    grants: Arc<dyn harnix_kernel::GrantBook>,
 ) -> anyhow::Result<Instances> {
-    let mut registry = registry(profile, roots, records, table, credentials, apps)?;
+    let mut registry = registry(profile, roots, records, table, credentials, apps, recording, grants)?;
 
     let engine = harnix_instance::build_engine(EngineConfig {
         scene: profile.engine.scene.clone(),
@@ -81,7 +84,9 @@ fn registry(
     table: &mut RouteTable,
     credentials: &Arc<dyn Credentials>,
     apps: &mut AppsWiring,
-) -> anyhow::Result<Registry> {
+    recording: Arc<Recording>,
+    grants: Arc<dyn harnix_kernel::GrantBook>,
+) -> anyhow::Result<RegistryConfig> {
     let resolve = {
         let credentials = credentials.clone();
         Arc::new(move |name: &str| credentials.get(name).ok().map(|s| s.expose().to_string()))
@@ -90,7 +95,7 @@ fn registry(
     // A template that inherits providers inherits the system instance's.
     factory.providers_from = Some(roots.engine.clone());
     apps.factory(&mut factory);
-    let mut registry = Registry {
+    let mut registry = RegistryConfig {
         templates: BTreeMap::new(),
         ledger: Ledger::load(roots.state.join("instances.json"))?,
         factory,
@@ -101,6 +106,8 @@ fn registry(
             .map(|r| r.manifest.id.clone())
             .collect(),
         fixed: BTreeMap::new(),
+        recording,
+        grants,
     };
     for decl in &profile.instance_templates {
         let template = decl.template()?;
@@ -129,7 +136,7 @@ fn registry(
 /// The profile's other instances. One that cannot be built is listed
 /// down with the reason, and the rest start: an instance is not the
 /// process.
-async fn fixed(profile: &Profile, registry: &mut Registry) -> anyhow::Result<Vec<(String, Built)>> {
+async fn fixed(profile: &Profile, registry: &mut RegistryConfig) -> anyhow::Result<Vec<(String, Built)>> {
     let mut fixed = Vec::new();
     for decl in &profile.instances {
         check_id(&decl.id)?;

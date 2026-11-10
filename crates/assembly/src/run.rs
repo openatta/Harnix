@@ -100,6 +100,10 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
 
     // ── 4. Instances ────────────────────────────────────────────────────
     let credentials: Arc<dyn Credentials> = credentials.unwrap_or_else(|| Arc::new(EnvCredentials));
+    // Replay is the operator's decision, for the whole process: every link records or plays
+    // back as this says.
+    let recording = harnix_instance::Recording::new(cli.replay_dir.clone());
+    recording.set_strict(cli.replay_strict);
     let instances = instances::build(
         profile,
         &basis.roots,
@@ -107,10 +111,14 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         &mut table,
         &credentials,
         &mut apps,
+        recording,
+        grants.clone(),
     )
     .await?;
     let hub::Assembled {
         hub,
+        instances,
+        ui,
         history,
         brand_icon,
     } = hub::assemble(
@@ -121,7 +129,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         &records,
         instances,
         &apps,
-        grants.clone(),
+        &behind,
     )
     .await?;
     // The hub's rows have been in the route table since registration; from here they answer.
@@ -130,6 +138,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     // ── Admission ───────────────────────────────────────────────────────
     let admission = admission::admit(
         &hub,
+        &instances,
         table,
         grants,
         &behind,
@@ -144,7 +153,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     );
 
     // ── 5. Start ────────────────────────────────────────────────────────
-    start::start(&mut records, &admission, &credentials, &hub).await;
+    start::start(&mut records, &admission, &credentials).await;
 
     // ── 6. Serve ────────────────────────────────────────────────────────
     let mut serving = serve::serve(
@@ -154,6 +163,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         &held,
         &mut records,
         &hub,
+        &ui,
         &admission,
         brand_icon,
         &apps,
@@ -164,7 +174,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     // the process on the spot, and no module's `stop` ran.
     let mut signals = Signals::install()?;
     until_stopped(&cli, &mut serving.server, &mut signals).await?;
-    shut_down(serving, &records, &hub, &mut signals, &basis.roots).await;
+    shut_down(serving, &records, (&hub, &instances), &mut signals, &basis.roots).await;
     Ok(())
 }
 
@@ -203,7 +213,7 @@ async fn until_stopped(
 async fn shut_down(
     serving: serve::Serving,
     records: &[modules::Record],
-    hub: &Arc<harnix_hub::Hub>,
+    (hub, instances): (&Arc<harnix_hub::Hub>, &Arc<harnix_instance::InstanceRegistry>),
     signals: &mut Signals,
     roots: &Roots,
 ) {
@@ -220,7 +230,7 @@ async fn shut_down(
         // Outside in. The listener stops taking connections and every open channel is told and
         // closed, so nothing reaches a module once it is stopping: a page that reconnected in the
         // grace period used to call modules that had already stopped. Then the modules, then the
-        // hub under them.
+        // hub under them, then the instances under it.
         let _ = stop.send(());
         transport.end_all().await;
         if !server.is_finished() {
@@ -235,6 +245,7 @@ async fn shut_down(
             record.module.stop().await;
         }
         hub.shutdown().await;
+        instances.shutdown().await;
     };
     // Bounded, and a second signal cuts it short: a `stop` that never returned used to keep the
     // process up for good.

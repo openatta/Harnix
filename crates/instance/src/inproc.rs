@@ -6,7 +6,7 @@
 //! has: a link whose reader falls behind loses a session's subscription and
 //! is told so, exactly as over a socket.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use daemon::rpc::{Client, FrameSink, RpcRequest, RpcResponse, Sink};
 use harnix_contract::sync::lock;
@@ -16,12 +16,14 @@ use tokio::sync::{mpsc, watch};
 
 use crate::engine::Engine;
 use crate::link::{self, Carrier, EngineLink, EventReceiver, LinkStatus};
+use crate::recording::{self, Recorder};
 
 pub struct InProcessLink {
     engine: Engine,
     client: Arc<Client>,
     events: Mutex<Option<EventReceiver>>,
     status: watch::Sender<LinkStatus>,
+    recorder: OnceLock<Recorder>,
 }
 
 impl InProcessLink {
@@ -36,6 +38,7 @@ impl InProcessLink {
             client,
             events: Mutex::new(Some(rx)),
             status,
+            recorder: OnceLock::new(),
         });
         if let Err(e) = this.call("daemon.subscribeEvents", json!({})).await {
             tracing::warn!(error = %e.message, "host events not subscribed");
@@ -51,14 +54,22 @@ impl InProcessLink {
 #[async_trait::async_trait]
 impl EngineLink for InProcessLink {
     async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
-        let req: RpcRequest = serde_json::from_value(json!({
-            "jsonrpc": "2.0", "method": method, "params": params, "id": 0,
-        }))
-        .map_err(|e| RpcError::invalid_params(e.to_string()))?;
-        tracing::debug!(method, "engine call →");
-        let resp = self.engine.server.dispatch_public(req, self.client.clone()).await;
-        tracing::debug!(method, ok = resp.error.is_none(), "engine call ←");
-        split(resp)
+        // Stopping or stopped: a call now would start work the engine is being asked to end.
+        let status = self.status.borrow().clone();
+        if !status.is_ready() {
+            return Err(link::unavailable(&status));
+        }
+        recording::recorded(self.recorder.get(), method, params, |params| async move {
+            let req: RpcRequest = serde_json::from_value(json!({
+                "jsonrpc": "2.0", "method": method, "params": params, "id": 0,
+            }))
+            .map_err(|e| RpcError::invalid_params(e.to_string()))?;
+            tracing::debug!(method, "engine call →");
+            let resp = self.engine.server.dispatch_public(req, self.client.clone()).await;
+            tracing::debug!(method, ok = resp.error.is_none(), "engine call ←");
+            split(resp)
+        })
+        .await
     }
 
     fn take_events(&self) -> Option<EventReceiver> {
@@ -85,12 +96,18 @@ impl EngineLink for InProcessLink {
         Carrier::InProcess
     }
 
+    fn record(&self, recorder: Recorder) {
+        let _ = self.recorder.set(recorder);
+    }
+
     async fn shutdown(&self) {
-        self.engine.server.drop_connection(self.client.id()).await;
-        self.engine.shutdown().await;
+        // Down first: what is still sending through this link — a hub's queued turn — is told the
+        // instance is unavailable rather than starting a session the engine then waits out.
         self.status.send_replace(LinkStatus::Down {
             reason: "stopped".into(),
         });
+        self.engine.server.drop_connection(self.client.id()).await;
+        self.engine.shutdown().await;
     }
 }
 

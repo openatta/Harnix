@@ -110,6 +110,7 @@ pub struct DaemonLink {
     reap: bool,
     call_timeout: Duration,
     servers: Option<Arc<crate::servers::Configured>>,
+    recorder: std::sync::OnceLock<crate::recording::Recorder>,
 }
 
 impl DaemonLink {
@@ -145,6 +146,7 @@ impl DaemonLink {
             reap,
             call_timeout,
             servers,
+            recorder: std::sync::OnceLock::new(),
         });
         if let Some(servers) = &this.servers {
             servers.attach(&this);
@@ -547,7 +549,7 @@ impl EngineLink for DaemonLink {
         if !status.is_ready() {
             return Err(link::unavailable(&status));
         }
-        self.raw_call(method, params).await
+        crate::recording::recorded(self.recorder.get(), method, params, |params| self.raw_call(method, params)).await
     }
 
     fn take_events(&self) -> Option<EventReceiver> {
@@ -587,6 +589,10 @@ impl EngineLink for DaemonLink {
 
     fn reaps_on_stop(&self) -> bool {
         self.reap
+    }
+
+    fn record(&self, recorder: crate::recording::Recorder) {
+        let _ = self.recorder.set(recorder);
     }
 
     async fn shutdown(&self) {

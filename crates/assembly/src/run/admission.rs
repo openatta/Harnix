@@ -29,8 +29,10 @@ pub(super) struct Identity<'a> {
     pub app_hosts: &'a [String],
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn admit(
     hub: &Arc<Hub>,
+    instances: &Arc<harnix_instance::InstanceRegistry>,
     table: RouteTable,
     grants: Arc<harnix_kernel::GrantTable>,
     behind: &Behind,
@@ -65,6 +67,7 @@ pub(super) fn admit(
             .chain(identity.app_hosts.iter().cloned())
             .collect(),
         hub: hub.clone(),
+        instances: instances.clone(),
         listen: tokio::sync::watch::channel(None).0,
     });
     let _ = kernel.router.set(router.clone());

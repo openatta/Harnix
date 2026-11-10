@@ -24,9 +24,10 @@ mod audit_log;
 mod cli;
 mod devices;
 mod gate;
-mod methods;
+mod kernel_rows;
 mod modules;
 mod paths;
+mod process;
 mod run;
 mod state_lock;
 

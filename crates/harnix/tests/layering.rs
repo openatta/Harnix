@@ -1888,18 +1888,18 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P6"]
     fn c16_events_are_taken_by_the_hub_and_instances_are_not_linked_from_outside() {
         let mut offenders = Vec::new();
         for name in member_names() {
             for (path, text) in sources(&name) {
                 let code = lex(&text, false);
-                if name != HUB && code.contains("take_events(") {
+                // A call; the trait and the links that implement it define one.
+                if name != HUB && code.contains(".take_events(") {
                     offenders.push(format!("{} calls `take_events` outside the hub", rel(&path)));
                 }
             }
         }
-        assert!(sources(HUB).iter().any(|(_, t)| t.contains("take_events")), "the hub has no `take_events`");
+        assert!(sources(HUB).iter().any(|(_, t)| t.contains(".take_events(")), "the hub takes no events");
         let registry: Vec<_> = sources(INSTANCE).into_iter().filter(|(_, t)| t.contains("struct InstanceRegistry")).collect();
         assert!(!registry.is_empty(), "`InstanceRegistry` does not exist (yet)");
         for (path, text) in sources(INSTANCE) {
