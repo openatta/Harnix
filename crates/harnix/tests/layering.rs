@@ -89,6 +89,15 @@ fn assert_ignorant_of(crate_dir: &str, forbidden: &[&str], because: &str) {
     }
 }
 
+/// Supervision keeps processes. It does not know what they are: no Harnix crate, no Agix crate.
+#[test]
+fn supervision_depends_on_no_harnix_and_no_agix_crate() {
+    let deps = dependencies("supervise");
+    let allowed = ["tokio", "libc", "tracing", "tempfile"];
+    let stray: Vec<_> = deps.iter().filter(|d| !allowed.contains(&d.as_str())).collect();
+    assert!(stray.is_empty(), "`supervise` depends on {stray:?}: it knows nothing of what it keeps running");
+}
+
 /// Transport moves frames. It does not know what a session is.
 #[test]
 fn transport_does_not_know_what_a_session_is() {
@@ -814,6 +823,7 @@ fn every_harnix_dependency_resolves() {
         "wasm-port",
         "wasm-host",
         "apps",
+        "supervise",
     ];
     let known: BTreeSet<String> = crates
         .iter()

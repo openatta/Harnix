@@ -1,0 +1,16 @@
+[package]
+name = "harnix-supervise"
+version      = "0.4.2-2026110901"
+edition      = "2021"
+rust-version = "1.87"
+license      = "Apache-2.0"
+publish      = false
+description  = "Child processes: fork + exec with declared fds, stdin bound to life, session reaping, restart policy"
+
+[dependencies]
+tokio   = { workspace = true }
+libc    = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

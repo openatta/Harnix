@@ -1565,6 +1565,7 @@ dependencies = [
  "base",
  "daemon",
  "harnix-contract",
+ "harnix-supervise",
  "history",
  "libc",
  "model",
@@ -1616,6 +1617,16 @@ dependencies = [
  "tokio",
  "toml",
  "zip",
+]
+
+[[package]]
+name = "harnix-supervise"
+version = "0.4.2-2026110901"
+dependencies = [
+ "libc",
+ "tempfile",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
