@@ -121,7 +121,7 @@ impl ModuleContext {
         Self {
             shared: Arc::new(Shared {
                 id: id.to_string(),
-                ext: ExtId::parse(id).expect("a module is started only once its id was checked"),
+                ext: ExtId::native(id).or_else(|_| ExtId::package(id)).expect("a module is started only once its id was checked"),
                 config,
                 data_dir,
                 credentials,

@@ -10,8 +10,8 @@ pub const RESERVED: &[&str] = &["harnix", "engine", "ext", "topic", "route", "pr
 /// `<publisher>.<name>` (`example.showcase`). Each segment is lowercase letters, digits and `-`,
 /// starting with a letter; the whole is at most 64 bytes, so an id is never a path out of the
 /// directory it names.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(try_from = "String", into = "String")]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(into = "String")]
 pub struct ExtId(String);
 
 /// Why a string is not an extension id.
@@ -43,12 +43,12 @@ impl ExtId {
         }
     }
 
-    /// A package's id: two segments or more, the first not a reserved word.
+    /// A package's id: exactly `<publisher>.<name>`, the first segment not a reserved word.
     pub fn package(s: &str) -> Result<Self, IdError> {
         let id = Self::parse(s)?;
         let first = id.first_segment();
-        if !id.0.contains('.') {
-            return Err(IdError(format!("`{s}` is not a package's id: `<publisher>.<name>`")));
+        if id.0.split('.').count() != 2 {
+            return Err(IdError(format!("`{s}` is not a package's id: `<publisher>.<name>`, two segments")));
         }
         if RESERVED.contains(&first) {
             return Err(IdError(format!("`{s}` is not a package's id: `{first}` is reserved")));
@@ -56,9 +56,9 @@ impl ExtId {
         Ok(id)
     }
 
-    /// Either kind: one segment or more. What a runtime application's id is held to until its ids
-    /// are a package's.
-    pub fn parse(s: &str) -> Result<Self, IdError> {
+    /// Dot-separated segments, whatever their number: only what `native`, `package` and reading an
+    /// id off the wire build on.
+    fn parse(s: &str) -> Result<Self, IdError> {
         if s.len() <= 64 && s.split('.').all(segment) {
             Ok(Self(s.to_string()))
         } else {
@@ -102,10 +102,12 @@ impl PartialEq<&str> for ExtId {
     }
 }
 
-impl TryFrom<String> for ExtId {
-    type Error = IdError;
-    fn try_from(s: String) -> Result<Self, IdError> {
-        Self::parse(&s)
+/// An id read off the wire is checked, as either kind: it names an extension that is already
+/// registered, so its kind is the registration's to say.
+impl<'de> Deserialize<'de> for ExtId {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        Self::parse(&s).map_err(serde::de::Error::custom)
     }
 }
 
@@ -128,10 +130,11 @@ mod tests {
         for reserved in RESERVED {
             assert!(ExtId::package(&format!("{reserved}.x")).is_err(), "{reserved}");
         }
+        assert!(ExtId::package("acme.notes.x").is_err(), "a package's id has two segments");
         for bad in ["", "Acme", "a..b", "1a", "a/b", "../x"] {
-            assert!(ExtId::parse(bad).is_err(), "{bad:?}");
+            assert!(ExtId::native(bad).is_err() && ExtId::package(bad).is_err(), "{bad:?}");
         }
-        assert!(ExtId::parse(&format!("a.{}", "b".repeat(63))).is_err());
+        assert!(ExtId::package(&format!("a.{}", "b".repeat(63))).is_err());
         assert_eq!(ExtId::package("acme.notes").unwrap().first_segment(), "acme");
         let parsed: Result<ExtId, _> = serde_json::from_str("\"Not An Id\"");
         assert!(parsed.is_err(), "an id read off the wire is checked");

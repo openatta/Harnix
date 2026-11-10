@@ -332,7 +332,7 @@ mod tests {
     }
 
     fn id(s: &str) -> ExtId {
-        ExtId::parse(s).unwrap()
+        ExtId::native(s).or_else(|_| ExtId::package(s)).unwrap()
     }
 
     fn router() -> (Router, Arc<Seen>, Arc<GrantTable>) {
@@ -505,7 +505,7 @@ mod tests {
         let reach = router.call(CallContext::root(device(), None), REACHABLE, json!({})).await.unwrap();
         assert_eq!(
             reach["methods"],
-            json!(["app.acme.notes.list", "harnix.hello", "harnix.reachable", "harnix.topics.subscribe", "engine.session.get", "sessions.list"])
+            json!(["app.acme.notes.list", "engine.session.get", "harnix.hello", "harnix.reachable", "harnix.topics.subscribe", "sessions.list"])
         );
         assert_eq!(reach["topics"], json!(["harnix.instances"]));
     }

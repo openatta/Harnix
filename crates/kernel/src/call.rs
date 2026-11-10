@@ -160,7 +160,7 @@ mod tests {
     #[test]
     fn a_child_is_its_parents_with_a_new_id() {
         let root = CallContext::root(Subject::Device { id: "d".into() }, Some(ClientId(3)));
-        let id = |s: &str| ExtId::parse(s).unwrap();
+        let id = |s: &str| ExtId::native(s).or_else(|_| ExtId::package(s)).unwrap();
         let child = root.child(&id("system"), false);
         assert_eq!(child.parent, Some(root.call_id));
         assert!(child.call_id > root.call_id);

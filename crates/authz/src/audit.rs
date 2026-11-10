@@ -237,7 +237,7 @@ mod tests {
     fn a_call_is_recorded_with_its_id_and_its_parent() {
         let audit = Audit::default();
         let root = CallContext::root(Subject::Device { id: "d".into() }, None);
-        let child = root.child(&harnix_contract::ExtId::parse("system").unwrap(), false);
+        let child = root.child(&harnix_contract::ExtId::native("system").unwrap(), false);
         audit.record_call(&root, "system.compact", Decision::Allow, None, None);
         audit.record_call(&child, "engine.session.compact", Decision::Allow, None, None);
         let [inner, outer] = [&audit.recent(2)[0], &audit.recent(2)[1]];

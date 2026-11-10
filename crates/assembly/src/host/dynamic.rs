@@ -241,8 +241,8 @@ impl DynamicRegistry for RegistryFor {
             .registered()
             .into_iter()
             .filter_map(|a| {
-                let id = ExtId::parse(&a.id).ok()?;
-                let by = ExtId::parse(&a.by).ok()?;
+                let id = ExtId::package(&a.id).ok()?;
+                let by = ExtId::native(&a.by).or_else(|_| ExtId::package(&a.by)).ok()?;
                 Some(ExtensionSummary::new(&id, &by, PackageCarrier::Wasm, a.since_ms).names(a.methods, a.topics, a.spaces))
             })
             .collect()

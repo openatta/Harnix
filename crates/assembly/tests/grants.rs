@@ -47,7 +47,7 @@ fn system_caps() -> [Capability; 4] {
 }
 
 fn id(s: &str) -> ExtId {
-    ExtId::parse(s).unwrap()
+    ExtId::native(s).or_else(|_| ExtId::package(s)).unwrap()
 }
 
 /// A debugger an application writes itself: the system space's powers, as optional

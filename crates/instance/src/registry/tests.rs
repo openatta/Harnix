@@ -138,7 +138,7 @@ async fn a_claimed_space_is_one_the_hub_has() {
         .unwrap_err();
     assert_eq!(e.code, codes::SPACE_MISMATCH);
     let e = registry
-        .create_instance(&Subject::extension(harnix_contract::ExtId::parse("n").unwrap()), json!({"template": "m.work", "name": "x"}), true)
+        .create_instance(&Subject::extension(harnix_contract::ExtId::native("n").unwrap()), json!({"template": "m.work", "name": "x"}), true)
         .await
         .unwrap_err();
     assert_eq!(e.code, codes::REFUSED, "another module's template");

@@ -170,7 +170,7 @@ pub(crate) struct Apps {
 
 /// An id that was checked already: a host module's, or a registered application's.
 fn ext_of(id: &str) -> harnix_contract::ExtId {
-    harnix_contract::ExtId::parse(id).expect("an id is checked before it acts")
+    harnix_contract::ExtId::native(id).or_else(|_| harnix_contract::ExtId::package(id)).expect("an id is checked before it acts")
 }
 
 /// The subject a checked id acts as.
@@ -490,7 +490,7 @@ impl AppRuntime for Apps {
     }
 
     fn frame(&self, by: &str, id: &str, calls: Option<Vec<String>>) -> Result<(), RpcError> {
-        let ext = harnix_contract::ExtId::parse(id).map_err(|e| RpcError::invalid_params(e.to_string()))?;
+        let ext = harnix_contract::ExtId::package(id).map_err(|e| RpcError::invalid_params(e.to_string()))?;
         let change = if calls.is_some() { Change::Declare } else { Change::Withdraw };
         self.router.audit().record_change(&subject_of(by), &format!("frame:{id}"), change, Some("its interface in frames"));
         self.grants.set_frame(&ext, calls.map(|c| c.into_iter().collect()));
@@ -644,7 +644,7 @@ mod tests {
             .unwrap();
         let compiled = Arc::new(RuntimeMethod(Arc::new(Fixed(json!("the compiled-in probe")))));
         table
-            .install(&Owner::extension(harnix_contract::ExtId::parse("probe").unwrap()), vec![Row::method("app.probe.echo", Access::device(), compiled)])
+            .install(&Owner::extension(harnix_contract::ExtId::native("probe").unwrap()), vec![Row::method("app.probe.echo", Access::device(), compiled)])
             .unwrap();
         // A compiled-in module with no names in the table still has its id.
         table.register(&ext_of("quiet"), harnix_router::IdKind::Native).unwrap();

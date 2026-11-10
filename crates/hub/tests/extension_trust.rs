@@ -206,7 +206,7 @@ impl Rig {
             .collect();
         let _ = cell.set(hub.clone());
         let (ext, own) = (FakeLink::new(), FakeLink::new());
-        let extension = InstanceTrust::Extension(ExtId::parse("acme").unwrap());
+        let extension = InstanceTrust::Extension(ExtId::native("acme").unwrap());
         hub.added("ext", ext.0.clone(), extension).await;
         hub.added("own", own.0.clone(), InstanceTrust::Product).await;
         Self { hub, book, rows, ext, own, _dir: dir }
