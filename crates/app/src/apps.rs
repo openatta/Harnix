@@ -600,6 +600,7 @@ mod tests {
             versions: json!({}),
             modules: RwLock::new(Vec::new()),
             unknown_sections: Vec::new(),
+            authorizer: std::sync::OnceLock::new(),
         });
         let gate = Arc::new(AppGate::new(below.clone(), diagnostics, audit.clone()));
         let table = MethodTable::new()
