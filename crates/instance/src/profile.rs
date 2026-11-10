@@ -275,7 +275,7 @@ fn carrier_of(
     Ok(match kind {
         CarrierKind::InProcess => TemplateCarrier::InProcess {
             engine: engine.clone(),
-            contrib: crate::EngineContrib::default(),
+            contrib: harnix_engine_api::EngineContribution::default(),
         },
         CarrierKind::Spawn => TemplateCarrier::Spawn {
             engine: engine.clone(),

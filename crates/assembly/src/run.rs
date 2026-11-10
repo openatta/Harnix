@@ -242,7 +242,7 @@ async fn subcommand(cli: &Cli, app: &AppBuilder) -> Option<anyhow::Result<()>> {
         ),
         Some(Command::Daemon(daemon)) => {
             let contrib = match &daemon.template {
-                None => harnix_instance::EngineContrib::default(),
+                None => harnix_engine_api::EngineContribution::default(),
                 Some(id) => match modules::native_of(&app.modules, id) {
                     Ok(contrib) => contrib,
                     Err(reason) => harnix_instance::refuse_daemon(&daemon.socket, &reason),

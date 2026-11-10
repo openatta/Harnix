@@ -10,9 +10,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use base::interface::tool::{PermissionDecision, ProgressCallback, ProgressSender, ToolContext};
-use base::interface::tool_middleware::{dispatch_through, ToolAnswer, ToolCall};
 use harnix_apps::{AppsBridge, Options, Runtime};
+use harnix_engine_api::{Cancel, HookDecision, Permission, Progress as ToolProgress, ToolCallFacts, ToolCx, ToolError};
 use harnix_builtin::apps::{AppsRuntime, InstallRecord};
 use harnix_contract::sync::lock;
 use harnix_contract::{RpcError, Subject};
@@ -330,12 +329,6 @@ fn copy_tree(from: &Path, to: &Path) {
 #[derive(Default)]
 struct Progress(Mutex<Vec<String>>);
 
-impl ProgressCallback for Progress {
-    fn on_progress(&self, _id: &str, data: &str) {
-        lock(&self.0).push(data.to_string());
-    }
-}
-
 const ID: &str = "example.showcase";
 
 #[tokio::test(flavor = "multi_thread")]
@@ -415,8 +408,8 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
     let project = rig.dir.path().join("project");
     std::fs::create_dir_all(&project).unwrap();
     std::fs::write(project.join("NOTES.md"), "the project's notes").unwrap();
-    let tools = plugin.tools(&project);
-    let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+    let tools = plugin.tools_for(&project);
+    let names: Vec<&str> = tools.iter().map(|t| t.spec().name()).collect();
     for tool in ["echo", "count", "config", "read_project", "slow", "vetoed", "crash", "board"] {
         assert!(
             names.contains(&format!("app__example_showcase__{tool}").as_str()),
@@ -426,115 +419,80 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
     let tool = |name: &str| {
         tools
             .iter()
-            .find(|t| t.name() == format!("app__example_showcase__{name}"))
+            .find(|t| t.spec().name() == format!("app__example_showcase__{name}"))
             .unwrap()
             .clone()
     };
-    let ctx = || ToolContext::for_test(project.clone());
-    assert!(matches!(
-        tool("echo").check_permissions(&json!({}), &ctx()).await,
-        PermissionDecision::Ask { .. }
-    ));
+    let ctx = |id: &str| ToolCx::new("test", id).with_project(project.clone());
+    assert!(matches!(tool("echo").permission(&json!({})), Permission::Ask(_)));
     let run = |name: &'static str, input: Value| {
         let tool = tool(name);
-        let ctx = ctx();
-        async move {
-            tool.call(input, ctx, ProgressSender::noop("t"))
-                .await
-                .unwrap()
-        }
+        let ctx = ctx("t");
+        async move { tool.call(ctx, input).await.unwrap() }
     };
     let echoed = run("echo", json!({"text": "hi"})).await;
-    assert_eq!(echoed.structured_content, Some(json!({"echoed": "hi"})));
-    assert!(!echoed.is_error);
-    assert!(format!("{:?}", run("count", json!({})).await.content).contains("count = 1"));
+    assert_eq!(echoed.structured(), Some(&json!({"echoed": "hi"})));
+    assert!(!echoed.is_error());
+    assert!(run("count", json!({})).await.content().contains("count = 1"));
     assert!(
-        format!("{:?}", run("count", json!({})).await.content).contains("count = 2"),
+        run("count", json!({})).await.content().contains("count = 2"),
         "the store did not outlive the call"
     );
-    let config = run("config", json!({})).await.structured_content.unwrap();
+    let config = run("config", json!({})).await.structured().cloned().unwrap();
     assert_eq!(config["greeting"], json!("set by the profile"));
     assert_eq!(
         config["blocked_tool"],
         json!("app__example_showcase__vetoed")
     );
     let read = run("read_project", json!({"path": "NOTES.md"})).await;
-    assert!(
-        format!("{:?}", read.content).contains("the project's notes"),
-        "{read:?}"
-    );
+    assert!(read.content().contains("the project's notes"), "{read:?}");
 
     // Progress, and a cancelled call that ends.
     let progress = Arc::new(Progress::default());
+    let seen = progress.clone();
     let out = tool("slow")
         .call(
+            ctx("p").with_progress(ToolProgress::new(move |text| lock(&seen.0).push(text.to_string()))),
             json!({"steps": 3, "ms": 10}),
-            ctx(),
-            ProgressSender::with_callback("p", progress.clone()),
         )
         .await
         .unwrap();
-    assert!(!out.is_error);
+    assert!(!out.is_error());
     assert_eq!(
         *lock(&progress.0),
         ["step 1 of 3", "step 2 of 3", "step 3 of 3"]
     );
-    let cancelled = ctx();
-    let token = cancelled.cancel.clone();
+    let token = Cancel::new();
+    let cancelled = ctx("c").with_cancel(token.clone());
     let slow = tool("slow");
-    let call = tokio::spawn(async move {
-        slow.call(
-            json!({"steps": 100, "ms": 200}),
-            cancelled,
-            ProgressSender::noop("c"),
-        )
-        .await
-    });
+    let call = tokio::spawn(async move { slow.call(cancelled, json!({"steps": 100, "ms": 200})).await });
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     let started = std::time::Instant::now();
     token.cancel();
     let ended = call.await.unwrap();
     assert!(
-        matches!(ended, Err(base::error::ToolError::Cancelled)),
+        matches!(ended, Err(ToolError::Cancelled)),
         "{ended:?}"
     );
     assert!(started.elapsed() < std::time::Duration::from_secs(2));
 
     // The event hook refuses the tool its configuration names, and lets the rest through.
-    let middleware = plugin.middleware("s1", 0);
-    assert_eq!(middleware.len(), 1);
-    let ran = Arc::new(Mutex::new(Vec::new()));
+    let hooks = plugin.hooks_for("s1", 0);
+    assert_eq!(hooks.len(), 1);
     for name in ["app__example_showcase__vetoed", "Bash"] {
-        let call = ToolCall {
-            name: name.into(),
-            input: json!({}),
-        };
-        let seen = ran.clone();
-        let outcome = dispatch_through(
-            &middleware,
-            call,
-            tokio_util::sync::CancellationToken::new(),
-            move |_cancel| {
-                lock(&seen).push(name.to_string());
-                async { Ok(ToolAnswer::text("ran")) }
-            },
-        )
-        .await
-        .unwrap();
-        if name == "Bash" {
-            assert_eq!(outcome.text, "ran");
-        } else {
-            assert!(
-                outcome.reported_failure && outcome.text.contains("event hook"),
-                "{outcome:?}"
-            );
+        let decision = hooks[0].before(&ToolCallFacts::new(name, json!({}), Cancel::new())).await;
+        match decision {
+            HookDecision::Proceed => assert_eq!(name, "Bash"),
+            HookDecision::Block(why) => {
+                assert!(name != "Bash" && why.contains("event hook"), "{why}")
+            }
+            other => panic!("{other:?}"),
         }
     }
-    assert_eq!(*lock(&ran), ["Bash"], "the refused call ran");
 
     // Off: no tools, no modules, no MCP server, the agent package and the skill switched off.
     rig.runtime.unload(&rig.cx, &record).await;
-    assert!(plugin.tools(&project).is_empty());
+    assert!(plugin.tools_for(&project).is_empty());
     assert!(rig.runtime.ui_contributions().is_empty() && rig.runtime.mcp_servers().is_empty());
     assert_eq!(rig.kernel.called("plugin.disable").len(), 1);
     assert!(!rig.skill("system").exists());
@@ -543,7 +501,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
         .load(&rig.cx, &record, &rig.apps().join(ID))
         .await
         .unwrap();
-    assert_eq!(plugin.tools(&project).len(), 8);
+    assert_eq!(plugin.tools_for(&project).len(), 8);
     assert!(rig.skill("system").is_dir());
     // Out: what was placed elsewhere is taken back.
     rig.runtime.unload(&rig.cx, &record).await;
@@ -621,15 +579,15 @@ async fn the_backend_is_registered_answers_its_methods_and_acts_only_as_far_as_i
     let project = rig.dir.path().join("project");
     std::fs::create_dir_all(&project).unwrap();
     let board = plugin
-        .tools(&project)
+        .tools_for(&project)
         .into_iter()
-        .find(|t| t.name() == "app__example_showcase__board")
+        .find(|t| t.spec().name() == "app__example_showcase__board")
         .unwrap();
     let out = board
-        .call(json!({}), ToolContext::for_test(project.clone()), ProgressSender::noop("b"))
+        .call(ToolCx::new("test", "b").with_project(project.clone()), json!({}))
         .await
         .unwrap();
-    assert!(format!("{:?}", out.content).contains("the board has 2 notes"), "{out:?}");
+    assert!(out.content().contains("the board has 2 notes"), "{out:?}");
     drop(board);
 
     // Stopped: the registration goes with it, and a method still held by the kernel answers that

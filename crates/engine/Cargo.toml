@@ -7,7 +7,13 @@ license      = "Apache-2.0"
 publish      = false
 description  = "Agix, behind Harnix's engine interface: the one crate that links the engine"
 
+[features]
+default = []
+# `harnix_engine::agix`: Agix's own types, for what the engine interface does not say. Not stable.
+agix = []
+
 [dependencies]
+harnix-engine-api = { workspace = true }
 daemon      = { workspace = true }
 base        = { workspace = true }
 model       = { workspace = true }
@@ -17,5 +23,7 @@ runtime     = { workspace = true }
 tokio       = { workspace = true }
 tokio-util  = { workspace = true }
 anyhow      = { workspace = true }
+async-trait = { workspace = true }
 tracing     = { workspace = true }
 reqwest     = { workspace = true }
+serde_json  = { workspace = true }

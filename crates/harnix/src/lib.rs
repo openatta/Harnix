@@ -32,25 +32,23 @@
 //! }
 //! ```
 //!
-//! What is here is a re-export: the application builder (`harnix-app`), the
-//! module contract (`harnix-module`), and the agent side an application
-//! builds on — native tools, scenes, prompt blocks, Agix plugins ([`agent`], [`scenes`],
-//! [`plugin`]).
+//! What is here is a re-export: the application builder (`harnix-assembly`), the
+//! module contract (`harnix-module`), and what a module gives the engine — tools, tool providers,
+//! hooks, scene layers, prompt gates ([`engine`]).
 //! An application depends on this crate alone. See `docs/harnix-sdk.md`.
 
-/// The agent side an application builds on: a native tool (`agent::tool::Tool`), a scene
-/// (`agent::interface::scene::Scene`), a prompt block (`agent::interface::prompt::PromptBlock`),
-/// a tool's error (`agent::error::ToolError`). These are the types the engine takes, under this
-/// crate's name.
-pub use ::base as agent;
-/// The built-in scenes: `scenes::harnix::HarnixScene` (the default), `scenes::code::CodeScene`,
-/// `scenes::mini::MiniScene`.
-pub use ::scene as scenes;
-/// An Agix plugin, written in Rust, for [`EngineContrib::plugin`]: `plugin::Plugin` (its name and
-/// what it registers for each session, sub-agents included), the `plugin::Registrar` it registers
-/// with, the `plugin::PluginSession` it is told about. Agix's own type, under this crate's name; in
-/// code, `plugin` is always this (a runtime application is an `app`).
-pub use ::runtime::plugin;
+/// What a module gives the engine, in Harnix's words: a tool (`engine::Tool`), a provider of tools
+/// for every session (`engine::ToolProvider`), a hook before a call (`engine::ToolHook`), a scene
+/// as a layer over another (`engine::SceneLayer`), a gate on messages (`engine::PromptGate`).
+pub use harnix_engine_api as engine;
+
+/// Agix itself, for what [`engine`] does not say: its crates, a raw session customizer
+/// (`agix::RawHooks::raw_hook`), an Agix scene as a layer's base (`agix::RawScenes::raw`).
+/// **Not stable**: it changes with Agix, outside every promise this crate makes.
+#[cfg(feature = "agix")]
+pub mod agix {
+    pub use harnix_engine::agix::*;
+}
 
 pub use async_trait::async_trait;
 pub use axum;
@@ -62,8 +60,7 @@ pub use harnix_module::{
     InstanceTemplates, Instances, Listen, Manifest, MethodRegistry, MigrateContext,
     MigrationReport, Module, ModuleContext, OnBusy, Principal, RouteRegistry, Secret, SessionRef, SessionSpec,
     Sessions, SpaceDecl, SpaceRegistry, Tap, TapEvent, TemplateCarrier, CONTRIB_API_VERSION,
-    MODULE_API_VERSION, PromptAttachment, PromptAttachmentKind, PromptCall, PromptDecision,
-    PromptDelivery, PromptMiddleware, SETTLED_HELD, TAP_CAPACITY,
+    MODULE_API_VERSION, SETTLED_HELD, TAP_CAPACITY,
 };
 
 /// Everything a module's source usually needs.

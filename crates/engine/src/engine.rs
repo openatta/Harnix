@@ -44,8 +44,7 @@ pub struct EngineConfig {
     /// process's working directory — an embedder should not have to `chdir`
     /// to choose it, any more than to choose the data root.
     pub cwd: Option<PathBuf>,
-    /// What modules contribute natively: scenes, a session customizer, a
-    /// credential source.
+    /// What extensions contribute natively, and the host's own providers.
     pub contrib: crate::EngineContrib,
 }
 
@@ -113,41 +112,9 @@ pub fn active_scenes(scene: &str, scenes: &[String]) -> Vec<String> {
     all
 }
 
-/// What modules contribute, and Agix's `harnix` scene attended unless a module contributes one
-/// under that id itself. With tools to admit, every scene — Agix's built-in ones too, served under
-/// their own ids — admits them (`admit.rs`).
-fn host_scenes(
-    contributed: &[Arc<dyn base::interface::scene::Scene>],
-    admitted: &[String],
-) -> Vec<Arc<dyn base::interface::scene::Scene>> {
-    let mut scenes = contributed.to_vec();
-    if !scenes
-        .iter()
-        .any(|s| s.id() == crate::attended::ATTENDED_SCENE)
-    {
-        scenes.push(Arc::new(crate::attended::Attended::harnix()));
-    }
-    if admitted.is_empty() {
-        return scenes;
-    }
-    let mut builtin = scene::SceneRegistry::new();
-    builtin.register_builtin();
-    for id in builtin.ids() {
-        if scenes.iter().any(|s| s.id() == id) {
-            continue;
-        }
-        if let Some(scene) = builtin.resolve(&id) {
-            scenes.push(scene);
-        }
-    }
-    scenes
-        .into_iter()
-        .map(|s| Arc::new(crate::admit::Admitting::new(s, admitted.to_vec())) as Arc<dyn base::interface::scene::Scene>)
-        .collect()
-}
-
 pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
-    let host_scenes = host_scenes(&config.contrib.scenes, &config.contrib.admitted);
+    let contrib = config.contrib.contribution();
+    let host_scenes = crate::scenes::host_scenes(contrib.scenes(), contrib.admitted())?;
     let scene = resolve_scene(&config.scene, &host_scenes)?;
     let scope = scene.id().to_string();
     for extra in &config.scenes {
@@ -263,13 +230,19 @@ pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
                 config.permission_prompt_timeout_secs,
             ),
             model_client: Some(client),
-            credentials: config.contrib.credentials.clone(),
+            credentials: contrib
+                .credential_source()
+                .map(|c| Arc::new(crate::adapt::credentials::AgixCredentials(c.clone())) as Arc<dyn base::interface::credentials::CredentialSource>),
             transcripts,
             permission: None,
-            // Modules contribute through the customizer; Agix plugins (the
-            // applications' tools, `AppsBridge`) are registered in delegates too.
-            plugins: config.contrib.plugins.clone(),
-            customize_session: config.contrib.composed(),
+            // A provider is an Agix plugin, registered in delegates too; gates and raw hooks
+            // apply to the session the host built.
+            plugins: contrib
+                .providers()
+                .iter()
+                .map(|p| Arc::new(crate::adapt::provider::AgixPlugin::new(p.clone())) as Arc<dyn runtime::plugin::Plugin>)
+                .collect(),
+            customize_session: crate::hooks::customizer(contrib),
             mcp_oauth_resolver: None,
         },
     )

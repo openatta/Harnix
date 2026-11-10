@@ -48,7 +48,7 @@ pub(super) async fn build(
         data_root: roots.engine.clone(),
         cwd: None,
         contrib: {
-            let mut contrib = modules::engine_contrib(records);
+            let mut contrib = harnix_instance::EngineContrib::from(modules::engine_contrib(records));
             apps.engine(&mut contrib);
             contrib
         },

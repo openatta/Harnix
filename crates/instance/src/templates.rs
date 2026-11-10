@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::contrib::EngineContrib;
+use harnix_engine_api::EngineContribution;
 use crate::profile::EngineProfile;
 
 /// Who an instance belongs to. Stopping a module stops what it owns.
@@ -75,7 +75,7 @@ pub enum TemplateCarrier {
     /// contributions; a profile has none to give.
     InProcess {
         engine: EngineProfile,
-        contrib: EngineContrib,
+        contrib: EngineContribution,
     },
     /// A daemon this process starts and keeps running: `harnix daemon`
     /// unless `program` says otherwise.
@@ -145,7 +145,7 @@ pub struct InstanceTemplate {
 
 /// What [`InstanceTemplate::native`] keeps: called once per engine it builds, in whichever process
 /// that engine runs.
-pub type NativeContrib = std::sync::Arc<dyn Fn(&mut EngineContrib) + Send + Sync>;
+pub type NativeContrib = std::sync::Arc<dyn Fn(&mut EngineContribution) + Send + Sync>;
 
 impl InstanceTemplate {
     pub fn new(id: impl Into<String>, carrier: TemplateCarrier) -> Self {
@@ -215,15 +215,15 @@ impl InstanceTemplate {
     /// nothing else of the module — no `start`, no methods) to find this one, and calls `f` there.
     /// They share no memory with the module; what they need of its state comes through Harnix's
     /// methods or files. A template whose `program` is somebody else's gets no `--template`.
-    pub fn native(mut self, f: impl Fn(&mut EngineContrib) + Send + Sync + 'static) -> Self {
+    pub fn native(mut self, f: impl Fn(&mut EngineContribution) + Send + Sync + 'static) -> Self {
         self.native = Some(std::sync::Arc::new(f));
         self
     }
 
     /// What `native` contributes, built once more.
-    pub fn native_contrib(&self) -> Option<EngineContrib> {
+    pub fn native_contrib(&self) -> Option<EngineContribution> {
         self.native.as_ref().map(|f| {
-            let mut contrib = EngineContrib::new();
+            let mut contrib = EngineContribution::new();
             f(&mut contrib);
             contrib
         })

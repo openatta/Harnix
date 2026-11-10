@@ -1,15 +1,19 @@
-//! Agix, standing up in this process: the engine an in-process instance is.
+//! Agix, behind Harnix's engine interface: the one crate that links the engine.
 //!
-//! This is the one place that assembles Agix — resolving scenes, wrapping them (attended, admitting
-//! the host's tools), gathering what modules contribute, and handing it all to Agix's own
-//! assembly. The instance layer builds an engine with [`build`] and keeps the links to it.
+//! What extensions give an engine is written in `harnix-engine-api`'s terms — tools, providers,
+//! hooks, scene layers, prompt gates, a credential source. This crate turns each into Agix's own
+//! (`adapt`), gathers them (`EngineContrib`), and stands the engine up in this process
+//! ([`build`]). The instance layer builds engines with it and keeps the links to them.
 
-#[macro_use]
-mod delegate;
-mod admit;
-mod attended;
+mod adapt;
 pub mod contrib;
 pub mod engine;
+mod hooks;
+pub mod scenes;
+
+#[cfg(feature = "agix")]
+pub mod agix;
 
 pub use contrib::EngineContrib;
 pub use engine::{active_scenes, build, Engine, EngineConfig};
+pub use hooks::RawHook;

@@ -70,12 +70,12 @@ pub struct Factory {
     pub socket_dir: PathBuf,
     /// What a credential reference resolves to (an attached daemon's token).
     pub credential: Resolve,
-    /// Agix plugins every engine built in this process gets — the in-process
+    /// Tool providers every engine built in this process gets — the in-process
     /// carrier's alone: a daemon is another process, and what it should have
     /// of this one's reaches it another way (an application's tools, over MCP).
-    pub plugins: Vec<Arc<dyn runtime::plugin::Plugin>>,
-    /// The tools those plugins register, which every scene of such an engine admits
-    /// (`EngineContrib::admit_tools`).
+    pub plugins: Vec<Arc<dyn harnix_engine_api::ToolProvider>>,
+    /// The tools those providers give, which every scene of such an engine admits
+    /// (`EngineContribution::admit_everywhere`).
     pub admitted_tools: Vec<String>,
     /// The MCP servers every daemon this process spawns is configured with — a runtime
     /// application's tools — written into each one's data root as it is built, and kept in line
@@ -141,7 +141,7 @@ impl Factory {
         }
         match carrier {
             TemplateCarrier::InProcess { engine, contrib } => {
-                let mut contrib = contrib.clone();
+                let mut contrib = crate::EngineContrib::from(contrib.clone());
                 if let Some(native) = template.and_then(InstanceTemplate::native_contrib) {
                     contrib.extend(native);
                 }

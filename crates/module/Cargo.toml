@@ -12,7 +12,7 @@ harnix-contract = { workspace = true }
 harnix-authz    = { workspace = true }
 harnix-kernel   = { workspace = true }
 harnix-instance = { workspace = true }
-base        = { workspace = true }
+harnix-engine-api = { workspace = true }
 history     = { workspace = true }
 async-trait = { workspace = true }
 anyhow      = { workspace = true }

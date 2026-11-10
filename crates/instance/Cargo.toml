@@ -11,12 +11,9 @@ description  = "Agix instances: built in-process or reached as a daemon, behind 
 harnix-contract = { workspace = true }
 harnix-supervise = { workspace = true }
 harnix-engine   = { workspace = true }
+harnix-engine-api = { workspace = true }
 daemon      = { workspace = true }
-base        = { workspace = true }
-model       = { workspace = true }
-scene       = { workspace = true }
 history     = { workspace = true }
-runtime     = { workspace = true }
 tokio       = { workspace = true }
 tokio-util  = { workspace = true }
 anyhow      = { workspace = true }

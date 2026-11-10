@@ -31,10 +31,10 @@
 //! each handing in its own step. A run's main session replays `flow-main` (`demo-main`) or
 //! `flow-agent` (`demo-agent`).
 
-use std::sync::Arc;
 
 use harnix::prelude::*;
-use harnix_ext_flow::module::StructuredScene;
+use harnix::engine::SceneBase;
+use harnix_ext_flow::module::structured_scene;
 use harnix_ext_flow::{
     FileStore, Flow, GateResult, Gates, MemPacks, Programs, RunRecord, Tools, WorkItem,
 };
@@ -290,9 +290,7 @@ summary: how many findings of each severity, and the one that matters most.
 
 /// The scene a template's session hands in from: harnix, with `StructuredOutput` allowed.
 fn structured(e: &mut EngineContrib) {
-    e.scene(Arc::new(StructuredScene::new(Arc::new(
-        harnix::scenes::harnix::HarnixScene,
-    ))));
+    e.scene(structured_scene(SceneBase::builtin("harnix")));
 }
 
 /// The engine of the flow module's templates: `structured-harnix` active beside the default.

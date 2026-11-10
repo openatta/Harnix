@@ -12,7 +12,8 @@ name = "harnix-testapp"
 path = "src/main.rs"
 
 [dependencies]
-harnix      = { workspace = true }
+# `agix`: the native templates' marked system prompt is a raw session hook.
+harnix      = { workspace = true, features = ["agix"] }
 harnix-ext-flow = { workspace = true }
 anyhow      = { workspace = true }
 serde       = { workspace = true }

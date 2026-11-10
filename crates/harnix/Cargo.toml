@@ -17,19 +17,19 @@ path = "src/lib.rs"
 default = []
 # Runtime applications (`harnix-assembly`'s `apps`): see crates/assembly/Cargo.toml.
 apps = ["harnix-assembly/apps"]
+# `harnix::agix`: Agix's own types, for what `harnix::engine` does not say. Not stable.
+agix = ["dep:harnix-engine", "harnix-engine/agix"]
 
 [dependencies]
 harnix-assembly       = { workspace = true }
 harnix-module    = { workspace = true }
 harnix-contract  = { workspace = true }
 harnix-authz     = { workspace = true }
-# The engine's interfaces, re-exported as `harnix::agent`, `harnix::scenes` and `harnix::plugin`:
-# an application names only this crate.
-base        = { workspace = true }
-scene       = { workspace = true }
-# Agix's Rust plugin (`runtime::plugin`), re-exported as `harnix::plugin`: what
-# `EngineContrib::plugin` takes.
-runtime     = { workspace = true }
+# What a module gives the engine, re-exported as `harnix::engine`: an application names only this
+# crate.
+harnix-engine-api = { workspace = true }
+# Only for `harnix::agix`.
+harnix-engine     = { workspace = true, optional = true }
 async-trait = { workspace = true }
 anyhow      = { workspace = true }
 axum        = { workspace = true }

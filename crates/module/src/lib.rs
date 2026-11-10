@@ -42,15 +42,12 @@ pub use sessions::{
     SETTLED_HELD, TAP_CAPACITY,
 };
 
-pub use base::interface::credentials::Secret;
-/// Agix's prompt middleware, for a module to install from `EngineContrib::customize_session` with
-/// `Builder::prompt_middleware` without naming Agix's crates (ipdrun-13).
-pub use base::interface::prompt_middleware::{
-    PromptAttachment, PromptAttachmentKind, PromptCall, PromptDecision, PromptDelivery, PromptMiddleware,
-};
+/// What a module gives the engine, in Harnix's words: tools, providers, hooks, scene layers,
+/// prompt gates, a credential source (`harnix-engine-api`).
+pub use harnix_engine_api::EngineContribution as EngineContrib;
+pub use harnix_engine_api::{Delivery, PromptDecision, PromptFacts, PromptGate, Secret};
 pub use harnix_instance::profile::EngineProfile;
 pub use harnix_instance::templates::{AttachTo, InstanceTemplate, InstanceTemplates, TemplateCarrier};
-pub use harnix_instance::EngineContrib;
 pub use harnix_authz::Principal;
 /// A module that issues upload grants answers the upload route through this.
 pub use harnix_contract::BulkStore;
@@ -97,11 +94,9 @@ impl SpaceRegistry {
 /// assert_api::<Old>();
 /// ```
 ///
-/// What this number does not cover: the Agix types the contract hands through as they are — the
-/// session `Builder` and `SessionCtx` a customizer gets, the history store on an
-/// [`InstanceHandle`] — and `harnix::agent` / `harnix::scenes`, which are Agix's crates. They
-/// change with Agix and this stays put; what keeps that safe is that a Harnix release carries
-/// exactly one Agix release (`docs/harnix-sdk.md` §16). Routes are an `axum::Router`, so axum's
+/// What this number does not cover: the history store on an [`InstanceHandle`], which is Agix's,
+/// and `harnix::agix`, which is Agix itself. They change with Agix and this stays put; what keeps
+/// that safe is that a Harnix release carries exactly one Agix release (`docs/harnix-sdk.md` §16). Routes are an `axum::Router`, so axum's
 /// major version is part of the contract: 1 is axum 0.8.
 pub const MODULE_API_VERSION: u32 = 1;
 
@@ -120,8 +115,8 @@ pub trait Module: Send + Sync + 'static {
 
     fn manifest(&self) -> Manifest;
 
-    /// Native contributions to the `system` instance: scenes, native tools
-    /// through a session customizer, a credential source.
+    /// Native contributions to the `system` instance: scenes, tool providers, prompt gates, a
+    /// credential source.
     fn engine(&self, _engine: &mut EngineContrib) {}
 
     /// Templates this module builds its own instances from (concept §3.1.1).

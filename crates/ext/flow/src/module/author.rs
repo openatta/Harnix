@@ -25,11 +25,9 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use base::interface::prompt::PromptBlock;
-use base::interface::scene::{
-    Scene, ExecutionParams, ReminderContext, ScenePromptContext, TokenBudget,
+use harnix_engine_api::{
+    Permission, PromptText, SceneBase, SceneLayer, Tool, ToolCx, ToolError, ToolOutput, ToolSpec as Spec,
 };
-use base::tool::{PermissionDecision, ProgressSender, Tool, ToolContext, ToolResult};
 use serde_json::{json, Value};
 
 use super::{dispatch, publish};
@@ -398,100 +396,25 @@ How to work:\n\
   cancel, confirm (pass or reject), force, rework, retry or release with the run tools — each is \
   asked of the user, and their approval is what decides. Never do one the user did not ask for.";
 
-/// An application's scene with the authoring tools and prompt added.
-pub struct AuthorScene {
-    inner: Arc<dyn Scene>,
-    sh: Arc<Shared>,
-}
-
-impl AuthorScene {
-    pub(crate) fn new(inner: Arc<dyn Scene>, sh: Arc<Shared>) -> Self {
-        Self { inner, sh }
+/// An application's scene with the authoring tools and prompt added, served as `flow-author`.
+///
+/// Attended whatever the base scene says: the module answers this session's permission asks (from
+/// its task's permissions, or by asking a person in the flow space), so they must reach the host
+/// rather than be refused as no one's to answer. No model call outside the conversation (under
+/// replay, one that is not recorded), and no project to choose.
+pub(crate) fn author_scene(base: SceneBase, sh: Arc<Shared>) -> SceneLayer {
+    let mut layer = SceneLayer::new(AUTHOR_SCENE, base)
+        .name("Flow author")
+        .description("write, check and try out flows in conversation")
+        .prompt(PromptText::cached(AUTHOR_PROMPT));
+    for row in TOOLS {
+        layer = layer.tool(Arc::new(AuthorTool::new(row, sh.clone())));
     }
-}
-
-impl Scene for AuthorScene {
-    fn id(&self) -> &str {
-        AUTHOR_SCENE
-    }
-    fn name(&self) -> &str {
-        "Flow author"
-    }
-    fn description(&self) -> &str {
-        "write, check and try out flows in conversation"
-    }
-    fn build_system_prompt(&self, ctx: &ScenePromptContext) -> Vec<PromptBlock> {
-        let mut blocks = self.inner.build_system_prompt(ctx);
-        blocks.push(PromptBlock::system_cached(AUTHOR_PROMPT.to_string()));
-        blocks
-    }
-    /// The base whitelist plus ours; an empty one (everything) stays empty.
-    fn tools(&self) -> Vec<String> {
-        let mut tools = self.inner.tools();
-        if !tools.is_empty() {
-            tools.extend(TOOLS.iter().map(|t| t.name.to_string()));
-        }
-        tools
-    }
-    fn requires_project(&self) -> bool {
-        false
-    }
-    fn supports_team(&self) -> bool {
-        self.inner.supports_team()
-    }
-    fn extra_tools(&self) -> Vec<Arc<dyn Tool>> {
-        let mut tools = self.inner.extra_tools();
-        for spec in TOOLS {
-            tools.push(Arc::new(AuthorTool {
-                spec,
-                sh: self.sh.clone(),
-            }));
-        }
-        tools
-    }
-    fn token_budget(&self) -> TokenBudget {
-        self.inner.token_budget()
-    }
-    fn build_system_reminder(&self, ctx: &ReminderContext) -> String {
-        self.inner.build_system_reminder(ctx)
-    }
-    fn disallowed_tools(&self) -> Vec<String> {
-        self.inner.disallowed_tools()
-    }
-    fn permits_tool(&self, name: &str) -> bool {
-        TOOLS.iter().any(|t| t.name == name) || self.inner.permits_tool(name)
-    }
-    fn deferred_tools(&self) -> Vec<String> {
-        self.inner.deferred_tools()
-    }
-    fn build_session_context(&self, ctx: &ScenePromptContext) -> String {
-        self.inner.build_session_context(ctx)
-    }
-    fn path_style(&self) -> base::context::config::PathStyle {
-        self.inner.path_style()
-    }
-    fn bundled_skills(&self) -> Vec<String> {
-        self.inner.bundled_skills()
-    }
-    /// Attended whatever the base scene says: the module answers this session's permission asks
-    /// (from its task's permissions, or by asking a person in the flow space), so they must reach
-    /// the host rather than be refused as no one's to answer.
-    fn interactive(&self) -> bool {
-        true
-    }
-    fn execution_params(&self) -> ExecutionParams {
-        self.inner.execution_params()
-    }
-    /// No model call outside the conversation (under replay, one that is not recorded).
-    fn auto_name_session(&self) -> bool {
-        false
-    }
-    fn session_name_prompt(&self, _first_message: &str) -> Option<String> {
-        None
-    }
-    fn memory_extraction_prompt(&self) -> Option<String> {
-        self.inner.memory_extraction_prompt()
-    }
+    layer
+        .requires_project(false)
+        .interactive(true)
+        .auto_name(false)
+        .name_prompt(None)
 }
 
 /// Parts about to be saved: (kind, name) → text.
@@ -565,12 +488,25 @@ fn restore_parts(packs: &dyn Packs, before: &[((PartKind, String), Option<String
     }
 }
 
-type ToolOut = Result<ToolResult, base::error::ToolError>;
+type ToolOut = Result<ToolOutput, ToolError>;
 
 /// One authoring tool: its row of [`TOOLS`].
 struct AuthorTool {
     spec: &'static ToolSpec,
+    /// What the model is told of it: the row's name, description and input; what changes nothing
+    /// is read-only and may run beside other calls.
+    told: Spec,
     sh: Arc<Shared>,
+}
+
+impl AuthorTool {
+    fn new(spec: &'static ToolSpec, sh: Arc<Shared>) -> Self {
+        let mut told = Spec::new(spec.name, spec.description, (spec.schema)());
+        if spec.ask.is_none() {
+            told = told.read_only().concurrency_safe();
+        }
+        Self { spec, told, sh }
+    }
 }
 
 fn pretty(v: &Value) -> String {
@@ -578,11 +514,11 @@ fn pretty(v: &Value) -> String {
 }
 
 fn text(v: Value) -> ToolOut {
-    Ok(ToolResult::text(pretty(&v)))
+    Ok(ToolOutput::text(pretty(&v)))
 }
 
 fn error(m: impl Into<String>) -> ToolOut {
-    Ok(ToolResult::error_text(m.into()))
+    Ok(ToolOutput::error(m.into()))
 }
 
 fn str_of<'v>(input: &'v Value, k: &str) -> Option<&'v str> {
@@ -701,35 +637,23 @@ fn stations_of(def: &FlowDef) -> Vec<Value> {
 
 #[async_trait::async_trait]
 impl Tool for AuthorTool {
-    fn name(&self) -> &str {
-        self.spec.name
-    }
-    fn description(&self) -> &str {
-        self.spec.description
-    }
-    fn input_schema(&self) -> Value {
-        (self.spec.schema)()
-    }
-    fn is_read_only(&self, _: &Value) -> bool {
-        self.spec.ask.is_none()
-    }
-    fn is_concurrency_safe(&self, _: &Value) -> bool {
-        self.spec.ask.is_none()
+    fn spec(&self) -> &Spec {
+        &self.told
     }
     /// What changes something is asked about: the person is in the conversation.
-    async fn check_permissions(&self, input: &Value, _: &ToolContext) -> PermissionDecision {
+    fn permission(&self, input: &Value) -> Permission {
         match self.spec.ask {
-            None => PermissionDecision::allow(),
-            Some(what) => PermissionDecision::ask(format!("Let the agent {}?", what(input))),
+            None => Permission::Allow,
+            Some(what) => Permission::Ask(format!("Let the agent {}?", what(input))),
         }
     }
-    async fn call(&self, input: Value, cx: ToolContext, _p: ProgressSender) -> ToolOut {
+    async fn call(&self, cx: ToolCx, input: Value) -> ToolOut {
         let sh = &self.sh;
         let Ok(engine) = sh.engine() else {
             return error("the flow module has not started");
         };
         let instance = sh.cfg.instance.clone();
-        let session = cx.session_id.clone();
+        let session = cx.session_id().to_string();
         let by = Actor::agent(format!("{instance}/{session}"));
         let packs = engine.packs().clone();
         let focus = sh
@@ -1017,7 +941,7 @@ impl Tool for AuthorTool {
             }
             Does::Guide => {
                 let zh = str_of(&input, "lang").is_some_and(|l| l.starts_with("zh"));
-                Ok(ToolResult::text(if zh { GUIDE_ZH } else { GUIDE_EN }.to_string()))
+                Ok(ToolOutput::text(if zh { GUIDE_ZH } else { GUIDE_EN }.to_string()))
             }
             Does::Runs => {
                 let Ok(name) = need_focus() else {
@@ -1053,7 +977,7 @@ impl Tool for AuthorTool {
                     Some(mcx) => mcx
                         .call(
                             "harnix.prompts.answerer",
-                            json!({"session_id": session, "tool_use_id": cx.tool_use_id}),
+                            json!({"session_id": session, "tool_use_id": cx.tool_use_id()}),
                         )
                         .await
                         .ok()

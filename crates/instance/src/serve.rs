@@ -29,12 +29,15 @@ pub struct DaemonArgs {
 }
 
 pub async fn serve_daemon(args: DaemonArgs) -> anyhow::Result<()> {
-    serve_daemon_with(args, crate::EngineContrib::default()).await
+    serve_daemon_with(args, harnix_engine_api::EngineContribution::default()).await
 }
 
 /// [`serve_daemon`], with native contributions: a template's, built again in this process from
 /// its `native` (ipdrun-10).
-pub async fn serve_daemon_with(args: DaemonArgs, contrib: crate::EngineContrib) -> anyhow::Result<()> {
+pub async fn serve_daemon_with(
+    args: DaemonArgs,
+    contrib: harnix_engine_api::EngineContribution,
+) -> anyhow::Result<()> {
     std::fs::create_dir_all(&args.data_root)?;
     // Held to the end of this function: past the engine's own shutdown, which is what writes last.
     let _lock = match &args.instance {
@@ -51,7 +54,7 @@ pub async fn serve_daemon_with(args: DaemonArgs, contrib: crate::EngineContrib) 
         }
         None => None,
     };
-    let engine = crate::engine::build(engine_config(&args.engine, &args.data_root, contrib))
+    let engine = crate::engine::build(engine_config(&args.engine, &args.data_root, contrib.into()))
     .await?;
     let server = engine.server.clone();
     let listener = DaemonServer::bind_unix(&args.socket)?;
