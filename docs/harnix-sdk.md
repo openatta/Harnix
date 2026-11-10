@@ -763,9 +763,10 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 | 贡献点 API | `2` | `harnix::CONTRIB_API_VERSION`；`harnix.hello` 里也有 | 贡献点的契约变了。2：运行期包的界面模块是预编译的 ES 模块，从页面的 import map 拿 React；**React 的大版本是它的一部分** |
 | 协议 | `4` | `harnix_contract::PROTOCOL_VERSION` | 握手比对，不一致拒绝（`HANDSHAKE_REFUSED`） |
 | 应用接口（插件 APP） | `1` | `harnix-app.toml` 的 `[app] harnix_api`；`harnix_package::HARNIX_API` | 插件 APP 的契约（WIT world 与清单）有破坏性变化。见 [插件](harnix-plugin.md) §13 |
+| 扩展线 | `1` | `harnix_wasm_port::EXT_WIRE_VERSION` | 产品与它自己的扩展进程之间那条线（`harnix-ext-wire`）的帧或方法改了形状。两端是同一次构建，扩展进程的 `proc.hello` 报的数不等就被拒绝；应用不直接用它 |
 
 `<app> --version` 打印上面全部，加上引擎的版本。0.4.z 内协议与模块 API 只做加法；`harnix::agent`、`harnix::scenes`、`harnix::plugin` 与契约里露出的 Agix 类型除外。
-这张表的五个数由 `tests/crate-metadata.mjs` 对着代码里的常量查。
+这张表的六个数由 `tests/crate-metadata.mjs` 对着代码里的常量查。
 
 ---
 
