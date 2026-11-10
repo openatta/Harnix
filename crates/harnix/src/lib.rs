@@ -27,6 +27,7 @@
 //!     harnix::App::builder()
 //!         .name("hello-app", "0.1.0")
 //!         .with_builtins()
+//!         .extensions(harnix::first_party::standard())
 //!         .module(Hello)
 //!         .run()
 //! }

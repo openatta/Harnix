@@ -1,524 +1,391 @@
 {
-  "aliases": [],
-  "rows": [
+  "aliases": [
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.cancel",
-      "owner": "ext:flow"
+      "to": "flow.cancel"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.catalog",
-      "owner": "ext:flow"
+      "to": "flow.catalog"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.claim",
-      "owner": "ext:flow"
+      "to": "flow.claim"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.confirm",
-      "owner": "ext:flow"
+      "to": "flow.confirm"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.def",
-      "owner": "ext:flow"
+      "to": "flow.def"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.defs",
-      "owner": "ext:flow"
+      "to": "flow.defs"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.delete",
-      "owner": "ext:flow"
+      "to": "flow.delete"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.dry_run.list",
-      "owner": "ext:flow"
+      "to": "flow.dry_run.list"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.dry_run.run",
-      "owner": "ext:flow"
+      "to": "flow.dry_run.run"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.dry_run.start",
-      "owner": "ext:flow"
+      "to": "flow.dry_run.start"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.dry_run.step",
-      "owner": "ext:flow"
+      "to": "flow.dry_run.step"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.fail",
-      "owner": "ext:flow"
+      "to": "flow.fail"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.focus",
-      "owner": "ext:flow"
+      "to": "flow.focus"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.force",
-      "owner": "ext:flow"
+      "to": "flow.force"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.get",
-      "owner": "ext:flow"
+      "to": "flow.get"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.guide",
-      "owner": "ext:flow"
+      "to": "flow.guide"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.heartbeat",
-      "owner": "ext:flow"
+      "to": "flow.heartbeat"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.history",
-      "owner": "ext:flow"
+      "to": "flow.history"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.hooks",
-      "owner": "ext:flow"
+      "to": "flow.hooks"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.list",
-      "owner": "ext:flow"
+      "to": "flow.list"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.part",
-      "owner": "ext:flow"
+      "to": "flow.part"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.part.delete",
-      "owner": "ext:flow"
+      "to": "flow.part.delete"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.part.save",
-      "owner": "ext:flow"
+      "to": "flow.part.save"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.parts",
-      "owner": "ext:flow"
+      "to": "flow.parts"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.pause",
-      "owner": "ext:flow"
+      "to": "flow.pause"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.proposal",
-      "owner": "ext:flow"
+      "to": "flow.proposal"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.release",
-      "owner": "ext:flow"
+      "to": "flow.release"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.resume",
-      "owner": "ext:flow"
+      "to": "flow.resume"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.retry",
-      "owner": "ext:flow"
+      "to": "flow.retry"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.rework",
-      "owner": "ext:flow"
+      "to": "flow.rework"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.save",
-      "owner": "ext:flow"
+      "to": "flow.save"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.schema",
-      "owner": "ext:flow"
+      "to": "flow.schema"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.session",
-      "owner": "ext:flow"
+      "to": "flow.session"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.sessions",
-      "owner": "ext:flow"
+      "to": "flow.sessions"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.start",
-      "owner": "ext:flow"
+      "to": "flow.start"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.submit",
-      "owner": "ext:flow"
+      "to": "flow.submit"
     },
     {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "app.flow.validate",
-      "owner": "ext:flow"
+      "to": "flow.validate"
     },
+    {
+      "name": "harnix.devices.list",
+      "to": "devices.list"
+    },
+    {
+      "name": "harnix.devices.pair.begin",
+      "to": "devices.pair.begin"
+    },
+    {
+      "name": "harnix.devices.pair.complete",
+      "to": "devices.pair.complete"
+    },
+    {
+      "name": "harnix.devices.revoke",
+      "to": "devices.revoke"
+    },
+    {
+      "name": "harnix.files",
+      "to": "harnix-app.files"
+    },
+    {
+      "name": "harnix.listDirectory",
+      "to": "harnix-app.listDirectory"
+    },
+    {
+      "name": "harnix.plugins.disable",
+      "to": "plugins.disable"
+    },
+    {
+      "name": "harnix.plugins.enable",
+      "to": "plugins.enable"
+    },
+    {
+      "name": "harnix.plugins.install",
+      "to": "plugins.install"
+    },
+    {
+      "name": "harnix.plugins.list",
+      "to": "plugins.list"
+    },
+    {
+      "name": "harnix.plugins.reload",
+      "to": "plugins.reload"
+    },
+    {
+      "name": "harnix.plugins.uninstall",
+      "to": "plugins.uninstall"
+    },
+    {
+      "name": "harnix.plugins.upload",
+      "to": "plugins.upload"
+    },
+    {
+      "name": "harnix.prefs.set",
+      "to": "harnix-app.prefs.set"
+    },
+    {
+      "name": "harnix.process",
+      "to": "system.process"
+    },
+    {
+      "name": "harnix.projects.create",
+      "to": "harnix-app.projects.create"
+    },
+    {
+      "name": "harnix.recentProjects",
+      "to": "harnix-app.recentProjects"
+    },
+    {
+      "name": "harnix.requestHeaders",
+      "to": "observability.calls"
+    },
+    {
+      "name": "harnix.search",
+      "to": "harnix-app.search"
+    },
+    {
+      "name": "harnix.sessions.archive",
+      "to": "harnix-app.sessions.archive"
+    },
+    {
+      "name": "harnix.sessions.export",
+      "to": "harnix-app.sessions.export"
+    },
+    {
+      "name": "harnix.sessions.rename",
+      "to": "harnix.session.rename"
+    },
+    {
+      "name": "harnix.settings.describe",
+      "to": "settings.describe"
+    },
+    {
+      "name": "harnix.settings.set",
+      "to": "settings.set"
+    },
+    {
+      "name": "harnix.settings.setProvider",
+      "to": "settings.setProvider"
+    },
+    {
+      "name": "harnix.system.calls",
+      "to": "observability.calls"
+    },
+    {
+      "name": "harnix.system.clear",
+      "to": "system.clear"
+    },
+    {
+      "name": "harnix.system.compact",
+      "to": "system.compact"
+    },
+    {
+      "name": "harnix.system.context",
+      "to": "system.context"
+    },
+    {
+      "name": "harnix.system.goal",
+      "to": "system.goal"
+    },
+    {
+      "name": "harnix.system.goal.set",
+      "to": "system.goal.set"
+    },
+    {
+      "name": "harnix.system.goal.update",
+      "to": "system.goal.update"
+    },
+    {
+      "name": "harnix.system.instances.create",
+      "to": "system.instances.create"
+    },
+    {
+      "name": "harnix.system.instances.restart",
+      "to": "system.instances.restart"
+    },
+    {
+      "name": "harnix.system.instances.stop",
+      "to": "system.instances.stop"
+    },
+    {
+      "name": "harnix.system.instances.templates",
+      "to": "system.instances.templates"
+    },
+    {
+      "name": "harnix.system.messages.drop",
+      "to": "system.messages.drop"
+    },
+    {
+      "name": "harnix.system.messages.edit",
+      "to": "system.messages.edit"
+    },
+    {
+      "name": "harnix.system.model",
+      "to": "system.model"
+    },
+    {
+      "name": "harnix.system.rename",
+      "to": "system.rename"
+    },
+    {
+      "name": "harnix.system.tasks.message",
+      "to": "system.tasks.message"
+    },
+    {
+      "name": "harnix.system.tasks.output",
+      "to": "system.tasks.output"
+    },
+    {
+      "name": "harnix.system.tasks.stop",
+      "to": "system.tasks.stop"
+    },
+    {
+      "name": "harnix.system.trace",
+      "to": "observability.trace"
+    },
+    {
+      "name": "harnix.system.trace.call",
+      "to": "observability.trace.call"
+    },
+    {
+      "name": "harnix.system.turns",
+      "to": "observability.turns"
+    },
+    {
+      "name": "harnix.system.usage",
+      "to": "observability.usage"
+    },
+    {
+      "name": "harnix.upload.begin",
+      "to": "harnix.bulk.upload"
+    },
+    {
+      "name": "harnix.workspaces.create",
+      "to": "harnix-app.workspaces.create"
+    },
+    {
+      "name": "harnix.workspaces.list",
+      "to": "harnix-app.workspaces.list"
+    },
+    {
+      "name": "harnix.workspaces.remove",
+      "to": "harnix-app.workspaces.remove"
+    },
+    {
+      "name": "harnix.workspaces.reorder",
+      "to": "harnix-app.workspaces.reorder"
+    },
+    {
+      "name": "harnix.workspaces.update",
+      "to": "harnix-app.workspaces.update"
+    },
+    {
+      "name": "topic:app.flow.defs",
+      "to": "topic:flow.defs"
+    },
+    {
+      "name": "topic:app.flow.dry_runs",
+      "to": "topic:flow.dry_runs"
+    },
+    {
+      "name": "topic:app.flow.focus",
+      "to": "topic:flow.focus"
+    },
+    {
+      "name": "topic:app.flow.run",
+      "to": "topic:flow.run"
+    },
+    {
+      "name": "topic:app.flow.runs",
+      "to": "topic:flow.runs"
+    },
+    {
+      "name": "topic:harnix.process",
+      "to": "topic:system.process"
+    }
+  ],
+  "rows": [
     {
       "access": {
         "device": true,
@@ -729,6 +596,812 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "devices.list",
+      "owner": "ext:devices"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "devices.pair.begin",
+      "owner": "ext:devices"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "devices.pair.complete",
+      "owner": "ext:devices"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "devices.revoke",
+      "owner": "ext:devices"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.cancel",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.catalog",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.claim",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.confirm",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.def",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.defs",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.delete",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.dry_run.list",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.dry_run.run",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.dry_run.start",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.dry_run.step",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.fail",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.focus",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.force",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.get",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.guide",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.heartbeat",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.history",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.hooks",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.list",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.part",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.part.delete",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.part.save",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.parts",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.pause",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.proposal",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.release",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.resume",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.retry",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.rework",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.save",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.schema",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.session",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.sessions",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.start",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.submit",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.validate",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "harnix-app.describe",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "harnix-app.files",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "harnix-app.listDirectory",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "harnix-app.prefs.set",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "harnix-app.projects.create",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "harnix-app.recentProjects",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "harnix-app.search",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix-app.sessions.archive",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix-app.sessions.export",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "harnix-app.workspaces.create",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "harnix-app.workspaces.list",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "harnix-app.workspaces.remove",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "harnix-app.workspaces.reorder",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "harnix-app.workspaces.update",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
         "scope": "session"
       },
       "kind": "method",
@@ -764,6 +1437,22 @@
         "scope": "open"
       },
       "kind": "method",
+      "name": "harnix.bulk.upload",
+      "owner": "kernel:assembly"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
       "name": "harnix.contributions",
       "owner": "kernel:assembly"
     },
@@ -782,62 +1471,6 @@
       "kind": "method",
       "name": "harnix.detach",
       "owner": "kernel:hub"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.devices.list",
-      "owner": "ext:devices"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.devices.pair.begin",
-      "owner": "ext:devices"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.devices.pair.complete",
-      "owner": "ext:devices"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.devices.revoke",
-      "owner": "ext:devices"
     },
     {
       "access": {
@@ -886,22 +1519,6 @@
       "kind": "method",
       "name": "harnix.extensions",
       "owner": "kernel:assembly"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.files",
-      "owner": "ext:sessions"
     },
     {
       "access": {
@@ -1078,182 +1695,6 @@
         "scope": "open"
       },
       "kind": "method",
-      "name": "harnix.listDirectory",
-      "owner": "ext:sessions"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.plugins.disable",
-      "owner": "ext:packages"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.plugins.enable",
-      "owner": "ext:packages"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.plugins.install",
-      "owner": "ext:packages"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.plugins.list",
-      "owner": "ext:packages"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.plugins.reload",
-      "owner": "ext:packages"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.plugins.uninstall",
-      "owner": "ext:packages"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.plugins.upload",
-      "owner": "ext:packages"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.prefs.set",
-      "owner": "ext:sessions"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.process",
-      "owner": "kernel:assembly"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.projects.create",
-      "owner": "ext:sessions"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "harnix.prompts.answerer",
       "owner": "kernel:hub"
     },
@@ -1315,43 +1756,11 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": "open"
+        "scope": "session"
       },
       "kind": "method",
-      "name": "harnix.recentProjects",
-      "owner": "ext:sessions"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.requestHeaders",
-      "owner": "ext:recordings"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.search",
-      "owner": "ext:sessions"
+      "name": "harnix.send",
+      "owner": "kernel:hub"
     },
     {
       "access": {
@@ -1366,7 +1775,7 @@
         "scope": "session"
       },
       "kind": "method",
-      "name": "harnix.send",
+      "name": "harnix.session.rename",
       "owner": "kernel:hub"
     },
     {
@@ -1395,59 +1804,11 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.sessions.archive",
-      "owner": "ext:sessions"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.sessions.export",
-      "owner": "ext:sessions"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
+        "scope": "session"
       },
       "kind": "method",
       "name": "harnix.sessions.move",
       "owner": "kernel:hub"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.sessions.rename",
-      "owner": "ext:sessions"
     },
     {
       "access": {
@@ -1464,54 +1825,6 @@
       "kind": "method",
       "name": "harnix.sessions.tasks",
       "owner": "kernel:hub"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.settings.describe",
-      "owner": "ext:settings"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.settings.set",
-      "owner": "ext:settings"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.settings.setProvider",
-      "owner": "ext:settings"
     },
     {
       "access": {
@@ -1558,344 +1871,8 @@
         "scope": "open"
       },
       "kind": "method",
-      "name": "harnix.system.calls",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.system.clear",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.system.compact",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.system.context",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.system.goal",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.system.goal.set",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.system.goal.update",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.system.instances.create",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.system.instances.restart",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.system.instances.stop",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.system.instances.templates",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.system.messages.drop",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.system.messages.edit",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.system.model",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.system.rename",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.system.tasks.message",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.system.tasks.output",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.system.tasks.stop",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.system.trace",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.system.trace.call",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.system.turns",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.system.usage",
-      "owner": "ext:system"
+      "name": "harnix.ui",
+      "owner": "kernel:assembly"
     },
     {
       "access": {
@@ -1912,102 +1889,6 @@
       "kind": "method",
       "name": "harnix.unsubscribe",
       "owner": "kernel:hub"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.upload.begin",
-      "owner": "ext:sessions"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.workspaces.create",
-      "owner": "ext:sessions"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.workspaces.list",
-      "owner": "ext:sessions"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.workspaces.remove",
-      "owner": "ext:sessions"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.workspaces.reorder",
-      "owner": "ext:sessions"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "harnix.workspaces.update",
-      "owner": "ext:sessions"
     },
     {
       "access": {
@@ -2070,6 +1951,86 @@
       "kind": "method",
       "name": "mcp.status",
       "owner": "engine"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "observability.calls",
+      "owner": "ext:observability"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "observability.trace",
+      "owner": "ext:observability"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "observability.trace.call",
+      "owner": "ext:observability"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "observability.turns",
+      "owner": "ext:observability"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "observability.usage",
+      "owner": "ext:observability"
     },
     {
       "access": {
@@ -2176,6 +2137,118 @@
       "kind": "method",
       "name": "plugin.uninstall",
       "owner": "engine"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "plugins.disable",
+      "owner": "ext:plugins"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "plugins.enable",
+      "owner": "ext:plugins"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "plugins.install",
+      "owner": "ext:plugins"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "plugins.list",
+      "owner": "ext:plugins"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "plugins.reload",
+      "owner": "ext:plugins"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "plugins.uninstall",
+      "owner": "ext:plugins"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "plugins.upload",
+      "owner": "ext:plugins"
     },
     {
       "access": {
@@ -2725,8 +2798,360 @@
         "requires": [],
         "scope": "open"
       },
+      "kind": "method",
+      "name": "settings.describe",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "settings.set",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "settings.setProvider",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "system.clear",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "system.compact",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "system.context",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "system.goal",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "system.goal.set",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "system.goal.update",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "system.instances.create",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "system.instances.restart",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "system.instances.stop",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "system.instances.templates",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "system.messages.drop",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "system.messages.edit",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "system.model",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "system.process",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "system.rename",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "system.tasks.message",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "system.tasks.output",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "system.tasks.stop",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "route",
+      "name": "plugins",
+      "owner": "ext:plugins"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
       "kind": "topic",
-      "name": "app.flow.defs",
+      "name": "flow.defs",
       "owner": "ext:flow"
     },
     {
@@ -2742,7 +3167,7 @@
         "scope": "open"
       },
       "kind": "topic",
-      "name": "app.flow.dry_runs",
+      "name": "flow.dry_runs",
       "owner": "ext:flow"
     },
     {
@@ -2758,7 +3183,7 @@
         "scope": "open"
       },
       "kind": "topic",
-      "name": "app.flow.focus",
+      "name": "flow.focus",
       "owner": "ext:flow"
     },
     {
@@ -2774,7 +3199,7 @@
         "scope": "open"
       },
       "kind": "topic",
-      "name": "app.flow.run",
+      "name": "flow.run",
       "owner": "ext:flow"
     },
     {
@@ -2790,7 +3215,7 @@
         "scope": "open"
       },
       "kind": "topic",
-      "name": "app.flow.runs",
+      "name": "flow.runs",
       "owner": "ext:flow"
     },
     {
@@ -2819,7 +3244,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": "open"
+        "scope": "space"
       },
       "kind": "topic",
       "name": "harnix.instances.sessions",
@@ -2835,23 +3260,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": "open"
-      },
-      "kind": "topic",
-      "name": "harnix.process",
-      "owner": "kernel:assembly"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
+        "scope": "space"
       },
       "kind": "topic",
       "name": "harnix.sessions.status",
@@ -2867,11 +3276,59 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": "open"
+        "scope": "session"
       },
       "kind": "topic",
       "name": "harnix.sessions.tasks",
       "owner": "kernel:hub"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "topic",
+      "name": "harnix.spaces",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "topic",
+      "name": "harnix.ui",
+      "owner": "kernel:assembly"
+    },
+    {
+      "access": {
+        "device": true,
+        "engine": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "topic",
+      "name": "system.process",
+      "owner": "ext:system"
     }
   ]
 }

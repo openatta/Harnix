@@ -252,8 +252,9 @@ impl AppBuilder {
         self
     }
 
-    /// Harnix's own modules: the session space's backend, settings, packages,
-    /// recordings, devices. Registered before the application's.
+    /// What is left of Harnix's built-in modules: `apps`, runtime applications' install records,
+    /// where the profile enables them (`[apps] enabled`). Registered before the application's.
+    /// Harnix's own extensions are `harnix::first_party::standard()`.
     pub fn with_builtins(mut self) -> Self {
         self.builtins = true;
         self
