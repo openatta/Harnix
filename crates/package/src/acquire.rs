@@ -179,7 +179,7 @@ pub async fn fetch(
     let resolved = store
         .resolve(&index, id, version, fingerprint)
         .map_err(refused)?;
-    let to = staging.join(format!("{id}-{}.hxapp", resolved.version.version));
+    let to = staging.join(format!("{id}-{}.hxext", resolved.version.version));
     store.download(&resolved, &to).await.map_err(refused)?;
     Ok(to)
 }

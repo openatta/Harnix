@@ -153,11 +153,11 @@ mod tests {
     #[test]
     fn contributions_add_up_in_order_and_admit_a_name_once() {
         let mut a = EngineContribution::new();
-        a.scene(SceneLayer::new("a", SceneBase::builtin("harnix"))).admit_everywhere("app__*");
+        a.scene(SceneLayer::new("a", SceneBase::builtin("harnix"))).admit_everywhere("ext__*");
         let mut b = EngineContribution::new();
-        b.scene(SceneLayer::new("b-{base}", SceneBase::named("a"))).admit_everywhere("app__*").admit_everywhere("x");
+        b.scene(SceneLayer::new("b-{base}", SceneBase::named("a"))).admit_everywhere("ext__*").admit_everywhere("x");
         merge(&mut a, &b);
         assert_eq!(scene_ids(&a), ["a", "b-{base}"]);
-        assert_eq!(a.admitted(), ["app__*", "x"]);
+        assert_eq!(a.admitted(), ["ext__*", "x"]);
     }
 }

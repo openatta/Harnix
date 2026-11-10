@@ -1,6 +1,6 @@
-var HarnixApp = (function(exports) {
+var HarnixExt = (function(exports) {
   "use strict";
-  const PROTOCOL = "harnix-ui-bridge@1";
+  const PROTOCOL = "harnix-ui-bridge@2";
   function shellKey(press) {
     const mod = press.meta || press.ctrl;
     if (press.key === "Escape" && !mod) return "escape";
@@ -57,7 +57,7 @@ var HarnixApp = (function(exports) {
   async function connect(options = {}) {
     const timeoutMs = options.timeoutMs ?? 1e4;
     const port = options.port ?? await shellPort(timeoutMs);
-    const app = new HarnixApp2(port);
+    const app = new HarnixExt2(port);
     let timer;
     const welcome = await Promise.race([
       app.request("hello", { sdk: SDK_VERSION }),
@@ -68,7 +68,7 @@ var HarnixApp = (function(exports) {
     app.welcome(welcome, options);
     return app;
   }
-  class HarnixApp2 {
+  class HarnixExt2 {
     /** @internal Use `connect()`. */
     constructor(port) {
       this.port = port;
@@ -485,7 +485,7 @@ var HarnixApp = (function(exports) {
     };
   }
   exports.BridgeError = BridgeError;
-  exports.HarnixApp = HarnixApp2;
+  exports.HarnixExt = HarnixExt2;
   exports.PROTOCOL = PROTOCOL;
   exports.SDK_VERSION = SDK_VERSION;
   exports.admits = admits;

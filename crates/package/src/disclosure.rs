@@ -174,7 +174,7 @@ pub fn disclose(
 pub fn digest(package: &[u8], verified: &Verified, replaces: Option<&str>) -> String {
     sha256(
         format!(
-            "harnix-app-consent@1\n{}\n{}\n{}\n",
+            "harnix-ext-consent@1\n{}\n{}\n{}\n",
             sha256(package),
             verified.trust,
             replaces.unwrap_or("-")
@@ -287,7 +287,7 @@ publisher = "acme"
         let tools = |events: &str| {
             Manifest::parse(&format!(
                 "[app]\nid = \"acme.notes\"\nversion = \"1.0.0\"\nharnix_api = 1\npublisher = \"acme\"\n\n\
-                 [[component]]\nname = \"tools\"\nworld = \"harnix:app/tools-app@0.1.0\"\n{events}"
+                 [[component]]\nname = \"tools\"\nworld = \"harnix:ext/tools-ext@1.0.0\"\n{events}"
             ))
             .unwrap()
         };

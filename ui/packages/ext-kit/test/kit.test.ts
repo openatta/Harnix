@@ -7,8 +7,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { connect } from "@harnix/app-sdk";
-import { createMockHost } from "@harnix/app-sdk/mock";
+import { connect } from "@harnix/ext-sdk";
+import { createMockHost } from "@harnix/ext-sdk/mock";
 
 import { applyEnv, button, card, empty, follow, h, input, loading, table } from "../src/index.ts";
 

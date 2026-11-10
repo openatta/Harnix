@@ -1,7 +1,7 @@
-//! The `.hxapp`: a zip, read before anything of it is written, and unpacked whole.
+//! The `.hxext`: a zip, read before anything of it is written, and unpacked whole.
 //!
 //! ```text
-//! harnix-app.toml                     the manifest (manifest.rs)
+//! harnix-ext.toml                     the manifest (manifest.rs)
 //! ui/…                                ES modules, as a package's [[ui]]
 //! agent/plugin.toml, agent/…          an Agix package; agent/skills/<name>/SKILL.md beside it
 //! wasm/<name>.wasm                    the component, portable (optional; the product cannot run it)
@@ -398,8 +398,8 @@ pub struct Artifact<'a> {
     pub wasm: Option<&'a [u8]>,
 }
 
-/// Pack an application directory — its `harnix-app.toml`, `ui/`, `agent/` — and its compiled
-/// component into a `.hxapp` at `out`. Anything else in the directory (the component's sources) is
+/// Pack an application directory — its `harnix-ext.toml`, `ui/`, `agent/` — and its compiled
+/// component into a `.hxext` at `out`. Anything else in the directory (the component's sources) is
 /// left out. The manifest is checked first.
 pub fn pack(
     app_dir: &Path,
@@ -470,7 +470,7 @@ publisher = "acme"
 
 [[component]]
 name = "tools"
-world = "harnix:app/tools-app@0.1.0"
+world = "harnix:ext/tools-ext@1.0.0"
 
 [[ui]]
 point = "home.card"
@@ -478,9 +478,9 @@ module = "card.js"
 api_version = 3
 "#;
 
-    /// A zip of `entries` (name, bytes) at `dir/name.hxapp`.
+    /// A zip of `entries` (name, bytes) at `dir/name.hxext`.
     pub fn zip_of(dir: &Path, name: &str, entries: &[(&str, &[u8])]) -> PathBuf {
-        let path = dir.join(format!("{name}.hxapp"));
+        let path = dir.join(format!("{name}.hxext"));
         let mut zip = zip::ZipWriter::new(File::create(&path).unwrap());
         for (n, bytes) in entries {
             zip.start_file(*n, zip::write::SimpleFileOptions::default())
@@ -634,7 +634,7 @@ api_version = 3
                 .unwrap_or_else(|| panic!("{name} was accepted"));
             assert!(err.contains(&says), "{name}: wanted `{says}`, got: {err}");
         }
-        let not_zip = dir.path().join("plain.hxapp");
+        let not_zip = dir.path().join("plain.hxext");
         std::fs::write(&not_zip, "hello").unwrap();
         assert!(inspect(&not_zip, FP).unwrap_err().contains("not a package"));
     }
@@ -655,7 +655,7 @@ api_version = 3
         .unwrap();
         std::fs::write(app.join("agent/skills/s/SKILL.md"), "x").unwrap();
         std::fs::write(app.join("component/src/lib.rs"), "x").unwrap();
-        let out = dir.path().join("app.hxapp");
+        let out = dir.path().join("app.hxext");
         let artifact = Artifact {
             fingerprint: FP,
             cwasm: b"compiled",
@@ -686,7 +686,7 @@ api_version = 3
     /// `entries` deflated, with `liar`'s uncompressed size rewritten to `declared` in its local
     /// header and in the central directory: what a zip bomb looks like to a reader that trusts it.
     pub fn lying_zip(dir: &Path, name: &str, entries: &[(&str, &[u8])], liar: &str, declared: u32) -> PathBuf {
-        let path = dir.join(format!("{name}.hxapp"));
+        let path = dir.join(format!("{name}.hxext"));
         let mut zip = zip::ZipWriter::new(File::create(&path).unwrap());
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated);

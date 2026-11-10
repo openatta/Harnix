@@ -10,7 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HarnixClient } from "@harnix/core";
 import { Registry } from "@harnix/react";
-import { PROTOCOL, type Message } from "@harnix/app-sdk/protocol";
+import { PROTOCOL, type Message } from "@harnix/ext-sdk/protocol";
 
 import { App } from "../src/app";
 import { FrameBridge, HELLO_MS, MISSES, PING_MS, type FrameHost } from "../src/surfaces/bridge";
@@ -33,7 +33,7 @@ class Client {
   connect(): void {}
 }
 
-const IFACE: AppInterface = { id: "acme.notes", title: "Notes", trust: "store", hub: ["harnix.sessions.list"], links: false, spaces: ["acme.notes"], surfaces: [] };
+const IFACE: AppInterface = { id: "acme.notes", title: "Notes", trust: "store", calls: ["harnix.sessions.list"], links: false, spaces: ["acme.notes"], surfaces: [] };
 const decl = (point: SurfaceDecl["point"], id: string = point): SurfaceDecl => ({
   app: "acme.notes", point, id, frame: "/apps/acme.notes/ui/a.html", title: null, space: point.startsWith("space") ? "acme.notes" : null, sessions: "acme.notes", icon: null, order: null, center: null, kinds: [], wide: false,
 });
@@ -232,14 +232,14 @@ describe("what hello says", () => {
     const { apps, refused } = interfacesOf({
       contributions: [
         { plugin: "acme.notes", point: "home.card", api_version: 2, refused: "card.js", reason: "in the page" },
-        { plugin: "acme.notes", point: "space", api_version: 2, frame: "/apps/acme.notes/ui/a.html", surface: { id: "space", space: "acme.notes", title: { en: "Notes" } }, interface: { hub: ["harnix.sessions.list"], links: true, trust: "store", title: "Notes", spaces: ["acme.notes"] } },
+        { plugin: "acme.notes", point: "space", api_version: 2, frame: "/apps/acme.notes/ui/a.html", surface: { id: "space", space: "acme.notes", title: { en: "Notes" } }, interface: { calls: ["harnix.sessions.list"], links: true, trust: "store", title: "Notes", spaces: ["acme.notes"] } },
         { plugin: "acme.notes", point: "home.card", api_version: 2, frame: "/apps/other.app/ui/x.html", surface: { id: "card" }, interface: {} },
         { plugin: "pkg", point: "space", api_version: 2, module: "/plugins/pkg/ui/x.js" },
       ],
     });
     expect(refused).toEqual([{ app: "acme.notes", point: "home.card", module: "card.js", reason: "in the page" }]);
     expect(apps).toHaveLength(1);
-    expect(apps[0]).toMatchObject({ id: "acme.notes", hub: ["harnix.sessions.list"], links: true });
+    expect(apps[0]).toMatchObject({ id: "acme.notes", calls: ["harnix.sessions.list"], links: true });
     expect(apps[0]!.surfaces.map((s) => [s.point, s.frame])).toEqual([
       ["space", "/apps/acme.notes/ui/a.html"],
       ["home.card", null],

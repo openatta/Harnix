@@ -1,11 +1,11 @@
 //! What the VM's callers see: the world a component implements, its tools and their output, a
 //! lifecycle event's answer, a method's error, and why a call produced no answer.
 
-use crate::bindings::harnix::app::types as wit;
+use crate::bindings::harnix::ext::types as wit;
 use serde::Serialize;
 use serde_json::Value;
 
-/// The `harnix:app` world a component implements.
+/// The `harnix:ext` world a component implements.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum World {
@@ -104,8 +104,8 @@ impl From<wit::HookDecision> for HookDecision {
     }
 }
 
-impl From<wit::AppError> for AppError {
-    fn from(e: wit::AppError) -> Self {
+impl From<wit::ExtError> for AppError {
+    fn from(e: wit::ExtError) -> Self {
         Self {
             code: e.code,
             message: e.message,

@@ -158,11 +158,11 @@ impl Rig {
         for part in ["ui", "agent"] {
             copy_tree(&source.join(part), &app.join(part));
         }
-        let manifest = std::fs::read_to_string(source.join("harnix-app.toml")).unwrap();
-        std::fs::write(app.join("harnix-app.toml"), edit(manifest)).unwrap();
+        let manifest = std::fs::read_to_string(source.join("harnix-ext.toml")).unwrap();
+        std::fs::write(app.join("harnix-ext.toml"), edit(manifest)).unwrap();
         let wasm = showcase_wasm();
         let cwasm = self.runtime.engine().compile(&wasm).unwrap();
-        let out = self.dir.path().join(format!("{name}.hxapp"));
+        let out = self.dir.path().join(format!("{name}.hxext"));
         let artifact = harnix_apps::package::Artifact {
             fingerprint: self.runtime.engine().fingerprint(),
             cwasm: &cwasm,
@@ -299,7 +299,7 @@ async fn countersigned_by_the_store_it_installs_and_runs_without_dev_mode() {
 async fn what_is_not_what_was_signed_is_refused_before_it_is_unpacked() {
     let rig = Rig::new(false);
     let package = rig.package("good", true, |m| m);
-    let out = rig.dir.path().join("tampered.hxapp");
+    let out = rig.dir.path().join("tampered.hxext");
     tampered(
         &package,
         "ui/showcase.js",
@@ -326,7 +326,7 @@ async fn what_is_not_what_was_signed_is_refused_before_it_is_unpacked() {
     );
 
     // Countersigned by a store this process has no key for.
-    let elsewhere = rig.dir.path().join("elsewhere.hxapp");
+    let elsewhere = rig.dir.path().join("elsewhere.hxext");
     harnix_apps::publish::countersign(&publisher_only, &key(7), &[], &elsewhere).unwrap();
     let err = rig.install(&elsewhere).await.unwrap_err();
     assert!(
@@ -412,7 +412,7 @@ async fn an_update_discloses_what_it_adds_keeps_the_data_and_undoes_itself_when_
         ..record
     };
     // A package that does not read is refused before anything is taken down.
-    let junk = rig.dir.path().join("junk.hxapp");
+    let junk = rig.dir.path().join("junk.hxext");
     std::fs::write(&junk, b"not a zip").unwrap();
     let untouched = rig.runtime.update(&rig.cx, &record, &junk, &app_dir).await.unwrap_err();
     assert!(untouched.restored.is_none());

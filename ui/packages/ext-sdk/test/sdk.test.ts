@@ -6,10 +6,10 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { BridgeError, PROTOCOL, admits, connect, inDialog, shellKey, type HarnixApp } from "../src/index.ts";
+import { BridgeError, PROTOCOL, admits, connect, inDialog, shellKey, type HarnixExt } from "../src/index.ts";
 import { createMockHost, type MockHost } from "../src/mock.ts";
 
-let open: { host: MockHost; app: HarnixApp }[] = [];
+let open: { host: MockHost; app: HarnixExt }[] = [];
 
 async function connected(options: Parameters<typeof createMockHost>[0] = {}) {
   const host = createMockHost(options);
@@ -30,21 +30,21 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 
 describe("the bridge", () => {
   it("says hello and learns what it is", async () => {
-    const { host, app } = await connected({ app: "acme.notes", point: "home.card", autoHeight: true, env: { theme: "dark", locale: "zh-CN" } });
-    expect(PROTOCOL).toBe("harnix-ui-bridge@1");
+    const { host, app } = await connected({ ext: "acme.notes", point: "home.card", autoHeight: true, env: { theme: "dark", locale: "zh-CN" } });
+    expect(PROTOCOL).toBe("harnix-ui-bridge@2");
     expect(host.requests[0]).toEqual({ method: "hello", params: { sdk: "0.1.0" } });
-    expect(app.surface).toMatchObject({ app: "acme.notes", point: "home.card", autoHeight: true });
+    expect(app.surface).toMatchObject({ ext: "acme.notes", point: "home.card", autoHeight: true });
     expect(app.env).toMatchObject({ theme: "dark", locale: "zh-CN", visible: true, modal: false });
   });
 
   it("calls its own methods, and is refused another's, with the reason", async () => {
-    const { host, app } = await connected({ methods: { "app.acme.notes.list": () => ({ notes: ["a"] }) }, hub: ["harnix.sessions.list"] });
+    const { host, app } = await connected({ methods: { "app.acme.notes.list": () => ({ notes: ["a"] }) }, calls: ["harnix.sessions.list"] });
     expect(await app.call("app.acme.notes.list")).toEqual({ notes: ["a"] });
     const refused = await app.call("harnix.apps.uninstall", { id: "acme.notes" }).catch((e: unknown) => e);
     expect(refused).toBeInstanceOf(BridgeError);
     expect((refused as BridgeError).code).toBe("refused");
     expect(host.refused.map((r) => r.name)).toEqual(["harnix.apps.uninstall"]);
-    // A name in the hub goes through to the host (which has no such method here: a failure, not a refusal).
+    // A name in the calls goes through to the host (which has no such method here: a failure, not a refusal).
     const failed = (await app.call("harnix.sessions.list").catch((e: unknown) => e)) as BridgeError;
     expect(failed.code).toBe("failed");
   });
@@ -216,7 +216,7 @@ describe("keys", () => {
 });
 
 describe("what a frame may reach", () => {
-  it("is its own names and its hub, nothing like them", () => {
+  it("is its own names and its calls, nothing like them", () => {
     expect(admits("acme.notes", [], "app.acme.notes.list", false)).toBe(true);
     expect(admits("acme.notes", [], "app.acme.notesx.list", false)).toBe(false);
     expect(admits("acme.notes", ["harnix.sessions.list"], "harnix.sessions.list", false)).toBe(true);
@@ -224,7 +224,7 @@ describe("what a frame may reach", () => {
     expect(admits("acme.notes", ["topic:harnix.session.tasks"], "harnix.session.tasks", true)).toBe(true);
   });
 
-  it("is what the hub lists, as a method or as a topic, and the server narrows the rest", () => {
+  it("is what the calls list, as a method or as a topic, and the server narrows the rest", () => {
     expect(admits("acme.notes", ["topic:harnix.sessions.status"], "harnix.sessions.status", true)).toBe(true);
     expect(admits("acme.notes", ["topic:harnix.sessions.status"], "harnix.sessions.status", false)).toBe(false);
     expect(admits("acme.notes", [], "harnix.apps.list", false)).toBe(false);

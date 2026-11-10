@@ -298,7 +298,7 @@ export const AskCard = memo(function AskCard({ block, controller }: { block: Blo
   const call = asks?.tool(prompt.tool_use_id);
   const tool = askedTool(prompt, asks, toolNames);
   const args = call ? toolArgs(call.input) : "";
-  // The engine's own line names the tool by its wire name ("Allow app__acme__echo?"): the card says the one name.
+  // The engine's own line names the tool by its wire name ("Allow ext__acme__echo?"): the card says the one name.
   const message = prompt.message && prompt.tool_name && tool ? prompt.message.split(prompt.tool_name).join(tool) : prompt.message;
   const give = (decision: Decision) => void controller.answer(block.key, decision);
   const answered: Record<AskAnswer, string> = {

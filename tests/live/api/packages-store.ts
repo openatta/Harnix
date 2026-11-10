@@ -3,7 +3,7 @@
  *
  * The mock store is a directory (`file://…/index.json`) made here, from the showcase as
  * `apps-host.ts` packs it: signed by the mock publisher, countersigned by the mock store, listed by
- * `harnix-app index` and signed by the mock store again as a catalog (`harnix-app sign-index` after
+ * `harnix-pack index` and signed by the mock store again as a catalog (`harnix-pack sign-index` after
  * every edit) — the same tools a real store and publisher use. Its keys are committed in
  * `tests/live/fixtures/store/` (`*.key` secrets, `*.pub` public keys); they are test keys and
  * nothing else. A Harnix carries the store's own key built in and cannot be told another one by a
@@ -23,7 +23,7 @@ import { pathToFileURL } from "node:url";
 
 import { type Backend, type LaunchOptions, type ModelMode, ROOT, launchFor, startHarnix } from "@harnix/testkit";
 
-import { type Entries, SHOWCASE_ID, appsTools, readZip, showcasePackage, writeZip } from "./apps-host";
+import { type Entries, SHOWCASE_ID, appsTools, readZip, showcasePackage, writeZip } from "./packages-host";
 
 export const STORE_FIXTURE = join(ROOT, "tests", "live", "fixtures", "store");
 const key = (name: string) => join(STORE_FIXTURE, name);
@@ -84,15 +84,15 @@ export function mockStore(): MockStore {
   const unsigned = readZip(showcasePackage().path);
   const versions: Record<string, Entries> = {
     "0.1.0": unsigned,
-    "0.2.0": new Map([...unsigned].map(([n, b]) => [n, n === "harnix-app.toml" ? Buffer.from(grown(b.toString())) : b])),
+    "0.2.0": new Map([...unsigned].map(([n, b]) => [n, n === "harnix-ext.toml" ? Buffer.from(grown(b.toString())) : b])),
   };
   const packages: Record<string, string> = {};
   for (const [version, entries] of Object.entries(versions)) {
-    const plain = join(staging, `${version}.hxapp`);
+    const plain = join(staging, `${version}.hxext`);
     writeZip(plain, entries);
-    const signed = join(staging, `${version}.signed.hxapp`);
+    const signed = join(staging, `${version}.signed.hxext`);
     tool(["sign", plain, "--key", key("mock-publisher.key"), "-o", signed]);
-    const listed = join(dir, "packages", `${SHOWCASE_ID}-${version}.hxapp`);
+    const listed = join(dir, "packages", `${SHOWCASE_ID}-${version}.hxext`);
     tool(["countersign", signed, "--key", key("mock-store.key"), "-o", listed]);
     packages[version] = listed;
   }
@@ -103,7 +103,7 @@ export function mockStore(): MockStore {
     dir,
     url: pathToFileURL(indexPath).href,
     packages,
-    publisherOnly: join(staging, "0.1.0.signed.hxapp"),
+    publisherOnly: join(staging, "0.1.0.signed.hxext"),
     index,
     write(next: any, options: { sign?: boolean; expires?: string } = {}) {
       const { signature: _, ...unsigned } = next;
@@ -114,7 +114,7 @@ export function mockStore(): MockStore {
     derive(version: string, name: string, edit: (entries: Entries) => void): string {
       const entries = readZip(packages[version]);
       edit(entries);
-      const path = join(dir, "packages", `${name}.hxapp`);
+      const path = join(dir, "packages", `${name}.hxext`);
       writeZip(path, entries);
       return path;
     },

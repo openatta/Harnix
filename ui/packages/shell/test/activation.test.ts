@@ -116,7 +116,7 @@ describe("following harnix.ui", () => {
       api_version: 3,
       frame: "/apps/acme.notes/ui/a.html",
       surface: { id: "space", space: "acme.notes", title: { en: "Notes" }, center: "hidden" },
-      interface: { hub: [], links: false, trust: "store", title: "Notes", spaces: ["acme.notes"] },
+      interface: { calls: [], links: false, trust: "store", title: "Notes", spaces: ["acme.notes"] },
     };
     await followSurfaces(app, { contributions: [entry] });
     expect(app.registry.at("space").map((c) => [c.id, c.owner, c.center?.mode])).toEqual([["acme.notes", "acme.notes", "hidden"]]);

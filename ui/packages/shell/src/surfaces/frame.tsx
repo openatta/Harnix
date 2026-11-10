@@ -16,7 +16,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useT } from "@harnix/react";
-import { inDialog } from "@harnix/app-sdk/protocol";
+import { inDialog } from "@harnix/ext-sdk/protocol";
 
 import type { App } from "../app.ts";
 import { FrameBridge } from "./bridge.ts";

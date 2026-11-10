@@ -1,16 +1,16 @@
-//! A `tools-app` component whose tools exist to be provoked: one echoes, one
+//! A `tools-ext` component whose tools exist to be provoked: one echoes, one
 //! never returns, one eats memory, one reaches for the network and a secret,
 //! one touches files, one traps. The host's tests check that each ends the
 //! way the design says it should.
 
 wit_bindgen::generate!({
     path: "../../../wit",
-    world: "tools-app-events",
+    world: "tools-ext-events",
 });
 
-use exports::harnix::app::events::{Guest as Events, HookDecision};
-use exports::harnix::app::tools::{Guest as Tools, ToolDef, ToolOutput};
-use harnix::app::host;
+use exports::harnix::ext::events::{Guest as Events, HookDecision};
+use exports::harnix::ext::tools::{Guest as Tools, ToolDef, ToolOutput};
+use harnix::ext::host;
 
 struct Probe;
 

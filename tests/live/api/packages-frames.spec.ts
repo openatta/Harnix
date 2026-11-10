@@ -17,8 +17,8 @@ import { join } from "node:path";
 
 import { type Backend, type TestClient, connect, expect, test } from "@harnix/testkit";
 
-import { SHOWCASE_CHATS, SHOWCASE_ID, appsTools, showcasePackage, startApps, variant } from "./apps-host";
-import { MOCK_PUBLISHER, STORE_FIXTURE } from "./apps-store";
+import { SHOWCASE_CHATS, SHOWCASE_ID, appsTools, showcasePackage, startApps, variant } from "./packages-host";
+import { MOCK_PUBLISHER, STORE_FIXTURE } from "./packages-store";
 
 const TAGS = { tag: ["@feature:apps", "@layer:api"] };
 const base = (b: Backend) => b.url.replace(/\/$/, "");
@@ -36,11 +36,11 @@ test.afterAll(() => {
 
 /** The showcase with its manifest edited, `signed` by the mock publisher or not. */
 function edited(name: string, edit: (manifest: string) => string, signed = false): string {
-  const plain = variant(join(scratch, `${name}.hxapp`), (entries) => {
-    entries.set("harnix-app.toml", Buffer.from(edit(entries.get("harnix-app.toml")!.toString())));
+  const plain = variant(join(scratch, `${name}.hxext`), (entries) => {
+    entries.set("harnix-ext.toml", Buffer.from(edit(entries.get("harnix-ext.toml")!.toString())));
   });
   if (!signed) return plain;
-  const out = join(scratch, `${name}.signed.hxapp`);
+  const out = join(scratch, `${name}.signed.hxext`);
   execFileSync(appsTools().pack, ["sign", plain, "--key", join(STORE_FIXTURE, "mock-publisher.key"), "-o", out], { encoding: "utf8" });
   return out;
 }
@@ -104,10 +104,10 @@ test.describe("unsigned, under [apps] dev", () => {
       expect(csp, directive).toContain(directive);
     }
     expect(page.headers.get("referrer-policy")).toBe("no-referrer");
-    const script = await fetch(`${base(backend)}/apps/${SHOWCASE_ID}/ui/frame/vendor/harnix-app-sdk.js`);
+    const script = await fetch(`${base(backend)}/apps/${SHOWCASE_ID}/ui/frame/vendor/harnix-ext-sdk.js`);
     expect(script.headers.get("content-type")).toContain("javascript");
-    expect(await script.text()).toContain("harnix-ui-bridge@1");
-    expect((await fetch(`${base(backend)}/apps/${SHOWCASE_ID}/ui/../harnix-app.toml`)).status).toBe(404);
+    expect(await script.text()).toContain("harnix-ui-bridge@2");
+    expect((await fetch(`${base(backend)}/apps/${SHOWCASE_ID}/ui/../harnix-ext.toml`)).status).toBe(404);
     const shell = await fetch(`${base(backend)}/`);
     const pageCsp = shell.headers.get("content-security-policy") ?? "";
     expect(pageCsp).toContain("frame-src 'self'");

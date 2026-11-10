@@ -22,5 +22,5 @@ timeout_ms = 1000
 name = "showcase-guide"
 description = "Shows what the showcase application does by trying its tools"
 prompt = "agents/guide.md"
-allowed_tools = ["app__example_showcase__echo", "app__example_showcase__config", "app__example_showcase__count"]
+allowed_tools = ["ext__example_showcase__echo", "ext__example_showcase__config", "ext__example_showcase__count"]
 max_turns = 5

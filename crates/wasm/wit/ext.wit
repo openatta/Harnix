@@ -1,7 +1,7 @@
 /// The contract between Harnix and an application's WebAssembly components.
 ///
-/// An application ships at most one component. A `tools-app` component gives the
-/// agent tools and may observe and veto lifecycle events; a `backend-app`
+/// An application ships at most one component. A `tools-ext` component gives the
+/// agent tools and may observe and veto lifecycle events; a `backend-ext`
 /// component additionally holds the application's state, answers its methods
 /// (`app.<id>.<method>`), publishes its topics and reacts to timers and hub
 /// topics. Harnix runs the backend as one long-lived instance per process and
@@ -29,13 +29,13 @@
 ///   know.
 /// - Anything else — a changed signature, a removed function, a new required
 ///   export — is a new `harnix_api` and a new major version of this package.
-package harnix:app@0.1.0;
+package harnix:ext@1.0.0;
 
 interface types {
   /// One tool a component exports.
   record tool-def {
     /// Unique within the application; Harnix namespaces it as
-    /// `app__<app id>__<name>`.
+    /// `ext__<app id>__<name>`.
     name: string,
     /// One line. This is what ships in the model's tool list on every call,
     /// so it is deliberately the short form.
@@ -82,7 +82,7 @@ interface types {
 
   /// A method's failure, as the application wants its caller to see it.
   /// Shaped like a JSON-RPC error, which is what the caller receives.
-  record app-error {
+  record ext-error {
     /// Application-defined; Harnix passes it through.
     code: s32,
     message: string,
@@ -193,7 +193,7 @@ interface events {
 /// the instance is replaced by a fresh one (`init` runs again): code stopped
 /// halfway cannot be trusted to have left its own state consistent.
 interface backend {
-  use types.{app-error};
+  use types.{ext-error};
   /// Called on the resident instance, before anything else, with the
   /// application's configuration; again whenever the instance is replaced.
   /// An error stops the application from starting. Tool and event instances
@@ -202,7 +202,7 @@ interface backend {
   init: func(config-json: string) -> result<_, string>;
   /// Answer the method `app.<id>.<method>`. `caller-json` describes who
   /// called (`{"subject": …}`); the hub has already admitted the call.
-  handle: func(method: string, params-json: string, caller-json: string) -> result<string, app-error>;
+  handle: func(method: string, params-json: string, caller-json: string) -> result<string, ext-error>;
   /// A value on a topic this instance subscribed to.
   on-topic: func(topic: string, value-json: string);
   /// A timer this instance armed has fired.
@@ -219,29 +219,29 @@ interface backend {
 /// The worlds are named apart from the interfaces because WIT gives a
 /// package one namespace for both; the manifest's `world` names one of these
 /// two, whether or not the component also exports `events`.
-world tools-app {
+world tools-ext {
   import host;
   export tools;
 }
 
 /// A component with a resident backend, which also serves tools (each call in
 /// an instance of its own, without `init`).
-world backend-app {
+world backend-ext {
   import host;
   export backend;
   export tools;
 }
 
-/// `tools-app`, also observing and vetoing tool calls (`events`). The manifest
-/// still says `tools-app`: the extra export is found in the component.
-world tools-app-events {
-  include tools-app;
+/// `tools-ext`, also observing and vetoing tool calls (`events`). The manifest
+/// still says `tools-ext`: the extra export is found in the component.
+world tools-ext-events {
+  include tools-ext;
   export events;
 }
 
-/// `backend-app`, also observing and vetoing tool calls (`events`), each event
+/// `backend-ext`, also observing and vetoing tool calls (`events`), each event
 /// in an instance of its own.
-world backend-app-events {
-  include backend-app;
+world backend-ext-events {
+  include backend-ext;
   export events;
 }

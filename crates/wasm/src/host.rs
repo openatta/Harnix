@@ -7,8 +7,8 @@
 //! silently returning nothing leaves an application author debugging the
 //! wrong thing. Only what passes reaches the host's services.
 
-use crate::bindings::harnix::app::host::Host;
-use crate::bindings::harnix::app::types::HttpResponse;
+use crate::bindings::harnix::ext::host::Host;
+use crate::bindings::harnix::ext::types::HttpResponse;
 use crate::state::{AppState, Role};
 use crate::HttpRequest;
 use serde_json::Value;
@@ -16,7 +16,7 @@ use std::time::Duration;
 
 /// `types` declares only shapes, so its generated trait has no methods;
 /// implementing it is how the linker learns they are accounted for.
-impl crate::bindings::harnix::app::types::Host for AppState {}
+impl crate::bindings::harnix::ext::types::Host for AppState {}
 
 fn parse(what: &str, json: &str) -> Result<Value, String> {
     serde_json::from_str(json).map_err(|e| format!("{what} is not valid JSON: {e}"))

@@ -1,5 +1,5 @@
 //! The publisher's and the store's side of a package: signing it, countersigning it, and listing
-//! a directory of packages as a store's `index.json`, signed. What `harnix-app sign`,
+//! a directory of packages as a store's `index.json`, signed. What `harnix-pack sign`,
 //! `countersign`, `index` and `sign-index` do; nothing in a running Harnix calls these.
 
 use std::collections::BTreeMap;
@@ -39,7 +39,7 @@ fn entries(path: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
 /// Write `entries` as a zip at `out`, through a temporary file beside it (`out` may be the zip
 /// they were read from).
 fn write(out: &Path, entries: &[(String, Vec<u8>)]) -> Result<(), String> {
-    let tmp = out.with_extension("hxapp.tmp");
+    let tmp = out.with_extension("hxext.tmp");
     {
         let file = File::create(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
         let mut zip = zip::ZipWriter::new(file);
@@ -113,7 +113,7 @@ pub fn countersign(
     let (_, existing) = entries
         .iter()
         .find(|(n, _)| n == signature::FILE)
-        .ok_or("the package is not signed by its publisher; `harnix-app sign` it first")?;
+        .ok_or("the package is not signed by its publisher; `harnix-pack sign` it first")?;
     let existing = Signatures::parse(&String::from_utf8_lossy(existing))?;
     entries.retain(|(n, _)| n != signature::FILE);
     for artifact in artifacts {
@@ -151,7 +151,7 @@ fn engines(manifest: &Manifest, entries: &[(String, Vec<u8>)]) -> Vec<String> {
 /// for long.
 pub const CATALOG_VALID: std::time::Duration = std::time::Duration::from_secs(14 * 24 * 3600);
 
-/// List every `.hxapp` under `store/packages/` as the store's index, signed with `key` and valid
+/// List every `.hxext` under `store/packages/` as the store's index, signed with `key` and valid
 /// for `valid` from now, written to `store/index.json`. Each package is listed under every engine
 /// it has a component for; the URLs are relative to the index.
 pub fn index(
@@ -165,7 +165,7 @@ pub fn index(
         .map_err(|e| format!("{}: {e}", packages.display()))?
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "hxapp"))
+        .filter(|p| p.extension().is_some_and(|e| e == "hxext"))
         .collect();
     files.sort();
     let mut apps: BTreeMap<String, CatalogApp> = BTreeMap::new();
@@ -322,7 +322,7 @@ mod tests {
         std::fs::write(&cwasm, b"compiled").unwrap();
         let store_dir = dir.path().join("store");
         std::fs::create_dir_all(store_dir.join("packages")).unwrap();
-        let out = store_dir.join("packages/acme.probe-1.0.0.hxapp");
+        let out = store_dir.join("packages/acme.probe-1.0.0.hxext");
         countersign(&pkg, &store, &[cwasm.as_path()], &out).unwrap();
         let (files, signatures) = signature::of_zip(&out).unwrap();
         assert!(files.contains_key(&format!("wasm/tools.{FP}.cwasm")));
@@ -366,7 +366,7 @@ mod tests {
         assert!(Index::verify(&bytes, &[publisher.public()], now).is_err());
         assert_eq!(
             written.apps[0].versions[0].artifacts[FP].url,
-            "packages/acme.probe-1.0.0.hxapp"
+            "packages/acme.probe-1.0.0.hxext"
         );
     }
 
@@ -384,7 +384,7 @@ mod tests {
             ],
         );
         sign(&pkg, &key(1), &pkg).unwrap();
-        let err = countersign(&pkg, &key(2), &[], &dir.path().join("out.hxapp")).unwrap_err();
+        let err = countersign(&pkg, &key(2), &[], &dir.path().join("out.hxext")).unwrap_err();
         assert!(err.contains("`127.0.0.1`") && err.contains("this machine"), "{err}");
     }
 
@@ -392,7 +392,7 @@ mod tests {
     fn a_package_its_publisher_did_not_sign_is_not_countersigned() {
         let dir = tempfile::tempdir().unwrap();
         let pkg = package(dir.path());
-        let out = dir.path().join("out.hxapp");
+        let out = dir.path().join("out.hxext");
         assert!(countersign(&pkg, &key(2), &[], &out)
             .unwrap_err()
             .contains("not signed by its publisher"));

@@ -1,8 +1,8 @@
 /**
  * An application's interface in isolated frames (harnix-plugin.md §6): the showcase
  * (`examples/apps/showcase`), installed unsigned under `[apps] dev`, draws every surface it
- * declares in a sandboxed frame of its own (`ui/frame/`, on `@harnix/app-sdk` and
- * `@harnix/ui-kit`), and does everything through the shell's bridge.
+ * declares in a sandboxed frame of its own (`ui/frame/`, on `@harnix/ext-sdk` and
+ * `@harnix/ext-kit`), and does everything through the shell's bridge.
  *
  * What is shown: its board calls its own methods and gets its own topics; a call it may not make
  * is refused, and listed; it cannot read the page's token or storage, nor reach the network; a
@@ -21,8 +21,8 @@ import { join } from "node:path";
 import type { Frame, FrameLocator, Page } from "@playwright/test";
 import { type Backend, connect, expect, test } from "@harnix/testkit";
 
-import { SHOWCASE_CHATS, SHOWCASE_ID, appsTools, showcasePackage, startApps, variant } from "../api/apps-host";
-import { MOCK_PUBLISHER, STORE_FIXTURE } from "../api/apps-store";
+import { SHOWCASE_CHATS, SHOWCASE_ID, appsTools, showcasePackage, startApps, variant } from "../api/packages-host";
+import { MOCK_PUBLISHER, STORE_FIXTURE } from "../api/packages-store";
 import { open, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:apps", "@layer:ui"] };
@@ -468,10 +468,10 @@ test.describe("who signed it decides where it runs", () => {
 
   /** The showcase signed by the mock publisher (which the backend trusts), `edit` applied first. */
   function trusted(name: string, edit: (manifest: string) => string): string {
-    const plain = variant(join(scratch, `${name}.hxapp`), (entries) => {
-      entries.set("harnix-app.toml", Buffer.from(edit(entries.get("harnix-app.toml")!.toString())));
+    const plain = variant(join(scratch, `${name}.hxext`), (entries) => {
+      entries.set("harnix-ext.toml", Buffer.from(edit(entries.get("harnix-ext.toml")!.toString())));
     });
-    const signed = join(scratch, `${name}.signed.hxapp`);
+    const signed = join(scratch, `${name}.signed.hxext`);
     execFileSync(appsTools().pack, ["sign", plain, "--key", join(STORE_FIXTURE, "mock-publisher.key"), "-o", signed], { encoding: "utf8" });
     return signed;
   }

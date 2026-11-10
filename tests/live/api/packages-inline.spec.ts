@@ -17,9 +17,9 @@ import { join } from "node:path";
 import { INVALID_PARAMS, REFUSED } from "@harnix/core/protocol";
 import { type Backend, type TestClient, connect, expect, test, topology } from "@harnix/testkit";
 
-import { SHOWCASE_CHATS, SHOWCASE_ID, showcasePackage, startApps, variant } from "./apps-host";
+import { SHOWCASE_CHATS, SHOWCASE_ID, showcasePackage, startApps, variant } from "./packages-host";
 
-const TAGS = { tag: ["@feature:apps-inline", "@layer:api"] };
+const TAGS = { tag: ["@feature:packages-inline", "@layer:api"] };
 
 const M = (name: string) => `app.${SHOWCASE_ID}.${name}`;
 
@@ -62,9 +62,9 @@ test.describe("an application's inline points and its data", () => {
 
   test("inline points that do not hold together are refused by name, and nothing of it stays", TAGS, async () => {
     const edit = (from: string, to: string) => (e: Map<string, Buffer>) => {
-      const manifest = e.get("harnix-app.toml")!.toString();
+      const manifest = e.get("harnix-ext.toml")!.toString();
       expect(manifest, from).toContain(from);
-      e.set("harnix-app.toml", Buffer.from(manifest.replace(from, to)));
+      e.set("harnix-ext.toml", Buffer.from(manifest.replace(from, to)));
     };
     const cases: [string, string, (e: Map<string, Buffer>) => void][] = [
       ["unknown-point", "unknown inline point `badge`", edit("[[inline.sidebar_group]]", "[[inline.badge]]")],
@@ -81,7 +81,7 @@ test.describe("an application's inline points and its data", () => {
       ["unknown-tool", "does not list as a tool", edit('tool = "count"', 'tool = "counted"')],
     ];
     for (const [name, says, change] of cases) {
-      const path = variant(join(scratch, `${name}.hxapp`), change);
+      const path = variant(join(scratch, `${name}.hxext`), change);
       const error = await api.refused("harnix.apps.installFile", { path });
       expect(error?.code, name).toBe(REFUSED);
       expect(error?.message, name).toContain(says);

@@ -1,19 +1,22 @@
 {
-  "name": "@harnix/app-sdk",
+  "name": "@harnix/ext-kit",
   "version": "0.1.0",
   "private": true,
-  "description": "An application's page in the shell's isolated frame: the bridge to the shell (harnix-ui-bridge@1), typed, without React; a mock host for its tests.",
+  "description": "The shell's look for an application's isolated frame: its design tokens and a few plain components (button, input, table, card, empty, loading), following the shell's theme and locale through the bridge.",
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./protocol": "./src/protocol.ts",
-    "./mock": "./src/mock.ts"
+    "./kit.css": "./src/kit.css"
   },
   "scripts": {
     "build": "vite build",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "@harnix/ext-sdk": "workspace:*",
+    "@harnix/react": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "24.19.2",

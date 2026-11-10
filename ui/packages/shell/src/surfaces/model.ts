@@ -8,15 +8,15 @@
 
 import type { UiView } from "@harnix/core";
 import { currentLocale } from "@harnix/react";
-import type { SurfacePoint } from "@harnix/app-sdk/protocol";
+import type { SurfacePoint } from "@harnix/ext-sdk/protocol";
 
 /** One application drawn in frames. */
 export interface AppInterface {
   id: string;
   title: string | null;
   trust: string;
-  /** `[interface] hub`: what its frames may reach beyond `app.<id>.*`. */
-  hub: string[];
+  /** `[interface] calls`: what its frames may reach beyond `app.<id>.*`. */
+  calls: string[];
   links: boolean;
   /** Its backend spaces (`[[space]]`), in order: where its frames' new sessions land. */
   spaces: string[];
@@ -58,7 +58,7 @@ interface Entry {
   refused?: string;
   reason?: string;
   surface?: Partial<Omit<SurfaceDecl, "app" | "point" | "frame">>;
-  interface?: { hub?: string[]; links?: boolean; trust?: string; title?: string | null; spaces?: string[] };
+  interface?: { calls?: string[]; links?: boolean; trust?: string; title?: string | null; spaces?: string[] };
 }
 
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
@@ -80,7 +80,7 @@ export function interfacesOf(view: Pick<UiView, "contributions">): { apps: AppIn
     const i = entry.interface ?? {};
     let app = apps.get(id);
     if (!app) {
-      app = { id, title: i.title ?? null, trust: i.trust ?? "store", hub: strings(i.hub), links: Boolean(i.links), spaces: strings(i.spaces), surfaces: [] };
+      app = { id, title: i.title ?? null, trust: i.trust ?? "store", calls: strings(i.calls), links: Boolean(i.links), spaces: strings(i.spaces), surfaces: [] };
       apps.set(id, app);
     }
     // A frame is only ever this application's own files.

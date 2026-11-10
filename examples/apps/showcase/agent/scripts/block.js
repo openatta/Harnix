@@ -5,6 +5,6 @@ function onBlock() {
     order: 480,
     content:
       "showcase-block-7d21: the Showcase application is installed. Its tools are named " +
-      "app__example_showcase__<tool>; each one asks before it runs.",
+      "ext__example_showcase__<tool>; each one asks before it runs.",
   };
 }

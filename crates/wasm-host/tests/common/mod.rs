@@ -118,7 +118,7 @@ impl Kernel for FakePlatform {
                 .call_method(MethodCall {
                     app: c.app.clone(),
                     method: own.into(),
-                    caller: Subject::extension(harnix_contract::ExtId::parse(&c.app).unwrap()),
+                    caller: Subject::extension(harnix_contract::ExtId::package(&c.app).unwrap()),
                     params: c.params,
                     chain: c.chain,
                 })
@@ -129,7 +129,7 @@ impl Kernel for FakePlatform {
             let call = MethodCall {
                 app: c.app.clone(),
                 method: own.clone(),
-                caller: Subject::extension(harnix_contract::ExtId::parse(&c.app).unwrap()),
+                caller: Subject::extension(harnix_contract::ExtId::package(&c.app).unwrap()),
                 params: json!({}),
                 chain: c.chain,
             };
@@ -245,11 +245,11 @@ impl Rig {
         for part in ["ui", "agent"] {
             copy_tree(&source.join(part), &app.join(part));
         }
-        let manifest = edit(std::fs::read_to_string(source.join("harnix-app.toml")).unwrap());
-        std::fs::write(app.join("harnix-app.toml"), &manifest).unwrap();
+        let manifest = edit(std::fs::read_to_string(source.join("harnix-ext.toml")).unwrap());
+        std::fs::write(app.join("harnix-ext.toml"), &manifest).unwrap();
         let wasm = showcase_wasm();
         let cwasm = self.host.engine().compile(&wasm).unwrap();
-        let out = self.dir.path().join("showcase.hxapp");
+        let out = self.dir.path().join("showcase.hxext");
         let artifact = harnix_package::package::Artifact {
             fingerprint: self.host.engine().fingerprint(),
             cwasm: &cwasm,

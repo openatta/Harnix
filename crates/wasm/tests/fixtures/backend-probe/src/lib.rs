@@ -1,4 +1,4 @@
-//! A `backend-app` component that drives every host service from its methods,
+//! A `backend-ext` component that drives every host service from its methods,
 //! keeps a counter in its own memory (so a test can tell a replaced instance
 //! from a kept one), and can be told to spin or trap. It exports no `events`:
 //! the plain world, which is how a component that has nothing to say about
@@ -6,12 +6,12 @@
 
 wit_bindgen::generate!({
     path: "../../../wit",
-    world: "backend-app",
+    world: "backend-ext",
 });
 
-use exports::harnix::app::backend::{AppError, Guest as Backend};
-use exports::harnix::app::tools::{Guest as Tools, ToolDef, ToolOutput};
-use harnix::app::host;
+use exports::harnix::ext::backend::{ExtError, Guest as Backend};
+use exports::harnix::ext::tools::{Guest as Tools, ToolDef, ToolOutput};
+use harnix::ext::host;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
@@ -31,8 +31,8 @@ fn field(json: &str, name: &str) -> Option<String> {
     Some(rest[..end].trim().to_string())
 }
 
-fn app_error(code: i32, message: impl Into<String>) -> AppError {
-    AppError {
+fn app_error(code: i32, message: impl Into<String>) -> ExtError {
+    ExtError {
         code,
         message: message.into(),
         data_json: None,
@@ -55,7 +55,7 @@ impl Backend for Probe {
         Ok(())
     }
 
-    fn handle(method: String, params: String, caller: String) -> Result<String, AppError> {
+    fn handle(method: String, params: String, caller: String) -> Result<String, ExtError> {
         let p = |name: &str| field(&params, name).unwrap_or_default();
         match method.as_str() {
             "echo" => Ok(params),
@@ -103,7 +103,7 @@ impl Backend for Probe {
                 }
             }
             "trap" => panic!("asked to trap"),
-            "fail" => Err(AppError {
+            "fail" => Err(ExtError {
                 code: 42,
                 message: "failing as asked".into(),
                 data_json: Some(r#"{"why":"test"}"#.into()),

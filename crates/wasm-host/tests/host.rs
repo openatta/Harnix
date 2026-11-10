@@ -32,7 +32,7 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
     let status = rig.status().await;
     assert_eq!((status["state"].clone(), status["world"].clone()), (json!("running"), json!("backend")));
     assert_eq!(status["health"]["subscriptions"], json!(1));
-    assert_eq!(status["tools"][0]["name"], json!("app__example_showcase__echo"));
+    assert_eq!(status["tools"][0]["name"], json!("ext__example_showcase__echo"));
 
     // Methods: the schema first, then the backend; its topic published in order; who called it.
     assert_eq!(rig.platform.device_call("notes.add", json!({"text": "one"})).await.unwrap(), json!({"count": 1}));
@@ -106,7 +106,7 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
         payload: json!({"tool": tool, "input": {}, "session_id": "s1", "depth": 0}),
         call_id: format!("h-{tool}"),
     };
-    assert!(matches!(rig.control.hook(hook("app__example_showcase__vetoed")).await.unwrap(), HookReply::Block(_)));
+    assert!(matches!(rig.control.hook(hook("ext__example_showcase__vetoed")).await.unwrap(), HookReply::Block(_)));
     // Another's tool is not its to see (`[events] tools = "own"`): no instance is even started.
     let calls = rig.status().await["health"]["calls"].clone();
     assert_eq!(rig.control.hook(hook("Bash")).await.unwrap(), HookReply::Proceed);
@@ -170,7 +170,7 @@ async fn a_call_routed_back_into_its_own_waiting_backend_is_refused_across_the_w
         .call_method(MethodCall {
             app: ID.into(),
             method: "state".into(),
-            caller: Subject::extension(harnix_contract::ExtId::parse("acme.other").unwrap()),
+            caller: Subject::extension(harnix_contract::ExtId::package("acme.other").unwrap()),
             params: json!({}),
             chain: vec![ID.into(), "acme.other".into()],
         })
@@ -236,12 +236,12 @@ fn blocked_bash(o: &mut HostOptions) {
 }
 
 /// Another application's tool, by the name a session knows it by.
-const OTHERS_TOOL: &str = "app__example_other__echo";
+const OTHERS_TOOL: &str = "ext__example_other__echo";
 
 fn blocked_others_tool(o: &mut HostOptions) {
     o.config.insert(
         ID.into(),
-        toml::Value::Table(toml::toml! { blocked_tool = "app__example_other__echo" }),
+        toml::Value::Table(toml::toml! { blocked_tool = "ext__example_other__echo" }),
     );
 }
 

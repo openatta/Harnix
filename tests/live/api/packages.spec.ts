@@ -69,7 +69,7 @@ test.describe("with [apps] enabled", () => {
 
   test("a build without the application runtime keeps the records and installs nothing", TAGS, async () => {
     // `harnix-testapp` is built without the `apps` feature.
-    const error = await api.refused("harnix.apps.installFile", { path: "/nowhere/app.hxapp" });
+    const error = await api.refused("harnix.apps.installFile", { path: "/nowhere/app.hxext" });
     expect(error?.code).toBe(REFUSED);
     expect(error?.message).toContain("`apps` feature");
     expect((await api.call("harnix.apps.list")).runtime).toBeNull();

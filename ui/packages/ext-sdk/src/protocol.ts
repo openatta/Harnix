@@ -1,5 +1,5 @@
 /**
- * `harnix-ui-bridge@1`: what an application's isolated frame and the shell say to each other.
+ * `harnix-ui-bridge@2`: what an application's isolated frame and the shell say to each other.
  *
  * The shell makes the frame (`sandbox="allow-scripts allow-forms"`, an opaque origin, no network)
  * and, when its page has loaded, hands it one end of a `MessageChannel` — the only window message
@@ -9,11 +9,11 @@
  *
  * The frame never gets the page's token, its connection, its DOM, or another application's
  * names: it asks, and the shell does — what the application's manifest lets it ask for (its own
- * `app.<id>.*` and its `[interface] hub`), and nothing else. Both sides import these types, so
+ * `app.<id>.*` and its `[interface] calls`), and nothing else. Both sides import these types, so
  * this file is the protocol's definition.
  */
 
-export const PROTOCOL = "harnix-ui-bridge@1";
+export const PROTOCOL = "harnix-ui-bridge@2";
 
 /** The shell to a frame it made, once, with the port in `ports[0]`. */
 export interface Connect {
@@ -75,7 +75,7 @@ export type SurfacePoint =
 /** What a frame is: told at `hello`. */
 export interface SurfaceInfo {
   /** The application's id. */
-  app: string;
+  ext: string;
   point: SurfacePoint;
   /** The surface's id, unique among the application's of its point. */
   id: string;
@@ -136,9 +136,9 @@ export interface Welcome {
 /** What a frame asks of the shell: `params`, and what the response's `result` is. */
 export interface FrameRequests {
   hello: { params: { sdk: string }; result: Welcome };
-  /** A method: the application's own `app.<id>.*`, or one its `[interface] hub` lists. */
+  /** A method: the application's own `app.<id>.*`, or one its `[interface] calls` lists. */
   call: { params: { method: string; params?: unknown }; result: unknown };
-  /** A topic, the same way (`topic:<name>` in the hub). Values arrive as `topic` events. */
+  /** A topic, the same way (`topic:<name>` in the calls). Values arrive as `topic` events. */
   subscribe: { params: { topic: string; params?: unknown }; result: { sub: number } };
   unsubscribe: { params: { sub: number }; result: null };
   "session.current": { params: Record<string, never>; result: SessionRef | null };
@@ -213,12 +213,12 @@ export function inDialog(point: SurfacePoint): boolean {
   return point === "modal" || point === "settings.section";
 }
 
-/** Whether a frame of application `app` may call `name` (or subscribe to it, with `topic`): the
- *  application's own `app.<id>.*`, or a name its `[interface] hub` lists (`topic:<name>` for a
+/** Whether a frame of extension `ext` may call `name` (or subscribe to it, with `topic`): the
+ *  application's own `app.<id>.*`, or a name its `[interface] calls` lists (`topic:<name>` for a
  *  topic). What it may then do with it is the server's to narrow: every call and subscription a
  *  frame makes carries the application's id, and the router takes what the page may do, what the
  *  interface lists and the row's scope. */
-export function admits(app: string, hub: readonly string[], name: string, topic: boolean): boolean {
-  if (name.startsWith(`app.${app}.`)) return true;
-  return hub.includes(topic ? `topic:${name}` : name);
+export function admits(ext: string, calls: readonly string[], name: string, topic: boolean): boolean {
+  if (name.startsWith(`app.${ext}.`)) return true;
+  return calls.includes(topic ? `topic:${name}` : name);
 }

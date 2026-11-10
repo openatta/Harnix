@@ -1,7 +1,7 @@
 /**
- * The SDK as a classic script (`dist/harnix-app-sdk.js`, global `HarnixApp`), for an application
+ * The SDK as a classic script (`dist/harnix-ext-sdk.js`, global `HarnixExt`), for an application
  * that ships its page unbundled — the showcase does (`examples/apps/showcase/ui/frame/vendor/`).
- * A bundling application imports `@harnix/app-sdk` instead.
+ * A bundling application imports `@harnix/ext-sdk` instead.
  */
 
 import { fileURLToPath } from "node:url";
@@ -11,9 +11,9 @@ export default defineConfig({
   build: {
     lib: {
       entry: fileURLToPath(new URL("./src/global.ts", import.meta.url)),
-      name: "HarnixApp",
+      name: "HarnixExt",
       formats: ["iife"],
-      fileName: () => "harnix-app-sdk.js",
+      fileName: () => "harnix-ext-sdk.js",
     },
     outDir: fileURLToPath(new URL("./dist", import.meta.url)),
     emptyOutDir: true,

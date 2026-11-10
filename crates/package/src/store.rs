@@ -15,7 +15,7 @@
 //!       "capabilities": {"net": ["api.acme.com"], …},
 //!       "signatures": {"publisher": "<key>", "store": "<key>"},
 //!       "revoked": "why, when the store withdrew it",
-//!       "artifacts": {"<engine fingerprint>": {"url": "packages/acme.notes-1.2.0.<engine>.hxapp", "sha256": "…", "size": 12345}}
+//!       "artifacts": {"<engine fingerprint>": {"url": "packages/acme.notes-1.2.0.<engine>.hxext", "sha256": "…", "size": 12345}}
 //!     }]
 //!   }],
 //!   "signature": {"key": "<store key>", "signature": "<hex>"}
@@ -628,11 +628,11 @@ mod tests {
                 "apps": [{
                     "id": "acme.notes", "publisher": "acme",
                     "versions": [
-                        {"version": "1.0.0", "harnix_api": 1, "artifacts": {fingerprint: {"url": "p/1.0.0.hxapp", "sha256": "aa"}}},
-                        {"version": "1.10.0", "harnix_api": 1, "artifacts": {"engine-0+elsewhere+0": {"url": "p/1.10.0.hxapp", "sha256": "bb"}}},
-                        {"version": "1.2.0", "harnix_api": 1, "artifacts": {fingerprint: {"url": "https://cdn.example.com/1.2.0.hxapp", "sha256": "cc"}}},
-                        {"version": "2.0.0", "harnix_api": 2, "artifacts": {fingerprint: {"url": "p/2.0.0.hxapp", "sha256": "dd"}}},
-                        {"version": "1.3.0-rc.1", "harnix_api": 1, "artifacts": {"*": {"url": "p/any.hxapp", "sha256": "ee"}}}
+                        {"version": "1.0.0", "harnix_api": 1, "artifacts": {fingerprint: {"url": "p/1.0.0.hxext", "sha256": "aa"}}},
+                        {"version": "1.10.0", "harnix_api": 1, "artifacts": {"engine-0+elsewhere+0": {"url": "p/1.10.0.hxext", "sha256": "bb"}}},
+                        {"version": "1.2.0", "harnix_api": 1, "artifacts": {fingerprint: {"url": "https://cdn.example.com/1.2.0.hxext", "sha256": "cc"}}},
+                        {"version": "2.0.0", "harnix_api": 2, "artifacts": {fingerprint: {"url": "p/2.0.0.hxext", "sha256": "dd"}}},
+                        {"version": "1.3.0-rc.1", "harnix_api": 1, "artifacts": {"*": {"url": "p/any.hxext", "sha256": "ee"}}}
                     ]
                 }]
             })
@@ -668,11 +668,11 @@ mod tests {
         let r = store
             .resolve(&index, "acme.notes", Some("1.0.0"), fp)
             .unwrap();
-        assert_eq!(r.url.as_str(), "file:///srv/store/p/1.0.0.hxapp");
+        assert_eq!(r.url.as_str(), "file:///srv/store/p/1.0.0.hxext");
         let r = store
             .resolve(&index, "acme.notes", Some("1.2.0"), fp)
             .unwrap();
-        assert_eq!(r.url.as_str(), "https://cdn.example.com/1.2.0.hxapp");
+        assert_eq!(r.url.as_str(), "https://cdn.example.com/1.2.0.hxext");
         // An application with no component has one package for every engine.
         let r = store
             .resolve(&index, "acme.notes", Some("1.3.0-rc.1"), fp)
@@ -722,7 +722,7 @@ mod tests {
             .artifacts
             .get_mut("fp")
             .unwrap()
-            .url = "http://plain.example.com/x.hxapp".into();
+            .url = "http://plain.example.com/x.hxext".into();
         assert!(store
             .resolve(&index, "acme.notes", Some("1.0.0"), "fp")
             .unwrap_err()
@@ -735,26 +735,26 @@ mod tests {
     #[tokio::test]
     async fn a_download_is_the_package_the_index_lists_or_nothing() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("pkg.hxapp"), b"the package").unwrap();
+        std::fs::write(dir.path().join("pkg.hxext"), b"the package").unwrap();
         let index_url = Url::from_file_path(dir.path().join("index.json")).unwrap();
         let store = Store::new(index_url.as_str(), vec![]).unwrap();
         let resolved = |sha: &str| Resolved {
             app: index("fp").apps[0].clone(),
             version: index("fp").apps[0].versions[0].clone(),
             artifact: Artifact {
-                url: "pkg.hxapp".into(),
+                url: "pkg.hxext".into(),
                 sha256: sha.into(),
                 size: None,
             },
-            url: index_url.join("pkg.hxapp").unwrap(),
+            url: index_url.join("pkg.hxext").unwrap(),
         };
-        let to = dir.path().join("staging/pkg.hxapp");
+        let to = dir.path().join("staging/pkg.hxext");
         store
             .download(&resolved(&sha256(b"the package")), &to)
             .await
             .unwrap();
         assert_eq!(std::fs::read(&to).unwrap(), b"the package");
-        let other = dir.path().join("staging/other.hxapp");
+        let other = dir.path().join("staging/other.hxext");
         let err = store
             .download(&resolved(&sha256(b"something else")), &other)
             .await

@@ -1,4 +1,4 @@
-// The showcase's interface ships @harnix/app-sdk and @harnix/ui-kit as built files
+// The showcase's interface ships @harnix/ext-sdk and @harnix/ext-kit as built files
 // (examples/apps/showcase/ui/frame/vendor/), as an unbundled application would. This builds both
 // packages and checks the copies are what they build to — or, with --write, puts them there.
 //
@@ -13,9 +13,9 @@ import { fileURLToPath } from "node:url";
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const vendor = join(root, "examples", "apps", "showcase", "ui", "frame", "vendor");
 const files = [
-  ["app-sdk", "harnix-app-sdk.js"],
-  ["ui-kit", "harnix-ui-kit.js"],
-  ["ui-kit", "harnix-ui-kit.css"],
+  ["app-sdk", "harnix-ext-sdk.js"],
+  ["ui-kit", "harnix-ext-kit.js"],
+  ["ui-kit", "harnix-ext-kit.css"],
 ];
 const write = process.argv.includes("--write");
 

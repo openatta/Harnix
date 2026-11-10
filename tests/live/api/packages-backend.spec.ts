@@ -1,6 +1,6 @@
 /**
  * Runtime applications, stage four: a WebAssembly backend. The showcase (`examples/apps/showcase`)
- * is a `backend-app`: one resident instance in this process, its methods `app.example.showcase.*`
+ * is a `backend-ext`: one resident instance in this process, its methods `app.example.showcase.*`
  * in the authorization table, its topics pushed like any host topic, its space listed — and what
  * it does as itself (`ext:example.showcase`) admitted against its manifest's `hub` and audited.
  *
@@ -22,7 +22,7 @@ import { type Server, createServer } from "node:http";
 import { INVALID_PARAMS, INTERNAL_ERROR, METHOD_NOT_FOUND } from "@harnix/core/protocol";
 import { type Backend, type TestClient, connect, expect, runTurn, sleep, test, topology } from "@harnix/testkit";
 
-import { SHOWCASE_CHATS, SHOWCASE_ID, showcasePackage, startApps } from "./apps-host";
+import { SHOWCASE_CHATS, SHOWCASE_ID, showcasePackage, startApps } from "./packages-host";
 
 const TAGS = { tag: ["@feature:apps", "@layer:api"] };
 

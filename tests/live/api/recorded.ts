@@ -17,7 +17,7 @@ import type { SessionRow, TaskRow } from "@harnix/core/protocol";
 import { type Backend, type LaunchOptions, type TestClient, runTurn, sleep } from "@harnix/testkit";
 
 // With its extension: `record-fixture.mjs` loads this under plain `node`.
-import { SHOWCASE_ID, appsTools, showcasePackage } from "./apps-host.ts";
+import { SHOWCASE_ID, appsTools, showcasePackage } from "./packages-host.ts";
 
 export interface Recorded {
   name: string;
@@ -42,7 +42,7 @@ export interface Recorded {
   varies?: string;
 }
 
-const tool = (name: string) => `app__example_showcase__${name}`;
+const tool = (name: string) => `ext__example_showcase__${name}`;
 /** The `code` scene beside the default, as the suites that replay its tools run it. */
 const CODE = '\n[engine]\nscenes = ["code"]\n';
 /** "Call it, then say this": the shape most of them have. */

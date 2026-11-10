@@ -15,11 +15,11 @@ import { join } from "node:path";
 import { INVALID_PARAMS, REFUSED } from "@harnix/core/protocol";
 import { type Backend, type TestClient, connect, expect, runTurn, test, topology } from "@harnix/testkit";
 
-import { SHOWCASE_ID, appsTools, showcasePackage } from "./apps-host";
-import { MOCK_PUBLISHER, STORE_FIXTURE, type MockStore, appsTestApp, mockStore, sha256, startStore, withArtifacts, withVersion } from "./apps-store";
+import { SHOWCASE_ID, appsTools, showcasePackage } from "./packages-host";
+import { MOCK_PUBLISHER, STORE_FIXTURE, type MockStore, appsTestApp, mockStore, sha256, startStore, withArtifacts, withVersion } from "./packages-store";
 
-const TAGS = { tag: ["@feature:apps-store", "@layer:api"] };
-const TOOL = (name: string) => `app__example_showcase__${name}`;
+const TAGS = { tag: ["@feature:packages-store", "@layer:api"] };
+const TOOL = (name: string) => `ext__example_showcase__${name}`;
 const OTHER_ENGINE = "wasmtime-0.0.0+elsewhere+000000000000";
 
 type Session = { instance: string; session_id: string };
@@ -125,7 +125,7 @@ test.describe("the store, trusted", () => {
             s.store.signature = (s.store.signature.startsWith("00") ? "11" : "00") + s.store.signature.slice(2);
             e.set("SIGNATURES", Buffer.from(JSON.stringify(s)));
           });
-          return withArtifacts(store.index, "0.1.0", { [showcasePackage().fingerprint]: { url: "packages/bad-signature.hxapp", sha256: sha256(path) } });
+          return withArtifacts(store.index, "0.1.0", { [showcasePackage().fingerprint]: { url: "packages/bad-signature.hxext", sha256: sha256(path) } });
         },
         "the store's countersignature does not verify",
       ],
@@ -137,7 +137,7 @@ test.describe("the store, trusted", () => {
             s.publisher.signature = "00".repeat(64);
             e.set("SIGNATURES", Buffer.from(JSON.stringify(s)));
           });
-          return withArtifacts(store.index, "0.1.0", { [showcasePackage().fingerprint]: { url: "packages/bad-publisher.hxapp", sha256: sha256(path) } });
+          return withArtifacts(store.index, "0.1.0", { [showcasePackage().fingerprint]: { url: "packages/bad-publisher.hxext", sha256: sha256(path) } });
         },
         "the publisher's signature does not verify",
       ],
@@ -147,18 +147,18 @@ test.describe("the store, trusted", () => {
           const path = store.derive("0.1.0", "tampered", (e) => {
             e.set("ui/showcase.js", Buffer.from(`${e.get("ui/showcase.js")!.toString()}\n// and something else\n`));
           });
-          return withArtifacts(store.index, "0.1.0", { [showcasePackage().fingerprint]: { url: "packages/tampered.hxapp", sha256: sha256(path) } });
+          return withArtifacts(store.index, "0.1.0", { [showcasePackage().fingerprint]: { url: "packages/tampered.hxext", sha256: sha256(path) } });
         },
         "`ui/showcase.js` is not the file that was signed",
       ],
       [
         "a download that is not the one listed",
-        () => withArtifacts(store.index, "0.1.0", { [showcasePackage().fingerprint]: { url: "packages/example.showcase-0.2.0.hxapp", sha256: sha256(original) } }),
+        () => withArtifacts(store.index, "0.1.0", { [showcasePackage().fingerprint]: { url: "packages/example.showcase-0.2.0.hxext", sha256: sha256(original) } }),
         "is not the one the store lists",
       ],
       [
         "no build for this engine",
-        () => withArtifacts(store.index, "0.1.0", { [OTHER_ENGINE]: { url: "packages/example.showcase-0.1.0.hxapp", sha256: sha256(original) } }),
+        () => withArtifacts(store.index, "0.1.0", { [OTHER_ENGINE]: { url: "packages/example.showcase-0.1.0.hxext", sha256: sha256(original) } }),
         "has no build for this Harnix's engine",
       ],
     ];
@@ -199,7 +199,7 @@ test.describe("the store, trusted", () => {
         env: ["SHOWCASE_TOKEN"],
         hub: ["harnix.session.create", "harnix.session.send", "topic:harnix.sessions.status", "harnix.session.entries.append"],
       },
-      component: { world: "harnix:app/backend-app@0.1.0" },
+      component: { world: "harnix:ext/backend-ext@1.0.0" },
       // A store's application runs its interface in isolated frames, never in the page.
       ui_in_page: false,
       ui: [

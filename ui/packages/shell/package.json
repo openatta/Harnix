@@ -11,7 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@harnix/app-sdk": "workspace:*",
+    "@harnix/ext-sdk": "workspace:*",
     "@harnix/core": "workspace:*",
     "@harnix/react": "workspace:*",
     "react": "19.3.1",

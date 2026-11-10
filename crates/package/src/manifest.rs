@@ -1,4 +1,4 @@
-//! `harnix-app.toml`: what an application is, and what it asks for.
+//! `harnix-ext.toml`: what an application is, and what it asks for.
 //!
 //! Read strictly. Everything an application may have is a section or a field below; anything else
 //! is refused with its name, because a manifest is also what the installer shows a person, and a
@@ -25,14 +25,14 @@
 //!
 //! [[component]]                 # at most one
 //! name = "tools"                # wasm/<name>.<engine fingerprint>.cwasm
-//! world = "harnix:app/tools-app@0.1.0"   # or harnix:app/backend-app@0.1.0
+//! world = "harnix:ext/tools-ext@1.0.0"   # or harnix:ext/backend-ext@1.0.0
 //! memory_mb = 64
 //! timeout_ms = 30000
 //!
 //! [events]                      # what its `events` export is offered (when it has one)
 //! tools = "own"                 # own (the default): its own tools' calls; all: every tool call
 //!
-//! [[method]]                    # app.<id>.<name>, answered by the backend (`backend-app` only)
+//! [[method]]                    # app.<id>.<name>, answered by the backend (`backend-ext` only)
 //! name = "notes.add"
 //! subject = "device"            # who may call it: device (the default), module, kernel, or a list
 //! description = "…"             # optional
@@ -40,7 +40,7 @@
 //! type = "object"
 //! required = ["text"]
 //!
-//! [[topic]]                     # app.<id>.<name>, published by the backend (`backend-app` only)
+//! [[topic]]                     # app.<id>.<name>, published by the backend (`backend-ext` only)
 //! name = "notes"
 //!
 //! [[space]]                     # a backend space: where its sessions land
@@ -84,7 +84,7 @@ pub use crate::surface::{Interface, Surface, Title};
 pub const HARNIX_API: u32 = 1;
 
 /// The file name, at the package's root.
-pub const MANIFEST: &str = "harnix-app.toml";
+pub const MANIFEST: &str = "harnix-ext.toml";
 
 /// The sections a manifest may have.
 const SECTIONS: &[&str] = &[
@@ -257,7 +257,7 @@ pub struct Capabilities {
 }
 
 /// The two worlds a component may implement, by the names a manifest writes.
-pub const WORLDS: &[&str] = &["harnix:app/tools-app@0.1.0", "harnix:app/backend-app@0.1.0"];
+pub const WORLDS: &[&str] = &["harnix:ext/tools-ext@1.0.0", "harnix:ext/backend-ext@1.0.0"];
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -798,7 +798,7 @@ fs = ["${project}"]
 
 [[component]]
 name = "tools"
-world = "harnix:app/tools-app@0.1.0"
+world = "harnix:ext/tools-ext@1.0.0"
 timeout_ms = 5000
 
 [config]
@@ -843,7 +843,7 @@ install_into = ["main"]
             with(|m| {
                 format!(
                     "{}\n{section}",
-                    m.replace("tools-app@0.1.0", "backend-app@0.1.0")
+                    m.replace("tools-ext@0.1.0", "backend-ext@0.1.0")
                 )
             })
         };
@@ -932,7 +932,7 @@ install_into = ["main"]
             (GOOD.replace("\"acme.showcase\"", "\"showcase\""), "not an application id"),
             (GOOD.replace("publisher = \"acme\"", "publisher = \"other\""), "first segment"),
             (GOOD.replace("0.1.0", "one"), "not a version"),
-            (GOOD.replace("tools-app@0.1.0", "tools@0.1.0"), "world is one of"),
+            (GOOD.replace("tools-ext@0.1.0", "tools@0.1.0"), "world is one of"),
             (GOOD.replace("fs = [\"${project}\"]", "fs = [\"/etc\"]"), "must start with"),
             (
                 GOOD.replace("storage_mb = 1", "storage_mb = 0")
@@ -943,7 +943,7 @@ install_into = ["main"]
             (GOOD.replace("api_version = 3", "api_version = 2"), "contribution API 2"),
             (GOOD.replace("showcase.js", "../escape.js"), "under ui/"),
             (GOOD.replace("[app]", "[app]\n").replace("id = ", "ident = "), "in `[app]`"),
-            (format!("{GOOD}\n[[component]]\nname = \"two\"\nworld = \"harnix:app/tools-app@0.1.0\"\n"), "one component"),
+            (format!("{GOOD}\n[[component]]\nname = \"two\"\nworld = \"harnix:ext/tools-ext@1.0.0\"\n"), "one component"),
             ("not = [toml".to_string(), "not valid TOML"),
             ("[capabilities]\n".to_string(), "`[app]` is missing"),
         ];
@@ -981,7 +981,7 @@ scene = "harnix"
     fn backend(extra: &str) -> String {
         format!(
             "{}\n{BACKEND}\n{extra}",
-            GOOD.replace("tools-app@0.1.0", "backend-app@0.1.0")
+            GOOD.replace("tools-ext@0.1.0", "backend-ext@0.1.0")
         )
     }
 

@@ -1,8 +1,8 @@
 /**
- * `@harnix/app-sdk`: an application's page in the shell's isolated frame, talking to the shell.
+ * `@harnix/ext-sdk`: an application's page in the shell's isolated frame, talking to the shell.
  *
  * ```js
- * const app = await HarnixApp.connect();          // or: import { connect } from "@harnix/app-sdk"
+ * const app = await HarnixExt.connect();          // or: import { connect } from "@harnix/ext-sdk"
  * const notes = await app.call("app.acme.notes.list");
  * const off = app.subscribe("app.acme.notes.changed", {}, (value) => draw(value));
  * if (await app.confirm("Delete every note?", { danger: true })) await app.call("app.acme.notes.clear");
@@ -120,10 +120,10 @@ function shellPort(timeoutMs: number): Promise<Port> {
 }
 
 /** Connect to the shell: resolves once it has said what this frame is. */
-export async function connect(options: ConnectOptions = {}): Promise<HarnixApp> {
+export async function connect(options: ConnectOptions = {}): Promise<HarnixExt> {
   const timeoutMs = options.timeoutMs ?? 10_000;
   const port = options.port ?? (await shellPort(timeoutMs));
-  const app = new HarnixApp(port);
+  const app = new HarnixExt(port);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const welcome = await Promise.race([
     app.request("hello", { sdk: SDK_VERSION }),
@@ -140,7 +140,7 @@ export async function connect(options: ConnectOptions = {}): Promise<HarnixApp> 
 type Listener<T> = (value: T) => void;
 
 /** An application page's handle on the shell. Made by `connect()`. */
-export class HarnixApp {
+export class HarnixExt {
   private next = 1;
   private readonly pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: unknown) => void }>();
   private readonly topics = new Map<number, Listener<unknown>>();
@@ -183,7 +183,7 @@ export class HarnixApp {
 
   /* ── data ── */
 
-  /** A method: the application's own `app.<id>.*`, or one its `[interface] hub` lists. */
+  /** A method: the application's own `app.<id>.*`, or one its `[interface] calls` lists. */
   call<T = unknown>(method: string, params?: unknown): Promise<T> {
     return this.request("call", { method, params }) as Promise<T>;
   }

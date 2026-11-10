@@ -29,7 +29,7 @@ hub = ["harnix.session.create", "harnix.session.send", "topic:harnix.sessions.st
 
 [[component]]
 name = "tools"
-world = "harnix:app/backend-app@0.1.0"
+world = "harnix:ext/backend-ext@1.0.0"
 memory_mb = 32
 # A call longer than this is abandoned, and the backend replaced (`spin` shows it).
 timeout_ms = 5000
@@ -150,7 +150,7 @@ id = "example.showcase.chats"
 [config]
 greeting = "hello from the showcase"
 # The event hook refuses calls to this tool, whoever makes them.
-blocked_tool = "app__example_showcase__vetoed"
+blocked_tool = "ext__example_showcase__vetoed"
 # The backend subscribes to `harnix.sessions.status` in `init`.
 watch_sessions = true
 
@@ -167,8 +167,8 @@ point = "space"
 module = "showcase.js"
 api_version = 3
 
-# The interface in isolated frames: one page (`ui/frame/index.html`, on @harnix/app-sdk and
-# @harnix/ui-kit) for every surface, each told by the shell which one it is. Everything it does
+# The interface in isolated frames: one page (`ui/frame/index.html`, on @harnix/ext-sdk and
+# @harnix/ext-kit) for every surface, each told by the shell which one it is. Everything it does
 # goes through the shell's bridge: its own app.example.showcase.* methods and topics, and what is
 # listed here.
 [interface]

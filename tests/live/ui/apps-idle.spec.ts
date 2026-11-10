@@ -12,11 +12,11 @@ import { join } from "node:path";
 
 import { type Backend, connect, expect, test, topology } from "@harnix/testkit";
 
-import { SHOWCASE_ID, showcasePackage, startApps, variant } from "../api/apps-host";
-import { appsTestApp } from "../api/apps-store";
+import { SHOWCASE_ID, showcasePackage, startApps, variant } from "../api/packages-host";
+import { appsTestApp } from "../api/packages-store";
 import { open, watchConsole } from "./page";
 
-const TAGS = { tag: ["@feature:apps-idle", "@layer:ui"] };
+const TAGS = { tag: ["@feature:packages-idle", "@layer:ui"] };
 
 let backend: Backend;
 let scratch: string;
@@ -27,9 +27,9 @@ test.beforeAll(async () => {
   test.setTimeout(600_000);
   showcasePackage();
   scratch = mkdtempSync(join(tmpdir(), "hx-idle-ui-"));
-  const path = variant(join(scratch, "idle.hxapp"), (e) => {
-    const manifest = e.get("harnix-app.toml")!.toString().replace("watch_sessions = true", "watch_sessions = false");
-    e.set("harnix-app.toml", Buffer.from(`${manifest}\n[backend]\nresident = "on-demand"\n`));
+  const path = variant(join(scratch, "idle.hxext"), (e) => {
+    const manifest = e.get("harnix-ext.toml")!.toString().replace("watch_sessions = true", "watch_sessions = false");
+    e.set("harnix-ext.toml", Buffer.from(`${manifest}\n[backend]\nresident = "on-demand"\n`));
   });
   backend = await startApps({
     bin: appsTestApp(),

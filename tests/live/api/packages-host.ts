@@ -5,7 +5,7 @@
  * The default build carries no application runtime; one with the `apps` feature does, and it is
  * built into a target directory of its own (`target/apps`) so the default build's stays as it is.
  * `scripts/check.sh` builds it and says where (`HARNIX_APPS_BIN`); run alone, a suite builds it.
- * Next to it is `harnix-app`, the author's packing tool, built with the engine's compiler.
+ * Next to it is `harnix-pack`, the author's packing tool, built with the engine's compiler.
  *
  * The showcase is packed once per change to its sources (or to the WIT, or to the tools): its
  * component built for wasm32-wasip2, compiled for this binary's engine, zipped with its manifest,
@@ -33,14 +33,14 @@ export function appsTools(): { bin: string; pack: string } {
   if (built) return built;
   const given = process.env.HARNIX_APPS_BIN;
   if (given) {
-    built = { bin: given, pack: join(dirname(given), "harnix-app") };
+    built = { bin: given, pack: join(dirname(given), "harnix-pack") };
     return built;
   }
   const cargo = (args: string[]) =>
     execFileSync("cargo", ["build", "--release", "--target-dir", TARGET, ...args], { cwd: ROOT, stdio: ["ignore", "ignore", "inherit"] });
   cargo(["-p", "harnix-cli", "--features", "apps"]);
-  cargo(["-p", "harnix-package", "--features", "compile", "--bin", "harnix-app"]);
-  built = { bin: join(TARGET, "release", "harnix"), pack: join(TARGET, "release", "harnix-app") };
+  cargo(["-p", "harnix-package", "--features", "compile", "--bin", "harnix-pack"]);
+  built = { bin: join(TARGET, "release", "harnix"), pack: join(TARGET, "release", "harnix-pack") };
   return built;
 }
 
@@ -59,7 +59,7 @@ function hashTree(hash: ReturnType<typeof createHash>, dir: string, root = dir):
 
 let packed: { path: string; fingerprint: string } | null = null;
 
-/** The showcase, packed for the apps binary's engine: the `.hxapp`, and the fingerprint. */
+/** The showcase, packed for the apps binary's engine: the `.hxext`, and the fingerprint. */
 export function showcasePackage(): { path: string; fingerprint: string } {
   if (packed) return packed;
   const { pack } = appsTools();
@@ -68,7 +68,7 @@ export function showcasePackage(): { path: string; fingerprint: string } {
   hashTree(hash, join(ROOT, "crates", "wasm", "wit"));
   hash.update(String(statSync(pack).mtimeMs));
   const dir = join(TARGET, "showcase", hash.digest("hex").slice(0, 16));
-  const out = join(dir, "showcase.hxapp");
+  const out = join(dir, "showcase.hxext");
   const fingerprintFile = join(dir, "fingerprint");
   if (!existsSync(out) || !existsSync(fingerprintFile)) {
     mkdirSync(dir, { recursive: true });

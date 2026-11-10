@@ -3,11 +3,11 @@
  * in memory, over a real `MessageChannel`.
  *
  * ```ts
- * import { connect } from "@harnix/app-sdk";
- * import { createMockHost } from "@harnix/app-sdk/mock";
+ * import { connect } from "@harnix/ext-sdk";
+ * import { createMockHost } from "@harnix/ext-sdk/mock";
  *
  * const host = createMockHost({
- *   app: "acme.notes",
+ *   ext: "acme.notes",
  *   methods: { "app.acme.notes.list": () => ({ notes: [] }) },
  * });
  * const app = await connect({ port: host.port });
@@ -18,7 +18,7 @@
  * ```
  *
  * It refuses what the shell would — a method or topic outside the application's own `app.<id>.*`
- * and the `hub` it is given — so a page's tests see the same refusals the shell gives it. Each
+ * and the `calls` it is given — so a page's tests see the same refusals the shell gives it. Each
  * request is recorded (`requests`), and so is each event the page sent (`events`).
  */
 
@@ -35,8 +35,8 @@ import {
 type Handler = (params: unknown) => unknown | Promise<unknown>;
 
 export interface MockHostOptions {
-  /** The application's id (`acme.notes` by default). */
-  app?: string;
+  /** The extension package's id (`acme.notes` by default). */
+  ext?: string;
   point?: SurfacePoint;
   id?: string;
   space?: string | null;
@@ -44,8 +44,8 @@ export interface MockHostOptions {
   autoHeight?: boolean;
   /** `[interface] links`. */
   links?: boolean;
-  /** `[interface] hub`: what the page may reach beyond its own names. */
-  hub?: string[];
+  /** `[interface] calls`: what the page may reach beyond its own names. */
+  calls?: string[];
   env?: Partial<Environment>;
   current?: SessionRef | null;
   /** The methods the page may call, by name: what each answers (a throw is a failure). */
@@ -88,17 +88,17 @@ export interface MockHost {
 }
 
 export function createMockHost(options: MockHostOptions = {}): MockHost {
-  const app = options.app ?? "acme.notes";
-  const hub = options.hub ?? [];
+  const ext = options.ext ?? "acme.notes";
+  const calls = options.calls ?? [];
   const channel = new MessageChannel();
   const shell = channel.port1;
   const env: Environment = { ...DEFAULT_ENV, ...options.env };
   let current = options.current ?? null;
   const surface: SurfaceInfo = {
-    app,
+    ext,
     point: options.point ?? "space",
     id: options.id ?? options.point ?? "space",
-    space: options.space === undefined ? app : options.space,
+    space: options.space === undefined ? ext : options.space,
     params: options.params ?? null,
     autoHeight: options.autoHeight ?? false,
     links: options.links ?? false,
@@ -125,7 +125,7 @@ export function createMockHost(options: MockHostOptions = {}): MockHost {
         return { result: { surface, env, current } };
       case "call": {
         const name = String(p.method);
-        if (!admits(app, hub, name, false)) return { error: refuse(name, `\`${name}\` is not ${app}'s to call`) };
+        if (!admits(ext, calls, name, false)) return { error: refuse(name, `\`${name}\` is not ${ext}'s to call`) };
         const handler = options.methods?.[name];
         if (!handler) return { error: { code: "failed", message: `no method \`${name}\` in this mock` } };
         try {
@@ -136,7 +136,7 @@ export function createMockHost(options: MockHostOptions = {}): MockHost {
       }
       case "subscribe": {
         const topic = String(p.topic);
-        if (!admits(app, hub, topic, true)) return { error: refuse(topic, `\`${topic}\` is not ${app}'s to subscribe to`) };
+        if (!admits(ext, calls, topic, true)) return { error: refuse(topic, `\`${topic}\` is not ${ext}'s to subscribe to`) };
         const sub = nextSub++;
         subs.set(sub, topic);
         return { result: { sub } };

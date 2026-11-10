@@ -518,7 +518,7 @@ hub = ["harnix.session.entries.append"]
 
 [[component]]
 name = "backend"
-world = "harnix:app/backend-app@0.1.0"
+world = "harnix:ext/backend-ext@1.0.0"
 
 [[method]]
 name = "complete"
@@ -621,7 +621,7 @@ other = { en = "Other", zh-CN = "其他" }
     #[test]
     fn the_showcase_declares_one_of_each() {
         let m = parse(include_str!(
-            "../../../examples/apps/showcase/harnix-app.toml"
+            "../../../examples/apps/showcase/harnix-ext.toml"
         ))
         .unwrap();
         let inline = &m.inline;

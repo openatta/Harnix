@@ -100,7 +100,7 @@ crates/cli        the `harnix` binary: the Harnix app, with the flow module
 crates/testapp    an application for the tests
 ui/packages/      @harnix/core (protocol, client, session state), @harnix/react (conversation,
                   contribution registry, i18n, tokens), @harnix/shell, @harnix/flow, @harnix/testkit,
-                  @harnix/app-sdk and @harnix/ui-kit (a plugin app's page in its frame)
+                  @harnix/ext-sdk and @harnix/ext-kit (a plugin app's page in its frame)
 templates/        app (a new application), desktop (the Tauri shell)
 examples/hello-app  an application built the way applications are
 examples/apps/showcase  a plugin app with one of everything

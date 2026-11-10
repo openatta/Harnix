@@ -19,10 +19,10 @@ import { join } from "node:path";
 import { REFUSED } from "@harnix/core/protocol";
 import { type Backend, type TestClient, connect, expect, test, topology } from "@harnix/testkit";
 
-import { SHOWCASE_ID, showcasePackage, startApps, variant } from "./apps-host";
-import { appsTestApp } from "./apps-store";
+import { SHOWCASE_ID, showcasePackage, startApps, variant } from "./packages-host";
+import { appsTestApp } from "./packages-store";
 
-const TAGS = { tag: ["@feature:apps-idle", "@layer:api"] };
+const TAGS = { tag: ["@feature:packages-idle", "@layer:api"] };
 
 const M = (name: string) => `app.${SHOWCASE_ID}.${name}`;
 /** What the test application idles an on-demand backend for. */
@@ -33,11 +33,11 @@ const stateOf = async (api: TestClient) => (await listed(api))?.runtime?.state;
 
 /** The showcase as an on-demand backend; `watch` keeps its subscription in `init`. */
 function onDemand(scratch: string, name: string, watch = false, extra = ""): string {
-  return variant(join(scratch, `${name}.hxapp`), (e) => {
-    let manifest = e.get("harnix-app.toml")!.toString();
+  return variant(join(scratch, `${name}.hxext`), (e) => {
+    let manifest = e.get("harnix-ext.toml")!.toString();
     if (!watch) manifest = manifest.replace("watch_sessions = true", "watch_sessions = false");
     manifest += `\n[backend]\nresident = "on-demand"\n${extra}`;
-    e.set("harnix-app.toml", Buffer.from(manifest));
+    e.set("harnix-ext.toml", Buffer.from(manifest));
   });
 }
 
@@ -83,10 +83,10 @@ test.describe("an application whose backend idles", () => {
       ["unknown-mode", "`[backend] resident`", 'resident = "sometimes"\n'],
     ];
     for (const [name, says, extra] of cases) {
-      const path = variant(join(scratch, `${name}.hxapp`), (e) => {
-        const manifest = e.get("harnix-app.toml")!.toString();
+      const path = variant(join(scratch, `${name}.hxext`), (e) => {
+        const manifest = e.get("harnix-ext.toml")!.toString();
         const backendSection = extra.startsWith("resident") ? `\n[backend]\n${extra}` : `\n[backend]\nresident = "on-demand"\n${extra}`;
-        e.set("harnix-app.toml", Buffer.from(manifest + backendSection));
+        e.set("harnix-ext.toml", Buffer.from(manifest + backendSection));
       });
       const error = await api.refused("harnix.apps.installFile", { path });
       expect(error?.code, name).toBe(REFUSED);

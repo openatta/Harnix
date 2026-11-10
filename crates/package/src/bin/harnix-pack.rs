@@ -1,24 +1,24 @@
 //! The application author's tool, and the store's.
 //!
-//!     harnix-app new <dir> --id <publisher.name> [--title <title>]
-//!     harnix-app build <app dir> [-o <dir>]
-//!     harnix-app pack <app dir> [--wasm <component.wasm>] [--build] [-o <out.hxapp>]
-//!     harnix-app keygen <secret key file>
-//!     harnix-app sign <package.hxapp> --key <secret key file> [-o <out.hxapp>]
-//!     harnix-app verify <package.hxapp> [--store-key <hex>]… [--trust <publisher>=<hex>]…
-//!     harnix-app fingerprint
+//!     harnix-pack new <dir> --id <publisher.name> [--title <title>]
+//!     harnix-pack build <app dir> [-o <dir>]
+//!     harnix-pack pack <app dir> [--wasm <component.wasm>] [--build] [-o <out.hxext>]
+//!     harnix-pack keygen <secret key file>
+//!     harnix-pack sign <package.hxext> --key <secret key file> [-o <out.hxext>]
+//!     harnix-pack verify <package.hxext> [--store-key <hex>]… [--trust <publisher>=<hex>]…
+//!     harnix-pack fingerprint
 //!
 //! and, on the store's side,
 //!
-//!     harnix-app countersign <package.hxapp> --key <store key file> [--artifact <x.cwasm>]… [-o <out>]
-//!     harnix-app index <store dir> --key <store key file> [--name <name>] [--days <n>]
-//!     harnix-app sign-index <index.json> --key <store key file> [--days <n> | --expires <time>]
+//!     harnix-pack countersign <package.hxext> --key <store key file> [--artifact <x.cwasm>]… [-o <out>]
+//!     harnix-pack index <store dir> --key <store key file> [--name <name>] [--days <n>]
+//!     harnix-pack sign-index <index.json> --key <store key file> [--days <n> | --expires <time>]
 //!
 //! `new` lays out an application: its manifest, a component with one tool, the WIT it builds
 //! against. `build` builds the component (`cargo build --release --target wasm32-wasip2` in
 //! `<app dir>/component`) and compiles it for this engine — for the target's baseline CPU, so the
 //! artifact loads on any machine of this target — into `<app dir>/build/` (or `-o`). `pack` zips
-//! the manifest, `ui/`, `agent/` and both forms of the component into a `.hxapp` (`--build`
+//! the manifest, `ui/`, `agent/` and both forms of the component into a `.hxext` (`--build`
 //! builds first; `--wasm` takes a component already built); it prints the package's path and the
 //! engine fingerprint it was compiled for: a package installs on a Harnix whose engine reports the
 //! same one.
@@ -27,7 +27,7 @@
 //! signs every file of a package as its publisher; a Harnix whose profile trusts that key for that
 //! publisher (`[apps.trusted_publishers]`) installs it without dev mode. `countersign` is the
 //! store's: it checks the publisher's signature, adds the components it compiled, and signs the
-//! lot; `index` lists `<store dir>/packages/*.hxapp` as `<store dir>/index.json`, the catalog a
+//! lot; `index` lists `<store dir>/packages/*.hxext` as `<store dir>/index.json`, the catalog a
 //! Harnix reads (`[apps] store`), signed with the store's key and believed for `--days` (14
 //! unless said). `sign-index` signs a catalog again after the store edited it — a version
 //! `revoked`, an application's `min_version` raised — or to republish it before it expires;
@@ -42,8 +42,8 @@ use harnix_package::manifest::{Manifest, MANIFEST};
 use harnix_package::signature::{self, Keys, PublicKey, SecretKey};
 
 const USAGE: &str =
-    "usage: harnix-app new <dir> --id <publisher.name> | build <app dir> [-o <dir>] \
-                     | pack <app dir> [--wasm <component.wasm>] [--build] [-o <out.hxapp>] \
+    "usage: harnix-pack new <dir> --id <publisher.name> | build <app dir> [-o <dir>] \
+                     | pack <app dir> [--wasm <component.wasm>] [--build] [-o <out.hxext>] \
                      | keygen <key file> | sign <package> --key <key file> [-o <out>] \
                      | verify <package> [--store-key <hex>]… [--trust <publisher>=<hex>]… \
                      | countersign <package> --key <key file> [--artifact <x.cwasm>]… [-o <out>] \
@@ -52,7 +52,7 @@ const USAGE: &str =
                      | fingerprint";
 
 /// The WIT a component builds against, written beside it by `new`.
-const WIT: &str = include_str!("../../../wasm/wit/app.wit");
+const WIT: &str = include_str!("../../../wasm/wit/ext.wit");
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -168,7 +168,7 @@ publisher = "{publisher}"
 
 [[component]]
 name = "tools"
-world = "harnix:app/tools-app@0.1.0"
+world = "harnix:ext/tools-ext@1.0.0"
 memory_mb = 32
 timeout_ms = 20000
 "#,
@@ -200,18 +200,18 @@ strip = true
 lto = true
 "#
     );
-    let lib = r#"//! The application's tools: a `tools-app` component (`harnix:app`, wit/app.wit).
+    let lib = r#"//! The application's tools: a `tools-ext` component (`harnix:ext`, wit/ext.wit).
 //!
-//! To also see, and veto, the calls of these tools, build `tools-app-events` instead and implement
-//! `exports::harnix::app::events::Guest` (`on_event` answering `HookDecision::Proceed`,
+//! To also see, and veto, the calls of these tools, build `tools-ext-events` instead and implement
+//! `exports::harnix::ext::events::Guest` (`on_event` answering `HookDecision::Proceed`,
 //! `Block(reason)` or `AddContext(note)`).
 
 wit_bindgen::generate!({
     path: "wit",
-    world: "tools-app",
+    world: "tools-ext",
 });
 
-use exports::harnix::app::tools::{Guest as Tools, ToolDef, ToolOutput};
+use exports::harnix::ext::tools::{Guest as Tools, ToolDef, ToolOutput};
 use serde_json::{json, Value};
 
 struct App;
@@ -248,13 +248,13 @@ impl Tools for App {
 export!(App);
 "#;
     let readme = format!(
-        "# {title}\n\n`{id}`: a Harnix application.\n\n```sh\nharnix-app build .          # the component, compiled for this engine\nharnix-app pack . --build   # {id}-0.1.0.hxapp\nharnix-app keygen publisher.key\nharnix-app sign {id}-0.1.0.hxapp --key publisher.key\n```\n"
+        "# {title}\n\n`{id}`: an extension package.\n\n```sh\nharnix-pack build .          # the component, compiled for this engine\nharnix-pack pack . --build   # {id}-0.1.0.hxext\nharnix-pack keygen publisher.key\nharnix-pack sign {id}-0.1.0.hxext --key publisher.key\n```\n"
     );
     let files: [(&str, &str); 5] = [
         (MANIFEST, &manifest),
         ("component/Cargo.toml", &cargo),
         ("component/src/lib.rs", lib),
-        ("component/wit/app.wit", WIT),
+        ("component/wit/ext.wit", WIT),
         ("README.md", &readme),
     ];
     for (path, text) in files {
@@ -313,7 +313,7 @@ fn pack(args: &[String]) -> Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|| {
             PathBuf::from(format!(
-                "{}-{}.hxapp",
+                "{}-{}.hxext",
                 manifest.app.id, manifest.app.version
             ))
         });

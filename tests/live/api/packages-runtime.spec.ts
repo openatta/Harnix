@@ -17,11 +17,11 @@ import { join } from "node:path";
 import { REFUSED } from "@harnix/core/protocol";
 import { type Backend, type TestClient, connect, expect, modelMode, runTurn, sleep, test, topology } from "@harnix/testkit";
 
-import { SHOWCASE_ID, showcasePackage, startApps, variant } from "./apps-host";
+import { SHOWCASE_ID, showcasePackage, startApps, variant } from "./packages-host";
 
 const TAGS = { tag: ["@feature:apps", "@layer:api"] };
 
-const TOOL = (name: string) => `app__example_showcase__${name}`;
+const TOOL = (name: string) => `ext__example_showcase__${name}`;
 const TOOLS = ["echo", "count", "config", "read_project", "slow", "vetoed", "crash", "board"].map(TOOL);
 const MCP_SERVER = "app-example_showcase";
 const BLOCK_MARKER = "showcase-block-7d21";
@@ -84,15 +84,15 @@ carrier = "spawn"
   test("a package that is wrong is refused with why, and nothing of it stays", TAGS, async () => {
     const { fingerprint } = showcasePackage();
     const cases: [string, string, (e: Map<string, Buffer>) => void][] = [
-      ["bad-toml", "not valid TOML", (e) => e.set("harnix-app.toml", Buffer.from("[app\nid = 1"))],
+      ["bad-toml", "not valid TOML", (e) => e.set("harnix-ext.toml", Buffer.from("[app\nid = 1"))],
       ["unknown-capability", "unknown capability `gpu`", (e) => {
-        e.set("harnix-app.toml", Buffer.from(e.get("harnix-app.toml")!.toString().replace("storage_mb = 1", "storage_mb = 1\ngpu = true")));
+        e.set("harnix-ext.toml", Buffer.from(e.get("harnix-ext.toml")!.toString().replace("storage_mb = 1", "storage_mb = 1\ngpu = true")));
       }],
       ["unknown-section", "unknown section `daemon`", (e) => {
-        e.set("harnix-app.toml", Buffer.from(`${e.get("harnix-app.toml")!.toString()}\n[daemon]\nrun = "x"\n`));
+        e.set("harnix-ext.toml", Buffer.from(`${e.get("harnix-ext.toml")!.toString()}\n[daemon]\nrun = "x"\n`));
       }],
       ["methods-without-a-backend", "are a backend's", (e) => {
-        e.set("harnix-app.toml", Buffer.from(e.get("harnix-app.toml")!.toString().replace("backend-app@0.1.0", "tools-app@0.1.0")));
+        e.set("harnix-ext.toml", Buffer.from(e.get("harnix-ext.toml")!.toString().replace("backend-ext@0.1.0", "tools-ext@0.1.0")));
       }],
       ["other-engine", "engine-0.0.0+elsewhere+000000000000", (e) => {
         const cwasm = `wasm/tools.${fingerprint}.cwasm`;
@@ -101,17 +101,17 @@ carrier = "spawn"
       }],
       ["escape", "leaves the package", (e) => e.set("../escape.txt", Buffer.from("x"))],
       ["no-instance", "no such instance", (e) => {
-        e.set("harnix-app.toml", Buffer.from(e.get("harnix-app.toml")!.toString().replace('install_into = ["main"]', 'install_into = ["nowhere"]')));
+        e.set("harnix-ext.toml", Buffer.from(e.get("harnix-ext.toml")!.toString().replace('install_into = ["main"]', 'install_into = ["nowhere"]')));
       }],
     ];
     for (const [name, says, edit] of cases) {
-      const path = variant(join(scratch, `${name}.hxapp`), edit);
+      const path = variant(join(scratch, `${name}.hxext`), edit);
       const error = await api.refused("harnix.apps.installFile", { path });
       expect(error?.code, name).toBe(REFUSED);
       expect(error?.message, name).toContain(says);
       if (name === "other-engine") expect(error?.message, name).toContain(fingerprint);
     }
-    expect((await api.refused("harnix.apps.installFile", { path: join(scratch, "missing.hxapp") }))?.code).toBe(REFUSED);
+    expect((await api.refused("harnix.apps.installFile", { path: join(scratch, "missing.hxext") }))?.code).toBe(REFUSED);
     expect((await api.refused("harnix.apps.installFile", {}))?.message).toContain("missing path");
     const listed = await api.call("harnix.apps.list");
     expect(listed.apps).toEqual([]);
@@ -151,7 +151,7 @@ carrier = "spawn"
     expect(module.status).toBe(200);
     expect(module.headers.get("content-type")).toContain("javascript");
     expect(await module.text()).toContain("example.showcase.card");
-    expect((await fetch(`${backend.url.replace(/\/$/, "")}/apps/${SHOWCASE_ID}/ui/../harnix-app.toml`)).status).toBe(404);
+    expect((await fetch(`${backend.url.replace(/\/$/, "")}/apps/${SHOWCASE_ID}/ui/../harnix-ext.toml`)).status).toBe(404);
     await expect
       .poll(async () => JSON.stringify((await api.call("harnix.ui")).contributions ?? []), { timeout: 10_000 })
       .toContain(`/apps/${SHOWCASE_ID}/ui/frame/index.html`);
@@ -186,7 +186,7 @@ carrier = "spawn"
     // The configuration is the manifest's, with the profile's set over it.
     const config = await session(api, "app-config");
     await runTurn(api, config, "again");
-    expect(results(api, config)).toContain("app__example_showcase__vetoed");
+    expect(results(api, config)).toContain("ext__example_showcase__vetoed");
     // The count is kept by the application, not by the call.
     const again = await session(api, "app-count");
     await runTurn(api, again, "count again");
@@ -491,9 +491,9 @@ test.describe("its event hook, as far as its manifest's [events]", () => {
   });
 
   test("a host on this machine is told as one", TAGS, async () => {
-    const local = variant(join(scratch, "local.hxapp"), (entries) => {
-      const manifest = entries.get("harnix-app.toml")!.toString("utf8");
-      entries.set("harnix-app.toml", Buffer.from(manifest.replace('net = ["api.showcase.test"]', 'net = ["127.0.0.1", "api.showcase.test"]')));
+    const local = variant(join(scratch, "local.hxext"), (entries) => {
+      const manifest = entries.get("harnix-ext.toml")!.toString("utf8");
+      entries.set("harnix-ext.toml", Buffer.from(manifest.replace('net = ["api.showcase.test"]', 'net = ["127.0.0.1", "api.showcase.test"]')));
     });
     await api.call("harnix.apps.installFile", { path: local });
     const lines = (await api.call("harnix.apps.list")).apps[0].app.lines;
@@ -503,9 +503,9 @@ test.describe("its event hook, as far as its manifest's [events]", () => {
   });
 
   test("all: every tool call of every session, and the installer is told so", TAGS, async () => {
-    const all = variant(join(scratch, "all.hxapp"), (entries) => {
-      const manifest = entries.get("harnix-app.toml")!.toString("utf8");
-      entries.set("harnix-app.toml", Buffer.from(manifest.replace('[events]\ntools = "own"', '[events]\ntools = "all"')));
+    const all = variant(join(scratch, "all.hxext"), (entries) => {
+      const manifest = entries.get("harnix-ext.toml")!.toString("utf8");
+      entries.set("harnix-ext.toml", Buffer.from(manifest.replace('[events]\ntools = "own"', '[events]\ntools = "all"')));
     });
     await api.call("harnix.apps.installFile", { path: all });
     const app = (await api.call("harnix.apps.list")).apps[0].app;

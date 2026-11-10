@@ -328,11 +328,11 @@ mod tests {
                 TokenBudget { compact_threshold: 0, compact_keep_recent: 0 }
             }
         }
-        let s = Layered::new(&SceneLayer::new("{base}", SceneBase::builtin("open")).admit("app__*"), Arc::new(Open), &"main".into());
+        let s = Layered::new(&SceneLayer::new("{base}", SceneBase::builtin("open")).admit("ext__*"), Arc::new(Open), &"main".into());
         assert!(s.tools().is_empty(), "an open list stays open");
-        assert!(s.permits_tool("app__acme__x") && s.permits_tool("Bash"));
-        let listed = Layered::new(&SceneLayer::new("{base}", SceneBase::builtin("odd")).admit("app__*"), odd(), &"main".into());
-        assert!(listed.permits_tool("app__acme__x") && !Odd.permits_tool("app__acme__x"));
+        assert!(s.permits_tool("ext__acme__x") && s.permits_tool("Bash"));
+        let listed = Layered::new(&SceneLayer::new("{base}", SceneBase::builtin("odd")).admit("ext__*"), odd(), &"main".into());
+        assert!(listed.permits_tool("ext__acme__x") && !Odd.permits_tool("ext__acme__x"));
         assert!(!listed.permits_tool("plugin__other__x"));
     }
 

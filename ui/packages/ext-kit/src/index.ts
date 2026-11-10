@@ -1,5 +1,5 @@
 /**
- * `@harnix/ui-kit`: the shell's look in an application's isolated frame.
+ * `@harnix/ext-kit`: the shell's look in an application's isolated frame.
  *
  * Its stylesheet (`kit.css`) is the shell's design tokens — the same file the shell's theme is —
  * and a handful of components drawn with them (`hk-*` classes). This module follows the shell
@@ -7,7 +7,7 @@
  * builds the components as plain DOM, so a page needs no framework to look native:
  *
  * ```js
- * const app = await HarnixApp.connect();
+ * const app = await HarnixExt.connect();
  * HarnixKit.follow(app);
  * document.body.append(
  *   HarnixKit.card({ title: "Notes", body: HarnixKit.empty("Nothing yet") }),
@@ -18,9 +18,9 @@
  * A React page uses the classes alone (`className="hk-btn primary"`) and `follow`.
  */
 
-import type { Environment } from "@harnix/app-sdk/protocol";
+import type { Environment } from "@harnix/ext-sdk/protocol";
 
-/** What `follow` needs of a connected app (`HarnixApp` is one). */
+/** What `follow` needs of a connected app (`HarnixExt` is one). */
 export interface Follows {
   readonly env: Environment;
   onEnv(fn: (env: Environment) => void): () => void;

@@ -1,5 +1,5 @@
 /**
- * The shell's environment as a frame sees it (`Environment`, `harnix-ui-bridge@1`): the theme in
+ * The shell's environment as a frame sees it (`Environment`, `harnix-ui-bridge@2`): the theme in
  * effect, the design tokens' values in it, the language, whether the window is narrow. Read off
  * the page itself — `<html>`'s `data-theme`, its token overrides (`style`), its `lang` — and
  * followed with one observer, so a theme switch, a brand's colours or a language change reaches
@@ -9,7 +9,7 @@
  */
 
 import { currentLocale } from "@harnix/react";
-import type { Environment } from "@harnix/app-sdk/protocol";
+import type { Environment } from "@harnix/ext-sdk/protocol";
 
 import { themeTokens } from "../brand.ts";
 

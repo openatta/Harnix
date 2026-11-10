@@ -125,7 +125,7 @@ impl AppRuntime for FakeApps {
         let spec = self.spec(id).ok_or_else(|| RpcError::invalid_params("not registered"))?;
         if let Some(own) = method.strip_prefix(&format!("app.{id}.")) {
             let m = spec.methods.iter().find(|m| m.name == own).unwrap().clone();
-            return m.handler.call(&Subject::extension(harnix_contract::ExtId::parse(id).unwrap()), params).await;
+            return m.handler.call(&Subject::extension(harnix_contract::ExtId::package(id).unwrap()), params).await;
         }
         if !spec.hub.iter().any(|h| h == method) {
             return Err(RpcError::refused(format!("`module:{id}` may not call `{method}`: not in its `hub`")));
@@ -276,11 +276,11 @@ impl Rig {
         for part in ["ui", "agent"] {
             copy_tree(&source.join(part), &app.join(part));
         }
-        let manifest = std::fs::read_to_string(source.join("harnix-app.toml")).unwrap();
-        std::fs::write(app.join("harnix-app.toml"), edit(manifest)).unwrap();
+        let manifest = std::fs::read_to_string(source.join("harnix-ext.toml")).unwrap();
+        std::fs::write(app.join("harnix-ext.toml"), edit(manifest)).unwrap();
         let wasm = showcase_wasm();
         let cwasm = self.runtime.engine().compile(&wasm).unwrap();
-        let out = self.dir.path().join(format!("{name}.hxapp"));
+        let out = self.dir.path().join(format!("{name}.hxext"));
         let artifact = harnix_apps::package::Artifact {
             fingerprint: self.runtime.engine().fingerprint(),
             cwasm: &cwasm,
@@ -412,14 +412,14 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
     let names: Vec<&str> = tools.iter().map(|t| t.spec().name()).collect();
     for tool in ["echo", "count", "config", "read_project", "slow", "vetoed", "crash", "board"] {
         assert!(
-            names.contains(&format!("app__example_showcase__{tool}").as_str()),
+            names.contains(&format!("ext__example_showcase__{tool}").as_str()),
             "{names:?}"
         );
     }
     let tool = |name: &str| {
         tools
             .iter()
-            .find(|t| t.spec().name() == format!("app__example_showcase__{name}"))
+            .find(|t| t.spec().name() == format!("ext__example_showcase__{name}"))
             .unwrap()
             .clone()
     };
@@ -442,7 +442,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
     assert_eq!(config["greeting"], json!("set by the profile"));
     assert_eq!(
         config["blocked_tool"],
-        json!("app__example_showcase__vetoed")
+        json!("ext__example_showcase__vetoed")
     );
     let read = run("read_project", json!({"path": "NOTES.md"})).await;
     assert!(read.content().contains("the project's notes"), "{read:?}");
@@ -479,7 +479,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
     // The event hook refuses the tool its configuration names, and lets the rest through.
     let hooks = plugin.hooks_for("s1", 0);
     assert_eq!(hooks.len(), 1);
-    for name in ["app__example_showcase__vetoed", "Bash"] {
+    for name in ["ext__example_showcase__vetoed", "Bash"] {
         let decision = hooks[0].before(&ToolCallFacts::new(name, json!({}), Cancel::new())).await;
         match decision {
             HookDecision::Proceed => assert_eq!(name, "Bash"),
@@ -581,7 +581,7 @@ async fn the_backend_is_registered_answers_its_methods_and_acts_only_as_far_as_i
     let board = plugin
         .tools_for(&project)
         .into_iter()
-        .find(|t| t.spec().name() == "app__example_showcase__board")
+        .find(|t| t.spec().name() == "ext__example_showcase__board")
         .unwrap();
     let out = board
         .call(ToolCx::new("test", "b").with_project(project.clone()), json!({}))
@@ -685,7 +685,7 @@ async fn an_artifact_for_another_engine_is_refused_by_name() {
         unpacked.join("wasm/tools.engine-0.0.1+elsewhere+abcdefabcdef.cwasm"),
     )
     .unwrap();
-    let repacked = rig.dir.path().join("repacked.hxapp");
+    let repacked = rig.dir.path().join("repacked.hxext");
     harnix_apps::package::zip_dir(&unpacked, &repacked).unwrap();
     let err = rig.runtime.inspect(&repacked).unwrap_err();
     assert!(

@@ -13,10 +13,10 @@
 import type { Page } from "@playwright/test";
 import { type Backend, type TestClient, connect, expect, test, topology } from "@harnix/testkit";
 
-import { SHOWCASE_CHATS, SHOWCASE_ID, showcasePackage, startApps } from "../api/apps-host";
+import { SHOWCASE_CHATS, SHOWCASE_ID, showcasePackage, startApps } from "../api/packages-host";
 import { newSession, open, openSettings, reply, say, settingsSection, watchConsole } from "./page";
 
-const TAGS = { tag: ["@feature:apps-inline", "@layer:ui"] };
+const TAGS = { tag: ["@feature:packages-inline", "@layer:ui"] };
 
 const M = (name: string) => `app.${SHOWCASE_ID}.${name}`;
 
@@ -57,11 +57,11 @@ test("a tool's row is drawn as its manifest says", TAGS, async ({ page }) => {
   await expect(ask).toBeVisible({ timeout: 30_000 });
   // The card names the tool as its row does, not by its wire name.
   await expect(ask).toContainText(/Showcase echo|示例应用回声/);
-  await expect(ask).not.toContainText("app__");
+  await expect(ask).not.toContainText("ext__");
   // Said aloud by the same name.
   const said = page.getByTestId("ask-announce");
   await expect(said).toContainText(/Showcase echo|示例应用回声/);
-  await expect(said).not.toContainText("app__");
+  await expect(said).not.toContainText("ext__");
   await ask.getByTestId("conv-ask-allow").click();
   const row = page.locator(`[data-inline="tool.row"][data-app="${SHOWCASE_ID}"][data-tool="echo"]`);
   await expect(row).toBeVisible({ timeout: 30_000 });

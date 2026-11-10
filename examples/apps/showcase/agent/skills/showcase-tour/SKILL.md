@@ -5,7 +5,7 @@ description: A tour of the Showcase application's tools — use when asked what 
 
 # The Showcase tour
 
-The Showcase application gives this session seven tools, all named `app__example_showcase__<tool>`:
+The Showcase application gives this session seven tools, all named `ext__example_showcase__<tool>`:
 
 1. `echo {text}` says the text back.
 2. `count {key?}` counts one more and says the total; the count survives the call.
