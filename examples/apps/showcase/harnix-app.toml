@@ -159,13 +159,13 @@ watch_sessions = true
 [[ui]]
 point = "home.card"
 module = "showcase.js"
-api_version = 2
+api_version = 3
 
 # The same module draws the showcase's space: its board, over the backend's methods and topics.
 [[ui]]
 point = "space"
 module = "showcase.js"
-api_version = 2
+api_version = 3
 
 # The interface in isolated frames: one page (`ui/frame/index.html`, on @harnix/app-sdk and
 # @harnix/ui-kit) for every surface, each told by the shell which one it is. Everything it does

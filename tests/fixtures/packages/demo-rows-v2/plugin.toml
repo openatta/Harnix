@@ -10,4 +10,4 @@ description = "Replaces the tool row for Bash, through contribution API 2."
 [[ui]]
 point = "tool.row"
 module = "rows.js"
-api_version = 2
+api_version = 3

@@ -475,7 +475,7 @@ world = "harnix:app/tools-app@0.1.0"
 [[ui]]
 point = "home.card"
 module = "card.js"
-api_version = 2
+api_version = 3
 "#;
 
     /// A zip of `entries` (name, bytes) at `dir/name.hxapp`.

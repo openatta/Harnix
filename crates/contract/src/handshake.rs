@@ -28,7 +28,10 @@ pub const PROTOCOL_VERSION: u32 = 4;
 /// `react/jsx-runtime` and `@harnix/react` from the page's import map rather than bringing its
 /// own. React's major version is therefore part of this contract: a new React major is a new
 /// version here.
-pub const CONTRIB_API_VERSION: u32 = 2;
+///
+/// 3: the host API (`HostApi`, `useHost()`), a ninth kernel point (`session.action`), points an
+/// extension defines (`definePoint`), `space` in groups, and activation by `hello.extensions`.
+pub const CONTRIB_API_VERSION: u32 = 3;
 
 /// How the five channel semantics are carried.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
