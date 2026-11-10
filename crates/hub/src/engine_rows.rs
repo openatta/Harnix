@@ -35,7 +35,7 @@ enum After {
 /// Passed through for any device, with what each acts on, and whether it reaches the engine's
 /// settings or plugins — which nobody reaches on an extension's engine: its carrier wrote them.
 const DEVICE: &[(&str, RowScope, After, bool)] = &[
-    ("engine.session.list", RowScope::Open, After::Sessions, false),
+    ("engine.session.list", RowScope::Space, After::Sessions, false),
     ("engine.session.get", RowScope::Session, After::OneSession, false),
     ("engine.session.history", RowScope::Session, After::Nothing, false),
     ("engine.session.entries", RowScope::Session, After::Nothing, false),
@@ -229,9 +229,18 @@ impl Hub {
             ));
         }
         let session = params.get("session_id").and_then(Value::as_str).map(str::to_string);
+        // A caller that claimed a space is told of that space's sessions only: the engine lists
+        // every one, whoever's it is.
+        let held = (through.after == After::Sessions).then(|| self.held_space(&params)).flatten();
         let mut answer = linked.ops().passthrough(method, without_instance(params)).await?;
         if extension {
             harden(&mut answer, through.after);
+        }
+        if let (Some(space), Some(Value::Array(rows))) = (held, answer.get_mut("sessions")) {
+            rows.retain(|row| {
+                let sid = row.get("session_id").and_then(Value::as_str).unwrap_or_default();
+                self.space_of(&(instance.clone(), sid.to_string())) == space
+            });
         }
         match through.after {
             After::Nothing | After::OneSession | After::Sessions => {}

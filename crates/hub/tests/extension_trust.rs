@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use harnix_contract::{codes, ExtId, Frame, FrameSink, RpcError, Subject};
+use harnix_contract::{codes, ExtId, Frame, FrameSink, RpcError, SpaceDecl, Subject};
 use harnix_engine_api::events::{DaemonEventKind, EngineEvent, Fragment, Joins, SessionEventKind};
 use harnix_engine_api::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
 use harnix_engine_api::ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, Subscribed, Tasks, TurnInput};
@@ -188,9 +188,13 @@ struct Rig {
 
 impl Rig {
     async fn new() -> Self {
+        Self::with_spaces(Vec::new()).await
+    }
+
+    async fn with_spaces(declared: Vec<SpaceDecl>) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let book = Arc::new(Book::default());
-        let spaces = Spaces::load(dir.path().join("spaces.json"), Vec::new(), Default::default()).unwrap();
+        let spaces = Spaces::load(dir.path().join("spaces.json"), declared, Default::default()).unwrap();
         let hub = Hub::new(HubConfig { instances: book.clone(), spaces });
         let cell = HubCell::default();
         let rows = Hub::rows(&cell)
@@ -339,4 +343,41 @@ async fn nobody_reaches_an_extensions_engines_settings_or_plugins() {
     // What is not its settings passes through as for any engine.
     rig.call(kernel(), "engine.scene.list", json!({"instance": "ext"})).await.unwrap();
     assert_eq!(rig.ext.0.passed(), ["engine.scene.list"]);
+}
+
+#[tokio::test]
+async fn a_caller_that_claims_a_space_is_told_of_that_spaces_sessions_only() {
+    let rig = Rig::with_spaces(vec![SpaceDecl::new("acme").default_space(), SpaceDecl::new("other")]).await;
+    let kernel = || CallContext::root(Subject::Kernel, None);
+    let listed = |space: Option<&str>| {
+        let mut params = json!({"instance": "own"});
+        if let Some(space) = space {
+            params["space"] = json!(space);
+        }
+        params
+    };
+    // The session is the default space's: acme sees it, another space does not, and a caller
+    // that claims nothing sees what the engine lists.
+    let sessions = |answer: Value| answer["sessions"].as_array().unwrap().len();
+    assert_eq!(sessions(rig.call(kernel(), "engine.session.list", listed(Some("acme"))).await.unwrap()), 1);
+    assert_eq!(sessions(rig.call(kernel(), "engine.session.list", listed(Some("other"))).await.unwrap()), 0);
+    assert_eq!(sessions(rig.call(kernel(), "engine.session.list", listed(None)).await.unwrap()), 1);
+
+    // The same for the values of the topics that list sessions: each subscriber is told its own.
+    let mut told = Vec::new();
+    for space in [Some("acme"), Some("other"), None] {
+        let sink = Arc::new(Sink::default());
+        let client = rig.hub.add_client(sink.clone()).await;
+        let cx = CallContext::root(Subject::device("d"), Some(client));
+        let mut params = json!({"instance": "own"});
+        if let Some(space) = space {
+            params["space"] = json!(space);
+        }
+        let on = rig
+            .call(cx, "harnix.topics.subscribe", json!({"topic": "harnix.instances.sessions", "params": params}))
+            .await
+            .unwrap();
+        told.push((sessions(on["value"].clone()), sink));
+    }
+    assert_eq!(told.iter().map(|(n, _)| *n).collect::<Vec<_>>(), [1, 0, 1]);
 }

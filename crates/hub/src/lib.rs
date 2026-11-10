@@ -241,7 +241,7 @@ impl Hub {
                 return;
             }
         };
-        let told = guard.topics.publish(key, params, value);
+        let told = guard.topics.publish(key, params, value, &|t, v, s| self.within(t, v, s));
         let out: Vec<_> = told.into_iter().map(|(to, frame)| guard.clients.to_many(&to, frame)).collect();
         send_after(guard, out).await;
     }
