@@ -141,8 +141,8 @@ fn the_hub_does_not_know_about_connections() {
         "it speaks to `dyn FrameSink`, which is all it may learn about a downstream",
     );
     // Nor does it name the engine's crate: it reaches an instance through an `EngineLink`, and
-    // the engine's error codes that a link carries come from the instance layer
-    // (`harnix_instance::engine_codes`).
+    // the engine's error codes it tells apart come with the link's interface
+    // (`harnix_engine_api::ops::codes`).
     assert_ignorant_of(
         "hub",
         &["daemon"],
@@ -1209,14 +1209,12 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P8"]
     fn l06_hub() {
         let forbidden = agix_and(&[INSTANCE, ENGINE, "axum", "bytes", "futures"]);
         depends(HUB, &[CONTRACT, KERNEL, ENGINE_API], &forbidden, &[]);
     }
 
     #[test]
-    #[ignore = "0.5.0：P8"]
     fn l07_instance() {
         depends(INSTANCE, &[CONTRACT, KERNEL, ENGINE_API, ENGINE, SUPERVISE], &agix_and(&["axum"]), &[]);
     }
@@ -1227,7 +1225,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P8"]
     fn l09_engine() {
         depends(ENGINE, &[CONTRACT, ENGINE_API], &["axum"], &[]);
     }
@@ -1350,7 +1347,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P8"]
     fn l25_agix_is_the_engines_alone() {
         assert!(!member_names().iter().all(|n| n != ENGINE), "`{ENGINE}` does not exist (yet)");
         for name in member_names() {
@@ -1508,7 +1504,7 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P8"]
+    #[ignore = "0.5.0：P13"]
     fn c04_the_hub_knows_no_carrier_no_data_root_and_no_agix_name() {
         says_nothing_of(
             &[HUB],

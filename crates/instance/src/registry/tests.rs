@@ -56,7 +56,6 @@ fn registry(dir: &std::path::Path) -> (Arc<InstanceRegistry>, Arc<Seen>) {
         instances_dir: dir.join("instances"),
         disabled: HashSet::new(),
         fixed: BTreeMap::new(),
-        recording: Recording::new(None),
         grants: Arc::new(harnix_kernel::GrantTable::new()),
     };
     let template = InstanceTemplate::in_process("m.work", crate::EngineProfile::new());
@@ -70,10 +69,7 @@ fn registry(dir: &std::path::Path) -> (Arc<InstanceRegistry>, Arc<Seen>) {
 }
 
 fn down(reason: &str) -> Built {
-    Built {
-        link: DownLink::without_template(reason.into()),
-        facts: Facts::default(),
-    }
+    Built::new(DownLink::without_template(reason.into()), Facts::default())
 }
 
 /// The hub takes an instance over before anyone can see it, and is told it is gone only once

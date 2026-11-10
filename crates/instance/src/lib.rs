@@ -4,12 +4,14 @@
 //! An instance is one Agix engine — one session pool with its own data root,
 //! settings, providers, MCP connections, plugins and scenes. This crate
 //! builds one in this process ([`engine`]), or spawns or attaches to one in
-//! another ([`DaemonLink`]), and hands the hub an [`EngineLink`] either way.
+//! another ([`Supervised`]), and hands the hub an `EngineLink` either way: the
+//! engine's own links, which this layer stands up and keeps connected.
 //! It also holds where instances come from: the profile, and templates
 //! ([`templates`]) with the ledger that remembers what was built from them.
 //!
-//! This layer does not know the client-facing protocol exists. It depends on
-//! the engine and on neither transport nor authorization —
+//! This layer does not know the client-facing protocol exists, nor what the
+//! engine's methods are called. It depends on the engine and on neither
+//! transport nor authorization —
 //! `crates/harnix/tests/layering.rs` states that as a fact about the
 //! dependency graph rather than as a paragraph here.
 //!
@@ -29,14 +31,12 @@
 compile_error!("harnix-instance builds on unix only (Linux and macOS are the ones exercised)");
 
 pub mod data_lock;
-mod daemon_link;
+mod daemon;
 mod factory;
 mod inherit;
-mod inproc;
 pub mod link;
 pub mod profile;
 mod reap;
-pub mod recording;
 pub mod registry;
 mod serve;
 mod servers;
@@ -45,17 +45,11 @@ pub mod templates;
 /// The engine itself, built in this process: `harnix-engine`'s, under the names this layer has
 /// always given it.
 pub use harnix_engine::engine;
-/// The engine's own error codes (`session not found`, `turn in progress`, …), for a layer above
-/// that has to tell them apart: they are part of what a link carries, so whoever holds a link
-/// reads them from here rather than from the engine's crate.
-pub use daemon::rpc::codes as engine_codes;
-pub use daemon_link::{DaemonLink, DaemonSpec, Endpoint, SpawnOptions, SpawnSpec};
-pub use harnix_engine::{build as build_engine, Engine, EngineConfig};
+pub use daemon::{DaemonSpec, SpawnOptions, SpawnSpec, Supervised};
+pub use harnix_engine::{build as build_engine, Endpoint, Engine, EngineConfig, HistoryStore, Recording};
 pub use factory::{engine_config, Built, Facts, Factory};
-pub use inproc::InProcessLink;
-pub use link::{Carrier, DownLink, EngineLink, LinkStatus};
+pub use link::DownLink;
 pub use profile::{EngineProfile, InstanceDecl, Profile, TemplateDecl, TransportProfile, UiProfile};
-pub use recording::Recording;
 pub use registry::{InstanceFacts, InstanceRegistry, InstanceRow, RegistryCell, RegistryConfig, INSTANCES_TOPIC};
 pub use servers::{ServerTokens, SharedServers};
 pub use serve::{refuse_daemon, refusal_path, serve_daemon, serve_daemon_with, DaemonArgs, REFUSED_EXIT};

@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use harnix_hub::{Hub, HubConfig};
 use harnix_instance::link::now_ms;
-use harnix_instance::{InstanceRegistry, Owner, Profile, INSTANCES_TOPIC};
+use harnix_instance::{HistoryStore, InstanceRegistry, Owner, Profile, INSTANCES_TOPIC};
 use serde_json::{json, Value};
 
 use super::instances::Instances;
@@ -26,7 +26,7 @@ pub(super) struct Assembled {
     /// The interface modules a client is told of at hello, as packages and applications change.
     pub ui: Arc<UiModules>,
     /// The system instance's history: where audit entries are filed.
-    pub history: Option<Arc<dyn history::store::HistoryStore>>,
+    pub history: Option<Arc<dyn HistoryStore>>,
     /// The brand's icon on disk, resolved against the profile: what the transport serves at
     /// [`harnix_transport::BRAND_ICON_PATH`].
     pub brand_icon: Option<PathBuf>,
@@ -72,6 +72,8 @@ pub(super) async fn assemble(
         instances: registry.clone(),
         spaces,
     });
+    // Before any instance is added: the hub is handed every link the registry builds.
+    registry.observe(hub.clone());
     // The rows have been in the route table since registration; from here they answer.
     let _ = behind.instances.set(registry.clone());
     hub.serve_topic(INSTANCES_TOPIC, Vec::new(), InstanceRegistry::topic(&behind.instances)).await;
@@ -89,7 +91,7 @@ pub(super) async fn assemble(
     let mut process = json!({
         "app": { "name": name, "version": version },
         "harnix": crate::HARNIX_VERSION,
-        "agix": daemon::discovery::identity().get("version").cloned().unwrap_or(json!(null)),
+        "agix": harnix_engine::identity().version,
         "started_ms": now_ms(),
     });
     apps.process(&mut process);

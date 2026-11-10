@@ -30,9 +30,10 @@ use std::time::Duration;
 use harnix_contract::sync::lock;
 use serde_json::{json, Map, Value};
 
-use crate::daemon_link::DaemonLink;
+use harnix_engine::DaemonLink;
+use harnix_engine_api::link::{EngineControl, LinkStatus};
+
 use crate::inherit::{read, write_private};
-use crate::link::{EngineLink, LinkStatus};
 
 /// The record of what was written, beside the instance's own settings.
 pub(crate) const RECORD: &str = ".harnix-servers.json";
@@ -177,7 +178,7 @@ impl Configured {
                 tracing::warn!(%instance, "shared MCP servers written; the instance was not ready to reload them");
                 return;
             }
-            if let Err(e) = link.call("config.reload", json!({})).await {
+            if let Err(e) = link.reload_settings().await {
                 tracing::warn!(%instance, error = %e.message, "shared MCP servers written, not reloaded");
             }
         });

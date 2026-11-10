@@ -20,9 +20,16 @@
 //!    turn settles.
 //!
 //! A session is `(instance, session)`, and the hub reaches each instance
-//! through an [`EngineLink`] without knowing which carrier is behind it
-//! (concept §3.1.1). Its callers are of two kinds with one set of semantics:
-//! clients, and the server side — the kernel and modules (concept §3.2).
+//! through an `EngineLink` without knowing which carrier is behind it
+//! (concept §3.1.1), in the engine interface's words: it asks for a session
+//! to be created, read, run, and reads the engine's events by what they are,
+//! never by what the engine calls them. Its callers are of two kinds with one
+//! set of semantics: clients, and the server side — the kernel and modules
+//! (concept §3.2).
+//!
+//! An instance's engine is trusted as far as its instance is: one in an
+//! extension's own process is held to bounds the product's own are not
+//! (`links.rs`).
 //!
 //! This layer knows nothing about HTTP, TLS, connections or topology. It
 //! speaks to `dyn FrameSink`, which is "a downstream that can take frames",
@@ -42,6 +49,7 @@ mod views;
 
 pub use clients::ClientId;
 pub use engine_rows::{ENGINE_REFUSALS, HUB_OWNED};
+pub use links::{EXTENSION_BUFFER_FRAMES, FRAMES_PER_SECOND, FRAME_MAX_BYTES};
 pub use rows::{HubCell, HubRow, HUB_TOPICS};
 pub use replay::{MAX_BYTES as REPLAY_MAX_BYTES, MAX_FRAMES as REPLAY_MAX_FRAMES};
 pub use spaces::{AuditHook, Spaces};
@@ -53,9 +61,9 @@ use std::sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock, Weak};
 
 use harnix_contract::sync::{lock, read, write};
 use harnix_contract::{codes, FrameSink, RpcError, Subject};
-use harnix_instance::{InstanceFacts, InstanceRegistry};
+use harnix_engine_api::ops::Entry;
 use harnix_kernel::instances::{holding, holds, Holding, Side};
-use harnix_kernel::TopicSource;
+use harnix_kernel::{InstanceBook, Listed, TopicSource};
 use serde_json::{json, Value};
 use tokio::sync::{oneshot, Mutex};
 
@@ -124,7 +132,7 @@ pub struct Hub {
     this: Weak<Hub>,
     /// Where instances are built, listed and stopped; the hub asks it, holding none of its locks,
     /// what an instance is and to build a space's default.
-    instances: Arc<InstanceRegistry>,
+    instances: Arc<dyn InstanceBook>,
     /// The links the registry handed over, by instance: what the hub routes and calls through.
     links: StdRwLock<BTreeMap<String, Arc<Linked>>>,
     /// What computes each computed topic: the hub's own and those other parts of the kernel serve
@@ -154,14 +162,15 @@ pub struct Hub {
 }
 
 pub struct HubConfig {
-    /// Where the instances are: the hub observes it, and is handed every link it builds.
-    pub instances: Arc<InstanceRegistry>,
+    /// Where the instances are. The hub is to observe it — every link it builds is handed over —
+    /// from before it adds any.
+    pub instances: Arc<dyn InstanceBook>,
     pub spaces: Spaces,
 }
 
 impl Hub {
-    /// The hub, observing `config.instances`: every instance the registry adds from now on is
-    /// handed to it.
+    /// The hub, asking `config.instances` about instances. Whoever made both has the registry
+    /// observe the hub before it adds any instance.
     pub fn new(config: HubConfig) -> Arc<Self> {
         let hub = Arc::new_cyclic(|this: &Weak<Hub>| {
             let mut inner = Inner::default();
@@ -189,7 +198,6 @@ impl Hub {
                 audit: StdRwLock::new(None),
             }
         });
-        config.instances.observe(hub.clone());
         hub
     }
 
@@ -238,23 +246,23 @@ impl Hub {
         send_after(guard, [out]).await;
     }
 
-    /// What the registry knows of a listed instance: its owner, its engine's facts. Asked
-    /// holding none of the hub's locks.
-    pub(crate) fn slot(&self, instance: &str) -> Option<InstanceFacts> {
+    /// What the registry knows of a listed instance: whose it is. Asked holding none of the hub's
+    /// locks.
+    pub(crate) fn slot(&self, instance: &str) -> Option<Listed> {
         debug_assert!(!holds(Side::Hub), "the hub calls the registry holding its own lock");
-        self.instances.facts(instance)
+        self.instances.listed(instance)
     }
 
     /// Every listed instance.
-    pub(crate) fn slots(&self) -> Vec<InstanceFacts> {
+    pub(crate) fn slots(&self) -> Vec<Listed> {
         debug_assert!(!holds(Side::Hub), "the hub calls the registry holding its own lock");
-        self.instances.list()
+        self.instances.all()
     }
 
     /// Build a space's default instance from its template, for its space.
-    pub(crate) async fn build_owned(&self, template: &str, name: &str, owner: harnix_instance::Owner) -> Result<Value, RpcError> {
+    pub(crate) async fn build_owned(&self, template: &str, name: &str, space: &str) -> Result<(), RpcError> {
         debug_assert!(!holds(Side::Hub), "the hub calls the registry holding its own lock");
-        self.instances.ensure_owned(template, name, owner).await
+        self.instances.ensure_for_space(template, name, space).await
     }
 
     /// The link an instance was handed over with.
@@ -283,20 +291,18 @@ impl Hub {
         Ok(name.to_string())
     }
 
-    /// One JSON-RPC call into an instance.
-    pub async fn call(
-        &self,
-        instance: &str,
-        method: &str,
-        params: Value,
-    ) -> Result<Value, RpcError> {
-        let Some(linked) = self.linked(instance) else {
-            return Err(RpcError::new(
-                codes::INSTANCE_NOT_FOUND,
-                format!("there is no instance `{instance}`"),
-            ));
-        };
-        linked.link.call(method, params).await
+    /// The link to an instance, to ask its engine something; refused by name for one the hub was
+    /// not handed.
+    pub(crate) fn engine(&self, instance: &str) -> Result<Arc<Linked>, RpcError> {
+        self.linked(instance).ok_or_else(|| {
+            RpcError::new(codes::INSTANCE_NOT_FOUND, format!("there is no instance `{instance}`"))
+        })
+    }
+
+    /// One engine method of an instance, its answer as the engine gives it: for the assembly's
+    /// own reads of the engine (`hello`), which name a row of the hub's.
+    pub async fn passthrough(&self, instance: &str, method: &str, params: Value) -> Result<Value, RpcError> {
+        self.engine(instance)?.ops().passthrough(method, params).await
     }
 
     /// Return once every frame the instance sent before this call has been
@@ -423,12 +429,7 @@ impl Hub {
             .filter(|e| !e.is_empty())
             .ok_or_else(|| RpcError::invalid_params("missing event"))?;
         let payload = params.get("payload").cloned().unwrap_or(Value::Null);
-        self.call(
-            &key.0,
-            "session.appendEntry",
-            json!({"session_id": key.1, "ns": ns, "event": event, "payload": payload}),
-        )
-        .await
+        self.engine(&key.0)?.ops().append_entry(&key.1, Entry::new(ns, event, payload)).await
     }
 
     /// `(instance, session_id)` from a call's params.

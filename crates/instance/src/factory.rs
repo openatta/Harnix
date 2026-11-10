@@ -7,10 +7,11 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::daemon_link::{DaemonLink, DaemonSpec, Endpoint, SpawnOptions, SpawnSpec};
+use harnix_engine::{Endpoint, InProcessLink, Recording, ReplayLink};
+use harnix_engine_api::{EngineControl, EngineLink};
+
+use crate::daemon::{DaemonSpec, SpawnOptions, SpawnSpec, Supervised};
 use crate::engine::{self, EngineConfig};
-use crate::inproc::InProcessLink;
-use crate::link::EngineLink;
 use crate::profile::EngineProfile;
 use crate::servers::SharedServers;
 use crate::templates::{InstanceTemplate, TemplateCarrier};
@@ -21,7 +22,7 @@ use crate::templates::{InstanceTemplate, TemplateCarrier};
 pub struct Facts {
     pub data_root: PathBuf,
     pub recordings_root: Option<PathBuf>,
-    pub history: Option<Arc<dyn history::store::HistoryStore>>,
+    pub history: Option<Arc<dyn harnix_engine::HistoryStore>>,
     pub active_scenes: Vec<String>,
     /// The scene `session.create` uses when it names none.
     pub scene: Option<String>,
@@ -55,9 +56,24 @@ impl From<&crate::Engine> for Facts {
 /// What a credential name resolves to.
 pub type Resolve = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
+/// An instance as it was stood up: the link the hub is handed, and what the registry keeps to
+/// stop it — the same link, or what keeps a daemon running.
 pub struct Built {
     pub link: Arc<dyn EngineLink>,
+    pub control: Arc<dyn EngineControl>,
     pub facts: Facts,
+}
+
+impl Built {
+    /// A link that is its own control.
+    pub fn new(link: Arc<dyn EngineLink>, facts: Facts) -> Self {
+        let control: Arc<dyn EngineControl> = link.clone();
+        Self { link, control, facts }
+    }
+
+    fn supervised(daemon: Arc<Supervised>, facts: Facts) -> Self {
+        Self { link: daemon.link(), control: daemon, facts }
+    }
 }
 
 pub struct Factory {
@@ -84,6 +100,8 @@ pub struct Factory {
     /// The data root of the instance a template's `inherit_providers` inherits from: the
     /// system instance's. `None`, nothing is inherited.
     pub providers_from: Option<PathBuf>,
+    /// What every link built here records with.
+    pub recording: Arc<Recording>,
 }
 
 impl Factory {
@@ -99,7 +117,16 @@ impl Factory {
             admitted: Vec::new(),
             servers: Arc::default(),
             providers_from: None,
+            recording: Recording::new(None),
         })
+    }
+
+    /// The link to an engine already built in this process: the system instance's.
+    pub async fn in_process(&self, id: &str, engine: crate::Engine) -> Built {
+        let facts = Facts::from(&engine);
+        let link = InProcessLink::start(engine).await;
+        let recorder = self.recording.of(id, facts.recordings_root.clone());
+        Built::new(ReplayLink::in_process(link, recorder), facts)
     }
 
     pub async fn build(
@@ -149,9 +176,7 @@ impl Factory {
                     contrib.admit_everywhere(pattern);
                 }
                 let engine = engine::build(engine_config(engine, &data_root, contrib)).await?;
-                let facts = Facts::from(&engine);
-                let link: Arc<dyn EngineLink> = InProcessLink::start(engine).await;
-                Ok(Built { link, facts })
+                Ok(self.in_process(id, engine).await)
             }
             TemplateCarrier::Spawn {
                 engine,
@@ -184,7 +209,9 @@ impl Factory {
                 // Before the daemon reads its settings: the servers it reaches this process's
                 // applications by, with a credential of its own.
                 options.servers = Some(self.servers.configure(id, &data_root));
-                let link: Arc<dyn EngineLink> = DaemonLink::start_with(DaemonSpec {
+                // Where a daemon writes its recordings is its own: a deleted session's stays.
+                options.recorder = Some(self.recording.of(id, None));
+                let daemon = Supervised::start_with(DaemonSpec {
                     endpoint: Endpoint::Unix(socket),
                     spawn: Some(SpawnSpec {
                         program: program.clone().unwrap_or_else(|| self.program.clone()),
@@ -193,16 +220,14 @@ impl Factory {
                         lock,
                     }),
                 }, options);
-                Ok(Built {
-                    link,
-                    facts: Facts {
-                        data_root,
-                        active_scenes: crate::engine::active_scenes(&engine.scene, &engine.scenes),
-                        scene: Some(engine.scene.clone()),
-                        model: Some(engine.model.clone()),
-                            ..Facts::default()
-                    },
-                })
+                let facts = Facts {
+                    data_root,
+                    active_scenes: crate::engine::active_scenes(&engine.scene, &engine.scenes),
+                    scene: Some(engine.scene.clone()),
+                    model: Some(engine.model.clone()),
+                    ..Facts::default()
+                };
+                Ok(Built::supervised(daemon, facts))
             }
             TemplateCarrier::Attach(to) => {
                 let endpoint = match (&to.socket, &to.tcp) {
@@ -221,17 +246,9 @@ impl Factory {
                     }
                     _ => anyhow::bail!("attach takes exactly one of `socket` and `tcp`"),
                 };
-                let link: Arc<dyn EngineLink> = DaemonLink::start(DaemonSpec {
-                    endpoint,
-                    spawn: None,
-                });
-                Ok(Built {
-                    link,
-                    facts: Facts {
-                        data_root,
-                        ..Facts::default()
-                    },
-                })
+                let options = SpawnOptions { recorder: Some(self.recording.of(id, None)), ..SpawnOptions::default() };
+                let daemon = Supervised::start_with(DaemonSpec { endpoint, spawn: None }, options);
+                Ok(Built::supervised(daemon, Facts { data_root, ..Facts::default() }))
             }
             _ => anyhow::bail!("instance `{id}`: a carrier this build does not know"),
         }

@@ -25,12 +25,12 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use harnix_contract::sync::lock;
 use harnix_contract::{codes, RpcError};
 use harnix_kernel::instances::{holding, holds, Holding, Side};
-use harnix_kernel::{GrantBook, InstanceObserver, InstanceTrust, Rpc};
+use harnix_engine_api::link::{EngineControl, EngineLink, LinkStatus};
+use harnix_kernel::{GrantBook, InstanceBook, InstanceObserver, InstanceTrust, Listed, Rpc};
 use serde_json::{json, Value};
 use tokio::sync::watch;
 
-use crate::link::{self, DownLink, EngineLink, LinkStatus};
-use crate::recording::Recording;
+use crate::link::{self, DownLink};
 use crate::templates::{carrier_of, InstanceTemplate, Ledger, LedgerEntry, Owner, TemplateCarrier};
 use crate::{Built, Facts, Factory};
 
@@ -51,8 +51,6 @@ pub struct RegistryConfig {
     pub disabled: HashSet<String>,
     /// The profile's own instances and where their data is, so one can be restarted.
     pub fixed: BTreeMap<String, (TemplateCarrier, PathBuf)>,
-    /// What every link this registry builds records with.
-    pub recording: Arc<Recording>,
     /// What each extension holds: who may act on an instance it does not own.
     pub grants: Arc<dyn GrantBook>,
 }
@@ -78,10 +76,12 @@ pub struct InstanceFacts {
     pub engine: Facts,
 }
 
-/// One instance: what it is, and what stops it. Its link is the hub's to use.
+/// One instance: what it is, and what stops it. Its link is the hub's to use: the slot keeps only
+/// the link's control half, which reaches no session.
 pub(crate) struct Slot {
     id: String,
-    link: Arc<dyn EngineLink>,
+    control: Arc<dyn EngineControl>,
+    trust: InstanceTrust,
     facts: Facts,
     template: Option<String>,
     params: BTreeMap<String, String>,
@@ -89,11 +89,17 @@ pub(crate) struct Slot {
     created_ms: u64,
     /// Republishes the instance list when the link's status changes.
     watching: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// Since when its engine has sent more than its trust allows, while it does.
+    flooding: Mutex<Option<u64>>,
 }
 
 impl Slot {
     fn status(&self) -> LinkStatus {
-        self.link.status().borrow().clone()
+        let status = self.control.status().borrow().clone();
+        match (*lock(&self.flooding), &status) {
+            (Some(since_ms), LinkStatus::Ready) => LinkStatus::Degraded { since_ms, reason: "flooding".into() },
+            _ => status,
+        }
     }
 
     fn unwatch(&self) {
@@ -208,10 +214,11 @@ impl Drop for Claim<'_> {
 }
 
 pub struct InstanceRegistry {
+    /// The registry itself, for what it starts from a call handed only `&self`.
+    this: std::sync::Weak<InstanceRegistry>,
     grants: Arc<dyn GrantBook>,
     factory: Factory,
     instances_dir: PathBuf,
-    recording: Arc<Recording>,
     state: Mutex<State>,
     observer: OnceLock<Arc<dyn InstanceObserver<dyn EngineLink>>>,
 }
@@ -225,14 +232,13 @@ impl InstanceRegistry {
             instances_dir,
             disabled,
             fixed,
-            recording,
             grants,
         } = config;
-        Arc::new(Self {
+        Arc::new_cyclic(|this| Self {
+            this: this.clone(),
             grants,
             factory,
             instances_dir,
-            recording,
             state: Mutex::new(State {
                 templates,
                 ledger,
@@ -316,18 +322,20 @@ impl InstanceRegistry {
         self.slots().iter().map(|s| s.facts()).collect()
     }
 
-    /// What each instance says it is, for `hello`: carrier, status and the protocol it speaks.
+    /// What each instance says it is, for `hello`: carrier, how far its engine is trusted, status,
+    /// and the protocol it speaks.
     pub fn identities(&self) -> Vec<Value> {
         self.slots()
             .iter()
             .map(|slot| {
-                let identity = slot.link.identity();
+                let identity = slot.control.identity();
                 json!({
                     "id": slot.id,
-                    "carrier": slot.link.carrier(),
+                    "carrier": slot.control.carrier(),
+                    "trust": slot.trust.label(),
                     "status": slot.status(),
-                    "version": identity.get("version"),
-                    "protocol_version": identity.get("protocol_version"),
+                    "version": identity.version,
+                    "protocol_version": identity.protocol_version,
                 })
             })
             .collect()
@@ -337,24 +345,27 @@ impl InstanceRegistry {
     /// see it, the hub already reads it. A build that overlapped an inheritance of providers
     /// (`providers` is the count it started under) inherits again once it is listed.
     async fn show(&self, id: &str, built: Built, record: Record, handover: Handover, providers: u64) {
-        let Built { link, facts } = built;
-        link.record(self.recording.of(id));
+        let Built { link, control, facts } = built;
+        let trust = InstanceTrust::Product;
         let observer = self.observer().clone();
         match handover {
-            Handover::Added => observer.added(id, link.clone(), InstanceTrust::Product).await,
+            Handover::Added => observer.added(id, link.clone(), trust.clone()).await,
             Handover::Restarted => observer.restarted(id, link.clone()).await,
         }
+        drop(link);
         let slot = Arc::new(Slot {
             id: id.to_string(),
-            link,
+            control,
+            trust,
             facts,
             template: record.template,
             params: record.params,
             owner: record.owner,
             created_ms: record.created_ms,
             watching: Mutex::new(None),
+            flooding: Mutex::new(None),
         });
-        *lock(&slot.watching) = Some(watch_status(&slot.link, observer));
+        *lock(&slot.watching) = Some(watch_status(&slot.control, observer));
         let (previous, inherits) = {
             let mut state = self.state();
             let previous = state.slots.insert(id.to_string(), slot.clone());
@@ -406,10 +417,7 @@ impl InstanceRegistry {
 
     /// Build what a ledger entry records; down, with why, when it cannot be.
     async fn build_entry(&self, entry: &LedgerEntry) -> Built {
-        let down = |link: Arc<DownLink>| Built {
-            link: link as Arc<dyn EngineLink>,
-            facts: Facts::default(),
-        };
+        let down = |link: Arc<DownLink>| Built::new(link, Facts::default());
         let prepared = {
             let state = self.state();
             match state.templates.get(&entry.template) {
@@ -531,7 +539,7 @@ impl InstanceRegistry {
         };
         let recorded = self.state().ledger.insert(entry);
         if let Err(e) = recorded {
-            built.link.shutdown().await;
+            built.control.shutdown().await;
             return Err(RpcError::new(codes::INTERNAL_ERROR, format!("ledger: {e:#}")));
         }
         tracing::info!(instance = %name, template = %template_id, owner = %owner, "instance built");
@@ -564,7 +572,7 @@ impl InstanceRegistry {
             return Err(not_found(instance));
         };
         slot.unwatch();
-        slot.link.shutdown().await;
+        slot.control.shutdown().await;
         self.observer().removed(instance).await;
         self.changed();
         Ok(())
@@ -589,17 +597,14 @@ impl InstanceRegistry {
                     owner: slot.owner.clone(),
                     created_ms: slot.created_ms,
                 };
-                slot.link.shutdown().await;
+                slot.control.shutdown().await;
                 self.build_entry(&entry).await
             }
             (None, Some((carrier, root))) => {
-                slot.link.shutdown().await;
+                slot.control.shutdown().await;
                 match self.factory.build(instance, &carrier, root).await {
                     Ok(built) => built,
-                    Err(e) => Built {
-                        link: DownLink::new(carrier_of(&carrier), format!("{e:#}")) as Arc<dyn EngineLink>,
-                        facts: Facts::default(),
-                    },
+                    Err(e) => Built::new(DownLink::new(carrier_of(&carrier), format!("{e:#}")), Facts::default()),
                 }
             }
             (None, None) => {
@@ -637,11 +642,11 @@ impl InstanceRegistry {
         for id in owned {
             let _claim = self.claim(&id).await;
             let Some(slot) = self.slot(&id) else { continue };
-            slot.link.shutdown().await;
-            let down = Built {
-                link: DownLink::new(slot.link.carrier(), format!("module `{module}` is disabled")),
-                facts: slot.facts.clone(),
-            };
+            slot.control.shutdown().await;
+            let down = Built::new(
+                DownLink::new(slot.control.carrier(), format!("module `{module}` is disabled")),
+                slot.facts.clone(),
+            );
             let providers = self.state().providers;
             self.show(&id, down, slot.record(), Handover::Restarted, providers).await;
         }
@@ -686,7 +691,7 @@ impl InstanceRegistry {
             .collect();
         let mut reloaded = Vec::new();
         for slot in changed {
-            match slot.link.call("config.reload", json!({})).await {
+            match slot.control.reload_settings().await {
                 Ok(_) => reloaded.push(slot.id.clone()),
                 // Written already: it reads them when it is back.
                 Err(e) => tracing::warn!(instance = %slot.id, error = %e.message, "inherited providers written, not reloaded"),
@@ -698,17 +703,17 @@ impl InstanceRegistry {
     /// Wait on the link's own status, not by asking again.
     async fn wait_ready(&self, instance: &str, timeout: std::time::Duration) -> Rpc<Value> {
         let slot = self.slot(instance).ok_or_else(|| not_found(instance))?;
-        let mut status = slot.link.status();
+        let mut status = slot.control.status();
         let waited = tokio::time::timeout(timeout, async {
             loop {
                 let now = status.borrow_and_update().clone();
                 match now {
                     LinkStatus::Ready => return Ok(()),
-                    LinkStatus::Down { .. } => return Err(link::unavailable(&now)),
-                    LinkStatus::Starting | LinkStatus::Degraded { .. } => {}
+                    LinkStatus::Down { .. } => return Err(now.unavailable()),
+                    _ => {}
                 }
                 if status.changed().await.is_err() {
-                    return Err(link::unavailable(&status.borrow().clone()));
+                    return Err(status.borrow().unavailable());
                 }
             }
         })
@@ -731,22 +736,25 @@ impl InstanceRegistry {
     }
 
     fn instance_view(&self, slot: &Slot) -> Value {
-        let identity = slot.link.identity();
+        let identity = slot.control.identity();
         let mut view = json!({
             "id": slot.id,
-            "carrier": slot.link.carrier(),
+            "carrier": slot.control.carrier(),
             "template": slot.template,
             "params": slot.params,
             "owner": slot.owner,
             "status": slot.status(),
-            "version": identity.get("version"),
-            "protocol_version": identity.get("protocol_version"),
+            "version": identity.version,
+            "protocol_version": identity.protocol_version,
             "data_root": slot.facts.root_label(),
             "scenes": slot.facts.active_scenes,
-            "pid": slot.link.pid(),
+            "pid": slot.control.pid(),
             "created_ms": slot.created_ms,
         });
-        if slot.link.reaps_on_stop() {
+        if slot.trust.is_extension() {
+            view["trust"] = json!(slot.trust.label());
+        }
+        if slot.control.reaps_on_stop() {
             view["reap"] = json!(true);
         }
         view
@@ -762,13 +770,73 @@ impl InstanceRegistry {
     pub async fn shutdown(&self) {
         for slot in self.slots() {
             slot.unwatch();
-            slot.link.shutdown().await;
+            slot.control.shutdown().await;
         }
     }
 }
 
+/// How many windows in a row an engine may send more than its trust allows before it is stopped.
+const FLOODS_TO_STOP: u32 = 3;
+
+/// What the hub asks back.
+#[async_trait::async_trait]
+impl InstanceBook for InstanceRegistry {
+    fn listed(&self, id: &str) -> Option<Listed> {
+        debug_assert!(!holds(Side::Hub), "the hub calls the registry holding its own lock");
+        self.slot(id).map(|s| s.listed())
+    }
+
+    fn all(&self) -> Vec<Listed> {
+        debug_assert!(!holds(Side::Hub), "the hub calls the registry holding its own lock");
+        self.slots().iter().map(|s| s.listed()).collect()
+    }
+
+    async fn ensure_for_space(&self, template: &str, name: &str, space: &str) -> Rpc<()> {
+        let this = self.this.upgrade().ok_or_else(|| RpcError::new(codes::INTERNAL_ERROR, "the registry is gone"))?;
+        this.ensure_owned(template, name, Owner::Space(space.to_string())).await.map(|_| ())
+    }
+
+    /// Listed degraded while it floods; stopped once it has done so [`FLOODS_TO_STOP`] windows in
+    /// a row.
+    fn flooding(&self, id: &str, consecutive: u32) {
+        let Some(slot) = self.slot(id) else { return };
+        let changed = {
+            let mut since = lock(&slot.flooding);
+            let was = since.is_some();
+            *since = match consecutive {
+                0 => None,
+                _ => Some(since.unwrap_or_else(link::now_ms)),
+            };
+            was != since.is_some()
+        };
+        if changed {
+            self.changed();
+        }
+        if consecutive >= FLOODS_TO_STOP {
+            tracing::warn!(instance = id, consecutive, "the instance's engine keeps flooding; stopping it");
+            let Some(this) = self.this.upgrade() else { return };
+            let id = id.to_string();
+            tokio::spawn(async move {
+                if let Err(e) = this.remove(&id).await {
+                    tracing::warn!(instance = %id, error = %e.message, "the flooding instance was not stopped");
+                }
+            });
+        }
+    }
+}
+
+impl Slot {
+    fn listed(&self) -> Listed {
+        let space = match &self.owner {
+            Owner::Space(space) => Some(space.clone()),
+            _ => None,
+        };
+        Listed { id: self.id.clone(), space }
+    }
+}
+
 /// Republish the instance list whenever `link`'s status changes, for as long as it is listed.
-fn watch_status(link: &Arc<dyn EngineLink>, observer: Arc<dyn InstanceObserver<dyn EngineLink>>) -> tokio::task::JoinHandle<()> {
+fn watch_status(link: &Arc<dyn EngineControl>, observer: Arc<dyn InstanceObserver<dyn EngineLink>>) -> tokio::task::JoinHandle<()> {
     let mut status = link.status();
     tokio::spawn(async move {
         while status.changed().await.is_ok() {

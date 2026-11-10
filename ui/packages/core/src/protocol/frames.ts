@@ -52,9 +52,31 @@ export interface Scene {
   [key: string]: unknown;
 }
 
+/**
+ * 一台实例的引擎受信到哪一步：`product` 是产品自己拉起或连上的；`extension` 是扩展进程里的引擎，由第三方代码控制。
+ * 它的会话在列表、attach 与事件里标 `trust: "extension"`，外壳按不受信内容渲染。
+ */
+export type InstanceTrust = "product" | "extension";
+
+/** `hello.instances` 的一行：每台实例是什么、受信到哪一步、说的哪版协议。 */
+export interface HelloInstance {
+  id: string;
+  carrier: InstanceRow["carrier"];
+  trust: InstanceTrust;
+  status: InstanceRow["status"];
+  version?: string | null;
+  protocol_version?: number | null;
+}
+
 export interface Hello {
   protocol_version: number;
   contrib_api_version: number;
+  /**
+   * 引擎（Agix）的协议版本。`harnix.event` 里的 `event` 与引擎直通方法的答是引擎的形状，不在
+   * `protocol_version` 的加法承诺里：它们照这个版本读。
+   */
+  engine_protocol?: number;
+  instances?: HelloInstance[];
   engine: {
     model?: string;
     active_scenes?: string[];
@@ -107,6 +129,8 @@ export interface SessionRow {
   message_count?: number;
   created_at?: string;
   last_active?: string;
+  /** 扩展进程里的引擎的会话：按不受信内容渲染（见 `InstanceTrust`）。产品自己的会话没有这个字段。 */
+  trust?: "extension";
   [key: string]: unknown;
 }
 
@@ -164,6 +188,8 @@ export interface AttachResult {
   running_turn: string | null;
   queue: QueueItem[];
   seq: number;
+  /** 扩展进程里的引擎的会话（见 `InstanceTrust`）。 */
+  trust?: "extension";
 }
 
 /**
@@ -393,7 +419,7 @@ export interface SessionKey {
 /** 一台实例，`harnix.instances` 里的一行。 */
 export interface InstanceRow {
   id: string;
-  carrier: "in_process" | "spawn" | "attach";
+  carrier: "in_process" | "spawn" | "attach" | "adopted";
   template: string | null;
   params: Record<string, string>;
   owner: string;
@@ -404,6 +430,8 @@ export interface InstanceRow {
   scenes: string[];
   pid?: number | null;
   created_ms: number;
+  /** 只在扩展进程里的引擎上有（见 `InstanceTrust`）。 */
+  trust?: "extension";
 }
 
 /** 一件任务（Agix `session.tasks`）。 */
@@ -479,7 +507,15 @@ export type ResultOf<M extends MethodName> = Methods[M]["result"];
 
 export interface Notifications {
   /** 会话事件：中枢分配的 seq，追赶以它为锚。 */
-  "harnix.event": { instance: string; session_id: string; seq: number; turn_id: string; event: EngineEvent };
+  "harnix.event": {
+    instance: string;
+    session_id: string;
+    seq: number;
+    turn_id: string;
+    event: EngineEvent;
+    /** 扩展进程里的引擎的会话（见 `InstanceTrust`）。 */
+    trust?: "extension";
+  };
   /** 一轮结束（成功、失败或被中断）。 */
   "harnix.turn_settled": {
     instance: string;
