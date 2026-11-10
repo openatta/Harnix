@@ -165,7 +165,7 @@ impl Kernel for FakePlatform {
 #[async_trait]
 impl Agent for FakePlatform {
     async fn has_instance(&self, instance: String) -> Result<bool, RpcError> {
-        Ok(instance == "system")
+        Ok(instance == "main")
     }
     async fn install_agent(&self, a: AgentInstall) -> Result<Value, RpcError> {
         assert!(a.archive.is_file(), "{} is not a file", a.archive.display());

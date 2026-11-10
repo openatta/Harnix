@@ -152,11 +152,11 @@ let credential = null;
 
 /* ── revoking is immediate ────────────────────────────────────────────── */
 {
-  const listed = await rpc(credential, "harnix.devices.list");
+  const listed = await rpc(credential, "devices.list");
   if (!listed.devices.some((d) => d.id === deviceId)) fail("the paired device is not listed");
   else ok(`listed: ${listed.devices.length} device(s)`);
 
-  await rpc(credential, "harnix.devices.revoke", { device_id: deviceId });
+  await rpc(credential, "devices.revoke", { device_id: deviceId });
   const { challenge_id, challenge: bytes } = await challenge();
   const signature = signB64(Buffer.from(bytes, "base64"));
   const { status } = await handshake({ device_id: deviceId, challenge_id, signature });

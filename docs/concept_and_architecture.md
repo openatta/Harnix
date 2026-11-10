@@ -627,7 +627,7 @@ Harnix 的传输层发出，与界面**同源**，准入走同一套：传输层
 
 - **引擎那些等价于接管进程的方法一个都不出去。** 改凭据、装载子进程、改写模型端点的方法，永远不出现在
   任何设备的可用集里——不是「未实现」，是明确拒绝，并且错误里写清原因。中枢独占的方法
-  （`run_turn`、`subscribe`、`daemon.shutdown`……）谁都不能调，也不能授予。
+  （`run_turn`、`subscribe`、`engine.daemon.shutdown`……）谁都不能调，也不能授予。
 - **设备建实例只能按模板。** 模板集合在启动时定死，设备只能选 `ui` 模板、填模板放开的参数（§3.1.1）。
 - **加一个方法默认是谁都不能调。** 每一行的访问都写在它登记的地方，方法表的快照把它们全列出来。
 
@@ -864,17 +864,17 @@ Harnix 发布时变，商店为每个 wasmtime 版本编一遍。
 一个 Agix 插件装的地方是 Agix（以 Agix 的 `plugin_packages.md`、`extending_quickjs.md`、`extension_points.md` 为准）。
 Harnix 不定义它的包格式、不校验、不解包、不判定能力。第一方扩展 `plugins` 做两件事：
 
-1. **把文件送过去。** 引擎的 `plugin.install` 自己去取 URL，**没有上传通道**——这是引擎的选择，它在包已经躺在
+1. **把文件送过去。** 引擎的 `engine.plugin.install` 自己去取 URL，**没有上传通道**——这是引擎的选择，它在包已经躺在
    跑引擎那台机器上时完全够用；而当包在使用者的笔记本上、引擎在另一台机器上时，就没有路可走。那一步是
    宿主的活：`plugins.upload` 换一个一次性 URL（大负载旁路），`plugins.install` 把落盘路径交给引擎。扩展包的 `agent/` 由载体装进实例。
-2. **读包里引擎不关心的那一段**——`[[ui]]`（§5.8）。**包在哪由引擎说**：`plugin.list` 的条目带 `root`，
+2. **读包里引擎不关心的那一段**——`[[ui]]`（§5.8）。**包在哪由引擎说**：`engine.plugin.list` 的条目带 `root`，
    Harnix 只读那下面的 `plugin.toml`，自己不拼任何路径，引擎的缓存布局因此仍然是引擎的。
    扩展包的 `agent/` 另有一个读者：装包之前，`harnix-package` 从它的 `plugin.toml` 读 `[plugin]` 的 `name` 和
    `version`，是要请引擎装成的名字，此外一个键也不读（`layering.rs` 查这两处）。
 
 **生命周期走 `plugins.*`，引擎自己那几个名字不对设备开。** 装、卸、启、停都是引擎干的活，`plugins` 不加判断也不发明参数，以自己的身份、
 凭 `engine.plugins` 调引擎；它加的是后面那一步：任何改变「装了什么」的调用之后重读一遍，因为它在服务每个包的 `ui/` 目录、并经 `harnix.ui` 对外公布
-界面条目。直接透传 `plugin.disable` 的后果是包停了而它的界面模块还在被服务，且没有任何一侧会发现。
+界面条目。直接透传 `engine.plugin.disable` 的后果是包停了而它的界面模块还在被服务，且没有任何一侧会发现。
 
 **披露在装完之后，因为引擎是那个顺序。** 引擎装完才回 `disclosure`（这个包会往模型上下文里塞的文本）。界面上就是：装好了，这是它会放到
 模型面前的东西，留还是删。想在装之前看，就得在这一侧读包，而那正是这一节要避免的事。**沙箱管得住插件执行什么，管不住它说什么**，所以模型
@@ -1581,10 +1581,10 @@ Harnix 依赖 Agix 提供的、并且已经由它提供的：
 | 实例装配 | 装配的函数入口；同一进程里几台会话池互不可见 |
 | daemon 与收养的实例 | daemon 服务的库入口（接在一条现成的流上也行）、协议版本与能力位、`subscription_dropped`、spawn 的就绪 |
 | 中枢知道每一轮 | 会话与轮的生命周期进 `daemon.event`（带 `initiator`）；订阅冷会话 |
-| 会话列表、改名、换模型 | 列表条目带场景与项目根；`session.rename`、`session.setModel` |
+| 会话列表、改名、换模型 | 列表条目带场景与项目根；`engine.session.rename`、`engine.session.setModel` |
 | 系统 space | 会话的任务可列、可停、可发话；上下文可查看、去掉或改写消息；目标；录像 |
-| 扩展条目 | `session.appendEntry` / `session.entries` / `extension_entry` 帧；分叉带上条目 |
-| Agix 插件 | 包方案与载体解耦；`plugin.list` 带包的 `root`、`script_faults`；装不上的包不会假装装上；manifest 里不认识的段只告警 |
+| 扩展条目 | `engine.session.appendEntry` / `engine.session.entries` / `extension_entry` 帧；分叉带上条目 |
+| Agix 插件 | 包方案与载体解耦；`engine.plugin.list` 带包的 `root`、`script_faults`；装不上的包不会假装装上；manifest 里不认识的段只告警 |
 | 工具与场景进会话 | Rust 插件接口：会话建起时登记工具、工具调用的中间件，子 Agent 带着父会话的插件构建；场景 trait；提示的中间件 |
 
 这些曾经一条条是给 Agix 提的 issue。还缺的：场景的装饰器（只改几样、其余继承，适配今天逐方法委托）；MCP 的工具调用带上会话（§3.4.3 的缺口）。

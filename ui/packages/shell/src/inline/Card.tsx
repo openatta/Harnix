@@ -1,5 +1,5 @@
 /**
- * `flow.block`, declared: an entry an application appended to a session (`harnix.entries.append`,
+ * `flow.block`, declared: an entry an application appended to a session (`harnix.session.entries.append`,
  * whose event names the kind) drawn as the card its manifest's `[[inline.flow_block]]` describes —
  * a title, key and value rows, a Markdown body, and buttons that call the application's own
  * methods. A button that says `confirm` asks through the shell's own dialog first; what the method

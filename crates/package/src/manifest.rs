@@ -18,7 +18,7 @@
 //! net = ["api.example.com"]     # hosts `http-request` may reach, exactly
 //! env = ["SHOWCASE_TOKEN"]      # what `secret` may read
 //! storage_mb = 1                # the key-value store's ceiling
-//! hub = ["session.create", "topic:harnix.sessions.status"]
+//! hub = ["harnix.session.create", "topic:harnix.sessions.status"]
 //!                               # what it may call (methods) and subscribe to (`topic:<name>`) as
 //!                               # `module:<id>`; its own `app.<id>.*` needs no entry
 //! fs = ["${data}", "${project}"]# ${data} read-write; ${project} read-only, tool calls only
@@ -46,7 +46,7 @@
 //! [[space]]                     # a backend space: where its sessions land
 //! id = "acme.showcase"          # the application's id, or `<id>.<name>`
 //! scene = "harnix"              # optional: the scene a new session starts in
-//! instance = "system"           # optional
+//! instance = "main"           # optional
 //!
 //! [config]                      # host.config(): defaults, set over by the profile
 //! greeting = "hello"
@@ -57,7 +57,7 @@
 //! api_version = 3
 //!
 //! [interface]                   # the interface in isolated frames (`surface.rs`)
-//! hub = ["harnix.sessions"]     # beyond app.<id>.*, what a frame may call
+//! hub = ["harnix.sessions.list"]     # beyond app.<id>.*, what a frame may call
 //!
 //! [[surface]]                   # a region of the shell a frame fills
 //! point = "space"
@@ -65,7 +65,7 @@
 //! page = "frame/board.html"     # under ui/
 //!
 //! [agent]                       # agent/ (an Agix package) goes into these instances
-//! install_into = ["system"]
+//! install_into = ["main"]
 //!
 //! [[inline.tool_row]]           # what the shell draws for it inline, from here alone: tool rows,
 //! tool = "echo"                 #   cards in the flow, commands, how its space groups sessions
@@ -333,7 +333,7 @@ pub struct UiEntry {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Agent {
-    /// `system`, or the id of an instance that exists when the application is installed.
+    /// `main`, or the id of an instance that exists when the application is installed.
     #[serde(default = "default_install_into")]
     pub install_into: Vec<String>,
 }
@@ -347,7 +347,7 @@ impl Default for Agent {
 }
 
 fn default_install_into() -> Vec<String> {
-    vec!["system".to_string()]
+    vec!["main".to_string()]
 }
 
 /// What the manifest says, in a sentence for whoever is installing it.
@@ -811,7 +811,7 @@ module = "showcase.js"
 api_version = 3
 
 [agent]
-install_into = ["system"]
+install_into = ["main"]
 "#;
 
     fn with(edit: impl Fn(&str) -> String) -> Result<Manifest, Error> {
@@ -830,7 +830,7 @@ install_into = ["system"]
         );
         assert_eq!(m.config, json!({"greeting": "hello", "nested": {"a": 1}}));
         assert_eq!(m.ui[0].module, "showcase.js");
-        assert_eq!(m.agent.install_into, ["system"]);
+        assert_eq!(m.agent.install_into, ["main"]);
         assert_eq!(
             m.config_with(Some(&json!({"greeting": "hi", "extra": true}))),
             json!({"greeting": "hi", "nested": {"a": 1}, "extra": true})
@@ -913,7 +913,7 @@ install_into = ["system"]
         assert_eq!(m.capabilities, Capabilities::default());
         assert_eq!(
             m.agent.install_into,
-            ["system"],
+            ["main"],
             "agent/ goes to system unless said"
         );
     }
@@ -999,7 +999,7 @@ scene = "harnix"
         assert_eq!(m.spaces[0].scene.as_deref(), Some("harnix"));
         let hub = backend("").replace(
             "storage_mb = 1",
-            "storage_mb = 1\nhub = [\"session.create\", \"topic:harnix.sessions.status\"]",
+            "storage_mb = 1\nhub = [\"harnix.session.create\", \"topic:harnix.sessions.status\"]",
         );
         assert_eq!(Manifest::parse(&hub).unwrap().capabilities.hub.len(), 2);
     }

@@ -15,7 +15,7 @@
 //!    verified before anything of it is unpacked.
 //! 2. It is unpacked to `<apps>/<id>/<version>/`.
 //! 3. Its agent package and skills are put in place by the host (`Control::place`): its `agent/`
-//!    handed to Agix's `plugin.install` in each instance it names, its `agent/skills/<name>/`
+//!    handed to Agix's `engine.plugin.install` in each instance it names, its `agent/skills/<name>/`
 //!    copied into each one's skills directory, and the instance re-reads its configuration.
 //! 4. It is started (`Control::start`): verified again over its files on disk, registered with the
 //!    kernel — its methods, topics and spaces, under `app.<id>.*`, and its `hub` capability — its

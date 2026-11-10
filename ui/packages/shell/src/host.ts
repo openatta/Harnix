@@ -8,7 +8,7 @@
  */
 
 import { parseSessionEvent, type Notifications } from "@harnix/core";
-import { SYSTEM_INSTANCE } from "@harnix/core/state";
+import { MAIN_INSTANCE } from "@harnix/core/state";
 import { t, type HostSessionRef as SessionRef, type HostApi } from "@harnix/react";
 
 import { disabledOf, later, orderTabs, safeTabs, type App } from "./app.ts";
@@ -20,7 +20,7 @@ import { topicsOf } from "./topics.ts";
 export function hostFor(app: App, owner = "page"): HostApi {
   const listed = (method: string) => {
     const reachable = app.snapshot.reachable;
-    return !reachable.length || reachable.includes(method) || method.startsWith("harnix.subscribe") || method.startsWith("harnix.unsubscribe");
+    return !reachable.length || reachable.includes(method) || method.startsWith("harnix.topics.subscribe") || method.startsWith("harnix.topics.unsubscribe");
   };
   const call = async <T,>(method: string, params?: unknown): Promise<T> => {
     // A runtime application's methods come and go while the page is open (installed, enabled):
@@ -74,7 +74,7 @@ export function hostFor(app: App, owner = "page"): HostApi {
       async create(spec = {}) {
         await app.create(spec);
         const current = app.snapshot.current!;
-        return { instance: current.instance ?? SYSTEM_INSTANCE, sessionId: current.sessionId };
+        return { instance: current.instance ?? MAIN_INSTANCE, sessionId: current.sessionId };
       },
       onChange: (fn) => app.onCurrent(fn),
     },
@@ -84,8 +84,8 @@ export function hostFor(app: App, owner = "page"): HostApi {
     },
     instances: {
       list: () => call("harnix.instances.list", {}),
-      sessions: (instance) => call("harnix.instances.sessions", { instance }),
-      tasks: (instance, sessionId) => call("harnix.sessions.tasks", { instance, session_id: sessionId }),
+      sessions: (instance) => call("harnix.sessions.list", { instance }),
+      tasks: (instance, sessionId) => call("harnix.session.tasks", { instance, session_id: sessionId }),
       create: (template, name, params) => call("harnix.instances.create", { template, name, params }),
       stop: (instance) => call("harnix.instances.stop", { instance }),
     },
@@ -173,7 +173,7 @@ export function hostFor(app: App, owner = "page"): HostApi {
     },
     get defaults() {
       const given = app.snapshot.hello?.defaults;
-      return { instance: given?.instance ?? SYSTEM_INSTANCE, space: given?.space ?? null };
+      return { instance: given?.instance ?? MAIN_INSTANCE, space: given?.space ?? null };
     },
   };
 }
@@ -184,7 +184,7 @@ export function hostFor(app: App, owner = "page"): HostApi {
  * space alone — so the hub is asked.
  */
 async function spaceOfSession(app: App, ref: { instance: string; sessionId: string }): Promise<string> {
-  const { sessions } = await app.call<{ sessions: { session_id: string; space?: string }[] }>("harnix.sessions", { instance: ref.instance });
+  const { sessions } = await app.call<{ sessions: { session_id: string; space?: string }[] }>("harnix.sessions.list", { instance: ref.instance });
   const row = sessions.find((r) => r.session_id === ref.sessionId);
   if (!row) throw new Error(t("host.noSession", { session: `${ref.instance}/${ref.sessionId}` }));
   const backend = row.space ?? "sessions";

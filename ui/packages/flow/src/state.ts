@@ -73,7 +73,7 @@ export class FlowSpaceState {
 
   /**
    * @param space the interface space this state belongs to: sessions of other spaces are not ours.
-   * @param module the flow module's id (`app.<module>.*`).
+   * @param module the flow module's id (`<module>.*`).
    * @param options `within`: the space this one is shown inside.
    */
   constructor(

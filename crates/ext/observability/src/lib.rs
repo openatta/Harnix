@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use harnix_ext::engine::readers::{ReadError, Recordings};
-use harnix_ext::{caps, codes, Access, Call, Extension, Manifest, Registrar, Rpc, RpcError, SYSTEM_INSTANCE};
+use harnix_ext::{caps, codes, Access, Call, Extension, Manifest, Registrar, Rpc, RpcError, MAIN_INSTANCE};
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -100,7 +100,7 @@ async fn usage(call: &Call, params: &Value) -> Rpc<Value> {
 }
 
 fn instance_of(params: &Value) -> &str {
-    params.get("instance").and_then(Value::as_str).unwrap_or(SYSTEM_INSTANCE)
+    params.get("instance").and_then(Value::as_str).unwrap_or(MAIN_INSTANCE)
 }
 
 /// The reader of an instance's recordings.

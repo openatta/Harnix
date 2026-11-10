@@ -23,7 +23,7 @@ import { type Frame, type TestClient, assert, connect, defineSuite, finish, inco
  * green would be worse.
  */
 async function turn(client: TestClient, sessionId: string, message: string, timeout = 180_000): Promise<Frame> {
-  await client.call("harnix.send", { session_id: sessionId, message });
+  await client.call("harnix.session.send", { session_id: sessionId, message });
   try {
     return await client.waitFor(
       (f) => f.method === "harnix.turn_settled" && f.params.session_id === sessionId,
@@ -54,8 +54,8 @@ defineSuite("turns", { feature: "sessions" }, {
 
   tests: {
     "a turn streams and settles": async ({ client }) => {
-      const created = await client.call("session.create", {});
-      await client.call("harnix.attach", { session_id: created.session_id });
+      const created = await client.call("harnix.session.create", {});
+      await client.call("harnix.session.attach", { session_id: created.session_id });
 
       const settled = await turn(client, created.session_id,
         "Reply with exactly the word: ready. Nothing else.");
@@ -75,8 +75,8 @@ defineSuite("turns", { feature: "sessions" }, {
     },
 
     "the transcript holds what was said": async ({ client }) => {
-      const created = await client.call("session.create", {});
-      await client.call("harnix.attach", { session_id: created.session_id });
+      const created = await client.call("harnix.session.create", {});
+      await client.call("harnix.session.attach", { session_id: created.session_id });
       await turn(client, created.session_id, "Say the word: persisted.");
 
       // Polled, and that is not a workaround for a flake — it is the
@@ -88,7 +88,7 @@ defineSuite("turns", { feature: "sessions" }, {
       let history = null;
       const deadline = Date.now() + 15_000;
       do {
-        history = await client.call("session.history",
+        history = await client.call("engine.session.history",
           { session_id: created.session_id, offset: 0, limit: 50 });
         if (history.messages.some((m: HistoryMessage) => m.role === "assistant")) break;
         await sleep(250);
@@ -104,12 +104,12 @@ defineSuite("turns", { feature: "sessions" }, {
     },
 
     "a turn outlives the client that started it": async ({ backend, client }) => {
-      const created = await client.call("session.create", {});
+      const created = await client.call("harnix.session.create", {});
       // Started by a client that then goes away entirely. `run_turn` belongs
       // to the hub, so this is a tab being closed, not a turn being cancelled.
       const starter = await connect(backend, { topology: client.topology });
-      await starter.call("harnix.attach", { session_id: created.session_id });
-      await starter.call("harnix.send",
+      await starter.call("harnix.session.attach", { session_id: created.session_id });
+      await starter.call("harnix.session.send",
         { session_id: created.session_id, message: "Count slowly to three, one word per line." });
       await starter.waitFor((f) => f.method === "harnix.event"
         && f.params.event.kind === "user_message", { describe: "the turn to start" });
@@ -117,7 +117,7 @@ defineSuite("turns", { feature: "sessions" }, {
 
       // A different client, arriving after the tab closed, sees it finish.
       const watcher = await connect(backend, { topology: client.topology });
-      const attached = await watcher.call("harnix.attach", { session_id: created.session_id });
+      const attached = await watcher.call("harnix.session.attach", { session_id: created.session_id });
       assert(attached.running_turn || attached.replay.length > 0,
         "the turn did not survive its client");
       await watcher.waitFor(
@@ -129,15 +129,15 @@ defineSuite("turns", { feature: "sessions" }, {
     },
 
     "a second client catches up mid-turn and sees the same ending": async ({ backend, client }) => {
-      const created = await client.call("session.create", {});
-      await client.call("harnix.attach", { session_id: created.session_id });
-      await client.call("harnix.send",
+      const created = await client.call("harnix.session.create", {});
+      await client.call("harnix.session.attach", { session_id: created.session_id });
+      await client.call("harnix.session.send",
         { session_id: created.session_id, message: "Write three short sentences about rain." });
       await client.waitFor((f) => f.method === "harnix.event"
         && f.params.event.kind === "text_delta", { timeout: 120_000, describe: "the model to start" });
 
       const late = await connect(backend, { topology: client.topology });
-      const attached = await late.call("harnix.attach", { session_id: created.session_id });
+      const attached = await late.call("harnix.session.attach", { session_id: created.session_id });
       // Catching up happens entirely inside the hub's buffer. The engine
       // re-sends nothing, and mid-turn the transcript does not have it yet.
       if (!attached.replay.length) {
@@ -170,17 +170,17 @@ defineSuite("turns", { feature: "sessions" }, {
       // `attachments` has never been passed. The bulk channel exists so a
       // file can reach a turn, and nothing checked that the second half of
       // that journey — grant, upload, then name it on the send — arrives.
-      const created = await client.call("session.create", {});
-      await client.call("harnix.attach", { session_id: created.session_id });
+      const created = await client.call("harnix.session.create", {});
+      await client.call("harnix.session.attach", { session_id: created.session_id });
 
-      const grant = await client.call("harnix.upload.begin",
+      const grant = await client.call("harnix.bulk.upload",
         { name: "note.txt", bytes: 11 });
       const put = await fetch(`http://127.0.0.1:${client.backend.port}${grant.url}`,
         { method: "POST", body: "harnix-attach" });
       assert(put.ok, `the upload was refused: ${put.status}`);
 
       const attachments = [{ kind: "file", path: grant.path, name: "note.txt" }];
-      await client.call("harnix.send",
+      await client.call("harnix.session.send",
         { session_id: created.session_id, message: "What is in the attached file?", attachments });
 
       // The hub puts the user's own message into the stream — the engine
@@ -193,7 +193,7 @@ defineSuite("turns", { feature: "sessions" }, {
         { timeout: 30_000, describe: "the hub to echo the message" });
       assert(own.params.event.text.includes("attached file"), "the wrong message came back");
 
-      const queued = await client.call("harnix.send", {
+      const queued = await client.call("harnix.session.send", {
         session_id: created.session_id,
         message: "and again",
         attachments,
@@ -206,24 +206,24 @@ defineSuite("turns", { feature: "sessions" }, {
           `a queued item carries ${JSON.stringify(queued.item.attachments)}`);
         assert(queued.item.attachments.length === 1, "the queued attachment was dropped");
       }
-      await client.call("session.interrupt", { session_id: created.session_id })
+      await client.call("harnix.session.interrupt", { session_id: created.session_id })
         .catch(() => {});
       await finish(client, created.session_id);
     },
 
     "a client that dies mid-turn does not take the turn with it":
       async ({ backend, client }) => {
-        // `harnix.detach` is the polite exit and is covered. This is the other
+        // `harnix.session.detach` is the polite exit and is covered. This is the other
         // one: a tab closed, a laptop shut, a socket that simply stops. The
         // hub owns the turn, so it has to keep running and stay watchable by
         // whoever is still there.
-        const created = await client.call("session.create", {});
-        await client.call("harnix.attach", { session_id: created.session_id });
+        const created = await client.call("harnix.session.create", {});
+        await client.call("harnix.session.attach", { session_id: created.session_id });
 
         const doomed = await connect(backend, { topology: client.topology });
-        await doomed.call("harnix.attach", { session_id: created.session_id });
+        await doomed.call("harnix.session.attach", { session_id: created.session_id });
 
-        await client.call("harnix.send",
+        await client.call("harnix.session.send",
           { session_id: created.session_id, message: "Write two sentences about tide pools." });
         await client.waitFor((f) => f.method === "harnix.event"
           && f.params.event.kind === "text_delta",
@@ -240,17 +240,17 @@ defineSuite("turns", { feature: "sessions" }, {
           `the turn failed after a watcher left: ${JSON.stringify(settled.params.error)}`);
 
         // And the session is still usable by the client that stayed.
-        const info = await client.call("session.get", { session_id: created.session_id });
+        const info = await client.call("engine.session.get", { session_id: created.session_id });
         assert(info.session_id === created.session_id, "the session did not survive");
         await finish(client, created.session_id);
       },
 
     "a queued send runs after the one in front of it": async ({ client }) => {
-      const created = await client.call("session.create", {});
-      await client.call("harnix.attach", { session_id: created.session_id });
-      await client.call("harnix.send",
+      const created = await client.call("harnix.session.create", {});
+      await client.call("harnix.session.attach", { session_id: created.session_id });
+      await client.call("harnix.session.send",
         { session_id: created.session_id, message: "Say: first." });
-      const queued = await client.call("harnix.send",
+      const queued = await client.call("harnix.session.send",
         { session_id: created.session_id, message: "Say: second.", on_busy: "queue" });
 
       if (queued.queued) {
@@ -273,7 +273,7 @@ defineSuite("turns", { feature: "sessions" }, {
             // settlement missing is a queue that did not drain — which is
             // the thing this test is actually about.
             const info = await client
-              .call("session.get", { session_id: created.session_id })
+              .call("engine.session.get", { session_id: created.session_id })
               .catch(() => null);
             const running = info?.turn_state && info.turn_state !== "idle";
             if (running) {
@@ -292,39 +292,39 @@ defineSuite("turns", { feature: "sessions" }, {
     },
 
     "interrupting stops a running turn": async ({ client }) => {
-      const created = await client.call("session.create", {});
-      await client.call("harnix.attach", { session_id: created.session_id });
-      await client.call("harnix.send",
+      const created = await client.call("harnix.session.create", {});
+      await client.call("harnix.session.attach", { session_id: created.session_id });
+      await client.call("harnix.session.send",
         { session_id: created.session_id, message: "Write a long essay about the sea." });
       await client.waitFor((f) => f.method === "harnix.event"
         && f.params.event.kind === "text_delta", { timeout: 120_000, describe: "the model to start" });
 
-      await client.call("session.interrupt", { session_id: created.session_id });
+      await client.call("harnix.session.interrupt", { session_id: created.session_id });
       await client.waitFor(
         (f) => f.method === "harnix.turn_settled" && f.params.session_id === created.session_id,
         { timeout: 120_000, describe: "the interrupted turn to settle" });
 
       // A cancelled turn writes no terminal marker — being interrupted is not
       // arriving at an end — so the session stays resumable.
-      const info = await client.call("session.get", { session_id: created.session_id });
+      const info = await client.call("engine.session.get", { session_id: created.session_id });
       assert(info.session_id === created.session_id, "the session did not survive an interrupt");
       await finish(client, created.session_id);
     },
 
     "reopening a settled session reads it back from the transcript": async ({ backend, client }) => {
-      const created = await client.call("session.create", {});
-      await client.call("harnix.attach", { session_id: created.session_id });
+      const created = await client.call("harnix.session.create", {});
+      await client.call("harnix.session.attach", { session_id: created.session_id });
       await turn(client, created.session_id, "Say the word: remembered.");
-      await client.call("session.close", { session_id: created.session_id });
+      await client.call("harnix.session.close", { session_id: created.session_id });
 
       const fresh = await connect(backend, { topology: client.topology });
-      const attached = await fresh.call("harnix.attach", { session_id: created.session_id });
+      const attached = await fresh.call("harnix.session.attach", { session_id: created.session_id });
       assert(attached.history_total >= 2, `history_total is ${attached.history_total}`);
       // History holds it, so the buffer must not also — a settled turn that
       // is in both is a turn rendered twice.
       assert(attached.replay.length === 0,
         `${attached.replay.length} replay frames for a settled, on-disk turn`);
-      const history = await fresh.call("session.history",
+      const history = await fresh.call("engine.session.history",
         { session_id: created.session_id, offset: 0, limit: 50 });
       const text = JSON.stringify(history.messages);
       assert(/remembered/i.test(text), "what was said is not in the transcript");

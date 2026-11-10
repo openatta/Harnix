@@ -70,7 +70,7 @@ export function DirectoryPicker({ app, onPick }: { app: App; onPick: (path: stri
   const t = useT();
   const [listing, setListing] = useState<Listing | null>(null);
   const open = async (path?: string) => {
-    await attempt(app, async () => setListing(await app.call<Listing>("harnix.listDirectory", path ? { path } : {})));
+    await attempt(app, async () => setListing(await app.call<Listing>("harnix-app.listDirectory", path ? { path } : {})));
   };
   useEffect(() => {
     void open();
@@ -122,7 +122,7 @@ interface Recents {
 export async function newSessionDialog(app: App, preselect?: string): Promise<void> {
   let recents: Recents = {};
   try {
-    recents = await app.call<Recents>("harnix.recentProjects", {});
+    recents = await app.call<Recents>("harnix-app.recentProjects", {});
   } catch {
     /* the picker still works without recents */
   }
@@ -240,8 +240,8 @@ function AddWorkspace({ app }: { app: App }) {
       app,
       () =>
         name.trim()
-          ? app.call("harnix.projects.create", { name: name.trim() })
-          : app.call("harnix.workspaces.create", { path: chosen }),
+          ? app.call("harnix-app.projects.create", { name: name.trim() })
+          : app.call("harnix-app.workspaces.create", { path: chosen }),
       (error) => t("dialog.addFailed", { error }),
     );
     if (ok) {
@@ -375,7 +375,7 @@ function ExportForm({ app, target }: { app: App; target: ExportTarget }) {
     attempt(
       app,
       async () => {
-        const answer = await app.call<{ file: string; format: string; content: unknown; encoding?: string }>("harnix.sessions.export", {
+        const answer = await app.call<{ file: string; format: string; content: unknown; encoding?: string }>("harnix-app.sessions.export", {
           ...target,
           format,
           recording: format === "archive" && recording,
@@ -457,7 +457,7 @@ export function sessionMenu(app: App, session: ShellSession, from: MenuOrigin): 
       id: "rename",
       icon: "edit",
       label: t("common.rename"),
-      run: () => renameDialog(app, t("dialog.renameSession"), session.name, (title) => app.call("harnix.sessions.rename", { ...key, title })),
+      run: () => renameDialog(app, t("dialog.renameSession"), session.name, (title) => app.call("harnix.session.rename", { ...key, title })),
     },
     {
       id: "archive",
@@ -465,7 +465,7 @@ export function sessionMenu(app: App, session: ShellSession, from: MenuOrigin): 
       label: session.archived ? t("dialog.unarchive") : t("dialog.archive"),
       sub: t("dialog.archiveHint"),
       run: () =>
-        void attempt(app, () => app.call("harnix.sessions.archive", { ...key, archived: !session.archived })).then((ok) => {
+        void attempt(app, () => app.call("harnix-app.sessions.archive", { ...key, archived: !session.archived })).then((ok) => {
           if (ok) void app.refreshSessions();
         }),
     },
@@ -477,7 +477,7 @@ export function sessionMenu(app: App, session: ShellSession, from: MenuOrigin): 
         void attempt(
           app,
           async () => {
-            const forked = await app.call<{ session_id: string }>("session.fork", key);
+            const forked = await app.call<{ session_id: string }>("harnix.session.fork", key);
             await app.refreshSessions();
             reopen(forked.session_id);
           },
@@ -494,7 +494,7 @@ export function sessionMenu(app: App, session: ShellSession, from: MenuOrigin): 
         void attempt(
           app,
           async () => {
-            await app.call("session.close", key);
+            await app.call("harnix.session.close", key);
             void app.refreshSessions();
           },
           (error) => t("dialog.closeFailed", { error }),
@@ -510,9 +510,9 @@ export function sessionMenu(app: App, session: ShellSession, from: MenuOrigin): 
         void attempt(
           app,
           async () => {
-            const plan = await app.call<{ sidechains_deleted?: number }>("session.delete", { ...key, dry_run: true });
+            const plan = await app.call<{ sidechains_deleted?: number }>("harnix.session.delete", { ...key, dry_run: true });
             confirmDialog(app, t("dialog.deleteConfirm", { count: plan.sidechains_deleted ?? 0 }), async () => {
-              await app.call("session.delete", key);
+              await app.call("harnix.session.delete", key);
               app.closeModal();
               app.forget({ instance: key.instance, sessionId: key.session_id });
               void app.refreshSessions();
@@ -537,7 +537,7 @@ export function workspaceMenu(app: App, workspace: Workspace, from: MenuOrigin):
       id: "rename",
       icon: "edit",
       label: t("common.rename"),
-      run: () => renameDialog(app, t("dialog.renameProject"), workspace.title, (title) => app.call("harnix.workspaces.update", { id: workspace.id, title })),
+      run: () => renameDialog(app, t("dialog.renameProject"), workspace.title, (title) => app.call("harnix-app.workspaces.update", { id: workspace.id, title })),
     },
     {
       id: "remove",
@@ -546,7 +546,7 @@ export function workspaceMenu(app: App, workspace: Workspace, from: MenuOrigin):
       label: t("dialog.removeGroup"),
       sub: t("dialog.removeGroupHint"),
       run: () =>
-        void attempt(app, () => app.call("harnix.workspaces.remove", { id: workspace.id })).then((ok) => {
+        void attempt(app, () => app.call("harnix-app.workspaces.remove", { id: workspace.id })).then((ok) => {
           if (ok) void app.refreshSessions();
         }),
     },
@@ -564,7 +564,7 @@ export function workspaceMenu(app: App, workspace: Workspace, from: MenuOrigin):
 
 /* ── the connection ───────────────────────────────────────────────────── */
 
-/** One connection to this process, as `harnix.process` lists it. */
+/** One connection to this process, as `system.process` lists it. */
 export interface Connection {
   client: number;
   device: string;
@@ -612,7 +612,7 @@ function ConnectionBody({ app }: { app: App }) {
   const [connections, setConnections] = useState<Connection[] | null>(null);
   useEffect(() => {
     void app
-      .call<{ connections?: Connection[] }>("harnix.process", {})
+      .call<{ connections?: Connection[] }>("system.process", {})
       .then((r) => setConnections(r.connections ?? []))
       .catch(() => setConnections([]));
   }, [app]);

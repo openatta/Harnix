@@ -118,6 +118,10 @@ impl InstanceService for InstanceViews {
             transcripts,
         })
     }
+
+    fn validate_provider(&self, entry: &Value) -> Result<(), String> {
+        harnix_engine::settings::check_provider(entry)
+    }
 }
 
 /// This process's figures, once they are assembled.

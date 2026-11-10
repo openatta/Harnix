@@ -4,7 +4,7 @@
  * clicked there makes the left column that flow's (`registerSystemFlows`). Without the system space
  * they are the flow space of their own, as before (`registerFlowSpace`).
  *
- * What the page knows at start tells it: `harnix.reachable` lists `app.flow.defs` when the module
+ * What the page knows at start tells it: `harnix.reachable` lists `flow.defs` when the module
  * is registered (under the id `flow`, as the Harnix app and the SDK's builder do), and the
  * space whose conversations run the module's `flow-author` scene is the one in
  * `harnix.spaces.list` with that scene — `flow` unless the application renamed it. Either way the
@@ -21,7 +21,7 @@ import { SYSTEM } from "./system/index.tsx";
 import { offerSystemFlows } from "./system/flows.ts";
 
 /** The method whose presence says the backend has the flow module. */
-export const FLOW_PROBE = "app.flow.defs";
+export const FLOW_PROBE = "flow.defs";
 /** How long the start waits for `harnix.spaces.list` before going on without the flow space. */
 export const FLOW_WAIT_MS = 3_000;
 /** The scene the flow module gives its space's conversations. */

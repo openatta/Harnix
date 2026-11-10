@@ -254,7 +254,7 @@ async function measureLive(root) {
     const samples = [];
     for (let i = 0; i < 300; i += 1) {
       const started = process.hrtime.bigint();
-      await client.call("daemon.ping", {});
+      await client.call("engine.daemon.ping", {});
       samples.push(Number(process.hrtime.bigint() - started) / 1e6);
     }
     samples.sort((a, b) => a - b);
@@ -292,14 +292,14 @@ async function measureLive(root) {
     const rssBeforeSessions = rssMb();
     const sessions = [];
     for (let i = 0; i < 8; i += 1) {
-      const created = await client.call("session.create", {}).catch(() => null);
+      const created = await client.call("harnix.session.create", {}).catch(() => null);
       if (created?.session_id) sessions.push(created.session_id);
     }
     await new Promise((r) => setTimeout(r, 1500));
     const perSessionMb = sessions.length
       ? Math.max(0, rssMb() - rssBeforeSessions) / sessions.length
       : 0;
-    for (const id of sessions) await client.call("session.delete", { session_id: id }).catch(() => {});
+    for (const id of sessions) await client.call("harnix.session.delete", { session_id: id }).catch(() => {});
 
     client.close();
     // `ps` reports CPU averaged over the process's life, so a fresh reading

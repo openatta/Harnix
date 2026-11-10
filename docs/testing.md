@@ -142,10 +142,10 @@ import { expect, finish, test } from "@harnix/testkit";
 const TAGS = { tag: ["@feature:sessions", "@layer:api"] };
 
 test("a new session is idle and in the list", TAGS, async ({ api }) => {
-  const { session_id } = await api.call("session.create", { scene: "harnix", project_root: api.project });
+  const { session_id } = await api.call("harnix.session.create", { scene: "harnix", project_root: api.project });
   try {
-    expect((await api.call("session.get", { session_id })).turn_state).toBe("idle");
-    const { sessions } = await api.call("harnix.sessions");
+    expect((await api.call("engine.session.get", { session_id })).turn_state).toBe("idle");
+    const { sessions } = await api.call("harnix.sessions.list");
     expect(sessions.some((s) => s.session_id === session_id)).toBe(true);
   } finally {
     await finish(api, session_id);
@@ -226,6 +226,9 @@ node tests/live/record-fixture.mjs --scene code <名字> "<提示词>"    # 别�
 `node tests/recordings.mjs`（`offline` 层）查两件事：用例回放的每个名字（`recorder: { name }`、`join(RECORDINGS, …)`、
 参数名是 `fixture`/`recording` 的辅助函数收到的字面量、`harnix-testapp` 给流程会话起的 `flow-…`）都是一个录像目录；
 每个录像目录都有东西回放它（被点名，或者是某个流程站点的 `flow-<站点>`）。
+
+方法或主题改名后，录像里说过旧名字的块（工具描述、`flow_guide` 返回的指南）要改写：`node scripts/rewrite-recordings.mjs`
+把块里的旧名字换成新名字，块按新内容重算摘要（文件名与 `calls.jsonl` 里的引用一起改）；`--check` 只查不写，有要改的就退出 1。
 
 录像按位置回放。每个后端都有自己的数据根、HOME 和项目，全局记忆与 telemetry 不会串进来（N-003）。
 隔离以后回放仍然错位（同一轮里可选的旁路调用时有时无），就向 Agix 提「按调用种类匹配」，不在

@@ -161,6 +161,10 @@ impl Ports {
         self.seat.instances.view(id).map(View)
     }
 
+    pub(crate) fn validate_provider(&self, entry: &Value) -> Result<(), String> {
+        self.seat.instances.validate_provider(entry)
+    }
+
     pub(crate) fn process(&self) -> Value {
         self.seat.process.process()
     }
@@ -217,7 +221,7 @@ impl Ports {
             move |params: Value| {
                 let dispatch = dispatch.clone();
                 let cx = CallContext::root(subject.clone(), Some(client));
-                async move { dispatch.call(cx, "harnix.attach", params).await }
+                async move { dispatch.call(cx, "harnix.session.attach", params).await }
             }
         };
         let attached = match attach(params.clone()).await {
@@ -240,7 +244,7 @@ impl Ports {
         let answer = self
             .seat
             .dispatch
-            .call(cx, "harnix.subscribe", json!({"topic": topic, "params": params}))
+            .call(cx, "harnix.topics.subscribe", json!({"topic": topic, "params": params}))
             .await;
         match answer {
             Ok(answer) => {

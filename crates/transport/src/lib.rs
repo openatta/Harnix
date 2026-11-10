@@ -240,8 +240,8 @@ pub(crate) fn assemble(
     let mut router = Router::new()
         // The framework's own default is 2 MB, which silently became the real
         // ceiling for every route: a 3 MB upload was refused by axum with
-        // "failed to buffer the request body" while `harnix.upload.begin` was
-        // handing out grants for 32 MB and `harnix.plugins.upload` advertising
+        // "failed to buffer the request body" while `harnix.bulk.upload` was
+        // handing out grants for 32 MB and `plugins.upload` advertising
         // 64. Raised here so the check that names Harnix's own number is the
         // one that fires.
         .route(

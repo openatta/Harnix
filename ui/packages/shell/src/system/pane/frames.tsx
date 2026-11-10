@@ -15,7 +15,7 @@ interface FrameRow {
 }
 
 /**
- * Watching a session here is `harnix.attach` like any viewer's, claiming the system space: the
+ * Watching a session here is `harnix.session.attach` like any viewer's, claiming the system space: the
  * frames that arrive are the ones every viewer gets, in order, with their `seq`. Leaving the tab
  * detaches, unless this page has the session open somewhere else.
  */
@@ -36,12 +36,12 @@ export function FramesTab({ app, session }: { app: App; session: SessionKey }) {
       const row: FrameRow = { at: Date.now(), seq: params.seq as number | undefined, kind: event.kind ?? method, frame: { method, params } };
       setRows((now) => [...now.slice(-499), row]);
     });
-    void app.call("harnix.attach", { ...target, space: SYSTEM }).catch(() => undefined);
+    void app.call("harnix.session.attach", { ...target, space: SYSTEM }).catch(() => undefined);
     return () => {
       alive = false;
       off();
       const open = Object.values(app.snapshot.currentBySpace).some((k) => k && keyOf(k.instance, k.sessionId) === keyOf(session.instance, session.sessionId));
-      if (!open) void app.call("harnix.detach", target).catch(() => undefined);
+      if (!open) void app.call("harnix.session.detach", target).catch(() => undefined);
     };
   }, [app, session.instance, session.sessionId]);
   const kinds = [...new Set(rows.map((r) => r.kind))];

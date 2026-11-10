@@ -116,11 +116,11 @@ mod tests {
         assert!(!holds(&table, &Subject::device("d"), &caps::ENGINE_INSPECT));
 
         let pkg = ExtId::package("acme.notes").unwrap();
-        table.set(pkg.clone(), [], Trust::consent(["harnix.send".to_string()], PackageCarrier::Wasm));
+        table.set(pkg.clone(), [], Trust::consent(["harnix.session.send".to_string()], PackageCarrier::Wasm));
         assert!(table.trust(&pkg).unwrap().is_consent());
         assert_eq!(table.frame_calls(&pkg), None);
-        table.set_frame(&pkg, Some(["harnix.sessions".to_string()].into()));
-        assert!(table.frame_calls(&pkg).unwrap().contains("harnix.sessions"));
+        table.set_frame(&pkg, Some(["harnix.sessions.list".to_string()].into()));
+        assert!(table.frame_calls(&pkg).unwrap().contains("harnix.sessions.list"));
         table.remove(&pkg);
         assert_eq!(table.trust(&pkg), None);
         assert!(table.frame_calls(&pkg).is_some(), "its interface outlives its backend");

@@ -98,7 +98,6 @@ pub(super) fn register(
     // The spaces are every extension's: a client learns them from this topic, whoever is linked.
     let spaces = Row::topic(harnix_hub::SPACES_TOPIC, Access::device());
     table.install(&Owner::Kernel(KernelPart::Hub), vec![spaces]).map_err(|e| anyhow::anyhow!("{e}"))?;
-    crate::aliases::install(&mut table)?;
     Ok(Registered {
         records,
         table,

@@ -119,8 +119,8 @@ export interface HostApi {
   /** The instances, typed as the protocol answers them (`Methods` in `@harnix/core`). */
   instances: {
     list(): Promise<Methods["harnix.instances.list"]["result"]>;
-    sessions(instance: string): Promise<Methods["harnix.instances.sessions"]["result"]>;
-    tasks(instance: string, sessionId: string): Promise<Methods["harnix.sessions.tasks"]["result"]>;
+    sessions(instance: string): Promise<Methods["harnix.sessions.list"]["result"]>;
+    tasks(instance: string, sessionId: string): Promise<Methods["harnix.session.tasks"]["result"]>;
     create(template: string, name: string, params?: Record<string, string>): Promise<Methods["harnix.instances.create"]["result"]>;
     stop(instance: string): Promise<Methods["harnix.instances.stop"]["result"]>;
   };
@@ -180,7 +180,7 @@ export interface HostApi {
   /** For diagnostics and an about page — not for deciding whether to fill another's point: that
    *  is whether the point is defined. */
   extensions: { list(): ExtensionEntry[]; onChange(fn: () => void): () => void };
-  /** `hello.defaults`: neither the shell nor an extension writes "system" or "sessions" in. */
+  /** `hello.defaults`: neither the shell nor an extension writes "main" or "sessions" in. */
   defaults: { instance: string; space: string | null };
 }
 

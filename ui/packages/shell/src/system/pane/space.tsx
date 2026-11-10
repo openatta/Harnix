@@ -18,7 +18,7 @@ export function SpaceSessions({ app, view, space, current }: { app: App; view: V
     let alive = true;
     const load = () =>
       app
-        .call<{ sessions: SessionRowView[] }>("harnix.sessions", { space: SYSTEM })
+        .call<{ sessions: SessionRowView[] }>("harnix.sessions.list", { space: SYSTEM })
         .then((r) => alive && setRows((r.sessions ?? []).filter((row) => (row.space ?? "sessions") === space)))
         .catch((e) => alive && setFailure(e ?? "error"));
     void load();

@@ -100,7 +100,7 @@ export class RpcFailure {
 
 export function handshakeOk(topology = "single_duplex") {
   return {
-    protocol_version: 4,
+    protocol_version: 5,
     contrib_api_version: CONTRIB_API_VERSION,
     topology,
     topologies: ["single_duplex", "split_streams"],

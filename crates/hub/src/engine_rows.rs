@@ -1,10 +1,10 @@
-//! The engine's methods that pass through the hub: one explicit row each, under the engine's own
-//! name, with how far it is open and what the hub does around it.
+//! The engine's methods that pass through the hub: one explicit row each, named `engine.` and the
+//! engine's own name, with how far it is open and what the hub does around it.
 //!
 //! An allow-list, not a deny-list: the engine trusts whoever reaches its dispatch, and in this
 //! process that is the hub. A name that is not a row here is not reachable at all.
 //!
-//! The hub hands each its own row's name; the engine's link knows what the engine calls it.
+//! The hub hands each its own row's name; the engine's link takes the `engine.` off.
 
 use std::sync::Arc;
 
@@ -35,20 +35,20 @@ enum After {
 /// Passed through for any device, with what each acts on, and whether it reaches the engine's
 /// settings or plugins — which nobody reaches on an extension's engine: its carrier wrote them.
 const DEVICE: &[(&str, RowScope, After, bool)] = &[
-    ("session.list", RowScope::Open, After::Sessions, false),
-    ("session.get", RowScope::Session, After::OneSession, false),
-    ("session.history", RowScope::Session, After::Nothing, false),
-    ("session.entries", RowScope::Session, After::Nothing, false),
-    ("session.resume", RowScope::Session, After::Nothing, false),
-    ("scene.list", RowScope::Open, After::Nothing, false),
-    ("scene.describe", RowScope::Open, After::Nothing, false),
-    ("scene.activate", RowScope::Open, After::Nothing, false),
-    ("commands.list", RowScope::Open, After::Nothing, false),
-    ("mcp.status", RowScope::Open, After::Nothing, false),
-    ("plugin.list", RowScope::Open, After::Nothing, true),
-    ("daemon.status", RowScope::Open, After::Nothing, false),
-    ("daemon.ping", RowScope::Open, After::Nothing, false),
-    ("daemon.doctor", RowScope::Open, After::Nothing, false),
+    ("engine.session.list", RowScope::Space, After::Sessions, false),
+    ("engine.session.get", RowScope::Session, After::OneSession, false),
+    ("engine.session.history", RowScope::Session, After::Nothing, false),
+    ("engine.session.entries", RowScope::Session, After::Nothing, false),
+    ("engine.session.resume", RowScope::Session, After::Nothing, false),
+    ("engine.scene.list", RowScope::Open, After::Nothing, false),
+    ("engine.scene.describe", RowScope::Open, After::Nothing, false),
+    ("engine.scene.activate", RowScope::Open, After::Nothing, false),
+    ("engine.commands.list", RowScope::Open, After::Nothing, false),
+    ("engine.mcp.status", RowScope::Open, After::Nothing, false),
+    ("engine.plugin.list", RowScope::Open, After::Nothing, true),
+    ("engine.daemon.status", RowScope::Open, After::Nothing, false),
+    ("engine.daemon.ping", RowScope::Open, After::Nothing, false),
+    ("engine.daemon.doctor", RowScope::Open, After::Nothing, false),
 ];
 
 /// The capabilities over an engine's settings and plugins: what no row reaches on an extension's
@@ -58,33 +58,33 @@ const SETTINGS: &[Capability] = &[caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_
 /// What no device calls directly, open to the kernel and an extension holding the capability:
 /// looking into a session and changing its context (a device reaches those through the system
 /// space's own methods, which say what they are doing), reading settings, managing packages.
-/// Reaching Agix's own `plugin.install` and friends is not opened to devices, because changing
+/// Reaching Agix's own `engine.plugin.install` and friends is not opened to devices, because changing
 /// what is installed changes what this host serves, and going around the host would leave a
 /// disabled package's interface module still being served with nothing to notice it.
 const BY_CAPABILITY: &[(&str, Capability, After)] = &[
-    ("session.tasks", caps::ENGINE_INSPECT, After::Nothing),
-    ("session.taskOutput", caps::ENGINE_INSPECT, After::Nothing),
-    ("session.inspectContext", caps::ENGINE_INSPECT, After::Nothing),
-    ("session.goal", caps::ENGINE_INSPECT, After::Goal),
-    ("session.stopTask", caps::ENGINE_CONTROL, After::Nothing),
-    ("session.messageTask", caps::ENGINE_CONTROL, After::Nothing),
-    ("session.dropMessages", caps::ENGINE_CONTROL, After::Relisted),
-    ("session.editMessage", caps::ENGINE_CONTROL, After::Relisted),
-    ("session.compact", caps::ENGINE_CONTROL, After::Relisted),
-    ("session.clear", caps::ENGINE_CONTROL, After::Relisted),
-    ("session.rename", caps::ENGINE_CONTROL, After::Relisted),
-    ("session.setModel", caps::ENGINE_CONTROL, After::Nothing),
-    ("session.setGoal", caps::ENGINE_CONTROL, After::Goal),
-    ("session.updateGoal", caps::ENGINE_CONTROL, After::Goal),
-    ("session.export", caps::ENGINE_EXPORT, After::Nothing),
-    ("config.get", caps::ENGINE_CONFIG_READ, After::Nothing),
-    ("config.getProvider", caps::ENGINE_CONFIG_READ, After::Nothing),
-    ("config.reload", caps::ENGINE_CONFIG_WRITE, After::Nothing),
-    ("plugin.install", caps::ENGINE_PLUGINS, After::Nothing),
-    ("plugin.uninstall", caps::ENGINE_PLUGINS, After::Nothing),
-    ("plugin.enable", caps::ENGINE_PLUGINS, After::Nothing),
-    ("plugin.disable", caps::ENGINE_PLUGINS, After::Nothing),
-    ("plugin.reload", caps::ENGINE_PLUGINS, After::Nothing),
+    ("engine.session.tasks", caps::ENGINE_INSPECT, After::Nothing),
+    ("engine.session.taskOutput", caps::ENGINE_INSPECT, After::Nothing),
+    ("engine.session.inspectContext", caps::ENGINE_INSPECT, After::Nothing),
+    ("engine.session.goal", caps::ENGINE_INSPECT, After::Goal),
+    ("engine.session.stopTask", caps::ENGINE_CONTROL, After::Nothing),
+    ("engine.session.messageTask", caps::ENGINE_CONTROL, After::Nothing),
+    ("engine.session.dropMessages", caps::ENGINE_CONTROL, After::Relisted),
+    ("engine.session.editMessage", caps::ENGINE_CONTROL, After::Relisted),
+    ("engine.session.compact", caps::ENGINE_CONTROL, After::Relisted),
+    ("engine.session.clear", caps::ENGINE_CONTROL, After::Relisted),
+    ("engine.session.rename", caps::ENGINE_CONTROL, After::Relisted),
+    ("engine.session.setModel", caps::ENGINE_CONTROL, After::Nothing),
+    ("engine.session.setGoal", caps::ENGINE_CONTROL, After::Goal),
+    ("engine.session.updateGoal", caps::ENGINE_CONTROL, After::Goal),
+    ("engine.session.export", caps::ENGINE_EXPORT, After::Nothing),
+    ("engine.config.get", caps::ENGINE_CONFIG_READ, After::Nothing),
+    ("engine.config.getProvider", caps::ENGINE_CONFIG_READ, After::Nothing),
+    ("engine.config.reload", caps::ENGINE_CONFIG_WRITE, After::Nothing),
+    ("engine.plugin.install", caps::ENGINE_PLUGINS, After::Nothing),
+    ("engine.plugin.uninstall", caps::ENGINE_PLUGINS, After::Nothing),
+    ("engine.plugin.enable", caps::ENGINE_PLUGINS, After::Nothing),
+    ("engine.plugin.disable", caps::ENGINE_PLUGINS, After::Nothing),
+    ("engine.plugin.reload", caps::ENGINE_PLUGINS, After::Nothing),
 ];
 
 /// The engine methods that change credentials, repoint model endpoints, or hand the caller the
@@ -98,31 +98,31 @@ const BY_CAPABILITY: &[(&str, Capability, After)] = &[
 /// enforcement that matters is the engine's — its capability gate, its sandbox, and the
 /// disclosure it returns from the install itself.
 ///
-/// `mcp.addServer` stays refused, and the difference is the point: it configures a
+/// `engine.mcp.addServer` stays refused, and the difference is the point: it configures a
 /// subprocess-spawning tool with no manifest, no capability declaration and no disclosure at all.
 pub const ENGINE_REFUSALS: &[(&str, &str, Option<Capability>)] = &[
     (
-        "config.setProvider",
+        "engine.config.setProvider",
         "changing provider credentials or base_url would point model traffic elsewhere",
         Some(caps::ENGINE_CONFIG_WRITE),
     ),
     (
-        "config.set",
+        "engine.config.set",
         "changing provider credentials or base_url would point model traffic elsewhere",
         Some(caps::ENGINE_CONFIG_WRITE),
     ),
     (
-        "config.update",
+        "engine.config.update",
         "changing provider credentials or base_url would point model traffic elsewhere",
         Some(caps::ENGINE_CONFIG_WRITE),
     ),
     (
-        "mcp.addServer",
+        "engine.mcp.addServer",
         "adding an MCP server is equivalent to installing a tool that runs subprocesses",
         Some(caps::ENGINE_MCP),
     ),
-    ("import.run", "config import runs outside the disclosure this layer is for", None),
-    ("import.list", "config import runs outside the disclosure this layer is for", None),
+    ("engine.import.run", "config import runs outside the disclosure this layer is for", None),
+    ("engine.import.list", "config import runs outside the disclosure this layer is for", None),
 ];
 
 /// What the hub owns. Refused to everyone, the kernel and every module included, and never
@@ -130,19 +130,19 @@ pub const ENGINE_REFUSALS: &[(&str, &str, Option<Capability>)] = &[
 /// invariant everything else rests on.
 pub const HUB_OWNED: &[(&str, &str)] = &[
     (
-        "daemon.shutdown",
+        "engine.daemon.shutdown",
         "the process is stopped by whoever started it, not over its own protocol",
     ),
     (
-        "session.run_turn",
-        "use harnix.send — the hub owns turns, so closing a tab cannot lose one",
+        "engine.session.run_turn",
+        "use harnix.session.send — the hub owns turns, so closing a tab cannot lose one",
     ),
     (
-        "session.subscribe",
-        "use harnix.attach — the hub subscribes before any client does",
+        "engine.session.subscribe",
+        "use harnix.session.attach — the hub subscribes before any client does",
     ),
-    ("session.unsubscribe", "use harnix.detach — the hub owns subscriptions"),
-    ("daemon.subscribeEvents", "host events are the hub's to fan out"),
+    ("engine.session.unsubscribe", "use harnix.session.detach — the hub owns subscriptions"),
+    ("engine.daemon.subscribeEvents", "host events are the hub's to fan out"),
 ];
 
 /// How one engine row is passed through.
@@ -166,25 +166,25 @@ fn engine(hub: &HubCell, name: &'static str, access: Access, through: Through) -
 
 pub(crate) fn rows(hub: &HubCell) -> Vec<HubRow> {
     let mut rows = vec![
-        // Passed through with the hub's semantics around them: where a new session lands and who
-        // started it; who answered a permission ask.
+        // The engine's, with the hub's semantics around them, under the hub's own names: where a
+        // new session lands and who started it; who answered a permission ask.
         HubRow::Method {
-            name: "session.create",
-            owner: Owner::Engine,
+            name: "harnix.session.create",
+            owner: Owner::Kernel(harnix_kernel::KernelPart::Hub),
             access: Access::device().scoped(RowScope::Space),
-            handler: Some(answer(hub, "session.create", false, |h, cx, p| async move { h.create(&cx.subject, p).await })),
+            handler: Some(answer(hub, "harnix.session.create", false, |h, cx, p| async move { h.create(&cx.subject, p).await })),
         },
         HubRow::Method {
-            name: "session.fork",
-            owner: Owner::Engine,
+            name: "harnix.session.fork",
+            owner: Owner::Kernel(harnix_kernel::KernelPart::Hub),
             access: Access::device().scoped(RowScope::Session),
-            handler: Some(answer(hub, "session.fork", true, |h, cx, p| async move { h.fork(&cx.subject, p).await })),
+            handler: Some(answer(hub, "harnix.session.fork", true, |h, cx, p| async move { h.fork(&cx.subject, p).await })),
         },
         HubRow::Method {
-            name: "session.respondToPrompt",
-            owner: Owner::Engine,
+            name: "harnix.session.respond",
+            owner: Owner::Kernel(harnix_kernel::KernelPart::Hub),
             access: Access::device().scoped(RowScope::Session),
-            handler: Some(answer(hub, "session.respondToPrompt", true, |h, cx, p| async move { h.respond(&cx.subject, p).await })),
+            handler: Some(answer(hub, "harnix.session.respond", true, |h, cx, p| async move { h.respond(&cx.subject, p).await })),
         },
     ];
     rows.extend(DEVICE.iter().map(|(name, scope, after, settings)| {
@@ -216,7 +216,7 @@ pub(crate) fn rows(hub: &HubCell) -> Vec<HubRow> {
 }
 
 impl Hub {
-    /// One engine method into the instance the call names (or the system instance), with the
+    /// One engine method into the instance the call names (or the main instance), with the
     /// instance and space names taken off: the engine has no notion of either.
     async fn pass_through(self: &Arc<Self>, method: &str, params: Value, through: Through) -> Rpc<Value> {
         let instance = self.instance_of(&params)?;
@@ -229,9 +229,18 @@ impl Hub {
             ));
         }
         let session = params.get("session_id").and_then(Value::as_str).map(str::to_string);
+        // A caller that claimed a space is told of that space's sessions only: the engine lists
+        // every one, whoever's it is.
+        let held = (through.after == After::Sessions).then(|| self.held_space(&params)).flatten();
         let mut answer = linked.ops().passthrough(method, without_instance(params)).await?;
         if extension {
             harden(&mut answer, through.after);
+        }
+        if let (Some(space), Some(Value::Array(rows))) = (held, answer.get_mut("sessions")) {
+            rows.retain(|row| {
+                let sid = row.get("session_id").and_then(Value::as_str).unwrap_or_default();
+                self.space_of(&(instance.clone(), sid.to_string())) == space
+            });
         }
         match through.after {
             After::Nothing | After::OneSession | After::Sessions => {}
@@ -245,7 +254,7 @@ impl Hub {
         Ok(answer)
     }
 
-    /// `session.fork`: the new session lands in the space the call claims, or its parent's, and
+    /// `harnix.session.fork`: the new session lands in the space the call claims, or its parent's, and
     /// is the caller's.
     async fn fork(self: &Arc<Self>, subject: &Subject, params: Value) -> Rpc<Value> {
         let key = self.key_of(&params)?;
@@ -264,8 +273,8 @@ impl Hub {
         Ok(forked.value)
     }
 
-    /// `session.respondToPrompt`: the engine does not take who answered, so the hub keeps it for
-    /// the tool's audit (`harnix.prompts.answerer`), and tells the session's watchers the ask is
+    /// `harnix.session.respond`: the engine does not take who answered, so the hub keeps it for
+    /// the tool's audit (`harnix.session.answerer`), and tells the session's watchers the ask is
     /// answered.
     async fn respond(self: &Arc<Self>, subject: &Subject, mut params: Value) -> Result<Value, RpcError> {
         let tool_use = params.as_object_mut().and_then(|o| o.remove("tool_use_id"));

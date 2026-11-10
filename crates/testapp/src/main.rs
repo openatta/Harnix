@@ -24,7 +24,7 @@
 //! extension package behind the extension wire, as a product in mode 3 starts it.
 //!
 //! `probe` also refuses, before it reaches the model, any message with `blocked-word` in it (a prompt
-//! middleware on every session of `system`), and `fleet` has two templates with the same native
+//! middleware on every session of `main`), and `fleet` has two templates with the same native
 //! contributions — a scene with a tool of its own, a marked system prompt, the same refusal — one
 //! spawned and one in process.
 
@@ -114,7 +114,7 @@ impl Module for Probe {
         Manifest::new("probe", "0.0.1").disclosure("a module for the tests")
     }
 
-    /// Every session of `system` refuses a message with `blocked-word` in it (ipdrun-13).
+    /// Every session of `main` refuses a message with `blocked-word` in it (ipdrun-13).
     fn engine(&self, e: &mut EngineContrib) {
         e.prompt_gate(Arc::new(Blocklist));
     }
@@ -166,7 +166,7 @@ impl Module for Probe {
             .describe("writes an entry into a session's log, and lists this module's")
             .handler(|cx: CallContext, p: Value| async move {
                 let session = SessionRef {
-                    instance: p["instance"].as_str().unwrap_or(harnix::SYSTEM_INSTANCE).to_string(),
+                    instance: p["instance"].as_str().unwrap_or(harnix::MAIN_INSTANCE).to_string(),
                     session_id: p["session_id"].as_str().unwrap_or_default().to_string(),
                 };
                 let sessions = cx.module().sessions();
@@ -319,7 +319,7 @@ impl Module for Duplicate {
 /// Instances and sessions from the server side (concept §3.2, §3.1.1).
 ///
 /// At start it makes sure its own in-process instance exists — a different
-/// scene from `system`, which is enough to tell the two apart — and opens
+/// scene from `main`, which is enough to tell the two apart — and opens
 /// again every headless session it started in an earlier run.
 struct Fleet;
 
@@ -488,7 +488,7 @@ impl Module for Fleet {
             .describe("the providers an instance's engine has, as it says")
             .handler(|cx: CallContext, p: Value| async move {
                 cx.module()
-                    .call("config.getProvider", json!({"instance": p["instance"]}))
+                    .call("engine.config.getProvider", json!({"instance": p["instance"]}))
                     .await
             });
         m.method("ready_session", Principal::Device)
@@ -556,7 +556,7 @@ impl Module for Fleet {
                 let context = cx
                     .module()
                     .call(
-                        "session.inspectContext",
+                        "engine.session.inspectContext",
                         json!({"instance": p["instance"], "session_id": p["session_id"]}),
                     )
                     .await?;
@@ -567,7 +567,7 @@ impl Module for Fleet {
             .handler(|cx: CallContext, p: Value| async move {
                 cx.module()
                     .call(
-                        "session.inspectContext",
+                        "engine.session.inspectContext",
                         json!({"instance": p["instance"], "session_id": p["session_id"]}),
                     )
                     .await

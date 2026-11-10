@@ -97,16 +97,16 @@ async fn host_calls_and_publishes_go_to_the_host_as_the_application() {
     let answer = ok(
         &rig.vm,
         "call",
-        json!({"target": "harnix.sessions", "x": 1}),
+        json!({"target": "harnix.sessions.list", "x": 1}),
     )
     .await;
-    assert_eq!(answer["answered"], "harnix.sessions");
+    assert_eq!(answer["answered"], "harnix.sessions.list");
     assert_eq!(
         rig.host.calls.lock().unwrap().as_slice(),
         [(
             "acme.probe".to_string(),
-            "harnix.sessions".to_string(),
-            json!({"target": "harnix.sessions", "x": 1})
+            "harnix.sessions.list".to_string(),
+            json!({"target": "harnix.sessions.list", "x": 1})
         )]
     );
     let refused = call(&rig.vm, "call", json!({"target": "test.refuse"}))

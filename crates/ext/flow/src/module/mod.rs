@@ -17,7 +17,7 @@
 //! What a task may do is judged by the module call by call: a flow session `ask`s about every
 //! guarded tool and every tool a permission names, and the module answers from the permissions
 //! of the task the turn works on (xops-04 §3). A station's output contract is the session's
-//! `output_schema` when it hands in by structured output: the same on `system`, an in-process
+//! `output_schema` when it hands in by structured output: the same on `main`, an in-process
 //! template's instance or a spawned daemon (xops-02 §2).
 //!
 //! An application registers it like any module:
@@ -94,7 +94,7 @@ pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// The instance the flow space's sessions run on, and where a station's session goes when it
 /// names no instance or template and stays in the flow's space. `Module::engine` contributes to
 /// it alone, so the wrapped scenes and `flow-author` exist only there.
-pub const FLOW_INSTANCE: &str = "system";
+pub const FLOW_INSTANCE: &str = "main";
 
 /// The engine's tools that change something outside the conversation: the shell, the file
 /// editors, the notebook editor, the interpreters.
@@ -676,7 +676,7 @@ impl Extension for Flow {
         {
             if let Err(e) = cx
                 .call(
-                    "scene.activate",
+                    "engine.scene.activate",
                     json!({"instance": FLOW_INSTANCE, "scene": scene}),
                 )
                 .await

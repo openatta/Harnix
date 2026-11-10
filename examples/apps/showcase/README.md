@@ -30,14 +30,14 @@ it, from the manifest alone; no code of the showcase's runs for any of this:
 | Point | In the manifest | What the shell draws |
 |---|---|---|
 | `tool_row` | `echo` and `count`: a glyph, a title from the call's input (`{input.text}`), the result after it; `echo`'s unfolded | their calls' rows in the flow |
-| `flow_block` | the kind `card`: a title, two fields and a Markdown body from the entry's payload (`{payload.…}`), and two buttons | a card for every entry `card.post` appends (`harnix.entries.append`, in its `hub`). "Count one more" asks first in the shell's own dialog, then calls `counter.bump`; "Pin the title on the board" calls `notes.add` with the card's title. What came back is shown in the card (`done`, `{result.…}`) |
+| `flow_block` | the kind `card`: a title, two fields and a Markdown body from the entry's payload (`{payload.…}`), and two buttons | a card for every entry `card.post` appends (`harnix.session.entries.append`, in its `hub`). "Count one more" asks first in the shell's own dialog, then calls `counter.bump`; "Pin the title on the board" calls `notes.add` with the card's title. What came back is shown in the card (`done`, `{result.…}`) |
 | `command` | `/showcase` and `@notes` | the composer's menus as they are, with the candidates `complete` answers: `/showcase-bump` and `/showcase-clear` run those methods when chosen; `@notes` offers the board's notes matching what is typed |
 | `sidebar_group` | its second space, `example.showcase.chats`, `by = "method"` | that space's sessions in the left column, grouped as `sessions.group` answers: those it put a card in, and the rest (`other`) |
 
 Every text is a string or one per locale (`{ en = "…", zh-CN = "…" }`). A point that does not hold
 together is refused at install, by name: a placeholder of a root the point does not have, a button
 calling a method that is not its own or not a device's to call, a command without `complete`, a card
-without `harnix.entries.append` in its `hub`, a row for a tool its component does not list, a
+without `harnix.session.entries.append` in its `hub`, a row for a tool its component does not list, a
 grouping for a space whose left column is the application's own `space.sidebar` frame (a space's
 left column is the shell's session list or the application's frame, never both: that is why the
 showcase has a second space, `example.showcase.chats`, a conversation space the shell draws). The
@@ -54,7 +54,7 @@ under its token (they are declared for `device`), and the application itself alw
 `board` tool asks `state`). `state` is also open to modules. The params of `notes.add`,
 `timer.start`, `fetch` and `session.start` are checked against the schema in the manifest before
 the backend sees them. A client subscribes to `app.example.showcase.notes`,
-`app.example.showcase.heartbeat` and `app.example.showcase.fetched` with `harnix.subscribe`.
+`app.example.showcase.heartbeat` and `app.example.showcase.fetched` with `harnix.topics.subscribe`.
 
 `fetch` is the shape for work that waits on something slow. A backend's calls come in one at a
 time, and a `handle` waiting on the host still holds the backend; made inside `handle`, the request
@@ -62,7 +62,7 @@ would keep its caller waiting as long as the host takes, and past `timeout_ms` t
 recycled. So `fetch` only arms a timer and answers `{job, url, started}`; the timer makes the
 request and publishes `{job, url, status, body}`, or `{job, url, error}`, on `fetched`.
 
-What the backend does as itself is admitted against its `hub`: `session.create`, `harnix.send`, and
+What the backend does as itself is admitted against its `hub`: `harnix.session.create`, `harnix.session.send`, and
 the topic `harnix.sessions.status`. Anything else — `overreach` tries `harnix.apps.uninstall` — is
 refused, on the record (`harnix.audit`, subject `module:example.showcase`), and listed in the
 system space's Apps tab with the application's VM health.
@@ -112,8 +112,8 @@ origin, no storage, no cookies, the page's token out of reach) and served under 
 | Say hello | a notice under the showcase's name (`notify`) |
 | Crash | the page goes away; the shell's frame says so and offers a reload. Three in a row set it aside |
 
-The left column counts the space's notes and sessions (`harnix.sessions`, in its hub) and starts
-a session there (`session.create`); the space's entry carries the number of notes (`badge`); the
+The left column counts the space's notes and sessions (`harnix.sessions.list`, in its hub) and starts
+a session there (`harnix.session.create`); the space's entry carries the number of notes (`badge`); the
 card's link opens only after the shell asks (`[interface] links`). Theme and language follow the
 shell's (`HarnixKit.follow`).
 

@@ -34,33 +34,33 @@ import type {
 
 /* ── names on the wire ───────────────────────────────────────────────── */
 
-/** `app.<module>.<name>`: the module id is the one the application registered it under. */
+/** `<module>.<name>`: the module id is the one the application registered it under. */
 export function methodName(module: string, name: FlowMethod): string {
-  return `app.${module}.${name}`;
+  return `${module}.${name}`;
 }
 
 export function runsTopic(module: string): string {
-  return `app.${module}.runs`;
+  return `${module}.runs`;
 }
 
 /** Subscribed with `{run}`. */
 export function runTopic(module: string): string {
-  return `app.${module}.run`;
+  return `${module}.run`;
 }
 
 /** The flows' list, re-sent after every save and delete. */
 export function defsTopic(module: string): string {
-  return `app.${module}.defs`;
+  return `${module}.defs`;
 }
 
 /** Subscribed with `{instance, session_id}`: the flow that conversation works on. */
 export function focusTopic(module: string): string {
-  return `app.${module}.focus`;
+  return `${module}.focus`;
 }
 
 /** The dry runs kept. */
 export function dryRunsTopic(module: string): string {
-  return `app.${module}.dry_runs`;
+  return `${module}.dry_runs`;
 }
 
 /** A dry run's id: the sandbox's runs are `dry-…`. */
@@ -275,7 +275,7 @@ export function workLabel(s: Station): string {
 
 export const PART_KINDS: readonly PartKind[] = ["skill", "rule", "policy", "gate", "hook"];
 
-/** A part kind's directory in a pack, the key `app.flow.def`'s `parts` uses. */
+/** A part kind's directory in a pack, the key `flow.def`'s `parts` uses. */
 export function partDir(kind: PartKind): "skills" | "rules" | "policies" | "gates" | "hooks" {
   return ({ skill: "skills", rule: "rules", policy: "policies", gate: "gates", hook: "hooks" } as const)[kind];
 }
@@ -426,10 +426,10 @@ export function stationActions(runStatus: RunStatus | undefined, def: Station | 
 export function sessionOf(task: TaskRec): { instance: string; sessionId: string } | null {
   const s = task.session as unknown;
   if (typeof s === "string") {
-    // `"<instance>/<session_id>"`, as the flow module writes it; a bare id is on `system`.
+    // `"<instance>/<session_id>"`, as the flow module writes it; a bare id is on `main`.
     const at = s.indexOf("/");
     if (!s) return null;
-    return at > 0 && at < s.length - 1 ? { instance: s.slice(0, at), sessionId: s.slice(at + 1) } : { instance: "system", sessionId: s };
+    return at > 0 && at < s.length - 1 ? { instance: s.slice(0, at), sessionId: s.slice(at + 1) } : { instance: "main", sessionId: s };
   }
   if (!s || typeof s !== "object") return null;
   const o = s as Record<string, unknown>;

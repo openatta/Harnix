@@ -31,7 +31,7 @@
 //!
 //! # Where the package is, is the engine's to say
 //!
-//! `plugin.list` carries each package's unpacked `root`. Harnix reads it and
+//! `engine.plugin.list` carries each package's unpacked `root`. Harnix reads it and
 //! never composes a path of its own, so the engine's cache layout stays the
 //! engine's: it can move packages, version the directory name, or split the
 //! tiers differently, and nothing here has to be told.
@@ -152,7 +152,7 @@ pub fn read(root: &Path, name: &str, version: &str, enabled: bool) -> Option<Con
     })
 }
 
-/// Everything that contributes to this side, in a `plugin.list` answer.
+/// Everything that contributes to this side, in a `engine.plugin.list` answer.
 ///
 /// Separate from asking the engine so a caller that already did — `plugins.list` does, to show
 /// the engine's own list beside this one — reads the answer it has rather than asking a second

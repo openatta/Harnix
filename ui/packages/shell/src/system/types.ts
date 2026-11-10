@@ -72,7 +72,7 @@ export interface AgentRow extends SessionRowView {
   key: string;
 }
 
-/** What one Agent of a session has used in its current run (`harnix.system.usage`). */
+/** What one Agent of a session has used in its current run (`observability.usage`). */
 export interface AgentUsage {
   session_id: string;
   parent_session_id?: string | null;
@@ -88,7 +88,7 @@ export interface AgentUsage {
   last_at?: number | null;
 }
 
-/** A session's goal (`session.goal`): one aim the engine keeps opening turns for. */
+/** A session's goal (`engine.session.goal`): one aim the engine keeps opening turns for. */
 export interface Goal {
   objective: string;
   phase: "active" | "paused" | "blocked" | "complete";
@@ -98,7 +98,7 @@ export interface Goal {
   blocked_reason?: { code?: string; message?: string } | string | null;
 }
 
-/** One `harnix.system.turns` row: a turn's calls summed. */
+/** One `observability.turns` row: a turn's calls summed. */
 export interface TurnRow {
   turn: number;
   calls: number[];

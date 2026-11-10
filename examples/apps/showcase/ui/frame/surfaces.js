@@ -240,7 +240,7 @@
     let sessions = [];
     let made = "";
     const list = () =>
-      app.call("harnix.sessions", { space: ID }).then(
+      app.call("harnix.sessions.list", { space: ID }).then(
         (r) => ((sessions = r.sessions ?? []), draw()),
         () => undefined,
       );

@@ -11,7 +11,7 @@ import type { Goal } from "../types.ts";
 import { act } from "../view.ts";
 
 /**
- * A session's goal, and what a person may do with it from here (Agix `session.setGoal` /
+ * A session's goal, and what a person may do with it from here (Agix `engine.session.setGoal` /
  * `updateGoal`, as the system module): set one when there is none — the engine starts its first
  * round at once on an idle session — and pause, resume, edit or clear it.
  */
@@ -19,7 +19,7 @@ export function GoalBlock({ app, session, goal, changed }: { app: App; session: 
   const tr = useT();
   const target = { instance: session.instance, session_id: session.sessionId };
   const update = (action: string, extra: Record<string, unknown> = {}) =>
-    void act(app, () => app.call("harnix.system.goal.update", { ...target, action, ...extra })).then(changed);
+    void act(app, () => app.call("system.goal.update", { ...target, action, ...extra })).then(changed);
   const edit = (current: Goal | null) =>
     app.openModal({
       title: tr(current ? "system.goal.edit" : "system.goal.set"),
@@ -28,8 +28,8 @@ export function GoalBlock({ app, session, goal, changed }: { app: App; session: 
           goal={current}
           save={async (objective, rounds) => {
             await (current
-              ? app.call("harnix.system.goal.update", { ...target, action: "edit", objective, max_rounds: rounds })
-              : app.call("harnix.system.goal.set", { ...target, objective, max_rounds: rounds }));
+              ? app.call("system.goal.update", { ...target, action: "edit", objective, max_rounds: rounds })
+              : app.call("system.goal.set", { ...target, objective, max_rounds: rounds }));
             app.closeModal();
             changed();
           }}
@@ -81,7 +81,7 @@ export function GoalBlock({ app, session, goal, changed }: { app: App; session: 
             data-testid="agent-goal-clear"
             onClick={() =>
               confirmDialog(app, tr("system.goal.confirmClear"), async () => {
-                await app.call("harnix.system.goal.update", { ...target, action: "clear" });
+                await app.call("system.goal.update", { ...target, action: "clear" });
                 app.closeModal();
                 changed();
               })

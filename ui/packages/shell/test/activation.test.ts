@@ -130,13 +130,13 @@ describe("following harnix.ui", () => {
 describe("the host API", () => {
   it("tells the extensions and hello's defaults, and follows the extensions as they change", async () => {
     const { app, client, host } = setup();
-    expect(host.defaults).toEqual({ instance: "system", space: null });
+    expect(host.defaults).toEqual({ instance: "main", space: null });
     app.set({ hello: { defaults: { instance: "main", space: "work" } } as never, extensions: [ext("system", true)] });
     expect(host.defaults).toEqual({ instance: "main", space: "work" });
     expect(host.extensions.list().map((e) => e.id)).toEqual(["system"]);
     let told = 0;
     host.extensions.onChange(() => (told += 1));
-    client.answer = (method, params) => (method === "harnix.subscribe" ? { topic: params.topic, value: { extensions: [ext("system", false)], contributions: [] } } : {});
+    client.answer = (method, params) => (method === "harnix.topics.subscribe" ? { topic: params.topic, value: { extensions: [ext("system", false)], contributions: [] } } : {});
     (app as unknown as { followUi(): void }).followUi();
     await tick();
     await tick();
@@ -173,10 +173,10 @@ describe("the host API", () => {
 
   it("asks a frame's subscription as its extension, and keeps one subscription on the connection", async () => {
     const { client } = setup();
-    client.answer = (method, params) => (method === "harnix.subscribe" ? { topic: params.topic, value: 1 } : {});
+    client.answer = (method, params) => (method === "harnix.topics.subscribe" ? { topic: params.topic, value: 1 } : {});
     const topics = topicsOf(client as unknown as HarnixClient);
     const off = await topics.subscribeAs("acme.notes", "harnix.spaces", {}, () => undefined);
-    const subs = client.calls.filter((c) => c.method === "harnix.subscribe");
+    const subs = client.calls.filter((c) => c.method === "harnix.topics.subscribe");
     expect(subs.length).toBeGreaterThan(0);
     expect(subs.every((c) => c.params.$ext === "acme.notes")).toBe(true);
     expect(topics.count("harnix.spaces", {})).toBe(1);

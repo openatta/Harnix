@@ -2,7 +2,7 @@
 // Regenerate: cargo test -p harnix-contract --features ts
 
 /** Bumped when a method, an event shape or an error code changes in a way a client can observe. */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 /** The contribution point API — separate, because a UI bundle can be current on one and stale on the other. */
 export const CONTRIB_API_VERSION = 3;
 /** The largest single RPC frame a client may send. */
@@ -36,6 +36,12 @@ export const BUSY = -31005;
 export const NOT_FOUND = -31006;
 /** Harnix: what the call acts on changed under it (a lease that is not the caller's, a revision that moved on); read it again before trying again. */
 export const CONFLICT = -31007;
+/** Harnix: the call was cancelled before it answered, by its caller or because what it was made for was. */
+export const CANCELLED = -31008;
+/** Harnix: the call's deadline passed before it answered or before it started; an extension package's backend that outruns its `timeout_ms` is this too. */
+export const DEADLINE_EXCEEDED = -31009;
+/** Harnix: the extension is there and cannot answer now; `data.failure` is `starting`, `stopped`, `faulted` or `reentrant`. An instance out of reach is `INSTANCE_UNAVAILABLE`. */
+export const EXTENSION_UNAVAILABLE = -31010;
 
 /**
  * How the five channel semantics are carried.

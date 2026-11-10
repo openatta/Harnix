@@ -23,7 +23,7 @@ export async function sessionMentions(app: App, query: string): Promise<MentionI
   const items: MentionItem[] = [];
   for (const instance of instances.filter((i) => i.status.state === "ready")) {
     const { sessions } = await app
-      .call<{ sessions: { session_id: string; name?: string | null; space?: string }[] }>("harnix.sessions", { instance: instance.id })
+      .call<{ sessions: { session_id: string; name?: string | null; space?: string }[] }>("harnix.sessions.list", { instance: instance.id })
       .catch(() => ({ sessions: [] }));
     for (const row of sessions) {
       const name = row.name || row.session_id;

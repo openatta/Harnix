@@ -57,6 +57,9 @@ pub struct InstanceView {
 /// The instances, as facts.
 pub trait InstanceService: Send + Sync {
     fn view(&self, id: &str) -> Option<InstanceView>;
+
+    /// Whether an engine can read `entry` as a provider: `Err` says why not, in the engine's words.
+    fn validate_provider(&self, entry: &Value) -> Result<(), String>;
 }
 
 /// This process: versions, uptime, memory, threads, who is connected.

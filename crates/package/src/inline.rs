@@ -10,7 +10,7 @@
 //! summary = "result"            # what follows the title: `result`, or `input.<path>`
 //! collapsed = false             # the result shown unfolded (folded unless said)
 //!
-//! [[inline.flow_block]]         # an entry it appends (`harnix.entries.append`) with this event,
+//! [[inline.flow_block]]         # an entry it appends (`harnix.session.entries.append`) with this event,
 //! kind = "card"                 #   drawn as a card: `{payload.<path>}` in every text
 //! icon = "file"
 //! title = "{payload.title}"
@@ -39,7 +39,7 @@
 //!
 //! Every text is a string or a table of them by locale (`{ en = "…", zh-CN = "…" }`). Each point is
 //! checked here against the rest of the manifest: a button's or a grouping's method is one it
-//! declares for a device, a command needs its `complete`, a card needs `harnix.entries.append` in
+//! declares for a device, a command needs its `complete`, a card needs `harnix.session.entries.append` in
 //! its `hub` to be appended at all. Unknown points and fields are refused by name.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -56,7 +56,7 @@ pub const POINTS: &[&str] = &["tool_row", "flow_block", "command", "sidebar_grou
 pub const LOCALES: &[&str] = &["en", "zh-CN"];
 
 /// What a card is drawn from: the entry an application appends, through this method.
-pub const APPEND: &str = "harnix.entries.append";
+pub const APPEND: &str = "harnix.session.entries.append";
 
 /// What a command's candidates come from: `app.<id>.complete`.
 pub const COMPLETE: &str = "complete";
@@ -514,7 +514,7 @@ harnix_api = 1
 publisher = "acme"
 
 [capabilities]
-hub = ["harnix.entries.append"]
+hub = ["harnix.session.entries.append"]
 
 [[component]]
 name = "backend"
@@ -730,7 +730,7 @@ other = { en = "Other", zh-CN = "其他" }
             assert!(err.starts_with(MANIFEST), "{err}");
         }
         // A card needs its entries appended; a command, its candidates.
-        let no_append = BASE.replace("hub = [\"harnix.entries.append\"]", "hub = []");
+        let no_append = BASE.replace("hub = [\"harnix.session.entries.append\"]", "hub = []");
         assert!(parse(&format!("{no_append}{INLINE}"))
             .unwrap_err()
             .contains(APPEND));

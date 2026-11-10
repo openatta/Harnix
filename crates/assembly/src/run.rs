@@ -3,7 +3,7 @@
 //! 1. Read the profile.
 //! 2. **Register** every extension, in order: its manifest and what it declares.
 //! 3. **Migrate** every extension, in order.
-//! 4. **Build the instances**: `system`, with the native contributions of the
+//! 4. **Build the instances**: `main`, with the native contributions of the
 //!    modules still enabled; the profile's `[[instances]]`; and what the
 //!    ledger says was built from templates.
 //! 5. **Start** every module, in order.
@@ -103,7 +103,7 @@ pub(crate) async fn start_process(app: AppBuilder, cli: &Cli, basis: &Basis) -> 
     .await?;
     let servers = instances.registry.factory.servers.clone();
     let hub::Assembled { hub, instances, ui, history, brand_icon } =
-        hub::assemble(cli, profile, &basis.roots, (&name, &version), &records, instances, &apps, &behind, &crate::aliases::topics(&table))
+        hub::assemble(cli, profile, &basis.roots, (&name, &version), &records, instances, &apps, &behind)
             .await?;
     // The hub's rows have been in the route table since registration; from here they answer.
     let _ = behind.hub.set(hub.clone());

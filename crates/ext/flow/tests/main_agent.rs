@@ -229,11 +229,11 @@ async fn tokens_count_on_the_task_or_on_the_run() {
 async fn the_main_session_is_recorded_once() {
     let h = h();
     let (run, _) = start(&h, "main").await;
-    let o = h.eng.attach_main(&run, "system/s1").await.unwrap();
+    let o = h.eng.attach_main(&run, "main/s1").await.unwrap();
     assert_eq!(o.value["changed"], true);
-    let o = h.eng.attach_main(&run, "system/s1").await.unwrap();
+    let o = h.eng.attach_main(&run, "main/s1").await.unwrap();
     assert_eq!(o.value["changed"], false);
-    assert_eq!(h.eng.record(&run).await.unwrap().main_session(), Some("system/s1"));
+    assert_eq!(h.eng.record(&run).await.unwrap().main_session(), Some("main/s1"));
 }
 
 /// Every whole flow in the guide (a YAML block that starts `name:`) is valid: the guide is what

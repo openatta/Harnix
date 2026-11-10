@@ -236,7 +236,7 @@ const en: Record<string, string> = {
   "settings.mcpConnected": "connected",
   "settings.mcpDisconnected": "not connected",
   "settings.mcpTools": "{count} tools",
-  "settings.mcpAddHint": "Adding a server needs mcp.addServer — that is equivalent to installing a tool that can spawn processes, so it goes behind a confirming entry",
+  "settings.mcpAddHint": "Adding a server needs engine.mcp.addServer — that is equivalent to installing a tool that can spawn processes, so it goes behind a confirming entry",
   "settings.plugins": "Plugins",
   "settings.pluginsNone": "No plugins installed",
   "settings.engine": "Engine",

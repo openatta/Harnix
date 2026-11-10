@@ -92,10 +92,8 @@ export interface Hello {
   /** Every extension and whether it is enabled: the shell activates its compiled-in UI packages by
    *  this before its first draw. What changes later is `harnix.ui`'s. */
   extensions?: ExtensionEntry[];
-  /** What this product is and keeps (concept §5.10): its brand, the built-in spaces it keeps of
-   *  `sessions` / `projects` / `system`, whether packages' interface modules load. */
+  /** What this product is (concept §5.10): its brand, whether packages' interface modules load. */
   shell?: {
-    spaces?: string[];
     brand?: { name?: string | null; icon?: string | null; product_id?: string };
     runtime_modules?: boolean;
     state_dir?: string;
@@ -105,6 +103,8 @@ export interface Hello {
     /** False (`[shell] new_session = false`, ipdrun-46): the shell draws no "New session" button and
      *  ⌘K starts none, in every space. Absent or true: as before. */
     new_session?: boolean;
+    /** `[shell] model_switch`: the composer changes a session's model through `harnix.session.setModel`. */
+    model_switch?: boolean;
     /** `[shell] narrow_details` (ipdrun-50): "beside" keeps three columns at ≤ 960px instead of
      *  maximizing an open right column over the conversation. Absent or "over": as before. */
     narrow_details?: "over" | "beside";
@@ -141,7 +141,7 @@ export interface UiView {
 
 /* ── 会话 ─────────────────────────────────────────────────────────────── */
 
-/** `harnix.sessions` 的一行：引擎的 SessionInfo 加上 hub 折叠进来的 scene / project_root / running。 */
+/** `harnix.sessions.list` 的一行：引擎的 SessionInfo 加上 hub 折叠进来的 scene / project_root / running。 */
 export interface SessionRow {
   session_id: string;
   name?: string | null;
@@ -158,7 +158,7 @@ export interface SessionRow {
   [key: string]: unknown;
 }
 
-/** `session.get` 的结果（attach 原样带回）。 */
+/** `engine.session.get` 的结果（attach 原样带回）。 */
 export interface SessionInfo extends SessionRow {
   turn_state?: "idle" | "running" | string;
   usage?: Usage | null;
@@ -217,7 +217,7 @@ export interface AttachResult {
 }
 
 /**
- * 模型眼里同是 user 的几种消息（daemon_rpc_protocol §4 session.history）。界面只把 user / steer / command
+ * 模型眼里同是 user 的几种消息（daemon_rpc_protocol §4 engine.session.history）。界面只把 user / steer / command
  * 画成人说的话；`null` 是旧日志，不知道。
  */
 export type MessageOrigin =
@@ -231,7 +231,7 @@ export type MessageOrigin =
   | "extension"
   | null;
 
-/** transcript 里的一条消息（session.history）。位置、来源、所属的轮与用量和实时帧对得上；旧日志没有的为 null。 */
+/** transcript 里的一条消息（engine.session.history）。位置、来源、所属的轮与用量和实时帧对得上；旧日志没有的为 null。 */
 export interface HistoryMessage {
   role: "user" | "assistant" | string;
   content: string | ContentPart[];
@@ -278,7 +278,7 @@ export type Decision =
 export interface UserMessageEvent {
   kind: "user_message";
   text: string;
-  /** 这条消息在中枢队列里的编号（与 harnix.send 应答、harnix.queue 里的 item_id 对应）。 */
+  /** 这条消息在中枢队列里的编号（与 harnix.session.send 应答、harnix.queue 里的 item_id 对应）。 */
   item_id?: string;
   /**
    * "steer"：交给了正在跑的这一轮，还没进对话——它不开新的一轮；进了对话时来一帧
@@ -432,7 +432,7 @@ export type EngineEvent =
 
 /* ── 方法表 ───────────────────────────────────────────────────────────── */
 
-/** 一个会话的地址：`instance` 省略即 `system`。 */
+/** 一个会话的地址：`instance` 省略即 `main`。 */
 export interface SessionKey {
   instance?: string;
   session_id: string;
@@ -458,7 +458,7 @@ export interface InstanceRow {
   trust?: "extension";
 }
 
-/** 一件任务（Agix `session.tasks`）。 */
+/** 一件任务（Agix `engine.session.tasks`）。 */
 export interface TaskRow {
   task_id: string;
   kind: "agent" | "teammate" | "shell" | "monitor" | "cron" | "code";
@@ -473,14 +473,14 @@ export interface Methods {
   "harnix.handshake": { params: HandshakeParams; result: Negotiated };
   "harnix.hello": { params: Record<string, never>; result: Hello };
   "harnix.ui": { params: Record<string, never>; result: UiView };
-  "harnix.sessions": { params: { instance?: string; space?: string }; result: { sessions: SessionRow[] } };
+  "harnix.sessions.list": { params: { instance?: string; space?: string }; result: { instance?: string; sessions: SessionRow[] } };
   "harnix.spaces.list": {
     params: Record<string, never>;
     result: { spaces: { id: string; instance: string | null; built: string | null; scene: string | null }[] };
   };
-  "harnix.attach": { params: SessionKey; result: AttachResult };
-  "harnix.detach": { params: SessionKey; result: { detached: boolean } };
-  "harnix.send": {
+  "harnix.session.attach": { params: SessionKey; result: AttachResult };
+  "harnix.session.detach": { params: SessionKey; result: { detached: boolean } };
+  "harnix.session.send": {
     params: SessionKey & {
       message: string;
       attachments?: unknown[];
@@ -491,20 +491,19 @@ export interface Methods {
     };
     result: SendResult;
   };
-  "harnix.queue.remove": { params: SessionKey & { item_id: string }; result: { items: QueueItem[] } };
-  "harnix.queue.edit": { params: SessionKey & { item_id: string; message: string }; result: { items: QueueItem[] } };
-  "harnix.subscribe": { params: { topic: string; params?: Record<string, unknown> }; result: { topic: string; value: unknown } };
-  "harnix.unsubscribe": { params: { topic: string; params?: Record<string, unknown> }; result: { unsubscribed: boolean } };
+  "harnix.session.queue.remove": { params: SessionKey & { item_id: string }; result: { items: QueueItem[] } };
+  "harnix.session.queue.edit": { params: SessionKey & { item_id: string; message: string }; result: { items: QueueItem[] } };
+  "harnix.topics.subscribe": { params: { topic: string; params?: Record<string, unknown> }; result: { topic: string; value: unknown } };
+  "harnix.topics.unsubscribe": { params: { topic: string; params?: Record<string, unknown> }; result: { unsubscribed: boolean } };
   "harnix.instances.list": { params: Record<string, never>; result: { instances: InstanceRow[] } };
-  "harnix.instances.sessions": { params: { instance: string }; result: { instance: string; sessions: SessionRow[] } };
   "harnix.instances.templates": {
     params: Record<string, never>;
     result: { templates: { id: string; carrier: string; params: string[]; ui: boolean; max: number | null }[] };
   };
   "harnix.instances.create": { params: { template: string; name: string; params?: Record<string, string> }; result: InstanceRow };
   "harnix.instances.stop": { params: { instance: string }; result: { stopped: string } };
-  "harnix.sessions.tasks": { params: SessionKey; result: { active: boolean; tasks: TaskRow[] } };
-  "session.create": {
+  "harnix.session.tasks": { params: SessionKey; result: { active: boolean; tasks: TaskRow[] } };
+  "harnix.session.create": {
     params: {
       instance?: string;
       scene?: string;
@@ -513,12 +512,12 @@ export interface Methods {
     };
     result: { instance: string; session_id: string; scene?: string; project_root?: string | null; [key: string]: unknown };
   };
-  "session.history": {
+  "engine.session.history": {
     params: SessionKey & { offset?: number; limit?: number };
     result: HistoryPage;
   };
-  "session.interrupt": { params: SessionKey; result: unknown };
-  "session.respondToPrompt": {
+  "harnix.session.interrupt": { params: SessionKey; result: unknown };
+  "harnix.session.respond": {
     params: SessionKey & { prompt_id: string; decision: Decision; tool_use_id?: string };
     result: { prompt_id: string };
   };

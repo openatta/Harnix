@@ -83,7 +83,7 @@ spawn 出来的 daemon 实例不起虚拟机：它的会话经这个应用的 MC
 |---|---|---|
 | 界面调自己的方法 | iframe `call("app.<id>.notes.list")` → 桥 → 外壳 → 页面的连接 → 准入 → `backend.handle` | 外壳按清单过滤名字；hub 按设备准入、记审计 |
 | 应用推界面 | `host.publish("notes", v)` → 主题 `app.<id>.notes` → 外壳 → 桥 → iframe | 只能推自己声明的主题 |
-| 应用驱动 Agent | `host.call("session.create" / "harnix.send", …)` → 准入 → hub → Agix | 主体 `module:<id>`，只到清单 `hub` 列出的 |
+| 应用驱动 Agent | `host.call("harnix.session.create" / "harnix.session.send", …)` → 准入 → hub → Agix | 主体 `module:<id>`，只到清单 `hub` 列出的 |
 | Agent 用应用的工具 | 模型调 `app__<id>__<tool>` → Agix 的权限（一律先问人）→ 新建调用实例 `call-tool`；spawn 的实例经 MCP | 权限照常；宿主函数按能力查 |
 | 应用听引擎的动静 | `host.subscribe("harnix.sessions.status")` → `backend.on-topic`；要否决工具调用，用 `events` | 可订的主题按 `hub` 能力；`events` 缺省只看到自己工具的调用（`[events]`） |
 
@@ -134,7 +134,7 @@ description = "…"        # 可选
 net = ["api.acme.com"]           # http-request 能到的主机，精确匹配（没有后缀规则），不跟随重定向
 env = ["ACME_TOKEN"]             # secret 能读的名字：profile 的 [apps.secrets."<id>"] 给它的，不是进程的环境变量
 storage_mb = 16                  # 存储上限：kv 加 /data 里的文件
-hub = ["session.create", "harnix.send", "topic:harnix.sessions.status"]
+hub = ["harnix.session.create", "harnix.session.send", "topic:harnix.sessions.status"]
                                  # 以 module:<id> 能调的方法、能订的主题（topic:<名>）；自己的 app.<id>.* 不用写
 fs = ["${data}", "${project}"]   # ${data}：自己的数据目录 /data，读写；${project}：发起工具调用的会话的项目 /project，只读，只在工具调用里
 ```
@@ -192,7 +192,7 @@ name = "notes"
 [[space]]                        # 一个后端 space：在它里面建的会话落在哪
 id = "acme.notes"                # 应用的 id，或 <id>.<名字>
 scene = "harnix"                 # 可选：新会话的场景
-instance = "system"              # 可选：一台已有的实例
+instance = "main"              # 可选：一台已有的实例
 ```
 
 方法与主题只有 `backend-app` 能声明。方法、主题、space 在应用启动时登记进授权表、方法路由与 `harnix.spaces.list`，
@@ -213,7 +213,7 @@ profile 里写 `[apps.config."acme.notes"] greeting = "…"`，按顶层的键�
 ```toml
 [interface]
 isolate = false                  # true：受信发布者的界面也进 iframe
-hub = ["harnix.sessions", "harnix.send"]
+hub = ["harnix.sessions.list", "harnix.session.send"]
                                  # 页面除了自己的 app.<id>.* 还能调、能订的：白名单里的名字，限定在它自己的 space（§6.3）
 links = true                     # 能请外壳打开网页（每次都问人）
 
@@ -236,9 +236,9 @@ module = "notes.js"
 api_version = 2
 ```
 
-各节的意思在 §6。`[interface] hub` 只能写白名单里的名字（§6.3 的表）：外壳自己的家族（`harnix.apps.*`、`harnix.plugins.*`、`harnix.settings.*`、
-`harnix.devices.*`、`harnix.instances.*`、`harnix.system.*`、`harnix.upload.*`、`harnix.prompts.*`、`harnix.prefs.*`、`harnix.subscribe`、
-`harnix.attach` 等）写了就拒，别的不在表里的名字也拒。
+各节的意思在 §6。`[interface] hub` 只能写白名单里的名字（§6.3 的表）：外壳自己的家族（`harnix.apps.*`、`plugins.*`、`settings.*`、
+`devices.*`、`harnix.instances.*`、`system.*`、`harnix.bulk.*`、`harnix.session.answerer`、`harnix-app.prefs.*`、`harnix.topics.subscribe`、
+`harnix.session.attach` 等）写了就拒，别的不在表里的名字也拒。
 
 **一个 space 的左栏只有一种**：要么是外壳的会话列表（可以用 `[[inline.sidebar_group]]` 分组），要么是应用自己的 `space.sidebar` 面。
 两样都声明，按名字拒。showcase 用两个 space 演示两种：`example.showcase` 画自己的左栏，`example.showcase.chats` 用外壳的会话列表并分组。
@@ -247,7 +247,7 @@ api_version = 2
 
 ```toml
 [agent]
-install_into = ["system"]        # agent/ 装进哪些实例：system，或安装时已经存在的实例的 id；缺省 ["system"]
+install_into = ["main"]        # agent/ 装进哪些实例：system，或安装时已经存在的实例的 id；缺省 ["main"]
 ```
 
 ## 4. 后端：WIT `harnix:app@0.1.0`
@@ -357,7 +357,7 @@ export!(App);
 下面是模式 2 的样子：Agix 插件装进产品的实例。模式 3 里它装在应用自己的进程里，产品的实例经 MCP 用它的工具（[应用开发](app-development.md) §10）。
 
 - **`agent/` 是一个 Agix 插件**：`plugin.toml` 加 skill、agent 类型、场景、QuickJS 脚本。安装时打包成一个 zip，经引擎的
-  `plugin.install` 装进 `[agent] install_into` 列出的每台实例，随应用启停（`plugin.enable` / `disable`），卸载时撤掉。
+  `engine.plugin.install` 装进 `[agent] install_into` 列出的每台实例，随应用启停（`engine.plugin.enable` / `disable`），卸载时撤掉。
 - **skill**：`agent/skills/<名字>/` 拷进实例数据根的 `skills/<名字>/`，带一个标记文件说它是哪个应用的；同名的、不是这个应用的 skill
   已经在那里，就拒。拷完让实例重读设置。
 - **QuickJS 脚本**挂在 Agix 的扩展点上，没有 I/O，和应用的虚拟机之间**没有通道**：要有逻辑的钩子，写成 WASM 的 `events`。QuickJS 只限资源，
@@ -454,11 +454,11 @@ app.onEnv((env) => (document.documentElement.dataset.theme = env.theme));
 
   | 名字 | 限定 |
   |---|---|
-  | `harnix.sessions` | 只列它自己的 space：`space` 不写就填它的，写了别的 space 就拒 |
-  | `harnix.send`、`harnix.sessions.tasks`、`session.get`、`session.history`、`session.entries`、`session.interrupt`、`topic:harnix.sessions.tasks` | `session_id`（加 `instance`）要是它自己 space 里的会话，外壳先查一遍 |
+  | `harnix.sessions.list` | 只列它自己的 space：`space` 不写就填它的，写了别的 space 就拒 |
+  | `harnix.session.send`、`harnix.session.tasks`、`engine.session.get`、`engine.session.history`、`engine.session.entries`、`harnix.session.interrupt`、`topic:harnix.session.tasks` | `session_id`（加 `instance`）要是它自己 space 里的会话，外壳先查一遍 |
   | `harnix.spaces.list`、`topic:harnix.spaces` | 不涉及哪个会话，原样 |
 
-- **会话**：只在应用自己的 space 里：`session.create` 建的会话归它的第一个 `[[space]]`，`session.open` 只开它自己 space 的会话；
+- **会话**：只在应用自己的 space 里：`harnix.session.create` 建的会话归它的第一个 `[[space]]`，`session.open` 只开它自己 space 的会话；
   经 `call` 打会话的名字同样只到它自己 space 的会话（上表）。
 - **外壳的手**：`spaces.switch`、`details.open` / `details.show`（只画它自己 `kinds` 的项）、`secondary.open` / `close`、`settings.open`（它自己的节）、
   `composer.insert`、`badge`（落在它自己 space 的入口上）、`notify`、`copy`、`openModal`（它自己的模态框）、`confirm`、`openLink`、`upload`。
@@ -476,12 +476,12 @@ app.onEnv((env) => (document.documentElement.dataset.theme = env.theme));
 | 点 | 清单里写什么 | 外壳做什么 |
 |---|---|---|
 | `[[inline.tool_row]]` | 某个工具一行的样子：字形、标题模板（`{input.<路径>}`、`{result}`）、标题后面跟什么（`result` 或 `input.<路径>`）、结果折不折起（缺省折起） | 用自己的工具行组件照画 |
-| `[[inline.flow_block]]` | 应用写的某种扩展条目（`kind` 是条目的事件名）画成卡片：标题、Markdown 正文、键值行（至多 12）、按钮（至多 4，调它自己给设备的方法，可先 `confirm`，完了显示 `done`） | 画卡片；点按钮经页面的连接调方法。要写条目，`hub` 里得有 `harnix.entries.append` |
+| `[[inline.flow_block]]` | 应用写的某种扩展条目（`kind` 是条目的事件名）画成卡片：标题、Markdown 正文、键值行（至多 12）、按钮（至多 4，调它自己给设备的方法，可先 `confirm`，完了显示 `done`） | 画卡片；点按钮经页面的连接调方法。要写条目，`hub` 里得有 `harnix.session.entries.append` |
 | `[[inline.command]]` | 一条 `/` 命令或一个 `@` 来源 | 命令菜单照常，候选来自后端方法 `app.<id>.complete`（要声明它） |
 | `[[inline.sidebar_group]]` | 它的某个 space 怎么给会话分组：按 `scene`、按会话行的某个字段（`field`），或问后端方法（`method`：`{space, sessions}` → `{groups}`）；`other` 是哪组都不进的 | 外壳排、画 |
 
 文本可以是一个字符串，或按语言给（`{ en = "…", zh-CN = "…" }`）。每一项都对着清单的其余部分查：按钮与分组的方法要是它给设备的，命令要有
-`complete`，卡片要有 `harnix.entries.append`，工具行的工具要是组件列出的（启动时查）。命令与按方法分组会在安装披露里写明「它会知道你为它的
+`complete`，卡片要有 `harnix.session.entries.append`，工具行的工具要是组件列出的（启动时查）。命令与按方法分组会在安装披露里写明「它会知道你为它的
 命令打的字」「它会知道这个 space 的会话」。
 
 ### 6.6 `[[ui]]`：进页面的模块
@@ -658,7 +658,7 @@ Harnix 自己怎么测插件 APP（宿主核心的回环、商店的 mock 钥、
 | `[[inline.command]]` | `trigger`（`/` 或 `@`）、`name`、`description?` | | 要有 `[[method]] name = "complete"` |
 | `[[inline.sidebar_group]]` | `space?`、`by`（`scene` / `field` / `method`）、`field?`、`method?`、`other?` | | `space` 是自己的 `[[space]]`（缺省应用的 id），每个 space 一次；不能和那个 space 的 `space.sidebar` 并存 |
 | `[[ui]]` | `point`、`module`、`api_version` | | `module` 是 `ui/` 下的 `.js`；`api_version` 等于贡献点 API（2） |
-| `[agent] install_into` | [string] | `["system"]` | `system`，或安装时已有的实例的 id |
+| `[agent] install_into` | [string] | `["main"]` | `main`，或安装时已有的实例的 id |
 
 ## 15. WIT
 
@@ -887,5 +887,5 @@ ACME_TOKEN = "…"
 ~/.<product_id>/apps/<id>/kv/            键值存储
 ```
 
-`data/` 与 `kv/` 都算 `storage_mb`；卸载时整个目录删掉。引擎指纹另在 `harnix.process` 的 `apps_engine`、`harnix.apps.list` 的
+`data/` 与 `kv/` 都算 `storage_mb`；卸载时整个目录删掉。引擎指纹另在 `system.process` 的 `apps_engine`、`harnix.apps.list` 的
 `runtime.fingerprint` 里，`harnix-app fingerprint` 打印它。

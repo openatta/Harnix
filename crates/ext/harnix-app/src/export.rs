@@ -1,7 +1,7 @@
 //! `harnix-app.sessions.export`: a session written out, for reading or for keeping.
 //!
 //! Three forms. `markdown` is the conversation as a person reads it. `archive` is the session as
-//! the engine packs it (`session.export`): the session and its sub-agents' sessions at any depth,
+//! the engine packs it (`engine.session.export`): the session and its sub-agents' sessions at any depth,
 //! cut at one moment, the images in its messages as files, its extension entries and a versioned
 //! manifest — and its recording only when asked — as a zip. `bundle` is the older, Harnix-made
 //! JSON document: the facts, every message, the entries; no sub-agents, no image files, and no
@@ -10,10 +10,10 @@
 //! into a file. One that would not fit a frame is refused with the way out (leave the recording
 //! behind) rather than cut.
 //!
-//! The caller claims a space like any session call, and `session.get` with that claim is what
+//! The caller claims a space like any session call, and `engine.session.get` with that claim is what
 //! checks it: a session of another space is refused by the hub, not read here.
 
-use harnix_ext::{codes, Call, RpcError, MAX_FRAME_BYTES, SYSTEM_INSTANCE};
+use harnix_ext::{codes, Call, RpcError, MAX_FRAME_BYTES, MAIN_INSTANCE};
 use serde_json::{json, Value};
 
 use crate::{require_session_id, require_str};
@@ -45,13 +45,13 @@ pub(crate) async fn session_export(call: Call, params: Value) -> Result<Value, R
         let instance = params
             .get("instance")
             .cloned()
-            .unwrap_or(json!(SYSTEM_INSTANCE));
+            .unwrap_or(json!(MAIN_INSTANCE));
         let mut target = json!({"instance": instance, "session_id": session_id});
         if let Some(space) = params.get("space").filter(|s| !s.is_null()) {
             target["space"] = space.clone();
         }
 
-        let info = call.call("session.get", target.clone()).await?;
+        let info = call.call("engine.session.get", target.clone()).await?;
         if format == "archive" {
             let title = title_of(&info);
             return archive(&call, &target, &file_stem(title.as_deref(), &session_id), with_recording)
@@ -59,7 +59,7 @@ pub(crate) async fn session_export(call: Call, params: Value) -> Result<Value, R
         }
         let messages = all_messages(&call, &target).await?;
         let entries = call
-            .call("session.entries", target.clone())
+            .call("engine.session.entries", target.clone())
             .await
             .ok()
             .and_then(|v| v.get("entries").cloned())
@@ -101,7 +101,7 @@ async fn all_messages(call: &Call, target: &Value) -> Result<Vec<Value>, RpcErro
             let mut page = target.clone();
             page["offset"] = json!(messages.len());
             page["limit"] = json!(PAGE);
-            let answer = call.call("session.history", page).await?;
+            let answer = call.call("engine.session.history", page).await?;
             let got = answer
                 .get("messages")
                 .and_then(Value::as_array)
@@ -136,7 +136,7 @@ async fn archive(call: &Call, target: &Value, stem: &str, with_recording: bool) 
         ask["path"] = json!(path);
         ask["format"] = json!("zip");
         ask["include"] = json!(include);
-        let made = call.call("session.export", ask).await;
+        let made = call.call("engine.session.export", ask).await;
         let bytes = made.as_ref().ok().map(|_| std::fs::read(&path));
         let _ = std::fs::remove_dir_all(&dir);
         let made = made?;

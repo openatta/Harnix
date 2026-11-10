@@ -1,6 +1,6 @@
 /**
  * The flows and their runs: the definitions this application has, a
- * form to start a run of one, and the runs from the `app.<module>.runs` topic, filtered by flow,
+ * form to start a run of one, and the runs from the `<module>.runs` topic, filtered by flow,
  * status and subject.
  */
 

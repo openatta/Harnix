@@ -11,7 +11,7 @@
 
 import type { ReactNode } from "react";
 import { TOKEN_STALE, errorText, type ConnectionStatus, type ExtensionEntry, type HarnixClient, type Hello, type SessionRow, type UiView } from "@harnix/core";
-import { SYSTEM_INSTANCE, type SessionController } from "@harnix/core/state";
+import { MAIN_INSTANCE, type SessionController } from "@harnix/core/state";
 import { t, tabsOf, type ComposerApi, type DetailItem, type Registry, type ShellContext, type SpaceContribution, type SpaceTab } from "@harnix/react";
 
 import { topicsOf } from "./topics.ts";
@@ -29,7 +29,7 @@ export interface Workspace {
   session_order?: string[];
 }
 
-/** `harnix.sessions` 的一行，加上工作区的覆盖（改名、归档、属于哪个工作区）。 */
+/** `harnix.sessions.list` 的一行，加上工作区的覆盖（改名、归档、属于哪个工作区）。 */
 export interface ShellSession extends SessionRow {
   instance: string;
   renamed?: boolean;
@@ -70,7 +70,7 @@ const NOTICE_QUEUE = 5;
 
 export type ThemeChoice = "system" | "light" | "dark";
 
-/** One configured model provider, as `harnix.settings.describe` reads it (the key redacted). */
+/** One configured model provider, as `settings.describe` reads it (the key redacted). */
 export interface Provider {
   api_type?: string | null;
   base_url?: string | null;
@@ -243,7 +243,7 @@ export function within<T>(promise: Promise<T>, ms: number): Promise<T | typeof T
 }
 
 /**
- * A session list with each session once — a defence, not the fix. Agix's `session.list` lists a
+ * A session list with each session once — a defence, not the fix. Agix's `engine.session.list` lists a
  * session it has let go of (past `session_cap`) once per project it has served, and counts a folder
  * reached under two spellings (macOS's `/var/…` and `/private/var/…`) as two projects, so such a
  * session comes back twice (openatta/Agix#23).
@@ -253,7 +253,7 @@ export function within<T>(promise: Promise<T>, ms: number): Promise<T | typeof T
 export function uniqueSessions<T extends { instance?: unknown; session_id: string }>(rows: T[]): T[] {
   const seen = new Set<string>();
   return rows.filter((row) => {
-    const key = keyOf(typeof row.instance === "string" ? row.instance : SYSTEM_INSTANCE, row.session_id);
+    const key = keyOf(typeof row.instance === "string" ? row.instance : MAIN_INSTANCE, row.session_id);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -585,10 +585,10 @@ export class App {
 
   /** Read the model providers again: at connect, and after the settings page changes one. */
   async refreshProviders(): Promise<void> {
-    if (!this.state.reachable.includes("harnix.settings.describe")) return;
+    if (!this.state.reachable.includes("settings.describe")) return;
     const scene = this.state.hello?.engine?.active_scenes?.[0];
     const described = await this.client
-      .call("harnix.settings.describe", { scene, project_root: null })
+      .call("settings.describe", { scene, project_root: null })
       .catch(() => null);
     const providers = (described as { providers?: Partial<Providers> } | null)?.providers;
     if (providers) this.set({ providers: { providers: providers.providers ?? {}, default_provider: providers.default_provider ?? null } });
@@ -648,7 +648,7 @@ export class App {
     if (method === "harnix.event" && (params.event as { kind?: string } | undefined)?.kind === "skills_changed") {
       // The command list is the engine's; a skill installed mid-session adds one.
       void this.client
-        .call("commands.list", {})
+        .call("engine.commands.list", {})
         .then((r) => {
           const hello = this.state.hello;
           if (hello) this.set({ hello: { ...hello, commands: (r as { commands?: unknown[] }).commands ?? hello.commands } });
@@ -677,9 +677,9 @@ export class App {
     const mine = ++this.refreshes;
     try {
       const [listed, spaces] = await Promise.all([
-        this.client.call("harnix.sessions", { space: "sessions" }) as Promise<{ sessions: SessionRow[] }>,
+        this.client.call("harnix.sessions.list", { space: "sessions" }) as Promise<{ sessions: SessionRow[] }>,
         this.client
-          .call("harnix.workspaces.list", {})
+          .call("harnix-app.workspaces.list", {})
           .catch(() => ({ workspaces: [], prefs: {}, sessions: {} })) as Promise<{
           workspaces: Workspace[];
           prefs?: Record<string, unknown>;
@@ -693,7 +693,7 @@ export class App {
         const workspace = workspaces.find((w) => row.project_root && w.path === row.project_root);
         return {
           ...row,
-          instance: (row.instance as string | undefined) ?? SYSTEM_INSTANCE,
+          instance: (row.instance as string | undefined) ?? MAIN_INSTANCE,
           name: note.title ?? row.name,
           renamed: Boolean(note.title),
           archived: Boolean(note.archived),
@@ -736,7 +736,7 @@ export class App {
     const key = this.state.currentBySpace[space];
     if (!key) return;
     try {
-      await this.client.call("session.get", { space: this.claim(space), instance: key.instance, session_id: key.sessionId });
+      await this.client.call("engine.session.get", { space: this.claim(space), instance: key.instance, session_id: key.sessionId });
     } catch {
       if (this.state.currentBySpace[space] === key) this.open(null, space);
     }
@@ -760,8 +760,8 @@ export class App {
       const workspace = this.state.workspaces.find((w) => w.id === this.state.project);
       if (workspace) params = { ...params, project_root: workspace.path };
     }
-    const created = (await this.client.call("session.create", { ...params, space: this.claim(space) })) as { session_id: string; instance?: string };
-    const key = { instance: created.instance ?? SYSTEM_INSTANCE, sessionId: created.session_id };
+    const created = (await this.client.call("harnix.session.create", { ...params, space: this.claim(space) })) as { session_id: string; instance?: string };
+    const key = { instance: created.instance ?? MAIN_INSTANCE, sessionId: created.session_id };
     await this.refreshSessions();
     this.open(key, space);
     return key;
@@ -976,13 +976,13 @@ export class App {
     return (await this.client.call(method, params)) as T;
   }
 
-  /** 上传一个文件：先要一张票，再把文件原样 POST 过去（`harnix.upload.begin`）。 */
+  /** 上传一个文件：先要一张票，再把文件原样 POST 过去（`harnix.bulk.upload`）。 */
   async upload(file: File): Promise<string> {
     const limit = this.state.hello?.limits?.max_upload_bytes;
     if (limit && file.size > limit) {
       throw new Error(t("composer.uploadTooLarge", { name: file.name, limit: (limit / 1048576).toFixed(0) }));
     }
-    const grant = await this.call<{ url: string; path: string }>("harnix.upload.begin", { name: file.name, bytes: file.size });
+    const grant = await this.call<{ url: string; path: string }>("harnix.bulk.upload", { name: file.name, bytes: file.size });
     const response = await fetch(grant.url, { method: "POST", body: file });
     if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
     const answer = (await response.json().catch(() => ({}))) as { path?: string };

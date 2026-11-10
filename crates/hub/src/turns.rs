@@ -77,7 +77,7 @@ impl Hub {
             message,
             attachments: json!(attachments),
         };
-        // Sending implies watching. A client that skipped `harnix.attach` would
+        // Sending implies watching. A client that skipped `harnix.session.attach` would
         // otherwise get neither the turn's events nor its settlement — frames
         // go to watchers, and it would not be one.
         if let Some(client) = cx.client {
@@ -178,7 +178,7 @@ impl Hub {
         }
     }
 
-    /// Begin a turn and hand it to a task, so `harnix.send` returns at once and
+    /// Begin a turn and hand it to a task, so `harnix.session.send` returns at once and
     /// the turn outlives the client that asked for it.
     ///
     /// The task is a **loop**, not a chain of recursive calls: a settled turn
@@ -453,7 +453,7 @@ impl Hub {
         Ok(json!({"items": snapshot}))
     }
 
-    /// `harnix.queue.edit {session_id, item_id, message}`: change what a queued message says before
+    /// `harnix.session.queue.edit {session_id, item_id, message}`: change what a queued message says before
     /// it runs. Its place and attachments stay. One that has started (or was withdrawn) is no longer
     /// in the queue, and is refused rather than quietly sent as it was.
     pub(crate) async fn queue_edit(self: &Arc<Self>, params: Value) -> Result<Value, RpcError> {
@@ -467,7 +467,7 @@ impl Hub {
             .get("message")
             .and_then(Value::as_str)
             .filter(|m| !m.trim().is_empty())
-            .ok_or_else(|| RpcError::invalid_params("missing message: to take it out of the queue, harnix.queue.remove"))?
+            .ok_or_else(|| RpcError::invalid_params("missing message: to take it out of the queue, harnix.session.queue.remove"))?
             .to_string();
         let (watchers, snapshot) = {
             let mut guard = self.inner.lock().await;

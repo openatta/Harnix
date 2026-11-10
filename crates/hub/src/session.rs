@@ -91,7 +91,7 @@ pub(crate) struct Answer {
     pub tool_calls: Vec<Value>,
 }
 
-/// The most answer text `outcome.text` carries; the rest is in `session.history`.
+/// The most answer text `outcome.text` carries; the rest is in `engine.session.history`.
 pub(crate) const ANSWER_TEXT_MAX: usize = 64 * 1024;
 
 impl Answer {

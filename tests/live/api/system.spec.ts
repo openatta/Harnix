@@ -1,6 +1,6 @@
 /**
  * The system space's backend (concept §5.5): any instance's sessions inspected and acted on through
- * `harnix.system.*` and the hub's own methods claiming the system space — and none of it there
+ * `system.*` and the hub's own methods claiming the system space — and none of it there
  * when the profile turns the space off: the methods leave the authorization table, the space
  * stops existing, and nothing can claim it.
  *
@@ -20,34 +20,34 @@ import { startTestApp } from "./testapp";
 const TAGS = { tag: ["@feature:system", "@layer:api"] };
 
 const SYSTEM_METHODS = [
-  "harnix.system.context",
-  "harnix.system.calls",
-  "harnix.system.turns",
-  "harnix.system.usage",
-  "harnix.system.goal",
-  "harnix.system.goal.set",
-  "harnix.system.goal.update",
-  "harnix.system.tasks.stop",
-  "harnix.system.tasks.message",
-  "harnix.system.tasks.output",
-  "harnix.system.messages.drop",
-  "harnix.system.messages.edit",
-  "harnix.system.compact",
-  "harnix.system.clear",
-  "harnix.system.model",
-  "harnix.system.rename",
-  "harnix.system.instances.stop",
-  "harnix.system.instances.restart",
-  "harnix.system.instances.create",
-  "harnix.system.instances.templates",
+  "system.context",
+  "observability.calls",
+  "observability.turns",
+  "observability.usage",
+  "system.goal",
+  "system.goal.set",
+  "system.goal.update",
+  "system.tasks.stop",
+  "system.tasks.message",
+  "system.tasks.output",
+  "system.messages.drop",
+  "system.messages.edit",
+  "system.compact",
+  "system.clear",
+  "system.model",
+  "system.rename",
+  "system.instances.stop",
+  "system.instances.restart",
+  "system.instances.create",
+  "system.instances.templates",
 ];
 
 /** A session in `space` that has had one turn, the user's message first. */
 async function oneTurn(api: TestClient, space: string): Promise<{ instance: string; session_id: string }> {
-  const created = await api.call("session.create", { space, options: { recorder: { name: "says-ready" } } });
+  const created = await api.call("harnix.session.create", { space, options: { recorder: { name: "says-ready" } } });
   const s = { instance: created.instance, session_id: created.session_id };
-  await api.call("harnix.attach", { ...s, space });
-  await api.call("harnix.send", { ...s, space, message: "Say exactly: fixture ready" });
+  await api.call("harnix.session.attach", { ...s, space });
+  await api.call("harnix.session.send", { ...s, space, message: "Say exactly: fixture ready" });
   const settled = await api.waitFor(
     (f) => f.method === "harnix.turn_settled" && f.params.session_id === s.session_id,
     { timeout: 60_000, describe: "the turn to settle" },
@@ -82,53 +82,53 @@ test.describe("on", () => {
 
   test("the context of another space's session, and its messages rewritten and removed", TAGS, async () => {
     const s = await oneTurn(api, "fleet");
-    const context = await api.call("harnix.system.context", s);
+    const context = await api.call("system.context", s);
     expect(context.basis).toBe("next_step_without_new_input");
     expect(context.system.length).toBeGreaterThan(0);
-    const history = await api.call("session.history", { ...s, space: "system" });
+    const history = await api.call("engine.session.history", { ...s, space: "system" });
     // The turn's two messages, after what the engine put at the start of the conversation.
     const at = history.messages.findIndex((m: any) => m.origin === "user");
     expect(at, "the user's message is in the history").toBeGreaterThanOrEqual(0);
     expect(history.messages.slice(0, at).every((m: any) => m.origin === "injected")).toBe(true);
     expect(context.messages.count).toBe(at + 2);
-    expect(await api.call("harnix.system.messages.edit", { ...s, at, text: "Say exactly: edited", total: history.total })).toEqual({ edited: at });
-    let after = await api.call("session.history", { ...s, space: "system" });
+    expect(await api.call("system.messages.edit", { ...s, at, text: "Say exactly: edited", total: history.total })).toEqual({ edited: at });
+    let after = await api.call("engine.session.history", { ...s, space: "system" });
     expect(text(after.messages[at])).toBe("Say exactly: edited");
 
     // A count that is not the session's any more is a view that went stale.
-    await api.refused("harnix.system.messages.drop", { ...s, at: [at], total: history.total + 1 });
-    expect(await api.call("harnix.system.messages.drop", { ...s, at: [at], total: history.total })).toEqual({ dropped: [at] });
-    after = await api.call("session.history", { ...s, space: "system" });
+    await api.refused("system.messages.drop", { ...s, at: [at], total: history.total + 1 });
+    expect(await api.call("system.messages.drop", { ...s, at: [at], total: history.total })).toEqual({ dropped: [at] });
+    after = await api.call("engine.session.history", { ...s, space: "system" });
     expect(text(after.messages[at])).toContain("removed by the host");
     // The model's own message cannot be taken out.
-    await api.refused("harnix.system.messages.drop", { ...s, at: [at + 1], total: history.total });
+    await api.refused("system.messages.drop", { ...s, at: [at + 1], total: history.total });
   });
 
   test("operations on another space's session take effect where it belongs, and are audited", TAGS, async () => {
     const s = await oneTurn(api, "fleet");
-    await api.call("harnix.system.rename", { ...s, name: "renamed from system" });
-    const row = (await api.call("harnix.sessions", { space: "fleet" })).sessions.find((r: any) => r.session_id === s.session_id);
+    await api.call("system.rename", { ...s, name: "renamed from system" });
+    const row = (await api.call("harnix.sessions.list", { space: "fleet" })).sessions.find((r: any) => r.session_id === s.session_id);
     expect(row.name).toBe("renamed from system");
 
-    expect(await api.call("harnix.system.tasks.stop", { ...s, task_id: "no-such-task" })).toEqual({ stopped: false });
-    const unknown = await api.refused("harnix.system.tasks.output", { ...s, task_id: "no-such-task" });
+    expect(await api.call("system.tasks.stop", { ...s, task_id: "no-such-task" })).toEqual({ stopped: false });
+    const unknown = await api.refused("system.tasks.output", { ...s, task_id: "no-such-task" });
     expect(unknown?.code, String(unknown)).toBe(-32018);
-    await api.call("harnix.system.compact", s);
-    await api.call("harnix.system.clear", s);
-    const context = await api.call("harnix.system.context", s);
+    await api.call("system.compact", s);
+    await api.call("system.clear", s);
+    const context = await api.call("system.context", s);
     expect(context.messages.count).toBe(0);
 
     const { entries } = await api.call("harnix.audit", { limit: 200 });
-    for (const method of ["harnix.system.rename", "harnix.system.compact", "harnix.system.clear"]) {
+    for (const method of ["system.rename", "system.compact", "system.clear"]) {
       expect(entries.some((e: any) => e.method === method && e.decision === "allow"), method).toBe(true);
     }
     // And what it asked of the engine, as the system module.
-    expect(entries.some((e: any) => e.method === "session.clear" && JSON.stringify(e.subject).includes("system"))).toBe(true);
+    expect(entries.some((e: any) => e.method === "engine.session.clear" && JSON.stringify(e.subject).includes("system"))).toBe(true);
   });
 
-  test("harnix.system.usage: what each Agent of a session used this run — the session first, then its sub-agents with their parents", TAGS, async () => {
+  test("observability.usage: what each Agent of a session used this run — the session first, then its sub-agents with their parents", TAGS, async () => {
     const s = await oneTurn(api, "sessions");
-    const usage = async () => (await api.call("harnix.system.usage", { instance: s.instance, session_ids: [s.session_id] })).sessions[s.session_id];
+    const usage = async () => (await api.call("observability.usage", { instance: s.instance, session_ids: [s.session_id] })).sessions[s.session_id];
     // A replayed session writes no recording of its own.
     expect(await usage()).toEqual({ recording: false, agents: [] });
 
@@ -162,14 +162,14 @@ test.describe("on", () => {
       { type: "end", seq: 9, ts: 3050, call: 8, outcome: { status: "ok" }, usage: { output_tokens: 7 }, duration_ms: 50 }]);
     expect((await usage()).agents[1]).toMatchObject({ calls: 2, output_tokens: 10, model_ms: 150 });
 
-    expect((await api.refused("harnix.system.usage", { instance: s.instance }))?.code).toBe(INVALID_PARAMS);
+    expect((await api.refused("observability.usage", { instance: s.instance }))?.code).toBe(INVALID_PARAMS);
     const many = Array.from({ length: 201 }, (_, i) => `s${i}`);
-    expect((await api.refused("harnix.system.usage", { instance: s.instance, session_ids: many }))?.code).toBe(INVALID_PARAMS);
+    expect((await api.refused("observability.usage", { instance: s.instance, session_ids: many }))?.code).toBe(INVALID_PARAMS);
   });
 
   test("a session's row says who started it — a person, or Harnix itself — and what it waits on a person for", TAGS, async () => {
     const row = async (instance: string, id: string) =>
-      (await api.call("harnix.instances.sessions", { instance })).sessions.find((r: any) => r.session_id === id);
+      (await api.call("harnix.sessions.list", { instance })).sessions.find((r: any) => r.session_id === id);
     const mine = await oneTurn(api, "sessions");
     expect(await row(mine.instance, mine.session_id)).toMatchObject({ started_by: "user", waiting: null });
 
@@ -177,44 +177,44 @@ test.describe("on", () => {
     expect((await row(own.instance, own.session_id))?.started_by).toBe("harnix");
 
     // A turn held on its permission ask waits on a person; answered, it does not.
-    const created = await api.call("session.create", { options: { recorder: { name: "asks-permission" } } });
+    const created = await api.call("harnix.session.create", { options: { recorder: { name: "asks-permission" } } });
     const s = { instance: created.instance, session_id: created.session_id };
-    await api.call("harnix.attach", s);
-    const sent = await api.call("harnix.send", { ...s, message: "Use the Bash tool to run exactly: touch harnix-permission-fixture" });
+    await api.call("harnix.session.attach", s);
+    const sent = await api.call("harnix.session.send", { ...s, message: "Use the Bash tool to run exactly: touch harnix-permission-fixture" });
     const ask = await api.waitFor(
       (f) => f.method === "harnix.event" && f.params.session_id === s.session_id && f.params.event.kind === "prompt",
       { timeout: 30_000, describe: "the permission ask" },
     );
     await expect.poll(async () => (await row(s.instance, s.session_id))?.waiting, { timeout: 10_000 }).toBe("approval");
-    await api.call("session.respondToPrompt", { ...s, prompt_id: ask.params.event.prompt_id, decision: { type: "deny", reason: "not in this test" } });
+    await api.call("harnix.session.respond", { ...s, prompt_id: ask.params.event.prompt_id, decision: { type: "deny", reason: "not in this test" } });
     await expect.poll(async () => (await row(s.instance, s.session_id))?.waiting ?? null, { timeout: 10_000 }).toBeNull();
     await api.waitFor((f) => f.method === "harnix.turn_settled" && f.params.turn_id === sent.turn_id, { timeout: 60_000, describe: "the turn to settle" });
   });
 
-  test("harnix.process counts the operating system's threads in the process, and is pushed while watched", TAGS, async () => {
-    const process = await api.call("harnix.process", {});
+  test("system.process counts the operating system's threads in the process, and is pushed while watched", TAGS, async () => {
+    const process = await api.call("system.process", {});
     expect(process.threads).toBeGreaterThan(1);
-    const first = await api.call("harnix.subscribe", { topic: "harnix.process" });
+    const first = await api.call("harnix.topics.subscribe", { topic: "system.process" });
     expect(first.value.threads).toBeGreaterThan(1);
     // Nothing asked again: the hub pushes it on its own clock.
-    const pushed = await api.waitFor((f) => f.method === "harnix.topic" && f.params.topic === "harnix.process", {
+    const pushed = await api.waitFor((f) => f.method === "harnix.topic" && f.params.topic === "system.process", {
       timeout: 15_000,
-      describe: "harnix.process to be pushed",
+      describe: "system.process to be pushed",
     });
     expect(pushed.params.value.uptime_secs).toBeGreaterThanOrEqual(first.value.uptime_secs);
-    await api.call("harnix.unsubscribe", { topic: "harnix.process" });
+    await api.call("harnix.topics.unsubscribe", { topic: "system.process" });
   });
 
   test("a session's model calls: its envelopes, every call with its tool calls, one in full", TAGS, async () => {
     const s = await oneTurn(api, "sessions");
     // Nothing recorded yet is an answer, not an error.
-    expect(await api.call("harnix.system.trace", s)).toEqual({ recording: false, calls: [] });
-    expect((await api.call("harnix.system.calls", s)).recording).toBe(false);
+    expect(await api.call("observability.trace", s)).toEqual({ recording: false, calls: [] });
+    expect((await api.call("observability.calls", s)).recording).toBe(false);
 
     // A replayed session writes no recording of its own: give it the one its fixture was made from,
-    // where `system`'s engine keeps them.
+    // where `main`'s engine keeps them.
     cpSync(join(RECORDINGS, "spawns-agent"), join(backend.scratch, "agix", "recordings", s.session_id), { recursive: true });
-    const trace = await api.call("harnix.system.trace", s);
+    const trace = await api.call("observability.trace", s);
     expect(trace.recording).toBe(true);
     expect(trace.calls.length).toBeGreaterThan(1);
     expect(trace.calls.map((c: any) => c.index)).toEqual(trace.calls.map((_: any, i: number) => i));
@@ -222,19 +222,19 @@ test.describe("on", () => {
     expect(agent, "the call that started the sub-agent").toBeTruthy();
     expect(agent.output.tool_uses).toBeGreaterThan(0);
 
-    const full = await api.call("harnix.system.trace.call", { ...s, index: agent.index });
+    const full = await api.call("observability.trace.call", { ...s, index: agent.index });
     expect(full.index).toBe(agent.index);
     expect(full.input.messages.length).toBe(agent.input.messages);
     expect(full.input.model).toBe(agent.model);
-    expect((await api.refused("harnix.system.trace.call", s))?.code).toBe(INVALID_PARAMS);
+    expect((await api.refused("observability.trace.call", s))?.code).toBe(INVALID_PARAMS);
     // A thing that is not there is NOT_FOUND, not "there is no such method".
-    expect((await api.refused("harnix.system.trace.call", { ...s, index: 10_000 }))?.code).toBe(NOT_FOUND);
-    const fresh = await api.call("session.create", { space: "sessions" });
+    expect((await api.refused("observability.trace.call", { ...s, index: 10_000 }))?.code).toBe(NOT_FOUND);
+    const fresh = await api.call("harnix.session.create", { space: "sessions" });
     const unrecorded = { instance: fresh.instance, session_id: fresh.session_id };
-    expect((await api.refused("harnix.system.trace.call", { ...unrecorded, index: 0 }))?.code, "no recording yet").toBe(NOT_FOUND);
-    expect((await api.call("harnix.system.trace", unrecorded)).recording).toBe(false);
+    expect((await api.refused("observability.trace.call", { ...unrecorded, index: 0 }))?.code, "no recording yet").toBe(NOT_FOUND);
+    expect((await api.call("observability.trace", unrecorded)).recording).toBe(false);
 
-    const calls = await api.call("harnix.system.calls", s);
+    const calls = await api.call("observability.calls", s);
     expect(calls.recording).toBe(true);
     expect(calls.headers[0].reason).toBe("initial");
     expect(calls.calls).toBeGreaterThanOrEqual(calls.headers.length);
@@ -242,14 +242,14 @@ test.describe("on", () => {
 
   test("the context says what the provider counted for the last call, apart from its estimates", TAGS, async () => {
     // Before any call there is nothing measured, only estimates.
-    const fresh = await api.call("session.create", { space: "sessions", options: { recorder: { name: "says-ready" } } });
-    const before = await api.call("harnix.system.context", { instance: fresh.instance, session_id: fresh.session_id });
+    const fresh = await api.call("harnix.session.create", { space: "sessions", options: { recorder: { name: "says-ready" } } });
+    const before = await api.call("system.context", { instance: fresh.instance, session_id: fresh.session_id });
     expect(before.measured).toBeUndefined();
     expect(before.total_tokens).toBeGreaterThan(0);
 
     const s = await oneTurn(api, "sessions");
-    const context = await api.call("harnix.system.context", s);
-    const info = await api.call("session.get", { ...s, space: "system" });
+    const context = await api.call("system.context", s);
+    const info = await api.call("engine.session.get", { ...s, space: "system" });
     expect(info.context?.tokens, "the turn was counted").toBeGreaterThan(0);
     expect(context.measured).toMatchObject({ tokens: info.context.tokens });
     // The estimates stay what they were: per block, for the next call.
@@ -257,17 +257,17 @@ test.describe("on", () => {
   });
 
   test("a fork cut inside a turn keeps exactly the messages asked for", TAGS, async () => {
-    const created = await api.call("session.create", { space: "sessions", options: { recorder: { name: "calls-a-tool" } } });
+    const created = await api.call("harnix.session.create", { space: "sessions", options: { recorder: { name: "calls-a-tool" } } });
     const s = { instance: created.instance, session_id: created.session_id };
-    await api.call("harnix.attach", { ...s, space: "sessions" });
-    await api.call("harnix.send", { ...s, space: "sessions", message: "Use the Bash tool to run exactly: echo harnix-fixture" });
+    await api.call("harnix.session.attach", { ...s, space: "sessions" });
+    await api.call("harnix.session.send", { ...s, space: "sessions", message: "Use the Bash tool to run exactly: echo harnix-fixture" });
     await api.waitFor((f) => f.method === "harnix.turn_settled" && f.params.session_id === s.session_id, { timeout: 60_000, describe: "the turn to settle" });
-    const history = await api.call("session.history", { ...s, space: "system" });
+    const history = await api.call("engine.session.history", { ...s, space: "system" });
     // Up to and including the model's tool call, before its result.
     const call = history.messages.findIndex((m: any) => m.role === "assistant" && JSON.stringify(m.content).includes("tool_use"));
     expect(call, "the turn called a tool").toBeGreaterThan(0);
-    const forked = await api.call("session.fork", { ...s, at_message: call + 1, space: "system" });
-    const kept = await api.call("session.history", { instance: forked.instance ?? s.instance, session_id: forked.session_id, space: "system" });
+    const forked = await api.call("harnix.session.fork", { ...s, at_message: call + 1, space: "system" });
+    const kept = await api.call("engine.session.history", { instance: forked.instance ?? s.instance, session_id: forked.session_id, space: "system" });
     expect(kept.messages.slice(0, call + 1).map((m: any) => m.role)).toEqual(history.messages.slice(0, call + 1).map((m: any) => m.role));
     expect(JSON.stringify(kept.messages.at(call)?.content)).toContain("tool_use");
     // What the cut left open is closed, not left dangling: nothing after it is the original's.
@@ -288,7 +288,7 @@ test.describe("on", () => {
       return { sent: call.ts, first: Math.min(...starts), last: Math.max(...ends), duration: end.duration_ms };
     });
 
-    const { calls } = await api.call("harnix.system.trace", s);
+    const { calls } = await api.call("observability.trace", s);
     expect(calls).toHaveLength(times.length);
     calls.forEach((call: any, i: number) => {
       expect(call.timing.sent_at, `call ${i}`).toBe(times[i]!.sent);
@@ -296,7 +296,7 @@ test.describe("on", () => {
       expect(call.timing.generate_ms, `call ${i}`).toBe(times[i]!.last - times[i]!.first);
     });
 
-    const { turns } = await api.call("harnix.system.turns", s);
+    const { turns } = await api.call("observability.turns", s);
     expect(turns).toHaveLength(1);
     const [turn] = turns;
     expect(turn.calls).toEqual([0, 1]);
@@ -307,30 +307,30 @@ test.describe("on", () => {
     const out = turn.calls.reduce((n: number, i: number) => n + (calls[i].usage?.output_tokens ?? 0), 0);
     expect(turn.output_tokens).toBe(out);
     expect(turn.cache_hit === null || (turn.cache_hit >= 0 && turn.cache_hit <= 1)).toBe(true);
-    expect((await api.refused("harnix.system.turns", {}))?.code).toBe(INVALID_PARAMS);
+    expect((await api.refused("observability.turns", {}))?.code).toBe(INVALID_PARAMS);
   });
 
   test("a session exported as markdown to read, as a bundle or the engine's archive to keep, the recording only when asked", TAGS, async () => {
     const s = await oneTurn(api, "sessions");
     const own = { ...s, space: "sessions" };
-    const md = await api.call("harnix.sessions.export", { ...own, format: "markdown" });
+    const md = await api.call("harnix-app.sessions.export", { ...own, format: "markdown" });
     expect(md.format).toBe("markdown");
     expect(md.file).toMatch(/\.md$/);
     expect(md.content).toContain("**User**\n\nSay exactly: fixture ready");
     expect(md.content).toMatch(/\*\*Assistant\*\*\n\n[\s\S]*fixture ready/i);
 
-    const history = await api.call("session.history", { ...s, space: "system" });
-    const plain = await api.call("harnix.sessions.export", { ...own, format: "bundle" });
+    const history = await api.call("engine.session.history", { ...s, space: "system" });
+    const plain = await api.call("harnix-app.sessions.export", { ...own, format: "bundle" });
     expect(plain.file).toMatch(/\.json$/);
     expect(plain.content).toMatchObject({ kind: "harnix-session", version: 1 });
     expect(plain.content.messages).toHaveLength(history.total);
     expect(plain.content.recording, "no recording unless asked").toBeUndefined();
 
     // A recording comes with the engine's archive; the bundle is Harnix's own and has none.
-    expect((await api.refused("harnix.sessions.export", { ...own, format: "bundle", recording: true }))?.code).toBe(REFUSED);
+    expect((await api.refused("harnix-app.sessions.export", { ...own, format: "bundle", recording: true }))?.code).toBe(REFUSED);
 
     // As the engine packs it (Agix #37): a zip, its manifest and the session's own files in it.
-    const archive = await api.call("harnix.sessions.export", { ...own, format: "archive" });
+    const archive = await api.call("harnix-app.sessions.export", { ...own, format: "archive" });
     expect(archive).toMatchObject({ format: "archive", encoding: "base64", recording: false });
     expect(archive.file).toMatch(/\.zip$/);
     const zip = Buffer.from(archive.content, "base64");
@@ -341,46 +341,46 @@ test.describe("on", () => {
     expect(archive.sessions).toBeGreaterThanOrEqual(1);
 
     // A session of another space is not this caller's to export; nor a format that is not one.
-    expect((await api.refused("harnix.sessions.export", { ...s, space: "fleet", format: "markdown" }))?.code).toBe(SPACE_MISMATCH);
-    expect((await api.refused("harnix.sessions.export", { ...own, format: "pdf" }))?.code).toBe(INVALID_PARAMS);
+    expect((await api.refused("harnix-app.sessions.export", { ...s, space: "fleet", format: "markdown" }))?.code).toBe(SPACE_MISMATCH);
+    expect((await api.refused("harnix-app.sessions.export", { ...own, format: "pdf" }))?.code).toBe(INVALID_PARAMS);
     const audit = await api.call("harnix.audit", { limit: 50 });
-    expect(audit.entries.some((e: any) => e.method === "harnix.sessions.export")).toBe(true);
+    expect(audit.entries.some((e: any) => e.method === "harnix-app.sessions.export")).toBe(true);
   });
 
   test("a session's model is switched from the system space, and says so", TAGS, async () => {
     const s = await oneTurn(api, "fleet");
-    await api.call("harnix.system.model", { ...s, model: "claude-haiku-5-5" });
+    await api.call("system.model", { ...s, model: "claude-haiku-5-5" });
     // What the fleet module's own session handle reads back: the engine's model for the session.
     expect((await api.call("app.fleet.model", s)).model).toBe("claude-haiku-5-5");
-    expect((await api.refused("harnix.system.model", { ...s, session_id: "no-such-session", model: "x" }))).toBeTruthy();
+    expect((await api.refused("system.model", { ...s, session_id: "no-such-session", model: "x" }))).toBeTruthy();
   });
 
   test("the system space lists every space's sessions and builds from any template", TAGS, async () => {
     const fleet = await oneTurn(api, "fleet");
-    const all = (await api.call("harnix.sessions", { space: "system" })).sessions.map((r: any) => r.session_id);
+    const all = (await api.call("harnix.sessions.list", { space: "system" })).sessions.map((r: any) => r.session_id);
     expect(all).toContain(fleet.session_id);
     // Any template, through the system module, which holds `instances.admin`; a device by itself
     // only the interface's own (`ui`), whatever space it claims.
-    const { templates } = await api.call("harnix.system.instances.templates", { space: "system" });
+    const { templates } = await api.call("system.instances.templates", { space: "system" });
     const fromSessions = (await api.call("harnix.instances.templates", {})).templates;
     expect(templates.length).toBeGreaterThanOrEqual(fromSessions.length);
     expect((await api.call("harnix.instances.templates", { space: "system" })).templates).toEqual(fromSessions);
   });
 
   test("a session made in the system space is the system space's", TAGS, async () => {
-    const created = await api.call("session.create", { space: "system", options: { recorder: { name: "says-ready" } } });
+    const created = await api.call("harnix.session.create", { space: "system", options: { recorder: { name: "says-ready" } } });
     expect(created.space).toBe("system");
-    const listed = (await api.call("harnix.sessions", { space: "sessions" })).sessions.map((r: any) => r.session_id);
+    const listed = (await api.call("harnix.sessions.list", { space: "sessions" })).sessions.map((r: any) => r.session_id);
     expect(listed).not.toContain(created.session_id);
   });
 
-  test("an instance restarts from where it was built; `system` does not", TAGS, async () => {
-    expect((await api.refused("harnix.system.instances.restart", { instance: "system", space: "system" }))?.code).toBe(REFUSED);
+  test("an instance restarts from where it was built; `main` does not", TAGS, async () => {
+    expect((await api.refused("system.instances.restart", { instance: "main", space: "system" }))?.code).toBe(REFUSED);
     // Not the interface's to restart, from any space: a device holds no capability. The system
     // module, holding `instances.admin`, restarts it for the system space.
     expect((await api.refused("harnix.instances.restart", { instance: "fleet-side" }))?.code).toBe(REFUSED);
     expect((await api.refused("harnix.instances.restart", { instance: "fleet-side", space: "system" }))?.code).toBe(REFUSED);
-    const restarted = await api.call("harnix.system.instances.restart", { instance: "fleet-side", space: "system" });
+    const restarted = await api.call("system.instances.restart", { instance: "fleet-side", space: "system" });
     expect(restarted.id).toBe("fleet-side");
     await until(api, "fleet-side", "ready");
     await oneTurn(api, "fleet");
@@ -388,7 +388,7 @@ test.describe("on", () => {
     // On the record as the system module's, made while answering the device's call.
     const made = entries.find((e: any) => e.method === "harnix.instances.restart" && e.decision === "allow");
     expect(made).toMatchObject({ subject: "ext:system" });
-    expect(made.parent).toBe(entries.find((e: any) => e.method === "harnix.system.instances.restart" && e.decision === "allow")?.call_id);
+    expect(made.parent).toBe(entries.find((e: any) => e.method === "system.instances.restart" && e.decision === "allow")?.call_id);
   });
 });
 
@@ -408,15 +408,15 @@ test.describe("off", () => {
   test("the methods leave the authorization table, and the space cannot be claimed", TAGS, async () => {
     const { methods } = await api.call("harnix.reachable");
     // The inspector's tabs are what the recordings show, which outlive the system space.
-    const inspector = ["harnix.system.calls", "harnix.system.trace", "harnix.system.trace.call", "harnix.system.turns", "harnix.system.usage"];
+    const inspector = ["observability.calls", "observability.trace", "observability.trace.call", "observability.turns", "observability.usage"];
     for (const method of SYSTEM_METHODS.filter((m) => !inspector.includes(m))) expect(methods, method).not.toContain(method);
-    const created = await api.call("session.create", { space: "sessions" });
+    const created = await api.call("harnix.session.create", { space: "sessions" });
     const s = { instance: created.instance, session_id: created.session_id };
-    const error = await api.refused("harnix.system.context", s);
+    const error = await api.refused("system.context", s);
     expect([METHOD_NOT_FOUND, REFUSED]).toContain(error?.code);
 
-    expect((await api.refused("harnix.sessions", { space: "system" }))?.code).toBe(SPACE_MISMATCH);
-    expect((await api.refused("harnix.attach", { ...s, space: "system" }))?.code).toBe(SPACE_MISMATCH);
+    expect((await api.refused("harnix.sessions.list", { space: "system" }))?.code).toBe(SPACE_MISMATCH);
+    expect((await api.refused("harnix.session.attach", { ...s, space: "system" }))?.code).toBe(SPACE_MISMATCH);
     expect((await api.refused("harnix.instances.restart", { instance: "fleet-side", space: "system" }))?.code).toBe(SPACE_MISMATCH);
   });
 });

@@ -24,10 +24,10 @@ test.describe.configure({ mode: "serial" });
 /** Upload a fixture package and have the engine install it. */
 export async function install(api: TestClient, backend: Backend, name: string): Promise<void> {
   const zip = readFileSync(join(PACKAGES, `${name}.zip`));
-  const grant = await api.call("harnix.plugins.upload", { name: `${name}.zip` });
+  const grant = await api.call("plugins.upload", { name: `${name}.zip` });
   const uploaded = await fetch(`${backend.url.replace(/\/$/, "")}${grant.url}`, { method: "POST", body: zip });
   expect(uploaded.ok, `upload of ${name}`).toBe(true);
-  await api.call("harnix.plugins.install", { path: grant.path, name, version: "1.0.0", checksum: createHash("sha256").update(zip).digest("hex") });
+  await api.call("plugins.install", { path: grant.path, name, version: "1.0.0", checksum: createHash("sha256").update(zip).digest("hex") });
 }
 
 test.describe("runtime modules on", () => {
@@ -45,7 +45,7 @@ test.describe("runtime modules on", () => {
   });
 
   test("a v2 module is offered and served; a v1 one does not take, and says why", TAGS, async () => {
-    const listed = await api.call("harnix.plugins.list");
+    const listed = await api.call("plugins.list");
     const v1 = listed.contributes.find((c: any) => c.plugin === "demo-rows");
     const v2 = listed.contributes.find((c: any) => c.plugin === "demo-rows-v2");
     expect(v1.ui).toEqual([]);
@@ -114,21 +114,21 @@ test.describe("a package's lifecycle", () => {
   test("disabled, its interface module is neither offered nor served; enabled, both again; uninstalled, gone", TAGS, async () => {
     expect(await offered()).toMatchObject({ contributions: [{ plugin: "demo-rows-v2" }], served: 200 });
 
-    await api.call("harnix.plugins.disable", { name: "demo-rows-v2" });
+    await api.call("plugins.disable", { name: "demo-rows-v2" });
     const disabled = await offered();
     expect(disabled.contributions).toEqual([]);
     expect(disabled.served).not.toBe(200);
-    const listed = (await api.call("harnix.plugins.list")).plugins.find((p: any) => p.name === "demo-rows-v2");
+    const listed = (await api.call("plugins.list")).plugins.find((p: any) => p.name === "demo-rows-v2");
     expect(listed, "a disabled package is still installed").toBeTruthy();
 
-    await api.call("harnix.plugins.enable", { name: "demo-rows-v2" });
+    await api.call("plugins.enable", { name: "demo-rows-v2" });
     expect(await offered()).toMatchObject({ contributions: [{ plugin: "demo-rows-v2" }], served: 200 });
 
-    await api.call("harnix.plugins.uninstall", { name: "demo-rows-v2" });
+    await api.call("plugins.uninstall", { name: "demo-rows-v2" });
     const gone = await offered();
     expect(gone.contributions).toEqual([]);
     expect(gone.served).not.toBe(200);
-    expect((await api.call("harnix.plugins.list")).plugins.some((p: any) => p.name === "demo-rows-v2")).toBe(false);
+    expect((await api.call("plugins.list")).plugins.some((p: any) => p.name === "demo-rows-v2")).toBe(false);
   });
 });
 
@@ -157,7 +157,7 @@ test.describe("runtime modules off", () => {
     const module = await fetch(`${backend.url}plugins/demo-rows-v2/ui/rows.js`);
     expect(module.status).not.toBe(200);
     // The package itself is installed and the engine's: only its interface is off.
-    const listed = await api.call("harnix.plugins.list");
+    const listed = await api.call("plugins.list");
     expect(listed.plugins.map((p: any) => p.name)).toContain("demo-rows-v2");
   });
 });

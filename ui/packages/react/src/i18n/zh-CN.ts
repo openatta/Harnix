@@ -234,7 +234,7 @@ const zhCN: Record<string, string> = {
   "settings.mcpConnected": "已连接",
   "settings.mcpDisconnected": "未连接",
   "settings.mcpTools": "{count} 个工具",
-  "settings.mcpAddHint": "新增服务器需要 mcp.addServer —— 那等价于装一个能跑子进程的工具，会放在带确认的入口后面",
+  "settings.mcpAddHint": "新增服务器需要 engine.mcp.addServer —— 那等价于装一个能跑子进程的工具，会放在带确认的入口后面",
   "settings.plugins": "插件",
   "settings.pluginsNone": "没有安装插件",
   "settings.engine": "引擎",

@@ -223,5 +223,68 @@ for (const file of tracked) {
 if (cited.length) fail(`citations a reader cannot follow, or retired words:\n  ${cited.join("\n  ")}`);
 else ok(`${read} source files, none citing the removed design record or using a retired word`);
 
+/* ── the 0.4 wire names are gone ────────────────────────────────────────── */
+// 0.5.0 names every method and topic once: the kernel's `harnix.<area>.<verb>`, the engine's
+// pass-throughs `engine.*`, an extension's under its id. A caller that still says a 0.4 name
+// calls nothing: there is no alias to answer it. The engine's own names (`session.list`, …) are
+// still the engine's in the crates that speak to Agix, so those are only refused where they are
+// quoted whole anywhere else.
+const family = (prefix, names) => names.split(/\s+/).map((n) => prefix + n);
+const OLD_NAMES = [
+  ...family("harnix.settings.", "describe set setProvider"),
+  ...family("harnix.plugins.", "upload install uninstall enable disable reload list"),
+  ...family(
+    "harnix.system.",
+    "trace trace.call turns usage calls context messages.drop messages.edit tasks.stop tasks.message tasks.output compact clear model rename goal goal.set goal.update instances.stop instances.restart instances.create instances.templates",
+  ),
+  ...family("harnix.devices.", "list pair.begin pair.complete revoke"),
+  ...family("harnix.workspaces.", "list create update reorder remove"),
+  ...family("harnix.sessions.", "archive export rename setModel tasks move"),
+  ...family(
+    "harnix.",
+    "sessions requestHeaders upload.begin process search listDirectory recentProjects files projects.create prefs.set attach detach send queue.remove queue.edit subscribe unsubscribe entries.append prompts.answerer",
+  ),
+  ...family(
+    "app.flow.",
+    "list get history defs def schema catalog validate save delete parts part part.save part.delete hooks focus session sessions guide pause resume dry_run.start dry_run.step dry_run.run dry_run.list start cancel proposal claim heartbeat submit fail retry confirm force rework release runs run dry_runs",
+  ),
+];
+const ENGINE_NAMES = [
+  ...family(
+    "session.",
+    "list get history entries resume tasks taskOutput inspectContext goal stopTask messageTask dropMessages editMessage compact clear setModel rename setGoal updateGoal export run_turn subscribe unsubscribe create interrupt close delete fork respondToPrompt",
+  ),
+  ...family("scene.", "list describe activate"),
+  ...family("config.", "get getProvider set setProvider update reload"),
+  ...family("plugin.", "list install uninstall enable disable reload"),
+  ...family("daemon.", "status ping doctor subscribeEvents shutdown"),
+  ...family("import.", "run list"),
+  ...family("mcp.", "status addServer"),
+  "commands.list",
+];
+const esc = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const oldWhole = new RegExp(`(?<![\\w.$@/-])(${OLD_NAMES.map(esc).join("|")})(?![\\w-]|\\.[A-Za-z_])`);
+const engineQuoted = new RegExp(`(?<=["'\`])(${ENGINE_NAMES.map(esc).join("|")})(?=["'\`])`);
+const agixFacing = /^crates\/(engine|engine-api|instance|builtin)\/|^crates\/hub\/src\/replay\.rs$/;
+const everything = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 28 }).split("\0").filter(Boolean);
+const named = [];
+for (const file of everything) {
+  // The two files that list the old names, to refuse them and to rewrite them.
+  if (file === "tests/style-lint.mjs" || file === "scripts/rewrite-recordings.mjs" || file.startsWith("agix/") || !textual.test(file)) continue;
+  if (file.includes("/recordings/") && file.endsWith(".jsonl")) continue;
+  let body;
+  try {
+    body = readFileSync(join(root, file), "utf8");
+  } catch {
+    continue;
+  }
+  body.split("\n").forEach((line, i) => {
+    const old = line.match(oldWhole)?.[1] ?? (agixFacing.test(file) ? undefined : line.match(engineQuoted)?.[1]);
+    if (old) named.push(`${file}:${i + 1} says \`${old}\``);
+  });
+}
+if (named.length) fail(`0.4 wire names, which nothing answers any more:\n  ${named.slice(0, 20).join("\n  ")}`);
+else ok(`${everything.length} tracked files, none saying a 0.4 wire name`);
+
 console.log(process.exitCode ? "\nSTYLE LINT FAILED" : "\nSTYLE LINT PASSED");
 process.exit(process.exitCode || 0);

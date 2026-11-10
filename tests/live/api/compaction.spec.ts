@@ -26,10 +26,10 @@ test.afterAll(async () => {
 
 /** A session with `turns` replayed turns behind it. */
 export async function longSession(client: TestClient, turns: number): Promise<string> {
-  const { session_id } = await client.call("session.create", { project_root: client.project, options: { recorder: { name: "many-turns" } } });
-  await client.call("harnix.attach", { session_id });
+  const { session_id } = await client.call("harnix.session.create", { project_root: client.project, options: { recorder: { name: "many-turns" } } });
+  await client.call("harnix.session.attach", { session_id });
   for (let i = 0; i < turns; i += 1) {
-    const { turn_id } = await client.call("harnix.send", { session_id, message: `Say exactly: fixture ready (${i})` });
+    const { turn_id } = await client.call("harnix.session.send", { session_id, message: `Say exactly: fixture ready (${i})` });
     await client.waitFor((f) => f.method === "harnix.turn_settled" && f.params.turn_id === turn_id, { timeout: 30_000, describe: `turn ${i} to settle` });
   }
   return session_id;
@@ -38,10 +38,10 @@ export async function longSession(client: TestClient, turns: number): Promise<st
 test("a compaction is told as it happens, what replaced the older messages stays in the transcript, and a device opening it reads that", TAGS, async () => {
   const session_id = await longSession(api, 8);
   try {
-    const before = await api.call("session.history", { session_id });
+    const before = await api.call("engine.session.history", { session_id });
     expect(before.messages.some((m: any) => m.origin === "compact")).toBe(false);
     const mark = api.events.length;
-    await api.call("harnix.system.compact", { instance: "system", session_id });
+    await api.call("system.compact", { instance: "main", session_id });
 
     const event = await api.waitFor(
       (f) => f.method === "harnix.event" && f.params.session_id === session_id && f.params.event?.kind === "compact" && api.events.indexOf(f) >= mark,
@@ -52,7 +52,7 @@ test("a compaction is told as it happens, what replaced the older messages stays
     expect(told.messages_before).toBe(before.total);
     expect(typeof told.strategy).toBe("string");
 
-    const after = await api.call("session.history", { session_id });
+    const after = await api.call("engine.session.history", { session_id });
     const compacted = after.messages.filter((m: any) => m.origin === "compact");
     expect(compacted.length, "what replaced the older messages is in the transcript").toBeGreaterThan(0);
     expect(after.total).toBe(told.messages_after);
@@ -61,7 +61,7 @@ test("a compaction is told as it happens, what replaced the older messages stays
     // the transcript got shorter, and that is it having caught up, not it lagging behind.
     const fresh = await connect(backend);
     try {
-      const attached = await fresh.call("harnix.attach", { session_id });
+      const attached = await fresh.call("harnix.session.attach", { session_id });
       expect(attached.history_total).toBe(after.total);
       expect(attached.replay).toEqual([]);
     } finally {

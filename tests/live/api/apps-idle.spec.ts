@@ -97,7 +97,7 @@ test.describe("an application whose backend idles", () => {
 
   test("idle, it hibernates; a call starts it again, its store kept and its memory not", TAGS, async () => {
     await api.call("harnix.apps.installFile", { path: onDemand(scratch, "idle") });
-    await api.call("harnix.subscribe", { topic: "harnix.apps" });
+    await api.call("harnix.topics.subscribe", { topic: "harnix.apps" });
     expect(await stateOf(api)).toBe("running");
     await api.call(M("notes.add"), { text: "kept in the store" });
     expect((await api.call(M("counter.bump"))).counter).toBe(1);

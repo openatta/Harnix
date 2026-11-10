@@ -247,8 +247,8 @@ async fn an_extension_reaches_the_process_through_the_interface_alone() {
     assert_eq!(clock.next().await, Some(TopicValue::Value(json!({"by": ID}))));
 
     // The engine, as facts.
-    let main = cx.engine("system").expect("the main instance");
-    assert_eq!(main.instance(), "system");
+    let main = cx.engine("main").expect("the main instance");
+    assert_eq!(main.instance(), "main");
     assert!(!main.active_scenes().is_empty());
     let _ = main.model();
     assert!(!main.trust().is_extension());

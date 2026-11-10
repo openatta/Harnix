@@ -1,4 +1,4 @@
-//! Step 4: the instances — `system`, with the native contributions of the extensions still enabled;
+//! Step 4: the instances — `main`, with the native contributions of the extensions still enabled;
 //! the profile's `[[instances]]`; and the registry the ledger's are built from later.
 
 use std::collections::BTreeMap;
@@ -21,9 +21,9 @@ use crate::profile::Profile;
 /// are there from the start.
 pub(super) struct Instances {
     pub registry: RegistryConfig,
-    /// The system instance, built in this process from the profile's `[engine]`.
-    pub system: Built,
-    /// The system instance's history: where audit entries are filed.
+    /// The main instance, built in this process from the profile's `[engine]`.
+    pub main: Built,
+    /// The main instance's history: where audit entries are filed.
     pub history: Option<Arc<dyn HistoryStore>>,
     /// The profile's `[[instances]]`, each built or down with its reason.
     pub fixed: Vec<(String, Built)>,
@@ -52,7 +52,7 @@ pub(super) async fn build(
         permission_prompt_timeout_secs: engine_profile.permission_prompt_timeout_secs,
         data_root: roots.engine.clone(),
         cwd: None,
-        instance: harnix_contract::SYSTEM_INSTANCE.to_string(),
+        instance: harnix_contract::MAIN_INSTANCE.to_string(),
         contrib: {
             let mut contrib = lifecycle::main_contribution(records);
             apps.engine(&mut contrib);
@@ -66,12 +66,12 @@ pub(super) async fn build(
         "engine ready (in-process)"
     );
     let history = engine.history.clone();
-    let system = registry.factory.in_process(harnix_hub::SYSTEM, engine).await;
+    let main = registry.factory.in_process(harnix_hub::MAIN, engine).await;
 
     let fixed = fixed(profile, &mut registry).await?;
     Ok(Instances {
         registry,
-        system,
+        main,
         history,
         fixed,
     })
@@ -95,7 +95,7 @@ fn registry(
         Arc::new(move |name: &str| credentials.get(name).ok().map(|s| s.expose().to_string()))
     };
     let mut factory = Factory::new(resolve)?;
-    // A template that inherits providers inherits the system instance's.
+    // A template that inherits providers inherits the main instance's.
     factory.providers_from = Some(roots.engine.clone());
     factory.recording = recording;
     // What the extensions give every engine built in this process.
@@ -105,7 +105,7 @@ fn registry(
     apps.factory(&mut factory);
     let mut registry = RegistryConfig {
         templates: BTreeMap::new(),
-        ledger: Ledger::load(roots.state.join("instances.json"))?,
+        ledger: Ledger::load(roots.state.join("kernel").join("instances.json"))?,
         factory,
         instances_dir: roots.state.join("instances"),
         disabled: records
@@ -166,10 +166,10 @@ async fn fixed(profile: &Profile, registry: &mut RegistryConfig) -> anyhow::Resu
     Ok(fixed)
 }
 
-/// An `[[instances]]` id: never `system`, and only what an instance id may be.
+/// An `[[instances]]` id: never `main`, and only what an instance id may be.
 fn check_id(id: &str) -> anyhow::Result<()> {
-    if id == harnix_hub::SYSTEM {
-        anyhow::bail!("[[instances]] cannot be called `system`: that is the profile's [engine]");
+    if id == harnix_hub::MAIN {
+        anyhow::bail!("[[instances]] cannot be called `main`: that is the profile's [engine]");
     }
     harnix_instance::templates::check_value("[[instances]] id", id).map_err(anyhow::Error::msg)
 }
@@ -189,12 +189,12 @@ fn down(carrier: InstanceCarrier, reason: String) -> Built {
 mod tests {
     use super::*;
 
-    /// `system` is the profile's `[engine]`, never an `[[instances]]` entry; an id is checked
+    /// `main` is the profile's `[engine]`, never an `[[instances]]` entry; an id is checked
     /// before anything is built from it.
     #[test]
     fn an_instance_cannot_be_called_system() {
-        let e = check_id(harnix_hub::SYSTEM).unwrap_err();
-        assert!(e.to_string().contains("cannot be called `system`"), "{e}");
+        let e = check_id(harnix_hub::MAIN).unwrap_err();
+        assert!(e.to_string().contains("cannot be called `main`"), "{e}");
         assert!(check_id("worker").is_ok());
         assert!(check_id("../up").is_err());
     }

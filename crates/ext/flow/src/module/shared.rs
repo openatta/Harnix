@@ -496,7 +496,7 @@ pub fn session_name(s: &SessionRef) -> String {
     format!("{}/{}", s.instance, s.session_id)
 }
 
-/// The session a run record names. A bare id is on `system`.
+/// The session a run record names. A bare id is on `main`.
 pub fn session_ref(name: &str) -> SessionRef {
     match name.split_once('/') {
         Some((instance, id)) if !instance.is_empty() && !id.is_empty() => SessionRef {
@@ -519,7 +519,7 @@ impl Shared {
         Shared::new(
             Config {
                 space: "flow".into(),
-                instance: "system".into(),
+                instance: "main".into(),
                 scenes: vec![],
                 programs: None,
                 gates: None,
@@ -579,7 +579,7 @@ mod tests {
     fn a_binding_is_dropped_only_by_its_own_claim() {
         let sh = shared();
         let b = |token: &str| Binding {
-            instance: "system".into(),
+            instance: "main".into(),
             run: "r-1".into(),
             station: "a".into(),
             round: 1,
@@ -611,25 +611,25 @@ mod tests {
     #[test]
     fn a_conversation_remembers_its_flow_until_it_is_cleared() {
         let sh = shared();
-        assert_eq!(sh.focus("system", "s1"), None);
-        sh.set_focus("system", "s1", Some("demo".into()));
-        sh.set_focus("system", "s2", Some("other".into()));
-        assert_eq!(sh.focus("system", "s1").as_deref(), Some("demo"));
+        assert_eq!(sh.focus("main", "s1"), None);
+        sh.set_focus("main", "s1", Some("demo".into()));
+        sh.set_focus("main", "s2", Some("other".into()));
+        assert_eq!(sh.focus("main", "s1").as_deref(), Some("demo"));
         assert_eq!(sh.focus("side", "s1"), None, "per instance and session");
         assert_eq!(
             sh.focused_on("demo"),
-            [("system".to_string(), "s1".to_string())]
+            [("main".to_string(), "s1".to_string())]
         );
-        sh.set_focus("system", "s1", None);
-        assert_eq!(sh.focus("system", "s1"), None);
+        sh.set_focus("main", "s1", None);
+        assert_eq!(sh.focus("main", "s1"), None);
         assert!(super::super::NO_FOCUS.contains("select"));
         for i in 0..FOCUS_KEPT + 10 {
-            sh.set_focus("system", &format!("many-{i}"), Some("demo".into()));
+            sh.set_focus("main", &format!("many-{i}"), Some("demo".into()));
         }
         assert_eq!(sh.focus_len(), FOCUS_KEPT, "bounded");
-        assert_eq!(sh.focus("system", "s2"), None, "the oldest went first");
+        assert_eq!(sh.focus("main", "s2"), None, "the oldest went first");
         assert_eq!(
-            sh.focus("system", &format!("many-{}", FOCUS_KEPT + 9))
+            sh.focus("main", &format!("many-{}", FOCUS_KEPT + 9))
                 .as_deref(),
             Some("demo")
         );
@@ -664,12 +664,12 @@ mod tests {
     #[test]
     fn session_names_round_trip() {
         let s = SessionRef {
-            instance: "system".into(),
+            instance: "main".into(),
             session_id: "abc".into(),
         };
-        assert_eq!(session_name(&s), "system/abc");
-        assert_eq!(session_ref("system/abc"), s);
-        assert_eq!(session_ref("abc"), s, "a bare id is on system");
+        assert_eq!(session_name(&s), "main/abc");
+        assert_eq!(session_ref("main/abc"), s);
+        assert_eq!(session_ref("abc"), s, "a bare id is on main");
     }
 
     /// Stopping waits for the module's tasks, and each of them stops waiting on what it waited

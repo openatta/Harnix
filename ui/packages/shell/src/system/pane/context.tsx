@@ -25,11 +25,11 @@ export function ContextTab({ app, view, session }: { app: App; view: View; sessi
     const load = async () => {
       try {
         const [ctx, first] = await Promise.all([
-          app.call<Context>("harnix.system.context", target),
-          app.call<{ total: number }>("session.history", { ...target, space: SYSTEM, offset: 0, limit: 1 }),
+          app.call<Context>("system.context", target),
+          app.call<{ total: number }>("engine.session.history", { ...target, space: SYSTEM, offset: 0, limit: 1 }),
         ]);
         const offset = Math.max(0, first.total - 50);
-        const page = await app.call<{ messages: HistoryMessage[]; total: number }>("session.history", { ...target, space: SYSTEM, offset, limit: 50 });
+        const page = await app.call<{ messages: HistoryMessage[]; total: number }>("engine.session.history", { ...target, space: SYSTEM, offset, limit: 50 });
         if (!alive) return;
         setContext(ctx);
         setHistory({ messages: page.messages ?? [], total: page.total });
@@ -133,7 +133,7 @@ export function ContextTab({ app, view, session }: { app: App; view: View; sessi
                   title={tr("system.editMessage")}
                   onClick={() =>
                     renameDialog(app, tr("system.editMessage"), text, async (value) => {
-                      await app.call("harnix.system.messages.edit", { ...target, at: message.seq, text: value, total });
+                      await app.call("system.messages.edit", { ...target, at: message.seq, text: value, total });
                       again();
                     })
                   }
@@ -149,7 +149,7 @@ export function ContextTab({ app, view, session }: { app: App; view: View; sessi
                 onClick={() =>
                   void act(app, async () => {
                     // `at_message` is how many to keep: this one and everything before it.
-                    const forked = await app.call<{ session_id: string; instance?: string }>("session.fork", { ...target, at_message: message.seq + 1, space: SYSTEM });
+                    const forked = await app.call<{ session_id: string; instance?: string }>("harnix.session.fork", { ...target, at_message: message.seq + 1, space: SYSTEM });
                     void app.refreshSessions();
                     view.select({ kind: "session", instance: forked.instance ?? session.instance, sessionId: forked.session_id });
                   })
@@ -165,7 +165,7 @@ export function ContextTab({ app, view, session }: { app: App; view: View; sessi
                   title={tr("system.dropMessage")}
                   onClick={() =>
                     void act(app, async () => {
-                      await app.call("harnix.system.messages.drop", { ...target, at: [message.seq], total });
+                      await app.call("system.messages.drop", { ...target, at: [message.seq], total });
                       again();
                     })
                   }

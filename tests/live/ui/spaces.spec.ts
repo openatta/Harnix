@@ -104,7 +104,7 @@ test("a deleted current session falls back to its own space's list, not another'
   const notes = await startReplaying(page);
   await page.evaluate(async (key) => {
     const { app } = (window as any).harnix;
-    await app.call("session.delete", { instance: key.instance, session_id: key.sessionId, space: "notes" });
+    await app.call("harnix.session.delete", { instance: key.instance, session_id: key.sessionId, space: "notes" });
   }, notes);
   await inSpace(page, "greeter");
   await inSpace(page, "notes");
@@ -118,7 +118,7 @@ test("a session cannot be reached from another space", TAGS, async ({ page }) =>
   const refused = await page.evaluate(async (key) => {
     const { client } = (window as any).harnix;
     try {
-      await client.call("harnix.attach", { instance: key.instance, session_id: key.sessionId, space: "notes" });
+      await client.call("harnix.session.attach", { instance: key.instance, session_id: key.sessionId, space: "notes" });
       return null;
     } catch (e: any) {
       return { code: e.code, message: e.message };
@@ -141,7 +141,7 @@ test("two tabs in two spaces do not cross", TAGS, async ({ page, context }) => {
   await expect(reply(other)).toContainText(/fixture ready/i, { timeout: 30_000 });
   const lists = await page.evaluate(async () => {
     const { app } = (window as any).harnix;
-    const ids = async (space: string) => (await app.call("harnix.sessions", { space })).sessions.map((s: any) => s.session_id);
+    const ids = async (space: string) => (await app.call("harnix.sessions.list", { space })).sessions.map((s: any) => s.session_id);
     return { greeter: await ids("greeter"), notes: await ids("notes") };
   });
   expect(lists.greeter).toContain(greeter.sessionId);
@@ -169,7 +169,7 @@ test("the projects space lists the session space's conversations by project, one
   const roots = await page.evaluate(async () => {
     const { app } = (window as any).harnix;
     const made: string[] = [];
-    for (const name of [`alpha-${Date.now()}`, `beta-${Date.now()}`]) made.push((await app.call("harnix.projects.create", { name })).path);
+    for (const name of [`alpha-${Date.now()}`, `beta-${Date.now()}`]) made.push((await app.call("harnix-app.projects.create", { name })).path);
     await app.refreshSessions();
     return made;
   });
@@ -247,7 +247,7 @@ test("entry-card: a long job's progress arrives on its topic, and its result is 
 
   // And it is not the model's.
   const context = await page.evaluate(
-    (key) => (window as any).harnix.app.call("session.history", { instance: key.instance, session_id: key.sessionId, space: "greeter" }),
+    (key) => (window as any).harnix.app.call("engine.session.history", { instance: key.instance, session_id: key.sessionId, space: "greeter" }),
     key,
   );
   expect(JSON.stringify(context.messages)).not.toContain("counted to");

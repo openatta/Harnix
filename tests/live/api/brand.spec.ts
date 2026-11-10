@@ -1,7 +1,7 @@
 /**
  * What a product says about itself (concept §5.10): `[brand]` — its name, its icon, and
  * the id its own directory is named after — and `[shell] spaces`, which of the built-in spaces it
- * keeps. Plus `harnix.process`, the system space's strip: versions, uptime, memory, and who is
+ * keeps. Plus `system.process`, the system space's strip: versions, uptime, memory, and who is
  * connected.
  */
 
@@ -65,13 +65,16 @@ test("a product switches off the extensions whose spaces it does not want, and t
   const backend = await startHarnix(launchFor("replay", { profile: '\n[extensions]\noff = ["system", "flow"]\n' }));
   try {
     const api = await connect(backend);
-    const { shell } = await api.call("harnix.hello");
-    expect(shell.spaces).toEqual(["sessions", "projects"]);
+    const { extensions } = await api.call("harnix.hello");
+    const enabled = extensions.filter((e: any) => e.enabled).map((e: any) => e.id);
+    expect(enabled).toContain("harnix-app");
+    expect(enabled).not.toContain("system");
+    expect(enabled).not.toContain("flow");
     const reachable = (await api.call("harnix.reachable")).methods as string[];
     expect(reachable.some((m) => m.startsWith("system."))).toBe(false);
-    expect(reachable).not.toContain("harnix.system.compact");
-    const created = await api.call("session.create", { space: "sessions" });
-    const refused = await api.refused("harnix.attach", { instance: created.instance, session_id: created.session_id, space: "system" });
+    expect(reachable).not.toContain("system.compact");
+    const created = await api.call("harnix.session.create", { space: "sessions" });
+    const refused = await api.refused("harnix.session.attach", { instance: created.instance, session_id: created.session_id, space: "system" });
     expect(refused?.code).toBe(SPACE_MISMATCH);
     api.close();
   } finally {
@@ -80,12 +83,12 @@ test("a product switches off the extensions whose spaces it does not want, and t
   await expect(startHarnix(launchFor("replay", { profile: '\n[shell]\nspaces = ["sessions"]\n' }))).rejects.toThrow(/spaces/);
 });
 
-test("harnix.process: versions, uptime, peak memory, and every connected user", SHELL, async () => {
+test("system.process: versions, uptime, peak memory, and every connected user", SHELL, async () => {
   const backend = await startHarnix(launchFor("replay"));
   try {
     const one = await connect(backend);
     const two = await connect(backend);
-    const process = await one.call("harnix.process");
+    const process = await one.call("system.process");
     expect(process.harnix).toMatch(/^0\.4\.\d+-\d{10}$/);
     expect(typeof process.agix).toBe("string");
     expect(process.uptime_secs).toBeGreaterThanOrEqual(0);
@@ -99,9 +102,9 @@ test("harnix.process: versions, uptime, peak memory, and every connected user", 
       // the transport's idle sweep ends it — streams closed and no `/rpc` for SPLIT_IDLE, five
       // minutes (crates/transport/src/session.rs, whose unit test covers the sweep).
       await sleep(500);
-      expect((await one.call("harnix.process")).connections.length).toBe(process.connections.length);
+      expect((await one.call("system.process")).connections.length).toBe(process.connections.length);
     } else {
-      await expect.poll(async () => (await one.call("harnix.process")).connections.length).toBe(process.connections.length - 1);
+      await expect.poll(async () => (await one.call("system.process")).connections.length).toBe(process.connections.length - 1);
     }
     one.close();
   } finally {

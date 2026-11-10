@@ -25,13 +25,13 @@ const OTHER_ENGINE = "wasmtime-0.0.0+elsewhere+000000000000";
 type Session = { instance: string; session_id: string };
 
 async function session(api: TestClient, recording: string): Promise<Session> {
-  const created = await api.call("session.create", {
-    instance: "system",
+  const created = await api.call("harnix.session.create", {
+    instance: "main",
     project_root: api.project,
     options: { recorder: { name: recording } },
   });
-  const s = { instance: "system", session_id: created.session_id };
-  await api.call("harnix.attach", s);
+  const s = { instance: "main", session_id: created.session_id };
+  await api.call("harnix.session.attach", s);
   return s;
 }
 
@@ -179,7 +179,7 @@ test.describe("the store, trusted", () => {
     expect((await api.refused("harnix.apps.install", { id: SHOWCASE_ID, version: "9.9.9" }))?.message).toContain("no version 9.9.9");
     expect((await api.refused("harnix.apps.install", {}))?.code).toBe(INVALID_PARAMS);
     expect((await api.refused("harnix.apps.update", { id: SHOWCASE_ID }))?.message).toContain("no application");
-    const plugins = (await api.call("plugin.list")).plugins.map((p: any) => p.name);
+    const plugins = (await api.call("engine.plugin.list")).plugins.map((p: any) => p.name);
     expect(plugins).not.toContain("example-showcase");
   });
 
@@ -197,7 +197,7 @@ test.describe("the store, trusted", () => {
         fs: ["${project}"],
         net: ["api.showcase.test"],
         env: ["SHOWCASE_TOKEN"],
-        hub: ["session.create", "harnix.send", "topic:harnix.sessions.status", "harnix.entries.append"],
+        hub: ["harnix.session.create", "harnix.session.send", "topic:harnix.sessions.status", "harnix.session.entries.append"],
       },
       component: { world: "harnix:app/backend-app@0.1.0" },
       // A store's application runs its interface in isolated frames, never in the page.
@@ -206,7 +206,7 @@ test.describe("the store, trusted", () => {
         { point: "home.card", module: "showcase.js" },
         { point: "space", module: "showcase.js" },
       ],
-      agent: { package: "example-showcase", install_into: ["system"] },
+      agent: { package: "example-showcase", install_into: ["main"] },
     });
     expect(disclosed.disclosure.lines.map((l: any) => l.capability)).toEqual([
       "net",
@@ -299,14 +299,14 @@ test.describe("the store, trusted", () => {
 
   test("uninstalled by name: everything it brought goes, its data with it", TAGS, async () => {
     const removed = await api.call("harnix.apps.uninstall", { id: SHOWCASE_ID });
-    expect(removed).toMatchObject({ id: SHOWCASE_ID, uninstalled: true, removed: { agent: { package: "example-showcase" }, skills: { system: ["showcase-tour"] } } });
+    expect(removed).toMatchObject({ id: SHOWCASE_ID, uninstalled: true, removed: { agent: { package: "example-showcase" }, skills: { main: ["showcase-tour"] } } });
     expect((await api.call("harnix.apps.list")).apps).toEqual([]);
-    expect((await api.call("plugin.list")).plugins.map((p: any) => p.name)).not.toContain("example-showcase");
-    expect(JSON.stringify(await api.call("commands.list", { instance: "system" }))).not.toContain("showcase-tour");
+    expect((await api.call("engine.plugin.list")).plugins.map((p: any) => p.name)).not.toContain("example-showcase");
+    expect(JSON.stringify(await api.call("engine.commands.list", { instance: "main" }))).not.toContain("showcase-tour");
     expect(existsSync(join(backend.state, "apps", SHOWCASE_ID)), "its directory, kv and data").toBe(false);
     expect((await fetch(`${backend.url.replace(/\/$/, "")}/apps/${SHOWCASE_ID}/ui/showcase.js`)).status).toBe(404);
     const s = await session(api, "says-ready");
-    const context = JSON.stringify(await api.call("harnix.system.context", s));
+    const context = JSON.stringify(await api.call("system.context", s));
     expect(context).not.toContain(TOOL("echo"));
     // Installed again, it starts from nothing: the count with it.
     await installByName(api, "0.1.0");

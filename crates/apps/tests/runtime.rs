@@ -3,7 +3,7 @@
 //! can fail, undone.
 //!
 //! The process around it is a stand-in kernel that answers the engine methods the runtime calls
-//! (`plugin.install` and friends) and records them, with one instance, `system`, whose data root
+//! (`engine.plugin.install` and friends) and records them, with one instance, `main`, whose data root
 //! is a temporary directory.
 #![cfg(feature = "compile")]
 
@@ -155,7 +155,7 @@ impl Kernel for FakeKernel {
             .lock()
             .unwrap()
             .push((method.to_string(), params.clone()));
-        let instance = params["instance"].as_str().unwrap_or("system").to_string();
+        let instance = params["instance"].as_str().unwrap_or("main").to_string();
         if self
             .fail
             .lock()
@@ -167,7 +167,7 @@ impl Kernel for FakeKernel {
                 "{method} failed in {instance}"
             )));
         }
-        if method == "plugin.install" {
+        if method == "engine.plugin.install" {
             let url = params["download_url"].as_str().unwrap();
             let zip = url.strip_prefix("file://").unwrap();
             assert!(
@@ -234,7 +234,7 @@ impl Rig {
         let dir = tempfile::tempdir().unwrap();
         let kernel = Arc::new(FakeKernel {
             data_root: dir.path().join("engine"),
-            instances: vec!["system".into(), "other".into()],
+            instances: vec!["main".into(), "other".into()],
             apps,
             ..Default::default()
         });
@@ -336,17 +336,17 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
     let rig = Rig::new(true);
     let record = rig.install(&rig.package("good", |m| m)).await.unwrap();
     assert_eq!(record.parts["agent"]["package"], json!("example-showcase"));
-    assert_eq!(record.parts["agent"]["instances"], json!(["system"]));
-    assert_eq!(record.parts["skills"]["system"], json!(["showcase-tour"]));
-    let installs = rig.kernel.called("plugin.install");
+    assert_eq!(record.parts["agent"]["instances"], json!(["main"]));
+    assert_eq!(record.parts["skills"]["main"], json!(["showcase-tour"]));
+    let installs = rig.kernel.called("engine.plugin.install");
     assert_eq!(installs.len(), 1);
     assert_eq!(installs[0]["name"], json!("example-showcase"));
     assert!(
-        rig.skill("system").join("SKILL.md").is_file(),
+        rig.skill("main").join("SKILL.md").is_file(),
         "the skill was not placed"
     );
     assert!(
-        !rig.kernel.called("config.reload").is_empty(),
+        !rig.kernel.called("engine.config.reload").is_empty(),
         "the instance was not told to re-read"
     );
     assert_eq!(rig.runtime.status(ID).await["state"], json!("running"));
@@ -389,7 +389,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
     assert_eq!(centre["surface"]["sessions"], json!(ID));
     assert_eq!(
         centre["interface"],
-        json!({"hub": ["harnix.sessions", "session.get"], "links": true, "trust": "unsigned", "title": "Showcase", "spaces": [ID, "example.showcase.chats"]})
+        json!({"hub": ["harnix.sessions.list", "engine.session.get"], "links": true, "trust": "unsigned", "title": "Showcase", "spaces": [ID, "example.showcase.chats"]})
     );
     assert_eq!(rig.runtime.status(ID).await["frames"], json!(true));
     assert!(
@@ -494,23 +494,23 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
     rig.runtime.unload(&rig.cx, &record).await;
     assert!(plugin.tools_for(&project).is_empty());
     assert!(rig.runtime.ui_contributions().is_empty() && rig.runtime.mcp_servers().is_empty());
-    assert_eq!(rig.kernel.called("plugin.disable").len(), 1);
-    assert!(!rig.skill("system").exists());
+    assert_eq!(rig.kernel.called("engine.plugin.disable").len(), 1);
+    assert!(!rig.skill("main").exists());
     // On again, from the record.
     rig.runtime
         .load(&rig.cx, &record, &rig.apps().join(ID))
         .await
         .unwrap();
     assert_eq!(plugin.tools_for(&project).len(), 8);
-    assert!(rig.skill("system").is_dir());
+    assert!(rig.skill("main").is_dir());
     // Out: what was placed elsewhere is taken back.
     rig.runtime.unload(&rig.cx, &record).await;
     rig.runtime
         .uninstall(&rig.cx, &record, &rig.apps().join(ID))
         .await
         .unwrap();
-    assert_eq!(rig.kernel.called("plugin.uninstall").len(), 1);
-    assert!(!rig.skill("system").exists());
+    assert_eq!(rig.kernel.called("engine.plugin.uninstall").len(), 1);
+    assert!(!rig.skill("main").exists());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -568,7 +568,7 @@ async fn the_backend_is_registered_answers_its_methods_and_acts_only_as_far_as_i
         .await
         .unwrap();
     assert_eq!(started["session_id"], json!("s-from-the-backend"));
-    assert_eq!(*lock(&apps.called), ["session.create", "harnix.send"]);
+    assert_eq!(*lock(&apps.called), ["harnix.session.create", "harnix.session.send"]);
     let over = apps.device_call(ID, "overreach", json!({})).await.unwrap();
     assert_eq!(over["refused"], json!(true));
     let status = rig.runtime.status(ID).await;
@@ -610,7 +610,7 @@ async fn a_failed_install_is_undone_and_leaves_nothing_behind() {
         .fail
         .lock()
         .unwrap()
-        .push(("plugin.install".into(), "other".into()));
+        .push(("engine.plugin.install".into(), "other".into()));
     let package = rig.package("two", |m| {
         m.replace(
             "install_into = [\"system\"]",
@@ -623,14 +623,14 @@ async fn a_failed_install_is_undone_and_leaves_nothing_behind() {
         "{}",
         err.message
     );
-    let uninstalled = rig.kernel.called("plugin.uninstall");
+    let uninstalled = rig.kernel.called("engine.plugin.uninstall");
     assert_eq!(uninstalled.len(), 1);
-    assert_eq!(uninstalled[0]["instance"], json!("system"));
+    assert_eq!(uninstalled[0]["instance"], json!("main"));
     assert!(
         !rig.apps().join(ID).exists(),
         "the unpacked package was left behind"
     );
-    assert!(!rig.skill("system").exists());
+    assert!(!rig.skill("main").exists());
     assert_eq!(rig.runtime.status(ID).await["state"], json!("stopped"));
 
     // An instance that is not there: refused before anything reaches the engine.
@@ -643,20 +643,20 @@ async fn a_failed_install_is_undone_and_leaves_nothing_behind() {
     });
     let err = rig.install(&package).await.unwrap_err();
     assert!(err.message.contains("no such instance"), "{}", err.message);
-    assert!(rig.kernel.called("plugin.install").is_empty());
+    assert!(rig.kernel.called("engine.plugin.install").is_empty());
 
     // A skill the instance has of its own is not replaced, and the install is undone.
     let rig = Rig::new(true);
-    std::fs::create_dir_all(rig.skill("system")).unwrap();
-    std::fs::write(rig.skill("system").join("SKILL.md"), "mine").unwrap();
+    std::fs::create_dir_all(rig.skill("main")).unwrap();
+    std::fs::write(rig.skill("main").join("SKILL.md"), "mine").unwrap();
     let err = rig.install(&rig.package("skill", |m| m)).await.unwrap_err();
     assert!(err.message.contains("of its own"), "{}", err.message);
     assert_eq!(
-        std::fs::read_to_string(rig.skill("system").join("SKILL.md")).unwrap(),
+        std::fs::read_to_string(rig.skill("main").join("SKILL.md")).unwrap(),
         "mine"
     );
     assert_eq!(
-        rig.kernel.called("plugin.uninstall").len(),
+        rig.kernel.called("engine.plugin.uninstall").len(),
         1,
         "the agent package stayed"
     );
@@ -669,7 +669,7 @@ async fn a_failed_install_is_undone_and_leaves_nothing_behind() {
         .unwrap_err();
     assert!(err.message.contains("[apps] dev = true"), "{}", err.message);
     assert!(!rig.apps().join(ID).exists());
-    assert!(rig.kernel.called("plugin.install").is_empty());
+    assert!(rig.kernel.called("engine.plugin.install").is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]

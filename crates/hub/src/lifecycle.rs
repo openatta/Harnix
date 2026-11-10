@@ -76,7 +76,7 @@ impl Hub {
             self.refresh("harnix.instances.sessions", json!({"instance": instance}));
         }
         if teams {
-            self.refresh("harnix.sessions.tasks", tasks());
+            self.refresh("harnix.session.tasks", tasks());
         }
         if let Some((task_id, started)) = task {
             {
@@ -88,7 +88,7 @@ impl Hub {
                     live.remove(&task_id);
                 }
             }
-            self.refresh("harnix.sessions.tasks", tasks());
+            self.refresh("harnix.session.tasks", tasks());
             self.refresh("harnix.instances.sessions", json!({"instance": instance}));
         }
     }
@@ -242,7 +242,7 @@ impl Hub {
         let info = match got {
             Ok(info) => info,
             Err(e) => {
-                tracing::warn!(instance, session_id, error = %e.message, "resync: session.get failed");
+                tracing::warn!(instance, session_id, error = %e.message, "resync: engine.session.get failed");
                 return;
             }
         };

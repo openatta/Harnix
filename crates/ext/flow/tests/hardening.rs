@@ -125,7 +125,7 @@ async fn push_tasks_are_handed_in_by_the_flow_alone_even_with_the_token() {
 
     let (run, o) = start(&h, "seq").await;
     let j = jobs(&o)[0].clone();
-    for by in [me(), Actor::agent("system/s")] {
+    for by in [me(), Actor::agent("main/s")] {
         let s = h
             .eng
             .submit(&run, "a", "a", &j.token, json!({}), by.clone())
@@ -159,7 +159,7 @@ async fn push_tasks_are_handed_in_by_the_flow_alone_even_with_the_token() {
             &task,
             &token,
             json!({}),
-            Actor::agent("system/s-1"),
+            Actor::agent("main/s-1"),
         )
         .await
         .unwrap();
@@ -185,7 +185,7 @@ async fn push_tasks_are_handed_in_by_the_flow_alone_even_with_the_token() {
         "{seen:?}"
     );
     assert!(
-        seen.contains(&"submit session agent:system/s-1".to_string()),
+        seen.contains(&"submit session agent:main/s-1".to_string()),
         "{seen:?}"
     );
 }
@@ -319,7 +319,7 @@ async fn a_finished_or_cancelled_run_closes_its_shared_sessions() {
                 &st,
                 &task,
                 &token,
-                "system/shared-1",
+                "main/shared-1",
                 Some("run"),
                 Actor::flow("dispatch"),
             )
@@ -334,7 +334,7 @@ async fn a_finished_or_cancelled_run_closes_its_shared_sessions() {
                 .unwrap();
             h.eng.confirm(&run, "two", true, None, me()).await.unwrap()
         };
-        assert_eq!(closes(&o), ["system/shared-1"], "cancel={cancel}");
+        assert_eq!(closes(&o), ["main/shared-1"], "cancel={cancel}");
     }
 }
 
@@ -349,7 +349,7 @@ async fn an_expired_session_task_closes_its_own_session_before_it_is_dispatched_
             &st,
             &tid,
             &token,
-            "system/old",
+            "main/old",
             None,
             Actor::flow("dispatch"),
         )
@@ -357,7 +357,7 @@ async fn an_expired_session_task_closes_its_own_session_before_it_is_dispatched_
         .unwrap();
     h.clock.advance(60_001);
     let ticked = h.eng.tick().await.unwrap();
-    assert_eq!(closes(&ticked[0]), ["system/old"]);
+    assert_eq!(closes(&ticked[0]), ["main/old"]);
     let again = jobs(&ticked[0]);
     assert_eq!(again.len(), 1);
     assert!(task(&h, &run, "s", "s").await.session.is_none());

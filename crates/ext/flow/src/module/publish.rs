@@ -163,7 +163,7 @@ mod tests {
         }))
         .unwrap();
         let b = Binding {
-            instance: "system".into(),
+            instance: "main".into(),
             run: "r".into(),
             station: "a".into(),
             round: 1,

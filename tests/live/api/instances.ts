@@ -45,7 +45,7 @@ export async function until(api: TestClient, id: string, state: string, timeout 
 
 /** Create a session on an instance, run the `says-ready` fixture, wait for it. */
 export async function runOn(api: TestClient, instance: string, scene = "harnix"): Promise<string> {
-  const created = await api.call("session.create", {
+  const created = await api.call("harnix.session.create", {
     instance,
     scene,
     project_root: api.project,
@@ -53,8 +53,8 @@ export async function runOn(api: TestClient, instance: string, scene = "harnix")
   });
   expect(created.instance).toBe(instance);
   const sessionId = created.session_id;
-  await api.call("harnix.attach", { instance, session_id: sessionId });
-  await api.call("harnix.send", { instance, session_id: sessionId, message: "Say exactly: fixture ready" });
+  await api.call("harnix.session.attach", { instance, session_id: sessionId });
+  await api.call("harnix.session.send", { instance, session_id: sessionId, message: "Say exactly: fixture ready" });
   const settled = await api.waitFor(
     (f) => f.method === "harnix.turn_settled" && f.params.session_id === sessionId && f.params.instance === instance,
     { timeout: 60_000, describe: `the turn on ${instance} to settle` },

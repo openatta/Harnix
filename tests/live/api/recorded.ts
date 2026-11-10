@@ -25,7 +25,7 @@ export interface Recorded {
   message: string;
   /** The scene it is created in; `null`: the binary's default, as a suite that names none. Default `harnix`. */
   scene?: string | null;
-  /** `session.create`'s options beside the recorder (a permission mode). */
+  /** `harnix.session.create`'s options beside the recorder (a permission mode). */
   options?: Record<string, unknown>;
   /** The project's `.agix/settings.json` (an operator's switch, such as teams). */
   settings?: Record<string, unknown>;
@@ -143,13 +143,13 @@ export async function play(api: TestClient, entry: Recorded, recorder?: string):
     writeFileSync(join(api.project, ".agix", "settings.json"), JSON.stringify(entry.settings));
   }
   const scene = entry.scene === undefined ? "harnix" : entry.scene;
-  const created = await api.call("session.create", {
+  const created = await api.call("harnix.session.create", {
     ...(scene ? { scene } : {}),
     project_root: api.project,
     options: { ...entry.options, ...(recorder ? { recorder: { name: recorder } } : {}) },
   });
-  const session = { instance: "system", session_id: created.session_id };
-  await api.call("harnix.attach", session);
+  const session = { instance: "main", session_id: created.session_id };
+  await api.call("harnix.session.attach", session);
   const { settled } = await runTurn(api, session, entry.message, { timeout: 240_000 });
   if (entry.tasks) await tasksDone(api, session);
   return { session_id: created.session_id, settled };
@@ -168,11 +168,11 @@ async function tasksDone(api: TestClient, session: { instance: string; session_i
       if (f.method !== "harnix.event" || f.params.event?.kind !== "prompt" || answered.has(f.params.event.prompt_id)) continue;
       answered.add(f.params.event.prompt_id);
       await api
-        .call("session.respondToPrompt", { instance: f.params.instance ?? session.instance, session_id: f.params.session_id, prompt_id: f.params.event.prompt_id, decision: { type: "permit" } })
+        .call("harnix.session.respond", { instance: f.params.instance ?? session.instance, session_id: f.params.session_id, prompt_id: f.params.event.prompt_id, decision: { type: "permit" } })
         .catch(() => {});
     }
-    const { tasks } = await api.call("harnix.sessions.tasks", session);
-    const { sessions } = await api.call("harnix.instances.sessions", { instance: session.instance });
+    const { tasks } = await api.call("harnix.session.tasks", session);
+    const { sessions } = await api.call("harnix.sessions.list", { instance: session.instance });
     const busy =
       tasks.some((t: TaskRow) => t.status === "running" || t.status === "waiting") ||
       sessions.some((r: SessionRow) => r.session_id === session.session_id && r.running);

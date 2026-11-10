@@ -62,7 +62,7 @@ impl Kernel for FakeKernel {
     }
     async fn publish(&self, _topic: &str, _params: Value, _value: Value) {}
     fn instance(&self, id: &str) -> Option<InstanceHandle> {
-        (id == "system").then(|| InstanceHandle {
+        (id == "main").then(|| InstanceHandle {
             id: id.to_string(),
             data_root: self.data_root.join(id),
             recordings_root: self.data_root.join("recordings"),
@@ -314,7 +314,7 @@ async fn what_is_not_what_was_signed_is_refused_before_it_is_unpacked() {
         err.message
     );
     assert!(!rig.apps().join(ID).exists());
-    assert_eq!(rig.kernel.called("plugin.install"), 0);
+    assert_eq!(rig.kernel.called("engine.plugin.install"), 0);
 
     // Signed by its publisher only, whom this process does not trust: not installed.
     let publisher_only = rig.package("publisher-only", false, |m| m);

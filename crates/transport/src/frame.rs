@@ -123,7 +123,7 @@ mod tests {
         assert_eq!(e.error.message, "missing method");
 
         let big = format!(
-            r#"{{"jsonrpc":"2.0","id":3,"method":"harnix.send","params":{{"m":"{}"}}}}"#,
+            r#"{{"jsonrpc":"2.0","id":3,"method":"harnix.session.send","params":{{"m":"{}"}}}}"#,
             "x".repeat(harnix_contract::MAX_FRAME_BYTES)
         );
         let e = parse_request(big.as_bytes()).unwrap_err();

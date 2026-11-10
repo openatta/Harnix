@@ -98,7 +98,7 @@ pub struct Factory {
     /// with the set after (`servers.rs`). Shared with whoever sets them.
     pub servers: Arc<SharedServers>,
     /// The data root of the instance a template's `inherit_providers` inherits from: the
-    /// system instance's. `None`, nothing is inherited.
+    /// main instance's. `None`, nothing is inherited.
     pub providers_from: Option<PathBuf>,
     /// What every link built here records with.
     pub recording: Arc<Recording>,
@@ -121,7 +121,7 @@ impl Factory {
         })
     }
 
-    /// The link to an engine already built in this process: the system instance's.
+    /// The link to an engine already built in this process: the main instance's.
     pub async fn in_process(&self, id: &str, engine: crate::Engine) -> Built {
         let facts = Facts::from(&engine);
         let link = InProcessLink::start(engine).await;
@@ -254,7 +254,7 @@ impl Factory {
         }
     }
 
-    /// `system`'s providers into the instance whose data `facts` describes; `Ok(true)` when its
+    /// `main`'s providers into the instance whose data `facts` describes; `Ok(true)` when its
     /// settings changed and it should reload. For `harnix.instances.inheritProviders`, after the
     /// settings page changed one; an instance built from a template that inherits got them as it
     /// was built.

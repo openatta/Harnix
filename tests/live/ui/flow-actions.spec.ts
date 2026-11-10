@@ -48,8 +48,8 @@ async function startRun(page: Page): Promise<string> {
   await open(page, backend.url);
   const run = await page.evaluate(async (yaml) => {
     const { app } = (window as any).harnix;
-    await app.call("app.flow.save", { yaml });
-    return (await app.call("app.flow.start", { flow: "ui-actions", subject: "the page" })).run as string;
+    await app.call("flow.save", { yaml });
+    return (await app.call("flow.start", { flow: "ui-actions", subject: "the page" })).run as string;
   }, FLOW);
   await openRun(page, run);
   return run;
@@ -142,7 +142,7 @@ test("a run is cancelled from its header, and only with a reason", TAGS, async (
   await expect(page.getByTestId(`flow-run-${run}`)).toHaveAttribute("data-phase", "cancelled");
   await expect(page.getByTestId("flow-cancel-run")).toBeDisabled();
   // The reason is on the record of what happened to the run.
-  const history = await page.evaluate(async (r) => (window as any).harnix.app.call("app.flow.history", { run: r }), run);
+  const history = await page.evaluate(async (r) => (window as any).harnix.app.call("flow.history", { run: r }), run);
   expect(JSON.stringify(history)).toContain("started by mistake");
   expect(errors).toEqual([]);
 });
@@ -193,7 +193,7 @@ test("an action the module refuses says why, in the panel", TAGS, async ({ page 
     const client = (window as any).harnix.app.client;
     const call = client.call.bind(client);
     client.call = (method: string, params: unknown) =>
-      method === "app.flow.release" ? Promise.reject(new Error("the station is not held any more")) : call(method, params);
+      method === "flow.release" ? Promise.reject(new Error("the station is not held any more")) : call(method, params);
   });
   await panel(page).getByTestId("flow-release").click();
   await expect(panel(page).getByTestId("flow-error")).toContainText("not held any more");
@@ -206,8 +206,8 @@ test("work sent back to a station of two tasks names which of them go again", TA
   const run = await page.evaluate(async (yaml) => {
     const { app } = (window as any).harnix;
     try {
-      await app.call("app.flow.save", { yaml });
-      return (await app.call("app.flow.start", { flow: "ui-pair", subject: "both" })).run as string;
+      await app.call("flow.save", { yaml });
+      return (await app.call("flow.start", { flow: "ui-pair", subject: "both" })).run as string;
     } catch (e) {
       throw new Error(JSON.stringify(e));
     }
@@ -232,7 +232,7 @@ test("work sent back to a station of two tasks names which of them go again", TA
   await panel(page).getByTestId("flow-reason").fill("x again");
   await panel(page).getByTestId("flow-action-submit").click();
   await expect(node(page, "pair")).toHaveAttribute("data-status", "working", { timeout: 15_000 });
-  const tasks = await page.evaluate(async (r) => (await (window as any).harnix.app.call("app.flow.get", { run: r })).record.stations.pair.tasks, run);
+  const tasks = await page.evaluate(async (r) => (await (window as any).harnix.app.call("flow.get", { run: r })).record.stations.pair.tasks, run);
   const status = Object.fromEntries(tasks.map((t: any) => [t.id, t.status]));
   expect(status.x, JSON.stringify(tasks)).not.toBe(status.y);
   expect(errors).toEqual([]);
@@ -241,7 +241,7 @@ test("work sent back to a station of two tasks names which of them go again", TA
 test("a run started from a flow's details: what it is about, a title and inputs, refused until they are right", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, backend.url);
-  await page.evaluate((yaml) => (window as any).harnix.app.call("app.flow.save", { yaml }), FLOW);
+  await page.evaluate((yaml) => (window as any).harnix.app.call("flow.save", { yaml }), FLOW);
   await openFlow(page, "ui-actions");
   await page.getByTestId("flow-start-open").click();
   const form = page.getByTestId("flow-start-form");
@@ -273,11 +273,11 @@ test("the runs narrowed to one flow's: by the filter, and inside the flow", TAGS
   const [a, b] = await page.evaluate(
     async ([one, two]) => {
       const { app } = (window as any).harnix;
-      await app.call("app.flow.save", { yaml: one });
-      await app.call("app.flow.save", { yaml: two });
+      await app.call("flow.save", { yaml: one });
+      await app.call("flow.save", { yaml: two });
       return [
-        (await app.call("app.flow.start", { flow: "ui-actions", subject: "a" })).run as string,
-        (await app.call("app.flow.start", { flow: "ui-pair", subject: "b" })).run as string,
+        (await app.call("flow.start", { flow: "ui-actions", subject: "a" })).run as string,
+        (await app.call("flow.start", { flow: "ui-pair", subject: "b" })).run as string,
       ];
     },
     [FLOW, PAIR],
@@ -302,9 +302,9 @@ test("a flow broken by a part taken from it says what is wrong, and cannot be st
   await open(page, backend.url);
   await page.evaluate(async () => {
     const { app } = (window as any).harnix;
-    await app.call("app.flow.part.save", { kind: "rule", name: "ui-mine", text: "# Mine\n\nKeep it short." });
-    await app.call("app.flow.save", { yaml: "name: ui-ruled\nrules: [ui-mine]\nstations: [{id: a, exit: [{kind: confirm}]}]" });
-    await app.call("app.flow.part.delete", { kind: "rule", name: "ui-mine" });
+    await app.call("flow.part.save", { kind: "rule", name: "ui-mine", text: "# Mine\n\nKeep it short." });
+    await app.call("flow.save", { yaml: "name: ui-ruled\nrules: [ui-mine]\nstations: [{id: a, exit: [{kind: confirm}]}]" });
+    await app.call("flow.part.delete", { kind: "rule", name: "ui-mine" });
   });
   await toFlows(page);
   await expect(page.getByTestId("flow-def-ui-ruled")).toHaveAttribute("data-valid", "false");
@@ -313,7 +313,7 @@ test("a flow broken by a part taken from it says what is wrong, and cannot be st
   await expect(page.getByTestId("flow-start-open")).toBeDisabled();
   // Its definition is still read in full.
   await expect(page.getByTestId("flow-def-flow-level")).toContainText("ui-mine");
-  await page.evaluate(() => (window as any).harnix.app.call("app.flow.delete", { name: "ui-ruled" }));
+  await page.evaluate(() => (window as any).harnix.app.call("flow.delete", { name: "ui-ruled" }));
   expect(errors).toEqual([]);
 });
 
@@ -335,8 +335,8 @@ async function startRetry(page: Page): Promise<string> {
   await open(page, backend.url);
   const run = await page.evaluate(async (yaml) => {
     const { app } = (window as any).harnix;
-    await app.call("app.flow.save", { yaml });
-    return (await app.call("app.flow.start", { flow: "ui-retry", subject: "again" })).run as string;
+    await app.call("flow.save", { yaml });
+    return (await app.call("flow.start", { flow: "ui-retry", subject: "again" })).run as string;
   }, RETRY);
   await openRun(page, run);
   return run;
@@ -368,7 +368,7 @@ test("a hand-in held while it is refused shows its lease; given up, the task fai
 test("marks on the diagrams: a guarded station on the flow's; a forced one on the run's, with who and why", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, backend.url);
-  await page.evaluate((yaml) => (window as any).harnix.app.call("app.flow.save", { yaml }), RETRY);
+  await page.evaluate((yaml) => (window as any).harnix.app.call("flow.save", { yaml }), RETRY);
   await openFlow(page, "ui-retry");
   await expect(page.locator('#secondary [data-testid="flow-diagram"]').getByTestId("flow-guarded-approve")).toBeAttached();
   await expect(page.locator('#secondary [data-testid="flow-diagram"]').getByTestId("flow-guarded-draft")).toHaveCount(0);

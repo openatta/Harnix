@@ -18,7 +18,7 @@ pub enum DefaultInstance {
 
 impl Default for DefaultInstance {
     fn default() -> Self {
-        DefaultInstance::Fixed(crate::SYSTEM_INSTANCE.to_string())
+        DefaultInstance::Fixed(crate::MAIN_INSTANCE.to_string())
     }
 }
 

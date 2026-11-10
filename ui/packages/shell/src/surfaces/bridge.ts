@@ -23,7 +23,7 @@
  */
 
 import { errorText } from "@harnix/core";
-import { SYSTEM_INSTANCE } from "@harnix/core/state";
+import { MAIN_INSTANCE } from "@harnix/core/state";
 import { t, tabsOf } from "@harnix/react";
 import {
   PROTOCOL,
@@ -222,7 +222,7 @@ export class FrameBridge {
     if (params.session_id !== undefined) {
       if (typeof params.session_id !== "string") throw new Invalid("`session_id` names a session of the application's own space");
       if (!own.length) this.refuse(name, t("surface.why.noSpace"));
-      const instance = typeof params.instance === "string" ? params.instance : SYSTEM_INSTANCE;
+      const instance = typeof params.instance === "string" ? params.instance : MAIN_INSTANCE;
       if (!(await this.ownsSession(instance, params.session_id))) this.refuse(name, t("surface.why.otherSpace"));
     }
     return params;
@@ -231,7 +231,7 @@ export class FrameBridge {
   /** Whether the session is in one of the application's own spaces. */
   private async ownsSession(instance: string, sessionId: string): Promise<boolean> {
     for (const space of this.host.iface.spaces) {
-      const { sessions } = await this.host.app.call<{ sessions: { session_id: string }[] }>("harnix.sessions", { space, instance });
+      const { sessions } = await this.host.app.call<{ sessions: { session_id: string }[] }>("harnix.sessions.list", { space, instance });
       if (sessions.some((s) => s.session_id === sessionId)) return true;
     }
     return false;
@@ -311,21 +311,21 @@ export class FrameBridge {
         const space = this.host.space;
         const backend = this.spaceSessions;
         if (!space || !backend) this.refuse("session.open", t("surface.why.noSpace"));
-        const { sessions } = await app.call<{ sessions: { session_id: string; instance?: string }[] }>("harnix.sessions", { space: backend, instance: ref.instance });
+        const { sessions } = await app.call<{ sessions: { session_id: string; instance?: string }[] }>("harnix.sessions.list", { space: backend, instance: ref.instance });
         if (!sessions.some((s) => s.session_id === ref.sessionId)) this.refuse("session.open", t("surface.why.otherSpace"));
         if (app.snapshot.space !== space) await app.switchSpace(space);
         app.open(ref, space);
         return null;
       }
-      case "session.create": {
+      case "harnix.session.create": {
         const space = this.host.space;
         const backend = this.spaceSessions;
-        if (!space || !backend) this.refuse("session.create", t("surface.why.noSpace"));
+        if (!space || !backend) this.refuse("harnix.session.create", t("surface.why.noSpace"));
         const spec: Record<string, unknown> = { space: backend };
         if (typeof p.scene === "string") spec.scene = p.scene;
         if (p.options && typeof p.options === "object") spec.options = p.options;
-        const created = await app.call<{ session_id: string; instance?: string }>("session.create", spec);
-        const ref = { instance: created.instance ?? SYSTEM_INSTANCE, sessionId: created.session_id };
+        const created = await app.call<{ session_id: string; instance?: string }>("harnix.session.create", spec);
+        const ref = { instance: created.instance ?? MAIN_INSTANCE, sessionId: created.session_id };
         await app.refreshSessions();
         app.open(ref, space);
         return ref;

@@ -261,7 +261,7 @@ publisher = "acme"
                 json!({"capability": "net", "value": "b.example.com"}),
                 json!({"capability": "env", "value": "TOKEN"}),
                 json!({"capability": "ui", "value": "home.card (card.js)"}),
-                json!({"capability": "agent", "value": "system"}),
+                json!({"capability": "agent", "value": "main"}),
                 json!({"capability": "storage_mb", "value": 8, "from": 2}),
             ]
         );
@@ -300,7 +300,7 @@ publisher = "acme"
 
     #[test]
     fn every_capability_is_a_line() {
-        let m = manifest("net = [\"h\"]\nenv = [\"E\"]\nstorage_mb = 3\nhub = [\"harnix.sessions\"]\nfs = [\"${project}\"]\n\n[interface]\nhub = [\"harnix.sessions\"]\nlinks = true\n\n[[surface]]\npoint = \"home.card\"\npage = \"card.html\"", true);
+        let m = manifest("net = [\"h\"]\nenv = [\"E\"]\nstorage_mb = 3\nhub = [\"harnix.sessions.list\"]\nfs = [\"${project}\"]\n\n[interface]\nhub = [\"harnix.sessions.list\"]\nlinks = true\n\n[[surface]]\npoint = \"home.card\"\npage = \"card.html\"", true);
         let kinds: Vec<String> = lines(&m, true)
             .iter()
             .map(|l| l["capability"].as_str().unwrap().to_string())

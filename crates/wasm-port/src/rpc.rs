@@ -219,7 +219,7 @@ mod tests {
     #[async_trait]
     impl Agent for Kept {
         async fn has_instance(&self, instance: String) -> Result<bool, RpcError> {
-            Ok(instance == "system")
+            Ok(instance == "main")
         }
         async fn install_agent(&self, a: AgentInstall) -> Result<Value, RpcError> {
             Ok(serde_json::json!({"archive": a.archive}))
@@ -258,14 +258,14 @@ mod tests {
                 subjects: vec!["device".into()],
             }],
             topics: vec!["notes".into()],
-            spaces: vec![SpaceDecl::new("acme.notes").instance("system")],
+            spaces: vec![SpaceDecl::new("acme.notes").instance("main")],
             hub: vec!["topic:harnix.sessions.status".into()],
         };
         wire.register(registration).await.unwrap();
         let answer = wire
             .call(CallAs {
                 app: "acme.notes".into(),
-                method: "harnix.send".into(),
+                method: "harnix.session.send".into(),
                 params: serde_json::json!({"n": 1}),
                 chain: vec!["acme.notes".into()],
             })
@@ -273,7 +273,7 @@ mod tests {
             .unwrap();
         assert_eq!(answer["params"]["n"], serde_json::json!(1));
         assert_eq!(answer["chain"], serde_json::json!(["acme.notes"]), "the call chain crosses the wire");
-        assert!(agent.has_instance("system".into()).await.unwrap());
+        assert!(agent.has_instance("main".into()).await.unwrap());
         assert!(!agent.has_instance("other".into()).await.unwrap());
         let refused = wire.withdraw("acme.notes".into()).await.unwrap_err();
         assert_eq!(refused.code, harnix_contract::codes::REFUSED);
@@ -307,7 +307,7 @@ mod tests {
         );
         // Each trait answers its own names only: the agent engine's are not the kernel's.
         assert_eq!(
-            serve_kernel(kernel, "has_instance", serde_json::json!("system")).await.unwrap_err().code,
+            serve_kernel(kernel, "has_instance", serde_json::json!("main")).await.unwrap_err().code,
             harnix_contract::codes::METHOD_NOT_FOUND
         );
     }

@@ -37,7 +37,7 @@ use crate::{Built, Facts, Factory};
 pub use rows::{InstanceRow, RegistryCell, INSTANCES_TOPIC};
 
 /// The instance every process has: the profile's `[engine]`.
-pub use harnix_contract::SYSTEM_INSTANCE as SYSTEM;
+pub use harnix_contract::MAIN_INSTANCE as MAIN;
 
 /// What the registry is made with, at assembly: the templates and the ledger, how to build, and
 /// the profile's own instances.
@@ -389,7 +389,7 @@ impl InstanceRegistry {
         self.changed();
     }
 
-    /// Add one of the profile's instances — `system`, an `[[instances]]` — as built at start.
+    /// Add one of the profile's instances — `main`, an `[[instances]]` — as built at start.
     pub async fn add(&self, id: &str, built: Built, owner: Owner) {
         let _claim = self.claim(id).await;
         let providers = self.state().providers;
@@ -655,7 +655,7 @@ impl InstanceRegistry {
         }
     }
 
-    /// `harnix.instances.inheritProviders`: `system`'s providers changed. Merge them into every
+    /// `harnix.instances.inheritProviders`: `main`'s providers changed. Merge them into every
     /// instance whose template inherits them, and have each one that changed reload. The kernel's,
     /// and granted to the settings module, which calls it after each provider change (ipdrun-11).
     async fn inherit_providers(&self) -> Rpc<Value> {
@@ -680,7 +680,7 @@ impl InstanceRegistry {
         Ok(json!({"reloaded": reloaded}))
     }
 
-    /// Write `system`'s providers into each of `slots`, and reload each one that changed. Its ids.
+    /// Write `main`'s providers into each of `slots`, and reload each one that changed. Its ids.
     async fn inherit_into(&self, slots: &[Arc<Slot>]) -> Vec<String> {
         let changed: Vec<&Arc<Slot>> = slots
             .iter()

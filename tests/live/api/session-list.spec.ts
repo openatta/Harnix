@@ -18,10 +18,10 @@ test("forty sessions in the test project are listed once each", TAGS, async () =
   try {
     const made = new Set<string>();
     for (let i = 0; i < 40; i += 1) {
-      const created = await api.call("session.create", { space: "sessions", project_root: backend.project });
+      const created = await api.call("harnix.session.create", { space: "sessions", project_root: backend.project });
       made.add(created.session_id);
     }
-    const { sessions } = await api.call("harnix.sessions", { space: "sessions" });
+    const { sessions } = await api.call("harnix.sessions.list", { space: "sessions" });
     const ids = sessions.map((s: { session_id: string }) => s.session_id).filter((id: string) => made.has(id));
     expect(ids.length).toBe(40);
     expect(new Set(ids).size).toBe(40);

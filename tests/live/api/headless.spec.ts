@@ -25,10 +25,10 @@ async function idle(api: TestClient, sessions: { instance: string; session_id: s
   const deadline = Date.now() + 60_000;
   for (;;) {
     const states = await Promise.all(
-      sessions.map((s) => api.call("session.get", { instance: s.instance, session_id: s.session_id })),
+      sessions.map((s) => api.call("engine.session.get", { instance: s.instance, session_id: s.session_id })),
     );
     const rows = await Promise.all(
-      [...new Set(sessions.map((s) => s.instance))].map((instance) => api.call("harnix.instances.sessions", { instance })),
+      [...new Set(sessions.map((s) => s.instance))].map((instance) => api.call("harnix.sessions.list", { instance })),
     );
     const running = rows.flatMap((r) => r.sessions).filter((r: any) => r.running).map((r: any) => r.session_id);
     if (states.every((s) => s.turn_state === "idle") && !sessions.some((s) => running.includes(s.session_id))) return;
@@ -67,18 +67,18 @@ test("a module runs three headless sessions, each with its own model", TAGS, asy
   const models = await Promise.all(started.map((s) => api.call("app.fleet.model", s)));
   expect(models.map((m) => m.model)).toEqual(["headless-model-0", "headless-model-1", "headless-model-2"]);
 
-  const { sessions } = await api.call("harnix.instances.sessions", { instance: "system" });
+  const { sessions } = await api.call("harnix.sessions.list", { instance: "main" });
   const listed = sessions.map((s: any) => s.session_id);
   for (const s of started) expect(listed).toContain(s.session_id);
 });
 
 test("a device attaching to a headless session sees all of it", TAGS, async () => {
   for (const s of started) {
-    const attached = await api.call("harnix.attach", s);
-    expect(attached.instance).toBe("system");
+    const attached = await api.call("harnix.session.attach", s);
+    expect(attached.instance).toBe("main");
     expect(attached.running_turn).toBeNull();
     expect(attached.history_total).toBeGreaterThanOrEqual(2);
-    const history = await api.call("session.history", s);
+    const history = await api.call("engine.session.history", s);
     const text = JSON.stringify(history.messages);
     expect(text).toContain("Say exactly: fixture ready");
     expect(text).toMatch(/fixture ready/i);
@@ -94,8 +94,8 @@ test("a tap nobody reads holds nothing up, and catches up when read", TAGS, asyn
   const s = { instance: session.instance, session_id: session.session_id };
   // Two frames' room: a turn sends many more.
   await api.call("app.fleet.tap", { ...s, capacity: 2 });
-  await api.call("harnix.attach", s);
-  await api.call("harnix.send", { ...s, message: "Say exactly: fixture ready" });
+  await api.call("harnix.session.attach", s);
+  await api.call("harnix.session.send", { ...s, message: "Say exactly: fixture ready" });
   const settled = await api.waitFor(
     (f) => f.method === "harnix.turn_settled" && f.params.session_id === s.session_id,
     { timeout: 60_000, describe: "the turn to settle with the tap unread" },
@@ -110,7 +110,7 @@ test("a tap nobody reads holds nothing up, and catches up when read", TAGS, asyn
   // What the buffer no longer has, the transcript does: the turn settled,
   // and history covers it.
   expect(drained.history_total).toBeGreaterThanOrEqual(2);
-  const history = await api.call("session.history", s);
+  const history = await api.call("engine.session.history", s);
   expect(JSON.stringify(history.messages)).toMatch(/fixture ready/i);
   started.push(s);
 });
@@ -122,7 +122,7 @@ test("headless sessions are still there after a restart", TAGS, async () => {
   const { sessions } = await api.call("app.fleet.sessions");
   expect(sessions.map((s: any) => s.session_id).sort()).toEqual(started.map((s) => s.session_id).sort());
   for (const s of started) {
-    const attached = await api.call("harnix.attach", s);
+    const attached = await api.call("harnix.session.attach", s);
     expect(attached.history_total).toBeGreaterThanOrEqual(2);
   }
 });

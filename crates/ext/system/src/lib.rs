@@ -29,18 +29,18 @@ const PROCESS_EVERY: Duration = Duration::from_secs(5);
 /// What each session method asks the engine, and which parameters it passes on besides the
 /// instance and the session.
 const ENGINE: &[(&str, &str, &[&str])] = &[
-    ("tasks.stop", "session.stopTask", &["task_id"]),
-    ("tasks.message", "session.messageTask", &["task_id", "message"]),
-    ("tasks.output", "session.taskOutput", &["task_id", "tail_bytes", "from_byte"]),
-    ("messages.drop", "session.dropMessages", &["at", "total"]),
-    ("messages.edit", "session.editMessage", &["at", "text", "total"]),
-    ("compact", "session.compact", &[]),
-    ("clear", "session.clear", &[]),
-    ("model", "session.setModel", &["model", "provider"]),
-    ("rename", "session.rename", &["name"]),
-    ("goal", "session.goal", &[]),
-    ("goal.set", "session.setGoal", &["objective", "max_rounds"]),
-    ("goal.update", "session.updateGoal", &["action", "objective", "max_rounds"]),
+    ("tasks.stop", "engine.session.stopTask", &["task_id"]),
+    ("tasks.message", "engine.session.messageTask", &["task_id", "message"]),
+    ("tasks.output", "engine.session.taskOutput", &["task_id", "tail_bytes", "from_byte"]),
+    ("messages.drop", "engine.session.dropMessages", &["at", "total"]),
+    ("messages.edit", "engine.session.editMessage", &["at", "text", "total"]),
+    ("compact", "engine.session.compact", &[]),
+    ("clear", "engine.session.clear", &[]),
+    ("model", "engine.session.setModel", &["model", "provider"]),
+    ("rename", "engine.session.rename", &["name"]),
+    ("goal", "engine.session.goal", &[]),
+    ("goal.set", "engine.session.setGoal", &["objective", "max_rounds"]),
+    ("goal.update", "engine.session.updateGoal", &["action", "objective", "max_rounds"]),
 ];
 
 /// What each instance method asks the instance registry, params as given. The panel lists every
@@ -127,16 +127,16 @@ fn target(params: &Value) -> Rpc<Value> {
     Ok(out)
 }
 
-/// `system.context {instance?, session_id}`: the engine's `session.inspectContext` — what the next
+/// `system.context {instance?, session_id}`: the engine's `engine.session.inspectContext` — what the next
 /// call will carry, per block, its token counts estimated — with `measured`: what the provider
-/// counted for the last call that was made (`session.get`'s `context`), absent before the first
+/// counted for the last call that was made (`engine.session.get`'s `context`), absent before the first
 /// one. The interface sizes the bar by the measured figure and only divides it by the estimates,
 /// so an estimate never passes for a count.
 async fn inspect_context(call: Call, params: Value) -> Rpc<Value> {
     let target = target(&params)?;
-    let mut context = call.call("session.inspectContext", target.clone()).await?;
+    let mut context = call.call("engine.session.inspectContext", target.clone()).await?;
     let measured = call
-        .call("session.get", target)
+        .call("engine.session.get", target)
         .await
         .ok()
         .and_then(|info| info.get("context").cloned())

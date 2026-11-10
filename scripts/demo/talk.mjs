@@ -33,8 +33,8 @@ function skillBody(text) {
 
 /** What the dispatcher would send a station's task. */
 async function taskMessage(run, station) {
-  const { record } = await api.call("app.flow.get", { run });
-  const def = await api.call("app.flow.def", { name: record.flow });
+  const { record } = await api.call("flow.get", { run });
+  const def = await api.call("flow.def", { name: record.flow });
   const protocol = def.protocol[station];
   if (!protocol) throw new Error(`${run}: station ${station} has no session task`);
   let text = protocol.replaceAll("<run>", run).replaceAll("<subject>", record.subject);
@@ -45,9 +45,9 @@ async function taskMessage(run, station) {
 }
 
 async function sessionOf(conv) {
-  if (conv.kind === "general") return api.call("app.flow.session", {});
-  if (conv.kind === "flow") return api.call("app.flow.session", { flow: conv.flow });
-  const { main } = await api.call("app.flow.sessions", { run: conv.run });
+  if (conv.kind === "general") return api.call("flow.session", {});
+  if (conv.kind === "flow") return api.call("flow.session", { flow: conv.flow });
+  const { main } = await api.call("flow.sessions", { run: conv.run });
   if (!main) throw new Error(`${conv.run} has no main session`);
   return main;
 }
@@ -56,7 +56,7 @@ async function sessionOf(conv) {
 async function turn(session, message, prompts) {
   const answers = [...(prompts ?? [])];
   const seen = new Set();
-  const sent = await api.call("harnix.send", { session_id: session.session_id, message });
+  const sent = await api.call("harnix.session.send", { session_id: session.session_id, message });
   for (;;) {
     const f = await api.waitFor(
       (f) =>
@@ -71,7 +71,7 @@ async function turn(session, message, prompts) {
     seen.add(f.params.event.prompt_id);
     const a = answers.shift() ?? { decision: "permit" };
     const decision = a.decision === "deny" ? { type: "deny", reason: a.reason ?? "" } : { type: "permit" };
-    await api.call("session.respondToPrompt", {
+    await api.call("harnix.session.respond", {
       session_id: session.session_id,
       prompt_id: f.params.event.prompt_id,
       decision,
@@ -84,7 +84,7 @@ for (const conv of conversations) {
   const label = conv.run ?? conv.flow ?? "general";
   try {
     const session = await sessionOf(conv);
-    await api.call("harnix.attach", { session_id: session.session_id });
+    await api.call("harnix.session.attach", { session_id: session.session_id });
     for (const t of conv.turns) {
       const message = t.task ? await taskMessage(conv.run, t.task) : t.say;
       const settled = await turn(session, message, t.prompts);

@@ -108,7 +108,7 @@ test("delete asks first; cancelled it keeps the session, confirmed it removes it
   const gone = await page.evaluate(async (sid) => {
     const { app } = (window as any).harnix;
     try {
-      await app.call("session.get", { instance: "system", session_id: sid });
+      await app.call("engine.session.get", { instance: "main", session_id: sid });
       return false;
     } catch {
       return true;
@@ -121,7 +121,7 @@ test("a new session from a project's menu: the dialog offers the active scenes, 
   await open(page, URL);
   const path = await page.evaluate(async () => {
     const { app } = (window as any).harnix;
-    const made = await app.call("harnix.projects.create", { name: `dialog-${Date.now()}` });
+    const made = await app.call("harnix-app.projects.create", { name: `dialog-${Date.now()}` });
     await app.refreshSessions();
     return made.path as string;
   });
@@ -155,7 +155,7 @@ test("a project's session is renamed and deleted from its menu in the projects s
   await open(page, URL);
   await page.evaluate(async () => {
     const { app } = (window as any).harnix;
-    await app.call("harnix.projects.create", { name: `menu-${Date.now()}` });
+    await app.call("harnix-app.projects.create", { name: `menu-${Date.now()}` });
     await app.refreshSessions();
   });
   await spaceEntry(page, "projects").click();

@@ -145,7 +145,7 @@ export interface FrameRequests {
   /** Open a session of the application's own space, bringing that space to the front. */
   "session.open": { params: SessionRef; result: null };
   /** A new session, in the application's own space; opened there. */
-  "session.create": { params: { scene?: string; options?: Record<string, unknown> }; result: SessionRef };
+  "harnix.session.create": { params: { scene?: string; options?: Record<string, unknown> }; result: SessionRef };
   "spaces.switch": { params: { space: string }; result: null };
   /** Open the right column, on one of the application's space's tabs. */
   "details.open": { params: { tab?: string }; result: null };

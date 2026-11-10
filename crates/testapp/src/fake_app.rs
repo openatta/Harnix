@@ -58,7 +58,7 @@ fn spec(id: &str, handle: Arc<Mutex<Option<AppHandle>>>) -> AppSpec {
         })
         .method("internal", &[Principal::Kernel], |_caller, _params| async move { Ok(json!({"internal": true})) })
         .topic("ticks", &[])
-        .space(SpaceDecl::new(id).instance(harnix::SYSTEM_INSTANCE))
+        .space(SpaceDecl::new(id).instance(harnix::MAIN_INSTANCE))
 }
 
 #[harnix::async_trait]

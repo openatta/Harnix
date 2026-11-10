@@ -350,7 +350,7 @@ mod tests {
         Arc::new(Shared::new(
             Config {
                 space: "flow".into(),
-                instance: "system".into(),
+                instance: "main".into(),
                 scenes: vec!["flow-harnix".into()],
                 programs: None,
                 gates: None,

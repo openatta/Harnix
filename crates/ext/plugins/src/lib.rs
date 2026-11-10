@@ -8,14 +8,14 @@
 //! brought.
 //!
 //! What is left for a host to do is the one thing Agix deliberately does not: **receive a file.**
-//! `plugin.install` fetches from a URL it is given and has no upload channel, so a person with a
+//! `engine.plugin.install` fetches from a URL it is given and has no upload channel, so a person with a
 //! `.zip` on their laptop and a backend on another machine has no way across. That gap is
 //! `plugins.upload`.
 //!
 //! ```text
 //!   browser --- POST /upload -------> harnix            the bulk semantic
 //!   browser --- plugins.install ----> harnix
-//!                                     harnix --- plugin.install{download_url:
+//!                                     harnix --- engine.plugin.install{download_url:
 //!                                              "file:///…"} ---> Agix
 //! ```
 //!
@@ -107,10 +107,10 @@ impl Extension for Plugins {
                 }
             });
         for (name, engine) in [
-            ("uninstall", "plugin.uninstall"),
-            ("enable", "plugin.enable"),
-            ("disable", "plugin.disable"),
-            ("reload", "plugin.reload"),
+            ("uninstall", "engine.plugin.uninstall"),
+            ("enable", "engine.plugin.enable"),
+            ("disable", "engine.plugin.disable"),
+            ("reload", "engine.plugin.reload"),
         ] {
             let served = self.served.clone();
             r.method(name)
@@ -161,7 +161,7 @@ fn upload(call: &Call, params: &Value) -> Rpc<Value> {
 /// The engine's list, plus the one section it ignores. One call, because "what is installed" and
 /// "what will appear in my interface" are the same question asked by the same screen.
 async fn list(call: &Call) -> Value {
-    match call.call("plugin.list", json!({})).await {
+    match call.call("engine.plugin.list", json!({})).await {
         Ok(value) => json!({
             "plugins": value.get("plugins").cloned().unwrap_or(json!([])),
             "contributes": packages::read_all(&value),
@@ -199,7 +199,7 @@ async fn install(call: &Call, served: &Served, params: &Value) -> Rpc<Value> {
             request[key] = value.clone();
         }
     }
-    let result = call.call("plugin.install", request).await?;
+    let result = call.call("engine.plugin.install", request).await?;
     // The package is on disk now, so what it contributes is knowable now.
     refresh(call.ext(), served).await;
     Ok(result)
@@ -211,7 +211,7 @@ async fn install(call: &Call, served: &Served, params: &Value) -> Rpc<Value> {
 /// or never had is not here either. Asking the engine rather than scanning a directory is the
 /// difference between "installed" and "some files are lying around".
 async fn refresh(cx: &ExtensionContext, served: &Served) {
-    let contributions = match cx.call("plugin.list", json!({})).await {
+    let contributions = match cx.call("engine.plugin.list", json!({})).await {
         Ok(listed) => packages::read_all(&listed),
         Err(e) => {
             // A build without the package layer answers `PLUGINS_DISABLED` and nothing is

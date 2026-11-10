@@ -82,7 +82,7 @@ test.describe("with [apps] enabled", () => {
   });
 
   test("a registered application's method answers a device, through the same door, on the record", TAGS, async () => {
-    const spaces = await api.call("harnix.subscribe", { topic: "harnix.spaces" });
+    const spaces = await api.call("harnix.topics.subscribe", { topic: "harnix.spaces" });
     expect(spaces.value.spaces.map((s: any) => s.id)).not.toContain("fake");
 
     const summary = await api.call("app.fakehost.register", { id: "fake" });
@@ -124,7 +124,7 @@ test.describe("with [apps] enabled", () => {
   });
 
   test("its topic is subscribed to and published on", TAGS, async () => {
-    const first = await api.call("harnix.subscribe", { topic: "app.fake.ticks" });
+    const first = await api.call("harnix.topics.subscribe", { topic: "app.fake.ticks" });
     expect(first.topic).toBe("app.fake.ticks");
     await api.call("app.fake.echo", { n: 1 });
     const pushed = await api.waitFor(
@@ -135,11 +135,11 @@ test.describe("with [apps] enabled", () => {
   });
 
   test("withdrawn: a call in flight finishes, the next is not found, the subscriber is told", TAGS, async () => {
-    await api.call("harnix.subscribe", { topic: "app.fake.ticks" });
-    await api.call("harnix.subscribe", { topic: "harnix.spaces" });
+    await api.call("harnix.topics.subscribe", { topic: "app.fake.ticks" });
+    await api.call("harnix.topics.subscribe", { topic: "harnix.spaces" });
     const watcher = await connect(backend);
     try {
-      await watcher.call("harnix.subscribe", { topic: "app.fake.ticks" });
+      await watcher.call("harnix.topics.subscribe", { topic: "app.fake.ticks" });
       const slow = api.call("app.fake.slow", { ms: 1500 });
       await new Promise((r) => setTimeout(r, 300));
       const withdrawn = await api.call("app.fakehost.unregister", { id: "fake" });
@@ -160,7 +160,7 @@ test.describe("with [apps] enabled", () => {
         );
         expect(ended.params.reason).toContain("withdrawn");
       }
-      expect((await api.refused("harnix.subscribe", { topic: "app.fake.ticks" }))?.code).toBe(METHOD_NOT_FOUND);
+      expect((await api.refused("harnix.topics.subscribe", { topic: "app.fake.ticks" }))?.code).toBe(METHOD_NOT_FOUND);
       expect((await api.call("harnix.spaces.list")).spaces.map((s: any) => s.id)).not.toContain("fake");
       await api.waitFor(
         (f) => f.method === "harnix.topic" && f.params.topic === "harnix.spaces" && !f.params.value.spaces.some((s: any) => s.id === "fake"),
@@ -218,7 +218,7 @@ test.describe("with [apps] off", () => {
     const { methods, topics } = await api.call("harnix.reachable");
     expect(methods.filter((m: string) => m.startsWith("harnix.apps."))).toEqual([]);
     expect(topics).not.toContain("harnix.spaces");
-    expect((await api.refused("harnix.subscribe", { topic: "harnix.spaces" }))?.code).toBe(METHOD_NOT_FOUND);
+    expect((await api.refused("harnix.topics.subscribe", { topic: "harnix.spaces" }))?.code).toBe(METHOD_NOT_FOUND);
     const error = await api.refused("app.fakehost.register", { id: "fake" });
     expect(error?.code).toBe(REFUSED);
     expect(error?.message).toContain("[apps] enabled = false");

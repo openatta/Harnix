@@ -122,13 +122,13 @@ test("an image sent along is drawn with the message when the session is opened a
   // What was sent is drawn from the transcript, which the hub serves once the turn has settled.
   const running = () =>
     page.evaluate(async (sid) => {
-      const { sessions } = await (window as any).harnix.app.call("harnix.instances.sessions", { instance: "system" });
+      const { sessions } = await (window as any).harnix.app.call("harnix.sessions.list", { instance: "main" });
       return sessions.find((s: any) => s.session_id === sid)?.running;
     }, id);
   await expect.poll(running, { timeout: 30_000 }).toBe(false);
   await page.reload();
   await connected(page);
-  await page.evaluate((sid) => (window as any).harnix.app.open({ instance: "system", sessionId: sid }), id);
+  await page.evaluate((sid) => (window as any).harnix.app.open({ instance: "main", sessionId: sid }), id);
   await expect(page.getByTestId("conv-image").first()).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("conv-image").first().locator("img")).toHaveAttribute("src", /^(data:image|blob:|\/)/);
 });
@@ -153,7 +153,7 @@ test("what the model was sent apart from the messages is a row of its own, read 
   cpSync(join(RECORDINGS, "calls-a-tool"), join(SCRATCH, "agix", "recordings", id), { recursive: true });
   await page.reload();
   await connected(page);
-  await page.evaluate((sid) => (window as any).harnix.app.open({ instance: "system", sessionId: sid }), id);
+  await page.evaluate((sid) => (window as any).harnix.app.open({ instance: "main", sessionId: sid }), id);
   const row = page.getByTestId("conv-request").first();
   await expect(row).toBeVisible({ timeout: 15_000 });
   await row.getByTestId("conv-request-toggle").click();

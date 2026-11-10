@@ -979,7 +979,7 @@ impl Tool for AuthorTool {
                 let answered = match sh.cx.get() {
                     Some(mcx) => mcx
                         .call(
-                            "harnix.prompts.answerer",
+                            "harnix.session.answerer",
                             json!({"instance": instance, "session_id": session, "tool_use_id": cx.tool_use_id()}),
                         )
                         .await

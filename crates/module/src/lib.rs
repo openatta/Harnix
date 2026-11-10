@@ -123,7 +123,7 @@ pub trait Module: Send + Sync + 'static {
 
     fn manifest(&self) -> Manifest;
 
-    /// Native contributions to the `system` instance: scenes, tool providers, prompt gates, a
+    /// Native contributions to the `main` instance: scenes, tool providers, prompt gates, a
     /// credential source.
     fn engine(&self, _engine: &mut EngineContrib) {}
 

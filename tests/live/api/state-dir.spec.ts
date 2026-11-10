@@ -104,7 +104,7 @@ test("killed and started again at once, an instance's new daemon follows the old
       for (let i = 0; i < 20 && alive(old.pid); i += 1) await sleep(50);
       expect(alive(old.pid), `the old daemon ${old.pid} is still running`).toBe(false);
       // What the old one wrote is all there.
-      const history = await api.call("session.history", { instance: "ci", session_id: sessionId });
+      const history = await api.call("engine.session.history", { instance: "ci", session_id: sessionId });
       expect(JSON.stringify(history.messages)).toMatch(/fixture ready/i);
       api.close();
     } finally {

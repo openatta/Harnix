@@ -85,7 +85,7 @@ test.describe("an application with a backend", () => {
     expect(rt.topics).toEqual([M("notes"), M("heartbeat"), M("fetched")]);
     expect(rt.spaces).toEqual([SHOWCASE_ID, SHOWCASE_CHATS]);
     const registered = (await api.call("harnix.apps.list")).registered.find((r: any) => r.id === SHOWCASE_ID);
-    expect(registered).toMatchObject({ by: "apps", hub: ["session.create", "harnix.send", "topic:harnix.sessions.status", "harnix.entries.append"] });
+    expect(registered).toMatchObject({ by: "apps", hub: ["harnix.session.create", "harnix.session.send", "topic:harnix.sessions.status", "harnix.session.entries.append"] });
     // Reachable to this page like any method, and listed among the spaces.
     const reachable = await api.call("harnix.reachable");
     expect(reachable.methods).toContain(M("notes.add"));
@@ -99,7 +99,7 @@ test.describe("an application with a backend", () => {
   });
 
   test("the round trip: a method, the backend, its topic, back", TAGS, async () => {
-    const subscribed = await api.call("harnix.subscribe", { topic: M("notes") });
+    const subscribed = await api.call("harnix.topics.subscribe", { topic: M("notes") });
     expect(subscribed.topic).toBe(M("notes"));
     const added = await api.call(M("notes.add"), { text: "first note" });
     expect(added).toEqual({ count: 1 });
@@ -127,7 +127,7 @@ test.describe("an application with a backend", () => {
   });
 
   test("its timer fires into the backend, which publishes its heartbeat", TAGS, async () => {
-    await api.call("harnix.subscribe", { topic: M("heartbeat") });
+    await api.call("harnix.topics.subscribe", { topic: M("heartbeat") });
     expect(await api.call(M("timer.start"), { ms: 100, times: 3 })).toMatchObject({ armed: true });
     await api.waitFor((f) => f.method === "harnix.topic" && f.params.topic === M("heartbeat") && f.params.value?.ticks === 3, {
       describe: "the third heartbeat",
@@ -137,9 +137,9 @@ test.describe("an application with a backend", () => {
 
   test("a tool reads the backend's state, which its own instance cannot see, through host.call", TAGS, async () => {
     expect(await api.call(M("counter.bump"))).toEqual({ counter: 1 });
-    const created = await api.call("session.create", { instance: "system", project_root: api.project, options: { recorder: { name: "app-board" } } });
-    const s = { instance: "system", session_id: created.session_id };
-    await api.call("harnix.attach", s);
+    const created = await api.call("harnix.session.create", { instance: "main", project_root: api.project, options: { recorder: { name: "app-board" } } });
+    const s = { instance: "main", session_id: created.session_id };
+    await api.call("harnix.session.attach", s);
     const settled = (await runTurn(api, s, "What is on the showcase's board?")).settled;
     expect(settled.params.error).toBeUndefined();
     const results = JSON.stringify(api.eventsOfKind("tool_result", s.session_id));
@@ -155,7 +155,7 @@ test.describe("an application with a backend", () => {
   test("it reaches the network at the hosts its net lists, and nowhere else", TAGS, async () => {
     // A request is slow work: the method starts it and answers with a job at once, and what came of
     // it is published on `fetched` (harnix-plugin.md §4, `handle` is quick).
-    await api.call("harnix.subscribe", { topic: M("fetched") });
+    await api.call("harnix.topics.subscribe", { topic: M("fetched") });
     const outcome = async (url: string) => {
       const started = await api.call(M("fetch"), { url });
       expect(started).toMatchObject({ job: expect.any(Number), url, started: true });
@@ -184,16 +184,16 @@ test.describe("an application with a backend", () => {
       options: { recorder: { name: "app-backend-session" } },
     });
     expect(started.session_id).toBeTruthy();
-    const s = { instance: "system", session_id: started.session_id };
+    const s = { instance: "main", session_id: started.session_id };
     await expect
-      .poll(async () => JSON.stringify(await api.call("session.history", s).catch(() => "")), { timeout: 30_000, intervals: [200] })
+      .poll(async () => JSON.stringify(await api.call("engine.session.history", s).catch(() => "")), { timeout: 30_000, intervals: [200] })
       .toContain("The showcase's backend started this conversation.");
     // It landed in the application's space.
-    const listed = await api.call("harnix.sessions", { space: SHOWCASE_ID });
+    const listed = await api.call("harnix.sessions.list", { space: SHOWCASE_ID });
     expect(JSON.stringify(listed)).toContain(started.session_id);
     // As the application, through the admission point, on the record.
     const entries = await audit(api);
-    for (const method of ["session.create", "harnix.send"]) {
+    for (const method of ["harnix.session.create", "harnix.session.send"]) {
       expect(entries.find((e) => e.subject === ME && e.method === method)?.decision, method).toBe("allow");
     }
     // And what it subscribed to (`harnix.sessions.status`) told it about the run.
@@ -201,7 +201,7 @@ test.describe("an application with a backend", () => {
   });
 
   test("a call beyond its hub capability is refused, and on the record", TAGS, async () => {
-    await api.call("harnix.subscribe", { topic: "harnix.apps" });
+    await api.call("harnix.topics.subscribe", { topic: "harnix.apps" });
     const answer = await api.call(M("overreach"));
     expect(answer.refused).toBe(true);
     expect(answer.message).toContain("not in the application's `hub` capability");
@@ -260,7 +260,7 @@ test.describe("an application with a backend", () => {
   });
 
   test("disabled: its names are gone, a queued call is told why, its subscribers are told it ended", TAGS, async () => {
-    await api.call("harnix.subscribe", { topic: M("notes") });
+    await api.call("harnix.topics.subscribe", { topic: M("notes") });
     // One call holding the backend, one queued behind it, then the switch. The backend is held
     // once a quick call made after the spin goes unanswered for a second (the spin holds it for
     // five, its timeout): that call is the one queued. One that answers came before the spin.
@@ -286,7 +286,7 @@ test.describe("an application with a backend", () => {
     expect((await api.call("harnix.reachable")).methods).not.toContain(M("notes.list"));
     expect(JSON.stringify(await api.call("harnix.spaces.list"))).not.toContain(`"${SHOWCASE_ID}"`);
     expect((await api.call("harnix.apps.list")).registered).toEqual([]);
-    expect(await api.refused("harnix.subscribe", { topic: M("notes") }), "its topic is unknown now").not.toBeNull();
+    expect(await api.refused("harnix.topics.subscribe", { topic: M("notes") }), "its topic is unknown now").not.toBeNull();
 
     // And back.
     await api.call("harnix.apps.enable", { id: SHOWCASE_ID });

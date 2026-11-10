@@ -48,8 +48,8 @@ export interface SessionStrings {
   answerFailed(reason: string): string;
 }
 
-/** 没有 `instance` 的调用与通知都是 `system` 的。 */
-export const SYSTEM_INSTANCE = "system";
+/** 没有 `instance` 的调用与通知都是 `main` 的。 */
+export const MAIN_INSTANCE = "main";
 
 const HISTORY_PAGE = 200;
 const HISTORY_PAGES_AT_OPEN = 5;
@@ -57,11 +57,11 @@ const DEFAULT_PROMPT_TIMEOUT_SECS = 300;
 
 export interface SessionControllerOptions {
   client: HarnixClient;
-  /** 缺省 `system`。 */
+  /** 缺省 `main`。 */
   instance?: string;
   /** 调用方所在的 space：每个调用都带上，中枢对着账本核对（概念与架构 §5.4）。缺省不带。 */
   space?: string;
-  /** 发送时加进 `harnix.send` 的参数（例如 `@session` 引用），按这条消息算。 */
+  /** 发送时加进 `harnix.session.send` 的参数（例如 `@session` 引用），按这条消息算。 */
   extras?: (text: string) => Record<string, unknown>;
   sessionId: string;
   strings: SessionStrings;
@@ -90,14 +90,14 @@ export class SessionController {
    */
   private interrupting = false;
   /**
-   * 已结算的轮次（最近的几个）。`harnix.send` 的应答与事件分走两条通道时（split streams），应答可能比这一轮的
+   * 已结算的轮次（最近的几个）。`harnix.session.send` 的应答与事件分走两条通道时（split streams），应答可能比这一轮的
    * `turn_settled` 还晚到：据应答把它记成"在跑"会让一轮已结束的会话一直显示停止键。
    */
   private settled: string[] = [];
 
   constructor(options: SessionControllerOptions) {
     this.client = options.client;
-    this.instance = options.instance ?? SYSTEM_INSTANCE;
+    this.instance = options.instance ?? MAIN_INSTANCE;
     this.space = options.space;
     this.extras = options.extras;
     this.strings = options.strings;
@@ -130,7 +130,7 @@ export class SessionController {
     // attach 在服务端可能并发处理，先后不定，会把刚登记的观看者摘掉。
     queueMicrotask(() => {
       if (this.stopped && this.client.status === "open") {
-        this.client.notify("harnix.detach", this.key());
+        this.client.notify("harnix.session.detach", this.key());
       }
     });
   }
@@ -177,7 +177,7 @@ export class SessionController {
 
     let attached;
     try {
-      attached = await this.client.call("harnix.attach", this.key());
+      attached = await this.client.call("harnix.session.attach", this.key());
     } catch (e) {
       if (stale()) return;
       this.set({ ...note(fresh, this.strings.openFailed(errorText(e)), "error"), loading: false, failed: errorText(e) });
@@ -221,7 +221,7 @@ export class SessionController {
     };
     if (start > 0) next = note(next, this.strings.olderHidden(start));
     for (let offset = start; offset < total; offset += HISTORY_PAGE) {
-      const page = await this.client.call("session.history", {
+      const page = await this.client.call("engine.session.history", {
         ...this.key(),
         session_id: next.sessionId,
         offset,
@@ -242,7 +242,7 @@ export class SessionController {
   /** The session's entries, oldest first. An engine without them (before Agix 0.2.8) has none. */
   private async entries(): Promise<SessionEntry[]> {
     try {
-      const listed = (await this.client.call("session.entries", { ...this.key(), session_id: this.state.sessionId })) as { entries?: SessionEntry[] };
+      const listed = (await this.client.call("engine.session.entries", { ...this.key(), session_id: this.state.sessionId })) as { entries?: SessionEntry[] };
       return listed.entries ?? [];
     } catch {
       return [];
@@ -267,7 +267,7 @@ export class SessionController {
     if (this.stopped) return;
     const sessionId = this.state.sessionId;
     if (raw.session_id !== sessionId) return;
-    if ((raw.instance ?? SYSTEM_INSTANCE) !== this.instance) return;
+    if ((raw.instance ?? MAIN_INSTANCE) !== this.instance) return;
     if (method === "harnix.session_resync") {
       // 中枢重建了这个会话的缓冲：按刷新那条路重新 attach。
       void this.open();
@@ -329,7 +329,7 @@ export class SessionController {
     // 挂着的中断属于当时在跑的那一轮；若它没结束（连接断了），下一轮不该继承这条提示。
     this.interrupting = false;
     try {
-      const result = await this.client.call("harnix.send", {
+      const result = await this.client.call("harnix.session.send", {
         ...this.extras?.(message),
         ...this.key(),
         message,
@@ -353,10 +353,10 @@ export class SessionController {
 
   /** 中断正在跑的一轮；中枢同时清空队列（整值推送一个空队列）。 */
   async interrupt(): Promise<void> {
-    // 先记下：取消的事件（工具的 "cancelled" 结果、turn_settled）可能比 session.interrupt 的应答先到
+    // 先记下：取消的事件（工具的 "cancelled" 结果、turn_settled）可能比 harnix.session.interrupt 的应答先到
     this.interrupting = true;
     try {
-      await this.client.call("session.interrupt", this.key());
+      await this.client.call("harnix.session.interrupt", this.key());
     } catch (e) {
       this.interrupting = false;
       this.set({ ...this.state, banner: this.strings.interruptFailed(errorText(e)) });
@@ -380,7 +380,7 @@ export class SessionController {
     const answer: AskAnswer = decision.type === "deny" ? "deny" : "allow";
     this.set(answerAsk(this.state, key, answer));
     try {
-      await this.client.answer("session.respondToPrompt", {
+      await this.client.answer("harnix.session.respond", {
         ...this.key(),
         prompt_id: block.prompt.prompt_id,
         // Who answered is kept by the hub for the tool's audit; the engine never sees it.
@@ -399,7 +399,7 @@ export class SessionController {
 
   async removeQueued(itemId: string): Promise<void> {
     try {
-      const result = await this.client.call("harnix.queue.remove", {
+      const result = await this.client.call("harnix.session.queue.remove", {
         ...this.key(),
         item_id: itemId,
       });
@@ -412,7 +412,7 @@ export class SessionController {
   /** 改排队中那一条的话（位置和附件不变）。已经开始或已撤回的会被拒绝，横幅说明。 */
   async editQueued(itemId: string, message: string): Promise<boolean> {
     try {
-      const result = await this.client.call("harnix.queue.edit", {
+      const result = await this.client.call("harnix.session.queue.edit", {
         ...this.key(),
         item_id: itemId,
         message,

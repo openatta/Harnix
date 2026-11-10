@@ -3,7 +3,7 @@
  * conversations under it on a guide line. Up to five projects show, then "more"; up to eight
  * conversations of the open one, then "all".
  *
- * A project is a workspace (`harnix.workspaces.*`): a directory sessions run in. Its conversations
+ * A project is a workspace (`harnix-app.workspaces.*`): a directory sessions run in. Its conversations
  * are the session space's — the same sessions, listed by where they run — so opening one here
  * claims the session space, and a new one started here runs in the open project.
  */
@@ -67,7 +67,7 @@ function Project({ app, s, workspace }: { app: App; s: ShellState; workspace: Wo
     .sort((a, b) => String(b.last_active ?? "").localeCompare(String(a.last_active ?? "")));
   const all = Boolean(s.expanded[`project:${workspace.id}`]);
   const rows = all ? sessions : sessions.slice(0, SESSIONS);
-  const running = sessions.some((row) => s.running[`${row.instance ?? "system"}/${row.session_id}`]);
+  const running = sessions.some((row) => s.running[`${row.instance ?? "main"}/${row.session_id}`]);
   const menu = (event: { clientX?: number; clientY?: number; currentTarget: EventTarget | null }) =>
     workspaceMenu(app, workspace, { origin: event.currentTarget instanceof HTMLElement ? event.currentTarget : null, at: menuPoint(event) });
   return (

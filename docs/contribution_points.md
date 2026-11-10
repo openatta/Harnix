@@ -102,6 +102,6 @@ M8 去掉 HOME 之后它没有内建注册了，外壳在新对话的输入框�
 ## 装 Agix 插件
 
 Agix 插件是引擎的，不出现在这份目录里。Harnix 在这件事上只做一件
-Agix 有意不做的事：**收文件**——`plugin.install` 自己去取 URL，没有上传通道，而一个人
-的包在自己笔记本上、后端在另一台机器上时就没有路可走。`harnix.plugins.upload` /
-`harnix.plugins.install` 就是那条路，别的全部转手给引擎，包括它装完之后回的那份披露。
+Agix 有意不做的事：**收文件**——`engine.plugin.install` 自己去取 URL，没有上传通道，而一个人
+的包在自己笔记本上、后端在另一台机器上时就没有路可走。`plugins.upload` /
+`plugins.install` 就是那条路，别的全部转手给引擎，包括它装完之后回的那份披露。

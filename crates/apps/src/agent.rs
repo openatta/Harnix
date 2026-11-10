@@ -1,6 +1,6 @@
 //! The host's [`Agent`], over this process's Agix: an embedded application's agent side.
 //!
-//! Its agent package is installed into the instances its manifest names (`plugin.install` and
+//! Its agent package is installed into the instances its manifest names (`engine.plugin.install` and
 //! friends), its skills are copied into each one's skills directory, marked as its own, and its
 //! tools are in every session built here ([`crate::AppsBridge`] reads what
 //! [`Agent::expose_tools`] offered). Reached, like the kernel, through the `apps` module's context.
@@ -42,17 +42,17 @@ impl Agent for KernelPlatform {
             "download_url": format!("file://{}", a.archive.display()),
             "instance": a.instance,
         });
-        let answer = self.cx()?.call("plugin.install", params).await?;
+        let answer = self.cx()?.call("engine.plugin.install", params).await?;
         Ok(answer.get("disclosure").cloned().unwrap_or(answer))
     }
 
     async fn uninstall_agent(&self, a: AgentRef) -> Result<(), RpcError> {
         let params = json!({"name": a.name, "version": a.version, "instance": a.instance});
-        self.cx()?.call("plugin.uninstall", params).await.map(|_| ())
+        self.cx()?.call("engine.plugin.uninstall", params).await.map(|_| ())
     }
 
     async fn switch_agent(&self, s: AgentSwitch) -> Result<(), RpcError> {
-        let method = if s.on { "plugin.enable" } else { "plugin.disable" };
+        let method = if s.on { "engine.plugin.enable" } else { "engine.plugin.disable" };
         self.cx()?
             .call(method, json!({"name": s.name, "instance": s.instance}))
             .await
@@ -117,7 +117,7 @@ impl Agent for KernelPlatform {
 
     async fn reload_instance(&self, instance: String) -> Result<(), RpcError> {
         self.cx()?
-            .call("config.reload", json!({"instance": instance}))
+            .call("engine.config.reload", json!({"instance": instance}))
             .await
             .map(|_| ())
     }

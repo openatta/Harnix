@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use harnix_contract::{codes, ExtId, Frame, FrameSink, RpcError, Subject};
+use harnix_contract::{codes, ExtId, Frame, FrameSink, RpcError, SpaceDecl, Subject};
 use harnix_engine_api::events::{DaemonEventKind, EngineEvent, Fragment, Joins, SessionEventKind};
 use harnix_engine_api::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
 use harnix_engine_api::ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, Subscribed, Tasks, TurnInput};
@@ -188,9 +188,13 @@ struct Rig {
 
 impl Rig {
     async fn new() -> Self {
+        Self::with_spaces(Vec::new()).await
+    }
+
+    async fn with_spaces(declared: Vec<SpaceDecl>) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let book = Arc::new(Book::default());
-        let spaces = Spaces::load(dir.path().join("spaces.json"), Vec::new(), Default::default()).unwrap();
+        let spaces = Spaces::load(dir.path().join("spaces.json"), declared, Default::default()).unwrap();
         let hub = Hub::new(HubConfig { instances: book.clone(), spaces });
         let cell = HubCell::default();
         let rows = Hub::rows(&cell)
@@ -218,7 +222,7 @@ impl Rig {
         let client = self.hub.add_client(sink.clone()).await;
         let cx = CallContext::root(Subject::device("d"), Some(client));
         for instance in ["ext", "own"] {
-            let attached = self.call(cx.clone(), "harnix.attach", json!({"instance": instance, "session_id": "s1"})).await.unwrap();
+            let attached = self.call(cx.clone(), "harnix.session.attach", json!({"instance": instance, "session_id": "s1"})).await.unwrap();
             assert_eq!(attached["trust"] == "extension", instance == "ext", "{attached}");
             let title = attached["session"]["name"].as_str().unwrap();
             assert_eq!(title.chars().count(), if instance == "ext" { 200 } else { LONG });
@@ -310,7 +314,7 @@ async fn what_an_extensions_engine_says_of_a_session_is_held_to_what_a_session_c
     let rig = Rig::new().await;
     let kernel = || CallContext::root(Subject::Kernel, None);
     for instance in ["ext", "own"] {
-        let listed = rig.call(kernel(), "harnix.instances.sessions", json!({"instance": instance})).await.unwrap();
+        let listed = rig.call(kernel(), "harnix.sessions.list", json!({"instance": instance})).await.unwrap();
         let row = &listed["sessions"][0];
         let ext = instance == "ext";
         assert_eq!(row["name"].as_str().unwrap().chars().count(), if ext { 200 } else { LONG });
@@ -318,9 +322,9 @@ async fn what_an_extensions_engine_says_of_a_session_is_held_to_what_a_session_c
         assert_eq!(row["trust"] == "extension", ext, "{row}");
 
         // And passed through as it is otherwise.
-        let got = rig.call(kernel(), "session.get", json!({"instance": instance, "session_id": "s1"})).await.unwrap();
+        let got = rig.call(kernel(), "engine.session.get", json!({"instance": instance, "session_id": "s1"})).await.unwrap();
         assert_eq!(got["name"].as_str().unwrap().chars().count(), if ext { 200 } else { LONG });
-        let all = rig.call(kernel(), "session.list", json!({"instance": instance})).await.unwrap();
+        let all = rig.call(kernel(), "engine.session.list", json!({"instance": instance})).await.unwrap();
         assert_eq!(all["sessions"][0]["turn_state"], if ext { Value::Null } else { json!("<script>") });
     }
 }
@@ -329,7 +333,7 @@ async fn what_an_extensions_engine_says_of_a_session_is_held_to_what_a_session_c
 async fn nobody_reaches_an_extensions_engines_settings_or_plugins() {
     let rig = Rig::new().await;
     let kernel = || CallContext::root(Subject::Kernel, None);
-    for method in ["config.get", "config.reload", "plugin.install", "plugin.list", "config.setProvider"] {
+    for method in ["engine.config.get", "engine.config.reload", "engine.plugin.install", "engine.plugin.list", "engine.config.setProvider"] {
         let refused = rig.call(kernel(), method, json!({"instance": "ext"})).await.unwrap_err();
         assert_eq!(refused.code, codes::REFUSED, "{method}: {}", refused.message);
         rig.call(kernel(), method, json!({"instance": "own"})).await.unwrap_or_else(|e| panic!("{method}: {}", e.message));
@@ -337,6 +341,43 @@ async fn nobody_reaches_an_extensions_engines_settings_or_plugins() {
     assert!(rig.ext.0.passed().is_empty(), "{:?}", rig.ext.0.passed());
     assert_eq!(rig.own.0.passed().len(), 5);
     // What is not its settings passes through as for any engine.
-    rig.call(kernel(), "scene.list", json!({"instance": "ext"})).await.unwrap();
-    assert_eq!(rig.ext.0.passed(), ["scene.list"]);
+    rig.call(kernel(), "engine.scene.list", json!({"instance": "ext"})).await.unwrap();
+    assert_eq!(rig.ext.0.passed(), ["engine.scene.list"]);
+}
+
+#[tokio::test]
+async fn a_caller_that_claims_a_space_is_told_of_that_spaces_sessions_only() {
+    let rig = Rig::with_spaces(vec![SpaceDecl::new("acme").default_space(), SpaceDecl::new("other")]).await;
+    let kernel = || CallContext::root(Subject::Kernel, None);
+    let listed = |space: Option<&str>| {
+        let mut params = json!({"instance": "own"});
+        if let Some(space) = space {
+            params["space"] = json!(space);
+        }
+        params
+    };
+    // The session is the default space's: acme sees it, another space does not, and a caller
+    // that claims nothing sees what the engine lists.
+    let sessions = |answer: Value| answer["sessions"].as_array().unwrap().len();
+    assert_eq!(sessions(rig.call(kernel(), "engine.session.list", listed(Some("acme"))).await.unwrap()), 1);
+    assert_eq!(sessions(rig.call(kernel(), "engine.session.list", listed(Some("other"))).await.unwrap()), 0);
+    assert_eq!(sessions(rig.call(kernel(), "engine.session.list", listed(None)).await.unwrap()), 1);
+
+    // The same for the values of the topics that list sessions: each subscriber is told its own.
+    let mut told = Vec::new();
+    for space in [Some("acme"), Some("other"), None] {
+        let sink = Arc::new(Sink::default());
+        let client = rig.hub.add_client(sink.clone()).await;
+        let cx = CallContext::root(Subject::device("d"), Some(client));
+        let mut params = json!({"instance": "own"});
+        if let Some(space) = space {
+            params["space"] = json!(space);
+        }
+        let on = rig
+            .call(cx, "harnix.topics.subscribe", json!({"topic": "harnix.instances.sessions", "params": params}))
+            .await
+            .unwrap();
+        told.push((sessions(on["value"].clone()), sink));
+    }
+    assert_eq!(told.iter().map(|(n, _)| *n).collect::<Vec<_>>(), [1, 0, 1]);
 }

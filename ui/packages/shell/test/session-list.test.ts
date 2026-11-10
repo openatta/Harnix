@@ -7,8 +7,8 @@ import { scriptedApp } from "./scripted";
 describe("the session list", () => {
   it("draws a session the engine listed twice once", async () => {
     const { app, client } = scriptedApp();
-    const row = { instance: "system", session_id: "s1", last_active: "" };
-    client.answer = (method) => (method === "harnix.sessions" ? { sessions: [row, { ...row }, { ...row, session_id: "s2" }] } : {});
+    const row = { instance: "main", session_id: "s1", last_active: "" };
+    client.answer = (method) => (method === "harnix.sessions.list" ? { sessions: [row, { ...row }, { ...row, session_id: "s2" }] } : {});
     await app.refreshSessions();
     expect(app.snapshot.sessions.map((s) => s.session_id)).toEqual(["s1", "s2"]);
   });
@@ -19,7 +19,7 @@ describe("the session list", () => {
     const late = new Promise<void>((resolve) => (release = resolve));
     let calls = 0;
     client.answer = (method) => {
-      if (method !== "harnix.workspaces.list") return { sessions: [] };
+      if (method !== "harnix-app.workspaces.list") return { sessions: [] };
       calls += 1;
       // The first list is the old one, and it is slow; the second already has the new project.
       return calls === 1 ? late.then(() => ({ workspaces: [] })) : { workspaces: [{ id: "w1", path: "/p" }] };

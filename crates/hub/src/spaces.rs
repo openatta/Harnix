@@ -1,13 +1,13 @@
 //! Which space a session belongs to (concept §5.4).
 //!
 //! A session is bound to one space when it is created and never moves. The binding is Harnix's own
-//! record — the engine knows nothing of spaces — kept in `.harnix/spaces.json` beside the instance
-//! ledger, with the instance a space's template built for it. A session with no record belongs to
-//! the default space — the one an extension declared `default_space()`, when one did: every one a
-//! caller created without saying.
+//! record — the engine knows nothing of spaces — kept in `kernel/spaces.json` in the state
+//! directory, beside the instance ledger, with the instance a space's template built for it. A
+//! session with no record belongs to the default space — the one an extension declared
+//! `default_space()`, when one did: every one a caller created without saying.
 //!
 //! A space needs no declaration here: one with only an interface and an Agent takes the defaults
-//! (`system`, the instance's scene). A module declares one to give it a default instance or scene.
+//! (`main`, the instance's scene). A module declares one to give it a default instance or scene.
 //!
 //! The same ledger records which sessions Harnix itself started — a module's or the kernel's,
 //! rather than a person's at a device — so the system space can mark them.
@@ -29,7 +29,7 @@ use harnix_contract::{codes, DefaultInstance, RpcError, SpaceDecl, Subject};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::{Hub, SessionKey, SYSTEM};
+use crate::{Hub, SessionKey, MAIN};
 
 /// Told about every act across spaces by a call claiming a `cross_space` space: who, which
 /// method, which session, and the space the session belongs to.
@@ -238,7 +238,7 @@ impl Spaces {
             }
         }
         if self.default.as_deref() == Some(space) {
-            set.insert(SYSTEM.to_string());
+            set.insert(MAIN.to_string());
         }
         set
     }
@@ -377,7 +377,7 @@ impl Hub {
         Ok(space)
     }
 
-    /// `harnix.sessions.move {instance, session_id, space}` (ipdrun-51): bind an existing session to
+    /// `harnix.session.move {instance, session_id, space}` (ipdrun-51): bind an existing session to
     /// another space, transcript and all — an application that reorganized its spaces moves the
     /// sessions it made instead of leaving them behind. The application's, not a device's: the
     /// space is where a product put a session, not where a client would like to see it. The target
@@ -453,7 +453,7 @@ impl Hub {
         lock(&self.spaces).bound(key).to_string()
     }
 
-    /// `harnix.sessions { space }`: a space's sessions, across the instances it uses; a space
+    /// `harnix.sessions.list { space }`: a space's sessions, across the instances it uses; a space
     /// reaching across spaces has every session of every instance.
     pub(crate) async fn space_sessions(&self, space: &str) -> Result<Value, RpcError> {
         let crosses = lock(&self.spaces).crosses(space);
@@ -569,12 +569,12 @@ mod tests {
     fn the_default_space_is_an_extensions_and_there_is_at_most_one() {
         let dir = tempfile::tempdir().unwrap();
         let s = spaces(dir.path());
-        let key: SessionKey = ("system".into(), "s1".into());
+        let key: SessionKey = ("main".into(), "s1".into());
         assert_eq!(s.default_space(), Some("home"));
         assert_eq!(s.bound(&key), "home");
         assert_eq!(s.claimed_space(&json!({})), "home");
         assert_eq!(s.claimed_space(&json!({"space": "fleet"})), "fleet");
-        assert!(s.instances_of("home").contains(SYSTEM));
+        assert!(s.instances_of("home").contains(MAIN));
 
         let none = Spaces::load(dir.path().join("none.json"), vec![SpaceDecl::new("fleet")], Default::default()).unwrap();
         assert_eq!(none.default_space(), None);

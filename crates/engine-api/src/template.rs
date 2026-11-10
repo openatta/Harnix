@@ -135,7 +135,7 @@ pub struct InstanceTemplate {
     /// should stay the template's own is ever a device's to choose.
     pub ui: bool,
     pub max: Option<usize>,
-    /// Whether its instances see the providers configured for `system` — the settings page's —
+    /// Whether its instances see the providers configured for `main` — the settings page's —
     /// under their own (ipdrun-11).
     pub inherit_providers: bool,
     /// Stopping or restarting one of its instances ends every process its sessions left running
@@ -201,7 +201,7 @@ impl InstanceTemplate {
         self
     }
 
-    /// This template's instances see the providers configured for `system` (the settings page's),
+    /// This template's instances see the providers configured for `main` (the settings page's),
     /// under their own: Harnix merges them into each instance's global settings tier when it is
     /// built and every time the settings page changes a provider, then has it reload. A provider
     /// the instance configures itself under the same id wins.

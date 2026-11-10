@@ -62,14 +62,14 @@ test("one module reaches another only where it was named", TAGS, async () => {
 });
 
 test("a module calls the kernel's methods through the same door", TAGS, async () => {
-  const sessions = await api.call("app.probe.call", { method: "harnix.sessions", params: {} });
+  const sessions = await api.call("app.probe.call", { method: "harnix.sessions.list", params: {} });
   expect(Array.isArray(sessions.sessions)).toBe(true);
   // And what the hub owns stays the hub's, for a module too.
-  const turn = await api.refused("app.probe.call", { method: "session.run_turn", params: {} });
+  const turn = await api.refused("app.probe.call", { method: "engine.session.run_turn", params: {} });
   expect(turn?.code).toBe(REFUSED);
   // A device may not write a provider; the settings module was granted it,
   // this one was not.
-  const provider = await api.refused("app.probe.call", { method: "config.setProvider", params: {} });
+  const provider = await api.refused("app.probe.call", { method: "engine.config.setProvider", params: {} });
   expect(provider?.code).toBe(REFUSED);
 });
 
@@ -116,7 +116,7 @@ test("the diagnostics page says what is there and what is not", TAGS, async () =
 });
 
 test("a topic hands a subscriber the current value, then every new one", TAGS, async () => {
-  const first = await api.call("harnix.subscribe", { topic: "app.probe.counter" });
+  const first = await api.call("harnix.topics.subscribe", { topic: "app.probe.counter" });
   expect(first.value).toEqual({ n: 0 });
   await api.call("app.probe.bump");
   const pushed = await api.waitFor(
@@ -127,9 +127,9 @@ test("a topic hands a subscriber the current value, then every new one", TAGS, a
 });
 
 test("a parameterised topic is one value per parameter set", TAGS, async () => {
-  const missing = await api.refused("harnix.subscribe", { topic: "app.probe.job" });
+  const missing = await api.refused("harnix.topics.subscribe", { topic: "app.probe.job" });
   expect(missing?.code).toBe(INVALID_PARAMS);
-  await api.call("harnix.subscribe", { topic: "app.probe.job", params: { job_id: "a" } });
+  await api.call("harnix.topics.subscribe", { topic: "app.probe.job", params: { job_id: "a" } });
   await api.call("app.probe.bump", { job_id: "b" });
   await api.call("app.probe.bump", { job_id: "a" });
   const seen = await api.waitFor(
@@ -141,9 +141,9 @@ test("a parameterised topic is one value per parameter set", TAGS, async () => {
 });
 
 test("a topic declared for the kernel is not a device's to subscribe to", TAGS, async () => {
-  const error = await api.refused("harnix.subscribe", { topic: "app.probe.secret" });
+  const error = await api.refused("harnix.topics.subscribe", { topic: "app.probe.secret" });
   expect(error?.code).toBe(REFUSED);
-  const unknown = await api.refused("harnix.subscribe", { topic: "app.probe.nothing" });
+  const unknown = await api.refused("harnix.topics.subscribe", { topic: "app.probe.nothing" });
   expect(unknown?.code).toBe(METHOD_NOT_FOUND);
   const { topics } = await api.call("harnix.reachable");
   expect(topics).toContain("app.probe.counter");

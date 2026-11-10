@@ -5,7 +5,7 @@
  * arrive through the same point a package's would. A section that throws loses its page, not the
  * panel: the nav stays usable.
  *
- * Engine settings are written to a tier's settings.json through `harnix.settings.set`; the engine
+ * Engine settings are written to a tier's settings.json through `settings.set`; the engine
  * keeps a per-(project, scene) cache that a reload does not clear, so a row says when the running
  * engine still has the old value rather than pretending.
  */
@@ -181,12 +181,12 @@ function EngineSettings({ app, only }: { app: App; only: string[] }) {
   const request = where(app);
   const [selected, setSelected] = useState(tier);
   return (
-    <Section title={t("settings.engineDefaults")} load={() => app.call<Described>("harnix.settings.describe", request)}>
+    <Section title={t("settings.engineDefaults")} load={() => app.call<Described>("settings.describe", request)}>
       {(data) => {
         const paths = data.paths ?? {};
         const write = (key: string, value: unknown) =>
           app
-            .call("harnix.settings.set", { ...request, tier: selected, key, value })
+            .call("settings.set", { ...request, tier: selected, key, value })
             .then(() => {
               app.notice(t("settings.written", { path: paths[selected] }));
               setTimeout(() => app.dismissBanner(), 2500);
@@ -309,7 +309,7 @@ function Scenes({ app }: { app: App }) {
       title={t("settings.scenes")}
       load={() =>
         app.call<{ scenes?: { scene: string; name?: string; active?: boolean; sessions?: number; capabilities?: { requires_project?: boolean; supports_team?: boolean } }[] }>(
-          "scene.list",
+          "engine.scene.list",
           {},
         )
       }
@@ -337,7 +337,7 @@ function Scenes({ app }: { app: App }) {
                   className="btn sm outline"
                   onClick={() =>
                     app
-                      .call("scene.activate", { scene: scene.scene })
+                      .call("engine.scene.activate", { scene: scene.scene })
                       .then(() => {
                         app.notice(t("settings.sceneActivated", { scene: scene.scene }));
                         setTimeout(() => app.dismissBanner(), 2500);
@@ -372,7 +372,7 @@ function Models({ app }: { app: App }) {
   };
   return (
     <>
-      <Section title={t("settings.providers")} load={() => app.call<Described>("harnix.settings.describe", request)}>
+      <Section title={t("settings.providers")} load={() => app.call<Described>("settings.describe", request)}>
         {(data) => {
           const providers = data.providers?.providers ?? {};
           const fallback = data.providers?.default_provider ?? null;
@@ -440,7 +440,7 @@ function ProviderCard({
   const [confirming, setConfirming] = useState(false);
   const change = (params: Record<string, unknown>) =>
     app
-      .call("harnix.settings.setProvider", { provider_id: id, ...params })
+      .call("settings.setProvider", { provider_id: id, ...params })
       .then(onChanged)
       .catch((e: unknown) => app.notice(t("settings.writeFailed", { error: errorText(e) }), "error"));
   const models = [provider.default_model, ...(provider.models ?? [])].filter((m, i, all): m is string => Boolean(m) && all.indexOf(m) === i);
@@ -543,7 +543,7 @@ function ProviderForm({
     if (fields.api_key) config.api_key = fields.api_key;
     setSaving(true);
     try {
-      await app.call("harnix.settings.setProvider", {
+      await app.call("settings.setProvider", {
         provider_id: providerId,
         config,
         ...(fields.make_default ? { default_provider: providerId } : {}),
@@ -606,7 +606,7 @@ function ProviderForm({
 function Mcp({ app }: { app: App }) {
   const t = useT();
   return (
-    <Section title={t("settings.mcpServers")} load={() => app.call<{ servers?: { name: string; connected?: boolean; tools?: number; error?: string }[] }>("mcp.status", {})}>
+    <Section title={t("settings.mcpServers")} load={() => app.call<{ servers?: { name: string; connected?: boolean; tools?: number; error?: string }[] }>("engine.mcp.status", {})}>
       {(data) => (
         <>
           {!(data.servers ?? []).length ? <div className="hint">{t("settings.mcpNone")}</div> : null}
@@ -640,7 +640,7 @@ function Plugins({ app }: { app: App }) {
       .then(reload)
       .catch((e: unknown) => app.notice(errorText(e), "error"));
   return (
-    <Section title={t("settings.plugins")} load={() => app.call<PluginList>("harnix.plugins.list", {})}>
+    <Section title={t("settings.plugins")} load={() => app.call<PluginList>("plugins.list", {})}>
       {(data) => {
         if (data.available === false) return <div className="hint">{data.reason || t("settings.pluginsUnavailable")}</div>;
         const plugins = data.plugins ?? [];
@@ -656,7 +656,7 @@ function Plugins({ app }: { app: App }) {
                     <button
                       type="button"
                       className="btn sm outline"
-                      onClick={() => void act(plugin.enabled ? "harnix.plugins.disable" : "harnix.plugins.enable", { name: plugin.name })}
+                      onClick={() => void act(plugin.enabled ? "plugins.disable" : "plugins.enable", { name: plugin.name })}
                     >
                       {plugin.enabled ? t("settings.pluginDisable") : t("settings.pluginEnable")}
                     </button>
@@ -664,7 +664,7 @@ function Plugins({ app }: { app: App }) {
                       type="button"
                       className="btn sm danger"
                       onClick={() => {
-                        if (confirm(t("settings.pluginRemoveConfirm", { name: plugin.name }))) void act("harnix.plugins.uninstall", { name: plugin.name });
+                        if (confirm(t("settings.pluginRemoveConfirm", { name: plugin.name }))) void act("plugins.uninstall", { name: plugin.name });
                       }}
                     >
                       {t("common.remove")}
@@ -703,11 +703,11 @@ function Installer({ app }: { app: App }) {
   const install = async (file: File) => {
     setStatus({ text: t("settings.pluginUploading", { name: file.name }) });
     try {
-      const grant = await app.call<{ url: string; path: string }>("harnix.plugins.upload", { name: file.name });
+      const grant = await app.call<{ url: string; path: string }>("plugins.upload", { name: file.name });
       const response = await fetch(grant.url, { method: "POST", body: file });
       if (!response.ok) throw new Error(await response.text());
       setStatus({ text: t("settings.pluginInstalling") });
-      const result = await app.call<{ message?: string; disclosure?: unknown }>("harnix.plugins.install", { path: grant.path, name: file.name });
+      const result = await app.call<{ message?: string; disclosure?: unknown }>("plugins.install", { path: grant.path, name: file.name });
       setStatus({
         text: result.message || t("settings.pluginInstalled"),
         disclosure:
@@ -756,7 +756,7 @@ function Devices({ app }: { app: App }) {
     return () => clearTimeout(tick);
   }, [grant]);
   return (
-    <Section title={t("settings.devices")} load={() => app.call<{ devices?: { id: string; label?: string }[] }>("harnix.devices.list", {})}>
+    <Section title={t("settings.devices")} load={() => app.call<{ devices?: { id: string; label?: string }[] }>("devices.list", {})}>
       {(data) => (
         <>
           <div className="hint">{t("settings.devicesHint")}</div>
@@ -771,7 +771,7 @@ function Devices({ app }: { app: App }) {
                 onClick={() => {
                   if (!confirm(t("settings.deviceRevokeConfirm", { name: device.label || device.id }))) return;
                   app
-                    .call("harnix.devices.revoke", { device_id: device.id })
+                    .call("devices.revoke", { device_id: device.id })
                     .then(reload)
                     .catch((e: unknown) => app.notice(errorText(e), "error"));
                 }}
@@ -785,7 +785,7 @@ function Devices({ app }: { app: App }) {
             className="btn sm outline"
             onClick={() =>
               app
-                .call<{ code: string; expires_in_secs: number }>("harnix.devices.pair.begin", { label: t("settings.deviceNew") })
+                .call<{ code: string; expires_in_secs: number }>("devices.pair.begin", { label: t("settings.deviceNew") })
                 .then((g) => setGrant({ code: g.code, left: g.expires_in_secs }))
                 .catch((e: unknown) => setGrant({ error: errorText(e) }))
             }
@@ -819,7 +819,7 @@ export function Diagnostics({ app }: { app: App }) {
   const refused = registry.refusals();
   return (
     <>
-      <Section title={t("settings.engine")} load={() => app.call<{ version?: string; uptime_secs?: number; sessions?: number }>("daemon.status", {})}>
+      <Section title={t("settings.engine")} load={() => app.call<{ version?: string; uptime_secs?: number; sessions?: number }>("engine.daemon.status", {})}>
         {(data) => (
           <>
             <Row label={t("settings.version")}>
@@ -855,7 +855,7 @@ export function Diagnostics({ app }: { app: App }) {
         onClick={() => {
           setReport({ running: true });
           app
-            .call<{ ok?: boolean; checks?: { scope: string; name: string; ok: boolean; detail?: string }[] }>("daemon.doctor", {})
+            .call<{ ok?: boolean; checks?: { scope: string; name: string; ok: boolean; detail?: string }[] }>("engine.daemon.doctor", {})
             .then(setReport)
             .catch((e: unknown) => setReport({ error: errorText(e) }));
         }}
@@ -921,7 +921,7 @@ function RuntimeModules({ app }: { app: App }) {
       </div>
       <Row label="Content-Security-Policy" hint={t("diag.cspHint")} />
       {csp ? <pre className="hx-pre" data-testid="csp">{csp}</pre> : null}
-      <Section title={t("diag.packageEntries")} load={() => app.call<PluginList>("harnix.plugins.list", {})}>
+      <Section title={t("diag.packageEntries")} load={() => app.call<PluginList>("plugins.list", {})}>
         {(data) => {
           const rows = (data.contributes ?? []).flatMap((c) => [
             ...(c.ui ?? []).map((entry) => ({ plugin: c.plugin, what: `${entry.point} → ${entry.module}`, state: on ? "on" : "off" })),

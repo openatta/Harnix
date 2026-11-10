@@ -81,5 +81,5 @@ app.start(
 );
 window.addEventListener("beforeunload", () => {
   const current = app.snapshot.current;
-  if (current) client.notify("harnix.detach", { instance: current.instance, session_id: current.sessionId });
+  if (current) client.notify("harnix.session.detach", { instance: current.instance, session_id: current.sessionId });
 });

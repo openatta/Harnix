@@ -25,7 +25,7 @@ env = ["SHOWCASE_TOKEN"]
 # What the backend may do as `ext:example.showcase`: start a session and send it a prompt
 # (`session.start`), watch which sessions are running, and put a card in a session's flow
 # (`card.post`, drawn from `[[inline.flow_block]]`). `overreach` tries something else.
-hub = ["session.create", "harnix.send", "topic:harnix.sessions.status", "harnix.entries.append"]
+hub = ["harnix.session.create", "harnix.session.send", "topic:harnix.sessions.status", "harnix.session.entries.append"]
 
 [[component]]
 name = "tools"
@@ -173,9 +173,9 @@ api_version = 3
 # listed here.
 [interface]
 # Besides its own names: the session list (the left column counts the space's sessions), and a
-# session's details. Each only as far as the showcase's own spaces: `harnix.sessions` lists those,
-# and `session.get` is refused a session in any other.
-hub = ["harnix.sessions", "session.get"]
+# session's details. Each only as far as the showcase's own spaces: `harnix.sessions.list` lists those,
+# and `engine.session.get` is refused a session in any other.
+hub = ["harnix.sessions.list", "engine.session.get"]
 # The card links to the showcase's README; the shell asks before it opens.
 links = true
 
@@ -241,7 +241,7 @@ order = 61
 center = "chat"
 
 [agent]
-install_into = ["system"]
+install_into = ["main"]
 
 # What the shell draws for the showcase in its own views, from this manifest alone: no code of the
 # showcase's runs in the page for any of it. A store application's interface runs isolated; these

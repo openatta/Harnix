@@ -23,9 +23,9 @@ pub(crate) struct Topics {
     known: BTreeMap<String, Vec<String>>,
     values: HashMap<(String, String), Value>,
     subscribers: HashMap<(String, String), HashSet<ClientId>>,
-    /// Old name → the topic it now is, while its subscribers move: subscribed by the old name,
-    /// told under it, with the new one's values.
-    moved: BTreeMap<String, String>,
+    /// The subscribers held to one space's rows: they claimed it, and a value that lists
+    /// sessions is cut down to that space's before they are told it.
+    held: HashMap<(String, String), HashMap<ClientId, String>>,
 }
 
 impl Topics {
@@ -50,6 +50,7 @@ impl Topics {
             return Vec::new();
         }
         self.values.retain(|(topic, _), _| topic != name);
+        self.held.retain(|(topic, _), _| topic != name);
         let keys: Vec<(String, String)> = self.subscribers.keys().filter(|(topic, _)| topic == name).cloned().collect();
         let mut told = Vec::new();
         for key in keys {
@@ -63,21 +64,6 @@ impl Topics {
         told
     }
 
-    /// Subscribing to `old` is subscribing to `new`, told under the old name.
-    pub fn alias(&mut self, old: &str, new: &str) {
-        self.moved.insert(old.to_string(), new.to_string());
-    }
-
-    /// The topic a name means: its own, or the one it moved to.
-    pub fn canon<'a>(&'a self, topic: &'a str) -> &'a str {
-        self.moved.get(topic).map_or(topic, String::as_str)
-    }
-
-    /// The old names of `topic`.
-    fn old_names<'a>(&'a self, topic: &'a str) -> impl Iterator<Item = &'a String> + 'a {
-        self.moved.iter().filter(move |(_, new)| *new == topic).map(|(old, _)| old)
-    }
-
     pub fn names(&self) -> Vec<String> {
         self.known.keys().cloned().collect()
     }
@@ -85,7 +71,7 @@ impl Topics {
     /// The canonical key of one subscription: only the declared parameters,
     /// in a fixed order.
     pub fn key(&self, topic: &str, params: &Value) -> Result<(String, String), RpcError> {
-        let Some(declared) = self.known.get(self.canon(topic)) else {
+        let Some(declared) = self.known.get(topic) else {
             return Err(RpcError::not_found(format!("there is no topic `{topic}`")));
         };
         let mut picked = BTreeMap::new();
@@ -104,8 +90,20 @@ impl Topics {
         Ok((topic.to_string(), serde_json::to_string(&picked).unwrap_or_default()))
     }
 
-    pub fn subscribe(&mut self, client: ClientId, key: (String, String)) -> Value {
-        let value = self.values.get(&(self.canon(&key.0).to_string(), key.1.clone())).cloned().unwrap_or(Value::Null);
+    /// Subscribe `client`, held to `space`'s rows when it claimed one. The value kept: the
+    /// caller cuts it down for a held subscriber.
+    pub fn subscribe(&mut self, client: ClientId, key: (String, String), space: Option<String>) -> Value {
+        let value = self.values.get(&key).cloned().unwrap_or(Value::Null);
+        match space {
+            Some(space) => {
+                self.held.entry(key.clone()).or_default().insert(client, space);
+            }
+            None => {
+                if let Some(held) = self.held.get_mut(&key) {
+                    held.remove(&client);
+                }
+            }
+        }
         self.subscribers.entry(key).or_default().insert(client);
         value
     }
@@ -114,38 +112,50 @@ impl Topics {
         if let Some(set) = self.subscribers.get_mut(key) {
             set.remove(&client);
         }
+        if let Some(held) = self.held.get_mut(key) {
+            held.remove(&client);
+        }
     }
 
     pub fn has_subscribers(&self, key: &(String, String)) -> bool {
-        let watched = |key: &(String, String)| self.subscribers.get(key).is_some_and(|s| !s.is_empty());
-        watched(key) || self.old_names(&key.0).any(|old| watched(&(old.clone(), key.1.clone())))
+        self.subscribers.get(key).is_some_and(|s| !s.is_empty())
     }
 
     pub fn forget(&mut self, client: ClientId) {
         for set in self.subscribers.values_mut() {
             set.remove(&client);
         }
+        for held in self.held.values_mut() {
+            held.remove(&client);
+        }
     }
 
-    /// Store a new value; who to tell and what to send them, under each name it is watched by.
-    pub fn publish(&mut self, key: (String, String), params: Value, value: Value) -> Vec<(Vec<ClientId>, Frame)> {
-        let mut told = Vec::new();
-        for name in std::iter::once(&key.0).chain(self.old_names(&key.0)) {
-            let to: Vec<ClientId> = self
-                .subscribers
-                .get(&(name.clone(), key.1.clone()))
-                .map(|s| s.iter().copied().collect())
-                .unwrap_or_default();
-            if to.is_empty() && *name != key.0 {
-                continue;
+    /// Store a new value; who to tell and what to send each. A subscriber held to a space is sent
+    /// what `within` makes of the value for that space, once per space.
+    pub fn publish(
+        &mut self,
+        key: (String, String),
+        params: Value,
+        value: Value,
+        within: &dyn Fn(&str, &Value, &str) -> Value,
+    ) -> Vec<(Vec<ClientId>, Frame)> {
+        let held = self.held.get(&key);
+        let mut free: Vec<ClientId> = Vec::new();
+        let mut by_space: BTreeMap<&str, Vec<ClientId>> = BTreeMap::new();
+        for client in self.subscribers.get(&key).into_iter().flatten().copied() {
+            match held.and_then(|h| h.get(&client)) {
+                Some(space) => by_space.entry(space.as_str()).or_default().push(client),
+                None => free.push(client),
             }
-            let frame = Frame::host(notification(
-                "harnix.topic",
-                json!({"topic": name, "params": params, "value": value}),
-            ));
-            told.push((to, frame));
         }
-        self.values.insert(key, value);
+        let frame = |value: &Value| {
+            Frame::host(notification("harnix.topic", json!({"topic": key.0, "params": params, "value": value})))
+        };
+        let mut told = vec![(free, frame(&value))];
+        for (space, clients) in by_space {
+            told.push((clients, frame(&within(&key.0, &value, space))));
+        }
+        self.values.insert(key.clone(), value);
         told
     }
 }
@@ -165,12 +175,6 @@ impl crate::Hub {
 
     pub(crate) fn source(&self, topic: &str) -> Option<Arc<dyn TopicSource>> {
         read(&self.sources).get(topic).cloned()
-    }
-
-    /// Subscribing to `old` is subscribing to `new`, told under the old name: a topic whose
-    /// subscribers have not moved to its new name yet.
-    pub async fn alias_topic(&self, old: &str, new: &str) {
-        self.inner.lock().await.topics.alias(old, new);
     }
 
     /// Declare a topic after assembly — a runtime application's. Refused
@@ -203,7 +207,7 @@ impl crate::Hub {
         count
     }
 
-    /// `harnix.subscribe { topic, params? }` → `{ value }`: the current value
+    /// `harnix.topics.subscribe { topic, params? }` → `{ value }`: the current value
     /// now, every later one as `harnix.topic`.
     ///
     /// A computed topic is computed now rather than taken from the last
@@ -218,30 +222,66 @@ impl crate::Hub {
         // One session's topic, by a caller claiming a space: the session must be that space's,
         // as for a call about it.
         if args.get("session_id").is_some() {
-            self.check_space(&cx.subject, "harnix.subscribe", &args)?;
+            self.check_space(&cx.subject, "harnix.topics.subscribe", &args)?;
         }
-        let (key, canonical) = {
-            let guard = self.inner.lock().await;
-            (guard.topics.key(&topic, &args)?, guard.topics.canon(&topic).to_string())
-        };
-        if let Some(source) = self.source(&canonical) {
+        let key = self.inner.lock().await.topics.key(&topic, &args)?;
+        let held = self.held_space(&args);
+        if let Some(source) = self.source(&topic) {
             source.on_subscribe(&args).await;
             if let Some(every) = source.every() {
-                self.tick(&canonical, &args, every);
+                self.tick(&topic, &args, every);
             }
             let value = source.compute(&args).await?;
             let mut guard = self.inner.lock().await;
             // A value computed afresh is news to whoever already watches it, as any publish is;
             // the new subscriber has it in its reply.
-            let told = guard.topics.publish((canonical, key.1.clone()), args, value);
+            let told = guard.topics.publish((topic.clone(), key.1.clone()), args, value, &|t, v, s| self.within(t, v, s));
             let out: Vec<_> = told.into_iter().map(|(to, frame)| guard.clients.to_many(&to, frame)).collect();
-            let value = guard.topics.subscribe(client, key);
+            let value = guard.topics.subscribe(client, key, held.clone());
+            let value = self.held_to(&topic, value, held.as_deref());
             crate::send_after(guard, out).await;
             return Ok(json!({"topic": topic, "value": value}));
         }
         let mut guard = self.inner.lock().await;
-        let value = guard.topics.subscribe(client, key);
+        let value = guard.topics.subscribe(client, key, held.clone());
+        let value = self.held_to(&topic, value, held.as_deref());
         Ok(json!({"topic": topic, "value": value}))
+    }
+
+    /// The space a subscriber claimed in its topic's parameters, when that holds it to one: a
+    /// claim of a space that reaches across spaces holds it to none.
+    pub(crate) fn held_space(&self, args: &Value) -> Option<String> {
+        let space = args.get("space").and_then(Value::as_str)?;
+        let spaces = lock(&self.spaces);
+        (spaces.exists(space) && !spaces.crosses(space)).then(|| space.to_string())
+    }
+
+    /// `value` of `topic` as a subscriber held to `space` is told it: the sessions of that space.
+    /// Only the topics that list sessions say which are whose; the others are told as they are.
+    pub(crate) fn within(&self, topic: &str, value: &Value, space: &str) -> Value {
+        let mut value = value.clone();
+        let in_space = |row: &Value| match topic {
+            "harnix.instances.sessions" => row.get("space").and_then(Value::as_str) == Some(space),
+            _ => {
+                let field = |k: &str| row.get(k).and_then(Value::as_str).map(str::to_string);
+                field("instance")
+                    .zip(field("session_id"))
+                    .is_some_and(|key| self.space_of(&key) == space)
+            }
+        };
+        if matches!(topic, "harnix.instances.sessions" | "harnix.sessions.status") {
+            if let Some(Value::Array(rows)) = value.get_mut("sessions") {
+                rows.retain(|row| in_space(row));
+            }
+        }
+        value
+    }
+
+    fn held_to(&self, topic: &str, value: Value, space: Option<&str>) -> Value {
+        match space {
+            Some(space) => self.within(topic, &value, space),
+            None => value,
+        }
     }
 
     /// Compute a topic value again every `every`, from now on, if anyone watches it then: for a
@@ -325,10 +365,10 @@ mod tests {
         assert!(!topics.declare_new("app.fake.ticks", Vec::new()), "declared twice");
         let a = topics.key("app.fake.ticks", &json!({"job": "a"})).unwrap();
         let b = topics.key("app.fake.ticks", &json!({"job": "b"})).unwrap();
-        topics.subscribe(ClientId(1), a.clone());
-        topics.subscribe(ClientId(2), a.clone());
-        topics.subscribe(ClientId(3), b.clone());
-        topics.publish(a.clone(), json!({"job": "a"}), json!(1));
+        topics.subscribe(ClientId(1), a.clone(), None);
+        topics.subscribe(ClientId(2), a.clone(), None);
+        topics.subscribe(ClientId(3), b.clone(), None);
+        topics.publish(a.clone(), json!({"job": "a"}), json!(1), &|_, v, _| v.clone());
 
         let mut told = topics.withdraw("app.fake.ticks");
         told.sort_by_key(|(_, p)| p.to_string());
@@ -346,26 +386,30 @@ mod tests {
         assert!(topics.withdraw("app.fake.ticks").is_empty());
         // Declaring it again starts from nothing.
         assert!(topics.declare_new("app.fake.ticks", vec!["job".into()]));
-        assert_eq!(topics.subscribe(ClientId(1), a), Value::Null);
+        assert_eq!(topics.subscribe(ClientId(1), a, None), Value::Null);
     }
 
-    /// A topic watched by an old name is told under it, with the new one's values.
+    /// A subscriber held to a space is told the value as that space's rows, and one that is not
+    /// is told it whole.
     #[test]
-    fn a_moved_topic_is_watched_by_its_old_name_too() {
+    fn a_held_subscriber_is_told_its_spaces_part_of_a_value() {
         let mut topics = Topics::default();
-        topics.declare("system.process", Vec::new());
-        topics.alias("harnix.process", "system.process");
-        let old = topics.key("harnix.process", &json!({})).unwrap();
-        let new = topics.key("system.process", &json!({})).unwrap();
-        assert_eq!(old.0, "harnix.process");
-        topics.subscribe(ClientId(1), old.clone());
-        assert!(topics.has_subscribers(&new));
-        let told = topics.publish(new.clone(), json!({}), json!({"uptime_secs": 1}));
-        let names: Vec<String> = told.iter().map(|(_, f)| f.payload.to_string()).collect();
-        assert_eq!(told.len(), 2, "{names:?}");
-        assert!(told[0].0.is_empty());
+        topics.declare("harnix.sessions.status", Vec::new());
+        let key = topics.key("harnix.sessions.status", &json!({})).unwrap();
+        topics.subscribe(ClientId(1), key.clone(), Some("acme".into()));
+        topics.subscribe(ClientId(2), key.clone(), None);
+        let cut = |_: &str, v: &Value, space: &str| json!({"for": space, "was": v});
+        let told = topics.publish(key.clone(), json!({}), json!([1, 2]), &cut);
+        assert_eq!(told.len(), 2);
+        assert_eq!(told[0].0, vec![ClientId(2)]);
+        assert!(told[0].1.payload.contains("[1,2]") && !told[0].1.payload.contains("\"for\""), "{}", told[0].1.payload);
         assert_eq!(told[1].0, vec![ClientId(1)]);
-        assert!(names[1].contains("harnix.process"), "{names:?}");
-        assert_eq!(topics.subscribe(ClientId(2), old), json!({"uptime_secs": 1}));
+        assert!(told[1].1.payload.contains("\"for\":\"acme\""), "{}", told[1].1.payload);
+        // Subscribing again without a claim lifts the hold; unsubscribing drops it.
+        topics.subscribe(ClientId(1), key.clone(), None);
+        assert_eq!(topics.publish(key.clone(), json!({}), json!(3), &cut).len(), 1);
+        topics.subscribe(ClientId(1), key.clone(), Some("acme".into()));
+        topics.unsubscribe(ClientId(1), &key);
+        assert_eq!(topics.publish(key, json!({}), json!(4), &cut).len(), 1);
     }
 }
