@@ -432,7 +432,7 @@ export type EngineEvent =
 
 /* ── 方法表 ───────────────────────────────────────────────────────────── */
 
-/** 一个会话的地址：`instance` 省略即 `system`。 */
+/** 一个会话的地址：`instance` 省略即 `main`。 */
 export interface SessionKey {
   instance?: string;
   session_id: string;

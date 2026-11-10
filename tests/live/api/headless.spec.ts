@@ -67,7 +67,7 @@ test("a module runs three headless sessions, each with its own model", TAGS, asy
   const models = await Promise.all(started.map((s) => api.call("app.fleet.model", s)));
   expect(models.map((m) => m.model)).toEqual(["headless-model-0", "headless-model-1", "headless-model-2"]);
 
-  const { sessions } = await api.call("harnix.sessions.list", { instance: "system" });
+  const { sessions } = await api.call("harnix.sessions.list", { instance: "main" });
   const listed = sessions.map((s: any) => s.session_id);
   for (const s of started) expect(listed).toContain(s.session_id);
 });
@@ -75,7 +75,7 @@ test("a module runs three headless sessions, each with its own model", TAGS, asy
 test("a device attaching to a headless session sees all of it", TAGS, async () => {
   for (const s of started) {
     const attached = await api.call("harnix.session.attach", s);
-    expect(attached.instance).toBe("system");
+    expect(attached.instance).toBe("main");
     expect(attached.running_turn).toBeNull();
     expect(attached.history_total).toBeGreaterThanOrEqual(2);
     const history = await api.call("engine.session.history", s);

@@ -159,8 +159,8 @@ test.describe("an application in isolated frames", () => {
     expect(JSON.stringify(await ask("harnix.sessions.list", {}))).not.toContain(other);
     expect(await ask("harnix.sessions.list", { space: "example.elsewhere" })).toMatchObject({ code: "refused" });
     // A session of its own space it may read; one elsewhere it is refused, though the page could.
-    expect((await ask("engine.session.get", { instance: "system", session_id: own })).ok).toBeTruthy();
-    expect(await ask("engine.session.get", { instance: "system", session_id: other })).toMatchObject({ code: "refused" });
+    expect((await ask("engine.session.get", { instance: "main", session_id: own })).ok).toBeTruthy();
+    expect(await ask("engine.session.get", { instance: "main", session_id: other })).toMatchObject({ code: "refused" });
     const noted = await page.evaluate(() => (window as any).harnix.app.registry.refusals().filter((r: any) => r.point === "bridge"));
     expect(noted.map((r: any) => r.id)).toEqual(expect.arrayContaining(["harnix.sessions.list", "engine.session.get"]));
   });

@@ -30,7 +30,7 @@ test("a sub-agent is a task of its session, not a session in the list", TAGS, as
       project_root: api.project,
       options: { recorder: { name: "spawns-agent" } },
     });
-    const s = { instance: "system", session_id: created.session_id };
+    const s = { instance: "main", session_id: created.session_id };
     const first = await api.call("harnix.topics.subscribe", { topic: "harnix.session.tasks", params: s });
     expect(first.value.tasks).toEqual([]);
 
@@ -76,7 +76,7 @@ test("a sub-agent is a task of its session, not a session in the list", TAGS, as
       { describe: "the task to be pushed on harnix.session.tasks" },
     );
 
-    const { sessions } = await api.call("harnix.sessions.list", { instance: "system" });
+    const { sessions } = await api.call("harnix.sessions.list", { instance: "main" });
     expect(sessions.map((r: any) => r.session_id)).toEqual([s.session_id]);
     for (const row of sessions) expect(row.session_kind).toBe("primary");
   } finally {
@@ -96,7 +96,7 @@ test("a team's run is on its session's tasks: each team's stage and members, as 
     mkdirSync(join(api.project, ".agix"), { recursive: true });
     writeFileSync(join(api.project, ".agix", "settings.json"), JSON.stringify({ execution: { team_enabled: true } }));
     const created = await api.call("harnix.session.create", { scene: "code", project_root: api.project, options: { recorder: { name: "runs-a-team" } } });
-    const s = { instance: "system", session_id: created.session_id };
+    const s = { instance: "main", session_id: created.session_id };
     await api.call("harnix.topics.subscribe", { topic: "harnix.session.tasks", params: s });
     await api.call("harnix.session.attach", s);
     await api.call("harnix.session.send", { ...s, message: "Run a team of one: alpha says it is here" });
@@ -123,7 +123,7 @@ test("a running sub-agent is told something, and reads it in the turn it is in",
   const api = await connect(backend);
   try {
     const created = await api.call("harnix.session.create", { scene: "harnix", project_root: api.project, options: { recorder: { name: "messages-a-subagent" } } });
-    const s = { instance: "system", session_id: created.session_id };
+    const s = { instance: "main", session_id: created.session_id };
     await api.call("harnix.session.attach", s);
     // Its Bash call asks; let it through.
     await api.call("harnix.session.send", { ...s, message: "Start a background sub-agent that waits, then answers" });
@@ -147,7 +147,7 @@ test("a running sub-agent is told something, and reads it in the turn it is in",
       .toBe("done");
     // What it was told is in its own transcript.
     const sub = agent.detail.agent_session_id;
-    const history = await api.call("engine.session.history", { instance: "system", session_id: sub, space: "system" });
+    const history = await api.call("engine.session.history", { instance: "main", session_id: sub, space: "system" });
     expect(JSON.stringify(history.messages)).toContain("When you are done, say so.");
   } finally {
     api.close();

@@ -96,7 +96,7 @@ test("a call claiming the wrong space is refused, naming the right one", TAGS, a
 
 test("the instance has to be the session's own", TAGS, async () => {
   const fleet = await createIn("fleet");
-  const wrong = await api.refused("harnix.session.attach", { instance: "system", session_id: fleet.session_id, space: "fleet" });
+  const wrong = await api.refused("harnix.session.attach", { instance: "main", session_id: fleet.session_id, space: "fleet" });
   expect(wrong, "attached through another instance").not.toBeNull();
   const nowhere = await api.refused("harnix.session.attach", { instance: "nowhere", session_id: fleet.session_id, space: "fleet" });
   expect(nowhere?.code).toBe(INSTANCE_NOT_FOUND);
@@ -138,7 +138,7 @@ test("@session references carry another space's conversation into a turn", TAGS,
   expect(sent.turn_id).toBeTruthy();
   const settled = await api.waitFor((f) => f.method === "harnix.turn_settled" && f.params.session_id === mine.session_id, { timeout: 60_000 });
   expect(settled.params.error).toBeUndefined();
-  const bad = await api.refused("harnix.session.send", { ...mine, space: "sessions", message: "x", references: [{ instance: "system", session_id: "no-such" }] });
+  const bad = await api.refused("harnix.session.send", { ...mine, space: "sessions", message: "x", references: [{ instance: "main", session_id: "no-such" }] });
   expect(bad, "a reference to nothing is refused rather than dropped").not.toBeNull();
 });
 

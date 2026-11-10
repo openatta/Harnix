@@ -59,11 +59,11 @@ describe("send", () => {
 
     const sent = c.send("hello");
     const event = (seq: number, kind: string) =>
-      client.push("harnix.event", { instance: "system", session_id: "S1", seq, turn_id: "t1", event: { kind, text: "hello" } });
+      client.push("harnix.event", { instance: "main", session_id: "S1", seq, turn_id: "t1", event: { kind, text: "hello" } });
     event(1, "user_message");
     expect(c.getSnapshot().turn).toEqual({ turnId: "t1" });
     event(2, "turn_complete");
-    client.push("harnix.turn_settled", { instance: "system", session_id: "S1", turn_id: "t1", result: {} });
+    client.push("harnix.turn_settled", { instance: "main", session_id: "S1", turn_id: "t1", result: {} });
     expect(c.getSnapshot().turn).toBeNull();
 
     client.release();

@@ -165,8 +165,8 @@ describe("wire helpers", () => {
     expect(sessionOf(task("a", "claimed", { session: { instance: "i", session_id: "s" } }))).toEqual({ instance: "i", sessionId: "s" });
     expect(sessionOf(task("a", "claimed"))).toBe(null);
     // As the flow module writes it.
-    expect(sessionOf(task("a", "claimed", { session: "system/abc" }))).toEqual({ instance: "system", sessionId: "abc" });
-    expect(sessionOf(task("a", "claimed", { session: "abc" }))).toEqual({ instance: "system", sessionId: "abc" });
+    expect(sessionOf(task("a", "claimed", { session: "main/abc" }))).toEqual({ instance: "main", sessionId: "abc" });
+    expect(sessionOf(task("a", "claimed", { session: "abc" }))).toEqual({ instance: "main", sessionId: "abc" });
   });
 
   it("reads the kernel's shapes: the pinned definition, open stations, check status, digests", () => {
@@ -187,7 +187,7 @@ describe("wire helpers", () => {
     const entry = (ns: string, event: string, payload: unknown) => ({ kind: "custom", type: "entry", data: { id: "e1", ns, event, payload, at: 0 } });
     const p = { run: "r1", station: "review", kind: "rework", to: "analyze", reason: "findings are thin" };
     expect(proposalOf(entry("app.flow", "proposal", p))).toEqual({ id: "e1", proposal: { ...p, session: null } });
-    const session = { instance: "system", session_id: "s1" };
+    const session = { instance: "main", session_id: "s1" };
     expect(proposalOf(entry("app.flow", "proposal", { ...p, session }))?.proposal.session).toEqual(session);
     expect(proposalOf(entry("app.flow", "proposal", { ...p, kind: "cancel", to: undefined }))?.proposal.kind).toBe("cancel");
     expect(proposalOf(entry("app.other", "proposal", p))).toBe(null);

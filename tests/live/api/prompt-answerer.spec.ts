@@ -32,7 +32,7 @@ test("a module learns once which device answered a tool's prompt; a device canno
     project_root: api.project,
     options: { recorder: { name: "runs-a-while" } },
   });
-  const s = { instance: "system", session_id: created.session_id };
+  const s = { instance: "main", session_id: created.session_id };
   await api.call("harnix.session.attach", s);
   await api.call("harnix.session.send", { ...s, message: "Wait four seconds" });
   const ask = await api.waitFor(

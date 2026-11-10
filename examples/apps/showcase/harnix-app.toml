@@ -241,7 +241,7 @@ order = 61
 center = "chat"
 
 [agent]
-install_into = ["system"]
+install_into = ["main"]
 
 # What the shell draws for the showcase in its own views, from this manifest alone: no code of the
 # showcase's runs in the page for any of it. A store application's interface runs isolated; these

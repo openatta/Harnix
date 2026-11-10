@@ -1,4 +1,4 @@
-//! `harnix.hello`: what a client is told once, after the handshake — what the `system` engine is,
+//! `harnix.hello`: what a client is told once, after the handshake — what the `main` engine is,
 //! what scenes and commands exist there, every instance and the protocol it speaks, the ceilings,
 //! the shell's part, and every extension (what the shell activates its UI packages by).
 //!
@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use harnix_hub::{Hub, SYSTEM};
+use harnix_hub::{Hub, MAIN};
 use harnix_instance::InstanceRegistry;
 use harnix_kernel::Rpc;
 use serde_json::{json, Value};
@@ -33,16 +33,16 @@ impl Hello {
     pub async fn answer(&self) -> Rpc<Value> {
         // Once per connection, and none of the three waits on another.
         let (status, scenes, commands) = tokio::join!(
-            self.hub.passthrough(SYSTEM, "engine.daemon.status", json!({})),
-            self.hub.passthrough(SYSTEM, "engine.scene.list", json!({})),
-            self.hub.passthrough(SYSTEM, "engine.commands.list", json!({})),
+            self.hub.passthrough(MAIN, "engine.daemon.status", json!({})),
+            self.hub.passthrough(MAIN, "engine.scene.list", json!({})),
+            self.hub.passthrough(MAIN, "engine.commands.list", json!({})),
         );
         let (status, scenes, commands) = (
             status.unwrap_or(json!({})),
             scenes.unwrap_or(json!({})),
             commands.unwrap_or(json!({})),
         );
-        let facts = self.instances.facts(SYSTEM).map(|f| f.engine).unwrap_or_default();
+        let facts = self.instances.facts(MAIN).map(|f| f.engine).unwrap_or_default();
         Ok(json!({
             "protocol_version": harnix_contract::PROTOCOL_VERSION,
             "contrib_api_version": harnix_contract::CONTRIB_API_VERSION,
@@ -63,7 +63,7 @@ impl Hello {
             "commands": commands.get("commands").cloned().unwrap_or(json!([])),
             // What a client fills in when it names none: the instance, and the space (none until
             // a product names one).
-            "defaults": { "instance": SYSTEM, "space": self.hub.default_space() },
+            "defaults": { "instance": MAIN, "space": self.hub.default_space() },
             // Every extension and whether it is enabled: the shell activates the UI packages
             // compiled into it by this, before its first draw. What changes later, and the
             // interface modules to load, are `harnix.ui`'s.

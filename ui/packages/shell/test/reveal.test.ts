@@ -17,7 +17,7 @@ function conversation(sessionId: string, inner: string) {
   document.body.innerHTML = `<section id="main"><section data-testid="conv" data-id="${sessionId}">${inner}</section></section>`;
   let loading = true;
   const controller = {
-    instance: "system",
+    instance: "main",
     sessionId,
     getSnapshot: () => ({ sessionId, loading, failed: null }),
   } as unknown as SessionController;
@@ -28,7 +28,7 @@ describe("reveal", () => {
   it("open with reveal waits for the transcript, then scrolls to the entry and marks it", async () => {
     const { app } = scriptedApp();
     const host = hostFor(app);
-    const ref = { instance: "system", sessionId: "s1" };
+    const ref = { instance: "main", sessionId: "s1" };
     const view = conversation("s1", `<div class="hx-blk" data-id="b1"></div><div data-reveal="P-7"><span>card</span></div>`);
     const target = document.querySelector('[data-reveal="P-7"]') as HTMLElement;
     const scrolled = vi.fn();
@@ -62,19 +62,19 @@ describe("reveal", () => {
     const view = conversation("s1", "");
     view.caughtUp();
     app.controller = view.controller;
-    app.open({ instance: "system", sessionId: "s1" });
+    app.open({ instance: "main", sessionId: "s1" });
     const started = Date.now();
     expect(await host.session.reveal("missing")).toBe(false);
     expect(Date.now() - started).toBeLessThan(4000);
 
-    const pending = host.session.open({ instance: "system", sessionId: "s2" }, { reveal: "x" });
-    app.open({ instance: "system", sessionId: "s3" });
+    const pending = host.session.open({ instance: "main", sessionId: "s2" }, { reveal: "x" });
+    app.open({ instance: "main", sessionId: "s3" });
     expect(await pending).toBe(false);
   });
 
   it("without reveal, open is as before", () => {
     const { app } = scriptedApp();
-    expect(hostFor(app).session.open({ instance: "system", sessionId: "s1" })).toBeUndefined();
-    expect(app.snapshot.current).toEqual({ instance: "system", sessionId: "s1" });
+    expect(hostFor(app).session.open({ instance: "main", sessionId: "s1" })).toBeUndefined();
+    expect(app.snapshot.current).toEqual({ instance: "main", sessionId: "s1" });
   });
 });

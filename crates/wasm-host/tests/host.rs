@@ -15,8 +15,8 @@ use serde_json::json;
 async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
     let rig = Rig::new(|_| {});
     let parts = rig.install(|m| m).await;
-    assert_eq!(parts["agent"]["instances"], json!(["system"]));
-    assert_eq!(parts["skills"]["system"], json!(["showcase-tour"]));
+    assert_eq!(parts["agent"]["instances"], json!(["main"]));
+    assert_eq!(parts["skills"]["main"], json!(["showcase-tour"]));
     // In order: the agent side put in place, switched on with it, then its names, then its tools.
     let said = lock(&rig.platform.said).clone();
     let at = |what: &str| said.iter().position(|s| s.starts_with(what)).unwrap_or_else(|| panic!("{what}: {said:?}"));
@@ -200,7 +200,7 @@ async fn what_does_not_start_is_undone_and_said() {
     // A tool row for a tool the component does not have: started, found out, and taken back.
     let rig = Rig::new(|_| {});
     let version = rig.unpack(|m| m.replace("tool = \"count\"", "tool = \"counted\""));
-    let parts = json!({"agent": {"package": "example-showcase", "version": "0.1.0", "instances": ["system"]}});
+    let parts = json!({"agent": {"package": "example-showcase", "version": "0.1.0", "instances": ["main"]}});
     let err = rig
         .control
         .start(Start { app: ID.into(), version, app_dir: rig.app_dir(), parts })

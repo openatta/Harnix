@@ -62,7 +62,7 @@ impl Kernel for FakeKernel {
     }
     async fn publish(&self, _topic: &str, _params: Value, _value: Value) {}
     fn instance(&self, id: &str) -> Option<InstanceHandle> {
-        (id == "system").then(|| InstanceHandle {
+        (id == "main").then(|| InstanceHandle {
             id: id.to_string(),
             data_root: self.data_root.join(id),
             recordings_root: self.data_root.join("recordings"),

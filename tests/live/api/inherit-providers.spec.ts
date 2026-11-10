@@ -1,7 +1,7 @@
 /**
  * Template instances that see the settings page's providers (ipdrun-11).
  *
- * The settings page writes providers into the `system` instance's global tier. An instance built
+ * The settings page writes providers into the `main` instance's global tier. An instance built
  * from a template that says `inherit_providers` has them too — at once, without being built again —
  * and loses them when they are deleted; one whose template does not say so sees only its own.
  */

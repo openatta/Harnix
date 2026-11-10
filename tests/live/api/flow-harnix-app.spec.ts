@@ -31,7 +31,7 @@ test("the Harnix app says it has flows: its methods, its space, its example", TA
     expect(methods).toContain(m);
   }
   const { spaces } = await api.call("harnix.spaces.list");
-  expect(spaces.find((s: any) => s.id === "flow")).toMatchObject({ instance: "system", scene: "flow-author" });
+  expect(spaces.find((s: any) => s.id === "flow")).toMatchObject({ instance: "main", scene: "flow-author" });
 
   expect(await api.call("flow.defs")).toEqual([
     expect.objectContaining({ name: "example-review", origin: "builtin", valid: true }),

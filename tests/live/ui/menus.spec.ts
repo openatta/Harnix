@@ -108,7 +108,7 @@ test("delete asks first; cancelled it keeps the session, confirmed it removes it
   const gone = await page.evaluate(async (sid) => {
     const { app } = (window as any).harnix;
     try {
-      await app.call("engine.session.get", { instance: "system", session_id: sid });
+      await app.call("engine.session.get", { instance: "main", session_id: sid });
       return false;
     } catch {
       return true;

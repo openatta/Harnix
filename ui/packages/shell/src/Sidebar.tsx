@@ -266,7 +266,7 @@ function SpaceSessions({ app, s, listed }: { app: App; s: ShellState; listed?: N
   return (
     <div className="group">
       {shown.map((row) => (
-        <SessionRow key={keyOf(row.instance ?? "system", row.session_id)} app={app} s={s} session={row} />
+        <SessionRow key={keyOf(row.instance ?? "main", row.session_id)} app={app} s={s} session={row} />
       ))}
     </div>
   );
@@ -274,7 +274,7 @@ function SpaceSessions({ app, s, listed }: { app: App; s: ShellState; listed?: N
 
 function shownBy(listed: NonNullable<NonNullable<SpaceContribution["sidebar"]>["listSession"]>, row: ShellSession): boolean {
   try {
-    return listed({ instance: row.instance ?? "system", sessionId: row.session_id }) !== false;
+    return listed({ instance: row.instance ?? "main", sessionId: row.session_id }) !== false;
   } catch {
     return true;
   }

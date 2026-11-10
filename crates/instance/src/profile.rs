@@ -15,9 +15,9 @@ pub const SECTIONS: &[&str] = &["engine", "instances", "instance_templates"];
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct InstanceSections {
-    /// `[engine]`: the `system` instance's engine.
+    /// `[engine]`: the `main` instance's engine.
     pub engine: EngineProfile,
-    /// `[[instances]]`: instances besides `system`, built at every start.
+    /// `[[instances]]`: instances besides `main`, built at every start.
     pub instances: Vec<InstanceDecl>,
     /// `[[instance_templates]]`: what extensions and the interface may build instances from.
     /// Spawn or attach only — a profile has no native contributions to give an in-process one.
@@ -71,7 +71,7 @@ pub struct TemplateDecl {
     pub ui: bool,
     #[serde(default)]
     pub max: Option<usize>,
-    /// Its instances see `system`'s providers under their own (ipdrun-11).
+    /// Its instances see `main`'s providers under their own (ipdrun-11).
     #[serde(default)]
     pub inherit_providers: bool,
     /// Stopping one of its instances ends what its sessions left running (ipdrun-07).

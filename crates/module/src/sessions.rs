@@ -207,7 +207,7 @@ impl Sessions<'_> {
             instance: created
                 .get("instance")
                 .and_then(Value::as_str)
-                .unwrap_or(harnix_contract::SYSTEM_INSTANCE)
+                .unwrap_or(harnix_contract::MAIN_INSTANCE)
                 .to_string(),
             session_id: created
                 .get("session_id")
@@ -742,7 +742,7 @@ mod tests {
     /// settle in the gap; the hub's buffer holds only the third turn's events.
     async fn behind() -> Tap {
         let session = SessionRef {
-            instance: "system".into(),
+            instance: "main".into(),
             session_id: "s".into(),
         };
         let (sink, parts) = Tap::channel(session, 1);

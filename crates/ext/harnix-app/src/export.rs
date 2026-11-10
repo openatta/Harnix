@@ -13,7 +13,7 @@
 //! The caller claims a space like any session call, and `engine.session.get` with that claim is what
 //! checks it: a session of another space is refused by the hub, not read here.
 
-use harnix_ext::{codes, Call, RpcError, MAX_FRAME_BYTES, SYSTEM_INSTANCE};
+use harnix_ext::{codes, Call, RpcError, MAX_FRAME_BYTES, MAIN_INSTANCE};
 use serde_json::{json, Value};
 
 use crate::{require_session_id, require_str};
@@ -45,7 +45,7 @@ pub(crate) async fn session_export(call: Call, params: Value) -> Result<Value, R
         let instance = params
             .get("instance")
             .cloned()
-            .unwrap_or(json!(SYSTEM_INSTANCE));
+            .unwrap_or(json!(MAIN_INSTANCE));
         let mut target = json!({"instance": instance, "session_id": session_id});
         if let Some(space) = params.get("space").filter(|s| !s.is_null()) {
             target["space"] = space.clone();

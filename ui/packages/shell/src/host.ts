@@ -8,7 +8,7 @@
  */
 
 import { parseSessionEvent, type Notifications } from "@harnix/core";
-import { SYSTEM_INSTANCE } from "@harnix/core/state";
+import { MAIN_INSTANCE } from "@harnix/core/state";
 import { t, type HostSessionRef as SessionRef, type HostApi } from "@harnix/react";
 
 import { disabledOf, later, orderTabs, safeTabs, type App } from "./app.ts";
@@ -74,7 +74,7 @@ export function hostFor(app: App, owner = "page"): HostApi {
       async create(spec = {}) {
         await app.create(spec);
         const current = app.snapshot.current!;
-        return { instance: current.instance ?? SYSTEM_INSTANCE, sessionId: current.sessionId };
+        return { instance: current.instance ?? MAIN_INSTANCE, sessionId: current.sessionId };
       },
       onChange: (fn) => app.onCurrent(fn),
     },
@@ -173,7 +173,7 @@ export function hostFor(app: App, owner = "page"): HostApi {
     },
     get defaults() {
       const given = app.snapshot.hello?.defaults;
-      return { instance: given?.instance ?? SYSTEM_INSTANCE, space: given?.space ?? null };
+      return { instance: given?.instance ?? MAIN_INSTANCE, space: given?.space ?? null };
     },
   };
 }

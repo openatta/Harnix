@@ -19,7 +19,7 @@ export function openWhereItBelongs(app: App, session: SessionKey, space: string)
  */
 export async function locateInConversation(app: App, session: SessionKey, tool: string | null): Promise<void> {
   const listed = await app.call<{ sessions: SessionRowView[] }>("harnix.sessions.list", { space: SYSTEM }).catch(() => ({ sessions: [] }));
-  const row = listed.sessions.find((r) => r.session_id === session.sessionId && (r.instance ?? "system") === session.instance);
+  const row = listed.sessions.find((r) => r.session_id === session.sessionId && (r.instance ?? "main") === session.instance);
   openWhereItBelongs(app, session, row?.space ?? "sessions");
   if (!tool) return;
   for (let i = 0; i < 25; i += 1) {

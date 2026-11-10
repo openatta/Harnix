@@ -26,11 +26,11 @@ type Session = { instance: string; session_id: string };
 
 async function session(api: TestClient, recording: string): Promise<Session> {
   const created = await api.call("harnix.session.create", {
-    instance: "system",
+    instance: "main",
     project_root: api.project,
     options: { recorder: { name: recording } },
   });
-  const s = { instance: "system", session_id: created.session_id };
+  const s = { instance: "main", session_id: created.session_id };
   await api.call("harnix.session.attach", s);
   return s;
 }
@@ -206,7 +206,7 @@ test.describe("the store, trusted", () => {
         { point: "home.card", module: "showcase.js" },
         { point: "space", module: "showcase.js" },
       ],
-      agent: { package: "example-showcase", install_into: ["system"] },
+      agent: { package: "example-showcase", install_into: ["main"] },
     });
     expect(disclosed.disclosure.lines.map((l: any) => l.capability)).toEqual([
       "net",
@@ -299,10 +299,10 @@ test.describe("the store, trusted", () => {
 
   test("uninstalled by name: everything it brought goes, its data with it", TAGS, async () => {
     const removed = await api.call("harnix.apps.uninstall", { id: SHOWCASE_ID });
-    expect(removed).toMatchObject({ id: SHOWCASE_ID, uninstalled: true, removed: { agent: { package: "example-showcase" }, skills: { system: ["showcase-tour"] } } });
+    expect(removed).toMatchObject({ id: SHOWCASE_ID, uninstalled: true, removed: { agent: { package: "example-showcase" }, skills: { main: ["showcase-tour"] } } });
     expect((await api.call("harnix.apps.list")).apps).toEqual([]);
     expect((await api.call("engine.plugin.list")).plugins.map((p: any) => p.name)).not.toContain("example-showcase");
-    expect(JSON.stringify(await api.call("engine.commands.list", { instance: "system" }))).not.toContain("showcase-tour");
+    expect(JSON.stringify(await api.call("engine.commands.list", { instance: "main" }))).not.toContain("showcase-tour");
     expect(existsSync(join(backend.state, "apps", SHOWCASE_ID)), "its directory, kv and data").toBe(false);
     expect((await fetch(`${backend.url.replace(/\/$/, "")}/apps/${SHOWCASE_ID}/ui/showcase.js`)).status).toBe(404);
     const s = await session(api, "says-ready");

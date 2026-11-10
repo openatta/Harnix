@@ -114,7 +114,7 @@ describe("a space's sessions in the left column", () => {
     Object.assign(client, { notify: Object.assign(() => undefined, { add: (f: unknown) => listeners.add(f), delete: (f: unknown) => listeners.delete(f) }) });
     client.answer = (method) =>
       method === "harnix.sessions.list"
-        ? { sessions: [{ session_id: "s1", instance: "system", name: "one" }, { session_id: "s2", instance: "system", name: "two" }] }
+        ? { sessions: [{ session_id: "s1", instance: "main", name: "one" }, { session_id: "s2", instance: "main", name: "two" }] }
         : {};
     render(
       <HarnixUiProvider client={app.client as HarnixClient}>
@@ -129,9 +129,9 @@ describe("a space's sessions in the left column", () => {
     const first = reads();
     expect(first).toBeGreaterThan(0);
     await act(async () => {
-      app.open({ instance: "system", sessionId: "s1" });
+      app.open({ instance: "main", sessionId: "s1" });
       await tick();
-      app.open({ instance: "system", sessionId: "s2" });
+      app.open({ instance: "main", sessionId: "s2" });
       await tick();
     });
     expect(reads()).toBe(first);

@@ -5,7 +5,7 @@
  * with its input and output, its context, its tasks, its frames. The operations on a session (system-space.md §8.2) take effect
  * where the session belongs and are seen by whoever else is watching it.
  *
- * Three instances (the instance suites' profile: `system`, `side` in process, `ci` a spawned
+ * Three instances (the instance suites' profile: `main`, `side` in process, `ci` a spawned
  * daemon), so the tree has more than one branch to show.
  */
 
@@ -79,7 +79,7 @@ test("system-tree: every instance, its sessions of every space, and their tasks;
   const onSide = await sessionWithTurn(page, "side");
   const withAgent = await sessionWithTurn(
     page,
-    "system",
+    "main",
     "spawns-agent",
     "Use the Agent tool exactly once to launch a general-purpose sub-agent with the description 'list files' and the prompt 'Run ls in the current directory and reply with the file names only.' When it returns, reply with one line: 'sub-agent found:' followed by the names.",
   );
@@ -87,14 +87,14 @@ test("system-tree: every instance, its sessions of every space, and their tasks;
   await expect(page.getByTestId("conv-input")).toHaveCount(0);
 
   const tree = page.getByTestId("system-tree");
-  for (const id of ["system", "side", "ci"]) await expect(tree.locator(`[data-testid="system-tree-instance"][data-instance="${id}"]`)).toBeVisible();
+  for (const id of ["main", "side", "ci"]) await expect(tree.locator(`[data-testid="system-tree-instance"][data-instance="${id}"]`)).toBeVisible();
   await expect(tree.locator('[data-testid="system-tree-instance"][data-instance="side"]')).toHaveAttribute("data-state", "ready");
   await expect(tree.locator('[data-testid="system-tree-instance"][data-instance="ci"]')).toHaveAttribute("data-state", "ready", { timeout: 30_000 });
   // Both turns have settled; both Agents are loaded, so active, and idle.
   const agents = page.getByTestId("system-agents");
   await expect(agents).toHaveAttribute("data-scope", "active");
   await expect(agents.locator(`[data-testid="system-agent-group"][data-instance="side"][data-sid="${onSide}"]`)).toHaveAttribute("data-state", "idle", { timeout: 10_000 });
-  const parent = agents.locator(`[data-testid="system-agent-group"][data-instance="system"][data-sid="${withAgent}"]`);
+  const parent = agents.locator(`[data-testid="system-agent-group"][data-instance="main"][data-sid="${withAgent}"]`);
   await expect(parent).toHaveAttribute("data-state", "idle");
   // Its sub-agent is counted on the row, and under it once the row is open.
   await expect(parent.locator('[data-stat="subagents"]')).toHaveText("1", { timeout: 10_000 });
@@ -105,7 +105,7 @@ test("system-tree: every instance, its sessions of every space, and their tasks;
   await pick(page, "side", onSide);
   await expect(page.getByTestId("system-session")).toContainText("side");
 
-  await pick(page, "system", withAgent);
+  await pick(page, "main", withAgent);
   await tab(page, "tasks");
   const tasks = page.getByTestId("system-tasks");
   await expect(tasks.locator('[data-testid="system-task"][data-kind="agent"]')).toHaveCount(1);
@@ -118,7 +118,7 @@ test("system-tree: every instance, its sessions of every space, and their tasks;
 
 test("system-agents: the active tab lists the loaded Agents, the all tab every one; a row carries its sub-agents, tasks, tokens and model time", TREE, async ({ page }) => {
   await open(page, backend.url);
-  const id = await sessionWithTurn(page, "system");
+  const id = await sessionWithTurn(page, "main");
   // A replayed session records nothing; give it a recording: two calls of its own, one of a sub-agent's.
   const dir = join(backend.scratch, "agix", "recordings", id);
   mkdirSync(dir, { recursive: true });
@@ -133,7 +133,7 @@ test("system-agents: the active tab lists the loaded Agents, the all tab every o
   await toSystem(page);
 
   const agents = page.getByTestId("system-agents");
-  const row = agents.locator(`[data-testid="system-agent-group"][data-instance="system"][data-sid="${id}"]`);
+  const row = agents.locator(`[data-testid="system-agent-group"][data-instance="main"][data-sid="${id}"]`);
   await expect(row).toHaveAttribute("data-state", "idle", { timeout: 10_000 });
   await expect(row.locator('[data-stat="tokens"]')).toHaveText("1.2k", { timeout: 10_000 }); // 1034 + 200
   await expect(row.locator('[data-stat="time"]')).toHaveText("1.5s");
@@ -190,9 +190,9 @@ test("system-agents: a running turn's clock counts on; one that finished unseen 
   const id = await page.evaluate(async () => {
     const { app } = (window as any).harnix;
     const created = await app.call("harnix.session.create", {
-      instance: "system", space: "sessions", scene: "harnix", options: { recorder: { name: "runs-a-while" } },
+      instance: "main", space: "sessions", scene: "harnix", options: { recorder: { name: "runs-a-while" } },
     });
-    const key = { instance: "system", session_id: created.session_id, space: "sessions" };
+    const key = { instance: "main", session_id: created.session_id, space: "sessions" };
     app.client.onNotify((method: string, params: any) => {
       if (method === "harnix.event" && params.session_id === created.session_id && params.event?.kind === "prompt") {
         void app.call("harnix.session.respond", { ...key, prompt_id: params.event.prompt_id, decision: { type: "permit" } });
@@ -300,7 +300,7 @@ test("system-agents: an Agent waiting on its permission ask says so, first in th
   await expect(page.locator('[data-testid="system-strip"] [data-kpi="waiting"] .v')).toHaveText("1");
   // Answered from its own conversation, it waits on nobody.
   await page.locator('#side [data-space="sessions"]').click();
-  await page.evaluate((sid) => (window as any).harnix.app.open({ instance: "system", sessionId: sid }), id);
+  await page.evaluate((sid) => (window as any).harnix.app.open({ instance: "main", sessionId: sid }), id);
   await page.getByTestId("conv-ask").getByTestId("conv-ask-allow").click();
   await toSystem(page);
   await expect(page.locator(`[data-testid="system-agents"] [data-testid="system-agent-group"][data-sid="${id}"]`)).not.toHaveAttribute("data-state", "waiting", { timeout: 15_000 });
@@ -323,11 +323,11 @@ test("system-strip: versions, uptime, memory and the connected users", TREE, asy
 
 test("system-calls: every model call with what went in and what came out, and its tool calls", TREE, async ({ page }) => {
   await open(page, backend.url);
-  const sid = await sessionWithTurn(page, "system");
+  const sid = await sessionWithTurn(page, "main");
   // A replayed session writes no recording of its own: give it the one its fixture was made from.
   cpSync(join(RECORDINGS, "spawns-agent"), join(backend.scratch, "agix", "recordings", sid), { recursive: true });
   await toSystem(page);
-  await pick(page, "system", sid);
+  await pick(page, "main", sid);
   await tab(page, "calls");
   const calls = page.getByTestId("system-call");
   await expect(calls.first()).toBeVisible();
@@ -352,17 +352,17 @@ test("system-calls: every model call with what went in and what came out, and it
 
 test("system-ops: operations take effect, and another viewer sees them", TREE, async ({ page, context }) => {
   await open(page, backend.url);
-  const sid = await sessionWithTurn(page, "system");
+  const sid = await sessionWithTurn(page, "main");
 
   // Someone else is watching it in the session space.
   const other = await context.newPage();
   await open(other, backend.url);
   await spaceEntry(other, "sessions").click();
-  await other.evaluate((sid) => (window as any).harnix.app.open({ instance: "system", sessionId: sid }), sid);
+  await other.evaluate((sid) => (window as any).harnix.app.open({ instance: "main", sessionId: sid }), sid);
   await expect(reply(other)).toContainText(/fixture ready/i);
 
   await toSystem(page);
-  await pick(page, "system", sid);
+  await pick(page, "main", sid);
 
   // Rename: the facts and the other viewer's list follow.
   await page.getByTestId("op-rename").click();
@@ -401,7 +401,7 @@ test("system-ops: operations take effect, and another viewer sees them", TREE, a
   await expect(page.getByTestId("system-session")).not.toContainText(sid);
 
   // Back to the original, and open it where it belongs: the session space shows the new name.
-  await pick(page, "system", sid);
+  await pick(page, "main", sid);
   await page.getByTestId("open-in-space").click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", "sessions");
   await expect(sessionRow(page, sid)).toHaveAttribute("data-state", "current");
@@ -409,10 +409,10 @@ test("system-ops: operations take effect, and another viewer sees them", TREE, a
 
   // Delete, from the system space.
   await toSystem(page);
-  await pick(page, "system", sid);
+  await pick(page, "main", sid);
   await page.getByTestId("op-delete").click();
   await page.getByTestId("confirm").click();
-  await page.locator('[data-testid="system-tree-instance"][data-instance="system"]').click();
+  await page.locator('[data-testid="system-tree-instance"][data-instance="main"]').click();
   await expect(page.locator(`[data-testid="system-instance"] [data-sid="${sid}"]`)).toHaveCount(0);
   await other.close();
 });
@@ -431,14 +431,14 @@ test("system-ops: an instance restarts, and its sessions are there after", TREE,
 
 test("system-frames: a session's frames arrive as it runs, with their seq", TREE, async ({ page }) => {
   await open(page, backend.url);
-  const sid = await sessionWithTurn(page, "system");
+  const sid = await sessionWithTurn(page, "main");
   await toSystem(page);
-  await pick(page, "system", sid);
+  await pick(page, "main", sid);
   await tab(page, "frames");
   await expect(page.getByTestId("system-frames")).toBeVisible();
   // Another turn in the watched session: its frames are listed here as they come.
   await page.evaluate(
-    (sid) => (window as any).harnix.app.call("harnix.session.send", { instance: "system", session_id: sid, space: "system", message: "Say exactly: fixture ready" }),
+    (sid) => (window as any).harnix.app.call("harnix.session.send", { instance: "main", session_id: sid, space: "system", message: "Say exactly: fixture ready" }),
     sid,
   );
   await expect(page.locator("#details .frames tr").first()).toBeVisible({ timeout: 30_000 });
@@ -446,9 +446,9 @@ test("system-frames: a session's frames arrive as it runs, with their seq", TREE
 
 test("system-context: a message of the context is edited and removed from the page, and the injected one is neither", TREE, async ({ page }) => {
   await open(page, backend.url);
-  const sid = await sessionWithTurn(page, "system");
+  const sid = await sessionWithTurn(page, "main");
   await toSystem(page);
-  await pick(page, "system", sid);
+  await pick(page, "main", sid);
   await tab(page, "context");
   const messages = page.getByTestId("system-messages");
   const user = messages.locator('[data-testid="system-message"][data-origin="user"]').first();
@@ -470,14 +470,14 @@ test("system-context: a message of the context is edited and removed from the pa
   await messages.locator('[data-testid="system-message"][data-origin="user"]').first().getByTestId("message-drop").click();
   await expect(messages).toContainText(/removed by the host/i);
   const history = await page.evaluate(
-    async (sid) => (await (window as any).harnix.app.call("engine.session.history", { instance: "system", session_id: sid, space: "system" })).messages,
+    async (sid) => (await (window as any).harnix.app.call("engine.session.history", { instance: "main", session_id: sid, space: "system" })).messages,
     sid,
   );
   expect(JSON.stringify(history)).not.toContain("edited from the page");
 });
 
 /** A conversation in the session space that called a tool, with the recording its fixture was made
- *  from where `system`'s engine keeps them (a replayed session writes none of its own). */
+ *  from where `main`'s engine keeps them (a replayed session writes none of its own). */
 async function conversationWithTool(page: Page): Promise<string> {
   await open(page, backend.url);
   const sid = await newSession(page, "calls-a-tool");
@@ -531,9 +531,9 @@ test("system-jump: a tool row opens the call that asked for it, and the call fin
 test("system-context: measured apart from estimated, and a fork from any message", TREE, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, backend.url);
-  const sid = await sessionWithTurn(page, "system");
+  const sid = await sessionWithTurn(page, "main");
   await toSystem(page);
-  await pick(page, "system", sid);
+  await pick(page, "main", sid);
   await tab(page, "context");
   const pane = page.getByTestId("system-context");
   // The bar is as long as what the provider counted; the estimates that divide it say they are.
@@ -556,10 +556,10 @@ test("system-context: measured apart from estimated, and a fork from any message
 test("system-timeline: calls on a time line, searched and narrowed by a stretch of time; a row per turn", TREE, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, backend.url);
-  const sid = await sessionWithTurn(page, "system");
+  const sid = await sessionWithTurn(page, "main");
   cpSync(join(RECORDINGS, "spawns-agent"), join(backend.scratch, "agix", "recordings", sid), { recursive: true });
   await toSystem(page);
-  await pick(page, "system", sid);
+  await pick(page, "main", sid);
   await tab(page, "calls");
   const calls = page.getByTestId("system-call");
   await expect(calls.first()).toBeVisible();
@@ -605,7 +605,7 @@ test("system-timeline: calls on a time line, searched and narrowed by a stretch 
 test("system-calls: a failed call is one click away, and listed alone on asking", TREE, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, backend.url);
-  const sid = await sessionWithTurn(page, "system");
+  const sid = await sessionWithTurn(page, "main");
   // `calls-a-tool`, the turn's second call (the one after the tool) failed as an overloaded provider
   // would have failed it. The recording also holds the calls beside the turn (its title, the memory).
   const dir = join(backend.scratch, "agix", "recordings", sid);
@@ -619,7 +619,7 @@ test("system-calls: a failed call is one click away, and listed alone on asking"
   const all = records.filter((r) => r.type === "call").length;
 
   await toSystem(page);
-  await pick(page, "system", sid);
+  await pick(page, "main", sid);
   await tab(page, "calls");
   const calls = page.getByTestId("system-call");
   await expect(calls).toHaveCount(all);
@@ -642,10 +642,10 @@ test("system-calls: a failed call is one click away, and listed alone on asking"
 
 test("system-turns: a turn's cache hits are said as a share, or not at all", TREE, async ({ page }) => {
   await open(page, backend.url);
-  const sid = await sessionWithTurn(page, "system");
+  const sid = await sessionWithTurn(page, "main");
   cpSync(join(RECORDINGS, "calls-a-tool"), join(backend.scratch, "agix", "recordings", sid), { recursive: true });
   await toSystem(page);
-  await pick(page, "system", sid);
+  await pick(page, "main", sid);
   await tab(page, "turns");
   await expect(page.getByTestId("system-turns")).toBeVisible();
   await expect(page.getByTestId("turn-cache").first()).toHaveText(/^(\d+%|—)$/);
@@ -653,12 +653,12 @@ test("system-turns: a turn's cache hits are said as a share, or not at all", TRE
 
 test("system-frames: narrowed to one kind of frame", TREE, async ({ page }) => {
   await open(page, backend.url);
-  const sid = await sessionWithTurn(page, "system");
+  const sid = await sessionWithTurn(page, "main");
   await toSystem(page);
-  await pick(page, "system", sid);
+  await pick(page, "main", sid);
   await tab(page, "frames");
   await page.evaluate(
-    (sid) => (window as any).harnix.app.call("harnix.session.send", { instance: "system", session_id: sid, space: "system", message: "Say exactly: fixture ready" }),
+    (sid) => (window as any).harnix.app.call("harnix.session.send", { instance: "main", session_id: sid, space: "system", message: "Say exactly: fixture ready" }),
     sid,
   );
   const rows = page.locator("#details .frames tbody tr");
@@ -676,7 +676,7 @@ test("system-instances: an instance made from a template is listed and picked, a
   const errors = watchConsole(page);
   await open(page, backend.url);
   await toSystem(page);
-  await page.locator('[data-testid="system-tree-instance"][data-instance="system"]').click();
+  await page.locator('[data-testid="system-tree-instance"][data-instance="main"]').click();
   const form = page.getByTestId("new-instance");
   await expect(form).toBeVisible();
   await expect(page.getByTestId("new-instance-create"), "no name, nothing to make").toBeDisabled();
@@ -689,11 +689,11 @@ test("system-instances: an instance made from a template is listed and picked, a
   await expect(page.getByTestId("system-instance")).toContainText("w-ui");
   await expect(made).toHaveAttribute("data-state", "ready", { timeout: 60_000 });
 
-  // Stopping asks first; confirmed, the instance is gone and the system instance is picked.
+  // Stopping asks first; confirmed, the instance is gone and the main instance is picked.
   await page.getByTestId("inst-stop").click();
   await page.getByTestId("confirm").click();
   await expect(made).toHaveCount(0, { timeout: 30_000 });
-  await expect(page.getByTestId("system-instance")).toContainText("system");
+  await expect(page.getByTestId("system-instance")).toContainText("main");
   expect(errors).toEqual([]);
 });
 
@@ -741,7 +741,7 @@ test("system-agents: one header line names the columns; at 1000 px, a goal tag o
 
 test("system-keys: an Agent row is reached by Tab and picked by Enter, the right column follows; the console's tabs go by arrows", TREE, async ({ page }) => {
   await open(page, backend.url);
-  await sessionWithTurn(page, "system");
+  await sessionWithTurn(page, "main");
   await toSystem(page);
   const agents = page.getByTestId("system-agents");
   await expect(agents.getByTestId("system-agent").first()).toBeVisible({ timeout: 10_000 });
@@ -784,7 +784,7 @@ test("system-keys: an Agent row is reached by Tab and picked by Enter, the right
 
 test("system-about: the flows, apps and diagnostics tabs let go of what was picked, the right column says what the tab is; a tab left keeps its search", TREE, async ({ page }) => {
   await open(page, backend.url);
-  const id = await sessionWithTurn(page, "system");
+  const id = await sessionWithTurn(page, "main");
   await toSystem(page);
   const agents = page.getByTestId("system-agents");
   await agents.locator(`[data-testid="system-agent-group"][data-sid="${id}"]`).getByTestId("system-agent").click();
@@ -823,7 +823,7 @@ test("system-context: a session in the middle of a turn says so in words, the ba
   await expect(failed).toHaveAttribute("data-code", "-32015");
   // Answered, the turn ends and the context is there.
   await page.locator('#side [data-space="sessions"]').click();
-  await page.evaluate((sid) => (window as any).harnix.app.open({ instance: "system", sessionId: sid }), id);
+  await page.evaluate((sid) => (window as any).harnix.app.open({ instance: "main", sessionId: sid }), id);
   await page.getByTestId("conv-ask").getByTestId("conv-ask-allow").click();
   await expect(page.getByTestId("conv-send")).toBeVisible({ timeout: 30_000 });
 });

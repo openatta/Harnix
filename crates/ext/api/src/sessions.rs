@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use harnix_contract::sync::lock;
-use harnix_contract::{Channel, Frame, FrameSink, SessionRef, SYSTEM_INSTANCE};
+use harnix_contract::{Channel, Frame, FrameSink, SessionRef, MAIN_INSTANCE};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
@@ -277,7 +277,7 @@ impl<'a> Sessions<'a> {
         let created = self.cx.call("harnix.session.create", spec.params()).await?;
         let field = |k: &str| created.get(k).and_then(Value::as_str).map(str::to_string);
         Ok(SessionRef::new(
-            field("instance").unwrap_or_else(|| SYSTEM_INSTANCE.to_string()),
+            field("instance").unwrap_or_else(|| MAIN_INSTANCE.to_string()),
             field("session_id").unwrap_or_default(),
         ))
     }
@@ -700,7 +700,7 @@ mod tests {
     /// settle in the gap; the hub's buffer holds only the third turn's events.
     async fn behind() -> Tap {
         let session = SessionRef {
-            instance: "system".into(),
+            instance: "main".into(),
             session_id: "s".into(),
         };
         let (sink, parts) = Tap::channel(session, 1);

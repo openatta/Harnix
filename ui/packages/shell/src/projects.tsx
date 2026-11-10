@@ -67,7 +67,7 @@ function Project({ app, s, workspace }: { app: App; s: ShellState; workspace: Wo
     .sort((a, b) => String(b.last_active ?? "").localeCompare(String(a.last_active ?? "")));
   const all = Boolean(s.expanded[`project:${workspace.id}`]);
   const rows = all ? sessions : sessions.slice(0, SESSIONS);
-  const running = sessions.some((row) => s.running[`${row.instance ?? "system"}/${row.session_id}`]);
+  const running = sessions.some((row) => s.running[`${row.instance ?? "main"}/${row.session_id}`]);
   const menu = (event: { clientX?: number; clientY?: number; currentTarget: EventTarget | null }) =>
     workspaceMenu(app, workspace, { origin: event.currentTarget instanceof HTMLElement ? event.currentTarget : null, at: menuPoint(event) });
   return (

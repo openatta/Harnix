@@ -101,7 +101,7 @@ Harnix 本身是**框架 + Harnix app + 系统 space**：Harnix app（会话 spa
 
 - 应用仓库就是自己的 crate 加上 `harnix` 依赖，用 `AppBuilder` 装配。能装配的有：
   - 编译期模块（trait `Module`：方法、主题、路由、数据迁移）；
-  - 给 `system` 加原生工具与场景；
+  - 给 `main` 加原生工具与场景；
   - 给 space 一台独立实例；
   - 前端的编译期 space 与贡献点；
   - 品牌与 profile。

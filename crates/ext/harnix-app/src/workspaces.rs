@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use harnix_ext::engine::readers::SearchLimits;
-use harnix_ext::{codes, Call, RpcError, SYSTEM_INSTANCE};
+use harnix_ext::{codes, Call, RpcError, MAIN_INSTANCE};
 use serde_json::{json, Value};
 
 use crate::store::{new_workspace_id, Workspace};
@@ -193,7 +193,7 @@ impl App {
         let query = require_str(&params, "query")?;
         let transcripts = call
             .ext()
-            .engine(SYSTEM_INSTANCE)
+            .engine(MAIN_INSTANCE)
             .ok_or_else(|| RpcError::new(codes::INSTANCE_NOT_FOUND, "there is no main instance to search"))?
             .transcripts()?;
 

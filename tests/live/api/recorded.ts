@@ -148,7 +148,7 @@ export async function play(api: TestClient, entry: Recorded, recorder?: string):
     project_root: api.project,
     options: { ...entry.options, ...(recorder ? { recorder: { name: recorder } } : {}) },
   });
-  const session = { instance: "system", session_id: created.session_id };
+  const session = { instance: "main", session_id: created.session_id };
   await api.call("harnix.session.attach", session);
   const { settled } = await runTurn(api, session, entry.message, { timeout: 240_000 });
   if (entry.tasks) await tasksDone(api, session);

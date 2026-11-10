@@ -81,7 +81,7 @@ pub(crate) const ANSWERERS_KEPT: usize = 1024;
 pub const SPACES_TOPIC: &str = "harnix.spaces";
 
 /// The instance every process has: the profile's `[engine]`.
-pub use harnix_contract::SYSTEM_INSTANCE as SYSTEM;
+pub use harnix_contract::MAIN_INSTANCE as MAIN;
 
 /// A session's full name. Two instances may each have a session `s1`; they
 /// are different sessions.
@@ -270,11 +270,11 @@ impl Hub {
         read(&self.links).get(instance).cloned()
     }
 
-    /// Which instance a call means: the one it names, or `system`. One the
+    /// Which instance a call means: the one it names, or `main`. One the
     /// hub was not handed is refused by name.
     pub(crate) fn instance_of(&self, params: &Value) -> Result<String, RpcError> {
         let name = match params.get("instance") {
-            None | Some(Value::Null) => SYSTEM,
+            None | Some(Value::Null) => MAIN,
             Some(Value::String(name)) => name.as_str(),
             Some(other) => {
                 return Err(RpcError::invalid_params(format!(

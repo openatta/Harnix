@@ -118,7 +118,7 @@ test("a flow's session opened from elsewhere opens inside the system space, in i
   await open(page, backend.url);
   const own = await ownConversation(page, "example-review");
   await expect(page.locator("#main")).toHaveAttribute("data-space", "sessions");
-  await page.evaluate((sessionId) => (window as any).harnix.host.session.open({ instance: "system", sessionId }, { switchSpace: true }), own);
+  await page.evaluate((sessionId) => (window as any).harnix.host.session.open({ instance: "main", sessionId }, { switchSpace: true }), own);
   await expect(page.locator("#main")).toHaveAttribute("data-space", "flow");
   await expect.poll(() => current(page)).toBe(own);
   await expect(systemEntry(page)).toHaveAttribute("aria-pressed", "true");
@@ -135,7 +135,7 @@ test("an old flow session kept as the front one still opens on load", TAGS, asyn
   // What a page of the separate Flows space left in this browser.
   await page.evaluate((sessionId) => {
     localStorage.setItem("harnix.space", JSON.stringify("flow"));
-    localStorage.setItem("harnix.space.current", JSON.stringify({ flow: { instance: "system", sessionId } }));
+    localStorage.setItem("harnix.space.current", JSON.stringify({ flow: { instance: "main", sessionId } }));
   }, own);
   await page.reload();
   await connected(page);

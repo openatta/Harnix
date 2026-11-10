@@ -426,10 +426,10 @@ export function stationActions(runStatus: RunStatus | undefined, def: Station | 
 export function sessionOf(task: TaskRec): { instance: string; sessionId: string } | null {
   const s = task.session as unknown;
   if (typeof s === "string") {
-    // `"<instance>/<session_id>"`, as the flow module writes it; a bare id is on `system`.
+    // `"<instance>/<session_id>"`, as the flow module writes it; a bare id is on `main`.
     const at = s.indexOf("/");
     if (!s) return null;
-    return at > 0 && at < s.length - 1 ? { instance: s.slice(0, at), sessionId: s.slice(at + 1) } : { instance: "system", sessionId: s };
+    return at > 0 && at < s.length - 1 ? { instance: s.slice(0, at), sessionId: s.slice(at + 1) } : { instance: "main", sessionId: s };
   }
   if (!s || typeof s !== "object") return null;
   const o = s as Record<string, unknown>;

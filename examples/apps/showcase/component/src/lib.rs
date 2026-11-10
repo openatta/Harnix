@@ -251,7 +251,7 @@ impl Backend for Showcase {
             }
             "session.start" => {
                 // The agent, driven by the application: a session of its own, and a prompt.
-                let mut create = json!({"instance": "system"});
+                let mut create = json!({"instance": "main"});
                 for key in ["project_root", "options", "space"] {
                     if !params[key].is_null() {
                         create[key] = params[key].clone();
@@ -262,14 +262,14 @@ impl Backend for Showcase {
                 let session_id = created["session_id"].clone();
                 // A session of the application's own space, claimed: a package reaches no other.
                 let send = json!({
-                    "instance": "system",
+                    "instance": "main",
                     "session_id": session_id,
                     "space": params["space"],
                     "message": params["message"].as_str().unwrap_or("Hello from the showcase's backend"),
                 });
                 let sent = host::call("harnix.session.send", &send.to_string()).map_err(|e| error(5, e))?;
                 json!({
-                    "instance": "system",
+                    "instance": "main",
                     "session_id": session_id,
                     "sent": serde_json::from_str::<Value>(&sent).unwrap_or(Value::Null),
                 })
@@ -290,7 +290,7 @@ impl Backend for Showcase {
                 // manifest's `[[inline.flow_block]]`, with this payload in its placeholders.
                 let caller: Value = serde_json::from_str(&caller).unwrap_or(Value::Null);
                 let session_id = params["session_id"].as_str().unwrap_or_default().to_string();
-                let instance = params["instance"].as_str().unwrap_or("system");
+                let instance = params["instance"].as_str().unwrap_or("main");
                 let entry = json!({
                     "instance": instance,
                     "session_id": session_id,

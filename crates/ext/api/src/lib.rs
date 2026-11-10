@@ -70,7 +70,7 @@ pub use harnix_contract::s1::{
     Subject, Trust,
 };
 pub use harnix_contract::{
-    codes, ChainLink, DefaultInstance, RpcError, SessionRef, SpaceDecl, CONTRIB_API_VERSION, SYSTEM_INSTANCE,
+    codes, ChainLink, DefaultInstance, RpcError, SessionRef, SpaceDecl, CONTRIB_API_VERSION, MAIN_INSTANCE,
 };
 /// The largest frame a connection carries: what an answer has to fit in.
 pub use harnix_contract::MAX_FRAME_BYTES;

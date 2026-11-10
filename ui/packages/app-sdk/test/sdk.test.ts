@@ -80,8 +80,8 @@ describe("the bridge", () => {
   });
 
   it("knows its space's open session, and follows it", async () => {
-    const { host, app } = await connected({ current: { instance: "system", sessionId: "s1" } });
-    expect(app.session.current()).toEqual({ instance: "system", sessionId: "s1" });
+    const { host, app } = await connected({ current: { instance: "main", sessionId: "s1" } });
+    expect(app.session.current()).toEqual({ instance: "main", sessionId: "s1" });
     const seen: unknown[] = [];
     app.session.onChange((c) => seen.push(c));
     host.setCurrent(null);

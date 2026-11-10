@@ -43,7 +43,7 @@
 | 术语 | 代码 | 意思 |
 |---|---|---|
 | **实例** | `instance` | 一台 Agix 引擎（一个会话池）。**隔离单位**：数据根、设置、provider、MCP、Agix 插件、场景都是它自己的 |
-| **`system` 实例** | `system` | profile 的 `[engine]` 建的默认实例 |
+| **`main` 实例** | `main` | profile 的 `[engine]` 建的默认实例 |
 | **载体** | `carrier` | 实例怎么跑：**进程内**（in-process，作为库链接）或 **daemon**（本机另一个进程，JSON-RPC） |
 | **spawn / attach** | — | daemon 实例的两种来法：Harnix 起子进程并看护 / 连一个已经在跑、只给这个 Harnix 用的 daemon |
 | **模板** | `InstanceTemplate` | 建实例的规格：载体、场景、数据根规则、允许填的参数。模块和界面都只能按模板建实例 |

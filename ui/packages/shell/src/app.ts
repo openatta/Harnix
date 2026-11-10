@@ -11,7 +11,7 @@
 
 import type { ReactNode } from "react";
 import { TOKEN_STALE, errorText, type ConnectionStatus, type ExtensionEntry, type HarnixClient, type Hello, type SessionRow, type UiView } from "@harnix/core";
-import { SYSTEM_INSTANCE, type SessionController } from "@harnix/core/state";
+import { MAIN_INSTANCE, type SessionController } from "@harnix/core/state";
 import { t, tabsOf, type ComposerApi, type DetailItem, type Registry, type ShellContext, type SpaceContribution, type SpaceTab } from "@harnix/react";
 
 import { topicsOf } from "./topics.ts";
@@ -253,7 +253,7 @@ export function within<T>(promise: Promise<T>, ms: number): Promise<T | typeof T
 export function uniqueSessions<T extends { instance?: unknown; session_id: string }>(rows: T[]): T[] {
   const seen = new Set<string>();
   return rows.filter((row) => {
-    const key = keyOf(typeof row.instance === "string" ? row.instance : SYSTEM_INSTANCE, row.session_id);
+    const key = keyOf(typeof row.instance === "string" ? row.instance : MAIN_INSTANCE, row.session_id);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -693,7 +693,7 @@ export class App {
         const workspace = workspaces.find((w) => row.project_root && w.path === row.project_root);
         return {
           ...row,
-          instance: (row.instance as string | undefined) ?? SYSTEM_INSTANCE,
+          instance: (row.instance as string | undefined) ?? MAIN_INSTANCE,
           name: note.title ?? row.name,
           renamed: Boolean(note.title),
           archived: Boolean(note.archived),
@@ -761,7 +761,7 @@ export class App {
       if (workspace) params = { ...params, project_root: workspace.path };
     }
     const created = (await this.client.call("harnix.session.create", { ...params, space: this.claim(space) })) as { session_id: string; instance?: string };
-    const key = { instance: created.instance ?? SYSTEM_INSTANCE, sessionId: created.session_id };
+    const key = { instance: created.instance ?? MAIN_INSTANCE, sessionId: created.session_id };
     await this.refreshSessions();
     this.open(key, space);
     return key;

@@ -26,8 +26,8 @@ describe("composer.insert", () => {
   it("with a session: at once if its composer is on the page, else kept and put in when it is", () => {
     const { app } = scriptedApp();
     const host = hostFor(app);
-    const a = { instance: "system", sessionId: "a" };
-    const b = { instance: "system", sessionId: "b" };
+    const a = { instance: "main", sessionId: "a" };
+    const b = { instance: "main", sessionId: "b" };
     const onA = composer();
     app.composer = onA;
     app.composerBound(keyOf(a.instance, a.sessionId), onA);

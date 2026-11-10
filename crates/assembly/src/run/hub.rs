@@ -26,7 +26,7 @@ pub(super) struct Assembled {
     pub instances: Arc<InstanceRegistry>,
     /// The interface modules a client is told of at hello, as packages and applications change.
     pub ui: Arc<UiModules>,
-    /// The system instance's history: where audit entries are filed.
+    /// The main instance's history: where audit entries are filed.
     pub history: Option<Arc<dyn HistoryStore>>,
     /// The brand's icon on disk, resolved against the profile: what the transport serves at
     /// [`harnix_transport::BRAND_ICON_PATH`].
@@ -46,7 +46,7 @@ pub(super) async fn assemble(
 ) -> anyhow::Result<Assembled> {
     let Instances {
         registry,
-        system,
+        main,
         history,
         fixed,
     } = instances;
@@ -104,7 +104,7 @@ pub(super) async fn assemble(
     apps.process(&mut process);
     let process = Arc::new(Process::new(process, hub.clone()));
     let _ = behind.process.set(process);
-    registry.add(harnix_hub::SYSTEM, system, Owner::Kernel).await;
+    registry.add(harnix_hub::MAIN, main, Owner::Kernel).await;
     for (id, built) in fixed {
         registry.add(&id, built, Owner::Kernel).await;
     }

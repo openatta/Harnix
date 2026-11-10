@@ -212,7 +212,7 @@ test.describe("on", () => {
     expect((await api.call("observability.calls", s)).recording).toBe(false);
 
     // A replayed session writes no recording of its own: give it the one its fixture was made from,
-    // where `system`'s engine keeps them.
+    // where `main`'s engine keeps them.
     cpSync(join(RECORDINGS, "spawns-agent"), join(backend.scratch, "agix", "recordings", s.session_id), { recursive: true });
     const trace = await api.call("observability.trace", s);
     expect(trace.recording).toBe(true);
@@ -374,8 +374,8 @@ test.describe("on", () => {
     expect(listed).not.toContain(created.session_id);
   });
 
-  test("an instance restarts from where it was built; `system` does not", TAGS, async () => {
-    expect((await api.refused("system.instances.restart", { instance: "system", space: "system" }))?.code).toBe(REFUSED);
+  test("an instance restarts from where it was built; `main` does not", TAGS, async () => {
+    expect((await api.refused("system.instances.restart", { instance: "main", space: "system" }))?.code).toBe(REFUSED);
     // Not the interface's to restart, from any space: a device holds no capability. The system
     // module, holding `instances.admin`, restarts it for the system space.
     expect((await api.refused("harnix.instances.restart", { instance: "fleet-side" }))?.code).toBe(REFUSED);

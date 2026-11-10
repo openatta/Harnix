@@ -288,7 +288,7 @@ mod tests {
     use super::*;
 
     fn marker() -> Marker {
-        ("harnix.instances.sessions".into(), r#"{"instance":"system"}"#.into())
+        ("harnix.instances.sessions".into(), r#"{"instance":"main"}"#.into())
     }
 
     /// The race behind a deleted session that stayed listed: A starts, B starts while A's call

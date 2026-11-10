@@ -118,7 +118,7 @@ export function GroupedSessions({ app, s, rule, rows }: { app: App; s: ShellStat
             <span className="count">{group.rows.length}</span>
           </div>
           {group.rows.map((row) => (
-            <SessionRow key={keyOf(row.instance ?? "system", row.session_id)} app={app} s={s} session={row} />
+            <SessionRow key={keyOf(row.instance ?? "main", row.session_id)} app={app} s={s} session={row} />
           ))}
         </div>
       ))}

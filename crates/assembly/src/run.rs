@@ -3,7 +3,7 @@
 //! 1. Read the profile.
 //! 2. **Register** every extension, in order: its manifest and what it declares.
 //! 3. **Migrate** every extension, in order.
-//! 4. **Build the instances**: `system`, with the native contributions of the
+//! 4. **Build the instances**: `main`, with the native contributions of the
 //!    modules still enabled; the profile's `[[instances]]`; and what the
 //!    ledger says was built from templates.
 //! 5. **Start** every module, in order.

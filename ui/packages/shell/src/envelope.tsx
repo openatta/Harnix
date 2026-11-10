@@ -90,7 +90,7 @@ export function followEnvelopes(app: App, controller: SessionController): () => 
   });
   const offNotify = app.client.onNotify((method, params) => {
     if (method !== "harnix.event" || params.session_id !== controller.sessionId) return;
-    if ((params.instance ?? "system") !== controller.instance) return;
+    if ((params.instance ?? "main") !== controller.instance) return;
     const kind = (params.event as { kind?: string } | undefined)?.kind;
     if (kind === "turn_complete") void read();
   });

@@ -41,7 +41,7 @@ test("a compaction is told as it happens, what replaced the older messages stays
     const before = await api.call("engine.session.history", { session_id });
     expect(before.messages.some((m: any) => m.origin === "compact")).toBe(false);
     const mark = api.events.length;
-    await api.call("system.compact", { instance: "system", session_id });
+    await api.call("system.compact", { instance: "main", session_id });
 
     const event = await api.waitFor(
       (f) => f.method === "harnix.event" && f.params.session_id === session_id && f.params.event?.kind === "compact" && api.events.indexOf(f) >= mark,

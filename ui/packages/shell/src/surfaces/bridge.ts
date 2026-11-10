@@ -23,7 +23,7 @@
  */
 
 import { errorText } from "@harnix/core";
-import { SYSTEM_INSTANCE } from "@harnix/core/state";
+import { MAIN_INSTANCE } from "@harnix/core/state";
 import { t, tabsOf } from "@harnix/react";
 import {
   PROTOCOL,
@@ -222,7 +222,7 @@ export class FrameBridge {
     if (params.session_id !== undefined) {
       if (typeof params.session_id !== "string") throw new Invalid("`session_id` names a session of the application's own space");
       if (!own.length) this.refuse(name, t("surface.why.noSpace"));
-      const instance = typeof params.instance === "string" ? params.instance : SYSTEM_INSTANCE;
+      const instance = typeof params.instance === "string" ? params.instance : MAIN_INSTANCE;
       if (!(await this.ownsSession(instance, params.session_id))) this.refuse(name, t("surface.why.otherSpace"));
     }
     return params;
@@ -325,7 +325,7 @@ export class FrameBridge {
         if (typeof p.scene === "string") spec.scene = p.scene;
         if (p.options && typeof p.options === "object") spec.options = p.options;
         const created = await app.call<{ session_id: string; instance?: string }>("harnix.session.create", spec);
-        const ref = { instance: created.instance ?? SYSTEM_INSTANCE, sessionId: created.session_id };
+        const ref = { instance: created.instance ?? MAIN_INSTANCE, sessionId: created.session_id };
         await app.refreshSessions();
         app.open(ref, space);
         return ref;

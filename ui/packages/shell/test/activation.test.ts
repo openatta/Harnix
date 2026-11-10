@@ -130,7 +130,7 @@ describe("following harnix.ui", () => {
 describe("the host API", () => {
   it("tells the extensions and hello's defaults, and follows the extensions as they change", async () => {
     const { app, client, host } = setup();
-    expect(host.defaults).toEqual({ instance: "system", space: null });
+    expect(host.defaults).toEqual({ instance: "main", space: null });
     app.set({ hello: { defaults: { instance: "main", space: "work" } } as never, extensions: [ext("system", true)] });
     expect(host.defaults).toEqual({ instance: "main", space: "work" });
     expect(host.extensions.list().map((e) => e.id)).toEqual(["system"]);

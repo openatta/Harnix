@@ -1,8 +1,8 @@
 /**
  * The protocol's shape from 0.4 on: a session
- * is `(instance, session)`. Methods take `instance` (absent means `system`),
+ * is `(instance, session)`. Methods take `instance` (absent means `main`),
  * frames always carry it, and an instance that does not exist is refused by
- * name rather than quietly meaning `system`.
+ * name rather than quietly meaning `main`.
  */
 
 import { INSTANCE_NOT_FOUND } from "@harnix/core/protocol";
@@ -25,11 +25,11 @@ test("every frame of a turn names its instance", TAGS, async () => {
     project_root: api.project,
     options: { recorder: { name: "says-ready" } },
   });
-  expect(created.instance).toBe("system");
+  expect(created.instance).toBe("main");
   const sessionId = created.session_id;
   try {
-    const attached = await api.call("harnix.session.attach", { instance: "system", session_id: sessionId });
-    expect(attached.instance).toBe("system");
+    const attached = await api.call("harnix.session.attach", { instance: "main", session_id: sessionId });
+    expect(attached.instance).toBe("main");
     await api.call("harnix.session.send", { session_id: sessionId, message: "Say exactly: fixture ready" });
     await api.waitFor((f) => f.method === "harnix.turn_settled" && f.params.session_id === sessionId, {
       timeout: 60_000,
@@ -37,10 +37,10 @@ test("every frame of a turn names its instance", TAGS, async () => {
     });
     const frames = api.events.filter((f) => f.params?.session_id === sessionId);
     expect(frames.length).toBeGreaterThan(2);
-    for (const frame of frames) expect(frame.params.instance, frame.method).toBe("system");
+    for (const frame of frames) expect(frame.params.instance, frame.method).toBe("main");
     const { sessions } = await api.call("harnix.sessions.list");
     const row = sessions.find((s: any) => s.session_id === sessionId);
-    expect(row.instance).toBe("system");
+    expect(row.instance).toBe("main");
   } finally {
     await finish(api, sessionId);
     api.close();

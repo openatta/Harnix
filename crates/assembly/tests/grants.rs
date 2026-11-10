@@ -384,7 +384,7 @@ mod scope {
             cx
         };
         let sub = |topic: &str, space: Option<&str>| {
-            let mut params = json!({"instance": "system", "session_id": "s"});
+            let mut params = json!({"instance": "main", "session_id": "s"});
             if let Some(space) = space {
                 params["space"] = json!(space);
             }

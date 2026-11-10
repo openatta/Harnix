@@ -42,7 +42,7 @@ export function InstanceOverview({ app, view, instance: id }: { app: App; view: 
               [tr("system.fact.dataRoot"), instance.data_root ?? ""],
             ]}
           />
-          {instance.id !== "system" ? (
+          {instance.id !== "main" ? (
             <div className="ops">
               <button
                 type="button"
@@ -62,7 +62,7 @@ export function InstanceOverview({ app, view, instance: id }: { app: App; view: 
                     confirmDialog(app, tr("system.confirmStop", { instance: instance.id }), async () => {
                       await app.call("system.instances.stop", { instance: instance.id, space: SYSTEM });
                       app.closeModal();
-                      view.select({ kind: "instance", instance: "system" });
+                      view.select({ kind: "instance", instance: "main" });
                     })
                   }
                 >

@@ -285,7 +285,7 @@ describe("ProposalCard", () => {
   });
 
   it("names itself when accepted, and reads as accepted from the module's record after a reload", async () => {
-    const session = { instance: "system", session_id: "s1" };
+    const session = { instance: "main", session_id: "s1" };
     const proposal = { run: "r1", station: "review", kind: "rework" as const, to: "analyze", reason: "thin", session };
     const fresh = fakeHost({ "flow.proposal": { handled: null } });
     render(

@@ -163,8 +163,8 @@ fn audit(hub: &Arc<Hub>, history: Option<Arc<dyn harnix_instance::HistoryStore>>
             }
             tracing::info!(subject = %subject.label(), method, session, owner, "the system space acted on another space's session");
             // The durable sink files an entry in the session's own transcript, which is the
-            // `system` instance's store; a session elsewhere is kept in the ring only.
-            let filed = session.strip_prefix("system/").map(str::to_string);
+            // `main` instance's store; a session elsewhere is kept in the ring only.
+            let filed = session.strip_prefix("main/").map(str::to_string);
             audit.record(subject, method, harnix_authz::Decision::Allow, Some("cross-space, from the system space"), filed);
         }));
     }

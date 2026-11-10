@@ -184,8 +184,8 @@ describe("挂上与追赶", () => {
 
     view.rerenderWith("S2");
     await settle();
-    expect(server.notified).toContainEqual({ method: "harnix.session.detach", params: { instance: "system", session_id: "S1" } });
-    expect(server.called("harnix.session.attach").at(-1)!.params).toEqual({ instance: "system", session_id: "S2" });
+    expect(server.notified).toContainEqual({ method: "harnix.session.detach", params: { instance: "main", session_id: "S1" } });
+    expect(server.called("harnix.session.attach").at(-1)!.params).toEqual({ instance: "main", session_id: "S2" });
     expect(conv().dataset.id).toBe("S2");
   });
 
@@ -311,7 +311,7 @@ describe("一轮", () => {
     fireEvent.click(within(card).getByTestId("conv-ask-allow-session"));
     await settle();
     expect(server.called("harnix.session.respond")[0]!.params).toEqual({
-      instance: "system",
+      instance: "main",
       session_id: "S1",
       prompt_id: "p9",
       decision: { type: "permit_always", scope: "session" },
@@ -385,7 +385,7 @@ describe("一轮", () => {
 
     fireEvent.click(within(screen.getAllByTestId("conv-queue-item")[0]!).getByTestId("conv-queue-remove"));
     await settle();
-    expect(server.called("harnix.session.queue.remove")[0]!.params).toEqual({ instance: "system", session_id: "S1", item_id: "q1" });
+    expect(server.called("harnix.session.queue.remove")[0]!.params).toEqual({ instance: "main", session_id: "S1", item_id: "q1" });
     expect(screen.queryByTestId("conv-queue")).toBeNull();
   });
 
@@ -395,7 +395,7 @@ describe("一轮", () => {
     await settle();
     fireEvent.click(screen.getByTestId("conv-interrupt"));
     await settle();
-    expect(server.called("harnix.session.interrupt")[0]!.params).toEqual({ instance: "system", session_id: "S1" });
+    expect(server.called("harnix.session.interrupt")[0]!.params).toEqual({ instance: "main", session_id: "S1" });
 
     act(() => server.push("harnix.turn_settled", { session_id: "S1", turn_id: "t1", error: { code: -32000, message: "cancelled" } }));
     const notes = screen.getAllByTestId("conv-note");

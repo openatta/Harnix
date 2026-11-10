@@ -29,7 +29,7 @@ use harnix_contract::{codes, DefaultInstance, RpcError, SpaceDecl, Subject};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::{Hub, SessionKey, SYSTEM};
+use crate::{Hub, SessionKey, MAIN};
 
 /// Told about every act across spaces by a call claiming a `cross_space` space: who, which
 /// method, which session, and the space the session belongs to.
@@ -238,7 +238,7 @@ impl Spaces {
             }
         }
         if self.default.as_deref() == Some(space) {
-            set.insert(SYSTEM.to_string());
+            set.insert(MAIN.to_string());
         }
         set
     }
@@ -569,12 +569,12 @@ mod tests {
     fn the_default_space_is_an_extensions_and_there_is_at_most_one() {
         let dir = tempfile::tempdir().unwrap();
         let s = spaces(dir.path());
-        let key: SessionKey = ("system".into(), "s1".into());
+        let key: SessionKey = ("main".into(), "s1".into());
         assert_eq!(s.default_space(), Some("home"));
         assert_eq!(s.bound(&key), "home");
         assert_eq!(s.claimed_space(&json!({})), "home");
         assert_eq!(s.claimed_space(&json!({"space": "fleet"})), "fleet");
-        assert!(s.instances_of("home").contains(SYSTEM));
+        assert!(s.instances_of("home").contains(MAIN));
 
         let none = Spaces::load(dir.path().join("none.json"), vec![SpaceDecl::new("fleet")], Default::default()).unwrap();
         assert_eq!(none.default_space(), None);

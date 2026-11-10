@@ -83,13 +83,13 @@ describe("session.onChange", () => {
     const host = hostFor(app);
     const seen: unknown[] = [];
     const off = host.session.onChange((current) => seen.push(current));
-    const a = { instance: "system", sessionId: "a" };
+    const a = { instance: "main", sessionId: "a" };
     app.open(a);
     app.open({ ...a });
     app.open(null);
     expect(seen).toEqual([a, null]);
     // Another space, with a current session of its own.
-    const b = { instance: "system", sessionId: "b1" };
+    const b = { instance: "main", sessionId: "b1" };
     app.open(b, "b");
     expect(seen).toEqual([a, null]);
     await app.switchSpace("b");
@@ -162,11 +162,11 @@ describe("spaces", () => {
       method === "harnix.sessions.list" ? { sessions: [{ session_id: "s-b", space: "b" }] } : {};
     const host = hostFor(app);
     const before = app.snapshot.currentBySpace.sessions ?? null;
-    await drawn(app, host.session.open({ instance: "system", sessionId: "s-b" }, { switchSpace: true }) as Promise<void>);
+    await drawn(app, host.session.open({ instance: "main", sessionId: "s-b" }, { switchSpace: true }) as Promise<void>);
     expect(app.snapshot.space).toBe("b");
-    expect(app.snapshot.current).toEqual({ instance: "system", sessionId: "s-b" });
+    expect(app.snapshot.current).toEqual({ instance: "main", sessionId: "s-b" });
     expect(app.snapshot.currentBySpace.sessions ?? null).toEqual(before);
-    await expect(host.session.open({ instance: "system", sessionId: "gone" }, { switchSpace: true })).rejects.toThrow(/gone/);
+    await expect(host.session.open({ instance: "main", sessionId: "gone" }, { switchSpace: true })).rejects.toThrow(/gone/);
   });
 });
 
@@ -174,7 +174,7 @@ describe("instances", () => {
   it("answer what the protocol says, typed: no cast to read a row", async () => {
     client.answer = (method) =>
       method === "harnix.instances.list"
-        ? { instances: [{ id: "system", carrier: "in_process", status: { state: "ready" } }] }
+        ? { instances: [{ id: "main", carrier: "in_process", status: { state: "ready" } }] }
         : method === "harnix.session.tasks"
           ? { active: false, tasks: [] }
           : method === "harnix.instances.stop"
@@ -183,9 +183,9 @@ describe("instances", () => {
     const host = hostFor(app);
     // These read typed fields: with `Promise<unknown>` they do not compile.
     const listed: string[] = (await host.instances.list()).instances.map((i) => i.id);
-    const active: boolean = (await host.instances.tasks("system", "s1")).active;
+    const active: boolean = (await host.instances.tasks("main", "s1")).active;
     const stopped: string = (await host.instances.stop("x")).stopped;
-    expect([listed, active, stopped]).toEqual([["system"], false, "x"]);
+    expect([listed, active, stopped]).toEqual([["main"], false, "x"]);
   });
 });
 

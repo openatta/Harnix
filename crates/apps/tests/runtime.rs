@@ -3,7 +3,7 @@
 //! can fail, undone.
 //!
 //! The process around it is a stand-in kernel that answers the engine methods the runtime calls
-//! (`engine.plugin.install` and friends) and records them, with one instance, `system`, whose data root
+//! (`engine.plugin.install` and friends) and records them, with one instance, `main`, whose data root
 //! is a temporary directory.
 #![cfg(feature = "compile")]
 
@@ -155,7 +155,7 @@ impl Kernel for FakeKernel {
             .lock()
             .unwrap()
             .push((method.to_string(), params.clone()));
-        let instance = params["instance"].as_str().unwrap_or("system").to_string();
+        let instance = params["instance"].as_str().unwrap_or("main").to_string();
         if self
             .fail
             .lock()
@@ -234,7 +234,7 @@ impl Rig {
         let dir = tempfile::tempdir().unwrap();
         let kernel = Arc::new(FakeKernel {
             data_root: dir.path().join("engine"),
-            instances: vec!["system".into(), "other".into()],
+            instances: vec!["main".into(), "other".into()],
             apps,
             ..Default::default()
         });
@@ -336,13 +336,13 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
     let rig = Rig::new(true);
     let record = rig.install(&rig.package("good", |m| m)).await.unwrap();
     assert_eq!(record.parts["agent"]["package"], json!("example-showcase"));
-    assert_eq!(record.parts["agent"]["instances"], json!(["system"]));
-    assert_eq!(record.parts["skills"]["system"], json!(["showcase-tour"]));
+    assert_eq!(record.parts["agent"]["instances"], json!(["main"]));
+    assert_eq!(record.parts["skills"]["main"], json!(["showcase-tour"]));
     let installs = rig.kernel.called("engine.plugin.install");
     assert_eq!(installs.len(), 1);
     assert_eq!(installs[0]["name"], json!("example-showcase"));
     assert!(
-        rig.skill("system").join("SKILL.md").is_file(),
+        rig.skill("main").join("SKILL.md").is_file(),
         "the skill was not placed"
     );
     assert!(
@@ -495,14 +495,14 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
     assert!(plugin.tools_for(&project).is_empty());
     assert!(rig.runtime.ui_contributions().is_empty() && rig.runtime.mcp_servers().is_empty());
     assert_eq!(rig.kernel.called("engine.plugin.disable").len(), 1);
-    assert!(!rig.skill("system").exists());
+    assert!(!rig.skill("main").exists());
     // On again, from the record.
     rig.runtime
         .load(&rig.cx, &record, &rig.apps().join(ID))
         .await
         .unwrap();
     assert_eq!(plugin.tools_for(&project).len(), 8);
-    assert!(rig.skill("system").is_dir());
+    assert!(rig.skill("main").is_dir());
     // Out: what was placed elsewhere is taken back.
     rig.runtime.unload(&rig.cx, &record).await;
     rig.runtime
@@ -510,7 +510,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
         .await
         .unwrap();
     assert_eq!(rig.kernel.called("engine.plugin.uninstall").len(), 1);
-    assert!(!rig.skill("system").exists());
+    assert!(!rig.skill("main").exists());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -625,12 +625,12 @@ async fn a_failed_install_is_undone_and_leaves_nothing_behind() {
     );
     let uninstalled = rig.kernel.called("engine.plugin.uninstall");
     assert_eq!(uninstalled.len(), 1);
-    assert_eq!(uninstalled[0]["instance"], json!("system"));
+    assert_eq!(uninstalled[0]["instance"], json!("main"));
     assert!(
         !rig.apps().join(ID).exists(),
         "the unpacked package was left behind"
     );
-    assert!(!rig.skill("system").exists());
+    assert!(!rig.skill("main").exists());
     assert_eq!(rig.runtime.status(ID).await["state"], json!("stopped"));
 
     // An instance that is not there: refused before anything reaches the engine.
@@ -647,12 +647,12 @@ async fn a_failed_install_is_undone_and_leaves_nothing_behind() {
 
     // A skill the instance has of its own is not replaced, and the install is undone.
     let rig = Rig::new(true);
-    std::fs::create_dir_all(rig.skill("system")).unwrap();
-    std::fs::write(rig.skill("system").join("SKILL.md"), "mine").unwrap();
+    std::fs::create_dir_all(rig.skill("main")).unwrap();
+    std::fs::write(rig.skill("main").join("SKILL.md"), "mine").unwrap();
     let err = rig.install(&rig.package("skill", |m| m)).await.unwrap_err();
     assert!(err.message.contains("of its own"), "{}", err.message);
     assert_eq!(
-        std::fs::read_to_string(rig.skill("system").join("SKILL.md")).unwrap(),
+        std::fs::read_to_string(rig.skill("main").join("SKILL.md")).unwrap(),
         "mine"
     );
     assert_eq!(

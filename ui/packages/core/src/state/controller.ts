@@ -48,8 +48,8 @@ export interface SessionStrings {
   answerFailed(reason: string): string;
 }
 
-/** 没有 `instance` 的调用与通知都是 `system` 的。 */
-export const SYSTEM_INSTANCE = "system";
+/** 没有 `instance` 的调用与通知都是 `main` 的。 */
+export const MAIN_INSTANCE = "main";
 
 const HISTORY_PAGE = 200;
 const HISTORY_PAGES_AT_OPEN = 5;
@@ -57,7 +57,7 @@ const DEFAULT_PROMPT_TIMEOUT_SECS = 300;
 
 export interface SessionControllerOptions {
   client: HarnixClient;
-  /** 缺省 `system`。 */
+  /** 缺省 `main`。 */
   instance?: string;
   /** 调用方所在的 space：每个调用都带上，中枢对着账本核对（概念与架构 §5.4）。缺省不带。 */
   space?: string;
@@ -97,7 +97,7 @@ export class SessionController {
 
   constructor(options: SessionControllerOptions) {
     this.client = options.client;
-    this.instance = options.instance ?? SYSTEM_INSTANCE;
+    this.instance = options.instance ?? MAIN_INSTANCE;
     this.space = options.space;
     this.extras = options.extras;
     this.strings = options.strings;
@@ -267,7 +267,7 @@ export class SessionController {
     if (this.stopped) return;
     const sessionId = this.state.sessionId;
     if (raw.session_id !== sessionId) return;
-    if ((raw.instance ?? SYSTEM_INSTANCE) !== this.instance) return;
+    if ((raw.instance ?? MAIN_INSTANCE) !== this.instance) return;
     if (method === "harnix.session_resync") {
       // 中枢重建了这个会话的缓冲：按刷新那条路重新 attach。
       void this.open();

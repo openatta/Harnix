@@ -12,7 +12,7 @@ use harnix_contract::{codes, RpcError, Subject};
 use harnix_kernel::{Access, CallContext, Handler, Rpc, TopicSource};
 use serde_json::{json, Value};
 
-use super::{not_found, refused, InstanceRegistry, SYSTEM};
+use super::{not_found, refused, InstanceRegistry, MAIN};
 use crate::templates::{InstanceTemplate, Owner};
 
 /// The instance list, as a topic: pushed when an instance comes, goes, or changes status.
@@ -149,11 +149,11 @@ impl InstanceRegistry {
         }
     }
 
-    /// Which instance a call means: the one it names, or `system`. One that is not listed is
+    /// Which instance a call means: the one it names, or `main`. One that is not listed is
     /// refused by name.
     fn instance_of(&self, params: &Value) -> Result<String, RpcError> {
         let name = match params.get("instance") {
-            None | Some(Value::Null) => SYSTEM,
+            None | Some(Value::Null) => MAIN,
             Some(Value::String(name)) => name.as_str(),
             Some(other) => {
                 return Err(RpcError::invalid_params(format!(
@@ -259,9 +259,9 @@ impl InstanceRegistry {
     /// its sessions.
     async fn restart_instance(self: &Arc<Self>, subject: &Subject, params: Value) -> Rpc<Value> {
         let instance = self.instance_of(&params)?;
-        if instance == SYSTEM {
+        if instance == MAIN {
             return Err(refused(
-                "the system instance is this process; restart Harnix to restart it".into(),
+                "the main instance is this process; restart Harnix to restart it".into(),
             ));
         }
         let slot = self.slot(&instance).ok_or_else(|| not_found(&instance))?;

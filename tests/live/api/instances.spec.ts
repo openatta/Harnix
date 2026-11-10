@@ -1,5 +1,5 @@
 /**
- * The instance layer (concept §3, §3.1.1): `system`, an instance in this process
+ * The instance layer (concept §3, §3.1.1): `main`, an instance in this process
  * and one in a daemon, side by side — each with sessions of its own and
  * nothing of the others'.
  *
@@ -47,14 +47,14 @@ test("the instances are listed with where they came from", TAGS, async () => {
   const hello = await api.call("harnix.hello");
   expect(hello.permission_prompt_timeout_secs).toBeGreaterThan(0);
   const ids = hello.instances.map((i: any) => i.id);
-  expect(ids).toEqual(expect.arrayContaining(["system", "side", "ci", "fleet-side"]));
+  expect(ids).toEqual(expect.arrayContaining(["main", "side", "ci", "fleet-side"]));
   for (const i of hello.instances) expect(i.protocol_version, i.id).toBe(all.system.protocol_version);
 });
 
 test("each instance runs its own sessions and sees none of the others'", TAGS, async () => {
   await until(api, "ci", "ready");
   const ran: Record<string, string> = {};
-  for (const [instance, scene] of [["system", "harnix"], ["side", "harnix"], ["ci", "harnix"]]) {
+  for (const [instance, scene] of [["main", "harnix"], ["side", "harnix"], ["ci", "harnix"]]) {
     ran[instance] = await runOn(api, instance, scene);
     expect(api.text(ran[instance])).toMatch(/fixture ready/i);
   }
@@ -72,7 +72,7 @@ test("each instance runs its own sessions and sees none of the others'", TAGS, a
   // Configuration is the instance's too: `side` runs only the scene its
   // profile entry names.
   const sideScenes = (await api.call("engine.scene.list", { instance: "side" })).scenes.map((s: any) => s.id ?? s);
-  const systemScenes = (await api.call("engine.scene.list", { instance: "system" })).scenes.map((s: any) => s.id ?? s);
+  const systemScenes = (await api.call("engine.scene.list", { instance: "main" })).scenes.map((s: any) => s.id ?? s);
   expect(JSON.stringify(sideScenes)).not.toEqual(JSON.stringify(systemScenes));
 });
 
@@ -105,7 +105,7 @@ test("the interface builds only from a template opened to it", TAGS, async () =>
 });
 
 test("a device stops what it built, and nothing it did not", TAGS, async () => {
-  for (const id of ["system", "side", "ci", "fleet-side"]) {
+  for (const id of ["main", "side", "ci", "fleet-side"]) {
     const error = await api.refused("harnix.instances.stop", { instance: id });
     expect(error?.code, id).toBe(REFUSED);
   }
@@ -115,7 +115,7 @@ test("a device stops what it built, and nothing it did not", TAGS, async () => {
 
 test("the instance tree is pushed whole", TAGS, async () => {
   const first = await api.call("harnix.topics.subscribe", { topic: "harnix.instances" });
-  expect(first.value.instances.map((i: any) => i.id)).toContain("system");
+  expect(first.value.instances.map((i: any) => i.id)).toContain("main");
   const sessions = await api.call("harnix.topics.subscribe", { topic: "harnix.instances.sessions", params: { instance: "side" } });
   expect(sessions.value.instance).toBe("side");
   const status = await api.call("harnix.topics.subscribe", { topic: "harnix.sessions.status" });

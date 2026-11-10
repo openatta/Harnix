@@ -22,7 +22,7 @@
 
 use std::path::PathBuf;
 
-use harnix_ext::{caps, codes, Access, Call, Extension, Manifest, Registrar, Rpc, RpcError, SYSTEM_INSTANCE};
+use harnix_ext::{caps, codes, Access, Call, Extension, Manifest, Registrar, Rpc, RpcError, MAIN_INSTANCE};
 use serde_json::{json, Map, Value};
 
 /// What a field accepts. Anything else is refused before a file is touched.
@@ -80,7 +80,7 @@ impl Extension for Settings {
             .title("Settings")
             .disclosure("读写引擎的设置三层；写 provider 的凭据与端点")
             // Reading the settings, reloading them, and — `harnix.instances.inheritProviders` —
-            // handing a changed provider to the instances whose template inherits `system`'s.
+            // handing a changed provider to the instances whose template inherits `main`'s.
             .requires([caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE])
     }
 
@@ -111,7 +111,7 @@ fn require_str(params: &Value, key: &str) -> Rpc<String> {
 /// The instance whose settings these are, and where its tiers are written.
 fn system(call: &Call) -> Rpc<harnix_ext::EngineView> {
     call.ext()
-        .engine(SYSTEM_INSTANCE)
+        .engine(MAIN_INSTANCE)
         .ok_or_else(|| RpcError::new(codes::INTERNAL_ERROR, "the engine has not started yet"))
 }
 
@@ -308,7 +308,7 @@ async fn set_provider(call: &Call, params: Value) -> Rpc<Value> {
 
     let reloaded = call.call("engine.config.reload", json!({})).await;
     let providers = call.call("engine.config.getProvider", json!({})).await.unwrap_or(json!({}));
-    // And to every instance whose template inherits `system`'s providers.
+    // And to every instance whose template inherits `main`'s providers.
     let inherited = match call.call("harnix.instances.inheritProviders", json!({})).await {
         Ok(answer) => answer.get("reloaded").cloned().unwrap_or(json!([])),
         Err(e) => {

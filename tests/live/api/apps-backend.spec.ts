@@ -137,8 +137,8 @@ test.describe("an application with a backend", () => {
 
   test("a tool reads the backend's state, which its own instance cannot see, through host.call", TAGS, async () => {
     expect(await api.call(M("counter.bump"))).toEqual({ counter: 1 });
-    const created = await api.call("harnix.session.create", { instance: "system", project_root: api.project, options: { recorder: { name: "app-board" } } });
-    const s = { instance: "system", session_id: created.session_id };
+    const created = await api.call("harnix.session.create", { instance: "main", project_root: api.project, options: { recorder: { name: "app-board" } } });
+    const s = { instance: "main", session_id: created.session_id };
     await api.call("harnix.session.attach", s);
     const settled = (await runTurn(api, s, "What is on the showcase's board?")).settled;
     expect(settled.params.error).toBeUndefined();
@@ -184,7 +184,7 @@ test.describe("an application with a backend", () => {
       options: { recorder: { name: "app-backend-session" } },
     });
     expect(started.session_id).toBeTruthy();
-    const s = { instance: "system", session_id: started.session_id };
+    const s = { instance: "main", session_id: started.session_id };
     await expect
       .poll(async () => JSON.stringify(await api.call("engine.session.history", s).catch(() => "")), { timeout: 30_000, intervals: [200] })
       .toContain("The showcase's backend started this conversation.");

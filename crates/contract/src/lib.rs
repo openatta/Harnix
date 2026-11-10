@@ -63,7 +63,7 @@ impl ChainLink {
 
 /// The instance every process has: the engine built from the profile's
 /// `[engine]` (concept §3).
-pub const SYSTEM_INSTANCE: &str = "system";
+pub const MAIN_INSTANCE: &str = "main";
 
 /// The device a client admitted by the per-process token alone is: on a loopback listener there
 /// is no paired device to name, and every such client is the one person at this machine.

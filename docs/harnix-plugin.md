@@ -192,7 +192,7 @@ name = "notes"
 [[space]]                        # 一个后端 space：在它里面建的会话落在哪
 id = "acme.notes"                # 应用的 id，或 <id>.<名字>
 scene = "harnix"                 # 可选：新会话的场景
-instance = "system"              # 可选：一台已有的实例
+instance = "main"              # 可选：一台已有的实例
 ```
 
 方法与主题只有 `backend-app` 能声明。方法、主题、space 在应用启动时登记进授权表、方法路由与 `harnix.spaces.list`，
@@ -247,7 +247,7 @@ api_version = 2
 
 ```toml
 [agent]
-install_into = ["system"]        # agent/ 装进哪些实例：system，或安装时已经存在的实例的 id；缺省 ["system"]
+install_into = ["main"]        # agent/ 装进哪些实例：system，或安装时已经存在的实例的 id；缺省 ["main"]
 ```
 
 ## 4. 后端：WIT `harnix:app@0.1.0`
@@ -658,7 +658,7 @@ Harnix 自己怎么测插件 APP（宿主核心的回环、商店的 mock 钥、
 | `[[inline.command]]` | `trigger`（`/` 或 `@`）、`name`、`description?` | | 要有 `[[method]] name = "complete"` |
 | `[[inline.sidebar_group]]` | `space?`、`by`（`scene` / `field` / `method`）、`field?`、`method?`、`other?` | | `space` 是自己的 `[[space]]`（缺省应用的 id），每个 space 一次；不能和那个 space 的 `space.sidebar` 并存 |
 | `[[ui]]` | `point`、`module`、`api_version` | | `module` 是 `ui/` 下的 `.js`；`api_version` 等于贡献点 API（2） |
-| `[agent] install_into` | [string] | `["system"]` | `system`，或安装时已有的实例的 id |
+| `[agent] install_into` | [string] | `["main"]` | `main`，或安装时已有的实例的 id |
 
 ## 15. WIT
 

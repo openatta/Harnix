@@ -216,7 +216,7 @@ pub(crate) fn rows(hub: &HubCell) -> Vec<HubRow> {
 }
 
 impl Hub {
-    /// One engine method into the instance the call names (or the system instance), with the
+    /// One engine method into the instance the call names (or the main instance), with the
     /// instance and space names taken off: the engine has no notion of either.
     async fn pass_through(self: &Arc<Self>, method: &str, params: Value, through: Through) -> Rpc<Value> {
         let instance = self.instance_of(&params)?;

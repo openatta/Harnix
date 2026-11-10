@@ -64,10 +64,10 @@ test("session.open with switchSpace opens a session in the space the hub has it 
   const other = await page.evaluate(async () => {
     const { app } = (window as any).harnix;
     const created = await app.call("harnix.session.create", { space: "system", scene: "harnix", options: { recorder: { name: "says-ready" } } });
-    return { instance: created.instance ?? "system", sessionId: created.session_id as string };
+    return { instance: created.instance ?? "main", sessionId: created.session_id as string };
   });
   // Without the option, nothing changes: the front space's own session is opened there.
-  await page.evaluate((ref) => (window as any).harnix.host.session.open(ref), { instance: "system", sessionId: mine });
+  await page.evaluate((ref) => (window as any).harnix.host.session.open(ref), { instance: "main", sessionId: mine });
   await expect(page.locator("#main")).toHaveAttribute("data-space", "sessions");
   await page.evaluate((ref) => (window as any).harnix.host.session.open(ref, { switchSpace: true }), other);
   await expect(page.locator("#main")).toHaveAttribute("data-space", "system");
@@ -78,7 +78,7 @@ test("session.open with switchSpace opens a session in the space the hub has it 
   expect(state.current).toEqual(other);
   expect(state.sessions.sessionId).toBe(mine);
   const missing = await page.evaluate(() =>
-    (window as any).harnix.host.session.open({ instance: "system", sessionId: "no-such-session" }, { switchSpace: true }).then(
+    (window as any).harnix.host.session.open({ instance: "main", sessionId: "no-such-session" }, { switchSpace: true }).then(
       () => "opened",
       (e: Error) => e.message,
     ),
@@ -277,10 +277,10 @@ test("readOnly: a session the space calls read-only has no composer, only the wo
   const archived = await newSession(page, "says-ready");
   const open_ = await newSession(page, "says-ready");
   await page.evaluate((id) => ((window as any).__t.readOnly = id), archived);
-  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "system", sessionId: id }), archived);
+  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "main", sessionId: id }), archived);
   await expect(page.getByTestId("conv-readonly")).toContainText("Archived");
   await expect(page.getByTestId("conv-input")).toHaveCount(0);
-  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "system", sessionId: id }), open_);
+  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "main", sessionId: id }), open_);
   await expect(page.getByTestId("conv-input")).toBeVisible();
   await expect(page.getByTestId("conv-readonly")).toHaveCount(0);
 });
@@ -302,7 +302,7 @@ test("pinned: a session's block stays above the flow and calls its space; other 
   expect(top!.y).toBeLessThan(first!.y);
   await page.getByTestId("pinned-button").click();
   expect(await page.evaluate(() => (window as any).__t.clicked)).toBe(1);
-  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "system", sessionId: id }), other);
+  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "main", sessionId: id }), other);
   await expect(page.getByTestId("conv-input")).toBeVisible();
   await expect(page.getByTestId("conv-pinned")).toHaveCount(0);
   expect(errors).toEqual([]);
@@ -595,7 +595,7 @@ test("newSession: false: no New session button, no ⌘K, no composer that create
   await expect(page.getByTestId("first-message")).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).harnix.app.snapshot.current)).toBeNull();
   // A session that already exists opens and works there.
-  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "system", sessionId: id }), mine);
+  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "main", sessionId: id }), mine);
   await expect(page.getByTestId("conv-input")).toBeVisible();
   await expect(page.locator("#new")).toHaveCount(0);
   // An overview space: no ask box either.
@@ -729,7 +729,7 @@ test("an overview space with a session open: the overview first, the conversatio
     );
   });
   await inSpace(page, "desk");
-  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "system", sessionId: id }), mine);
+  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "main", sessionId: id }), mine);
   await expect(page.getByTestId("overview")).toBeVisible();
   await page.getByTestId("to-conversation").click();
   await expect(page.getByTestId("conv-input")).toBeVisible();

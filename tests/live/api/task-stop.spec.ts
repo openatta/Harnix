@@ -27,10 +27,10 @@ test("a task running after its turn is counted on its session's row, and stopped
       project_root: api.project,
       options: { recorder: { name: "streams-output" }, permission_mode: "default" },
     });
-    const s = { instance: "system", session_id: created.session_id };
+    const s = { instance: "main", session_id: created.session_id };
     await api.call("harnix.session.attach", s);
     await api.call("harnix.topics.subscribe", { topic: "harnix.session.tasks", params: s });
-    await api.call("harnix.topics.subscribe", { topic: "harnix.instances.sessions", params: { instance: "system" } });
+    await api.call("harnix.topics.subscribe", { topic: "harnix.instances.sessions", params: { instance: "main" } });
     await api.call("harnix.session.send", { ...s, message: "Start watching the counter" });
     const ask = await api.waitFor((f) => f.method === "harnix.event" && f.params.event.kind === "prompt", {
       timeout: 30_000,
@@ -79,7 +79,7 @@ test("a task's output is followed by offset: each read starts where the last end
       project_root: api.project,
       options: { recorder: { name: "streams-output" }, permission_mode: "default" },
     });
-    const s = { instance: "system", session_id: created.session_id };
+    const s = { instance: "main", session_id: created.session_id };
     await api.call("harnix.session.attach", s);
     await api.call("harnix.session.send", { ...s, message: "Start watching the counter" });
     const ask = await api.waitFor((f) => f.method === "harnix.event" && f.params.session_id === s.session_id && f.params.event.kind === "prompt", {
@@ -140,14 +140,14 @@ test("a goal is set, paused, edited, resumed and cleared from the system space",
   const api = await connect(backend);
   try {
     const created = await api.call("harnix.session.create", { scene: "code", project_root: api.project, options: { recorder: { name: "says-ready" } } });
-    const s = { instance: "system", session_id: created.session_id };
+    const s = { instance: "main", session_id: created.session_id };
     await api.call("harnix.session.attach", s);
     const goal = async () => (await api.call("system.goal", s)).goal;
     expect(await goal()).toBeNull();
     const set = await api.call("system.goal.set", { ...s, objective: "Keep the suite green", max_rounds: 4 });
     expect(set.goal).toMatchObject({ objective: "Keep the suite green", max_rounds: 4 });
     // The hub heard it, and keeps it on the session's row.
-    const row = async () => (await api.call("harnix.sessions.list", { instance: "system" })).sessions.find((r: any) => r.session_id === s.session_id);
+    const row = async () => (await api.call("harnix.sessions.list", { instance: "main" })).sessions.find((r: any) => r.session_id === s.session_id);
     await expect.poll(async () => (await row())?.goal?.objective, { timeout: 10_000 }).toBe("Keep the suite green");
     // Paused: whatever round it opened is stopped, and no more open.
     const paused = await api.call("system.goal.update", { ...s, action: "pause" });

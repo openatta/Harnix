@@ -28,7 +28,7 @@ const BLOCK_MARKER = "showcase-block-7d21";
 
 type Session = { instance: string; session_id: string };
 
-async function session(api: TestClient, recording: string, instance = "system"): Promise<Session> {
+async function session(api: TestClient, recording: string, instance = "main"): Promise<Session> {
   const created = await api.call("harnix.session.create", {
     instance,
     project_root: api.project,
@@ -42,7 +42,7 @@ async function session(api: TestClient, recording: string, instance = "system"):
 const results = (api: TestClient, s: Session) => JSON.stringify(api.eventsOfKind("tool_result", s.session_id));
 
 /** What a new session in `instance` would send the model: its system prompt's text and its tools. */
-async function context(api: TestClient, instance = "system"): Promise<{ text: string; tools: string[]; s: Session }> {
+async function context(api: TestClient, instance = "main"): Promise<{ text: string; tools: string[]; s: Session }> {
   const s = await session(api, "says-ready", instance);
   const context = await api.call("system.context", s);
   const text = JSON.stringify(context);
@@ -101,7 +101,7 @@ carrier = "spawn"
       }],
       ["escape", "leaves the package", (e) => e.set("../escape.txt", Buffer.from("x"))],
       ["no-instance", "no such instance", (e) => {
-        e.set("harnix-app.toml", Buffer.from(e.get("harnix-app.toml")!.toString().replace('install_into = ["system"]', 'install_into = ["nowhere"]')));
+        e.set("harnix-app.toml", Buffer.from(e.get("harnix-app.toml")!.toString().replace('install_into = ["main"]', 'install_into = ["nowhere"]')));
       }],
     ];
     for (const [name, says, edit] of cases) {
@@ -127,8 +127,8 @@ carrier = "spawn"
     expect(installed).toMatchObject({ id: SHOWCASE_ID, version: "0.1.0", title: "Showcase", enabled: true });
     expect(installed.installed).toMatchObject({
       fingerprint,
-      agent: { package: "example-showcase", instances: ["system"] },
-      skills: { system: ["showcase-tour"] },
+      agent: { package: "example-showcase", instances: ["main"] },
+      skills: { main: ["showcase-tour"] },
     });
     const listed = (await api.call("harnix.apps.list")).apps;
     expect(listed).toHaveLength(1);
@@ -163,7 +163,7 @@ carrier = "spawn"
     const { text, tools } = await context(api);
     for (const tool of TOOLS) expect(tools.length ? tools : text, tool).toContain(tool);
     expect(text, "the QuickJS prompt.block").toContain(BLOCK_MARKER);
-    const commands = JSON.stringify(await api.call("engine.commands.list", { instance: "system" }));
+    const commands = JSON.stringify(await api.call("engine.commands.list", { instance: "main" }));
     expect(commands, "the skill").toContain("showcase-tour");
   });
 
@@ -357,7 +357,7 @@ carrier = "spawn"
     const { text, tools } = await context(api);
     for (const tool of TOOLS) expect(tools.length ? tools : [text], tool).not.toContain(tool);
     expect(text).not.toContain(BLOCK_MARKER);
-    expect(JSON.stringify(await api.call("engine.commands.list", { instance: "system" }))).not.toContain("showcase-tour");
+    expect(JSON.stringify(await api.call("engine.commands.list", { instance: "main" }))).not.toContain("showcase-tour");
     expect((await fetch(`${backend.url.replace(/\/$/, "")}/apps/${SHOWCASE_ID}/ui/showcase.js`)).status).toBe(404);
     const plugin = (await api.call("engine.plugin.list")).plugins.find((p: any) => p.name === "example-showcase");
     expect(plugin?.enabled).toBe(false);
@@ -378,7 +378,7 @@ carrier = "spawn"
     expect(removed).toMatchObject({ id: SHOWCASE_ID, uninstalled: true, removed: { agent: { package: "example-showcase" } } });
     expect((await api.call("harnix.apps.list")).apps).toEqual([]);
     expect((await api.call("engine.plugin.list")).plugins.map((p: any) => p.name)).not.toContain("example-showcase");
-    expect(JSON.stringify(await api.call("engine.commands.list", { instance: "system" }))).not.toContain("showcase-tour");
+    expect(JSON.stringify(await api.call("engine.commands.list", { instance: "main" }))).not.toContain("showcase-tour");
     const { text, tools } = await context(api);
     expect(tools.length ? tools : [text]).not.toContain(TOOL("echo"));
     expect(text).not.toContain(BLOCK_MARKER);
@@ -416,7 +416,7 @@ test.describe("an application, against the model", () => {
     api = await connect(backend, { topology: topology() });
     try {
       const created = await api.call("harnix.session.create", { project_root: api.project });
-      const s = { instance: "system", session_id: created.session_id };
+      const s = { instance: "main", session_id: created.session_id };
       await api.call("harnix.session.attach", s);
       await runTurn(api, s, "Say exactly: ready");
       const { headers } = await api.call("observability.calls", s);

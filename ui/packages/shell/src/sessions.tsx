@@ -94,7 +94,7 @@ function SessionList({ app, s }: { app: App; s: ShellState }) {
             className="srow hit"
             data-testid="session-hit"
             data-sid={hit.session_id}
-            onClick={() => app.open({ instance: "system", sessionId: hit.session_id })}
+            onClick={() => app.open({ instance: "main", sessionId: hit.session_id })}
           >
             <span className="tt">
               <span className="name">{hit.name || t("sidebar.untitled")}</span>
@@ -139,7 +139,7 @@ function SessionList({ app, s }: { app: App; s: ShellState }) {
               <span className="count">{group.rows.length}</span>
             </div>
             {rows.map((row) => (
-              <SessionRow key={keyOf((row as ShellSession).instance ?? "system", row.session_id)} app={app} s={s} session={row as ShellSession} />
+              <SessionRow key={keyOf((row as ShellSession).instance ?? "main", row.session_id)} app={app} s={s} session={row as ShellSession} />
             ))}
             {group.rows.length > rows.length || all ? (
               <button type="button" className="more-rows" onClick={() => app.set({ expanded: { ...s.expanded, [group.key]: !all } })}>
@@ -170,7 +170,7 @@ function SessionList({ app, s }: { app: App; s: ShellState }) {
 
 export function SessionRow({ app, s, session, nested = false }: { app: App; s: ShellState; session: ShellSession; nested?: boolean }) {
   const t = useT();
-  const instance = session.instance ?? "system";
+  const instance = session.instance ?? "main";
   const on = s.current?.sessionId === session.session_id && s.current.instance === instance;
   const running = s.running[keyOf(instance, session.session_id)];
   const tooltip = [

@@ -180,7 +180,7 @@ export interface HostApi {
   /** For diagnostics and an about page — not for deciding whether to fill another's point: that
    *  is whether the point is defined. */
   extensions: { list(): ExtensionEntry[]; onChange(fn: () => void): () => void };
-  /** `hello.defaults`: neither the shell nor an extension writes "system" or "sessions" in. */
+  /** `hello.defaults`: neither the shell nor an extension writes "main" or "sessions" in. */
   defaults: { instance: string; space: string | null };
 }
 

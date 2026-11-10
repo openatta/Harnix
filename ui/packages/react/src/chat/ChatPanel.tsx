@@ -53,7 +53,7 @@ import {
 export interface ChatPanelProps {
   /** 会话；null ⇒ 还没有会话（正在打开、打不开）：只画框架 */
   sessionId: string | null;
-  /** 会话所在的实例；缺省 `system` */
+  /** 会话所在的实例；缺省 `main` */
   instance?: string;
   /** 调用方所在的 space，每个调用都带上（概念与架构 §5.4） */
   space?: string;

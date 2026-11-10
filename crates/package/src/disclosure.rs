@@ -261,7 +261,7 @@ publisher = "acme"
                 json!({"capability": "net", "value": "b.example.com"}),
                 json!({"capability": "env", "value": "TOKEN"}),
                 json!({"capability": "ui", "value": "home.card (card.js)"}),
-                json!({"capability": "agent", "value": "system"}),
+                json!({"capability": "agent", "value": "main"}),
                 json!({"capability": "storage_mb", "value": 8, "from": 2}),
             ]
         );

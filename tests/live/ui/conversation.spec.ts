@@ -135,14 +135,14 @@ test("a compaction is a row of its own: told with its counts as it happens, and 
     await expect(replies).toHaveCount(i + 1, { timeout: 20_000 });
     await expect(page.getByTestId("conv-send")).toBeVisible();
   }
-  await page.evaluate((sid) => (window as any).harnix.app.call("system.compact", { instance: "system", session_id: sid }), id);
+  await page.evaluate((sid) => (window as any).harnix.app.call("system.compact", { instance: "main", session_id: sid }), id);
   const live = page.getByTestId("conv-compact").last();
   await expect(live).toBeVisible({ timeout: 20_000 });
   await expect(live).toContainText(/\d+ (条 )?→ \d+/);
 
   await page.reload();
   await connected(page);
-  await page.evaluate((sid) => (window as any).harnix.app.open({ instance: "system", sessionId: sid }), id);
+  await page.evaluate((sid) => (window as any).harnix.app.open({ instance: "main", sessionId: sid }), id);
   // From the transcript: the messages the compaction put in place of the older ones.
   await expect(page.getByTestId("conv-compact").filter({ hasText: /压缩后的消息|Compacted message/ }).first()).toBeVisible({ timeout: 15_000 });
 });
@@ -280,7 +280,7 @@ test("the composer's model menu switches the session's model", TAGS, async ({ pa
 });
 
 // A module that refuses some of what a person says (ipdrun-13): `harnix-testapp`'s `probe` gives
-// every session of `system` a prompt middleware that refuses anything with `blocked-word` in it.
+// every session of `main` a prompt middleware that refuses anything with `blocked-word` in it.
 test.describe("a message a module refuses", () => {
   let app: Backend;
   test.beforeAll(async () => {

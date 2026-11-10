@@ -126,7 +126,7 @@ Cargo 这边要知道三件事：
 |---|---|
 | `[brand]` | 产品是谁：名字、图标、程序自己的目录 `~/.<product_id>`（§5.4、§8.6） |
 | `[shell]` | 留哪些内建 space（产品里一般去掉系统 space 这个调试面），外壳的几样行为 |
-| `[engine]` | `system` 实例的场景与模型 |
+| `[engine]` | `main` 实例的场景与模型 |
 | `[[instances]]`、`[[instance_templates]]` | 固定的实例；界面能按它建实例的模板（§6.2） |
 | `[modules.<id>]` | 你的模块自己的段，`ctx.config()` 读；密钥只写引用（`{ credential = "helm/quote-api" }`） |
 | `[ui]`、`[transport]`、`[apps]` | 界面从哪来、要不要运行期包的界面模块（§13）；怎么监听；插件 APP |
@@ -275,7 +275,7 @@ Harnix 只管什么时候迁、失败了怎么办，不管用什么迁。数据�
 
 ## 6. Agent 侧
 
-### 6.1 给 `system` 加原生工具和场景
+### 6.1 给 `main` 加原生工具和场景
 
 原生工具、场景、prompt 块的类型都从 `harnix::agent` 取，内置场景从 `harnix::scenes` 取，Rust 写的 Agix 插件从 `harnix::plugin` 取，不用另加依赖：
 
@@ -392,7 +392,7 @@ async fn start(&self, ctx: ModuleContext) -> anyhow::Result<()> {
 | 要什么 | 用 |
 |---|---|
 | 原生 Rust 工具、`SessionCustomizer` | 进程内 |
-| 和 `system` 不同的 MCP、凭据、插件 | 两种都行（进程内的几台互相隔离） |
+| 和 `main` 不同的 MCP、凭据、插件 | 两种都行（进程内的几台互相隔离） |
 | 崩溃、内存与 Harnix 隔开 | daemon |
 
 一台 daemon 只服务一个 Harnix；不要让别的客户端也连它。spawn 的 daemon 由 Harnix 看护：挂了就重新拉起，
@@ -778,7 +778,7 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 
 ```text
 harnix::{App, AppBuilder, ModuleStatus, Namespace, HARNIX_VERSION, SHUTDOWN_GRACE,
-         codes, RpcError, Subject, SYSTEM_INSTANCE,
+         codes, RpcError, Subject, MAIN_INSTANCE,
          AppHandle, AppHandler, AppHost, AppMethod, AppSpec, AppSummary, AppTopic, AppWithdrawn,
          Attachment, SendOptions, AttachTo, CallContext, CredentialRef, Credentials, EngineContrib, EngineProfile, Entry,
          EnvCredentials, EventRegistry, Events, Handler, InstanceHandle, InstanceTemplate,
@@ -823,7 +823,7 @@ pub trait Module: Send + Sync + 'static {
 | 函数 | 什么时候调 | 干什么 |
 |---|---|---|
 | `manifest` | 注册 | id、版本、披露文本、要的 grant（§17.3）。API 版本不在这里，是 trait 的关联常量 `API_VERSION` |
-| `engine` | 注册 | 给 `system` 实例的原生贡献：场景、原生工具、`SessionCustomizer`、Agix 插件、凭据源（`EngineContrib`，§17.3） |
+| `engine` | 注册 | 给 `main` 实例的原生贡献：场景、原生工具、`SessionCustomizer`、Agix 插件、凭据源（`EngineContrib`，§17.3） |
 | `templates` | 注册 | 你自己的实例模板（§6.2）；spawn 实例的 daemon 也调它 |
 | `spaces` | 注册 | 后端侧的 space 声明：会话策略、默认实例 |
 | `methods` | 注册 | `app.<id>.*` 方法 |
@@ -849,7 +849,7 @@ pub trait Module: Send + Sync + 'static {
 | `EventRegistry` | `e.topic(name)` → `.param(name)`（按参数分值）、`.only(&[Principal])`（默认设备与模块都能订阅）。全名 `app.<id>.<name>` |
 | `Events` | `cx.events().publish(topic, params_json, value).await`：推**整值快照**；`topic` 写短名 |
 | `RouteRegistry` | `r.serve(&[Principal], axum::Router)`：挂在 `/apps/<id>/` 下，同源，同一套准入 |
-| `SpaceRegistry` | `s.add(SpaceDecl::new(id).instance("template:<模块>.<模板>" \| "<实例 id>").scene(scene))`。不声明：`system` 实例、实例的默认场景 |
+| `SpaceRegistry` | `s.add(SpaceDecl::new(id).instance("template:<模块>.<模板>" \| "<实例 id>").scene(scene))`。不声明：`main` 实例、实例的默认场景 |
 | `InstanceTemplates` | `t.add(InstanceTemplate::new(id, carrier).data_root(pattern).param(name).ui().max(n).inherit_providers().reap_on_stop().native(\|e\| …))`。全名 `<模块 id>.<模板 id>`。实例的 id 就是建它时给的 `name`，全进程唯一；名字和参数只能是字母、数字、`-`、`_`、`.`，不能以 `.` 开头。`data_root` 默认 `{name}`，可用 `{name}` 和声明过的参数，在 `~/.<product_id>/instances/` 下；建过的实例记在 `instances.json`。`.ui()`：界面能按它建（只填 `param` 放开的参数）。`.max(n)`：至多 n 台。`inherit_providers()`：这个模板的实例也看得到 `system` 的 provider（设置页配的）——建实例时、以及每次 `settings.setProvider` 之后，Harnix 把它们并进实例数据根的 `settings.json`（0600）再让它 `engine.config.reload`；Harnix 写过哪些 id 记在 `.inherited-providers.json`，只动这些，实例自己配的同名 provider 不覆盖。`.reap_on_stop()`（ipdrun-07，缺省关）：停下或重启时收掉会话留下的进程。spawn 的 daemon 自成一个会话（`setsid`），它退出、被杀、崩溃或看护重启时，Harnix 把还留在这个会话里的进程 TERM、等 1.5 s、KILL；两种载体都在实例的全局设置层打开引擎的 `sandbox.reap_process_groups`（正常退出时引擎自己先收，进程内实例只有这一半）。daemon 在自己的会话里收不到终端的 Ctrl-C，退出照旧跟着 stdin 关闭走；自己 `setsid` 出去的进程收不到；实例视图带 `reap: true`。`.native(\|e\| …)`（ipdrun-10）：两种载体都有的原生贡献。进程内模板把它并在 `contrib` 之后；spawn 模板（`program` 为 `None`）的 daemon 带 `--template <全名>` 起来，照装配顺序对每个应用模块调一次 `templates()`（不调 `start`、不开任何方法），在自己进程里再调一遍闭包；找不到这个模板以 78 退出、实例 `down`、理由写明。模板贡献的场景要在 `EngineProfile.scenes` 里列出才在实例上启用 |
 | `TemplateCarrier` | `InProcess { engine, contrib }`（只有模块的模板能带原生贡献）、`Spawn { engine, program: Option<PathBuf>, args }`（`None` = 本二进制的 `daemon` 子命令）、`Attach(AttachTo { socket, tcp, token })` |
 | `harnix::agent`、`harnix::scenes` | 写 Agent 侧要的类型，应用不另加依赖。`agent::tool::{Tool, ToolContext, ToolResult, ProgressSender}`、`agent::error::ToolError`（原生工具）；`agent::interface::scene::{Scene, ScenePromptContext, TokenBudget}`（场景）；`agent::interface::prompt::PromptBlock`（prompt 块）；`scenes::harnix::HarnixScene`（缺省场景）、`scenes::code::CodeScene`、`scenes::mini::MiniScene`。路径与引擎的模块一一对应 |
@@ -1033,7 +1033,7 @@ quote_api_key = { credential = "helm/quote-api" }
 |---|---|
 | `--profile <file>` | 上面的 profile；下面的开关只在给了的时候覆盖它 |
 | `--port`、`--host` | 监听 |
-| `--scene`、`--scenes a,b`、`--model` | `system` 实例的默认值 |
+| `--scene`、`--scenes a,b`、`--model` | `main` 实例的默认值 |
 | `--ui-dir <dir>` / `--headless` | 换界面目录 / 不出界面（纯 RPC 节点） |
 | `--replay-dir <dir>` | 模型调用改成录像回放（测试用；只有运维能开，客户端要不到） |
 | `--replay-strict` | 和 `--replay-dir` 一起：请求与录下的不一样就让那次调用失败（缺省只报告）；回放的会话按录像那天定日期（ipdrun-45） |
@@ -1110,7 +1110,7 @@ schema、来自哪个模块）。下表是分组索引，参数与答写在各�
 | 应用层 | `harnix.contributions`、`harnix.diagnostics`、`harnix.audit`、`harnix.reachable` | 设备 |
 | 自带模块（`with_builtins`） | `harnix-app.workspaces.*`、`harnix-app.prefs.set`、`harnix-app.projects.create`、`harnix-app.recentProjects`、`harnix-app.listDirectory`、`harnix-app.files`、`harnix-app.search`、`harnix.bulk.upload`、`harnix.session.rename`、`harnix-app.sessions.archive`、`harnix-app.sessions.export {instance?, session_id, space?, format: markdown | archive | bundle, recording?}`（答 `{format, file, content}`：markdown 是可读的对话；archive 是引擎打的 zip（`encoding: "base64"`，另带 `bytes`、`sessions`、`attachments`、`recording`、`warnings`）——会话与任意深度的侧链在同一时刻的快照、消息里图片的本体、扩展条目、带版本的 `manifest.json`，`recording: true` 时带录像；bundle 是 Harnix 拼的 JSON——会话信息、全部消息、扩展条目，`recording: true` 时带录像，不含侧链与附件本体；超过一帧时拒绝）、`settings.*`（`setProvider` 的返回多一个 `reloaded_instances`：这次推到了哪些继承 provider 的实例）、`plugins.*`、`devices.*`、`observability.calls {instance?, session_id}`（这个会话本次运行发给模型的请求信封——系统提示、工具表、调用配置——每变一次一条，最早的在前；还没调过模型时 `recording: false`） | 设备 |
 | `[shell] model_switch = true` 时 | `harnix.session.setModel {instance?, session_id, model, provider?, space?}`：引擎的 `engine.session.setModel`，只作用于调用方声称的 space（不写是 `sessions`）的会话，会话属别的 space 答 `SPACE_MISMATCH`；声称 `system` 也答 `SPACE_MISMATCH`（跨 space 换模型是 `system.model` 的事） | 设备 |
-| 中枢，只给内核（自带的设置模块经 grant 调） | `harnix.instances.inheritProviders`：把 `system` 的 provider 并进所有 `inherit_providers` 模板的实例并让变了的重读，答 `{reloaded: [id…]}` | 内核 |
+| 中枢，只给内核（自带的设置模块经 grant 调） | `harnix.instances.inheritProviders`：把 `main` 的 provider 并进所有 `inherit_providers` 模板的实例并让变了的重读，答 `{reloaded: [id…]}` | 内核 |
 | 系统 space（`[shell] spaces` 留着 `system` 时） | `system.context / messages.drop / messages.edit / tasks.stop / tasks.message / tasks.output / compact / clear / rename / model / calls`（`tasks.message {task_id, message}` 给在跑的子 Agent 或团队成员发话，它在下一个步骤读到；答 `{delivered, reason?}`）（`tasks.output {task_id, tail_bytes? | from_byte?}` 是任务到目前的输出：不带是最后 8 KiB；`from_byte` 从那个偏移读到末尾，应答带 `from_byte` / `next_byte` / `dropped` / `final`，跟随时下一次从 `next_byte` 接着读，`dropped > 0` 是中间已丢掉的字节数，`final` 之后不再长）；`system.goal`（会话的目标：`{goal: {objective, phase, armed, max_rounds, rounds_started, blocked_reason} | null}`）、`system.goal.set {objective, max_rounds?}`（设定；会话空闲时引擎立刻开第一轮；已有未完成的目标时拒绝）、`system.goal.update {action: pause | resume | edit | clear, objective?, max_rounds?}`（答同 `goal`）；`observability.trace`（这一次运行里每次模型调用的输入与输出、它要的工具调用和结果，以及 `timing {sent_at, ttft_ms, generate_ms, tokens_per_s}`）、`observability.trace.call {index}`（一次调用的全文）、`observability.turns`（按轮汇总：调用数、首字时间、模型与工具时间、进出 token、按 token 计的缓存命中、上下文较上一轮的增量）、`observability.usage {instance?, session_ids}`（一次至多 200 个会话，各自本次运行里每个 Agent 用了多少：`{sessions: {<id>: {recording, agents: [{session_id, parent_session_id, calls, auxiliary, turns, models, input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, model_ms, errors, first_at, last_at}]}}}`，会话自己的在前，子 Agent 带父会话，整棵树都在；只读录像的调用行与结束行，录像没变就不重读）；`system.context` 带 `measured`（上一次调用 provider 计的数，估算之外） | 设备 |
 | 检视（内核，模块可 grant） | `engine.session.tasks`、`engine.session.taskOutput`、`engine.session.stopTask`、`engine.session.inspectContext`、`engine.session.dropMessages`、`engine.session.editMessage` | 内核 |
 | `[apps] enabled = true` 时（`apps` 自带模块） | `harnix.apps.list`、`.enable`、`.disable`、`.uninstall`、`.clearData`、`.installFile`、`.catalog`、`.install`、`.update`。不带插件 APP 运行时的构建（没开 cargo feature `apps`）也登记这九个，后四个答 `REFUSED`。参数与答见 [插件](harnix-plugin.md) §16 | 设备 |

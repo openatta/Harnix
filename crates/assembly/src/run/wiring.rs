@@ -102,7 +102,7 @@ impl AppsWiring {
         }
     }
 
-    /// The system instance's engine, which is built in this process: the same tools.
+    /// The main instance's engine, which is built in this process: the same tools.
     #[cfg_attr(not(feature = "apps"), allow(unused_variables))]
     pub fn engine(&self, contrib: &mut EngineContribution) {
         #[cfg(feature = "apps")]

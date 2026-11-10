@@ -5,7 +5,7 @@
  * `harnix-testapp`'s `fleet` has two templates with one `native` closure — a scene with a tool of
  * its own, a block at the end of the system prompt, a middleware that refuses `blocked-word` — one
  * in process, one spawned. The spawned daemon builds the closure again in its own process, from
- * `--template`. `probe` gives the same middleware to every session of `system`.
+ * `--template`. `probe` gives the same middleware to every session of `main`.
  */
 
 import { spawnSync } from "node:child_process";
@@ -100,7 +100,7 @@ test("system: a module's prompt middleware refuses a turn, and the next one runs
     project_root: api.project,
     options: { recorder: { name: "says-ready" } },
   });
-  const s = { instance: "system", session_id: created.session_id };
+  const s = { instance: "main", session_id: created.session_id };
   await api.call("harnix.session.attach", s);
   const refused = await settle(s, "blocked-word, please");
   expect(refused.params.outcome?.stop_reason).toBe("stopped_by_hook");
@@ -114,7 +114,7 @@ test("system: a steered message the middleware refuses arrives as user_message_r
     project_root: api.project,
     options: { recorder: { name: "runs-a-while" } },
   });
-  const s = { instance: "system", session_id: created.session_id };
+  const s = { instance: "main", session_id: created.session_id };
   await api.call("harnix.session.attach", s);
   const sent = await api.call("harnix.session.send", { ...s, message: "Wait four seconds" });
   const ask = await api.waitFor(

@@ -67,7 +67,7 @@ async function converse(page: Page, fixture: string, flow: string | null): Promi
   const scene = await page.evaluate(async (session_id) => (await (window as any).harnix.app.call("engine.session.get", { session_id, space: "flow" })).scene, id);
   expect(scene).toBe("flow-author");
   if (flow) {
-    await page.evaluate(async ({ session_id, flow }) => (window as any).harnix.app.call("flow.focus", { instance: "system", session_id, flow }), { session_id: id, flow });
+    await page.evaluate(async ({ session_id, flow }) => (window as any).harnix.app.call("flow.focus", { instance: "main", session_id, flow }), { session_id: id, flow });
   }
   return id;
 }
