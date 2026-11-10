@@ -55,9 +55,10 @@ if (!documented) fail("docs/harnix-sdk.md has no `| Harnix 版本 | `…` |` row
 else if (version && documented !== version) {
   fail(`docs/harnix-sdk.md says Harnix ${documented}; the crates are ${version} (scripts/set-version.sh)`);
 }
-// The other five cells are constants in the code, and nothing rewrites them: a bump that forgets
+// The other cells are constants in the code, and nothing rewrites them: a bump that forgets
 // the table leaves an application reading the old contract as current.
 const constants = [
+  ["扩展 API", "crates/ext/api/src/lib.rs", "EXT_API_VERSION"],
   ["模块 API", "crates/module/src/lib.rs", "MODULE_API_VERSION"],
   ["贡献点 API", "crates/contract/src/handshake.rs", "CONTRIB_API_VERSION"],
   ["协议", "crates/contract/src/handshake.rs", "PROTOCOL_VERSION"],
