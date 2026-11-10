@@ -57,20 +57,19 @@ free_port() {
   node -e 'const s=require("net").createServer();s.listen(0,"127.0.0.1",()=>{const p=s.address().port;s.close(()=>console.log(p))})'
 }
 
-CRATES=(-p harnix -p harnix-cli -p harnix-assembly -p harnix-instance -p harnix-engine -p harnix-engine-api -p harnix-authz -p harnix-kernel -p harnix-router -p harnix-builtin
-        -p harnix-client -p harnix-contract -p harnix-ext-flow -p harnix-module -p harnix-hub -p harnix-transport
+CRATES=(-p harnix -p harnix-cli -p harnix-assembly -p harnix-instance -p harnix-engine -p harnix-engine-api -p harnix-authz -p harnix-kernel -p harnix-router
+        -p harnix-client -p harnix-contract -p harnix-ext-flow -p harnix-hub -p harnix-transport
         -p harnix-testapp -p harnix-wasm -p harnix-package -p harnix-wasm-port -p harnix-wasm-host
-        -p harnix-apps -p harnix-supervise -p harnix-proc -p harnix-ext -p harnix-host-api
+        -p harnix-carrier-wasm -p harnix-ext-packages -p harnix-supervise -p harnix-proc -p harnix-ext -p harnix-host-api
         -p harnix-ext-system -p harnix-ext-harnix-app -p harnix-ext-settings -p harnix-ext-plugins
         -p harnix-ext-observability -p harnix-ext-devices)
 
-# The build that hosts runtime applications: `harnix` with the `apps` feature, which links the
-# application runtime and its WebAssembly engine; the author's packing tool; and the test
-# application built the same way. A target directory of its own, so the default build above is
-# exactly what it was; the LIVE suites that need it are told where it is (`HARNIX_APPS_BIN`, the
-# rest beside it), and `budget` measures it against a limit of its own.
+# `harnix` runs packages in its default build (`wasm`). The author's packing tool and the test
+# application running packages are built in a target directory of their own, so the default build
+# above is exactly what it was; the LIVE suites that need them are told where the binary is
+# (`HARNIX_APPS_BIN`, the rest beside it).
 APPS_TARGET="$root/target/apps"
-export HARNIX_APPS_BIN="$APPS_TARGET/release/harnix"
+export HARNIX_APPS_BIN="$root/target/release/harnix"
 
 scratch="$(mktemp -d)"
 backend_pid=""
@@ -143,7 +142,6 @@ run_build() {
   pnpm install --frozen-lockfile || return 1
   pnpm --filter @harnix/shell build || return 1
   cargo build --release -p harnix-cli -p harnix-testapp || return 1
-  cargo build --release -p harnix-cli --features apps --target-dir "$APPS_TARGET" || return 1
   cargo build --release -p harnix-package --features compile --bin harnix-pack --target-dir "$APPS_TARGET" || return 1
   # What an author starts from builds: `harnix-pack new`, then `build`. Its component's target
   # directory is kept between runs, so only the first is slow.
@@ -151,9 +149,9 @@ run_build() {
   "$APPS_TARGET/release/harnix-pack" new "$scaffold" --id example.scaffold || return 1
   mkdir -p "$root/target/scaffold" && ln -s "$root/target/scaffold" "$scaffold/component/target" || return 1
   CARGO_NET_OFFLINE=true "$APPS_TARGET/release/harnix-pack" build "$scaffold" || return 1
-  # The test application hosting applications too: the one binary that trusts the mock store the
+  # The test application running packages too: the one binary that trusts the mock store the
   # store suites make (tests/live/api/packages-store.ts).
-  cargo build --release -p harnix-testapp --features apps --target-dir "$APPS_TARGET" || return 1
+  cargo build --release -p harnix-testapp --features wasm --target-dir "$APPS_TARGET" || return 1
   # The example application, built as an application is — its own workspace,
   # its spaces' interface compiled in. The spaces suites run it.
   examples/hello-app/scripts/build.sh --offline
@@ -162,9 +160,7 @@ run_build() {
 # the store's compiler produced) and with `compile`, which its component tests need. Nothing
 # else enables that feature, so neither run changes what the other crates are built with.
 # The same for the application host, whose tests compile the showcase's component and run it
-# behind the port carried through JSON (`harnix-wasm-port`'s loopback), and for `harnix-apps`, the
-# embedded glue, whose tests install it as the `apps` module does; and the application layer once
-# more with `apps`, which is the only build its wiring of them is in. The port once more with
+# behind the port carried through JSON (`harnix-wasm-port`'s loopback). The port once more with
 # `socket`: the extension wire, carried over a socket pair. The test application once more with
 # `proc`: itself re-executed as an extension process, running the showcase behind the wire.
 run_rust()    {
@@ -172,8 +168,6 @@ run_rust()    {
   cargo test -p harnix-wasm-port --features socket || return 1
   cargo test -p harnix-wasm --features compile || return 1
   cargo test -p harnix-wasm-host --features compile || return 1
-  cargo test -p harnix-apps --features compile || return 1
-  cargo test -p harnix-assembly --features apps || return 1
   cargo test -p harnix-testapp --features proc --test ext_proc
 }
 # `--no-deps` matters: without it `-D warnings` is applied to the Agix
@@ -181,9 +175,8 @@ run_rust()    {
 # does not own. Harnix's own crates are held to zero warnings.
 run_clippy()  {
   cargo clippy "${CRATES[@]}" --all-targets --no-deps -- -D warnings || return 1
-  cargo clippy -p harnix-wasm -p harnix-package -p harnix-wasm-host -p harnix-apps -p harnix-wasm-port --all-targets \
-    --features harnix-wasm/compile,harnix-package/compile,harnix-wasm-host/compile,harnix-apps/compile,harnix-wasm-port/socket --no-deps -- -D warnings || return 1
-  cargo clippy -p harnix-assembly -p harnix-cli --all-targets --features harnix-assembly/apps,harnix-cli/apps --no-deps -- -D warnings || return 1
+  cargo clippy -p harnix-wasm -p harnix-package -p harnix-wasm-host -p harnix-carrier-wasm -p harnix-wasm-port --all-targets \
+    --features harnix-wasm/compile,harnix-package/compile,harnix-wasm-host/compile,harnix-carrier-wasm/compile,harnix-wasm-port/socket --no-deps -- -D warnings || return 1
   cargo clippy -p harnix-testapp --all-targets --features proc --no-deps -- -D warnings
 }
 
