@@ -49,7 +49,7 @@ importers:
         specifier: 5.9.3
         version: 5.9.3
 
-  ui/packages/app-sdk:
+  ui/packages/ext-sdk:
     devDependencies:
       '@types/node':
         specifier: 24.19.2
@@ -331,9 +331,9 @@ importers:
 
   ui/packages/shell:
     dependencies:
-      '@harnix/app-sdk':
+      '@harnix/ext-sdk':
         specifier: workspace:*
-        version: link:../app-sdk
+        version: link:../ext-sdk
       '@harnix/core':
         specifier: workspace:*
         version: link:../core
@@ -446,11 +446,11 @@ importers:
         specifier: 5.9.3
         version: 5.9.3
 
-  ui/packages/ui-kit:
+  ui/packages/ext-kit:
     dependencies:
-      '@harnix/app-sdk':
+      '@harnix/ext-sdk':
         specifier: workspace:*
-        version: link:../app-sdk
+        version: link:../ext-sdk
       '@harnix/react':
         specifier: workspace:*
         version: link:../react
