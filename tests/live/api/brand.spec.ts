@@ -65,8 +65,11 @@ test("a product switches off the extensions whose spaces it does not want, and t
   const backend = await startHarnix(launchFor("replay", { profile: '\n[extensions]\noff = ["system", "flow"]\n' }));
   try {
     const api = await connect(backend);
-    const { shell } = await api.call("harnix.hello");
-    expect(shell.spaces).toEqual(["sessions", "projects"]);
+    const { extensions } = await api.call("harnix.hello");
+    const enabled = extensions.filter((e: any) => e.enabled).map((e: any) => e.id);
+    expect(enabled).toContain("harnix-app");
+    expect(enabled).not.toContain("system");
+    expect(enabled).not.toContain("flow");
     const reachable = (await api.call("harnix.reachable")).methods as string[];
     expect(reachable.some((m) => m.startsWith("system."))).toBe(false);
     expect(reachable).not.toContain("system.compact");

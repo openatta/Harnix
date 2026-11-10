@@ -32,7 +32,10 @@ const OWNER = "builtin";
  */
 export async function registerBuiltins(app: App): Promise<void> {
   const r = app.registry;
-  const keeps = (space: string) => app.snapshot.hello?.shell?.spaces?.includes(space) ?? true;
+  // The extension that backs each: the conversations and their projects are `harnix-app`'s, the
+  // system space is `system`'s. Without a `hello` (a test's bare app) all are kept.
+  const enabled = app.snapshot.hello?.extensions?.filter((e) => e.enabled).map((e) => e.id);
+  const keeps = (space: string) => enabled?.includes(space === "sessions" || space === "projects" ? "harnix-app" : space) ?? true;
 
   if (keeps("sessions")) {
     r.register(
