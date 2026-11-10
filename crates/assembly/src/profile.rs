@@ -184,7 +184,7 @@ pub(crate) struct TransportProfile {
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct ShellProfile {
     /// Whether the composer may change a session's model without the system space:
-    /// `harnix.sessions.setModel`, scoped to the space the caller claims (ipdrun-12). Off unless
+    /// `harnix.session.setModel`, scoped to the space the caller claims (ipdrun-12). Off unless
     /// written, so a product that left model choice to the settings page keeps it there.
     pub model_switch: bool,
     /// Whether the shell draws its "New session" button and takes ⌘K to start one (ipdrun-46).

@@ -72,6 +72,8 @@ pub use harnix_contract::s1::{
 pub use harnix_contract::{
     codes, ChainLink, DefaultInstance, RpcError, SessionRef, SpaceDecl, CONTRIB_API_VERSION, SYSTEM_INSTANCE,
 };
+/// The largest frame a connection carries: what an answer has to fit in.
+pub use harnix_contract::MAX_FRAME_BYTES;
 
 /// What every handler answers.
 pub type Rpc<T> = Result<T, RpcError>;

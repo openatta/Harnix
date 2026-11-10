@@ -326,10 +326,8 @@ test.describe("on", () => {
     expect(plain.content.messages).toHaveLength(history.total);
     expect(plain.content.recording, "no recording unless asked").toBeUndefined();
 
-    cpSync(join(RECORDINGS, "says-ready"), join(backend.scratch, "agix", "recordings", s.session_id), { recursive: true });
-    const full = await api.call("harnix.sessions.export", { ...own, format: "bundle", recording: true });
-    expect(full.content.recording.calls).toContain('"type":"call"');
-    expect(Object.keys(full.content.recording.blobs).length).toBeGreaterThan(0);
+    // A recording comes with the engine's archive; the bundle is Harnix's own and has none.
+    expect((await api.refused("harnix.sessions.export", { ...own, format: "bundle", recording: true }))?.code).toBe(REFUSED);
 
     // As the engine packs it (Agix #37): a zip, its manifest and the session's own files in it.
     const archive = await api.call("harnix.sessions.export", { ...own, format: "archive" });

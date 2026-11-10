@@ -31,8 +31,25 @@ const ALIASES: &[(&str, &str)] = &[
     ("harnix.devices.pair.begin", "devices.pair.begin"),
     ("harnix.devices.pair.complete", "devices.pair.complete"),
     ("harnix.devices.revoke", "devices.revoke"),
-    // The hub's: a title is the engine's name for a session.
+    // The kernel's: a title is the engine's name for a session; the composer's model switch; a
+    // device's upload.
     ("harnix.sessions.rename", "harnix.session.rename"),
+    ("harnix.sessions.setModel", "harnix.session.setModel"),
+    ("harnix.upload.begin", "harnix.bulk.upload"),
+    // harnix-app
+    ("harnix.workspaces.list", "harnix-app.workspaces.list"),
+    ("harnix.workspaces.create", "harnix-app.workspaces.create"),
+    ("harnix.workspaces.update", "harnix-app.workspaces.update"),
+    ("harnix.workspaces.reorder", "harnix-app.workspaces.reorder"),
+    ("harnix.workspaces.remove", "harnix-app.workspaces.remove"),
+    ("harnix.sessions.archive", "harnix-app.sessions.archive"),
+    ("harnix.sessions.export", "harnix-app.sessions.export"),
+    ("harnix.prefs.set", "harnix-app.prefs.set"),
+    ("harnix.search", "harnix-app.search"),
+    ("harnix.listDirectory", "harnix-app.listDirectory"),
+    ("harnix.recentProjects", "harnix-app.recentProjects"),
+    ("harnix.files", "harnix-app.files"),
+    ("harnix.projects.create", "harnix-app.projects.create"),
     // system
     ("harnix.process", "system.process"),
     ("harnix.system.context", "system.context"),

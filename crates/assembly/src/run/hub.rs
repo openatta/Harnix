@@ -92,7 +92,7 @@ pub(super) async fn assemble(
         instances: registry.clone(),
         limits: serde_json::to_value(limits).unwrap_or(json!({})),
         prompt_timeout_secs: profile.instances.engine.permission_prompt_timeout_secs,
-        shell: shell(profile, roots, brand_icon.is_some(), &shown(records, &declared)),
+        shell: shell(profile, roots, brand_icon.is_some(), &shown(&declared)),
         ui: ui.clone(),
     }));
     let (name, version) = app;
@@ -171,13 +171,9 @@ fn brand_icon(profile: &Profile, profile_path: Option<&Path>) -> Option<PathBuf>
     })
 }
 
-/// The spaces the shell draws of its own: what the enabled extensions are the backend of, and the
-/// session space while it is the built-in `sessions` part's.
-fn shown(records: &[Record], declared: &[harnix_contract::SpaceDecl]) -> Vec<String> {
-    let mut ids: Vec<String> = declared.iter().map(|d| d.id.clone()).collect();
-    if records.iter().any(|r| r.is_enabled() && r.manifest.id() == "sessions") && !ids.iter().any(|i| i == "sessions") {
-        ids.insert(0, "sessions".to_string());
-    }
+/// The spaces the shell draws of its own: what the enabled extensions are the backend of.
+fn shown(declared: &[harnix_contract::SpaceDecl]) -> Vec<String> {
+    let ids: Vec<String> = declared.iter().map(|d| d.id.clone()).collect();
     crate::aliases::shell_spaces(&ids)
 }
 

@@ -126,6 +126,13 @@ pub const HUB_TOPICS: &[(&str, &[&str])] = &[
 ];
 
 impl Hub {
+    /// `harnix.session.setModel`: a session's model changed from where it is shown, within its
+    /// own space. Only where the product says (`[shell] model_switch`); without it the model is
+    /// the settings' and the system space's.
+    pub fn model_switch_row(hub: &HubCell) -> HubRow {
+        own_session(hub, "harnix.session.setModel", |h, _, p| async move { h.set_model(p).await })
+    }
+
     /// Every row the hub answers: its own methods and topics, and the engine's that pass through
     /// it. `hub` holds the hub once it is built; until then each answers that it is not up.
     pub fn rows(hub: &HubCell) -> Vec<HubRow> {

@@ -122,6 +122,7 @@ pub(crate) async fn start_process(app: AppBuilder, cli: &Cli, basis: &Basis) -> 
             credentials: credentials.clone(),
             servers,
             state_root: basis.roots.state.clone(),
+            projects_root: basis.roots.projects.clone(),
             apps_enabled: profile.apps.enabled,
             dynamic,
         },

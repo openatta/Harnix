@@ -50,6 +50,7 @@ apps = ["dep:harnix-apps"]
 tempfile    = { workspace = true }
 # The first-party extensions, linked or not: what not linking one changes (`tests/grants.rs`).
 harnix-ext-system = { workspace = true }
+harnix-ext-harnix-app    = { workspace = true }
 harnix-ext-settings      = { workspace = true }
 harnix-ext-plugins       = { workspace = true }
 harnix-ext-observability = { workspace = true }

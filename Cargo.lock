@@ -1390,6 +1390,7 @@ dependencies = [
  "harnix-engine-api",
  "harnix-ext",
  "harnix-ext-devices",
+ "harnix-ext-harnix-app",
  "harnix-ext-observability",
  "harnix-ext-plugins",
  "harnix-ext-settings",
@@ -1441,6 +1442,7 @@ dependencies = [
  "harnix-engine-api",
  "harnix-ext",
  "harnix-ext-devices",
+ "harnix-ext-harnix-app",
  "harnix-ext-observability",
  "harnix-ext-plugins",
  "harnix-ext-settings",
@@ -1485,17 +1487,12 @@ version = "0.4.2-2026110901"
 dependencies = [
  "anyhow",
  "async-trait",
- "base64 0.22.1",
  "harnix-contract",
- "harnix-engine",
- "harnix-engine-api",
  "harnix-module",
- "ignore",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
- "toml",
  "tracing",
  "uuid",
 ]
@@ -1618,6 +1615,23 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-util",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "harnix-ext-harnix-app"
+version = "0.4.2-2026110901"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "harnix-ext",
+ "ignore",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
  "tracing",
  "uuid",
 ]

@@ -56,6 +56,7 @@ pub mod first_party {
     use harnix_ext::ExtensionSet;
 
     pub use harnix_ext_devices::Devices;
+    pub use harnix_ext_harnix_app::HarnixApp;
     pub use harnix_ext_observability::Observability;
     pub use harnix_ext_plugins::Plugins;
     pub use harnix_ext_settings::Settings;
@@ -64,6 +65,7 @@ pub mod first_party {
     /// Every first-party extension, in the order they register.
     pub fn standard() -> ExtensionSet {
         ExtensionSet::new()
+            .with(HarnixApp, [caps::TRANSCRIPTS_READ, caps::ENGINE_EXPORT])
             .with(
                 System,
                 [caps::INSTANCES_ADMIN, caps::ENGINE_INSPECT, caps::ENGINE_CONTROL, caps::PROCESS_OBSERVE],

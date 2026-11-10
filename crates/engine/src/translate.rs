@@ -24,6 +24,7 @@ pub const SESSION_TASKS: &str = "session.tasks";
 pub const SESSION_RUN_TURN: &str = "session.run_turn";
 pub const SESSION_INTERRUPT: &str = "session.interrupt";
 pub const SESSION_RENAME: &str = "session.rename";
+pub const SESSION_SET_MODEL: &str = "session.setModel";
 pub const SESSION_CLOSE: &str = "session.close";
 pub const SESSION_DELETE: &str = "session.delete";
 pub const SESSION_FORK: &str = "session.fork";
@@ -189,6 +190,14 @@ impl EngineOps for AgixOps {
 
     async fn rename(&self, session: &str, title: &str) -> Answer<Value> {
         self.call(SESSION_RENAME, json!({"session_id": session, "name": title})).await
+    }
+
+    async fn set_model(&self, session: &str, model: &str, provider: Option<&str>) -> Answer<Value> {
+        let mut params = json!({"session_id": session, "model": model});
+        if let Some(provider) = provider {
+            params["provider"] = json!(provider);
+        }
+        self.call(SESSION_SET_MODEL, params).await
     }
 
     async fn close(&self, params: Value, delete: bool) -> Answer<Value> {

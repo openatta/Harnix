@@ -13,6 +13,7 @@ use harnix_contract::{codes, RpcError, Subject};
 use harnix_kernel::{Access, CallContext, Dispatch, GrantBook, Handler, Rpc};
 use harnix_ext::{Extension, Registrar};
 use harnix_ext_devices::Devices;
+use harnix_ext_harnix_app::HarnixApp;
 use harnix_ext_observability::Observability;
 use harnix_ext_plugins::Plugins;
 use harnix_ext_settings::Settings;
@@ -102,6 +103,9 @@ impl Module for Billing {
 /// Harnix's own extensions, each granted what Harnix grants it, but the one called `without`.
 fn first_party(without: &str) -> Modules {
     let mut modules = Modules::default();
+    if without != "harnix-app" {
+        modules = modules.extension(HarnixApp, [caps::TRANSCRIPTS_READ, caps::ENGINE_EXPORT]);
+    }
     if without != "system" {
         modules = modules.extension(System, system_caps());
     }
@@ -277,7 +281,8 @@ mod unlinked {
     /// the old names that answered as them, and the topics moving to its own.
     #[test]
     fn without_an_extension_only_its_rows_differ() {
-        let first_party_ids: [(&str, &[&str]); 5] = [
+        let first_party_ids: [(&str, &[&str]); 6] = [
+            ("harnix-app", &[]),
             ("system", &["harnix.process"]),
             ("observability", &[]),
             ("settings", &[]),

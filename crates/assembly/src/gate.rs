@@ -26,6 +26,7 @@ pub(crate) struct Behind {
     pub instances: harnix_instance::RegistryCell,
     pub hello: Arc<OnceLock<Arc<crate::kernel_rows::Hello>>>,
     pub process: Arc<OnceLock<Arc<crate::process::Process>>>,
+    pub uploads: Arc<OnceLock<Arc<crate::host::seat::HostUploads>>>,
     pub diagnostics: Arc<OnceLock<Arc<Diagnostics>>>,
 }
 

@@ -1,18 +1,17 @@
-//! Harnix's own state, in Harnix's own directory.
+//! The Harnix app's own state, in its own directory (`ext/harnix-app/data/state.json`).
 //!
 //! Everything this file holds is something Agix does not have a concept of
-//! — workspaces, archived rows, view preferences. It lives
-//! under the state root the caller resolved (`crates/assembly/src/paths.rs`),
-//! never mixed into the engine's root: that tree belongs to Agix and to
-//! whoever hand-edits it, and a front end's bookkeeping has no business
-//! there. Deleting our root loses grouping and nothing else.
+//! — workspaces, archived rows, view preferences. It is never mixed into the
+//! engine's root: that tree belongs to Agix and to whoever hand-edits it, and
+//! a front end's bookkeeping has no business there. Deleting it loses grouping
+//! and nothing else.
 //!
 //! One small JSON file, rewritten atomically on every change (temp + rename),
 //! so a crash mid-write leaves the previous state rather than half of the new
 //! one.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -72,7 +71,6 @@ impl Default for HarnixState {
 
 /// The state file plus its directory.
 pub struct Store {
-    root: PathBuf,
     file: PathBuf,
     state: HarnixState,
 }
@@ -99,11 +97,7 @@ impl Store {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => HarnixState::default(),
             Err(e) => anyhow::bail!("could not read {}: {e}", file.display()),
         };
-        Ok(Self { root, file, state })
-    }
-
-    pub fn root(&self) -> &Path {
-        &self.root
+        Ok(Self { file, state })
     }
 
     pub fn state(&self) -> &HarnixState {

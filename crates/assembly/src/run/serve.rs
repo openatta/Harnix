@@ -68,15 +68,8 @@ pub(super) async fn serve(
             router: crate::host::routes::router(d.routes().to_vec()),
         })
         .collect();
-    let bulk: Arc<dyn harnix_transport::BulkStore> = Arc::new(crate::host::seat::Uploads {
-        host: admission.seats.bulk.clone(),
-        builtin: held.builtin.clone(),
-    });
-    let max_upload_bytes = held
-        .builtin
-        .as_ref()
-        .map(|b| b.max_upload_bytes())
-        .unwrap_or(harnix_contract::MAX_UPLOAD_BYTES);
+    let bulk: Arc<dyn harnix_transport::BulkStore> = admission.seats.bulk.clone();
+    let max_upload_bytes = harnix_contract::MAX_UPLOAD_BYTES;
     let runtime_modules = profile.ui.runtime_modules;
     let mut extensions = harnix_transport::Extensions {
         apps: module_routes,

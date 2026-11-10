@@ -316,6 +316,12 @@ impl ExtensionContext {
         &self.shared.data_dir
     }
 
+    /// Where this product's projects live — what a picker opens on, and where a new project is
+    /// made — as the person running it said (`--data-dir`). A starting point, not a fence.
+    pub fn projects_dir(&self) -> &Path {
+        self.shared.ports.projects_dir()
+    }
+
     pub fn credentials(&self) -> &dyn Credentials {
         self.shared.ports.credentials()
     }
