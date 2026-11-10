@@ -1491,7 +1491,7 @@ version = "0.4.2-2026110901"
 dependencies = [
  "anyhow",
  "harnix",
- "harnix-flow",
+ "harnix-ext-flow",
 ]
 
 [[package]]
@@ -1514,7 +1514,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "harnix-flow"
+name = "harnix-ext-flow"
 version = "0.4.2-2026110901"
 dependencies = [
  "anyhow",
@@ -1625,7 +1625,7 @@ dependencies = [
  "anyhow",
  "futures",
  "harnix",
- "harnix-flow",
+ "harnix-ext-flow",
  "serde",
  "serde_json",
  "tokio",

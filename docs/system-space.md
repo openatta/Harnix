@@ -102,8 +102,8 @@
 
 ## 5. 流程
 
-流程是 Harnix 内置的应用开发工具链（模块 `harnix-flow`，界面 `@harnix/flow`），后端注册了流程模块才有这个页签：Harnix app
-`harnix` 注册了，二开应用 `.module(Flow::builder()…build())` 了才有。流程是什么、怎么写见流程指南（`crates/flow/docs/guide.*.md`，
+流程是 Harnix 内置的应用开发工具链（模块 `harnix-ext-flow`，界面 `@harnix/flow`），后端注册了流程模块才有这个页签：Harnix app
+`harnix` 注册了，二开应用 `.module(Flow::builder()…build())` 了才有。流程是什么、怎么写见流程指南（`crates/ext/flow/docs/guide.*.md`，
 这里右栏的「参考」就是它）。
 
 **页签本身**：流程列表（`FlowsTab`），下面是全部运行与试运行（`RunsTab`）。

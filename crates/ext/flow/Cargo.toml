@@ -1,5 +1,5 @@
 [package]
-name = "harnix-flow"
+name = "harnix-ext-flow"
 version      = "0.4.2-2026110901"
 edition      = "2021"
 rust-version = "1.87"
@@ -8,7 +8,7 @@ publish      = false
 description  = "Flows: a graph of stations that drives session work, judged on structured signals only"
 
 [lib]
-name = "harnix_flow"
+name = "harnix_ext_flow"
 
 [features]
 # The Harnix module (`Flow`): sessions, programs, native tools, methods, topics. Off, the crate is

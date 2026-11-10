@@ -336,7 +336,7 @@ fn the_builtins_use_only_the_public_module_api() {
 /// contract, and never the doors the application uses to drive a module.
 #[test]
 fn the_flow_module_uses_only_the_public_module_api() {
-    for name in dependencies("flow") {
+    for name in dependencies("ext/flow") {
         if name.starts_with("harnix") {
             assert!(
                 ["harnix-module", "harnix-contract"].contains(&name.as_str()),
@@ -350,7 +350,7 @@ fn the_flow_module_uses_only_the_public_module_api() {
         );
     }
     let mut offenders = Vec::new();
-    let mut stack = vec![workspace_root().join("crates/flow/src")];
+    let mut stack = vec![workspace_root().join("crates/ext/flow/src")];
     while let Some(dir) = stack.pop() {
         for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
             let path = entry.path();
@@ -388,7 +388,7 @@ fn the_flow_module_uses_only_the_public_module_api() {
 fn the_library_does_not_carry_the_empty_applications_flow_module() {
     assert_ignorant_of(
         "harnix",
-        &["harnix-flow"],
+        &["harnix-ext-flow"],
         "a library user registers flows if it wants them; the Harnix app is `harnix-cli`",
     );
     let manifest =
@@ -399,7 +399,7 @@ fn the_library_does_not_carry_the_empty_applications_flow_module() {
     );
     let cli = dependencies("cli");
     assert!(
-        cli.contains("harnix") && cli.contains("harnix-flow"),
+        cli.contains("harnix") && cli.contains("harnix-ext-flow"),
         "{cli:?}"
     );
     let cli_manifest =
@@ -782,12 +782,12 @@ fn a_plugin_applications_agent_package_is_read_for_its_name_and_version_only() {
 /// section a line happened to sit under.
 #[test]
 fn dependencies_are_read_as_cargo_reads_them() {
-    let flow = declared("flow");
+    let flow = declared("ext/flow");
     let module = flow.iter().find(|d| d.name == "harnix-module").expect("flow names harnix-module");
     assert!(module.optional && module.kind.is_none(), "an optional normal dependency");
     assert!(flow.iter().any(|d| d.name == "tempfile" && d.kind.as_deref() == Some("dev")));
-    assert!(normal_dependencies("flow").get("harnix-module") == Some(&true));
-    assert!(!normal_dependencies("flow").contains_key("tempfile"), "a dev-dependency is not normal");
+    assert!(normal_dependencies("ext/flow").get("harnix-module") == Some(&true));
+    assert!(!normal_dependencies("ext/flow").contains_key("tempfile"), "a dev-dependency is not normal");
 }
 
 /// Every crate that depends on a Harnix crate depends on one that exists, and
@@ -803,7 +803,7 @@ fn every_harnix_dependency_resolves() {
         "cli",
         "client",
         "contract",
-        "flow",
+        "ext/flow",
         "harnix",
         "hub",
         "module",
@@ -821,7 +821,7 @@ fn every_harnix_dependency_resolves() {
             if *c == "harnix" {
                 "harnix".to_string()
             } else {
-                format!("harnix-{c}")
+                format!("harnix-{}", c.replace('/', "-"))
             }
         })
         .collect();

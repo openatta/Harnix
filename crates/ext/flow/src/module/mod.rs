@@ -24,7 +24,7 @@
 //!
 //! ```no_run
 //! # use std::sync::Arc;
-//! # use harnix_flow::{Flow, MemPacks};
+//! # use harnix_ext_flow::{Flow, MemPacks};
 //! # fn scene() -> Arc<dyn base::interface::scene::Scene> { unimplemented!() }
 //! let flow = Flow::builder()
 //!     .packs(MemPacks::new().flow("name: demo\nstations: [{id: a, exit: [{kind: confirm}]}]"))

@@ -61,7 +61,7 @@ Anthropic 或兼容 OpenAI 的 API，其中一个是缺省——存在 `~/.agix/
 - **界面按 space 分三栏**：space 自己的左栏、中区（缺省是对话，旁边可以开二级栏）、space 自己的右栏页签。
   Harnix 自带的 space——Harnix app 的两个与系统 space——都是例子，产品自己决定留哪些。
 - **对话里的卡片**：模块往会话日志里写扩展条目——刷新、回放、分叉都在，模型看不见。
-- **流程**（`harnix-flow`，可选）：一张站的图，带着一个对象走过由运行的主 Agent、子 Agent、应用代码或外部完成的工作；
+- **流程**（`harnix-ext-flow`，可选）：一张站的图，带着一个对象走过由运行的主 Agent、子 Agent、应用代码或外部完成的工作；
   每次工具调用按流程的权限判，每一站按出口条件和门禁判，钩子把进度告诉别的系统。
 
 为什么是这个形状，一层一层讲：[概念与架构](concept_and_architecture.md)。
@@ -76,7 +76,7 @@ crates/transport  通道语义、拓扑、握手、静态面、批量、/apps/<i
 crates/authz      准入与审计
 crates/builtin    Harnix 自己的功能，按公开契约写成模块
 crates/contract   各层之间传递的类型
-crates/flow       可选的流程模块 harnix-flow
+crates/ext/flow   可选的流程模块 harnix-ext-flow
 crates/wasm       harnix-wasm：WebAssembly 运行时，唯一链 wasmtime 的地方
 crates/package、wasm-port、wasm-host、apps
                   插件 APP：包与签名、端口、宿主核心、嵌入的粘合
@@ -106,7 +106,7 @@ fn main() -> anyhow::Result<()> {
         .name("hello-app", env!("CARGO_PKG_VERSION"))
         .with_builtins()
         .module(Greeter::default())       // 你的模块
-        .module(harnix_flow::Flow::builder().build())   // 要流程就加上（完整的见 crates/cli/src/main.rs）
+        .module(harnix_ext_flow::Flow::builder().build())   // 要流程就加上（完整的见 crates/cli/src/main.rs）
         .run()
 }
 ```
@@ -118,7 +118,7 @@ fn main() -> anyhow::Result<()> {
 | 后端行为 | 一个 `harnix::Module`：方法、主题、路由、原生工具、scene、模板 | [SDK](harnix-sdk.md) |
 | 自己的界面 | 一个 space 和贡献（`spaces/*/ui`，构建进外壳） | [贡献点](contribution_points.md) |
 | 自己的样子 | `[brand]`、主题 tokens、语言包 | [SDK](harnix-sdk.md) |
-| 让 Agent 按流程干活 | 流程：站、skill、规则、策略、门禁、钩子 | 系统 space 里流程的参考页、`crates/flow/docs/guide.*.md` |
+| 让 Agent 按流程干活 | 流程：站、skill、规则、策略、门禁、钩子 | 系统 space 里流程的参考页、`crates/ext/flow/docs/guide.*.md` |
 | 桌面应用 | `templates/desktop`（Tauri 2，本地或连远程） | `templates/desktop/README.md` |
 | 让别人往产品里装东西 | 插件 APP：一个签了名的包，WebAssembly 后端、Agix 插件、隔离的界面 | [插件](harnix-plugin.md) |
 | 对着真二进制的测试 | `@harnix/testkit`：回放模型调用，接口与浏览器测试 | [测试](testing.md) |

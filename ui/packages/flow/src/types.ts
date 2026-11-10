@@ -1,7 +1,7 @@
 /**
  * The flow module's wire shapes (xops-01 §3, §4, §6), as the interface reads them.
  *
- * The JSON is serde's output of `harnix-flow`'s Rust types (snake_case fields, enums tagged by
+ * The JSON is serde's output of `harnix-ext-flow`'s Rust types (snake_case fields, enums tagged by
  * `kind`). Everything the interface assumes about it is in this one file, so a field the Rust side
  * names differently is changed here and nowhere else. Fields the interface does not need may be
  * absent; optional ones are typed `?` and may also arrive as `null`.

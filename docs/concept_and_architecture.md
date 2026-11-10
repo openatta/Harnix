@@ -625,10 +625,10 @@ Harnix 不定义它的包格式、不校验、不解包、不判定能力。它�
   Harnix 的授权与保证之内，由应用负责。
 - **非 Rust 的 sidecar 服务**：走 Agix 的 MCP，或经模块路由转发。
 
-### 4.6 流程：内置的应用开发工具链（`harnix-flow`）
+### 4.6 流程：内置的应用开发工具链（`harnix-ext-flow`）
 
 流程是 Harnix 内置的应用开发工具链：让 Agent 按一套定义好的过程干活，判定只看结构化信号；流程本身也在它自己的对话里由 Agent 编写、试运行。
-它不进骨架，是一个**按公开模块契约写的可选模块**（crate `harnix-flow`，界面 `@harnix/flow`）：应用注册它就有，不注册什么都不变；
+它不进骨架，是一个**按公开模块契约写的可选模块**（crate `harnix-ext-flow`，界面 `@harnix/flow`）：应用注册它就有，不注册什么都不变；
 Harnix 自己的二进制 `harnix` 注册了它。它的界面在系统 space 里（§5.5，[系统 space](system-space.md) §5）。
 
 ```
@@ -652,7 +652,7 @@ Harnix 自己的二进制 `harnix` 注册了它。它的界面在系统 space �
 `host`）、人的确认。**规则**与 skill 只告诉 Agent，不拦。**钩子**是旁观者：不写在流程里，从不阻塞运行。
 
 **不进 Harnix 的**：审批策略（几个人批、批与做不能是同一人）归应用——流程把 `who` 交给应用的授权方。
-对象与写法见系统 space 里流程的参考页（`crates/flow/docs/guide.*.md`）；构建器、方法与主题见 [SDK](harnix-sdk.md) §23。
+对象与写法见系统 space 里流程的参考页（`crates/ext/flow/docs/guide.*.md`）；构建器、方法与主题见 [SDK](harnix-sdk.md) §23。
 
 ---
 

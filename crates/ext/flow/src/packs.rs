@@ -65,7 +65,7 @@ impl Inner {
 /// Definitions, parts (skills, rules, policies, gates, hooks) and a catalog given in code.
 ///
 /// ```
-/// # use harnix_flow::MemPacks;
+/// # use harnix_ext_flow::MemPacks;
 /// let packs = MemPacks::new()
 ///     .flow("name: demo\nstations: [{id: a, exit: [{kind: confirm}]}]")
 ///     .skill("analyze", "Analyze the module.")

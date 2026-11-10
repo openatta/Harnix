@@ -4,7 +4,7 @@
 //   node harnix/scripts/sync-app-deps.mjs [app-root]          rewrite the block
 //   node harnix/scripts/sync-app-deps.mjs [app-root] --check  fail if it drifted
 //
-// An application's workspace takes `harnix/crates/*` in as members, so
+// An application's workspace takes `harnix/crates/*` and `harnix/crates/ext/*` in as members, so
 // Harnix's crates resolve `xxx = { workspace = true }` against the
 // *application's* `[workspace.dependencies]`. Harnix's own
 // table is the one source of truth; this copies it into a marked block in

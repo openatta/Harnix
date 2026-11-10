@@ -19,7 +19,10 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const crates = readdirSync(join(root, "crates"));
+// `crates/ext/<id>` holds the first-party extensions; the directory itself is no crate.
+const crates = readdirSync(join(root, "crates"))
+  .filter((c) => c !== "ext")
+  .concat(readdirSync(join(root, "crates", "ext")).map((c) => `ext/${c}`));
 const field = (text, key) => text.match(new RegExp(`^${key}\\s*=\\s*(.+)$`, "m"))?.[1].trim();
 
 let failed = false;

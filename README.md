@@ -74,7 +74,7 @@ conversations; delete the directory to start over.
   product keeps or drops.
 - **Cards in the conversation**: a module writes extension entries into a session's log — they
   survive a refresh, a replay and a fork, and the model never sees them.
-- **Flows** (`harnix-flow`, optional): a graph of stations that moves one subject through work done
+- **Flows** (`harnix-ext-flow`, optional): a graph of stations that moves one subject through work done
   by the run's main Agent, its sub-agents, the application's code or someone outside; each tool call
   judged against the flow's permissions, each station judged by its exit conditions and gates, hooks
   telling other systems about the progress.
@@ -91,7 +91,7 @@ crates/transport  channel semantics, topologies, handshake, static face, bulk, /
 crates/authz      admission and audit
 crates/builtin    Harnix's own features, as modules on the public contract
 crates/contract   the types those layers hand each other
-crates/flow       the optional flow module, harnix-flow
+crates/ext/flow   the optional flow module, harnix-ext-flow
 crates/wasm       harnix-wasm: the WebAssembly runtime, the one place wasmtime is linked
 crates/package, wasm-port, wasm-host, apps
                   plugin apps: package and signatures, the port, the host core, the embedded glue
@@ -122,7 +122,7 @@ fn main() -> anyhow::Result<()> {
         .name("hello-app", env!("CARGO_PKG_VERSION"))
         .with_builtins()
         .module(Greeter::default())       // your modules
-        .module(harnix_flow::Flow::builder().build())   // flows, if you want them (crates/cli/src/main.rs)
+        .module(harnix_ext_flow::Flow::builder().build())   // flows, if you want them (crates/cli/src/main.rs)
         .run()
 }
 ```
@@ -134,7 +134,7 @@ What you write, and where it goes:
 | Backend behaviour | a `harnix::Module`: methods, topics, routes, native tools, scenes, templates | [SDK](docs/harnix-sdk.md) |
 | An interface of your own | a space and contributions (`spaces/*/ui`, built into the shell) | [contribution points](docs/contribution_points.md) |
 | Your look | `[brand]`, theme tokens, language packs | [SDK](docs/harnix-sdk.md) |
-| Agents that follow a process | flows: stations, skills, rules, policies, gates, hooks | the guide in the system space's flows, `crates/flow/docs/guide.*.md` |
+| Agents that follow a process | flows: stations, skills, rules, policies, gates, hooks | the guide in the system space's flows, `crates/ext/flow/docs/guide.*.md` |
 | A desktop app | `templates/desktop` (Tauri 2, local or remote) | `templates/desktop/README.md` |
 | Let others add to your product | a plugin app: a signed package with a WebAssembly backend, an Agix plugin, an isolated interface | [plugins](docs/harnix-plugin.md) |
 | Tests against the real binary | `@harnix/testkit`: replayed model calls, API and browser suites | [testing](docs/testing.md) |

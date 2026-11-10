@@ -6,8 +6,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use common::*;
-use harnix_flow::kernel::refs::station_output;
-use harnix_flow::*;
+use harnix_ext_flow::kernel::refs::station_output;
+use harnix_ext_flow::*;
 use serde_json::{json, Value};
 
 const SEQ: &str = r#"

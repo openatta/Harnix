@@ -2,7 +2,7 @@
 
 mod common;
 
-use harnix_flow::*;
+use harnix_ext_flow::*;
 use serde_json::{json, Value};
 
 fn record(id: &str, flow: &str, subject: &str, rev: u64, at: u64) -> RunRecord {

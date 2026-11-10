@@ -63,7 +63,7 @@ Harnix 进程
 | 例子 | 放哪 | 为什么 |
 |---|---|---|
 | 交易、关注组、需求规格、工位、xflow | 应用 | 领域的东西 |
-| 通用的流程引擎：站、任务、出口条件、返工、租约 | Harnix 的可选 crate `harnix-flow`，应用注册才有 | IPDrun、XOps 两份实现是同一个形状（xops-01）；流程**定义**和领域的站仍在应用里。站的会话可落到任一实例、模板实例、space 与模型，经结构化输出交付、经权限规则限写；流程包可写、可在系统 space 里流程的对话里编写、可试运行（xops-02）。Harnix app `harnix` 自带它；`harnix` 库不带——二开应用要 `.module(Flow::builder()…build())` |
+| 通用的流程引擎：站、任务、出口条件、返工、租约 | Harnix 的可选 crate `harnix-ext-flow`，应用注册才有 | IPDrun、XOps 两份实现是同一个形状（xops-01）；流程**定义**和领域的站仍在应用里。站的会话可落到任一实例、模板实例、space 与模型，经结构化输出交付、经权限规则限写；流程包可写、可在系统 space 里流程的对话里编写、可试运行（xops-02）。Harnix app `harnix` 自带它；`harnix` 库不带——二开应用要 `.module(Flow::builder()…build())` |
 | sqlite 运行态、git 原语、代码扫描 | 应用 | 模块自己选库、自己管数据 |
 | 批准卡（交易要人点头） | 应用 | 模块契约够用，做法见 §10.1 |
 | MCP 服务端、角色令牌 | 应用（0.4 内） | 0.4 之后 Harnix 再做，见 §10.4 |
@@ -114,7 +114,7 @@ Harnix 进程
 
 Cargo 这边要知道三件事：
 
-1. 应用的 workspace 把 `harnix/crates/*` 收为**成员**，`exclude = ["harnix/agix", "harnix/crates/testapp"]`。
+1. 应用的 workspace 把 `harnix/crates/*` 与 `harnix/crates/ext/*` 收为**成员**，`exclude = ["harnix/agix", "harnix/crates/ext", "harnix/crates/testapp"]`。
 2. 根 `Cargo.toml` 里有一段带标记的区块，由 `harnix/scripts/sync-app-deps.mjs` 生成，**不要手改**。它把
    Harnix 的 crate 需要的依赖指到以应用根为基准的路径。升级 Harnix 之后重新跑一次。你自己的 crate 只写
    `harnix = { workspace = true }`，用不着这一段里的其他名字。
@@ -734,7 +734,7 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 
 ### 14.1 通用步骤
 
-1. 换布局：只留 `harnix/` 一个子仓（`git submodule update --init --recursive`）；workspace 收 `harnix/crates/*`；
+1. 换布局：只留 `harnix/` 一个子仓（`git submodule update --init --recursive`）；workspace 收 `harnix/crates/*` 与 `harnix/crates/ext/*`；
    `sync-app-deps`、`check-pins`。代码里的引擎类型改从 `harnix::agent`、`harnix::scenes` 取（§6.1）。
 2. 后端改成模块：一个 space 的后端一个 `Module`；领域方法挪到 `methods()`。
 3. 前端换成 React 包：每个 space 一个 `ui/` 包，`register()` 注册。
@@ -1282,17 +1282,17 @@ api_version = 2
 
 ---
 
-## 23. 流程模块：`harnix-flow`、`@harnix/flow`
+## 23. 流程模块：`harnix-ext-flow`、`@harnix/flow`
 
-可选模块：应用 `.module(harnix_flow::Flow::builder()….build())` 才有；Harnix app `harnix` 注册了它（`crates/cli/src/main.rs`）。
-对象与写法（站、执行者、出口条件、规则、策略与权限、门禁、钩子……）见流程指南 `crates/flow/docs/guide.zh-CN.md`
+可选模块：应用 `.module(harnix_ext_flow::Flow::builder()….build())` 才有；Harnix app `harnix` 注册了它（`crates/cli/src/main.rs`）。
+对象与写法（站、执行者、出口条件、规则、策略与权限、门禁、钩子……）见流程指南 `crates/ext/flow/docs/guide.zh-CN.md`
 （系统 space 里流程的参考页就是它，`app.flow.guide {lang}` 也给它）。
 
 | 构建器 | 意思 |
 |---|---|
 | `.packs(impl Packs)` / `.packs_arc(Arc<dyn Packs>)` / `.packs_with(\|data_dir\| …)` | 流程包：`MemPacks`（代码里给）、`DirPacks`（目录分层，`with_builtin` + `with_writable`）；`packs_with` 在启动时从模块的数据目录建 |
 | `.store(impl RunStore)` / `.store_with(…)` | 运行存在哪；缺省模块数据目录下 `runs/` 的 `FileStore` |
-| `.scene(Arc<dyn Scene>)` | 给流程用的 scene，包装成 `flow-<id>`（带 `flow_submit`、`flow_state`、`flow_propose`）。一个都不给时用内置的 `harnix`、`code`、`mini`（`flow-harnix`、`flow-code`、`flow-mini`，见 `harnix_flow::builtin_scenes`） |
+| `.scene(Arc<dyn Scene>)` | 给流程用的 scene，包装成 `flow-<id>`（带 `flow_submit`、`flow_state`、`flow_propose`）。一个都不给时用内置的 `harnix`、`code`、`mini`（`flow-harnix`、`flow-code`、`flow-mini`，见 `harnix_ext_flow::builtin_scenes`） |
 | `.author_scene(Arc<dyn Scene>)` | 流程的对话（`flow-author`）包装的 scene；缺省 Agix 的 `harnix` |
 | `.main_scene(id)` | 运行主会话缺省的 scene（缺省第一个；不给 scene 时是 `harnix`）。流程定义里 `main: {scene: flow-code}`、站点的 `scene:` 可各自另选 |
 | `.template(InstanceTemplate)` | 站可以放上去的模板（`flow.<id>`） |
