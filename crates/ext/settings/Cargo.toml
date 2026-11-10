@@ -1,0 +1,20 @@
+[package]
+name = "harnix-ext-settings"
+version      = "0.4.2-2026110901"
+edition      = "2021"
+rust-version = "1.87"
+license      = "Apache-2.0"
+publish      = false
+description  = "Settings: the engine's three settings tiers and its providers, edited from the settings page"
+
+[lib]
+name = "harnix_ext_settings"
+
+[dependencies]
+harnix-ext  = { workspace = true }
+async-trait = { workspace = true }
+serde_json  = { workspace = true }
+tracing     = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

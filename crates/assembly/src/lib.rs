@@ -23,7 +23,7 @@ mod aliases;
 mod apps;
 mod audit_log;
 mod cli;
-mod devices;
+mod pairing;
 mod gate;
 mod host;
 mod kernel_rows;
@@ -42,7 +42,6 @@ use harnix_module::Module;
 
 use host::{Added, Entry};
 
-pub use devices::DevicesModule;
 pub use host::{ExtensionStatus, MethodStatus, Namespace};
 
 /// The version of Harnix this binary was built with.

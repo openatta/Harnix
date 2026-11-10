@@ -1,12 +1,8 @@
-//! `harnix.devices.*` — pairing, listing, revoking: the `devices` built-in
-//! module.
+//! Pairing, listing, revoking: what `devices.manage` hands an extension.
 //!
-//! Here rather than in `harnix-builtin`, because these are the authorization
-//! layer's data and this is the layer that owns both it and the transport
-//! whose channels a revocation has to end. Putting them in the built-ins
-//! would give that crate a reason to depend on authorization, for one
-//! feature, and dependency edges are cheaper not to add. It registers through
-//! the module contract like every other built-in.
+//! Here, because these are the authorization layer's data and this is the layer that owns both
+//! it and the transport whose channels a revocation has to end. The methods that reach it are the
+//! `devices` extension's.
 
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -14,16 +10,7 @@ use std::time::SystemTime;
 use harnix_authz::{Devices, PairError};
 use harnix_contract::RpcError;
 use harnix_kernel::seat::DeviceAdmin;
-use harnix_module::{CallContext, Handler, Manifest, MethodRegistry, Module, Principal};
 use serde_json::{json, Value};
-
-/// Its methods, by their names inside the namespace a built-in registers under (`harnix.`).
-pub const METHODS: &[&str] = &[
-    "devices.list",
-    "devices.pair.begin",
-    "devices.pair.complete",
-    "devices.revoke",
-];
 
 /// Characters a pairing code is drawn from.
 ///
@@ -33,8 +20,7 @@ pub const METHODS: &[&str] = &[
 const ALPHABET: &[u8] = b"23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 const CODE_LEN: usize = 8;
 
-/// Paired devices, managed: listing, pairing, revoking. What `devices.manage` hands an extension,
-/// and what the `devices` module answers with.
+/// Paired devices, managed: listing, pairing, revoking. What `devices.manage` hands an extension.
 pub struct DeviceBook {
     devices: Arc<Devices>,
     /// Ending a revoked device's channels. The authorization layer knows a
@@ -91,66 +77,6 @@ impl DeviceAdmin for DeviceBook {
         }
         removed
     }
-}
-
-/// The `devices` module.
-pub struct DevicesModule {
-    book: Arc<DeviceBook>,
-}
-
-impl DevicesModule {
-    pub fn new(book: Arc<DeviceBook>) -> Self {
-        Self { book }
-    }
-}
-
-#[async_trait::async_trait]
-impl Module for DevicesModule {
-    const API_VERSION: u32 = harnix_module::MODULE_API_VERSION;
-
-    fn manifest(&self) -> Manifest {
-        Manifest::new("devices", env!("CARGO_PKG_VERSION"))
-            .disclosure("配对、列出、吊销设备；吊销时断开它的所有通道")
-    }
-
-    fn methods(&self, registry: &mut MethodRegistry) {
-        for name in METHODS {
-            registry
-                .method(name, Principal::Device)
-                .allow(Principal::Kernel)
-                .with(Arc::new(DeviceMethods { book: self.book.clone(), name }));
-        }
-    }
-}
-
-struct DeviceMethods {
-    book: Arc<DeviceBook>,
-    name: &'static str,
-}
-
-#[async_trait::async_trait]
-impl Handler for DeviceMethods {
-    async fn call(&self, _cx: CallContext, params: Value) -> Result<Value, RpcError> {
-        match self.name {
-            "devices.list" => Ok(self.book.list()),
-            "devices.pair.begin" => {
-                Ok(self.book.pair_begin(params.get("label").and_then(Value::as_str).unwrap_or("device")))
-            }
-            "devices.pair.complete" => {
-                self.book.pair_complete(&require(&params, "code")?, &require(&params, "public_key")?)
-            }
-            "devices.revoke" => Ok(json!({"revoked": self.book.revoke(&require(&params, "device_id")?)})),
-            other => Err(RpcError::not_found(format!("`{other}` is not a device method"))),
-        }
-    }
-}
-
-fn require(params: &Value, key: &str) -> Result<String, RpcError> {
-    params
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .ok_or_else(|| RpcError::invalid_params(format!("missing {key}")))
 }
 
 /// Mint a code and say it on the console.

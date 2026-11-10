@@ -73,21 +73,6 @@ impl Builtin {
         if let Some((_, method)) = INSTANCES.iter().find(|(n, _)| *n == name) {
             return cx.call(method, params).await;
         }
-        if name == "harnix.system.calls" {
-            return self.request_headers(params).await;
-        }
-        if name == "harnix.system.trace" {
-            return self.trace(params).await;
-        }
-        if name == "harnix.system.trace.call" {
-            return self.trace_call(params).await;
-        }
-        if name == "harnix.system.turns" {
-            return self.turns(params).await;
-        }
-        if name == "harnix.system.usage" {
-            return self.usage(params).await;
-        }
         if name == "harnix.system.context" {
             return self.inspect_context(cx, params).await;
         }

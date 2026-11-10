@@ -693,7 +693,7 @@ fn only_the_apps_feature_links_the_application_runtime() {
 /// section needs no exception.
 #[test]
 fn harnix_reads_only_its_own_manifest_section() {
-    let path = workspace_root().join("crates/builtin/src/packages.rs");
+    let path = workspace_root().join("crates/ext/plugins/src/packages.rs");
     let text = std::fs::read_to_string(&path).expect("packages.rs");
     let start = text
         .find("struct Sections {")
@@ -804,7 +804,11 @@ fn every_harnix_dependency_resolves() {
         "engine",
         "engine-api",
         "ext/api",
+        "ext/devices",
         "ext/flow",
+        "ext/observability",
+        "ext/plugins",
+        "ext/settings",
         "harnix",
         "host-api",
         "hub",
@@ -1700,7 +1704,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P12"]
     fn c11_the_plugins_extension_reads_only_the_ui_section() {
         assert_reads_only_ui(&crate_dir("harnix-ext-plugins").join("src/packages.rs"));
     }

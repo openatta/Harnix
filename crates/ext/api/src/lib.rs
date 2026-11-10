@@ -47,7 +47,7 @@ pub const EXT_API_VERSION: u32 = 1;
 pub use bulk::{Bulk, UploadGrant};
 pub use call::{Call, Deadline};
 pub use context::{
-    ConfigError, Devices, EngineView, ExtensionContext, GrantsView, Listen, ProcessInfo, Service, SkillsDir,
+    ConfigError, ConfigFiles, Devices, EngineView, ExtensionContext, GrantsView, Listen, ProcessInfo, Service, SkillsDir,
 };
 pub use credentials::{CredentialRef, Credentials, EnvCredentials};
 pub use descriptor::{
@@ -69,7 +69,9 @@ pub use harnix_contract::s1::{
     caps, Access, CallMeta, Capability, CapabilitySpec, ExtId, IdError, InstanceTrust, PackageCarrier, RowScope,
     Subject, Trust,
 };
-pub use harnix_contract::{codes, ChainLink, DefaultInstance, RpcError, SessionRef, SpaceDecl, CONTRIB_API_VERSION};
+pub use harnix_contract::{
+    codes, ChainLink, DefaultInstance, RpcError, SessionRef, SpaceDecl, CONTRIB_API_VERSION, SYSTEM_INSTANCE,
+};
 
 /// What every handler answers.
 pub type Rpc<T> = Result<T, RpcError>;

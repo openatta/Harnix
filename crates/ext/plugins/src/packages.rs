@@ -38,7 +38,7 @@
 
 use std::path::{Path, PathBuf};
 
-use harnix_module::CONTRIB_API_VERSION;
+use harnix_ext::CONTRIB_API_VERSION;
 use serde::{Deserialize, Serialize};
 
 /// What a package contributes to this side.
@@ -154,9 +154,9 @@ pub fn read(root: &Path, name: &str, version: &str, enabled: bool) -> Option<Con
 
 /// Everything that contributes to this side, in a `plugin.list` answer.
 ///
-/// Separate from [`discover`] so a caller that already asked the engine —
-/// `harnix.plugins.list` does, to show the engine's own list beside this one —
-/// reads the answer it has rather than asking a second time.
+/// Separate from asking the engine so a caller that already did — `plugins.list` does, to show
+/// the engine's own list beside this one — reads the answer it has rather than asking a second
+/// time.
 pub fn read_all(listed: &serde_json::Value) -> Vec<Contributions> {
     let mut found = Vec::new();
     for entry in listed
@@ -184,25 +184,6 @@ pub fn read_all(listed: &serde_json::Value) -> Vec<Contributions> {
         }
     }
     found
-}
-
-/// Ask the engine what is installed, and read what of it lands here.
-///
-/// Driven by what the engine says is installed, so a package that the engine
-/// refused, disabled or never had is not here either. Asking the engine
-/// rather than scanning the directory is the difference between "installed"
-/// and "some files are lying around".
-pub async fn discover(cx: &harnix_module::ModuleContext) -> Vec<Contributions> {
-    match cx.call("plugin.list", serde_json::json!({})).await {
-        Ok(listed) => read_all(&listed),
-        Err(e) => {
-            // A build without the package layer answers `PLUGINS_DISABLED`
-            // and nothing is installed, which is a fact rather than a
-            // failure — see concept §4.4.
-            tracing::debug!(reason = %e.message, "no installed packages to read");
-            Vec::new()
-        }
-    }
 }
 
 #[cfg(test)]

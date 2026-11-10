@@ -7,14 +7,13 @@ use harnix_contract::Topology;
 use harnix_hub::Hub;
 
 use super::admission::Admission;
-use super::packages::apply_packages;
 use crate::kernel_rows::UiModules;
 use super::register::Held;
 use super::state_files::write_token;
 use super::wiring::AppsWiring;
 use super::Basis;
 use crate::cli::Cli;
-use crate::devices;
+use crate::pairing;
 use crate::host::Record;
 
 /// A process that serves: the listeners' task, how to stop it, and the channels it has open.
@@ -116,31 +115,12 @@ pub(super) async fn serve(
 
     let addrs = listen_addrs(host, profile.transport.port);
     let addr = addrs[0];
-    if let Some(builtin) = &held.builtin {
-        // What the installed packages contribute to this side, resolved once
-        // before anything is served. A package installed later refreshes
-        // this — one that needed a restart to appear is one nobody will
-        // believe installed.
-        apply_packages(
-            &statics,
-            builtin.contributions().await,
-            runtime_modules,
-            ui_modules,
-        );
-        let statics = statics.clone();
-        let ui_modules = ui_modules.clone();
-        builtin
-            .on_packages_changed(move |contributions| {
-                apply_packages(&statics, contributions, runtime_modules, &ui_modules);
-            })
-            .await;
-    }
     apps.follow(ui_modules, runtime_modules);
 
     // Before anything is served: a reachable node with no paired device has
     // no way to acquire one, because pairing is a method and methods need
     // admission. This is where that circle is broken.
-    devices::bootstrap(&held.paired, !host.is_loopback());
+    pairing::bootstrap(&held.paired, !host.is_loopback());
 
     let scheme = if cli.tls_cert.is_some() {
         "https"

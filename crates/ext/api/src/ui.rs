@@ -257,12 +257,22 @@ pub struct UiEntry {
     point: String,
     module: String,
     api_version: u32,
+    #[serde(rename = "plugin", skip_serializing_if = "Option::is_none")]
+    owner: Option<String>,
 }
 
 impl UiEntry {
     /// `module` is the URL the page loads it from, one of the extension's own routes.
     pub fn new(point: &str, module: &str, api_version: u32) -> Self {
-        Self { point: point.to_string(), module: module.to_string(), api_version }
+        Self { point: point.to_string(), module: module.to_string(), api_version, owner: None }
+    }
+
+    /// Whose module it is when that is not the extension publishing it: the package an
+    /// extension that serves packages' interfaces got it from. The page signs what the module
+    /// registers with this name.
+    pub fn owner(mut self, name: &str) -> Self {
+        self.owner = Some(name.to_string());
+        self
     }
 }
 
