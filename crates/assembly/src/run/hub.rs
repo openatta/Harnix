@@ -54,11 +54,12 @@ pub(super) async fn assemble(
         replay_max_frames: harnix_hub::REPLAY_MAX_FRAMES,
         max_in_flight: harnix_contract::MAX_IN_FLIGHT,
     };
-    let spaces = harnix_hub::Spaces::load(
-        roots.state.join("spaces.json"),
-        declared_spaces(records),
-        profile.shell.keeps(harnix_contract::SYSTEM_SPACE),
-    )?;
+    // Turned off, the system space is nobody's to claim: without it nothing reaches across spaces.
+    let withheld = (!profile.shell.keeps(harnix_builtin::SYSTEM_SPACE))
+        .then(|| harnix_builtin::SYSTEM_SPACE.to_string())
+        .into_iter()
+        .collect();
+    let spaces = harnix_hub::Spaces::load(roots.state.join("spaces.json"), declared_spaces(records), withheld)?;
     let hub = Hub::new(HubConfig {
         replay_from: cli.replay_dir.clone(),
         limits,
@@ -108,11 +109,7 @@ fn declared_spaces(records: &[Record]) -> Vec<harnix_module::SpaceDecl> {
     let mut declared: Vec<harnix_module::SpaceDecl> = Vec::new();
     for record in records.iter().filter(|r| r.is_enabled()) {
         for space in &record.spaces {
-            let reserved = [
-                harnix_contract::SESSIONS_SPACE,
-                harnix_contract::PROJECTS_SPACE,
-                harnix_contract::SYSTEM_SPACE,
-            ];
+            let reserved = [harnix_contract::SESSIONS_SPACE, harnix_contract::PROJECTS_SPACE];
             if reserved.contains(&space.id.as_str()) || declared.iter().any(|d| d.id == space.id) {
                 tracing::warn!(module = %record.manifest.id, space = %space.id, "a space with this id already exists; ignored");
                 continue;

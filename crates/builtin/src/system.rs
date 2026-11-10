@@ -1,13 +1,27 @@
-//! The system space's backend: looking into and acting on any instance's sessions.
+//! The system space's backend: looking into and acting on any instance's sessions, and stopping,
+//! restarting and building any instance.
 //!
-//! Every method here is one engine call made as the `system` module, through the same admission
-//! point a device goes through — so each is decided by the table and on the audit trail, and none
-//! is a private channel. What Agix does not offer is not offered here either (concept §5.5).
+//! Every method here is one call made as the `system` module, with the capabilities the
+//! application granted it, through the same admission point a device goes through — so each is
+//! decided by the table and on the audit trail as a child of the device's call, and none is a
+//! private channel. What Agix does not offer is not offered here either (concept §5.5).
 
 use harnix_contract::RpcError;
+use harnix_module::CallContext;
 use serde_json::{json, Value};
 
 use crate::{require_session_id, Builtin};
+
+/// The system space's id: a space reaching across spaces, declared by the system module.
+pub const SYSTEM_SPACE: &str = "system";
+
+/// What each `harnix.system.instances.*` method asks the instance registry, params as given.
+const INSTANCES: &[(&str, &str)] = &[
+    ("harnix.system.instances.stop", "harnix.instances.stop"),
+    ("harnix.system.instances.restart", "harnix.instances.restart"),
+    ("harnix.system.instances.create", "harnix.instances.create"),
+    ("harnix.system.instances.templates", "harnix.instances.templates"),
+];
 
 /// What each `harnix.system.*` method asks the engine, and which parameters it passes on.
 const ENGINE: &[(&str, &str, &[&str])] = &[
@@ -55,7 +69,10 @@ const ENGINE: &[(&str, &str, &[&str])] = &[
 ];
 
 impl Builtin {
-    pub(crate) async fn system_call(&self, name: &str, params: Value) -> Result<Value, RpcError> {
+    pub(crate) async fn system_call(&self, cx: &CallContext, name: &str, params: Value) -> Result<Value, RpcError> {
+        if let Some((_, method)) = INSTANCES.iter().find(|(n, _)| *n == name) {
+            return cx.call(method, params).await;
+        }
         if name == "harnix.system.calls" {
             return self.request_headers(params).await;
         }
@@ -72,7 +89,7 @@ impl Builtin {
             return self.usage(params).await;
         }
         if name == "harnix.system.context" {
-            return self.inspect_context(params).await;
+            return self.inspect_context(cx, params).await;
         }
         let Some((_, method, keys)) = ENGINE.iter().find(|(n, _, _)| *n == name) else {
             return Err(RpcError::not_found(format!(
@@ -88,7 +105,7 @@ impl Builtin {
                 out[*key] = value.clone();
             }
         }
-        self.call("system", method, out).await
+        cx.call(method, out).await
     }
 }
 
@@ -98,14 +115,14 @@ impl Builtin {
     /// provider counted for the last call that was made (`session.get`'s `context`), absent before
     /// the first one. The interface sizes the bar by the measured figure and only divides it by the
     /// estimates, so an estimate never passes for a count.
-    async fn inspect_context(&self, params: Value) -> Result<Value, RpcError> {
+    async fn inspect_context(&self, cx: &CallContext, params: Value) -> Result<Value, RpcError> {
         let target = json!({
             "instance": params.get("instance").cloned().unwrap_or(json!(harnix_contract::SYSTEM_INSTANCE)),
             "session_id": require_session_id(&params)?,
         });
-        let mut context = self.call("system", "session.inspectContext", target.clone()).await?;
-        let measured = self
-            .call("system", "session.get", target)
+        let mut context = cx.call("session.inspectContext", target.clone()).await?;
+        let measured = cx
+            .call("session.get", target)
             .await
             .ok()
             .and_then(|info| info.get("context").cloned())
@@ -131,7 +148,7 @@ impl Builtin {
             .get("space")
             .and_then(Value::as_str)
             .unwrap_or(harnix_contract::SESSIONS_SPACE);
-        if space == harnix_contract::SYSTEM_SPACE {
+        if space == SYSTEM_SPACE {
             return Err(RpcError::new(
                 harnix_contract::codes::SPACE_MISMATCH,
                 "harnix.sessions.setModel acts within one space; across spaces it is harnix.system.model",

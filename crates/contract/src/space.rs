@@ -9,9 +9,6 @@ use serde::{Deserialize, Serialize};
 pub const SESSIONS_SPACE: &str = "sessions";
 /// The projects view: interface only. Its sessions are the session space's, listed by project.
 pub const PROJECTS_SPACE: &str = "projects";
-/// The debugging face: sees and acts on every space's sessions, and every time it reaches across
-/// a space that is audited (concept §5.4).
-pub const SYSTEM_SPACE: &str = "system";
 
 /// Where a space's new sessions land when the caller names no instance.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,6 +47,12 @@ pub struct SpaceDecl {
     /// The scene a new session starts in; the instance's default when absent.
     #[serde(default)]
     pub scene: Option<String>,
+    /// A device's call claiming this space may watch and act on a session of any space; each
+    /// time it reaches across one, that is audited. A guard against mistakes, like every claim —
+    /// the power to read or change another space's sessions is a capability's — and a native
+    /// extension's to declare only.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cross_space: bool,
 }
 
 impl SpaceDecl {
@@ -58,6 +61,7 @@ impl SpaceDecl {
             id: id.into(),
             instance: DefaultInstance::default(),
             scene: None,
+            cross_space: false,
         }
     }
 
@@ -68,6 +72,12 @@ impl SpaceDecl {
 
     pub fn scene(mut self, scene: impl Into<String>) -> Self {
         self.scene = Some(scene.into());
+        self
+    }
+
+    /// See [`SpaceDecl::cross_space`](#structfield.cross_space).
+    pub fn cross_space(mut self) -> Self {
+        self.cross_space = true;
         self
     }
 }

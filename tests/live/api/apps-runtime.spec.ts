@@ -328,7 +328,7 @@ carrier = "spawn"
     expect((await list(before!)).status).toBe(200);
 
     // Restarted: the daemon that held it is gone, and with it what it presented.
-    await api.call("harnix.instances.restart", { instance: "far", space: "system" });
+    await api.call("harnix.system.instances.restart", { instance: "far", space: "system" });
     expect((await list(before!)).status, "a daemon that is gone still opened the endpoint").toBe(401);
     const after = bearer();
     expect(after).toMatch(/^Bearer [0-9a-f]{32}$/);

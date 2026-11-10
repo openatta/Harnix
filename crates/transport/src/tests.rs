@@ -532,3 +532,17 @@ async fn both_topologies_refuse_and_answer_alike() {
     assert_eq!(refused["error"]["code"], harnix_contract::codes::HANDSHAKE_REFUSED, "{refused}");
     assert!(refused["error"]["message"].as_str().unwrap().contains("POST /handshake"), "{refused}");
 }
+
+/// A page's call through the shell's bridge names its extension in `"$ext"`: taken out of the
+/// params, into the call's context; a malformed one is the caller's mistake.
+#[test]
+fn the_bridges_extension_is_taken_out_of_the_params() {
+    let cx = || harnix_kernel::CallContext::root(harnix_contract::Subject::device("d"), None);
+    let (cx1, params) = super::on_behalf_of(cx(), serde_json::json!({"$ext": "acme.notes", "x": 1})).unwrap();
+    assert_eq!(cx1.on_behalf_of.as_ref().map(|e| e.as_str()), Some("acme.notes"));
+    assert_eq!(params, serde_json::json!({"x": 1}));
+    let (plain, _) = super::on_behalf_of(cx(), serde_json::json!({"x": 1})).unwrap();
+    assert!(plain.on_behalf_of.is_none());
+    let e = super::on_behalf_of(cx(), serde_json::json!({"$ext": "Not Ok"})).unwrap_err();
+    assert_eq!(e.code, harnix_contract::codes::INVALID_PARAMS);
+}

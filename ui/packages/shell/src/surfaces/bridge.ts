@@ -277,7 +277,11 @@ export class FrameBridge {
       case "call": {
         const name = text("method", 200);
         if (!admits(iface.id, iface.hub, name, false)) this.refuse(name, t("surface.why.notListed"));
-        return app.call(name, await this.narrow(name, FRAME_HUB[name], p.params ?? {}));
+        // Tagged with the application: the server narrows the call to what its interface may do
+        // too, whatever this side let through.
+        const narrowed = await this.narrow(name, FRAME_HUB[name], p.params ?? {});
+        const params = narrowed && typeof narrowed === "object" && !Array.isArray(narrowed) ? narrowed : {};
+        return app.call(name, { ...params, $ext: iface.id });
       }
       case "subscribe": {
         const topic = text("topic", 200);

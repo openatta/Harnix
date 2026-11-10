@@ -64,7 +64,7 @@ pub(super) fn register(
     let builtin = if builtins {
         let builtin = Builtin::new(roots.state.clone(), roots.projects.clone())?;
         for module in builtin.modules_with(
-            profile.shell.keeps(harnix_contract::SYSTEM_SPACE),
+            profile.shell.keeps(harnix_builtin::SYSTEM_SPACE),
             profile.shell.model_switch,
         ) {
             entries.push(granted_as_required(Box::new(module)));

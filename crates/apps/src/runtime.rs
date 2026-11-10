@@ -641,6 +641,14 @@ impl AppsRuntime for Runtime {
             inline: serde_json::to_value(&manifest.inline).unwrap_or(Value::Null),
         });
         tracing::debug!(app = %id, ui = loaded.ui.len(), "application served");
+        // What its pages in frames may call, told to the server as well as the shell: the router
+        // holds a frame's calls to it whatever the page asks the shell for.
+        if let Some(host) = cx.apps() {
+            let calls = frames(&loaded).then(|| loaded.interface.hub.clone());
+            if let Err(e) = host.frame(id, calls) {
+                tracing::warn!(app = %id, error = %e.message, "its interface in frames was not told to the server");
+            }
+        }
         self.registry.insert(loaded);
         self.changed();
         Ok(self.status_of(id).await)
@@ -649,6 +657,9 @@ impl AppsRuntime for Runtime {
     async fn unload(&self, cx: &ModuleContext, record: &InstallRecord) {
         self.platform.bind(cx);
         let removed = self.registry.remove(&record.id);
+        if let Some(host) = cx.apps() {
+            let _ = host.frame(&record.id, None);
+        }
         // Out of the registry first: a session built from here on has none of its tools, and the
         // page is told its modules are gone. A call already running holds its own instance.
         if removed.is_some() {
