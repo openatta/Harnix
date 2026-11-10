@@ -32,4 +32,6 @@ default = []
 axum = ["dep:axum", "dep:tower"]
 
 [dev-dependencies]
+# `tests/contract.rs` runs a test extension on `harnix::testing::Kernel`: the real router and hub.
+harnix   = { workspace = true, features = ["testing"] }
 tempfile = { workspace = true }

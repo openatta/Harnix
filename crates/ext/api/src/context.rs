@@ -179,7 +179,7 @@ impl EngineView {
         self.ext.require(&caps::RECORDINGS_READ)?;
         self.view
             .recordings()
-            .ok_or_else(|| crate::RpcError::not_found(format!("`{}` keeps no recordings here", self.instance())))
+            .ok_or_else(|| crate::RpcError::missing(format!("`{}` keeps no recordings here", self.instance())))
     }
 
     /// Its sessions' transcripts, to search. Needs `transcripts.read`.
@@ -187,7 +187,7 @@ impl EngineView {
         self.ext.require(&caps::TRANSCRIPTS_READ)?;
         self.view
             .transcripts()
-            .ok_or_else(|| crate::RpcError::not_found(format!("`{}`'s transcripts cannot be read here", self.instance())))
+            .ok_or_else(|| crate::RpcError::missing(format!("`{}`'s transcripts cannot be read here", self.instance())))
     }
 
     /// Where its engine looks for skills. Needs `engine.plugins`.
@@ -351,7 +351,7 @@ impl ExtensionContext {
             .shared
             .ports
             .service(&self.shared.id, S::NAME)
-            .ok_or_else(|| crate::RpcError::not_found(format!("this process has no service `{}`", S::NAME)))?;
+            .ok_or_else(|| crate::RpcError::missing(format!("this process has no service `{}`", S::NAME)))?;
         handle
             .downcast_ref::<Arc<S::Handle>>()
             .cloned()

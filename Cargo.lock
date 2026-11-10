@@ -1564,6 +1564,7 @@ dependencies = [
  "async-trait",
  "axum",
  "bytes",
+ "harnix",
  "harnix-contract",
  "harnix-engine-api",
  "harnix-kernel",
