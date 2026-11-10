@@ -10,6 +10,7 @@ use std::sync::Arc;
 use base::context::config::PathStyle;
 use base::interface::prompt::PromptBlock;
 use base::interface::scene::{ExecutionParams, ReminderContext, Scene, ScenePromptContext, TokenBudget};
+use harnix_engine_api::scene::SessionContext;
 use harnix_engine_api::{SceneFacts, SceneLayer};
 
 use super::tool::AgixTool;
@@ -29,7 +30,7 @@ pub(crate) struct Layered {
     requires_project: Option<bool>,
     auto_name: Option<bool>,
     name_prompt: Option<Option<String>>,
-    session_context: Option<Arc<dyn Fn(&SceneFacts) -> String + Send + Sync>>,
+    session_context: Option<SessionContext>,
 }
 
 impl Layered {

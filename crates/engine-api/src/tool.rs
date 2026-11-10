@@ -331,7 +331,9 @@ impl Drop for CancelGuard {
 /// Where a call reports progress.
 #[non_exhaustive]
 #[derive(Clone)]
-pub struct Progress(Option<Arc<dyn Fn(&str) + Send + Sync>>);
+pub struct Progress(Option<Report>);
+
+type Report = Arc<dyn Fn(&str) + Send + Sync>;
 
 impl Progress {
     pub fn new(f: impl Fn(&str) + Send + Sync + 'static) -> Self {

@@ -33,7 +33,8 @@ pub struct SceneLayer {
     session_context: Option<SessionContext>,
 }
 
-type SessionContext = Arc<dyn Fn(&SceneFacts) -> String + Send + Sync>;
+/// What [`SceneLayer::session_context`] keeps.
+pub type SessionContext = Arc<dyn Fn(&SceneFacts) -> String + Send + Sync>;
 
 impl SceneLayer {
     /// A scene served as `id` (`{base}` is the base's id), and the base's in everything else.
@@ -168,7 +169,7 @@ pub struct LayerParts<'a> {
     pub auto_name: Option<bool>,
     /// `Some(None)`: no naming prompt, whatever the base's.
     pub name_prompt: Option<Option<&'a str>>,
-    pub session_context: Option<&'a Arc<dyn Fn(&SceneFacts) -> String + Send + Sync>>,
+    pub session_context: Option<&'a SessionContext>,
 }
 
 /// The scene a layer changes.
