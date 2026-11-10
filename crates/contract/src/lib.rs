@@ -13,8 +13,8 @@
 pub mod apps;
 pub mod frame;
 pub mod handshake;
+pub mod s1;
 pub mod space;
-pub mod subject;
 pub mod sync;
 
 pub use frame::{Channel, Frame, FrameSink};
@@ -23,7 +23,7 @@ pub use handshake::{
     MAX_UPLOAD_BYTES, PROTOCOL_VERSION,
 };
 pub use space::{DefaultInstance, SpaceDecl, PROJECTS_SPACE, SESSIONS_SPACE, SYSTEM_SPACE};
-pub use subject::Subject;
+pub use s1::{ExtId, Subject};
 
 /// A session's full name: the instance it is on and its id there.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]

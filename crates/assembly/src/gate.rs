@@ -262,7 +262,7 @@ mod tests {
         ];
         router.install_app(&Subject::Kernel, id, rows, &hub).unwrap();
 
-        let me = Subject::Module { id: id.into() };
+        let me = Subject::extension(harnix_contract::ExtId::parse(id).unwrap());
         let reach = router.call(CallContext::root(me, None), harnix_router::REACHABLE, json!({})).await.unwrap();
         let mut methods: Vec<String> = serde_json::from_value(reach["methods"].clone()).unwrap();
         let mut topics: Vec<String> = serde_json::from_value(reach["topics"].clone()).unwrap();

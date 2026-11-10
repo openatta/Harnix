@@ -170,7 +170,7 @@ async fn a_call_routed_back_into_its_own_waiting_backend_is_refused_across_the_w
         .call_method(MethodCall {
             app: ID.into(),
             method: "state".into(),
-            caller: Subject::Module { id: "acme.other".into() },
+            caller: Subject::extension(harnix_contract::ExtId::parse("acme.other").unwrap()),
             params: json!({}),
             chain: vec![ID.into(), "acme.other".into()],
         })

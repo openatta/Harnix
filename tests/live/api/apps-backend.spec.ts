@@ -2,7 +2,7 @@
  * Runtime applications, stage four: a WebAssembly backend. The showcase (`examples/apps/showcase`)
  * is a `backend-app`: one resident instance in this process, its methods `app.example.showcase.*`
  * in the authorization table, its topics pushed like any host topic, its space listed — and what
- * it does as itself (`module:example.showcase`) admitted against its manifest's `hub` and audited.
+ * it does as itself (`ext:example.showcase`) admitted against its manifest's `hub` and audited.
  *
  * The round trip a page makes (a method, the backend, its topic, back to the page) is here as a
  * client makes it; `ui/apps.spec.ts` makes it from the showcase's own interface module. A
@@ -27,7 +27,7 @@ import { SHOWCASE_CHATS, SHOWCASE_ID, showcasePackage, startApps } from "./apps-
 const TAGS = { tag: ["@feature:apps", "@layer:api"] };
 
 const M = (name: string) => `app.${SHOWCASE_ID}.${name}`;
-const ME = `module:${SHOWCASE_ID}`;
+const ME = `ext:${SHOWCASE_ID}`;
 
 type Session = { instance: string; session_id: string };
 
@@ -92,7 +92,7 @@ test.describe("an application with a backend", () => {
     expect(reachable.topics).toContain(M("notes"));
     expect(JSON.stringify(await api.call("harnix.spaces.list"))).toContain(`"${SHOWCASE_ID}"`);
     // On the record, by the module that hosts it.
-    const declared = (await audit(api)).filter((e) => e.decision === "declare" && e.subject === "module:apps");
+    const declared = (await audit(api)).filter((e) => e.decision === "declare" && e.subject === "ext:apps");
     expect(declared.map((e) => e.method)).toEqual(expect.arrayContaining([M("notes.add"), `topic:${M("notes")}`, `space:${SHOWCASE_ID}`]));
     // `init` subscribed to the sessions' status, as its `hub` allows.
     expect(rt.health.subscriptions).toBe(1);

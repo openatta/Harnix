@@ -486,13 +486,13 @@ impl Hub {
     pub(crate) async fn append_entry(&self, subject: &Subject, params: Value) -> Result<Value, RpcError> {
         let key = self.key_of(&params)?;
         let ns = match subject {
-            Subject::Module { id } => format!("app.{id}"),
+            Subject::Extension { id } => format!("app.{id}"),
             Subject::Kernel => params
                 .get("ns")
                 .and_then(Value::as_str)
                 .map(str::to_string)
                 .ok_or_else(|| RpcError::invalid_params("the kernel names an entry's ns"))?,
-            Subject::Device { .. } => {
+            _ => {
                 return Err(RpcError::new(
                     codes::REFUSED,
                     "entries are the application's; a device speaks through harnix.send",

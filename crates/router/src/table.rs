@@ -236,7 +236,8 @@ impl RouteTable {
     /// On any refusal nothing was written.
     pub fn install_app(&mut self, app: &str, rows: Vec<Row>) -> Result<(), TableError> {
         self.check_app(app, rows.iter().map(Row::name))?;
-        self.install(&Owner::extension(app), rows)?;
+        let id = harnix_contract::ExtId::parse(app).map_err(|_| TableError::Namespace(app.to_string()))?;
+        self.install(&Owner::extension(id), rows)?;
         self.runtime.insert(app.to_string());
         Ok(())
     }
@@ -280,8 +281,8 @@ impl RouteTable {
             self.rows.remove(name);
         }
         if let Some(app) = owner.extension_id() {
-            if self.runtime.remove(app) {
-                if let Some(listed) = self.reach.get_mut(app) {
+            if self.runtime.remove(app.as_str()) {
+                if let Some(listed) = self.reach.get_mut(app.as_str()) {
                     listed.clear();
                 }
             }
@@ -316,6 +317,7 @@ impl RouteTable {
         self.rows
             .get(name)
             .and_then(|entry| entry.owner.extension_id())
+            .map(|id| id.as_str())
             .filter(|id| self.runtime.contains(*id))
     }
 
@@ -327,7 +329,7 @@ impl RouteTable {
     /// Every extension that owns a row now: no runtime application may take its id, or nest
     /// under it.
     fn owners(&self) -> impl Iterator<Item = &str> + '_ {
-        let ids: BTreeSet<&str> = self.rows.values().filter_map(|entry| entry.owner.extension_id()).collect();
+        let ids: BTreeSet<&str> = self.rows.values().filter_map(|entry| entry.owner.extension_id().map(|id| id.as_str())).collect();
         ids.into_iter()
     }
 
@@ -396,8 +398,8 @@ impl RouteTable {
         let name = self.resolve(name);
         // Before whether it exists: an application asking for something it did not list is told
         // that, not whether the name is there.
-        if let Subject::Module { id } = subject {
-            if !self.within_reach(id, name) {
+        if let Subject::Extension { id } = subject {
+            if !self.within_reach(id.as_str(), name) {
                 return Decision::Refuse(OUTSIDE_HUB);
             }
         }
@@ -471,7 +473,7 @@ mod tests {
     }
 
     fn module(id: &str) -> Subject {
-        Subject::Module { id: id.into() }
+        Subject::extension(harnix_contract::ExtId::parse(id).unwrap())
     }
 
     fn kernel() -> Owner {
@@ -519,7 +521,7 @@ mod tests {
     fn a_module_declaration_admits_exactly_who_it_names() {
         let mut t = RouteTable::new();
         t.install(
-            &Owner::extension("w"),
+            &Owner::extension(harnix_contract::ExtId::parse("w").unwrap()),
             vec![
                 method("app.w.list", access_for(&[Principal::Device, Principal::Module("trade".into())])),
                 method("app.w.internal", access_for(&[Principal::Kernel])),
@@ -531,7 +533,7 @@ mod tests {
         assert!(matches!(t.decide(&module("other"), "app.w.list"), Decision::Refuse(_)));
         assert!(matches!(t.decide(&device(), "app.w.internal"), Decision::Refuse(_)));
         assert_eq!(
-            t.install(&Owner::extension("w"), vec![method("app.w.list", Access::nobody())]),
+            t.install(&Owner::extension(harnix_contract::ExtId::parse("w").unwrap()), vec![method("app.w.list", Access::nobody())]),
             Err(TableError::Taken("app.w.list".into()))
         );
     }
@@ -540,7 +542,7 @@ mod tests {
     fn routes_and_topics_are_decided_but_not_listed_as_methods() {
         let mut t = RouteTable::new();
         t.install(
-            &Owner::extension("w"),
+            &Owner::extension(harnix_contract::ExtId::parse("w").unwrap()),
             vec![
                 Row::route("w", access_for(&[Principal::Device])),
                 Row::topic("app.w.groups", access_for(&[Principal::Device])),
@@ -566,14 +568,14 @@ mod tests {
     fn assembled() -> RouteTable {
         let mut t = with(vec![method("harnix.hello", Access::device())]);
         t.install(
-            &Owner::extension("probe"),
+            &Owner::extension(harnix_contract::ExtId::parse("probe").unwrap()),
             vec![
                 method("app.probe.echo", access_for(&[Principal::Device])),
                 Row::topic("app.probe.counter", access_for(&[Principal::Device])),
             ],
         )
         .unwrap();
-        t.install(&Owner::extension("routed"), vec![Row::route("routed", access_for(&[Principal::Device]))])
+        t.install(&Owner::extension(harnix_contract::ExtId::parse("routed").unwrap()), vec![Row::route("routed", access_for(&[Principal::Device]))])
             .unwrap();
         t
     }
@@ -587,7 +589,7 @@ mod tests {
         assert_eq!(t.runtime_owner("app.fake.echo"), Some("fake"));
         assert_eq!(t.runtime_owner("app.probe.echo"), None);
 
-        let mut withdrawn = t.withdraw(&Owner::extension("fake"));
+        let mut withdrawn = t.withdraw(&Owner::extension(harnix_contract::ExtId::parse("fake").unwrap()));
         withdrawn.sort();
         assert_eq!(withdrawn, vec!["app.fake.echo", "topic:app.fake.ticks"]);
         // Refused afterwards exactly like a name nobody declared.
@@ -595,7 +597,7 @@ mod tests {
         assert_eq!(t.decide(&device(), &topic("app.fake.ticks")), Decision::Unknown);
         // What assembly put in is untouched.
         assert_eq!(t.decide(&device(), "app.probe.echo"), Decision::Allow);
-        assert!(t.withdraw(&Owner::extension("fake")).is_empty());
+        assert!(t.withdraw(&Owner::extension(harnix_contract::ExtId::parse("fake").unwrap())).is_empty());
     }
 
     #[test]
@@ -650,7 +652,7 @@ mod tests {
         // And withdrawing a compiled-in module, which only assembly does, never takes an
         // application's names.
         t.install_app("fake", rows(&["app.fake.echo"])).unwrap();
-        t.withdraw(&Owner::extension("probe"));
+        t.withdraw(&Owner::extension(harnix_contract::ExtId::parse("probe").unwrap()));
         assert_eq!(t.decide(&device(), "app.fake.echo"), Decision::Allow);
         assert_eq!(t.decide(&device(), "app.probe.echo"), Decision::Unknown);
     }
@@ -668,7 +670,7 @@ mod tests {
         // A sibling shares no names.
         t.install_app("acme.todo", rows(&["app.acme.todo.list"])).unwrap();
         // Once withdrawn, the id is free again.
-        t.withdraw(&Owner::extension("acme.notes"));
+        t.withdraw(&Owner::extension(harnix_contract::ExtId::parse("acme.notes").unwrap()));
         t.install_app("acme.notes", rows(&["app.acme.notes.list"])).unwrap();
     }
 
@@ -795,7 +797,7 @@ mod tests {
         assert_eq!(t.decide(&module("probe"), "harnix.hello"), Decision::Allow);
 
         // Withdrawn, it stays a runtime principal and reaches nothing at all.
-        t.withdraw(&Owner::extension("acme.notes"));
+        t.withdraw(&Owner::extension(harnix_contract::ExtId::parse("acme.notes").unwrap()));
         assert_eq!(t.decide(&me, "session.create"), Decision::Refuse(OUTSIDE_HUB));
         assert!(t.reachable(&me).iter().all(|m| DECIDED_BY_TOPIC.contains(m)), "{:?}", t.reachable(&me));
     }
@@ -820,12 +822,12 @@ mod tests {
     #[test]
     fn rows_are_installed_and_withdrawn_by_owner() {
         let mut t = assembled();
-        assert_eq!(t.owner("app.probe.echo"), Some(&Owner::extension("probe")));
+        assert_eq!(t.owner("app.probe.echo"), Some(&Owner::extension(harnix_contract::ExtId::parse("probe").unwrap())));
         assert_eq!(t.owner("harnix.hello"), Some(&kernel()));
-        let mut gone = t.withdraw(&Owner::extension("probe"));
+        let mut gone = t.withdraw(&Owner::extension(harnix_contract::ExtId::parse("probe").unwrap()));
         gone.sort();
         assert_eq!(gone, ["app.probe.echo", "topic:app.probe.counter"]);
-        assert_eq!(t.owner("route:routed"), Some(&Owner::extension("routed")));
+        assert_eq!(t.owner("route:routed"), Some(&Owner::extension(harnix_contract::ExtId::parse("routed").unwrap())));
         assert_eq!(t.decide(&device(), "harnix.hello"), Decision::Allow);
     }
 }

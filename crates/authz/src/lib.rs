@@ -59,7 +59,8 @@ pub fn decide(subject: &Subject, access: &Access) -> Decision {
     let allowed = match subject {
         Subject::Kernel => access.opens_kernel(),
         Subject::Device { .. } => access.opens_devices(),
-        Subject::Module { id } => !access.is_hub_owned() && access.opens_extension(id),
+        Subject::Extension { id } => !access.is_hub_owned() && access.opens_extension(id.as_str()),
+        _ => false,
     };
     if allowed {
         return Decision::Allow;
@@ -69,7 +70,7 @@ pub fn decide(subject: &Subject, access: &Access) -> Decision {
         Subject::Device { .. } => {
             "this method is not reachable by a device; it was declared for the kernel or for modules"
         }
-        Subject::Module { .. } => "this method was not declared for, or granted to, this module",
+        _ => "this method was not declared for, or granted to, this extension",
     }))
 }
 
@@ -82,7 +83,7 @@ mod tests {
     }
 
     fn module(id: &str) -> Subject {
-        Subject::Module { id: id.into() }
+        Subject::extension(harnix_contract::ExtId::parse(id).unwrap())
     }
 
     #[test]

@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use harnix_contract::sync::{read, write};
-use harnix_contract::{RpcError, Subject};
+use harnix_contract::{ExtId, RpcError, Subject};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
@@ -87,6 +87,7 @@ pub struct InstanceHandle {
 
 struct Shared {
     id: String,
+    ext: ExtId,
     config: Value,
     data_dir: PathBuf,
     credentials: Arc<dyn Credentials>,
@@ -120,6 +121,7 @@ impl ModuleContext {
         Self {
             shared: Arc::new(Shared {
                 id: id.to_string(),
+                ext: ExtId::parse(id).expect("a module is started only once its id was checked"),
                 config,
                 data_dir,
                 credentials,
@@ -164,7 +166,7 @@ impl ModuleContext {
         &self.shared.events
     }
 
-    /// Call any method this module may reach, as `Subject::Module(id)`. The
+    /// Call any method this module may reach, as `Subject::Extension(id)`. The
     /// same admission point a device goes through, and the same audit. A call
     /// made while answering one is [`CallContext::call`], which says so.
     pub async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
@@ -183,9 +185,7 @@ impl ModuleContext {
     }
 
     pub(crate) fn subject(&self) -> Subject {
-        Subject::Module {
-            id: self.shared.id.clone(),
-        }
+        Subject::extension(self.shared.ext.clone())
     }
 
     pub(crate) fn kernel(&self) -> &Arc<dyn Kernel> {
@@ -286,7 +286,7 @@ impl CallContext {
     /// Call a method as this module while answering this call: decided and audited like
     /// [`ModuleContext::call`], and on the record as made within this call.
     pub async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
-        let cx = self.call.child(self.module.id(), false);
+        let cx = self.call.child(&self.module.shared.ext, false);
         self.module.kernel().call_in(cx, method, params).await
     }
 

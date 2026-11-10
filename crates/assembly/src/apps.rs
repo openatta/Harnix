@@ -163,6 +163,16 @@ pub(crate) struct Apps {
     serial: tokio::sync::Mutex<()>,
 }
 
+/// An id that was checked already: a host module's, or a registered application's.
+fn ext_of(id: &str) -> harnix_contract::ExtId {
+    harnix_contract::ExtId::parse(id).expect("an id is checked before it acts")
+}
+
+/// The subject a checked id acts as.
+fn subject_of(id: &str) -> Subject {
+    Subject::extension(ext_of(id))
+}
+
 /// Refused, audited under `by`, as `REFUSED` with the reason.
 fn refuse(router: &Router, by: &Subject, name: &str, why: &'static str, message: String) -> RpcError {
     router.audit().record_change(by, name, Change::Refuse, Some(why));
@@ -221,7 +231,7 @@ impl Apps {
 impl AppRuntime for Apps {
     async fn register(&self, by: &str, spec: AppSpec) -> Result<AppSummary, RpcError> {
         let _serial = self.serial.lock().await;
-        let host = Subject::Module { id: by.to_string() };
+        let host = subject_of(by);
         let id = spec.id.clone();
         let all = app_name(&id, "*");
         let az = &*self.router;
@@ -341,7 +351,7 @@ impl AppRuntime for Apps {
         for space in &added_spaces {
             az.audit().record_change(&host, &format!("space:{space}"), Change::Declare, Some("declared by a runtime application"));
         }
-        let me = Subject::Module { id: id.clone() };
+        let me = subject_of(&id);
         for name in &to_grant {
             // Checked above, under the same serial lock: nothing else writes grants since.
             let _ = az.grant(&me, name, &id, HUB_GRANT);
@@ -375,7 +385,7 @@ impl AppRuntime for Apps {
 
     async fn withdraw(&self, by: &str, id: &str) -> Result<AppWithdrawn, RpcError> {
         let _serial = self.serial.lock().await;
-        let host = Subject::Module { id: by.to_string() };
+        let host = subject_of(by);
         let (summary, granted, client) = match self.live().get(id) {
             None => return Err(RpcError::invalid_params(format!("no application `{id}` is registered"))),
             Some(live) if live.summary.by != by => {
@@ -389,8 +399,8 @@ impl AppRuntime for Apps {
         // The table first: from here a call is decided as unknown, and what it was granted is
         // closed to it again.
         self.router
-            .withdraw(&host, &Owner::extension(id), "withdrawn with its runtime application");
-        let me = Subject::Module { id: id.to_string() };
+            .withdraw(&host, &Owner::extension(ext_of(id)), "withdrawn with its runtime application");
+        let me = subject_of(id);
         for name in &granted {
             self.router.revoke(&me, name, id, "withdrawn with its runtime application");
         }
@@ -450,7 +460,7 @@ impl AppRuntime for Apps {
         // Whether it may is the table's; whether `by` speaks for it is this.
         self.registered_by(by, id)?;
         // On no connection: the application cannot stand in for one.
-        let cx = CallContext::root(Subject::Module { id: id.to_string() }, None).chained(chain);
+        let cx = CallContext::root(subject_of(id), None).chained(chain);
         self.router.call(cx, method, params).await
     }
 
@@ -475,7 +485,7 @@ impl Apps {
     /// Subscribe or unsubscribe the application's client, as the application: the table decides
     /// `topic:<name>` for it like for anyone.
     async fn watch(&self, by: &str, id: &str, name: &str, params: Value, method: &str) -> Result<Value, RpcError> {
-        let me = Subject::Module { id: id.to_string() };
+        let me = subject_of(id);
         let Some(client) = self.registered_by(by, id)? else {
             return Err(RpcError::refused(format!("`{id}` was registered without anywhere for topic values to go")));
         };
@@ -608,7 +618,7 @@ mod tests {
             .unwrap();
         let compiled = Arc::new(RuntimeMethod(Arc::new(Fixed(json!("the compiled-in probe")))));
         table
-            .install(&Owner::extension("probe"), vec![Row::method("app.probe.echo", Access::device(), compiled)])
+            .install(&Owner::extension(harnix_contract::ExtId::parse("probe").unwrap()), vec![Row::method("app.probe.echo", Access::device(), compiled)])
             .unwrap();
         let az = Arc::new(Router::new(table, Arc::new(Audit::default())));
         let stub = Arc::new(Stub::default());
@@ -656,7 +666,7 @@ mod tests {
         let declared: Vec<_> = w.az.audit().recent(50).into_iter().filter(|e| e.decision == "declare").collect();
         let names: BTreeSet<_> = declared.iter().map(|e| e.method.as_str()).collect();
         assert_eq!(names, BTreeSet::from(["app.fake.echo", "app.fake.internal", "topic:app.fake.ticks", "space:fake"]));
-        assert!(declared.iter().all(|e| e.subject == "module:host" && e.at_ms.is_some()));
+        assert!(declared.iter().all(|e| e.subject == "ext:host" && e.at_ms.is_some()));
         let called = w.az.audit().recent(50).into_iter().find(|e| e.method == "app.fake.echo" && e.decision == "allow");
         assert_eq!(called.unwrap().subject, "device:d1");
 
@@ -695,7 +705,7 @@ mod tests {
     }
 
     fn me(id: &str) -> Subject {
-        Subject::Module { id: id.into() }
+        subject_of(id)
     }
 
     #[tokio::test]
@@ -714,7 +724,7 @@ mod tests {
             json!({"below": "session.create"})
         );
         let (subject, _, params, client) = lock(&w.below.seen).last().cloned().unwrap();
-        assert_eq!(subject, "module:acme.notes");
+        assert_eq!(subject, "ext:acme.notes");
         assert_eq!((params, client), (json!({"x": 1}), None));
         // Listed and refused to devices: granted to it, and to nobody else.
         assert!(w.apps.call_as("host", "acme.notes", "settings.write", json!({})).await.is_ok());
@@ -722,14 +732,14 @@ mod tests {
         // Its own methods, unlisted and declared for devices only.
         assert_eq!(
             w.apps.call_as("host", "acme.notes", "app.acme.notes.echo", json!({"y": 2})).await.unwrap()["caller"],
-            json!({"kind": "module", "id": "acme.notes"})
+            json!({"kind": "extension", "id": "acme.notes"})
         );
         // Not listed, though open to every module: refused by the table, and on the record.
         let refused = w.apps.call_as("host", "acme.notes", "harnix.hello", json!({})).await.unwrap_err();
         assert_eq!(refused.code, codes::REFUSED);
         assert!(refused.message.contains("`hub` capability"), "{}", refused.message);
         let entry = w.az.audit().recent(100).into_iter().find(|e| e.method == "harnix.hello").unwrap();
-        assert_eq!((entry.subject.as_str(), entry.decision), ("module:acme.notes", "refuse"));
+        assert_eq!((entry.subject.as_str(), entry.decision), ("ext:acme.notes", "refuse"));
         assert_eq!(entry.reason, Some(OUTSIDE_HUB));
         // The same answer through the router directly: there is no other door to go around.
         assert_eq!(call(&w.az, &me("acme.notes"), "harnix.hello", json!({})).await.unwrap_err().code, codes::REFUSED);
@@ -746,7 +756,7 @@ mod tests {
         // Subscribing: a listed topic, through its own client of the hub; an unlisted one refused.
         w.apps.subscribe_as("host", "acme.notes", "harnix.sessions.status", json!({})).await.unwrap();
         let (subject, method, params, client) = lock(&w.below.seen).last().cloned().unwrap();
-        assert_eq!((subject.as_str(), method.as_str()), ("module:acme.notes", "harnix.subscribe"));
+        assert_eq!((subject.as_str(), method.as_str()), ("ext:acme.notes", "harnix.subscribe"));
         assert_eq!(params, json!({"topic": "harnix.sessions.status", "params": {}}));
         assert_eq!(client, Some(ClientId(101)), "as its own client of the hub");
         assert_eq!(
@@ -758,7 +768,7 @@ mod tests {
             .audit()
             .recent(100)
             .iter()
-            .any(|e| e.subject == "module:acme.notes" && e.method == "harnix.subscribe" && e.reason == Some(OUTSIDE_HUB)));
+            .any(|e| e.subject == "ext:acme.notes" && e.method == "harnix.subscribe" && e.reason == Some(OUTSIDE_HUB)));
         // Its own topic needs no listing.
         w.apps.subscribe_as("host", "acme.notes", "app.acme.notes.ticks", json!({"job": 1})).await.unwrap();
         // What the hub pushes its client reaches the sink, topic values and endings both.

@@ -282,7 +282,7 @@ mod tests {
             .install(&Owner::Kernel(KernelPart::Router), vec![Row::closed(REACHABLE, Access::device())])
             .unwrap();
         table
-            .install(&Owner::extension("w"), vec![Row::route("w", access_for(&[Principal::Kernel]))])
+            .install(&Owner::extension(harnix_contract::ExtId::parse("w").unwrap()), vec![Row::route("w", access_for(&[Principal::Kernel]))])
             .unwrap();
         (Router::new(table, Arc::new(Audit::default())), seen)
     }
@@ -312,11 +312,11 @@ mod tests {
     async fn a_call_made_while_handling_another_is_its_child_in_the_audit() {
         let (router, _) = router();
         let outer = CallContext::root(device(), None);
-        let inner = outer.child("system", false);
+        let inner = outer.child(&harnix_contract::ExtId::parse("system").unwrap(), false);
         let answer = router.call(inner, "harnix.hello", json!({})).await.unwrap();
         assert_eq!(answer["parent"], json!(outer.call_id.get()));
         assert_eq!(router.audit().recent(1)[0].parent, Some(outer.call_id.get()));
-        assert_eq!(router.audit().recent(1)[0].subject, "module:system");
+        assert_eq!(router.audit().recent(1)[0].subject, "ext:system");
     }
 
     #[tokio::test]

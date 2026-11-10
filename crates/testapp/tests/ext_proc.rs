@@ -129,7 +129,7 @@ impl Kernel for Product {
                 .call_method(MethodCall {
                     app: ID.into(),
                     method: own.into(),
-                    caller: Subject::Module { id: ID.into() },
+                    caller: Subject::extension(harnix::ExtId::parse(ID).unwrap()),
                     params: c.params,
                     chain: c.chain,
                 })

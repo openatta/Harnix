@@ -22,7 +22,7 @@ net = ["api.showcase.test"]
 # What `state` reports as `secret_set`, through `host.secret`: the secret the profile gives it,
 # [apps.secrets."example.showcase"] SHOWCASE_TOKEN = "…" — never this process's environment.
 env = ["SHOWCASE_TOKEN"]
-# What the backend may do as `module:example.showcase`: start a session and send it a prompt
+# What the backend may do as `ext:example.showcase`: start a session and send it a prompt
 # (`session.start`), watch which sessions are running, and put a card in a session's flow
 # (`card.post`, drawn from `[[inline.flow_block]]`). `overreach` tries something else.
 hub = ["session.create", "harnix.send", "topic:harnix.sessions.status", "harnix.entries.append"]

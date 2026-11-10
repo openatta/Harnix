@@ -52,7 +52,7 @@ test("a method declared only for the kernel is refused to a device", TAGS, async
 test("one module reaches another only where it was named", TAGS, async () => {
   // peer → probe.for_peer: declared for Module(peer).
   const allowed = await api.call("app.peer.relay", { method: "app.probe.for_peer" });
-  expect(allowed.caller).toEqual({ kind: "module", id: "peer" });
+  expect(allowed.caller).toEqual({ kind: "extension", id: "peer" });
   // peer → probe.internal: the kernel's only.
   const refused = await api.refused("app.peer.relay", { method: "app.probe.internal" });
   expect(refused?.code).toBe(REFUSED);

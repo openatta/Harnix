@@ -11,7 +11,7 @@
 //!
 //! A module never gets the hub's internals or an engine link. Its
 //! [`ModuleContext`] calls through the same admission point a device does,
-//! as `Subject::Module(id)`, so a module cannot go around the hub by accident
+//! as `Subject::Extension(id)`, so a module cannot go around the hub by accident
 //! (concept §6.2: a structural guard against mistakes).
 //!
 //! The interface's contribution points (`catalog`) live here too: the

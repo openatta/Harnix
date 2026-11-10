@@ -118,7 +118,7 @@ impl Kernel for FakePlatform {
                 .call_method(MethodCall {
                     app: c.app.clone(),
                     method: own.into(),
-                    caller: Subject::Module { id: c.app.clone() },
+                    caller: Subject::extension(harnix_contract::ExtId::parse(&c.app).unwrap()),
                     params: c.params,
                     chain: c.chain,
                 })
@@ -129,7 +129,7 @@ impl Kernel for FakePlatform {
             let call = MethodCall {
                 app: c.app.clone(),
                 method: own.clone(),
-                caller: Subject::Module { id: c.app.clone() },
+                caller: Subject::extension(harnix_contract::ExtId::parse(&c.app).unwrap()),
                 params: json!({}),
                 chain: c.chain,
             };

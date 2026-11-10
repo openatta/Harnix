@@ -114,7 +114,7 @@ test.describe("with [apps] enabled", () => {
 
     // Who declared what, and when; and who called it.
     const entries = await audit(api);
-    const declared = entries.filter((e) => e.decision === "declare" && e.subject === "module:fakehost");
+    const declared = entries.filter((e) => e.decision === "declare" && e.subject === "ext:fakehost");
     expect(declared.map((e) => e.method).sort()).toEqual(
       ["app.fake.echo", "app.fake.internal", "app.fake.slow", "space:fake", "topic:app.fake.ticks"],
     );
@@ -166,7 +166,7 @@ test.describe("with [apps] enabled", () => {
         (f) => f.method === "harnix.topic" && f.params.topic === "harnix.spaces" && !f.params.value.spaces.some((s: any) => s.id === "fake"),
         { describe: "the spaces list without the application's space" },
       );
-      const withdrew = (await audit(api)).filter((e) => e.decision === "withdraw" && e.subject === "module:fakehost");
+      const withdrew = (await audit(api)).filter((e) => e.decision === "withdraw" && e.subject === "ext:fakehost");
       expect(withdrew.map((e) => e.method).sort()).toEqual(
         ["app.fake.echo", "app.fake.internal", "app.fake.slow", "space:fake", "topic:app.fake.ticks"],
       );
@@ -193,7 +193,7 @@ test.describe("with [apps] enabled", () => {
     expect((await api.call("app.twice.echo", { x: 1 })).params).toEqual({ x: 1 });
     await api.call("app.fakehost.unregister", { id: "twice" });
 
-    const refusals = (await audit(api)).filter((e) => e.decision === "refuse" && e.subject === "module:fakehost");
+    const refusals = (await audit(api)).filter((e) => e.decision === "refuse" && e.subject === "ext:fakehost");
     expect(refusals.length).toBeGreaterThanOrEqual(6);
   });
 });

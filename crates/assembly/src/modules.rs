@@ -107,9 +107,9 @@ impl Record {
         self.enabled.load(Ordering::Acquire)
     }
 
-    /// Its rows' owner in the route table.
+    /// Its rows' owner in the route table. Asked only once its id was checked.
     pub fn owner(&self) -> Owner {
-        Owner::extension(self.manifest.id.clone())
+        Owner::extension(harnix_contract::ExtId::parse(&self.manifest.id).expect("a module's id is checked first"))
     }
 
     pub fn disable(&mut self, phase: &'static str, reason: String, table: &mut RouteTable) {

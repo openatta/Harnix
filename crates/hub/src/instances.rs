@@ -77,12 +77,12 @@ fn builder_of(subject: &Subject, space: &str, template: &InstanceTemplate, decla
     match subject {
         Subject::Kernel => Ok(Owner::Kernel),
         // A module builds from its own templates and the profile's.
-        Subject::Module { id } => match declared_by {
-            Owner::Module(owner) if owner != id => Err(refused(format!(
+        Subject::Extension { id } => match declared_by {
+            Owner::Module(owner) if id != owner.as_str() => Err(refused(format!(
                 "template `{}` belongs to module `{owner}`",
                 template.id
             ))),
-            _ => Ok(Owner::Module(id.clone())),
+            _ => Ok(Owner::Module(id.to_string())),
         },
         // The interface builds only from what is opened to it (`ui` templates); the system space, the
         // debugging face, from any template.
@@ -99,6 +99,7 @@ fn builder_of(subject: &Subject, space: &str, template: &InstanceTemplate, decla
                 )))
             }
         }
+        _ => Err(refused(format!("template `{}` is not one this caller may build from", template.id))),
     }
 }
 
@@ -440,7 +441,7 @@ impl Hub {
         let allowed = match (subject, &slot.owner) {
             _ if instance == SYSTEM || slot.owner == Owner::Kernel => false,
             (Subject::Kernel, _) => true,
-            (Subject::Module { id }, Owner::Module(owner)) => id == owner,
+            (Subject::Extension { id }, Owner::Module(owner)) => id == owner.as_str(),
             (Subject::Device { .. }, _) if space == harnix_contract::SYSTEM_SPACE => true,
             (Subject::Device { .. }, Owner::Space(owner)) => *owner == space,
             _ => false,
@@ -474,8 +475,8 @@ impl Hub {
         let space = self.claimed(&params)?;
         let allowed = match (subject, &slot.owner) {
             (Subject::Kernel, _) => true,
-            (Subject::Module { id }, _) if id == "system" => true,
-            (Subject::Module { id }, Owner::Module(owner)) => id == owner,
+            (Subject::Extension { id }, _) if id == "system" => true,
+            (Subject::Extension { id }, Owner::Module(owner)) => id == owner.as_str(),
             (Subject::Device { .. }, _) if space == harnix_contract::SYSTEM_SPACE => true,
             (Subject::Device { .. }, Owner::Space(owner)) => *owner == space,
             _ => false,
