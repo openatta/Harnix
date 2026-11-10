@@ -36,6 +36,10 @@ const SYSTEM_METHODS = [
   "harnix.system.clear",
   "harnix.system.model",
   "harnix.system.rename",
+  "harnix.system.instances.stop",
+  "harnix.system.instances.restart",
+  "harnix.system.instances.create",
+  "harnix.system.instances.templates",
 ];
 
 /** A session in `space` that has had one turn, the user's message first. */
@@ -357,9 +361,12 @@ test.describe("on", () => {
     const fleet = await oneTurn(api, "fleet");
     const all = (await api.call("harnix.sessions", { space: "system" })).sessions.map((r: any) => r.session_id);
     expect(all).toContain(fleet.session_id);
-    const { templates } = await api.call("harnix.instances.templates", { space: "system" });
+    // Any template, through the system module, which holds `instances.admin`; a device by itself
+    // only the interface's own (`ui`), whatever space it claims.
+    const { templates } = await api.call("harnix.system.instances.templates", { space: "system" });
     const fromSessions = (await api.call("harnix.instances.templates", {})).templates;
     expect(templates.length).toBeGreaterThanOrEqual(fromSessions.length);
+    expect((await api.call("harnix.instances.templates", { space: "system" })).templates).toEqual(fromSessions);
   });
 
   test("a session made in the system space is the system space's", TAGS, async () => {
@@ -370,15 +377,20 @@ test.describe("on", () => {
   });
 
   test("an instance restarts from where it was built; `system` does not", TAGS, async () => {
-    expect((await api.refused("harnix.instances.restart", { instance: "system", space: "system" }))?.code).toBe(REFUSED);
-    // Not the interface's to restart from anywhere but the system space.
+    expect((await api.refused("harnix.system.instances.restart", { instance: "system", space: "system" }))?.code).toBe(REFUSED);
+    // Not the interface's to restart, from any space: a device holds no capability. The system
+    // module, holding `instances.admin`, restarts it for the system space.
     expect((await api.refused("harnix.instances.restart", { instance: "fleet-side" }))?.code).toBe(REFUSED);
-    const restarted = await api.call("harnix.instances.restart", { instance: "fleet-side", space: "system" });
+    expect((await api.refused("harnix.instances.restart", { instance: "fleet-side", space: "system" }))?.code).toBe(REFUSED);
+    const restarted = await api.call("harnix.system.instances.restart", { instance: "fleet-side", space: "system" });
     expect(restarted.id).toBe("fleet-side");
     await until(api, "fleet-side", "ready");
     await oneTurn(api, "fleet");
     const { entries } = await api.call("harnix.audit", { limit: 200 });
-    expect(entries.some((e: any) => e.method === "harnix.instances.restart" && e.decision === "allow")).toBe(true);
+    // On the record as the system module's, made while answering the device's call.
+    const made = entries.find((e: any) => e.method === "harnix.instances.restart" && e.decision === "allow");
+    expect(made).toMatchObject({ subject: "ext:system" });
+    expect(made.parent).toBe(entries.find((e: any) => e.method === "harnix.system.instances.restart" && e.decision === "allow")?.call_id);
   });
 });
 

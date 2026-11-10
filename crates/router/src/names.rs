@@ -1,6 +1,16 @@
-//! How a name is built, in one place: a topic's and a route's row names, what an application id
-//! may be, and which names are inside an application's own namespace. Used when rows are
-//! installed and decided — never to find what answers a call: that is the row's handler.
+//! How a name is built and whose it is, in one place: a topic's and a route's row names, what an
+//! application id may be, which names are inside an extension's namespace, and who owns one.
+//! Used when ids are registered and rows installed — never to find what answers a call: that is
+//! the row's handler.
+//!
+//! **Who owns a name** is the registered extension id it starts with by whole segments, the
+//! longest one ([`owner_of`]). So no two registered ids may overlap ([`overlap`]): a native
+//! `example` and a package `example.showcase` would both own `example.showcase.*`, and the native
+//! one, registered first, keeps it; the package fails `namespace_taken`. A package's first
+//! segment is never a reserved word ([`RESERVED`]) nor a native extension's id.
+
+pub use harnix_contract::s1::RESERVED;
+use harnix_contract::ExtId;
 
 /// The row-name prefix of a route.
 pub(crate) const ROUTE: &str = "route:";
@@ -47,12 +57,29 @@ pub fn valid_app_id(id: &str) -> bool {
         })
 }
 
-/// Whether two application ids would share names: equal, or one a dot-prefix of the other
-/// (`acme` owns `app.acme.notes.x` as much as `acme.notes` does).
-pub fn apps_overlap(a: &str, b: &str) -> bool {
-    let nested =
-        |outer: &str, inner: &str| inner.len() > outer.len() && inner.starts_with(outer) && inner.as_bytes()[outer.len()] == b'.';
-    a == b || nested(a, b) || nested(b, a)
+/// Whether `prefix` begins `name` by whole segments: `acme` begins `acme.notes`, not `acmeish`.
+pub fn whole_prefix(prefix: &str, name: &str) -> bool {
+    name == prefix || name.strip_prefix(prefix).is_some_and(|rest| rest.starts_with('.'))
+}
+
+/// Whether two extension ids would share names: equal, or one a whole-segment prefix of the
+/// other (`acme` owns `acme.notes.x` as much as `acme.notes` does).
+pub fn overlap(a: &str, b: &str) -> bool {
+    whole_prefix(a, b) || whole_prefix(b, a)
+}
+
+/// Who owns `name` among `ids`: the longest that begins it by whole segments.
+pub fn owner_of<'a>(name: &str, ids: impl IntoIterator<Item = &'a ExtId>) -> Option<&'a ExtId> {
+    ids.into_iter()
+        .filter(|id| whole_prefix(id.as_str(), name))
+        .max_by_key(|id| id.as_str().len())
+}
+
+/// The part of a row name an extension id is matched against: what follows `app.` in a method
+/// or a topic, while extensions' names are `app.<id>.<name>`.
+pub(crate) fn extension_part(name: &str) -> Option<&str> {
+    let name = topic_of(name).unwrap_or(name);
+    name.strip_prefix("app.")
 }
 
 /// The full name of an application's method or topic: `app.<id>.<name>`.
@@ -103,11 +130,22 @@ mod tests {
 
     #[test]
     fn overlap_is_by_whole_segments() {
-        assert!(apps_overlap("acme", "acme"));
-        assert!(apps_overlap("acme", "acme.notes"));
-        assert!(apps_overlap("acme.notes", "acme"));
-        assert!(!apps_overlap("acme", "acmex"));
-        assert!(!apps_overlap("acme.notes", "acme.todo"));
+        assert!(overlap("acme", "acme"));
+        assert!(overlap("acme", "acme.notes"));
+        assert!(overlap("acme.notes", "acme"));
+        assert!(!overlap("acme", "acmex"));
+        assert!(!overlap("acme.notes", "acme.todo"));
+    }
+
+    #[test]
+    fn a_name_is_the_longest_whole_segment_prefixs() {
+        let ids: Vec<ExtId> = ["acme", "acme.notes", "flow"].iter().map(|s| ExtId::parse(s).unwrap()).collect();
+        assert_eq!(owner_of("acme.notes.list", &ids).map(ExtId::as_str), Some("acme.notes"));
+        assert_eq!(owner_of("acme.todo.list", &ids).map(ExtId::as_str), Some("acme"));
+        assert_eq!(owner_of("acmeish.x", &ids), None);
+        assert_eq!(owner_of("flow", &ids).map(ExtId::as_str), Some("flow"));
+        assert_eq!(extension_part("topic:app.flow.runs"), Some("flow.runs"));
+        assert_eq!(extension_part("harnix.hello"), None);
     }
 
     #[test]

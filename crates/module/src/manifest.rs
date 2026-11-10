@@ -1,18 +1,22 @@
 //! What a module says about itself.
 
-/// A module's identity and what it discloses.
+use harnix_contract::s1::{Capability, CapabilitySpec};
+
+/// A module's identity, what it discloses, and the privileges it needs.
 ///
-/// `grants` are methods beyond what a device may call that this module needs
-/// — the settings module writing a provider, which no device may do
-/// directly. They are applied to the authorization table at registration and
-/// shown on the diagnostics page: a module is trusted code, and the grant is
-/// a disclosure, not a sandbox.
+/// Privilege is capabilities, granted by the application where it adds the module, never taken:
+/// `requires` must all be granted or the process refuses to start; `optional` may be, and the
+/// module does less without them; nothing else may be (a privilege granted and not asked for is
+/// one nobody sees). `defines` are capabilities of its own (`<id>.<name>`) its rows may require
+/// and the application may grant to other modules. All of it is on the diagnostics page.
 #[derive(Debug, Clone)]
 pub struct Manifest {
     pub id: String,
     pub version: String,
     pub disclosure: String,
-    pub grants: Vec<String>,
+    pub requires: Vec<Capability>,
+    pub optional: Vec<Capability>,
+    pub defines: Vec<CapabilitySpec>,
 }
 
 impl Manifest {
@@ -21,7 +25,9 @@ impl Manifest {
             id: id.into(),
             version: version.into(),
             disclosure: String::new(),
-            grants: Vec::new(),
+            requires: Vec::new(),
+            optional: Vec::new(),
+            defines: Vec::new(),
         }
     }
 
@@ -30,8 +36,19 @@ impl Manifest {
         self
     }
 
-    pub fn grant(mut self, method: impl Into<String>) -> Self {
-        self.grants.push(method.into());
+    pub fn requires(mut self, caps: impl IntoIterator<Item = Capability>) -> Self {
+        self.requires.extend(caps);
+        self
+    }
+
+    pub fn optional(mut self, caps: impl IntoIterator<Item = Capability>) -> Self {
+        self.optional.extend(caps);
+        self
+    }
+
+    /// A capability of its own, named `<its id>.<name>`.
+    pub fn defines(mut self, spec: CapabilitySpec) -> Self {
+        self.defines.push(spec);
         self
     }
 }

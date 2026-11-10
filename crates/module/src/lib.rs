@@ -11,7 +11,7 @@
 //!
 //! A module never gets the hub's internals or an engine link. Its
 //! [`ModuleContext`] calls through the same admission point a device does,
-//! as `Subject::Module(id)`, so a module cannot go around the hub by accident
+//! as `Subject::Extension(id)`, so a module cannot go around the hub by accident
 //! (concept §6.2: a structural guard against mistakes).
 //!
 //! The interface's contribution points (`catalog`) live here too: the
@@ -51,7 +51,9 @@ pub use harnix_instance::templates::{AttachTo, InstanceTemplate, InstanceTemplat
 pub use harnix_authz::Principal;
 /// A module that issues upload grants answers the upload route through this.
 pub use harnix_contract::BulkStore;
-pub use harnix_contract::{DefaultInstance, RpcError, SpaceDecl, Subject};
+pub use harnix_contract::{DefaultInstance, ExtId, RpcError, SpaceDecl, Subject};
+/// Privileges: the kernel's catalogue (`caps::ENGINE_INSPECT`, …), and a module's own.
+pub use harnix_contract::s1::{caps, Capability, CapabilitySpec};
 
 /// What a module declares in `spaces()`.
 #[derive(Default)]

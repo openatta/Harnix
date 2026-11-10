@@ -66,6 +66,9 @@ pub struct AuditEntry {
     /// device, a module calling while it answers. The audit reads as a tree.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent: Option<u64>,
+    /// The extension whose page in a frame made a device's call: `ext:<id>`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub via: Option<String>,
 }
 
 /// What a runtime change to the table was, as an entry's `decision`.
@@ -144,6 +147,7 @@ impl Audit {
             at_ms: None,
             call_id: None,
             parent: None,
+            via: None,
         });
     }
 
@@ -165,6 +169,7 @@ impl Audit {
             at_ms: None,
             call_id: Some(cx.call_id.get()),
             parent: cx.parent.map(|p| p.get()),
+            via: cx.on_behalf_of.as_ref().map(|ext| format!("ext:{ext}")),
         });
     }
 
@@ -185,6 +190,7 @@ impl Audit {
             at_ms: Some(at_ms),
             call_id: None,
             parent: None,
+            via: None,
         });
     }
 
@@ -231,14 +237,14 @@ mod tests {
     fn a_call_is_recorded_with_its_id_and_its_parent() {
         let audit = Audit::default();
         let root = CallContext::root(Subject::Device { id: "d".into() }, None);
-        let child = root.child("system", false);
+        let child = root.child(&harnix_contract::ExtId::parse("system").unwrap(), false);
         audit.record_call(&root, "harnix.system.compact", Decision::Allow, None, None);
         audit.record_call(&child, "session.compact", Decision::Allow, None, None);
         let [inner, outer] = [&audit.recent(2)[0], &audit.recent(2)[1]];
         assert_eq!(outer.call_id, Some(root.call_id.get()));
         assert_eq!(outer.parent, None);
         assert_eq!(inner.parent, outer.call_id);
-        assert_eq!(inner.subject, "module:system");
+        assert_eq!(inner.subject, "ext:system");
         let json = serde_json::to_value(outer).unwrap();
         assert!(json.get("parent").is_none(), "{json}");
     }

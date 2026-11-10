@@ -6,7 +6,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use harnix_contract::{RpcError, Subject};
+use harnix_contract::{ExtId, RpcError, Subject};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
@@ -88,7 +88,7 @@ pub struct CallContext {
     /// call that came on none.
     pub client: Option<ClientId>,
     /// The extension whose page made this device's call, through the shell's bridge.
-    pub on_behalf_of: Option<String>,
+    pub on_behalf_of: Option<ExtId>,
     pub call_id: CallId,
     /// The call this one was made while handling.
     pub parent: Option<CallId>,
@@ -116,14 +116,14 @@ impl CallContext {
     /// one as its parent, cancelled with it, by the same deadline. When `by` answers one call at
     /// a time (`serialized`), it is waiting on the new call, held in this one, and the chain says
     /// so. No connection: an extension cannot stand in for one.
-    pub fn child(&self, by: &str, serialized: bool) -> Self {
+    pub fn child(&self, by: &ExtId, serialized: bool) -> Self {
         let chain = if serialized {
             self.chain.with(ChainLink { ext: by.to_string(), call: Some(self.call_id) })
         } else {
             self.chain.clone()
         };
         Self {
-            subject: Subject::Module { id: by.to_string() },
+            subject: Subject::extension(by.clone()),
             client: None,
             on_behalf_of: None,
             call_id: CallId::next(),
@@ -160,14 +160,15 @@ mod tests {
     #[test]
     fn a_child_is_its_parents_with_a_new_id() {
         let root = CallContext::root(Subject::Device { id: "d".into() }, Some(ClientId(3)));
-        let child = root.child("system", false);
+        let id = |s: &str| ExtId::parse(s).unwrap();
+        let child = root.child(&id("system"), false);
         assert_eq!(child.parent, Some(root.call_id));
         assert!(child.call_id > root.call_id);
-        assert_eq!(child.subject, Subject::Module { id: "system".into() });
+        assert_eq!(child.subject, Subject::extension(id("system")));
         assert_eq!(child.client, None, "an extension does not stand in for a connection");
         assert!(child.chain.is_empty());
 
-        let held = root.child("acme.notes", true).child("acme.todo", true);
+        let held = root.child(&id("acme.notes"), true).child(&id("acme.todo"), true);
         assert_eq!(held.chain.extensions().collect::<Vec<_>>(), ["acme.notes", "acme.todo"]);
         assert_eq!(held.chain.links()[0].call, Some(root.call_id));
 

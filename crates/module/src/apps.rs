@@ -258,6 +258,14 @@ pub trait AppRuntime: Send + Sync {
         let _ = (by, id, topic, params);
         Ok(())
     }
+
+    /// What a page of `id`'s in an isolated frame may call besides `id`'s own names: its
+    /// interface's `hub`. `None` when it has no framed interface (any more), and then a call the
+    /// shell makes on such a page's behalf is refused. Whether its backend is registered or not.
+    fn frame(&self, by: &str, id: &str, calls: Option<Vec<String>>) -> Result<(), RpcError> {
+        let _ = (by, id, calls);
+        Err(RpcError::refused("this host does not serve interfaces in frames"))
+    }
 }
 
 /// One module's handle on the runtime-application host. Every registration
@@ -297,6 +305,12 @@ impl AppHost {
     /// Every application registered now, by any module.
     pub fn registered(&self) -> Vec<AppSummary> {
         self.runtime.registered()
+    }
+
+    /// What a page of the application `id` in a frame may call besides its own names; `None` once
+    /// it has no framed interface ([`AppRuntime::frame`]).
+    pub fn frame(&self, id: &str, calls: Option<Vec<String>>) -> Result<(), RpcError> {
+        self.runtime.frame(&self.by, id, calls)
     }
 }
 

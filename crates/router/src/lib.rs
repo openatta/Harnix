@@ -4,9 +4,11 @@
 //! it. A call is decided once, by its row, and handed to that row's handler; nothing dispatches
 //! on what a name starts with, and nothing behind the router decides again.
 //!
-//! Every change to the table after assembly goes through [`Router`], which puts it on the
-//! record: an application's names installed and withdrawn, a grant made and revoked, a failed
-//! module's rows withdrawn.
+//! What a caller holds is not in the table: [`Router`] decides every call by the row and by a
+//! [`harnix_kernel::GrantBook`] — capabilities, and how far an extension is trusted — and narrows
+//! a package's call, and a page's in a frame, to its own space. Every change to the table after
+//! assembly goes through [`Router`], which puts it on the record: an application's names
+//! installed and withdrawn, a failed module's rows withdrawn.
 //!
 //! Only the assembly depends on this crate: it is the one that installs rows, and everything
 //! else is called through [`harnix_kernel::Dispatch`] and asks [`harnix_kernel::RouteDecider`].
@@ -16,15 +18,15 @@ mod snapshot;
 mod table;
 
 pub use names::{route, topic};
-pub use table::{Row, RowKind, RouteTable, TableError, OUTSIDE_HUB};
+pub use table::{IdKind, Row, RowKind, RouteTable, TableError, OUTSIDE_HUB, UNREGISTERED};
 
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use harnix_authz::{Audit, Change, Decision};
 use harnix_contract::sync::{read, write};
 use harnix_contract::{RpcError, Subject};
-use harnix_kernel::{CallContext, Dispatch, Owner, RouteDecider, Rpc};
-use serde_json::Value;
+use harnix_kernel::{CallContext, Dispatch, GrantBook, Owner, RouteDecider, Rpc};
+use serde_json::{json, Value};
 
 /// The method this layer answers itself.
 ///
@@ -34,24 +36,36 @@ use serde_json::Value;
 /// built from it — so the message is the same whichever side catches the call.
 pub const REACHABLE: &str = "harnix.reachable";
 
-/// Decides every call by its row, records the decision, and hands the call to the row's handler.
+/// Why a page in a frame is refused a name its interface does not list.
+pub const OUTSIDE_FRAME: &str = "not in the extension interface's `hub`";
+/// Why a call claiming a page's extension is refused when that extension has no framed interface.
+pub const NO_FRAME: &str = "this extension has no interface in a frame";
+
+/// Decides every call by its row and what the caller holds, records the decision, and hands the
+/// call to the row's handler.
 pub struct Router {
     /// Written when an application comes and goes, or a module fails to start; read on every
     /// call.
     table: RwLock<RouteTable>,
+    grants: Arc<dyn GrantBook>,
     audit: Arc<Audit>,
 }
 
 impl Router {
-    pub fn new(table: RouteTable, audit: Arc<Audit>) -> Self {
+    pub fn new(table: RouteTable, grants: Arc<dyn GrantBook>, audit: Arc<Audit>) -> Self {
         Self {
             table: RwLock::new(table),
+            grants,
             audit,
         }
     }
 
     pub fn audit(&self) -> &Arc<Audit> {
         &self.audit
+    }
+
+    pub fn grants(&self) -> &Arc<dyn GrantBook> {
+        &self.grants
     }
 
     pub fn table(&self) -> RwLockReadGuard<'_, RouteTable> {
@@ -63,21 +77,13 @@ impl Router {
         write(&self.table)
     }
 
-    /// Put a runtime application's rows in the table, all or none, and make its subject a
-    /// runtime principal reaching `hub` and its own names ([`RouteTable::reach_only`]) — in one
-    /// write. Put on the record who did: one `declare` entry per name, or one `refuse` entry
-    /// naming the first name that did not take. See [`RouteTable::install_app`] for what is
-    /// refused.
-    pub fn install_app(&self, by: &Subject, app: &str, rows: Vec<Row>, hub: &[String]) -> Result<(), TableError> {
+    /// Put a runtime application's rows in the table, all or none, its id registered as a
+    /// package's ([`RouteTable::install_app`]). Put on the record who did: one `declare` entry
+    /// per name, or one `refuse` entry naming the first name that did not take. What it may reach
+    /// as itself is its consent, in the grants.
+    pub fn install_app(&self, by: &Subject, app: &str, rows: Vec<Row>) -> Result<(), TableError> {
         let names: Vec<String> = rows.iter().map(|r| r.name().to_string()).collect();
-        let result = {
-            let mut table = self.table_mut();
-            let installed = table.install_app(app, rows);
-            if installed.is_ok() {
-                table.reach_only(app, hub.iter().cloned());
-            }
-            installed
-        };
+        let result = self.table_mut().install_app(app, rows);
         match &result {
             Ok(()) => {
                 for name in &names {
@@ -87,10 +93,13 @@ impl Router {
             }
             Err(e) => {
                 let name = match e {
-                    TableError::Taken(n) | TableError::Namespace(n) | TableError::HubOwned(n) | TableError::Unknown(n) => {
-                        n.clone()
-                    }
-                    TableError::Overlap { app, .. } => names::app_name(app, "*"),
+                    TableError::Taken(n)
+                    | TableError::Namespace(n)
+                    | TableError::HubOwned(n)
+                    | TableError::Unknown(n)
+                    | TableError::Capability(n)
+                    | TableError::NotOwner { name: n, .. } => n.clone(),
+                    TableError::NamespaceTaken { id, .. } => names::app_name(id, "*"),
                 };
                 self.audit.record_change(by, &name, Change::Refuse, Some(change_refusal(e)));
             }
@@ -100,8 +109,7 @@ impl Router {
 
     /// Take an owner's rows back out after assembly — a runtime application withdrawn, a module
     /// that failed to start — each on the record under `by`, with `why`. A call decided after
-    /// this returns is decided as unknown, and an application withdrawn reaches nothing as
-    /// itself.
+    /// this returns is decided as unknown.
     pub fn withdraw(&self, by: &Subject, owner: &Owner, why: &'static str) -> Vec<String> {
         let names = self.table_mut().withdraw(owner);
         for name in &names {
@@ -110,29 +118,11 @@ impl Router {
         names
     }
 
-    /// Open one existing row to one module ([`RouteTable::grant`]), and put it on the record
-    /// under `by`, with `why`.
-    pub fn grant(&self, by: &Subject, method: &str, module: &str, why: &'static str) -> Result<(), TableError> {
-        let granted = self.table_mut().grant(method, module);
-        match &granted {
-            Ok(()) => self.audit.record_change(by, method, Change::Grant, Some(why)),
-            Err(e) => self.audit.record_change(by, method, Change::Refuse, Some(change_refusal(e))),
-        }
-        granted
-    }
-
-    /// Take back what [`Router::grant`] gave `module` ([`RouteTable::revoke`]), on the record
-    /// under `by`, with `why`.
-    pub fn revoke(&self, by: &Subject, method: &str, module: &str, why: &'static str) {
-        self.table_mut().revoke(method, module);
-        self.audit.record_change(by, method, Change::Revoke, Some(why));
-    }
-
     /// Methods this subject may call, for a client that wants to grey out what it cannot use
-    /// rather than discover it by being refused.
+    /// rather than discover it by being refused. Not narrowed by space: that depends on the call.
     pub fn reachable(&self, subject: &Subject) -> Vec<String> {
         self.table()
-            .reachable(subject)
+            .reachable(subject, &*self.grants)
             .into_iter()
             .map(str::to_string)
             .collect()
@@ -144,11 +134,47 @@ impl Router {
     }
 
     /// Subscribing to a host topic is decided as `topic:<name>`.
-    fn decide_topic(table: &RouteTable, subject: &Subject, params: &Value) -> Decision {
+    fn decide_topic(&self, table: &RouteTable, subject: &Subject, params: &Value) -> Decision {
         let Some(name) = params.get("topic").and_then(Value::as_str) else {
             return Decision::Allow; // the hub answers a missing topic itself
         };
-        table.decide(subject, &topic(name))
+        table.decide(subject, &*self.grants, &topic(name))
+    }
+
+    /// A device's call made by an extension's page in a frame: only to that extension's own names
+    /// and what its interface lists.
+    fn decide_frame(&self, table: &RouteTable, cx: &CallContext, method: &str) -> Decision {
+        let Some(ext) = &cx.on_behalf_of else {
+            return Decision::Allow;
+        };
+        match self.grants.frame_calls(ext) {
+            None => Decision::Refuse(NO_FRAME),
+            Some(calls) if calls.contains(table.resolve(method)) || table.owns(ext, method) => Decision::Allow,
+            Some(_) => Decision::Refuse(OUTSIDE_FRAME),
+        }
+    }
+
+    /// A package acting as itself, and a page in a frame, reach only their own space and its
+    /// sessions ([`harnix_authz::narrow`]).
+    fn narrow(&self, table: &RouteTable, cx: &CallContext, method: &str, params: &Value) -> Decision {
+        let Some(row) = table.row(method) else {
+            return Decision::Allow;
+        };
+        let claimed = params.get("space").and_then(Value::as_str);
+        let package = cx
+            .subject
+            .extension_id()
+            .filter(|id| self.grants.trust(id).is_some_and(|t| t.is_consent()));
+        for ext in package.into_iter().chain(cx.on_behalf_of.as_ref()) {
+            if table.owns(ext, method) {
+                continue;
+            }
+            let narrowed = harnix_authz::narrow(ext, row.access().scope(), claimed);
+            if narrowed != Decision::Allow {
+                return narrowed;
+            }
+        }
+        Decision::Allow
     }
 }
 
@@ -156,8 +182,10 @@ fn change_refusal(e: &TableError) -> &'static str {
     match e {
         TableError::Taken(_) => "the name is already in the authorization table",
         TableError::Namespace(_) => "outside the application's own namespace",
-        TableError::Overlap { .. } => "the application id overlaps names already in the authorization table",
-        TableError::HubOwned(_) | TableError::Unknown(_) => "not a name that may be declared or granted",
+        TableError::NamespaceTaken { .. } => "namespace_taken",
+        TableError::NotOwner { .. } => "the name is in another extension's namespace",
+        TableError::HubOwned(_) | TableError::Unknown(_) => "not a name that may be declared or listed",
+        TableError::Capability(_) => "a capability nobody defined",
     }
 }
 
@@ -180,22 +208,35 @@ impl Dispatch for Router {
         if method == REACHABLE {
             self.audit.record_call(&cx, method, Decision::Allow, None, session);
             let table = self.table();
-            let topics: Vec<&str> = table.reachable_topics(&cx.subject);
-            return Ok(serde_json::json!({
+            let topics: Vec<&str> = table.reachable_topics(&cx.subject, &*self.grants);
+            return Ok(json!({
                 "subject": cx.subject,
-                "methods": table.reachable(&cx.subject),
+                "methods": table.reachable(&cx.subject, &*self.grants),
                 "topics": topics,
             }));
         }
         // One read: the decision and what answers it come from the same row.
-        let (decision, handler, subscribing) = {
+        let (decision, handler, subscribing, missing) = {
             let table = self.table();
             let subscribing = names::DECIDED_BY_TOPIC.contains(&table.resolve(method));
-            let mut decision = table.decide(&cx.subject, method);
-            if decision == Decision::Allow && subscribing {
-                decision = Self::decide_topic(&table, &cx.subject, &params);
+            let mut decision = self.decide_frame(&table, &cx, method);
+            if decision == Decision::Allow {
+                decision = table.decide(&cx.subject, &*self.grants, method);
             }
-            (decision, table.row(method).and_then(|row| row.handler().cloned()), subscribing)
+            if decision == Decision::Allow {
+                decision = self.narrow(&table, &cx, method, &params);
+            }
+            if decision == Decision::Allow && subscribing {
+                decision = self.decide_topic(&table, &cx.subject, &params);
+            }
+            let row = table.row(method);
+            let missing = match decision {
+                Decision::Refuse(_) => row
+                    .and_then(|row| harnix_authz::missing_capability(&cx.subject, &*self.grants, row.access()))
+                    .cloned(),
+                _ => None,
+            };
+            (decision, row.and_then(|row| row.handler().cloned()), subscribing, missing)
         };
         self.audit.record_call(&cx, method, decision, refusal(decision), session);
         match decision {
@@ -205,9 +246,15 @@ impl Dispatch for Router {
                 Some(handler) => handler.call(cx, params).await,
                 None => Err(RpcError::not_found(format!("method `{method}` is not served here"))),
             },
-            // Refused on purpose, with the reason in the error. Silence here would read as a
-            // Harnix bug to whoever hit it.
-            Decision::Refuse(reason) => Err(RpcError::refused(reason)),
+            // Refused on purpose, with the reason in the error — and the capability, when one was
+            // missing. Silence here would read as a Harnix bug to whoever hit it.
+            Decision::Refuse(reason) => {
+                let mut e = RpcError::refused(reason);
+                if let Some(cap) = missing {
+                    e.data = Some(json!({"capability": cap}));
+                }
+                Err(e)
+            }
             Decision::Unknown if subscribing => {
                 let name = params.get("topic").and_then(Value::as_str).unwrap_or("");
                 Err(RpcError::not_found(format!("there is no topic `{name}`")))
@@ -225,7 +272,7 @@ impl RouteDecider for Router {
     /// know what a module is.
     fn decide_route(&self, subject: &Subject, module: &str, path: &str) -> Result<(), RpcError> {
         let name = route(module);
-        let decision = self.table().decide(subject, &name);
+        let decision = self.table().decide(subject, &*self.grants, &name);
         self.audit.record(subject, &format!("{name}{path}"), decision, refusal(decision), None);
         match decision {
             Decision::Allow => Ok(()),
@@ -241,7 +288,8 @@ mod tests {
 
     use harnix_authz::{access_for, Principal};
     use harnix_contract::codes;
-    use harnix_kernel::{Access, Handler, KernelPart};
+    use harnix_contract::s1::{caps, ExtId, PackageCarrier, RowScope, Trust};
+    use harnix_kernel::{Access, GrantTable, Handler, KernelPart};
     use serde_json::json;
 
     use super::*;
@@ -259,10 +307,14 @@ mod tests {
     }
 
     fn device() -> Subject {
-        Subject::Device { id: "d".into() }
+        Subject::device("d")
     }
 
-    fn router() -> (Router, Arc<Seen>) {
+    fn id(s: &str) -> ExtId {
+        ExtId::parse(s).unwrap()
+    }
+
+    fn router() -> (Router, Arc<Seen>, Arc<GrantTable>) {
         let seen = Arc::new(Seen::default());
         let mut table = RouteTable::new();
         table
@@ -272,6 +324,9 @@ mod tests {
                     Row::method("harnix.hello", Access::device(), seen.clone()),
                     Row::method("harnix.subscribe", Access::device(), seen.clone()),
                     Row::method("config.set", Access::refused("not for devices"), seen.clone()),
+                    Row::method("session.inspect", Access::capability(caps::ENGINE_INSPECT), seen.clone()),
+                    Row::method("session.get", Access::device().scoped(RowScope::Session), seen.clone()),
+                    Row::method("sessions.list", Access::device().scoped(RowScope::Space), seen.clone()),
                     Row::closed("session.run_turn", Access::hub_owned("the hub's")),
                     Row::topic("harnix.instances", Access::device()),
                     Row::topic("harnix.secret", Access::kernel()),
@@ -281,22 +336,30 @@ mod tests {
         table
             .install(&Owner::Kernel(KernelPart::Router), vec![Row::closed(REACHABLE, Access::device())])
             .unwrap();
-        table
-            .install(&Owner::extension("w"), vec![Row::route("w", access_for(&[Principal::Kernel]))])
-            .unwrap();
-        (Router::new(table, Arc::new(Audit::default())), seen)
+        table.install(&Owner::extension(id("w")), vec![Row::route("w", access_for(&[Principal::Kernel]))]).unwrap();
+        table.install_app("acme.notes", vec![Row::method("app.acme.notes.list", Access::device(), seen.clone())]).unwrap();
+        let grants = Arc::new(GrantTable::new());
+        grants.set(id("system"), [caps::ENGINE_INSPECT], Trust::Origin);
+        grants.set(id("w"), [], Trust::Origin);
+        grants.set(
+            id("acme.notes"),
+            [],
+            Trust::consent(["session.get".to_string(), "sessions.list".to_string()], PackageCarrier::Wasm),
+        );
+        let router = Router::new(table, grants.clone(), Arc::new(Audit::default()));
+        (router, seen, grants)
     }
 
     #[tokio::test]
     async fn a_call_is_decided_once_audited_and_handed_to_its_row() {
-        let (router, seen) = router();
+        let (router, seen, _) = router();
         let root = CallContext::root(device(), None);
-        let id = root.call_id.get();
+        let call = root.call_id.get();
         let answer = router.call(root, "harnix.hello", json!({"x": 1})).await.unwrap();
         assert_eq!(answer["params"], json!({"x": 1}));
         assert_eq!(answer["subject"], json!({"kind": "device", "id": "d"}));
         let entry = &router.audit().recent(1)[0];
-        assert_eq!((entry.method.as_str(), entry.decision, entry.call_id), ("harnix.hello", "allow", Some(id)));
+        assert_eq!((entry.method.as_str(), entry.decision, entry.call_id), ("harnix.hello", "allow", Some(call)));
 
         // Refused with the row's reason, never reaching the handler; an unknown name is not found.
         let e = router.call(CallContext::root(device(), None), "config.set", json!({})).await.unwrap_err();
@@ -309,19 +372,78 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_capability_is_what_opens_a_row_and_a_refusal_names_the_one_missing() {
+        let (router, _, _) = router();
+        let system = CallContext::root(Subject::extension(id("system")), None);
+        assert!(router.call(system, "session.inspect", json!({})).await.is_ok());
+        let e = router
+            .call(CallContext::root(Subject::extension(id("w")), None), "session.inspect", json!({}))
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, codes::REFUSED);
+        assert_eq!(e.data, Some(json!({"capability": "engine.inspect"})));
+        let e = router.call(CallContext::root(device(), None), "session.inspect", json!({})).await.unwrap_err();
+        assert_eq!(e.code, codes::REFUSED);
+    }
+
+    #[tokio::test]
+    async fn a_package_is_held_to_its_consent_and_its_own_space() {
+        let (router, _, _) = router();
+        let me = || CallContext::root(Subject::extension(id("acme.notes")), None);
+        assert!(router.call(me(), "app.acme.notes.list", json!({})).await.is_ok(), "its own, unlisted");
+        let e = router.call(me(), "harnix.hello", json!({})).await.unwrap_err();
+        assert_eq!(e.message, OUTSIDE_HUB);
+        // A session or a space: only claiming its own.
+        assert!(router.call(me(), "session.get", json!({"space": "acme.notes"})).await.is_ok());
+        assert!(router.call(me(), "sessions.list", json!({"space": "acme.notes.board"})).await.is_ok());
+        for params in [json!({}), json!({"space": "sessions"}), json!({"space": "acme"})] {
+            let e = router.call(me(), "session.get", params.clone()).await.unwrap_err();
+            assert_eq!((e.code, e.message.as_str()), (codes::REFUSED, harnix_authz::OUTSIDE_OWN_SPACE), "{params}");
+        }
+        // A native extension is not narrowed.
+        assert!(router.call(CallContext::root(Subject::extension(id("w")), None), "session.get", json!({})).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_page_in_a_frame_has_the_devices_power_and_its_extensions_list_both() {
+        let (router, _, grants) = router();
+        let page = || {
+            let mut cx = CallContext::root(device(), None);
+            cx.on_behalf_of = Some(id("acme.notes"));
+            cx
+        };
+        // No framed interface: nothing.
+        let e = router.call(page(), "harnix.hello", json!({})).await.unwrap_err();
+        assert_eq!(e.message, NO_FRAME);
+        grants.set_frame(&id("acme.notes"), Some(["session.get".to_string(), "config.set".to_string()].into()));
+        // Its own names; listed ones, narrowed to its space; what it lists the device may not do,
+        // it may not either.
+        assert!(router.call(page(), "app.acme.notes.list", json!({})).await.is_ok());
+        assert!(router.call(page(), "session.get", json!({"space": "acme.notes"})).await.is_ok());
+        let e = router.call(page(), "session.get", json!({"space": "sessions"})).await.unwrap_err();
+        assert_eq!(e.message, harnix_authz::OUTSIDE_OWN_SPACE);
+        let e = router.call(page(), "harnix.hello", json!({})).await.unwrap_err();
+        assert_eq!(e.message, OUTSIDE_FRAME);
+        let e = router.call(page(), "config.set", json!({})).await.unwrap_err();
+        assert_eq!(e.message, "not for devices");
+        let entry = &router.audit().recent(1)[0];
+        assert_eq!((entry.subject.as_str(), entry.via.as_deref()), ("device:d", Some("ext:acme.notes")));
+    }
+
+    #[tokio::test]
     async fn a_call_made_while_handling_another_is_its_child_in_the_audit() {
-        let (router, _) = router();
+        let (router, _, _) = router();
         let outer = CallContext::root(device(), None);
-        let inner = outer.child("system", false);
+        let inner = outer.child(&id("system"), false);
         let answer = router.call(inner, "harnix.hello", json!({})).await.unwrap();
         assert_eq!(answer["parent"], json!(outer.call_id.get()));
         assert_eq!(router.audit().recent(1)[0].parent, Some(outer.call_id.get()));
-        assert_eq!(router.audit().recent(1)[0].subject, "module:system");
+        assert_eq!(router.audit().recent(1)[0].subject, "ext:system");
     }
 
     #[tokio::test]
     async fn subscribing_is_decided_by_the_topic_too() {
-        let (router, _) = router();
+        let (router, _, _) = router();
         let sub = |topic: &str| json!({"topic": topic});
         assert!(router.call(CallContext::root(device(), None), "harnix.subscribe", sub("harnix.instances")).await.is_ok());
         let e = router.call(CallContext::root(device(), None), "harnix.subscribe", sub("harnix.secret")).await.unwrap_err();
@@ -332,15 +454,18 @@ mod tests {
 
     #[tokio::test]
     async fn reachable_is_answered_here_from_the_rows() {
-        let (router, _) = router();
+        let (router, _, _) = router();
         let reach = router.call(CallContext::root(device(), None), REACHABLE, json!({})).await.unwrap();
-        assert_eq!(reach["methods"], json!(["harnix.hello", "harnix.reachable", "harnix.subscribe"]));
+        assert_eq!(
+            reach["methods"],
+            json!(["app.acme.notes.list", "harnix.hello", "harnix.reachable", "harnix.subscribe", "session.get", "sessions.list"])
+        );
         assert_eq!(reach["topics"], json!(["harnix.instances"]));
     }
 
     #[test]
     fn a_route_is_decided_and_recorded_with_its_path() {
-        let (router, _) = router();
+        let (router, _, _) = router();
         assert_eq!(router.decide_route(&device(), "w", "/x").unwrap_err().code, codes::REFUSED);
         assert!(router.decide_route(&Subject::Kernel, "w", "/x").is_ok());
         assert_eq!(router.decide_route(&device(), "none", "/").unwrap_err().code, codes::METHOD_NOT_FOUND);

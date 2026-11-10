@@ -40,6 +40,24 @@ use crate::state_lock::StateLock;
 use crate::AppBuilder;
 use wiring::AppsWiring;
 
+/// Step 2 alone, for [`crate::testing`]: the built-ins (or not) and these modules registered into
+/// the kernel's table under a default profile, with the grants they were given.
+pub(crate) fn register_only(
+    builtins: bool,
+    modules: Vec<(Box<dyn harnix_module::ErasedModule>, Vec<harnix_module::Capability>)>,
+    state: &std::path::Path,
+) -> anyhow::Result<(harnix_router::RouteTable, Arc<harnix_kernel::GrantTable>, Vec<modules::ModuleStatus>)> {
+    let roots = Roots {
+        engine: state.join("engine"),
+        projects: state.join("projects"),
+        state: state.join("state"),
+    };
+    std::fs::create_dir_all(&roots.state)?;
+    let registered = register::register(builtins, modules, &Profile::default(), &roots, &AppsWiring::default())?;
+    let statuses = registered.records.iter().map(|r| r.status.clone()).collect();
+    Ok((registered.table, registered.grants, statuses))
+}
+
 pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
@@ -61,6 +79,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         version,
         builtins,
         modules: app_modules,
+        granted,
         credentials,
         app_hosts,
         ..
@@ -73,7 +92,8 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         mut table,
         behind,
         held,
-    } = register::register(builtins, app_modules, profile, &basis.roots, &apps)?;
+        grants,
+    } = register::register(builtins, app_modules.into_iter().zip(granted).collect(), profile, &basis.roots, &apps)?;
 
     // ── 3. Migrate ──────────────────────────────────────────────────────
     modules::migrate(&mut records, &mut table).await;
@@ -101,6 +121,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         &records,
         instances,
         &apps,
+        grants.clone(),
     )
     .await?;
     // The hub's rows have been in the route table since registration; from here they answer.
@@ -110,6 +131,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     let admission = admission::admit(
         &hub,
         table,
+        grants,
         &behind,
         &records,
         history,

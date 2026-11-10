@@ -7,6 +7,7 @@
 use std::future::Future;
 use std::sync::{Arc, OnceLock};
 
+use harnix_contract::s1::{caps, RowScope};
 use harnix_contract::{codes, RpcError};
 use harnix_kernel::{Access, CallContext, Handler, KernelPart, Owner, Rpc};
 use serde_json::Value;
@@ -72,8 +73,24 @@ where
     }
 }
 
-/// One of the hub's own methods, open to devices.
+/// One of the hub's own methods, open to devices: about one session when a claimed space is
+/// checked on it ([`spaces::CHECKED`]), else about none.
 fn own<F, Fut>(hub: &HubCell, name: &'static str, f: F) -> HubRow
+where
+    F: Fn(Arc<Hub>, CallContext, Value) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Rpc<Value>> + Send + 'static,
+{
+    let scope = if spaces::CHECKED.contains(&name) { RowScope::Session } else { RowScope::Open };
+    HubRow::Method {
+        name,
+        owner: Owner::Kernel(KernelPart::Hub),
+        access: Access::device().scoped(scope),
+        handler: Some(answer(hub, name, f)),
+    }
+}
+
+/// [`own`], about one space.
+fn own_space<F, Fut>(hub: &HubCell, name: &'static str, f: F) -> HubRow
 where
     F: Fn(Arc<Hub>, CallContext, Value) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Rpc<Value>> + Send + 'static,
@@ -81,7 +98,7 @@ where
     HubRow::Method {
         name,
         owner: Owner::Kernel(KernelPart::Hub),
-        access: Access::device(),
+        access: Access::device().scoped(RowScope::Space),
         handler: Some(answer(hub, name, f)),
     }
 }
@@ -102,7 +119,7 @@ impl Hub {
     pub fn rows(hub: &HubCell) -> Vec<HubRow> {
         let mut rows = vec![
             own(hub, "harnix.hello", |h, _, _| async move { h.hello().await }),
-            own(hub, "harnix.sessions", |h, _, p| async move {
+            own_space(hub, "harnix.sessions", |h, _, p| async move {
                 if p.get("space").is_some() {
                     return h.space_sessions(&h.claimed(&p)?).await;
                 }
@@ -154,12 +171,12 @@ impl Hub {
             own(hub, "session.close", |h, _, p| async move { h.close_or_delete("session.close", p).await }),
             own(hub, "session.delete", |h, _, p| async move { h.close_or_delete("session.delete", p).await }),
             // After a provider changes, the instances whose template inherits the system
-            // instance's get it too (ipdrun-11): the settings module's, by grant. Listed with the
-            // engine's methods a module is granted, as the method table has always shown it.
+            // instance's get it too (ipdrun-11): whoever may write the engine's providers. Listed
+            // with the engine's methods, as the method table has always shown it.
             HubRow::Method {
                 name: "harnix.instances.inheritProviders",
                 owner: Owner::Engine,
-                access: Access::kernel(),
+                access: Access::capability(caps::ENGINE_CONFIG_WRITE),
                 handler: Some(answer(hub, "harnix.instances.inheritProviders", |h, _, _| async move {
                     h.inherit_providers().await
                 })),

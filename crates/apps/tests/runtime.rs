@@ -125,7 +125,7 @@ impl AppRuntime for FakeApps {
         let spec = self.spec(id).ok_or_else(|| RpcError::invalid_params("not registered"))?;
         if let Some(own) = method.strip_prefix(&format!("app.{id}.")) {
             let m = spec.methods.iter().find(|m| m.name == own).unwrap().clone();
-            return m.handler.call(&Subject::Module { id: id.into() }, params).await;
+            return m.handler.call(&Subject::extension(harnix_contract::ExtId::parse(id).unwrap()), params).await;
         }
         if !spec.hub.iter().any(|h| h == method) {
             return Err(RpcError::refused(format!("`module:{id}` may not call `{method}`: not in its `hub`")));

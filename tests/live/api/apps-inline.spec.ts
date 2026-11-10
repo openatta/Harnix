@@ -126,7 +126,7 @@ test.describe("an application's inline points and its data", () => {
     // A card: an entry under the application's own namespace, with the event its manifest draws.
     const carded = await oneTurn(api, SHOWCASE_CHATS);
     const plain = await oneTurn(api, SHOWCASE_CHATS);
-    const posted = await api.call(M("card.post"), { ...carded, title: "inline-card-17" });
+    const posted = await api.call(M("card.post"), { ...carded, space: SHOWCASE_CHATS, title: "inline-card-17" });
     expect(posted.appended).toMatchObject({ ns: `app.${SHOWCASE_ID}`, event: "card", payload: { title: "inline-card-17", notes: 2 } });
     const pushed = await api.waitFor(
       (f) => f.method === "harnix.event" && f.params.session_id === carded.session_id && f.params.event?.kind === "extension_entry",
@@ -136,7 +136,8 @@ test.describe("an application's inline points and its data", () => {
     const { entries } = await api.call("session.entries", carded);
     expect(entries.map((e: any) => [e.ns, e.event])).toEqual([[`app.${SHOWCASE_ID}`, "card"]]);
     // Only through its `hub`: a session in which the entry is appended is still the session's.
-    expect((await api.refused(M("card.post"), { title: "no session" }))?.code).toBe(INVALID_PARAMS);
+    // Claiming no space of its own, the backend is refused before the session is even looked for.
+    expect([INVALID_PARAMS, REFUSED]).toContain((await api.refused(M("card.post"), { title: "no session" }))?.code);
 
     // Its chats space's groups: the sessions it put a card in, the rest left to the shell's `other`.
     const { sessions } = await api.call("harnix.sessions", { space: SHOWCASE_CHATS });

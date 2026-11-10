@@ -9,6 +9,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use harnix_authz::Principal;
+use harnix_contract::s1::Capability;
 use harnix_contract::RpcError;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -29,6 +30,8 @@ pub struct MethodDecl {
     /// The full name: `app.<id>.<name>`, or `harnix.<name>` for a built-in.
     pub name: String,
     pub principals: Vec<Principal>,
+    /// A capability the caller must hold besides being one of `principals`: a device never does.
+    pub requires: Option<Capability>,
     /// A JSON Schema for the params, when the module gives one. Listed in
     /// the catalog and on the diagnostics page; the handler's own
     /// deserialization is what enforces the shape.
@@ -57,6 +60,7 @@ impl MethodRegistry {
         MethodBuilder {
             name: format!("{}{name}", self.prefix),
             principals: vec![principal],
+            requires: None,
             schema: None,
             description: String::new(),
             registry: self,
@@ -73,11 +77,19 @@ pub struct MethodBuilder<'a> {
     registry: &'a mut MethodRegistry,
     name: String,
     principals: Vec<Principal>,
+    requires: Option<Capability>,
     schema: Option<Value>,
     description: String,
 }
 
 impl MethodBuilder<'_> {
+    /// Only for whoever holds `cap`, the kernel included: an extension granted it (another's, or
+    /// one this module defines in its manifest). A device holds no capability.
+    pub fn requires(mut self, cap: Capability) -> Self {
+        self.requires = Some(cap);
+        self
+    }
+
     pub fn allow(mut self, principal: Principal) -> Self {
         self.principals.push(principal);
         self
@@ -126,6 +138,7 @@ impl MethodBuilder<'_> {
         self.registry.decls.push(MethodDecl {
             name: self.name,
             principals: self.principals,
+            requires: self.requires,
             schema: self.schema,
             description: self.description,
             handler,

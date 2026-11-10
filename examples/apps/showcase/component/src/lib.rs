@@ -14,10 +14,10 @@
 //! | `state` | what the backend knows: what its tools ask it for, with `host.call` |
 //! | `timer.start {ms, times?}` | `host.set-timer`: each firing publishes `heartbeat` |
 //! | `fetch {url}` | slow work started, then reported: a job at once; a timer makes the request (`host.http-request`, to a host in `net` only) and publishes it on `fetched` |
-//! | `session.start {message, …}` | driving the agent: `session.create` and `harnix.send`, as `module:example.showcase` |
+//! | `session.start {message, space, …}` | driving the agent: `session.create` and `harnix.send` in its own space, as `ext:example.showcase` |
 //! | `overreach` | a call its `hub` does not list: refused, and on the record |
 //! | `spin`, `crash` | what a timeout and a trap do to the instance |
-//! | `card.post {session_id, …}` | an entry in a session's flow (`harnix.entries.append`), which the shell draws as the manifest's card |
+//! | `card.post {session_id, space, …}` | an entry in the flow of a session of its own space (`harnix.entries.append`), which the shell draws as the manifest's card |
 //! | `complete {trigger, name, query}` | the candidates of its `/showcase` command and its `@notes` source |
 //! | `sessions.group {space, sessions}` | how its space's left column groups sessions: those it put a card in, and the rest |
 //!
@@ -260,9 +260,11 @@ impl Backend for Showcase {
                 let created = host::call("session.create", &create.to_string()).map_err(|e| error(5, e))?;
                 let created: Value = serde_json::from_str(&created).unwrap_or(Value::Null);
                 let session_id = created["session_id"].clone();
+                // A session of the application's own space, claimed: a package reaches no other.
                 let send = json!({
                     "instance": "system",
                     "session_id": session_id,
+                    "space": params["space"],
                     "message": params["message"].as_str().unwrap_or("Hello from the showcase's backend"),
                 });
                 let sent = host::call("harnix.send", &send.to_string()).map_err(|e| error(5, e))?;
@@ -292,6 +294,7 @@ impl Backend for Showcase {
                 let entry = json!({
                     "instance": instance,
                     "session_id": session_id,
+                    "space": params["space"],
                     "event": "card",
                     "payload": {
                         "title": params["title"].as_str().unwrap_or("A card from the showcase"),

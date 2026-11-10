@@ -62,7 +62,7 @@ max_in_flight: number, };
 /**
  * The caller behind one request.
  */
-export type Subject = { "kind": "kernel" } | { "kind": "device", id: string, } | { "kind": "module", id: string, };
+export type Subject = { "kind": "kernel" } | { "kind": "device", id: string, } | { "kind": "extension", id: string, } | { "kind": "engine", instance: string, };
 
 /**
  * What a frame is for. A topology maps these onto connections; the hub and

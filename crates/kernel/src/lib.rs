@@ -5,19 +5,22 @@
 //!   made while handling, the extensions waiting on it, how it is cancelled. Typed, and carried
 //!   beside the params rather than inside them.
 //! - **What answers it** ([`Handler`]: one row's; [`Dispatch`]: the whole table's).
-//! - **Who owns a name** ([`Owner`]) and **who may reach it** ([`Access`]).
+//! - **Who owns a name** ([`Owner`]), **who may reach it** ([`Access`]), and **what each
+//!   extension holds** ([`GrantTable`], read as a [`GrantBook`]).
 //! - **The transport's two questions**: where a client is registered ([`ClientRegistry`]), and
 //!   whether a subject may reach an extension's routes ([`RouteDecider`]).
 //!
 //! It depends on the wire vocabulary and nothing else of Harnix: every crate of the skeleton may
 //! name it, so none of them has to name another to be called.
 
-mod access;
 mod call;
 mod clients;
+mod grants;
 mod owner;
 
-pub use access::Access;
+pub use grants::{holds, GrantBook, GrantTable};
+/// How far a row is open, in the extension interface's own words.
+pub use harnix_contract::s1::{Access, RowScope};
 pub use call::{CallContext, CallId, Chain, ChainLink, Deadline, Dispatch, Handler, Rpc};
 pub use clients::{ClientId, ClientRegistry};
 pub use owner::{KernelPart, Owner};

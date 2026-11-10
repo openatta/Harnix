@@ -61,8 +61,10 @@ fn main() -> anyhow::Result<()> {
         .module(FailsMigrate)
         .module(Duplicate)
         .module(Fleet)
+        .grant([harnix::caps::ENGINE_INSPECT, harnix::caps::ENGINE_CONFIG_READ])
         .module(Lifecycle::default())
         .module(flow_demo::module())
+        .grant([harnix::caps::ENGINE_CONTROL, harnix::caps::ENGINE_INSPECT])
         .module(fake_app::FakeHost)
         // The kernel hands its application host to the `apps` built-in alone; the fake host is
         // let in by name, the way only a test application would.
@@ -379,8 +381,7 @@ impl Module for Fleet {
     fn manifest(&self) -> Manifest {
         Manifest::new("fleet", "0.0.1")
             .disclosure("builds an instance of its own and runs headless sessions")
-            .grant("session.inspectContext")
-            .grant("config.getProvider")
+            .requires([harnix::caps::ENGINE_INSPECT, harnix::caps::ENGINE_CONFIG_READ])
     }
 
     fn templates(&self, t: &mut InstanceTemplates) {

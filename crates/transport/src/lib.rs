@@ -312,6 +312,26 @@ fn sweep_idle(channels: &Channels) {
 /// task that would have replied was simply gone, on HTTP the connection was cut,
 /// and either way the client held a promise that never settled. It is answered
 /// as an internal error instead, and logged.
+/// The params' reserved `"$ext"`, taken out: the extension whose page in a frame made this call,
+/// as the shell's bridge says. It goes in the call's context, where the router narrows the call to
+/// what that extension's interface may do; the handler never sees it.
+pub const ON_BEHALF_OF: &str = "$ext";
+
+fn on_behalf_of(
+    mut cx: CallContext,
+    mut params: serde_json::Value,
+) -> Result<(CallContext, serde_json::Value), harnix_contract::RpcError> {
+    let Some(ext) = params.as_object_mut().and_then(|o| o.remove(ON_BEHALF_OF)) else {
+        return Ok((cx, params));
+    };
+    let id = ext
+        .as_str()
+        .and_then(|s| harnix_contract::ExtId::parse(s).ok())
+        .ok_or_else(|| harnix_contract::RpcError::invalid_params(format!("`{ON_BEHALF_OF}` is not an extension id")))?;
+    cx.on_behalf_of = Some(id);
+    Ok((cx, params))
+}
+
 pub(crate) async fn call_settled(
     gate: &dyn Dispatch,
     cx: CallContext,
@@ -319,6 +339,7 @@ pub(crate) async fn call_settled(
     params: serde_json::Value,
 ) -> Result<serde_json::Value, harnix_contract::RpcError> {
     use futures::FutureExt as _;
+    let (cx, params) = on_behalf_of(cx, params)?;
     match std::panic::AssertUnwindSafe(gate.call(cx, method, params))
         .catch_unwind()
         .await

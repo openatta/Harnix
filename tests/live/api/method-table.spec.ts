@@ -69,7 +69,7 @@ test.describe("a compiled-in module's reach", () => {
   test("is the snapshot's", TAGS, async () => {
     // `app.probe.call` (crates/testapp) calls a method as the `probe` module.
     const reach = await api.call("app.probe.call", { method: "harnix.reachable", params: {} });
-    expect(reach.subject).toEqual({ kind: "module", id: "probe" });
+    expect(reach.subject).toEqual({ kind: "extension", id: "probe" });
     matchSnapshotKey("reachable.snap.json", "module", {
       methods: names(reach.methods),
       topics: names(reach.topics),

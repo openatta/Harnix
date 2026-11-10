@@ -13,17 +13,19 @@
 //! rather than a person's at a device — so the system space can mark them.
 //!
 //! A call that claims a space (`params.space`) is checked against the record: a session of another
-//! space is refused with `SPACE_MISMATCH`, naming the space it does belong to. The system space is
-//! the one exception — it sees and acts on every space's sessions — and each time it reaches across
-//! one, that is audited. This guards against a client's bug sending into the wrong product surface;
-//! it is not a security boundary: the claim is the caller's own (concept §6.2).
+//! space is refused with `SPACE_MISMATCH`, naming the space it does belong to. A space declared
+//! `cross_space` is the exception — a call claiming it sees and acts on every space's sessions —
+//! and each time it reaches across one, that is audited. This guards against a client's bug
+//! sending into the wrong product surface; it is not a security boundary: the claim is the
+//! caller's own (concept §6.2). The power to read or change another space's sessions is a
+//! capability's. The hub knows no space by name but the session space every session starts in.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use harnix_contract::sync::{lock, read, write};
-use harnix_contract::{codes, DefaultInstance, RpcError, SpaceDecl, Subject, SESSIONS_SPACE, SYSTEM_SPACE};
+use harnix_contract::{codes, DefaultInstance, RpcError, SpaceDecl, Subject, PROJECTS_SPACE, SESSIONS_SPACE};
 use harnix_instance::Owner;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -31,8 +33,8 @@ use serde_json::{json, Value};
 use crate::instances::claimed_space;
 use crate::{Hub, SessionKey, SYSTEM};
 
-/// Told about every cross-space act of the system space: who, which method, which session, and
-/// the space the session belongs to.
+/// Told about every act across spaces by a call claiming a `cross_space` space: who, which
+/// method, which session, and the space the session belongs to.
 pub type AuditHook = Arc<dyn Fn(&Subject, &str, &str, &str) + Send + Sync>;
 
 #[derive(Default, Serialize, Deserialize)]
@@ -52,7 +54,8 @@ pub struct Spaces {
     decls: BTreeMap<String, SpaceDecl>,
     /// The ids in `decls` a runtime application added, which only it removes.
     runtime: BTreeSet<String>,
-    system_enabled: bool,
+    /// Ids no call may claim: spaces this product turned off.
+    withheld: BTreeSet<String>,
     path: PathBuf,
     ledger: Ledger,
 }
@@ -62,7 +65,7 @@ fn slot(key: &SessionKey) -> String {
 }
 
 impl Spaces {
-    pub fn load(path: PathBuf, decls: Vec<SpaceDecl>, system_enabled: bool) -> anyhow::Result<Self> {
+    pub fn load(path: PathBuf, decls: Vec<SpaceDecl>, withheld: BTreeSet<String>) -> anyhow::Result<Self> {
         let ledger = match std::fs::read_to_string(&path) {
             Ok(text) => serde_json::from_str(&text).map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ledger::default(),
@@ -76,21 +79,23 @@ impl Spaces {
         Ok(Self {
             decls: all,
             runtime: BTreeSet::new(),
-            system_enabled,
+            withheld,
             path,
             ledger,
         })
     }
 
     /// Add a space declared at runtime. Refused for an id already declared
-    /// (assembly's keep precedence), a built-in space's id, an id a call could
-    /// not claim, and a default instance built from a template — a runtime
-    /// application's space lands on an instance that exists.
+    /// (assembly's keep precedence), the session and projects spaces', an id a call could
+    /// not claim, one reaching across spaces, and a default instance built from a template — a
+    /// runtime application's space lands on an instance that exists.
     pub fn add_runtime(&mut self, decl: SpaceDecl) -> Result<(), String> {
         let id = decl.id.clone();
-        let builtin = [SESSIONS_SPACE, harnix_contract::PROJECTS_SPACE, SYSTEM_SPACE, "flow"];
-        if builtin.contains(&id.as_str()) {
+        if [SESSIONS_SPACE, PROJECTS_SPACE].contains(&id.as_str()) {
             return Err(format!("`{id}` is a built-in space"));
+        }
+        if decl.cross_space {
+            return Err(format!("the space `{id}` reaches across spaces, which only a native extension's may"));
         }
         if self.decls.contains_key(&id) {
             return Err(format!("there is already a space `{id}`"));
@@ -171,14 +176,20 @@ impl Spaces {
     }
 
     /// Whether a call may claim this space. A space with no backend — only an interface and an
-    /// Agent — is declared nowhere here and takes the defaults; the system space may be turned off.
+    /// Agent — is declared nowhere here and takes the defaults; one the product turned off is
+    /// nobody's to claim.
     fn exists(&self, space: &str) -> bool {
-        if space == SYSTEM_SPACE {
-            return self.system_enabled;
+        if self.withheld.contains(space) {
+            return false;
         }
         !space.is_empty()
             && space.len() <= 64
             && space.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    }
+
+    /// Whether a call claiming `space` reaches across spaces.
+    pub(crate) fn crosses(&self, space: &str) -> bool {
+        self.decls.get(space).is_some_and(|d| d.cross_space)
     }
 
     /// The instances a space's sessions can be on: its default, what its template built, and any
@@ -213,6 +224,7 @@ pub(crate) const CHECKED: &[&str] = &[
     "harnix.detach",
     "harnix.send",
     "harnix.queue.remove",
+    "harnix.queue.edit",
     "harnix.sessions.tasks",
     "session.get",
     "session.history",
@@ -248,8 +260,7 @@ impl Hub {
         *write(&self.audit) = Some(hook);
     }
 
-    /// The space a call claims, which must be one this application has — the system space only
-    /// while the profile keeps it (concept §5.5).
+    /// The space a call claims, which must be one this application has: not one it turned off.
     pub(crate) fn claimed(&self, params: &Value) -> Result<String, RpcError> {
         let space = claimed_space(params);
         if !lock(&self.spaces).exists(&space) {
@@ -277,9 +288,10 @@ impl Hub {
             return Ok(());
         };
         let bound = spaces.bound(&key).to_string();
+        let crosses = spaces.crosses(claimed);
         drop(spaces);
-        if claimed == SYSTEM_SPACE {
-            if bound != SYSTEM_SPACE {
+        if crosses {
+            if bound != claimed {
                 if let Some(hook) = read(&self.audit).as_ref() {
                     hook(subject, method, &format!("{}/{}", key.0, key.1), &bound);
                 }
@@ -303,12 +315,12 @@ impl Hub {
     /// (if the space may use it), else the space's default — built from its template the first time.
     pub(crate) async fn place(self: &std::sync::Arc<Self>, params: &mut Value) -> Result<String, RpcError> {
         let space = claimed_space(params);
-        let (decl, built) = {
+        let (decl, built, crosses) = {
             let spaces = lock(&self.spaces);
             if !spaces.exists(&space) {
                 return Err(RpcError::new(codes::SPACE_MISMATCH, format!("there is no space `{space}` in this application")));
             }
-            (spaces.decls.get(&space).cloned(), spaces.ledger.instances.get(&space).cloned())
+            (spaces.decls.get(&space).cloned(), spaces.ledger.instances.get(&space).cloned(), spaces.crosses(&space))
         };
         if let (Some(scene), Some(obj)) = (decl.as_ref().and_then(|d| d.scene.clone()), params.as_object_mut()) {
             obj.entry("scene").or_insert(json!(scene));
@@ -316,7 +328,7 @@ impl Hub {
         if let Some(named) = params.get("instance").and_then(Value::as_str).map(str::to_string) {
             if let Some(slot) = self.slot(&named) {
                 if let Owner::Space(owner) = &slot.owner {
-                    if *owner != space && space != SYSTEM_SPACE {
+                    if *owner != space && !crosses {
                         return Err(RpcError::new(
                             codes::SPACE_MISMATCH,
                             format!("instance `{named}` belongs to the space `{owner}`, not `{space}`"),
@@ -349,8 +361,8 @@ impl Hub {
     /// another space, transcript and all — an application that reorganized its spaces moves the
     /// sessions it made instead of leaving them behind. The application's, not a device's: the
     /// space is where a product put a session, not where a client would like to see it. The target
-    /// must be a space the session's instance may serve (as for a new session there); the system
-    /// space is nobody's home.
+    /// must be a space the session's instance may serve (as for a new session there); one reaching
+    /// across spaces is nobody's home.
     pub(crate) async fn move_session(self: &std::sync::Arc<Self>, subject: &Subject, params: Value) -> Result<Value, RpcError> {
         if matches!(subject, Subject::Device { .. }) {
             return Err(RpcError::new(
@@ -367,7 +379,7 @@ impl Hub {
             .to_string();
         {
             let spaces = lock(&self.spaces);
-            if space == SYSTEM_SPACE || !spaces.exists(&space) {
+            if spaces.crosses(&space) || !spaces.exists(&space) {
                 return Err(RpcError::new(codes::SPACE_MISMATCH, format!("there is no space `{space}` to move a session to")));
             }
         }
@@ -421,10 +433,11 @@ impl Hub {
         lock(&self.spaces).bound(key).to_string()
     }
 
-    /// `harnix.sessions { space }`: a space's sessions, across the instances it uses; the system
-    /// space's is every session of every instance.
+    /// `harnix.sessions { space }`: a space's sessions, across the instances it uses; a space
+    /// reaching across spaces has every session of every instance.
     pub(crate) async fn space_sessions(&self, space: &str) -> Result<Value, RpcError> {
-        let instances: Vec<String> = if space == SYSTEM_SPACE {
+        let crosses = lock(&self.spaces).crosses(space);
+        let instances: Vec<String> = if crosses {
             self.slots().iter().map(|s| s.id.clone()).collect()
         } else {
             lock(&self.spaces).instances_of(space).into_iter().collect()
@@ -438,7 +451,7 @@ impl Hub {
                 continue;
             };
             for row in view.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default() {
-                if space == SYSTEM_SPACE || row.get("space").and_then(Value::as_str) == Some(space) {
+                if crosses || row.get("space").and_then(Value::as_str) == Some(space) {
                     rows.push(row);
                 }
             }
@@ -449,7 +462,7 @@ impl Hub {
     /// `harnix.spaces.list`: every space the backend knows, with where its sessions land.
     pub(crate) fn spaces_view(&self) -> Value {
         let spaces = lock(&self.spaces);
-        let mut list: Vec<Value> = spaces
+        let list: Vec<Value> = spaces
             .decls
             .values()
             .map(|d| {
@@ -461,12 +474,10 @@ impl Hub {
                     },
                     "built": spaces.ledger.instances.get(&d.id),
                     "scene": d.scene,
+                    "cross_space": d.cross_space,
                 })
             })
             .collect();
-        if spaces.system_enabled {
-            list.push(json!({"id": SYSTEM_SPACE, "instance": null, "built": null, "scene": null}));
-        }
         json!({"spaces": list})
     }
 
@@ -520,7 +531,8 @@ mod tests {
     use super::*;
 
     fn spaces(dir: &std::path::Path) -> Spaces {
-        Spaces::load(dir.join("spaces.json"), vec![SpaceDecl::new("fleet")], true).unwrap()
+        let decls = vec![SpaceDecl::new("fleet"), SpaceDecl::new("debug").cross_space()];
+        Spaces::load(dir.join("spaces.json"), decls, ["off".to_string()].into()).unwrap()
     }
 
     #[test]
@@ -529,11 +541,13 @@ mod tests {
         let mut s = spaces(dir.path());
         s.add_runtime(SpaceDecl::new("fake").scene("mini")).unwrap();
         assert!(s.decls.contains_key("fake"));
-        for taken in ["fleet", "sessions", "projects", "system", "flow", "fake"] {
+        for taken in ["fleet", "sessions", "projects", "debug", "off", "fake"] {
             assert!(s.add_runtime(SpaceDecl::new(taken)).is_err(), "{taken} was added");
         }
         assert!(s.add_runtime(SpaceDecl::new("bad id")).is_err());
         assert!(s.add_runtime(SpaceDecl::new("templated").instance("template:fleet.side")).is_err());
+        assert!(s.add_runtime(SpaceDecl::new("across").cross_space()).is_err());
+        assert!(s.crosses("debug") && !s.crosses("fleet") && !s.crosses("nowhere"));
         // Only what was added at runtime can be removed.
         assert!(!s.remove_runtime("fleet"));
         assert!(!s.remove_runtime("sessions"));

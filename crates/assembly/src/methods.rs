@@ -104,7 +104,7 @@ mod tests {
     #[test]
     fn an_unlisted_method_is_refused() {
         let table = table(&Behind::default());
-        assert!(!table.reachable(&device()).contains(&"session.somethingNew"));
+        assert!(!table.reachable(&device(), &harnix_kernel::GrantTable::new()).contains(&"session.somethingNew"));
     }
 
     /// The engine trusts whoever reaches its dispatch. These would hand that
@@ -113,9 +113,11 @@ mod tests {
     #[test]
     fn credential_and_endpoint_methods_are_refused() {
         let table = table(&Behind::default());
-        for (method, _) in ENGINE_REFUSALS.iter().chain(HUB_OWNED) {
+        let grants = harnix_kernel::GrantTable::new();
+        let names = ENGINE_REFUSALS.iter().map(|(m, _, _)| m).chain(HUB_OWNED.iter().map(|(m, _)| m));
+        for method in names {
             assert!(
-                !table.reachable(&device()).contains(method),
+                !table.reachable(&device(), &grants).contains(method),
                 "{method} reachable by a device"
             );
         }
@@ -128,7 +130,8 @@ mod tests {
     #[test]
     fn the_engine_package_lifecycle_and_mcp_are_not_reachable() {
         let table = table(&Behind::default());
-        let reachable = table.reachable(&device());
+        let grants = harnix_kernel::GrantTable::new();
+        let reachable = table.reachable(&device(), &grants);
         for method in [
             "plugin.install",
             "plugin.uninstall",
@@ -140,23 +143,33 @@ mod tests {
         }
     }
 
-    /// What the hub owns is never granted, not even to the kernel's own
-    /// modules: each one is a way around the hub.
+    /// What the hub owns no extension may list, not even the kernel's own modules: each one is
+    /// a way around the hub.
     #[test]
-    fn the_hubs_own_methods_cannot_be_granted() {
-        let mut table = table(&Behind::default());
+    fn the_hubs_own_methods_cannot_be_listed() {
+        let table = table(&Behind::default());
         for (method, _) in HUB_OWNED {
-            assert!(table.grant(method, "anything").is_err(), "{method} was grantable");
+            assert!(table.check_listed(method).is_err(), "{method} could be listed");
         }
     }
 
-    /// Every engine method a built-in is granted is a row of the engine's, so the grants its
-    /// manifest discloses take.
+    /// Every capability a built-in requires is the kernel's, and opens a row: what its manifest
+    /// asks for is something.
     #[test]
-    fn every_grant_a_built_in_asks_for_is_an_engine_row() {
+    fn every_capability_a_built_in_requires_opens_a_kernel_row() {
         let table = table(&Behind::default());
-        for method in harnix_builtin::engine_methods().into_iter().chain(harnix_builtin::apps::GRANTS.iter().copied()) {
-            assert!(table.check_grant(method, "a-module").is_ok(), "{method} cannot be granted");
+        let snapshot = harnix_router::Router::new(table, Arc::new(harnix_kernel::GrantTable::new()), Arc::new(Audit::default())).snapshot();
+        let required: Vec<&str> = snapshot["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|row| row["access"]["requires"][0].as_str())
+            .collect();
+        for cap in harnix_builtin::capabilities().iter().chain(harnix_builtin::apps::REQUIRES) {
+            assert!(harnix_contract::s1::caps::kernel(cap).is_some(), "{cap} is not the kernel's");
+            if *cap != harnix_contract::s1::caps::INSTANCES_ADMIN {
+                assert!(required.contains(&cap.as_str()), "no row requires {cap}");
+            }
         }
     }
 
@@ -164,7 +177,7 @@ mod tests {
     /// nothing or panicking.
     #[tokio::test]
     async fn a_kernel_row_before_its_answer_is_up_says_so() {
-        let router = Router::new(table(&Behind::default()), Arc::new(Audit::default()));
+        let router = Router::new(table(&Behind::default()), Arc::new(harnix_kernel::GrantTable::new()), Arc::new(Audit::default()));
         for method in ["harnix.hello", "harnix.diagnostics"] {
             let e = router.call(CallContext::root(device(), None), method, json!({})).await.unwrap_err();
             assert_eq!(e.code, harnix_contract::codes::INTERNAL_ERROR, "{method}");

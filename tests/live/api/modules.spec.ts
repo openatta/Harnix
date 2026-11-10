@@ -52,7 +52,7 @@ test("a method declared only for the kernel is refused to a device", TAGS, async
 test("one module reaches another only where it was named", TAGS, async () => {
   // peer → probe.for_peer: declared for Module(peer).
   const allowed = await api.call("app.peer.relay", { method: "app.probe.for_peer" });
-  expect(allowed.caller).toEqual({ kind: "module", id: "peer" });
+  expect(allowed.caller).toEqual({ kind: "extension", id: "peer" });
   // peer → probe.internal: the kernel's only.
   const refused = await api.refused("app.peer.relay", { method: "app.probe.internal" });
   expect(refused?.code).toBe(REFUSED);
@@ -108,7 +108,7 @@ test("the diagnostics page says what is there and what is not", TAGS, async () =
   expect(report.unknown_config_sections).toEqual(["nobody"]);
   const settings = report.modules.find((m: any) => m.id === "settings");
   expect(settings.namespace).toBe("kernel");
-  expect(settings.grants).toContain("config.reload");
+  expect(settings.granted).toContain("engine.config.write");
   const probe = await moduleStatus(api, "probe");
   const echo = probe.methods.find((m: any) => m.name === "app.probe.echo");
   expect(echo.principals).toEqual(["device"]);

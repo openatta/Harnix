@@ -55,7 +55,11 @@ pub fn flow() -> Flow {
 }
 
 fn main() -> anyhow::Result<()> {
-    harnix::App::builder().with_builtins().module(flow()).run()
+    harnix::App::builder()
+        .with_builtins()
+        .module(flow())
+        .grant([harnix::caps::ENGINE_CONTROL, harnix::caps::ENGINE_INSPECT])
+        .run()
 }
 
 #[cfg(test)]

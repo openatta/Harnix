@@ -13,8 +13,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use harnix_authz::{access_for, Principal};
-use harnix_kernel::Owner;
-use harnix_router::{Row, RouteTable};
+use harnix_contract::s1::{Capability, ExtId, Trust};
+use harnix_kernel::{GrantTable, Owner};
+use harnix_router::{IdKind, Row, RouteTable};
 use harnix_module::manifest::check_id;
 use harnix_module::{
     EngineContrib, ErasedModule, EventRegistry, InstanceTemplate, InstanceTemplates, Manifest,
@@ -37,6 +38,8 @@ pub enum Namespace {
 pub(crate) struct Entry {
     pub module: Box<dyn ErasedModule>,
     pub namespace: Namespace,
+    /// What the application granted it.
+    pub granted: Vec<Capability>,
 }
 
 /// What the diagnostics page says about one module.
@@ -52,7 +55,11 @@ pub struct ModuleStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
     pub disclosure: String,
-    pub grants: Vec<String>,
+    /// The capabilities it must be granted, may be granted, was granted, and defines.
+    pub requires: Vec<String>,
+    pub optional: Vec<String>,
+    pub granted: Vec<String>,
+    pub defines: Vec<String>,
     pub methods: Vec<MethodStatus>,
     pub topics: Vec<String>,
     pub routes: bool,
@@ -74,6 +81,9 @@ pub struct MethodStatus {
     pub name: String,
     /// Who may call it: `device`, `kernel`, `module:<id>`, `module:*`.
     pub principals: Vec<String>,
+    /// The capability a caller must hold besides.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requires: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schema: Option<Value>,
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -107,9 +117,9 @@ impl Record {
         self.enabled.load(Ordering::Acquire)
     }
 
-    /// Its rows' owner in the route table.
+    /// Its rows' owner in the route table. Asked only once its id was checked.
     pub fn owner(&self) -> Owner {
-        Owner::extension(self.manifest.id.clone())
+        Owner::extension(harnix_contract::ExtId::parse(&self.manifest.id).expect("a module's id is checked first"))
     }
 
     pub fn disable(&mut self, phase: &'static str, reason: String, table: &mut RouteTable) {
@@ -150,14 +160,63 @@ pub(crate) fn native_of(
     Err(format!("this binary declares no template `{id}`"))
 }
 
+/// Every module's id and the capabilities each defines, before any row goes in (a row may require
+/// what a module after it defines); then what each was granted, checked against what it asked for.
+/// A grant that does not hold refuses the whole start, naming the module and the capability: the
+/// assembly is declared in `main.rs`, and a mistake there is the program's, not one to run around.
+fn check_grants(entries: &[Entry], table: &mut RouteTable) -> anyhow::Result<()> {
+    let mut problems = Vec::new();
+    let manifests: Vec<Manifest> = entries.iter().map(|e| e.module.manifest()).collect();
+    for manifest in &manifests {
+        let Ok(id) = ExtId::native(&manifest.id) else { continue };
+        if table.register(&id, IdKind::Native).is_err() {
+            continue; // a second module by that id: disabled when it registers
+        }
+        for spec in &manifest.defines {
+            if let Err(e) = table.define(&id, spec.clone()) {
+                problems.push(format!("module `{id}` defines {e}: a module's own are `{id}.<name>`, once each"));
+            }
+        }
+    }
+    for (entry, manifest) in entries.iter().zip(&manifests) {
+        let id = &manifest.id;
+        for cap in &manifest.requires {
+            if !entry.granted.contains(cap) {
+                problems.push(format!("module `{id}` requires `{cap}`, which the application did not grant it"));
+            }
+        }
+        for cap in &entry.granted {
+            if !manifest.requires.contains(cap) && !manifest.optional.contains(cap) {
+                problems.push(format!("module `{id}` was granted `{cap}`, which it neither requires nor lists as optional"));
+            } else {
+                match table.defined(cap) {
+                    None => problems.push(format!("module `{id}` was granted `{cap}`, which nothing here defines")),
+                    Some(spec) if !spec.is_native() => {
+                        problems.push(format!("module `{id}` was granted `{cap}`, which only a package may hold"))
+                    }
+                    Some(_) => {}
+                }
+            }
+        }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!("the application's grants do not hold:\n  {}", problems.join("\n  ")))
+    }
+}
+
 /// Call every module's registration functions and put what they declare in
-/// the table. A conflict disables the module that came second.
+/// the table, and what each was granted in `grants`. A conflict disables the module that came
+/// second; a grant that does not hold refuses the start ([`check_grants`]).
 pub(crate) fn register(
     entries: Vec<Entry>,
     table: &mut RouteTable,
+    grants: &GrantTable,
     sections: &BTreeMap<String, toml::Value>,
     state_root: &Path,
-) -> Vec<Record> {
+) -> anyhow::Result<Vec<Record>> {
+    check_grants(&entries, table)?;
     let mut records: Vec<Record> = Vec::new();
     for entry in entries {
         let manifest = entry.module.manifest();
@@ -205,12 +264,16 @@ pub(crate) fn register(
             phase: None,
             reason: None,
             disclosure: manifest.disclosure.clone(),
-            grants: manifest.grants.clone(),
+            requires: names(&manifest.requires),
+            optional: names(&manifest.optional),
+            granted: names(&entry.granted),
+            defines: manifest.defines.iter().map(|d| d.name().to_string()).collect(),
             methods: methods
                 .iter()
                 .map(|m| MethodStatus {
                     name: m.name.clone(),
                     principals: principals_label(&m.principals),
+                    requires: m.requires.as_ref().map(ToString::to_string),
                     schema: m.schema.clone(),
                     description: m.description.clone(),
                 })
@@ -249,8 +312,12 @@ pub(crate) fn register(
         } else {
             declare(&mut record, table).err()
         };
-        if let Some(reason) = refusal {
-            record.disable("registration", reason, table);
+        match refusal {
+            Some(reason) => record.disable("registration", reason, table),
+            None => {
+                let id = ExtId::native(&id).expect("checked above");
+                grants.set(id, entry.granted, Trust::Origin);
+            }
         }
         records.push(record);
     }
@@ -259,10 +326,14 @@ pub(crate) fn register(
             tracing::warn!(section = %section, "[modules.{section}] names no module this application has");
         }
     }
-    records
+    Ok(records)
 }
 
-/// Put one module's methods, topics and route in the table, all or none, and then its grants.
+fn names(caps: &[Capability]) -> Vec<String> {
+    caps.iter().map(ToString::to_string).collect()
+}
+
+/// Put one module's methods, topics and route in the table, all or none.
 /// On a conflict the caller disables the module, which withdraws whatever of it went in.
 fn declare(record: &mut Record, table: &mut RouteTable) -> Result<(), String> {
     let mut rows: Vec<Row> = record
@@ -274,7 +345,11 @@ fn declare(record: &mut Record, table: &mut RouteTable) -> Result<(), String> {
                 cx: record.cx.clone(),
                 name: method.name.clone(),
             });
-            Row::method(method.name.clone(), access_for(&method.principals), handler)
+            let access = match &method.requires {
+                Some(cap) => access_for(&method.principals).requiring(cap.clone()),
+                None => access_for(&method.principals),
+            };
+            Row::method(method.name.clone(), access, handler)
                 .schema(method.schema.clone())
                 .describe(method.description.clone())
         })
@@ -285,9 +360,6 @@ fn declare(record: &mut Record, table: &mut RouteTable) -> Result<(), String> {
     }
     table.install(&record.owner(), rows).map_err(|e| e.to_string())?;
     record.installed = true;
-    for grant in &record.manifest.grants {
-        table.grant(grant, &record.manifest.id).map_err(|e| e.to_string())?;
-    }
     Ok(())
 }
 
@@ -370,12 +442,13 @@ mod tests {
         let mut table = RouteTable::new();
         let entries = ["0.0.1", "9.9.9"]
             .into_iter()
-            .map(|v| Entry { module: Box::new(Probe(v)), namespace: Namespace::App })
+            .map(|v| Entry { module: Box::new(Probe(v)), namespace: Namespace::App, granted: Vec::new() })
             .collect();
-        let records = register(entries, &mut table, &BTreeMap::new(), dir.path());
+        let grants = GrantTable::new();
+        let records = register(entries, &mut table, &grants, &BTreeMap::new(), dir.path()).unwrap();
         assert!(records[0].is_enabled());
         assert!(!records[1].is_enabled());
         let device = Subject::Device { id: "d".into() };
-        assert_eq!(table.decide(&device, "app.probe.echo"), harnix_authz::Decision::Allow);
+        assert_eq!(table.decide(&device, &grants, "app.probe.echo"), harnix_authz::Decision::Allow);
     }
 }

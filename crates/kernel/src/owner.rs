@@ -1,5 +1,7 @@
 //! Who owns a name: what installs it, answers it and takes it back out.
 
+use harnix_contract::ExtId;
+
 /// The part of the skeleton that owns a kernel row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum KernelPart {
@@ -16,16 +18,16 @@ pub enum Owner {
     /// What passes through to the engine under its own name.
     Engine,
     /// An extension, by id: a compiled-in module, or a runtime application.
-    Extension(String),
+    Extension(ExtId),
 }
 
 impl Owner {
-    pub fn extension(id: impl Into<String>) -> Self {
-        Owner::Extension(id.into())
+    pub fn extension(id: ExtId) -> Self {
+        Owner::Extension(id)
     }
 
     /// The extension's id, when an extension owns it.
-    pub fn extension_id(&self) -> Option<&str> {
+    pub fn extension_id(&self) -> Option<&ExtId> {
         match self {
             Owner::Extension(id) => Some(id),
             _ => None,

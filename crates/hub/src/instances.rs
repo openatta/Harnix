@@ -16,6 +16,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use harnix_contract::sync::{lock, write};
+use harnix_contract::s1::caps;
 use harnix_contract::{codes, RpcError, Subject};
 use harnix_instance::link::{self, DownLink, EngineLink, LinkStatus};
 use harnix_instance::{Built, Facts, Factory, InstanceTemplate, Ledger, LedgerEntry, Owner};
@@ -72,33 +73,30 @@ impl Registry {
 }
 
 /// Who a caller builds as, and whether it may use this template. The interface builds as the space
-/// it claims.
-fn builder_of(subject: &Subject, space: &str, template: &InstanceTemplate, declared_by: &Owner) -> Result<Owner, RpcError> {
+/// it claims, and only from what is opened to it (`ui` templates); an extension from its own
+/// templates and the profile's; holding `instances.admin`, from any.
+fn builder_of(
+    subject: &Subject,
+    admin: bool,
+    space: &str,
+    template: &InstanceTemplate,
+    declared_by: &Owner,
+) -> Result<Owner, RpcError> {
     match subject {
         Subject::Kernel => Ok(Owner::Kernel),
-        // A module builds from its own templates and the profile's.
-        Subject::Module { id } => match declared_by {
-            Owner::Module(owner) if owner != id => Err(refused(format!(
+        Subject::Extension { id } => match declared_by {
+            Owner::Module(owner) if id != owner.as_str() && !admin => Err(refused(format!(
                 "template `{}` belongs to module `{owner}`",
                 template.id
             ))),
-            _ => Ok(Owner::Module(id.clone())),
+            _ => Ok(Owner::Module(id.to_string())),
         },
-        // The interface builds only from what is opened to it (`ui` templates); the system space, the
-        // debugging face, from any template.
-        Subject::Device { .. } if space == harnix_contract::SYSTEM_SPACE => {
-            Ok(Owner::Space(space.to_string()))
-        }
-        Subject::Device { .. } => {
-            if template.ui {
-                Ok(Owner::Space(space.to_string()))
-            } else {
-                Err(refused(format!(
-                    "template `{}` is not one the interface may build from",
-                    template.id
-                )))
-            }
-        }
+        Subject::Device { .. } if template.ui => Ok(Owner::Space(space.to_string())),
+        Subject::Device { .. } => Err(refused(format!(
+            "template `{}` is not one the interface may build from",
+            template.id
+        ))),
+        _ => Err(refused(format!("template `{}` is not one this caller may build from", template.id))),
     }
 }
 
@@ -142,6 +140,26 @@ impl Wait {
 
 fn refused(message: String) -> RpcError {
     RpcError::new(codes::REFUSED, message)
+}
+
+impl Hub {
+    /// Whether `subject` holds `instances.admin`: the kernel does.
+    fn is_admin(&self, subject: &Subject) -> bool {
+        harnix_kernel::holds(&*self.grants, subject, &caps::INSTANCES_ADMIN)
+    }
+
+    /// Whether `subject` may stop or restart an instance `owner` owns: its own — a module's, a
+    /// space's from that space — or any, holding `instances.admin`.
+    fn may_manage(&self, subject: &Subject, owner: &Owner, space: &str) -> bool {
+        if self.is_admin(subject) {
+            return true;
+        }
+        match (subject, owner) {
+            (Subject::Extension { id }, Owner::Module(owner)) => id == owner.as_str(),
+            (Subject::Device { .. }, Owner::Space(owner)) => owner == space,
+            _ => false,
+        }
+    }
 }
 
 impl Hub {
@@ -338,7 +356,7 @@ impl Hub {
                 .cloned()
                 .ok_or_else(|| RpcError::not_found(format!("there is no template `{template_id}`")))?
         };
-        let owner = builder_of(subject, &space, &template, &declared_by)?;
+        let owner = builder_of(subject, self.is_admin(subject), &space, &template, &declared_by)?;
         // The fast path. The check that decides is the one under the registry's lock, in `build`.
         if let Some(existing) = self.slot(&name) {
             if ensure && existing.template.as_deref() == Some(template_id.as_str()) {
@@ -437,14 +455,8 @@ impl Hub {
         let instance = self.instance_of(&params)?;
         let slot = self.slot(&instance).expect("checked");
         let space = self.claimed(&params)?;
-        let allowed = match (subject, &slot.owner) {
-            _ if instance == SYSTEM || slot.owner == Owner::Kernel => false,
-            (Subject::Kernel, _) => true,
-            (Subject::Module { id }, Owner::Module(owner)) => id == owner,
-            (Subject::Device { .. }, _) if space == harnix_contract::SYSTEM_SPACE => true,
-            (Subject::Device { .. }, Owner::Space(owner)) => *owner == space,
-            _ => false,
-        };
+        // The kernel's own instances are this process's: nobody stops them, by owner not by id.
+        let allowed = slot.owner != Owner::Kernel && self.may_manage(subject, &slot.owner, &space);
         if !allowed {
             return Err(refused(format!(
                 "instance `{instance}` belongs to {}, which is not {}",
@@ -472,14 +484,7 @@ impl Hub {
         }
         let slot = self.slot(&instance).expect("checked");
         let space = self.claimed(&params)?;
-        let allowed = match (subject, &slot.owner) {
-            (Subject::Kernel, _) => true,
-            (Subject::Module { id }, _) if id == "system" => true,
-            (Subject::Module { id }, Owner::Module(owner)) => id == owner,
-            (Subject::Device { .. }, _) if space == harnix_contract::SYSTEM_SPACE => true,
-            (Subject::Device { .. }, Owner::Space(owner)) => *owner == space,
-            _ => false,
-        };
+        let allowed = self.may_manage(subject, &slot.owner, &space);
         if !allowed {
             return Err(refused(format!(
                 "instance `{instance}` belongs to {}, which is not {}",
@@ -655,11 +660,12 @@ impl Hub {
         let space = self
             .claimed(params)
             .unwrap_or_else(|_| harnix_contract::SESSIONS_SPACE.to_string());
+        let admin = self.is_admin(subject);
         let registry = self.registry.lock().await;
         let list: Vec<Value> = registry
             .templates
             .values()
-            .filter(|(t, by)| builder_of(subject, &space, t, by).is_ok())
+            .filter(|(t, by)| builder_of(subject, admin, &space, t, by).is_ok())
             .map(|(t, by)| {
                 json!({
                     "id": t.id,

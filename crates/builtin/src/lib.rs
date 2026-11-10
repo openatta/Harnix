@@ -24,6 +24,8 @@ pub mod search;
 pub mod settings;
 pub mod store;
 mod system;
+
+pub use system::SYSTEM_SPACE;
 mod usage;
 pub mod workspaces;
 
@@ -36,8 +38,8 @@ use std::sync::{Arc, RwLock};
 use harnix_contract::sync::{read, write};
 use harnix_contract::RpcError;
 use harnix_module::{
-    CallContext, Handler, InstanceHandle, Manifest, MethodRegistry, Module, ModuleContext,
-    Principal,
+    caps, CallContext, Capability, Handler, InstanceHandle, Manifest, MethodRegistry, Module, ModuleContext,
+    Principal, SpaceDecl, SpaceRegistry,
 };
 use serde_json::Value;
 use tokio::sync::Mutex;
@@ -72,7 +74,7 @@ pub struct Builtin {
     readers: Arc<recordings::Readers>,
 }
 
-/// The built-in modules: id, methods (full names), grants, disclosure.
+/// The built-in modules: id, methods (full names), the capabilities each requires, disclosure.
 ///
 /// Every one registers through the public module contract, the same one an
 /// application's module uses. If the built-ins could not be built out of it,
@@ -99,7 +101,7 @@ const PARTS: &[Part] = &[
             m("harnix.projects.create", |b, p| Box::pin(async move { b.projects_create(p).await })),
             m("harnix.upload.begin", |b, p| Box::pin(async move { b.upload_begin(p).await })),
         ],
-        grants: &["session.export"],
+        requires: &[caps::ENGINE_EXPORT],
     },
     Part {
         id: "settings",
@@ -109,14 +111,9 @@ const PARTS: &[Part] = &[
             m("harnix.settings.set", |b, p| Box::pin(async move { b.settings_set(p).await })),
             m("harnix.settings.setProvider", |b, p| Box::pin(async move { b.settings_set_provider(p).await })),
         ],
-        // `harnix.instances.inheritProviders` is the hub's, not the engine's: after a provider
-        // changes, the instances whose template inherits `system`'s get it too (ipdrun-11).
-        grants: &[
-            "config.get",
-            "config.getProvider",
-            "config.reload",
-            "harnix.instances.inheritProviders",
-        ],
+        // Reading the settings, reloading them, and — `harnix.instances.inheritProviders` — handing
+        // a changed provider to the instances whose template inherits `system`'s (ipdrun-11).
+        requires: &[caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE],
     },
     Part {
         id: "packages",
@@ -133,14 +130,7 @@ const PARTS: &[Part] = &[
             m("harnix.plugins.reload", |b, p| Box::pin(async move { b.plugins_manage("plugin.reload", p).await })),
             m("harnix.plugins.list", |b, p| Box::pin(async move { b.plugins_list(p).await })),
         ],
-        grants: &[
-            "plugin.list",
-            "plugin.install",
-            "plugin.uninstall",
-            "plugin.enable",
-            "plugin.disable",
-            "plugin.reload",
-        ],
+        requires: &[caps::ENGINE_PLUGINS],
     },
     Part {
         id: "recordings",
@@ -148,7 +138,7 @@ const PARTS: &[Part] = &[
         methods: &[
             m("harnix.requestHeaders", |b, p| Box::pin(async move { b.request_headers(p).await })),
         ],
-        grants: &[],
+        requires: &[],
     },
 ];
 
@@ -158,40 +148,32 @@ const SYSTEM: Part = Part {
     id: "system",
     disclosure: "系统 space：看任何实例的会话与任务、读调用信封与上下文、任务的输出、会话的用量；给在跑的子 Agent 发话；设定、暂停、继续、编辑、清除会话的目标；压缩、清空、换模型、改名、改写或删除消息、停止任务。每次操作写审计",
     methods: &[
-        m("harnix.system.context", |b, p| Box::pin(async move { b.system_call("harnix.system.context", p).await })),
-        m("harnix.system.calls", |b, p| Box::pin(async move { b.system_call("harnix.system.calls", p).await })),
-        m("harnix.system.trace", |b, p| Box::pin(async move { b.system_call("harnix.system.trace", p).await })),
-        m("harnix.system.trace.call", |b, p| Box::pin(async move { b.system_call("harnix.system.trace.call", p).await })),
-        m("harnix.system.turns", |b, p| Box::pin(async move { b.system_call("harnix.system.turns", p).await })),
-        m("harnix.system.usage", |b, p| Box::pin(async move { b.system_call("harnix.system.usage", p).await })),
-        m("harnix.system.tasks.stop", |b, p| Box::pin(async move { b.system_call("harnix.system.tasks.stop", p).await })),
-        m("harnix.system.tasks.message", |b, p| Box::pin(async move { b.system_call("harnix.system.tasks.message", p).await })),
-        m("harnix.system.tasks.output", |b, p| Box::pin(async move { b.system_call("harnix.system.tasks.output", p).await })),
-        m("harnix.system.messages.drop", |b, p| Box::pin(async move { b.system_call("harnix.system.messages.drop", p).await })),
-        m("harnix.system.messages.edit", |b, p| Box::pin(async move { b.system_call("harnix.system.messages.edit", p).await })),
-        m("harnix.system.compact", |b, p| Box::pin(async move { b.system_call("harnix.system.compact", p).await })),
-        m("harnix.system.clear", |b, p| Box::pin(async move { b.system_call("harnix.system.clear", p).await })),
-        m("harnix.system.model", |b, p| Box::pin(async move { b.system_call("harnix.system.model", p).await })),
-        m("harnix.system.rename", |b, p| Box::pin(async move { b.system_call("harnix.system.rename", p).await })),
-        m("harnix.system.goal", |b, p| Box::pin(async move { b.system_call("harnix.system.goal", p).await })),
-        m("harnix.system.goal.set", |b, p| Box::pin(async move { b.system_call("harnix.system.goal.set", p).await })),
-        m("harnix.system.goal.update", |b, p| Box::pin(async move { b.system_call("harnix.system.goal.update", p).await })),
+        mc("harnix.system.context", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.context", p).await })),
+        mc("harnix.system.calls", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.calls", p).await })),
+        mc("harnix.system.trace", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.trace", p).await })),
+        mc("harnix.system.trace.call", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.trace.call", p).await })),
+        mc("harnix.system.turns", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.turns", p).await })),
+        mc("harnix.system.usage", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.usage", p).await })),
+        mc("harnix.system.tasks.stop", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.tasks.stop", p).await })),
+        mc("harnix.system.tasks.message", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.tasks.message", p).await })),
+        mc("harnix.system.tasks.output", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.tasks.output", p).await })),
+        mc("harnix.system.messages.drop", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.messages.drop", p).await })),
+        mc("harnix.system.messages.edit", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.messages.edit", p).await })),
+        mc("harnix.system.compact", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.compact", p).await })),
+        mc("harnix.system.clear", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.clear", p).await })),
+        mc("harnix.system.model", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.model", p).await })),
+        mc("harnix.system.rename", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.rename", p).await })),
+        mc("harnix.system.goal", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.goal", p).await })),
+        mc("harnix.system.goal.set", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.goal.set", p).await })),
+        mc("harnix.system.goal.update", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.goal.update", p).await })),
+        // Stopping, restarting and building any instance, for the system space's instance pane:
+        // the hub lets an extension holding `instances.admin` do that, and a device none of it.
+        mc("harnix.system.instances.stop", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.instances.stop", p).await })),
+        mc("harnix.system.instances.restart", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.instances.restart", p).await })),
+        mc("harnix.system.instances.create", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.instances.create", p).await })),
+        mc("harnix.system.instances.templates", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.instances.templates", p).await })),
     ],
-    grants: &[
-        "session.inspectContext",
-        "session.stopTask",
-        "session.messageTask",
-        "session.taskOutput",
-        "session.dropMessages",
-        "session.editMessage",
-        "session.compact",
-        "session.clear",
-        "session.setModel",
-        "session.rename",
-        "session.goal",
-        "session.setGoal",
-        "session.updateGoal",
-    ],
+    requires: &[caps::INSTANCES_ADMIN, caps::ENGINE_INSPECT, caps::ENGINE_CONTROL],
 };
 
 /// Changing a session's model from the composer when the system space is gone: registered only
@@ -200,7 +182,7 @@ const MODEL: Part = Part {
     id: "model",
     disclosure: "换会话的模型：只在调用方声称的 space 自己的会话上（[shell] model_switch）",
     methods: &[m("harnix.sessions.setModel", |b, p| Box::pin(async move { b.session_set_model(p).await }))],
-    grants: &["session.setModel"],
+    requires: &[caps::ENGINE_CONTROL],
 };
 
 /// Every method the built-ins contribute, the system space's included.
@@ -212,13 +194,12 @@ pub fn methods() -> Vec<&'static str> {
         .collect()
 }
 
-/// Engine methods a built-in calls that no device may: granted to the one module that needs
-/// each.
-pub fn engine_methods() -> Vec<&'static str> {
-    let mut all: Vec<&'static str> = PARTS
+/// Every capability a built-in requires.
+pub fn capabilities() -> Vec<Capability> {
+    let mut all: Vec<Capability> = PARTS
         .iter()
         .chain([&SYSTEM, &MODEL])
-        .flat_map(|p| p.grants.iter().copied())
+        .flat_map(|p| p.requires.iter().cloned())
         .collect();
     all.sort();
     all.dedup();
@@ -354,11 +335,18 @@ struct Part {
     id: &'static str,
     disclosure: &'static str,
     methods: &'static [Method],
-    grants: &'static [&'static str],
+    requires: &'static [Capability],
 }
 
-/// What answers one built-in method: a function of the built-ins' state and the params.
-type Answer = fn(Arc<Builtin>, Value) -> Pin<Box<dyn Future<Output = Result<Value, RpcError>> + Send>>;
+type Answering = Pin<Box<dyn Future<Output = Result<Value, RpcError>> + Send>>;
+
+/// What answers one built-in method: a function of the built-ins' state and the params, or — for
+/// what calls on while it answers, so those calls are this one's children — of the call too.
+#[derive(Clone, Copy)]
+enum Answer {
+    Plain(fn(Arc<Builtin>, Value) -> Answering),
+    Within(fn(Arc<Builtin>, CallContext, Value) -> Answering),
+}
 
 /// One built-in method: its full name, and what answers it.
 struct Method {
@@ -366,8 +354,12 @@ struct Method {
     answer: Answer,
 }
 
-const fn m(name: &'static str, answer: Answer) -> Method {
-    Method { name, answer }
+const fn m(name: &'static str, answer: fn(Arc<Builtin>, Value) -> Answering) -> Method {
+    Method { name, answer: Answer::Plain(answer) }
+}
+
+const fn mc(name: &'static str, answer: fn(Arc<Builtin>, CallContext, Value) -> Answering) -> Method {
+    Method { name, answer: Answer::Within(answer) }
 }
 
 /// One built-in module.
@@ -381,12 +373,9 @@ impl Module for BuiltinModule {
     const API_VERSION: u32 = harnix_module::MODULE_API_VERSION;
 
     fn manifest(&self) -> Manifest {
-        let mut manifest =
-            Manifest::new(self.part.id, env!("CARGO_PKG_VERSION")).disclosure(self.part.disclosure);
-        for grant in self.part.grants {
-            manifest = manifest.grant(*grant);
-        }
-        manifest
+        Manifest::new(self.part.id, env!("CARGO_PKG_VERSION"))
+            .disclosure(self.part.disclosure)
+            .requires(self.part.requires.iter().cloned())
     }
 
     fn methods(&self, registry: &mut MethodRegistry) {
@@ -400,6 +389,13 @@ impl Module for BuiltinModule {
                     builtin: self.builtin.clone(),
                     answer: method.answer,
                 }));
+        }
+    }
+
+    /// The system space is the system module's: it reaches across spaces.
+    fn spaces(&self, spaces: &mut SpaceRegistry) {
+        if self.part.id == SYSTEM.id {
+            spaces.add(SpaceDecl::new(SYSTEM_SPACE).cross_space());
         }
     }
 
@@ -418,8 +414,11 @@ struct Bound {
 
 #[async_trait::async_trait]
 impl Handler for Bound {
-    async fn call(&self, _cx: CallContext, params: Value) -> Result<Value, RpcError> {
-        (self.answer)(self.builtin.clone(), params).await
+    async fn call(&self, cx: CallContext, params: Value) -> Result<Value, RpcError> {
+        match self.answer {
+            Answer::Plain(f) => f(self.builtin.clone(), params).await,
+            Answer::Within(f) => f(self.builtin.clone(), cx, params).await,
+        }
     }
 }
 
