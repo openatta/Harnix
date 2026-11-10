@@ -52,10 +52,10 @@ describe("listSession (ipdrun-54)", () => {
     app.registry.register(
       "space",
       space("sessions", {
-        listSession: (r) => {
+        sidebar: { listSession: (r) => {
           if (r.sessionId === "boom") throw new Error("boom");
           return r.sessionId !== "main";
-        },
+        } },
       }),
       "test",
     );
@@ -69,7 +69,7 @@ describe("listSession (ipdrun-54)", () => {
     const client = new ScriptedClient();
     client.answer = (method) => (method === "harnix.sessions" ? { sessions: [{ session_id: "main", instance: "system", name: "Main" }] } : {});
     const app = new App(client as unknown as HarnixClient, new Registry());
-    app.registry.register("space", space("sessions", { listSession: () => false }), "test");
+    app.registry.register("space", space("sessions", { sidebar: { listSession: () => false } }), "test");
     const { container } = draw(app);
     await act(tick);
     expect(rowsIn(container)).toEqual([]);
@@ -81,7 +81,7 @@ describe("reenter (ipdrun-55)", () => {
   it("a click on the front space's entry calls reenter; on another space's entry it switches", async () => {
     const { app } = scriptedApp();
     let n = 0;
-    app.registry.register("space", space("c", { reenter: () => (n += 1) }), "test");
+    app.registry.register("space", space("c", { details: { reenter: () => (n += 1) } }), "test");
     const { container } = draw(app);
     await act(tick);
     const entry = (id: string) => container.querySelector(`nav.spaces [data-space="${id}"]`) as HTMLElement;
@@ -123,7 +123,7 @@ describe("a disabled space", () => {
   it("is greyed, says why on hover, and a click does not switch; redraw brings it back", async () => {
     const { app } = scriptedApp();
     let why: string | false = "Open a project first";
-    app.registry.register("space", space("work", { disabled: () => why }), "test");
+    app.registry.register("space", space("work", { sidebar: { disabled: () => why } }), "test");
     const { container } = draw(app);
     const entry = () => container.querySelector<HTMLButtonElement>('nav.spaces [data-space="work"]')!;
     expect(entry().classList.contains("disabled")).toBe(true);
@@ -146,7 +146,7 @@ describe("a disabled space", () => {
 
   it("host.spaces.switch to it settles without switching; others switch as before", async () => {
     const { app } = scriptedApp();
-    app.registry.register("space", space("work", { disabled: () => "not now" }), "test");
+    app.registry.register("space", space("work", { sidebar: { disabled: () => "not now" } }), "test");
     const host = hostFor(app);
     await host.spaces.switch("work");
     expect(host.spaces.current()).toBe("sessions");
@@ -157,7 +157,7 @@ describe("a disabled space", () => {
 
   it("a throwing disabled() counts as enabled, and is noted", async () => {
     const { app } = scriptedApp();
-    app.registry.register("space", space("work", { disabled: () => { throw new Error("disabled broke"); } }), "test");
+    app.registry.register("space", space("work", { sidebar: { disabled: () => { throw new Error("disabled broke"); } } }), "test");
     const { container } = draw(app);
     const entry = container.querySelector<HTMLButtonElement>('nav.spaces [data-space="work"]')!;
     expect(entry.classList.contains("disabled")).toBe(false);
@@ -170,9 +170,9 @@ describe("a disabled space", () => {
 
   it("landing: a stored space that is disabled gives way to the first that is not, by order", () => {
     const { app } = scriptedApp();
-    app.registry.register("space", space("first", { order: 1, disabled: () => "closed" }), "test");
+    app.registry.register("space", space("first", { order: 1, sidebar: { disabled: () => "closed" } }), "test");
     app.registry.register("space", space("second", { order: 2 }), "test");
-    app.registry.register("space", space("held", { order: 3, disabled: () => "closed" }), "test");
+    app.registry.register("space", space("held", { order: 3, sidebar: { disabled: () => "closed" } }), "test");
     app.set({ space: "held" });
     land(app);
     expect(app.snapshot.space).toBe("second");

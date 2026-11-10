@@ -1,5 +1,6 @@
 /**
- * The interface's entry: one client, one registry, one app; built-ins registered on first connect.
+ * The interface's entry: one client, one registry, one app; on first connect the built-ins and
+ * the UI packages hello says are enabled, before the first draw; then whatever `harnix.ui` says.
  *
  * The token is in `<meta name="harnix-token">`, put there by the server when it serves this page
  * (empty when the browser was admitted by a launch link and holds a cookie instead).
@@ -7,7 +8,7 @@
 
 import { createRoot } from "react-dom/client";
 import { HarnixClient, tokenFromDocument, tokenFromPage } from "@harnix/core";
-import { HarnixUiProvider, HostProvider, Registry, currentLocale, en, useLocale, zhCN } from "@harnix/react";
+import { HarnixUiProvider, HostProvider, Registry, RegistryProvider, currentLocale, en, useLocale, zhCN } from "@harnix/react";
 
 import "@harnix/react/tokens.css";
 import "@harnix/react/styles.css";
@@ -15,13 +16,14 @@ import "./styles/index.css";
 
 import modules from "virtual:harnix-modules";
 
+import { activate } from "./activation.ts";
 import { App } from "./app.ts";
 import { registerBuiltins } from "./builtins.tsx";
 import { hostFor } from "./host.ts";
 import { iconsFrom } from "./icons.ts";
-import { loadPackages } from "./packages.ts";
+import { followModules } from "./packages.ts";
 import { Shell } from "./Shell.tsx";
-import { loadSurfaces } from "./surfaces/register.tsx";
+import { followSurfaces } from "./surfaces/register.tsx";
 
 /**
  * "overlay" in the desktop shell on macOS (templates/desktop): the window has no title bar, its
@@ -46,7 +48,9 @@ function Root() {
   return (
     <HarnixUiProvider client={client} strings={locale === "en" ? en : zhCN} promptTimeoutSecs={hello?.limits?.prompt_timeout_secs}>
       <HostProvider host={host}>
-        <Shell app={app} />
+        <RegistryProvider registry={app.registry}>
+          <Shell app={app} />
+        </RegistryProvider>
       </HostProvider>
     </HarnixUiProvider>
   );
@@ -59,22 +63,22 @@ document.documentElement.dataset.chrome = chrome();
 (window as unknown as { harnix: unknown }).harnix = { app, client, host };
 
 createRoot(document.getElementById("root")!).render(<Root />);
-// The built-ins first, then the application's modules in its order, then installed packages' v2
-// modules: a later registration wins a claim, so an application can take over what Harnix draws.
-app.start(async (a) => {
-  await registerBuiltins(a);
-  for (const module of modules) {
-    try {
-      module.register?.(a.registry, host);
-    } catch (e) {
-      a.registry.note({ point: "module", owner: "application", reason: e instanceof Error ? e.message : String(e) });
-    }
-  }
-}, async (a, hello) => {
-  // Trusted publishers' modules in the page, then every other application's surfaces in frames.
-  await loadPackages(a, hello);
-  await loadSurfaces(a, hello);
-});
+// The built-ins first, then the compiled-in UI packages in the application's order — those for an
+// extension only while it is enabled — then installed packages' modules and frames: a later
+// registration wins a claim, so an application can take over what Harnix draws.
+app.start(
+  async (a) => {
+    await registerBuiltins(a);
+    activate(a, host, modules, a.snapshot.extensions);
+  },
+  async (a, view) => {
+    activate(a, host, modules, view.extensions);
+    await followModules(a, view);
+    await followSurfaces(a, view);
+    // What this round registered into a point nobody defined goes now (`orElse`, or the diagnostics).
+    a.registry.settle();
+  },
+);
 window.addEventListener("beforeunload", () => {
   const current = app.snapshot.current;
   if (current) client.notify("harnix.detach", { instance: current.instance, session_id: current.sessionId });

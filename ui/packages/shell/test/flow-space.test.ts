@@ -43,7 +43,7 @@ describe("registering it", () => {
     expect(client.calls.some((c) => c.method === "harnix.spaces.list")).toBe(false);
     await registerFlow(app, () => true);
     const flow = app.registry.at("space").find((c) => c.id === "flow");
-    expect(flow).toMatchObject({ center: "chat", owner: "flowui" });
+    expect(flow).toMatchObject({ center: { mode: "chat" }, owner: "flowui" });
   });
 
   it("`flow` in [shell] spaces names the built-in, whatever the backend space is called", async () => {

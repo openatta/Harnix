@@ -153,7 +153,7 @@ carrier = "spawn"
     expect(await module.text()).toContain("example.showcase.card");
     expect((await fetch(`${backend.url.replace(/\/$/, "")}/apps/${SHOWCASE_ID}/ui/../harnix-app.toml`)).status).toBe(404);
     await expect
-      .poll(async () => JSON.stringify((await api.call("harnix.hello")).contributions ?? []), { timeout: 10_000 })
+      .poll(async () => JSON.stringify((await api.call("harnix.ui")).contributions ?? []), { timeout: 10_000 })
       .toContain(`/apps/${SHOWCASE_ID}/ui/frame/index.html`);
     // What a store has to compile for, for this process to run it.
     expect(JSON.stringify(await api.call("harnix.process"))).toContain(fingerprint);
@@ -273,7 +273,7 @@ carrier = "spawn"
     const echo = await session(api, "app-echo");
     await runTurn(api, echo, "Use the showcase's echo tool");
     expect(results(api, echo)).toContain("showcase-echo-42");
-    expect(JSON.stringify((await api.call("harnix.hello")).contributions ?? [])).toContain(`/apps/${SHOWCASE_ID}/ui/frame/index.html`);
+    expect(JSON.stringify((await api.call("harnix.ui")).contributions ?? [])).toContain(`/apps/${SHOWCASE_ID}/ui/frame/index.html`);
   });
 
   test("a sub-agent of the application's own agent type uses its tool", TAGS, async () => {

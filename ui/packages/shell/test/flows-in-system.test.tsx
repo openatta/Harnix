@@ -23,7 +23,7 @@ function withFlowModule(system: boolean) {
   const { app, client } = scriptedApp();
   client.answer = (method) => (method === "harnix.spaces.list" ? LIST : method === "harnix.sessions" ? { sessions: [] } : {});
   app.set({ reachable: ["app.flow.defs", "harnix.spaces.list"] });
-  if (system) app.registry.register("space", space("system", { order: 90, center: "hidden", overview: () => null }), "builtin");
+  if (system) app.registry.register("space", space("system", { order: 90, center: { mode: "hidden", overview: () => null } }), "builtin");
   return { app, client };
 }
 
@@ -41,9 +41,9 @@ describe("where the flows go", () => {
     expect(systemFlows(app)).toBe(null);
     await registerFlow(app, () => true);
     const flow = app.registry.at("space").find((c) => c.id === "flow");
-    expect(flow).toMatchObject({ within: "system", center: "chat", owner: "flowui" });
-    expect(typeof flow?.sidebar).toBe("function");
-    expect((flow?.tabs as { id: string }[]).map((x) => x.id)).toEqual(["flow.reference"]);
+    expect(flow).toMatchObject({ within: "system", center: { mode: "chat" }, owner: "flowui" });
+    expect(typeof flow?.sidebar?.render).toBe("function");
+    expect((flow?.details?.tabs as { id: string }[]).map((x) => x.id)).toEqual(["flow.reference"]);
     expect(systemFlows(app)?.title()).toBe("Flows");
   });
 
@@ -52,7 +52,7 @@ describe("where the flows go", () => {
     await registerFlow(app, () => true);
     const flow = app.registry.at("space").find((c) => c.id === "flow");
     expect(flow?.within).toBeUndefined();
-    expect((flow?.tabs as { id: string }[]).map((x) => x.id)).toEqual(["flow.flows", "flow.runs", "flow.reference"]);
+    expect((flow?.details?.tabs as { id: string }[]).map((x) => x.id)).toEqual(["flow.flows", "flow.runs", "flow.reference"]);
     expect(systemFlows(app)).toBe(null);
   });
 

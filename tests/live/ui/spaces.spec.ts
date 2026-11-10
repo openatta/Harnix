@@ -265,7 +265,7 @@ test("a module's own link: its route and its socket, with the host's credential"
   // A path cannot leave the module's prefix.
   const escaped = await page.evaluate(async () => {
     try {
-      await (window as any).harnix.host.space("greeter").fetch("../../ws");
+      await (window as any).harnix.host.ext("greeter").fetch("../../ws");
       return "fetched";
     } catch (e: any) {
       return e.message;

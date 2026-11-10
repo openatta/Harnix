@@ -30,12 +30,12 @@ export function register(r: Registry, host: HostApi): void {
       icon: "globe",
       order: 30,
       title: () => host.t("hello-app.greeter"),
-      center: "chat",
-      tabs: [{ id: "greet", title: () => host.t("hello-app.greet"), render: () => <GreetTab /> }],
+      center: { mode: "chat" },
+      details: { tabs: [{ id: "greet", title: () => host.t("hello-app.greet"), render: () => <GreetTab /> }] },
     },
     "hello-app",
   );
-  r.register("space", { id: "notes", icon: "file", order: 40, title: () => host.t("hello-app.notes"), center: "chat" }, "hello-app");
+  r.register("space", { id: "notes", icon: "file", order: 40, title: () => host.t("hello-app.notes"), center: { mode: "chat" } }, "hello-app");
   r.register("home.card", { id: "greeter.count", order: 10, title: () => host.t("hello-app.greeter"), render: () => <GreetedCard /> }, "hello-app");
   r.register(
     "flow.block",
@@ -232,11 +232,11 @@ function OwnLink() {
   const socket = useRef<WebSocket | null>(null);
   useEffect(() => () => socket.current?.close(), []);
   const fetchHello = async () => {
-    const response = await nest.space("greeter").fetch("hello");
+    const response = await nest.ext("greeter").fetch("hello");
     setSaid(`${response.status} ${await response.text()}`);
   };
   const echo = () => {
-    const ws = nest.space("greeter").socket("echo");
+    const ws = nest.ext("greeter").socket("echo");
     socket.current = ws;
     ws.onopen = () => ws.send("ping");
     ws.onmessage = (event) => {

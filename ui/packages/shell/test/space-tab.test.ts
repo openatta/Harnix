@@ -15,7 +15,7 @@ describe("a space's current tab", () => {
   it("is selected when the space comes to the front and at redraw; unknown ids are ignored", async () => {
     const { app } = scriptedApp();
     let current: string | undefined = "t2";
-    app.registry.register("space", space("tabbed", { tabs, tab: () => current }), "test");
+    app.registry.register("space", space("tabbed", { details: { tabs, tab: () => current } }), "test");
     const host = hostFor(app);
     const heard: string[] = [];
     host.details.onTab((tab) => heard.push(tab));
@@ -36,7 +36,7 @@ describe("a space's current tab", () => {
 
   it("undefined leaves the shell's choice, and a clicked tab is kept across a switch", async () => {
     const { app } = scriptedApp();
-    app.registry.register("space", space("tabbed", { tabs, tab: () => undefined }), "test");
+    app.registry.register("space", space("tabbed", { details: { tabs, tab: () => undefined } }), "test");
     await app.switchSpace("tabbed");
     expect(app.shownTab()).toBe("t1");
     app.selectTab("t3");
@@ -47,7 +47,7 @@ describe("a space's current tab", () => {
 
   it("a throwing tab() is the space's failure only", async () => {
     const { app } = scriptedApp();
-    app.registry.register("space", space("tabbed", { tabs, tab: () => { throw new Error("tab broke"); } }), "test");
+    app.registry.register("space", space("tabbed", { details: { tabs, tab: () => { throw new Error("tab broke"); } } }), "test");
     await app.switchSpace("tabbed");
     expect(app.shownTab()).toBe("t1");
     await new Promise((r) => setTimeout(r, 0));

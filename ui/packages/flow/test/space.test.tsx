@@ -281,9 +281,9 @@ describe("the line over the composer", () => {
     const r = new Registry();
     const flow = registerFlowSpace(r);
     const space = r.at("space")[0]!;
-    expect(space.notice?.()).toContain("general conversation");
+    expect(space.conversation?.notice?.()).toContain("general conversation");
     flow.state.selectFlow("example-review");
-    expect(space.notice?.()).toContain("example-review");
+    expect(space.conversation?.notice?.()).toContain("example-review");
     expect(flow.state.tabs).toEqual(flow.tabs);
   });
 
@@ -292,25 +292,25 @@ describe("the line over the composer", () => {
     const r = new Registry();
     const flow = registerFlowSpace(r, { host: fake.host });
     const space = r.at("space")[0]!;
-    expect(space.secondary?.()).toBeNull();
+    expect(space.center?.secondary?.()).toBeNull();
     flow.state.selectFlow("example-review");
     await settle();
-    const panel = space.secondary?.();
+    const panel = space.center?.secondary?.();
     expect(panel?.key).toBe("flow:example-review");
     expect(panel?.title()).toBe("Flow · example-review");
     expect(panel?.width).toBe(560);
     const before = ids(fake.opened);
     panel?.onClose?.();
     expect(flow.state.get().flow).toBeNull();
-    expect(space.secondary?.()).toBeNull();
+    expect(space.center?.secondary?.()).toBeNull();
     expect(ids(fake.opened)).toEqual(before);
     // The runs tab: its run's.
     flow.state.showRun("example-review-1");
     act(() => fake.tab("flow.runs"));
-    expect(space.secondary?.()?.key).toBe("run:example-review-1");
+    expect(space.center?.secondary?.()?.key).toBe("run:example-review-1");
     // The reference tab: nothing beside.
     act(() => fake.tab("flow.reference"));
-    expect(space.secondary?.()).toBeNull();
+    expect(space.center?.secondary?.()).toBeNull();
   });
 
   it("an empty conversation says what it is for", async () => {
@@ -874,9 +874,9 @@ describe("inside the system space (registerSystemFlows)", () => {
 
   it("is a space shown inside the system space: its left column a flow's context, the reference its one right tab", () => {
     const { flows, space } = inSystem();
-    expect(space).toMatchObject({ id: "flow", within: "system", center: "chat", details: "closed" });
-    expect(typeof space.sidebar).toBe("function");
-    expect((space.tabs as { id: string }[]).map((x) => x.id)).toEqual(["flow.reference"]);
+    expect(space).toMatchObject({ id: "flow", within: "system", center: { mode: "chat" }, details: { initial: "closed" } });
+    expect(typeof space.sidebar?.render).toBe("function");
+    expect((space.details?.tabs as { id: string }[]).map((x) => x.id)).toEqual(["flow.reference"]);
     expect(flows.within).toBe("system");
     expect(flows.state.within).toBe("system");
   });
@@ -887,7 +887,7 @@ describe("inside the system space (registerSystemFlows)", () => {
     await settle();
     expect(fake.host.spaces.switch).toHaveBeenCalledWith("flow");
     expect(ids(fake.opened)).toEqual(["f-example-review"]);
-    expect(space.secondary?.()?.key).toBe("flow:example-review");
+    expect(space.center?.secondary?.()?.key).toBe("flow:example-review");
     await act(() => flows.state.leave());
     expect(fake.host.spaces.switch).toHaveBeenLastCalledWith("system");
   });
@@ -897,14 +897,14 @@ describe("inside the system space (registerSystemFlows)", () => {
     await act(() => flows.state.enter("example-review", "r-1"));
     await settle();
     expect(fake.opened.at(-1)).toEqual({ instance: "system", sessionId: "main-1" });
-    expect(space.secondary?.()?.key).toBe("run:r-1");
-    space.secondary?.()?.onClose?.();
-    expect(space.secondary?.()).toBeNull();
+    expect(space.center?.secondary?.()?.key).toBe("run:r-1");
+    space.center?.secondary?.()?.onClose?.();
+    expect(space.center?.secondary?.()).toBeNull();
     expect(flows.state.get()).toMatchObject({ flow: "example-review", run: "r-1" });
     flows.state.selectFlow("example-review");
     await settle();
     expect(ids(fake.opened).at(-1)).toBe("f-example-review");
-    expect(space.secondary?.()?.key).toBe("flow:example-review");
+    expect(space.center?.secondary?.()?.key).toBe("flow:example-review");
     flows.state.openList(flows.tabs.runs);
     expect(fake.host.details.open).not.toHaveBeenCalled();
   });
@@ -941,7 +941,7 @@ describe("inside the system space (registerSystemFlows)", () => {
     ]);
     await act(() => flows.state.enter("example-review"));
     const space = r.at("space")[0]!;
-    render(<HostProvider host={fake.host}>{space.sidebar!()}</HostProvider>);
+    render(<HostProvider host={fake.host}>{space.sidebar!.render!()}</HostProvider>);
     await settle();
     expect(screen.getByTestId("flow-context").getAttribute("data-flow")).toBe("example-review");
     expect(screen.getByTestId("flow-context-title").textContent).toBe("Example: review and approve");

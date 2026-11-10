@@ -339,13 +339,13 @@ describe("registerFlowSpace", () => {
     const flow = registerFlowSpace(r);
     expect(r.refusals()).toEqual([]);
     const space = r.at("space")[0]!;
-    expect(space).toMatchObject({ id: "flow", center: "chat", details: "open", owner: "flowui" });
+    expect(space).toMatchObject({ id: "flow", center: { mode: "chat" }, details: { initial: "open" }, owner: "flowui" });
     // The space's own sessions on the left, new ones allowed: nothing of its own there.
-    expect(space.sidebar).toBeUndefined();
-    expect(space.overview).toBeUndefined();
-    expect(space.newSession).toBeUndefined();
-    expect(typeof space.composerNotice).toBe("function");
-    expect((space.tabs as { id: string }[]).map((x) => x.id)).toEqual([flow.tabs.flows, flow.tabs.runs, flow.tabs.reference]);
+    expect(space.sidebar?.render).toBeUndefined();
+    expect(space.center?.overview).toBeUndefined();
+    expect(space.conversation?.newSession).toBeUndefined();
+    expect(typeof space.conversation?.composerNotice).toBe("function");
+    expect((space.details?.tabs as { id: string }[]).map((x) => x.id)).toEqual([flow.tabs.flows, flow.tabs.runs, flow.tabs.reference]);
     expect(flow.tabs).toEqual({ flows: "flow.flows", runs: "flow.runs", reference: "flow.reference" });
     const block = { kind: "custom", type: "entry", data: { id: "e", ns: "app.flow", event: "proposal", payload: { run: "r", station: "s", kind: "cancel", reason: "x" }, at: 0 } } as never;
     expect(r.claim("flow.block", block)?.id).toBe("flow.proposal");

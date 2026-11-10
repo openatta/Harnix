@@ -1,15 +1,18 @@
 /**
  * The interface's `useHost()` host (concept §5.6), built from the app: calls limited to what this
  * page may reach, topics by name, the open session, the spaces, the composer, the right column,
- * the settings panel.
+ * the settings panel, the events, navigation across spaces, the shell's dialogs, the extensions
+ * and hello's defaults.
  *
  * Topics go through the page's one counted table (`topics.ts`).
  */
 
+import { parseSessionEvent, type Notifications } from "@harnix/core";
 import { SYSTEM_INSTANCE } from "@harnix/core/state";
 import { t, type HostSessionRef as SessionRef, type HostApi } from "@harnix/react";
 
 import { disabledOf, later, orderTabs, safeTabs, type App } from "./app.ts";
+import { hostDialogs } from "./host-dialogs.tsx";
 import { revealEntry } from "./reveal.ts";
 import { openSettings } from "./settings.tsx";
 import { topicsOf } from "./topics.ts";
@@ -122,12 +125,56 @@ export function hostFor(app: App, owner = "page"): HostApi {
       onChange: (fn) => app.onModal(fn),
     },
     redraw: () => app.redraw(),
-    space: (module) => ({
-      fetch: (path, init) => app.client.appFetch(module, path, init),
-      socket: (path) => app.client.appSocket(module, path) as unknown as WebSocket,
+    ext: (id) => ({
+      fetch: (path, init) => app.client.appFetch(id, path, init),
+      socket: (path) => app.client.appSocket(id, path) as unknown as WebSocket,
     }),
     reveal: (item) => app.showDetail(item),
     t,
+    events: {
+      onTurnSettled: (fn) =>
+        app.client.onNotify((method, params) => {
+          if (method === "harnix.turn_settled") fn(params as unknown as Notifications["harnix.turn_settled"]);
+        }),
+      onSessionEvent: (ref, fn) =>
+        app.client.onNotify((method, params) => {
+          if (method !== "harnix.event") return;
+          const frame = params as unknown as Notifications["harnix.event"];
+          if (frame.instance !== ref.instance || frame.session_id !== ref.sessionId) return;
+          fn({ raw: frame.event, parsed: parseSessionEvent(frame.event), trust: frame.trust === "extension" ? "extension" : "product" });
+        }),
+      onHostEvent: (fn) =>
+        app.client.onNotify((method, params) => {
+          if (method === "harnix.host_event") fn(params as unknown as Notifications["harnix.host_event"]);
+        }),
+    },
+    navigate: {
+      async open(target) {
+        await switchTo(target.space);
+        if (app.snapshot.space !== target.space) return;
+        if (target.session) {
+          app.open({ instance: target.session.instance, sessionId: target.session.sessionId }, target.space);
+          await app.afterDraw();
+        }
+        if (target.selection === undefined) return;
+        const space = app.registry.at("space").find((c) => c.id === target.space);
+        if (!space?.accept) return;
+        try {
+          space.accept(target.selection);
+        } catch (e) {
+          later(() => app.registry.fail("space", { id: space.id, owner: space.owner }, e));
+        }
+      },
+    },
+    dialogs: hostDialogs(app),
+    extensions: {
+      list: () => app.snapshot.extensions.map((e) => ({ ...e })),
+      onChange: (fn) => app.onExtensions(fn),
+    },
+    get defaults() {
+      const given = app.snapshot.hello?.defaults;
+      return { instance: given?.instance ?? SYSTEM_INSTANCE, space: given?.space ?? null };
+    },
   };
 }
 

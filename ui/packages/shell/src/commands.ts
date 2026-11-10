@@ -65,7 +65,7 @@ export function useCommands(app: App): ChatCommand[] {
     let alive = true;
     const ctx = commandContext(app);
     const space = spacesOf(app).find((c) => c.id === ctx.space);
-    const hidden = new Set(space?.hideCommands ?? []);
+    const hidden = new Set(space?.conversation?.hideCommands ?? []);
     const asked = commandsFor(app, "/");
     void Promise.all(
       asked.map((c) =>
@@ -141,6 +141,6 @@ export async function withContributed(app: App, query: string, own: MentionItem[
     label: candidate.description,
     insert: candidate.replacement,
   }));
-  const first = spacesOf(app).find((c) => c.id === app.snapshot.space)?.mention?.first;
+  const first = spacesOf(app).find((c) => c.id === app.snapshot.space)?.conversation?.mention?.first;
   return (first === "contributed" ? [...contributed, ...own] : [...own, ...contributed]).slice(0, MENTIONS_MAX);
 }

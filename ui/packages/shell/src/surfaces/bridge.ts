@@ -12,19 +12,20 @@
  * the frame shares the page's thread, a page that hangs hangs the shell with it.
  *
  * Everything the frame asks is done by the shell, and only what its application's manifest lets
- * it ask for: methods and topics of its own (`app.<id>.*`) and in its `[interface] hub` — an
- * allowlist (`FRAME_HUB`), each name narrowed to the application's own spaces and their sessions
- * before the call goes out as the page —, sessions of its own space, items of its own kinds, its
- * own modals and settings sections. A refusal is
+ * it ask for: methods and topics of its own (`app.<id>.*`) and in its `[interface] hub`, sessions
+ * of its own space, items of its own kinds, its own modals and settings sections. Every call and
+ * every subscription goes out carrying the application's id (`"$ext"`): the server takes what the
+ * page may do, what the interface lists and the row's scope, and narrows it to the application's
+ * own spaces and their sessions. Here only what the page draws is narrowed — a call names one of
+ * its own spaces when it names none, and a session it names must be in one. A refusal is
  * answered as one, recorded for the Apps tab (`store.ts`) and noted in the registry, which
  * Settings → Diagnostics lists.
  */
 
 import { errorText } from "@harnix/core";
 import { SYSTEM_INSTANCE } from "@harnix/core/state";
-import { t } from "@harnix/react";
+import { t, tabsOf } from "@harnix/react";
 import {
-  FRAME_HUB,
   PROTOCOL,
   admits,
   inDialog,
@@ -34,7 +35,6 @@ import {
   type Environment,
   type ErrorCode,
   type FrameRequests,
-  type HubScope,
   type KeyPress,
   type Message,
   type SessionRef,
@@ -209,25 +209,22 @@ export class FrameBridge {
   }
 
   /**
-   * A call through a name of `[interface] hub`, narrowed by its scope: about the sessions of one of
-   * the application's own spaces (`space` filled in when it is left out), or about one session in
-   * them. The page's connection could reach any session; a frame is given its own.
+   * A call or subscription through a name of `[interface] hub`, as the page draws it: it claims
+   * one of the application's own spaces (its first, when it names none) — what the server narrows
+   * by — and a session it names must be in one of them. The server decides; this keeps a frame
+   * from reaching what the page would not show it.
    */
-  private async narrow(name: string, scope: HubScope | undefined, raw: unknown): Promise<unknown> {
-    if (!scope || scope === "open") return raw;
+  private async narrow(name: string, raw: unknown, claim: boolean): Promise<Record<string, unknown>> {
     const params: Record<string, unknown> = raw && typeof raw === "object" && !Array.isArray(raw) ? { ...(raw as Record<string, unknown>) } : {};
     const own = this.host.iface.spaces;
-    if (!own.length) this.refuse(name, t("surface.why.noSpace"));
-    if (scope === "space") {
-      const space = params.space ?? this.spaceSessions;
-      if (typeof space !== "string" || !own.includes(space)) this.refuse(name, t("surface.why.otherSpace"));
-      params.space = space;
-      return params;
+    if (params.space !== undefined && (typeof params.space !== "string" || !own.includes(params.space))) this.refuse(name, t("surface.why.otherSpace"));
+    if (claim && params.space === undefined && this.spaceSessions) params.space = this.spaceSessions;
+    if (params.session_id !== undefined) {
+      if (typeof params.session_id !== "string") throw new Invalid("`session_id` names a session of the application's own space");
+      if (!own.length) this.refuse(name, t("surface.why.noSpace"));
+      const instance = typeof params.instance === "string" ? params.instance : SYSTEM_INSTANCE;
+      if (!(await this.ownsSession(instance, params.session_id))) this.refuse(name, t("surface.why.otherSpace"));
     }
-    const sessionId = params.session_id;
-    if (typeof sessionId !== "string") throw new Invalid("`session_id` names a session of the application's own space");
-    const instance = typeof params.instance === "string" ? params.instance : SYSTEM_INSTANCE;
-    if (!(await this.ownsSession(instance, sessionId))) this.refuse(name, t("surface.why.otherSpace"));
     return params;
   }
 
@@ -278,20 +275,26 @@ export class FrameBridge {
         const name = text("method", 200);
         if (!admits(iface.id, iface.hub, name, false)) this.refuse(name, t("surface.why.notListed"));
         // Tagged with the application: the server narrows the call to what its interface may do
-        // too, whatever this side let through.
-        const narrowed = await this.narrow(name, FRAME_HUB[name], p.params ?? {});
-        const params = narrowed && typeof narrowed === "object" && !Array.isArray(narrowed) ? narrowed : {};
+        // too, whatever this side let through. Its own names are its own, wherever.
+        const own = name.startsWith(`app.${iface.id}.`);
+        const params = own ? ((p.params ?? {}) as Record<string, unknown>) : await this.narrow(name, p.params ?? {}, true);
         return app.call(name, { ...params, $ext: iface.id });
       }
       case "subscribe": {
         const topic = text("topic", 200);
         if (!admits(iface.id, iface.hub, topic, true)) this.refuse(topic, t("surface.why.notListed"));
-        const params = (await this.narrow(topic, FRAME_HUB[`topic:${topic}`], p.params ?? {})) as Record<string, unknown>;
+        // A topic's params are its key: nothing is added to them, only checked.
+        const params = await this.narrow(topic, p.params ?? {}, false);
         if (this.disposed) return null;
         const sub = this.nextSub++;
-        const off = topicsOf(app.client).subscribe(topic, params, (value) =>
+        // Asked as the application, as its calls are: the server narrows it the same way.
+        const off = await topicsOf(app.client).subscribeAs(iface.id, topic, params, (value) =>
           this.send({ kind: "event", name: "topic", data: { sub, value } satisfies ShellEvents["topic"] }),
         );
+        if (this.disposed) {
+          off();
+          return null;
+        }
         this.subs.set(sub, off);
         return { sub };
       }
@@ -338,7 +341,7 @@ export class FrameBridge {
         app.toggleDetails(true);
         if (typeof p.tab === "string") {
           const contribution = app.registry.at("space").find((c) => c.id === space);
-          const tabs = typeof contribution?.tabs === "function" ? contribution.tabs() : (contribution?.tabs ?? []);
+          const tabs = tabsOf(contribution);
           if (tabs.some((x) => x.id === p.tab)) app.selectTab(p.tab, true);
         }
         return null;

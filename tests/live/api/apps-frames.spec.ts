@@ -65,7 +65,7 @@ test.describe("unsigned, under [apps] dev", () => {
 
   test("its interface is its surfaces: the page is told frames, and the module that will not run", TAGS, async () => {
     await api.call("harnix.apps.installFile", { path: showcasePackage().path });
-    const hello = await api.call("harnix.hello");
+    const hello = await api.call("harnix.ui");
     expect(modules(hello)).toEqual([]);
     const refused = (hello.contributions ?? []).filter((c: any) => c.plugin === SHOWCASE_ID && c.refused);
     expect(refused.map((c: any) => c.refused)).toEqual(["showcase.js", "showcase.js"]);
@@ -162,7 +162,7 @@ test.describe("signed by a publisher this Harnix trusts", () => {
 
   test("its interface runs in the page: the page is told its modules, and no frames", TAGS, async () => {
     expect((await api.call("harnix.apps.installFile", { path: edited("trusted", (m) => m, true) })).trust).toBe("trusted");
-    const hello = await api.call("harnix.hello");
+    const hello = await api.call("harnix.ui");
     expect(modules(hello).map((c: any) => c.module)).toEqual([`/apps/${SHOWCASE_ID}/ui/showcase.js`, `/apps/${SHOWCASE_ID}/ui/showcase.js`]);
     expect(surfaces(hello)).toEqual([]);
     const runtime = (await api.call("harnix.apps.list")).apps[0].runtime;
@@ -175,7 +175,7 @@ test.describe("signed by a publisher this Harnix trusts", () => {
   test("asking for isolation, the same application runs in frames", TAGS, async () => {
     const isolated = edited("isolated", (m) => m.replace("[interface]\n", "[interface]\nisolate = true\n"), true);
     expect((await api.call("harnix.apps.installFile", { path: isolated })).trust).toBe("trusted");
-    const hello = await api.call("harnix.hello");
+    const hello = await api.call("harnix.ui");
     expect(modules(hello)).toEqual([]);
     expect(surfaces(hello).length).toBe(9);
     expect(surfaces(hello)[0].interface.trust).toBe("trusted");

@@ -23,7 +23,7 @@ const PRIVATE = ["__client", "__chain", "app.client", "onNotify", "FRAME_HUB"];
 const ALLOWED_IMPORTS = ["react", "react-dom", "react/jsx-runtime", "@harnix/react", "@harnix/core"];
 
 // Violations that exist now, as `<rule> <file>`. U1 goes when the first-party UI packages leave
-// the shell (0.5.0 P17), U3 with the private channels (P2 for `__client`, P16 for `FRAME_HUB`).
+// the shell (0.5.0 P17), U3 with the private channels (P2 for `__client`; `FRAME_HUB` is gone).
 // `node tests/ui-layering.mjs --list` prints what is violated.
 export const PENDING = [
   "U1 ui/packages/shell/src/Shell.tsx",
@@ -46,7 +46,6 @@ export const PENDING = [
   "U1 ui/packages/shell/src/system/pane/instance.tsx",
   "U1 ui/packages/shell/src/system/pane/session.tsx",
   "U1 ui/packages/shell/src/system/pane/space.tsx",
-  "U3 ui/packages/app-sdk/src/protocol.ts",
   "U3 ui/packages/core/src/client/client.ts",
   "U3 ui/packages/core/src/state/controller.ts",
   "U3 ui/packages/shell/src/Sidebar.tsx",

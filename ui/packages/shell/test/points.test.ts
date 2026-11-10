@@ -18,8 +18,17 @@ describe("contribution points", () => {
       .join("\n");
     const unread = POINTS.filter((point) => {
       if (point === "sidebar.group") return !source.includes("registry.grouping()");
+      if (point === "session.action") return !source.includes("registry.actions(");
       return !new RegExp(`(at|claim)\\("${point.replace(".", "\\.")}"`).test(source);
     });
     expect(unread).toEqual([]);
+  });
+
+  it("asks for session actions at each of the three places", () => {
+    const read = (f: string) => readFileSync(join(process.cwd(), "src", f), "utf8");
+    // The title bar, the tool row (drawn by the built-in row), the session menu.
+    expect(read("Shell.tsx")).toContain('place="header"');
+    expect(read("builtins.tsx")).toContain('place="tool"');
+    expect(read("dialogs.tsx")).toContain("actionMenuItems(app, target)");
   });
 });

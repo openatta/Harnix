@@ -6,6 +6,11 @@
  * is subscribed again. The server handles each frame in its own task, so a `subscribe` sent while an
  * `unsubscribe` of the same key is still on its way could be applied first and then undone: a key
  * is only subscribed again once its unsubscribe has been answered.
+ *
+ * A subscription a page in a frame asks for carries its extension (`"$ext"`), as its calls do, and
+ * the server narrows it to what that extension's interface lists: it is asked as that extension
+ * (`subscribeAs`), and again as that extension after a reconnect. One key held for the page and
+ * for frames is still one subscription on the connection.
  */
 
 import type { HarnixClient } from "@harnix/core";
@@ -31,7 +36,8 @@ function canonical(value: unknown): string {
 interface Entry {
   topic: string;
   params: Record<string, unknown>;
-  listeners: Set<(value: unknown) => void>;
+  /** Each listener, and the extension whose frame it is for (null: the page's own). */
+  listeners: Map<(value: unknown) => void, string | null>;
   /** The value last seen, once there is one. */
   last?: { value: unknown };
   /** Whether this connection holds the subscription now (false after a disconnect, until renewed). */
@@ -59,16 +65,26 @@ export class Topics {
     });
   }
 
-  subscribe(topic: string, params: Record<string, unknown>, fn: (value: unknown) => void): () => void {
+  /**
+   * A subscription for a page in a frame of extension `ext`: the server is asked as that extension
+   * first, and refuses what its interface does not list — the promise rejects with why. Settles
+   * with the unsubscribe.
+   */
+  async subscribeAs(ext: string, topic: string, params: Record<string, unknown>, fn: (value: unknown) => void): Promise<() => void> {
+    await this.client.call("harnix.subscribe", { topic, params, $ext: ext });
+    return this.subscribe(topic, params, fn, ext);
+  }
+
+  subscribe(topic: string, params: Record<string, unknown>, fn: (value: unknown) => void, ext: string | null = null): () => void {
     const key = topicKey(topic, params);
     let entry = this.entries.get(key);
     if (!entry) {
-      entry = { topic, params, listeners: new Set(), held: false };
+      entry = { topic, params, listeners: new Map(), held: false };
       this.entries.set(key, entry);
-      entry.listeners.add(fn);
+      entry.listeners.set(fn, ext);
       if (this.client.status === "open") this.hold(entry);
     } else {
-      entry.listeners.add(fn);
+      entry.listeners.set(fn, ext);
       const held = entry;
       if (held.last) {
         queueMicrotask(() => {
@@ -107,22 +123,31 @@ export class Topics {
     const key = topicKey(entry.topic, entry.params);
     const leaving = this.leaving.get(key);
     // Still the entry wanted, and still connected, once the unsubscribe before it has been answered.
-    const send = () =>
-      this.entries.get(key) === entry && entry.held && this.client.status === "open"
-        ? this.client.call("harnix.subscribe", { topic: entry.topic, params: entry.params })
-        : undefined;
-    (leaving ? leaving.then(send) : Promise.resolve(send()))
-      .then((r) => {
-        if (r && this.entries.get(key) === entry) this.deliver(entry, (r as { value: unknown }).value);
-      })
-      .catch(() => {
-        entry.held = false;
-      });
+    const wanted = () => this.entries.get(key) === entry && entry.held && this.client.status === "open";
+    // As the page, and as each extension whose frame listens: what the server narrows by.
+    const send = (ext: string | null) =>
+      wanted() ? this.client.call("harnix.subscribe", { topic: entry.topic, params: entry.params, ...(ext ? { $ext: ext } : {}) }) : undefined;
+    const tags = [...new Set(entry.listeners.values())];
+    for (const ext of tags) {
+      (leaving ? leaving.then(() => send(ext)) : Promise.resolve(send(ext)))
+        .then((r) => {
+          if (r && this.entries.get(key) === entry) this.deliver(entry, (r as { value: unknown }).value);
+        })
+        .catch(() => {
+          if (ext === null) {
+            entry.held = false;
+            return;
+          }
+          // Refused for that extension now: its frames' listeners go; the page's stay.
+          for (const [fn, tag] of [...entry.listeners]) if (tag === ext) entry.listeners.delete(fn);
+          if (!entry.listeners.size && this.entries.get(key) === entry) this.entries.delete(key);
+        });
+    }
   }
 
   private deliver(entry: Entry, value: unknown): void {
     entry.last = { value };
-    for (const fn of [...entry.listeners]) fn(value);
+    for (const fn of [...entry.listeners.keys()]) fn(value);
   }
 }
 

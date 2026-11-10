@@ -68,16 +68,20 @@ export function registerFlowSpace(registry: Registry, options: FlowSpaceOptions 
 
   registerFlowStrings(registry);
 
+  const parts = conversationParts(state, tabs, options);
   registry.register(
     "space",
     {
-      ...conversationParts(state, tabs, options),
-      details: "open",
-      tabs: [
-        { id: tabs.flows, title: () => translate("flowui.tab.flows"), render: () => <FlowsTab state={state} tabs={tabs} /> },
-        { id: tabs.runs, title: () => translate("flowui.tab.runs"), render: () => <RunsTab state={state} tabs={tabs} /> },
-        { id: tabs.reference, title: () => translate("flowui.tab.reference"), render: () => <ReferenceTab state={state} />, align: "end" },
-      ],
+      ...parts,
+      details: {
+        ...parts.details,
+        initial: "open",
+        tabs: [
+          { id: tabs.flows, title: () => translate("flowui.tab.flows"), render: () => <FlowsTab state={state} tabs={tabs} /> },
+          { id: tabs.runs, title: () => translate("flowui.tab.runs"), render: () => <RunsTab state={state} tabs={tabs} /> },
+          { id: tabs.reference, title: () => translate("flowui.tab.reference"), render: () => <ReferenceTab state={state} />, align: "end" },
+        ],
+      },
     },
     owner,
   );
@@ -116,14 +120,14 @@ export function registerSystemFlows(registry: Registry, options: SystemFlowsOpti
 
   registerFlowStrings(registry);
 
+  const parts = conversationParts(state, tabs, options);
   registry.register(
     "space",
     {
-      ...conversationParts(state, tabs, options),
+      ...parts,
       within,
-      details: "closed",
-      sidebar: () => <FlowContext state={state} />,
-      tabs: [{ id: tabs.reference, title: () => translate("flowui.tab.reference"), render: () => <ReferenceTab state={state} /> }],
+      details: { ...parts.details, initial: "closed", tabs: [{ id: tabs.reference, title: () => translate("flowui.tab.reference"), render: () => <ReferenceTab state={state} /> }] },
+      sidebar: { render: () => <FlowContext state={state} /> },
     },
     owner,
   );
@@ -140,26 +144,30 @@ function conversationParts(state: FlowSpaceState, tabs: FlowTabs, options: FlowS
     order: options.order ?? 60,
     ...(options.group !== undefined ? { group: options.group } : {}),
     title: () => options.title ?? translate("flowui.space"),
-    subtitle: () => translate("flowui.space.subtitle"),
-    center: "chat",
-    detailsWidth: 400,
-    placeholder: () => translate("flowui.composer.placeholder"),
-    notice: () => {
-      const flow = state.get().flow;
-      return flow ? translate("flowui.focus.next", { flow }) : translate("flowui.focus.none");
+    conversation: {
+      subtitle: () => translate("flowui.space.subtitle"),
+      placeholder: () => translate("flowui.composer.placeholder"),
+      notice: () => {
+        const flow = state.get().flow;
+        return flow ? translate("flowui.focus.next", { flow }) : translate("flowui.focus.none");
+      },
+      composerNotice: (session: HostSessionRef) => <FocusNotice state={state} session={session} />,
     },
-    composerNotice: (session: HostSessionRef) => <FocusNotice state={state} session={session} />,
-    emptyConversation: (session: HostSessionRef) => <EmptyConversation state={state} session={session} />,
-    secondary: () => {
-      const detail = state.detail();
-      if (!detail) return null;
-      return {
-        key: detail.kind === "flow" ? `flow:${detail.flow}` : `run:${detail.run}`,
-        title: () => translate(detail.kind === "flow" ? "flowui.secondary.flow" : "flowui.secondary.run", { name: detail.kind === "flow" ? detail.flow : detail.run }),
-        render: () => <FlowSecondary state={state} tabs={tabs} />,
-        onClose: () => state.closeDetail(),
-        width: 560,
-      };
+    details: { width: 400 },
+    center: {
+      mode: "chat",
+      emptyConversation: (session: HostSessionRef) => <EmptyConversation state={state} session={session} />,
+      secondary: () => {
+        const detail = state.detail();
+        if (!detail) return null;
+        return {
+          key: detail.kind === "flow" ? `flow:${detail.flow}` : `run:${detail.run}`,
+          title: () => translate(detail.kind === "flow" ? "flowui.secondary.flow" : "flowui.secondary.run", { name: detail.kind === "flow" ? detail.flow : detail.run }),
+          render: () => <FlowSecondary state={state} tabs={tabs} />,
+          onClose: () => state.closeDetail(),
+          width: 560,
+        };
+      },
     },
   };
 }

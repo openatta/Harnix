@@ -103,7 +103,7 @@ describe("session.onChange", () => {
 describe("details", () => {
   it("opens at a tab, keeps the tab a space was asked for, and says when the tab changes", async () => {
     let tabs = [{ id: "t1", title: () => "one", render: () => "1" }];
-    app.registry.register("space", space("tabbed", { tabs: () => tabs }), "test");
+    app.registry.register("space", space("tabbed", { details: { tabs: () => tabs } }), "test");
     await app.switchSpace("tabbed");
     const host = hostFor(app);
     const changes: string[] = [];
@@ -130,7 +130,7 @@ describe("details", () => {
       { id: "t1", title: () => "one", render: () => "1" },
       { id: "t2", title: () => "two", render: () => "2" },
     ];
-    app.registry.register("space", space("tabbed", { tabs }), "test");
+    app.registry.register("space", space("tabbed", { details: { tabs } }), "test");
     await app.switchSpace("tabbed");
     app.selectTab("t2");
     await app.switchSpace("b");
@@ -139,7 +139,7 @@ describe("details", () => {
   });
 
   it("a tab that is not there only opens the column, and is noted", async () => {
-    app.registry.register("space", space("tabbed", { tabs: [{ id: "t1", title: () => "one", render: () => "1" }] }), "test");
+    app.registry.register("space", space("tabbed", { details: { tabs: [{ id: "t1", title: () => "one", render: () => "1" }] } }), "test");
     await app.switchSpace("tabbed");
     hostFor(app).details.open("nope");
     expect(app.detailsOpen()).toBe(true);

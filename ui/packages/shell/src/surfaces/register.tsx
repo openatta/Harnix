@@ -15,7 +15,7 @@
  */
 
 import { createRoot } from "react-dom/client";
-import type { Hello } from "@harnix/core";
+import type { UiView } from "@harnix/core";
 import type { ReactNode } from "react";
 import type { SpaceSecondary, SpaceTab } from "@harnix/react";
 
@@ -148,12 +148,16 @@ function register(app: App, iface: AppInterface): void {
         icon: centre.icon ?? "file",
         order: centre.order ?? 60,
         title: () => titleOf(iface, centre),
-        center,
-        ...(centre.sessions ? { sessions: centre.sessions } : { newSession: false }),
-        ...(center !== "chat" && centre.frame ? { overview: () => <KeptSlot app={app} iface={iface} decl={centre} actions={actions} /> } : {}),
-        ...(sidebar ? { sidebar: () => <KeptSlot app={app} iface={iface} decl={sidebar} actions={actions} /> } : {}),
-        ...(tabs.length ? { tabs } : {}),
-        ...(secondary
+        ...(centre.sessions ? { sessions: centre.sessions } : { conversation: { newSession: false } }),
+        sidebar: {
+          ...(sidebar ? { render: () => <KeptSlot app={app} iface={iface} decl={sidebar} actions={actions} /> } : {}),
+          badge: () => badges.get(space) ?? null,
+        },
+        ...(tabs.length ? { details: { tabs } } : {}),
+        center: {
+          mode: center,
+          ...(center !== "chat" && centre.frame ? { overview: () => <KeptSlot app={app} iface={iface} decl={centre} actions={actions} /> } : {}),
+          ...(secondary
           ? {
               secondary: (): SpaceSecondary | null => {
                 const open = secondaries.get(space);
@@ -170,7 +174,7 @@ function register(app: App, iface: AppInterface): void {
               },
             }
           : {}),
-        badge: () => badges.get(space) ?? null,
+        },
       },
       owner,
     );
@@ -238,18 +242,41 @@ function follow(app: App, ids: Set<string>): void {
   });
 }
 
-/** Put the isolated applications on the page; hello's contributions say which they are. */
-export async function loadSurfaces(app: App, hello: Hello): Promise<void> {
-  const { apps, refused } = interfacesOf(hello);
+/** The applications whose frames are on this page, and the record of the state they follow. */
+const placed = new WeakMap<App, { ids: Set<string>; declared: Map<string, string> }>();
+
+/**
+ * Put the isolated applications `harnix.ui` lists on the page, as it changes: one that appears is
+ * registered, one that goes takes its frames and everything registered for it, one whose
+ * declaration changed is registered again.
+ */
+export async function followSurfaces(app: App, view: Pick<UiView, "contributions">): Promise<void> {
+  const { apps, refused } = interfacesOf(view);
   for (const r of refused) app.registry.note({ point: r.point, owner: r.app, id: r.module, reason: r.reason });
+  let state = placed.get(app);
+  if (!state) {
+    state = { ids: new Set(), declared: new Map() };
+    placed.set(app, state);
+    follow(app, state.ids);
+  }
+  const now = new Map(apps.map((iface) => [iface.id, JSON.stringify(iface)]));
+  for (const id of [...state.ids]) {
+    if (now.get(id) === state.declared.get(id)) continue;
+    state.ids.delete(id);
+    state.declared.delete(id);
+    keeper.drop(id);
+    app.registry.withdraw(id);
+  }
   if (!apps.length) return;
   mountLayer();
   for (const iface of apps) {
+    if (state.ids.has(iface.id)) continue;
+    state.ids.add(iface.id);
+    state.declared.set(iface.id, now.get(iface.id)!);
     try {
-      register(app, iface);
+      app.registry.activate(iface.id, () => register(app, iface));
     } catch (e) {
       app.registry.note({ point: "surface", owner: iface.id, reason: e instanceof Error ? e.message : String(e) });
     }
   }
-  follow(app, new Set(apps.map((a) => a.id)));
 }
