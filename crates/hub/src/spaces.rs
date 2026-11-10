@@ -3,8 +3,8 @@
 //! A session is bound to one space when it is created and never moves. The binding is Harnix's own
 //! record — the engine knows nothing of spaces — kept in `.harnix/spaces.json` beside the instance
 //! ledger, with the instance a space's template built for it. A session with no record belongs to
-//! the session space: every one created before spaces existed, and every one a caller created
-//! without saying.
+//! the default space — the one an extension declared `default_space()`, when one did: every one a
+//! caller created without saying.
 //!
 //! A space needs no declaration here: one with only an interface and an Agent takes the defaults
 //! (`system`, the instance's scene). A module declares one to give it a default instance or scene.
@@ -18,18 +18,18 @@
 //! and each time it reaches across one, that is audited. This guards against a client's bug
 //! sending into the wrong product surface; it is not a security boundary: the claim is the
 //! caller's own (concept §6.2). The power to read or change another space's sessions is a
-//! capability's. The hub knows no space by name but the session space every session starts in.
+//! capability's. The hub knows no space by name: every one is an extension's.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use harnix_contract::sync::{lock, read, write};
-use harnix_contract::{codes, DefaultInstance, RpcError, SpaceDecl, Subject, PROJECTS_SPACE, SESSIONS_SPACE};
+use harnix_contract::{codes, DefaultInstance, RpcError, SpaceDecl, Subject};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::{claimed_space, Hub, SessionKey, SYSTEM};
+use crate::{Hub, SessionKey, SYSTEM};
 
 /// Told about every act across spaces by a call claiming a `cross_space` space: who, which
 /// method, which session, and the space the session belongs to.
@@ -54,6 +54,8 @@ pub struct Spaces {
     runtime: BTreeSet<String>,
     /// Ids no call may claim: spaces this product turned off.
     withheld: BTreeSet<String>,
+    /// Where a call that claims no space is checked, and where an unrecorded session belongs.
+    default: Option<String>,
     path: PathBuf,
     ledger: Ledger,
 }
@@ -70,27 +72,34 @@ impl Spaces {
             Err(e) => return Err(anyhow::anyhow!("{}: {e}", path.display())),
         };
         let mut all = BTreeMap::new();
-        for decl in [SpaceDecl::new(SESSIONS_SPACE)].into_iter().chain(decls)
-        {
+        let mut default = None;
+        for decl in decls {
+            if decl.default_space {
+                if let Some(first) = &default {
+                    anyhow::bail!("both `{first}` and `{}` say they are the default space; a process has one", decl.id);
+                }
+                default = Some(decl.id.clone());
+            }
             all.insert(decl.id.clone(), decl);
         }
         Ok(Self {
             decls: all,
             runtime: BTreeSet::new(),
             withheld,
+            default,
             path,
             ledger,
         })
     }
 
     /// Add a space declared at runtime. Refused for an id already declared
-    /// (assembly's keep precedence), the session and projects spaces', an id a call could
-    /// not claim, one reaching across spaces, and a default instance built from a template — a
-    /// runtime application's space lands on an instance that exists.
+    /// (assembly's keep precedence), an id a call could not claim, one reaching across spaces or
+    /// saying it is the default, and a default instance built from a template — a runtime
+    /// application's space lands on an instance that exists.
     pub fn add_runtime(&mut self, decl: SpaceDecl) -> Result<(), String> {
         let id = decl.id.clone();
-        if [SESSIONS_SPACE, PROJECTS_SPACE].contains(&id.as_str()) {
-            return Err(format!("`{id}` is a built-in space"));
+        if decl.default_space {
+            return Err(format!("the space `{id}` says it is the default, which only one assembled may"));
         }
         if decl.cross_space {
             return Err(format!("the space `{id}` reaches across spaces, which only a native extension's may"));
@@ -135,16 +144,35 @@ impl Spaces {
         }
     }
 
+    /// The default space's id, when an extension declared one.
+    pub fn default_space(&self) -> Option<&str> {
+        self.default.as_deref()
+    }
+
+    /// The space a call claims, or the default space when it claims none; empty when there is
+    /// neither.
+    pub(crate) fn claimed_space(&self, params: &Value) -> String {
+        params
+            .get("space")
+            .and_then(Value::as_str)
+            .or(self.default.as_deref())
+            .unwrap_or_default()
+            .to_string()
+    }
+
+    /// The space a session belongs to: its record, or the default space; empty when there is
+    /// neither.
     pub(crate) fn bound(&self, key: &SessionKey) -> &str {
         self.ledger
             .bindings
             .get(&slot(key))
             .map(String::as_str)
-            .unwrap_or(SESSIONS_SPACE)
+            .or(self.default.as_deref())
+            .unwrap_or_default()
     }
 
     fn bind(&mut self, key: &SessionKey, space: &str) {
-        if space == SESSIONS_SPACE {
+        if space.is_empty() || self.default.as_deref() == Some(space) {
             // The default needs no record, and keeping none keeps the ledger to what differs.
             if self.ledger.bindings.remove(&slot(key)).is_some() {
                 self.save();
@@ -209,7 +237,7 @@ impl Spaces {
                 }
             }
         }
-        if space == SESSIONS_SPACE {
+        if self.default.as_deref() == Some(space) {
             set.insert(SYSTEM.to_string());
         }
         set
@@ -240,8 +268,9 @@ impl Hub {
 
     /// The space a call claims, which must be one this application has: not one it turned off.
     pub(crate) fn claimed(&self, params: &Value) -> Result<String, RpcError> {
-        let space = claimed_space(params);
-        if !lock(&self.spaces).exists(&space) {
+        let spaces = lock(&self.spaces);
+        let space = spaces.claimed_space(params);
+        if !spaces.exists(&space) {
             return Err(RpcError::new(
                 codes::SPACE_MISMATCH,
                 format!("there is no space `{space}` in this application"),
@@ -292,13 +321,21 @@ impl Hub {
     /// Where a new session in this space goes, and in what scene: the instance the caller named
     /// (if the space may use it), else the space's default — built from its template the first time.
     pub(crate) async fn place(self: &std::sync::Arc<Self>, params: &mut Value) -> Result<String, RpcError> {
-        let space = claimed_space(params);
-        let (decl, built, crosses) = {
+        let (space, decl, built, crosses) = {
             let spaces = lock(&self.spaces);
+            let space = spaces.claimed_space(params);
+            // No space claimed and none the default: the session lands where an instance is
+            // named, or on `system`, and belongs to no space.
+            if space.is_empty() {
+                return Ok(space);
+            }
             if !spaces.exists(&space) {
                 return Err(RpcError::new(codes::SPACE_MISMATCH, format!("there is no space `{space}` in this application")));
             }
-            (spaces.decls.get(&space).cloned(), spaces.ledger.instances.get(&space).cloned(), spaces.crosses(&space))
+            let decl = spaces.decls.get(&space).cloned();
+            let built = spaces.ledger.instances.get(&space).cloned();
+            let crosses = spaces.crosses(&space);
+            (space, decl, built, crosses)
         };
         if let (Some(scene), Some(obj)) = (decl.as_ref().and_then(|d| d.scene.clone()), params.as_object_mut()) {
             obj.entry("scene").or_insert(json!(scene));
@@ -493,7 +530,7 @@ mod tests {
     use super::*;
 
     fn spaces(dir: &std::path::Path) -> Spaces {
-        let decls = vec![SpaceDecl::new("fleet"), SpaceDecl::new("debug").cross_space()];
+        let decls = vec![SpaceDecl::new("home").default_space(), SpaceDecl::new("fleet"), SpaceDecl::new("debug").cross_space()];
         Spaces::load(dir.join("spaces.json"), decls, ["off".to_string()].into()).unwrap()
     }
 
@@ -503,19 +540,42 @@ mod tests {
         let mut s = spaces(dir.path());
         s.add_runtime(SpaceDecl::new("fake").scene("mini")).unwrap();
         assert!(s.decls.contains_key("fake"));
-        for taken in ["fleet", "sessions", "projects", "debug", "off", "fake"] {
+        for taken in ["fleet", "home", "debug", "off", "fake"] {
             assert!(s.add_runtime(SpaceDecl::new(taken)).is_err(), "{taken} was added");
         }
         assert!(s.add_runtime(SpaceDecl::new("bad id")).is_err());
         assert!(s.add_runtime(SpaceDecl::new("templated").instance("template:fleet.side")).is_err());
         assert!(s.add_runtime(SpaceDecl::new("across").cross_space()).is_err());
+        assert!(s.add_runtime(SpaceDecl::new("other-home").default_space()).is_err());
         assert!(s.crosses("debug") && !s.crosses("fleet") && !s.crosses("nowhere"));
         // Only what was added at runtime can be removed.
         assert!(!s.remove_runtime("fleet"));
-        assert!(!s.remove_runtime("sessions"));
+        assert!(!s.remove_runtime("home"));
         assert!(s.remove_runtime("fake"));
         assert!(!s.remove_runtime("fake"));
         assert!(!s.decls.contains_key("fake"));
         assert!(s.decls.contains_key("fleet"));
+    }
+
+    /// A session nobody recorded belongs to the default space, and a call claiming none is
+    /// checked as it; without one, to no space.
+    #[test]
+    fn the_default_space_is_an_extensions_and_there_is_at_most_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = spaces(dir.path());
+        let key: SessionKey = ("system".into(), "s1".into());
+        assert_eq!(s.default_space(), Some("home"));
+        assert_eq!(s.bound(&key), "home");
+        assert_eq!(s.claimed_space(&json!({})), "home");
+        assert_eq!(s.claimed_space(&json!({"space": "fleet"})), "fleet");
+        assert!(s.instances_of("home").contains(SYSTEM));
+
+        let none = Spaces::load(dir.path().join("none.json"), vec![SpaceDecl::new("fleet")], Default::default()).unwrap();
+        assert_eq!(none.default_space(), None);
+        assert_eq!(none.bound(&key), "");
+        assert_eq!(none.claimed_space(&json!({})), "");
+
+        let two = vec![SpaceDecl::new("a").default_space(), SpaceDecl::new("b").default_space()];
+        assert!(Spaces::load(dir.path().join("two.json"), two, Default::default()).is_err());
     }
 }

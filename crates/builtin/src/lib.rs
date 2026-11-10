@@ -32,7 +32,7 @@ use harnix_contract::sync::{read, write};
 use harnix_contract::RpcError;
 use harnix_module::{
     caps, CallContext, Capability, Handler, InstanceHandle, Manifest, MethodRegistry, Module, ModuleContext,
-    Principal,
+    Principal, SpaceDecl, SpaceRegistry,
 };
 use serde_json::Value;
 use tokio::sync::Mutex;
@@ -268,6 +268,13 @@ impl Module for BuiltinModule {
                     builtin: self.builtin.clone(),
                     answer: method.answer,
                 }));
+        }
+    }
+
+    /// The session space is the `sessions` part's, and the default.
+    fn spaces(&self, spaces: &mut SpaceRegistry) {
+        if self.part.id == "sessions" {
+            spaces.add(SpaceDecl::new("sessions").default_space());
         }
     }
 

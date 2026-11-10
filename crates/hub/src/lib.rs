@@ -438,15 +438,6 @@ impl Hub {
     }
 }
 
-/// The space a call says it comes from; the session space when it says none.
-pub(crate) fn claimed_space(params: &Value) -> String {
-    params
-        .get("space")
-        .and_then(Value::as_str)
-        .unwrap_or(harnix_contract::SESSIONS_SPACE)
-        .to_string()
-}
-
 /// The transport registers its clients here.
 #[async_trait::async_trait]
 impl harnix_kernel::ClientRegistry for Hub {

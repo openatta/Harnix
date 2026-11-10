@@ -26,7 +26,7 @@ impl Builtin {
         let space = params
             .get("space")
             .and_then(Value::as_str)
-            .unwrap_or(harnix_contract::SESSIONS_SPACE);
+            .unwrap_or("sessions");
         if space == "system" {
             return Err(RpcError::new(
                 harnix_contract::codes::SPACE_MISMATCH,

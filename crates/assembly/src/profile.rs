@@ -128,6 +128,9 @@ pub(crate) struct ExtensionsProfile {
     /// Linked, and switched off: registered, so nobody else takes its names, but nothing of it
     /// is installed, migrated or started.
     pub off: Vec<String>,
+    /// The space a call that claims none is checked as, in place of the one an extension
+    /// declared the default: one an enabled extension declares.
+    pub default_space: Option<String>,
 }
 
 /// `[apps]`: runtime applications — methods, topics and spaces under `app.<id>.*` that enter the
@@ -343,8 +346,9 @@ mod tests {
 
     #[test]
     fn extensions_can_be_switched_off() {
-        let profile = Profile::parse("[extensions]\noff = [\"flow\"]\n").unwrap();
+        let profile = Profile::parse("[extensions]\noff = [\"flow\"]\ndefault_space = \"home\"\n").unwrap();
         assert_eq!(profile.extensions.off, ["flow"]);
+        assert_eq!(profile.extensions.default_space.as_deref(), Some("home"));
         assert!(Profile::parse("[extensions]\nof = []\n").is_err());
     }
 }

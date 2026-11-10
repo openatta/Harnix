@@ -71,7 +71,7 @@ pub(super) async fn assemble(
         .filter_map(|r| r.descriptor.as_ref())
         .flat_map(|d| d.spaces().iter().map(|s| s.id.clone()))
         .collect();
-    let declared = declared_spaces(records);
+    let declared = declared_spaces(records, profile.extensions.default_space.as_deref())?;
     let spaces = harnix_hub::Spaces::load(roots.state.join("spaces.json"), declared.clone(), withheld)?;
     let registry = InstanceRegistry::new(registry);
     let hub = Hub::new(HubConfig {
@@ -134,20 +134,33 @@ pub(super) async fn assemble(
 }
 
 /// The spaces the enabled extensions are the backend of. A space id taken twice keeps the first.
-fn declared_spaces(records: &[Record]) -> Vec<harnix_contract::SpaceDecl> {
+/// `default_space` (`[extensions] default_space`) names the default in place of the one an
+/// extension declared.
+fn declared_spaces(
+    records: &[Record],
+    default_space: Option<&str>,
+) -> anyhow::Result<Vec<harnix_contract::SpaceDecl>> {
     let mut declared: Vec<harnix_contract::SpaceDecl> = Vec::new();
     for record in records.iter().filter(|r| r.is_enabled()) {
         let Some(d) = &record.descriptor else { continue };
         for space in d.spaces() {
-            let reserved = [harnix_contract::SESSIONS_SPACE, harnix_contract::PROJECTS_SPACE];
-            if reserved.contains(&space.id.as_str()) || declared.iter().any(|d| d.id == space.id) {
+            if declared.iter().any(|d| d.id == space.id) {
                 tracing::warn!(extension = %record.manifest.id(), space = %space.id, "a space with this id already exists; ignored");
                 continue;
             }
             declared.push(space.clone());
         }
     }
-    declared
+    if let Some(id) = default_space {
+        anyhow::ensure!(
+            declared.iter().any(|d| d.id == id),
+            "[extensions] default_space = {id:?} is not a space any enabled extension here declares"
+        );
+        for decl in &mut declared {
+            decl.default_space = decl.id == id;
+        }
+    }
+    Ok(declared)
 }
 
 /// The brand's icon, relative to the profile it was written in.

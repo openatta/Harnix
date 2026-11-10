@@ -43,8 +43,9 @@ impl InstanceObserver<dyn EngineLink> for Seen {
         assert!(!link.status().borrow().is_ready());
         self.note("restarted", id);
     }
-    fn has_space(&self, space: &str) -> bool {
-        space == harnix_contract::SESSIONS_SPACE
+    fn space(&self, claimed: Option<&str>) -> Option<String> {
+        let space = claimed.unwrap_or("sessions");
+        (space == "sessions").then(|| space.to_string())
     }
 }
 

@@ -201,8 +201,10 @@ impl InstanceObserver<dyn EngineLink> for Hub {
         tokio::spawn(self.arc().resync_instance(id.to_string()));
     }
 
-    fn has_space(&self, space: &str) -> bool {
-        lock(&self.spaces).exists(space)
+    fn space(&self, claimed: Option<&str>) -> Option<String> {
+        let spaces = lock(&self.spaces);
+        let space = claimed.map(str::to_string).or_else(|| spaces.default_space().map(str::to_string))?;
+        spaces.exists(&space).then_some(space)
     }
 }
 

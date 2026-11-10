@@ -44,9 +44,6 @@ impl TryFrom<String> for Owner {
     fn try_from(s: String) -> Result<Self, String> {
         match s.as_str() {
             "kernel" => Ok(Owner::Kernel),
-            // Before spaces, the interface's instances were recorded as `ui`;
-            // they were all the session space's.
-            "ui" => Ok(Owner::Space(harnix_contract::SESSIONS_SPACE.to_string())),
             _ => {
                 if let Some(id) = s.strip_prefix("module:") {
                     Ok(Owner::Module(id.to_string()))
