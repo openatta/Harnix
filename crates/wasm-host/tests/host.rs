@@ -6,7 +6,6 @@
 mod common;
 
 use common::*;
-use harnix_wasm_host::HostOptions;
 use harnix_wasm_port::*;
 use harnix_contract::sync::lock;
 use serde_json::json;
@@ -26,6 +25,8 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
     assert!(at("subscribe") < at("expose_tools 8"));
 
     let registration = lock(&rig.platform.registered)[0].clone();
+    assert_eq!(registration.digest.len(), 64, "the manifest's sha256");
+    assert_eq!(registration.tools.len(), 8, "its declared tools");
     assert!(registration.methods.iter().any(|m| m.name == "state" && m.subjects == ["device", "module"]));
     assert_eq!(registration.topics, ["notes", "heartbeat", "fetched"]);
     assert_eq!(registration.spaces[0].id, ID);
@@ -50,7 +51,7 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
     })
     .await;
     rig.control
-        .deliver(TopicValue {
+        .deliver(CallMeta::default(), TopicValue {
             app: ID.into(),
             topic: "harnix.sessions.status".into(),
             value: json!({"sessions": [{}, {}, {}]}),
@@ -77,24 +78,24 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
         project: None,
         progress: true,
     };
-    match rig.control.call_tool(tool("echo", json!({"text": "hi"}), "c1")).await.unwrap() {
+    match rig.control.call_tool(CallMeta::default(), tool("echo", json!({"text": "hi"}), "c1")).await.unwrap() {
         ToolReply::Output { structured, is_error, .. } => {
             assert_eq!(structured, Some(json!({"echoed": "hi"})));
             assert!(!is_error);
         }
         other => panic!("{other:?}"),
     }
-    rig.control.call_tool(tool("slow", json!({"steps": 3, "ms": 10}), "c2")).await.unwrap();
+    rig.control.call_tool(CallMeta::default(), tool("slow", json!({"steps": 3, "ms": 10}), "c2")).await.unwrap();
     assert_eq!(*lock(&rig.platform.progress), ["step 1 of 3", "step 2 of 3", "step 3 of 3"]);
     let control = rig.control.clone();
-    let slow = tokio::spawn(async move { control.call_tool(tool("slow", json!({"steps": 100, "ms": 200}), "c3")).await });
+    let slow = tokio::spawn(async move { control.call_tool(CallMeta::default(), tool("slow", json!({"steps": 100, "ms": 200}), "c3")).await });
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-    rig.control.cancel("c3".into()).await.unwrap();
+    rig.control.cancel(CallMeta::default(), "c3".into()).await.unwrap();
     assert!(matches!(
         slow.await.unwrap().unwrap(),
         ToolReply::Failed { failure: Failure::Cancelled, .. }
     ));
-    match rig.control.call_tool(tool("board", json!({}), "c4")).await.unwrap() {
+    match rig.control.call_tool(CallMeta::default(), tool("board", json!({}), "c4")).await.unwrap() {
         ToolReply::Output { content, .. } => assert!(content.contains("the board has 2 notes"), "{content}"),
         other => panic!("{other:?}"),
     }
@@ -106,96 +107,51 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
         payload: json!({"tool": tool, "input": {}, "session_id": "s1", "depth": 0}),
         call_id: format!("h-{tool}"),
     };
-    assert!(matches!(rig.control.hook(hook("ext__example_showcase__vetoed")).await.unwrap(), HookReply::Block(_)));
+    assert!(matches!(rig.control.hook(CallMeta::default(), hook("ext__example_showcase__vetoed")).await.unwrap(), HookReply::Block(_)));
     // Another's tool is not its to see (`[events] tools = "own"`): no instance is even started.
     let calls = rig.status().await["health"]["calls"].clone();
-    assert_eq!(rig.control.hook(hook("Bash")).await.unwrap(), HookReply::Proceed);
+    assert_eq!(rig.control.hook(CallMeta::default(), hook("Bash")).await.unwrap(), HookReply::Proceed);
     assert_eq!(rig.status().await["health"]["calls"], calls, "the hook was not run for `Bash`");
 
     // Stopped: its tools withdrawn, then its names, its subscription given back, its agent side off;
     // a method answers that it is not running.
-    rig.control.stop(Stop { app: ID.into(), parts: parts.clone() }).await.unwrap();
+    rig.control.stop(CallMeta::default(), Stop { app: ID.into(), parts: parts.clone() }).await.unwrap();
     assert!(lock(&rig.platform.offers).last().unwrap().tools.is_empty());
     assert_eq!(rig.platform.said("withdraw"), ["withdraw example.showcase"]);
     assert_eq!(rig.platform.said("unsubscribe"), ["unsubscribe harnix.sessions.status"]);
     assert_eq!(rig.platform.said("switch_agent example-showcase off").len(), 1);
     assert_eq!(rig.platform.said("remove_skills"), ["remove_skills showcase-tour"]);
     let gone = rig.platform.device_call("notes.list", json!({})).await.unwrap_err();
+    assert_eq!(gone.code, codes::EXTENSION_UNAVAILABLE);
     assert_eq!(gone.data.unwrap()["failure"], json!("stopped"));
     assert_eq!(rig.status().await, json!({"state": "stopped"}));
     // Taken back.
-    let taken = rig.control.unplace(Unplace { app: ID.into(), parts }).await.unwrap();
+    let taken = rig.control.unplace(CallMeta::default(), Unplace { app: ID.into(), parts }).await.unwrap();
     assert_eq!(taken["agent"]["package"], json!("example-showcase"));
     assert_eq!(rig.platform.said("uninstall_agent"), ["uninstall_agent example-showcase main"]);
 }
 
-/// A backend whose `host.call` comes back into its own method — routed by the product through
-/// another task, as a link between processes would carry it, so nothing of the calling task comes
-/// along — is refused at once by the chain the call carries, not left to wait on itself until the
-/// timeout recycles it. Its tools still reach it: a tool runs in an instance of its own.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_call_routed_back_into_its_own_waiting_backend_is_refused_across_the_wire() {
-    let rig = Rig::new(|_| {});
-    rig.install(|m| m).await;
-    rig.platform.reroute.set("state".into()).unwrap();
-    let began = std::time::Instant::now();
-    // `overreach` calls out, and answers with what it was told.
-    let answer = rig.platform.device_call("overreach", json!({})).await.unwrap();
-    assert_eq!(answer["refused"], json!(true), "{answer}");
-    let message = answer["message"].as_str().unwrap();
-    assert!(message.contains("would re-enter the backend of `example.showcase`"), "{message}");
-    assert!(began.elapsed() < std::time::Duration::from_secs(4), "it waited for itself: {:?}", began.elapsed());
-    // Not recycled: the backend answers as it did, its memory with it.
-    let status = rig.status().await;
-    assert_eq!(status["health"]["recycles"], json!(0), "{status}");
-    rig.platform.device_call("state", json!({})).await.unwrap();
-
-    // A tool's call into its backend carries no chain, and goes through.
-    let board = ToolCall {
-        app: ID.into(),
-        tool: "board".into(),
-        input: json!({}),
-        call_id: "b1".into(),
-        project: None,
-        progress: false,
-    };
-    match rig.control.call_tool(board).await.unwrap() {
-        ToolReply::Output { content, .. } => assert!(content.contains("the board has"), "{content}"),
-        other => panic!("{other:?}"),
-    }
-
-    // And a chain that already holds the application is refused before its backend is asked.
-    let refused = rig
-        .control
-        .call_method(MethodCall {
-            app: ID.into(),
-            method: "state".into(),
-            caller: Subject::extension(harnix_contract::ExtId::package("acme.other").unwrap()),
-            params: json!({}),
-            chain: vec![ID.into(), "acme.other".into()],
-        })
-        .await
-        .unwrap_err();
-    assert_eq!(refused.data.unwrap()["failure"], json!("unavailable"));
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn what_does_not_start_is_undone_and_said() {
-    // Unsigned, where unsigned code does not run: refused before the agent side is switched on.
-    let rig = Rig::new(|o| o.admission.dev = false);
+    // A component that is not the one the product verified: refused before anything is
+    // registered. So is a signed package the product gave no sha256 for.
+    let rig = Rig::new(|_| {});
     let version = rig.unpack(|m| m);
-    let start = Start {
-        app: ID.into(),
-        version,
-        app_dir: rig.app_dir(),
-        parts: json!({}),
-    };
-    let err = rig.control.start(start.clone()).await.unwrap_err();
-    assert!(err.message.contains("[apps] dev = true"), "{}", err.message);
+    let mut start = rig.start_of(&version, json!({}));
+    start.cwasm_sha256 = Some("00".repeat(32));
+    let err = rig.control.start(CallMeta::default(), start.clone()).await.unwrap_err();
+    assert!(err.message.contains("not the one that was verified"), "{}", err.message);
     assert!(rig.platform.said("register").is_empty());
     assert_eq!(rig.status().await["state"], json!("failed"));
-    rig.control.forget(ID.into()).await.unwrap();
+    start.cwasm_sha256 = None;
+    let err = rig.control.start(CallMeta::default(), start.clone()).await.unwrap_err();
+    assert!(err.message.contains("given no sha256"), "{}", err.message);
+    rig.control.forget(CallMeta::default(), ID.into()).await.unwrap();
     assert_eq!(rig.status().await["state"], json!("stopped"));
+    // Unsigned, it is the product's word that it may run: it starts.
+    start.trust = "unsigned".into();
+    rig.control.start(CallMeta::default(), start).await.unwrap();
+    assert_eq!(rig.status().await["state"], json!("running"));
 
     // A tool row for a tool the manifest does not declare: started, found out, and taken back.
     let rig = Rig::new(|_| {});
@@ -203,7 +159,7 @@ async fn what_does_not_start_is_undone_and_said() {
     let parts = json!({"agent": {"package": "example-showcase", "version": "0.1.0", "instances": ["main"]}});
     let err = rig
         .control
-        .start(Start { app: ID.into(), version, app_dir: rig.app_dir(), parts })
+        .start(CallMeta::default(), rig.start_of(&version, parts))
         .await
         .unwrap_err();
     assert!(err.message.contains("does not declare as a `[[tool]]`"), "{}", err.message);
@@ -222,7 +178,7 @@ async fn what_does_not_start_is_undone_and_said() {
         let parts = json!({"agent": {"package": "example-showcase", "version": "0.1.0", "instances": ["main"]}});
         let err = rig
             .control
-            .start(Start { app: ID.into(), version, app_dir: rig.app_dir(), parts })
+            .start(CallMeta::default(), rig.start_of(&version, parts))
             .await
             .unwrap_err();
         assert!(err.message.contains("does not provide the tools its manifest declares"), "{}", err.message);
@@ -234,7 +190,7 @@ async fn what_does_not_start_is_undone_and_said() {
     let version = rig.unpack(|m| m.replace("install_into = [\"main\"]", "install_into = [\"nowhere\"]"));
     let err = rig
         .control
-        .place(Place { app: ID.into(), app_dir: rig.app_dir(), version })
+        .place(CallMeta::default(), Place { app: ID.into(), app_dir: rig.app_dir(), version, instances: None })
         .await
         .unwrap_err();
     assert!(err.message.contains("no such instance"), "{}", err.message);
@@ -246,26 +202,20 @@ fn refusing_bash(events: &'static str) -> impl Fn(String) -> String {
     move |m: String| m.replace("[events]\ntools = \"own\"", &format!("[events]\ntools = \"{events}\""))
 }
 
-fn blocked_bash(o: &mut HostOptions) {
-    o.config.insert(
-        ID.into(),
-        toml::Value::Table(toml::toml! { blocked_tool = "Bash" }),
-    );
+fn blocked_bash() -> Rig {
+    Rig::configured(json!({"blocked_tool": "Bash"}))
 }
 
 /// Another application's tool, by the name a session knows it by.
 const OTHERS_TOOL: &str = "ext__example_other__echo";
 
-fn blocked_others_tool(o: &mut HostOptions) {
-    o.config.insert(
-        ID.into(),
-        toml::Value::Table(toml::toml! { blocked_tool = "ext__example_other__echo" }),
-    );
+fn blocked_others_tool() -> Rig {
+    Rig::configured(json!({"blocked_tool": OTHERS_TOOL}))
 }
 
 async fn hook_for(rig: &Rig, tool: &str) -> HookReply {
     rig.control
-        .hook(HookCall {
+        .hook(CallMeta::default(), HookCall {
             app: ID.into(),
             event: "tool.before".into(),
             payload: json!({"tool": tool, "input": {"command": "rm -rf /"}, "session_id": "s1", "depth": 0}),
@@ -277,22 +227,22 @@ async fn hook_for(rig: &Rig, tool: &str) -> HookReply {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn its_hook_sees_every_tool_call_only_when_its_manifest_asks() {
-    let own = Rig::new(blocked_bash);
+    let own = blocked_bash();
     own.install(refusing_bash("own")).await;
     assert_eq!(hook_for(&own, "Bash").await, HookReply::Proceed, "not its to see, so not its to refuse");
 
-    let all = Rig::new(blocked_bash);
+    let all = blocked_bash();
     all.install(refusing_bash("all")).await;
     assert!(matches!(hook_for(&all, "Bash").await, HookReply::Block(_)));
     assert_eq!(hook_for(&all, "Read").await, HookReply::Proceed);
 
     // Another application's tool is not its own either: the same as a built-in one.
-    let own = Rig::new(blocked_others_tool);
+    let own = blocked_others_tool();
     own.install(refusing_bash("own")).await;
     let calls = own.status().await["health"]["calls"].clone();
     assert_eq!(hook_for(&own, OTHERS_TOOL).await, HookReply::Proceed, "another application's tool was its to refuse");
     assert_eq!(own.status().await["health"]["calls"], calls, "the hook ran for another application's tool");
-    let all = Rig::new(blocked_others_tool);
+    let all = blocked_others_tool();
     all.install(refusing_bash("all")).await;
     assert!(matches!(hook_for(&all, OTHERS_TOOL).await, HookReply::Block(_)));
 }
@@ -306,9 +256,8 @@ async fn its_secret_is_the_profiles_never_the_processs() {
     let state = without.platform.device_call("state", json!({})).await.unwrap();
     assert_eq!((state["secret_set"].clone(), state["secret_length"].clone()), (json!(false), json!(0)));
 
-    let with = Rig::new(|o| {
-        o.secrets.insert(ID.into(), [("SHOWCASE_TOKEN".to_string(), "from-the-profile".to_string())].into());
-    });
+    let with = Rig::new(|_| {});
+    *lock(&with.secrets) = [("SHOWCASE_TOKEN".to_string(), "from-the-profile".to_string())].into();
     with.install(|m| m).await;
     let state = with.platform.device_call("state", json!({})).await.unwrap();
     assert_eq!(state["secret_length"], json!("from-the-profile".len()));
@@ -334,9 +283,9 @@ async fn the_generation_moves_with_what_its_status_says() {
         project: None,
         progress: false,
     };
-    rig.control.call_tool(tool).await.unwrap();
+    rig.control.call_tool(CallMeta::default(), tool).await.unwrap();
     let tooled = rig.host.generation();
     assert!(tooled > called, "a tool call");
-    rig.control.stop(Stop { app: ID.into(), parts }).await.unwrap();
+    rig.control.stop(CallMeta::default(), Stop { app: ID.into(), parts }).await.unwrap();
     assert!(rig.host.generation() > tooled, "a stop");
 }

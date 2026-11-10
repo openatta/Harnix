@@ -29,7 +29,7 @@ use harnix_engine_api::{
     Cancel, HookDecision, Permission, SessionFacts, Tool, ToolCallFacts, ToolCx, ToolError, ToolHook, ToolOutput,
     ToolProvider, ToolSpec,
 };
-use harnix_wasm_port::{Control, Failure, HookCall, HookReply, ToolDef, ToolReply};
+use harnix_wasm_port::{CallMeta, Control, Failure, HookCall, HookReply, ToolDef, ToolReply};
 use serde_json::{json, Value};
 
 use crate::runtime::{Loaded, Registry};
@@ -59,7 +59,7 @@ pub(crate) async fn cancellable<T>(
         biased;
         out = &mut call => out,
         _ = cancel.cancelled() => {
-            let _ = control.cancel(call_id.to_string()).await;
+            let _ = control.cancel(CallMeta::default(), call_id.to_string()).await;
             call.await
         }
     }
@@ -196,7 +196,9 @@ impl Tool for AppTool {
             project: Some(self.project.clone()),
             progress: true,
         };
-        let reply = cancellable(&control, &call_id, cx.cancel(), control.call_tool(call)).await;
+        // On behalf of the session's turn: what the tool calls carries the turn's chain.
+        let meta = CallMeta::default().chain(cx.chain().iter().cloned());
+        let reply = cancellable(&control, &call_id, cx.cancel(), control.call_tool(meta, call)).await;
         self.registry.unlisten(&call_id);
         match reply {
             Ok(ToolReply::Output { content, structured, is_error }) => {
@@ -252,7 +254,7 @@ impl ToolHook for AppEvents {
             payload,
             call_id: call_id.clone(),
         };
-        let decision = cancellable(&control, &call_id, call.cancel(), control.hook(hook))
+        let decision = cancellable(&control, &call_id, call.cancel(), control.hook(CallMeta::default(), hook))
             .await
             .unwrap_or_else(|e| HookReply::Failed(e.message));
         match decision {

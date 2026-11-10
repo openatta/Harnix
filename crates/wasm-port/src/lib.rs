@@ -4,10 +4,22 @@
 //! tools and topics. What it needs from outside is two things, [`Kernel`] and [`Agent`]; what the
 //! product asks of it is [`Control`]. Nothing else crosses:
 //!
-//! - every method is async, and takes one serde value and answers one (or an [`RpcError`]);
+//! - every call is async, and takes the call's [`CallMeta`] and one serde value, and answers one
+//!   (or an [`RpcError`]); a notification ([`Kernel::progress`], [`Control::turn_started`]) takes
+//!   the value alone, answers nothing and does not wait;
 //! - no reference, closure or handle crosses. What would be a callback is a call the other way:
 //!   a value on a topic the application subscribed to is [`Control::deliver`], a tool call's
 //!   progress is [`Kernel::progress`], cancelling one is [`Control::cancel`] with the call's id.
+//!
+//! # A call's metadata
+//!
+//! [`CallMeta`] says which call this is, the call it was made while handling, the extensions
+//! waiting on it, each with the call it is held on, and its deadline. A host gives every call it
+//! makes while serving one of the product's the served call as its `parent`, and — when the served
+//! call holds the application's backend — the served call's chain with the application held on it.
+//! So a backend whose call comes back into itself, by however many hops over whatever carried it,
+//! finds itself in the chain on a call it is still serving, and refuses at once
+//! (`EXTENSION_UNAVAILABLE`, `failure: "reentrant"`); one that answered long ago is not refused.
 //!
 //! The two traits the host needs are two because they are two sides in an edition where each
 //! application runs in a process of its own:
@@ -34,10 +46,12 @@
 //! the host and the product are on the same machine. A link between machines would carry those
 //! files rather than their names, and is not part of this version of the port.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use async_trait::async_trait;
-pub use harnix_contract::{codes, RpcError, SpaceDecl, Subject};
+pub use harnix_contract::s1::CallMeta;
+pub use harnix_contract::{codes, ChainLink, RpcError, SpaceDecl, Subject};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -63,6 +77,13 @@ pub struct Registration {
     pub spaces: Vec<SpaceDecl>,
     /// What the application may reach as itself (`[capabilities] calls`).
     pub calls: Vec<String>,
+    /// `[[tool]]`: every tool it offers sessions, as its manifest declares them.
+    #[serde(default)]
+    pub tools: Vec<ToolDef>,
+    /// The sha256 of its manifest as it is on disk: what the product compares with the manifest
+    /// its consent was given to.
+    #[serde(default)]
+    pub digest: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -79,11 +100,6 @@ pub struct CallAs {
     pub app: String,
     pub method: String,
     pub params: Value,
-    /// The applications whose resident backends are waiting on this call, outermost first — `app`
-    /// last, when it is its backend that calls. Routed into one of their methods, the call comes
-    /// back as [`MethodCall::chain`], and is refused rather than left waiting for itself.
-    #[serde(default)]
-    pub chain: Vec<String>,
 }
 
 /// `host.publish`, on one of the application's `[[topic]]`s.
@@ -164,6 +180,44 @@ pub struct Offer {
     pub tools: Vec<ToolDef>,
 }
 
+/// `host.http-request`, already checked against the application's `net` by the host: the
+/// product checks it again against what it granted, and makes it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Fetch {
+    pub app: String,
+    pub method: String,
+    pub url: String,
+    pub headers: Vec<(String, String)>,
+    /// The body, base64.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_b64: Option<String>,
+}
+
+/// What the product's fetch answered. Redirects are never followed: a 3xx goes back as it came.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Fetched {
+    pub status: u16,
+    pub headers: Vec<(String, String)>,
+    /// The body, base64.
+    pub body_b64: String,
+}
+
+/// One session's turn, by its instance and session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TurnRef {
+    pub instance: String,
+    pub session_id: String,
+}
+
+/// The calls a session's running turn is on behalf of, outermost first: what its tool calls carry
+/// as their chain. Empty when no turn runs, or one runs on behalf of no extension.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TurnChain {
+    pub instance: String,
+    pub session_id: String,
+    pub chain: Vec<ChainLink>,
+}
+
 /// A tool call's `host.progress`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Progress {
@@ -177,30 +231,38 @@ pub struct Progress {
 ///
 /// The product admits, grants and audits what an application does as itself (`module:<id>`); the
 /// host has already checked the application's own declarations (its `[[topic]]`s, its `net`)
-/// before it asks.
+/// before it asks. Every call carries its [`CallMeta`]: a host's own calls name the call they were
+/// made serving as their parent.
 #[async_trait]
 pub trait Kernel: Send + Sync {
     /// Declare the application's methods, topics and spaces, and its `calls` capability. A product
     /// that hosts no applications' names accepts this and declares nothing; what the application
     /// then does as itself is refused.
-    async fn register(&self, registration: Registration) -> Result<(), RpcError>;
+    async fn register(&self, meta: CallMeta, registration: Registration) -> Result<(), RpcError>;
     /// Take them back. Calls queued for them are answered that the application stopped.
-    async fn withdraw(&self, app: String) -> Result<(), RpcError>;
+    async fn withdraw(&self, meta: CallMeta, app: String) -> Result<(), RpcError>;
 
-    /// `host.call`, as `module:<app>`. Routed into an application's method, it is answered by
-    /// [`Control::call_method`] with the call's [`CallAs::chain`] as its [`MethodCall::chain`]:
-    /// a backend already waiting on the call — however many hops back, over whatever carried it —
-    /// refuses it rather than deadlock.
-    async fn call(&self, call: CallAs) -> Result<Value, RpcError>;
+    /// `host.call`, as `module:<app>`. Routed into an application's method, it reaches
+    /// [`Control::call_method`] with the chain `meta` says and the product holds to: a backend
+    /// still serving a call the chain holds it on — however many hops back, over whatever carried
+    /// it — refuses it rather than deadlock.
+    async fn call(&self, meta: CallMeta, call: CallAs) -> Result<Value, RpcError>;
     /// `host.publish`, in the order the backend published.
-    async fn publish(&self, publish: Publish) -> Result<(), RpcError>;
+    async fn publish(&self, meta: CallMeta, publish: Publish) -> Result<(), RpcError>;
     /// `host.subscribe`: answers the subscription, with the topic's `value` now if it has one;
     /// every later value comes as [`Control::deliver`].
-    async fn subscribe(&self, subscription: Subscription) -> Result<Value, RpcError>;
-    async fn unsubscribe(&self, subscription: Subscription) -> Result<(), RpcError>;
+    async fn subscribe(&self, meta: CallMeta, subscription: Subscription) -> Result<Value, RpcError>;
+    async fn unsubscribe(&self, meta: CallMeta, subscription: Subscription) -> Result<(), RpcError>;
 
-    /// A tool call's progress, for whoever started it ([`ToolCall::call_id`]).
-    async fn progress(&self, progress: Progress) -> Result<(), RpcError>;
+    /// `host.http-request`, made by the product: what it granted (`net`) is checked there.
+    async fn fetch(&self, meta: CallMeta, fetch: Fetch) -> Result<Fetched, RpcError>;
+    /// The chain of a session's running turn, for a host whose own engine runs it and has not
+    /// been told of it yet ([`Control::turn_started`]).
+    async fn turn_chain(&self, meta: CallMeta, turn: TurnRef) -> Result<TurnChain, RpcError>;
+
+    /// A tool call's progress, for whoever started it ([`ToolCall::call_id`]). A notification: it
+    /// does not wait, and is told before the tool call's answer is.
+    fn progress(&self, progress: Progress);
 }
 
 /// What the host needs from the agent engine its applications' agent side goes to.
@@ -235,6 +297,10 @@ pub struct Place {
     pub app_dir: PathBuf,
     /// The version unpacked under it, at `<app_dir>/<version>/`.
     pub version: String,
+    /// The instances its agent package goes into, as the carrier says: none, and the host puts it
+    /// into each instance its manifest's `install_into` names that its agent engine has.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instances: Option<Vec<String>>,
 }
 
 /// What putting it in place did: the record's `parts` (`agent`, `skills`), and what the agent
@@ -254,13 +320,38 @@ pub struct Unplace {
 }
 
 /// Start an installed application from its record.
+///
+/// What the product verified — the package's signatures over its files as they are now, the
+/// manifest against the record — it says here, and the host takes its word: the host checks only
+/// that the component it loads is the one the product verified ([`Start::cwasm_sha256`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Start {
     pub app: String,
     pub version: String,
-    pub app_dir: PathBuf,
+    /// How far its signatures vouch for it, as the product just verified them: `store`,
+    /// `trusted`, `unsigned`.
+    pub trust: String,
+    /// The sha256 of its precompiled component for this engine, from the signatures the product
+    /// just verified: what the host checks the bytes it loads against. None only for a package
+    /// with no component, or one the product runs unsigned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwasm_sha256: Option<String>,
+    /// Set over the manifest's `[config]`: the profile's settings for it (an object, or null).
+    #[serde(default)]
+    pub config: Value,
+    /// What `host.secret` gives it, by name: only names its consent covered.
+    #[serde(default)]
+    pub secrets: BTreeMap<String, String>,
     /// The record's `parts`: which agent package and skills to switch on with it.
     pub parts: Value,
+    /// The unpacked package (`<ext>/<id>/<version>/`). Given by the carrier that runs several
+    /// applications in one host; an extension process has its own from its command line, and is
+    /// never sent one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pkg: Option<PathBuf>,
+    /// Where the application keeps what it writes: its `data/` and its store `kv/`. As `pkg`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<PathBuf>,
 }
 
 /// What starting it made.
@@ -290,11 +381,6 @@ pub struct MethodCall {
     pub method: String,
     pub caller: Subject,
     pub params: Value,
-    /// The applications whose resident backends are waiting on this call, outermost first: the
-    /// [`CallAs::chain`] of the `host.call` it was routed from, or none. A call whose chain holds
-    /// its own application is one its backend is already waiting on, and is refused.
-    #[serde(default)]
-    pub chain: Vec<String>,
 }
 
 /// A value on a topic the application subscribed to.
@@ -374,40 +460,48 @@ pub enum HookReply {
     Failed(String),
 }
 
-/// What the product asks of the host.
+/// What the product asks of the host. Every call carries its [`CallMeta`]; the host serves it as
+/// the parent of every call it makes on its behalf.
 #[async_trait]
 pub trait Control: Send + Sync {
     /// Put an unpacked package's agent package and skills in place ([`Place`]).
-    async fn place(&self, place: Place) -> Result<Placement, RpcError>;
+    async fn place(&self, meta: CallMeta, place: Place) -> Result<Placement, RpcError>;
     /// Take back what [`Control::place`] put in place; answers what was taken.
-    async fn unplace(&self, unplace: Unplace) -> Result<Value, RpcError>;
+    async fn unplace(&self, meta: CallMeta, unplace: Unplace) -> Result<Value, RpcError>;
 
-    /// Start an installed application: its signatures verified over its files as they are now,
-    /// its agent package and skills switched on, its names registered ([`Kernel::register`]),
-    /// its VM started, its tools listed and offered. A step that fails undoes the ones before it,
-    /// and the reason is kept for [`Control::status`].
-    async fn start(&self, start: Start) -> Result<Started, RpcError>;
+    /// Start an installed application: its component checked to be the one the product verified,
+    /// its agent package and skills switched on, its names registered ([`Kernel::register`]), its
+    /// VM started, its tools listed and offered. A step that fails undoes the ones before it, and
+    /// the reason is kept for [`Control::status`].
+    async fn start(&self, meta: CallMeta, start: Start) -> Result<Started, RpcError>;
     /// Stop it: its tools withdrawn, its names withdrawn, its VM stopped, its agent package and
     /// skills switched off. A call already running holds its own instance.
-    async fn stop(&self, stop: Stop) -> Result<(), RpcError>;
+    async fn stop(&self, meta: CallMeta, stop: Stop) -> Result<(), RpcError>;
     /// Forget why an application that is not running did not start.
-    async fn forget(&self, app: String) -> Result<(), RpcError>;
+    async fn forget(&self, meta: CallMeta, app: String) -> Result<(), RpcError>;
     /// What is running of it, or why it is not: `{state, reason, world, methods, …, health}`.
-    async fn status(&self, app: String) -> Result<Value, RpcError>;
+    async fn status(&self, meta: CallMeta, app: String) -> Result<Value, RpcError>;
 
     /// Answer one of its methods with its backend: params checked against the declared schema,
-    /// then queued for `handle`. Refused at once when [`MethodCall::chain`] holds the
-    /// application: its backend is waiting on this very call.
-    async fn call_method(&self, call: MethodCall) -> Result<Value, RpcError>;
+    /// then queued for `handle`. Refused at once when `meta`'s chain holds the application on a
+    /// call its backend is still serving: that backend is waiting on this very call. Refused
+    /// before the backend is asked when `meta`'s deadline has passed.
+    async fn call_method(&self, meta: CallMeta, call: MethodCall) -> Result<Value, RpcError>;
     /// Hand its backend a value on a topic it subscribed to, in the order they come.
-    async fn deliver(&self, value: TopicValue) -> Result<(), RpcError>;
+    async fn deliver(&self, meta: CallMeta, value: TopicValue) -> Result<(), RpcError>;
     /// Run one of its tools in an instance of its own.
-    async fn call_tool(&self, call: ToolCall) -> Result<ToolReply, RpcError>;
+    async fn call_tool(&self, meta: CallMeta, call: ToolCall) -> Result<ToolReply, RpcError>;
     /// Offer its `events` hook a lifecycle event.
-    async fn hook(&self, call: HookCall) -> Result<HookReply, RpcError>;
+    async fn hook(&self, meta: CallMeta, call: HookCall) -> Result<HookReply, RpcError>;
     /// Cancel a tool call or hook still running, by its id. Nothing happens to one that ended.
-    async fn cancel(&self, call_id: String) -> Result<(), RpcError>;
+    async fn cancel(&self, meta: CallMeta, call_id: String) -> Result<(), RpcError>;
 
     /// The process is going: stop every application.
-    async fn shutdown(&self, reason: String) -> Result<(), RpcError>;
+    async fn shutdown(&self, meta: CallMeta, reason: String) -> Result<(), RpcError>;
+
+    /// A turn started on an engine of the host's own, on behalf of these calls: its tools carry
+    /// the chain. A notification.
+    fn turn_started(&self, turn: TurnChain);
+    /// That turn settled. A notification.
+    fn turn_settled(&self, turn: TurnRef);
 }

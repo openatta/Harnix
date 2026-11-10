@@ -43,7 +43,7 @@ use harnix_package::acquire::{self, internal, refused, Admission};
 use harnix_package::manifest::{Interface, Manifest, Surface, Title, UiEntry};
 use harnix_package::package;
 use harnix_package::signature::{Keys, Trust};
-use harnix_wasm_port::{Control, Offer, Place, Start, Stop, ToolDef, Unplace};
+use harnix_wasm_port::{CallMeta, Control, Offer, Place, Start, Stop, ToolDef, Unplace};
 use harnix_builtin::apps::{AppsRuntime, Disclosed, InstallRecord, PackageInfo, UpdateFailed};
 use harnix_contract::sync::{lock, read, write};
 use harnix_contract::RpcError;
@@ -213,6 +213,9 @@ pub struct Runtime {
     platform: Arc<KernelPlatform>,
     registry: Arc<Registry>,
     pub(crate) admission: Admission,
+    /// `[apps.config]` and `[apps.secrets]`, by application id: what each one's start carries.
+    config: BTreeMap<String, toml::Value>,
+    secrets: BTreeMap<String, BTreeMap<String, String>>,
     store: Option<String>,
     fingerprint: String,
     on_change: Mutex<Option<OnChange>>,
@@ -232,12 +235,7 @@ impl Runtime {
             dev: options.dev,
         };
         let host = Host::new(
-            HostOptions {
-                admission: admission.clone(),
-                config: options.config,
-                secrets: options.secrets,
-                idle: options.idle,
-            },
+            HostOptions { idle: options.idle },
             platform.clone(),
             platform.clone(),
         )?;
@@ -251,6 +249,8 @@ impl Runtime {
             platform,
             registry,
             admission,
+            config: options.config,
+            secrets: options.secrets,
             store: options.store,
             on_change: Mutex::new(None),
             changes: AtomicU64::new(0),
@@ -343,7 +343,7 @@ impl Runtime {
     pub async fn status_of(&self, id: &str) -> Value {
         let mut status = self
             .control
-            .status(id.to_string())
+            .status(CallMeta::default(), id.to_string())
             .await
             .unwrap_or_else(|e| json!({"state": "failed", "reason": e.message}));
         if let (Some(app), Some(map)) = (self.registry.get(id), status.as_object_mut()) {
@@ -387,10 +387,11 @@ impl Runtime {
         let id = manifest.app.id.clone();
         let placement = self
             .control
-            .place(Place {
+            .place(CallMeta::default(), Place {
                 app: id.clone(),
                 app_dir: app_dir.to_path_buf(),
                 version: manifest.app.version.clone(),
+                instances: None,
             })
             .await?;
         let mut placed = placement.parts;
@@ -411,7 +412,7 @@ impl Runtime {
     /// Take back what a placement put elsewhere.
     pub(crate) async fn unplace(&self, id: &str, parts: &Value) -> Value {
         self.control
-            .unplace(Unplace {
+            .unplace(CallMeta::default(), Unplace {
                 app: id.to_string(),
                 parts: parts.clone(),
             })
@@ -587,7 +588,7 @@ impl AppsRuntime for Runtime {
                     self.unplace(&id, parts).await;
                 }
                 let _ = std::fs::remove_dir_all(app_dir);
-                let _ = self.control.forget(id).await;
+                let _ = self.control.forget(CallMeta::default(), id).await;
                 Err(e)
             }
         }
@@ -608,23 +609,26 @@ impl AppsRuntime for Runtime {
             }
             self.unload(cx, record).await;
         }
-        let started = self
-            .control
-            .start(Start {
-                app: id.clone(),
-                version: record.version.clone(),
-                app_dir: app_dir.to_path_buf(),
-                parts: record.parts.clone(),
-            })
-            .await?;
         let root = app_dir.join(&record.version);
-        let manifest = match acquire::manifest_in(&root) {
-            Ok(manifest) => manifest,
-            Err(e) => {
-                self.unload(cx, record).await;
-                return Err(e);
-            }
+        let manifest = acquire::manifest_in(&root)?;
+        // Every start, over the files as they are now: what is on disk may not be what was
+        // installed. The host checks the component it loads against what this verified.
+        let verified = self.admission.admit_root(&root, &manifest)?;
+        let cwasm_sha256 = manifest.component.as_ref().and_then(|c| {
+            verified.files.get(&format!("wasm/{}.{}.cwasm", c.name, self.fingerprint)).cloned()
+        });
+        let start = Start {
+            app: id.clone(),
+            version: record.version.clone(),
+            trust: verified.trust.as_str().to_string(),
+            cwasm_sha256,
+            config: harnix_package::manifest::overrides_for(&self.config, id).unwrap_or(Value::Null),
+            secrets: self.secrets.get(id).cloned().unwrap_or_default(),
+            parts: record.parts.clone(),
+            pkg: Some(root.clone()),
+            run: Some(app_dir.to_path_buf()),
         };
+        let started = self.control.start(CallMeta::default(), start).await?;
         let offer = self.registry.offered(id);
         let loaded = Arc::new(Loaded {
             id: id.clone(),
@@ -669,7 +673,7 @@ impl AppsRuntime for Runtime {
             app: record.id.clone(),
             parts: record.parts.clone(),
         };
-        if let Err(e) = self.control.stop(stop).await {
+        if let Err(e) = self.control.stop(CallMeta::default(), stop).await {
             tracing::warn!(app = %record.id, error = %e.message, "the application did not stop cleanly");
         }
     }
@@ -692,7 +696,7 @@ impl AppsRuntime for Runtime {
         for app in self.registry.loaded() {
             self.registry.remove(&app.id);
         }
-        let _ = self.control.shutdown("the process is stopping".into()).await;
+        let _ = self.control.shutdown(CallMeta::default(), "the process is stopping".into()).await;
     }
 
     fn disclose(

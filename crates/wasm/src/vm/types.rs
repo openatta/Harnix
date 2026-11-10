@@ -62,10 +62,13 @@ pub enum CallFailure {
     Cancelled,
     /// The component trapped, ran out of memory, or could not be run.
     Faulted(String),
-    /// The call was not made: the application is stopped or disabled, its
-    /// component does not export what was asked for, or the call would have
-    /// deadlocked. Never counted against the application.
+    /// The call was not made: the application is stopped or disabled, or its
+    /// component does not export what was asked for. Never counted against
+    /// the application.
     Unavailable(String),
+    /// The call was not made: it came back into a backend that is waiting on
+    /// it, and would have deadlocked. Never counted against the application.
+    Reentrant(String),
 }
 
 impl std::fmt::Display for CallFailure {
@@ -74,7 +77,7 @@ impl std::fmt::Display for CallFailure {
             Self::TimedOut => write!(f, "the application's call exceeded its timeout"),
             Self::Cancelled => write!(f, "the application's call was cancelled"),
             Self::Faulted(e) => write!(f, "the application failed: {e}"),
-            Self::Unavailable(e) => write!(f, "the application cannot take this call: {e}"),
+            Self::Unavailable(e) | Self::Reentrant(e) => write!(f, "the application cannot take this call: {e}"),
         }
     }
 }

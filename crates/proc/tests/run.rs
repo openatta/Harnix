@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use harnix_proc::{run, Options};
 use harnix_wasm_port::rpc::ControlClient;
 use harnix_wasm_port::socket::{Answer, Inbound, Options as WireOptions, SocketWire};
-use harnix_wasm_port::{codes, Control, RpcError, EXT_WIRE_VERSION};
+use harnix_wasm_port::{codes, CallMeta, Control, RpcError, EXT_WIRE_VERSION};
 use serde_json::{json, Value};
 use tokio::net::UnixStream;
 
@@ -44,7 +44,8 @@ fn pair(refuse: bool) -> (Arc<Product>, Arc<SocketWire>, UnixStream) {
 fn options() -> Options {
     Options {
         ext: "example.showcase".into(),
-        admission: Default::default(),
+        pkg: None,
+        run: None,
     }
 }
 
@@ -69,9 +70,9 @@ async fn it_says_hello_answers_the_product_and_goes_when_asked() {
     assert_eq!(hello["pid"], json!(std::process::id()));
 
     let control = ControlClient(wire.clone());
-    assert_eq!(control.status("example.showcase".into()).await.unwrap(), json!({"state": "stopped"}));
+    assert_eq!(control.status(CallMeta::default(), "example.showcase".into()).await.unwrap(), json!({"state": "stopped"}));
     // The answer to `ctl.shutdown` is written before the process lets go of the wire.
-    control.shutdown("the product is going".into()).await.unwrap();
+    control.shutdown(CallMeta::default(), "the product is going".into()).await.unwrap();
     tokio::time::timeout(Duration::from_secs(5), running).await.unwrap().unwrap().unwrap();
     assert!(tokio::time::timeout(Duration::from_secs(5), wire.closed()).await.is_ok());
 }

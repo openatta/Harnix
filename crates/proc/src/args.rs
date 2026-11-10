@@ -28,7 +28,8 @@ pub struct Args {
     pub wire_fd: RawFd,
     /// The wire its own engine is served on, when it has one.
     pub engine_fd: Option<RawFd>,
-    /// Unsigned code runs: the profile's `dev`, until a start carries how far a package is trusted.
+    /// No longer read: how far a package is trusted comes with its start. Taken until the flag
+    /// goes.
     pub dev: bool,
     /// Probe the sandbox instead of serving: what to try (feature `probe`).
     pub probe: Option<String>,

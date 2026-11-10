@@ -37,12 +37,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context};
-use harnix_package::acquire::Admission;
 use harnix_wasm_host::{Host, HostOptions};
 use harnix_wasm_port::rpc::{KernelClient, Wire};
-use harnix_wasm_port::socket::{now_ms, CallMeta, CancellationToken, Options as WireOptions, SocketWire};
+use harnix_wasm_port::socket::{now_ms, CallMeta, CancellationToken, Hello, Options as WireOptions, SocketWire, HELLO};
 use harnix_wasm_port::{Control, Kernel, EXT_WIRE_VERSION};
-use serde_json::json;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub use args::Args;
@@ -65,10 +63,12 @@ pub const HELLO_WITHIN: Duration = Duration::from_secs(30);
 /// before closing it itself: the answer is written first either way.
 const SHUTDOWN_LINGER: Duration = Duration::from_secs(1);
 
-/// What a process is set up with: who it is and how far it trusts a package.
+/// What a process is set up with: who it is, and where its package and run directory are — its
+/// own, from its command line, whatever a start says.
 pub struct Options {
     pub ext: String,
-    pub admission: Admission,
+    pub pkg: Option<std::path::PathBuf>,
+    pub run: Option<std::path::PathBuf>,
 }
 
 /// The `ext-proc` subcommand: what the product registers with `AppBuilder::child_entry`.
@@ -102,10 +102,8 @@ pub fn entry(args: Vec<OsString>) -> anyhow::Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     let options = Options {
         ext: args.ext,
-        admission: Admission {
-            dev: args.dev,
-            ..Admission::default()
-        },
+        pkg: args.pkg,
+        run: args.run,
     };
     let ran = runtime.block_on(async move {
         let stream = tokio::net::UnixStream::from_std(stream)?;
@@ -126,14 +124,10 @@ pub async fn run<S>(options: Options, stream: S, until: impl Future<Output = ()>
 where
     S: AsyncRead + AsyncWrite + Send + 'static,
 {
-    let answering = Arc::new(Answering::default());
+    let answering = Arc::new(Answering::new(options.pkg.clone(), options.run.clone()));
     let wire = SocketWire::client(stream, answering.clone(), WireOptions::default());
     let kernel: Arc<dyn Kernel> = Arc::new(KernelClient(wire.clone() as Arc<dyn Wire>));
-    let host_options = HostOptions {
-        admission: options.admission,
-        ..HostOptions::default()
-    };
-    let host = match Host::new(host_options, kernel, Arc::new(NoEngine)) {
+    let host = match Host::new(HostOptions::default(), kernel, Arc::new(NoEngine)) {
         Ok(host) => host,
         Err(e) => {
             wire.close("the extension process could not be set up").await;
@@ -142,20 +136,19 @@ where
     };
     answering.answer_with(host.clone());
 
-    let hello = json!({
-        "wire": EXT_WIRE_VERSION,
-        "ext": options.ext,
-        "version": HARNIX_VERSION,
+    let hello = Hello {
+        wire: EXT_WIRE_VERSION,
+        ext: options.ext.clone(),
+        version: HARNIX_VERSION.to_string(),
         // This process serves no engine of its own yet, so it links no Agix it could name.
-        "agix_version": null,
-        "harnix_api": harnix_package::manifest::HARNIX_API,
-        "pid": std::process::id(),
-    });
-    let meta = CallMeta {
-        deadline_ms: Some(now_ms() + HELLO_WITHIN.as_millis() as u64),
-        ..CallMeta::default()
+        agix_version: None,
+        engine: host.engine().fingerprint().to_string(),
+        harnix_api: harnix_package::manifest::HARNIX_API,
+        pid: std::process::id(),
     };
-    if let Err(e) = wire.call("proc.hello", hello, meta, &CancellationToken::new()).await {
+    let hello = serde_json::to_value(&hello)?;
+    let meta = CallMeta::default().deadline_ms(now_ms() + HELLO_WITHIN.as_millis() as u64);
+    if let Err(e) = wire.call(HELLO, hello, meta, &CancellationToken::new()).await {
         wire.close("the product refused it").await;
         return Err(anyhow!("the product refused this extension process: {}", e.message));
     }
@@ -176,7 +169,7 @@ where
     };
     tracing::debug!(ext = %options.ext, %why, "the extension process is going");
     if !shut_down {
-        let _ = host.shutdown(why.clone()).await;
+        let _ = host.shutdown(CallMeta::default(), why.clone()).await;
     }
     wire.close(&why).await;
     Ok(())

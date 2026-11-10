@@ -8,7 +8,6 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use async_trait::async_trait;
 use harnix_wasm_host::{Host, HostOptions};
-use harnix_package::acquire::Admission;
 use harnix_wasm_port::rpc::Loopback;
 use harnix_wasm_port::*;
 use harnix_contract::sync::lock;
@@ -56,6 +55,10 @@ pub struct FakePlatform {
     /// its own instead, called from another task: a product that routes it back into the
     /// application over a link, where nothing of the calling task comes along.
     pub reroute: OnceLock<String>,
+    /// The metadata of every call the application made as itself, in order.
+    pub metas: Mutex<Vec<CallMeta>>,
+    /// What a call routed back into the application answered when it failed, and how long it took.
+    pub routed_errors: Mutex<Vec<(RpcError, std::time::Duration)>>,
 }
 
 impl FakePlatform {
@@ -85,55 +88,72 @@ impl FakePlatform {
 
     /// One of the application's methods, called as a device would.
     pub async fn device_call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
+        self.device_call_as(CallMeta::new(next_id()), method, params).await
+    }
+
+    /// The same, with the call's metadata as given.
+    pub async fn device_call_as(&self, meta: CallMeta, method: &str, params: Value) -> Result<Value, RpcError> {
         self.control
             .get()
             .unwrap()
-            .call_method(MethodCall {
-                app: ID.into(),
-                method: method.into(),
-                caller: Subject::Device { id: "d1".into() },
-                params,
-                chain: Vec::new(),
-            })
+            .call_method(
+                meta,
+                MethodCall {
+                    app: ID.into(),
+                    method: method.into(),
+                    caller: Subject::Device { id: "d1".into() },
+                    params,
+                },
+            )
             .await
     }
 }
 
+/// A call id of this product's own: never the same twice.
+pub fn next_id() -> String {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    format!("p{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+}
+
+/// A call the product routes on, made while handling `meta`: a new id of its own, and the chain
+/// the call came with — the extensions it holds, each on the call it holds them on.
+pub fn routed(meta: &CallMeta) -> CallMeta {
+    CallMeta::new(next_id()).chain(meta.links().iter().cloned())
+}
+
 #[async_trait]
 impl Kernel for FakePlatform {
-    async fn register(&self, r: Registration) -> Result<(), RpcError> {
+    async fn register(&self, _: CallMeta, r: Registration) -> Result<(), RpcError> {
         self.say(format!("register {}", r.app));
         lock(&self.registered).push(r);
         Ok(())
     }
-    async fn withdraw(&self, app: String) -> Result<(), RpcError> {
+    async fn withdraw(&self, _: CallMeta, app: String) -> Result<(), RpcError> {
         self.say(format!("withdraw {app}"));
         lock(&self.registered).retain(|r| r.app != app);
         Ok(())
     }
-    async fn call(&self, c: CallAs) -> Result<Value, RpcError> {
-        if let Some(own) = c.method.strip_prefix(&format!("app.{}.", c.app)) {
+    async fn call(&self, meta: CallMeta, c: CallAs) -> Result<Value, RpcError> {
+        lock(&self.metas).push(meta.clone());
+        let caller = Subject::extension(harnix_contract::ExtId::package(&c.app).unwrap());
+        let began = std::time::Instant::now();
+        let routed_back = if let Some(own) = c.method.strip_prefix(&format!("app.{}.", c.app)) {
             let control = self.control.get().unwrap().clone();
-            return control
-                .call_method(MethodCall {
-                    app: c.app.clone(),
-                    method: own.into(),
-                    caller: Subject::extension(harnix_contract::ExtId::package(&c.app).unwrap()),
-                    params: c.params,
-                    chain: c.chain,
-                })
-                .await;
-        }
-        if let Some(own) = self.reroute.get() {
+            let call = MethodCall { app: c.app.clone(), method: own.into(), caller, params: c.params };
+            Some(control.call_method(routed(&meta), call).await)
+        } else if let Some(own) = self.reroute.get() {
             let control = self.control.get().unwrap().clone();
-            let call = MethodCall {
-                app: c.app.clone(),
-                method: own.clone(),
-                caller: Subject::extension(harnix_contract::ExtId::package(&c.app).unwrap()),
-                params: json!({}),
-                chain: c.chain,
-            };
-            return tokio::spawn(async move { control.call_method(call).await }).await.unwrap();
+            let call = MethodCall { app: c.app.clone(), method: own.clone(), caller, params: json!({}) };
+            let meta = routed(&meta);
+            Some(tokio::spawn(async move { control.call_method(meta, call).await }).await.unwrap())
+        } else {
+            None
+        };
+        if let Some(outcome) = routed_back {
+            if let Err(e) = &outcome {
+                lock(&self.routed_errors).push((e.clone(), began.elapsed()));
+            }
+            return outcome;
         }
         if !self.calls_of(&c.app).contains(&c.method) {
             return Err(RpcError::refused(format!("`module:{}` may not call `{}`", c.app, c.method)));
@@ -141,24 +161,29 @@ impl Kernel for FakePlatform {
         self.say(format!("call {}", c.method));
         Ok(json!({"session_id": "s-from-the-backend"}))
     }
-    async fn publish(&self, p: Publish) -> Result<(), RpcError> {
+    async fn publish(&self, _: CallMeta, p: Publish) -> Result<(), RpcError> {
         lock(&self.published).push((p.topic, p.value));
         Ok(())
     }
-    async fn subscribe(&self, s: Subscription) -> Result<Value, RpcError> {
+    async fn subscribe(&self, _: CallMeta, s: Subscription) -> Result<Value, RpcError> {
         if !self.calls_of(&s.app).contains(&format!("topic:{}", s.topic)) {
             return Err(RpcError::refused("not in its `calls`"));
         }
         self.say(format!("subscribe {}", s.topic));
         Ok(json!({"topic": s.topic, "value": {"sessions": [{"session_id": "a"}]}}))
     }
-    async fn unsubscribe(&self, s: Subscription) -> Result<(), RpcError> {
+    async fn unsubscribe(&self, _: CallMeta, s: Subscription) -> Result<(), RpcError> {
         self.say(format!("unsubscribe {}", s.topic));
         Ok(())
     }
-    async fn progress(&self, p: Progress) -> Result<(), RpcError> {
+    async fn fetch(&self, _: CallMeta, f: Fetch) -> Result<Fetched, RpcError> {
+        Err(RpcError::refused(format!("this product makes no request for `{}`", f.url)))
+    }
+    async fn turn_chain(&self, _: CallMeta, t: TurnRef) -> Result<TurnChain, RpcError> {
+        Ok(TurnChain { instance: t.instance, session_id: t.session_id, chain: Vec::new() })
+    }
+    fn progress(&self, p: Progress) {
         lock(&self.progress).push(p.text);
-        Ok(())
     }
 }
 
@@ -208,19 +233,18 @@ pub struct Rig {
     pub host: Arc<Host>,
     /// The host, as the product reaches it: across the loopback.
     pub control: Arc<dyn Control>,
+    /// What every start says of the application besides its record: its settings and secrets.
+    pub config: Mutex<Value>,
+    pub secrets: Mutex<std::collections::BTreeMap<String, String>>,
+    /// The sha256 of the component the last `unpack` packed: what the product verified.
+    pub cwasm_sha256: Mutex<Option<String>>,
 }
 
 impl Rig {
     pub fn new(options: impl FnOnce(&mut HostOptions)) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let platform = Arc::new(FakePlatform::default());
-        let mut host_options = HostOptions {
-            admission: Admission {
-                dev: true,
-                ..Admission::default()
-            },
-            ..HostOptions::default()
-        };
+        let mut host_options = HostOptions::default();
         options(&mut host_options);
         let host = Host::new(host_options, Loopback::kernel(platform.clone()), Loopback::agent(platform.clone())).unwrap();
         let control: Arc<dyn Control> = Loopback::control(host.clone());
@@ -230,6 +254,31 @@ impl Rig {
             platform,
             host,
             control,
+            config: Mutex::new(Value::Null),
+            secrets: Mutex::default(),
+            cwasm_sha256: Mutex::default(),
+        }
+    }
+
+    /// A rig whose starts give the application `config`.
+    pub fn configured(config: Value) -> Self {
+        let rig = Self::new(|_| {});
+        *lock(&rig.config) = config;
+        rig
+    }
+
+    /// What the product starts `version` with: its record, and what it verified of it.
+    pub fn start_of(&self, version: &str, parts: Value) -> Start {
+        Start {
+            app: ID.into(),
+            version: version.into(),
+            trust: "store".into(),
+            cwasm_sha256: lock(&self.cwasm_sha256).clone(),
+            config: lock(&self.config).clone(),
+            secrets: lock(&self.secrets).clone(),
+            parts,
+            pkg: Some(self.app_dir().join(version)),
+            run: Some(self.app_dir()),
         }
     }
 
@@ -249,6 +298,7 @@ impl Rig {
         std::fs::write(app.join("harnix-ext.toml"), &manifest).unwrap();
         let wasm = showcase_wasm();
         let cwasm = self.host.engine().compile(&wasm).unwrap();
+        *lock(&self.cwasm_sha256) = Some(harnix_package::signature::sha256(&cwasm));
         let out = self.dir.path().join("showcase.hxext");
         let artifact = harnix_package::package::Artifact {
             fingerprint: self.host.engine().fingerprint(),
@@ -267,27 +317,24 @@ impl Rig {
         let version = self.unpack(edit);
         let placement = self
             .control
-            .place(Place {
-                app: ID.into(),
-                app_dir: self.app_dir(),
-                version: version.clone(),
-            })
+            .place(
+                CallMeta::default(),
+                Place {
+                    app: ID.into(),
+                    app_dir: self.app_dir(),
+                    version: version.clone(),
+                    instances: None,
+                },
+            )
             .await
             .unwrap();
-        self.control
-            .start(Start {
-                app: ID.into(),
-                version,
-                app_dir: self.app_dir(),
-                parts: placement.parts.clone(),
-            })
-            .await
-            .unwrap();
+        let start = self.start_of(&version, placement.parts.clone());
+        self.control.start(CallMeta::new(next_id()), start).await.unwrap();
         placement.parts
     }
 
     pub async fn status(&self) -> Value {
-        self.control.status(ID.into()).await.unwrap()
+        self.control.status(CallMeta::default(), ID.into()).await.unwrap()
     }
 }
 

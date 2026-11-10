@@ -30,7 +30,7 @@ use axum::Extension;
 use axum::http::{header, HeaderMap, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::Router;
-use harnix_wasm_port::{Failure, ToolCall, ToolReply};
+use harnix_wasm_port::{CallMeta, Failure, ToolCall, ToolReply};
 use serde_json::{json, Value};
 
 use crate::runtime::{Loaded, Registry};
@@ -263,7 +263,7 @@ async fn call(registry: &Registry, app: &Loaded, params: &Value) -> Result<Value
         progress: false,
     };
     // A client that goes away drops this future, and the call's instance with it.
-    match control.call_tool(call).await {
+    match control.call_tool(CallMeta::default(), call).await {
         Ok(ToolReply::Output {
             content,
             structured,

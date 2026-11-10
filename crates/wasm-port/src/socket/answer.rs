@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use super::{Answer, Inbound, CTL, PROC};
-use crate::rpc::{serve_control, serve_kernel};
+use crate::rpc::{serve_control, serve_kernel, told_control, told_kernel};
 use crate::{Control, Kernel, RpcError};
 
 fn unknown(method: &str) -> RpcError {
@@ -17,21 +17,22 @@ fn unknown(method: &str) -> RpcError {
 /// Answers `proc.*` with a [`Kernel`]: the product's end.
 pub struct KernelAnswer(pub Arc<dyn Kernel>);
 
+/// A call's metadata is the wire's to work out (from the parent this end sent), never the
+/// process's, and the kernel is handed it as the wire made it.
 #[async_trait]
 impl Answer for KernelAnswer {
-    async fn call(&self, call: Inbound, mut args: Value) -> Result<Value, RpcError> {
+    async fn call(&self, call: Inbound, args: Value) -> Result<Value, RpcError> {
         let Some(name) = call.method.strip_prefix(PROC) else {
             return Err(unknown(&call.method));
         };
-        // Who waits on a `host.call` is what this end worked out from the call's parent; the chain
-        // the process wrote into the value would let it make another extension refuse a call.
-        if name == "call" {
-            if let Some(args) = args.as_object_mut() {
-                let chain: Vec<&str> = call.meta.chain.iter().map(|link| link.ext.as_str()).collect();
-                args.insert("chain".into(), chain.into());
-            }
+        serve_kernel(self.0.as_ref(), name, call.meta, args).await
+    }
+
+    fn notify(&self, method: &str, params: Value) {
+        if let Some(name) = method.strip_prefix(PROC) {
+            // Nobody to tell that a notification was not one of the port's.
+            let _ = told_kernel(self.0.as_ref(), name, params);
         }
-        serve_kernel(self.0.as_ref(), name, args).await
     }
 }
 
@@ -50,7 +51,8 @@ impl Answer for ControlAnswer {
             "call_tool" | "hook" => args.get("call_id").and_then(Value::as_str).map(str::to_owned),
             _ => None,
         };
-        let answer = serve_control(self.0.as_ref(), name, args);
+        let meta = call.meta.clone();
+        let answer = serve_control(self.0.as_ref(), name, call.meta, args);
         let Some(own) = own else {
             return answer.await;
         };
@@ -58,9 +60,16 @@ impl Answer for ControlAnswer {
         tokio::select! {
             answered = &mut answer => answered,
             _ = call.cancel.cancelled() => {
-                let _ = self.0.cancel(own).await;
+                let _ = self.0.cancel(meta, own).await;
                 answer.await
             }
+        }
+    }
+
+    fn notify(&self, method: &str, params: Value) {
+        if let Some(name) = method.strip_prefix(CTL) {
+            // Nobody to tell that a notification was not one of the port's.
+            let _ = told_control(self.0.as_ref(), name, params);
         }
     }
 }

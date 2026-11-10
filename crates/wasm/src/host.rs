@@ -162,7 +162,7 @@ impl Host for AppState {
             .shared
             .services
             .host
-            .call(&self.shared.app, &method, params)
+            .call_within(&self.shared.app, self.serving.as_deref(), &method, params)
             .await?;
         Ok(result.to_string())
     }
