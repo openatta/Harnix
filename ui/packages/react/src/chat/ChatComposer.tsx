@@ -65,7 +65,7 @@ function currentTrigger(value: string, caret: number): Trigger | null {
 }
 
 /**
- * 上下文环的配置（ChatFeatures.contextRing 的对象形式）。环的值取会话的 `context`（turn_complete 与 session.get
+ * 上下文环的配置（ChatFeatures.contextRing 的对象形式）。环的值取会话的 `context`（turn_complete 与 engine.session.get
  * 带的，引擎按厂商计数）；会话还没有调过模型时才用这里的 `ratio`。
  */
 export interface ContextRingConfig {
@@ -88,7 +88,7 @@ export interface Attached {
   label: string;
   /** 图片的预览（data: URL；CSP 不放 blob:） */
   preview?: string;
-  /** 随 harnix.send 发出的那一项 */
+  /** 随 harnix.session.send 发出的那一项 */
   attachment: unknown;
 }
 

@@ -30,7 +30,7 @@ async function until(page: Page, run: string, pass: (record: any) => boolean): P
   await expect
     .poll(
       async () => {
-        record = (await page.evaluate(async (r) => (window as any).harnix.app.call("app.flow.get", { run: r }), run)).record;
+        record = (await page.evaluate(async (r) => (window as any).harnix.app.call("flow.get", { run: r }), run)).record;
         return pass(record);
       },
       { timeout: 60_000 },
@@ -56,7 +56,7 @@ test("a proposal is a card in its session: accepted once, it reworks the run and
   test.setTimeout(150_000);
   const errors = watchConsole(page);
   await open(page, backend.url);
-  const run = await page.evaluate(async () => (await (window as any).harnix.app.call("app.flow.start", { flow: "demo-propose", subject: "the page" })).run as string);
+  const run = await page.evaluate(async () => (await (window as any).harnix.app.call("flow.start", { flow: "demo-propose", subject: "the page" })).run as string);
   const first = await until(page, run, (r) => r.stations.approve?.status === "working");
   const firstSession = first.stations.propose.tasks[0].session as string;
 
@@ -68,7 +68,7 @@ test("a proposal is a card in its session: accepted once, it reworks the run and
   await expect(card.getByTestId("flow-proposal-accepted")).toBeVisible();
   // Once: the run went back to `propose` a single time.
   const second = await until(page, run, (r) => r.stations.propose.round === 2 && r.stations.approve?.status === "working");
-  const history = await page.evaluate(async (r) => (window as any).harnix.app.call("app.flow.history", { run: r }), run);
+  const history = await page.evaluate(async (r) => (window as any).harnix.app.call("flow.history", { run: r }), run);
   expect(history.filter((h: any) => h.op === "rework")).toHaveLength(1);
 
   // Opened again, the session says the proposal was taken up, and by whom.
@@ -85,16 +85,16 @@ test("a proposal is a card in its session: accepted once, it reworks the run and
   await expect(again).toBeVisible({ timeout: 15_000 });
   await again.getByTestId("flow-proposal-dismiss").click();
   await expect(page.getByTestId("flow-proposal")).toHaveCount(0);
-  const after = await page.evaluate(async (r) => (window as any).harnix.app.call("app.flow.history", { run: r }), run);
+  const after = await page.evaluate(async (r) => (window as any).harnix.app.call("flow.history", { run: r }), run);
   expect(after.filter((h: any) => h.op === "rework")).toHaveLength(1);
-  await page.evaluate((r) => (window as any).harnix.app.call("app.flow.cancel", { run: r, reason: "done" }), run);
+  await page.evaluate((r) => (window as any).harnix.app.call("flow.cancel", { run: r, reason: "done" }), run);
   expect(errors).toEqual([]);
 });
 
 test("a task held on a person's answer says what it asked and why, until it is answered", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, backend.url);
-  const run = await page.evaluate(async () => (await (window as any).harnix.app.call("app.flow.start", { flow: "demo-asked", subject: "repo" })).run as string);
+  const run = await page.evaluate(async () => (await (window as any).harnix.app.call("flow.start", { flow: "demo-asked", subject: "repo" })).run as string);
   const held = await until(page, run, (r) => !!r.stations.edit?.tasks?.[0]?.asking);
   const task = held.stations.edit.tasks[0];
 
@@ -109,12 +109,12 @@ test("a task held on a person's answer says what it asked and why, until it is a
   const [, session_id] = String(held.session_keys["@main"]).split("/");
   await page.evaluate(async (sid) => {
     const { app } = (window as any).harnix;
-    const attached = await app.call("harnix.attach", { session_id: sid });
+    const attached = await app.call("harnix.session.attach", { session_id: sid });
     const ask = attached.pending_prompts.find((p: any) => p.tool_name === "TodoWrite");
-    await app.call("session.respondToPrompt", { session_id: sid, prompt_id: ask.prompt_id, decision: { type: "permit" } });
+    await app.call("harnix.session.respond", { session_id: sid, prompt_id: ask.prompt_id, decision: { type: "permit" } });
   }, session_id);
   await expect(asking).toHaveCount(0, { timeout: 30_000 });
-  await page.evaluate((r) => (window as any).harnix.app.call("app.flow.cancel", { run: r, reason: "done" }), run).catch(() => undefined);
+  await page.evaluate((r) => (window as any).harnix.app.call("flow.cancel", { run: r, reason: "done" }), run).catch(() => undefined);
   expect(errors).toEqual([]);
 });
 
@@ -124,13 +124,13 @@ test("the reference tab says whether command gates run here", TAGS, async ({ pag
   await flowReference(page);
   // The test application turns them on.
   await expect(page.getByTestId("flow-catalog-command-gates")).toBeVisible();
-  const on = await page.evaluate(async () => (await (window as any).harnix.app.call("app.flow.catalog", {})).command_gates);
+  const on = await page.evaluate(async () => (await (window as any).harnix.app.call("flow.catalog", {})).command_gates);
   expect(on).toBe(true);
 });
 
 test("a station's session is Harnix's own: in the system space's all tab it is marked so", TAGS, async ({ page }) => {
   await open(page, backend.url);
-  const run = await page.evaluate(async () => (await (window as any).harnix.app.call("app.flow.start", { flow: "demo-propose", subject: "marked" })).run as string);
+  const run = await page.evaluate(async () => (await (window as any).harnix.app.call("flow.start", { flow: "demo-propose", subject: "marked" })).run as string);
   const record = await until(page, run, (r) => Boolean(r.stations.propose?.tasks?.[0]?.session));
   const [instance, sid] = (record.stations.propose.tasks[0].session as string).split("/");
   await page.locator('#side [data-space="system"]').click();

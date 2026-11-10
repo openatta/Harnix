@@ -314,7 +314,7 @@ async fn what_is_not_what_was_signed_is_refused_before_it_is_unpacked() {
         err.message
     );
     assert!(!rig.apps().join(ID).exists());
-    assert_eq!(rig.kernel.called("plugin.install"), 0);
+    assert_eq!(rig.kernel.called("engine.plugin.install"), 0);
 
     // Signed by its publisher only, whom this process does not trust: not installed.
     let publisher_only = rig.package("publisher-only", false, |m| m);

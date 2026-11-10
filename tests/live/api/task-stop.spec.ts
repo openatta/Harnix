@@ -1,7 +1,7 @@
 /**
  * A task that outlives its turn (concept §3): a Monitor printing a line every quarter second for ten
  * seconds (`streams-output`), started by a turn that ends at once. The session's row counts it as
- * running while no turn is, `harnix.system.tasks.stop` stops it, and both topics say so without
+ * running while no turn is, `system.tasks.stop` stops it, and both topics say so without
  * being asked — to a client that is no longer watching the conversation, as the system space is not.
  *
  * Monitor is a tool of the `code` scene, so this backend activates it beside the default.
@@ -22,26 +22,26 @@ test.afterAll(async () => {
 test("a task running after its turn is counted on its session's row, and stopped", TAGS, async () => {
   const api = await connect(backend);
   try {
-    const created = await api.call("session.create", {
+    const created = await api.call("harnix.session.create", {
       scene: "code",
       project_root: api.project,
       options: { recorder: { name: "streams-output" }, permission_mode: "default" },
     });
     const s = { instance: "system", session_id: created.session_id };
-    await api.call("harnix.attach", s);
-    await api.call("harnix.subscribe", { topic: "harnix.sessions.tasks", params: s });
-    await api.call("harnix.subscribe", { topic: "harnix.instances.sessions", params: { instance: "system" } });
-    await api.call("harnix.send", { ...s, message: "Start watching the counter" });
+    await api.call("harnix.session.attach", s);
+    await api.call("harnix.topics.subscribe", { topic: "harnix.session.tasks", params: s });
+    await api.call("harnix.topics.subscribe", { topic: "harnix.instances.sessions", params: { instance: "system" } });
+    await api.call("harnix.session.send", { ...s, message: "Start watching the counter" });
     const ask = await api.waitFor((f) => f.method === "harnix.event" && f.params.event.kind === "prompt", {
       timeout: 30_000,
       describe: "the Monitor call to ask",
     });
-    await api.call("session.respondToPrompt", { ...s, prompt_id: ask.params.event.prompt_id, decision: { type: "permit" } });
+    await api.call("harnix.session.respond", { ...s, prompt_id: ask.params.event.prompt_id, decision: { type: "permit" } });
     await api.waitFor((f) => f.method === "harnix.turn_settled" && f.params.session_id === s.session_id, {
       timeout: 30_000,
       describe: "the turn to settle",
     });
-    await api.call("harnix.detach", s);
+    await api.call("harnix.session.detach", s);
 
     const row = (frame: any) => frame.params.value.sessions.find((r: any) => r.session_id === s.session_id);
     const counted = await api.waitFor(
@@ -50,17 +50,17 @@ test("a task running after its turn is counted on its session's row, and stopped
     );
     expect(row(counted).running, "no turn is running").toBe(false);
 
-    const { tasks } = await api.call("harnix.sessions.tasks", s);
+    const { tasks } = await api.call("harnix.session.tasks", s);
     const monitor = tasks.find((t: any) => t.kind === "monitor");
     expect(monitor?.status, JSON.stringify(tasks)).toBe("running");
-    expect(await api.call("harnix.system.tasks.stop", { ...s, task_id: monitor.task_id })).toEqual({ stopped: true });
+    expect(await api.call("system.tasks.stop", { ...s, task_id: monitor.task_id })).toEqual({ stopped: true });
 
     await api.waitFor(
       (f) =>
         f.method === "harnix.topic" &&
-        f.params.topic === "harnix.sessions.tasks" &&
+        f.params.topic === "harnix.session.tasks" &&
         f.params.value.tasks.some((t: any) => t.task_id === monitor.task_id && t.status === "stopped"),
-      { timeout: 5_000, describe: "the stop to be pushed on harnix.sessions.tasks" },
+      { timeout: 5_000, describe: "the stop to be pushed on harnix.session.tasks" },
     );
     await api.waitFor(
       (f) => f.method === "harnix.topic" && f.params.topic === "harnix.instances.sessions" && row(f)?.tasks === 0,
@@ -74,27 +74,27 @@ test("a task running after its turn is counted on its session's row, and stopped
 test("a task's output is followed by offset: each read starts where the last ended, and what was read is not read again", TAGS, async () => {
   const api = await connect(backend);
   try {
-    const created = await api.call("session.create", {
+    const created = await api.call("harnix.session.create", {
       scene: "code",
       project_root: api.project,
       options: { recorder: { name: "streams-output" }, permission_mode: "default" },
     });
     const s = { instance: "system", session_id: created.session_id };
-    await api.call("harnix.attach", s);
-    await api.call("harnix.send", { ...s, message: "Start watching the counter" });
+    await api.call("harnix.session.attach", s);
+    await api.call("harnix.session.send", { ...s, message: "Start watching the counter" });
     const ask = await api.waitFor((f) => f.method === "harnix.event" && f.params.session_id === s.session_id && f.params.event.kind === "prompt", {
       timeout: 30_000,
       describe: "the Monitor call to ask",
     });
-    await api.call("session.respondToPrompt", { ...s, prompt_id: ask.params.event.prompt_id, decision: { type: "permit" } });
+    await api.call("harnix.session.respond", { ...s, prompt_id: ask.params.event.prompt_id, decision: { type: "permit" } });
     let monitor: any;
     await expect
       .poll(async () => {
-        monitor = (await api.call("harnix.sessions.tasks", s)).tasks.find((t: any) => t.kind === "monitor");
+        monitor = (await api.call("harnix.session.tasks", s)).tasks.find((t: any) => t.kind === "monitor");
         return monitor?.status;
       }, { timeout: 15_000 })
       .toBe("running");
-    const read = (extra: object = {}) => api.call("harnix.system.tasks.output", { ...s, task_id: monitor.task_id, ...extra });
+    const read = (extra: object = {}) => api.call("system.tasks.output", { ...s, task_id: monitor.task_id, ...extra });
 
     // From the start, then onward from wherever the last read ended: three times over at least, and
     // until there are three lines — on a loaded machine the counter can be slower than its clock.
@@ -115,10 +115,10 @@ test("a task's output is followed by offset: each read starts where the last end
     // Put together, the pieces are the counter's lines in order: none twice, none missing.
     expect(lines).toEqual(lines.map((_, i) => `line-${i + 1}`));
     // Past the end is refused, and says where the end is.
-    expect((await api.refused("harnix.system.tasks.output", { ...s, task_id: monitor.task_id, from_byte: next + 1_000_000 }))?.code).toBe(-32602);
+    expect((await api.refused("system.tasks.output", { ...s, task_id: monitor.task_id, from_byte: next + 1_000_000 }))?.code).toBe(-32602);
 
     // Stopped, it winds down; once its output is final, nothing more comes.
-    await api.call("harnix.system.tasks.stop", { ...s, task_id: monitor.task_id });
+    await api.call("system.tasks.stop", { ...s, task_id: monitor.task_id });
     let last: any;
     await expect
       .poll(async () => {
@@ -130,7 +130,7 @@ test("a task's output is followed by offset: each read starts where the last end
     expect((await read({ from_byte: next })).output).toBe("");
 
     // A session with no goal says so.
-    expect(await api.call("harnix.system.goal", s)).toEqual({ goal: null });
+    expect(await api.call("system.goal", s)).toEqual({ goal: null });
   } finally {
     api.close();
   }
@@ -139,29 +139,29 @@ test("a task's output is followed by offset: each read starts where the last end
 test("a goal is set, paused, edited, resumed and cleared from the system space", TAGS, async () => {
   const api = await connect(backend);
   try {
-    const created = await api.call("session.create", { scene: "code", project_root: api.project, options: { recorder: { name: "says-ready" } } });
+    const created = await api.call("harnix.session.create", { scene: "code", project_root: api.project, options: { recorder: { name: "says-ready" } } });
     const s = { instance: "system", session_id: created.session_id };
-    await api.call("harnix.attach", s);
-    const goal = async () => (await api.call("harnix.system.goal", s)).goal;
+    await api.call("harnix.session.attach", s);
+    const goal = async () => (await api.call("system.goal", s)).goal;
     expect(await goal()).toBeNull();
-    const set = await api.call("harnix.system.goal.set", { ...s, objective: "Keep the suite green", max_rounds: 4 });
+    const set = await api.call("system.goal.set", { ...s, objective: "Keep the suite green", max_rounds: 4 });
     expect(set.goal).toMatchObject({ objective: "Keep the suite green", max_rounds: 4 });
     // The hub heard it, and keeps it on the session's row.
-    const row = async () => (await api.call("harnix.instances.sessions", { instance: "system" })).sessions.find((r: any) => r.session_id === s.session_id);
+    const row = async () => (await api.call("harnix.sessions.list", { instance: "system" })).sessions.find((r: any) => r.session_id === s.session_id);
     await expect.poll(async () => (await row())?.goal?.objective, { timeout: 10_000 }).toBe("Keep the suite green");
     // Paused: whatever round it opened is stopped, and no more open.
-    const paused = await api.call("harnix.system.goal.update", { ...s, action: "pause" });
+    const paused = await api.call("system.goal.update", { ...s, action: "pause" });
     expect(paused.goal.phase).toBe("paused");
-    const edited = await api.call("harnix.system.goal.update", { ...s, action: "edit", objective: "Keep the suite green, twice", max_rounds: 8 });
+    const edited = await api.call("system.goal.update", { ...s, action: "edit", objective: "Keep the suite green, twice", max_rounds: 8 });
     expect(edited.goal).toMatchObject({ objective: "Keep the suite green, twice", max_rounds: 8 });
-    const resumed = await api.call("harnix.system.goal.update", { ...s, action: "resume" });
+    const resumed = await api.call("system.goal.update", { ...s, action: "resume" });
     expect(resumed.goal.phase).toBe("active");
-    const cleared = await api.call("harnix.system.goal.update", { ...s, action: "clear" });
+    const cleared = await api.call("system.goal.update", { ...s, action: "clear" });
     expect(cleared.goal).toBeNull();
     await expect.poll(async () => (await row())?.goal, { timeout: 10_000 }).toBeNull();
     await expect.poll(goal, { timeout: 10_000 }).toBeNull();
     // An action the engine does not have is refused, not guessed at.
-    expect((await api.refused("harnix.system.goal.update", { ...s, action: "explode" }))?.code).toBe(-32602);
+    expect((await api.refused("system.goal.update", { ...s, action: "explode" }))?.code).toBe(-32602);
   } finally {
     api.close();
   }

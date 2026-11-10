@@ -342,7 +342,7 @@ export interface RunRecord {
 }
 
 /**
- * `app.flow.get` and the `app.flow.run {run}` topic: the snapshot (its pinned definition in
+ * `flow.get` and the `flow.run {run}` topic: the snapshot (its pinned definition in
  * `record.def`) and what each open station still lacks. `defOf()` reads the definition.
  */
 export interface RunView {
@@ -353,7 +353,7 @@ export interface RunView {
   phase?: Phase | null;
 }
 
-/** One line of `app.flow.list` and of the `app.flow.runs` topic. */
+/** One line of `flow.list` and of the `flow.runs` topic. */
 export interface RunSummary {
   id: string;
   flow: string;
@@ -386,7 +386,7 @@ export interface History {
 /** Where a flow comes from: built in, a saved copy over a built-in one, or written here. */
 export type Origin = "builtin" | "override" | "user";
 
-/** One line of `app.flow.defs` and of the `app.flow.defs` topic. */
+/** One line of `flow.defs` and of the `flow.defs` topic. */
 export interface DefSummary {
   name: string;
   title?: string | null;
@@ -421,7 +421,7 @@ export interface GateDef {
   timeout_seconds?: number | null;
 }
 
-/** A hook over a flow, as `app.flow.def` lists it. */
+/** A hook over a flow, as `flow.def` lists it. */
 export interface HookBrief {
   name: string;
   title?: string | null;
@@ -430,7 +430,7 @@ export interface HookBrief {
   action: string;
 }
 
-/** A hook's last delivery (`app.flow.hooks`). */
+/** A hook's last delivery (`flow.hooks`). */
 export interface HookDelivery {
   at: Millis;
   event: string;
@@ -441,7 +441,7 @@ export interface HookDelivery {
   tries?: number | null;
 }
 
-/** One line of `app.flow.hooks`. */
+/** One line of `flow.hooks`. */
 export interface HookInfo extends HookBrief {
   description?: string | null;
   flows?: string[] | null;
@@ -449,7 +449,7 @@ export interface HookInfo extends HookBrief {
   last?: HookDelivery | null;
 }
 
-/** One part, read (`app.flow.part {kind, name}`). */
+/** One part, read (`flow.part {kind, name}`). */
 export interface PartInfo {
   kind: PartKind;
   name: string;
@@ -472,7 +472,7 @@ export interface UsedParts {
   gates?: Record<string, string | null> | null;
 }
 
-/** `app.flow.def {name}`: the parsed definition, its YAML, its digest, the parts it uses. */
+/** `flow.def {name}`: the parsed definition, its YAML, its digest, the parts it uses. */
 export interface DefInfo {
   def: FlowDef;
   yaml: string;
@@ -492,7 +492,7 @@ export interface DefInfo {
   writable?: boolean | null;
 }
 
-/** One line of `app.flow.dry_run.list` and of the `app.flow.dry_runs` topic. */
+/** One line of `flow.dry_run.list` and of the `flow.dry_runs` topic. */
 export interface DryRunSummary {
   id: string;
   flow: string;
@@ -512,7 +512,7 @@ export interface DryStep {
   result?: unknown;
 }
 
-/** `app.flow.dry_run.step` / `dry_run.run`: what was taken, what is still queued, the run's status. */
+/** `flow.dry_run.step` / `dry_run.run`: what was taken, what is still queued, the run's status. */
 export interface DryProgress {
   run: string;
   steps: DryStep[];
@@ -520,7 +520,7 @@ export interface DryProgress {
   status: RunStatus;
 }
 
-/** The `app.flow.focus {instance, session_id}` topic and the `focus` method's answer. */
+/** The `flow.focus {instance, session_id}` topic and the `focus` method's answer. */
 export interface Focus {
   flow: string | null;
 }
@@ -531,12 +531,12 @@ export interface SessionWire {
   session_id: string;
 }
 
-/** `app.flow.session {flow?}`: a flow's own conversation, or (no flow) the general one. */
+/** `flow.session {flow?}`: a flow's own conversation, or (no flow) the general one. */
 export interface FlowConversation extends SessionWire {
   flow?: string | null;
 }
 
-/** One of `session.tasks`: a main session's sub-agent, shell command, monitor… (Agix's shape). */
+/** One of `engine.session.tasks`: a main session's sub-agent, shell command, monitor… (Agix's shape). */
 export interface SessionTask {
   task_id: string;
   kind: string;
@@ -562,7 +562,7 @@ export interface RunAgent {
 }
 
 /**
- * `app.flow.sessions {run}`: the run's main session, its sub-agents (`agents`), its sessions of
+ * `flow.sessions {run}`: the run's main session, its sub-agents (`agents`), its sessions of
  * their own; and what Agix lists of the main session's tasks and side chains.
  */
 export interface RunSessions {
@@ -573,7 +573,7 @@ export interface RunSessions {
   sidechains?: ({ session_id: string; instance: string; name?: string | null; title?: string | null; created_at?: unknown } & Record<string, unknown>)[] | null;
 }
 
-/** `app.flow.guide {lang}`: the guide to flows, markdown. */
+/** `flow.guide {lang}`: the guide to flows, markdown. */
 export interface Guide {
   text: string;
   lang: string;
@@ -582,7 +582,7 @@ export interface Guide {
 /** An entry of the app's catalog: a bare name, or a name with what it is. */
 export type CatalogEntry = string | { name: string; description?: string | null; [key: string]: unknown };
 
-/** `app.flow.catalog`: what this application registered for definitions to name. */
+/** `flow.catalog`: what this application registered for definitions to name. */
 export interface Catalog {
   scenes?: CatalogEntry[] | null;
   steps?: CatalogEntry[] | null;
@@ -601,7 +601,7 @@ export interface Catalog {
   writable?: boolean | null;
 }
 
-/** One structural problem from `app.flow.validate`. */
+/** One structural problem from `flow.validate`. */
 export interface Problem {
   /** A machine-readable code, when given. */
   code?: string | null;

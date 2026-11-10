@@ -13,15 +13,15 @@ var HarnixApp = (function(exports) {
     return point === "modal" || point === "settings.section";
   }
   const FRAME_HUB = {
-    "harnix.sessions": "space",
-    "harnix.send": "session",
-    "harnix.sessions.tasks": "session",
-    "session.get": "session",
-    "session.history": "session",
-    "session.entries": "session",
-    "session.interrupt": "session",
+    "harnix.sessions.list": "space",
+    "harnix.session.send": "session",
+    "harnix.session.tasks": "session",
+    "engine.session.get": "session",
+    "engine.session.history": "session",
+    "engine.session.entries": "session",
+    "harnix.session.interrupt": "session",
     "harnix.spaces.list": "open",
-    "topic:harnix.sessions.tasks": "session",
+    "topic:harnix.session.tasks": "session",
     "topic:harnix.spaces": "open"
   };
   function admits(app, hub, name, topic) {
@@ -145,7 +145,7 @@ var HarnixApp = (function(exports) {
     session = {
       current: () => this.currentSession,
       open: (ref) => this.request("session.open", ref).then(() => void 0),
-      create: (spec = {}) => this.request("session.create", spec),
+      create: (spec = {}) => this.request("harnix.session.create", spec),
       onChange: (fn) => {
         this.sessionListeners.add(fn);
         return () => this.sessionListeners.delete(fn);

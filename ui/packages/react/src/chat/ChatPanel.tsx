@@ -57,7 +57,7 @@ export interface ChatPanelProps {
   instance?: string;
   /** 调用方所在的 space，每个调用都带上（概念与架构 §5.4） */
   space?: string;
-  /** 发送时加进 `harnix.send` 的参数（例如 `@session` 引用）。要稳定的引用，否则会话会重开 */
+  /** 发送时加进 `harnix.session.send` 的参数（例如 `@session` 引用）。要稳定的引用，否则会话会重开 */
   sendExtras?: (text: string) => Record<string, unknown>;
   /** 拿到控制器时告诉调用方（应用往流里放自己的块、外部触发发送时用） */
   onController?: (controller: SessionController | null) => void;
@@ -101,7 +101,7 @@ export interface ChatPanelProps {
    */
   draftKey?: string;
   /**
-   * 代替 harnix.send 的发送（例如经应用自己的接口发，好先做检查）。true ⇒ 已发，清空输入框；
+   * 代替 harnix.session.send 的发送（例如经应用自己的接口发，好先做检查）。true ⇒ 已发，清空输入框；
    * false ⇒ 没发，输入框保留原文。等待期间输入框只读。快捷回复同样经它。
    */
   send?: (text: string, attachments: unknown[]) => Promise<boolean>;
@@ -109,7 +109,7 @@ export interface ChatPanelProps {
   composer?: (api: ComposerApi | null) => void;
   /** 上传一个文件作附件；给了输入框才能加附件 */
   upload?: (file: File) => Promise<Attached>;
-  /** 代替 session.interrupt 的中断 */
+  /** 代替 harnix.session.interrupt 的中断 */
   interrupt?: () => Promise<void> | void;
   /**
    * 在跑（应用知道得更准时给，例如工位的状态 running；原型 cliPane 的 w.busy）：覆盖按 Nest 会话判断的结果。

@@ -40,12 +40,12 @@ async function sessionWithTurn(page: Page, instance: string, fixture = "says-rea
     async ({ instance, fixture, message }) => {
       const { app } = (window as any).harnix;
       const created = await app
-        .call("session.create", { instance, space: "sessions", scene: "harnix", options: { recorder: { name: fixture } } })
+        .call("harnix.session.create", { instance, space: "sessions", scene: "harnix", options: { recorder: { name: fixture } } })
         .catch((e: any) => {
           throw new Error(JSON.stringify(e));
         });
       const key = { instance, session_id: created.session_id, space: "sessions" };
-      await app.call("harnix.attach", key);
+      await app.call("harnix.session.attach", key);
       const settled = new Promise<void>((resolve) => {
         const off = app.client.onNotify((method: string, params: any) => {
           if (method === "harnix.turn_settled" && params.session_id === created.session_id) {
@@ -54,7 +54,7 @@ async function sessionWithTurn(page: Page, instance: string, fixture = "says-rea
           }
         });
       });
-      await app.call("harnix.send", { ...key, message });
+      await app.call("harnix.session.send", { ...key, message });
       await settled;
       return created.session_id as string;
     },
@@ -189,17 +189,17 @@ test("system-agents: a running turn's clock counts on; one that finished unseen 
   // Started from elsewhere while the list is in view: four seconds of Bash, its ask let through.
   const id = await page.evaluate(async () => {
     const { app } = (window as any).harnix;
-    const created = await app.call("session.create", {
+    const created = await app.call("harnix.session.create", {
       instance: "system", space: "sessions", scene: "harnix", options: { recorder: { name: "runs-a-while" } },
     });
     const key = { instance: "system", session_id: created.session_id, space: "sessions" };
     app.client.onNotify((method: string, params: any) => {
       if (method === "harnix.event" && params.session_id === created.session_id && params.event?.kind === "prompt") {
-        void app.call("session.respondToPrompt", { ...key, prompt_id: params.event.prompt_id, decision: { type: "permit" } });
+        void app.call("harnix.session.respond", { ...key, prompt_id: params.event.prompt_id, decision: { type: "permit" } });
       }
     });
-    await app.call("harnix.attach", key);
-    await app.call("harnix.send", { ...key, message: "Use the Bash tool to wait a few seconds" });
+    await app.call("harnix.session.attach", key);
+    await app.call("harnix.session.send", { ...key, message: "Use the Bash tool to wait a few seconds" });
     return created.session_id as string;
   });
   const agents = page.getByTestId("system-agents");
@@ -438,7 +438,7 @@ test("system-frames: a session's frames arrive as it runs, with their seq", TREE
   await expect(page.getByTestId("system-frames")).toBeVisible();
   // Another turn in the watched session: its frames are listed here as they come.
   await page.evaluate(
-    (sid) => (window as any).harnix.app.call("harnix.send", { instance: "system", session_id: sid, space: "system", message: "Say exactly: fixture ready" }),
+    (sid) => (window as any).harnix.app.call("harnix.session.send", { instance: "system", session_id: sid, space: "system", message: "Say exactly: fixture ready" }),
     sid,
   );
   await expect(page.locator("#details .frames tr").first()).toBeVisible({ timeout: 30_000 });
@@ -470,7 +470,7 @@ test("system-context: a message of the context is edited and removed from the pa
   await messages.locator('[data-testid="system-message"][data-origin="user"]').first().getByTestId("message-drop").click();
   await expect(messages).toContainText(/removed by the host/i);
   const history = await page.evaluate(
-    async (sid) => (await (window as any).harnix.app.call("session.history", { instance: "system", session_id: sid, space: "system" })).messages,
+    async (sid) => (await (window as any).harnix.app.call("engine.session.history", { instance: "system", session_id: sid, space: "system" })).messages,
     sid,
   );
   expect(JSON.stringify(history)).not.toContain("edited from the page");
@@ -545,7 +545,7 @@ test("system-context: measured apart from estimated, and a fork from any message
   const seq = Number(await user.getAttribute("data-seq"));
   const before = await pane.locator('[data-testid="system-message"]').count();
   expect(before, "the original goes on past the user's message").toBeGreaterThan(seq + 1);
-  const sessions = () => page.evaluate(async () => (await (window as any).harnix.app.call("harnix.sessions", { space: "system" })).sessions.length);
+  const sessions = () => page.evaluate(async () => (await (window as any).harnix.app.call("harnix.sessions.list", { space: "system" })).sessions.length);
   const listed = await sessions();
   await user.getByTestId("message-fork").click();
   await expect(page.getByTestId("system-context").locator('[data-testid="system-message"]')).toHaveCount(seq + 1);
@@ -658,7 +658,7 @@ test("system-frames: narrowed to one kind of frame", TREE, async ({ page }) => {
   await pick(page, "system", sid);
   await tab(page, "frames");
   await page.evaluate(
-    (sid) => (window as any).harnix.app.call("harnix.send", { instance: "system", session_id: sid, space: "system", message: "Say exactly: fixture ready" }),
+    (sid) => (window as any).harnix.app.call("harnix.session.send", { instance: "system", session_id: sid, space: "system", message: "Say exactly: fixture ready" }),
     sid,
   );
   const rows = page.locator("#details .frames tbody tr");

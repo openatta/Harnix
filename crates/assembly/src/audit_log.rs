@@ -74,22 +74,17 @@ impl AuditSink for TimelineAudit {
 /// or what it may reach.
 fn is_consequential(method: &str) -> bool {
     // The system space acts on sessions that are not its own: every act is worth going back for.
-    method.starts_with("harnix.system.")
+    (method.starts_with("system.") && method != "system.process")
         || method.starts_with("observability.")
         || matches!(
             method,
-            "harnix.plugins.install"
-            | "harnix.plugins.uninstall"
-            | "harnix.plugins.enable"
-            | "harnix.plugins.disable"
-            // Picks up whatever is in the directory now, including a package
-            // put there by hand — so it can change the active set without any
-            // other call having been made.
-            | "harnix.plugins.reload"
-            | "plugins.install"
+            "plugins.install"
             | "plugins.uninstall"
             | "plugins.enable"
             | "plugins.disable"
+            // Picks up whatever is in the directory now, including a package
+            // put there by hand — so it can change the active set without any
+            // other call having been made.
             | "plugins.reload"
             | "devices.pair.complete"
             | "devices.revoke"
@@ -105,11 +100,7 @@ fn is_consequential(method: &str) -> bool {
             | "harnix.apps.uninstall"
             // Deleting what one keeps cannot be undone.
             | "harnix.apps.clearData"
-            | "harnix.devices.pair.complete"
-            | "harnix.devices.revoke"
-            | "harnix.settings.set"
-            | "harnix.settings.setProvider"
-            | "session.delete"
+            | "harnix.session.delete"
             | "harnix.instances.create"
             | "harnix.instances.stop"
             | "harnix.instances.restart"
@@ -124,10 +115,10 @@ mod tests {
     /// line, a routine allow never is.
     #[test]
     fn only_consequential_allows_are_written() {
-        assert!(is_consequential("harnix.devices.revoke"));
-        assert!(is_consequential("harnix.plugins.install"));
-        assert!(!is_consequential("harnix.sessions"));
-        assert!(!is_consequential("session.history"));
+        assert!(is_consequential("devices.revoke"));
+        assert!(is_consequential("plugins.install"));
+        assert!(!is_consequential("harnix.sessions.list"));
+        assert!(!is_consequential("engine.session.history"));
     }
 
     /// Every extension lifecycle call is consequential, not just installing.
@@ -140,7 +131,7 @@ mod tests {
     fn the_whole_extension_lifecycle_is_audited() {
         // The lifecycle is exactly the calls that change what is installed; `upload` hands over a
         // file and `list` reads.
-        for prefix in ["harnix.plugins.", "plugins."] {
+        for prefix in ["plugins."] {
             for call in ["install", "uninstall", "enable", "disable", "reload"] {
                 let method = format!("{prefix}{call}");
                 assert!(is_consequential(&method), "{method} changes what is installed and is not audited");
@@ -152,10 +143,10 @@ mod tests {
         // And nothing in the list is a name a client can no longer reach:
         // an audit rule for an unreachable method is a rule that never fires.
         for stale in [
-            "plugin.install",
-            "plugin.uninstall",
-            "plugin.enable",
-            "plugin.disable",
+            "engine.plugin.install",
+            "engine.plugin.uninstall",
+            "engine.plugin.enable",
+            "engine.plugin.disable",
         ] {
             assert!(
                 !is_consequential(stale),

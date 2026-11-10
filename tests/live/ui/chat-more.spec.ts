@@ -122,7 +122,7 @@ test("an image sent along is drawn with the message when the session is opened a
   // What was sent is drawn from the transcript, which the hub serves once the turn has settled.
   const running = () =>
     page.evaluate(async (sid) => {
-      const { sessions } = await (window as any).harnix.app.call("harnix.instances.sessions", { instance: "system" });
+      const { sessions } = await (window as any).harnix.app.call("harnix.sessions.list", { instance: "system" });
       return sessions.find((s: any) => s.session_id === sid)?.running;
     }, id);
   await expect.poll(running, { timeout: 30_000 }).toBe(false);

@@ -20,7 +20,7 @@ pub(crate) const TOPIC: &str = "topic:";
 /// The methods decided by what they name rather than by themselves: subscribing to a topic is
 /// decided as `topic:<name>`, so a runtime principal reaches these whatever it listed, and the
 /// topic decides.
-pub(crate) const DECIDED_BY_TOPIC: &[&str] = &["harnix.subscribe", "harnix.unsubscribe"];
+pub(crate) const DECIDED_BY_TOPIC: &[&str] = &["harnix.topics.subscribe", "harnix.topics.unsubscribe"];
 
 /// The table's name for a module's routes, `/apps/<id>/`.
 pub fn route(module: &str) -> String {
@@ -144,7 +144,7 @@ mod tests {
         assert_eq!(owner_of("acme.todo.list", &ids).map(ExtId::as_str), Some("acme"));
         assert_eq!(owner_of("acmeish.x", &ids), None);
         assert_eq!(owner_of("flow", &ids).map(ExtId::as_str), Some("flow"));
-        assert_eq!(extension_part("topic:app.flow.runs"), Some("flow.runs"));
+        assert_eq!(extension_part("topic:flow.runs"), Some("flow.runs"));
         assert_eq!(extension_part("harnix.hello"), None);
     }
 

@@ -6,7 +6,7 @@
 //
 // # Why this reads a file
 //
-// **There is no method that returns audit entries.** `session.history`
+// **There is no method that returns audit entries.** `engine.session.history`
 // reconstructs the model-visible conversation, so extension entries are not
 // in it; the in-memory ring behind `Audit::recent` has no caller anywhere in
 // the process. So the only way to observe the trail today is the transcript
@@ -74,19 +74,19 @@ defineSuite("audit", {
   feature: "authz",
   gaps: {
     "deleting a session takes its audit entry with it":
-      "a durable sink for session.delete that is not the deleted transcript (crates/assembly/src/audit_log.rs)",
+      "a durable sink for harnix.session.delete that is not the deleted transcript (crates/assembly/src/audit_log.rs)",
   },
 }, {
   tests: {
     "a refusal that named a session lands in that session's timeline":
       async ({ backend, client }) => {
-        const created = await client.call("session.create", {});
-        const e = await client.refused("session.run_turn",
+        const created = await client.call("harnix.session.create", {});
+        const e = await client.refused("engine.session.run_turn",
           { session_id: created.session_id, message: "x" });
         assert(e && e.code === REFUSED, `code ${e?.code}`);
 
         const found = await auditFor(backend,
-          (a) => a.session_id === created.session_id && a.payload?.method === "session.run_turn");
+          (a) => a.session_id === created.session_id && a.payload?.method === "engine.session.run_turn");
         assert(found.length, "the refusal is not in the timeline");
 
         const [entry] = found;
@@ -104,11 +104,11 @@ defineSuite("audit", {
 
     "the entry is filed under one namespace and carries no engine shape":
       async ({ backend, client }) => {
-        const created = await client.call("session.create", {});
-        await client.refused("daemon.subscribeEvents", { session_id: created.session_id });
+        const created = await client.call("harnix.session.create", {});
+        await client.refused("engine.daemon.subscribeEvents", { session_id: created.session_id });
         const found = await auditFor(backend,
           (a) => a.session_id === created.session_id
-            && a.payload?.method === "daemon.subscribeEvents");
+            && a.payload?.method === "engine.daemon.subscribeEvents");
         assert(found.length, "nothing was written");
 
         // One key, opaque to the engine. This is what makes the entry
@@ -126,21 +126,21 @@ defineSuite("audit", {
       // Read-only, happens constantly, and would bury everything worth
       // reading if it were kept. This is the rule that keeps the timeline
       // legible: a refusal is always worth a line, a routine allow never is.
-      const created = await client.call("session.create", {});
+      const created = await client.call("harnix.session.create", {});
       for (let i = 0; i < 5; i += 1) {
-        await client.call("session.get", { session_id: created.session_id });
-        await client.call("session.history", { session_id: created.session_id, limit: 1 });
+        await client.call("engine.session.get", { session_id: created.session_id });
+        await client.call("engine.session.history", { session_id: created.session_id, limit: 1 });
       }
       await sleep(300);
       const noisy = audit(backend).filter(
         (a) => a.session_id === created.session_id
-          && ["session.get", "session.history"].includes(a.payload?.method));
+          && ["engine.session.get", "engine.session.history"].includes(a.payload?.method));
       assert(!noisy.length, `${noisy.length} routine reads were audited`);
       await finish(client, created.session_id);
     },
 
     "deleting a session takes its audit entry with it": async ({ backend, client }) => {
-      // Not an assertion that this is *right*. `session.delete` is on the
+      // Not an assertion that this is *right*. `harnix.session.delete` is on the
       // consequential list, and it is the only entry there that names a
       // session — so the one allow the timeline could hold is the one whose
       // timeline the action destroys. The entry is written and then removed
@@ -149,11 +149,11 @@ defineSuite("audit", {
       // Recorded here so the next person reading `is_consequential` knows
       // that line currently buys nothing, and that auditing deletions needs a
       // sink that is not the deleted session's own file.
-      const created = await client.call("session.create", {});
-      await client.call("session.delete", { session_id: created.session_id });
+      const created = await client.call("harnix.session.create", {});
+      await client.call("harnix.session.delete", { session_id: created.session_id });
       await sleep(500);
       const survived = audit(backend).filter(
-        (a) => a.session_id === created.session_id && a.payload?.method === "session.delete");
+        (a) => a.session_id === created.session_id && a.payload?.method === "harnix.session.delete");
       assert(!survived.length,
         "the deletion entry survived — if this now passes, the trail outlives the session "
         + "and the test above it should assert the entry instead");
@@ -165,19 +165,19 @@ defineSuite("audit", {
         // would be worse than not having it in a transcript at all — the
         // entry would claim a relationship that does not exist.
         const before = audit(backend).length;
-        await client.refused("config.setProvider", {});
-        await client.refused("mcp.addServer", {});
+        await client.refused("engine.config.setProvider", {});
+        await client.refused("engine.mcp.addServer", {});
         await sleep(300);
         const added = audit(backend).slice(before);
         for (const entry of added) {
-          assert(!["config.setProvider", "mcp.addServer"].includes(entry.payload?.method),
+          assert(!["engine.config.setProvider", "engine.mcp.addServer"].includes(entry.payload?.method),
             `${entry.payload.method} was filed under session ${entry.session_id}`);
         }
       },
 
     "an unparseable session id is not filed anywhere": async ({ backend, client }) => {
       const before = audit(backend).length;
-      await client.refused("session.run_turn", { session_id: "not-a-real-id", message: "x" });
+      await client.refused("engine.session.run_turn", { session_id: "not-a-real-id", message: "x" });
       await sleep(300);
       const added = audit(backend).slice(before);
       assert(!added.length, `${added.length} entries were filed under a made-up session`);

@@ -1,5 +1,5 @@
 /**
- * What a send does to a session that is busy (`harnix.send {on_busy}`): `interrupt` stops the
+ * What a send does to a session that is busy (`harnix.session.send {on_busy}`): `interrupt` stops the
  * running turn, drops what was queued behind it, and runs the new message next.
  *
  * The busy turn is `asks-permission` held at its ask, so it is still running when the second send
@@ -27,22 +27,22 @@ test.beforeEach(async () => {
 test.afterEach(() => api?.close());
 
 test("interrupt stops the running turn, drops the queue behind it, and runs next", TAGS, async () => {
-  const { session_id } = await api.call("session.create", {
+  const { session_id } = await api.call("harnix.session.create", {
     project_root: api.project,
     options: { recorder: { name: "asks-permission" }, permission_mode: "default" },
   });
   try {
-    await api.call("harnix.attach", { session_id });
-    const first = await api.call("harnix.send", { session_id, message: "Use the Bash tool to run: echo permission-check" });
+    await api.call("harnix.session.attach", { session_id });
+    const first = await api.call("harnix.session.send", { session_id, message: "Use the Bash tool to run: echo permission-check" });
     await api.waitFor(
       (f) => f.method === "harnix.event" && f.params.session_id === session_id && f.params.event.kind === "prompt",
       { timeout: 30_000, describe: "the first turn to stop at its ask" },
     );
-    const queued = await api.call("harnix.send", { session_id, message: "queued behind it", on_busy: "queue" });
+    const queued = await api.call("harnix.session.send", { session_id, message: "queued behind it", on_busy: "queue" });
     expect(queued.queued).toBe(true);
 
     const mark = api.events.length;
-    const next = await api.call("harnix.send", { session_id, message: "instead of all that", on_busy: "interrupt" });
+    const next = await api.call("harnix.session.send", { session_id, message: "instead of all that", on_busy: "interrupt" });
     expect(next.queued).toBe(true);
 
     const settled = await api.waitFor(
@@ -71,9 +71,9 @@ test("interrupt stops the running turn, drops the queue behind it, and runs next
 });
 
 test("an on_busy that is not one of the four is refused before anything is sent", TAGS, async () => {
-  const { session_id } = await api.call("session.create", {});
+  const { session_id } = await api.call("harnix.session.create", {});
   try {
-    const error = await api.refused("harnix.send", { session_id, message: "x", on_busy: "later" });
+    const error = await api.refused("harnix.session.send", { session_id, message: "x", on_busy: "later" });
     expect(error?.message).toMatch(/queue, reject, interrupt or steer/);
   } finally {
     await finish(api, session_id);
@@ -81,22 +81,22 @@ test("an on_busy that is not one of the four is refused before anything is sent"
 });
 
 test("a queued message is edited in place before it runs; one that has gone is refused", TAGS, async () => {
-  const { session_id } = await api.call("session.create", {
+  const { session_id } = await api.call("harnix.session.create", {
     project_root: api.project,
     options: { recorder: { name: "asks-permission" }, permission_mode: "default" },
   });
   try {
-    await api.call("harnix.attach", { session_id });
-    await api.call("harnix.send", { session_id, message: "Use the Bash tool to run: echo permission-check" });
+    await api.call("harnix.session.attach", { session_id });
+    await api.call("harnix.session.send", { session_id, message: "Use the Bash tool to run: echo permission-check" });
     const ask = await api.waitFor(
       (f) => f.method === "harnix.event" && f.params.session_id === session_id && f.params.event.kind === "prompt",
       { timeout: 30_000, describe: "the first turn to stop at its ask" },
     );
-    const first = await api.call("harnix.send", { session_id, message: "as first written", on_busy: "queue" });
-    const second = await api.call("harnix.send", { session_id, message: "behind it", on_busy: "queue" });
+    const first = await api.call("harnix.session.send", { session_id, message: "as first written", on_busy: "queue" });
+    const second = await api.call("harnix.session.send", { session_id, message: "behind it", on_busy: "queue" });
 
     const mark = api.events.length;
-    const edited = await api.call("harnix.queue.edit", { session_id, item_id: first.item.item_id, message: "as edited" });
+    const edited = await api.call("harnix.session.queue.edit", { session_id, item_id: first.item.item_id, message: "as edited" });
     // Its place stays: still first, still before the other.
     expect(edited.items.map((i: any) => [i.item_id, i.message])).toEqual([
       [first.item.item_id, "as edited"],
@@ -110,13 +110,13 @@ test("a queued message is edited in place before it runs; one that has gone is r
       { describe: "the edited queue pushed whole to whoever watches" },
     );
     expect(pushed.params.items.map((i: any) => i.message)).toEqual(["as edited", "behind it"]);
-    expect((await api.refused("harnix.queue.edit", { session_id, item_id: first.item.item_id, message: "  " }))?.code).toBe(INVALID);
+    expect((await api.refused("harnix.session.queue.edit", { session_id, item_id: first.item.item_id, message: "  " }))?.code).toBe(INVALID);
 
-    await api.call("harnix.queue.remove", { session_id, item_id: second.item.item_id });
-    expect((await api.refused("harnix.queue.edit", { session_id, item_id: second.item.item_id, message: "too late" }))?.code).toBe(REFUSED);
+    await api.call("harnix.session.queue.remove", { session_id, item_id: second.item.item_id });
+    expect((await api.refused("harnix.session.queue.edit", { session_id, item_id: second.item.item_id, message: "too late" }))?.code).toBe(REFUSED);
 
     // The turn goes on; what runs next is the edited message.
-    await api.call("session.respondToPrompt", { session_id, prompt_id: ask.params.event.prompt_id, decision: { type: "permit" } });
+    await api.call("harnix.session.respond", { session_id, prompt_id: ask.params.event.prompt_id, decision: { type: "permit" } });
     const started = await api.waitFor(
       (f) => f.method === "harnix.event" && f.params.session_id === session_id && f.params.event.kind === "user_message" && f.params.event.text === "as edited",
       { timeout: 30_000, describe: "the edited message to start its turn" },

@@ -29,13 +29,13 @@ const BLOCK_MARKER = "showcase-block-7d21";
 type Session = { instance: string; session_id: string };
 
 async function session(api: TestClient, recording: string, instance = "system"): Promise<Session> {
-  const created = await api.call("session.create", {
+  const created = await api.call("harnix.session.create", {
     instance,
     project_root: api.project,
     options: { recorder: { name: recording } },
   });
   const s = { instance, session_id: created.session_id };
-  await api.call("harnix.attach", s);
+  await api.call("harnix.session.attach", s);
   return s;
 }
 
@@ -44,7 +44,7 @@ const results = (api: TestClient, s: Session) => JSON.stringify(api.eventsOfKind
 /** What a new session in `instance` would send the model: its system prompt's text and its tools. */
 async function context(api: TestClient, instance = "system"): Promise<{ text: string; tools: string[]; s: Session }> {
   const s = await session(api, "says-ready", instance);
-  const context = await api.call("harnix.system.context", s);
+  const context = await api.call("system.context", s);
   const text = JSON.stringify(context);
   const tools: string[] = (context.tools ?? context.context?.tools ?? []).map((t: any) => t.name ?? t);
   return { text, tools, s };
@@ -116,7 +116,7 @@ carrier = "spawn"
     const listed = await api.call("harnix.apps.list");
     expect(listed.apps).toEqual([]);
     expect(listed.runtime).toMatchObject({ fingerprint, dev: true });
-    const plugins = (await api.call("plugin.list")).plugins.map((p: any) => p.name);
+    const plugins = (await api.call("engine.plugin.list")).plugins.map((p: any) => p.name);
     expect(plugins).not.toContain("example-showcase");
     expect(existsSync(join(backend.state, "apps", SHOWCASE_ID))).toBe(false);
   });
@@ -140,7 +140,7 @@ carrier = "spawn"
     const disclosure = JSON.stringify(installed.installed.agent.disclosure);
     expect(disclosure).toContain("prompt.block");
     expect(disclosure).toContain("showcase-guide");
-    const plugin = (await api.call("plugin.list")).plugins.find((p: any) => p.name === "example-showcase");
+    const plugin = (await api.call("engine.plugin.list")).plugins.find((p: any) => p.name === "example-showcase");
     expect(plugin, "the agent package is installed in system").toBeTruthy();
     expect(plugin.enabled).not.toBe(false);
     expect((await api.refused("harnix.apps.installFile", { path }))?.message).toContain("installed already");
@@ -156,14 +156,14 @@ carrier = "spawn"
       .poll(async () => JSON.stringify((await api.call("harnix.ui")).contributions ?? []), { timeout: 10_000 })
       .toContain(`/apps/${SHOWCASE_ID}/ui/frame/index.html`);
     // What a store has to compile for, for this process to run it.
-    expect(JSON.stringify(await api.call("harnix.process"))).toContain(fingerprint);
+    expect(JSON.stringify(await api.call("system.process"))).toContain(fingerprint);
   });
 
   test("a new session has its tools, its QuickJS block and its skill", TAGS, async () => {
     const { text, tools } = await context(api);
     for (const tool of TOOLS) expect(tools.length ? tools : text, tool).toContain(tool);
     expect(text, "the QuickJS prompt.block").toContain(BLOCK_MARKER);
-    const commands = JSON.stringify(await api.call("commands.list", { instance: "system" }));
+    const commands = JSON.stringify(await api.call("engine.commands.list", { instance: "system" }));
     expect(commands, "the skill").toContain("showcase-tour");
   });
 
@@ -204,7 +204,7 @@ carrier = "spawn"
   });
 
   test("its progress is pushed while it works", TAGS, async () => {
-    await api.call("harnix.subscribe", { topic: "harnix.apps.progress" });
+    await api.call("harnix.topics.subscribe", { topic: "harnix.apps.progress" });
     const s = await session(api, "app-slow");
     const { settled } = await runTurn(api, s, "Use the slow tool");
     expect(settled.params.error).toBeUndefined();
@@ -218,21 +218,21 @@ carrier = "spawn"
   });
 
   test("cancelled while it works, it stops, and the application goes on", TAGS, async () => {
-    await api.call("harnix.subscribe", { topic: "harnix.apps.progress" });
+    await api.call("harnix.topics.subscribe", { topic: "harnix.apps.progress" });
     const s = await session(api, "app-slow-long");
-    await api.call("harnix.send", { ...s, message: "Use the slow tool for a long while" });
+    await api.call("harnix.session.send", { ...s, message: "Use the slow tool for a long while" });
     const ask = await api.waitFor(
       (f) => f.method === "harnix.event" && f.params.session_id === s.session_id && f.params.event.kind === "prompt",
       { timeout: 30_000, describe: "the ask for the slow tool" },
     );
-    await api.call("session.respondToPrompt", { ...s, prompt_id: ask.params.event.prompt_id, decision: { type: "permit" } });
+    await api.call("harnix.session.respond", { ...s, prompt_id: ask.params.event.prompt_id, decision: { type: "permit" } });
     await api.waitFor(
       (f) => f.method === "harnix.topic" && f.params.topic === "harnix.apps.progress"
         && f.params.value?.session_id === s.session_id && f.params.value?.text === "step 2 of 100",
       { timeout: 30_000, describe: "the slow tool under way" },
     );
     const interrupted = Date.now();
-    await api.call("session.interrupt", s);
+    await api.call("harnix.session.interrupt", s);
     await api.waitFor(
       (f) => f.method === "harnix.turn_settled" && f.params.session_id === s.session_id,
       { timeout: 15_000, describe: "the interrupted turn to settle" },
@@ -289,7 +289,7 @@ carrier = "spawn"
   test("a spawned instance reaches the tools over the application's MCP endpoint", TAGS, async () => {
     // The daemon is told of the endpoint once this process listens; it connects in the background.
     await expect
-      .poll(async () => JSON.stringify(await api.call("mcp.status", { instance: "far" }).catch((e) => e)), { timeout: 60_000, intervals: [500] })
+      .poll(async () => JSON.stringify(await api.call("engine.mcp.status", { instance: "far" }).catch((e) => e)), { timeout: 60_000, intervals: [500] })
       .toContain(`"name":"${MCP_SERVER}","tool_count":${TOOLS.length}`);
     const s = await session(api, "app-mcp-echo", "far");
     const { settled, asks } = await runTurn(api, s, "Use the showcase's echo tool over MCP");
@@ -328,7 +328,7 @@ carrier = "spawn"
     expect((await list(before!)).status).toBe(200);
 
     // Restarted: the daemon that held it is gone, and with it what it presented.
-    await api.call("harnix.system.instances.restart", { instance: "far", space: "system" });
+    await api.call("system.instances.restart", { instance: "far", space: "system" });
     expect((await list(before!)).status, "a daemon that is gone still opened the endpoint").toBe(401);
     const after = bearer();
     expect(after).toMatch(/^Bearer [0-9a-f]{32}$/);
@@ -347,7 +347,7 @@ carrier = "spawn"
     expect((await list(again!)).status).toBe(200);
     // And the new daemon reaches the tools with it.
     await expect
-      .poll(async () => JSON.stringify(await api.call("mcp.status", { instance: "far" }).catch((e) => e)), { timeout: 60_000, intervals: [500] })
+      .poll(async () => JSON.stringify(await api.call("engine.mcp.status", { instance: "far" }).catch((e) => e)), { timeout: 60_000, intervals: [500] })
       .toContain(`"name":"${MCP_SERVER}","tool_count":${TOOLS.length}`);
   });
 
@@ -357,12 +357,12 @@ carrier = "spawn"
     const { text, tools } = await context(api);
     for (const tool of TOOLS) expect(tools.length ? tools : [text], tool).not.toContain(tool);
     expect(text).not.toContain(BLOCK_MARKER);
-    expect(JSON.stringify(await api.call("commands.list", { instance: "system" }))).not.toContain("showcase-tour");
+    expect(JSON.stringify(await api.call("engine.commands.list", { instance: "system" }))).not.toContain("showcase-tour");
     expect((await fetch(`${backend.url.replace(/\/$/, "")}/apps/${SHOWCASE_ID}/ui/showcase.js`)).status).toBe(404);
-    const plugin = (await api.call("plugin.list")).plugins.find((p: any) => p.name === "example-showcase");
+    const plugin = (await api.call("engine.plugin.list")).plugins.find((p: any) => p.name === "example-showcase");
     expect(plugin?.enabled).toBe(false);
     await expect
-      .poll(async () => JSON.stringify(await api.call("mcp.status", { instance: "far" }).catch(() => "")), { timeout: 60_000, intervals: [500] })
+      .poll(async () => JSON.stringify(await api.call("engine.mcp.status", { instance: "far" }).catch(() => "")), { timeout: 60_000, intervals: [500] })
       .not.toContain(MCP_SERVER);
 
     const on = await api.call("harnix.apps.enable", { id: SHOWCASE_ID });
@@ -377,8 +377,8 @@ carrier = "spawn"
     const removed = await api.call("harnix.apps.uninstall", { id: SHOWCASE_ID });
     expect(removed).toMatchObject({ id: SHOWCASE_ID, uninstalled: true, removed: { agent: { package: "example-showcase" } } });
     expect((await api.call("harnix.apps.list")).apps).toEqual([]);
-    expect((await api.call("plugin.list")).plugins.map((p: any) => p.name)).not.toContain("example-showcase");
-    expect(JSON.stringify(await api.call("commands.list", { instance: "system" }))).not.toContain("showcase-tour");
+    expect((await api.call("engine.plugin.list")).plugins.map((p: any) => p.name)).not.toContain("example-showcase");
+    expect(JSON.stringify(await api.call("engine.commands.list", { instance: "system" }))).not.toContain("showcase-tour");
     const { text, tools } = await context(api);
     expect(tools.length ? tools : [text]).not.toContain(TOOL("echo"));
     expect(text).not.toContain(BLOCK_MARKER);
@@ -415,11 +415,11 @@ test.describe("an application, against the model", () => {
     test.skip(modelMode() !== "live", "a replayed turn writes no envelope; the context check above covers replay");
     api = await connect(backend, { topology: topology() });
     try {
-      const created = await api.call("session.create", { project_root: api.project });
+      const created = await api.call("harnix.session.create", { project_root: api.project });
       const s = { instance: "system", session_id: created.session_id };
-      await api.call("harnix.attach", s);
+      await api.call("harnix.session.attach", s);
       await runTurn(api, s, "Say exactly: ready");
-      const { headers } = await api.call("harnix.requestHeaders", s);
+      const { headers } = await api.call("observability.calls", s);
       const envelope = JSON.stringify(headers);
       expect(envelope).toContain(BLOCK_MARKER);
       expect(envelope).toContain(TOOL("echo"));

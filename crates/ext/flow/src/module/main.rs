@@ -107,7 +107,7 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
     let title = main_title(&rec);
     let _ = cx
         .call(
-            "session.rename",
+            "engine.session.rename",
             json!({"instance": s.instance, "session_id": s.session_id, "name": title}),
         )
         .await;
@@ -197,7 +197,7 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: bool, mut
     };
     let root: Option<String> = match sh.cx.get() {
         Some(cx) => cx
-            .call("session.get", json!({"instance": s.instance, "session_id": s.session_id}))
+            .call("engine.session.get", json!({"instance": s.instance, "session_id": s.session_id}))
             .await
             .ok()
             .and_then(|v| v.get("project_root").and_then(Value::as_str).map(String::from)),
@@ -465,7 +465,7 @@ async fn answer(
     };
     if let Err(e) = cx
         .call(
-            "session.respondToPrompt",
+            "harnix.session.respond",
             json!({
                 "instance": s.instance, "session_id": s.session_id,
                 "prompt_id": id, "prompt_type": "permission", "decision": d,

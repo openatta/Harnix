@@ -15,7 +15,7 @@ export function TasksTab({ app, view, session }: { app: App; view: View; session
   const tr = useT();
   const picked = useSelection(view);
   const params = useMemo(() => ({ instance: session.instance, session_id: session.sessionId }), [session.instance, session.sessionId]);
-  const listed = useTopic<{ tasks: Task[]; teams?: Team[] }>(view, "harnix.sessions.tasks", params);
+  const listed = useTopic<{ tasks: Task[]; teams?: Team[] }>(view, "harnix.session.tasks", params);
   const tasks = listed?.tasks ?? [];
   if (!tasks.length && !listed?.teams?.length) return <div className="note">{tr("system.noTasks")}</div>;
   const chosen = picked?.kind === "task" ? picked.taskId : null;
@@ -48,7 +48,7 @@ export function TasksTab({ app, view, session }: { app: App; view: View; session
               <span className="when">{taskDuration(task)}</span>
             </button>
             {LIVE.has(task.status) ? (
-              <StopTask onStop={() => void act(app, () => app.call("harnix.system.tasks.stop", { ...params, task_id: task.task_id }))} />
+              <StopTask onStop={() => void act(app, () => app.call("system.tasks.stop", { ...params, task_id: task.task_id }))} />
             ) : null}
           </div>
           {task.task_id === chosen ? <TaskDetail app={app} view={view} params={params} task={task} /> : null}
@@ -59,7 +59,7 @@ export function TasksTab({ app, view, session }: { app: App; view: View; session
 }
 
 /**
- * A message for a sub-agent or teammate that is running (Agix `session.messageTask`): it reaches the
+ * A message for a sub-agent or teammate that is running (Agix `engine.session.messageTask`): it reaches the
  * turn it is in at its next step, as a message sent mid-turn reaches a main Agent. Not delivered —
  * it has finished, or is between turns — is said, not hidden.
  */
@@ -71,7 +71,7 @@ export function TaskMessage({ app, params, task }: { app: App; params: { instanc
     const message = text.trim();
     if (!message) return;
     try {
-      const r = await app.call<{ delivered: boolean; reason?: string }>("harnix.system.tasks.message", { ...params, task_id: task.task_id, message });
+      const r = await app.call<{ delivered: boolean; reason?: string }>("system.tasks.message", { ...params, task_id: task.task_id, message });
       setSaid(r.delivered ? { ok: true, text: tr("system.message.delivered") } : { ok: false, text: tr("system.message.notDelivered", { reason: r.reason ?? "" }) });
       if (r.delivered) setText("");
     } catch (e) {
@@ -172,7 +172,7 @@ function StopTask({ onStop }: { onStop: () => void }) {
   );
 }
 
-/** One read of a task's output (`session.taskOutput`): the bytes from `from_byte` to `next_byte`. */
+/** One read of a task's output (`engine.session.taskOutput`): the bytes from `from_byte` to `next_byte`. */
 interface OutputSlice {
   output: string;
   from_byte: number;
@@ -190,7 +190,7 @@ function fromByte(text: string, from: number): string {
 /**
  * What a task has produced so far: a shell command's or a monitor's lines as they come, a
  * sub-agent's answer once it has one. Followed as Agix's protocol has it (§6.3): the tail is read
- * first (`session.taskOutput`), then the session's `task_progress` frames are taken as they are
+ * first (`engine.session.taskOutput`), then the session's `task_progress` frames are taken as they are
  * pushed — what a frame repeats is dropped, a frame past a gap sends one read from where this page
  * is, and that read says so when the engine had already let some go. `task_finished` brings a last
  * read, after which the output is final. The session is attached claiming the system space for as
@@ -218,7 +218,7 @@ function TaskOutput({ app, params, task }: { app: App; params: { instance: strin
     const read = async () => {
       try {
         const at = next;
-        const r = await app.call<OutputSlice>("harnix.system.tasks.output", { ...params, task_id: task.task_id, ...(at === null ? {} : { from_byte: at }) });
+        const r = await app.call<OutputSlice>("system.tasks.output", { ...params, task_id: task.task_id, ...(at === null ? {} : { from_byte: at }) });
         if (stopped) return;
         if (next !== null && r.next_byte <= next) return; // a frame got there first
         next = r.next_byte;
@@ -245,12 +245,12 @@ function TaskOutput({ app, params, task }: { app: App; params: { instance: strin
       }
       if (event.kind === "task_finished" && event.task?.task_id === task.task_id) void read();
     });
-    void app.call("harnix.attach", target).catch(() => undefined).then(() => read());
+    void app.call("harnix.session.attach", target).catch(() => undefined).then(() => read());
     return () => {
       stopped = true;
       off();
       const open = Object.values(app.snapshot.currentBySpace).some((k) => k && keyOf(k.instance, k.sessionId) === keyOf(params.instance, params.session_id));
-      if (!open) void app.call("harnix.detach", target).catch(() => undefined);
+      if (!open) void app.call("harnix.session.detach", target).catch(() => undefined);
     };
   }, [app, params, task.task_id]);
   if (!out) return null;

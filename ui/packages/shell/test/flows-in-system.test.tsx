@@ -21,8 +21,8 @@ const LIST = { spaces: [{ id: "sessions", scene: null }, { id: "flow", scene: "f
 
 function withFlowModule(system: boolean) {
   const { app, client } = scriptedApp();
-  client.answer = (method) => (method === "harnix.spaces.list" ? LIST : method === "harnix.sessions" ? { sessions: [] } : {});
-  app.set({ reachable: ["app.flow.defs", "harnix.spaces.list"] });
+  client.answer = (method) => (method === "harnix.spaces.list" ? LIST : method === "harnix.sessions.list" ? { sessions: [] } : {});
+  app.set({ reachable: ["flow.defs", "harnix.spaces.list"] });
   if (system) app.registry.register("space", space("system", { order: 90, center: { mode: "hidden", overview: () => null } }), "builtin");
   return { app, client };
 }

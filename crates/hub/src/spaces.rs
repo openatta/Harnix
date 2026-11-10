@@ -377,7 +377,7 @@ impl Hub {
         Ok(space)
     }
 
-    /// `harnix.sessions.move {instance, session_id, space}` (ipdrun-51): bind an existing session to
+    /// `harnix.session.move {instance, session_id, space}` (ipdrun-51): bind an existing session to
     /// another space, transcript and all — an application that reorganized its spaces moves the
     /// sessions it made instead of leaving them behind. The application's, not a device's: the
     /// space is where a product put a session, not where a client would like to see it. The target
@@ -453,7 +453,7 @@ impl Hub {
         lock(&self.spaces).bound(key).to_string()
     }
 
-    /// `harnix.sessions { space }`: a space's sessions, across the instances it uses; a space
+    /// `harnix.sessions.list { space }`: a space's sessions, across the instances it uses; a space
     /// reaching across spaces has every session of every instance.
     pub(crate) async fn space_sessions(&self, space: &str) -> Result<Value, RpcError> {
         let crosses = lock(&self.spaces).crosses(space);

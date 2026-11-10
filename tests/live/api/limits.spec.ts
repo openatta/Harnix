@@ -38,7 +38,7 @@ defineSuite("limits", { feature: "connection" }, {
         // Just over. Building the whole ceiling plus one is 16 MB of string
         // for a check that triggers at exactly the same place.
         const message = "x".repeat(limits.max_frame_bytes + 1024);
-        const e = await client.refused("harnix.send",
+        const e = await client.refused("harnix.session.send",
           { session_id: "no-such-session", message });
         assert(e, "a frame over the ceiling was accepted");
         assert(String(e.message).includes(String(limits.max_frame_bytes)),
@@ -60,7 +60,7 @@ defineSuite("limits", { feature: "connection" }, {
       // it reached dispatch, without spending a turn to find out.
       const { limits } = await client.call("harnix.hello");
       const message = "x".repeat(Math.floor(limits.max_frame_bytes * 0.9));
-      const e = await client.refused("harnix.send",
+      const e = await client.refused("harnix.session.send",
         { session_id: "no-such-session", message });
       assert(e, "a legal frame was answered as if the session existed");
       assert(!String(e.message).includes("ceiling"),
@@ -71,7 +71,7 @@ defineSuite("limits", { feature: "connection" }, {
     "an upload is held to the ceiling its own grant was issued under":
       async ({ backend, client }) => {
         const { limits } = await client.call("harnix.hello");
-        const grant = await client.call("harnix.upload.begin",
+        const grant = await client.call("harnix.bulk.upload",
           { name: "big.bin", bytes: 1 });
         assert(grant.max_bytes === limits.max_upload_bytes,
           `the grant says ${grant.max_bytes}, hello says ${limits.max_upload_bytes}`);
@@ -95,8 +95,8 @@ defineSuite("limits", { feature: "connection" }, {
         // the ceiling travels with the grant rather than being one number for
         // the route. A package upload at a size a file upload would refuse is
         // the case that proves it.
-        const file = await client.call("harnix.upload.begin", { name: "f.bin", bytes: 1 });
-        const pkg = await client.call("harnix.plugins.upload", { name: "p.zip" });
+        const file = await client.call("harnix.bulk.upload", { name: "f.bin", bytes: 1 });
+        const pkg = await client.call("plugins.upload", { name: "p.zip" });
         assert(pkg.max_bytes > file.max_bytes,
           `package ceiling ${pkg.max_bytes} is not above the file ceiling ${file.max_bytes}`);
 
@@ -110,7 +110,7 @@ defineSuite("limits", { feature: "connection" }, {
     "asking for a grant above the ceiling is refused before one exists":
       async ({ client }) => {
         const { limits } = await client.call("harnix.hello");
-        const e = await client.refused("harnix.upload.begin",
+        const e = await client.refused("harnix.bulk.upload",
           { name: "huge.bin", bytes: limits.max_upload_bytes + 1 });
         assert(e && e.code === INVALID_PARAMS, `code ${e?.code}`);
         assert(e.message.includes(String(limits.max_upload_bytes)),
@@ -123,7 +123,7 @@ defineSuite("limits", { feature: "connection" }, {
         // request that disappears: every one of them comes back, as an answer or as `BUSY`.
         const n = 40;
         const answers = await Promise.allSettled(
-          Array.from({ length: n }, () => client.call("daemon.ping")));
+          Array.from({ length: n }, () => client.call("engine.daemon.ping")));
         assert(answers.length === n, `${answers.length} of ${n} came back`);
         for (const a of answers) {
           if (a.status === "fulfilled") assert(a.value.pong === true, `an answer was ${JSON.stringify(a.value)}`);
@@ -186,8 +186,8 @@ defineSuite("limits", { feature: "connection" }, {
         // suite. What is checked is that the field a client branches on
         // exists and is a boolean on a fresh attach, because the interface
         // shows a banner off it and a missing field reads as "not truncated".
-        const created = await client.call("session.create", {});
-        const attached = await client.call("harnix.attach", { session_id: created.session_id });
+        const created = await client.call("harnix.session.create", {});
+        const attached = await client.call("harnix.session.attach", { session_id: created.session_id });
         assert(typeof attached.truncated === "boolean",
           `truncated is ${JSON.stringify(attached.truncated)}`);
         assert(attached.truncated === false, "a fresh session reports a truncated buffer");

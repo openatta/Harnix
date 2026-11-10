@@ -1,4 +1,4 @@
-//! `harnix.process`: this process's versions, uptime, memory, threads and who is connected — the
+//! `system.process`: this process's versions, uptime, memory, threads and who is connected — the
 //! system space's strip. A method, and a topic computed again every few seconds while anyone
 //! watches it: memory, threads and connections change without an event to say so.
 

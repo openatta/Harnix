@@ -63,7 +63,7 @@ test("session.open with switchSpace opens a session in the space the hub has it 
   // A session of the system space, made the way that space makes them.
   const other = await page.evaluate(async () => {
     const { app } = (window as any).harnix;
-    const created = await app.call("session.create", { space: "system", scene: "harnix", options: { recorder: { name: "says-ready" } } });
+    const created = await app.call("harnix.session.create", { space: "system", scene: "harnix", options: { recorder: { name: "says-ready" } } });
     return { instance: created.instance ?? "system", sessionId: created.session_id as string };
   });
   // Without the option, nothing changes: the front space's own session is opened there.
@@ -366,7 +366,7 @@ test("composer.steer: a space that asks for it has a deliver-now switch, and a m
     const t = ((window as any).__t = { busy: [] as string[] });
     const call = client.call.bind(client);
     client.call = (method: string, params: any) => {
-      if (method === "harnix.send") t.busy.push(params.on_busy);
+      if (method === "harnix.session.send") t.busy.push(params.on_busy);
       return call(method, params);
     };
   });
@@ -386,13 +386,13 @@ test("composer.steer: a space that asks for it has a deliver-now switch, and a m
   await expect(page.locator('[data-testid="conv-message"]', { hasText: "and this now" }).getByTestId("conv-steered")).toBeVisible();
 });
 
-test("model_switch: without the system space the composer changes the model through harnix.sessions.setModel", SHELL, async ({ page }) => {
+test("model_switch: without the system space the composer changes the model through harnix.session.setModel", SHELL, async ({ page }) => {
   const backend = await startHarnix(launchFor("replay", { profile: "[shell]\nmodel_switch = true\n[extensions]\noff = [\"system\", \"flow\"]\n" }));
   try {
     await open(page, backend.url);
     const reachable = await page.evaluate(() => (window as any).harnix.app.snapshot.reachable as string[]);
-    expect(reachable).toContain("harnix.sessions.setModel");
-    expect(reachable).not.toContain("harnix.system.model");
+    expect(reachable).toContain("harnix.session.setModel");
+    expect(reachable).not.toContain("system.model");
     await newSession(page, "says-ready");
     await page.getByTestId("conv-model").click();
     await page.getByTestId("conv-model-custom").fill("claude-switched-model");
@@ -544,7 +544,7 @@ test("a split-streams page whose session stream dropped catches up on what it mi
   await say(page, "Say exactly: fixture ready");
   // The turn runs and settles while the page has no session stream: its reply went nowhere.
   await expect
-    .poll(async () => JSON.stringify(await api.call("session.history", { session_id: id })), { timeout: 30_000 })
+    .poll(async () => JSON.stringify(await api.call("engine.session.history", { session_id: id })), { timeout: 30_000 })
     .toMatch(/fixture ready/i);
   await expect(page.locator('[data-testid="conv-message"]', { hasText: /fixture ready/i })).toHaveCount(0);
 

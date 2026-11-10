@@ -23,14 +23,14 @@ test.afterAll(async () => {
 test("an unanswered ask is refused when its time runs out, and the turn settles", TAGS, async () => {
   const hello = await api.call("harnix.hello");
   expect(hello.permission_prompt_timeout_secs, "the client is told how long an ask lasts").toBe(2);
-  const { session_id } = await api.call("session.create", {
+  const { session_id } = await api.call("harnix.session.create", {
     project_root: api.project,
     options: { recorder: { name: "asks-permission" }, permission_mode: "default" },
   });
   try {
-    await api.call("harnix.attach", { session_id });
+    await api.call("harnix.session.attach", { session_id });
     const started = Date.now();
-    const { turn_id } = await api.call("harnix.send", { session_id, message: "Use the Bash tool to run: echo permission-check" });
+    const { turn_id } = await api.call("harnix.session.send", { session_id, message: "Use the Bash tool to run: echo permission-check" });
     const ask = await api.waitFor(
       (f) => f.method === "harnix.event" && f.params.session_id === session_id && f.params.event.kind === "prompt",
       { timeout: 30_000, describe: "the ask" },
@@ -45,7 +45,7 @@ test("an unanswered ask is refused when its time runs out, and the turn settles"
     expect(call, `the asked-about call in ${JSON.stringify(settled.params.outcome)}`).toBeTruthy();
     expect(call.is_error, "the call was refused, not run").toBe(true);
     // Nothing is left to answer.
-    const info = await api.call("harnix.attach", { session_id });
+    const info = await api.call("harnix.session.attach", { session_id });
     expect(info.pending_prompts).toEqual([]);
   } finally {
     await finish(api, session_id);

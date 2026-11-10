@@ -19,7 +19,6 @@
 //! transport, the extension host. What a product chooses: its name and version, its
 //! extensions, their order and what each is granted, and where secrets come from.
 
-mod aliases;
 mod apps;
 mod audit_log;
 mod cli;

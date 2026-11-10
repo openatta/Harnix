@@ -297,7 +297,7 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
   // The real path: on macOS `tmpdir()` is `/var/…`, a link to `/private/var/…`, and the engine's
   // working directory is the real one. Handing it the other spelling of the same folder made it read
   // that project's history twice, and list every session past its in-memory cap twice (an Agix
-  // `session.list` defect, openatta/Agix#23).
+  // `engine.session.list` defect, openatta/Agix#23).
   const scratch =
     options.scratch ??
     realpathSync(options.fixedScratch ?? mkdtempSync(join(tmpdir(), "harnix-live-")));

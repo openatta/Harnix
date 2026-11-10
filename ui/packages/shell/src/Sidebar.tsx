@@ -243,7 +243,7 @@ function SpaceSessions({ app, s, listed }: { app: App; s: ShellState; listed?: N
     let alive = true;
     const load = () =>
       app
-        .call<{ sessions: ShellSession[] }>("harnix.sessions", { space: claim })
+        .call<{ sessions: ShellSession[] }>("harnix.sessions.list", { space: claim })
         .then((r) => alive && setRows(uniqueSessions(r.sessions).sort((a, b) => String(b.last_active ?? "").localeCompare(String(a.last_active ?? "")))))
         .catch(() => alive && setRows([]));
     void load();

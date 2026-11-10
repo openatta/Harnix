@@ -121,7 +121,7 @@ where
 /// it is subscribed by.
 pub const HUB_TOPICS: &[(&str, &[&str])] = &[
     ("harnix.instances.sessions", &["instance"]),
-    ("harnix.sessions.tasks", &["instance", "session_id"]),
+    ("harnix.session.tasks", &["instance", "session_id"]),
     ("harnix.sessions.status", &[]),
 ];
 
@@ -129,7 +129,7 @@ pub const HUB_TOPICS: &[(&str, &[&str])] = &[
 /// session's tasks are that session's; the others list sessions, and are its space's to claim.
 fn topic_scope(name: &str) -> RowScope {
     match name {
-        "harnix.sessions.tasks" => RowScope::Session,
+        "harnix.session.tasks" => RowScope::Session,
         _ => RowScope::Space,
     }
 }
@@ -146,46 +146,42 @@ impl Hub {
     /// it. `hub` holds the hub once it is built; until then each answers that it is not up.
     pub fn rows(hub: &HubCell) -> Vec<HubRow> {
         let mut rows = vec![
-            own_space(hub, "harnix.sessions", |h, _, p| async move {
+            own_space(hub, "harnix.sessions.list", |h, _, p| async move {
                 if p.get("space").is_some() {
                     return h.space_sessions(&h.claimed(&p)?).await;
                 }
                 let instance = h.instance_of(&p)?;
                 h.sessions_view(&instance).await
             }),
-            own_session(hub, "harnix.attach", |h, cx, p| async move { h.attach(&cx, p).await }),
-            own_session(hub, "harnix.detach", |h, cx, p| async move { h.detach(&cx, p).await }),
-            own_session(hub, "harnix.send", |h, cx, p| async move { h.send(&cx, p).await }),
-            own_session(hub, "harnix.queue.remove", |h, _, p| async move { h.queue_remove(p).await }),
-            own_session(hub, "harnix.queue.edit", |h, _, p| async move { h.queue_edit(p).await }),
-            own(hub, "harnix.subscribe", |h, cx, p| async move { h.subscribe(&cx, p).await }),
-            own(hub, "harnix.unsubscribe", |h, cx, p| async move { h.unsubscribe(&cx, p).await }),
-            own(hub, "harnix.instances.sessions", |h, _, p| async move {
-                let instance = h.instance_of(&p)?;
-                h.sessions_view(&instance).await
-            }),
-            own_session(hub, "harnix.sessions.tasks", |h, _, p| async move {
+            own_session(hub, "harnix.session.attach", |h, cx, p| async move { h.attach(&cx, p).await }),
+            own_session(hub, "harnix.session.detach", |h, cx, p| async move { h.detach(&cx, p).await }),
+            own_session(hub, "harnix.session.send", |h, cx, p| async move { h.send(&cx, p).await }),
+            own_session(hub, "harnix.session.queue.remove", |h, _, p| async move { h.queue_remove(p).await }),
+            own_session(hub, "harnix.session.queue.edit", |h, _, p| async move { h.queue_edit(p).await }),
+            own(hub, "harnix.topics.subscribe", |h, cx, p| async move { h.subscribe(&cx, p).await }),
+            own(hub, "harnix.topics.unsubscribe", |h, cx, p| async move { h.unsubscribe(&cx, p).await }),
+            own_session(hub, "harnix.session.tasks", |h, _, p| async move {
                 let key = h.key_of(&p)?;
                 h.tasks_view(&key).await
             }),
             own_session(hub, "harnix.session.rename", |h, _, p| async move { h.rename(p).await }),
-            own_session(hub, "harnix.entries.append", |h, cx, p| async move { h.append_entry(&cx.subject, p).await }),
+            own_session(hub, "harnix.session.entries.append", |h, cx, p| async move { h.append_entry(&cx.subject, p).await }),
             // About one session; its `space` is where it goes, not a claim, so it is not checked
             // as one.
             HubRow::Method {
-                name: "harnix.sessions.move",
+                name: "harnix.session.move",
                 owner: Owner::Kernel(KernelPart::Hub),
                 access: Access::device().scoped(RowScope::Session),
-                handler: Some(answer(hub, "harnix.sessions.move", false, |h, cx, p| async move {
+                handler: Some(answer(hub, "harnix.session.move", false, |h, cx, p| async move {
                     h.move_session(&cx.subject, p).await
                 })),
             },
-            own(hub, "harnix.prompts.answerer", |h, cx, p| async move { h.answerer(&cx.subject, &p) }),
+            own(hub, "harnix.session.answerer", |h, cx, p| async move { h.answerer(&cx.subject, &p) }),
             own(hub, "harnix.spaces.list", |h, _, _| async move { Ok(h.spaces_view()) }),
             // Intercepted engine methods, the hub's semantics: still the device's to ask for.
-            own_session(hub, "session.interrupt", |h, _, p| async move { h.interrupt(p).await }),
-            own_session(hub, "session.close", |h, _, p| async move { h.close_or_delete(p, false).await }),
-            own_session(hub, "session.delete", |h, _, p| async move { h.close_or_delete(p, true).await }),
+            own_session(hub, "harnix.session.interrupt", |h, _, p| async move { h.interrupt(p).await }),
+            own_session(hub, "harnix.session.close", |h, _, p| async move { h.close_or_delete(p, false).await }),
+            own_session(hub, "harnix.session.delete", |h, _, p| async move { h.close_or_delete(p, true).await }),
         ];
         rows.extend(
             HUB_TOPICS

@@ -142,10 +142,10 @@ import { expect, finish, test } from "@harnix/testkit";
 const TAGS = { tag: ["@feature:sessions", "@layer:api"] };
 
 test("a new session is idle and in the list", TAGS, async ({ api }) => {
-  const { session_id } = await api.call("session.create", { scene: "harnix", project_root: api.project });
+  const { session_id } = await api.call("harnix.session.create", { scene: "harnix", project_root: api.project });
   try {
-    expect((await api.call("session.get", { session_id })).turn_state).toBe("idle");
-    const { sessions } = await api.call("harnix.sessions");
+    expect((await api.call("engine.session.get", { session_id })).turn_state).toBe("idle");
+    const { sessions } = await api.call("harnix.sessions.list");
     expect(sessions.some((s) => s.session_id === session_id)).toBe(true);
   } finally {
     await finish(api, session_id);

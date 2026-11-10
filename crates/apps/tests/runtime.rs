@@ -3,7 +3,7 @@
 //! can fail, undone.
 //!
 //! The process around it is a stand-in kernel that answers the engine methods the runtime calls
-//! (`plugin.install` and friends) and records them, with one instance, `system`, whose data root
+//! (`engine.plugin.install` and friends) and records them, with one instance, `system`, whose data root
 //! is a temporary directory.
 #![cfg(feature = "compile")]
 
@@ -167,7 +167,7 @@ impl Kernel for FakeKernel {
                 "{method} failed in {instance}"
             )));
         }
-        if method == "plugin.install" {
+        if method == "engine.plugin.install" {
             let url = params["download_url"].as_str().unwrap();
             let zip = url.strip_prefix("file://").unwrap();
             assert!(
@@ -338,7 +338,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
     assert_eq!(record.parts["agent"]["package"], json!("example-showcase"));
     assert_eq!(record.parts["agent"]["instances"], json!(["system"]));
     assert_eq!(record.parts["skills"]["system"], json!(["showcase-tour"]));
-    let installs = rig.kernel.called("plugin.install");
+    let installs = rig.kernel.called("engine.plugin.install");
     assert_eq!(installs.len(), 1);
     assert_eq!(installs[0]["name"], json!("example-showcase"));
     assert!(
@@ -346,7 +346,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
         "the skill was not placed"
     );
     assert!(
-        !rig.kernel.called("config.reload").is_empty(),
+        !rig.kernel.called("engine.config.reload").is_empty(),
         "the instance was not told to re-read"
     );
     assert_eq!(rig.runtime.status(ID).await["state"], json!("running"));
@@ -389,7 +389,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
     assert_eq!(centre["surface"]["sessions"], json!(ID));
     assert_eq!(
         centre["interface"],
-        json!({"hub": ["harnix.sessions", "session.get"], "links": true, "trust": "unsigned", "title": "Showcase", "spaces": [ID, "example.showcase.chats"]})
+        json!({"hub": ["harnix.sessions.list", "engine.session.get"], "links": true, "trust": "unsigned", "title": "Showcase", "spaces": [ID, "example.showcase.chats"]})
     );
     assert_eq!(rig.runtime.status(ID).await["frames"], json!(true));
     assert!(
@@ -494,7 +494,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
     rig.runtime.unload(&rig.cx, &record).await;
     assert!(plugin.tools_for(&project).is_empty());
     assert!(rig.runtime.ui_contributions().is_empty() && rig.runtime.mcp_servers().is_empty());
-    assert_eq!(rig.kernel.called("plugin.disable").len(), 1);
+    assert_eq!(rig.kernel.called("engine.plugin.disable").len(), 1);
     assert!(!rig.skill("system").exists());
     // On again, from the record.
     rig.runtime
@@ -509,7 +509,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
         .uninstall(&rig.cx, &record, &rig.apps().join(ID))
         .await
         .unwrap();
-    assert_eq!(rig.kernel.called("plugin.uninstall").len(), 1);
+    assert_eq!(rig.kernel.called("engine.plugin.uninstall").len(), 1);
     assert!(!rig.skill("system").exists());
 }
 
@@ -568,7 +568,7 @@ async fn the_backend_is_registered_answers_its_methods_and_acts_only_as_far_as_i
         .await
         .unwrap();
     assert_eq!(started["session_id"], json!("s-from-the-backend"));
-    assert_eq!(*lock(&apps.called), ["session.create", "harnix.send"]);
+    assert_eq!(*lock(&apps.called), ["harnix.session.create", "harnix.session.send"]);
     let over = apps.device_call(ID, "overreach", json!({})).await.unwrap();
     assert_eq!(over["refused"], json!(true));
     let status = rig.runtime.status(ID).await;
@@ -610,7 +610,7 @@ async fn a_failed_install_is_undone_and_leaves_nothing_behind() {
         .fail
         .lock()
         .unwrap()
-        .push(("plugin.install".into(), "other".into()));
+        .push(("engine.plugin.install".into(), "other".into()));
     let package = rig.package("two", |m| {
         m.replace(
             "install_into = [\"system\"]",
@@ -623,7 +623,7 @@ async fn a_failed_install_is_undone_and_leaves_nothing_behind() {
         "{}",
         err.message
     );
-    let uninstalled = rig.kernel.called("plugin.uninstall");
+    let uninstalled = rig.kernel.called("engine.plugin.uninstall");
     assert_eq!(uninstalled.len(), 1);
     assert_eq!(uninstalled[0]["instance"], json!("system"));
     assert!(
@@ -643,7 +643,7 @@ async fn a_failed_install_is_undone_and_leaves_nothing_behind() {
     });
     let err = rig.install(&package).await.unwrap_err();
     assert!(err.message.contains("no such instance"), "{}", err.message);
-    assert!(rig.kernel.called("plugin.install").is_empty());
+    assert!(rig.kernel.called("engine.plugin.install").is_empty());
 
     // A skill the instance has of its own is not replaced, and the install is undone.
     let rig = Rig::new(true);
@@ -656,7 +656,7 @@ async fn a_failed_install_is_undone_and_leaves_nothing_behind() {
         "mine"
     );
     assert_eq!(
-        rig.kernel.called("plugin.uninstall").len(),
+        rig.kernel.called("engine.plugin.uninstall").len(),
         1,
         "the agent package stayed"
     );
@@ -669,7 +669,7 @@ async fn a_failed_install_is_undone_and_leaves_nothing_behind() {
         .unwrap_err();
     assert!(err.message.contains("[apps] dev = true"), "{}", err.message);
     assert!(!rig.apps().join(ID).exists());
-    assert!(rig.kernel.called("plugin.install").is_empty());
+    assert!(rig.kernel.called("engine.plugin.install").is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]

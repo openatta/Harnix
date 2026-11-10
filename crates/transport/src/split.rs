@@ -131,7 +131,7 @@ pub async fn rpc(
             RpcError::new(codes::HANDSHAKE_REFUSED, "unknown credential; call /handshake first"),
         );
     };
-    // `harnix.attach` arrives here while the frames it registers a watcher
+    // `harnix.session.attach` arrives here while the frames it registers a watcher
     // for go out on a different socket entirely: the client is the
     // credential's, not this request's connection's.
     let cx = CallContext::root(established.subject.clone(), Some(established.client));

@@ -142,7 +142,7 @@ describe("actions per status", () => {
 
 describe("wire helpers", () => {
   it("names methods under the module's id", () => {
-    expect(methodName("flow", "confirm")).toBe("app.flow.confirm");
+    expect(methodName("flow", "confirm")).toBe("flow.confirm");
     expect(methodName("ops", "start")).toBe("app.ops.start");
   });
 

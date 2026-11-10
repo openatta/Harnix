@@ -275,7 +275,7 @@ export function workLabel(s: Station): string {
 
 export const PART_KINDS: readonly PartKind[] = ["skill", "rule", "policy", "gate", "hook"];
 
-/** A part kind's directory in a pack, the key `app.flow.def`'s `parts` uses. */
+/** A part kind's directory in a pack, the key `flow.def`'s `parts` uses. */
 export function partDir(kind: PartKind): "skills" | "rules" | "policies" | "gates" | "hooks" {
   return ({ skill: "skills", rule: "rules", policy: "policies", gate: "gates", hook: "hooks" } as const)[kind];
 }

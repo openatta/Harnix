@@ -149,8 +149,6 @@ pub enum IdKind {
 
 pub struct RouteTable {
     rows: BTreeMap<String, Entry>,
-    /// Old names that answer as the row of a new one.
-    aliases: BTreeMap<String, String>,
     /// Every extension id registered, rows or none: a native one whether it is enabled or not, a
     /// package's until it is withdrawn. Who owns a name is decided among these.
     extensions: BTreeMap<ExtId, IdKind>,
@@ -164,7 +162,7 @@ pub const OUTSIDE_HUB: &str = "not in the application's `hub` capability";
 /// Why an extension nothing registered is refused everything: one withdrawn, or never there.
 pub const UNREGISTERED: &str = "not a registered extension";
 
-/// Why a grant, an installation or an alias did not take.
+/// Why a grant or an installation did not take.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TableError {
     /// The name is already in the table. Two owners of one name is a question with no right
@@ -172,7 +170,7 @@ pub enum TableError {
     Taken(String),
     /// The hub owns it: no extension may declare it, nor list it.
     HubOwned(String),
-    /// Nothing by that name exists to be listed, or aliased.
+    /// Nothing by that name exists to be listed.
     Unknown(String),
     /// A runtime application's name that is not in its own namespace (`app.<id>.<name>`,
     /// `topic:app.<id>.<name>`), or an id that cannot be one.
@@ -212,7 +210,6 @@ impl RouteTable {
     pub fn new() -> Self {
         Self {
             rows: BTreeMap::new(),
-            aliases: BTreeMap::new(),
             extensions: BTreeMap::new(),
             defined: caps::KERNEL.iter().map(|spec| (spec.name().to_string(), spec.clone())).collect(),
         }
@@ -257,7 +254,7 @@ impl RouteTable {
         self.defined.get(cap.as_str())
     }
 
-    /// One owner's rows, all or none. Refuses a name already in the table (or an alias), and one
+    /// One owner's rows, all or none. Refuses a name already in the table, and one
     /// named twice; an extension's row in another's namespace, one the hub would own, and one
     /// requiring a capability nobody defined. On a refusal nothing was written. An extension not
     /// registered yet is registered as a native one.
@@ -315,7 +312,7 @@ impl RouteTable {
     }
 
     fn taken(&self, name: &str) -> bool {
-        self.rows.contains_key(name) || self.aliases.contains_key(name)
+        self.rows.contains_key(name)
     }
 
     /// Install one runtime application's rows, all or none, registering its id as a package's.
@@ -351,7 +348,6 @@ impl RouteTable {
         };
         let mut scratch = RouteTable {
             rows: BTreeMap::new(),
-            aliases: BTreeMap::new(),
             extensions: self.extensions.clone(),
             defined: BTreeMap::new(),
         };
@@ -393,7 +389,7 @@ impl RouteTable {
     /// Whether a package may list `name` in its consent: a method or a topic (`topic:<name>`)
     /// that exists, and not the hub's own.
     pub fn check_listed(&self, name: &str) -> Result<(), TableError> {
-        let Some(entry) = self.rows.get(self.resolve(name)) else {
+        let Some(entry) = self.rows.get(name) else {
             return Err(TableError::Unknown(name.to_string()));
         };
         if entry.row.access.is_hub_owned() {
@@ -405,7 +401,7 @@ impl RouteTable {
     /// Whether `ext` owns the row `name` stands for.
     pub fn owns(&self, ext: &ExtId, name: &str) -> bool {
         self.rows
-            .get(self.resolve(name))
+            .get(name)
             .and_then(|entry| entry.owner.extension_id())
             .is_some_and(|owner| owner == ext)
     }
@@ -415,43 +411,23 @@ impl RouteTable {
         self.rows.get(name).map(|entry| &entry.owner)
     }
 
-    /// Let `old` answer as the row `new`: decided, reached and answered as `new` is. For a name
-    /// that is moving, while its callers move with it.
-    pub fn alias(&mut self, old: &str, new: &str) -> Result<(), TableError> {
-        if self.taken(old) {
-            return Err(TableError::Taken(old.to_string()));
-        }
-        if !self.rows.contains_key(new) {
-            return Err(TableError::Unknown(new.to_string()));
-        }
-        self.aliases.insert(old.to_string(), new.to_string());
-        Ok(())
-    }
-
-    /// The name a call means: its own, or what it is an alias of.
-    pub fn resolve<'a>(&'a self, name: &'a str) -> &'a str {
-        self.aliases.get(name).map_or(name, String::as_str)
-    }
-
-    /// The row a name means, through an alias.
+    /// The row a name means.
     pub fn row(&self, name: &str) -> Option<&Row> {
-        self.rows.get(self.resolve(name)).map(|entry| &entry.row)
+        self.rows.get(name).map(|entry| &entry.row)
     }
 
     /// Whether `subject` may call `name`, by its row and what `grants` say it holds. A package is
     /// held to what its consent lists and its own names first: asking for anything else it is
     /// told that, not whether the name is there.
     pub fn decide(&self, subject: &Subject, grants: &dyn GrantBook, called: &str) -> Decision {
-        let name = self.resolve(called);
+        let name = called;
         if let Subject::Extension { id } = subject {
             match grants.trust(id) {
                 None => return Decision::Refuse(UNREGISTERED),
                 Some(trust) => {
                     if let Some(calls) = trust.calls() {
                         let own = self.owns(id, name) || names::in_app_namespace(id.as_str(), name);
-                        // Consented to by its name or the one it is an alias of, while the names move.
-                        let listed =
-                            own || calls.contains(name) || calls.contains(called) || DECIDED_BY_TOPIC.contains(&name);
+                        let listed = own || calls.contains(name) || DECIDED_BY_TOPIC.contains(&name);
                         if !listed {
                             return Decision::Refuse(OUTSIDE_HUB);
                         }
@@ -494,10 +470,6 @@ impl RouteTable {
 
     pub(crate) fn entries(&self) -> impl Iterator<Item = &Entry> + '_ {
         self.rows.values()
-    }
-
-    pub(crate) fn aliases(&self) -> impl Iterator<Item = (&str, &str)> + '_ {
-        self.aliases.iter().map(|(old, new)| (old.as_str(), new.as_str()))
     }
 }
 
@@ -584,20 +556,20 @@ mod tests {
 
     #[test]
     fn a_capability_row_opens_to_whoever_holds_it_and_no_other() {
-        let t = with(vec![method("config.setProvider", Access::capability(caps::ENGINE_CONFIG_WRITE).refusing("no"))]);
+        let t = with(vec![method("engine.config.setProvider", Access::capability(caps::ENGINE_CONFIG_WRITE).refusing("no"))]);
         let g = natives();
         g.set(id("settings"), [caps::ENGINE_CONFIG_WRITE], Trust::Origin);
-        assert_eq!(t.decide(&module("settings"), &g, "config.setProvider"), Decision::Allow);
-        assert_eq!(t.decide(&module("other"), &g, "config.setProvider"), Decision::Refuse("no"));
-        assert_eq!(t.decide(&device(), &g, "config.setProvider"), Decision::Refuse("no"));
+        assert_eq!(t.decide(&module("settings"), &g, "engine.config.setProvider"), Decision::Allow);
+        assert_eq!(t.decide(&module("other"), &g, "engine.config.setProvider"), Decision::Refuse("no"));
+        assert_eq!(t.decide(&device(), &g, "engine.config.setProvider"), Decision::Refuse("no"));
     }
 
     #[test]
     fn what_the_hub_owns_reaches_nobody_and_no_extension_declares_it() {
-        let mut t = with(vec![Row::closed("session.run_turn", Access::hub_owned("hub"))]);
+        let mut t = with(vec![Row::closed("engine.session.run_turn", Access::hub_owned("hub"))]);
         let g = natives();
-        assert!(matches!(t.decide(&Subject::Kernel, &g, "session.run_turn"), Decision::Refuse(_)));
-        assert_eq!(t.check_listed("session.run_turn"), Err(TableError::HubOwned("session.run_turn".into())));
+        assert!(matches!(t.decide(&Subject::Kernel, &g, "engine.session.run_turn"), Decision::Refuse(_)));
+        assert_eq!(t.check_listed("engine.session.run_turn"), Err(TableError::HubOwned("engine.session.run_turn".into())));
         assert_eq!(
             t.install(&ext("x"), vec![Row::closed("app.x.turn", Access::hub_owned("mine"))]),
             Err(TableError::HubOwned("app.x.turn".into()))
@@ -722,8 +694,8 @@ mod tests {
         for name in [
             "harnix.hello",
             "harnix.apps.list",
-            "session.create",
-            "config.setProvider",
+            "harnix.session.create",
+            "engine.config.setProvider",
             "app.other.echo",
             "app.fake",
             "app.fake.",
@@ -842,10 +814,10 @@ mod tests {
             &kernel(),
             vec![
                 method("settings.write", Access::capability(caps::ENGINE_CONFIG_WRITE)),
-                method("session.create", Access::device()),
-                method("harnix.subscribe", Access::device()),
+                method("harnix.session.create", Access::device()),
+                method("harnix.topics.subscribe", Access::device()),
                 Row::topic("harnix.sessions.status", Access::device()),
-                Row::topic("harnix.process", Access::device()),
+                Row::topic("system.process", Access::device()),
             ],
         )
         .unwrap();
@@ -858,11 +830,11 @@ mod tests {
         t.install_app("acme.todo", vec![method("app.acme.todo.list", access_for(&[Principal::AnyModule]))]).unwrap();
         let g = grants(
             &["probe"],
-            &[("acme.notes", &["session.create", "settings.write", "topic:harnix.sessions.status", "app.acme.todo.list"])],
+            &[("acme.notes", &["harnix.session.create", "settings.write", "topic:harnix.sessions.status", "app.acme.todo.list"])],
         );
         let me = module("acme.notes");
         // Open to every extension, and listed.
-        assert_eq!(t.decide(&me, &g, "session.create"), Decision::Allow);
+        assert_eq!(t.decide(&me, &g, "harnix.session.create"), Decision::Allow);
         // Open to every extension, not listed.
         assert_eq!(t.decide(&me, &g, "harnix.hello"), Decision::Refuse(OUTSIDE_HUB));
         assert_eq!(t.decide(&me, &g, "nothing.here"), Decision::Refuse(OUTSIDE_HUB), "told whether it exists");
@@ -875,39 +847,21 @@ mod tests {
         // Another application's, listed, as that one declared it.
         assert_eq!(t.decide(&me, &g, "app.acme.todo.list"), Decision::Allow);
         // Topics: subscribing is decided by the topic.
-        assert_eq!(t.decide(&me, &g, "harnix.subscribe"), Decision::Allow);
+        assert_eq!(t.decide(&me, &g, "harnix.topics.subscribe"), Decision::Allow);
         assert_eq!(t.decide(&me, &g, &topic("harnix.sessions.status")), Decision::Allow);
-        assert_eq!(t.decide(&me, &g, &topic("harnix.process")), Decision::Refuse(OUTSIDE_HUB));
+        assert_eq!(t.decide(&me, &g, &topic("system.process")), Decision::Refuse(OUTSIDE_HUB));
         // So what it is told it reaches is what it reaches.
         assert_eq!(
             t.reachable(&me, &g),
-            ["app.acme.notes.echo", "app.acme.todo.list", "harnix.subscribe", "session.create"]
+            ["app.acme.notes.echo", "app.acme.todo.list", "harnix.topics.subscribe", "harnix.session.create"]
         );
         assert_eq!(t.reachable_topics(&me, &g), ["app.acme.notes.ticks", "harnix.sessions.status"]);
         // A compiled-in module is not narrowed by any of this.
         assert_eq!(t.decide(&module("probe"), &g, "harnix.hello"), Decision::Allow);
         // Listing: what exists and the hub does not own.
-        assert_eq!(t.check_listed("session.create"), Ok(()));
-        assert_eq!(t.check_listed("topic:harnix.process"), Ok(()));
+        assert_eq!(t.check_listed("harnix.session.create"), Ok(()));
+        assert_eq!(t.check_listed("topic:system.process"), Ok(()));
         assert_eq!(t.check_listed("nothing.here"), Err(TableError::Unknown("nothing.here".into())));
-    }
-
-    #[test]
-    fn an_alias_answers_as_its_row_and_is_not_a_row_of_its_own() {
-        let mut t = assembled();
-        let g = natives();
-        t.install(&kernel(), vec![method("settings.write", Access::refused("not for devices"))]).unwrap();
-        t.alias("harnix.hi", "harnix.hello").unwrap();
-        t.alias("old.write", "settings.write").unwrap();
-        assert_eq!(t.decide(&device(), &g, "harnix.hi"), Decision::Allow);
-        assert_eq!(t.decide(&device(), &g, "old.write"), Decision::Refuse("not for devices"));
-        assert_eq!(t.row("harnix.hi").map(Row::name), Some("harnix.hello"));
-        assert!(!t.reachable(&device(), &g).contains(&"harnix.hi"), "listed by its new name only");
-        // Neither name can be taken twice, and an alias needs something to point at.
-        assert_eq!(t.alias("harnix.hello", "app.probe.echo"), Err(TableError::Taken("harnix.hello".into())));
-        assert_eq!(t.alias("harnix.hi", "app.probe.echo"), Err(TableError::Taken("harnix.hi".into())));
-        assert_eq!(t.alias("x", "nothing.here"), Err(TableError::Unknown("nothing.here".into())));
-        assert_eq!(t.install(&kernel(), rows(&["harnix.hi"])), Err(TableError::Taken("harnix.hi".into())));
     }
 
     #[test]

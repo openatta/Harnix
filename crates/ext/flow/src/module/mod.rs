@@ -676,7 +676,7 @@ impl Extension for Flow {
         {
             if let Err(e) = cx
                 .call(
-                    "scene.activate",
+                    "engine.scene.activate",
                     json!({"instance": FLOW_INSTANCE, "scene": scene}),
                 )
                 .await

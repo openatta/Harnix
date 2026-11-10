@@ -156,7 +156,7 @@ const AgentItem = memo(function AgentItem({ app, view, row, usage, goal, turning
   const live = row.tasks ?? 0;
   const expanded = open ?? (scope === "active" && live > 0);
   const taskParams = useMemo(() => ({ instance: row.instance, session_id: row.session_id }), [row.instance, row.session_id]);
-  const listed = useTopicIf<{ tasks: Task[]; teams?: Team[] }>(view, "harnix.sessions.tasks", taskParams, expanded || (scope === "active" && row.status === "active"));
+  const listed = useTopicIf<{ tasks: Task[]; teams?: Team[] }>(view, "harnix.session.tasks", taskParams, expanded || (scope === "active" && row.status === "active"));
   const tasks = listed?.tasks ?? [];
   const subs = subAgentsOf(row.session_id, usage, tasks);
   const subCount = [...subs.values()].reduce((n, list) => n + list.length, 0);

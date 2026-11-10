@@ -97,7 +97,7 @@ impl Kernel for ProcessKernel {
     }
 
     /// A tap is a client of the hub like any other, registered as a watcher
-    /// by the same `harnix.attach` — through the admission point, as the
+    /// by the same `harnix.session.attach` — through the admission point, as the
     /// module, so the same table decides whether it may.
     async fn tap(&self, subject: &Subject, session: &SessionRef, capacity: usize) -> Result<Tap, RpcError> {
         let router = self.router()?;
@@ -113,7 +113,7 @@ impl Kernel for ProcessKernel {
             move |params: Value| {
                 let router = router.clone();
                 let cx = CallContext::root(subject.clone(), Some(client));
-                async move { router.call(cx, "harnix.attach", params).await }
+                async move { router.call(cx, "harnix.session.attach", params).await }
             }
         };
         let attached = match attach(attach_params.clone()).await {
@@ -184,7 +184,7 @@ impl Diagnostics {
     fn table(&self) -> Value {
         match self.router() {
             Some(router) => router.snapshot(),
-            None => json!({"rows": [], "aliases": []}),
+            None => json!({"rows": []}),
         }
     }
 
@@ -276,7 +276,7 @@ mod tests {
         let grants = Arc::new(harnix_kernel::GrantTable::new());
         let router = Router::new(crate::kernel_rows::table(&Behind::default()), grants.clone(), Arc::new(Audit::default()));
         let id = "snapshot-app";
-        let hub: Vec<String> = ["harnix.sessions", "harnix.send", "session.interrupt", "topic:harnix.sessions.status", "plugin.install"]
+        let hub: Vec<String> = ["harnix.sessions.list", "harnix.session.send", "harnix.session.interrupt", "topic:harnix.sessions.status", "engine.plugin.install"]
             .iter()
             .map(|s| s.to_string())
             .collect();

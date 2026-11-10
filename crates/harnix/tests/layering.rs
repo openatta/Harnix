@@ -724,7 +724,7 @@ fn harnix_reads_only_its_own_manifest_section() {
 }
 
 /// The same rule's second reader. A plugin application's `agent/` is an Agix package, installed
-/// by `plugin.install` under the name and version its `plugin.toml` gives; `harnix-package`
+/// by `engine.plugin.install` under the name and version its `plugin.toml` gives; `harnix-package`
 /// reads those two keys of `[plugin]` and nothing else of the engine's manifest.
 #[test]
 fn a_plugin_applications_agent_package_is_read_for_its_name_and_version_only() {

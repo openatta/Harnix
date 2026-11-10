@@ -71,7 +71,7 @@ use clients::Clients;
 use links::Linked;
 use session::SessionState;
 
-/// How many answered permission prompts the hub keeps for `harnix.prompts.answerer`.
+/// How many answered permission prompts the hub keeps for `harnix.session.answerer`.
 pub(crate) const ANSWERERS_KEPT: usize = 1024;
 
 /// `harnix.spaces`: the same value as `harnix.spaces.list`, pushed when a
@@ -149,7 +149,7 @@ pub struct Hub {
     /// computation rather than one each, and an older one never lands last.
     refreshing: StdMutex<views::Refreshes>,
     /// Who answered a permission prompt, by `(session, tool_use_id)`, until a
-    /// module reads it (`harnix.prompts.answerer`) or [`ANSWERERS_KEPT`] newer
+    /// module reads it (`harnix.session.answerer`) or [`ANSWERERS_KEPT`] newer
     /// answers push it out: what the tool's own audit names as the person who
     /// confirmed.
     answerers: StdMutex<VecDeque<((String, String), String)>>,
@@ -378,7 +378,7 @@ impl Hub {
         }
     }
 
-    /// `harnix.prompts.answerer {session_id, tool_use_id}`: the device that answered that tool's
+    /// `harnix.session.answerer {session_id, tool_use_id}`: the device that answered that tool's
     /// permission prompt, once (it is forgotten on reading); `null` when no device answered it
     /// (the session's permission mode let it run) or the answer was pushed out. For the
     /// application's audit; a device cannot ask (helm-01).
@@ -403,10 +403,10 @@ impl Hub {
         Ok(json!({ "answerer": who }))
     }
 
-    /// `harnix.entries.append {instance, session_id, event, payload}`: an entry in the session's log,
+    /// `harnix.session.entries.append {instance, session_id, event, payload}`: an entry in the session's log,
     /// for people and never for the model (concept §3.2.1). A module writes under its own namespace,
     /// `app.<id>`, so no module can write another's; the kernel names one. A person's words are
-    /// `harnix.send`, so a device writes none.
+    /// `harnix.session.send`, so a device writes none.
     pub(crate) async fn append_entry(&self, subject: &Subject, params: Value) -> Result<Value, RpcError> {
         let key = self.key_of(&params)?;
         let ns = match subject {
@@ -419,7 +419,7 @@ impl Hub {
             _ => {
                 return Err(RpcError::new(
                     codes::REFUSED,
-                    "entries are the application's; a device speaks through harnix.send",
+                    "entries are the application's; a device speaks through harnix.session.send",
                 ))
             }
         };

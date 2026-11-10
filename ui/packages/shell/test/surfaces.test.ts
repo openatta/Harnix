@@ -22,7 +22,7 @@ class Client {
   calls: { method: string; params: Record<string, unknown> }[] = [];
   call(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     this.calls.push({ method, params });
-    return Promise.resolve(method === "harnix.subscribe" ? { value: null } : { ok: method });
+    return Promise.resolve(method === "harnix.topics.subscribe" ? { value: null } : { ok: method });
   }
   onNotify(): () => void {
     return () => undefined;
@@ -33,7 +33,7 @@ class Client {
   connect(): void {}
 }
 
-const IFACE: AppInterface = { id: "acme.notes", title: "Notes", trust: "store", hub: ["harnix.sessions"], links: false, spaces: ["acme.notes"], surfaces: [] };
+const IFACE: AppInterface = { id: "acme.notes", title: "Notes", trust: "store", hub: ["harnix.sessions.list"], links: false, spaces: ["acme.notes"], surfaces: [] };
 const decl = (point: SurfaceDecl["point"], id: string = point): SurfaceDecl => ({
   app: "acme.notes", point, id, frame: "/apps/acme.notes/ui/a.html", title: null, space: point.startsWith("space") ? "acme.notes" : null, sessions: "acme.notes", icon: null, order: null, center: null, kinds: [], wide: false,
 });
@@ -134,7 +134,7 @@ describe("a frame's bridge", () => {
     const frame = framePort(f.handed[0]!.port);
     await frame.ask("hello");
     expect((await frame.ask("call", { method: "app.acme.notes.list" })).result).toEqual({ ok: "app.acme.notes.list" });
-    expect((await frame.ask("call", { method: "harnix.sessions", params: { space: "acme.notes" } })).result).toEqual({ ok: "harnix.sessions" });
+    expect((await frame.ask("call", { method: "harnix.sessions.list", params: { space: "acme.notes" } })).result).toEqual({ ok: "harnix.sessions.list" });
     const refused = await frame.ask("call", { method: "harnix.apps.uninstall", params: { id: "acme.notes" } });
     expect(refused.error).toMatchObject({ code: "refused" });
     expect(client.calls.map((c) => c.method)).not.toContain("harnix.apps.uninstall");
@@ -232,14 +232,14 @@ describe("what hello says", () => {
     const { apps, refused } = interfacesOf({
       contributions: [
         { plugin: "acme.notes", point: "home.card", api_version: 2, refused: "card.js", reason: "in the page" },
-        { plugin: "acme.notes", point: "space", api_version: 2, frame: "/apps/acme.notes/ui/a.html", surface: { id: "space", space: "acme.notes", title: { en: "Notes" } }, interface: { hub: ["harnix.sessions"], links: true, trust: "store", title: "Notes", spaces: ["acme.notes"] } },
+        { plugin: "acme.notes", point: "space", api_version: 2, frame: "/apps/acme.notes/ui/a.html", surface: { id: "space", space: "acme.notes", title: { en: "Notes" } }, interface: { hub: ["harnix.sessions.list"], links: true, trust: "store", title: "Notes", spaces: ["acme.notes"] } },
         { plugin: "acme.notes", point: "home.card", api_version: 2, frame: "/apps/other.app/ui/x.html", surface: { id: "card" }, interface: {} },
         { plugin: "pkg", point: "space", api_version: 2, module: "/plugins/pkg/ui/x.js" },
       ],
     });
     expect(refused).toEqual([{ app: "acme.notes", point: "home.card", module: "card.js", reason: "in the page" }]);
     expect(apps).toHaveLength(1);
-    expect(apps[0]).toMatchObject({ id: "acme.notes", hub: ["harnix.sessions"], links: true });
+    expect(apps[0]).toMatchObject({ id: "acme.notes", hub: ["harnix.sessions.list"], links: true });
     expect(apps[0]!.surfaces.map((s) => [s.point, s.frame])).toEqual([
       ["space", "/apps/acme.notes/ui/a.html"],
       ["home.card", null],

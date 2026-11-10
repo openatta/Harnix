@@ -9,7 +9,7 @@
 //! ```toml
 //! [interface]                    # optional
 //! isolate = true                 # a trusted publisher's interface in frames too (see below)
-//! hub = ["harnix.sessions", "harnix.send"]
+//! hub = ["harnix.sessions.list", "harnix.session.send"]
 //!                                # what a frame may call and subscribe to beyond its own
 //!                                # app.<id>.*: `harnix.*` or `session.*`, `topic:` for topics
 //! links = true                   # may ask the shell to open a web page (confirmed each time)
@@ -66,19 +66,19 @@ pub const POINTS: &[&str] = &[
 /// the page's own subscriptions (the bridge's `subscribe` is the way).
 const NEVER: &[&str] = &[
     "harnix.apps.",
-    "harnix.plugins.",
-    "harnix.settings.",
-    "harnix.devices.",
+    "plugins.",
+    "settings.",
+    "devices.",
     "harnix.instances.",
-    "harnix.system.",
-    "harnix.upload.",
-    "harnix.prompts.",
-    "harnix.prefs.",
-    "harnix.subscribe",
-    "harnix.unsubscribe",
-    "harnix.attach",
-    "harnix.detach",
-    "harnix.requestHeaders",
+    "system.",
+    "harnix.bulk.",
+    "harnix.session.answerer",
+    "harnix-app.prefs.",
+    "harnix.topics.subscribe",
+    "harnix.topics.unsubscribe",
+    "harnix.session.attach",
+    "harnix.session.detach",
+    "observability.calls",
 ];
 
 /// `[interface]`.
@@ -359,17 +359,17 @@ mod tests {
     fn a_frame_reaches_its_own_names_and_what_its_hub_lists() {
         let interface = Interface {
             hub: vec![
-                "harnix.sessions".into(),
-                "topic:harnix.sessions.tasks".into(),
+                "harnix.sessions.list".into(),
+                "topic:harnix.session.tasks".into(),
             ],
             ..Interface::default()
         };
         assert!(admits(ID, &interface, "app.acme.notes.list", false));
         assert!(admits(ID, &interface, "app.acme.notes.changes", true));
-        assert!(admits(ID, &interface, "harnix.sessions", false));
-        assert!(admits(ID, &interface, "harnix.sessions.tasks", true));
-        assert!(!admits(ID, &interface, "harnix.sessions.tasks", false));
-        assert!(!admits(ID, &interface, "harnix.sessions", true));
+        assert!(admits(ID, &interface, "harnix.sessions.list", false));
+        assert!(admits(ID, &interface, "harnix.session.tasks", true));
+        assert!(!admits(ID, &interface, "harnix.session.tasks", false));
+        assert!(!admits(ID, &interface, "harnix.sessions.list", true));
         assert!(!admits(ID, &interface, "app.acme.other.list", false));
         assert!(!admits(ID, &interface, "app.acme.notesx.list", false));
     }
@@ -390,7 +390,7 @@ mod tests {
         check(
             ID,
             &Interface {
-                hub: vec!["harnix.sessions".into()],
+                hub: vec!["harnix.sessions.list".into()],
                 ..Interface::default()
             },
             &surfaces,
@@ -460,14 +460,14 @@ mod tests {
         };
         assert!(hub("app.acme.notes.list").contains("`harnix.*` or `session.*`"));
         assert!(hub("harnix.apps.uninstall").contains("the shell's own"));
-        assert!(hub("harnix.subscribe").contains("the shell's own"));
-        assert!(hub("topic:harnix.settings.changed").contains("the shell's own"));
+        assert!(hub("harnix.topics.subscribe").contains("the shell's own"));
+        assert!(hub("topic:settings.changed").contains("the shell's own"));
         // Beyond the families and the shell's own, what a frame is given is the router's to
         // narrow, row by row.
         check(
             ID,
             &Interface {
-                hub: ["harnix.sessions", "session.get", "session.create", "topic:harnix.spaces"].map(String::from).to_vec(),
+                hub: ["harnix.sessions.list", "engine.session.get", "harnix.session.create", "topic:harnix.spaces"].map(String::from).to_vec(),
                 ..Interface::default()
             },
             &[],

@@ -151,9 +151,8 @@ impl Router {
         let Some(calls) = self.grants.frame_calls(ext) else {
             return Decision::Refuse(NO_FRAME);
         };
-        // Listed by its name or the one it is an alias of, while the names move.
-        let listed = |name: &str| calls.contains(name) || calls.contains(table.resolve(name));
-        let allowed = match subscribed_topic(table, method, params) {
+        let listed = |name: &str| calls.contains(name);
+        let allowed = match subscribed_topic(method, params) {
             Some(name) => listed(&topic(name)) || table.owns(ext, name),
             None => listed(method) || table.owns(ext, method),
         };
@@ -167,7 +166,7 @@ impl Router {
     /// sessions ([`harnix_authz::narrow`]). A subscription by its topic's row, claiming the space
     /// in the topic's params.
     fn narrow(&self, table: &RouteTable, cx: &CallContext, method: &str, params: &Value) -> Decision {
-        let (name, params) = match subscribed_topic(table, method, params) {
+        let (name, params) = match subscribed_topic(method, params) {
             Some(name) => (topic(name), params.get("params").unwrap_or(&Value::Null)),
             None => (method.to_string(), params),
         };
@@ -194,9 +193,9 @@ impl Router {
 }
 
 /// The topic a subscribe or unsubscribe is about; `None` for any other call.
-fn subscribed_topic<'a>(table: &RouteTable, method: &str, params: &'a Value) -> Option<&'a str> {
+fn subscribed_topic<'a>(method: &str, params: &'a Value) -> Option<&'a str> {
     names::DECIDED_BY_TOPIC
-        .contains(&table.resolve(method))
+        .contains(&method)
         .then(|| params.get("topic").and_then(Value::as_str).unwrap_or(""))
 }
 
@@ -240,7 +239,7 @@ impl Dispatch for Router {
         // One read: the decision and what answers it come from the same row.
         let (decision, handler, subscribing, missing) = {
             let table = self.table();
-            let subscribing = names::DECIDED_BY_TOPIC.contains(&table.resolve(method));
+            let subscribing = names::DECIDED_BY_TOPIC.contains(&method);
             let mut decision = self.decide_frame(&table, &cx, method, &params);
             if decision == Decision::Allow {
                 decision = table.decide(&cx.subject, &*self.grants, method);
@@ -344,12 +343,12 @@ mod tests {
                 &Owner::Kernel(KernelPart::Hub),
                 vec![
                     Row::method("harnix.hello", Access::device(), seen.clone()),
-                    Row::method("harnix.subscribe", Access::device(), seen.clone()),
-                    Row::method("config.set", Access::refused("not for devices"), seen.clone()),
+                    Row::method("harnix.topics.subscribe", Access::device(), seen.clone()),
+                    Row::method("engine.config.set", Access::refused("not for devices"), seen.clone()),
                     Row::method("session.inspect", Access::capability(caps::ENGINE_INSPECT), seen.clone()),
-                    Row::method("session.get", Access::device().scoped(RowScope::Session), seen.clone()),
+                    Row::method("engine.session.get", Access::device().scoped(RowScope::Session), seen.clone()),
                     Row::method("sessions.list", Access::device().scoped(RowScope::Space), seen.clone()),
-                    Row::closed("session.run_turn", Access::hub_owned("the hub's")),
+                    Row::closed("engine.session.run_turn", Access::hub_owned("the hub's")),
                     Row::topic("harnix.instances", Access::device()),
                     Row::topic("harnix.secret", Access::kernel()),
                 ],
@@ -366,7 +365,7 @@ mod tests {
         grants.set(
             id("acme.notes"),
             [],
-            Trust::consent(["session.get".to_string(), "sessions.list".to_string()], PackageCarrier::Wasm),
+            Trust::consent(["engine.session.get".to_string(), "sessions.list".to_string()], PackageCarrier::Wasm),
         );
         let router = Router::new(table, grants.clone(), Arc::new(Audit::default()));
         (router, seen, grants)
@@ -384,9 +383,9 @@ mod tests {
         assert_eq!((entry.method.as_str(), entry.decision, entry.call_id), ("harnix.hello", "allow", Some(call)));
 
         // Refused with the row's reason, never reaching the handler; an unknown name is not found.
-        let e = router.call(CallContext::root(device(), None), "config.set", json!({})).await.unwrap_err();
+        let e = router.call(CallContext::root(device(), None), "engine.config.set", json!({})).await.unwrap_err();
         assert_eq!((e.code, e.message.as_str()), (codes::REFUSED, "not for devices"));
-        let e = router.call(CallContext::root(Subject::Kernel, None), "session.run_turn", json!({})).await.unwrap_err();
+        let e = router.call(CallContext::root(Subject::Kernel, None), "engine.session.run_turn", json!({})).await.unwrap_err();
         assert_eq!(e.code, codes::REFUSED);
         let e = router.call(CallContext::root(device(), None), "harnix.nothing", json!({})).await.unwrap_err();
         assert_eq!(e.code, codes::METHOD_NOT_FOUND);
@@ -416,14 +415,14 @@ mod tests {
         let e = router.call(me(), "harnix.hello", json!({})).await.unwrap_err();
         assert_eq!(e.message, OUTSIDE_HUB);
         // A session or a space: only claiming its own.
-        assert!(router.call(me(), "session.get", json!({"space": "acme.notes"})).await.is_ok());
+        assert!(router.call(me(), "engine.session.get", json!({"space": "acme.notes"})).await.is_ok());
         assert!(router.call(me(), "sessions.list", json!({"space": "acme.notes.board"})).await.is_ok());
         for params in [json!({}), json!({"space": "sessions"}), json!({"space": "acme"})] {
-            let e = router.call(me(), "session.get", params.clone()).await.unwrap_err();
+            let e = router.call(me(), "engine.session.get", params.clone()).await.unwrap_err();
             assert_eq!((e.code, e.message.as_str()), (codes::REFUSED, harnix_authz::OUTSIDE_OWN_SPACE), "{params}");
         }
         // A native extension is not narrowed.
-        assert!(router.call(CallContext::root(Subject::extension(id("w")), None), "session.get", json!({})).await.is_ok());
+        assert!(router.call(CallContext::root(Subject::extension(id("w")), None), "engine.session.get", json!({})).await.is_ok());
     }
 
     #[tokio::test]
@@ -437,16 +436,16 @@ mod tests {
         // No framed interface: nothing.
         let e = router.call(page(), "harnix.hello", json!({})).await.unwrap_err();
         assert_eq!(e.message, NO_FRAME);
-        grants.set_frame(&id("acme.notes"), Some(["session.get".to_string(), "config.set".to_string()].into()));
+        grants.set_frame(&id("acme.notes"), Some(["engine.session.get".to_string(), "engine.config.set".to_string()].into()));
         // Its own names; listed ones, narrowed to its space; what it lists the device may not do,
         // it may not either.
         assert!(router.call(page(), "app.acme.notes.list", json!({})).await.is_ok());
-        assert!(router.call(page(), "session.get", json!({"space": "acme.notes"})).await.is_ok());
-        let e = router.call(page(), "session.get", json!({"space": "sessions"})).await.unwrap_err();
+        assert!(router.call(page(), "engine.session.get", json!({"space": "acme.notes"})).await.is_ok());
+        let e = router.call(page(), "engine.session.get", json!({"space": "sessions"})).await.unwrap_err();
         assert_eq!(e.message, harnix_authz::OUTSIDE_OWN_SPACE);
         let e = router.call(page(), "harnix.hello", json!({})).await.unwrap_err();
         assert_eq!(e.message, OUTSIDE_FRAME);
-        let e = router.call(page(), "config.set", json!({})).await.unwrap_err();
+        let e = router.call(page(), "engine.config.set", json!({})).await.unwrap_err();
         assert_eq!(e.message, "not for devices");
         let entry = &router.audit().recent(1)[0];
         assert_eq!((entry.subject.as_str(), entry.via.as_deref()), ("device:d", Some("ext:acme.notes")));
@@ -467,10 +466,10 @@ mod tests {
     async fn subscribing_is_decided_by_the_topic_too() {
         let (router, _, _) = router();
         let sub = |topic: &str| json!({"topic": topic});
-        assert!(router.call(CallContext::root(device(), None), "harnix.subscribe", sub("harnix.instances")).await.is_ok());
-        let e = router.call(CallContext::root(device(), None), "harnix.subscribe", sub("harnix.secret")).await.unwrap_err();
+        assert!(router.call(CallContext::root(device(), None), "harnix.topics.subscribe", sub("harnix.instances")).await.is_ok());
+        let e = router.call(CallContext::root(device(), None), "harnix.topics.subscribe", sub("harnix.secret")).await.unwrap_err();
         assert_eq!(e.code, codes::REFUSED);
-        let e = router.call(CallContext::root(device(), None), "harnix.subscribe", sub("harnix.none")).await.unwrap_err();
+        let e = router.call(CallContext::root(device(), None), "harnix.topics.subscribe", sub("harnix.none")).await.unwrap_err();
         assert_eq!((e.code, e.message.as_str()), (codes::METHOD_NOT_FOUND, "there is no topic `harnix.none`"));
     }
 
@@ -485,16 +484,16 @@ mod tests {
             cx
         };
         let sub = |topic: &str| json!({"topic": topic, "params": {}});
-        let e = router.call(page(), "harnix.subscribe", sub("harnix.instances")).await.unwrap_err();
+        let e = router.call(page(), "harnix.topics.subscribe", sub("harnix.instances")).await.unwrap_err();
         assert_eq!(e.message, NO_FRAME);
         // Listing the method is not listing the topic.
-        grants.set_frame(&id("acme.notes"), Some(["harnix.subscribe".to_string()].into()));
-        let e = router.call(page(), "harnix.subscribe", sub("harnix.instances")).await.unwrap_err();
+        grants.set_frame(&id("acme.notes"), Some(["harnix.topics.subscribe".to_string()].into()));
+        let e = router.call(page(), "harnix.topics.subscribe", sub("harnix.instances")).await.unwrap_err();
         assert_eq!(e.message, OUTSIDE_FRAME);
         grants.set_frame(&id("acme.notes"), Some(["topic:harnix.instances".to_string(), "topic:harnix.secret".to_string()].into()));
-        assert!(router.call(page(), "harnix.subscribe", sub("harnix.instances")).await.is_ok());
+        assert!(router.call(page(), "harnix.topics.subscribe", sub("harnix.instances")).await.is_ok());
         // Listed, but not the device's to watch: the intersection.
-        let e = router.call(page(), "harnix.subscribe", sub("harnix.secret")).await.unwrap_err();
+        let e = router.call(page(), "harnix.topics.subscribe", sub("harnix.secret")).await.unwrap_err();
         assert_eq!(e.code, codes::REFUSED);
         let entry = &router.audit().recent(1)[0];
         assert_eq!(entry.via.as_deref(), Some("ext:acme.notes"));
@@ -506,7 +505,7 @@ mod tests {
         let reach = router.call(CallContext::root(device(), None), REACHABLE, json!({})).await.unwrap();
         assert_eq!(
             reach["methods"],
-            json!(["app.acme.notes.list", "harnix.hello", "harnix.reachable", "harnix.subscribe", "session.get", "sessions.list"])
+            json!(["app.acme.notes.list", "harnix.hello", "harnix.reachable", "harnix.topics.subscribe", "engine.session.get", "sessions.list"])
         );
         assert_eq!(reach["topics"], json!(["harnix.instances"]));
     }

@@ -1,6 +1,6 @@
 /**
  * The right column for an instance: its facts, its restart and stop, its sessions, and a new instance.
- * Stopping, restarting and building are the system module's (`harnix.system.instances.*`): it holds
+ * Stopping, restarting and building are the system module's (`system.instances.*`): it holds
  * `instances.admin`, and the page, a device, holds no capability.
  */
 
@@ -48,7 +48,7 @@ export function InstanceOverview({ app, view, instance: id }: { app: App; view: 
                 type="button"
                 className="btn sm outline op"
                 data-testid="inst-restart"
-                onClick={() => void act(app, () => app.call("harnix.system.instances.restart", { instance: instance.id, space: SYSTEM }))}
+                onClick={() => void act(app, () => app.call("system.instances.restart", { instance: instance.id, space: SYSTEM }))}
               >
                 <Glyph name="refresh" className="glyph" />
                 {tr("system.restart")}
@@ -60,7 +60,7 @@ export function InstanceOverview({ app, view, instance: id }: { app: App; view: 
                   data-testid="inst-stop"
                   onClick={() =>
                     confirmDialog(app, tr("system.confirmStop", { instance: instance.id }), async () => {
-                      await app.call("harnix.system.instances.stop", { instance: instance.id, space: SYSTEM });
+                      await app.call("system.instances.stop", { instance: instance.id, space: SYSTEM });
                       app.closeModal();
                       view.select({ kind: "instance", instance: "system" });
                     })
@@ -122,7 +122,7 @@ function NewInstance({ app, view }: { app: App; view: View }) {
   const [values, setValues] = useState<Record<string, string>>({});
   useEffect(() => {
     void app
-      .call<{ templates: Template[] }>("harnix.system.instances.templates", { space: SYSTEM })
+      .call<{ templates: Template[] }>("system.instances.templates", { space: SYSTEM })
       .then((r) => {
         setTemplates(r.templates ?? []);
         setTemplate((r.templates ?? [])[0]?.id ?? "");
@@ -134,7 +134,7 @@ function NewInstance({ app, view }: { app: App; view: View }) {
   const chosen = templates.find((x) => x.id === template);
   const create = () =>
     void act(app, async () => {
-      const built = await app.call<{ id?: string; instance?: { id: string } }>("harnix.system.instances.create", {
+      const built = await app.call<{ id?: string; instance?: { id: string } }>("system.instances.create", {
         template,
         name: name.trim(),
         params: Object.fromEntries((chosen?.params ?? []).map((p) => [p, values[p] ?? ""])),

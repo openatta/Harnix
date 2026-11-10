@@ -244,8 +244,8 @@ space、实例，其余照常启动，原因写在诊断页。所以 `start` 里
 **诊断**：`harnix.diagnostics` 是排查模块的第一处：每个模块启用了没有、在哪一步停用、为什么，它的方法、主题、路由与授权，
 以及 profile 里没有对应模块的 `[modules.<id>]`（拼错了的段）。
 
-**要的权限超出设备能调的**：在 manifest 里 `.grant("config.setProvider")` 声明，注册时写进授权表，
-诊断页列出来。中枢独占的方法（`session.run_turn`、`session.subscribe` 等）不能授权给任何模块。
+**要的权限超出设备能调的**：在 manifest 里 `.grant("engine.config.setProvider")` 声明，注册时写进授权表，
+诊断页列出来。中枢独占的方法（`engine.session.run_turn`、`engine.session.subscribe` 等）不能授权给任何模块。
 
 ### 5.3 方法、主题、路由的规矩
 
@@ -300,7 +300,7 @@ fn engine(&self, e: &mut EngineContrib) {
 
 #### 拦截人的消息（prompt 中间件）
 
-人的话进一轮之前，模块可以按自己的规则放行、改写或拒收，经外壳直接发给会话的（`harnix.send`）也算。挂在会话的 `Builder`
+人的话进一轮之前，模块可以按自己的规则放行、改写或拒收，经外壳直接发给会话的（`harnix.session.send`）也算。挂在会话的 `Builder`
 上，类型从 `harnix`（或 `harnix_module`）取：
 
 ```rust
@@ -436,7 +436,7 @@ while let Some(item) = tap.next().await {
         TapEvent::Frame(frame) => handle(frame),          // 和客户端收到的帧一样：{method, params}
         TapEvent::Lagged { last_seq } => {                // 你读慢了
             let attached = tap.catch_up().await?;         // 缓冲里还有的补回来
-            // 已经落进 transcript 的那部分按 attached["history_total"] 用 session.history 读
+            // 已经落进 transcript 的那部分按 attached["history_total"] 用 engine.session.history 读
         }
     }
 }
@@ -446,7 +446,7 @@ while let Some(item) = tap.next().await {
 - **tap 会落后**：它是有界通道，中枢不会为了等你而卡住会话。落后了先收到 `Lagged`，再 `catch_up()`：和刷新页面的客户端走同一条路，
   所以模块不需要另一套追赶逻辑。
 - **只要一轮怎么结束的**，用 `tap.next_settled()`：它只等 `harnix.turn_settled`，落后也不丢，不必 `catch_up`。结果里有停止原因、用量、
-  回答文本与调过的工具；全文读 `session.history`。
+  回答文本与调过的工具；全文读 `engine.session.history`。
 - 实例重连期间的发送进队列，实例回来、会话 resync 之后照常跑。会话的全名是 `(instance, session)`，任何地方都带着实例。
 
 每个方法、`OnBusy` 的各值、附件、容量与结算帧的细节见 §17.6。
@@ -460,7 +460,7 @@ let mine = ctx.sessions().entries(&s).await?;   // 本模块写过的，最早�
 
 条目进会话日志（`session.appendEntry`），刷新、重放、整段分叉都看得到；**只给人看，
 不给模型看**。命名空间由中枢定成 `app.<你的模块 id>`，模块写不了别人的，设备一条也写不了（人说的话
-走 `harnix.send`）。写的时候正在看这个会话的人立刻收到。
+走 `harnix.session.send`）。写的时候正在看这个会话的人立刻收到。
 
 前端里它是一块 `kind: "custom"`、`type: "entry"` 的块，`data` 是 `{ id, ns, event, payload, at }`
 （`at` 是它前面的消息数）。用 `flow.block` 认领自己的：
@@ -555,7 +555,7 @@ export function QuotesTab() {
   const harnix = useNest();
   const [groups, setGroups] = useState<Group[]>([]);
 
-  useEffect(() => harnix.subscribe('app.watchlist.groups', undefined, setGroups), [harnix]);
+  useEffect(() => harnix.topics.subscribe('app.watchlist.groups', undefined, setGroups), [harnix]);
 
   const ask = async (g: Group) => {
     const s = await harnix.session.create({ title: g.name });   // 自动绑定前台 space
@@ -843,14 +843,14 @@ pub trait Module: Send + Sync + 'static {
 
 | 类型 | API |
 |---|---|
-| `Manifest` | `Manifest::new(id, version)`、`.disclosure(text)`（诊断页的披露文本）、`.grant(method)`（要设备够不着的方法，比如 `config.setProvider`；中枢独占的方法不能 grant）。id：小写字母、数字、`-`，以字母开头 |
+| `Manifest` | `Manifest::new(id, version)`、`.disclosure(text)`（诊断页的披露文本）、`.grant(method)`（要设备够不着的方法，比如 `engine.config.setProvider`；中枢独占的方法不能 grant）。id：小写字母、数字、`-`，以字母开头 |
 | `MethodRegistry` | `m.method(name, Principal)` → `.allow(Principal)`、`.schema(json)`、`.describe(text)`，最后 `.handler(f)` / `.raw(f)` / `.with(Arc<dyn Handler>)`。全名 `app.<id>.<name>` |
 | handler | `async fn(cx: CallContext, p: P) -> Result<R, RpcError>`，`P: DeserializeOwned`（不符返回 `INVALID_PARAMS`），`R: Serialize`。`.raw` 收发 `serde_json::Value` |
 | `EventRegistry` | `e.topic(name)` → `.param(name)`（按参数分值）、`.only(&[Principal])`（默认设备与模块都能订阅）。全名 `app.<id>.<name>` |
 | `Events` | `cx.events().publish(topic, params_json, value).await`：推**整值快照**；`topic` 写短名 |
 | `RouteRegistry` | `r.serve(&[Principal], axum::Router)`：挂在 `/apps/<id>/` 下，同源，同一套准入 |
 | `SpaceRegistry` | `s.add(SpaceDecl::new(id).instance("template:<模块>.<模板>" \| "<实例 id>").scene(scene))`。不声明：`system` 实例、实例的默认场景 |
-| `InstanceTemplates` | `t.add(InstanceTemplate::new(id, carrier).data_root(pattern).param(name).ui().max(n).inherit_providers().reap_on_stop().native(\|e\| …))`。全名 `<模块 id>.<模板 id>`。实例的 id 就是建它时给的 `name`，全进程唯一；名字和参数只能是字母、数字、`-`、`_`、`.`，不能以 `.` 开头。`data_root` 默认 `{name}`，可用 `{name}` 和声明过的参数，在 `~/.<product_id>/instances/` 下；建过的实例记在 `instances.json`。`.ui()`：界面能按它建（只填 `param` 放开的参数）。`.max(n)`：至多 n 台。`inherit_providers()`：这个模板的实例也看得到 `system` 的 provider（设置页配的）——建实例时、以及每次 `harnix.settings.setProvider` 之后，Harnix 把它们并进实例数据根的 `settings.json`（0600）再让它 `config.reload`；Harnix 写过哪些 id 记在 `.inherited-providers.json`，只动这些，实例自己配的同名 provider 不覆盖。`.reap_on_stop()`（ipdrun-07，缺省关）：停下或重启时收掉会话留下的进程。spawn 的 daemon 自成一个会话（`setsid`），它退出、被杀、崩溃或看护重启时，Harnix 把还留在这个会话里的进程 TERM、等 1.5 s、KILL；两种载体都在实例的全局设置层打开引擎的 `sandbox.reap_process_groups`（正常退出时引擎自己先收，进程内实例只有这一半）。daemon 在自己的会话里收不到终端的 Ctrl-C，退出照旧跟着 stdin 关闭走；自己 `setsid` 出去的进程收不到；实例视图带 `reap: true`。`.native(\|e\| …)`（ipdrun-10）：两种载体都有的原生贡献。进程内模板把它并在 `contrib` 之后；spawn 模板（`program` 为 `None`）的 daemon 带 `--template <全名>` 起来，照装配顺序对每个应用模块调一次 `templates()`（不调 `start`、不开任何方法），在自己进程里再调一遍闭包；找不到这个模板以 78 退出、实例 `down`、理由写明。模板贡献的场景要在 `EngineProfile.scenes` 里列出才在实例上启用 |
+| `InstanceTemplates` | `t.add(InstanceTemplate::new(id, carrier).data_root(pattern).param(name).ui().max(n).inherit_providers().reap_on_stop().native(\|e\| …))`。全名 `<模块 id>.<模板 id>`。实例的 id 就是建它时给的 `name`，全进程唯一；名字和参数只能是字母、数字、`-`、`_`、`.`，不能以 `.` 开头。`data_root` 默认 `{name}`，可用 `{name}` 和声明过的参数，在 `~/.<product_id>/instances/` 下；建过的实例记在 `instances.json`。`.ui()`：界面能按它建（只填 `param` 放开的参数）。`.max(n)`：至多 n 台。`inherit_providers()`：这个模板的实例也看得到 `system` 的 provider（设置页配的）——建实例时、以及每次 `settings.setProvider` 之后，Harnix 把它们并进实例数据根的 `settings.json`（0600）再让它 `engine.config.reload`；Harnix 写过哪些 id 记在 `.inherited-providers.json`，只动这些，实例自己配的同名 provider 不覆盖。`.reap_on_stop()`（ipdrun-07，缺省关）：停下或重启时收掉会话留下的进程。spawn 的 daemon 自成一个会话（`setsid`），它退出、被杀、崩溃或看护重启时，Harnix 把还留在这个会话里的进程 TERM、等 1.5 s、KILL；两种载体都在实例的全局设置层打开引擎的 `sandbox.reap_process_groups`（正常退出时引擎自己先收，进程内实例只有这一半）。daemon 在自己的会话里收不到终端的 Ctrl-C，退出照旧跟着 stdin 关闭走；自己 `setsid` 出去的进程收不到；实例视图带 `reap: true`。`.native(\|e\| …)`（ipdrun-10）：两种载体都有的原生贡献。进程内模板把它并在 `contrib` 之后；spawn 模板（`program` 为 `None`）的 daemon 带 `--template <全名>` 起来，照装配顺序对每个应用模块调一次 `templates()`（不调 `start`、不开任何方法），在自己进程里再调一遍闭包；找不到这个模板以 78 退出、实例 `down`、理由写明。模板贡献的场景要在 `EngineProfile.scenes` 里列出才在实例上启用 |
 | `TemplateCarrier` | `InProcess { engine, contrib }`（只有模块的模板能带原生贡献）、`Spawn { engine, program: Option<PathBuf>, args }`（`None` = 本二进制的 `daemon` 子命令）、`Attach(AttachTo { socket, tcp, token })` |
 | `harnix::agent`、`harnix::scenes` | 写 Agent 侧要的类型，应用不另加依赖。`agent::tool::{Tool, ToolContext, ToolResult, ProgressSender}`、`agent::error::ToolError`（原生工具）；`agent::interface::scene::{Scene, ScenePromptContext, TokenBudget}`（场景）；`agent::interface::prompt::PromptBlock`（prompt 块）；`scenes::harnix::HarnixScene`（缺省场景）、`scenes::code::CodeScene`、`scenes::mini::MiniScene`。路径与引擎的模块一一对应 |
 | `EngineContrib` | `.scene(Arc<dyn Scene>)`、`.customize_session(\|builder, cx\| …)`（按注册顺序组合）、`.plugin(Arc<dyn Plugin>)`（一个 Rust 写的 Agix 插件，类型是 `harnix::plugin::Plugin`，即 Agix 的 `runtime::plugin::Plugin` 原样重导出：和 customizer 不同，Agix 在会话委派出去的每个子 Agent、团队成员、后台任务里也登记它）、`.admit_tools(pattern)`（这台实例的每个场景都放进会话的工具，不管场景自己的工具表：`prefix*` 或全名；给上面的插件登记的工具用，否则带工具表的场景会把它们去掉）、`.credentials(Arc<dyn CredentialSource>)`（第一个给的生效）、`.extend(other)` |
@@ -899,7 +899,7 @@ pub trait Module: Send + Sync + 'static {
 | `send(&s, text, OnBusy)` | `OnBusy::{Queue（默认）, Reject, Interrupt, Steer}` |
 | `send_with(&s, text, SendOptions)` | `SendOptions { on_busy, attachments: Vec<Attachment>, references: Vec<SessionRef> }`；`Attachment::{file(path), text(path, content), image(media_type, base64)}`；`references` 同输入框的 `@session`（那个会话的转录作为文本附件）；带附件的不 steer（ipdrun-44） |
 | `interrupt(&s)` / `close(&s)` | — |
-| `move_to(&s, space)` | 把会话连同转录改归另一个 space（`harnix.sessions.move`，ipdrun-51）：给把一类会话从一个 space 挪到另一个的应用。已经在那里就不变；答 `{space, from, moved}`。设备调不了（会话归哪个 space 是应用定的）；没有那个 space、或那是系统 space、或实例归别的 space，答 `SPACE_MISMATCH` |
+| `move_to(&s, space)` | 把会话连同转录改归另一个 space（`harnix.session.move`，ipdrun-51）：给把一类会话从一个 space 挪到另一个的应用。已经在那里就不变；答 `{space, from, moved}`。设备调不了（会话归哪个 space 是应用定的）；没有那个 space、或那是系统 space、或实例归别的 space，答 `SPACE_MISMATCH` |
 | `append_entry(&s, Entry::new(event, payload))` | 扩展条目：命名空间由中枢定为 `app.<模块 id>`；只给人看 |
 | `entries(&s) -> Vec<Value>` | 本模块写过的条目，最早的在前 |
 | `tap(&s)` / `tap_with_capacity(&s, n)` | 帧流，默认容量 `TAP_CAPACITY = 512`。`tap.next()` → `TapEvent::Frame(json)` 或 `TapEvent::Lagged { last_seq }`；落后了 `tap.catch_up()`；`tap.last_seq()` 是读到的最后一帧的 `seq`。`tap.next_settled() -> Option<Value>`：跳过别的帧，只等下一个 `harnix.turn_settled` 的 params；满了时结算帧另存（最多 `SETTLED_HELD = 64`），落后也不丢。`tap.catch_up_settled()`：同 `catch_up`，另存的结算帧按位置放回 `next()` 读的队列（ipdrun-41）。`outcome` 有 `stop_reason`、`usage`、`text`（回答文本，最多 64 KiB，超了 `text_truncated`）、`tool_calls`（`[{id, name, is_error?}]`），有才有的 `structured_output`、`message` |
@@ -980,7 +980,7 @@ spaces = ["sessions", "projects", "system", "flow"]   # 留哪些内建 space；
                                # flow：流程，只在后端注册了流程模块时出现（xops-02 §7）；留着 system 时在系统 space 里
                                # （控制台的「流程」页，不列为 space），没有 system 时是一个单独的流程 space
                                # 去掉 system 时它的方法一起撤：谁也声称不了系统 space，也不能跨 space 操作
-model_switch = false           # true：加 harnix.sessions.setModel，没有系统 space 也能在输入框换模型（只限调用方声称的 space 的会话）
+model_switch = false           # true：加 harnix.session.setModel，没有系统 space 也能在输入框换模型（只限调用方声称的 space 的会话）
 new_session = true             # false：整个外壳不画「新会话」、⌘K 不归外壳（每个 space 都这样；space 自己的 newSession 照旧叠加）；只是界面
 narrow_details = "over"        # ≤ 960 宽时打开的右栏：over（缺省）是从右边盖住中区的抽屉；beside 三栏并排（左栏收成 rail、右栏变窄），< 720 仍是抽屉
 
@@ -1101,35 +1101,35 @@ schema、来自哪个模块）。下表是分组索引，参数与答写在各�
 
 | 组 | 方法 | 谁 |
 |---|---|---|
-| 握手与会话驱动（中枢） | `harnix.hello`（含 `shell`：品牌、留下的内建 space、`runtime_modules`、`new_session`、`narrow_details`、目录）、`harnix.sessions`、`harnix.attach`、`harnix.detach`、`harnix.send`、`harnix.queue.remove`、`harnix.queue.edit {session_id, item_id, message}`（改排队中一条的话，位置与附件不变；已开始或已撤回的答 REFUSED）、`harnix.subscribe`、`harnix.unsubscribe` | 设备 |
-| 进程（中枢） | `harnix.process`：版本、运行时长、峰值内存、`threads`（操作系统计的本进程线程数，取不到为 null）、已连接用户（设备、连接方式、User-Agent、连上的时间） | 设备 |
-| 实例（中枢） | `harnix.instances.list / templates / sessions / create / ensure / stop / restart / wait`、`harnix.sessions.tasks`。`create` / `ensure` 可带 `wait: "ready"`、`timeout_ms`（缺省 60000）：等这台变成 `ready` 再答，变成 `down` 立即以 `-31004` 报错（带理由），超时同样；`wait {instance, timeout_ms?}` 是对已有实例的同一种等。并发 `ensure` 同名同模板都拿到同一台 | 设备（`create` 只认 `ui` 模板） |
-| space、条目（中枢） | `harnix.spaces.list`；`harnix.entries.append`、`harnix.sessions.move {instance?, session_id, space}`（会话改归另一个 space，同 `Sessions::move_to`，§17.6）只许模块与内核 | — |
-| 确认人（中枢） | `harnix.prompts.answerer {session_id, tool_use_id}`：回答该工具权限卡的设备（`device:<id>`），没有设备回答时是 `null`；读一次即忘，最多留最近 1024 条（helm-01）。外壳回答权限卡时带 `tool_use_id`，中枢记下回答者、转给引擎前去掉 | 模块、内核 |
-| 引擎直通 | `session.create / list / get / history / entries / fork / resume / respondToPrompt`、`session.interrupt / close / delete`、`scene.list / describe / activate`、`commands.list`、`mcp.status`、`plugin.list`、`daemon.status / ping / doctor` | 设备 |
+| 握手与会话驱动（中枢） | `harnix.hello`（含 `shell`：品牌、留下的内建 space、`runtime_modules`、`new_session`、`narrow_details`、目录）、`harnix.sessions.list`、`harnix.session.attach`、`harnix.session.detach`、`harnix.session.send`、`harnix.session.queue.remove`、`harnix.session.queue.edit {session_id, item_id, message}`（改排队中一条的话，位置与附件不变；已开始或已撤回的答 REFUSED）、`harnix.topics.subscribe`、`harnix.topics.unsubscribe` | 设备 |
+| 进程（中枢） | `system.process`：版本、运行时长、峰值内存、`threads`（操作系统计的本进程线程数，取不到为 null）、已连接用户（设备、连接方式、User-Agent、连上的时间） | 设备 |
+| 实例（中枢） | `harnix.instances.list / templates / create / ensure / stop / restart / wait`、`harnix.sessions.list {instance? 或 space?}`、`harnix.session.tasks`。`create` / `ensure` 可带 `wait: "ready"`、`timeout_ms`（缺省 60000）：等这台变成 `ready` 再答，变成 `down` 立即以 `-31004` 报错（带理由），超时同样；`wait {instance, timeout_ms?}` 是对已有实例的同一种等。并发 `ensure` 同名同模板都拿到同一台 | 设备（`create` 只认 `ui` 模板） |
+| space、条目（中枢） | `harnix.spaces.list`；`harnix.session.entries.append`、`harnix.session.move {instance?, session_id, space}`（会话改归另一个 space，同 `Sessions::move_to`，§17.6）只许模块与内核 | — |
+| 确认人（中枢） | `harnix.session.answerer {session_id, tool_use_id}`：回答该工具权限卡的设备（`device:<id>`），没有设备回答时是 `null`；读一次即忘，最多留最近 1024 条（helm-01）。外壳回答权限卡时带 `tool_use_id`，中枢记下回答者、转给引擎前去掉 | 模块、内核 |
+| 引擎直通 | `harnix.session.create / fork / respond / interrupt / close / delete`（中枢的）、`engine.session.list / get / history / entries / resume`、`engine.scene.list / describe / activate`、`engine.commands.list`、`engine.mcp.status`、`engine.plugin.list`、`engine.daemon.status / ping / doctor` | 设备 |
 | 应用层 | `harnix.contributions`、`harnix.diagnostics`、`harnix.audit`、`harnix.reachable` | 设备 |
-| 自带模块（`with_builtins`） | `harnix.workspaces.*`、`harnix.prefs.set`、`harnix.projects.create`、`harnix.recentProjects`、`harnix.listDirectory`、`harnix.files`、`harnix.search`、`harnix.upload.begin`、`harnix.sessions.rename / archive`、`harnix.sessions.export {instance?, session_id, space?, format: markdown | archive | bundle, recording?}`（答 `{format, file, content}`：markdown 是可读的对话；archive 是引擎打的 zip（`encoding: "base64"`，另带 `bytes`、`sessions`、`attachments`、`recording`、`warnings`）——会话与任意深度的侧链在同一时刻的快照、消息里图片的本体、扩展条目、带版本的 `manifest.json`，`recording: true` 时带录像；bundle 是 Harnix 拼的 JSON——会话信息、全部消息、扩展条目，`recording: true` 时带录像，不含侧链与附件本体；超过一帧时拒绝）、`harnix.settings.*`（`setProvider` 的返回多一个 `reloaded_instances`：这次推到了哪些继承 provider 的实例）、`harnix.plugins.*`、`harnix.devices.*`、`harnix.requestHeaders {instance?, session_id}`（这个会话本次运行发给模型的请求信封——系统提示、工具表、调用配置——每变一次一条，最早的在前；还没调过模型时 `recording: false`） | 设备 |
-| `[shell] model_switch = true` 时 | `harnix.sessions.setModel {instance?, session_id, model, provider?, space?}`：引擎的 `session.setModel`，只作用于调用方声称的 space（不写是 `sessions`）的会话，会话属别的 space 答 `SPACE_MISMATCH`；声称 `system` 也答 `SPACE_MISMATCH`（跨 space 换模型是 `harnix.system.model` 的事） | 设备 |
+| 自带模块（`with_builtins`） | `harnix-app.workspaces.*`、`harnix-app.prefs.set`、`harnix-app.projects.create`、`harnix-app.recentProjects`、`harnix-app.listDirectory`、`harnix-app.files`、`harnix-app.search`、`harnix.bulk.upload`、`harnix.session.rename`、`harnix-app.sessions.archive`、`harnix-app.sessions.export {instance?, session_id, space?, format: markdown | archive | bundle, recording?}`（答 `{format, file, content}`：markdown 是可读的对话；archive 是引擎打的 zip（`encoding: "base64"`，另带 `bytes`、`sessions`、`attachments`、`recording`、`warnings`）——会话与任意深度的侧链在同一时刻的快照、消息里图片的本体、扩展条目、带版本的 `manifest.json`，`recording: true` 时带录像；bundle 是 Harnix 拼的 JSON——会话信息、全部消息、扩展条目，`recording: true` 时带录像，不含侧链与附件本体；超过一帧时拒绝）、`settings.*`（`setProvider` 的返回多一个 `reloaded_instances`：这次推到了哪些继承 provider 的实例）、`plugins.*`、`devices.*`、`observability.calls {instance?, session_id}`（这个会话本次运行发给模型的请求信封——系统提示、工具表、调用配置——每变一次一条，最早的在前；还没调过模型时 `recording: false`） | 设备 |
+| `[shell] model_switch = true` 时 | `harnix.session.setModel {instance?, session_id, model, provider?, space?}`：引擎的 `engine.session.setModel`，只作用于调用方声称的 space（不写是 `sessions`）的会话，会话属别的 space 答 `SPACE_MISMATCH`；声称 `system` 也答 `SPACE_MISMATCH`（跨 space 换模型是 `system.model` 的事） | 设备 |
 | 中枢，只给内核（自带的设置模块经 grant 调） | `harnix.instances.inheritProviders`：把 `system` 的 provider 并进所有 `inherit_providers` 模板的实例并让变了的重读，答 `{reloaded: [id…]}` | 内核 |
-| 系统 space（`[shell] spaces` 留着 `system` 时） | `harnix.system.context / messages.drop / messages.edit / tasks.stop / tasks.message / tasks.output / compact / clear / rename / model / calls`（`tasks.message {task_id, message}` 给在跑的子 Agent 或团队成员发话，它在下一个步骤读到；答 `{delivered, reason?}`）（`tasks.output {task_id, tail_bytes? | from_byte?}` 是任务到目前的输出：不带是最后 8 KiB；`from_byte` 从那个偏移读到末尾，应答带 `from_byte` / `next_byte` / `dropped` / `final`，跟随时下一次从 `next_byte` 接着读，`dropped > 0` 是中间已丢掉的字节数，`final` 之后不再长）；`harnix.system.goal`（会话的目标：`{goal: {objective, phase, armed, max_rounds, rounds_started, blocked_reason} | null}`）、`harnix.system.goal.set {objective, max_rounds?}`（设定；会话空闲时引擎立刻开第一轮；已有未完成的目标时拒绝）、`harnix.system.goal.update {action: pause | resume | edit | clear, objective?, max_rounds?}`（答同 `goal`）；`harnix.system.trace`（这一次运行里每次模型调用的输入与输出、它要的工具调用和结果，以及 `timing {sent_at, ttft_ms, generate_ms, tokens_per_s}`）、`harnix.system.trace.call {index}`（一次调用的全文）、`harnix.system.turns`（按轮汇总：调用数、首字时间、模型与工具时间、进出 token、按 token 计的缓存命中、上下文较上一轮的增量）、`harnix.system.usage {instance?, session_ids}`（一次至多 200 个会话，各自本次运行里每个 Agent 用了多少：`{sessions: {<id>: {recording, agents: [{session_id, parent_session_id, calls, auxiliary, turns, models, input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, model_ms, errors, first_at, last_at}]}}}`，会话自己的在前，子 Agent 带父会话，整棵树都在；只读录像的调用行与结束行，录像没变就不重读）；`harnix.system.context` 带 `measured`（上一次调用 provider 计的数，估算之外） | 设备 |
-| 检视（内核，模块可 grant） | `session.tasks`、`session.taskOutput`、`session.stopTask`、`session.inspectContext`、`session.dropMessages`、`session.editMessage` | 内核 |
+| 系统 space（`[shell] spaces` 留着 `system` 时） | `system.context / messages.drop / messages.edit / tasks.stop / tasks.message / tasks.output / compact / clear / rename / model / calls`（`tasks.message {task_id, message}` 给在跑的子 Agent 或团队成员发话，它在下一个步骤读到；答 `{delivered, reason?}`）（`tasks.output {task_id, tail_bytes? | from_byte?}` 是任务到目前的输出：不带是最后 8 KiB；`from_byte` 从那个偏移读到末尾，应答带 `from_byte` / `next_byte` / `dropped` / `final`，跟随时下一次从 `next_byte` 接着读，`dropped > 0` 是中间已丢掉的字节数，`final` 之后不再长）；`system.goal`（会话的目标：`{goal: {objective, phase, armed, max_rounds, rounds_started, blocked_reason} | null}`）、`system.goal.set {objective, max_rounds?}`（设定；会话空闲时引擎立刻开第一轮；已有未完成的目标时拒绝）、`system.goal.update {action: pause | resume | edit | clear, objective?, max_rounds?}`（答同 `goal`）；`observability.trace`（这一次运行里每次模型调用的输入与输出、它要的工具调用和结果，以及 `timing {sent_at, ttft_ms, generate_ms, tokens_per_s}`）、`observability.trace.call {index}`（一次调用的全文）、`observability.turns`（按轮汇总：调用数、首字时间、模型与工具时间、进出 token、按 token 计的缓存命中、上下文较上一轮的增量）、`observability.usage {instance?, session_ids}`（一次至多 200 个会话，各自本次运行里每个 Agent 用了多少：`{sessions: {<id>: {recording, agents: [{session_id, parent_session_id, calls, auxiliary, turns, models, input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, model_ms, errors, first_at, last_at}]}}}`，会话自己的在前，子 Agent 带父会话，整棵树都在；只读录像的调用行与结束行，录像没变就不重读）；`system.context` 带 `measured`（上一次调用 provider 计的数，估算之外） | 设备 |
+| 检视（内核，模块可 grant） | `engine.session.tasks`、`engine.session.taskOutput`、`engine.session.stopTask`、`engine.session.inspectContext`、`engine.session.dropMessages`、`engine.session.editMessage` | 内核 |
 | `[apps] enabled = true` 时（`apps` 自带模块） | `harnix.apps.list`、`.enable`、`.disable`、`.uninstall`、`.clearData`、`.installFile`、`.catalog`、`.install`、`.update`。不带插件 APP 运行时的构建（没开 cargo feature `apps`）也登记这九个，后四个答 `REFUSED`。参数与答见 [插件](harnix-plugin.md) §16 | 设备 |
 | 你的模块 | `app.<id>.*` | 你声明的 |
 | 插件 APP | `app.<应用 id>.*` | 清单 `[[method]]` 的 `subject`（[插件](harnix-plugin.md) §18） |
 
-明确拒绝并说明原因的（不是「没有这个方法」）：引擎里交凭据、开端点的方法；`session.run_turn`、
-`session.subscribe` 这类中枢独占的方法；`plugin.install` 等包生命周期（走 `harnix.plugins.*`）；
-`mcp.addServer`。
+明确拒绝并说明原因的（不是「没有这个方法」）：引擎里交凭据、开端点的方法；`engine.session.run_turn`、
+`engine.session.subscribe` 这类中枢独占的方法；`engine.plugin.install` 等包生命周期（走 `plugins.*`）；
+`engine.mcp.addServer`。
 
 ### 21.3 主题
 
 | 主题 | 参数 | 值 |
 |---|---|---|
 | `harnix.instances` | — | 实例树 |
-| `harnix.instances.sessions` | `instance` | 一台实例的会话：每行带 `running`（有一轮在跑）、`queued`、`tasks`（还在跑的任务数——任务可以比起它的那一轮活得久）、`waiting`（在等人：`approval` 是权限询问，`answer` 是模型的提问，`plan` 是离开计划模式要人审阅计划，没有为 null）、`started_by`（`harnix` 是模块或内核起的，`user` 是设备上的人起的；记录从这一版起，之前建的都算 `user`）、`turn_started_ms`（在跑的这一轮从什么时候开始，毫秒；没在跑为 null）、`goal`（hub 最近听到的目标——引擎推的 `goal_changed` 或经过 hub 的目标调用的答，同 `harnix.system.goal` 的 `goal`；没有目标为 null，hub 还没听到过就没有这个键） |
-| `harnix.sessions.tasks` | `instance`、`session_id` | 一个会话的任务，和 `teams`：它的每个团队 hub 最近听到的 `team_progress`（`team, team_id, stage, stage_index, stage_count, status, members, failed`） |
+| `harnix.instances.sessions` | `instance` | 一台实例的会话：每行带 `running`（有一轮在跑）、`queued`、`tasks`（还在跑的任务数——任务可以比起它的那一轮活得久）、`waiting`（在等人：`approval` 是权限询问，`answer` 是模型的提问，`plan` 是离开计划模式要人审阅计划，没有为 null）、`started_by`（`harnix` 是模块或内核起的，`user` 是设备上的人起的；记录从这一版起，之前建的都算 `user`）、`turn_started_ms`（在跑的这一轮从什么时候开始，毫秒；没在跑为 null）、`goal`（hub 最近听到的目标——引擎推的 `goal_changed` 或经过 hub 的目标调用的答，同 `system.goal` 的 `goal`；没有目标为 null，hub 还没听到过就没有这个键） |
+| `harnix.session.tasks` | `instance`、`session_id` | 一个会话的任务，和 `teams`：它的每个团队 hub 最近听到的 `team_progress`（`team, team_id, stage, stage_index, stage_count, status, members, failed`） |
 | `harnix.sessions.status` | — | 各会话的运行状态 |
-| `harnix.process` | — | 同 `harnix.process` 方法的答；有人订阅时 hub 每 5 秒重算一次推出 |
+| `system.process` | — | 同 `system.process` 方法的答；有人订阅时 hub 每 5 秒重算一次推出 |
 | `app.<id>.<主题>` | 你声明的 | 你推的整值快照 |
 | `harnix.spaces` | — | 同 `harnix.spaces.list` 的答；插件 APP 加减 space 时推。只在 `[apps] enabled` 时有 |
 | `harnix.apps`、`harnix.apps.progress` | — | 插件 APP 的快照、工具调用的进度；见 [插件](harnix-plugin.md) §17 |
@@ -1137,12 +1137,12 @@ schema、来自哪个模块）。下表是分组索引，参数与答写在各�
 插件 APP 撤下时，它的主题的每个订阅者按订阅的参数组各收到一次 `harnix.topic_ended { topic, params, reason }`，之后不再推；
 再订答 `-32601`，等它重新登记。
 
-会话事件不是主题：`harnix.attach` 之后经 `harnix.event` 帧来，带 `seq`，断线按 `seq` 追赶。
+会话事件不是主题：`harnix.session.attach` 之后经 `harnix.event` 帧来，带 `seq`，断线按 `seq` 追赶。
 条目以 `harnix.event { event: { kind: "extension_entry", entry } }` 推给正在看的人。
 
 一轮结束时中枢发 `harnix.turn_settled { instance, session_id, turn_id, result | error, outcome? }`。`outcome` 是这一轮
 `turn_complete` 的要点：`stop_reason`、`usage`，有才有的 `structured_output`、`message`（例如 hook 截停的理由）；中枢没看到
-`turn_complete` 时没有这个字段。回答的全文不在里面，读 `session.history`。
+`turn_complete` 时没有这个字段。回答的全文不在里面，读 `engine.session.history`。
 
 ---
 
@@ -1191,7 +1191,7 @@ export function register(r: Registry, host: NestHost): void
 |---|---|
 | `badge()` | 左栏入口上的角标（数字或很短的字；null、0、"" 不画），收起成图标条时是右上角的点 |
 | `disabled()` | 返回一句话 ⇒ 这个 space 暂时进不去：左栏入口灰掉、点不动、悬停是这句话；`host.spaces.switch` 到它不切（照常落定）。连上后落地时存着的 space 灰着，就落到 `order` 最小、没灰的那个。前台的 space 后来灰了，外壳不自动换走。`false` / `null` / `undefined`：照旧；状态变了调 `host.redraw()` |
-| `readOnly(session)` | 返回一句话就把这个会话的输入框换成它。只是界面：服务端照旧收 `harnix.send`，要真拦在后端拦 |
+| `readOnly(session)` | 返回一句话就把这个会话的输入框换成它。只是界面：服务端照旧收 `harnix.session.send`，要真拦在后端拦 |
 | `pinned(session)` | 消息流顶上固定的一块（等人回答的问题、要批准的卡） |
 | `composerNotice(session)` | 打开的会话里输入框上方的提醒条。`notice()` 只在新对话首屏；两处都要就写 `composerNotice: () => notice()` |
 | `ids()` | 正文里哪些字是可点的编号（`ChatIds`：带 `g` 的正则、`onOpen`、`canOpen`） |
@@ -1209,7 +1209,7 @@ export function register(r: Registry, host: NestHost): void
 | 成员 | 说明 |
 |---|---|
 | `call<T>(method, params?)` | 只放行 `harnix.reachable` 里的 |
-| `subscribe(topic, params \| undefined, fn)` | 返回取消函数。按 `(topic, 键排序后的 params)` 计数：同一页共用一份订阅，最后一个退订才发 `harnix.unsubscribe`，后来者先拿到已有的值，重连后自动重订 |
+| `subscribe(topic, params \| undefined, fn)` | 返回取消函数。按 `(topic, 键排序后的 params)` 计数：同一页共用一份订阅，最后一个退订才发 `harnix.topics.unsubscribe`，后来者先拿到已有的值，重连后自动重订 |
 | `session.current() / context() / list() / open(ref) / create(spec?)` | 都是前台 space 的；`create` 自动绑定前台 space |
 | `session.open(ref, { switchSpace: true })` | 去会话所属的 space（按中枢账本）打开，先把它带到前台；返回的 promise 在打开后落定，没有这个会话就 reject |
 | `session.open(ref, { switchSpace?, reveal: key })` / `session.reveal(key)` | 打开后（`reveal(key)`：当前会话）等转录追上（有上限），在对话里找 `[data-reveal="<key>"]`（`flow.block` 的渲染给自己的块加上），没有就找 id 是 `key` 的块，滚到中间、`data-revealed` 闪 2.4 秒；返回 `Promise<boolean>`：找到没有 |
@@ -1288,7 +1288,7 @@ api_version = 2
 
 可选模块：应用 `.module(harnix_ext_flow::Flow::builder()….build())` 才有；Harnix app `harnix` 注册了它（`crates/cli/src/main.rs`）。
 对象与写法（站、执行者、出口条件、规则、策略与权限、门禁、钩子……）见流程指南 `crates/ext/flow/docs/guide.zh-CN.md`
-（系统 space 里流程的参考页就是它，`app.flow.guide {lang}` 也给它）。
+（系统 space 里流程的参考页就是它，`flow.guide {lang}` 也给它）。
 
 | 构建器 | 意思 |
 |---|---|
@@ -1315,8 +1315,8 @@ api_version = 2
 运行——`start`、`cancel`、`pause`、`resume`、`confirm`、`force`、`rework`、`retry`、`release`、`proposal`；外部任务——`claim`、
 `heartbeat`、`submit`、`fail`；对话——`session {flow?}`、`focus`；试运行——`dry_run.start` / `step` / `run` / `list`。
 错误码按类：没有这个运行、站、任务或流程答 `NOT_FOUND`；不合运行的状态或契约答 `INVALID_PARAMS`；租约不是你的、
-版本已经往前走答 `CONFLICT`；`data.flow` 是内核自己的类别。`heartbeat` 只续租约：不进运行的历史，也不重发 `app.flow.runs`。
-主题：`app.flow.runs`、`app.flow.run {run}`、`app.flow.defs`、`app.flow.focus {instance, session_id}`、`app.flow.dry_runs`。每个方法的参数与返回写在它注册时的说明里（`harnix.reachable` 列出）。
+版本已经往前走答 `CONFLICT`；`data.flow` 是内核自己的类别。`heartbeat` 只续租约：不进运行的历史，也不重发 `flow.runs`。
+主题：`flow.runs`、`flow.run {run}`、`flow.defs`、`flow.focus {instance, session_id}`、`flow.dry_runs`。每个方法的参数与返回写在它注册时的说明里（`harnix.reachable` 列出）。
 
 界面：外壳在后端有流程模块时自己把流程放进系统 space（`registerSystemFlows(registry, { host, within: "system" })`：控制台多一个「流程」页，
 点一条流程，左栏变成这条流程的上下文），没有系统 space 时注册单独的流程 space；自己编外壳的应用调 `registerFlowSpace(registry, { host })`，

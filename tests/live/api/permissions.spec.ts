@@ -28,7 +28,7 @@ defineSuite("permissions", { feature: "sessions" }, {
 
   tests: {
     "a tool that needs permission asks every watcher": async ({ backend, client }) => {
-      const created = await client.call("session.create", {
+      const created = await client.call("harnix.session.create", {
         scene: "harnix",
         project_root: client.project,
         options: { permission_mode: "default" },
@@ -36,10 +36,10 @@ defineSuite("permissions", { feature: "sessions" }, {
       if (!created) inconclusive("no harnix scene in this build, so no tool to ask about");
 
       const second = await connect(backend, { topology: client.topology });
-      await client.call("harnix.attach", { session_id: created.session_id });
-      await second.call("harnix.attach", { session_id: created.session_id });
+      await client.call("harnix.session.attach", { session_id: created.session_id });
+      await second.call("harnix.session.attach", { session_id: created.session_id });
 
-      await client.call("harnix.send", {
+      await client.call("harnix.session.send", {
         session_id: created.session_id,
         // Direct, and asking for the tool by name. A model that answers in
         // prose instead is not a failure of the permission path, and the
@@ -76,10 +76,10 @@ defineSuite("permissions", { feature: "sessions" }, {
 
       // Either client may answer. The second answer is a silent success —
       // two people both pressing allow is normal, not an error.
-      await second.call("session.respondToPrompt", {
+      await second.call("harnix.session.respond", {
         session_id: created.session_id, prompt_id: prompt.prompt_id, decision: { type: "permit" },
       });
-      const late = await client.refused("session.respondToPrompt", {
+      const late = await client.refused("harnix.session.respond", {
         session_id: created.session_id, prompt_id: prompt.prompt_id, decision: { type: "permit" },
       });
       assert(!late, `answering twice failed: ${late?.message}`);
@@ -89,15 +89,15 @@ defineSuite("permissions", { feature: "sessions" }, {
     },
 
     "an unanswered ask is handed to a client that arrives late": async ({ backend, client }) => {
-      const created = await client.call("session.create", {
+      const created = await client.call("harnix.session.create", {
         scene: "harnix",
         project_root: client.project,
         options: { permission_mode: "default" },
       }).catch(() => null);
       if (!created) inconclusive("no harnix scene in this build, so no tool to ask about");
 
-      await client.call("harnix.attach", { session_id: created.session_id });
-      await client.call("harnix.send", {
+      await client.call("harnix.session.attach", { session_id: created.session_id });
+      await client.call("harnix.session.send", {
         session_id: created.session_id,
         message: "Use the Bash tool to run: echo late-watcher\n"
           + "Do this now. Do not describe it, do not ask, just call the tool.",
@@ -116,13 +116,13 @@ defineSuite("permissions", { feature: "sessions" }, {
       // A client opening the session now has to be told what is waiting, or
       // the session looks stuck while it walks towards a silent refusal.
       const late = await connect(backend, { topology: client.topology });
-      const attached: AttachResult = await late.call("harnix.attach", { session_id: created.session_id });
+      const attached: AttachResult = await late.call("harnix.session.attach", { session_id: created.session_id });
       assert(attached.pending_prompts.length >= 1,
         "a late client was not told about the unanswered ask");
       assert(attached.pending_prompts.some((p) => p.prompt_id === ask.params.event.prompt_id),
         "the pending ask has a different prompt_id");
 
-      await late.call("session.respondToPrompt", {
+      await late.call("harnix.session.respond", {
         session_id: created.session_id,
         prompt_id: ask.params.event.prompt_id,
         decision: { type: "deny", reason: "not in a test" },

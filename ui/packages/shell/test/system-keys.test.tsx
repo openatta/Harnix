@@ -113,7 +113,7 @@ describe("a space's sessions in the left column", () => {
     const listeners = (client as unknown as { notify: Set<unknown> }).notify;
     Object.assign(client, { notify: Object.assign(() => undefined, { add: (f: unknown) => listeners.add(f), delete: (f: unknown) => listeners.delete(f) }) });
     client.answer = (method) =>
-      method === "harnix.sessions"
+      method === "harnix.sessions.list"
         ? { sessions: [{ session_id: "s1", instance: "system", name: "one" }, { session_id: "s2", instance: "system", name: "two" }] }
         : {};
     render(
@@ -125,7 +125,7 @@ describe("a space's sessions in the left column", () => {
       await app.switchSpace("b");
       await tick();
     });
-    const reads = () => client.calls.filter((c) => c.method === "harnix.sessions" && c.params.space === "b").length;
+    const reads = () => client.calls.filter((c) => c.method === "harnix.sessions.list" && c.params.space === "b").length;
     const first = reads();
     expect(first).toBeGreaterThan(0);
     await act(async () => {

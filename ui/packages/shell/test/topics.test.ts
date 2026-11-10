@@ -21,7 +21,7 @@ class ReorderingClient {
 
   call(method: string): Promise<unknown> {
     this.frames.push(method);
-    if (method === "harnix.subscribe") {
+    if (method === "harnix.topics.subscribe") {
       this.serverHolds = true;
       return Promise.resolve({ value: "now" });
     }
@@ -61,10 +61,10 @@ describe("Topics resubscribing", () => {
     topics.subscribe("t", {}, (v) => seen.push(v));
     await tick();
     // The unsubscribe has not been answered: no second subscribe may be on the wire yet.
-    expect(client.frames).toEqual(["harnix.subscribe", "harnix.unsubscribe"]);
+    expect(client.frames).toEqual(["harnix.topics.subscribe", "harnix.topics.unsubscribe"]);
     client.release();
     await tick();
-    expect(client.frames).toEqual(["harnix.subscribe", "harnix.unsubscribe", "harnix.subscribe"]);
+    expect(client.frames).toEqual(["harnix.topics.subscribe", "harnix.topics.unsubscribe", "harnix.topics.subscribe"]);
     expect(client.serverHolds).toBe(true);
     client.push("t", "pushed");
     expect(seen).toEqual(["now", "pushed"]);
@@ -78,7 +78,7 @@ describe("Topics resubscribing", () => {
     await tick();
     topics.subscribe("t", {}, () => undefined);
     await tick();
-    expect(client.frames).toEqual(["harnix.subscribe", "harnix.unsubscribe", "harnix.subscribe"]);
+    expect(client.frames).toEqual(["harnix.topics.subscribe", "harnix.topics.unsubscribe", "harnix.topics.subscribe"]);
     expect(client.serverHolds).toBe(true);
   });
 

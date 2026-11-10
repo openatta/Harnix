@@ -51,12 +51,12 @@ async function nativeSession(template: string, name: string, recording: string):
     project_root: api.project,
     recording,
   });
-  await api.call("harnix.attach", s);
+  await api.call("harnix.session.attach", s);
   return s;
 }
 
 async function settle(s: Session, message: string): Promise<any> {
-  const sent = await api.call("harnix.send", { ...s, message });
+  const sent = await api.call("harnix.session.send", { ...s, message });
   return api.waitFor(
     (f) => f.method === "harnix.turn_settled" && f.params.session_id === s.session_id
       && (!sent.turn_id || f.params.turn_id === sent.turn_id),
@@ -96,12 +96,12 @@ for (const [carrier, template] of [["spawn", "fleet.native-spawn"], ["in_process
 }
 
 test("system: a module's prompt middleware refuses a turn, and the next one runs (ipdrun-13)", TURN_TAGS, async () => {
-  const created = await api.call("session.create", {
+  const created = await api.call("harnix.session.create", {
     project_root: api.project,
     options: { recorder: { name: "says-ready" } },
   });
   const s = { instance: "system", session_id: created.session_id };
-  await api.call("harnix.attach", s);
+  await api.call("harnix.session.attach", s);
   const refused = await settle(s, "blocked-word, please");
   expect(refused.params.outcome?.stop_reason).toBe("stopped_by_hook");
   expect(api.eventsOfKind("turn_complete", s.session_id).at(-1)?.api_calls).toBe(0);
@@ -110,19 +110,19 @@ test("system: a module's prompt middleware refuses a turn, and the next one runs
 });
 
 test("system: a steered message the middleware refuses arrives as user_message_refused, and stays out of the transcript (ipdrun-13)", TURN_TAGS, async () => {
-  const created = await api.call("session.create", {
+  const created = await api.call("harnix.session.create", {
     project_root: api.project,
     options: { recorder: { name: "runs-a-while" } },
   });
   const s = { instance: "system", session_id: created.session_id };
-  await api.call("harnix.attach", s);
-  const sent = await api.call("harnix.send", { ...s, message: "Wait four seconds" });
+  await api.call("harnix.session.attach", s);
+  const sent = await api.call("harnix.session.send", { ...s, message: "Wait four seconds" });
   const ask = await api.waitFor(
     (f) => f.method === "harnix.event" && f.params.session_id === s.session_id && f.params.event.kind === "prompt",
     { timeout: 30_000, describe: "the permission ask for the Bash call" },
   );
-  await api.call("session.respondToPrompt", { ...s, prompt_id: ask.params.event.prompt_id, decision: { type: "permit" } });
-  const steered = await api.call("harnix.send", { ...s, message: "steered blocked-word", on_busy: "steer" });
+  await api.call("harnix.session.respond", { ...s, prompt_id: ask.params.event.prompt_id, decision: { type: "permit" } });
+  const steered = await api.call("harnix.session.send", { ...s, message: "steered blocked-word", on_busy: "steer" });
   expect(steered.delivery).toBe("steer");
   const frame = await api.waitFor(
     (f) => f.method === "harnix.event" && f.params.session_id === s.session_id
@@ -137,7 +137,7 @@ test("system: a steered message the middleware refuses arrives as user_message_r
     { timeout: 60_000, describe: "the turn to settle" },
   );
   expect(settled.params.error).toBeUndefined();
-  const history = await api.call("session.history", s);
+  const history = await api.call("engine.session.history", s);
   expect(JSON.stringify(history.messages)).not.toContain("steered blocked-word");
 });
 

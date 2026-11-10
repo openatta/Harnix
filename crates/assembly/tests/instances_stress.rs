@@ -161,15 +161,15 @@ impl Rig {
     /// turn to settle: what only a routed instance can do.
     async fn turn(&self, cx: &CallContext, sink: &Sink, instance: &str) -> String {
         let created = self
-            .call(cx.clone(), "session.create", json!({"instance": instance}))
+            .call(cx.clone(), "harnix.session.create", json!({"instance": instance}))
             .await
-            .unwrap_or_else(|e| panic!("session.create on `{instance}`: {}", e.message));
+            .unwrap_or_else(|e| panic!("harnix.session.create on `{instance}`: {}", e.message));
         let sid = created["session_id"].as_str().unwrap().to_string();
         let at = json!({"instance": instance, "session_id": sid});
-        self.call(cx.clone(), "harnix.attach", at.clone()).await.unwrap();
+        self.call(cx.clone(), "harnix.session.attach", at.clone()).await.unwrap();
         let mut send = at.clone();
         send["message"] = json!("hello");
-        self.call(cx.clone(), "harnix.send", send).await.unwrap();
+        self.call(cx.clone(), "harnix.session.send", send).await.unwrap();
         settled(sink, &sid).await;
         sid
     }
@@ -306,7 +306,7 @@ async fn sends_during_a_restart_answer_and_the_instance_comes_back_routed() {
                 tokio::time::sleep(Duration::from_millis(n * 5)).await;
                 let send = json!({"instance": "phoenix", "session_id": sid, "message": format!("m{n}")});
                 // Answered, one way or another: a turn, a queued item, or the instance's refusal.
-                let _ = rig.call(cx, "harnix.send", send).await;
+                let _ = rig.call(cx, "harnix.session.send", send).await;
             }));
         }
         let mut ensures = Vec::new();

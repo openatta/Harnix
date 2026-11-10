@@ -63,7 +63,7 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
     .await;
     // As itself, as far as its hub: one through, one refused and kept.
     rig.platform.device_call("session.start", json!({"message": "hi"})).await.unwrap();
-    assert_eq!(rig.platform.said("call "), ["call session.create", "call harnix.send"]);
+    assert_eq!(rig.platform.said("call "), ["call harnix.session.create", "call harnix.session.send"]);
     assert_eq!(rig.platform.device_call("overreach", json!({})).await.unwrap()["refused"], json!(true));
     assert_eq!(rig.status().await["calls"]["refused"][0]["method"], json!("harnix.apps.uninstall"));
 

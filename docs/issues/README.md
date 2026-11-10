@@ -60,7 +60,7 @@
 | ipdrun-48 | [#47](https://github.com/openatta/Harnix/issues/47) | space 不能在左栏暂时灰掉（`SpaceContribution.disabled`） |
 | ipdrun-49 | [#48](https://github.com/openatta/Harnix/issues/48) | 左栏品牌下面没有地方放应用的上下文（`host.shell.context`） |
 | ipdrun-50 | [#49](https://github.com/openatta/Harnix/issues/49) | 窄屏时右栏只能盖住中区（`[shell] narrow_details`） |
-| ipdrun-51 | [#50](https://github.com/openatta/Harnix/issues/50) | 会话建了就不能换 space（`harnix.sessions.move`） |
+| ipdrun-51 | [#50](https://github.com/openatta/Harnix/issues/50) | 会话建了就不能换 space（`harnix.session.move`） |
 | ipdrun-52 | [#51](https://github.com/openatta/Harnix/issues/51) | 页面不知道自己在桌面壳里、是不是本地模式（`window.__HARNIX_SHELL__`） |
 | ipdrun-53 | [#52](https://github.com/openatta/Harnix/issues/52) | 左栏的 space 入口与下面的会话之间太挤，没有分隔 |
 | ipdrun-54 | [#53](https://github.com/openatta/Harnix/issues/53) | space 的主会话在左栏会话列表里与 space 入口重复（`SpaceContribution.listSession`） |

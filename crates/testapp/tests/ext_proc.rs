@@ -360,7 +360,7 @@ async fn the_showcase_runs_in_an_extension_process_of_this_binary() {
     .await;
     // As itself, through the product: what its hub lists goes through, the rest is refused.
     process.device_call("session.start", json!({"message": "hi"})).await.unwrap();
-    assert_eq!(process.product.said("call "), ["call session.create", "call harnix.send"]);
+    assert_eq!(process.product.said("call "), ["call harnix.session.create", "call harnix.session.send"]);
     assert_eq!(process.device_call("overreach", json!({})).await.unwrap()["refused"], json!(true));
 
     // Tools: an answer; progress, all of it before the answer; one that asks its own backend

@@ -27,10 +27,10 @@ const listed = async (api: TestClient) => (await api.call("harnix.apps.list")).a
 
 /** A session with one replayed turn: its log exists, so an entry has somewhere to go. */
 async function oneTurn(api: TestClient, space?: string): Promise<{ instance: string; session_id: string }> {
-  const created = await api.call("session.create", { ...(space ? { space } : {}), options: { recorder: { name: "says-ready" } } });
+  const created = await api.call("harnix.session.create", { ...(space ? { space } : {}), options: { recorder: { name: "says-ready" } } });
   const s = { instance: created.instance, session_id: created.session_id };
-  await api.call("harnix.attach", s);
-  await api.call("harnix.send", { ...s, message: "Say exactly: fixture ready" });
+  await api.call("harnix.session.attach", s);
+  await api.call("harnix.session.send", { ...s, message: "Say exactly: fixture ready" });
   await api.waitFor((f) => f.method === "harnix.turn_settled" && f.params.session_id === s.session_id, {
     timeout: 60_000,
     describe: "the turn to settle",
@@ -75,7 +75,7 @@ test.describe("an application's inline points and its data", () => {
       ["foreign-space", "the grouping of `other.space`", edit('space = "example.showcase.chats"\nby', 'space = "other.space"\nby')],
       // A space's left column is the shell's list, grouped, or the application's own frame: not both.
       ["grouped-and-own-sidebar", "has a `space.sidebar` surface", edit('space = "example.showcase.chats"\nby', 'space = "example.showcase"\nby')],
-      ["no-append", "harnix.entries.append", edit(', "harnix.entries.append"]', "]")],
+      ["no-append", "harnix.session.entries.append", edit(', "harnix.session.entries.append"]', "]")],
       ["unknown-locale", "the locale `fr`", edit('zh-CN = "示例应用回声', 'fr = "示例应用回声')],
       // Only the component knows its tools: a row for one it does not list fails the start.
       ["unknown-tool", "does not list as a tool", edit('tool = "count"', 'tool = "counted"')],
@@ -133,14 +133,14 @@ test.describe("an application's inline points and its data", () => {
       { describe: "the card's entry to be pushed" },
     );
     expect(pushed.params.event.entry.event).toBe("card");
-    const { entries } = await api.call("session.entries", carded);
+    const { entries } = await api.call("engine.session.entries", carded);
     expect(entries.map((e: any) => [e.ns, e.event])).toEqual([[`app.${SHOWCASE_ID}`, "card"]]);
     // Only through its `hub`: a session in which the entry is appended is still the session's.
     // Claiming no space of its own, the backend is refused before the session is even looked for.
     expect([INVALID_PARAMS, REFUSED]).toContain((await api.refused(M("card.post"), { title: "no session" }))?.code);
 
     // Its chats space's groups: the sessions it put a card in, the rest left to the shell's `other`.
-    const { sessions } = await api.call("harnix.sessions", { space: SHOWCASE_CHATS });
+    const { sessions } = await api.call("harnix.sessions.list", { space: SHOWCASE_CHATS });
     const ids = sessions.map((r: any) => r.session_id);
     expect(ids).toEqual(expect.arrayContaining([carded.session_id, plain.session_id]));
     const grouped = await api.call(M("sessions.group"), { space: SHOWCASE_CHATS, sessions: sessions.map((r: any) => ({ session_id: r.session_id })) });

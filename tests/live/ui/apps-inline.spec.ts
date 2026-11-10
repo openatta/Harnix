@@ -145,10 +145,10 @@ test("its chats space's sessions are grouped as its backend answers", TAGS, asyn
   const [carded, plain] = await withApi(async (api) => {
     const made: { instance: string; session_id: string }[] = [];
     for (let i = 0; i < 2; i += 1) {
-      const created = await api.call("session.create", { space: SHOWCASE_CHATS, options: { recorder: { name: "says-ready" } } });
+      const created = await api.call("harnix.session.create", { space: SHOWCASE_CHATS, options: { recorder: { name: "says-ready" } } });
       const s = { instance: created.instance, session_id: created.session_id };
-      await api.call("harnix.attach", s);
-      await api.call("harnix.send", { ...s, message: "Say exactly: fixture ready" });
+      await api.call("harnix.session.attach", s);
+      await api.call("harnix.session.send", { ...s, message: "Say exactly: fixture ready" });
       await api.waitFor((f) => f.method === "harnix.turn_settled" && f.params.session_id === s.session_id, { timeout: 60_000, describe: "the turn" });
       made.push(s);
     }
@@ -208,7 +208,7 @@ test("Settings → Applications shows its permissions, and clears what it keeps"
   const row = page.locator(`[data-testid="app-installed"][data-app="${SHOWCASE_ID}"]`);
   await expect(row).toHaveAttribute("data-state", "running");
   const permissions = row.getByTestId("app-permissions");
-  await expect(permissions.locator('[data-capability="hub"]', { hasText: "harnix.entries.append" })).toBeVisible();
+  await expect(permissions.locator('[data-capability="hub"]', { hasText: "harnix.session.entries.append" })).toBeVisible();
   await expect(permissions.locator('[data-capability="inline"]', { hasText: "/showcase" })).toBeVisible();
   await expect(permissions.locator('[data-inline="flow_block"]')).toContainText("card");
   const data = row.getByTestId("app-data");

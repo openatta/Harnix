@@ -3,7 +3,7 @@
  * conversations under it on a guide line. Up to five projects show, then "more"; up to eight
  * conversations of the open one, then "all".
  *
- * A project is a workspace (`harnix.workspaces.*`): a directory sessions run in. Its conversations
+ * A project is a workspace (`harnix-app.workspaces.*`): a directory sessions run in. Its conversations
  * are the session space's — the same sessions, listed by where they run — so opening one here
  * claims the session space, and a new one started here runs in the open project.
  */

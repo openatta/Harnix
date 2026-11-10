@@ -26,19 +26,19 @@ use serde_json::{json, Value};
 /// What the system module does to another space's session, method by method: each the engine's,
 /// each needing `engine.inspect` or `engine.control`.
 const SYSTEM_SPACE_ACTS: &[&str] = &[
-    "session.inspectContext",
-    "session.taskOutput",
-    "session.goal",
-    "session.stopTask",
-    "session.messageTask",
-    "session.dropMessages",
-    "session.editMessage",
-    "session.compact",
-    "session.clear",
-    "session.setModel",
-    "session.rename",
-    "session.setGoal",
-    "session.updateGoal",
+    "engine.session.inspectContext",
+    "engine.session.taskOutput",
+    "engine.session.goal",
+    "engine.session.stopTask",
+    "engine.session.messageTask",
+    "engine.session.dropMessages",
+    "engine.session.editMessage",
+    "engine.session.compact",
+    "engine.session.clear",
+    "engine.session.setModel",
+    "engine.session.rename",
+    "engine.session.setGoal",
+    "engine.session.updateGoal",
 ];
 
 /// The system space's four capabilities.
@@ -320,7 +320,7 @@ mod scope {
     /// its consent, then its rows.
     fn with_package(frame: Option<&[&str]>) -> Fixture {
         let r = registered(true, Modules::default()).unwrap();
-        let consent = ["session.get", "harnix.sessions", "session.create"].map(String::from);
+        let consent = ["engine.session.get", "harnix.sessions.list", "harnix.session.create"].map(String::from);
         r.grants.set(id("acme.notes"), [], Trust::consent(consent, PackageCarrier::Wasm));
         let own = Row::method("app.acme.notes.list", Access::device(), Arc::new(Answer));
         r.router.install_app(&Subject::Kernel, "acme.notes", vec![own]).unwrap();
@@ -340,19 +340,19 @@ mod scope {
         let me = || Subject::extension(id("acme.notes"));
         // Its own space, or one under it: let through (to a hub that is not up).
         for space in ["acme.notes", "acme.notes.board"] {
-            let e = call(&r, me(), "session.get", json!({"session_id": "s", "space": space})).await.unwrap_err();
+            let e = call(&r, me(), "engine.session.get", json!({"session_id": "s", "space": space})).await.unwrap_err();
             assert_eq!(e.code, codes::INTERNAL_ERROR, "{space}: {e}");
         }
         // Another space's session, a space that only starts like its own, or no claim at all.
         for params in [json!({"session_id": "s", "space": "sessions"}), json!({"session_id": "s", "space": "acme.notesy"}), json!({"session_id": "s"})] {
-            let e = call(&r, me(), "session.get", params.clone()).await.unwrap_err();
+            let e = call(&r, me(), "engine.session.get", params.clone()).await.unwrap_err();
             assert!(refused_outside(&e), "{params}: {e:?}");
         }
         // Listing and creating are about a space: not claiming one is refused.
-        assert!(refused_outside(&call(&r, me(), "harnix.sessions", json!({})).await.unwrap_err()));
-        assert!(refused_outside(&call(&r, me(), "session.create", json!({"space": "system"})).await.unwrap_err()));
+        assert!(refused_outside(&call(&r, me(), "harnix.sessions.list", json!({})).await.unwrap_err()));
+        assert!(refused_outside(&call(&r, me(), "harnix.session.create", json!({"space": "system"})).await.unwrap_err()));
         // Reading another session's inside is no package's: no capability opens it to one.
-        let e = call(&r, me(), "session.inspectContext", json!({"space": "acme.notes"})).await.unwrap_err();
+        let e = call(&r, me(), "engine.session.inspectContext", json!({"space": "acme.notes"})).await.unwrap_err();
         assert_eq!(e.code, codes::REFUSED);
         // Its own names are its own, wherever.
         assert_eq!(call(&r, me(), "app.acme.notes.list", json!({"x": 1})).await.unwrap(), json!({"x": 1}));
@@ -364,12 +364,12 @@ mod scope {
     #[tokio::test]
     async fn the_session_rows_and_topics_a_frame_may_list_are_its_own_spaces() {
         let listed = [
-            "harnix.sessions.archive",
-            "harnix.sessions.export",
-            "harnix.sessions.move",
-            "harnix.sessions.rename",
-            "harnix.subscribe",
-            "topic:harnix.sessions.tasks",
+            "harnix-app.sessions.archive",
+            "harnix-app.sessions.export",
+            "harnix.session.move",
+            "harnix.session.rename",
+            "harnix.topics.subscribe",
+            "topic:harnix.session.tasks",
             "topic:harnix.sessions.status",
             "topic:harnix.instances.sessions",
         ];
@@ -390,7 +390,7 @@ mod scope {
             }
             json!({"topic": topic, "params": params})
         };
-        for method in ["harnix.sessions.archive", "harnix.sessions.export", "harnix.sessions.move", "harnix.sessions.rename"] {
+        for method in ["harnix-app.sessions.archive", "harnix-app.sessions.export", "harnix.session.move", "harnix.session.rename"] {
             for space in [None, Some("sessions")] {
                 let mut params = json!({"session_id": "s"});
                 if let Some(space) = space {
@@ -400,13 +400,13 @@ mod scope {
                 assert!(refused_outside(&e), "{method} {space:?}: {e:?}");
             }
         }
-        for topic in ["harnix.sessions.tasks", "harnix.sessions.status", "harnix.instances.sessions"] {
+        for topic in ["harnix.session.tasks", "harnix.sessions.status", "harnix.instances.sessions"] {
             for space in [None, Some("sessions")] {
-                let e = r.router.call(page(), "harnix.subscribe", sub(topic, space)).await.unwrap_err();
+                let e = r.router.call(page(), "harnix.topics.subscribe", sub(topic, space)).await.unwrap_err();
                 assert!(refused_outside(&e), "{topic} {space:?}: {e:?}");
             }
             // Its own space's: through to the hub, which is not up here.
-            let e = r.router.call(page(), "harnix.subscribe", sub(topic, Some("acme.notes"))).await.unwrap_err();
+            let e = r.router.call(page(), "harnix.topics.subscribe", sub(topic, Some("acme.notes"))).await.unwrap_err();
             assert!(!refused_outside(&e), "{topic}: {e:?}");
         }
     }
@@ -420,21 +420,21 @@ mod scope {
         };
         // Without a framed interface it calls nothing.
         let r = with_package(None);
-        let e = r.router.call(page("acme.notes"), "harnix.sessions", json!({"space": "acme.notes"})).await.unwrap_err();
+        let e = r.router.call(page("acme.notes"), "harnix.sessions.list", json!({"space": "acme.notes"})).await.unwrap_err();
         assert_eq!((e.code, e.message.as_str()), (codes::REFUSED, harnix_router::NO_FRAME));
 
-        let r = with_package(Some(&["harnix.sessions", "session.get", "session.inspectContext"]));
+        let r = with_package(Some(&["harnix.sessions.list", "engine.session.get", "engine.session.inspectContext"]));
         // Listed, in its own space: let through. Its own names: let through.
-        let e = r.router.call(page("acme.notes"), "harnix.sessions", json!({"space": "acme.notes"})).await.unwrap_err();
+        let e = r.router.call(page("acme.notes"), "harnix.sessions.list", json!({"space": "acme.notes"})).await.unwrap_err();
         assert_eq!(e.code, codes::INTERNAL_ERROR, "{e}");
         assert!(r.router.call(page("acme.notes"), "app.acme.notes.list", json!({})).await.is_ok());
         // Listed, another space: narrowed. Not listed, though a device may: refused.
-        let e = r.router.call(page("acme.notes"), "session.get", json!({"space": "sessions"})).await.unwrap_err();
+        let e = r.router.call(page("acme.notes"), "engine.session.get", json!({"space": "sessions"})).await.unwrap_err();
         assert!(refused_outside(&e), "{e:?}");
         let e = r.router.call(page("acme.notes"), "harnix.spaces.list", json!({})).await.unwrap_err();
         assert_eq!((e.code, e.message.as_str()), (codes::REFUSED, harnix_router::OUTSIDE_FRAME));
         // Listed, but not the device's to do: the intersection.
-        let e = r.router.call(page("acme.notes"), "session.inspectContext", json!({"space": "acme.notes"})).await.unwrap_err();
+        let e = r.router.call(page("acme.notes"), "engine.session.inspectContext", json!({"space": "acme.notes"})).await.unwrap_err();
         assert_eq!(e.code, codes::REFUSED);
         // And the record says whose page it was.
         let entry = &r.router.audit().recent(1)[0];

@@ -153,7 +153,7 @@ export function SessionOverview({ app, view, session }: { app: App; view: View; 
 function Operations({ app, view, session, name }: { app: App; view: View; session: SessionKey; name: string | null }) {
   const tr = useT();
   const target = { instance: session.instance, session_id: session.sessionId };
-  const system = (method: string, extra: Record<string, unknown> = {}) => app.call(`harnix.system.${method}`, { ...target, ...extra });
+  const system = (method: string, extra: Record<string, unknown> = {}) => app.call(`system.${method}`, { ...target, ...extra });
   const claimed = (method: string, extra: Record<string, unknown> = {}) => app.call(method, { ...target, ...extra, space: SYSTEM });
   const settled = () => void app.refreshSessions();
   const ops: { id: string; icon: string; label: string; run: () => void; danger?: boolean }[] = [
@@ -175,7 +175,7 @@ function Operations({ app, view, session, name }: { app: App; view: View; sessio
       label: tr("system.op.fork"),
       run: () =>
         void act(app, async () => {
-          const forked = await app.call<{ session_id: string; instance?: string }>("session.fork", { ...target, space: SYSTEM });
+          const forked = await app.call<{ session_id: string; instance?: string }>("harnix.session.fork", { ...target, space: SYSTEM });
           view.select({ kind: "session", instance: forked.instance ?? session.instance, sessionId: forked.session_id });
           settled();
         }),
@@ -186,10 +186,10 @@ function Operations({ app, view, session, name }: { app: App; view: View; sessio
       label: tr("system.op.model"),
       run: () => renameDialog(app, tr("system.op.model"), app.snapshot.hello?.engine?.model ?? "", (model) => system("model", { model: model.trim() })),
     },
-    { id: "interrupt", icon: "stop", label: tr("system.op.interrupt"), run: () => void act(app, () => claimed("session.interrupt")) },
+    { id: "interrupt", icon: "stop", label: tr("system.op.interrupt"), run: () => void act(app, () => claimed("harnix.session.interrupt")) },
     { id: "export", icon: "download", label: tr("system.op.export"), run: () => exportDialog(app, { ...target, space: SYSTEM }) },
     { id: "rename", icon: "edit", label: tr("system.op.rename"), run: () => renameDialog(app, tr("system.op.rename"), name, (value) => system("rename", { name: value.trim() })) },
-    { id: "close", icon: "close", label: tr("system.op.close"), run: () => void act(app, () => claimed("session.close")).then(settled) },
+    { id: "close", icon: "close", label: tr("system.op.close"), run: () => void act(app, () => claimed("harnix.session.close")).then(settled) },
     {
       id: "delete",
       icon: "trash",
@@ -197,7 +197,7 @@ function Operations({ app, view, session, name }: { app: App; view: View; sessio
       danger: true,
       run: () =>
         confirmDialog(app, tr("system.confirmDelete"), async () => {
-          await claimed("session.delete");
+          await claimed("harnix.session.delete");
           app.closeModal();
           app.forget(session);
           view.select({ kind: "instance", instance: session.instance });

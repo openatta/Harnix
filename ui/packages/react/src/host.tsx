@@ -119,8 +119,8 @@ export interface HostApi {
   /** The instances, typed as the protocol answers them (`Methods` in `@harnix/core`). */
   instances: {
     list(): Promise<Methods["harnix.instances.list"]["result"]>;
-    sessions(instance: string): Promise<Methods["harnix.instances.sessions"]["result"]>;
-    tasks(instance: string, sessionId: string): Promise<Methods["harnix.sessions.tasks"]["result"]>;
+    sessions(instance: string): Promise<Methods["harnix.sessions.list"]["result"]>;
+    tasks(instance: string, sessionId: string): Promise<Methods["harnix.session.tasks"]["result"]>;
     create(template: string, name: string, params?: Record<string, string>): Promise<Methods["harnix.instances.create"]["result"]>;
     stop(instance: string): Promise<Methods["harnix.instances.stop"]["result"]>;
   };

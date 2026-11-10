@@ -54,17 +54,17 @@ describe("单双向流", () => {
     const server = new FakeServer();
     server.answer = (method, params) => {
       if (method === "harnix.handshake") return { topology: "single_duplex", protocol_version: 4, contrib_api_version: CONTRIB_API_VERSION };
-      if (method === "harnix.attach") return { session: { session_id: params.session_id }, seq: 7 };
-      if (method === "harnix.send") return new RpcFailure({ code: -32602, message: "empty message" });
+      if (method === "harnix.session.attach") return { session: { session_id: params.session_id }, seq: 7 };
+      if (method === "harnix.session.send") return new RpcFailure({ code: -32602, message: "empty message" });
       return {};
     };
     const { client } = makeClient(server);
     client.connect();
     await client.ready();
 
-    const attached = await client.call("harnix.attach", { session_id: "S1" });
+    const attached = await client.call("harnix.session.attach", { session_id: "S1" });
     expect(attached.seq).toBe(7);
-    await expect(client.call("harnix.send", { session_id: "S1", message: " " })).rejects.toEqual({
+    await expect(client.call("harnix.session.send", { session_id: "S1", message: " " })).rejects.toEqual({
       code: -32602,
       message: "empty message",
     });
@@ -97,9 +97,9 @@ describe("单双向流", () => {
     expect(all).toEqual(["harnix.event", "harnix.queue", "harnix.event"]);
     expect(seqs).toEqual([1]);
 
-    client.notify("harnix.detach", { session_id: "S1" });
+    client.notify("harnix.session.detach", { session_id: "S1" });
     const last = server.sent[server.sent.length - 1]!;
-    expect(last).toMatchObject({ method: "harnix.detach", params: { session_id: "S1" } });
+    expect(last).toMatchObject({ method: "harnix.session.detach", params: { session_id: "S1" } });
     expect(last.id).toBeUndefined();
     client.close();
   });
@@ -109,8 +109,8 @@ describe("单双向流", () => {
     const { client } = makeClient(server);
     client.connect();
     await client.ready();
-    await client.answer("session.respondToPrompt", { session_id: "S1", prompt_id: "p1", decision: { type: "permit" } });
-    expect(server.sent.at(-1)).toMatchObject({ method: "session.respondToPrompt", params: { prompt_id: "p1" } });
+    await client.answer("harnix.session.respond", { session_id: "S1", prompt_id: "p1", decision: { type: "permit" } });
+    expect(server.sent.at(-1)).toMatchObject({ method: "harnix.session.respond", params: { prompt_id: "p1" } });
     client.close();
   });
 
@@ -169,7 +169,7 @@ describe("分离流回退", () => {
     server.answer = () =>
       new RpcFailure({ code: -31001, message: "topology `single_duplex` is not served here; this build offers split_streams" });
     const split = new FakeSplit();
-    split.rpc = (method) => (method === "harnix.sessions" ? { sessions: [{ session_id: "S1" }] } : { prompt_id: "p1" });
+    split.rpc = (method) => (method === "harnix.sessions.list" ? { sessions: [{ session_id: "S1" }] } : { prompt_id: "p1" });
     const { client } = makeClient(server, split);
     client.connect();
     await client.ready();
@@ -182,9 +182,9 @@ describe("分离流回退", () => {
     expect(split.sources.map((s) => new URL(s.url).pathname)).toEqual(["/events/session", "/events/host"]);
     expect(split.sources[0]!.url).toContain("token=cred-1");
 
-    const listed = await client.call("harnix.sessions");
+    const listed = await client.call("harnix.sessions.list");
     expect(listed.sessions[0]!.session_id).toBe("S1");
-    await client.answer("session.respondToPrompt", { session_id: "S1", prompt_id: "p1", decision: { type: "permit" } });
+    await client.answer("harnix.session.respond", { session_id: "S1", prompt_id: "p1", decision: { type: "permit" } });
     expect(split.requests.map((r) => new URL(r.url).pathname)).toEqual(["/handshake", "/rpc", "/respond"]);
 
     const seen: unknown[] = [];
@@ -192,8 +192,8 @@ describe("分离流回退", () => {
     split.sources[0]!.push("harnix.queue", { session_id: "S1", items: [{ item_id: "q1", message: "hi" }] });
     expect(seen).toEqual([[{ item_id: "q1", message: "hi" }]]);
 
-    client.notify("harnix.detach", { session_id: "S1" });
-    expect(split.requests.at(-1)).toMatchObject({ keepalive: true, body: { method: "harnix.detach" } });
+    client.notify("harnix.session.detach", { session_id: "S1" });
+    expect(split.requests.at(-1)).toMatchObject({ keepalive: true, body: { method: "harnix.session.detach" } });
 
     split.sources[1]!.fail();
     expect(client.status).toBe("degraded");

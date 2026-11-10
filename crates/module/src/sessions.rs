@@ -202,7 +202,7 @@ pub struct Sessions<'a> {
 
 impl Sessions<'_> {
     pub async fn create(&self, spec: SessionSpec) -> Result<SessionRef, RpcError> {
-        let created = self.cx.call("session.create", spec.params()).await?;
+        let created = self.cx.call("harnix.session.create", spec.params()).await?;
         Ok(SessionRef {
             instance: created
                 .get("instance")
@@ -220,7 +220,7 @@ impl Sessions<'_> {
     /// A session that already exists — in memory or only on disk.
     pub async fn open(&self, instance: &str, session_id: &str) -> Result<SessionRef, RpcError> {
         self.cx
-            .call("session.get", json!({"instance": instance, "session_id": session_id}))
+            .call("engine.session.get", json!({"instance": instance, "session_id": session_id}))
             .await?;
         Ok(SessionRef {
             instance: instance.to_string(),
@@ -232,7 +232,7 @@ impl Sessions<'_> {
     pub async fn send(&self, session: &SessionRef, message: &str, on_busy: OnBusy) -> Result<Value, RpcError> {
         self.cx
             .call(
-                "harnix.send",
+                "harnix.session.send",
                 json!({
                     "instance": session.instance,
                     "session_id": session.session_id,
@@ -253,27 +253,27 @@ impl Sessions<'_> {
         options: SendOptions,
     ) -> Result<Value, RpcError> {
         self.cx
-            .call("harnix.send", options.params(session, message))
+            .call("harnix.session.send", options.params(session, message))
             .await
     }
 
     pub async fn interrupt(&self, session: &SessionRef) -> Result<Value, RpcError> {
         self.cx
-            .call("session.interrupt", key(session))
+            .call("harnix.session.interrupt", key(session))
             .await
     }
 
-    /// Bind the session to another space, transcript and all (`harnix.sessions.move`, ipdrun-51):
+    /// Bind the session to another space, transcript and all (`harnix.session.move`, ipdrun-51):
     /// for an application that moved a kind of session from one space to another. Already there ⇒
     /// nothing changes. `{space, from, moved}`.
     pub async fn move_to(&self, session: &SessionRef, space: &str) -> Result<Value, RpcError> {
         let mut params = key(session);
         params["space"] = json!(space);
-        self.cx.call("harnix.sessions.move", params).await
+        self.cx.call("harnix.session.move", params).await
     }
 
     pub async fn close(&self, session: &SessionRef) -> Result<Value, RpcError> {
-        self.cx.call("session.close", key(session)).await
+        self.cx.call("harnix.session.close", key(session)).await
     }
 
     /// Write an entry into the session's log: a card, a decision, a job's result — for people, never
@@ -284,7 +284,7 @@ impl Sessions<'_> {
         let mut params = key(session);
         params["event"] = json!(entry.event);
         params["payload"] = entry.payload;
-        self.cx.call("harnix.entries.append", params).await
+        self.cx.call("harnix.session.entries.append", params).await
     }
 
     /// This module's entries in the session, oldest first, each with `at`: how many messages come
@@ -292,7 +292,7 @@ impl Sessions<'_> {
     pub async fn entries(&self, session: &SessionRef) -> Result<Vec<Value>, RpcError> {
         let mut params = key(session);
         params["namespaces"] = json!([format!("app.{}", self.cx.id())]);
-        let listed = self.cx.call("session.entries", params).await?;
+        let listed = self.cx.call("engine.session.entries", params).await?;
         Ok(listed
             .get("entries")
             .and_then(Value::as_array)
@@ -499,7 +499,7 @@ impl Tap {
     /// Fill in what was missed from the hub's buffer, then carry on with
     /// what is queued. Returns the attach it caught up from: once a turn has
     /// settled into the transcript the buffer no longer holds it, and
-    /// `history_total` says how far `session.history` covers instead — the
+    /// `history_total` says how far `engine.session.history` covers instead — the
     /// same split a refreshing client draws.
     pub async fn catch_up(&mut self) -> Result<Value, RpcError> {
         let attached = (self.reattach)().await?;

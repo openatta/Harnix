@@ -5,7 +5,7 @@
  * 每个块有稳定的 `key`，变了的块换成新对象、没变的保持同一引用，React 只重画引用变了的
  * 那几个——对应原版的 `rev` 计数，一千个 text_delta 只碰一个节点。
  *
- * 两个来源产生同一张块表：`session.history`（transcript，到它自己的深度为止是权威的）
+ * 两个来源产生同一张块表：`engine.session.history`（transcript，到它自己的深度为止是权威的）
  * 与 `harnix.event`（正在跑的这一轮，加上 attach 时中枢重放的部分）。追赶顺序是先历史、
  * 后重放，不能反过来。两边的结构一致：一次模型回复在 transcript 里是一条 assistant 消息，
  * 实时是 step_start … step_end 之间的帧；正文段、思考、工具调用各成一块，次序相同。
@@ -113,7 +113,7 @@ export interface SessionState {
   /** 待送达：交给了正在跑的一轮、还没进对话的话。 */
   steering: SteerItem[];
   usage: Usage | null;
-  /** 上下文占用：最近一次调过模型的那一轮的 `turn_complete.context`（attach 时取 `session.get` 的）。 */
+  /** 上下文占用：最近一次调过模型的那一轮的 `turn_complete.context`（attach 时取 `engine.session.get` 的）。 */
   context: ContextUsage | null;
   /** 回放被截断等需要提示的事。 */
   banner: string | null;
@@ -214,7 +214,7 @@ export function addCustom(state: SessionState, type: string, data: unknown, at?:
 
 /**
  * An entry the application wrote into the session's log (Agix `session.appendEntry`, concept §3.2.1): for
- * people, never for the model. `at` is how many messages come before it, in `session.history`'s
+ * people, never for the model. `at` is how many messages come before it, in `engine.session.history`'s
  * coordinates. It becomes a `custom` block of type `entry`, which a `flow.block` contribution draws.
  */
 export interface SessionEntry {

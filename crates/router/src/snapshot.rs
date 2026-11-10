@@ -1,6 +1,5 @@
 //! The table as `harnix.diagnostics` reports it and `crates/harnix/tests/method-table.snap.json`
-//! pins it: one `{name, kind, owner, access}` per row, sorted by kind and then name, and the
-//! aliases beside them.
+//! pins it: one `{name, kind, owner, access}` per row, sorted by kind and then name.
 
 use serde_json::{json, Value};
 
@@ -37,11 +36,7 @@ pub(crate) fn of(table: &RouteTable) -> Value {
         })
         .collect();
     rows.sort_by(|a, b| (a.0.as_str(), &a.1).cmp(&(b.0.as_str(), &b.1)));
-    let aliases: Vec<Value> = table
-        .aliases()
-        .map(|(old, new)| json!({"name": old, "to": new}))
-        .collect();
-    json!({"rows": rows.into_iter().map(|r| r.2).collect::<Vec<_>>(), "aliases": aliases})
+    json!({"rows": rows.into_iter().map(|r| r.2).collect::<Vec<_>>()})
 }
 
 #[cfg(test)]
@@ -70,27 +65,26 @@ mod tests {
             .install(
                 &Owner::Engine,
                 vec![
-                    Row::method("plugin.install", Access::capability(caps::ENGINE_PLUGINS), Arc::new(Nothing)),
-                    Row::method("config.set", Access::refused("no"), Arc::new(Nothing)),
-                    Row::method("plugin.list", Access::device(), Arc::new(Nothing)),
-                    Row::method("session.get", Access::device().scoped(RowScope::Session), Arc::new(Nothing)),
+                    Row::method("engine.plugin.install", Access::capability(caps::ENGINE_PLUGINS), Arc::new(Nothing)),
+                    Row::method("engine.config.set", Access::refused("no"), Arc::new(Nothing)),
+                    Row::method("engine.plugin.list", Access::device(), Arc::new(Nothing)),
+                    Row::method("engine.session.get", Access::device().scoped(RowScope::Session), Arc::new(Nothing)),
                 ],
             )
             .unwrap();
         table
             .install(&Owner::Kernel(KernelPart::Hub), vec![Row::topic("harnix.instances", Access::device())])
             .unwrap();
-        table.alias("plugin.add", "plugin.install").unwrap();
         let snap = of(&table);
         let rows = snap["rows"].as_array().unwrap();
         let names: Vec<_> = rows.iter().map(|r| (r["kind"].as_str().unwrap(), r["name"].as_str().unwrap())).collect();
         assert_eq!(
             names,
             [
-                ("method", "config.set"),
-                ("method", "plugin.install"),
-                ("method", "plugin.list"),
-                ("method", "session.get"),
+                ("method", "engine.config.set"),
+                ("method", "engine.plugin.install"),
+                ("method", "engine.plugin.list"),
+                ("method", "engine.session.get"),
                 ("topic", "harnix.instances")
             ]
         );
@@ -104,6 +98,5 @@ mod tests {
         assert_eq!(rows[2]["access"]["scope"], "open");
         assert_eq!(rows[3]["access"]["scope"], "session");
         assert_eq!(rows[4]["owner"], "kernel:hub");
-        assert_eq!(snap["aliases"], json!([{"name": "plugin.add", "to": "plugin.install"}]));
     }
 }

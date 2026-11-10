@@ -482,11 +482,11 @@ impl AppRuntime for Apps {
     }
 
     async fn subscribe_as(&self, by: &str, id: &str, name: &str, params: Value) -> Result<Value, RpcError> {
-        self.watch(by, id, name, params, "harnix.subscribe").await
+        self.watch(by, id, name, params, "harnix.topics.subscribe").await
     }
 
     async fn unsubscribe_as(&self, by: &str, id: &str, name: &str, params: Value) -> Result<(), RpcError> {
-        self.watch(by, id, name, params, "harnix.unsubscribe").await.map(|_| ())
+        self.watch(by, id, name, params, "harnix.topics.unsubscribe").await.map(|_| ())
     }
 
     fn frame(&self, by: &str, id: &str, calls: Option<Vec<String>>) -> Result<(), RpcError> {
@@ -632,13 +632,13 @@ mod tests {
                 &Owner::Kernel(KernelPart::Hub),
                 vec![
                     row("harnix.hello", Access::device()),
-                    row("harnix.subscribe", Access::device()),
-                    row("harnix.unsubscribe", Access::device()),
-                    row("session.create", Access::device()),
+                    row("harnix.topics.subscribe", Access::device()),
+                    row("harnix.topics.unsubscribe", Access::device()),
+                    row("harnix.session.create", Access::device()),
                     row("settings.write", Access::refused("not for devices")),
                     Row::closed("harnix.turn", Access::hub_owned("the hub's")),
                     Row::topic("harnix.sessions.status", Access::device()),
-                    Row::topic("harnix.process", Access::kernel()),
+                    Row::topic("system.process", Access::kernel()),
                 ],
             )
             .unwrap();
@@ -745,15 +745,15 @@ mod tests {
         let w = world();
         let heard = Arc::new(Heard::default());
         let spec = fake("acme.notes")
-            .hub(["session.create", "settings.write", "topic:harnix.sessions.status"])
+            .hub(["harnix.session.create", "settings.write", "topic:harnix.sessions.status"])
             .topic_sink(heard.clone());
         w.apps.register("host", spec).await.unwrap();
 
         // Listed, and open to every module anyway: through the router, as `module:acme.notes`,
         // and never on a connection.
         assert_eq!(
-            w.apps.call_as("host", "acme.notes", "session.create", json!({"x": 1})).await.unwrap(),
-            json!({"below": "session.create"})
+            w.apps.call_as("host", "acme.notes", "harnix.session.create", json!({"x": 1})).await.unwrap(),
+            json!({"below": "harnix.session.create"})
         );
         let (subject, _, params, client) = lock(&w.below.seen).last().cloned().unwrap();
         assert_eq!(subject, "ext:acme.notes");
@@ -781,20 +781,20 @@ mod tests {
         let reach = w.apps.call_as("host", "acme.notes", harnix_router::REACHABLE, json!({})).await.unwrap();
         assert_eq!(
             reach["methods"],
-            json!(["app.acme.notes.echo", "app.acme.notes.internal", "harnix.subscribe", "harnix.unsubscribe", "session.create"])
+            json!(["app.acme.notes.echo", "app.acme.notes.internal", "harnix.topics.subscribe", "harnix.topics.unsubscribe", "harnix.session.create"])
         );
         assert_eq!(reach["topics"], json!(["app.acme.notes.ticks", "harnix.sessions.status"]));
         // Only the module that registered it speaks for it.
-        assert!(w.apps.call_as("other", "acme.notes", "session.create", json!({})).await.is_err());
+        assert!(w.apps.call_as("other", "acme.notes", "harnix.session.create", json!({})).await.is_err());
 
         // Subscribing: a listed topic, through its own client of the hub; an unlisted one refused.
         w.apps.subscribe_as("host", "acme.notes", "harnix.sessions.status", json!({})).await.unwrap();
         let (subject, method, params, client) = lock(&w.below.seen).last().cloned().unwrap();
-        assert_eq!((subject.as_str(), method.as_str()), ("ext:acme.notes", "harnix.subscribe"));
+        assert_eq!((subject.as_str(), method.as_str()), ("ext:acme.notes", "harnix.topics.subscribe"));
         assert_eq!(params, json!({"topic": "harnix.sessions.status", "params": {}}));
         assert_eq!(client, Some(ClientId(101)), "as its own client of the hub");
         assert_eq!(
-            w.apps.subscribe_as("host", "acme.notes", "harnix.process", json!({})).await.unwrap_err().code,
+            w.apps.subscribe_as("host", "acme.notes", "system.process", json!({})).await.unwrap_err().code,
             codes::REFUSED
         );
         assert!(w
@@ -802,7 +802,7 @@ mod tests {
             .audit()
             .recent(100)
             .iter()
-            .any(|e| e.subject == "ext:acme.notes" && e.method == "harnix.subscribe" && e.reason == Some(OUTSIDE_HUB)));
+            .any(|e| e.subject == "ext:acme.notes" && e.method == "harnix.topics.subscribe" && e.reason == Some(OUTSIDE_HUB)));
         // Its own topic needs no listing.
         w.apps.subscribe_as("host", "acme.notes", "app.acme.notes.ticks", json!({"job": 1})).await.unwrap();
         // What the hub pushes its client reaches the sink, topic values and endings both.
@@ -817,9 +817,9 @@ mod tests {
         // Withdrawn: its consent is gone, the client removed, and nothing more is called as it.
         w.apps.withdraw("host", "acme.notes").await.unwrap();
         assert_eq!(lock(&w.stub.removed).as_slice(), [101]);
-        let e = call(&w.az, &me("acme.notes"), "session.create", json!({})).await.unwrap_err();
+        let e = call(&w.az, &me("acme.notes"), "harnix.session.create", json!({})).await.unwrap_err();
         assert_eq!((e.code, e.message.as_str()), (codes::REFUSED, harnix_router::UNREGISTERED));
-        assert_eq!(w.apps.call_as("host", "acme.notes", "session.create", json!({})).await.unwrap_err().code, codes::INVALID_PARAMS);
+        assert_eq!(w.apps.call_as("host", "acme.notes", "harnix.session.create", json!({})).await.unwrap_err().code, codes::INVALID_PARAMS);
     }
 
     /// The extensions waiting on a call an application makes as itself reach the application

@@ -313,7 +313,7 @@ pub(crate) async fn flow_session(
     };
     let _ = cx
         .call(
-            "session.rename",
+            "engine.session.rename",
             json!({"instance": s.instance, "session_id": s.session_id, "name": name}),
         )
         .await;
@@ -344,7 +344,7 @@ async fn run_sessions(cx: &Call, rec: &crate::RunRecord) -> Answer {
     };
     let module = cx.ext();
     let target = json!({"instance": main.instance, "session_id": main.session_id});
-    let listed = module.call("session.tasks", target.clone()).await;
+    let listed = module.call("engine.session.tasks", target.clone()).await;
 
     if let Err(e) = &listed {
         tracing::warn!(run = rec.id, error = %e.message, "a main session's tasks not listed");
@@ -369,7 +369,7 @@ async fn run_sessions(cx: &Call, rec: &crate::RunRecord) -> Answer {
         .collect();
     let side = module
         .call(
-            "session.list",
+            "engine.session.list",
             json!({"instance": main.instance, "parent_session_id": main.session_id}),
         )
         .await;
@@ -590,7 +590,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
             // Only a conversation that can use it: an existing session in the flow-author scene.
             let session = cx
                 .call(
-                    "session.get",
+                    "engine.session.get",
                     json!({"instance": p.instance, "session_id": p.session_id}),
                 )
                 .await

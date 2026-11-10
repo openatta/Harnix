@@ -147,14 +147,14 @@ describe("StationPanel", () => {
     expect(btn("flow-release").disabled).toBe(true);
 
     await act(async () => fireEvent.click(btn("flow-confirm")));
-    expect(calls).toContainEqual(["app.flow.confirm", { run: "r1", station: "review", pass: true }]);
+    expect(calls).toContainEqual(["flow.confirm", { run: "r1", station: "review", pass: true }]);
 
     // Force needs a reason.
     fireEvent.click(btn("flow-force"));
     expect(btn("flow-action-submit").disabled).toBe(true);
     fireEvent.change(screen.getByTestId("flow-reason"), { target: { value: "deadline" } });
     await act(async () => fireEvent.click(btn("flow-action-submit")));
-    expect(calls).toContainEqual(["app.flow.force", { run: "r1", station: "review", reason: "deadline" }]);
+    expect(calls).toContainEqual(["flow.force", { run: "r1", station: "review", reason: "deadline" }]);
 
     // Rework to a chosen target, with some of its tasks.
     fireEvent.click(btn("flow-rework"));
@@ -162,7 +162,7 @@ describe("StationPanel", () => {
     fireEvent.click(screen.getByTestId("flow-rework-task-1"));
     fireEvent.change(screen.getByTestId("flow-reason"), { target: { value: "thin" } });
     await act(async () => fireEvent.click(btn("flow-action-submit")));
-    expect(calls).toContainEqual(["app.flow.rework", { run: "r1", to: "analyze", tasks: ["1"], reason: "thin" }]);
+    expect(calls).toContainEqual(["flow.rework", { run: "r1", to: "analyze", tasks: ["1"], reason: "thin" }]);
   });
 
   it("disables everything on a passed station without rework targets, offers retry per failed task, opens sessions", async () => {
@@ -272,7 +272,7 @@ describe("ProposalCard", () => {
       </HostProvider>,
     );
     await act(async () => fireEvent.click(screen.getByTestId("flow-proposal-accept")));
-    expect(calls).toEqual([["app.flow.rework", { run: "r1", to: "analyze", reason: "thin" }]]);
+    expect(calls).toEqual([["flow.rework", { run: "r1", to: "analyze", reason: "thin" }]]);
     expect(screen.getByTestId("flow-proposal-accepted")).toBeTruthy();
     cleanup();
     render(
@@ -287,7 +287,7 @@ describe("ProposalCard", () => {
   it("names itself when accepted, and reads as accepted from the module's record after a reload", async () => {
     const session = { instance: "system", session_id: "s1" };
     const proposal = { run: "r1", station: "review", kind: "rework" as const, to: "analyze", reason: "thin", session };
-    const fresh = fakeHost({ "app.flow.proposal": { handled: null } });
+    const fresh = fakeHost({ "flow.proposal": { handled: null } });
     render(
       <HostProvider host={fresh.host}>
         <ProposalCard id="e3" proposal={proposal} />
@@ -297,18 +297,18 @@ describe("ProposalCard", () => {
     expect(screen.getByTestId("flow-proposal").dataset.state).toBe("open");
     await act(async () => fireEvent.click(screen.getByTestId("flow-proposal-accept")));
     expect(fresh.calls).toContainEqual([
-      "app.flow.rework",
+      "flow.rework",
       { run: "r1", to: "analyze", reason: "thin", proposal: { ...session, entry: "e3" } },
     ]);
     cleanup();
-    const after = fakeHost({ "app.flow.proposal": { handled: { entry: "e3", action: "rework", by: { kind: "device", id: "d" } } } });
+    const after = fakeHost({ "flow.proposal": { handled: { entry: "e3", action: "rework", by: { kind: "device", id: "d" } } } });
     render(
       <HostProvider host={after.host}>
         <ProposalCard id="e3" proposal={proposal} />
       </HostProvider>,
     );
     await act(async () => {});
-    expect(after.calls).toEqual([["app.flow.proposal", { ...session, entry: "e3" }]]);
+    expect(after.calls).toEqual([["flow.proposal", { ...session, entry: "e3" }]]);
     expect(screen.getByTestId("flow-proposal-accepted")).toBeTruthy();
     expect(screen.queryByTestId("flow-proposal-accept")).toBeNull();
   });
@@ -321,7 +321,7 @@ describe("useRunView", () => {
   }
 
   it("reads a run the topic has no value for (finished before a restart) from get", async () => {
-    const { host, calls } = fakeHost({ "app.flow.get": view({}, "finished") });
+    const { host, calls } = fakeHost({ "flow.get": view({}, "finished") });
     render(
       <HostProvider host={host}>
         <Shown run="r1" />
@@ -329,7 +329,7 @@ describe("useRunView", () => {
     );
     await act(async () => {});
     expect(screen.getByTestId("shown").textContent).toBe("r1:finished");
-    expect(calls).toContainEqual(["app.flow.get", { run: "r1" }]);
+    expect(calls).toContainEqual(["flow.get", { run: "r1" }]);
   });
 });
 

@@ -21,7 +21,7 @@ export function SubAgentOverview({ app, view, session, parent }: { app: App; vie
   const tr = useT();
   const parentKey: SessionKey = { instance: session.instance, sessionId: parent };
   const taskParams = useMemo(() => ({ instance: session.instance, session_id: parent }), [session.instance, parent]);
-  const listed = useTopic<{ tasks: Task[] }>(view, "harnix.sessions.tasks", taskParams);
+  const listed = useTopic<{ tasks: Task[] }>(view, "harnix.session.tasks", taskParams);
   const task = listed?.tasks.find((t) => t.kind === "agent" && t.detail?.agent_session_id === session.sessionId);
   const facts = useAgentFacts(app, parentKey, Boolean(task && LIVE.has(task.status)));
   const own = facts.usage?.find((u) => u.session_id === session.sessionId);
@@ -34,9 +34,9 @@ export function SubAgentOverview({ app, view, session, parent }: { app: App; vie
     const target = { instance: session.instance, session_id: session.sessionId, space: SYSTEM };
     void (async () => {
       try {
-        const first = await app.call<{ total: number }>("session.history", { ...target, offset: 0, limit: 1 });
+        const first = await app.call<{ total: number }>("engine.session.history", { ...target, offset: 0, limit: 1 });
         const offset = Math.max(0, first.total - SUB_PAGE * pages);
-        const page = await app.call<{ messages: HistoryMessage[] }>("session.history", { ...target, offset, limit: SUB_PAGE * pages });
+        const page = await app.call<{ messages: HistoryMessage[] }>("engine.session.history", { ...target, offset, limit: SUB_PAGE * pages });
         if (!alive) return;
         setMessages(page.messages ?? []);
         setFrom(offset);

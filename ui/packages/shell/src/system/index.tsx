@@ -13,7 +13,7 @@
  * hold one.
  *
  * Registered only when the backend offers the system methods (`[shell] spaces` keeps `system`),
- * and built on the public calls alone: `harnix.system.*` for what the engine keeps behind the
+ * and built on the public calls alone: `system.*` for what the engine keeps behind the
  * system module, `session.*` and `harnix.instances.*` claiming the system space for the rest —
  * every one of them audited. What Agix does not offer has no tab here.
  */
@@ -66,7 +66,7 @@ export async function openInSystem(app: App, target: { instance: string; session
 }
 
 export function registerSystem(app: App): void {
-  if (!app.snapshot.reachable.includes("harnix.system.context")) return;
+  if (!app.snapshot.reachable.includes("system.context")) return;
   const view = new View(app);
   registered = view;
   app.registry.register(

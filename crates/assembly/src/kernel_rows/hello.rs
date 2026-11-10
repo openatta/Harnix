@@ -33,9 +33,9 @@ impl Hello {
     pub async fn answer(&self) -> Rpc<Value> {
         // Once per connection, and none of the three waits on another.
         let (status, scenes, commands) = tokio::join!(
-            self.hub.passthrough(SYSTEM, "daemon.status", json!({})),
-            self.hub.passthrough(SYSTEM, "scene.list", json!({})),
-            self.hub.passthrough(SYSTEM, "commands.list", json!({})),
+            self.hub.passthrough(SYSTEM, "engine.daemon.status", json!({})),
+            self.hub.passthrough(SYSTEM, "engine.scene.list", json!({})),
+            self.hub.passthrough(SYSTEM, "engine.commands.list", json!({})),
         );
         let (status, scenes, commands) = (
             status.unwrap_or(json!({})),

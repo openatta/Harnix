@@ -238,8 +238,8 @@ mod tests {
         let audit = Audit::default();
         let root = CallContext::root(Subject::Device { id: "d".into() }, None);
         let child = root.child(&harnix_contract::ExtId::parse("system").unwrap(), false);
-        audit.record_call(&root, "harnix.system.compact", Decision::Allow, None, None);
-        audit.record_call(&child, "session.compact", Decision::Allow, None, None);
+        audit.record_call(&root, "system.compact", Decision::Allow, None, None);
+        audit.record_call(&child, "engine.session.compact", Decision::Allow, None, None);
         let [inner, outer] = [&audit.recent(2)[0], &audit.recent(2)[1]];
         assert_eq!(outer.call_id, Some(root.call_id.get()));
         assert_eq!(outer.parent, None);

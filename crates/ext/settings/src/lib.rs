@@ -1,8 +1,8 @@
 //! The settings plane: read the three tiers, write one field into one tier.
 //!
-//! Agix exposes `config.get` (read, per tier, redacted) and `config.reload`, but no generic
+//! Agix exposes `engine.config.get` (read, per tier, redacted) and `engine.config.reload`, but no generic
 //! write — the supported way to change a setting is to edit the tier's `settings.json`, which is
-//! exactly what `config.reload` exists for and what the engine's `WatchHub` already watches. So
+//! exactly what `engine.config.reload` exists for and what the engine's `WatchHub` already watches. So
 //! this writes the file and asks the engine to re-read it.
 //!
 //! Two rules make that safe to expose to a browser:
@@ -14,7 +14,7 @@
 //! - **Read, modify, write the whole file.** Hand edits are preserved because the file is
 //!   re-read immediately before each change, and replaced atomically.
 //!
-//! Providers are written the same way, into the global tier. The engine's `config.setProvider`
+//! Providers are written the same way, into the global tier. The engine's `engine.config.setProvider`
 //! writes the project tier of a working directory, which is wherever the process happened to be
 //! started — a provider added from the settings page would be gone the next time it was started
 //! from somewhere else — so it is used only for what it is good at here: refusing a provider
@@ -128,7 +128,7 @@ fn tier_path(call: &Call, tier: &str, scene: Option<&str>, project_root: Option<
 
 /// Every editable field, its effective value, and where each tier stands.
 async fn describe(call: &Call, params: Value) -> Rpc<Value> {
-    // `config.get` needs a scene and refuses without one. Falling back to the engine's own
+    // `engine.config.get` needs a scene and refuses without one. Falling back to the engine's own
     // default rather than sending a request that cannot succeed: a settings page opened with no
     // session is the ordinary case, and it used to answer every field `null` — a write made and
     // then read back as nothing, with the error swallowed on the way.
@@ -150,7 +150,7 @@ async fn describe(call: &Call, params: Value) -> Rpc<Value> {
         // thing and is reported rather than flattened into the same answer. The two used to be
         // indistinguishable, which is how a page of nulls looked like an empty configuration
         // instead of a broken request.
-        let settings = match call.call("config.get", request).await {
+        let settings = match call.call("engine.config.get", request).await {
             Ok(value) => value.get("settings").cloned().unwrap_or(Value::Null),
             Err(e) => {
                 tracing::warn!(tier, error = %e.message, "settings tier could not be read");
@@ -169,7 +169,7 @@ async fn describe(call: &Call, params: Value) -> Rpc<Value> {
         effective_request["project_root"] = json!(root);
     }
     let effective = call
-        .call("config.get", effective_request)
+        .call("engine.config.get", effective_request)
         .await
         .ok()
         .and_then(|value| value.get("settings").cloned())
@@ -191,7 +191,7 @@ async fn describe(call: &Call, params: Value) -> Rpc<Value> {
                 .collect();
 
             // What the files say, highest tier wins. Computed here rather than taken from
-            // `config.get {tier:"effective"}` because that answer is memoized per (project,
+            // `engine.config.get {tier:"effective"}` because that answer is memoized per (project,
             // scene) and `apply_reloaded_settings` only swaps the pool's own pair — so for every
             // other pair it keeps serving the value from before the reload, and a settings page
             // that showed it would report that a write it just made did nothing. The engine's
@@ -222,7 +222,7 @@ async fn describe(call: &Call, params: Value) -> Rpc<Value> {
         })
         .collect();
 
-    let providers = call.call("config.getProvider", json!({})).await.unwrap_or(json!({}));
+    let providers = call.call("engine.config.getProvider", json!({})).await.unwrap_or(json!({}));
     let path = |tier| {
         tier_path(call, tier, scene.as_deref(), project_root.as_deref())
             .map(|p| p.map(|p| p.display().to_string()))
@@ -269,7 +269,7 @@ async fn set(call: &Call, params: Value) -> Rpc<Value> {
 
     set_in_file(&path, &key, value)?;
 
-    let reloaded = call.call("config.reload", json!({})).await.is_ok();
+    let reloaded = call.call("engine.config.reload", json!({})).await.is_ok();
     let mut described = describe(call, params.clone()).await?;
     if let Some(object) = described.as_object_mut() {
         object.insert("written".into(), json!(path.display().to_string()));
@@ -306,8 +306,8 @@ async fn set_provider(call: &Call, params: Value) -> Rpc<Value> {
     }
     write_document(&path, &document)?;
 
-    let reloaded = call.call("config.reload", json!({})).await;
-    let providers = call.call("config.getProvider", json!({})).await.unwrap_or(json!({}));
+    let reloaded = call.call("engine.config.reload", json!({})).await;
+    let providers = call.call("engine.config.getProvider", json!({})).await.unwrap_or(json!({}));
     // And to every instance whose template inherits `system`'s providers.
     let inherited = match call.call("harnix.instances.inheritProviders", json!({})).await {
         Ok(answer) => answer.get("reloaded").cloned().unwrap_or(json!([])),
@@ -325,14 +325,14 @@ async fn set_provider(call: &Call, params: Value) -> Rpc<Value> {
 }
 
 /// Whether the engine can read this provider patch: it is the one that knows what a provider
-/// entry is, and `config.setProvider` refuses what it cannot read, saying why. The patch is
+/// entry is, and `engine.config.setProvider` refuses what it cannot read, saying why. The patch is
 /// handed to it for a project of this extension's own, which is removed again — what is kept is
 /// the global tier's, written here.
 async fn engine_accepts(call: &Call, config: &Value) -> Rpc<()> {
     let scratch = call.ext().data_dir().join("provider-check");
     let asked = call
         .call(
-            "config.setProvider",
+            "engine.config.setProvider",
             json!({"provider_id": "check", "config": config, "project_root": scratch.display().to_string()}),
         )
         .await;

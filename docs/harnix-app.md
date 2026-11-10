@@ -41,14 +41,14 @@ fn main() -> anyhow::Result<()> {
 
 **左栏**：
 
-- **搜索**：打字按名字筛；回车经 `harnix.search {query}` 搜对话内容（只搜最近的会话时会说），Esc 清掉。
+- **搜索**：打字按名字筛；回车经 `harnix-app.search {query}` 搜对话内容（只搜最近的会话时会说），Esc 清掉。
 - **分组**：问 `sidebar.group` 的注册，最后注册的那个生效。内建的是 `builtin.time`（「按时间」）：今天、近 7 天、更早，按最近活动排，
   空的组不画。应用注册自己的 `sidebar.group` 就换掉它。
-- 每组先列 16 条，「显示更多 N」。归档的默认不列，「已归档 N」切换，记在偏好里（`harnix.prefs.set {key: "showArchived"}`）。
+- 每组先列 16 条，「显示更多 N」。归档的默认不列，「已归档 N」切换，记在偏好里（`harnix-app.prefs.set {key: "showArchived"}`）。
 - 每行：在跑的点、名字（没有就是「未命名会话」）、多久之前。点了打开；右键或 `⋯` 是会话菜单（§5）。`⋯` 是行旁边的另一个按钮：
   Tab 从行走到它，回车打开菜单。
 
-**数据**：`harnix.sessions {space: "sessions"}` 列会话，`harnix.workspaces.list` 列项目，外壳把两者按 `project_root` 拼起来
+**数据**：`harnix.sessions.list {space: "sessions"}` 列会话，`harnix-app.workspaces.list` 列项目，外壳把两者按 `project_root` 拼起来
 （标题、归档、属于哪个项目）；谁在跑来自主题 `harnix.sessions.status`。
 
 ## 3. 项目 space
@@ -64,12 +64,12 @@ fn main() -> anyhow::Result<()> {
 
 | 做法 | 方法 | 后端 |
 |---|---|---|
-| 打一个名字 | `harnix.projects.create {name}` | 在项目根（`--data-dir`，缺省 `~/Documents`）下建这个目录并登记成工作区；名字只能是一段路径 |
-| 选一个已有目录 | `harnix.workspaces.create {path}` | 目录要已经存在；同一个目录再加一次是幂等的 |
-| 浏览目录 | `harnix.listDirectory {path?}` | 只在 `$HOME` 或项目根之内 |
+| 打一个名字 | `harnix-app.projects.create {name}` | 在项目根（`--data-dir`，缺省 `~/Documents`）下建这个目录并登记成工作区；名字只能是一段路径 |
+| 选一个已有目录 | `harnix-app.workspaces.create {path}` | 目录要已经存在；同一个目录再加一次是幂等的 |
+| 浏览目录 | `harnix-app.listDirectory {path?}` | 只在 `$HOME` 或项目根之内 |
 
-**项目菜单**：在这个项目里新建会话（打开新会话对话框，§4）、改名（`harnix.workspaces.update {id, title}`）、移除分组
-（`harnix.workspaces.remove`）。
+**项目菜单**：在这个项目里新建会话（打开新会话对话框，§4）、改名（`harnix-app.workspaces.update {id, title}`）、移除分组
+（`harnix-app.workspaces.remove`）。
 
 ## 4. 新建会话
 
@@ -79,16 +79,16 @@ fn main() -> anyhow::Result<()> {
   按 Esc、点幕布就收回。打开的右栏是从右边盖住中区的抽屉（`narrow_details = "beside"` 时 720–960 宽仍三栏并排）。宽窗口里人自己
   收起或展开的左栏，窗口变窄再变宽后照旧。
 - **新对话的空页**：问候（按钟点是早上、下午、晚上）、这个 space 的 `subtitle()`、输入框、`suggestions()` 的建议（点了就建会话
-  并发出）、`notice()`，下面是 `home.card` 的卡片。**第一次发出时才建会话**：`session.create`（带前台 space 的归属，项目 space 里带项目的
-  目录），然后 `harnix.send`。Harnix app 的两个 space 不给建议、提示与卡片；应用的模块与插件 APP 可以给 `home.card`。
+  并发出）、`notice()`，下面是 `home.card` 的卡片。**第一次发出时才建会话**：`harnix.session.create`（带前台 space 的归属，项目 space 里带项目的
+  目录），然后 `harnix.session.send`。Harnix app 的两个 space 不给建议、提示与卡片；应用的模块与插件 APP 可以给 `home.card`。
 - **新会话对话框**（从项目菜单进来）：场景（启用的场景，引擎缺省的在前）、权限模式（`default`、`acceptEdits`、`plan`、
-  `bypassPermissions`）、项目目录（`harnix.recentProjects` 给的最近目录，或不带项目），可以浏览目录。
-- **换模型**：会话的模型菜单在有 `harnix.sessions.setModel`（`[shell] model_switch = true`）时用它，否则用系统 space 的
-  `harnix.system.model`。
+  `bypassPermissions`）、项目目录（`harnix-app.recentProjects` 给的最近目录，或不带项目），可以浏览目录。
+- **换模型**：会话的模型菜单在有 `harnix.session.setModel`（`[shell] model_switch = true`）时用它，否则用系统 space 的
+  `system.model`。
 
 **`[shell] new_session = false`**：整个外壳不画「新会话」、⌘K 不归外壳（会话由应用自己建）。**只是界面**：空页上的输入框只看 space
 自己的 `newSession`，所以空的 space 仍然给一个输入框；要一个 space 没有它，在那个 space 上写 `newSession: false`（这时画
-`placeholder()`）。服务端照旧收 `session.create`。
+`placeholder()`）。服务端照旧收 `harnix.session.create`。
 
 ## 5. 会话菜单
 
@@ -99,12 +99,12 @@ fn main() -> anyhow::Result<()> {
 | 项 | 方法 | 说明 |
 |---|---|---|
 | 打开 | — | |
-| 重命名 | `harnix.sessions.rename` | Harnix 账本里的标题，盖在引擎给的名字上 |
-| 归档 / 取消归档 | `harnix.sessions.archive` | 只影响左栏列不列它 |
-| 从这里分叉 | `session.fork` | |
-| 导出 | `harnix.sessions.export` | Markdown，或引擎打的数据包（zip，可带录像） |
-| 关闭 | `session.close` | 放掉运行时，历史留着，还能重开 |
-| 删除 | `session.delete` | 先试删一次看连带几条侧链会话，确认后删；连同录像 |
+| 重命名 | `harnix.session.rename` | Harnix 账本里的标题，盖在引擎给的名字上 |
+| 归档 / 取消归档 | `harnix-app.sessions.archive` | 只影响左栏列不列它 |
+| 从这里分叉 | `harnix.session.fork` | |
+| 导出 | `harnix-app.sessions.export` | Markdown，或引擎打的数据包（zip，可带录像） |
+| 关闭 | `harnix.session.close` | 放掉运行时，历史留着，还能重开 |
+| 删除 | `harnix.session.delete` | 先试删一次看连带几条侧链会话，确认后删；连同录像 |
 
 两个 space 里的菜单一样：项目 space 列的是会话 space 的会话，所以菜单的调用都声明会话 space（`app.claim()`），不是前台的项目 space。
 
@@ -123,7 +123,7 @@ fn main() -> anyhow::Result<()> {
 ```toml
 [shell]
 spaces = ["sessions", "projects", "system", "flow"]   # 留哪些内建 space；不写是都留，[] 是一个不留
-model_switch = false      # true：加 harnix.sessions.setModel，没有系统 space 也能在输入框换模型
+model_switch = false      # true：加 harnix.session.setModel，没有系统 space 也能在输入框换模型
 new_session = true        # false：整个外壳不画「新会话」、⌘K 不归外壳；只是界面
 narrow_details = "over"   # ≤ 960 宽时打开的右栏：over 是盖住中区的抽屉；beside 三栏并排（< 720 仍是抽屉）
 ```
@@ -155,7 +155,7 @@ Harnix app 的项目在 `--data-dir`（`$HARNIX_DATA_DIR`，缺省 `~/Documents`
 
 外壳不读 profile，读握手之后 `harnix.hello` 的 `shell`：`spaces`、`brand {name, icon, product_id}`、`runtime_modules`、`new_session`、
 `narrow_details`、`state_dir`、`projects_dir`、`user`。`model_switch` 不在里面：外壳看 `harnix.reachable` 里有没有
-`harnix.sessions.setModel`。
+`harnix.session.setModel`。
 
 ## 7. 它是怎么用框架做的
 
@@ -163,11 +163,11 @@ Harnix app 是模式 1 最小的例子：一个后端模块、两个界面 space
 
 | 部分 | 用了什么 | 二开应用对应的做法 |
 |---|---|---|
-| 后端 | 内建模块 `sessions`：`harnix.workspaces.*`、`harnix.sessions.rename / archive / export`、`harnix.projects.create`、`harnix.listDirectory`、`harnix.recentProjects`、`harnix.files`、`harnix.search`、`harnix.prefs.set`、`harnix.upload.begin`；grant `session.export` | 一个 `Module` 的 `methods()`、`manifest().grant(…)`（[SDK](harnix-sdk.md) §5） |
+| 后端 | 内建模块 `sessions`：`harnix-app.workspaces.*`、`harnix.session.rename`、`harnix-app.sessions.archive / export`、`harnix-app.projects.create`、`harnix-app.listDirectory`、`harnix-app.recentProjects`、`harnix-app.files`、`harnix-app.search`、`harnix-app.prefs.set`、`harnix.bulk.upload`；grant `engine.session.export` | 一个 `Module` 的 `methods()`、`manifest().grant(…)`（[SDK](harnix-sdk.md) §5） |
 | 后端 space | `sessions`，由 hub 自己声明，总在 | `spaces()` 里的 `SpaceDecl`（[SDK](harnix-sdk.md) §8.2） |
 | 界面 space | 两个 `space` 注册，owner `builtin`；项目 space 写 `sessions: "sessions"` | `r.register('space', …)`（[SDK](harnix-sdk.md) §8.2） |
 | 分组 | `sidebar.group` 的 `builtin.time` | 注册自己的 `sidebar.group` 换掉它 |
-| 数据 | 方法 `harnix.sessions`，主题 `harnix.sessions.status` | `useNest()` 的 `call` 与 `subscribe`（[SDK](harnix-sdk.md) §22.4） |
+| 数据 | 方法 `harnix.sessions.list`，主题 `harnix.sessions.status` | `useNest()` 的 `call` 与 `subscribe`（[SDK](harnix-sdk.md) §22.4） |
 
 内建模块只用公开的模块 API，由 `crates/harnix/tests/layering.rs` 的 `the_builtins_use_only_the_public_module_api` 盯着：`builtin` 不许
 依赖 hub、authz、instance、app，也不许用框架内部的构造。界面一侧，外壳只从 `@harnix/react` 与 `@harnix/core` 的公开导出取东西
@@ -179,5 +179,5 @@ Harnix app 是模式 1 最小的例子：一个后端模块、两个界面 space
 
 **它的后端随框架一起链进来，只能藏、不能去。** 会话 space 的后端是自带模块（`with_builtins()`）里 `sessions` 那一组，和设置、
 Agix 插件、录像同在一处，全要或全不要；`[shell] spaces` 去掉的只是界面。所以一个想要自己会话模型的产品（比如不要「工作区 = 目录」）
-仍然扛着 `harnix.workspaces.*`、`harnix.projects.create`、`harnix.listDirectory`，它们对设备可见（`harnix.reachable` 里有）。
+仍然扛着 `harnix-app.workspaces.*`、`harnix-app.projects.create`、`harnix-app.listDirectory`，它们对设备可见（`harnix.reachable` 里有）。
 把这一组拆成可以不注册的模块是以后的里程碑。

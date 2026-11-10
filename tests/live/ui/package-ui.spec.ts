@@ -25,9 +25,9 @@ test.beforeAll(async () => {
   try {
     for (const name of ["demo-rows", "demo-rows-v2"]) {
       const zip = readFileSync(join(ROOT, "tests", "fixtures", "packages", `${name}.zip`));
-      const grant = await api.call("harnix.plugins.upload", { name: `${name}.zip` });
+      const grant = await api.call("plugins.upload", { name: `${name}.zip` });
       await fetch(`${backend.url.replace(/\/$/, "")}${grant.url}`, { method: "POST", body: zip });
-      await api.call("harnix.plugins.install", { path: grant.path, name, version: "1.0.0", checksum: createHash("sha256").update(zip).digest("hex") });
+      await api.call("plugins.install", { path: grant.path, name, version: "1.0.0", checksum: createHash("sha256").update(zip).digest("hex") });
     }
   } finally {
     api.close();

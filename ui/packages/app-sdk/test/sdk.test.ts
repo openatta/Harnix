@@ -38,14 +38,14 @@ describe("the bridge", () => {
   });
 
   it("calls its own methods, and is refused another's, with the reason", async () => {
-    const { host, app } = await connected({ methods: { "app.acme.notes.list": () => ({ notes: ["a"] }) }, hub: ["harnix.sessions"] });
+    const { host, app } = await connected({ methods: { "app.acme.notes.list": () => ({ notes: ["a"] }) }, hub: ["harnix.sessions.list"] });
     expect(await app.call("app.acme.notes.list")).toEqual({ notes: ["a"] });
     const refused = await app.call("harnix.apps.uninstall", { id: "acme.notes" }).catch((e: unknown) => e);
     expect(refused).toBeInstanceOf(BridgeError);
     expect((refused as BridgeError).code).toBe("refused");
     expect(host.refused.map((r) => r.name)).toEqual(["harnix.apps.uninstall"]);
     // A name in the hub goes through to the host (which has no such method here: a failure, not a refusal).
-    const failed = (await app.call("harnix.sessions").catch((e: unknown) => e)) as BridgeError;
+    const failed = (await app.call("harnix.sessions.list").catch((e: unknown) => e)) as BridgeError;
     expect(failed.code).toBe("failed");
   });
 
@@ -219,9 +219,9 @@ describe("what a frame may reach", () => {
   it("is its own names and its hub, nothing like them", () => {
     expect(admits("acme.notes", [], "app.acme.notes.list", false)).toBe(true);
     expect(admits("acme.notes", [], "app.acme.notesx.list", false)).toBe(false);
-    expect(admits("acme.notes", ["harnix.sessions"], "harnix.sessions", false)).toBe(true);
-    expect(admits("acme.notes", ["harnix.sessions"], "harnix.sessions", true)).toBe(false);
-    expect(admits("acme.notes", ["topic:harnix.sessions.tasks"], "harnix.sessions.tasks", true)).toBe(true);
+    expect(admits("acme.notes", ["harnix.sessions.list"], "harnix.sessions.list", false)).toBe(true);
+    expect(admits("acme.notes", ["harnix.sessions.list"], "harnix.sessions.list", true)).toBe(false);
+    expect(admits("acme.notes", ["topic:harnix.session.tasks"], "harnix.session.tasks", true)).toBe(true);
   });
 
   it("is what the hub lists, as a method or as a topic, and the server narrows the rest", () => {

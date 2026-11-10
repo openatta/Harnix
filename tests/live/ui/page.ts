@@ -1,7 +1,7 @@
 /**
  * Driving the interface: open it, start a session that replays a fixture, type into the composer.
  *
- * Sessions are created from inside the page through `window.harnix.app` — the same `session.create`
+ * Sessions are created from inside the page through `window.harnix.app` — the same `harnix.session.create`
  * the new-session dialog sends, with the fixture's name, which only means something because the
  * backend was started in replay.
  *

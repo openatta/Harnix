@@ -11,7 +11,7 @@ import { join } from "node:path";
 import type { SessionRow } from "@harnix/core/protocol";
 import { assert, defineSuite, finish, inconclusive } from "@harnix/testkit";
 
-/** A row of `harnix.workspaces.list`. */
+/** A row of `harnix-app.workspaces.list`. */
 interface Workspace {
   id: string;
   [key: string]: unknown;
@@ -20,20 +20,20 @@ interface Workspace {
 defineSuite("workspaces", { feature: "session-space" }, {
   tests: {
     "workspaces can be created, renamed, reordered and removed": async ({ backend, client }) => {
-      const before = (await client.call("harnix.workspaces.list")).workspaces.length;
+      const before = (await client.call("harnix-app.workspaces.list")).workspaces.length;
 
-      const created = await client.call("harnix.workspaces.create", { path: client.project });
+      const created = await client.call("harnix-app.workspaces.create", { path: client.project });
       assert(created.workspace?.id, "no workspace returned");
       const id = created.workspace.id;
 
-      const renamed = await client.call("harnix.workspaces.update", { id, title: "renamed by a test" });
+      const renamed = await client.call("harnix-app.workspaces.update", { id, title: "renamed by a test" });
       assert(renamed.workspace.title === "renamed by a test", `title is ${renamed.workspace.title}`);
 
-      const collapsed = await client.call("harnix.workspaces.update", { id, collapsed: true });
+      const collapsed = await client.call("harnix-app.workspaces.update", { id, collapsed: true });
       assert(collapsed.workspace.collapsed === true, "collapse did not persist");
 
-      await client.call("harnix.workspaces.remove", { id });
-      const after = (await client.call("harnix.workspaces.list")).workspaces.length;
+      await client.call("harnix-app.workspaces.remove", { id });
+      const after = (await client.call("harnix-app.workspaces.list")).workspaces.length;
       assert(after === before, `${after} workspaces left, started with ${before}`);
     },
 
@@ -53,49 +53,49 @@ defineSuite("workspaces", { feature: "session-space" }, {
         for (const name of ["reorder-a", "reorder-b", "reorder-c"]) {
           const dir = mkdtempSync(join(tmpdir(), `harnix-${name}-`));
           dirs.push(dir);
-          const made = await client.call("harnix.workspaces.create", { path: dir, title: name });
+          const made = await client.call("harnix-app.workspaces.create", { path: dir, title: name });
           assert(made.existed === false, `${name} reused an existing workspace`);
           ids.push(made.workspace.id);
         }
-        const order = () => client.call("harnix.workspaces.list")
+        const order = () => client.call("harnix-app.workspaces.list")
           .then(({ workspaces }) => workspaces.map((w: Workspace) => w.id).filter((i: string) => ids.includes(i)));
 
         const [a, b, c] = ids;
         assert((await order()).join() === [a, b, c].join(), "the three did not start in order");
 
         // Move the last one in front of the first.
-        await client.call("harnix.workspaces.reorder", { id: c, before_id: a });
+        await client.call("harnix-app.workspaces.reorder", { id: c, before_id: a });
         assert((await order()).join() === [c, a, b].join(),
           `after moving c before a the order is ${(await order()).join()}`);
 
         // No anchor means the end — which is what the old call was doing
         // without anyone noticing, because the list was one long.
-        await client.call("harnix.workspaces.reorder", { id: c });
+        await client.call("harnix-app.workspaces.reorder", { id: c });
         assert((await order()).join() === [a, b, c].join(),
           `after moving c to the end the order is ${(await order()).join()}`);
 
         // An anchor that does not exist puts it at the end rather than
         // failing: the caller's view of the list can be one change stale, and
         // refusing would make every reorder a read-then-write.
-        await client.call("harnix.workspaces.reorder", { id: a, before_id: "no-such-workspace" });
+        await client.call("harnix-app.workspaces.reorder", { id: a, before_id: "no-such-workspace" });
         assert((await order()).join() === [b, c, a].join(),
           `with an unknown anchor the order is ${(await order()).join()}`);
 
-        for (const id of ids) await client.call("harnix.workspaces.remove", { id });
+        for (const id of ids) await client.call("harnix-app.workspaces.remove", { id });
         for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
       },
 
     "reordering something that is not there changes nothing": async ({ client }) => {
-      const before = (await client.call("harnix.workspaces.list")).workspaces.map((w: Workspace) => w.id);
-      const e = await client.refused("harnix.workspaces.reorder", { id: "no-such-workspace" });
-      const after = (await client.call("harnix.workspaces.list")).workspaces.map((w: Workspace) => w.id);
+      const before = (await client.call("harnix-app.workspaces.list")).workspaces.map((w: Workspace) => w.id);
+      const e = await client.refused("harnix-app.workspaces.reorder", { id: "no-such-workspace" });
+      const after = (await client.call("harnix-app.workspaces.list")).workspaces.map((w: Workspace) => w.id);
       assert(before.join() === after.join(),
         `the list changed: ${before.join()} → ${after.join()}`);
       if (e) assert(e.message, "refused without saying why");
     },
 
     "creating a workspace on a path that is not a directory is refused": async ({ client }) => {
-      const e = await client.refused("harnix.workspaces.create", { path: "/definitely/not/here" });
+      const e = await client.refused("harnix-app.workspaces.create", { path: "/definitely/not/here" });
       assert(e, "a non-directory was accepted");
       assert(/director/i.test(e.message), `says "${e.message}"`);
     },
@@ -105,11 +105,11 @@ defineSuite("workspaces", { feature: "session-space" }, {
       // for weeks while the title went nowhere: the store was written and
       // nothing read it back. Asserting the write is asserting that a
       // function was called; asserting the read is asserting the feature.
-      const created = await client.call("session.create", {});
-      await client.call("harnix.sessions.rename",
+      const created = await client.call("harnix.session.create", {});
+      await client.call("harnix.session.rename",
         { session_id: created.session_id, title: "a name a person chose" });
 
-      const notes = await client.call("harnix.workspaces.list");
+      const notes = await client.call("harnix-app.workspaces.list");
       const note = notes.sessions?.[created.session_id];
       assert(note, "the renamed session has no overlay entry");
       assert(note.title === "a name a person chose", `the title came back as ${note.title}`);
@@ -117,16 +117,16 @@ defineSuite("workspaces", { feature: "session-space" }, {
     },
 
     "archiving comes back too": async ({ client }) => {
-      const created = await client.call("session.create", {});
-      await client.call("harnix.sessions.archive",
+      const created = await client.call("harnix.session.create", {});
+      await client.call("harnix-app.sessions.archive",
         { session_id: created.session_id, archived: true });
-      let notes = await client.call("harnix.workspaces.list");
+      let notes = await client.call("harnix-app.workspaces.list");
       assert(notes.sessions?.[created.session_id]?.archived === true,
         "an archived session does not read back as archived");
 
-      await client.call("harnix.sessions.archive",
+      await client.call("harnix-app.sessions.archive",
         { session_id: created.session_id, archived: false });
-      notes = await client.call("harnix.workspaces.list");
+      notes = await client.call("harnix-app.workspaces.list");
       assert(notes.sessions?.[created.session_id]?.archived === false,
         "un-archiving did not read back");
       await finish(client, created.session_id);
@@ -137,13 +137,13 @@ defineSuite("workspaces", { feature: "session-space" }, {
       // neither knows about the other — so what a client needs is that the
       // keys line up. This is the assertion that the split is usable, rather
       // than merely tidy.
-      const created = await client.call("session.create", {});
-      await client.call("harnix.attach", { session_id: created.session_id });
-      await client.call("harnix.sessions.rename",
+      const created = await client.call("harnix.session.create", {});
+      await client.call("harnix.session.attach", { session_id: created.session_id });
+      await client.call("harnix.session.rename",
         { session_id: created.session_id, title: "joinable" });
 
-      const { sessions } = await client.call("harnix.sessions");
-      const notes = await client.call("harnix.workspaces.list");
+      const { sessions } = await client.call("harnix.sessions.list");
+      const notes = await client.call("harnix-app.workspaces.list");
       const row = sessions.find((s: SessionRow) => s.session_id === created.session_id);
       assert(row, "the session is not in the hub's list");
       assert(notes.sessions[row.session_id], "the two lists do not share a key");
@@ -153,31 +153,31 @@ defineSuite("workspaces", { feature: "session-space" }, {
     },
 
     "view preferences survive": async ({ client }) => {
-      await client.call("harnix.prefs.set", { key: "grouping", value: "recent" });
-      const { prefs } = await client.call("harnix.workspaces.list");
+      await client.call("harnix-app.prefs.set", { key: "grouping", value: "recent" });
+      const { prefs } = await client.call("harnix-app.workspaces.list");
       assert(prefs.grouping === "recent", `prefs are ${JSON.stringify(prefs)}`);
     },
 
     "search finds a session by what was said in it, and says where": async ({ client, model, replay }) => {
       if (!model && !replay) inconclusive("no model and no recordings: nothing is said to search for");
-      const created = await client.call("session.create", { options: { recorder: { name: "says-ready" } } });
-      await client.call("harnix.attach", { session_id: created.session_id });
-      await client.call("harnix.send", { session_id: created.session_id, message: "Say exactly: fixture ready" });
+      const created = await client.call("harnix.session.create", { options: { recorder: { name: "says-ready" } } });
+      await client.call("harnix.session.attach", { session_id: created.session_id });
+      await client.call("harnix.session.send", { session_id: created.session_id, message: "Say exactly: fixture ready" });
       await client.waitFor((f) => f.method === "harnix.turn_settled" && f.params.session_id === created.session_id,
         { timeout: 60_000, describe: "the turn to settle" });
       try {
         // The transcript is written after the turn settles: wait for it rather than for the clock.
         let hit = null;
         for (let i = 0; i < 50 && !hit; i += 1) {
-          const { hits } = await client.call("harnix.search", { query: "fixture ready" });
+          const { hits } = await client.call("harnix-app.search", { query: "fixture ready" });
           hit = hits.find((h: { session_id: string }) => h.session_id === created.session_id);
           if (!hit) await new Promise((r) => setTimeout(r, 100));
         }
         assert(hit, "the session that said it is not among the hits");
         assert(/fixture ready/i.test(hit.snippet), `the snippet is "${hit.snippet}"`);
-        const one = await client.call("harnix.search", { query: "fixture ready", limit: 1 });
+        const one = await client.call("harnix-app.search", { query: "fixture ready", limit: 1 });
         assert(one.hits.length <= 1, `limit 1 gave ${one.hits.length} hits`);
-        const missing = await client.refused("harnix.search", {});
+        const missing = await client.refused("harnix-app.search", {});
         assert(missing, "a search without a query answered");
       } finally {
         await finish(client, created.session_id);
@@ -185,7 +185,7 @@ defineSuite("workspaces", { feature: "session-space" }, {
     },
 
     "search answers on an empty corpus without failing": async ({ client }) => {
-      const result = await client.call("harnix.search", { query: "nothing will match this" });
+      const result = await client.call("harnix-app.search", { query: "nothing will match this" });
       assert(Array.isArray(result.hits), "no hits array");
       assert(result.hits.length === 0, `${result.hits.length} hits for a nonsense query`);
     },

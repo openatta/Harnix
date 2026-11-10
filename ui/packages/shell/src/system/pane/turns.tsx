@@ -26,7 +26,7 @@ export function TurnsTab({ app, session }: { app: App; session: SessionKey }) {
     let alive = true;
     const target = { instance: session.instance, session_id: session.sessionId };
     const load = () =>
-      Promise.all([app.call<{ turns?: TurnRow[] }>("harnix.system.turns", target), app.call<{ calls?: TraceCall[] }>("harnix.system.trace", target)])
+      Promise.all([app.call<{ turns?: TurnRow[] }>("observability.turns", target), app.call<{ calls?: TraceCall[] }>("observability.trace", target)])
         .then(([t, c]) => alive && (setData({ turns: t.turns ?? [], calls: c.calls ?? [] }), setFailure(null)))
         .catch((e) => alive && setFailure(e ?? "error"));
     void load();

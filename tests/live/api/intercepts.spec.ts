@@ -34,16 +34,16 @@ test.beforeEach(async () => {
 test.afterEach(() => api?.close());
 
 const row = async (s: { instance: string; session_id: string }) =>
-  (await api.call("harnix.instances.sessions", { instance: s.instance })).sessions.find((r: any) => r.session_id === s.session_id);
+  (await api.call("harnix.sessions.list", { instance: s.instance })).sessions.find((r: any) => r.session_id === s.session_id);
 
 test("the device that answered a prompt is kept once for a module, and dropped from what the engine is sent", TAGS, async () => {
-  const created = await api.call("session.create", {
+  const created = await api.call("harnix.session.create", {
     project_root: api.project,
     options: { recorder: { name: "runs-a-while" } },
   });
   const s = { instance: created.instance, session_id: created.session_id };
-  await api.call("harnix.attach", s);
-  await api.call("harnix.send", { ...s, message: "Wait four seconds" });
+  await api.call("harnix.session.attach", s);
+  await api.call("harnix.session.send", { ...s, message: "Wait four seconds" });
   const ask = await api.waitFor(
     (f) => f.method === "harnix.event" && f.params.session_id === s.session_id && f.params.event.kind === "prompt",
     { timeout: 30_000, describe: "the permission ask" },
@@ -51,7 +51,7 @@ test("the device that answered a prompt is kept once for a module, and dropped f
   const toolUse = ask.params.event.tool_use_id;
   expect(toolUse).toBeTruthy();
   // The engine takes the answer, with the extra field stripped, and the ask stops waiting.
-  await api.call("session.respondToPrompt", {
+  await api.call("harnix.session.respond", {
     ...s,
     prompt_id: ask.params.event.prompt_id,
     decision: { type: "permit" },
@@ -61,37 +61,37 @@ test("the device that answered a prompt is kept once for a module, and dropped f
 
   const read = () =>
     api.call("app.probe.call", {
-      method: "harnix.prompts.answerer",
+      method: "harnix.session.answerer",
       params: { session_id: s.session_id, tool_use_id: toolUse },
     });
   expect((await read()).answerer).toMatch(/^device:./);
   expect((await read()).answerer, "forgotten once read").toBeNull();
-  expect((await api.refused("harnix.prompts.answerer", { session_id: s.session_id, tool_use_id: toolUse }))?.code).toBe(REFUSED);
+  expect((await api.refused("harnix.session.answerer", { session_id: s.session_id, tool_use_id: toolUse }))?.code).toBe(REFUSED);
 });
 
 test("a goal the engine answers with is on the session's row, and off it once cleared", TAGS, async () => {
-  const created = await api.call("session.create", { project_root: api.project, options: { recorder: { name: "says-ready" } } });
+  const created = await api.call("harnix.session.create", { project_root: api.project, options: { recorder: { name: "says-ready" } } });
   const s = { instance: created.instance, session_id: created.session_id };
-  await api.call("harnix.attach", s);
+  await api.call("harnix.session.attach", s);
   expect((await row(s)).goal).toBeUndefined();
 
-  await api.call("harnix.system.goal.set", { ...s, objective: "Keep the suite green", max_rounds: 4 });
+  await api.call("system.goal.set", { ...s, objective: "Keep the suite green", max_rounds: 4 });
   await expect.poll(async () => (await row(s))?.goal?.objective, { timeout: 10_000 }).toBe("Keep the suite green");
-  await api.call("harnix.system.goal.update", { ...s, action: "pause" });
+  await api.call("system.goal.update", { ...s, action: "pause" });
   await expect.poll(async () => (await row(s))?.goal?.phase, { timeout: 10_000 }).toBe("paused");
-  await api.call("harnix.system.goal.update", { ...s, action: "clear" });
+  await api.call("system.goal.update", { ...s, action: "clear" });
   await expect.poll(async () => (await row(s))?.goal ?? null, { timeout: 10_000 }).toBeNull();
 });
 
 test("a rename the engine makes is pushed to whoever watches the session list", TAGS, async () => {
-  const created = await api.call("session.create", { project_root: api.project, options: { recorder: { name: "says-ready" } } });
+  const created = await api.call("harnix.session.create", { project_root: api.project, options: { recorder: { name: "says-ready" } } });
   const s = { instance: created.instance, session_id: created.session_id };
-  await api.call("harnix.attach", s);
-  const first = await api.call("harnix.subscribe", { topic: "harnix.instances.sessions", params: { instance: s.instance } });
+  await api.call("harnix.session.attach", s);
+  const first = await api.call("harnix.topics.subscribe", { topic: "harnix.instances.sessions", params: { instance: s.instance } });
   expect(first.value.sessions.find((r: any) => r.session_id === s.session_id)?.name).not.toBe("renamed by the engine");
 
   // The engine sends no event for a rename: the push is the hub's, after the answer.
-  await api.call("harnix.system.rename", { ...s, name: "renamed by the engine" });
+  await api.call("system.rename", { ...s, name: "renamed by the engine" });
   await api.waitFor(
     (f) =>
       f.method === "harnix.topic" &&
@@ -99,5 +99,5 @@ test("a rename the engine makes is pushed to whoever watches the session list", 
       f.params.value.sessions.some((r: any) => r.session_id === s.session_id && r.name === "renamed by the engine"),
     { describe: "the session list to be pushed with the new name" },
   );
-  await api.call("harnix.unsubscribe", { topic: "harnix.instances.sessions", params: { instance: s.instance } });
+  await api.call("harnix.topics.unsubscribe", { topic: "harnix.instances.sessions", params: { instance: s.instance } });
 });

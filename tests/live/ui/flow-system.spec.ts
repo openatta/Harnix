@@ -29,7 +29,7 @@ test.afterAll(async () => { await backend?.dispose(); });
 
 /** A flow's own conversation, made by the module the first time it is asked for. */
 async function ownConversation(page: Page, flow: string): Promise<string> {
-  return page.evaluate(async (f) => (await (window as any).harnix.app.call("app.flow.session", { flow: f })).session_id as string, flow);
+  return page.evaluate(async (f) => (await (window as any).harnix.app.call("flow.session", { flow: f })).session_id as string, flow);
 }
 
 async function current(page: Page): Promise<string | null> {

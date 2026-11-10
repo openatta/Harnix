@@ -488,7 +488,7 @@ impl Module for Fleet {
             .describe("the providers an instance's engine has, as it says")
             .handler(|cx: CallContext, p: Value| async move {
                 cx.module()
-                    .call("config.getProvider", json!({"instance": p["instance"]}))
+                    .call("engine.config.getProvider", json!({"instance": p["instance"]}))
                     .await
             });
         m.method("ready_session", Principal::Device)
@@ -556,7 +556,7 @@ impl Module for Fleet {
                 let context = cx
                     .module()
                     .call(
-                        "session.inspectContext",
+                        "engine.session.inspectContext",
                         json!({"instance": p["instance"], "session_id": p["session_id"]}),
                     )
                     .await?;
@@ -567,7 +567,7 @@ impl Module for Fleet {
             .handler(|cx: CallContext, p: Value| async move {
                 cx.module()
                     .call(
-                        "session.inspectContext",
+                        "engine.session.inspectContext",
                         json!({"instance": p["instance"], "session_id": p["session_id"]}),
                     )
                     .await

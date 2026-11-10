@@ -81,7 +81,7 @@ function Strip({ app, view }: { app: App; view: View }) {
   const s = useShell(app);
   // Pushed (the hub computes it again every few seconds while it is watched); the uptime goes on by
   // the second between two pushes, in its own cell.
-  const process = useTopic<Process>(view, "harnix.process");
+  const process = useTopic<Process>(view, "system.process");
   const heard = useRef<{ at: number; value: Process | undefined }>({ at: Date.now(), value: undefined });
   if (heard.current.value !== process) heard.current = { at: Date.now(), value: process };
   const instances = useTopic<{ instances: InstanceRow[] }>(view, "harnix.instances");

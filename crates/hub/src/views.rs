@@ -116,7 +116,7 @@ impl TopicSource for Own {
                 let instance = hub.instance_of(params)?;
                 hub.sessions_view(&instance).await
             }
-            "harnix.sessions.tasks" => {
+            "harnix.session.tasks" => {
                 let key = hub.key_of(params)?;
                 hub.tasks_view(&key).await
             }
@@ -128,7 +128,7 @@ impl TopicSource for Own {
 
     /// Watching a session's tasks keeps the hub subscribed to the session.
     async fn on_subscribe(&self, params: &Value) {
-        if let (Some(hub), "harnix.sessions.tasks") = (self.hub.upgrade(), self.topic) {
+        if let (Some(hub), "harnix.session.tasks") = (self.hub.upgrade(), self.topic) {
             hub.watch_tasks(params).await;
         }
     }

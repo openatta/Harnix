@@ -19,7 +19,7 @@ const TAGS = { tag: ["@feature:instances", "@layer:api"] };
 
 /**
  * A daemon from some other Agix, as a program a spawn template starts: it listens where it is told
- * and answers `daemon.ping` with a protocol version nobody speaks, so its instance goes down.
+ * and answers `engine.daemon.ping` with a protocol version nobody speaks, so its instance goes down.
  */
 const FOREIGN_DAEMON = `#!/usr/bin/env node
 const net = require("node:net");
@@ -31,7 +31,7 @@ net.createServer((conn) => {
     for (let at = buffer.indexOf("\\n"); at >= 0; at = buffer.indexOf("\\n")) {
       const request = JSON.parse(buffer.slice(0, at));
       buffer = buffer.slice(at + 1);
-      const result = request.method === "daemon.ping"
+      const result = request.method === "engine.daemon.ping"
         ? { pong: true, version: "9.9.9", protocol_version: 999, capabilities: [] } : {};
       conn.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }) + "\\n");
     }
@@ -111,7 +111,7 @@ test("two creates of one name at once: one is built, the other refused", TAGS, a
 test("ensure with wait: ready answers once the daemon is up, and a session follows at once", TAGS, async () => {
   const view = await api.call("harnix.instances.ensure", { template: "worker", name: "ready-worker", wait: "ready" });
   expect(view.status.state).toBe("ready");
-  const created = await api.call("session.create", { instance: "ready-worker", project_root: api.project });
+  const created = await api.call("harnix.session.create", { instance: "ready-worker", project_root: api.project });
   expect(created.instance).toBe("ready-worker");
   // Without `wait` the answer is the same as ever: it may still be starting.
   const plain = await api.call("harnix.instances.ensure", { template: "worker", name: "plain-worker" });

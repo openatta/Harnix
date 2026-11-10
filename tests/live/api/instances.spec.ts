@@ -59,20 +59,20 @@ test("each instance runs its own sessions and sees none of the others'", TAGS, a
     expect(api.text(ran[instance])).toMatch(/fixture ready/i);
   }
   for (const [instance, mine] of Object.entries(ran)) {
-    const { sessions } = await api.call("harnix.instances.sessions", { instance });
+    const { sessions } = await api.call("harnix.sessions.list", { instance });
     const ids = sessions.map((s: any) => s.session_id);
     expect(ids, instance).toContain(mine);
     for (const [other, theirs] of Object.entries(ran)) {
       if (other === instance) continue;
       expect(ids, `${instance} lists ${other}'s session`).not.toContain(theirs);
-      const error = await api.refused("session.get", { instance, session_id: theirs });
+      const error = await api.refused("engine.session.get", { instance, session_id: theirs });
       expect(error, `${instance} answers for ${other}'s session`).not.toBeNull();
     }
   }
   // Configuration is the instance's too: `side` runs only the scene its
   // profile entry names.
-  const sideScenes = (await api.call("scene.list", { instance: "side" })).scenes.map((s: any) => s.id ?? s);
-  const systemScenes = (await api.call("scene.list", { instance: "system" })).scenes.map((s: any) => s.id ?? s);
+  const sideScenes = (await api.call("engine.scene.list", { instance: "side" })).scenes.map((s: any) => s.id ?? s);
+  const systemScenes = (await api.call("engine.scene.list", { instance: "system" })).scenes.map((s: any) => s.id ?? s);
   expect(JSON.stringify(sideScenes)).not.toEqual(JSON.stringify(systemScenes));
 });
 
@@ -114,16 +114,16 @@ test("a device stops what it built, and nothing it did not", TAGS, async () => {
 });
 
 test("the instance tree is pushed whole", TAGS, async () => {
-  const first = await api.call("harnix.subscribe", { topic: "harnix.instances" });
+  const first = await api.call("harnix.topics.subscribe", { topic: "harnix.instances" });
   expect(first.value.instances.map((i: any) => i.id)).toContain("system");
-  const sessions = await api.call("harnix.subscribe", { topic: "harnix.instances.sessions", params: { instance: "side" } });
+  const sessions = await api.call("harnix.topics.subscribe", { topic: "harnix.instances.sessions", params: { instance: "side" } });
   expect(sessions.value.instance).toBe("side");
-  const status = await api.call("harnix.subscribe", { topic: "harnix.sessions.status" });
+  const status = await api.call("harnix.topics.subscribe", { topic: "harnix.sessions.status" });
   expect(status.value.sessions).toEqual([]);
 
   // A turn held on its permission ask: running for as long as the test needs, where a replayed
   // turn that just answers may settle inside one coalescing window and never be pushed running.
-  const created = await api.call("session.create", {
+  const created = await api.call("harnix.session.create", {
     instance: "side",
     scene: "harnix",
     project_root: api.project,
@@ -131,8 +131,8 @@ test("the instance tree is pushed whole", TAGS, async () => {
   });
   const sessionId = created.session_id;
   const s = { instance: "side", session_id: sessionId };
-  await api.call("harnix.attach", s);
-  const sent = await api.call("harnix.send", { ...s, message: "Wait four seconds" });
+  await api.call("harnix.session.attach", s);
+  const sent = await api.call("harnix.session.send", { ...s, message: "Wait four seconds" });
   const ask = await api.waitFor(
     (f) => f.method === "harnix.event" && f.params.session_id === sessionId && f.params.event.kind === "prompt",
     { timeout: 30_000, describe: "the permission ask for the Bash call" },
@@ -147,7 +147,7 @@ test("the instance tree is pushed whole", TAGS, async () => {
       && f.params.value.sessions.some((s: any) => s.session_id === sessionId && s.state === "running"),
     { describe: "the session to be shown running while its turn runs" },
   );
-  await api.call("session.respondToPrompt", { ...s, prompt_id: ask.params.event.prompt_id, decision: { type: "permit" } });
+  await api.call("harnix.session.respond", { ...s, prompt_id: ask.params.event.prompt_id, decision: { type: "permit" } });
   await api.waitFor(
     (f) => f.method === "harnix.turn_settled" && f.params.turn_id === sent.turn_id,
     { timeout: 60_000, describe: "the turn to settle" },
@@ -177,7 +177,7 @@ test("a restart builds again what the ledger records", TAGS, async () => {
   expect(all["fleet-side"]).toMatchObject({ owner: "module:fleet" });
   await until(api, "w1", "ready");
   // Sessions are in the instance's data root, so they are still there.
-  const { sessions } = await api.call("harnix.instances.sessions", { instance: "side" });
+  const { sessions } = await api.call("harnix.sessions.list", { instance: "side" });
   expect(sessions.map((s: any) => s.session_id)).toContain(before);
-  await api.call("harnix.attach", { instance: "side", session_id: before });
+  await api.call("harnix.session.attach", { instance: "side", session_id: before });
 });

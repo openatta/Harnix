@@ -274,7 +274,7 @@ impl<'a> Sessions<'a> {
     }
 
     pub async fn create(&self, spec: SessionSpec) -> Rpc<SessionRef> {
-        let created = self.cx.call("session.create", spec.params()).await?;
+        let created = self.cx.call("harnix.session.create", spec.params()).await?;
         let field = |k: &str| created.get(k).and_then(Value::as_str).map(str::to_string);
         Ok(SessionRef::new(
             field("instance").unwrap_or_else(|| SYSTEM_INSTANCE.to_string()),
@@ -285,7 +285,7 @@ impl<'a> Sessions<'a> {
     /// A session that already exists — in memory or only on disk.
     pub async fn open(&self, instance: &str, session_id: &str) -> Rpc<SessionRef> {
         let session = SessionRef::new(instance, session_id);
-        self.cx.call("session.get", key(&session)).await?;
+        self.cx.call("engine.session.get", key(&session)).await?;
         Ok(session)
     }
 
@@ -298,15 +298,15 @@ impl<'a> Sessions<'a> {
     /// never steered into a running turn: with [`OnBusy::Steer`] it waits for the next one, as
     /// from the interface.
     pub async fn send_with(&self, session: &SessionRef, message: &str, options: SendOptions) -> Rpc<Value> {
-        self.cx.call("harnix.send", options.params(session, message)).await
+        self.cx.call("harnix.session.send", options.params(session, message)).await
     }
 
     pub async fn interrupt(&self, session: &SessionRef) -> Rpc<Value> {
-        self.cx.call("session.interrupt", key(session)).await
+        self.cx.call("harnix.session.interrupt", key(session)).await
     }
 
     pub async fn close(&self, session: &SessionRef) -> Rpc<Value> {
-        self.cx.call("session.close", key(session)).await
+        self.cx.call("harnix.session.close", key(session)).await
     }
 
     /// Bind the session to another space, transcript and all. Already there ⇒ nothing changes.
@@ -314,7 +314,7 @@ impl<'a> Sessions<'a> {
     pub async fn move_to(&self, session: &SessionRef, space: &str) -> Rpc<Value> {
         let mut params = key(session);
         params["space"] = json!(space);
-        self.cx.call("harnix.sessions.move", params).await
+        self.cx.call("harnix.session.move", params).await
     }
 
     /// Write an entry into the session's log: a card, a decision, a job's result — for people,
@@ -325,7 +325,7 @@ impl<'a> Sessions<'a> {
         let mut params = key(session);
         params["event"] = json!(entry.event);
         params["payload"] = entry.payload;
-        self.cx.call("harnix.entries.append", params).await
+        self.cx.call("harnix.session.entries.append", params).await
     }
 
     /// This extension's entries in the session, oldest first, each with `at`: how many messages
@@ -333,7 +333,7 @@ impl<'a> Sessions<'a> {
     pub async fn entries(&self, session: &SessionRef) -> Rpc<Vec<Value>> {
         let mut params = key(session);
         params["namespaces"] = json!([format!("app.{}", self.cx.id())]);
-        let listed = self.cx.call("session.entries", params).await?;
+        let listed = self.cx.call("engine.session.entries", params).await?;
         Ok(listed.get("entries").and_then(Value::as_array).cloned().unwrap_or_default())
     }
 
@@ -453,7 +453,7 @@ impl Tap {
     /// Fill in what was missed from the hub's buffer, then carry on with
     /// what is queued. Returns the attach it caught up from: once a turn has
     /// settled into the transcript the buffer no longer holds it, and
-    /// `history_total` says how far `session.history` covers instead — the
+    /// `history_total` says how far `engine.session.history` covers instead — the
     /// same split a refreshing client draws.
     pub async fn catch_up(&mut self) -> Rpc<Value> {
         let attached = (self.reattach)().await?;

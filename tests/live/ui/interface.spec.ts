@@ -341,7 +341,7 @@ test("in Chinese the system space has no string left untranslated or showing its
   await page.locator('#side [data-space="system"]').click();
   await expect(page.getByTestId("system-console")).toBeVisible();
   // The system space's strings are `system.*`; one drawn as its key has no translation. Method
-  // names (`harnix.system.context`) are not keys: a dot before is not a key's start.
+  // names (`system.context`) are not keys: a dot before is not a key's start.
   const leaked = () => page.evaluate(() => document.body.innerText.match(/(?<![\w.])system\.[a-z][\w.]*[a-z]\b/g) ?? []);
   for (const tab of ["active", "all"]) {
     const button = page.locator(`[data-testid="system-console"] [role="tab"][data-tab="${tab}"]`);

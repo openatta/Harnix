@@ -1,7 +1,7 @@
 /**
  * 会话视图：通用会话壳用的 ChatPanel 配置（抬头写会话名、用量、连接）。
  *
- * 挂到一个会话上（harnix.attach）就开始追赶：历史、中枢缓冲区的重放、挂起的提问，然后实时。
+ * 挂到一个会话上（harnix.session.attach）就开始追赶：历史、中枢缓冲区的重放、挂起的提问，然后实时。
  * 换会话或卸载时 detach。要别的样子（角色、面包屑、快捷回复、转录……）直接用 ChatPanel。
  */
 
@@ -19,7 +19,7 @@ export interface SessionViewProps {
   headerExtra?: ReactNode;
   /** 输入区上方的附加内容（例如发送前检查的确认卡）。 */
   composerTop?: ReactNode;
-  /** 代替 `harnix.send` 的发送（ChatPanelProps.send）。 */
+  /** 代替 `harnix.session.send` 的发送（ChatPanelProps.send）。 */
   onSend?: (text: string) => Promise<boolean>;
 }
 

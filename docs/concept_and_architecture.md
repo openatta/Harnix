@@ -85,8 +85,8 @@ Harnix 自己发布的二进制 `harnix` 就是这三部分，再注册了流程
 关掉它不要的那些；一个薄的底座，应用只学它要的那些。内建的东西因此都有开关：Harnix app 的
 两个 space 与系统 space（`[shell] spaces`，§5.3、§5.5）、Agix 插件的界面模块（`[ui] runtime_modules`，§5.8）、插件 APP（cargo feature
 `apps` 与 `[apps] enabled`，§4.3）。开关的力度不一样：系统 space 关掉时它的方法一起撤；**Harnix app 的后端随框架一起链进来，只能藏、
-不能去**——它是自带模块（`with_builtins()`）里的一部分，`[shell] spaces` 去掉会话 space 只是不画它的界面，`harnix.workspaces.*`、
-`harnix.projects.create` 这些方法照样在、对设备可见。要自己会话模型的产品今天扛着它；把它拆成可以不注册的模块是以后的事。
+不能去**——它是自带模块（`with_builtins()`）里的一部分，`[shell] spaces` 去掉会话 space 只是不画它的界面，`harnix-app.workspaces.*`、
+`harnix-app.projects.create` 这些方法照样在、对设备可见。要自己会话模型的产品今天扛着它；把它拆成可以不注册的模块是以后的事。
 
 ---
 
@@ -340,7 +340,7 @@ space）。账本记按模板建的实例；**重启后一律由 Harnix 按账�
 `EngineLink` 与会话状态，是以后的一个里程碑。在那之前，新写的实例代码不放进中枢。
 
 **`EngineLink` 不对模块开放。** 模块拿到的是只读的 `InstanceHandle`，所有会话调用仍然经过中枢和授权。
-模块要是能直接对一台实例发 `session.run_turn`，「中枢先订阅」这条不变量就有了旁路。
+模块要是能直接对一台实例发 `engine.session.run_turn`，「中枢先订阅」这条不变量就有了旁路。
 
 **daemon 的语义。** daemon 对一条通过认证的连接完全信任，没有逐方法授权。所以：
 
@@ -348,7 +348,7 @@ space）。账本记按模板建的实例；**重启后一律由 Harnix 按账�
   目录里；attach 的由运维保证。中枢的排队、结算、「先答者生效」都假定它是这台 daemon 上会话的唯一调用方。
 - **daemon 的凭据不出 Harnix**：经回环 TCP attach 时要的 token 在 profile 里只写凭据名，值由凭据源给，
   不发给任何客户端。
-- 透传白名单对每台实例都一样，`config.setProvider`、`mcp.addServer` 这些对 daemon 实例同样拒绝。
+- 透传白名单对每台实例都一样，`engine.config.setProvider`、`engine.mcp.addServer` 这些对 daemon 实例同样拒绝。
 - **断线**：实例变成 `Degraded`，daemon 那边的轮照跑。中枢重连后对每个在观看的会话重建缓冲，再推
   `harnix.session_resync`，客户端照刷新那条路重新 attach；这期间的发送进队列，不拒绝。daemon 丢订阅
   （`subscription_dropped`）走同一条路。这是中枢本来就有的恢复路径，不是新语义。
@@ -369,11 +369,11 @@ space）。账本记按模板建的实例；**重启后一律由 Harnix 按账�
 
 **turn 由中枢发起，调用方有两类：客户端和服务端（内核、模块），语义相同**——排队、中断、结算、广播
 都一样。服务端调用方经 `ModuleContext.sessions` 建、开、发、中断、关闭会话（**无头会话**），用
-`OnBusy { Queue, Reject, Interrupt, Steer }` 说忙的时候怎么办；客户端的 `harnix.send` 和服务端的发送走
+`OnBusy { Queue, Reject, Interrupt, Steer }` 说忙的时候怎么办；客户端的 `harnix.session.send` 和服务端的发送走
 同一条路径。无头会话照样出现在它所属 space 的会话列表里，界面随时可以 attach 旁观。
 
 为什么是两类调用方而不是只有客户端：无头会话必须和客户端共用排队与 `seq`——在中枢之外另做一份，就是第二份会话状态。
-插件 APP 的后端驱动会话也走这一条（经 `host.call` 调 `session.create`、`harnix.send`，以 `module:<id>` 准入）。
+插件 APP 的后端驱动会话也走这一条（经 `host.call` 调 `harnix.session.create`、`harnix.session.send`，以 `module:<id>` 准入）。
 
 **tap** 是服务端的观看者，和客户端观看者同一套语义，不是一条特殊的无损通道：有界、按 `seq` 投递、
 **不在中枢的锁里等待**；满了就标成落后，它下一次读到 `Lagged { last_seq }`，按客户端追赶那条路补齐。
@@ -387,9 +387,9 @@ space）。账本记按模板建的实例；**重启后一律由 Harnix 按账�
 |---|---|---|
 | `harnix.instances` | — | 实例登记表：载体、模板、拥有者、链接状态、版本、会话数 |
 | `harnix.instances.sessions` | `instance` | 这台实例的顶层会话 |
-| `harnix.sessions.tasks` | `instance`、`session_id` | 这个会话的任务 |
+| `harnix.session.tasks` | `instance`、`session_id` | 这个会话的任务 |
 | `harnix.sessions.status` | — | 所有会话的运行状态 |
-| `harnix.process` | — | 进程：版本、运行时长、内存、线程、已连接的客户端（有人订阅时每 5 秒重算） |
+| `system.process` | — | 进程：版本、运行时长、内存、线程、已连接的客户端（有人订阅时每 5 秒重算） |
 | `harnix.apps` | — | 插件 APP 的快照：每个应用的状态、健康、调用与被拒的调用（`[apps] enabled` 时） |
 | `app.<id>.<主题>` | 模块或插件 APP 声明 | 它推的整值快照；插件 APP 撤下时订阅者收到 `harnix.topic_ended` |
 
@@ -398,7 +398,7 @@ space）。账本记按模板建的实例；**重启后一律由 Harnix 按账�
 #### 3.2.1 往对话里写东西：扩展条目
 
 模块可以往会话时间线写**扩展条目**（例如「采集任务跑完，推一张任务卡」）：走 Agix 的扩展条目
-（`session.appendEntry` / `session.entries`），由 `flow.block` 画出来。条目进入会话日志，刷新、重放、
+（`session.appendEntry` / `engine.session.entries`），由 `flow.block` 画出来。条目进入会话日志，刷新、重放、
 分叉都看得到；**只给人看，不给模型看**；命名空间由中枢定为 `app.<模块 id>`，模块自己说不了算。
 Harnix 不另存一份会话状态。
 
@@ -438,7 +438,7 @@ Harnix 不另存一份会话状态。
 不补发）。所以客户端库在两条流都重新开上之后，像重连之后那样追上：状态再报一次 `open`，看会话的重新 attach、
 订阅的重新订阅。服务端拒了的流（不认识的凭据，比如进程重启过）浏览器不再重开：客户端重新握手，握手之前先取一次
 当前的令牌，和单双向流重连失败时一样。两条流都关着、`/rpc` 也 5 分钟没来，这份握手就结束；在这之前它仍在
-`harnix.process` 的连接里——分离流的客户端走的时候什么也不说，关掉的流和正在重开的流看起来一样。每个客户端的出站队列都有界（4096
+`system.process` 的连接里——分离流的客户端走的时候什么也不说，关掉的流和正在重开的流看起来一样。每个客户端的出站队列都有界（4096
 帧）：读者不读、队列满了，这个客户端就算走了，连接关掉，重连后从中枢的缓冲追上，而不是让内存跟着它涨。
 
 #### 3.3.3 跨拓扑的不变量
@@ -487,7 +487,7 @@ Harnix 的传输层发出，与界面**同源**，准入走同一套（同一份
 
 - **引擎那些等价于接管进程的方法一个都不出去。** 改凭据、装载子进程、改写模型端点的方法，永远不出现在
   任何设备的可用集里——不是「未实现」，是明确拒绝，并且错误里写清原因。中枢独占的方法
-  （`session.run_turn`、`session.subscribe`）同样拒绝，模块也不能 grant。
+  （`engine.session.run_turn`、`engine.session.subscribe`）同样拒绝，模块也不能 grant。
 - **设备建实例只能按模板。** 模板集合在启动时定死，设备只能选模板、填模板放开的参数（§3.1.1）。
 - **加一个方法默认是拒绝。** 设备能调到的引擎方法是一张透传白名单。
 
@@ -588,18 +588,18 @@ Harnix 发布时变，商店为每个 wasmtime 版本编一遍。
 一个 Agix 插件（运行期包）装的地方是 Agix（以 Agix 的 `plugin_packages.md`、`extending_quickjs.md`、`extension_points.md` 为准）。
 Harnix 不定义它的包格式、不校验、不解包、不判定能力。它做两件事：
 
-1. **把文件送过去。** `plugin.install` 自己去取 URL，**没有上传通道**——这是引擎的选择，它在包已经躺在
+1. **把文件送过去。** `engine.plugin.install` 自己去取 URL，**没有上传通道**——这是引擎的选择，它在包已经躺在
    跑引擎那台机器上时完全够用；而当包在使用者的笔记本上、引擎在另一台机器上时，就没有路可走。那一步是
-   宿主的活：`harnix.plugins.upload` 换一个一次性 URL（大负载旁路），`harnix.plugins.install` 把落盘路径
-   交给引擎。插件 APP 的 `agent/` 也走 `plugin.install`，由 `apps` 模块替它装进声明的实例。
-2. **读包里引擎不关心的那一段**——`[[ui]]`（§5.8）。**包在哪由引擎说**：`plugin.list` 的条目带 `root`，
+   宿主的活：`plugins.upload` 换一个一次性 URL（大负载旁路），`plugins.install` 把落盘路径
+   交给引擎。插件 APP 的 `agent/` 也走 `engine.plugin.install`，由 `apps` 模块替它装进声明的实例。
+2. **读包里引擎不关心的那一段**——`[[ui]]`（§5.8）。**包在哪由引擎说**：`engine.plugin.list` 的条目带 `root`，
    Harnix 只读那下面的 `plugin.toml`，自己不拼任何路径，引擎的缓存布局因此仍然是引擎的。
    插件 APP 的 `agent/` 另有一个读者：装包之前，`harnix-package` 从它的 `plugin.toml` 读 `[plugin]` 的 `name` 和
-   `version`，是要请 `plugin.install` 装成的名字，此外一个键也不读（`layering.rs` 查这两处）。
+   `version`，是要请 `engine.plugin.install` 装成的名字，此外一个键也不读（`layering.rs` 查这两处）。
 
-**生命周期走 `harnix.plugins.*`，引擎自己那几个名字不开。** 装、卸、启、停都是引擎干的活，这一层不加判断
+**生命周期走 `plugins.*`，引擎自己那几个名字不开。** 装、卸、启、停都是引擎干的活，这一层不加判断
 也不发明参数；它加的是后面那一步：任何改变「装了什么」的调用之后重读一遍，因为 Harnix 在服务每个包的
-`ui/` 目录、并对外公布贡献集合。直接透传 `plugin.disable` 的后果是包停了而它的界面模块还在被服务，且没有
+`ui/` 目录、并对外公布贡献集合。直接透传 `engine.plugin.disable` 的后果是包停了而它的界面模块还在被服务，且没有
 任何一侧会发现。
 
 **披露在装完之后，因为引擎是那个顺序。** 引擎装完才回 `disclosure`（这个包会往模型上下文里塞的文本）。界面上就是：装好了，这是它会放到
@@ -607,8 +607,8 @@ Harnix 不定义它的包格式、不校验、不解包、不判定能力。它�
 可见文本必须被人看见。界面贡献占了哪些点是 Harnix 知道的，安装完的那一屏把两半拼起来，否则用户看到的披露是不全的。（插件 APP 不同：它的
 清单是 Harnix 的，披露在装之前，人同意了才装，§4.3。）
 
-**装 Agix 插件是这个人自己的决定。** `harnix.plugins.*` 对设备开放：一个进程服务一个用户，设备就是这个人本人。真正的强制边界在引擎：能力门控、
-沙箱、它自己回的那份披露。`mcp.addServer` 保持拒绝，差别正在这里：它配出来的是一个能起子进程的工具，没有 manifest、没有能力声明、没有任何披露。
+**装 Agix 插件是这个人自己的决定。** `plugins.*` 对设备开放：一个进程服务一个用户，设备就是这个人本人。真正的强制边界在引擎：能力门控、
+沙箱、它自己回的那份披露。`engine.mcp.addServer` 保持拒绝，差别正在这里：它配出来的是一个能起子进程的工具，没有 manifest、没有能力声明、没有任何披露。
 
 **包方案不跟着载体走。** 引擎的载体今天是 QuickJS 脚本与编译进宿主的 Rust 插件，带 `[[wasm]]` 段的包拒装（WASM 在 Harnix，§2.2.2）。
 读 manifest、校验、解包、披露、启停不需要任何运行时。一个不带包方案的构建仍然合法，所以 `PLUGINS_DISABLED` **如实透传，不包装成
@@ -814,8 +814,8 @@ space 自己的会话。这件事错一次就是把消息发进了别的产品�
 最近被拒的调用、本页上它的界面面板与被拒的界面请求。只看，不操作：管理在设置 → 应用。
 
 **设备够不着的引擎方法包在系统模块后面。** `inspectContext`、`dropMessages`、`editMessage`、`stopTask`、`messageTask`、`taskOutput`、`compact`、
-目标那几个引擎方法不在设备的透传白名单里；系统模块把它们包成 `harnix.system.*`：设备调它，它以 `system` 模块的身份经授权调引擎，两次判定都进审计。
-其余（`session.history`、`fork`、`interrupt`……）设备直接调，带上 `space: "system"`。会话的操作与实例的操作**全部写审计**。
+目标那几个引擎方法不在设备的透传白名单里；系统模块把它们包成 `system.*`：设备调它，它以 `system` 模块的身份经授权调引擎，两次判定都进审计。
+其余（`engine.session.history`、`fork`、`interrupt`……）设备直接调，带上 `space: "system"`。会话的操作与实例的操作**全部写审计**。
 
 **录像里有完整的系统提示词，敏感级别和 transcript 相同**（§6.4），所以只能经授权过的方法读，录像目录永不经 HTTP 暴露。产品不要系统 space，
 就从 `[shell] spaces` 里去掉：系统模块不注册，它的方法连同授权一起没有，声称来自 `system` 的调用一律 `SPACE_MISMATCH`——**撤的是方法，不只是不画**。
@@ -1200,10 +1200,10 @@ Harnix 依赖 Agix 提供的、并且已经由它提供的：
 | 实例装配 | 装配的函数入口（`daemon::assemble::pool`）；同一进程里几台会话池互不可见 |
 | daemon 载体 | `DaemonServer` 的库入口、协议版本与能力位、`subscription_dropped`、spawn 的就绪 |
 | 中枢知道每一轮 | 会话与轮的生命周期进 `daemon.event`（带 `initiator`）；订阅冷会话 |
-| 会话列表、改名、换模型 | 列表条目带场景与项目根；`session.rename`、`session.setModel` |
+| 会话列表、改名、换模型 | 列表条目带场景与项目根；`engine.session.rename`、`engine.session.setModel` |
 | 系统 space | 会话的任务可列、可停、可发话；上下文可查看、去掉或改写消息；目标；录像 |
-| 扩展条目 | `session.appendEntry` / `session.entries` / `extension_entry` 帧；分叉带上条目 |
-| Agix 插件 | 包方案与载体解耦；`plugin.list` 带包的 `root`、`script_faults`；装不上的包不会假装装上；manifest 里不认识的段只告警 |
+| 扩展条目 | `session.appendEntry` / `engine.session.entries` / `extension_entry` 帧；分叉带上条目 |
+| Agix 插件 | 包方案与载体解耦；`engine.plugin.list` 带包的 `root`、`script_faults`；装不上的包不会假装装上；manifest 里不认识的段只告警 |
 | 插件 APP 进会话 | Rust 插件接口 `runtime::plugin::Plugin`：会话建起时登记工具、工具调用的中间件，子 Agent 带着父会话的插件构建 |
 
 这些曾经一条条是给 Agix 提的 issue。

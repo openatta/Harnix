@@ -20,7 +20,7 @@ class ScriptedClient {
   private notify = new Set<Listener>();
   private statusListeners = new Set<(s: string) => void>();
   answer: (method: string, params: Record<string, unknown>) => unknown = (method, params) =>
-    method === "harnix.subscribe" ? { topic: params.topic, value: "now" } : {};
+    method === "harnix.topics.subscribe" ? { topic: params.topic, value: "now" } : {};
 
   call(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     this.calls.push({ method, params });
@@ -159,7 +159,7 @@ describe("spaces", () => {
 
   it("session.open with switchSpace opens a session where the hub has it", async () => {
     client.answer = (method) =>
-      method === "harnix.sessions" ? { sessions: [{ session_id: "s-b", space: "b" }] } : {};
+      method === "harnix.sessions.list" ? { sessions: [{ session_id: "s-b", space: "b" }] } : {};
     const host = hostFor(app);
     const before = app.snapshot.currentBySpace.sessions ?? null;
     await drawn(app, host.session.open({ instance: "system", sessionId: "s-b" }, { switchSpace: true }) as Promise<void>);
@@ -175,7 +175,7 @@ describe("instances", () => {
     client.answer = (method) =>
       method === "harnix.instances.list"
         ? { instances: [{ id: "system", carrier: "in_process", status: { state: "ready" } }] }
-        : method === "harnix.sessions.tasks"
+        : method === "harnix.session.tasks"
           ? { active: false, tasks: [] }
           : method === "harnix.instances.stop"
             ? { stopped: "x" }
@@ -198,17 +198,17 @@ describe("subscribe", () => {
     const offOne = one.subscribe("t.x", { a: 1, b: 2 }, (v) => heardOne.push(v));
     await tick();
     const offTwo = two.subscribe("t.x", { b: 2, a: 1 }, (v) => heardTwo.push(v));
-    expect(client.named("harnix.subscribe")).toHaveLength(1);
+    expect(client.named("harnix.topics.subscribe")).toHaveLength(1);
     // The later one has the value held, without waiting for an answer of its own.
     await tick();
     expect(heardTwo).toEqual(["now"]);
     offOne();
-    expect(client.named("harnix.unsubscribe")).toHaveLength(0);
+    expect(client.named("harnix.topics.unsubscribe")).toHaveLength(0);
     client.push("harnix.topic", { topic: "t.x", params: { a: 1, b: 2 }, value: "next" });
     expect(heardTwo).toEqual(["now", "next"]);
     expect(heardOne).toEqual(["now"]);
     offTwo();
-    expect(client.named("harnix.unsubscribe")).toHaveLength(1);
+    expect(client.named("harnix.topics.unsubscribe")).toHaveLength(1);
   });
 
   it("subscribes again after a reconnect", async () => {
@@ -216,7 +216,7 @@ describe("subscribe", () => {
     await tick();
     client.setStatus("closed");
     client.setStatus("open");
-    expect(client.named("harnix.subscribe").filter((c) => c.params.topic === "t.y")).toHaveLength(2);
+    expect(client.named("harnix.topics.subscribe").filter((c) => c.params.topic === "t.y")).toHaveLength(2);
     off();
   });
 });

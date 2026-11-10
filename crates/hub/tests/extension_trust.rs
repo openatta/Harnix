@@ -218,7 +218,7 @@ impl Rig {
         let client = self.hub.add_client(sink.clone()).await;
         let cx = CallContext::root(Subject::device("d"), Some(client));
         for instance in ["ext", "own"] {
-            let attached = self.call(cx.clone(), "harnix.attach", json!({"instance": instance, "session_id": "s1"})).await.unwrap();
+            let attached = self.call(cx.clone(), "harnix.session.attach", json!({"instance": instance, "session_id": "s1"})).await.unwrap();
             assert_eq!(attached["trust"] == "extension", instance == "ext", "{attached}");
             let title = attached["session"]["name"].as_str().unwrap();
             assert_eq!(title.chars().count(), if instance == "ext" { 200 } else { LONG });
@@ -310,7 +310,7 @@ async fn what_an_extensions_engine_says_of_a_session_is_held_to_what_a_session_c
     let rig = Rig::new().await;
     let kernel = || CallContext::root(Subject::Kernel, None);
     for instance in ["ext", "own"] {
-        let listed = rig.call(kernel(), "harnix.instances.sessions", json!({"instance": instance})).await.unwrap();
+        let listed = rig.call(kernel(), "harnix.sessions.list", json!({"instance": instance})).await.unwrap();
         let row = &listed["sessions"][0];
         let ext = instance == "ext";
         assert_eq!(row["name"].as_str().unwrap().chars().count(), if ext { 200 } else { LONG });
@@ -318,9 +318,9 @@ async fn what_an_extensions_engine_says_of_a_session_is_held_to_what_a_session_c
         assert_eq!(row["trust"] == "extension", ext, "{row}");
 
         // And passed through as it is otherwise.
-        let got = rig.call(kernel(), "session.get", json!({"instance": instance, "session_id": "s1"})).await.unwrap();
+        let got = rig.call(kernel(), "engine.session.get", json!({"instance": instance, "session_id": "s1"})).await.unwrap();
         assert_eq!(got["name"].as_str().unwrap().chars().count(), if ext { 200 } else { LONG });
-        let all = rig.call(kernel(), "session.list", json!({"instance": instance})).await.unwrap();
+        let all = rig.call(kernel(), "engine.session.list", json!({"instance": instance})).await.unwrap();
         assert_eq!(all["sessions"][0]["turn_state"], if ext { Value::Null } else { json!("<script>") });
     }
 }
@@ -329,7 +329,7 @@ async fn what_an_extensions_engine_says_of_a_session_is_held_to_what_a_session_c
 async fn nobody_reaches_an_extensions_engines_settings_or_plugins() {
     let rig = Rig::new().await;
     let kernel = || CallContext::root(Subject::Kernel, None);
-    for method in ["config.get", "config.reload", "plugin.install", "plugin.list", "config.setProvider"] {
+    for method in ["engine.config.get", "engine.config.reload", "engine.plugin.install", "engine.plugin.list", "engine.config.setProvider"] {
         let refused = rig.call(kernel(), method, json!({"instance": "ext"})).await.unwrap_err();
         assert_eq!(refused.code, codes::REFUSED, "{method}: {}", refused.message);
         rig.call(kernel(), method, json!({"instance": "own"})).await.unwrap_or_else(|e| panic!("{method}: {}", e.message));
@@ -337,6 +337,6 @@ async fn nobody_reaches_an_extensions_engines_settings_or_plugins() {
     assert!(rig.ext.0.passed().is_empty(), "{:?}", rig.ext.0.passed());
     assert_eq!(rig.own.0.passed().len(), 5);
     // What is not its settings passes through as for any engine.
-    rig.call(kernel(), "scene.list", json!({"instance": "ext"})).await.unwrap();
-    assert_eq!(rig.ext.0.passed(), ["scene.list"]);
+    rig.call(kernel(), "engine.scene.list", json!({"instance": "ext"})).await.unwrap();
+    assert_eq!(rig.ext.0.passed(), ["engine.scene.list"]);
 }

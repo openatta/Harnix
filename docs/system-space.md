@@ -26,7 +26,7 @@
 外壳里它不和别的 space 排在一起：入口在左栏底部，角标是正在跑的会话数。还有两条路进来：会话里一行工具调用上的
 「在系统 space 里看」（跳到这个会话的「调用」页签并标出那次调用），以及流程的会话（§5）。
 
-注册的条件：`[shell] spaces` 留着 `system`（不写就留），且 `harnix.reachable` 里有 `harnix.system.context`。
+注册的条件：`[shell] spaces` 留着 `system`（不写就留），且 `harnix.reachable` 里有 `system.context`。
 
 **键盘**：页签条（控制台的、右栏的）各是一个 Tab 停靠点，左右方向键在页签间走并切换，Home / End 到头尾。能点的行
 （Agent、子 Agent、任务、每轮、应用）都能用 Tab 走到，回车或空格选中它；Agent 列表里上下键走到上一行、下一行，
@@ -39,18 +39,18 @@
 
 | 项 | 值 | 来源 |
 |---|---|---|
-| Harnix、Agix | 版本（`-` 之前的部分） | 主题 `harnix.process` |
-| 运行时长 | `uptime_secs`，页面每秒往上数（只重画这一格） | `harnix.process` |
-| 内存（峰值） | `peak_rss_bytes` | `harnix.process` |
-| 系统线程 | `threads` | `harnix.process` |
-| 已连接用户 | `connections` 的条数；悬停列出设备、连接方式、拓扑、连上的时间 | `harnix.process` |
+| Harnix、Agix | 版本（`-` 之前的部分） | 主题 `system.process` |
+| 运行时长 | `uptime_secs`，页面每秒往上数（只重画这一格） | `system.process` |
+| 内存（峰值） | `peak_rss_bytes` | `system.process` |
+| 系统线程 | `threads` | `system.process` |
+| 已连接用户 | `connections` 的条数；悬停列出设备、连接方式、拓扑、连上的时间 | `system.process` |
 | 实例 | 实例数 | 主题 `harnix.instances` |
 | Agent（活动/全部） | 主 Agent 的数 | 每台实例的 `harnix.instances.sessions {instance}` |
 | 运行中会话 | 有一轮在跑的会话 | 主题 `harnix.sessions.status` |
-| 运行中任务 | 状态是 running / waiting / pending 的任务 | `harnix.sessions.tasks {instance, session_id}` |
+| 运行中任务 | 状态是 running / waiting / pending 的任务 | `harnix.session.tasks {instance, session_id}` |
 | 等你处理 | `waiting` 不为空的行 | `harnix.instances.sessions` |
 
-`harnix.process` 有人订阅时 hub 每 5 秒重算一次推出；值里还有应用名与版本、`started_ms`，带插件 APP 运行时的构建另有
+`system.process` 有人订阅时 hub 每 5 秒重算一次推出；值里还有应用名与版本、`started_ms`，带插件 APP 运行时的构建另有
 `apps_engine`（引擎指纹）。
 
 ## 3. 左栏：实例
@@ -90,10 +90,10 @@
 出的合计）、模型用时、在跑的这一轮已经多久（`turn_started_ms`）或离最近活动多久。列表窄时（看的是列表自己的宽度）先收起
 模型用时和最近两列，再收起状态的文字（状态点还在）和 token。
 
-- 用量来自 `harnix.system.usage {instance, session_ids}`（一次至多 200 个），读的是录像：没有录像的会话这几格是「—」。
+- 用量来自 `observability.usage {instance, session_ids}`（一次至多 200 个），读的是录像：没有录像的会话这几格是「—」。
   行的推送变了就重读；有一行在跑或有任务时，跟着页面共用的 3 秒节拍重读（右栏的概况也在这个节拍上读，两边不各起一个钟）。
   时间格自己每秒走，不重画整张列表。
-- 目标来自会话行的 `goal`；hub 还没听到过的，对已加载的会话问一次 `harnix.system.goal`。
+- 目标来自会话行的 `goal`；hub 还没听到过的，对已加载的会话问一次 `system.goal`。
 - 搜索：名字、会话 id、space、实例、场景、项目根。筛选「谁起的」：所有人的 / 人起的 / Harnix 自己的。搜索、筛选和
   「再显示」各页签各记一份，页面开着时切走再回来还是原样。
 
@@ -109,9 +109,9 @@
 **页签本身**：流程列表（`FlowsTab`），下面是全部运行与试运行（`RunsTab`）。
 
 - 流程：标题、来源（内置 / 已改 / 自建）、不合法的标记；按来源、合法与否筛选，按名字搜索，按名字或标题排序。「添加」
-  打开通用会话并在输入框里放一句提示。数据是主题 `app.flow.defs`。
+  打开通用会话并在输入框里放一句提示。数据是主题 `flow.defs`。
 - 运行：状态、标题、试运行标记、流程、开始时间、耗时、token；按状态、流程、真跑 / 试运行筛选，按开始、耗时、token 排序。
-  数据是主题 `app.flow.runs`、`app.flow.dry_runs`。
+  数据是主题 `flow.runs`、`flow.dry_runs`。
 - 这一页只呈现，不编辑定义：改流程在它的对话里，由 Agent 做。
 
 **点一条流程或一条运行，就进了这条流程**：
@@ -119,9 +119,9 @@
 | 栏 | 是什么 |
 |---|---|
 | 左 | 「返回系统」；流程名（没选流程时是「通用会话」）；它自己的对话；它的运行与试运行，新的在前 |
-| 中 | 左栏选中什么就是它的会话：流程的对话（`app.flow.session {flow}`，Agent 在里面改它、试运行、启动、操作它的运行，改动类操作要批准）；运行 → 它的主会话（`app.flow.get {run}` 的 `@main`；试运行没有会话，是流程的对话）；不属于哪条流程的是通用会话（`app.flow.session {}`） |
+| 中 | 左栏选中什么就是它的会话：流程的对话（`flow.session {flow}`，Agent 在里面改它、试运行、启动、操作它的运行，改动类操作要批准）；运行 → 它的主会话（`flow.get {run}` 的 `@main`；试运行没有会话，是流程的对话）；不属于哪条流程的是通用会话（`flow.session {}`） |
 | 二级栏 | 选中的流程：流程图、定义、配套、只读 YAML，可以试运行、启动；选中的运行：状态、耗时、token，暂停 / 恢复 / 取消、试运行的单步与跑完、站的确认等操作、子 Agent 与任务 |
-| 右 | 只有一个页签「参考」：流程指南（`app.flow.guide {lang}`）、本应用的目录与字段表 |
+| 右 | 只有一个页签「参考」：流程指南（`flow.guide {lang}`）、本应用的目录与字段表 |
 
 「返回系统」回到控制台，停在流程页签上。在流程里时左栏底部系统 space 的入口仍然亮着。
 
@@ -174,10 +174,10 @@ kv 加 `/data`）；没起来的理由、最近一次错误、它的方法与主
 
 和设置 → 诊断是同一个面板：
 
-- **引擎**：`daemon.status` 的版本、运行时长、会话数，以及启用的场景。
-- **运行期界面模块**：贡献点 API 版本、`[ui] runtime_modules`、页面的 import map 与 CSP，以及各 Agix 插件的 `[[ui]]` 条目（`harnix.plugins.list`）。
+- **引擎**：`engine.daemon.status` 的版本、运行时长、会话数，以及启用的场景。
+- **运行期界面模块**：贡献点 API 版本、`[ui] runtime_modules`、页面的 import map 与 CSP，以及各 Agix 插件的 `[[ui]]` 条目（`plugins.list`）。
 - **界面部件**：注册表拒掉的贡献与理由。
-- **自检**：`daemon.doctor`。
+- **自检**：`engine.daemon.doctor`。
 
 `harnix.diagnostics`（模块、授权、方法、主题、路由、迁移）与 `harnix.audit`（审计环）由后端提供，这一页目前不画它们。
 
@@ -198,12 +198,12 @@ kv 加 `/data`）；没起来的理由、最近一次错误、它的方法与主
 
 | 页签 | 看什么 | 从哪来 | 能做什么 |
 |---|---|---|---|
-| **概况** | 实例、会话、名字、space、场景、模型、项目根、谁起的；上下文环（实测或估算的 token 对窗口）；这次运行的轮数、调用数、token、缓存命中、输出速度、首字、模型与工具用时，以及子 Agent 的合计；目标（见下） | `harnix.system.usage`、`.turns`、`.context`、`.goal` | 设定目标（`goal.set {objective, max_rounds}`；最多轮数是引擎最多为它开几轮，用完就受阻，缺省 256，表单上写着）、暂停 / 继续 / 编辑 / 清除（`goal.update`）；到所属 space 打开；这个 space 的全部会话；压缩、清空、分叉、换模型、中断、导出、改名、关闭、删除 |
-| **调用** | 这个会话**每一次记录下来的模型调用**：按轮分组，每次的用途、模型、token、用时、首字、速度、停止原因，嵌着它要的工具调用；点开是输入（系统块、工具、消息、配置）与输出，可以和上一次比 | 录像，`harnix.system.trace` / `.trace.call {index}` | 只看失败、只看工具，跳到失败处，时间线上拖选；在对话里找到这一次 |
-| **每轮** | 按轮汇总：调用数（加辅助调用）、首字、模型与工具时间、进出 token、缓存命中、速度、上下文较上一轮的增量（或累计） | `harnix.system.turns` | 展开一轮看它的调用 |
-| **上下文** | 下一次调用**将要**带的上下文：系统、工具、消息的比例，实测（上一次调用）与估算（下一次），压缩阈值；每个系统块的来源与正文、工具表、最近 50 条消息 | `harnix.system.context`（底下是 `session.inspectContext`，另带 `measured`）、`session.history` | 改写人说的话（`messages.edit`）、去掉消息（`messages.drop`）、从某条消息分叉（`session.fork {at_message}`） |
-| **任务** | 团队看板（阶段、成员）；子 Agent、团队成员、Shell、监视器、定时任务……的状态 | `harnix.sessions.tasks` | 停止（3 秒内按两次，`tasks.stop`）；展开一个任务见 §8.3 |
-| **原始帧** | 这个会话实时的帧：seq、种类、时间、参数（留最近 500） | `harnix.attach` 之后的会话事件流 | 按种类筛选、暂停、复制 JSON |
+| **概况** | 实例、会话、名字、space、场景、模型、项目根、谁起的；上下文环（实测或估算的 token 对窗口）；这次运行的轮数、调用数、token、缓存命中、输出速度、首字、模型与工具用时，以及子 Agent 的合计；目标（见下） | `observability.usage`、`.turns`、`.context`、`.goal` | 设定目标（`goal.set {objective, max_rounds}`；最多轮数是引擎最多为它开几轮，用完就受阻，缺省 256，表单上写着）、暂停 / 继续 / 编辑 / 清除（`goal.update`）；到所属 space 打开；这个 space 的全部会话；压缩、清空、分叉、换模型、中断、导出、改名、关闭、删除 |
+| **调用** | 这个会话**每一次记录下来的模型调用**：按轮分组，每次的用途、模型、token、用时、首字、速度、停止原因，嵌着它要的工具调用；点开是输入（系统块、工具、消息、配置）与输出，可以和上一次比 | 录像，`observability.trace` / `.trace.call {index}` | 只看失败、只看工具，跳到失败处，时间线上拖选；在对话里找到这一次 |
+| **每轮** | 按轮汇总：调用数（加辅助调用）、首字、模型与工具时间、进出 token、缓存命中、速度、上下文较上一轮的增量（或累计） | `observability.turns` | 展开一轮看它的调用 |
+| **上下文** | 下一次调用**将要**带的上下文：系统、工具、消息的比例，实测（上一次调用）与估算（下一次），压缩阈值；每个系统块的来源与正文、工具表、最近 50 条消息 | `system.context`（底下是 `engine.session.inspectContext`，另带 `measured`）、`engine.session.history` | 改写人说的话（`messages.edit`）、去掉消息（`messages.drop`）、从某条消息分叉（`harnix.session.fork {at_message}`） |
+| **任务** | 团队看板（阶段、成员）；子 Agent、团队成员、Shell、监视器、定时任务……的状态 | `harnix.session.tasks` | 停止（3 秒内按两次，`tasks.stop`）；展开一个任务见 §8.3 |
+| **原始帧** | 这个会话实时的帧：seq、种类、时间、参数（留最近 500） | `harnix.session.attach` 之后的会话事件流 | 按种类筛选、暂停、复制 JSON |
 
 目标的阶段用一个词说，行上的标签和右栏一致：`active` 且 `armed` 是「进行中」；`active` 但没武装（某一轮因取消、出错或用完预算
 而结束，或者会话从日志恢复，引擎不再自动开轮，要人「继续」）是「已停摆」，并说明原因；其余照 `phase`：已暂停、受阻、已完成。
@@ -211,11 +211,11 @@ kv 加 `/data`）；没起来的理由、最近一次错误、它的方法与主
 ### 8.3 选中一个任务或子 Agent
 
 - **任务**：同一组六个页签，「任务」排第一，展开的就是它：种类、状态、做什么、agent 类型、开始与结束、用时、token、在等什么；
-  引擎给的原样 `detail`；**输出**（`harnix.system.tasks.output {task_id, from_byte?}`，跟着 `task_progress` 推，至多留 256 KiB，可以不跟）。
+  引擎给的原样 `detail`；**输出**（`system.tasks.output {task_id, from_byte?}`，跟着 `task_progress` 推，至多留 256 KiB，可以不跟）。
   定时任务没有输出。
-- **子 Agent**：只有概况：会话、父会话、agent 类型、做什么、模型、用时；它在父会话录像里那份用量；它的消息（`session.history`，
+- **子 Agent**：只有概况：会话、父会话、agent 类型、做什么、模型、用时；它在父会话录像里那份用量；它的消息（`engine.session.history`，
   一次 30 条，往前翻）；「回到它的主 Agent」。
-- **给它发话**：在跑的子 Agent 与团队成员下面有一个输入框，回车经 `harnix.system.tasks.message {task_id, message}` 送进去，它在下一个
+- **给它发话**：在跑的子 Agent 与团队成员下面有一个输入框，回车经 `system.tasks.message {task_id, message}` 送进去，它在下一个
   步骤读到；答 `{delivered, reason?}`，界面照写「已送达」或「没送达：理由」。
 
 ## 9. 数据来源
@@ -225,42 +225,42 @@ kv 加 `/data`）；没起来的理由、最近一次错误、它的方法与主
 
 | 主题 | 参数 | 用在 |
 |---|---|---|
-| `harnix.process` | — | 指标条 |
+| `system.process` | — | 指标条 |
 | `harnix.instances` | — | 实例列表、指标条 |
 | `harnix.instances.sessions` | `instance` | Agent 页签、实例概况、指标条 |
-| `harnix.sessions.tasks` | `instance`、`session_id` | 展开的行、任务页签、子 Agent |
+| `harnix.session.tasks` | `instance`、`session_id` | 展开的行、任务页签、子 Agent |
 | `harnix.sessions.status` | — | 运行中会话、左栏角标 |
 | `harnix.apps` | — | 应用页签 |
-| `app.flow.defs`、`app.flow.runs`、`app.flow.run {run}`、`app.flow.dry_runs`、`app.flow.focus {instance, session_id}` | | 流程 |
+| `flow.defs`、`flow.runs`、`flow.run {run}`、`flow.dry_runs`、`flow.focus {instance, session_id}` | | 流程 |
 
 | 方法 | 用在 |
 |---|---|
-| `harnix.system.usage`、`.goal`、`.goal.set`、`.goal.update`、`.turns`、`.context`、`.trace`、`.trace.call` | Agent 页签、概况、调用、每轮、上下文 |
-| `harnix.system.compact`、`.clear`、`.model`、`.rename`、`.messages.edit`、`.messages.drop` | 会话的操作 |
-| `harnix.system.tasks.stop`、`.tasks.message`、`.tasks.output` | 任务 |
-| `harnix.sessions`、`session.history`、`session.fork`、`session.interrupt`、`session.close`、`session.delete`、`harnix.attach`、`harnix.detach`、`harnix.sessions.export` | 会话，都带 `space: "system"` |
+| `observability.usage`、`.goal`、`.goal.set`、`.goal.update`、`.turns`、`.context`、`.trace`、`.trace.call` | Agent 页签、概况、调用、每轮、上下文 |
+| `system.compact`、`.clear`、`.model`、`.rename`、`.messages.edit`、`.messages.drop` | 会话的操作 |
+| `system.tasks.stop`、`.tasks.message`、`.tasks.output` | 任务 |
+| `harnix.sessions.list`、`engine.session.history`、`harnix.session.fork`、`harnix.session.interrupt`、`harnix.session.close`、`harnix.session.delete`、`harnix.session.attach`、`harnix.session.detach`、`harnix-app.sessions.export` | 会话，都带 `space: "system"` |
 | `harnix.instances.restart`、`.stop`、`.templates`、`.create` | 实例 |
-| `daemon.status`、`daemon.doctor`、`harnix.plugins.list` | 诊断 |
+| `engine.daemon.status`、`engine.daemon.doctor`、`plugins.list` | 诊断 |
 | `app.flow.*` | 流程 |
 
 监听的通知：`harnix.turn_settled`（一轮结束后重读）、`harnix.event`（任务输出、原始帧）。
 
-## 10. 后端：`harnix.system.*`
+## 10. 后端：`system.*`
 
-**设备够不着的引擎方法包在系统模块后面。** 系统模块注册 18 个方法：`harnix.system.context`、`calls`、`trace`、`trace.call`、`turns`、
+**设备够不着的引擎方法包在系统模块后面。** 系统模块注册 18 个方法：`system.context`、`calls`、`trace`、`trace.call`、`turns`、
 `usage`、`tasks.stop`、`tasks.message`、`tasks.output`、`messages.drop`、`messages.edit`、`compact`、`clear`、`model`、`rename`、`goal`、
-`goal.set`、`goal.update`。其中 13 个以 `system` 模块的身份调引擎（`session.inspectContext`、`stopTask`、`messageTask`、`taskOutput`、
+`goal.set`、`goal.update`。其中 13 个以 `system` 模块的身份调引擎（`engine.session.inspectContext`、`stopTask`、`messageTask`、`taskOutput`、
 `dropMessages`、`editMessage`、`compact`、`clear`、`setModel`、`rename`、`goal`、`setGoal`、`updateGoal`，模块的 grant），两次判定都进审计；
 `trace`、`trace.call`、`turns`、`usage` 读录像；`calls` 给的是请求头。`instance` 不写是 `system`，`session_id` 必填。其余会话方法
-（`session.history`、`fork`、`interrupt`……）设备直接调，带上 `space: "system"`。
+（`engine.session.history`、`fork`、`interrupt`……）设备直接调，带上 `space: "system"`。
 
 **跨 space**：声称 `system` 的调用可以观看、操作任何 space 的会话，每一次跨 space 的操作都写审计；在系统 space 里看别的 space
 的会话是「观看」，不改归属。声称 `system` 的设备可以按任何模板建实例（仍然只能是启动时定下的模板），可以停止、重启
 `system` 与内核拥有的之外的实例。
 
-**去掉它**：`[shell] spaces` 里没有 `system` 时，系统模块不注册，`harnix.system.*` 连同授权一起没有；`harnix.spaces.list` 里没有它；
+**去掉它**：`[shell] spaces` 里没有 `system` 时，系统模块不注册，`system.*` 连同授权一起没有；`harnix.spaces.list` 里没有它；
 任何声称 `space: "system"` 的调用一律 `SPACE_MISMATCH`——**撤的是方法，不只是不画**。要在没有系统 space 的产品里换模型，
-开 `[shell] model_switch`（`harnix.sessions.setModel`，只作用于调用方声称的 space）。插件 APP 的界面面板永远拿不到 `harnix.system.*`。
+开 `[shell] model_switch`（`harnix.session.setModel`，只作用于调用方声称的 space）。插件 APP 的界面面板永远拿不到 `system.*`。
 
 **Agix 没给的，不画假的。** 页签或按钮在 Agix 补上之前不出现，而不是做成灰的或者在 Harnix 侧模拟。
 

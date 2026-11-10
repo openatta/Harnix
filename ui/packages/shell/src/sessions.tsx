@@ -35,7 +35,7 @@ function SearchBox({ app, s }: { app: App; s: ShellState }) {
     app.set({ search: { ...app.snapshot.search, hits: "pending" } });
     try {
       const result = await app.call<{ hits?: { session_id: string; name?: string | null; snippet?: string }[]; truncated?: boolean }>(
-        "harnix.search",
+        "harnix-app.search",
         { query },
       );
       app.set({ search: { ...app.snapshot.search, hits: result.hits ?? [], truncated: Boolean(result.truncated) } });
@@ -157,7 +157,7 @@ function SessionList({ app, s }: { app: App; s: ShellState }) {
           onClick={() => {
             const showArchived = !s.showArchived;
             app.set({ showArchived });
-            app.call("harnix.prefs.set", { key: "showArchived", value: showArchived }).catch(() => undefined);
+            app.call("harnix-app.prefs.set", { key: "showArchived", value: showArchived }).catch(() => undefined);
           }}
         >
           <Glyph name="archive" className="glyph" />

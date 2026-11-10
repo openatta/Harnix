@@ -213,7 +213,7 @@ mod tests {
 
     /// The engine's package lifecycle is not a device's to reach directly,
     /// because reaching it would skip the re-read that keeps what is served in
-    /// step with what is installed. `mcp.addServer` configures a
+    /// step with what is installed. `engine.mcp.addServer` configures a
     /// subprocess-spawning tool with no manifest and no disclosure at all.
     #[test]
     fn the_engine_package_lifecycle_and_mcp_are_not_reachable() {
@@ -221,11 +221,11 @@ mod tests {
         let grants = harnix_kernel::GrantTable::new();
         let reachable = table.reachable(&device(), &grants);
         for method in [
-            "plugin.install",
-            "plugin.uninstall",
-            "plugin.enable",
-            "plugin.disable",
-            "mcp.addServer",
+            "engine.plugin.install",
+            "engine.plugin.uninstall",
+            "engine.plugin.enable",
+            "engine.plugin.disable",
+            "engine.mcp.addServer",
         ] {
             assert!(!reachable.contains(&method), "{method} reachable by a device");
         }

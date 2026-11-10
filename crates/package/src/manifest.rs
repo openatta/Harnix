@@ -18,7 +18,7 @@
 //! net = ["api.example.com"]     # hosts `http-request` may reach, exactly
 //! env = ["SHOWCASE_TOKEN"]      # what `secret` may read
 //! storage_mb = 1                # the key-value store's ceiling
-//! hub = ["session.create", "topic:harnix.sessions.status"]
+//! hub = ["harnix.session.create", "topic:harnix.sessions.status"]
 //!                               # what it may call (methods) and subscribe to (`topic:<name>`) as
 //!                               # `module:<id>`; its own `app.<id>.*` needs no entry
 //! fs = ["${data}", "${project}"]# ${data} read-write; ${project} read-only, tool calls only
@@ -57,7 +57,7 @@
 //! api_version = 3
 //!
 //! [interface]                   # the interface in isolated frames (`surface.rs`)
-//! hub = ["harnix.sessions"]     # beyond app.<id>.*, what a frame may call
+//! hub = ["harnix.sessions.list"]     # beyond app.<id>.*, what a frame may call
 //!
 //! [[surface]]                   # a region of the shell a frame fills
 //! point = "space"
@@ -999,7 +999,7 @@ scene = "harnix"
         assert_eq!(m.spaces[0].scene.as_deref(), Some("harnix"));
         let hub = backend("").replace(
             "storage_mb = 1",
-            "storage_mb = 1\nhub = [\"session.create\", \"topic:harnix.sessions.status\"]",
+            "storage_mb = 1\nhub = [\"harnix.session.create\", \"topic:harnix.sessions.status\"]",
         );
         assert_eq!(Manifest::parse(&hub).unwrap().capabilities.hub.len(), 2);
     }

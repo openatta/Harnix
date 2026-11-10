@@ -16,13 +16,13 @@ import { type TestClient, assert, connect, defineSuite, finish, inconclusive } f
 
 /** A session bound to one fixture, and the prompt it was recorded with. */
 async function replaying(client: TestClient, fixture: string, message: string): Promise<string> {
-  const created = await client.call("session.create", {
+  const created = await client.call("harnix.session.create", {
     scene: "harnix",
     project_root: client.project,
     options: { recorder: { name: fixture } },
   });
-  await client.call("harnix.attach", { session_id: created.session_id });
-  await client.call("harnix.send", { session_id: created.session_id, message });
+  await client.call("harnix.session.attach", { session_id: created.session_id });
+  await client.call("harnix.session.send", { session_id: created.session_id, message });
   return created.session_id;
 }
 
@@ -122,7 +122,7 @@ defineSuite("agent", { feature: "sessions" }, {
           client, "asks-permission",
           "Use the Bash tool right now to run exactly: rm -f /tmp/harnix-fixture-probe. "
           + "Call the tool. Do not answer in prose.");
-        await second.call("harnix.attach", { session_id: session });
+        await second.call("harnix.session.attach", { session_id: session });
 
         const ask = await client.waitFor(
           (f) => f.method === "harnix.event" && f.params.session_id === session
@@ -142,10 +142,10 @@ defineSuite("agent", { feature: "sessions" }, {
 
         // Either may answer, and the second answer is a silent success —
         // two people both pressing allow is normal, not an error.
-        await second.call("session.respondToPrompt", {
+        await second.call("harnix.session.respond", {
           session_id: session, prompt_id: prompt.prompt_id, decision: { type: "permit" },
         });
-        const late = await client.refused("session.respondToPrompt", {
+        const late = await client.refused("harnix.session.respond", {
           session_id: session, prompt_id: prompt.prompt_id, decision: { type: "permit" },
         });
         assert(!late, `answering twice failed: ${late?.message}`);
@@ -167,14 +167,14 @@ defineSuite("agent", { feature: "sessions" }, {
       // Without this a session looks stuck while it walks towards a silent
       // refusal — the engine denies an unanswered ask after its timeout.
       const late = await connect(backend, { topology: client.topology });
-      const attached: AttachResult = await late.call("harnix.attach", { session_id: session });
+      const attached: AttachResult = await late.call("harnix.session.attach", { session_id: session });
       assert(attached.pending_prompts.length >= 1, "a late client was not told what is waiting");
       assert(
         attached.pending_prompts.some((p) => p.prompt_id === ask.params.event.prompt_id),
         "the pending ask has a different prompt_id",
       );
 
-      await late.call("session.respondToPrompt", {
+      await late.call("harnix.session.respond", {
         session_id: session, prompt_id: ask.params.event.prompt_id,
         decision: { type: "deny", reason: "not in a test" },
       });
@@ -191,7 +191,7 @@ defineSuite("agent", { feature: "sessions" }, {
       const ask = await client.waitFor(
         (f) => f.method === "harnix.event" && f.params.event.kind === "prompt",
         { timeout: 60_000, describe: "the recorded permission ask" });
-      await client.call("session.respondToPrompt", {
+      await client.call("harnix.session.respond", {
         session_id: session,
         prompt_id: ask.params.event.prompt_id,
         decision: { type: "deny", reason: "the test says no" },
@@ -219,7 +219,7 @@ defineSuite("agent", { feature: "sessions" }, {
           "Use the Bash tool right now to run exactly: echo harnix-fixture. "
           + "Call the tool. Do not answer in prose.");
         await settled(client, session);
-        const result = await client.call("harnix.requestHeaders", { session_id: session });
+        const result = await client.call("observability.calls", { session_id: session });
         const headers = result.headers ?? [];
         assert(headers.length === 0, `a replaying session produced ${headers.length} envelopes`);
         await finish(client, session);

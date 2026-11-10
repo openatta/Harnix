@@ -97,7 +97,7 @@ export function useUsage(app: App, rows: AgentRow[]): Record<string, AgentUsage[
       for (const [instance, ids] of by) {
         for (let at = 0; at < ids.length; at += USAGE_BATCH) {
           void app
-            .call<{ sessions: Record<string, { agents: AgentUsage[] }> }>("harnix.system.usage", { instance, session_ids: ids.slice(at, at + USAGE_BATCH) })
+            .call<{ sessions: Record<string, { agents: AgentUsage[] }> }>("observability.usage", { instance, session_ids: ids.slice(at, at + USAGE_BATCH) })
             .then((answer) => {
               if (!alive.current) return;
               setUsage((now) => {
@@ -119,7 +119,7 @@ export function useUsage(app: App, rows: AgentRow[]): Record<string, AgentUsage[
 /**
  * The goals of these sessions. The hub keeps what it hears of a goal on the session's row and
  * pushes it with the row; a loaded Agent it has heard nothing of is asked once
- * (`harnix.system.goal`), and the answer, passing through the hub, lands on the row too.
+ * (`system.goal`), and the answer, passing through the hub, lands on the row too.
  */
 export function useGoals(app: App, rows: AgentRow[]): Record<string, Goal | null> {
   const asked = useRef(new Set<string>());
@@ -129,7 +129,7 @@ export function useGoals(app: App, rows: AgentRow[]): Record<string, Goal | null
     for (const row of unknown) {
       if (asked.current.has(row.key)) continue;
       asked.current.add(row.key);
-      void app.call("harnix.system.goal", { instance: row.instance, session_id: row.session_id }).catch(() => undefined);
+      void app.call("system.goal", { instance: row.instance, session_id: row.session_id }).catch(() => undefined);
     }
   }, [app, joined]);
   return Object.fromEntries(rows.map((row) => [row.key, (row.goal as Goal | null | undefined) ?? null]));
@@ -143,14 +143,14 @@ export function useRunningTasks(view: View, keys: string[]): number {
   useEffect(() => {
     const offs = keys.map((key) => {
       const [instance, session_id] = splitKey(key);
-      return view.watch("harnix.sessions.tasks", { instance, session_id }, () => bump((n) => n + 1));
+      return view.watch("harnix.session.tasks", { instance, session_id }, () => bump((n) => n + 1));
     });
     return () => offs.forEach((off) => off());
   }, [view, joined]);
   let count = 0;
   for (const key of keys) {
     const [instance, session_id] = splitKey(key);
-    const tasks = (view.value("harnix.sessions.tasks", { instance, session_id }) as { tasks?: Task[] } | undefined)?.tasks ?? [];
+    const tasks = (view.value("harnix.session.tasks", { instance, session_id }) as { tasks?: Task[] } | undefined)?.tasks ?? [];
     count += tasks.filter((task) => LIVE.has(task.status)).length;
   }
   return count;
@@ -178,10 +178,10 @@ export function useAgentFacts(app: App, session: SessionKey, busy: boolean, roun
     const quiet = <T,>(p: Promise<T>) => p.catch(() => null);
     const load = async () => {
       const [usage, turns, context, goal] = await Promise.all([
-        quiet(app.call<{ sessions: Record<string, { agents: AgentUsage[] }> }>("harnix.system.usage", { instance: session.instance, session_ids: [session.sessionId] })),
-        quiet(app.call<{ turns: TurnRow[] }>("harnix.system.turns", target)),
-        quiet(app.call<Context>("harnix.system.context", target)),
-        quiet(app.call<{ goal: Goal | null }>("harnix.system.goal", target)),
+        quiet(app.call<{ sessions: Record<string, { agents: AgentUsage[] }> }>("observability.usage", { instance: session.instance, session_ids: [session.sessionId] })),
+        quiet(app.call<{ turns: TurnRow[] }>("observability.turns", target)),
+        quiet(app.call<Context>("system.context", target)),
+        quiet(app.call<{ goal: Goal | null }>("system.goal", target)),
       ]);
       if (!alive) return;
       setFacts({ usage: usage?.sessions[session.sessionId]?.agents ?? null, turns: turns?.turns ?? [], context, goal: goal?.goal ?? null });

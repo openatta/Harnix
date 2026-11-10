@@ -138,7 +138,7 @@ export async function connectSplit(options: SplitOptions): Promise<SplitCarrier>
 
     async call(method, params) {
       // 带外应答有自己的端点：只下行的流没有回程。
-      const endpoint = method === "session.respondToPrompt" ? "respond" : "rpc";
+      const endpoint = method === "harnix.session.respond" ? "respond" : "rpc";
       const frame = await readFrame(
         await fetch(url(`/${endpoint}?token=${encodeURIComponent(credential)}`), {
           method: "POST",

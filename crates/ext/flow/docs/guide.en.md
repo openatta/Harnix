@@ -67,7 +67,7 @@ A flow meets other systems in three places: progress goes out, work comes in, an
 | Object | What it is |
 |---|---|
 | **Hook** | `hooks/<name>.yaml`: `on` (event kinds, `station.*` allowed; absent: every event), `flows` (only these; absent: every flow), `kind` (`webhook` for now), `action` (the URL), `secret_env` (optional: signed). **No flow names a hook**: put in the pack, it applies, and no flow changes. A failed delivery is tried three times more; it never holds a run up. |
-| **External task** (`kind: external`) | A task waiting to be claimed from outside: a person or another system claims it with `app.flow.claim` (a lease for a while, renewed by `heartbeat`) and hands it in with `app.flow.submit`, checked against the output contract. `who` is handed to the application's authorizer. |
+| **External task** (`kind: external`) | A task waiting to be claimed from outside: a person or another system claims it with `flow.claim` (a lease for a while, renewed by `heartbeat`) and hands it in with `flow.submit`, checked against the output contract. `who` is handed to the application's authorizer. |
 | **The application's capabilities** | What the application registers for flows: programs (`kind: program`, its own code), tools (what `tool` gates call), checks (`host` gates), templates and instances (where a session of its own goes). A flow uses only names in the catalog. |
 | **Subflow** (`kind: subflow`) | A task that starts a run of another flow and is handed in when that run ends; the exit `children` waits for every child run. |
 

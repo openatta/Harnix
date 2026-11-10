@@ -47,15 +47,15 @@ test.beforeEach(async () => {
 test.afterEach(() => api?.close());
 
 async function start(flow: string): Promise<string> {
-  const { run } = await api.call("app.flow.start", { flow, subject: "repo" });
+  const { run } = await api.call("flow.start", { flow, subject: "repo" });
   return run;
 }
 
 async function until(run: string, ok: (v: View) => boolean, describe: string): Promise<View> {
-  const sub = await api.call("harnix.subscribe", { topic: "app.flow.run", params: { run } });
+  const sub = await api.call("harnix.topics.subscribe", { topic: "flow.run", params: { run } });
   if (sub.value && ok(sub.value)) return sub.value;
   const frame = await api.waitFor(
-    (f) => f.method === "harnix.topic" && f.params.topic === "app.flow.run" && f.params.params?.run === run && ok(f.params.value),
+    (f) => f.method === "harnix.topic" && f.params.topic === "flow.run" && f.params.params?.run === run && ok(f.params.value),
     { timeout: 90_000, describe: `${run}: ${describe}` },
   );
   return frame.params.value;
@@ -96,23 +96,23 @@ test("sessions on an in-process and a spawned template instance hand in by struc
   expect(all[made]).toMatchObject({ carrier: "spawn", owner: "module:flow", template: "flow.remote" });
 
   // Handed in by the dispatcher from the turn's structured output, not by a native tool.
-  const hist = await api.call("app.flow.history", { run });
+  const hist = await api.call("flow.history", { run });
   const submits = hist.filter((h: any) => h.op === "submit");
   expect(submits.map((h: any) => [h.station, h.by.kind])).toEqual([["local", "flow"], ["remote", "flow"]]);
   for (const t of [local, remote]) {
-    const text = JSON.stringify((await api.call("session.history", ref(t.session))).messages);
+    const text = JSON.stringify((await api.call("engine.session.history", ref(t.session))).messages);
     expect(text).toContain("StructuredOutput");
     expect(text).not.toContain("flow_submit");
   }
 
   // The local station's session is in the space it names, on the model it names.
-  const inFleet = (await api.call("harnix.sessions", { space: "fleet" })).sessions.map((s: any) => s.session_id);
+  const inFleet = (await api.call("harnix.sessions.list", { space: "fleet" })).sessions.map((s: any) => s.session_id);
   expect(inFleet).toContain(ref(local.session).session_id);
-  const inFlow = (await api.call("harnix.sessions", { space: "flow" })).sessions.map((s: any) => s.session_id);
+  const inFlow = (await api.call("harnix.sessions.list", { space: "flow" })).sessions.map((s: any) => s.session_id);
   expect(inFlow).toContain(ref(remote.session).session_id);
   expect((await api.call("app.fleet.model", ref(local.session))).model).toBe("flow-demo-model");
 
-  await api.call("app.flow.confirm", { run, station: "approve", pass: true });
+  await api.call("flow.confirm", { run, station: "approve", pass: true });
   await until(run, (v) => v.record.status === "finished", "the run finishes");
   // The instance the module named for the run goes with it; the one the station named stays.
   await gone(made);
@@ -126,7 +126,7 @@ test("a write no permission allows is refused on a template instance: the flow a
   expect(task.output).toEqual({ done: true });
   const made = ref(task.session).instance;
   expect(made).toMatch(new RegExp(`^flow-${run}-[0-9a-f]{8}$`));
-  const { messages } = await api.call("session.history", ref(task.session));
+  const { messages } = await api.call("engine.session.history", ref(task.session));
   // The TodoWrite call's result is an error: refused before it ran.
   const results = messages
     .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
@@ -136,7 +136,7 @@ test("a write no permission allows is refused on a template instance: the flow a
   expect(refused.is_error).toBe(true);
   expect(JSON.stringify(messages)).toContain("Refused unless a permission allows them");
   // A cancelled run's instance goes as well.
-  await api.call("app.flow.cancel", { run, reason: "seen enough" });
+  await api.call("flow.cancel", { run, reason: "seen enough" });
   await gone(made);
 });
 
@@ -145,7 +145,7 @@ test("on an instance set to bypass permissions, the session still keeps its stat
   const done = await until(run, (v) => v.record.status === "finished", "the run finishes");
   const task = station(done, "bypassed").tasks[0];
   expect(ref(task.session).instance).toBe("bypass-box");
-  const { messages } = await api.call("session.history", ref(task.session));
+  const { messages } = await api.call("engine.session.history", ref(task.session));
   const refused = messages
     .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
     .find((b: any) => b.type === "tool_result" && JSON.stringify(b).includes("station bypassed of the flow does not allow TodoWrite"));
@@ -164,5 +164,5 @@ test("a station placed where there is nothing fails its task, saying why", TAGS,
   expect(task.error).toMatch(/no template/);
   expect(task.session ?? null).toBeNull();
   expect(station(failed, "nowhere").status).toBe("unmet");
-  await api.call("app.flow.cancel", { run, reason: "nowhere to go" });
+  await api.call("flow.cancel", { run, reason: "nowhere to go" });
 });

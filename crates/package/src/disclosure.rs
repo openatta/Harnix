@@ -300,7 +300,7 @@ publisher = "acme"
 
     #[test]
     fn every_capability_is_a_line() {
-        let m = manifest("net = [\"h\"]\nenv = [\"E\"]\nstorage_mb = 3\nhub = [\"harnix.sessions\"]\nfs = [\"${project}\"]\n\n[interface]\nhub = [\"harnix.sessions\"]\nlinks = true\n\n[[surface]]\npoint = \"home.card\"\npage = \"card.html\"", true);
+        let m = manifest("net = [\"h\"]\nenv = [\"E\"]\nstorage_mb = 3\nhub = [\"harnix.sessions.list\"]\nfs = [\"${project}\"]\n\n[interface]\nhub = [\"harnix.sessions.list\"]\nlinks = true\n\n[[surface]]\npoint = \"home.card\"\npage = \"card.html\"", true);
         let kinds: Vec<String> = lines(&m, true)
             .iter()
             .map(|l| l["capability"].as_str().unwrap().to_string())

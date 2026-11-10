@@ -317,7 +317,7 @@ async fn file_store_lists_from_an_index_its_commits_keep_current() {
 
 /// A crash between the record's rename and its fsync could leave a zero-byte `<id>.json` behind.
 /// That one run does not read; every other run is still listed — the engine's tick, recovery and
-/// `app.flow.list` all start from `list()`.
+/// `flow.list` all start from `list()`.
 #[tokio::test]
 async fn a_record_of_zero_bytes_is_left_out_of_the_list_and_the_rest_are_listed() {
     let dir = tempfile::tempdir().unwrap();

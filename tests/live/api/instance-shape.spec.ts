@@ -20,7 +20,7 @@ test.afterAll(async () => { await backend?.dispose(); });
 
 test("every frame of a turn names its instance", TAGS, async () => {
   const api = await connect(backend);
-  const created = await api.call("session.create", {
+  const created = await api.call("harnix.session.create", {
     scene: "harnix",
     project_root: api.project,
     options: { recorder: { name: "says-ready" } },
@@ -28,9 +28,9 @@ test("every frame of a turn names its instance", TAGS, async () => {
   expect(created.instance).toBe("system");
   const sessionId = created.session_id;
   try {
-    const attached = await api.call("harnix.attach", { instance: "system", session_id: sessionId });
+    const attached = await api.call("harnix.session.attach", { instance: "system", session_id: sessionId });
     expect(attached.instance).toBe("system");
-    await api.call("harnix.send", { session_id: sessionId, message: "Say exactly: fixture ready" });
+    await api.call("harnix.session.send", { session_id: sessionId, message: "Say exactly: fixture ready" });
     await api.waitFor((f) => f.method === "harnix.turn_settled" && f.params.session_id === sessionId, {
       timeout: 60_000,
       describe: "the replayed turn to settle",
@@ -38,7 +38,7 @@ test("every frame of a turn names its instance", TAGS, async () => {
     const frames = api.events.filter((f) => f.params?.session_id === sessionId);
     expect(frames.length).toBeGreaterThan(2);
     for (const frame of frames) expect(frame.params.instance, frame.method).toBe("system");
-    const { sessions } = await api.call("harnix.sessions");
+    const { sessions } = await api.call("harnix.sessions.list");
     const row = sessions.find((s: any) => s.session_id === sessionId);
     expect(row.instance).toBe("system");
   } finally {
@@ -51,11 +51,11 @@ test("an instance that does not exist is refused by name", TAGS, async () => {
   const api = await connect(backend);
   try {
     for (const [method, params] of [
-      ["harnix.sessions", { instance: "nowhere" }],
-      ["harnix.attach", { instance: "nowhere", session_id: "s" }],
-      ["harnix.send", { instance: "nowhere", session_id: "s", message: "hi" }],
-      ["session.create", { instance: "nowhere" }],
-      ["session.get", { instance: "nowhere", session_id: "s" }],
+      ["harnix.sessions.list", { instance: "nowhere" }],
+      ["harnix.session.attach", { instance: "nowhere", session_id: "s" }],
+      ["harnix.session.send", { instance: "nowhere", session_id: "s", message: "hi" }],
+      ["harnix.session.create", { instance: "nowhere" }],
+      ["engine.session.get", { instance: "nowhere", session_id: "s" }],
     ] as const) {
       const error = await api.refused(method, params);
       expect(error?.code, method).toBe(INSTANCE_NOT_FOUND);

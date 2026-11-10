@@ -284,7 +284,7 @@ pub fn inspect_dir(root: &Path) -> Result<Inspected, String> {
     })
 }
 
-/// `[plugin] name` and `version` of an Agix manifest: what `plugin.install` is asked to install
+/// `[plugin] name` and `version` of an Agix manifest: what `engine.plugin.install` is asked to install
 /// under. Nothing else of it is read here; the rest is the engine's.
 fn agent_package(text: &str) -> Result<AgentPackage, String> {
     let table: toml::Table = text.parse().map_err(|e: toml::de::Error| {
@@ -344,7 +344,7 @@ pub fn extract(path: &Path, dest: &Path) -> Result<(), String> {
 }
 
 /// Zip the directory `dir` into `out` with its files at the zip's root: an Agix package from an
-/// unpacked `agent/`, for `plugin.install`.
+/// unpacked `agent/`, for `engine.plugin.install`.
 pub fn zip_dir(dir: &Path, out: &Path) -> Result<(), String> {
     let mut files = Vec::new();
     walk(dir, dir, &mut files).map_err(|e| format!("{}: {e}", dir.display()))?;

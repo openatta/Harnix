@@ -446,7 +446,7 @@ function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app:
         await setModel(app, target, picked);
         chosenModels.set(keyOf(key.instance, key.sessionId), picked.id);
       }
-      await app.sessionCall("harnix.send", target, { message, attachments, ...referencesIn(message) });
+      await app.sessionCall("harnix.session.send", target, { message, attachments, ...referencesIn(message) });
       onSent?.();
       return true;
     } catch (e) {
@@ -508,14 +508,14 @@ function useBindComposer(app: App, session?: string): (api: ComposerApi | null) 
 }
 
 /**
- * The method a session's model is changed by: `harnix.sessions.setModel` when the profile opens it
+ * The method a session's model is changed by: `harnix.session.setModel` when the profile opens it
  * (`[shell] model_switch`), for a session of the front space; else the system space's, so only when
  * that space is kept. Null when neither is reachable: the menu shows the model and cannot change it.
  */
 function setModelMethod(app: App): string | null {
   const reachable = app.snapshot.reachable;
-  if (reachable.includes("harnix.sessions.setModel")) return "harnix.sessions.setModel";
-  if (reachable.includes("harnix.system.model")) return "harnix.system.model";
+  if (reachable.includes("harnix.session.setModel")) return "harnix.session.setModel";
+  if (reachable.includes("system.model")) return "system.model";
   return null;
 }
 
@@ -523,7 +523,7 @@ async function setModel(app: App, target: { instance: string; session_id: string
   const method = setModelMethod(app);
   if (!method) return;
   const params = { ...target, ...modelParams(option) };
-  await app.call(method, method === "harnix.sessions.setModel" ? { ...params, space: app.claim() } : params);
+  await app.call(method, method === "harnix.session.setModel" ? { ...params, space: app.claim() } : params);
 }
 
 /** The model each session was switched to here, by session key: the session's own record does not
@@ -629,7 +629,7 @@ function Hero({ app }: { app: App }) {
               onClick={async () => {
                 try {
                   const key = await app.create({});
-                  await app.sessionCall("harnix.send", { instance: key.instance, session_id: key.sessionId }, { message: text });
+                  await app.sessionCall("harnix.session.send", { instance: key.instance, session_id: key.sessionId }, { message: text });
                   setSeed((n) => n + 1);
                 } catch (e) {
                   app.notice(errorText(e), "error");
@@ -816,7 +816,7 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
       }
       const files = projectRoot
         ? (
-            await app.call<{ files: { path: string; size?: number }[] }>("harnix.files", {
+            await app.call<{ files: { path: string; size?: number }[] }>("harnix-app.files", {
               project_root: projectRoot,
               query,
             })

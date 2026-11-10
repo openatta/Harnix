@@ -1,6 +1,6 @@
 /**
  * A send's answer and its turn's events can arrive in either order: over split streams the events
- * come on their own stream, and a short turn can be over before the answer to `harnix.send` is back.
+ * come on their own stream, and a short turn can be over before the answer to `harnix.session.send` is back.
  * A turn that has settled stays settled however late that answer is.
  */
 
@@ -21,7 +21,7 @@ const strings: SessionStrings = {
   answerFailed: (r) => r,
 };
 
-/** A client whose answer to `harnix.send` waits until the test lets it go. */
+/** A client whose answer to `harnix.session.send` waits until the test lets it go. */
 class FakeClient {
   status = "open";
   private listeners = new Set<(m: string, p: Record<string, unknown>) => void>();
@@ -34,12 +34,12 @@ class FakeClient {
     return () => {};
   }
   async call(method: string, params: any) {
-    if (method === "harnix.attach") {
+    if (method === "harnix.session.attach") {
       return { instance: params.instance, session: { session_id: params.session_id }, history_total: 0, replay: [], truncated: false, pending_prompts: [], running_turn: null, queue: [], seq: 0 };
     }
-    if (method === "session.history") return { total: 0, messages: [] };
-    if (method === "session.entries") return { entries: [] };
-    if (method === "harnix.send") return new Promise((resolve) => (this.release = () => resolve({ turn_id: "t1" })));
+    if (method === "engine.session.history") return { total: 0, messages: [] };
+    if (method === "engine.session.entries") return { entries: [] };
+    if (method === "harnix.session.send") return new Promise((resolve) => (this.release = () => resolve({ turn_id: "t1" })));
     return {};
   }
   notify() {}

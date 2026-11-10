@@ -33,7 +33,7 @@ export function CallsTab({ app, view, session }: { app: App; view: View; session
     let alive = true;
     const load = () =>
       app
-        .call<{ calls?: TraceCall[] }>("harnix.system.trace", { instance: session.instance, session_id: session.sessionId })
+        .call<{ calls?: TraceCall[] }>("observability.trace", { instance: session.instance, session_id: session.sessionId })
         .then((r) => alive && (setCalls(r.calls ?? []), setError(null)))
         .catch((e) => alive && setError(e ?? "error"));
     void load();
@@ -294,12 +294,12 @@ function CallDetail({ app, session, call, previous, onBack }: { app: App; sessio
   useEffect(() => {
     const target = { instance: session.instance, session_id: session.sessionId };
     void app
-      .call<CallDetailData>("harnix.system.trace.call", { ...target, index: call.index })
+      .call<CallDetailData>("observability.trace.call", { ...target, index: call.index })
       .then(setData)
       .catch((e) => setError(e ?? "error"));
     if (previous)
       void app
-        .call<CallDetailData>("harnix.system.trace.call", { ...target, index: previous.index })
+        .call<CallDetailData>("observability.trace.call", { ...target, index: previous.index })
         .then(setBefore)
         .catch(() => undefined);
   }, [app, session.instance, session.sessionId, call.index, previous?.index]);

@@ -125,7 +125,7 @@
 - 「模块」只指 Rust 的 `Module`，编译期链接，**不是插件**：它没有包、没有运行期加载、没有签名，信任来自出身。space 的三个组成叫「部分」，
   Agix 插件里的界面段叫「界面模块」。
 - 单说「插件」指插件 APP。Agix 的包要说「Agix 插件」或「运行期包」，不单说「插件」。代码名不变：插件 APP 在代码里是 `apps`、
-  `harnix.apps.*`，Agix 插件是 `plugin.*`、`harnix.plugins.*`。
+  `harnix.apps.*`，Agix 插件是 `plugin.*`、`plugins.*`。
 - 「应用」是在 Harnix 上做出来的产品（模式 1 的那个二进制）；装进应用里的叫「插件 APP」，不叫「应用」。名字里带 `app` 的各指什么，
   见 §1 末的表。
 - 「空应用」「最小应用」不再用，说「Harnix app」。它和 crate `harnix-app`（`crates/assembly`）、插件打包工具 `harnix-app` 不是一回事。
@@ -174,7 +174,7 @@
 | **运行状态** | `Phase` | 读者看到的：`running` · `waiting`（`reason`：approval / confirm / held / unmet / failed / external / children / work）· `pausing` · `paused` · `finished` · `cancelled`。由 `RunStatus` 与「此刻有没有活在手上」推出 |
 | **暂停** | `pause` / `resume`，`RunRecord.paused` | 手上的活跑完、照常记下，不进下一站、不派新任务；恢复后接着走。状态仍是 `active` |
 | **用量** | `Usage` | 一个任务各轮的 token 合计（`TaskRec.usage`）；主会话里不属于任务的轮次记在运行的 `usage_other` |
-| **流程会话** / **通用会话** | `app.flow.session {flow?}` | 每条流程一个 `flow-author` 对话，它的当前流程就是这条、改不了；不属于哪条流程的是通用会话（新建流程、问帮助），在里面新建的流程把它认作自己的会话 |
+| **流程会话** / **通用会话** | `flow.session {flow?}` | 每条流程一个 `flow-author` 对话，它的当前流程就是这条、改不了；不属于哪条流程的是通用会话（新建流程、问帮助），在里面新建的流程把它认作自己的会话 |
 | **纯关卡** | — | 没有任务的站，进站就判出口 |
 | **出口条件** | `ExitCond` | 出站要满足的结构化条件：`output` · `gate` · `confirm` · `children` |
 | **门禁** | `GateDef`，`gates/<名>.yaml` | 流程包里有名字的确定性检查，`{kind: gate, gate: <名>}` 引用它（xops-04）：`tool`（调应用的只读工具、对结果断言，判站时当场判）· `command`（在运行工作目录跑命令，退出码 0 为过；应用 `command_gates(true)` 才有）· `host`（应用自己的检查 `Gates`，按名字）。运行建立时连同定义一起钉住 |
@@ -192,7 +192,7 @@
 | **交付方式** | `Delivery` | 会话怎么交输出：结构化输出（`structured_output`，缺省：契约作为会话的 `output_schema`，模型调 `StructuredOutput`）或 `flow_submit`（`flow-*` 包装 scene） |
 | **受限工具** | `guarded_tools` | 没有权限放行就拒绝的工具（缺省引擎的 shell、文件编辑、notebook、解释器）；流程会话对它们都 `ask`，由模块判 |
 | **来源** | `Origin` | 流程包里一条流程从哪来：`builtin`（随应用）· `override`（可写层里覆盖内置的那份）· `user`（只在可写层） |
-| **当前流程** | focus | 一个 `flow-author` 对话操作的那条流程：流程会话的就是它自己那条；别的对话是 `app.flow.focus` 设的，或 `flow_create` 刚建的 |
+| **当前流程** | focus | 一个 `flow-author` 对话操作的那条流程：流程会话的就是它自己那条；别的对话是 `flow.focus` 设的，或 `flow_create` 刚建的 |
 | **试运行** | dry run，`dry-` 运行 | 在沙箱里真跑内核、外部全部模拟：不建会话、不调应用代码、不花模型费用；`mocks` 给站的输出、命令 / 宿主门禁、工具门禁的工具结果 |
 
 **别混**：

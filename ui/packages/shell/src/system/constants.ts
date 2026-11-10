@@ -9,7 +9,7 @@ export const LIVE = new Set(["running", "waiting", "pending"]);
 /** While a turn runs nothing is pushed per model call: how often its row's figures are read then. */
 export const RUNNING_USAGE_EVERY = 3000;
 
-/** One `harnix.system.usage` call's most. */
+/** One `observability.usage` call's most. */
 export const USAGE_BATCH = 200;
 /** A sub-agent's transcript, read a page of this many messages at a time. */
 export const SUB_PAGE = 30;

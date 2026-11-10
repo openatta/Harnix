@@ -13,14 +13,14 @@ import { scriptedApp, tick } from "./scripted";
 const LIST = { spaces: [{ id: "sessions", scene: null }, { id: "flow", scene: "flow-author" }, { id: "system", scene: null }] };
 
 describe("whether the backend has the flow space", () => {
-  it("no `app.flow.defs` among the reachable methods: no flow module, no space, nothing asked", async () => {
+  it("no `flow.defs` among the reachable methods: no flow module, no space, nothing asked", async () => {
     let asked = false;
     expect(await flowSpaceOf(["harnix.spaces.list", "harnix.hello"], async () => (asked = true))).toBe(null);
     expect(asked).toBe(false);
   });
 
   it("the space is the one whose scene is flow-author — `flow`, or what the application renamed it", async () => {
-    const reachable = ["app.flow.defs", "harnix.spaces.list"];
+    const reachable = ["flow.defs", "harnix.spaces.list"];
     expect(await flowSpaceOf(reachable, async () => LIST)).toBe("flow");
     expect(await flowSpaceOf(reachable, async () => ({ spaces: [{ id: "flows", scene: "flow-author" }] }))).toBe("flows");
     // A module without a space for its conversations: nothing to show them in.
@@ -28,8 +28,8 @@ describe("whether the backend has the flow space", () => {
   });
 
   it("not knowing the spaces is the module's default id", async () => {
-    expect(await flowSpaceOf(["app.flow.defs"], async () => LIST)).toBe("flow");
-    expect(await flowSpaceOf(["app.flow.defs", "harnix.spaces.list"], async () => Promise.reject(new Error("no")))).toBe("flow");
+    expect(await flowSpaceOf(["flow.defs"], async () => LIST)).toBe("flow");
+    expect(await flowSpaceOf(["flow.defs", "harnix.spaces.list"], async () => Promise.reject(new Error("no")))).toBe("flow");
   });
 });
 
@@ -37,7 +37,7 @@ describe("registering it", () => {
   it("registers the space when detected and kept, not when the profile drops it", async () => {
     const { app, client } = scriptedApp();
     client.answer = (method) => (method === "harnix.spaces.list" ? LIST : {});
-    app.set({ reachable: ["app.flow.defs", "harnix.spaces.list"] });
+    app.set({ reachable: ["flow.defs", "harnix.spaces.list"] });
     await registerFlow(app, (id) => id !== "flow");
     expect(app.registry.at("space").some((c) => c.id === "flow")).toBe(false);
     expect(client.calls.some((c) => c.method === "harnix.spaces.list")).toBe(false);
@@ -49,7 +49,7 @@ describe("registering it", () => {
   it("`flow` in [shell] spaces names the built-in, whatever the backend space is called", async () => {
     const { app, client } = scriptedApp();
     client.answer = (method) => (method === "harnix.spaces.list" ? { spaces: [{ id: "flows", scene: "flow-author" }] } : {});
-    app.set({ reachable: ["app.flow.defs", "harnix.spaces.list"] });
+    app.set({ reachable: ["flow.defs", "harnix.spaces.list"] });
     await registerFlow(app, (id) => id === "flow");
     expect(app.registry.at("space").some((c) => c.id === "flows")).toBe(true);
   });
@@ -76,7 +76,7 @@ describe("a backend that does not answer", () => {
     const { app, client } = scriptedApp();
     let answer: (v: unknown) => void = () => {};
     client.answer = (method) => (method === "harnix.spaces.list" ? new Promise((r) => (answer = r)) : {});
-    app.set({ reachable: ["app.flow.defs", "harnix.spaces.list"] });
+    app.set({ reachable: ["flow.defs", "harnix.spaces.list"] });
     await registerFlow(app, () => true, 10);
     expect(app.registry.at("space").some((c) => c.id === "flow")).toBe(false);
     answer(LIST);
@@ -101,15 +101,15 @@ describe("a backend that does not answer", () => {
         method === "harnix.reachable"
           ? silent
             ? new Promise(() => {})
-            : { methods: ["app.flow.defs", "harnix.spaces.list", "harnix.sessions"] }
+            : { methods: ["flow.defs", "harnix.spaces.list", "harnix.sessions.list"] }
           : method === "harnix.spaces.list"
             ? new Promise(() => {})
-            : method === "harnix.sessions"
+            : method === "harnix.sessions.list"
               ? { sessions: [] }
               : {};
       app.start(registerBuiltins);
       await vi.advanceTimersByTimeAsync(BOOT_WAIT_MS + 100);
-      expect(client.calls.some((c) => c.method === "harnix.sessions")).toBe(true);
+      expect(client.calls.some((c) => c.method === "harnix.sessions.list")).toBe(true);
       expect(app.registry.at("space").some((c) => c.id === "sessions")).toBe(true);
       expect(client.calls.some((c) => c.method === "harnix.spaces.list")).toBe(!silent);
     } finally {

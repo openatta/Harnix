@@ -9,7 +9,7 @@
 //!
 //! This is the piece the second topology forced into the open. Client
 //! identity used to be "which connection is this", which works exactly as
-//! long as there is one — and then `harnix.attach` arrives on a POST while the
+//! long as there is one — and then `harnix.session.attach` arrives on a POST while the
 //! frames have to reach an event stream that is a different socket entirely.
 //! Tying identity to the credential fixes that, and it is also what makes
 //! revoking a device able to cut all of its channels at once
@@ -52,7 +52,7 @@ pub enum Ended {
 
 /// Frames one client may have waiting before it is taken to be gone.
 ///
-/// Catch-up does not travel here — it is the reply to `harnix.attach` — so
+/// Catch-up does not travel here — it is the reply to `harnix.session.attach` — so
 /// this is only what arrives live while the reader is behind. A healthy
 /// reader drains at the speed of its connection; this many waiting is one
 /// that is not reading at all.

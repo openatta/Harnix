@@ -10,7 +10,7 @@
 //   1. **Parity.** Method names, params, error codes and event shapes are
 //      identical. Switching topology is not switching protocol.
 //   2. **The seam that only the second topology exposes.** In split streams
-//      `harnix.attach` arrives on a POST while the frames it registers a watcher
+//      `harnix.session.attach` arrives on a POST while the frames it registers a watcher
 //      for leave on a separate stream. If client identity came from the
 //      connection, the attach would register the wrong one and the events
 //      would go nowhere — silently, because nothing errors. That is why
@@ -106,7 +106,7 @@ async function splitStreams() {
 
   let id = 1;
   const call = async (method, params) => {
-    const endpoint = method === "session.respondToPrompt" ? "respond" : "rpc";
+    const endpoint = method === "harnix.session.respond" ? "respond" : "rpc";
     const frame = await fetch(`${base}/${endpoint}?token=${encodeURIComponent(credential)}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -136,7 +136,7 @@ async function drive(client) {
 
   // A refusal has to be the same refusal, with the same code and words.
   try {
-    await client.call("config.setProvider", {});
+    await client.call("engine.config.setProvider", {});
     out.refusal = "ALLOWED";
   } catch (e) {
     out.refusal = `${e.code}:${e.message}`;
@@ -153,13 +153,13 @@ async function drive(client) {
   // in split streams it registers a watcher for a stream that is not this
   // request's connection.
   // Not retried another way when refused: a refusal on one topology only is what this compares.
-  const created = await client.call("session.create", { project_root: null, scene: "harnix" });
+  const created = await client.call("harnix.session.create", { project_root: null, scene: "harnix" });
   out.created = typeof created.session_id === "string";
-  const attached = await client.call("harnix.attach", { session_id: created.session_id });
+  const attached = await client.call("harnix.session.attach", { session_id: created.session_id });
   out.attachShape = Object.keys(attached).sort().join(",");
 
   try {
-    await client.call("harnix.send", { session_id: created.session_id, message: "hello" });
+    await client.call("harnix.session.send", { session_id: created.session_id, message: "hello" });
     out.send = "accepted";
   } catch (e) {
     out.send = `${e.code}:${e.message}`;
@@ -169,7 +169,7 @@ async function drive(client) {
   for (const deadline = Date.now() + 10_000; !own() && Date.now() < deadline; ) await sleep(50);
   out.sawOwnMessage = own();
 
-  await client.call("session.delete", { session_id: created.session_id }).catch(() => {});
+  await client.call("harnix.session.delete", { session_id: created.session_id }).catch(() => {});
   return out;
 }
 
@@ -191,7 +191,7 @@ for (const key of Object.keys(first)) {
 // The one that only the second topology can fail. Stated separately because
 // it is not parity — it is the seam that made the experiment worth running.
 if (!second.sawOwnMessage) {
-  fail("split streams: harnix.attach over POST did not register the event stream as a watcher");
+  fail("split streams: harnix.session.attach over POST did not register the event stream as a watcher");
 } else {
   ok("split streams: a watcher registered over POST receives frames on its own stream");
 }

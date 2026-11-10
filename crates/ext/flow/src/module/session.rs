@@ -499,7 +499,7 @@ fn settlements_of(tap: &mut Tap) -> impl Stream<Item = Frame> + Send + '_ {
 async fn turn_running(sh: &Shared, session: &SessionRef) -> bool {
     let Some(cx) = sh.cx.get() else { return false };
     cx.call(
-        "session.get",
+        "engine.session.get",
         json!({"instance": session.instance, "session_id": session.session_id}),
     )
     .await

@@ -133,8 +133,8 @@ test.describe("an application in isolated frames", () => {
     let own = "";
     let other = "";
     try {
-      own = (await api.call("session.create", { space: SHOWCASE_CHATS, project_root: api.project })).session_id;
-      other = (await api.call("session.create", { project_root: api.project })).session_id;
+      own = (await api.call("harnix.session.create", { space: SHOWCASE_CHATS, project_root: api.project })).session_id;
+      other = (await api.call("harnix.session.create", { project_root: api.project })).session_id;
     } finally {
       api.close();
     }
@@ -153,16 +153,16 @@ test.describe("an application in isolated frames", () => {
         [method, params] as const,
       );
     // The session list is its own spaces': the frame's own when it names none.
-    const listed = JSON.stringify(await ask("harnix.sessions", { space: SHOWCASE_CHATS }));
+    const listed = JSON.stringify(await ask("harnix.sessions.list", { space: SHOWCASE_CHATS }));
     expect(listed).toContain(own);
     expect(listed).not.toContain(other);
-    expect(JSON.stringify(await ask("harnix.sessions", {}))).not.toContain(other);
-    expect(await ask("harnix.sessions", { space: "example.elsewhere" })).toMatchObject({ code: "refused" });
+    expect(JSON.stringify(await ask("harnix.sessions.list", {}))).not.toContain(other);
+    expect(await ask("harnix.sessions.list", { space: "example.elsewhere" })).toMatchObject({ code: "refused" });
     // A session of its own space it may read; one elsewhere it is refused, though the page could.
-    expect((await ask("session.get", { instance: "system", session_id: own })).ok).toBeTruthy();
-    expect(await ask("session.get", { instance: "system", session_id: other })).toMatchObject({ code: "refused" });
+    expect((await ask("engine.session.get", { instance: "system", session_id: own })).ok).toBeTruthy();
+    expect(await ask("engine.session.get", { instance: "system", session_id: other })).toMatchObject({ code: "refused" });
     const noted = await page.evaluate(() => (window as any).harnix.app.registry.refusals().filter((r: any) => r.point === "bridge"));
-    expect(noted.map((r: any) => r.id)).toEqual(expect.arrayContaining(["harnix.sessions", "session.get"]));
+    expect(noted.map((r: any) => r.id)).toEqual(expect.arrayContaining(["harnix.sessions.list", "engine.session.get"]));
   });
 
   test("a page that navigates itself away is emptied at once, and on the record", TAGS, async ({ page }) => {

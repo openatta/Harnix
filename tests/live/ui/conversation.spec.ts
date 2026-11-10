@@ -135,7 +135,7 @@ test("a compaction is a row of its own: told with its counts as it happens, and 
     await expect(replies).toHaveCount(i + 1, { timeout: 20_000 });
     await expect(page.getByTestId("conv-send")).toBeVisible();
   }
-  await page.evaluate((sid) => (window as any).harnix.app.call("harnix.system.compact", { instance: "system", session_id: sid }), id);
+  await page.evaluate((sid) => (window as any).harnix.app.call("system.compact", { instance: "system", session_id: sid }), id);
   const live = page.getByTestId("conv-compact").last();
   await expect(live).toBeVisible({ timeout: 20_000 });
   await expect(live).toContainText(/\d+ (条 )?→ \d+/);
@@ -254,7 +254,7 @@ test("the host API inserts into the composer, reveals in details, and refuses wh
   );
   await expect(page.getByTestId("details-tool")).toContainText("Bash");
   const refused = await page.evaluate(() =>
-    (window as any).harnix.host.call("config.setProvider", {}).then(
+    (window as any).harnix.host.call("engine.config.setProvider", {}).then(
       () => "answered",
       (e: Error) => e.message,
     ),

@@ -1,7 +1,7 @@
 /**
  * Topic subscriptions, counted per client. Every host on a page — and the shell itself — shares one
  * connection, and the server keeps one subscription per connection and `(topic, params)`: so the
- * first subscriber sends `harnix.subscribe`, the last one to leave sends `harnix.unsubscribe`, a
+ * first subscriber sends `harnix.topics.subscribe`, the last one to leave sends `harnix.topics.unsubscribe`, a
  * later subscriber is handed the value already held, and after a reconnect every key still wanted
  * is subscribed again. The server handles each frame in its own task, so a `subscribe` sent while an
  * `unsubscribe` of the same key is still on its way could be applied first and then undone: a key
@@ -47,7 +47,7 @@ interface Entry {
 /** One client's topic subscriptions, by key. Every host on a page shares it. */
 export class Topics {
   private readonly entries = new Map<string, Entry>();
-  /** The `harnix.unsubscribe` still unanswered, by key. */
+  /** The `harnix.topics.unsubscribe` still unanswered, by key. */
   private readonly leaving = new Map<string, Promise<unknown>>();
 
   constructor(private readonly client: HarnixClient) {
@@ -71,7 +71,7 @@ export class Topics {
    * with the unsubscribe.
    */
   async subscribeAs(ext: string, topic: string, params: Record<string, unknown>, fn: (value: unknown) => void): Promise<() => void> {
-    await this.client.call("harnix.subscribe", { topic, params, $ext: ext });
+    await this.client.call("harnix.topics.subscribe", { topic, params, $ext: ext });
     return this.subscribe(topic, params, fn, ext);
   }
 
@@ -103,7 +103,7 @@ export class Topics {
       this.entries.delete(key);
       if (current.held && this.client.status === "open") {
         const gone = this.client
-          .call("harnix.unsubscribe", { topic: current.topic, params: current.params })
+          .call("harnix.topics.unsubscribe", { topic: current.topic, params: current.params })
           .catch(() => undefined)
           .then(() => {
             if (this.leaving.get(key) === gone) this.leaving.delete(key);
@@ -126,7 +126,7 @@ export class Topics {
     const wanted = () => this.entries.get(key) === entry && entry.held && this.client.status === "open";
     // As the page, and as each extension whose frame listens: what the server narrows by.
     const send = (ext: string | null) =>
-      wanted() ? this.client.call("harnix.subscribe", { topic: entry.topic, params: entry.params, ...(ext ? { $ext: ext } : {}) }) : undefined;
+      wanted() ? this.client.call("harnix.topics.subscribe", { topic: entry.topic, params: entry.params, ...(ext ? { $ext: ext } : {}) }) : undefined;
     const tags = [...new Set(entry.listeners.values())];
     for (const ext of tags) {
       (leaving ? leaving.then(() => send(ext)) : Promise.resolve(send(ext)))

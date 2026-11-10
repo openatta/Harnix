@@ -15,12 +15,12 @@ impl App {
     /// archival live in `store` and are joined onto the session list here.
     /// The groups, the view preferences, and **the per-session overlay**.
     ///
-    /// The overlay is here rather than folded into `harnix.sessions` because
+    /// The overlay is here rather than folded into `harnix.sessions.list` because
     /// the hub does not know what a workspace is and must not learn: it holds
     /// sessions, and a title someone typed is not a property of a session,
     /// it is a note this product keeps about one.
     ///
-    /// It was briefly nowhere at all. `harnix.sessions` used to fold it in;
+    /// It was briefly nowhere at all. `harnix.sessions.list` used to fold it in;
     /// splitting the layers moved the store out of the hub and the fold went
     /// with it, so renaming a session wrote to disk and nothing ever read it
     /// back — along with archiving, grouping and every view preference. The
@@ -187,8 +187,8 @@ impl App {
 
     /// Content search across sessions.
     ///
-    /// Ordering comes from `session.list` (most recent first); the scan itself
-    /// is the engine's transcript reader, which does not page `session.history`.
+    /// Ordering comes from `engine.session.list` (most recent first); the scan itself
+    /// is the engine's transcript reader, which does not page `engine.session.history`.
     pub(crate) async fn search(&self, call: &Call, params: Value) -> Result<Value, RpcError> {
         let query = require_str(&params, "query")?;
         let transcripts = call
@@ -197,7 +197,7 @@ impl App {
             .ok_or_else(|| RpcError::new(codes::INSTANCE_NOT_FOUND, "there is no main instance to search"))?
             .transcripts()?;
 
-        let listed = call.call("session.list", json!({})).await?;
+        let listed = call.call("engine.session.list", json!({})).await?;
         let sessions: Vec<String> = listed
             .get("sessions")
             .and_then(Value::as_array)
@@ -253,5 +253,5 @@ impl App {
 /// grew a row — and the file it lives in is never cleaned. A mistyped id left a row behind that
 /// joined to nothing, forever, and the caller was told it worked.
 async fn session_must_exist(call: &Call, session_id: &str) -> Result<(), RpcError> {
-    call.call("session.get", json!({"session_id": session_id})).await.map(|_| ())
+    call.call("engine.session.get", json!({"session_id": session_id})).await.map(|_| ())
 }

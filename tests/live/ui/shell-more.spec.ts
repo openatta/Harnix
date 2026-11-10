@@ -82,17 +82,17 @@ test("a project added by picking its directory: walked into, used, listed by its
   const errors = watchConsole(page);
   await open(page, URL);
   // A directory of the test project's to pick: made where the picker starts.
-  const start = await page.evaluate(async () => (await (window as any).harnix.app.call("harnix.listDirectory", {})).path as string);
+  const start = await page.evaluate(async () => (await (window as any).harnix.app.call("harnix-app.listDirectory", {})).path as string);
   const made = await page.evaluate(async () => {
     const { app } = (window as any).harnix;
-    return (await app.call("harnix.projects.create", { name: `picked-${Date.now()}` })).path as string;
+    return (await app.call("harnix-app.projects.create", { name: `picked-${Date.now()}` })).path as string;
   });
   // That made it a project already; take it off so the picker is what adds it back.
   await page.evaluate(async (path) => {
     const { app } = (window as any).harnix;
-    const { workspaces } = await app.call("harnix.workspaces.list", {});
+    const { workspaces } = await app.call("harnix-app.workspaces.list", {});
     const row = workspaces.find((w: any) => w.path === path);
-    if (row) await app.call("harnix.workspaces.remove", { id: row.id });
+    if (row) await app.call("harnix-app.workspaces.remove", { id: row.id });
     await app.refreshSessions();
   }, made);
   await toProjects(page);

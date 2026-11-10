@@ -211,7 +211,7 @@ export class HarnixApp {
   readonly session = {
     current: (): SessionRef | null => this.currentSession,
     open: (ref: SessionRef): Promise<void> => this.request("session.open", ref).then(() => undefined),
-    create: (spec: { scene?: string; options?: Record<string, unknown> } = {}): Promise<SessionRef> => this.request("session.create", spec),
+    create: (spec: { scene?: string; options?: Record<string, unknown> } = {}): Promise<SessionRef> => this.request("harnix.session.create", spec),
     onChange: (fn: (current: SessionRef | null) => void): (() => void) => {
       this.sessionListeners.add(fn);
       return () => this.sessionListeners.delete(fn);

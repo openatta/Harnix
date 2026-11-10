@@ -189,7 +189,7 @@ pub(crate) struct ShellProfile {
     pub model_switch: bool,
     /// Whether the shell draws its "New session" button and takes ⌘K to start one (ipdrun-46).
     /// On unless written: `false` hides both in every space; a space's own `newSession` still
-    /// applies on top. Only the interface; the hub still takes `session.create`.
+    /// applies on top. Only the interface; the hub still takes `harnix.session.create`.
     pub new_session: bool,
     /// What an open right column does when the window is too narrow for three (≤ 960px, ipdrun-50):
     /// `over` (the default, as before) maximizes it over the conversation; `beside` keeps the three

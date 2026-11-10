@@ -45,7 +45,7 @@ describe("listSession (ipdrun-54)", () => {
     localStorage.clear();
     const client = new ScriptedClient();
     client.answer = (method) =>
-      method === "harnix.sessions"
+      method === "harnix.sessions.list"
         ? { sessions: [{ session_id: "main", instance: "system", name: "Main", last_active: "2026-11-06T02:00:00Z" }, { session_id: "x", instance: "system", name: "X", last_active: "2026-11-06T01:00:00Z" }, { session_id: "boom", instance: "system", name: "Boom", last_active: "2026-11-06T00:00:00Z" }] }
         : {};
     const app = new App(client as unknown as HarnixClient, new Registry());
@@ -67,7 +67,7 @@ describe("listSession (ipdrun-54)", () => {
   it("all left out: nothing drawn, not the empty-list words", async () => {
     localStorage.clear();
     const client = new ScriptedClient();
-    client.answer = (method) => (method === "harnix.sessions" ? { sessions: [{ session_id: "main", instance: "system", name: "Main" }] } : {});
+    client.answer = (method) => (method === "harnix.sessions.list" ? { sessions: [{ session_id: "main", instance: "system", name: "Main" }] } : {});
     const app = new App(client as unknown as HarnixClient, new Registry());
     app.registry.register("space", space("sessions", { sidebar: { listSession: () => false } }), "test");
     const { container } = draw(app);

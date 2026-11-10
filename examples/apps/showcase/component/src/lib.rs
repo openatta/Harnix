@@ -14,10 +14,10 @@
 //! | `state` | what the backend knows: what its tools ask it for, with `host.call` |
 //! | `timer.start {ms, times?}` | `host.set-timer`: each firing publishes `heartbeat` |
 //! | `fetch {url}` | slow work started, then reported: a job at once; a timer makes the request (`host.http-request`, to a host in `net` only) and publishes it on `fetched` |
-//! | `session.start {message, space, …}` | driving the agent: `session.create` and `harnix.send` in its own space, as `ext:example.showcase` |
+//! | `session.start {message, space, …}` | driving the agent: `harnix.session.create` and `harnix.session.send` in its own space, as `ext:example.showcase` |
 //! | `overreach` | a call its `hub` does not list: refused, and on the record |
 //! | `spin`, `crash` | what a timeout and a trap do to the instance |
-//! | `card.post {session_id, space, …}` | an entry in the flow of a session of its own space (`harnix.entries.append`), which the shell draws as the manifest's card |
+//! | `card.post {session_id, space, …}` | an entry in the flow of a session of its own space (`harnix.session.entries.append`), which the shell draws as the manifest's card |
 //! | `complete {trigger, name, query}` | the candidates of its `/showcase` command and its `@notes` source |
 //! | `sessions.group {space, sessions}` | how its space's left column groups sessions: those it put a card in, and the rest |
 //!
@@ -257,7 +257,7 @@ impl Backend for Showcase {
                         create[key] = params[key].clone();
                     }
                 }
-                let created = host::call("session.create", &create.to_string()).map_err(|e| error(5, e))?;
+                let created = host::call("harnix.session.create", &create.to_string()).map_err(|e| error(5, e))?;
                 let created: Value = serde_json::from_str(&created).unwrap_or(Value::Null);
                 let session_id = created["session_id"].clone();
                 // A session of the application's own space, claimed: a package reaches no other.
@@ -267,7 +267,7 @@ impl Backend for Showcase {
                     "space": params["space"],
                     "message": params["message"].as_str().unwrap_or("Hello from the showcase's backend"),
                 });
-                let sent = host::call("harnix.send", &send.to_string()).map_err(|e| error(5, e))?;
+                let sent = host::call("harnix.session.send", &send.to_string()).map_err(|e| error(5, e))?;
                 json!({
                     "instance": "system",
                     "session_id": session_id,
@@ -303,7 +303,7 @@ impl Backend for Showcase {
                         "by": caller["subject"],
                     },
                 });
-                let appended = host::call("harnix.entries.append", &entry.to_string()).map_err(|e| error(6, e))?;
+                let appended = host::call("harnix.session.entries.append", &entry.to_string()).map_err(|e| error(6, e))?;
                 let mut cards = carded();
                 if !cards.contains(&session_id) {
                     cards.push(session_id.clone());

@@ -28,13 +28,13 @@ test.beforeEach(async () => {
 test.afterEach(() => api?.close());
 
 test("a module learns once which device answered a tool's prompt; a device cannot ask (helm-01)", TAGS, async () => {
-  const created = await api.call("session.create", {
+  const created = await api.call("harnix.session.create", {
     project_root: api.project,
     options: { recorder: { name: "runs-a-while" } },
   });
   const s = { instance: "system", session_id: created.session_id };
-  await api.call("harnix.attach", s);
-  await api.call("harnix.send", { ...s, message: "Wait four seconds" });
+  await api.call("harnix.session.attach", s);
+  await api.call("harnix.session.send", { ...s, message: "Wait four seconds" });
   const ask = await api.waitFor(
     (f) => f.method === "harnix.event" && f.params.session_id === s.session_id && f.params.event.kind === "prompt",
     { timeout: 30_000, describe: "the permission ask for the Bash call" },
@@ -42,7 +42,7 @@ test("a module learns once which device answered a tool's prompt; a device canno
   const toolUse = ask.params.event.tool_use_id;
   expect(toolUse, "the ask names its tool call").toBeTruthy();
   // The engine takes the answer with the extra field stripped.
-  await api.call("session.respondToPrompt", {
+  await api.call("harnix.session.respond", {
     ...s,
     prompt_id: ask.params.event.prompt_id,
     decision: { type: "permit" },
@@ -51,12 +51,12 @@ test("a module learns once which device answered a tool's prompt; a device canno
 
   const read = () =>
     api.call("app.probe.call", {
-      method: "harnix.prompts.answerer",
+      method: "harnix.session.answerer",
       params: { session_id: s.session_id, tool_use_id: toolUse },
     });
   expect((await read()).answerer).toMatch(/^device:./);
   expect((await read()).answerer, "forgotten once read").toBeNull();
 
-  const refused = await api.refused("harnix.prompts.answerer", { session_id: s.session_id, tool_use_id: toolUse });
+  const refused = await api.refused("harnix.session.answerer", { session_id: s.session_id, tool_use_id: toolUse });
   expect(refused?.code).toBe(REFUSED);
 });

@@ -265,7 +265,7 @@ mod tests {
         let answer = wire
             .call(CallAs {
                 app: "acme.notes".into(),
-                method: "harnix.send".into(),
+                method: "harnix.session.send".into(),
                 params: serde_json::json!({"n": 1}),
                 chain: vec!["acme.notes".into()],
             })
