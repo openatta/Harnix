@@ -1,7 +1,7 @@
 //! `AppsBridge`: the running applications' tools in every session an in-process instance builds.
 //!
-//! An Agix plugin (`runtime::plugin::Plugin`) in the instance's assembly. Agix registers it each
-//! time it builds a session — sub-agents, team members and background tasks included — and it
+//! A tool provider (`harnix_engine_api::ToolProvider`) of the instance's engine. The engine asks it
+//! each time it builds a session — sub-agents, team members and background tasks included — and it
 //! registers what is running *then*: an application enabled now is in the next session built, and
 //! one disabled now is not (a session already built keeps what it was built with until it is
 //! rebuilt). Per application:
@@ -12,7 +12,7 @@
 //!   the host's `harnix.apps.progress` topic, and cancelling the turn stops it
 //!   (`Control::cancel`). **Every call asks first**: a tool's `read-only` claim is the component's
 //!   own word, so it schedules calls and decides nothing about permission.
-//! - its `events` export, as a `tool.around` middleware on the session's tool calls: offered
+//! - its `events` export, as a hook before each of the session's tool calls: offered
 //!   `tool.before` with the tool's name and input — for its own tools' calls only, unless its
 //!   manifest asks for every one (`[events] tools = "all"`, which the installer is told; the host
 //!   decides) — it may let the call through, refuse it, or add a note to its result. A note goes
@@ -24,30 +24,24 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use base::error::ToolError;
-use base::interface::tool::{
-    PermissionDecision, ProgressSender, PromptContext, Tool, ToolContext, ToolResult,
-    ToolResultContent,
-};
-use base::interface::tool_middleware::{
-    NextDispatch, ToolAnswer, ToolCall, ToolExec, ToolMiddleware, ToolOutcome,
+use harnix_contract::codes;
+use harnix_engine_api::{
+    Cancel, HookDecision, Permission, SessionFacts, Tool, ToolCallFacts, ToolCx, ToolError, ToolHook, ToolOutput,
+    ToolProvider, ToolSpec,
 };
 use harnix_wasm_port::{Control, Failure, HookCall, HookReply, ToolDef, ToolReply};
-use harnix_contract::codes;
-use runtime::plugin::{Plugin, PluginSession, Registrar};
 use serde_json::{json, Value};
-use tokio_util::sync::CancellationToken;
 
 use crate::runtime::{Loaded, Registry};
 
-/// The plugin's name in every session.
+/// The provider's name in every session.
 pub const NAME: &str = "harnix-apps";
 
 /// The longest note an application's hook may add to a tool's result, in characters.
 pub const MAX_NOTE: usize = 2000;
 
-/// The bridge between the running plugin apps and an instance's sessions. It is an Agix plugin,
-/// which is why `plugin` in this crate's code means Agix's kind and never a plugin app.
+/// The bridge between the running plugin apps and an instance's sessions: a provider of the
+/// instance's engine.
 pub struct AppsBridge {
     registry: Arc<Registry>,
 }
@@ -57,7 +51,7 @@ pub struct AppsBridge {
 pub(crate) async fn cancellable<T>(
     control: &Arc<dyn Control>,
     call_id: &str,
-    cancel: &CancellationToken,
+    cancel: &Cancel,
     call: impl Future<Output = T>,
 ) -> T {
     tokio::pin!(call);
@@ -76,18 +70,28 @@ impl AppsBridge {
         Self { registry }
     }
 
-    /// The tools a session in `project` is given now: what `register` registers.
-    pub fn tools(&self, project: &std::path::Path) -> Vec<Arc<dyn Tool>> {
+    /// The tools a session in `project` is given now: what the engine registers.
+    pub fn tools_for(&self, project: &std::path::Path) -> Vec<Arc<dyn Tool>> {
         let mut tools: Vec<Arc<dyn Tool>> = Vec::new();
         for app in self.registry.loaded() {
             if !app.component {
                 continue;
             }
             for def in &app.tools {
+                let name = app.tool_name(&def.name);
+                let schema = serde_json::from_str(&def.input_schema).unwrap_or_else(|_| json!({"type": "object"}));
+                let mut spec = ToolSpec::new(&name, &def.description, schema).source(&format!("app:{}", app.id));
+                if let Some(doc) = &def.doc {
+                    spec = spec.doc(doc);
+                }
+                if def.read_only {
+                    spec = spec.read_only();
+                }
+                if def.concurrency_safe {
+                    spec = spec.concurrency_safe();
+                }
                 tools.push(Arc::new(AppTool {
-                    name: app.tool_name(&def.name),
-                    schema: serde_json::from_str(&def.input_schema)
-                        .unwrap_or_else(|_| json!({"type": "object"})),
+                    spec,
                     def: def.clone(),
                     app: app.clone(),
                     registry: self.registry.clone(),
@@ -98,8 +102,8 @@ impl AppsBridge {
         tools
     }
 
-    /// The `tool.around` middleware for one session: each running application's `events`.
-    pub fn middleware(&self, session_id: &str, depth: u32) -> Vec<Arc<dyn ToolMiddleware>> {
+    /// The hooks for one session: each running application's `events`.
+    pub fn hooks_for(&self, session_id: &str, depth: u32) -> Vec<Arc<dyn ToolHook>> {
         self.registry
             .loaded()
             .into_iter()
@@ -110,32 +114,30 @@ impl AppsBridge {
                     registry: self.registry.clone(),
                     session_id: session_id.to_string(),
                     depth,
-                }) as Arc<dyn ToolMiddleware>
+                }) as Arc<dyn ToolHook>
             })
             .collect()
     }
 }
 
-impl Plugin for AppsBridge {
+impl ToolProvider for AppsBridge {
     fn name(&self) -> &str {
         NAME
     }
 
-    fn register(&self, session: &PluginSession<'_>, r: &mut Registrar) {
-        for tool in self.tools(session.project_root) {
-            r.tool(tool);
-        }
-        for middleware in self.middleware(session.session_id, session.depth) {
-            r.tool_middleware(middleware);
-        }
+    fn tools(&self, session: &SessionFacts) -> Vec<Arc<dyn Tool>> {
+        self.tools_for(session.project())
+    }
+
+    fn hooks(&self, session: &SessionFacts) -> Vec<Arc<dyn ToolHook>> {
+        self.hooks_for(session.session_id(), session.depth())
     }
 }
 
 /// One application tool, as a session has it.
 struct AppTool {
-    name: String,
+    spec: ToolSpec,
     def: ToolDef,
-    schema: Value,
     app: Arc<Loaded>,
     registry: Arc<Registry>,
     /// The session's project: `/project`, for a manifest that asks for `${project}`.
@@ -144,70 +146,32 @@ struct AppTool {
 
 #[async_trait::async_trait]
 impl Tool for AppTool {
-    fn name(&self) -> &str {
-        &self.name
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
     }
 
-    fn description(&self) -> &str {
-        &self.def.description
-    }
-
-    fn input_schema(&self) -> Value {
-        self.schema.clone()
-    }
-
-    fn source(&self) -> std::borrow::Cow<'_, str> {
-        std::borrow::Cow::Owned(format!("app:{}", self.app.id))
-    }
-
-    async fn prompt(&self, _: &PromptContext) -> String {
-        match &self.def.doc {
-            Some(doc) => format!("{}\n\n{doc}", self.def.description),
-            None => self.def.description.clone(),
-        }
-    }
-
-    fn is_read_only(&self, _: &Value) -> bool {
-        self.def.read_only
-    }
-
-    fn is_concurrency_safe(&self, _: &Value) -> bool {
-        self.def.concurrency_safe
-    }
-
-    async fn check_permissions(&self, _: &Value, _: &ToolContext) -> PermissionDecision {
-        PermissionDecision::ask(format!(
+    fn permission(&self, _: &Value) -> Permission {
+        Permission::Ask(format!(
             "The application `{}` wants to run its tool `{}`",
             self.app.title.as_deref().unwrap_or(&self.app.id),
             self.def.name
         ))
     }
 
-    async fn call(
-        &self,
-        input: Value,
-        ctx: ToolContext,
-        progress: ProgressSender,
-    ) -> Result<ToolResult, ToolError> {
+    async fn call(&self, cx: ToolCx, input: Value) -> Result<ToolOutput, ToolError> {
         let Some(control) = self.registry.control() else {
-            return Err(ToolError::NotFound(format!(
-                "`{}` is not running",
-                self.app.id
-            )));
+            return Err(ToolError::NotFound(format!("`{}` is not running", self.app.id)));
         };
-        let call_id = if ctx.tool_use_id.is_empty() {
-            progress.tool_use_id().to_string()
-        } else {
-            ctx.tool_use_id.clone()
-        };
+        let call_id = cx.tool_use_id().to_string();
         // A tool call's `host.progress`: to the engine's progress channel, and to the host's
         // listeners (`Registry::progress`), which is what a client sees.
         {
             let registry = self.registry.clone();
+            let progress = cx.progress().clone();
             let (app, tool, session_id, tool_use_id) = (
                 self.app.id.clone(),
-                self.name.clone(),
-                ctx.session_id.clone(),
+                self.spec.name().to_string(),
+                cx.session_id().to_string(),
                 call_id.clone(),
             );
             self.registry.listen(
@@ -232,34 +196,22 @@ impl Tool for AppTool {
             project: Some(self.project.clone()),
             progress: true,
         };
-        let reply = cancellable(&control, &call_id, &ctx.cancel, control.call_tool(call)).await;
+        let reply = cancellable(&control, &call_id, cx.cancel(), control.call_tool(call)).await;
         self.registry.unlisten(&call_id);
         match reply {
-            Ok(ToolReply::Output {
-                content,
-                structured,
-                is_error,
-            }) => Ok(ToolResult {
-                content: ToolResultContent::Text(content),
-                is_error,
-                structured_content: structured,
-                ..ToolResult::default()
-            }),
-            Ok(ToolReply::Failed {
-                failure: Failure::Cancelled,
-                ..
-            }) => Err(ToolError::Cancelled),
-            Ok(ToolReply::Failed { message, .. }) => Ok(ToolResult::error_text(format!(
-                "{}: {message}",
-                self.app.id
-            ))),
+            Ok(ToolReply::Output { content, structured, is_error }) => {
+                let out = if is_error { ToolOutput::error(content) } else { ToolOutput::text(content) };
+                Ok(out.with_structured(structured))
+            }
+            Ok(ToolReply::Failed { failure: Failure::Cancelled, .. }) => Err(ToolError::Cancelled),
+            Ok(ToolReply::Failed { message, .. }) => Ok(ToolOutput::error(format!("{}: {message}", self.app.id))),
             Err(e) if e.code == codes::METHOD_NOT_FOUND => Err(ToolError::NotFound(e.message)),
-            Err(e) => Ok(ToolResult::error_text(format!("{}: {}", self.app.id, e.message))),
+            Err(e) => Ok(ToolOutput::error(format!("{}: {}", self.app.id, e.message))),
         }
     }
 }
 
-/// An application's `events`, around every tool call of one session.
+/// An application's `events`, before every tool call of one session.
 struct AppEvents {
     app: Arc<Loaded>,
     registry: Arc<Registry>,
@@ -282,19 +234,14 @@ fn note_for(app: &str, tool: &str, note: &str) -> Option<String> {
 }
 
 #[async_trait::async_trait]
-impl ToolMiddleware for AppEvents {
-    async fn around(
-        &self,
-        call: &ToolCall,
-        exec: &mut ToolExec,
-        next: NextDispatch<'_>,
-    ) -> ToolOutcome {
+impl ToolHook for AppEvents {
+    async fn before(&self, call: &ToolCallFacts) -> HookDecision {
         let Some(control) = self.registry.control() else {
-            return next.run(call, exec).await;
+            return HookDecision::Proceed;
         };
         let payload = json!({
-            "tool": call.name,
-            "input": call.input,
+            "tool": call.name(),
+            "input": call.input(),
             "session_id": self.session_id,
             "depth": self.depth,
         });
@@ -305,31 +252,25 @@ impl ToolMiddleware for AppEvents {
             payload,
             call_id: call_id.clone(),
         };
-        let cancel = exec.cancel().clone();
-        let decision = cancellable(&control, &call_id, &cancel, control.hook(hook))
+        let decision = cancellable(&control, &call_id, call.cancel(), control.hook(hook))
             .await
             .unwrap_or_else(|e| HookReply::Failed(e.message));
         match decision {
-            HookReply::Proceed => next.run(call, exec).await,
+            HookReply::Proceed => HookDecision::Proceed,
             HookReply::Block(reason) => {
-                tracing::info!(app = %self.app.id, tool = %call.name, %reason, "an application refused a tool call");
-                Ok(ToolAnswer::failure(format!(
-                    "refused by the application `{}`: {reason}",
-                    self.app.id
-                )))
+                tracing::info!(app = %self.app.id, tool = %call.name(), %reason, "an application refused a tool call");
+                HookDecision::Block(format!("refused by the application `{}`: {reason}", self.app.id))
             }
-            HookReply::AddContext(note) => {
-                let mut answer = next.run(call, exec).await?;
-                if let Some(note) = note_for(&self.app.id, &call.name, &note) {
-                    answer.text.push_str(&note);
-                } else {
-                    tracing::debug!(app = %self.app.id, tool = %call.name, "a note for another's tool; left out");
+            HookReply::AddContext(note) => match note_for(&self.app.id, call.name(), &note) {
+                Some(note) => HookDecision::AddContext(note),
+                None => {
+                    tracing::debug!(app = %self.app.id, tool = %call.name(), "a note for another's tool; left out");
+                    HookDecision::Proceed
                 }
-                Ok(answer)
-            }
+            },
             HookReply::Failed(failure) => {
-                tracing::warn!(app = %self.app.id, tool = %call.name, %failure, "an application's event hook failed; the call goes on");
-                next.run(call, exec).await
+                tracing::warn!(app = %self.app.id, tool = %call.name(), %failure, "an application's event hook failed; the call goes on");
+                HookDecision::Proceed
             }
         }
     }

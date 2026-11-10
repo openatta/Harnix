@@ -262,8 +262,8 @@ impl Runtime {
         self.registry.clone()
     }
 
-    /// The Agix plugin an in-process instance's assembly carries ([`crate::AppsBridge`]).
-    pub fn plugin(&self) -> Arc<dyn runtime::plugin::Plugin> {
+    /// The tool provider an in-process instance's engine carries ([`crate::AppsBridge`]).
+    pub fn provider(&self) -> Arc<dyn harnix_engine_api::ToolProvider> {
         Arc::new(crate::AppsBridge::new(self.registry.clone()))
     }
 

@@ -437,7 +437,7 @@ fn patch_providers(
                 ))
             }
         }
-        serde_json::from_value::<base::provider::ProviderConfig>(entry.clone())
+        harnix_engine::settings::check_provider(&entry)
             .map_err(|e| RpcError::invalid_params(format!("invalid provider config: {e}")))?;
         providers.insert(provider_id.to_string(), entry);
     }

@@ -17,13 +17,17 @@ harnix           = { path = "harnix/crates/harnix" }
 harnix-assembly  = { path = "harnix/crates/assembly" }
 harnix-wasm-host = { path = "harnix/crates/wasm-host" }
 harnix-package   = { path = "harnix/crates/package" }
+harnix-proc      = { path = "harnix/crates/proc" }
 harnix-wasm-port = { path = "harnix/crates/wasm-port" }
 harnix-apps      = { path = "harnix/crates/apps" }
 harnix-instance  = { path = "harnix/crates/instance" }
+harnix-supervise = { path = "harnix/crates/supervise" }
 harnix-authz     = { path = "harnix/crates/authz" }
 harnix-builtin   = { path = "harnix/crates/builtin" }
 harnix-client    = { path = "harnix/crates/client" }
 harnix-contract  = { path = "harnix/crates/contract" }
+harnix-engine    = { path = "harnix/crates/engine" }
+harnix-engine-api = { path = "harnix/crates/engine-api" }
 harnix-ext-flow    = { path = "harnix/crates/ext/flow" }
 harnix-module    = { path = "harnix/crates/module" }
 harnix-hub       = { path = "harnix/crates/hub" }

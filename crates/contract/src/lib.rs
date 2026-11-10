@@ -7,7 +7,7 @@
 //! transport does not know what a session is, authorization does not know
 //! what a frame looks like, the hub does not know what HTTP is.
 //!
-//! Nothing here executes anything. It is types, three traits and a version —
+//! Nothing here executes anything. It is types, two traits and a version —
 //! and [`sync`], the one way the kernel takes a lock.
 
 pub mod apps;
@@ -24,6 +24,42 @@ pub use handshake::{
 };
 pub use space::{DefaultInstance, SpaceDecl, PROJECTS_SPACE, SESSIONS_SPACE, SYSTEM_SPACE};
 pub use subject::Subject;
+
+/// A session's full name: the instance it is on and its id there.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+pub struct SessionRef {
+    pub instance: String,
+    pub session_id: String,
+}
+
+impl SessionRef {
+    pub fn new(instance: impl Into<String>, session_id: impl Into<String>) -> Self {
+        Self { instance: instance.into(), session_id: session_id.into() }
+    }
+}
+
+/// One link of a call chain: the extension that made a call, and that call's id. A tool call made
+/// on behalf of a session carries the chain that led to the session's turn.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ChainLink {
+    ext: String,
+    call: String,
+}
+
+impl ChainLink {
+    pub fn new(ext: impl Into<String>, call: impl Into<String>) -> Self {
+        Self { ext: ext.into(), call: call.into() }
+    }
+
+    pub fn ext(&self) -> &str {
+        &self.ext
+    }
+
+    pub fn call(&self) -> &str {
+        &self.call
+    }
+}
 
 /// The instance every process has: the engine built from the profile's
 /// `[engine]` (concept §3).
@@ -154,16 +190,6 @@ pub mod codes {
     /// The extension is there and cannot answer now; `data.failure` says why: `starting`,
     /// `stopped`, `faulted`, `reentrant`. An instance out of reach is `INSTANCE_UNAVAILABLE`.
     pub const EXTENSION_UNAVAILABLE: i32 = -31010;
-}
-
-/// The process's single admission point.
-///
-/// Transport holds one of these and knows nothing about what is behind it.
-/// Authorization implements it by deciding, then delegating to the hub.
-#[async_trait::async_trait]
-pub trait Gate: Send + Sync {
-    async fn call(&self, subject: &Subject, method: &str, params: Value)
-        -> Result<Value, RpcError>;
 }
 
 /// Who issued an upload grant and where it lands.

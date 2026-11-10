@@ -70,13 +70,13 @@ pub struct Factory {
     pub socket_dir: PathBuf,
     /// What a credential reference resolves to (an attached daemon's token).
     pub credential: Resolve,
-    /// Agix plugins every engine built in this process gets — the in-process
+    /// Tool providers every engine built in this process gets — the in-process
     /// carrier's alone: a daemon is another process, and what it should have
     /// of this one's reaches it another way (an application's tools, over MCP).
-    pub plugins: Vec<Arc<dyn runtime::plugin::Plugin>>,
-    /// The tools those plugins register, which every scene of such an engine admits
-    /// (`EngineContrib::admit_tools`).
-    pub admitted_tools: Vec<String>,
+    pub providers: Vec<Arc<dyn harnix_engine_api::ToolProvider>>,
+    /// The tools those providers give, which every scene of such an engine admits
+    /// (`EngineContribution::admit_everywhere`).
+    pub admitted: Vec<String>,
     /// The MCP servers every daemon this process spawns is configured with — a runtime
     /// application's tools — written into each one's data root as it is built, and kept in line
     /// with the set after (`servers.rs`). Shared with whoever sets them.
@@ -95,8 +95,8 @@ impl Factory {
             program,
             socket_dir,
             credential,
-            plugins: Vec::new(),
-            admitted_tools: Vec::new(),
+            providers: Vec::new(),
+            admitted: Vec::new(),
             servers: Arc::default(),
             providers_from: None,
         })
@@ -140,16 +140,13 @@ impl Factory {
             crate::reap::engine_reaps(&data_root)?;
         }
         match carrier {
-            TemplateCarrier::InProcess { engine, contrib } => {
-                let mut contrib = contrib.clone();
-                if let Some(native) = template.and_then(InstanceTemplate::native_contrib) {
-                    contrib.extend(native);
+            TemplateCarrier::InProcess { engine } => {
+                let mut contrib = template.and_then(InstanceTemplate::contribution).unwrap_or_default();
+                for provider in &self.providers {
+                    contrib.provider(provider.clone());
                 }
-                for plugin in &self.plugins {
-                    contrib.plugin(plugin.clone());
-                }
-                for pattern in &self.admitted_tools {
-                    contrib.admit_tools(pattern.clone());
+                for pattern in &self.admitted {
+                    contrib.admit_everywhere(pattern);
                 }
                 let engine = engine::build(engine_config(engine, &data_root, contrib)).await?;
                 let facts = Facts::from(&engine);
@@ -173,7 +170,7 @@ impl Factory {
                 // Only this binary's daemon knows how to build the template's native contributions
                 // again (ipdrun-10).
                 if program.is_none() {
-                    if let Some(template) = template.filter(|t| t.native.is_some()) {
+                    if let Some(template) = template.filter(|t| t.contribute.is_some()) {
                         argv.push("--template".into());
                         argv.push(template.id.clone());
                     }
@@ -236,6 +233,7 @@ impl Factory {
                     },
                 })
             }
+            _ => anyhow::bail!("instance `{id}`: a carrier this build does not know"),
         }
     }
 
@@ -276,7 +274,7 @@ fn loopback_without_proxy() -> Vec<(String, String)> {
         .collect()
 }
 
-pub fn engine_config(engine: &EngineProfile, data_root: &Path, contrib: crate::EngineContrib) -> EngineConfig {
+pub fn engine_config(engine: &EngineProfile, data_root: &Path, contrib: harnix_engine_api::EngineContribution) -> EngineConfig {
     EngineConfig {
         scene: engine.scene.clone(),
         scenes: engine.scenes.clone(),

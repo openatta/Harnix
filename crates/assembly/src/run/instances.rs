@@ -141,7 +141,7 @@ async fn fixed(profile: &Profile, registry: &mut Registry) -> anyhow::Result<Vec
                     .insert(decl.id.clone(), (carrier.clone(), root.clone()));
                 match registry.factory.build(&decl.id, &carrier, root).await {
                     Ok(built) => built,
-                    Err(e) => down(carrier.carrier(), format!("{e:#}")),
+                    Err(e) => down(harnix_instance::templates::carrier_of(&carrier), format!("{e:#}")),
                 }
             }
             Err(e) => down(harnix_instance::Carrier::InProcess, format!("{e:#}")),

@@ -10,9 +10,9 @@ description  = "Harnix's own contributions, through the same points a plugin use
 [dependencies]
 harnix-contract = { workspace = true }
 harnix-module   = { workspace = true }
-base        = { workspace = true }
-history     = { workspace = true }
-telemetry   = { workspace = true }
+# The engine's recordings and transcripts, read; a provider entry, checked.
+harnix-engine     = { workspace = true }
+harnix-engine-api = { workspace = true }
 tokio       = { workspace = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }

@@ -15,6 +15,8 @@ members = [
     "crates/cli",
     "crates/client",
     "crates/contract",
+    "crates/engine",
+    "crates/engine-api",
     "crates/ext/flow",
     "crates/harnix",
     "crates/hub",
@@ -73,6 +75,8 @@ harnix-authz     = { path = "crates/authz" }
 harnix-builtin   = { path = "crates/builtin" }
 harnix-client    = { path = "crates/client" }
 harnix-contract  = { path = "crates/contract" }
+harnix-engine    = { path = "crates/engine" }
+harnix-engine-api = { path = "crates/engine-api" }
 harnix-ext-flow    = { path = "crates/ext/flow" }
 harnix-module    = { path = "crates/module" }
 harnix-hub       = { path = "crates/hub" }

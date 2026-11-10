@@ -25,10 +25,10 @@
 //! ```no_run
 //! # use std::sync::Arc;
 //! # use harnix_ext_flow::{Flow, MemPacks};
-//! # fn scene() -> Arc<dyn base::interface::scene::Scene> { unimplemented!() }
+//! # use harnix_engine_api::SceneBase;
 //! let flow = Flow::builder()
 //!     .packs(MemPacks::new().flow("name: demo\nstations: [{id: a, exit: [{kind: confirm}]}]"))
-//!     .scene(scene())          // offered to definitions as `flow-<id>`
+//!     .scene(SceneBase::builtin("harnix"))   // offered to definitions as `flow-harnix`
 //!     .build();
 //! let handle = flow.handle();  // the kernel from Rust, once the module has started
 //! # let _ = (flow, handle);
@@ -49,8 +49,8 @@ mod turns;
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use base::interface::scene::Scene;
 use harnix_contract::sync::lock;
+use harnix_engine_api::{BuiltinArgs, Interaction, SceneBase, SceneLayer};
 use harnix_module::{
     EngineContrib, EventRegistry, InstanceTemplate, InstanceTemplates, Manifest, MethodRegistry,
     Module, ModuleContext, SpaceDecl, SpaceRegistry,
@@ -69,9 +69,9 @@ use crate::packs::MemPacks;
 use crate::store::FileStore;
 
 pub use crate::kernel::protocol::matches_any;
-pub use author::{AuthorScene, AUTHOR_PROMPT, AUTHOR_SCENE, AUTHOR_TOOLS, NO_FOCUS};
+pub use author::{AUTHOR_PROMPT, AUTHOR_SCENE, AUTHOR_TOOLS, NO_FOCUS};
 pub use shared::{session_name, session_ref};
-pub use tools::{structured_id, FlowScene, StructuredScene, TOOL_PROPOSE, TOOL_STATE, TOOL_SUBMIT};
+pub use tools::{structured_id, structured_scene, TOOL_PROPOSE, TOOL_STATE, TOOL_SUBMIT};
 
 use shared::{Config, ConversationRecordingFn, MainRecordingFn, RecordingFn, Shared};
 
@@ -110,8 +110,8 @@ pub struct Flow {
     lazy_packs: Mutex<Option<MakePacks>>,
     tools: Option<Arc<dyn Tools>>,
     auth: Option<Arc<dyn Authorizer>>,
-    scenes: Vec<Arc<dyn Scene>>,
-    author: Arc<dyn Scene>,
+    scenes: Vec<SceneLayer>,
+    author: SceneLayer,
     templates: Vec<InstanceTemplate>,
     /// Why the module must not start: a guarded-tool pattern no permission rule can say.
     config_error: Option<String>,
@@ -135,8 +135,9 @@ pub struct FlowBuilder {
     store: Option<StoreSpec>,
     packs: Option<Arc<dyn Packs>>,
     lazy_packs: Option<MakePacks>,
-    scenes: Vec<Arc<dyn Scene>>,
-    author: Option<Arc<dyn Scene>>,
+    /// Each base, and whether its sessions need a project (`None`: as the base says).
+    scenes: Vec<(SceneBase, Option<bool>)>,
+    author: Option<SceneBase>,
     templates: Vec<InstanceTemplate>,
     ensure_ms: u64,
     programs: Option<Arc<dyn Programs>>,
@@ -181,16 +182,15 @@ impl Default for FlowBuilder {
     }
 }
 
-/// Agix's built-in scenes, the ones a flow offers when the application gives none: `harnix` (the
-/// main scene), `code` and `mini`. All unattended — a flow session has no one to put a question
-/// to; its permission asks are the module's to answer (the wrapper is attended for those).
-pub fn builtin_scenes() -> Vec<Arc<dyn Scene>> {
+/// The engine's own scenes, the ones a flow offers when the application gives none: `harnix` (the
+/// main scene), `code` and `mini`, each with whether its sessions need a project (`code`'s do).
+/// All unattended — a flow session has no one to put a question to; its permission asks are the
+/// module's to answer (the wrapper is attended for those).
+pub fn builtin_scenes() -> Vec<(SceneBase, bool)> {
     vec![
-        Arc::new(scene::harnix::HarnixScene),
-        Arc::new(scene::code::CodeScene::new(
-            scene::code::Interaction::Unattended,
-        )),
-        Arc::new(scene::mini::MiniScene),
+        (SceneBase::builtin("harnix"), false),
+        (SceneBase::builtin_with("code", BuiltinArgs::new().interaction(Interaction::Unattended)), true),
+        (SceneBase::builtin("mini"), false),
     ]
 }
 
@@ -239,17 +239,24 @@ impl FlowBuilder {
 
     /// A scene stations may run sessions in. It is offered as `flow-<id>`: the same scene
     /// with the flow's native tools added (its sessions hand in with `flow_submit`). Repeatable.
-    /// Given none, the module offers Agix's built-in ones ([`builtin_scenes`]): `flow-harnix`,
+    /// Given none, the module offers the engine's own ones ([`builtin_scenes`]): `flow-harnix`,
     /// `flow-code` and `flow-mini`, with `flow-harnix` the main scene.
-    pub fn scene(mut self, scene: Arc<dyn Scene>) -> Self {
-        self.scenes.push(scene);
+    pub fn scene(mut self, base: SceneBase) -> Self {
+        self.scenes.push((base, None));
         self
     }
 
-    /// The scene `flow-author` wraps — the flow space's conversations. Agix's harnix scene when
-    /// not given.
-    pub fn author_scene(mut self, scene: Arc<dyn Scene>) -> Self {
-        self.author = Some(scene);
+    /// [`FlowBuilder::scene`], for a scene whose sessions work in a project: a run's session in it
+    /// gets a workspace directory of the run's own.
+    pub fn project_scene(mut self, base: SceneBase) -> Self {
+        self.scenes.push((base, Some(true)));
+        self
+    }
+
+    /// The scene `flow-author` wraps — the flow space's conversations. The engine's harnix scene
+    /// when not given.
+    pub fn author_scene(mut self, base: SceneBase) -> Self {
+        self.author = Some(base);
         self
     }
 
@@ -368,7 +375,7 @@ impl FlowBuilder {
 
     pub fn build(mut self) -> Flow {
         if self.scenes.is_empty() {
-            self.scenes = builtin_scenes();
+            self.scenes = builtin_scenes().into_iter().map(|(base, project)| (base, Some(project))).collect();
         }
         let (tx, _) = broadcast::channel(1024);
         let own_templates: Vec<String> = self
@@ -383,7 +390,7 @@ impl FlowBuilder {
                 scenes: self
                     .scenes
                     .iter()
-                    .map(|s| tools::wrapped_id(s.id()))
+                    .map(|(s, _)| tools::wrapped_id(s.id()))
                     .collect(),
                 programs: self.programs.clone(),
                 gates: self.gates.clone(),
@@ -395,13 +402,13 @@ impl FlowBuilder {
                 main_scene: self
                     .main_scene
                     .clone()
-                    .or_else(|| self.scenes.first().map(|s| s.id().to_string()))
+                    .or_else(|| self.scenes.first().map(|(s, _)| s.id().to_string()))
                     .map(|id| tools::wrapped_id(&id)),
                 project_scenes: self
                     .scenes
                     .iter()
-                    .filter(|s| s.requires_project())
-                    .map(|s| tools::wrapped_id(s.id()))
+                    .filter(|(_, project)| *project == Some(true))
+                    .map(|(s, _)| tools::wrapped_id(s.id()))
                     .collect(),
                 lease_ms: self.lease_ms,
                 tick_ms: self.tick_ms,
@@ -409,15 +416,13 @@ impl FlowBuilder {
             },
             tx,
         ));
-        let scenes: Vec<Arc<dyn Scene>> = self
+        let scenes: Vec<SceneLayer> = self
             .scenes
             .iter()
-            .map(|s| Arc::new(FlowScene::new(s.clone(), sh.clone())) as Arc<dyn Scene>)
+            .map(|(base, project)| tools::flow_scene(base.clone(), sh.clone(), *project))
             .collect();
-        let base = self
-            .author
-            .unwrap_or_else(|| Arc::new(scene::harnix::HarnixScene) as Arc<dyn Scene>);
-        let author: Arc<dyn Scene> = Arc::new(AuthorScene::new(base, sh.clone()));
+        let base = self.author.unwrap_or_else(|| SceneBase::builtin("harnix"));
+        let author = author::author_scene(base, sh.clone());
         let packs = Arc::new(CatalogPacks {
             inner: OnceLock::new(),
             scenes: sh.cfg.scenes.clone(),
@@ -817,7 +822,8 @@ mod tests {
             ["flow-harnix", "flow-code", "flow-mini"]
         );
         assert_eq!(flow.sh.cfg.main_scene.as_deref(), Some("flow-harnix"));
-        assert!(flow.scenes.iter().all(|s| s.interactive()));
+        assert!(flow.scenes.iter().all(|s| s.parts().interactive == Some(true)));
+        assert_eq!(flow.sh.cfg.project_scenes.iter().collect::<Vec<_>>(), ["flow-code"], "code's sessions work in a project");
         let code = Flow::builder().main_scene("code").build();
         assert_eq!(code.sh.cfg.main_scene.as_deref(), Some("flow-code"));
     }

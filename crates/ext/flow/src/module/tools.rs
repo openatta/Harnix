@@ -12,11 +12,7 @@
 
 use std::sync::Arc;
 
-use base::interface::prompt::PromptBlock;
-use base::interface::scene::{
-    Scene, ExecutionParams, ReminderContext, ScenePromptContext, TokenBudget,
-};
-use base::tool::{ProgressSender, Tool, ToolContext, ToolResult};
+use harnix_engine_api::{Permission, SceneBase, SceneLayer, Tool, ToolCx, ToolError, ToolOutput, ToolSpec};
 use harnix_module::{Entry, SessionRef};
 use serde_json::{json, Value};
 
@@ -29,117 +25,34 @@ use crate::kernel::FlowError;
 pub const TOOL_STATE: &str = "flow_state";
 pub const TOOL_SUBMIT: &str = "flow_submit";
 pub const TOOL_PROPOSE: &str = "flow_propose";
-const OURS: [&str; 3] = [TOOL_STATE, TOOL_SUBMIT, TOOL_PROPOSE];
 
 pub(crate) fn wrapped_id(base: &str) -> String {
     format!("flow-{base}")
 }
 
-/// An application's scene with the flow's tools added.
-pub struct FlowScene {
-    inner: Arc<dyn Scene>,
-    id: String,
-    name: String,
-    description: String,
-    sh: Arc<Shared>,
-}
-
-impl FlowScene {
-    pub(crate) fn new(inner: Arc<dyn Scene>, sh: Arc<Shared>) -> Self {
-        Self {
-            id: wrapped_id(inner.id()),
-            name: format!("{} (flow)", inner.name()),
-            description: format!(
-                "{} — working on a flow task, with flow_state, flow_submit and flow_propose",
-                inner.description()
-            ),
-            inner,
-            sh,
-        }
+/// An application's scene with the flow's tools added, offered as `flow-<id>`.
+///
+/// Attended whatever the base scene says: the module answers this session's permission asks (from
+/// its task's permissions, or by asking a person in the flow space), so they must reach the host
+/// rather than be refused as no one's to answer. And no model call outside its task: naming the
+/// session would be one (and, under replay, one that is not recorded and goes to the network).
+pub(crate) fn flow_scene(base: SceneBase, sh: Arc<Shared>, requires_project: Option<bool>) -> SceneLayer {
+    let layer = SceneLayer::new("flow-{base}", base)
+        .name("{base} (flow)")
+        .description("{base} — working on a flow task, with flow_state, flow_submit and flow_propose")
+        .tool(Arc::new(StateTool::new(sh.clone())))
+        .tool(Arc::new(SubmitTool::new(sh.clone())))
+        .tool(Arc::new(ProposeTool::new(sh)))
+        .interactive(true)
+        .auto_name(false)
+        .name_prompt(None);
+    match requires_project {
+        Some(on) => layer.requires_project(on),
+        None => layer,
     }
 }
 
-impl Scene for FlowScene {
-    fn id(&self) -> &str {
-        &self.id
-    }
-    fn name(&self) -> &str {
-        &self.name
-    }
-    fn description(&self) -> &str {
-        &self.description
-    }
-    fn build_system_prompt(&self, ctx: &ScenePromptContext) -> Vec<PromptBlock> {
-        self.inner.build_system_prompt(ctx)
-    }
-    /// The base whitelist plus ours; an empty one (everything) stays empty.
-    fn tools(&self) -> Vec<String> {
-        let mut tools = self.inner.tools();
-        if !tools.is_empty() {
-            tools.extend(OURS.iter().map(|s| s.to_string()));
-        }
-        tools
-    }
-    fn requires_project(&self) -> bool {
-        self.inner.requires_project()
-    }
-    fn supports_team(&self) -> bool {
-        self.inner.supports_team()
-    }
-    fn extra_tools(&self) -> Vec<Arc<dyn Tool>> {
-        let mut tools = self.inner.extra_tools();
-        tools.push(Arc::new(StateTool(self.sh.clone())));
-        tools.push(Arc::new(SubmitTool(self.sh.clone())));
-        tools.push(Arc::new(ProposeTool(self.sh.clone())));
-        tools
-    }
-    fn token_budget(&self) -> TokenBudget {
-        self.inner.token_budget()
-    }
-    fn build_system_reminder(&self, ctx: &ReminderContext) -> String {
-        self.inner.build_system_reminder(ctx)
-    }
-    fn disallowed_tools(&self) -> Vec<String> {
-        self.inner.disallowed_tools()
-    }
-    fn permits_tool(&self, name: &str) -> bool {
-        OURS.contains(&name) || self.inner.permits_tool(name)
-    }
-    fn deferred_tools(&self) -> Vec<String> {
-        self.inner.deferred_tools()
-    }
-    fn build_session_context(&self, ctx: &ScenePromptContext) -> String {
-        self.inner.build_session_context(ctx)
-    }
-    fn path_style(&self) -> base::context::config::PathStyle {
-        self.inner.path_style()
-    }
-    fn bundled_skills(&self) -> Vec<String> {
-        self.inner.bundled_skills()
-    }
-    /// Attended whatever the base scene says: the module answers this session's permission asks
-    /// (from its task's permissions, or by asking a person in the flow space), so they must reach
-    /// the host rather than be refused as no one's to answer.
-    fn interactive(&self) -> bool {
-        true
-    }
-    fn execution_params(&self) -> ExecutionParams {
-        self.inner.execution_params()
-    }
-    /// A flow session spends no model call outside its task: naming it would be one (and,
-    /// under replay, one that is not recorded and goes to the network).
-    fn auto_name_session(&self) -> bool {
-        false
-    }
-    fn session_name_prompt(&self, _first_message: &str) -> Option<String> {
-        None
-    }
-    fn memory_extraction_prompt(&self) -> Option<String> {
-        self.inner.memory_extraction_prompt()
-    }
-}
-
-/// The id [`StructuredScene`] gives a base scene: `structured-<id>`.
+/// The id [`structured_scene`] gives a base scene: `structured-<id>`.
 pub fn structured_id(base: &str) -> String {
     format!("structured-{base}")
 }
@@ -151,155 +64,78 @@ pub fn structured_id(base: &str) -> String {
 /// it, and Agix's harnix scene does not. Register it where a station's session runs — in a
 /// template's native contributions (`InstanceTemplate::native`, which a spawned daemon builds
 /// again in its own process) and that template's `EngineProfile.scenes`. It holds no state of
-/// the module's, so it works in any process.
-pub struct StructuredScene {
-    inner: Arc<dyn Scene>,
-    id: String,
-    name: String,
-}
-
-impl StructuredScene {
-    pub fn new(inner: Arc<dyn Scene>) -> Self {
-        Self {
-            id: structured_id(inner.id()),
-            name: format!("{} (structured output)", inner.name()),
-            inner,
-        }
-    }
-}
-
-impl Scene for StructuredScene {
-    fn id(&self) -> &str {
-        &self.id
-    }
-    fn name(&self) -> &str {
-        &self.name
-    }
-    fn description(&self) -> &str {
-        self.inner.description()
-    }
-    fn build_system_prompt(&self, ctx: &ScenePromptContext) -> Vec<PromptBlock> {
-        self.inner.build_system_prompt(ctx)
-    }
-    fn tools(&self) -> Vec<String> {
-        let mut tools = self.inner.tools();
-        if !tools.is_empty() {
-            tools.push(STRUCTURED_OUTPUT_TOOL.to_string());
-        }
-        tools
-    }
-    fn requires_project(&self) -> bool {
-        self.inner.requires_project()
-    }
-    fn supports_team(&self) -> bool {
-        self.inner.supports_team()
-    }
-    fn extra_tools(&self) -> Vec<Arc<dyn Tool>> {
-        self.inner.extra_tools()
-    }
-    fn token_budget(&self) -> TokenBudget {
-        self.inner.token_budget()
-    }
-    fn build_system_reminder(&self, ctx: &ReminderContext) -> String {
-        self.inner.build_system_reminder(ctx)
-    }
-    fn disallowed_tools(&self) -> Vec<String> {
-        self.inner
-            .disallowed_tools()
-            .into_iter()
-            .filter(|t| t != STRUCTURED_OUTPUT_TOOL)
-            .collect()
-    }
-    fn permits_tool(&self, name: &str) -> bool {
-        name == STRUCTURED_OUTPUT_TOOL || self.inner.permits_tool(name)
-    }
-    fn deferred_tools(&self) -> Vec<String> {
-        self.inner.deferred_tools()
-    }
-    fn build_session_context(&self, ctx: &ScenePromptContext) -> String {
-        self.inner.build_session_context(ctx)
-    }
-    fn path_style(&self) -> base::context::config::PathStyle {
-        self.inner.path_style()
-    }
-    fn bundled_skills(&self) -> Vec<String> {
-        self.inner.bundled_skills()
-    }
-    /// Attended whatever the base scene says: the module answers this session's permission asks
-    /// (from its task's permissions, or by asking a person in the flow space), so they must reach
-    /// the host rather than be refused as no one's to answer.
-    fn interactive(&self) -> bool {
-        true
-    }
-    fn execution_params(&self) -> ExecutionParams {
-        self.inner.execution_params()
-    }
-    /// A flow session spends no model call outside its task.
-    fn auto_name_session(&self) -> bool {
-        false
-    }
-    fn session_name_prompt(&self, _first_message: &str) -> Option<String> {
-        None
-    }
-    fn memory_extraction_prompt(&self) -> Option<String> {
-        self.inner.memory_extraction_prompt()
-    }
+/// the module's, so it works in any process. Attended and unnamed, as [`flow_scene`]'s are.
+pub fn structured_scene(base: SceneBase) -> SceneLayer {
+    SceneLayer::new("structured-{base}", base)
+        .name("{base} (structured output)")
+        .admit(STRUCTURED_OUTPUT_TOOL)
+        .undisallow(STRUCTURED_OUTPUT_TOOL)
+        .interactive(true)
+        .auto_name(false)
+        .name_prompt(None)
 }
 
 /// The task a calling session serves, or what to tell it.
-fn bound(sh: &Shared, cx: &ToolContext) -> Result<Binding, ToolResult> {
-    sh.binding(&cx.session_id).ok_or_else(|| {
-        ToolResult::error_text(
+fn bound(sh: &Shared, cx: &ToolCx) -> Result<Binding, ToolOutput> {
+    sh.binding(cx.session_id()).ok_or_else(|| {
+        ToolOutput::error(
             "This session is not working on a flow task (or its task is over): there is nothing \
              to read or hand in here.",
         )
     })
 }
 
-fn agent(b: &Binding, cx: &ToolContext) -> Actor {
-    Actor::agent(format!("{}/{}", b.instance, cx.session_id))
+fn agent(b: &Binding, cx: &ToolCx) -> Actor {
+    Actor::agent(format!("{}/{}", b.instance, cx.session_id()))
 }
 
 fn pretty(v: &Value) -> String {
     serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string())
 }
 
-type ToolOut = Result<ToolResult, base::error::ToolError>;
+type ToolOut = Result<ToolOutput, ToolError>;
 
-struct StateTool(Arc<Shared>);
+struct StateTool {
+    spec: ToolSpec,
+    sh: Arc<Shared>,
+}
+
+impl StateTool {
+    fn new(sh: Arc<Shared>) -> Self {
+        let spec = ToolSpec::new(
+            TOOL_STATE,
+            "The flow task this session is working on: the run, the station and its round, your \
+             task and item, the output contract, what you handed in, and which exit conditions are \
+             still not met.",
+            json!({"type": "object", "properties": {}}),
+        )
+        .read_only()
+        .concurrency_safe();
+        Self { spec, sh }
+    }
+}
 
 #[async_trait::async_trait]
 impl Tool for StateTool {
-    fn name(&self) -> &str {
-        TOOL_STATE
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
     }
-    fn description(&self) -> &str {
-        "The flow task this session is working on: the run, the station and its round, your \
-         task and item, the output contract, what you handed in, and which exit conditions are \
-         still not met."
+    fn permission(&self, _: &Value) -> Permission {
+        Permission::Allow
     }
-    fn input_schema(&self) -> Value {
-        json!({"type": "object", "properties": {}})
-    }
-    fn is_read_only(&self, _: &Value) -> bool {
-        true
-    }
-    fn is_concurrency_safe(&self, _: &Value) -> bool {
-        true
-    }
-    async fn call(&self, _input: Value, cx: ToolContext, _p: ProgressSender) -> ToolOut {
-        let b = match bound(&self.0, &cx) {
+    async fn call(&self, cx: ToolCx, _input: Value) -> ToolOut {
+        let b = match bound(&self.sh, &cx) {
             Ok(b) => b,
             Err(r) => return Ok(r),
         };
-        let Ok(engine) = self.0.engine() else {
-            return Ok(ToolResult::error_text("the flow module has not started"));
+        let Ok(engine) = self.sh.engine() else {
+            return Ok(ToolOutput::error("the flow module has not started"));
         };
         // The whole record, to tell whether the claim is still this session's; only the
         // fields below leave here, never a token.
         let full = match engine.record(&b.run).await {
             Ok(r) => r,
-            Err(e) => return Ok(ToolResult::error_text(e.to_string())),
+            Err(e) => return Ok(ToolOutput::error(e.to_string())),
         };
         let current = full
             .stations
@@ -329,43 +165,52 @@ impl Tool for StateTool {
             "permissions": b.permissions,
             "current": current,
         });
-        Ok(ToolResult::text(pretty(&state)))
+        Ok(ToolOutput::text(pretty(&state)))
     }
 }
 
-struct SubmitTool(Arc<Shared>);
+struct SubmitTool {
+    spec: ToolSpec,
+    sh: Arc<Shared>,
+}
+
+impl SubmitTool {
+    /// It writes nothing outside the flow's own record, and a headless session has nobody to ask
+    /// for permission: read-only, for scheduling.
+    fn new(sh: Arc<Shared>) -> Self {
+        let spec = ToolSpec::new(
+            TOOL_SUBMIT,
+            "Hand in this task's output: one JSON value satisfying the station's output contract. \
+             Problems come back for you to fix; submit again until it is accepted. You may submit \
+             again until the station passes; the last submission counts.",
+            json!({
+                "type": "object",
+                "required": ["output"],
+                "properties": {
+                    "output": {"description": "The output, as the flow protocol's contract says."}
+                }
+            }),
+        )
+        .read_only();
+        Self { spec, sh }
+    }
+}
 
 #[async_trait::async_trait]
 impl Tool for SubmitTool {
-    fn name(&self) -> &str {
-        TOOL_SUBMIT
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
     }
-    fn description(&self) -> &str {
-        "Hand in this task's output: one JSON value satisfying the station's output contract. \
-         Problems come back for you to fix; submit again until it is accepted. You may submit \
-         again until the station passes; the last submission counts."
+    fn permission(&self, _: &Value) -> Permission {
+        Permission::Allow
     }
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "required": ["output"],
-            "properties": {
-                "output": {"description": "The output, as the flow protocol's contract says."}
-            }
-        })
-    }
-    /// It writes nothing outside the flow's own record, and a headless session has nobody
-    /// to ask for permission.
-    fn is_read_only(&self, _: &Value) -> bool {
-        true
-    }
-    async fn call(&self, input: Value, cx: ToolContext, _p: ProgressSender) -> ToolOut {
-        let b = match bound(&self.0, &cx) {
+    async fn call(&self, cx: ToolCx, input: Value) -> ToolOut {
+        let b = match bound(&self.sh, &cx) {
             Ok(b) => b,
             Err(r) => return Ok(r),
         };
-        let Ok(engine) = self.0.engine() else {
-            return Ok(ToolResult::error_text("the flow module has not started"));
+        let Ok(engine) = self.sh.engine() else {
+            return Ok(ToolOutput::error("the flow module has not started"));
         };
         let output = input.get("output").cloned().unwrap_or(Value::Null);
         let result = engine
@@ -381,8 +226,8 @@ impl Tool for SubmitTool {
         match result {
             Ok(o) => {
                 let status = o.value.get("station").cloned().unwrap_or(Value::Null);
-                dispatch::apply(&self.0, Some(&b.run), o).await;
-                Ok(ToolResult::text(format!(
+                dispatch::apply(&self.sh, Some(&b.run), o).await;
+                Ok(ToolOutput::text(format!(
                     "Accepted. Station `{}` is now {}. If it is still working, others' tasks or \
                      its checks are outstanding; your part is done unless you want to improve \
                      your output.",
@@ -390,47 +235,56 @@ impl Tool for SubmitTool {
                     status.as_str().unwrap_or("unknown")
                 )))
             }
-            Err(FlowError::Contract(m)) => Ok(ToolResult::error_text(format!(
+            Err(FlowError::Contract(m)) => Ok(ToolOutput::error(format!(
                 "Not accepted: {m}. Fix the output and call {TOOL_SUBMIT} again."
             ))),
-            Err(e @ FlowError::Invalid(_)) => Ok(ToolResult::error_text(format!(
+            Err(e @ FlowError::Invalid(_)) => Ok(ToolOutput::error(format!(
                 "Not accepted: {e}. The station is not taking submissions now."
             ))),
-            Err(e) => Ok(ToolResult::error_text(format!(
+            Err(e) => Ok(ToolOutput::error(format!(
                 "Not accepted: {e}. Your claim on this task is no longer current; stop working on it."
             ))),
         }
     }
 }
 
-struct ProposeTool(Arc<Shared>);
+struct ProposeTool {
+    spec: ToolSpec,
+    sh: Arc<Shared>,
+}
+
+impl ProposeTool {
+    fn new(sh: Arc<Shared>) -> Self {
+        let spec = ToolSpec::new(
+            TOOL_PROPOSE,
+            "Propose that a person rework an upstream station (kind `rework`, `to` the station) or \
+             cancel the run (kind `cancel`), with your reason. It is shown to people as a card; \
+             nothing happens unless one of them accepts it.",
+            json!({
+                "type": "object",
+                "required": ["kind", "reason"],
+                "properties": {
+                    "kind": {"type": "string", "enum": ["rework", "cancel"]},
+                    "to": {"type": "string", "description": "With `rework`: the station to go back to."},
+                    "reason": {"type": "string"}
+                }
+            }),
+        )
+        .read_only();
+        Self { spec, sh }
+    }
+}
 
 #[async_trait::async_trait]
 impl Tool for ProposeTool {
-    fn name(&self) -> &str {
-        TOOL_PROPOSE
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
     }
-    fn description(&self) -> &str {
-        "Propose that a person rework an upstream station (kind `rework`, `to` the station) or \
-         cancel the run (kind `cancel`), with your reason. It is shown to people as a card; \
-         nothing happens unless one of them accepts it."
+    fn permission(&self, _: &Value) -> Permission {
+        Permission::Allow
     }
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "required": ["kind", "reason"],
-            "properties": {
-                "kind": {"type": "string", "enum": ["rework", "cancel"]},
-                "to": {"type": "string", "description": "With `rework`: the station to go back to."},
-                "reason": {"type": "string"}
-            }
-        })
-    }
-    fn is_read_only(&self, _: &Value) -> bool {
-        true
-    }
-    async fn call(&self, input: Value, cx: ToolContext, _p: ProgressSender) -> ToolOut {
-        let b = match bound(&self.0, &cx) {
+    async fn call(&self, cx: ToolCx, input: Value) -> ToolOut {
+        let b = match bound(&self.sh, &cx) {
             Ok(b) => b,
             Err(r) => return Ok(r),
         };
@@ -447,22 +301,22 @@ impl Tool for ProposeTool {
             .filter(|s| !s.is_empty())
             .map(String::from);
         if !matches!(kind, "rework" | "cancel") {
-            return Ok(ToolResult::error_text("`kind` is `rework` or `cancel`"));
+            return Ok(ToolOutput::error("`kind` is `rework` or `cancel`"));
         }
         if kind == "rework" && to.is_none() {
-            return Ok(ToolResult::error_text(
+            return Ok(ToolOutput::error(
                 "a rework proposal names the station to go back to in `to`",
             ));
         }
         if reason.is_empty() {
-            return Ok(ToolResult::error_text("a proposal needs a reason"));
+            return Ok(ToolOutput::error("a proposal needs a reason"));
         }
-        let Some(module) = self.0.cx.get() else {
-            return Ok(ToolResult::error_text("the flow module has not started"));
+        let Some(module) = self.sh.cx.get() else {
+            return Ok(ToolOutput::error("the flow module has not started"));
         };
         let session = SessionRef {
             instance: b.instance.clone(),
-            session_id: cx.session_id.clone(),
+            session_id: cx.session_id().to_string(),
         };
         let payload = json!({
             "run": b.run, "station": b.station, "task": b.task,
@@ -474,11 +328,11 @@ impl Tool for ProposeTool {
             .append_entry(&session, Entry::new("proposal", payload))
             .await
         {
-            Ok(_) => Ok(ToolResult::text(
+            Ok(_) => Ok(ToolOutput::text(
                 "Proposed. A person will accept or dismiss it; carry on with your task meanwhile, \
                  or stop if you cannot do it without the change.",
             )),
-            Err(e) => Ok(ToolResult::error_text(format!(
+            Err(e) => Ok(ToolOutput::error(format!(
                 "The proposal was not recorded: {}",
                 e.message
             ))),
@@ -490,38 +344,6 @@ impl Tool for ProposeTool {
 mod tests {
     use super::*;
     use crate::module::shared::Config;
-
-    struct Base(Vec<String>);
-
-    impl Scene for Base {
-        fn id(&self) -> &str {
-            "harnix"
-        }
-        fn name(&self) -> &str {
-            "Harnix"
-        }
-        fn description(&self) -> &str {
-            "talk"
-        }
-        fn build_system_prompt(&self, _: &ScenePromptContext) -> Vec<PromptBlock> {
-            vec![]
-        }
-        fn tools(&self) -> Vec<String> {
-            self.0.clone()
-        }
-        fn token_budget(&self) -> TokenBudget {
-            TokenBudget {
-                compact_threshold: 0,
-                compact_keep_recent: 0,
-            }
-        }
-        fn auto_name_session(&self) -> bool {
-            true
-        }
-        fn path_style(&self) -> base::context::config::PathStyle {
-            base::context::config::PathStyle::WorkspaceRelative
-        }
-    }
 
     fn sh() -> Arc<Shared> {
         let (tx, _) = tokio::sync::broadcast::channel(4);
@@ -548,56 +370,41 @@ mod tests {
     }
 
     #[test]
-    fn the_wrapped_scene_adds_the_flow_tools() {
-        let s = FlowScene::new(Arc::new(Base(vec!["Read".into()])), sh());
-        assert_eq!(s.id(), "flow-harnix");
-        assert_eq!(s.tools(), ["Read", TOOL_STATE, TOOL_SUBMIT, TOOL_PROPOSE]);
-        let names: Vec<String> = s
-            .extra_tools()
-            .iter()
-            .map(|t| t.name().to_string())
-            .collect();
+    fn the_wrapped_scene_adds_the_flow_tools_and_is_attended_and_unnamed() {
+        let layer = flow_scene(SceneBase::builtin("harnix"), sh(), None);
+        let p = layer.parts();
+        assert_eq!(p.id, "flow-{base}");
+        let names: Vec<&str> = p.tools.iter().map(|t| t.spec().name()).collect();
         assert_eq!(names, [TOOL_STATE, TOOL_SUBMIT, TOOL_PROPOSE]);
-        assert!(s.permits_tool(TOOL_SUBMIT) && s.permits_tool("Read") && !s.permits_tool("Bash"));
-        assert!(
-            !s.auto_name_session(),
-            "no model call outside the task, even where the base scene names its sessions"
-        );
+        assert_eq!((p.interactive, p.auto_name, p.name_prompt), (Some(true), Some(false), Some(None)));
+        assert_eq!(p.requires_project, None, "the base says, unless the application does");
+        let p = flow_scene(SceneBase::builtin("code"), sh(), Some(true));
+        assert_eq!(p.parts().requires_project, Some(true));
     }
 
     #[test]
     fn the_structured_scene_lets_a_session_hand_in_by_structured_output() {
-        let s = StructuredScene::new(Arc::new(Base(vec!["Read".into()])));
-        assert_eq!(s.id(), "structured-harnix");
-        assert_eq!(s.tools(), ["Read", STRUCTURED_OUTPUT_TOOL]);
-        assert!(s.permits_tool(STRUCTURED_OUTPUT_TOOL) && !s.permits_tool("Bash"));
-        assert!(!s.auto_name_session());
+        let layer = structured_scene(SceneBase::builtin("harnix"));
+        let p = layer.parts();
+        assert_eq!((p.id, p.name), ("structured-{base}", Some("{base} (structured output)")));
+        assert_eq!((p.admitted, p.undisallowed), (&[STRUCTURED_OUTPUT_TOOL.to_string()][..], &[STRUCTURED_OUTPUT_TOOL.to_string()][..]));
+        assert_eq!((p.interactive, p.auto_name), (Some(true), Some(false)));
+        assert!(p.tools.is_empty());
     }
 
-    /// The base's path style carries over, and the session is attended: under an
-    /// unattended scene the engine would refuse the asks the module answers.
     #[test]
-    fn the_wrappers_keep_the_base_and_are_attended() {
-        let base: Arc<dyn Scene> = Arc::new(Base(vec!["Read".into()]));
-        assert!(!base.interactive());
-        let flow = FlowScene::new(base.clone(), sh());
-        let structured = StructuredScene::new(base);
-        for s in [&flow as &dyn Scene, &structured] {
-            assert!(s.interactive(), "{}", s.id());
-            assert_eq!(
-                s.path_style(),
-                base::context::config::PathStyle::WorkspaceRelative
-            );
+    fn its_tools_touch_nothing_and_ask_nothing() {
+        let layer = flow_scene(SceneBase::builtin("harnix"), sh(), None);
+        for tool in layer.parts().tools {
+            assert!(tool.spec().is_read_only(), "{}", tool.spec().name());
+            assert_eq!(tool.permission(&json!({})), Permission::Allow);
         }
     }
 
-    #[test]
-    fn an_open_whitelist_stays_open() {
-        let s = FlowScene::new(Arc::new(Base(vec![])), sh());
-        assert!(
-            s.tools().is_empty(),
-            "empty means every tool; adding ours would narrow it"
-        );
-        assert!(s.permits_tool("Bash") && s.permits_tool(TOOL_STATE));
+    #[tokio::test]
+    async fn a_session_that_serves_no_task_is_told_so() {
+        let layer = flow_scene(SceneBase::builtin("harnix"), sh(), None);
+        let out = layer.parts().tools[0].call(ToolCx::new("nobody", "t"), json!({})).await.unwrap();
+        assert!(out.is_error() && out.content().contains("not working on a flow task"));
     }
 }

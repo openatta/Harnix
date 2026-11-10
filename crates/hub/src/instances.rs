@@ -221,17 +221,17 @@ impl Hub {
         for owner in [&entry.owner, declared_by] {
             if let Owner::Module(id) = owner {
                 if registry.disabled.contains(id) {
-                    return down(DownLink::new(template.carrier.carrier(), format!("module `{id}` is disabled")));
+                    return down(DownLink::new(harnix_instance::templates::carrier_of(&template.carrier), format!("module `{id}` is disabled")));
                 }
             }
         }
         let root = match template.resolve(&entry.id, &entry.params, &registry.instances_dir) {
             Ok(root) => root,
-            Err(e) => return down(DownLink::new(template.carrier.carrier(), e)),
+            Err(e) => return down(DownLink::new(harnix_instance::templates::carrier_of(&template.carrier), e)),
         };
         match registry.factory.build_template(&entry.id, template, root).await {
             Ok(built) => built,
-            Err(e) => down(DownLink::new(template.carrier.carrier(), format!("{e:#}"))),
+            Err(e) => down(DownLink::new(harnix_instance::templates::carrier_of(&template.carrier), format!("{e:#}"))),
         }
     }
 
@@ -509,7 +509,7 @@ impl Hub {
             match registry.factory.build(&instance, &carrier, root).await {
                 Ok(built) => built,
                 Err(e) => Built {
-                    link: DownLink::new(carrier.carrier(), format!("{e:#}")) as Arc<dyn EngineLink>,
+                    link: DownLink::new(harnix_instance::templates::carrier_of(&carrier), format!("{e:#}")) as Arc<dyn EngineLink>,
                     facts: Facts::default(),
                 },
             }

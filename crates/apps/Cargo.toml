@@ -9,7 +9,7 @@ description  = "Runtime applications embedded in the product's process: installi
 
 # The embedded edition's glue, behind the `apps` built-in module (`harnix_builtin::apps::AppsRuntime`):
 # the host's port over the kernel (registration, `module:<id>` calls, topics, the agent engine's
-# instances), the Agix plugin that gives every session the running applications' tools, and the
+# instances), the tool provider that gives every session the running applications' tools, and the
 # HTTP side (`/apps/<id>/ui`, `/apps/<id>/mcp`). The applications themselves run in
 # `harnix-wasm-host`; their packages are `harnix-package`'s. Only a build with the `apps`
 # feature links it (crates/assembly), and through it the host and `harnix-wasm`.
@@ -21,8 +21,7 @@ harnix-builtin  = { workspace = true }
 harnix-contract = { workspace = true }
 harnix-kernel   = { workspace = true }
 harnix-module   = { workspace = true }
-base        = { workspace = true }
-runtime     = { workspace = true }
+harnix-engine-api = { workspace = true }
 anyhow      = { workspace = true }
 async-trait = { workspace = true }
 axum        = { workspace = true }

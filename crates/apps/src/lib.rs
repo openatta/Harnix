@@ -9,8 +9,8 @@
 //! (`harnix_builtin::apps`) drives to install, start, stop and remove one; the rest of the process
 //! reaches what is running through three things it hands out:
 //!
-//! - [`AppsBridge`], an Agix plugin for every in-process instance's assembly: the running
-//!   applications' tools in each session built, and their `events` as a middleware on its tool
+//! - [`AppsBridge`], a tool provider for every in-process instance's engine: the running
+//!   applications' tools in each session built, and their `events` as a hook before its tool
 //!   calls.
 //! - [`serve::router`], for the listener's `/apps/<id>/…`: the interface — modules for the page,
 //!   pages for the isolated frames ([`surface`]) — and the MCP endpoint a spawned daemon reaches

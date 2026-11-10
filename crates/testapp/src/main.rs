@@ -35,7 +35,12 @@ use std::time::Duration;
 
 use harnix::axum::routing::get;
 use harnix::prelude::*;
-use harnix::{PromptCall, PromptDecision, PromptMiddleware, Tap};
+use harnix::agix::RawHooks;
+use harnix::engine::{
+    Permission, PromptDecision, PromptFacts, PromptGate, SceneBase, SceneLayer, Tool, ToolCx, ToolError, ToolOutput,
+    ToolSpec,
+};
+use harnix::Tap;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
@@ -108,7 +113,7 @@ impl Module for Probe {
 
     /// Every session of `system` refuses a message with `blocked-word` in it (ipdrun-13).
     fn engine(&self, e: &mut EngineContrib) {
-        e.customize_session(|b, _cx| b.prompt_middleware(Arc::new(Blocklist)));
+        e.prompt_gate(Arc::new(Blocklist));
     }
 
     fn methods(&self, m: &mut MethodRegistry) {
@@ -379,52 +384,12 @@ impl Module for Fleet {
     }
 
     fn templates(&self, t: &mut InstanceTemplates) {
-        t.add(InstanceTemplate::new(
-            "side",
-            TemplateCarrier::InProcess {
-                engine: EngineProfile {
-                    scene: "harnix".into(),
-                    ..EngineProfile::default()
-                },
-                contrib: EngineContrib::new(),
-            },
-        ));
+        t.add(InstanceTemplate::in_process("side", EngineProfile::new().scene("harnix")));
         // Its instances see the settings page's providers (ipdrun-11).
-        t.add(
-            InstanceTemplate::new(
-                "heir",
-                TemplateCarrier::InProcess {
-                    engine: EngineProfile {
-                        scene: "harnix".into(),
-                        ..EngineProfile::default()
-                    },
-                    contrib: EngineContrib::new(),
-                },
-            )
-            .inherit_providers(),
-        );
+        t.add(InstanceTemplate::in_process("heir", EngineProfile::new().scene("harnix")).inherit_providers());
         // The same native contributions, carried two ways (ipdrun-10).
-        t.add(
-            InstanceTemplate::new(
-                "native-spawn",
-                TemplateCarrier::Spawn {
-                    engine: native_engine(),
-                    program: None,
-                    args: Vec::new(),
-                },
-            )
-            .native(native),
-        );
-        t.add(
-            InstanceTemplate::new(
-                "native-local",
-                TemplateCarrier::InProcess {
-                    engine: native_engine(),
-                    contrib: EngineContrib::new(),
-                },
-            )
-            .native(native),
-        );
+        t.add(InstanceTemplate::spawn("native-spawn", native_engine()).contribute(native));
+        t.add(InstanceTemplate::in_process("native-local", native_engine()).contribute(native));
     }
 
     /// A space whose sessions land on this module's own instance.
@@ -764,14 +729,12 @@ const BLOCKED_WORD: &str = "blocked-word";
 struct Blocklist;
 
 #[harnix::async_trait]
-impl PromptMiddleware for Blocklist {
-    async fn inspect(&self, call: &PromptCall<'_>) -> PromptDecision {
-        if call.content.contains(BLOCKED_WORD) {
-            PromptDecision::Block {
-                message: Some(format!("probe refuses messages with `{BLOCKED_WORD}` in them")),
-            }
+impl PromptGate for Blocklist {
+    async fn inspect(&self, message: &PromptFacts) -> PromptDecision {
+        if message.content().contains(BLOCKED_WORD) {
+            PromptDecision::Block(format!("probe refuses messages with `{BLOCKED_WORD}` in them"))
         } else {
-            PromptDecision::Continue
+            PromptDecision::Proceed
         }
     }
 }
@@ -784,82 +747,52 @@ const NATIVE_ANSWER: &str = "probe-native-answer-7f3a";
 const NATIVE_MARKER: &str = "probe-native-marker-51c2";
 
 /// `fleet`'s templates' native contributions (ipdrun-10): built in this process for the in-process
-/// one, and again in the daemon's for the spawned one.
+/// one, and again in the daemon's for the spawned one. The marked system block is a raw hook: the
+/// engine interface has no prompt registry of its own.
 fn native(e: &mut EngineContrib) {
-    e.scene(Arc::new(NativeScene(harnix::scenes::harnix::HarnixScene)));
-    e.customize_session(|b, _cx| {
-        let blocks = harnix::agent::interface::prompt_registry::InMemoryPromptRegistry::new();
-        let _ = harnix::agent::interface::prompt_registry::PromptRegistry::register_block(
+    e.scene(
+        SceneLayer::new(NATIVE_SCENE, SceneBase::builtin("harnix"))
+            .name("probe native")
+            .description("the harnix scene with a tool of its own")
+            .tool(Arc::new(FixedTool::new()))
+            // Naming the session is a model call no recording has.
+            .auto_name(false),
+    );
+    e.raw_hook(Arc::new(|b: harnix::agix::Builder, _cx: &harnix::agix::SessionCtx<'_>| {
+        use harnix::agix::base::interface::prompt_registry::{InMemoryPromptRegistry, PromptRegistry, RegisteredBlock};
+        let blocks = InMemoryPromptRegistry::new();
+        let _ = PromptRegistry::register_block(
             blocks.as_ref(),
-            harnix::agent::interface::prompt_registry::RegisteredBlock::system("probe-native", 100_000, NATIVE_MARKER),
+            RegisteredBlock::system("probe-native", 100_000, NATIVE_MARKER),
         );
-        b.prompt_registry(blocks).prompt_middleware(Arc::new(Blocklist))
-    });
+        b.prompt_registry(blocks)
+    }));
+    e.prompt_gate(Arc::new(Blocklist));
 }
 
 /// The engine of `fleet`'s native templates: their scene is active beside the default one.
 fn native_engine() -> EngineProfile {
-    EngineProfile {
-        scenes: vec![NATIVE_SCENE.into()],
-        ..EngineProfile::default()
-    }
-}
-
-/// The harnix scene under another id, with one tool of its own.
-struct NativeScene(harnix::scenes::harnix::HarnixScene);
-
-impl harnix::agent::interface::scene::Scene for NativeScene {
-    fn id(&self) -> &str {
-        NATIVE_SCENE
-    }
-    fn name(&self) -> &str {
-        "probe native"
-    }
-    fn description(&self) -> &str {
-        "the harnix scene with a tool of its own"
-    }
-    fn build_system_prompt(
-        &self,
-        ctx: &harnix::agent::interface::scene::ScenePromptContext,
-    ) -> Vec<harnix::agent::interface::prompt::PromptBlock> {
-        self.0.build_system_prompt(ctx)
-    }
-    fn tools(&self) -> Vec<String> {
-        let mut tools = self.0.tools();
-        tools.push(NATIVE_TOOL.into());
-        tools
-    }
-    fn extra_tools(&self) -> Vec<Arc<dyn harnix::agent::tool::Tool>> {
-        vec![Arc::new(FixedTool)]
-    }
-    fn token_budget(&self) -> harnix::agent::interface::scene::TokenBudget {
-        self.0.token_budget()
-    }
+    EngineProfile::new().scenes([NATIVE_SCENE])
 }
 
 /// Answers [`NATIVE_ANSWER`], whatever it is asked.
-struct FixedTool;
+struct FixedTool(ToolSpec);
+
+impl FixedTool {
+    fn new() -> Self {
+        Self(ToolSpec::new(NATIVE_TOOL, "Answers a fixed string.", json!({"type": "object", "properties": {}})).read_only())
+    }
+}
 
 #[harnix::async_trait]
-impl harnix::agent::tool::Tool for FixedTool {
-    fn name(&self) -> &str {
-        NATIVE_TOOL
+impl Tool for FixedTool {
+    fn spec(&self) -> &ToolSpec {
+        &self.0
     }
-    fn description(&self) -> &str {
-        "Answers a fixed string."
+    fn permission(&self, _: &Value) -> Permission {
+        Permission::Allow
     }
-    fn input_schema(&self) -> Value {
-        json!({"type": "object", "properties": {}})
-    }
-    fn is_read_only(&self, _: &Value) -> bool {
-        true
-    }
-    async fn call(
-        &self,
-        _input: Value,
-        _cx: harnix::agent::tool::ToolContext,
-        _progress: harnix::agent::tool::ProgressSender,
-    ) -> Result<harnix::agent::tool::ToolResult, harnix::agent::error::ToolError> {
-        Ok(harnix::agent::tool::ToolResult::text(NATIVE_ANSWER))
+    async fn call(&self, _cx: ToolCx, _input: Value) -> Result<ToolOutput, ToolError> {
+        Ok(ToolOutput::text(NATIVE_ANSWER))
     }
 }

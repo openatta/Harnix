@@ -331,22 +331,22 @@ fn the_builtins_use_only_the_public_module_api() {
 }
 
 /// The flow module (xops-01) is an optional module an application registers, written against the
-/// public module contract like a built-in: Harnix's own module API and vocabulary, Agix's scene
-/// and tool interfaces for the scenes it wraps, and third-party crates. Never a layer below the
-/// contract, and never the doors the application uses to drive a module.
+/// public module contract like a built-in: Harnix's own module API and vocabulary, the engine
+/// interface for the scenes it wraps and the tools it adds, and third-party crates. Never a layer
+/// below the contract, never Agix, and never the doors the application uses to drive a module.
 #[test]
 fn the_flow_module_uses_only_the_public_module_api() {
     for name in dependencies("ext/flow") {
         if name.starts_with("harnix") {
             assert!(
-                ["harnix-module", "harnix-contract"].contains(&name.as_str()),
+                ["harnix-module", "harnix-contract", "harnix-engine-api"].contains(&name.as_str()),
                 "`flow` depends on `{name}`; a module reaches the process only through its context"
             );
         }
         assert!(
-            !["daemon", "runtime", "model", "history", "telemetry", "axum"]
+            !["daemon", "base", "scene", "runtime", "model", "history", "telemetry", "axum"]
                 .contains(&name.as_str()),
-            "`flow` depends on `{name}`; of Agix it may name `base` and `scene` and nothing else"
+            "`flow` depends on `{name}`; it reaches the engine through `harnix-engine-api` alone"
         );
     }
     let mut offenders = Vec::new();
@@ -801,6 +801,8 @@ fn every_harnix_dependency_resolves() {
         "cli",
         "client",
         "contract",
+        "engine",
+        "engine-api",
         "ext/flow",
         "harnix",
         "hub",
@@ -1220,7 +1222,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P3"]
     fn l08_engine_api() {
         depends(ENGINE_API, &[CONTRACT], &agix_and(&["axum"]), &[]);
     }
@@ -1552,7 +1553,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P3"]
     fn c06_the_engine_interface_hides_nothing_and_names_no_agix() {
         assert_interface_crate_is_clean(ENGINE_API);
     }
@@ -1579,7 +1579,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P3"]
     fn c08_the_agix_escape_hatch_is_in_two_places_behind_one_feature() {
         let gated = |text: &str| {
             let code = lex(text, true);
@@ -1856,7 +1855,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P3"]
     fn c14_the_engine_interface_is_non_exhaustive() {
         assert_non_exhaustive(sources(ENGINE_API));
     }
@@ -1875,7 +1873,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P3"]
     fn c15_the_engine_interface_has_no_feature_gated_members() {
         assert_no_feature_gated_members(sources(ENGINE_API));
     }

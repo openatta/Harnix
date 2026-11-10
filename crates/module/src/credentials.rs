@@ -11,7 +11,7 @@
 //! a vault, the environment — by handing `App::builder().credentials(..)` a
 //! [`Credentials`]. The default reads the environment.
 
-use base::interface::credentials::Secret;
+use harnix_engine_api::Secret;
 use serde::Deserialize;
 
 /// A reference to a secret, as written in a profile.

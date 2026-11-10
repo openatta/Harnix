@@ -14,7 +14,7 @@ name = "harnix_ext_flow"
 # The Harnix module (`Flow`): sessions, programs, native tools, methods, topics. Off, the crate is
 # the pure kernel with its stores and packs and links nothing of Harnix or Agix.
 default = ["module"]
-module  = ["dep:harnix-module", "dep:harnix-contract", "dep:base", "dep:scene", "dep:anyhow", "dep:reqwest", "dep:tokio-util", "dep:futures"]
+module  = ["dep:harnix-module", "dep:harnix-contract", "dep:harnix-engine-api", "dep:anyhow", "dep:reqwest", "dep:tokio-util", "dep:futures"]
 
 [dependencies]
 serde       = { workspace = true }
@@ -37,9 +37,8 @@ tokio-util  = { workspace = true, optional = true }
 futures     = { workspace = true, optional = true }
 harnix-module   = { workspace = true, optional = true }
 harnix-contract = { workspace = true, optional = true }
-base            = { workspace = true, optional = true }
-# Agix's harnix scene: what `flow-author` wraps unless the application gives another.
-scene           = { workspace = true, optional = true }
+# The scenes and tools it gives the engine, in Harnix's words.
+harnix-engine-api = { workspace = true, optional = true }
 anyhow          = { workspace = true, optional = true }
 # Hooks' webhooks (xops-04 §5).
 reqwest         = { workspace = true, optional = true }

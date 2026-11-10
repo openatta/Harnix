@@ -104,7 +104,7 @@ fn audit(hub: &Arc<Hub>, history: Option<Arc<dyn history::store::HistoryStore>>)
     // anything that does not know what they are (concept §6.5). The ring stays for
     // the diagnostics page.
     if let Some(store) = history {
-        audit.set_sink(Box::new(audit_log::TimelineAudit::new(store)));
+        audit.set_sink(Box::new(audit_log::TimelineAudit::new(harnix_engine::timeline::Timeline::new(store))));
     } else {
         tracing::warn!("no history store; audit entries live only in memory");
     }
