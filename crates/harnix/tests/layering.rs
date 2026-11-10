@@ -1598,6 +1598,25 @@ mod rules {
         assert_eq!(seen, expected, "`pub mod agix` is in the engine and the facade, and nowhere else");
     }
 
+    /// The engine interface's two unstable doors — an engine's own scene as a layer's base, an
+    /// engine's own hook — are opened by the `agix` escape hatch alone; the extension host passes
+    /// on hooks it was given, switched off with their extension, and opens nothing.
+    #[test]
+    fn c08_the_engine_interfaces_unstable_doors_are_the_escape_hatchs() {
+        let allowed = ["crates/engine/src/agix.rs", "crates/assembly/src/host/contribution.rs"];
+        let mut offenders = Vec::new();
+        for name in member_names() {
+            for (path, text) in sources(&name) {
+                let code = lex(&text, false).replace(' ', "");
+                let opens = ["SceneBase::foreign(", ".foreign_hook(", ".foreign_hook_while("].iter().any(|n| code.contains(n));
+                if opens && !allowed.iter().any(|a| rel(&path) == *a) {
+                    offenders.push(format!("{} opens an unstable door of the engine interface", rel(&path)));
+                }
+            }
+        }
+        assert!(offenders.is_empty(), "\n{}", offenders.join("\n"));
+    }
+
     #[test]
     #[ignore = "0.5.0：P15"]
     fn c09_only_the_facade_and_the_cli_switch_on_a_carrier() {
