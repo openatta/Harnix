@@ -55,13 +55,14 @@ if (!documented) fail("docs/harnix-sdk.md has no `| Harnix 版本 | `…` |` row
 else if (version && documented !== version) {
   fail(`docs/harnix-sdk.md says Harnix ${documented}; the crates are ${version} (scripts/set-version.sh)`);
 }
-// The other four cells are constants in the code, and nothing rewrites them: a bump that forgets
+// The other five cells are constants in the code, and nothing rewrites them: a bump that forgets
 // the table leaves an application reading the old contract as current.
 const constants = [
   ["模块 API", "crates/module/src/lib.rs", "MODULE_API_VERSION"],
   ["贡献点 API", "crates/contract/src/handshake.rs", "CONTRIB_API_VERSION"],
   ["协议", "crates/contract/src/handshake.rs", "PROTOCOL_VERSION"],
   ["应用接口（插件 APP）", "crates/package/src/manifest.rs", "HARNIX_API"],
+  ["扩展线", "crates/wasm-port/src/lib.rs", "EXT_WIRE_VERSION"],
 ];
 for (const [row, file, name] of constants) {
   const code = readFileSync(join(root, file), "utf8").match(new RegExp(`pub const ${name}: u32 = (\\d+);`))?.[1];

@@ -26,6 +26,9 @@
 //! name and a JSON value; under the `loopback` feature, [`rpc::Loopback`] puts every call through
 //! it, which is what the host's tests run behind.
 //!
+//! Under the `socket` feature, [`socket::SocketWire`] is that link over a stream: the extension
+//! wire between a product and an extension process of its own, at [`EXT_WIRE_VERSION`].
+//!
 //! **One machine, in this first version.** Paths cross as paths: what a path names (an unpacked
 //! package, an application's directory, an agent package's archive) is the host's to read, and
 //! the host and the product are on the same machine. A link between machines would carry those
@@ -39,6 +42,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub mod rpc;
+#[cfg(feature = "socket")]
+pub mod socket;
+
+/// The extension wire's version. Both ends of it are one build, so the process's `proc.hello`
+/// says the same number or is refused; it changes when the wire's frames or methods change shape.
+pub const EXT_WIRE_VERSION: u32 = 1;
 
 /* ── what the host asks of the kernel and the agent engine ───────────── */
 

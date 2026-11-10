@@ -620,13 +620,7 @@ fn the_application_layers_reach_only_down() {
             }
         }
     }
-    let port = normal_dependencies("wasm-port");
-    for name in port.keys() {
-        assert!(
-            ["harnix-contract", "async-trait", "serde", "serde_json"].contains(&name.as_str()),
-            "`wasm-port` depends on `{name}`: the boundary is serde types and async traits, nothing else"
-        );
-    }
+    // What else `wasm-port` may name, the runtime only behind `socket`, is `l20_wasm_port`.
     let package = std::fs::read_to_string(workspace_root().join("crates/package/Cargo.toml")).unwrap();
     assert!(
         package.contains("\"dep:harnix-wasm\"") && package.contains("required-features = [\"compile\"]"),

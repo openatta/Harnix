@@ -10,17 +10,27 @@ description  = "The boundary between a runtime application's host and the produc
 # The boundary, and nothing else: two traits and the serde types they pass. It names no layer of
 # Harnix but the contract (`RpcError`, `Subject`, `SpaceDecl`), nothing of Agix, no VM and no HTTP
 # framework, so either side of it can be in another process (`crates/harnix/tests/layering.rs`).
+# The runtime comes in only with `socket`, the port carried over a stream.
 [dependencies]
 harnix-contract = { workspace = true }
 async-trait = { workspace = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }
+tokio       = { workspace = true, optional = true }
+tokio-util  = { workspace = true, optional = true }
 
 [features]
 default = []
 # `rpc::Loopback`: every call and its answer through serde_json, for tests that prove the boundary
 # carries over a wire. Never part of the product.
 loopback = []
+# `socket::SocketWire`: the port over a stream, between a product and an extension process of its
+# own (the extension wire, `EXT_WIRE_VERSION`).
+socket = ["dep:tokio", "dep:tokio-util"]
 
 [dev-dependencies]
 tokio = { workspace = true }
+
+[[test]]
+name = "wire"
+required-features = ["socket"]

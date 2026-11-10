@@ -162,9 +162,11 @@ run_build() {
 # The same for the application host, whose tests compile the showcase's component and run it
 # behind the port carried through JSON (`harnix-wasm-port`'s loopback), and for `harnix-apps`, the
 # embedded glue, whose tests install it as the `apps` module does; and the application layer once
-# more with `apps`, which is the only build its wiring of them is in.
+# more with `apps`, which is the only build its wiring of them is in. The port once more with
+# `socket`: the extension wire, carried over a socket pair.
 run_rust()    {
   cargo test "${CRATES[@]}" || return 1
+  cargo test -p harnix-wasm-port --features socket || return 1
   cargo test -p harnix-wasm --features compile || return 1
   cargo test -p harnix-wasm-host --features compile || return 1
   cargo test -p harnix-apps --features compile || return 1
@@ -175,8 +177,8 @@ run_rust()    {
 # does not own. Harnix's own crates are held to zero warnings.
 run_clippy()  {
   cargo clippy "${CRATES[@]}" --all-targets --no-deps -- -D warnings || return 1
-  cargo clippy -p harnix-wasm -p harnix-package -p harnix-wasm-host -p harnix-apps --all-targets \
-    --features harnix-wasm/compile,harnix-package/compile,harnix-wasm-host/compile,harnix-apps/compile --no-deps -- -D warnings || return 1
+  cargo clippy -p harnix-wasm -p harnix-package -p harnix-wasm-host -p harnix-apps -p harnix-wasm-port --all-targets \
+    --features harnix-wasm/compile,harnix-package/compile,harnix-wasm-host/compile,harnix-apps/compile,harnix-wasm-port/socket --no-deps -- -D warnings || return 1
   cargo clippy -p harnix-assembly -p harnix-cli --all-targets --features harnix-assembly/apps,harnix-cli/apps --no-deps -- -D warnings
 }
 
