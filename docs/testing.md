@@ -28,7 +28,7 @@ scripts/prune.sh                 # 清构建缓存：增量缓存全删，超过
 | 层 | 跑什么 | 要什么 |
 |---|---|---|
 | `build` | `pnpm install --frozen-lockfile`、外壳构建；`harnix-cli` 与 `harnix-testapp` 的发布构建；带 `apps` 的 `harnix`、打包工具 `harnix-app`、带 `apps` 的 `harnix-testapp`，都编在 `target/apps`；`examples/hello-app` 照应用的方式构建 | — |
-| `rust` | Harnix 各 crate 的 `cargo test`；`harnix-wasm`、`harnix-app-host`、`harnix-apps` 各带 `compile` 再跑一遍；`harnix-app` 带 `apps` 再跑一遍 | — |
+| `rust` | Harnix 各 crate 的 `cargo test`；`harnix-wasm`、`harnix-wasm-host`、`harnix-apps` 各带 `compile` 再跑一遍；`harnix-app` 带 `apps` 再跑一遍 | — |
 | `clippy` | 同样的 crate 与 feature，`-D warnings`、`--no-deps` | — |
 | `offline` | `tests/crate-metadata.mjs`（版本、许可、Agix 钉，以及 SDK 文档写的版本）、`app-scripts`、`style-lint`、`readme-pairing`、`recordings`（录像名两头都对得上，§6）；桌面壳的 `check-no-ipc`、`check-rename` | — |
 | `frontend` | 各包的 typecheck（含 `tests/live`，与各包一样 `strict`）与 Vitest；协议类型对着 Rust 重新生成再比；覆盖表 `--check`；插件 APP 带的 SDK 与 ui-kit 是否最新（`tests/app-ui-vendored.mjs`） | — |
@@ -305,12 +305,12 @@ node tests/live/coverage.mjs --check               # scripts/check.sh 跑的就�
 - `harnix-wasm` 拿真组件跑：`crates/wasm/tests/fixtures/` 下的组件用 `cargo build --target wasm32-wasip2` 现编（rustc 的 wasip2 链接器直接出组件，
   不需要别的工具），按源码哈希缓存在 `target/tmp/` 下。第一次之前 `rustup target add wasm32-wasip2`。它跑两遍：`cargo test -p harnix-wasm` 是产品的
   构建（不带编译器，那里的测试加载编译工具编出的产物），`cargo test -p harnix-wasm --features compile` 跑组件测试。
-- `cargo test -p harnix-app-host --features compile`：应用宿主对着假的 `Kernel` 与 `Agent`，它们与 `Control` 每个方向的每次调用都经
+- `cargo test -p harnix-wasm-host --features compile`：应用宿主对着假的 `Kernel` 与 `Agent`，它们与 `Control` 每个方向的每次调用都经
   `harnix-wasm-port` 的回环适配器（feature `loopback`）用 `serde_json` 编码再解码，证明这条边界能搬上 RPC。
 - `cargo test -p harnix-apps --features compile`：嵌入的粘合层，照 `apps` 模块那样装、用、停、卸，和装到一半失败的回滚；装签名包、篡改、
   升级与升级失败的回滚在 `crates/apps/tests/signed.rs`。
 - 签名、目录、披露的逻辑另有单测（`crates/package/src/{signature,store,disclosure,publish}.rs`）；休眠的规则在
-  `crates/app-host/tests/idle.rs`（`HostOptions::idle`）与 `crates/wasm/tests/hibernate.rs`。
+  `crates/wasm-host/tests/idle.rs`（`HostOptions::idle`）与 `crates/wasm/tests/hibernate.rs`。
 
 **LIVE 这边**（都在 `tests/live/{api,ui}/apps*.spec.ts`）：装与运行时、后端、商店、iframe、行内点、休眠，API 与界面各一份，两种拓扑都跑。
 

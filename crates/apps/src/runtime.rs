@@ -1,7 +1,7 @@
 //! Installing, starting, stopping and removing applications embedded in this process:
 //! [`Runtime`], the `harnix_builtin::apps::AppsRuntime` the `apps` module drives.
 //!
-//! The applications run in a `harnix_app_host::Host` — one VM each, in this process — which this
+//! The applications run in a `harnix_wasm_host::Host` — one VM each, in this process — which this
 //! drives through its `Control` and lends this process through its `Kernel` and `Agent`
 //! (`platform.rs`). What is running is in a [`Registry`] the plugin (`plugin.rs`) and the HTTP
 //! side (`serve.rs`) read: an application is in it exactly while its tools are on offer and its
@@ -38,7 +38,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 
-use harnix_app_host::{Host, HostOptions};
+use harnix_wasm_host::{Host, HostOptions};
 use harnix_package::acquire::{self, internal, refused, Admission};
 use harnix_package::manifest::{Interface, Manifest, Surface, Title, UiEntry};
 use harnix_package::package;
@@ -268,7 +268,7 @@ impl Runtime {
     }
 
     /// The engine the applications run on.
-    pub fn engine(&self) -> &harnix_app_host::WasmEngine {
+    pub fn engine(&self) -> &harnix_wasm_host::WasmEngine {
         self.host.engine()
     }
 
@@ -760,6 +760,6 @@ impl AppsRuntime for Runtime {
     }
 
     fn data_bytes(&self, app_dir: &Path) -> Option<u64> {
-        harnix_app_host::data_bytes(app_dir)
+        harnix_wasm_host::data_bytes(app_dir)
     }
 }

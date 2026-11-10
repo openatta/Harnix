@@ -2,7 +2,7 @@
 //! session — the glue between the application host and the rest of Harnix.
 //!
 //! An application is a package (`.hxapp`, [`package`]; everything about packages is
-//! `harnix-package`, re-exported here). It runs in a `harnix_app_host::Host`, one VM per
+//! `harnix-package`, re-exported here). It runs in a `harnix_wasm_host::Host`, one VM per
 //! application in this process, which this crate drives through the host's `Control` and lends
 //! the process through its `Kernel` (`platform.rs`: the kernel's application host) and its
 //! `Agent` (`agent.rs`: Agix's instances). [`Runtime`] is what the `apps` built-in module
@@ -36,7 +36,7 @@
 //! | `agent.rs` | VM | the port's `Agent`: the agent package, skills and tools into this process's Agix — the application process's own Agix there |
 //! | `plugin.rs` | VM | `AppsBridge`, the tools and events in the sessions of the Agix beside the VM |
 //!
-//! The `Control` this crate drives, `harnix_app_host::Host`, is the VM side's too: called in place
+//! The `Control` this crate drives, `harnix_wasm_host::Host`, is the VM side's too: called in place
 //! here, over the link there.
 
 mod agent;

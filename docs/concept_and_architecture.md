@@ -580,7 +580,7 @@ feature 管二进制里有没有插件 APP 的运行时，`[apps] enabled` 管�
 Harnix 发布时变，商店为每个 wasmtime 版本编一遍。
 
 **代码按「共享核心 / 粘合」分层。** 分发与信任（`harnix-package`）、端口（`harnix-wasm-port`，可以搬上 RPC 的形状）、虚拟机（`harnix-wasm`）、
-应用宿主核心（`harnix-app-host`）不依赖内核、hub、Agix 与 HTTP 框架；进程内的粘合（`harnix-apps`）单独一层。模式 3 的应用进程换的只是粘合。
+应用宿主核心（`harnix-wasm-host`）不依赖内核、hub、Agix 与 HTTP 框架；进程内的粘合（`harnix-apps`）单独一层。模式 3 的应用进程换的只是粘合。
 分层与它的测试见 [应用开发](app-development.md) §11。
 
 ### 4.4 Agix 插件：一个包，装到引擎里；Harnix 只收文件

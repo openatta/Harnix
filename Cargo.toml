@@ -3,7 +3,7 @@ resolver = "2"
 exclude = ["agix", "examples"]
 members = [
     "crates/app",
-    "crates/app-host",
+    "crates/wasm-host",
     "crates/package",
     "crates/wasm-port",
     "crates/apps",
@@ -46,15 +46,15 @@ members = [
 #   package ─→ contract                          (a runtime application as it is distributed:
 #                                                     manifest, package, signatures, store)
 #   wasm-port ─→ contract                             (the host's boundary: Platform and Control)
-#   app-host ─→ package, wasm-port, wasm          (the supervisor: lifecycle, dispatch, idling)
-#   apps ─→ app-host, builtin, module, Agix          (the embedded glue: the port over the kernel,
+#   wasm-host ─→ package, wasm-port, wasm          (the supervisor: lifecycle, dispatch, idling)
+#   apps ─→ wasm-host, builtin, module, Agix          (the embedded glue: the port over the kernel,
 #                                                     the Agix plugin, /apps/<id>/…; only a build
 #                                                     with the `apps` feature links any of these)
 # ──────────────────────────────────────────────
 [workspace.dependencies]
 harnix           = { path = "crates/harnix" }
 harnix-app       = { path = "crates/app" }
-harnix-app-host  = { path = "crates/app-host" }
+harnix-wasm-host  = { path = "crates/wasm-host" }
 harnix-package = { path = "crates/package" }
 harnix-wasm-port  = { path = "crates/wasm-port" }
 harnix-apps      = { path = "crates/apps" }

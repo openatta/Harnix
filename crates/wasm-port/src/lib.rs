@@ -1,6 +1,6 @@
 //! The boundary between a runtime application's host and the product around it.
 //!
-//! The host (`harnix-app-host`) runs applications: their VMs, their lifecycle, their methods,
+//! The host (`harnix-wasm-host`) runs applications: their VMs, their lifecycle, their methods,
 //! tools and topics. What it needs from outside is two things, [`Kernel`] and [`Agent`]; what the
 //! product asks of it is [`Control`]. Nothing else crosses:
 //!

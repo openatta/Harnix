@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use async_trait::async_trait;
-use harnix_app_host::{Host, HostOptions};
+use harnix_wasm_host::{Host, HostOptions};
 use harnix_package::acquire::Admission;
 use harnix_wasm_port::rpc::Loopback;
 use harnix_wasm_port::*;

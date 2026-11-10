@@ -9,7 +9,7 @@
 //! (what a person is shown and consents to), [`publish`] (the publisher's and the store's tools,
 //! and the `harnix-app` binary under the `compile` feature).
 //!
-//! Nothing here runs anything. The host that runs an application (`harnix-app-host`) and the
+//! Nothing here runs anything. The host that runs an application (`harnix-wasm-host`) and the
 //! product that installs it (`harnix-apps`, for an application embedded in the product's process)
 //! both read packages with this, so a package means the same to either.
 

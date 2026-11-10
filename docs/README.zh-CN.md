@@ -78,7 +78,7 @@ crates/builtin    Harnix 自己的功能，按公开契约写成模块
 crates/contract   各层之间传递的类型
 crates/flow       可选的流程模块 harnix-flow
 crates/wasm       harnix-wasm：WebAssembly 运行时，唯一链 wasmtime 的地方
-crates/package、wasm-port、app-host、apps
+crates/package、wasm-port、wasm-host、apps
                   插件 APP：包与签名、端口、宿主核心、嵌入的粘合
 crates/client     应用自己的工具链接的轻量客户端
 crates/cli        `harnix` 二进制：Harnix app，带流程模块

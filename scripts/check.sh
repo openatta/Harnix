@@ -59,7 +59,7 @@ free_port() {
 
 CRATES=(-p harnix -p harnix-cli -p harnix-app -p harnix-instance -p harnix-authz -p harnix-builtin
         -p harnix-client -p harnix-contract -p harnix-flow -p harnix-module -p harnix-hub -p harnix-transport
-        -p harnix-testapp -p harnix-wasm -p harnix-package -p harnix-wasm-port -p harnix-app-host
+        -p harnix-testapp -p harnix-wasm -p harnix-package -p harnix-wasm-port -p harnix-wasm-host
         -p harnix-apps)
 
 # The build that hosts runtime applications: `harnix` with the `apps` feature, which links the
@@ -166,7 +166,7 @@ run_build() {
 run_rust()    {
   cargo test "${CRATES[@]}" || return 1
   cargo test -p harnix-wasm --features compile || return 1
-  cargo test -p harnix-app-host --features compile || return 1
+  cargo test -p harnix-wasm-host --features compile || return 1
   cargo test -p harnix-apps --features compile || return 1
   cargo test -p harnix-app --features apps
 }
@@ -175,8 +175,8 @@ run_rust()    {
 # does not own. Harnix's own crates are held to zero warnings.
 run_clippy()  {
   cargo clippy "${CRATES[@]}" --all-targets --no-deps -- -D warnings || return 1
-  cargo clippy -p harnix-wasm -p harnix-package -p harnix-app-host -p harnix-apps --all-targets \
-    --features harnix-wasm/compile,harnix-package/compile,harnix-app-host/compile,harnix-apps/compile --no-deps -- -D warnings || return 1
+  cargo clippy -p harnix-wasm -p harnix-package -p harnix-wasm-host -p harnix-apps --all-targets \
+    --features harnix-wasm/compile,harnix-package/compile,harnix-wasm-host/compile,harnix-apps/compile --no-deps -- -D warnings || return 1
   cargo clippy -p harnix-app -p harnix-cli --all-targets --features harnix-app/apps,harnix-cli/apps --no-deps -- -D warnings
 }
 

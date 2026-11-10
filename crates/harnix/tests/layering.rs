@@ -592,7 +592,7 @@ const AGIX: &[&str] = &["daemon", "base", "model", "history", "scene", "telemetr
 /// |---|---|---|
 /// | `harnix-package` | manifest, package, signatures, store, disclosure, the `harnix-app` tool | a VM, the kernel, Agix, an HTTP framework |
 /// | `harnix-wasm-port` | `Platform` and `Control`, and their serde types | anything but the contract |
-/// | `harnix-app-host` | lifecycle, registry, health, dispatch to the VM, idling | the kernel, the hub, Agix, an HTTP framework |
+/// | `harnix-wasm-host` | lifecycle, registry, health, dispatch to the VM, idling | the kernel, the hub, Agix, an HTTP framework |
 /// | `harnix-apps` | the embedded glue: the port over the kernel, the Agix plugin, `/apps/<id>/…` | — |
 ///
 /// So the package and the host are the same code in a product's process and in a process of an
@@ -604,7 +604,7 @@ fn the_application_layers_reach_only_down() {
     for (dir, allowed) in [
         ("package", &["harnix-contract", "harnix-wasm"][..]),
         ("wasm-port", &["harnix-contract"][..]),
-        ("app-host", &["harnix-contract", "harnix-package", "harnix-wasm-port", "harnix-wasm"][..]),
+        ("wasm-host", &["harnix-contract", "harnix-package", "harnix-wasm-port", "harnix-wasm"][..]),
     ] {
         for (name, optional) in normal_dependencies(dir) {
             assert!(
@@ -650,12 +650,12 @@ fn only_the_apps_feature_links_the_application_runtime() {
         let deps = normal_dependencies(&dir);
         if let Some(optional) = deps.get("harnix-wasm") {
             assert!(
-                dir == "app-host" || (dir == "package" && *optional),
-                "`{dir}` depends on `harnix-wasm`; only `harnix-app-host` may"
+                dir == "wasm-host" || (dir == "package" && *optional),
+                "`{dir}` depends on `harnix-wasm`; only `harnix-wasm-host` may"
             );
         }
-        if deps.contains_key("harnix-app-host") {
-            assert_eq!(dir, "apps", "`{dir}` depends on `harnix-app-host`; only `harnix-apps` may");
+        if deps.contains_key("harnix-wasm-host") {
+            assert_eq!(dir, "apps", "`{dir}` depends on `harnix-wasm-host`; only `harnix-apps` may");
         }
         if deps.contains_key("harnix-apps") {
             assert_eq!(dir, "app", "`{dir}` depends on `harnix-apps`; only the application layer may");
@@ -663,7 +663,7 @@ fn only_the_apps_feature_links_the_application_runtime() {
         for layer in ["harnix-package", "harnix-wasm-port"] {
             if deps.contains_key(layer) {
                 assert!(
-                    ["app-host", "apps"].contains(&dir.as_str()),
+                    ["wasm-host", "apps"].contains(&dir.as_str()),
                     "`{dir}` depends on `{layer}`; only the host and the glue may"
                 );
             }
@@ -812,7 +812,7 @@ fn every_harnix_dependency_resolves() {
         "wasm",
         "package",
         "wasm-port",
-        "app-host",
+        "wasm-host",
         "apps",
     ];
     let known: BTreeSet<String> = crates
