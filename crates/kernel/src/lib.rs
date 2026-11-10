@@ -13,6 +13,9 @@
 //! - **The instance seam** ([`InstanceObserver`], [`InstanceBook`]): what the instance registry
 //!   tells the hub and what the hub asks it, and the lock order between them
 //!   ([`instances::holding`]).
+//! - **An extension's seat** ([`seat::Seat`]): the kernel's services an extension's context
+//!   reaches the process through, handed to its declarations by the extension host
+//!   ([`seat::Seated`]).
 //!
 //! It depends on the wire vocabulary and nothing else of Harnix: every crate of the skeleton may
 //! name it, so none of them has to name another to be called.
@@ -22,6 +25,7 @@ mod clients;
 mod grants;
 pub mod instances;
 mod owner;
+pub mod seat;
 mod topics;
 
 pub use grants::{holds, GrantBook, GrantTable};

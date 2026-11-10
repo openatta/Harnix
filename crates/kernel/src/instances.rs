@@ -19,32 +19,11 @@
 
 use std::sync::Arc;
 
-use harnix_contract::ExtId;
-
 use crate::{Rpc, TopicChanged};
 
-/// Whose engine an instance runs: what the hub trusts its frames as far as.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum InstanceTrust {
-    /// One the product started or connected to: in this process, spawned, or attached.
-    Product,
-    /// An engine in an extension's own process: under third-party control.
-    Extension(ExtId),
-}
-
-impl InstanceTrust {
-    pub fn is_extension(&self) -> bool {
-        matches!(self, InstanceTrust::Extension(_))
-    }
-
-    /// As the wire says it: `"product"` or `"extension"`.
-    pub fn label(&self) -> &'static str {
-        match self {
-            InstanceTrust::Product => "product",
-            InstanceTrust::Extension(_) => "extension",
-        }
-    }
-}
+/// Whose engine an instance runs: in the extension interface's own words, since an extension's
+/// view of an instance says it too.
+pub use harnix_contract::s1::InstanceTrust;
 
 /// What the hub asks of the instance registry, holding none of its own locks.
 #[async_trait::async_trait]

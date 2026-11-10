@@ -18,6 +18,8 @@ pub trait GrantBook: Send + Sync {
     fn holds(&self, ext: &ExtId, cap: &Capability) -> bool;
     /// How far `ext` is trusted; `None` for an id nothing registered.
     fn trust(&self, ext: &ExtId) -> Option<Trust>;
+    /// What `ext` holds, sorted.
+    fn capabilities(&self, ext: &ExtId) -> Vec<Capability>;
     /// What a page of `ext`'s in a frame may call besides `ext`'s own names; `None` when it has
     /// no framed interface, and then a frame of it calls nothing.
     fn frame_calls(&self, ext: &ExtId) -> Option<BTreeSet<String>>;
@@ -74,13 +76,6 @@ impl GrantTable {
         write(&self.grants).remove(ext);
     }
 
-    /// What `ext` holds, sorted.
-    pub fn capabilities(&self, ext: &ExtId) -> Vec<Capability> {
-        read(&self.grants)
-            .get(ext)
-            .map(|g| g.caps.iter().cloned().collect())
-            .unwrap_or_default()
-    }
 }
 
 impl GrantBook for GrantTable {
@@ -94,6 +89,13 @@ impl GrantBook for GrantTable {
 
     fn frame_calls(&self, ext: &ExtId) -> Option<BTreeSet<String>> {
         read(&self.frames).get(ext).cloned()
+    }
+
+    fn capabilities(&self, ext: &ExtId) -> Vec<Capability> {
+        read(&self.grants)
+            .get(ext)
+            .map(|g| g.caps.iter().cloned().collect())
+            .unwrap_or_default()
     }
 }
 
