@@ -41,5 +41,5 @@ pub fn tool_name(app: &str, tool: &str) -> String {
 /// The name a spawned daemon knows an application's MCP server by (its tools are
 /// `mcp__<server>__<tool>` there).
 pub fn server_name(app: &str) -> String {
-    format!("app-{}", app.replace('.', "_"))
+    format!("ext-{}", app.replace('.', "_"))
 }

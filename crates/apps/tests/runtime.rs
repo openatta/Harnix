@@ -399,7 +399,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
     rig.runtime.set_listening("http://127.0.0.1:4999/");
     let servers = rig.runtime.mcp_servers();
     assert_eq!(
-        servers["app-example_showcase"]["url"],
+        servers["ext-example_showcase"]["url"],
         json!("http://127.0.0.1:4999/apps/example.showcase/mcp")
     );
 

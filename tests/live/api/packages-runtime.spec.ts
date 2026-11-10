@@ -23,7 +23,7 @@ const TAGS = { tag: ["@feature:apps", "@layer:api"] };
 
 const TOOL = (name: string) => `ext__example_showcase__${name}`;
 const TOOLS = ["echo", "count", "config", "read_project", "slow", "vetoed", "crash", "board"].map(TOOL);
-const MCP_SERVER = "app-example_showcase";
+const MCP_SERVER = "ext-example_showcase";
 const BLOCK_MARKER = "showcase-block-7d21";
 
 type Session = { instance: string; session_id: string };
