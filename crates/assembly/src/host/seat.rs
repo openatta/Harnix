@@ -19,7 +19,7 @@ use harnix_kernel::seat::{
     BulkGrants, CredentialLookup, DeviceAdmin, InstanceService, InstanceView, Listening, ProcessInfo, Seat,
     ServiceRegistry, TopicPublisher, UiBoard,
 };
-use harnix_kernel::{ClientRegistry, Dispatch, GrantBook, InstanceTrust, Rpc, TopicChanged};
+use harnix_kernel::{ClientRegistry, Dispatch, GrantBook, Rpc, TopicChanged};
 use serde_json::Value;
 use tokio::sync::watch;
 
@@ -85,7 +85,8 @@ pub(crate) struct InstanceViews(pub Arc<InstanceRegistry>);
 
 impl InstanceService for InstanceViews {
     fn view(&self, id: &str) -> Option<InstanceView> {
-        let facts = self.0.facts(id)?.engine;
+        let listed = self.0.facts(id)?;
+        let (facts, trust) = (listed.engine, listed.trust);
         let recordings: Arc<dyn Recordings> = Arc::new(RecordingsDir::new(
             facts.recordings_root.clone().unwrap_or_else(|| facts.data_root.join("recordings")),
         ));
@@ -97,7 +98,7 @@ impl InstanceService for InstanceViews {
             id: id.to_string(),
             active_scenes: facts.active_scenes.clone(),
             model: facts.model.clone().unwrap_or_default(),
-            trust: InstanceTrust::Product,
+            trust,
             skills_dir: facts.data_root.join("skills"),
             recordings: Some(Arc::new(recordings)),
             transcripts,
