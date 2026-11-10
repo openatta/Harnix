@@ -17,16 +17,15 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::process::Stdio;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
 use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
+use harnix_supervise::{Child, ChildSpec, RestartPolicy, Restarts};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, oneshot, watch, Mutex};
 use tokio_util::sync::CancellationToken;
 
@@ -83,12 +82,6 @@ impl SpawnOptions {
 
 /// How long a spawned daemon has to start listening.
 const START_TIMEOUT: Duration = Duration::from_secs(60);
-/// A daemon that keeps exiting less than this long after the link reached
-/// it, this many times in a row, is not restarted again: something about it is wrong, and a restart loop
-/// would hide what.
-const QUICK_EXIT: Duration = Duration::from_secs(5);
-const QUICK_EXITS_ALLOWED: u32 = 5;
-const MAX_BACKOFF: Duration = Duration::from_secs(5);
 /// How long a call waits for its reply before the link stops waiting. Generous: an ordinary call
 /// answers in milliseconds and the slowest (an install that fetches a package) in seconds, so a
 /// call past this is a daemon that stopped answering or a reader stuck behind a hub that stopped
@@ -162,8 +155,10 @@ impl DaemonLink {
 
     async fn supervise(self: Arc<Self>) {
         let mut connected_before = false;
-        let mut backoff = Duration::from_millis(200);
-        let mut quick_exits = 0u32;
+        // A daemon that keeps exiting soon after the link reached it is not started again: something
+        // about it is wrong, and a restart loop would hide what.
+        let policy = RestartPolicy::daemon();
+        let mut restarts = policy.restarts();
         loop {
             if self.cancel.is_cancelled() {
                 return;
@@ -171,11 +166,11 @@ impl DaemonLink {
             if self.spec.spawn.is_some() {
                 match self.ensure_child().await {
                     Ok(true) => {
-                        quick_exits += 1;
-                        if quick_exits >= QUICK_EXITS_ALLOWED {
+                        if restarts.quick_exit() {
                             self.down(format!(
-                                "the daemon exited within {}s of starting {quick_exits} times in a row",
-                                QUICK_EXIT.as_secs()
+                                "the daemon exited within {}s of starting {} times in a row",
+                                policy.quick.as_secs(),
+                                policy.give_up_after
                             ));
                             return;
                         }
@@ -199,7 +194,7 @@ impl DaemonLink {
                             return;
                         }
                         self.degrade(format!("could not start the daemon: {e:#}"));
-                        self.pause(&mut backoff).await;
+                        self.pause(&mut restarts).await;
                         continue;
                     }
                 }
@@ -208,7 +203,7 @@ impl DaemonLink {
                 Ok(reader) => reader,
                 Err(e) => {
                     self.degrade(format!("cannot connect: {e:#}"));
-                    self.pause(&mut backoff).await;
+                    self.pause(&mut restarts).await;
                     continue;
                 }
             };
@@ -227,7 +222,7 @@ impl DaemonLink {
                     self.disconnect().await;
                     reading.abort();
                     self.degrade(reason);
-                    self.pause(&mut backoff).await;
+                    self.pause(&mut restarts).await;
                     continue;
                 }
             }
@@ -235,7 +230,7 @@ impl DaemonLink {
                 let _ = self.events_tx.send(link::reconnected_frame()).await;
             }
             connected_before = true;
-            backoff = Duration::from_millis(200);
+            restarts.reset_backoff();
             let started = Instant::now();
             self.status.send_replace(LinkStatus::Ready);
             tracing::info!(endpoint = ?self.spec.endpoint, "daemon link ready");
@@ -250,20 +245,17 @@ impl DaemonLink {
                 _ = lost.cancelled() => {}
             }
             self.disconnect().await;
-            if started.elapsed() >= QUICK_EXIT {
-                quick_exits = 0;
-            }
+            restarts.ran_for(started.elapsed());
             self.degrade("the connection closed".into());
             tracing::warn!(endpoint = ?self.spec.endpoint, "daemon link lost; reconnecting");
         }
     }
 
-    async fn pause(&self, backoff: &mut Duration) {
+    async fn pause(&self, restarts: &mut Restarts) {
         tokio::select! {
-            _ = tokio::time::sleep(*backoff) => {}
+            _ = tokio::time::sleep(restarts.next_backoff()) => {}
             _ = self.cancel.cancelled() => {}
         }
-        *backoff = (*backoff * 2).min(MAX_BACKOFF);
     }
 
     /// Lost, and being found again — unless the link is being shut down, whose `Down` stands.
@@ -314,10 +306,7 @@ impl DaemonLink {
                 Some(status) => {
                     tracing::warn!(%status, "the spawned daemon exited; starting it again");
                     restarted = true;
-                    if self.reap {
-                        let old = self.pid.load(Ordering::Relaxed) as i32;
-                        crate::reap::reap_session(old, crate::reap::REAP_GRACE).await;
-                    }
+                    child.reap().await;
                     // What the exited process presented to this process's servers admits nothing
                     // now; the one about to start reads a credential of its own.
                     if let Some(servers) = &self.servers {
@@ -331,21 +320,13 @@ impl DaemonLink {
             let _ = std::fs::remove_file(crate::serve::refusal_path(path));
         }
         let started = Instant::now();
-        let mut command = Command::new(&spawn.program);
-        command
-            .args(&spawn.args)
-            .envs(spawn.env.iter().cloned())
-            // The child exits when this pipe closes — which is also what
-            // happens when this process is killed outright. Nothing else
-            // reliably outlives a SIGKILL to tell it.
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .kill_on_drop(true);
+        // The child exits when its stdin closes — which is also what happens when this process
+        // is killed outright. Nothing else reliably outlives a SIGKILL to tell it.
+        let mut child_spec = ChildSpec::new(&spawn.program).args(&spawn.args).envs(spawn.env.iter().cloned());
         if self.reap {
-            crate::reap::own_session_for(&mut command);
+            child_spec = child_spec.own_session();
         }
-        let child = command.spawn()?;
+        let child = child_spec.spawn()?;
         tracing::info!(pid = child.id(), program = %spawn.program.display(), "spawned a daemon");
         self.pid.store(child.id().unwrap_or(0), Ordering::Relaxed);
         *guard = Some(child);
@@ -515,21 +496,11 @@ impl DaemonLink {
     }
 
     async fn stop_child(&self) {
-        let Some(mut child) = self.child.lock().await.take() else {
+        let Some(child) = self.child.lock().await.take() else {
             return;
         };
         // Closing stdin asks it to finish; the kill is for one that does not.
-        drop(child.stdin.take());
-        if tokio::time::timeout(Duration::from_secs(5), child.wait())
-            .await
-            .is_err()
-        {
-            let _ = child.kill().await;
-        }
-        if self.reap {
-            let pid = self.pid.load(Ordering::Relaxed) as i32;
-            crate::reap::reap_session(pid, crate::reap::REAP_GRACE).await;
-        }
+        child.stop(Duration::from_secs(5)).await;
         if let Endpoint::Unix(path) = &self.spec.endpoint {
             let _ = std::fs::remove_file(path);
         }
@@ -858,7 +829,7 @@ mod tests {
         });
         let down = until(&link, "down", |s| matches!(s, LinkStatus::Down { .. })).await;
         let LinkStatus::Down { reason } = down else { unreachable!() };
-        assert!(reason.contains(&format!("{QUICK_EXITS_ALLOWED} times in a row")), "{reason}");
+        assert!(reason.contains("5 times in a row"), "{reason}");
         tokio::time::sleep(Duration::from_millis(500)).await;
         let after = accepted.load(Ordering::SeqCst);
         tokio::time::sleep(Duration::from_millis(500)).await;

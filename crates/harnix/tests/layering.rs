@@ -814,6 +814,7 @@ fn every_harnix_dependency_resolves() {
         "wasm-port",
         "wasm-host",
         "apps",
+        "supervise",
     ];
     let known: BTreeSet<String> = crates
         .iter()
@@ -1233,7 +1234,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P7"]
     fn l10_supervise() {
         depends(SUPERVISE, &[], &agix_and(&[]), &[]);
     }
@@ -1380,7 +1380,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P7"]
     fn l25_supervision_is_the_instance_layers_and_the_assemblys() {
         only_used_by(SUPERVISE, &[INSTANCE, ASSEMBLY], &[]);
         assert!(member_names().iter().any(|n| n == SUPERVISE), "`{SUPERVISE}` does not exist (yet)");

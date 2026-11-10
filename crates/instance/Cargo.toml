@@ -9,6 +9,7 @@ description  = "Agix instances: built in-process or reached as a daemon, behind 
 
 [dependencies]
 harnix-contract = { workspace = true }
+harnix-supervise = { workspace = true }
 daemon      = { workspace = true }
 base        = { workspace = true }
 model       = { workspace = true }

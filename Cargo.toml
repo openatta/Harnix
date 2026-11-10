@@ -8,6 +8,7 @@ members = [
     "crates/wasm-port",
     "crates/apps",
     "crates/instance",
+    "crates/supervise",
     "crates/authz",
     "crates/builtin",
     "crates/cli",
@@ -59,6 +60,7 @@ harnix-package   = { path = "crates/package" }
 harnix-wasm-port = { path = "crates/wasm-port" }
 harnix-apps      = { path = "crates/apps" }
 harnix-instance  = { path = "crates/instance" }
+harnix-supervise = { path = "crates/supervise" }
 harnix-authz     = { path = "crates/authz" }
 harnix-builtin   = { path = "crates/builtin" }
 harnix-client    = { path = "crates/client" }
