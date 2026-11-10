@@ -8,11 +8,7 @@ use std::time::Duration;
 
 use tokio::process::Command;
 
-/// The operating-system sandbox a child is started in. No field yet: a spec that carries one is
-/// refused until the sandbox is built, rather than the child running unconfined.
-#[derive(Debug, Clone, Default)]
-#[non_exhaustive]
-pub struct Sandbox {}
+use crate::sandbox::{self, SandboxSpec};
 
 /// What to run and what it is given. Its stdin is a pipe held by [`Child`]: the child is meant to
 /// exit when the pipe closes, which is also what happens when this process is killed outright —
@@ -29,7 +25,8 @@ pub struct ChildSpec {
     pub inherit: Vec<(RawFd, OwnedFd)>,
     /// The child leads a session of its own, so that [`Child::reap`] can end whatever it leaves.
     pub own_session: bool,
-    pub sandbox: Option<Sandbox>,
+    /// Started inside this sandbox, or not at all ([`crate::sandbox`]).
+    pub sandbox: Option<SandboxSpec>,
 }
 
 impl ChildSpec {
@@ -66,12 +63,22 @@ impl ChildSpec {
         self
     }
 
+    pub fn sandbox(mut self, spec: SandboxSpec) -> Self {
+        self.sandbox = Some(spec);
+        self
+    }
+
     /// Fork + exec. Every descriptor this process has open, apart from the ones in `inherit` and
     /// stdio, is closed in the child before the exec, whether or not it was opened `CLOEXEC`.
+    /// With a sandbox that cannot be had here, nothing is started: the error says why.
     pub fn spawn(self) -> io::Result<Child> {
-        if self.sandbox.is_some() {
-            return Err(io::Error::new(io::ErrorKind::Unsupported, "the sandbox is not available yet"));
-        }
+        let (program, args, sandbox_env) = match &self.sandbox {
+            Some(spec) => {
+                let wrapped = sandbox::wrap(spec, &self.program, &self.args)?;
+                (wrapped.program, wrapped.args, wrapped.env)
+            }
+            None => (self.program.clone(), self.args.clone(), Vec::new()),
+        };
         let mut targets: Vec<RawFd> = self.inherit.iter().map(|(at, _)| *at).collect();
         targets.sort_unstable();
         if targets.first().is_some_and(|&t| t < 3) {
@@ -96,10 +103,11 @@ impl ChildSpec {
             moves.push((high, *at));
         }
         let open = open_fds();
-        let mut command = Command::new(&self.program);
+        let mut command = Command::new(&program);
         command
-            .args(&self.args)
+            .args(&args)
             .envs(self.env.iter().cloned())
+            .envs(sandbox_env)
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())

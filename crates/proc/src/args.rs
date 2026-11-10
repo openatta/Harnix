@@ -4,6 +4,8 @@
 //! <program> ext-proc --ext <id> [--pkg <dir>] [--run <dir>] [--wire-fd 3] [--engine-fd 4] [--dev]
 //! ```
 //!
+//! A build with the `probe` feature also takes `--probe <targets>` (`crate::probe`).
+//!
 //! `ext-proc` itself is the product's to dispatch on; what reaches [`crate::entry`] is the rest.
 
 use std::ffi::OsString;
@@ -28,6 +30,8 @@ pub struct Args {
     pub engine_fd: Option<RawFd>,
     /// Unsigned code runs: the profile's `dev`, until a start carries how far a package is trusted.
     pub dev: bool,
+    /// Probe the sandbox instead of serving: what to try (feature `probe`).
+    pub probe: Option<String>,
 }
 
 impl Args {
@@ -38,6 +42,7 @@ impl Args {
         let mut wire_fd = WIRE_FD;
         let mut engine_fd = None;
         let mut dev = false;
+        let mut probe = None;
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
             let arg = arg.into_string().map_err(|a| anyhow!("{a:?} is not UTF-8"))?;
@@ -49,6 +54,9 @@ impl Args {
                 "--wire-fd" => wire_fd = fd(&arg, value()?)?,
                 "--engine-fd" => engine_fd = Some(fd(&arg, value()?)?),
                 "--dev" => dev = true,
+                "--probe" if cfg!(feature = "probe") => {
+                    probe = Some(value()?.into_string().map_err(|a| anyhow!("--probe {a:?} is not UTF-8"))?)
+                }
                 other => bail!("`{other}` is not an argument of `ext-proc`"),
             }
         }
@@ -63,6 +71,7 @@ impl Args {
             wire_fd,
             engine_fd,
             dev,
+            probe,
         })
     }
 }
@@ -99,6 +108,7 @@ mod tests {
                 wire_fd: 3,
                 engine_fd: Some(4),
                 dev: false,
+                probe: None,
             }
         );
         assert_eq!(parse(&["--ext", "a.b"]).unwrap().wire_fd, WIRE_FD);
