@@ -1,8 +1,8 @@
 //! Starting a process, in this order (concept §3.1).
 //!
 //! 1. Read the profile.
-//! 2. **Register** every module, in order: its manifest and what it declares.
-//! 3. **Migrate** every module, in order.
+//! 2. **Register** every extension, in order: its manifest and what it declares.
+//! 3. **Migrate** every extension, in order.
 //! 4. **Build the instances**: `system`, with the native contributions of the
 //!    modules still enabled; the profile's `[[instances]]`; and what the
 //!    ledger says was built from templates.
@@ -30,73 +30,60 @@ mod wiring;
 use std::net::IpAddr;
 use std::sync::Arc;
 
-use harnix_instance::Profile;
-use harnix_module::{Credentials, EnvCredentials};
+use harnix_ext::{Credentials, EnvCredentials};
 
 use crate::cli::{self, Cli, Command, UiCommand};
-use crate::modules;
+use crate::host::{lifecycle, Entry, ExtensionStatus, Record};
 use crate::paths::{RootArgs, Roots};
+use crate::profile::Profile;
 use crate::state_lock::StateLock;
 use crate::AppBuilder;
 use wiring::AppsWiring;
 
-/// Step 2 alone, for [`crate::testing`]: the built-ins (or not) and these modules registered into
-/// the kernel's table under a default profile, with the grants they were given.
+/// Step 2 alone, for [`crate::testing`]: the built-ins (or not) and these extensions registered
+/// into the kernel's table under `profile`, with the grants they were given.
 pub(crate) fn register_only(
     builtins: bool,
-    modules: Vec<(Box<dyn harnix_module::ErasedModule>, Vec<harnix_module::Capability>)>,
+    entries: Vec<Entry>,
+    profile: &Profile,
     state: &std::path::Path,
-) -> anyhow::Result<(harnix_router::RouteTable, Arc<harnix_kernel::GrantTable>, Vec<modules::ModuleStatus>)> {
+) -> anyhow::Result<(harnix_router::RouteTable, Arc<harnix_kernel::GrantTable>, Vec<ExtensionStatus>)> {
     let roots = Roots {
         engine: state.join("engine"),
         projects: state.join("projects"),
         state: state.join("state"),
     };
     std::fs::create_dir_all(&roots.state)?;
-    let registered = register::register(builtins, modules, &Profile::default(), &roots, &AppsWiring::default())?;
+    let registered = register::register(builtins, entries, profile, &roots, &AppsWiring::default())?;
     let statuses = registered.records.iter().map(|r| r.status.clone()).collect();
     Ok((registered.table, registered.grants, statuses))
 }
 
-pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,harnix=debug")),
-        )
-        .try_init();
+/// A process started — every step up to serving — and what serving and stopping it need.
+pub(crate) struct Started {
+    pub name: String,
+    pub records: Vec<Record>,
+    pub hub: Arc<harnix_hub::Hub>,
+    pub instances: Arc<harnix_instance::InstanceRegistry>,
+    pub ui: Arc<crate::kernel_rows::UiModules>,
+    pub brand_icon: Option<std::path::PathBuf>,
+    pub held: register::Held,
+    pub admission: admission::Admission,
+    pub apps: AppsWiring,
+}
 
-    let cli = cli::parse(&app.name, &app.version, app.args.clone());
-    if let Some(done) = subcommand(&cli, &app).await {
-        return done;
-    }
-
-    // ── 1. Profile ──────────────────────────────────────────────────────
-    let basis = Basis::read(&cli)?;
+/// Steps 2 to 5: register, migrate, the instances, the hub and admission, start.
+pub(crate) async fn start_process(app: AppBuilder, cli: &Cli, basis: &Basis) -> anyhow::Result<Started> {
     let mut apps = AppsWiring::new(&basis.profile, &app)?;
-    let AppBuilder {
-        name,
-        version,
-        builtins,
-        modules: app_modules,
-        granted,
-        credentials,
-        app_hosts,
-        ..
-    } = app;
+    let AppBuilder { name, version, builtins, entries, credentials, app_hosts, .. } = app;
     let profile = &basis.profile;
 
     // ── 2. Register ─────────────────────────────────────────────────────
-    let register::Registered {
-        mut records,
-        mut table,
-        behind,
-        held,
-        grants,
-    } = register::register(builtins, app_modules.into_iter().zip(granted).collect(), profile, &basis.roots, &apps)?;
+    let register::Registered { mut records, mut table, behind, held, grants, dynamic } =
+        register::register(builtins, entries, profile, &basis.roots, &apps)?;
 
     // ── 3. Migrate ──────────────────────────────────────────────────────
-    modules::migrate(&mut records, &mut table).await;
+    lifecycle::migrate(&mut records, &mut table).await;
 
     // ── 4. Instances ────────────────────────────────────────────────────
     let credentials: Arc<dyn Credentials> = credentials.unwrap_or_else(|| Arc::new(EnvCredentials));
@@ -115,23 +102,10 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         grants.clone(),
     )
     .await?;
-    let hub::Assembled {
-        hub,
-        instances,
-        ui,
-        history,
-        brand_icon,
-    } = hub::assemble(
-        &cli,
-        profile,
-        &basis.roots,
-        (&name, &version),
-        &records,
-        instances,
-        &apps,
-        &behind,
-    )
-    .await?;
+    let servers = instances.registry.factory.servers.clone();
+    let hub::Assembled { hub, instances, ui, history, brand_icon } =
+        hub::assemble(cli, profile, &basis.roots, (&name, &version), &records, instances, &apps, &behind, dynamic)
+            .await?;
     // The hub's rows have been in the route table since registration; from here they answer.
     let _ = behind.hub.set(hub.clone());
 
@@ -142,31 +116,53 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         table,
         grants,
         &behind,
-        &records,
         history,
-        profile,
-        admission::Identity {
-            name: &name,
-            version: &version,
-            app_hosts: &app_hosts,
+        admission::Parts {
+            ui: ui.clone(),
+            devices: held.devices.clone(),
+            credentials: credentials.clone(),
+            servers,
+            state_root: basis.roots.state.clone(),
+            apps_enabled: profile.apps.enabled,
+            dynamic,
         },
+        admission::Identity { name: &name, version: &version, app_hosts: &app_hosts },
     );
 
     // ── 5. Start ────────────────────────────────────────────────────────
     start::start(&mut records, &admission, &credentials).await;
+    Ok(Started { name, records, hub, instances, ui, brand_icon, held, admission, apps })
+}
+
+pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,harnix=debug")),
+        )
+        .try_init();
+
+    let cli = cli::parse(&app.name, &app.version, app.args.clone());
+    if let Some(done) = subcommand(&cli, &app).await {
+        return done;
+    }
+
+    // ── 1. Profile ──────────────────────────────────────────────────────
+    let basis = Basis::read(&cli)?;
+    let started = start_process(app, &cli, &basis).await?;
 
     // ── 6. Serve ────────────────────────────────────────────────────────
     let mut serving = serve::serve(
         &cli,
         &basis,
-        &name,
-        &held,
-        &mut records,
-        &hub,
-        &ui,
-        &admission,
-        brand_icon,
-        &apps,
+        &started.name,
+        &started.held,
+        &started.records,
+        &started.hub,
+        &started.ui,
+        &started.admission,
+        started.brand_icon.clone(),
+        &started.apps,
     )
     .await?;
     // SIGTERM is how a service manager, a desktop shell, `kill` and a test harness ask a process to
@@ -174,7 +170,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     // the process on the spot, and no module's `stop` ran.
     let mut signals = Signals::install()?;
     until_stopped(&cli, &mut serving.server, &mut signals).await?;
-    shut_down(serving, &records, (&hub, &instances), &mut signals, &basis.roots).await;
+    shut_down(serving, &started.records, (&started.hub, &started.instances), &mut signals, &basis.roots).await;
     Ok(())
 }
 
@@ -212,7 +208,7 @@ async fn until_stopped(
 /// Stop, outside in, within [`crate::SHUTDOWN_GRACE`].
 async fn shut_down(
     serving: serve::Serving,
-    records: &[modules::Record],
+    records: &[Record],
     (hub, instances): (&Arc<harnix_hub::Hub>, &Arc<harnix_instance::InstanceRegistry>),
     signals: &mut Signals,
     roots: &Roots,
@@ -240,10 +236,7 @@ async fn shut_down(
                 Err(e) => tracing::warn!(error = %e, "the listener's task ended badly"),
             }
         }
-        // Modules stop in reverse: a later module may depend on an earlier one.
-        for record in records.iter().rev().filter(|r| r.is_enabled()) {
-            record.module.stop().await;
-        }
+        lifecycle::stop(records).await;
         hub.shutdown().await;
         instances.shutdown().await;
     };
@@ -276,7 +269,7 @@ async fn subcommand(cli: &Cli, app: &AppBuilder) -> Option<anyhow::Result<()>> {
         Some(Command::Daemon(daemon)) => {
             let contrib = match &daemon.template {
                 None => harnix_engine_api::EngineContribution::default(),
-                Some(id) => match modules::native_of(&app.modules, id) {
+                Some(id) => match lifecycle::native_of(&app.entries.iter().map(|e| &e.added).collect::<Vec<_>>(), id) {
                     Ok(contrib) => contrib,
                     Err(reason) => harnix_instance::refuse_daemon(&daemon.socket, &reason),
                 },
@@ -289,7 +282,7 @@ async fn subcommand(cli: &Cli, app: &AppBuilder) -> Option<anyhow::Result<()>> {
 
 /// Step 1: the profile, and what is decided from it and the flags before anything is
 /// registered.
-struct Basis {
+pub(crate) struct Basis {
     profile: Profile,
     /// Where this listens.
     host: IpAddr,
@@ -300,7 +293,7 @@ struct Basis {
 }
 
 impl Basis {
-    fn read(cli: &Cli) -> anyhow::Result<Self> {
+    pub(crate) fn read(cli: &Cli) -> anyhow::Result<Self> {
         let profile = cli::resolve_profile(cli)?;
         let host: IpAddr = profile.transport.host.parse().map_err(|e| {
             anyhow::anyhow!("[transport] host = {:?} is not an IP address: {e}", profile.transport.host)

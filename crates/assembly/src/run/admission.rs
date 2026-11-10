@@ -1,24 +1,40 @@
-//! Admission: the router every call goes through, the audit it keeps, and the kernel the modules
-//! are handed when they start.
+//! Admission: the router every call goes through, the audit it keeps, what the extensions are
+//! seated with when they start, and the kernel a module is handed while modules are read through
+//! their shim.
 
-use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, RwLock};
 
 use harnix_authz::Audit;
 use harnix_hub::Hub;
+use harnix_kernel::seat::Listening;
 use harnix_router::{RouteTable, Router};
 use serde_json::json;
 
 use crate::audit_log;
+use crate::devices::DeviceBook;
 use crate::gate::{Behind, Diagnostics, ProcessKernel};
-use crate::modules::Record;
+use crate::host::dynamic::DynamicHost;
+use crate::host::seat::{
+    HostServicesRegistry, HostUploads, HubTopics, InstanceViews, ProcessView, Seats, Secrets, UiEntries,
+};
+use crate::kernel_rows::UiModules;
 
-/// The router, and what is handed to the modules.
-pub(super) struct Admission {
+/// The router, and what is handed to the extensions.
+pub(crate) struct Admission {
     pub diagnostics: Arc<Diagnostics>,
     /// The route table, deciding every call and handing it to its row: what the transport calls.
     pub router: Arc<Router>,
+    /// What a module's context reaches the process through.
     pub kernel: Arc<ProcessKernel>,
+    /// What an extension's context does.
+    pub seats: Arc<Seats>,
+    /// Where the listener is, once it is bound: told to every extension's context.
+    pub listen: Arc<tokio::sync::watch::Sender<Option<Listening>>>,
+    /// The host components' pipes, when anything may register extensions while the process runs.
+    /// Held here for as long as the process runs: what hands them out holds them weakly.
+    #[allow(dead_code)]
+    pub dynamic: Option<Arc<DynamicHost>>,
 }
 
 /// Who this process is, for diagnostics and the application host.
@@ -29,6 +45,19 @@ pub(super) struct Identity<'a> {
     pub app_hosts: &'a [String],
 }
 
+/// What the extensions' seats are made from, besides the router.
+pub(super) struct Parts {
+    pub ui: Arc<UiModules>,
+    pub devices: Arc<DeviceBook>,
+    pub credentials: Arc<dyn harnix_ext::Credentials>,
+    pub servers: Arc<harnix_instance::SharedServers>,
+    pub state_root: PathBuf,
+    /// Whether the legacy runtime-application host is on (`[apps] enabled`).
+    pub apps_enabled: bool,
+    /// Whether anything may register extensions while the process runs.
+    pub dynamic: bool,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn admit(
     hub: &Arc<Hub>,
@@ -36,12 +65,10 @@ pub(super) fn admit(
     table: RouteTable,
     grants: Arc<harnix_kernel::GrantTable>,
     behind: &Behind,
-    records: &[Record],
     history: Option<Arc<dyn harnix_instance::HistoryStore>>,
-    profile: &harnix_instance::Profile,
+    parts: Parts,
     identity: Identity<'_>,
 ) -> Admission {
-    let (sections, apps_enabled) = (&profile.modules, profile.apps.enabled);
     let audit = audit(hub, history);
     let (short, _) = crate::cli::versions(identity.name, identity.version);
     let diagnostics = Arc::new(Diagnostics {
@@ -49,12 +76,13 @@ pub(super) fn admit(
             "app": {"name": identity.name, "version": short},
             "harnix": crate::HARNIX_VERSION,
             "agix": harnix_engine::about(),
+            "ext_api": harnix_ext::EXT_API_VERSION,
             "module_api": harnix_module::MODULE_API_VERSION,
             "contribution_api": harnix_contract::CONTRIB_API_VERSION,
             "protocol": harnix_contract::PROTOCOL_VERSION,
         }),
-        modules: RwLock::new(Vec::new()),
-        unknown_sections: unknown_sections(sections, records),
+        extensions: RwLock::new(Vec::new()),
+        dynamic: OnceLock::new(),
         router: OnceLock::new(),
     });
     let router = Arc::new(Router::new(table, grants.clone(), audit));
@@ -71,17 +99,46 @@ pub(super) fn admit(
         listen: tokio::sync::watch::channel(None).0,
     });
     let _ = kernel.router.set(router.clone());
-    if apps_enabled {
-        // Every compiled-in module's id was registered in the table, enabled or not: a runtime
-        // application never takes one, or nests under one.
-        let apps = crate::apps::Apps::new(router.clone(), Arc::new(crate::apps::HubSurfaces(hub.clone())), grants);
-        let _ = kernel.apps.set(Arc::new(apps));
-        tracing::info!("this process hosts runtime applications");
+    let (listen, listening) = tokio::sync::watch::channel(None);
+    let listen = Arc::new(listen);
+    let mut dynamic = None;
+    let services = Arc::new(HostServicesRegistry::default());
+    let seats = Arc::new(Seats {
+        dispatch: router.clone(),
+        grants: grants.clone(),
+        clients: hub.clone(),
+        topics: Arc::new(HubTopics(hub.clone())),
+        instances: Arc::new(InstanceViews(instances.clone())),
+        process: Arc::new(ProcessView(behind.process.clone())),
+        bulk: Arc::new(HostUploads::new(
+            parts.state_root.join("uploads").join(std::process::id().to_string()).join("ext"),
+        )),
+        ui: Arc::new(UiEntries(parts.ui)),
+        devices: parts.devices,
+        credentials: Arc::new(Secrets(parts.credentials)),
+        services: services.clone(),
+        listen: listening,
+    });
+    if parts.apps_enabled || parts.dynamic {
+        // Every linked extension's id was registered in the table, enabled or not: one registered
+        // while the process runs never takes one, or nests under one.
+        let apps = Arc::new(crate::apps::Apps::new(router.clone(), Arc::new(crate::apps::HubSurfaces(hub.clone())), grants));
+        if parts.apps_enabled {
+            let _ = kernel.apps.set(apps.clone());
+            tracing::info!("this process hosts runtime applications");
+        }
+        let host = DynamicHost::new(apps.clone(), router.clone(), seats.clone(), parts.servers, parts.state_root);
+        services.set(&host);
+        let _ = diagnostics.dynamic.set(apps);
+        dynamic = Some(host);
     }
     Admission {
         diagnostics,
         router,
         kernel,
+        seats,
+        listen,
+        dynamic,
     }
 }
 
@@ -114,14 +171,4 @@ fn audit(hub: &Arc<Hub>, history: Option<Arc<dyn harnix_instance::HistoryStore>>
         tracing::warn!("no history store; audit entries live only in memory");
     }
     audit
-}
-
-/// The profile's `[modules.<id>]` sections that no module here reads: a typo, or a module this
-/// build does not have.
-fn unknown_sections(sections: &BTreeMap<String, toml::Value>, records: &[Record]) -> Vec<String> {
-    sections
-        .keys()
-        .filter(|k| !records.iter().any(|r| &r.manifest.id == *k))
-        .cloned()
-        .collect()
 }

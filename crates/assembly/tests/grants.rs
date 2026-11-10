@@ -151,8 +151,8 @@ mod capabilities {
     #[test]
     fn an_optional_capability_may_go_ungranted() {
         let r = registered(false, Modules::default().with(Debugger, [])).unwrap();
-        assert!(r.modules[0].granted.is_empty());
-        assert_eq!(r.modules[0].optional.len(), 3);
+        assert!(r.extensions[0].granted.is_empty());
+        assert_eq!(r.extensions[0].optional.len(), 3);
     }
 
     #[tokio::test]
@@ -172,7 +172,7 @@ mod capabilities {
         assert!(refused_for(&e, &CHARGE), "{e:?}");
         let e = call(&r, Subject::device("d"), "app.billing.charge", json!({})).await.unwrap_err();
         assert_eq!(e.code, codes::REFUSED);
-        assert_eq!(r.modules[0].defines, ["billing.charge"]);
+        assert_eq!(r.extensions[0].defines, ["billing.charge"]);
     }
 
     #[test]
@@ -186,15 +186,15 @@ mod capabilities {
             }
         }
         let e = registered(false, Modules::default().with(Squatter, [])).err().expect("started").to_string();
-        assert!(e.contains("module `squatter` defines"), "{e}");
+        assert!(e.contains("extension `squatter` defines"), "{e}");
     }
 
     #[test]
     fn the_built_ins_hold_what_they_require_and_nothing_else() {
         let r = registered(true, Modules::default()).unwrap();
-        let system = r.modules.iter().find(|m| m.id == "system").unwrap();
+        let system = r.extensions.iter().find(|m| m.id == "system").unwrap();
         assert_eq!(system.granted, ["instances.admin", "engine.inspect", "engine.control"]);
-        for status in &r.modules {
+        for status in &r.extensions {
             assert_eq!(status.granted, status.requires, "{}", status.id);
         }
         assert!(r.grants.holds(&id("settings"), &caps::ENGINE_CONFIG_WRITE));
@@ -214,7 +214,7 @@ mod debugger {
             let e = call(&r, Subject::extension(id("debugger")), method, json!({"session_id": "s"})).await.unwrap_err();
             assert_eq!(e.code, codes::INTERNAL_ERROR, "{method} was not let through: {e}");
         }
-        assert_eq!(r.modules[0].spaces, ["debugger"]);
+        assert_eq!(r.extensions[0].spaces, ["debugger"]);
     }
 
     #[tokio::test]

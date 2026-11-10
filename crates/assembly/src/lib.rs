@@ -1,43 +1,49 @@
-//! `harnix-app` — a process assembled from modules (concept §3.1).
+//! `harnix-assembly` — a process assembled from extensions.
 //!
 //! ```no_run
 //! fn main() -> anyhow::Result<()> {
 //!     harnix_assembly::App::builder()
 //!         .name("helm", env!("CARGO_PKG_VERSION"))
 //!         .with_builtins()
-//!         // .module(watchlist::Watchlist::default())
+//!         // .extension(watchlist::Watchlist::default()).grant([caps::ENGINE_INSPECT])
 //!         .run()
 //! }
 //! ```
 //!
-//! The `harnix` binary is exactly that with no modules of its own — the
-//! Harnix app. An application's binary is the same call with its
-//! modules added; nothing about the kernel changes between the two.
+//! The `harnix` binary is exactly that with no extensions of its own — the
+//! Harnix app. A product's binary is the same call with its extensions
+//! added; nothing about the kernel changes between the two.
 //!
 //! What is fixed and what is chosen: the start order (profile → register →
 //! migrate → instances → start → serve), the admission point, the hub, the
-//! transport. What an application chooses: its name and version, its
-//! modules and their order, and where secrets come from.
+//! transport, the extension host. What a product chooses: its name and version, its
+//! extensions, their order and what each is granted, and where secrets come from.
 
+mod aliases;
 mod apps;
 mod audit_log;
 mod cli;
 mod devices;
 mod gate;
+mod host;
 mod kernel_rows;
-mod modules;
 mod paths;
 mod process;
+mod profile;
 mod run;
 mod state_lock;
 
 use std::ffi::OsString;
 use std::sync::Arc;
 
-use harnix_module::{Capability, Credentials, ErasedModule, Module};
+use harnix_contract::s1::Capability;
+use harnix_ext::{Credentials, Extension, ExtensionSet};
+use harnix_module::Module;
+
+use host::{Added, Entry};
 
 pub use devices::DevicesModule;
-pub use modules::{MethodStatus, ModuleStatus, Namespace};
+pub use host::{ExtensionStatus, MethodStatus, Namespace};
 
 /// The version of Harnix this binary was built with.
 pub const HARNIX_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -55,8 +61,7 @@ impl App {
             name: "harnix".into(),
             version: HARNIX_VERSION.into(),
             builtins: false,
-            modules: Vec::new(),
-            granted: Vec::new(),
+            entries: Vec::new(),
             credentials: None,
             args: None,
             app_hosts: Vec::new(),
@@ -67,35 +72,48 @@ impl App {
     }
 }
 
-/// The registration step on its own, with nothing served: what `tests/grants.rs` holds the
-/// grants, the capabilities and the name rules to. Not for a product.
+/// The process without its listener, for tests: the registration step alone
+/// ([`testing::register`]), or every step up to serving ([`testing::Kernel`]). Not for a product.
 #[doc(hidden)]
 pub mod testing {
     use std::sync::Arc;
 
-    use harnix_module::{Capability, ErasedModule, Module};
+    use harnix_contract::s1::Capability;
+    use harnix_contract::{RpcError, Subject};
+    use harnix_ext::{Extension, ExtensionContext};
+    use harnix_kernel::{CallContext, Dispatch};
+    use harnix_module::Module;
+    use serde_json::Value;
 
     pub use harnix_kernel::GrantTable;
     pub use harnix_router::Router;
 
-    /// The modules registered, and the router over the kernel's rows and theirs. Nothing behind
+    use crate::host::{Added, Entry, Namespace};
+
+    /// The extensions registered, and the router over the kernel's rows and theirs. Nothing behind
     /// the kernel's rows is up: a call the router lets through to one answers `INTERNAL_ERROR`, and
-    /// one to a module's method `METHOD_NOT_FOUND` (the module never started) — either way not
+    /// one to an extension's method `METHOD_NOT_FOUND` (it never started) — either way not
     /// `REFUSED`, which is what these tests tell apart.
     pub struct Registered {
         pub router: Arc<Router>,
         pub grants: Arc<GrantTable>,
-        pub modules: Vec<crate::ModuleStatus>,
+        pub extensions: Vec<crate::ExtensionStatus>,
     }
 
-    /// Modules to register, each with what it is granted.
+    /// Extensions and modules to register, each with what it is granted.
     #[derive(Default)]
-    pub struct Modules(Vec<(Box<dyn ErasedModule>, Vec<Capability>)>);
+    pub struct Modules(Vec<Entry>);
 
     impl Modules {
         pub fn with<M: Module>(mut self, module: M, granted: impl IntoIterator<Item = Capability>) -> Self {
             harnix_module::assert_api::<M>();
-            self.0.push((Box::new(module), granted.into_iter().collect()));
+            let added = Added::Module { module: Box::new(module), namespace: Namespace::App };
+            self.0.push(Entry { added, granted: granted.into_iter().collect() });
+            self
+        }
+
+        pub fn extension<E: Extension>(mut self, e: E, granted: impl IntoIterator<Item = Capability>) -> Self {
+            self.0.push(Entry { added: Added::Extension(Box::new(e)), granted: granted.into_iter().collect() });
             self
         }
     }
@@ -103,9 +121,83 @@ pub mod testing {
     /// Register Harnix's built-ins (when `builtins`) and `modules` under a default profile, with
     /// state in `state`. An error is the start refused.
     pub fn register(builtins: bool, modules: Modules, state: &std::path::Path) -> anyhow::Result<Registered> {
-        let (table, grants, modules) = crate::run::register_only(builtins, modules.0, state)?;
+        let (table, grants, extensions) =
+            crate::run::register_only(builtins, modules.0, &crate::profile::Profile::default(), state)?;
         let router = Arc::new(Router::new(table, grants.clone(), Arc::new(harnix_authz::Audit::default())));
-        Ok(Registered { router, grants, modules })
+        Ok(Registered { router, grants, extensions })
+    }
+
+    /// The route table a product would serve, without starting anything: every row, in the shape
+    /// the method-table snapshot pins.
+    pub fn describe(app: crate::AppBuilder) -> anyhow::Result<Value> {
+        let dir = tempfile_dir()?;
+        let (table, grants, _) =
+            crate::run::register_only(app.builtins, app.entries, &crate::profile::Profile::default(), &dir)?;
+        let snapshot = Router::new(table, grants, Arc::new(harnix_authz::Audit::default())).snapshot();
+        let _ = std::fs::remove_dir_all(&dir);
+        Ok(snapshot)
+    }
+
+    fn tempfile_dir() -> anyhow::Result<std::path::PathBuf> {
+        let dir = std::env::temp_dir().join(format!("harnix-describe-{}-{}", std::process::id(), uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir)?;
+        Ok(dir)
+    }
+
+    /// A process started — its extensions registered, migrated and started, its instances built,
+    /// its hub up — and not listening: the real router and hub, and an engine that replays and so
+    /// never calls a model. Its state is in `dir`, which outlives it.
+    pub struct Kernel {
+        started: crate::run::Started,
+        _basis: crate::run::Basis,
+    }
+
+    impl Kernel {
+        pub async fn start(app: crate::AppBuilder, dir: &std::path::Path) -> anyhow::Result<Self> {
+            let replay = dir.join("recordings");
+            std::fs::create_dir_all(&replay)?;
+            let args: Vec<std::ffi::OsString> = vec![
+                "harnix-test".into(),
+                "--headless".into(),
+                "--agix-dir".into(),
+                dir.join("engine").into(),
+                "--data-dir".into(),
+                dir.join("data").into(),
+                "--replay-dir".into(),
+                replay.into(),
+            ];
+            let cli = crate::cli::parse(&app.name, &app.version, Some(args));
+            let basis = crate::run::Basis::read(&cli)?;
+            let started = crate::run::start_process(app, &cli, &basis).await?;
+            Ok(Self { started, _basis: basis })
+        }
+
+        /// One call through the router, as `subject`.
+        pub async fn call(&self, subject: Subject, method: &str, params: Value) -> Result<Value, RpcError> {
+            self.started.admission.router.call(CallContext::root(subject, None), method, params).await
+        }
+
+        /// The context of an extension it started.
+        pub fn context(&self, id: &str) -> Option<ExtensionContext> {
+            self.started
+                .records
+                .iter()
+                .find(|r| r.manifest.id() == id && r.is_enabled())
+                .and_then(|r| r.descriptor.as_ref())
+                .and_then(|d| d.context())
+        }
+
+        /// What the diagnostics say about each extension.
+        pub fn extensions(&self) -> Vec<crate::ExtensionStatus> {
+            self.started.records.iter().map(|r| r.status.clone()).collect()
+        }
+
+        /// Stop it: the extensions in reverse, then the hub and the instances.
+        pub async fn shutdown(self) {
+            crate::host::lifecycle::stop(&self.started.records).await;
+            self.started.hub.shutdown().await;
+            self.started.instances.shutdown().await;
+        }
     }
 }
 
@@ -117,9 +209,8 @@ pub struct AppBuilder {
     pub(crate) name: String,
     pub(crate) version: String,
     pub(crate) builtins: bool,
-    pub(crate) modules: Vec<Box<dyn ErasedModule>>,
-    /// What each of `modules` was granted, in the same order.
-    pub(crate) granted: Vec<Vec<Capability>>,
+    /// The product's extensions and modules, in order, each with what it is granted.
+    pub(crate) entries: Vec<Entry>,
     pub(crate) credentials: Option<Arc<dyn Credentials>>,
     pub(crate) args: Option<Vec<OsString>>,
     pub(crate) app_hosts: Vec<String>,
@@ -161,29 +252,46 @@ impl AppBuilder {
         self
     }
 
-    /// Add a module. The order modules are added is the order they register,
-    /// migrate and start. A module written against another
-    /// `MODULE_API_VERSION` does not compile.
+    /// Add a native extension. The order extensions are added is the order they register,
+    /// migrate and start. What it is granted follows: `.extension(e).grant([..])`, or
+    /// `.ungranted()` for none.
+    pub fn extension<E: Extension>(mut self, e: E) -> ExtensionSlot {
+        self.entries.push(Entry { added: Added::Extension(Box::new(e)), granted: Vec::new() });
+        ExtensionSlot { builder: self }
+    }
+
+    /// Add every extension of `set`, each granted what the set says, in its order.
+    pub fn extensions(mut self, set: ExtensionSet) -> Self {
+        for (e, granted) in set.into_parts() {
+            self.entries.push(Entry { added: Added::Extension(e), granted });
+        }
+        self
+    }
+
+    /// Add a module, read as an extension through its shim, its names as they were
+    /// (`app.<id>.*`). A module written against another `MODULE_API_VERSION` does not compile.
     pub fn module<M: Module>(mut self, module: M) -> Self {
         harnix_module::assert_api::<M>();
-        self.modules.push(Box::new(module));
-        self.granted.push(Vec::new());
+        self.entries.push(Entry {
+            added: Added::Module { module: Box::new(module), namespace: host::Namespace::App },
+            granted: Vec::new(),
+        });
         self
     }
 
     /// Grant the module added last these capabilities: `.module(Fleet).grant([caps::ENGINE_INSPECT])`.
     ///
-    /// Checked when the process starts, which refuses to start, naming the module and the
-    /// capability, when a module is not granted all it `requires`, or is granted what it neither
+    /// Checked when the process starts, which refuses to start, naming the extension and the
+    /// capability, when one is not granted all it `requires`, or is granted what it neither
     /// requires nor lists as `optional`, or what nobody defines for native extensions. Without a
     /// module before it, this panics: the assembly is the program, and that is a mistake in it.
     pub fn grant(mut self, caps: impl IntoIterator<Item = Capability>) -> Self {
-        let last = self.granted.last_mut().expect("`grant` follows the `module` it grants to");
-        last.extend(caps);
+        let last = self.entries.last_mut().expect("`grant` follows the `module` it grants to");
+        last.granted.extend(caps);
         self
     }
 
-    /// Where `{ credential = "…" }` references in `[modules.<id>]` are
+    /// Where `{ credential = "…" }` references in `[ext.<id>]` are
     /// resolved. The environment by default.
     pub fn credentials(mut self, source: impl Credentials + 'static) -> Self {
         self.credentials = Some(Arc::new(source));
@@ -249,5 +357,27 @@ impl AppBuilder {
             .enable_all()
             .build()?
             .block_on(run::run(self))
+    }
+}
+
+/// The extension just added, waiting to be told what it is granted.
+#[must_use = "an extension is added once it is granted, or said to be ungranted"]
+pub struct ExtensionSlot {
+    builder: AppBuilder,
+}
+
+impl ExtensionSlot {
+    /// Grant it these capabilities: checked at start against what its manifest requires and lists
+    /// as optional.
+    pub fn grant(mut self, caps: impl IntoIterator<Item = Capability>) -> AppBuilder {
+        if let Some(last) = self.builder.entries.last_mut() {
+            last.granted.extend(caps);
+        }
+        self.builder
+    }
+
+    /// Grant it nothing: it reaches what any extension reaches.
+    pub fn ungranted(self) -> AppBuilder {
+        self.builder
     }
 }

@@ -89,26 +89,6 @@ impl EngineContribution {
         }
     }
 
-    /// The same contribution, with its providers, gates and hooks doing nothing while `enabled`
-    /// is false: an extension that fails after its instance was built cannot take its scenes
-    /// back out of the engine, but it stops reaching sessions built after.
-    pub fn gated(mut self, enabled: Arc<AtomicBool>) -> Self {
-        self.providers = self
-            .providers
-            .into_iter()
-            .map(|inner| Arc::new(Gated { inner, enabled: enabled.clone() }) as Arc<dyn ToolProvider>)
-            .collect();
-        self.prompt_gates = self
-            .prompt_gates
-            .into_iter()
-            .map(|inner| Arc::new(Gated { inner, enabled: enabled.clone() }) as Arc<dyn PromptGate>)
-            .collect();
-        for hook in &mut self.foreign_hooks {
-            hook.enabled = Some(enabled.clone());
-        }
-        self
-    }
-
     pub fn scenes(&self) -> &[SceneLayer] {
         &self.scenes
     }
@@ -139,6 +119,31 @@ impl EngineContribution {
     }
 }
 
+/// For the host, which alone knows when an extension stops: its contribution, switched off with it.
+pub mod host {
+    use super::*;
+
+    /// The same contribution, with its providers, gates and hooks doing nothing while `enabled`
+    /// is false: an extension that fails after its instance was built cannot take its scenes
+    /// back out of the engine, but it stops reaching sessions built after.
+    pub fn gated(mut c: EngineContribution, enabled: Arc<AtomicBool>) -> EngineContribution {
+        c.providers = c
+            .providers
+            .into_iter()
+            .map(|inner| Arc::new(Gated { inner, enabled: enabled.clone() }) as Arc<dyn ToolProvider>)
+            .collect();
+        c.prompt_gates = c
+            .prompt_gates
+            .into_iter()
+            .map(|inner| Arc::new(Gated { inner, enabled: enabled.clone() }) as Arc<dyn PromptGate>)
+            .collect();
+        for hook in &mut c.foreign_hooks {
+            hook.enabled = Some(enabled.clone());
+        }
+        c
+    }
+}
+
 impl std::fmt::Debug for EngineContribution {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EngineContribution")
@@ -165,7 +170,7 @@ impl ForeignHook {
         &self.hook
     }
 
-    /// False while the contribution it came with is switched off ([`EngineContribution::gated`]).
+    /// False while the contribution it came with is switched off ([`host::gated`]).
     pub fn is_enabled(&self) -> bool {
         self.enabled.as_ref().is_none_or(|e| e.load(Ordering::Acquire))
     }
@@ -245,7 +250,7 @@ mod tests {
         let mut c = EngineContribution::new();
         c.provider(Arc::new(One)).prompt_gate(Arc::new(Refuse)).foreign_hook(Arc::new(7u8));
         let enabled = Arc::new(AtomicBool::new(true));
-        let c = c.gated(enabled.clone());
+        let c = host::gated(c, enabled.clone());
         let facts = SessionFacts::new("s", "/p", "harnix", 0);
         let message = PromptFacts::new("s", "t", "hi", crate::gate::Delivery::Turn);
         assert_eq!(c.providers()[0].hooks(&facts).len(), 1);

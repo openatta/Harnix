@@ -1,4 +1,4 @@
-//! The instance registry and the hub, made from the instances and the modules' declarations:
+//! The instance registry and the hub, made from the instances and the extensions' declarations:
 //! the instances the hub is handed, the spaces it serves, the topics it carries, and what a
 //! client is told at hello.
 
@@ -7,17 +7,18 @@ use std::sync::Arc;
 
 use harnix_hub::{Hub, HubConfig};
 use harnix_instance::link::now_ms;
-use harnix_instance::{HistoryStore, InstanceRegistry, Owner, Profile, INSTANCES_TOPIC};
+use harnix_instance::{HistoryStore, InstanceRegistry, Owner, INSTANCES_TOPIC};
 use serde_json::{json, Value};
 
 use super::instances::Instances;
 use super::wiring::AppsWiring;
 use crate::cli::Cli;
 use crate::gate::Behind;
+use crate::host::Record;
 use crate::kernel_rows::{Hello, UiModules, PROCESS};
-use crate::modules::Record;
 use crate::paths::Roots;
 use crate::process::Process;
+use crate::profile::Profile;
 
 /// The hub, with its instances added and its topics declared.
 pub(super) struct Assembled {
@@ -42,6 +43,7 @@ pub(super) async fn assemble(
     instances: Instances,
     apps: &AppsWiring,
     behind: &Behind,
+    dynamic: bool,
 ) -> anyhow::Result<Assembled> {
     let Instances {
         registry,
@@ -83,7 +85,7 @@ pub(super) async fn assemble(
         hub: hub.clone(),
         instances: registry.clone(),
         limits: serde_json::to_value(limits).unwrap_or(json!({})),
-        prompt_timeout_secs: profile.engine.permission_prompt_timeout_secs,
+        prompt_timeout_secs: profile.instances.engine.permission_prompt_timeout_secs,
         shell: shell(profile, roots, brand_icon.is_some()),
         ui: ui.clone(),
     }));
@@ -103,13 +105,17 @@ pub(super) async fn assemble(
         registry.add(&id, built, Owner::Kernel).await;
     }
     registry.restore().await;
-    if profile.apps.enabled {
+    if dynamic {
         hub.declare_spaces_topic().await;
     }
     apps.hub(&hub).await;
-    for record in records.iter().filter(|r| r.is_enabled()) {
-        for topic in &record.topics {
-            hub.declare_topic(&topic.name, topic.params.clone()).await;
+    for d in records.iter().filter(|r| r.is_enabled()).filter_map(|r| r.descriptor.as_ref()) {
+        for topic in d.topics() {
+            if topic.is_computed() {
+                hub.serve_topic(topic.name(), topic.params().to_vec(), Arc::new(topic.clone())).await;
+            } else {
+                hub.declare_topic(topic.name(), topic.params().to_vec()).await;
+            }
         }
     }
     Ok(Assembled {
@@ -121,14 +127,15 @@ pub(super) async fn assemble(
     })
 }
 
-/// The spaces the enabled modules are the backend of. A space id taken twice keeps the first.
-fn declared_spaces(records: &[Record]) -> Vec<harnix_module::SpaceDecl> {
-    let mut declared: Vec<harnix_module::SpaceDecl> = Vec::new();
+/// The spaces the enabled extensions are the backend of. A space id taken twice keeps the first.
+fn declared_spaces(records: &[Record]) -> Vec<harnix_contract::SpaceDecl> {
+    let mut declared: Vec<harnix_contract::SpaceDecl> = Vec::new();
     for record in records.iter().filter(|r| r.is_enabled()) {
-        for space in &record.spaces {
+        let Some(d) = &record.descriptor else { continue };
+        for space in d.spaces() {
             let reserved = [harnix_contract::SESSIONS_SPACE, harnix_contract::PROJECTS_SPACE];
             if reserved.contains(&space.id.as_str()) || declared.iter().any(|d| d.id == space.id) {
-                tracing::warn!(module = %record.manifest.id, space = %space.id, "a space with this id already exists; ignored");
+                tracing::warn!(extension = %record.manifest.id(), space = %space.id, "a space with this id already exists; ignored");
                 continue;
             }
             declared.push(space.clone());

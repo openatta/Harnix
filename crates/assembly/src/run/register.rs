@@ -1,23 +1,24 @@
-//! Step 2: every module registered, in order — the built-ins first, then the application's.
+//! Step 2: every extension registered, in order — the built-ins first, then the product's.
 
 use std::sync::{Arc, OnceLock};
 
 use harnix_authz::Devices;
+use harnix_contract::s1::caps;
 use harnix_kernel::{Access, GrantTable, KernelPart, Owner};
 use harnix_router::{Row, RouteTable};
 use harnix_builtin::Builtin;
-use harnix_instance::Profile;
-use harnix_module::{Capability, ErasedModule};
+use harnix_module::ErasedModule;
 
 use super::state_files::{load_devices, DEVICES_FILE};
 use super::wiring::AppsWiring;
 use crate::devices;
 use crate::gate::Behind;
+use crate::host::{lifecycle, Added, Entry, Namespace, Record};
 use crate::kernel_rows;
-use crate::modules::{self, Entry, Namespace, Record};
 use crate::paths::Roots;
+use crate::profile::Profile;
 
-/// What registering produced: the modules' records and the route table they declared into,
+/// What registering produced: the extensions' records and the route table they declared into,
 /// what the kernel's rows in it are answered by once that is built, and what serving needs
 /// later.
 pub(super) struct Registered {
@@ -25,12 +26,15 @@ pub(super) struct Registered {
     pub table: RouteTable,
     pub behind: Behind,
     pub held: Held,
-    /// What each module was granted, and how far each extension is trusted.
+    /// What each extension was granted, and how far each is trusted.
     pub grants: Arc<GrantTable>,
+    /// Whether anything may register extensions while the process runs: then the spaces can
+    /// change after assembly, and there is a topic to watch them on.
+    pub dynamic: bool,
 }
 
 /// What the built-ins hold that serving needs.
-pub(super) struct Held {
+pub(crate) struct Held {
     /// The built-ins, when the application has them: the bulk store and the packages.
     pub builtin: Option<Arc<Builtin>>,
     /// The devices paired before, read back: pairing carries trust across once, not once per
@@ -38,28 +42,41 @@ pub(super) struct Held {
     pub paired: Arc<Devices>,
     /// The transport's channels, once it exists (step 6): what revoking a device ends.
     pub channels: Arc<OnceLock<harnix_transport::Channels>>,
+    /// Pairing, listing and revoking devices: the `devices` module's, and what `devices.manage`
+    /// hands an extension.
+    pub devices: Arc<devices::DeviceBook>,
 }
 
-/// The built-ins are granted what they require: `with_builtins` is the application asking for them
+/// The built-ins are granted what they require: `with_builtins` is the product asking for them
 /// as Harnix ships them.
 fn granted_as_required(module: Box<dyn ErasedModule>) -> Entry {
     let granted = module.manifest().requires;
     Entry {
-        module,
-        namespace: Namespace::Kernel,
+        added: Added::Module { module, namespace: Namespace::Kernel },
         granted,
     }
 }
 
 pub(super) fn register(
     builtins: bool,
-    app_modules: Vec<(Box<dyn ErasedModule>, Vec<Capability>)>,
+    product: Vec<Entry>,
     profile: &Profile,
     roots: &Roots,
     apps: &AppsWiring,
 ) -> anyhow::Result<Registered> {
     let paired = Arc::new(load_devices(&roots.state.join(DEVICES_FILE))?);
     let channels: Arc<OnceLock<harnix_transport::Channels>> = Arc::new(OnceLock::new());
+    // Revoking is wired to the transport's session registry, because
+    // ending a device's channels needs the layer that knows there are
+    // channels. Nothing above transport ever learns there were.
+    let disconnect = {
+        let channels = channels.clone();
+        Arc::new(move |id: &str| {
+            let ended = channels.get().map_or(0, |c| c.revoke_device(id));
+            tracing::info!(device = id, channels = ended, "revoked; its channels are closed");
+        })
+    };
+    let book = Arc::new(devices::DeviceBook::new(paired.clone(), disconnect));
     let mut entries = Vec::new();
     let builtin = if builtins {
         let builtin = Builtin::new(roots.state.clone(), roots.projects.clone())?;
@@ -76,50 +93,39 @@ pub(super) fn register(
             );
             entries.push(granted_as_required(Box::new(module)));
         }
-        // Revoking is wired to the transport's session registry, because
-        // ending a device's channels needs the layer that knows there are
-        // channels. Nothing above transport ever learns there were.
-        let disconnect = {
-            let channels = channels.clone();
-            Arc::new(move |id: &str| {
-                let ended = channels.get().map_or(0, |c| c.revoke_device(id));
-                tracing::info!(device = id, channels = ended, "revoked; its channels are closed");
-            })
-        };
-        entries.push(granted_as_required(Box::new(devices::DevicesModule::new(paired.clone(), disconnect))));
+        entries.push(granted_as_required(Box::new(devices::DevicesModule::new(book.clone()))));
         Some(builtin)
     } else {
         None
     };
-    for (module, granted) in app_modules {
-        entries.push(Entry {
-            module,
-            namespace: Namespace::App,
-            granted,
-        });
-    }
+    entries.extend(product);
     let behind = Behind::default();
     let mut table = kernel_rows::table(&behind);
-    if profile.apps.enabled {
-        // What changes the list of spaces after assembly is a runtime application; only then is
-        // there anything to watch.
+    apps.rows(&mut table)?;
+    let grants = Arc::new(GrantTable::new());
+    let records = lifecycle::register(entries, &mut table, &grants, &profile.ext, &profile.extensions.off, &roots.state)?;
+    // What changes the list of spaces after assembly is an extension registered while the process
+    // runs; only when something may do that is there anything to watch.
+    let dynamic = profile.apps.enabled
+        || records.iter().any(|r| r.is_enabled() && r.status.granted.iter().any(|c| c == caps::EXTENSIONS_MANAGE.as_str()));
+    if dynamic {
         let spaces = Row::topic(harnix_hub::SPACES_TOPIC, Access::device());
         table
             .install(&Owner::Kernel(KernelPart::Hub), vec![spaces])
             .map_err(|e| anyhow::anyhow!("{e}"))?;
     }
-    apps.rows(&mut table)?;
-    let grants = Arc::new(GrantTable::new());
-    let records = modules::register(entries, &mut table, &grants, &profile.modules, &roots.state)?;
+    crate::aliases::install(&mut table)?;
     Ok(Registered {
         records,
         table,
         grants,
+        dynamic,
         behind,
         held: Held {
             builtin,
             paired,
             channels,
+            devices: book,
         },
     })
 }
@@ -137,7 +143,7 @@ mod tests {
     }
 
     fn ids(registered: &Registered) -> Vec<String> {
-        registered.records.iter().map(|r| r.manifest.id.clone()).collect()
+        registered.records.iter().map(|r| r.manifest.id().to_string()).collect()
     }
 
     /// The built-ins register before the application's modules, the devices module last of

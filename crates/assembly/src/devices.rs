@@ -13,6 +13,7 @@ use std::time::SystemTime;
 
 use harnix_authz::{Devices, PairError};
 use harnix_contract::RpcError;
+use harnix_kernel::seat::DeviceAdmin;
 use harnix_module::{CallContext, Handler, Manifest, MethodRegistry, Module, Principal};
 use serde_json::{json, Value};
 
@@ -32,8 +33,9 @@ pub const METHODS: &[&str] = &[
 const ALPHABET: &[u8] = b"23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 const CODE_LEN: usize = 8;
 
-/// The `devices` module.
-pub struct DevicesModule {
+/// Paired devices, managed: listing, pairing, revoking. What `devices.manage` hands an extension,
+/// and what the `devices` module answers with.
+pub struct DeviceBook {
     devices: Arc<Devices>,
     /// Ending a revoked device's channels. The authorization layer knows a
     /// credential belongs to a subject; only transport knows there are
@@ -41,9 +43,64 @@ pub struct DevicesModule {
     disconnect: Arc<dyn Fn(&str) + Send + Sync>,
 }
 
-impl DevicesModule {
+impl DeviceBook {
     pub fn new(devices: Arc<Devices>, disconnect: Arc<dyn Fn(&str) + Send + Sync>) -> Self {
         Self { devices, disconnect }
+    }
+}
+
+impl DeviceAdmin for DeviceBook {
+    fn list(&self) -> Value {
+        self.devices.sweep(SystemTime::now());
+        json!({"devices": self.devices.list()})
+    }
+
+    fn pair_begin(&self, label: &str) -> Value {
+        let now = SystemTime::now();
+        self.devices.sweep(now);
+        let code = pairing_code();
+        let handle = self.devices.begin_pairing(&code, label.to_string(), now);
+        // The code is returned once, to be shown once. Only its hash
+        // is kept, so this is the only moment it exists in the clear.
+        json!({
+            "handle": handle,
+            "code": code,
+            "expires_in_secs": harnix_authz::PAIRING_TTL.as_secs(),
+        })
+    }
+
+    fn pair_complete(&self, code: &str, public_key: &str) -> Result<Value, RpcError> {
+        let now = SystemTime::now();
+        self.devices.sweep(now);
+        match self.devices.complete_pairing(code, public_key, now, &stamp(now)) {
+            Ok(device) => Ok(json!({"device": device})),
+            // One error for "no such code", "expired" and "already
+            // used": telling them apart tells a guesser which guesses
+            // were closer.
+            Err(e @ (PairError::Refused | PairError::TooManyAttempts)) => Err(RpcError::refused(e.to_string())),
+        }
+    }
+
+    fn revoke(&self, device: &str) -> bool {
+        let removed = self.devices.revoke(device);
+        // Immediately, and all of its channels — a credential belongs
+        // to the subject, not to a connection, so there is no such
+        // thing as revoking one of them (concept §6.3).
+        if removed {
+            (self.disconnect)(device);
+        }
+        removed
+    }
+}
+
+/// The `devices` module.
+pub struct DevicesModule {
+    book: Arc<DeviceBook>,
+}
+
+impl DevicesModule {
+    pub fn new(book: Arc<DeviceBook>) -> Self {
+        Self { book }
     }
 }
 
@@ -61,79 +118,29 @@ impl Module for DevicesModule {
             registry
                 .method(name, Principal::Device)
                 .allow(Principal::Kernel)
-                .with(Arc::new(DeviceMethods {
-                    devices: self.devices.clone(),
-                    disconnect: self.disconnect.clone(),
-                    name,
-                }));
+                .with(Arc::new(DeviceMethods { book: self.book.clone(), name }));
         }
     }
 }
 
 struct DeviceMethods {
-    devices: Arc<Devices>,
-    disconnect: Arc<dyn Fn(&str) + Send + Sync>,
+    book: Arc<DeviceBook>,
     name: &'static str,
 }
 
 #[async_trait::async_trait]
 impl Handler for DeviceMethods {
     async fn call(&self, _cx: CallContext, params: Value) -> Result<Value, RpcError> {
-        let now = SystemTime::now();
-        self.devices.sweep(now);
         match self.name {
-            "devices.list" => Ok(json!({"devices": self.devices.list()})),
-
+            "devices.list" => Ok(self.book.list()),
             "devices.pair.begin" => {
-                let label = params
-                    .get("label")
-                    .and_then(Value::as_str)
-                    .unwrap_or("device")
-                    .to_string();
-                let code = pairing_code();
-                let handle = self.devices.begin_pairing(&code, label, now);
-                // The code is returned once, to be shown once. Only its hash
-                // is kept, so this is the only moment it exists in the clear.
-                Ok(json!({
-                    "handle": handle,
-                    "code": code,
-                    "expires_in_secs": harnix_authz::PAIRING_TTL.as_secs(),
-                }))
+                Ok(self.book.pair_begin(params.get("label").and_then(Value::as_str).unwrap_or("device")))
             }
-
             "devices.pair.complete" => {
-                let code = require(&params, "code")?;
-                let public_key = require(&params, "public_key")?;
-                let stamp = stamp(now);
-                match self
-                    .devices
-                    .complete_pairing(&code, &public_key, now, &stamp)
-                {
-                    Ok(device) => Ok(json!({"device": device})),
-                    // One error for "no such code", "expired" and "already
-                    // used": telling them apart tells a guesser which guesses
-                    // were closer.
-                    Err(e @ (PairError::Refused | PairError::TooManyAttempts)) => {
-                        Err(RpcError::refused(e.to_string()))
-                    }
-                }
+                self.book.pair_complete(&require(&params, "code")?, &require(&params, "public_key")?)
             }
-
-            "devices.revoke" => {
-                let id = require(&params, "device_id")?;
-                let removed = self.devices.revoke(&id);
-                // Immediately, and all of its channels — a credential belongs
-                // to the subject, not to a connection, so there is no such
-                // thing as revoking one of them (concept §6.3).
-                if removed {
-                    (self.disconnect)(&id);
-                }
-                Ok(json!({"revoked": removed}))
-            }
-
-            other => Err(RpcError::not_found(format!(
-                "`{other}` is not a device method"
-            ))),
+            "devices.revoke" => Ok(json!({"revoked": self.book.revoke(&require(&params, "device_id")?)})),
+            other => Err(RpcError::not_found(format!("`{other}` is not a device method"))),
         }
     }
 }

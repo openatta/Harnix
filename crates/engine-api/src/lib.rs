@@ -27,7 +27,7 @@ pub mod scene;
 pub mod template;
 pub mod tool;
 
-pub use contribution::{EngineContribution, ForeignHook};
+pub use contribution::{host, EngineContribution, ForeignHook};
 pub use credentials::{CredentialSource, Secret};
 pub use events::{Completion, DaemonEventKind, EngineEvent, Fragment, Joins, Prompt, SessionEventKind, Waiting};
 pub use link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus, EVENT_CAPACITY};

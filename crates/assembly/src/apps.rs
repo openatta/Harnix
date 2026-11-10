@@ -111,6 +111,20 @@ impl Surfaces for HubSurfaces {
     }
 }
 
+/// One package's rows (full names), topics (by their names inside its own), spaces and consent:
+/// what installing it takes.
+pub(crate) struct Package {
+    pub id: String,
+    pub rows: Vec<Row>,
+    pub topics: Vec<AppTopic>,
+    pub spaces: Vec<SpaceDecl>,
+    /// What it may call and subscribe to besides its own names.
+    pub calls: Vec<String>,
+    pub caps: Vec<harnix_contract::s1::Capability>,
+    pub carrier: PackageCarrier,
+    pub sink: Option<Arc<dyn AppTopicSink>>,
+}
+
 struct Live {
     summary: AppSummary,
     topics: Vec<AppTopic>,
@@ -209,23 +223,9 @@ impl Apps {
         }
     }
 
-    fn live(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, Live>> {
-        lock(&self.live)
-    }
-
-    async fn undo(&self, topics: &[String], spaces: &[String]) {
-        for id in spaces {
-            self.surfaces.remove_space(id);
-        }
-        for name in topics {
-            self.surfaces.withdraw_topic(name, "the application was not registered").await;
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl AppRuntime for Apps {
-    async fn register(&self, by: &str, spec: AppSpec) -> Result<AppSummary, RpcError> {
+    /// Install one package's rows, topics and spaces, with its consent: all or nothing, one at a
+    /// time. What `register` and the extension host's runtime registration both come down to.
+    pub(crate) async fn install(&self, by: &str, spec: Package) -> Result<AppSummary, RpcError> {
         let _serial = self.serial.lock().await;
         let host = subject_of(by);
         let id = spec.id.clone();
@@ -266,7 +266,7 @@ impl AppRuntime for Apps {
         // Its `hub` is its consent: names that exist and are not the hub's own. Another
         // application's names are left to that application's principals. What a name requires
         // beyond that it does not hold: a package holds none of the kernel's capabilities.
-        for name in &spec.hub {
+        for name in &spec.calls {
             if names_an_application(name) {
                 continue;
             }
@@ -281,24 +281,15 @@ impl AppRuntime for Apps {
             }
         }
 
-        let methods: Vec<String> = spec.methods.iter().map(|m| app_name(&id, &m.name)).collect();
         let topics: Vec<String> = spec.topics.iter().map(|t| app_name(&id, &t.name)).collect();
-        // The application itself always reaches its own names: its tools ask its backend.
-        let with_self = |principals: &[Principal]| {
-            let mut principals = principals.to_vec();
-            principals.push(Principal::Module(id.clone()));
-            access_for(&principals)
-        };
-        let rows: Vec<Row> = spec
-            .methods
+        let methods: Vec<String> = spec
+            .rows
             .iter()
-            .zip(&methods)
-            .map(|(m, name)| {
-                Row::method(name.clone(), with_self(&m.principals), Arc::new(RuntimeMethod(m.handler.clone())))
-                    .describe(m.description.clone())
-            })
-            .chain(spec.topics.iter().zip(&topics).map(|(t, name)| Row::topic(name, with_self(&t.principals))))
+            .map(Row::name)
+            .filter(|name| !topics.iter().any(|t| topic(t) == *name))
+            .map(str::to_string)
             .collect();
+        let rows = spec.rows;
         if let Err(e) = az.table().check_app(&id, rows.iter().map(Row::name)) {
             let name = match &e {
                 TableError::Taken(n) | TableError::Namespace(n) => n.clone(),
@@ -328,7 +319,7 @@ impl AppRuntime for Apps {
         // 2. Its consent, then the table in one write: its rows with their handlers. Audited
         //    there. From here its subject reaches its `hub` and its own names, narrowed to its
         //    own space, and nothing more.
-        self.grants.set(ext_of(&id), [], Trust::consent(spec.hub.iter().cloned(), PackageCarrier::Wasm));
+        self.grants.set(ext_of(&id), spec.caps, Trust::consent(spec.calls.iter().cloned(), spec.carrier));
         if let Err(e) = az.install_app(&host, &id, rows) {
             self.grants.remove(&ext_of(&id));
             self.undo(&declared_topics, &added_spaces).await;
@@ -337,7 +328,7 @@ impl AppRuntime for Apps {
         for space in &added_spaces {
             az.audit().record_change(&host, &format!("space:{space}"), Change::Declare, Some("declared by a runtime application"));
         }
-        let client = match &spec.topic_sink {
+        let client = match &spec.sink {
             Some(sink) => self.surfaces.add_client(Arc::new(TopicFrames(sink.clone()))).await,
             None => None,
         };
@@ -349,7 +340,7 @@ impl AppRuntime for Apps {
             methods,
             topics,
             spaces: added_spaces,
-            hub: spec.hub.clone(),
+            hub: spec.calls.clone(),
             since_ms: now_ms(),
         };
         self.live().insert(
@@ -361,6 +352,55 @@ impl AppRuntime for Apps {
             },
         );
         Ok(summary)
+    }
+
+    fn live(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, Live>> {
+        lock(&self.live)
+    }
+
+    async fn undo(&self, topics: &[String], spaces: &[String]) {
+        for id in spaces {
+            self.surfaces.remove_space(id);
+        }
+        for name in topics {
+            self.surfaces.withdraw_topic(name, "the application was not registered").await;
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl AppRuntime for Apps {
+    async fn register(&self, by: &str, spec: AppSpec) -> Result<AppSummary, RpcError> {
+        let id = spec.id.clone();
+        // The application itself always reaches its own names: its tools ask its backend.
+        let with_self = |principals: &[Principal]| {
+            let mut principals = principals.to_vec();
+            principals.push(Principal::Module(id.clone()));
+            access_for(&principals)
+        };
+        let rows: Vec<Row> = spec
+            .methods
+            .iter()
+            .map(|m| {
+                Row::method(app_name(&id, &m.name), with_self(&m.principals), Arc::new(RuntimeMethod(m.handler.clone())))
+                    .describe(m.description.clone())
+            })
+            .chain(spec.topics.iter().map(|t| Row::topic(&app_name(&id, &t.name), with_self(&t.principals))))
+            .collect();
+        self.install(
+            by,
+            Package {
+                id: id.clone(),
+                rows,
+                topics: spec.topics,
+                spaces: spec.spaces,
+                calls: spec.hub,
+                caps: Vec::new(),
+                carrier: PackageCarrier::Wasm,
+                sink: spec.topic_sink,
+            },
+        )
+        .await
     }
 
     async fn withdraw(&self, by: &str, id: &str) -> Result<AppWithdrawn, RpcError> {

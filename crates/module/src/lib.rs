@@ -1,4 +1,9 @@
-//! The compile-time module contract (concept §4.2).
+//! The compile-time module contract (concept §4.2), as a layer over the extension interface.
+//!
+//! The extension host knows extensions only: a module comes to it as an extension's descriptor
+//! ([`shim::describe`]), read from its registration functions, with the names it always had. Its
+//! context and its handlers' calls are this crate's, as they were; the vocabulary they share with
+//! the extension interface (credentials, the interface catalog) is that interface's.
 //!
 //! A **module** is source the application author links in: a space's
 //! backend, a product's domain service, one of Harnix's own built-ins. It is
@@ -18,21 +23,22 @@
 //! front-end half of the same contract.
 
 pub mod apps;
-pub mod catalog;
 mod context;
-mod credentials;
 mod events;
 pub mod manifest;
 mod methods;
 mod routes;
 mod sessions;
+pub mod shim;
 
 pub use apps::{AppHandle, AppHandler, AppHost, AppMethod, AppSpec, AppSummary, AppTopic, AppTopicSink, AppWithdrawn};
-pub use catalog::{Frequency, Point, PointKind};
+/// Every seam the interface is assembled out of: the extension interface's catalog.
+pub use harnix_ext::catalog;
+pub use harnix_ext::catalog::{Frequency, Point, PointKind};
 pub use context::{
     CallContext, InstanceHandle, Kernel, Listen, MigrateContext, MigrationReport, ModuleContext,
 };
-pub use credentials::{CredentialRef, Credentials, EnvCredentials};
+pub use harnix_ext::{CredentialRef, Credentials, EnvCredentials};
 pub use events::{EventRegistry, Events, TopicDecl};
 pub use manifest::Manifest;
 pub use methods::{Handler, MethodDecl, MethodRegistry};

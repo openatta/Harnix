@@ -51,6 +51,18 @@ impl Manifest {
         self.defines.push(spec);
         self
     }
+
+    /// The same, as the extension interface says it.
+    pub fn to_ext(&self) -> harnix_ext::Manifest {
+        let mut manifest = harnix_ext::Manifest::new(&self.id, &self.version)
+            .disclosure(&self.disclosure)
+            .requires(self.requires.iter().cloned())
+            .optional(self.optional.iter().cloned());
+        for spec in &self.defines {
+            manifest = manifest.defines(spec.clone());
+        }
+        manifest
+    }
 }
 
 /// Whether an id can name a module: lowercase letters, digits and `-`,

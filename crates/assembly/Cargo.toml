@@ -5,7 +5,7 @@ edition      = "2021"
 rust-version = "1.87"
 license      = "Apache-2.0"
 publish      = false
-description  = "App::builder(): a Harnix process assembled from compile-time modules"
+description  = "App::builder(): a Harnix process assembled from extensions, and the extension host"
 
 [dependencies]
 harnix-instance  = { workspace = true }
@@ -17,9 +17,14 @@ harnix-router    = { workspace = true }
 harnix-builtin   = { workspace = true }
 harnix-contract  = { workspace = true }
 harnix-module    = { workspace = true }
+harnix-ext       = { workspace = true }
+harnix-host-api  = { workspace = true }
 harnix-hub       = { workspace = true }
 harnix-transport = { workspace = true }
 tokio       = { workspace = true }
+# An extension's routes, served by the transport.
+axum           = { workspace = true }
+http-body-util = { workspace = true }
 async-trait = { workspace = true }
 anyhow      = { workspace = true }
 clap        = { workspace = true }

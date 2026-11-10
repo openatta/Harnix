@@ -1,9 +1,10 @@
-//! What the route table's rows are answered by, where the answer is the assembly's: a module's
-//! methods, a runtime application's, and the three this layer answers itself. Also the module's
-//! view of the process ([`ProcessKernel`]), and the diagnostics page.
+//! What the route table's rows are answered by, where the answer is the assembly's: a runtime
+//! application's methods, and the ones this layer answers itself. Also a module's view of the
+//! process ([`ProcessKernel`]), while modules are read through their shim, and the diagnostics
+//! page.
 //!
-//! A module method cannot shadow a hub method: both are rows in one table, and the table refuses
-//! a name already taken.
+//! An extension's method cannot shadow a hub method: both are rows in one table, and the table
+//! refuses a name already taken.
 
 use std::sync::{Arc, OnceLock, RwLock, Weak};
 
@@ -11,11 +12,11 @@ use harnix_contract::sync::read;
 use harnix_contract::{RpcError, Subject};
 use harnix_hub::{Hub, HubCell};
 use harnix_kernel::{CallContext, Dispatch, Handler, Rpc};
-use harnix_module::{AppHandler, InstanceHandle, Kernel, Listen, ModuleContext, SessionRef, Tap};
+use harnix_module::{AppHandler, InstanceHandle, Kernel, Listen, SessionRef, Tap};
 use harnix_router::Router;
 use serde_json::{json, Value};
 
-use crate::modules::ModuleStatus;
+use crate::host::ExtensionStatus;
 
 /// What the kernel's rows are answered by, filled in as each is built: the rows go in the table
 /// at registration, with every other name, before the hub or the diagnostics exist.
@@ -26,25 +27,6 @@ pub(crate) struct Behind {
     pub hello: Arc<OnceLock<Arc<crate::kernel_rows::Hello>>>,
     pub process: Arc<OnceLock<Arc<crate::process::Process>>>,
     pub diagnostics: Arc<OnceLock<Arc<Diagnostics>>>,
-}
-
-/// A compiled-in module's method: its handler, with the module's context once the module is
-/// started. Until then it answers that it is not served — the same answer a name nobody declared
-/// gets from below, and what it got before a method was a row.
-pub(crate) struct ModuleMethod {
-    pub handler: Arc<dyn harnix_module::Handler>,
-    pub cx: Arc<OnceLock<ModuleContext>>,
-    pub name: String,
-}
-
-#[async_trait::async_trait]
-impl Handler for ModuleMethod {
-    async fn call(&self, cx: CallContext, params: Value) -> Rpc<Value> {
-        let Some(module) = self.cx.get().cloned() else {
-            return Err(RpcError::not_found(format!("method `{}` is not served here (yet)", self.name)));
-        };
-        self.handler.call(harnix_module::CallContext::new(cx, module), params).await
-    }
 }
 
 /// A runtime application's method (`crate::apps`).
@@ -168,11 +150,12 @@ impl Kernel for ProcessKernel {
     }
 }
 
-/// What this process is made of and what did not take: `harnix.diagnostics`.
+/// What this process is made of and what did not take: `harnix.diagnostics`, `harnix.extensions`.
 pub(crate) struct Diagnostics {
     pub versions: Value,
-    pub modules: RwLock<Vec<ModuleStatus>>,
-    pub unknown_sections: Vec<String>,
+    pub extensions: RwLock<Vec<ExtensionStatus>>,
+    /// The extensions registered while the process runs.
+    pub dynamic: OnceLock<Arc<crate::apps::Apps>>,
     /// The router whose table `table` lists; set once it exists, and weak because the router
     /// holds the rows that hold this.
     pub router: OnceLock<Weak<Router>>,
@@ -184,11 +167,10 @@ impl Diagnostics {
     }
 
     pub(crate) fn report(&self) -> Value {
-        let modules = read(&self.modules).clone();
+        let extensions = read(&self.extensions).clone();
         json!({
             "versions": self.versions,
-            "modules": modules,
-            "unknown_config_sections": self.unknown_sections,
+            "modules": extensions,
             "table": self.table(),
             // Over the single-duplex in-flight cap a request is answered `BUSY`; a notification has
             // nothing to answer and is dropped, counted here (ipdrun-01).
@@ -205,10 +187,32 @@ impl Diagnostics {
         }
     }
 
+    /// Every extension, linked or registered while the process runs: its trust and carrier, its
+    /// version, whether it is enabled and why not, what it was granted, how many rows it has.
+    pub(crate) fn list(&self) -> Value {
+        let mut out: Vec<Value> = read(&self.extensions).iter().map(ExtensionStatus::summary).collect();
+        if let Some(apps) = self.dynamic.get() {
+            use harnix_module::apps::AppRuntime;
+            out.extend(apps.registered().into_iter().map(|a| {
+                json!({
+                    "id": a.id,
+                    "version": null,
+                    "trust": "consent",
+                    "carrier": "wasm",
+                    "enabled": true,
+                    "granted": [],
+                    "rows": a.methods.len() + a.topics.len(),
+                    "by": a.by,
+                })
+            }));
+        }
+        json!({ "extensions": out })
+    }
+
     /// The shape `harnix.contributions` has always had: every method the
-    /// modules registered, and what did not take.
+    /// extensions registered, and what did not take.
     pub(crate) fn contributions(&self) -> Value {
-        let modules = read(&self.modules);
+        let modules = read(&self.extensions);
         let methods: Vec<&String> = modules
             .iter()
             .filter(|m| m.enabled)

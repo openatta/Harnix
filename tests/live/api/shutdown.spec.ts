@@ -40,7 +40,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
 }
 
 test("a stop that never returns is cut short by a second signal", TAGS, async () => {
-  const backend = await startTestApp({ profile: "\n[modules.lifecycle]\nhang_on_stop = true\n" });
+  const backend = await startTestApp({ profile: "\n[ext.lifecycle]\nhang_on_stop = true\n" });
   try {
     process.kill(backend.pid, "SIGTERM");
     // In its `stop`, and staying there.
@@ -59,14 +59,14 @@ test("a stop that never returns is cut short by a second signal", TAGS, async ()
 });
 
 test("dispose waits for the process to finish before removing its directory", TAGS, async () => {
-  const backend = await startTestApp({ profile: "\n[modules.lifecycle]\nslow_stop_files = 20\n" });
+  const backend = await startTestApp({ profile: "\n[ext.lifecycle]\nslow_stop_files = 20\n" });
   await backend.dispose();
   expect(alive(backend.pid)).toBe(false);
   expect(existsSync(backend.scratch)).toBe(false);
 });
 
 test("stop still returns at once, without waiting for the process", TAGS, async () => {
-  const backend = await startTestApp({ profile: "\n[modules.lifecycle]\nslow_stop_files = 20\n" });
+  const backend = await startTestApp({ profile: "\n[ext.lifecycle]\nslow_stop_files = 20\n" });
   expect(() => backend.stop()).not.toThrow();
   // Whatever it left behind is the next run's to ignore; the process itself goes.
   for (let i = 0; i < 100 && alive(backend.pid); i += 1) await sleep(50);

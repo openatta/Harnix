@@ -15,7 +15,7 @@ use super::wiring::AppsWiring;
 use super::Basis;
 use crate::cli::Cli;
 use crate::devices;
-use crate::modules::Record;
+use crate::host::Record;
 
 /// A process that serves: the listeners' task, how to stop it, and the channels it has open.
 pub(super) struct Serving {
@@ -31,7 +31,7 @@ pub(super) async fn serve(
     basis: &Basis,
     app_name: &str,
     held: &Held,
-    records: &mut [Record],
+    records: &[Record],
     hub: &Arc<Hub>,
     ui_modules: &Arc<UiModules>,
     admission: &Admission,
@@ -60,19 +60,19 @@ pub(super) async fn serve(
         harnix_transport::BrowserAdmission::PageToken
     };
     let module_routes: Vec<harnix_transport::AppRoutes> = records
-        .iter_mut()
+        .iter()
         .filter(|r| r.is_enabled())
-        .filter_map(|r| {
-            r.route.take().map(|decl| harnix_transport::AppRoutes {
-                id: r.manifest.id.clone(),
-                router: decl.router,
-            })
+        .filter_map(|r| r.descriptor.as_ref())
+        .filter(|d| !d.routes().is_empty())
+        .map(|d| harnix_transport::AppRoutes {
+            id: d.id().to_string(),
+            router: crate::host::routes::router(d.routes().to_vec()),
         })
         .collect();
-    let bulk: Arc<dyn harnix_transport::BulkStore> = match &held.builtin {
-        Some(builtin) => builtin.clone(),
-        None => Arc::new(NoUploads),
-    };
+    let bulk: Arc<dyn harnix_transport::BulkStore> = Arc::new(crate::host::seat::Uploads {
+        host: admission.seats.bulk.clone(),
+        builtin: held.builtin.clone(),
+    });
     let max_upload_bytes = held
         .builtin
         .as_ref()
@@ -150,6 +150,7 @@ pub(super) async fn serve(
     // Where it listens, once it does: to the modules (ipdrun-14) and into the lock file (ipdrun-09).
     let told = {
         let kernel = admission.kernel.clone();
+        let listen = admission.listen.clone();
         let state_lock = state_lock.clone();
         let apps = apps.clone();
         move |bound: Vec<SocketAddr>| {
@@ -157,6 +158,7 @@ pub(super) async fn serve(
             let url = format!("{scheme}://{first}/");
             state_lock.listening(&url);
             apps.listening(&url);
+            listen.send_replace(Some(harnix_kernel::seat::Listening { addrs: bound.clone(), url: url.clone() }));
             kernel.listen.send_replace(Some(harnix_module::Listen { addrs: bound, url }));
         }
     };
@@ -183,8 +185,8 @@ pub(super) async fn serve(
     );
     for record in records.iter().filter(|r| !r.is_enabled()) {
         println!(
-            "  module `{}` disabled at {}: {}\n",
-            record.manifest.id,
+            "  extension `{}` disabled at {}: {}\n",
+            record.manifest.id(),
             record.status.phase.unwrap_or("?"),
             record.status.reason.clone().unwrap_or_default()
         );
@@ -232,17 +234,6 @@ fn listen_addrs(host: IpAddr, port: u16) -> Vec<SocketAddr> {
         addrs.push(SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), port));
     }
     addrs
-}
-
-/// The bulk store of an application built without the built-ins: nothing
-/// was ever granted, so nothing is claimed.
-struct NoUploads;
-
-#[async_trait::async_trait]
-impl harnix_transport::BulkStore for NoUploads {
-    async fn claim(&self, _token: &str) -> Option<(std::path::PathBuf, usize)> {
-        None
-    }
 }
 
 #[cfg(test)]
