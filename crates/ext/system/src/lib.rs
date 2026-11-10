@@ -11,7 +11,7 @@
 use std::time::Duration;
 
 use harnix_ext::{
-    caps, Access, Call, Extension, ExtensionContext, Manifest, Registrar, RowScope, Rpc, RpcError, SpaceDecl,
+    catalog, caps, Access, Call, Extension, ExtensionContext, Manifest, Registrar, RowScope, Rpc, RpcError, SpaceDecl,
     TopicCompute,
 };
 use serde_json::{json, Value};
@@ -90,6 +90,10 @@ impl Extension for System {
             .describe("this process's versions, uptime, memory, threads and who is connected")
             .raw(|call: Call, _| async move { Ok(call.ext().process()?.to_json()) });
         r.topic("process").computed(Some(PROCESS_EVERY), Process);
+        // Its UI package defines the console's tabs and the inspector's pages for others to fill.
+        for point in catalog::points_of(ID) {
+            r.ui().point(point.decl());
+        }
     }
 }
 

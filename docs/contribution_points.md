@@ -1,6 +1,7 @@
 # 界面贡献点
 
-Harnix 的界面由八个具名的贡献点拼起来（0.4 的 v2：在 v1 的六个之上加了 `space` 与 `home.card`）。
+Harnix 的界面由九个具名的贡献点拼起来（贡献点 v3：在 0.4 的八个之上加了 `session.action`），外加第一方扩展自己定义、
+别的 UI 包往里注册的点（如 `system.console.tab`，见第二张表，不算进九个）。
 
 **这首先不是给第三方代码用的扩展面。** 扩展 agent 是 Agix 的事——脚本、manifest、能力门控、沙箱、披露，全在那边；
 Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发给浏览器，与页面同级（[概念](concept_and_architecture.md) §5.8，产品可以用
@@ -15,9 +16,11 @@ Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发
 什么都养不起。所以这里没有一个点跟着流式增量走——一轮十几次谁都养得起，一轮几千次谁都
 养不起。
 
-**八个，加第九个是一个需要论证的决定。** 一个没人用的点不是接缝，只是这张表里的一行，所以每个点
-都要有人在用：内建的会话、项目、系统 space 注册 `space`，其余六个也都有内建注册。`home.card` 是例外：
-M8 去掉 HOME 之后它没有内建注册了，外壳在新对话的输入框下读它，`examples/hello-app` 注册了一张。
+**九个，加第十个是一个需要论证的决定。** 一个没人用的点不是接缝，只是这张表里的一行，所以每个点
+都要有人在用：第一方 UI 包注册 `space`（会话、项目、系统）、`sidebar.group`、`command`、`settings.section`、`session.action`，
+外壳自己注册 `tool.row`、`flow.block`、`details.panel`。`home.card` 是例外：外壳在新对话的输入框下读它，`examples/hello-app` 注册了一张。
+第九个 `session.action` 的理由：0.4 的外壳里写死了三样只属于某个扩展的东西——标题栏的「在系统里打开」、工具行的「在系统里看」、
+会话菜单里的归档与导出——它们是同一种东西，没有现成的点能承载。
 
 令牌覆盖（`r.tokens`）与语言包（`r.strings`）不是贡献点：它们改的是主题和词典本身，不在任何时机被「问」。
 
@@ -39,7 +42,18 @@ M8 去掉 HOME 之后它没有内建注册了，外壳在新对话的输入框�
 | `session.action` | 注册 | 对一个会话或它里面一次工具调用的动作（`at`：标题栏、会话菜单、工具行） | 标题栏、会话菜单、工具行画出时 | 每次交互(10⁰–10¹ 量级) |
 <!-- END GENERATED TABLE -->
 
-上面这张表由 `harnix_ext::catalog` 生成，这份文件一旦和它对不上，
+第一方扩展定义的点：定义者的 UI 包 `definePoint`，后端在 `UiDecl` 里声明同一个点；别的包往里注册，没人定义时注册丢掉、
+进诊断，给了 `orElse` 的改调它（`@harnix/flow` 没有系统 space 时注册自己的 space）。
+
+<!-- BEGIN GENERATED EXTENSION TABLE — see harnix_ext::catalog::render_extension_markdown -->
+
+| 贡献点 | 定义者 | 类型 | 贡献什么 | 求值时机 | 频率 |
+|---|---|---|---|---|---|
+| `system.console.tab` | `system` | 注册 | 系统 space 控制台的一个页签（`{id, title(), render(), order?, about?()}`） | 系统 space 的控制台画出时 | 每次交互(10⁰–10¹ 量级) |
+| `system.inspector.tab` | `system` | 呈现 | 系统 space 右栏里选中会话的一页（`{id, title(target), match(target), render(target), tools?}`） | 右栏的选中项变化时 | 每次交互(10⁰–10¹ 量级) |
+<!-- END GENERATED EXTENSION TABLE -->
+
+上面两张表由 `harnix_ext::catalog` 生成，这份文件一旦和它对不上，
 `crates/harnix/tests/catalog_doc.rs` 就会失败。要改改 catalog，别改表。
 
 ---
@@ -73,7 +87,7 @@ M8 去掉 HOME 之后它没有内建注册了，外壳在新对话的输入框�
 
 ## 插件 APP 落在哪些点上
 
-插件 APP（[插件](harnix-plugin.md)）不加新的贡献点：外壳照它的清单，替它往这八个点上注册，注册的 owner 是应用的 id。
+插件 APP（[插件](harnix-plugin.md)）不加新的贡献点：外壳照它的清单，替它往这九个点上注册，注册的 owner 是应用的 id。
 
 **面**（`[[surface]] point`，画在隔离的 iframe 里；iframe 的沙箱、CSP 与面的生命周期见 [插件](harnix-plugin.md) §6.2）：
 
