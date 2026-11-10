@@ -762,7 +762,7 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 | 模块 API | `1` | `harnix::MODULE_API_VERSION` | 模块契约有模块看得见的变化。**编译期**检查：`Module::API_VERSION` 不等就编译不过。模块的路由是 `axum::Router`（`harnix::axum` 重导出），所以**axum 的大版本是它的一部分**：模块 API 1 = axum 0.8，升 axum 的大版本就是升模块 API。契约里还露着 Agix 的类型（`EngineContrib::customize_session` 的 `Builder` 与 `SessionCtx`、`InstanceHandle` 里的历史存储），它们随 Agix 变而这个数不动：靠的是一个 Harnix 发布只对一个 Agix 发布（升 Agix 就是出一个新的 Harnix 发布），见下一行 |
 | `harnix::agent`、`harnix::scenes`、`harnix::plugin` | 随 Agix | 就是 Agix 的 `base` 与 `scene` crate、`runtime::plugin` 模块，原样重导出 | 随它带的 Agix 变：Agix 改一个 `Tool` 的签名，写了原生工具的应用就要改。**不在**模块 API 只做加法的承诺之内。升 Harnix 时看它的发布说明里的 Agix 一行 |
 | 贡献点 API | `3` | `harnix::CONTRIB_API_VERSION`；`harnix.hello` 里也有 | 贡献点的契约变了。2：运行期包的界面模块是预编译的 ES 模块，从页面的 import map 拿 React；**React 的大版本是它的一部分**。3：宿主 API `HostApi`/`useHost()`、第九个内核点 `session.action`、扩展自己定义的点（`definePoint`）、`space` 分组、按 `hello.extensions` 激活 |
-| 协议 | `4` | `harnix_contract::PROTOCOL_VERSION` | 握手比对，不一致拒绝（`HANDSHAKE_REFUSED`） |
+| 协议 | `5` | `harnix_contract::PROTOCOL_VERSION` | 握手比对，不一致拒绝（`HANDSHAKE_REFUSED`）。5：名字规整（内核 `harnix.<区域>.<动词>`、引擎直通 `engine.*`、扩展在自己的 id 下），默认实例叫 `main`，新增错误码 `CANCELLED`、`DEADLINE_EXCEEDED`、`EXTENSION_UNAVAILABLE` |
 | 应用接口（插件 APP） | `1` | `harnix-app.toml` 的 `[app] harnix_api`；`harnix_package::HARNIX_API` | 插件 APP 的契约（WIT world 与清单）有破坏性变化。见 [插件](harnix-plugin.md) §13 |
 | 扩展线 | `1` | `harnix_wasm_port::EXT_WIRE_VERSION` | 产品与它自己的扩展进程之间那条线（`harnix-ext-wire`）的帧或方法改了形状。两端是同一次构建，扩展进程的 `proc.hello` 报的数不等就被拒绝；应用不直接用它 |
 
@@ -1101,7 +1101,7 @@ schema、来自哪个模块）。下表是分组索引，参数与答写在各�
 
 | 组 | 方法 | 谁 |
 |---|---|---|
-| 握手与会话驱动（中枢） | `harnix.hello`（含 `shell`：品牌、留下的内建 space、`runtime_modules`、`new_session`、`narrow_details`、目录）、`harnix.sessions.list`、`harnix.session.attach`、`harnix.session.detach`、`harnix.session.send`、`harnix.session.queue.remove`、`harnix.session.queue.edit {session_id, item_id, message}`（改排队中一条的话，位置与附件不变；已开始或已撤回的答 REFUSED）、`harnix.topics.subscribe`、`harnix.topics.unsubscribe` | 设备 |
+| 握手与会话驱动（中枢） | `harnix.hello`（含 `shell`：品牌、`runtime_modules`、`new_session`、`model_switch`、`narrow_details`、目录；`extensions`：每个扩展的 id、信任、载体、版本、是否启用）、`harnix.sessions.list`、`harnix.session.attach`、`harnix.session.detach`、`harnix.session.send`、`harnix.session.queue.remove`、`harnix.session.queue.edit {session_id, item_id, message}`（改排队中一条的话，位置与附件不变；已开始或已撤回的答 REFUSED）、`harnix.topics.subscribe`、`harnix.topics.unsubscribe` | 设备 |
 | 进程（中枢） | `system.process`：版本、运行时长、峰值内存、`threads`（操作系统计的本进程线程数，取不到为 null）、已连接用户（设备、连接方式、User-Agent、连上的时间） | 设备 |
 | 实例（中枢） | `harnix.instances.list / templates / create / ensure / stop / restart / wait`、`harnix.sessions.list {instance? 或 space?}`、`harnix.session.tasks`。`create` / `ensure` 可带 `wait: "ready"`、`timeout_ms`（缺省 60000）：等这台变成 `ready` 再答，变成 `down` 立即以 `-31004` 报错（带理由），超时同样；`wait {instance, timeout_ms?}` 是对已有实例的同一种等。并发 `ensure` 同名同模板都拿到同一台 | 设备（`create` 只认 `ui` 模板） |
 | space、条目（中枢） | `harnix.spaces.list`；`harnix.session.entries.append`、`harnix.session.move {instance?, session_id, space}`（会话改归另一个 space，同 `Sessions::move_to`，§17.6）只许模块与内核 | — |

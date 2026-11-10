@@ -98,6 +98,21 @@ fn export_the_protocol_types() {
             "CONFLICT",
             codes::CONFLICT,
         ),
+        (
+            "Harnix: the call was cancelled before it answered, by its caller or because what it was made for was.",
+            "CANCELLED",
+            codes::CANCELLED,
+        ),
+        (
+            "Harnix: the call's deadline passed before it answered or before it started; an extension package's backend that outruns its `timeout_ms` is this too.",
+            "DEADLINE_EXCEEDED",
+            codes::DEADLINE_EXCEEDED,
+        ),
+        (
+            "Harnix: the extension is there and cannot answer now; `data.failure` is `starting`, `stopped`, `faulted` or `reentrant`. An instance out of reach is `INSTANCE_UNAVAILABLE`.",
+            "EXTENSION_UNAVAILABLE",
+            codes::EXTENSION_UNAVAILABLE,
+        ),
     ] {
         out += &constant(docs, name, value);
     }

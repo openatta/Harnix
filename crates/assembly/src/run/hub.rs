@@ -168,7 +168,8 @@ fn brand_icon(profile: &Profile, profile_path: Option<&Path>) -> Option<PathBuf>
 }
 
 /// What the shell is told at hello: the brand, whether installed packages' interface modules
-/// load (concept §5.8), and whether it starts new sessions at all (`new_session`, ipdrun-46).
+/// load (concept §5.8), whether it starts new sessions at all (`new_session`, ipdrun-46), and
+/// whether the composer switches a session's model (`model_switch`).
 fn shell(profile: &Profile, roots: &Roots, has_icon: bool) -> Value {
     json!({
         "brand": {
@@ -178,6 +179,7 @@ fn shell(profile: &Profile, roots: &Roots, has_icon: bool) -> Value {
         },
         "runtime_modules": profile.ui.runtime_modules,
         "new_session": profile.shell.new_session,
+        "model_switch": profile.shell.model_switch,
         "narrow_details": profile.shell.narrow_details.as_str(),
         "state_dir": roots.state.display().to_string(),
         "projects_dir": roots.projects.display().to_string(),

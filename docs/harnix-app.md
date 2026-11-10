@@ -153,9 +153,9 @@ Harnix app 的项目在 `--data-dir`（`$HARNIX_DATA_DIR`，缺省 `~/Documents`
 
 ### 6.3 `harnix.hello` 里的 `shell`
 
-外壳不读 profile，读握手之后 `harnix.hello` 的 `shell`：`spaces`、`brand {name, icon, product_id}`、`runtime_modules`、`new_session`、
-`narrow_details`、`state_dir`、`projects_dir`、`user`。`model_switch` 不在里面：外壳看 `harnix.reachable` 里有没有
-`harnix.session.setModel`。
+外壳不读 profile，读握手之后 `harnix.hello` 的 `shell`：`brand {name, icon, product_id}`、`runtime_modules`、`new_session`、
+`model_switch`、`narrow_details`、`state_dir`、`projects_dir`、`user`。哪些内建 space 留着，外壳看 `hello.extensions` 里启用的扩展
+（会话与项目是 `harnix-app` 的，系统 space 是 `system` 的）。
 
 ## 7. 它是怎么用框架做的
 

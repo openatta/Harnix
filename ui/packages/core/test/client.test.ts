@@ -53,7 +53,7 @@ describe("单双向流", () => {
   it("call 按 id 配对应答；错误以 {code, message} reject", async () => {
     const server = new FakeServer();
     server.answer = (method, params) => {
-      if (method === "harnix.handshake") return { topology: "single_duplex", protocol_version: 4, contrib_api_version: CONTRIB_API_VERSION };
+      if (method === "harnix.handshake") return { topology: "single_duplex", protocol_version: 5, contrib_api_version: CONTRIB_API_VERSION };
       if (method === "harnix.session.attach") return { session: { session_id: params.session_id }, seq: 7 };
       if (method === "harnix.session.send") return new RpcFailure({ code: -32602, message: "empty message" });
       return {};
@@ -178,7 +178,7 @@ describe("分离流回退", () => {
     expect(client.topology).toBe("split_streams");
     // 上游 client.js 在这里会因 onclose 再走一次回退；移植版只握手一次。
     expect(split.requests.filter((r) => r.url.endsWith("/handshake"))).toHaveLength(1);
-    expect(split.requests[0]!.body).toMatchObject({ token: "tok en", topology: "split_streams", protocol_version: 4 });
+    expect(split.requests[0]!.body).toMatchObject({ token: "tok en", topology: "split_streams", protocol_version: 5 });
     expect(split.sources.map((s) => new URL(s.url).pathname)).toEqual(["/events/session", "/events/host"]);
     expect(split.sources[0]!.url).toContain("token=cred-1");
 

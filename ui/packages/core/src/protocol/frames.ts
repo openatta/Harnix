@@ -92,10 +92,8 @@ export interface Hello {
   /** Every extension and whether it is enabled: the shell activates its compiled-in UI packages by
    *  this before its first draw. What changes later is `harnix.ui`'s. */
   extensions?: ExtensionEntry[];
-  /** What this product is and keeps (concept §5.10): its brand, the built-in spaces it keeps of
-   *  `sessions` / `projects` / `system`, whether packages' interface modules load. */
+  /** What this product is (concept §5.10): its brand, whether packages' interface modules load. */
   shell?: {
-    spaces?: string[];
     brand?: { name?: string | null; icon?: string | null; product_id?: string };
     runtime_modules?: boolean;
     state_dir?: string;
@@ -105,6 +103,8 @@ export interface Hello {
     /** False (`[shell] new_session = false`, ipdrun-46): the shell draws no "New session" button and
      *  ⌘K starts none, in every space. Absent or true: as before. */
     new_session?: boolean;
+    /** `[shell] model_switch`: the composer changes a session's model through `harnix.session.setModel`. */
+    model_switch?: boolean;
     /** `[shell] narrow_details` (ipdrun-50): "beside" keeps three columns at ≤ 960px instead of
      *  maximizing an open right column over the conversation. Absent or "over": as before. */
     narrow_details?: "over" | "beside";

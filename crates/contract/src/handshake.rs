@@ -18,7 +18,11 @@ use serde::{Deserialize, Serialize};
 /// (`ui/packages/core/src/protocol/generated/contract.ts`, checked for drift by
 /// `scripts/check.sh`) — a version written down twice by hand eventually
 /// disagrees with itself, and the symptom is a refused handshake nobody changed.
-pub const PROTOCOL_VERSION: u32 = 4;
+///
+/// 5: the names are regular — the kernel's are `harnix.<area>.<verb>`, the engine's pass-through
+/// rows are `engine.*`, an extension's are under its id — and `harnix.hello` says `main` where it
+/// said `system`.
+pub const PROTOCOL_VERSION: u32 = 5;
 
 /// The contribution point API. Bumped when a contribution point's contract
 /// changes — separately from the protocol, because a UI bundle can be current
