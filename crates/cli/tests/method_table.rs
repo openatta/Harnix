@@ -10,10 +10,10 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 fn snapshot_path() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/method-table.snap.json")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../harnix/tests/method-table.snap.json")
 }
 
-/// What `harnix-cli` assembles: the built-ins and the flow module.
+/// What this binary assembles: the built-ins and the flow module, granted what `main` grants it.
 fn the_harnix_app() -> harnix::AppBuilder {
     harnix::App::builder()
         .with_builtins()

@@ -43,12 +43,3 @@ axum        = { workspace = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }
 
-[dev-dependencies]
-# The Harnix app's default assembly, whose route table `tests/method_table.rs` pins.
-harnix-ext-flow = { workspace = true }
-tempfile        = { workspace = true }
-tokio           = { workspace = true }
-
-[[test]]
-name = "method_table"
-required-features = ["testing"]

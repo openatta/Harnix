@@ -803,8 +803,10 @@ fn every_harnix_dependency_resolves() {
         "contract",
         "engine",
         "engine-api",
+        "ext/api",
         "ext/flow",
         "harnix",
+        "host-api",
         "hub",
         "kernel",
         "module",
@@ -824,6 +826,8 @@ fn every_harnix_dependency_resolves() {
         .map(|c| {
             if *c == "harnix" {
                 "harnix".to_string()
+            } else if *c == "ext/api" {
+                "harnix-ext".to_string()
             } else {
                 format!("harnix-{}", c.replace('/', "-"))
             }
@@ -1244,13 +1248,11 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P10"]
     fn l12_ext() {
         depends(EXT, &[CONTRACT, KERNEL, ENGINE_API], &agix_and(&[ENGINE, "wasmtime"]), &["axum"]);
     }
 
     #[test]
-    #[ignore = "0.5.0：P10"]
     fn l13_host_api() {
         depends(HOST_API, &[CONTRACT, EXT, ENGINE_API], &agix_and(&[KERNEL, ENGINE]), &[]);
     }
@@ -1380,7 +1382,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P10"]
     fn l25_the_host_api_is_the_assemblys_and_the_host_components() {
         only_used_by(HOST_API, &[ASSEMBLY, PACKAGES, CARRIER_WASM, CARRIER_PROC], &[]);
         assert!(member_names().iter().any(|n| n == HOST_API), "`{HOST_API}` does not exist (yet)");
@@ -1554,7 +1555,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P10"]
     fn c06_the_extension_interface_hides_nothing_and_names_no_agix() {
         assert_interface_crate_is_clean(EXT);
     }
@@ -1724,7 +1724,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P10"]
     fn c13_the_kernel_is_named_only_inside_the_extension_interfaces_internal_module() {
         let dir = crate_dir(EXT).join("src");
         assert!(dir.join("internal").is_dir() || dir.join("internal.rs").is_file(), "`internal` does not exist (yet)");
@@ -1875,7 +1874,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P10"]
     fn c14_the_extension_interface_and_the_host_api_are_non_exhaustive() {
         assert_non_exhaustive(sources(EXT));
         assert_non_exhaustive(sources(HOST_API));
@@ -1892,7 +1890,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P10"]
     fn c15_the_extension_interface_has_no_feature_gated_members() {
         assert_no_feature_gated_members(sources(EXT));
     }
