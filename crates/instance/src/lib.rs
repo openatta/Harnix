@@ -28,14 +28,8 @@
 #[cfg(not(unix))]
 compile_error!("harnix-instance builds on unix only (Linux and macOS are the ones exercised)");
 
-#[macro_use]
-mod delegate;
-mod admit;
-mod attended;
-pub mod contrib;
 pub mod data_lock;
 mod daemon_link;
-pub mod engine;
 mod factory;
 mod inherit;
 mod inproc;
@@ -46,13 +40,15 @@ mod serve;
 mod servers;
 pub mod templates;
 
-pub use contrib::EngineContrib;
+/// The engine itself, built in this process: `harnix-engine`'s, under the names this layer has
+/// always given it.
+pub use harnix_engine::{contrib, engine, EngineContrib};
 /// The engine's own error codes (`session not found`, `turn in progress`, …), for a layer above
 /// that has to tell them apart: they are part of what a link carries, so whoever holds a link
 /// reads them from here rather than from the engine's crate.
 pub use daemon::rpc::codes as engine_codes;
 pub use daemon_link::{DaemonLink, DaemonSpec, Endpoint, SpawnOptions, SpawnSpec};
-pub use engine::{build as build_engine, Engine, EngineConfig};
+pub use harnix_engine::{build as build_engine, Engine, EngineConfig};
 pub use factory::{engine_config, Built, Facts, Factory};
 pub use inproc::InProcessLink;
 pub use link::{Carrier, DownLink, EngineLink, LinkStatus};

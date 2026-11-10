@@ -1,0 +1,21 @@
+[package]
+name = "harnix-engine"
+version      = "0.4.2-2026110901"
+edition      = "2021"
+rust-version = "1.87"
+license      = "Apache-2.0"
+publish      = false
+description  = "Agix, behind Harnix's engine interface: the one crate that links the engine"
+
+[dependencies]
+daemon      = { workspace = true }
+base        = { workspace = true }
+model       = { workspace = true }
+scene       = { workspace = true }
+history     = { workspace = true }
+runtime     = { workspace = true }
+tokio       = { workspace = true }
+tokio-util  = { workspace = true }
+anyhow      = { workspace = true }
+tracing     = { workspace = true }
+reqwest     = { workspace = true }

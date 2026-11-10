@@ -104,7 +104,7 @@ fn resolve_scene(
 
 /// The scenes an engine serves: its default and the others it was given, once each and sorted.
 /// The same for one built here and one spawned with the same profile (`factory.rs`).
-pub(crate) fn active_scenes(scene: &str, scenes: &[String]) -> Vec<String> {
+pub fn active_scenes(scene: &str, scenes: &[String]) -> Vec<String> {
     let mut all: Vec<String> = std::iter::once(scene.to_string())
         .chain(scenes.iter().cloned())
         .collect();
