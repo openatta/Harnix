@@ -9,6 +9,7 @@
 //! An extension that fails at any step is disabled with everything it declared, and the rest go
 //! on; the diagnostics and `harnix.extensions` say which and why ([`status`]).
 
+pub(crate) mod contribution;
 pub(crate) mod dynamic;
 pub(crate) mod lifecycle;
 pub(crate) mod routes;

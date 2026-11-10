@@ -241,7 +241,7 @@ pub(crate) fn main_contribution(records: &[Record]) -> EngineContribution {
     for record in records.iter().filter(|r| r.is_enabled()) {
         let Some(d) = &record.descriptor else { continue };
         for c in [d.engine(), d.engine_everywhere()].into_iter().flatten() {
-            all.extend(harnix_engine_api::host::gated(c.clone(), record.enabled.clone()));
+            super::contribution::merge(&mut all, &super::contribution::gated(c, record.enabled.clone()));
         }
     }
     all
@@ -254,7 +254,7 @@ pub(crate) fn everywhere(records: &[Record]) -> (Vec<Arc<dyn ToolProvider>>, Vec
     let mut admitted = Vec::new();
     for record in records.iter().filter(|r| r.is_enabled()) {
         let Some(c) = record.descriptor.as_ref().and_then(|d| d.engine_everywhere()) else { continue };
-        let c = harnix_engine_api::host::gated(c.clone(), record.enabled.clone());
+        let c = super::contribution::gated(c, record.enabled.clone());
         providers.extend(c.providers().iter().cloned());
         admitted.extend(c.admitted().iter().cloned());
     }

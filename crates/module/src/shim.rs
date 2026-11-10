@@ -16,7 +16,7 @@ use harnix_ext::{Call, DescriptorBuilder, ExtensionDescriptor, MethodHandler};
 use serde_json::Value;
 
 use crate::{
-    CallContext, EngineContrib, ErasedModule, EventRegistry, Handler, InstanceTemplates, MethodRegistry,
+    CallContext, ErasedModule, EventRegistry, Handler, InstanceTemplates, MethodRegistry,
     ModuleContext, RouteRegistry, SpaceRegistry,
 };
 
@@ -63,17 +63,7 @@ pub fn describe(module: &dyn ErasedModule, id: &ExtId, prefix: &str, slot: &Modu
         d.space(space);
     }
 
-    let mut contrib = EngineContrib::new();
-    module.engine(&mut contrib);
-    if !contrib.scenes().is_empty()
-        || !contrib.providers().is_empty()
-        || !contrib.prompt_gates().is_empty()
-        || contrib.credential_source().is_some()
-        || !contrib.admitted().is_empty()
-        || !contrib.foreign_hooks().is_empty()
-    {
-        d.engine().extend(contrib);
-    }
+    module.engine(d.engine());
 
     let mut templates = InstanceTemplates::default();
     module.templates(&mut templates);

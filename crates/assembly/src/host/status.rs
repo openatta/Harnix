@@ -112,7 +112,7 @@ impl ExtensionStatus {
         self.topics = d.topics().iter().map(|t| t.name().to_string()).collect();
         self.routes = !d.routes().is_empty();
         self.tools = d.tools().iter().map(|t| t.name().to_string()).collect();
-        self.scenes = d.engine().map(|c| c.scene_ids()).unwrap_or_default();
+        self.scenes = d.engine().map(super::contribution::scene_ids).unwrap_or_default();
         self.templates = d.templates().iter().map(|t| t.id.clone()).collect();
         self.spaces = d.spaces().iter().map(|s| s.id.clone()).collect();
         if !d.ui().is_empty() {
