@@ -105,7 +105,7 @@ fn registry(
     apps.factory(&mut factory);
     let mut registry = RegistryConfig {
         templates: BTreeMap::new(),
-        ledger: Ledger::load(roots.state.join("instances.json"))?,
+        ledger: Ledger::load(roots.state.join("kernel").join("instances.json"))?,
         factory,
         instances_dir: roots.state.join("instances"),
         disabled: records

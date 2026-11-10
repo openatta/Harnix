@@ -1,13 +1,13 @@
 //! Which space a session belongs to (concept §5.4).
 //!
 //! A session is bound to one space when it is created and never moves. The binding is Harnix's own
-//! record — the engine knows nothing of spaces — kept in `.harnix/spaces.json` beside the instance
-//! ledger, with the instance a space's template built for it. A session with no record belongs to
-//! the default space — the one an extension declared `default_space()`, when one did: every one a
-//! caller created without saying.
+//! record — the engine knows nothing of spaces — kept in `kernel/spaces.json` in the state
+//! directory, beside the instance ledger, with the instance a space's template built for it. A
+//! session with no record belongs to the default space — the one an extension declared
+//! `default_space()`, when one did: every one a caller created without saying.
 //!
 //! A space needs no declaration here: one with only an interface and an Agent takes the defaults
-//! (`system`, the instance's scene). A module declares one to give it a default instance or scene.
+//! (`main`, the instance's scene). A module declares one to give it a default instance or scene.
 //!
 //! The same ledger records which sessions Harnix itself started — a module's or the kernel's,
 //! rather than a person's at a device — so the system space can mark them.

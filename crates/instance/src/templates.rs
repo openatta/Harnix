@@ -102,7 +102,7 @@ pub struct LedgerEntry {
     pub created_ms: u64,
 }
 
-/// `.harnix/instances.json`: Harnix's own record, apart from every engine.
+/// `kernel/instances.json` in the state directory: Harnix's own record, apart from every engine.
 pub struct Ledger {
     path: PathBuf,
     entries: Vec<LedgerEntry>,

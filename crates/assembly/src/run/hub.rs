@@ -71,7 +71,7 @@ pub(super) async fn assemble(
         .flat_map(|d| d.spaces().iter().map(|s| s.id.clone()))
         .collect();
     let declared = declared_spaces(records, profile.extensions.default_space.as_deref())?;
-    let spaces = harnix_hub::Spaces::load(roots.state.join("spaces.json"), declared.clone(), withheld)?;
+    let spaces = harnix_hub::Spaces::load(roots.state.join("kernel").join("spaces.json"), declared.clone(), withheld)?;
     let registry = InstanceRegistry::new(registry);
     let hub = Hub::new(HubConfig {
         instances: registry.clone(),

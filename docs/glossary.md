@@ -104,7 +104,7 @@
 | **桥** | `harnix-ui-bridge@1`，`@harnix/app-sdk` | 插件 APP 的 iframe 与外壳之间的协议：一个 `MessageChannel` 端口上的请求、应答与事件。iframe 只能经它请外壳去做清单允许的事 |
 | **space** | `space` | 总称：一块产品面。分两半，各有各的声明，用同一个 id 对上；单说 space 时看上下文是哪一半，要分清就说下面两个词 |
 | **界面 space** | 贡献点 `space`，`[[surface]] point = "space"` | 外壳里的那块：左栏（`sidebar()`）+ 中区（默认是对话，`center`）+ 右栏（`tabs`）合起来，原子注册 |
-| **后端 space** | `SpaceDecl`、清单的 `[[space]]`、`harnix.spaces.list`、`SPACE_MISMATCH` | 会话的归属：在它里面建的会话落在哪台实例、用哪个场景，会话永远属于建它的 space（账本 `spaces.json`）。两个界面 space 可以列同一个后端 space 的会话（项目 space 列的是会话 space 的）；只有界面没有后端的也行 |
+| **后端 space** | `SpaceDecl`、清单的 `[[space]]`、`harnix.spaces.list`、`SPACE_MISMATCH` | 会话的归属：在它里面建的会话落在哪台实例、用哪个场景，会话永远属于建它的 space（账本 `kernel/spaces.json`）。两个界面 space 可以列同一个后端 space 的会话（项目 space 列的是会话 space 的）；只有界面没有后端的也行 |
 | **部分** | — | 一个 space 的三个组成：**前端部分**（React，或插件 APP 的面）、**后端部分**（一个模块，或插件 APP 的后端）、**Agent 部分**（原生 Rust 贡献或 Agix 插件）。任意组合 |
 | **条目** | entry | space 左栏里用户新建的东西，例如项目 space 的项目（工作区）、Helm 的关注组。存在账本里 |
 | **前台 space** | — | 当前显示的 space。中区、输入框、右栏只操作它自己的会话 |

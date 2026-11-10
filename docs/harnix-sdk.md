@@ -267,7 +267,7 @@ Harnix 只管什么时候迁、失败了怎么办，不管用什么迁。数据�
 
 **目录的规矩**（维护者 2026-10-26 定）：
 
-- 程序自己的配置与状态（令牌、设备、工作区、`spaces.json`、`instances.json`、实例数据根、各模块的
+- 程序自己的配置与状态（令牌、设备、工作区、`kernel/spaces.json`、`kernel/instances.json`、实例数据根、各模块的
   `data_dir`）放 `~/.<product_id>`，不配 `[brand]` 就是 `~/.harnix`；`HARNIX_STATE_DIR` 能挪。
   0.4.0-2026102602 及以前放在 `~/Documents/.harnix`，新版本不迁移、不读它。
 - Documents 里只放项目，不放隐藏目录。
@@ -535,7 +535,7 @@ fn spaces(&self, s: &mut SpaceRegistry) {
 }
 ```
 
-会话在哪个 space 里建，就永远属于它（账本 `spaces.json`）。两个界面 space 可以列同一个后端 space 的
+会话在哪个 space 里建，就永远属于它（账本 `kernel/spaces.json`）。两个界面 space 可以列同一个后端 space 的
 会话：项目 space 就是写了 `sessions: 'sessions'` 的会话 space 的另一种列法。外壳每个会话调用都带上前台 space，
 中枢核对，不符就 `SPACE_MISMATCH`。要用别的 space 的会话，在输入框里 `@session:` 选它：发出去的是
 它说过的话的一份副本。
@@ -850,7 +850,7 @@ pub trait Module: Send + Sync + 'static {
 | `Events` | `cx.events().publish(topic, params_json, value).await`：推**整值快照**；`topic` 写短名 |
 | `RouteRegistry` | `r.serve(&[Principal], axum::Router)`：挂在 `/apps/<id>/` 下，同源，同一套准入 |
 | `SpaceRegistry` | `s.add(SpaceDecl::new(id).instance("template:<模块>.<模板>" \| "<实例 id>").scene(scene))`。不声明：`main` 实例、实例的默认场景 |
-| `InstanceTemplates` | `t.add(InstanceTemplate::new(id, carrier).data_root(pattern).param(name).ui().max(n).inherit_providers().reap_on_stop().native(\|e\| …))`。全名 `<模块 id>.<模板 id>`。实例的 id 就是建它时给的 `name`，全进程唯一；名字和参数只能是字母、数字、`-`、`_`、`.`，不能以 `.` 开头。`data_root` 默认 `{name}`，可用 `{name}` 和声明过的参数，在 `~/.<product_id>/instances/` 下；建过的实例记在 `instances.json`。`.ui()`：界面能按它建（只填 `param` 放开的参数）。`.max(n)`：至多 n 台。`inherit_providers()`：这个模板的实例也看得到 `system` 的 provider（设置页配的）——建实例时、以及每次 `settings.setProvider` 之后，Harnix 把它们并进实例数据根的 `settings.json`（0600）再让它 `engine.config.reload`；Harnix 写过哪些 id 记在 `.inherited-providers.json`，只动这些，实例自己配的同名 provider 不覆盖。`.reap_on_stop()`（ipdrun-07，缺省关）：停下或重启时收掉会话留下的进程。spawn 的 daemon 自成一个会话（`setsid`），它退出、被杀、崩溃或看护重启时，Harnix 把还留在这个会话里的进程 TERM、等 1.5 s、KILL；两种载体都在实例的全局设置层打开引擎的 `sandbox.reap_process_groups`（正常退出时引擎自己先收，进程内实例只有这一半）。daemon 在自己的会话里收不到终端的 Ctrl-C，退出照旧跟着 stdin 关闭走；自己 `setsid` 出去的进程收不到；实例视图带 `reap: true`。`.native(\|e\| …)`（ipdrun-10）：两种载体都有的原生贡献。进程内模板把它并在 `contrib` 之后；spawn 模板（`program` 为 `None`）的 daemon 带 `--template <全名>` 起来，照装配顺序对每个应用模块调一次 `templates()`（不调 `start`、不开任何方法），在自己进程里再调一遍闭包；找不到这个模板以 78 退出、实例 `down`、理由写明。模板贡献的场景要在 `EngineProfile.scenes` 里列出才在实例上启用 |
+| `InstanceTemplates` | `t.add(InstanceTemplate::new(id, carrier).data_root(pattern).param(name).ui().max(n).inherit_providers().reap_on_stop().native(\|e\| …))`。全名 `<模块 id>.<模板 id>`。实例的 id 就是建它时给的 `name`，全进程唯一；名字和参数只能是字母、数字、`-`、`_`、`.`，不能以 `.` 开头。`data_root` 默认 `{name}`，可用 `{name}` 和声明过的参数，在 `~/.<product_id>/instances/` 下；建过的实例记在 `kernel/instances.json`。`.ui()`：界面能按它建（只填 `param` 放开的参数）。`.max(n)`：至多 n 台。`inherit_providers()`：这个模板的实例也看得到 `system` 的 provider（设置页配的）——建实例时、以及每次 `settings.setProvider` 之后，Harnix 把它们并进实例数据根的 `settings.json`（0600）再让它 `engine.config.reload`；Harnix 写过哪些 id 记在 `.inherited-providers.json`，只动这些，实例自己配的同名 provider 不覆盖。`.reap_on_stop()`（ipdrun-07，缺省关）：停下或重启时收掉会话留下的进程。spawn 的 daemon 自成一个会话（`setsid`），它退出、被杀、崩溃或看护重启时，Harnix 把还留在这个会话里的进程 TERM、等 1.5 s、KILL；两种载体都在实例的全局设置层打开引擎的 `sandbox.reap_process_groups`（正常退出时引擎自己先收，进程内实例只有这一半）。daemon 在自己的会话里收不到终端的 Ctrl-C，退出照旧跟着 stdin 关闭走；自己 `setsid` 出去的进程收不到；实例视图带 `reap: true`。`.native(\|e\| …)`（ipdrun-10）：两种载体都有的原生贡献。进程内模板把它并在 `contrib` 之后；spawn 模板（`program` 为 `None`）的 daemon 带 `--template <全名>` 起来，照装配顺序对每个应用模块调一次 `templates()`（不调 `start`、不开任何方法），在自己进程里再调一遍闭包；找不到这个模板以 78 退出、实例 `down`、理由写明。模板贡献的场景要在 `EngineProfile.scenes` 里列出才在实例上启用 |
 | `TemplateCarrier` | `InProcess { engine, contrib }`（只有模块的模板能带原生贡献）、`Spawn { engine, program: Option<PathBuf>, args }`（`None` = 本二进制的 `daemon` 子命令）、`Attach(AttachTo { socket, tcp, token })` |
 | `harnix::agent`、`harnix::scenes` | 写 Agent 侧要的类型，应用不另加依赖。`agent::tool::{Tool, ToolContext, ToolResult, ProgressSender}`、`agent::error::ToolError`（原生工具）；`agent::interface::scene::{Scene, ScenePromptContext, TokenBudget}`（场景）；`agent::interface::prompt::PromptBlock`（prompt 块）；`scenes::harnix::HarnixScene`（缺省场景）、`scenes::code::CodeScene`、`scenes::mini::MiniScene`。路径与引擎的模块一一对应 |
 | `EngineContrib` | `.scene(Arc<dyn Scene>)`、`.customize_session(\|builder, cx\| …)`（按注册顺序组合）、`.plugin(Arc<dyn Plugin>)`（一个 Rust 写的 Agix 插件，类型是 `harnix::plugin::Plugin`，即 Agix 的 `runtime::plugin::Plugin` 原样重导出：和 customizer 不同，Agix 在会话委派出去的每个子 Agent、团队成员、后台任务里也登记它）、`.admit_tools(pattern)`（这台实例的每个场景都放进会话的工具，不管场景自己的工具表：`prefix*` 或全名；给上面的插件登记的工具用，否则带工具表的场景会把它们去掉）、`.credentials(Arc<dyn CredentialSource>)`（第一个给的生效）、`.extend(other)` |
@@ -1061,7 +1061,7 @@ quote_api_key = { credential = "helm/quote-api" }
 | 路径 | 是什么 |
 |---|---|
 | `~/.agix/` | 引擎：设置分层、transcript、记忆、技能、录像。和 `agixd` 共用 |
-| `~/.<product_id>/`（不配 `[brand]` 就是 `~/.harnix/`；`HARNIX_STATE_DIR` 可挪） | 程序自己的配置与状态：`token`、`devices.json`（配对过的设备，与 `token` 一样只有属主可读；重启后仍在）、`state.json`（工作区、会话标题、偏好）、`spaces.json`、`instances.json`、`instances/<data_root>/`（按模板建的实例的数据根）、`modules/<id>/`（`ctx.data_dir()`）、`apps/<应用 id>/`（插件 APP：安装记录 `install.json`、解开的包、`data/`、`kv/`，`[apps] enabled` 时；见 [插件](harnix-plugin.md) §23）、`uploads/<pid>/`、`harnix.lock`（进程活着就持有的独占锁，内容 `{"pid", "url"}`，`url` 在监听后写上：一个状态目录只能有一个进程，第二个启动时报「`<目录>` is in use by pid N (url)」并以非零退出） |
+| `~/.<product_id>/`（不配 `[brand]` 就是 `~/.harnix/`；`HARNIX_STATE_DIR` 可挪） | 程序自己的配置与状态：`token`、`devices.json`（配对过的设备，与 `token` 一样只有属主可读；重启后仍在）、`state.json`（工作区、会话标题、偏好）、`kernel/spaces.json`、`kernel/instances.json`、`instances/<data_root>/`（按模板建的实例的数据根）、`modules/<id>/`（`ctx.data_dir()`）、`apps/<应用 id>/`（插件 APP：安装记录 `install.json`、解开的包、`data/`、`kv/`，`[apps] enabled` 时；见 [插件](harnix-plugin.md) §23）、`uploads/<pid>/`、`harnix.lock`（进程活着就持有的独占锁，内容 `{"pid", "url"}`，`url` 在监听后写上：一个状态目录只能有一个进程，第二个启动时报「`<目录>` is in use by pid N (url)」并以非零退出） |
 | `~/Documents/` | 只放项目：选项目从这里开始，新建项目建在这里。Documents 里不放隐藏目录 |
 | `<项目>/.agix/` | 项目自己的数据与配置**一律**放这里（引擎的项目层设置也在这），不开 `<项目>/.<产品>/` |
 | `~/Documents/.harnix/`（0.4.0-2026102602 及以前） | **不迁移、不读**。升级后旧的令牌、工作区分组、实例账本都从空开始 |
