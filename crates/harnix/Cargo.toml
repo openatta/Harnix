@@ -16,7 +16,13 @@ path = "src/lib.rs"
 [features]
 default = ["first-party"]
 # `harnix::first_party`: Harnix's own extensions, each granted what Harnix grants it.
-first-party = ["dep:harnix-ext-system"]
+first-party = [
+    "dep:harnix-ext-system",
+    "dep:harnix-ext-observability",
+    "dep:harnix-ext-settings",
+    "dep:harnix-ext-plugins",
+    "dep:harnix-ext-devices",
+]
 # Runtime applications (`harnix-assembly`'s `apps`): see crates/assembly/Cargo.toml.
 apps = ["harnix-assembly/apps"]
 # `harnix::agix`: Agix's own types, for what `harnix::engine` does not say. Not stable.
@@ -38,7 +44,11 @@ harnix-authz     = { workspace = true }
 # crate.
 harnix-engine-api = { workspace = true }
 # Harnix's own extensions (`first-party`).
-harnix-ext-system = { workspace = true, optional = true }
+harnix-ext-system        = { workspace = true, optional = true }
+harnix-ext-observability = { workspace = true, optional = true }
+harnix-ext-settings      = { workspace = true, optional = true }
+harnix-ext-plugins       = { workspace = true, optional = true }
+harnix-ext-devices       = { workspace = true, optional = true }
 # Only for `harnix::agix`.
 harnix-engine     = { workspace = true, optional = true }
 async-trait = { workspace = true }

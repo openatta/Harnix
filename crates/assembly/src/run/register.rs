@@ -7,7 +7,6 @@ use harnix_contract::s1::caps;
 use harnix_kernel::{Access, GrantTable, KernelPart, Owner};
 use harnix_router::{Row, RouteTable};
 use harnix_builtin::Builtin;
-use harnix_ext::Extension;
 use harnix_module::ErasedModule;
 
 use super::state_files::{load_devices, DEVICES_FILE};
@@ -57,12 +56,6 @@ fn granted_as_required(module: Box<dyn ErasedModule>) -> Entry {
     }
 }
 
-/// The same for an extension: Harnix's own, which the product takes as they ship.
-fn extension_as_required(extension: impl Extension) -> Entry {
-    let granted = extension.manifest().required().to_vec();
-    Entry { added: Added::Extension(Box::new(extension)), granted }
-}
-
 pub(super) fn register(
     builtins: bool,
     product: Vec<Entry>,
@@ -96,10 +89,6 @@ pub(super) fn register(
             );
             entries.push(granted_as_required(Box::new(module)));
         }
-        entries.push(extension_as_required(harnix_ext_settings::Settings));
-        entries.push(extension_as_required(harnix_ext_plugins::Plugins::default()));
-        entries.push(extension_as_required(harnix_ext_observability::Observability));
-        entries.push(extension_as_required(harnix_ext_devices::Devices));
         Some(builtin)
     } else {
         None
@@ -152,8 +141,8 @@ mod tests {
         registered.records.iter().map(|r| r.manifest.id().to_string()).collect()
     }
 
-    /// The built-ins register before the application's modules, the devices extension last of
-    /// them; the `apps` module only where the profile enables runtime applications.
+    /// The built-ins register before the application's modules; the `apps` module only where the
+    /// profile enables runtime applications.
     #[test]
     fn the_built_ins_register_first_and_apps_only_when_enabled() {
         let dir = tempfile::tempdir().unwrap();
@@ -165,7 +154,7 @@ mod tests {
         let listed = ids(&registered);
         assert!(registered.held.builtin.is_some());
         assert!(!listed.iter().any(|id| id == harnix_builtin::apps::MODULE_ID), "{listed:?}");
-        assert_eq!(listed.last().map(String::as_str), Some("devices"), "{listed:?}");
+        assert_eq!(listed.first().map(String::as_str), Some("sessions"), "{listed:?}");
         assert!(registered.records.iter().all(|r| r.is_enabled()), "{listed:?}");
 
         profile.apps.enabled = true;
@@ -173,7 +162,7 @@ mod tests {
         assert!(ids(&registered).iter().any(|id| id == harnix_builtin::apps::MODULE_ID));
     }
 
-    /// Without the built-ins there is no bulk store, no devices module, and nothing registered
+    /// Without the built-ins there is no bulk store, and nothing registered
     /// but the application's own modules.
     #[test]
     fn without_the_built_ins_nothing_is_registered_but_the_application() {

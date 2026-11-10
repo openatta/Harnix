@@ -12,6 +12,10 @@ use harnix_contract::s1::{caps, Capability, CapabilitySpec, ExtId, PackageCarrie
 use harnix_contract::{codes, RpcError, Subject};
 use harnix_kernel::{Access, CallContext, Dispatch, GrantBook, Handler, Rpc};
 use harnix_ext::{Extension, Registrar};
+use harnix_ext_devices::Devices;
+use harnix_ext_observability::Observability;
+use harnix_ext_plugins::Plugins;
+use harnix_ext_settings::Settings;
 use harnix_ext_system::System;
 use harnix_ext::SpaceDecl;
 use harnix_module::{Manifest, MethodRegistry, Module, Principal};
@@ -93,6 +97,27 @@ impl Module for Billing {
             .requires(CHARGE)
             .raw(|_cx, p| async move { Ok::<_, RpcError>(p) });
     }
+}
+
+/// Harnix's own extensions, each granted what Harnix grants it, but the one called `without`.
+fn first_party(without: &str) -> Modules {
+    let mut modules = Modules::default();
+    if without != "system" {
+        modules = modules.extension(System, system_caps());
+    }
+    if without != "observability" {
+        modules = modules.extension(Observability, [caps::RECORDINGS_READ]);
+    }
+    if without != "settings" {
+        modules = modules.extension(Settings, [caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE]);
+    }
+    if without != "plugins" {
+        modules = modules.extension(Plugins::default(), [caps::ENGINE_PLUGINS]);
+    }
+    if without != "devices" {
+        modules = modules.extension(Devices, [caps::DEVICES_MANAGE]);
+    }
+    modules
 }
 
 /// What was registered, with the state directory it lives on for as long as the test does.
@@ -194,7 +219,7 @@ mod capabilities {
 
     #[test]
     fn the_built_ins_hold_what_they_require_and_nothing_else() {
-        let r = registered(true, Modules::default().extension(System, system_caps())).unwrap();
+        let r = registered(true, first_party("")).unwrap();
         let system = r.extensions.iter().find(|m| m.id == "system").unwrap();
         assert_eq!(system.granted, ["instances.admin", "engine.inspect", "engine.control", "process.observe"]);
         for status in &r.extensions {
@@ -239,15 +264,6 @@ mod debugger {
 mod unlinked {
     use super::*;
 
-    /// The first-party extensions, each granted what Harnix grants it, but `without`.
-    fn first_party(without: &str) -> Modules {
-        let mut modules = Modules::default();
-        if without != "system" {
-            modules = modules.extension(System, system_caps());
-        }
-        modules
-    }
-
     /// The table's rows and aliases, as text, one each.
     fn table(modules: Modules) -> (Vec<Value>, Vec<Value>) {
         let r = registered(true, modules).unwrap();
@@ -261,7 +277,14 @@ mod unlinked {
     /// the old names that answered as them, and the topics moving to its own.
     #[test]
     fn without_an_extension_only_its_rows_differ() {
-        for (ext, moving) in [("system", &["harnix.process"][..])] {
+        let first_party_ids: [(&str, &[&str]); 5] = [
+            ("system", &["harnix.process"]),
+            ("observability", &[]),
+            ("settings", &[]),
+            ("plugins", &[]),
+            ("devices", &[]),
+        ];
+        for (ext, moving) in first_party_ids {
             let (all_rows, all_aliases) = table(first_party(""));
             let (rows, aliases) = table(first_party(ext));
             let owner = format!("ext:{ext}");
@@ -394,7 +417,7 @@ mod names {
 
     #[test]
     fn a_native_extension_keeps_its_namespace_from_a_package() {
-        let r = registered(true, Modules::default().with(Asks("acme", vec![], vec![]), [])).unwrap();
+        let r = registered(true, first_party("").with(Asks("acme", vec![], vec![]), [])).unwrap();
         // Under a native id, by whole segments: refused, saying whose it is.
         assert_eq!(taken_by(package(&r, "acme.notes")).as_deref(), Some("acme"));
         assert_eq!(taken_by(package(&r, "acme")).as_deref(), Some("acme"));

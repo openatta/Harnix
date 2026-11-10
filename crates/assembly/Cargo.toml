@@ -21,10 +21,6 @@ harnix-ext       = { workspace = true }
 harnix-host-api  = { workspace = true }
 harnix-hub       = { workspace = true }
 # Harnix's own extensions that `with_builtins` adds.
-harnix-ext-settings      = { workspace = true }
-harnix-ext-plugins       = { workspace = true }
-harnix-ext-observability = { workspace = true }
-harnix-ext-devices       = { workspace = true }
 harnix-transport = { workspace = true }
 tokio       = { workspace = true }
 # An extension's routes, served by the transport.
@@ -54,3 +50,7 @@ apps = ["dep:harnix-apps"]
 tempfile    = { workspace = true }
 # The first-party extensions, linked or not: what not linking one changes (`tests/grants.rs`).
 harnix-ext-system = { workspace = true }
+harnix-ext-settings      = { workspace = true }
+harnix-ext-plugins       = { workspace = true }
+harnix-ext-observability = { workspace = true }
+harnix-ext-devices       = { workspace = true }

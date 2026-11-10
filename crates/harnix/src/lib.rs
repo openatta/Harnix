@@ -55,14 +55,23 @@ pub mod first_party {
     use harnix_contract::s1::caps;
     use harnix_ext::ExtensionSet;
 
+    pub use harnix_ext_devices::Devices;
+    pub use harnix_ext_observability::Observability;
+    pub use harnix_ext_plugins::Plugins;
+    pub use harnix_ext_settings::Settings;
     pub use harnix_ext_system::System;
 
     /// Every first-party extension, in the order they register.
     pub fn standard() -> ExtensionSet {
-        ExtensionSet::new().with(
-            System,
-            [caps::INSTANCES_ADMIN, caps::ENGINE_INSPECT, caps::ENGINE_CONTROL, caps::PROCESS_OBSERVE],
-        )
+        ExtensionSet::new()
+            .with(
+                System,
+                [caps::INSTANCES_ADMIN, caps::ENGINE_INSPECT, caps::ENGINE_CONTROL, caps::PROCESS_OBSERVE],
+            )
+            .with(Observability, [caps::RECORDINGS_READ])
+            .with(Settings, [caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE])
+            .with(Plugins::default(), [caps::ENGINE_PLUGINS])
+            .with(Devices, [caps::DEVICES_MANAGE])
     }
 }
 
