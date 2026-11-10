@@ -54,7 +54,9 @@
 //! install, saying why.
 
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::Arc;
 
 use harnix_contract::{codes, RpcError};
@@ -77,18 +79,40 @@ const WATCH_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
 /// what a VM changes without passing through anything that counts (the memory it holds).
 pub const RESYNC_EVERY: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// Every method this module adds.
-pub const METHODS: &[&str] = &[
-    "harnix.apps.list",
-    "harnix.apps.enable",
-    "harnix.apps.disable",
-    "harnix.apps.installFile",
-    "harnix.apps.uninstall",
-    "harnix.apps.catalog",
-    "harnix.apps.install",
-    "harnix.apps.update",
-    "harnix.apps.clearData",
+/// Every method this module adds, what answers it, and whether answering it may change the list
+/// (`harnix.apps`) — the two that only read do not.
+const METHODS: &[AppsRow] = &[
+    AppsRow { name: "harnix.apps.list", answer: |a, _| Box::pin(list(a)), changes: false },
+    AppsRow { name: "harnix.apps.enable", answer: |a, p| Box::pin(switch(a, p, true)), changes: true },
+    AppsRow { name: "harnix.apps.disable", answer: |a, p| Box::pin(switch(a, p, false)), changes: true },
+    AppsRow { name: "harnix.apps.installFile", answer: |a, p| Box::pin(install_file(a, p)), changes: true },
+    AppsRow { name: "harnix.apps.uninstall", answer: |a, p| Box::pin(uninstall(a, p)), changes: true },
+    AppsRow { name: "harnix.apps.catalog", answer: |a, _| Box::pin(catalog(a)), changes: false },
+    AppsRow { name: "harnix.apps.install", answer: |a, p| Box::pin(from_store(a, p, false)), changes: true },
+    AppsRow { name: "harnix.apps.update", answer: |a, p| Box::pin(from_store(a, p, true)), changes: true },
+    AppsRow { name: "harnix.apps.clearData", answer: |a, p| Box::pin(clear(a, p)), changes: true },
 ];
+
+/// What one of this module's methods is answered from: its state, the module's context, the
+/// application host when there is one.
+struct Ask {
+    shared: Arc<Shared>,
+    module: ModuleContext,
+    host: Option<AppHost>,
+}
+
+type Answer = fn(Ask, Value) -> Pin<Box<dyn Future<Output = Result<Value, RpcError>> + Send>>;
+
+struct AppsRow {
+    name: &'static str,
+    answer: Answer,
+    changes: bool,
+}
+
+/// Every method this module adds.
+pub fn methods() -> impl Iterator<Item = &'static str> {
+    METHODS.iter().map(|m| m.name)
+}
 
 /// Engine methods the runtime calls as this module: installing an application's agent package
 /// into the instances it names, switching it with the application, and having an instance re-read
@@ -383,13 +407,13 @@ impl Module for AppsModule {
     }
 
     fn methods(&self, registry: &mut MethodRegistry) {
-        for name in METHODS {
+        for row in METHODS {
             registry
-                .method(name.strip_prefix("harnix.").unwrap_or(name), Principal::Device)
+                .method(row.name.strip_prefix("harnix.").unwrap_or(row.name), Principal::Device)
                 .allow(Principal::Kernel)
                 .with(Arc::new(AppsMethod {
                     shared: self.shared.clone(),
-                    name,
+                    row,
                 }));
         }
     }
@@ -444,7 +468,7 @@ impl Module for AppsModule {
 
 struct AppsMethod {
     shared: Arc<Shared>,
-    name: &'static str,
+    row: &'static AppsRow,
 }
 
 fn id_param(params: &Value) -> Result<String, RpcError> {
@@ -466,266 +490,282 @@ fn no_runtime() -> RpcError {
 impl Handler for AppsMethod {
     async fn call(&self, cx: CallContext, params: Value) -> Result<Value, RpcError> {
         let id = params.get("id").and_then(Value::as_str).map(str::to_string);
-        let answer = self.answer(cx, params).await;
-        if !matches!(self.name, "harnix.apps.list" | "harnix.apps.catalog") {
+        let module = cx.module().clone();
+        let ask = Ask {
+            shared: self.shared.clone(),
+            host: module.apps(),
+            module,
+        };
+        let answer = (self.row.answer)(ask, params).await;
+        if self.row.changes {
             self.shared.changed(id.as_deref());
         }
         answer
     }
 }
 
-impl AppsMethod {
-    async fn answer(&self, cx: CallContext, params: Value) -> Result<Value, RpcError> {
-        let shared = &self.shared;
-        let module = cx.module();
-        let host = module.apps();
-        let runtime = shared.runtime.as_ref();
-        match self.name {
-            // Asked: read afresh, but for what does not change under a version.
-            "harnix.apps.list" => Ok(snapshot(shared, host.as_ref(), true).await),
-            "harnix.apps.installFile" => {
-                let runtime = runtime.ok_or_else(no_runtime)?;
-                let path = params
-                    .get("path")
-                    .and_then(Value::as_str)
-                    .map(PathBuf::from)
-                    .ok_or_else(|| RpcError::invalid_params("missing path"))?;
-                let _serial = shared.serial.lock().await;
-                let disclosed = runtime.disclose(&path, None)?;
-                if disclosed.trust == "unsigned" && !shared.dev {
-                    return Err(RpcError::refused(
-                        "the package is unsigned, and installing an unsigned package from a file \
-                         needs `[apps] dev = true`: that is for developing an application, not for \
-                         installing one",
-                    ));
+/// `harnix.apps.list`. Asked: read afresh, but for what does not change under a version.
+async fn list(a: Ask) -> Result<Value, RpcError> {
+    Ok(snapshot(&a.shared, a.host.as_ref(), true).await)
+}
+
+/// `harnix.apps.installFile {path}`.
+async fn install_file(a: Ask, params: Value) -> Result<Value, RpcError> {
+    let (shared, module) = (&*a.shared, &a.module);
+    let runtime = shared.runtime.as_ref().ok_or_else(no_runtime)?;
+    let path = params
+        .get("path")
+        .and_then(Value::as_str)
+        .map(PathBuf::from)
+        .ok_or_else(|| RpcError::invalid_params("missing path"))?;
+    let _serial = shared.serial.lock().await;
+    let disclosed = runtime.disclose(&path, None)?;
+    if disclosed.trust == "unsigned" && !shared.dev {
+        return Err(RpcError::refused(
+            "the package is unsigned, and installing an unsigned package from a file \
+             needs `[apps] dev = true`: that is for developing an application, not for \
+             installing one",
+        ));
+    }
+    refuse_installed(&shared.dir, &disclosed.info.id)?;
+    install(shared, module, runtime, &path, &disclosed, "file").await
+}
+
+/// `harnix.apps.catalog`.
+async fn catalog(a: Ask) -> Result<Value, RpcError> {
+    let shared = &*a.shared;
+    let runtime = shared.runtime.as_ref().ok_or_else(no_runtime)?;
+    let (installed, _) = read_all(&shared.dir);
+    let versions = installed.iter().map(|r| (r.id.clone(), r.version.clone())).collect();
+    let catalog = runtime.catalog(&versions).await?;
+    // What the store says of a version installed here stays with its record: the list
+    // shows it without asking the store.
+    let _serial = shared.serial.lock().await;
+    for app in catalog["apps"].as_array().into_iter().flatten() {
+        let (Some(id), Some(version)) = (app["id"].as_str(), app["installed"].as_str()) else {
+            continue;
+        };
+        let revoked = app["installed_revoked"].as_str().map(str::to_string);
+        match read_one(&shared.dir, id) {
+            Ok(mut record) if record.version == version && record.revoked != revoked => {
+                if let Some(why) = &revoked {
+                    tracing::warn!(app = %id, %version, reason = %why, "the store has withdrawn an installed version");
                 }
-                refuse_installed(&shared.dir, &disclosed.info.id)?;
-                install(shared, module, runtime, &path, &disclosed, "file").await
-            }
-            "harnix.apps.catalog" => {
-                let runtime = runtime.ok_or_else(no_runtime)?;
-                let (installed, _) = read_all(&shared.dir);
-                let versions = installed.iter().map(|r| (r.id.clone(), r.version.clone())).collect();
-                let catalog = runtime.catalog(&versions).await?;
-                // What the store says of a version installed here stays with its record: the list
-                // shows it without asking the store.
-                let _serial = shared.serial.lock().await;
-                for app in catalog["apps"].as_array().into_iter().flatten() {
-                    let (Some(id), Some(version)) = (app["id"].as_str(), app["installed"].as_str()) else {
-                        continue;
-                    };
-                    let revoked = app["installed_revoked"].as_str().map(str::to_string);
-                    match read_one(&shared.dir, id) {
-                        Ok(mut record) if record.version == version && record.revoked != revoked => {
-                            if let Some(why) = &revoked {
-                                tracing::warn!(app = %id, %version, reason = %why, "the store has withdrawn an installed version");
-                            }
-                            record.revoked = revoked;
-                            write_one(&shared.dir, &record)?;
-                        }
-                        _ => {}
-                    }
-                }
-                Ok(catalog)
-            }
-            "harnix.apps.install" | "harnix.apps.update" => {
-                let runtime = runtime.ok_or_else(no_runtime)?;
-                let id = id_param(&params)?;
-                if !valid_id(&id) {
-                    return Err(RpcError::invalid_params(format!("`{id}` is not an application id")));
-                }
-                let version = params.get("version").and_then(Value::as_str);
-                let consent = params.get("consent").and_then(Value::as_str);
-                let allow_downgrade = params.get("allow_downgrade").and_then(Value::as_bool) == Some(true);
-                let updating = self.name == "harnix.apps.update";
-                let _serial = shared.serial.lock().await;
-                let installed = read_one(&shared.dir, &id).ok();
-                match (&installed, updating) {
-                    (Some(record), false) => {
-                        return Err(RpcError::refused(format!(
-                            "`{id}` {} is installed already; `harnix.apps.update` moves it to another version",
-                            record.version
-                        )))
-                    }
-                    (None, true) => return Err(RpcError::invalid_params(format!("no application `{id}` is installed"))),
-                    _ => {}
-                }
-                if installed.is_none() && shared.dir.join(&id).exists() {
-                    refuse_installed(&shared.dir, &id)?;
-                }
-                let staging = shared.dir.join(STAGING).join(uuid::Uuid::new_v4().simple().to_string());
-                let outcome = async {
-                    let package = runtime.fetch(&id, version, &staging).await?;
-                    let app_dir = shared.dir.join(&id);
-                    let disclosed = runtime.disclose(&package, installed.as_ref().map(|r| (r, app_dir.as_path())))?;
-                    if disclosed.info.id != id {
-                        return Err(RpcError::refused(format!(
-                            "the store's package for `{id}` is the application `{}`",
-                            disclosed.info.id
-                        )));
-                    }
-                    if let Some(record) = &installed {
-                        // Without a version asked for, an update goes forward or nowhere.
-                        let behind = version.is_none() && disclosed.downgrade;
-                        if record.version == disclosed.info.version || behind {
-                            return Ok(json!({
-                                "id": id,
-                                "version": record.version,
-                                "latest": disclosed.info.version,
-                                "up_to_date": true,
-                            }));
-                        }
-                        // Back to an older version only when that is what was asked for: whoever
-                        // serves the store cannot make an update one.
-                        if disclosed.downgrade && !allow_downgrade {
-                            return Err(RpcError::refused(format!(
-                                "`{id}` {} is older than the installed {}: going back to it is asked for \
-                                 with `allow_downgrade: true`",
-                                disclosed.info.version, record.version
-                            )));
-                        }
-                    }
-                    let consented = consent == Some(disclosed.digest.as_str());
-                    if disclosed.needs_consent && !consented {
-                        // Disclosed, and nothing done: the same call with the digest goes ahead.
-                        return Ok(json!({
-                            "id": id,
-                            "version": disclosed.info.version,
-                            "consent": "required",
-                            "digest": disclosed.digest,
-                            "disclosure": disclosed.disclosure,
-                            // A digest that was passed and is not this one was consent to something else.
-                            "changed": consent.is_some(),
-                        }));
-                    }
-                    match &installed {
-                        None => install(shared, module, runtime, &package, &disclosed, "store").await,
-                        Some(record) => update(shared, module, runtime, record, &package, &disclosed).await,
-                    }
-                }
-                .await;
-                let _ = std::fs::remove_dir_all(&staging);
-                outcome
-            }
-            "harnix.apps.enable" | "harnix.apps.disable" => {
-                let id = id_param(&params)?;
-                let enabled = self.name == "harnix.apps.enable";
-                let _serial = shared.serial.lock().await;
-                let mut record = read_one(&shared.dir, &id)?;
-                record.enabled = enabled;
+                record.revoked = revoked;
                 write_one(&shared.dir, &record)?;
-                let mut withdrawn = false;
-                if let Some(host) = &host {
-                    let ours = host.registered().iter().any(|s| s.id == id && s.by == module.id());
-                    if !enabled && ours {
-                        host.withdraw(&id).await?;
-                        withdrawn = true;
-                    }
-                }
-                let mut started = Value::Null;
-                if let Some(runtime) = runtime {
-                    if enabled {
-                        match runtime.load(module, &record, &shared.dir.join(&id)).await {
-                            Ok(summary) => {
-                                started = summary;
-                                // Started again: whatever left it off is over.
-                                if record.reason.take().is_some() {
-                                    write_one(&shared.dir, &record)?;
-                                }
-                            }
-                            Err(e) => {
-                                // What was asked for did not happen: it stays as it was.
-                                record.enabled = false;
-                                write_one(&shared.dir, &record)?;
-                                return Err(e);
-                            }
-                        }
-                    } else {
-                        runtime.unload(module, &record).await;
-                    }
-                }
-                let registered = host
-                    .as_ref()
-                    .is_some_and(|h| h.registered().iter().any(|s| s.id == id));
-                Ok(json!({
-                    "id": id,
-                    "enabled": enabled,
-                    "registered": registered,
-                    "withdrawn": withdrawn,
-                    "runtime": match runtime {
-                        Some(r) => Some(r.status(&id).await),
-                        None => None,
-                    },
-                    "started": started,
-                }))
             }
-            "harnix.apps.clearData" => {
-                let id = id_param(&params)?;
-                let _serial = shared.serial.lock().await;
-                let record = read_one(&shared.dir, &id)?;
-                let app_dir = shared.dir.join(&id);
-                let status = match runtime {
-                    Some(r) => r.status(&id).await,
-                    None => Value::Null,
-                };
-                // What the list said it keeps, counted the same way.
-                let before = runtime.and_then(|r| kept_bytes(r.as_ref(), &status, &app_dir));
-                // Stopped around it: a backend's memory, or a store it has open, would outlive the
-                // files otherwise.
-                let running = record.enabled && runtime.is_some() && status["state"] != json!("stopped");
-                if running {
-                    if let Some(runtime) = runtime {
-                        runtime.unload(module, &record).await;
-                    }
-                }
-                let cleared = clear_data(&app_dir);
-                let mut started = Value::Null;
-                if running {
-                    if let Some(runtime) = runtime {
-                        started = match runtime.load(module, &record, &app_dir).await {
-                            Ok(summary) => summary,
-                            // Cleared, and not running: said, and the list says why.
-                            Err(e) => json!({"error": e.message}),
-                        };
-                    }
-                }
-                cleared.map_err(|e| internal(format!("{}: {e}", app_dir.display())))?;
-                let after = match runtime {
-                    Some(r) => kept_bytes(r.as_ref(), &r.status(&id).await, &app_dir),
-                    None => None,
-                };
-                tracing::info!(app = %id, bytes = ?before, "application data cleared");
-                Ok(json!({
-                    "id": id,
-                    "cleared_bytes": before,
-                    "data_bytes": after,
-                    "restarted": running,
-                    "started": started,
-                }))
-            }
-            "harnix.apps.uninstall" => {
-                let id = id_param(&params)?;
-                let _serial = shared.serial.lock().await;
-                let record = read_one(&shared.dir, &id)?;
-                if let Some(host) = &host {
-                    if host.registered().iter().any(|s| s.id == id && s.by == module.id()) {
-                        host.withdraw(&id).await?;
-                    }
-                }
-                let app_dir = shared.dir.join(&id);
-                let mut removed = Value::Null;
-                if let Some(runtime) = runtime {
-                    runtime.unload(module, &record).await;
-                    removed = runtime.uninstall(module, &record, &app_dir).await?;
-                }
-                std::fs::remove_dir_all(&app_dir)
-                    .map_err(|e| internal(format!("{}: {e}", app_dir.display())))?;
-                tracing::info!(app = %id, "application uninstalled");
-                Ok(json!({"id": id, "uninstalled": true, "removed": removed}))
-            }
-            other => Err(RpcError::not_found(format!("`{other}` is not the apps module's"))),
+            _ => {}
         }
     }
+    Ok(catalog)
+}
+
+/// `harnix.apps.install` and, `updating`, `harnix.apps.update`.
+async fn from_store(a: Ask, params: Value, updating: bool) -> Result<Value, RpcError> {
+    let (shared, module) = (&*a.shared, &a.module);
+    let runtime = shared.runtime.as_ref().ok_or_else(no_runtime)?;
+    let id = id_param(&params)?;
+    if !valid_id(&id) {
+        return Err(RpcError::invalid_params(format!("`{id}` is not an application id")));
+    }
+    let version = params.get("version").and_then(Value::as_str);
+    let consent = params.get("consent").and_then(Value::as_str);
+    let allow_downgrade = params.get("allow_downgrade").and_then(Value::as_bool) == Some(true);
+    let _serial = shared.serial.lock().await;
+    let installed = read_one(&shared.dir, &id).ok();
+    match (&installed, updating) {
+        (Some(record), false) => {
+            return Err(RpcError::refused(format!(
+                "`{id}` {} is installed already; `harnix.apps.update` moves it to another version",
+                record.version
+            )))
+        }
+        (None, true) => return Err(RpcError::invalid_params(format!("no application `{id}` is installed"))),
+        _ => {}
+    }
+    if installed.is_none() && shared.dir.join(&id).exists() {
+        refuse_installed(&shared.dir, &id)?;
+    }
+    let staging = shared.dir.join(STAGING).join(uuid::Uuid::new_v4().simple().to_string());
+    let outcome = async {
+        let package = runtime.fetch(&id, version, &staging).await?;
+        let app_dir = shared.dir.join(&id);
+        let disclosed = runtime.disclose(&package, installed.as_ref().map(|r| (r, app_dir.as_path())))?;
+        if disclosed.info.id != id {
+            return Err(RpcError::refused(format!(
+                "the store's package for `{id}` is the application `{}`",
+                disclosed.info.id
+            )));
+        }
+        if let Some(record) = &installed {
+            // Without a version asked for, an update goes forward or nowhere.
+            let behind = version.is_none() && disclosed.downgrade;
+            if record.version == disclosed.info.version || behind {
+                return Ok(json!({
+                    "id": id,
+                    "version": record.version,
+                    "latest": disclosed.info.version,
+                    "up_to_date": true,
+                }));
+            }
+            // Back to an older version only when that is what was asked for: whoever
+            // serves the store cannot make an update one.
+            if disclosed.downgrade && !allow_downgrade {
+                return Err(RpcError::refused(format!(
+                    "`{id}` {} is older than the installed {}: going back to it is asked for \
+                     with `allow_downgrade: true`",
+                    disclosed.info.version, record.version
+                )));
+            }
+        }
+        let consented = consent == Some(disclosed.digest.as_str());
+        if disclosed.needs_consent && !consented {
+            // Disclosed, and nothing done: the same call with the digest goes ahead.
+            return Ok(json!({
+                "id": id,
+                "version": disclosed.info.version,
+                "consent": "required",
+                "digest": disclosed.digest,
+                "disclosure": disclosed.disclosure,
+                // A digest that was passed and is not this one was consent to something else.
+                "changed": consent.is_some(),
+            }));
+        }
+        match &installed {
+            None => install(shared, module, runtime, &package, &disclosed, "store").await,
+            Some(record) => update(shared, module, runtime, record, &package, &disclosed).await,
+        }
+    }
+    .await;
+    let _ = std::fs::remove_dir_all(&staging);
+    outcome
+}
+
+/// `harnix.apps.enable` and, not `enabled`, `harnix.apps.disable`.
+async fn switch(a: Ask, params: Value, enabled: bool) -> Result<Value, RpcError> {
+    let (shared, module, host) = (&*a.shared, &a.module, &a.host);
+    let runtime = shared.runtime.as_ref();
+    let id = id_param(&params)?;
+    let _serial = shared.serial.lock().await;
+    let mut record = read_one(&shared.dir, &id)?;
+    record.enabled = enabled;
+    write_one(&shared.dir, &record)?;
+    let mut withdrawn = false;
+    if let Some(host) = &host {
+        let ours = host.registered().iter().any(|s| s.id == id && s.by == module.id());
+        if !enabled && ours {
+            host.withdraw(&id).await?;
+            withdrawn = true;
+        }
+    }
+    let mut started = Value::Null;
+    if let Some(runtime) = runtime {
+        if enabled {
+            match runtime.load(module, &record, &shared.dir.join(&id)).await {
+                Ok(summary) => {
+                    started = summary;
+                    // Started again: whatever left it off is over.
+                    if record.reason.take().is_some() {
+                        write_one(&shared.dir, &record)?;
+                    }
+                }
+                Err(e) => {
+                    // What was asked for did not happen: it stays as it was.
+                    record.enabled = false;
+                    write_one(&shared.dir, &record)?;
+                    return Err(e);
+                }
+            }
+        } else {
+            runtime.unload(module, &record).await;
+        }
+    }
+    let registered = host
+        .as_ref()
+        .is_some_and(|h| h.registered().iter().any(|s| s.id == id));
+    Ok(json!({
+        "id": id,
+        "enabled": enabled,
+        "registered": registered,
+        "withdrawn": withdrawn,
+        "runtime": match runtime {
+            Some(r) => Some(r.status(&id).await),
+            None => None,
+        },
+        "started": started,
+    }))
+}
+
+/// `harnix.apps.clearData {id}`.
+async fn clear(a: Ask, params: Value) -> Result<Value, RpcError> {
+    let (shared, module) = (&*a.shared, &a.module);
+    let runtime = shared.runtime.as_ref();
+    let id = id_param(&params)?;
+    let _serial = shared.serial.lock().await;
+    let record = read_one(&shared.dir, &id)?;
+    let app_dir = shared.dir.join(&id);
+    let status = match runtime {
+        Some(r) => r.status(&id).await,
+        None => Value::Null,
+    };
+    // What the list said it keeps, counted the same way.
+    let before = runtime.and_then(|r| kept_bytes(r.as_ref(), &status, &app_dir));
+    // Stopped around it: a backend's memory, or a store it has open, would outlive the
+    // files otherwise.
+    let running = record.enabled && runtime.is_some() && status["state"] != json!("stopped");
+    if running {
+        if let Some(runtime) = runtime {
+            runtime.unload(module, &record).await;
+        }
+    }
+    let cleared = clear_data(&app_dir);
+    let mut started = Value::Null;
+    if running {
+        if let Some(runtime) = runtime {
+            started = match runtime.load(module, &record, &app_dir).await {
+                Ok(summary) => summary,
+                // Cleared, and not running: said, and the list says why.
+                Err(e) => json!({"error": e.message}),
+            };
+        }
+    }
+    cleared.map_err(|e| internal(format!("{}: {e}", app_dir.display())))?;
+    let after = match runtime {
+        Some(r) => kept_bytes(r.as_ref(), &r.status(&id).await, &app_dir),
+        None => None,
+    };
+    tracing::info!(app = %id, bytes = ?before, "application data cleared");
+    Ok(json!({
+        "id": id,
+        "cleared_bytes": before,
+        "data_bytes": after,
+        "restarted": running,
+        "started": started,
+    }))
+}
+
+/// `harnix.apps.uninstall {id}`.
+async fn uninstall(a: Ask, params: Value) -> Result<Value, RpcError> {
+    let (shared, module, host) = (&*a.shared, &a.module, &a.host);
+    let runtime = shared.runtime.as_ref();
+    let id = id_param(&params)?;
+    let _serial = shared.serial.lock().await;
+    let record = read_one(&shared.dir, &id)?;
+    if let Some(host) = &host {
+        if host.registered().iter().any(|s| s.id == id && s.by == module.id()) {
+            host.withdraw(&id).await?;
+        }
+    }
+    let app_dir = shared.dir.join(&id);
+    let mut removed = Value::Null;
+    if let Some(runtime) = runtime {
+        runtime.unload(module, &record).await;
+        removed = runtime.uninstall(module, &record, &app_dir).await?;
+    }
+    std::fs::remove_dir_all(&app_dir)
+        .map_err(|e| internal(format!("{}: {e}", app_dir.display())))?;
+    tracing::info!(app = %id, "application uninstalled");
+    Ok(json!({"id": id, "uninstalled": true, "removed": removed}))
 }
 
 /// Every record (and the ones that do not read, with why), what the runtime says of each, and every

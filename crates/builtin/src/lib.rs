@@ -28,7 +28,9 @@ mod usage;
 pub mod workspaces;
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 
 use harnix_contract::sync::{read, write};
@@ -82,21 +84,21 @@ const PARTS: &[Part] = &[
         id: "sessions",
         disclosure: "工作区、会话标题与归档、视图偏好、跨会话搜索、目录选择、文件引用、上传",
         methods: &[
-            "harnix.workspaces.list",
-            "harnix.workspaces.create",
-            "harnix.workspaces.update",
-            "harnix.workspaces.reorder",
-            "harnix.workspaces.remove",
-            "harnix.sessions.rename",
-            "harnix.sessions.archive",
-            "harnix.sessions.export",
-            "harnix.prefs.set",
-            "harnix.search",
-            "harnix.listDirectory",
-            "harnix.recentProjects",
-            "harnix.files",
-            "harnix.projects.create",
-            "harnix.upload.begin",
+            m("harnix.workspaces.list", |b, _| Box::pin(async move { b.workspaces_list().await })),
+            m("harnix.workspaces.create", |b, p| Box::pin(async move { b.workspaces_create(p).await })),
+            m("harnix.workspaces.update", |b, p| Box::pin(async move { b.workspaces_update(p).await })),
+            m("harnix.workspaces.reorder", |b, p| Box::pin(async move { b.workspaces_reorder(p).await })),
+            m("harnix.workspaces.remove", |b, p| Box::pin(async move { b.workspaces_remove(p).await })),
+            m("harnix.sessions.rename", |b, p| Box::pin(async move { b.session_rename(p).await })),
+            m("harnix.sessions.archive", |b, p| Box::pin(async move { b.session_archive(p).await })),
+            m("harnix.sessions.export", |b, p| Box::pin(async move { b.session_export(p).await })),
+            m("harnix.prefs.set", |b, p| Box::pin(async move { b.prefs_set(p).await })),
+            m("harnix.search", |b, p| Box::pin(async move { b.search(p).await })),
+            m("harnix.listDirectory", |b, p| Box::pin(async move { b.list_directory(p).await })),
+            m("harnix.recentProjects", |b, _| Box::pin(async move { b.recent_projects().await })),
+            m("harnix.files", |b, p| Box::pin(async move { b.files(p).await })),
+            m("harnix.projects.create", |b, p| Box::pin(async move { b.projects_create(p).await })),
+            m("harnix.upload.begin", |b, p| Box::pin(async move { b.upload_begin(p).await })),
         ],
         grants: &["session.export"],
     },
@@ -104,9 +106,9 @@ const PARTS: &[Part] = &[
         id: "settings",
         disclosure: "读写引擎的设置三层；写 provider 的凭据与端点",
         methods: &[
-            "harnix.settings.describe",
-            "harnix.settings.set",
-            "harnix.settings.setProvider",
+            m("harnix.settings.describe", |b, p| Box::pin(async move { b.settings_describe(p).await })),
+            m("harnix.settings.set", |b, p| Box::pin(async move { b.settings_set(p).await })),
+            m("harnix.settings.setProvider", |b, p| Box::pin(async move { b.settings_set_provider(p).await })),
         ],
         // `harnix.instances.inheritProviders` is the hub's, not the engine's: after a provider
         // changes, the instances whose template inherits `system`'s get it too (ipdrun-11).
@@ -122,15 +124,15 @@ const PARTS: &[Part] = &[
         disclosure: "接收插件包文件，经 Agix 安装、卸载、启停；读包里的界面段",
         methods: &[
             // The one thing Agix's installer cannot do for itself: receive a file.
-            "harnix.plugins.upload",
+            m("harnix.plugins.upload", |b, p| Box::pin(async move { b.plugins_upload(p).await })),
             // Lifecycle. The engine does the work; these exist because
             // changing what is installed changes what this host serves.
-            "harnix.plugins.install",
-            "harnix.plugins.uninstall",
-            "harnix.plugins.enable",
-            "harnix.plugins.disable",
-            "harnix.plugins.reload",
-            "harnix.plugins.list",
+            m("harnix.plugins.install", |b, p| Box::pin(async move { b.plugins_install(p).await })),
+            m("harnix.plugins.uninstall", |b, p| Box::pin(async move { b.plugins_manage("plugin.uninstall", p).await })),
+            m("harnix.plugins.enable", |b, p| Box::pin(async move { b.plugins_manage("plugin.enable", p).await })),
+            m("harnix.plugins.disable", |b, p| Box::pin(async move { b.plugins_manage("plugin.disable", p).await })),
+            m("harnix.plugins.reload", |b, p| Box::pin(async move { b.plugins_manage("plugin.reload", p).await })),
+            m("harnix.plugins.list", |b, p| Box::pin(async move { b.plugins_list(p).await })),
         ],
         grants: &[
             "plugin.list",
@@ -144,7 +146,9 @@ const PARTS: &[Part] = &[
     Part {
         id: "recordings",
         disclosure: "读本机的模型调用录像（请求信封）",
-        methods: &["harnix.requestHeaders"],
+        methods: &[
+            m("harnix.requestHeaders", |b, p| Box::pin(async move { b.request_headers(p).await })),
+        ],
         grants: &[],
     },
 ];
@@ -155,24 +159,24 @@ const SYSTEM: Part = Part {
     id: "system",
     disclosure: "系统 space：看任何实例的会话与任务、读调用信封与上下文、任务的输出、会话的用量；给在跑的子 Agent 发话；设定、暂停、继续、编辑、清除会话的目标；压缩、清空、换模型、改名、改写或删除消息、停止任务。每次操作写审计",
     methods: &[
-        "harnix.system.context",
-        "harnix.system.calls",
-        "harnix.system.trace",
-        "harnix.system.trace.call",
-        "harnix.system.turns",
-        "harnix.system.usage",
-        "harnix.system.tasks.stop",
-        "harnix.system.tasks.message",
-        "harnix.system.tasks.output",
-        "harnix.system.messages.drop",
-        "harnix.system.messages.edit",
-        "harnix.system.compact",
-        "harnix.system.clear",
-        "harnix.system.model",
-        "harnix.system.rename",
-        "harnix.system.goal",
-        "harnix.system.goal.set",
-        "harnix.system.goal.update",
+        m("harnix.system.context", |b, p| Box::pin(async move { b.system_call("harnix.system.context", p).await })),
+        m("harnix.system.calls", |b, p| Box::pin(async move { b.system_call("harnix.system.calls", p).await })),
+        m("harnix.system.trace", |b, p| Box::pin(async move { b.system_call("harnix.system.trace", p).await })),
+        m("harnix.system.trace.call", |b, p| Box::pin(async move { b.system_call("harnix.system.trace.call", p).await })),
+        m("harnix.system.turns", |b, p| Box::pin(async move { b.system_call("harnix.system.turns", p).await })),
+        m("harnix.system.usage", |b, p| Box::pin(async move { b.system_call("harnix.system.usage", p).await })),
+        m("harnix.system.tasks.stop", |b, p| Box::pin(async move { b.system_call("harnix.system.tasks.stop", p).await })),
+        m("harnix.system.tasks.message", |b, p| Box::pin(async move { b.system_call("harnix.system.tasks.message", p).await })),
+        m("harnix.system.tasks.output", |b, p| Box::pin(async move { b.system_call("harnix.system.tasks.output", p).await })),
+        m("harnix.system.messages.drop", |b, p| Box::pin(async move { b.system_call("harnix.system.messages.drop", p).await })),
+        m("harnix.system.messages.edit", |b, p| Box::pin(async move { b.system_call("harnix.system.messages.edit", p).await })),
+        m("harnix.system.compact", |b, p| Box::pin(async move { b.system_call("harnix.system.compact", p).await })),
+        m("harnix.system.clear", |b, p| Box::pin(async move { b.system_call("harnix.system.clear", p).await })),
+        m("harnix.system.model", |b, p| Box::pin(async move { b.system_call("harnix.system.model", p).await })),
+        m("harnix.system.rename", |b, p| Box::pin(async move { b.system_call("harnix.system.rename", p).await })),
+        m("harnix.system.goal", |b, p| Box::pin(async move { b.system_call("harnix.system.goal", p).await })),
+        m("harnix.system.goal.set", |b, p| Box::pin(async move { b.system_call("harnix.system.goal.set", p).await })),
+        m("harnix.system.goal.update", |b, p| Box::pin(async move { b.system_call("harnix.system.goal.update", p).await })),
     ],
     grants: &[
         "session.inspectContext",
@@ -196,7 +200,7 @@ const SYSTEM: Part = Part {
 const MODEL: Part = Part {
     id: "model",
     disclosure: "换会话的模型：只在调用方声称的 space 自己的会话上（[shell] model_switch）",
-    methods: &["harnix.sessions.setModel"],
+    methods: &[m("harnix.sessions.setModel", |b, p| Box::pin(async move { b.session_set_model(p).await }))],
     grants: &["session.setModel"],
 };
 
@@ -205,12 +209,12 @@ pub fn methods() -> Vec<&'static str> {
     PARTS
         .iter()
         .chain([&SYSTEM, &MODEL])
-        .flat_map(|p| p.methods.iter().copied())
+        .flat_map(|p| p.methods.iter().map(|m| m.name))
         .collect()
 }
 
-/// Engine methods a built-in calls that no device may: in the table as the
-/// kernel's, and granted to the one module that needs each.
+/// Engine methods a built-in calls that no device may: granted to the one module that needs
+/// each.
 pub fn engine_methods() -> Vec<&'static str> {
     let mut all: Vec<&'static str> = PARTS
         .iter()
@@ -337,42 +341,6 @@ impl Builtin {
                 )
             })
     }
-
-    async fn dispatch(&self, name: &str, params: Value) -> Result<Value, RpcError> {
-        match name {
-            "harnix.workspaces.list" => self.workspaces_list().await,
-            "harnix.workspaces.create" => self.workspaces_create(params).await,
-            "harnix.workspaces.update" => self.workspaces_update(params).await,
-            "harnix.workspaces.reorder" => self.workspaces_reorder(params).await,
-            "harnix.workspaces.remove" => self.workspaces_remove(params).await,
-            "harnix.sessions.rename" => self.session_rename(params).await,
-            "harnix.sessions.archive" => self.session_archive(params).await,
-            "harnix.sessions.export" => self.session_export(params).await,
-            "harnix.sessions.setModel" => self.session_set_model(params).await,
-            "harnix.prefs.set" => self.prefs_set(params).await,
-            "harnix.search" => self.search(params).await,
-            "harnix.requestHeaders" => self.request_headers(params).await,
-            "harnix.settings.describe" => self.settings_describe(params).await,
-            "harnix.settings.set" => self.settings_set(params).await,
-            "harnix.settings.setProvider" => self.settings_set_provider(params).await,
-            "harnix.listDirectory" => self.list_directory(params).await,
-            "harnix.recentProjects" => self.recent_projects().await,
-            "harnix.files" => self.files(params).await,
-            "harnix.projects.create" => self.projects_create(params).await,
-            "harnix.upload.begin" => self.upload_begin(params).await,
-            "harnix.plugins.upload" => self.plugins_upload(params).await,
-            "harnix.plugins.install" => self.plugins_install(params).await,
-            "harnix.plugins.uninstall" => self.plugins_manage("plugin.uninstall", params).await,
-            "harnix.plugins.enable" => self.plugins_manage("plugin.enable", params).await,
-            "harnix.plugins.disable" => self.plugins_manage("plugin.disable", params).await,
-            "harnix.plugins.reload" => self.plugins_manage("plugin.reload", params).await,
-            "harnix.plugins.list" => self.plugins_list(params).await,
-            name if name.starts_with("harnix.system.") => self.system_call(name, params).await,
-            other => Err(RpcError::not_found(format!(
-                "`{other}` is not a built-in method"
-            ))),
-        }
-    }
 }
 
 /// Uploads are a module's business, not the kernel's, so transport asks
@@ -387,8 +355,21 @@ impl harnix_module::BulkStore for Builtin {
 struct Part {
     id: &'static str,
     disclosure: &'static str,
-    methods: &'static [&'static str],
+    methods: &'static [Method],
     grants: &'static [&'static str],
+}
+
+/// What answers one built-in method: a function of the built-ins' state and the params.
+type Answer = fn(Arc<Builtin>, Value) -> Pin<Box<dyn Future<Output = Result<Value, RpcError>> + Send>>;
+
+/// One built-in method: its full name, and what answers it.
+struct Method {
+    name: &'static str,
+    answer: Answer,
+}
+
+const fn m(name: &'static str, answer: Answer) -> Method {
+    Method { name, answer }
 }
 
 /// One built-in module.
@@ -411,15 +392,15 @@ impl Module for BuiltinModule {
     }
 
     fn methods(&self, registry: &mut MethodRegistry) {
-        for name in self.part.methods {
-            let short = name.strip_prefix("harnix.").unwrap_or(name);
+        for method in self.part.methods {
+            let short = method.name.strip_prefix("harnix.").unwrap_or(method.name);
             registry
                 .method(short, Principal::Device)
                 .allow(Principal::AnyModule)
                 .allow(Principal::Kernel)
-                .with(Arc::new(Method {
+                .with(Arc::new(Bound {
                     builtin: self.builtin.clone(),
-                    name,
+                    answer: method.answer,
                 }));
         }
     }
@@ -431,17 +412,16 @@ impl Module for BuiltinModule {
     }
 }
 
-/// One registered name. A thin adapter so the registry holds a uniform entry
-/// rather than twenty-five closures.
-struct Method {
+/// One registered method, with the state it answers from.
+struct Bound {
     builtin: Arc<Builtin>,
-    name: &'static str,
+    answer: Answer,
 }
 
 #[async_trait::async_trait]
-impl Handler for Method {
+impl Handler for Bound {
     async fn call(&self, _cx: CallContext, params: Value) -> Result<Value, RpcError> {
-        self.builtin.dispatch(self.name, params).await
+        (self.answer)(self.builtin.clone(), params).await
     }
 }
 
