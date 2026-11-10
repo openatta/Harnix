@@ -183,7 +183,7 @@ run_clippy()  {
 run_offline() {
   # No backend, no model, no browser: the checks that should never be the
   # slow ones.
-  for t in crate-metadata app-scripts style-lint readme-pairing recordings; do
+  for t in crate-metadata app-scripts style-lint readme-pairing recordings ui-layering; do
     echo "── $t ──"
     node "tests/$t.mjs" || return 1
   done
