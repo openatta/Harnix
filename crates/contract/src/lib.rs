@@ -7,7 +7,7 @@
 //! transport does not know what a session is, authorization does not know
 //! what a frame looks like, the hub does not know what HTTP is.
 //!
-//! Nothing here executes anything. It is types, three traits and a version —
+//! Nothing here executes anything. It is types, two traits and a version —
 //! and [`sync`], the one way the kernel takes a lock.
 
 pub mod apps;
@@ -190,16 +190,6 @@ pub mod codes {
     /// The extension is there and cannot answer now; `data.failure` says why: `starting`,
     /// `stopped`, `faulted`, `reentrant`. An instance out of reach is `INSTANCE_UNAVAILABLE`.
     pub const EXTENSION_UNAVAILABLE: i32 = -31010;
-}
-
-/// The process's single admission point.
-///
-/// Transport holds one of these and knows nothing about what is behind it.
-/// Authorization implements it by deciding, then delegating to the hub.
-#[async_trait::async_trait]
-pub trait Gate: Send + Sync {
-    async fn call(&self, subject: &Subject, method: &str, params: Value)
-        -> Result<Value, RpcError>;
 }
 
 /// Who issued an upload grant and where it lands.
