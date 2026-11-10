@@ -22,7 +22,7 @@ use async_trait::async_trait;
 use harnix_package::acquire::{self, internal, refused, Admission};
 use harnix_package::manifest::{self, toml_to_json, Manifest};
 use harnix_package::signature::{Trust, Verified};
-use harnix_app_port::{
+use harnix_wasm_port::{
     Agent, Control, HookCall, HookReply, Kernel, MethodCall, MethodDecl, Offer, Place, Placement,
     Progress, Registration, RpcError, SpaceDecl, Start, Started, Stop, ToolCall, ToolDef,
     ToolReply, TopicValue, Unplace,
@@ -681,7 +681,7 @@ impl Control for Host {
                     "would re-enter the backend of `{}`, which is waiting on this very call",
                     call.app
                 ),
-                harnix_app_port::Failure::Unavailable.as_str(),
+                harnix_wasm_port::Failure::Unavailable.as_str(),
             ));
         }
         let Some(app) = self.running(&call.app) else {
@@ -717,7 +717,7 @@ impl Control for Host {
     async fn call_tool(&self, call: ToolCall) -> Result<ToolReply, RpcError> {
         let Some(app) = self.running(&call.app) else {
             return Ok(ToolReply::Failed {
-                failure: harnix_app_port::Failure::Unavailable,
+                failure: harnix_wasm_port::Failure::Unavailable,
                 message: harnix_wasm::CallFailure::Unavailable(format!("`{}` is stopped", call.app))
                     .to_string(),
             });

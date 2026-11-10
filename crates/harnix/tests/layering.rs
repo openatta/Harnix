@@ -591,7 +591,7 @@ const AGIX: &[&str] = &["daemon", "base", "model", "history", "scene", "telemetr
 /// | crate | holds | may not reach |
 /// |---|---|---|
 /// | `harnix-package` | manifest, package, signatures, store, disclosure, the `harnix-app` tool | a VM, the kernel, Agix, an HTTP framework |
-/// | `harnix-app-port` | `Platform` and `Control`, and their serde types | anything but the contract |
+/// | `harnix-wasm-port` | `Platform` and `Control`, and their serde types | anything but the contract |
 /// | `harnix-app-host` | lifecycle, registry, health, dispatch to the VM, idling | the kernel, the hub, Agix, an HTTP framework |
 /// | `harnix-apps` | the embedded glue: the port over the kernel, the Agix plugin, `/apps/<id>/…` | — |
 ///
@@ -603,8 +603,8 @@ fn the_application_layers_reach_only_down() {
     let forbidden_above = ["harnix-module", "harnix-hub", "harnix-builtin", "harnix-instance", "harnix-authz", "harnix-transport", "harnix-app", "harnix-apps", "axum", "wasmtime"];
     for (dir, allowed) in [
         ("package", &["harnix-contract", "harnix-wasm"][..]),
-        ("app-port", &["harnix-contract"][..]),
-        ("app-host", &["harnix-contract", "harnix-package", "harnix-app-port", "harnix-wasm"][..]),
+        ("wasm-port", &["harnix-contract"][..]),
+        ("app-host", &["harnix-contract", "harnix-package", "harnix-wasm-port", "harnix-wasm"][..]),
     ] {
         for (name, optional) in normal_dependencies(dir) {
             assert!(
@@ -620,11 +620,11 @@ fn the_application_layers_reach_only_down() {
             }
         }
     }
-    let port = normal_dependencies("app-port");
+    let port = normal_dependencies("wasm-port");
     for name in port.keys() {
         assert!(
             ["harnix-contract", "async-trait", "serde", "serde_json"].contains(&name.as_str()),
-            "`app-port` depends on `{name}`: the boundary is serde types and async traits, nothing else"
+            "`wasm-port` depends on `{name}`: the boundary is serde types and async traits, nothing else"
         );
     }
     let package = std::fs::read_to_string(workspace_root().join("crates/package/Cargo.toml")).unwrap();
@@ -660,7 +660,7 @@ fn only_the_apps_feature_links_the_application_runtime() {
         if deps.contains_key("harnix-apps") {
             assert_eq!(dir, "app", "`{dir}` depends on `harnix-apps`; only the application layer may");
         }
-        for layer in ["harnix-package", "harnix-app-port"] {
+        for layer in ["harnix-package", "harnix-wasm-port"] {
             if deps.contains_key(layer) {
                 assert!(
                     ["app-host", "apps"].contains(&dir.as_str()),
@@ -811,7 +811,7 @@ fn every_harnix_dependency_resolves() {
         "transport",
         "wasm",
         "package",
-        "app-port",
+        "wasm-port",
         "app-host",
         "apps",
     ];

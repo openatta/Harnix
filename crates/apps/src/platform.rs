@@ -1,5 +1,5 @@
 //! The host's [`Kernel`], over this process's kernel: what an application embedded here is lent.
-//! (Its [`harnix_app_port::Agent`], this process's Agix, is `agent.rs`.)
+//! (Its [`harnix_wasm_port::Agent`], this process's Agix, is `agent.rs`.)
 //!
 //! - **Its names** are registered with the kernel's application host
 //!   (`harnix_module::AppHost`), under the `apps` module: each `[[method]]` a row in the
@@ -18,7 +18,7 @@ use std::sync::{Arc, OnceLock, RwLock, Weak};
 
 use async_trait::async_trait;
 use harnix_package::acquire::{internal, refused};
-use harnix_app_port::{
+use harnix_wasm_port::{
     CallAs, Control, Kernel, MethodCall, Progress, Publish, Registration, Subscription, TopicValue,
 };
 use harnix_contract::sync::{read, write};

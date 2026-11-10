@@ -5,7 +5,7 @@ members = [
     "crates/app",
     "crates/app-host",
     "crates/package",
-    "crates/app-port",
+    "crates/wasm-port",
     "crates/apps",
     "crates/instance",
     "crates/authz",
@@ -45,8 +45,8 @@ members = [
 #                                                     implements its traits, and only it names wasmtime)
 #   package ─→ contract                          (a runtime application as it is distributed:
 #                                                     manifest, package, signatures, store)
-#   app-port ─→ contract                             (the host's boundary: Platform and Control)
-#   app-host ─→ package, app-port, wasm          (the supervisor: lifecycle, dispatch, idling)
+#   wasm-port ─→ contract                             (the host's boundary: Platform and Control)
+#   app-host ─→ package, wasm-port, wasm          (the supervisor: lifecycle, dispatch, idling)
 #   apps ─→ app-host, builtin, module, Agix          (the embedded glue: the port over the kernel,
 #                                                     the Agix plugin, /apps/<id>/…; only a build
 #                                                     with the `apps` feature links any of these)
@@ -56,7 +56,7 @@ harnix           = { path = "crates/harnix" }
 harnix-app       = { path = "crates/app" }
 harnix-app-host  = { path = "crates/app-host" }
 harnix-package = { path = "crates/package" }
-harnix-app-port  = { path = "crates/app-port" }
+harnix-wasm-port  = { path = "crates/wasm-port" }
 harnix-apps      = { path = "crates/apps" }
 harnix-instance  = { path = "crates/instance" }
 harnix-authz     = { path = "crates/authz" }

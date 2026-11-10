@@ -7,7 +7,7 @@ mod common;
 
 use common::*;
 use harnix_app_host::HostOptions;
-use harnix_app_port::*;
+use harnix_wasm_port::*;
 use harnix_contract::sync::lock;
 use serde_json::json;
 

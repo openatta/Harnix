@@ -306,7 +306,7 @@ node tests/live/coverage.mjs --check               # scripts/check.sh 跑的就�
   不需要别的工具），按源码哈希缓存在 `target/tmp/` 下。第一次之前 `rustup target add wasm32-wasip2`。它跑两遍：`cargo test -p harnix-wasm` 是产品的
   构建（不带编译器，那里的测试加载编译工具编出的产物），`cargo test -p harnix-wasm --features compile` 跑组件测试。
 - `cargo test -p harnix-app-host --features compile`：应用宿主对着假的 `Kernel` 与 `Agent`，它们与 `Control` 每个方向的每次调用都经
-  `harnix-app-port` 的回环适配器（feature `loopback`）用 `serde_json` 编码再解码，证明这条边界能搬上 RPC。
+  `harnix-wasm-port` 的回环适配器（feature `loopback`）用 `serde_json` 编码再解码，证明这条边界能搬上 RPC。
 - `cargo test -p harnix-apps --features compile`：嵌入的粘合层，照 `apps` 模块那样装、用、停、卸，和装到一半失败的回滚；装签名包、篡改、
   升级与升级失败的回滚在 `crates/apps/tests/signed.rs`。
 - 签名、目录、披露的逻辑另有单测（`crates/package/src/{signature,store,disclosure,publish}.rs`）；休眠的规则在

@@ -93,7 +93,7 @@ crates/builtin    Harnix's own features, as modules on the public contract
 crates/contract   the types those layers hand each other
 crates/flow       the optional flow module, harnix-flow
 crates/wasm       harnix-wasm: the WebAssembly runtime, the one place wasmtime is linked
-crates/package, app-port, app-host, apps
+crates/package, wasm-port, app-host, apps
                   plugin apps: package and signatures, the port, the host core, the embedded glue
 crates/client     the light client an application's own tools link
 crates/cli        the `harnix` binary: the Harnix app, with the flow module

@@ -16,7 +16,7 @@ description  = "Runtime applications embedded in the product's process: installi
 [dependencies]
 harnix-app-host    = { workspace = true }
 harnix-package = { workspace = true }
-harnix-app-port    = { workspace = true }
+harnix-wasm-port    = { workspace = true }
 harnix-builtin  = { workspace = true }
 harnix-contract = { workspace = true }
 harnix-module   = { workspace = true }

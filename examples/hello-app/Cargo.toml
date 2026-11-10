@@ -17,7 +17,7 @@ harnix           = { path = "harnix/crates/harnix" }
 harnix-app       = { path = "harnix/crates/app" }
 harnix-app-host  = { path = "harnix/crates/app-host" }
 harnix-package = { path = "harnix/crates/package" }
-harnix-app-port  = { path = "harnix/crates/app-port" }
+harnix-wasm-port  = { path = "harnix/crates/wasm-port" }
 harnix-apps      = { path = "harnix/crates/apps" }
 harnix-instance  = { path = "harnix/crates/instance" }
 harnix-authz     = { path = "harnix/crates/authz" }

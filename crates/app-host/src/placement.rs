@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use harnix_package::acquire::{internal, refused};
 use harnix_package::package;
-use harnix_app_port::{AgentInstall, AgentRef, AgentSwitch, Agent, RpcError, Skills};
+use harnix_wasm_port::{AgentInstall, AgentRef, AgentSwitch, Agent, RpcError, Skills};
 use serde_json::{json, Value};
 
 /// What installing put in place, as the record keeps it (its `parts`).

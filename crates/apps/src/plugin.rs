@@ -32,7 +32,7 @@ use base::interface::tool::{
 use base::interface::tool_middleware::{
     NextDispatch, ToolAnswer, ToolCall, ToolExec, ToolMiddleware, ToolOutcome,
 };
-use harnix_app_port::{Control, Failure, HookCall, HookReply, ToolDef, ToolReply};
+use harnix_wasm_port::{Control, Failure, HookCall, HookReply, ToolDef, ToolReply};
 use harnix_contract::codes;
 use runtime::plugin::{Plugin, PluginSession, Registrar};
 use serde_json::{json, Value};
@@ -224,7 +224,7 @@ impl Tool for AppTool {
                 }),
             );
         }
-        let call = harnix_app_port::ToolCall {
+        let call = harnix_wasm_port::ToolCall {
             app: self.app.id.clone(),
             tool: self.def.name.clone(),
             input,

@@ -579,7 +579,7 @@ feature 管二进制里有没有插件 APP 的运行时，`[apps] enabled` 管�
 所以先验签、再按签名里的 sha256 比对读进来的字节，才反序列化。产物绑 wasmtime 的版本，Harnix 与 Agix 一一对应地发布，wasmtime 只在
 Harnix 发布时变，商店为每个 wasmtime 版本编一遍。
 
-**代码按「共享核心 / 粘合」分层。** 分发与信任（`harnix-package`）、端口（`harnix-app-port`，可以搬上 RPC 的形状）、虚拟机（`harnix-wasm`）、
+**代码按「共享核心 / 粘合」分层。** 分发与信任（`harnix-package`）、端口（`harnix-wasm-port`，可以搬上 RPC 的形状）、虚拟机（`harnix-wasm`）、
 应用宿主核心（`harnix-app-host`）不依赖内核、hub、Agix 与 HTTP 框架；进程内的粘合（`harnix-apps`）单独一层。模式 3 的应用进程换的只是粘合。
 分层与它的测试见 [应用开发](app-development.md) §11。
 

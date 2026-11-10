@@ -30,7 +30,7 @@ use axum::Extension;
 use axum::http::{header, HeaderMap, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::Router;
-use harnix_app_port::{Failure, ToolCall, ToolReply};
+use harnix_wasm_port::{Failure, ToolCall, ToolReply};
 use serde_json::{json, Value};
 
 use crate::runtime::{Loaded, Registry};

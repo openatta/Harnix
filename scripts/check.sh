@@ -59,7 +59,7 @@ free_port() {
 
 CRATES=(-p harnix -p harnix-cli -p harnix-app -p harnix-instance -p harnix-authz -p harnix-builtin
         -p harnix-client -p harnix-contract -p harnix-flow -p harnix-module -p harnix-hub -p harnix-transport
-        -p harnix-testapp -p harnix-wasm -p harnix-package -p harnix-app-port -p harnix-app-host
+        -p harnix-testapp -p harnix-wasm -p harnix-package -p harnix-wasm-port -p harnix-app-host
         -p harnix-apps)
 
 # The build that hosts runtime applications: `harnix` with the `apps` feature, which links the
@@ -160,7 +160,7 @@ run_build() {
 # the store's compiler produced) and with `compile`, which its component tests need. Nothing
 # else enables that feature, so neither run changes what the other crates are built with.
 # The same for the application host, whose tests compile the showcase's component and run it
-# behind the port carried through JSON (`harnix-app-port`'s loopback), and for `harnix-apps`, the
+# behind the port carried through JSON (`harnix-wasm-port`'s loopback), and for `harnix-apps`, the
 # embedded glue, whose tests install it as the `apps` module does; and the application layer once
 # more with `apps`, which is the only build its wiring of them is in.
 run_rust()    {

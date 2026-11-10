@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use harnix_package::acquire::{internal, refused};
 use harnix_package::package;
-use harnix_app_port::{Agent, AgentInstall, AgentRef, AgentSwitch, Offer, Skills};
+use harnix_wasm_port::{Agent, AgentInstall, AgentRef, AgentSwitch, Offer, Skills};
 use harnix_contract::RpcError;
 use harnix_module::ModuleContext;
 use serde_json::{json, Value};

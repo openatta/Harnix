@@ -8,7 +8,7 @@ mod common;
 use std::time::Duration;
 
 use common::*;
-use harnix_app_port::*;
+use harnix_wasm_port::*;
 use serde_json::{json, Value};
 
 const IDLE: Duration = Duration::from_millis(300);

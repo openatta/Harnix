@@ -43,7 +43,7 @@ use harnix_package::acquire::{self, internal, refused, Admission};
 use harnix_package::manifest::{Interface, Manifest, Surface, Title, UiEntry};
 use harnix_package::package;
 use harnix_package::signature::{Keys, Trust};
-use harnix_app_port::{Control, Offer, Place, Start, Stop, ToolDef, Unplace};
+use harnix_wasm_port::{Control, Offer, Place, Start, Stop, ToolDef, Unplace};
 use harnix_builtin::apps::{AppsRuntime, Disclosed, InstallRecord, PackageInfo, UpdateFailed};
 use harnix_contract::sync::{lock, read, write};
 use harnix_contract::RpcError;

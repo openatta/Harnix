@@ -28,12 +28,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use async_trait::async_trait;
-use harnix_app_port::{CallAs, Failure, Kernel, Publish, RpcError, Subject, Subscription};
+use harnix_wasm_port::{CallAs, Failure, Kernel, Publish, RpcError, Subject, Subscription};
 use harnix_wasm::{AppHost, AppVm, CallFailure, WeakAppVm};
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot};
 
-use harnix_app_port::codes;
+use harnix_wasm_port::codes;
 use harnix_contract::sync::lock;
 
 /// Refused calls kept per application for the system space.
@@ -424,7 +424,7 @@ mod tests {
         async fn publish(&self, _: Publish) -> Result<(), RpcError> {
             std::future::pending().await
         }
-        async fn register(&self, _: harnix_app_port::Registration) -> Result<(), RpcError> {
+        async fn register(&self, _: harnix_wasm_port::Registration) -> Result<(), RpcError> {
             unreachable!()
         }
         async fn withdraw(&self, _: String) -> Result<(), RpcError> {
@@ -439,7 +439,7 @@ mod tests {
         async fn unsubscribe(&self, _: Subscription) -> Result<(), RpcError> {
             unreachable!()
         }
-        async fn progress(&self, _: harnix_app_port::Progress) -> Result<(), RpcError> {
+        async fn progress(&self, _: harnix_wasm_port::Progress) -> Result<(), RpcError> {
             unreachable!()
         }
     }
