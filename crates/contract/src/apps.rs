@@ -1,5 +1,5 @@
 //! What a runtime application's id is: the one rule the install records (`harnix-builtin`) and the
-//! packages (`harnix-app-package`) both hold an id to, kept here because both depend on this crate
+//! packages (`harnix-package`) both hold an id to, kept here because both depend on this crate
 //! and on nothing else in common.
 
 /// Whether `id` can be an application's id: dot-separated segments of lowercase letters, digits

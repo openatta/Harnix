@@ -39,7 +39,7 @@ export function appsTools(): { bin: string; pack: string } {
   const cargo = (args: string[]) =>
     execFileSync("cargo", ["build", "--release", "--target-dir", TARGET, ...args], { cwd: ROOT, stdio: ["ignore", "ignore", "inherit"] });
   cargo(["-p", "harnix-cli", "--features", "apps"]);
-  cargo(["-p", "harnix-app-package", "--features", "compile", "--bin", "harnix-app"]);
+  cargo(["-p", "harnix-package", "--features", "compile", "--bin", "harnix-app"]);
   built = { bin: join(TARGET, "release", "harnix"), pack: join(TARGET, "release", "harnix-app") };
   return built;
 }

@@ -2,7 +2,7 @@
 //!
 //! Everything this file holds is something Agix does not have a concept of
 //! — workspaces, session titles, archived rows, view preferences. It lives
-//! under the state root the caller resolved (`crates/app/src/paths.rs`),
+//! under the state root the caller resolved (`crates/assembly/src/paths.rs`),
 //! never mixed into the engine's root: that tree belongs to Agix and to
 //! whoever hand-edits it, and a front end's bookkeeping has no business
 //! there. Deleting our root loses grouping and titles and nothing else.

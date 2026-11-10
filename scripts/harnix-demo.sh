@@ -14,7 +14,7 @@
 # The first `start` in a fresh directory brings in demo data (xops-03 §7, xops-04 §8): the pack of
 # `scripts/demo/` (flows, skills, rules, policies, gates, hooks) into the flow module's writable
 # packs; a few runs in different states — finished, waiting for a confirmation, paused, cancelled,
-# waiting for an external hand-in — made by the real kernel (`crates/flow/examples/demo_seed.rs`);
+# waiting for an external hand-in — made by the real kernel (`crates/ext/flow/examples/demo_seed.rs`);
 # and conversations in each flow's conversation, the general one and each run's main session,
 # said once to the application under --replay-dir (`scripts/demo/conversations.json`). None has
 # work in hand, so nothing calls a model until you act. The Harnix app ships none of it.
@@ -61,7 +61,7 @@ seed() {
   for kind in flows skills rules policies gates hooks; do
     [ -d "scripts/demo/$kind" ] && mkdir -p "$FLOW_DATA/packs/$kind" && cp -R "scripts/demo/$kind/." "$FLOW_DATA/packs/$kind/"
   done
-  cargo run --quiet --release -p harnix-flow --example demo_seed -- scripts/demo "$FLOW_DATA/runs"
+  cargo run --quiet --release -p harnix-ext-flow --example demo_seed -- scripts/demo "$FLOW_DATA/runs"
   talk
   touch "$DIR/.seeded"
 }

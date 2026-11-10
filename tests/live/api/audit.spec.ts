@@ -74,7 +74,7 @@ defineSuite("audit", {
   feature: "authz",
   gaps: {
     "deleting a session takes its audit entry with it":
-      "a durable sink for session.delete that is not the deleted transcript (crates/app/src/audit_log.rs)",
+      "a durable sink for session.delete that is not the deleted transcript (crates/assembly/src/audit_log.rs)",
   },
 }, {
   tests: {

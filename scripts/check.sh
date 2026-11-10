@@ -57,9 +57,9 @@ free_port() {
   node -e 'const s=require("net").createServer();s.listen(0,"127.0.0.1",()=>{const p=s.address().port;s.close(()=>console.log(p))})'
 }
 
-CRATES=(-p harnix -p harnix-cli -p harnix-app -p harnix-instance -p harnix-authz -p harnix-builtin
-        -p harnix-client -p harnix-contract -p harnix-flow -p harnix-module -p harnix-hub -p harnix-transport
-        -p harnix-testapp -p harnix-wasm -p harnix-app-package -p harnix-app-port -p harnix-app-host
+CRATES=(-p harnix -p harnix-cli -p harnix-assembly -p harnix-instance -p harnix-authz -p harnix-builtin
+        -p harnix-client -p harnix-contract -p harnix-ext-flow -p harnix-module -p harnix-hub -p harnix-transport
+        -p harnix-testapp -p harnix-wasm -p harnix-package -p harnix-wasm-port -p harnix-wasm-host
         -p harnix-apps)
 
 # The build that hosts runtime applications: `harnix` with the `apps` feature, which links the
@@ -142,7 +142,7 @@ run_build() {
   pnpm --filter @harnix/shell build || return 1
   cargo build --release -p harnix-cli -p harnix-testapp || return 1
   cargo build --release -p harnix-cli --features apps --target-dir "$APPS_TARGET" || return 1
-  cargo build --release -p harnix-app-package --features compile --bin harnix-app --target-dir "$APPS_TARGET" || return 1
+  cargo build --release -p harnix-package --features compile --bin harnix-app --target-dir "$APPS_TARGET" || return 1
   # What an author starts from builds: `harnix-app new`, then `build`. Its component's target
   # directory is kept between runs, so only the first is slow.
   local scaffold="$scratch/scaffold"
@@ -160,24 +160,24 @@ run_build() {
 # the store's compiler produced) and with `compile`, which its component tests need. Nothing
 # else enables that feature, so neither run changes what the other crates are built with.
 # The same for the application host, whose tests compile the showcase's component and run it
-# behind the port carried through JSON (`harnix-app-port`'s loopback), and for `harnix-apps`, the
+# behind the port carried through JSON (`harnix-wasm-port`'s loopback), and for `harnix-apps`, the
 # embedded glue, whose tests install it as the `apps` module does; and the application layer once
 # more with `apps`, which is the only build its wiring of them is in.
 run_rust()    {
   cargo test "${CRATES[@]}" || return 1
   cargo test -p harnix-wasm --features compile || return 1
-  cargo test -p harnix-app-host --features compile || return 1
+  cargo test -p harnix-wasm-host --features compile || return 1
   cargo test -p harnix-apps --features compile || return 1
-  cargo test -p harnix-app --features apps
+  cargo test -p harnix-assembly --features apps
 }
 # `--no-deps` matters: without it `-D warnings` is applied to the Agix
 # submodule too, and this script goes red for lints in code this repository
 # does not own. Harnix's own crates are held to zero warnings.
 run_clippy()  {
   cargo clippy "${CRATES[@]}" --all-targets --no-deps -- -D warnings || return 1
-  cargo clippy -p harnix-wasm -p harnix-app-package -p harnix-app-host -p harnix-apps --all-targets \
-    --features harnix-wasm/compile,harnix-app-package/compile,harnix-app-host/compile,harnix-apps/compile --no-deps -- -D warnings || return 1
-  cargo clippy -p harnix-app -p harnix-cli --all-targets --features harnix-app/apps,harnix-cli/apps --no-deps -- -D warnings
+  cargo clippy -p harnix-wasm -p harnix-package -p harnix-wasm-host -p harnix-apps --all-targets \
+    --features harnix-wasm/compile,harnix-package/compile,harnix-wasm-host/compile,harnix-apps/compile --no-deps -- -D warnings || return 1
+  cargo clippy -p harnix-assembly -p harnix-cli --all-targets --features harnix-assembly/apps,harnix-cli/apps --no-deps -- -D warnings
 }
 
 run_offline() {

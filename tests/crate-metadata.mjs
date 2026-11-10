@@ -19,7 +19,10 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const crates = readdirSync(join(root, "crates"));
+// `crates/ext/<id>` holds the first-party extensions; the directory itself is no crate.
+const crates = readdirSync(join(root, "crates"))
+  .filter((c) => c !== "ext")
+  .concat(readdirSync(join(root, "crates", "ext")).map((c) => `ext/${c}`));
 const field = (text, key) => text.match(new RegExp(`^${key}\\s*=\\s*(.+)$`, "m"))?.[1].trim();
 
 let failed = false;
@@ -58,7 +61,7 @@ const constants = [
   ["模块 API", "crates/module/src/lib.rs", "MODULE_API_VERSION"],
   ["贡献点 API", "crates/contract/src/handshake.rs", "CONTRIB_API_VERSION"],
   ["协议", "crates/contract/src/handshake.rs", "PROTOCOL_VERSION"],
-  ["应用接口（插件 APP）", "crates/app-package/src/manifest.rs", "HARNIX_API"],
+  ["应用接口（插件 APP）", "crates/package/src/manifest.rs", "HARNIX_API"],
 ];
 for (const [row, file, name] of constants) {
   const code = readFileSync(join(root, file), "utf8").match(new RegExp(`pub const ${name}: u32 = (\\d+);`))?.[1];

@@ -20,7 +20,7 @@
 
 ```sh
 # 一次：打包工具（带编译器）与 WASM 目标
-cargo build --release -p harnix-app-package --features compile --bin harnix-app
+cargo build --release -p harnix-package --features compile --bin harnix-app
 rustup target add wasm32-wasip2
 
 # 1. 起一个应用：清单、一个带工具 hello 的 tools-app 组件（component/）、README
@@ -386,7 +386,7 @@ export!(App);
 | `unsigned`（只在开发模式） | 同上 |
 | `trusted`（受信发布者签全） | **进页面**：它的 `[[ui]]` 模块，和编译期的界面同权限；`[interface] isolate = true`，或者它没有 `[[ui]]` 模块时，也进 iframe |
 
-这条规则只有一处（`harnix_app_package::runs_in_frames`）。进页面的模块与页面同级（[概念与架构](concept_and_architecture.md) §5.8），
+这条规则只有一处（`harnix_package::runs_in_frames`）。进页面的模块与页面同级（[概念与架构](concept_and_architecture.md) §5.8），
 所以只给受信发布者。
 
 ### 6.2 面
@@ -449,7 +449,7 @@ app.onEnv((env) => (document.documentElement.dataset.theme = env.theme));
 **页面拿不到的**：页面的令牌、外壳的连接、DOM、别的应用的名字、剪贴板（`copy` 由外壳写）。它只能请外壳去做，外壳只做清单让它请的：
 
 - **数据**：自己的 `app.<id>.*`，加上 `[interface] hub` 列出的；主题同样（`topic:<名>`）。`[interface] hub` 是一张**白名单**
-  （`harnix_app_package::surface::FRAME_HUB`，外壳的 `FRAME_HUB` 同一张），每个名字带一条限定，外壳按它收窄这次调用，再由 hub
+  （`harnix_package::surface::FRAME_HUB`，外壳的 `FRAME_HUB` 同一张），每个名字带一条限定，外壳按它收窄这次调用，再由 hub
   当作页面（一台设备）准入：
 
   | 名字 | 限定 |
@@ -550,7 +550,7 @@ app.onEnv((env) => (document.documentElement.dataset.theme = env.theme));
 
 ## 10. `harnix-app` 工具
 
-作者与商店用的命令行（`cargo build --release -p harnix-app-package --features compile --bin harnix-app`，带编译器）：
+作者与商店用的命令行（`cargo build --release -p harnix-package --features compile --bin harnix-app`，带编译器）：
 
 | 命令 | 做什么 |
 |---|---|
@@ -605,7 +605,7 @@ Harnix 自己怎么测插件 APP（宿主核心的回环、商店的 mock 钥、
 
 | 名字 | 现在 | 在哪 | 什么时候升 |
 |---|---|---|---|
-| 应用接口 | `1` | 清单的 `[app] harnix_api`；`harnix_app_package::HARNIX_API` | 破坏性的变化（改签名、删函数、新的必需导出）。不等就拒装 |
+| 应用接口 | `1` | 清单的 `[app] harnix_api`；`harnix_package::HARNIX_API` | 破坏性的变化（改签名、删函数、新的必需导出）。不等就拒装 |
 | WIT 包 | `harnix:app@0.1.0` | `crates/wasm/wit/app.wit` | 只增函数时升补丁版本；老组件照样链接 |
 | 桥 | `harnix-ui-bridge@1` | `@harnix/app-sdk/protocol` 的 `PROTOCOL` | 协议有不兼容的变化 |
 | SDK | `0.1.0` | `@harnix/app-sdk` 的 `SDK_VERSION`，`hello` 时带给外壳 | |
@@ -799,7 +799,7 @@ ACME_TOKEN = "…"
 
 `[apps]` 与 `[apps.trusted_publishers]` 拒绝不认识的键；`[apps.config."<id>"]`、`[apps.secrets."<id>"]` 下的键由应用自己定。
 带 `apps` 的构建、`[apps] enabled = true` 时，受信发布者的钥写错了进程起不来，并说是哪个发布者（不然一个笔误就是悄悄地谁也不信）。缺省商店是 `https://store.harnix.dev/index.json`（占位），内置的商店公钥是
-`harnix_app_package::store::STORE_KEYS`。cargo feature `apps` 不开时，`[apps] enabled = true` 也只有记录与开关（§16）。
+`harnix_package::store::STORE_KEYS`。cargo feature `apps` 不开时，`[apps] enabled = true` 也只有记录与开关（§16）。
 
 ## 20. 桥：`harnix-ui-bridge@1` 与 `HarnixApp`
 

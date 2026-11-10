@@ -3,7 +3,7 @@
 //! - `GET /apps/<id>/ui/<file>` — a running application's interface: the modules a trusted
 //!   publisher's runs in the page, same-origin, so the page can `import()` them like an installed
 //!   package's (`/plugins/<name>/ui/…`); and the pages (and their scripts, styles, images) the
-//!   shell's isolated frames load (`harnix_app_package::surface`). Only files of an application that is
+//!   shell's isolated frames load (`harnix_package::surface`). Only files of an application that is
 //!   running, only under its `ui/`; like the page's own files, served without a credential. Every
 //!   one carries [`FRAME_CSP`]: a frame's page has no network, no plugins, no nested frames, and
 //!   loads only what its own package has.
@@ -30,7 +30,7 @@ use axum::Extension;
 use axum::http::{header, HeaderMap, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::Router;
-use harnix_app_port::{Failure, ToolCall, ToolReply};
+use harnix_wasm_port::{Failure, ToolCall, ToolReply};
 use serde_json::{json, Value};
 
 use crate::runtime::{Loaded, Registry};
@@ -94,7 +94,7 @@ async fn ui(registry: Arc<Registry>, id: String, file: String) -> Response {
     let Some(app) = registry.get(&id) else {
         return (StatusCode::NOT_FOUND, "no such application is running").into_response();
     };
-    if !harnix_app_package::manifest::safe_relative(&file) {
+    if !harnix_package::manifest::safe_relative(&file) {
         return (StatusCode::NOT_FOUND, "not found").into_response();
     }
     let path = app.root.join("ui").join(&file);

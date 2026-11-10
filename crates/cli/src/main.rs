@@ -1,7 +1,7 @@
 //! `harnix` — the Harnix app: the built-ins, and the flow module (xops-02 §6).
 //!
 //! An application's own binary is the built-ins with its modules added (`templates/app`); an
-//! application that wants flows registers `harnix_flow::Flow` itself, as this one does.
+//! application that wants flows registers `harnix_ext_flow::Flow` itself, as this one does.
 //!
 //! The flow module here has no programs, checks or tools of an application — a flow that names
 //! one does not validate (a dry run still goes through it: there everything is mocked). Command
@@ -13,7 +13,7 @@
 //! on `flow-harnix` unless its flow names another, in a directory of the run's own. Run under
 //! `--replay-dir`, the flow sessions replay recordings named after their run or flow.
 
-use harnix_flow::{DirPacks, Flow, MemPacks};
+use harnix_ext_flow::{DirPacks, Flow, MemPacks};
 
 /// The example flow built into the binary: a session reviews the subject, a person approves.
 pub const EXAMPLE_FLOW: &str = include_str!("../packs/flows/example-review.yaml");
@@ -61,7 +61,7 @@ fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use harnix_flow::{validate_yaml, Packs};
+    use harnix_ext_flow::{validate_yaml, Packs};
 
     /// Valid with nothing of an application's: the catalog has only the wrapped scenes.
     #[test]
@@ -78,10 +78,10 @@ mod tests {
         let demo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/demo");
         let catalog = MemPacks::new().main_scene("flow-harnix").command_gates();
         let packs = DirPacks::new([demo.clone()]).with_builtin(catalog);
-        for kind in harnix_flow::PartKind::ALL {
+        for kind in harnix_ext_flow::PartKind::ALL {
             for name in packs.parts(kind) {
                 let (text, _) = packs.part(kind, &name).unwrap();
-                let problems = harnix_flow::part_problems(kind, &name, &text, &packs as &dyn Packs);
+                let problems = harnix_ext_flow::part_problems(kind, &name, &text, &packs as &dyn Packs);
                 assert!(problems.is_empty(), "{kind} {name}: {problems:?}");
             }
         }
@@ -107,7 +107,7 @@ mod tests {
         );
         assert!(packs.writable());
         assert_eq!(packs.flows(), ["example-review"]);
-        assert_eq!(packs.origin("example-review"), harnix_flow::Origin::Builtin);
+        assert_eq!(packs.origin("example-review"), harnix_ext_flow::Origin::Builtin);
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }

@@ -199,12 +199,12 @@ Harnix 本身是**框架 + Harnix app + 系统 space**：Harnix app（会话 spa
 | 层 | crate | 管什么 | 依赖（Harnix 内） | 模式 1 | 模式 2 | 模式 3 |
 |---|---|---|---|---|---|---|
 | 内核与模块 | `harnix`、`harnix-app`、`harnix-module`、hub、authz、transport、instance… | 骨架、模块契约、装配 | — | ✔ | ✔ | ✔（产品侧） |
-| 内核侧的插件 APP | `crates/module/src/apps.rs`（契约：`AppSpec`、`AppHost`）、`crates/app/src/apps.rs`（内核的实现：登记、撤销、以应用的身份调用）、`crates/builtin/src/apps.rs`（内建模块 `apps`：`harnix.apps.*`、安装记录） | 运行期的方法、主题、space 进出授权表与中枢；管插件 APP 的方法 | 内核各 crate | | ✔ | ✔（产品侧） |
-| 分发与信任 | `harnix-app-package` | 清单、包、签名、目录与下载、披露、发布工具 `harnix-app` | `harnix-contract`；`harnix-wasm` 只在 feature `compile` 下（打包工具要编译器） | | ✔ | ✔（产品侧） |
-| 边界 | `harnix-app-port` | 应用宿主要外面做的分两半：`Kernel`（产品的：登记、调用、发布、订阅、进度，7 个方法）与 `Agent`（Agent 引擎的：装包、技能、工具，8 个方法）；外面要应用宿主做的是 `Control`（12 个方法）；`rpc` 层把三者编成 JSON，feature `loopback` 带一个回环适配器 | `harnix-contract`；外部只有 serde、serde_json、async-trait | | ✔ | ✔ |
+| 内核侧的插件 APP | `crates/module/src/apps.rs`（契约：`AppSpec`、`AppHost`）、`crates/assembly/src/apps.rs`（内核的实现：登记、撤销、以应用的身份调用）、`crates/builtin/src/apps.rs`（内建模块 `apps`：`harnix.apps.*`、安装记录） | 运行期的方法、主题、space 进出授权表与中枢；管插件 APP 的方法 | 内核各 crate | | ✔ | ✔（产品侧） |
+| 分发与信任 | `harnix-package` | 清单、包、签名、目录与下载、披露、发布工具 `harnix-app` | `harnix-contract`；`harnix-wasm` 只在 feature `compile` 下（打包工具要编译器） | | ✔ | ✔（产品侧） |
+| 边界 | `harnix-wasm-port` | 应用宿主要外面做的分两半：`Kernel`（产品的：登记、调用、发布、订阅、进度，7 个方法）与 `Agent`（Agent 引擎的：装包、技能、工具，8 个方法）；外面要应用宿主做的是 `Control`（12 个方法）；`rpc` 层把三者编成 JSON，feature `loopback` 带一个回环适配器 | `harnix-contract`；外部只有 serde、serde_json、async-trait | | ✔ | ✔ |
 | 虚拟机 | `harnix-wasm` | wasmtime 的引擎、Store、健康、记账、休眠；feature `compile` 带 Cranelift | 无（叶子） | | ✔ | ✔（应用进程侧） |
-| 应用宿主核心 | `harnix-app-host` | 生命周期、注册表、健康、分派、进度、休眠；`host.http-request` 用的 HTTP 客户端 | contract、package、port、wasm | | ✔ | ✔（应用进程侧） |
-| 粘合（嵌入） | `harnix-apps` | 端口的进程内实现、给 Agix 的 Rust 插件 `AppsBridge`、`/apps/<id>/ui` 与 `/apps/<id>/mcp`、`apps` 内建模块的运行时。模式 3 里分到链接两边：产品侧是 `runtime.rs`、`update.rs`（装、起、升级、卸与回滚）、`serve.rs`、`platform.rs`（`Kernel`）；虚拟机侧是 `agent.rs`（`Agent`）、`plugin.rs`（`AppsBridge`），以及它驱动的 `Control`，即应用宿主本身。逐个文件见这个 crate 的模块文档 | app-host、app-package、app-port、builtin、contract、module，以及 Agix | | ✔ | |
+| 应用宿主核心 | `harnix-wasm-host` | 生命周期、注册表、健康、分派、进度、休眠；`host.http-request` 用的 HTTP 客户端 | contract、package、port、wasm | | ✔ | ✔（应用进程侧） |
+| 粘合（嵌入） | `harnix-apps` | 端口的进程内实现、给 Agix 的 Rust 插件 `AppsBridge`、`/apps/<id>/ui` 与 `/apps/<id>/mcp`、`apps` 内建模块的运行时。模式 3 里分到链接两边：产品侧是 `runtime.rs`、`update.rs`（装、起、升级、卸与回滚）、`serve.rs`、`platform.rs`（`Kernel`）；虚拟机侧是 `agent.rs`（`Agent`）、`plugin.rs`（`AppsBridge`），以及它驱动的 `Control`，即应用宿主本身。逐个文件见这个 crate 的模块文档 | wasm-host、package、wasm-port、builtin、contract、module，以及 Agix | | ✔ | |
 | 粘合（模式 3，只有设计） | `harnix-app-proc` 加上产品侧的端口服务与监护器 | | | | | ✔ |
 | 前端 | 外壳、桥、`@harnix/app-sdk`、`@harnix/ui-kit`、行内点 | | | ✔ | ✔ | ✔（完全一样） |
 
@@ -213,15 +213,15 @@ feature 的链：`harnix-cli` / `harnix-testapp` 的 `apps` → `harnix/apps` �
 
 - **HTTP**：宿主核心带的是一个 HTTP **客户端**（`reqwest`，给 `host.http-request`：不跟随重定向、60 秒超时、16 MiB 上限、回环不走代理），
   分发层也用它下载目录与包；HTTP **框架**（axum）只在嵌入的粘合层里。
-- **编译器**：产品构建不带 Cranelift。`harnix-app-package` 的 `compile` 拉上 `harnix-wasm/compile`，只给打包工具 `harnix-app`（它的
+- **编译器**：产品构建不带 Cranelift。`harnix-package` 的 `compile` 拉上 `harnix-wasm/compile`，只给打包工具 `harnix-app`（它的
   `required-features = ["compile"]`）和测试用。
 
 这些边界由 `crates/harnix/tests/layering.rs` 守着：
 
 - 分发与信任、边界、应用宿主核心这三层，不依赖 module、hub、builtin、instance、authz、transport、app、apps、axum、wasmtime 和 Agix 的任何 crate；
-  各自的 Harnix 依赖就是上表那几样，`harnix-app-package` 对 `harnix-wasm` 的依赖必须是可选的，`harnix-app-port` 的依赖不超出
+  各自的 Harnix 依赖就是上表那几样，`harnix-package` 对 `harnix-wasm` 的依赖必须是可选的，`harnix-wasm-port` 的依赖不超出
   contract、async-trait、serde、serde_json。
 - 只有 `harnix-wasm` 链 wasmtime；它自己不依赖任何 Harnix crate，也不依赖 Agix。
-- 应用运行时只经 `apps` feature 进来：`harnix-wasm` 只出现在 app-host（和 app-package 的可选依赖）里，`harnix-app-host` 只在 apps 里，
+- 应用运行时只经 `apps` feature 进来：`harnix-wasm` 只出现在 wasm-host（和 package 的可选依赖）里，`harnix-wasm-host` 只在 apps 里，
   `harnix-apps` 只在 `harnix-app` 里且是可选的。
-- 端口要过一遍 JSON 回环（`cargo test -p harnix-app-host --features compile`：两个方向的每次调用都编码再解码），证明它能搬上 RPC。
+- 端口要过一遍 JSON 回环（`cargo test -p harnix-wasm-host --features compile`：两个方向的每次调用都编码再解码），证明它能搬上 RPC。

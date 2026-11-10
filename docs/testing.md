@@ -28,7 +28,7 @@ scripts/prune.sh                 # 清构建缓存：增量缓存全删，超过
 | 层 | 跑什么 | 要什么 |
 |---|---|---|
 | `build` | `pnpm install --frozen-lockfile`、外壳构建；`harnix-cli` 与 `harnix-testapp` 的发布构建；带 `apps` 的 `harnix`、打包工具 `harnix-app`、带 `apps` 的 `harnix-testapp`，都编在 `target/apps`；`examples/hello-app` 照应用的方式构建 | — |
-| `rust` | Harnix 各 crate 的 `cargo test`；`harnix-wasm`、`harnix-app-host`、`harnix-apps` 各带 `compile` 再跑一遍；`harnix-app` 带 `apps` 再跑一遍 | — |
+| `rust` | Harnix 各 crate 的 `cargo test`；`harnix-wasm`、`harnix-wasm-host`、`harnix-apps` 各带 `compile` 再跑一遍；`harnix-app` 带 `apps` 再跑一遍 | — |
 | `clippy` | 同样的 crate 与 feature，`-D warnings`、`--no-deps` | — |
 | `offline` | `tests/crate-metadata.mjs`（版本、许可、Agix 钉，以及 SDK 文档写的版本）、`app-scripts`、`style-lint`、`readme-pairing`、`recordings`（录像名两头都对得上，§6）；桌面壳的 `check-no-ipc`、`check-rename` | — |
 | `frontend` | 各包的 typecheck（含 `tests/live`，与各包一样 `strict`）与 Vitest；协议类型对着 Rust 重新生成再比；覆盖表 `--check`；插件 APP 带的 SDK 与 ui-kit 是否最新（`tests/app-ui-vendored.mjs`） | — |
@@ -48,8 +48,8 @@ scripts/prune.sh                 # 清构建缓存：增量缓存全删，超过
 `scripts/prune.sh`。**不要跑 `cargo test --workspace`**：会连带跑吸收进来的 Agix crate，Agix 的测试在 Agix 里跑。
 
 流程会话任务的判轮（发任务、没交就催一次、退回修正、任务结束时打断还在跑的轮、重启后接着做）在 `rust` 层里测：
-`crates/flow/src/module/turns.rs` 的循环读一串帧、经一个 trait 发消息和打断，测试拿真内核配一份按脚本出帧的会话，一轮一轮看；
-`command` 门禁和门禁结果碰上提交冲突的情况在 `crates/flow/src/module/gate.rs`。LIVE 的 `ui/flow*.spec.ts` 看的是同一段逻辑过整个后端。
+`crates/ext/flow/src/module/turns.rs` 的循环读一串帧、经一个 trait 发消息和打断，测试拿真内核配一份按脚本出帧的会话，一轮一轮看；
+`command` 门禁和门禁结果碰上提交冲突的情况在 `crates/ext/flow/src/module/gate.rs`。LIVE 的 `ui/flow*.spec.ts` 看的是同一段逻辑过整个后端。
 
 ## 3. 跑 LIVE
 
@@ -295,7 +295,7 @@ node tests/live/coverage.mjs --check               # scripts/check.sh 跑的就�
 | 东西 | 在哪 |
 |---|---|
 | 带 `apps` 的 `harnix` | `cargo build --release -p harnix-cli --features apps --target-dir target/apps`；`scripts/check.sh` 编好后经 `HARNIX_APPS_BIN` 告诉套件，单跑时套件自己编（`tests/live/api/apps-host.ts`） |
-| 打包工具 `harnix-app` | 同一个目录，`-p harnix-app-package --features compile --bin harnix-app` |
+| 打包工具 `harnix-app` | 同一个目录，`-p harnix-package --features compile --bin harnix-app` |
 | 带 `apps` 的 `harnix-testapp` | 同一个目录；信 mock 商店、能缩短休眠的只有它（见下面的隐藏钩子） |
 | 示例应用 | `examples/apps/showcase`：测试开始时编组件（`wasm32-wasip2`）、为这个引擎编译、打成 `.hxapp`，按源码哈希缓存在 `target/apps/showcase/` |
 | mock 商店 | `tests/live/api/apps-store.ts` 在临时目录里用 `harnix-app sign` / `countersign` / `index` 把 showcase 做成两个版本（0.2.0 多要几项能力）、写出 `index.json`，经 `[apps] store = "file://…"` 给后端；mock 的发布者与商店密钥在 `tests/live/fixtures/store/`，只是测试钥 |
@@ -305,12 +305,12 @@ node tests/live/coverage.mjs --check               # scripts/check.sh 跑的就�
 - `harnix-wasm` 拿真组件跑：`crates/wasm/tests/fixtures/` 下的组件用 `cargo build --target wasm32-wasip2` 现编（rustc 的 wasip2 链接器直接出组件，
   不需要别的工具），按源码哈希缓存在 `target/tmp/` 下。第一次之前 `rustup target add wasm32-wasip2`。它跑两遍：`cargo test -p harnix-wasm` 是产品的
   构建（不带编译器，那里的测试加载编译工具编出的产物），`cargo test -p harnix-wasm --features compile` 跑组件测试。
-- `cargo test -p harnix-app-host --features compile`：应用宿主对着假的 `Kernel` 与 `Agent`，它们与 `Control` 每个方向的每次调用都经
-  `harnix-app-port` 的回环适配器（feature `loopback`）用 `serde_json` 编码再解码，证明这条边界能搬上 RPC。
+- `cargo test -p harnix-wasm-host --features compile`：应用宿主对着假的 `Kernel` 与 `Agent`，它们与 `Control` 每个方向的每次调用都经
+  `harnix-wasm-port` 的回环适配器（feature `loopback`）用 `serde_json` 编码再解码，证明这条边界能搬上 RPC。
 - `cargo test -p harnix-apps --features compile`：嵌入的粘合层，照 `apps` 模块那样装、用、停、卸，和装到一半失败的回滚；装签名包、篡改、
   升级与升级失败的回滚在 `crates/apps/tests/signed.rs`。
-- 签名、目录、披露的逻辑另有单测（`crates/app-package/src/{signature,store,disclosure,publish}.rs`）；休眠的规则在
-  `crates/app-host/tests/idle.rs`（`HostOptions::idle`）与 `crates/wasm/tests/hibernate.rs`。
+- 签名、目录、披露的逻辑另有单测（`crates/package/src/{signature,store,disclosure,publish}.rs`）；休眠的规则在
+  `crates/wasm-host/tests/idle.rs`（`HostOptions::idle`）与 `crates/wasm/tests/hibernate.rs`。
 
 **LIVE 这边**（都在 `tests/live/{api,ui}/apps*.spec.ts`）：装与运行时、后端、商店、iframe、行内点、休眠，API 与界面各一份，两种拓扑都跑。
 

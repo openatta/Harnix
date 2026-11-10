@@ -11,12 +11,12 @@ description  = "Runtime applications embedded in the product's process: installi
 # the host's port over the kernel (registration, `module:<id>` calls, topics, the agent engine's
 # instances), the Agix plugin that gives every session the running applications' tools, and the
 # HTTP side (`/apps/<id>/ui`, `/apps/<id>/mcp`). The applications themselves run in
-# `harnix-app-host`; their packages are `harnix-app-package`'s. Only a build with the `apps`
-# feature links it (crates/app), and through it the host and `harnix-wasm`.
+# `harnix-wasm-host`; their packages are `harnix-package`'s. Only a build with the `apps`
+# feature links it (crates/assembly), and through it the host and `harnix-wasm`.
 [dependencies]
-harnix-app-host    = { workspace = true }
-harnix-app-package = { workspace = true }
-harnix-app-port    = { workspace = true }
+harnix-wasm-host    = { workspace = true }
+harnix-package = { workspace = true }
+harnix-wasm-port    = { workspace = true }
 harnix-builtin  = { workspace = true }
 harnix-contract = { workspace = true }
 harnix-module   = { workspace = true }
@@ -35,7 +35,7 @@ uuid        = { workspace = true }
 [features]
 default = []
 # Its tests compile the showcase's component for this engine.
-compile = ["harnix-app-host/compile"]
+compile = ["harnix-wasm-host/compile"]
 
 [dev-dependencies]
 tempfile = { workspace = true }

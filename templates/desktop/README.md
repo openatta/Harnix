@@ -233,5 +233,5 @@ node harnix/templates/desktop/check-no-ipc.mjs .  # 你的应用里那一份
   持有的管道，壳一没，管道就断。这条路走的是应用自己的退出流程。
 - Windows 上没有给无控制台子进程发 Ctrl-C 的干净办法，关窗口时等 5 秒后直接结束子进程，模块的
   `stop` 不会执行。
-- 状态目录的查找规则抄的是应用这边的（`crates/app/src/paths.rs`）；那边改了，`local.rs` 的
+- 状态目录的查找规则抄的是应用这边的（`crates/assembly/src/paths.rs`）；那边改了，`local.rs` 的
   `state_dir` 要跟着改。

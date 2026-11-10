@@ -23,7 +23,7 @@
 | 模块自有链接 | `routes` | 5 | 1 |
 | 扩展条目 | `entries` | 5 | 3 |
 | 品牌与主题 | `brand` | 2 | 1 |
-| 流程（harnix-flow，xops-01、xops-02） | `flow` | 30 | 28 |
+| 流程（harnix-ext-flow，xops-01、xops-02） | `flow` | 30 | 28 |
 | 运行期应用（登记与撤下、安装与卸载、启停、工具、agent 包、界面模块、隔离 iframe 里的界面与外壳的桥、MCP 端点、WASM 后端、系统 space 应用页签） | `apps` | 44 | 18 |
 | 应用商店（签名与副署、目录、按名字安装与升级、披露与同意、设置 · 应用） | `apps-store` | 11 | 5 |
 | 应用的声明式行内点与管理界面（工具行模板、流块卡片、命令候选、侧栏分组、披露弹窗、清空数据、左栏标记） | `apps-inline` | 4 | 6 |
@@ -38,5 +38,5 @@
 
 | 功能模块 | 层 | 用例 | 等什么修 |
 |---|---|---|---|
-| `authz` | api | api/audit.spec.ts › audit › deleting a session takes its audit entry with it | a durable sink for session.delete that is not the deleted transcript (crates/app/src/audit_log.rs) |
+| `authz` | api | api/audit.spec.ts › audit › deleting a session takes its audit entry with it | a durable sink for session.delete that is not the deleted transcript (crates/assembly/src/audit_log.rs) |
 | `sessions` | api | api/host-events.spec.ts › host-events › a client that arrives after the failure cannot learn about it | Agix: `mcp.status` reporting the servers that failed to connect, not only those that did |

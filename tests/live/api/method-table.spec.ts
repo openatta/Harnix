@@ -6,7 +6,7 @@
  *
  * `harnix.reachable` is the same table asked by subject: a device on the Harnix app, a
  * compiled-in module (`probe`, on the test application), and a runtime application's subject
- * (its half is the Rust test in `crates/app/src/gate.rs`, which reads the same file).
+ * (its half is the Rust test in `crates/assembly/src/gate.rs`, which reads the same file).
  */
 
 import { type Backend, type TestClient, connect, expect, test } from "@harnix/testkit";

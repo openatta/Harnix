@@ -15,11 +15,11 @@ path = "src/lib.rs"
 
 [features]
 default = []
-# Runtime applications (`harnix-app`'s `apps`): see crates/app/Cargo.toml.
-apps = ["harnix-app/apps"]
+# Runtime applications (`harnix-assembly`'s `apps`): see crates/assembly/Cargo.toml.
+apps = ["harnix-assembly/apps"]
 
 [dependencies]
-harnix-app       = { workspace = true }
+harnix-assembly       = { workspace = true }
 harnix-module    = { workspace = true }
 harnix-contract  = { workspace = true }
 harnix-authz     = { workspace = true }

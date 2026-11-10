@@ -97,7 +97,7 @@ fn transport_does_not_know_what_a_session_is() {
         &[
             "harnix-instance",
             "harnix-module",
-            "harnix-app",
+            "harnix-assembly",
             "daemon",
             "base",
         ],
@@ -259,7 +259,7 @@ fn the_instance_layer_does_not_know_the_client_protocol_exists() {
 fn the_module_contract_cannot_reach_the_hub() {
     assert_ignorant_of(
         "module",
-        &["harnix-hub", "harnix-transport", "harnix-app", "daemon"],
+        &["harnix-hub", "harnix-transport", "harnix-assembly", "daemon"],
         "a module calls through the admission point like everyone else",
     );
     // It does depend on the instance layer, for templates and native
@@ -297,7 +297,7 @@ fn the_builtins_use_only_the_public_module_api() {
             "harnix-hub",
             "harnix-authz",
             "harnix-instance",
-            "harnix-app",
+            "harnix-assembly",
             "harnix-transport",
             "daemon",
         ],
@@ -336,7 +336,7 @@ fn the_builtins_use_only_the_public_module_api() {
 /// contract, and never the doors the application uses to drive a module.
 #[test]
 fn the_flow_module_uses_only_the_public_module_api() {
-    for name in dependencies("flow") {
+    for name in dependencies("ext/flow") {
         if name.starts_with("harnix") {
             assert!(
                 ["harnix-module", "harnix-contract"].contains(&name.as_str()),
@@ -350,7 +350,7 @@ fn the_flow_module_uses_only_the_public_module_api() {
         );
     }
     let mut offenders = Vec::new();
-    let mut stack = vec![workspace_root().join("crates/flow/src")];
+    let mut stack = vec![workspace_root().join("crates/ext/flow/src")];
     while let Some(dir) = stack.pop() {
         for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
             let path = entry.path();
@@ -388,7 +388,7 @@ fn the_flow_module_uses_only_the_public_module_api() {
 fn the_library_does_not_carry_the_empty_applications_flow_module() {
     assert_ignorant_of(
         "harnix",
-        &["harnix-flow"],
+        &["harnix-ext-flow"],
         "a library user registers flows if it wants them; the Harnix app is `harnix-cli`",
     );
     let manifest =
@@ -399,7 +399,7 @@ fn the_library_does_not_carry_the_empty_applications_flow_module() {
     );
     let cli = dependencies("cli");
     assert!(
-        cli.contains("harnix") && cli.contains("harnix-flow"),
+        cli.contains("harnix") && cli.contains("harnix-ext-flow"),
         "{cli:?}"
     );
     let cli_manifest =
@@ -590,9 +590,9 @@ const AGIX: &[&str] = &["daemon", "base", "model", "history", "scene", "telemetr
 ///
 /// | crate | holds | may not reach |
 /// |---|---|---|
-/// | `harnix-app-package` | manifest, package, signatures, store, disclosure, the `harnix-app` tool | a VM, the kernel, Agix, an HTTP framework |
-/// | `harnix-app-port` | `Platform` and `Control`, and their serde types | anything but the contract |
-/// | `harnix-app-host` | lifecycle, registry, health, dispatch to the VM, idling | the kernel, the hub, Agix, an HTTP framework |
+/// | `harnix-package` | manifest, package, signatures, store, disclosure, the `harnix-app` tool | a VM, the kernel, Agix, an HTTP framework |
+/// | `harnix-wasm-port` | `Platform` and `Control`, and their serde types | anything but the contract |
+/// | `harnix-wasm-host` | lifecycle, registry, health, dispatch to the VM, idling | the kernel, the hub, Agix, an HTTP framework |
 /// | `harnix-apps` | the embedded glue: the port over the kernel, the Agix plugin, `/apps/<id>/…` | — |
 ///
 /// So the package and the host are the same code in a product's process and in a process of an
@@ -600,11 +600,11 @@ const AGIX: &[&str] = &["daemon", "base", "model", "history", "scene", "telemetr
 /// sees of the other.
 #[test]
 fn the_application_layers_reach_only_down() {
-    let forbidden_above = ["harnix-module", "harnix-hub", "harnix-builtin", "harnix-instance", "harnix-authz", "harnix-transport", "harnix-app", "harnix-apps", "axum", "wasmtime"];
+    let forbidden_above = ["harnix-module", "harnix-hub", "harnix-builtin", "harnix-instance", "harnix-authz", "harnix-transport", "harnix-assembly", "harnix-apps", "axum", "wasmtime"];
     for (dir, allowed) in [
-        ("app-package", &["harnix-contract", "harnix-wasm"][..]),
-        ("app-port", &["harnix-contract"][..]),
-        ("app-host", &["harnix-contract", "harnix-app-package", "harnix-app-port", "harnix-wasm"][..]),
+        ("package", &["harnix-contract", "harnix-wasm"][..]),
+        ("wasm-port", &["harnix-contract"][..]),
+        ("wasm-host", &["harnix-contract", "harnix-package", "harnix-wasm-port", "harnix-wasm"][..]),
     ] {
         for (name, optional) in normal_dependencies(dir) {
             assert!(
@@ -615,22 +615,22 @@ fn the_application_layers_reach_only_down() {
                 assert!(allowed.contains(&name.as_str()), "`{dir}` depends on `{name}`; it may name {allowed:?}");
             }
             // The packing tool compiles components: only it, behind `compile`, links the engine.
-            if dir == "app-package" && name == "harnix-wasm" {
-                assert!(optional, "`app-package` links `harnix-wasm` only for the packing tool");
+            if dir == "package" && name == "harnix-wasm" {
+                assert!(optional, "`package` links `harnix-wasm` only for the packing tool");
             }
         }
     }
-    let port = normal_dependencies("app-port");
+    let port = normal_dependencies("wasm-port");
     for name in port.keys() {
         assert!(
             ["harnix-contract", "async-trait", "serde", "serde_json"].contains(&name.as_str()),
-            "`app-port` depends on `{name}`: the boundary is serde types and async traits, nothing else"
+            "`wasm-port` depends on `{name}`: the boundary is serde types and async traits, nothing else"
         );
     }
-    let package = std::fs::read_to_string(workspace_root().join("crates/app-package/Cargo.toml")).unwrap();
+    let package = std::fs::read_to_string(workspace_root().join("crates/package/Cargo.toml")).unwrap();
     assert!(
         package.contains("\"dep:harnix-wasm\"") && package.contains("required-features = [\"compile\"]"),
-        "the packing tool, and only it, brings `harnix-wasm` into `app-package`"
+        "the packing tool, and only it, brings `harnix-wasm` into `package`"
     );
 }
 
@@ -650,34 +650,34 @@ fn only_the_apps_feature_links_the_application_runtime() {
         let deps = normal_dependencies(&dir);
         if let Some(optional) = deps.get("harnix-wasm") {
             assert!(
-                dir == "app-host" || (dir == "app-package" && *optional),
-                "`{dir}` depends on `harnix-wasm`; only `harnix-app-host` may"
+                dir == "wasm-host" || (dir == "package" && *optional),
+                "`{dir}` depends on `harnix-wasm`; only `harnix-wasm-host` may"
             );
         }
-        if deps.contains_key("harnix-app-host") {
-            assert_eq!(dir, "apps", "`{dir}` depends on `harnix-app-host`; only `harnix-apps` may");
+        if deps.contains_key("harnix-wasm-host") {
+            assert_eq!(dir, "apps", "`{dir}` depends on `harnix-wasm-host`; only `harnix-apps` may");
         }
         if deps.contains_key("harnix-apps") {
-            assert_eq!(dir, "app", "`{dir}` depends on `harnix-apps`; only the application layer may");
+            assert_eq!(dir, "assembly", "`{dir}` depends on `harnix-apps`; only the application layer may");
         }
-        for layer in ["harnix-app-package", "harnix-app-port"] {
+        for layer in ["harnix-package", "harnix-wasm-port"] {
             if deps.contains_key(layer) {
                 assert!(
-                    ["app-host", "apps"].contains(&dir.as_str()),
+                    ["wasm-host", "apps"].contains(&dir.as_str()),
                     "`{dir}` depends on `{layer}`; only the host and the glue may"
                 );
             }
         }
     }
-    let manifest = std::fs::read_to_string(root.join("app/Cargo.toml")).unwrap();
+    let manifest = std::fs::read_to_string(root.join("assembly/Cargo.toml")).unwrap();
     let line = manifest
         .lines()
         .find(|l| l.starts_with("harnix-apps"))
-        .expect("harnix-app names harnix-apps");
+        .expect("harnix-assembly names harnix-apps");
     assert!(line.contains("optional = true"), "`{line}`: harnix-apps must be optional");
     assert!(
         manifest.contains("apps = [\"dep:harnix-apps\"]"),
-        "harnix-app's `apps` feature is what brings the runtime in"
+        "harnix-assembly's `apps` feature is what brings the runtime in"
     );
 }
 
@@ -739,11 +739,11 @@ fn harnix_reads_only_its_own_manifest_section() {
 }
 
 /// The same rule's second reader. A plugin application's `agent/` is an Agix package, installed
-/// by `plugin.install` under the name and version its `plugin.toml` gives; `harnix-app-package`
+/// by `plugin.install` under the name and version its `plugin.toml` gives; `harnix-package`
 /// reads those two keys of `[plugin]` and nothing else of the engine's manifest.
 #[test]
 fn a_plugin_applications_agent_package_is_read_for_its_name_and_version_only() {
-    let path = workspace_root().join("crates/app-package/src/package.rs");
+    let path = workspace_root().join("crates/package/src/package.rs");
     let text = std::fs::read_to_string(&path).expect("package.rs");
     // Code only, and not the tests: they write whole manifests to read them back.
     let code: String = text[..text.find("#[cfg(test)]").unwrap_or(text.len())]
@@ -782,12 +782,12 @@ fn a_plugin_applications_agent_package_is_read_for_its_name_and_version_only() {
 /// section a line happened to sit under.
 #[test]
 fn dependencies_are_read_as_cargo_reads_them() {
-    let flow = declared("flow");
+    let flow = declared("ext/flow");
     let module = flow.iter().find(|d| d.name == "harnix-module").expect("flow names harnix-module");
     assert!(module.optional && module.kind.is_none(), "an optional normal dependency");
     assert!(flow.iter().any(|d| d.name == "tempfile" && d.kind.as_deref() == Some("dev")));
-    assert!(normal_dependencies("flow").get("harnix-module") == Some(&true));
-    assert!(!normal_dependencies("flow").contains_key("tempfile"), "a dev-dependency is not normal");
+    assert!(normal_dependencies("ext/flow").get("harnix-module") == Some(&true));
+    assert!(!normal_dependencies("ext/flow").contains_key("tempfile"), "a dev-dependency is not normal");
 }
 
 /// Every crate that depends on a Harnix crate depends on one that exists, and
@@ -796,23 +796,23 @@ fn dependencies_are_read_as_cargo_reads_them() {
 #[test]
 fn every_harnix_dependency_resolves() {
     let crates = [
-        "app",
+        "assembly",
         "instance",
         "authz",
         "builtin",
         "cli",
         "client",
         "contract",
-        "flow",
+        "ext/flow",
         "harnix",
         "hub",
         "module",
         "testapp",
         "transport",
         "wasm",
-        "app-package",
-        "app-port",
-        "app-host",
+        "package",
+        "wasm-port",
+        "wasm-host",
         "apps",
     ];
     let known: BTreeSet<String> = crates
@@ -821,7 +821,7 @@ fn every_harnix_dependency_resolves() {
             if *c == "harnix" {
                 "harnix".to_string()
             } else {
-                format!("harnix-{c}")
+                format!("harnix-{}", c.replace('/', "-"))
             }
         })
         .collect();
@@ -1296,13 +1296,11 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P1"]
     fn l19_package() {
         depends(PACKAGE, &[CONTRACT, WASM], &agix_and(&[KERNEL, EXT]), &[WASM]);
     }
 
     #[test]
-    #[ignore = "0.5.0：P1"]
     fn l20_wasm_port() {
         depends(WASM_PORT, &[CONTRACT], &[], &[]);
         for (dep, optional) in normal(WASM_PORT) {
@@ -1321,7 +1319,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P1"]
     fn l21_wasm_host() {
         depends(WASM_HOST, &[CONTRACT, PACKAGE, WASM_PORT, WASM], &agix_and(&[KERNEL, EXT]), &[]);
     }
@@ -1703,7 +1700,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P1"]
     fn c11_the_package_crate_reads_only_an_agent_plugins_name_and_version() {
         assert_reads_only_plugin_name_and_version(&crate_dir(PACKAGE).join("src/package.rs"));
     }

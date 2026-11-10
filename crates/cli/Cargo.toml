@@ -8,14 +8,14 @@ publish      = false
 description  = "The Harnix app, `harnix`: the built-ins and the flow module (xops-02 §6)"
 
 # The binary lives here, not in `crates/harnix`, so an application that depends on the `harnix`
-# library does not compile `harnix-flow` for a binary it never builds (`tests/layering.rs`).
+# library does not compile `harnix-ext-flow` for a binary it never builds (`tests/layering.rs`).
 [[bin]]
 name = "harnix"
 path = "src/main.rs"
 
 [dependencies]
 harnix      = { workspace = true }
-harnix-flow = { workspace = true }
+harnix-ext-flow = { workspace = true }
 anyhow      = { workspace = true }
 
 

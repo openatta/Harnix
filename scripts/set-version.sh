@@ -13,7 +13,7 @@ version="${1:?usage: scripts/set-version.sh <x.y.z-YYYYMMDDNN>}"
   exit 2
 }
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-for manifest in "$root"/crates/*/Cargo.toml; do
+for manifest in "$root"/crates/*/Cargo.toml "$root"/crates/ext/*/Cargo.toml; do
   perl -pi -e "s/^version(\s*)= \"[^\"]*\"/version\$1= \"$version\"/" "$manifest"
 done
 # The SDK's version table names the current release (tests/crate-metadata.mjs checks it).

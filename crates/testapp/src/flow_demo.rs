@@ -34,8 +34,8 @@
 use std::sync::Arc;
 
 use harnix::prelude::*;
-use harnix_flow::module::StructuredScene;
-use harnix_flow::{
+use harnix_ext_flow::module::StructuredScene;
+use harnix_ext_flow::{
     FileStore, Flow, GateResult, Gates, MemPacks, Programs, RunRecord, Tools, WorkItem,
 };
 use serde_json::{json, Value};
@@ -329,13 +329,13 @@ pub fn module() -> Flow {
             )
             .native(structured),
         )
-        .packs_with(|dir| harnix_flow::DirPacks::writable(dir.join("packs")).with_builtin(packs()))
+        .packs_with(|dir| harnix_ext_flow::DirPacks::writable(dir.join("packs")).with_builtin(packs()))
         .programs(DemoPrograms)
         .gates(DemoGates)
         .tools(DemoTools)
         .command_gates(true)
         .guarded_tools(
-            harnix_flow::module::DEFAULT_GUARDED
+            harnix_ext_flow::module::DEFAULT_GUARDED
                 .iter()
                 .copied()
                 .chain(["TodoWrite"]),
@@ -434,7 +434,7 @@ impl Tools for DemoTools {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use harnix_flow::{validate_yaml, Packs};
+    use harnix_ext_flow::{validate_yaml, Packs};
 
     #[test]
     fn the_demo_flows_are_valid() {

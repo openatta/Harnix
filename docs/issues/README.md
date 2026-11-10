@@ -85,7 +85,7 @@
 
 | 编号 | GitHub | 标题 |
 |---|---|---|
-| xops-01 | [#60](https://github.com/openatta/Harnix/issues/60) | 流程能力——按站推动会话工作的可选模块（`harnix-flow`） |
+| xops-01 | [#60](https://github.com/openatta/Harnix/issues/60) | 流程能力——按站推动会话工作的可选模块（`harnix-ext-flow`） |
 | xops-02 | [#61](https://github.com/openatta/Harnix/issues/61) | 流程会话的落点与模型、按会话参数交付与限写、空应用自带流程、在对话里编写流程、试运行 |
 | xops-03 | [#62](https://github.com/openatta/Harnix/issues/62) | 流程的主 Agent 与子 Agent、运行状态与暂停、按站的耗时与用量、流程 space 改版 |
 | xops-04 | [#63](https://github.com/openatta/Harnix/issues/63) | 流程的规则、策略与权限、门禁、钩子；详情进二级栏；demo 会话 |
