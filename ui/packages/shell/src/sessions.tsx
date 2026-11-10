@@ -7,12 +7,10 @@
  */
 
 import { errorText } from "@harnix/core";
-import { clip, useRegistry, useT, type SidebarGroup } from "@harnix/react";
+import { clip, useRegistry, useT, type SidebarGroup, ago, Glyph } from "@harnix/react";
 
 import { keyOf, type App, type ShellSession, type ShellState } from "./app.ts";
 import { sessionMenu } from "./dialogs.tsx";
-import { ago } from "./format.ts";
-import { Glyph } from "./glyph.tsx";
 import { useShell } from "./hooks.ts";
 import { menuBelow, menuPoint } from "./Menu.tsx";
 

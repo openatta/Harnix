@@ -8,7 +8,7 @@
 
 import { createRoot } from "react-dom/client";
 import { HarnixClient, tokenFromDocument, tokenFromPage } from "@harnix/core";
-import { HarnixUiProvider, HostProvider, Registry, RegistryProvider, currentLocale, en, useLocale, zhCN } from "@harnix/react";
+import { HarnixUiProvider, HostProvider, Registry, RegistryProvider, currentLocale, en, useLocale, zhCN, iconsFrom } from "@harnix/react";
 
 import "@harnix/react/tokens.css";
 import "@harnix/react/styles.css";
@@ -20,7 +20,6 @@ import { activate } from "./activation.ts";
 import { App } from "./app.ts";
 import { registerBuiltins } from "./builtins.tsx";
 import { hostFor } from "./host.ts";
-import { iconsFrom } from "./icons.ts";
 import { followModules } from "./packages.ts";
 import { Shell } from "./Shell.tsx";
 import { followSurfaces } from "./surfaces/register.tsx";

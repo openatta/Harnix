@@ -8,9 +8,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { useRef, useState } from "react";
 import type { HarnixClient } from "@harnix/core";
-import { HarnixUiProvider } from "@harnix/react";
+import { HarnixUiProvider, rowKeys, useRoving } from "@harnix/react";
 
-import { rowKeys, useRovingTabIndex } from "../src/roving";
 import { Shell } from "../src/Shell";
 import { useTick } from "../src/system/view";
 import { scriptedApp, tick } from "./scripted";
@@ -23,7 +22,7 @@ afterEach(() => {
 function Strip() {
   const [on, setOn] = useState("a");
   const box = useRef<HTMLDivElement>(null);
-  const roving = useRovingTabIndex(box, { items: '[role="tab"]', orientation: "horizontal", activate: true });
+  const roving = useRoving(box, { items: '[role="tab"]', orientation: "horizontal", activate: true });
   return (
     <div role="tablist" ref={box} onKeyDown={roving.onKeyDown} onFocus={roving.onFocus}>
       {["a", "b", "c"].map((id) => (

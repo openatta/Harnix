@@ -1,10 +1,9 @@
 /** The frames tab: the session's frames as they arrive. */
 
 import { useEffect, useRef, useState } from "react";
-import { clip, useT } from "@harnix/react";
+import { clip, useT, since } from "@harnix/react";
 
 import { keyOf, type App, type SessionKey } from "../../app.ts";
-import { since } from "../../format.ts";
 import { SYSTEM } from "../constants.ts";
 
 interface FrameRow {

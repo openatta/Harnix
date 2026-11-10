@@ -9,10 +9,9 @@
  */
 
 import type { SessionController } from "@harnix/core/state";
-import { Disclosure, clip, t } from "@harnix/react";
+import { Disclosure, clip, t, Glyph } from "@harnix/react";
 
 import type { App } from "./app.ts";
-import { Glyph } from "./glyph.tsx";
 
 export interface SystemPart {
   role?: string;

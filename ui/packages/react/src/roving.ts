@@ -32,7 +32,7 @@ function settle(items: HTMLElement[], item: HTMLElement | undefined): void {
   for (const el of items) el.tabIndex = el === item ? 0 : -1;
 }
 
-export function useRovingTabIndex(ref: RefObject<HTMLElement | null>, spec: Roving): { onKeyDown: (event: KeyboardEvent) => void; onFocus: (event: FocusEvent) => void } {
+export function useRoving(ref: RefObject<HTMLElement | null>, spec: Roving): { onKeyDown: (event: KeyboardEvent) => void; onFocus: (event: FocusEvent) => void } {
   const { items, orientation, activate, parentOf, toggle } = spec;
   // After every draw: a new item, or a new selection, moves the stop.
   useLayoutEffect(() => {

@@ -1,12 +1,10 @@
 /** The right column for a main Agent's session: its facts, goal, context, figures and operations. */
 
 import { useMemo, useState } from "react";
-import { useT } from "@harnix/react";
+import { useT, Glyph, compact, millis } from "@harnix/react";
 
 import type { App, SessionKey } from "../../app.ts";
 import { confirmDialog, exportDialog, renameDialog } from "../../dialogs.tsx";
-import { Glyph } from "../../glyph.tsx";
-import { compact, millis } from "../../format.ts";
 import { useShell } from "../../hooks.ts";
 import { SYSTEM } from "../constants.ts";
 import { stateOf, stateSignature, useAgentFacts } from "../data.ts";

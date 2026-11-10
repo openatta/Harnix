@@ -7,21 +7,14 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { errorText, type Scene } from "@harnix/core";
-import { t, useT } from "@harnix/react";
+import { DialogBody, DialogFoot, Glyph, since, t, useT } from "@harnix/react";
 
 import type { App, ShellSession, Workspace } from "./app.ts";
-import { since } from "./format.ts";
-import { Glyph } from "./glyph.tsx";
 import { actionMenuItems } from "./actions.tsx";
 import { openMenu, type MenuEntry } from "./Menu.tsx";
 
-export function Body({ children }: { children: ReactNode }) {
-  return <div className="body">{children}</div>;
-}
-
-export function Foot({ children }: { children?: ReactNode }) {
-  return <div className="foot">{children}</div>;
-}
+export const Body = DialogBody;
+export const Foot = DialogFoot;
 
 export function CloseFoot({ app }: { app: App }) {
   const t = useT();

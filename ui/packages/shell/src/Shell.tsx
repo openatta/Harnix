@@ -25,38 +25,14 @@ import {
 } from "react";
 import { errorText } from "@harnix/core";
 import type { BlockOf, SessionController, SessionState } from "@harnix/core/state";
-import {
-  ChatComposer,
-  ChatPanel,
-  Contributed,
-  listenForLayers,
-  modalUp,
-  t,
-  useLayer,
-  useRegistry,
-  useT,
-  ComposerNote,
-  askedTool,
-  rowTitle,
-  toolAsks,
-  type Attached,
-  type ChatIds,
-  type ComposerApi,
-  type MentionItem,
-  type ModelOption,
-  type SpaceContribution,
-  type SpaceSecondary,
-  type ToolRowContribution,
-} from "@harnix/react";
+import { ChatComposer, ChatPanel, Contributed, listenForLayers, modalUp, t, useLayer, useRegistry, useT, ComposerNote, askedTool, rowTitle, toolAsks, type Attached, type ChatIds, type ComposerApi, type MentionItem, type ModelOption, type SpaceContribution, type SpaceSecondary, type ToolRowContribution, Glyph, useRoving } from "@harnix/react";
 
 import { ask, detailsWidthOf, keyOf, later, orderTabs, safeTabs, secondaryWidthOf, type App, type OpenModal, type ShellState, type Widths } from "./app.ts";
 import { useBrand } from "./brand.ts";
 import { referencesIn, sessionMentions, useCommands, withContributed } from "./commands.ts";
 import { followEnvelopes } from "./envelope.tsx";
-import { Glyph } from "./glyph.tsx";
 import { sessionMenu } from "./dialogs.tsx";
 import { MenuHost, menuBelow } from "./Menu.tsx";
-import { useRovingTabIndex } from "./roving.ts";
 import { openSettings } from "./settings.tsx";
 import { Sidebar, spacesOf } from "./Sidebar.tsx";
 import { ActionButtons } from "./actions.tsx";
@@ -1076,7 +1052,7 @@ function Details({ app, s }: { app: App; s: ShellState }) {
   const shown = tabs.find((x) => x.id === current);
   // One Tab stop for the strip; the arrows go along it.
   const strip = useRef<HTMLDivElement>(null);
-  const roving = useRovingTabIndex(strip, { items: '[role="tab"]', orientation: "horizontal", activate: true });
+  const roving = useRoving(strip, { items: '[role="tab"]', orientation: "horizontal", activate: true });
   return (
     // Closed it is zero wide, not gone: inert, or Tab would still walk through what is in it.
     <aside id="details" aria-hidden={!app.detailsOpen(s)} inert={!app.detailsOpen(s)}>

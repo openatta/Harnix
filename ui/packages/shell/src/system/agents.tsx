@@ -1,13 +1,10 @@
 /** The console's Agents: each main Agent on a row, opened into its sub-agents and tasks. */
 
 import { Fragment, memo, useMemo, useState } from "react";
-import { clip, useT } from "@harnix/react";
+import { clip, useT, compact, millis, since, Glyph, rowKeys } from "@harnix/react";
 
 import type { App } from "../app.ts";
-import { compact, millis, since } from "../format.ts";
-import { Glyph } from "../glyph.tsx";
 import { useShell } from "../hooks.ts";
-import { rowKeys } from "../roving.ts";
 import { LIVE, PAGE, SYSTEM } from "./constants.ts";
 import { isActive, stateOf, useAgentRows, useGoals, useUsage } from "./data.ts";
 import { goalState, taskDuration, taskLabel, tokenTip, totalTokens } from "./format.ts";

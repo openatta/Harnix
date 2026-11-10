@@ -1,11 +1,10 @@
 /** The context tab: what the next call carries, and the messages. */
 
 import { useEffect, useState } from "react";
-import { Disclosure, clip, useT } from "@harnix/react";
+import { Disclosure, clip, useT, Glyph } from "@harnix/react";
 
 import type { App, SessionKey } from "../../app.ts";
 import { renameDialog } from "../../dialogs.tsx";
-import { Glyph } from "../../glyph.tsx";
 import { SYSTEM } from "../constants.ts";
 import { Failure } from "../failure.tsx";
 import { isPlainText, messageText, originLabel } from "../format.ts";

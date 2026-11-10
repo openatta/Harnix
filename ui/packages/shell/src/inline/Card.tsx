@@ -11,11 +11,10 @@
 
 import { Fragment, useState } from "react";
 import { errorText } from "@harnix/core";
-import { markdown, useT } from "@harnix/react";
+import { markdown, useT, Glyph } from "@harnix/react";
 
 import type { App } from "../app.ts";
 import { confirmDialog } from "../dialogs.tsx";
-import { Glyph } from "../glyph.tsx";
 import type { ButtonDecl, FlowBlockDecl, RuntimeApp } from "./apps.ts";
 import { fill, fillValue, say } from "./template.ts";
 

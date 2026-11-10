@@ -1,11 +1,9 @@
 /** The turns tab: a row per turn, opened into its calls. */
 
 import { Fragment, useEffect, useState } from "react";
-import { useT } from "@harnix/react";
+import { useT, compact, rowKeys } from "@harnix/react";
 
 import type { App, SessionKey } from "../../app.ts";
-import { compact } from "../../format.ts";
-import { rowKeys } from "../../roving.ts";
 import { Failure } from "../failure.tsx";
 import { usageText } from "../format.ts";
 import type { TraceCall, TurnRow } from "../types.ts";

@@ -1,13 +1,11 @@
 /** The system space's centre: the process at a glance, then the Agents, the flows, the applications and the diagnostics. */
 
 import { useRef, useState, type ReactNode } from "react";
-import { useT } from "@harnix/react";
+import { useT, clock, useRoving } from "@harnix/react";
 
 import type { App } from "../app.ts";
 import { Connections } from "../dialogs.tsx";
-import { clock } from "../format.ts";
 import { useShell } from "../hooks.ts";
-import { useRovingTabIndex } from "../roving.ts";
 import { Diagnostics } from "../settings.tsx";
 import { Agents } from "./agents.tsx";
 import { AppsTab, appsOffered } from "./apps.tsx";
@@ -29,7 +27,7 @@ export function Console({ app, view }: { app: App; view: View }) {
     setShown(id);
   };
   const strip = useRef<HTMLDivElement>(null);
-  const roving = useRovingTabIndex(strip, { items: '[role="tab"]', orientation: "horizontal", activate: true });
+  const roving = useRoving(strip, { items: '[role="tab"]', orientation: "horizontal", activate: true });
   // The flows, where the backend has the flow module: the application's toolchain.
   const flows = systemFlows(app);
   const tabs: [ConsoleTab, string][] = [

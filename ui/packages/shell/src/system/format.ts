@@ -4,9 +4,8 @@
  * shell's (`../format.ts`).
  */
 
-import { clip, t } from "@harnix/react";
+import { clip, t, compact } from "@harnix/react";
 
-import { compact } from "../format.ts";
 import type { AgentUsage, Task, TraceCall } from "./types.ts";
 
 /** Every token an Agent's run has used: what went in, from the cache or not, and what came out. */

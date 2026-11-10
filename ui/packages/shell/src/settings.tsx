@@ -10,17 +10,13 @@
  * engine still has the old value rather than pretending.
  */
 
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { errorText } from "@harnix/core";
-import { Contributed, localeChoice, setLocale, t, useRegistry, useT, type LocaleChoice } from "@harnix/react";
+import { Contributed, Glyph, SettingsReload, SettingsRow, SettingsSection, SettingsValue, localeChoice, setLocale, t, useRegistry, useSettingsReload, useT, type LocaleChoice } from "@harnix/react";
 
 import type { App, ThemeChoice } from "./app.ts";
 import { Body, CloseFoot } from "./dialogs.tsx";
-import { Glyph } from "./glyph.tsx";
 import { AppsSettings } from "./apps.tsx";
-
-/** Bumped after a write, so every section reads again. */
-const Reload = createContext<{ version: number; reload: () => void }>({ version: 0, reload: () => {} });
 
 let active = "general";
 
@@ -38,7 +34,7 @@ function Settings({ app }: { app: App }) {
   const sections = registry.at("settings.section");
   const section = sections.find((s) => s.id === current) ?? sections[0];
   return (
-    <Reload.Provider value={{ version, reload: () => setVersion((v) => v + 1) }}>
+    <SettingsReload version={version} reload={() => setVersion((v) => v + 1)}>
       <Body>
         <div className="settings-body">
           <div className="settings-nav" data-testid="settings-nav">
@@ -70,23 +66,11 @@ function Settings({ app }: { app: App }) {
         </div>
       </Body>
       <CloseFoot app={app} />
-    </Reload.Provider>
+    </SettingsReload>
   );
 }
 
 /* ── pieces ───────────────────────────────────────────────────────────── */
-
-export function Row({ label, hint, children }: { label: ReactNode; hint?: ReactNode; children?: ReactNode }) {
-  return (
-    <div className="srow-setting">
-      <div className="text">
-        <div className="label">{label}</div>
-        {hint ? <div className="hint">{hint}</div> : null}
-      </div>
-      <div className="control">{children}</div>
-    </div>
-  );
-}
 
 function Select({ options, value, onChange, testId }: { options: [string, string][]; value: string; onChange: (v: string) => void; testId?: string }) {
   return (
@@ -98,49 +82,6 @@ function Select({ options, value, onChange, testId }: { options: [string, string
       ))}
     </select>
   );
-}
-
-/** Every section on the page reads again (after a write). */
-export function useReload(): () => void {
-  return useContext(Reload).reload;
-}
-
-/** A titled block whose content is loaded; a late answer for a page no longer shown is dropped. */
-export function Section<T>({ title, load, children }: { title: string; load: () => Promise<T>; children: (data: T) => ReactNode }) {
-  const t = useT();
-  const { version } = useContext(Reload);
-  const [state, setState] = useState<{ data?: T; error?: string } | null>(null);
-  useEffect(() => {
-    let alive = true;
-    setState(null);
-    load().then(
-      (data) => alive && setState({ data }),
-      (e: unknown) => alive && setState({ error: errorText(e) }),
-    );
-    return () => {
-      alive = false;
-    };
-  }, [version]);
-  return (
-    <>
-      <h3>{title}</h3>
-      <div>
-        {!state ? (
-          <div className="hint">{t("common.loading")}</div>
-        ) : state.error !== undefined ? (
-          <div className="hint err" data-testid="settings-failed">
-            {state.error}
-          </div>
-        ) : (
-          children(state.data as T)
-        )}
-      </div>
-    </>
-  );
-}
-
-export function Value({ tone, children }: { tone?: "ok" | "err"; children: ReactNode }) {
-  return <span className={`value${tone ? ` ${tone}` : ""}`}>{children}</span>;
 }
 
 /* ── engine settings ──────────────────────────────────────────────────── */
@@ -177,11 +118,11 @@ function where(app: App): { scene?: string; project_root: string | null } {
 
 function EngineSettings({ app, only }: { app: App; only: string[] }) {
   const t = useT();
-  const { reload } = useContext(Reload);
+  const reload = useSettingsReload();
   const request = where(app);
   const [selected, setSelected] = useState(tier);
   return (
-    <Section title={t("settings.engineDefaults")} load={() => app.call<Described>("settings.describe", request)}>
+    <SettingsSection title={t("settings.engineDefaults")} load={() => app.call<Described>("settings.describe", request)}>
       {(data) => {
         const paths = data.paths ?? {};
         const write = (key: string, value: unknown) =>
@@ -202,7 +143,7 @@ function EngineSettings({ app, only }: { app: App; only: string[] }) {
         ).filter(([id]) => paths[id]);
         return (
           <>
-            <Row label={t("settings.tier")} hint={paths[selected] ?? ""}>
+            <SettingsRow label={t("settings.tier")} hint={paths[selected] ?? ""}>
               <Select
                 options={tiers}
                 value={selected}
@@ -211,7 +152,7 @@ function EngineSettings({ app, only }: { app: App; only: string[] }) {
                   setSelected(value);
                 }}
               />
-            </Row>
+            </SettingsRow>
             {(data.fields ?? [])
               .filter((field) => only.includes(field.key))
               .map((field) => {
@@ -223,20 +164,20 @@ function EngineSettings({ app, only }: { app: App; only: string[] }) {
                   notes.push(t("settings.engineLags", { value: JSON.stringify(field.engine) }));
                 }
                 return (
-                  <Row key={field.key} label={t(`settings.field.${field.key}`)} hint={notes.join(" · ")}>
+                  <SettingsRow key={field.key} label={t(`settings.field.${field.key}`)} hint={notes.join(" · ")}>
                     <FieldControl field={field} write={(value) => void write(field.key, value)} />
                     {!inherited ? (
                       <button type="button" className="btn sm outline" title={t("settings.clearHint")} onClick={() => void write(field.key, null)}>
                         {t("settings.clear")}
                       </button>
                     ) : null}
-                  </Row>
+                  </SettingsRow>
                 );
               })}
           </>
         );
       }}
-    </Section>
+    </SettingsSection>
   );
 }
 
@@ -267,7 +208,7 @@ function General({ app }: { app: App }) {
   return (
     <>
       <h3>{t("settings.appearance")}</h3>
-      <Row label={t("settings.theme")} hint={t("settings.themeHint")}>
+      <SettingsRow label={t("settings.theme")} hint={t("settings.themeHint")}>
         <Select
           testId="settings-theme"
           options={[
@@ -281,8 +222,8 @@ function General({ app }: { app: App }) {
             app.setTheme(value as ThemeChoice);
           }}
         />
-      </Row>
-      <Row label={t("settings.language")} hint={t("settings.languageHint")}>
+      </SettingsRow>
+      <SettingsRow label={t("settings.language")} hint={t("settings.languageHint")}>
         <Select
           testId="settings-language"
           options={[
@@ -296,7 +237,7 @@ function General({ app }: { app: App }) {
             setLocale(value as LocaleChoice);
           }}
         />
-      </Row>
+      </SettingsRow>
       <EngineSettings app={app} only={["permission_mode", "memory_enabled", "allow_client_permission_override"]} />
     </>
   );
@@ -305,7 +246,7 @@ function General({ app }: { app: App }) {
 function Scenes({ app }: { app: App }) {
   const t = useT();
   return (
-    <Section
+    <SettingsSection
       title={t("settings.scenes")}
       load={() =>
         app.call<{ scenes?: { scene: string; name?: string; active?: boolean; sessions?: number; capabilities?: { requires_project?: boolean; supports_team?: boolean } }[] }>(
@@ -318,7 +259,7 @@ function Scenes({ app }: { app: App }) {
         (data.scenes ?? []).map((scene) => {
           const caps = scene.capabilities ?? {};
           return (
-            <Row
+            <SettingsRow
               key={scene.scene}
               label={`${scene.name || scene.scene} · ${scene.scene}`}
               hint={[
@@ -330,7 +271,7 @@ function Scenes({ app }: { app: App }) {
                 .join(" · ")}
             >
               {scene.active ? (
-                <Value tone="ok">{t("settings.sceneActive")}</Value>
+                <SettingsValue tone="ok">{t("settings.sceneActive")}</SettingsValue>
               ) : (
                 <button
                   type="button"
@@ -348,11 +289,11 @@ function Scenes({ app }: { app: App }) {
                   {t("settings.sceneActivate")}
                 </button>
               )}
-            </Row>
+            </SettingsRow>
           );
         })
       }
-    </Section>
+    </SettingsSection>
   );
 }
 
@@ -362,7 +303,7 @@ function Scenes({ app }: { app: App }) {
  */
 function Models({ app }: { app: App }) {
   const t = useT();
-  const { reload } = useContext(Reload);
+  const reload = useSettingsReload();
   const [editing, setEditing] = useState<string | null>(null);
   const request = where(app);
   const saved = async () => {
@@ -372,7 +313,7 @@ function Models({ app }: { app: App }) {
   };
   return (
     <>
-      <Section title={t("settings.providers")} load={() => app.call<Described>("settings.describe", request)}>
+      <SettingsSection title={t("settings.providers")} load={() => app.call<Described>("settings.describe", request)}>
         {(data) => {
           const providers = data.providers?.providers ?? {};
           const fallback = data.providers?.default_provider ?? null;
@@ -404,7 +345,7 @@ function Models({ app }: { app: App }) {
             </div>
           );
         }}
-      </Section>
+      </SettingsSection>
       <EngineSettings app={app} only={["model.model_name", "model.max_tokens"]} />
     </>
   );
@@ -451,7 +392,7 @@ function ProviderCard({
         <span className="pill">{t(apiTypeOf(provider).label)}</span>
         {isDefault ? <span className="pill acc">{t("settings.providerDefault")}</span> : null}
         <span className="sp" />
-        <Value tone={provider.api_key ? "ok" : "err"}>{provider.api_key ? t("settings.keySet") : t("settings.keyMissing")}</Value>
+        <SettingsValue tone={provider.api_key ? "ok" : "err"}>{provider.api_key ? t("settings.keySet") : t("settings.keyMissing")}</SettingsValue>
       </div>
       <div className="pc-meta">
         <span className="mono truncate">{provider.base_url || apiTypeOf(provider).url}</span>
@@ -606,19 +547,19 @@ function ProviderForm({
 function Mcp({ app }: { app: App }) {
   const t = useT();
   return (
-    <Section title={t("settings.mcpServers")} load={() => app.call<{ servers?: { name: string; connected?: boolean; tools?: number; error?: string }[] }>("engine.mcp.status", {})}>
+    <SettingsSection title={t("settings.mcpServers")} load={() => app.call<{ servers?: { name: string; connected?: boolean; tools?: number; error?: string }[] }>("engine.mcp.status", {})}>
       {(data) => (
         <>
           {!(data.servers ?? []).length ? <div className="hint">{t("settings.mcpNone")}</div> : null}
           {(data.servers ?? []).map((server) => (
-            <Row key={server.name} label={server.name} hint={`${t("settings.mcpTools", { count: server.tools ?? 0 })}${server.error ? ` · ${server.error}` : ""}`}>
-              <Value tone={server.connected ? "ok" : "err"}>{server.connected ? t("settings.mcpConnected") : t("settings.mcpDisconnected")}</Value>
-            </Row>
+            <SettingsRow key={server.name} label={server.name} hint={`${t("settings.mcpTools", { count: server.tools ?? 0 })}${server.error ? ` · ${server.error}` : ""}`}>
+              <SettingsValue tone={server.connected ? "ok" : "err"}>{server.connected ? t("settings.mcpConnected") : t("settings.mcpDisconnected")}</SettingsValue>
+            </SettingsRow>
           ))}
           <div className="hint">{t("settings.mcpAddHint")}</div>
         </>
       )}
-    </Section>
+    </SettingsSection>
   );
 }
 
@@ -633,14 +574,14 @@ interface PluginList {
  * is a different fact from "nothing is installed", and is said as one. */
 function Plugins({ app }: { app: App }) {
   const t = useT();
-  const { reload } = useContext(Reload);
+  const reload = useSettingsReload();
   const act = (method: string, params: unknown) =>
     app
       .call(method, params)
       .then(reload)
       .catch((e: unknown) => app.notice(errorText(e), "error"));
   return (
-    <Section title={t("settings.plugins")} load={() => app.call<PluginList>("plugins.list", {})}>
+    <SettingsSection title={t("settings.plugins")} load={() => app.call<PluginList>("plugins.list", {})}>
       {(data) => {
         if (data.available === false) return <div className="hint">{data.reason || t("settings.pluginsUnavailable")}</div>;
         const plugins = data.plugins ?? [];
@@ -652,7 +593,7 @@ function Plugins({ app }: { app: App }) {
               const contributes = (data.contributes ?? []).find((c) => c.plugin === plugin.name);
               return (
                 <div key={plugin.name}>
-                  <Row label={`${plugin.name} ${plugin.version ?? ""}`} hint={plugin.description ?? ""}>
+                  <SettingsRow label={`${plugin.name} ${plugin.version ?? ""}`} hint={plugin.description ?? ""}>
                     <button
                       type="button"
                       className="btn sm outline"
@@ -669,20 +610,20 @@ function Plugins({ app }: { app: App }) {
                     >
                       {t("common.remove")}
                     </button>
-                  </Row>
+                  </SettingsRow>
                   {(contributes?.ui ?? []).map((entry) => (
-                    <Row key={entry.module} label={t("settings.pluginContributes")} hint={entry.module}>
-                      <Value>{entry.point}</Value>
-                    </Row>
+                    <SettingsRow key={entry.module} label={t("settings.pluginContributes")} hint={entry.module}>
+                      <SettingsValue>{entry.point}</SettingsValue>
+                    </SettingsRow>
                   ))}
                   {(contributes?.inert ?? []).map((reason) => (
-                    <Row key={reason} label={t("settings.pluginInert")} hint={reason} />
+                    <SettingsRow key={reason} label={t("settings.pluginInert")} hint={reason} />
                   ))}
                   {(contributes?.notes ?? []).map((note) => (
-                    <Row key={note} label={t("settings.pluginNote")} hint={note} />
+                    <SettingsRow key={note} label={t("settings.pluginNote")} hint={note} />
                   ))}
                   {(plugin.script_faults ?? []).map((fault) => (
-                    <Row key={fault} label={t("settings.pluginFault")} hint={fault} />
+                    <SettingsRow key={fault} label={t("settings.pluginFault")} hint={fault} />
                   ))}
                 </div>
               );
@@ -690,7 +631,7 @@ function Plugins({ app }: { app: App }) {
           </>
         );
       }}
-    </Section>
+    </SettingsSection>
   );
 }
 
@@ -748,7 +689,7 @@ function Installer({ app }: { app: App }) {
  * machine, hence large, monospaced and counting down. */
 function Devices({ app }: { app: App }) {
   const t = useT();
-  const { reload } = useContext(Reload);
+  const reload = useSettingsReload();
   const [grant, setGrant] = useState<{ code: string; left: number } | { error: string } | null>(null);
   useEffect(() => {
     if (!grant || !("code" in grant) || grant.left <= 0) return;
@@ -756,13 +697,13 @@ function Devices({ app }: { app: App }) {
     return () => clearTimeout(tick);
   }, [grant]);
   return (
-    <Section title={t("settings.devices")} load={() => app.call<{ devices?: { id: string; label?: string }[] }>("devices.list", {})}>
+    <SettingsSection title={t("settings.devices")} load={() => app.call<{ devices?: { id: string; label?: string }[] }>("devices.list", {})}>
       {(data) => (
         <>
           <div className="hint">{t("settings.devicesHint")}</div>
           {!(data.devices ?? []).length ? <div className="hint">{t("settings.devicesNone")}</div> : null}
           {(data.devices ?? []).map((device) => (
-            <Row key={device.id} label={device.label || device.id} hint={device.id}>
+            <SettingsRow key={device.id} label={device.label || device.id} hint={device.id}>
               <button
                 type="button"
                 className="btn sm danger"
@@ -778,7 +719,7 @@ function Devices({ app }: { app: App }) {
               >
                 {t("settings.deviceRevoke")}
               </button>
-            </Row>
+            </SettingsRow>
           ))}
           <button
             type="button"
@@ -808,7 +749,7 @@ function Devices({ app }: { app: App }) {
           ) : null}
         </>
       )}
-    </Section>
+    </SettingsSection>
   );
 }
 
@@ -819,33 +760,33 @@ export function Diagnostics({ app }: { app: App }) {
   const refused = registry.refusals();
   return (
     <>
-      <Section title={t("settings.engine")} load={() => app.call<{ version?: string; uptime_secs?: number; sessions?: number }>("engine.daemon.status", {})}>
+      <SettingsSection title={t("settings.engine")} load={() => app.call<{ version?: string; uptime_secs?: number; sessions?: number }>("engine.daemon.status", {})}>
         {(data) => (
           <>
-            <Row label={t("settings.version")}>
-              <Value>{data.version || t("common.none")}</Value>
-            </Row>
-            <Row label={t("settings.uptime")}>
-              <Value>{t("settings.uptimeValue", { minutes: Math.round((data.uptime_secs ?? 0) / 60) })}</Value>
-            </Row>
-            <Row label={t("settings.sessionCount")}>
-              <Value>{String(data.sessions ?? "—")}</Value>
-            </Row>
-            <Row label={t("settings.activeScenes")}>
-              <Value>{(app.snapshot.hello?.engine?.active_scenes ?? []).join(" · ") || t("common.none")}</Value>
-            </Row>
+            <SettingsRow label={t("settings.version")}>
+              <SettingsValue>{data.version || t("common.none")}</SettingsValue>
+            </SettingsRow>
+            <SettingsRow label={t("settings.uptime")}>
+              <SettingsValue>{t("settings.uptimeValue", { minutes: Math.round((data.uptime_secs ?? 0) / 60) })}</SettingsValue>
+            </SettingsRow>
+            <SettingsRow label={t("settings.sessionCount")}>
+              <SettingsValue>{String(data.sessions ?? "—")}</SettingsValue>
+            </SettingsRow>
+            <SettingsRow label={t("settings.activeScenes")}>
+              <SettingsValue>{(app.snapshot.hello?.engine?.active_scenes ?? []).join(" · ") || t("common.none")}</SettingsValue>
+            </SettingsRow>
           </>
         )}
-      </Section>
+      </SettingsSection>
       <RuntimeModules app={app} />
       <h3>{t("settings.contributions")}</h3>
       {!refused.length ? (
         <div className="hint">{t("contrib.noneRefused")}</div>
       ) : (
         refused.map((entry, i) => (
-          <Row key={i} label={t("contrib.refusedAt", { point: entry.point })} hint={entry.id ? `${entry.id} — ${entry.reason}` : entry.reason}>
-            <Value>{entry.owner}</Value>
-          </Row>
+          <SettingsRow key={i} label={t("contrib.refusedAt", { point: entry.point })} hint={entry.id ? `${entry.id} — ${entry.reason}` : entry.reason}>
+            <SettingsValue>{entry.owner}</SettingsValue>
+          </SettingsRow>
         ))
       )}
       <h3>{t("settings.doctor")}</h3>
@@ -869,9 +810,9 @@ export function Diagnostics({ app }: { app: App }) {
         <>
           <div className="hint">{report.ok ? t("settings.doctorOk") : t("settings.doctorFailed")}</div>
           {(report.checks ?? []).map((check) => (
-            <Row key={`${check.scope}-${check.name}`} label={`${check.scope} · ${check.name}`} hint={check.detail ?? ""}>
-              <Value tone={check.ok ? "ok" : "err"}>{check.ok ? t("settings.checkPass") : t("settings.checkFail")}</Value>
-            </Row>
+            <SettingsRow key={`${check.scope}-${check.name}`} label={`${check.scope} · ${check.name}`} hint={check.detail ?? ""}>
+              <SettingsValue tone={check.ok ? "ok" : "err"}>{check.ok ? t("settings.checkPass") : t("settings.checkFail")}</SettingsValue>
+            </SettingsRow>
           ))}
         </>
       ) : null}
@@ -904,13 +845,13 @@ function RuntimeModules({ app }: { app: App }) {
   return (
     <>
       <h3>{t("diag.runtimeModules")}</h3>
-      <Row label={t("diag.contribApi")} hint={t("diag.contribApiHint")}>
-        <Value>{`v${hello?.contrib_api_version ?? "?"}`}</Value>
-      </Row>
-      <Row label="[ui] runtime_modules" hint={t("diag.runtimeHint")}>
-        <Value tone={on ? "ok" : undefined}>{on ? "true" : "false"}</Value>
-      </Row>
-      <Row label={t("diag.importMap")} hint={t("diag.importMapHint")} />
+      <SettingsRow label={t("diag.contribApi")} hint={t("diag.contribApiHint")}>
+        <SettingsValue>{`v${hello?.contrib_api_version ?? "?"}`}</SettingsValue>
+      </SettingsRow>
+      <SettingsRow label="[ui] runtime_modules" hint={t("diag.runtimeHint")}>
+        <SettingsValue tone={on ? "ok" : undefined}>{on ? "true" : "false"}</SettingsValue>
+      </SettingsRow>
+      <SettingsRow label={t("diag.importMap")} hint={t("diag.importMapHint")} />
       <div className="kv-table" data-testid="import-map">
         {Object.entries(imports).map(([name, path]) => (
           <div key={name} className="kv-row">
@@ -919,9 +860,9 @@ function RuntimeModules({ app }: { app: App }) {
           </div>
         ))}
       </div>
-      <Row label="Content-Security-Policy" hint={t("diag.cspHint")} />
+      <SettingsRow label="Content-Security-Policy" hint={t("diag.cspHint")} />
       {csp ? <pre className="hx-pre" data-testid="csp">{csp}</pre> : null}
-      <Section title={t("diag.packageEntries")} load={() => app.call<PluginList>("plugins.list", {})}>
+      <SettingsSection title={t("diag.packageEntries")} load={() => app.call<PluginList>("plugins.list", {})}>
         {(data) => {
           const rows = (data.contributes ?? []).flatMap((c) => [
             ...(c.ui ?? []).map((entry) => ({ plugin: c.plugin, what: `${entry.point} → ${entry.module}`, state: on ? "on" : "off" })),
@@ -931,14 +872,14 @@ function RuntimeModules({ app }: { app: App }) {
           return (
             <>
               {rows.map((row, i) => (
-                <Row key={i} label={row.plugin} hint={row.what}>
-                  <Value tone={row.state === "on" ? "ok" : row.state === "inert" ? "err" : undefined}>{t(`diag.entry.${row.state}`)}</Value>
-                </Row>
+                <SettingsRow key={i} label={row.plugin} hint={row.what}>
+                  <SettingsValue tone={row.state === "on" ? "ok" : row.state === "inert" ? "err" : undefined}>{t(`diag.entry.${row.state}`)}</SettingsValue>
+                </SettingsRow>
               ))}
             </>
           );
         }}
-      </Section>
+      </SettingsSection>
     </>
   );
 }
@@ -952,33 +893,33 @@ function About({ app }: { app: App }) {
   return (
     <>
       <h3>{t("settings.about")}</h3>
-      <Row label={t("about.product")}>
-        <Value>{shell?.brand?.name || t("app.title")}</Value>
-      </Row>
-      <Row label="product_id" hint={t("about.productIdHint")}>
-        <Value>{shell?.brand?.product_id ?? "harnix"}</Value>
-      </Row>
-      <Row label={t("settings.protocolVersion")}>
-        <Value>{String(hello.protocol_version ?? "—")}</Value>
-      </Row>
-      <Row label={t("settings.cwd")}>
-        <Value>{String(hello.cwd ?? t("common.none"))}</Value>
-      </Row>
-      <Row label={t("settings.attaDir")} hint={t("settings.attaDirHint")}>
-        <Value>{String(hello.engine?.data_root ?? t("common.none"))}</Value>
-      </Row>
-      <Row label={t("settings.projectsDir")} hint={t("settings.projectsDirHint")}>
-        <Value>{String(shell?.projects_dir ?? t("common.none"))}</Value>
-      </Row>
-      <Row label={t("settings.stateDir")} hint={t("settings.stateDirHint")}>
-        <Value>{String(shell?.state_dir ?? t("common.none"))}</Value>
-      </Row>
-      <Row label={t("settings.frameLimit")}>
-        <Value>{mb(limits.max_frame_bytes)}</Value>
-      </Row>
-      <Row label={t("settings.uploadLimit")}>
-        <Value>{mb(limits.max_upload_bytes)}</Value>
-      </Row>
+      <SettingsRow label={t("about.product")}>
+        <SettingsValue>{shell?.brand?.name || t("app.title")}</SettingsValue>
+      </SettingsRow>
+      <SettingsRow label="product_id" hint={t("about.productIdHint")}>
+        <SettingsValue>{shell?.brand?.product_id ?? "harnix"}</SettingsValue>
+      </SettingsRow>
+      <SettingsRow label={t("settings.protocolVersion")}>
+        <SettingsValue>{String(hello.protocol_version ?? "—")}</SettingsValue>
+      </SettingsRow>
+      <SettingsRow label={t("settings.cwd")}>
+        <SettingsValue>{String(hello.cwd ?? t("common.none"))}</SettingsValue>
+      </SettingsRow>
+      <SettingsRow label={t("settings.attaDir")} hint={t("settings.attaDirHint")}>
+        <SettingsValue>{String(hello.engine?.data_root ?? t("common.none"))}</SettingsValue>
+      </SettingsRow>
+      <SettingsRow label={t("settings.projectsDir")} hint={t("settings.projectsDirHint")}>
+        <SettingsValue>{String(shell?.projects_dir ?? t("common.none"))}</SettingsValue>
+      </SettingsRow>
+      <SettingsRow label={t("settings.stateDir")} hint={t("settings.stateDirHint")}>
+        <SettingsValue>{String(shell?.state_dir ?? t("common.none"))}</SettingsValue>
+      </SettingsRow>
+      <SettingsRow label={t("settings.frameLimit")}>
+        <SettingsValue>{mb(limits.max_frame_bytes)}</SettingsValue>
+      </SettingsRow>
+      <SettingsRow label={t("settings.uploadLimit")}>
+        <SettingsValue>{mb(limits.max_upload_bytes)}</SettingsValue>
+      </SettingsRow>
     </>
   );
 }

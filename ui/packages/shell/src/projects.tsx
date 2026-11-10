@@ -9,14 +9,12 @@
  */
 
 import { useRef } from "react";
-import { useT } from "@harnix/react";
+import { useT, Glyph, useRoving } from "@harnix/react";
 
 import { type App, type ShellSession, type ShellState, type Workspace } from "./app.ts";
 import { addWorkspaceDialog, workspaceMenu } from "./dialogs.tsx";
-import { Glyph } from "./glyph.tsx";
 import { useShell } from "./hooks.ts";
 import { menuBelow, menuPoint } from "./Menu.tsx";
-import { useRovingTabIndex } from "./roving.ts";
 import { SessionRow } from "./sessions.tsx";
 
 const PROJECTS = 5;
@@ -35,7 +33,7 @@ export function ProjectsSidebar({ app }: { app: App }) {
   // A tree, one Tab stop: Up and Down go along the projects and the open one's conversations, Right
   // and Left open and close a project.
   const tree = useRef<HTMLDivElement>(null);
-  const roving = useRovingTabIndex(tree, { items: '.prj, .pgroup .srow', orientation: "vertical", parentOf, toggle });
+  const roving = useRoving(tree, { items: '.prj, .pgroup .srow', orientation: "vertical", parentOf, toggle });
   return (
     <div className="projects" data-testid="projects">
       <div className="sec">

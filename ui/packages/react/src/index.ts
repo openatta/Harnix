@@ -47,6 +47,10 @@ export { lineDiff, hunks, type DiffLine } from "./diff";
 export { markdown, escapeHtml } from "./markdown";
 export { zhCN, en, uiStrings, type HarnixUiStrings } from "./strings";
 export { Icon } from "./chat/icons";
+export { GLYPHS, Glyph, glyphHtml, iconsFrom, toolGlyph } from "./glyph";
+export { rowKeys, useRoving, type Roving } from "./roving";
+export { ago, clock, compact, fileSize, megabytes, millis, since } from "./format";
+export { DialogBody, DialogFoot, SettingsReload, SettingsRow, SettingsSection, SettingsValue, useSettingsReload } from "./settings";
 export {
   focusables,
   isTop,

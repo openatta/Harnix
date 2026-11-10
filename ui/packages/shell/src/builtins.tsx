@@ -9,12 +9,11 @@
  */
 
 import type { Block, BlockOf } from "@harnix/core/state";
-import { Disclosure, STATUS_GLYPH, ToolDetails, t, toolArgs, toolDisplayName, TOOL_NAMES, useToolState, type DetailItem, type SidebarGroup } from "@harnix/react";
+import { Disclosure, STATUS_GLYPH, ToolDetails, t, toolArgs, toolDisplayName, TOOL_NAMES, useToolState, type DetailItem, type SidebarGroup, Glyph } from "@harnix/react";
 
 import type { App, ShellSession } from "./app.ts";
 import { Labelled, RequestPanel, RequestRow, type RequestBlock } from "./envelope.tsx";
 import { registerFlow } from "./flow.ts";
-import { Glyph } from "./glyph.tsx";
 import { ProjectsSidebar } from "./projects.tsx";
 import { SessionsSidebar } from "./sessions.tsx";
 import { builtinSections } from "./settings.tsx";

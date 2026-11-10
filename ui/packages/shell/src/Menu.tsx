@@ -7,9 +7,8 @@
 
 import { useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { MenuBox } from "@harnix/react";
+import { MenuBox, Glyph } from "@harnix/react";
 
-import { Glyph } from "./glyph.tsx";
 
 export interface MenuEntry {
   /** Its `data-item`: what a test or an application finds it by. */

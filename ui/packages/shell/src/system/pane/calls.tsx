@@ -1,10 +1,9 @@
 /** The calls tab: every model call, what went in and what came out. */
 
 import { useEffect, useRef, useState } from "react";
-import { Disclosure, clip, useT } from "@harnix/react";
+import { Disclosure, clip, useT, Glyph } from "@harnix/react";
 
 import type { App, SessionKey } from "../../app.ts";
-import { Glyph } from "../../glyph.tsx";
 import { Failure } from "../failure.tsx";
 import { messageText, usageText } from "../format.ts";
 import { locateInConversation } from "../navigate.ts";

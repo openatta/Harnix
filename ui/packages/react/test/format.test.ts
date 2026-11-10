@@ -1,12 +1,8 @@
-/**
- * The shell's writers of times, sizes and counts (`src/format.ts`), and what the system space says
- * of a task: each one figure written one way, wherever the shell shows it.
- */
+/** The interface's writers of times, sizes and counts (`src/format.ts`): each figure written one way, wherever it is shown. */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { clock, compact, fileSize, megabytes, millis, since } from "../src/format";
-import { taskDuration, usageText } from "../src/system/format";
 
 afterEach(() => vi.useRealTimers());
 
@@ -38,12 +34,5 @@ describe("format", () => {
     expect(megabytes(undefined)).toBe("—");
     expect(megabytes(524288)).toBe("0.50 MB");
     expect(megabytes(32 * 1048576)).toBe("32 MB");
-  });
-
-  it("a task's duration and a call's usage", () => {
-    expect(taskDuration({ task_id: "t", kind: "bash", status: "done", started_ms: 1000, ended_ms: 66_000 })).toBe("1m05s");
-    expect(taskDuration({ task_id: "t", kind: "bash", status: "pending" })).toBe("");
-    expect(usageText(null)).toBe("—");
-    expect(usageText({ input_tokens: 34, cache_read_input_tokens: 1000, output_tokens: 200 })).toBe("in 1.0k · out 200");
   });
 });

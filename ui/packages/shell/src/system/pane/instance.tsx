@@ -5,11 +5,10 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { useT } from "@harnix/react";
+import { useT, Glyph } from "@harnix/react";
 
 import type { App } from "../../app.ts";
 import { confirmDialog } from "../../dialogs.tsx";
-import { Glyph } from "../../glyph.tsx";
 import { SYSTEM } from "../constants.ts";
 import type { InstanceRow, SessionRowView } from "../types.ts";
 import { act, useTopic, type View } from "../view.ts";

@@ -1,12 +1,15 @@
-/** 16px line icons, drawn on a 24 viewBox at 1.7 stroke — inline so the page
- *  needs no icon font and no network. */
+/**
+ * The interface's 16px line icons, drawn on a 24 viewBox at 1.7 stroke — inline so the page needs
+ * no icon font and no network — and `Glyph`, which draws one by name. The shell and every UI
+ * package draw their icons through it, so an application's own (`r.icon`) resolve the same way.
+ */
 
 const wrap = (body: string) =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
         stroke-linecap="round" stroke-linejoin="round" width="100%" height="100%"
         aria-hidden="true">${body}</svg>`;
 
-export const ICON: Record<string, string> = {
+export const GLYPHS: Record<string, string> = {
   brand: wrap(`<path d="M12 2.5 20.5 7.25v9.5L12 21.5 3.5 16.75v-9.5Z"/><path d="M9 8.5v7M15 8.5v7M9 12h6"/>`),
   home: wrap(`<path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1Z"/>`),
   plus: wrap(`<path d="M12 5v14M5 12h14"/>`),
@@ -50,16 +53,16 @@ export const ICON: Record<string, string> = {
 };
 
 /** The icon that best matches a tool's name. */
-export function toolIcon(name: unknown): string | undefined {
+export function toolGlyph(name: unknown): string | undefined {
   const n = String(name || "").toLowerCase();
-  if (n.includes("bash") || n.includes("shell") || n.includes("terminal")) return ICON.terminal;
-  if (n.includes("edit") || n.includes("write") || n.includes("patch")) return ICON.edit;
-  if (n.includes("read") || n.includes("file") || n.includes("notebook")) return ICON.file;
-  if (n.includes("grep") || n.includes("glob") || n.includes("search")) return ICON.search;
-  if (n.includes("web") || n.includes("fetch") || n.includes("url")) return ICON.globe;
-  if (n.includes("agent") || n.includes("task") || n.includes("team")) return ICON.agent;
-  if (n.includes("todo") || n.includes("plan")) return ICON.check;
-  return ICON.terminal;
+  if (n.includes("bash") || n.includes("shell") || n.includes("terminal")) return GLYPHS.terminal;
+  if (n.includes("edit") || n.includes("write") || n.includes("patch")) return GLYPHS.edit;
+  if (n.includes("read") || n.includes("file") || n.includes("notebook")) return GLYPHS.file;
+  if (n.includes("grep") || n.includes("glob") || n.includes("search")) return GLYPHS.search;
+  if (n.includes("web") || n.includes("fetch") || n.includes("url")) return GLYPHS.globe;
+  if (n.includes("agent") || n.includes("task") || n.includes("team")) return GLYPHS.agent;
+  if (n.includes("todo") || n.includes("plan")) return GLYPHS.check;
+  return GLYPHS.terminal;
 }
 
 /** Where an application's own icons are looked up (`Registry.icons`): set once by the page. */
@@ -73,8 +76,13 @@ export function iconsFrom(lookup: (name: string) => string | undefined): void {
 /** One of the icons above — or an application's, by its `<owner>.<name>` — in a span the stylesheet
  *  sizes by its class. A name nobody has draws nothing. */
 export function glyphHtml(name: string): { __html: string } {
-  const own = ICON[name];
+  const own = GLYPHS[name];
   if (own) return { __html: own };
   const body = extra?.(name);
   return { __html: body ? wrap(body) : "" };
+}
+
+/** An icon by name. The span carries the size: an SVG left to fill its row is a 300px icon. */
+export function Glyph({ name, className }: { name: string; className?: string }) {
+  return <span className={className} aria-hidden="true" dangerouslySetInnerHTML={glyphHtml(name)} />;
 }

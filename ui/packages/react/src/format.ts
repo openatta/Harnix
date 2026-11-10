@@ -1,9 +1,9 @@
 /**
- * How the shell writes times, sizes and counts: one place, so a figure reads the same in the
- * sidebar, the settings and the system space.
+ * How the interface writes times, sizes and counts: one place, so a figure reads the same in the
+ * sidebar, the settings and the system space, whichever package draws it.
  */
 
-import { currentLocale } from "@harnix/react";
+import { currentLocale } from "./i18n/index";
 
 /** How long ago `ms` was, short: `42s`, `5m`, `2h05m`. */
 export function since(ms: number): string {
