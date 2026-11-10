@@ -14,7 +14,7 @@ afterEach(cleanup);
 function drawn() {
   const { app } = scriptedApp();
   const { container } = render(
-    <HarnixUiProvider client={app.client as HarnixClient}>
+    <HarnixUiProvider client={app.conn as HarnixClient}>
       <Shell app={app} />
     </HarnixUiProvider>,
   );

@@ -25,38 +25,14 @@ import {
 } from "react";
 import { errorText } from "@harnix/core";
 import type { BlockOf, SessionController, SessionState } from "@harnix/core/state";
-import {
-  ChatComposer,
-  ChatPanel,
-  Contributed,
-  listenForLayers,
-  modalUp,
-  t,
-  useLayer,
-  useRegistry,
-  useT,
-  ComposerNote,
-  askedTool,
-  rowTitle,
-  toolAsks,
-  type Attached,
-  type ChatIds,
-  type ComposerApi,
-  type MentionItem,
-  type ModelOption,
-  type SpaceContribution,
-  type SpaceSecondary,
-  type ToolRowContribution,
-} from "@harnix/react";
+import { ChatComposer, ChatPanel, Contributed, listenForLayers, modalUp, t, useLayer, useRegistry, useT, ComposerNote, askedTool, rowTitle, toolAsks, type Attached, type ChatIds, type ComposerApi, type MentionItem, type ModelOption, type SpaceContribution, type SpaceSecondary, type ToolRowContribution, Glyph, useRoving } from "@harnix/react";
 
 import { ask, detailsWidthOf, keyOf, later, orderTabs, safeTabs, secondaryWidthOf, type App, type OpenModal, type ShellState, type Widths } from "./app.ts";
 import { useBrand } from "./brand.ts";
 import { referencesIn, sessionMentions, useCommands, withContributed } from "./commands.ts";
 import { followEnvelopes } from "./envelope.tsx";
-import { Glyph } from "./glyph.tsx";
 import { sessionMenu } from "./dialogs.tsx";
 import { MenuHost, menuBelow } from "./Menu.tsx";
-import { useRovingTabIndex } from "./roving.ts";
 import { openSettings } from "./settings.tsx";
 import { Sidebar, spacesOf } from "./Sidebar.tsx";
 import { ActionButtons } from "./actions.tsx";
@@ -269,7 +245,7 @@ function useTheme(choice: ShellState["theme"]) {
     query.addEventListener("change", change);
     return () => query.removeEventListener("change", change);
   }, []);
-  const theme = choice === "system" ? (dark ? "dark" : "light") : choice;
+  const theme = choice === "auto" ? (dark ? "dark" : "light") : choice;
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     const meta = document.querySelector('meta[name="theme-color"]');
@@ -508,22 +484,17 @@ function useBindComposer(app: App, session?: string): (api: ComposerApi | null) 
 }
 
 /**
- * The method a session's model is changed by: `harnix.session.setModel` when the profile opens it
- * (`[shell] model_switch`), for a session of the front space; else the system space's, so only when
- * that space is kept. Null when neither is reachable: the menu shows the model and cannot change it.
+ * Whether the composer changes a session's model: `harnix.session.setModel` is reachable when the
+ * profile opens it (`[shell] model_switch`), for a session of the front space. Otherwise the menu
+ * shows the model and cannot change it.
  */
 function setModelMethod(app: App): string | null {
-  const reachable = app.snapshot.reachable;
-  if (reachable.includes("harnix.session.setModel")) return "harnix.session.setModel";
-  if (reachable.includes("system.model")) return "system.model";
-  return null;
+  return app.snapshot.reachable.includes("harnix.session.setModel") ? "harnix.session.setModel" : null;
 }
 
 async function setModel(app: App, target: { instance: string; session_id: string }, option: ModelOption): Promise<void> {
-  const method = setModelMethod(app);
-  if (!method) return;
-  const params = { ...target, ...modelParams(option) };
-  await app.call(method, method === "harnix.session.setModel" ? { ...params, space: app.claim() } : params);
+  if (!setModelMethod(app)) return;
+  await app.call("harnix.session.setModel", { ...target, ...modelParams(option), space: app.claim() });
 }
 
 /** The model each session was switched to here, by session key: the session's own record does not
@@ -802,39 +773,18 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
   );
 
   const commands = useCommands(app);
-  const projectRoot = s.sessions.find((r) => r.session_id === current.sessionId)?.project_root ?? null;
-  const filesAsked = useRef(0);
-  // `@` offers the project's files and — after `@session:` — sessions of any space, which go to
-  // the turn as a copy of what was said in them (concept §5.4: sessions do not cross spaces;
-  // references do).
+  const asked = useRef(0);
+  // `@` offers what the `command` contributions at `@` give (a project's files, say) and — after
+  // `@session:` — sessions of any space, which go to the turn as a copy of what was said in them
+  // (concept §5.4: sessions do not cross spaces; references do).
   const mention = useMemo(() => {
     return async (query: string): Promise<MentionItem[]> => {
-      const mine = ++filesAsked.current;
-      if (query.startsWith("session:")) {
-        const items = await withContributed(app, query, await sessionMentions(app, query.slice("session:".length)));
-        return mine === filesAsked.current ? items : [];
-      }
-      const files = projectRoot
-        ? (
-            await app.call<{ files: { path: string; size?: number }[] }>("harnix-app.files", {
-              project_root: projectRoot,
-              query,
-            })
-          ).files
-        : [];
-      if (mine !== filesAsked.current) return [];
-      const items = await withContributed(
-        app,
-        query,
-        files.map((f) => ({
-          id: f.path,
-          label: f.size != null ? `${(f.size / 1024).toFixed(1)} KB` : undefined,
-          insert: `@${f.path} `,
-        })),
-      );
-      return mine === filesAsked.current ? items : [];
+      const mine = ++asked.current;
+      const own = query.startsWith("session:") ? await sessionMentions(app, query.slice("session:".length)) : [];
+      const items = await withContributed(app, query, own);
+      return mine === asked.current ? items : [];
     };
-  }, [app, projectRoot]);
+  }, [app]);
 
   const upload = useUpload(app);
 
@@ -1076,7 +1026,7 @@ function Details({ app, s }: { app: App; s: ShellState }) {
   const shown = tabs.find((x) => x.id === current);
   // One Tab stop for the strip; the arrows go along it.
   const strip = useRef<HTMLDivElement>(null);
-  const roving = useRovingTabIndex(strip, { items: '[role="tab"]', orientation: "horizontal", activate: true });
+  const roving = useRoving(strip, { items: '[role="tab"]', orientation: "horizontal", activate: true });
   return (
     // Closed it is zero wide, not gone: inert, or Tab would still walk through what is in it.
     <aside id="details" aria-hidden={!app.detailsOpen(s)} inert={!app.detailsOpen(s)}>

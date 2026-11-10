@@ -87,7 +87,7 @@ export async function connect(
 
   const events: Frame[] = [];
   const waiters: { match: (f: Frame) => boolean; resolve: (f: Frame) => void }[] = [];
-  client.onNotify((method, params) => {
+  client.onNotification((method, params) => {
     const frame = { method, params };
     events.push(frame);
     for (let i = waiters.length - 1; i >= 0; i -= 1) {

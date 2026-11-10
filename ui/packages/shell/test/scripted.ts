@@ -25,7 +25,7 @@ export class ScriptedClient {
       return Promise.reject(e);
     }
   }
-  onNotify(fn: Listener): () => void {
+  onNotification(fn: Listener): () => void {
     this.notify.add(fn);
     return () => this.notify.delete(fn);
   }
@@ -49,6 +49,7 @@ export function scriptedApp(): { app: App; client: ScriptedClient } {
   const app = new App(client as unknown as HarnixClient, new Registry());
   app.registry.register("space", space("sessions"), "test");
   app.registry.register("space", space("b"), "test");
+  app.set({ space: "sessions" });
   return { app, client };
 }
 

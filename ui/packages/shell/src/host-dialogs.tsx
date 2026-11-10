@@ -112,7 +112,8 @@ export function hostDialogs(app: App): HostApi["dialogs"] {
       return settled<string | null>(app, opts.title, false, null, (close) => <Prompt label={opts.label} value={opts.value ?? ""} validate={opts.validate} close={close} />);
     },
     open<T>(render: (close: (result: T | null) => void) => ReactNode, opts: { title?: string; wide?: boolean } = {}) {
-      return settled<T | null>(app, opts.title ?? "", opts.wide, null, (close) => <Body>{render(close)}</Body>);
+      // Drawn as given: the dialog lays out its own body and buttons (`DialogBody`, `DialogFoot`).
+      return settled<T | null>(app, opts.title ?? "", opts.wide, null, (close) => render(close));
     },
     menu(anchor, items) {
       const at = anchor instanceof Element ? menuBelow(anchor) : anchor;

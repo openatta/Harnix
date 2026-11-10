@@ -5,10 +5,9 @@
  * space, say — is a registration here, drawn wherever its `at` says.
  */
 
-import { t, useRegistry, type ActionPlace, type ActionTarget, type SessionAction } from "@harnix/react";
+import { t, useRegistry, type ActionPlace, type ActionTarget, type SessionAction, Glyph } from "@harnix/react";
 
 import type { App } from "./app.ts";
-import { Glyph } from "./glyph.tsx";
 import { hostDialogs } from "./host-dialogs.tsx";
 import type { MenuEntry } from "./Menu.tsx";
 

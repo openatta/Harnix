@@ -81,7 +81,7 @@ test("the theme chosen in settings applies at once, survives a reload, and follo
   // Back to the system's: the page follows what the system prefers.
   await page.emulateMedia({ colorScheme: "dark" });
   await openSettings(page);
-  await page.getByTestId("settings-theme").selectOption("system");
+  await page.getByTestId("settings-theme").selectOption("auto");
   await expect.poll(theme).toBe("dark");
   await page.emulateMedia({ colorScheme: "light" });
   await expect.poll(theme).toBe("light");
@@ -131,7 +131,7 @@ test("the language switches everything at once, and comes back", SETTINGS, async
   await language.selectOption("zh-CN");
   await expect(page.locator("#new")).toContainText("新会话");
   await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
-  await language.selectOption("system");
+  await language.selectOption("auto");
 });
 
 test("the sidebar collapses to a rail and back", TAGS, async ({ page }) => {
@@ -351,7 +351,7 @@ test("in Chinese the system space has no string left untranslated or showing its
   }
   await expect(page.locator('[data-testid="system-strip"] [data-kpi="threads"] .l')).toHaveText(/[一-鿿]/);
   await openSettings(page);
-  await page.getByTestId("settings-language").selectOption("system");
+  await page.getByTestId("settings-language").selectOption("auto");
   await page.keyboard.press("Escape");
 });
 
@@ -382,5 +382,5 @@ test("in Chinese the flows have no string left untranslated or showing its key",
   await expect(page.getByTestId("flow-context-title")).toHaveText("通用会话");
   expect(await leaked(), "the general conversation").toEqual([]);
   await openSettings(page);
-  await page.getByTestId("settings-language").selectOption("system");
+  await page.getByTestId("settings-language").selectOption("auto");
 });

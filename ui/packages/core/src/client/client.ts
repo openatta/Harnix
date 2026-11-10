@@ -180,14 +180,14 @@ export class HarnixClient {
   }
 
   /** 所有服务端通知。返回取消订阅的函数。 */
-  onNotify(fn: NotifyListener): () => void {
+  onNotification(fn: NotifyListener): () => void {
     this.notifyListeners.add(fn);
     return () => this.notifyListeners.delete(fn);
   }
 
   /** 某一种通知，带类型。 */
   on<M extends NotificationName>(method: M, fn: (params: Notifications[M]) => void): () => void {
-    return this.onNotify((name, params) => {
+    return this.onNotification((name, params) => {
       if (name === method) fn(params as unknown as Notifications[M]);
     });
   }

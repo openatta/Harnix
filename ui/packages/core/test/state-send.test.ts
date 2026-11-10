@@ -26,7 +26,7 @@ class FakeClient {
   status = "open";
   private listeners = new Set<(m: string, p: Record<string, unknown>) => void>();
   release: () => void = () => {};
-  onNotify(fn: (m: string, p: Record<string, unknown>) => void) {
+  onNotification(fn: (m: string, p: Record<string, unknown>) => void) {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
   }

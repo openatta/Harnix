@@ -16,7 +16,7 @@ function hello(shell: Hello["shell"]): Hello {
 
 function draw(app: ReturnType<typeof scriptedApp>["app"]) {
   return render(
-    <HarnixUiProvider client={app.client as HarnixClient}>
+    <HarnixUiProvider client={app.conn as HarnixClient}>
       <Shell app={app} />
     </HarnixUiProvider>,
   );

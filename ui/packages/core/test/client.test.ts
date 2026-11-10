@@ -79,7 +79,7 @@ describe("单双向流", () => {
     await expect(client.call("harnix.hello")).rejects.toMatchObject({ message: "not connected" });
   });
 
-  it("通知分发给 onNotify 与带类型的 on；notify 不带 id", async () => {
+  it("通知分发给 onNotification 与带类型的 on；notify 不带 id", async () => {
     const server = new FakeServer();
     const { client } = makeClient(server);
     client.connect();
@@ -87,7 +87,7 @@ describe("单双向流", () => {
 
     const all: string[] = [];
     const seqs: number[] = [];
-    client.onNotify((method) => all.push(method));
+    client.onNotification((method) => all.push(method));
     const off = client.on("harnix.event", (params) => seqs.push(params.seq));
     server.last.push("harnix.event", { session_id: "S1", seq: 1, turn_id: "t", event: { kind: "text_delta", text: "a" } });
     server.last.push("harnix.queue", { session_id: "S1", items: [] });

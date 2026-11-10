@@ -39,7 +39,7 @@ async function frameHandle(page: Page, point: string): Promise<Frame> {
 }
 
 async function toSpace(page: Page, space: string): Promise<void> {
-  await page.locator(`#side [data-space="${space}"]:not(#sessions)`).click();
+  await page.locator(`#side [data-space="${space}"]:not(#space-column)`).click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", space);
 }
 
@@ -380,7 +380,7 @@ test.describe("an application in isolated frames", () => {
     await expect(frame.getByTestId("showcase-accent")).not.toHaveAttribute("title", light ?? "");
     const inside = await (await frameHandle(page, "space")).evaluate(() => document.documentElement.dataset.theme);
     expect(inside).toBe("dark");
-    await page.evaluate(() => (window as any).harnix.app.setTheme("system"));
+    await page.evaluate(() => (window as any).harnix.app.setTheme("auto"));
   });
 
   test("its space's centre keeps its state while away, and its other surfaces", TAGS, async ({ page }) => {

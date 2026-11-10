@@ -9,6 +9,8 @@
 
 use std::fmt::Write as _;
 
+use crate::ui::PointDecl;
+
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PointKind {
@@ -148,6 +150,53 @@ pub fn point(id: &str) -> Option<&'static Point> {
     POINTS.iter().find(|p| p.id == id)
 }
 
+/// A point a first-party extension defines for the others to fill, beside the shell's nine and not
+/// counted among them: the extension declares it (`UiDecl::point`) and its UI package defines it.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy)]
+pub struct ExtensionPoint {
+    /// The extension that defines it; the point's name starts with its id.
+    pub owner: &'static str,
+    pub id: &'static str,
+    pub kind: PointKind,
+    pub what: &'static str,
+    pub when: &'static str,
+    pub frequency: Frequency,
+}
+
+impl ExtensionPoint {
+    /// The declaration its owner registers.
+    pub fn decl(&self) -> PointDecl {
+        PointDecl::new(self.id, self.kind, self.frequency).what(self.what).when(self.when)
+    }
+}
+
+/// The points first-party extensions define. Listed here, with the shell's, so the generated
+/// catalog shows every point a UI package can fill; each owner declares its own from this list.
+pub const EXTENSION_POINTS: &[ExtensionPoint] = &[
+    ExtensionPoint {
+        owner: "system",
+        id: "system.console.tab",
+        kind: PointKind::Register,
+        what: "系统 space 控制台的一个页签（`{id, title(), render(), order?, about?()}`）",
+        when: "系统 space 的控制台画出时",
+        frequency: Frequency::PerInteraction,
+    },
+    ExtensionPoint {
+        owner: "system",
+        id: "system.inspector.tab",
+        kind: PointKind::Render,
+        what: "系统 space 右栏里选中会话的一页（`{id, title(target), match(target), render(target), tools?}`）",
+        when: "右栏的选中项变化时",
+        frequency: Frequency::PerInteraction,
+    },
+];
+
+/// The points `owner` defines.
+pub fn points_of(owner: &str) -> impl Iterator<Item = &'static ExtensionPoint> + '_ {
+    EXTENSION_POINTS.iter().filter(move |p| p.owner == owner)
+}
+
 /// The table `docs/contribution_points.md` carries between its generated
 /// markers. Changing a point changes the doc; a test enforces it.
 pub fn render_markdown() -> String {
@@ -169,9 +218,39 @@ pub fn render_markdown() -> String {
     out
 }
 
+/// The second table in `docs/contribution_points.md`: the points first-party extensions define.
+pub fn render_extension_markdown() -> String {
+    let mut out = String::new();
+    out.push_str("| 贡献点 | 定义者 | 类型 | 贡献什么 | 求值时机 | 频率 |\n");
+    out.push_str("|---|---|---|---|---|---|\n");
+    for p in EXTENSION_POINTS {
+        let _ = writeln!(
+            out,
+            "| `{}` | `{}` | {} | {} | {} | {} |",
+            p.id,
+            p.owner,
+            p.kind.as_str(),
+            p.what,
+            p.when,
+            p.frequency.as_str()
+        );
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An extension's point is named under its id, and is never one of the shell's.
+    #[test]
+    fn an_extension_point_is_its_owners() {
+        for p in EXTENSION_POINTS {
+            assert!(p.id.starts_with(&format!("{}.", p.owner)), "{} is not under {}", p.id, p.owner);
+            assert!(point(p.id).is_none(), "{} is one of the shell's", p.id);
+        }
+        assert_eq!(points_of("system").count(), 2);
+    }
 
     /// Nine, and adding one is a decision (concept §5.6).
     #[test]

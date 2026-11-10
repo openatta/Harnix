@@ -30,7 +30,7 @@ export async function sessionMentions(app: App, query: string): Promise<MentionI
       if (q && !name.toLowerCase().includes(q) && !row.session_id.startsWith(q)) continue;
       items.push({
         id: `session:${instance.id}/${row.session_id}`,
-        label: `${name} · ${row.space ?? "sessions"}`,
+        label: row.space ? `${name} · ${row.space}` : name,
         insert: `@session:${instance.id}/${row.session_id} `,
       });
     }

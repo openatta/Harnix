@@ -14,7 +14,7 @@ import { errorText } from "@harnix/core";
 import { t, useT } from "@harnix/react";
 
 import { keyOf, type App, type ShellSession, type ShellState } from "../app.ts";
-import { SessionRow } from "../sessions.tsx";
+import { SessionRow } from "../rows.tsx";
 import { appsOf, type GroupDecl, type RuntimeApp } from "./apps.ts";
 import { localized, lookup, words, type Text } from "./template.ts";
 

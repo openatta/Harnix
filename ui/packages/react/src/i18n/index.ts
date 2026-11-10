@@ -11,7 +11,7 @@ import en from "./en.ts";
 import zhCN from "./zh-CN.ts";
 
 export type Locale = "zh-CN" | "en";
-export type LocaleChoice = Locale | "system";
+export type LocaleChoice = Locale | "auto";
 export type Translate = (key: string, vars?: Record<string, unknown>) => string;
 
 export const DICTIONARIES: Record<Locale, Record<string, string>> = { "zh-CN": zhCN, en };
@@ -81,17 +81,17 @@ export function currentLocale(): Locale {
 }
 
 export function localeChoice(): LocaleChoice {
-  return stored() ?? "system";
+  return stored() ?? "auto";
 }
 
 export function setLocale(choice: LocaleChoice): void {
   try {
-    if (choice === "system") localStorage.removeItem(KEY);
+    if (choice === "auto") localStorage.removeItem(KEY);
     else localStorage.setItem(KEY, choice);
   } catch {
     /* private mode: the choice does not survive a reload */
   }
-  const next = choice === "system" ? fromSystem() : choice;
+  const next = choice === "auto" ? fromSystem() : choice;
   if (next === locale) return;
   locale = next;
   if (typeof document !== "undefined") document.documentElement.lang = locale;

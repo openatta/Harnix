@@ -15,7 +15,9 @@ describe("registry", () => {
   it("has exactly the points the generated catalog lists", () => {
     // Vitest runs in the package directory; under jsdom `import.meta.url` is not a file URL.
     const doc = readFileSync(join(process.cwd(), "../../../docs/contribution_points.md"), "utf8");
-    const catalog = [...doc.matchAll(/^\| `([a-z.]+)` \|/gm)].map((m) => m[1]);
+    // The shell's points: the first generated table (the second lists the extensions' own).
+    const table = doc.slice(doc.indexOf("<!-- BEGIN GENERATED TABLE"), doc.indexOf("<!-- END GENERATED TABLE"));
+    const catalog = [...table.matchAll(/^\| `([a-z.]+)` \|/gm)].map((m) => m[1]);
     expect([...POINTS].sort()).toEqual([...new Set(catalog)].sort());
   });
 

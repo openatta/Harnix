@@ -2,7 +2,7 @@
   "name": "@harnix/shell",
   "version": "0.3.1",
   "private": true,
-  "description": "Harnix's interface: the three-column shell, settings, modals. Built with Vite into ui/dist, which the binary embeds.",
+  "description": "Harnix's interface: the frame, the conversation, the settings panel's frame, the runtime for packages' interfaces. Built with Vite, with the first-party UI packages compiled in, into ui/dist, which the binary embeds.",
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
@@ -13,12 +13,18 @@
   "dependencies": {
     "@harnix/app-sdk": "workspace:*",
     "@harnix/core": "workspace:*",
-    "@harnix/flow": "workspace:*",
     "@harnix/react": "workspace:*",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },
   "devDependencies": {
+    "@harnix/devices": "workspace:*",
+    "@harnix/flow": "workspace:*",
+    "@harnix/harnix-app": "workspace:*",
+    "@harnix/observability": "workspace:*",
+    "@harnix/plugins": "workspace:*",
+    "@harnix/settings": "workspace:*",
+    "@harnix/system": "workspace:*",
     "@testing-library/react": "16.3.3",
     "@types/node": "24.19.2",
     "@types/react": "19.3.0",

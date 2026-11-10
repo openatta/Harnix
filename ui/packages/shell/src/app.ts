@@ -1,5 +1,5 @@
 /**
- * 外壳的状态与动作：连接、hello、会话列表与工作区、当前会话、右栏、横幅、模态框、搜索、主题。
+ * 外壳的状态与动作：连接、hello、前台 space 的会话列表、当前会话、右栏、横幅、模态框、搜索框、主题。
  *
  * 一份不可变快照，`subscribe` / `getSnapshot` 对上 `useSyncExternalStore`。会话本身的状态不在这里：
  * 它在 `@harnix/core/state` 的控制器里，`ChatPanel` 打开会话时建。这里只记"开的是哪个"。
@@ -21,26 +21,9 @@ export interface SessionKey {
   sessionId: string;
 }
 
-export interface Workspace {
-  id: string;
-  path: string;
-  title?: string | null;
-  collapsed?: boolean;
-  session_order?: string[];
-}
-
-/** `harnix.sessions.list` 的一行，加上工作区的覆盖（改名、归档、属于哪个工作区）。 */
+/** `harnix.sessions.list` 的一行，实例补齐。 */
 export interface ShellSession extends SessionRow {
   instance: string;
-  renamed?: boolean;
-  archived?: boolean;
-  workspace_id?: string | null;
-}
-
-export interface SearchHit {
-  session_id: string;
-  name?: string | null;
-  snippet?: string;
 }
 
 /** 一个模态框：标题，和画 `.body` 与 `.foot` 的内容（见 `dialogs.tsx` 的 `Body` / `Foot`）。 */
@@ -68,7 +51,7 @@ const NOTICE_MS = { info: 6_000, error: 12_000 } as const;
 /** At most this many wait behind the one shown: a burst of failures is not a queue to read through. */
 const NOTICE_QUEUE = 5;
 
-export type ThemeChoice = "system" | "light" | "dark";
+export type ThemeChoice = "auto" | "light" | "dark";
 
 /** One configured model provider, as `settings.describe` reads it (the key redacted). */
 export interface Provider {
@@ -148,8 +131,8 @@ export interface ShellState {
   /** Every extension and whether it is enabled: hello's, then `harnix.ui`'s as it changes. */
   extensions: ExtensionEntry[];
   reachable: string[];
+  /** The front space's sessions, as the hub lists them for the backend space it claims. */
   sessions: ShellSession[];
-  workspaces: Workspace[];
   /** 正在跑的会话，`instance/session` → true（`harnix.sessions.status` 主题） */
   running: Record<string, boolean>;
   /** The front space's current session: `currentBySpace[space]`, kept in step by `set`. */
@@ -181,12 +164,9 @@ export interface ShellState {
   titleBadge: number | null;
   /** The line under the brand (`host.shell.context`, ipdrun-49); null ⇒ none. */
   shellContext: ShellContext | null;
-  search: { active: boolean; query: string; hits: SearchHit[] | null | "pending"; truncated: boolean };
-  showArchived: boolean;
-  expanded: Record<string, boolean>;
+  /** The left column's search box, drawn while the front space gives `sidebar.search`. */
+  search: { query: string };
   theme: ThemeChoice;
-  /** The project open in the projects space: one at a time. */
-  project: string | null;
   widths: Widths;
   /** The widths the reader set by dragging; a column not in here has its default (or its space's). */
   dragged: Partial<Widths>;
@@ -205,7 +185,6 @@ export interface ShellState {
 const THEME_KEY = "harnix.theme";
 const SPACE_KEY = "harnix.space";
 const CURRENT_KEY = "harnix.space.current";
-const PROJECT_KEY = "harnix.project";
 const WIDTHS_KEY = "harnix.widths";
 const DETAILS_KEY = "harnix.details";
 const SECONDARY_MAX_KEY = "harnix.secondaryMax";
@@ -302,14 +281,14 @@ export function later(fn: () => void): void {
 function storedTheme(): ThemeChoice {
   try {
     const value = localStorage.getItem(THEME_KEY);
-    return value === "light" || value === "dark" ? value : "system";
+    return value === "light" || value === "dark" ? value : "auto";
   } catch {
-    return "system";
+    return "auto";
   }
 }
 
 export class App {
-  readonly client: HarnixClient;
+  readonly conn: HarnixClient;
   readonly registry: Registry;
   private state: ShellState;
   private readonly listeners = new Set<() => void>();
@@ -321,9 +300,10 @@ export class App {
   private interfaces: ((app: App, view: UiView) => Promise<void>) | null = null;
 
   constructor(client: HarnixClient, registry: Registry) {
-    this.client = client;
+    this.conn = client;
     this.registry = registry;
-    const space = stored<string>(SPACE_KEY, "sessions");
+    // Until hello says which space this product starts in, the one left in front last time.
+    const space = stored<string>(SPACE_KEY, "");
     const currentBySpace = stored<Record<string, SessionKey | null>>(CURRENT_KEY, {});
     this.state = {
       space,
@@ -333,7 +313,6 @@ export class App {
       extensions: [],
       reachable: [],
       sessions: [],
-      workspaces: [],
       running: {},
       current: currentBySpace[space] ?? null,
       detail: null,
@@ -349,11 +328,8 @@ export class App {
       modal: null,
       titleBadge: null,
       shellContext: null,
-      search: { active: false, query: "", hits: null, truncated: false },
-      showArchived: false,
-      expanded: {},
+      search: { query: "" },
       theme: storedTheme(),
-      project: stored<string | null>(PROJECT_KEY, null),
       widths: widthsWith(stored<Partial<Widths>>(WIDTHS_KEY, {})),
       dragged: stored<Partial<Widths>>(WIDTHS_KEY, {}),
       menu: false,
@@ -392,12 +368,17 @@ export class App {
       const ref = next.current ? { instance: next.current.instance, sessionId: next.current.sessionId } : null;
       for (const fn of [...this.currentListeners]) fn(ref);
     }
-    if (before.search.query !== next.search.query) {
-      // The front space's own search (`sidebar.search`), told what the left column's box says.
-      const space = this.registry.at("space").find((c) => c.id === next.space);
-      const search = space?.sidebar?.search;
-      if (search) ask(this.registry, space, () => search(next.search.query), undefined);
-    }
+    if (before.search.query !== next.search.query) this.search(next.search.query);
+    // The settings panel closed: what it changed may be the model providers the composer offers.
+    if (before.modals.some((m) => m.key === "settings") && !next.modals.some((m) => m.key === "settings")) void this.refreshProviders();
+  }
+
+  /** Tell the front space what the left column's search box says (`sidebar.search`); `submit` when
+   *  Enter was pressed in it. */
+  search(query: string, submit = false): void {
+    const space = this.registry.at("space").find((c) => c.id === this.state.space);
+    const search = space?.sidebar?.search;
+    if (search) ask(this.registry, space, () => search(query, submit || undefined), undefined);
   }
 
   private readonly currentListeners = new Set<(current: SessionKey | null) => void>();
@@ -501,7 +482,7 @@ export class App {
   start(activate: (app: App) => void | Promise<void>, follow?: (app: App, view: UiView) => Promise<void>): void {
     this.builtins = activate;
     this.interfaces = follow ?? null;
-    this.client.onStatus((status, detail) => {
+    this.conn.onStatus((status, detail) => {
       this.set({ connection: status });
       if (status === "open") {
         const restarted = t("conn.restarted");
@@ -512,30 +493,32 @@ export class App {
       if (status === "closed" && detail === TOKEN_STALE) this.notice(t("conn.restarted"), "error", { sticky: true });
       if (status === "incompatible") this.notice(t("banner.incompatible", { reason: detail ?? "" }), "error", { sticky: true });
     });
-    this.client.onNotify((method, params) => this.handle(method, params));
-    this.client.connect();
+    this.conn.onNotification((method, params) => this.handle(method, params));
+    this.conn.connect();
   }
 
   private async boot(): Promise<void> {
     try {
-      const hello = (await this.client.call("harnix.hello", {})) as Hello;
+      const hello = (await this.conn.call("harnix.hello", {})) as Hello;
       this.set({ hello, extensions: hello.extensions ?? this.state.extensions });
       if (!this.booted) {
         this.booted = true;
         // Not waited for past a bound: the rest of the start (sessions, the front space) does not hang
         // on it. Late, it is taken when it comes; what was registered meanwhile went without it.
-        const asked = this.client.call("harnix.reachable", {}).catch(() => ({ methods: [] })) as Promise<{ methods?: string[] }>;
+        const asked = this.conn.call("harnix.reachable", {}).catch(() => ({ methods: [] })) as Promise<{ methods?: string[] }>;
         const reachable = await within(asked, BOOT_WAIT_MS);
         if (reachable === TIMED_OUT) void asked.then((r) => this.set({ reachable: r.methods ?? [] }));
         else this.set({ reachable: reachable.methods ?? [] });
         void this.refreshProviders();
         // Through the page's counted table: a space subscribing to the same topic and leaving again
         // does not take it from the shell.
-        topicsOf(this.client).subscribe("harnix.sessions.status", {}, (value) => this.applyStatus(value));
-        // Awaited: a built-in space the backend has to be asked about (the flow space) is there
-        // before the stored front space is looked for.
-        // Bounded too (`within`): a built-in that asks the backend and never hears back does not stop
-        // the start.
+        topicsOf(this.conn).subscribe("harnix.sessions.status", {}, (value) => this.applyStatus(value));
+        // A session made, renamed, closed or deleted — by this page or another — is pushed for its
+        // instance: the front space's list is read again.
+        topicsOf(this.conn).subscribe("harnix.instances.sessions", { instance: this.defaultInstance() }, () => void this.refreshSessions());
+        // Before the stored front space is looked for: the spaces are the UI packages'. Bounded
+        // (`within`): an application's start that awaits the backend and never hears back does not
+        // stop the shell's.
         const registering = Promise.resolve(this.builtins?.(this)).catch((e: unknown) => this.notice(errorText(e), "error"));
         await within(registering, BOOT_WAIT_MS);
         // Every registration of the start is in: what went into a point nobody defined goes now.
@@ -553,7 +536,7 @@ export class App {
   private uiChain: Promise<void> = Promise.resolve();
 
   private followUi(): void {
-    topicsOf(this.client).subscribe("harnix.ui", {}, (value) => {
+    topicsOf(this.conn).subscribe("harnix.ui", {}, (value) => {
       const view = value as UiView | null;
       if (!view || !Array.isArray(view.extensions)) return;
       const before = this.state.extensions;
@@ -576,7 +559,7 @@ export class App {
   /** Ask `harnix.reachable` again: a runtime application registered since the start adds methods. */
   async refreshReachable(): Promise<void> {
     try {
-      const r = (await this.client.call("harnix.reachable", {})) as { methods?: string[] };
+      const r = (await this.conn.call("harnix.reachable", {})) as { methods?: string[] };
       this.set({ reachable: r.methods ?? [] });
     } catch {
       // What was known stays.
@@ -587,7 +570,7 @@ export class App {
   async refreshProviders(): Promise<void> {
     if (!this.state.reachable.includes("settings.describe")) return;
     const scene = this.state.hello?.engine?.active_scenes?.[0];
-    const described = await this.client
+    const described = await this.conn
       .call("settings.describe", { scene, project_root: null })
       .catch(() => null);
     const providers = (described as { providers?: Partial<Providers> } | null)?.providers;
@@ -619,6 +602,13 @@ export class App {
     if (!spaces.length) return;
     const here = spaces.find((c) => c.id === this.state.space);
     if (here && disabledOf(this.registry, here) === null) return;
+    // Nothing kept, or gone: the product's own first space, as hello names it, if it can be entered.
+    const named = this.state.hello?.defaults?.space;
+    const first = named ? spaces.find((c) => !c.within && (c.id === named || c.sessions === named) && disabledOf(this.registry, c) === null) : undefined;
+    if (first) {
+      if (first.id !== this.state.space) this.set({ space: first.id });
+      return;
+    }
     // The stored space is gone or cannot be entered for now (ipdrun-48): the first that can, by
     // order — one shown inside another (`within`) is not landed on by itself; when none can, stay
     // where we are if that space is still here, else the first.
@@ -642,12 +632,17 @@ export class App {
     return this.registry.at("space").find((c) => c.id === space)?.sessions ?? space;
   }
 
+  /** The instance a session that names none runs on: hello's `defaults`. */
+  defaultInstance(): string {
+    return this.state.hello?.defaults?.instance ?? MAIN_INSTANCE;
+  }
+
   /* ── 服务端通知 ───────────────────────────────────────────────────── */
 
   private handle(method: string, params: Record<string, unknown>): void {
     if (method === "harnix.event" && (params.event as { kind?: string } | undefined)?.kind === "skills_changed") {
       // The command list is the engine's; a skill installed mid-session adds one.
-      void this.client
+      void this.conn
         .call("engine.commands.list", {})
         .then((r) => {
           const hello = this.state.hello;
@@ -675,37 +670,16 @@ export class App {
 
   async refreshSessions(): Promise<void> {
     const mine = ++this.refreshes;
+    const space = this.state.space;
+    if (!space) return;
     try {
-      const [listed, spaces] = await Promise.all([
-        this.client.call("harnix.sessions.list", { space: "sessions" }) as Promise<{ sessions: SessionRow[] }>,
-        this.client
-          .call("harnix-app.workspaces.list", {})
-          .catch(() => ({ workspaces: [], prefs: {}, sessions: {} })) as Promise<{
-          workspaces: Workspace[];
-          prefs?: Record<string, unknown>;
-          sessions?: Record<string, { title?: string | null; archived?: boolean }>;
-        }>,
-      ]);
-      const notes = spaces.sessions ?? {};
-      const workspaces = spaces.workspaces ?? [];
-      const sessions: ShellSession[] = uniqueSessions(listed.sessions ?? []).map((row) => {
-        const note = notes[row.session_id] ?? {};
-        const workspace = workspaces.find((w) => row.project_root && w.path === row.project_root);
-        return {
-          ...row,
-          instance: (row.instance as string | undefined) ?? MAIN_INSTANCE,
-          name: note.title ?? row.name,
-          renamed: Boolean(note.title),
-          archived: Boolean(note.archived),
-          workspace_id: workspace?.id ?? null,
-        };
-      });
-      if (mine !== this.refreshes) return;
-      this.set({
-        sessions,
-        workspaces,
-        showArchived: Boolean(spaces.prefs?.showArchived ?? this.state.showArchived),
-      });
+      const listed = (await this.conn.call("harnix.sessions.list", { space: this.claim(space) })) as { sessions: SessionRow[] };
+      const sessions: ShellSession[] = uniqueSessions(listed.sessions ?? []).map((row) => ({
+        ...row,
+        instance: (row.instance as string | undefined) ?? this.defaultInstance(),
+      }));
+      if (mine !== this.refreshes || space !== this.state.space) return;
+      this.set({ sessions });
     } catch (e) {
       if (mine === this.refreshes) this.notice(errorText(e), "error");
     }
@@ -731,12 +705,14 @@ export class App {
     const tabBySpace = { ...this.state.tabBySpace };
     const declares = this.registry.at("space").find((c) => c.id === space)?.details?.tab !== undefined;
     if (space !== this.state.space && tabBySpace[space] && !tabBySpace[space]!.asked && !declares) delete tabBySpace[space];
-    this.set({ space, detail: null, menu: false, tabBySpace });
+    const changed = space !== this.state.space;
+    this.set({ space, detail: null, menu: false, tabBySpace, ...(changed ? { search: { query: "" }, sessions: [] } : {}) });
     this.followSpaceTab();
+    if (changed) void this.refreshSessions();
     const key = this.state.currentBySpace[space];
     if (!key) return;
     try {
-      await this.client.call("engine.session.get", { space: this.claim(space), instance: key.instance, session_id: key.sessionId });
+      await this.conn.call("engine.session.get", { space: this.claim(space), instance: key.instance, session_id: key.sessionId });
     } catch {
       if (this.state.currentBySpace[space] === key) this.open(null, space);
     }
@@ -755,13 +731,13 @@ export class App {
   /** New sessions belong to the front space and land on its default instance unless one is named. */
   async create(params: { scene?: string; project_root?: string | null; options?: Record<string, unknown>; instance?: string }): Promise<SessionKey> {
     const space = this.state.space;
-    // In the projects space a new conversation runs in the open project.
-    if (space === "projects" && params.project_root === undefined && this.state.project) {
-      const workspace = this.state.workspaces.find((w) => w.id === this.state.project);
-      if (workspace) params = { ...params, project_root: workspace.path };
-    }
-    const created = (await this.client.call("harnix.session.create", { ...params, space: this.claim(space) })) as { session_id: string; instance?: string };
-    const key = { instance: created.instance ?? MAIN_INSTANCE, sessionId: created.session_id };
+    // What the space starts its conversations with (the project open in it, say), under what was given.
+    const contribution = this.registry.at("space").find((c) => c.id === space);
+    const asked = contribution?.conversation?.newSessionDefaults;
+    const defaults = asked ? ask(this.registry, contribution, () => asked(), undefined) : undefined;
+    const given = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined));
+    const created = (await this.conn.call("harnix.session.create", { ...(defaults ?? {}), ...given, space: this.claim(space) })) as { session_id: string; instance?: string };
+    const key = { instance: created.instance ?? this.defaultInstance(), sessionId: created.session_id };
     await this.refreshSessions();
     this.open(key, space);
     return key;
@@ -840,12 +816,6 @@ export class App {
 
   toggleDetailsMax(max?: boolean): void {
     this.set({ detailsBySpace: this.keepDetails(true), detailsMax: max ?? !this.state.detailsMax });
-  }
-
-  /** Open one project in the projects space; the one open before closes. */
-  openProject(id: string | null): void {
-    remember(PROJECT_KEY, id);
-    this.set({ project: id });
   }
 
   /** A side column's width, kept within its bounds and remembered; the right column's widest is
@@ -957,7 +927,7 @@ export class App {
 
   setTheme(choice: ThemeChoice): void {
     try {
-      if (choice === "system") localStorage.removeItem(THEME_KEY);
+      if (choice === "auto") localStorage.removeItem(THEME_KEY);
       else localStorage.setItem(THEME_KEY, choice);
     } catch {
       /* private mode: the choice does not survive a reload */
@@ -968,12 +938,12 @@ export class App {
   /** A same-origin path with this page's credential on it: for what the browser fetches itself
    *  and cannot be given a header, such as a package's module (`import()`). */
   credentialed(path: string): string {
-    return this.client.withToken(path);
+    return this.conn.withToken(path);
   }
 
   /** 一次调用；失败时说出来并把错误交回去。 */
   async call<T = unknown>(method: string, params?: unknown): Promise<T> {
-    return (await this.client.call(method, params)) as T;
+    return (await this.conn.call(method, params)) as T;
   }
 
   /** 上传一个文件：先要一张票，再把文件原样 POST 过去（`harnix.bulk.upload`）。 */

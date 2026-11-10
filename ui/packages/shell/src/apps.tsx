@@ -20,12 +20,10 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { errorText } from "@harnix/core";
-import { useLayer, useT } from "@harnix/react";
+import { SettingsRow, SettingsSection, SettingsValue, fileSize, useLayer, useSettingsReload, useT } from "@harnix/react";
 
 import type { App } from "./app.ts";
-import { fileSize } from "./format.ts";
 import { appsOf, type Inline } from "./inline/index.tsx";
-import { Row, Section, Value, useReload } from "./settings.tsx";
 
 interface Line {
   capability: string;
@@ -195,7 +193,7 @@ function Dialog({ testId, label, onClose, children, actions }: { testId: string;
 
 export function AppsSettings({ app }: { app: App }) {
   const t = useT();
-  const reload = useReload();
+  const reload = useSettingsReload();
   const watch = appsOf(app);
   useSyncExternalStore(watch.subscribe, watch.getVersion);
   const [pending, setPending] = useState<Pending | null>(null);
@@ -286,10 +284,10 @@ export function AppsSettings({ app }: { app: App }) {
           <div>{asking.message}</div>
         </Dialog>
       ) : null}
-      <Row label={t("apps.mark")} hint={t("apps.markHint")}>
+      <SettingsRow label={t("apps.mark")} hint={t("apps.markHint")}>
         <input type="checkbox" data-testid="apps-mark-toggle" checked={watch.marked()} onChange={(e) => watch.setMarked(e.target.checked)} />
-      </Row>
-      <Section title={t("apps.installed")} load={() => app.call<{ apps?: Installed[] }>("harnix.apps.list", {})}>
+      </SettingsRow>
+      <SettingsSection title={t("apps.installed")} load={() => app.call<{ apps?: Installed[] }>("harnix.apps.list", {})}>
         {(data) => {
           const apps = data.apps ?? [];
           if (!apps.length) return <div className="hint">{t("apps.none")}</div>;
@@ -315,10 +313,10 @@ export function AppsSettings({ app }: { app: App }) {
                     data-trust={a.trust ?? "unsigned"}
                     data-state={state}
                   >
-                    <Row label={`${name} ${a.version}`} hint={hint.filter(Boolean).join(" · ")}>
-                      <Value tone={state === "running" || state === "hibernating" ? "ok" : state === "failed" || state === "faulted" ? "err" : undefined}>
+                    <SettingsRow label={`${name} ${a.version}`} hint={hint.filter(Boolean).join(" · ")}>
+                      <SettingsValue tone={state === "running" || state === "hibernating" ? "ok" : state === "failed" || state === "faulted" ? "err" : undefined}>
                         {a.enabled ? t("apps.enabled") : t("apps.disabled")}
-                      </Value>
+                      </SettingsValue>
                       <button
                         type="button"
                         className="btn sm outline"
@@ -363,18 +361,18 @@ export function AppsSettings({ app }: { app: App }) {
                       >
                         {t("apps.uninstall")}
                       </button>
-                    </Row>
+                    </SettingsRow>
                     <div className="apps-permissions" data-testid="app-permissions">
                       <div className="apps-sub">{t("apps.permissions")}</div>
                       <Lines lines={a.app?.lines ?? []} empty={t("apps.asksNothing")} />
                       <InlinePoints inline={a.app?.inline} />
                     </div>
-                    <Row label={t("apps.data", { size: fileSize(a.data_bytes) })}>
-                      <Value>
+                    <SettingsRow label={t("apps.data", { size: fileSize(a.data_bytes) })}>
+                      <SettingsValue>
                         <span data-testid="app-data" data-bytes={a.data_bytes ?? 0}>
                           {fileSize(a.data_bytes)}
                         </span>
-                      </Value>
+                      </SettingsValue>
                       <button
                         type="button"
                         className="btn sm outline"
@@ -395,15 +393,15 @@ export function AppsSettings({ app }: { app: App }) {
                       >
                         {t("apps.clearData")}
                       </button>
-                    </Row>
+                    </SettingsRow>
                   </div>
                 );
               })}
             </>
           );
         }}
-      </Section>
-      <Section
+      </SettingsSection>
+      <SettingsSection
         title={t("apps.store")}
         load={() =>
           app.call<{ name?: string | null; store?: string; apps?: CatalogApp[] }>("harnix.apps.catalog", {}).then((catalog) => {
@@ -418,22 +416,22 @@ export function AppsSettings({ app }: { app: App }) {
             {!(catalog.apps ?? []).length ? <div className="hint">{t("apps.storeEmpty")}</div> : null}
             {(catalog.apps ?? []).map((c) => (
               <div key={c.id} data-testid="app-offered" data-app={c.id}>
-                <Row label={`${c.title || c.id} ${c.latest ?? ""}`} hint={[c.id, c.publisher, c.description].filter(Boolean).join(" · ")}>
+                <SettingsRow label={`${c.title || c.id} ${c.latest ?? ""}`} hint={[c.id, c.publisher, c.description].filter(Boolean).join(" · ")}>
                   {c.installed ? (
-                    <Value tone="ok">{t("apps.installedVersion", { version: c.installed })}</Value>
+                    <SettingsValue tone="ok">{t("apps.installedVersion", { version: c.installed })}</SettingsValue>
                   ) : c.installable ? (
                     <button type="button" className="btn sm outline" data-testid="app-install" disabled={busy} onClick={() => void ask("harnix.apps.install", c.id)}>
                       {t("apps.install")}
                     </button>
                   ) : (
-                    <Value>{t("apps.noBuild")}</Value>
+                    <SettingsValue>{t("apps.noBuild")}</SettingsValue>
                   )}
-                </Row>
+                </SettingsRow>
               </div>
             ))}
           </>
         )}
-      </Section>
+      </SettingsSection>
     </>
   );
 }
@@ -474,12 +472,12 @@ function Disclosure({
       }
     >
       {d.description ? <div className="hint">{d.description}</div> : null}
-      <Row label={t("apps.publisher")} hint={asked.id}>
-        <Value>{d.publisher ?? "—"}</Value>
-      </Row>
-      <Row label={t("apps.signature")}>
-        <Value tone={d.trust === "unsigned" ? "err" : "ok"}>{trust(d.trust)}</Value>
-      </Row>
+      <SettingsRow label={t("apps.publisher")} hint={asked.id}>
+        <SettingsValue>{d.publisher ?? "—"}</SettingsValue>
+      </SettingsRow>
+      <SettingsRow label={t("apps.signature")}>
+        <SettingsValue tone={d.trust === "unsigned" ? "err" : "ok"}>{trust(d.trust)}</SettingsValue>
+      </SettingsRow>
       {update?.downgrade ? (
         <div className="hint err" data-testid="app-downgrade">
           {t("apps.downgrade", { from: update.from, version: asked.version })}

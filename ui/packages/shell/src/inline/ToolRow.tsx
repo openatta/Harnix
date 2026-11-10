@@ -5,10 +5,9 @@
  */
 
 import type { BlockOf } from "@harnix/core/state";
-import { Disclosure, STATUS_GLYPH, ToolDetails, clip, t, toolArgs, useToolState } from "@harnix/react";
+import { Disclosure, STATUS_GLYPH, ToolDetails, clip, t, toolArgs, useToolState, Glyph } from "@harnix/react";
 
 import type { App } from "../app.ts";
-import { Glyph } from "../glyph.tsx";
 import type { RuntimeApp, ToolRowDecl } from "./apps.ts";
 import { inputOf, lookup, say, words } from "./template.ts";
 

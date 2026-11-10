@@ -158,18 +158,18 @@ test("its chats space's sessions are grouped as its backend answers", TAGS, asyn
   await open(page, backend.url);
   await page.locator(`#side [data-space="${SHOWCASE_CHATS}"]`).click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", SHOWCASE_CHATS);
-  const cards = page.locator('#sessions [data-testid="space-group"][data-group="m:cards"]');
+  const cards = page.locator('#space-column [data-testid="space-group"][data-group="m:cards"]');
   await expect(cards).toBeVisible({ timeout: 15_000 });
   await expect(cards).toContainText(/With a card|有卡片的/);
   await expect(cards.locator(`[data-sid="${carded!.session_id}"]`)).toBeVisible();
-  const other = page.locator('#sessions [data-testid="space-group"][data-group="other"]');
+  const other = page.locator('#space-column [data-testid="space-group"][data-group="other"]');
   await expect(other).toContainText(/Without a card|没有卡片的/);
   await expect(other.locator(`[data-sid="${plain!.session_id}"]`)).toBeVisible();
   await expect(cards.locator(`[data-sid="${plain!.session_id}"]`)).toHaveCount(0);
   // Its first space's left column is its own frame: nothing of the shell's list, grouped or not.
   await page.locator(`#side [data-space="${SHOWCASE_ID}"]`).click();
   await expect(page.locator(`[data-testid="surface-frame"][data-app="${SHOWCASE_ID}"][data-point="space.sidebar"]`)).toBeVisible({ timeout: 15_000 });
-  await expect(page.locator('#sessions [data-testid="space-group"]')).toHaveCount(0);
+  await expect(page.locator('#space-column [data-testid="space-group"]')).toHaveCount(0);
 });
 
 async function applications(page: Page): Promise<void> {

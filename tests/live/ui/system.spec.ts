@@ -47,7 +47,7 @@ async function sessionWithTurn(page: Page, instance: string, fixture = "says-rea
       const key = { instance, session_id: created.session_id, space: "sessions" };
       await app.call("harnix.session.attach", key);
       const settled = new Promise<void>((resolve) => {
-        const off = app.client.onNotify((method: string, params: any) => {
+        const off = app.conn.onNotification((method: string, params: any) => {
           if (method === "harnix.turn_settled" && params.session_id === created.session_id) {
             off();
             resolve();
@@ -193,7 +193,7 @@ test("system-agents: a running turn's clock counts on; one that finished unseen 
       instance: "main", space: "sessions", scene: "harnix", options: { recorder: { name: "runs-a-while" } },
     });
     const key = { instance: "main", session_id: created.session_id, space: "sessions" };
-    app.client.onNotify((method: string, params: any) => {
+    app.conn.onNotification((method: string, params: any) => {
       if (method === "harnix.event" && params.session_id === created.session_id && params.event?.kind === "prompt") {
         void app.call("harnix.session.respond", { ...key, prompt_id: params.event.prompt_id, decision: { type: "permit" } });
       }
