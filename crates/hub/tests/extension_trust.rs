@@ -122,6 +122,9 @@ impl EngineOps for FakeLink {
     async fn respond(&self, _: Value) -> Answer<Value> {
         Ok(json!({}))
     }
+    async fn rename(&self, session: &str, _: &str) -> Answer<Value> {
+        Ok(described(session))
+    }
     async fn passthrough(&self, method: &str, params: Value) -> Answer<Value> {
         self.passed.lock().unwrap().push(method.to_string());
         Ok(match params.get("session_id").and_then(Value::as_str) {

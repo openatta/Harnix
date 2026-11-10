@@ -362,6 +362,20 @@ impl Hub {
         Ok(result)
     }
 
+    /// `harnix.session.rename {instance?, session_id, title}`: the session's title is the
+    /// engine's name for it, so every client lists the same one; nothing here keeps a title of
+    /// its own.
+    pub(crate) async fn rename(self: &Arc<Self>, params: Value) -> Result<Value, RpcError> {
+        let key = self.key_of(&params)?;
+        let title = params.get("title").and_then(Value::as_str).unwrap_or("").trim().to_string();
+        if title.is_empty() {
+            return Err(RpcError::invalid_params("a title is not empty"));
+        }
+        self.engine(&key.0)?.ops().rename(&key.1, &title).await?;
+        self.refresh("harnix.instances.sessions", json!({"instance": key.0}));
+        Ok(json!({"session_id": key.1, "title": title}))
+    }
+
     /// Close a session, or `delete` it. Deleting it deletes its recording too, which is the link's
     /// to do.
     pub(crate) async fn close_or_delete(

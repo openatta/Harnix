@@ -1,11 +1,11 @@
 //! Harnix's own state, in Harnix's own directory.
 //!
 //! Everything this file holds is something Agix does not have a concept of
-//! — workspaces, session titles, archived rows, view preferences. It lives
+//! — workspaces, archived rows, view preferences. It lives
 //! under the state root the caller resolved (`crates/assembly/src/paths.rs`),
 //! never mixed into the engine's root: that tree belongs to Agix and to
 //! whoever hand-edits it, and a front end's bookkeeping has no business
-//! there. Deleting our root loses grouping and titles and nothing else.
+//! there. Deleting our root loses grouping and nothing else.
 //!
 //! One small JSON file, rewritten atomically on every change (temp + rename),
 //! so a crash mid-write leaves the previous state rather than half of the new
@@ -38,12 +38,10 @@ pub struct Workspace {
     pub session_order: Vec<String>,
 }
 
+/// What this product notes about a session. Its title is not here: that is the engine's name for
+/// it (`harnix.session.rename`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SessionMeta {
-    /// Title the user typed, an overlay over the engine's name in this product's session
-    /// list. The engine's own name is `session.rename`'s (the system space's rename).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
     #[serde(default)]
     pub archived: bool,
 }
@@ -130,13 +128,6 @@ impl Store {
         {
             warn!(error = %e, "could not write the Harnix state file");
         }
-    }
-
-    pub fn title_of(&self, session_id: &str) -> Option<String> {
-        self.state
-            .sessions
-            .get(session_id)
-            .and_then(|m| m.title.clone())
     }
 
     /// The workspace a project root belongs to, if one is registered.

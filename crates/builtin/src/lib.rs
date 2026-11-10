@@ -66,14 +66,13 @@ pub struct Builtin {
 const PARTS: &[Part] = &[
     Part {
         id: "sessions",
-        disclosure: "工作区、会话标题与归档、视图偏好、跨会话搜索、目录选择、文件引用、上传",
+        disclosure: "工作区、会话的归档、视图偏好、跨会话搜索、目录选择、文件引用、上传",
         methods: &[
             m("harnix.workspaces.list", |b, _| Box::pin(async move { b.workspaces_list().await })),
             m("harnix.workspaces.create", |b, p| Box::pin(async move { b.workspaces_create(p).await })),
             m("harnix.workspaces.update", |b, p| Box::pin(async move { b.workspaces_update(p).await })),
             m("harnix.workspaces.reorder", |b, p| Box::pin(async move { b.workspaces_reorder(p).await })),
             m("harnix.workspaces.remove", |b, p| Box::pin(async move { b.workspaces_remove(p).await })),
-            m("harnix.sessions.rename", |b, p| Box::pin(async move { b.session_rename(p).await })),
             m("harnix.sessions.archive", |b, p| Box::pin(async move { b.session_archive(p).await })),
             m("harnix.sessions.export", |b, p| Box::pin(async move { b.session_export(p).await })),
             m("harnix.prefs.set", |b, p| Box::pin(async move { b.prefs_set(p).await })),

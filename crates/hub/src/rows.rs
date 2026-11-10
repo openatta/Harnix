@@ -152,6 +152,7 @@ impl Hub {
                 let key = h.key_of(&p)?;
                 h.tasks_view(&key).await
             }),
+            own_session(hub, "harnix.session.rename", |h, _, p| async move { h.rename(p).await }),
             own_session(hub, "harnix.entries.append", |h, cx, p| async move { h.append_entry(&cx.subject, p).await }),
             own(hub, "harnix.sessions.move", |h, cx, p| async move { h.move_session(&cx.subject, p).await }),
             own(hub, "harnix.prompts.answerer", |h, cx, p| async move { h.answerer(&cx.subject, &p) }),

@@ -23,6 +23,7 @@ pub const SESSION_HISTORY: &str = "session.history";
 pub const SESSION_TASKS: &str = "session.tasks";
 pub const SESSION_RUN_TURN: &str = "session.run_turn";
 pub const SESSION_INTERRUPT: &str = "session.interrupt";
+pub const SESSION_RENAME: &str = "session.rename";
 pub const SESSION_CLOSE: &str = "session.close";
 pub const SESSION_DELETE: &str = "session.delete";
 pub const SESSION_FORK: &str = "session.fork";
@@ -184,6 +185,10 @@ impl EngineOps for AgixOps {
 
     async fn interrupt(&self, session: &str) -> Answer<Value> {
         self.call(SESSION_INTERRUPT, json!({"session_id": session})).await
+    }
+
+    async fn rename(&self, session: &str, title: &str) -> Answer<Value> {
+        self.call(SESSION_RENAME, json!({"session_id": session, "name": title})).await
     }
 
     async fn close(&self, params: Value, delete: bool) -> Answer<Value> {

@@ -66,6 +66,9 @@ pub trait EngineOps: Send + Sync {
 
     async fn interrupt(&self, session: &str) -> Answer<Value>;
 
+    /// Give the session a title: the engine's name for it, the one every client lists.
+    async fn rename(&self, session: &str, title: &str) -> Answer<Value>;
+
     /// Close the session, or `delete` it. `params` are the engine's own (a dry run, say).
     async fn close(&self, params: Value, delete: bool) -> Answer<Value>;
 

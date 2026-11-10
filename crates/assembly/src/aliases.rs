@@ -31,6 +31,8 @@ const ALIASES: &[(&str, &str)] = &[
     ("harnix.devices.pair.begin", "devices.pair.begin"),
     ("harnix.devices.pair.complete", "devices.pair.complete"),
     ("harnix.devices.revoke", "devices.revoke"),
+    // The hub's: a title is the engine's name for a session.
+    ("harnix.sessions.rename", "harnix.session.rename"),
     // system
     ("harnix.process", "system.process"),
     ("harnix.system.context", "system.context"),

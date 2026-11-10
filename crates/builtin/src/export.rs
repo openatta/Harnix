@@ -57,9 +57,7 @@ impl Builtin {
 
         let info = self.call("sessions", "session.get", target.clone()).await?;
         if format == "archive" {
-            let title = self.title_of(&session_id).await.or_else(|| {
-                info.get("name").and_then(Value::as_str).map(str::to_string)
-            });
+            let title = title_of(&info);
             return self
                 .archive(&target, &file_stem(title.as_deref(), &session_id), with_recording)
                 .await;
@@ -71,11 +69,7 @@ impl Builtin {
             .ok()
             .and_then(|v| v.get("entries").cloned())
             .unwrap_or(json!([]));
-        let title = self.title_of(&session_id).await.or_else(|| {
-            info.get("name")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        });
+        let title = title_of(&info);
         let stem = file_stem(title.as_deref(), &session_id);
 
         let answer = if format == "markdown" {
@@ -175,11 +169,11 @@ impl Builtin {
             "warnings": made.get("warnings").cloned().unwrap_or(json!([])),
         }))
     }
+}
 
-    /// The title a person gave the session here, if any (the engine's name otherwise).
-    async fn title_of(&self, session_id: &str) -> Option<String> {
-        self.store.lock().await.title_of(session_id)
-    }
+/// The session's title: the engine's name for it.
+fn title_of(info: &Value) -> Option<String> {
+    info.get("name").and_then(Value::as_str).filter(|n| !n.is_empty()).map(str::to_string)
 }
 
 /// The session's recording, as its files: `calls.jsonl` and the blobs it names. Missing is null.

@@ -1,4 +1,4 @@
-//! Workspaces, session titles, view preferences, and search.
+//! Workspaces, archived sessions, view preferences, and search.
 //!
 //! Registered through the interface's own registry, like everything else
 //! this product draws (concept §3).
@@ -45,12 +45,7 @@ impl Builtin {
             .map(|(id, meta)| {
                 (
                     id.clone(),
-                    json!({
-                        // A user-typed title outranks the engine's generated
-                        // name; `null` means they never typed one.
-                        "title": meta.title,
-                        "archived": meta.archived,
-                    }),
+                    json!({"archived": meta.archived}),
                 )
             })
             .collect();
@@ -163,32 +158,6 @@ impl Builtin {
         Ok(json!({"workspaces": workspaces}))
     }
 
-    /// A title the user typed, kept as an overlay: `harnix.sessions` prefers it over the
-    /// engine's name and nothing else in the system sees it. The engine's own name is changed
-    /// by `session.rename`, which the system space calls (`harnix.system.rename`).
-    pub(crate) async fn session_rename(&self, params: Value) -> Result<Value, RpcError> {
-        let session_id = require_session_id(&params)?;
-        self.session_must_exist(&session_id).await?;
-        let title = params
-            .get("title")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        let mut store = self.store.lock().await;
-        store.update(|state| {
-            let meta = state.sessions.entry(session_id.clone()).or_default();
-            meta.title = if title.is_empty() {
-                None
-            } else {
-                Some(title.clone())
-            };
-        });
-        Ok(
-            json!({"session_id": session_id, "title": if title.is_empty() { Value::Null } else { json!(title) }}),
-        )
-    }
-
     pub(crate) async fn session_archive(&self, params: Value) -> Result<Value, RpcError> {
         let session_id = require_session_id(&params)?;
         self.session_must_exist(&session_id).await?;
@@ -206,7 +175,7 @@ impl Builtin {
 
     /// Refuse to write an overlay row for a session the engine does not have.
     ///
-    /// These two write into a map keyed by session id with
+    /// This writes into a map keyed by session id with
     /// `entry(id).or_default()`, so any id at all grew a row — and the file
     /// they live in is never cleaned. A mistyped id left a title behind that
     /// joined to nothing, forever, and the caller was told it worked.
@@ -265,22 +234,23 @@ impl Builtin {
             .search(&sessions, &query, &limits)
             .await;
 
-        // Titles live here, not in the transcript.
-        let titles = {
-            let store = self.store.lock().await;
-            outcome
-                .hits
-                .iter()
-                .map(|hit| (hit.session_id.clone(), store.title_of(&hit.session_id)))
-                .collect::<HashMap<_, _>>()
-        };
+        // The session's title is the engine's name for it, in the list read above.
+        let titles: HashMap<String, Value> = listed
+            .get("sessions")
+            .and_then(Value::as_array)
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|row| Some((row.get("session_id")?.as_str()?.to_string(), row.get("name")?.clone())))
+                    .collect()
+            })
+            .unwrap_or_default();
         let hits: Vec<Value> = outcome
             .hits
             .iter()
             .map(|hit| {
                 json!({
                     "session_id": hit.session_id,
-                    "name": titles.get(&hit.session_id).cloned().flatten(),
+                    "name": titles.get(&hit.session_id).cloned().unwrap_or(Value::Null),
                     "role": hit.role,
                     "snippet": hit.snippet,
                     "ts": hit.ts,
