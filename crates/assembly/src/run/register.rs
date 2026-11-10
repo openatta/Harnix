@@ -6,8 +6,6 @@ use harnix_authz::Devices;
 use harnix_contract::s1::caps;
 use harnix_kernel::{Access, GrantTable, KernelPart, Owner};
 use harnix_router::{Row, RouteTable};
-use harnix_builtin::Builtin;
-use harnix_ext::Extension;
 use harnix_module::ErasedModule;
 
 use super::state_files::{load_devices, DEVICES_FILE};
@@ -34,10 +32,8 @@ pub(super) struct Registered {
     pub dynamic: bool,
 }
 
-/// What the built-ins hold that serving needs.
+/// What registering holds that serving needs.
 pub(crate) struct Held {
-    /// The built-ins, when the application has them: the bulk store.
-    pub builtin: Option<Arc<Builtin>>,
     /// The devices paired before, read back: pairing carries trust across once, not once per
     /// start.
     pub paired: Arc<Devices>,
@@ -55,12 +51,6 @@ fn granted_as_required(module: Box<dyn ErasedModule>) -> Entry {
         added: Added::Module { module, namespace: Namespace::Kernel },
         granted,
     }
-}
-
-/// The same for an extension: Harnix's own, which the product takes as they ship.
-fn extension_as_required(extension: impl Extension) -> Entry {
-    let granted = extension.manifest().required().to_vec();
-    Entry { added: Added::Extension(Box::new(extension)), granted }
 }
 
 pub(super) fn register(
@@ -84,45 +74,30 @@ pub(super) fn register(
     };
     let book = Arc::new(pairing::DeviceBook::new(paired.clone(), disconnect));
     let mut entries = Vec::new();
-    let builtin = if builtins {
-        let builtin = Builtin::new(roots.state.clone(), roots.projects.clone())?;
-        for module in builtin.modules_with(
-            profile.shell.keeps(harnix_builtin::SYSTEM_SPACE),
-            profile.shell.model_switch,
-        ) {
-            entries.push(granted_as_required(Box::new(module)));
-        }
-        // Runtime applications' install records and switches: only when this process hosts them.
-        if profile.apps.enabled {
-            let module = apps.apps_module(
-                harnix_builtin::apps::AppsModule::new(roots.state.join("apps")).dev(profile.apps.dev),
-            );
-            entries.push(granted_as_required(Box::new(module)));
-        }
-        entries.push(extension_as_required(harnix_ext_settings::Settings));
-        entries.push(extension_as_required(harnix_ext_plugins::Plugins::default()));
-        entries.push(extension_as_required(harnix_ext_observability::Observability));
-        entries.push(extension_as_required(harnix_ext_devices::Devices));
-        Some(builtin)
-    } else {
-        None
-    };
+    // Runtime applications' install records and switches: only when this process hosts them.
+    if builtins && profile.apps.enabled {
+        let module = apps.apps_module(
+            harnix_builtin::apps::AppsModule::new(roots.state.join("apps")).dev(profile.apps.dev),
+        );
+        entries.push(granted_as_required(Box::new(module)));
+    }
     entries.extend(product);
     let behind = Behind::default();
     let mut table = kernel_rows::table(&behind);
+    if profile.shell.model_switch {
+        let (owner, row) = kernel_rows::hub_row(harnix_hub::Hub::model_switch_row(&behind.hub));
+        table.install(&owner, vec![row]).map_err(|e| anyhow::anyhow!("{e}"))?;
+    }
     apps.rows(&mut table)?;
     let grants = Arc::new(GrantTable::new());
     let records = lifecycle::register(entries, &mut table, &grants, &profile.ext, &profile.extensions.off, &roots.state)?;
-    // What changes the list of spaces after assembly is an extension registered while the process
-    // runs; only when something may do that is there anything to watch.
+    // Whether anything may register extensions while the process runs, and so change the spaces
+    // after assembly.
     let dynamic = profile.apps.enabled
         || records.iter().any(|r| r.is_enabled() && r.status.granted.iter().any(|c| c == caps::EXTENSIONS_MANAGE.as_str()));
-    if dynamic {
-        let spaces = Row::topic(harnix_hub::SPACES_TOPIC, Access::device());
-        table
-            .install(&Owner::Kernel(KernelPart::Hub), vec![spaces])
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
-    }
+    // The spaces are every extension's: a client learns them from this topic, whoever is linked.
+    let spaces = Row::topic(harnix_hub::SPACES_TOPIC, Access::device());
+    table.install(&Owner::Kernel(KernelPart::Hub), vec![spaces]).map_err(|e| anyhow::anyhow!("{e}"))?;
     crate::aliases::install(&mut table)?;
     Ok(Registered {
         records,
@@ -131,7 +106,6 @@ pub(super) fn register(
         dynamic,
         behind,
         held: Held {
-            builtin,
             paired,
             channels,
             devices: book,
@@ -155,37 +129,36 @@ mod tests {
         registered.records.iter().map(|r| r.manifest.id().to_string()).collect()
     }
 
-    /// The built-ins register before the application's modules, the devices extension last of
-    /// them; the `apps` module only where the profile enables runtime applications.
+    /// The `apps` module registers only where the profile enables runtime applications, and before
+    /// the application's own.
     #[test]
-    fn the_built_ins_register_first_and_apps_only_when_enabled() {
+    fn apps_registers_only_when_enabled() {
         let dir = tempfile::tempdir().unwrap();
         let roots = roots(dir.path());
         std::fs::create_dir_all(&roots.state).unwrap();
         let mut profile = Profile::default();
 
         let registered = register(true, Vec::new(), &profile, &roots, &AppsWiring::default()).unwrap();
-        let listed = ids(&registered);
-        assert!(registered.held.builtin.is_some());
-        assert!(!listed.iter().any(|id| id == harnix_builtin::apps::MODULE_ID), "{listed:?}");
-        assert_eq!(listed.last().map(String::as_str), Some("devices"), "{listed:?}");
-        assert!(registered.records.iter().all(|r| r.is_enabled()), "{listed:?}");
+        assert!(ids(&registered).is_empty());
 
         profile.apps.enabled = true;
         let registered = register(true, Vec::new(), &profile, &roots, &AppsWiring::default()).unwrap();
-        assert!(ids(&registered).iter().any(|id| id == harnix_builtin::apps::MODULE_ID));
+        assert_eq!(ids(&registered), [harnix_builtin::apps::MODULE_ID]);
+        let registered = register(false, Vec::new(), &profile, &roots, &AppsWiring::default()).unwrap();
+        assert!(ids(&registered).is_empty());
     }
 
-    /// Without the built-ins there is no bulk store, no devices module, and nothing registered
-    /// but the application's own modules.
+    /// `harnix.session.setModel` is in the table only with `[shell] model_switch`.
     #[test]
-    fn without_the_built_ins_nothing_is_registered_but_the_application() {
+    fn the_model_switch_is_a_row_only_when_written() {
         let dir = tempfile::tempdir().unwrap();
         let roots = roots(dir.path());
         std::fs::create_dir_all(&roots.state).unwrap();
-        let registered =
-            register(false, Vec::new(), &Profile::default(), &roots, &AppsWiring::default()).unwrap();
-        assert!(registered.held.builtin.is_none());
-        assert!(registered.records.is_empty());
+        let mut profile = Profile::default();
+        let registered = register(true, Vec::new(), &profile, &roots, &AppsWiring::default()).unwrap();
+        assert!(registered.table.row("harnix.session.setModel").is_none());
+        profile.shell.model_switch = true;
+        let registered = register(true, Vec::new(), &profile, &roots, &AppsWiring::default()).unwrap();
+        assert!(registered.table.row("harnix.session.setModel").is_some());
     }
 }

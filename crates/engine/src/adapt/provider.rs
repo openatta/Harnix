@@ -10,11 +10,12 @@ use super::tool::AgixTool;
 
 /// Registered for every session an engine builds, delegates included: what the provider gives
 /// that session, then.
-pub(crate) struct AgixPlugin(Arc<dyn ToolProvider>);
+pub(crate) struct AgixPlugin(Arc<dyn ToolProvider>, Arc<str>);
 
 impl AgixPlugin {
-    pub(crate) fn new(provider: Arc<dyn ToolProvider>) -> Self {
-        Self(provider)
+    /// `provider`'s tools for the sessions of `instance`'s engine.
+    pub(crate) fn new(provider: Arc<dyn ToolProvider>, instance: Arc<str>) -> Self {
+        Self(provider, instance)
     }
 }
 
@@ -26,7 +27,7 @@ impl Plugin for AgixPlugin {
     fn register(&self, session: &PluginSession<'_>, r: &mut Registrar) {
         let facts = SessionFacts::new(session.session_id, session.project_root, session.scene, session.depth);
         for tool in self.0.tools(&facts) {
-            r.tool(Arc::new(AgixTool::new(tool)));
+            r.tool(Arc::new(AgixTool::new(tool, self.1.clone())));
         }
         for hook in self.0.hooks(&facts) {
             r.tool_middleware(Arc::new(AgixHook(hook)));

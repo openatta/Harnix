@@ -54,6 +54,8 @@ pub(super) struct Parts {
     pub credentials: Arc<dyn harnix_ext::Credentials>,
     pub servers: Arc<harnix_instance::SharedServers>,
     pub state_root: PathBuf,
+    /// Where projects live (`--data-dir`).
+    pub projects_root: PathBuf,
     /// Whether the legacy runtime-application host is on (`[apps] enabled`).
     pub apps_enabled: bool,
     /// Whether anything may register extensions while the process runs.
@@ -105,6 +107,9 @@ pub(super) fn admit(
     let listen = Arc::new(listen);
     let mut dynamic = None;
     let services = Arc::new(HostServicesRegistry::default());
+    // This process's uploads: a device's (`harnix.bulk.upload`) and each extension's.
+    let uploads = Arc::new(HostUploads::new(parts.state_root.join("uploads").join(std::process::id().to_string())));
+    let _ = behind.uploads.set(uploads.clone());
     let seats = Arc::new(Seats {
         dispatch: router.clone(),
         grants: grants.clone(),
@@ -112,14 +117,13 @@ pub(super) fn admit(
         topics: Arc::new(HubTopics(hub.clone())),
         instances: Arc::new(InstanceViews::new(instances.clone())),
         process: Arc::new(ProcessView(behind.process.clone())),
-        bulk: Arc::new(HostUploads::new(
-            parts.state_root.join("uploads").join(std::process::id().to_string()).join("ext"),
-        )),
+        bulk: uploads.clone(),
         ui: Arc::new(UiEntries(parts.ui.clone())),
         devices: parts.devices,
         credentials: Arc::new(Secrets(parts.credentials)),
         services: services.clone(),
         listen: listening,
+        projects_dir: parts.projects_root.clone(),
     });
     if parts.apps_enabled || parts.dynamic {
         // Every linked extension's id was registered in the table, enabled or not: one registered

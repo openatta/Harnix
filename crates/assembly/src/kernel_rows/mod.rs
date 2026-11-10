@@ -25,9 +25,6 @@ use crate::gate::{Behind, Diagnostics};
 pub(crate) use hello::Hello;
 pub(crate) use ui::{UiModules, UiTopic, UI};
 
-/// `harnix.process`, a method and a topic of the same value.
-pub(crate) const PROCESS: &str = "harnix.process";
-
 /// One of the three methods this layer answers.
 struct Answer(Arc<OnceLock<Arc<Diagnostics>>>, fn(&Diagnostics, Value) -> Value);
 
@@ -38,6 +35,47 @@ impl Handler for Answer {
             RpcError::new(harnix_contract::codes::INTERNAL_ERROR, "the diagnostics are not up yet")
         })?;
         Ok((self.1)(diagnostics, params))
+    }
+}
+
+/// `harnix.bulk.upload {name?, bytes?}`: a one-shot upload grant. What is too large for a frame
+/// — an attachment — goes over HTTP with the token, and the turn names the path it landed at.
+struct BulkUpload(Arc<OnceLock<Arc<crate::host::seat::HostUploads>>>);
+
+#[async_trait::async_trait]
+impl Handler for BulkUpload {
+    async fn call(&self, _: CallContext, params: Value) -> Rpc<Value> {
+        let uploads = self.0.get().ok_or_else(|| {
+            RpcError::new(harnix_contract::codes::INTERNAL_ERROR, "the kernel is not up yet")
+        })?;
+        let max = harnix_contract::MAX_UPLOAD_BYTES;
+        let bytes = params.get("bytes").and_then(Value::as_u64).unwrap_or(0) as usize;
+        if bytes > max {
+            return Err(RpcError::invalid_params(format!("file exceeds {max} bytes")));
+        }
+        let name = params.get("name").and_then(Value::as_str).unwrap_or("upload.bin");
+        let (token, path) = uploads.issue_named(name, max)?;
+        Ok(json!({
+            "token": token,
+            "url": format!("/upload?token={token}"),
+            "path": path.display().to_string(),
+            // Said here as well as at hello: the number this grant is held to.
+            "max_bytes": max,
+        }))
+    }
+}
+
+/// One of the hub's rows, as the route table holds it, with its owner.
+pub(crate) fn hub_row(row: HubRow) -> (Owner, Row) {
+    match row {
+        HubRow::Method { name, owner, access, handler } => (
+            owner,
+            match handler {
+                Some(handler) => Row::method(name, access, handler),
+                None => Row::closed(name, access),
+            },
+        ),
+        HubRow::Topic { name, access } => (Owner::Kernel(KernelPart::Hub), Row::topic(name, access)),
     }
 }
 
@@ -78,16 +116,7 @@ pub fn table(behind: &Behind) -> RouteTable {
     let mut hub_rows: Vec<Row> = Vec::new();
     let mut engine_rows: Vec<Row> = Vec::new();
     for row in Hub::rows(&behind.hub) {
-        let (owner, row) = match row {
-            HubRow::Method { name, owner, access, handler } => (
-                owner,
-                match handler {
-                    Some(handler) => Row::method(name, access, handler),
-                    None => Row::closed(name, access),
-                },
-            ),
-            HubRow::Topic { name, access } => (Owner::Kernel(KernelPart::Hub), Row::topic(name, access)),
-        };
+        let (owner, row) = hub_row(row);
         match owner {
             Owner::Engine => engine_rows.push(row),
             _ => hub_rows.push(row),
@@ -105,16 +134,11 @@ pub fn table(behind: &Behind) -> RouteTable {
     };
     let assembly_rows = vec![
         Row::method("harnix.hello", Access::device(), late(&behind.hello, |h: Arc<Hello>| async move { h.answer().await })),
-        Row::method(
-            PROCESS,
-            Access::device(),
-            late(&behind.process, |p: Arc<crate::process::Process>| async move { Ok(p.view()) }),
-        ),
-        Row::topic(PROCESS, Access::device()),
         // What the page draws for whom, and the modules it loads: a method, and a topic pushed on
         // every change.
         Row::method(UI, Access::device(), late(&behind.hello, |h: Arc<Hello>| async move { Ok(h.ui.view()) })),
         Row::topic(UI, Access::device()),
+        Row::method("harnix.bulk.upload", Access::device(), Arc::new(BulkUpload(behind.uploads.clone()))),
         Row::method("harnix.contributions", Access::device(), answer(|d, _| d.contributions())),
         // Every extension, and why one does nothing: what a person asks first.
         Row::method("harnix.extensions", Access::device(), answer(|d, _| d.list())),
@@ -229,7 +253,7 @@ mod tests {
             .iter()
             .filter_map(|row| row["access"]["requires"][0].as_str())
             .collect();
-        for cap in harnix_builtin::capabilities().iter().chain(harnix_builtin::apps::REQUIRES) {
+        for cap in harnix_builtin::apps::REQUIRES {
             assert!(harnix_contract::s1::caps::kernel(cap).is_some(), "{cap} is not the kernel's");
             if *cap != harnix_contract::s1::caps::INSTANCES_ADMIN {
                 assert!(required.contains(&cap.as_str()), "no row requires {cap}");

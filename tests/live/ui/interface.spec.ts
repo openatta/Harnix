@@ -294,8 +294,8 @@ test("the avatar is the settings: its ring says the connection, its menu opens s
   await expect(avatar).not.toHaveAttribute("data-conn", "ok");
 });
 
-test("with every built-in space removed, the frame is the chrome alone and says so", SHELL, async ({ page }) => {
-  const bare = await startHarnix(launchFor("replay", { profile: "\n[shell]\nspaces = []\n" }));
+test("with every extension that has a space switched off, the frame is the chrome alone and says so", SHELL, async ({ page }) => {
+  const bare = await startHarnix(launchFor("replay", { profile: "\n[extensions]\noff = [\"harnix-app\", \"system\", \"flow\"]\n" }));
   try {
     await open(page, bare.url);
     await expect(page.getByTestId("no-spaces")).toBeVisible();

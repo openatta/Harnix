@@ -4,8 +4,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use harnix_contract::sync::lock;
-use harnix_module::{ModuleContext, RpcError, SessionRef};
+use super::lock;
+use harnix_ext::{ExtensionContext, RpcError, SessionRef};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -72,7 +72,7 @@ pub(crate) struct TaskKey {
 pub(crate) struct Shared {
     pub cfg: Config,
     pub engine: OnceLock<Arc<Engine>>,
-    pub cx: OnceLock<ModuleContext>,
+    pub cx: OnceLock<ExtensionContext>,
     pub events: broadcast::Sender<Event>,
     /// Session id (the engine's, bare) → the task it serves.
     bindings: Mutex<HashMap<String, Binding>>,
@@ -325,7 +325,7 @@ impl Shared {
     pub fn sandbox(&self) -> Result<Arc<Sandbox>, RpcError> {
         self.sandbox.get().cloned().ok_or_else(|| {
             RpcError::new(
-                harnix_contract::codes::INSTANCE_UNAVAILABLE,
+                harnix_ext::codes::INSTANCE_UNAVAILABLE,
                 "the flow module has not started",
             )
         })
@@ -387,7 +387,7 @@ impl Shared {
     pub fn engine(&self) -> Result<Arc<Engine>, RpcError> {
         self.engine.get().cloned().ok_or_else(|| {
             RpcError::new(
-                harnix_contract::codes::INSTANCE_UNAVAILABLE,
+                harnix_ext::codes::INSTANCE_UNAVAILABLE,
                 "the flow module has not started",
             )
         })

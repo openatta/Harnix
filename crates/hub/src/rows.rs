@@ -125,7 +125,23 @@ pub const HUB_TOPICS: &[(&str, &[&str])] = &[
     ("harnix.sessions.status", &[]),
 ];
 
+/// How far each of the hub's topics is narrowed for a package, or a page in a frame: one
+/// session's tasks are that session's; the others list sessions, and are its space's to claim.
+fn topic_scope(name: &str) -> RowScope {
+    match name {
+        "harnix.sessions.tasks" => RowScope::Session,
+        _ => RowScope::Space,
+    }
+}
+
 impl Hub {
+    /// `harnix.session.setModel`: a session's model changed from where it is shown, within its
+    /// own space. Only where the product says (`[shell] model_switch`); without it the model is
+    /// the settings' and the system space's.
+    pub fn model_switch_row(hub: &HubCell) -> HubRow {
+        own_session(hub, "harnix.session.setModel", |h, _, p| async move { h.set_model(p).await })
+    }
+
     /// Every row the hub answers: its own methods and topics, and the engine's that pass through
     /// it. `hub` holds the hub once it is built; until then each answers that it is not up.
     pub fn rows(hub: &HubCell) -> Vec<HubRow> {
@@ -152,8 +168,18 @@ impl Hub {
                 let key = h.key_of(&p)?;
                 h.tasks_view(&key).await
             }),
+            own_session(hub, "harnix.session.rename", |h, _, p| async move { h.rename(p).await }),
             own_session(hub, "harnix.entries.append", |h, cx, p| async move { h.append_entry(&cx.subject, p).await }),
-            own(hub, "harnix.sessions.move", |h, cx, p| async move { h.move_session(&cx.subject, p).await }),
+            // About one session; its `space` is where it goes, not a claim, so it is not checked
+            // as one.
+            HubRow::Method {
+                name: "harnix.sessions.move",
+                owner: Owner::Kernel(KernelPart::Hub),
+                access: Access::device().scoped(RowScope::Session),
+                handler: Some(answer(hub, "harnix.sessions.move", false, |h, cx, p| async move {
+                    h.move_session(&cx.subject, p).await
+                })),
+            },
             own(hub, "harnix.prompts.answerer", |h, cx, p| async move { h.answerer(&cx.subject, &p) }),
             own(hub, "harnix.spaces.list", |h, _, _| async move { Ok(h.spaces_view()) }),
             // Intercepted engine methods, the hub's semantics: still the device's to ask for.
@@ -161,7 +187,11 @@ impl Hub {
             own_session(hub, "session.close", |h, _, p| async move { h.close_or_delete(p, false).await }),
             own_session(hub, "session.delete", |h, _, p| async move { h.close_or_delete(p, true).await }),
         ];
-        rows.extend(HUB_TOPICS.iter().map(|(name, _)| HubRow::Topic { name, access: Access::device() }));
+        rows.extend(
+            HUB_TOPICS
+                .iter()
+                .map(|(name, _)| HubRow::Topic { name, access: Access::device().scoped(topic_scope(name)) }),
+        );
         rows.extend(crate::engine_rows::rows(hub));
         rows
     }

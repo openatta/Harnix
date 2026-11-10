@@ -326,10 +326,8 @@ test.describe("on", () => {
     expect(plain.content.messages).toHaveLength(history.total);
     expect(plain.content.recording, "no recording unless asked").toBeUndefined();
 
-    cpSync(join(RECORDINGS, "says-ready"), join(backend.scratch, "agix", "recordings", s.session_id), { recursive: true });
-    const full = await api.call("harnix.sessions.export", { ...own, format: "bundle", recording: true });
-    expect(full.content.recording.calls).toContain('"type":"call"');
-    expect(Object.keys(full.content.recording.blobs).length).toBeGreaterThan(0);
+    // A recording comes with the engine's archive; the bundle is Harnix's own and has none.
+    expect((await api.refused("harnix.sessions.export", { ...own, format: "bundle", recording: true }))?.code).toBe(REFUSED);
 
     // As the engine packs it (Agix #37): a zip, its manifest and the session's own files in it.
     const archive = await api.call("harnix.sessions.export", { ...own, format: "archive" });
@@ -399,7 +397,7 @@ test.describe("off", () => {
   let api: TestClient;
 
   test.beforeAll(async () => {
-    backend = await startTestApp({ profile: "\n[shell]\nspaces = [\"sessions\", \"projects\"]\n" });
+    backend = await startTestApp({ profile: "\n[extensions]\noff = [\"system\"]\n" });
   });
   test.afterAll(async () => { await backend?.dispose(); });
   test.beforeEach(async () => {
@@ -409,7 +407,9 @@ test.describe("off", () => {
 
   test("the methods leave the authorization table, and the space cannot be claimed", TAGS, async () => {
     const { methods } = await api.call("harnix.reachable");
-    for (const method of SYSTEM_METHODS) expect(methods, method).not.toContain(method);
+    // The inspector's tabs are what the recordings show, which outlive the system space.
+    const inspector = ["harnix.system.calls", "harnix.system.trace", "harnix.system.trace.call", "harnix.system.turns", "harnix.system.usage"];
+    for (const method of SYSTEM_METHODS.filter((m) => !inspector.includes(m))) expect(methods, method).not.toContain(method);
     const created = await api.call("session.create", { space: "sessions" });
     const s = { instance: created.instance, session_id: created.session_id };
     const error = await api.refused("harnix.system.context", s);

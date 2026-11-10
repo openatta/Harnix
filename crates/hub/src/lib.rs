@@ -241,9 +241,9 @@ impl Hub {
                 return;
             }
         };
-        let (to, frame) = guard.topics.publish(key, params, value);
-        let out = guard.clients.to_many(&to, frame);
-        send_after(guard, [out]).await;
+        let told = guard.topics.publish(key, params, value);
+        let out: Vec<_> = told.into_iter().map(|(to, frame)| guard.clients.to_many(&to, frame)).collect();
+        send_after(guard, out).await;
     }
 
     /// What the registry knows of a listed instance: whose it is. Asked holding none of the hub's
@@ -436,15 +436,6 @@ impl Hub {
     pub(crate) fn key_of(&self, params: &Value) -> Result<SessionKey, RpcError> {
         Ok((self.instance_of(params)?, require_session_id(params)?))
     }
-}
-
-/// The space a call says it comes from; the session space when it says none.
-pub(crate) fn claimed_space(params: &Value) -> String {
-    params
-        .get("space")
-        .and_then(Value::as_str)
-        .unwrap_or(harnix_contract::SESSIONS_SPACE)
-        .to_string()
 }
 
 /// The transport registers its clients here.

@@ -25,7 +25,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use harnix_engine_api::{
+use harnix_ext::engine::{
     Permission, PromptText, SceneBase, SceneLayer, Tool, ToolCx, ToolError, ToolOutput, ToolSpec as Spec,
 };
 use serde_json::{json, Value};
@@ -652,8 +652,11 @@ impl Tool for AuthorTool {
         let Ok(engine) = sh.engine() else {
             return error("the flow module has not started");
         };
-        let instance = sh.cfg.instance.clone();
-        let session = cx.session_id().to_string();
+        // The session the call is made in, on the instance its engine carries (the flow space's
+        // when an engine does not say).
+        let me = cx.session();
+        let instance = if me.instance.is_empty() { sh.cfg.instance.clone() } else { me.instance };
+        let session = me.session_id;
         let by = Actor::agent(format!("{instance}/{session}"));
         let packs = engine.packs().clone();
         let focus = sh
@@ -977,7 +980,7 @@ impl Tool for AuthorTool {
                     Some(mcx) => mcx
                         .call(
                             "harnix.prompts.answerer",
-                            json!({"session_id": session, "tool_use_id": cx.tool_use_id()}),
+                            json!({"instance": instance, "session_id": session, "tool_use_id": cx.tool_use_id()}),
                         )
                         .await
                         .ok()

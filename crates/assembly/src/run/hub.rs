@@ -15,7 +15,7 @@ use super::wiring::AppsWiring;
 use crate::cli::Cli;
 use crate::gate::Behind;
 use crate::host::Record;
-use crate::kernel_rows::{Hello, UiModules, UiTopic, PROCESS, UI};
+use crate::kernel_rows::{Hello, UiModules, UiTopic, UI};
 use crate::paths::Roots;
 use crate::process::Process;
 use crate::profile::Profile;
@@ -43,7 +43,7 @@ pub(super) async fn assemble(
     instances: Instances,
     apps: &AppsWiring,
     behind: &Behind,
-    dynamic: bool,
+    moving: &[(&str, &str)],
 ) -> anyhow::Result<Assembled> {
     let Instances {
         registry,
@@ -63,12 +63,16 @@ pub(super) async fn assemble(
         replay_max_frames: harnix_hub::REPLAY_MAX_FRAMES,
         max_in_flight: harnix_contract::MAX_IN_FLIGHT,
     };
-    // Turned off, the system space is nobody's to claim: without it nothing reaches across spaces.
-    let withheld = (!profile.shell.keeps(harnix_builtin::SYSTEM_SPACE))
-        .then(|| harnix_builtin::SYSTEM_SPACE.to_string())
-        .into_iter()
+    // A switched-off extension's spaces are nobody's to claim: without `system` nothing reaches
+    // across spaces.
+    let withheld = records
+        .iter()
+        .filter(|r| !r.is_enabled())
+        .filter_map(|r| r.descriptor.as_ref())
+        .flat_map(|d| d.spaces().iter().map(|s| s.id.clone()))
         .collect();
-    let spaces = harnix_hub::Spaces::load(roots.state.join("spaces.json"), declared_spaces(records), withheld)?;
+    let declared = declared_spaces(records, profile.extensions.default_space.as_deref())?;
+    let spaces = harnix_hub::Spaces::load(roots.state.join("spaces.json"), declared.clone(), withheld)?;
     let registry = InstanceRegistry::new(registry);
     let hub = Hub::new(HubConfig {
         instances: registry.clone(),
@@ -88,7 +92,7 @@ pub(super) async fn assemble(
         instances: registry.clone(),
         limits: serde_json::to_value(limits).unwrap_or(json!({})),
         prompt_timeout_secs: profile.instances.engine.permission_prompt_timeout_secs,
-        shell: shell(profile, roots, brand_icon.is_some()),
+        shell: shell(profile, roots, brand_icon.is_some(), &shown(&declared)),
         ui: ui.clone(),
     }));
     let (name, version) = app;
@@ -100,16 +104,13 @@ pub(super) async fn assemble(
     });
     apps.process(&mut process);
     let process = Arc::new(Process::new(process, hub.clone()));
-    let _ = behind.process.set(process.clone());
-    hub.serve_topic(PROCESS, Vec::new(), process).await;
+    let _ = behind.process.set(process);
     registry.add(harnix_hub::SYSTEM, system, Owner::Kernel).await;
     for (id, built) in fixed {
         registry.add(&id, built, Owner::Kernel).await;
     }
     registry.restore().await;
-    if dynamic {
-        hub.declare_spaces_topic().await;
-    }
+    hub.declare_spaces_topic().await;
     apps.hub(&hub).await;
     for d in records.iter().filter(|r| r.is_enabled()).filter_map(|r| r.descriptor.as_ref()) {
         for topic in d.topics() {
@@ -119,6 +120,9 @@ pub(super) async fn assemble(
                 hub.declare_topic(topic.name(), topic.params().to_vec()).await;
             }
         }
+    }
+    for (old, new) in moving {
+        hub.alias_topic(old, new).await;
     }
     Ok(Assembled {
         hub,
@@ -130,20 +134,33 @@ pub(super) async fn assemble(
 }
 
 /// The spaces the enabled extensions are the backend of. A space id taken twice keeps the first.
-fn declared_spaces(records: &[Record]) -> Vec<harnix_contract::SpaceDecl> {
+/// `default_space` (`[extensions] default_space`) names the default in place of the one an
+/// extension declared.
+fn declared_spaces(
+    records: &[Record],
+    default_space: Option<&str>,
+) -> anyhow::Result<Vec<harnix_contract::SpaceDecl>> {
     let mut declared: Vec<harnix_contract::SpaceDecl> = Vec::new();
     for record in records.iter().filter(|r| r.is_enabled()) {
         let Some(d) = &record.descriptor else { continue };
         for space in d.spaces() {
-            let reserved = [harnix_contract::SESSIONS_SPACE, harnix_contract::PROJECTS_SPACE];
-            if reserved.contains(&space.id.as_str()) || declared.iter().any(|d| d.id == space.id) {
+            if declared.iter().any(|d| d.id == space.id) {
                 tracing::warn!(extension = %record.manifest.id(), space = %space.id, "a space with this id already exists; ignored");
                 continue;
             }
             declared.push(space.clone());
         }
     }
-    declared
+    if let Some(id) = default_space {
+        anyhow::ensure!(
+            declared.iter().any(|d| d.id == id),
+            "[extensions] default_space = {id:?} is not a space any enabled extension here declares"
+        );
+        for decl in &mut declared {
+            decl.default_space = decl.id == id;
+        }
+    }
+    Ok(declared)
 }
 
 /// The brand's icon, relative to the profile it was written in.
@@ -154,12 +171,18 @@ fn brand_icon(profile: &Profile, profile_path: Option<&Path>) -> Option<PathBuf>
     })
 }
 
-/// What the shell is told at hello: the brand, which built-in spaces this product keeps,
-/// whether installed packages' interface modules load (concept §5.8), and whether it starts new
-/// sessions at all (`new_session`, ipdrun-46).
-fn shell(profile: &Profile, roots: &Roots, has_icon: bool) -> Value {
+/// The spaces the shell draws of its own: what the enabled extensions are the backend of.
+fn shown(declared: &[harnix_contract::SpaceDecl]) -> Vec<String> {
+    let ids: Vec<String> = declared.iter().map(|d| d.id.clone()).collect();
+    crate::aliases::shell_spaces(&ids)
+}
+
+/// What the shell is told at hello: the brand, which of its own spaces there are, whether
+/// installed packages' interface modules load (concept §5.8), and whether it starts new sessions
+/// at all (`new_session`, ipdrun-46).
+fn shell(profile: &Profile, roots: &Roots, has_icon: bool, spaces: &[String]) -> Value {
     json!({
-        "spaces": profile.shell.spaces,
+        "spaces": spaces,
         "brand": {
             "name": profile.brand.name,
             "icon": has_icon.then_some(harnix_transport::BRAND_ICON_PATH),
@@ -202,9 +225,9 @@ mod tests {
             state: "/s".into(),
         };
         let profile = Profile::default();
-        assert_eq!(shell(&profile, &roots, false)["brand"]["icon"], Value::Null);
-        assert_eq!(shell(&profile, &roots, true)["brand"]["icon"], harnix_transport::BRAND_ICON_PATH);
-        assert_eq!(shell(&profile, &roots, false)["brand"]["product_id"], "harnix");
-        assert_eq!(shell(&profile, &roots, false)["state_dir"], "/s");
+        assert_eq!(shell(&profile, &roots, false, &[])["brand"]["icon"], Value::Null);
+        assert_eq!(shell(&profile, &roots, true, &[])["brand"]["icon"], harnix_transport::BRAND_ICON_PATH);
+        assert_eq!(shell(&profile, &roots, false, &[])["brand"]["product_id"], "harnix");
+        assert_eq!(shell(&profile, &roots, false, &[])["state_dir"], "/s");
     }
 }

@@ -115,6 +115,14 @@ pub mod testing {
             self.0.push(Entry { added: Added::Extension(Box::new(e)), granted: granted.into_iter().collect() });
             self
         }
+
+        /// Every extension of `set`, each granted what the set says.
+        pub fn extensions(mut self, set: harnix_ext::ExtensionSet) -> Self {
+            for (e, granted) in set.into_parts() {
+                self.0.push(Entry { added: Added::Extension(e), granted });
+            }
+            self
+        }
     }
 
     /// Register Harnix's built-ins (when `builtins`) and `modules` under a default profile, with
@@ -244,8 +252,9 @@ impl AppBuilder {
         self
     }
 
-    /// Harnix's own modules: the session space's backend, settings, packages,
-    /// recordings, devices. Registered before the application's.
+    /// What is left of Harnix's built-in modules: `apps`, runtime applications' install records,
+    /// where the profile enables them (`[apps] enabled`). Registered before the application's.
+    /// Harnix's own extensions are `harnix::first_party::standard()`.
     pub fn with_builtins(mut self) -> Self {
         self.builtins = true;
         self

@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use harnix_contract::ChainLink;
+use harnix_contract::{ChainLink, SessionRef};
 use serde_json::Value;
 
 /// A tool a session can call.
@@ -198,6 +198,7 @@ impl std::error::Error for ToolError {}
 #[non_exhaustive]
 #[derive(Clone)]
 pub struct ToolCx {
+    instance: String,
     session: String,
     project: PathBuf,
     depth: u32,
@@ -211,6 +212,7 @@ impl ToolCx {
     /// A call made by session `session` (its id), as the model's tool use `tool_use_id`.
     pub fn new(session: &str, tool_use_id: &str) -> Self {
         Self {
+            instance: String::new(),
             session: session.to_string(),
             project: PathBuf::new(),
             depth: 0,
@@ -219,6 +221,12 @@ impl ToolCx {
             progress: Progress::none(),
             chain: Vec::new(),
         }
+    }
+
+    /// The instance whose engine the session is on.
+    pub fn with_instance(mut self, instance: &str) -> Self {
+        self.instance = instance.to_string();
+        self
     }
 
     pub fn with_project(mut self, project: impl Into<PathBuf>) -> Self {
@@ -249,6 +257,11 @@ impl ToolCx {
     /// The calling session's id.
     pub fn session_id(&self) -> &str {
         &self.session
+    }
+
+    /// The calling session: its instance and its id — what a call about it names.
+    pub fn session(&self) -> SessionRef {
+        SessionRef::new(self.instance.as_str(), self.session.as_str())
     }
 
     /// The directory the session works in.

@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::Stream;
-use harnix_module::{OnBusy, SessionRef, SessionSpec, Tap, TapEvent};
+use harnix_ext::{OnBusy, SessionRef, SessionSpec, Tap, TapEvent};
 use serde_json::{json, Value};
 
 use super::dispatch::{dispatcher, fail, renew, renew_every, settle};
@@ -338,24 +338,23 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
                     return;
                 }
             };
-            let spec = SessionSpec {
-                space: Some(space),
-                instance,
-                scene: Some(job.scene.clone()),
-                model: job.placement.model.clone(),
-                provider: job.placement.provider.clone(),
-                output_schema: match job.delivery {
-                    Delivery::StructuredOutput => job.output_schema.clone(),
-                    Delivery::FlowSubmit => None,
-                },
-                permission_mode: Some(TASK_PERMISSION_MODE.into()),
-                permission_rules: Some(flow_rules(sh, &rec)),
-                recording: job.recording.clone(),
-                ..SessionSpec::default()
+            let spec = SessionSpec::new()
+                .space(&space)
+                .scene(&job.scene)
+                .permission_mode(TASK_PERMISSION_MODE)
+                .permission_rules(flow_rules(sh, &rec));
+            let output_schema = match job.delivery {
+                Delivery::StructuredOutput => job.output_schema.clone(),
+                Delivery::FlowSubmit => None,
             };
+            let spec = super::spec_with(spec, instance, |s, v| s.instance(&v));
+            let spec = super::spec_with(spec, job.placement.model.clone(), |s, v| s.model(&v));
+            let spec = super::spec_with(spec, job.placement.provider.clone(), |s, v| s.provider(&v));
+            let spec = super::spec_with(spec, output_schema, |s, v| s.output_schema(v));
+            let spec = super::spec_with(spec, job.recording.clone(), |s, v| s.recording(&v));
             match sessions.create(spec).await {
                 Ok(s) => {
-                    let entry = harnix_module::Entry::new(SESSION_SETTINGS, wanted.clone());
+                    let entry = harnix_ext::Entry::new(SESSION_SETTINGS, wanted.clone());
                     if let Err(e) = sessions.append_entry(&s, entry).await {
                         tracing::warn!(error = %e, "a session's settings not recorded");
                     }
@@ -482,6 +481,7 @@ fn frames_of(tap: &mut Tap) -> impl Stream<Item = Frame> + Send + '_ {
                 TapEvent::Lagged { .. } => {
                     let _ = tap.catch_up().await;
                 }
+                _ => {}
             }
         }
     })

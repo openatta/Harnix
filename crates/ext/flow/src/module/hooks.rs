@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use harnix_contract::sync::lock;
+use super::lock;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
@@ -322,7 +322,7 @@ fn now_ms() -> u64 {
         .map_or(0, |d| d.as_millis() as u64)
 }
 
-/// The hooks of the pack with each one's last delivery, for `app.flow.hooks`.
+/// The hooks of the pack with each one's last delivery, for `flow.hooks`.
 pub(crate) fn listing(sh: &Shared, hooks: &[HookDef]) -> Vec<Value> {
     let status = lock(&sh.hook_status);
     hooks

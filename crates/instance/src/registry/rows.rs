@@ -136,16 +136,17 @@ impl InstanceRegistry {
         }
     }
 
-    /// The space a call claims, which must be one this application has.
+    /// The space a call claims, or the default space when it claims none: one this application
+    /// has. Empty when it claims none and there is no default: then it is no space's.
     fn claimed(&self, params: &Value) -> Result<String, RpcError> {
-        let space = claimed_space(params);
-        if !self.observer().has_space(&space) {
-            return Err(RpcError::new(
-                codes::SPACE_MISMATCH,
-                format!("there is no space `{space}` in this application"),
-            ));
+        let claimed = params.get("space").and_then(Value::as_str);
+        match (self.observer().space(claimed), claimed) {
+            (Some(space), _) => Ok(space),
+            (None, None) => Ok(String::new()),
+            (None, Some(space)) => {
+                Err(RpcError::new(codes::SPACE_MISMATCH, format!("there is no space `{space}` in this application")))
+            }
         }
-        Ok(space)
     }
 
     /// Which instance a call means: the one it names, or `system`. One that is not listed is
@@ -286,9 +287,7 @@ impl InstanceRegistry {
     /// `harnix.instances.templates`: the templates this caller may build
     /// from, with the parameters each opens.
     fn templates_view(&self, subject: &Subject, params: &Value) -> Value {
-        let space = self
-            .claimed(params)
-            .unwrap_or_else(|_| harnix_contract::SESSIONS_SPACE.to_string());
+        let space = self.claimed(params).unwrap_or_default();
         let admin = self.is_admin(subject);
         let state = self.state();
         let list: Vec<Value> = state
@@ -329,6 +328,10 @@ fn builder_of(
             ))),
             _ => Ok(Owner::Module(id.to_string())),
         },
+        Subject::Device { .. } if template.ui && space.is_empty() => Err(RpcError::new(
+            codes::SPACE_MISMATCH,
+            "an instance the interface builds is its space's: claim one, there is no default here",
+        )),
         Subject::Device { .. } if template.ui => Ok(Owner::Space(space.to_string())),
         Subject::Device { .. } => Err(refused(format!(
             "template `{}` is not one the interface may build from",
@@ -336,15 +339,6 @@ fn builder_of(
         ))),
         _ => Err(refused(format!("template `{}` is not one this caller may build from", template.id))),
     }
-}
-
-/// The space a call says it comes from; the session space when it says none.
-fn claimed_space(params: &Value) -> String {
-    params
-        .get("space")
-        .and_then(Value::as_str)
-        .unwrap_or(harnix_contract::SESSIONS_SPACE)
-        .to_string()
 }
 
 /// `wait` and `timeout_ms` on `harnix.instances.create` / `.ensure` / `.wait`.

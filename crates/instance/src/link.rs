@@ -117,6 +117,12 @@ impl EngineOps for DownLink {
     async fn respond(&self, _: Value) -> Answer<Value> {
         Err(self.unavailable())
     }
+    async fn rename(&self, _: &str, _: &str) -> Answer<Value> {
+        Err(self.unavailable())
+    }
+    async fn set_model(&self, _: &str, _: &str, _: Option<&str>) -> Answer<Value> {
+        Err(self.unavailable())
+    }
     async fn passthrough(&self, _: &str, _: Value) -> Answer<Value> {
         Err(self.unavailable())
     }

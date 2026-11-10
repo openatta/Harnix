@@ -47,7 +47,7 @@ pub async fn serve_daemon_with(
         }
         None => None,
     };
-    let config = engine_config(&args.engine, &args.data_root, contrib);
+    let config = engine_config(args.instance.as_deref().unwrap_or_default(), &args.engine, &args.data_root, contrib);
     harnix_engine::serve_daemon(config, &args.socket, args.exit_with_stdin).await
 }
 

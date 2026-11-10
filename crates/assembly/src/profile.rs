@@ -104,14 +104,6 @@ impl Profile {
     }
 
     fn check(&self) -> anyhow::Result<()> {
-        for space in &self.shell.spaces {
-            if !BUILTIN_SPACES.contains(&space.as_str()) {
-                anyhow::bail!(
-                    "[shell] spaces: `{space}` is not a built-in space (they are {})",
-                    BUILTIN_SPACES.join(", ")
-                );
-            }
-        }
         if let Some(id) = &self.brand.product_id {
             let mut chars = id.chars();
             let valid = chars.next().is_some_and(|c| c.is_ascii_lowercase())
@@ -136,6 +128,9 @@ pub(crate) struct ExtensionsProfile {
     /// Linked, and switched off: registered, so nobody else takes its names, but nothing of it
     /// is installed, migrated or started.
     pub off: Vec<String>,
+    /// The space a call that claims none is checked as, in place of the one an extension
+    /// declared the default: one an enabled extension declares.
+    pub default_space: Option<String>,
 }
 
 /// `[apps]`: runtime applications — methods, topics and spaces under `app.<id>.*` that enter the
@@ -185,21 +180,11 @@ pub(crate) struct TransportProfile {
     pub extra_origins: Vec<String>,
 }
 
-/// The built-in spaces, all optional: a product keeps the ones it wants as they are. `flow` is the
-/// flow module's interface (xops-02 §7), drawn only when the backend has that module: inside the
-/// system space when that is kept, else as a space of its own.
-pub(crate) const BUILTIN_SPACES: &[&str] = &["sessions", "projects", "system", "flow"];
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct ShellProfile {
-    /// Which built-in spaces to keep, of `sessions`, `projects`, `system`, `flow`. All of them when
-    /// absent (`flow` is drawn only where the flow module is registered, inside `system` if kept).
-    /// Without `system`, its methods go too: no client can claim the system space, and none can act
-    /// across spaces.
-    pub spaces: Vec<String>,
     /// Whether the composer may change a session's model without the system space:
-    /// `harnix.sessions.setModel`, scoped to the space the caller claims (ipdrun-12). Off unless
+    /// `harnix.session.setModel`, scoped to the space the caller claims (ipdrun-12). Off unless
     /// written, so a product that left model choice to the settings page keeps it there.
     pub model_switch: bool,
     /// Whether the shell draws its "New session" button and takes ⌘K to start one (ipdrun-46).
@@ -233,17 +218,10 @@ impl NarrowDetails {
 impl Default for ShellProfile {
     fn default() -> Self {
         Self {
-            spaces: BUILTIN_SPACES.iter().map(|s| s.to_string()).collect(),
             model_switch: false,
             new_session: true,
             narrow_details: NarrowDetails::Over,
         }
-    }
-}
-
-impl ShellProfile {
-    pub fn keeps(&self, space: &str) -> bool {
-        self.spaces.iter().any(|s| s == space)
     }
 }
 
@@ -326,18 +304,15 @@ mod tests {
     }
 
     #[test]
-    fn the_shell_keeps_every_built_in_space_unless_told() {
+    fn the_shell_draws_and_switches_as_written() {
         let profile = Profile::parse("").unwrap();
-        assert!(["sessions", "projects", "system", "flow"].iter().all(|s| profile.shell.keeps(s)));
         assert!(profile.ui.runtime_modules);
         assert!(!profile.shell.model_switch);
-        let profile = Profile::parse("[shell]\nspaces = [\"sessions\"]\n").unwrap();
-        assert!(!profile.shell.keeps("system") && !profile.shell.keeps("flow"));
-        let profile = Profile::parse("[shell]\nspaces = []\nmodel_switch = true\n").unwrap();
-        assert!(profile.shell.model_switch && !profile.shell.keeps("system"));
         assert!(profile.shell.new_session);
-        let err = Profile::parse("[shell]\nspaces = [\"home\"]\n").unwrap_err();
-        assert!(err.to_string().contains("home"), "{err}");
+        let profile = Profile::parse("[shell]\nmodel_switch = true\n").unwrap();
+        assert!(profile.shell.model_switch);
+        // Which spaces there are is which extensions are: `[extensions] off`, not the shell's.
+        assert!(Profile::parse("[shell]\nspaces = [\"sessions\"]\n").is_err());
     }
 
     #[test]
@@ -371,8 +346,9 @@ mod tests {
 
     #[test]
     fn extensions_can_be_switched_off() {
-        let profile = Profile::parse("[extensions]\noff = [\"flow\"]\n").unwrap();
+        let profile = Profile::parse("[extensions]\noff = [\"flow\"]\ndefault_space = \"home\"\n").unwrap();
         assert_eq!(profile.extensions.off, ["flow"]);
+        assert_eq!(profile.extensions.default_space.as_deref(), Some("home"));
         assert!(Profile::parse("[extensions]\nof = []\n").is_err());
     }
 }

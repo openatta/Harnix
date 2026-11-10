@@ -1,18 +1,15 @@
-//! Workspaces, session titles, view preferences, and search.
-//!
-//! Registered through the interface's own registry, like everything else
-//! this product draws (concept §3).
+//! Workspaces, archived sessions, view preferences, and search.
 
 use std::collections::HashMap;
 
-use harnix_contract::{codes, RpcError};
-use harnix_engine_api::readers::Transcripts;
+use harnix_ext::engine::readers::SearchLimits;
+use harnix_ext::{codes, Call, RpcError, SYSTEM_INSTANCE};
 use serde_json::{json, Value};
 
 use crate::store::{new_workspace_id, Workspace};
-use crate::{default_title, require_session_id, require_str, Builtin};
+use crate::{default_title, require_session_id, require_str, App};
 
-impl Builtin {
+impl App {
     /// Workspaces are Harnix's own idea. The engine knows a session's
     /// `project_root` and nothing else, so grouping, ordering, collapse and
     /// archival live in `store` and are joined onto the session list here.
@@ -45,12 +42,7 @@ impl Builtin {
             .map(|(id, meta)| {
                 (
                     id.clone(),
-                    json!({
-                        // A user-typed title outranks the engine's generated
-                        // name; `null` means they never typed one.
-                        "title": meta.title,
-                        "archived": meta.archived,
-                    }),
+                    json!({"archived": meta.archived}),
                 )
             })
             .collect();
@@ -163,35 +155,9 @@ impl Builtin {
         Ok(json!({"workspaces": workspaces}))
     }
 
-    /// A title the user typed, kept as an overlay: `harnix.sessions` prefers it over the
-    /// engine's name and nothing else in the system sees it. The engine's own name is changed
-    /// by `session.rename`, which the system space calls (`harnix.system.rename`).
-    pub(crate) async fn session_rename(&self, params: Value) -> Result<Value, RpcError> {
+    pub(crate) async fn session_archive(&self, call: &Call, params: Value) -> Result<Value, RpcError> {
         let session_id = require_session_id(&params)?;
-        self.session_must_exist(&session_id).await?;
-        let title = params
-            .get("title")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        let mut store = self.store.lock().await;
-        store.update(|state| {
-            let meta = state.sessions.entry(session_id.clone()).or_default();
-            meta.title = if title.is_empty() {
-                None
-            } else {
-                Some(title.clone())
-            };
-        });
-        Ok(
-            json!({"session_id": session_id, "title": if title.is_empty() { Value::Null } else { json!(title) }}),
-        )
-    }
-
-    pub(crate) async fn session_archive(&self, params: Value) -> Result<Value, RpcError> {
-        let session_id = require_session_id(&params)?;
-        self.session_must_exist(&session_id).await?;
+        session_must_exist(call, &session_id).await?;
         let archived = params
             .get("archived")
             .and_then(Value::as_bool)
@@ -202,18 +168,6 @@ impl Builtin {
             meta.archived = archived;
         });
         Ok(json!({"session_id": session_id, "archived": archived}))
-    }
-
-    /// Refuse to write an overlay row for a session the engine does not have.
-    ///
-    /// These two write into a map keyed by session id with
-    /// `entry(id).or_default()`, so any id at all grew a row — and the file
-    /// they live in is never cleaned. A mistyped id left a title behind that
-    /// joined to nothing, forever, and the caller was told it worked.
-    async fn session_must_exist(&self, session_id: &str) -> Result<(), RpcError> {
-        self.call("sessions", "session.get", json!({"session_id": session_id}))
-            .await
-            .map(|_| ())
     }
 
     pub(crate) async fn prefs_set(&self, params: Value) -> Result<Value, RpcError> {
@@ -234,18 +188,16 @@ impl Builtin {
     /// Content search across sessions.
     ///
     /// Ordering comes from `session.list` (most recent first); the scan itself
-    /// reads the transcript store directly — see `harnix_engine::readers` for why
-    /// this does not page `session.history`.
-    pub(crate) async fn search(&self, params: Value) -> Result<Value, RpcError> {
+    /// is the engine's transcript reader, which does not page `session.history`.
+    pub(crate) async fn search(&self, call: &Call, params: Value) -> Result<Value, RpcError> {
         let query = require_str(&params, "query")?;
-        let Some(store) = self.system()?.history else {
-            return Err(RpcError::new(
-                codes::INTERNAL_ERROR,
-                "this engine has no transcript store",
-            ));
-        };
+        let transcripts = call
+            .ext()
+            .engine(SYSTEM_INSTANCE)
+            .ok_or_else(|| RpcError::new(codes::INSTANCE_NOT_FOUND, "there is no main instance to search"))?
+            .transcripts()?;
 
-        let listed = self.call("sessions", "session.list", json!({})).await?;
+        let listed = call.call("session.list", json!({})).await?;
         let sessions: Vec<String> = listed
             .get("sessions")
             .and_then(Value::as_array)
@@ -257,30 +209,29 @@ impl Builtin {
             })
             .unwrap_or_default();
 
-        let mut limits = crate::search::Limits::default();
+        let mut limits = SearchLimits::default();
         if let Some(limit) = params.get("limit").and_then(Value::as_u64) {
-            limits.max_hits = (limit as usize).clamp(1, limits.max_hits);
+            limits = limits.hits(limit as usize);
         }
-        let outcome = harnix_engine::readers::TranscriptStore::new(store)
-            .search(&sessions, &query, &limits)
-            .await;
+        let outcome = transcripts.search(&sessions, &query, &limits).await;
 
-        // Titles live here, not in the transcript.
-        let titles = {
-            let store = self.store.lock().await;
-            outcome
-                .hits
-                .iter()
-                .map(|hit| (hit.session_id.clone(), store.title_of(&hit.session_id)))
-                .collect::<HashMap<_, _>>()
-        };
+        // The session's title is the engine's name for it, in the list read above.
+        let titles: HashMap<String, Value> = listed
+            .get("sessions")
+            .and_then(Value::as_array)
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|row| Some((row.get("session_id")?.as_str()?.to_string(), row.get("name")?.clone())))
+                    .collect()
+            })
+            .unwrap_or_default();
         let hits: Vec<Value> = outcome
             .hits
             .iter()
             .map(|hit| {
                 json!({
                     "session_id": hit.session_id,
-                    "name": titles.get(&hit.session_id).cloned().flatten(),
+                    "name": titles.get(&hit.session_id).cloned().unwrap_or(Value::Null),
                     "role": hit.role,
                     "snippet": hit.snippet,
                     "ts": hit.ts,
@@ -294,4 +245,13 @@ impl Builtin {
             "truncated": outcome.truncated,
         }))
     }
+}
+
+/// Refuse to write an overlay row for a session the engine does not have.
+///
+/// This writes into a map keyed by session id with `entry(id).or_default()`, so any id at all
+/// grew a row — and the file it lives in is never cleaned. A mistyped id left a row behind that
+/// joined to nothing, forever, and the caller was told it worked.
+async fn session_must_exist(call: &Call, session_id: &str) -> Result<(), RpcError> {
+    call.call("session.get", json!({"session_id": session_id})).await.map(|_| ())
 }

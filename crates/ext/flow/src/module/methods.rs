@@ -1,4 +1,4 @@
-//! `app.flow.*`: what a device may do. Every method is declared for `Device` only; the actor
+//! `flow.*`: what a device may do. Every method is open to devices only; the actor
 //! recorded is `{kind: "device", id: <the device>}`, and the application's authorizer has the
 //! last word on each change.
 //!
@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::future::Future;
 use std::sync::Arc;
 
-use harnix_module::{CallContext, MethodRegistry, Principal, RpcError};
+use harnix_ext::{Access, Call, Registrar, RpcError};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -27,7 +27,7 @@ use crate::kernel::run::{run_schema, Actor, RunQuery};
 use crate::kernel::validate::validate;
 use crate::kernel::FlowError;
 
-fn device(cx: &CallContext) -> Actor {
+fn device(cx: &Call) -> Actor {
     Actor::device(cx.device().unwrap_or("unknown"))
 }
 
@@ -195,8 +195,8 @@ const CLAIM_MS: u64 = 5 * 60 * 1000;
 type Answer = Result<Value, RpcError>;
 
 /// Declare `name` for devices with a handler given the shared state and the packs.
-fn method<P, F, Fut>(
-    m: &mut MethodRegistry,
+fn method<C, P, F, Fut>(
+    m: &mut Registrar<'_, C>,
     sh: &Arc<Shared>,
     packs: &Arc<dyn Packs>,
     name: &str,
@@ -204,14 +204,15 @@ fn method<P, F, Fut>(
     f: F,
 ) where
     P: DeserializeOwned + Send + 'static,
-    F: Fn(Arc<Shared>, Arc<dyn Packs>, CallContext, P) -> Fut + Send + Sync + Copy + 'static,
+    F: Fn(Arc<Shared>, Arc<dyn Packs>, Call, P) -> Fut + Send + Sync + Copy + 'static,
     Fut: Future<Output = Answer> + Send + 'static,
 {
     let sh = sh.clone();
     let packs = packs.clone();
-    m.method(name, Principal::Device)
+    m.method(name)
+        .access(Access::kernel().with_device())
         .describe(describe)
-        .handler(move |cx: CallContext, p: P| f(sh.clone(), packs.clone(), cx, p));
+        .handler(move |cx: Call, p: P| f(sh.clone(), packs.clone(), cx, p));
 }
 
 /// Run a change, carry out what it produced (a dry run's: queue it in the sandbox), answer its
@@ -276,11 +277,11 @@ pub(crate) async fn flow_session(
     sh: &Arc<Shared>,
     packs: &Arc<dyn Packs>,
     flow: &str,
-) -> Result<harnix_module::SessionRef, RpcError> {
+) -> Result<harnix_ext::SessionRef, RpcError> {
     let cx = sh
         .cx
         .get()
-        .ok_or_else(|| RpcError::new(harnix_contract::codes::INSTANCE_UNAVAILABLE, "the flow module has not started"))?;
+        .ok_or_else(|| RpcError::new(harnix_ext::codes::INSTANCE_UNAVAILABLE, "the flow module has not started"))?;
     let _one = sh.making_session.lock().await;
     if let Some(name) = sh.flow_session(flow) {
         let s = super::session_ref(&name);
@@ -290,17 +291,18 @@ pub(crate) async fn flow_session(
     }
     let s = cx
         .sessions()
-        .create(harnix_module::SessionSpec {
-            space: Some(sh.cfg.space.clone()),
-            instance: Some(super::FLOW_INSTANCE.to_string()),
-            scene: Some(super::AUTHOR_SCENE.to_string()),
-            // Every tool that changes something is asked of the person, every time: an `ask` rule
-            // outranks an `allow` one ("always allow" included), so an approval stays a person's
-            // decision.
-            permission_rules: Some(super::author::ask_rules()),
-            recording: sh.cfg.conversation_recording.as_ref().and_then(|f| f(flow)),
-            ..Default::default()
-        })
+        .create(super::spec_with(
+            harnix_ext::SessionSpec::new()
+                .space(&sh.cfg.space)
+                .instance(super::FLOW_INSTANCE)
+                .scene(super::AUTHOR_SCENE)
+                // Every tool that changes something is asked of the person, every time: an `ask`
+                // rule outranks an `allow` one ("always allow" included), so an approval stays a
+                // person's decision.
+                .permission_rules(super::author::ask_rules()),
+            sh.cfg.conversation_recording.as_ref().and_then(|f| f(flow)),
+            |s, v| s.recording(&v),
+        ))
         .await?;
     sh.set_flow_session(flow, Some(super::session_name(&s)));
     let name = if flow.is_empty() {
@@ -320,7 +322,7 @@ pub(crate) async fn flow_session(
 }
 
 /// [`run_sessions`]' answer for one run.
-async fn run_sessions(cx: &CallContext, rec: &crate::RunRecord) -> Answer {
+async fn run_sessions(cx: &Call, rec: &crate::RunRecord) -> Answer {
     let own: Vec<Value> = rec
         .def
         .stations
@@ -340,7 +342,7 @@ async fn run_sessions(cx: &CallContext, rec: &crate::RunRecord) -> Answer {
     let Some(main) = rec.main_session().map(super::session_ref) else {
         return Ok(json!({"main": null, "own": own, "tasks": [], "sidechains": []}));
     };
-    let module = cx.module();
+    let module = cx.ext();
     let target = json!({"instance": main.instance, "session_id": main.session_id});
     let listed = module.call("session.tasks", target.clone()).await;
 
@@ -400,10 +402,10 @@ pub const FLOW_TITLE: &str = "Flow · ";
 
 fn to_value(v: impl serde::Serialize) -> Answer {
     serde_json::to_value(v)
-        .map_err(|e| RpcError::new(harnix_contract::codes::INTERNAL_ERROR, e.to_string()))
+        .map_err(|e| RpcError::new(harnix_ext::codes::INTERNAL_ERROR, e.to_string()))
 }
 
-pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn Packs>) {
+pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Arc<dyn Packs>) {
     // ── reads ────────────────────────────────────────────────────────────────
     method(
         m,
@@ -587,7 +589,6 @@ pub(crate) fn register(m: &mut MethodRegistry, sh: &Arc<Shared>, packs: &Arc<dyn
         |sh, packs, cx, p: FocusIn| async move {
             // Only a conversation that can use it: an existing session in the flow-author scene.
             let session = cx
-                .module()
                 .call(
                     "session.get",
                     json!({"instance": p.instance, "session_id": p.session_id}),
@@ -977,12 +978,12 @@ enum Accept {
 }
 
 /// The record of a proposal's acceptance, if there is one.
-async fn handled(cx: &CallContext, p: &ProposalRef) -> Result<Option<Value>, RpcError> {
-    let session = harnix_module::SessionRef {
+async fn handled(cx: &Call, p: &ProposalRef) -> Result<Option<Value>, RpcError> {
+    let session = harnix_ext::SessionRef {
         instance: p.instance.clone(),
         session_id: p.session_id.clone(),
     };
-    let entries = cx.module().sessions().entries(&session).await?;
+    let entries = cx.ext().sessions().entries(&session).await?;
     Ok(entries.into_iter().find_map(|e| {
         (e.get("event").and_then(Value::as_str) == Some(PROPOSAL_HANDLED)
             && e.pointer("/payload/entry").and_then(Value::as_str) == Some(p.entry.as_str()))
@@ -992,7 +993,7 @@ async fn handled(cx: &CallContext, p: &ProposalRef) -> Result<Option<Value>, Rpc
 
 async fn accept_once(
     sh: &Arc<Shared>,
-    cx: &CallContext,
+    cx: &Call,
     p: Option<&ProposalRef>,
 ) -> Result<Accept, RpcError> {
     let Some(p) = p else {
@@ -1006,19 +1007,19 @@ async fn accept_once(
 }
 
 /// Record the acceptance in the proposal's session (the card reads it from there).
-async fn accepted(cx: &CallContext, a: Accept, action: &str) {
+async fn accepted(cx: &Call, a: Accept, action: &str) {
     let Accept::First(p, by, _guard) = a else {
         return;
     };
-    let session = harnix_module::SessionRef {
+    let session = harnix_ext::SessionRef {
         instance: p.instance.clone(),
         session_id: p.session_id.clone(),
     };
-    let entry = harnix_module::Entry::new(
+    let entry = harnix_ext::Entry::new(
         PROPOSAL_HANDLED,
         json!({"entry": p.entry, "action": action, "by": by}),
     );
-    if let Err(e) = cx.module().sessions().append_entry(&session, entry).await {
+    if let Err(e) = cx.ext().sessions().append_entry(&session, entry).await {
         tracing::warn!(entry = p.entry, error = %e, "a proposal's acceptance not recorded");
     }
 }

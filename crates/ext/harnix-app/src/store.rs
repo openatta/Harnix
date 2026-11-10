@@ -1,18 +1,17 @@
-//! Harnix's own state, in Harnix's own directory.
+//! The Harnix app's own state, in its own directory (`ext/harnix-app/data/state.json`).
 //!
 //! Everything this file holds is something Agix does not have a concept of
-//! — workspaces, session titles, archived rows, view preferences. It lives
-//! under the state root the caller resolved (`crates/assembly/src/paths.rs`),
-//! never mixed into the engine's root: that tree belongs to Agix and to
-//! whoever hand-edits it, and a front end's bookkeeping has no business
-//! there. Deleting our root loses grouping and titles and nothing else.
+//! — workspaces, archived rows, view preferences. It is never mixed into the
+//! engine's root: that tree belongs to Agix and to whoever hand-edits it, and
+//! a front end's bookkeeping has no business there. Deleting it loses grouping
+//! and nothing else.
 //!
 //! One small JSON file, rewritten atomically on every change (temp + rename),
 //! so a crash mid-write leaves the previous state rather than half of the new
 //! one.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -38,12 +37,10 @@ pub struct Workspace {
     pub session_order: Vec<String>,
 }
 
+/// What this product notes about a session. Its title is not here: that is the engine's name for
+/// it (`harnix.session.rename`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SessionMeta {
-    /// Title the user typed, an overlay over the engine's name in this product's session
-    /// list. The engine's own name is `session.rename`'s (the system space's rename).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
     #[serde(default)]
     pub archived: bool,
 }
@@ -74,7 +71,6 @@ impl Default for HarnixState {
 
 /// The state file plus its directory.
 pub struct Store {
-    root: PathBuf,
     file: PathBuf,
     state: HarnixState,
 }
@@ -101,11 +97,7 @@ impl Store {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => HarnixState::default(),
             Err(e) => anyhow::bail!("could not read {}: {e}", file.display()),
         };
-        Ok(Self { root, file, state })
-    }
-
-    pub fn root(&self) -> &Path {
-        &self.root
+        Ok(Self { file, state })
     }
 
     pub fn state(&self) -> &HarnixState {
@@ -130,13 +122,6 @@ impl Store {
         {
             warn!(error = %e, "could not write the Harnix state file");
         }
-    }
-
-    pub fn title_of(&self, session_id: &str) -> Option<String> {
-        self.state
-            .sessions
-            .get(session_id)
-            .and_then(|m| m.title.clone())
     }
 
     /// The workspace a project root belongs to, if one is registered.

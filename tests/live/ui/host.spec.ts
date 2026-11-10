@@ -387,7 +387,7 @@ test("composer.steer: a space that asks for it has a deliver-now switch, and a m
 });
 
 test("model_switch: without the system space the composer changes the model through harnix.sessions.setModel", SHELL, async ({ page }) => {
-  const backend = await startHarnix(launchFor("replay", { profile: "[shell]\nspaces = [\"sessions\"]\nmodel_switch = true\n" }));
+  const backend = await startHarnix(launchFor("replay", { profile: "[shell]\nmodel_switch = true\n[extensions]\noff = [\"system\", \"flow\"]\n" }));
   try {
     await open(page, backend.url);
     const reachable = await page.evaluate(() => (window as any).harnix.app.snapshot.reachable as string[]);
@@ -401,7 +401,7 @@ test("model_switch: without the system space the composer changes the model thro
   } finally {
     await backend.dispose();
   }
-  const without = await startHarnix(launchFor("replay", { profile: "[shell]\nspaces = [\"sessions\"]\n" }));
+  const without = await startHarnix(launchFor("replay", { profile: "[extensions]\noff = [\"system\", \"flow\"]\n" }));
   try {
     await open(page, without.url);
     await newSession(page, "says-ready");

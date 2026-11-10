@@ -39,6 +39,7 @@ pub(crate) struct Seats {
     pub credentials: Arc<dyn CredentialLookup>,
     pub services: Arc<HostServicesRegistry>,
     pub listen: watch::Receiver<Option<Listening>>,
+    pub projects_dir: PathBuf,
 }
 
 impl Seats {
@@ -47,6 +48,7 @@ impl Seats {
             id: id.clone(),
             config: config.clone(),
             data_dir: data_dir.to_path_buf(),
+            projects_dir: self.projects_dir.clone(),
             dispatch: self.dispatch.clone(),
             grants: self.grants.clone(),
             clients: self.clients.clone(),
@@ -142,11 +144,24 @@ impl HostUploads {
     pub fn claim(&self, token: &str) -> Option<(PathBuf, usize)> {
         lock(&self.grants).remove(token)
     }
+
+    /// A grant a device asked for (`harnix.bulk.upload`), as `<token>-<name>`, the name made safe.
+    pub fn issue_named(&self, name: &str, max_bytes: usize) -> Rpc<(String, PathBuf)> {
+        let dir = self.dir.clone();
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| RpcError::new(harnix_contract::codes::INTERNAL_ERROR, format!("{}: {e}", dir.display())))?;
+        let token = format!("u-{}", uuid::Uuid::new_v4().simple());
+        let safe: String =
+            name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' }).collect();
+        let path = dir.join(format!("{token}-{safe}"));
+        lock(&self.grants).insert(token.clone(), (path.clone(), max_bytes));
+        Ok((token, path))
+    }
 }
 
 impl BulkGrants for HostUploads {
     fn issue(&self, ext: &ExtId, max_bytes: usize) -> Rpc<(String, PathBuf)> {
-        let dir = self.dir.join(ext.as_str());
+        let dir = self.dir.join("ext").join(ext.as_str());
         std::fs::create_dir_all(&dir)
             .map_err(|e| RpcError::new(harnix_contract::codes::INTERNAL_ERROR, format!("{}: {e}", dir.display())))?;
         let token = uuid::Uuid::new_v4().simple().to_string();
@@ -156,22 +171,11 @@ impl BulkGrants for HostUploads {
     }
 }
 
-/// What the upload route claims from: the extensions' grants, then the built-ins'.
-pub(crate) struct Uploads {
-    pub host: Arc<HostUploads>,
-    pub builtin: Option<Arc<harnix_builtin::Builtin>>,
-}
-
+/// What the upload route claims from.
 #[async_trait::async_trait]
-impl harnix_transport::BulkStore for Uploads {
+impl harnix_transport::BulkStore for HostUploads {
     async fn claim(&self, token: &str) -> Option<(PathBuf, usize)> {
-        if let Some(grant) = self.host.claim(token) {
-            return Some(grant);
-        }
-        match &self.builtin {
-            Some(builtin) => harnix_contract::BulkStore::claim(builtin.as_ref(), token).await,
-            None => None,
-        }
+        HostUploads::claim(self, token)
     }
 }
 

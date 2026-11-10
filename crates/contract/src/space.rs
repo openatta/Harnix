@@ -1,14 +1,8 @@
 //! A space, as the backend knows it (concept §5.4): an id, the instance its new sessions land on, and
 //! the scene they start in. What a space looks like is the interface's; which sessions belong to it
-//! is the hub's ledger.
+//! is the hub's ledger. The kernel knows no space by name: every one is an extension's.
 
 use serde::{Deserialize, Serialize};
-
-/// The session space: the conversations, and the projects they run in. Sessions with no recorded
-/// space belong here — every one created before spaces existed.
-pub const SESSIONS_SPACE: &str = "sessions";
-/// The projects view: interface only. Its sessions are the session space's, listed by project.
-pub const PROJECTS_SPACE: &str = "projects";
 
 /// Where a space's new sessions land when the caller names no instance.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,6 +47,10 @@ pub struct SpaceDecl {
     /// extension's to declare only.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cross_space: bool,
+    /// The space a device's call that claims none is checked as, and where a session with no
+    /// recorded space belongs. At most one in a process.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub default_space: bool,
 }
 
 impl SpaceDecl {
@@ -62,6 +60,7 @@ impl SpaceDecl {
             instance: DefaultInstance::default(),
             scene: None,
             cross_space: false,
+            default_space: false,
         }
     }
 
@@ -78,6 +77,12 @@ impl SpaceDecl {
     /// See [`SpaceDecl::cross_space`](#structfield.cross_space).
     pub fn cross_space(mut self) -> Self {
         self.cross_space = true;
+        self
+    }
+
+    /// See [`SpaceDecl::default_space`](#structfield.default_space).
+    pub fn default_space(mut self) -> Self {
+        self.default_space = true;
         self
     }
 }

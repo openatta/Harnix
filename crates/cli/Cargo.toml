@@ -14,7 +14,7 @@ name = "harnix"
 path = "src/main.rs"
 
 [dependencies]
-harnix      = { workspace = true }
+harnix      = { workspace = true, features = ["flow"] }
 harnix-ext-flow = { workspace = true }
 anyhow      = { workspace = true }
 

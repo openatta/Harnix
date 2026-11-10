@@ -52,6 +52,29 @@ test("a space's new session lands on its default instance and is listed in it al
   expect(all).toEqual(expect.arrayContaining([fleet.session_id, mine.session_id]));
 });
 
+test("the kernel has no space of its own: the session space is the Harnix app's, and the default", TAGS, async () => {
+  const { spaces } = await api.call("harnix.spaces.list");
+  expect(spaces.filter((s: any) => s.default).map((s: any) => s.id)).toEqual(["sessions"]);
+  expect(spaces.find((s: any) => s.id === "system")).toMatchObject({ cross_space: true, default: false });
+  // A session created claiming no space is the default space's, and checked as it.
+  const created = await api.call("session.create", { options: { recorder: { name: "says-ready" } } });
+  const inSessions = (await api.call("harnix.sessions", { space: "sessions" })).sessions.map((s: any) => s.session_id);
+  expect(inSessions).toContain(created.session_id);
+  // The topic of the spaces is there whatever is linked.
+  expect((await api.call("harnix.reachable")).topics).toContain("harnix.spaces");
+
+  const without = await startTestApp({ profile: "\n[extensions]\noff = [\"harnix-app\"]\n" });
+  try {
+    const client = await connect(without);
+    const listed = (await client.call("harnix.spaces.list")).spaces.map((s: any) => s.id);
+    expect(listed).not.toContain("sessions");
+    expect((await client.refused("harnix.sessions", { space: "sessions" }))?.code).toBe(SPACE_MISMATCH);
+    client.close();
+  } finally {
+    await without.dispose();
+  }
+});
+
 test("a call claiming the wrong space is refused, naming the right one", TAGS, async () => {
   const fleet = await createIn("fleet");
   for (const [method, extra] of [
@@ -120,7 +143,7 @@ test("@session references carry another space's conversation into a turn", TAGS,
 });
 
 test("with the system space turned off, nobody may claim it", TAGS, async () => {
-  const off = await startTestApp({ profile: "\n[shell]\nspaces = [\"sessions\", \"projects\"]\n" });
+  const off = await startTestApp({ profile: "\n[extensions]\noff = [\"system\"]\n" });
   try {
     const client = await connect(off);
     const created = await client.call("session.create", { space: "sessions" });

@@ -123,6 +123,11 @@ pub(crate) fn register(
         }
         record.id = Some(id.clone());
         if off.contains(&raw) {
+            // What it declares is read, and nothing of it installed: the spaces it would have been
+            // the backend of are then nobody's to claim.
+            if let Added::Extension(e) = &record.added {
+                record.descriptor = e.register(&id, &record.config).ok();
+            }
             record.disabled("assembly", "switched off in the profile's [extensions] off".to_string());
             records.push(record);
             continue;

@@ -12,8 +12,8 @@
 
 use std::sync::Arc;
 
-use harnix_engine_api::{Permission, SceneBase, SceneLayer, Tool, ToolCx, ToolError, ToolOutput, ToolSpec};
-use harnix_module::{Entry, SessionRef};
+use harnix_ext::engine::{Permission, SceneBase, SceneLayer, Tool, ToolCx, ToolError, ToolOutput, ToolSpec};
+use harnix_ext::{Entry, SessionRef};
 use serde_json::{json, Value};
 
 use super::dispatch;
@@ -314,9 +314,9 @@ impl Tool for ProposeTool {
         let Some(module) = self.sh.cx.get() else {
             return Ok(ToolOutput::error("the flow module has not started"));
         };
-        let session = SessionRef {
-            instance: b.instance.clone(),
-            session_id: cx.session_id().to_string(),
+        let session = match cx.session() {
+            s if s.instance.is_empty() => SessionRef::new(b.instance.as_str(), s.session_id),
+            s => s,
         };
         let payload = json!({
             "run": b.run, "station": b.station, "task": b.task,

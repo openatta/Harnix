@@ -181,6 +181,10 @@ impl Ports {
         self.seat.services.service(ext, name)
     }
 
+    pub(crate) fn projects_dir(&self) -> &std::path::Path {
+        &self.seat.projects_dir
+    }
+
     pub(crate) fn listen_now(&self) -> Option<Listen> {
         let rx = self.seat.listen.as_ref()?;
         let listening = rx.borrow().clone();

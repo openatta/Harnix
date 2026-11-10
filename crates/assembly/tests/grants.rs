@@ -11,7 +11,15 @@ use harnix_assembly::testing::{register, Modules, Registered};
 use harnix_contract::s1::{caps, Capability, CapabilitySpec, ExtId, PackageCarrier, Trust};
 use harnix_contract::{codes, RpcError, Subject};
 use harnix_kernel::{Access, CallContext, Dispatch, GrantBook, Handler, Rpc};
-use harnix_module::{Manifest, MethodRegistry, Module, Principal, SpaceDecl, SpaceRegistry};
+use harnix_ext::{Extension, Registrar};
+use harnix_ext_devices::Devices;
+use harnix_ext_harnix_app::HarnixApp;
+use harnix_ext_observability::Observability;
+use harnix_ext_plugins::Plugins;
+use harnix_ext_settings::Settings;
+use harnix_ext_system::System;
+use harnix_ext::SpaceDecl;
+use harnix_module::{Manifest, MethodRegistry, Module, Principal};
 use harnix_router::{Row, TableError};
 use serde_json::{json, Value};
 
@@ -33,9 +41,9 @@ const SYSTEM_SPACE_ACTS: &[&str] = &[
     "session.updateGoal",
 ];
 
-/// The system module's three capabilities.
-fn system_caps() -> [Capability; 3] {
-    [caps::INSTANCES_ADMIN, caps::ENGINE_INSPECT, caps::ENGINE_CONTROL]
+/// The system space's four capabilities.
+fn system_caps() -> [Capability; 4] {
+    [caps::INSTANCES_ADMIN, caps::ENGINE_INSPECT, caps::ENGINE_CONTROL, caps::PROCESS_OBSERVE]
 }
 
 fn id(s: &str) -> ExtId {
@@ -47,15 +55,15 @@ fn id(s: &str) -> ExtId {
 struct Debugger;
 
 #[async_trait::async_trait]
-impl Module for Debugger {
-    const API_VERSION: u32 = harnix_module::MODULE_API_VERSION;
+impl Extension for Debugger {
+    type Config = ();
 
-    fn manifest(&self) -> Manifest {
-        Manifest::new("debugger", "0.0.1").optional(system_caps())
+    fn manifest(&self) -> harnix_ext::Manifest {
+        harnix_ext::Manifest::new("debugger", "0.0.1").optional(system_caps())
     }
 
-    fn spaces(&self, spaces: &mut SpaceRegistry) {
-        spaces.add(SpaceDecl::new("debugger").cross_space());
+    fn register(&self, r: &mut Registrar<'_, ()>) {
+        r.space(SpaceDecl::new("debugger").cross_space());
     }
 }
 
@@ -90,6 +98,33 @@ impl Module for Billing {
             .requires(CHARGE)
             .raw(|_cx, p| async move { Ok::<_, RpcError>(p) });
     }
+}
+
+/// Harnix's own extensions, each granted what Harnix grants it, but the one called `without`.
+fn first_party(without: &str) -> Modules {
+    let mut modules = Modules::default();
+    if without != "harnix-app" {
+        modules = modules.extension(HarnixApp, [caps::TRANSCRIPTS_READ, caps::ENGINE_EXPORT]);
+    }
+    if without != "system" {
+        modules = modules.extension(System, system_caps());
+    }
+    if without != "observability" {
+        modules = modules.extension(Observability, [caps::RECORDINGS_READ]);
+    }
+    if without != "settings" {
+        modules = modules.extension(Settings, [caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE]);
+    }
+    if without != "plugins" {
+        modules = modules.extension(Plugins::default(), [caps::ENGINE_PLUGINS]);
+    }
+    if without != "devices" {
+        modules = modules.extension(Devices, [caps::DEVICES_MANAGE]);
+    }
+    if without != "flow" {
+        modules = modules.extension(harnix_ext_flow::Flow::builder().build(), [caps::ENGINE_CONTROL, caps::ENGINE_INSPECT]);
+    }
+    modules
 }
 
 /// What was registered, with the state directory it lives on for as long as the test does.
@@ -150,9 +185,9 @@ mod capabilities {
 
     #[test]
     fn an_optional_capability_may_go_ungranted() {
-        let r = registered(false, Modules::default().with(Debugger, [])).unwrap();
+        let r = registered(false, Modules::default().extension(Debugger, [])).unwrap();
         assert!(r.extensions[0].granted.is_empty());
-        assert_eq!(r.extensions[0].optional.len(), 3);
+        assert_eq!(r.extensions[0].optional.len(), 4);
     }
 
     #[tokio::test]
@@ -191,9 +226,9 @@ mod capabilities {
 
     #[test]
     fn the_built_ins_hold_what_they_require_and_nothing_else() {
-        let r = registered(true, Modules::default()).unwrap();
+        let r = registered(true, first_party("")).unwrap();
         let system = r.extensions.iter().find(|m| m.id == "system").unwrap();
-        assert_eq!(system.granted, ["instances.admin", "engine.inspect", "engine.control"]);
+        assert_eq!(system.granted, ["instances.admin", "engine.inspect", "engine.control", "process.observe"]);
         for status in &r.extensions {
             assert_eq!(status.granted, status.requires, "{}", status.id);
         }
@@ -209,7 +244,7 @@ mod debugger {
     /// system space does to another space's sessions: nothing about it is first-party.
     #[tokio::test]
     async fn granted_the_system_modules_capabilities_it_does_what_the_system_space_does() {
-        let r = registered(false, Modules::default().with(Debugger, system_caps())).unwrap();
+        let r = registered(false, Modules::default().extension(Debugger, system_caps())).unwrap();
         for method in SYSTEM_SPACE_ACTS {
             let e = call(&r, Subject::extension(id("debugger")), method, json!({"session_id": "s"})).await.unwrap_err();
             assert_eq!(e.code, codes::INTERNAL_ERROR, "{method} was not let through: {e}");
@@ -219,7 +254,7 @@ mod debugger {
 
     #[tokio::test]
     async fn ungranted_every_one_of_them_is_refused_and_says_what_is_missing() {
-        let r = registered(false, Modules::default().with(Debugger, [])).unwrap();
+        let r = registered(false, Modules::default().extension(Debugger, [])).unwrap();
         for method in SYSTEM_SPACE_ACTS {
             let e = call(&r, Subject::extension(id("debugger")), method, json!({"session_id": "s"})).await.unwrap_err();
             let cap = r.router.table().row(method).and_then(|row| row.access().requirement().cloned()).unwrap();
@@ -229,6 +264,42 @@ mod debugger {
         for method in SYSTEM_SPACE_ACTS {
             let e = call(&r, Subject::device("d"), method, json!({"space": "debugger"})).await.unwrap_err();
             assert_eq!(e.code, codes::REFUSED, "{method}");
+        }
+    }
+}
+
+mod unlinked {
+    use super::*;
+
+    /// The table's rows and aliases, as text, one each.
+    fn table(modules: Modules) -> (Vec<Value>, Vec<Value>) {
+        let r = registered(true, modules).unwrap();
+        let snapshot = r.router.snapshot();
+        let rows = snapshot["rows"].as_array().cloned().unwrap_or_default();
+        let aliases = snapshot["aliases"].as_array().cloned().unwrap_or_default();
+        (rows, aliases)
+    }
+
+    /// Not linking an extension changes the kernel by nothing: what is missing is its own rows,
+    /// and the old names that answered as them.
+    #[test]
+    fn without_an_extension_only_its_rows_differ() {
+        for ext in ["harnix-app", "system", "observability", "settings", "plugins", "devices", "flow"] {
+            let (all_rows, all_aliases) = table(first_party(""));
+            let (rows, aliases) = table(first_party(ext));
+            let owner = format!("ext:{ext}");
+            let missing: Vec<&Value> = all_rows.iter().filter(|row| !rows.contains(row)).collect();
+            assert!(!missing.is_empty(), "{ext} has no rows");
+            for row in &missing {
+                assert!(row["owner"] == owner, "without {ext}, {row} is missing");
+            }
+            assert!(rows.iter().all(|row| all_rows.contains(row)), "without {ext}, a row appeared");
+            for alias in all_aliases.iter().filter(|a| !aliases.contains(a)) {
+                let new = alias["to"].as_str().unwrap_or_default();
+                let new = new.strip_prefix("topic:").unwrap_or(new);
+                assert!(new.starts_with(&format!("{ext}.")), "without {ext}, the alias {alias} is missing");
+            }
+            assert!(aliases.iter().all(|a| all_aliases.contains(a)), "without {ext}, an alias appeared");
         }
     }
 }
@@ -285,6 +356,59 @@ mod scope {
         assert_eq!(e.code, codes::REFUSED);
         // Its own names are its own, wherever.
         assert_eq!(call(&r, me(), "app.acme.notes.list", json!({"x": 1})).await.unwrap(), json!({"x": 1}));
+    }
+
+    /// What a frame may list of the session space's rows and the hub's session topics reaches
+    /// its own space alone: each is scoped to a session or a space, so a page claiming another
+    /// space, or none, is refused before the hub is asked.
+    #[tokio::test]
+    async fn the_session_rows_and_topics_a_frame_may_list_are_its_own_spaces() {
+        let listed = [
+            "harnix.sessions.archive",
+            "harnix.sessions.export",
+            "harnix.sessions.move",
+            "harnix.sessions.rename",
+            "harnix.subscribe",
+            "topic:harnix.sessions.tasks",
+            "topic:harnix.sessions.status",
+            "topic:harnix.instances.sessions",
+        ];
+        let r = registered(true, first_party("")).unwrap();
+        let own = Row::method("app.acme.notes.list", Access::device(), Arc::new(Answer));
+        r.router.install_app(&Subject::Kernel, "acme.notes", vec![own]).unwrap();
+        r.grants.set(id("acme.notes"), [], Trust::consent([], PackageCarrier::Wasm));
+        r.grants.set_frame(&id("acme.notes"), Some(listed.iter().map(|c| c.to_string()).collect()));
+        let page = || {
+            let mut cx = CallContext::root(Subject::device("d"), None);
+            cx.on_behalf_of = Some(id("acme.notes"));
+            cx
+        };
+        let sub = |topic: &str, space: Option<&str>| {
+            let mut params = json!({"instance": "system", "session_id": "s"});
+            if let Some(space) = space {
+                params["space"] = json!(space);
+            }
+            json!({"topic": topic, "params": params})
+        };
+        for method in ["harnix.sessions.archive", "harnix.sessions.export", "harnix.sessions.move", "harnix.sessions.rename"] {
+            for space in [None, Some("sessions")] {
+                let mut params = json!({"session_id": "s"});
+                if let Some(space) = space {
+                    params["space"] = json!(space);
+                }
+                let e = r.router.call(page(), method, params).await.unwrap_err();
+                assert!(refused_outside(&e), "{method} {space:?}: {e:?}");
+            }
+        }
+        for topic in ["harnix.sessions.tasks", "harnix.sessions.status", "harnix.instances.sessions"] {
+            for space in [None, Some("sessions")] {
+                let e = r.router.call(page(), "harnix.subscribe", sub(topic, space)).await.unwrap_err();
+                assert!(refused_outside(&e), "{topic} {space:?}: {e:?}");
+            }
+            // Its own space's: through to the hub, which is not up here.
+            let e = r.router.call(page(), "harnix.subscribe", sub(topic, Some("acme.notes"))).await.unwrap_err();
+            assert!(!refused_outside(&e), "{topic}: {e:?}");
+        }
     }
 
     #[tokio::test]
@@ -346,7 +470,7 @@ mod names {
 
     #[test]
     fn a_native_extension_keeps_its_namespace_from_a_package() {
-        let r = registered(true, Modules::default().with(Asks("acme", vec![], vec![]), [])).unwrap();
+        let r = registered(true, first_party("").with(Asks("acme", vec![], vec![]), [])).unwrap();
         // Under a native id, by whole segments: refused, saying whose it is.
         assert_eq!(taken_by(package(&r, "acme.notes")).as_deref(), Some("acme"));
         assert_eq!(taken_by(package(&r, "acme")).as_deref(), Some("acme"));

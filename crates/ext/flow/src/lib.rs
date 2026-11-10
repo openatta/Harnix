@@ -6,7 +6,7 @@
 //! permissions; rules are read by the sessions and never enforced. A station that does not
 //! pass can be reworked: it and everything downstream of it start again.
 //!
-//! An optional crate: an application that does not register it gets nothing
+//! An optional crate: an application that does not add it gets nothing
 //! different. The flow does not know where runs are stored, who the users
 //! are, who may do what, or how a gate runs — the application hands those in
 //! as the traits in [`kernel::host`].
@@ -24,12 +24,12 @@
 //! store.rs            MemStore, FileStore
 //! packs.rs            MemPacks, DirPacks (both can be writable)
 //! dryrun.rs           dry runs: the kernel in a sandbox, everything outside it mocked
-//! module/             the Harnix module (feature `module`, on by default): Flow, FlowHandle
+//! module/             the Harnix extension (feature `extension`, on by default): Flow, FlowHandle
 //! ```
 
 pub mod dryrun;
 pub mod kernel;
-#[cfg(feature = "module")]
+#[cfg(feature = "extension")]
 pub mod module;
 pub mod packs;
 pub mod store;
@@ -61,7 +61,7 @@ pub use kernel::run::{
 pub use kernel::schema::minimal;
 pub use kernel::validate::{part_problems, validate, validate_yaml, Problem};
 pub use kernel::{FlowError, Result};
-#[cfg(feature = "module")]
+#[cfg(feature = "extension")]
 pub use module::{builtin_scenes, Flow, FlowBuilder, FlowHandle};
 pub use packs::{DirPacks, MemPacks};
 pub use store::{FileStore, Hooked, MemStore};

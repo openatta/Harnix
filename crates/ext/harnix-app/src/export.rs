@@ -1,23 +1,22 @@
-//! `harnix.sessions.export`: a session written out, for reading or for keeping.
+//! `harnix-app.sessions.export`: a session written out, for reading or for keeping.
 //!
 //! Three forms. `markdown` is the conversation as a person reads it. `archive` is the session as
 //! the engine packs it (`session.export`): the session and its sub-agents' sessions at any depth,
 //! cut at one moment, the images in its messages as files, its extension entries and a versioned
 //! manifest — and its recording only when asked — as a zip. `bundle` is the older, Harnix-made
-//! JSON document: the facts, every message, the entries, the recording when asked; no sub-agents,
-//! no image files. The answer carries the content itself (the zip as base64); the page turns it
+//! JSON document: the facts, every message, the entries; no sub-agents, no image files, and no
+//! recording — a session's recording comes with the engine's archive, which this extension can
+//! ask for, not from the recordings' files, which it cannot read. The answer carries the content itself (the zip as base64); the page turns it
 //! into a file. One that would not fit a frame is refused with the way out (leave the recording
 //! behind) rather than cut.
 //!
 //! The caller claims a space like any session call, and `session.get` with that claim is what
 //! checks it: a session of another space is refused by the hub, not read here.
 
-use std::path::Path;
-
-use harnix_contract::{codes, RpcError, MAX_FRAME_BYTES};
+use harnix_ext::{codes, Call, RpcError, MAX_FRAME_BYTES, SYSTEM_INSTANCE};
 use serde_json::{json, Value};
 
-use crate::{require_session_id, require_str, Builtin};
+use crate::{require_session_id, require_str};
 
 /// What one page of history asks for.
 const PAGE: u64 = 200;
@@ -25,16 +24,7 @@ const PAGE: u64 = 200;
 /// screenful.
 const RESULT_CHARS: usize = 4000;
 
-impl Builtin {
-    /// Where an instance writes a session's recording.
-    fn recording_dir(&self, instance: &str, session_id: &str) -> Result<std::path::PathBuf, RpcError> {
-        let handle = self.instance(instance).ok_or_else(|| {
-            RpcError::new(codes::INSTANCE_NOT_FOUND, format!("there is no instance `{instance}`"))
-        })?;
-        Ok(handle.recordings_root.join(session_id))
-    }
-
-    pub(crate) async fn session_export(&self, params: Value) -> Result<Value, RpcError> {
+pub(crate) async fn session_export(call: Call, params: Value) -> Result<Value, RpcError> {
         let session_id = require_session_id(&params)?;
         let format = require_str(&params, "format")?;
         if !matches!(format.as_str(), "markdown" | "bundle" | "archive") {
@@ -46,36 +36,35 @@ impl Builtin {
             .get("recording")
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        if with_recording && format != "archive" {
+            return Err(RpcError::new(
+                codes::REFUSED,
+                "a session's recording comes with the engine's archive: `format: archive`",
+            ));
+        }
         let instance = params
             .get("instance")
             .cloned()
-            .unwrap_or(json!(harnix_contract::SYSTEM_INSTANCE));
+            .unwrap_or(json!(SYSTEM_INSTANCE));
         let mut target = json!({"instance": instance, "session_id": session_id});
         if let Some(space) = params.get("space").filter(|s| !s.is_null()) {
             target["space"] = space.clone();
         }
 
-        let info = self.call("sessions", "session.get", target.clone()).await?;
+        let info = call.call("session.get", target.clone()).await?;
         if format == "archive" {
-            let title = self.title_of(&session_id).await.or_else(|| {
-                info.get("name").and_then(Value::as_str).map(str::to_string)
-            });
-            return self
-                .archive(&target, &file_stem(title.as_deref(), &session_id), with_recording)
+            let title = title_of(&info);
+            return archive(&call, &target, &file_stem(title.as_deref(), &session_id), with_recording)
                 .await;
         }
-        let messages = self.all_messages(&target).await?;
-        let entries = self
-            .call("sessions", "session.entries", target.clone())
+        let messages = all_messages(&call, &target).await?;
+        let entries = call
+            .call("session.entries", target.clone())
             .await
             .ok()
             .and_then(|v| v.get("entries").cloned())
             .unwrap_or(json!([]));
-        let title = self.title_of(&session_id).await.or_else(|| {
-            info.get("name")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        });
+        let title = title_of(&info);
         let stem = file_stem(title.as_deref(), &session_id);
 
         let answer = if format == "markdown" {
@@ -85,7 +74,7 @@ impl Builtin {
                 "content": markdown(title.as_deref(), &session_id, &info, &messages),
             })
         } else {
-            let mut bundle = json!({
+            let bundle = json!({
                 "kind": "harnix-session",
                 "version": 1,
                 "session": info,
@@ -93,11 +82,6 @@ impl Builtin {
                 "messages": messages,
                 "entries": entries,
             });
-            if with_recording {
-                let instance = instance.as_str().unwrap_or(harnix_contract::SYSTEM_INSTANCE);
-                let dir = self.recording_dir(instance, &session_id)?;
-                bundle["recording"] = recording(&dir);
-            }
             json!({"format": "bundle", "file": format!("{stem}.json"), "content": bundle})
         };
         // Leave room for the frame's envelope around the answer.
@@ -110,14 +94,14 @@ impl Builtin {
         Ok(answer)
     }
 
-    /// The whole transcript, page by page.
-    async fn all_messages(&self, target: &Value) -> Result<Vec<Value>, RpcError> {
+/// The whole transcript, page by page.
+async fn all_messages(call: &Call, target: &Value) -> Result<Vec<Value>, RpcError> {
         let mut messages = Vec::new();
         loop {
             let mut page = target.clone();
             page["offset"] = json!(messages.len());
             page["limit"] = json!(PAGE);
-            let answer = self.call("sessions", "session.history", page).await?;
+            let answer = call.call("session.history", page).await?;
             let got = answer
                 .get("messages")
                 .and_then(Value::as_array)
@@ -135,10 +119,10 @@ impl Builtin {
         Ok(messages)
     }
 
-    /// The engine's archive of the session, written to a directory of its own under the system's
-    /// temporary one and read back: the engine writes where it runs, which for every carrier but
-    /// an attached daemon is this machine. The directory goes either way.
-    async fn archive(&self, target: &Value, stem: &str, with_recording: bool) -> Result<Value, RpcError> {
+/// The engine's archive of the session, written to a directory of its own under the system's
+/// temporary one and read back: the engine writes where it runs, which for every carrier but
+/// an attached daemon is this machine. The directory goes either way.
+async fn archive(call: &Call, target: &Value, stem: &str, with_recording: bool) -> Result<Value, RpcError> {
         let dir = std::env::temp_dir().join(format!("harnix-export-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir)
             .map_err(|e| RpcError::new(codes::INTERNAL_ERROR, format!("no room to export into: {e}")))?;
@@ -152,7 +136,7 @@ impl Builtin {
         ask["path"] = json!(path);
         ask["format"] = json!("zip");
         ask["include"] = json!(include);
-        let made = self.call("sessions", "session.export", ask).await;
+        let made = call.call("session.export", ask).await;
         let bytes = made.as_ref().ok().map(|_| std::fs::read(&path));
         let _ = std::fs::remove_dir_all(&dir);
         let made = made?;
@@ -176,26 +160,9 @@ impl Builtin {
         }))
     }
 
-    /// The title a person gave the session here, if any (the engine's name otherwise).
-    async fn title_of(&self, session_id: &str) -> Option<String> {
-        self.store.lock().await.title_of(session_id)
-    }
-}
-
-/// The session's recording, as its files: `calls.jsonl` and the blobs it names. Missing is null.
-fn recording(dir: &Path) -> Value {
-    let Ok(calls) = std::fs::read_to_string(dir.join("calls.jsonl")) else {
-        return Value::Null;
-    };
-    let mut blobs = serde_json::Map::new();
-    if let Ok(read) = std::fs::read_dir(dir.join("blobs")) {
-        for entry in read.flatten() {
-            if let Ok(text) = std::fs::read_to_string(entry.path()) {
-                blobs.insert(entry.file_name().to_string_lossy().into_owned(), json!(text));
-            }
-        }
-    }
-    json!({"calls": calls, "blobs": blobs})
+/// The session's title: the engine's name for it.
+fn title_of(info: &Value) -> Option<String> {
+    info.get("name").and_then(Value::as_str).filter(|n| !n.is_empty()).map(str::to_string)
 }
 
 /// A file name from the title: letters, digits and `-`, short; the id when there is no title.

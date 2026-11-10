@@ -55,8 +55,8 @@ pub struct Listed {
 /// What the registry tells the hub. Never called while the registry holds its lock, and none of
 /// it calls back into the registry.
 ///
-/// Besides the three callbacks, the registry asks one question of the hub — which spaces there
-/// are, for the space a caller claims — and says through [`TopicChanged`] when the instance list
+/// Besides the three callbacks, the registry asks one question of the hub — which space a call
+/// means — and says through [`TopicChanged`] when the instance list
 /// it publishes changed.
 #[async_trait::async_trait]
 pub trait InstanceObserver<L: ?Sized + Send + Sync + 'static>: TopicChanged {
@@ -70,8 +70,9 @@ pub trait InstanceObserver<L: ?Sized + Send + Sync + 'static>: TopicChanged {
     /// sessions anyone watches back in step.
     async fn restarted(&self, id: &str, link: Arc<L>);
 
-    /// Whether `space` is one this product has.
-    fn has_space(&self, space: &str) -> bool;
+    /// The space a call means — the one it claims, or the default space when it claims none —
+    /// when this product has it.
+    fn space(&self, claimed: Option<&str>) -> Option<String>;
 }
 
 /// The two sides of the seam, each with a lock of its own.

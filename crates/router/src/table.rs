@@ -441,15 +441,17 @@ impl RouteTable {
     /// Whether `subject` may call `name`, by its row and what `grants` say it holds. A package is
     /// held to what its consent lists and its own names first: asking for anything else it is
     /// told that, not whether the name is there.
-    pub fn decide(&self, subject: &Subject, grants: &dyn GrantBook, name: &str) -> Decision {
-        let name = self.resolve(name);
+    pub fn decide(&self, subject: &Subject, grants: &dyn GrantBook, called: &str) -> Decision {
+        let name = self.resolve(called);
         if let Subject::Extension { id } = subject {
             match grants.trust(id) {
                 None => return Decision::Refuse(UNREGISTERED),
                 Some(trust) => {
                     if let Some(calls) = trust.calls() {
                         let own = self.owns(id, name) || names::in_app_namespace(id.as_str(), name);
-                        let listed = own || calls.contains(name) || DECIDED_BY_TOPIC.contains(&name);
+                        // Consented to by its name or the one it is an alias of, while the names move.
+                        let listed =
+                            own || calls.contains(name) || calls.contains(called) || DECIDED_BY_TOPIC.contains(&name);
                         if !listed {
                             return Decision::Refuse(OUTSIDE_HUB);
                         }

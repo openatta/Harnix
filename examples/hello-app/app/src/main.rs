@@ -30,6 +30,7 @@ fn main() -> anyhow::Result<()> {
     harnix::App::builder()
         .name("hello-app", env!("CARGO_PKG_VERSION"))
         .with_builtins()
+        .extensions(harnix::first_party::standard())
         .module(Greeter::default())
         .run()
 }

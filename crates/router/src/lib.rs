@@ -151,9 +151,11 @@ impl Router {
         let Some(calls) = self.grants.frame_calls(ext) else {
             return Decision::Refuse(NO_FRAME);
         };
+        // Listed by its name or the one it is an alias of, while the names move.
+        let listed = |name: &str| calls.contains(name) || calls.contains(table.resolve(name));
         let allowed = match subscribed_topic(table, method, params) {
-            Some(name) => calls.contains(&topic(table.resolve(name))) || table.owns(ext, name),
-            None => calls.contains(table.resolve(method)) || table.owns(ext, method),
+            Some(name) => listed(&topic(name)) || table.owns(ext, name),
+            None => listed(method) || table.owns(ext, method),
         };
         match allowed {
             true => Decision::Allow,

@@ -27,6 +27,7 @@
 //!     harnix::App::builder()
 //!         .name("hello-app", "0.1.0")
 //!         .with_builtins()
+//!         .extensions(harnix::first_party::standard())
 //!         .module(Hello)
 //!         .run()
 //! }
@@ -46,6 +47,50 @@ pub use harnix_engine_api as engine;
 /// The extension interface: [`ext::Extension`], its registrar and descriptor, its context.
 /// Stable within 0.5.z: it only grows.
 pub use harnix_ext as ext;
+
+/// Harnix's own extensions, each granted what Harnix grants it: the source is Harnix's own grant
+/// list. A product adds the set (`App::builder().extensions(harnix::first_party::standard())`), or
+/// the ones it wants, each by its type.
+#[cfg(feature = "first-party")]
+pub mod first_party {
+    use harnix_contract::s1::caps;
+    use harnix_ext::ExtensionSet;
+
+    pub use harnix_ext_devices::Devices;
+    pub use harnix_ext_harnix_app::HarnixApp;
+    pub use harnix_ext_observability::Observability;
+    pub use harnix_ext_plugins::Plugins;
+    pub use harnix_ext_settings::Settings;
+    pub use harnix_ext_system::System;
+
+    #[cfg(feature = "flow")]
+    pub use harnix_ext_flow::Flow;
+
+    /// What the flow extension is granted: naming the sessions it opens, a main session's tasks.
+    #[cfg(feature = "flow")]
+    pub const FLOW_GRANTS: [harnix_contract::s1::Capability; 2] = [caps::ENGINE_CONTROL, caps::ENGINE_INSPECT];
+
+    /// [`standard`], and `flow` as the product configured it.
+    #[cfg(feature = "flow")]
+    pub fn standard_with_flow(flow: Flow) -> ExtensionSet {
+        standard().with(flow, FLOW_GRANTS)
+    }
+
+    /// Every first-party extension, in the order they register: the flow extension is the
+    /// product's to configure and add ([`standard_with_flow`]).
+    pub fn standard() -> ExtensionSet {
+        ExtensionSet::new()
+            .with(HarnixApp, [caps::TRANSCRIPTS_READ, caps::ENGINE_EXPORT])
+            .with(
+                System,
+                [caps::INSTANCES_ADMIN, caps::ENGINE_INSPECT, caps::ENGINE_CONTROL, caps::PROCESS_OBSERVE],
+            )
+            .with(Observability, [caps::RECORDINGS_READ])
+            .with(Settings, [caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE])
+            .with(Plugins::default(), [caps::ENGINE_PLUGINS])
+            .with(Devices, [caps::DEVICES_MANAGE])
+    }
+}
 
 /// A product's route table without starting it ([`testing::describe`]), and a process started
 /// without its listener ([`testing::Kernel`]): the real router and hub, an engine that replays.

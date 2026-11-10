@@ -23,6 +23,9 @@ pub(crate) struct Topics {
     known: BTreeMap<String, Vec<String>>,
     values: HashMap<(String, String), Value>,
     subscribers: HashMap<(String, String), HashSet<ClientId>>,
+    /// Old name → the topic it now is, while its subscribers move: subscribed by the old name,
+    /// told under it, with the new one's values.
+    moved: BTreeMap<String, String>,
 }
 
 impl Topics {
@@ -60,6 +63,21 @@ impl Topics {
         told
     }
 
+    /// Subscribing to `old` is subscribing to `new`, told under the old name.
+    pub fn alias(&mut self, old: &str, new: &str) {
+        self.moved.insert(old.to_string(), new.to_string());
+    }
+
+    /// The topic a name means: its own, or the one it moved to.
+    pub fn canon<'a>(&'a self, topic: &'a str) -> &'a str {
+        self.moved.get(topic).map_or(topic, String::as_str)
+    }
+
+    /// The old names of `topic`.
+    fn old_names<'a>(&'a self, topic: &'a str) -> impl Iterator<Item = &'a String> + 'a {
+        self.moved.iter().filter(move |(_, new)| *new == topic).map(|(old, _)| old)
+    }
+
     pub fn names(&self) -> Vec<String> {
         self.known.keys().cloned().collect()
     }
@@ -67,7 +85,7 @@ impl Topics {
     /// The canonical key of one subscription: only the declared parameters,
     /// in a fixed order.
     pub fn key(&self, topic: &str, params: &Value) -> Result<(String, String), RpcError> {
-        let Some(declared) = self.known.get(topic) else {
+        let Some(declared) = self.known.get(self.canon(topic)) else {
             return Err(RpcError::not_found(format!("there is no topic `{topic}`")));
         };
         let mut picked = BTreeMap::new();
@@ -87,7 +105,7 @@ impl Topics {
     }
 
     pub fn subscribe(&mut self, client: ClientId, key: (String, String)) -> Value {
-        let value = self.values.get(&key).cloned().unwrap_or(Value::Null);
+        let value = self.values.get(&(self.canon(&key.0).to_string(), key.1.clone())).cloned().unwrap_or(Value::Null);
         self.subscribers.entry(key).or_default().insert(client);
         value
     }
@@ -99,7 +117,8 @@ impl Topics {
     }
 
     pub fn has_subscribers(&self, key: &(String, String)) -> bool {
-        self.subscribers.get(key).is_some_and(|s| !s.is_empty())
+        let watched = |key: &(String, String)| self.subscribers.get(key).is_some_and(|s| !s.is_empty());
+        watched(key) || self.old_names(&key.0).any(|old| watched(&(old.clone(), key.1.clone())))
     }
 
     pub fn forget(&mut self, client: ClientId) {
@@ -108,19 +127,26 @@ impl Topics {
         }
     }
 
-    /// Store a new value; who to tell and what to send them.
-    pub fn publish(&mut self, key: (String, String), params: Value, value: Value) -> (Vec<ClientId>, Frame) {
-        let frame = Frame::host(notification(
-            "harnix.topic",
-            json!({"topic": key.0, "params": params, "value": value}),
-        ));
-        let to = self
-            .subscribers
-            .get(&key)
-            .map(|s| s.iter().copied().collect())
-            .unwrap_or_default();
+    /// Store a new value; who to tell and what to send them, under each name it is watched by.
+    pub fn publish(&mut self, key: (String, String), params: Value, value: Value) -> Vec<(Vec<ClientId>, Frame)> {
+        let mut told = Vec::new();
+        for name in std::iter::once(&key.0).chain(self.old_names(&key.0)) {
+            let to: Vec<ClientId> = self
+                .subscribers
+                .get(&(name.clone(), key.1.clone()))
+                .map(|s| s.iter().copied().collect())
+                .unwrap_or_default();
+            if to.is_empty() && *name != key.0 {
+                continue;
+            }
+            let frame = Frame::host(notification(
+                "harnix.topic",
+                json!({"topic": name, "params": params, "value": value}),
+            ));
+            told.push((to, frame));
+        }
         self.values.insert(key, value);
-        (to, frame)
+        told
     }
 }
 
@@ -139,6 +165,12 @@ impl crate::Hub {
 
     pub(crate) fn source(&self, topic: &str) -> Option<Arc<dyn TopicSource>> {
         read(&self.sources).get(topic).cloned()
+    }
+
+    /// Subscribing to `old` is subscribing to `new`, told under the old name: a topic whose
+    /// subscribers have not moved to its new name yet.
+    pub async fn alias_topic(&self, old: &str, new: &str) {
+        self.inner.lock().await.topics.alias(old, new);
     }
 
     /// Declare a topic after assembly — a runtime application's. Refused
@@ -183,20 +215,28 @@ impl crate::Hub {
     ) -> Result<Value, RpcError> {
         let client = crate::session::client_of(cx)?;
         let (topic, args) = topic_params(&params)?;
-        let key = self.inner.lock().await.topics.key(&topic, &args)?;
-        if let Some(source) = self.source(&topic) {
+        // One session's topic, by a caller claiming a space: the session must be that space's,
+        // as for a call about it.
+        if args.get("session_id").is_some() {
+            self.check_space(&cx.subject, "harnix.subscribe", &args)?;
+        }
+        let (key, canonical) = {
+            let guard = self.inner.lock().await;
+            (guard.topics.key(&topic, &args)?, guard.topics.canon(&topic).to_string())
+        };
+        if let Some(source) = self.source(&canonical) {
             source.on_subscribe(&args).await;
             if let Some(every) = source.every() {
-                self.tick(&topic, &args, every);
+                self.tick(&canonical, &args, every);
             }
             let value = source.compute(&args).await?;
             let mut guard = self.inner.lock().await;
             // A value computed afresh is news to whoever already watches it, as any publish is;
             // the new subscriber has it in its reply.
-            let (to, frame) = guard.topics.publish(key.clone(), args, value);
-            let out = guard.clients.to_many(&to, frame);
+            let told = guard.topics.publish((canonical, key.1.clone()), args, value);
+            let out: Vec<_> = told.into_iter().map(|(to, frame)| guard.clients.to_many(&to, frame)).collect();
             let value = guard.topics.subscribe(client, key);
-            crate::send_after(guard, [out]).await;
+            crate::send_after(guard, out).await;
             return Ok(json!({"topic": topic, "value": value}));
         }
         let mut guard = self.inner.lock().await;
@@ -307,5 +347,25 @@ mod tests {
         // Declaring it again starts from nothing.
         assert!(topics.declare_new("app.fake.ticks", vec!["job".into()]));
         assert_eq!(topics.subscribe(ClientId(1), a), Value::Null);
+    }
+
+    /// A topic watched by an old name is told under it, with the new one's values.
+    #[test]
+    fn a_moved_topic_is_watched_by_its_old_name_too() {
+        let mut topics = Topics::default();
+        topics.declare("system.process", Vec::new());
+        topics.alias("harnix.process", "system.process");
+        let old = topics.key("harnix.process", &json!({})).unwrap();
+        let new = topics.key("system.process", &json!({})).unwrap();
+        assert_eq!(old.0, "harnix.process");
+        topics.subscribe(ClientId(1), old.clone());
+        assert!(topics.has_subscribers(&new));
+        let told = topics.publish(new.clone(), json!({}), json!({"uptime_secs": 1}));
+        let names: Vec<String> = told.iter().map(|(_, f)| f.payload.to_string()).collect();
+        assert_eq!(told.len(), 2, "{names:?}");
+        assert!(told[0].0.is_empty());
+        assert_eq!(told[1].0, vec![ClientId(1)]);
+        assert!(names[1].contains("harnix.process"), "{names:?}");
+        assert_eq!(topics.subscribe(ClientId(2), old), json!({"uptime_secs": 1}));
     }
 }

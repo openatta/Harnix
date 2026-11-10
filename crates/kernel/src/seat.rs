@@ -106,6 +106,8 @@ pub struct Seat {
     pub config: Value,
     /// Its own directory, created before it migrates.
     pub data_dir: PathBuf,
+    /// Where this product's projects live: what the picker opens on and a new project is made in.
+    pub projects_dir: PathBuf,
     pub dispatch: Arc<dyn Dispatch>,
     pub grants: Arc<dyn GrantBook>,
     pub clients: Arc<dyn ClientRegistry>,

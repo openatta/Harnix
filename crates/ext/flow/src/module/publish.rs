@@ -24,7 +24,7 @@ pub(crate) async fn publish_runs(sh: &Arc<Shared>, runs: &BTreeSet<String>, list
         return;
     };
     let _order = sh.publish.lock().await;
-    let events = cx.events();
+    let events = cx.topics();
     for run in runs {
         if let Ok(rec) = engine.record(run).await {
             sh.prune_bindings(run, |b| binding_current(&rec, b));
@@ -102,7 +102,7 @@ pub(crate) async fn publish_defs(sh: &Arc<Shared>) {
         return;
     };
     let list = defs_list(engine.packs().as_ref());
-    if let Err(e) = cx.events().publish("defs", json!({}), &list).await {
+    if let Err(e) = cx.topics().publish("defs", json!({}), &list).await {
         tracing::warn!(error = %e, "defs not published");
     }
 }
@@ -113,7 +113,7 @@ pub(crate) async fn publish_focus(sh: &Arc<Shared>, instance: &str, session_id: 
     let flow = sh.focus(instance, session_id);
     let params = json!({"instance": instance, "session_id": session_id});
     if let Err(e) = cx
-        .events()
+        .topics()
         .publish("focus", params, json!({"flow": flow}))
         .await
     {
@@ -127,7 +127,7 @@ pub(crate) async fn publish_dry(sh: &Arc<Shared>, run: Option<&str>) {
         return;
     };
     let _order = sh.publish.lock().await;
-    let events = cx.events();
+    let events = cx.topics();
     if let Some(root) = match run {
         Some(r) => sandbox.root_of(r).await,
         None => None,

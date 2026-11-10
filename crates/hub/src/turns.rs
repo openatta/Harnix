@@ -362,6 +362,54 @@ impl Hub {
         Ok(result)
     }
 
+    /// `harnix.session.rename {instance?, session_id, title}`: the session's title is the
+    /// engine's name for it, so every client lists the same one; nothing here keeps a title of
+    /// its own.
+    pub(crate) async fn rename(self: &Arc<Self>, params: Value) -> Result<Value, RpcError> {
+        let key = self.key_of(&params)?;
+        let title = params.get("title").and_then(Value::as_str).unwrap_or("").trim().to_string();
+        if title.is_empty() {
+            return Err(RpcError::invalid_params("a title is not empty"));
+        }
+        self.engine(&key.0)?.ops().rename(&key.1, &title).await?;
+        self.refresh("harnix.instances.sessions", json!({"instance": key.0}));
+        Ok(json!({"session_id": key.1, "title": title}))
+    }
+
+    /// `harnix.session.setModel {instance?, session_id, model, provider?, space?}`: the model of a
+    /// session of the space the caller claims (the default space when it claims none). Never
+    /// across spaces: a space reaching across is not where this is done.
+    pub(crate) async fn set_model(self: &Arc<Self>, params: Value) -> Result<Value, RpcError> {
+        let key = self.key_of(&params)?;
+        let model = params
+            .get("model")
+            .and_then(Value::as_str)
+            .filter(|m| !m.is_empty())
+            .ok_or_else(|| RpcError::invalid_params("missing model"))?
+            .to_string();
+        let provider = params.get("provider").and_then(Value::as_str).map(str::to_string);
+        let (claimed, crosses, bound) = {
+            let spaces = harnix_contract::sync::lock(&self.spaces);
+            let claimed = spaces.claimed_space(&params);
+            let crosses = spaces.crosses(&claimed);
+            (claimed, crosses, spaces.bound(&key).to_string())
+        };
+        if crosses {
+            return Err(RpcError::new(
+                harnix_contract::codes::SPACE_MISMATCH,
+                format!("`{claimed}` reaches across spaces; a session's model is changed within its own"),
+            ));
+        }
+        if bound != claimed {
+            return Err(RpcError {
+                code: harnix_contract::codes::SPACE_MISMATCH,
+                message: format!("session `{}` on instance `{}` belongs to the space `{bound}`, not `{claimed}`", key.1, key.0),
+                data: Some(json!({"space": bound, "instance": key.0, "session_id": key.1})),
+            });
+        }
+        self.engine(&key.0)?.ops().set_model(&key.1, &model, provider.as_deref()).await
+    }
+
     /// Close a session, or `delete` it. Deleting it deletes its recording too, which is the link's
     /// to do.
     pub(crate) async fn close_or_delete(

@@ -1,17 +1,14 @@
-//! Directories, projects, and upload grants — the file-facing methods.
-//!
-//! Registered through the interface's own registry, like everything else
-//! this product draws (concept §3).
+//! Directories and projects: the file-facing methods.
 
 use std::path::PathBuf;
 
-use harnix_contract::{codes, RpcError};
+use harnix_ext::{codes, Call, RpcError};
 use serde_json::{json, Value};
 
 use crate::store::{new_workspace_id, Workspace};
-use crate::{home_dir, new_id, require_str, Builtin};
+use crate::{home_dir, require_str, App};
 
-impl Builtin {
+impl App {
     /// Files under a project root, for the composer's `@` menu.
     ///
     /// Walks with `ignore`, so `.gitignore` and friends apply — a mention menu
@@ -206,14 +203,8 @@ impl Builtin {
 
     /// Projects that already have sessions, most recently active first — the
     /// list a new-session dialog should offer before it offers a file browser.
-    pub(crate) async fn recent_projects(&self) -> Result<Value, RpcError> {
-        let listed = self
-            .call(
-                "sessions",
-                "session.list",
-                json!({"status": "all", "limit": 200}),
-            )
-            .await?;
+    pub(crate) async fn recent_projects(&self, call: &Call) -> Result<Value, RpcError> {
+        let listed = call.call("session.list", json!({"status": "all", "limit": 200})).await?;
         let mut seen: Vec<(String, String)> = Vec::new();
         if let Some(sessions) = listed.get("sessions").and_then(Value::as_array) {
             for s in sessions {
@@ -242,47 +233,6 @@ impl Builtin {
             "projects": seen.into_iter()
                 .map(|(root, at)| json!({"project_root": root, "last_active": at}))
                 .collect::<Vec<_>>(),
-        }))
-    }
-
-    /// Hand out a one-shot upload URL. Attachments do not ride the WebSocket:
-    /// the daemon's frame ceiling is 16 MiB and an image would sit right
-    /// under it, so the file goes over HTTP and the turn references its path.
-    pub(crate) async fn upload_begin(&self, params: Value) -> Result<Value, RpcError> {
-        let name = params
-            .get("name")
-            .and_then(Value::as_str)
-            .unwrap_or("upload.bin");
-        let bytes = params.get("bytes").and_then(Value::as_u64).unwrap_or(0) as usize;
-        if bytes > self.max_upload_bytes {
-            return Err(RpcError::new(
-                codes::INVALID_PARAMS,
-                format!("file exceeds {} bytes", self.max_upload_bytes),
-            ));
-        }
-        let token = new_id("u");
-        let safe: String = name
-            .chars()
-            .map(|c| {
-                if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' {
-                    c
-                } else {
-                    '_'
-                }
-            })
-            .collect();
-        let path = self.upload_dir.join(format!("{token}-{safe}"));
-        self.uploads
-            .lock()
-            .await
-            .insert(token.clone(), (path.clone(), self.max_upload_bytes));
-        Ok(json!({
-            "token": token,
-            "url": format!("/upload?token={token}"),
-            "path": path.display().to_string(),
-            // Said here as well as at hello, because this is the number this
-            // particular grant will be held to.
-            "max_bytes": self.max_upload_bytes,
         }))
     }
 }
