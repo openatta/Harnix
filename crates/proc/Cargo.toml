@@ -23,5 +23,12 @@ tokio       = { workspace = true }
 tracing     = { workspace = true }
 tracing-subscriber = { workspace = true }
 
+[features]
+# `ext-proc --probe <targets>`: what the sandbox lets the process reach, for tests
+# (`tests/sandbox.rs`). Never in a product's build.
+probe = []
+
 [dev-dependencies]
+harnix-supervise = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true }

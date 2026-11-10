@@ -10,11 +10,13 @@
 //!
 //! 1. Takes the stream it inherited at `--wire-fd` (3) — before anything else could open a
 //!    descriptor that takes the number — and keeps it from its own children.
-//! 2. Builds the host (`harnix-wasm-host`): one VM engine, deserializing only. The host's
+//! 2. On Linux, sandboxes itself as the product asked (`sandbox`), before it reads anything of
+//!    its package; on macOS it was started inside its sandbox.
+//! 3. Builds the host (`harnix-wasm-host`): one VM engine, deserializing only. The host's
 //!    [`Kernel`] is the wire's client end; its agent engine is this process's own, beside it.
-//! 3. Says `proc.hello` (its wire, Harnix and package-interface versions) and waits for the
+//! 4. Says `proc.hello` (its wire, Harnix and package-interface versions) and waits for the
 //!    product to answer: the product refuses a process that is not of its own build.
-//! 4. Answers the product's `ctl.*` with the host — `ctl.start` starts the package, whose names
+//! 5. Answers the product's `ctl.*` with the host — `ctl.start` starts the package, whose names
 //!    go back as `proc.register` — until the wire closes, stdin closes (the product is gone), or
 //!    the product says `ctl.shutdown`.
 //!
@@ -24,6 +26,9 @@
 mod agent;
 mod answer;
 pub mod args;
+#[cfg(feature = "probe")]
+mod probe;
+mod sandbox;
 
 use std::ffi::OsString;
 use std::future::Future;
@@ -46,7 +51,8 @@ use crate::agent::NoEngine;
 use crate::answer::Answering;
 
 /// The exit status of a process that could not be set up — no wire at the descriptor it was
-/// given, no VM engine — with why on the first line of stderr (`EX_CONFIG`).
+/// given, no sandbox where one was asked for, no VM engine — with why on the first line of stderr
+/// (`EX_CONFIG`).
 pub const EXIT_SETUP: i32 = 78;
 
 /// The Harnix this process is: what `proc.hello` says, and the product compares with its own.
@@ -75,10 +81,15 @@ pub fn entry(args: Vec<OsString>) -> anyhow::Result<()> {
     if args.engine_fd.is_some() {
         setup_failed(&anyhow!("`--engine-fd`: this extension process serves no engine of its own yet"));
     }
+    sandbox::apply().context("its sandbox").unwrap_or_else(|e| setup_failed(&e));
     if let Some(run) = &args.run {
         std::env::set_current_dir(run)
             .with_context(|| format!("its run directory {}", run.display()))
             .unwrap_or_else(|e| setup_failed(&e));
+    }
+    #[cfg(feature = "probe")]
+    if let Some(targets) = &args.probe {
+        return probe::run(targets, &args, stream);
     }
     let _ = tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
