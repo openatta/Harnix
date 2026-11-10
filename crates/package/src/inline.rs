@@ -319,7 +319,7 @@ impl Inline {
             }
             if !Self::device_method(manifest, COMPLETE) {
                 return refuse(format!(
-                    "{at}: its candidates come from `app.{id}.{COMPLETE}`, and the manifest declares no `[[method]]` `{COMPLETE}` a device may call"
+                    "{at}: its candidates come from `{id}.{COMPLETE}`, and the manifest declares no `[[method]]` `{COMPLETE}` a device may call"
                 ));
             }
         }

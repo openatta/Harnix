@@ -23,24 +23,24 @@ impl Extension for Devices {
 
     fn register(&self, r: &mut Registrar<'_, ()>) {
         r.method("list")
-            .access(Access::device())
+            .access(Access::kernel().with_device())
             .describe("the paired devices")
             .raw(|call, _| async move { Ok(call.ext().devices()?.list()) });
         r.method("pair.begin")
-            .access(Access::device())
+            .access(Access::kernel().with_device())
             .describe("a pairing code for a new device, shown once")
             .raw(|call, params| async move {
                 let label = params.get("label").and_then(Value::as_str).unwrap_or("device");
                 Ok(call.ext().devices()?.pair_begin(label))
             });
         r.method("pair.complete")
-            .access(Access::device())
+            .access(Access::kernel().with_device())
             .describe("finish pairing with the code and the device's public key")
             .raw(|call, params| async move {
                 call.ext().devices()?.pair_complete(&require(&params, "code")?, &require(&params, "public_key")?)
             });
         r.method("revoke")
-            .access(Access::device())
+            .access(Access::kernel().with_device())
             .describe("forget a device and end every channel it holds")
             .raw(|call, params| async move {
                 let revoked = call.ext().devices()?.revoke(&require(&params, "device_id")?);

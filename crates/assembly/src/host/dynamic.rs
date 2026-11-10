@@ -24,7 +24,7 @@ use harnix_kernel::seat::Seated;
 use harnix_kernel::{CallContext, Chain, Handler, Rpc};
 use harnix_module::apps::AppRuntime;
 use harnix_module::{AppTopic, AppTopicSink};
-use harnix_router::names::{app_name, valid_app_id};
+use harnix_router::names::{full_name, valid_package_id};
 use harnix_router::{Row, Router};
 use serde_json::{json, Value};
 
@@ -116,7 +116,7 @@ fn check(d: &ExtensionDescriptor, caps: &[Capability], router: &Router) -> Rpc<(
     if !matches!(d.trust(), Trust::Consent { .. }) {
         return Err(structure("its trust is not consent"));
     }
-    if !valid_app_id(id) {
+    if !valid_package_id(id) {
         return Err(structure("its id is not a package's"));
     }
     if d.spaces().iter().any(|s| s.cross_space) {
@@ -135,7 +135,7 @@ fn check(d: &ExtensionDescriptor, caps: &[Capability], router: &Router) -> Rpc<(
         }
     }
     for name in d.trust().calls().into_iter().flatten() {
-        if harnix_router::names::names_an_application(name) {
+        if table.names_a_package(name) {
             continue;
         }
         if let Some(row) = table.row(name) {
@@ -176,7 +176,7 @@ impl DynamicRegistry for RegistryFor {
             );
         };
         if let Err(e) = check(&d, &caps, &self.host.router) {
-            audit(&app_name(d.id().as_str(), "*"), "a runtime descriptor that is not a package's");
+            audit(&full_name(d.id().as_str(), "*"), "a runtime descriptor that is not a package's");
             return Err(e);
         }
         let id = d.id().clone();
@@ -187,7 +187,7 @@ impl DynamicRegistry for RegistryFor {
         let data_dir = self.host.state_root.join("ext").join(id.as_str()).join("data");
         d.seat(self.host.seats.seat(&id, &Value::Null, &data_dir));
         let availability = Arc::new(RwLock::new(Availability::Starting));
-        let prefix = format!("app.{id}.");
+        let prefix = format!("{id}.");
         let rows: Vec<Row> = d
             .methods()
             .iter()

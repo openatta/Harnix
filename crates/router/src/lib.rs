@@ -18,7 +18,7 @@ mod snapshot;
 mod table;
 
 pub use names::{route, topic};
-pub use table::{IdKind, Row, RowKind, RouteTable, TableError, OUTSIDE_HUB, UNREGISTERED};
+pub use table::{IdKind, Row, RowKind, RouteTable, TableError, ANOTHER_PACKAGES, NOT_FOR_PACKAGES, OUTSIDE_HUB, UNREGISTERED};
 
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -77,18 +77,18 @@ impl Router {
         write(&self.table)
     }
 
-    /// Put a runtime application's rows in the table, all or none, its id registered as a
-    /// package's ([`RouteTable::install_app`]). Put on the record who did: one `declare` entry
+    /// Put a package's rows in the table, all or none, its id registered as a package's
+    /// ([`RouteTable::install_package`]). Put on the record who did: one `declare` entry
     /// per name, or one `refuse` entry naming the first name that did not take. What it may reach
     /// as itself is its consent, in the grants.
-    pub fn install_app(&self, by: &Subject, app: &str, rows: Vec<Row>) -> Result<(), TableError> {
+    pub fn install_package(&self, by: &Subject, app: &str, rows: Vec<Row>) -> Result<(), TableError> {
         let names: Vec<String> = rows.iter().map(|r| r.name().to_string()).collect();
-        let result = self.table_mut().install_app(app, rows);
+        let result = self.table_mut().install_package(app, rows);
         match &result {
             Ok(()) => {
                 for name in &names {
                     self.audit
-                        .record_change(by, name, Change::Declare, Some("declared by a runtime application"));
+                        .record_change(by, name, Change::Declare, Some("declared by a package"));
                 }
             }
             Err(e) => {
@@ -99,7 +99,7 @@ impl Router {
                     | TableError::Unknown(n)
                     | TableError::Capability(n)
                     | TableError::NotOwner { name: n, .. } => n.clone(),
-                    TableError::NamespaceTaken { id, .. } => names::app_name(id, "*"),
+                    TableError::NamespaceTaken { id, .. } => names::full_name(id, "*"),
                 };
                 self.audit.record_change(by, &name, Change::Refuse, Some(change_refusal(e)));
             }
@@ -107,7 +107,7 @@ impl Router {
         result
     }
 
-    /// Take an owner's rows back out after assembly — a runtime application withdrawn, a module
+    /// Take an owner's rows back out after assembly — a package withdrawn, an extension
     /// that failed to start — each on the record under `by`, with `why`. A call decided after
     /// this returns is decided as unknown.
     pub fn withdraw(&self, by: &Subject, owner: &Owner, why: &'static str) -> Vec<String> {
@@ -152,13 +152,16 @@ impl Router {
             return Decision::Refuse(NO_FRAME);
         };
         let listed = |name: &str| calls.contains(name);
-        let allowed = match subscribed_topic(method, params) {
-            Some(name) => listed(&topic(name)) || table.owns(ext, name),
-            None => listed(method) || table.owns(ext, method),
+        let (row, allowed) = match subscribed_topic(method, params) {
+            Some(name) => (topic(name), listed(&topic(name)) || table.owns(ext, name)),
+            None => (method.to_string(), listed(method) || table.owns(ext, method)),
         };
-        match allowed {
-            true => Decision::Allow,
-            false => Decision::Refuse(OUTSIDE_FRAME),
+        if !allowed {
+            return Decision::Refuse(OUTSIDE_FRAME);
+        }
+        match table.open_to_package(ext, &row) {
+            Ok(()) => Decision::Allow,
+            Err(why) => Decision::Refuse(why),
         }
     }
 
@@ -358,7 +361,11 @@ mod tests {
             .install(&Owner::Kernel(KernelPart::Router), vec![Row::closed(REACHABLE, Access::device())])
             .unwrap();
         table.install(&Owner::extension(id("w")), vec![Row::route("w", access_for(&[Principal::Kernel]))]).unwrap();
-        table.install_app("acme.notes", vec![Row::method("app.acme.notes.list", Access::device(), seen.clone())]).unwrap();
+        table.install_package("acme.notes", vec![Row::method("acme.notes.list", Access::device(), seen.clone())]).unwrap();
+        // A first-party power, open to devices alone; and another package's method.
+        table.register(&id("system"), crate::IdKind::Native).unwrap();
+        table.install(&Owner::extension(id("system")), vec![Row::method("system.compact", Access::kernel().with_device(), seen.clone())]).unwrap();
+        table.install_package("acme.todo", vec![Row::method("acme.todo.list", Access::device(), seen.clone())]).unwrap();
         let grants = Arc::new(GrantTable::new());
         grants.set(id("system"), [caps::ENGINE_INSPECT], Trust::Origin);
         grants.set(id("w"), [], Trust::Origin);
@@ -411,7 +418,7 @@ mod tests {
     async fn a_package_is_held_to_its_consent_and_its_own_space() {
         let (router, _, _) = router();
         let me = || CallContext::root(Subject::extension(id("acme.notes")), None);
-        assert!(router.call(me(), "app.acme.notes.list", json!({})).await.is_ok(), "its own, unlisted");
+        assert!(router.call(me(), "acme.notes.list", json!({})).await.is_ok(), "its own, unlisted");
         let e = router.call(me(), "harnix.hello", json!({})).await.unwrap_err();
         assert_eq!(e.message, OUTSIDE_HUB);
         // A session or a space: only claiming its own.
@@ -439,7 +446,7 @@ mod tests {
         grants.set_frame(&id("acme.notes"), Some(["engine.session.get".to_string(), "engine.config.set".to_string()].into()));
         // Its own names; listed ones, narrowed to its space; what it lists the device may not do,
         // it may not either.
-        assert!(router.call(page(), "app.acme.notes.list", json!({})).await.is_ok());
+        assert!(router.call(page(), "acme.notes.list", json!({})).await.is_ok());
         assert!(router.call(page(), "engine.session.get", json!({"space": "acme.notes"})).await.is_ok());
         let e = router.call(page(), "engine.session.get", json!({"space": "sessions"})).await.unwrap_err();
         assert_eq!(e.message, harnix_authz::OUTSIDE_OWN_SPACE);
@@ -475,6 +482,25 @@ mod tests {
 
     /// A page in a frame subscribes as it calls: only to what its interface lists, as
     /// `topic:<name>`, and the device's power besides.
+    /// What a page in a frame lists does not lend it a first-party power the device holds, nor
+    /// another package's names: a package borrows neither through its frames.
+    #[tokio::test]
+    async fn a_page_in_a_frame_borrows_no_first_party_power_and_no_other_packages_names() {
+        let (router, _, grants) = router();
+        let page = || {
+            let mut cx = CallContext::root(device(), None);
+            cx.on_behalf_of = Some(id("acme.notes"));
+            cx
+        };
+        grants.set_frame(&id("acme.notes"), Some(["system.compact".to_string(), "acme.todo.list".to_string()].into()));
+        // The device itself reaches both.
+        assert!(router.call(CallContext::root(device(), None), "system.compact", json!({})).await.is_ok());
+        let e = router.call(page(), "system.compact", json!({})).await.unwrap_err();
+        assert_eq!((e.code, e.message.as_str()), (codes::REFUSED, NOT_FOR_PACKAGES));
+        let e = router.call(page(), "acme.todo.list", json!({})).await.unwrap_err();
+        assert_eq!((e.code, e.message.as_str()), (codes::REFUSED, ANOTHER_PACKAGES));
+    }
+
     #[tokio::test]
     async fn a_page_in_a_frame_subscribes_only_to_what_its_interface_lists() {
         let (router, _, grants) = router();
@@ -505,7 +531,7 @@ mod tests {
         let reach = router.call(CallContext::root(device(), None), REACHABLE, json!({})).await.unwrap();
         assert_eq!(
             reach["methods"],
-            json!(["app.acme.notes.list", "engine.session.get", "harnix.hello", "harnix.reachable", "harnix.topics.subscribe", "sessions.list"])
+            json!(["acme.notes.list", "acme.todo.list", "engine.session.get", "harnix.hello", "harnix.reachable", "harnix.topics.subscribe", "sessions.list", "system.compact"])
         );
         assert_eq!(reach["topics"], json!(["harnix.instances"]));
     }

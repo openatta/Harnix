@@ -503,7 +503,7 @@ impl Host {
                 return Err(e);
             }
         };
-        let full = |name: &String| format!("app.{id}.{name}");
+        let full = |name: &String| format!("{id}.{name}");
         let world = booted.vm.as_ref().map(|vm| world_name(vm.world()));
         let backend = booted.vm.as_ref().filter(|vm| vm.world() == World::Backend);
         let idle = backend.and(manifest.backend.on_demand().then(|| {
@@ -714,7 +714,7 @@ impl Control for Host {
     }
 
     async fn call_method(&self, meta: CallMeta, call: MethodCall) -> Result<Value, RpcError> {
-        let full = format!("app.{}.{}", call.app, call.method);
+        let full = format!("{}.{}", call.app, call.method);
         if meta.expired(crate::bridge::now_ms()) {
             return Err(RpcError::new(
                 harnix_wasm_port::codes::DEADLINE_EXCEEDED,

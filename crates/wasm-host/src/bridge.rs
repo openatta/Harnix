@@ -432,7 +432,7 @@ pub(crate) fn failure_of(failure: &CallFailure) -> Failure {
 
 impl Method {
     fn full(&self) -> String {
-        format!("app.{}.{}", self.app, self.name)
+        format!("{}.{}", self.app, self.name)
     }
 
     /// Checked against its schema, then answered by `vm` (none: the application is not running),

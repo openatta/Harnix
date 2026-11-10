@@ -295,7 +295,7 @@ mod tests {
             Row::method(format!("app.{id}.internal"), own(&[Principal::Kernel, Principal::Module(id.into())]), Arc::new(Nothing)),
             Row::topic(&format!("app.{id}.ticks"), own(&[Principal::Module(id.into())])),
         ];
-        router.install_app(&Subject::Kernel, id, rows).unwrap();
+        router.install_package(&Subject::Kernel, id, rows).unwrap();
 
         let me = Subject::extension(harnix_contract::ExtId::package(id).unwrap());
         let reach = router.call(CallContext::root(me, None), harnix_router::REACHABLE, json!({})).await.unwrap();

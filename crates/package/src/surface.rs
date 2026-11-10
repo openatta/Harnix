@@ -156,9 +156,9 @@ pub fn runs_in_frames(trust: Trust, interface: &Interface, has_modules: bool) ->
 }
 
 /// Whether a frame of an application may call `method` (or, with `topic`, subscribe to it): its
-/// own `app.<id>.*`, or a name its `[interface] calls` lists.
+/// own `<id>.*`, or a name its `[interface] calls` lists.
 pub fn admits(id: &str, interface: &Interface, name: &str, topic: bool) -> bool {
-    if name.starts_with(&format!("app.{id}.")) {
+    if name.starts_with(&format!("{id}.")) {
         return true;
     }
     let wanted = if topic {
@@ -173,11 +173,11 @@ pub fn admits(id: &str, interface: &Interface, name: &str, topic: bool) -> bool 
 pub fn check(id: &str, interface: &Interface, surfaces: &[Surface]) -> Result<(), Error> {
     for entry in &interface.calls {
         let name = entry.strip_prefix("topic:").unwrap_or(entry);
-        if !valid_dotted(name) || name.starts_with("app.") {
+        if !valid_dotted(name) || name.starts_with(&format!("{id}.")) {
             return Err(format!(
                 "{MANIFEST}: `{entry}` in `[interface] calls` is a method name, or `topic:` and a \
-                 topic's, that is not the application's own (its own `app.{id}.*` needs no entry, \
-                 and another application's is never given)"
+                 topic's, that is not the application's own (its own `{id}.*` needs no entry; \
+                 another application's is never given, which the server holds it to)"
             ));
         }
         if let Some(never) = NEVER
@@ -364,14 +364,14 @@ mod tests {
             ],
             ..Interface::default()
         };
-        assert!(admits(ID, &interface, "app.acme.notes.list", false));
-        assert!(admits(ID, &interface, "app.acme.notes.changes", true));
+        assert!(admits(ID, &interface, "acme.notes.list", false));
+        assert!(admits(ID, &interface, "acme.notes.changes", true));
         assert!(admits(ID, &interface, "harnix.sessions.list", false));
         assert!(admits(ID, &interface, "harnix.session.tasks", true));
         assert!(!admits(ID, &interface, "harnix.session.tasks", false));
         assert!(!admits(ID, &interface, "harnix.sessions.list", true));
-        assert!(!admits(ID, &interface, "app.acme.other.list", false));
-        assert!(!admits(ID, &interface, "app.acme.notesx.list", false));
+        assert!(!admits(ID, &interface, "acme.other.list", false));
+        assert!(!admits(ID, &interface, "acme.notesx.list", false));
     }
 
     #[test]
@@ -458,8 +458,7 @@ mod tests {
             )
             .unwrap_err()
         };
-        assert!(calls("app.acme.notes.list").contains("needs no entry"));
-        assert!(calls("app.other.list").contains("never given"));
+        assert!(calls("acme.notes.list").contains("needs no entry"));
         assert!(calls("packages.uninstall").contains("the shell's own"));
         assert!(calls("harnix.topics.subscribe").contains("the shell's own"));
         assert!(calls("topic:settings.changed").contains("the shell's own"));

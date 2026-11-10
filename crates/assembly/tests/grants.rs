@@ -313,7 +313,7 @@ mod scope {
         let consent = ["engine.session.get", "harnix.sessions.list", "harnix.session.create"].map(String::from);
         r.grants.set(id("acme.notes"), [], Trust::consent(consent, PackageCarrier::Wasm));
         let own = Row::method("app.acme.notes.list", Access::device(), Arc::new(Answer));
-        r.router.install_app(&Subject::Kernel, "acme.notes", vec![own]).unwrap();
+        r.router.install_package(&Subject::Kernel, "acme.notes", vec![own]).unwrap();
         if let Some(calls) = frame {
             r.grants.set_frame(&id("acme.notes"), Some(calls.iter().map(|c| c.to_string()).collect()));
         }
@@ -365,7 +365,7 @@ mod scope {
         ];
         let r = registered(true, first_party("")).unwrap();
         let own = Row::method("app.acme.notes.list", Access::device(), Arc::new(Answer));
-        r.router.install_app(&Subject::Kernel, "acme.notes", vec![own]).unwrap();
+        r.router.install_package(&Subject::Kernel, "acme.notes", vec![own]).unwrap();
         r.grants.set(id("acme.notes"), [], Trust::consent([], PackageCarrier::Wasm));
         r.grants.set_frame(&id("acme.notes"), Some(listed.iter().map(|c| c.to_string()).collect()));
         let page = || {
@@ -437,7 +437,7 @@ mod names {
 
     fn package(r: &Registered, app: &str) -> Result<(), TableError> {
         let row = Row::method(format!("app.{app}.x"), Access::device(), Arc::new(scope_answer()));
-        r.router.install_app(&Subject::Kernel, app, vec![row])
+        r.router.install_package(&Subject::Kernel, app, vec![row])
     }
 
     fn scope_answer() -> impl Handler {

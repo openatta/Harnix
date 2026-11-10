@@ -56,7 +56,7 @@ use harnix_module::apps::AppRuntime;
 use harnix_module::{AppSpec, AppSummary, AppTopic, AppTopicSink, AppWithdrawn, Principal};
 use harnix_contract::s1::{PackageCarrier, Trust};
 use harnix_kernel::GrantTable;
-use harnix_router::names::{app_name, names_an_application, topic, valid_app_id};
+use harnix_router::names::{full_name, topic, valid_package_id};
 use harnix_router::{Row, Router, TableError};
 use serde_json::{json, Value};
 
@@ -229,9 +229,9 @@ impl Apps {
         let _serial = self.serial.lock().await;
         let host = subject_of(by);
         let id = spec.id.clone();
-        let all = app_name(&id, "*");
+        let all = full_name(&id, "*");
         let az = &*self.router;
-        if !valid_app_id(&id) {
+        if !valid_package_id(&id) {
             return Err(refuse(
                 az,
                 &host,
@@ -243,7 +243,7 @@ impl Apps {
         // Its id: free of every registered one — compiled-in modules, enabled or not, and the
         // applications registered — and not under a reserved word. A compiled-in module's names
         // keep precedence: the application is the one refused, saying who has its namespace.
-        if let Err(TableError::NamespaceTaken { by: taken, .. }) = az.table().check_app(&id, std::iter::empty()) {
+        if let Err(TableError::NamespaceTaken { by: taken, .. }) = az.table().check_package(&id, std::iter::empty()) {
             router_audit(az, &host, &all, "namespace_taken");
             let mut e = RpcError::refused(format!(
                 "the application id `{id}` overlaps `{taken}`, which is registered already and keeps its names"
@@ -267,7 +267,7 @@ impl Apps {
         // application's names are left to that application's principals. What a name requires
         // beyond that it does not hold: a package holds none of the kernel's capabilities.
         for name in &spec.calls {
-            if names_an_application(name) {
+            if az.table().names_a_package(name) {
                 continue;
             }
             if let Err(e) = az.table().check_listed(name) {
@@ -281,7 +281,7 @@ impl Apps {
             }
         }
 
-        let topics: Vec<String> = spec.topics.iter().map(|t| app_name(&id, &t.name)).collect();
+        let topics: Vec<String> = spec.topics.iter().map(|t| full_name(&id, &t.name)).collect();
         let methods: Vec<String> = spec
             .rows
             .iter()
@@ -290,7 +290,7 @@ impl Apps {
             .map(str::to_string)
             .collect();
         let rows = spec.rows;
-        if let Err(e) = az.table().check_app(&id, rows.iter().map(Row::name)) {
+        if let Err(e) = az.table().check_package(&id, rows.iter().map(Row::name)) {
             let name = match &e {
                 TableError::Taken(n) | TableError::Namespace(n) => n.clone(),
                 _ => all.clone(),
@@ -320,7 +320,7 @@ impl Apps {
         //    there. From here its subject reaches its `calls` and its own names, narrowed to its
         //    own space, and nothing more.
         self.grants.set(ext_of(&id), spec.caps, Trust::consent(spec.calls.iter().cloned(), spec.carrier));
-        if let Err(e) = az.install_app(&host, &id, rows) {
+        if let Err(e) = az.install_package(&host, &id, rows) {
             self.grants.remove(&ext_of(&id));
             self.undo(&declared_topics, &added_spaces).await;
             return Err(RpcError::refused(e.to_string()));
@@ -382,10 +382,10 @@ impl AppRuntime for Apps {
             .methods
             .iter()
             .map(|m| {
-                Row::method(app_name(&id, &m.name), with_self(&m.principals), Arc::new(RuntimeMethod(m.handler.clone())))
+                Row::method(full_name(&id, &m.name), with_self(&m.principals), Arc::new(RuntimeMethod(m.handler.clone())))
                     .describe(m.description.clone())
             })
-            .chain(spec.topics.iter().map(|t| Row::topic(&app_name(&id, &t.name), with_self(&t.principals))))
+            .chain(spec.topics.iter().map(|t| Row::topic(&full_name(&id, &t.name), with_self(&t.principals))))
             .collect();
         self.install(
             by,
@@ -459,7 +459,7 @@ impl AppRuntime for Apps {
             let Some(decl) = app.topics.iter().find(|t| t.name == topic) else {
                 return Err(RpcError::not_found(format!("`app.{id}.{topic}` is not a topic this application declared")));
             };
-            (app_name(id, topic), normalize(params, &decl.params)?)
+            (full_name(id, topic), normalize(params, &decl.params)?)
         };
         self.surfaces.publish(&name, params, value).await;
         Ok(())
