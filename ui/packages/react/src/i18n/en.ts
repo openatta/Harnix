@@ -610,6 +610,8 @@ const en: Record<string, string> = {
   "avatar.you": "Me",
   "common.back": "Back",
   "contrib.noRegister": "This module exports no register(registry, host)",
+  "host.menu": "Actions",
+  "action.failed": "{action} failed: {error}",
   "host.noSpace": "There is no space `{space}` here",
   "host.noSession": "There is no session {session}",
   "host.noTab": "`{tab}` is not a tab of the space {space}",

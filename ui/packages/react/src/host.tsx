@@ -1,6 +1,6 @@
 /**
- * `useHost()` — what a contribution may do (concept §5.6). The interface provides it; a
- * contribution's component calls it.
+ * `useHost()` — what a UI package, a page module and a contribution may do (concept §5.6). The
+ * shell provides it; a contribution's component calls it.
  *
  * Deliberately not here: the connection. A contribution calls methods and subscribes to topics by
  * name and never learns which topology carries them, so the same code runs over one duplex
@@ -11,7 +11,7 @@
  */
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import type { Methods, SessionRow } from "@harnix/core";
+import type { ExtensionEntry, Methods, Notifications, ParsedSessionEvent, SessionRow } from "@harnix/core";
 import type { SessionState } from "@harnix/core/state";
 
 import type { DetailItem } from "./contrib";
@@ -32,6 +32,31 @@ export interface ShellContext {
   tone?: "active" | "muted";
   /** Given: the line is a button that calls it. */
   onClick?: () => void;
+}
+
+/** A turn ended (`harnix.turn_settled`), done, failed or interrupted. */
+export type TurnSettled = Notifications["harnix.turn_settled"];
+/** Something about the host, not one session (`harnix.host_event`). */
+export type HostEvent = Notifications["harnix.host_event"];
+
+/** One event of a session this page is attached to. */
+export interface SessionEventView {
+  /** The engine's shape: not stable, it follows `hello.engine_protocol`. */
+  raw: unknown;
+  /** `@harnix/core`'s reading of it; `{ kind: "other" }` for what it does not know. */
+  parsed: ParsedSessionEvent;
+  /** `extension`: a session of an engine in an extension's process — draw its content untrusted. */
+  trust: "product" | "extension";
+}
+
+/** One item of `host.dialogs.menu`. */
+export interface MenuItem {
+  id: string;
+  label: string;
+  icon?: string;
+  danger?: boolean;
+  disabled?: boolean;
+  run(): void | Promise<void>;
 }
 
 export interface HostApi {
@@ -124,17 +149,39 @@ export interface HostApi {
     onChange(fn: (open: boolean) => void): () => void;
   };
   /**
-   * A module's own link (concept §3.3.5): its routes under `/apps/<module>/`, same-origin, with the
-   * credential put on by the host. Paths cannot leave the module's prefix. These links do not get
-   * the guarantees of `call` and `subscribe` — topology independence, catching up by `seq`.
+   * An extension's own link (concept §3.3.5): its routes, same-origin, with the credential put on
+   * by the host. Paths cannot leave the extension's prefix. These links do not get the guarantees
+   * of `call` and `subscribe` — topology independence, catching up by `seq`.
    */
-  space(module: string): {
+  ext(id: string): {
     fetch(path: string, init?: RequestInit): Promise<Response>;
     socket(path: string): WebSocket;
   };
   /** Open something in the details pane: a card in a message reveals what it is about. */
   reveal(item: DetailItem): void;
   t: Translate;
+  events: {
+    /** A turn ended, in any session this page knows. Returns the unsubscribe. */
+    onTurnSettled(fn: (e: TurnSettled) => void): () => void;
+    /** The events of a session this page is attached to. Returns the unsubscribe. */
+    onSessionEvent(ref: SessionRef, fn: (e: SessionEventView) => void): () => void;
+    onHostEvent(fn: (e: HostEvent) => void): () => void;
+  };
+  /** Across spaces: bring `space` to the front, open `session` there, and hand `selection` to the
+   *  space's `accept`. Rejects when there is no such space. */
+  navigate: { open(target: { space: string; session?: SessionRef; selection?: unknown }): Promise<void> };
+  /** The shell's own layer (focus, Escape, the page inert under it): an extension makes none. */
+  dialogs: {
+    confirm(text: string, opts?: { title?: string; confirm?: string; danger?: boolean }): Promise<boolean>;
+    prompt(opts: { title: string; label: string; value?: string; validate?(v: string): string | null }): Promise<string | null>;
+    open<T>(render: (close: (result: T | null) => void) => ReactNode, opts?: { title?: string; wide?: boolean }): Promise<T | null>;
+    menu(anchor: Element | { x: number; y: number }, items: MenuItem[]): Promise<void>;
+  };
+  /** For diagnostics and an about page — not for deciding whether to fill another's point: that
+   *  is whether the point is defined. */
+  extensions: { list(): ExtensionEntry[]; onChange(fn: () => void): () => void };
+  /** `hello.defaults`: neither the shell nor an extension writes "system" or "sessions" in. */
+  defaults: { instance: string; space: string | null };
 }
 
 const HostContext = createContext<HostApi | null>(null);
