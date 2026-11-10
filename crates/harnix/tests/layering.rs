@@ -1296,13 +1296,11 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P1"]
     fn l19_package() {
         depends(PACKAGE, &[CONTRACT, WASM], &agix_and(&[KERNEL, EXT]), &[WASM]);
     }
 
     #[test]
-    #[ignore = "0.5.0：P1"]
     fn l20_wasm_port() {
         depends(WASM_PORT, &[CONTRACT], &[], &[]);
         for (dep, optional) in normal(WASM_PORT) {
@@ -1321,7 +1319,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P1"]
     fn l21_wasm_host() {
         depends(WASM_HOST, &[CONTRACT, PACKAGE, WASM_PORT, WASM], &agix_and(&[KERNEL, EXT]), &[]);
     }
@@ -1703,7 +1700,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P1"]
     fn c11_the_package_crate_reads_only_an_agent_plugins_name_and_version() {
         assert_reads_only_plugin_name_and_version(&crate_dir(PACKAGE).join("src/package.rs"));
     }
