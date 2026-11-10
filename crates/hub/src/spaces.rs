@@ -262,6 +262,11 @@ impl Hub {
         removed
     }
 
+    /// The default space's id, when an extension declared one: what `hello` tells a client.
+    pub fn default_space(&self) -> Option<String> {
+        lock(&self.spaces).default_space().map(str::to_string)
+    }
+
     pub fn set_audit(&self, hook: AuditHook) {
         *write(&self.audit) = Some(hook);
     }

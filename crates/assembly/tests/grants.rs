@@ -358,6 +358,59 @@ mod scope {
         assert_eq!(call(&r, me(), "app.acme.notes.list", json!({"x": 1})).await.unwrap(), json!({"x": 1}));
     }
 
+    /// What a frame may list of the session space's rows and the hub's session topics reaches
+    /// its own space alone: each is scoped to a session or a space, so a page claiming another
+    /// space, or none, is refused before the hub is asked.
+    #[tokio::test]
+    async fn the_session_rows_and_topics_a_frame_may_list_are_its_own_spaces() {
+        let listed = [
+            "harnix.sessions.archive",
+            "harnix.sessions.export",
+            "harnix.sessions.move",
+            "harnix.sessions.rename",
+            "harnix.subscribe",
+            "topic:harnix.sessions.tasks",
+            "topic:harnix.sessions.status",
+            "topic:harnix.instances.sessions",
+        ];
+        let r = registered(true, first_party("")).unwrap();
+        let own = Row::method("app.acme.notes.list", Access::device(), Arc::new(Answer));
+        r.router.install_app(&Subject::Kernel, "acme.notes", vec![own]).unwrap();
+        r.grants.set(id("acme.notes"), [], Trust::consent([], PackageCarrier::Wasm));
+        r.grants.set_frame(&id("acme.notes"), Some(listed.iter().map(|c| c.to_string()).collect()));
+        let page = || {
+            let mut cx = CallContext::root(Subject::device("d"), None);
+            cx.on_behalf_of = Some(id("acme.notes"));
+            cx
+        };
+        let sub = |topic: &str, space: Option<&str>| {
+            let mut params = json!({"instance": "system", "session_id": "s"});
+            if let Some(space) = space {
+                params["space"] = json!(space);
+            }
+            json!({"topic": topic, "params": params})
+        };
+        for method in ["harnix.sessions.archive", "harnix.sessions.export", "harnix.sessions.move", "harnix.sessions.rename"] {
+            for space in [None, Some("sessions")] {
+                let mut params = json!({"session_id": "s"});
+                if let Some(space) = space {
+                    params["space"] = json!(space);
+                }
+                let e = r.router.call(page(), method, params).await.unwrap_err();
+                assert!(refused_outside(&e), "{method} {space:?}: {e:?}");
+            }
+        }
+        for topic in ["harnix.sessions.tasks", "harnix.sessions.status", "harnix.instances.sessions"] {
+            for space in [None, Some("sessions")] {
+                let e = r.router.call(page(), "harnix.subscribe", sub(topic, space)).await.unwrap_err();
+                assert!(refused_outside(&e), "{topic} {space:?}: {e:?}");
+            }
+            // Its own space's: through to the hub, which is not up here.
+            let e = r.router.call(page(), "harnix.subscribe", sub(topic, Some("acme.notes"))).await.unwrap_err();
+            assert!(!refused_outside(&e), "{topic}: {e:?}");
+        }
+    }
+
     #[tokio::test]
     async fn a_page_in_a_frame_has_the_devices_power_and_its_interfaces_list_both() {
         let page = |on: &str| {

@@ -63,7 +63,7 @@ impl Hello {
             "commands": commands.get("commands").cloned().unwrap_or(json!([])),
             // What a client fills in when it names none: the instance, and the space (none until
             // a product names one).
-            "defaults": { "instance": SYSTEM, "space": Value::Null },
+            "defaults": { "instance": SYSTEM, "space": self.hub.default_space() },
             // Every extension and whether it is enabled: the shell activates the UI packages
             // compiled into it by this, before its first draw. What changes later, and the
             // interface modules to load, are `harnix.ui`'s.

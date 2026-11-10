@@ -215,6 +215,11 @@ impl crate::Hub {
     ) -> Result<Value, RpcError> {
         let client = crate::session::client_of(cx)?;
         let (topic, args) = topic_params(&params)?;
+        // One session's topic, by a caller claiming a space: the session must be that space's,
+        // as for a call about it.
+        if args.get("session_id").is_some() {
+            self.check_space(&cx.subject, "harnix.subscribe", &args)?;
+        }
         let (key, canonical) = {
             let guard = self.inner.lock().await;
             (guard.topics.key(&topic, &args)?, guard.topics.canon(&topic).to_string())
