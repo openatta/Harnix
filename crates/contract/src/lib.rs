@@ -146,6 +146,14 @@ pub mod codes {
     /// lease that is not the caller's any more, a run whose stored revision moved on. Read it
     /// again before trying again.
     pub const CONFLICT: i32 = -31007;
+    /// The call was cancelled before it answered: by its caller, or because what it was made
+    /// for was.
+    pub const CANCELLED: i32 = -31008;
+    /// The call's deadline passed before it answered (or before it started).
+    pub const DEADLINE_EXCEEDED: i32 = -31009;
+    /// The extension is there and cannot answer now; `data.failure` says why: `starting`,
+    /// `stopped`, `faulted`, `reentrant`. An instance out of reach is `INSTANCE_UNAVAILABLE`.
+    pub const EXTENSION_UNAVAILABLE: i32 = -31010;
 }
 
 /// The process's single admission point.
