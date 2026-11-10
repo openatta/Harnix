@@ -91,16 +91,13 @@ pub(super) fn register(
     apps.rows(&mut table)?;
     let grants = Arc::new(GrantTable::new());
     let records = lifecycle::register(entries, &mut table, &grants, &profile.ext, &profile.extensions.off, &roots.state)?;
-    // What changes the list of spaces after assembly is an extension registered while the process
-    // runs; only when something may do that is there anything to watch.
+    // Whether anything may register extensions while the process runs, and so change the spaces
+    // after assembly.
     let dynamic = profile.apps.enabled
         || records.iter().any(|r| r.is_enabled() && r.status.granted.iter().any(|c| c == caps::EXTENSIONS_MANAGE.as_str()));
-    if dynamic {
-        let spaces = Row::topic(harnix_hub::SPACES_TOPIC, Access::device());
-        table
-            .install(&Owner::Kernel(KernelPart::Hub), vec![spaces])
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
-    }
+    // The spaces are every extension's: a client learns them from this topic, whoever is linked.
+    let spaces = Row::topic(harnix_hub::SPACES_TOPIC, Access::device());
+    table.install(&Owner::Kernel(KernelPart::Hub), vec![spaces]).map_err(|e| anyhow::anyhow!("{e}"))?;
     crate::aliases::install(&mut table)?;
     Ok(Registered {
         records,

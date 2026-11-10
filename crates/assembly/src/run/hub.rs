@@ -43,7 +43,6 @@ pub(super) async fn assemble(
     instances: Instances,
     apps: &AppsWiring,
     behind: &Behind,
-    dynamic: bool,
 ) -> anyhow::Result<Assembled> {
     let Instances {
         registry,
@@ -111,9 +110,7 @@ pub(super) async fn assemble(
         registry.add(&id, built, Owner::Kernel).await;
     }
     registry.restore().await;
-    if dynamic {
-        hub.declare_spaces_topic().await;
-    }
+    hub.declare_spaces_topic().await;
     apps.hub(&hub).await;
     for d in records.iter().filter(|r| r.is_enabled()).filter_map(|r| r.descriptor.as_ref()) {
         for topic in d.topics() {

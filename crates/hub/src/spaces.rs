@@ -490,6 +490,7 @@ impl Hub {
                     "built": spaces.ledger.instances.get(&d.id),
                     "scene": d.scene,
                     "cross_space": d.cross_space,
+                    "default": d.default_space,
                 })
             })
             .collect();
