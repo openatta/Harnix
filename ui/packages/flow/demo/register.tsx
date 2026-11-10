@@ -6,10 +6,10 @@
  * its space under `flow`.
  */
 
-import type { NestHost, Registry } from "@harnix/react";
+import type { HostApi, Registry } from "@harnix/react";
 
 import { registerFlowSpace } from "../src/index";
 
-export function register(registry: Registry, host: NestHost): void {
+export function register(registry: Registry, host: HostApi): void {
   registerFlowSpace(registry, { host });
 }

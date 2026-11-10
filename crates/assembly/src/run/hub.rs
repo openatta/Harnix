@@ -15,7 +15,7 @@ use super::wiring::AppsWiring;
 use crate::cli::Cli;
 use crate::gate::Behind;
 use crate::host::Record;
-use crate::kernel_rows::{Hello, UiModules, PROCESS};
+use crate::kernel_rows::{Hello, UiModules, UiTopic, PROCESS, UI};
 use crate::paths::Roots;
 use crate::process::Process;
 use crate::profile::Profile;
@@ -80,7 +80,9 @@ pub(super) async fn assemble(
     let _ = behind.instances.set(registry.clone());
     hub.serve_topic(INSTANCES_TOPIC, Vec::new(), InstanceRegistry::topic(&behind.instances)).await;
     let brand_icon = brand_icon(profile, cli.profile.as_deref());
-    let ui = Arc::new(UiModules::default());
+    let ui = Arc::new(UiModules::new(behind.diagnostics.clone()));
+    ui.notify(hub.clone());
+    hub.serve_topic(UI, Vec::new(), Arc::new(UiTopic(ui.clone()))).await;
     let _ = behind.hello.set(Arc::new(Hello {
         hub: hub.clone(),
         instances: registry.clone(),

@@ -19,7 +19,8 @@ import { ProjectsSidebar } from "./projects.tsx";
 import { SessionsSidebar } from "./sessions.tsx";
 import { builtinSections } from "./settings.tsx";
 import { startInline } from "./inline/index.tsx";
-import { openInSystem, registerSystem, systemOffered } from "./system/index.tsx";
+import { ActionButtons } from "./actions.tsx";
+import { registerSystem } from "./system/index.tsx";
 
 const OWNER = "builtin";
 
@@ -41,9 +42,9 @@ export async function registerBuiltins(app: App): Promise<void> {
         icon: "chat",
         order: 10,
         title: () => t("space.sessions"),
-        subtitle: () => t("space.sessions.subtitle"),
-        center: "chat",
-        sidebar: () => <SessionsSidebar app={app} />,
+        conversation: { subtitle: () => t("space.sessions.subtitle") },
+        center: { mode: "chat" },
+        sidebar: { render: () => <SessionsSidebar app={app} /> },
       },
       OWNER,
     );
@@ -56,10 +57,10 @@ export async function registerBuiltins(app: App): Promise<void> {
         icon: "folder",
         order: 20,
         title: () => t("space.projects"),
-        subtitle: () => t("space.projects.subtitle"),
-        center: "chat",
+        conversation: { subtitle: () => t("space.projects.subtitle") },
+        center: { mode: "chat" },
         sessions: "sessions",
-        sidebar: () => <ProjectsSidebar app={app} />,
+        sidebar: { render: () => <ProjectsSidebar app={app} /> },
       },
       OWNER,
     );
@@ -157,18 +158,12 @@ function ToolRow({ app, block }: { app: App; block: BlockOf<"tool"> }) {
         >
           {t("flow.openInDetails")}
         </button>
-        {systemOffered() && app.snapshot.current && block.id ? (
-          <button
-            type="button"
-            className="btn sm outline"
-            data-testid="tool-in-system"
-            onClick={() => {
-              const current = app.snapshot.current!;
-              void openInSystem(app, { instance: current.instance, sessionId: current.sessionId, space: app.snapshot.space, tool: block.id });
-            }}
-          >
-            {t("flow.inSystem")}
-          </button>
+        {app.snapshot.current && block.id ? (
+          <ActionButtons
+            app={app}
+            place="tool"
+            target={{ kind: "tool", session: { instance: app.snapshot.current.instance, sessionId: app.snapshot.current.sessionId }, space: app.snapshot.space, toolUseId: block.id, tool: block.name }}
+          />
         ) : null}
       </div>
     </Disclosure>

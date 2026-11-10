@@ -87,7 +87,11 @@ export interface Hello {
   };
   scenes: Scene[];
   commands: unknown[];
-  contributions: unknown[];
+  /** What a client fills in when it names none. `space` is null until the product names one. */
+  defaults?: { instance: string; space: string | null };
+  /** Every extension and whether it is enabled: the shell activates its compiled-in UI packages by
+   *  this before its first draw. What changes later is `harnix.ui`'s. */
+  extensions?: ExtensionEntry[];
   /** What this product is and keeps (concept §5.10): its brand, the built-in spaces it keeps of
    *  `sessions` / `projects` / `system`, whether packages' interface modules load. */
   shell?: {
@@ -113,6 +117,26 @@ export interface Hello {
     /** 单双向流上同时在途的请求上限；超额的回 `BUSY`（-31005）。客户端照它在本地排队。 */
     max_in_flight?: number;
   };
+}
+
+/** One extension, as `hello.extensions` and `harnix.ui` tell it. */
+export interface ExtensionEntry {
+  id: string;
+  trust: "origin" | "consent" | string;
+  carrier?: "native" | "wasm" | "process" | string;
+  version?: string | null;
+  enabled: boolean;
+  /** In `hello.extensions`: the compiled-in UI package it is drawn by, when that is not its id. */
+  bundle?: string;
+  /** In `harnix.ui` only: what it declared of its interface (`bundle`, `surfaces`, `inline`,
+   *  `modules`, `points`), null when nothing. */
+  ui?: { bundle?: string; [key: string]: unknown } | null;
+}
+
+/** `harnix.ui`'s value: each extension's entry, and the interface modules to load. */
+export interface UiView {
+  extensions: ExtensionEntry[];
+  contributions: unknown[];
 }
 
 /* ── 会话 ─────────────────────────────────────────────────────────────── */
@@ -448,6 +472,7 @@ export interface TaskRow {
 export interface Methods {
   "harnix.handshake": { params: HandshakeParams; result: Negotiated };
   "harnix.hello": { params: Record<string, never>; result: Hello };
+  "harnix.ui": { params: Record<string, never>; result: UiView };
   "harnix.sessions": { params: { instance?: string; space?: string }; result: { sessions: SessionRow[] } };
   "harnix.spaces.list": {
     params: Record<string, never>;

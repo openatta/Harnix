@@ -12,6 +12,7 @@ import { t, useT } from "@harnix/react";
 import type { App, ShellSession, Workspace } from "./app.ts";
 import { since } from "./format.ts";
 import { Glyph } from "./glyph.tsx";
+import { actionMenuItems } from "./actions.tsx";
 import { openMenu, type MenuEntry } from "./Menu.tsx";
 
 export function Body({ children }: { children: ReactNode }) {
@@ -521,6 +522,9 @@ export function sessionMenu(app: App, session: ShellSession, from: MenuOrigin): 
         ),
     },
   ];
+  // What extensions offer on a session, after the shell's own and before deleting it.
+  const target = { kind: "session" as const, session: { instance: key.instance, sessionId: key.session_id }, space: app.snapshot.space };
+  items.splice(items.length - 1, 0, ...actionMenuItems(app, target));
   const name = session.name || t("sidebar.untitled");
   openMenu({ label: t("sidebar.sessionActions"), title: name, items, at: from.at, returnTo: from.origin, testId: "session-menu", className: "session-menu" });
 }

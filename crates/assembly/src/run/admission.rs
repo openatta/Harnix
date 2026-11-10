@@ -35,6 +35,8 @@ pub(crate) struct Admission {
     /// Held here for as long as the process runs: what hands them out holds them weakly.
     #[allow(dead_code)]
     pub dynamic: Option<Arc<DynamicHost>>,
+    /// What `harnix.ui` tells: pushed again once every extension has started.
+    pub ui: Arc<UiModules>,
 }
 
 /// Who this process is, for diagnostics and the application host.
@@ -113,7 +115,7 @@ pub(super) fn admit(
         bulk: Arc::new(HostUploads::new(
             parts.state_root.join("uploads").join(std::process::id().to_string()).join("ext"),
         )),
-        ui: Arc::new(UiEntries(parts.ui)),
+        ui: Arc::new(UiEntries(parts.ui.clone())),
         devices: parts.devices,
         credentials: Arc::new(Secrets(parts.credentials)),
         services: services.clone(),
@@ -139,6 +141,7 @@ pub(super) fn admit(
         seats,
         listen,
         dynamic,
+        ui: parts.ui,
     }
 }
 

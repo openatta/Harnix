@@ -7,7 +7,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { BridgeError, PROTOCOL, admits, connect, inDialog, shellKey, type HarnixApp } from "../src/index.ts";
-import { FRAME_HUB } from "../src/protocol.ts";
 import { createMockHost, type MockHost } from "../src/mock.ts";
 
 let open: { host: MockHost; app: HarnixApp }[] = [];
@@ -225,11 +224,10 @@ describe("what a frame may reach", () => {
     expect(admits("acme.notes", ["topic:harnix.sessions.tasks"], "harnix.sessions.tasks", true)).toBe(true);
   });
 
-  it("is never a name the frames' allowlist does not have, whatever a hub lists", () => {
-    expect(admits("acme.notes", ["harnix.apps.list"], "harnix.apps.list", false)).toBe(false);
-    expect(admits("acme.notes", ["topic:harnix.sessions.status"], "harnix.sessions.status", true)).toBe(false);
-    expect(FRAME_HUB["harnix.send"]).toBe("session");
-    expect(FRAME_HUB["harnix.sessions"]).toBe("space");
+  it("is what the hub lists, as a method or as a topic, and the server narrows the rest", () => {
+    expect(admits("acme.notes", ["topic:harnix.sessions.status"], "harnix.sessions.status", true)).toBe(true);
+    expect(admits("acme.notes", ["topic:harnix.sessions.status"], "harnix.sessions.status", false)).toBe(false);
+    expect(admits("acme.notes", [], "harnix.apps.list", false)).toBe(false);
   });
 });
 

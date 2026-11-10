@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useState, type ReactNode } from "react";
-import { useNest, useT } from "@harnix/react";
+import { useHost, useT } from "@harnix/react";
 
 import { errorText } from "./hooks";
 import {
@@ -233,7 +233,7 @@ function DefinitionTab({ station: s, def, info, view }: { station: Station; def:
 
 function RunTab({ station: s, view, module }: { station: Station; view: RunView; module: string }) {
   const t = useT();
-  const nest = useNest();
+  const nest = useHost();
   const run = view.record;
   const rec = run.stations[s.id];
   const actions = stationActions(run.status, s, rec);
@@ -606,7 +606,7 @@ function HandIn({
   onHanding(on: boolean): void;
 }) {
   const t = useT();
-  const nest = useNest();
+  const nest = useHost();
   const [open, setOpen] = useState(held !== null);
   const [output, setOutput] = useState("{}");
   const [busy, setBusy] = useState(false);

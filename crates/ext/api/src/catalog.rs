@@ -69,10 +69,12 @@ pub struct Point {
     pub frequency: Frequency,
 }
 
-/// The eight points the interface is built out of.
+/// The nine points the interface is built out of.
 ///
-/// The number is part of the design (concept §5.6): a ninth is an argument to
-/// be made, not a commit to be pushed. Every one of them is drawn by a built-in
+/// The number is part of the design (concept §5.6): a tenth is an argument to
+/// be made, not a commit to be pushed. The ninth, `session.action`, was argued:
+/// three things the shell drew for one extension (open in the system space, view
+/// a tool call there, archive and export) were one kind of thing with nowhere to go. Every one of them is drawn by a built-in
 /// registration **and asked for by the shell**, which is what makes the count
 /// honest — a seam nothing uses is not a seam, it is a line in this list.
 /// It has happened: five of the seven points there were once went unasked.
@@ -133,6 +135,13 @@ pub const POINTS: &[Point] = &[
         when: "设置页打开时",
         frequency: Frequency::PerInteraction,
     },
+    Point {
+        id: "session.action",
+        kind: PointKind::Register,
+        what: "对一个会话或它里面一次工具调用的动作（`at`：标题栏、会话菜单、工具行）",
+        when: "标题栏、会话菜单、工具行画出时",
+        frequency: Frequency::PerInteraction,
+    },
 ];
 
 pub fn point(id: &str) -> Option<&'static Point> {
@@ -164,10 +173,10 @@ pub fn render_markdown() -> String {
 mod tests {
     use super::*;
 
-    /// Eight, and adding one is a decision (concept §5.6).
+    /// Nine, and adding one is a decision (concept §5.6).
     #[test]
-    fn the_interface_has_eight_points() {
-        assert_eq!(POINTS.len(), 8);
+    fn the_interface_has_nine_points() {
+        assert_eq!(POINTS.len(), 9);
     }
 
     /// Nothing here may fire per streaming delta — the whole reason frequency

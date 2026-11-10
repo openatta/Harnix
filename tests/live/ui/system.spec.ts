@@ -490,7 +490,7 @@ async function conversationWithTool(page: Page): Promise<string> {
 test("system-jump: the header's button opens the space's sessions in the system space, this one first", TREE, async ({ page }) => {
   const errors = watchConsole(page);
   const sid = await conversationWithTool(page);
-  await page.getByTestId("head-in-system").click();
+  await page.getByTestId("action-system.open").click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", "system");
   const list = page.getByTestId("system-space");
   await expect(list).toHaveAttribute("data-space", "sessions");
@@ -512,7 +512,7 @@ test("system-jump: a tool row opens the call that asked for it, and the call fin
   const row = page.locator('[data-testid="conv-tool"]').first();
   const tool = (await row.getAttribute("data-id"))!;
   await row.getByTestId("conv-tool-toggle").click();
-  await row.getByTestId("tool-in-system").click();
+  await row.getByTestId("action-system.tool").click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", "system");
   await expect(page.getByTestId("system-session")).toHaveCount(0);
   const picked = page.locator(`#details [data-testid="system-call-tool"][data-tool="${tool}"]`);

@@ -142,21 +142,34 @@ impl Router {
     }
 
     /// A device's call made by an extension's page in a frame: only to that extension's own names
-    /// and what its interface lists.
-    fn decide_frame(&self, table: &RouteTable, cx: &CallContext, method: &str) -> Decision {
+    /// and what its interface lists. Its subscription is decided by the topic, as `topic:<name>`,
+    /// the way its interface lists one.
+    fn decide_frame(&self, table: &RouteTable, cx: &CallContext, method: &str, params: &Value) -> Decision {
         let Some(ext) = &cx.on_behalf_of else {
             return Decision::Allow;
         };
-        match self.grants.frame_calls(ext) {
-            None => Decision::Refuse(NO_FRAME),
-            Some(calls) if calls.contains(table.resolve(method)) || table.owns(ext, method) => Decision::Allow,
-            Some(_) => Decision::Refuse(OUTSIDE_FRAME),
+        let Some(calls) = self.grants.frame_calls(ext) else {
+            return Decision::Refuse(NO_FRAME);
+        };
+        let allowed = match subscribed_topic(table, method, params) {
+            Some(name) => calls.contains(&topic(table.resolve(name))) || table.owns(ext, name),
+            None => calls.contains(table.resolve(method)) || table.owns(ext, method),
+        };
+        match allowed {
+            true => Decision::Allow,
+            false => Decision::Refuse(OUTSIDE_FRAME),
         }
     }
 
     /// A package acting as itself, and a page in a frame, reach only their own space and its
-    /// sessions ([`harnix_authz::narrow`]).
+    /// sessions ([`harnix_authz::narrow`]). A subscription by its topic's row, claiming the space
+    /// in the topic's params.
     fn narrow(&self, table: &RouteTable, cx: &CallContext, method: &str, params: &Value) -> Decision {
+        let (name, params) = match subscribed_topic(table, method, params) {
+            Some(name) => (topic(name), params.get("params").unwrap_or(&Value::Null)),
+            None => (method.to_string(), params),
+        };
+        let method = name.as_str();
         let Some(row) = table.row(method) else {
             return Decision::Allow;
         };
@@ -176,6 +189,13 @@ impl Router {
         }
         Decision::Allow
     }
+}
+
+/// The topic a subscribe or unsubscribe is about; `None` for any other call.
+fn subscribed_topic<'a>(table: &RouteTable, method: &str, params: &'a Value) -> Option<&'a str> {
+    names::DECIDED_BY_TOPIC
+        .contains(&table.resolve(method))
+        .then(|| params.get("topic").and_then(Value::as_str).unwrap_or(""))
 }
 
 fn change_refusal(e: &TableError) -> &'static str {
@@ -219,7 +239,7 @@ impl Dispatch for Router {
         let (decision, handler, subscribing, missing) = {
             let table = self.table();
             let subscribing = names::DECIDED_BY_TOPIC.contains(&table.resolve(method));
-            let mut decision = self.decide_frame(&table, &cx, method);
+            let mut decision = self.decide_frame(&table, &cx, method, &params);
             if decision == Decision::Allow {
                 decision = table.decide(&cx.subject, &*self.grants, method);
             }
@@ -450,6 +470,32 @@ mod tests {
         assert_eq!(e.code, codes::REFUSED);
         let e = router.call(CallContext::root(device(), None), "harnix.subscribe", sub("harnix.none")).await.unwrap_err();
         assert_eq!((e.code, e.message.as_str()), (codes::METHOD_NOT_FOUND, "there is no topic `harnix.none`"));
+    }
+
+    /// A page in a frame subscribes as it calls: only to what its interface lists, as
+    /// `topic:<name>`, and the device's power besides.
+    #[tokio::test]
+    async fn a_page_in_a_frame_subscribes_only_to_what_its_interface_lists() {
+        let (router, _, grants) = router();
+        let page = || {
+            let mut cx = CallContext::root(device(), None);
+            cx.on_behalf_of = Some(id("acme.notes"));
+            cx
+        };
+        let sub = |topic: &str| json!({"topic": topic, "params": {}});
+        let e = router.call(page(), "harnix.subscribe", sub("harnix.instances")).await.unwrap_err();
+        assert_eq!(e.message, NO_FRAME);
+        // Listing the method is not listing the topic.
+        grants.set_frame(&id("acme.notes"), Some(["harnix.subscribe".to_string()].into()));
+        let e = router.call(page(), "harnix.subscribe", sub("harnix.instances")).await.unwrap_err();
+        assert_eq!(e.message, OUTSIDE_FRAME);
+        grants.set_frame(&id("acme.notes"), Some(["topic:harnix.instances".to_string(), "topic:harnix.secret".to_string()].into()));
+        assert!(router.call(page(), "harnix.subscribe", sub("harnix.instances")).await.is_ok());
+        // Listed, but not the device's to watch: the intersection.
+        let e = router.call(page(), "harnix.subscribe", sub("harnix.secret")).await.unwrap_err();
+        assert_eq!(e.code, codes::REFUSED);
+        let entry = &router.audit().recent(1)[0];
+        assert_eq!(entry.via.as_deref(), Some("ext:acme.notes"));
     }
 
     #[tokio::test]

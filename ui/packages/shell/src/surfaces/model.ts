@@ -1,12 +1,12 @@
 /**
  * What the page is told of the applications whose interface runs in isolated frames: their
  * surfaces (`[[surface]]`), what their frames may reach (`[interface]`), and the in-page modules
- * that will not run because of who signed them. Read off hello's `contributions`, where the
+ * that will not run because of who signed them. Read off `harnix.ui`'s `contributions`, where the
  * backend lists each running application's interface — modules for a trusted publisher's, which
  * `packages.ts` imports; surfaces for everyone else's, which this directory draws.
  */
 
-import type { Hello } from "@harnix/core";
+import type { UiView } from "@harnix/core";
 import { currentLocale } from "@harnix/react";
 import type { SurfacePoint } from "@harnix/app-sdk/protocol";
 
@@ -63,9 +63,9 @@ interface Entry {
 
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
-/** The applications hello lists surfaces for, and the modules it says will not run. */
-export function interfacesOf(hello: Pick<Hello, "contributions">): { apps: AppInterface[]; refused: RefusedModule[] } {
-  const entries = (Array.isArray(hello.contributions) ? hello.contributions : []) as Entry[];
+/** The applications `harnix.ui` lists surfaces for, and the modules it says will not run. */
+export function interfacesOf(view: Pick<UiView, "contributions">): { apps: AppInterface[]; refused: RefusedModule[] } {
+  const entries = (Array.isArray(view.contributions) ? view.contributions : []) as Entry[];
   const apps = new Map<string, AppInterface>();
   const refused: RefusedModule[] = [];
   for (const entry of entries) {

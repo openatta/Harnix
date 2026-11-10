@@ -66,8 +66,16 @@ export { MenuBox, type MenuBoxProps } from "./menu";
 export {
   POINTS,
   Registry,
+  RegistryProvider,
   Contributed,
+  useContributions,
   useRegistry,
+  type ActionPlace,
+  type ActionTarget,
+  type Badge,
+  type PointSpec,
+  type RegisterOptions,
+  type SessionAction,
   type CommandCandidate,
   type CommandContext,
   type Contributions,
@@ -82,4 +90,15 @@ export {
 } from "./contrib";
 export { t, translate, useT, useLocale, setLocale, currentLocale, localeChoice, addStrings, DICTIONARIES, type Locale, type LocaleChoice, type Translate } from "./i18n/index";
 export type { FlowBlockContribution } from "./chat/types";
-export { NestProvider, useCurrentSession, useNest, type NestHost, type SessionRef as HostSessionRef, type ShellContext } from "./host";
+export {
+  HostProvider,
+  useCurrentSession,
+  useHost,
+  type HostApi,
+  type HostEvent,
+  type MenuItem,
+  type SessionEventView,
+  type SessionRef as HostSessionRef,
+  type ShellContext,
+  type TurnSettled,
+} from "./host";

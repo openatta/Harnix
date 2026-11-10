@@ -608,6 +608,8 @@ const zhCN: Record<string, string> = {
   "avatar.you": "我",
   "common.back": "返回",
   "contrib.noRegister": "这个模块没有导出 register(registry, host)",
+  "host.menu": "操作",
+  "action.failed": "{action}失败：{error}",
   "host.noSpace": "这里没有 space「{space}」",
   "host.noSession": "没有会话 {session}",
   "host.noTab": "「{tab}」不是 space {space} 的页签",

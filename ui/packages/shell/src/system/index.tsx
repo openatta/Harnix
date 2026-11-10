@@ -76,12 +76,35 @@ export function registerSystem(app: App): void {
       icon: "cpu",
       order: 90,
       title: () => t("space.system"),
-      subtitle: () => t("space.system.subtitle"),
-      center: "hidden",
-      detailsWidth: 0.45,
-      overview: () => <Console app={app} view={view} />,
-      sidebar: () => <InstanceList app={app} view={view} />,
-      tabs: () => tabsFor(app, view),
+      conversation: { subtitle: () => t("space.system.subtitle") },
+      center: { mode: "hidden", overview: () => <Console app={app} view={view} /> },
+      sidebar: { render: () => <InstanceList app={app} view={view} /> },
+      details: { width: 0.45, tabs: () => tabsFor(app, view) },
+    },
+    OWNER,
+  );
+  // Into this space from a conversation elsewhere, or from one tool call in it.
+  app.registry.register(
+    "session.action",
+    {
+      id: "system.open",
+      at: ["header"],
+      icon: "cpu",
+      label: () => t("head.inSystem"),
+      match: (target) => target.space !== SYSTEM,
+      run: (target) => openInSystem(app, { instance: target.session.instance, sessionId: target.session.sessionId, space: target.space }),
+    },
+    OWNER,
+  );
+  app.registry.register(
+    "session.action",
+    {
+      id: "system.tool",
+      at: ["tool"],
+      label: () => t("flow.inSystem"),
+      match: (target) => target.kind === "tool",
+      run: (target) =>
+        openInSystem(app, { instance: target.session.instance, sessionId: target.session.sessionId, space: target.space, tool: target.kind === "tool" ? target.toolUseId : undefined }),
     },
     OWNER,
   );

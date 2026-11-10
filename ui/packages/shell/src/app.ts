@@ -10,7 +10,7 @@
  */
 
 import type { ReactNode } from "react";
-import { TOKEN_STALE, errorText, type ConnectionStatus, type HarnixClient, type Hello, type SessionRow } from "@harnix/core";
+import { TOKEN_STALE, errorText, type ConnectionStatus, type ExtensionEntry, type HarnixClient, type Hello, type SessionRow, type UiView } from "@harnix/core";
 import { SYSTEM_INSTANCE, type SessionController } from "@harnix/core/state";
 import { t, tabsOf, type ComposerApi, type DetailItem, type Registry, type ShellContext, type SpaceContribution, type SpaceTab } from "@harnix/react";
 
@@ -126,14 +126,14 @@ export function detailsMax(side: number, viewport: number = typeof window === "u
  *  default. A space's width under 1 is a share of the window (DSH opens its right column at 0.45). */
 export function detailsWidthOf(
   s: Pick<ShellState, "widths" | "dragged">,
-  space: { detailsWidth?: number } | undefined,
+  space: { details?: { width?: number } } | undefined,
   viewport: number = typeof window === "undefined" ? 1600 : window.innerWidth,
 ): number {
   const min = WIDTHS.details[0];
   const max = detailsMax(s.widths.side, viewport);
   const within = (w: number) => Math.round(Math.min(max, Math.max(min, w)));
   if (s.dragged.details !== undefined) return within(s.dragged.details);
-  const asked = space?.detailsWidth;
+  const asked = space?.details?.width;
   if (typeof asked !== "number" || !Number.isFinite(asked) || asked <= 0) return within(s.widths.details);
   return within(asked < 1 ? asked * viewport : asked);
 }
@@ -145,6 +145,8 @@ export interface ShellState {
   currentBySpace: Record<string, SessionKey | null>;
   connection: ConnectionStatus;
   hello: Hello | null;
+  /** Every extension and whether it is enabled: hello's, then `harnix.ui`'s as it changes. */
+  extensions: ExtensionEntry[];
   reachable: string[];
   sessions: ShellSession[];
   workspaces: Workspace[];
@@ -286,8 +288,9 @@ export function ask<T>(registry: Registry, space: (SpaceContribution & { owner?:
 /** Why a space cannot be entered for now (`SpaceContribution.disabled`, ipdrun-48): its string, or null
  *  when it can — no `disabled()`, a non-string answer, or a throw (noted as the space's failure). */
 export function disabledOf(registry: Registry, space: (SpaceContribution & { owner?: string }) | undefined): string | null {
-  if (!space?.disabled) return null;
-  const why = ask(registry, space, () => space.disabled!(), null);
+  const disabled = space?.sidebar?.disabled;
+  if (!disabled) return null;
+  const why = ask(registry, space, () => disabled(), null);
   return typeof why === "string" ? why : null;
 }
 
@@ -315,7 +318,7 @@ export class App {
   controller: SessionController | null = null;
   composer: ComposerApi | null = null;
   private builtins: ((app: App) => void | Promise<void>) | null = null;
-  private packages: ((app: App, hello: Hello) => Promise<void>) | null = null;
+  private interfaces: ((app: App, view: UiView) => Promise<void>) | null = null;
 
   constructor(client: HarnixClient, registry: Registry) {
     this.client = client;
@@ -327,6 +330,7 @@ export class App {
       currentBySpace,
       connection: client.status,
       hello: null,
+      extensions: [],
       reachable: [],
       sessions: [],
       workspaces: [],
@@ -387,6 +391,12 @@ export class App {
     if (!sameKey(before.current, next.current)) {
       const ref = next.current ? { instance: next.current.instance, sessionId: next.current.sessionId } : null;
       for (const fn of [...this.currentListeners]) fn(ref);
+    }
+    if (before.search.query !== next.search.query) {
+      // The front space's own search (`sidebar.search`), told what the left column's box says.
+      const space = this.registry.at("space").find((c) => c.id === next.space);
+      const search = space?.sidebar?.search;
+      if (search) ask(this.registry, space, () => search(next.search.query), undefined);
     }
   }
 
@@ -454,8 +464,9 @@ export class App {
    *  of its tabs, or "details". A space without `tab()` is left alone. */
   private followSpaceTab(): void {
     const space = this.registry.at("space").find((c) => c.id === this.state.space);
-    if (!space?.tab) return;
-    const id = ask(this.registry, space, () => space.tab!(), undefined);
+    const tab = space?.details?.tab;
+    if (!tab) return;
+    const id = ask(this.registry, space, () => tab(), undefined);
     if (typeof id !== "string" || id === this.shownTab()) return;
     if (id === "details" || safeTabs(this.registry, space).some((x) => x.id === id)) this.selectTab(id, true);
   }
@@ -483,10 +494,13 @@ export class App {
 
   /* ── 启动 ─────────────────────────────────────────────────────────── */
 
-  /** 连上就跑一遍：hello、可调方法、内建贡献（一页一次）、会话列表。重连后再跑一遍。 */
-  start(registerBuiltins: (app: App) => void | Promise<void>, loadPackages?: (app: App, hello: Hello) => Promise<void>): void {
-    this.builtins = registerBuiltins;
-    this.packages = loadPackages ?? null;
+  /**
+   * 连上就跑一遍：hello、可调方法、内建贡献与 hello 里启用的扩展的 UI 包（一页一次，首屏之前）、会话列表。重连后再跑一遍。
+   * 之后跟着 `harnix.ui`：它的第一个值与每次变化交给 `follow`（补注册、整批撤下、进页面的模块与面）。
+   */
+  start(activate: (app: App) => void | Promise<void>, follow?: (app: App, view: UiView) => Promise<void>): void {
+    this.builtins = activate;
+    this.interfaces = follow ?? null;
     this.client.onStatus((status, detail) => {
       this.set({ connection: status });
       if (status === "open") {
@@ -505,7 +519,7 @@ export class App {
   private async boot(): Promise<void> {
     try {
       const hello = (await this.client.call("harnix.hello", {})) as Hello;
-      this.set({ hello });
+      this.set({ hello, extensions: hello.extensions ?? this.state.extensions });
       if (!this.booted) {
         this.booted = true;
         // Not waited for past a bound: the rest of the start (sessions, the front space) does not hang
@@ -524,13 +538,39 @@ export class App {
         // the start.
         const registering = Promise.resolve(this.builtins?.(this)).catch((e: unknown) => this.notice(errorText(e), "error"));
         await within(registering, BOOT_WAIT_MS);
+        // Every registration of the start is in: what went into a point nobody defined goes now.
+        this.registry.settle();
         this.landOnASpace();
-        await this.packages?.(this, hello);
+        this.followUi();
       }
       await this.refreshSessions();
     } catch (e) {
       this.notice(errorText(e), "error");
     }
+  }
+
+  /** Each `harnix.ui` value, one after another: what the page draws for whom follows it. */
+  private uiChain: Promise<void> = Promise.resolve();
+
+  private followUi(): void {
+    topicsOf(this.client).subscribe("harnix.ui", {}, (value) => {
+      const view = value as UiView | null;
+      if (!view || !Array.isArray(view.extensions)) return;
+      const before = this.state.extensions;
+      this.set({ extensions: view.extensions });
+      if (JSON.stringify(before) !== JSON.stringify(view.extensions)) for (const fn of [...this.extensionListeners]) fn();
+      this.uiChain = this.uiChain
+        .then(() => this.interfaces?.(this, view))
+        .catch((e: unknown) => this.notice(errorText(e), "error"));
+    });
+  }
+
+  private readonly extensionListeners = new Set<() => void>();
+
+  /** An extension was enabled, disabled, registered or withdrawn. */
+  onExtensions(fn: () => void): () => void {
+    this.extensionListeners.add(fn);
+    return () => this.extensionListeners.delete(fn);
   }
 
   /** Ask `harnix.reachable` again: a runtime application registered since the start adds methods. */
@@ -689,7 +729,7 @@ export class App {
     // Each space starts on its first tab, unless the host API chose one for it — or the space says
     // which tab is current (`tab()`): then the one clicked last is kept too, and `tab()` has its say.
     const tabBySpace = { ...this.state.tabBySpace };
-    const declares = this.registry.at("space").find((c) => c.id === space)?.tab !== undefined;
+    const declares = this.registry.at("space").find((c) => c.id === space)?.details?.tab !== undefined;
     if (space !== this.state.space && tabBySpace[space] && !tabBySpace[space]!.asked && !declares) delete tabBySpace[space];
     this.set({ space, detail: null, menu: false, tabBySpace });
     this.followSpaceTab();
@@ -737,7 +777,7 @@ export class App {
     const kept = state.detailsBySpace[state.space];
     if (kept !== undefined) return kept;
     const space = [...this.registry.at("space")].find((c) => c.id === state.space);
-    return space?.details === "open";
+    return space?.details?.initial === "open";
   }
 
   private keepDetails(open: boolean): Record<string, boolean> {
@@ -923,6 +963,12 @@ export class App {
       /* private mode: the choice does not survive a reload */
     }
     this.set({ theme: choice });
+  }
+
+  /** A same-origin path with this page's credential on it: for what the browser fetches itself
+   *  and cannot be given a header, such as a package's module (`import()`). */
+  credentialed(path: string): string {
+    return this.client.withToken(path);
   }
 
   /** 一次调用；失败时说出来并把错误交回去。 */

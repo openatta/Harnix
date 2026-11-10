@@ -66,8 +66,8 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
   // A new conversation needs a space with a conversation: the front one if it has one, else the
   // first that does.
   const startNew = async () => {
-    if (space?.center === "hidden" || space?.id === SYSTEM || space?.within) {
-      const talking = spacesOf(app).find((c) => c.id !== SYSTEM && !c.within && c.center !== "hidden" && disabledOf(app.registry, c) === null);
+    if (space?.center?.mode === "hidden" || space?.id === SYSTEM || space?.within) {
+      const talking = spacesOf(app).find((c) => c.id !== SYSTEM && !c.within && c.center?.mode !== "hidden" && disabledOf(app.registry, c) === null);
       if (!talking) return;
       await app.switchSpace(talking.id);
     }
@@ -104,7 +104,7 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
         {overlay ? createPortal(<div id="tl-tools">{collapse}</div>, document.body) : collapse}
       </div>
       <ContextLine s={s} />
-      {space?.newSession === false || !app.startsSessions() ? null : (
+      {space?.conversation?.newSession === false || !app.startsSessions() ? null : (
         <>
           <button type="button" id="new" className="nav new" title={t("sidebar.newSessionHint")} onClick={() => void startNew()}>
             <Glyph name="edit" className="glyph" />
@@ -117,12 +117,12 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
       <SpaceList app={app} s={s} />
       {space ? <div className="sep chats-sep" role="separator" data-testid="sessions-sep" /> : null}
       <div id="sessions" className="chats" data-space={s.space}>
-        {space?.sidebar ? (
+        {space?.sidebar?.render ? (
           <Contributed registry={registry} point="space" contribution={space}>
-            {space.sidebar()}
+            {space.sidebar.render()}
           </Contributed>
         ) : space ? (
-          <SpaceSessions app={app} s={s} listed={space.listSession} />
+          <SpaceSessions app={app} s={s} listed={space?.sidebar?.listSession} />
         ) : null}
       </div>
       {/* On the rail, where the column folded away: it opens it again (narrow, as a drawer). */}
@@ -194,9 +194,10 @@ function SpaceEntry({ app, s, space }: { app: App; s: ShellState; space: SpaceCo
       aria-pressed={on}
       onClick={() => {
         if (disabledOf(app.registry, space) !== null) return;
-        if (space.id === s.space && space.reenter) {
+        const reenter = space.details?.reenter;
+        if (space.id === s.space && reenter) {
           try {
-            space.reenter();
+            reenter();
           } catch {
             // the space's own business; the click stays harmless
           }
@@ -222,13 +223,14 @@ function SpaceEntry({ app, s, space }: { app: App; s: ShellState; space: SpaceCo
 
 /** What a space's `badge()` says, as drawn: nothing for null, undefined, 0 and "". */
 function badgeOf(app: App, space: SpaceContribution & { owner: string }): string | null {
-  if (!space.badge) return null;
-  const value = ask(app.registry, space, () => space.badge!(), null);
+  const badge = space.sidebar?.badge;
+  if (!badge) return null;
+  const value = ask(app.registry, space, () => badge(), null);
   return value === null || value === undefined || value === 0 || value === "" ? null : String(value);
 }
 
 /** A space with no column of its own: its sessions, newest first. */
-function SpaceSessions({ app, s, listed }: { app: App; s: ShellState; listed?: SpaceContribution["listSession"] }) {
+function SpaceSessions({ app, s, listed }: { app: App; s: ShellState; listed?: NonNullable<SpaceContribution["sidebar"]>["listSession"] }) {
   const t = useT();
   const [rows, setRows] = useState<ShellSession[] | null>(null);
   const claim = app.claim(s.space);
@@ -270,7 +272,7 @@ function SpaceSessions({ app, s, listed }: { app: App; s: ShellState; listed?: S
   );
 }
 
-function shownBy(listed: NonNullable<SpaceContribution["listSession"]>, row: ShellSession): boolean {
+function shownBy(listed: NonNullable<NonNullable<SpaceContribution["sidebar"]>["listSession"]>, row: ShellSession): boolean {
   try {
     return listed({ instance: row.instance ?? "system", sessionId: row.session_id }) !== false;
   } catch {

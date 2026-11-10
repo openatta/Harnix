@@ -50,16 +50,16 @@ test.describe("runtime modules on", () => {
     const v2 = listed.contributes.find((c: any) => c.plugin === "demo-rows-v2");
     expect(v1.ui).toEqual([]);
     expect(v1.inert.join(" ")).toContain("这一条不生效");
-    expect(v2.ui.map((e: any) => [e.point, e.module, e.api_version])).toEqual([["tool.row", "rows.js", 2]]);
+    expect(v2.ui.map((e: any) => [e.point, e.module, e.api_version])).toEqual([["tool.row", "rows.js", 3]]);
     expect(v2.inert).toEqual([]);
 
     // A fresh client is told what to load: the v2 entry, with its version, and nothing of v1.
     const fresh = await connect(backend);
     try {
       const hello = await fresh.call("harnix.hello");
-      expect(hello.contrib_api_version).toBe(2);
+      expect(hello.contrib_api_version).toBe(3);
       expect(hello.shell.runtime_modules).toBe(true);
-      expect(hello.contributions).toEqual([{ plugin: "demo-rows-v2", point: "tool.row", api_version: 2, module: "/plugins/demo-rows-v2/ui/rows.js" }]);
+      expect((await fresh.call("harnix.ui")).contributions).toEqual([{ plugin: "demo-rows-v2", point: "tool.row", api_version: 3, module: "/plugins/demo-rows-v2/ui/rows.js" }]);
     } finally {
       fresh.close();
     }
@@ -103,7 +103,7 @@ test.describe("a package's lifecycle", () => {
   async function offered(): Promise<{ contributions: any[]; served: number }> {
     const fresh = await connect(backend);
     try {
-      const { contributions } = await fresh.call("harnix.hello");
+      const { contributions } = await fresh.call("harnix.ui");
       const served = (await fetch(new URL("plugins/demo-rows-v2/ui/rows.js", backend.url))).status;
       return { contributions, served };
     } finally {
@@ -150,7 +150,7 @@ test.describe("runtime modules off", () => {
     try {
       const hello = await fresh.call("harnix.hello");
       expect(hello.shell.runtime_modules).toBe(false);
-      expect(hello.contributions).toEqual([]);
+      expect((await fresh.call("harnix.ui")).contributions).toEqual([]);
     } finally {
       fresh.close();
     }

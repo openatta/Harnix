@@ -201,7 +201,7 @@ publisher = "acme"
 {}
 "#,
             if ui {
-                "[[ui]]\npoint = \"home.card\"\nmodule = \"card.js\"\napi_version = 2\n"
+                "[[ui]]\npoint = \"home.card\"\nmodule = \"card.js\"\napi_version = 3\n"
             } else {
                 ""
             }

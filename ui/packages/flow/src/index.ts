@@ -1,7 +1,7 @@
 /**
  * @harnix/flow — the flow module's interface (xops-01 §7, xops-02 §7, xops-03 §6).
  *
- * Only `@harnix/react`. The components work wherever `useNest()` does; `registerFlowSpace()` puts
+ * Only `@harnix/react`. The components work wherever `useHost()` does; `registerFlowSpace()` puts
  * them together as one space, `registerSystemFlows()` inside the system space instead — what the
  * shell registers itself when the backend has the module. The wire shapes are in `types.ts`, in one place.
  */

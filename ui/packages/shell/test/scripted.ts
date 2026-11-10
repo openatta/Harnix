@@ -33,6 +33,9 @@ export class ScriptedClient {
     this.statusListeners.add(fn);
     return () => this.statusListeners.delete(fn);
   }
+  push(method: string, params: Record<string, unknown>): void {
+    for (const fn of [...this.notify]) fn(method, params);
+  }
 }
 
 export function space(id: string, extra: Partial<SpaceContribution> = {}): SpaceContribution {

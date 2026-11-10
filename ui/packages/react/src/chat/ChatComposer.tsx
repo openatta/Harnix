@@ -118,7 +118,7 @@ export interface ChatComposerProps {
   elsewhere?: boolean;
   /** 发送：true ⇒ 已发、清空；false ⇒ 没发、保留原文 */
   send: (text: string, attachments: unknown[]) => Promise<boolean>;
-  /** 输入框的句柄：应用往里插字（`useNest().composer.insert`）。卸载时给 null */
+  /** 输入框的句柄：应用往里插字（`useHost().composer.insert`）。卸载时给 null */
   bind?: (api: ComposerApi | null) => void;
   /** 上传一个文件；给了才能加附件（＋ 里的"上传文件"、粘贴、拖放）。失败时自己报，然后 reject */
   upload?: (file: File) => Promise<Attached>;
