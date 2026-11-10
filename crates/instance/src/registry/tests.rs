@@ -44,8 +44,8 @@ impl InstanceObserver<dyn EngineLink> for Seen {
         self.note("restarted", id);
     }
     fn space(&self, claimed: Option<&str>) -> Option<String> {
-        let space = claimed.unwrap_or("sessions");
-        (space == "sessions").then(|| space.to_string())
+        let space = claimed.unwrap_or("home");
+        (space == "home").then(|| space.to_string())
     }
 }
 

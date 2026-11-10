@@ -64,7 +64,7 @@ fn main() -> anyhow::Result<()> {
         .module(Fleet)
         .grant([harnix::caps::ENGINE_INSPECT, harnix::caps::ENGINE_CONFIG_READ])
         .module(Lifecycle::default())
-        .module(flow_demo::module())
+        .extension(flow_demo::module())
         .grant([harnix::caps::ENGINE_CONTROL, harnix::caps::ENGINE_INSPECT])
         .module(fake_app::FakeHost)
         // The kernel hands its application host to the `apps` built-in alone; the fake host is

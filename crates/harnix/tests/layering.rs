@@ -330,17 +330,17 @@ fn the_builtins_use_only_the_public_module_api() {
     assert!(offenders.is_empty(), "{}", offenders.join("\n"));
 }
 
-/// The flow module (xops-01) is an optional module an application registers, written against the
-/// public module contract like a built-in: Harnix's own module API and vocabulary, the engine
-/// interface for the scenes it wraps and the tools it adds, and third-party crates. Never a layer
-/// below the contract, never Agix, and never the doors the application uses to drive a module.
+/// The flow extension (xops-01) is an optional extension an application adds, written against
+/// the extension interface like every first-party one: that interface (and the engine's words it
+/// re-exports) and third-party crates. Never a layer below it, never Agix, and never the doors
+/// the host uses to seat an extension.
 #[test]
-fn the_flow_module_uses_only_the_public_module_api() {
+fn the_flow_extension_uses_only_the_extension_interface() {
     for name in dependencies("ext/flow") {
         if name.starts_with("harnix") {
             assert!(
-                ["harnix-module", "harnix-contract", "harnix-engine-api"].contains(&name.as_str()),
-                "`flow` depends on `{name}`; a module reaches the process only through its context"
+                name == "harnix-ext",
+                "`flow` depends on `{name}`; an extension reaches the process only through its context"
             );
         }
         assert!(
@@ -359,17 +359,7 @@ fn the_flow_module_uses_only_the_public_module_api() {
                 continue;
             }
             let text = std::fs::read_to_string(&path).unwrap_or_default();
-            for needle in [
-                "ModuleContext::new",
-                "CallContext::new",
-                "MethodRegistry::new",
-                "EventRegistry::new",
-                "ErasedModule",
-                "into_decls",
-                "Tap::new",
-                "Tap::channel",
-                "TapParts",
-            ] {
+            for needle in ["harnix_kernel", "harnix_module", "DescriptorBuilder", "Seated", "Tap::new"] {
                 if text.contains(needle) {
                     offenders.push(format!("{} uses `{needle}`", path.display()));
                 }
@@ -379,18 +369,15 @@ fn the_flow_module_uses_only_the_public_module_api() {
     assert!(offenders.is_empty(), "{}", offenders.join("\n"));
 }
 
-/// The Harnix app registers the flow module (xops-02 §6), and an application that
-/// depends on the `harnix` library must not be made to compile it: the `harnix` binary is its own
-/// crate (`crates/cli`), and the library names no flow. (The engine's built-in scenes are another
-/// matter: the instance layer builds on them anyway, and the library re-exports them as
-/// `harnix::scenes`.)
+/// The Harnix app adds the flow extension (xops-02 §6), and an application that depends on the
+/// `harnix` library is not made to compile it: the library has it only behind its `flow` feature,
+/// off unless asked for, and the `harnix` binary is its own crate (`crates/cli`), which asks.
 #[test]
 fn the_library_does_not_carry_the_empty_applications_flow_module() {
-    assert_ignorant_of(
-        "harnix",
-        &["harnix-ext-flow"],
-        "a library user registers flows if it wants them; the Harnix app is `harnix-cli`",
-    );
+    assert_eq!(normal_dependencies("harnix").get("harnix-ext-flow"), Some(&true), "flow is the facade's only optionally");
+    let facade = std::fs::read_to_string(workspace_root().join("crates/harnix/Cargo.toml")).unwrap();
+    let default = facade.lines().find(|l| l.starts_with("default")).unwrap_or_default();
+    assert!(!default.contains("flow"), "the library's default features carry no flow: {default}");
     let manifest =
         std::fs::read_to_string(workspace_root().join("crates/harnix/Cargo.toml")).unwrap();
     assert!(
@@ -781,10 +768,10 @@ fn a_plugin_applications_agent_package_is_read_for_its_name_and_version_only() {
 #[test]
 fn dependencies_are_read_as_cargo_reads_them() {
     let flow = declared("ext/flow");
-    let module = flow.iter().find(|d| d.name == "harnix-module").expect("flow names harnix-module");
-    assert!(module.optional && module.kind.is_none(), "an optional normal dependency");
+    let ext = flow.iter().find(|d| d.name == "harnix-ext").expect("flow names harnix-ext");
+    assert!(ext.optional && ext.kind.is_none(), "an optional normal dependency");
     assert!(flow.iter().any(|d| d.name == "tempfile" && d.kind.as_deref() == Some("dev")));
-    assert!(normal_dependencies("ext/flow").get("harnix-module") == Some(&true));
+    assert!(normal_dependencies("ext/flow").get("harnix-ext") == Some(&true));
     assert!(!normal_dependencies("ext/flow").contains_key("tempfile"), "a dev-dependency is not normal");
 }
 
@@ -806,9 +793,11 @@ fn every_harnix_dependency_resolves() {
         "ext/api",
         "ext/devices",
         "ext/flow",
+        "ext/harnix-app",
         "ext/observability",
         "ext/plugins",
         "ext/settings",
+        "ext/system",
         "harnix",
         "host-api",
         "hub",
@@ -1262,7 +1251,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P12"]
     fn l14_first_party_extensions() {
         let members = first_party_members();
         assert!(!members.is_empty(), "there is no first-party extension crate (`harnix-ext-<id>`) yet");

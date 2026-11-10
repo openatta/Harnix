@@ -16,6 +16,8 @@ path = "src/lib.rs"
 [features]
 default = ["first-party"]
 # `harnix::first_party`: Harnix's own extensions, each granted what Harnix grants it.
+# `harnix::first_party::flow`: the flow extension. Off unless asked for: the Harnix app asks.
+flow = ["first-party", "dep:harnix-ext-flow"]
 first-party = [
     "dep:harnix-ext-harnix-app",
     "dep:harnix-ext-system",
@@ -47,6 +49,7 @@ harnix-engine-api = { workspace = true }
 # Harnix's own extensions (`first-party`).
 harnix-ext-harnix-app    = { workspace = true, optional = true }
 harnix-ext-system        = { workspace = true, optional = true }
+harnix-ext-flow          = { workspace = true, optional = true }
 harnix-ext-observability = { workspace = true, optional = true }
 harnix-ext-settings      = { workspace = true, optional = true }
 harnix-ext-plugins       = { workspace = true, optional = true }

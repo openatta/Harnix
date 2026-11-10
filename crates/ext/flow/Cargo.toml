@@ -11,10 +11,10 @@ description  = "Flows: a graph of stations that drives session work, judged on s
 name = "harnix_ext_flow"
 
 [features]
-# The Harnix module (`Flow`): sessions, programs, native tools, methods, topics. Off, the crate is
-# the pure kernel with its stores and packs and links nothing of Harnix or Agix.
-default = ["module"]
-module  = ["dep:harnix-module", "dep:harnix-contract", "dep:harnix-engine-api", "dep:anyhow", "dep:reqwest", "dep:tokio-util", "dep:futures"]
+# The Harnix extension (`Flow`): sessions, programs, native tools, methods, topics. Off, the crate
+# is the pure kernel with its stores and packs and links nothing of Harnix or Agix.
+default = ["extension"]
+extension = ["dep:harnix-ext", "dep:anyhow", "dep:reqwest", "dep:tokio-util", "dep:futures"]
 
 [dependencies]
 serde       = { workspace = true }
@@ -35,10 +35,8 @@ libc        = { workspace = true }
 tokio-util  = { workspace = true, optional = true }
 # A session task reads its session as a stream of frames.
 futures     = { workspace = true, optional = true }
-harnix-module   = { workspace = true, optional = true }
-harnix-contract = { workspace = true, optional = true }
-# The scenes and tools it gives the engine, in Harnix's words.
-harnix-engine-api = { workspace = true, optional = true }
+# The extension interface, and the scenes and tools it gives the engine in Harnix's words.
+harnix-ext      = { workspace = true, optional = true }
 anyhow          = { workspace = true, optional = true }
 # Hooks' webhooks (xops-04 §5).
 reqwest         = { workspace = true, optional = true }

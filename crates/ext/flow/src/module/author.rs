@@ -25,7 +25,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use harnix_engine_api::{
+use harnix_ext::engine::{
     Permission, PromptText, SceneBase, SceneLayer, Tool, ToolCx, ToolError, ToolOutput, ToolSpec as Spec,
 };
 use serde_json::{json, Value};

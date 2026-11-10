@@ -57,9 +57,7 @@ pub fn flow() -> Flow {
 fn main() -> anyhow::Result<()> {
     harnix::App::builder()
         .with_builtins()
-        .extensions(harnix::first_party::standard())
-        .module(flow())
-        .grant([harnix::caps::ENGINE_CONTROL, harnix::caps::ENGINE_INSPECT])
+        .extensions(harnix::first_party::standard_with_flow(flow()))
         .run()
 }
 

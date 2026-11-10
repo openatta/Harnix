@@ -68,11 +68,56 @@ const ALIASES: &[(&str, &str)] = &[
     ("harnix.system.instances.restart", "system.instances.restart"),
     ("harnix.system.instances.create", "system.instances.create"),
     ("harnix.system.instances.templates", "system.instances.templates"),
+    // flow
+    ("app.flow.list", "flow.list"),
+    ("app.flow.get", "flow.get"),
+    ("app.flow.history", "flow.history"),
+    ("app.flow.defs", "flow.defs"),
+    ("app.flow.def", "flow.def"),
+    ("app.flow.schema", "flow.schema"),
+    ("app.flow.catalog", "flow.catalog"),
+    ("app.flow.validate", "flow.validate"),
+    ("app.flow.save", "flow.save"),
+    ("app.flow.delete", "flow.delete"),
+    ("app.flow.parts", "flow.parts"),
+    ("app.flow.part", "flow.part"),
+    ("app.flow.part.save", "flow.part.save"),
+    ("app.flow.part.delete", "flow.part.delete"),
+    ("app.flow.hooks", "flow.hooks"),
+    ("app.flow.focus", "flow.focus"),
+    ("app.flow.session", "flow.session"),
+    ("app.flow.sessions", "flow.sessions"),
+    ("app.flow.guide", "flow.guide"),
+    ("app.flow.pause", "flow.pause"),
+    ("app.flow.resume", "flow.resume"),
+    ("app.flow.dry_run.start", "flow.dry_run.start"),
+    ("app.flow.dry_run.step", "flow.dry_run.step"),
+    ("app.flow.dry_run.run", "flow.dry_run.run"),
+    ("app.flow.dry_run.list", "flow.dry_run.list"),
+    ("app.flow.start", "flow.start"),
+    ("app.flow.cancel", "flow.cancel"),
+    ("app.flow.proposal", "flow.proposal"),
+    ("app.flow.claim", "flow.claim"),
+    ("app.flow.heartbeat", "flow.heartbeat"),
+    ("app.flow.submit", "flow.submit"),
+    ("app.flow.fail", "flow.fail"),
+    ("app.flow.retry", "flow.retry"),
+    ("app.flow.confirm", "flow.confirm"),
+    ("app.flow.force", "flow.force"),
+    ("app.flow.rework", "flow.rework"),
+    ("app.flow.release", "flow.release"),
 ];
 
 /// Old topic → new topic: decided as the new one's row, and watched in the hub by the old name,
 /// told under it.
-const TOPICS: &[(&str, &str)] = &[("harnix.process", "system.process")];
+const TOPICS: &[(&str, &str)] = &[
+    ("harnix.process", "system.process"),
+    ("app.flow.runs", "flow.runs"),
+    ("app.flow.run", "flow.run"),
+    ("app.flow.defs", "flow.defs"),
+    ("app.flow.focus", "flow.focus"),
+    ("app.flow.dry_runs", "flow.dry_runs"),
+];
 
 /// Every alias whose new name is in the table: one whose extension is not linked here, or is
 /// switched off, has nothing to answer as.

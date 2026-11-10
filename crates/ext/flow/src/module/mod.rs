@@ -11,7 +11,7 @@
 //! gate.rs      a gate's work item; `command` gates
 //! tools.rs     the scene wrappers: flow-* (flow_state, flow_submit, flow_propose), structured-*
 //! author.rs    flow-author: writing flows in conversation (xops-02 §4)
-//! methods.rs   app.flow.* — the device methods
+//! methods.rs   flow.* — the device methods
 //! ```
 //!
 //! What a task may do is judged by the module call by call: a flow session `ask`s about every
@@ -25,7 +25,7 @@
 //! ```no_run
 //! # use std::sync::Arc;
 //! # use harnix_ext_flow::{Flow, MemPacks};
-//! # use harnix_engine_api::SceneBase;
+//! # use harnix_ext::engine::SceneBase;
 //! let flow = Flow::builder()
 //!     .packs(MemPacks::new().flow("name: demo\nstations: [{id: a, exit: [{kind: confirm}]}]"))
 //!     .scene(SceneBase::builtin("harnix"))   // offered to definitions as `flow-harnix`
@@ -49,13 +49,8 @@ mod turns;
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use harnix_contract::sync::lock;
-use harnix_engine_api::{BuiltinArgs, Interaction, SceneBase, SceneLayer};
-use harnix_module::{
-    caps,
-    EngineContrib, EventRegistry, InstanceTemplate, InstanceTemplates, Manifest, MethodRegistry,
-    Module, ModuleContext, SpaceDecl, SpaceRegistry,
-};
+use harnix_ext::engine::{BuiltinArgs, InstanceTemplate, Interaction, SceneBase, SceneLayer};
+use harnix_ext::{caps, Extension, ExtensionContext, Manifest, Registrar, SpaceDecl};
 use serde_json::json;
 use tokio::sync::broadcast;
 
@@ -76,8 +71,26 @@ pub use tools::{structured_id, structured_scene, TOOL_PROPOSE, TOOL_STATE, TOOL_
 
 use shared::{Config, ConversationRecordingFn, MainRecordingFn, RecordingFn, Shared};
 
-/// The module id: methods and topics are `app.flow.*`, entries `app.flow`.
+/// The extension's id: methods and topics are `flow.*`, its templates `flow.<id>`.
 pub const MODULE_ID: &str = "flow";
+
+/// `spec`, with `set` applied when there is a value to set.
+pub(crate) fn spec_with<T>(
+    spec: harnix_ext::SessionSpec,
+    value: Option<T>,
+    set: impl FnOnce(harnix_ext::SessionSpec, T) -> harnix_ext::SessionSpec,
+) -> harnix_ext::SessionSpec {
+    match value {
+        Some(value) => set(spec, value),
+        None => spec,
+    }
+}
+
+/// A lock, taken whatever a thread that panicked holding it left: what is under these is written
+/// whole or not at all.
+pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 /// The instance the flow space's sessions run on, and where a station's session goes when it
 /// names no instance or template and stays in the flow's space. `Module::engine` contributes to
 /// it alone, so the wrapped scenes and `flow-author` exist only there.
@@ -570,11 +583,12 @@ impl FlowHandle {
 }
 
 #[async_trait::async_trait]
-impl Module for Flow {
-    const API_VERSION: u32 = harnix_module::MODULE_API_VERSION;
+impl Extension for Flow {
+    type Config = ();
 
     fn manifest(&self) -> Manifest {
         Manifest::new(MODULE_ID, env!("CARGO_PKG_VERSION"))
+            .title("Flows")
             .disclosure(
                 "runs flows: headless sessions in its space (or where a station places them, on \
                  instances of its templates), the application's programs and gates (command gates \
@@ -588,43 +602,28 @@ impl Module for Flow {
             .requires([caps::ENGINE_CONTROL, caps::ENGINE_INSPECT])
     }
 
-    /// On `system`: the wrapped scenes and `flow-author`.
-    fn engine(&self, e: &mut EngineContrib) {
+    fn register(&self, r: &mut Registrar<'_, ()>) {
+        // On the main instance: the wrapped scenes and `flow-author`.
+        let engine = r.engine();
         for s in &self.scenes {
-            e.scene(s.clone());
+            engine.scene(s.clone());
         }
-        e.scene(self.author.clone());
-    }
-
-    fn templates(&self, t: &mut InstanceTemplates) {
+        engine.scene(self.author.clone());
         for template in &self.templates {
-            t.add(template.clone());
+            r.template(template.clone());
         }
-    }
-
-    /// The flow space: its conversations write flows (`flow-author`) on `system`.
-    fn spaces(&self, s: &mut SpaceRegistry) {
-        s.add(
-            SpaceDecl::new(&self.sh.cfg.space)
-                .instance(FLOW_INSTANCE)
-                .scene(AUTHOR_SCENE),
-        );
-    }
-
-    fn methods(&self, m: &mut MethodRegistry) {
+        // The flow space: its conversations write flows (`flow-author`) on the main instance.
+        r.space(SpaceDecl::new(&self.sh.cfg.space).instance(FLOW_INSTANCE).scene(AUTHOR_SCENE));
         let packs: Arc<dyn Packs> = self.packs.clone();
-        methods::register(m, &self.sh, &packs);
+        methods::register(r, &self.sh, &packs);
+        r.topic("runs");
+        r.topic("run").param("run");
+        r.topic("defs");
+        r.topic("focus").param("instance").param("session_id");
+        r.topic("dry_runs");
     }
 
-    fn events(&self, e: &mut EventRegistry) {
-        e.topic("runs");
-        e.topic("run").param("run");
-        e.topic("defs");
-        e.topic("focus").param("instance").param("session_id");
-        e.topic("dry_runs");
-    }
-
-    async fn start(&self, cx: ModuleContext) -> anyhow::Result<()> {
+    async fn start(&self, cx: ExtensionContext) -> anyhow::Result<()> {
         let spec = lock(&self.store).take();
         let store: Arc<dyn RunStore> = match spec {
             Some(StoreSpec::Ready(s)) => s,
@@ -719,8 +718,8 @@ const STOP_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 /// `REFUSED`; `CONFLICT` for a lease that is not the caller's or revisions that moved on;
 /// `INTERNAL_ERROR` for the store — and `data.flow` the kernel's own (`not_found`, `invalid`,
 /// `contract`, `denied`, `lease`, `conflict`, `store`).
-pub fn rpc_error(e: FlowError) -> harnix_module::RpcError {
-    use harnix_contract::codes;
+pub fn rpc_error(e: FlowError) -> harnix_ext::RpcError {
+    use harnix_ext::codes;
     let code = match &e {
         FlowError::Denied(_) => codes::REFUSED,
         FlowError::NotFound(_) => codes::NOT_FOUND,
@@ -729,7 +728,7 @@ pub fn rpc_error(e: FlowError) -> harnix_module::RpcError {
         FlowError::Lease(_) | FlowError::Conflict(_) => codes::CONFLICT,
         FlowError::Store(_) => codes::INTERNAL_ERROR,
     };
-    let mut err = harnix_module::RpcError::new(code, e.to_string());
+    let mut err = harnix_ext::RpcError::new(code, e.to_string());
     err.data = Some(json!({"flow": e.code()}));
     err
 }
@@ -742,7 +741,7 @@ mod tests {
     /// yours" by the code, not by reading `data.flow`.
     #[test]
     fn kernel_errors_answer_codes_by_kind() {
-        use harnix_contract::codes;
+        use harnix_ext::codes;
         let code = |e| rpc_error(e).code;
         assert_eq!(code(FlowError::NotFound("run r".into())), codes::NOT_FOUND);
         assert_eq!(code(FlowError::Invalid("paused".into())), codes::INVALID_PARAMS);

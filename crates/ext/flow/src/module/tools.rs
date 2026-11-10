@@ -12,8 +12,8 @@
 
 use std::sync::Arc;
 
-use harnix_engine_api::{Permission, SceneBase, SceneLayer, Tool, ToolCx, ToolError, ToolOutput, ToolSpec};
-use harnix_module::{Entry, SessionRef};
+use harnix_ext::engine::{Permission, SceneBase, SceneLayer, Tool, ToolCx, ToolError, ToolOutput, ToolSpec};
+use harnix_ext::{Entry, SessionRef};
 use serde_json::{json, Value};
 
 use super::dispatch;

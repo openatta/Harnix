@@ -16,7 +16,7 @@
 
 use std::sync::Arc;
 
-use harnix_module::{Entry, SessionRef, SessionSpec, TapEvent};
+use harnix_ext::{Entry, SessionRef, SessionSpec, TapEvent};
 use serde_json::{json, Value};
 
 use super::dispatch::settle_quiet;
@@ -85,18 +85,16 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
     } else {
         None
     };
-    let spec = SessionSpec {
-        space: Some(space),
-        instance,
-        project_root,
-        scene: Some(scene),
-        model: placement.model.clone(),
-        provider: placement.provider.clone(),
-        permission_mode: Some(TASK_PERMISSION_MODE.into()),
-        permission_rules: Some(super::session::flow_rules(sh, &rec)),
-        recording,
-        ..SessionSpec::default()
-    };
+    let spec = SessionSpec::new()
+        .space(&space)
+        .scene(&scene)
+        .permission_mode(TASK_PERMISSION_MODE)
+        .permission_rules(super::session::flow_rules(sh, &rec));
+    let spec = super::spec_with(spec, instance, |s, v| s.instance(&v));
+    let spec = super::spec_with(spec, project_root, |s, v| s.project_root(v));
+    let spec = super::spec_with(spec, placement.model.clone(), |s, v| s.model(&v));
+    let spec = super::spec_with(spec, placement.provider.clone(), |s, v| s.provider(&v));
+    let spec = super::spec_with(spec, recording, |s, v| s.recording(&v));
     let s = cx
         .sessions()
         .create(spec)
@@ -186,7 +184,7 @@ pub(crate) async fn watch(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: boo
 /// The tool calls a watch keeps the input of, to judge the question that may follow.
 const CALLS_KEPT: usize = 64;
 
-async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: bool, mut tap: harnix_module::Tap) {
+async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: bool, mut tap: harnix_ext::Tap) {
     // What it asks about (the pinned flow's), and where its project is: a question about any other
     // tool is the engine's own, and a person's to answer; a path outside the project is a
     // person's to allow.
@@ -234,6 +232,7 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: bool, mut
                 continue;
             }
             Some(TapEvent::Frame(f)) => f,
+            Some(_) => continue,
         };
         let turn = frame
             .pointer("/params/turn_id")

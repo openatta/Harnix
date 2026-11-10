@@ -121,6 +121,9 @@ fn first_party(without: &str) -> Modules {
     if without != "devices" {
         modules = modules.extension(Devices, [caps::DEVICES_MANAGE]);
     }
+    if without != "flow" {
+        modules = modules.extension(harnix_ext_flow::Flow::builder().build(), [caps::ENGINE_CONTROL, caps::ENGINE_INSPECT]);
+    }
     modules
 }
 
@@ -281,7 +284,7 @@ mod unlinked {
     /// and the old names that answered as them.
     #[test]
     fn without_an_extension_only_its_rows_differ() {
-        for ext in ["harnix-app", "system", "observability", "settings", "plugins", "devices"] {
+        for ext in ["harnix-app", "system", "observability", "settings", "plugins", "devices", "flow"] {
             let (all_rows, all_aliases) = table(first_party(""));
             let (rows, aliases) = table(first_party(ext));
             let owner = format!("ext:{ext}");

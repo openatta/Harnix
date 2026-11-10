@@ -62,7 +62,21 @@ pub mod first_party {
     pub use harnix_ext_settings::Settings;
     pub use harnix_ext_system::System;
 
-    /// Every first-party extension, in the order they register.
+    #[cfg(feature = "flow")]
+    pub use harnix_ext_flow::Flow;
+
+    /// What the flow extension is granted: naming the sessions it opens, a main session's tasks.
+    #[cfg(feature = "flow")]
+    pub const FLOW_GRANTS: [harnix_contract::s1::Capability; 2] = [caps::ENGINE_CONTROL, caps::ENGINE_INSPECT];
+
+    /// [`standard`], and `flow` as the product configured it.
+    #[cfg(feature = "flow")]
+    pub fn standard_with_flow(flow: Flow) -> ExtensionSet {
+        standard().with(flow, FLOW_GRANTS)
+    }
+
+    /// Every first-party extension, in the order they register: the flow extension is the
+    /// product's to configure and add ([`standard_with_flow`]).
     pub fn standard() -> ExtensionSet {
         ExtensionSet::new()
             .with(HarnixApp, [caps::TRANSCRIPTS_READ, caps::ENGINE_EXPORT])
