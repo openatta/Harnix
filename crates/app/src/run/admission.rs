@@ -55,6 +55,7 @@ pub(super) fn admit(
         }),
         modules: RwLock::new(Vec::new()),
         unknown_sections: unknown_sections(sections, records),
+        authorizer: OnceLock::new(),
     });
     let app_gate = Arc::new(AppGate::new(
         Arc::new(HubGate(hub.clone())),
@@ -63,6 +64,7 @@ pub(super) fn admit(
     ));
     let authorizer = Arc::new(Authorizer::new(table, app_gate.clone(), audit.clone()));
     let gate: Arc<dyn Gate> = authorizer.clone();
+    let _ = diagnostics.authorizer.set(Arc::downgrade(&authorizer));
     let kernel = Arc::new(ProcessKernel {
         gate: OnceLock::new(),
         apps: OnceLock::new(),
