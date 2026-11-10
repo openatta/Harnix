@@ -8,7 +8,29 @@
 use harnix_router::RouteTable;
 
 /// Old name → new name.
-const ALIASES: &[(&str, &str)] = &[];
+const ALIASES: &[(&str, &str)] = &[
+    ("harnix.settings.describe", "settings.describe"),
+    ("harnix.settings.set", "settings.set"),
+    ("harnix.settings.setProvider", "settings.setProvider"),
+    ("harnix.plugins.upload", "plugins.upload"),
+    ("harnix.plugins.install", "plugins.install"),
+    ("harnix.plugins.uninstall", "plugins.uninstall"),
+    ("harnix.plugins.enable", "plugins.enable"),
+    ("harnix.plugins.disable", "plugins.disable"),
+    ("harnix.plugins.reload", "plugins.reload"),
+    ("harnix.plugins.list", "plugins.list"),
+    ("harnix.system.trace", "observability.trace"),
+    ("harnix.system.trace.call", "observability.trace.call"),
+    ("harnix.system.turns", "observability.turns"),
+    ("harnix.system.usage", "observability.usage"),
+    // The two names of one method: the system space's tab and the earlier request envelope.
+    ("harnix.system.calls", "observability.calls"),
+    ("harnix.requestHeaders", "observability.calls"),
+    ("harnix.devices.list", "devices.list"),
+    ("harnix.devices.pair.begin", "devices.pair.begin"),
+    ("harnix.devices.pair.complete", "devices.pair.complete"),
+    ("harnix.devices.revoke", "devices.revoke"),
+];
 
 /// Every alias whose new name is in the table: one whose extension is not linked here, or is
 /// switched off, has nothing to answer as.

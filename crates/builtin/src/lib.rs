@@ -1,10 +1,9 @@
 //! Harnix's own contributions.
 //!
 //! Workspaces, session titles, view preferences, cross-session search, the
-//! directory picker, uploads, the settings page and the request envelope are
-//! **not kernel**. None of them is the hub, the transport, authorization or
-//! assembly; every one is a judgement about how this product behaves, and
-//! concept §2.1 draws the line exactly there.
+//! directory picker and uploads are **not kernel**. None of them is the hub,
+//! the transport, authorization or assembly; every one is a judgement about
+//! how this product behaves, and concept §2.1 draws the line exactly there.
 //!
 //! So they live here, as compile-time modules registered through the same
 //! contract an application's modules use (concept §4.2). This crate depends on
@@ -17,16 +16,11 @@
 pub mod apps;
 mod export;
 pub mod files;
-pub mod packages;
-pub mod plugins;
-pub mod recordings;
 pub mod search;
-pub mod settings;
 pub mod store;
 mod system;
 
 pub use system::SYSTEM_SPACE;
-mod usage;
 pub mod workspaces;
 
 use std::collections::HashMap;
@@ -46,10 +40,6 @@ use tokio::sync::Mutex;
 
 use store::Store;
 
-/// Told what is installed now. Held by the app, which owns the static face
-/// and the hello payload; this crate only knows when to say so.
-type PackagesChanged = Box<dyn Fn(Vec<packages::Contributions>) + Send + Sync>;
-
 /// The state behind Harnix's built-in modules, shared by all of them.
 pub struct Builtin {
     store: Mutex<Store>,
@@ -62,16 +52,10 @@ pub struct Builtin {
     /// explicitly configured root.
     projects_root: PathBuf,
     max_upload_bytes: usize,
-    /// Told when the installed set changes, so the static face and the hello
-    /// payload can follow without a restart.
-    on_packages_changed: Mutex<Option<PackagesChanged>>,
     /// Each built-in module's context, by id, set when it starts. A call a
     /// built-in makes goes out as that module, so the audit names it and a
     /// grant (settings writing a provider) applies to it alone.
     contexts: RwLock<HashMap<&'static str, ModuleContext>>,
-    /// The engine's recordings readers, one per recordings root: the traces and usage figures
-    /// they read are kept until a recording changes.
-    readers: Arc<recordings::Readers>,
 }
 
 /// The built-in modules: id, methods (full names), the capabilities each requires, disclosure.
@@ -103,57 +87,15 @@ const PARTS: &[Part] = &[
         ],
         requires: &[caps::ENGINE_EXPORT],
     },
-    Part {
-        id: "settings",
-        disclosure: "读写引擎的设置三层；写 provider 的凭据与端点",
-        methods: &[
-            m("harnix.settings.describe", |b, p| Box::pin(async move { b.settings_describe(p).await })),
-            m("harnix.settings.set", |b, p| Box::pin(async move { b.settings_set(p).await })),
-            m("harnix.settings.setProvider", |b, p| Box::pin(async move { b.settings_set_provider(p).await })),
-        ],
-        // Reading the settings, reloading them, and — `harnix.instances.inheritProviders` — handing
-        // a changed provider to the instances whose template inherits `system`'s (ipdrun-11).
-        requires: &[caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE],
-    },
-    Part {
-        id: "packages",
-        disclosure: "接收插件包文件，经 Agix 安装、卸载、启停；读包里的界面段",
-        methods: &[
-            // The one thing Agix's installer cannot do for itself: receive a file.
-            m("harnix.plugins.upload", |b, p| Box::pin(async move { b.plugins_upload(p).await })),
-            // Lifecycle. The engine does the work; these exist because
-            // changing what is installed changes what this host serves.
-            m("harnix.plugins.install", |b, p| Box::pin(async move { b.plugins_install(p).await })),
-            m("harnix.plugins.uninstall", |b, p| Box::pin(async move { b.plugins_manage("plugin.uninstall", p).await })),
-            m("harnix.plugins.enable", |b, p| Box::pin(async move { b.plugins_manage("plugin.enable", p).await })),
-            m("harnix.plugins.disable", |b, p| Box::pin(async move { b.plugins_manage("plugin.disable", p).await })),
-            m("harnix.plugins.reload", |b, p| Box::pin(async move { b.plugins_manage("plugin.reload", p).await })),
-            m("harnix.plugins.list", |b, p| Box::pin(async move { b.plugins_list(p).await })),
-        ],
-        requires: &[caps::ENGINE_PLUGINS],
-    },
-    Part {
-        id: "recordings",
-        disclosure: "读本机的模型调用录像（请求信封）",
-        methods: &[
-            m("harnix.requestHeaders", |b, p| Box::pin(async move { b.request_headers(p).await })),
-        ],
-        requires: &[],
-    },
 ];
 
 /// The system space's backend: registered only when the profile keeps it on, so turning it off
 /// takes its methods out of the authorization table rather than only out of sight (concept §5.5).
 const SYSTEM: Part = Part {
     id: "system",
-    disclosure: "系统 space：看任何实例的会话与任务、读调用信封与上下文、任务的输出、会话的用量；给在跑的子 Agent 发话；设定、暂停、继续、编辑、清除会话的目标；压缩、清空、换模型、改名、改写或删除消息、停止任务。每次操作写审计",
+    disclosure: "系统 space：看任何实例的会话与任务、读上下文、任务的输出；给在跑的子 Agent 发话；设定、暂停、继续、编辑、清除会话的目标；压缩、清空、换模型、改名、改写或删除消息、停止任务。每次操作写审计",
     methods: &[
         mc("harnix.system.context", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.context", p).await })),
-        mc("harnix.system.calls", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.calls", p).await })),
-        mc("harnix.system.trace", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.trace", p).await })),
-        mc("harnix.system.trace.call", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.trace.call", p).await })),
-        mc("harnix.system.turns", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.turns", p).await })),
-        mc("harnix.system.usage", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.usage", p).await })),
         mc("harnix.system.tasks.stop", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.tasks.stop", p).await })),
         mc("harnix.system.tasks.message", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.tasks.message", p).await })),
         mc("harnix.system.tasks.output", |b, cx, p| Box::pin(async move { b.system_call(&cx, "harnix.system.tasks.output", p).await })),
@@ -220,9 +162,7 @@ impl Builtin {
             upload_dir,
             projects_root,
             max_upload_bytes: harnix_contract::MAX_UPLOAD_BYTES,
-            on_packages_changed: Mutex::new(None),
             contexts: RwLock::new(HashMap::new()),
-            readers: Default::default(),
         }))
     }
 
@@ -251,22 +191,6 @@ impl Builtin {
 
     pub fn max_upload_bytes(&self) -> usize {
         self.max_upload_bytes
-    }
-
-    pub async fn on_packages_changed(
-        &self,
-        f: impl Fn(Vec<packages::Contributions>) + Send + Sync + 'static,
-    ) {
-        *self.on_packages_changed.lock().await = Some(Box::new(f));
-    }
-
-    /// What every installed package contributes to this side. Empty until
-    /// the packages module has started.
-    pub async fn contributions(&self) -> Vec<packages::Contributions> {
-        match self.context("packages") {
-            Some(cx) => packages::discover(&cx).await,
-            None => Vec::new(),
-        }
     }
 
     /// Claim an upload grant. `None` means the token was never issued or has
@@ -458,17 +382,12 @@ pub(crate) fn default_title(path: Option<&str>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-
     /// A built-in method reached before any built-in module started answers an error; it used to
     /// panic, taking the caller's whole call with it.
     #[tokio::test]
     async fn a_method_before_start_is_an_error_not_a_panic() {
         let dir = tempfile::tempdir().unwrap();
         let builtin = super::Builtin::new(dir.path().join("state"), dir.path().join("projects")).unwrap();
-        assert!(builtin.system().is_err());
-        let e = builtin.settings_describe(json!({})).await.unwrap_err();
-        assert_eq!(e.code, harnix_contract::codes::INTERNAL_ERROR);
-        assert!(builtin.settings_set(json!({"tier": "global", "key": "model.max_tokens", "value": 4000})).await.is_err());
+        assert_eq!(builtin.system().err().map(|e| e.code), Some(harnix_contract::codes::INTERNAL_ERROR));
     }
 }

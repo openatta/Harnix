@@ -26,6 +26,14 @@ const PAGE: u64 = 200;
 const RESULT_CHARS: usize = 4000;
 
 impl Builtin {
+    /// Where an instance writes a session's recording.
+    fn recording_dir(&self, instance: &str, session_id: &str) -> Result<std::path::PathBuf, RpcError> {
+        let handle = self.instance(instance).ok_or_else(|| {
+            RpcError::new(codes::INSTANCE_NOT_FOUND, format!("there is no instance `{instance}`"))
+        })?;
+        Ok(handle.recordings_root.join(session_id))
+    }
+
     pub(crate) async fn session_export(&self, params: Value) -> Result<Value, RpcError> {
         let session_id = require_session_id(&params)?;
         let format = require_str(&params, "format")?;

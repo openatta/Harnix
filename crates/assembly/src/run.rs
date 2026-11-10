@@ -20,7 +20,6 @@
 mod admission;
 mod hub;
 mod instances;
-mod packages;
 mod register;
 mod serve;
 mod start;

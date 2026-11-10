@@ -12,7 +12,7 @@ use harnix_router::{RouteTable, Router};
 use serde_json::json;
 
 use crate::audit_log;
-use crate::devices::DeviceBook;
+use crate::pairing::DeviceBook;
 use crate::gate::{Behind, Diagnostics, ProcessKernel};
 use crate::host::dynamic::DynamicHost;
 use crate::host::seat::{

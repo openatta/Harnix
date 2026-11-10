@@ -75,6 +75,7 @@ impl AuditSink for TimelineAudit {
 fn is_consequential(method: &str) -> bool {
     // The system space acts on sessions that are not its own: every act is worth going back for.
     method.starts_with("harnix.system.")
+        || method.starts_with("observability.")
         || matches!(
             method,
             "harnix.plugins.install"
@@ -85,6 +86,15 @@ fn is_consequential(method: &str) -> bool {
             // put there by hand — so it can change the active set without any
             // other call having been made.
             | "harnix.plugins.reload"
+            | "plugins.install"
+            | "plugins.uninstall"
+            | "plugins.enable"
+            | "plugins.disable"
+            | "plugins.reload"
+            | "devices.pair.complete"
+            | "devices.revoke"
+            | "settings.set"
+            | "settings.setProvider"
             // Switching a runtime application on or off changes what this process serves.
             | "harnix.apps.enable"
             | "harnix.apps.disable"
@@ -122,24 +132,22 @@ mod tests {
 
     /// Every extension lifecycle call is consequential, not just installing.
     ///
-    /// This list had drifted the other way: it still named the engine's
-    /// `plugin.*`, which stopped being reachable when the lifecycle moved
-    /// behind `harnix.plugins.*`, and three of the four replacements were
-    /// missing — so disabling and uninstalling a package left no trace.
+    /// This list had drifted the other way: it still named the engine's `plugin.*`, which
+    /// stopped being reachable when the lifecycle moved behind the `plugins` extension, and three
+    /// of the four replacements were missing — so disabling and uninstalling a package left no
+    /// trace.
     #[test]
     fn the_whole_extension_lifecycle_is_audited() {
-        for method in &harnix_builtin::methods() {
-            // The lifecycle is exactly the `harnix.plugins.*` calls that change
-            // what is installed; `upload` hands over a file and `list` reads.
-            if !method.starts_with("harnix.plugins.")
-                || matches!(*method, "harnix.plugins.upload" | "harnix.plugins.list")
-            {
-                continue;
+        // The lifecycle is exactly the calls that change what is installed; `upload` hands over a
+        // file and `list` reads.
+        for prefix in ["harnix.plugins.", "plugins."] {
+            for call in ["install", "uninstall", "enable", "disable", "reload"] {
+                let method = format!("{prefix}{call}");
+                assert!(is_consequential(&method), "{method} changes what is installed and is not audited");
             }
-            assert!(
-                is_consequential(method),
-                "{method} changes what is installed and is not audited"
-            );
+            for call in ["upload", "list"] {
+                assert!(!is_consequential(&format!("{prefix}{call}")));
+            }
         }
         // And nothing in the list is a name a client can no longer reach:
         // an audit rule for an unreachable method is a rule that never fires.

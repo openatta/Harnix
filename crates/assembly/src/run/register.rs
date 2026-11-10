@@ -7,11 +7,12 @@ use harnix_contract::s1::caps;
 use harnix_kernel::{Access, GrantTable, KernelPart, Owner};
 use harnix_router::{Row, RouteTable};
 use harnix_builtin::Builtin;
+use harnix_ext::Extension;
 use harnix_module::ErasedModule;
 
 use super::state_files::{load_devices, DEVICES_FILE};
 use super::wiring::AppsWiring;
-use crate::devices;
+use crate::pairing;
 use crate::gate::Behind;
 use crate::host::{lifecycle, Added, Entry, Namespace, Record};
 use crate::kernel_rows;
@@ -35,16 +36,15 @@ pub(super) struct Registered {
 
 /// What the built-ins hold that serving needs.
 pub(crate) struct Held {
-    /// The built-ins, when the application has them: the bulk store and the packages.
+    /// The built-ins, when the application has them: the bulk store.
     pub builtin: Option<Arc<Builtin>>,
     /// The devices paired before, read back: pairing carries trust across once, not once per
     /// start.
     pub paired: Arc<Devices>,
     /// The transport's channels, once it exists (step 6): what revoking a device ends.
     pub channels: Arc<OnceLock<harnix_transport::Channels>>,
-    /// Pairing, listing and revoking devices: the `devices` module's, and what `devices.manage`
-    /// hands an extension.
-    pub devices: Arc<devices::DeviceBook>,
+    /// Pairing, listing and revoking devices: what `devices.manage` hands an extension.
+    pub devices: Arc<pairing::DeviceBook>,
 }
 
 /// The built-ins are granted what they require: `with_builtins` is the product asking for them
@@ -55,6 +55,12 @@ fn granted_as_required(module: Box<dyn ErasedModule>) -> Entry {
         added: Added::Module { module, namespace: Namespace::Kernel },
         granted,
     }
+}
+
+/// The same for an extension: Harnix's own, which the product takes as they ship.
+fn extension_as_required(extension: impl Extension) -> Entry {
+    let granted = extension.manifest().required().to_vec();
+    Entry { added: Added::Extension(Box::new(extension)), granted }
 }
 
 pub(super) fn register(
@@ -76,7 +82,7 @@ pub(super) fn register(
             tracing::info!(device = id, channels = ended, "revoked; its channels are closed");
         })
     };
-    let book = Arc::new(devices::DeviceBook::new(paired.clone(), disconnect));
+    let book = Arc::new(pairing::DeviceBook::new(paired.clone(), disconnect));
     let mut entries = Vec::new();
     let builtin = if builtins {
         let builtin = Builtin::new(roots.state.clone(), roots.projects.clone())?;
@@ -93,7 +99,10 @@ pub(super) fn register(
             );
             entries.push(granted_as_required(Box::new(module)));
         }
-        entries.push(granted_as_required(Box::new(devices::DevicesModule::new(book.clone()))));
+        entries.push(extension_as_required(harnix_ext_settings::Settings));
+        entries.push(extension_as_required(harnix_ext_plugins::Plugins::default()));
+        entries.push(extension_as_required(harnix_ext_observability::Observability));
+        entries.push(extension_as_required(harnix_ext_devices::Devices));
         Some(builtin)
     } else {
         None
@@ -146,7 +155,7 @@ mod tests {
         registered.records.iter().map(|r| r.manifest.id().to_string()).collect()
     }
 
-    /// The built-ins register before the application's modules, the devices module last of
+    /// The built-ins register before the application's modules, the devices extension last of
     /// them; the `apps` module only where the profile enables runtime applications.
     #[test]
     fn the_built_ins_register_first_and_apps_only_when_enabled() {

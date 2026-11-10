@@ -136,7 +136,7 @@ test.describe("runtime modules off", () => {
   let backend: Backend;
   let api: TestClient;
   test.beforeAll(async () => {
-    backend = await startHarnix(launchFor("replay", { profile: "\n[ui]\nruntime_modules = false\n" }));
+    backend = await startHarnix(launchFor("replay", { profile: "\n[ui]\nruntime_modules = false\n[ext.plugins]\nui_modules = false\n" }));
     api = await connect(backend);
     await install(api, backend, "demo-rows-v2");
   });
