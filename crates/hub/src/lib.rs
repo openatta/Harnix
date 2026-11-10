@@ -484,61 +484,6 @@ pub(crate) fn require_session_id(params: &Value) -> Result<String, RpcError> {
         .ok_or_else(|| RpcError::invalid_params("missing session_id"))
 }
 
-/// Recording is on by default, and it is the hub that turns it on because it
-/// owns every way a runnable session comes into being — `session.create` and
-/// the `session.resume` behind an attach.
-///
-/// Without a recording there is no answer to "what did the model actually
-/// see", and that question is not optional (concept §6.4). No `dir` is named: the
-/// engine resolves the root from settings and assembly resolves the same way
-/// for reading, so there is one answer rather than two.
-///
-/// # Which mode is not a client's decision
-///
-/// A client cannot ask for `replay`, or for a different root: the key is
-/// overwritten, not defaulted. Replay is a **process-level** decision, made
-/// by whoever started this one — the same kind of decision as which engine
-/// root to serve, and for the same reason.
-///
-/// When the operator has made it, and only then, a client may name *which*
-/// recording to play. That is not a loosening: outside replay the name means
-/// nothing, and inside it, naming the fixture is the entire point.
-pub(crate) fn with_recording(mut params: Value, replay_from: Option<&std::path::Path>, strict: bool) -> Value {
-    let named = params
-        .get("options")
-        .and_then(|o| o.get("recorder"))
-        .and_then(|r| r.get("name"))
-        .and_then(Value::as_str)
-        .map(str::to_string);
-
-    let recorder = match replay_from {
-        Some(dir) => json!({
-            "mode": "replay",
-            "name": named,
-            "dir": dir.display().to_string(),
-            // Divergences are reported, not fatal, unless the operator
-            // asked for strict replay (`--replay-strict`, ipdrun-45).
-            //
-            // Strict replay compares the live request against the recorded
-            // one. The prompt carries a date and absolute paths: the engine
-            // now dates a replaying session by its recording (Agix ipdrun-06),
-            // but paths are the application's to keep stable — fixed roots, or
-            // workspace-relative tool paths. Until an application has done
-            // that, strictness would only be a test that fails on another
-            // machine, so it stays the operator's choice.
-            "strict": strict,
-        }),
-        None => json!({"mode": "record"}),
-    };
-    let options = params
-        .as_object_mut()
-        .map(|obj| obj.entry("options").or_insert_with(|| json!({})));
-    if let Some(Value::Object(options)) = options {
-        options.insert("recorder".into(), recorder);
-    }
-    params
-}
-
 pub(crate) fn new_id(prefix: &str) -> String {
     format!("{prefix}-{}", uuid::Uuid::new_v4().simple())
 }
@@ -562,109 +507,11 @@ pub(crate) fn is_code(result: &Result<Value, RpcError>, code: i32) -> bool {
     matches!(result, Err(e) if e.code == code)
 }
 
-/// The most memory this process has held, in bytes; `None` where the platform does not say.
-///
-/// The peak rather than the current figure: it is what `getrusage` gives on every Unix without
-/// a dependency, and for "is this process growing" it is the more useful of the two.
-fn peak_rss_bytes() -> Option<u64> {
-    #[cfg(unix)]
-    {
-        let mut usage = std::mem::MaybeUninit::<libc::rusage>::zeroed();
-        // SAFETY: `getrusage` writes the whole struct for RUSAGE_SELF and touches nothing else.
-        let rc = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
-        if rc != 0 {
-            return None;
-        }
-        let max = unsafe { usage.assume_init() }.ru_maxrss.max(0) as u64;
-        // macOS reports bytes, Linux and the BSDs kilobytes.
-        Some(if cfg!(target_os = "macos") {
-            max
-        } else {
-            max * 1024
-        })
-    }
-    #[cfg(not(unix))]
-    {
-        None
-    }
-}
-
-/// How many threads the operating system counts in this process — the runtime's workers, the
-/// blocking pool, and whatever the engine and its tools started.
-fn os_threads() -> Option<u64> {
-    #[cfg(target_os = "macos")]
-    {
-        let mut info = std::mem::MaybeUninit::<libc::proc_taskinfo>::zeroed();
-        let size = std::mem::size_of::<libc::proc_taskinfo>() as libc::c_int;
-        // SAFETY: `proc_pidinfo` writes at most `size` bytes into `info` and reports how many.
-        let wrote = unsafe {
-            libc::proc_pidinfo(
-                libc::getpid(),
-                libc::PROC_PIDTASKINFO,
-                0,
-                info.as_mut_ptr().cast(),
-                size,
-            )
-        };
-        if wrote != size {
-            return None;
-        }
-        Some(unsafe { info.assume_init() }.pti_threadnum.max(0) as u64)
-    }
-    #[cfg(target_os = "linux")]
-    {
-        std::fs::read_to_string("/proc/self/status")
-            .ok()?
-            .lines()
-            .find_map(|line| line.strip_prefix("Threads:"))
-            .and_then(|n| n.trim().parse().ok())
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    {
-        None
-    }
-}
-
-/// How often the `harnix.process` topic is computed again while watched.
-const PROCESS_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
-
 /// Now, in ms since the epoch.
 pub(crate) fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64)
-}
-
-#[cfg(test)]
-mod recording_tests {
-    use super::*;
-
-    #[test]
-    fn the_process_counts_its_threads() {
-        if cfg!(any(target_os = "macos", target_os = "linux")) {
-            let _worker = std::thread::spawn(|| std::thread::sleep(std::time::Duration::from_millis(200)));
-            assert!(os_threads().is_some_and(|n| n >= 2));
-        }
-    }
-
-    #[test]
-    fn replay_is_lenient_unless_the_operator_asked_for_strict() {
-        let dir = std::path::Path::new("/rec");
-        let named = json!({"options": {"recorder": {"name": "fixture", "mode": "record", "strict": true}}});
-        let lenient = with_recording(named.clone(), Some(dir), false);
-        assert_eq!(
-            lenient["options"]["recorder"],
-            json!({"mode": "replay", "name": "fixture", "dir": "/rec", "strict": false}),
-            "a client's own mode and strictness are overwritten"
-        );
-        let strict = with_recording(named.clone(), Some(dir), true);
-        assert_eq!(strict["options"]["recorder"]["strict"], true);
-        assert_eq!(
-            with_recording(named, None, true)["options"]["recorder"],
-            json!({"mode": "record"}),
-            "outside replay strictness means nothing"
-        );
-    }
 }
 
 #[cfg(test)]

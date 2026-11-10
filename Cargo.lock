@@ -1586,7 +1586,6 @@ dependencies = [
  "harnix-contract",
  "harnix-instance",
  "harnix-kernel",
- "libc",
  "serde",
  "serde_json",
  "tempfile",
