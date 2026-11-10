@@ -3,11 +3,14 @@
 //!
 //! An allow-list, not a deny-list: the engine trusts whoever reaches its dispatch, and in this
 //! process that is the hub. A name that is not a row here is not reachable at all.
+//!
+//! The hub hands each its own row's name; the engine's link knows what the engine calls it.
 
 use std::sync::Arc;
 
 use harnix_contract::sync::lock;
-use harnix_contract::{RpcError, Subject};
+use harnix_contract::{codes, RpcError, Subject};
+use harnix_engine_api::ops::SessionInfo;
 use harnix_contract::s1::{caps, Capability, RowScope};
 use harnix_kernel::{Access, Owner, Rpc};
 use serde_json::{json, Value};
@@ -16,32 +19,41 @@ use crate::rows::{answer, HubCell, HubRow};
 use crate::{without_instance, Hub, ANSWERERS_KEPT};
 
 /// What the hub does once the engine has answered.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum After {
     Nothing,
     /// The answer carries the session's goal: what the hub tells its watchers.
     Goal,
     /// What the session list shows changed, and the engine sends no event for it.
     Relisted,
+    /// The answer is one session: held to what a session can say, from an extension's engine.
+    OneSession,
+    /// The answer lists sessions: each held so, from an extension's engine.
+    Sessions,
 }
 
-/// Passed through for any device, with what each acts on.
-const DEVICE: &[(&str, RowScope)] = &[
-    ("session.list", RowScope::Open),
-    ("session.get", RowScope::Session),
-    ("session.history", RowScope::Session),
-    ("session.entries", RowScope::Session),
-    ("session.resume", RowScope::Session),
-    ("scene.list", RowScope::Open),
-    ("scene.describe", RowScope::Open),
-    ("scene.activate", RowScope::Open),
-    ("commands.list", RowScope::Open),
-    ("mcp.status", RowScope::Open),
-    ("plugin.list", RowScope::Open),
-    ("daemon.status", RowScope::Open),
-    ("daemon.ping", RowScope::Open),
-    ("daemon.doctor", RowScope::Open),
+/// Passed through for any device, with what each acts on, and whether it reaches the engine's
+/// settings or plugins — which nobody reaches on an extension's engine: its carrier wrote them.
+const DEVICE: &[(&str, RowScope, After, bool)] = &[
+    ("session.list", RowScope::Open, After::Sessions, false),
+    ("session.get", RowScope::Session, After::OneSession, false),
+    ("session.history", RowScope::Session, After::Nothing, false),
+    ("session.entries", RowScope::Session, After::Nothing, false),
+    ("session.resume", RowScope::Session, After::Nothing, false),
+    ("scene.list", RowScope::Open, After::Nothing, false),
+    ("scene.describe", RowScope::Open, After::Nothing, false),
+    ("scene.activate", RowScope::Open, After::Nothing, false),
+    ("commands.list", RowScope::Open, After::Nothing, false),
+    ("mcp.status", RowScope::Open, After::Nothing, false),
+    ("plugin.list", RowScope::Open, After::Nothing, true),
+    ("daemon.status", RowScope::Open, After::Nothing, false),
+    ("daemon.ping", RowScope::Open, After::Nothing, false),
+    ("daemon.doctor", RowScope::Open, After::Nothing, false),
 ];
+
+/// The capabilities over an engine's settings and plugins: what no row reaches on an extension's
+/// engine.
+const SETTINGS: &[Capability] = &[caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE, caps::ENGINE_PLUGINS];
 
 /// What no device calls directly, open to the kernel and an extension holding the capability:
 /// looking into a session and changing its context (a device reaches those through the system
@@ -133,12 +145,22 @@ pub const HUB_OWNED: &[(&str, &str)] = &[
     ("daemon.subscribeEvents", "host events are the hub's to fan out"),
 ];
 
-fn engine(hub: &HubCell, name: &'static str, access: Access, after: After) -> HubRow {
+/// How one engine row is passed through.
+#[derive(Clone, Copy)]
+struct Through {
+    after: After,
+    /// About one session a device names: the space a call claims is checked on it.
+    checked: bool,
+    /// It reaches the engine's settings or plugins.
+    settings: bool,
+}
+
+fn engine(hub: &HubCell, name: &'static str, access: Access, through: Through) -> HubRow {
     HubRow::Method {
         name,
         owner: Owner::Engine,
         access,
-        handler: Some(answer(hub, name, move |h, _, p| async move { h.pass_through(name, p, after).await })),
+        handler: Some(answer(hub, name, through.checked, move |h, _, p| async move { h.pass_through(name, p, through).await })),
     }
 }
 
@@ -150,34 +172,39 @@ pub(crate) fn rows(hub: &HubCell) -> Vec<HubRow> {
             name: "session.create",
             owner: Owner::Engine,
             access: Access::device().scoped(RowScope::Space),
-            handler: Some(answer(hub, "session.create", |h, cx, p| async move { h.create(&cx.subject, p).await })),
+            handler: Some(answer(hub, "session.create", false, |h, cx, p| async move { h.create(&cx.subject, p).await })),
         },
         HubRow::Method {
             name: "session.fork",
             owner: Owner::Engine,
             access: Access::device().scoped(RowScope::Session),
-            handler: Some(answer(hub, "session.fork", |h, cx, p| async move { h.fork(&cx.subject, p).await })),
+            handler: Some(answer(hub, "session.fork", true, |h, cx, p| async move { h.fork(&cx.subject, p).await })),
         },
         HubRow::Method {
             name: "session.respondToPrompt",
             owner: Owner::Engine,
             access: Access::device().scoped(RowScope::Session),
-            handler: Some(answer(hub, "session.respondToPrompt", |h, cx, p| async move { h.respond(&cx.subject, p).await })),
+            handler: Some(answer(hub, "session.respondToPrompt", true, |h, cx, p| async move { h.respond(&cx.subject, p).await })),
         },
     ];
-    rows.extend(DEVICE.iter().map(|(name, scope)| engine(hub, name, Access::device().scoped(*scope), After::Nothing)));
+    rows.extend(DEVICE.iter().map(|(name, scope, after, settings)| {
+        let through = Through { after: *after, checked: *scope == RowScope::Session, settings: *settings };
+        engine(hub, name, Access::device().scoped(*scope), through)
+    }));
     rows.extend(BY_CAPABILITY.iter().map(|(name, cap, after)| {
         // A session's inside, read, changed or exported: one session each.
         let on_a_session = [caps::ENGINE_INSPECT, caps::ENGINE_CONTROL, caps::ENGINE_EXPORT].contains(cap);
         let scope = if on_a_session { RowScope::Session } else { RowScope::Open };
-        engine(hub, name, Access::capability(cap.clone()).scoped(scope), *after)
+        let through = Through { after: *after, checked: false, settings: SETTINGS.contains(cap) };
+        engine(hub, name, Access::capability(cap.clone()).scoped(scope), through)
     }));
     rows.extend(ENGINE_REFUSALS.iter().map(|(name, why, cap)| {
         let access = match cap {
             Some(cap) => Access::capability(cap.clone()).refusing(why),
             None => Access::refused(why),
         };
-        engine(hub, name, access, After::Nothing)
+        let settings = cap.as_ref().is_some_and(|cap| SETTINGS.contains(cap));
+        engine(hub, name, access, Through { after: After::Nothing, checked: false, settings })
     }));
     rows.extend(HUB_OWNED.iter().map(|(name, why)| HubRow::Method {
         name,
@@ -191,12 +218,23 @@ pub(crate) fn rows(hub: &HubCell) -> Vec<HubRow> {
 impl Hub {
     /// One engine method into the instance the call names (or the system instance), with the
     /// instance and space names taken off: the engine has no notion of either.
-    async fn pass_through(self: &Arc<Self>, method: &str, params: Value, after: After) -> Rpc<Value> {
+    async fn pass_through(self: &Arc<Self>, method: &str, params: Value, through: Through) -> Rpc<Value> {
         let instance = self.instance_of(&params)?;
+        let linked = self.engine(&instance)?;
+        let extension = linked.is_extension();
+        if extension && through.settings {
+            return Err(RpcError::new(
+                codes::REFUSED,
+                format!("instance `{instance}` runs an extension's engine: its settings and plugins are its carrier's, and nobody's to change"),
+            ));
+        }
         let session = params.get("session_id").and_then(Value::as_str).map(str::to_string);
-        let answer = self.call(&instance, method, without_instance(params)).await?;
-        match after {
-            After::Nothing => {}
+        let mut answer = linked.ops().passthrough(method, without_instance(params)).await?;
+        if extension {
+            harden(&mut answer, through.after);
+        }
+        match through.after {
+            After::Nothing | After::OneSession | After::Sessions => {}
             After::Goal => {
                 if let (Some(goal), Some(session)) = (answer.get("goal"), session) {
                     self.goal_heard(&(instance.clone(), session), goal.clone()).await;
@@ -216,14 +254,14 @@ impl Hub {
             .and_then(Value::as_str)
             .map(str::to_string)
             .unwrap_or_else(|| self.space_of(&key));
-        let forked = self.call(&key.0, "session.fork", without_instance(params)).await?;
-        if let Some(sid) = forked.get("session_id").and_then(Value::as_str) {
-            let new = (key.0.clone(), sid.to_string());
+        let forked = self.engine(&key.0)?.ops().fork(without_instance(params)).await?;
+        if let Some(sid) = &forked.session_id {
+            let new = (key.0.clone(), sid.clone());
             self.bind_space(&new, &space);
             self.note_starter(&new, subject);
         }
         self.refresh("harnix.instances.sessions", json!({"instance": key.0}));
-        Ok(forked)
+        Ok(forked.value)
     }
 
     /// `session.respondToPrompt`: the engine does not take who answered, so the hub keeps it for
@@ -243,15 +281,29 @@ impl Hub {
         let instance = self.instance_of(&params)?;
         let field = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_string);
         let prompt = field("session_id").zip(field("prompt_id"));
-        let answer = self
-            .call(&instance, "session.respondToPrompt", without_instance(params))
-            .await?;
+        let answer = self.engine(&instance)?.ops().respond(without_instance(params)).await?;
         if let Some((session, prompt_id)) = prompt {
-            self.answered(&(instance.clone(), session), |p| {
-                p.get("prompt_id").and_then(Value::as_str) == Some(prompt_id.as_str())
-            })
-            .await;
+            self.answered(&(instance.clone(), session), |p| p.prompt_id.as_deref() == Some(prompt_id.as_str()))
+                .await;
         }
         Ok(answer)
+    }
+}
+
+/// What an extension's engine said of a session, or of several, held to what a session can say.
+fn harden(answer: &mut Value, after: After) {
+    let one = |value: &mut Value| {
+        let mut info = SessionInfo::new(value.take());
+        info.harden();
+        *value = info.into_value();
+    };
+    match after {
+        After::OneSession => one(answer),
+        After::Sessions => {
+            if let Some(Value::Array(rows)) = answer.get_mut("sessions") {
+                rows.iter_mut().for_each(one);
+            }
+        }
+        _ => {}
     }
 }

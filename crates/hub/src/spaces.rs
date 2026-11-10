@@ -26,7 +26,6 @@ use std::sync::Arc;
 
 use harnix_contract::sync::{lock, read, write};
 use harnix_contract::{codes, DefaultInstance, RpcError, SpaceDecl, Subject, PROJECTS_SPACE, SESSIONS_SPACE};
-use harnix_instance::Owner;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -217,26 +216,6 @@ impl Spaces {
     }
 }
 
-/// Methods about one session that a space claim is checked on.
-pub(crate) const CHECKED: &[&str] = &[
-    "harnix.attach",
-    "harnix.detach",
-    "harnix.send",
-    "harnix.queue.remove",
-    "harnix.queue.edit",
-    "harnix.sessions.tasks",
-    "session.get",
-    "session.history",
-    "session.entries",
-    "harnix.entries.append",
-    "session.interrupt",
-    "session.close",
-    "session.delete",
-    "session.fork",
-    "session.resume",
-    "session.respondToPrompt",
-];
-
 impl Hub {
     /// Add a space at runtime (see [`Spaces::add_runtime`]); the
     /// `harnix.spaces` topic is pushed to whoever watches it.
@@ -326,7 +305,7 @@ impl Hub {
         }
         if let Some(named) = params.get("instance").and_then(Value::as_str).map(str::to_string) {
             if let Some(slot) = self.slot(&named) {
-                if let Owner::Space(owner) = &slot.owner {
+                if let Some(owner) = &slot.space {
                     if *owner != space && !crosses {
                         return Err(RpcError::new(
                             codes::SPACE_MISMATCH,
@@ -343,7 +322,7 @@ impl Hub {
                 Some(id) => id,
                 None => {
                     let name = format!("space-{space}");
-                    self.build_owned(&template, &name, Owner::Space(space.clone())).await?;
+                    self.build_owned(&template, &name, &space).await?;
                     lock(&self.spaces).ledger.instances.insert(space.clone(), name.clone());
                     lock(&self.spaces).save();
                     name
@@ -383,7 +362,7 @@ impl Hub {
             }
         }
         if let Some(slot) = self.slot(&key.0) {
-            if let Owner::Space(owner) = &slot.owner {
+            if let Some(owner) = &slot.space {
                 if *owner != space {
                     return Err(RpcError::new(
                         codes::SPACE_MISMATCH,
@@ -393,7 +372,7 @@ impl Hub {
             }
         }
         // Only a session there is: an unknown one is the engine's not-found, not a record of nothing.
-        self.call(&key.0, "session.get", json!({"session_id": key.1})).await?;
+        self.engine(&key.0)?.ops().get(&key.1).await?;
         let from = self.space_of(&key);
         if from == space {
             return Ok(json!({"space": space, "from": from, "moved": false}));
@@ -484,18 +463,15 @@ impl Hub {
     /// (`@session`, concept §5.4): what crosses is a copy of what was said, not the session.
     pub(crate) async fn reference(&self, reference: &Value) -> Result<Value, RpcError> {
         let key = self.key_of(reference)?;
-        let info = self.call(&key.0, "session.get", json!({"session_id": key.1})).await?;
-        let page = self
-            .call(&key.0, "session.history", json!({"session_id": key.1, "offset": 0, "limit": 200}))
-            .await?;
+        let linked = self.engine(&key.0)?;
+        let info = linked.ops().get(&key.1).await?;
+        let said = linked.ops().transcript(&key.1, 200).await?;
         let mut text = String::new();
-        for message in page.get("messages").and_then(Value::as_array).into_iter().flatten() {
-            let role = message.get("role").and_then(Value::as_str).unwrap_or("?");
-            let body = message_text(message);
-            if body.trim().is_empty() {
+        for message in said {
+            if message.text.trim().is_empty() {
                 continue;
             }
-            text.push_str(&format!("[{role}] {body}\n\n"));
+            text.push_str(&format!("[{}] {}\n\n", message.role, message.text));
         }
         const LIMIT: usize = 40_000;
         if text.len() > LIMIT {
@@ -503,25 +479,12 @@ impl Hub {
             let start = (cut..text.len()).find(|i| text.is_char_boundary(*i)).unwrap_or(text.len());
             text = format!("…\n{}", &text[start..]);
         }
-        let name = info.get("name").and_then(Value::as_str).unwrap_or(&key.1);
+        let name = info.title().unwrap_or(&key.1);
         Ok(json!({
             "kind": "text",
             "path": format!("session {name} ({})", self.space_of(&key)),
             "content": text,
         }))
-    }
-}
-
-/// The text of one transcript message, whether its content is a string or blocks.
-fn message_text(message: &Value) -> String {
-    match message.get("content") {
-        Some(Value::String(s)) => s.clone(),
-        Some(Value::Array(parts)) => parts
-            .iter()
-            .filter_map(|p| p.get("text").and_then(Value::as_str))
-            .collect::<Vec<_>>()
-            .join("\n"),
-        _ => String::new(),
     }
 }
 

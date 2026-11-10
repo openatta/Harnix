@@ -12,13 +12,16 @@
 //! 3. **Neither calls the other holding a lock of its own.** Each side marks its lock held with
 //!    [`holding`], and each side's entry points assert with [`holds`] that the other's is not.
 //!
+//! The hub asks the registry back through an [`InstanceBook`]: which instances there are, whose,
+//! and to build a space's default one. It knows the registry by that and by nothing else.
+//!
 //! Generic over the link, which is the engine's vocabulary and not this crate's.
 
 use std::sync::Arc;
 
 use harnix_contract::ExtId;
 
-use crate::TopicChanged;
+use crate::{Rpc, TopicChanged};
 
 /// Whose engine an instance runs: what the hub trusts its frames as far as.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,6 +30,47 @@ pub enum InstanceTrust {
     Product,
     /// An engine in an extension's own process: under third-party control.
     Extension(ExtId),
+}
+
+impl InstanceTrust {
+    pub fn is_extension(&self) -> bool {
+        matches!(self, InstanceTrust::Extension(_))
+    }
+
+    /// As the wire says it: `"product"` or `"extension"`.
+    pub fn label(&self) -> &'static str {
+        match self {
+            InstanceTrust::Product => "product",
+            InstanceTrust::Extension(_) => "extension",
+        }
+    }
+}
+
+/// What the hub asks of the instance registry, holding none of its own locks.
+#[async_trait::async_trait]
+pub trait InstanceBook: Send + Sync {
+    /// One listed instance.
+    fn listed(&self, id: &str) -> Option<Listed>;
+
+    /// Every listed instance.
+    fn all(&self) -> Vec<Listed>;
+
+    /// Build `name` from `template` as `space`'s own — its default instance — or answer with it,
+    /// when it was built so already.
+    async fn ensure_for_space(&self, template: &str, name: &str, space: &str) -> Rpc<()>;
+
+    /// An instance's engine sent more than its trust allows, `consecutive` windows in a row; `0`:
+    /// it is within bounds again. The hub dropped what was over. Whoever carries it decides what
+    /// that costs the engine.
+    fn flooding(&self, id: &str, consecutive: u32);
+}
+
+/// A listed instance, as the hub needs it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Listed {
+    pub id: String,
+    /// The space it was built for, when it was: its sessions are that space's.
+    pub space: Option<String>,
 }
 
 /// What the registry tells the hub. Never called while the registry holds its lock, and none of

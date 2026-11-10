@@ -13,8 +13,6 @@ harnix-kernel   = { workspace = true }
 harnix-supervise = { workspace = true }
 harnix-engine   = { workspace = true }
 harnix-engine-api = { workspace = true }
-daemon      = { workspace = true }
-history     = { workspace = true }
 tokio       = { workspace = true }
 tokio-util  = { workspace = true }
 anyhow      = { workspace = true }

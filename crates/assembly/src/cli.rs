@@ -217,8 +217,7 @@ pub(crate) fn child_entry(app: &crate::AppBuilder) -> Option<anyhow::Result<()>>
 
 /// What `--version` prints: every version a bug report needs.
 pub(crate) fn versions(_app: &str, app_version: &str) -> (String, String) {
-    let agix = daemon::discovery::identity();
-    let agix = agix.get("version").and_then(|v| v.as_str()).unwrap_or("?").to_string();
+    let agix = harnix_engine::identity().version.unwrap_or_else(|| "?".to_string());
     let short = app_version.to_string();
     let long = format!(
         "{app_version}\n\

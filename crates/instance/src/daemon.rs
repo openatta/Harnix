@@ -1,43 +1,26 @@
-//! An Agix daemon in another process, behind [`EngineLink`] (concept §3.1.1).
+//! A daemon in another process, kept connected — and running, when this process spawned it
+//! (concept §3.1.1).
 //!
-//! Newline-delimited JSON-RPC over a unix socket, or loopback TCP with the
-//! daemon's token. The link either attaches to a daemon somebody else runs or
-//! spawns one — `harnix daemon`, this same binary, so the versions agree by
-//! construction — and keeps it running.
+//! The link is the engine's ([`harnix_engine::DaemonLink`]): it speaks to whatever connection it
+//! is given. This keeps giving it one. It spawns `harnix daemon` — this same binary, so the
+//! versions agree by construction — and starts it again when it exits; or it attaches to a daemon
+//! somebody else runs. A lost connection is not a lost instance: the link goes `Degraded` and this
+//! connects again, backing off; a daemon that keeps exiting soon after it was reached is not
+//! started again, and one that refuses what it was started with is not either.
 //!
-//! A lost connection is not a lost instance. The link goes `Degraded`, keeps
-//! trying, and once it is back writes [`crate::link::RECONNECTED`] into the
-//! event stream, so the hub knows every subscription it had is gone and
-//! resyncs. Turns on the far side keep running meanwhile (Agix §5.6).
-//!
-//! The daemon trusts an authenticated connection completely and has no
-//! per-method authorization (Agix §5.1), so a daemon serves one Harnix: a
-//! spawned one is reachable only through a socket in a directory only this
-//! user can open; an attached one is the operator's to keep exclusive.
+//! A spawned daemon is reachable only through a socket in a directory only this user can open;
+//! an attached one is the operator's to keep exclusive.
 
-use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
+use harnix_engine::{Connection, DaemonLink, Endpoint, Recorder, Refusal, ReplayLink};
+use harnix_engine_api::link::{EngineControl, EngineIdentity, EngineLink, InstanceCarrier, LinkStatus};
 use harnix_supervise::{Child, ChildSpec, RestartPolicy, Restarts};
-use serde_json::{json, Value};
-use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::sync::{mpsc, oneshot, watch, Mutex};
-use tokio_util::sync::CancellationToken;
-
-use crate::link::{self, Carrier, EngineLink, EventReceiver, LinkStatus};
-
-#[derive(Debug, Clone)]
-pub enum Endpoint {
-    Unix(PathBuf),
-    /// Loopback TCP. The token is the daemon's `AGIX_DAEMON_TOKEN`, held by
-    /// Harnix and never given to a client.
-    Tcp { addr: String, token: String },
-}
+use tokio::sync::{watch, Mutex};
 
 /// How to start the daemon this link supervises.
 #[derive(Debug, Clone)]
@@ -58,9 +41,9 @@ pub struct DaemonSpec {
     pub spawn: Option<SpawnSpec>,
 }
 
-/// What a spawned daemon is asked for beyond its command line. The default is what a link has always
-/// done.
-#[derive(Debug, Clone, Default)]
+/// What a spawned daemon is asked for beyond its command line, and what its link records with.
+/// The default is what a link has always done, recording nothing.
+#[derive(Default)]
 #[non_exhaustive]
 pub struct SpawnOptions {
     /// The daemon leads a session of its own, and whatever is still in that session once the
@@ -71,6 +54,8 @@ pub struct SpawnOptions {
     /// Its part of the shared MCP servers (`servers.rs`): reloaded through this link, its
     /// credential renewed when the link starts the daemon again and revoked when it goes for good.
     pub(crate) servers: Option<Arc<crate::servers::Configured>>,
+    /// What the sessions it creates and resumes are recorded with.
+    pub(crate) recorder: Option<Recorder>,
 }
 
 impl SpawnOptions {
@@ -82,87 +67,71 @@ impl SpawnOptions {
 
 /// How long a spawned daemon has to start listening.
 const START_TIMEOUT: Duration = Duration::from_secs(60);
-/// How long a call waits for its reply before the link stops waiting. Generous: an ordinary call
-/// answers in milliseconds and the slowest (an install that fetches a package) in seconds, so a
-/// call past this is a daemon that stopped answering or a reader stuck behind a hub that stopped
-/// reading — and from here the two look the same. Either way the caller is told the instance is
-/// unavailable rather than left waiting for good. A turn is the exception ([`LASTS_A_TURN`]).
-const CALL_TIMEOUT: Duration = Duration::from_secs(300);
-/// Calls that last as long as the turn they run: no link-level timeout. A turn that ends is
-/// reported on the event stream too, and a link that is lost drains them with the rest.
-const LASTS_A_TURN: &[&str] = &["session.run_turn"];
 
-type Writer = Box<dyn AsyncWrite + Send + Unpin>;
-type Pending = HashMap<u64, oneshot::Sender<Result<Value, RpcError>>>;
-
-pub struct DaemonLink {
+/// A daemon's link, and what keeps it connected: the instance's control half. The hub is handed
+/// the link itself ([`Supervised::link`]).
+pub struct Supervised {
     spec: DaemonSpec,
-    writer: Mutex<Option<Writer>>,
-    pending: StdMutex<Pending>,
-    next_id: AtomicU64,
-    events_tx: mpsc::Sender<Value>,
-    events_rx: StdMutex<Option<EventReceiver>>,
-    status: watch::Sender<LinkStatus>,
-    identity: StdMutex<Value>,
+    link: Arc<DaemonLink>,
+    /// The link, recording: what the hub's calls go through.
+    replay: Option<Arc<ReplayLink>>,
     child: Mutex<Option<Child>>,
     pid: AtomicU32,
-    cancel: CancellationToken,
     reap: bool,
-    call_timeout: Duration,
     servers: Option<Arc<crate::servers::Configured>>,
-    recorder: std::sync::OnceLock<crate::recording::Recorder>,
 }
 
-impl DaemonLink {
-    /// Start connecting (and spawning) in the background. The link is
-    /// `Starting` until the daemon answers.
+impl Supervised {
+    /// Start connecting (and spawning) in the background. The link is `Starting` until the daemon
+    /// answers.
     pub fn start(spec: DaemonSpec) -> Arc<Self> {
         Self::start_with(spec, SpawnOptions::default())
     }
 
-    /// [`DaemonLink::start`], with what [`SpawnOptions`] asks of a spawned daemon. An attached one
-    /// ignores them.
+    /// [`Supervised::start`], with what [`SpawnOptions`] asks of a spawned daemon. An attached one
+    /// ignores what is about spawning.
     pub fn start_with(spec: DaemonSpec, options: SpawnOptions) -> Arc<Self> {
-        Self::launch(spec, options, CALL_TIMEOUT)
+        let carrier = if spec.spawn.is_some() { InstanceCarrier::Spawn } else { InstanceCarrier::Attach };
+        let link = DaemonLink::new(carrier, label(&spec.endpoint));
+        Self::launch(spec, options, link)
     }
 
-    fn launch(spec: DaemonSpec, options: SpawnOptions, call_timeout: Duration) -> Arc<Self> {
+    fn launch(spec: DaemonSpec, options: SpawnOptions, link: Arc<DaemonLink>) -> Arc<Self> {
         let reap = options.reap_on_stop && spec.spawn.is_some();
         let servers = options.servers.filter(|_| spec.spawn.is_some());
-        let (events_tx, events_rx) = mpsc::channel(link::EVENT_CAPACITY);
-        let (status, _) = watch::channel(LinkStatus::Starting);
+        let replay = options.recorder.map(|recorder| ReplayLink::daemon(link.clone(), recorder));
         let this = Arc::new(Self {
             spec,
-            writer: Mutex::new(None),
-            pending: StdMutex::new(HashMap::new()),
-            next_id: AtomicU64::new(1),
-            events_tx,
-            events_rx: StdMutex::new(Some(events_rx)),
-            status,
-            identity: StdMutex::new(Value::Null),
+            link,
+            replay,
             child: Mutex::new(None),
             pid: AtomicU32::new(0),
-            cancel: CancellationToken::new(),
             reap,
-            call_timeout,
             servers,
-            recorder: std::sync::OnceLock::new(),
         });
         if let Some(servers) = &this.servers {
-            servers.attach(&this);
+            servers.attach(&this.link);
         }
         tokio::spawn(this.clone().supervise());
         this
     }
 
+    /// The link the hub is handed: through its recorder, when it has one.
+    pub(crate) fn link(&self) -> Arc<dyn EngineLink> {
+        match &self.replay {
+            Some(replay) => replay.clone(),
+            None => self.link.clone(),
+        }
+    }
+
     async fn supervise(self: Arc<Self>) {
-        let mut connected_before = false;
+        let stopping = self.link.stopping();
         // A daemon that keeps exiting soon after the link reached it is not started again: something
         // about it is wrong, and a restart loop would hide what.
         let policy = RestartPolicy::daemon();
         let mut restarts = policy.restarts();
         loop {
-            if self.cancel.is_cancelled() {
+            if stopping.is_cancelled() {
                 return;
             }
             if self.spec.spawn.is_some() {
@@ -195,94 +164,58 @@ impl DaemonLink {
                             self.stop_child().await;
                             return;
                         }
-                        self.degrade(format!("could not start the daemon: {e:#}"));
+                        self.link.degrade(format!("could not start the daemon: {e:#}"));
                         self.pause(&mut restarts).await;
                         continue;
                     }
                 }
             }
-            let reader = match self.connect().await {
-                Ok(reader) => reader,
+            let connection = match Connection::open(&self.spec.endpoint).await {
+                Ok(connection) => connection,
                 Err(e) => {
-                    self.degrade(format!("cannot connect: {e:#}"));
+                    self.link.degrade(format!("cannot connect: {e:#}"));
                     self.pause(&mut restarts).await;
                     continue;
                 }
             };
-            let lost = CancellationToken::new();
-            let reading = tokio::spawn(self.clone().read(reader, lost.clone()));
-            match self.handshake().await {
-                Ok(()) => {}
+            let taken = match self.link.take(connection, self.spec.endpoint.token()).await {
+                Ok(taken) => taken,
                 Err(Refusal::Fatal(reason)) => {
                     self.down(reason);
-                    self.disconnect().await;
-                    reading.abort();
                     self.stop_child().await;
                     return;
                 }
                 Err(Refusal::Retry(reason)) => {
-                    self.disconnect().await;
-                    reading.abort();
-                    self.degrade(reason);
+                    self.link.degrade(reason);
                     self.pause(&mut restarts).await;
                     continue;
                 }
-            }
-            if connected_before {
-                let _ = self.events_tx.send(link::reconnected_frame()).await;
-            }
-            connected_before = true;
+            };
             restarts.reset_backoff();
             let started = Instant::now();
-            self.status.send_replace(LinkStatus::Ready);
-            tracing::info!(endpoint = ?self.spec.endpoint, "daemon link ready");
-
             tokio::select! {
                 // A shutdown closes the connection too: it is the shutdown, not a loss.
                 biased;
-                _ = self.cancel.cancelled() => {
-                    reading.abort();
-                    return;
-                }
-                _ = lost.cancelled() => {}
+                _ = stopping.cancelled() => return,
+                _ = taken.lost() => {}
             }
-            self.disconnect().await;
+            self.link.disconnect().await;
             restarts.ran_for(started.elapsed());
-            self.degrade("the connection closed".into());
-            tracing::warn!(endpoint = ?self.spec.endpoint, "daemon link lost; reconnecting");
+            self.link.degrade("the connection closed".into());
+            tracing::warn!(daemon = %label(&self.spec.endpoint), "daemon link lost; reconnecting");
         }
     }
 
     async fn pause(&self, restarts: &mut Restarts) {
+        let stopping = self.link.stopping();
         tokio::select! {
             _ = tokio::time::sleep(restarts.next_backoff()) => {}
-            _ = self.cancel.cancelled() => {}
+            _ = stopping.cancelled() => {}
         }
-    }
-
-    /// Lost, and being found again — unless the link is being shut down, whose `Down` stands.
-    /// Checked under the status's own lock: `shutdown` cancels before it says `Down`, so a
-    /// degrade that raced it either lands first and is overwritten, or sees the cancel.
-    fn degrade(&self, reason: String) {
-        self.status.send_if_modified(|status| {
-            if self.cancel.is_cancelled() {
-                return false;
-            }
-            let since_ms = match status {
-                LinkStatus::Degraded { since_ms, .. } => *since_ms,
-                _ => link::now_ms(),
-            };
-            *status = LinkStatus::Degraded { since_ms, reason };
-            true
-        });
     }
 
     fn down(&self, reason: String) {
-        if self.cancel.is_cancelled() {
-            return;
-        }
-        tracing::error!(endpoint = ?self.spec.endpoint, %reason, "daemon link down");
-        self.status.send_replace(LinkStatus::Down { reason });
+        self.link.down(reason);
         self.gone();
     }
 
@@ -294,8 +227,7 @@ impl DaemonLink {
         }
     }
 
-    /// Make sure the child runs. True when one had exited and this started
-    /// it again.
+    /// Make sure the child runs. True when one had exited and this started it again.
     async fn ensure_child(&self) -> anyhow::Result<bool> {
         let Some(spawn) = &self.spec.spawn else {
             return Ok(false);
@@ -354,146 +286,13 @@ impl DaemonLink {
                     anyhow::bail!("it exited before listening ({status})");
                 }
             }
-            let ready = match &self.spec.endpoint {
-                Endpoint::Unix(path) => tokio::net::UnixStream::connect(path).await.is_ok(),
-                Endpoint::Tcp { addr, .. } => tokio::net::TcpStream::connect(addr).await.is_ok(),
-            };
-            if ready {
+            if self.spec.endpoint.listening().await {
                 return Ok(());
             }
             if started.elapsed() > START_TIMEOUT {
                 anyhow::bail!("it did not listen within {}s", START_TIMEOUT.as_secs());
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-    }
-
-    async fn connect(&self) -> anyhow::Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>> {
-        let (reader, writer): (Box<dyn tokio::io::AsyncRead + Send + Unpin>, Writer) =
-            match &self.spec.endpoint {
-                Endpoint::Unix(path) => {
-                    let (r, w) = tokio::net::UnixStream::connect(path).await?.into_split();
-                    (Box::new(r), Box::new(w))
-                }
-                Endpoint::Tcp { addr, .. } => {
-                    let (r, w) = tokio::net::TcpStream::connect(addr).await?.into_split();
-                    (Box::new(r), Box::new(w))
-                }
-            };
-        *self.writer.lock().await = Some(writer);
-        Ok(reader)
-    }
-
-    async fn handshake(&self) -> Result<(), Refusal> {
-        if let Endpoint::Tcp { token, .. } = &self.spec.endpoint {
-            self.raw_call("daemon.auth", json!({"token": token}))
-                .await
-                .map_err(|e| Refusal::Fatal(format!("the daemon refused the token: {}", e.message)))?;
-        }
-        let identity = self
-            .raw_call("daemon.ping", json!({}))
-            .await
-            .map_err(|e| Refusal::Retry(format!("daemon.ping failed: {}", e.message)))?;
-        let theirs = identity
-            .get("protocol_version")
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
-        let ours = link::expected_protocol();
-        if theirs != ours {
-            return Err(Refusal::Fatal(format!(
-                "the daemon speaks protocol version {theirs} and this Harnix speaks {ours}; \
-                 run a daemon built from the same Agix"
-            )));
-        }
-        *lock(&self.identity) = json!({
-            "version": identity.get("version"),
-            "protocol_version": theirs,
-            "capabilities": identity.get("capabilities"),
-        });
-        self.raw_call("daemon.subscribeEvents", json!({}))
-            .await
-            .map_err(|e| Refusal::Retry(format!("daemon.subscribeEvents failed: {}", e.message)))?;
-        Ok(())
-    }
-
-    /// Route every line: replies to their callers, everything else to the
-    /// event stream, in the order read. A reply is therefore never handed
-    /// over before the events the daemon wrote ahead of it.
-    async fn read(
-        self: Arc<Self>,
-        reader: Box<dyn tokio::io::AsyncRead + Send + Unpin>,
-        lost: CancellationToken,
-    ) {
-        let mut lines = BufReader::new(reader).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            let Ok(frame) = serde_json::from_str::<Value>(&line) else {
-                continue;
-            };
-            let id = frame.get("id").and_then(Value::as_u64);
-            match id {
-                Some(id) if frame.get("method").is_none() => {
-                    let waiter = lock(&self.pending).remove(&id);
-                    if let Some(waiter) = waiter {
-                        let _ = waiter.send(reply(frame));
-                    }
-                }
-                _ => {
-                    if self.events_tx.send(frame).await.is_err() {
-                        break;
-                    }
-                }
-            }
-        }
-        lost.cancel();
-    }
-
-    async fn disconnect(&self) {
-        *self.writer.lock().await = None;
-        let waiting: Vec<_> = lock(&self.pending).drain().collect();
-        let status = self.status.borrow().clone();
-        for (_, waiter) in waiting {
-            let _ = waiter.send(Err(link::unavailable(&status)));
-        }
-    }
-
-    async fn raw_call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let (tx, rx) = oneshot::channel();
-        lock(&self.pending).insert(id, tx);
-        let mut line = serde_json::to_string(
-            &json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}),
-        )
-        .map_err(|e| RpcError::invalid_params(e.to_string()))?;
-        line.push('\n');
-        let written = {
-            let mut writer = self.writer.lock().await;
-            match writer.as_mut() {
-                Some(w) => w.write_all(line.as_bytes()).await.is_ok() && w.flush().await.is_ok(),
-                None => false,
-            }
-        };
-        if !written {
-            lock(&self.pending).remove(&id);
-            return Err(link::unavailable(&self.status.borrow()));
-        }
-        if LASTS_A_TURN.contains(&method) {
-            return rx
-                .await
-                .unwrap_or_else(|_| Err(link::unavailable(&self.status.borrow())));
-        }
-        match tokio::time::timeout(self.call_timeout, rx).await {
-            Ok(reply) => reply.unwrap_or_else(|_| Err(link::unavailable(&self.status.borrow()))),
-            Err(_) => {
-                lock(&self.pending).remove(&id);
-                tracing::warn!(endpoint = ?self.spec.endpoint, method, "the daemon did not answer in time");
-                Err(RpcError::new(
-                    harnix_contract::codes::INSTANCE_UNAVAILABLE,
-                    format!(
-                        "the instance did not answer `{method}` within {}s",
-                        self.call_timeout.as_secs()
-                    ),
-                ))
-            }
         }
     }
 
@@ -509,6 +308,14 @@ impl DaemonLink {
     }
 }
 
+/// Where the daemon is, for the log: never the token a TCP endpoint carries.
+fn label(endpoint: &Endpoint) -> String {
+    match endpoint {
+        Endpoint::Unix(path) => path.display().to_string(),
+        Endpoint::Tcp { addr, .. } => addr.clone(),
+    }
+}
+
 /// A daemon that exited with [`crate::serve::REFUSED_EXIT`]: starting it again would only refuse again.
 #[derive(Debug)]
 struct Refused(String);
@@ -521,63 +328,18 @@ impl std::fmt::Display for Refused {
 
 impl std::error::Error for Refused {}
 
-enum Refusal {
-    /// Trying again cannot help: wrong protocol, wrong token.
-    Fatal(String),
-    Retry(String),
-}
-
-fn reply(frame: Value) -> Result<Value, RpcError> {
-    if let Some(error) = frame.get("error") {
-        return Err(RpcError {
-            code: error.get("code").and_then(Value::as_i64).unwrap_or(-32603) as i32,
-            message: error
-                .get("message")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            data: error.get("data").cloned(),
-        });
-    }
-    Ok(frame.get("result").cloned().unwrap_or(Value::Null))
-}
-
 #[async_trait::async_trait]
-impl EngineLink for DaemonLink {
-    async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
-        let status = self.status.borrow().clone();
-        if !status.is_ready() {
-            return Err(link::unavailable(&status));
-        }
-        crate::recording::recorded(self.recorder.get(), method, params, |params| self.raw_call(method, params)).await
-    }
-
-    fn take_events(&self) -> Option<EventReceiver> {
-        lock(&self.events_rx).take()
-    }
-
-    /// Replies and events come off one socket in the order the daemon wrote
-    /// them, and the reader hands events over before it resolves a later
-    /// reply. A mark queued after a reply arrived is therefore behind that
-    /// call's events already.
-    async fn mark(&self, id: u64) {
-        let _ = self.events_tx.send(link::barrier_frame(id)).await;
-    }
-
+impl EngineControl for Supervised {
     fn status(&self) -> watch::Receiver<LinkStatus> {
-        self.status.subscribe()
+        self.link.status()
     }
 
-    fn identity(&self) -> Value {
-        lock(&self.identity).clone()
+    fn identity(&self) -> EngineIdentity {
+        self.link.identity()
     }
 
-    fn carrier(&self) -> Carrier {
-        if self.spec.spawn.is_some() {
-            Carrier::Spawn
-        } else {
-            Carrier::Attach
-        }
+    fn carrier(&self) -> InstanceCarrier {
+        self.link.carrier()
     }
 
     fn pid(&self) -> Option<u32> {
@@ -591,24 +353,25 @@ impl EngineLink for DaemonLink {
         self.reap
     }
 
-    fn record(&self, recorder: crate::recording::Recorder) {
-        let _ = self.recorder.set(recorder);
+    async fn reload_settings(&self) -> Result<(), RpcError> {
+        self.link.reload_settings().await
     }
 
     async fn shutdown(&self) {
-        self.cancel.cancel();
+        self.link.shutdown().await;
         self.gone();
-        self.disconnect().await;
         self.stop_child().await;
-        self.status.send_replace(LinkStatus::Down {
-            reason: "stopped".into(),
-        });
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use harnix_contract::sync::lock;
+    use harnix_engine_api::EngineEvent;
+    use serde_json::{json, Value};
+    use std::sync::Mutex as StdMutex;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
     /// A daemon that exits with the refusal status before listening is not started again: the
     /// instance is down, with the reason the daemon wrote (ipdrun-10).
@@ -617,7 +380,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let socket = dir.path().join("d.sock");
         let why = crate::serve::refusal_path(&socket);
-        let link = DaemonLink::start(DaemonSpec {
+        let link = Supervised::start(DaemonSpec {
             endpoint: Endpoint::Unix(socket),
             spawn: Some(SpawnSpec {
                 program: "/bin/sh".into(),
@@ -666,7 +429,7 @@ mod tests {
                 let (id, method) = fake.request().await.expect("the handshake");
                 let result = match method.as_str() {
                     "daemon.auth" | "daemon.subscribeEvents" => json!({}),
-                    "daemon.ping" => json!({"version": "test", "protocol_version": link::expected_protocol()}),
+                    "daemon.ping" => json!({"version": "test", "protocol_version": harnix_engine::protocol_version()}),
                     other => panic!("`{other}` before the handshake was over"),
                 };
                 fake.answer(id, result).await;
@@ -690,15 +453,11 @@ mod tests {
         }
     }
 
-    fn attach(socket: &std::path::Path, call_timeout: Duration) -> Arc<DaemonLink> {
-        DaemonLink::launch(
-            DaemonSpec { endpoint: Endpoint::Unix(socket.to_path_buf()), spawn: None },
-            SpawnOptions::default(),
-            call_timeout,
-        )
+    fn attach(socket: &std::path::Path) -> Arc<Supervised> {
+        Supervised::start(DaemonSpec { endpoint: Endpoint::Unix(socket.to_path_buf()), spawn: None })
     }
 
-    async fn until(link: &DaemonLink, what: &str, pred: impl Fn(&LinkStatus) -> bool) -> LinkStatus {
+    async fn until(link: &Supervised, what: &str, pred: impl Fn(&LinkStatus) -> bool) -> LinkStatus {
         let mut status = link.status();
         tokio::time::timeout(Duration::from_secs(20), async {
             loop {
@@ -713,10 +472,6 @@ mod tests {
         .unwrap_or_else(|_| panic!("never {what}: {:?}", link.status().borrow()))
     }
 
-    fn unavailable(r: &Result<Value, RpcError>) -> bool {
-        matches!(r, Err(e) if e.code == harnix_contract::codes::INSTANCE_UNAVAILABLE)
-    }
-
     /// The daemon goes away and comes back: the link reconnects by itself, and writes
     /// `harnix.reconnected` into the event stream, so the hub knows its subscriptions are gone.
     #[tokio::test]
@@ -724,8 +479,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let socket = dir.path().join("d.sock");
         let listener = UnixListener::bind(&socket).unwrap();
-        let link = attach(&socket, CALL_TIMEOUT);
-        let mut events = link.take_events().unwrap();
+        let link = attach(&socket);
+        let mut events = link.link().take_events().unwrap();
 
         let first = Fake::accept(listener.accept().await.unwrap().0).await;
         until(&link, "ready", LinkStatus::is_ready).await;
@@ -734,66 +489,8 @@ mod tests {
 
         let _second = Fake::accept(listener.accept().await.unwrap().0).await;
         until(&link, "ready again", LinkStatus::is_ready).await;
-        let frame = tokio::time::timeout(Duration::from_secs(5), events.recv()).await.unwrap().unwrap();
-        assert_eq!(frame["method"], link::RECONNECTED);
-        link.shutdown().await;
-    }
-
-    /// Calls waiting for their replies when the connection drops are answered at once, as
-    /// unavailable — not left waiting for a reply that will never come.
-    #[tokio::test]
-    async fn calls_in_flight_when_the_connection_drops_are_drained_as_unavailable() {
-        let dir = tempfile::tempdir().unwrap();
-        let socket = dir.path().join("d.sock");
-        let listener = UnixListener::bind(&socket).unwrap();
-        let link = attach(&socket, CALL_TIMEOUT);
-        let mut fake = Fake::accept(listener.accept().await.unwrap().0).await;
-        until(&link, "ready", LinkStatus::is_ready).await;
-
-        let calls: Vec<_> = (0..3)
-            .map(|_| {
-                let link = link.clone();
-                tokio::spawn(async move { link.call("session.list", json!({})).await })
-            })
-            .collect();
-        for _ in 0..3 {
-            assert_eq!(fake.request().await.unwrap().1, "session.list");
-        }
-        drop(fake);
-        for call in calls {
-            let r = tokio::time::timeout(Duration::from_secs(5), call).await.expect("left waiting").unwrap();
-            assert!(unavailable(&r), "{r:?}");
-        }
-        link.shutdown().await;
-    }
-
-    /// A daemon that takes a call and never answers it: past the link's timeout the caller is told
-    /// the instance is unavailable. A turn is not timed: it lasts as long as it lasts.
-    #[tokio::test]
-    async fn a_call_the_daemon_never_answers_is_answered_unavailable_after_the_timeout() {
-        let dir = tempfile::tempdir().unwrap();
-        let socket = dir.path().join("d.sock");
-        let listener = UnixListener::bind(&socket).unwrap();
-        let link = attach(&socket, Duration::from_millis(300));
-        let mut fake = Fake::accept(listener.accept().await.unwrap().0).await;
-        until(&link, "ready", LinkStatus::is_ready).await;
-
-        let r = link.call("session.list", json!({})).await;
-        assert!(unavailable(&r), "{r:?}");
-        assert!(r.unwrap_err().message.contains("did not answer `session.list`"));
-        assert!(lock(&link.pending).iter().all(|(_, w)| !w.is_closed()), "the timed-out waiter is gone");
-        fake.request().await.unwrap();
-
-        let turn = {
-            let link = link.clone();
-            tokio::spawn(async move { link.call("session.run_turn", json!({})).await })
-        };
-        let (id, method) = fake.request().await.unwrap();
-        assert_eq!(method, "session.run_turn");
-        tokio::time::sleep(Duration::from_millis(600)).await;
-        assert!(!turn.is_finished(), "a turn was timed out like a call");
-        fake.answer(id, json!({"done": true})).await;
-        assert_eq!(turn.await.unwrap().unwrap(), json!({"done": true}));
+        let event = tokio::time::timeout(Duration::from_secs(5), events.recv()).await.unwrap().unwrap();
+        assert!(matches!(event, EngineEvent::Reconnected), "{event:?}");
         link.shutdown().await;
     }
 
@@ -824,7 +521,7 @@ mod tests {
                 }
             })
         };
-        let link = DaemonLink::start(DaemonSpec {
+        let link = Supervised::start(DaemonSpec {
             endpoint: Endpoint::Tcp { addr, token: "t".into() },
             spawn: Some(SpawnSpec {
                 program: "/bin/sh".into(),
@@ -893,7 +590,7 @@ mod tests {
             root.join("settings.json").display(),
             seen.display()
         );
-        let link = DaemonLink::start_with(
+        let link = Supervised::start_with(
             DaemonSpec {
                 endpoint: Endpoint::Tcp { addr, token: "t".into() },
                 spawn: Some(SpawnSpec {
@@ -928,7 +625,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let socket = dir.path().join("d.sock");
             let listener = UnixListener::bind(&socket).unwrap();
-            let link = attach(&socket, CALL_TIMEOUT);
+            let link = attach(&socket);
             let fake = Fake::accept(listener.accept().await.unwrap().0).await;
             until(&link, "ready", LinkStatus::is_ready).await;
             let (_, ()) = tokio::join!(link.shutdown(), async { drop(fake) });

@@ -236,18 +236,12 @@ impl crate::Hub {
         if subscribed {
             return;
         }
-        if let Ok(resp) = self
-            .call(&key.0, "session.subscribe", json!({"session_id": key.1}))
-            .await
-        {
+        let Ok(linked) = self.engine(&key.0) else { return };
+        if let Ok(Some(subscribed)) = linked.ops().subscribe(&key.1).await {
             let mut guard = self.inner.lock().await;
             let state = guard.sessions.entry(key).or_default();
             state.subscribed = true;
-            state.pending_prompts = resp
-                .get("pending_prompts")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
+            state.pending_prompts = subscribed.pending;
         }
     }
 

@@ -1,8 +1,9 @@
-//! Recording, and replay: what a session is created and resumed with.
+//! Recording, and replay: what a session is created and resumed with — the [`ReplayLink`] every
+//! link this process builds is wrapped in.
 //!
 //! Recording is on by default, and it is this layer that turns it on, on the way into the
 //! engine, because every way a runnable session comes into being — `session.create`, and the
-//! `session.resume` behind opening a past one — goes through a link this layer built.
+//! `session.resume` behind opening a past one — goes through a link the instance layer built.
 //!
 //! Without a recording there is no answer to "what did the model actually see", and that
 //! question is not optional (concept §6.4). No `dir` is named: the engine resolves the root from
@@ -17,6 +18,12 @@
 //! When the operator has made it, and only then, a caller may name *which* recording to play.
 //! That is not a loosening: outside replay the name means nothing, and inside it, naming the
 //! fixture is the entire point.
+//!
+//! # Deleting a session deletes its recording
+//!
+//! The recorder keeps no retention policy and says so — a recording is a self-contained directory
+//! for whoever owns the session to remove, and deleting the session is that moment. Closing is
+//! not: the conversation can be reopened, and what the model saw should still be there.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -25,7 +32,14 @@ use std::sync::{Arc, Mutex};
 
 use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
+use harnix_engine_api::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
+use harnix_engine_api::ops::EngineOps;
 use serde_json::{json, Value};
+use tokio::sync::watch;
+
+use crate::daemon_link::DaemonLink;
+use crate::inproc::InProcessLink;
+use crate::translate::{self, AgixOps, Raw, Rpc};
 
 /// The process's recording: record, or play back from a directory. One for every instance.
 #[derive(Default)]
@@ -56,11 +70,13 @@ impl Recording {
         self.strict.store(strict, Ordering::Relaxed);
     }
 
-    /// What one instance's link records with.
-    pub fn of(self: &Arc<Self>, instance: &str) -> Recorder {
+    /// What one instance's link records with. `recordings` is where its engine writes them, when
+    /// this process can say: a deleted session's is removed from there.
+    pub fn of(self: &Arc<Self>, instance: &str, recordings: Option<PathBuf>) -> Recorder {
         Recorder {
             instance: instance.to_string(),
             recording: self.clone(),
+            recordings,
         }
     }
 }
@@ -69,6 +85,7 @@ impl Recording {
 pub struct Recorder {
     instance: String,
     recording: Arc<Recording>,
+    recordings: Option<PathBuf>,
 }
 
 impl Recorder {
@@ -77,11 +94,11 @@ impl Recorder {
     /// answers.
     pub fn prepare(&self, method: &str, mut params: Value) -> (Value, Option<String>) {
         match method {
-            "session.create" => {
+            translate::SESSION_CREATE => {
                 let named = named(&params);
                 (self.options(params), named)
             }
-            "session.resume" => {
+            translate::SESSION_RESUME => {
                 let session = params.get("session_id").and_then(Value::as_str).map(str::to_string);
                 let remembered = session.and_then(|s| lock(&self.recording.named).get(&(self.instance.clone(), s)).cloned());
                 if let (Some(name), Some(obj)) = (remembered, params.as_object_mut()) {
@@ -114,26 +131,104 @@ impl Recorder {
             self.recording.strict.load(Ordering::Relaxed),
         )
     }
+
+    /// A deleted session's recording goes with it — unless the call only asked what would go.
+    fn deleted(&self, method: &str, params: &Value, answer: &Result<Value, RpcError>) {
+        let dry_run = params.get("dry_run").and_then(Value::as_bool) == Some(true);
+        if method != translate::SESSION_DELETE || dry_run || answer.is_err() {
+            return;
+        }
+        let (Some(root), Some(session)) = (&self.recordings, params.get("session_id").and_then(Value::as_str)) else {
+            return;
+        };
+        let dir = root.join(session);
+        if dir.is_dir() {
+            if let Err(e) = std::fs::remove_dir_all(&dir) {
+                tracing::warn!(dir = %dir.display(), error = %e, "recording not removed");
+            }
+        }
+    }
 }
 
-/// A link's call, through its recorder when it has one.
-pub(crate) async fn recorded<F, Fut>(
-    recorder: Option<&Recorder>,
-    method: &str,
-    params: Value,
-    call: F,
-) -> Result<Value, RpcError>
-where
-    F: FnOnce(Value) -> Fut,
-    Fut: std::future::Future<Output = Result<Value, RpcError>>,
-{
-    let Some(recorder) = recorder else {
-        return call(params).await;
-    };
-    let (params, named) = recorder.prepare(method, params);
-    let answer = call(params).await;
-    recorder.answered(named, &answer);
-    answer
+/// A link's calls, through its recorder.
+struct Recorded {
+    rpc: Arc<dyn Rpc>,
+    recorder: Recorder,
+}
+
+#[async_trait::async_trait]
+impl Rpc for Recorded {
+    async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
+        let deleting = (method == translate::SESSION_DELETE).then(|| params.clone());
+        let (params, named) = self.recorder.prepare(method, params);
+        let answer = self.rpc.call(method, params).await;
+        self.recorder.answered(named, &answer);
+        if let Some(params) = deleting {
+            self.recorder.deleted(method, &params, &answer);
+        }
+        answer
+    }
+}
+
+/// A link that records — or, in replay, plays back — every session it creates and resumes: one
+/// of this crate's links, with its calls through a [`Recorder`].
+pub struct ReplayLink {
+    inner: Arc<dyn Raw>,
+    ops: AgixOps,
+}
+
+impl ReplayLink {
+    pub fn in_process(link: Arc<InProcessLink>, recorder: Recorder) -> Arc<Self> {
+        Self::new(link, recorder)
+    }
+
+    pub fn daemon(link: Arc<DaemonLink>, recorder: Recorder) -> Arc<Self> {
+        Self::new(link, recorder)
+    }
+
+    fn new(inner: Arc<dyn Raw>, recorder: Recorder) -> Arc<Self> {
+        let rpc = inner.rpc();
+        Arc::new(Self { inner, ops: AgixOps(Arc::new(Recorded { rpc, recorder })) })
+    }
+}
+
+#[async_trait::async_trait]
+impl EngineControl for ReplayLink {
+    fn status(&self) -> watch::Receiver<LinkStatus> {
+        self.inner.status()
+    }
+
+    fn identity(&self) -> EngineIdentity {
+        self.inner.identity()
+    }
+
+    fn carrier(&self) -> InstanceCarrier {
+        self.inner.carrier()
+    }
+
+    async fn reload_settings(&self) -> Result<(), RpcError> {
+        self.inner.reload_settings().await
+    }
+
+    async fn shutdown(&self) {
+        self.inner.shutdown().await
+    }
+}
+
+#[async_trait::async_trait]
+impl EngineLink for ReplayLink {
+    fn ops(&self) -> &dyn EngineOps {
+        &self.ops
+    }
+
+    /// The link's own stream: wrapping it is not taking it.
+    fn take_events(&self) -> Option<EventReceiver> {
+        self.inner.events()
+    }
+
+    async fn mark(&self, id: u64) {
+        self.inner.mark(id).await
+    }
 }
 
 /// The recording a call names, if any.
@@ -205,13 +300,13 @@ mod tests {
     #[test]
     fn a_resumed_session_replays_what_it_was_created_with() {
         let recording = Recording::new(Some(PathBuf::from("/rec")));
-        let recorder = recording.of("w");
+        let recorder = recording.of("w", None);
         let (sent, named) = recorder.prepare("session.create", json!({"options": {"recorder": {"name": "fixture"}}}));
         assert_eq!(sent["options"]["recorder"]["mode"], "replay");
         recorder.answered(named, &Ok(json!({"session_id": "s1"})));
         let (resumed, _) = recorder.prepare("session.resume", json!({"session_id": "s1"}));
         assert_eq!(resumed["options"]["recorder"]["name"], "fixture");
-        let (other, _) = recording.of("v").prepare("session.resume", json!({"session_id": "s1"}));
+        let (other, _) = recording.of("v", None).prepare("session.resume", json!({"session_id": "s1"}));
         assert_eq!(other["options"]["recorder"]["name"], Value::Null, "another instance's s1 is another session");
         let (passed, _) = recorder.prepare("session.get", json!({"session_id": "s1"}));
         assert_eq!(passed, json!({"session_id": "s1"}), "anything else goes as it is");
@@ -221,7 +316,7 @@ mod tests {
     #[test]
     fn outside_replay_every_session_records() {
         let recording = Recording::new(None);
-        let recorder = recording.of("w");
+        let recorder = recording.of("w", None);
         let (sent, named) = recorder.prepare("session.create", json!({"options": {"recorder": {"name": "x"}}}));
         assert_eq!(sent["options"]["recorder"], json!({"mode": "record"}));
         recorder.answered(named, &Ok(json!({"session_id": "s1"})));

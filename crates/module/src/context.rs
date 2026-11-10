@@ -80,7 +80,7 @@ pub struct InstanceHandle {
     pub recordings_root: PathBuf,
     /// The transcript store, for readers that would otherwise page the RPC
     /// surface to get at text (search).
-    pub history: Option<Arc<dyn history::store::HistoryStore>>,
+    pub history: Option<Arc<dyn harnix_instance::HistoryStore>>,
     pub active_scenes: Vec<String>,
     pub model: String,
 }

@@ -32,9 +32,9 @@ impl Hello {
     pub async fn answer(&self) -> Rpc<Value> {
         // Once per connection, and none of the three waits on another.
         let (status, scenes, commands) = tokio::join!(
-            self.hub.call(SYSTEM, "daemon.status", json!({})),
-            self.hub.call(SYSTEM, "scene.list", json!({})),
-            self.hub.call(SYSTEM, "commands.list", json!({})),
+            self.hub.passthrough(SYSTEM, "daemon.status", json!({})),
+            self.hub.passthrough(SYSTEM, "scene.list", json!({})),
+            self.hub.passthrough(SYSTEM, "commands.list", json!({})),
         );
         let (status, scenes, commands) = (
             status.unwrap_or(json!({})),
@@ -45,6 +45,9 @@ impl Hello {
         Ok(json!({
             "protocol_version": harnix_contract::PROTOCOL_VERSION,
             "contrib_api_version": harnix_contract::CONTRIB_API_VERSION,
+            // The two parts that change with the engine — a session event's payload, an `engine.*`
+            // answer — are its shape, not this protocol's: which shape is this version.
+            "engine_protocol": harnix_engine::protocol_version(),
             "engine": {
                 "model": facts.model,
                 "active_scenes": facts.active_scenes,

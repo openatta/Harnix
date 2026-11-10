@@ -6,9 +6,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use harnix_router::RouteTable;
-use harnix_instance::link::{DownLink, EngineLink};
+use harnix_engine_api::InstanceCarrier;
 use harnix_instance::{
-    Built, EngineConfig, Factory, Facts, InProcessLink, Ledger, Owner, Profile, Recording, RegistryConfig,
+    Built, DownLink, EngineConfig, Factory, Facts, HistoryStore, Ledger, Owner, Profile, Recording, RegistryConfig,
 };
 use harnix_module::Credentials;
 
@@ -23,7 +23,7 @@ pub(super) struct Instances {
     /// The system instance, built in this process from the profile's `[engine]`.
     pub system: Built,
     /// The system instance's history: where audit entries are filed.
-    pub history: Option<Arc<dyn history::store::HistoryStore>>,
+    pub history: Option<Arc<dyn HistoryStore>>,
     /// The profile's `[[instances]]`, each built or down with its reason.
     pub fixed: Vec<(String, Built)>,
 }
@@ -62,14 +62,13 @@ pub(super) async fn build(
         model = %engine.model,
         "engine ready (in-process)"
     );
-    let facts = Facts::from(&engine);
     let history = engine.history.clone();
-    let link: Arc<dyn EngineLink> = InProcessLink::start(engine).await;
+    let system = registry.factory.in_process(harnix_hub::SYSTEM, engine).await;
 
     let fixed = fixed(profile, &mut registry).await?;
     Ok(Instances {
         registry,
-        system: Built { link, facts },
+        system,
         history,
         fixed,
     })
@@ -94,6 +93,7 @@ fn registry(
     let mut factory = Factory::new(resolve)?;
     // A template that inherits providers inherits the system instance's.
     factory.providers_from = Some(roots.engine.clone());
+    factory.recording = recording;
     apps.factory(&mut factory);
     let mut registry = RegistryConfig {
         templates: BTreeMap::new(),
@@ -106,7 +106,6 @@ fn registry(
             .map(|r| r.manifest.id.clone())
             .collect(),
         fixed: BTreeMap::new(),
-        recording,
         grants,
     };
     for decl in &profile.instance_templates {
@@ -151,7 +150,7 @@ async fn fixed(profile: &Profile, registry: &mut RegistryConfig) -> anyhow::Resu
                     Err(e) => down(harnix_instance::templates::carrier_of(&carrier), format!("{e:#}")),
                 }
             }
-            Err(e) => down(harnix_instance::Carrier::InProcess, format!("{e:#}")),
+            Err(e) => down(InstanceCarrier::InProcess, format!("{e:#}")),
         };
         fixed.push((decl.id.clone(), built));
     }
@@ -172,12 +171,9 @@ fn instance_root(instances_dir: &Path, data_root: Option<&str>, id: &str) -> std
     instances_dir.join(data_root.unwrap_or(id))
 }
 
-fn down(carrier: harnix_instance::Carrier, reason: String) -> Built {
+fn down(carrier: InstanceCarrier, reason: String) -> Built {
     tracing::error!(%reason, "instance not built");
-    Built {
-        link: DownLink::new(carrier, reason),
-        facts: Facts::default(),
-    }
+    Built::new(DownLink::new(carrier, reason), Facts::default())
 }
 
 #[cfg(test)]

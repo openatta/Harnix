@@ -37,7 +37,7 @@ pub(super) fn admit(
     grants: Arc<harnix_kernel::GrantTable>,
     behind: &Behind,
     records: &[Record],
-    history: Option<Arc<dyn history::store::HistoryStore>>,
+    history: Option<Arc<dyn harnix_instance::HistoryStore>>,
     profile: &harnix_instance::Profile,
     identity: Identity<'_>,
 ) -> Admission {
@@ -48,7 +48,7 @@ pub(super) fn admit(
         versions: json!({
             "app": {"name": identity.name, "version": short},
             "harnix": crate::HARNIX_VERSION,
-            "agix": daemon::discovery::identity(),
+            "agix": harnix_engine::about(),
             "module_api": harnix_module::MODULE_API_VERSION,
             "contribution_api": harnix_contract::CONTRIB_API_VERSION,
             "protocol": harnix_contract::PROTOCOL_VERSION,
@@ -86,12 +86,17 @@ pub(super) fn admit(
 }
 
 /// The audit: a ring for the diagnostics page, and a durable sink in the session timeline.
-fn audit(hub: &Arc<Hub>, history: Option<Arc<dyn history::store::HistoryStore>>) -> Arc<Audit> {
+fn audit(hub: &Arc<Hub>, history: Option<Arc<dyn harnix_instance::HistoryStore>>) -> Arc<Audit> {
     let audit = Arc::new(Audit::default());
     {
-        // The system space reaching across spaces: allowed, and on the record (concept §5.4).
+        // The system space reaching across spaces: allowed, and on the record (concept §5.4). And
+        // an extension's engine sending more than it may: dropped, and on the record too.
         let audit = audit.clone();
         hub.set_audit(Arc::new(move |subject, method, session, owner| {
+            if let harnix_contract::Subject::Engine { .. } = subject {
+                audit.record(subject, method, harnix_authz::Decision::Refuse("flooding"), Some("an extension's engine sent more than it may; dropped"), None);
+                return;
+            }
             tracing::info!(subject = %subject.label(), method, session, owner, "the system space acted on another space's session");
             // The durable sink files an entry in the session's own transcript, which is the
             // `system` instance's store; a session elsewhere is kept in the ring only.

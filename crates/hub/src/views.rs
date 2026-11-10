@@ -176,39 +176,29 @@ impl Hub {
     /// One instance's top-level sessions — sub-agents are their parent's
     /// tasks and are not listed here — with what each is doing.
     pub(crate) async fn sessions_view(&self, instance: &str) -> Result<Value, RpcError> {
-        let listed = self.call(instance, "session.list", json!({})).await?;
-        let rows: Vec<Value> = listed
-            .get("sessions")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
+        let linked = self.engine(instance)?;
+        let extension = linked.is_extension();
+        let listed = linked.ops().list().await?;
         let guard = self.inner.lock().await;
-        let rows: Vec<Value> = rows
+        let rows: Vec<Value> = listed
             .into_iter()
-            .map(|mut row| {
-                let sid = row
-                    .get("session_id")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string();
+            .map(|mut info| {
+                if extension {
+                    info.harden();
+                }
+                let sid = info.session_id().unwrap_or("").to_string();
+                let mut row = info.into_value();
                 let state = guard.sessions.get(&(instance.to_string(), sid.clone()));
                 let running = state.is_some_and(|s| s.running_turn.is_some());
                 let queued = state.map(|s| s.queue.len()).unwrap_or(0);
                 let tasks = state.map(|s| s.live_tasks.len()).unwrap_or(0);
-                let waiting = state.and_then(|s| s.pending_prompts.first()).map(|p| {
-                    match (
-                        p.get("prompt_type").and_then(Value::as_str),
-                        p.get("tool_name").and_then(Value::as_str),
-                    ) {
-                        (Some("question"), _) => "answer",
-                        // Leaving plan mode is asked as a permission: the plan waits on a review.
-                        (_, Some("ExitPlanMode")) => "plan",
-                        _ => "approval",
-                    }
-                });
+                let waiting = state.and_then(|s| s.pending_prompts.first()).map(|p| p.waiting.as_str());
                 let key = (instance.to_string(), sid.clone());
                 let space = self.space_of(&key);
                 if let Some(obj) = row.as_object_mut() {
+                    if extension {
+                        obj.insert("trust".into(), json!("extension"));
+                    }
                     obj.insert("instance".into(), json!(instance));
                     obj.insert("space".into(), json!(space));
                     obj.insert("running".into(), json!(running));
@@ -239,21 +229,11 @@ impl Hub {
         Ok(json!({"instance": instance, "sessions": rows}))
     }
 
-    /// A session's tasks, as Agix reports them, and its teams as the hub last heard them
-    /// (`team_progress`). Watching them keeps the hub subscribed to the session, which is how it
-    /// hears a task start or end.
+    /// A session's tasks, as the engine reports them, and its teams as the hub last heard them.
+    /// Watching them keeps the hub subscribed to the session, which is how it hears a task start
+    /// or end.
     pub(crate) async fn tasks_view(&self, key: &SessionKey) -> Result<Value, RpcError> {
-        let result = self
-            .call(&key.0, "session.tasks", json!({"session_id": key.1}))
-            .await;
-        let mut value = match result {
-            Ok(v) => v,
-            // Not in memory: nothing of it is running.
-            Err(e) if e.code == harnix_instance::engine_codes::SESSION_NOT_FOUND => {
-                json!({"active": false, "tasks": []})
-            }
-            Err(e) => return Err(e),
-        };
+        let mut value = self.engine(&key.0)?.ops().tasks(&key.1).await?.value;
         let teams: Vec<Value> = self
             .inner
             .lock()
@@ -273,21 +253,10 @@ impl Hub {
     /// The ids of a session's tasks that are running or waiting, as the
     /// engine reports them now; none if it cannot say.
     pub(crate) async fn live_tasks(&self, key: &SessionKey) -> std::collections::BTreeSet<String> {
-        let Ok(view) = self.tasks_view(key).await else {
-            return Default::default();
-        };
-        view.get("tasks")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter(|t| {
-                matches!(
-                    t.get("status").and_then(Value::as_str),
-                    Some("running" | "waiting" | "pending")
-                )
-            })
-            .filter_map(|t| t.get("task_id").and_then(Value::as_str).map(str::to_string))
-            .collect()
+        match self.engine(&key.0) {
+            Ok(linked) => linked.ops().tasks(&key.1).await.map(|t| t.live).unwrap_or_default(),
+            Err(_) => Default::default(),
+        }
     }
 
     /// Every session that is not idle, across instances (IPDrun R-11): what

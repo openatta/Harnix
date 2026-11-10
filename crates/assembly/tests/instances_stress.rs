@@ -92,14 +92,15 @@ impl Rig {
         let root = dir.path();
         let replay = root.join("recordings");
         std::fs::create_dir_all(&replay).unwrap();
+        let mut factory = Factory::new(Arc::new(|_: &str| None)).unwrap();
+        factory.recording = Recording::new(Some(replay));
         let mut config = RegistryConfig {
             templates: Default::default(),
             ledger: Ledger::load(root.join("state/instances.json")).unwrap(),
-            factory: Factory::new(Arc::new(|_: &str| None)).unwrap(),
+            factory,
             instances_dir: root.join("instances"),
             disabled: Default::default(),
             fixed: Default::default(),
-            recording: Recording::new(Some(replay)),
             grants: Arc::new(harnix_kernel::GrantTable::new()),
         };
         config
@@ -110,6 +111,7 @@ impl Rig {
             instances: instances.clone(),
             spaces: harnix_hub::Spaces::load(root.join("state/spaces.json"), Vec::new(), Default::default()).unwrap(),
         });
+        instances.observe(hub.clone());
         let (hub_cell, instance_cell): (HubCell, RegistryCell) = Default::default();
         let mut rows = handlers(Hub::rows(&hub_cell));
         rows.extend(InstanceRegistry::rows(&instance_cell).into_iter().filter_map(|row| match row {

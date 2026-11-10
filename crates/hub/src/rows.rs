@@ -12,7 +12,7 @@ use harnix_contract::{codes, RpcError};
 use harnix_kernel::{Access, CallContext, Handler, KernelPart, Owner, Rpc};
 use serde_json::Value;
 
-use crate::{spaces, Hub};
+use crate::Hub;
 
 /// Where the hub's rows find the hub. The rows are installed before the hub is built — with
 /// every other name, so that a module cannot take one — and the hub is put here once it is.
@@ -40,8 +40,10 @@ struct Answer<F> {
     f: F,
 }
 
-/// What answers `name`: `f`, given the hub, the call and its params.
-pub(crate) fn answer<F, Fut>(hub: &HubCell, name: &'static str, f: F) -> Arc<dyn Handler>
+/// What answers `name`: `f`, given the hub, the call and its params — with the space the call
+/// claims checked first when the method is `checked`: one that acts on one session a device
+/// names.
+pub(crate) fn answer<F, Fut>(hub: &HubCell, name: &'static str, checked: bool, f: F) -> Arc<dyn Handler>
 where
     F: Fn(Arc<Hub>, CallContext, Value) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Rpc<Value>> + Send + 'static,
@@ -49,7 +51,7 @@ where
     Arc::new(Answer {
         hub: hub.clone(),
         name,
-        checked: spaces::CHECKED.contains(&name),
+        checked,
         f,
     })
 }
@@ -73,19 +75,31 @@ where
     }
 }
 
-/// One of the hub's own methods, open to devices: about one session when a claimed space is
-/// checked on it ([`spaces::CHECKED`]), else about none.
+/// One of the hub's own methods, open to devices, about no one session.
 fn own<F, Fut>(hub: &HubCell, name: &'static str, f: F) -> HubRow
 where
     F: Fn(Arc<Hub>, CallContext, Value) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Rpc<Value>> + Send + 'static,
 {
-    let scope = if spaces::CHECKED.contains(&name) { RowScope::Session } else { RowScope::Open };
     HubRow::Method {
         name,
         owner: Owner::Kernel(KernelPart::Hub),
-        access: Access::device().scoped(scope),
-        handler: Some(answer(hub, name, f)),
+        access: Access::device().scoped(RowScope::Open),
+        handler: Some(answer(hub, name, false, f)),
+    }
+}
+
+/// [`own`], about one session: the space a call claims is checked on it.
+fn own_session<F, Fut>(hub: &HubCell, name: &'static str, f: F) -> HubRow
+where
+    F: Fn(Arc<Hub>, CallContext, Value) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Rpc<Value>> + Send + 'static,
+{
+    HubRow::Method {
+        name,
+        owner: Owner::Kernel(KernelPart::Hub),
+        access: Access::device().scoped(RowScope::Session),
+        handler: Some(answer(hub, name, true, f)),
     }
 }
 
@@ -99,7 +113,7 @@ where
         name,
         owner: Owner::Kernel(KernelPart::Hub),
         access: Access::device().scoped(RowScope::Space),
-        handler: Some(answer(hub, name, f)),
+        handler: Some(answer(hub, name, false, f)),
     }
 }
 
@@ -123,29 +137,29 @@ impl Hub {
                 let instance = h.instance_of(&p)?;
                 h.sessions_view(&instance).await
             }),
-            own(hub, "harnix.attach", |h, cx, p| async move { h.attach(&cx, p).await }),
-            own(hub, "harnix.detach", |h, cx, p| async move { h.detach(&cx, p).await }),
-            own(hub, "harnix.send", |h, cx, p| async move { h.send(&cx, p).await }),
-            own(hub, "harnix.queue.remove", |h, _, p| async move { h.queue_remove(p).await }),
-            own(hub, "harnix.queue.edit", |h, _, p| async move { h.queue_edit(p).await }),
+            own_session(hub, "harnix.attach", |h, cx, p| async move { h.attach(&cx, p).await }),
+            own_session(hub, "harnix.detach", |h, cx, p| async move { h.detach(&cx, p).await }),
+            own_session(hub, "harnix.send", |h, cx, p| async move { h.send(&cx, p).await }),
+            own_session(hub, "harnix.queue.remove", |h, _, p| async move { h.queue_remove(p).await }),
+            own_session(hub, "harnix.queue.edit", |h, _, p| async move { h.queue_edit(p).await }),
             own(hub, "harnix.subscribe", |h, cx, p| async move { h.subscribe(&cx, p).await }),
             own(hub, "harnix.unsubscribe", |h, cx, p| async move { h.unsubscribe(&cx, p).await }),
             own(hub, "harnix.instances.sessions", |h, _, p| async move {
                 let instance = h.instance_of(&p)?;
                 h.sessions_view(&instance).await
             }),
-            own(hub, "harnix.sessions.tasks", |h, _, p| async move {
+            own_session(hub, "harnix.sessions.tasks", |h, _, p| async move {
                 let key = h.key_of(&p)?;
                 h.tasks_view(&key).await
             }),
-            own(hub, "harnix.entries.append", |h, cx, p| async move { h.append_entry(&cx.subject, p).await }),
+            own_session(hub, "harnix.entries.append", |h, cx, p| async move { h.append_entry(&cx.subject, p).await }),
             own(hub, "harnix.sessions.move", |h, cx, p| async move { h.move_session(&cx.subject, p).await }),
             own(hub, "harnix.prompts.answerer", |h, cx, p| async move { h.answerer(&cx.subject, &p) }),
             own(hub, "harnix.spaces.list", |h, _, _| async move { Ok(h.spaces_view()) }),
             // Intercepted engine methods, the hub's semantics: still the device's to ask for.
-            own(hub, "session.interrupt", |h, _, p| async move { h.interrupt(p).await }),
-            own(hub, "session.close", |h, _, p| async move { h.close_or_delete("session.close", p).await }),
-            own(hub, "session.delete", |h, _, p| async move { h.close_or_delete("session.delete", p).await }),
+            own_session(hub, "session.interrupt", |h, _, p| async move { h.interrupt(p).await }),
+            own_session(hub, "session.close", |h, _, p| async move { h.close_or_delete(p, false).await }),
+            own_session(hub, "session.delete", |h, _, p| async move { h.close_or_delete(p, true).await }),
         ];
         rows.extend(HUB_TOPICS.iter().map(|(name, _)| HubRow::Topic { name, access: Access::device() }));
         rows.extend(crate::engine_rows::rows(hub));
