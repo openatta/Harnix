@@ -97,7 +97,7 @@ fn transport_does_not_know_what_a_session_is() {
         &[
             "harnix-instance",
             "harnix-module",
-            "harnix-app",
+            "harnix-assembly",
             "daemon",
             "base",
         ],
@@ -259,7 +259,7 @@ fn the_instance_layer_does_not_know_the_client_protocol_exists() {
 fn the_module_contract_cannot_reach_the_hub() {
     assert_ignorant_of(
         "module",
-        &["harnix-hub", "harnix-transport", "harnix-app", "daemon"],
+        &["harnix-hub", "harnix-transport", "harnix-assembly", "daemon"],
         "a module calls through the admission point like everyone else",
     );
     // It does depend on the instance layer, for templates and native
@@ -297,7 +297,7 @@ fn the_builtins_use_only_the_public_module_api() {
             "harnix-hub",
             "harnix-authz",
             "harnix-instance",
-            "harnix-app",
+            "harnix-assembly",
             "harnix-transport",
             "daemon",
         ],
@@ -600,7 +600,7 @@ const AGIX: &[&str] = &["daemon", "base", "model", "history", "scene", "telemetr
 /// sees of the other.
 #[test]
 fn the_application_layers_reach_only_down() {
-    let forbidden_above = ["harnix-module", "harnix-hub", "harnix-builtin", "harnix-instance", "harnix-authz", "harnix-transport", "harnix-app", "harnix-apps", "axum", "wasmtime"];
+    let forbidden_above = ["harnix-module", "harnix-hub", "harnix-builtin", "harnix-instance", "harnix-authz", "harnix-transport", "harnix-assembly", "harnix-apps", "axum", "wasmtime"];
     for (dir, allowed) in [
         ("package", &["harnix-contract", "harnix-wasm"][..]),
         ("wasm-port", &["harnix-contract"][..]),
@@ -658,7 +658,7 @@ fn only_the_apps_feature_links_the_application_runtime() {
             assert_eq!(dir, "apps", "`{dir}` depends on `harnix-wasm-host`; only `harnix-apps` may");
         }
         if deps.contains_key("harnix-apps") {
-            assert_eq!(dir, "app", "`{dir}` depends on `harnix-apps`; only the application layer may");
+            assert_eq!(dir, "assembly", "`{dir}` depends on `harnix-apps`; only the application layer may");
         }
         for layer in ["harnix-package", "harnix-wasm-port"] {
             if deps.contains_key(layer) {
@@ -669,15 +669,15 @@ fn only_the_apps_feature_links_the_application_runtime() {
             }
         }
     }
-    let manifest = std::fs::read_to_string(root.join("app/Cargo.toml")).unwrap();
+    let manifest = std::fs::read_to_string(root.join("assembly/Cargo.toml")).unwrap();
     let line = manifest
         .lines()
         .find(|l| l.starts_with("harnix-apps"))
-        .expect("harnix-app names harnix-apps");
+        .expect("harnix-assembly names harnix-apps");
     assert!(line.contains("optional = true"), "`{line}`: harnix-apps must be optional");
     assert!(
         manifest.contains("apps = [\"dep:harnix-apps\"]"),
-        "harnix-app's `apps` feature is what brings the runtime in"
+        "harnix-assembly's `apps` feature is what brings the runtime in"
     );
 }
 
@@ -796,7 +796,7 @@ fn dependencies_are_read_as_cargo_reads_them() {
 #[test]
 fn every_harnix_dependency_resolves() {
     let crates = [
-        "app",
+        "assembly",
         "instance",
         "authz",
         "builtin",

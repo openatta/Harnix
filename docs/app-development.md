@@ -199,7 +199,7 @@ Harnix 本身是**框架 + Harnix app + 系统 space**：Harnix app（会话 spa
 | 层 | crate | 管什么 | 依赖（Harnix 内） | 模式 1 | 模式 2 | 模式 3 |
 |---|---|---|---|---|---|---|
 | 内核与模块 | `harnix`、`harnix-app`、`harnix-module`、hub、authz、transport、instance… | 骨架、模块契约、装配 | — | ✔ | ✔ | ✔（产品侧） |
-| 内核侧的插件 APP | `crates/module/src/apps.rs`（契约：`AppSpec`、`AppHost`）、`crates/app/src/apps.rs`（内核的实现：登记、撤销、以应用的身份调用）、`crates/builtin/src/apps.rs`（内建模块 `apps`：`harnix.apps.*`、安装记录） | 运行期的方法、主题、space 进出授权表与中枢；管插件 APP 的方法 | 内核各 crate | | ✔ | ✔（产品侧） |
+| 内核侧的插件 APP | `crates/module/src/apps.rs`（契约：`AppSpec`、`AppHost`）、`crates/assembly/src/apps.rs`（内核的实现：登记、撤销、以应用的身份调用）、`crates/builtin/src/apps.rs`（内建模块 `apps`：`harnix.apps.*`、安装记录） | 运行期的方法、主题、space 进出授权表与中枢；管插件 APP 的方法 | 内核各 crate | | ✔ | ✔（产品侧） |
 | 分发与信任 | `harnix-package` | 清单、包、签名、目录与下载、披露、发布工具 `harnix-app` | `harnix-contract`；`harnix-wasm` 只在 feature `compile` 下（打包工具要编译器） | | ✔ | ✔（产品侧） |
 | 边界 | `harnix-wasm-port` | 应用宿主要外面做的分两半：`Kernel`（产品的：登记、调用、发布、订阅、进度，7 个方法）与 `Agent`（Agent 引擎的：装包、技能、工具，8 个方法）；外面要应用宿主做的是 `Control`（12 个方法）；`rpc` 层把三者编成 JSON，feature `loopback` 带一个回环适配器 | `harnix-contract`；外部只有 serde、serde_json、async-trait | | ✔ | ✔ |
 | 虚拟机 | `harnix-wasm` | wasmtime 的引擎、Store、健康、记账、休眠；feature `compile` 带 Cranelift | 无（叶子） | | ✔ | ✔（应用进程侧） |

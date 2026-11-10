@@ -2,7 +2,7 @@
 //!
 //! ```no_run
 //! fn main() -> anyhow::Result<()> {
-//!     harnix_app::App::builder()
+//!     harnix_assembly::App::builder()
 //!         .name("helm", env!("CARGO_PKG_VERSION"))
 //!         .with_builtins()
 //!         // .module(watchlist::Watchlist::default())

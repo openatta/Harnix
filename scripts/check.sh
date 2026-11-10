@@ -57,7 +57,7 @@ free_port() {
   node -e 'const s=require("net").createServer();s.listen(0,"127.0.0.1",()=>{const p=s.address().port;s.close(()=>console.log(p))})'
 }
 
-CRATES=(-p harnix -p harnix-cli -p harnix-app -p harnix-instance -p harnix-authz -p harnix-builtin
+CRATES=(-p harnix -p harnix-cli -p harnix-assembly -p harnix-instance -p harnix-authz -p harnix-builtin
         -p harnix-client -p harnix-contract -p harnix-flow -p harnix-module -p harnix-hub -p harnix-transport
         -p harnix-testapp -p harnix-wasm -p harnix-package -p harnix-wasm-port -p harnix-wasm-host
         -p harnix-apps)
@@ -168,7 +168,7 @@ run_rust()    {
   cargo test -p harnix-wasm --features compile || return 1
   cargo test -p harnix-wasm-host --features compile || return 1
   cargo test -p harnix-apps --features compile || return 1
-  cargo test -p harnix-app --features apps
+  cargo test -p harnix-assembly --features apps
 }
 # `--no-deps` matters: without it `-D warnings` is applied to the Agix
 # submodule too, and this script goes red for lints in code this repository
@@ -177,7 +177,7 @@ run_clippy()  {
   cargo clippy "${CRATES[@]}" --all-targets --no-deps -- -D warnings || return 1
   cargo clippy -p harnix-wasm -p harnix-package -p harnix-wasm-host -p harnix-apps --all-targets \
     --features harnix-wasm/compile,harnix-package/compile,harnix-wasm-host/compile,harnix-apps/compile --no-deps -- -D warnings || return 1
-  cargo clippy -p harnix-app -p harnix-cli --all-targets --features harnix-app/apps,harnix-cli/apps --no-deps -- -D warnings
+  cargo clippy -p harnix-assembly -p harnix-cli --all-targets --features harnix-assembly/apps,harnix-cli/apps --no-deps -- -D warnings
 }
 
 run_offline() {

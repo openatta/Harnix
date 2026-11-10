@@ -1384,7 +1384,7 @@ dependencies = [
  "async-trait",
  "axum",
  "base",
- "harnix-app",
+ "harnix-assembly",
  "harnix-authz",
  "harnix-contract",
  "harnix-module",
@@ -1392,34 +1392,6 @@ dependencies = [
  "scene",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "harnix-app"
-version = "0.4.2-2026110901"
-dependencies = [
- "anyhow",
- "async-trait",
- "base",
- "clap",
- "daemon",
- "harnix-apps",
- "harnix-authz",
- "harnix-builtin",
- "harnix-contract",
- "harnix-hub",
- "harnix-instance",
- "harnix-module",
- "harnix-transport",
- "history",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "toml",
- "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]
@@ -1446,6 +1418,34 @@ dependencies = [
  "tracing",
  "uuid",
  "zip",
+]
+
+[[package]]
+name = "harnix-assembly"
+version = "0.4.2-2026110901"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base",
+ "clap",
+ "daemon",
+ "harnix-apps",
+ "harnix-authz",
+ "harnix-builtin",
+ "harnix-contract",
+ "harnix-hub",
+ "harnix-instance",
+ "harnix-module",
+ "harnix-transport",
+ "history",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

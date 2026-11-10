@@ -38,5 +38,5 @@
 
 | 功能模块 | 层 | 用例 | 等什么修 |
 |---|---|---|---|
-| `authz` | api | api/audit.spec.ts › audit › deleting a session takes its audit entry with it | a durable sink for session.delete that is not the deleted transcript (crates/app/src/audit_log.rs) |
+| `authz` | api | api/audit.spec.ts › audit › deleting a session takes its audit entry with it | a durable sink for session.delete that is not the deleted transcript (crates/assembly/src/audit_log.rs) |
 | `sessions` | api | api/host-events.spec.ts › host-events › a client that arrives after the failure cannot learn about it | Agix: `mcp.status` reporting the servers that failed to connect, not only those that did |

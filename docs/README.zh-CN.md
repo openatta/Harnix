@@ -68,7 +68,7 @@ Anthropic 或兼容 OpenAI 的 API，其中一个是缺省——存在 `~/.agix/
 
 ```
 crates/harnix     应用依赖的那个 crate
-crates/app        App::builder()：profile、启动顺序、模块生命周期、诊断
+crates/assembly        App::builder()：profile、启动顺序、模块生命周期、诊断
 crates/module     编译期模块契约：Module、它的注册表、ModuleContext
 crates/hub        会话中枢
 crates/instance   一条链路后面的 Agix 实例

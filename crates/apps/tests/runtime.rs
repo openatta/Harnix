@@ -62,7 +62,7 @@ struct FakeKernel {
 
 /// A stand-in for the kernel's application host: it keeps what was registered, answers the
 /// application's own methods with their handlers, and lets the application call only what its
-/// `hub` lists — what `crates/app`'s real host does through the authorizer.
+/// `hub` lists — what `crates/assembly`'s real host does through the authorizer.
 #[derive(Default)]
 struct FakeApps {
     specs: Mutex<Vec<AppSpec>>,

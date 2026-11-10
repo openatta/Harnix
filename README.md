@@ -83,7 +83,7 @@ Why it has this shape, layer by layer: [docs/concept_and_architecture.md](docs/c
 
 ```
 crates/harnix     the crate an application depends on
-crates/app        App::builder(): profile, start order, module lifecycle, diagnostics
+crates/assembly        App::builder(): profile, start order, module lifecycle, diagnostics
 crates/module     the compile-time module contract: Module, its registries, ModuleContext
 crates/hub        the session hub
 crates/instance   Agix instances behind one link

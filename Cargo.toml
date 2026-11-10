@@ -2,7 +2,7 @@
 resolver = "2"
 exclude = ["agix", "examples"]
 members = [
-    "crates/app",
+    "crates/assembly",
     "crates/wasm-host",
     "crates/package",
     "crates/wasm-port",
@@ -53,10 +53,10 @@ members = [
 # ──────────────────────────────────────────────
 [workspace.dependencies]
 harnix           = { path = "crates/harnix" }
-harnix-app       = { path = "crates/app" }
-harnix-wasm-host  = { path = "crates/wasm-host" }
-harnix-package = { path = "crates/package" }
-harnix-wasm-port  = { path = "crates/wasm-port" }
+harnix-assembly  = { path = "crates/assembly" }
+harnix-wasm-host = { path = "crates/wasm-host" }
+harnix-package   = { path = "crates/package" }
+harnix-wasm-port = { path = "crates/wasm-port" }
 harnix-apps      = { path = "crates/apps" }
 harnix-instance  = { path = "crates/instance" }
 harnix-authz     = { path = "crates/authz" }

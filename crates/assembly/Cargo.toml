@@ -1,5 +1,5 @@
 [package]
-name = "harnix-app"
+name = "harnix-assembly"
 version      = "0.4.2-2026110901"
 edition      = "2021"
 rust-version = "1.87"
