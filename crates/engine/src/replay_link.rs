@@ -322,4 +322,29 @@ mod tests {
         recorder.answered(named, &Ok(json!({"session_id": "s1"})));
         assert!(lock(&recording.named).is_empty());
     }
+
+    /// Deleting a session removes its recording; asking what a delete would remove, or closing
+    /// it, does not.
+    #[tokio::test]
+    async fn a_deleted_sessions_recording_goes_with_it() {
+        struct Answers;
+        #[async_trait::async_trait]
+        impl Rpc for Answers {
+            async fn call(&self, _: &str, _: Value) -> Result<Value, RpcError> {
+                Ok(json!({}))
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let recorded = |root: &std::path::Path| Recorded {
+            rpc: Arc::new(Answers),
+            recorder: Recording::new(None).of("w", Some(root.to_path_buf())),
+        };
+        let rec = recorded(dir.path());
+        std::fs::create_dir_all(dir.path().join("s1")).unwrap();
+        rec.call(translate::SESSION_CLOSE, json!({"session_id": "s1"})).await.unwrap();
+        rec.call(translate::SESSION_DELETE, json!({"session_id": "s1", "dry_run": true})).await.unwrap();
+        assert!(dir.path().join("s1").is_dir());
+        rec.call(translate::SESSION_DELETE, json!({"session_id": "s1"})).await.unwrap();
+        assert!(!dir.path().join("s1").exists());
+    }
 }

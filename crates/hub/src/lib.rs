@@ -49,6 +49,7 @@ mod views;
 
 pub use clients::ClientId;
 pub use engine_rows::{ENGINE_REFUSALS, HUB_OWNED};
+pub use links::{EXTENSION_BUFFER_FRAMES, FRAMES_PER_SECOND, FRAME_MAX_BYTES};
 pub use rows::{HubCell, HubRow, HUB_TOPICS};
 pub use replay::{MAX_BYTES as REPLAY_MAX_BYTES, MAX_FRAMES as REPLAY_MAX_FRAMES};
 pub use spaces::{AuditHook, Spaces};
