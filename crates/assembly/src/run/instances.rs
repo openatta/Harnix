@@ -52,6 +52,7 @@ pub(super) async fn build(
         permission_prompt_timeout_secs: engine_profile.permission_prompt_timeout_secs,
         data_root: roots.engine.clone(),
         cwd: None,
+        instance: harnix_contract::SYSTEM_INSTANCE.to_string(),
         contrib: {
             let mut contrib = lifecycle::main_contribution(records);
             apps.engine(&mut contrib);

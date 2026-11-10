@@ -15,11 +15,12 @@ use base::interface::tool::{
 use harnix_engine_api::{Cancel, Permission, Progress, Tool, ToolCx, ToolError};
 use serde_json::Value;
 
-pub(crate) struct AgixTool(Arc<dyn Tool>);
+/// A tool, and the instance whose engine calls it: what its calls name their session by.
+pub(crate) struct AgixTool(Arc<dyn Tool>, Arc<str>);
 
 impl AgixTool {
-    pub(crate) fn new(tool: Arc<dyn Tool>) -> Self {
-        Self(tool)
+    pub(crate) fn new(tool: Arc<dyn Tool>, instance: Arc<str>) -> Self {
+        Self(tool, instance)
     }
 }
 
@@ -71,6 +72,7 @@ impl AgixToolTrait for AgixTool {
         let cancel = Cancel::new();
         let _dropped = cancel.guard();
         let cx = ToolCx::new(&ctx.session_id, &tool_use_id)
+            .with_instance(&self.1)
             .with_project(ctx.cwd.clone())
             .with_depth(ctx.agent_depth)
             .with_cancel(cancel.clone())
@@ -148,7 +150,7 @@ mod tests {
     #[tokio::test]
     async fn a_tool_is_told_what_agix_tells_and_answers_in_agixs_terms() {
         let spec = ToolSpec::new("echo", "says it back", json!({"type": "object"})).doc("at length").source("app:x").read_only();
-        let tool = AgixTool::new(Arc::new(Echo(spec)));
+        let tool = AgixTool::new(Arc::new(Echo(spec)), "main".into());
         assert_eq!((tool.name(), tool.description(), tool.source().as_ref()), ("echo", "says it back", "app:x"));
         assert_eq!(tool.prompt(&PromptContext::default()).await, "says it back\n\nat length");
         assert!(tool.is_read_only(&json!({})) && !tool.is_concurrency_safe(&json!({})));

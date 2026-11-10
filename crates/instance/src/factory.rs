@@ -175,7 +175,7 @@ impl Factory {
                 for pattern in &self.admitted {
                     contrib.admit_everywhere(pattern);
                 }
-                let engine = engine::build(engine_config(engine, &data_root, contrib)).await?;
+                let engine = engine::build(engine_config(id, engine, &data_root, contrib)).await?;
                 Ok(self.in_process(id, engine).await)
             }
             TemplateCarrier::Spawn {
@@ -291,7 +291,12 @@ fn loopback_without_proxy() -> Vec<(String, String)> {
         .collect()
 }
 
-pub fn engine_config(engine: &EngineProfile, data_root: &Path, contrib: harnix_engine_api::EngineContribution) -> EngineConfig {
+pub fn engine_config(
+    instance: &str,
+    engine: &EngineProfile,
+    data_root: &Path,
+    contrib: harnix_engine_api::EngineContribution,
+) -> EngineConfig {
     EngineConfig {
         scene: engine.scene.clone(),
         scenes: engine.scenes.clone(),
@@ -303,6 +308,7 @@ pub fn engine_config(engine: &EngineProfile, data_root: &Path, contrib: harnix_e
         data_root: data_root.to_path_buf(),
         cwd: None,
         contrib,
+        instance: instance.to_string(),
     }
 }
 
