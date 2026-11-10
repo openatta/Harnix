@@ -456,7 +456,7 @@ fn ui_entries(app: &Loaded) -> Vec<Value> {
             .collect();
     }
     let interface = json!({
-        "hub": app.interface.hub,
+        "calls": app.interface.calls,
         "links": app.interface.links,
         "trust": app.trust.as_str(),
         "title": app.title,
@@ -644,7 +644,7 @@ impl AppsRuntime for Runtime {
         // What its pages in frames may call, told to the server as well as the shell: the router
         // holds a frame's calls to it whatever the page asks the shell for.
         if let Some(host) = cx.apps() {
-            let calls = frames(&loaded).then(|| loaded.interface.hub.clone());
+            let calls = frames(&loaded).then(|| loaded.interface.calls.clone());
             if let Err(e) = host.frame(id, calls) {
                 tracing::warn!(app = %id, error = %e.message, "its interface in frames was not told to the server");
             }

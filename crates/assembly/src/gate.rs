@@ -267,7 +267,7 @@ mod tests {
     }
 
     /// What a runtime application's subject reaches, on the kernel's table: its own names, what
-    /// its `hub` lists and the table lets through, and nothing else. The table is installed as
+    /// its `calls` lists and the table lets through, and nothing else. The table is installed as
     /// `Apps::register` does it, and the answer is `harnix.reachable` asked as the application.
     /// The device's and a compiled-in module's reach are read from a running process by
     /// `tests/live/api/method-table.spec.ts`, into the same file.

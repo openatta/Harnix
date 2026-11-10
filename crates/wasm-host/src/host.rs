@@ -7,7 +7,7 @@
 //!    was installed. Unsigned, it starts only where the product runs unsigned code.
 //! 3. Its agent package and skills are switched on in the instances the install put them in.
 //! 4. It is registered with the kernel — its methods, topics and spaces, under `app.<id>.*`,
-//!    and its `hub` capability — then its component loaded (refused if it was compiled for another
+//!    and its `calls` capability — then its component loaded (refused if it was compiled for another
 //!    engine, or its bytes are not the ones signed), its VM started (a backend's `init` runs, and
 //!    may already publish, call and subscribe), its tools listed and offered.
 //!
@@ -79,7 +79,7 @@ struct Running {
     method_names: Vec<String>,
     topics: Vec<String>,
     spaces: Vec<String>,
-    hub: Vec<String>,
+    calls: Vec<String>,
     /// `[events] tools = "all"`: its `events` export is offered every tool call, not only its own
     /// tools' (`own_tools`, by the names a session knows them by).
     events_all: bool,
@@ -125,15 +125,38 @@ impl Drop for CallEntry<'_> {
     }
 }
 
-fn tool_def(t: &harnix_wasm::ToolDef) -> ToolDef {
+/// A tool as the manifest declares it.
+fn declared_tool(t: &manifest::Tool) -> ToolDef {
     ToolDef {
         name: t.name.clone(),
         description: t.description.clone(),
         doc: t.doc.clone(),
-        input_schema: t.input_schema.clone(),
+        input_schema: t.input_schema_json(),
         read_only: t.read_only,
         concurrency_safe: t.concurrency_safe,
     }
+}
+
+/// How what a component lists is not what the manifest declares, if it is not: other names, or
+/// another description, schema or scheduling flag for one of them.
+fn tools_differ(declared: &[manifest::Tool], listed: &[harnix_wasm::ToolDef]) -> Option<String> {
+    let schema = |text: &str| serde_json::from_str::<Value>(text).ok();
+    for tool in declared {
+        let Some(found) = listed.iter().find(|t| t.name == tool.name) else {
+            return Some(format!("`{}` is not listed", tool.name));
+        };
+        let same = found.description == tool.description
+            && found.doc == tool.doc
+            && (found.read_only, found.concurrency_safe) == (tool.read_only, tool.concurrency_safe)
+            && schema(&found.input_schema) == schema(&tool.input_schema_json());
+        if !same {
+            return Some(format!("`{}` is listed differently", tool.name));
+        }
+    }
+    listed
+        .iter()
+        .find(|t| !declared.iter().any(|d| d.name == t.name))
+        .map(|t| format!("`{}` is listed but not declared", t.name))
 }
 
 fn world_name(world: World) -> String {
@@ -249,7 +272,7 @@ impl Host {
             methods: decls,
             topics: manifest.topics.iter().map(|t| t.name.clone()).collect(),
             spaces,
-            hub: manifest.capabilities.hub.clone(),
+            calls: manifest.capabilities.calls.clone(),
         };
         Ok((registration, methods))
     }
@@ -377,44 +400,32 @@ impl Host {
         let vm = AppVm::start(&self.engine, &loaded, spec, services)
             .await
             .map_err(|e| refused(format!("`{id}` did not start: {e:#}")))?;
-        let tools = match vm.list_tools(&CancellationToken::new()).await {
+        // The manifest is what was shown and consented to, and what is registered: the component
+        // is asked only to agree with it, never trusted to say what its tools are.
+        let listed = match vm.list_tools(&CancellationToken::new()).await {
             Ok(tools) => tools,
             Err(e) => {
                 vm.stop().await;
                 return Err(refused(format!("`{id}` did not list its tools: {e}")));
             }
         };
-        let mut seen = std::collections::BTreeSet::new();
-        for tool in &tools {
-            let full = harnix_package::tool_name(id, &tool.name);
-            let ok = !tool.name.is_empty()
-                && tool
-                    .name
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-                && full.len() <= 64
-                && seen.insert(tool.name.clone())
-                && serde_json::from_str::<Value>(&tool.input_schema).is_ok_and(|s| s.is_object());
-            if !ok {
-                vm.stop().await;
-                return Err(refused(format!(
-                    "`{id}`'s tool `{}` cannot be offered: a tool's name is letters, digits, `_` and \
-                     `-`, unique, `{full}` at most 64 characters, and its input schema a JSON object",
-                    tool.name
-                )));
-            }
+        if let Some(why) = tools_differ(&manifest.tools, &listed) {
+            vm.stop().await;
+            return Err(refused(format!(
+                "`{id}`'s component does not provide the tools its manifest declares: {why}"
+            )));
         }
         // A row drawn for a tool it does not have is a manifest that does not match its component.
-        let names: Vec<String> = tools.iter().map(|t| t.name.clone()).collect();
-        let unknown = manifest.inline.unknown_tools(&names);
+        let unknown = manifest.inline.unknown_tools(&manifest.tool_names());
         if !unknown.is_empty() {
             vm.stop().await;
             return Err(refused(format!(
-                "`{id}`'s manifest draws a tool row for `{}`, which its component does not list as a tool",
+                "`{id}`'s manifest draws a tool row for `{}`, which it does not declare as a `[[tool]]`",
                 unknown.join("`, `")
             )));
         }
-        Ok((Some(vm), tools.iter().map(tool_def).collect()))
+        let tools: Vec<ToolDef> = manifest.tools.iter().map(declared_tool).collect();
+        Ok((Some(vm), tools))
     }
 
     /// Everything [`Control::start`] does but keeping why it failed.
@@ -485,7 +496,7 @@ impl Host {
             method_names: manifest.methods.iter().map(|m| full(&m.name)).collect(),
             topics: manifest.topics.iter().map(|t| full(&t.name)).collect(),
             spaces: manifest.spaces.iter().map(|s| s.id.clone()).collect(),
-            hub: manifest.capabilities.hub.clone(),
+            calls: manifest.capabilities.calls.clone(),
             events_all: manifest.events.all(),
             own_tools: booted
                 .tools
@@ -534,7 +545,7 @@ impl Host {
                 "methods": app.method_names,
                 "topics": app.topics,
                 "spaces": app.spaces,
-                "hub": app.hub,
+                "allowed_calls": app.calls,
                 "calls": app.bridge.stats.report(),
                 "tools": app.tools.iter().map(|t| json!({
                     "name": harnix_package::tool_name(id, &t.name),

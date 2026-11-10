@@ -37,7 +37,7 @@ use serde_json::{json, Value};
 pub const REACHABLE: &str = "harnix.reachable";
 
 /// Why a page in a frame is refused a name its interface does not list.
-pub const OUTSIDE_FRAME: &str = "not in the extension interface's `hub`";
+pub const OUTSIDE_FRAME: &str = "not in the extension interface's `calls`";
 /// Why a call claiming a page's extension is refused when that extension has no framed interface.
 pub const NO_FRAME: &str = "this extension has no interface in a frame";
 

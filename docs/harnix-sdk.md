@@ -763,7 +763,7 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 | `harnix::agent`、`harnix::scenes`、`harnix::plugin` | 随 Agix | 就是 Agix 的 `base` 与 `scene` crate、`runtime::plugin` 模块，原样重导出 | 随它带的 Agix 变：Agix 改一个 `Tool` 的签名，写了原生工具的应用就要改。**不在**模块 API 只做加法的承诺之内。升 Harnix 时看它的发布说明里的 Agix 一行 |
 | 贡献点 API | `3` | `harnix::CONTRIB_API_VERSION`；`harnix.hello` 里也有 | 贡献点的契约变了。2：运行期包的界面模块是预编译的 ES 模块，从页面的 import map 拿 React；**React 的大版本是它的一部分**。3：宿主 API `HostApi`/`useHost()`、第九个内核点 `session.action`、扩展自己定义的点（`definePoint`）、`space` 分组、按 `hello.extensions` 激活 |
 | 协议 | `5` | `harnix_contract::PROTOCOL_VERSION` | 握手比对，不一致拒绝（`HANDSHAKE_REFUSED`）。5：名字规整（内核 `harnix.<区域>.<动词>`、引擎直通 `engine.*`、扩展在自己的 id 下），默认实例叫 `main`，新增错误码 `CANCELLED`、`DEADLINE_EXCEEDED`、`EXTENSION_UNAVAILABLE` |
-| 应用接口（插件 APP） | `1` | `harnix-app.toml` 的 `[app] harnix_api`；`harnix_package::HARNIX_API` | 插件 APP 的契约（WIT world 与清单）有破坏性变化。见 [插件](harnix-plugin.md) §13 |
+| 扩展包接口 | `2` | `harnix-ext.toml` 的 `[app] harnix_api`；`harnix_package::HARNIX_API` | 插件 APP 的契约（WIT world 与清单）有破坏性变化。见 [插件](harnix-plugin.md) §13 |
 | 扩展线 | `1` | `harnix_wasm_port::EXT_WIRE_VERSION` | 产品与它自己的扩展进程之间那条线（`harnix-ext-wire`）的帧或方法改了形状。两端是同一次构建，扩展进程的 `proc.hello` 报的数不等就被拒绝；应用不直接用它 |
 
 `<app> --version` 打印上面全部，加上引擎的版本。0.4.z 内协议与模块 API 只做加法；`harnix::agent`、`harnix::scenes`、`harnix::plugin` 与契约里露出的 Agix 类型除外。

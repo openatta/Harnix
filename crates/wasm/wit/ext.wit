@@ -1,6 +1,6 @@
-/// The contract between Harnix and an application's WebAssembly components.
+/// The contract between Harnix and an extension package's WebAssembly components.
 ///
-/// An application ships at most one component. A `tools-ext` component gives the
+/// A package ships at most one component. A `tools-ext` component gives the
 /// agent tools and may observe and veto lifecycle events; a `backend-ext`
 /// component additionally holds the application's state, answers its methods
 /// (`app.<id>.<method>`), publishes its topics and reacts to timers and hub
@@ -11,12 +11,12 @@
 ///
 /// # Stability
 ///
-/// The application interface's major version is the manifest's `harnix_api`;
+/// The extension interface's major version is the manifest's `harnix_api`;
 /// this package is its WIT form. Within one `harnix_api`:
 ///
 /// - **Functions and types are only added**, never changed or removed. A new
-///   function ships as a new patch version of this package (0.1.1, …), which
-///   a component built against 0.1.0 still links to: wasmtime matches imports
+///   function ships as a new patch version of this package (1.0.1, …), which
+///   a component built against 1.0.0 still links to: wasmtime matches imports
 ///   semver-compatibly, and a component imports only what it calls.
 /// - **An existing record's fields and an existing variant's cases are
 ///   frozen.** Unlike JSON, component-model types are checked structurally
@@ -35,7 +35,7 @@ interface types {
   /// One tool a component exports.
   record tool-def {
     /// Unique within the application; Harnix namespaces it as
-    /// `ext__<app id>__<name>`.
+    /// `ext__<ext id>__<name>`.
     name: string,
     /// One line. This is what ships in the model's tool list on every call,
     /// so it is deliberately the short form.
@@ -145,7 +145,7 @@ interface host {
   kv-delete: func(key: string) -> result<_, string>;
 
   /// Call a hub method as the application (`module:<app id>`). Admission is
-  /// the hub's, against the manifest's `hub` capability, exactly as for a
+  /// the hub's, against the manifest's `calls` capability, exactly as for a
   /// compiled-in module's grants. The answer is the method's result as JSON,
   /// or its error message.
   call: func(method: string, params-json: string) -> result<string, string>;
@@ -154,7 +154,7 @@ interface host {
 
   /// Backend only. Subscribe to a hub topic; each value arrives at
   /// `backend.on-topic`. Which topics may be subscribed is the hub's
-  /// decision, against the `hub` capability. Subscriptions belong to the
+  /// decision, against the `calls` capability. Subscriptions belong to the
   /// running backend instance and end with it.
   subscribe: func(topic: string, params-json: string) -> result<_, string>;
   unsubscribe: func(topic: string, params-json: string);
@@ -167,8 +167,10 @@ interface host {
 
 interface tools {
   use types.{tool-def, tool-output};
-  /// The authority on what this component provides. The manifest's tool list
-  /// is what the installer showed; this is what the host registers.
+  /// What this component provides. The manifest's `[[tool]]` list is the
+  /// authority: it is what the installer showed and what the host registers,
+  /// and a component whose list differs is refused (`harnix-pack build` checks
+  /// the two agree). Name, description, schema and flags must match it.
   list-tools: func() -> list<tool-def>;
   call-tool: func(name: string, input-json: string, call-id: string) -> tool-output;
 }

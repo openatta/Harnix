@@ -12,9 +12,9 @@ var HarnixExt = (function(exports) {
   function inDialog(point) {
     return point === "modal" || point === "settings.section";
   }
-  function admits(app, hub, name, topic) {
-    if (name.startsWith(`app.${app}.`)) return true;
-    return hub.includes(topic ? `topic:${name}` : name);
+  function admits(ext, calls, name, topic) {
+    if (name.startsWith(`app.${ext}.`)) return true;
+    return calls.includes(topic ? `topic:${name}` : name);
   }
   const SDK_VERSION = "0.1.0";
   class BridgeError extends Error {
@@ -106,7 +106,7 @@ var HarnixExt = (function(exports) {
       return () => this.paramListeners.delete(fn);
     }
     /* ── data ── */
-    /** A method: the application's own `app.<id>.*`, or one its `[interface] hub` lists. */
+    /** A method: the application's own `app.<id>.*`, or one its `[interface] calls` lists. */
     call(method, params) {
       return this.request("call", { method, params });
     }
@@ -354,17 +354,17 @@ var HarnixExt = (function(exports) {
     modal: false
   };
   function createMockHost(options = {}) {
-    const app = options.app ?? "acme.notes";
-    const hub = options.hub ?? [];
+    const ext = options.ext ?? "acme.notes";
+    const calls = options.calls ?? [];
     const channel = new MessageChannel();
     const shell = channel.port1;
     const env = { ...DEFAULT_ENV, ...options.env };
     let current = options.current ?? null;
     const surface = {
-      app,
+      ext,
       point: options.point ?? "space",
       id: options.id ?? options.point ?? "space",
-      space: options.space === void 0 ? app : options.space,
+      space: options.space === void 0 ? ext : options.space,
       params: options.params ?? null,
       autoHeight: options.autoHeight ?? false,
       links: options.links ?? false
@@ -389,7 +389,7 @@ var HarnixExt = (function(exports) {
           return { result: { surface, env, current } };
         case "call": {
           const name = String(p.method);
-          if (!admits(app, hub, name, false)) return { error: refuse(name, `\`${name}\` is not ${app}'s to call`) };
+          if (!admits(ext, calls, name, false)) return { error: refuse(name, `\`${name}\` is not ${ext}'s to call`) };
           const handler = options.methods?.[name];
           if (!handler) return { error: { code: "failed", message: `no method \`${name}\` in this mock` } };
           try {
@@ -400,7 +400,7 @@ var HarnixExt = (function(exports) {
         }
         case "subscribe": {
           const topic = String(p.topic);
-          if (!admits(app, hub, topic, true)) return { error: refuse(topic, `\`${topic}\` is not ${app}'s to subscribe to`) };
+          if (!admits(ext, calls, topic, true)) return { error: refuse(topic, `\`${topic}\` is not ${ext}'s to subscribe to`) };
           const sub = nextSub++;
           subs.set(sub, topic);
           return { result: { sub } };

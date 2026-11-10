@@ -2,7 +2,7 @@
  * Runtime applications, stage four: a WebAssembly backend. The showcase (`examples/apps/showcase`)
  * is a `backend-ext`: one resident instance in this process, its methods `app.example.showcase.*`
  * in the authorization table, its topics pushed like any host topic, its space listed — and what
- * it does as itself (`ext:example.showcase`) admitted against its manifest's `hub` and audited.
+ * it does as itself (`ext:example.showcase`) admitted against its manifest's `calls` and audited.
  *
  * The round trip a page makes (a method, the backend, its topic, back to the page) is here as a
  * client makes it; `ui/apps.spec.ts` makes it from the showcase's own interface module. A
@@ -85,7 +85,7 @@ test.describe("an application with a backend", () => {
     expect(rt.topics).toEqual([M("notes"), M("heartbeat"), M("fetched")]);
     expect(rt.spaces).toEqual([SHOWCASE_ID, SHOWCASE_CHATS]);
     const registered = (await api.call("harnix.apps.list")).registered.find((r: any) => r.id === SHOWCASE_ID);
-    expect(registered).toMatchObject({ by: "apps", hub: ["harnix.session.create", "harnix.session.send", "topic:harnix.sessions.status", "harnix.session.entries.append"] });
+    expect(registered).toMatchObject({ by: "apps", calls: ["harnix.session.create", "harnix.session.send", "topic:harnix.sessions.status", "harnix.session.entries.append"] });
     // Reachable to this page like any method, and listed among the spaces.
     const reachable = await api.call("harnix.reachable");
     expect(reachable.methods).toContain(M("notes.add"));
@@ -94,7 +94,7 @@ test.describe("an application with a backend", () => {
     // On the record, by the module that hosts it.
     const declared = (await audit(api)).filter((e) => e.decision === "declare" && e.subject === "ext:apps");
     expect(declared.map((e) => e.method)).toEqual(expect.arrayContaining([M("notes.add"), `topic:${M("notes")}`, `space:${SHOWCASE_ID}`]));
-    // `init` subscribed to the sessions' status, as its `hub` allows.
+    // `init` subscribed to the sessions' status, as its `calls` allows.
     expect(rt.health.subscriptions).toBe(1);
   });
 
@@ -204,9 +204,9 @@ test.describe("an application with a backend", () => {
     await api.call("harnix.topics.subscribe", { topic: "harnix.apps" });
     const answer = await api.call(M("overreach"));
     expect(answer.refused).toBe(true);
-    expect(answer.message).toContain("not in the application's `hub` capability");
+    expect(answer.message).toContain("not in the application's `calls` capability");
     const entry = (await audit(api)).find((e) => e.subject === ME && e.method === "harnix.apps.uninstall");
-    expect(entry).toMatchObject({ decision: "refuse", reason: "not in the application's `hub` capability" });
+    expect(entry).toMatchObject({ decision: "refuse", reason: "not in the application's `calls` capability" });
     // Nothing happened, and the system space has it among the refusals.
     const rt = await runtime(api);
     expect(rt.state).toBe("running");

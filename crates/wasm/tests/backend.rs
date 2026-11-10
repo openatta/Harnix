@@ -512,7 +512,7 @@ async fn a_subscription_delivers_topic_values_in_order() {
         .await
         .unwrap()
         .unwrap_err();
-    assert!(refused.message.contains("hub"), "{refused:?}");
+    assert!(refused.message.contains("calls"), "{refused:?}");
 
     for n in 0..5 {
         rig.vm

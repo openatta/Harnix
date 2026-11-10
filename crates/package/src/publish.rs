@@ -213,7 +213,7 @@ pub fn index(
                     version: manifest.app.version.clone(),
                     harnix_api: manifest.app.harnix_api,
                     capabilities: json!({
-                        "net": caps.net, "env": caps.env, "storage_mb": caps.storage_mb, "hub": caps.hub, "fs": caps.fs,
+                        "net": caps.net, "env": caps.env, "storage_mb": caps.storage_mb, "calls": caps.calls, "fs": caps.fs,
                     }),
                     signatures: signatures.clone(),
                     revoked: None,
@@ -242,7 +242,7 @@ pub fn index(
         format: INDEX_FORMAT.into(),
         name: name.map(str::to_string),
         expires: String::new(),
-        apps,
+        packages: apps,
         signature: None,
     };
     let out = store.join("index.json");
@@ -350,8 +350,8 @@ mod tests {
         .is_err());
 
         let index = index(&store_dir, Some("test"), &store, CATALOG_VALID).unwrap();
-        let version = &index.apps[0].versions[0];
-        assert_eq!(index.apps[0].id, "acme.probe");
+        let version = &index.packages[0].versions[0];
+        assert_eq!(index.packages[0].id, "acme.probe");
         assert_eq!(version.artifacts.keys().collect::<Vec<_>>(), [FP]);
         assert_eq!(
             version.artifacts[FP].sha256,
@@ -365,7 +365,7 @@ mod tests {
         assert!(Index::verify(&bytes, &[store.public()], now + CATALOG_VALID).is_err());
         assert!(Index::verify(&bytes, &[publisher.public()], now).is_err());
         assert_eq!(
-            written.apps[0].versions[0].artifacts[FP].url,
+            written.packages[0].versions[0].artifacts[FP].url,
             "packages/acme.probe-1.0.0.hxext"
         );
     }

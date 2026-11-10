@@ -40,7 +40,7 @@
 //! Every text is a string or a table of them by locale (`{ en = "…", zh-CN = "…" }`). Each point is
 //! checked here against the rest of the manifest: a button's or a grouping's method is one it
 //! declares for a device, a command needs its `complete`, a card needs `harnix.session.entries.append` in
-//! its `hub` to be appended at all. Unknown points and fields are refused by name.
+//! its `calls` to be appended at all. Unknown points and fields are refused by name.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -242,9 +242,9 @@ impl Inline {
                 }
             }
         }
-        if !self.flow_block.is_empty() && !manifest.capabilities.hub.iter().any(|h| h == APPEND) {
+        if !self.flow_block.is_empty() && !manifest.capabilities.calls.iter().any(|h| h == APPEND) {
             return refuse(format!(
-                "a `flow_block` is drawn from the entries the application appends, and its `hub` does not list `{APPEND}`"
+                "a `flow_block` is drawn from the entries the application appends, and its `calls` does not list `{APPEND}`"
             ));
         }
         for block in &self.flow_block {
@@ -510,11 +510,11 @@ mod tests {
 [app]
 id = "acme.notes"
 version = "1.0.0"
-harnix_api = 1
+harnix_api = 2
 publisher = "acme"
 
 [capabilities]
-hub = ["harnix.session.entries.append"]
+calls = ["harnix.session.entries.append"]
 
 [[component]]
 name = "backend"
@@ -730,7 +730,7 @@ other = { en = "Other", zh-CN = "其他" }
             assert!(err.starts_with(MANIFEST), "{err}");
         }
         // A card needs its entries appended; a command, its candidates.
-        let no_append = BASE.replace("hub = [\"harnix.session.entries.append\"]", "hub = []");
+        let no_append = BASE.replace("calls = [\"harnix.session.entries.append\"]", "calls = []");
         assert!(parse(&format!("{no_append}{INLINE}"))
             .unwrap_err()
             .contains(APPEND));

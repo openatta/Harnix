@@ -4,7 +4,7 @@
 [app]
 id = "example.showcase"
 version = "0.1.0"
-harnix_api = 1
+harnix_api = 2
 title = "Showcase"
 publisher = "example"
 description = "One of everything an application can bring: a backend with methods, topics and a space, tools, an event hook, an agent package, a skill and an interface module"
@@ -25,7 +25,7 @@ env = ["SHOWCASE_TOKEN"]
 # What the backend may do as `ext:example.showcase`: start a session and send it a prompt
 # (`session.start`), watch which sessions are running, and put a card in a session's flow
 # (`card.post`, drawn from `[[inline.flow_block]]`). `overreach` tries something else.
-hub = ["harnix.session.create", "harnix.session.send", "topic:harnix.sessions.status", "harnix.session.entries.append"]
+calls = ["harnix.session.create", "harnix.session.send", "topic:harnix.sessions.status", "harnix.session.entries.append"]
 
 [[component]]
 name = "tools"
@@ -33,6 +33,88 @@ world = "harnix:ext/backend-ext@1.0.0"
 memory_mb = 32
 # A call longer than this is abandoned, and the backend replaced (`spin` shows it).
 timeout_ms = 5000
+
+# Every tool the component provides, and only those: a session sees them as
+# `ext__example_showcase__<name>`. `harnix-pack build` checks the component lists the same ones.
+[[tool]]
+name = "echo"
+description = "Say `text` back, exactly"
+doc = "Answers with the text it was given, and the same text as structured content."
+read_only = true
+concurrency_safe = true
+[tool.input_schema]
+type = "object"
+required = ["text"]
+properties.text = { type = "string", description = "What to say back" }
+
+[[tool]]
+name = "count"
+description = "Count one more for `key` (default `visits`) and say the total"
+[tool.input_schema]
+type = "object"
+required = []
+properties.key = { type = "string" }
+
+[[tool]]
+name = "config"
+description = "Show the showcase's configuration"
+read_only = true
+concurrency_safe = true
+[tool.input_schema]
+type = "object"
+required = []
+properties = {}
+
+[[tool]]
+name = "read_project"
+description = "Read a file of the current project, by its path relative to the project"
+read_only = true
+concurrency_safe = true
+[tool.input_schema]
+type = "object"
+required = ["path"]
+properties.path = { type = "string" }
+
+[[tool]]
+name = "slow"
+description = "Work for a while, reporting each step: `steps` (default 5) of `ms` (default 400) each"
+read_only = true
+concurrency_safe = true
+[tool.input_schema]
+type = "object"
+required = []
+properties.steps = { type = "integer" }
+properties.ms = { type = "integer" }
+
+[[tool]]
+name = "vetoed"
+description = "A tool the showcase's own event hook refuses"
+read_only = true
+concurrency_safe = true
+[tool.input_schema]
+type = "object"
+required = []
+properties = {}
+
+[[tool]]
+name = "crash"
+description = "Trap, every time: three in a row set this tool aside, and nothing else"
+read_only = true
+concurrency_safe = true
+[tool.input_schema]
+type = "object"
+required = []
+properties = {}
+
+[[tool]]
+name = "board"
+description = "What the showcase's backend holds now: its notes, its counter, its timer"
+read_only = true
+concurrency_safe = true
+[tool.input_schema]
+type = "object"
+required = []
+properties = {}
 
 # Its event hook is offered the calls of its own tools: the default, written out. `tools = "all"`
 # would be every tool call of every session, with its input — which the installer would be told.
@@ -93,7 +175,7 @@ properties.message = { type = "string" }
 
 [[method]]
 name = "overreach"
-description = "Try a call the application's `hub` does not list"
+description = "Try a call the application's `calls` do not list"
 
 [[method]]
 name = "spin"
@@ -175,7 +257,7 @@ api_version = 3
 # Besides its own names: the session list (the left column counts the space's sessions), and a
 # session's details. Each only as far as the showcase's own spaces: `harnix.sessions.list` lists those,
 # and `engine.session.get` is refused a session in any other.
-hub = ["harnix.sessions.list", "engine.session.get"]
+calls = ["harnix.sessions.list", "engine.session.get"]
 # The card links to the showcase's README; the shell asks before it opens.
 links = true
 

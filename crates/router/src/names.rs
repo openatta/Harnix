@@ -104,7 +104,7 @@ pub(crate) fn short_app_name<'a>(app: &str, name: &'a str) -> Option<&'a str> {
         .filter(|short| valid_short_name(short))
 }
 
-/// Whether a name in an application's `hub` belongs to an application, and so is that
+/// Whether a name in an application's `calls` belongs to an application, and so is that
 /// application's to admit rather than a grant to check.
 pub fn names_an_application(name: &str) -> bool {
     name.starts_with("app.") || topic_of(name).is_some_and(|t| t.starts_with("app."))

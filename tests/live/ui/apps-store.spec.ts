@@ -67,7 +67,7 @@ test("the store's application is installed through its disclosure, and only thro
   await expect(disclosure).toBeFocused();
   await expect(disclosure).toContainText(/Showcase 0\.2\.0/);
   await expect(disclosure.locator('[data-capability="net"]').first()).toContainText(/Reach the host|访问主机/);
-  await expect(disclosure.locator('[data-capability="hub"]', { hasText: "sessions.status" })).toContainText(/Watch the topic|订阅主题/);
+  await expect(disclosure.locator('[data-capability="calls"]', { hasText: "sessions.status" })).toContainText(/Watch the topic|订阅主题/);
   await expect(disclosure.locator('[data-capability="fs"]')).toContainText(/project, without changing it|项目（只读）/);
   // Where its secret comes from, and what its pages can do, said plainly.
   await expect(disclosure.locator('[data-capability="env"]').first()).toContainText(/secret your profile gives it|profile 给它的秘密/);

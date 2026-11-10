@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Rewrite the 0.4 wire names in recorded model calls, and give each blob it changed its new digest.
+// Rewrite the 0.4 wire names and tool names in recorded model calls, and give each blob it changed
+// its new digest.
 //
 //   node scripts/rewrite-recordings.mjs [--check] [<recordings-dir>…]
 //
@@ -84,6 +85,14 @@ export function renamed(text) {
   return text.replace(whole, (name) => to.get(name)).replace(quoted, (name) => to.get(name));
 }
 
+/**
+ * A package's tools are `ext__<id>__<tool>` in a session (0.4: `app__`), and `mcp__ext-<id>__<tool>`
+ * in a spawned daemon (0.4: `mcp__app-`). Whole names only: a `__` before it is another word's.
+ */
+export function renamedTools(text) {
+  return text.replace(/(?<![\w])app__(?=[a-z][a-z0-9_]*__)/g, "ext__").replace(/(?<![\w])mcp__app-(?=[a-z][a-z0-9_]*__)/g, "mcp__ext-");
+}
+
 /** The name a blob is kept under: the first 16 hex digits of the SHA-256 of its bytes. */
 export function digest(bytes) {
   return createHash("sha256").update(bytes).digest("hex").slice(0, 16);
@@ -100,7 +109,7 @@ export function rewrite(dir, { write = true } = {}) {
   for (const name of readdirSync(blobs)) {
     const path = join(blobs, name);
     const before = readFileSync(path, "utf8");
-    const after = renamed(before);
+    const after = renamedTools(renamed(before));
     if (after === before) continue;
     moved.set(name, digest(Buffer.from(after, "utf8")));
     if (write) {
@@ -108,14 +117,17 @@ export function rewrite(dir, { write = true } = {}) {
       renameSync(path, join(blobs, moved.get(name)));
     }
   }
-  if (!moved.size) return [];
+  const changes = [...moved].map(([from, now]) => `${from} → ${now}`);
   for (const file of readdirSync(dir).filter((f) => f.endsWith(".jsonl"))) {
     const path = join(dir, file);
-    let text = readFileSync(path, "utf8");
+    const before = readFileSync(path, "utf8");
+    let text = renamedTools(before);
     for (const [from, now] of moved) text = text.replaceAll(`"${from}"`, `"${now}"`);
+    if (text === before) continue;
+    if (!moved.size) changes.push(`${file}: tool names`);
     if (write) writeFileSync(path, text);
   }
-  return [...moved].map(([from, now]) => `${from} → ${now}`);
+  return changes;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

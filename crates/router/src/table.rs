@@ -157,7 +157,7 @@ pub struct RouteTable {
 }
 
 /// Why a package, acting as itself, is refused a name its consent does not list.
-pub const OUTSIDE_HUB: &str = "not in the application's `hub` capability";
+pub const OUTSIDE_HUB: &str = "not in the application's `calls` capability";
 
 /// Why an extension nothing registered is refused everything: one withdrawn, or never there.
 pub const UNREGISTERED: &str = "not a registered extension";

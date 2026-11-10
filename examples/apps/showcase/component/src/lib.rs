@@ -15,13 +15,13 @@
 //! | `timer.start {ms, times?}` | `host.set-timer`: each firing publishes `heartbeat` |
 //! | `fetch {url}` | slow work started, then reported: a job at once; a timer makes the request (`host.http-request`, to a host in `net` only) and publishes it on `fetched` |
 //! | `session.start {message, space, …}` | driving the agent: `harnix.session.create` and `harnix.session.send` in its own space, as `ext:example.showcase` |
-//! | `overreach` | a call its `hub` does not list: refused, and on the record |
+//! | `overreach` | a call its `calls` does not list: refused, and on the record |
 //! | `spin`, `crash` | what a timeout and a trap do to the instance |
 //! | `card.post {session_id, space, …}` | an entry in the flow of a session of its own space (`harnix.session.entries.append`), which the shell draws as the manifest's card |
 //! | `complete {trigger, name, query}` | the candidates of its `/showcase` command and its `@notes` source |
 //! | `sessions.group {space, sessions}` | how its space's left column groups sessions: those it put a card in, and the rest |
 //!
-//! It subscribes to `harnix.sessions.status` in `init` (listed in its `hub` as
+//! It subscribes to `harnix.sessions.status` in `init` (listed in its `calls` as
 //! `topic:harnix.sessions.status`) and counts what arrives at `on-topic`.
 //!
 //! # The tools
@@ -275,7 +275,7 @@ impl Backend for Showcase {
                 })
             }
             "overreach" => {
-                // Its `hub` does not list this; the answer is the refusal, as the backend got it.
+                // Its `calls` do not list this; the answer is the refusal, as the backend got it.
                 match host::call("harnix.apps.uninstall", &json!({"id": ID}).to_string()) {
                     Ok(answer) => json!({"refused": false, "answer": answer}),
                     Err(refusal) => json!({"refused": true, "message": refusal}),

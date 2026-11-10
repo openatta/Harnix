@@ -80,7 +80,7 @@ pub enum Change {
     Withdraw,
     /// Putting a name in was refused, and nothing was written.
     Refuse,
-    /// An existing name was opened to a runtime application (its `hub`
+    /// An existing name was opened to a runtime application (its `calls`
     /// capability, as a module's manifest grants).
     Grant,
     /// That grant was taken back, with the application.

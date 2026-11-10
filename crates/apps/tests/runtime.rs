@@ -92,7 +92,7 @@ impl AppRuntime for FakeApps {
             methods: spec.methods.iter().map(|m| format!("app.{}.{}", spec.id, m.name)).collect(),
             topics: spec.topics.iter().map(|t| format!("app.{}.{}", spec.id, t.name)).collect(),
             spaces: spec.spaces.iter().map(|s| s.id.clone()).collect(),
-            hub: spec.hub.clone(),
+            calls: spec.calls.clone(),
             since_ms: 0,
         };
         lock(&self.specs).push(spec);
@@ -127,7 +127,7 @@ impl AppRuntime for FakeApps {
             let m = spec.methods.iter().find(|m| m.name == own).unwrap().clone();
             return m.handler.call(&Subject::extension(harnix_contract::ExtId::package(id).unwrap()), params).await;
         }
-        if !spec.hub.iter().any(|h| h == method) {
+        if !spec.calls.iter().any(|h| h == method) {
             return Err(RpcError::refused(format!("`module:{id}` may not call `{method}`: not in its `hub`")));
         }
         lock(&self.called).push(method.into());
@@ -135,7 +135,7 @@ impl AppRuntime for FakeApps {
     }
     async fn subscribe_as(&self, _by: &str, id: &str, topic: &str, _params: Value) -> Result<Value, RpcError> {
         let spec = self.spec(id).unwrap();
-        if !spec.hub.contains(&format!("topic:{topic}")) {
+        if !spec.calls.contains(&format!("topic:{topic}")) {
             return Err(RpcError::refused("not in its `hub`"));
         }
         // A value now, as the hub gives a subscriber, so the backend's `on-topic` sees one.
@@ -389,7 +389,7 @@ async fn installed_the_showcase_gives_a_session_its_tools_and_they_run() {
     assert_eq!(centre["surface"]["sessions"], json!(ID));
     assert_eq!(
         centre["interface"],
-        json!({"hub": ["harnix.sessions.list", "engine.session.get"], "links": true, "trust": "unsigned", "title": "Showcase", "spaces": [ID, "example.showcase.chats"]})
+        json!({"calls": ["harnix.sessions.list", "engine.session.get"], "links": true, "trust": "unsigned", "title": "Showcase", "spaces": [ID, "example.showcase.chats"]})
     );
     assert_eq!(rig.runtime.status(ID).await["frames"], json!(true));
     assert!(
@@ -528,7 +528,7 @@ async fn the_backend_is_registered_answers_its_methods_and_acts_only_as_far_as_i
     let topics: Vec<&str> = spec.topics.iter().map(|t| t.name.as_str()).collect();
     assert_eq!(topics, ["notes", "heartbeat", "fetched"]);
     assert_eq!(spec.spaces[0].id, ID);
-    assert!(spec.hub.contains(&"topic:harnix.sessions.status".to_string()));
+    assert!(spec.calls.contains(&"topic:harnix.sessions.status".to_string()));
     let state = rig.runtime.status(ID).await;
     assert_eq!(state["world"], json!("backend"));
     assert_eq!(state["health"]["subscriptions"], json!(1), "init subscribed");
@@ -613,8 +613,8 @@ async fn a_failed_install_is_undone_and_leaves_nothing_behind() {
         .push(("engine.plugin.install".into(), "other".into()));
     let package = rig.package("two", |m| {
         m.replace(
-            "install_into = [\"system\"]",
-            "install_into = [\"system\", \"other\"]",
+            "install_into = [\"main\"]",
+            "install_into = [\"main\", \"other\"]",
         )
     });
     let err = rig.install(&package).await.unwrap_err();
@@ -637,7 +637,7 @@ async fn a_failed_install_is_undone_and_leaves_nothing_behind() {
     let rig = Rig::new(true);
     let package = rig.package("nowhere", |m| {
         m.replace(
-            "install_into = [\"system\"]",
+            "install_into = [\"main\"]",
             "install_into = [\"nowhere\"]",
         )
     });

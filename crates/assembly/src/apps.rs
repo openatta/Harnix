@@ -32,10 +32,10 @@
 //!
 //! **Acting as itself.** An application reaches the rest of the process as
 //! `ext:<id>` (`call_as`, `subscribe_as`): through the router, like any
-//! extension, but trusted by consent — only to what its `hub` lists (method
+//! extension, but trusted by consent — only to what its `calls` lists (method
 //! names, topics as `topic:<name>`) and its own `app.<id>.*`, each row as far
 //! as it is open to extensions, and a row about a space or a session only in
-//! its own space. Its `hub` entries are checked at registration (an unknown
+//! its own space. Its `calls` entries are checked at registration (an unknown
 //! name or one the hub owns refuses it); listing a row that requires a
 //! capability opens nothing, since a package holds none of the kernel's.
 //! Withdrawing takes its consent back.
@@ -237,7 +237,7 @@ impl Apps {
                 &host,
                 &all,
                 "not an application id",
-                format!("`{id}` is not an application id: dot-separated lowercase segments, each starting with a letter"),
+                format!("`{id}` is not an application id: `<publisher>.<name>`, lowercase segments each starting with a letter, the first not a reserved word"),
             ));
         }
         // Its id: free of every registered one — compiled-in modules, enabled or not, and the
@@ -263,7 +263,7 @@ impl Apps {
             }
         }
 
-        // Its `hub` is its consent: names that exist and are not the hub's own. Another
+        // Its `calls` are its consent: names that exist and are not the hub's own. Another
         // application's names are left to that application's principals. What a name requires
         // beyond that it does not hold: a package holds none of the kernel's capabilities.
         for name in &spec.calls {
@@ -275,8 +275,8 @@ impl Apps {
                     az,
                     &host,
                     name,
-                    "the application's `hub` names what it may not reach",
-                    format!("`{id}`'s `hub` capability: {e}"),
+                    "the application's `calls` name what it may not reach",
+                    format!("`{id}`'s `calls` capability: {e}"),
                 ));
             }
         }
@@ -317,7 +317,7 @@ impl Apps {
             added_spaces.push(space.id.clone());
         }
         // 2. Its consent, then the table in one write: its rows with their handlers. Audited
-        //    there. From here its subject reaches its `hub` and its own names, narrowed to its
+        //    there. From here its subject reaches its `calls` and its own names, narrowed to its
         //    own space, and nothing more.
         self.grants.set(ext_of(&id), spec.caps, Trust::consent(spec.calls.iter().cloned(), spec.carrier));
         if let Err(e) = az.install_app(&host, &id, rows) {
@@ -340,7 +340,7 @@ impl Apps {
             methods,
             topics,
             spaces: added_spaces,
-            hub: spec.calls.clone(),
+            calls: spec.calls.clone(),
             since_ms: now_ms(),
         };
         self.live().insert(
@@ -394,7 +394,7 @@ impl AppRuntime for Apps {
                 rows,
                 topics: spec.topics,
                 spaces: spec.spaces,
-                calls: spec.hub,
+                calls: spec.calls,
                 caps: Vec::new(),
                 carrier: PackageCarrier::Wasm,
                 sink: spec.topic_sink,
@@ -592,7 +592,7 @@ mod tests {
             }
         }
         fn add_space(&self, decl: SpaceDecl) -> Result<(), String> {
-            if decl.id == "taken" || !lock(&self.spaces).insert(decl.id.clone()) {
+            if decl.id == "acme.taken" || !lock(&self.spaces).insert(decl.id.clone()) {
                 return Err(format!("there is already a space `{}`", decl.id));
             }
             Ok(())
@@ -680,47 +680,47 @@ mod tests {
     #[tokio::test]
     async fn a_registered_method_is_admitted_routed_and_audited_then_withdrawn() {
         let w = world();
-        let summary = w.apps.register("host", fake("fake")).await.unwrap();
-        assert_eq!(summary.methods, vec!["app.fake.echo", "app.fake.internal"]);
-        assert_eq!(summary.topics, vec!["app.fake.ticks"]);
-        assert_eq!(summary.spaces, vec!["fake"]);
+        let summary = w.apps.register("host", fake("acme.fake")).await.unwrap();
+        assert_eq!(summary.methods, vec!["app.acme.fake.echo", "app.acme.fake.internal"]);
+        assert_eq!(summary.topics, vec!["app.acme.fake.ticks"]);
+        assert_eq!(summary.spaces, vec!["acme.fake"]);
 
-        let answer = call(&w.az, &device(), "app.fake.echo", json!({"x": 1})).await.unwrap();
+        let answer = call(&w.az, &device(), "app.acme.fake.echo", json!({"x": 1})).await.unwrap();
         assert_eq!(answer["params"], json!({"x": 1}));
         assert_eq!(answer["caller"], json!({"kind": "device", "id": "d1"}));
         // Only who it was declared for.
-        let refused = call(&w.az, &device(), "app.fake.internal", json!({})).await.unwrap_err();
+        let refused = call(&w.az, &device(), "app.acme.fake.internal", json!({})).await.unwrap_err();
         assert_eq!(refused.code, codes::REFUSED);
-        assert_eq!(call(&w.az, &Subject::Kernel, "app.fake.internal", json!({})).await.unwrap(), json!("kernel only"));
-        assert!(w.az.reachable(&device()).contains(&"app.fake.echo".to_string()));
+        assert_eq!(call(&w.az, &Subject::Kernel, "app.acme.fake.internal", json!({})).await.unwrap(), json!("kernel only"));
+        assert!(w.az.reachable(&device()).contains(&"app.acme.fake.echo".to_string()));
 
         // On the record: who declared what, and when.
         let declared: Vec<_> = w.az.audit().recent(50).into_iter().filter(|e| e.decision == "declare").collect();
         let names: BTreeSet<_> = declared.iter().map(|e| e.method.as_str()).collect();
-        assert_eq!(names, BTreeSet::from(["app.fake.echo", "app.fake.internal", "topic:app.fake.ticks", "space:fake"]));
+        assert_eq!(names, BTreeSet::from(["app.acme.fake.echo", "app.acme.fake.internal", "topic:app.acme.fake.ticks", "space:acme.fake"]));
         assert!(declared.iter().all(|e| e.subject == "ext:host" && e.at_ms.is_some()));
-        let called = w.az.audit().recent(50).into_iter().find(|e| e.method == "app.fake.echo" && e.decision == "allow");
+        let called = w.az.audit().recent(50).into_iter().find(|e| e.method == "app.acme.fake.echo" && e.decision == "allow");
         assert_eq!(called.unwrap().subject, "device:d1");
 
-        lock(&w.stub.subscribers).insert("app.fake.ticks".into(), 2);
-        let withdrawn = w.apps.withdraw("host", "fake").await.unwrap();
+        lock(&w.stub.subscribers).insert("app.acme.fake.ticks".into(), 2);
+        let withdrawn = w.apps.withdraw("host", "acme.fake").await.unwrap();
         assert_eq!(withdrawn.subscriptions_ended, 2);
         assert_eq!(
             lock(&w.stub.ended).as_slice(),
-            [("app.fake.ticks".to_string(), "the application `fake` was withdrawn".to_string())]
+            [("app.acme.fake.ticks".to_string(), "the application `acme.fake` was withdrawn".to_string())]
         );
         assert!(lock(&w.stub.spaces).is_empty());
 
         // Refused afterwards like a name that never existed, and never handed to anything else.
-        let gone = call(&w.az, &device(), "app.fake.echo", json!({})).await.unwrap_err();
+        let gone = call(&w.az, &device(), "app.acme.fake.echo", json!({})).await.unwrap_err();
         assert_eq!(gone.code, codes::METHOD_NOT_FOUND);
-        assert!(!w.az.reachable(&device()).contains(&"app.fake.echo".to_string()));
+        assert!(!w.az.reachable(&device()).contains(&"app.acme.fake.echo".to_string()));
         assert_eq!(w.below.calls.load(Ordering::SeqCst), 0);
         let withdrew: Vec<_> = w.az.audit().recent(80).into_iter().filter(|e| e.decision == "withdraw").collect();
         assert_eq!(withdrew.len(), 4);
         assert!(w.apps.registered().is_empty());
         // And the id is free again.
-        w.apps.register("host", fake("fake")).await.unwrap();
+        w.apps.register("host", fake("acme.fake")).await.unwrap();
     }
 
     /// What a sink is handed.
@@ -745,7 +745,7 @@ mod tests {
         let w = world();
         let heard = Arc::new(Heard::default());
         let spec = fake("acme.notes")
-            .hub(["harnix.session.create", "settings.write", "topic:harnix.sessions.status"])
+            .calls(["harnix.session.create", "settings.write", "topic:harnix.sessions.status"])
             .topic_sink(heard.clone());
         w.apps.register("host", spec).await.unwrap();
 
@@ -771,7 +771,7 @@ mod tests {
         // Not listed, though open to every module: refused by the table, and on the record.
         let refused = w.apps.call_as("host", "acme.notes", "harnix.hello", json!({})).await.unwrap_err();
         assert_eq!(refused.code, codes::REFUSED);
-        assert!(refused.message.contains("`hub` capability"), "{}", refused.message);
+        assert!(refused.message.contains("`calls` capability"), "{}", refused.message);
         let entry = w.az.audit().recent(100).into_iter().find(|e| e.method == "harnix.hello").unwrap();
         assert_eq!((entry.subject.as_str(), entry.decision), ("ext:acme.notes", "refuse"));
         assert_eq!(entry.reason, Some(OUTSIDE_HUB));
@@ -844,7 +844,7 @@ mod tests {
             handler: Arc::new(Chained),
         });
         w.apps.register("host", todo).await.unwrap();
-        w.apps.register("host", fake("acme.notes").hub(["app.acme.todo.list"])).await.unwrap();
+        w.apps.register("host", fake("acme.notes").calls(["app.acme.todo.list"])).await.unwrap();
         let waiting = Chain::of_extensions(["acme.notes"]);
         let answer = w.apps.call_chained("host", "acme.notes", "app.acme.todo.list", json!({}), waiting).await.unwrap();
         assert_eq!(answer, json!(["acme.notes"]));
@@ -856,27 +856,29 @@ mod tests {
     async fn a_hub_capability_that_cannot_be_granted_refuses_the_registration() {
         let w = world();
         for name in ["harnix.turn", "nothing.here", "topic:nowhere"] {
-            let e = w.apps.register("host", fake("acme.notes").hub([name])).await.unwrap_err();
+            let e = w.apps.register("host", fake("acme.notes").calls([name])).await.unwrap_err();
             assert_eq!(e.code, codes::REFUSED, "{name}");
             assert!(e.message.contains(name), "{name}: {}", e.message);
         }
         assert!(w.apps.registered().is_empty());
         assert!(lock(&w.stub.topics).is_empty());
         // Another application's names are that application's to admit, so they are not checked here.
-        w.apps.register("host", fake("acme.notes").hub(["app.acme.todo.list"])).await.unwrap();
+        w.apps.register("host", fake("acme.notes").calls(["app.acme.todo.list"])).await.unwrap();
     }
 
     #[tokio::test]
     async fn collisions_are_refused_and_leave_nothing_behind() {
         let w = world();
         // A compiled-in module's id, with names in the table or not, or nested under one.
-        for (id, by) in [("probe", "probe"), ("probe.sub", "probe"), ("quiet", "quiet"), ("quiet.x", "quiet")] {
+        for (id, by) in [("probe.sub", "probe"), ("quiet.x", "quiet")] {
             let e = w.apps.register("host", fake(id)).await.unwrap_err();
             assert_eq!(e.code, codes::REFUSED, "{id}");
             assert_eq!(e.data, Some(json!({"failure": "namespace_taken", "by": by})), "{id}: {}", e.message);
         }
-        // Nor under a reserved word.
-        assert_eq!(w.apps.register("host", fake("engine.notes")).await.unwrap_err().data.unwrap()["failure"], "namespace_taken");
+        // The same id as one is not a package's at all, nor is one under a reserved word.
+        for id in ["probe", "quiet", "engine.notes"] {
+            assert_eq!(w.apps.register("host", fake(id)).await.unwrap_err().code, codes::REFUSED, "{id}");
+        }
         // The compiled-in method is still the compiled-in one.
         assert_eq!(call(&w.az, &device(), "app.probe.echo", json!({})).await.unwrap(), json!("the compiled-in probe"));
 
@@ -889,15 +891,15 @@ mod tests {
         // that is taken: refused, and nothing of them was left declared, bound or listed.
         let bad = [
             AppSpec::new("Bad"),
-            AppSpec::new("one").method("a b", &[Principal::Device], |_c, p| async move { Ok(p) }),
-            AppSpec::new("two")
+            AppSpec::new("acme.one").method("a b", &[Principal::Device], |_c, p| async move { Ok(p) }),
+            AppSpec::new("acme.two")
                 .method("x", &[Principal::Device], |_c, p| async move { Ok(p) })
                 .method("x", &[Principal::Device], |_c, p| async move { Ok(p) }),
-            AppSpec::new("three").topic("t", &[]).space(SpaceDecl::new("elsewhere")),
-            AppSpec::new("taken")
+            AppSpec::new("acme.three").topic("t", &[]).space(SpaceDecl::new("elsewhere")),
+            AppSpec::new("acme.taken")
                 .topic("t", &[])
                 .method("m", &[Principal::Device], |_c, p| async move { Ok(p) })
-                .space(SpaceDecl::new("taken")),
+                .space(SpaceDecl::new("acme.taken")),
         ];
         for spec in bad {
             let id = spec.id.clone();
@@ -906,7 +908,7 @@ mod tests {
         assert_eq!(lock(&w.stub.topics).keys().collect::<Vec<_>>(), ["app.acme.notes.ticks"]);
         assert_eq!(lock(&w.stub.spaces).iter().collect::<Vec<_>>(), ["acme.notes"]);
         assert_eq!(
-            call(&w.az, &device(), "app.taken.m", json!({})).await.unwrap_err().code,
+            call(&w.az, &device(), "app.acme.taken.m", json!({})).await.unwrap_err().code,
             codes::METHOD_NOT_FOUND
         );
         assert_eq!(w.apps.registered().len(), 1);
@@ -917,24 +919,24 @@ mod tests {
     #[tokio::test]
     async fn only_the_registering_module_withdraws_or_publishes() {
         let w = world();
-        w.apps.register("host", fake("fake")).await.unwrap();
-        assert_eq!(w.apps.withdraw("other", "fake").await.unwrap_err().code, codes::REFUSED);
-        assert!(w.apps.publish("other", "fake", "ticks", json!({"job": 1}), json!(1)).await.is_err());
+        w.apps.register("host", fake("acme.fake")).await.unwrap();
+        assert_eq!(w.apps.withdraw("other", "acme.fake").await.unwrap_err().code, codes::REFUSED);
+        assert!(w.apps.publish("other", "acme.fake", "ticks", json!({"job": 1}), json!(1)).await.is_err());
         assert_eq!(w.apps.withdraw("host", "nobody").await.unwrap_err().code, codes::INVALID_PARAMS);
 
         // Its own topics only, with their parameters, normalized.
-        assert!(w.apps.publish("host", "fake", "nope", json!({}), json!(1)).await.is_err());
+        assert!(w.apps.publish("host", "acme.fake", "nope", json!({}), json!(1)).await.is_err());
         assert_eq!(
-            w.apps.publish("host", "fake", "ticks", json!({}), json!(1)).await.unwrap_err().code,
+            w.apps.publish("host", "acme.fake", "ticks", json!({}), json!(1)).await.unwrap_err().code,
             codes::INVALID_PARAMS
         );
-        w.apps.publish("host", "fake", "ticks", json!({"job": "a", "extra": 1}), json!({"n": 1})).await.unwrap();
+        w.apps.publish("host", "acme.fake", "ticks", json!({"job": "a", "extra": 1}), json!({"n": 1})).await.unwrap();
         assert_eq!(
             lock(&w.stub.published).as_slice(),
-            [("app.fake.ticks".to_string(), json!({"job": "a"}), json!({"n": 1}))]
+            [("app.acme.fake.ticks".to_string(), json!({"job": "a"}), json!({"n": 1}))]
         );
-        w.apps.withdraw("host", "fake").await.unwrap();
-        assert!(w.apps.publish("host", "fake", "ticks", json!({"job": "a"}), json!(2)).await.is_err());
+        w.apps.withdraw("host", "acme.fake").await.unwrap();
+        assert!(w.apps.publish("host", "acme.fake", "ticks", json!({"job": "a"}), json!(2)).await.is_err());
     }
 
     #[tokio::test]
@@ -945,7 +947,7 @@ mod tests {
         let release = Arc::new(tokio::sync::Notify::new());
         let spec = {
             let release = release.clone();
-            AppSpec::new("slow").method("wait", &[Principal::Device], move |_c, _p| {
+            AppSpec::new("acme.slow").method("wait", &[Principal::Device], move |_c, _p| {
                 let release = release.clone();
                 let started = lock(&started_tx).take();
                 async move {
@@ -959,11 +961,11 @@ mod tests {
         };
         w.apps.register("host", spec).await.unwrap();
         let az = w.az.clone();
-        let in_flight = tokio::spawn(async move { call(&az, &device(), "app.slow.wait", json!({})).await });
+        let in_flight = tokio::spawn(async move { call(&az, &device(), "app.acme.slow.wait", json!({})).await });
         started.await.unwrap();
-        w.apps.withdraw("host", "slow").await.unwrap();
+        w.apps.withdraw("host", "acme.slow").await.unwrap();
         assert_eq!(
-            call(&w.az, &device(), "app.slow.wait", json!({})).await.unwrap_err().code,
+            call(&w.az, &device(), "app.acme.slow.wait", json!({})).await.unwrap_err().code,
             codes::METHOD_NOT_FOUND
         );
         release.notify_one();

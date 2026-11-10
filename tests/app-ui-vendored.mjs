@@ -13,9 +13,9 @@ import { fileURLToPath } from "node:url";
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const vendor = join(root, "examples", "apps", "showcase", "ui", "frame", "vendor");
 const files = [
-  ["app-sdk", "harnix-ext-sdk.js"],
-  ["ui-kit", "harnix-ext-kit.js"],
-  ["ui-kit", "harnix-ext-kit.css"],
+  ["ext-sdk", "harnix-ext-sdk.js"],
+  ["ext-kit", "harnix-ext-kit.js"],
+  ["ext-kit", "harnix-ext-kit.css"],
 ];
 const write = process.argv.includes("--write");
 

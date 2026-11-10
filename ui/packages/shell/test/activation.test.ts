@@ -181,7 +181,7 @@ describe("the host API", () => {
     expect(subs.every((c) => c.params.$ext === "acme.notes")).toBe(true);
     expect(topics.count("harnix.spaces", {})).toBe(1);
     client.answer = () => {
-      throw { code: -31000, message: "not in the extension interface's `hub`" };
+      throw { code: -31000, message: "not in the extension interface's `calls`" };
     };
     await expect(topics.subscribeAs("acme.notes", "harnix.instances", {}, () => undefined)).rejects.toMatchObject({ code: -31000 });
     expect(topics.count("harnix.instances", {})).toBe(0);

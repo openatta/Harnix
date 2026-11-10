@@ -124,7 +124,7 @@ export function mockStore(): MockStore {
 /** The index with `edit` made to the entry of `version`. */
 export function withVersion(index: any, version: string, edit: (v: any, app: any) => void): any {
   const next = structuredClone(index);
-  const app = next.apps[0];
+  const app = next.packages[0];
   edit(app.versions.find((x: any) => x.version === version), app);
   return next;
 }

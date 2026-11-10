@@ -108,8 +108,8 @@ function LineText({ line }: { line: Line }) {
   if (line.capability === "storage_mb") value = t("apps.megabytes", { size: raw });
   // A line that is the whole of what it says: nothing to show beside it.
   if (line.value === true || line.capability === "events") value = "";
-  if (line.capability === "hub" && raw.startsWith("topic:")) {
-    key = "apps.cap.hubTopic";
+  if (line.capability === "calls" && raw.startsWith("topic:")) {
+    key = "apps.cap.callsTopic";
     value = raw.slice("topic:".length);
   }
   if (line.capability === "fs") key = raw.startsWith("${data}") ? "apps.cap.fsData" : "apps.cap.fsProject";
@@ -119,7 +119,7 @@ function LineText({ line }: { line: Line }) {
     value = rest.join(" ");
   }
   const from = line.from !== undefined ? ` (${t("apps.from", { value: t("apps.megabytes", { size: String(line.from) }) })})` : "";
-  const why = ["net", "net_local", "env", "hub", "ui", "ui_hub", "events", "frames", "agent"].includes(line.capability) ? t(`apps.cap.why.${line.capability}`) : "";
+  const why = ["net", "net_local", "env", "calls", "ui", "ui_calls", "events", "frames", "agent"].includes(line.capability) ? t(`apps.cap.why.${line.capability}`) : "";
   return (
     <li data-capability={line.capability}>
       <span className="apps-cap">{t(key)}</span>

@@ -225,6 +225,49 @@ impl AppVm {
         services: Services,
     ) -> anyhow::Result<AppVm> {
         let app = spec.id.clone();
+        let (inner, queue) = Self::link(engine, component, spec, services).await?;
+        if inner.world == World::Backend {
+            let resident = inner
+                .instantiate_resident()
+                .await
+                .map_err(|f| anyhow!("starting the backend of `{app}`: {f}"))?;
+            *inner.resident.lock().await = Some(resident);
+            tokio::spawn(drain(Arc::downgrade(&inner), queue));
+        }
+        Ok(AppVm { inner })
+    }
+
+    /// The tools `component` lists, without starting it: linked with nothing granted and nothing to
+    /// call, so a backend's `init` does not run. What the packing tool checks the manifest's
+    /// `[[tool]]` against.
+    pub async fn listed_tools(
+        engine: &WasmEngine,
+        component: &AppComponent,
+        services: Services,
+    ) -> anyhow::Result<Vec<ToolDef>> {
+        let spec = AppSpec {
+            id: "example.listing".into(),
+            capabilities: Default::default(),
+            limits: crate::Limits::default(),
+            dirs: Default::default(),
+            config: serde_json::Value::Null,
+        };
+        let (inner, _) = Self::link(engine, component, spec, services).await?;
+        AppVm { inner }
+            .list_tools(&CancellationToken::new())
+            .await
+            .map_err(|e| anyhow!("listing the component's tools: {e}"))
+    }
+
+    /// Link the component and build what a start and a listing share, short of the backend's
+    /// resident instance.
+    async fn link(
+        engine: &WasmEngine,
+        component: &AppComponent,
+        spec: AppSpec,
+        services: Services,
+    ) -> anyhow::Result<(Arc<Inner>, mpsc::Receiver<Delivery>)> {
+        let app = spec.id.clone();
         let caps = Resolved::resolve(&spec.capabilities, &spec.dirs)
             .with_context(|| format!("resolving the capabilities of `{app}`"))?;
 
@@ -287,15 +330,7 @@ impl AppVm {
             resident: tokio::sync::Mutex::new(None),
             hibernating: std::sync::atomic::AtomicBool::new(false),
         });
-        if world == World::Backend {
-            let resident = inner
-                .instantiate_resident()
-                .await
-                .map_err(|f| anyhow!("starting the backend of `{app}`: {f}"))?;
-            *inner.resident.lock().await = Some(resident);
-            tokio::spawn(drain(Arc::downgrade(&inner), queue));
-        }
-        Ok(AppVm { inner })
+        Ok((inner, queue))
     }
 
     pub fn app(&self) -> &str {

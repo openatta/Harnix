@@ -390,7 +390,7 @@ async fn an_update_discloses_what_it_adds_keeps_the_data_and_undoes_itself_when_
     // installed one is back, running, as it was.
     let broken = rig.package("v3-broken", true, |m| {
         grow(m).replace("0.2.0", "0.3.0").replace(
-            "install_into = [\"system\"]",
+            "install_into = [\"main\"]",
             "install_into = [\"nowhere\"]",
         )
     });
@@ -455,7 +455,7 @@ async fn an_update_whose_installed_version_does_not_come_back_says_so() {
     std::fs::write(&module, format!("{}\n// changed\n", std::fs::read_to_string(&module).unwrap())).unwrap();
     let broken = rig.package("v3-broken", true, |m| {
         grow(m).replace("0.2.0", "0.3.0").replace(
-            "install_into = [\"system\"]",
+            "install_into = [\"main\"]",
             "install_into = [\"nowhere\"]",
         )
     });

@@ -208,7 +208,7 @@ test("Settings → Applications shows its permissions, and clears what it keeps"
   const row = page.locator(`[data-testid="app-installed"][data-app="${SHOWCASE_ID}"]`);
   await expect(row).toHaveAttribute("data-state", "running");
   const permissions = row.getByTestId("app-permissions");
-  await expect(permissions.locator('[data-capability="hub"]', { hasText: "harnix.session.entries.append" })).toBeVisible();
+  await expect(permissions.locator('[data-capability="calls"]', { hasText: "harnix.session.entries.append" })).toBeVisible();
   await expect(permissions.locator('[data-capability="inline"]', { hasText: "/showcase" })).toBeVisible();
   await expect(permissions.locator('[data-inline="flow_block"]')).toContainText("card");
   const data = row.getByTestId("app-data");

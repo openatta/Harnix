@@ -120,7 +120,7 @@ describe("a frame's bridge", () => {
     expect(f.handed[0]!.message).toEqual({ protocol: PROTOCOL, type: "connect" });
     const frame = framePort(f.handed[0]!.port);
     const hello = await frame.ask("hello", { sdk: "test" });
-    expect(hello.result).toMatchObject({ surface: { app: "acme.notes", point: "space", params: { n: 1 }, autoHeight: false, links: false }, env: { modal: false } });
+    expect(hello.result).toMatchObject({ surface: { ext: "acme.notes", point: "space", params: { n: 1 }, autoHeight: false, links: false }, env: { modal: false } });
     expect(outcome.ready).toBe(1);
     // A second load is the page going away.
     f.load();

@@ -120,8 +120,8 @@ pub struct AppSpec {
     /// `app.<id>.*`: method names, and topics as `topic:<name>` — the
     /// authorization table's own spelling, as in a module's manifest grants.
     /// Nothing unless listed.
-    pub hub: Vec<String>,
-    /// Where values of the hub topics it subscribes to go. Without one it
+    pub calls: Vec<String>,
+    /// Where values of the topics it subscribes to go. Without one it
     /// cannot subscribe.
     pub topic_sink: Option<Arc<dyn AppTopicSink>>,
 }
@@ -133,14 +133,14 @@ impl AppSpec {
             methods: Vec::new(),
             topics: Vec::new(),
             spaces: Vec::new(),
-            hub: Vec::new(),
+            calls: Vec::new(),
             topic_sink: None,
         }
     }
 
-    /// What it may call and subscribe to as itself ([`AppSpec::hub`]).
-    pub fn hub<S: Into<String>>(mut self, names: impl IntoIterator<Item = S>) -> Self {
-        self.hub.extend(names.into_iter().map(Into::into));
+    /// What it may call and subscribe to as itself ([`AppSpec::calls`]).
+    pub fn calls<S: Into<String>>(mut self, names: impl IntoIterator<Item = S>) -> Self {
+        self.calls.extend(names.into_iter().map(Into::into));
         self
     }
 
@@ -199,9 +199,9 @@ pub struct AppSummary {
     pub methods: Vec<String>,
     pub topics: Vec<String>,
     pub spaces: Vec<String>,
-    /// What it may reach as `module:<id>` beyond its own names (its `hub`).
+    /// What it may reach as `module:<id>` beyond its own names (its `calls`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub hub: Vec<String>,
+    pub calls: Vec<String>,
     pub since_ms: u64,
 }
 
@@ -225,7 +225,7 @@ pub trait AppRuntime: Send + Sync {
     async fn publish(&self, by: &str, id: &str, topic: &str, params: Value, value: Value) -> Result<(), RpcError>;
     fn registered(&self) -> Vec<AppSummary>;
 
-    /// One call through the admission point as `module:<id>`, if its `hub`
+    /// One call through the admission point as `module:<id>`, if its `calls`
     /// lists the method (or the method is its own).
     async fn call_as(&self, by: &str, id: &str, method: &str, params: Value) -> Result<Value, RpcError> {
         let _ = (by, id, params);
@@ -246,7 +246,7 @@ pub trait AppRuntime: Send + Sync {
         self.call_as(by, id, method, params).await
     }
 
-    /// Subscribe as `module:<id>`, if its `hub` lists `topic:<topic>` (or the
+    /// Subscribe as `module:<id>`, if its `calls` lists `topic:<topic>` (or the
     /// topic is its own); values go to its [`AppSpec::topic_sink`]. Answers
     /// the topic's current value.
     async fn subscribe_as(&self, by: &str, id: &str, topic: &str, params: Value) -> Result<Value, RpcError> {
@@ -260,7 +260,7 @@ pub trait AppRuntime: Send + Sync {
     }
 
     /// What a page of `id`'s in an isolated frame may call besides `id`'s own names: its
-    /// interface's `hub`. `None` when it has no framed interface (any more), and then a call the
+    /// interface's `calls`. `None` when it has no framed interface (any more), and then a call the
     /// shell makes on such a page's behalf is refused. Whether its backend is registered or not.
     fn frame(&self, by: &str, id: &str, calls: Option<Vec<String>>) -> Result<(), RpcError> {
         let _ = (by, id, calls);
@@ -340,7 +340,7 @@ impl AppHandle {
     }
 
     /// Call a method as the application itself (`module:<id>`): only what
-    /// its `hub` lists, and its own `app.<id>.*`. Admitted and audited like
+    /// its `calls` lists, and its own `app.<id>.*`. Admitted and audited like
     /// any call; a refusal is `REFUSED` and on the record too.
     pub async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
         self.host.runtime.call_as(&self.host.by, &self.id, method, params).await
@@ -355,7 +355,7 @@ impl AppHandle {
     }
 
     /// Subscribe to a hub topic as the application: only `topic:<name>`
-    /// entries of its `hub`, and its own topics. Values arrive at its
+    /// entries of its `calls`, and its own topics. Values arrive at its
     /// [`AppSpec::topic_sink`]; the answer is the current value.
     pub async fn subscribe(&self, topic: &str, params: Value) -> Result<Value, RpcError> {
         self.host.runtime.subscribe_as(&self.host.by, &self.id, topic, params).await

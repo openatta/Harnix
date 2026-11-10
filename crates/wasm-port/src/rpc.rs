@@ -259,7 +259,7 @@ mod tests {
             }],
             topics: vec!["notes".into()],
             spaces: vec![SpaceDecl::new("acme.notes").instance("main")],
-            hub: vec!["topic:harnix.sessions.status".into()],
+            calls: vec!["topic:harnix.sessions.status".into()],
         };
         wire.register(registration).await.unwrap();
         let answer = wire

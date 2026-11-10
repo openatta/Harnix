@@ -465,7 +465,7 @@ pub(crate) mod tests {
 [app]
 id = "acme.probe"
 version = "1.0.0"
-harnix_api = 1
+harnix_api = 2
 publisher = "acme"
 
 [[component]]

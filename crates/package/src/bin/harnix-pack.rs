@@ -171,6 +171,16 @@ name = "tools"
 world = "harnix:ext/tools-ext@1.0.0"
 memory_mb = 32
 timeout_ms = 20000
+
+# Every tool the component lists, and only those: `harnix-pack build` checks it does.
+[[tool]]
+name = "hello"
+description = "Say hello to someone"
+read_only = true
+concurrency_safe = true
+[tool.input_schema]
+type = "object"
+properties.name = {{ type = "string" }}
 "#,
         api = harnix_package::manifest::HARNIX_API,
     );
@@ -276,6 +286,7 @@ fn build_and_compile(dir: &Path, out: &Path) -> Result<(PathBuf, PathBuf, String
     let wasm = build_component(&dir.join("component"))?;
     let engine = harnix_wasm::WasmEngine::new()?;
     let bytes = std::fs::read(&wasm).with_context(|| format!("reading {}", wasm.display()))?;
+    check_tools(&engine, &bytes, &manifest)?;
     let compiled = engine.compile(&bytes)?;
     std::fs::create_dir_all(out)?;
     let portable = out.join(format!("{}.wasm", component.name));
@@ -324,7 +335,10 @@ fn pack(args: &[String]) -> Result<()> {
         None => None,
     };
     let compiled = match &portable {
-        Some(bytes) => Some(engine.compile(bytes)?),
+        Some(bytes) => {
+            check_tools(&engine, bytes, &manifest)?;
+            Some(engine.compile(bytes)?)
+        }
         None => None,
     };
     let artifact = compiled
@@ -340,14 +354,83 @@ fn pack(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// What the component lists as its tools against the manifest's `[[tool]]`: the same names, and the
+/// same description, input schema, `read_only` and `concurrency_safe` for each. The manifest is
+/// what the installer shows and the host registers, so a component that lists anything else is a
+/// package that would be refused when it starts; this says so while its author can still fix it.
+fn check_tools(engine: &harnix_wasm::WasmEngine, wasm: &[u8], manifest: &Manifest) -> Result<()> {
+    use harnix_wasm::{AppHost, MemoryKv, NoNetwork, Services};
+
+    /// Listing tools asks nothing of the host: whatever the component asks for is refused.
+    struct Nothing;
+
+    #[async_trait::async_trait]
+    impl AppHost for Nothing {
+        async fn call(&self, _: &str, _: &str, _: serde_json::Value) -> Result<serde_json::Value, String> {
+            Err("not while listing tools".into())
+        }
+        fn publish(&self, _: &str, _: &str, _: serde_json::Value) -> Result<(), String> {
+            Err("not while listing tools".into())
+        }
+        async fn subscribe(&self, _: &str, _: &str, _: &serde_json::Value) -> Result<(), String> {
+            Err("not while listing tools".into())
+        }
+        async fn unsubscribe(&self, _: &str, _: &str, _: &serde_json::Value) {}
+    }
+
+    let component = engine.load_wasm(wasm)?;
+    let services = Services {
+        host: std::sync::Arc::new(Nothing),
+        kv: std::sync::Arc::new(MemoryKv::new()),
+        http: std::sync::Arc::new(NoNetwork),
+    };
+    let listed = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(harnix_wasm::AppVm::listed_tools(engine, &component, services))?;
+
+    let mut problems = Vec::new();
+    for tool in &manifest.tools {
+        let Some(found) = listed.iter().find(|t| t.name == tool.name) else {
+            problems.push(format!("the manifest declares `{}`, and the component does not list it", tool.name));
+            continue;
+        };
+        let schema_of = |text: &str| serde_json::from_str::<serde_json::Value>(text).ok();
+        if found.description != tool.description {
+            problems.push(format!("`{}`: the description differs (component: {:?})", tool.name, found.description));
+        }
+        if found.doc != tool.doc {
+            problems.push(format!("`{}`: the `doc` differs", tool.name));
+        }
+        if schema_of(&found.input_schema) != schema_of(&tool.input_schema_json()) {
+            problems.push(format!("`{}`: the input schema differs", tool.name));
+        }
+        if (found.read_only, found.concurrency_safe) != (tool.read_only, tool.concurrency_safe) {
+            problems.push(format!("`{}`: `read_only` or `concurrency_safe` differs", tool.name));
+        }
+    }
+    for found in &listed {
+        if !manifest.tools.iter().any(|t| t.name == found.name) {
+            problems.push(format!("the component lists `{}`, and the manifest has no `[[tool]]` for it", found.name));
+        }
+    }
+    if problems.is_empty() {
+        return Ok(());
+    }
+    bail!("the component's tools are not the manifest's:\n  {}", problems.join("\n  "))
+}
+
 /// `cargo build --release --target wasm32-wasip2` in `component`, and the one `.wasm` it made.
 fn build_component(component: &Path) -> Result<PathBuf> {
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+    // Absolute: cargo resolves a relative target directory against `current_dir`, not ours.
+    let component = std::fs::canonicalize(component)
+        .with_context(|| format!("reading {}", component.display()))?;
     let target = component.join("target");
     let status = std::process::Command::new(cargo)
         .args(["build", "--release", "--target", "wasm32-wasip2"])
         .env("CARGO_TARGET_DIR", &target)
-        .current_dir(component)
+        .current_dir(&component)
         .status()
         .with_context(|| format!("running cargo in {}", component.display()))?;
     if !status.success() {
@@ -478,7 +561,7 @@ fn index(args: &[String]) -> Result<()> {
     let index = harnix_package::publish::index(store, args.one(&["--name"]), &key, valid_for(&args)?)
         .map_err(anyhow::Error::msg)?;
     println!("{}", store.join("index.json").display());
-    for app in &index.apps {
+    for app in &index.packages {
         for version in &app.versions {
             println!(
                 "{} {} {}",

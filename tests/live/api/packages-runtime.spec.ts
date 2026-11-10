@@ -92,7 +92,7 @@ carrier = "spawn"
         e.set("harnix-ext.toml", Buffer.from(`${e.get("harnix-ext.toml")!.toString()}\n[daemon]\nrun = "x"\n`));
       }],
       ["methods-without-a-backend", "are a backend's", (e) => {
-        e.set("harnix-ext.toml", Buffer.from(e.get("harnix-ext.toml")!.toString().replace("backend-ext@0.1.0", "tools-ext@0.1.0")));
+        e.set("harnix-ext.toml", Buffer.from(e.get("harnix-ext.toml")!.toString().replace("backend-ext@1.0.0", "tools-ext@1.0.0")));
       }],
       ["other-engine", "engine-0.0.0+elsewhere+000000000000", (e) => {
         const cwasm = `wasm/tools.${fingerprint}.cwasm`;

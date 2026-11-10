@@ -19,7 +19,7 @@ use std::sync::Arc;
 #[async_trait]
 pub trait AppHost: Send + Sync {
     /// `host.call`: call a hub method as `module:<app>`. Admission (the
-    /// manifest's `hub` capability) and audit are the implementation's.
+    /// manifest's `calls` capability) and audit are the implementation's.
     ///
     /// When the backend makes this call it holds its own instance, so a call
     /// that routes back into the same application's backend cannot be

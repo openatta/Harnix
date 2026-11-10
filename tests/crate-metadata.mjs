@@ -62,7 +62,7 @@ const constants = [
   ["模块 API", "crates/module/src/lib.rs", "MODULE_API_VERSION"],
   ["贡献点 API", "crates/contract/src/handshake.rs", "CONTRIB_API_VERSION"],
   ["协议", "crates/contract/src/handshake.rs", "PROTOCOL_VERSION"],
-  ["应用接口（插件 APP）", "crates/package/src/manifest.rs", "HARNIX_API"],
+  ["扩展包接口", "crates/package/src/manifest.rs", "HARNIX_API"],
   ["扩展线", "crates/wasm-port/src/lib.rs", "EXT_WIRE_VERSION"],
 ];
 for (const [row, file, name] of constants) {

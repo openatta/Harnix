@@ -9,7 +9,7 @@
 //! ```toml
 //! [interface]                    # optional
 //! isolate = true                 # a trusted publisher's interface in frames too (see below)
-//! hub = ["harnix.sessions.list", "harnix.session.send"]
+//! calls = ["harnix.sessions.list", "harnix.session.send"]
 //!                                # what a frame may call and subscribe to beyond its own
 //!                                # app.<id>.*: `harnix.*` or `session.*`, `topic:` for topics
 //! links = true                   # may ask the shell to open a web page (confirmed each time)
@@ -61,11 +61,11 @@ pub const POINTS: &[&str] = &[
     "modal",
 ];
 
-/// Shell-side methods a frame is never given, whatever its `hub` says: installing and configuring
+/// Shell-side methods a frame is never given, whatever its `calls` says: installing and configuring
 /// this Harnix, its devices and its other instances, uploading (the bridge proxies uploads), and
 /// the page's own subscriptions (the bridge's `subscribe` is the way).
 const NEVER: &[&str] = &[
-    "harnix.apps.",
+    "packages.",
     "plugins.",
     "settings.",
     "devices.",
@@ -93,7 +93,7 @@ pub struct Interface {
     /// what a device may do, what this lists, and the row's scope: the application's own spaces
     /// and their sessions.
     #[serde(default)]
-    pub hub: Vec<String>,
+    pub calls: Vec<String>,
     /// The bridge's `openLink`: the shell asks the person, then opens the page outside.
     #[serde(default)]
     pub links: bool,
@@ -156,7 +156,7 @@ pub fn runs_in_frames(trust: Trust, interface: &Interface, has_modules: bool) ->
 }
 
 /// Whether a frame of an application may call `method` (or, with `topic`, subscribe to it): its
-/// own `app.<id>.*`, or a name its `[interface] hub` lists.
+/// own `app.<id>.*`, or a name its `[interface] calls` lists.
 pub fn admits(id: &str, interface: &Interface, name: &str, topic: bool) -> bool {
     if name.starts_with(&format!("app.{id}.")) {
         return true;
@@ -166,18 +166,18 @@ pub fn admits(id: &str, interface: &Interface, name: &str, topic: bool) -> bool 
     } else {
         name.to_string()
     };
-    interface.hub.contains(&wanted)
+    interface.calls.contains(&wanted)
 }
 
 /// Check `[interface]` and the `[[surface]]`s of the application `id`.
 pub fn check(id: &str, interface: &Interface, surfaces: &[Surface]) -> Result<(), Error> {
-    for entry in &interface.hub {
+    for entry in &interface.calls {
         let name = entry.strip_prefix("topic:").unwrap_or(entry);
-        let family = name.starts_with("harnix.") || name.starts_with("session.");
-        if !valid_dotted(name) || !family {
+        if !valid_dotted(name) || name.starts_with("app.") {
             return Err(format!(
-                "{MANIFEST}: `{entry}` in `[interface] hub` is a `harnix.*` or `session.*` method, \
-                 or `topic:` and such a topic (the application's own `app.{id}.*` needs no entry)"
+                "{MANIFEST}: `{entry}` in `[interface] calls` is a method name, or `topic:` and a \
+                 topic's, that is not the application's own (its own `app.{id}.*` needs no entry, \
+                 and another application's is never given)"
             ));
         }
         if let Some(never) = NEVER
@@ -185,7 +185,7 @@ pub fn check(id: &str, interface: &Interface, surfaces: &[Surface]) -> Result<()
             .find(|n| name == n.trim_end_matches('.') || name.starts_with(*n))
         {
             return Err(format!(
-                "{MANIFEST}: `{entry}` in `[interface] hub` is the shell's own (`{never}…`): an \
+                "{MANIFEST}: `{entry}` in `[interface] calls` is the shell's own (`{never}…`): an \
                  application's frame is never given it"
             ));
         }
@@ -356,9 +356,9 @@ mod tests {
     }
 
     #[test]
-    fn a_frame_reaches_its_own_names_and_what_its_hub_lists() {
+    fn a_frame_reaches_its_own_names_and_what_its_calls_list() {
         let interface = Interface {
-            hub: vec![
+            calls: vec![
                 "harnix.sessions.list".into(),
                 "topic:harnix.session.tasks".into(),
             ],
@@ -390,7 +390,7 @@ mod tests {
         check(
             ID,
             &Interface {
-                hub: vec!["harnix.sessions.list".into()],
+                calls: vec!["harnix.sessions.list".into()],
                 ..Interface::default()
             },
             &surfaces,
@@ -447,27 +447,27 @@ mod tests {
         )
         .unwrap_err();
         assert!(twice.contains("declared twice"), "{twice}");
-        let hub = |entry: &str| {
+        let calls = |entry: &str| {
             check(
                 ID,
                 &Interface {
-                    hub: vec![entry.into()],
+                    calls: vec![entry.into()],
                     ..Interface::default()
                 },
                 &[],
             )
             .unwrap_err()
         };
-        assert!(hub("app.acme.notes.list").contains("`harnix.*` or `session.*`"));
-        assert!(hub("harnix.apps.uninstall").contains("the shell's own"));
-        assert!(hub("harnix.topics.subscribe").contains("the shell's own"));
-        assert!(hub("topic:settings.changed").contains("the shell's own"));
-        // Beyond the families and the shell's own, what a frame is given is the router's to
-        // narrow, row by row.
+        assert!(calls("app.acme.notes.list").contains("needs no entry"));
+        assert!(calls("app.other.list").contains("never given"));
+        assert!(calls("packages.uninstall").contains("the shell's own"));
+        assert!(calls("harnix.topics.subscribe").contains("the shell's own"));
+        assert!(calls("topic:settings.changed").contains("the shell's own"));
+        // Beyond the shell's own, what a frame is given is the router's to narrow, row by row.
         check(
             ID,
             &Interface {
-                hub: ["harnix.sessions.list", "engine.session.get", "harnix.session.create", "topic:harnix.spaces"].map(String::from).to_vec(),
+                calls: ["harnix.sessions.list", "engine.session.get", "harnix.session.create", "topic:harnix.spaces"].map(String::from).to_vec(),
                 ..Interface::default()
             },
             &[],

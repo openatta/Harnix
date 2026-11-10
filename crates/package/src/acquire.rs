@@ -205,7 +205,7 @@ pub fn describe(root: &Path) -> Value {
         "publisher": manifest.app.publisher,
         "description": manifest.app.description,
         "capabilities": {
-            "net": caps.net, "env": caps.env, "storage_mb": caps.storage_mb, "hub": caps.hub, "fs": caps.fs,
+            "net": caps.net, "env": caps.env, "storage_mb": caps.storage_mb, "calls": caps.calls, "fs": caps.fs,
         },
         "events": manifest.events.tools,
         "lines": disclosure::lines(manifest, inspected.agent.is_some()),

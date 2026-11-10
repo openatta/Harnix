@@ -20,7 +20,7 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
     // In order: the agent side put in place, switched on with it, then its names, then its tools.
     let said = lock(&rig.platform.said).clone();
     let at = |what: &str| said.iter().position(|s| s.starts_with(what)).unwrap_or_else(|| panic!("{what}: {said:?}"));
-    assert!(at("install_agent example-showcase system") < at("switch_agent example-showcase on"));
+    assert!(at("install_agent example-showcase main") < at("switch_agent example-showcase on"));
     assert!(at("switch_agent") < at("register example.showcase"));
     assert!(at("register") < at("subscribe harnix.sessions.status"), "init ran after it was registered");
     assert!(at("subscribe") < at("expose_tools 8"));
@@ -126,7 +126,7 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
     // Taken back.
     let taken = rig.control.unplace(Unplace { app: ID.into(), parts }).await.unwrap();
     assert_eq!(taken["agent"]["package"], json!("example-showcase"));
-    assert_eq!(rig.platform.said("uninstall_agent"), ["uninstall_agent example-showcase system"]);
+    assert_eq!(rig.platform.said("uninstall_agent"), ["uninstall_agent example-showcase main"]);
 }
 
 /// A backend whose `host.call` comes back into its own method — routed by the product through
@@ -197,7 +197,7 @@ async fn what_does_not_start_is_undone_and_said() {
     rig.control.forget(ID.into()).await.unwrap();
     assert_eq!(rig.status().await["state"], json!("stopped"));
 
-    // A tool row for a tool the component does not have: started, found out, and taken back.
+    // A tool row for a tool the manifest does not declare: started, found out, and taken back.
     let rig = Rig::new(|_| {});
     let version = rig.unpack(|m| m.replace("tool = \"count\"", "tool = \"counted\""));
     let parts = json!({"agent": {"package": "example-showcase", "version": "0.1.0", "instances": ["main"]}});
@@ -206,14 +206,32 @@ async fn what_does_not_start_is_undone_and_said() {
         .start(Start { app: ID.into(), version, app_dir: rig.app_dir(), parts })
         .await
         .unwrap_err();
-    assert!(err.message.contains("does not list as a tool"), "{}", err.message);
+    assert!(err.message.contains("does not declare as a `[[tool]]`"), "{}", err.message);
     assert_eq!(rig.platform.said("withdraw"), ["withdraw example.showcase"]);
     assert_eq!(rig.platform.said("switch_agent example-showcase off").len(), 1);
     assert!(rig.platform.said("expose_tools").is_empty());
 
+    // A manifest that declares a tool the component does not list, or describes one differently:
+    // the manifest is what was consented to, so the component is the one refused.
+    for edit in [
+        |m: String| m.replace("name = \"count\"", "name = \"counter\""),
+        |m: String| m.replace("Say `text` back, exactly", "Say something else back"),
+    ] {
+        let rig = Rig::new(|_| {});
+        let version = rig.unpack(edit);
+        let parts = json!({"agent": {"package": "example-showcase", "version": "0.1.0", "instances": ["main"]}});
+        let err = rig
+            .control
+            .start(Start { app: ID.into(), version, app_dir: rig.app_dir(), parts })
+            .await
+            .unwrap_err();
+        assert!(err.message.contains("does not provide the tools its manifest declares"), "{}", err.message);
+        assert!(rig.platform.said("expose_tools").is_empty());
+    }
+
     // An instance that is not there: refused by name before anything reaches the agent engine.
     let rig = Rig::new(|_| {});
-    let version = rig.unpack(|m| m.replace("install_into = [\"system\"]", "install_into = [\"nowhere\"]"));
+    let version = rig.unpack(|m| m.replace("install_into = [\"main\"]", "install_into = [\"nowhere\"]"));
     let err = rig
         .control
         .place(Place { app: ID.into(), app_dir: rig.app_dir(), version })

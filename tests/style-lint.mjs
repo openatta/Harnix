@@ -262,6 +262,22 @@ const ENGINE_NAMES = [
   ...family("mcp.", "status addServer"),
   "commands.list",
 ];
+// The extension package's names (0.4: "application packages"). `harnix-app` alone is still a name:
+// the first-party extension of that id; only the packing tool's commands and the manifest are gone.
+const OLD_PACKAGE_NAMES = [
+  /\bhxapp\b/,
+  /\bharnix-app\.toml\b/,
+  /(?<![\w])app__[a-z]/,
+  /\bmcp__app-/,
+  /@harnix\/(?:app-sdk|ui-kit)\b/,
+  /\bharnix-(?:app-sdk|ui-kit)\b/,
+  /\bharnix-ui-bridge@1\b/,
+  /\bharnix:app\b/,
+  /(?<![\w-])app\.wit\b/,
+  /\bharnix-app (?:new|build|pack|keygen|sign|verify|fingerprint|countersign|index|sign-index)\b/,
+  /--bin harnix-app\b/,
+  /\bharnix-app-(?:signatures|consent)@/,
+];
 const esc = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const oldWhole = new RegExp(`(?<![\\w.$@/-])(${OLD_NAMES.map(esc).join("|")})(?![\\w-]|\\.[A-Za-z_])`);
 const engineQuoted = new RegExp(`(?<=["'\`])(${ENGINE_NAMES.map(esc).join("|")})(?=["'\`])`);
@@ -279,12 +295,15 @@ for (const file of everything) {
     continue;
   }
   body.split("\n").forEach((line, i) => {
-    const old = line.match(oldWhole)?.[1] ?? (agixFacing.test(file) ? undefined : line.match(engineQuoted)?.[1]);
+    const old =
+      line.match(oldWhole)?.[1] ??
+      OLD_PACKAGE_NAMES.map((pattern) => line.match(pattern)?.[0]).find(Boolean) ??
+      (agixFacing.test(file) ? undefined : line.match(engineQuoted)?.[1]);
     if (old) named.push(`${file}:${i + 1} says \`${old}\``);
   });
 }
-if (named.length) fail(`0.4 wire names, which nothing answers any more:\n  ${named.slice(0, 20).join("\n  ")}`);
-else ok(`${everything.length} tracked files, none saying a 0.4 wire name`);
+if (named.length) fail(`0.4 wire and package names, which nothing answers any more:\n  ${named.slice(0, 20).join("\n  ")}`);
+else ok(`${everything.length} tracked files, none saying a 0.4 wire or package name`);
 
 console.log(process.exitCode ? "\nSTYLE LINT FAILED" : "\nSTYLE LINT PASSED");
 process.exit(process.exitCode || 0);

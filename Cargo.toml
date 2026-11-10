@@ -160,7 +160,7 @@ libc = "0.2"
 base64 = "0.22"
 ignore = "0.4"
 toml = "0.8"
-# Application packages (`.hxapp`) and the agent package an installer hands Agix. The same
+# Application packages (`.hxext`) and the agent package an installer hands Agix. The same
 # version and features Agix's own package layer links, so nothing new is compiled.
 zip = { version = "2", default-features = false, features = ["deflate"] }
 clap = { version = "4", features = ["derive", "string"] }
