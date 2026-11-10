@@ -269,7 +269,8 @@ const agixFacing = /^crates\/(engine|engine-api|instance|builtin)\/|^crates\/hub
 const everything = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 28 }).split("\0").filter(Boolean);
 const named = [];
 for (const file of everything) {
-  if (file === "tests/style-lint.mjs" || file.startsWith("agix/") || !textual.test(file)) continue;
+  // The two files that list the old names, to refuse them and to rewrite them.
+  if (file === "tests/style-lint.mjs" || file === "scripts/rewrite-recordings.mjs" || file.startsWith("agix/") || !textual.test(file)) continue;
   if (file.includes("/recordings/") && file.endsWith(".jsonl")) continue;
   let body;
   try {

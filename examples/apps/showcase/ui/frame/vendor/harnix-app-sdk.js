@@ -12,22 +12,9 @@ var HarnixApp = (function(exports) {
   function inDialog(point) {
     return point === "modal" || point === "settings.section";
   }
-  const FRAME_HUB = {
-    "harnix.sessions.list": "space",
-    "harnix.session.send": "session",
-    "harnix.session.tasks": "session",
-    "engine.session.get": "session",
-    "engine.session.history": "session",
-    "engine.session.entries": "session",
-    "harnix.session.interrupt": "session",
-    "harnix.spaces.list": "open",
-    "topic:harnix.session.tasks": "session",
-    "topic:harnix.spaces": "open"
-  };
   function admits(app, hub, name, topic) {
     if (name.startsWith(`app.${app}.`)) return true;
-    const listed = topic ? `topic:${name}` : name;
-    return hub.includes(listed) && Object.hasOwn(FRAME_HUB, listed);
+    return hub.includes(topic ? `topic:${name}` : name);
   }
   const SDK_VERSION = "0.1.0";
   class BridgeError extends Error {
@@ -498,7 +485,6 @@ var HarnixApp = (function(exports) {
     };
   }
   exports.BridgeError = BridgeError;
-  exports.FRAME_HUB = FRAME_HUB;
   exports.HarnixApp = HarnixApp2;
   exports.PROTOCOL = PROTOCOL;
   exports.SDK_VERSION = SDK_VERSION;
