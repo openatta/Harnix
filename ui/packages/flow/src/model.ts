@@ -34,33 +34,33 @@ import type {
 
 /* ── names on the wire ───────────────────────────────────────────────── */
 
-/** `app.<module>.<name>`: the module id is the one the application registered it under. */
+/** `<module>.<name>`: the module id is the one the application registered it under. */
 export function methodName(module: string, name: FlowMethod): string {
-  return `app.${module}.${name}`;
+  return `${module}.${name}`;
 }
 
 export function runsTopic(module: string): string {
-  return `app.${module}.runs`;
+  return `${module}.runs`;
 }
 
 /** Subscribed with `{run}`. */
 export function runTopic(module: string): string {
-  return `app.${module}.run`;
+  return `${module}.run`;
 }
 
 /** The flows' list, re-sent after every save and delete. */
 export function defsTopic(module: string): string {
-  return `app.${module}.defs`;
+  return `${module}.defs`;
 }
 
 /** Subscribed with `{instance, session_id}`: the flow that conversation works on. */
 export function focusTopic(module: string): string {
-  return `app.${module}.focus`;
+  return `${module}.focus`;
 }
 
 /** The dry runs kept. */
 export function dryRunsTopic(module: string): string {
-  return `app.${module}.dry_runs`;
+  return `${module}.dry_runs`;
 }
 
 /** A dry run's id: the sandbox's runs are `dry-…`. */

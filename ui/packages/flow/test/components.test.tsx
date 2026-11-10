@@ -194,7 +194,7 @@ describe("StationPanel", () => {
     );
     expect(screen.queryByTestId("flow-retry-1")).toBeNull();
     await act(async () => fireEvent.click(screen.getByTestId("flow-retry-0")));
-    expect(calls).toContainEqual(["app.ops.retry", { run: "r1", station: "analyze", task: "0" }]);
+    expect(calls).toContainEqual(["ops.retry", { run: "r1", station: "analyze", task: "0" }]);
     fireEvent.click(screen.getByTestId("flow-open-session-0"));
     expect(opened).toEqual([{ instance: "flow", sessionId: "s-a" }]);
   });

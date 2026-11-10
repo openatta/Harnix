@@ -630,7 +630,7 @@ export interface ProposalHandled {
   by: Actor;
 }
 
-/** The app-side method names, relative to the module id (`app.<module>.<name>`). */
+/** The app-side method names, relative to the module id (`<module>.<name>`). */
 export type FlowMethod =
   | "list"
   | "get"

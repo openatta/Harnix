@@ -143,7 +143,7 @@ describe("actions per status", () => {
 describe("wire helpers", () => {
   it("names methods under the module's id", () => {
     expect(methodName("flow", "confirm")).toBe("flow.confirm");
-    expect(methodName("ops", "start")).toBe("app.ops.start");
+    expect(methodName("ops", "start")).toBe("ops.start");
   });
 
   it("finds the run id in what start answers", () => {
