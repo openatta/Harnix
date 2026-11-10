@@ -16,7 +16,7 @@ import { sessionMenu } from "./dialogs.tsx";
 import { hostDialogs } from "./host-dialogs.tsx";
 import { menuBelow } from "./Menu.tsx";
 import { revealEntry } from "./reveal.ts";
-import { openSettings } from "./settings.tsx";
+import { openSettings, settingsSections } from "./settings.tsx";
 import { topicsOf } from "./topics.ts";
 
 export function hostFor(app: App, owner = "page"): HostApi {
@@ -120,7 +120,7 @@ export function hostFor(app: App, owner = "page"): HostApi {
     },
     settings: {
       open(section) {
-        const ids = app.registry.at("settings.section").map((s) => s.id);
+        const ids = settingsSections(app);
         openSettings(app, section !== undefined && ids.includes(section) ? section : ids[0]);
       },
     },
@@ -196,7 +196,7 @@ async function spaceOfSession(app: App, ref: { instance: string; sessionId: stri
   const { sessions } = await app.call<{ sessions: { session_id: string; space?: string }[] }>("harnix.sessions.list", { instance: ref.instance });
   const row = sessions.find((r) => r.session_id === ref.sessionId);
   if (!row) throw new Error(t("host.noSession", { session: `${ref.instance}/${ref.sessionId}` }));
-  const backend = row.space ?? "sessions";
+  const backend = row.space ?? app.snapshot.hello?.defaults?.space ?? app.claim();
   if (app.claim() === backend) return app.snapshot.space;
   const spaces = [...app.registry.at("space")].sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
   const space = spaces.find((c) => c.id === backend) ?? spaces.find((c) => app.claim(c.id) === backend);

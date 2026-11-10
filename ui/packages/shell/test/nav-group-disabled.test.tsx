@@ -34,12 +34,12 @@ describe("space list and sessions", () => {
     const sep = container.querySelector('[data-testid="sessions-sep"]');
     expect(sep?.getAttribute("role")).toBe("separator");
     expect(sep?.previousElementSibling?.matches("nav.spaces")).toBe(true);
-    expect(sep?.nextElementSibling?.id).toBe("sessions");
+    expect(sep?.nextElementSibling?.id).toBe("space-column");
   });
 });
 
 describe("listSession (ipdrun-54)", () => {
-  const rowsIn = (container: HTMLElement) => [...container.querySelectorAll("#sessions .tt.name")].map((el) => el.textContent);
+  const rowsIn = (container: HTMLElement) => [...container.querySelectorAll("#space-column .tt.name")].map((el) => el.textContent);
 
   it("false leaves a session out of the front space's list; a throw lists it", async () => {
     localStorage.clear();
@@ -59,6 +59,8 @@ describe("listSession (ipdrun-54)", () => {
       }),
       "test",
     );
+    app.set({ space: "sessions" });
+    await app.refreshSessions();
     const { container } = draw(app);
     await act(tick);
     expect(rowsIn(container)).toEqual(["X", "Boom"]);
@@ -70,10 +72,12 @@ describe("listSession (ipdrun-54)", () => {
     client.answer = (method) => (method === "harnix.sessions.list" ? { sessions: [{ session_id: "main", instance: "main", name: "Main" }] } : {});
     const app = new App(client as unknown as HarnixClient, new Registry());
     app.registry.register("space", space("sessions", { sidebar: { listSession: () => false } }), "test");
+    app.set({ space: "sessions" });
+    await app.refreshSessions();
     const { container } = draw(app);
     await act(tick);
     expect(rowsIn(container)).toEqual([]);
-    expect(container.querySelector("#sessions .empty")).toBeNull();
+    expect(container.querySelector("#space-column .empty")).toBeNull();
   });
 });
 

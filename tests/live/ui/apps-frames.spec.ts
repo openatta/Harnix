@@ -39,7 +39,7 @@ async function frameHandle(page: Page, point: string): Promise<Frame> {
 }
 
 async function toSpace(page: Page, space: string): Promise<void> {
-  await page.locator(`#side [data-space="${space}"]:not(#sessions)`).click();
+  await page.locator(`#side [data-space="${space}"]:not(#space-column)`).click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", space);
 }
 

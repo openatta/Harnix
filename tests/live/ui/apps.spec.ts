@@ -55,7 +55,7 @@ test("an application's card is drawn in its frame, signed with its id; its modul
 });
 
 async function toSpace(page: Page, space: string): Promise<void> {
-  await page.locator(`#side [data-space="${space}"]:not(#sessions)`).click();
+  await page.locator(`#side [data-space="${space}"]:not(#space-column)`).click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", space);
 }
 
@@ -100,7 +100,7 @@ test("the system space's Apps tab shows the application's VM, its calls and its 
     api.close();
   }
   await open(page, backend.url);
-  await page.locator('#side [data-space="system"]:not(#sessions)').click();
+  await page.locator('#side [data-space="system"]:not(#space-column)').click();
   await expect(page.getByTestId("system-console")).toBeVisible();
   await page.locator('[data-testid="system-console"] [role="tab"][data-tab="apps"]').click();
   const row = page.locator(`[data-testid="system-app"][data-app="${SHOWCASE_ID}"]`);
@@ -117,7 +117,7 @@ test("the system space's Apps tab shows the application's VM, its calls and its 
 test("the Apps tab in Chinese: a header never breaks a word, the table fits its column, the VM's figures in the row opened", TAGS, async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("harnix.locale", "zh-CN"));
   await open(page, backend.url);
-  await page.locator('#side [data-space="system"]:not(#sessions)').click();
+  await page.locator('#side [data-space="system"]:not(#space-column)').click();
   await page.locator('[data-testid="system-console"] [role="tab"][data-tab="apps"]').click();
   const table = page.locator('[data-testid="system-apps"] table');
   const row = page.locator(`[data-testid="system-app"][data-app="${SHOWCASE_ID}"]`);
@@ -154,7 +154,7 @@ test("disabled, its card is gone from the page", TAGS, async ({ page }) => {
   expect(owners).not.toContain(SHOWCASE_ID);
   await expect(page.locator(`[data-testid="surface-frame"][data-app="${SHOWCASE_ID}"]`)).toHaveCount(0);
   // And the Apps tab says it is off.
-  await page.locator('#side [data-space="system"]:not(#sessions)').click();
+  await page.locator('#side [data-space="system"]:not(#space-column)').click();
   await page.locator('[data-testid="system-console"] [role="tab"][data-tab="apps"]').click();
   await expect(page.locator(`[data-testid="system-app"][data-app="${SHOWCASE_ID}"]`)).toHaveAttribute("data-state", "stopped", { timeout: 15_000 });
 });

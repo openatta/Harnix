@@ -22,52 +22,10 @@ const SPACE_IDS = ["system", "sessions", "projects", "flow", "harnix-app"];
 const PRIVATE = ["__client", "__chain", "app.client", "onNotify", "FRAME_HUB"];
 const ALLOWED_IMPORTS = ["react", "react-dom", "react/jsx-runtime", "@harnix/react", "@harnix/core"];
 
-// Violations that exist now, as `<rule> <file>`. U1 goes when the first-party UI packages leave
-// the shell (0.5.0 P17), U3 with the private channels (P2 for `__client`; `FRAME_HUB` is gone).
-// `node tests/ui-layering.mjs --list` prints what is violated.
-export const PENDING = [
-  "U1 ui/packages/shell/src/Shell.tsx",
-  "U1 ui/packages/shell/src/Sidebar.tsx",
-  "U1 ui/packages/shell/src/app.ts",
-  "U1 ui/packages/shell/src/builtins.tsx",
-  "U1 ui/packages/shell/src/commands.ts",
-  "U1 ui/packages/shell/src/constants.ts",
-  "U1 ui/packages/shell/src/dialogs.tsx",
-  "U1 ui/packages/shell/src/envelope.tsx",
-  "U1 ui/packages/shell/src/flow.ts",
-  "U1 ui/packages/shell/src/host.ts",
-  "U1 ui/packages/shell/src/inline/Grouping.tsx",
-  "U1 ui/packages/shell/src/projects.tsx",
-  "U1 ui/packages/shell/src/sessions.tsx",
-  "U1 ui/packages/shell/src/settings.tsx",
-  "U1 ui/packages/shell/src/system/agents.tsx",
-  "U1 ui/packages/shell/src/system/console.tsx",
-  "U1 ui/packages/shell/src/system/navigate.ts",
-  "U1 ui/packages/shell/src/system/pane/instance.tsx",
-  "U1 ui/packages/shell/src/system/pane/session.tsx",
-  "U1 ui/packages/shell/src/system/pane/space.tsx",
-  "U3 ui/packages/core/src/client/client.ts",
-  "U3 ui/packages/core/src/state/controller.ts",
-  "U3 ui/packages/shell/src/Sidebar.tsx",
-  "U3 ui/packages/shell/src/app.ts",
-  "U3 ui/packages/shell/src/dialogs.tsx",
-  "U3 ui/packages/shell/src/envelope.tsx",
-  "U3 ui/packages/shell/src/host.ts",
-  "U3 ui/packages/shell/src/inline/index.tsx",
-  "U3 ui/packages/shell/src/surfaces/bridge.ts",
-  "U3 ui/packages/shell/src/surfaces/register.tsx",
-  "U3 ui/packages/shell/src/system/apps.tsx",
-  "U3 ui/packages/shell/src/system/data.ts",
-  "U3 ui/packages/shell/src/system/pane/calls.tsx",
-  "U3 ui/packages/shell/src/system/pane/context.tsx",
-  "U3 ui/packages/shell/src/system/pane/frames.tsx",
-  "U3 ui/packages/shell/src/system/pane/space.tsx",
-  "U3 ui/packages/shell/src/system/pane/tasks.tsx",
-  "U3 ui/packages/shell/src/system/pane/turns.tsx",
-  "U3 ui/packages/shell/src/system/view.ts",
-  "U3 ui/packages/shell/src/topics.ts",
-  "U3 ui/packages/testkit/src/api.ts",
-];
+// Violations that exist now, as `<rule> <file>`: none. A rule that stops holding is listed here
+// only with the work that makes it hold again. `node tests/ui-layering.mjs --list` prints what is
+// violated.
+export const PENDING = [];
 
 function files(dir) {
   const out = [];

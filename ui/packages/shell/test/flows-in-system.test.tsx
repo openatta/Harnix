@@ -1,7 +1,7 @@
 /**
- * The flows inside the system space: with the system space, the flow module's interface space is
- * shown inside it (`within`) — not listed, the system entry lit while it is in front — and the
- * console is handed its Flows tab. Without the system space it is the flow space of its own.
+ * A space shown inside another (`within`, as the flows are inside the system space): not listed,
+ * the other's entry lit while it is in front, never landed on by itself. Where the flows go is
+ * `@harnix/flow`'s own test.
  */
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -10,20 +10,16 @@ import type { HarnixClient } from "@harnix/core";
 import { HarnixUiProvider } from "@harnix/react";
 
 import type { App } from "../src/app";
-import { registerFlow } from "../src/flow";
 import { Shell } from "../src/Shell";
-import { systemFlows } from "../src/system/flows";
 import { scriptedApp, space, tick } from "./scripted";
 
 afterEach(cleanup);
 
-const LIST = { spaces: [{ id: "sessions", scene: null }, { id: "flow", scene: "flow-author" }, { id: "system", scene: null }] };
-
-function withFlowModule(system: boolean) {
+/** The scripted spaces, and one at the bottom that has no conversation (as the system space). */
+function withSystem() {
   const { app, client } = scriptedApp();
-  client.answer = (method) => (method === "harnix.spaces.list" ? LIST : method === "harnix.sessions.list" ? { sessions: [] } : {});
-  app.set({ reachable: ["flow.defs", "harnix.spaces.list"] });
-  if (system) app.registry.register("space", space("system", { order: 90, center: { mode: "hidden", overview: () => null } }), "builtin");
+  client.answer = (method) => (method === "harnix.sessions.list" ? { sessions: [] } : {});
+  app.registry.register("space", space("system", { order: 90, place: "bottom", center: { mode: "hidden", overview: () => null } }), "test");
   return { app, client };
 }
 
@@ -35,39 +31,10 @@ function draw(app: App) {
   );
 }
 
-describe("where the flows go", () => {
-  it("with the system space: inside it, the Flows tab handed to its console, the reference the one right tab", async () => {
-    const { app } = withFlowModule(true);
-    expect(systemFlows(app)).toBe(null);
-    await registerFlow(app, () => true);
-    const flow = app.registry.at("space").find((c) => c.id === "flow");
-    expect(flow).toMatchObject({ within: "system", center: { mode: "chat" }, owner: "flowui" });
-    expect(typeof flow?.sidebar?.render).toBe("function");
-    expect((flow?.details?.tabs as { id: string }[]).map((x) => x.id)).toEqual(["flow.reference"]);
-    expect(systemFlows(app)?.title()).toBe("Flows");
-  });
-
-  it("without it: the flow space of its own, as before, and no Flows tab", async () => {
-    const { app } = withFlowModule(false);
-    await registerFlow(app, () => true);
-    const flow = app.registry.at("space").find((c) => c.id === "flow");
-    expect(flow?.within).toBeUndefined();
-    expect((flow?.details?.tabs as { id: string }[]).map((x) => x.id)).toEqual(["flow.flows", "flow.runs", "flow.reference"]);
-    expect(systemFlows(app)).toBe(null);
-  });
-
-  it("dropped by the profile: nowhere", async () => {
-    const { app } = withFlowModule(true);
-    await registerFlow(app, (id) => id !== "flow");
-    expect(app.registry.at("space").some((c) => c.id === "flow")).toBe(false);
-    expect(systemFlows(app)).toBe(null);
-  });
-});
-
 describe("a space shown inside another", () => {
   /** The scripted spaces, the system space, and one shown inside it. */
   function nested() {
-    const { app } = withFlowModule(true);
+    const { app } = withSystem();
     app.registry.register("space", space("inner", { order: 5, within: "system" }), "test");
     return app;
   }

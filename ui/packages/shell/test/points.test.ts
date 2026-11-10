@@ -9,15 +9,22 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { POINTS } from "@harnix/react";
 
+/** Every source file under `dir`, read. */
+function sources(dir: string, skip: string[] = []): string {
+  return readdirSync(dir, { recursive: true, encoding: "utf8" })
+    .filter((f) => /\.tsx?$/.test(f) && !skip.includes(f))
+    .map((f) => readFileSync(join(dir, f), "utf8"))
+    .join("\n");
+}
+
 describe("contribution points", () => {
   it("are each read somewhere in the shell", () => {
-    const dir = join(process.cwd(), "src");
-    const source = readdirSync(dir)
-      .filter((f) => /\.tsx?$/.test(f) && f !== "builtins.tsx")
-      .map((f) => readFileSync(join(dir, f), "utf8"))
-      .join("\n");
+    const source = sources(join(process.cwd(), "src"), ["builtins.tsx"]);
+    // The session list's grouping is asked by the column that lists a space's sessions by group:
+    // the session space's, which is the Harnix app's UI package.
+    const grouping = sources(join(process.cwd(), "..", "harnix-app", "src"));
     const unread = POINTS.filter((point) => {
-      if (point === "sidebar.group") return !source.includes("registry.grouping()");
+      if (point === "sidebar.group") return !grouping.includes(".grouping()");
       if (point === "session.action") return !source.includes("registry.actions(");
       return !new RegExp(`(at|claim)\\("${point.replace(".", "\\.")}"`).test(source);
     });

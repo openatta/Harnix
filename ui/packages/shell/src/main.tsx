@@ -1,6 +1,7 @@
 /**
- * The interface's entry: one client, one registry, one app; on first connect the built-ins and
- * the UI packages hello says are enabled, before the first draw; then whatever `harnix.ui` says.
+ * The interface's entry: one client, one registry, one app; on first connect the shell's own
+ * registrations and the UI packages hello says are enabled — Harnix's first-party ones and the
+ * application's, compiled in — before the first draw; then whatever `harnix.ui` says.
  *
  * The token is in `<meta name="harnix-token">`, put there by the server when it serves this page
  * (empty when the browser was admitted by a launch link and holds a cookie instead).
@@ -18,6 +19,7 @@ import modules from "virtual:harnix-modules";
 
 import { activate } from "./activation.ts";
 import { App } from "./app.ts";
+import { registerApps } from "./apps-tab.tsx";
 import { registerBuiltins } from "./builtins.tsx";
 import { hostFor } from "./host.ts";
 import { followModules } from "./packages.ts";
@@ -62,13 +64,14 @@ document.documentElement.dataset.chrome = chrome();
 (window as unknown as { harnix: unknown }).harnix = { app, client, host };
 
 createRoot(document.getElementById("root")!).render(<Root />);
-// The built-ins first, then the compiled-in UI packages in the application's order — those for an
+// The shell's own first, then the compiled-in UI packages in the build's order — those for an
 // extension only while it is enabled — then installed packages' modules and frames: a later
 // registration wins a claim, so an application can take over what Harnix draws.
 app.start(
-  async (a) => {
-    await registerBuiltins(a);
+  (a) => {
+    registerBuiltins(a);
     activate(a, host, modules, a.snapshot.extensions);
+    registerApps(a);
   },
   async (a, view) => {
     activate(a, host, modules, view.extensions);

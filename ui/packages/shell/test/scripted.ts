@@ -49,6 +49,7 @@ export function scriptedApp(): { app: App; client: ScriptedClient } {
   const app = new App(client as unknown as HarnixClient, new Registry());
   app.registry.register("space", space("sessions"), "test");
   app.registry.register("space", space("b"), "test");
+  app.set({ space: "sessions" });
   return { app, client };
 }
 

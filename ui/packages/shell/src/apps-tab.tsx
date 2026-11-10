@@ -1,8 +1,10 @@
 /**
- * The system space's Apps tab: the runtime applications this process hosts, and how each one's VM
- * is doing — its backend up or down, how often it was recycled or rebuilt, its faults, its memory
- * and storage against their limits, the calls into its methods and their errors, and the calls it
- * made as itself that were refused.
+ * The runtime applications in the console of the process (`system.console.tab`, where a space
+ * defines it): the ones this process hosts, and how each one's VM is doing — its backend up or
+ * down, how often it was recycled or rebuilt, its faults, its memory and storage against their
+ * limits, the calls into its methods and their errors, and the calls it made as itself that were
+ * refused. With the applications' settings section (`apps.tsx`), the shell's until the packages
+ * extension's UI package draws them.
  *
  * Fed by the `apps` module's topic `harnix.apps` (the same value as `harnix.apps.list`, pushed
  * when it changes), so it stays current without asking. Offered only where that module runs:
@@ -10,12 +12,27 @@
  */
 
 import { Fragment, useEffect, useState } from "react";
-import { useT, megabytes, rowKeys } from "@harnix/react";
+import { t, useT, megabytes, rowKeys } from "@harnix/react";
 
-import type { App } from "../app.ts";
-import { APPS_LIST, APPS_TOPIC } from "../constants.ts";
-import { SurfaceCount, SurfaceDetail } from "../surfaces/status.tsx";
-import { topicsOf } from "../topics.ts";
+import type { App } from "./app.ts";
+import { AppsSettings } from "./apps.tsx";
+import { APPS_LIST, APPS_TOPIC } from "./constants.ts";
+import { SurfaceCount, SurfaceDetail } from "./surfaces/status.tsx";
+import { topicsOf } from "./topics.ts";
+
+/** The applications' settings section and console tab, where this process hosts them. Registered
+ *  after the UI packages, so the section comes after theirs. A console nobody defines drops the
+ *  tab quietly: the settings section is where the applications are then. */
+export function registerApps(app: App): void {
+  if (!appsOffered(app)) return;
+  app.registry.register("settings.section", { id: "apps", label: () => t("settings.nav.apps"), render: () => <AppsSettings app={app} /> }, "builtin");
+  app.registry.register(
+    "system.console.tab",
+    { id: "apps", order: 30, title: () => t("system.apps"), about: () => t("system.about.apps"), render: () => <AppsTab app={app} /> },
+    "builtin",
+    { orElse: () => undefined },
+  );
+}
 
 interface Health {
   world?: "tools" | "backend";

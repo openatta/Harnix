@@ -51,7 +51,7 @@ test.afterAll(async () => {
 test("the Apps tab shows a hibernating backend, and a call waking it", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, backend.url);
-  await page.locator('#side [data-space="system"]:not(#sessions)').click();
+  await page.locator('#side [data-space="system"]:not(#space-column)').click();
   await expect(page.getByTestId("system-console")).toBeVisible();
   await page.locator('[data-testid="system-console"] [role="tab"][data-tab="apps"]').click();
   const row = page.locator(`[data-testid="system-app"][data-app="${SHOWCASE_ID}"]`);

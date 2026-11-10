@@ -187,6 +187,7 @@ export interface HostApi {
   dialogs: {
     confirm(text: string, opts?: { title?: string; confirm?: string; danger?: boolean }): Promise<boolean>;
     prompt(opts: { title: string; label: string; value?: string; validate?(v: string): string | null }): Promise<string | null>;
+    /** A dialog of one's own: `render` lays out its body and buttons (`DialogBody`, `DialogFoot`). */
     open<T>(render: (close: (result: T | null) => void) => ReactNode, opts?: { title?: string; wide?: boolean }): Promise<T | null>;
     menu(anchor: Element | { x: number; y: number }, items: MenuItem[]): Promise<void>;
   };
