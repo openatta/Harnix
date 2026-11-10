@@ -1867,7 +1867,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P4"]
     fn c14_the_contracts_s1_types_are_non_exhaustive() {
         assert_non_exhaustive(s1_sources());
     }
@@ -1884,7 +1883,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P4"]
     fn c15_the_contracts_s1_types_have_no_feature_gated_members() {
         assert_no_feature_gated_members(s1_sources());
     }

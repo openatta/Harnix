@@ -1,0 +1,378 @@
+//! Privilege is capabilities, granted where the application adds a module, and checked at start:
+//! held to the assembly's registration step, with the kernel's own rows in the table.
+//!
+//! Nothing behind the kernel's rows is up here (no hub, no engine). A call the router lets through
+//! answers `INTERNAL_ERROR` from the row, a module's method `METHOD_NOT_FOUND` (the module never
+//! started); what these tests look for is whether it was `REFUSED`, and why.
+
+use std::sync::Arc;
+
+use harnix_assembly::testing::{register, Modules, Registered};
+use harnix_contract::s1::{caps, Capability, CapabilitySpec, ExtId, PackageCarrier, Trust};
+use harnix_contract::{codes, RpcError, Subject};
+use harnix_kernel::{Access, CallContext, Dispatch, GrantBook, Handler, Rpc};
+use harnix_module::{Manifest, MethodRegistry, Module, Principal, SpaceDecl, SpaceRegistry};
+use harnix_router::{Row, TableError};
+use serde_json::{json, Value};
+
+/// What the system module does to another space's session, method by method: each the engine's,
+/// each needing `engine.inspect` or `engine.control`.
+const SYSTEM_SPACE_ACTS: &[&str] = &[
+    "session.inspectContext",
+    "session.taskOutput",
+    "session.goal",
+    "session.stopTask",
+    "session.messageTask",
+    "session.dropMessages",
+    "session.editMessage",
+    "session.compact",
+    "session.clear",
+    "session.setModel",
+    "session.rename",
+    "session.setGoal",
+    "session.updateGoal",
+];
+
+/// The system module's three capabilities.
+fn system_caps() -> [Capability; 3] {
+    [caps::INSTANCES_ADMIN, caps::ENGINE_INSPECT, caps::ENGINE_CONTROL]
+}
+
+fn id(s: &str) -> ExtId {
+    ExtId::parse(s).unwrap()
+}
+
+/// A debugger an application writes itself: the system space's powers, as optional
+/// capabilities, and a space of its own that reaches across spaces.
+struct Debugger;
+
+#[async_trait::async_trait]
+impl Module for Debugger {
+    const API_VERSION: u32 = harnix_module::MODULE_API_VERSION;
+
+    fn manifest(&self) -> Manifest {
+        Manifest::new("debugger", "0.0.1").optional(system_caps())
+    }
+
+    fn spaces(&self, spaces: &mut SpaceRegistry) {
+        spaces.add(SpaceDecl::new("debugger").cross_space());
+    }
+}
+
+/// A module that asks for something, and nothing else.
+struct Asks(&'static str, Vec<Capability>, Vec<Capability>);
+
+#[async_trait::async_trait]
+impl Module for Asks {
+    const API_VERSION: u32 = harnix_module::MODULE_API_VERSION;
+
+    fn manifest(&self) -> Manifest {
+        Manifest::new(self.0, "0.0.1").requires(self.1.clone()).optional(self.2.clone())
+    }
+}
+
+/// A product's own capability: `billing` defines `billing.charge` and requires it on one method.
+struct Billing;
+
+const CHARGE: Capability = Capability::new("billing.charge");
+
+#[async_trait::async_trait]
+impl Module for Billing {
+    const API_VERSION: u32 = harnix_module::MODULE_API_VERSION;
+
+    fn manifest(&self) -> Manifest {
+        Manifest::new("billing", "0.0.1").defines(CapabilitySpec::new("billing.charge", "charge the customer's card"))
+    }
+
+    fn methods(&self, methods: &mut MethodRegistry) {
+        methods
+            .method("charge", Principal::AnyModule)
+            .requires(CHARGE)
+            .raw(|_cx, p| async move { Ok::<_, RpcError>(p) });
+    }
+}
+
+/// What was registered, with the state directory it lives on for as long as the test does.
+struct Fixture {
+    registered: Registered,
+    _state: tempfile::TempDir,
+}
+
+impl std::ops::Deref for Fixture {
+    type Target = Registered;
+    fn deref(&self) -> &Registered {
+        &self.registered
+    }
+}
+
+fn registered(builtins: bool, modules: Modules) -> anyhow::Result<Fixture> {
+    let state = tempfile::tempdir().unwrap();
+    let registered = register(builtins, modules, state.path())?;
+    Ok(Fixture { registered, _state: state })
+}
+
+async fn call(r: &Registered, subject: Subject, method: &str, params: Value) -> Rpc<Value> {
+    r.router.call(CallContext::root(subject, None), method, params).await
+}
+
+/// Refused, by the router, naming the capability missing.
+fn refused_for(e: &RpcError, cap: &Capability) -> bool {
+    e.code == codes::REFUSED && e.data == Some(json!({"capability": cap.as_str()}))
+}
+
+mod capabilities {
+    use super::*;
+
+    #[test]
+    fn granting_less_than_a_module_requires_refuses_the_start() {
+        let modules = Modules::default().with(Asks("fleet", vec![caps::ENGINE_INSPECT, caps::ENGINE_CONFIG_READ], vec![]), [caps::ENGINE_INSPECT]);
+        let e = registered(false, modules).err().expect("started").to_string();
+        assert!(e.contains("`fleet` requires `engine.config.read`"), "{e}");
+    }
+
+    #[test]
+    fn granting_more_than_a_module_asks_for_refuses_the_start() {
+        let modules = Modules::default().with(Asks("fleet", vec![caps::ENGINE_INSPECT], vec![]), [caps::ENGINE_INSPECT, caps::ENGINE_EXPORT]);
+        let e = registered(false, modules).err().expect("started").to_string();
+        assert!(e.contains("`fleet` was granted `engine.export`, which it neither requires nor lists as optional"), "{e}");
+    }
+
+    #[test]
+    fn what_only_a_package_may_hold_or_nobody_defined_is_not_granted() {
+        let package_only = Modules::default().with(Asks("fleet", vec![], vec![caps::EVENTS_ALL_TOOLS]), [caps::EVENTS_ALL_TOOLS]);
+        let e = registered(false, package_only).err().expect("started").to_string();
+        assert!(e.contains("only a package may hold"), "{e}");
+        let nobody = Capability::new("nobody.defines");
+        let undefined = Modules::default().with(Asks("fleet", vec![nobody.clone()], vec![]), [nobody]);
+        let e = registered(false, undefined).err().expect("started").to_string();
+        assert!(e.contains("nothing here defines"), "{e}");
+    }
+
+    #[test]
+    fn an_optional_capability_may_go_ungranted() {
+        let r = registered(false, Modules::default().with(Debugger, [])).unwrap();
+        assert!(r.modules[0].granted.is_empty());
+        assert_eq!(r.modules[0].optional.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn a_modules_own_capability_is_defined_granted_and_required() {
+        let r = registered(
+            false,
+            Modules::default()
+                .with(Billing, [])
+                .with(Asks("shop", vec![CHARGE], vec![]), [CHARGE])
+                .with(Asks("other", vec![], vec![]), []),
+        )
+        .unwrap();
+        // Let through to the method (which answers nothing: its module never started).
+        let e = call(&r, Subject::extension(id("shop")), "app.billing.charge", json!({})).await.unwrap_err();
+        assert_eq!(e.code, codes::METHOD_NOT_FOUND, "{e}");
+        let e = call(&r, Subject::extension(id("other")), "app.billing.charge", json!({})).await.unwrap_err();
+        assert!(refused_for(&e, &CHARGE), "{e:?}");
+        let e = call(&r, Subject::device("d"), "app.billing.charge", json!({})).await.unwrap_err();
+        assert_eq!(e.code, codes::REFUSED);
+        assert_eq!(r.modules[0].defines, ["billing.charge"]);
+    }
+
+    #[test]
+    fn a_capability_is_defined_under_the_definers_id_only() {
+        struct Squatter;
+        #[async_trait::async_trait]
+        impl Module for Squatter {
+            const API_VERSION: u32 = harnix_module::MODULE_API_VERSION;
+            fn manifest(&self) -> Manifest {
+                Manifest::new("squatter", "0.0.1").defines(CapabilitySpec::new("billing.charge", "not its own"))
+            }
+        }
+        let e = registered(false, Modules::default().with(Squatter, [])).err().expect("started").to_string();
+        assert!(e.contains("module `squatter` defines"), "{e}");
+    }
+
+    #[test]
+    fn the_built_ins_hold_what_they_require_and_nothing_else() {
+        let r = registered(true, Modules::default()).unwrap();
+        let system = r.modules.iter().find(|m| m.id == "system").unwrap();
+        assert_eq!(system.granted, ["instances.admin", "engine.inspect", "engine.control"]);
+        for status in &r.modules {
+            assert_eq!(status.granted, status.requires, "{}", status.id);
+        }
+        assert!(r.grants.holds(&id("settings"), &caps::ENGINE_CONFIG_WRITE));
+        assert!(!r.grants.holds(&id("settings"), &caps::ENGINE_INSPECT));
+    }
+}
+
+mod debugger {
+    use super::*;
+
+    /// Granted the system module's capabilities, a debugger the application wrote does what the
+    /// system space does to another space's sessions: nothing about it is first-party.
+    #[tokio::test]
+    async fn granted_the_system_modules_capabilities_it_does_what_the_system_space_does() {
+        let r = registered(false, Modules::default().with(Debugger, system_caps())).unwrap();
+        for method in SYSTEM_SPACE_ACTS {
+            let e = call(&r, Subject::extension(id("debugger")), method, json!({"session_id": "s"})).await.unwrap_err();
+            assert_eq!(e.code, codes::INTERNAL_ERROR, "{method} was not let through: {e}");
+        }
+        assert_eq!(r.modules[0].spaces, ["debugger"]);
+    }
+
+    #[tokio::test]
+    async fn ungranted_every_one_of_them_is_refused_and_says_what_is_missing() {
+        let r = registered(false, Modules::default().with(Debugger, [])).unwrap();
+        for method in SYSTEM_SPACE_ACTS {
+            let e = call(&r, Subject::extension(id("debugger")), method, json!({"session_id": "s"})).await.unwrap_err();
+            let cap = r.router.table().row(method).and_then(|row| row.access().requirement().cloned()).unwrap();
+            assert!(refused_for(&e, &cap), "{method}: {e:?}");
+        }
+        // Nor does a device reach any of them, whatever it claims.
+        for method in SYSTEM_SPACE_ACTS {
+            let e = call(&r, Subject::device("d"), method, json!({"space": "debugger"})).await.unwrap_err();
+            assert_eq!(e.code, codes::REFUSED, "{method}");
+        }
+    }
+}
+
+mod scope {
+    use super::*;
+
+    struct Answer;
+
+    #[async_trait::async_trait]
+    impl Handler for Answer {
+        async fn call(&self, _: CallContext, p: Value) -> Rpc<Value> {
+            Ok(p)
+        }
+    }
+
+    /// The built-ins, and a package `acme.notes` registered as the runtime host registers one:
+    /// its consent, then its rows.
+    fn with_package(frame: Option<&[&str]>) -> Fixture {
+        let r = registered(true, Modules::default()).unwrap();
+        let consent = ["session.get", "harnix.sessions", "session.create"].map(String::from);
+        r.grants.set(id("acme.notes"), [], Trust::consent(consent, PackageCarrier::Wasm));
+        let own = Row::method("app.acme.notes.list", Access::device(), Arc::new(Answer));
+        r.router.install_app(&Subject::Kernel, "acme.notes", vec![own]).unwrap();
+        if let Some(calls) = frame {
+            r.grants.set_frame(&id("acme.notes"), Some(calls.iter().map(|c| c.to_string()).collect()));
+        }
+        r
+    }
+
+    fn refused_outside(e: &RpcError) -> bool {
+        e.code == codes::REFUSED && e.message == harnix_authz::OUTSIDE_OWN_SPACE
+    }
+
+    #[tokio::test]
+    async fn a_package_reaches_its_own_space_and_its_sessions_only() {
+        let r = with_package(None);
+        let me = || Subject::extension(id("acme.notes"));
+        // Its own space, or one under it: let through (to a hub that is not up).
+        for space in ["acme.notes", "acme.notes.board"] {
+            let e = call(&r, me(), "session.get", json!({"session_id": "s", "space": space})).await.unwrap_err();
+            assert_eq!(e.code, codes::INTERNAL_ERROR, "{space}: {e}");
+        }
+        // Another space's session, a space that only starts like its own, or no claim at all.
+        for params in [json!({"session_id": "s", "space": "sessions"}), json!({"session_id": "s", "space": "acme.notesy"}), json!({"session_id": "s"})] {
+            let e = call(&r, me(), "session.get", params.clone()).await.unwrap_err();
+            assert!(refused_outside(&e), "{params}: {e:?}");
+        }
+        // Listing and creating are about a space: not claiming one is refused.
+        assert!(refused_outside(&call(&r, me(), "harnix.sessions", json!({})).await.unwrap_err()));
+        assert!(refused_outside(&call(&r, me(), "session.create", json!({"space": "system"})).await.unwrap_err()));
+        // Reading another session's inside is no package's: no capability opens it to one.
+        let e = call(&r, me(), "session.inspectContext", json!({"space": "acme.notes"})).await.unwrap_err();
+        assert_eq!(e.code, codes::REFUSED);
+        // Its own names are its own, wherever.
+        assert_eq!(call(&r, me(), "app.acme.notes.list", json!({"x": 1})).await.unwrap(), json!({"x": 1}));
+    }
+
+    #[tokio::test]
+    async fn a_page_in_a_frame_has_the_devices_power_and_its_interfaces_list_both() {
+        let page = |on: &str| {
+            let mut cx = CallContext::root(Subject::device("d"), None);
+            cx.on_behalf_of = Some(id(on));
+            cx
+        };
+        // Without a framed interface it calls nothing.
+        let r = with_package(None);
+        let e = r.router.call(page("acme.notes"), "harnix.sessions", json!({"space": "acme.notes"})).await.unwrap_err();
+        assert_eq!((e.code, e.message.as_str()), (codes::REFUSED, harnix_router::NO_FRAME));
+
+        let r = with_package(Some(&["harnix.sessions", "session.get", "session.inspectContext"]));
+        // Listed, in its own space: let through. Its own names: let through.
+        let e = r.router.call(page("acme.notes"), "harnix.sessions", json!({"space": "acme.notes"})).await.unwrap_err();
+        assert_eq!(e.code, codes::INTERNAL_ERROR, "{e}");
+        assert!(r.router.call(page("acme.notes"), "app.acme.notes.list", json!({})).await.is_ok());
+        // Listed, another space: narrowed. Not listed, though a device may: refused.
+        let e = r.router.call(page("acme.notes"), "session.get", json!({"space": "sessions"})).await.unwrap_err();
+        assert!(refused_outside(&e), "{e:?}");
+        let e = r.router.call(page("acme.notes"), "harnix.spaces.list", json!({})).await.unwrap_err();
+        assert_eq!((e.code, e.message.as_str()), (codes::REFUSED, harnix_router::OUTSIDE_FRAME));
+        // Listed, but not the device's to do: the intersection.
+        let e = r.router.call(page("acme.notes"), "session.inspectContext", json!({"space": "acme.notes"})).await.unwrap_err();
+        assert_eq!(e.code, codes::REFUSED);
+        // And the record says whose page it was.
+        let entry = &r.router.audit().recent(1)[0];
+        assert_eq!(entry.via.as_deref(), Some("ext:acme.notes"));
+    }
+}
+
+mod names {
+    use super::*;
+
+    fn package(r: &Registered, app: &str) -> Result<(), TableError> {
+        let row = Row::method(format!("app.{app}.x"), Access::device(), Arc::new(scope_answer()));
+        r.router.install_app(&Subject::Kernel, app, vec![row])
+    }
+
+    fn scope_answer() -> impl Handler {
+        struct Nothing;
+        #[async_trait::async_trait]
+        impl Handler for Nothing {
+            async fn call(&self, _: CallContext, _: Value) -> Rpc<Value> {
+                Ok(Value::Null)
+            }
+        }
+        Nothing
+    }
+
+    fn taken_by(result: Result<(), TableError>) -> Option<String> {
+        match result {
+            Err(TableError::NamespaceTaken { by, .. }) => Some(by),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn a_native_extension_keeps_its_namespace_from_a_package() {
+        let r = registered(true, Modules::default().with(Asks("acme", vec![], vec![]), [])).unwrap();
+        // Under a native id, by whole segments: refused, saying whose it is.
+        assert_eq!(taken_by(package(&r, "acme.notes")).as_deref(), Some("acme"));
+        assert_eq!(taken_by(package(&r, "acme")).as_deref(), Some("acme"));
+        // A built-in's id is a native id like any other.
+        assert_eq!(taken_by(package(&r, "settings.extra")).as_deref(), Some("settings"));
+        // Only by whole segments.
+        assert!(package(&r, "acmeish.notes").is_ok());
+    }
+
+    #[test]
+    fn a_packages_first_segment_is_not_a_reserved_word() {
+        let r = registered(false, Modules::default()).unwrap();
+        for word in harnix_contract::s1::RESERVED {
+            assert!(taken_by(package(&r, &format!("{word}.notes"))).is_some(), "{word}");
+        }
+        assert!(package(&r, "example.showcase").is_ok());
+    }
+
+    #[test]
+    fn packages_do_not_overlap_each_other_and_a_name_is_the_longest_ids() {
+        let r = registered(false, Modules::default()).unwrap();
+        package(&r, "acme.notes").unwrap();
+        assert_eq!(taken_by(package(&r, "acme.notes.pro")).as_deref(), Some("acme.notes"));
+        assert!(package(&r, "acme.todo").is_ok(), "a sibling shares no names");
+        // Withdrawn, its id is free again.
+        r.router.withdraw(&Subject::Kernel, &harnix_kernel::Owner::extension(id("acme.notes")), "a test");
+        assert!(package(&r, "acme.notes.pro").is_ok());
+    }
+}

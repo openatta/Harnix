@@ -66,6 +66,48 @@ impl App {
     }
 }
 
+/// The registration step on its own, with nothing served: what `tests/grants.rs` holds the
+/// grants, the capabilities and the name rules to. Not for a product.
+#[doc(hidden)]
+pub mod testing {
+    use std::sync::Arc;
+
+    use harnix_module::{Capability, ErasedModule, Module};
+
+    pub use harnix_kernel::GrantTable;
+    pub use harnix_router::Router;
+
+    /// The modules registered, and the router over the kernel's rows and theirs. Nothing behind
+    /// the kernel's rows is up: a call the router lets through to one answers `INTERNAL_ERROR`, and
+    /// one to a module's method `METHOD_NOT_FOUND` (the module never started) — either way not
+    /// `REFUSED`, which is what these tests tell apart.
+    pub struct Registered {
+        pub router: Arc<Router>,
+        pub grants: Arc<GrantTable>,
+        pub modules: Vec<crate::ModuleStatus>,
+    }
+
+    /// Modules to register, each with what it is granted.
+    #[derive(Default)]
+    pub struct Modules(Vec<(Box<dyn ErasedModule>, Vec<Capability>)>);
+
+    impl Modules {
+        pub fn with<M: Module>(mut self, module: M, granted: impl IntoIterator<Item = Capability>) -> Self {
+            harnix_module::assert_api::<M>();
+            self.0.push((Box::new(module), granted.into_iter().collect()));
+            self
+        }
+    }
+
+    /// Register Harnix's built-ins (when `builtins`) and `modules` under a default profile, with
+    /// state in `state`. An error is the start refused.
+    pub fn register(builtins: bool, modules: Modules, state: &std::path::Path) -> anyhow::Result<Registered> {
+        let (table, grants, modules) = crate::run::register_only(builtins, modules.0, state)?;
+        let router = Arc::new(Router::new(table, grants.clone(), Arc::new(harnix_authz::Audit::default())));
+        Ok(Registered { router, grants, modules })
+    }
+}
+
 /// What a subcommand this binary is re-executed as runs instead of the product: its arguments,
 /// those after its name.
 pub type ChildEntry = fn(Vec<OsString>) -> anyhow::Result<()>;

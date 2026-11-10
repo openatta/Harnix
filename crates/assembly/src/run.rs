@@ -40,6 +40,24 @@ use crate::state_lock::StateLock;
 use crate::AppBuilder;
 use wiring::AppsWiring;
 
+/// Step 2 alone, for [`crate::testing`]: the built-ins (or not) and these modules registered into
+/// the kernel's table under a default profile, with the grants they were given.
+pub(crate) fn register_only(
+    builtins: bool,
+    modules: Vec<(Box<dyn harnix_module::ErasedModule>, Vec<harnix_module::Capability>)>,
+    state: &std::path::Path,
+) -> anyhow::Result<(harnix_router::RouteTable, Arc<harnix_kernel::GrantTable>, Vec<modules::ModuleStatus>)> {
+    let roots = Roots {
+        engine: state.join("engine"),
+        projects: state.join("projects"),
+        state: state.join("state"),
+    };
+    std::fs::create_dir_all(&roots.state)?;
+    let registered = register::register(builtins, modules, &Profile::default(), &roots, &AppsWiring::default())?;
+    let statuses = registered.records.iter().map(|r| r.status.clone()).collect();
+    Ok((registered.table, registered.grants, statuses))
+}
+
 pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
