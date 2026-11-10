@@ -11,4 +11,5 @@ description  = "The skeleton's own interfaces: a call's context, what answers it
 harnix-contract = { workspace = true }
 async-trait = { workspace = true }
 serde_json  = { workspace = true }
+tokio       = { workspace = true }
 tokio-util  = { workspace = true }

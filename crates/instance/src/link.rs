@@ -101,6 +101,11 @@ pub trait EngineLink: Send + Sync + 'static {
         false
     }
 
+    /// Record (or replay) the sessions this link creates and resumes as `recorder` says: the
+    /// registry hands every link it builds the process's recording before anyone calls it. A link
+    /// that reaches no engine keeps the default, which has nothing to record.
+    fn record(&self, _recorder: crate::recording::Recorder) {}
+
     async fn shutdown(&self);
 }
 

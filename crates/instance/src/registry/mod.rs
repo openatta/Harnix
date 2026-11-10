@@ -1,0 +1,789 @@
+//! The instance table: what is running, where it came from, who owns it (concept §3.1.1).
+//!
+//! Each instance is a [`Slot`] — what is known about it, and what stops it. Its link is handed to
+//! the hub, the one holder of sessions, through an [`InstanceObserver`] before the slot is
+//! visible, so no caller can reach an instance the hub is not already listening to.
+//!
+//! Templates and the ledger live here too. What was built from a template is recorded, and built
+//! again at the next start; one whose template is gone or whose owner is disabled is listed
+//! `Down` with the reason, and its data root is left alone.
+//!
+//! # Order
+//!
+//! A name is changed by one operation at a time — built, stopped, restarted, taken down — and
+//! the others wait for it ([`InstanceRegistry::claim`]). The registry's lock is held only to read
+//! or write the table, never across a build or a call to the observer; the observer is never
+//! called holding it, and the hub never calls in holding its own (each asserted in a debug
+//! build, [`harnix_kernel::instances`]).
+
+mod rows;
+
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+
+use harnix_contract::sync::lock;
+use harnix_contract::{codes, RpcError};
+use harnix_kernel::instances::{holding, holds, Holding, Side};
+use harnix_kernel::{GrantBook, InstanceObserver, InstanceTrust, Rpc};
+use serde_json::{json, Value};
+use tokio::sync::watch;
+
+use crate::link::{self, DownLink, EngineLink, LinkStatus};
+use crate::recording::Recording;
+use crate::templates::{carrier_of, InstanceTemplate, Ledger, LedgerEntry, Owner, TemplateCarrier};
+use crate::{Built, Facts, Factory};
+
+pub use rows::{InstanceRow, RegistryCell, INSTANCES_TOPIC};
+
+/// The instance every process has: the profile's `[engine]`.
+pub use harnix_contract::SYSTEM_INSTANCE as SYSTEM;
+
+/// What the registry is made with, at assembly: the templates and the ledger, how to build, and
+/// the profile's own instances.
+pub struct RegistryConfig {
+    pub templates: BTreeMap<String, (InstanceTemplate, Owner)>,
+    pub ledger: Ledger,
+    pub factory: Factory,
+    /// Where template-built instances keep their data.
+    pub instances_dir: PathBuf,
+    /// Modules that are disabled: their templates build nothing and their instances are down.
+    pub disabled: HashSet<String>,
+    /// The profile's own instances and where their data is, so one can be restarted.
+    pub fixed: BTreeMap<String, (TemplateCarrier, PathBuf)>,
+    /// What every link this registry builds records with.
+    pub recording: Arc<Recording>,
+    /// What each extension holds: who may act on an instance it does not own.
+    pub grants: Arc<dyn GrantBook>,
+}
+
+impl RegistryConfig {
+    pub fn add_template(&mut self, template: InstanceTemplate, owner: Owner) -> Result<(), String> {
+        if self.templates.contains_key(&template.id) {
+            return Err(format!("there is already a template `{}`", template.id));
+        }
+        self.templates.insert(template.id.clone(), (template, owner));
+        Ok(())
+    }
+}
+
+/// What is known about one instance without asking it.
+#[derive(Clone)]
+pub struct InstanceFacts {
+    pub id: String,
+    pub owner: Owner,
+    /// The template it was built from; `None` for the profile's.
+    pub template: Option<String>,
+    /// What its engine is: data root, scenes, model, recordings.
+    pub engine: Facts,
+}
+
+/// One instance: what it is, and what stops it. Its link is the hub's to use.
+pub(crate) struct Slot {
+    id: String,
+    link: Arc<dyn EngineLink>,
+    facts: Facts,
+    template: Option<String>,
+    params: BTreeMap<String, String>,
+    owner: Owner,
+    created_ms: u64,
+    /// Republishes the instance list when the link's status changes.
+    watching: Mutex<Option<tokio::task::JoinHandle<()>>>,
+}
+
+impl Slot {
+    fn status(&self) -> LinkStatus {
+        self.link.status().borrow().clone()
+    }
+
+    fn unwatch(&self) {
+        if let Some(task) = lock(&self.watching).take() {
+            task.abort();
+        }
+    }
+
+    /// What it was built from, to build it again.
+    fn record(&self) -> Record {
+        Record {
+            template: self.template.clone(),
+            params: self.params.clone(),
+            owner: self.owner.clone(),
+            created_ms: self.created_ms,
+        }
+    }
+
+    fn facts(&self) -> InstanceFacts {
+        InstanceFacts {
+            id: self.id.clone(),
+            owner: self.owner.clone(),
+            template: self.template.clone(),
+            engine: self.facts.clone(),
+        }
+    }
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        self.unwatch();
+    }
+}
+
+/// Where an instance came from and whose it is: what a slot keeps across a restart.
+#[derive(Clone)]
+struct Record {
+    template: Option<String>,
+    params: BTreeMap<String, String>,
+    owner: Owner,
+    created_ms: u64,
+}
+
+impl Record {
+    fn fixed(owner: Owner) -> Self {
+        Self {
+            template: None,
+            params: BTreeMap::new(),
+            owner,
+            created_ms: link::now_ms(),
+        }
+    }
+}
+
+/// How an instance is handed to the hub.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Handover {
+    Added,
+    Restarted,
+}
+
+/// The table, under the registry's lock.
+struct State {
+    templates: BTreeMap<String, (InstanceTemplate, Owner)>,
+    ledger: Ledger,
+    disabled: HashSet<String>,
+    fixed: BTreeMap<String, (TemplateCarrier, PathBuf)>,
+    slots: BTreeMap<String, Arc<Slot>>,
+    /// Names an operation is changing, and the template one is being built from: whoever else
+    /// wants the name waits for the operation to end.
+    busy: HashMap<String, Busy>,
+    /// Counts `harnix.instances.inheritProviders`: a build that started before one and ends after
+    /// it inherits again.
+    providers: u64,
+}
+
+struct Busy {
+    done: watch::Receiver<()>,
+    building: Option<String>,
+}
+
+/// The registry's lock, marked held for the lock-order assertions.
+struct Locked<'a> {
+    state: MutexGuard<'a, State>,
+    _held: Holding,
+}
+
+impl std::ops::Deref for Locked<'_> {
+    type Target = State;
+    fn deref(&self) -> &State {
+        &self.state
+    }
+}
+
+impl std::ops::DerefMut for Locked<'_> {
+    fn deref_mut(&mut self) -> &mut State {
+        &mut self.state
+    }
+}
+
+/// A name claimed by one operation, until dropped.
+pub(crate) struct Claim<'a> {
+    registry: &'a InstanceRegistry,
+    name: String,
+    _done: watch::Sender<()>,
+}
+
+impl Drop for Claim<'_> {
+    fn drop(&mut self) {
+        self.registry.state().busy.remove(&self.name);
+    }
+}
+
+pub struct InstanceRegistry {
+    grants: Arc<dyn GrantBook>,
+    factory: Factory,
+    instances_dir: PathBuf,
+    recording: Arc<Recording>,
+    state: Mutex<State>,
+    observer: OnceLock<Arc<dyn InstanceObserver<dyn EngineLink>>>,
+}
+
+impl InstanceRegistry {
+    pub fn new(config: RegistryConfig) -> Arc<Self> {
+        let RegistryConfig {
+            templates,
+            ledger,
+            factory,
+            instances_dir,
+            disabled,
+            fixed,
+            recording,
+            grants,
+        } = config;
+        Arc::new(Self {
+            grants,
+            factory,
+            instances_dir,
+            recording,
+            state: Mutex::new(State {
+                templates,
+                ledger,
+                disabled,
+                fixed,
+                slots: BTreeMap::new(),
+                busy: HashMap::new(),
+                providers: 0,
+            }),
+            observer: OnceLock::new(),
+        })
+    }
+
+    /// Who is told of every instance: the hub, once, at wiring, before any instance is added.
+    pub fn observe(&self, observer: Arc<dyn InstanceObserver<dyn EngineLink>>) {
+        if self.observer.set(observer).is_err() {
+            tracing::warn!("the instance registry is observed already; the second observer is ignored");
+        }
+    }
+
+    fn state(&self) -> Locked<'_> {
+        Locked {
+            state: lock(&self.state),
+            _held: holding(Side::Registry),
+        }
+    }
+
+    /// The observer, to be called now: never while the registry's lock is held.
+    fn observer(&self) -> &Arc<dyn InstanceObserver<dyn EngineLink>> {
+        debug_assert!(!holds(Side::Registry), "the registry calls its observer holding its own lock");
+        self.observer.get().expect("the registry is observed before any instance is added")
+    }
+
+    /// The instance list changed.
+    fn changed(&self) {
+        if let Some(observer) = self.observer.get() {
+            observer.changed(INSTANCES_TOPIC, json!({}));
+        }
+    }
+
+    /// Claim `name` for one operation, after whichever has it now.
+    async fn claim(&self, name: &str) -> Claim<'_> {
+        loop {
+            let mut done = {
+                let mut state = self.state();
+                match state.busy.get(name) {
+                    Some(busy) => busy.done.clone(),
+                    None => {
+                        let (tx, rx) = watch::channel(());
+                        state.busy.insert(name.to_string(), Busy { done: rx, building: None });
+                        return Claim {
+                            registry: self,
+                            name: name.to_string(),
+                            _done: tx,
+                        };
+                    }
+                }
+            };
+            // Ends when the operation drops its claim.
+            let _ = done.changed().await;
+        }
+    }
+
+    fn slot(&self, id: &str) -> Option<Arc<Slot>> {
+        self.state().slots.get(id).cloned()
+    }
+
+    fn slots(&self) -> Vec<Arc<Slot>> {
+        self.state().slots.values().cloned().collect()
+    }
+
+    /// Facts about one listed instance. The hub asks this holding none of its locks.
+    pub fn facts(&self, id: &str) -> Option<InstanceFacts> {
+        debug_assert!(!holds(Side::Hub), "the hub calls the registry holding its own lock");
+        self.slot(id).map(|s| s.facts())
+    }
+
+    /// Every listed instance.
+    pub fn list(&self) -> Vec<InstanceFacts> {
+        debug_assert!(!holds(Side::Hub), "the hub calls the registry holding its own lock");
+        self.slots().iter().map(|s| s.facts()).collect()
+    }
+
+    /// What each instance says it is, for `hello`: carrier, status and the protocol it speaks.
+    pub fn identities(&self) -> Vec<Value> {
+        self.slots()
+            .iter()
+            .map(|slot| {
+                let identity = slot.link.identity();
+                json!({
+                    "id": slot.id,
+                    "carrier": slot.link.carrier(),
+                    "status": slot.status(),
+                    "version": identity.get("version"),
+                    "protocol_version": identity.get("protocol_version"),
+                })
+            })
+            .collect()
+    }
+
+    /// Hand the link to the observer, then list the instance: in that order, so that whoever can
+    /// see it, the hub already reads it. A build that overlapped an inheritance of providers
+    /// (`providers` is the count it started under) inherits again once it is listed.
+    async fn show(&self, id: &str, built: Built, record: Record, handover: Handover, providers: u64) {
+        let Built { link, facts } = built;
+        link.record(self.recording.of(id));
+        let observer = self.observer().clone();
+        match handover {
+            Handover::Added => observer.added(id, link.clone(), InstanceTrust::Product).await,
+            Handover::Restarted => observer.restarted(id, link.clone()).await,
+        }
+        let slot = Arc::new(Slot {
+            id: id.to_string(),
+            link,
+            facts,
+            template: record.template,
+            params: record.params,
+            owner: record.owner,
+            created_ms: record.created_ms,
+            watching: Mutex::new(None),
+        });
+        *lock(&slot.watching) = Some(watch_status(&slot.link, observer));
+        let (previous, inherits) = {
+            let mut state = self.state();
+            let previous = state.slots.insert(id.to_string(), slot.clone());
+            let inherits = state.providers != providers
+                && slot
+                    .template
+                    .as_ref()
+                    .and_then(|t| state.templates.get(t))
+                    .is_some_and(|(t, _)| t.inherit_providers);
+            (previous, inherits)
+        };
+        if let Some(previous) = previous {
+            previous.unwatch();
+        }
+        if inherits {
+            self.inherit_into(&[slot]).await;
+        }
+        self.changed();
+    }
+
+    /// Add one of the profile's instances — `system`, an `[[instances]]` — as built at start.
+    pub async fn add(&self, id: &str, built: Built, owner: Owner) {
+        let _claim = self.claim(id).await;
+        let providers = self.state().providers;
+        self.show(id, built, Record::fixed(owner), Handover::Added, providers).await;
+    }
+
+    /// Build the instances the ledger records, at start. One that cannot be built is listed
+    /// down, with why.
+    pub async fn restore(&self) {
+        let entries: Vec<LedgerEntry> = self.state().ledger.entries().to_vec();
+        for entry in entries {
+            let _claim = self.claim(&entry.id).await;
+            if self.slot(&entry.id).is_some() {
+                tracing::warn!(instance = %entry.id, "a ledger entry names an instance the profile declares; skipped");
+                continue;
+            }
+            let providers = self.state().providers;
+            let built = self.build_entry(&entry).await;
+            let record = Record {
+                template: Some(entry.template.clone()),
+                params: entry.params.clone(),
+                owner: entry.owner.clone(),
+                created_ms: entry.created_ms,
+            };
+            self.show(&entry.id, built, record, Handover::Added, providers).await;
+        }
+    }
+
+    /// Build what a ledger entry records; down, with why, when it cannot be.
+    async fn build_entry(&self, entry: &LedgerEntry) -> Built {
+        let down = |link: Arc<DownLink>| Built {
+            link: link as Arc<dyn EngineLink>,
+            facts: Facts::default(),
+        };
+        let prepared = {
+            let state = self.state();
+            match state.templates.get(&entry.template) {
+                None => Err(DownLink::without_template(format!(
+                    "its template `{}` no longer exists",
+                    entry.template
+                ))),
+                Some((template, declared_by)) => {
+                    let disabled = [&entry.owner, declared_by].into_iter().find_map(|owner| match owner {
+                        Owner::Module(id) if state.disabled.contains(id) => Some(id.clone()),
+                        _ => None,
+                    });
+                    match disabled {
+                        Some(id) => Err(DownLink::new(carrier_of(&template.carrier), format!("module `{id}` is disabled"))),
+                        None => match template.resolve(&entry.id, &entry.params, &self.instances_dir) {
+                            Ok(root) => Ok((template.clone(), root)),
+                            Err(e) => Err(DownLink::new(carrier_of(&template.carrier), e)),
+                        },
+                    }
+                }
+            }
+        };
+        let (template, root) = match prepared {
+            Ok(prepared) => prepared,
+            Err(link) => return down(link),
+        };
+        match self.factory.build_template(&entry.id, &template, root).await {
+            Ok(built) => built,
+            Err(e) => down(DownLink::new(carrier_of(&template.carrier), format!("{e:#}"))),
+        }
+    }
+
+    /// Build an instance from a template for its owner — a space's default instance, which the
+    /// hub asks for holding none of its locks.
+    pub async fn ensure_owned(self: &Arc<Self>, template: &str, name: &str, owner: Owner) -> Rpc<Value> {
+        debug_assert!(!holds(Side::Hub), "the hub calls the registry holding its own lock");
+        if let Some(existing) = self.slot(name) {
+            if existing.template.as_deref() == Some(template) {
+                return Ok(self.instance_view(&existing));
+            }
+        }
+        self.build(template, name, BTreeMap::new(), owner, true).await
+    }
+
+    /// Build `name` from a template, with the name claimed until it is listed: two builds of one
+    /// name are one after the other, and the second sees the first. `ensure` makes that second
+    /// one an answer rather than a refusal. Run to its end whether or not the caller waits for
+    /// it: a build abandoned halfway would leave an engine the hub reads and nobody lists.
+    async fn build(
+        self: &Arc<Self>,
+        template_id: &str,
+        name: &str,
+        filled: BTreeMap<String, String>,
+        owner: Owner,
+        ensure: bool,
+    ) -> Rpc<Value> {
+        let this = self.clone();
+        let (template_id, name) = (template_id.to_string(), name.to_string());
+        tokio::spawn(async move { this.build_now(template_id, name, filled, owner, ensure).await })
+            .await
+            .map_err(|e| RpcError::new(codes::INTERNAL_ERROR, format!("the build ended: {e}")))?
+    }
+
+    async fn build_now(
+        &self,
+        template_id: String,
+        name: String,
+        filled: BTreeMap<String, String>,
+        owner: Owner,
+        ensure: bool,
+    ) -> Rpc<Value> {
+        let _claim = self.claim(&name).await;
+        let (template, root, providers) = {
+            let mut state = self.state();
+            let Some((template, declared_by)) = state.templates.get(&template_id).cloned() else {
+                return Err(RpcError::not_found(format!("there is no template `{template_id}`")));
+            };
+            if let Owner::Module(id) = &declared_by {
+                if state.disabled.contains(id) {
+                    return Err(refused(format!("module `{id}` is disabled")));
+                }
+            }
+            if let Some(existing) = state.slots.get(&name).cloned() {
+                drop(state);
+                if ensure && existing.template.as_deref() == Some(template_id.as_str()) {
+                    return Ok(self.instance_view(&existing));
+                }
+                return Err(RpcError::invalid_params(format!("there is already an instance `{name}`")));
+            }
+            if let Some(max) = template.max {
+                let built = state.slots.values().filter(|s| s.template.as_deref() == Some(template_id.as_str())).count()
+                    + state.busy.values().filter(|b| b.building.as_deref() == Some(template_id.as_str())).count();
+                if built >= max {
+                    return Err(refused(format!(
+                        "template `{template_id}` allows {max} instance(s) and has {built}"
+                    )));
+                }
+            }
+            let root = template
+                .resolve(&name, &filled, &self.instances_dir)
+                .map_err(RpcError::invalid_params)?;
+            if let Some(busy) = state.busy.get_mut(&name) {
+                busy.building = Some(template_id.clone());
+            }
+            (template, root, state.providers)
+        };
+        let built = self
+            .factory
+            .build_template(&name, &template, root)
+            .await
+            .map_err(|e| RpcError::new(codes::INTERNAL_ERROR, format!("{e:#}")))?;
+        let created_ms = link::now_ms();
+        let entry = LedgerEntry {
+            id: name.clone(),
+            template: template_id.clone(),
+            params: filled.clone(),
+            owner: owner.clone(),
+            created_ms,
+        };
+        let recorded = self.state().ledger.insert(entry);
+        if let Err(e) = recorded {
+            built.link.shutdown().await;
+            return Err(RpcError::new(codes::INTERNAL_ERROR, format!("ledger: {e:#}")));
+        }
+        tracing::info!(instance = %name, template = %template_id, owner = %owner, "instance built");
+        let record = Record {
+            template: Some(template_id),
+            params: filled,
+            owner,
+            created_ms,
+        };
+        self.show(&name, built, record, Handover::Added, providers).await;
+        let slot = self.slot(&name).expect("just listed");
+        Ok(self.instance_view(&slot))
+    }
+
+    /// Stop an instance and forget it: unlisted, its link shut, the hub told, its ledger entry
+    /// gone. Its data root stays; building it again from the same template picks it up.
+    async fn remove(&self, instance: &str) -> Rpc<()> {
+        let _claim = self.claim(instance).await;
+        let removed = {
+            let mut state = self.state();
+            let removed = state.slots.remove(instance);
+            if removed.is_some() {
+                if let Err(e) = state.ledger.remove(instance) {
+                    tracing::warn!(instance, error = %e, "ledger entry not removed");
+                }
+            }
+            removed
+        };
+        let Some(slot) = removed else {
+            return Err(not_found(instance));
+        };
+        slot.unwatch();
+        slot.link.shutdown().await;
+        self.observer().removed(instance).await;
+        self.changed();
+        Ok(())
+    }
+
+    /// Build an instance again — a template-built one from its ledger entry, a profile one from
+    /// its declaration, a daemon by connecting (and spawning) afresh — and hand the hub the new
+    /// link.
+    async fn rebuild(&self, instance: &str) -> Rpc<()> {
+        let _claim = self.claim(instance).await;
+        let Some(slot) = self.slot(instance) else {
+            return Err(not_found(instance));
+        };
+        let fixed = self.state().fixed.get(instance).cloned();
+        let providers = self.state().providers;
+        let built = match (&slot.template, fixed) {
+            (Some(template), _) => {
+                let entry = LedgerEntry {
+                    id: instance.to_string(),
+                    template: template.clone(),
+                    params: slot.params.clone(),
+                    owner: slot.owner.clone(),
+                    created_ms: slot.created_ms,
+                };
+                slot.link.shutdown().await;
+                self.build_entry(&entry).await
+            }
+            (None, Some((carrier, root))) => {
+                slot.link.shutdown().await;
+                match self.factory.build(instance, &carrier, root).await {
+                    Ok(built) => built,
+                    Err(e) => Built {
+                        link: DownLink::new(carrier_of(&carrier), format!("{e:#}")) as Arc<dyn EngineLink>,
+                        facts: Facts::default(),
+                    },
+                }
+            }
+            (None, None) => {
+                return Err(refused(format!(
+                    "instance `{instance}` has nothing to be built again from"
+                )))
+            }
+        };
+        self.show(instance, built, slot.record(), Handover::Restarted, providers).await;
+        Ok(())
+    }
+
+    /// A module was disabled after its instances were built: they stop with it, listed down,
+    /// and stay in the ledger to come back when it does (concept §3.1.1).
+    pub async fn module_disabled(&self, module: &str) {
+        let owned: Vec<String> = {
+            let mut state = self.state();
+            state.disabled.insert(module.to_string());
+            let theirs: HashSet<String> = state
+                .templates
+                .iter()
+                .filter(|(_, (_, by))| *by == Owner::Module(module.to_string()))
+                .map(|(id, _)| id.clone())
+                .collect();
+            state
+                .slots
+                .values()
+                .filter(|s| {
+                    s.owner == Owner::Module(module.to_string())
+                        || s.template.as_ref().is_some_and(|t| theirs.contains(t))
+                })
+                .map(|s| s.id.clone())
+                .collect()
+        };
+        for id in owned {
+            let _claim = self.claim(&id).await;
+            let Some(slot) = self.slot(&id) else { continue };
+            slot.link.shutdown().await;
+            let down = Built {
+                link: DownLink::new(slot.link.carrier(), format!("module `{module}` is disabled")),
+                facts: slot.facts.clone(),
+            };
+            let providers = self.state().providers;
+            self.show(&id, down, slot.record(), Handover::Restarted, providers).await;
+        }
+    }
+
+    /// `harnix.instances.inheritProviders`: `system`'s providers changed. Merge them into every
+    /// instance whose template inherits them, and have each one that changed reload. The kernel's,
+    /// and granted to the settings module, which calls it after each provider change (ipdrun-11).
+    async fn inherit_providers(&self) -> Rpc<Value> {
+        let inheriting: Vec<Arc<Slot>> = {
+            let mut state = self.state();
+            // A build under way meanwhile inherits again once it is listed.
+            state.providers += 1;
+            let templates: HashSet<&str> = state
+                .templates
+                .iter()
+                .filter(|(_, (t, _))| t.inherit_providers)
+                .map(|(id, _)| id.as_str())
+                .collect();
+            state
+                .slots
+                .values()
+                .filter(|slot| slot.template.as_deref().is_some_and(|t| templates.contains(t)))
+                .cloned()
+                .collect()
+        };
+        let reloaded = self.inherit_into(&inheriting).await;
+        Ok(json!({"reloaded": reloaded}))
+    }
+
+    /// Write `system`'s providers into each of `slots`, and reload each one that changed. Its ids.
+    async fn inherit_into(&self, slots: &[Arc<Slot>]) -> Vec<String> {
+        let changed: Vec<&Arc<Slot>> = slots
+            .iter()
+            .filter(|slot| match self.factory.inherit_into(&slot.facts) {
+                Ok(changed) => changed,
+                Err(e) => {
+                    tracing::warn!(instance = %slot.id, error = %e, "the inherited providers were not written");
+                    false
+                }
+            })
+            .collect();
+        let mut reloaded = Vec::new();
+        for slot in changed {
+            match slot.link.call("config.reload", json!({})).await {
+                Ok(_) => reloaded.push(slot.id.clone()),
+                // Written already: it reads them when it is back.
+                Err(e) => tracing::warn!(instance = %slot.id, error = %e.message, "inherited providers written, not reloaded"),
+            }
+        }
+        reloaded
+    }
+
+    /// Wait on the link's own status, not by asking again.
+    async fn wait_ready(&self, instance: &str, timeout: std::time::Duration) -> Rpc<Value> {
+        let slot = self.slot(instance).ok_or_else(|| not_found(instance))?;
+        let mut status = slot.link.status();
+        let waited = tokio::time::timeout(timeout, async {
+            loop {
+                let now = status.borrow_and_update().clone();
+                match now {
+                    LinkStatus::Ready => return Ok(()),
+                    LinkStatus::Down { .. } => return Err(link::unavailable(&now)),
+                    LinkStatus::Starting | LinkStatus::Degraded { .. } => {}
+                }
+                if status.changed().await.is_err() {
+                    return Err(link::unavailable(&status.borrow().clone()));
+                }
+            }
+        })
+        .await;
+        match waited {
+            Ok(Ok(())) => Ok(self.instance_view(&slot)),
+            Ok(Err(mut e)) => {
+                e.data = Some(json!({"instance": instance, "status": slot.status()}));
+                Err(e)
+            }
+            Err(_) => Err(RpcError {
+                code: codes::INSTANCE_UNAVAILABLE,
+                message: format!(
+                    "the instance `{instance}` was not ready within {} ms",
+                    timeout.as_millis()
+                ),
+                data: Some(json!({"instance": instance, "status": slot.status()})),
+            }),
+        }
+    }
+
+    fn instance_view(&self, slot: &Slot) -> Value {
+        let identity = slot.link.identity();
+        let mut view = json!({
+            "id": slot.id,
+            "carrier": slot.link.carrier(),
+            "template": slot.template,
+            "params": slot.params,
+            "owner": slot.owner,
+            "status": slot.status(),
+            "version": identity.get("version"),
+            "protocol_version": identity.get("protocol_version"),
+            "data_root": slot.facts.root_label(),
+            "scenes": slot.facts.active_scenes,
+            "pid": slot.link.pid(),
+            "created_ms": slot.created_ms,
+        });
+        if slot.link.reaps_on_stop() {
+            view["reap"] = json!(true);
+        }
+        view
+    }
+
+    /// `harnix.instances.list`, and the value of the `harnix.instances` topic.
+    pub fn view(&self) -> Value {
+        let list: Vec<Value> = self.slots().iter().map(|s| self.instance_view(s)).collect();
+        json!({"instances": list})
+    }
+
+    /// Stop every instance, at the end of the process.
+    pub async fn shutdown(&self) {
+        for slot in self.slots() {
+            slot.unwatch();
+            slot.link.shutdown().await;
+        }
+    }
+}
+
+/// Republish the instance list whenever `link`'s status changes, for as long as it is listed.
+fn watch_status(link: &Arc<dyn EngineLink>, observer: Arc<dyn InstanceObserver<dyn EngineLink>>) -> tokio::task::JoinHandle<()> {
+    let mut status = link.status();
+    tokio::spawn(async move {
+        while status.changed().await.is_ok() {
+            observer.changed(INSTANCES_TOPIC, json!({}));
+        }
+    })
+}
+
+fn refused(message: String) -> RpcError {
+    RpcError::new(codes::REFUSED, message)
+}
+
+fn not_found(instance: &str) -> RpcError {
+    RpcError::new(codes::INSTANCE_NOT_FOUND, format!("there is no instance `{instance}`"))
+}
+
+#[cfg(test)]
+mod tests;

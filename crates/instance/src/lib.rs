@@ -36,6 +36,8 @@ mod inproc;
 pub mod link;
 pub mod profile;
 mod reap;
+pub mod recording;
+pub mod registry;
 mod serve;
 mod servers;
 pub mod templates;
@@ -53,6 +55,8 @@ pub use factory::{engine_config, Built, Facts, Factory};
 pub use inproc::InProcessLink;
 pub use link::{Carrier, DownLink, EngineLink, LinkStatus};
 pub use profile::{EngineProfile, InstanceDecl, Profile, TemplateDecl, TransportProfile, UiProfile};
+pub use recording::Recording;
+pub use registry::{InstanceFacts, InstanceRegistry, InstanceRow, RegistryCell, RegistryConfig, INSTANCES_TOPIC};
 pub use servers::{ServerTokens, SharedServers};
 pub use serve::{refuse_daemon, refusal_path, serve_daemon, serve_daemon_with, DaemonArgs, REFUSED_EXIT};
 pub use templates::{
