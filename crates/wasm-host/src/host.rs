@@ -2,14 +2,16 @@
 //!
 //! # Starting, in order, and backwards on a failure
 //!
-//! 1. The manifest unpacked at `<app_dir>/<version>/` is read, and checked to be the record's.
-//! 2. Its signatures are verified over its files as they are now: what is on disk may not be what
-//!    was installed. Unsigned, it starts only where the product runs unsigned code.
+//! 1. The manifest unpacked at [`Start::pkg`] is read, and checked to be the record's.
+//! 2. Its signatures are the product's to verify, over its files as they are now, and it says how
+//!    far they vouched ([`Start::trust`]) and the sha256 they gave its component
+//!    ([`Start::cwasm_sha256`]). The host checks only that the bytes it loads are those.
 //! 3. Its agent package and skills are switched on in the instances the install put them in.
 //! 4. It is registered with the kernel — its methods, topics and spaces, under `app.<id>.*`,
-//!    and its `calls` capability — then its component loaded (refused if it was compiled for another
-//!    engine, or its bytes are not the ones signed), its VM started (a backend's `init` runs, and
-//!    may already publish, call and subscribe), its tools listed and offered.
+//!    its `calls` capability, its tools and its manifest's digest — then its component loaded
+//!    (refused if it was compiled for another engine, or its bytes are not the ones verified), its
+//!    VM started (a backend's `init` runs, serving the start, and may already publish, call and
+//!    subscribe), its tools listed and offered.
 //!
 //! A step that fails undoes every step before it, and why is kept for [`Control::status`].
 
@@ -19,13 +21,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use async_trait::async_trait;
-use harnix_package::acquire::{self, internal, refused, Admission};
+use harnix_package::acquire::{self, internal, refused};
 use harnix_package::manifest::{self, toml_to_json, Manifest};
-use harnix_package::signature::{Trust, Verified};
+use harnix_package::signature::{sha256, Trust};
 use harnix_wasm_port::{
-    Agent, Control, HookCall, HookReply, Kernel, MethodCall, MethodDecl, Offer, Place, Placement,
-    Progress, Registration, RpcError, SpaceDecl, Start, Started, Stop, ToolCall, ToolDef,
-    ToolReply, TopicValue, Unplace,
+    Agent, CallMeta, ChainLink, Control, HookCall, HookReply, Kernel, MethodCall, MethodDecl, Offer,
+    Place, Placement, Progress, Registration, RpcError, SpaceDecl, Start, Started, Stop, ToolCall,
+    ToolDef, ToolReply, TopicValue, TurnChain, TurnRef, Unplace,
 };
 use harnix_contract::sync::{lock, read, write};
 use harnix_wasm::{
@@ -39,16 +41,11 @@ use crate::bridge::{failure_of, Bridge, Method};
 use crate::idle::{self, Activity};
 use crate::placement::{self, Placed};
 
-/// What the product tells the host when it makes it.
+/// What the product tells the host when it makes it: what holds for every application it will
+/// run. What is each application's own — its trust, configuration and secrets — comes with its
+/// [`Start`].
 #[derive(Default)]
 pub struct HostOptions {
-    /// The keys packages are verified with, and whether unsigned code runs (`[apps] dev`).
-    pub admission: Admission,
-    /// `[apps.config]`, by application id: set over each one's `[config]`.
-    pub config: BTreeMap<String, toml::Value>,
-    /// `[apps.secrets]`, by application id: what `host.secret` gives each one, by name, for the
-    /// names its `env` declares. Nothing else is: not this process's environment.
-    pub secrets: BTreeMap<String, BTreeMap<String, String>>,
     /// How long every on-demand backend idles before it hibernates, in place of its manifest's
     /// `idle_secs` (which is never under a minute). For a test application that needs to see one
     /// hibernate; a product has no reason to, and a profile cannot.
@@ -110,6 +107,9 @@ pub struct Host {
     calls: Mutex<HashMap<String, CancellationToken>>,
     /// See [`Host::generation`].
     generation: Arc<AtomicU64>,
+    /// The chains of turns running on an engine of the host's own, as the product told of them
+    /// ([`Control::turn_started`]).
+    turns: Mutex<HashMap<(String, String), Vec<ChainLink>>>,
 }
 
 /// A running call's entry in [`Host::calls`], taken out however the call ends (a caller that goes
@@ -167,6 +167,16 @@ fn world_name(world: World) -> String {
     .to_string()
 }
 
+/// How far the product said a package's signatures vouched for it.
+fn trust_of(trust: &str) -> Result<Trust, RpcError> {
+    match trust {
+        "store" => Ok(Trust::Store),
+        "trusted" => Ok(Trust::Trusted),
+        "unsigned" => Ok(Trust::Unsigned),
+        other => Err(internal(format!("`{other}` is not a trust: store, trusted or unsigned"))),
+    }
+}
+
 /// A tool call's `host.progress`, in order, to the kernel: the sink is called on the VM's side
 /// and does not wait, so it queues for one task that does — boundedly, dropping (and counting)
 /// what a tool says faster than it can be told.
@@ -200,7 +210,14 @@ impl Host {
             failed: Mutex::new(BTreeMap::new()),
             calls: Mutex::new(HashMap::new()),
             generation: Arc::default(),
+            turns: Mutex::new(HashMap::new()),
         }))
+    }
+
+    /// The chain of the turn running in `session` on the engine of `instance`, as the product told
+    /// of it; none when it has not (then ask it: [`Kernel::turn_chain`]).
+    pub fn turn_chain(&self, instance: &str, session: &str) -> Option<Vec<ChainLink>> {
+        lock(&self.turns).get(&(instance.to_string(), session.to_string())).cloned()
     }
 
     /// A number that moves whenever what [`Control::status`] answers may have: an application
@@ -227,8 +244,9 @@ impl Host {
         read(&self.apps).get(id).cloned()
     }
 
-    /// The registration of `manifest`'s names, and its methods' schemas compiled.
-    fn declare(manifest: &Manifest) -> Result<(Registration, BTreeMap<String, Method>), RpcError> {
+    /// The registration of `manifest`'s names (read from `root`), and its methods' schemas
+    /// compiled.
+    fn declare(manifest: &Manifest, root: &Path) -> Result<(Registration, BTreeMap<String, Method>), RpcError> {
         let id = &manifest.app.id;
         let mut methods = BTreeMap::new();
         let mut decls = Vec::new();
@@ -267,12 +285,16 @@ impl Host {
                 decl
             })
             .collect();
+        let text = std::fs::read(root.join(manifest::MANIFEST))
+            .map_err(|e| internal(format!("`{id}`'s manifest: {e}")))?;
         let registration = Registration {
             app: id.clone(),
             methods: decls,
             topics: manifest.topics.iter().map(|t| t.name.clone()).collect(),
             spaces,
             calls: manifest.capabilities.calls.clone(),
+            tools: manifest.tools.iter().map(declared_tool).collect(),
+            digest: sha256(&text),
         };
         Ok((registration, methods))
     }
@@ -282,18 +304,22 @@ impl Host {
     /// not start takes the registration back with it.
     async fn boot(
         &self,
+        meta: &CallMeta,
         manifest: &Manifest,
-        root: &Path,
-        app_dir: &Path,
+        start: &Start,
+        (bytes, run): (Option<Vec<u8>>, &Path),
         registration: Registration,
         bridge: Arc<Bridge>,
-        verified: &Verified,
     ) -> Result<Booted, RpcError> {
         let id = &manifest.app.id;
-        self.kernel.register(registration).await?;
-        // `init` holds the backend as a method call does.
-        let started = self.start_vm(manifest, root, app_dir, bridge.clone(), verified);
-        match crate::bridge::waiting_in(Vec::new(), id, started).await {
+        self.kernel.register(meta.child(id, false), registration).await?;
+        // `init` holds the backend as a method call does, serving the start.
+        let serving = bridge.serve(meta.call_id(), meta, true);
+        bridge.booting(Some(serving.id()));
+        let started = self.start_vm(manifest, start, bytes, run, bridge.clone()).await;
+        bridge.booting(None);
+        drop(serving);
+        match started {
             Ok((vm, tools)) => {
                 if let Some(vm) = &vm {
                     bridge.started(vm);
@@ -301,7 +327,7 @@ impl Host {
                 Ok(Booted { vm, tools })
             }
             Err(e) => {
-                if let Err(w) = self.kernel.withdraw(id.clone()).await {
+                if let Err(w) = self.kernel.withdraw(meta.child(id, false), id.clone()).await {
                     tracing::debug!(app = %id, error = %w.message, "a registration was not taken back");
                 }
                 Err(e)
@@ -309,20 +335,14 @@ impl Host {
         }
     }
 
-    /// Start the VM and list its tools. `verified`: the package's signatures, checked over `root`.
-    async fn start_vm(
-        &self,
-        manifest: &Manifest,
-        root: &Path,
-        app_dir: &Path,
-        bridge: Arc<Bridge>,
-        verified: &Verified,
-    ) -> Result<(Option<AppVm>, Vec<ToolDef>), RpcError> {
+    /// The component's bytes for this engine, checked to be the ones the product verified — read
+    /// once, and what is loaded, not merely a file of that name that was verified a moment ago.
+    /// None for a package without one.
+    fn component(manifest: &Manifest, start: &Start, root: &Path, fingerprint: &str) -> Result<Option<Vec<u8>>, RpcError> {
         let Some(component) = &manifest.component else {
-            return Ok((None, Vec::new()));
+            return Ok(None);
         };
         let id = &manifest.app.id;
-        let fingerprint = self.engine.fingerprint();
         let artifact = root
             .join("wasm")
             .join(format!("{}.{fingerprint}.cwasm", component.name));
@@ -333,24 +353,38 @@ impl Host {
                 component.name
             ))
         })?;
-        if !verified.trust.signed() && !self.options.admission.dev {
-            return Err(refused(format!(
-                "`{id}` was installed unsigned, and its code runs only with `[apps] dev = true`"
-            )));
+        match (&start.cwasm_sha256, trust_of(&start.trust)?) {
+            (Some(expected), _) if *expected != sha256(&bytes) => Err(refused(format!(
+                "`{id}`: its component is not the one that was verified (its sha256 differs)"
+            ))),
+            (Some(_), _) | (None, Trust::Unsigned) => Ok(Some(bytes)),
+            (None, trust) => Err(refused(format!(
+                "`{id}` is {} and its component was given no sha256 to be checked against",
+                trust.as_str()
+            ))),
         }
-        // The bytes about to be deserialized are the ones that were signed, not merely a file of
-        // that name that was signed a moment ago.
-        verified
-            .check(
-                &format!("wasm/{}.{fingerprint}.cwasm", component.name),
-                &bytes,
-            )
-            .map_err(|e| refused(format!("`{id}`: {e}")))?;
-        // SAFETY: an artifact is machine code. Signed, its bytes were just checked against the
-        // sha256 the store (or a publisher the profile trusts) signed, whose signature was
-        // verified before this was called. Unsigned, it is loaded only under `[apps] dev = true`
-        // (checked just above), which is the operator saying that unsigned code is theirs to trust
-        // — the developer's own build, on the developer's own machine.
+    }
+
+    /// Start the VM from the component's checked `bytes` and list its tools; what it writes goes
+    /// under `run`.
+    async fn start_vm(
+        &self,
+        manifest: &Manifest,
+        start: &Start,
+        bytes: Option<Vec<u8>>,
+        run: &Path,
+        bridge: Arc<Bridge>,
+    ) -> Result<(Option<AppVm>, Vec<ToolDef>), RpcError> {
+        let (Some(component), Some(bytes)) = (&manifest.component, bytes) else {
+            return Ok((None, Vec::new()));
+        };
+        let id = &manifest.app.id;
+        let fingerprint = self.engine.fingerprint();
+        // SAFETY: an artifact is machine code. Its bytes were just checked against the sha256 the
+        // product took from the signatures it verified — the store's, or a publisher's the profile
+        // trusts. With none, the product starts it as unsigned, which it does only where the
+        // operator said unsigned code is theirs to trust (`[ext.packages] dev`): the developer's
+        // own build, on the developer's own machine.
         let loaded = unsafe { self.engine.load(&bytes, fingerprint) }
             .map_err(|e| refused(format!("`{id}`: {e:#}")))?;
         let declared = if component.world == manifest::WORLDS[1] {
@@ -386,11 +420,11 @@ impl Host {
                 timeout: std::time::Duration::from_millis(component.timeout_ms),
             },
             dirs: harnix_wasm::AppDirs {
-                data: app_dir.join("data"),
+                data: run.join("data"),
             },
-            config: manifest.config_with(manifest::overrides_for(&self.options.config, id).as_ref()),
+            config: manifest.config_with(Some(&start.config)),
         };
-        let kv = harnix_wasm::FileKv::open(app_dir.join("kv"))
+        let kv = harnix_wasm::FileKv::open(run.join("kv"))
             .map_err(|e| internal(format!("`{id}`'s storage: {e}")))?;
         let services = harnix_wasm::Services {
             host: bridge,
@@ -429,9 +463,12 @@ impl Host {
     }
 
     /// Everything [`Control::start`] does but keeping why it failed.
-    async fn start_app(&self, start: &Start) -> Result<Started, RpcError> {
+    async fn start_app(&self, meta: &CallMeta, start: &Start) -> Result<Started, RpcError> {
         let id = &start.app;
-        let root = start.app_dir.join(&start.version);
+        let (Some(root), Some(run)) = (start.pkg.clone(), start.run.clone()) else {
+            return Err(internal(format!("`{id}` was started with no package or run directory")));
+        };
+        let trust = trust_of(&start.trust)?;
         let manifest = acquire::manifest_in(&root)?;
         if &manifest.app.id != id || manifest.app.version != start.version {
             return Err(internal(format!(
@@ -442,21 +479,19 @@ impl Host {
                 start.version
             )));
         }
-        // Every start, over the files as they are now: what is on disk may not be what was
-        // installed.
-        let verified = self.options.admission.admit_root(&root, &manifest)?;
-        let (registration, methods) = Self::declare(&manifest)?;
+        let (registration, methods) = Self::declare(&manifest, &root)?;
+        let bytes = Self::component(&manifest, start, &root, self.engine.fingerprint())?;
         placement::switch(self.agent.as_ref(), id, &root, &start.parts, true).await?;
         let bridge = Bridge::new(
             id,
             manifest.topics.iter().map(|t| t.name.clone()),
-            self.options.secrets.get(id).cloned().unwrap_or_default(),
+            start.secrets.clone(),
             self.kernel.clone(),
             self.generation.clone(),
         );
         lock(&self.bridges).insert(id.clone(), bridge.clone());
         let booted = match self
-            .boot(&manifest, &root, &start.app_dir, registration, bridge.clone(), &verified)
+            .boot(meta, &manifest, start, (bytes, &run), registration, bridge.clone())
             .await
         {
             Ok(booted) => booted,
@@ -484,7 +519,7 @@ impl Host {
         let running = Arc::new(Running {
             version: start.version.clone(),
             root: root.clone(),
-            trust: verified.trust,
+            trust,
             vm: booted.vm,
             tools: booted.tools.clone(),
             bridge,
@@ -518,7 +553,7 @@ impl Host {
         tracing::info!(app = %id, tools = booted.tools.len(), "application started");
         Ok(Started {
             app: id.clone(),
-            trust: verified.trust.as_str().to_string(),
+            trust: trust.as_str().to_string(),
             world,
             tools: booted.tools,
         })
@@ -584,7 +619,7 @@ impl Host {
 
 #[async_trait]
 impl Control for Host {
-    async fn place(&self, place: Place) -> Result<Placement, RpcError> {
+    async fn place(&self, _meta: CallMeta, place: Place) -> Result<Placement, RpcError> {
         let root = place.app_dir.join(&place.version);
         let mut placed = Placed::default();
         match placement::place(&self.agent, &root, &place.app_dir, &mut placed).await {
@@ -600,7 +635,7 @@ impl Control for Host {
         }
     }
 
-    async fn unplace(&self, unplace: Unplace) -> Result<Value, RpcError> {
+    async fn unplace(&self, _meta: CallMeta, unplace: Unplace) -> Result<Value, RpcError> {
         let placed = Placed::of(&unplace.parts);
         placed.undo(self.agent.as_ref(), &unplace.app).await;
         Ok(json!({
@@ -609,7 +644,7 @@ impl Control for Host {
         }))
     }
 
-    async fn start(&self, start: Start) -> Result<Started, RpcError> {
+    async fn start(&self, meta: CallMeta, start: Start) -> Result<Started, RpcError> {
         if let Some(running) = self.running(&start.app) {
             let world = running.vm.as_ref().map(|vm| world_name(vm.world()));
             return Ok(Started {
@@ -619,7 +654,7 @@ impl Control for Host {
                 tools: running.tools.clone(),
             });
         }
-        let outcome = match self.start_app(&start).await {
+        let outcome = match self.start_app(&meta, &start).await {
             Ok(started) => {
                 lock(&self.failed).remove(&start.app);
                 Ok(started)
@@ -633,7 +668,7 @@ impl Control for Host {
         outcome
     }
 
-    async fn stop(&self, stop: Stop) -> Result<(), RpcError> {
+    async fn stop(&self, meta: CallMeta, stop: Stop) -> Result<(), RpcError> {
         let id = &stop.app;
         lock(&self.failed).remove(id);
         self.moved();
@@ -653,7 +688,7 @@ impl Control for Host {
         // Then its names: a call decided from here is unknown. (The product has usually withdrawn
         // them already; then there is nothing left to take.) Calls queued behind the backend are
         // answered that it stopped.
-        if self.kernel.withdraw(id.clone()).await.is_ok() {
+        if self.kernel.withdraw(meta.child(id, false), id.clone()).await.is_ok() {
             tracing::debug!(app = %id, "registration withdrawn");
         }
         lock(&self.bridges).remove(id);
@@ -668,31 +703,22 @@ impl Control for Host {
         Ok(())
     }
 
-    async fn forget(&self, app: String) -> Result<(), RpcError> {
+    async fn forget(&self, _meta: CallMeta, app: String) -> Result<(), RpcError> {
         lock(&self.failed).remove(&app);
         self.moved();
         Ok(())
     }
 
-    async fn status(&self, app: String) -> Result<Value, RpcError> {
+    async fn status(&self, _meta: CallMeta, app: String) -> Result<Value, RpcError> {
         Ok(self.status_of(&app))
     }
 
-    async fn call_method(&self, call: MethodCall) -> Result<Value, RpcError> {
+    async fn call_method(&self, meta: CallMeta, call: MethodCall) -> Result<Value, RpcError> {
         let full = format!("app.{}.{}", call.app, call.method);
-        // Its backend is waiting on this very call, a hop or several back: refused now rather
-        // than left to wait for itself until the timeout recycles it. Said by the call itself, so
-        // it holds whatever carried it here; the VM's own check is for a call that stayed on one
-        // task.
-        if call.chain.contains(&call.app) {
-            return Err(crate::bridge::unavailable(
-                &call.app,
-                &full,
-                &format!(
-                    "would re-enter the backend of `{}`, which is waiting on this very call",
-                    call.app
-                ),
-                harnix_wasm_port::Failure::Unavailable.as_str(),
+        if meta.expired(crate::bridge::now_ms()) {
+            return Err(RpcError::new(
+                harnix_wasm_port::codes::DEADLINE_EXCEEDED,
+                format!("`{full}`: its deadline passed before its backend was asked"),
             ));
         }
         let Some(app) = self.running(&call.app) else {
@@ -703,20 +729,36 @@ impl Control for Host {
                 "stopped",
             ));
         };
+        // Its backend is waiting on this very call, a hop or several back: the chain holds it on
+        // a call it is still serving. Refused now rather than left to wait for itself until the
+        // timeout recycles it — said by the call itself, so it holds whatever carried it here; the
+        // VM's own check is for a call that stayed on one task. A call the chain holds it on that
+        // was answered long ago (a turn queued by a method that has returned) is not waited on.
+        if meta.links().iter().any(|l| l.ext() == call.app && app.bridge.holds_backend(l.call())) {
+            return Err(crate::bridge::unavailable(
+                &call.app,
+                &full,
+                &format!(
+                    "would re-enter the backend of `{}`, which is waiting on this very call",
+                    call.app
+                ),
+                "reentrant",
+            ));
+        }
         let Some(method) = app.methods.get(&call.method) else {
             return Err(RpcError::not_found(format!("`{full}` is not one of its methods")));
         };
         let outcome = {
             let _busy = app.activity.hold();
-            let answer = method.answer(app.vm.as_ref(), &call.caller, call.params);
-            crate::bridge::waiting_in(call.chain, &call.app, answer).await
+            let serving = app.bridge.serve(meta.call_id(), &meta, true);
+            method.answer(app.vm.as_ref(), serving.id(), &call.caller, call.params).await
         };
         app.bridge.stats.method(&call.method, outcome.as_ref().err());
         self.moved();
         outcome
     }
 
-    async fn deliver(&self, value: TopicValue) -> Result<(), RpcError> {
+    async fn deliver(&self, _meta: CallMeta, value: TopicValue) -> Result<(), RpcError> {
         let bridge = lock(&self.bridges).get(&value.app).cloned();
         if let Some(bridge) = bridge {
             bridge.deliver(value.topic, value.value);
@@ -725,7 +767,7 @@ impl Control for Host {
         Ok(())
     }
 
-    async fn call_tool(&self, call: ToolCall) -> Result<ToolReply, RpcError> {
+    async fn call_tool(&self, meta: CallMeta, call: ToolCall) -> Result<ToolReply, RpcError> {
         let Some(app) = self.running(&call.app) else {
             return Ok(ToolReply::Failed {
                 failure: harnix_wasm_port::Failure::Unavailable,
@@ -738,6 +780,8 @@ impl Control for Host {
         };
         let (cancel, _running) = self.cancellation(&call.call_id);
         let _busy = app.activity.hold();
+        // The tool's own instance: what it calls is made for this call, holding no backend.
+        let _serving = app.bridge.serve(&call.call_id, &meta, false);
         let (sink, forwarded) = if call.progress {
             let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(crate::bridge::QUEUE);
             let (kernel, app_id, tool, call_id) = (
@@ -754,7 +798,7 @@ impl Control for Host {
                         call_id: call_id.clone(),
                         text,
                     };
-                    let _ = kernel.progress(progress).await;
+                    kernel.progress(progress);
                 }
             });
             let queue = ProgressQueue {
@@ -796,7 +840,7 @@ impl Control for Host {
         })
     }
 
-    async fn hook(&self, call: HookCall) -> Result<HookReply, RpcError> {
+    async fn hook(&self, meta: CallMeta, call: HookCall) -> Result<HookReply, RpcError> {
         let Some(app) = self.running(&call.app) else {
             return Ok(HookReply::Failed(format!("`{}` is not running", call.app)));
         };
@@ -809,7 +853,8 @@ impl Control for Host {
         }
         let (cancel, _running) = self.cancellation(&call.call_id);
         let _busy = app.activity.hold();
-        let decided = vm.on_event(&call.event, &call.payload, &cancel).await;
+        let _serving = app.bridge.serve(&call.call_id, &meta, false);
+        let decided = vm.on_event_as(Some(&call.call_id), &call.event, &call.payload, &cancel).await;
         self.moved();
         Ok(match decided {
             Ok(HookDecision::Proceed) => HookReply::Proceed,
@@ -819,14 +864,14 @@ impl Control for Host {
         })
     }
 
-    async fn cancel(&self, call_id: String) -> Result<(), RpcError> {
+    async fn cancel(&self, _meta: CallMeta, call_id: String) -> Result<(), RpcError> {
         if let Some(token) = lock(&self.calls).get(&call_id) {
             token.cancel();
         }
         Ok(())
     }
 
-    async fn shutdown(&self, reason: String) -> Result<(), RpcError> {
+    async fn shutdown(&self, _meta: CallMeta, reason: String) -> Result<(), RpcError> {
         let apps: Vec<(String, Arc<Running>)> = std::mem::take(&mut *write(&self.apps)).into_iter().collect();
         lock(&self.bridges).clear();
         for (id, app) in apps {
@@ -838,5 +883,13 @@ impl Control for Host {
         }
         self.moved();
         Ok(())
+    }
+
+    fn turn_started(&self, turn: TurnChain) {
+        lock(&self.turns).insert((turn.instance, turn.session_id), turn.chain);
+    }
+
+    fn turn_settled(&self, turn: TurnRef) {
+        lock(&self.turns).remove(&(turn.instance, turn.session_id));
     }
 }

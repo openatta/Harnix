@@ -308,8 +308,9 @@ impl RegisteredExtension for Registered {
     }
 
     async fn call(&self, meta: CallMeta, method: &str, params: Value) -> Rpc<Value> {
-        // Of what the call says about itself, only the extensions waiting on it are kept.
-        let chain = Chain::of_extensions(meta.links().iter().map(|link| link.ext().to_string()));
+        // Of what the call says about itself, the extensions waiting on it are kept, each with the
+        // call it is held on: what a host refuses re-entry by while that call is running.
+        let chain = Chain::from(meta.into_links());
         self.host.apps.call_chained(self.by.as_str(), self.id.as_str(), method, params, chain).await
     }
 

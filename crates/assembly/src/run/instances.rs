@@ -53,6 +53,7 @@ pub(super) async fn build(
         data_root: roots.engine.clone(),
         cwd: None,
         instance: harnix_contract::MAIN_INSTANCE.to_string(),
+        chains: registry.factory.chains(),
         contrib: {
             let mut contrib = lifecycle::main_contribution(records);
             apps.engine(&mut contrib);

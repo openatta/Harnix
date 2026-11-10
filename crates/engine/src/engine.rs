@@ -48,6 +48,25 @@ pub struct EngineConfig {
     pub contrib: harnix_engine_api::EngineContribution,
     /// The instance this engine carries: what a tool's call names its session by.
     pub instance: String,
+    /// Which calls each session's running turn is on behalf of: what its tool calls carry.
+    pub chains: Chains,
+}
+
+/// Where an engine's tool calls read their turn's chain from ([`harnix_engine_api::ChainSource`]); by default, no
+/// turn waits on any call.
+#[derive(Clone)]
+pub struct Chains(pub Arc<dyn harnix_engine_api::ChainSource>);
+
+impl Default for Chains {
+    fn default() -> Self {
+        Self(Arc::new(harnix_engine_api::NoChains))
+    }
+}
+
+impl std::fmt::Debug for Chains {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Chains")
+    }
 }
 
 pub struct Engine {
@@ -116,8 +135,8 @@ pub fn active_scenes(scene: &str, scenes: &[String]) -> Vec<String> {
 
 pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
     let contrib = &config.contrib;
-    let instance: Arc<str> = config.instance.as_str().into();
-    let host_scenes = crate::scenes::host_scenes(contrib.scenes(), contrib.admitted(), &instance)?;
+    let site = crate::adapt::tool::Site::new(&config.instance, config.chains.0.clone());
+    let host_scenes = crate::scenes::host_scenes(contrib.scenes(), contrib.admitted(), &site)?;
     let scene = resolve_scene(&config.scene, &host_scenes)?;
     let scope = scene.id().to_string();
     for extra in &config.scenes {
@@ -243,7 +262,7 @@ pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
             plugins: contrib
                 .providers()
                 .iter()
-                .map(|p| Arc::new(crate::adapt::provider::AgixPlugin::new(p.clone(), instance.clone())) as Arc<dyn runtime::plugin::Plugin>)
+                .map(|p| Arc::new(crate::adapt::provider::AgixPlugin::new(p.clone(), site.clone())) as Arc<dyn runtime::plugin::Plugin>)
                 .collect(),
             customize_session: crate::hooks::customizer(contrib),
             mcp_oauth_resolver: None,

@@ -20,6 +20,7 @@ use harnix_package::package;
 use harnix_package::signature::Trust;
 use harnix_builtin::apps::{AppsRuntime, InstallRecord, UpdateFailed};
 use harnix_module::ModuleContext;
+use harnix_wasm_port::CallMeta;
 use serde_json::{json, Value};
 
 use crate::runtime::Runtime;
@@ -86,7 +87,7 @@ impl Runtime {
                     self.unplace(id, parts).await;
                 }
                 let _ = std::fs::remove_dir_all(&new_root);
-                let _ = self.control().forget(id.clone()).await;
+                let _ = self.control().forget(CallMeta::default(), id.clone()).await;
                 let trust = record
                     .parts
                     .get("trust")

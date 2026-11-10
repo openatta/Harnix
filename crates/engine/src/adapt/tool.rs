@@ -1,8 +1,11 @@
-//! A Harnix [`Tool`] as an Agix tool, and a call's cancellation.
+//! A Harnix [`Tool`] as an Agix tool, a call's cancellation, and its chain.
 //!
 //! Agix cancels a tool call by dropping its future; the call's [`ToolCx::cancel`] is fired then
 //! too (a guard held across the call), and when the turn is interrupted while the call runs —
 //! the call is then waited for, so a tool that has something to stop gets to stop it.
+//!
+//! A call carries the chain of the turn its session is running ([`ToolCx::chain`]), read once as
+//! it starts from the engine's [`ChainSource`].
 
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -12,15 +15,40 @@ use base::interface::tool::{
     PermissionDecision, ProgressSender, PromptContext, Tool as AgixToolTrait, ToolContext, ToolResult,
     ToolResultContent,
 };
-use harnix_engine_api::{Cancel, Permission, Progress, Tool, ToolCx, ToolError};
+use harnix_engine_api::{Cancel, ChainSource, NoChains, Permission, Progress, SessionRef, Tool, ToolCx, ToolError};
 use serde_json::Value;
 
-/// A tool, and the instance whose engine calls it: what its calls name their session by.
-pub(crate) struct AgixTool(Arc<dyn Tool>, Arc<str>);
+/// The engine a tool is called from: the instance its calls name their session by, and where a
+/// call's chain comes from.
+pub(crate) struct Site {
+    pub(crate) instance: Arc<str>,
+    chains: Arc<dyn ChainSource>,
+}
+
+impl Site {
+    pub(crate) fn new(instance: &str, chains: Arc<dyn ChainSource>) -> Arc<Self> {
+        Arc::new(Self { instance: instance.into(), chains })
+    }
+
+    /// An engine of `instance` whose turns no call waits on.
+    #[cfg(test)]
+    pub(crate) fn bare(instance: &str) -> Arc<Self> {
+        Self::new(instance, Arc::new(NoChains))
+    }
+}
+
+impl Default for Site {
+    fn default() -> Self {
+        Self { instance: "".into(), chains: Arc::new(NoChains) }
+    }
+}
+
+/// A tool, and the engine that calls it.
+pub(crate) struct AgixTool(Arc<dyn Tool>, Arc<Site>);
 
 impl AgixTool {
-    pub(crate) fn new(tool: Arc<dyn Tool>, instance: Arc<str>) -> Self {
-        Self(tool, instance)
+    pub(crate) fn new(tool: Arc<dyn Tool>, site: Arc<Site>) -> Self {
+        Self(tool, site)
     }
 }
 
@@ -71,8 +99,10 @@ impl AgixToolTrait for AgixTool {
         };
         let cancel = Cancel::new();
         let _dropped = cancel.guard();
+        let chain = self.1.chains.chain(&SessionRef::new(&*self.1.instance, ctx.session_id.as_str()));
         let cx = ToolCx::new(&ctx.session_id, &tool_use_id)
-            .with_instance(&self.1)
+            .with_instance(&self.1.instance)
+            .with_chain(chain)
             .with_project(ctx.cwd.clone())
             .with_depth(ctx.agent_depth)
             .with_cancel(cancel.clone())
@@ -150,7 +180,7 @@ mod tests {
     #[tokio::test]
     async fn a_tool_is_told_what_agix_tells_and_answers_in_agixs_terms() {
         let spec = ToolSpec::new("echo", "says it back", json!({"type": "object"})).doc("at length").source("app:x").read_only();
-        let tool = AgixTool::new(Arc::new(Echo(spec)), "main".into());
+        let tool = AgixTool::new(Arc::new(Echo(spec)), Site::bare("main"));
         assert_eq!((tool.name(), tool.description(), tool.source().as_ref()), ("echo", "says it back", "app:x"));
         assert_eq!(tool.prompt(&PromptContext::default()).await, "says it back\n\nat length");
         assert!(tool.is_read_only(&json!({})) && !tool.is_concurrency_safe(&json!({})));
@@ -164,5 +194,54 @@ mod tests {
         let waiting = tool.call(json!({"wait": true}), ctx, ProgressSender::noop("t2"));
         cancel.cancel();
         assert!(matches!(waiting.await, Err(AgixError::Cancelled)));
+    }
+
+    /// A tool that says the chain it was called with, and fires when its call is let go of.
+    struct Chained(ToolSpec, std::sync::Mutex<Option<Cancel>>);
+
+    #[async_trait::async_trait]
+    impl Tool for Chained {
+        fn spec(&self) -> &ToolSpec {
+            &self.0
+        }
+        fn permission(&self, _: &Value) -> Permission {
+            Permission::Allow
+        }
+        async fn call(&self, cx: ToolCx, _: Value) -> Result<ToolOutput, ToolError> {
+            *self.1.lock().unwrap() = Some(cx.cancel().clone());
+            let chain: Vec<String> = cx.chain().iter().map(|l| format!("{}@{}", l.ext(), l.call())).collect();
+            if cx.chain().is_empty() {
+                std::future::pending::<()>().await;
+            }
+            Ok(ToolOutput::text(chain.join(",")))
+        }
+    }
+
+    struct OneTurn;
+
+    impl ChainSource for OneTurn {
+        fn chain(&self, session: &SessionRef) -> Vec<harnix_engine_api::ChainLink> {
+            match (session.instance.as_str(), session.session_id.as_str()) {
+                ("main", "s1") => vec![harnix_engine_api::ChainLink::new("acme.notes", "7")],
+                _ => Vec::new(),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_call_carries_its_turns_chain_and_a_dropped_one_is_cancelled() {
+        let tool = Arc::new(Chained(ToolSpec::new("c", "d", json!({"type": "object"})), Default::default()));
+        let adapted = AgixTool::new(tool.clone(), Site::new("main", Arc::new(OneTurn)));
+        let mut ctx = ToolContext::for_test("/p".into());
+        ctx.session_id = "s1".into();
+        let out = adapted.call(json!({}), ctx.clone(), ProgressSender::noop("t1")).await.unwrap();
+        assert!(matches!(out.content, ToolResultContent::Text(ref t) if t == "acme.notes@7"));
+
+        // Another session's turn is on behalf of nothing; Agix drops the call, and the tool's
+        // cancellation fires with it.
+        ctx.session_id = "s2".into();
+        let call = adapted.call(json!({}), ctx, ProgressSender::noop("t2"));
+        let _ = tokio::time::timeout(std::time::Duration::from_millis(50), call).await;
+        assert!(tool.1.lock().unwrap().as_ref().unwrap().is_cancelled(), "dropped and not cancelled");
     }
 }

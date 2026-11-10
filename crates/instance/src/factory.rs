@@ -102,6 +102,18 @@ pub struct Factory {
     pub providers_from: Option<PathBuf>,
     /// What every link built here records with.
     pub recording: Arc<Recording>,
+    /// Which calls each session's running turn is on behalf of, as the hub writes it: what the
+    /// tool calls of every engine built in this process carry.
+    pub turns: Arc<harnix_kernel::TurnChains>,
+}
+
+/// The hub's turns, as an engine's tool calls read them.
+struct TurnSource(Arc<harnix_kernel::TurnChains>);
+
+impl harnix_engine_api::ChainSource for TurnSource {
+    fn chain(&self, session: &harnix_engine_api::SessionRef) -> Vec<harnix_engine_api::ChainLink> {
+        self.0.chain(&session.instance, &session.session_id).links().to_vec()
+    }
 }
 
 impl Factory {
@@ -118,7 +130,13 @@ impl Factory {
             servers: Arc::default(),
             providers_from: None,
             recording: Recording::new(None),
+            turns: Arc::default(),
         })
+    }
+
+    /// Where the tool calls of an engine built in this process read their turn's chain.
+    pub fn chains(&self) -> engine::Chains {
+        engine::Chains(Arc::new(TurnSource(self.turns.clone())))
     }
 
     /// The link to an engine already built in this process: the main instance's.
@@ -175,7 +193,9 @@ impl Factory {
                 for pattern in &self.admitted {
                     contrib.admit_everywhere(pattern);
                 }
-                let engine = engine::build(engine_config(id, engine, &data_root, contrib)).await?;
+                let mut config = engine_config(id, engine, &data_root, contrib);
+                config.chains = self.chains();
+                let engine = engine::build(config).await?;
                 Ok(self.in_process(id, engine).await)
             }
             TemplateCarrier::Spawn {
@@ -309,6 +329,7 @@ pub fn engine_config(
         cwd: None,
         contrib,
         instance: instance.to_string(),
+        chains: Default::default(),
     }
 }
 

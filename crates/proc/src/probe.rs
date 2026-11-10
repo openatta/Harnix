@@ -201,7 +201,7 @@ fn vm_engine() -> anyhow::Result<String> {
     runtime.block_on(async {
         // A kernel at the end of a pair nothing answers: the host is made, not used.
         let (stream, _other) = tokio::net::UnixStream::pair()?;
-        let wire = SocketWire::client(stream, Arc::new(Answering::default()), WireOptions::default());
+        let wire = SocketWire::client(stream, Arc::new(Answering::new(None, None)), WireOptions::default());
         let host = Host::new(HostOptions::default(), Arc::new(KernelClient(wire.clone() as Arc<dyn Wire>)), Arc::new(NoEngine))
             .map_err(|e| anyhow!("{e:#}"))?;
         let fingerprint = host.engine().fingerprint().to_string();

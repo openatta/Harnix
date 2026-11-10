@@ -195,7 +195,7 @@ impl Rig {
         let dir = tempfile::tempdir().unwrap();
         let book = Arc::new(Book::default());
         let spaces = Spaces::load(dir.path().join("spaces.json"), declared, Default::default()).unwrap();
-        let hub = Hub::new(HubConfig { instances: book.clone(), spaces });
+        let hub = Hub::new(HubConfig { instances: book.clone(), spaces, turns: Default::default() });
         let cell = HubCell::default();
         let rows = Hub::rows(&cell)
             .into_iter()

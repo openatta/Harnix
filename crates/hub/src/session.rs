@@ -21,6 +21,9 @@ pub(crate) struct QueueItem {
     pub item_id: String,
     pub message: String,
     pub attachments: Value,
+    /// The calls the send was made on behalf of, the sender's own included: what the turn it
+    /// starts is on behalf of.
+    pub chain: harnix_kernel::Chain,
 }
 
 impl QueueItem {

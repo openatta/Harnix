@@ -72,10 +72,12 @@ pub(super) async fn assemble(
         .collect();
     let declared = declared_spaces(records, profile.extensions.default_space.as_deref())?;
     let spaces = harnix_hub::Spaces::load(roots.state.join("kernel").join("spaces.json"), declared.clone(), withheld)?;
+    let turns = registry.factory.turns.clone();
     let registry = InstanceRegistry::new(registry);
     let hub = Hub::new(HubConfig {
         instances: registry.clone(),
         spaces,
+        turns,
     });
     // Before any instance is added: the hub is handed every link the registry builds.
     registry.observe(hub.clone());

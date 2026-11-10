@@ -6,16 +6,16 @@ use base::interface::tool_middleware::{NextDispatch, ToolAnswer, ToolCall, ToolE
 use harnix_engine_api::{Cancel, HookDecision, SessionFacts, ToolCallFacts, ToolHook, ToolProvider};
 use runtime::plugin::{Plugin, PluginSession, Registrar};
 
-use super::tool::AgixTool;
+use super::tool::{AgixTool, Site};
 
 /// Registered for every session an engine builds, delegates included: what the provider gives
 /// that session, then.
-pub(crate) struct AgixPlugin(Arc<dyn ToolProvider>, Arc<str>);
+pub(crate) struct AgixPlugin(Arc<dyn ToolProvider>, Arc<Site>);
 
 impl AgixPlugin {
-    /// `provider`'s tools for the sessions of `instance`'s engine.
-    pub(crate) fn new(provider: Arc<dyn ToolProvider>, instance: Arc<str>) -> Self {
-        Self(provider, instance)
+    /// `provider`'s tools for the sessions of `site`'s engine.
+    pub(crate) fn new(provider: Arc<dyn ToolProvider>, site: Arc<Site>) -> Self {
+        Self(provider, site)
     }
 }
 

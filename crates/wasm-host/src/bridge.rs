@@ -16,6 +16,13 @@
 //!   for the system space.
 //! - **Its spaces** (`[[space]]`) are listed with every other.
 //!
+//! **A call's chain.** Every call the host serves for the product comes with its [`CallMeta`], and
+//! is kept here while it runs ([`Bridge::serve`]): a `host.call` the application makes while serving
+//! it names it as its parent, and — when it holds the backend (a method call, `init`) — carries its
+//! chain with the application held on it. A call that comes back into this backend while the
+//! backend still serves the call the chain holds it on is refused at once, however it travelled
+//! ([`Bridge::holds_backend`]); one whose call was answered long ago is not.
+//!
 //! Who may call an application's methods, then: whoever its manifest names — `device` (the
 //! default) is every paired device and so the page, under its token, `module` every module (a
 //! compiled-in module, or another application whose `calls` list the method), `kernel` the product
@@ -23,12 +30,12 @@
 //! does not call methods: the agent uses the application's tools, and a tool that needs the
 //! backend's state asks for it with `host.call`.
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use async_trait::async_trait;
-use harnix_wasm_port::{CallAs, Failure, Kernel, Publish, RpcError, Subject, Subscription};
+use harnix_wasm_port::{CallAs, CallMeta, Failure, Kernel, Publish, RpcError, Subject, Subscription};
 use harnix_wasm::{AppHost, AppVm, CallFailure, WeakAppVm};
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot};
@@ -45,31 +52,48 @@ pub(crate) const QUEUE: usize = 256;
 /// Method errors kept per application.
 const ERRORS_KEPT: usize = 20;
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
 }
 
-tokio::task_local! {
-    /// The applications whose resident backends the current task is inside, outermost first, as
-    /// this host knows it: each method call it answers is run in one, and a `host.call` made from
-    /// inside carries it ([`CallAs::chain`]) — over whatever link the kernel is behind, where no
-    /// task-local reaches.
-    static WAITING: Vec<String>;
+/// A call of the product's the host is serving for one application.
+struct Served {
+    meta: CallMeta,
+    /// It holds the resident backend: a call made while serving it waits on it.
+    holds: bool,
+    /// How many times it is being served (a product that reuses an id for two calls at once).
+    count: usize,
 }
 
-/// Run `f`, a call that holds `app`'s backend, inside `chain` and `app`.
-pub(crate) async fn waiting_in<F: std::future::Future>(mut chain: Vec<String>, app: &str, f: F) -> F::Output {
-    chain.push(app.to_string());
-    WAITING.scope(chain, f).await
+/// Ids for calls the product sent with none.
+static UNNAMED: AtomicU64 = AtomicU64::new(1);
+
+/// While held, the call is being served ([`Bridge::serve`]).
+pub(crate) struct Serving {
+    bridge: Arc<Bridge>,
+    id: String,
 }
 
-/// The chain a `host.call` made now carries: none outside a call that holds a backend (a tool's
-/// own instance, a timer).
-fn waiting() -> Vec<String> {
-    WAITING.try_with(Clone::clone).unwrap_or_default()
+impl Serving {
+    /// The id the call is served under: the product's, or one made for it when it gave none.
+    pub(crate) fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Drop for Serving {
+    fn drop(&mut self) {
+        let mut served = lock(&self.bridge.served);
+        if let Some(entry) = served.get_mut(&self.id) {
+            entry.count -= 1;
+            if entry.count == 0 {
+                served.remove(&self.id);
+            }
+        }
+    }
 }
 
 /// What one application did, as the system space shows it. Every count it makes bumps the host's
@@ -172,6 +196,10 @@ pub struct Bridge {
     topic_values: mpsc::Sender<(String, Value)>,
     started: Mutex<Option<oneshot::Sender<WeakAppVm>>>,
     pub stats: Arc<Stats>,
+    /// The product's calls being served for the application, by the id each was served under.
+    served: Mutex<HashMap<String, Served>>,
+    /// While its VM starts: the start it serves, which `init`'s calls are made for.
+    booting: Mutex<Option<String>>,
 }
 
 impl Bridge {
@@ -207,7 +235,7 @@ impl Bridge {
                         topic: topic.clone(),
                         value,
                     };
-                    match kernel.publish(publish).await {
+                    match kernel.publish(CallMeta::default(), publish).await {
                         Ok(()) => stats.counted().published += 1,
                         // Withdrawn under it: nothing more can be published.
                         Err(e) => tracing::debug!(%app, %topic, error = %e.message, "not published"),
@@ -224,7 +252,54 @@ impl Bridge {
             topic_values,
             started: Mutex::new(Some(started)),
             stats,
+            served: Mutex::new(HashMap::new()),
+            booting: Mutex::new(None),
         })
+    }
+
+    /// Serve the product's call `meta` for as long as the answer is held, by `key`: the id the VM
+    /// is told it serves (a method call's own id, a tool call's or a hook's). `holds`: it holds
+    /// the resident backend. A call with no id is given one.
+    pub(crate) fn serve(self: &Arc<Self>, key: &str, meta: &CallMeta, holds: bool) -> Serving {
+        let id = match key {
+            "" => format!("unnamed-{}", UNNAMED.fetch_add(1, Ordering::Relaxed)),
+            key => key.to_string(),
+        };
+        let meta = match meta.call_id() {
+            "" => meta.clone().with_call_id(id.as_str()),
+            _ => meta.clone(),
+        };
+        let mut served = lock(&self.served);
+        let entry = served.entry(id.clone()).or_insert(Served { meta, holds, count: 0 });
+        entry.holds |= holds;
+        entry.count += 1;
+        drop(served);
+        Serving { bridge: self.clone(), id }
+    }
+
+    /// While the VM starts, `init`'s calls are made for `start`.
+    pub(crate) fn booting(&self, start: Option<&str>) {
+        *lock(&self.booting) = start.map(str::to_string);
+    }
+
+    /// Whether the backend is still serving the call `call`: a call whose chain holds the
+    /// application on it would wait for itself.
+    pub fn holds_backend(&self, call: &str) -> bool {
+        lock(&self.served).get(call).is_some_and(|s| s.holds)
+    }
+
+    /// The metadata of a call the application makes while serving `serving` (or `init`'s call,
+    /// while it starts): that call its parent, its chain the served call's — with the
+    /// application held on it when it holds the backend — and its deadline the same.
+    fn made_within(&self, serving: Option<&str>) -> CallMeta {
+        let booting = lock(&self.booting).clone();
+        let Some(id) = serving.map(str::to_string).or(booting) else {
+            return CallMeta::default();
+        };
+        match lock(&self.served).get(&id) {
+            Some(served) => served.meta.child(&self.app, served.holds),
+            None => CallMeta::default(),
+        }
     }
 
     /// A value on a topic it subscribed to, from the kernel.
@@ -249,19 +324,20 @@ impl Bridge {
 
 #[async_trait]
 impl AppHost for Bridge {
-    async fn call(&self, _app: &str, method: &str, params: Value) -> Result<Value, String> {
+    async fn call(&self, app: &str, method: &str, params: Value) -> Result<Value, String> {
+        self.call_within(app, None, method, params).await
+    }
+
+    async fn call_within(&self, _app: &str, serving: Option<&str>, method: &str, params: Value) -> Result<Value, String> {
         // On the same task, so a call that routes back into this backend is recognized by the VM
-        // and refused rather than waiting for itself; and carrying the chain of backends it is
-        // inside, so the host recognizes it too when the route went through another task.
-        let outcome = self
-            .kernel
-            .call(CallAs {
-                app: self.app.clone(),
-                method: method.to_string(),
-                params,
-                chain: waiting(),
-            })
-            .await;
+        // and refused rather than waiting for itself; and carrying the chain of the call it serves,
+        // so the host recognizes it too when the route went through another task or process.
+        let call = CallAs {
+            app: self.app.clone(),
+            method: method.to_string(),
+            params,
+        };
+        let outcome = self.kernel.call(self.made_within(serving), call).await;
         self.stats.hub(method, &outcome);
         outcome.map_err(|e| e.message)
     }
@@ -292,7 +368,7 @@ impl AppHost for Bridge {
     async fn subscribe(&self, _app: &str, topic: &str, params: &Value) -> Result<(), String> {
         let outcome = self
             .kernel
-            .subscribe(Subscription {
+            .subscribe(self.made_within(None), Subscription {
                 app: self.app.clone(),
                 topic: topic.to_string(),
                 params: params.clone(),
@@ -311,7 +387,7 @@ impl AppHost for Bridge {
     async fn unsubscribe(&self, _app: &str, topic: &str, params: &Value) {
         let _ = self
             .kernel
-            .unsubscribe(Subscription {
+            .unsubscribe(CallMeta::default(), Subscription {
                 app: self.app.clone(),
                 topic: topic.to_string(),
                 params: params.clone(),
@@ -350,7 +426,7 @@ pub(crate) fn failure_of(failure: &CallFailure) -> Failure {
         CallFailure::TimedOut => Failure::TimedOut,
         CallFailure::Cancelled => Failure::Cancelled,
         CallFailure::Faulted(_) => Failure::Faulted,
-        CallFailure::Unavailable(_) => Failure::Unavailable,
+        CallFailure::Unavailable(_) | CallFailure::Reentrant(_) => Failure::Unavailable,
     }
 }
 
@@ -359,10 +435,12 @@ impl Method {
         format!("app.{}.{}", self.app, self.name)
     }
 
-    /// Checked against its schema, then answered by `vm` (none: the application is not running).
+    /// Checked against its schema, then answered by `vm` (none: the application is not running),
+    /// serving the product's call `serving`.
     pub async fn answer(
         &self,
         vm: Option<&AppVm>,
+        serving: &str,
         caller: &Subject,
         params: Value,
     ) -> Result<Value, RpcError> {
@@ -387,27 +465,43 @@ impl Method {
         let Some(vm) = vm else {
             return Err(unavailable(&self.app, &self.full(), "the application is not running", "stopped"));
         };
-        match vm.handle(&self.name, &params, &caller_json(caller)).await {
+        match vm.handle_as(Some(serving), &self.name, &params, &caller_json(caller)).await {
             Ok(Ok(value)) => Ok(value),
             Ok(Err(e)) => Err(RpcError {
                 code: e.code,
                 message: e.message,
                 data: e.data,
             }),
-            Err(failure) => Err(unavailable(
-                &self.app,
-                &self.full(),
-                &failure.to_string(),
-                failure_of(&failure).as_str(),
-            )),
+            Err(failure) => Err(no_answer(&self.app, &self.full(), &failure, vm)),
         }
     }
 }
 
-/// The backend gave no answer: an internal error that says why, and `data.failure` for a client
-/// that wants to tell a timeout from a crash from a stopped application.
+/// The backend gave no answer, in the codes a caller tells the reasons apart by: its timeout
+/// passed (`DEADLINE_EXCEEDED`), the call was cancelled (`CANCELLED`), or the application could
+/// not take it (`EXTENSION_UNAVAILABLE`, `data.failure` saying why: it crashed or was set aside —
+/// `faulted` —, it is stopped, the call would have re-entered it).
+pub(crate) fn no_answer(app: &str, method: &str, failure: &CallFailure, vm: &AppVm) -> RpcError {
+    let (code, why) = match failure {
+        CallFailure::TimedOut => (codes::DEADLINE_EXCEEDED, "timed_out"),
+        CallFailure::Cancelled => (codes::CANCELLED, "cancelled"),
+        CallFailure::Faulted(_) => (codes::EXTENSION_UNAVAILABLE, "faulted"),
+        CallFailure::Reentrant(_) => (codes::EXTENSION_UNAVAILABLE, "reentrant"),
+        CallFailure::Unavailable(_) => match vm.health().state {
+            harnix_wasm::VmState::Disabled { .. } => (codes::EXTENSION_UNAVAILABLE, "faulted"),
+            harnix_wasm::VmState::Stopped => (codes::EXTENSION_UNAVAILABLE, "stopped"),
+            _ => (codes::EXTENSION_UNAVAILABLE, "unavailable"),
+        },
+    };
+    let mut e = RpcError::new(code, format!("`{method}`: {failure}"));
+    e.data = Some(json!({"app": app, "failure": why}));
+    e
+}
+
+/// The application cannot take the call (`EXTENSION_UNAVAILABLE`); `failure` says why:
+/// `stopped`, `reentrant`.
 pub(crate) fn unavailable(app: &str, method: &str, why: &str, failure: &str) -> RpcError {
-    let mut e = RpcError::new(codes::INTERNAL_ERROR, format!("`{method}`: {why}"));
+    let mut e = RpcError::new(codes::EXTENSION_UNAVAILABLE, format!("`{method}`: {why}"));
     e.data = Some(json!({"app": app, "failure": failure}));
     e
 }
@@ -421,27 +515,60 @@ mod tests {
 
     #[async_trait]
     impl Kernel for Stuck {
-        async fn publish(&self, _: Publish) -> Result<(), RpcError> {
+        async fn publish(&self, _: CallMeta, _: Publish) -> Result<(), RpcError> {
             std::future::pending().await
         }
-        async fn register(&self, _: harnix_wasm_port::Registration) -> Result<(), RpcError> {
+        async fn register(&self, _: CallMeta, _: harnix_wasm_port::Registration) -> Result<(), RpcError> {
             unreachable!()
         }
-        async fn withdraw(&self, _: String) -> Result<(), RpcError> {
+        async fn withdraw(&self, _: CallMeta, _: String) -> Result<(), RpcError> {
             unreachable!()
         }
-        async fn call(&self, _: CallAs) -> Result<Value, RpcError> {
+        async fn call(&self, _: CallMeta, _: CallAs) -> Result<Value, RpcError> {
             unreachable!()
         }
-        async fn subscribe(&self, _: Subscription) -> Result<Value, RpcError> {
+        async fn subscribe(&self, _: CallMeta, _: Subscription) -> Result<Value, RpcError> {
             unreachable!()
         }
-        async fn unsubscribe(&self, _: Subscription) -> Result<(), RpcError> {
+        async fn unsubscribe(&self, _: CallMeta, _: Subscription) -> Result<(), RpcError> {
             unreachable!()
         }
-        async fn progress(&self, _: harnix_wasm_port::Progress) -> Result<(), RpcError> {
+        async fn fetch(&self, _: CallMeta, _: harnix_wasm_port::Fetch) -> Result<harnix_wasm_port::Fetched, RpcError> {
             unreachable!()
         }
+        async fn turn_chain(&self, _: CallMeta, _: harnix_wasm_port::TurnRef) -> Result<harnix_wasm_port::TurnChain, RpcError> {
+            unreachable!()
+        }
+        fn progress(&self, _: harnix_wasm_port::Progress) {
+            unreachable!()
+        }
+    }
+
+    #[test]
+    fn a_call_made_while_serving_one_is_its_child_and_held_on_it_only_when_it_holds_the_backend() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let _in = runtime.enter();
+        let bridge = Bridge::new("acme.notes", [], BTreeMap::new(), Arc::new(Stuck), Default::default());
+        let method = CallMeta::new("41").chain([harnix_wasm_port::ChainLink::new("acme.todo", "7")]).deadline_ms(9);
+        let held = bridge.serve("41", &method, true);
+        let tool = bridge.serve("", &CallMeta::default(), false);
+        assert!(bridge.holds_backend("41") && !bridge.holds_backend(tool.id()));
+        let made = bridge.made_within(Some("41"));
+        assert_eq!((made.parent_id(), made.deadline()), (Some("41"), Some(9)));
+        assert!(made.holds("acme.todo", "7") && made.holds("acme.notes", "41"));
+        let from_tool = bridge.made_within(Some(tool.id()));
+        assert_eq!(from_tool.parent_id(), Some(tool.id()));
+        assert!(from_tool.links().is_empty(), "a tool holds no backend");
+        assert_eq!(bridge.made_within(None), CallMeta::default(), "what the backend does on its own");
+        // Answered, it holds nothing any more.
+        drop(held);
+        assert!(!bridge.holds_backend("41"));
+        assert_eq!(bridge.made_within(Some("41")), CallMeta::default());
+        // While it starts, `init` serves the start.
+        let start = bridge.serve("s1", &CallMeta::new("s1"), true);
+        bridge.booting(Some(start.id()));
+        assert!(bridge.made_within(None).holds("acme.notes", "s1"));
+        bridge.booting(None);
     }
 
     #[tokio::test]

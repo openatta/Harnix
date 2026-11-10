@@ -36,6 +36,10 @@ pub(crate) struct AppState {
     /// storage quota when the store was made (then its files are read-only here). `None`: nothing
     /// it can write, so nothing to measure after its calls.
     pub over_quota: Option<bool>,
+    /// The host's call this instance is serving now, by the id the host gave it: what a
+    /// `host.call` made from inside names as the call it was made for. None between calls, and
+    /// for what the backend does on its own (a timer, a topic value).
+    pub serving: Option<String>,
     wasi: WasiCtx,
     table: ResourceTable,
 }
@@ -59,6 +63,7 @@ impl AppState {
             progress,
             limiter,
             over_quota,
+            serving: None,
             wasi,
             table: ResourceTable::new(),
         })

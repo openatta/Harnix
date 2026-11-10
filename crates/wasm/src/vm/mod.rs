@@ -392,6 +392,7 @@ impl AppVm {
         inner.shared.tool_admitted(name)?;
         let input = input.to_string();
         let mut store = inner.store(Role::Transient, progress, project)?;
+        store.data_mut().serving = Some(call_id.to_string());
         let mut started = false;
         let call = async {
             let instance = inner.pre.instantiate_async(&mut store).await?;
@@ -429,6 +430,18 @@ impl AppVm {
         payload: &Value,
         cancel: &CancellationToken,
     ) -> Result<HookDecision, CallFailure> {
+        self.on_event_as(None, event, payload, cancel).await
+    }
+
+    /// [`AppVm::on_event`], serving the host's call `serving`: what a `host.call` made from
+    /// inside names as the call it was made for ([`crate::AppHost::call_within`]).
+    pub async fn on_event_as(
+        &self,
+        serving: Option<&str>,
+        event: &str,
+        payload: &Value,
+        cancel: &CancellationToken,
+    ) -> Result<HookDecision, CallFailure> {
         let inner = &self.inner;
         let Some(idx) = &inner.events else {
             return Ok(HookDecision::Proceed);
@@ -436,6 +449,7 @@ impl AppVm {
         inner.shared.admit()?;
         let payload = payload.to_string();
         let mut store = inner.store(Role::Transient, None, None)?;
+        store.data_mut().serving = serving.map(str::to_string);
         let mut started = false;
         let call = async {
             let instance = inner.pre.instantiate_async(&mut store).await?;
@@ -466,10 +480,22 @@ impl AppVm {
         params: &Value,
         caller: &Value,
     ) -> Result<Result<Value, AppError>, CallFailure> {
+        self.handle_as(None, method, params, caller).await
+    }
+
+    /// [`AppVm::handle`], serving the host's call `serving`: what a `host.call` the backend makes
+    /// while it answers names as the call it was made for ([`crate::AppHost::call_within`]).
+    pub async fn handle_as(
+        &self,
+        serving: Option<&str>,
+        method: &str,
+        params: &Value,
+        caller: &Value,
+    ) -> Result<Result<Value, AppError>, CallFailure> {
         let inner = &self.inner;
         inner.export(&inner.backend, "backend")?;
         if holds(inner.shared.vm_id) {
-            return Err(CallFailure::Unavailable(format!(
+            return Err(CallFailure::Reentrant(format!(
                 "`{method}` would re-enter the backend of `{}`, which is waiting on this very call",
                 inner.shared.app
             )));
@@ -496,10 +522,14 @@ impl AppVm {
                 "the backend is not running".into(),
             ));
         };
+        resident.store.data_mut().serving = serving.map(str::to_string);
         let call = resident
             .guest
             .call_handle(&mut resident.store, method, &params, &caller);
         let outcome = holding(inner.shared.vm_id, with_deadline(call, inner.timeout, None)).await;
+        if let Some(resident) = guard.as_mut() {
+            resident.store.data_mut().serving = None;
+        }
         let answer = inner.settle_resident(&mut guard, outcome, method).await?;
         Ok(match answer {
             Ok(json) => serde_json::from_str(&json).map_err(|e| AppError {

@@ -7,6 +7,9 @@
 //! must have the `proc` feature, and the showcase is packed for its engine either way. What it
 //! measures — how long the process takes to say hello and to start the showcase, and what it holds
 //! once idle — it prints: `cargo test -p harnix-testapp --features proc --test ext_proc -- --nocapture`.
+//!
+//! A backend whose call the product routes back into itself is refused in the process at once, by
+//! the chain the product worked out from the call's parent: not left to wait for itself.
 
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
@@ -64,7 +67,7 @@ fn showcase_package() -> &'static Path {
         let (wasm, out_s) = (wasm.to_str().unwrap(), out.to_str().unwrap());
         cargo(
             &root(),
-            &["run", "-q", "-p", "harnix-package", "--features", "compile", "--bin", "harnix-app", "--",
+            &["run", "-q", "-p", "harnix-package", "--features", "compile", "--bin", "harnix-pack", "--",
               "pack", "examples/apps/showcase", "--wasm", wasm, "-o", out_s],
             &[],
         );
@@ -95,11 +98,18 @@ struct Product {
     said: Mutex<Vec<String>>,
     /// The process, as this end reaches it.
     control: OnceLock<Arc<dyn Control>>,
+    /// When set, a call the showcase makes that its `calls` lists is routed into this method of
+    /// its own instead.
+    reroute: OnceLock<String>,
+    /// What a call routed back into the showcase answered when it failed, and how long it took.
+    routed_errors: Mutex<Vec<(RpcError, Duration)>>,
+    /// The metadata of every call the showcase made as itself, as this end worked it out.
+    metas: Mutex<Vec<CallMeta>>,
 }
 
 impl Product {
-    fn hub(&self) -> Vec<String> {
-        self.registered.lock().unwrap().iter().find(|r| r.app == ID).map(|r| r.hub.clone()).unwrap_or_default()
+    fn calls(&self) -> Vec<String> {
+        self.registered.lock().unwrap().iter().find(|r| r.app == ID).map(|r| r.calls.clone()).unwrap_or_default()
     }
 
     fn said(&self, prefix: &str) -> Vec<String> {
@@ -113,49 +123,64 @@ impl Product {
 
 #[async_trait]
 impl Kernel for Product {
-    async fn register(&self, r: Registration) -> Result<(), RpcError> {
+    async fn register(&self, _: CallMeta, r: Registration) -> Result<(), RpcError> {
         self.said.lock().unwrap().push(format!("register {}", r.app));
         self.registered.lock().unwrap().push(r);
         Ok(())
     }
-    async fn withdraw(&self, app: String) -> Result<(), RpcError> {
+    async fn withdraw(&self, _: CallMeta, app: String) -> Result<(), RpcError> {
         self.said.lock().unwrap().push(format!("withdraw {app}"));
         Ok(())
     }
-    async fn call(&self, c: CallAs) -> Result<Value, RpcError> {
-        if let Some(own) = c.method.strip_prefix(&format!("app.{ID}.")) {
+    async fn call(&self, meta: CallMeta, c: CallAs) -> Result<Value, RpcError> {
+        self.metas.lock().unwrap().push(meta.clone());
+        let own = match c.method.strip_prefix(&format!("app.{ID}.")) {
+            Some(own) => Some((own.to_string(), c.params.clone())),
+            None => self.reroute.get().map(|own| (own.clone(), json!({}))),
+        };
+        if let Some((own, params)) = own {
+            // Routed on as a product does: a call of its own, with the chain it came with.
+            let began = Instant::now();
             let control = self.control.get().unwrap().clone();
-            return control
-                .call_method(MethodCall {
-                    app: ID.into(),
-                    method: own.into(),
-                    caller: Subject::extension(harnix::ExtId::package(ID).unwrap()),
-                    params: c.params,
-                    chain: c.chain,
-                })
-                .await;
+            let call = MethodCall {
+                app: ID.into(),
+                method: own,
+                caller: Subject::extension(harnix::ExtId::package(ID).unwrap()),
+                params,
+            };
+            let routed = CallMeta::default().chain(meta.links().iter().cloned());
+            let outcome = control.call_method(routed, call).await;
+            if let Err(e) = &outcome {
+                self.routed_errors.lock().unwrap().push((e.clone(), began.elapsed()));
+            }
+            return outcome;
         }
-        if !self.hub().contains(&c.method) {
+        if !self.calls().contains(&c.method) {
             return Err(RpcError::refused(format!("`module:{ID}` may not call `{}`", c.method)));
         }
         self.said.lock().unwrap().push(format!("call {}", c.method));
         Ok(json!({"session_id": "s-from-the-backend"}))
     }
-    async fn publish(&self, p: Publish) -> Result<(), RpcError> {
+    async fn publish(&self, _: CallMeta, p: Publish) -> Result<(), RpcError> {
         self.published.lock().unwrap().push((p.topic, p.value));
         Ok(())
     }
-    async fn subscribe(&self, s: Subscription) -> Result<Value, RpcError> {
+    async fn subscribe(&self, _: CallMeta, s: Subscription) -> Result<Value, RpcError> {
         self.said.lock().unwrap().push(format!("subscribe {}", s.topic));
         Ok(json!({"topic": s.topic, "value": {"sessions": [{"session_id": "a"}]}}))
     }
-    async fn unsubscribe(&self, s: Subscription) -> Result<(), RpcError> {
+    async fn unsubscribe(&self, _: CallMeta, s: Subscription) -> Result<(), RpcError> {
         self.said.lock().unwrap().push(format!("unsubscribe {}", s.topic));
         Ok(())
     }
-    async fn progress(&self, p: Progress) -> Result<(), RpcError> {
+    async fn fetch(&self, _: CallMeta, f: Fetch) -> Result<Fetched, RpcError> {
+        Err(RpcError::refused(format!("this product makes no request for `{}`", f.url)))
+    }
+    async fn turn_chain(&self, _: CallMeta, t: TurnRef) -> Result<TurnChain, RpcError> {
+        Ok(TurnChain { instance: t.instance, session_id: t.session_id, chain: Vec::new() })
+    }
+    fn progress(&self, p: Progress) {
         self.progress.lock().unwrap().push((p.call_id, p.text));
-        Ok(())
     }
 }
 
@@ -176,6 +201,10 @@ impl Answer for ProductEnd {
             return Err(RpcError::new(codes::HANDSHAKE_REFUSED, "not the same build"));
         }
         Ok(json!({}))
+    }
+
+    fn notify(&self, method: &str, params: Value) {
+        self.kernel.notify(method, params);
     }
 }
 
@@ -214,38 +243,43 @@ impl Connection {
         (hello, at - self.spawned)
     }
 
+    /// Started as the product would after verifying it: the sha256 of the component the process
+    /// loads, compiled for the engine its hello named. Where it runs from is the process's own.
     async fn start(&self, app_dir: &Path, version: &str) -> Started {
-        self.control
-            .start(Start {
-                app: ID.into(),
-                version: version.into(),
-                app_dir: app_dir.to_path_buf(),
-                parts: json!({}),
-            })
-            .await
-            .unwrap()
+        let engine = self.hello().await.0["engine"].as_str().unwrap().to_string();
+        let cwasm = app_dir.join(version).join("wasm").join(format!("tools.{engine}.cwasm"));
+        let start = Start {
+            app: ID.into(),
+            version: version.into(),
+            trust: "store".into(),
+            cwasm_sha256: Some(harnix_package::signature::sha256(&std::fs::read(cwasm).unwrap())),
+            config: Value::Null,
+            secrets: Default::default(),
+            parts: json!({}),
+            pkg: None,
+            run: None,
+        };
+        self.control.start(CallMeta::default(), start).await.unwrap()
     }
 
     async fn device_call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
-        self.control
-            .call_method(MethodCall {
-                app: ID.into(),
-                method: method.into(),
-                caller: Subject::Device { id: "d1".into() },
-                params,
-                chain: Vec::new(),
-            })
-            .await
+        let call = MethodCall {
+            app: ID.into(),
+            method: method.into(),
+            caller: Subject::Device { id: "d1".into() },
+            params,
+        };
+        self.control.call_method(CallMeta::default(), call).await
     }
 }
 
 /// The spec of one start: the process's end of a fresh socket pair at fd 3, and the product's end
 /// sent to `ends`.
-fn spec(run: &Path, ends: &mpsc::UnboundedSender<(std::os::unix::net::UnixStream, Instant)>) -> std::io::Result<ChildSpec> {
+fn spec(pkg: &Path, run: &Path, ends: &mpsc::UnboundedSender<(std::os::unix::net::UnixStream, Instant)>) -> std::io::Result<ChildSpec> {
     let (product, process) = std::os::unix::net::UnixStream::pair()?;
     let _ = ends.send((product, Instant::now()));
     Ok(ChildSpec::new(program())
-        .args(["ext-proc", "--ext", ID, "--run", run.to_str().unwrap(), "--dev"])
+        .args(["ext-proc", "--ext", ID, "--pkg", pkg.to_str().unwrap(), "--run", run.to_str().unwrap()])
         .inherit_fd(3, OwnedFd::from(process))
         .own_session())
 }
@@ -295,9 +329,10 @@ async fn the_showcase_runs_in_an_extension_process_of_this_binary() {
     let dir = tempfile::tempdir().unwrap();
     let (app_dir, version) = unpack(dir.path());
     let run = app_dir.join("run");
+    let pkg = app_dir.join(&version);
     let (ends, mut product_ends) = mpsc::unbounded_channel();
-    let spawn_run = run.clone();
-    let mut supervisor = Supervisor::start(move || spec(&spawn_run, &ends), RestartPolicy::extension());
+    let (spawn_pkg, spawn_run) = (pkg.clone(), run.clone());
+    let mut supervisor = Supervisor::start(move || spec(&spawn_pkg, &spawn_run, &ends), RestartPolicy::extension());
     let pid = next_start(&mut supervisor).await;
     let (stream, spawned) = product_ends.recv().await.unwrap();
     let process = Connection::new(stream, spawned);
@@ -316,6 +351,7 @@ async fn the_showcase_runs_in_an_extension_process_of_this_binary() {
     assert_eq!(started.world.as_deref(), Some("backend"));
     assert_eq!(started.tools.len(), 8);
     let registration = process.product.registered.lock().unwrap()[0].clone();
+    assert_eq!(registration.digest.len(), 64, "its manifest's sha256");
     assert!(registration.methods.iter().any(|m| m.name == "state" && m.subjects == ["device", "module"]));
     assert_eq!(registration.topics, ["notes", "heartbeat", "fetched"]);
     assert_eq!(registration.spaces[0].id, ID);
@@ -347,7 +383,7 @@ async fn the_showcase_runs_in_an_extension_process_of_this_binary() {
     .await;
     process
         .control
-        .deliver(TopicValue {
+        .deliver(CallMeta::default(), TopicValue {
             app: ID.into(),
             topic: "harnix.sessions.status".into(),
             value: json!({"sessions": [{}, {}, {}]}),
@@ -365,25 +401,25 @@ async fn the_showcase_runs_in_an_extension_process_of_this_binary() {
 
     // Tools: an answer; progress, all of it before the answer; one that asks its own backend
     // through the product and back over the wire.
-    match process.control.call_tool(tool("echo", json!({"text": "hi"}), "c1")).await.unwrap() {
+    match process.control.call_tool(CallMeta::default(), tool("echo", json!({"text": "hi"}), "c1")).await.unwrap() {
         ToolReply::Output { structured, is_error, .. } => {
             assert_eq!(structured, Some(json!({"echoed": "hi"})));
             assert!(!is_error);
         }
         other => panic!("{other:?}"),
     }
-    process.control.call_tool(tool("slow", json!({"steps": 3, "ms": 10}), "c2")).await.unwrap();
+    process.control.call_tool(CallMeta::default(), tool("slow", json!({"steps": 3, "ms": 10}), "c2")).await.unwrap();
     assert_eq!(process.product.progress_of("c2"), 3);
-    match process.control.call_tool(tool("board", json!({}), "c3")).await.unwrap() {
+    match process.control.call_tool(CallMeta::default(), tool("board", json!({}), "c3")).await.unwrap() {
         ToolReply::Output { content, .. } => assert!(content.contains("the board has 2 notes"), "{content}"),
         other => panic!("{other:?}"),
     }
 
     // Cancelled by the port's own `cancel`: the tool answers that it was.
     let control = process.control.clone();
-    let slow = tokio::spawn(async move { control.call_tool(tool("slow", json!({"steps": 100, "ms": 100}), "c4")).await });
+    let slow = tokio::spawn(async move { control.call_tool(CallMeta::default(), tool("slow", json!({"steps": 100, "ms": 100}), "c4")).await });
     eventually("c4 under way", async || process.product.progress_of("c4") > 0).await;
-    process.control.cancel("c4".into()).await.unwrap();
+    process.control.cancel(CallMeta::default(), "c4".into()).await.unwrap();
     assert!(matches!(slow.await.unwrap().unwrap(), ToolReply::Failed { failure: Failure::Cancelled, .. }));
     // Cancelled by the wire: the caller lets go, `$/cancel` follows, and the process stops it.
     let token = CancellationToken::new();
@@ -424,12 +460,12 @@ async fn the_showcase_runs_in_an_extension_process_of_this_binary() {
     assert_eq!(process.device_call("notes.list", json!({})).await.unwrap()["notes"].as_array().unwrap().len(), 2);
 
     // Stopped: its names withdrawn and its subscription given back, over the wire.
-    process.control.stop(Stop { app: ID.into(), parts: json!({}) }).await.unwrap();
+    process.control.stop(CallMeta::default(), Stop { app: ID.into(), parts: json!({}) }).await.unwrap();
     assert_eq!(process.product.said("withdraw"), [format!("withdraw {ID}")]);
     assert_eq!(process.product.said("unsubscribe"), ["unsubscribe harnix.sessions.status"]);
     // Asked to go, it answers before it lets go of the wire; the product then stops keeping it,
     // which closes its stdin.
-    process.control.shutdown("the product is going".into()).await.unwrap();
+    process.control.shutdown(CallMeta::default(), "the product is going".into()).await.unwrap();
     supervisor.stop().await;
 }
 
@@ -438,7 +474,7 @@ async fn it_goes_with_the_product_and_says_why_it_cannot_start() {
     // Its stdin closed — the product gone, killed outright included — and it exits on its own.
     let dir = tempfile::tempdir().unwrap();
     let (ends, mut product_ends) = mpsc::unbounded_channel();
-    let child = spec(dir.path(), &ends).unwrap().spawn().unwrap();
+    let child = spec(dir.path(), dir.path(), &ends).unwrap().spawn().unwrap();
     let (stream, spawned) = product_ends.recv().await.unwrap();
     let process = Connection::new(stream, spawned);
     process.hello().await;
@@ -458,6 +494,49 @@ async fn it_goes_with_the_product_and_says_why_it_cannot_start() {
         .spawn()
         .unwrap();
     assert_eq!(child.wait().await.unwrap().code(), Some(78));
+}
+
+/// A backend whose call the product routes back into its own method — the call that made it
+/// still waiting on the answer — is refused by the process at once, by the chain the product
+/// worked out from the call's parent: the process held on the very call it is serving.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_backend_that_calls_back_into_itself_over_the_wire_is_refused_at_once() {
+    showcase_package();
+    let dir = tempfile::tempdir().unwrap();
+    let (app_dir, version) = unpack(dir.path());
+    let (ends, mut product_ends) = mpsc::unbounded_channel();
+    let child = spec(&app_dir.join(&version), &app_dir.join("run"), &ends).unwrap().spawn().unwrap();
+    let (stream, spawned) = product_ends.recv().await.unwrap();
+    let process = Connection::new(stream, spawned);
+    process.start(&app_dir, &version).await;
+    process.product.reroute.set("state".into()).unwrap();
+
+    let answer = process.device_call("overreach", json!({})).await.unwrap();
+    assert_eq!(answer["refused"], json!(true), "{answer}");
+    let (refused, took) = process.product.routed_errors.lock().unwrap()[0].clone();
+    assert_eq!(refused.code, codes::EXTENSION_UNAVAILABLE, "{refused:?}");
+    assert_eq!(refused.data.as_ref().unwrap()["failure"], json!("reentrant"));
+    assert!(took < Duration::from_millis(100), "refused after {took:?}");
+    // The product held the process on its own call, by the number it sent it under; the parent is
+    // the product's own id for that call.
+    let made = process.product.metas.lock().unwrap()[0].clone();
+    assert!(made.parent_id().is_some(), "{made:?}");
+    assert!(made.links().iter().any(|l| l.ext() == ID), "{made:?}");
+    // Not recycled, and the same chain once that call was answered is not waited on.
+    let status = process.control.status(CallMeta::default(), ID.into()).await.unwrap();
+    assert_eq!(status["health"]["recycles"], json!(0), "{status}");
+    let later = MethodCall {
+        app: ID.into(),
+        method: "state".into(),
+        caller: Subject::Kernel,
+        params: json!({}),
+    };
+    let again = CallMeta::default().chain(made.links().iter().cloned());
+    process.control.call_method(again, later).await.unwrap();
+
+    process.control.shutdown(CallMeta::default(), "done".into()).await.unwrap();
+    drop(process);
+    child.stop(Duration::from_secs(10)).await.unwrap();
 }
 
 fn spec_pair(ends: &mpsc::UnboundedSender<(std::os::unix::net::UnixStream, Instant)>) -> std::os::unix::net::UnixStream {

@@ -19,7 +19,8 @@ use std::sync::{Arc, OnceLock, RwLock, Weak};
 use async_trait::async_trait;
 use harnix_package::acquire::{internal, refused};
 use harnix_wasm_port::{
-    CallAs, Control, Kernel, MethodCall, Progress, Publish, Registration, Subscription, TopicValue,
+    CallAs, CallMeta, Control, Fetch, Fetched, Kernel, MethodCall, Progress, Publish, Registration,
+    Subscription, TopicValue, TurnChain, TurnRef,
 };
 use harnix_contract::sync::{read, write};
 use harnix_contract::{codes, RpcError, Subject};
@@ -91,19 +92,18 @@ struct Forward {
 #[async_trait]
 impl AppHandler for Forward {
     async fn call(&self, caller: &Subject, params: Value) -> Result<Value, RpcError> {
-        self.forward(caller, params, Vec::new()).await
+        self.forward(caller, params, CallMeta::default()).await
     }
 
-    /// The call's chain (`CallAs::chain`, when another application's backend made it) goes to
-    /// the host with it: the extensions waiting on this call, which the host refuses re-entry by.
+    /// The call's metadata goes to the host with it: its id, and the extensions waiting on it,
+    /// each on the call it holds them on — what the host refuses re-entry by.
     async fn call_in(&self, cx: &CallContext, params: Value) -> Result<Value, RpcError> {
-        let chain = cx.chain.extensions().map(str::to_string).collect();
-        self.forward(&cx.subject, params, chain).await
+        self.forward(&cx.subject, params, cx.meta()).await
     }
 }
 
 impl Forward {
-    async fn forward(&self, caller: &Subject, params: Value, chain: Vec<String>) -> Result<Value, RpcError> {
+    async fn forward(&self, caller: &Subject, params: Value, meta: CallMeta) -> Result<Value, RpcError> {
         let Some(control) = self.control.upgrade() else {
             let mut e = RpcError::new(
                 codes::INTERNAL_ERROR,
@@ -113,13 +113,15 @@ impl Forward {
             return Err(e);
         };
         control
-            .call_method(MethodCall {
-                app: self.app.clone(),
-                method: self.name.clone(),
-                caller: caller.clone(),
-                params,
-                chain,
-            })
+            .call_method(
+                meta,
+                MethodCall {
+                    app: self.app.clone(),
+                    method: self.name.clone(),
+                    caller: caller.clone(),
+                    params,
+                },
+            )
             .await
     }
 }
@@ -149,7 +151,7 @@ impl TopicValues {
                     topic,
                     value,
                 };
-                let _ = control.deliver(value).await;
+                let _ = control.deliver(CallMeta::default(), value).await;
             }
         });
         Self::onto(app, tx)
@@ -206,7 +208,7 @@ fn principals(app: &str, method: &str, subjects: &[String]) -> Result<Vec<Princi
 
 #[async_trait]
 impl Kernel for KernelPlatform {
-    async fn register(&self, r: Registration) -> Result<(), RpcError> {
+    async fn register(&self, _meta: CallMeta, r: Registration) -> Result<(), RpcError> {
         // Before anything is registered, and whether or not there is a host to register with.
         for m in &r.methods {
             principals(&r.app, &m.name, &m.subjects)?;
@@ -253,7 +255,7 @@ impl Kernel for KernelPlatform {
         Ok(())
     }
 
-    async fn withdraw(&self, app: String) -> Result<(), RpcError> {
+    async fn withdraw(&self, _meta: CallMeta, app: String) -> Result<(), RpcError> {
         let handle = write(&self.handles).remove(&app);
         match handle {
             Some(handle) => handle.withdraw().await.map(|_| ()),
@@ -261,30 +263,40 @@ impl Kernel for KernelPlatform {
         }
     }
 
-    async fn call(&self, call: CallAs) -> Result<Value, RpcError> {
+    /// The host is this process's own code: its word for who waits on the call is taken.
+    async fn call(&self, meta: CallMeta, call: CallAs) -> Result<Value, RpcError> {
         let handle = self.handle(&call.app)?;
         handle
-            .call_chained(&call.method, call.params, Chain::of_extensions(call.chain))
+            .call_chained(&call.method, call.params, Chain::from(meta.into_links()))
             .await
     }
 
-    async fn publish(&self, p: Publish) -> Result<(), RpcError> {
+    async fn publish(&self, _meta: CallMeta, p: Publish) -> Result<(), RpcError> {
         self.handle(&p.app)?
             .publish(&p.topic, json!({}), p.value)
             .await
     }
 
-    async fn subscribe(&self, s: Subscription) -> Result<Value, RpcError> {
+    async fn subscribe(&self, _meta: CallMeta, s: Subscription) -> Result<Value, RpcError> {
         self.handle(&s.app)?.subscribe(&s.topic, s.params).await
     }
 
-    async fn unsubscribe(&self, s: Subscription) -> Result<(), RpcError> {
+    async fn unsubscribe(&self, _meta: CallMeta, s: Subscription) -> Result<(), RpcError> {
         self.handle(&s.app)?.unsubscribe(&s.topic, s.params).await
     }
 
-    async fn progress(&self, p: Progress) -> Result<(), RpcError> {
+    /// The host makes its requests here, from this process.
+    async fn fetch(&self, _meta: CallMeta, f: Fetch) -> Result<Fetched, RpcError> {
+        Err(RpcError::refused(format!("`{}` makes its own requests; `{}` is not made for it", f.app, f.url)))
+    }
+
+    /// Every engine of this process reads its turns' chains itself.
+    async fn turn_chain(&self, _meta: CallMeta, t: TurnRef) -> Result<TurnChain, RpcError> {
+        Ok(TurnChain { instance: t.instance, session_id: t.session_id, chain: Vec::new() })
+    }
+
+    fn progress(&self, p: Progress) {
         self.registry.told(&p.call_id, &p.text);
-        Ok(())
     }
 }
 

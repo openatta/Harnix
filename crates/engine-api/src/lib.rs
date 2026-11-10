@@ -15,6 +15,7 @@
 //! instance's engine — a link it is handed once, what it asks of the engine, and what the engine
 //! says unasked — in Harnix's words, so the hub depends on this crate and not on the engine.
 
+pub mod chain;
 pub mod contribution;
 pub mod credentials;
 pub mod events;
@@ -27,6 +28,7 @@ pub mod scene;
 pub mod template;
 pub mod tool;
 
+pub use chain::{ChainSource, NoChains};
 pub use contribution::{EngineContribution, ForeignHook};
 pub use credentials::{CredentialSource, Secret};
 pub use events::{Completion, DaemonEventKind, EngineEvent, Fragment, Joins, Prompt, SessionEventKind, Waiting};

@@ -10,9 +10,14 @@
 //! The two ends do not trust alike. [`SocketWire::serve`] is the product's: what the process says
 //! about a call is a hint. Its id is replaced by one of the product's; its `parent` is kept only
 //! when it names a call the product sent on this wire and still waits on; its `chain` is computed
-//! from that parent and never read; its deadline is the earliest of the process's, the parent's
-//! and a cap. [`SocketWire::client`] is the extension process's, and takes the product's word for
-//! the chain and the deadline.
+//! from that parent and never read — the parent's chain, with the process held on the parent, by
+//! the number the process knows that call by; its deadline is the earliest of the process's, the
+//! parent's and a cap. [`SocketWire::client`] is the extension process's, and takes the product's
+//! word: a call keeps the id the product sent it under, so a chain link that holds the process on
+//! a call names it as the process's host knows it.
+//!
+//! A call goes out under a number of this end's, unique among every wire of this process: a chain
+//! kept past one process of an extension (a queued turn's) never names a call of the next one.
 //!
 //! What a call can count on, either way:
 //!
@@ -66,38 +71,63 @@ pub const CTL: &str = "ctl.";
 pub const CANCEL: &str = "$/cancel";
 /// Calls whose params are the value itself, with no envelope: the handshake comes before there
 /// is anything to say about a call.
-pub const BARE: &[&str] = &["proc.hello"];
+pub const BARE: &[&str] = &[HELLO];
 
 /// How long a closed wire goes on writing the answers and notifications it already had.
 const DRAIN: Duration = Duration::from_secs(5);
 
-/// What travels beside a call's value: which call it is, which call it was made for, who waits on
-/// it, and by when it must answer.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CallMeta {
-    /// On the wire, the sender's number for the call; to a handler, this end's own id for it.
-    /// Empty when a caller has none: the wire gives it one.
-    #[serde(default)]
-    pub call_id: String,
-    /// The call of the other end's this one was made while answering, if any.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parent: Option<String>,
-    /// The extensions waiting on this call, each with the call it holds them on, outermost first.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub chain: Vec<ChainLink>,
-    /// Wall-clock milliseconds since the Unix epoch.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub deadline_ms: Option<u64>,
-}
+pub use crate::{CallMeta, ChainLink};
 
-/// One extension waiting on a call, and the call it is held on.
+/// The process's first frame, `proc.hello`: which wire it speaks, who it is, and of which build.
+/// It only says which build; who the process is, the product knows from the stream it gave it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ChainLink {
+pub struct Hello {
+    /// [`EXT_WIRE_VERSION`](crate::EXT_WIRE_VERSION).
+    pub wire: u32,
     pub ext: String,
-    pub call: String,
+    /// Harnix's version.
+    pub version: String,
+    /// The Agix it links, when it serves an engine of its own.
+    pub agix_version: Option<String>,
+    /// Its VM engine's fingerprint: what a precompiled component must have been compiled for.
+    pub engine: String,
+    /// The package interface it runs (`harnix_api`).
+    pub harnix_api: u32,
+    pub pid: u32,
 }
 
-/// Now, as [`CallMeta::deadline_ms`] counts.
+impl Hello {
+    /// Why a product of build `ours` refuses this hello, if it does: another wire, another
+    /// Harnix, another Agix, or another VM engine — a process of another build, whose components
+    /// the product's would not load even when the version says the same.
+    pub fn differs(&self, ours: &Hello) -> Option<String> {
+        let what = if self.wire != ours.wire {
+            format!("the extension wire {} (this product speaks {})", self.wire, ours.wire)
+        } else if self.version != ours.version {
+            format!("Harnix {} (this product is {})", self.version, ours.version)
+        } else if self.agix_version != ours.agix_version {
+            format!("Agix {:?} (this product links {:?})", self.agix_version, ours.agix_version)
+        } else if self.engine != ours.engine {
+            format!("the VM engine `{}` (this product's is `{}`)", self.engine, ours.engine)
+        } else {
+            return None;
+        };
+        Some(format!("the extension process is of another build: {what}"))
+    }
+
+    /// The refusal of a hello, said to the process before the wire closes.
+    pub fn refused(why: impl Into<String>) -> RpcError {
+        RpcError::new(codes::HANDSHAKE_REFUSED, why)
+    }
+}
+
+/// The handshake's method.
+pub const HELLO: &str = "proc.hello";
+
+/// Every call any wire of this process sends goes out under a number from here.
+static NUMBERS: AtomicU64 = AtomicU64::new(1);
+
+/// Now, as [`CallMeta::deadline`] counts: wall-clock milliseconds since the Unix epoch.
 pub fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -235,7 +265,6 @@ struct Inner {
     state: Mutex<State>,
     wake: Notify,
     closed: watch::Sender<Option<String>>,
-    next: AtomicU64,
     counts: Counters,
 }
 
@@ -276,7 +305,6 @@ impl SocketWire {
             state: Mutex::new(State::default()),
             wake: Notify::new(),
             closed: watch::channel(None).0,
-            next: AtomicU64::new(1),
             counts: Counters::default(),
         });
         tokio::spawn(read_loop(inner.clone(), read));
@@ -291,7 +319,7 @@ impl SocketWire {
     /// when it is empty), its parent a call of the other end's this one is made while answering.
     /// Cancelling `cancel`, dropping the future, or `meta.deadline_ms` passing withdraws it.
     pub async fn call(&self, method: &str, args: Value, meta: CallMeta, cancel: &CancellationToken) -> Result<Value, RpcError> {
-        let deadline = meta.deadline_ms;
+        let deadline = meta.deadline();
         if deadline.is_some_and(|d| d <= now_ms()) {
             return Err(deadline_exceeded());
         }
@@ -361,9 +389,15 @@ impl Drop for SocketWire {
 
 #[async_trait]
 impl Wire for SocketWire {
-    async fn send(&self, method: &'static str, params: Value) -> Result<Value, RpcError> {
+    async fn send(&self, method: &'static str, meta: CallMeta, params: Value) -> Result<Value, RpcError> {
         let method = format!("{}{method}", self.inner.end.sends());
-        self.call(&method, params, CallMeta::default(), &CancellationToken::new()).await
+        self.call(&method, params, meta, &CancellationToken::new()).await
+    }
+
+    fn notify(&self, method: &'static str, params: Value) {
+        let method = format!("{}{method}", self.inner.end.sends());
+        // A closed wire has nobody to tell.
+        let _ = SocketWire::notify(self, &method, params);
     }
 }
 
@@ -409,21 +443,19 @@ impl Inner {
     }
 
     fn enqueue(&self, method: &str, args: Value, mut meta: CallMeta) -> Result<(u64, oneshot::Receiver<Result<Value, RpcError>>), RpcError> {
-        if meta.call_id.is_empty() {
-            meta.call_id = (self.options.mint)();
+        if meta.call_id().is_empty() {
+            meta = meta.with_call_id((self.options.mint)());
         }
-        let id = self.next.fetch_add(1, Ordering::Relaxed);
+        let id = NUMBERS.fetch_add(1, Ordering::Relaxed);
         // The parent goes out as the other end knows it, or not at all.
-        let parent = meta.parent.as_ref().and_then(|p| self.lock().remote_of.get(p).cloned());
+        let parent = meta.parent_id().and_then(|p| self.lock().remote_of.get(p).cloned());
         let params = if BARE.contains(&method) {
             args
         } else {
-            let on_wire = CallMeta {
-                call_id: id.to_string(),
-                parent,
-                chain: meta.chain.clone(),
-                deadline_ms: meta.deadline_ms,
-            };
+            let on_wire = CallMeta::new(id.to_string())
+                .with_parent(parent)
+                .chain(meta.links().iter().cloned())
+                .with_deadline(meta.deadline());
             json!({"meta": on_wire, "args": args})
         };
         let bytes = line(&json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}));
@@ -532,14 +564,18 @@ impl Inner {
                 Value::String(s) => s.clone(),
                 other => other.to_string(),
             };
-            (CallMeta { call_id, ..CallMeta::default() }, params)
+            (CallMeta::new(call_id), params)
         } else {
             match envelope(params) {
                 Ok(call) => call,
                 Err(e) => return self.respond(id, Err(e)),
             }
         };
-        let local = (self.options.mint)();
+        // The product names a call of the process's its own way; the process keeps the product's.
+        let local = match self.end {
+            End::Serve { .. } => (self.options.mint)(),
+            End::Client => remote.call_id().to_string(),
+        };
         let now = now_ms();
         let mut state = self.lock();
         if state.closed.is_some() {
@@ -550,36 +586,37 @@ impl Inner {
             bump(&self.counts.busy);
             return self.respond(id, Err(busy(self.options.max_in_flight)));
         }
-        if state.running.contains_key(&remote.call_id) {
+        let remote_id = remote.call_id().to_string();
+        if state.running.contains_key(&remote_id) {
             drop(state);
             return self.respond(
                 id,
-                Err(RpcError::new(codes::INVALID_REQUEST, format!("call `{}` is already running", remote.call_id))),
+                Err(RpcError::new(codes::INVALID_REQUEST, format!("call `{remote_id}` is already running"))),
             );
         }
         // The parent is a call this end sent and still waits on, or nothing.
         let parent = remote
-            .parent
-            .as_deref()
+            .parent_id()
             .and_then(|p| p.parse::<u64>().ok())
-            .and_then(|n| state.sent.get(&n))
-            .map(|sent| sent.meta.clone());
-        if remote.parent.is_some() && parent.is_none() {
+            .and_then(|n| state.sent.get(&n).map(|sent| (n, sent.meta.clone())));
+        if remote.parent_id().is_some() && parent.is_none() {
             bump(&self.counts.dropped_parents);
         }
         let (chain, cap) = match &self.end {
+            // The process is held on the parent, by the number it was sent under: the id its host
+            // knows that call by, and checks a chain against.
             End::Serve { ext } => {
-                let chain = parent.as_ref().map(|p| {
-                    let mut chain = p.chain.clone();
-                    chain.push(ChainLink { ext: ext.clone(), call: p.call_id.clone() });
+                let chain = parent.as_ref().map(|(n, p)| {
+                    let mut chain = p.links().to_vec();
+                    chain.push(ChainLink::new(ext.as_str(), n.to_string()));
                     chain
                 });
                 let cap = now.saturating_add(self.options.deadline_cap.as_millis() as u64);
                 (chain.unwrap_or_default(), Some(cap))
             }
-            End::Client => (remote.chain, None),
+            End::Client => (remote.links().to_vec(), None),
         };
-        let deadline = [remote.deadline_ms, parent.as_ref().and_then(|p| p.deadline_ms), cap]
+        let deadline = [remote.deadline(), parent.as_ref().and_then(|(_, p)| p.deadline()), cap]
             .into_iter()
             .flatten()
             .min();
@@ -588,18 +625,16 @@ impl Inner {
             return self.respond(id, Err(deadline_exceeded()));
         }
         let cancel = CancellationToken::new();
-        state.running.insert(remote.call_id.clone(), Running { local: local.clone(), cancel: cancel.clone() });
-        state.remote_of.insert(local.clone(), remote.call_id.clone());
+        state.running.insert(remote_id.clone(), Running { local: local.clone(), cancel: cancel.clone() });
+        state.remote_of.insert(local.clone(), remote_id.clone());
         drop(state);
 
         let call = Inbound {
             method,
-            meta: CallMeta {
-                call_id: local,
-                parent: parent.map(|p| p.call_id),
-                chain,
-                deadline_ms: deadline,
-            },
+            meta: CallMeta::new(local)
+                .with_parent(parent.map(|(_, p)| p.call_id().to_string()))
+                .chain(chain)
+                .with_deadline(deadline),
             cancel: cancel.clone(),
         };
         let inner = self.clone();
@@ -614,7 +649,7 @@ impl Inner {
                     running.await
                 }
             };
-            inner.finish(&remote.call_id, id, result);
+            inner.finish(&remote_id, id, result);
         });
     }
 
@@ -670,7 +705,7 @@ fn envelope(params: Value) -> Result<(CallMeta, Value), RpcError> {
         .remove("meta")
         .ok_or_else(|| RpcError::new(codes::INVALID_REQUEST, "a call's params are {meta, args}: no meta"))
         .and_then(|m| serde_json::from_value(m).map_err(|e| RpcError::new(codes::INVALID_REQUEST, format!("a call's meta: {e}"))))?;
-    if meta.call_id.is_empty() {
+    if meta.call_id().is_empty() {
         return Err(RpcError::new(codes::INVALID_REQUEST, "a call's meta names no call_id"));
     }
     Ok((meta, params.remove("args").unwrap_or(Value::Null)))

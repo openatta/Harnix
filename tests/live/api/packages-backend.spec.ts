@@ -19,7 +19,7 @@
 import { type AddressInfo } from "node:net";
 import { type Server, createServer } from "node:http";
 
-import { INVALID_PARAMS, INTERNAL_ERROR, METHOD_NOT_FOUND } from "@harnix/core/protocol";
+import { DEADLINE_EXCEEDED, EXTENSION_UNAVAILABLE, INVALID_PARAMS, METHOD_NOT_FOUND } from "@harnix/core/protocol";
 import { type Backend, type TestClient, connect, expect, runTurn, sleep, test, topology } from "@harnix/testkit";
 
 import { SHOWCASE_CHATS, SHOWCASE_ID, showcasePackage, startApps } from "./packages-host";
@@ -225,7 +225,7 @@ test.describe("an application with a backend", () => {
     const before = (await api.call(M("state"))).started_ms;
     const began = Date.now();
     const e = await api.refused(M("spin"));
-    expect(e?.code).toBe(INTERNAL_ERROR);
+    expect(e?.code).toBe(DEADLINE_EXCEEDED);
     expect(e?.data).toMatchObject({ app: SHOWCASE_ID, failure: "timed_out" });
     expect(Date.now() - began).toBeGreaterThanOrEqual(4_500);
     const health = (await runtime(api)).health;
@@ -238,6 +238,7 @@ test.describe("an application with a backend", () => {
 
   test("a crash is caught: rebuilt once, and a second one sets the application aside", TAGS, async () => {
     const first = await api.refused(M("crash"));
+    expect(first?.code).toBe(EXTENSION_UNAVAILABLE);
     expect(first?.data).toMatchObject({ failure: "faulted" });
     expect(first?.message).toMatch(/wasm trap|unreachable/);
     expect((await runtime(api)).health).toMatchObject({ state: "running", rebuilds: 1 });
@@ -249,7 +250,8 @@ test.describe("an application with a backend", () => {
     expect(rt.state).toBe("faulted");
     expect(rt.reason).toContain("crashed again after being rebuilt");
     const after = await api.refused(M("notes.list"));
-    expect(after?.data).toMatchObject({ failure: "unavailable" });
+    expect(after?.code).toBe(EXTENSION_UNAVAILABLE);
+    expect(after?.data).toMatchObject({ failure: "faulted" });
     expect(after?.message).toContain("disabled");
 
     // Enabling it again starts it again, from nothing but its storage.
@@ -274,7 +276,7 @@ test.describe("an application with a backend", () => {
     }
     await api.call("harnix.apps.disable", { id: SHOWCASE_ID });
     const waiting = await queued;
-    expect(waiting?.code).toBe(INTERNAL_ERROR);
+    expect(waiting?.code).toBe(EXTENSION_UNAVAILABLE);
     expect(waiting?.message).toContain("stopped");
     expect((await spinning)?.data?.failure).toBe("timed_out");
 

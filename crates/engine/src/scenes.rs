@@ -8,6 +8,7 @@ use base::interface::scene::Scene;
 use harnix_engine_api::{BaseKind, Interaction, SceneBase, SceneLayer};
 
 use crate::adapt::scene::Layered;
+use crate::adapt::tool::Site;
 
 /// The id Agix's `harnix` scene is served under: the built-in one's, attended.
 pub const ATTENDED_SCENE: &str = "harnix";
@@ -57,9 +58,9 @@ pub(crate) fn resolve(base: &SceneBase, built: &[Arc<dyn Scene>]) -> anyhow::Res
     }
 }
 
-/// A layer over the scene its base resolves to, for the engine of `instance`.
-pub fn build(layer: &SceneLayer, built: &[Arc<dyn Scene>], instance: &Arc<str>) -> anyhow::Result<Arc<dyn Scene>> {
-    Ok(Arc::new(Layered::new(layer, resolve(layer.base(), built)?, instance)))
+/// A layer over the scene its base resolves to, for the engine at `site`.
+pub(crate) fn build(layer: &SceneLayer, built: &[Arc<dyn Scene>], site: &Arc<Site>) -> anyhow::Result<Arc<dyn Scene>> {
+    Ok(Arc::new(Layered::new(layer, resolve(layer.base(), built)?, site)))
 }
 
 /// What extensions contribute, and the `harnix` scene attended unless one of them contributes
@@ -68,15 +69,15 @@ pub fn build(layer: &SceneLayer, built: &[Arc<dyn Scene>], instance: &Arc<str>) 
 pub(crate) fn host_scenes(
     layers: &[SceneLayer],
     admitted: &[String],
-    instance: &Arc<str>,
+    site: &Arc<Site>,
 ) -> anyhow::Result<Vec<Arc<dyn Scene>>> {
     let mut scenes: Vec<Arc<dyn Scene>> = Vec::new();
     for layer in layers {
-        let scene = build(layer, &scenes, instance)?;
+        let scene = build(layer, &scenes, site)?;
         scenes.push(scene);
     }
     if !scenes.iter().any(|s| s.id() == ATTENDED_SCENE) {
-        let scene = build(&attended(), &scenes, instance)?;
+        let scene = build(&attended(), &scenes, site)?;
         scenes.push(scene);
     }
     if admitted.is_empty() {
@@ -97,7 +98,7 @@ pub(crate) fn host_scenes(
         .fold(SceneLayer::new("{base}", SceneBase::named("")), |layer, pattern| layer.admit(pattern));
     Ok(scenes
         .into_iter()
-        .map(|s| Arc::new(Layered::new(&admitting, s, instance)) as Arc<dyn Scene>)
+        .map(|s| Arc::new(Layered::new(&admitting, s, site)) as Arc<dyn Scene>)
         .collect())
 }
 
@@ -108,7 +109,7 @@ mod tests {
     #[test]
     fn the_harnix_scene_is_the_built_in_one_but_attended() {
         let built_in = scene::harnix::HarnixScene;
-        let attended = build(&attended(), &[], &"main".into()).unwrap();
+        let attended = build(&attended(), &[], &Site::bare("main")).unwrap();
         assert!(!built_in.interactive() && attended.interactive());
         assert_eq!(attended.id(), ATTENDED_SCENE);
         assert_eq!(attended.tools(), built_in.tools());
@@ -119,9 +120,9 @@ mod tests {
 
     #[test]
     fn a_listed_scene_admits_the_hosts_tools_and_nothing_else_changes() {
-        let scenes = host_scenes(&[], &["ext__*".into()], &"main".into()).unwrap();
+        let scenes = host_scenes(&[], &["ext__*".into()], &Site::bare("main")).unwrap();
         let harnix = scenes.iter().find(|s| s.id() == ATTENDED_SCENE).unwrap();
-        let plain = build(&attended(), &[], &"main".into()).unwrap();
+        let plain = build(&attended(), &[], &Site::bare("main")).unwrap();
         assert!(!plain.permits_tool("ext__acme_notes__search"));
         assert!(harnix.permits_tool("ext__acme_notes__search"));
         assert!(harnix.permits_tool("Bash") && harnix.permits_tool("mcp__github__x"));
@@ -137,9 +138,9 @@ mod tests {
     fn a_base_is_found_among_the_scenes_before_it_or_the_engines_own() {
         let first = SceneLayer::new("first", SceneBase::builtin("mini"));
         let second = SceneLayer::new("second-{base}", SceneBase::named("first"));
-        let scenes = host_scenes(&[first, second], &[], &"main".into()).unwrap();
+        let scenes = host_scenes(&[first, second], &[], &Site::bare("main")).unwrap();
         assert_eq!(scenes[1].id(), "second-first");
-        assert!(host_scenes(&[SceneLayer::new("x", SceneBase::named("nowhere"))], &[], &"main".into()).is_err());
-        assert!(host_scenes(&[SceneLayer::new("x", SceneBase::builtin("nowhere"))], &[], &"main".into()).is_err());
+        assert!(host_scenes(&[SceneLayer::new("x", SceneBase::named("nowhere"))], &[], &Site::bare("main")).is_err());
+        assert!(host_scenes(&[SceneLayer::new("x", SceneBase::builtin("nowhere"))], &[], &Site::bare("main")).is_err());
     }
 }

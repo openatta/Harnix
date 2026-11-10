@@ -845,7 +845,7 @@ mod tests {
         });
         w.apps.register("host", todo).await.unwrap();
         w.apps.register("host", fake("acme.notes").calls(["app.acme.todo.list"])).await.unwrap();
-        let waiting = Chain::of_extensions(["acme.notes"]);
+        let waiting = Chain::from(vec![harnix_kernel::ChainLink::new("acme.notes", "1")]);
         let answer = w.apps.call_chained("host", "acme.notes", "app.acme.todo.list", json!({}), waiting).await.unwrap();
         assert_eq!(answer, json!(["acme.notes"]));
         // A call nobody waits on carries none.

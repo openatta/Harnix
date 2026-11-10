@@ -63,7 +63,7 @@ use harnix_contract::sync::{lock, read, write};
 use harnix_contract::{codes, FrameSink, RpcError, Subject};
 use harnix_engine_api::ops::Entry;
 use harnix_kernel::instances::{holding, holds, Holding, Side};
-use harnix_kernel::{InstanceBook, Listed, TopicSource};
+use harnix_kernel::{InstanceBook, Listed, TopicSource, TurnChains};
 use serde_json::{json, Value};
 use tokio::sync::{oneshot, Mutex};
 
@@ -159,6 +159,9 @@ pub struct Hub {
     described: StdMutex<BTreeMap<ClientId, Value>>,
     spaces: StdMutex<Spaces>,
     audit: StdRwLock<Option<AuditHook>>,
+    /// Which calls each running turn is on behalf of: written as turns start and settle, read by
+    /// the tools their sessions call.
+    pub(crate) turns: Arc<TurnChains>,
 }
 
 pub struct HubConfig {
@@ -166,6 +169,9 @@ pub struct HubConfig {
     /// from before it adds any.
     pub instances: Arc<dyn InstanceBook>,
     pub spaces: Spaces,
+    /// Where the hub writes each running turn's chain; the instance layer hands the same one to
+    /// every engine it builds in this process.
+    pub turns: Arc<TurnChains>,
 }
 
 impl Hub {
@@ -196,6 +202,7 @@ impl Hub {
                 described: StdMutex::new(BTreeMap::new()),
                 spaces: StdMutex::new(config.spaces),
                 audit: StdRwLock::new(None),
+                turns: config.turns.clone(),
             }
         });
         hub

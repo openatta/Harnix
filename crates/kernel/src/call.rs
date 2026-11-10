@@ -6,6 +6,8 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use harnix_contract::s1::CallMeta;
+pub use harnix_contract::ChainLink;
 use harnix_contract::{ExtId, RpcError, Subject};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
@@ -41,41 +43,46 @@ impl std::fmt::Display for CallId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Deadline(pub u64);
 
-/// One extension waiting on a call, and the call it is held in, when that is known.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ChainLink {
-    pub ext: String,
-    pub call: Option<CallId>,
-}
-
-/// The extensions waiting on a call, outermost first: what a host that runs one call per
-/// extension at a time refuses re-entry by.
+/// The extensions waiting on a call, outermost first, each with the call it is held on: what a
+/// host that runs one call per extension at a time refuses re-entry by — only while that call is
+/// still running in it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Chain(Vec<ChainLink>);
 
 impl Chain {
-    /// A chain of extensions alone, with no calls known: what arrives from a host that keeps
-    /// only who is waiting.
-    pub fn of_extensions<S: Into<String>>(exts: impl IntoIterator<Item = S>) -> Self {
-        Self(exts.into_iter().map(|ext| ChainLink { ext: ext.into(), call: None }).collect())
-    }
-
     pub fn links(&self) -> &[ChainLink] {
         &self.0
     }
 
     /// The extensions, outermost first.
     pub fn extensions(&self) -> impl Iterator<Item = &str> + '_ {
-        self.0.iter().map(|link| link.ext.as_str())
+        self.0.iter().map(|link| link.ext())
     }
 
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
+    /// Both chains' links, each once: a turn that more than one call fed waits on all of them.
+    pub fn union(&self, other: &Chain) -> Self {
+        let mut links = self.0.clone();
+        for link in &other.0 {
+            if !links.contains(link) {
+                links.push(link.clone());
+            }
+        }
+        Self(links)
+    }
+
     fn with(&self, link: ChainLink) -> Self {
         let mut links = self.0.clone();
         links.push(link);
+        Self(links)
+    }
+}
+
+impl From<Vec<ChainLink>> for Chain {
+    fn from(links: Vec<ChainLink>) -> Self {
         Self(links)
     }
 }
@@ -118,7 +125,7 @@ impl CallContext {
     /// so. No connection: an extension cannot stand in for one.
     pub fn child(&self, by: &ExtId, serialized: bool) -> Self {
         let chain = if serialized {
-            self.chain.with(ChainLink { ext: by.to_string(), call: Some(self.call_id) })
+            self.chain.with(ChainLink::new(by.as_str(), self.call_id.to_string()))
         } else {
             self.chain.clone()
         };
@@ -138,6 +145,23 @@ impl CallContext {
     pub fn chained(mut self, chain: Chain) -> Self {
         self.chain = chain;
         self
+    }
+
+    /// The same call, by `deadline` at the latest.
+    pub fn by(mut self, deadline: Option<Deadline>) -> Self {
+        self.deadline = match (self.deadline, deadline) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        self
+    }
+
+    /// What the call says about itself to another process, or to a host component: its id, its
+    /// parent, the extensions waiting on it and its deadline.
+    pub fn meta(&self) -> CallMeta {
+        let meta = CallMeta::new(self.call_id.to_string()).chain(self.chain.links().iter().cloned());
+        let meta = meta.with_parent(self.parent.map(|p| p.to_string()));
+        meta.with_deadline(self.deadline.map(|d| d.0))
     }
 }
 
@@ -170,7 +194,10 @@ mod tests {
 
         let held = root.child(&id("acme.notes"), true).child(&id("acme.todo"), true);
         assert_eq!(held.chain.extensions().collect::<Vec<_>>(), ["acme.notes", "acme.todo"]);
-        assert_eq!(held.chain.links()[0].call, Some(root.call_id));
+        assert_eq!(held.chain.links()[0].call(), root.call_id.to_string());
+        let meta = held.meta();
+        assert!(meta.holds("acme.todo", &held.parent.unwrap().to_string()));
+        assert_eq!(meta.call_id(), held.call_id.to_string());
 
         root.cancel.cancel();
         assert!(child.cancel.is_cancelled(), "cancelled with its parent");

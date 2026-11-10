@@ -59,7 +59,7 @@ async fn idle_it_hibernates_and_a_call_starts_it_with_its_store_and_without_its_
     assert_eq!((health["hibernating"].clone(), health["recycles"].clone(), health["faults"].clone()), (json!(true), json!(0), json!(0)));
     // A tool runs in an instance of its own, and wakes nothing.
     assert!(matches!(
-        rig.control.call_tool(tool("echo", json!({"text": "hi"}), "t1")).await.unwrap(),
+        rig.control.call_tool(CallMeta::default(), tool("echo", json!({"text": "hi"}), "t1")).await.unwrap(),
         ToolReply::Output { .. }
     ));
     assert_eq!(state(&rig).await, json!("hibernating"));
@@ -72,7 +72,7 @@ async fn idle_it_hibernates_and_a_call_starts_it_with_its_store_and_without_its_
     assert_eq!((status["health"]["wakes"].clone(), status["health"]["recycles"].clone()), (json!(1), json!(0)));
     // A tool that asks the backend wakes it like any call.
     hibernated(&rig).await;
-    match rig.control.call_tool(tool("board", json!({}), "t2")).await.unwrap() {
+    match rig.control.call_tool(CallMeta::default(), tool("board", json!({}), "t2")).await.unwrap() {
         ToolReply::Output { content, .. } => assert!(content.contains("1 notes") || content.contains("the board"), "{content}"),
         other => panic!("{other:?}"),
     }
@@ -119,7 +119,7 @@ async fn a_subscription_a_timer_or_a_call_in_flight_holds_it_up() {
     // A tool call running longer than the idle: up until it ends.
     let (rig, _) = idle_rig(on_demand(false)).await;
     let control = rig.control.clone();
-    let slow = tokio::spawn(async move { control.call_tool(tool("slow", json!({"steps": 8, "ms": 100}), "s")).await });
+    let slow = tokio::spawn(async move { control.call_tool(CallMeta::default(), tool("slow", json!({"steps": 8, "ms": 100}), "s")).await });
     tokio::time::sleep(Duration::from_millis(600)).await;
     assert_eq!(state(&rig).await, json!("running"), "hibernated under a tool call");
     slow.await.unwrap().unwrap();
@@ -140,10 +140,10 @@ async fn stopped_while_hibernating_it_is_stopped_and_starts_again_from_its_recor
     let (rig, parts) = idle_rig(on_demand(false)).await;
     rig.platform.device_call("notes.add", json!({"text": "kept"})).await.unwrap();
     hibernated(&rig).await;
-    rig.control.stop(Stop { app: ID.into(), parts: parts.clone() }).await.unwrap();
+    rig.control.stop(CallMeta::default(), Stop { app: ID.into(), parts: parts.clone() }).await.unwrap();
     assert_eq!(rig.status().await, json!({"state": "stopped"}));
     rig.control
-        .start(Start { app: ID.into(), version: "0.1.0".into(), app_dir: rig.app_dir(), parts })
+        .start(CallMeta::default(), rig.start_of("0.1.0", parts))
         .await
         .unwrap();
     assert_eq!(state(&rig).await, json!("running"));

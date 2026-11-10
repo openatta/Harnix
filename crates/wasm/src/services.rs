@@ -27,6 +27,15 @@ pub trait AppHost: Send + Sync {
     /// as the implementation awaits the routed call on the same task.
     async fn call(&self, app: &str, method: &str, params: Value) -> Result<Value, String>;
 
+    /// `host.call`, made while the instance serves the host's call `serving` (the id the host
+    /// handed [`crate::AppVm::handle_as`], [`crate::AppVm::call_tool`] or
+    /// [`crate::AppVm::on_event_as`]); none for what the backend does on its own. A host that
+    /// carries calls between processes names the served call as the new one's parent.
+    async fn call_within(&self, app: &str, serving: Option<&str>, method: &str, params: Value) -> Result<Value, String> {
+        let _ = serving;
+        self.call(app, method, params).await
+    }
+
     /// `host.publish`: publish on `app.<app>.<topic>`.
     fn publish(&self, app: &str, topic: &str, value: Value) -> Result<(), String>;
 
