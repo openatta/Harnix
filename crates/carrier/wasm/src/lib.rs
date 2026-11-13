@@ -19,11 +19,10 @@
 //! the hosts its `net` lists (`harnix_package::egress`).
 
 mod agent;
-mod frames;
+mod ui_stamp;
 mod kernel;
 mod registry;
 mod routes;
-mod sync;
 mod tools;
 
 use std::collections::BTreeMap;
@@ -32,7 +31,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use crate::sync::lock;
+use harnix_carrier_shared::sync::lock;
+use harnix_carrier_shared::frames;
+use harnix_carrier_shared::DEFAULT_TIMEOUT;
 use harnix_ext::{ExtId, ExtensionContext, PackageCarrier, Rpc};
 use harnix_host_api::{
     Carrier, CarrierRegistrar, CarrierSettings, HostApi, HostServices, Installed, Running, StopReason, ToolEndpoint,
@@ -45,9 +46,8 @@ use harnix_wasm_port::{CallMeta, Control, Place, Start, Stop, Unplace};
 use serde_json::{json, Value};
 use tokio::sync::watch;
 
-pub use harnix_package::{server_name, tool_name, TOOL_PATTERN};
-pub use registry::{Loaded, Registry};
-pub use routes::FRAME_CSP;
+pub use harnix_carrier_shared::{server_name, tool_name, Loaded, FRAME_CSP, TOOL_PATTERN};
+pub use registry::Registry;
 pub use tools::{WasmTools, MAX_NOTE, NAME as TOOLS_NAME};
 
 use kernel::CarrierKernel;
@@ -181,7 +181,7 @@ impl Inner {
                 let Some(host) = me.host.get() else { continue };
                 let mut now = host.generation();
                 for app in me.registry.loaded().iter().filter(|app| me.watches_ui(app)) {
-                    now = now.rotate_left(7) ^ frames::ui_stamp(&app.root.join("ui"));
+                    now = now.rotate_left(7) ^ ui_stamp::ui_stamp(&app.root.join("ui"));
                 }
                 if last.is_some_and(|last| last != now) {
                     me.moved();
@@ -209,7 +209,7 @@ impl Inner {
             // reloads its frames when this does.
             map.insert(
                 "ui_rev".into(),
-                json!(self.watches_ui(&app).then(|| format!("{:016x}", frames::ui_stamp(&app.root.join("ui"))))),
+                json!(self.watches_ui(&app).then(|| format!("{:016x}", ui_stamp::ui_stamp(&app.root.join("ui"))))),
             );
             map.insert("mcp".into(), json!(format!("/ext/{id}/mcp")));
             map.insert("inline".into(), app.inline.clone());
@@ -331,6 +331,8 @@ impl Carrier for WasmCarrier {
             trust: Trust::parse(&started.trust),
             backend_spaces: manifest.spaces.iter().map(|s| s.id.clone()).collect(),
             inline: serde_json::to_value(&manifest.inline).unwrap_or(Value::Null),
+            // Only a call over a wire has a deadline made of it; the VM keeps its own.
+            timeout: manifest.component.as_ref().map(|c| Duration::from_millis(c.timeout_ms)).unwrap_or(DEFAULT_TIMEOUT),
         });
         // What its pages in frames may call, told to the router as well as the shell: the router
         // holds a frame's calls to it whatever the page asks the shell for.

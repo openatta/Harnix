@@ -33,12 +33,10 @@
 //! `/ext/<id>/mcp`); the component's interface entries; a generation number that moves whenever
 //! the status may have.
 
-mod frames;
 mod kernel;
 mod process;
 mod registry;
 mod routes;
-mod sync;
 mod tools;
 
 use std::collections::BTreeMap;
@@ -57,13 +55,13 @@ use harnix_wasm_port::socket::Hello;
 use serde_json::{json, Value};
 use tokio::sync::{oneshot, watch};
 
-pub use harnix_package::{server_name, tool_name, TOOL_PATTERN};
-pub use registry::{Loaded, Registry};
-pub use routes::FRAME_CSP;
+pub use harnix_carrier_shared::{server_name, tool_name, Loaded, FRAME_CSP, TOOL_PATTERN};
+pub use registry::Registry;
 pub use tools::{ProcTools, MAX_NOTE, NAME as TOOLS_NAME};
 
 use crate::process::{Package, Phase, Wakes};
-use crate::sync::{lock, read, write};
+use harnix_carrier_shared::sync::{lock, read, write};
+use harnix_carrier_shared::{frames, DEFAULT_TIMEOUT};
 
 /// How long a package's process has, from its start, to say hello, register and start.
 pub const READY_WITHIN: Duration = Duration::from_secs(30);
@@ -73,9 +71,6 @@ pub const CRASH_WINDOW: Duration = Duration::from_secs(60);
 
 /// Crashes in a row after which a package is set aside.
 pub const CRASHES: usize = 3;
-
-/// How the default timeout of a package's call is, when its component names none.
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Packages in processes of their own.
 #[derive(Clone)]

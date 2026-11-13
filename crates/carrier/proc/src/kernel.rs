@@ -41,8 +41,8 @@ use serde_json::{json, Value};
 use tokio::sync::{mpsc, watch};
 
 use crate::registry::Registry;
-use crate::routes::{McpEndpoint, UiFiles};
-use crate::sync::lock;
+use harnix_carrier_shared::{McpEndpoint, UiFiles};
+use harnix_carrier_shared::sync::lock;
 
 /// A `[[tool]]`, as the port carries it.
 pub(crate) fn declared_tool(t: &harnix_package::manifest::Tool) -> ToolDef {

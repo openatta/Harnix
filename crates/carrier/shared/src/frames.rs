@@ -10,12 +10,12 @@ use serde_json::{json, Value};
 use crate::registry::Loaded;
 
 /// Whether a running package's interface is drawn in frames rather than imported into the page.
-pub(crate) fn frames(app: &Loaded) -> bool {
+pub fn frames(app: &Loaded) -> bool {
     harnix_package::surface::runs_in_frames(app.trust, &app.interface, !app.ui.is_empty())
 }
 
 /// What the page is told of one running package's interface.
-pub(crate) fn ui_entries(app: &Loaded) -> Vec<Value> {
+pub fn ui_entries(app: &Loaded) -> Vec<Value> {
     let id = &app.id;
     if !frames(app) {
         return app
