@@ -69,4 +69,14 @@ export function topology(): "single_duplex" | "split_streams" {
   return process.env.HARNIX_TOPOLOGY === "split_streams" ? "split_streams" : "single_duplex";
 }
 
+/**
+ * The carrier the package suites run their packages on: `HARNIX_CARRIER`, `wasm` (in this process)
+ * by default, or `process` (each package in a process of its own). `pnpm live --carrier process`
+ * runs the suites that hold under both (`features.mjs`, `CARRIER_SUITES`) once more on the second;
+ * a suite about one carrier says which in its own profile and ignores this.
+ */
+export function carrier(): "wasm" | "process" {
+  return process.env.HARNIX_CARRIER === "process" ? "process" : "wasm";
+}
+
 export const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));

@@ -19,7 +19,9 @@ harnix-wasm-host = { path = "harnix/crates/wasm-host" }
 harnix-package   = { path = "harnix/crates/package" }
 harnix-proc      = { path = "harnix/crates/proc" }
 harnix-wasm-port = { path = "harnix/crates/wasm-port" }
+harnix-carrier-shared = { path = "harnix/crates/carrier/shared" }
 harnix-carrier-wasm = { path = "harnix/crates/carrier/wasm" }
+harnix-carrier-proc = { path = "harnix/crates/carrier/proc" }
 harnix-instance  = { path = "harnix/crates/instance" }
 harnix-supervise = { path = "harnix/crates/supervise" }
 harnix-authz     = { path = "harnix/crates/authz" }

@@ -19,7 +19,7 @@ import { type Backend, type TestClient, connect, expect, modelMode, runTurn, sle
 
 import { SHOWCASE_ID, showcasePackage, startApps, variant } from "./packages-host";
 
-const TAGS = { tag: ["@feature:apps", "@layer:api"] };
+const TAGS = { tag: ["@feature:packages", "@layer:api"] };
 
 const TOOL = (name: string) => `ext__example_showcase__${name}`;
 const TOOLS = ["echo", "count", "config", "read_project", "slow", "vetoed", "crash", "board"].map(TOOL);
@@ -146,7 +146,7 @@ carrier = "spawn"
     expect((await api.refused("packages.installFile", { path }))?.message).toContain("installed already");
 
     // The interface module is served beside the page. Unsigned, the application's interface is
-    // its isolated frames: those are what a client is told (apps-frames.spec.ts has the rest).
+    // its isolated frames: those are what a client is told (ui/packages-frames.spec.ts has the rest).
     const module = await fetch(`${backend.url.replace(/\/$/, "")}/ext/${SHOWCASE_ID}/ui/showcase.js`);
     expect(module.status).toBe(200);
     expect(module.headers.get("content-type")).toContain("javascript");

@@ -5,7 +5,7 @@
  * it does as itself (`ext:example.showcase`) admitted against its manifest's `calls` and audited.
  *
  * The round trip a page makes (a method, the backend, its topic, back to the page) is here as a
- * client makes it; `ui/apps.spec.ts` makes it from the showcase's own interface module. A
+ * client makes it; `ui/packages.spec.ts` makes it from the showcase's own interface module. A
  * timeout, a crash and a withdrawal are each provoked on purpose and answered the way the design
  * says: the instance recycled, rebuilt once and then set aside, the names gone.
  *
@@ -22,9 +22,9 @@ import { type Server, createServer } from "node:http";
 import { DEADLINE_EXCEEDED, EXTENSION_UNAVAILABLE, INVALID_PARAMS, METHOD_NOT_FOUND } from "@harnix/core/protocol";
 import { type Backend, type TestClient, connect, expect, runTurn, sleep, test, topology } from "@harnix/testkit";
 
-import { SHOWCASE_CHATS, SHOWCASE_ID, showcasePackage, startApps } from "./packages-host";
+import { SHOWCASE_CHATS, SHOWCASE_ID, recalledOf, showcasePackage, startApps } from "./packages-host";
 
-const TAGS = { tag: ["@feature:apps", "@layer:api"] };
+const TAGS = { tag: ["@feature:packages", "@layer:api"] };
 
 const M = (name: string) => `${SHOWCASE_ID}.${name}`;
 const ME = `ext:${SHOWCASE_ID}`;
@@ -133,6 +133,19 @@ test.describe("an application with a backend", () => {
       describe: "the third heartbeat",
     });
     expect(topicValues(api, M("heartbeat")).filter(Boolean).map((v) => v.ticks)).toEqual([1, 2, 3]);
+  });
+
+  test("a backend that calls back into itself is refused at once, from a call and from its timer", TAGS, async () => {
+    const answer = await api.call(M("recall"));
+    expect(answer.refused).toBe(true);
+    expect(answer.message).toMatch(/re-?enter/);
+    // From a timer no call of the product's waits on: the backend is held on the firing it answers,
+    // so the call back is refused there too, and `state` says how long that took.
+    expect(await api.call(M("recall"), { later: true })).toEqual({ armed: true });
+    const recalled = await recalledOf(api);
+    expect(recalled.refused).toBe(true);
+    expect(recalled.message).toMatch(/re-?enter/);
+    expect(recalled.took_ms).toBeLessThan(100);
   });
 
   test("a tool reads the backend's state, which its own instance cannot see, through host.call", TAGS, async () => {

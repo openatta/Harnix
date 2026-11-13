@@ -1,43 +1,52 @@
 /**
- * Runtime applications, stage one: names that enter the authorization table after the process
- * started, and leave it again — no WASM yet. The testapp's `fakehost` module registers a fake
- * application through the kernel's app host (crates/testapp/src/fake_app.rs): a device calls its
- * methods through the same admission point as everything else, subscribes to its topic, and when
- * it is withdrawn the method is gone like one that never existed and the subscriber is told the
- * topic ended. With `[apps] enabled = false` (the default) none of it exists.
+ * Extension packages, underneath the carriers: what is installed (the records under
+ * `<state>/ext/<id>/install.json`), and names that enter the route table after the process
+ * started and leave it again — no WebAssembly. The test application's `fakehost` registers a fake
+ * package through the host's registrar (`HostServices`, which only an extension granted
+ * `extensions.manage` is handed; crates/testapp/src/fake_app.rs): a device calls its methods
+ * through the same admission point as everything else, subscribes to its topic, and when it is
+ * withdrawn the method is gone like one that never existed and the subscriber is told the topic
+ * ended. A build without the `packages` extension (the test application's default) has no
+ * `packages.*`, leaves the records as they are, and still has the registrar for whoever holds it.
  */
 
 import { INVALID_PARAMS, METHOD_NOT_FOUND, REFUSED } from "@harnix/core/protocol";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { type Backend, type TestClient, connect, expect, test } from "@harnix/testkit";
+import { type Backend, type TestClient, carrier, connect, expect, test } from "@harnix/testkit";
 
+import { startApps } from "./packages-host";
+import { appsTestApp } from "./packages-store";
 import { startTestApp } from "./testapp";
 
-const TAGS = { tag: ["@feature:apps", "@layer:api"] };
+const TAGS = { tag: ["@feature:packages", "@layer:api"] };
 
-/** Install records as an installation leaves them, under `~/.harnix/ext/`. */
+/** Where the packages are kept, under the backend's `HOME`: `~/.harnix/ext/`. */
+const extDir = (scratch: string) => join(scratch, "home", ".harnix", "ext");
+
+/** Install records as an installation leaves them, one that does not read, and a native
+ *  extension's directory (no package id), which is not a package's. */
 function seedRecords(scratch: string): void {
-  const dir = join(scratch, "home", ".harnix", "apps");
   const record = (id: string, body: string) => {
-    mkdirSync(join(dir, id), { recursive: true });
-    writeFileSync(join(dir, id, "install.json"), body);
+    mkdirSync(join(extDir(scratch), id), { recursive: true });
+    writeFileSync(join(extDir(scratch), id, "install.json"), body);
   };
   record("acme.notes", JSON.stringify({ id: "acme.notes", version: "1.2.0", title: "Notes" }));
-  record("broken", "not json");
+  record("acme.broken", "not json");
+  mkdirSync(join(extDir(scratch), "probe"), { recursive: true });
 }
 
 const audit = async (api: TestClient) => (await api.call("harnix.audit", { limit: 500 })).entries as any[];
 
-test.describe("with [apps] enabled", () => {
+test.describe("with the packages extension", () => {
   test.describe.configure({ mode: "serial" });
 
   let backend: Backend;
   let api: TestClient;
 
   test.beforeAll(async () => {
-    backend = await startTestApp({ profile: "\n[ext.packages]\n", seed: seedRecords });
+    backend = await startApps({ bin: appsTestApp(), seed: seedRecords });
   });
   test.afterAll(async () => { await backend?.dispose(); });
   test.beforeEach(async () => {
@@ -45,164 +54,157 @@ test.describe("with [apps] enabled", () => {
   });
   test.afterEach(() => api?.close());
 
-  test("the install records are listed and switched on and off", TAGS, async () => {
+  test("the install records are listed, and one that does not read is listed apart", TAGS, async () => {
     const listed = await api.call("packages.list");
     expect(listed.packages).toEqual([
-      // A record written before signatures says nothing of them: unsigned, from a file. Without a
-      // runtime nothing measures what it keeps.
-      { id: "acme.notes", version: "1.2.0", title: "Notes", enabled: false, registered: false, trust: "unsigned", source: "file", data_bytes: null },
+      expect.objectContaining({ id: "acme.notes", version: "1.2.0", title: "Notes", enabled: false, registered: false, trust: "unsigned" }),
     ]);
-    expect(listed.unreadable.map((u: any) => u.dir)).toEqual(["broken"]);
+    expect(listed.unreadable.map((u: any) => u.dir)).toEqual(["acme.broken"]);
     expect(listed.registered).toEqual([]);
+    expect(listed.runtime).toMatchObject({ carrier: expect.any(String) });
 
-    expect(await api.call("packages.enable", { id: "acme.notes" })).toMatchObject({ id: "acme.notes", enabled: true });
-    expect((await api.call("packages.list")).packages[0].enabled).toBe(true);
-    expect(await api.call("packages.disable", { id: "acme.notes" })).toMatchObject({ enabled: false, withdrawn: false });
-    expect((await api.call("packages.list")).packages[0].enabled).toBe(false);
-
-    expect((await api.refused("packages.enable", { id: "nobody" }))?.code).toBe(INVALID_PARAMS);
+    expect((await api.refused("packages.enable", { id: "nobody.here" }))?.code).toBe(INVALID_PARAMS);
     expect((await api.refused("packages.disable", { id: "../etc" }))?.code).toBe(INVALID_PARAMS);
-    // Switching one is on the record.
-    const switched = (await audit(api)).filter((e) => e.method === "packages.enable" && e.decision === "allow");
+  });
+
+  test("one whose files are gone does not start, and stays off", TAGS, async () => {
+    // A record without its package: switched on, it says what is missing, and nothing is
+    // registered.
+    const e = await api.refused("packages.enable", { id: "acme.notes" });
+    expect(e?.message).toContain("harnix-ext.toml");
+    const notes = (await api.call("packages.list")).packages.find((p: any) => p.id === "acme.notes");
+    expect(notes).toMatchObject({ enabled: false, registered: false });
+    expect(await api.call("packages.disable", { id: "acme.notes" })).toMatchObject({ enabled: false });
+    // Switching one is on the record, refused or not.
+    const switched = (await audit(api)).filter((e) => e.method === "packages.enable" || e.method === "packages.disable");
     expect(switched.length).toBeGreaterThan(0);
   });
 
-  test("a build without the application runtime keeps the records and installs nothing", TAGS, async () => {
-    // `harnix-testapp` is built without the `apps` feature.
-    const error = await api.refused("packages.installFile", { path: "/nowhere/app.hxext" });
-    expect(error?.code).toBe(REFUSED);
-    expect(error?.message).toContain("`apps` feature");
-    expect((await api.call("packages.list")).runtime).toBeNull();
+  test("the host's registrar is handed only to an extension granted extensions.manage", TAGS, async () => {
+    const { extensions } = await api.call("harnix.extensions");
+    const managers = extensions.filter((x: any) => (x.granted ?? []).includes("extensions.manage")).map((x: any) => x.id).sort();
+    expect(managers).toEqual(["fakehost", "packages"]);
   });
 
-  test("the host is handed to the apps built-in alone: another compiled-in module gets none", TAGS, async () => {
-    // `probe` is an ordinary module of the test application; `fakehost` is let in by name
-    // (`AppBuilder::app_host`), the way only a test application would.
-    expect(await api.call("probe.has_app_host")).toEqual({ has: false });
-  });
-
-  test("a registered application's method answers a device, through the same door, on the record", TAGS, async () => {
+  test("a registered package's method answers a device, through the same door, on the record", TAGS, async () => {
     const spaces = await api.call("harnix.topics.subscribe", { topic: "harnix.spaces" });
-    expect(spaces.value.spaces.map((s: any) => s.id)).not.toContain("fake");
+    expect(spaces.value.spaces.map((s: any) => s.id)).not.toContain("acme.fake");
 
-    const summary = await api.call("fakehost.register", { id: "fake" });
+    const summary = await api.call("fakehost.register", { id: "acme.fake" });
     expect(summary).toMatchObject({
-      id: "fake",
+      id: "acme.fake",
       by: "fakehost",
-      methods: ["app.fake.echo", "app.fake.slow", "app.fake.internal"],
-      topics: ["app.fake.ticks"],
-      spaces: ["fake"],
+      methods: ["acme.fake.echo", "acme.fake.slow", "acme.fake.internal"],
+      topics: ["acme.fake.ticks"],
+      spaces: ["acme.fake"],
     });
 
-    const answer = await api.call("app.fake.echo", { text: "hello" });
+    const answer = await api.call("acme.fake.echo", { text: "hello" });
     expect(answer.params).toEqual({ text: "hello" });
     expect(answer.caller.kind).toBe("device");
     // Only who it was declared for.
-    expect((await api.refused("app.fake.internal", {}))?.code).toBe(REFUSED);
+    expect((await api.refused("acme.fake.internal", {}))?.code).toBe(REFUSED);
     const { methods, topics } = await api.call("harnix.reachable");
-    expect(methods).toContain("app.fake.echo");
-    expect(methods).not.toContain("app.fake.internal");
-    expect(topics).toContain("app.fake.ticks");
+    expect(methods).toContain("acme.fake.echo");
+    expect(methods).not.toContain("acme.fake.internal");
+    expect(topics).toContain("acme.fake.ticks");
 
     // Its space is listed, and whoever watches the list is told.
-    expect((await api.call("harnix.spaces.list")).spaces.map((s: any) => s.id)).toContain("fake");
+    expect((await api.call("harnix.spaces.list")).spaces.map((s: any) => s.id)).toContain("acme.fake");
     await api.waitFor(
-      (f) => f.method === "harnix.topic" && f.params.topic === "harnix.spaces" && f.params.value.spaces.some((s: any) => s.id === "fake"),
-      { describe: "the spaces list with the application's space" },
+      (f) => f.method === "harnix.topic" && f.params.topic === "harnix.spaces" && f.params.value.spaces.some((s: any) => s.id === "acme.fake"),
+      { describe: "the spaces list with the package's space" },
     );
-    expect((await api.call("packages.list")).registered.map((r: any) => r.id)).toEqual(["fake"]);
+    expect((await api.call("packages.list")).registered.map((r: any) => r.id)).toEqual(["acme.fake"]);
 
     // Who declared what, and when; and who called it.
     const entries = await audit(api);
     const declared = entries.filter((e) => e.decision === "declare" && e.subject === "ext:fakehost");
     expect(declared.map((e) => e.method).sort()).toEqual(
-      ["app.fake.echo", "app.fake.internal", "app.fake.slow", "space:fake", "topic:app.fake.ticks"],
+      ["acme.fake.echo", "acme.fake.internal", "acme.fake.slow", "space:acme.fake", "topic:acme.fake.ticks"],
     );
     expect(declared.every((e) => typeof e.at_ms === "number")).toBe(true);
-    expect(entries.some((e) => e.method === "app.fake.echo" && e.decision === "allow" && e.subject.startsWith("device:"))).toBe(true);
-    expect(entries.some((e) => e.method === "app.fake.internal" && e.decision === "refuse")).toBe(true);
+    expect(entries.some((e) => e.method === "acme.fake.echo" && e.decision === "allow" && e.subject.startsWith("device:"))).toBe(true);
+    expect(entries.some((e) => e.method === "acme.fake.internal" && e.decision === "refuse")).toBe(true);
   });
 
   test("its topic is subscribed to and published on", TAGS, async () => {
-    const first = await api.call("harnix.topics.subscribe", { topic: "app.fake.ticks" });
-    expect(first.topic).toBe("app.fake.ticks");
-    await api.call("app.fake.echo", { n: 1 });
+    const first = await api.call("harnix.topics.subscribe", { topic: "acme.fake.ticks" });
+    expect(first.topic).toBe("acme.fake.ticks");
+    await api.call("acme.fake.echo", { n: 1 });
     const pushed = await api.waitFor(
-      (f) => f.method === "harnix.topic" && f.params.topic === "app.fake.ticks" && f.params.value?.params?.n === 1,
-      { describe: "the application's publish" },
+      (f) => f.method === "harnix.topic" && f.params.topic === "acme.fake.ticks" && f.params.value?.params?.n === 1,
+      { describe: "the package's publish" },
     );
     expect(pushed.params.value).toEqual({ params: { n: 1 } });
   });
 
   test("withdrawn: a call in flight finishes, the next is not found, the subscriber is told", TAGS, async () => {
-    await api.call("harnix.topics.subscribe", { topic: "app.fake.ticks" });
+    await api.call("harnix.topics.subscribe", { topic: "acme.fake.ticks" });
     await api.call("harnix.topics.subscribe", { topic: "harnix.spaces" });
     const watcher = await connect(backend);
     try {
-      await watcher.call("harnix.topics.subscribe", { topic: "app.fake.ticks" });
-      const slow = api.call("app.fake.slow", { ms: 1500 });
+      await watcher.call("harnix.topics.subscribe", { topic: "acme.fake.ticks" });
+      const slow = api.call("acme.fake.slow", { ms: 1500 });
       await new Promise((r) => setTimeout(r, 300));
-      const withdrawn = await api.call("fakehost.unregister", { id: "fake" });
-      expect(withdrawn).toMatchObject({ id: "fake", spaces: ["fake"], topics: ["app.fake.ticks"] });
+      const withdrawn = await api.call("fakehost.unregister", { id: "acme.fake" });
+      expect(withdrawn).toMatchObject({ spaces: ["acme.fake"], topics: ["acme.fake.ticks"] });
       expect(withdrawn.subscriptions_ended).toBeGreaterThanOrEqual(2);
       expect(await slow).toEqual({ slept: 1500 });
 
       // Like a name nobody ever declared.
-      const gone = await api.refused("app.fake.echo", {});
+      const gone = await api.refused("acme.fake.echo", {});
       expect(gone?.code).toBe(METHOD_NOT_FOUND);
       const { methods, topics } = await api.call("harnix.reachable");
-      expect(methods).not.toContain("app.fake.echo");
-      expect(topics).not.toContain("app.fake.ticks");
+      expect(methods).not.toContain("acme.fake.echo");
+      expect(topics).not.toContain("acme.fake.ticks");
       for (const client of [api, watcher]) {
         const ended = await client.waitFor(
-          (f) => f.method === "harnix.topic_ended" && f.params.topic === "app.fake.ticks",
+          (f) => f.method === "harnix.topic_ended" && f.params.topic === "acme.fake.ticks",
           { describe: "the topic's end" },
         );
         expect(ended.params.reason).toContain("withdrawn");
       }
-      expect((await api.refused("harnix.topics.subscribe", { topic: "app.fake.ticks" }))?.code).toBe(METHOD_NOT_FOUND);
-      expect((await api.call("harnix.spaces.list")).spaces.map((s: any) => s.id)).not.toContain("fake");
+      expect((await api.refused("harnix.topics.subscribe", { topic: "acme.fake.ticks" }))?.code).toBe(METHOD_NOT_FOUND);
+      expect((await api.call("harnix.spaces.list")).spaces.map((s: any) => s.id)).not.toContain("acme.fake");
       await api.waitFor(
-        (f) => f.method === "harnix.topic" && f.params.topic === "harnix.spaces" && !f.params.value.spaces.some((s: any) => s.id === "fake"),
-        { describe: "the spaces list without the application's space" },
+        (f) => f.method === "harnix.topic" && f.params.topic === "harnix.spaces" && !f.params.value.spaces.some((s: any) => s.id === "acme.fake"),
+        { describe: "the spaces list without the package's space" },
       );
       const withdrew = (await audit(api)).filter((e) => e.decision === "withdraw" && e.subject === "ext:fakehost");
       expect(withdrew.map((e) => e.method).sort()).toEqual(
-        ["app.fake.echo", "app.fake.internal", "app.fake.slow", "space:fake", "topic:app.fake.ticks"],
+        ["acme.fake.echo", "acme.fake.internal", "acme.fake.slow", "space:acme.fake", "topic:acme.fake.ticks"],
       );
-      expect((await api.refused("fakehost.unregister", { id: "fake" }))?.code).toBe(INVALID_PARAMS);
+      expect((await api.refused("fakehost.unregister", { id: "acme.fake" }))?.code).toBe(INVALID_PARAMS);
     } finally {
       watcher.close();
     }
   });
 
-  test("a name or id that collides with what is there is refused, and nothing changes", TAGS, async () => {
-    // A compiled-in module's id, or one nested under it: its names keep precedence.
-    for (const id of ["probe", "probe.sub", "fleet"]) {
-      const error = await api.refused("fakehost.register", { id });
-      expect(error?.code, id).toBe(REFUSED);
-      expect(error?.message, id).toContain("compiled-in");
+  test("an id that collides with what is there, or is no package's, is refused, and nothing changes", TAGS, async () => {
+    // A package id has two parts (one part, or not an id at all, is no package's), and its first
+    // is no native extension's: their names keep precedence.
+    for (const id of ["probe", "fleet", "Not An Id"]) {
+      expect((await api.refused("fakehost.register", { id }))?.code, id).toBe(INVALID_PARAMS);
     }
+    expect((await api.refused("fakehost.register", { id: "probe.sub" }))?.code).toBe(REFUSED);
     expect((await api.call("probe.echo", { text: "still mine" })).text).toBe("still mine");
-    // Not an id at all.
-    expect((await api.refused("fakehost.register", { id: "Not An Id" }))?.code).toBe(REFUSED);
     // Twice.
-    await api.call("fakehost.register", { id: "twice" });
-    expect((await api.refused("fakehost.register", { id: "twice" }))?.code).toBe(REFUSED);
-    expect((await api.refused("fakehost.register", { id: "twice.inner" }))?.code).toBe(REFUSED);
-    expect((await api.call("app.twice.echo", { x: 1 })).params).toEqual({ x: 1 });
-    await api.call("fakehost.unregister", { id: "twice" });
-
-    const refusals = (await audit(api)).filter((e) => e.decision === "refuse" && e.subject === "ext:fakehost");
-    expect(refusals.length).toBeGreaterThanOrEqual(6);
+    await api.call("fakehost.register", { id: "acme.twice" });
+    expect((await api.refused("fakehost.register", { id: "acme.twice" }))?.code).toBe(REFUSED);
+    expect((await api.call("acme.twice.echo", { x: 1 })).params).toEqual({ x: 1 });
+    await api.call("fakehost.unregister", { id: "acme.twice" });
   });
 });
 
-test.describe("with [apps] off", () => {
+test.describe("without the packages extension", () => {
+  // No package runs here: another carrier would run the same thing again.
+  test.skip(carrier() === "process", "no package runs without the packages extension");
   let backend: Backend;
   let api: TestClient;
 
   test.beforeAll(async () => {
+    // The test application's default build: no carrier, so no `packages`.
     backend = await startTestApp({ seed: seedRecords });
   });
   test.afterAll(async () => { await backend?.dispose(); });
@@ -211,17 +213,21 @@ test.describe("with [apps] off", () => {
   });
   test.afterEach(() => api?.close());
 
-  test("nothing of it exists: no packages.*, no host, no spaces topic", TAGS, async () => {
+  test("there is no packages.*, and the records stay as they are", TAGS, async () => {
     for (const method of ["packages.list", "packages.enable", "packages.disable", "packages.installFile", "packages.uninstall"]) {
       expect((await api.refused(method, { id: "acme.notes" }))?.code, method).toBe(METHOD_NOT_FOUND);
     }
-    const { methods, topics } = await api.call("harnix.reachable");
+    const { methods } = await api.call("harnix.reachable");
     expect(methods.filter((m: string) => m.startsWith("packages."))).toEqual([]);
-    expect(topics).not.toContain("harnix.spaces");
-    expect((await api.refused("harnix.topics.subscribe", { topic: "harnix.spaces" }))?.code).toBe(METHOD_NOT_FOUND);
-    const error = await api.refused("fakehost.register", { id: "fake" });
-    expect(error?.code).toBe(REFUSED);
-    expect(error?.message).toContain("[apps] enabled = false");
-    expect((await api.refused("app.fake.echo", {}))?.code).toBe(METHOD_NOT_FOUND);
+    expect((await api.call("harnix.extensions")).extensions.map((x: any) => x.id)).not.toContain("packages");
+    const record = JSON.parse(readFileSync(join(backend.state, "ext", "acme.notes", "install.json"), "utf8"));
+    expect(record).toEqual({ id: "acme.notes", version: "1.2.0", title: "Notes" });
+  });
+
+  test("the host's registrar is still there for whoever was granted it", TAGS, async () => {
+    expect(await api.call("fakehost.register", { id: "acme.fake" })).toMatchObject({ id: "acme.fake", by: "fakehost" });
+    expect((await api.call("acme.fake.echo", { text: "hi" })).params).toEqual({ text: "hi" });
+    await api.call("fakehost.unregister", { id: "acme.fake" });
+    expect((await api.refused("acme.fake.echo", {}))?.code).toBe(METHOD_NOT_FOUND);
   });
 });

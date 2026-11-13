@@ -64,12 +64,11 @@ CRATES=(-p harnix -p harnix-cli -p harnix-assembly -p harnix-instance -p harnix-
         -p harnix-ext-system -p harnix-ext-harnix-app -p harnix-ext-settings -p harnix-ext-plugins
         -p harnix-ext-observability -p harnix-ext-devices)
 
-# `harnix` runs packages in its default build (`wasm`). The author's packing tool and the test
-# application running packages are built in a target directory of their own, so the default build
-# above is exactly what it was; the LIVE suites that need them are told where the binary is
-# (`HARNIX_APPS_BIN`, the rest beside it).
+# `harnix` runs packages in its default build, on both carriers (`wasm` and `proc`). The author's
+# packing tool and the test application running packages are built in a target directory of their
+# own, so the default build is exactly what it was; the LIVE suites find them there
+# (tests/live/api/packages-host.ts) and build nothing while `HARNIX_BIN` is set.
 PACKAGES_TARGET="$root/target/packages"
-export HARNIX_APPS_BIN="$root/target/release/harnix"
 
 scratch="$(mktemp -d)"
 backend_pid=""
@@ -149,9 +148,9 @@ run_build() {
   "$PACKAGES_TARGET/release/harnix-pack" new "$scaffold" --id example.scaffold || return 1
   mkdir -p "$root/target/scaffold" && ln -s "$root/target/scaffold" "$scaffold/component/target" || return 1
   CARGO_NET_OFFLINE=true "$PACKAGES_TARGET/release/harnix-pack" build "$scaffold" || return 1
-  # The test application running packages too: the one binary that trusts the mock store the
-  # store suites make (tests/live/api/packages-store.ts).
-  cargo build --release -p harnix-testapp --features wasm --target-dir "$PACKAGES_TARGET" || return 1
+  # The test application running packages too, on either carrier: the one binary that trusts the
+  # mock store the store suites make (tests/live/api/packages-store.ts).
+  cargo build --release -p harnix-testapp --features wasm,proc --target-dir "$PACKAGES_TARGET" || return 1
   # The example application, built as an application is — its own workspace,
   # its spaces' interface compiled in. The spaces suites run it.
   examples/hello-app/scripts/build.sh --offline
@@ -224,11 +223,16 @@ live() { HARNIX_BIN="$root/target/release/harnix" node tests/live/run.mjs "$@"; 
 # The recordings made against a real model replay strictly in it
 # (api/strict-replay.spec.ts, `@strict`): the rest replay by position, and a
 # request that no longer matches one of those fails there.
+# The package suites once more with each package in a process of its own (`--carrier process`,
+# in its sandbox), on one topology: what the carrier changes is behind the product, not on the
+# client's wire, which the two runs above cover.
 run_api() {
   for topology in single_duplex split_streams; do
     echo "── replayed · $topology ──"
     HARNIX_COVERAGE_GATE=1 live --project api --topology "$topology" || return 1
   done
+  echo "── replayed · single_duplex · process carrier ──"
+  live --project api --carrier process --topology single_duplex || return 1
 }
 
 run_live() {
@@ -245,6 +249,8 @@ run_browser() {
     echo "── interface · $topology ──"
     live --project ui --topology "$topology" || return 1
   done
+  echo "── interface · single_duplex · process carrier ──"
+  live --project ui --carrier process --topology single_duplex || return 1
 }
 
 # A backend for the test that needs an external one: both topologies, so the

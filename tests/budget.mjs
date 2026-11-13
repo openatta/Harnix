@@ -27,13 +27,14 @@ const KB = 1024;
 /** The table. Changing a number here is the only way to change the gate. */
 const BUDGET = [
   {
-    name: "backend binary (default build, with wasmtime)",
+    name: "backend binary (default build, both carriers, with wasmtime)",
     limit: 52 * MB,
     unit: (n) => `${(n / MB).toFixed(1)} MB`,
-    // `harnix-cli`'s default features carry packages in this process (`wasm`): their runtime and
-    // its WebAssembly engine, runtime only — no compiler, which is what keeps it small (the build
-    // with the runtime measured 41.0 MB against 37.3 MB without, 2026-11-08). The build without a
-    // carrier's limit plus four megabytes: room for the runtime, and none for a compiler.
+    // `harnix-cli`'s default features carry packages on both carriers: in this process (`wasm`) and
+    // each in a process of its own (`proc`, this same binary re-executed as `ext-proc`). Either
+    // brings the WebAssembly engine, runtime only — no compiler, which is what keeps it small (the
+    // build with the runtime measured 41.0 MB against 37.3 MB without, 2026-11-08). The build
+    // without a carrier's limit plus four megabytes: room for the runtime, and none for a compiler.
     measure: () => statSync(join(root, "target", "release", "harnix")).size,
   },
   {
@@ -154,6 +155,171 @@ if (perInstance !== null) {
   const within = perInstance <= limit;
   console.log(`${within ? "ok —" : "FAIL:"} resident memory per idle in-process instance: ${perInstance.toFixed(2)} MB (limit ${limit} MB)`);
   if (!within) failures += 1;
+}
+
+/* ── extension processes (mode 3), each with its own engine ───────────── */
+//
+// The showcase, which has an agent package, on the process carrier in its sandbox: its process
+// holds the WebAssembly runtime, the package's backend and an engine of its own (Agix), so what
+// one costs is measured with all three. Its pid's resident memory idle (up, nothing open), running
+// (a session open on its engine) and after calls (two hundred method calls); how long it takes
+// from being started to its hello and from its `ctl.start` to the answer (the carrier logs both);
+// switched off and on again until it answers; and an on-demand one let go while idle, woken by a
+// call — which is what a person waits for.
+
+const PROCESS_LIMITS = { idleMb: 40, coldStartMs: 2000 };
+
+const processes = await measureProcesses(root).catch((e) => {
+  console.log(`SKIP: extension processes — ${e.message}`);
+  return null;
+});
+if (processes) {
+  const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+  const gate = (name, value, limit, unit) => {
+    const within = value <= limit;
+    console.log(`${within ? "ok —" : "FAIL:"} ${name}: ${unit(value)} (limit ${unit(limit)})`);
+    if (!within) failures += 1;
+  };
+  const mb = (n) => `${n.toFixed(1)} MB`;
+  const ms = (n) => `${n.toFixed(0)} ms`;
+  gate("extension process with its engine, resident idle", processes.idleMb, PROCESS_LIMITS.idleMb, mb);
+  console.log(`info — extension process with its engine, resident with a session open: ${mb(processes.runningMb)}`);
+  console.log(`info — extension process with its engine, resident after ${processes.calls} calls: ${mb(processes.calledMb)}`);
+  console.log(`info — extension process, started → its hello: ${processes.helloMs.map(ms).join(", ")}`);
+  console.log(`info — extension process, ctl.start → answered: ${processes.startMs.map(ms).join(", ")}`);
+  gate("extension process switched on → answering (median of 3)", median(processes.enableMs), PROCESS_LIMITS.coldStartMs, ms);
+  gate("on-demand extension process woken by a call (median of 3)", median(processes.wakeMs), PROCESS_LIMITS.coldStartMs, ms);
+}
+
+async function measureProcesses(root) {
+  const { spawn, execFileSync: exec } = await import("node:child_process");
+  const { mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { SHOWCASE_ID, TARGET, buildBeside, showcasePackage, variant } = await import("./live/api/packages-host.ts");
+  // The test application the store suites use (`appsTestApp`), built here: that module's own
+  // imports are written for the suites' loader, not for node.
+  buildBeside("harnix-testapp", ["--features", "wasm,proc"]);
+  const testappBin = join(TARGET, "release", "harnix-testapp");
+  const showcase = showcasePackage().path;
+  const M = (name) => `${SHOWCASE_ID}.${name}`;
+  const ENGINE = `proc.${SHOWCASE_ID}`;
+  const rss = (pid) => Number(exec("ps", ["-o", "rss=", "-p", String(pid)], { encoding: "utf8" }).trim()) / 1024;
+  const sleep = (n) => new Promise((r) => setTimeout(r, n));
+
+  const start = async (bin, env = {}) => {
+    const port = await freePort();
+    const scratch = mkdtempSync(join(tmpdir(), "harnix-budget-p-"));
+    const profile = join(scratch, "profile.toml");
+    writeFileSync(profile, `[ext.packages]\ndev = true\ncarrier = "process"\n`);
+    let log = "";
+    const child = spawn(
+      bin,
+      ["--profile", profile, "--port", String(port), "--headless",
+       "--agix-dir", join(scratch, "agix"), "--data-dir", join(scratch, "projects")],
+      { cwd: makeProject(scratch),
+        env: { ...process.env, ...env, ANTHROPIC_API_KEY: "budget-test", HARNIX_STATE_DIR: join(scratch, "state"),
+               RUST_LOG: "error,harnix_carrier_proc=debug" },
+        stdio: ["ignore", "pipe", "pipe"] },
+    );
+    child.stdout.on("data", (d) => (log += d));
+    child.stderr.on("data", (d) => (log += d));
+    const stop = () => {
+      try { child.kill(); } catch { /* already gone */ }
+      rmSync(scratch, { recursive: true, force: true });
+    };
+    try {
+      const token = await waitForToken(join(scratch, "state", "token"), port);
+      const client = await connect(port, token);
+      return { client, stop, log: () => log, scratch };
+    } catch (e) {
+      stop();
+      throw e;
+    }
+  };
+  /** The showcase's runtime once `ok` holds of it. */
+  const until = async (client, what, ok) => {
+    const deadline = Date.now() + 60_000;
+    for (;;) {
+      const rt = (await client.call("packages.list")).packages.find((p) => p.id === SHOWCASE_ID)?.runtime;
+      if (rt && ok(rt)) return rt;
+      if (Date.now() > deadline) throw new Error(`never ${what}: ${JSON.stringify(rt)}`);
+      await sleep(20);
+    }
+  };
+  const engineReady = async (client) => {
+    const deadline = Date.now() + 60_000;
+    while ((await client.call("harnix.instances.list")).instances.find((i) => i.id === ENGINE)?.status?.state !== "ready") {
+      if (Date.now() > deadline) throw new Error("its engine never came up");
+      await sleep(50);
+    }
+  };
+  // The log is coloured whether or not anyone is looking: the colours go first.
+  const timings = (log, field) => [...log.replace(/\x1b\[[0-9;]*m/g, "").matchAll(/its extension process came up.*/g)]
+    .map((m) => Number(new RegExp(`${field}=(\\d+)`).exec(m[0])?.[1]))
+    .filter((n) => Number.isFinite(n));
+
+  // The product as it ships, the showcase resident.
+  const product = await start(join(root, "target", "release", "harnix"));
+  let measured;
+  try {
+    const { client } = product;
+    await client.call("packages.installFile", { path: showcase });
+    const up = await until(product.client, "running", (rt) => rt.state === "running");
+    await engineReady(client);
+    await sleep(3000);
+    const idleMb = rss(up.process.pid);
+
+    const created = await client.call("harnix.session.create", { space: SHOWCASE_ID });
+    await client.call("harnix.session.attach", { instance: ENGINE, session_id: created.session_id, space: SHOWCASE_ID });
+    await sleep(2000);
+    const runningMb = rss(up.process.pid);
+
+    const CALLS = 200;
+    for (let i = 0; i < CALLS / 2; i += 1) {
+      await client.call(M("notes.add"), { text: `note ${i}` });
+      await client.call(M("notes.list"));
+    }
+    await sleep(1000);
+    const calledMb = rss(up.process.pid);
+
+    const enableMs = [];
+    for (let i = 0; i < 3; i += 1) {
+      await client.call("packages.disable", { id: SHOWCASE_ID });
+      const began = performance.now();
+      await client.call("packages.enable", { id: SHOWCASE_ID });
+      await until(client, "running again", (rt) => rt.state === "running");
+      await client.call(M("notes.list"));
+      enableMs.push(performance.now() - began);
+    }
+    client.close();
+    measured = { idleMb, runningMb, calledMb, calls: CALLS, enableMs, log: product.log() };
+  } finally {
+    product.stop();
+  }
+
+  // On demand, let go after 1.5 s idle (the test application's knob; a manifest's least is a
+  // minute), and woken by a call.
+  const testapp = await start(testappBin, { HARNIX_TESTAPP_APP_IDLE_MS: "1500" });
+  try {
+    const { client } = testapp;
+    const onDemand = variant(join(testapp.scratch, "on-demand.hxext"), (e) => {
+      const manifest = e.get("harnix-ext.toml").toString().replace("watch_sessions = true", "watch_sessions = false");
+      e.set("harnix-ext.toml", Buffer.from(`${manifest}\n[backend]\nresident = "on-demand"\nidle_secs = 60\n`));
+    });
+    await client.call("packages.installFile", { path: onDemand });
+    const wakeMs = [];
+    for (let i = 0; i < 3; i += 1) {
+      await until(client, "hibernating", (rt) => rt.state === "hibernating");
+      const began = performance.now();
+      await client.call(M("notes.list"));
+      wakeMs.push(performance.now() - began);
+    }
+    client.close();
+    const log = measured.log + testapp.log();
+    return { ...measured, wakeMs, helloMs: timings(log, "hello_ms"), startMs: timings(log, "start_ms") };
+  } finally {
+    testapp.stop();
+  }
 }
 
 async function measureInstances(root) {

@@ -11,8 +11,9 @@
  * extension's hello, a manifest with one more method — refused and ended. `proc_program` is a
  * small script that starts this binary, but lies for the packages those tests install; these run
  * with `sandbox = "off"`, since the script starts a program the sandbox does not let a process run
- * and hands TAMPERED a package outside its sandbox. The last describe runs the showcase in its
- * sandbox, started as this binary.
+ * and hands TAMPERED a package outside its sandbox. The next describe runs the showcase in its
+ * sandbox, started as this binary: its backend, its own engine with its agent package, and a shell
+ * that engine starts (a session-start hook, which needs no model; its shell tool, with a live one).
  *
  * Its own engine (the showcase has `agent/` and two `[[space]]`s) is adopted as `proc.<id>`: an
  * extension's engine, its spaces' sessions there, its content marked untrusted; the product only
@@ -25,17 +26,17 @@
  * another version.
  */
 
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { EXTENSION_UNAVAILABLE, REFUSED } from "@harnix/core/protocol";
 import { type Backend, type TestClient, connect, expect, modelMode, sleep, test, topology } from "@harnix/testkit";
 
-import { SHOWCASE_CHATS, SHOWCASE_ID, appsTools, readZip, showcasePackage, startApps, variant } from "./packages-host";
+import { SHOWCASE_CHATS, SHOWCASE_ID, appsTools, readZip, recalledOf, showcasePackage, startApps, variant } from "./packages-host";
 import { appsTestApp } from "./packages-store";
 
-const TAGS = { tag: ["@feature:apps", "@layer:api"] };
+const TAGS = { tag: ["@feature:packages", "@layer:api"] };
 
 const M = (name: string) => `${SHOWCASE_ID}.${name}`;
 /** Installed as another extension, whose process says hello as the showcase. */
@@ -161,10 +162,20 @@ test.describe("packages in processes of their own", () => {
     const answer = await api.call(M("recall"));
     const took = Date.now() - began;
     expect(answer.refused).toBe(true);
-    expect(answer.message).toContain("reentrant");
+    expect(answer.message).toMatch(/re-?enter/);
     // Refused in the process within 100 ms of the call coming back (`ext_proc.rs` times that); the
     // whole round trip here is a page's call, the product, the process and back, twice.
     expect(took).toBeLessThan(1_000);
+  });
+
+  test("a backend that calls back into itself from its timer is refused at once too", TAGS, async () => {
+    // No call of the product's waits on a timer: the chain starts at the process's own call, and
+    // the backend, held on the firing, refuses it in its process.
+    expect(await api.call(M("recall"), { later: true })).toEqual({ armed: true });
+    const recalled = await recalledOf(api);
+    expect(recalled.refused).toBe(true);
+    expect(recalled.message).toMatch(/re-?enter/);
+    expect(recalled.took_ms).toBeLessThan(100);
   });
 
   test("killed, it is up again on another process, its rows never gone, its storage kept", TAGS, async () => {
@@ -226,6 +237,10 @@ test.describe("packages in processes of their own, in their sandbox", () => {
   let backend: Backend;
   let api: TestClient;
 
+  const ENGINE = `proc.${SHOWCASE_ID}`;
+  /** This machine has the sandbox (the first test finds out). */
+  let sandboxed = false;
+
   test.beforeAll(async () => {
     test.setTimeout(600_000);
     backend = await startApps({ profile: `carrier = "process"\n` });
@@ -242,10 +257,81 @@ test.describe("packages in processes of their own, in their sandbox", () => {
     const sandbox = (await api.call("packages.list")).runtime.sandbox;
     test.skip(sandbox?.mode === "unavailable", `no sandbox on this machine: ${sandbox?.why}`);
     expect(sandbox).toMatchObject({ mode: "on", mechanism: expect.any(String) });
+    sandboxed = true;
     await api.call("packages.installFile", { path: showcasePackage().path });
     expect(await until(api, "running", (rt) => rt.state === "running")).toMatchObject({ carrier: "process" });
     expect((await entry(api, SHOWCASE_ID)).sandbox).toBe("on");
+    // Its stderr's last lines are kept for the list (none yet is fine: the list says so).
+    expect((await runtime(api)).process.stderr).toEqual(expect.any(Array));
     expect(await api.call(M("notes.add"), { text: "from inside" })).toEqual({ count: 1 });
+  });
+
+  test("its own engine runs there too, its agent package in it, and the shell it starts is held to the same", TAGS, async () => {
+    test.skip(!sandboxed, "no sandbox on this machine");
+    test.setTimeout(180_000);
+    const run = join(backend.state, "ext", SHOWCASE_ID, "run");
+    const home = join(run, "home");
+    // A command its engine runs as a session starts, as its shell tool would run one: git and a
+    // shell's own tools from its own HOME, and a read of its consent record, which it may not.
+    const settingsFile = join(run, "engine", "settings.json");
+    const settings = existsSync(settingsFile) ? JSON.parse(readFileSync(settingsFile, "utf8")) : {};
+    const record = join(run, "..", "install.json");
+    const command = [
+      `cd "$HOME"`,
+      "git --version > hook-git.txt 2>&1",
+      "/bin/ls /bin > hook-ls.txt 2>&1",
+      `cat "${record}" > hook-record.txt 2>&1; echo "exit $?" >> hook-record.txt`,
+      "echo done > hook-done.txt",
+    ].join("; ");
+    writeFileSync(settingsFile, JSON.stringify({ ...settings, hooks_config: { SessionStart: [{ type: "command", command }] } }));
+    // Read when its engine starts: its process started again.
+    await api.call("packages.disable", { id: SHOWCASE_ID });
+    await api.call("packages.enable", { id: SHOWCASE_ID });
+    await until(api, "running", (rt) => rt.state === "running");
+    const deadline = Date.now() + 30_000;
+    while ((await instanceRow(api, ENGINE))?.status?.state !== "ready") {
+      if (Date.now() > deadline) throw new Error("its engine is not up in its sandbox");
+      await sleep(100);
+    }
+    // Up means its agent package went into its own engine: a placement that fails refuses the start.
+    // A session in its space is on its engine; a turn starts it (and fails at the model: there is
+    // none here, which the hook does not need).
+    const created = await api.call("harnix.session.create", { space: SHOWCASE_ID });
+    const key = { instance: ENGINE, session_id: created.session_id, space: SHOWCASE_ID };
+    await api.call("harnix.session.attach", key);
+    await api.call("harnix.session.send", { ...key, message: "Say ready." }).catch(() => {});
+    const done = join(home, "hook-done.txt");
+    for (const until = Date.now() + 60_000; !existsSync(done); await sleep(200)) {
+      if (Date.now() > until) throw new Error(`its engine's hook never ran in its sandbox: ${readdirSync(home).join(", ")}`);
+    }
+    // On macOS git is xcrun's shim, which says it cannot keep its cache in the user's temporary
+    // directory (out of reach) and runs all the same.
+    expect(readFileSync(join(home, "hook-git.txt"), "utf8")).toMatch(/^git version /m);
+    expect(readFileSync(join(home, "hook-ls.txt"), "utf8")).toMatch(/^sh$/m);
+    const read = readFileSync(join(home, "hook-record.txt"), "utf8");
+    expect(read).toMatch(/exit [1-9]/);
+    expect(read).toMatch(/Operation not permitted|Permission denied/);
+    expect(read).not.toContain('"version"');
+  });
+
+  test("its engine's shell tool runs in its sandbox", TAGS, async () => {
+    test.skip(modelMode() !== "live", "a turn on the extension's own engine calls the model: it records and replays nothing");
+    test.skip(!sandboxed, "no sandbox on this machine");
+    const created = await api.call("harnix.session.create", { space: SHOWCASE_ID });
+    const key = { instance: ENGINE, session_id: created.session_id, space: SHOWCASE_ID };
+    await api.call("harnix.session.attach", key);
+    await api.call("harnix.session.send", {
+      ...key,
+      message: "Use the Bash tool once to run exactly `git --version && ls /bin/sh && pwd`, then reply with its output and nothing else.",
+    });
+    const result = await api.waitFor(
+      (f) => f.method === "harnix.event" && f.params.event?.kind === "tool_result" && f.params.session_id === created.session_id,
+      { describe: "its shell tool's result", timeout: 180_000 },
+    );
+    const text = JSON.stringify(result.params.event);
+    expect(text).toContain("git version");
+    expect(text).toContain("/bin/sh");
+    expect(result.params.event.is_error ?? false).toBe(false);
   });
 });
 

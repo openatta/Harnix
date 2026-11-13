@@ -5,7 +5,7 @@ An application on Harnix, laid out and built the way one is (docs/harnix-sdk.md 
 
 | space | interface (`ui/`) | backend (`app/`) | Agent |
 |---|---|---|---|
-| `greeter` | a right-column tab and a HOME card | the `greeter` module: `app.greeter.greet`, the `app.greeter.greeted` topic, the space's default instance | an in-process instance built from the module's template, the first time the space needs one |
+| `greeter` | a right-column tab and a HOME card | the `greeter` extension: `greeter.greet`, the `greeter.greeted` topic, the space's default instance | an in-process instance built from the extension's template, the first time the space needs one |
 | `notes` | a space | — | the `system` instance |
 
 HOME and the session space come with Harnix.

@@ -103,7 +103,6 @@ async fn reload(engine: &dyn Agent, instance: &str) {
 pub(crate) async fn place(
     engine: &Arc<dyn Agent>,
     root: &Path,
-    app_dir: &Path,
     instances: Option<&[String]>,
     placed: &mut Placed,
 ) -> Result<(), RpcError> {
@@ -126,7 +125,9 @@ pub(crate) async fn place(
     // Into no instance, there is nothing to pack: a package's directory may not even be writable
     // where it runs.
     if let Some(agent) = inspected.agent.as_ref().filter(|_| !targets.is_empty()) {
-        let zip = app_dir.join("agent.zip");
+        // In the temporary directory, not beside the package: an extension process may write only
+        // its run directory, where its `TMPDIR` is.
+        let zip = std::env::temp_dir().join(format!("{id}-{}-agent.zip", std::process::id()));
         package::zip_dir(&root.join("agent"), &zip).map_err(internal)?;
         let mut instances = Vec::new();
         let mut failure = None;

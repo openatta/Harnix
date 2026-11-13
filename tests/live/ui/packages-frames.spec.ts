@@ -25,7 +25,7 @@ import { SHOWCASE_CHATS, SHOWCASE_ID, appsTools, showcasePackage, startApps, var
 import { MOCK_PUBLISHER, STORE_FIXTURE } from "../api/packages-store";
 import { open, watchConsole } from "./page";
 
-const TAGS = { tag: ["@feature:apps", "@layer:ui"] };
+const TAGS = { tag: ["@feature:packages", "@layer:ui"] };
 const SPACE = SHOWCASE_ID;
 
 const frameOf = (page: Page, point: string): FrameLocator => page.frameLocator(`[data-testid="surface-frame"][data-package="${SHOWCASE_ID}"][data-point="${point}"]`);

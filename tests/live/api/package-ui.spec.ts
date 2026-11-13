@@ -16,7 +16,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Backend, ROOT, type TestClient, connect, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
-const TAGS = { tag: ["@feature:packages", "@layer:api"] };
+const TAGS = { tag: ["@feature:plugins", "@layer:api"] };
 const PACKAGES = join(ROOT, "tests", "fixtures", "packages");
 
 test.describe.configure({ mode: "serial" });

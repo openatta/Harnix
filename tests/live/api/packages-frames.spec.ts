@@ -7,7 +7,7 @@
  * else; under `[ext.packages] dev` a change to an unsigned application's files moves `runtime.ui_rev`,
  * which the page reloads its frames on. A manifest that asks for a frame what is the shell's own,
  * or names a page it does not carry, is refused at install. (The browser's half is
- * `ui/apps-frames.spec.ts`.)
+ * `ui/packages-frames.spec.ts`.)
  */
 
 import { execFileSync } from "node:child_process";
@@ -20,7 +20,7 @@ import { type Backend, type TestClient, connect, expect, test } from "@harnix/te
 import { SHOWCASE_CHATS, SHOWCASE_ID, appsTools, showcasePackage, startApps, variant } from "./packages-host";
 import { MOCK_PUBLISHER, STORE_FIXTURE } from "./packages-store";
 
-const TAGS = { tag: ["@feature:apps", "@layer:api"] };
+const TAGS = { tag: ["@feature:packages", "@layer:api"] };
 const base = (b: Backend) => b.url.replace(/\/$/, "");
 
 const surfaces = (hello: any) => (hello.contributions ?? []).filter((c: any) => c.plugin === SHOWCASE_ID && c.frame !== undefined);

@@ -208,6 +208,9 @@ test("Settings → Applications shows its permissions, and clears what it keeps"
   await applications(page);
   const row = page.locator(`[data-testid="package-installed"][data-package="${SHOWCASE_ID}"]`);
   await expect(row).toHaveAttribute("data-state", "running");
+  // Nothing in red: in this process there is no sandbox to speak of, and in a process of its own
+  // (`--carrier process`) it is on.
+  await expect(page.getByTestId("packages-sandbox")).toHaveCount(0);
   const permissions = row.getByTestId("package-permissions");
   await expect(permissions.locator('[data-capability="calls"]', { hasText: "harnix.session.entries.append" })).toBeVisible();
   await expect(permissions.locator('[data-capability="inline"]', { hasText: "/showcase" })).toBeVisible();

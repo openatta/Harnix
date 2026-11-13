@@ -33,7 +33,7 @@ import {
 
 const CONNECTION = { tag: ["@feature:connection", "@layer:api"] };
 const AUTHZ = { tag: ["@feature:authz", "@layer:api"] };
-const PACKAGES = { tag: ["@feature:packages", "@layer:api"] };
+const PACKAGES = { tag: ["@feature:plugins", "@layer:api"] };
 
 test.describe.configure({ mode: "serial" });
 
