@@ -17,7 +17,7 @@ use base64::Engine as _;
 use harnix_engine::InProcessLink;
 use harnix_engine_api::ops::EngineOps;
 use harnix_engine_api::{
-    Cancel, ChainLink, ChainSource, EngineLink, HookDecision, Permission, SessionFacts, SessionRef, Tool, ToolCallFacts,
+    Cancel, ChainLink, ChainSource, EngineControl, EngineLink, HookDecision, Permission, SessionFacts, SessionRef, Tool, ToolCallFacts,
     ToolCx, ToolError, ToolHook, ToolOutput, ToolProvider, ToolSpec,
 };
 use harnix_package::acquire::{internal, refused};
@@ -187,16 +187,18 @@ impl Agent for Local {
 
     async fn install_agent(&self, a: AgentInstall) -> Result<Value, RpcError> {
         let params = json!({"name": a.name, "version": a.version, "download_url": format!("file://{}", a.archive.display())});
-        let answer = self.ops()?.passthrough("plugin.install", params).await?;
+        // Under the kernel's row names, as the hub passes them through: the engine crate says them
+        // in the engine's own words.
+        let answer = self.ops()?.passthrough("engine.plugin.install", params).await?;
         Ok(answer.get("disclosure").cloned().unwrap_or(answer))
     }
 
     async fn uninstall_agent(&self, a: AgentRef) -> Result<(), RpcError> {
-        self.ops()?.passthrough("plugin.uninstall", json!({"name": a.name, "version": a.version})).await.map(|_| ())
+        self.ops()?.passthrough("engine.plugin.uninstall", json!({"name": a.name, "version": a.version})).await.map(|_| ())
     }
 
     async fn switch_agent(&self, s: AgentSwitch) -> Result<(), RpcError> {
-        let method = if s.on { "plugin.enable" } else { "plugin.disable" };
+        let method = if s.on { "engine.plugin.enable" } else { "engine.plugin.disable" };
         self.ops()?.passthrough(method, json!({"name": s.name})).await.map(|_| ())
     }
 
@@ -238,7 +240,10 @@ impl Agent for Local {
     }
 
     async fn reload_instance(&self, _instance: String) -> Result<(), RpcError> {
-        self.ops()?.passthrough("config.reload", json!({})).await.map(|_| ())
+        match self.link.get() {
+            Some(link) => link.reload_settings().await,
+            None => Err(refused("this extension process's engine is not up")),
+        }
     }
 
     async fn expose_tools(&self, offer: Offer) -> Result<(), RpcError> {
