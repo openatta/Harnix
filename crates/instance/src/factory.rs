@@ -317,20 +317,7 @@ pub fn engine_config(
     data_root: &Path,
     contrib: harnix_engine_api::EngineContribution,
 ) -> EngineConfig {
-    EngineConfig {
-        scene: engine.scene.clone(),
-        scenes: engine.scenes.clone(),
-        model: engine.model.clone(),
-        max_tokens: engine.max_tokens,
-        session_cap: engine.session_cap,
-        session_idle_timeout_secs: engine.session_idle_timeout_secs,
-        permission_prompt_timeout_secs: engine.permission_prompt_timeout_secs,
-        data_root: data_root.to_path_buf(),
-        cwd: None,
-        contrib,
-        instance: instance.to_string(),
-        chains: Default::default(),
-    }
+    harnix_engine::assemble::engine_config(instance, engine, data_root, contrib)
 }
 
 /// The `harnix daemon` command line for these settings. Read back by
