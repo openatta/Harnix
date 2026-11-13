@@ -36,12 +36,12 @@ test.afterAll(async () => {
 
 async function applications(page: Page): Promise<void> {
   await openSettings(page);
-  await settingsSection(page, "apps").click();
+  await settingsSection(page, "packages").click();
   await expect(page.getByTestId("settings-page")).toBeVisible();
 }
 
 /** The shell's dialog the disclosure is drawn in: its title, what it asks for, its buttons. */
-const disclosureDialog = (page: Page) => page.getByRole("dialog").filter({ has: page.getByTestId("app-disclosure") });
+const disclosureDialog = (page: Page) => page.getByRole("dialog").filter({ has: page.getByTestId("package-disclosure") });
 
 const listed = async () => {
   const api = await connect(backend, { topology: topology() });
@@ -56,18 +56,18 @@ test("the store's application is installed through its disclosure, and only thro
   const errors = watchConsole(page);
   await open(page, backend.url);
   await applications(page);
-  const offered = page.locator(`[data-testid="app-offered"][data-app="${SHOWCASE_ID}"]`);
+  const offered = page.locator(`[data-testid="package-offered"][data-package="${SHOWCASE_ID}"]`);
   await expect(offered).toContainText("Showcase");
   await expect(offered).toContainText("0.2.0");
-  await expect(page.getByTestId("app-installed")).toHaveCount(0);
+  await expect(page.getByTestId("package-installed")).toHaveCount(0);
 
-  await offered.getByTestId("app-install").click();
+  await offered.getByTestId("package-install").click();
   const disclosure = disclosureDialog(page);
   await expect(disclosure).toBeVisible();
   // The shell's dialog over the settings, every capability a sentence; the focus in it, not on "Install".
   await expect(disclosure).toHaveAttribute("aria-modal", "true");
   await expect(disclosure.locator(":focus")).toHaveCount(1);
-  await expect(disclosure.getByTestId("app-consent")).not.toBeFocused();
+  await expect(disclosure.getByTestId("package-consent")).not.toBeFocused();
   await expect(disclosure).toContainText(/Showcase 0\.2\.0/);
   await expect(disclosure.locator('[data-capability="net"]').first()).toContainText(/Reach the host|访问主机/);
   await expect(disclosure.locator('[data-capability="calls"]', { hasText: "sessions.status" })).toContainText(/Watch the topic|订阅主题/);
@@ -91,14 +91,14 @@ test("the store's application is installed through its disclosure, and only thro
   await expect(disclosure).toHaveCount(0);
   await expect(page.getByTestId("settings-page")).toBeVisible();
   // Cancelled: still nothing.
-  await offered.getByTestId("app-install").click();
+  await offered.getByTestId("package-install").click();
   await disclosure.getByRole("button", { name: /Cancel|取消/ }).click();
   await expect(disclosure).toHaveCount(0);
   expect(await listed()).toEqual([]);
 
-  await offered.getByTestId("app-install").click();
-  await page.getByTestId("app-consent").click();
-  const installed = page.locator(`[data-testid="app-installed"][data-app="${SHOWCASE_ID}"]`);
+  await offered.getByTestId("package-install").click();
+  await page.getByTestId("package-consent").click();
+  const installed = page.locator(`[data-testid="package-installed"][data-package="${SHOWCASE_ID}"]`);
   await expect(installed).toBeVisible({ timeout: 30_000 });
   await expect(installed).toHaveAttribute("data-trust", "store");
   await expect(installed).toHaveAttribute("data-version", "0.2.0");
@@ -112,12 +112,12 @@ test("the store's application is installed through its disclosure, and only thro
 test("switched off and on from its row", TAGS, async ({ page }) => {
   await open(page, backend.url);
   await applications(page);
-  const installed = page.locator(`[data-testid="app-installed"][data-app="${SHOWCASE_ID}"]`);
-  await installed.getByTestId("app-toggle").click();
-  await expect(installed.getByTestId("app-toggle")).toHaveText(/Enable|启用/);
+  const installed = page.locator(`[data-testid="package-installed"][data-package="${SHOWCASE_ID}"]`);
+  await installed.getByTestId("package-toggle").click();
+  await expect(installed.getByTestId("package-toggle")).toHaveText(/Enable|启用/);
   expect((await listed())[0].enabled).toBe(false);
-  await installed.getByTestId("app-toggle").click();
-  await expect(installed.getByTestId("app-toggle")).toHaveText(/Disable|停用/);
+  await installed.getByTestId("package-toggle").click();
+  await expect(installed.getByTestId("package-toggle")).toHaveText(/Disable|停用/);
   expect((await listed())[0]).toMatchObject({ enabled: true, runtime: { state: "running" } });
 });
 
@@ -133,10 +133,10 @@ test("an update shows only what it adds, and waits for its own consent", TAGS, a
   }
   await open(page, backend.url);
   await applications(page);
-  const installed = page.locator(`[data-testid="app-installed"][data-app="${SHOWCASE_ID}"]`);
+  const installed = page.locator(`[data-testid="package-installed"][data-package="${SHOWCASE_ID}"]`);
   await expect(installed).toHaveAttribute("data-version", "0.1.0");
-  await expect(installed.getByTestId("app-update")).toContainText("0.2.0");
-  await installed.getByTestId("app-update").click();
+  await expect(installed.getByTestId("package-update")).toContainText("0.2.0");
+  await installed.getByTestId("package-update").click();
   const disclosure = disclosureDialog(page);
   await expect(disclosure).toContainText(/0\.1\.0.*0\.2\.0/);
   // What 0.1.0 already had is not asked for again.
@@ -149,7 +149,7 @@ test("an update shows only what it adds, and waits for its own consent", TAGS, a
   await expect(disclosure.locator("[data-inline]")).toHaveCount(0);
   await expect(disclosure).toContainText(/Everything else it was already granted|已经给过它的其余能力照旧/);
   expect((await listed())[0].version).toBe("0.1.0");
-  await page.getByTestId("app-consent").click();
+  await page.getByTestId("package-consent").click();
   await expect(installed).toHaveAttribute("data-version", "0.2.0", { timeout: 30_000 });
   expect((await listed())[0]).toMatchObject({ version: "0.2.0", trust: "store" });
 });
@@ -158,22 +158,22 @@ test("the store's newest older than the installed: going back is named as such, 
   // 0.2.0 is installed (the test above); the store takes it back, so its newest is 0.1.0.
   expect((await listed())[0].version).toBe("0.2.0");
   const pulled = structuredClone(store.index);
-  pulled.apps[0].versions = pulled.apps[0].versions.filter((v: { version: string }) => v.version !== "0.2.0");
+  pulled.packages[0].versions = pulled.packages[0].versions.filter((v: { version: string }) => v.version !== "0.2.0");
   store.write(pulled);
   try {
     await open(page, backend.url);
     await applications(page);
-    const installed = page.locator(`[data-testid="app-installed"][data-app="${SHOWCASE_ID}"]`);
-    const back = installed.getByTestId("app-update");
+    const installed = page.locator(`[data-testid="package-installed"][data-package="${SHOWCASE_ID}"]`);
+    const back = installed.getByTestId("package-update");
     await expect(back).toHaveAttribute("data-direction", "back");
     await expect(back).toContainText(/Go back to 0\.1\.0|回到 0\.1\.0/);
     await back.click();
     const disclosure = disclosureDialog(page);
     // The row that says what going back means, and nothing done until it is consented to.
-    await expect(disclosure.getByTestId("app-downgrade")).toContainText(/0\.2\.0 → 0\.1\.0/);
-    await expect(disclosure.getByTestId("app-downgrade")).toContainText(/older version|旧版本/);
+    await expect(disclosure.getByTestId("package-downgrade")).toContainText(/0\.2\.0 → 0\.1\.0/);
+    await expect(disclosure.getByTestId("package-downgrade")).toContainText(/older version|旧版本/);
     expect((await listed())[0].version).toBe("0.2.0");
-    await page.getByTestId("app-consent").click();
+    await page.getByTestId("package-consent").click();
     await expect(installed).toHaveAttribute("data-version", "0.1.0", { timeout: 30_000 });
     expect((await listed())[0]).toMatchObject({ version: "0.1.0", trust: "store" });
   } finally {
@@ -184,11 +184,11 @@ test("the store's newest older than the installed: going back is named as such, 
 test("uninstalled from its row: gone, and on offer again", TAGS, async ({ page }) => {
   await open(page, backend.url);
   await applications(page);
-  await page.locator(`[data-testid="app-installed"][data-app="${SHOWCASE_ID}"]`).getByTestId("app-uninstall").click();
+  await page.locator(`[data-testid="package-installed"][data-package="${SHOWCASE_ID}"]`).getByTestId("package-uninstall").click();
   // Asked in the shell's confirmation over the settings.
   await expect(page.getByTestId("modal").filter({ has: page.getByTestId("confirm") })).toContainText(/Its data goes with it|数据会一起删除/);
   await page.getByTestId("confirm").click();
-  await expect(page.getByTestId("app-installed")).toHaveCount(0, { timeout: 30_000 });
-  await expect(page.locator(`[data-testid="app-offered"][data-app="${SHOWCASE_ID}"]`).getByTestId("app-install")).toBeVisible();
+  await expect(page.getByTestId("package-installed")).toHaveCount(0, { timeout: 30_000 });
+  await expect(page.locator(`[data-testid="package-offered"][data-package="${SHOWCASE_ID}"]`).getByTestId("package-install")).toBeVisible();
   expect(await listed()).toEqual([]);
 });

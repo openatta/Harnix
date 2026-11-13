@@ -15,7 +15,7 @@ import { markdown, useT, Glyph } from "@harnix/react";
 
 import type { App } from "../app.ts";
 import { confirmDialog } from "../dialogs.tsx";
-import type { ButtonDecl, FlowBlockDecl, RuntimeApp } from "./apps.ts";
+import type { ButtonDecl, FlowBlockDecl, RuntimePackage } from "./packages.ts";
 import { fill, fillValue, say } from "./template.ts";
 
 /** What an entry is, as the session's log carries it. */
@@ -26,7 +26,7 @@ export interface Entry {
   payload?: unknown;
 }
 
-export function InlineCard({ app, owner, decl, entry }: { app: App; owner: RuntimeApp; decl: FlowBlockDecl; entry: Entry }) {
+export function InlineCard({ app, owner, decl, entry }: { app: App; owner: RuntimePackage; decl: FlowBlockDecl; entry: Entry }) {
   const t = useT();
   const scope = { payload: entry.payload ?? {} };
   const [busy, setBusy] = useState(false);
@@ -37,10 +37,10 @@ export function InlineCard({ app, owner, decl, entry }: { app: App; owner: Runti
     setBusy(true);
     try {
       const result = await app.call(`${owner.id}.${button.method}`, fillValue(button.params ?? {}, scope));
-      setDone(button.done ? say(button.done, { ...scope, result }) : t("apps.command.done", { command: say(button.label, scope) }));
+      setDone(button.done ? say(button.done, { ...scope, result }) : t("packages.command.done", { command: say(button.label, scope) }));
       setError(null);
     } catch (e) {
-      setError(t("apps.card.failed", { name: owner.title, error: errorText(e) }));
+      setError(t("packages.card.failed", { name: owner.title, error: errorText(e) }));
     } finally {
       setBusy(false);
     }
@@ -56,41 +56,41 @@ export function InlineCard({ app, owner, decl, entry }: { app: App; owner: Runti
   const fields = decl.field ?? [];
   const buttons = decl.button ?? [];
   return (
-    <div className="hx-blk app-card" data-testid="app-card" data-app={owner.id} data-kind={decl.kind} data-entry={entry.id}>
-      <div className="app-card-head">
-        <Glyph name={decl.icon ?? "file"} className="app-inline-icon" />
-        <span className="app-card-title" data-testid="app-card-title">
+    <div className="hx-blk package-card" data-testid="package-card" data-package={owner.id} data-kind={decl.kind} data-entry={entry.id}>
+      <div className="package-card-head">
+        <Glyph name={decl.icon ?? "file"} className="package-inline-icon" />
+        <span className="package-card-title" data-testid="package-card-title">
           {say(decl.title, scope)}
         </span>
-        <span className="app-card-from">{t("apps.card.from", { name: owner.title })}</span>
+        <span className="package-card-from">{t("packages.card.from", { name: owner.title })}</span>
       </div>
       {fields.length ? (
-        <dl className="app-card-fields">
+        <dl className="package-card-fields">
           {fields.map((field, i) => (
             <Fragment key={i}>
               <dt>{say(field.label, scope)}</dt>
-              <dd data-testid="app-card-field">{fill(field.value, scope)}</dd>
+              <dd data-testid="package-card-field">{fill(field.value, scope)}</dd>
             </Fragment>
           ))}
         </dl>
       ) : null}
-      {decl.body ? <div className="hx-md app-card-body" data-testid="app-card-body" dangerouslySetInnerHTML={{ __html: markdown(say(decl.body, scope)) }} /> : null}
+      {decl.body ? <div className="hx-md package-card-body" data-testid="package-card-body" dangerouslySetInnerHTML={{ __html: markdown(say(decl.body, scope)) }} /> : null}
       {buttons.length ? (
         <div className="actions">
           {buttons.map((button, i) => (
-            <button key={i} type="button" className="btn sm outline" data-testid="app-card-button" data-method={button.method} disabled={busy} onClick={() => press(button)}>
+            <button key={i} type="button" className="btn sm outline" data-testid="package-card-button" data-method={button.method} disabled={busy} onClick={() => press(button)}>
               {say(button.label, scope)}
             </button>
           ))}
         </div>
       ) : null}
       {done !== null ? (
-        <div className="app-card-done" role="status" data-testid="app-card-done">
+        <div className="package-card-done" role="status" data-testid="package-card-done">
           {done}
         </div>
       ) : null}
       {error !== null ? (
-        <div className="hint err" role="alert" data-testid="app-card-error">
+        <div className="hint err" role="alert" data-testid="package-card-error">
           {error}
         </div>
       ) : null}

@@ -25,15 +25,15 @@
 //!
 //! `keygen` makes an ed25519 key (the file holds its secret; the public key is printed). `sign`
 //! signs every file of a package as its publisher; a Harnix whose profile trusts that key for that
-//! publisher (`[apps.trusted_publishers]`) installs it without dev mode. `countersign` is the
+//! publisher (`[ext.packages.trusted_publishers]`) installs it without dev mode. `countersign` is the
 //! store's: it checks the publisher's signature, adds the components it compiled, and signs the
 //! lot; `index` lists `<store dir>/packages/*.hxext` as `<store dir>/index.json`, the catalog a
-//! Harnix reads (`[apps] store`), signed with the store's key and believed for `--days` (14
+//! Harnix reads (`[ext.packages] store`), signed with the store's key and believed for `--days` (14
 //! unless said). `sign-index` signs a catalog again after the store edited it — a version
 //! `revoked`, an application's `min_version` raised — or to republish it before it expires;
 //! `--expires` (`YYYY-MM-DDTHH:MM:SSZ`) says when instead.
 //!
-//! An unsigned package installs only with `[apps] dev = true`.
+//! An unsigned package installs only with `[ext.packages] dev = true`.
 
 use std::path::{Path, PathBuf};
 
@@ -359,13 +359,13 @@ fn pack(args: &[String]) -> Result<()> {
 /// what the installer shows and the host registers, so a component that lists anything else is a
 /// package that would be refused when it starts; this says so while its author can still fix it.
 fn check_tools(engine: &harnix_wasm::WasmEngine, wasm: &[u8], manifest: &Manifest) -> Result<()> {
-    use harnix_wasm::{AppHost, MemoryKv, NoNetwork, Services};
+    use harnix_wasm::{VmHost, MemoryKv, NoNetwork, Services};
 
     /// Listing tools asks nothing of the host: whatever the component asks for is refused.
     struct Nothing;
 
     #[async_trait::async_trait]
-    impl AppHost for Nothing {
+    impl VmHost for Nothing {
         async fn call(&self, _: &str, _: &str, _: serde_json::Value) -> Result<serde_json::Value, String> {
             Err("not while listing tools".into())
         }

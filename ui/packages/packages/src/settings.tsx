@@ -45,7 +45,7 @@ interface Installed {
   ext?: { publisher?: string; description?: string | null; lines?: Line[]; ui?: unknown[]; inline?: Inline | null } | null;
 }
 
-interface CatalogApp {
+interface CatalogPackage {
   id: string;
   title?: string | null;
   publisher: string;
@@ -96,29 +96,29 @@ export function older(a: string, b: string): boolean {
 function LineText({ line }: { line: Line }) {
   const t = useT();
   const raw = String(line.value);
-  let key = `apps.cap.${line.capability}`;
+  let key = `packages.cap.${line.capability}`;
   let value = raw;
-  if (line.capability === "storage_mb") value = t("apps.megabytes", { size: raw });
+  if (line.capability === "storage_mb") value = t("packages.megabytes", { size: raw });
   // A line that is the whole of what it says: nothing to show beside it.
   if (line.value === true || line.capability === "events") value = "";
   if (line.capability === "calls" && raw.startsWith("topic:")) {
-    key = "apps.cap.callsTopic";
+    key = "packages.cap.callsTopic";
     value = raw.slice("topic:".length);
   }
-  if (line.capability === "fs") key = raw.startsWith("${data}") ? "apps.cap.fsData" : "apps.cap.fsProject";
+  if (line.capability === "fs") key = raw.startsWith("${data}") ? "packages.cap.fsData" : "packages.cap.fsProject";
   if (line.capability === "inline") {
     const [what, ...rest] = raw.split(" ");
-    key = what === "command" ? "apps.cap.inlineCommand" : "apps.cap.inlineGroup";
+    key = what === "command" ? "packages.cap.inlineCommand" : "packages.cap.inlineGroup";
     value = rest.join(" ");
   }
-  const from = line.from !== undefined ? ` (${t("apps.from", { value: t("apps.megabytes", { size: String(line.from) }) })})` : "";
-  const why = ["net", "net_local", "env", "calls", "ui", "ui_calls", "events", "frames", "agent"].includes(line.capability) ? t(`apps.cap.why.${line.capability}`) : "";
+  const from = line.from !== undefined ? ` (${t("packages.from", { value: t("packages.megabytes", { size: String(line.from) }) })})` : "";
+  const why = ["net", "net_local", "env", "calls", "ui", "ui_calls", "events", "frames", "agent"].includes(line.capability) ? t(`packages.cap.why.${line.capability}`) : "";
   return (
     <li data-capability={line.capability}>
-      <span className="apps-cap">{t(key)}</span>
+      <span className="packages-cap">{t(key)}</span>
       {value ? <> <code>{value}</code></> : null}
       {from}
-      {why ? <span className="apps-why"> — {why}</span> : null}
+      {why ? <span className="packages-why"> — {why}</span> : null}
     </li>
   );
 }
@@ -126,7 +126,7 @@ function LineText({ line }: { line: Line }) {
 function Lines({ lines, empty }: { lines: Line[]; empty: string }) {
   if (!lines.length) return <div className="hint">{empty}</div>;
   return (
-    <ul className="apps-lines">
+    <ul className="packages-lines">
       {lines.map((line, i) => (
         <LineText key={i} line={line} />
       ))}
@@ -146,11 +146,11 @@ function InlinePoints({ inline }: { inline: Inline | null | undefined }) {
   if (!items.length) return null;
   return (
     <>
-      <div className="hint">{t("apps.inlinePoints")}</div>
-      <ul className="apps-lines">
+      <div className="hint">{t("packages.inlinePoints")}</div>
+      <ul className="packages-lines">
         {items.map(([point, name], i) => (
           <li key={i} data-inline={point}>
-            <span className="apps-cap">{t(`apps.inline.${point}`)}</span> <code>{name}</code>
+            <span className="packages-cap">{t(`packages.inline.${point}`)}</span> <code>{name}</code>
           </li>
         ))}
       </ul>
@@ -178,7 +178,7 @@ export function PackagesSettings({ host }: { host: HostApi }) {
       setBusy(false);
     }
     if (asked.consent !== "required") {
-      if (asked.up_to_date) host.shell.notice(t("apps.upToDate", { name: id }));
+      if (asked.up_to_date) host.shell.notice(t("packages.upToDate", { name: id }));
       reload();
       return;
     }
@@ -207,13 +207,13 @@ export function PackagesSettings({ host }: { host: HostApi }) {
 
   return (
     <>
-      <SettingsSection title={t("apps.installed")} load={() => host.call<{ packages?: Installed[] }>("packages.list", {})}>
+      <SettingsSection title={t("packages.installed")} load={() => host.call<{ packages?: Installed[] }>("packages.list", {})}>
         {(data) => {
-          const apps = data.packages ?? [];
-          if (!apps.length) return <div className="hint">{t("apps.none")}</div>;
+          const rows = data.packages ?? [];
+          if (!rows.length) return <div className="hint">{t("packages.none")}</div>;
           return (
             <>
-              {apps.map((a) => {
+              {rows.map((a) => {
                 const listed = latest[a.id] && latest[a.id] !== a.version ? latest[a.id]! : null;
                 // The store's newest is older than this one (it took the newer back): going there is
                 // a choice of its own, named as one, and disclosed as a downgrade.
@@ -221,83 +221,83 @@ export function PackagesSettings({ host }: { host: HostApi }) {
                 const newer = back ? null : listed;
                 const name = a.title || a.id;
                 const state = a.enabled ? (a.runtime?.state ?? "stopped") : "stopped";
-                const hint = [a.id, trustText(a.trust), t(`apps.state.${state}`)];
+                const hint = [a.id, trustText(a.trust), t(`packages.state.${state}`)];
                 if (state === "failed" || state === "faulted") hint.push(a.runtime?.reason ?? "");
                 return (
                   <div
                     key={a.id}
-                    className="apps-app"
-                    data-testid="app-installed"
-                    data-app={a.id}
+                    className="packages-item"
+                    data-testid="package-installed"
+                    data-package={a.id}
                     data-version={a.version}
                     data-trust={a.trust ?? "unsigned"}
                     data-state={state}
                   >
                     <SettingsRow label={`${name} ${a.version}`} hint={hint.filter(Boolean).join(" · ")}>
                       <SettingsValue tone={state === "running" || state === "hibernating" ? "ok" : state === "failed" || state === "faulted" ? "err" : undefined}>
-                        {a.enabled ? t("apps.enabled") : t("apps.disabled")}
+                        {a.enabled ? t("packages.enabled") : t("packages.disabled")}
                       </SettingsValue>
                       <button
                         type="button"
                         className="btn sm outline"
-                        data-testid="app-toggle"
+                        data-testid="package-toggle"
                         disabled={busy}
                         onClick={() => void act(a.enabled ? "packages.disable" : "packages.enable", { id: a.id })}
                       >
-                        {a.enabled ? t("apps.disable") : t("apps.enable")}
+                        {a.enabled ? t("packages.disable") : t("packages.enable")}
                       </button>
                       {a.source === "store" ? (
                         back ? (
                           <button
                             type="button"
                             className="btn sm outline"
-                            data-testid="app-update"
+                            data-testid="package-update"
                             data-direction="back"
                             disabled={busy}
                             onClick={() => void ask("packages.update", a.id, back, true)}
                           >
-                            {t("apps.downgradeTo", { version: back })}
+                            {t("packages.downgradeTo", { version: back })}
                           </button>
                         ) : (
-                          <button type="button" className="btn sm outline" data-testid="app-update" disabled={busy} onClick={() => void ask("packages.update", a.id)}>
-                            {newer ? t("apps.updateTo", { version: newer }) : t("apps.update")}
+                          <button type="button" className="btn sm outline" data-testid="package-update" disabled={busy} onClick={() => void ask("packages.update", a.id)}>
+                            {newer ? t("packages.updateTo", { version: newer }) : t("packages.update")}
                           </button>
                         )
                       ) : null}
                       <button
                         type="button"
                         className="btn sm danger"
-                        data-testid="app-uninstall"
+                        data-testid="package-uninstall"
                         disabled={busy}
-                        onClick={() => void confirmed(t("apps.uninstall"), t("apps.uninstallConfirm", { name }), () => host.call("packages.uninstall", { id: a.id }))}
+                        onClick={() => void confirmed(t("packages.uninstall"), t("packages.uninstallConfirm", { name }), () => host.call("packages.uninstall", { id: a.id }))}
                       >
-                        {t("apps.uninstall")}
+                        {t("packages.uninstall")}
                       </button>
                     </SettingsRow>
-                    <div className="apps-permissions" data-testid="app-permissions">
-                      <div className="apps-sub">{t("apps.permissions")}</div>
-                      <Lines lines={a.ext?.lines ?? []} empty={t("apps.asksNothing")} />
+                    <div className="packages-permissions" data-testid="package-permissions">
+                      <div className="packages-sub">{t("packages.permissions")}</div>
+                      <Lines lines={a.ext?.lines ?? []} empty={t("packages.asksNothing")} />
                       <InlinePoints inline={a.ext?.inline} />
                     </div>
-                    <SettingsRow label={t("apps.data", { size: fileSize(a.data_bytes) })}>
+                    <SettingsRow label={t("packages.data", { size: fileSize(a.data_bytes) })}>
                       <SettingsValue>
-                        <span data-testid="app-data" data-bytes={a.data_bytes ?? 0}>
+                        <span data-testid="package-data" data-bytes={a.data_bytes ?? 0}>
                           {fileSize(a.data_bytes)}
                         </span>
                       </SettingsValue>
                       <button
                         type="button"
                         className="btn sm outline"
-                        data-testid="app-clear"
+                        data-testid="package-clear"
                         disabled={busy || !a.data_bytes}
                         onClick={() =>
-                          void confirmed(t("apps.clearData"), t("apps.clearDataConfirm", { name, size: fileSize(a.data_bytes) }), async () => {
+                          void confirmed(t("packages.clearData"), t("packages.clearDataConfirm", { name, size: fileSize(a.data_bytes) }), async () => {
                             const done = await host.call<{ cleared_bytes?: number }>("packages.clearData", { id: a.id });
-                            host.shell.notice(t("apps.cleared", { name, size: fileSize(done.cleared_bytes) }));
+                            host.shell.notice(t("packages.cleared", { name, size: fileSize(done.cleared_bytes) }));
                           })
                         }
                       >
-                        {t("apps.clearData")}
+                        {t("packages.clearData")}
                       </button>
                     </SettingsRow>
                   </div>
@@ -308,10 +308,10 @@ export function PackagesSettings({ host }: { host: HostApi }) {
         }}
       </SettingsSection>
       <SettingsSection
-        title={t("apps.store")}
+        title={t("packages.store")}
         load={() =>
-          host.call<{ name?: string | null; store?: string; apps?: CatalogApp[] }>("packages.catalog", {}).then((catalog) => {
-            setLatest(Object.fromEntries((catalog.apps ?? []).filter((c) => c.latest).map((c) => [c.id, c.latest as string])));
+          host.call<{ name?: string | null; store?: string; packages?: CatalogPackage[] }>("packages.catalog", {}).then((catalog) => {
+            setLatest(Object.fromEntries((catalog.packages ?? []).filter((c) => c.latest).map((c) => [c.id, c.latest as string])));
             return catalog;
           })
         }
@@ -319,18 +319,18 @@ export function PackagesSettings({ host }: { host: HostApi }) {
         {(catalog) => (
           <>
             <div className="hint">{catalog.name ? `${catalog.name} · ${catalog.store ?? ""}` : catalog.store}</div>
-            {!(catalog.apps ?? []).length ? <div className="hint">{t("apps.storeEmpty")}</div> : null}
-            {(catalog.apps ?? []).map((c) => (
-              <div key={c.id} data-testid="app-offered" data-app={c.id}>
+            {!(catalog.packages ?? []).length ? <div className="hint">{t("packages.storeEmpty")}</div> : null}
+            {(catalog.packages ?? []).map((c) => (
+              <div key={c.id} data-testid="package-offered" data-package={c.id}>
                 <SettingsRow label={`${c.title || c.id} ${c.latest ?? ""}`} hint={[c.id, c.publisher, c.description].filter(Boolean).join(" · ")}>
                   {c.installed ? (
-                    <SettingsValue tone="ok">{t("apps.installedVersion", { version: c.installed })}</SettingsValue>
+                    <SettingsValue tone="ok">{t("packages.installedVersion", { version: c.installed })}</SettingsValue>
                   ) : c.installable ? (
-                    <button type="button" className="btn sm outline" data-testid="app-install" disabled={busy} onClick={() => void ask("packages.install", c.id)}>
-                      {t("apps.install")}
+                    <button type="button" className="btn sm outline" data-testid="package-install" disabled={busy} onClick={() => void ask("packages.install", c.id)}>
+                      {t("packages.install")}
                     </button>
                   ) : (
-                    <SettingsValue>{t("apps.noBuild")}</SettingsValue>
+                    <SettingsValue>{t("packages.noBuild")}</SettingsValue>
                   )}
                 </SettingsRow>
               </div>
@@ -342,14 +342,14 @@ export function PackagesSettings({ host }: { host: HostApi }) {
   );
 }
 
-const trustText = (value: string | undefined) => t(`apps.trust.${value ?? "unsigned"}`);
+const trustText = (value: string | undefined) => t(`packages.trust.${value ?? "unsigned"}`);
 
 /** What the dialog is titled: installing a version, or updating from one to another. */
 function disclosureTitle({ method, asked }: Pending): string {
   const d = asked.disclosure ?? {};
   const name = d.title || asked.id;
   const update = method === "packages.update" ? d.update : undefined;
-  return update ? t("apps.askUpdate", { name, from: update.from, version: asked.version }) : t("apps.askInstall", { name, version: asked.version });
+  return update ? t("packages.askUpdate", { name, from: update.from, version: asked.version }) : t("packages.askInstall", { name, version: asked.version });
 }
 
 /**
@@ -385,26 +385,26 @@ function Disclosure({ host, first, close }: { host: HostApi; first: Pending; clo
   return (
     <>
       <DialogBody>
-        <div data-testid="app-disclosure">
+        <div data-testid="package-disclosure">
           {d.description ? <div className="hint">{d.description}</div> : null}
-          <SettingsRow label={t("apps.publisher")} hint={asked.id}>
+          <SettingsRow label={t("packages.publisher")} hint={asked.id}>
             <SettingsValue>{d.publisher ?? "—"}</SettingsValue>
           </SettingsRow>
-          <SettingsRow label={t("apps.signature")}>
+          <SettingsRow label={t("packages.signature")}>
             <SettingsValue tone={d.trust === "unsigned" ? "err" : "ok"}>{trustText(d.trust)}</SettingsValue>
           </SettingsRow>
           {update?.downgrade ? (
-            <div className="hint err" data-testid="app-downgrade">
-              {t("apps.downgrade", { from: update.from, version: asked.version })}
+            <div className="hint err" data-testid="package-downgrade">
+              {t("packages.downgrade", { from: update.from, version: asked.version })}
             </div>
           ) : null}
-          <div className="hint">{update ? t("apps.asksMore") : t("apps.asks")}</div>
-          <Lines lines={update ? update.added : d.lines ?? []} empty={t("apps.asksNothing")} />
+          <div className="hint">{update ? t("packages.asksMore") : t("packages.asks")}</div>
+          <Lines lines={update ? update.added : d.lines ?? []} empty={t("packages.asksNothing")} />
           {update ? (
-            <div className="hint">{t("apps.updateKeeps")}</div>
+            <div className="hint">{t("packages.updateKeeps")}</div>
           ) : (
             <>
-              <div className="hint">{d.ui_in_page ? t("apps.interfaceInPage") : t("apps.interfaceNone")}</div>
+              <div className="hint">{d.ui_in_page ? t("packages.interfaceInPage") : t("packages.interfaceNone")}</div>
               <InlinePoints inline={d.inline} />
             </>
           )}
@@ -414,8 +414,8 @@ function Disclosure({ host, first, close }: { host: HostApi; first: Pending; clo
         <button type="button" className="btn outline" disabled={busy} onClick={() => close(null)}>
           {t("common.cancel")}
         </button>
-        <button type="button" className="btn primary" data-testid="app-consent" disabled={busy} onClick={() => void consent()}>
-          {update ? t("apps.consentUpdate") : t("apps.consentInstall")}
+        <button type="button" className="btn primary" data-testid="package-consent" disabled={busy} onClick={() => void consent()}>
+          {update ? t("packages.consentUpdate") : t("packages.consentInstall")}
         </button>
       </DialogFoot>
     </>

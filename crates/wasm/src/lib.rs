@@ -23,7 +23,7 @@
 //! The crate depends on nothing else of Harnix's. What a component may ask of
 //! the host — call a hub method, publish a topic, subscribe, reach the
 //! network, store a value — goes through traits the host implements
-//! ([`AppHost`], [`HttpFetcher`], [`KvStore`]), and every one of those
+//! ([`VmHost`], [`HttpFetcher`], [`KvStore`]), and every one of those
 //! requests is checked against the application's declared [`Capabilities`]
 //! here, before the host sees it. wasmtime's own types do not appear in the
 //! public API, so nothing outside this crate names wasmtime.
@@ -54,7 +54,7 @@ pub use engine::{AppComponent, WasmEngine, CPU, EPOCH_TICK, WASMTIME_VERSION};
 pub use health::{HealthSnapshot, VmState, FAULT_LIMIT};
 pub use kv::{FileKv, KvError, KvStore, MemoryKv, MAX_KEY_BYTES};
 pub use services::{
-    AppHost, HttpFetcher, HttpRequest, HttpResponse, NoNetwork, ProgressSink, Services,
+    VmHost, HttpFetcher, HttpRequest, HttpResponse, NoNetwork, ProgressSink, Services,
 };
 pub use spec::{host_of, AppDirs, AppSpec, Capabilities, FsGrant, Limits};
 /// How the files a quota counts are measured: for a host that reports what an application keeps

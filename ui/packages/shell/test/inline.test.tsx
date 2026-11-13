@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { Registry } from "@harnix/react";
 
-import { AppsWatch, toolNames } from "../src/inline/apps.ts";
+import { PackagesWatch, toolNames } from "../src/inline/packages.ts";
 import { fill, fillValue, inputOf, localized, say } from "../src/inline/template.ts";
 
 describe("inline templates", () => {
@@ -43,7 +43,7 @@ describe("inline templates", () => {
 
 describe("the applications the shell draws for", () => {
   it("are the running ones, with their declarations", () => {
-    const watch = new AppsWatch();
+    const watch = new PackagesWatch();
     let seen = 0;
     watch.subscribe(() => (seen += 1));
     watch.take({

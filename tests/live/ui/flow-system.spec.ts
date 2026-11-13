@@ -49,9 +49,9 @@ test("no Flows space among the spaces: the system console has a Flows tab, after
   await expect(tabs.first()).toHaveAttribute("data-tab", "active");
   await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
   const order = await tabs.evaluateAll((els) => els.map((el) => el.getAttribute("data-tab")));
-  expect(order.filter((id) => id !== "apps")).toEqual(["active", "all", "flows", "diagnostics"]);
+  expect(order.filter((id) => id !== "packages")).toEqual(["active", "all", "flows", "diagnostics"]);
   expect(order.indexOf("flows")).toBeLessThan(order.indexOf("diagnostics"));
-  if (order.includes("apps")) expect(order.indexOf("flows")).toBeLessThan(order.indexOf("apps"));
+  if (order.includes("packages")) expect(order.indexOf("flows")).toBeLessThan(order.indexOf("packages"));
 
   // The strip stays at the top; the flows and the runs under the tabs.
   await page.locator('[data-testid="system-console"] [role="tab"][data-tab="flows"]').click();

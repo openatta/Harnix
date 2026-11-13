@@ -37,7 +37,7 @@ describe("@harnix/packages", () => {
     r.activate(extension, () => register(r, host));
     expect(extension).toBe("packages");
     const sections = r.at("settings.section");
-    expect(sections.map((s) => [s.id, s.owner])).toEqual([["apps", "packages"]]);
+    expect(sections.map((s) => [s.id, s.owner])).toEqual([["packages", "packages"]]);
     render(<HarnixUiProvider client={client} strings={en}>{sections[0]!.render()}</HarnixUiProvider>);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(calls).toEqual(["packages.list", "packages.catalog"]);
@@ -55,7 +55,7 @@ describe("@harnix/packages", () => {
     defined.activate("system", () => defined.definePoint("system.console.tab", { kind: "register" }));
     defined.activate(extension, () => register(defined, host));
     defined.settle();
-    expect(defined.list("system.console.tab").map((c) => [c.id, c.owner])).toEqual([["apps", "packages"]]);
+    expect(defined.list("system.console.tab").map((c) => [c.id, c.owner])).toEqual([["packages", "packages"]]);
   });
 
   it("draws the tab from the list's topic, and stops following it when it goes", () => {
@@ -71,8 +71,8 @@ describe("@harnix/packages", () => {
         packages: [{ id: "acme.notes", version: "0.1.0", title: "Notes", enabled: true, registered: true, runtime: { state: "running", calls: { calls: 3, errors: 1, hub_calls: 0, refused: [], recent_errors: [] } } }],
       }),
     );
-    const row = screen.getByTestId("system-app");
-    expect(row.dataset.app).toBe("acme.notes");
+    const row = screen.getByTestId("system-package");
+    expect(row.dataset.package).toBe("acme.notes");
     expect(row.dataset.state).toBe("running");
     expect(row.querySelector('[data-field="calls"]')?.textContent).toBe("3 · 1");
     unmount();

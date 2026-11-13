@@ -224,7 +224,7 @@ function RequestApproval() {
   );
 }
 
-/** The module's own link: a route and a WebSocket under `/apps/greeter/`, the credential the host's. */
+/** The module's own link: a route and a WebSocket under `/ext/greeter/`, the credential the host's. */
 function OwnLink() {
   const nest = useHost();
   const [said, setSaid] = useState<string | null>(null);
@@ -247,7 +247,7 @@ function OwnLink() {
   return (
     <div data-testid="own-link">
       <button type="button" className="btn sm outline" data-testid="route-fetch" onClick={() => void fetchHello()}>
-        GET /apps/greeter/hello
+        GET /ext/greeter/hello
       </button>
       {said ? <div data-testid="route-said">{said}</div> : null}
       <button type="button" className="btn sm outline" data-testid="route-echo" onClick={echo}>

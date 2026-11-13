@@ -85,14 +85,14 @@ test.describe("an application with a backend", () => {
     expect(rt.topics).toEqual([M("notes"), M("heartbeat"), M("fetched")]);
     expect(rt.spaces).toEqual([SHOWCASE_ID, SHOWCASE_CHATS]);
     const registered = (await api.call("packages.list")).registered.find((r: any) => r.id === SHOWCASE_ID);
-    expect(registered).toMatchObject({ by: "apps", calls: ["harnix.session.create", "harnix.session.send", "topic:harnix.sessions.status", "harnix.session.entries.append"] });
+    expect(registered).toMatchObject({ by: "packages", calls: ["harnix.session.create", "harnix.session.send", "topic:harnix.sessions.status", "harnix.session.entries.append"] });
     // Reachable to this page like any method, and listed among the spaces.
     const reachable = await api.call("harnix.reachable");
     expect(reachable.methods).toContain(M("notes.add"));
     expect(reachable.topics).toContain(M("notes"));
     expect(JSON.stringify(await api.call("harnix.spaces.list"))).toContain(`"${SHOWCASE_ID}"`);
     // On the record, by the module that hosts it.
-    const declared = (await audit(api)).filter((e) => e.decision === "declare" && e.subject === "ext:apps");
+    const declared = (await audit(api)).filter((e) => e.decision === "declare" && e.subject === "ext:packages");
     expect(declared.map((e) => e.method)).toEqual(expect.arrayContaining([M("notes.add"), `topic:${M("notes")}`, `space:${SHOWCASE_ID}`]));
     // `init` subscribed to the sessions' status, as its `calls` allows.
     expect(rt.health.subscriptions).toBe(1);

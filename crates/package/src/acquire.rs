@@ -39,7 +39,7 @@ impl Trust {
 }
 
 /// What a process admits packages by: the keys it verifies with, and whether it runs unsigned
-/// code (`[apps] dev`).
+/// code (`[ext.packages] dev`).
 #[derive(Debug, Clone, Default)]
 pub struct Admission {
     pub keys: Keys,
@@ -102,7 +102,7 @@ impl Admission {
         if !verified.trust.signed() && !self.dev {
             return Err(refused(format!(
                 "`{}` is unsigned, and an unsigned application is installed and started only with \
-                 `[apps] dev = true`",
+                 `[ext.packages] dev = true`",
                 manifest.app.id
             )));
         }

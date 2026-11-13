@@ -251,7 +251,7 @@ fn publish(cx: &ExtensionContext, served: &Served, contributions: Vec<packages::
                 c.ui.iter().map(move |entry| {
                     UiEntry::new(
                         &entry.point,
-                        &format!("/apps/{id}/ui/{}/{}", c.plugin, entry.module),
+                        &format!("/ext/{id}/ui/{}/{}", c.plugin, entry.module),
                         entry.api_version.unwrap_or(1),
                     )
                     .owner(&c.plugin)

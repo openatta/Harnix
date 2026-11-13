@@ -1,4 +1,4 @@
-//! What an application's VM is lent (`harnix_wasm::AppHost`), what answers its methods, and what
+//! What an application's VM is lent (`harnix_wasm::VmHost`), what answers its methods, and what
 //! it is counted by.
 //!
 //! An application reaches the product, and the product reaches it, through the registration the
@@ -23,7 +23,7 @@
 //! backend still serves the call the chain holds it on is refused at once, however it travelled
 //! ([`Bridge::holds_backend`]); one whose call was answered long ago is not. What the backend does
 //! on its own — a timer firing, a topic value — is served the same way, under an id the VM made
-//! for it ([`AppHost::delivering`]): a call it makes then holds the application on that id.
+//! for it ([`VmHost::delivering`]): a call it makes then holds the application on that id.
 //!
 //! Who may call an application's methods, then: whoever its manifest names — `device` (the
 //! default) is every paired device and so the page, under its token, `module` every module (a
@@ -38,7 +38,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use async_trait::async_trait;
 use harnix_wasm_port::{CallAs, CallMeta, Failure, Kernel, Publish, RpcError, Subject, Subscription};
-use harnix_wasm::{AppHost, AppVm, CallFailure, WeakAppVm};
+use harnix_wasm::{VmHost, AppVm, CallFailure, WeakAppVm};
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot};
 
@@ -199,7 +199,7 @@ pub struct Bridge {
     kernel: Arc<dyn Kernel>,
     /// `[[topic]]`: all `host.publish` may reach.
     topics: BTreeSet<String>,
-    /// `[apps.secrets."<id>"]`: what `host.secret` reads, for a name `env` declares.
+    /// `[ext.packages.secrets."<id>"]`: what `host.secret` reads, for a name `env` declares.
     secrets: BTreeMap<String, String>,
     /// Publishes, in the order the backend made them, to one task that hands them to the kernel.
     publish: mpsc::Sender<(String, Value)>,
@@ -333,7 +333,7 @@ impl Bridge {
 }
 
 #[async_trait]
-impl AppHost for Bridge {
+impl VmHost for Bridge {
     async fn call(&self, app: &str, method: &str, params: Value) -> Result<Value, String> {
         self.call_within(app, None, method, params).await
     }
@@ -419,7 +419,7 @@ impl AppHost for Bridge {
             .await;
     }
 
-    /// From the profile, never from this process's environment (`AppHost::secret`).
+    /// From the profile, never from this process's environment (`VmHost::secret`).
     fn secret(&self, _app: &str, key: &str) -> Option<String> {
         let value = self.secrets.get(key).cloned();
         if value.is_none() {
@@ -596,12 +596,12 @@ mod tests {
         drop(start);
         // A timer firing or a topic value: served under the VM's id while it runs, holding the
         // backend, with nothing before it.
-        AppHost::delivering(&*bridge, "acme.notes", Some("delivery-1"));
+        VmHost::delivering(&*bridge, "acme.notes", Some("delivery-1"));
         assert!(bridge.holds_backend("delivery-1"));
         let made = bridge.made_within(Some("delivery-1"));
         assert_eq!(made.parent_id(), Some("delivery-1"));
         assert!(made.holds("acme.notes", "delivery-1") && made.links().len() == 1, "{made:?}");
-        AppHost::delivering(&*bridge, "acme.notes", None);
+        VmHost::delivering(&*bridge, "acme.notes", None);
         assert!(!bridge.holds_backend("delivery-1"));
         assert_eq!(bridge.made_within(Some("delivery-1")), CallMeta::default());
     }
@@ -611,7 +611,7 @@ mod tests {
         let bridge = Bridge::new("acme.notes", ["notes".to_string()], BTreeMap::new(), Arc::new(Stuck), Default::default());
         let mut refused = Vec::new();
         for n in 0..QUEUE + 10 {
-            if let Err(e) = AppHost::publish(&*bridge, "acme.notes", "notes", json!(n)) {
+            if let Err(e) = VmHost::publish(&*bridge, "acme.notes", "notes", json!(n)) {
                 refused.push(e);
             }
         }
@@ -633,8 +633,8 @@ mod tests {
         let secrets = BTreeMap::from([("TOKEN".to_string(), "given".to_string())]);
         let bridge = Bridge::new("acme.notes", [], secrets, Arc::new(Stuck), Default::default());
         std::env::set_var("HARNIX_BRIDGE_TEST_ENV", "the-process-own");
-        assert_eq!(AppHost::secret(&*bridge, "acme.notes", "TOKEN").as_deref(), Some("given"));
-        assert_eq!(AppHost::secret(&*bridge, "acme.notes", "HARNIX_BRIDGE_TEST_ENV"), None);
+        assert_eq!(VmHost::secret(&*bridge, "acme.notes", "TOKEN").as_deref(), Some("given"));
+        assert_eq!(VmHost::secret(&*bridge, "acme.notes", "HARNIX_BRIDGE_TEST_ENV"), None);
     }
 
     #[test]

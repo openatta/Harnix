@@ -1,7 +1,7 @@
 //! An application's isolated interface: `[interface]` and its `[[surface]]`s.
 //!
 //! A surface is a region of the shell an application's page fills, in a sandboxed frame of its
-//! own (`/apps/<id>/ui/<page>`): an opaque origin, no network (`connect-src 'none'`), and only the
+//! own (`/ext/<id>/ui/<page>`): an opaque origin, no network (`connect-src 'none'`), and only the
 //! shell's bridge to talk through (`harnix-ui-bridge@2`, `@harnix/ext-sdk`). The shell owns the
 //! frame around it — its title, loading, failure and reload — and everything the page asks for is
 //! done by the shell, filtered by what is written here.

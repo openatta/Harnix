@@ -8,7 +8,7 @@ import type { BlockOf } from "@harnix/core/state";
 import { Disclosure, STATUS_GLYPH, ToolDetails, clip, t, toolArgs, useToolState, Glyph } from "@harnix/react";
 
 import type { App } from "../app.ts";
-import type { RuntimeApp, ToolRowDecl } from "./apps.ts";
+import type { RuntimePackage, ToolRowDecl } from "./packages.ts";
 import { inputOf, lookup, say, words } from "./template.ts";
 
 /** The row's title for a call: the declared one, filled from the call's input; else the tool's name. */
@@ -16,7 +16,7 @@ export function inlineTitle(decl: ToolRowDecl, block: BlockOf<"tool">): string {
   return decl.title ? say(decl.title, { input: inputOf(block.input), result: block.result ?? "" }) : decl.tool;
 }
 
-export function InlineToolRow({ app, owner, decl, block }: { app: App; owner: RuntimeApp; decl: ToolRowDecl; block: BlockOf<"tool"> }) {
+export function InlineToolRow({ app, owner, decl, block }: { app: App; owner: RuntimePackage; decl: ToolRowDecl; block: BlockOf<"tool"> }) {
   const scope = { input: inputOf(block.input), result: block.result ?? "" };
   const title = inlineTitle(decl, block);
   const summary =
@@ -29,7 +29,7 @@ export function InlineToolRow({ app, owner, decl, block }: { app: App; owner: Ru
         : toolArgs(block.input);
   const { state, tail } = useToolState(block);
   return (
-    <div className="app-inline" data-inline="tool.row" data-app={owner.id} data-tool={decl.tool}>
+    <div className="package-inline" data-inline="tool.row" data-package={owner.id} data-tool={decl.tool}>
       <Disclosure
         testId="conv-tool"
         id={block.id}
@@ -40,7 +40,7 @@ export function InlineToolRow({ app, owner, decl, block }: { app: App; owner: Ru
             <span className={`hx-status hx-status-${block.status}`} aria-hidden>
               {STATUS_GLYPH[block.status]}
             </span>
-            <Glyph name={decl.icon ?? "terminal"} className="app-inline-icon" />
+            <Glyph name={decl.icon ?? "terminal"} className="package-inline-icon" />
             <span className="hx-tool-name" data-testid="conv-tool-name" title={`${block.name} · ${owner.title}`}>
               {title}
             </span>

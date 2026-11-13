@@ -205,14 +205,14 @@ pub(crate) struct State {
 }
 
 impl State {
-    fn app_dir(&self, id: &str) -> PathBuf {
+    fn package_dir(&self, id: &str) -> PathBuf {
         self.dir.join(id)
     }
 
     /// What its carrier writes for it: its data and key-value store, and more besides
     /// (`records::RUN`).
     fn run_dir(&self, id: &str) -> PathBuf {
-        self.app_dir(id).join(records::RUN)
+        self.package_dir(id).join(records::RUN)
     }
 }
 

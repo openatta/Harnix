@@ -15,17 +15,17 @@ import { t, useT } from "@harnix/react";
 
 import { keyOf, type App, type ShellSession, type ShellState } from "../app.ts";
 import { SessionRow } from "../rows.tsx";
-import { appsOf, type GroupDecl, type RuntimeApp } from "./apps.ts";
+import { packagesOf, type GroupDecl, type RuntimePackage } from "./packages.ts";
 import { localized, lookup, words, type Text } from "./template.ts";
 
 export interface Rule {
-  owner: RuntimeApp;
+  owner: RuntimePackage;
   decl: GroupDecl;
 }
 
 /** The grouping a running application declares for `space`, if any. */
 export function groupingOf(app: App, space: string): Rule | null {
-  for (const owner of appsOf(app).running()) {
+  for (const owner of packagesOf(app).running()) {
     const decl = (owner.inline.sidebar_group ?? []).find((g) => (g.space ?? owner.id) === space);
     if (decl) return { owner, decl };
   }
@@ -80,7 +80,7 @@ function fromAnswer(rows: ShellSession[], answer: unknown, other: string): Group
 export function GroupedSessions({ app, s, rule, rows }: { app: App; s: ShellState; rule: Rule; rows: ShellSession[] }) {
   const tr = useT();
   const { owner, decl } = rule;
-  const other = localized(decl.other) || tr("apps.group.other");
+  const other = localized(decl.other) || tr("packages.group.other");
   const ids = rows.map((r) => `${r.instance}/${r.session_id}`).join(",");
   const [answer, setAnswer] = useState<{ ids: string; value: unknown } | null>(null);
   const space = decl.space ?? owner.id;
@@ -110,9 +110,9 @@ export function GroupedSessions({ app, s, rule, rows }: { app: App; s: ShellStat
   return (
     <>
       {groups.map((group) => (
-        <div key={group.key} className="group" data-group={group.key} data-testid="space-group" data-app={owner.id}>
+        <div key={group.key} className="group" data-group={group.key} data-testid="space-group" data-package={owner.id}>
           <div className="grp title">
-            <span className="label truncate" title={t("apps.card.from", { name: owner.title })}>
+            <span className="label truncate" title={t("packages.card.from", { name: owner.title })}>
               {group.title}
             </span>
             <span className="count">{group.rows.length}</span>

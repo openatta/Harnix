@@ -52,7 +52,7 @@ fn manifest_value(root: &Path) -> Value {
 /// its signatures, when they were checked just now; otherwise they are checked here, over its
 /// files as they are on disk — what is there may not be what was installed.
 pub(crate) fn installed(state: &State, record: &InstallRecord, verified: Option<&Verified>) -> Rpc<Installed> {
-    let pkg_dir = state.app_dir(&record.id).join(&record.version);
+    let pkg_dir = state.package_dir(&record.id).join(&record.version);
     match verified {
         Some(verified) => described(state, record, Some(verified)),
         None => {
@@ -79,7 +79,7 @@ pub(crate) fn manifest_digest(pkg_dir: &Path) -> Rpc<String> {
 
 fn described(state: &State, record: &InstallRecord, verified: Option<&Verified>) -> Rpc<Installed> {
     let id = ext_id(&record.id)?;
-    let app_dir = state.app_dir(&record.id);
+    let app_dir = state.package_dir(&record.id);
     let pkg_dir = app_dir.join(&record.version);
     // Checked whenever it is to run: the manifest it runs by is the one consented to.
     if verified.is_some() && record.digest.as_deref() != Some(manifest_digest(&pkg_dir)?.as_str()) {
@@ -143,7 +143,7 @@ pub(crate) async fn install(state: &State, path: &Path, disclosed: &Disclosure, 
     // Before a byte of it is written.
     let verified = state.admission.admit_zip(path, &inspected.manifest)?;
     let app = &inspected.manifest.app;
-    let app_dir = state.app_dir(&app.id);
+    let app_dir = state.package_dir(&app.id);
     std::fs::create_dir_all(&app_dir).map_err(|e| internal(format!("{}: {e}", app_dir.display())))?;
     let mut record = InstallRecord {
         id: app.id.clone(),
@@ -204,7 +204,7 @@ pub(crate) async fn update(state: &State, record: &InstallRecord, path: &Path, d
     if version == record.version {
         return Err(refused(format!("`{}` {version} is the version installed", record.id)));
     }
-    let app_dir = state.app_dir(&record.id);
+    let app_dir = state.package_dir(&record.id);
     let old_root = app_dir.join(&record.version);
     package::inspect_dir(&old_root).map_err(|e| internal(format!("the installed `{}`: {e}", record.id)))?;
     let new_root = app_dir.join(&version);

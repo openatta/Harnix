@@ -295,7 +295,7 @@ impl Dispatch for Router {
 }
 
 impl RouteDecider for Router {
-    /// Decide a module route, `/apps/<module>/…`, and record it. The transport asks; it does not
+    /// Decide a module route, `/ext/<id>/…`, and record it. The transport asks; it does not
     /// know what a module is.
     fn decide_route(&self, subject: &Subject, module: &str, path: &str) -> Result<(), RpcError> {
         let name = route(module);

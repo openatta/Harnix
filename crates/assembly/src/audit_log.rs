@@ -90,16 +90,16 @@ fn is_consequential(method: &str) -> bool {
             | "devices.revoke"
             | "settings.set"
             | "settings.setProvider"
-            // Switching a runtime application on or off changes what this process serves.
-            | "harnix.apps.enable"
-            | "harnix.apps.disable"
+            // Switching a package on or off changes what this process serves.
+            | "packages.enable"
+            | "packages.disable"
             // Installing, updating or removing one changes what code this process runs.
-            | "harnix.apps.install"
-            | "harnix.apps.installFile"
-            | "harnix.apps.update"
-            | "harnix.apps.uninstall"
+            | "packages.install"
+            | "packages.installFile"
+            | "packages.update"
+            | "packages.uninstall"
             // Deleting what one keeps cannot be undone.
-            | "harnix.apps.clearData"
+            | "packages.clearData"
             | "harnix.session.delete"
             | "harnix.instances.create"
             | "harnix.instances.stop"
@@ -139,6 +139,10 @@ mod tests {
             for call in ["upload", "list"] {
                 assert!(!is_consequential(&format!("{prefix}{call}")));
             }
+        }
+        for call in ["install", "installFile", "update", "uninstall", "enable", "disable", "clearData"] {
+            let method = format!("packages.{call}");
+            assert!(is_consequential(&method), "{method} changes what is installed and is not audited");
         }
         // And nothing in the list is a name a client can no longer reach:
         // an audit rule for an unreachable method is a rule that never fires.

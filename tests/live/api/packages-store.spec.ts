@@ -74,8 +74,8 @@ test.describe("the store, trusted", () => {
     const { fingerprint } = showcasePackage();
     const catalog = await api.call("packages.catalog");
     expect(catalog).toMatchObject({ name: "Mock store", store: store.url, fingerprint });
-    expect(catalog.apps).toHaveLength(1);
-    const app = catalog.apps[0];
+    expect(catalog.packages).toHaveLength(1);
+    const app = catalog.packages[0];
     expect(app).toMatchObject({ id: SHOWCASE_ID, title: "Showcase", publisher: "example", latest: "0.2.0", installable: true });
     expect(app.installed).toBeUndefined();
     expect(app.versions.map((v: any) => v.version)).toEqual(["0.2.0", "0.1.0"]);
@@ -106,12 +106,12 @@ test.describe("the store, trusted", () => {
     // Signed, then changed by whoever serves it: a revocation taken out, a version slipped in.
     store.write(withVersion(store.index, "0.1.0", (v) => (v.revoked = "it leaks the token")));
     const served = JSON.parse(readFileSync(join(store.dir, "index.json"), "utf8"));
-    delete served.apps[0].versions.find((v: any) => v.version === "0.1.0").revoked;
+    delete served.packages[0].versions.find((v: any) => v.version === "0.1.0").revoked;
     writeFileSync(join(store.dir, "index.json"), JSON.stringify(served));
     await refused("the store's catalog signature does not verify");
     // Signed again by the store, it is believed again.
     store.write(store.index);
-    expect((await api.call("packages.catalog")).apps[0].id).toBe(SHOWCASE_ID);
+    expect((await api.call("packages.catalog")).packages[0].id).toBe(SHOWCASE_ID);
   });
 
   test("what is not what was signed is refused, and nothing of it stays", TAGS, async () => {
@@ -173,7 +173,7 @@ test.describe("the store, trusted", () => {
         expect(error?.message).toContain("upgrade Harnix");
       }
       expect((await api.call("packages.list")).packages, name).toEqual([]);
-      expect(existsSync(join(backend.state, "apps", SHOWCASE_ID)), name).toBe(false);
+      expect(existsSync(join(backend.state, "ext", SHOWCASE_ID)), name).toBe(false);
     }
     expect((await api.refused("packages.install", { id: "example.nobody" }))?.message).toContain("no application `example.nobody`");
     expect((await api.refused("packages.install", { id: SHOWCASE_ID, version: "9.9.9" }))?.message).toContain("no version 9.9.9");
@@ -250,10 +250,10 @@ test.describe("the store, trusted", () => {
     });
     expect(listed[0].data_bytes).toBeGreaterThanOrEqual(0);
     expect((await api.call("packages.list")).runtime).toMatchObject({ dev: false });
-    expect((await api.call("packages.catalog")).apps[0].installed).toBe("0.1.0");
+    expect((await api.call("packages.catalog")).packages[0].installed).toBe("0.1.0");
     expect((await api.refused("packages.install", { id: SHOWCASE_ID }))?.message).toContain("installed already");
     // The download it was installed from is gone.
-    const staging = join(backend.state, "apps", ".staging");
+    const staging = join(backend.state, "ext", ".staging");
     expect(existsSync(staging) ? readdirSync(staging) : []).toEqual([]);
   });
 
@@ -288,7 +288,7 @@ test.describe("the store, trusted", () => {
     const listed = (await api.call("packages.list")).packages[0];
     expect(listed).toMatchObject({ version: "0.2.0", trust: "store", runtime: { state: "running" } });
     expect(listed.app.capabilities.env).toEqual(["SHOWCASE_TOKEN", "SHOWCASE_EXTRA"]);
-    expect(existsSync(join(backend.state, "apps", SHOWCASE_ID, "0.1.0")), "the old version's files").toBe(false);
+    expect(existsSync(join(backend.state, "ext", SHOWCASE_ID, "0.1.0")), "the old version's files").toBe(false);
     // Its data came along: the count goes on.
     const count = await session(api, "app-count");
     await runTurn(api, count, "count");
@@ -303,7 +303,7 @@ test.describe("the store, trusted", () => {
     expect((await api.call("packages.list")).packages).toEqual([]);
     expect((await api.call("engine.plugin.list")).plugins.map((p: any) => p.name)).not.toContain("example-showcase");
     expect(JSON.stringify(await api.call("engine.commands.list", { instance: "main" }))).not.toContain("showcase-tour");
-    expect(existsSync(join(backend.state, "apps", SHOWCASE_ID)), "its directory, kv and data").toBe(false);
+    expect(existsSync(join(backend.state, "ext", SHOWCASE_ID)), "its directory, kv and data").toBe(false);
     expect((await fetch(`${backend.url.replace(/\/$/, "")}/ext/${SHOWCASE_ID}/ui/showcase.js`)).status).toBe(404);
     const s = await session(api, "says-ready");
     const context = JSON.stringify(await api.call("system.context", s));
@@ -320,8 +320,8 @@ test.describe("the store, trusted", () => {
     await installByName(api, "0.1.0");
     store.write(withVersion(store.index, "0.1.0", (v) => (v.revoked = "it leaks the token")));
     const catalog = await api.call("packages.catalog");
-    expect(catalog.apps[0]).toMatchObject({ installed: "0.1.0", installed_revoked: "the store revoked it: it leaks the token", latest: "0.2.0" });
-    expect(catalog.apps[0].versions.find((v: any) => v.version === "0.1.0")).toMatchObject({ installable: false, revoked: "the store revoked it: it leaks the token" });
+    expect(catalog.packages[0]).toMatchObject({ installed: "0.1.0", installed_revoked: "the store revoked it: it leaks the token", latest: "0.2.0" });
+    expect(catalog.packages[0].versions.find((v: any) => v.version === "0.1.0")).toMatchObject({ installable: false, revoked: "the store revoked it: it leaks the token" });
     // Flagged, not stopped: the list says so without asking the store again.
     expect((await api.call("packages.list")).packages[0]).toMatchObject({ version: "0.1.0", revoked: "the store revoked it: it leaks the token", runtime: { state: "running" } });
     await api.call("packages.uninstall", { id: SHOWCASE_ID });
@@ -333,7 +333,7 @@ test.describe("the store, trusted", () => {
     expect((await api.refused("packages.install", { id: SHOWCASE_ID, version: "0.1.0" }))?.message).toContain(
       "the store supports `example.showcase` from 0.2.0 on",
     );
-    expect((await api.call("packages.catalog")).apps[0]).toMatchObject({ min_version: "0.2.0", latest: "0.2.0" });
+    expect((await api.call("packages.catalog")).packages[0]).toMatchObject({ min_version: "0.2.0", latest: "0.2.0" });
     expect((await api.call("packages.list")).packages).toEqual([]);
   });
 
@@ -415,7 +415,7 @@ test.describe("the store, on a Harnix with only the store's own key", () => {
     expect(results(api, echo)).toContain("showcase-echo-42");
     // A record that says it is trusted is checked again at every start: a changed file stops it.
     await api.call("packages.disable", { id: SHOWCASE_ID });
-    const root = join(trusting.state, "apps", SHOWCASE_ID, "0.1.0");
+    const root = join(trusting.state, "ext", SHOWCASE_ID, "0.1.0");
     const module = join(root, "ui", "showcase.js");
     writeFileSync(module, `${readFileSync(module, "utf8")}\n// changed on disk\n`);
     const error = await api.refused("packages.enable", { id: SHOWCASE_ID });

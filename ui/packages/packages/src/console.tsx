@@ -75,11 +75,11 @@ export function PackagesTab({ host }: { host: HostApi }) {
   const [list, setList] = useState<PackagesList | undefined>(undefined);
   const [open, setOpen] = useState<string | null>(null);
   useEffect(() => host.subscribe("packages.list", {}, (value) => setList((value as PackagesList | null) ?? undefined)), [host]);
-  if (!list) return <div className="system-pane" data-testid="system-apps">{tr("system.apps.loading")}</div>;
+  if (!list) return <div className="system-pane" data-testid="system-packages">{tr("system.packages.loading")}</div>;
   if (!list.packages.length) {
     return (
-      <div className="system-pane" data-testid="system-apps">
-        <div className="muted" data-testid="system-apps-empty">{tr("system.apps.none")}</div>
+      <div className="system-pane" data-testid="system-packages">
+        <div className="muted" data-testid="system-packages-empty">{tr("system.packages.none")}</div>
       </div>
     );
   }
@@ -87,16 +87,16 @@ export function PackagesTab({ host }: { host: HostApi }) {
   // Five columns, each a word or two: what a package is and how it answers. Its VM's figures
   // (recycles, faults, memory, storage) are in the row opened, which has the room for them.
   return (
-    <div className="system-pane system-apps" data-testid="system-apps">
+    <div className="system-pane system-packages" data-testid="system-packages">
       <div className="table-wrap">
-        <table className="frames apps">
+        <table className="frames packages">
           <thead>
             <tr>
-              <th>{tr("system.apps.app")}</th>
-              <th>{tr("system.apps.state")}</th>
-              <th>{tr("system.apps.backend")}</th>
-              <th>{tr("system.apps.calls")}</th>
-              <th>{tr("system.apps.refused")}</th>
+              <th>{tr("system.packages.app")}</th>
+              <th>{tr("system.packages.state")}</th>
+              <th>{tr("system.packages.backend")}</th>
+              <th>{tr("system.packages.calls")}</th>
+              <th>{tr("system.packages.refused")}</th>
             </tr>
           </thead>
           <tbody data-rows="">
@@ -111,9 +111,9 @@ export function PackagesTab({ host }: { host: HostApi }) {
               return (
                 <Fragment key={row.id}>
                   <tr
-                    className="app-row"
-                    data-testid="system-app"
-                    data-app={row.id}
+                    className="package-row"
+                    data-testid="system-package"
+                    data-package={row.id}
                     data-state={state}
                     data-row=""
                     tabIndex={0}
@@ -121,41 +121,41 @@ export function PackagesTab({ host }: { host: HostApi }) {
                     onClick={flip}
                     onKeyDown={rowKeys(flip, { open: shown, set: (to) => setOpen(to ? row.id : null) })}
                   >
-                    <td className="app-name">
+                    <td className="package-name">
                       <span className={`dot ${dot[state]}`} /> <span className="tt">{row.title ?? row.id}</span>
                       <div className="muted">{row.id} {row.version}</div>
                     </td>
-                    <td data-field="state">{tr(`system.apps.state.${state}`)}</td>
-                    <td data-field="backend">{backend ? tr(`system.apps.backend.${backend}`) : "—"}</td>
+                    <td data-field="state">{tr(`system.packages.state.${state}`)}</td>
+                    <td data-field="backend">{backend ? tr(`system.packages.backend.${backend}`) : "—"}</td>
                     <td data-field="calls">{rt?.calls ? `${rt.calls.calls} · ${rt.calls.errors}` : "—"}</td>
                     <td data-field="refused">{refused.length}</td>
                   </tr>
                   {shown ? (
-                    <tr className="app-detail" data-testid="system-app-detail" data-app={row.id}>
+                    <tr className="package-detail" data-testid="system-package-detail" data-package={row.id}>
                       <td colSpan={5}>
                         {h ? (
-                          <dl className="facts" data-testid="system-app-vm">
-                            <div className="fact" data-field="recycles"><dt>{tr("system.apps.recycles")}</dt><dd>{`${h.recycles ?? 0} / ${h.rebuilds ?? 0}`}</dd></div>
-                            <div className="fact" data-field="faults"><dt>{tr("system.apps.faults")}</dt><dd>{`${h.faults ?? 0} · ${h.timeouts ?? 0}`}</dd></div>
-                            <div className="fact" data-field="memory"><dt>{tr("system.apps.memory")}</dt><dd>{`${megabytes(h.memory_bytes)} / ${megabytes(h.memory_limit_bytes)}`}</dd></div>
-                            <div className="fact" data-field="storage"><dt>{tr("system.apps.storage")}</dt><dd>{`${megabytes(h.storage_bytes)} / ${megabytes(h.storage_limit_bytes)}`}</dd></div>
+                          <dl className="facts" data-testid="system-package-vm">
+                            <div className="fact" data-field="recycles"><dt>{tr("system.packages.recycles")}</dt><dd>{`${h.recycles ?? 0} / ${h.rebuilds ?? 0}`}</dd></div>
+                            <div className="fact" data-field="faults"><dt>{tr("system.packages.faults")}</dt><dd>{`${h.faults ?? 0} · ${h.timeouts ?? 0}`}</dd></div>
+                            <div className="fact" data-field="memory"><dt>{tr("system.packages.memory")}</dt><dd>{`${megabytes(h.memory_bytes)} / ${megabytes(h.memory_limit_bytes)}`}</dd></div>
+                            <div className="fact" data-field="storage"><dt>{tr("system.packages.storage")}</dt><dd>{`${megabytes(h.storage_bytes)} / ${megabytes(h.storage_limit_bytes)}`}</dd></div>
                           </dl>
                         ) : null}
-                        {rt?.reason ? <div role="alert" data-testid="system-app-reason">{rt.reason}</div> : null}
-                        {h?.last_error ? <div className="muted">{tr("system.apps.lastError", { error: h.last_error })}</div> : null}
-                        {rt?.methods?.length ? <div className="muted">{tr("system.apps.methods", { methods: rt.methods.join(", ") })}</div> : null}
-                        {rt?.topics?.length ? <div className="muted">{tr("system.apps.topics", { topics: rt.topics.join(", ") })}</div> : null}
-                        <div className="turnh">{tr("system.apps.refusedCalls")}</div>
+                        {rt?.reason ? <div role="alert" data-testid="system-package-reason">{rt.reason}</div> : null}
+                        {h?.last_error ? <div className="muted">{tr("system.packages.lastError", { error: h.last_error })}</div> : null}
+                        {rt?.methods?.length ? <div className="muted">{tr("system.packages.methods", { methods: rt.methods.join(", ") })}</div> : null}
+                        {rt?.topics?.length ? <div className="muted">{tr("system.packages.topics", { topics: rt.topics.join(", ") })}</div> : null}
+                        <div className="turnh">{tr("system.packages.refusedCalls")}</div>
                         {refused.length ? (
                           <ul>
                             {refused.map((r, i) => (
-                              <li key={i} data-testid="system-app-refusal">
+                              <li key={i} data-testid="system-package-refusal">
                                 <code>{r.method}</code> — {r.reason}
                               </li>
                             ))}
                           </ul>
                         ) : (
-                          <div className="muted">{tr("system.apps.noRefusals")}</div>
+                          <div className="muted">{tr("system.packages.noRefusals")}</div>
                         )}
                       </td>
                     </tr>
@@ -167,7 +167,7 @@ export function PackagesTab({ host }: { host: HostApi }) {
         </table>
       </div>
       {list.unreadable?.length ? (
-        <div className="muted">{tr("system.apps.unreadable", { dirs: list.unreadable.map((u) => u.dir).join(", ") })}</div>
+        <div className="muted">{tr("system.packages.unreadable", { dirs: list.unreadable.map((u) => u.dir).join(", ") })}</div>
       ) : null}
     </div>
   );

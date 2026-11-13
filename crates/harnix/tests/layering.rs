@@ -463,7 +463,7 @@ fn harnix_constructs_no_interpreter_and_runs_wasm_only_in_harnix_wasm() {
 }
 
 /// `harnix-wasm` is the boundary between wasmtime and Harnix, and it is a
-/// leaf: it defines the traits the host implements (`AppHost`, `KvStore`,
+/// leaf: it defines the traits the host implements (`VmHost`, `KvStore`,
 /// `HttpFetcher`) instead of depending on the crates that will implement
 /// them, and it knows nothing of the engine. Anything else would let a
 /// component's runtime reach a layer through a type.
@@ -1817,7 +1817,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P23"]
     fn c18_nothing_in_this_file_is_ignored() {
         let text = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/layering.rs")).unwrap();
         // The attribute, spelled so that this test does not count itself.

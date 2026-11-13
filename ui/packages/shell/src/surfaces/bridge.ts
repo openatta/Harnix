@@ -47,7 +47,7 @@ import { openSettings } from "../settings.tsx";
 import { topicsOf } from "../topics.ts";
 import { ask } from "./confirm.tsx";
 import { onShellEnvironment, shellEnvironment } from "./env.ts";
-import { autoHeight, titleOf, type AppInterface, type SurfaceDecl } from "./model.ts";
+import { autoHeight, titleOf, type PackageInterface, type SurfaceDecl } from "./model.ts";
 import { surfaces } from "./store.ts";
 
 /** How long a page has to say hello after it has loaded. */
@@ -61,7 +61,7 @@ const MAX_TEXT = 10_000;
 /** What the shell does for a frame that is not the bridge's own business: the frame's view. */
 export interface FrameHost {
   app: App;
-  iface: AppInterface;
+  iface: PackageInterface;
   decl: SurfaceDecl;
   /** The interface space the application's sessions are drawn in (its first, if it has one). */
   space: string | null;

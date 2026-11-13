@@ -21,7 +21,7 @@ import { inDialog } from "@harnix/ext-sdk/protocol";
 import type { App } from "../app.ts";
 import { FrameBridge } from "./bridge.ts";
 import { asking, onAsking } from "./confirm.tsx";
-import { autoHeight, surfaceKey, titleOf, type AppInterface, type SurfaceDecl } from "./model.ts";
+import { autoHeight, surfaceKey, titleOf, type PackageInterface, type SurfaceDecl } from "./model.ts";
 import { surfaces } from "./store.ts";
 
 /** What a surface's frame may have the shell do beyond the bridge's own requests. */
@@ -50,7 +50,7 @@ export function SurfaceView({
   onClose,
 }: {
   app: App;
-  iface: AppInterface;
+  iface: PackageInterface;
   decl: SurfaceDecl;
   actions: SurfaceActions;
   params?: unknown;
@@ -89,7 +89,7 @@ export function SurfaceView({
     iframe.setAttribute("referrerpolicy", "no-referrer");
     iframe.setAttribute("title", title);
     iframe.className = "hx-frame";
-    iframe.dataset.app = decl.app;
+    iframe.dataset.package = decl.app;
     iframe.dataset.surface = decl.id;
     iframe.dataset.point = decl.point;
     iframe.dataset.testid = "surface-frame";
@@ -150,7 +150,7 @@ export function SurfaceView({
     <div
       className={`hx-surface${sized ? " sized" : " fill"}`}
       data-testid="surface"
-      data-app={decl.app}
+      data-package={decl.app}
       data-point={decl.point}
       data-surface={decl.id}
       data-state={state}

@@ -53,7 +53,7 @@ use crate::signature::{sha256, PublicKey, SecretKey};
 
 pub const INDEX_FORMAT: &str = "harnix-store-index@1";
 
-/// Where the catalog is unless the profile says otherwise (`[apps] store`).
+/// Where the catalog is unless the profile says otherwise (`[ext.packages] store`).
 pub const DEFAULT_STORE: &str = "https://store.harnix.dev/index.json";
 
 /// The store's key, built in: a package countersigned with it is `store` trust. A profile cannot
@@ -92,7 +92,7 @@ pub struct Index {
     #[serde(default)]
     pub expires: String,
     #[serde(default)]
-    pub packages: Vec<CatalogApp>,
+    pub packages: Vec<CatalogPackage>,
     /// The store's, over everything else in it ([`sign_catalog`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature: Option<CatalogSignature>,
@@ -106,7 +106,7 @@ pub struct CatalogSignature {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CatalogApp {
+pub struct CatalogPackage {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -121,7 +121,7 @@ pub struct CatalogApp {
     pub versions: Vec<CatalogVersion>,
 }
 
-impl CatalogApp {
+impl CatalogPackage {
     /// Why the store no longer offers `version` of it, if it does not: revoked, or older than its
     /// `min_version`. A version the catalog does not list at all is held to `min_version` alone.
     pub fn withdrawn(&self, version: &str) -> Option<String> {
@@ -361,7 +361,7 @@ pub fn compare_versions(a: &str, b: &str) -> Ordering {
 /// One version of one application, chosen, and its artifact for this engine.
 #[derive(Debug, Clone)]
 pub struct Resolved {
-    pub app: CatalogApp,
+    pub app: CatalogPackage,
     pub version: CatalogVersion,
     pub artifact: Artifact,
     pub url: Url,
@@ -391,7 +391,7 @@ impl Store {
     }
 
     /// The version to install: `version`, or the newest one of this Harnix's `harnix_api` that the
-    /// store has not withdrawn ([`CatalogApp::withdrawn`]) — and its artifact for the engine
+    /// store has not withdrawn ([`CatalogPackage::withdrawn`]) — and its artifact for the engine
     /// `fingerprint`, or why there is none. A withdrawn version is not installed by name either.
     pub fn resolve(
         &self,
@@ -498,7 +498,7 @@ impl Store {
 /// what is installed here), the version installed of each, and why the store withdrew it if it
 /// did (`installed_revoked`).
 pub fn view(index: &Index, fingerprint: &str, installed: &BTreeMap<String, String>) -> Value {
-    let apps: Vec<Value> = index
+    let packages: Vec<Value> = index
         .packages
         .iter()
         .map(|app| {
@@ -535,7 +535,7 @@ pub fn view(index: &Index, fingerprint: &str, installed: &BTreeMap<String, Strin
             entry
         })
         .collect();
-    json!({"name": index.name, "expires": index.expires, "apps": apps})
+    json!({"name": index.name, "expires": index.expires, "packages": packages})
 }
 
 fn check_scheme(url: &Url) -> Result<(), String> {
@@ -697,7 +697,7 @@ mod tests {
     fn the_view_says_what_this_engine_can_install() {
         let fp = "engine-47+here+123";
         let view = view(&index(fp), fp, &BTreeMap::new());
-        let app = &view["apps"][0];
+        let app = &view["packages"][0];
         assert_eq!(app["latest"], json!("1.10.0"));
         assert_eq!(app["installable"], json!(false));
         let installable: Vec<&str> = app["versions"]
@@ -845,18 +845,18 @@ mod tests {
 
         let installed = BTreeMap::from([("acme.notes".to_string(), "1.2.0".to_string())]);
         let shown = view(&index, fp, &installed);
-        let app = &shown["apps"][0];
+        let app = &shown["packages"][0];
         assert_eq!(app["installed"], json!("1.2.0"));
         assert_eq!(app["installed_revoked"], json!("the store revoked it: it leaks the token"));
         let v120 = app["versions"].as_array().unwrap().iter().find(|v| v["version"] == json!("1.2.0")).unwrap();
         assert_eq!(v120["installable"], json!(false));
         let older = BTreeMap::from([("acme.notes".to_string(), "0.9.0".to_string())]);
         assert_eq!(
-            view(&index, fp, &older)["apps"][0]["installed_revoked"],
+            view(&index, fp, &older)["packages"][0]["installed_revoked"],
             json!("the store supports `acme.notes` from 1.0.0 on")
         );
         let fine = BTreeMap::from([("acme.notes".to_string(), "1.0.0".to_string())]);
-        assert_eq!(view(&index, fp, &fine)["apps"][0]["installed_revoked"], Value::Null);
+        assert_eq!(view(&index, fp, &fine)["packages"][0]["installed_revoked"], Value::Null);
     }
 
     #[tokio::test]

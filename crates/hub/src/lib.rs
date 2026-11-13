@@ -76,7 +76,7 @@ pub(crate) const ANSWERERS_KEPT: usize = 1024;
 
 /// `harnix.spaces`: the same value as `harnix.spaces.list`, pushed when a
 /// space is added or removed at runtime. Declared only where something can
-/// change the list — with `[apps] enabled` — by [`Hub::declare_spaces_topic`];
+/// change the list — with `[ext.packages]` — by [`Hub::declare_spaces_topic`];
 /// elsewhere the list is fixed at assembly and there is nothing to watch.
 pub const SPACES_TOPIC: &str = "harnix.spaces";
 
