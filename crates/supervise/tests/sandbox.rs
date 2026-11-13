@@ -17,7 +17,9 @@ async fn run(spec: SandboxSpec, script: &str, out: &std::path::Path) -> String {
 #[tokio::test]
 async fn a_sandboxed_child_reaches_its_own_directory_and_not_the_one_beside_it() {
     if let Err(why) = harnix_supervise::sandbox::available() {
-        assert!(!cfg!(target_os = "macos"), "macOS has `sandbox-exec`: {why}");
+        if cfg!(target_os = "macos") {
+            panic!("macOS has `sandbox-exec`: {why}");
+        }
         eprintln!("not run: {why}");
         return;
     }

@@ -70,11 +70,7 @@ impl Tail {
     pub(crate) async fn follow(self, from: impl AsyncRead + Unpin, pid: u32) {
         let mut reader = BufReader::new(from);
         let mut line: Vec<u8> = Vec::new();
-        loop {
-            let buf = match reader.fill_buf().await {
-                Ok(buf) => buf,
-                Err(_) => break,
-            };
+        while let Ok(buf) = reader.fill_buf().await {
             if buf.is_empty() {
                 break;
             }
